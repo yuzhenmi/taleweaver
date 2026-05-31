@@ -1397,7 +1397,15 @@ describe("createEditorController", () => {
 
       dispatch.mockClear();
 
-      // Shift-click
+      // Shift-click. The hit-test must resolve into a block in the SAME
+      // selection context as the current anchor (the seeded paragraph), or the
+      // cross-context guard correctly skips the extension. The default mock
+      // returns "mock-block" (not in state, hence a different/null context), so
+      // pin this resolve to the real anchor block.
+      const anchorBlockId = fakeEditorBase.selection.anchor.blockId;
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(
+        core.createPosition(anchorBlockId, 0),
+      );
       container.dispatchEvent(
         new MouseEvent("mousedown", {
           clientX: 50,
@@ -1437,6 +1445,18 @@ describe("createEditorController", () => {
         y: 0,
         toJSON: () => {},
       }));
+
+      // The drag's mousedown (dragAnchor) and mousemove (focus) must resolve to
+      // a REAL in-state block so both are in the same (non-null) selection
+      // context — the cross-context guard skips any extension whose endpoint has
+      // a null context (the default "mock-block" mock id isn't in state).
+      const realDragPos = core.createPosition(
+        fakeEditorBase.selection.focus.blockId,
+        0,
+      );
+      vi.mocked(core.resolvePositionFromPixel)
+        .mockReturnValueOnce(realDragPos)
+        .mockReturnValueOnce(realDragPos);
 
       // Mousedown starts drag
       container.dispatchEvent(
@@ -1511,6 +1531,185 @@ describe("createEditorController", () => {
 
       const textarea = container.querySelector("textarea")!;
       expect(document.activeElement).toBe(textarea);
+
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+  });
+
+  // ── Cross-context pointer-selection guard (footnote slot crash) ────────────
+  //
+  // A document with a footnote has MULTIPLE selection contexts: the main body
+  // tree and each footnote BODY (an embedContents subtree). A pointer
+  // selection-EXTENSION (drag or shift-click) whose anchor is in one context
+  // and whose hit-test resolves into ANOTHER context would build a
+  // cross-context `Span`. Storing such a span crashes the next render:
+  // `getActiveFormatting` runs `iterateSpan`, which THROWS
+  // "anchor and focus are in different selection contexts". Google Docs
+  // confines a pointer selection to the context it began in, so the controller
+  // must skip the extension instead of dispatching the cross-context span.
+  describe("cross-context pointer-selection guard (footnote slot)", () => {
+    // Build a real EditorState with a footnote so there are two selection
+    // contexts. Returns the editor state plus a main-body position and a
+    // footnote-body position that live in DIFFERENT contexts.
+    function makeFootnoteEditorState(): {
+      editorState: core.EditorState;
+      bodyPos: core.Position;
+      footnotePos: core.Position;
+    } {
+      const config: core.EditorConfig = {
+        measurer: core.createMockMeasurer(8, 16),
+        componentRegistry: core.createDefaultComponentRegistry(),
+        attrRegistry: core.createDefaultAttrRegistry(),
+        containerWidth: 600,
+      };
+      const initial = core.createInitialEditorState(config);
+      // Main-body paragraph (the seeded empty paragraph) — context A.
+      const bodyBlockId = initial.selection.focus.blockId;
+      const typed = core.reduceEditor(
+        initial,
+        { type: "INSERT_TEXT", text: "hello" },
+        config,
+      );
+      // INSERT_FOOTNOTE drops the caret into the footnote body — context B.
+      const withFn = core.reduceEditor(typed, { type: "INSERT_FOOTNOTE" }, config);
+      const footnoteBlockId = withFn.selection.focus.blockId;
+      // Sanity: the two ends are genuinely in different selection contexts.
+      expect(core.selectionContextOf(withFn.state, bodyBlockId)).not.toBe(
+        core.selectionContextOf(withFn.state, footnoteBlockId),
+      );
+      return {
+        editorState: withFn,
+        bodyPos: core.createPosition(bodyBlockId, 0),
+        footnotePos: core.createPosition(footnoteBlockId, 0),
+      };
+    }
+
+    function makeContainer(dispatch: ReturnType<typeof vi.fn>) {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const ctrl = createEditorController(container, makeOptions({ dispatch }));
+      container.getBoundingClientRect = vi.fn(() => ({
+        left: 0, top: 0, right: 600, bottom: 100, width: 600, height: 100, x: 0, y: 0, toJSON: () => {},
+      }));
+      return { container, ctrl };
+    }
+
+    it("drag from body into footnote slot does NOT dispatch a cross-context span", () => {
+      const { editorState, bodyPos, footnotePos } = makeFootnoteEditorState();
+      const dispatch = vi.fn();
+      const { container, ctrl } = makeContainer(dispatch);
+      ctrl.update(editorState);
+
+      // mousedown resolves into the BODY (context A) → drag anchor in body.
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(bodyPos);
+      container.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 20, detail: 1, bubbles: true }),
+      );
+      dispatch.mockClear();
+
+      // mousemove resolves into the FOOTNOTE body (context B). A 1px pointer
+      // drift during a double-click fires this same path.
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(footnotePos);
+      document.dispatchEvent(
+        new MouseEvent("mousemove", { clientX: 12, clientY: 20, bubbles: true }),
+      );
+
+      // The cross-context extension must be skipped: no SET_SELECTION dispatched.
+      expect(dispatch).not.toHaveBeenCalled();
+
+      // And the crash is genuinely prevented: feeding the WOULD-BE span (the
+      // body anchor + footnote focus) to getActiveFormatting throws today —
+      // that is exactly the render-path crash this guard avoids storing.
+      const crossContextSpan = core.createSpan(bodyPos, footnotePos);
+      expect(() =>
+        core.getActiveFormatting(editorState.state, crossContextSpan),
+      ).toThrow(/different selection contexts/);
+
+      document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("shift-click from body into footnote slot does NOT dispatch a cross-context span", () => {
+      const { editorState, bodyPos, footnotePos } = makeFootnoteEditorState();
+      const dispatch = vi.fn();
+      const { container, ctrl } = makeContainer(dispatch);
+      // Anchor the current selection in the BODY (context A).
+      ctrl.update({
+        ...editorState,
+        selection: core.createSpan(bodyPos, bodyPos),
+      });
+
+      // shift-click resolves into the FOOTNOTE body (context B).
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(footnotePos);
+      container.dispatchEvent(
+        new MouseEvent("mousedown", {
+          clientX: 50, clientY: 20, detail: 1, shiftKey: true, bubbles: true,
+        }),
+      );
+
+      expect(dispatch).not.toHaveBeenCalled();
+
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("drag WITHIN the footnote slot still extends (same-context span allowed)", () => {
+      const { editorState, footnotePos } = makeFootnoteEditorState();
+      const dispatch = vi.fn();
+      const { container, ctrl } = makeContainer(dispatch);
+      ctrl.update(editorState);
+
+      // mousedown AND mousemove both resolve into the footnote body (context B).
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(footnotePos);
+      container.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 20, detail: 1, bubbles: true }),
+      );
+      dispatch.mockClear();
+
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(footnotePos);
+      document.dispatchEvent(
+        new MouseEvent("mousemove", { clientX: 30, clientY: 20, bubbles: true }),
+      );
+
+      // Same-context extension is permitted → SET_SELECTION dispatched.
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "SET_SELECTION" }),
+      );
+
+      document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("shift-click onto a block that is in NO tree (null context) does NOT dispatch", () => {
+      // Defensive: a hit-test position whose block is absent from every tree has
+      // a null selection context. The guard treats null as a definitive skip
+      // (`posCtx === null`), so it can never extend into an unknown context —
+      // and two unknown contexts can never `null === null` false-pass into an
+      // extension. Anchor is a real body block; the shift-click target is a
+      // freshly-allocated id never inserted into the document.
+      const { editorState, bodyPos } = makeFootnoteEditorState();
+      const dispatch = vi.fn();
+      const { container, ctrl } = makeContainer(dispatch);
+      ctrl.update({
+        ...editorState,
+        selection: core.createSpan(bodyPos, bodyPos),
+      });
+
+      const ghostId = core.createTestAllocator().allocate();
+      expect(core.selectionContextOf(editorState.state, ghostId)).toBeNull();
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(
+        core.createPosition(ghostId, 0),
+      );
+      container.dispatchEvent(
+        new MouseEvent("mousedown", {
+          clientX: 50, clientY: 20, detail: 1, shiftKey: true, bubbles: true,
+        }),
+      );
+
+      expect(dispatch).not.toHaveBeenCalled();
 
       ctrl.destroy();
       document.body.removeChild(container);
@@ -1628,7 +1827,12 @@ describe("createEditorController", () => {
         }),
       );
       dispatch.mockClear();
-      // Shift-click on page 1.
+      // Shift-click on page 1. Pin the hit-test to the real paragraph so the
+      // extension stays IN-CONTEXT (the default "mock-block" mock is not in
+      // state, so the cross-context guard would correctly skip it).
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(
+        core.createPosition(realParagraphId, 0),
+      );
       container.dispatchEvent(
         new MouseEvent("mousedown", { clientX: 10, clientY: 150, detail: 1, shiftKey: true, bubbles: true }),
       );
@@ -1641,6 +1845,17 @@ describe("createEditorController", () => {
 
     it("drag (mousemove) carries the FOCUS page as caretPageHint", () => {
       const { container, ctrl, dispatch } = makePaginatedContainer();
+      // Pin both drag-resolves to a REAL in-state block so the cross-context
+      // guard permits the same-context extension (the default "mock-block" id is
+      // not in state → null context → the guard would skip the drag). The page
+      // hint still derives from the pixel→page mapping, not the block.
+      const realDragPos = core.createPosition(
+        fakeEditorBase.selection.focus.blockId,
+        0,
+      );
+      vi.mocked(core.resolvePositionFromPixel)
+        .mockReturnValueOnce(realDragPos)
+        .mockReturnValueOnce(realDragPos);
       // Mousedown on page 0 starts the drag.
       container.dispatchEvent(
         new MouseEvent("mousedown", { clientX: 10, clientY: 10, detail: 1, bubbles: true }),

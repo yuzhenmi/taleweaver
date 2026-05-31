@@ -10,6 +10,7 @@ import {
   findItemAtOffset,
   resolvePixelPosition,
   resolvePositionFromPixel,
+  selectionContextOf,
   computeSelectionRects,
   computeSelectionRectsForPage,
   resolvePositionedTree,
@@ -860,8 +861,21 @@ export function createEditorController(
       return;
     }
 
-    // Shift-click: extend selection from current anchor
+    // Shift-click: extend selection from current anchor.
+    // A pointer selection is CONFINED to the selection context it began in
+    // (Google Docs): you cannot shift-extend from the body into a footnote
+    // slot (a different selection context), or vice versa. Extending across
+    // contexts would build a cross-context Span, which crashes the next render
+    // (getActiveFormatting → iterateSpan throws "different selection
+    // contexts"). When `pos` is cross-context, keep the prior in-context
+    // selection — skip the extension.
     if (e.shiftKey) {
+      // A null context means the block isn't in any tree (should not happen for
+      // a hit-test position, but never extend into an unknown context). Treat
+      // null as a definitive skip so two unknown contexts can't compare equal.
+      const anchorCtx = selectionContextOf(state.state, state.selection.anchor.blockId);
+      const posCtx = selectionContextOf(state.state, pos.blockId);
+      if (anchorCtx === null || posCtx === null || anchorCtx !== posCtx) return;
       dispatch({
         type: "SET_SELECTION",
         selection: createSpan(state.selection.anchor, pos),
@@ -899,6 +913,20 @@ export function createEditorController(
       coords.pageIndex,
     );
     if (pos) {
+      // A drag selection is CONFINED to the selection context it began in
+      // (Google Docs): once the pointer crosses from the body into a footnote
+      // slot (a different selection context), the drag does NOT extend into it.
+      // Building `createSpan(dragAnchor, pos)` across contexts would store a
+      // cross-context Span, which crashes the next render (getActiveFormatting
+      // → iterateSpan throws "different selection contexts"). Skip the
+      // extension when `pos` left the anchor's context — the prior in-context
+      // selection stands.
+      // A null context means the block isn't in any tree (should not happen for
+      // a hit-test position, but never extend into an unknown context). Treat
+      // null as a definitive skip so two unknown contexts can't compare equal.
+      const anchorCtx = selectionContextOf(state.state, dragAnchor.blockId);
+      const posCtx = selectionContextOf(state.state, pos.blockId);
+      if (anchorCtx === null || posCtx === null || anchorCtx !== posCtx) return;
       // The drag hint tracks the FOCUS page (the current drag point) so the
       // caret resolves on the page under the pointer.
       dispatch({
