@@ -173,6 +173,11 @@ page). Round 2:
   reflows into the narrower width, cursor/clicks land correctly in the indented
   paragraph, and multi-paragraph selections each indent. (Tab-to-indent isn't
   wired yet — use the toolbar buttons.)
+- 🔁 **Heading + list keyboard shortcuts (NEW):** Ctrl/Cmd+Alt+**0** = normal
+  text, +**1..6** = Heading 1–6; Ctrl/Cmd+Shift+**7** = numbered list, +**8** =
+  bulleted list. (Matched by physical key, so they work regardless of keyboard
+  layout. On intl Windows layouts Ctrl+Alt is AltGr — Google Docs hijacks these
+  for headings too; confirm the editor wins.)
 - 🔁 **Alignment keyboard shortcuts (NEW):** Ctrl/Cmd+Shift+**L** (left), +**E**
   (center), +**R** (right), +**J** (justify) align the current paragraph(s) —
   the standard Google Docs chords. (Note: Ctrl+Shift+R is normally browser
