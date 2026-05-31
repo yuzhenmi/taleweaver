@@ -4,10 +4,11 @@ import type { State, Span } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 
-const STYLE_KEYS: Record<"bold" | "italic" | "underline", string> = {
+const STYLE_KEYS: Record<"bold" | "italic" | "underline" | "strikethrough", string> = {
   bold: "bold",
   italic: "italic",
   underline: "underline",
+  strikethrough: "strikethrough",
 };
 
 /**
@@ -56,7 +57,7 @@ function selectionAllHaveAttr(
 
 export function handleToggleStyle(
   editor: EditorState,
-  style: "bold" | "italic" | "underline",
+  style: "bold" | "italic" | "underline" | "strikethrough",
   config: EditorConfig,
 ): EditorState {
   const { selection } = editor;

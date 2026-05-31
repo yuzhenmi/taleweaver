@@ -120,6 +120,11 @@ export const underlineInterpreter: AttrInterpreter = {
   toStyle: (value) => (value ? { textDecoration: "underline" } : {}),
 };
 
+export const strikethroughInterpreter: AttrInterpreter = {
+  attrKey: "strikethrough",
+  toStyle: (value) => (value ? { textDecoration: "line-through" } : {}),
+};
+
 /**
  * Hyperlink. The `link` attr value is the target URL (string). When set,
  * the inline run renders as Google-Docs link text — blue (#1a73e8) with
@@ -258,6 +263,7 @@ export function registerBuiltinAttrs(registry: AttrRegistry): void {
   registry.register(boldInterpreter);
   registry.register(italicInterpreter);
   registry.register(underlineInterpreter);
+  registry.register(strikethroughInterpreter);
   registry.register(linkInterpreter);
   registry.register(fontFamilyInterpreter);
   registry.register(fontSizeInterpreter);

@@ -9,6 +9,7 @@ export interface FormatState {
   bold: boolean;
   italic: boolean;
   underline: boolean;
+  strikethrough: boolean;
   blockType: string;
   headingLevel: number | null;
   /**
@@ -21,10 +22,16 @@ export interface FormatState {
   canRedo: boolean;
 }
 
+// These are the INLINE ATTR keys `handleToggleStyle` writes (STYLE_KEYS in
+// toggle-style.ts), NOT ComputedStyle keys — the pressed-state reads
+// `item.attrs[attrKey]`. (Previously bold/italic/underline pointed at
+// fontWeight/fontStyle/textDecoration, which are never set as inline attrs, so
+// those buttons' highlight was dead.)
 const ATTR_KEYS = {
-  bold: "fontWeight",
-  italic: "fontStyle",
-  underline: "textDecoration",
+  bold: "bold",
+  italic: "italic",
+  underline: "underline",
+  strikethrough: "strikethrough",
 } as const;
 
 /**
@@ -122,11 +129,15 @@ export function getFormatState(editor: EditorState): FormatState {
   const underline = collapsed
     ? cursorHasAttr(editor, ATTR_KEYS.underline)
     : selectionHasAttr(editor, ATTR_KEYS.underline);
+  const strikethrough = collapsed
+    ? cursorHasAttr(editor, ATTR_KEYS.strikethrough)
+    : selectionHasAttr(editor, ATTR_KEYS.strikethrough);
 
   return {
     bold,
     italic,
     underline,
+    strikethrough,
     blockType,
     headingLevel,
     textAlign,

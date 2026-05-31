@@ -86,6 +86,22 @@ describe("mapKeyEvent", () => {
     expect(
       mapKeyEvent(key({ key: "z", ctrlKey: true, shiftKey: true })),
     ).toEqual({ type: "REDO" });
+    // Real browsers report the SHIFTED key "Z" (uppercase) when Shift is held —
+    // the chord must still map (regression guard for the case-normalization).
+    expect(
+      mapKeyEvent(key({ key: "Z", ctrlKey: true, shiftKey: true })),
+    ).toEqual({ type: "REDO" });
+  });
+
+  it("maps the real-browser uppercase Ctrl+Shift+X to strikethrough", () => {
+    // With Shift held the browser sets key to "X" (uppercase); the chord must
+    // still fire (a lowercase-only `=== \"x\"` compare would silently miss it).
+    expect(
+      mapKeyEvent(key({ key: "X", ctrlKey: true, shiftKey: true })),
+    ).toEqual({ type: "TOGGLE_STYLE", style: "strikethrough" });
+    expect(
+      mapKeyEvent(key({ key: "X", metaKey: true, shiftKey: true })),
+    ).toEqual({ type: "TOGGLE_STYLE", style: "strikethrough" });
   });
 
   it("maps Ctrl+Y to REDO", () => {
@@ -190,6 +206,24 @@ describe("mapKeyEvent", () => {
     expect(mapKeyEvent(key({ key: "i", metaKey: true }))).toEqual({
       type: "TOGGLE_STYLE",
       style: "italic",
+    });
+  });
+
+  it("maps Cmd+Shift+X to TOGGLE_STYLE strikethrough", () => {
+    expect(
+      mapKeyEvent(key({ key: "x", metaKey: true, shiftKey: true })),
+    ).toEqual({
+      type: "TOGGLE_STYLE",
+      style: "strikethrough",
+    });
+  });
+
+  it("maps Ctrl+Shift+X to TOGGLE_STYLE strikethrough", () => {
+    expect(
+      mapKeyEvent(key({ key: "x", ctrlKey: true, shiftKey: true })),
+    ).toEqual({
+      type: "TOGGLE_STYLE",
+      style: "strikethrough",
     });
   });
 

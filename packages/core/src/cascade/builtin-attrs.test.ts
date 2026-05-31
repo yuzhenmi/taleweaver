@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { boldInterpreter, italicInterpreter, underlineInterpreter, linkInterpreter } from "./builtin-attrs";
+import { boldInterpreter, italicInterpreter, underlineInterpreter, strikethroughInterpreter, linkInterpreter } from "./builtin-attrs";
 
 describe("boldInterpreter", () => {
   it("contributes fontWeight: bold for truthy values", () => {
@@ -33,6 +33,17 @@ describe("underlineInterpreter", () => {
 
   it("contributes nothing for falsy values", () => {
     expect(underlineInterpreter.toStyle(false)).toEqual({});
+  });
+});
+
+describe("strikethroughInterpreter", () => {
+  it("contributes textDecoration: line-through for truthy values", () => {
+    expect(strikethroughInterpreter.attrKey).toBe("strikethrough");
+    expect(strikethroughInterpreter.toStyle(true)).toEqual({ textDecoration: "line-through" });
+  });
+
+  it("contributes nothing for falsy values", () => {
+    expect(strikethroughInterpreter.toStyle(false)).toEqual({});
   });
 });
 
@@ -296,6 +307,7 @@ describe("registerBuiltinAttrs", () => {
     expect(r.has("bold")).toBe(true);
     expect(r.has("italic")).toBe(true);
     expect(r.has("underline")).toBe(true);
+    expect(r.has("strikethrough")).toBe(true);
     expect(r.has("link")).toBe(true);
     expect(r.has("fontFamily")).toBe(true);
     expect(r.has("fontSize")).toBe(true);

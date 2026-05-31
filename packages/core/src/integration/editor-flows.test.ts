@@ -254,6 +254,57 @@ describe("editor flow: TOGGLE_STYLE applies bold over a selection", () => {
   });
 });
 
+describe("editor flow: TOGGLE_STYLE strikethrough over a selection", () => {
+  it('selecting "hello" and toggling strikethrough sets attrs.strikethrough === true; toggling again removes it', () => {
+    const config = makeConfig();
+    let editor = createInitialEditorState(config);
+    const blockId = firstParagraph(editor).id;
+    editor = typeString(editor, "hello", config);
+
+    // Select the whole text.
+    editor = reduceEditor(
+      editor,
+      {
+        type: "SET_SELECTION",
+        selection: createSpan(
+          createPosition(blockId, 0),
+          createPosition(blockId, 5),
+        ),
+      },
+      config,
+    );
+
+    // Toggle ON.
+    editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "strikethrough" }, config);
+
+    {
+      const block = getBlock(editor.state, blockId);
+      expect(block).not.toBeNull();
+      if (block === null || block.inlineContent === null) return;
+      expect(block.inlineContent.items.length).toBe(1);
+      const item = block.inlineContent.items[0];
+      expect(item.kind).toBe("text");
+      if (item.kind !== "text") return;
+      const textItem: TextItem = item;
+      expect(textItem.text).toBe("hello");
+      expect(textItem.attrs.strikethrough).toBe(true);
+    }
+
+    // Toggle OFF — selecting the same range and toggling again removes it.
+    editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "strikethrough" }, config);
+
+    {
+      const block = getBlock(editor.state, blockId);
+      expect(block).not.toBeNull();
+      if (block === null || block.inlineContent === null) return;
+      const item = block.inlineContent.items[0];
+      expect(item.kind).toBe("text");
+      if (item.kind !== "text") return;
+      expect(item.attrs.strikethrough).toBeUndefined();
+    }
+  });
+});
+
 describe("editor flow: undo / redo", () => {
   it('typing "hello" then UNDO five times empties the paragraph; REDO five times restores "hello"', () => {
     // The History/UndoManager records one entry per `push()`, and each

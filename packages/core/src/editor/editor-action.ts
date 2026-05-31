@@ -17,7 +17,7 @@ export type EditorAction =
   | { type: "DELETE_FORWARD" }
   | { type: "MOVE_LINE"; direction: "up" | "down" }
   | { type: "EXPAND_LINE"; direction: "up" | "down" }
-  | { type: "TOGGLE_STYLE"; style: "bold" | "italic" | "underline" }
+  | { type: "TOGGLE_STYLE"; style: "bold" | "italic" | "underline" | "strikethrough" }
   | { type: "SET_LINK"; url: string | null }
   | { type: "PASTE"; text: string }
   | { type: "SET_BLOCK_TYPE"; blockType: string; properties?: Record<string, unknown> }

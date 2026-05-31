@@ -2,7 +2,15 @@ import type { EditorAction } from "@taleweaver/core";
 
 /** Map a KeyboardEvent to an EditorAction, or null if unrecognized. */
 export function mapKeyEvent(event: KeyboardEvent): EditorAction | null {
-  const { key, ctrlKey, metaKey, altKey, shiftKey } = event;
+  const { key: rawKey, ctrlKey, metaKey, altKey, shiftKey } = event;
+  // Normalize single printable chars to lowercase: `KeyboardEvent.key` returns
+  // the SHIFTED value, so a chord like Ctrl+Shift+X reports `key === "X"`
+  // (uppercase) and a raw `=== "x"` compare would never match in a real browser
+  // (unit tests that hand-build `key:"x"` mask this). The length-1 guard leaves
+  // named keys ("ArrowLeft", "Enter", "Home", …) untouched. Fixes both the new
+  // Ctrl+Shift+X chord and the pre-existing Ctrl+Shift+Z (REDO), which had the
+  // same latent bug.
+  const key = rawKey.length === 1 ? rawKey.toLowerCase() : rawKey;
   const mod = ctrlKey || metaKey;
 
   // Undo / Redo
@@ -77,6 +85,8 @@ export function mapKeyEvent(event: KeyboardEvent): EditorAction | null {
   if (mod && key === "b") return { type: "TOGGLE_STYLE", style: "bold" };
   if (mod && key === "i") return { type: "TOGGLE_STYLE", style: "italic" };
   if (mod && key === "u") return { type: "TOGGLE_STYLE", style: "underline" };
+  if (mod && shiftKey && key === "x")
+    return { type: "TOGGLE_STYLE", style: "strikethrough" };
 
   return null;
 }

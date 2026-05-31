@@ -3,6 +3,7 @@ import {
   Bold,
   Italic,
   Underline,
+  Strikethrough,
   Undo2,
   Redo2,
   List,
@@ -217,6 +218,14 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
         icon={Underline}
         pressed={fmt.underline}
         onAction={() => dispatch({ type: "TOGGLE_STYLE", style: "underline" })}
+      />
+      <ToolbarToggle
+        label="Strikethrough (Ctrl+Shift+X)"
+        icon={Strikethrough}
+        pressed={fmt.strikethrough}
+        onAction={() =>
+          dispatch({ type: "TOGGLE_STYLE", style: "strikethrough" })
+        }
       />
 
       <Separator orientation="vertical" className="mx-1 h-5 bg-[#c4c7c5]" />
