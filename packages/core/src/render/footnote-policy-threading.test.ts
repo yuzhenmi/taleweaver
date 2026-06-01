@@ -119,7 +119,7 @@ describe("FN-6.3 — render threads documentFootnotePolicy", () => {
     const formatted = [...out.footnoteNumbers.values()]
       .map((n) => n.formatted)
       .sort();
-    expect(formatted).toEqual(["i", "ii"]);
+    expect(formatted).toEqual(["i.", "ii."]);
   });
 });
 

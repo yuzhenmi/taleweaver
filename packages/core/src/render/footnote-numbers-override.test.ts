@@ -87,9 +87,9 @@ describe("FN-6.4 — render footnoteNumbersOverride (call marker + body marker)"
   it("call marker uses the override number, not the policy-derived one", () => {
     const { state, contentBlockId } = docWithOneFootnote();
 
-    // Default (no override): continuous → "1".
+    // Default (no override): continuous → "1.".
     const def = render(state, componentRegistry, attrRegistry);
-    expect(callMarkerText(def.root, contentBlockId)).toBe("1");
+    expect(callMarkerText(def.root, contentBlockId)).toBe("1.");
 
     // With override → "5".
     const override = new Map<BlockId, FootnoteNumber>([[contentBlockId, FIVE]]);
@@ -103,7 +103,7 @@ describe("FN-6.4 — render footnoteNumbersOverride (call marker + body marker)"
     const { state, contentBlockId } = docWithOneFootnote();
 
     const def = render(state, componentRegistry, attrRegistry);
-    expect(bodyMarkerText(def, contentBlockId)).toBe("1");
+    expect(bodyMarkerText(def, contentBlockId)).toBe("1.");
 
     const override = new Map<BlockId, FootnoteNumber>([[contentBlockId, FIVE]]);
     const out = render(state, componentRegistry, attrRegistry, {
@@ -125,7 +125,7 @@ describe("FN-6.4 — render footnoteNumbersOverride (call marker + body marker)"
     const { state, contentBlockId, hostBlockId } = docWithOneFootnote();
     // Prior cycle: continuous (no override).
     const prev = render(state, componentRegistry, attrRegistry);
-    expect(prev.footnoteNumbers.get(contentBlockId)?.formatted).toBe("1");
+    expect(prev.footnoteNumbers.get(contentBlockId)?.formatted).toBe("1.");
 
     // Incremental cycle with the changed-marker blocks dirtied (the HOST block
     // for the call marker, the body root for the body marker — exactly the set
@@ -147,7 +147,7 @@ describe("FN-6.4 — render footnoteNumbersOverride (call marker + body marker)"
   it("no override → behavior unchanged (continuous default)", () => {
     const { state, contentBlockId } = docWithOneFootnote();
     const out = render(state, componentRegistry, attrRegistry);
-    expect(out.footnoteNumbers.get(contentBlockId)?.formatted).toBe("1");
-    expect(callMarkerText(out.root, contentBlockId)).toBe("1");
+    expect(out.footnoteNumbers.get(contentBlockId)?.formatted).toBe("1.");
+    expect(callMarkerText(out.root, contentBlockId)).toBe("1.");
   });
 });

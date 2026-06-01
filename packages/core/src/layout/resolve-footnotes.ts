@@ -37,7 +37,6 @@ import type { BlockFitMeta } from "./fit-core";
 import { fitOnePage } from "./fit-core";
 import type { LayoutContext } from "./layout-context";
 import type { TextShaper } from "./text-shaper";
-import { adaptShaperToMeasurer } from "./text-measurer";
 import type { PageConfig } from "./page-config";
 import { layoutBlock } from "./bfc";
 import type { BlockBox } from "./layout-box";
@@ -106,18 +105,38 @@ const MAX_CONVERGENCE_ITERATIONS = 5;
 
 /**
  * Gap (px) between the footnote body's leading-number marker and the body text
- * (#415). Matches the BFC's list-marker `markerGap`. Shared by BOTH the
- * measure/partition pass (`computeSlotLayout`, this module) and the materialize
- * pass (`materializePage` in `virtual-layout-tree.ts`) via `footnoteMarkerGutter`
- * so the body is laid out at the IDENTICAL width in both — see that helper.
+ * (#415). Matches the BFC's list-marker `markerGap`. The materialize pass
+ * (`materializePage`) uses it to HANG the number just inline-start of the body
+ * text inside the fixed indent gutter, right-aligned against the text edge —
+ * exactly like the BFC's list-item outside marker (`markerContentEdge −
+ * markerWidth − markerGap`).
  */
 export const FOOTNOTE_MARKER_GAP = 4;
 
 /**
+ * The fixed inline hanging-indent (px) a footnote body reserves at its
+ * inline-start for the leading-number marker — the SAME indent a numbered
+ * LIST ITEM uses, so a footnote body lines up exactly with a numbered list
+ * (the user-requested look). The body content is NARROWED by this amount (and
+ * inset past it in LTR); the number HANGS in the gutter, right-aligned against
+ * the text edge, so "1." and "10." both put their text at the same indent (a
+ * consistent hanging indent regardless of number width).
+ *
+ * VALUE MUST MATCH `LIST_INDENT` in `components/list-item.ts` (currently 30) so
+ * footnotes indent identically to numbered list items. They are duplicated
+ * DELIBERATELY: the layout module must not import from `components/` (a layering
+ * inversion). A shared constant is a possible future DRY follow-up; until then,
+ * keep these two in sync — if one changes, change the other.
+ */
+export const FOOTNOTE_BODY_INDENT = 30;
+
+/**
  * The inline GUTTER (#415) a footnote body reserves at its inline-start for the
- * leading-number marker, in px. The body content is NARROWED by this amount (and
- * inset past it in LTR) so the number PRECEDES the text in a hanging-indent
- * list-marker layout instead of painting on top of it.
+ * leading-number marker, in px — a FIXED list-matching hanging indent
+ * (`FOOTNOTE_BODY_INDENT`), NOT a marker-width-derived value. The body content
+ * is NARROWED by this amount (and inset past it in LTR) so the number PRECEDES
+ * the text in a hanging-indent list-marker layout instead of painting on top of
+ * it, and so the body lines up exactly with a numbered list item.
  *
  * CRITICAL: this is the SINGLE source of truth shared by the measure/partition
  * pass (`computeSlotLayout`) and the materialize pass (`materializePage`). Both
@@ -133,26 +152,22 @@ export const FOOTNOTE_MARKER_GAP = 4;
  * continuation tail (`isFresh === false`) repeats no number, so it uses the full
  * width (gutter 0) — matching materialize's `showsMarker` gating exactly.
  *
+ * The marker's OWN width is no longer derivable from this gutter (the gutter is
+ * a fixed indent, independent of number width); the materialize pass measures it
+ * directly for hanging placement. This helper takes no shaper for that reason.
+ *
  * @param body the cascaded footnote body root (its `computedStyle.markerText` is
- *   the leading number, and `computedStyle` is the style the marker is measured
- *   against).
+ *   the leading number, presence of which gates the gutter on a fresh body).
  * @param isFresh true on the page where the footnote STARTS (shows the number);
  *   false on a continuation tail (no number).
- * @param shaper the text shaper used to measure the marker width — the SAME
- *   shaper both passes lay the body out with, so the gutter is exact.
  */
-export function footnoteMarkerGutter(
-  body: ElementBox,
-  isFresh: boolean,
-  shaper: TextShaper,
-): number {
+export function footnoteMarkerGutter(body: ElementBox, isFresh: boolean): number {
   const rootCs = body.computedStyle;
   const markerText = rootCs?.markerText;
   const showsMarker =
     isFresh && markerText !== undefined && markerText !== "" && rootCs !== undefined;
-  if (!showsMarker || rootCs === undefined) return 0;
-  const markerInlineSize = adaptShaperToMeasurer(shaper).measureWidth(markerText ?? "", rootCs);
-  return markerInlineSize + FOOTNOTE_MARKER_GAP;
+  if (!showsMarker) return 0;
+  return FOOTNOTE_BODY_INDENT;
 }
 
 /**
@@ -403,7 +418,7 @@ export function computeSlotLayout(
     // height (and the cross-page split partition) against the SAME (narrowed,
     // possibly taller) body the materialize pass will render. A continuation tail
     // (`isFresh === false`) repeats no number ⇒ gutter 0 ⇒ full width.
-    const gutter = footnoteMarkerGutter(body, item.isFresh, shaper);
+    const gutter = footnoteMarkerGutter(body, item.isFresh);
     const bodyLayoutCtx: LayoutContext =
       gutter === 0
         ? fullWidthCtx
@@ -708,7 +723,7 @@ export function resolveFootnotes(
       // `maxPages` throw on a valid wrapping numbered footnote. The fresh width is
       // the worst case (a continuation tail repeats no marker ⇒ wider ⇒ no taller),
       // so this stays a sound loose upper bound.
-      const gutter = footnoteMarkerGutter(body, /* isFresh */ true, shaper);
+      const gutter = footnoteMarkerGutter(body, /* isFresh */ true);
       const heightCtx: LayoutContext = {
         ...ctx,
         containingInlineSize: Math.max(0, boundInlineSize - gutter),

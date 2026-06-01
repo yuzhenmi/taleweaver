@@ -67,7 +67,7 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
     const formattedValues = [...after.renderOutput.footnoteNumbers.values()]
       .map((n) => n.formatted)
       .sort();
-    expect(formattedValues).toEqual(["1", "2"]);
+    expect(formattedValues).toEqual(["1.", "2."]);
   });
 
   it("DOES call collectFootnoteAnchors when an edit DELETES the anchor (and renumbers)", () => {
@@ -115,7 +115,7 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
     const formattedValues = [...after.renderOutput.footnoteNumbers.values()].map(
       (n) => n.formatted,
     );
-    expect(formattedValues).toEqual(["1"]);
+    expect(formattedValues).toEqual(["1."]);
   });
 
   it("DOES call collectFootnoteAnchors when editing the anchor's OWN host block text", () => {
@@ -237,6 +237,6 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
     const formattedValues = [...after.renderOutput.footnoteNumbers.values()]
       .map((n) => n.formatted)
       .sort();
-    expect(formattedValues).toEqual(["1", "2"]);
+    expect(formattedValues).toEqual(["1.", "2."]);
   });
 });

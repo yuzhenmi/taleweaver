@@ -25,7 +25,12 @@ import { buildBlockFitMetas } from "../build-fit-metas";
 import { measurePass, type SlotInsets } from "../measure-pass";
 import type { SectionPlan } from "../section-plan";
 import { flattenContents } from "../group-children";
-import { resolveFootnotes, FOOTNOTE_SEPARATOR_HEIGHT } from "../resolve-footnotes";
+import {
+  resolveFootnotes,
+  FOOTNOTE_SEPARATOR_HEIGHT,
+  FOOTNOTE_BODY_INDENT,
+  FOOTNOTE_MARKER_GAP,
+} from "../resolve-footnotes";
 
 const SHAPER = createMockShaper(8, 16); // 16px line-height, 8px/char.
 
@@ -190,13 +195,23 @@ describe("FN-4.3 — PageBox.footnoteSlot rendered via buildVirtualPaginatedTree
     // No separator box is emitted any more (positive check — follow-up B): the
     // ONLY slot children are the single body fragment + its leading-number marker.
     assertNoSeparatorOnlyBodies(slot, 1);
-    // The body's content is INSET past the leading-number gutter (#415): a marker
-    // sibling sits at the slot inline-start (0), the body text begins after it.
+    // The body's content is INSET by the FIXED list-matching hanging indent
+    // (FOOTNOTE_BODY_INDENT = 30, the numbered-list LIST_INDENT): the body text
+    // starts at x=30, the number "1." HANGS in the 30px gutter, right-aligned
+    // against the text edge — exactly like a numbered list item.
+    expect(body.inlineOffset).toBe(FOOTNOTE_BODY_INDENT); // body text at the fixed 30px indent
     const marker = slot.children.find((c) => c.type === "marker");
     expect(marker).toBeDefined();
     if (marker === undefined) throw new Error("footnote leading-number marker missing");
-    expect(marker.inlineOffset).toBe(0); // slot-local inline-start, before the text
-    expect(body.inlineOffset).toBeGreaterThan(0); // body text inset past the marker
+    // Marker "1." = 2 chars × 8px = 16px. It hangs at `indent − markerWidth − gap`
+    // = 30 − 16 − 4 = 10 — right-aligned against the text edge (its right edge at
+    // 10 + 16 = 26, one gap (4) short of the text at 30), NOT at inline-start 0.
+    expect(marker.inlineSize).toBe(16);
+    expect(marker.inlineOffset).toBe(FOOTNOTE_BODY_INDENT - 16 - FOOTNOTE_MARKER_GAP); // 10
+    expect(marker.inlineOffset).toBe(10);
+    // Marker PRECEDES the body text in LTR reading order (its right edge is left
+    // of the text edge): hanging-indent, consistent regardless of number width.
+    expect(marker.inlineOffset + marker.inlineSize).toBeLessThanOrEqual(body.inlineOffset);
     // The slot wrapper sits at the page content inline-start (0 here, no margins).
     expect(slot.inlineOffset).toBe(PAGE.pageMargins.inlineStart);
 
@@ -217,9 +232,10 @@ describe("FN-4.3 — PageBox.footnoteSlot rendered via buildVirtualPaginatedTree
     // `bodyBox.blockSize <= remaining` guard then DROPS (prod) / THROWS (dev).
     //
     // Geometry: content inline-size 600px, mock shaper 8px/char ⇒ 75 chars/line at
-    // full width. Marker "1." = 2 chars = 16px; MARKER_GAP = 4 ⇒ gutter = 20px ⇒
-    // narrowed width 580px ⇒ 72 chars/line. A 74-char run (with a soft break so it
-    // CAN wrap) is 592px: ≤ 600 (one line full width) but > 580 (two lines narrow).
+    // full width. The body's fixed list-matching gutter is FOOTNOTE_BODY_INDENT =
+    // 30px (independent of marker width) ⇒ narrowed width 570px ⇒ 71 chars/line. A
+    // 74-char run (with a soft break so it CAN wrap) is 592px: ≤ 600 (one line full
+    // width) but > 570 (two lines at the narrowed list-indent width).
     const SEG_A = "a".repeat(40);
     const SEG_B = "b".repeat(33);
     const runText = `${SEG_A} ${SEG_B}`; // 40 + space + 33 = 74 chars = 592px
@@ -274,23 +290,26 @@ describe("FN-4.3 — PageBox.footnoteSlot rendered via buildVirtualPaginatedTree
     expect(slot.blockSize).toBe(startPage.footnoteSlotHeight);
 
     // The leading-number marker is present (fresh body) and the body text is
-    // inset past the gutter.
+    // inset by the fixed list-matching indent (30).
     const marker = slot.children.find((c) => c.type === "marker");
     expect(marker).toBeDefined();
-    expect(body.inlineOffset).toBeGreaterThan(0);
+    expect(body.inlineOffset).toBe(FOOTNOTE_BODY_INDENT);
     // Positive separator-absence (follow-up B): exactly ONE body fragment + marker.
     assertNoSeparatorOnlyBodies(slot, 1);
   });
 
-  it("(a3) RTL — the body sits at slot-local inlineOffset 0 and the leading-number marker sits in the RIGHT-hand gutter (effContentInlineSize − markerWidth), preceding the text in reading order", () => {
-    // Mirror of (a) but RTL: same 1-line numbered fresh body, same slot geometry
-    // (the gutter narrowing is direction-independent), but the gutter is on the
-    // INLINE-END (right) edge. The body content box stays at slot-local
-    // inlineOffset 0 (RTL does not inset it past the gutter — the gutter is on the
-    // right), and the marker is anchored at `effContentInlineSize − markerWidth`
-    // so the number sits in the right-hand gutter, BEFORE the body text in RTL
-    // reading order. Marker "1." = 2 chars × 8px = 16px ⇒ markerWidth 16; content
-    // inline-size 600 (no margins) ⇒ marker inlineOffset 600 − 16 = 584.
+  it("(a3) RTL — the body sits at slot-local inlineOffset 0 (narrowed by the fixed indent) and the leading-number marker HANGS just inline-end of the body's content edge inside the right-hand gutter, preceding the text in reading order", () => {
+    // Mirror of (a) but RTL: same 1-line numbered fresh body, same fixed
+    // list-matching gutter (FOOTNOTE_BODY_INDENT = 30, direction-independent), but
+    // the gutter is on the INLINE-END (right) edge. The body content box stays at
+    // slot-local inlineOffset 0 (RTL does not inset it — the gutter is on the
+    // right) and is narrowed to `effContentInlineSize − 30` = 570. The marker
+    // HANGS just inline-end (right) of the body's right content edge (570), one gap
+    // (4) clear of it: markerInlineOffset = (600 − 30) + 4 = 574 — the mirror of
+    // LTR's `indent − markerWidth − gap`. Marker "1." = 2 chars × 8px = 16px ⇒
+    // markerWidth 16; its right edge 574 + 16 = 590 stays within the 600 content
+    // edge (inside the reserved 30px right gutter), and it reads BEFORE the text in
+    // RTL reading order.
     const root = cascadeRoot([fnPara("b0"), fnPara("b1"), fnPara("b2"), fnPara("b3")]);
     const fnRootId = "fn0" as BlockId;
     const embed = new Map<BlockId, ElementBox>([[fnRootId, cascadeBody(fnBody("fn0", 1, "1."))]]);
@@ -313,28 +332,30 @@ describe("FN-4.3 — PageBox.footnoteSlot rendered via buildVirtualPaginatedTree
     expect(marker).toBeDefined();
     if (marker === undefined) throw new Error("footnote leading-number marker missing");
 
-    // RTL: the body content box sits at slot-local inlineOffset 0 (NOT inset past
-    // the gutter — the gutter is on the right). This is the load-bearing RTL
-    // assertion: in LTR the body is inset (> 0); here it must be 0.
+    // RTL: the body content box sits at slot-local inlineOffset 0 (NOT inset — the
+    // gutter is on the right), narrowed to `effContentInlineSize − 30` = 570. This
+    // is the load-bearing RTL assertion: in LTR the body is inset (= 30); here it
+    // must be 0 with the narrowing applied as a width reduction instead.
     expect(body.inlineOffset).toBe(0);
+    expect(body.inlineSize).toBe(slot.inlineSize - FOOTNOTE_BODY_INDENT); // 570
 
-    // The marker sits in the RIGHT-hand gutter at `effContentInlineSize −
-    // markerWidth`. With content 600 and markerWidth 16, that is 584. (Would FAIL
-    // if the RTL marker offset regressed to 0/LTR placement, or used the gutter
-    // including the gap instead of the bare marker width.)
+    // The marker HANGS just inline-end of the body's right content edge (570),
+    // one gap clear of it, inside the reserved 30px right gutter:
+    // markerInlineOffset = (effContentInlineSize − indent) + gap = 570 + 4 = 574 —
+    // the mirror of LTR's `indent − markerWidth − gap`. (Would FAIL if the RTL
+    // marker regressed to 0/LTR placement, or to the old `content − markerWidth`.)
     const markerWidth = marker.inlineSize;
     expect(markerWidth).toBe(16);
-    const expectedMarkerOffset = slot.inlineSize - markerWidth; // 600 − 16 = 584
+    const bodyContentEdge = slot.inlineSize - FOOTNOTE_BODY_INDENT; // 570
+    const expectedMarkerOffset = bodyContentEdge + FOOTNOTE_MARKER_GAP; // 574
     expect(marker.inlineOffset).toBe(expectedMarkerOffset);
-    expect(marker.inlineOffset).toBe(584);
+    expect(marker.inlineOffset).toBe(574);
 
-    // Marker PRECEDES the body text in RTL reading order: the marker's right edge
-    // is at the content right edge (inlineOffset + width === effContentInlineSize),
-    // and the body's right edge (its inline-end content edge) is at or left of the
-    // marker's left edge — i.e. the marker is outboard (further inline-end) of the
-    // text, exactly as the leading number should be.
-    expect(marker.inlineOffset + markerWidth).toBe(slot.inlineSize); // marker hugs the right edge
-    expect(body.inlineOffset + body.inlineSize).toBeLessThanOrEqual(marker.inlineOffset);
+    // Marker PRECEDES the body text in RTL reading order and stays WITHIN the
+    // reserved right gutter: its left edge is at/right of the body's right content
+    // edge (outboard of the text), and its right edge stays within the content box.
+    expect(marker.inlineOffset).toBeGreaterThanOrEqual(body.inlineOffset + body.inlineSize);
+    expect(marker.inlineOffset + markerWidth).toBeLessThanOrEqual(slot.inlineSize); // within the gutter (590 ≤ 600)
 
     // Still exactly one body fragment + its marker, no separator box.
     assertNoSeparatorOnlyBodies(slot, 1);

@@ -5,18 +5,21 @@
  * counter value to its displayed string under one of the Google-Docs footnote
  * number formats.
  *
+ * SUFFIX (the trailing `"."`): the NUMERIC/ALPHABETIC formats (`decimal`,
+ * `lower-roman`, `upper-roman`, `lower-alpha`, `upper-alpha`) read with a
+ * trailing `"."` — "1.", "iv.", "A." — matching the numbered-list marker
+ * convention (the user wants footnote markers to read like a numbered list).
+ * The `symbol` format is EXEMPT: *, †, ‡, … take no dot (Chicago / Word /
+ * Google Docs typographic convention).
+ *
  * NOTE on DRY (P9a alignment): a list-marker formatter already exists at
  * `layout/list-counter.ts` with overlapping roman/alpha logic. It is NOT reused
- * here because it is list-specific in two ways that footnotes must not inherit:
- *   1. It appends a trailing `"."` (the list-marker convention) to every value;
- *      footnote markers carry no suffix.
- *   2. It has no `symbol` format (the *,†,‡,§ footnote cycle).
- * Forcing footnotes through it would mean stripping the `.` and bolting on a
- * second code path — more coupling, not less. When P9a lands a general CSS
- * `counter()` formatter, BOTH this and `list-counter.ts` collapse into it behind
- * their current call sites (the footnote `CounterFormat` ⇒ a counter style, the
- * `.` suffix ⇒ the list `<suffix>` separator). Until then the bijective-base-26
- * and roman logic is duplicated DELIBERATELY; see FN-3 status report.
+ * here because it has no `symbol` format (the *,†,‡,§ footnote cycle), which
+ * footnotes need and lists do not. When P9a lands a general CSS `counter()`
+ * formatter, BOTH this and `list-counter.ts` collapse into it behind their
+ * current call sites (the footnote `CounterFormat` ⇒ a counter style, the `.`
+ * suffix ⇒ the list `<suffix>` separator). Until then the bijective-base-26 and
+ * roman logic is duplicated DELIBERATELY; see FN-3 status report.
  */
 
 /** The footnote number formats (a subset of CSS `list-style-type`, + `symbol`). */
@@ -49,16 +52,18 @@ export function formatCounter(value: number, format: CounterFormat): string {
     );
   }
   switch (format) {
+    // NUMERIC/ALPHABETIC formats read with a trailing "." (numbered-list
+    // convention); `symbol` is exempt (see module docstring).
     case "decimal":
-      return `${value}`;
+      return `${value}.`;
     case "lower-roman":
-      return toRoman(value).toLowerCase();
+      return `${toRoman(value).toLowerCase()}.`;
     case "upper-roman":
-      return toRoman(value);
+      return `${toRoman(value)}.`;
     case "lower-alpha":
-      return toAlpha(value, 0x61 /* 'a' */);
+      return `${toAlpha(value, 0x61 /* 'a' */)}.`;
     case "upper-alpha":
-      return toAlpha(value, 0x41 /* 'A' */);
+      return `${toAlpha(value, 0x41 /* 'A' */)}.`;
     case "symbol":
       return toSymbol(value);
   }

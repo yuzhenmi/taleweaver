@@ -704,18 +704,23 @@ export function makeVirtualLayoutTree(
                 bodyMarkerText !== "" &&
                 rootCs !== undefined;
               const measurer = adaptShaperToMeasurer(shaper);
-              // CRITICAL: the gutter is the SINGLE marker-width source of truth —
+              // CRITICAL: the gutter is the SINGLE body-narrowing source of truth —
               // the SAME `footnoteMarkerGutter` helper the measure/partition pass
               // (`computeSlotLayout`) lays this body out with (#415). Both narrow
               // the body to `effContentInlineSize − gutter`, so the wrap / line
               // count / split partition can never disagree and the planned slot
-              // height always fits the rendered body. The marker's own width is
-              // DERIVED back out of the gutter (`gutter − FOOTNOTE_MARKER_GAP` for a
-              // fresh marker, 0 else) rather than re-measured here, so there is
-              // exactly ONE `measureWidth` call for the marker across both passes —
-              // they can never drift even if the gutter formula changes.
-              const gutter = footnoteMarkerGutter(body, isFresh, shaper);
-              const markerInlineSize = gutter > 0 ? gutter - FOOTNOTE_MARKER_GAP : 0;
+              // height always fits the rendered body. The gutter is now a FIXED
+              // list-matching hanging indent (FOOTNOTE_BODY_INDENT), independent of
+              // the number's width, so the body lines up exactly with a numbered
+              // list item. The marker's OWN width is measured directly here (it can
+              // no longer be derived from the gutter); the measure pass does not
+              // need it (it only narrows the body by the fixed gutter), so there is
+              // no duplicated marker measurement across the two passes.
+              const gutter = footnoteMarkerGutter(body, isFresh);
+              const markerInlineSize =
+                showsMarker && rootCs !== undefined
+                  ? measurer.measureWidth(bodyMarkerText ?? "", rootCs)
+                  : 0;
               // The body's content box is narrowed by the gutter; in LTR it is also
               // shifted right by the gutter so the gutter sits at the inline-start.
               const bodyInlineSize = Math.max(0, effContentInlineSize - gutter);
@@ -756,13 +761,23 @@ export function makeVirtualLayoutTree(
                     "indefinite",
                   );
                   const markerBlockSize = measurer.measureHeight(rootCs);
-                  // Marker inline-offset (slot-local): LTR at the inline-start (0),
-                  // RTL anchored just after the body's right content edge so the
-                  // number sits in the right-hand gutter — both cases place the
-                  // number BEFORE the text in reading order.
+                  // Marker inline-offset (slot-local): the number HANGS in the fixed
+                  // indent gutter, right-aligned against the body text edge — a
+                  // consistent hanging indent regardless of number width (so "1."
+                  // and "10." both align their text at the indent), exactly like the
+                  // BFC's list-item outside marker (`markerContentEdge − markerWidth
+                  // − markerGap`).
+                  //   LTR: the text edge is at `gutter`; the marker's right edge
+                  //     sits one gap (FOOTNOTE_MARKER_GAP) short of it ⇒ offset
+                  //     `gutter − markerInlineSize − gap`.
+                  //   RTL (mirror): the body's right content edge is at
+                  //     `effContentInlineSize − gutter`; the marker hangs just
+                  //     inline-end (right) of it, one gap clear, inside the reserved
+                  //     right gutter ⇒ offset `(effContentInlineSize − gutter) + gap`.
+                  // Both place the number BEFORE the text in reading order.
                   const markerInlineOffset = isRtl
-                    ? effContentInlineSize - markerInlineSize
-                    : 0;
+                    ? effContentInlineSize - gutter + FOOTNOTE_MARKER_GAP
+                    : gutter - markerInlineSize - FOOTNOTE_MARKER_GAP;
                   slotChildren.push(
                     createMarkerBox(
                       `${body.key}-marker`,

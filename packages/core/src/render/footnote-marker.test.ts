@@ -143,10 +143,10 @@ describe("render — footnote-anchor superscript marker", () => {
     const out = render(state, basicRegistry(), createDefaultAttrRegistry());
     const marker = findAnchorMarker(out);
     expect(marker.style.display).toBe("inline-block");
-    expect(firstText(marker)).toBe("1");
+    expect(firstText(marker)).toBe("1.");
   });
 
-  it("three anchors in document order render '1', '2', '3' (continuous)", () => {
+  it("three anchors in document order render '1.', '2.', '3.' (continuous)", () => {
     const state = buildState({
       rootId: "doc",
       blocks: [
@@ -166,9 +166,9 @@ describe("render — footnote-anchor superscript marker", () => {
     const m1 = ((out.root as ElementBox).children[0] as ElementBox).children[1] as ElementBox;
     const m2 = ((out.root as ElementBox).children[1] as ElementBox).children[1] as ElementBox;
     const m3 = ((out.root as ElementBox).children[2] as ElementBox).children[1] as ElementBox;
-    expect(firstText(m1)).toBe("1");
-    expect(firstText(m2)).toBe("2");
-    expect(firstText(m3)).toBe("3");
+    expect(firstText(m1)).toBe("1.");
+    expect(firstText(m2)).toBe("2.");
+    expect(firstText(m3)).toBe("3.");
   });
 
   it("the rendered marker number matches footnoteNumbers for that contentBlockId (threaded, not re-walked)", () => {
@@ -323,8 +323,8 @@ describe("render incremental — downstream markers renumber even when not dirty
     return undefined;
   }
 
-  it("inserting a footnote before an existing one bumps the downstream marker from '1' to '2'", () => {
-    // Two paragraphs; only p2 has a footnote anchor (its marker is "1").
+  it("inserting a footnote before an existing one bumps the downstream marker from '1.' to '2.'", () => {
+    // Two paragraphs; only p2 has a footnote anchor (its marker is "1.").
     const reg = basicRegistry();
     const attrReg = createDefaultAttrRegistry();
 
@@ -343,10 +343,10 @@ describe("render incremental — downstream markers renumber even when not dirty
     );
     const prevState = seeded.state;
     const prevRender = render(prevState, reg, attrReg);
-    expect(markerTextFor(prevRender, "p2")).toBe("1");
+    expect(markerTextFor(prevRender, "p2")).toBe("1.");
 
     // Insert a SECOND footnote at the start of p1 — it comes first in document
-    // order, so it becomes "1" and p2's anchor renumbers to "2". The op's
+    // order, so it becomes "1." and p2's anchor renumbers to "2.". The op's
     // dirtyIds covers p1 + new body roots, NOT p2.
     const inserted = insertFootnote(prevState, createPosition("p1" as BlockId, 0), alloc);
     expect(inserted.dirtyIds.has("p2" as BlockId)).toBe(false); // precondition
@@ -356,9 +356,9 @@ describe("render incremental — downstream markers renumber even when not dirty
       prevState,
       dirtyIds: inserted.dirtyIds,
     });
-    // New anchor in p1 → "1"; p2's downstream anchor correctly renumbered → "2".
-    expect(markerTextFor(nextRender, "p1")).toBe("1");
-    expect(markerTextFor(nextRender, "p2")).toBe("2");
+    // New anchor in p1 → "1."; p2's downstream anchor correctly renumbered → "2.".
+    expect(markerTextFor(nextRender, "p1")).toBe("1.");
+    expect(markerTextFor(nextRender, "p2")).toBe("2.");
   });
 
   it("deleting the only footnote removes its marker (footnote-free incremental path)", () => {
@@ -384,7 +384,7 @@ describe("render incremental — downstream markers renumber even when not dirty
     );
     const prevState = seeded.state;
     const prevRender = render(prevState, reg, attrReg);
-    expect(markerTextFor(prevRender, "p1")).toBe("1");
+    expect(markerTextFor(prevRender, "p1")).toBe("1.");
 
     // Delete the single anchor: it occupies exactly one offset unit at [6, 7).
     const deleted = deleteRange(prevState, {
@@ -494,7 +494,7 @@ describe("render — footnote body leading number (FN-6.2b: markerText from numb
     return body.style;
   }
 
-  it("a single footnote body carries markerText '1' (the leading number)", () => {
+  it("a single footnote body carries markerText '1.' (the leading number)", () => {
     const reg = realBodyRegistry();
     const attrReg = createDefaultAttrRegistry();
     const alloc = createTestAllocator("seed");
@@ -510,10 +510,10 @@ describe("render — footnote body leading number (FN-6.2b: markerText from numb
       alloc,
     );
     const out = render(inserted.state, reg, attrReg);
-    expect(bodyStyle(out, inserted.bodyRootId).markerText).toBe("1");
+    expect(bodyStyle(out, inserted.bodyRootId).markerText).toBe("1.");
   });
 
-  it("two footnotes → their bodies carry markerText '1' and '2' (document order)", () => {
+  it("two footnotes → their bodies carry markerText '1.' and '2.' (document order)", () => {
     const reg = realBodyRegistry();
     const attrReg = createDefaultAttrRegistry();
     const alloc = createTestAllocator("seed");
@@ -533,9 +533,9 @@ describe("render — footnote body leading number (FN-6.2b: markerText from numb
     const after2 = insertFootnote(after1.state, createPosition("p2" as BlockId, 1), alloc);
 
     const out = render(after2.state, reg, attrReg);
-    // after1's body is the document-earlier anchor → "1"; after2's → "2".
-    expect(bodyStyle(out, after1.bodyRootId).markerText).toBe("1");
-    expect(bodyStyle(out, after2.bodyRootId).markerText).toBe("2");
+    // after1's body is the document-earlier anchor → "1."; after2's → "2.".
+    expect(bodyStyle(out, after1.bodyRootId).markerText).toBe("1.");
+    expect(bodyStyle(out, after2.bodyRootId).markerText).toBe("2.");
   });
 
   it("the body's number matches its call marker (same formatted string)", () => {
@@ -609,7 +609,7 @@ describe("render — footnote body leading number (FN-6.2b: markerText from numb
     // offset-excluded MarkerBox at layout time (FN-6.2a, covered by its own
     // tests). Here we assert the render-level contract: markerText present,
     // body content (the paragraph child) intact and not displaced.
-    expect(body.style.markerText).toBe("1");
+    expect(body.style.markerText).toBe("1.");
     expect(body.children).toHaveLength(1);
     expect((body.children[0] as ElementBox).key).toBe(inserted.firstParagraphId);
   });
