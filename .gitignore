@@ -4,3 +4,4 @@ dist
 .worktrees
 docs
 !docs/architecture
+CLAUDE.md
