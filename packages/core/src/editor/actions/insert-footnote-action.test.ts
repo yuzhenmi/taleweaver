@@ -193,8 +193,8 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
       reset: "continuous",
       format: "decimal",
     });
-    expect(numbers.get(ordered[0].contentBlockId)?.formatted).toBe("1.");
-    expect(numbers.get(ordered[1].contentBlockId)?.formatted).toBe("2.");
+    expect(numbers.get(ordered[0].contentBlockId)?.formatted).toBe("1");
+    expect(numbers.get(ordered[1].contentBlockId)?.formatted).toBe("2");
     // The earlier-in-document anchor's body is the one inserted last (at 0).
     expect(numbers.get(anchors[0].contentBlockId)?.value).toBe(1);
     expect(numbers.get(anchors[1].contentBlockId)?.value).toBe(2);
@@ -258,8 +258,8 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
       reset: "continuous",
       format: "decimal",
     });
-    expect(numbers.get(ordered[0].contentBlockId)?.formatted).toBe("1.");
-    expect(numbers.get(ordered[1].contentBlockId)?.formatted).toBe("2.");
+    expect(numbers.get(ordered[0].contentBlockId)?.formatted).toBe("1");
+    expect(numbers.get(ordered[1].contentBlockId)?.formatted).toBe("2");
   });
 
   it("refuses a nested footnote: with the caret already in a footnote body, INSERT_FOOTNOTE returns the editor unchanged", () => {

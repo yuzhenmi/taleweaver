@@ -113,7 +113,7 @@ describe("handleSetFootnotePolicy — SET_FOOTNOTE_POLICY", () => {
     expect(documentFootnotePolicy(next.state).format).toBe("lower-roman");
     // reset untouched (still continuous): values 1, 2 formatted i, ii.
     expect(documentFootnotePolicy(next.state).reset).toBe("continuous");
-    expect(numberFormats(next)).toEqual(["i.", "ii."]);
+    expect(numberFormats(next)).toEqual(["i", "ii"]);
   });
 
   it("sets reset and format INDEPENDENTLY — setting one leaves the other untouched", () => {
@@ -326,8 +326,8 @@ describe("handleSetFootnotePolicy — restart-per-page end-to-end (action → FN
     const editor = buildEditorFull(twoFootnotesTwoPages(), cfg);
 
     // Baseline continuous: fn0 → 1, fn1 → 2.
-    expect(editor.renderOutput.footnoteNumbers.get("fn0" as BlockId)?.formatted).toBe("1.");
-    expect(editor.renderOutput.footnoteNumbers.get("fn1" as BlockId)?.formatted).toBe("2.");
+    expect(editor.renderOutput.footnoteNumbers.get("fn0" as BlockId)?.formatted).toBe("1");
+    expect(editor.renderOutput.footnoteNumbers.get("fn1" as BlockId)?.formatted).toBe("2");
 
     const next = reduceEditor(
       editor,
@@ -338,7 +338,7 @@ describe("handleSetFootnotePolicy — restart-per-page end-to-end (action → FN
     // The policy is written, and FN-6.4's per-page second pass restarts the
     // page-2 footnote to "1".
     expect(documentFootnotePolicy(next.state).reset).toBe("restart-per-page");
-    expect(next.renderOutput.footnoteNumbers.get("fn0" as BlockId)?.formatted).toBe("1.");
-    expect(next.renderOutput.footnoteNumbers.get("fn1" as BlockId)?.formatted).toBe("1.");
+    expect(next.renderOutput.footnoteNumbers.get("fn0" as BlockId)?.formatted).toBe("1");
+    expect(next.renderOutput.footnoteNumbers.get("fn1" as BlockId)?.formatted).toBe("1");
   });
 });

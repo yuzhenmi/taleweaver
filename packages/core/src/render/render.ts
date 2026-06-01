@@ -63,18 +63,28 @@ const EMPTY_FOOTNOTE_NUMBERS: ReadonlyMap<BlockId, FootnoteNumber> =
  * Build the per-render-cycle `RenderContext`. `footnoteNumber` is wired: it
  * reads `fnNumbers` — the SAME numbering map already computed once this cycle
  * for the call markers — so a footnote body's leading number (its generated
- * `markerText`) always matches its anchor's number. Both render paths (full +
- * incremental) construct the context through here so the body number renders
- * identically regardless of path.
+ * `markerText`) shares the SAME counter value as its anchor's superscript call
+ * marker. The body marker, however, reads like a numbered-list item: it appends
+ * a trailing `"."` (list-style suffix) to the bare counter, so the bottom-slot
+ * BODY marker reads "1." while the inline superscript CALL marker stays bare
+ * ("1"). The `symbol` format is EXEMPT from the dot (*, †, ‡ take no suffix —
+ * Chicago / Word / Google Docs convention), so a symbol footnote reads "*" in
+ * both slots. The doc-wide format is read once here to decide the suffix. Both
+ * render paths (full + incremental) construct the context through here so the
+ * body number renders identically regardless of path.
  */
 function makeRenderContext(
   state: State,
   fnNumbers: ReadonlyMap<BlockId, FootnoteNumber>,
 ): RenderContext {
+  const format = documentFootnotePolicy(state).format;
+  const suffix = format === "symbol" ? "" : ".";
   return {
     state,
-    footnoteNumber: (contentBlockId: BlockId): string | undefined =>
-      fnNumbers.get(contentBlockId)?.formatted,
+    footnoteNumber: (contentBlockId: BlockId): string | undefined => {
+      const formatted = fnNumbers.get(contentBlockId)?.formatted;
+      return formatted === undefined ? undefined : formatted + suffix;
+    },
   };
 }
 

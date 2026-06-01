@@ -193,15 +193,18 @@ describe("footnoteBodyComponent — leading number marker (FN-6.2b)", () => {
     expect(rendered.style.markerText).toBe("1");
   });
 
-  it("uses the formatted number as-is (e.g. '2') — matches the call marker", () => {
+  it("echoes ctx.footnoteNumber verbatim as markerText (component is a pure pass-through)", () => {
     const rendered = footnoteBodyComponent.render(
       bodyView(),
       stubRenderContext("2"),
       [paragraphChild(1)],
     );
     if (rendered.type !== "element") throw new Error("render returned non-element");
-    // No appended period — the body number is the same string the call marker
-    // displays (FootnoteNumber.formatted), e.g. "2", not "2.".
+    // The component appends NOTHING — it sets markerText to exactly what
+    // `ctx.footnoteNumber` returns. In production the bottom-slot "." suffix is
+    // added UPSTREAM by `makeRenderContext` (render.ts), so the real body marker
+    // reads "2." while the superscript call marker reads "2". Here the stub
+    // returns the bare "2", so the component echoes "2".
     expect(rendered.style.markerText).toBe("2");
   });
 

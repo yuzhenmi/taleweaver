@@ -143,10 +143,10 @@ describe("render — footnote-anchor superscript marker", () => {
     const out = render(state, basicRegistry(), createDefaultAttrRegistry());
     const marker = findAnchorMarker(out);
     expect(marker.style.display).toBe("inline-block");
-    expect(firstText(marker)).toBe("1.");
+    expect(firstText(marker)).toBe("1");
   });
 
-  it("three anchors in document order render '1.', '2.', '3.' (continuous)", () => {
+  it("three anchors in document order render '1', '2', '3' (continuous)", () => {
     const state = buildState({
       rootId: "doc",
       blocks: [
@@ -166,9 +166,9 @@ describe("render — footnote-anchor superscript marker", () => {
     const m1 = ((out.root as ElementBox).children[0] as ElementBox).children[1] as ElementBox;
     const m2 = ((out.root as ElementBox).children[1] as ElementBox).children[1] as ElementBox;
     const m3 = ((out.root as ElementBox).children[2] as ElementBox).children[1] as ElementBox;
-    expect(firstText(m1)).toBe("1.");
-    expect(firstText(m2)).toBe("2.");
-    expect(firstText(m3)).toBe("3.");
+    expect(firstText(m1)).toBe("1");
+    expect(firstText(m2)).toBe("2");
+    expect(firstText(m3)).toBe("3");
   });
 
   it("the rendered marker number matches footnoteNumbers for that contentBlockId (threaded, not re-walked)", () => {
@@ -323,8 +323,8 @@ describe("render incremental — downstream markers renumber even when not dirty
     return undefined;
   }
 
-  it("inserting a footnote before an existing one bumps the downstream marker from '1.' to '2.'", () => {
-    // Two paragraphs; only p2 has a footnote anchor (its marker is "1.").
+  it("inserting a footnote before an existing one bumps the downstream marker from '1' to '2'", () => {
+    // Two paragraphs; only p2 has a footnote anchor (its marker is "1").
     const reg = basicRegistry();
     const attrReg = createDefaultAttrRegistry();
 
@@ -343,10 +343,10 @@ describe("render incremental — downstream markers renumber even when not dirty
     );
     const prevState = seeded.state;
     const prevRender = render(prevState, reg, attrReg);
-    expect(markerTextFor(prevRender, "p2")).toBe("1.");
+    expect(markerTextFor(prevRender, "p2")).toBe("1");
 
     // Insert a SECOND footnote at the start of p1 — it comes first in document
-    // order, so it becomes "1." and p2's anchor renumbers to "2.". The op's
+    // order, so it becomes "1" and p2's anchor renumbers to "2". The op's
     // dirtyIds covers p1 + new body roots, NOT p2.
     const inserted = insertFootnote(prevState, createPosition("p1" as BlockId, 0), alloc);
     expect(inserted.dirtyIds.has("p2" as BlockId)).toBe(false); // precondition
@@ -356,9 +356,9 @@ describe("render incremental — downstream markers renumber even when not dirty
       prevState,
       dirtyIds: inserted.dirtyIds,
     });
-    // New anchor in p1 → "1."; p2's downstream anchor correctly renumbered → "2.".
-    expect(markerTextFor(nextRender, "p1")).toBe("1.");
-    expect(markerTextFor(nextRender, "p2")).toBe("2.");
+    // New anchor in p1 → "1"; p2's downstream anchor correctly renumbered → "2".
+    expect(markerTextFor(nextRender, "p1")).toBe("1");
+    expect(markerTextFor(nextRender, "p2")).toBe("2");
   });
 
   it("deleting the only footnote removes its marker (footnote-free incremental path)", () => {
@@ -384,7 +384,7 @@ describe("render incremental — downstream markers renumber even when not dirty
     );
     const prevState = seeded.state;
     const prevRender = render(prevState, reg, attrReg);
-    expect(markerTextFor(prevRender, "p1")).toBe("1.");
+    expect(markerTextFor(prevRender, "p1")).toBe("1");
 
     // Delete the single anchor: it occupies exactly one offset unit at [6, 7).
     const deleted = deleteRange(prevState, {
@@ -538,7 +538,7 @@ describe("render — footnote body leading number (FN-6.2b: markerText from numb
     expect(bodyStyle(out, after2.bodyRootId).markerText).toBe("2.");
   });
 
-  it("the body's number matches its call marker (same formatted string)", () => {
+  it("the body's number is the call marker's bare number plus the list-style '.'", () => {
     const reg = realBodyRegistry();
     const attrReg = createDefaultAttrRegistry();
     const alloc = createTestAllocator("seed");
@@ -558,9 +558,11 @@ describe("render — footnote body leading number (FN-6.2b: markerText from numb
       reset: "continuous",
       format: "decimal",
     });
-    expect(bodyStyle(out, inserted.bodyRootId).markerText).toBe(
-      numbers.get(inserted.bodyRootId)?.formatted,
-    );
+    // The call marker (superscript) is the BARE `formatted` number; the bottom-
+    // slot body marker shares that counter value but appends the list-style ".".
+    const bare = numbers.get(inserted.bodyRootId)?.formatted;
+    expect(bare).toBe("1");
+    expect(bodyStyle(out, inserted.bodyRootId).markerText).toBe(`${bare}.`);
   });
 
   it("a footnote-free render leaves no body markerText (no crash, empty embedContents)", () => {
@@ -612,5 +614,86 @@ describe("render — footnote body leading number (FN-6.2b: markerText from numb
     expect(body.style.markerText).toBe("1.");
     expect(body.children).toHaveLength(1);
     expect((body.children[0] as ElementBox).key).toBe(inserted.firstParagraphId);
+  });
+});
+
+describe("footnote dot is on the BODY marker ONLY, not the call marker", () => {
+  // Load-bearing for the split: the inline superscript CALL marker reads like a
+  // bare number ("1"), while the bottom-slot BODY marker reads like a numbered-
+  // list item ("1."). Both come from the SAME counter value; the "." is the
+  // list-style suffix added only on the body side (symbol-exempt). This FAILS
+  // on the all-dotted (095f2f3) code where formatCounter dotted everything.
+  function realBodyRegistry() {
+    const reg = createComponentRegistry();
+    reg.register(documentComponent);
+    reg.register(paragraphComponent);
+    reg.register(footnoteBodyComponent);
+    return reg;
+  }
+
+  /** The CALL marker (superscript) text in paragraph `id` of the main doc. */
+  function callMarkerText(out: { root: RenderNode }, id: string): string | undefined {
+    const docChildren = (out.root as ElementBox).children;
+    for (const para of docChildren) {
+      if (para.key !== id) continue;
+      for (const child of (para as ElementBox).children) {
+        if (child.type !== "element") continue;
+        const marker = child.children.find(
+          (c): c is RenderNode => c.key.endsWith("/marker-text"),
+        );
+        if (marker !== undefined) return firstText(marker);
+      }
+    }
+    return undefined;
+  }
+
+  /** The BODY marker (bottom-slot) text — the embed body root's markerText. */
+  function bodyMarkerText(
+    out: { embedContents: ReadonlyMap<BlockId, RenderNode> },
+    id: BlockId,
+  ): unknown {
+    const body = out.embedContents.get(id);
+    if (body === undefined || body.type !== "element") {
+      throw new Error(`expected an ElementBox embed body for "${id}"`);
+    }
+    return body.style.markerText;
+  }
+
+  function docWith(format?: string) {
+    return buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({
+          id: "doc",
+          type: "document",
+          firstChildId: "p",
+          lastChildId: "p",
+          ...(format === undefined ? {} : { attrs: { footnoteNumberingFormat: format } }),
+        }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hi")]) }),
+      ],
+    });
+  }
+
+  it("default decimal: call marker is bare '1', body marker is dotted '1.'", () => {
+    const reg = realBodyRegistry();
+    const attrReg = createDefaultAttrRegistry();
+    const alloc = createTestAllocator("seed");
+    const inserted = insertFootnote(docWith(), createPosition("p" as BlockId, 2), alloc);
+    const out = render(inserted.state, reg, attrReg);
+    // Superscript CALL marker: BARE.
+    expect(callMarkerText(out, "p")).toBe("1");
+    // Bottom-slot BODY marker: DOTTED.
+    expect(bodyMarkerText(out, inserted.bodyRootId)).toBe("1.");
+  });
+
+  it("symbol format: BOTH markers are '*' (no dot — symbol is exempt)", () => {
+    const reg = realBodyRegistry();
+    const attrReg = createDefaultAttrRegistry();
+    const alloc = createTestAllocator("seed");
+    const inserted = insertFootnote(docWith("symbol"), createPosition("p" as BlockId, 2), alloc);
+    const out = render(inserted.state, reg, attrReg);
+    expect(callMarkerText(out, "p")).toBe("*");
+    expect(bodyMarkerText(out, inserted.bodyRootId)).toBe("*");
   });
 });

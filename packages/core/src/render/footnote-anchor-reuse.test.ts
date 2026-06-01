@@ -67,7 +67,7 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
     const formattedValues = [...after.renderOutput.footnoteNumbers.values()]
       .map((n) => n.formatted)
       .sort();
-    expect(formattedValues).toEqual(["1.", "2."]);
+    expect(formattedValues).toEqual(["1", "2"]);
   });
 
   it("DOES call collectFootnoteAnchors when an edit DELETES the anchor (and renumbers)", () => {
@@ -115,7 +115,7 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
     const formattedValues = [...after.renderOutput.footnoteNumbers.values()].map(
       (n) => n.formatted,
     );
-    expect(formattedValues).toEqual(["1."]);
+    expect(formattedValues).toEqual(["1"]);
   });
 
   it("DOES call collectFootnoteAnchors when editing the anchor's OWN host block text", () => {
@@ -182,16 +182,18 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
     const after = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
 
     // Invariant: every footnote body's RENDERED leading number (markerText,
-    // baked from ctx.footnoteNumber at render time) must equal its current
-    // number. A stale reused body node keeps the OLD number while the numbers
-    // map + call marker show the new one — the render-audit I1 bug.
+    // baked from ctx.footnoteNumber at render time) must track its current
+    // number. The body marker is the bare call-marker number plus the list-
+    // style "." suffix (decimal default), so it reads `${formatted}.`. A stale
+    // reused body node keeps the OLD number while the numbers map + call marker
+    // show the new one — the render-audit I1 bug.
     expect(after.renderOutput.footnoteNumbers.size).toBe(3);
     for (const [contentBlockId, number] of after.renderOutput.footnoteNumbers) {
       const body = after.renderOutput.embedContents.get(contentBlockId);
       if (body === undefined || body.type !== "element") {
         throw new Error(`expected an element body node for ${contentBlockId}`);
       }
-      expect(body.style.markerText).toBe(number.formatted);
+      expect(body.style.markerText).toBe(`${number.formatted}.`);
     }
   });
 
@@ -237,6 +239,6 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
     const formattedValues = [...after.renderOutput.footnoteNumbers.values()]
       .map((n) => n.formatted)
       .sort();
-    expect(formattedValues).toEqual(["1.", "2."]);
+    expect(formattedValues).toEqual(["1", "2"]);
   });
 });

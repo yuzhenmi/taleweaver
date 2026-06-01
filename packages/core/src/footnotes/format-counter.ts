@@ -2,15 +2,15 @@
  * @module footnotes/format-counter
  *
  * Pure counter-format function for footnote markers (FN-3). Maps a 1-based
- * counter value to its displayed string under one of the Google-Docs footnote
- * number formats.
+ * counter value to its displayed BARE string under one of the Google-Docs
+ * footnote number formats — "1", "iv", "A", "*".
  *
- * SUFFIX (the trailing `"."`): the NUMERIC/ALPHABETIC formats (`decimal`,
- * `lower-roman`, `upper-roman`, `lower-alpha`, `upper-alpha`) read with a
- * trailing `"."` — "1.", "iv.", "A." — matching the numbered-list marker
- * convention (the user wants footnote markers to read like a numbered list).
- * The `symbol` format is EXEMPT: *, †, ‡, … take no dot (Chicago / Word /
- * Google Docs typographic convention).
+ * BARE (no trailing `"."`): this is the reference number used by the inline
+ * superscript CALL marker, which reads like a bare superscript ("1"). The
+ * bottom-slot BODY marker reads like a numbered list ("1.") — that trailing
+ * `"."` suffix is added DOWNSTREAM in `render.ts`'s `makeRenderContext` body
+ * accessor (symbol-exempt), so the two markers intentionally differ. Keep this
+ * function bare; do not add the dot here.
  *
  * NOTE on DRY (P9a alignment): a list-marker formatter already exists at
  * `layout/list-counter.ts` with overlapping roman/alpha logic. It is NOT reused
@@ -52,18 +52,18 @@ export function formatCounter(value: number, format: CounterFormat): string {
     );
   }
   switch (format) {
-    // NUMERIC/ALPHABETIC formats read with a trailing "." (numbered-list
-    // convention); `symbol` is exempt (see module docstring).
+    // All formats are BARE here (the call marker is a bare superscript); the
+    // body marker's "." suffix is added downstream (see module docstring).
     case "decimal":
-      return `${value}.`;
+      return `${value}`;
     case "lower-roman":
-      return `${toRoman(value).toLowerCase()}.`;
+      return toRoman(value).toLowerCase();
     case "upper-roman":
-      return `${toRoman(value)}.`;
+      return toRoman(value);
     case "lower-alpha":
-      return `${toAlpha(value, 0x61 /* 'a' */)}.`;
+      return toAlpha(value, 0x61 /* 'a' */);
     case "upper-alpha":
-      return `${toAlpha(value, 0x41 /* 'A' */)}.`;
+      return toAlpha(value, 0x41 /* 'A' */);
     case "symbol":
       return toSymbol(value);
   }

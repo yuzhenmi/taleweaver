@@ -22,10 +22,10 @@ describe("footnoteNumbers — continuous", () => {
     ];
     const policy: FootnoteNumberingPolicy = { reset: "continuous", format: "decimal" };
     const map = footnoteNumbers(anchors, policy);
-    expect(map.get("fb0" as BlockId)).toEqual({ value: 1, formatted: "1." });
-    expect(map.get("fb1" as BlockId)).toEqual({ value: 2, formatted: "2." });
-    expect(map.get("fb2" as BlockId)).toEqual({ value: 3, formatted: "3." });
-    expect(map.get("fb3" as BlockId)).toEqual({ value: 4, formatted: "4." });
+    expect(map.get("fb0" as BlockId)).toEqual({ value: 1, formatted: "1" });
+    expect(map.get("fb1" as BlockId)).toEqual({ value: 2, formatted: "2" });
+    expect(map.get("fb2" as BlockId)).toEqual({ value: 3, formatted: "3" });
+    expect(map.get("fb3" as BlockId)).toEqual({ value: 4, formatted: "4" });
   });
 
   it("returns an empty map for no anchors", () => {
@@ -36,9 +36,9 @@ describe("footnoteNumbers — continuous", () => {
   it("applies the format to the raw value", () => {
     const anchors = [ref("a", null), ref("b", null), ref("c", null)];
     const map = footnoteNumbers(anchors, { reset: "continuous", format: "lower-roman" });
-    expect(map.get("a" as BlockId)).toEqual({ value: 1, formatted: "i." });
-    expect(map.get("b" as BlockId)).toEqual({ value: 2, formatted: "ii." });
-    expect(map.get("c" as BlockId)).toEqual({ value: 3, formatted: "iii." });
+    expect(map.get("a" as BlockId)).toEqual({ value: 1, formatted: "i" });
+    expect(map.get("b" as BlockId)).toEqual({ value: 2, formatted: "ii" });
+    expect(map.get("c" as BlockId)).toEqual({ value: 3, formatted: "iii" });
   });
 });
 
@@ -73,9 +73,9 @@ describe("footnoteNumbers — restart-per-section", () => {
       reset: "restart-per-section",
       format: "lower-alpha",
     });
-    expect(map.get("a1" as BlockId)).toEqual({ value: 1, formatted: "a." });
-    expect(map.get("a2" as BlockId)).toEqual({ value: 2, formatted: "b." });
-    expect(map.get("b1" as BlockId)).toEqual({ value: 1, formatted: "a." });
+    expect(map.get("a1" as BlockId)).toEqual({ value: 1, formatted: "a" });
+    expect(map.get("a2" as BlockId)).toEqual({ value: 2, formatted: "b" });
+    expect(map.get("b1" as BlockId)).toEqual({ value: 1, formatted: "a" });
   });
 
   it("treats the implicit root section (null) as its own reset scope", () => {
@@ -114,9 +114,9 @@ describe("footnoteNumbers — restart-per-page (FN-6)", () => {
       format: "decimal",
     };
     const map = footnoteNumbers(anchors, policy, pageAssignment);
-    expect(map.get("cb1" as BlockId)).toEqual({ value: 1, formatted: "1." });
-    expect(map.get("cb2" as BlockId)).toEqual({ value: 2, formatted: "2." });
-    expect(map.get("cb3" as BlockId)).toEqual({ value: 3, formatted: "3." });
+    expect(map.get("cb1" as BlockId)).toEqual({ value: 1, formatted: "1" });
+    expect(map.get("cb2" as BlockId)).toEqual({ value: 2, formatted: "2" });
+    expect(map.get("cb3" as BlockId)).toEqual({ value: 3, formatted: "3" });
   });
 
   it("resets the counter to 1 at each page boundary", () => {
@@ -139,11 +139,11 @@ describe("footnoteNumbers — restart-per-page (FN-6)", () => {
       format: "decimal",
     };
     const map = footnoteNumbers(anchors, policy, pageAssignment);
-    expect(map.get("cb1" as BlockId)).toEqual({ value: 1, formatted: "1." });
-    expect(map.get("cb2" as BlockId)).toEqual({ value: 2, formatted: "2." });
-    expect(map.get("cb3" as BlockId)).toEqual({ value: 1, formatted: "1." });
-    expect(map.get("cb4" as BlockId)).toEqual({ value: 1, formatted: "1." });
-    expect(map.get("cb5" as BlockId)).toEqual({ value: 2, formatted: "2." });
+    expect(map.get("cb1" as BlockId)).toEqual({ value: 1, formatted: "1" });
+    expect(map.get("cb2" as BlockId)).toEqual({ value: 2, formatted: "2" });
+    expect(map.get("cb3" as BlockId)).toEqual({ value: 1, formatted: "1" });
+    expect(map.get("cb4" as BlockId)).toEqual({ value: 1, formatted: "1" });
+    expect(map.get("cb5" as BlockId)).toEqual({ value: 2, formatted: "2" });
   });
 
   it("numbers a single anchor on a non-zero page as 1 (reset fires on first anchor)", () => {
@@ -154,7 +154,7 @@ describe("footnoteNumbers — restart-per-page (FN-6)", () => {
       { reset: "restart-per-page", format: "decimal" },
       pageAssignment,
     );
-    expect(map.get("cb1" as BlockId)).toEqual({ value: 1, formatted: "1." });
+    expect(map.get("cb1" as BlockId)).toEqual({ value: 1, formatted: "1" });
   });
 
   it("applies the format to per-page counters (lower-roman)", () => {
@@ -175,10 +175,10 @@ describe("footnoteNumbers — restart-per-page (FN-6)", () => {
       { reset: "restart-per-page", format: "lower-roman" },
       pageAssignment,
     );
-    expect(map.get("cb1" as BlockId)).toEqual({ value: 1, formatted: "i." });
-    expect(map.get("cb2" as BlockId)).toEqual({ value: 2, formatted: "ii." });
-    expect(map.get("cb3" as BlockId)).toEqual({ value: 1, formatted: "i." });
-    expect(map.get("cb4" as BlockId)).toEqual({ value: 2, formatted: "ii." });
+    expect(map.get("cb1" as BlockId)).toEqual({ value: 1, formatted: "i" });
+    expect(map.get("cb2" as BlockId)).toEqual({ value: 2, formatted: "ii" });
+    expect(map.get("cb3" as BlockId)).toEqual({ value: 1, formatted: "i" });
+    expect(map.get("cb4" as BlockId)).toEqual({ value: 2, formatted: "ii" });
   });
 
   it("throws naming the contentBlockId when an anchor is absent from pageAssignment", () => {

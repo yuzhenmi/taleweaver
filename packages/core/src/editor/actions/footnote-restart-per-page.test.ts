@@ -218,8 +218,8 @@ describe("FN-6.4 — rebuildTrees restart-per-page second pass", () => {
     expect(pages.get("fn1" as BlockId)).toBe(1);
 
     // After the second pass, the numbering map restarts per page: both → 1.
-    expect(out.renderOutput.footnoteNumbers.get("fn0" as BlockId)?.formatted).toBe("1.");
-    expect(out.renderOutput.footnoteNumbers.get("fn1" as BlockId)?.formatted).toBe("1.");
+    expect(out.renderOutput.footnoteNumbers.get("fn0" as BlockId)?.formatted).toBe("1");
+    expect(out.renderOutput.footnoteNumbers.get("fn1" as BlockId)?.formatted).toBe("1");
   });
 
   it("restart-per-page: every materialized CALL marker reads the restarted 1 — the continuous 2 never appears", () => {
@@ -231,21 +231,19 @@ describe("FN-6.4 — rebuildTrees restart-per-page second pass", () => {
     const out = rebuildTrees(editor, editor, config);
 
     // The call markers (superscript numbers in the main content) across ALL
-    // pages: under restart-per-page each footnote is "1." on its own page, so no
-    // marker ever reads the continuous "2.". Collect every footnote-number marker
-    // glyph in page content (the inline-block marker's inner text-run — now a
-    // decimal followed by a "." per the numbered-list-style suffix) and assert
-    // no "2.".
+    // pages: under restart-per-page each footnote is "1" on its own page, so no
+    // marker ever reads the continuous "2". Collect every digit glyph in page
+    // content (the inline-block marker's inner text-run) and assert no "2".
     const pages = pagesOf(out.layoutTree);
     const digits: string[] = [];
     for (const page of pages) {
       const texts: string[] = [];
       for (const child of page.children) collectRunTexts(child, texts);
-      for (const t of texts) if (/^\d+\.$/.test(t)) digits.push(t);
+      for (const t of texts) if (/^\d+$/.test(t)) digits.push(t);
     }
-    // Both call markers restarted to "1."; the continuous "2." is absent.
-    expect(digits).toContain("1.");
-    expect(digits).not.toContain("2.");
+    // Both call markers restarted to "1"; the continuous "2" is absent.
+    expect(digits).toContain("1");
+    expect(digits).not.toContain("2");
   });
 
   it("continuous policy: numbers are 1,2 and the second pass NEVER runs", () => {
@@ -257,8 +255,8 @@ describe("FN-6.4 — rebuildTrees restart-per-page second pass", () => {
     const out = rebuildTrees(editor, editor, config);
 
     // Continuous: fn0 → 1, fn1 → 2.
-    expect(out.renderOutput.footnoteNumbers.get("fn0" as BlockId)?.formatted).toBe("1.");
-    expect(out.renderOutput.footnoteNumbers.get("fn1" as BlockId)?.formatted).toBe("2.");
+    expect(out.renderOutput.footnoteNumbers.get("fn0" as BlockId)?.formatted).toBe("1");
+    expect(out.renderOutput.footnoteNumbers.get("fn1" as BlockId)?.formatted).toBe("2");
 
     // The second-pass per-page recompute is NEVER invoked for continuous: no
     // call to footnoteNumbers passes a restart-per-page policy.
@@ -290,8 +288,8 @@ describe("FN-6.4 — rebuildTrees restart-per-page second pass", () => {
     expect(pages.get("fn1" as BlockId)).toBe(0);
 
     // Same page ⇒ per-page == continuous: 1, 2.
-    expect(out.renderOutput.footnoteNumbers.get("fn0" as BlockId)?.formatted).toBe("1.");
-    expect(out.renderOutput.footnoteNumbers.get("fn1" as BlockId)?.formatted).toBe("2.");
+    expect(out.renderOutput.footnoteNumbers.get("fn0" as BlockId)?.formatted).toBe("1");
+    expect(out.renderOutput.footnoteNumbers.get("fn1" as BlockId)?.formatted).toBe("2");
   });
 
   it("restart-per-page on a NON-virtual layout (no pageConfig) skips the second pass (continuous fallback)", () => {
@@ -305,7 +303,7 @@ describe("FN-6.4 — rebuildTrees restart-per-page second pass", () => {
     // Non-virtual layout: no footnoteAnchorPages ⇒ render keeps the continuous
     // fallback (1, 2) rather than crashing or restarting.
     expect(out.layoutTree.type).not.toBe("virtual-root");
-    expect(out.renderOutput.footnoteNumbers.get("fn0" as BlockId)?.formatted).toBe("1.");
-    expect(out.renderOutput.footnoteNumbers.get("fn1" as BlockId)?.formatted).toBe("2.");
+    expect(out.renderOutput.footnoteNumbers.get("fn0" as BlockId)?.formatted).toBe("1");
+    expect(out.renderOutput.footnoteNumbers.get("fn1" as BlockId)?.formatted).toBe("2");
   });
 });
