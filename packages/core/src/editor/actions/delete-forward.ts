@@ -1,104 +1,144 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { pushEditorChange } from "../editor-state";
-import { createCursor, isCollapsed } from "../../cursor/selection";
-import { createSpan, positionsEqual } from "../../state/position";
-import { deleteRange } from "../../state/transformations";
+import { resolveBlock, createPosition, createSpan, deleteRange, mergeAdjacentBlocks, mergeSectionWithPrevious, inlineContentLength } from "../../state";
 import { moveByCharacter } from "../../cursor/cursor-ops";
-import { getNodeByPath } from "../../state/operations";
-import { getTextContentLength } from "../../state/text-utils";
-import { createNode } from "../../state/create-node";
-import { isStructuralParagraph } from "../../state/normalize";
-import { rebuildTrees, deleteSelectionRange, findLastTextDescendant, isAtCellBoundary } from "./helpers";
+import { isCollapsed } from "../../cursor/selection";
+import { rebuildTrees } from "./helpers";
+import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
 
 export function handleDeleteForward(
   editor: EditorState,
   config: EditorConfig,
 ): EditorState {
-  // If selection is expanded, delete the range
-  if (!isCollapsed(editor.selection)) {
-    return deleteSelectionRange(editor, config);
+  const { selection } = editor;
+
+  // Non-collapsed: delete range. Cursor goes to spanStart.
+  if (!isCollapsed(selection)) {
+    // C.2c §6: cross-CONTEXT selection refusal (see isCrossContextSelection).
+    if (isCrossContextSelection(editor.state, selection)) return editor;
+    // Deletable-span guard + collapse point (see expandedSpanCollapsePoint):
+    // refuses an unresolvable or cross-parent span.
+    const start = expandedSpanCollapsePoint(editor.state, selection);
+    if (start === null) return editor;
+    const result = deleteRange(editor.state, selection);
+    if (result.state === editor.state) return editor;
+    const newCursor = createPosition(start.blockId, start.offset);
+    const newSelection = createSpan(newCursor, newCursor);
+    editor.history.commit(result, {
+      before: selection,
+      after: newSelection,
+    });
+    return rebuildTrees(
+      { ...editor, state: result.state, selection: newSelection },
+      editor,
+      config,
+      result.dirtyIds,
+    );
   }
 
-  const pos = editor.selection.focus;
+  const pos = selection.focus;
+  const currentBlock = resolveBlock(editor.state, pos.blockId)?.block ?? null;
+  if (currentBlock === null) return editor;
+  const currentLen =
+    currentBlock.inlineContent === null
+      ? 0
+      : inlineContentLength(currentBlock.inlineContent);
 
-  // At end of a table cell — prevent cross-cell merge
-  if (isAtCellBoundary(editor.state, pos, "end")) {
+  // Mid-block: delete one grapheme cluster going forward.
+  if (pos.offset < currentLen) {
+    const next = moveByCharacter(editor.state, pos, "forward");
+    if (next.blockId !== pos.blockId) return editor;
+    if (next.offset === pos.offset) return editor;
+    const span = createSpan(pos, next);
+    const result = deleteRange(editor.state, span);
+    if (result.state === editor.state) return editor;
+    const newCursor = createPosition(pos.blockId, pos.offset);
+    const newSelection = createSpan(newCursor, newCursor);
+    editor.history.commit(result, {
+      before: selection,
+      after: newSelection,
+    });
+    return rebuildTrees(
+      { ...editor, state: result.state, selection: newSelection },
+      editor,
+      config,
+      result.dirtyIds,
+    );
+  }
+
+  // pos.offset === end of block: cross-block forward delete (merge next into current).
+  const nextPos = moveByCharacter(editor.state, pos, "forward");
+  if (nextPos.blockId === pos.blockId) {
     return editor;
   }
+  const nextBlock = resolveBlock(editor.state, nextPos.blockId)?.block ?? null;
+  if (nextBlock === null) return editor;
 
-  // In a structural paragraph — no-op to preserve cursor landing spot
-  if (pos.path.length === 2 && isStructuralParagraph(editor.state, pos.path[0])) {
-    return editor;
-  }
-
-  // Check if cursor is at end of current block and next sibling is a void block
-  const blockIdx = pos.path[0];
-  if (blockIdx < editor.state.children.length - 1) {
-    const nextBlock = editor.state.children[blockIdx + 1];
-    if (nextBlock && nextBlock.children.length === 0) {
-      // Verify cursor is at end of the current block
-      const currentBlock = editor.state.children[blockIdx];
-      const lastText = findLastTextDescendant(currentBlock, [blockIdx]);
-      if (lastText) {
-        const textLen = getTextContentLength(lastText.node);
-        const pathMatch = pos.path.length === lastText.path.length &&
-          pos.path.every((v, i) => v === lastText.path[i]);
-        if (pathMatch && pos.offset === textLen) {
-          // Remove the void block
-          const docChildren = [...editor.state.children];
-          docChildren.splice(blockIdx + 1, 1);
-          const newDoc = createNode(
-            editor.state.id,
-            editor.state.type,
-            { ...editor.state.properties },
-            docChildren,
-          );
-          const newSelection = createCursor(pos.path, pos.offset);
-
-          return rebuildTrees(
-            {
-              ...editor,
-              state: newDoc,
-              selection: newSelection,
-              history: pushEditorChange(editor.history, {
-                change: { oldState: editor.state, newState: newDoc, timestamp: 0 },
-                selectionBefore: editor.selection,
-                selectionAfter: newSelection,
-              }),
-            },
-            editor,
-            config,
-          );
-        }
+  // Section-boundary forward delete: the cursor is at the END of a flat
+  // doc-root `section` P's LAST child, and P has a next section sibling X.
+  // Remove the break by merging X into P (X's blocks reparent onto the end of
+  // P; X is dropped). The cursor stays at the end of P's last block, which
+  // keeps its id. The boundary paragraphs are NOT merged (Word / Google Docs
+  // behavior: a second Delete then merges them via the same-parent path
+  // below).
+  if (currentBlock.parentId !== null) {
+    // resolveBlock so a header/footer caret's parent (body root, in
+    // templateContents) resolves — but the section-merge is gated to doc-root
+    // `section`s (`section.parentId === editor.state.rootId`), so a header body
+    // root cannot satisfy the guard and the branch SKIPS (header forward-delete
+    // falls through to the normal same-parent merge). Main-tree byte-identical.
+    const section = resolveBlock(editor.state, currentBlock.parentId)?.block ?? null;
+    if (
+      section !== null &&
+      section.type === "section" &&
+      section.parentId === editor.state.rootId &&
+      section.lastChildId === currentBlock.id &&
+      section.nextSiblingId !== null
+    ) {
+      const nextSection = resolveBlock(editor.state, section.nextSiblingId)?.block ?? null;
+      if (nextSection !== null && nextSection.type === "section") {
+        const result = mergeSectionWithPrevious(editor.state, nextSection.id);
+        if (result.state === editor.state) return editor;
+        const newCursor = createPosition(pos.blockId, pos.offset);
+        const newSelection = createSpan(newCursor, newCursor);
+        editor.history.commit(result, {
+          before: selection,
+          after: newSelection,
+        });
+        return rebuildTrees(
+          { ...editor, state: result.state, selection: newSelection },
+          editor,
+          config,
+          result.dirtyIds,
+        );
       }
     }
   }
 
-  // Use moveByCharacter to find the next position (handles all nesting)
-  const nextSel = moveByCharacter(editor.state, pos, "forward");
-  const nextPos = nextSel.focus;
-
-  // If we didn't move (at end of document), nothing to delete
-  if (positionsEqual(nextPos, pos)) {
+  if (
+    currentBlock.parentId !== nextBlock.parentId ||
+    currentBlock.nextSiblingId !== nextBlock.id ||
+    nextBlock.prevSiblingId !== currentBlock.id
+  ) {
     return editor;
   }
 
-  const deleteSpan = createSpan(pos, nextPos);
-  const change = deleteRange(editor.state, deleteSpan);
-  const newSelection = createCursor(pos.path, pos.offset);
-
+  const result = mergeAdjacentBlocks(
+    editor.state,
+    currentBlock.id,
+    nextBlock.id,
+  );
+  if (result.state === editor.state) return editor;
+  // After merge, cursor stays at the same spot in the (now-merged) current block.
+  const newCursor = createPosition(currentBlock.id, currentLen);
+  const newSelection = createSpan(newCursor, newCursor);
+  editor.history.commit(result, {
+    before: selection,
+    after: newSelection,
+  });
   return rebuildTrees(
-    {
-      ...editor,
-      state: change.newState,
-      selection: newSelection,
-      history: pushEditorChange(editor.history, {
-        change,
-        selectionBefore: editor.selection,
-        selectionAfter: newSelection,
-      }, "delete"),
-    },
+    { ...editor, state: result.state, selection: newSelection },
     editor,
     config,
+    result.dirtyIds,
   );
 }

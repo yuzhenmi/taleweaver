@@ -1,192 +1,236 @@
-import { describe, it, expect, vi } from "vitest";
+/**
+ * Smell B (#291): characterization + migration safety net for `handlePaste`.
+ *
+ * `handlePaste` had NO test coverage before this file. These tests pin down
+ * the OBSERVABLE paste behavior (block content + cursor + block type
+ * inheritance) so the migration from the per-line
+ * `splitBlockAtPosition`+`insertText` chain onto the `insertBlocksAfter`
+ * bulk primitive can be proven behavior-preserving: every test here must
+ * pass against the ORIGINAL handler AND the migrated handler.
+ *
+ * Harness mirrors the other `actions/*.test.ts` (insert-node, section-break):
+ * drive via `reduceEditor`, inspect via `getBlock` walking the block tree.
+ */
+import { describe, it, expect } from "vitest";
 import {
   config,
-  getTextAt,
-  stateWithText,
-  withSelection,
   createInitialEditorState,
   reduceEditor,
-  createPosition,
-  createSelection,
-  createCursor,
+  getTextOf,
+  firstChildId,
+  type EditorState,
 } from "./test-helpers";
-import * as layoutEngine from "../../layout/layout-engine";
+import { getBlock } from "../../state";
+import type { BlockId } from "../../state";
 
-describe("PASTE", () => {
-  it("pastes single-line text at cursor", () => {
-    let s = stateWithText("ab");
-    s = withSelection(s, createCursor([0, 0], 1));
-    s = reduceEditor(s, { type: "PASTE", text: "XY" }, config);
-    expect(getTextAt(s, [0, 0])).toBe("aXYb");
-    expect(s.selection.focus.offset).toBe(3);
+/** Ordered list of the document root's direct children. */
+function rootChildren(editor: EditorState): BlockId[] {
+  const root = getBlock(editor.state, editor.state.rootId);
+  if (root === null) return [];
+  const ids: BlockId[] = [];
+  let cur: BlockId | null = root.firstChildId;
+  let guard = 0;
+  while (cur !== null && guard++ < 100000) {
+    ids.push(cur);
+    const b = getBlock(editor.state, cur);
+    if (b === null) break;
+    cur = b.nextSiblingId;
+  }
+  return ids;
+}
+
+function paste(editor: EditorState, text: string): EditorState {
+  return reduceEditor(editor, { type: "PASTE", text }, config);
+}
+
+describe("handlePaste — multi-line plain-text paste (characterization + migration)", () => {
+  it("(1) single line into empty paragraph: para = text, cursor at end, ONE block", () => {
+    const initial = createInitialEditorState(config);
+    const paraId = firstChildId(initial.state) as BlockId;
+
+    const next = paste(initial, "abc");
+
+    const blocks = rootChildren(next);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toBe(paraId);
+    expect(getTextOf(next.state, paraId)).toBe("abc");
+    expect(next.selection.focus).toEqual({ blockId: paraId, offset: 3 });
+    expect(next.selection.anchor).toEqual({ blockId: paraId, offset: 3 });
   });
 
-  it("pastes multi-line text creating new paragraphs", () => {
+  it("(2) three lines into empty doc: 3 paragraphs a/b/c, cursor at end of c", () => {
+    const initial = createInitialEditorState(config);
+
+    const next = paste(initial, "a\nb\nc");
+
+    const blocks = rootChildren(next);
+    expect(blocks).toHaveLength(3);
+    expect(getTextOf(next.state, blocks[0])).toBe("a");
+    expect(getTextOf(next.state, blocks[1])).toBe("b");
+    expect(getTextOf(next.state, blocks[2])).toBe("c");
+    // Cursor collapsed at end of the last pasted line ("c", length 1).
+    expect(next.selection.focus).toEqual({ blockId: blocks[2], offset: 1 });
+    expect(next.selection.anchor).toEqual({ blockId: blocks[2], offset: 1 });
+  });
+
+  it("(3) two lines into the MIDDLE of helloworld at offset 5", () => {
     let s = createInitialEditorState(config);
-    s = reduceEditor(s, { type: "PASTE", text: "line1\nline2\nline3" }, config);
-    expect(s.state.children).toHaveLength(3);
-    expect(getTextAt(s, [0, 0])).toBe("line1");
-    expect(getTextAt(s, [1, 0])).toBe("line2");
-    expect(getTextAt(s, [2, 0])).toBe("line3");
+    const paraId = firstChildId(s.state) as BlockId;
+    s = reduceEditor(s, { type: "INSERT_TEXT", text: "helloworld" }, config);
+    // Place collapsed cursor at offset 5 (between "hello" and "world").
+    const mid = { blockId: paraId, offset: 5 };
+    s = reduceEditor(s, { type: "SET_SELECTION", selection: { anchor: mid, focus: mid } }, config);
+
+    const next = paste(s, "X\nY");
+
+    const blocks = rootChildren(next);
+    expect(blocks).toHaveLength(2);
+    // First block: prefix "hello" + L0 "X".
+    expect(getTextOf(next.state, blocks[0])).toBe("helloX");
+    // Second block: L1 "Y" + suffix "world".
+    expect(getTextOf(next.state, blocks[1])).toBe("Yworld");
+    // Cursor at end of last pasted line "Y" (length 1) in the new block.
+    expect(next.selection.focus).toEqual({ blockId: blocks[1], offset: 1 });
+    expect(next.selection.anchor).toEqual({ blockId: blocks[1], offset: 1 });
   });
 
-  it("replaces expanded selection when pasting", () => {
-    let s = stateWithText("hello");
-    s = withSelection(s, createSelection(
-      createPosition([0, 0], 1),
-      createPosition([0, 0], 4),
-    ));
-    s = reduceEditor(s, { type: "PASTE", text: "XY" }, config);
-    expect(getTextAt(s, [0, 0])).toBe("hXYo");
+  it("(4) trailing empty line a\\n: 'a' then an empty paragraph, cursor in empty para at 0", () => {
+    const initial = createInitialEditorState(config);
+
+    const next = paste(initial, "a\n");
+
+    const blocks = rootChildren(next);
+    expect(blocks).toHaveLength(2);
+    expect(getTextOf(next.state, blocks[0])).toBe("a");
+    expect(getTextOf(next.state, blocks[1])).toBe("");
+    // Last pasted line is "" (length 0): cursor at offset 0 of the empty para.
+    expect(next.selection.focus).toEqual({ blockId: blocks[1], offset: 0 });
+    expect(next.selection.anchor).toEqual({ blockId: blocks[1], offset: 0 });
   });
 
-  it("does nothing for empty paste", () => {
-    let s = stateWithText("hello");
-    const before = s.state;
-    s = reduceEditor(s, { type: "PASTE", text: "" }, config);
-    expect(s.state).toBe(before);
+  it("(5) empty MIDDLE line a\\n\\nb: 'a', empty para, 'b'", () => {
+    const initial = createInitialEditorState(config);
+
+    const next = paste(initial, "a\n\nb");
+
+    const blocks = rootChildren(next);
+    expect(blocks).toHaveLength(3);
+    expect(getTextOf(next.state, blocks[0])).toBe("a");
+    expect(getTextOf(next.state, blocks[1])).toBe("");
+    expect(getTextOf(next.state, blocks[2])).toBe("b");
+    expect(next.selection.focus).toEqual({ blockId: blocks[2], offset: 1 });
+    expect(next.selection.anchor).toEqual({ blockId: blocks[2], offset: 1 });
   });
 
-  it("pastes text with trailing newline", () => {
+  it("(5b) leading empty line \\nY into a non-empty block: empty para, then Y+suffix", () => {
     let s = createInitialEditorState(config);
-    s = reduceEditor(s, { type: "PASTE", text: "hello\n" }, config);
-    expect(s.state.children).toHaveLength(2);
-    expect(getTextAt(s, [0, 0])).toBe("hello");
-    expect(getTextAt(s, [1, 0])).toBe("");
+    const paraId = firstChildId(s.state) as BlockId;
+    s = reduceEditor(s, { type: "INSERT_TEXT", text: "world" }, config);
+    // Cursor at offset 0 (start of "world").
+    const startPos = { blockId: paraId, offset: 0 };
+    s = reduceEditor(
+      s,
+      { type: "SET_SELECTION", selection: { anchor: startPos, focus: startPos } },
+      config,
+    );
+
+    const next = paste(s, "\nY");
+
+    // L0 is empty → not inserted, pos stays at offset 0; split at 0 makes B
+    // an empty prefix block and N_last the whole "world" suffix; L1 "Y"
+    // prepends to N_last.
+    const blocks = rootChildren(next);
+    expect(blocks).toHaveLength(2);
+    expect(getTextOf(next.state, blocks[0])).toBe("");
+    expect(getTextOf(next.state, blocks[1])).toBe("Yworld");
+    expect(next.selection.focus).toEqual({ blockId: blocks[1], offset: 1 });
+    expect(next.selection.anchor).toEqual({ blockId: blocks[1], offset: 1 });
   });
 
-  it("undoes paste-over-selection in a single undo step", () => {
-    let s = stateWithText("hello");
-    s = withSelection(s, createSelection(
-      createPosition([0, 0], 1),
-      createPosition([0, 0], 4),
-    ));
-    s = reduceEditor(s, { type: "PASTE", text: "XY" }, config);
-    expect(getTextAt(s, [0, 0])).toBe("hXYo");
-    // Single undo should restore the original text and selection
-    s = reduceEditor(s, { type: "UNDO" }, config);
-    expect(getTextAt(s, [0, 0])).toBe("hello");
-  });
-
-  it("undoes multi-line paste in a single undo step", () => {
-    let s = stateWithText("ab");
-    s = withSelection(s, createCursor([0, 0], 1));
-    s = reduceEditor(s, { type: "PASTE", text: "X\nY\nZ" }, config);
-    expect(s.state.children).toHaveLength(3);
-    // Single undo should collapse back to one paragraph
-    s = reduceEditor(s, { type: "UNDO" }, config);
-    expect(s.state.children).toHaveLength(1);
-    expect(getTextAt(s, [0, 0])).toBe("ab");
-  });
-
-  it("consecutive multi-line pastes produce correct text and cursor", () => {
+  it("(6) paste into an EXPANDED selection replaces it then inserts", () => {
     let s = createInitialEditorState(config);
+    const paraId = firstChildId(s.state) as BlockId;
+    s = reduceEditor(s, { type: "INSERT_TEXT", text: "helloworld" }, config);
+    // Select "world" (offsets 5..10).
+    const sel = {
+      anchor: { blockId: paraId, offset: 5 },
+      focus: { blockId: paraId, offset: 10 },
+    };
+    s = reduceEditor(s, { type: "SET_SELECTION", selection: sel }, config);
 
-    // Paste 1: three lines into empty document
-    s = reduceEditor(s, { type: "PASTE", text: "aaa\nbbb\nccc" }, config);
-    expect(s.state.children).toHaveLength(3);
-    expect(getTextAt(s, [0, 0])).toBe("aaa");
-    expect(getTextAt(s, [1, 0])).toBe("bbb");
-    expect(getTextAt(s, [2, 0])).toBe("ccc");
-    expect(s.selection.focus.path).toEqual([2, 0]);
-    expect(s.selection.focus.offset).toBe(3);
+    const next = paste(s, "X\nY");
 
-    // Paste 2: two lines at current cursor (end of "ccc")
-    s = reduceEditor(s, { type: "PASTE", text: "ddd\neee" }, config);
-    expect(s.state.children).toHaveLength(4);
-    expect(getTextAt(s, [0, 0])).toBe("aaa");
-    expect(getTextAt(s, [1, 0])).toBe("bbb");
-    expect(getTextAt(s, [2, 0])).toBe("cccddd");
-    expect(getTextAt(s, [3, 0])).toBe("eee");
-    expect(s.selection.focus.path).toEqual([3, 0]);
-    expect(s.selection.focus.offset).toBe(3);
-
-    // Paste 3: single line at current cursor (end of "eee")
-    s = reduceEditor(s, { type: "PASTE", text: "fff" }, config);
-    expect(getTextAt(s, [3, 0])).toBe("eeefff");
-    expect(s.selection.focus.offset).toBe(6);
+    const blocks = rootChildren(next);
+    expect(blocks).toHaveLength(2);
+    // "world" deleted → prefix "hello", then "X" appended; new block "Y".
+    expect(getTextOf(next.state, blocks[0])).toBe("helloX");
+    expect(getTextOf(next.state, blocks[1])).toBe("Y");
+    expect(next.selection.focus).toEqual({ blockId: blocks[1], offset: 1 });
+    expect(next.selection.anchor).toEqual({ blockId: blocks[1], offset: 1 });
   });
 
-  it("consecutive pastes into middle of existing text", () => {
-    let s = stateWithText("abcdef");
-    s = withSelection(s, createCursor([0, 0], 3)); // cursor after "abc"
-
-    // Paste 1: split "abcdef" → "abcX", "Ydef"
-    s = reduceEditor(s, { type: "PASTE", text: "X\nY" }, config);
-    expect(s.state.children).toHaveLength(2);
-    expect(getTextAt(s, [0, 0])).toBe("abcX");
-    expect(getTextAt(s, [1, 0])).toBe("Ydef");
-    expect(s.selection.focus.path).toEqual([1, 0]);
-    expect(s.selection.focus.offset).toBe(1);
-
-    // Paste 2: at cursor inside "Ydef" → "YM", "Ndef"
-    s = reduceEditor(s, { type: "PASTE", text: "M\nN" }, config);
-    expect(s.state.children).toHaveLength(3);
-    expect(getTextAt(s, [0, 0])).toBe("abcX");
-    expect(getTextAt(s, [1, 0])).toBe("YM");
-    expect(getTextAt(s, [2, 0])).toBe("Ndef");
-    expect(s.selection.focus.path).toEqual([2, 0]);
-    expect(s.selection.focus.offset).toBe(1);
-  });
-
-  it("rebuilds layout tree only once for multi-line paste", () => {
-    const spy = vi.spyOn(layoutEngine, "layoutTreeIncremental");
+  it("(7) new blocks inherit the target block's type (heading)", () => {
     let s = createInitialEditorState(config);
-    spy.mockClear();
+    const paraId = firstChildId(s.state) as BlockId;
+    s = reduceEditor(
+      s,
+      { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 1 } },
+      config,
+    );
+    expect(getBlock(s.state, paraId)?.type).toBe("heading");
 
-    s = reduceEditor(s, { type: "PASTE", text: "a\nb\nc\nd\ne" }, config);
-    expect(s.state.children).toHaveLength(5);
+    const next = paste(s, "a\nb");
 
-    // Should call layoutTreeIncremental exactly once, not once per line
-    expect(spy).toHaveBeenCalledTimes(1);
-    spy.mockRestore();
+    const blocks = rootChildren(next);
+    expect(blocks).toHaveLength(2);
+    for (const id of blocks) {
+      expect(getBlock(next.state, id)?.type).toBe("heading");
+    }
+    // New blocks also inherit the source attrs (level: 1).
+    expect(getBlock(next.state, blocks[1])?.attrs).toEqual({ level: 1 });
   });
 
-  it("strips carriage returns from pasted text", () => {
+  it("(8) k=4 lines into the middle of a non-empty block: content + cursor match, no throw", () => {
     let s = createInitialEditorState(config);
-    s = reduceEditor(s, { type: "PASTE", text: "line1\r\nline2\r\nline3" }, config);
-    expect(s.state.children).toHaveLength(3);
-    expect(getTextAt(s, [0, 0])).toBe("line1");
-    expect(getTextAt(s, [1, 0])).toBe("line2");
-    expect(getTextAt(s, [2, 0])).toBe("line3");
+    const paraId = firstChildId(s.state) as BlockId;
+    s = reduceEditor(s, { type: "INSERT_TEXT", text: "PREsuf" }, config);
+    // Cursor at offset 3 (between "PRE" and "suf").
+    const mid = { blockId: paraId, offset: 3 };
+    s = reduceEditor(s, { type: "SET_SELECTION", selection: { anchor: mid, focus: mid } }, config);
+
+    let next: EditorState | undefined;
+    expect(() => {
+      next = paste(s, "L0\nL1\nL2\nL3");
+    }).not.toThrow();
+    if (next === undefined) throw new Error("paste returned undefined");
+
+    const blocks = rootChildren(next);
+    expect(blocks).toHaveLength(4);
+    // B keeps prefix "PRE" + L0 "L0".
+    expect(getTextOf(next.state, blocks[0])).toBe("PREL0");
+    expect(getTextOf(next.state, blocks[1])).toBe("L1");
+    expect(getTextOf(next.state, blocks[2])).toBe("L2");
+    // Last block: L3 + suffix "suf".
+    expect(getTextOf(next.state, blocks[3])).toBe("L3suf");
+    // Cursor at end of last pasted line "L3" (length 2) in the last block.
+    expect(next.selection.focus).toEqual({ blockId: blocks[3], offset: 2 });
+    expect(next.selection.anchor).toEqual({ blockId: blocks[3], offset: 2 });
   });
 
-  it("undoes consecutive pastes independently", () => {
-    let s = createInitialEditorState(config);
-    s = reduceEditor(s, { type: "PASTE", text: "aaa\nbbb" }, config);
+  it("empty rawText is a no-op (returns the same editor reference)", () => {
+    const initial = createInitialEditorState(config);
+    const next = paste(initial, "");
+    expect(next).toBe(initial);
+  });
 
-    // After paste 1: 2 paragraphs, cursor at end of "bbb"
-    expect(s.state.children).toHaveLength(2);
-    expect(getTextAt(s, [0, 0])).toBe("aaa");
-    expect(getTextAt(s, [1, 0])).toBe("bbb");
-    expect(s.selection.focus.path).toEqual([1, 0]);
-    expect(s.selection.focus.offset).toBe(3);
-    expect(s.history.undoStack).toHaveLength(1);
+  it("\\r\\n line endings normalize to \\n", () => {
+    const initial = createInitialEditorState(config);
 
-    s = reduceEditor(s, { type: "PASTE", text: "ccc\nddd" }, config);
+    const next = paste(initial, "a\r\nb");
 
-    // After paste 2: should have 4 paragraphs (bbb + ccc on same line, then ddd)
-    // aaa, bbbccc, ddd — wait that's only 3. Let me check...
-    // Cursor is at [1,0]:3. Paste "ccc\nddd":
-    // Insert "ccc" at [1,0]:3 → "bbbccc", cursor at [1,0]:6
-    // Split at [1,0]:6 → "bbbccc" and "", cursor at [2,0]:0
-    // Insert "ddd" at [2,0]:0 → "ddd", cursor at [2,0]:3
-    // So: aaa, bbbccc, ddd — 3 paragraphs is correct!
-    expect(s.state.children).toHaveLength(3);
-    expect(getTextAt(s, [0, 0])).toBe("aaa");
-    expect(getTextAt(s, [1, 0])).toBe("bbbccc");
-    expect(getTextAt(s, [2, 0])).toBe("ddd");
-    expect(s.history.undoStack).toHaveLength(2);
-
-    // Undo paste 2
-    s = reduceEditor(s, { type: "UNDO" }, config);
-    expect(s.state.children).toHaveLength(2);
-    expect(getTextAt(s, [0, 0])).toBe("aaa");
-    expect(getTextAt(s, [1, 0])).toBe("bbb");
-
-    // Undo paste 1
-    s = reduceEditor(s, { type: "UNDO" }, config);
-    expect(s.state.children).toHaveLength(1);
-    expect(getTextAt(s, [0, 0])).toBe("");
+    const blocks = rootChildren(next);
+    expect(blocks).toHaveLength(2);
+    expect(getTextOf(next.state, blocks[0])).toBe("a");
+    expect(getTextOf(next.state, blocks[1])).toBe("b");
   });
 });

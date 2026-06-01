@@ -1,34 +1,62 @@
 import {
-  createCursor,
-  createSelection,
+  createSpan,
   createPosition,
   isCollapsed,
   extractText,
+  builtinEmbedSerializer,
   selectWord,
-  getNodeByPath,
-  getTextContentLength,
+  getBlock,
+  inlineContentLength,
+  findItemAtOffset,
   resolvePixelPosition,
   resolvePositionFromPixel,
+  selectionContextOf,
   computeSelectionRects,
-  findFirstTextDescendant,
-  findLastTextDescendant,
+  computeSelectionRectsForPage,
+  resolvePositionedTree,
+  spanStart,
+  spanEnd,
+  markStart,
+  markEnd,
   type LayoutBox,
+  type VirtualLayoutTree,
   type Position,
+  type BlockId,
+  type TextShaper,
   type TextMeasurer,
   type EditorAction,
   type EditorState,
   type SelectionRect,
+  type PixelPosition,
 } from "@taleweaver/core";
 import { mapKeyEvent } from "./key-handler";
 import { FONT_CONFIG } from "./font-config";
 import { paintCanvas, paintPage, type CursorState } from "./canvas-renderer";
+import { createPaintCache, type PaintCache } from "./paint-cache";
 import { ImageCache } from "./image-cache";
 
 const DEFAULT_PAGE_GAP = 24;
 const SCROLL_DURATION = 250;
 
+/**
+ * Get the link URL at a Position, or null if the position isn't on
+ * a hyperlink. Used by Cmd+Click handling.
+ */
+function linkUrlAtPosition(
+  state: import("@taleweaver/core").State,
+  pos: Position,
+): string | null {
+  const block = getBlock(state, pos.blockId);
+  if (block === null || block.inlineContent === null) return null;
+  const { itemIndex } = findItemAtOffset(block.inlineContent, pos.offset);
+  const item = block.inlineContent.items[itemIndex];
+  if (item === undefined || item.kind !== "text") return null;
+  const link = item.attrs.link;
+  return typeof link === "string" && link.length > 0 ? link : null;
+}
+
 export interface EditorControllerOptions {
-  measurer: TextMeasurer;
+  measurer: TextShaper | TextMeasurer;
   dispatch: (action: EditorAction) => void;
   pageHeight?: number;
   pageGap?: number;
@@ -51,6 +79,44 @@ export function createEditorController(
   // ── State ──────────────────────────────────────────────────────────────
 
   let state: EditorState | null = null;
+  // The current layout tree, straight off `state.layoutTree`. In paginated mode
+  // it is a `VirtualLayoutTree` (a `PagePlan` + lazily-materialized pages); in
+  // unpaginated / unsupported-feature-fallback mode it is a fully-positioned
+  // `LayoutBox`. The HOT PATH (paint visible pages, slot sizing, caret) reads
+  // the plan + `getPage(visible ∪ cursorPage)` directly and never materializes
+  // every page (Phase 3 Tasks 2/3).
+  let layoutTree: LayoutBox | VirtualLayoutTree | null = null;
+  // Lazy `materializeAll()` bridge. The common paginated paths (paint, caret,
+  // mouse hit-test, selection rects) are now per-page via `getPage` and NEVER
+  // touch this. It remains only for: (a) non-paginated identity sizing
+  // (`paintSingle`/spacer, where `layoutTree` is already a positioned
+  // `LayoutBox`), and (b) the rare spanning-block selection fallback (a single
+  // block taller than a page). Memoized per `update()`; resolved on first
+  // access so the hot path provably never triggers `materializeAll()`.
+  let positionedBridge: LayoutBox | null = null;
+  function getPositionedTree(): LayoutBox | null {
+    if (positionedBridge !== null) return positionedBridge;
+    if (layoutTree === null) return null;
+    positionedBridge = resolvePositionedTree(layoutTree);
+    return positionedBridge;
+  }
+  // Hit-test against ONLY the clicked page (virtual) — never `materializeAll`.
+  // `resolvePositionFromPixel` filters its line index by `pageIndex`, so a
+  // single `PageBox` resolves correctly (mirrors the per-page line-nav
+  // migration). Non-paginated mode has a positioned `LayoutBox` already.
+  function treeForPageHitTest(pageIndex: number): LayoutBox | null {
+    if (layoutTree === null) return null;
+    if (layoutTree.type === "virtual-root") return layoutTree.getPage(pageIndex);
+    return layoutTree;
+  }
+  // True when `blockId` straddles a page break. Per-page selection rects can't
+  // see a block's fragment on the other page (and `resolvePixelPosition` snaps a
+  // boundary at a page edge to the continuation page), so a selection whose
+  // start/end block spans pages falls back to the full bridge for that render.
+  function blockSpansPages(plan: VirtualLayoutTree["plan"], blockId: BlockId): boolean {
+    const s = plan.pageSpanOfBlock(blockId);
+    return s !== null && s.first !== s.last;
+  }
   let focused = true;
   let cursorVisible = true;
   let blinkIntervalId: ReturnType<typeof setInterval> | null = null;
@@ -64,10 +130,97 @@ export function createEditorController(
   // Image cache for rendering image blocks
   const imageCache = new ImageCache(() => paint());
 
+  // Paint caches: one for the single-canvas mode, one per page index for
+  // paginated mode. Plan 3.K.2 Task 1 wires these so paint takes the
+  // incremental path with root-reference short-circuit. Without these,
+  // every paint pass clears the entire canvas and repaints every box —
+  // O(N) per cursor move. Pruned on page removal in the excess-slot loop
+  // (see `pageCaches.delete(i)` there) so the map never outgrows the live
+  // page count.
+  const canvasCache: PaintCache = createPaintCache();
+  const pageCaches: Map<number, PaintCache> = new Map();
+  function getOrCreatePageCache(idx: number): PaintCache {
+    let c = pageCaches.get(idx);
+    if (!c) {
+      c = createPaintCache();
+      pageCaches.set(idx, c);
+    }
+    return c;
+  }
+
   // Computed on update
-  let cursorPos = { x: 0, y: 0, height: 16, lineY: 0, lineHeight: 24, pageIndex: 0 };
+  let cursorPos: PixelPosition = {
+    x: 0,
+    y: 0,
+    height: 16,
+    lineY: 0,
+    lineHeight: 24,
+    lineMarginTop: 0,
+    lineMarginBottom: 0,
+    pageIndex: 0,
+  };
   let selectionRects: SelectionRect[] = [];
-  let pages: LayoutBox[] = [];
+  // Selection-highlight state (set in `update()`, consumed in `paintPages` and
+  // `getCursorState`). Paginated mode computes rects PER VISIBLE PAGE in
+  // `paintPages` from the cached span boundary positions — `selectionRects`
+  // above is then empty (it carries rects only for the non-paginated path and
+  // the rare spanning-block fallback). `hasSelectionHighlight` lets the caret
+  // hide over a selection even when `selectionRects` is empty.
+  let hasSelectionHighlight = false;
+  let selStart: PixelPosition | null = null;
+  let selEnd: PixelPosition | null = null;
+  let selSpanningFallback = false;
+
+  // ── Page model (paginated mode) ──────────────────────────────────────────
+  //
+  // Per-page SLOT geometry, derived without positioning any page:
+  //   - virtual tree → `vtree.plan.entries` (per-entry `pageConfig` +
+  //     running-sum `blockOffset`);
+  //   - positioned tree → the positioned `PageBox` children's geometry.
+  // `pageSlots`'s length is the page count; an empty array means non-paginated
+  // (single-canvas mode).
+  //
+  // Pages are NOT uniform-height (C.2b-2): a `section` can override its page
+  // geometry, so every consumer (slot sizing, caret/textarea Y, scroll, mouse
+  // hit-test) reads PER-SLOT geometry from this array — there is no
+  // `pageIndex * (pageHeight + pageGap)` arithmetic and no virtual-vs-positioned
+  // branching at the call sites. `top` is the page's document-y (the plan's
+  // running-sum `blockOffset`); `gap` is the visual gap AFTER this page. For a
+  // doc whose every page resolves to the doc-wide config this reduces to the old
+  // uniform behavior (`top === i*(H+gap)`, `gap === pageGap`, `width === H-wide`).
+  interface PageSlotGeom {
+    readonly width: number;
+    readonly height: number;
+    /** Visual gap AFTER this page (per-section in virtual mode). */
+    readonly gap: number;
+    /** Document-y of this page's top edge (the plan's running-sum offset). */
+    readonly top: number;
+  }
+  let pageSlotGeoms: PageSlotGeom[] = [];
+  // Positioned-mode only: the materialized `PageBox` children (the legacy
+  // path). Empty in virtual mode — pages are fetched on demand via `getPageBox`.
+  let positionedPages: LayoutBox[] = [];
+  // The current paginated layout tree (the virtual tree, or null when the
+  // positioned path / non-paginated). Set in `syncDom`.
+  let virtualTree: VirtualLayoutTree | null = null;
+
+  /** Number of paginated page slots; 0 ⇒ non-paginated (single-canvas mode). */
+  function pageCount(): number {
+    return pageSlotGeoms.length;
+  }
+
+  /**
+   * The positioned `PageBox` for slot `idx`. In virtual mode this calls
+   * `vtree.getPage(idx)` — positioning ONLY that page (memoized). In positioned
+   * mode it returns the pre-materialized child. Returns null out of range.
+   */
+  function getPageBox(idx: number): LayoutBox | null {
+    if (virtualTree !== null) {
+      if (idx < 0 || idx >= virtualTree.plan.entries.length) return null;
+      return virtualTree.getPage(idx);
+    }
+    return positionedPages[idx] ?? null;
+  }
 
   // ── DOM elements ───────────────────────────────────────────────────────
 
@@ -131,7 +284,10 @@ export function createEditorController(
   // ── Paint ──────────────────────────────────────────────────────────────
 
   function getCursorState(): CursorState {
-    if (selectionRects.length > 0) return "hidden";
+    // Hide the caret over a non-collapsed selection. Use the flag, not
+    // `selectionRects.length`: in paginated mode the rects are computed
+    // per-page in `paintPages` and `selectionRects` stays empty.
+    if (hasSelectionHighlight) return "hidden";
     if (!focused) return "inactive";
     if (cursorVisible) return "active";
     return "hidden";
@@ -140,11 +296,15 @@ export function createEditorController(
   function paintSingle() {
     if (!state) return;
     if (!singleCanvas) return;
+    // Non-paginated mode: `layoutTree` is a positioned `LayoutBox` (never a
+    // virtual tree — virtualization only happens in paginated mode), so
+    // `getPositionedTree()` is a no-op identity here, not a materialize.
+    const tree = getPositionedTree();
+    if (!tree) return;
     if (!singleCtx) singleCtx = singleCanvas.getContext("2d");
     const ctx = singleCtx;
     if (!ctx) return;
 
-    const tree = state.layoutTree;
     const logicalWidth = tree.width;
     const logicalHeight = tree.height;
 
@@ -184,15 +344,33 @@ export function createEditorController(
       visibleTop,
       visibleBottom,
       imageCache,
+      canvasCache,
     );
   }
 
   function paintPages() {
+    const st = state;
+    if (!st) return;
     const dpr = typeof devicePixelRatio !== "undefined" ? devicePixelRatio : 1;
     const cs = getCursorState();
+    // Per-page selection rects for a non-collapsed selection in paginated mode,
+    // computed from the boundary positions resolved once in `update()` (cached
+    // in `selStart`/`selEnd`) — NO `resolvePixelPosition` per blink/scroll
+    // repaint. The non-paginated path and the spanning-block fallback use the
+    // `selectionRects` array (filtered per page) instead. `pgStart`/`pgEnd` are
+    // const captures so the per-page branch can narrow them to non-null without
+    // `!` at the use site (a narrowing that does NOT flow through the
+    // `perPageSel` boolean, so the null check lives at the use site below).
+    const pgStart = selStart;
+    const pgEnd = selEnd;
+    const perPageSel =
+      hasSelectionHighlight && !selSpanningFallback &&
+      layoutTree?.type === "virtual-root";
 
     for (const [idx, canvas] of activeCanvases) {
-      const page = pages[idx];
+      // Position ONLY this visible page (virtual mode: `getPage(idx)`; memoized
+      // so repeat paints are free). Non-visible pages are never materialized.
+      const page = getPageBox(idx);
       if (!page) continue;
 
       const ctx = canvas.getContext("2d");
@@ -205,24 +383,37 @@ export function createEditorController(
         canvas.height = physicalHeight;
         canvas.style.width = `${page.width}px`;
         canvas.style.height = `${page.height}px`;
+        // A dimension change means this page's geometry changed (C.2b-2: a
+        // section's page size was overridden, re-materializing the PageBox at a
+        // new width/height). A pure geometry change moves no content boxes, so
+        // walkAndDetectChanges would see "no diff" and short-circuit, leaving
+        // the resized canvas blank/stale. Drop the per-page PaintCache so the
+        // whole page is treated dirty and actually repaints (mirrors
+        // acquireCanvas's delete-on-recycle).
+        pageCaches.delete(idx);
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      // Filter selection rects for this page
-      const pageSelRects = selectionRects.filter((r) => r.pageIndex === idx);
+      // Selection rects for this page: per-page (virtual) or filter the
+      // precomputed array (non-paginated / spanning fallback / collapsed=empty).
+      const pageSelRects = (perPageSel && pgStart !== null && pgEnd !== null)
+        ? computeSelectionRectsForPage(
+            st.state, st.selection, page, idx, pgStart, pgEnd, measurer,
+          )
+        : selectionRects.filter((r) => r.pageIndex === idx);
 
       // Cursor on this page? (null if not)
       const pageCursor = cursorPos.pageIndex === idx
         ? { x: cursorPos.x, y: cursorPos.y, height: cursorPos.height }
         : null;
 
-      paintPage(ctx, page, pageSelRects, pageCursor, cs, imageCache);
+      paintPage(ctx, page, pageSelRects, pageCursor, cs, imageCache, getOrCreatePageCache(idx));
     }
   }
 
   function paint() {
     if (destroyed) return;
-    if (pages.length > 0) {
+    if (pageCount() > 0) {
       paintPages();
     } else {
       paintSingle();
@@ -276,11 +467,13 @@ export function createEditorController(
     if (!focused || !state) return;
     const sp = scrollParent;
 
-    // Compute visual Y from pageIndex and page-relative cursor Y
+    // Compute visual Y from the cursor's page slot. Per-page geometry (C.2b-2):
+    // the page's document-y is its slot `top` (running-sum offset), NOT a
+    // uniform `pageIndex * (pageHeight + pageGap)`. Paginated-vs-not is keyed on
+    // slot presence (an empty `pageSlotGeoms` ⇒ non-paginated single canvas).
+    const cursorSlot = pageSlotGeoms[cursorPos.pageIndex];
     const cursorVisualY =
-      pages.length > 0 && pageHeight
-        ? cursorPos.pageIndex * (pageHeight + pageGap) + cursorPos.y
-        : cursorPos.y;
+      pageCount() > 0 && cursorSlot ? cursorSlot.top + cursorPos.y : cursorPos.y;
     const cursorH = cursorPos.height;
     const scrollPadding = 64;
 
@@ -310,17 +503,52 @@ export function createEditorController(
   // ── DOM sync ───────────────────────────────────────────────────────────
 
   function syncDom() {
-    if (!state) return;
+    if (!state || !layoutTree) return;
 
-    const tree = state.layoutTree;
-    const newPages: LayoutBox[] = [];
+    const tree = layoutTree;
+
+    // Derive the page-SLOT geometry WITHOUT positioning any page. Virtual mode:
+    // read `plan.entries` (count + per-slot blockSize) — no `materializeAll`.
+    // Positioned mode (unsupported-feature fallback): extract the already-
+    // positioned `PageBox` children. Non-paginated: zero slots → single canvas.
+    const newSlotGeoms: PageSlotGeom[] = [];
+    const newPositionedPages: LayoutBox[] = [];
+    let newVirtualTree: VirtualLayoutTree | null = null;
+
     if (pageHeight) {
-      for (const c of tree.children) {
-        if (c.type === "page") newPages.push(c);
+      if (tree.type === "virtual-root") {
+        newVirtualTree = tree;
+        // Per-entry geometry (C.2b-2): width + gap are PER-ENTRY (a section may
+        // override its page size/gap), height is the entry's `blockSize`, and
+        // `top` is the running-sum `blockOffset`. The slot tops in DOM flow
+        // (height + marginBottom, summed) MUST agree with `top` — caret/mouse
+        // use `top` while the DOM stacks slots by height + gap.
+        for (const entry of tree.plan.entries) {
+          newSlotGeoms.push({
+            width: entry.pageConfig.pageInlineSize,
+            height: entry.blockSize,
+            gap: entry.pageConfig.pageGap,
+            top: entry.blockOffset,
+          });
+        }
+      } else if (tree.type === "block") {
+        for (const c of tree.children) {
+          // "page"-type children indicate the paginated positioned tree.
+          // `LayoutBox` is a discriminated union including `PageBox`, so the
+          // `type` check narrows `c` to `PageBox` — no cast needed. The legacy
+          // floats/`clear` fallback uses the doc-wide `pageGap` (it does not yet
+          // model per-section geometry); `top` is the box's own document-y.
+          if (c.type === "page") {
+            newPositionedPages.push(c);
+            newSlotGeoms.push({ width: c.width, height: c.height, gap: pageGap, top: c.blockOffset });
+          }
+        }
       }
     }
-    const isPaginated = newPages.length > 0;
-    pages = newPages;
+    const isPaginated = newSlotGeoms.length > 0;
+    pageSlotGeoms = newSlotGeoms;
+    positionedPages = newPositionedPages;
+    virtualTree = newVirtualTree;
 
     if (isPaginated) {
       // Remove single-canvas DOM
@@ -341,13 +569,16 @@ export function createEditorController(
       // Remove paginated DOM
       cleanupPageCanvases();
 
-      // Ensure single canvas + spacer
+      // Ensure single canvas + spacer. Height comes from the positioned
+      // (non-paginated) tree directly — never a virtual tree here, so this is a
+      // no-op identity, not a materialize.
+      const positioned = getPositionedTree();
       if (!spacerDiv) {
         spacerDiv = document.createElement("div");
         spacerDiv.style.pointerEvents = "none";
         container.insertBefore(spacerDiv, textarea);
       }
-      spacerDiv.style.height = `${tree.height}px`;
+      spacerDiv.style.height = `${positioned ? positioned.height : 0}px`;
 
       if (!singleCanvas) {
         singleCanvas = document.createElement("canvas");
@@ -360,19 +591,21 @@ export function createEditorController(
       container.style.minHeight = "100%";
     }
 
-    // Position textarea on the correct page
+    // Position textarea on the correct page. Per-page geometry (C.2b-2): the
+    // page's document-y is its slot `top` (the plan's running-sum offset), NOT
+    // `pageIndex * (pageHeight + pageGap)`.
+    const cursorSlot = pageSlotGeoms[cursorPos.pageIndex];
     const textareaTop =
-      isPaginated && pageHeight
-        ? cursorPos.pageIndex * (pageHeight + pageGap) + cursorPos.y
-        : cursorPos.y;
+      isPaginated && cursorSlot ? cursorSlot.top + cursorPos.y : cursorPos.y;
     textarea.style.left = `${cursorPos.x}px`;
     textarea.style.top = `${textareaTop}px`;
     textarea.style.height = `${cursorPos.height}px`;
   }
 
   function syncPageCanvases() {
+    const tTotal = markStart("ctrl.syncPageCanvases");
     const currentCount = pageSlots.length;
-    const targetCount = pages.length;
+    const targetCount = pageSlotGeoms.length;
 
     // Remove excess slots
     for (let i = targetCount; i < currentCount; i++) {
@@ -384,6 +617,12 @@ export function createEditorController(
         activeCanvases.delete(i);
       }
       pageSlots[i].remove();
+      // Prune this index's PaintCache. Without this, `pageCaches` retains one
+      // entry per peak page index for the lifetime of the controller (open a
+      // 200-page doc, shrink to 2 → 198 stale caches held). Correctness on
+      // grow-back is already guaranteed by acquireCanvas deleting the cache on
+      // re-acquire; this just frees the memory promptly when a page is removed.
+      pageCaches.delete(i);
     }
     pageSlots.length = targetCount;
 
@@ -398,18 +637,23 @@ export function createEditorController(
       pageSlots[i] = slot;
     }
 
-    // Update existing slot attributes, dimensions + margins
+    // Update existing slot attributes, dimensions + margins — from the SLOT
+    // geometry (no page positioned).
     for (let i = 0; i < targetCount; i++) {
       const slot = pageSlots[i];
-      const page = pages[i];
+      const geom = pageSlotGeoms[i];
       slot.dataset.pageIndex = String(i);
-      slot.style.width = `${page.width}px`;
-      slot.style.height = `${page.height}px`;
-      slot.style.marginBottom = i < targetCount - 1 ? `${pageGap}px` : "0";
+      slot.style.width = `${geom.width}px`;
+      slot.style.height = `${geom.height}px`;
+      // Per-entry gap (C.2b-2): keeps the DOM-flow slot tops (height +
+      // marginBottom, summed) consistent with each slot's `top` (running-sum
+      // offset) that caret/mouse use — they MUST agree.
+      slot.style.marginBottom = i < targetCount - 1 ? `${geom.gap}px` : "0";
     }
 
     // Setup IntersectionObserver
     setupIntersectionObserver();
+    markEnd("ctrl.syncPageCanvases", tTotal);
   }
 
   function acquireCanvas(idx: number, slot: HTMLDivElement) {
@@ -417,6 +661,16 @@ export function createEditorController(
     const canvas = canvasPool.pop() ?? document.createElement("canvas");
     canvas.dataset.pageIndex = String(idx);
     canvas.style.display = "block";
+    // The canvas may be brand-new (zero pixels) or recycled from the pool
+    // (carrying stale pixels from a previously-rendered page). Either way the
+    // pixels don't match `idx`'s current content, so the next paint must do a
+    // full repaint. Resetting the dimensions clears stale pixels (spec
+    // behavior of setting canvas.width); deleting the per-page PaintCache
+    // makes walkAndDetectChanges treat the entire pageBox as dirty so
+    // paintPage actually draws instead of short-circuiting on "no diff".
+    canvas.width = 0;
+    canvas.height = 0;
+    pageCaches.delete(idx);
     slot.appendChild(canvas);
     activeCanvases.set(idx, canvas);
   }
@@ -482,14 +736,15 @@ export function createEditorController(
   // ── Mouse handling ─────────────────────────────────────────────────────
 
   function resolveMouseToLayout(e: MouseEvent): { x: number; y: number; pageIndex: number } | null {
-    if (pages.length > 0 && pageHeight) {
+    const total = pageCount();
+    if (total > 0 && pageHeight) {
       const target = e.target as HTMLElement;
+      const inRange = (idx: number) => idx >= 0 && idx < total;
 
       // Check if clicked on a canvas inside a slot
       if (target instanceof HTMLCanvasElement && target.dataset.pageIndex != null) {
         const idx = Number(target.dataset.pageIndex);
-        const page = pages[idx];
-        if (page) {
+        if (inRange(idx)) {
           const rect = target.getBoundingClientRect();
           return { x: e.clientX - rect.left, y: e.clientY - rect.top, pageIndex: idx };
         }
@@ -498,36 +753,61 @@ export function createEditorController(
       // Check if clicked on a slot div directly
       if (target instanceof HTMLDivElement && target.dataset.pageIndex != null) {
         const idx = Number(target.dataset.pageIndex);
-        const page = pages[idx];
-        if (page) {
+        if (inRange(idx)) {
           const rect = target.getBoundingClientRect();
           return { x: e.clientX - rect.left, y: e.clientY - rect.top, pageIndex: idx };
         }
       }
 
-      // Click outside any slot — find closest page by visual Y
+      // Click outside any slot — find the page by visual Y. Pages are NOT
+      // uniform-height (C.2b-2: a section may override its geometry), so the
+      // slot top is the running-sum `top` in `pageSlotGeoms`, NOT
+      // `idx*(pageHeight+pageGap)`. With a virtual tree the plan maps document-y
+      // → page authoritatively (`pageIndexAtBlockOffset`, a binary search over
+      // the running-sum offsets); the positioned fallback finds the last slot
+      // whose `top <= visualY`. The page-local Y subtracts that slot's `top` and
+      // clamps to THAT page's own height (so a click low on a tall section page
+      // is not clamped to the short default).
       const rect = container.getBoundingClientRect();
       const visualY = e.clientY - rect.top;
-      const slotHeight = pageHeight + pageGap;
-      const idx = Math.max(0, Math.min(pages.length - 1, Math.floor(visualY / slotHeight)));
-      const pageLocalY = visualY - idx * slotHeight;
-      return { x: e.clientX - rect.left, y: Math.max(0, Math.min(pageHeight, pageLocalY)), pageIndex: idx };
+      let idx: number;
+      if (virtualTree !== null) {
+        idx = Math.max(0, Math.min(total - 1, virtualTree.plan.pageIndexAtBlockOffset(visualY)));
+      } else {
+        // Positioned fallback: the last slot whose top edge is at/above visualY.
+        idx = 0;
+        for (let i = 0; i < total; i++) {
+          if (pageSlotGeoms[i].top <= visualY) idx = i;
+          else break;
+        }
+      }
+      const slot = pageSlotGeoms[idx];
+      const pageLocalY = visualY - (slot?.top ?? 0);
+      return {
+        x: e.clientX - rect.left,
+        y: Math.max(0, Math.min(slot?.height ?? 0, pageLocalY)),
+        pageIndex: idx,
+      };
     }
     const rect = container.getBoundingClientRect();
     return { x: e.clientX - rect.left, y: e.clientY - rect.top, pageIndex: 0 };
   }
 
   function handleMouseDown(e: MouseEvent) {
-    if (destroyed || !state) return;
+    if (destroyed || !state || !layoutTree) return;
     e.preventDefault();
     textarea.focus();
 
     const coords = resolveMouseToLayout(e);
     if (!coords) return;
 
+    // Hit-test against ONLY the clicked page (virtual tree) — never
+    // materialize the whole document (Phase 4).
+    const hitTree = treeForPageHitTest(coords.pageIndex);
+    if (!hitTree) return;
     const pos = resolvePositionFromPixel(
       state.state,
-      state.layoutTree,
+      hitTree,
       measurer,
       coords.x,
       coords.y,
@@ -538,24 +818,38 @@ export function createEditorController(
       return;
     }
 
-    // Triple-click: select paragraph
-    if (e.detail >= 3) {
-      const blockPath = pos.path.slice(0, 1);
-      const block = getNodeByPath(state.state, blockPath);
-      if (block) {
-        const first = findFirstTextDescendant(block, blockPath);
-        const last = findLastTextDescendant(block, blockPath);
-        if (first && last) {
-          const lastNode = getNodeByPath(state.state, last.path);
-          const endOffset = lastNode ? getTextContentLength(lastNode) : 0;
-          dispatch({
-            type: "SET_SELECTION",
-            selection: createSelection(
-              createPosition(first.path, 0),
-              createPosition(last.path, endOffset),
-            ),
-          });
+    // HL.3: Cmd/Ctrl+Click on a hyperlink opens the URL in a new
+    // tab instead of placing the cursor. Plain click still positions
+    // the cursor — needed so users can edit link text.
+    if (e.metaKey || e.ctrlKey) {
+      const url = linkUrlAtPosition(state.state, pos);
+      if (url !== null) {
+        // Allowlist safe schemes (per hyperlinks spec risk table:
+        // reject javascript: / data: URLs).
+        if (/^(https?:|mailto:|tel:)/i.test(url)) {
+          window.open(url, "_blank", "noopener,noreferrer");
         }
+        return;
+      }
+    }
+
+    // Triple-click: select paragraph (the entire leaf block).
+    // In the new model `pos.blockId` IS the leaf block, so we select from
+    // offset 0 to that block's inline-content length.
+    if (e.detail >= 3) {
+      const block = getBlock(state.state, pos.blockId);
+      if (block) {
+        const length = block.inlineContent
+          ? inlineContentLength(block.inlineContent)
+          : 0;
+        dispatch({
+          type: "SET_SELECTION",
+          selection: createSpan(
+            createPosition(pos.blockId, 0),
+            createPosition(pos.blockId, length),
+          ),
+          caretPageHint: coords.pageIndex,
+        });
       }
       return;
     }
@@ -563,18 +857,29 @@ export function createEditorController(
     // Double-click: select word
     if (e.detail === 2) {
       const wordSel = selectWord(state.state, pos);
-      dispatch({ type: "SET_SELECTION", selection: wordSel });
+      dispatch({ type: "SET_SELECTION", selection: wordSel, caretPageHint: coords.pageIndex });
       return;
     }
 
-    // Shift-click: extend selection from current anchor
+    // Shift-click: extend selection from current anchor.
+    // A pointer selection is CONFINED to the selection context it began in
+    // (Google Docs): you cannot shift-extend from the body into a footnote
+    // slot (a different selection context), or vice versa. Extending across
+    // contexts would build a cross-context Span, which crashes the next render
+    // (getActiveFormatting → iterateSpan throws "different selection
+    // contexts"). When `pos` is cross-context, keep the prior in-context
+    // selection — skip the extension.
     if (e.shiftKey) {
+      // A null context means the block isn't in any tree (should not happen for
+      // a hit-test position, but never extend into an unknown context). Treat
+      // null as a definitive skip so two unknown contexts can't compare equal.
+      const anchorCtx = selectionContextOf(state.state, state.selection.anchor.blockId);
+      const posCtx = selectionContextOf(state.state, pos.blockId);
+      if (anchorCtx === null || posCtx === null || anchorCtx !== posCtx) return;
       dispatch({
         type: "SET_SELECTION",
-        selection: createSelection(
-          state.selection.anchor,
-          createPosition(pos.path, pos.offset),
-        ),
+        selection: createSpan(state.selection.anchor, pos),
+        caretPageHint: coords.pageIndex,
       });
       return;
     }
@@ -584,31 +889,50 @@ export function createEditorController(
     dragAnchor = pos;
     dispatch({
       type: "SET_SELECTION",
-      selection: createCursor(pos.path, pos.offset),
+      selection: createSpan(pos, pos),
+      caretPageHint: coords.pageIndex,
     });
   }
 
   function handleMouseMove(e: MouseEvent) {
-    if (!isDragging || !dragAnchor || !state) return;
+    if (!isDragging || !dragAnchor || !state || !layoutTree) return;
 
     const coords = resolveMouseToLayout(e);
     if (!coords) return;
 
+    // Drag hit-test against ONLY the page under the pointer (see
+    // handleMouseDown) — never materialize the whole document.
+    const hitTree = treeForPageHitTest(coords.pageIndex);
+    if (!hitTree) return;
     const pos = resolvePositionFromPixel(
       state.state,
-      state.layoutTree,
+      hitTree,
       measurer,
       coords.x,
       coords.y,
       coords.pageIndex,
     );
     if (pos) {
+      // A drag selection is CONFINED to the selection context it began in
+      // (Google Docs): once the pointer crosses from the body into a footnote
+      // slot (a different selection context), the drag does NOT extend into it.
+      // Building `createSpan(dragAnchor, pos)` across contexts would store a
+      // cross-context Span, which crashes the next render (getActiveFormatting
+      // → iterateSpan throws "different selection contexts"). Skip the
+      // extension when `pos` left the anchor's context — the prior in-context
+      // selection stands.
+      // A null context means the block isn't in any tree (should not happen for
+      // a hit-test position, but never extend into an unknown context). Treat
+      // null as a definitive skip so two unknown contexts can't compare equal.
+      const anchorCtx = selectionContextOf(state.state, dragAnchor.blockId);
+      const posCtx = selectionContextOf(state.state, pos.blockId);
+      if (anchorCtx === null || posCtx === null || anchorCtx !== posCtx) return;
+      // The drag hint tracks the FOCUS page (the current drag point) so the
+      // caret resolves on the page under the pointer.
       dispatch({
         type: "SET_SELECTION",
-        selection: createSelection(
-          dragAnchor,
-          createPosition(pos.path, pos.offset),
-        ),
+        selection: createSpan(dragAnchor, pos),
+        caretPageHint: coords.pageIndex,
       });
     }
   }
@@ -653,16 +977,18 @@ export function createEditorController(
   // ── Clipboard handling ─────────────────────────────────────────────────
 
   function handleCopy(e: ClipboardEvent) {
-    if (!state || isCollapsed(state.selection)) return;
+    if (!state) return;
+    if (isCollapsed(state.selection)) return;
     e.preventDefault();
-    const text = extractText(state.state, state.selection);
+    const text = extractText(state.state, state.selection, builtinEmbedSerializer);
     e.clipboardData?.setData("text/plain", text);
   }
 
   function handleCut(e: ClipboardEvent) {
-    if (!state || isCollapsed(state.selection)) return;
+    if (!state) return;
+    if (isCollapsed(state.selection)) return;
     e.preventDefault();
-    const text = extractText(state.state, state.selection);
+    const text = extractText(state.state, state.selection, builtinEmbedSerializer);
     e.clipboardData?.setData("text/plain", text);
     dispatch({ type: "DELETE_BACKWARD" });
   }
@@ -720,33 +1046,106 @@ export function createEditorController(
 
   function update(editorState: EditorState) {
     if (destroyed) return;
+    const tTotal = markStart("ctrl.update");
     state = editorState;
 
-    // Compute cursor position and selection rects
-    cursorPos = resolvePixelPosition(
+    // Phase 3 Tasks 2/3: do NOT materialize all pages here. `layoutTree` is the
+    // raw (possibly virtual) tree; the `materializeAll()` bridge is now LAZY —
+    // `getPositionedTree()` resolves it only when a still-on-bridge consumer
+    // (non-collapsed `computeSelectionRects`; mouse hit-test) actually runs.
+    // Reset the per-update memo so a fresh tree isn't served a stale bridge.
+    layoutTree = state.layoutTree;
+    positionedBridge = null;
+
+    // Cursor position: resolved directly against the (virtual or positioned)
+    // tree. In virtual mode `resolvePixelPosition` positions only the cursor's
+    // page (+ a neighbor at the cross-page soft-wrap edge), NEVER all pages —
+    // this is what makes the typing/Enter hot path O(1 page). Returns null for
+    // unknown blockIds; fall back to default coords for a placeholder cursor.
+    const tResolve = markStart("ctrl.resolveCursor");
+    const resolved = resolvePixelPosition(
       state.state,
       state.selection.focus,
-      state.layoutTree,
+      layoutTree,
       measurer,
+      state.caretPageHint,
     );
-    selectionRects = isCollapsed(state.selection)
-      ? []
-      : computeSelectionRects(
-          state.state,
-          state.selection,
-          state.layoutTree,
-          measurer,
-          state.containerWidth,
-        );
+    cursorPos = resolved ?? {
+      x: 0,
+      y: 0,
+      height: 16,
+      lineY: 0,
+      lineHeight: 24,
+      lineMarginTop: 0,
+      lineMarginBottom: 0,
+      pageIndex: 0,
+    };
+    markEnd("ctrl.resolveCursor", tResolve);
 
+    // Selection rects. Collapsed (typing/Enter hot path) → none. Paginated +
+    // non-collapsed → per-page in `paintPages` from the boundary positions
+    // resolved ONCE here (no bridge). Non-paginated → the full positioned tree.
+    // Spanning-block boundary → fall back to the bridge (rare; per-page can't
+    // see a block's fragment on the other page). `selectionRects` carries rects
+    // only for the non-paginated + spanning-fallback cases; the per-page path
+    // leaves it empty and uses `selStart`/`selEnd`.
+    const tSel = markStart("ctrl.selectionRects");
+    hasSelectionHighlight = !isCollapsed(state.selection);
+    selStart = null;
+    selEnd = null;
+    selSpanningFallback = false;
+    selectionRects = [];
+    if (hasSelectionHighlight) {
+      const start = spanStart(state.state, state.selection);
+      const end = spanEnd(state.state, state.selection);
+      if (layoutTree.type === "virtual-root") {
+        selSpanningFallback =
+          blockSpansPages(layoutTree.plan, start.blockId) ||
+          blockSpansPages(layoutTree.plan, end.blockId);
+        if (selSpanningFallback) {
+          const positioned = getPositionedTree(); // rare fallback (block taller than a page)
+          selectionRects = positioned
+            ? computeSelectionRects(state.state, state.selection, positioned, measurer)
+            : [];
+        } else {
+          selStart = resolvePixelPosition(state.state, start, layoutTree, measurer, state.caretPageHint);
+          selEnd = resolvePixelPosition(state.state, end, layoutTree, measurer, state.caretPageHint);
+          // rects computed per-page in paintPages from selStart/selEnd
+        }
+      } else {
+        selectionRects = computeSelectionRects(state.state, state.selection, layoutTree, measurer);
+      }
+    }
+    markEnd("ctrl.selectionRects", tSel);
+
+    const tSync = markStart("ctrl.syncDom");
     syncDom();
+    markEnd("ctrl.syncDom", tSync);
+
+    const tBlink = markStart("ctrl.startBlink");
     startBlink();
+    markEnd("ctrl.startBlink", tBlink);
+
+    const tPaint = markStart("ctrl.paint");
     paint();
+    markEnd("ctrl.paint", tPaint);
+
+    const tScroll = markStart("ctrl.scrollIntoView");
     scrollCursorIntoView();
+    markEnd("ctrl.scrollIntoView", tScroll);
+
+    markEnd("ctrl.update", tTotal);
   }
 
   function destroy() {
     destroyed = true;
+    layoutTree = null;
+    positionedBridge = null;
+    virtualTree = null;
+    hasSelectionHighlight = false;
+    selStart = null;
+    selEnd = null;
+    selSpanningFallback = false;
 
     // Remove event listeners
     container.removeEventListener("mousedown", handleMouseDown);
@@ -767,6 +1166,13 @@ export function createEditorController(
     stopBlink();
     cancelAnimationFrame(scrollRafId);
     cancelAnimationFrame(scrollAnimId);
+
+    // Dispose the document History so its Y.UndoManager detaches its
+    // afterTransaction observers from the Doc. `history` is the one long-lived
+    // instance carried by reference across every EditorState, so disposing it
+    // once here releases the observers a torn-down/recreated controller would
+    // otherwise leak (collab / multi-view).
+    state?.history.destroy();
 
     // Cleanup DOM
     cleanupPageCanvases();

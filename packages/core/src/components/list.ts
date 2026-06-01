@@ -1,23 +1,16 @@
-import type { ComponentDefinition } from "./component-definition";
-import { createBlockNode } from "../render/render-node";
+import type { ContainerComponentDefinition } from "./component-definition";
+import { createElementBox } from "../render/render-node";
 
-export const listComponent: ComponentDefinition = {
+export const listComponent: ContainerComponentDefinition = {
   type: "list",
-  render: (node, children) => {
-    const listType = node.properties.listType as string;
-    const markedChildren = children.map((child, index) => {
-      if (child.type !== "block") return child;
-      const marker = listType === "ordered" ? `${index + 1}.` : "\u2022";
-      return createBlockNode(
-        child.key,
-        { ...child.styles, paddingLeft: 24 },
-        child.children,
-        marker,
-      );
-    });
-    return createBlockNode(node.id, {
-      lineMarginTop: 0,
-      lineMarginBottom: 0,
-    }, markedChildren);
+  kind: "container",
+  render: (view, _ctx, childRenderNodes) => {
+    const listStyleType: "decimal" | "disc" =
+      view.attrs.listType === "ordered" ? "decimal" : "disc";
+    return createElementBox(view.id, {
+      display: "block",
+      paddingInlineStart: 30,
+      listStyleType,
+    }, childRenderNodes);
   },
 };

@@ -1,22 +1,25 @@
 import type { EditorState } from "../editor-state";
-import { createCursor } from "../../cursor/selection";
-import { getTextContentLength } from "../../state/text-utils";
-import { findFirstTextDescendant, findLastTextDescendant } from "./helpers";
+import { getBlock, createPosition, createSpan, inlineContentLength } from "../../state";
+import { findFirstContentBlock, findLastContentBlock } from "./helpers";
 
 export function handleMoveDocumentBoundary(
   editor: EditorState,
   boundary: "start" | "end",
 ): EditorState {
   if (boundary === "start") {
-    const first = findFirstTextDescendant(editor.state, []);
-    if (!first) return editor;
-    return { ...editor, selection: createCursor(first.path, 0) };
-  } else {
-    const last = findLastTextDescendant(editor.state, []);
-    if (!last) return editor;
-    return {
-      ...editor,
-      selection: createCursor(last.path, getTextContentLength(last.node)),
-    };
+    const firstId = findFirstContentBlock(editor.state);
+    if (firstId === null) return editor;
+    const pos = createPosition(firstId, 0);
+    return { ...editor, selection: createSpan(pos, pos) };
   }
+  const lastId = findLastContentBlock(editor.state);
+  if (lastId === null) return editor;
+  const lastBlock = getBlock(editor.state, lastId);
+  if (lastBlock === null) return editor;
+  const offset =
+    lastBlock.inlineContent === null
+      ? 0
+      : inlineContentLength(lastBlock.inlineContent);
+  const pos = createPosition(lastId, offset);
+  return { ...editor, selection: createSpan(pos, pos) };
 }

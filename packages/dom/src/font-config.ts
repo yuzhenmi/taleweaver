@@ -1,4 +1,4 @@
-import type { RenderStyles } from "@taleweaver/core";
+import type { ComputedStyle } from "@taleweaver/core";
 
 export const FONT_CONFIG = {
   fontFamily: '"Inter", sans-serif',
@@ -6,26 +6,27 @@ export const FONT_CONFIG = {
   lineHeight: 1.2,
 } as const;
 
-/** Build a CSS font shorthand string from render styles, filling defaults from FONT_CONFIG. */
-export function buildCssFontString(styles: RenderStyles): string {
-  const family = styles.fontFamily ?? FONT_CONFIG.fontFamily;
-  const size = styles.fontSize ?? FONT_CONFIG.fontSize;
-  const parts: string[] = [];
-  if (styles.fontStyle) parts.push(styles.fontStyle);
-  if (styles.fontWeight) parts.push(styles.fontWeight);
-  parts.push(`${size}px ${family}`);
-  return parts.join(" ");
-}
+type PartialFontStyles = Partial<Pick<ComputedStyle, "fontFamily" | "fontSize" | "fontWeight" | "fontStyle" | "lineHeight">>;
 
-export type EffectiveStyles = RenderStyles &
-  Required<Pick<RenderStyles, "fontFamily" | "fontSize" | "lineHeight">>;
-
-/** Return styles with FONT_CONFIG defaults filled in for fontFamily, fontSize, lineHeight. */
-export function getEffectiveStyles(styles: RenderStyles): EffectiveStyles {
+/** Fill in FONT_CONFIG defaults for any missing font-related properties. */
+export function getEffectiveStyles(styles: PartialFontStyles): Required<PartialFontStyles> & PartialFontStyles {
   return {
-    ...styles,
     fontFamily: styles.fontFamily ?? FONT_CONFIG.fontFamily,
     fontSize: styles.fontSize ?? FONT_CONFIG.fontSize,
     lineHeight: styles.lineHeight ?? FONT_CONFIG.lineHeight,
-  };
+    fontWeight: styles.fontWeight,
+    fontStyle: styles.fontStyle,
+  } as Required<PartialFontStyles> & PartialFontStyles;
+}
+
+/** Build a CSS font shorthand string from computed styles. */
+export function buildCssFontString(styles: PartialFontStyles): string {
+  const effective = getEffectiveStyles(styles);
+  const family = effective.fontFamily;
+  const size = effective.fontSize;
+  const parts: string[] = [];
+  if (effective.fontStyle && effective.fontStyle !== "normal") parts.push(effective.fontStyle);
+  if (effective.fontWeight && effective.fontWeight !== "normal") parts.push(String(effective.fontWeight));
+  parts.push(`${size}px ${family}`);
+  return parts.join(" ");
 }

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useEditor } from "./use-editor";
+import { getBlock } from "@taleweaver/core";
 
 // Mock canvas for jsdom
 Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
@@ -15,7 +16,10 @@ Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
 describe("useEditor", () => {
   it("returns editorState with initial document", () => {
     const { result } = renderHook(() => useEditor());
-    expect(result.current.editorState.state.type).toBe("document");
+    const state = result.current.editorState.state;
+    const rootBlock = getBlock(state, state.rootId);
+    expect(rootBlock).not.toBeNull();
+    expect(rootBlock?.type).toBe("document");
   });
 
   it("returns dispatch function", () => {
@@ -33,39 +37,17 @@ describe("useEditor", () => {
     act(() => {
       result.current.dispatch({ type: "INSERT_TEXT", text: "a" });
     });
-    const textNode =
-      result.current.editorState.state.children[0].children[0];
-    expect(textNode.properties.content).toBe("a");
-  });
-
-  it("dispatch INSERT_BLOCK inserts image without crashing", () => {
-    const { result } = renderHook(() => useEditor());
-    act(() => {
-      result.current.dispatch({ type: "INSERT_TEXT", text: "hello" });
-    });
-    act(() => {
-      result.current.dispatch({
-        type: "INSERT_BLOCK",
-        blockType: "image",
-        properties: { src: "data:image/png;base64,abc", width: 200, height: 100 },
-      });
-    });
-    expect(result.current.editorState.state.children).toHaveLength(3);
-    expect(result.current.editorState.state.children[1].type).toBe("image");
-  });
-
-  it("dispatch INSERT_BLOCK inserts horizontal-line without crashing", () => {
-    const { result } = renderHook(() => useEditor());
-    act(() => {
-      result.current.dispatch({ type: "INSERT_TEXT", text: "hello" });
-    });
-    act(() => {
-      result.current.dispatch({
-        type: "INSERT_BLOCK",
-        blockType: "horizontal-line",
-      });
-    });
-    expect(result.current.editorState.state.children).toHaveLength(3);
-    expect(result.current.editorState.state.children[1].type).toBe("horizontal-line");
+    // After INSERT_TEXT "a", the first leaf paragraph block carries the text.
+    const state = result.current.editorState.state;
+    const focusBlockId = result.current.editorState.selection.focus.blockId;
+    const block = getBlock(state, focusBlockId);
+    expect(block).not.toBeNull();
+    const inline = block?.inlineContent;
+    expect(inline?.items.length).toBeGreaterThan(0);
+    const firstItem = inline?.items[0];
+    expect(firstItem?.kind).toBe("text");
+    if (firstItem?.kind === "text") {
+      expect(firstItem.text).toBe("a");
+    }
   });
 });

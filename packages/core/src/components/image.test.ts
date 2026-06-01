@@ -1,54 +1,87 @@
 import { describe, it, expect } from "vitest";
 import { imageComponent } from "./image";
-import { createNode } from "../state/create-node";
+import type { LeafBlockView, RenderContext } from "../render/block-view";
+import type { ElementBox } from "../render/render-node";
+import type { BlockId, State, ReadonlyAttrs } from "../state";
+import type { ComputedStyle } from "../styles";
 
-describe("imageComponent", () => {
-  it("has type 'image'", () => {
+function leafView(attrs: ReadonlyAttrs = {}): LeafBlockView {
+  return {
+    id: "img1" as BlockId,
+    type: "image",
+    attrs: Object.freeze(attrs),
+    computedStyle: {} as ComputedStyle,
+    kind: "leaf",
+    inlineContent: { items: [] },
+  };
+}
+
+function stubCtx(): RenderContext {
+  return { state: {} as State, footnoteNumber: () => undefined };
+}
+
+describe("imageComponent (new)", () => {
+  it("has type 'image' and kind 'leaf'", () => {
     expect(imageComponent.type).toBe("image");
+    expect(imageComponent.kind).toBe("leaf");
   });
 
-  it("renders a block node with zero children", () => {
-    const node = createNode("img1", "image", { src: "data:image/png;base64,abc", width: 200, height: 100 });
-    const result = imageComponent.render(node, []);
-    expect(result.type).toBe("block");
-    expect(result.children).toHaveLength(0);
+  it("renders block-level ElementBox with intrinsic sizing from attrs", () => {
+    const node = imageComponent.render(leafView({ src: "/a.png", width: 300, height: 200 }), stubCtx(), []);
+    const el = node as ElementBox;
+    expect(el.style.display).toBe("block");
+    expect(el.style.inlineSize).toBe(300);
+    expect(el.style.blockSize).toBe(200);
+    expect(el.children).toHaveLength(0);
   });
 
-  it("sets paddingTop to the image height", () => {
-    const node = createNode("img1", "image", { src: "data:image/png;base64,abc", width: 200, height: 150 });
-    const result = imageComponent.render(node, []);
-    expect(result.styles.paddingTop).toBe(150);
+  it("attaches image metadata", () => {
+    const node = imageComponent.render(leafView({ src: "/a.png", width: 300, height: 200 }), stubCtx(), []);
+    const el = node as ElementBox;
+    expect(el.metadata).toEqual({ image: { src: "/a.png", width: 300, height: 200 } });
   });
 
-  it("sets margins", () => {
-    const node = createNode("img1", "image", { src: "data:image/png;base64,abc", width: 200, height: 100 });
-    const result = imageComponent.render(node, []);
-    expect(result.styles.blockMarginTop).toBe(0.4);
-    expect(result.styles.blockMarginBottom).toBe(0.4);
+  it("ignores any inlineRenderNodes the renderer might pass", () => {
+    // Image's inlineContent.items is empty by convention; even if a stray
+    // inline RenderNode is passed, the component must not include it.
+    const node = imageComponent.render(
+      leafView({ src: "/a.png", width: 1, height: 1 }),
+      stubCtx(),
+      [{ type: "text", key: "x", style: {}, text: "ignored" }],
+    );
+    expect((node as ElementBox).children).toHaveLength(0);
   });
 
-  it("sets metadata with image properties", () => {
-    const node = createNode("img1", "image", { src: "data:image/png;base64,abc", alt: "test", width: 200, height: 100 });
-    const result = imageComponent.render(node, []);
-    if (result.type !== "block") throw new Error("expected block");
-    expect(result.metadata).toEqual({
-      type: "image",
-      src: "data:image/png;base64,abc",
-      alt: "test",
-      width: 200,
-      height: 100,
-    });
+  // A6: a fresh image insert (no `width`/`height` attrs) must size
+  // intrinsically (`auto`), not collapse to a 0×0 invisible box.
+  it("falls back to 'auto' inlineSize/blockSize when width/height attrs are missing", () => {
+    const node = imageComponent.render(leafView({ src: "/a.png" }), stubCtx(), []);
+    const el = node as ElementBox;
+    expect(el.style.inlineSize).toBe("auto");
+    expect(el.style.blockSize).toBe("auto");
   });
 
-  it("defaults height to 100 when not specified", () => {
-    const node = createNode("img1", "image", { src: "data:image/png;base64,abc" });
-    const result = imageComponent.render(node, []);
-    expect(result.styles.paddingTop).toBe(100);
+  it("preserves explicit numeric width/height attrs", () => {
+    const node = imageComponent.render(
+      leafView({ src: "/a.png", width: 120, height: 80 }),
+      stubCtx(),
+      [],
+    );
+    const el = node as ElementBox;
+    expect(el.style.inlineSize).toBe(120);
+    expect(el.style.blockSize).toBe(80);
   });
 
-  it("uses node.id as key", () => {
-    const node = createNode("img1", "image", { src: "data:image/png;base64,abc" });
-    const result = imageComponent.render(node, []);
-    expect(result.key).toBe("img1");
+  it("falls back to 0 when attr is present but non-numeric", () => {
+    // "specified but garbage" remains distinct from "missing" — present
+    // garbage still resolves to 0, not auto. Documents the contract.
+    const node = imageComponent.render(
+      leafView({ src: "/a.png", width: "garbage", height: null }),
+      stubCtx(),
+      [],
+    );
+    const el = node as ElementBox;
+    expect(el.style.inlineSize).toBe(0);
+    expect(el.style.blockSize).toBe(0);
   });
 });

@@ -1,50 +1,68 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { pushEditorChange } from "../editor-state";
-import { createCursor, isCollapsed } from "../../cursor/selection";
-import { createSpan, positionsEqual } from "../../state/position";
-import { deleteRange } from "../../state/transformations";
+import { getBlock, createPosition, createSpan, spanStart, deleteRange } from "../../state";
 import { moveByWord } from "../../cursor/cursor-ops";
-import { rebuildTrees, deleteSelectionRange } from "./helpers";
+import { isCollapsed } from "../../cursor/selection";
+import { rebuildTrees } from "./helpers";
 
 export function handleDeleteWord(
   editor: EditorState,
   direction: "forward" | "backward",
   config: EditorConfig,
 ): EditorState {
-  if (!isCollapsed(editor.selection)) {
-    return deleteSelectionRange(editor, config);
+  const { selection } = editor;
+
+  if (!isCollapsed(selection)) {
+    const anchorBlock = getBlock(editor.state, selection.anchor.blockId);
+    const focusBlock = getBlock(editor.state, selection.focus.blockId);
+    if (anchorBlock === null || focusBlock === null) return editor;
+    if (
+      selection.anchor.blockId !== selection.focus.blockId &&
+      anchorBlock.parentId !== focusBlock.parentId
+    ) {
+      return editor;
+    }
+    const start = spanStart(editor.state, selection);
+    const result = deleteRange(editor.state, selection);
+    if (result.state === editor.state) return editor;
+    const newCursor = createPosition(start.blockId, start.offset);
+    const newSelection = createSpan(newCursor, newCursor);
+    editor.history.commit(result, {
+      before: selection,
+      after: newSelection,
+    });
+    return rebuildTrees(
+      { ...editor, state: result.state, selection: newSelection },
+      editor,
+      config,
+      result.dirtyIds,
+    );
   }
 
-  const pos = editor.selection.focus;
+  const pos = selection.focus;
   const target = moveByWord(editor.state, pos, direction);
-  const targetPos = target.focus;
-
-  // If we didn't move, nothing to delete
-  if (positionsEqual(targetPos, pos)) {
+  if (target.blockId !== pos.blockId) {
+    // Cross-block word delete not supported by deleteRange's cross-parent
+    // guard without additional handling — no-op to match safe semantics.
     return editor;
   }
+  if (target.offset === pos.offset) return editor;
 
   const span =
     direction === "backward"
-      ? createSpan(targetPos, pos)
-      : createSpan(pos, targetPos);
-  const change = deleteRange(editor.state, span);
-  const newCursorPos =
-    direction === "backward" ? targetPos : pos;
-  const newSelection = createCursor(newCursorPos.path, newCursorPos.offset);
-
+      ? createSpan(target, pos)
+      : createSpan(pos, target);
+  const result = deleteRange(editor.state, span);
+  if (result.state === editor.state) return editor;
+  const newCursor = direction === "backward" ? target : pos;
+  const newSelection = createSpan(newCursor, newCursor);
+  editor.history.commit(result, {
+    before: selection,
+    after: newSelection,
+  });
   return rebuildTrees(
-    {
-      ...editor,
-      state: change.newState,
-      selection: newSelection,
-      history: pushEditorChange(editor.history, {
-        change,
-        selectionBefore: editor.selection,
-        selectionAfter: newSelection,
-      }),
-    },
+    { ...editor, state: result.state, selection: newSelection },
     editor,
     config,
+    result.dirtyIds,
   );
 }

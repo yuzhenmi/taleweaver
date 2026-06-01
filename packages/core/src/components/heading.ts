@@ -1,30 +1,64 @@
-import type { ComponentDefinition } from "./component-definition";
-import { createBlockNode } from "../render/render-node";
+import type { LeafComponentDefinition } from "./component-definition";
+import type { Style } from "../styles";
+import { createElementBox } from "../render/render-node";
+import {
+  textAlignFromAttrs,
+  lineHeightFromAttrs,
+  marginInlineStartFromAttrs,
+  marginBlockStartFromAttrs,
+  marginBlockEndFromAttrs,
+} from "./leaf-style-attrs";
 
-const HEADING_SIZES: Record<number, number> = {
-  1: 32,
-  2: 24,
-  3: 20,
-  4: 16,
-  5: 14,
-  6: 12,
-};
+/**
+ * Heading font sizes by level (h1 — h6), in px. Matches legacy
+ * `heading-legacy.ts` for byte-equivalent visual output.
+ */
+export const HEADING_FONT_SIZES: Readonly<Record<1 | 2 | 3 | 4 | 5 | 6, number>> = Object.freeze({
+  1: 32, 2: 28, 3: 24, 4: 20, 5: 18, 6: 16,
+});
 
-export const headingComponent: ComponentDefinition = {
+function levelFromAttrs(level: unknown): 1 | 2 | 3 | 4 | 5 | 6 {
+  if (level === 1 || level === 2 || level === 3 || level === 4 || level === 5 || level === 6) {
+    return level;
+  }
+  return 1;
+}
+
+/**
+ * Heading: a leaf block carrying inline content + a `level` attr (1–6).
+ * Per-level fontSize is set; bold + level-relative margin defaults match
+ * legacy behavior. An authored `textAlign` attr is forwarded onto the
+ * ElementBox `style` so it reaches the layout cascade (see
+ * `leaf-style-attrs.ts`).
+ */
+export const headingComponent: LeafComponentDefinition = {
   type: "heading",
-  render: (node, children) => {
-    const level = typeof node.properties.level === "number"
-      ? node.properties.level
-      : 1;
-    const fontSize = HEADING_SIZES[level] ?? 16;
-    return createBlockNode(node.id, {
-      fontSize,
-      lineHeight: 1.25,
+  kind: "leaf",
+  leafShape: "inline-bearing",
+  // "Style for the following paragraph": Enter at the END of a heading creates
+  // a Normal paragraph below, not another heading (Word / Google Docs).
+  splitFollowOnType: "paragraph",
+  render: (view, _ctx, inlineRenderNodes) => {
+    const level = levelFromAttrs(view.attrs.level);
+    const textAlign = textAlignFromAttrs(view.attrs.textAlign);
+    const lineHeight = lineHeightFromAttrs(view.attrs.lineHeight);
+    const marginInlineStart = marginInlineStartFromAttrs(view.attrs.marginInlineStart);
+    const marginBlockStart = marginBlockStartFromAttrs(view.attrs.marginBlockStart);
+    const marginBlockEnd = marginBlockEndFromAttrs(view.attrs.marginBlockEnd);
+    const style: Style = {
+      display: "block",
       fontWeight: "bold",
-      lineMarginTop: 0,
-      lineMarginBottom: 0.2,
-      blockMarginTop: 0.85,
-      blockMarginBottom: 0.25,
-    }, children);
+      fontSize: HEADING_FONT_SIZES[level],
+      marginBlockStart: { unit: "em", value: 0.67 },
+      marginBlockEnd: { unit: "em", value: 0.67 },
+      ...(textAlign !== undefined ? { textAlign } : {}),
+      ...(lineHeight !== undefined ? { lineHeight } : {}),
+      ...(marginInlineStart !== undefined ? { marginInlineStart } : {}),
+      // Paragraph-spacing attrs WIN over the heading's default 0.67em block
+      // margins above (spread last). Absent attr → default unchanged.
+      ...(marginBlockStart !== undefined ? { marginBlockStart } : {}),
+      ...(marginBlockEnd !== undefined ? { marginBlockEnd } : {}),
+    };
+    return createElementBox(view.id, style, inlineRenderNodes);
   },
 };

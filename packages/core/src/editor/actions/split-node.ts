@@ -1,210 +1,102 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { pushEditorChange } from "../editor-state";
-import { createCursor, isCollapsed } from "../../cursor/selection";
-import { splitNode } from "../../state/transformations";
-import { createNode, createTextNode } from "../../state/create-node";
-import { getNodeByPath, updateAtPath } from "../../state/operations";
-import { getTextContentLength } from "../../state/text-utils";
-import { rebuildTrees, deleteSelectionRange, findFirstTextDescendant } from "./helpers";
+import { resolveBlock, productionAllocator, createPosition, createSpan, deleteRange, splitBlockAtPosition, inlineContentLength } from "../../state";
+import type { BlockId } from "../../state";
+import { isCollapsed } from "../../cursor/selection";
+import { rebuildTrees } from "./helpers";
+import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
 
 export function handleSplitNode(
   editor: EditorState,
   config: EditorConfig,
 ): EditorState {
-  // If selection is expanded, delete selection first
   let current = editor;
-  if (!isCollapsed(editor.selection)) {
-    current = deleteSelectionRange(editor, config);
+  const { selection } = editor;
+
+  // Accumulate dirtyIds across the optional delete + the required split.
+  const accumulatedDirtyIds = new Set<BlockId>();
+
+  if (!isCollapsed(selection)) {
+    // C.2c §6: cross-CONTEXT selection refusal (see isCrossContextSelection).
+    // The expanded-selection branch first deletes the span (deleteRange would
+    // throw "no common ancestor" on a cross-tree span), so refuse before that.
+    if (isCrossContextSelection(editor.state, selection)) return editor;
+    // Deletable-span guard + collapse point (see expandedSpanCollapsePoint):
+    // refuses an unresolvable or cross-parent span.
+    const start = expandedSpanCollapsePoint(editor.state, selection);
+    if (start === null) return editor;
+    const deleteResult = deleteRange(editor.state, selection);
+    for (const id of deleteResult.dirtyIds) accumulatedDirtyIds.add(id);
+    const collapsedCursor = createPosition(start.blockId, start.offset);
+    current = {
+      ...editor,
+      state: deleteResult.state,
+      selection: createSpan(collapsedCursor, collapsedCursor),
+    };
   }
 
   const pos = current.selection.focus;
-  const paraIdx = pos.path[0];
-  const block = current.state.children[paraIdx];
+  const block = resolveBlock(current.state, pos.blockId)?.block ?? null;
+  if (block === null) return editor;
 
-  // Special handling: enter on list item
-  if (block.type === "list" && pos.path.length >= 3) {
-    return handleSplitListItem(current, editor, config);
+  // Split is only meaningful on leaf blocks under a non-null parent.
+  if (block.inlineContent === null || block.parentId === null) {
+    return current === editor ? editor : current;
   }
 
-  // Special handling: enter inside table cell
-  if (block.type === "table" && pos.path.length >= 5) {
-    return handleSplitTableCell(current, editor, config);
-  }
+  // "Style for the following paragraph" (Word / Google Docs): pressing Enter at
+  // the END of a block whose component declares a `splitFollowOnType` (e.g. a
+  // heading) makes the NEW (empty) block that type — a heading is followed by a
+  // Normal paragraph. The gate is END-only: at the end the new block is the
+  // empty suffix, so overriding ITS type is exactly right; a mid/start split's
+  // suffix carries content, so overriding would wrongly demote it — both halves
+  // keep the original type there. Fresh attrs `{}` so the new paragraph does not
+  // inherit heading attrs (e.g. `level`).
+  const atEnd = pos.offset === inlineContentLength(block.inlineContent);
+  const def = config.componentRegistry.get(block.type);
+  const followOnType =
+    atEnd && def !== undefined && def.kind === "leaf" ? def.splitFollowOnType : undefined;
+  const newBlockInit =
+    followOnType !== undefined ? { type: followOnType, attrs: {} } : undefined;
 
-  const nodeId = `node-${current.nextId}`;
-  const change = splitNode(current.state, pos, nodeId, 0);
-
-  // Special handling: enter on heading → new paragraph (convert the new block)
-  let newState = change.newState;
-  if (block.type === "heading") {
-    const newBlock = newState.children[paraIdx + 1];
-    const converted = createNode(
-      newBlock.id,
-      "paragraph",
-      {},
-      newBlock.children,
-    );
-    newState = updateAtPath(newState, [paraIdx + 1], converted);
-  }
-
-  // Find the first text node in the new block for cursor placement
-  const newBlock = newState.children[paraIdx + 1];
-  const firstText = findFirstTextDescendant(newBlock, [paraIdx + 1]);
-  const newSelection = firstText
-    ? createCursor(firstText.path, 0)
-    : createCursor([paraIdx + 1, 0], 0);
-
-  return rebuildTrees(
-    {
-      ...current,
-      state: newState,
-      selection: newSelection,
-      history: pushEditorChange(current.history, {
-        change: { oldState: current.state, newState, timestamp: 0 },
-        selectionBefore: editor.selection,
-        selectionAfter: newSelection,
-      }),
-      nextId: current.nextId + 1,
-    },
-    current,
-    config,
+  const splitResult = splitBlockAtPosition(
+    current.state,
+    pos,
+    productionAllocator,
+    newBlockInit,
   );
-}
+  for (const id of splitResult.dirtyIds) accumulatedDirtyIds.add(id);
 
-function handleSplitListItem(
-  current: EditorState,
-  originalEditor: EditorState,
-  config: EditorConfig,
-): EditorState {
-  const pos = current.selection.focus;
-  const listIdx = pos.path[0];
-  const itemIdx = pos.path[1];
-  const list = current.state.children[listIdx];
-  const item = list.children[itemIdx];
+  // E-B / #141: chained ops accumulate dirtyIds manually. Use the T7
+  // identity contract — splitResult.state === editor.state iff every
+  // chained primitive was a no-op:
+  //   - collapsed branch: splitResult is built from editor.state, so
+  //     splitResult.state === editor.state iff split itself was no-op.
+  //   - !collapsed branch with non-no-op delete: deleteResult.state
+  //     !== editor.state, so splitResult.state (built from it) is
+  //     also !== editor.state regardless of split.
+  //   - !collapsed branch with no-op delete (pathological — e.g.
+  //     equal-position selection that slipped past isCollapsed for
+  //     some structural reason): current.state === editor.state, and
+  //     splitResult.state === editor.state iff split is also no-op.
+  // In every subcase, splitResult.state === editor.state ⇔ both
+  // primitives were no-ops, so returning editor is correct.
+  if (splitResult.state === editor.state) return editor;
 
-  // Check if current list item is empty (enter on empty → exit list)
-  const textNode = getNodeByPath(current.state, pos.path);
-  if (textNode && getTextContentLength(textNode) === 0 && item.children.length === 1) {
-    // Remove the empty item from the list
-    const newListChildren = [...list.children];
-    newListChildren.splice(itemIdx, 1);
+  const updatedOriginal = resolveBlock(splitResult.state, pos.blockId)?.block ?? null;
+  if (updatedOriginal === null) return editor;
+  const newBlockId = updatedOriginal.nextSiblingId;
+  if (newBlockId === null) return editor;
+  const newCursor = createPosition(newBlockId, 0);
+  const newSelection = createSpan(newCursor, newCursor);
 
-    // Create a new paragraph after the list
-    const newPara = createNode(
-      `node-${current.nextId}-para`,
-      "paragraph",
-      {},
-      [createTextNode(`node-${current.nextId}-text`, "")],
-    );
-
-    const docChildren = [...current.state.children];
-
-    if (newListChildren.length === 0) {
-      // Empty list — replace with paragraph
-      docChildren[listIdx] = newPara;
-    } else {
-      // Update list and insert paragraph after
-      const newList = createNode(list.id, list.type, { ...list.properties }, newListChildren);
-      docChildren[listIdx] = newList;
-      docChildren.splice(listIdx + 1, 0, newPara);
-    }
-
-    const newDoc = createNode(
-      current.state.id,
-      current.state.type,
-      { ...current.state.properties },
-      docChildren,
-    );
-
-    const newParaIdx = newListChildren.length === 0 ? listIdx : listIdx + 1;
-    const newSelection = createCursor([newParaIdx, 0], 0);
-
-    return rebuildTrees(
-      {
-        ...current,
-        state: newDoc,
-        selection: newSelection,
-        history: pushEditorChange(current.history, {
-          change: { oldState: current.state, newState: newDoc, timestamp: 0 },
-          selectionBefore: originalEditor.selection,
-          selectionAfter: newSelection,
-        }),
-        nextId: current.nextId + 1,
-      },
-      current,
-      config,
-    );
-  }
-
-  // Normal split: create a new list item
-  const nodeId = `node-${current.nextId}`;
-
-  // Split within the list item (splitDepth = 1 to split the list-item within the list)
-  const change = splitNode(current.state, pos, nodeId, 1);
-
-  // Find first text descendant in the new list item for cursor placement
-  const newItem = change.newState.children[listIdx]?.children[itemIdx + 1];
-  const firstText = newItem ? findFirstTextDescendant(newItem, [listIdx, itemIdx + 1]) : null;
-  const newSelection = firstText
-    ? createCursor(firstText.path, 0)
-    : createCursor([listIdx, itemIdx + 1, 0], 0);
-
-  return rebuildTrees(
-    {
-      ...current,
-      state: change.newState,
-      selection: newSelection,
-      history: pushEditorChange(current.history, {
-        change,
-        selectionBefore: originalEditor.selection,
-        selectionAfter: newSelection,
-      }),
-      nextId: current.nextId + 1,
-    },
-    current,
-    config,
+  editor.history.commit(
+    { state: splitResult.state, dirtyIds: accumulatedDirtyIds },
+    { before: selection, after: newSelection },
   );
-}
-
-function handleSplitTableCell(
-  current: EditorState,
-  originalEditor: EditorState,
-  config: EditorConfig,
-): EditorState {
-  const pos = current.selection.focus;
-  const tableIdx = pos.path[0];
-  const rowIdx = pos.path[1];
-  const cellIdx = pos.path[2];
-  const paraIdx = pos.path[3];
-
-  const nodeId = `node-${current.nextId}`;
-
-  // Split within the cell: splitDepth = 3 splits the paragraph within the cell
-  const change = splitNode(current.state, pos, nodeId, 3);
-
-  // Cursor → first text in the new paragraph within the same cell
-  const newCell = change.newState.children[tableIdx]?.children[rowIdx]?.children[cellIdx];
-  const newPara = newCell?.children[paraIdx + 1];
-  const firstText = newPara
-    ? findFirstTextDescendant(newPara, [tableIdx, rowIdx, cellIdx, paraIdx + 1])
-    : null;
-  const newSelection = firstText
-    ? createCursor(firstText.path, 0)
-    : createCursor([tableIdx, rowIdx, cellIdx, paraIdx + 1, 0], 0);
-
   return rebuildTrees(
-    {
-      ...current,
-      state: change.newState,
-      selection: newSelection,
-      history: pushEditorChange(current.history, {
-        change,
-        selectionBefore: originalEditor.selection,
-        selectionAfter: newSelection,
-      }),
-      nextId: current.nextId + 1,
-    },
-    current,
+    { ...current, state: splitResult.state, selection: newSelection },
+    editor,
     config,
+    accumulatedDirtyIds,
   );
 }

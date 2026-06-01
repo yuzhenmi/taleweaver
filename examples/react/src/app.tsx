@@ -1,16 +1,87 @@
-import { useEditor, EditorView } from "@taleweaver/react";
+import { useEffect, useRef } from "react";
+import { EditorView } from "@taleweaver/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Header } from "@/components/header";
 import { DocMenuBar } from "@/components/menu-bar";
 import { Toolbar } from "@/components/toolbar";
+import { usePerfEditor } from "./use-perf-editor";
+import { setPerfTraceEnabled, report, resetPerfTrace } from "@taleweaver/core";
 import "./app.css";
 
-const PAGE_HEIGHT = 1056; // US Letter height at 96 DPI
+const PAGE_HEIGHT = 1056;            // US Letter at 96 DPI
 const PAGE_GAP = 24;
-const PAGE_MARGINS = { top: 96, bottom: 96, left: 72, right: 72 };
 
 export function App() {
-  const editor = useEditor({ pageHeight: PAGE_HEIGHT, pageMargins: PAGE_MARGINS });
+  // usePerfEditor mirrors useEditor but also checks ?perfFixture=N on mount
+  // and initializes the editor with a synthetic N-paragraph document when set.
+  const editor = usePerfEditor();
+  const seededRef = useRef(false);
+
+  // When a perf fixture is active: enable tracing and expose dev console hooks.
+  useEffect(() => {
+    if (!editor.isPerfFixture) return;
+    setPerfTraceEnabled(true);
+    (window as unknown as { __perfReport: () => unknown; __perfReset: () => void }).__perfReport = () => {
+      const r = report();
+      console.table(r.entries);
+      return r;
+    };
+    (window as unknown as { __perfReset: () => void }).__perfReset = () => {
+      resetPerfTrace();
+      console.log("Perf trace reset");
+    };
+  }, [editor.isPerfFixture]);
+
+  useEffect(() => {
+    // Skip default seeding when a perf fixture is already loaded via URL.
+    if (seededRef.current || editor.isPerfFixture) return;
+    seededRef.current = true;
+
+    // Seed the initial document with some demo content so there is visible text
+    // to exercise the layout engine on first load.
+    //
+    // createEmptyDocument seeds the doc with a single empty paragraph and the
+    // initial cursor sits inside it. We INSERT_TEXT into that existing empty
+    // paragraph rather than appending a new one — otherwise the empty
+    // paragraph remains as a tiny invisible line above the seeded content,
+    // and the cursor lands there on first load.
+    editor.dispatch({
+      type: "INSERT_TEXT",
+      text: "Welcome to Taleweaver — a document editor built with a custom layout engine.",
+    });
+
+    // RTL smoke-test paragraph: Hebrew + Latin mixed text, direction rtl.
+    // The canvas shaper shapes each run independently; bidi reordering within
+    // a mixed-direction run is not yet implemented (reserved for Plan 4), so
+    // Latin words inside the Hebrew text render LTR within their shaped run.
+    // The paragraph itself is right-aligned due to direction: "rtl".
+    editor.dispatch({
+      type: "INSERT_NODE",
+      node: {
+        type: "paragraph",
+        attrs: { direction: "rtl" },
+        inlineContent: {
+          items: [
+            {
+              kind: "text",
+              text: "שלום world עולם",
+              attrs: {},
+            },
+          ],
+        },
+      },
+    });
+
+    // Move cursor to the very start of the document. INSERT_TEXT leaves the
+    // cursor at the END of the inserted text (offset 76 of the welcome
+    // paragraph) — landing the cursor there on first paint isn't useful for
+    // a fresh editor. Put the cursor at offset 0 so a fresh user sees it at
+    // the document start.
+    editor.dispatch({
+      type: "MOVE_DOCUMENT_BOUNDARY",
+      boundary: "start",
+    });
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <TooltipProvider>

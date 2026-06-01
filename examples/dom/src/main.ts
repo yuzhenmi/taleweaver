@@ -1,6 +1,6 @@
 import {
-  createRegistry,
-  defaultComponents,
+  createDefaultComponentRegistry,
+  createDefaultAttrRegistry,
   createInitialEditorState,
   reduceEditor,
   type EditorConfig,
@@ -8,13 +8,12 @@ import {
   type EditorState,
 } from "@taleweaver/core";
 import {
-  createCanvasMeasurer,
+  createCanvasShaper,
   createEditorController,
 } from "@taleweaver/dom";
 
 const PAGE_HEIGHT = 1056; // US Letter height at 96 DPI
 const PAGE_GAP = 24;
-const PAGE_MARGINS = { top: 96, bottom: 96, left: 72, right: 72 };
 const PAGE_WIDTH = 816; // US Letter width at 96 DPI
 
 async function init() {
@@ -28,15 +27,15 @@ async function init() {
   document.body.style.backgroundColor = "#f9fbfd";
 
   const canvas = document.createElement("canvas");
-  const measurer = createCanvasMeasurer(canvas);
-  const registry = createRegistry([...defaultComponents]);
+  // L-B / #164: pass the shaper directly; createCanvasMeasurer is a lossy
+  // adapter (equal per-character widths, no cluster info).
+  const shaper = createCanvasShaper(canvas);
 
   const config: EditorConfig = {
-    measurer,
-    registry,
+    measurer: shaper,
+    componentRegistry: createDefaultComponentRegistry(),
+    attrRegistry: createDefaultAttrRegistry(),
     containerWidth: PAGE_WIDTH,
-    pageHeight: PAGE_HEIGHT,
-    pageMargins: PAGE_MARGINS,
   };
 
   let editorState: EditorState = createInitialEditorState(config);
@@ -47,7 +46,7 @@ async function init() {
   };
 
   const ctrl = createEditorController(container, {
-    measurer,
+    measurer: shaper,
     dispatch,
     pageHeight: PAGE_HEIGHT,
     pageGap: PAGE_GAP,

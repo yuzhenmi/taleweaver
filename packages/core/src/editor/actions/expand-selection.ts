@@ -1,11 +1,11 @@
 import type { EditorState } from "../editor-state";
-import { expandSelectionByCharacter } from "../../cursor/cursor-ops";
+import { expandSelection } from "../../cursor/cursor-ops";
 
 export function handleExpandSelection(
   editor: EditorState,
   direction: "forward" | "backward",
 ): EditorState {
-  const newSelection = expandSelectionByCharacter(
+  const newSelection = expandSelection(
     editor.state,
     editor.selection,
     direction,

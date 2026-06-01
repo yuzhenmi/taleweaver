@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   createEditorController,
-  type EditorController,
   type EditorControllerOptions,
 } from "./editor-controller";
 import * as canvasRenderer from "./canvas-renderer";
@@ -19,26 +18,32 @@ vi.mock("./key-handler", () => ({
   mapKeyEvent: vi.fn(),
 }));
 
+const MOCK_PIXEL_POSITION: core.PixelPosition = {
+  x: 10,
+  y: 20,
+  height: 16,
+  lineY: 18,
+  lineHeight: 24,
+  lineMarginTop: 0,
+  lineMarginBottom: 0,
+  pageIndex: 0,
+};
+
 vi.mock("@taleweaver/core", async () => {
   const actual = await vi.importActual<typeof core>("@taleweaver/core");
   return {
     ...actual,
-    resolvePixelPosition: vi.fn(() => ({
-      x: 10,
-      y: 20,
-      height: 16,
-      lineY: 18,
-      lineHeight: 24,
-    })),
+    resolvePixelPosition: vi.fn(() => MOCK_PIXEL_POSITION),
     computeSelectionRects: vi.fn(() => []),
-    resolvePositionFromPixel: vi.fn(() => ({
-      path: [0, 0],
-      offset: 0,
-    })),
-    selectWord: vi.fn(() => ({
-      anchor: { path: [0, 0], offset: 0 },
-      focus: { path: [0, 0], offset: 5 },
-    })),
+    resolvePositionFromPixel: vi.fn(() =>
+      actual.createPosition("mock-block" as core.BlockId, 0),
+    ),
+    selectWord: vi.fn(() =>
+      actual.createSpan(
+        actual.createPosition("mock-block" as core.BlockId, 0),
+        actual.createPosition("mock-block" as core.BlockId, 5),
+      ),
+    ),
     extractText: vi.fn(() => "hello"),
   };
 });
@@ -69,69 +74,256 @@ function createMockCanvasCtx(): CanvasRenderingContext2D {
 
 let originalGetContext: PropertyDescriptor | undefined;
 
+// Real EditorState produced by the public-API factory. The empty document
+// it creates is a valid layout tree of total height defined by the
+// containerWidth/registry/measurer wiring; tests only assert shape, not
+// specific dimensions, so we don't need to override layoutTree for the
+// non-paginated tests.
+const fakeEditorBase: core.EditorState = core.createInitialEditorState({
+  measurer: core.createMockMeasurer(8, 16),
+  componentRegistry: core.createDefaultComponentRegistry(),
+  attrRegistry: core.createDefaultAttrRegistry(),
+  containerWidth: 600,
+});
+
 function makeFakeEditorState(
   overrides?: Partial<core.EditorState>,
 ): core.EditorState {
   return {
-    state: { type: "doc", id: "doc", children: [], properties: {} },
-    selection: {
-      anchor: { path: [0, 0], offset: 0 },
-      focus: { path: [0, 0], offset: 0 },
-    },
-    renderTree: { type: "doc", id: "doc", children: [], properties: {} },
-    layoutTree: {
-      type: "block",
-      key: "doc",
-      x: 0,
-      y: 0,
-      width: 600,
-      height: 100,
-      children: [],
-    },
-    containerWidth: 600,
-    history: { undo: [], redo: [] },
-    nextId: 1,
-    targetX: null,
+    ...fakeEditorBase,
     ...overrides,
-  } as core.EditorState;
+  };
+}
+
+/**
+ * Build a paginated POSITIONED layout tree with `pageCount` pages, each
+ * `pageHeight` tall. Each page's `blockOffset` is the running sum
+ * `i * (pageHeight + pageGap)` — matching the real paginator
+ * (`packages/core/src/layout/paginate.ts`), which places positioned pages with
+ * the gap INCLUDED. This keeps the fixture consistent with the controller's
+ * positioned-path invariant: the DOM stacks slots by height + marginBottom (the
+ * gap), so each slot's `top` (read from `blockOffset` by caret/scroll/hit-test)
+ * MUST equal the running sum. `pageGap` defaults to the controller's
+ * `DEFAULT_PAGE_GAP` (24), which the positioned fallback uses for stacking.
+ */
+function buildPaginatedLayoutTree(
+  pageCount: number,
+  width: number,
+  pageHeight: number,
+  pageGap = 24,
+): core.LayoutBox {
+  const cs = core.INITIAL_COMPUTED_STYLE;
+  const us = core.computeUsedStyle(cs, width, "indefinite");
+  const pages: core.LayoutBox[] = [];
+  for (let i = 0; i < pageCount; i++) {
+    pages.push(
+      core.createPageBox(
+        `page-${i}`,
+        0,
+        i * (pageHeight + pageGap),
+        width,
+        pageHeight,
+        cs.writingMode,
+        cs.direction,
+        cs,
+        us,
+        [],
+        i,
+        width,
+        null,
+        null,
+        null,
+        0,
+        0,
+      ),
+    );
+  }
+  return core.createBlockBox(
+    "doc",
+    0,
+    0,
+    width,
+    pageCount * pageHeight + Math.max(0, pageCount - 1) * pageGap,
+    cs.writingMode,
+    cs.direction,
+    cs,
+    us,
+    pages,
+    width,
+  );
 }
 
 function makePaginatedEditorState(): core.EditorState {
-  const page1: core.LayoutBox = {
-    type: "page",
-    key: "page-0",
-    x: 0,
-    y: 0,
-    width: 600,
-    height: 100,
-    children: [],
-  };
-  const page2: core.LayoutBox = {
-    type: "page",
-    key: "page-1",
-    x: 0,
-    y: 100,
-    width: 600,
-    height: 100,
-    children: [],
-  };
   return makeFakeEditorState({
-    layoutTree: {
-      type: "block",
-      key: "doc",
-      x: 0,
-      y: 0,
-      width: 600,
-      height: 200,
-      children: [page1, page2],
-    },
+    layoutTree: buildPaginatedLayoutTree(2, 600, 100),
   });
 }
 
-const measurer: core.TextMeasurer = {
-  measureWidth: vi.fn(() => 8),
-  measureCharWidths: vi.fn(() => [8]),
-};
+/**
+ * A spy-instrumented fake `VirtualLayoutTree`: a real-enough `PagePlan` of
+ * `pageCount` uniform pages plus `getPage` / `materializeAll` vitest spies. Used
+ * to assert the controller hot path (collapsed selection) NEVER calls
+ * `materializeAll` and that `getPage` is invoked only for visible slots.
+ */
+function makeSpyVirtualTree(pageCount: number, width: number, pageHeight: number, pageGap: number) {
+  const cs = core.INITIAL_COMPUTED_STYLE;
+  const us = core.computeUsedStyle(cs, width, "indefinite");
+  const entries = Array.from({ length: pageCount }, (_, i) => ({
+    pageIndex: i,
+    blockOffset: i * (pageHeight + pageGap),
+    blockSize: pageHeight,
+    // Uniform per-entry geometry (C.2b-2): every page resolves to the doc-wide
+    // config, so this models the "uniform == today" no-regression case.
+    pageConfig: {
+      pageInlineSize: width,
+      pageBlockSize: pageHeight,
+      pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
+      pageGap,
+    },
+    children: [],
+    startIndex: i,
+    resumeInto: null,
+    resumeOut: null,
+    listCounterAtStart: 0,
+  }));
+  const totalBlockSize = pageCount * pageHeight + Math.max(0, pageCount - 1) * pageGap;
+  const plan = {
+    entries,
+    totalBlockSize,
+    pageInlineSize: width,
+    pageIndexAtBlockOffset: (y: number) => {
+      const idx = Math.floor(y / (pageHeight + pageGap));
+      return Math.max(0, Math.min(pageCount - 1, idx));
+    },
+    pageIndexOfBlock: () => -1,
+    pageSpanOfBlock: () => null,
+  } as unknown as core.VirtualLayoutTree["plan"];
+
+  const makePage = (i: number) =>
+    core.createPageBox(`page-${i}`, 0, entries[i].blockOffset, width, pageHeight,
+      cs.writingMode, cs.direction, cs, us, [], i, width, null, null, null, 0, 0);
+
+  const getPage = vi.fn((i: number) => makePage(i));
+  const materializeAll = vi.fn(() => {
+    const pages = entries.map((_, i) => makePage(i));
+    return core.createBlockBox("doc", 0, 0, width, totalBlockSize,
+      cs.writingMode, cs.direction, cs, us, pages, width);
+  });
+
+  const tree = {
+    type: "virtual-root" as const,
+    plan,
+    inlineSize: width,
+    blockSize: totalBlockSize,
+    getPage,
+    getPages: vi.fn((from: number, to: number) => {
+      const out = [];
+      for (let i = from; i <= to; i++) out.push(makePage(i));
+      return out;
+    }),
+    materializeAll,
+  } as unknown as core.VirtualLayoutTree;
+
+  return { tree, getPage, materializeAll };
+}
+
+/**
+ * A spy `VirtualLayoutTree` with PER-ENTRY page geometry (C.2b-2). Each entry
+ * carries its own `pageConfig` (inline-size, block-size, margins, gap), a
+ * RUNNING-SUM `blockOffset`, and a `blockSize` equal to its config's
+ * `pageBlockSize`. `pageHeights`/`pageGaps`/`pageWidths` are per-page arrays so
+ * a section boundary can be modeled (e.g. page 1 onward taller/wider). Pages are
+ * NOT uniform — `pageIndexAtBlockOffset` binary-searches the running-sum offsets.
+ */
+function makeSpyVirtualTreeWithGeom(
+  pageHeights: number[],
+  pageWidths: number[],
+  pageGaps: number[],
+) {
+  const pageCount = pageHeights.length;
+  const cs = core.INITIAL_COMPUTED_STYLE;
+
+  // Running-sum offsets: blockOffset[i] = sum of (height[j] + gap[j]) for j<i.
+  const offsets: number[] = [];
+  let running = 0;
+  for (let i = 0; i < pageCount; i++) {
+    offsets.push(running);
+    running += pageHeights[i] + (i < pageCount - 1 ? pageGaps[i] : 0);
+  }
+  const totalBlockSize = running;
+
+  const entries = Array.from({ length: pageCount }, (_, i) => ({
+    pageIndex: i,
+    blockOffset: offsets[i],
+    blockSize: pageHeights[i],
+    pageConfig: {
+      pageInlineSize: pageWidths[i],
+      pageBlockSize: pageHeights[i],
+      pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
+      pageGap: pageGaps[i],
+    },
+    children: [],
+    startIndex: i,
+    resumeInto: null,
+    resumeOut: null,
+    listCounterAtStart: 0,
+  }));
+
+  const pageIndexAtBlockOffset = (y: number): number => {
+    if (y <= 0) return 0;
+    if (y >= totalBlockSize) return pageCount - 1;
+    for (let i = pageCount - 1; i >= 0; i--) {
+      if (y >= offsets[i]) return i;
+    }
+    return 0;
+  };
+
+  const plan = {
+    entries,
+    totalBlockSize,
+    pageInlineSize: pageWidths[0],
+    pageContentBlockSize: pageHeights[0],
+    pageIndexAtBlockOffset,
+    pageIndexOfBlock: () => -1,
+    pageSpanOfBlock: () => null,
+  } as unknown as core.VirtualLayoutTree["plan"];
+
+  const makePage = (i: number) => {
+    const us = core.computeUsedStyle(cs, pageWidths[i], "indefinite");
+    return core.createPageBox(
+      `page-${i}`, 0, offsets[i], pageWidths[i], pageHeights[i],
+      cs.writingMode, cs.direction, cs, us, [], i, pageWidths[i],
+      null, null, null,
+      0, 0,
+    );
+  };
+
+  const getPage = vi.fn((i: number) => makePage(i));
+  const materializeAll = vi.fn(() => {
+    const pages = entries.map((_, i) => makePage(i));
+    const us = core.computeUsedStyle(cs, pageWidths[0], "indefinite");
+    return core.createBlockBox("doc", 0, 0, pageWidths[0], totalBlockSize,
+      cs.writingMode, cs.direction, cs, us, pages, pageWidths[0]);
+  });
+
+  const tree = {
+    type: "virtual-root" as const,
+    plan,
+    inlineSize: pageWidths[0],
+    blockSize: totalBlockSize,
+    getPage,
+    getPages: vi.fn((from: number, to: number) => {
+      const out = [];
+      for (let i = from; i <= to; i++) out.push(makePage(i));
+      return out;
+    }),
+    materializeAll,
+  } as unknown as core.VirtualLayoutTree;
+
+  return { tree, getPage, materializeAll, offsets, totalBlockSize };
+}
+
+const measurer: core.TextMeasurer = core.createMockMeasurer(8, 16);
 
 function makeOptions(
   overrides?: Partial<EditorControllerOptions>,
@@ -166,7 +358,7 @@ beforeEach(() => {
   });
 
   // Mock IntersectionObserver
-  global.IntersectionObserver = vi.fn().mockImplementation(
+  globalThis.IntersectionObserver = vi.fn().mockImplementation(
     (callback: IntersectionObserverCallback) => {
       return {
         observe: vi.fn((el: Element) => {
@@ -185,7 +377,7 @@ beforeEach(() => {
         disconnect: vi.fn(),
       };
     },
-  );
+  ) as unknown as typeof IntersectionObserver;
 
   vi.mocked(canvasRenderer.paintCanvas).mockClear();
   vi.mocked(canvasRenderer.paintPage).mockClear();
@@ -390,26 +582,9 @@ describe("createEditorController", () => {
       ).toBe(2);
 
       // Go to 1 page
-      const onePage: core.LayoutBox = {
-        type: "page",
-        key: "page-0",
-        x: 0,
-        y: 0,
-        width: 600,
-        height: 100,
-        children: [],
-      };
       ctrl.update(
         makeFakeEditorState({
-          layoutTree: {
-            type: "block",
-            key: "doc",
-            x: 0,
-            y: 0,
-            width: 600,
-            height: 100,
-            children: [onePage],
-          },
+          layoutTree: buildPaginatedLayoutTree(1, 600, 100),
         }),
       );
       expect(
@@ -429,7 +604,7 @@ describe("createEditorController", () => {
       // Custom IntersectionObserver that lets us control visibility
       let ioCallback: IntersectionObserverCallback;
       const observed: Element[] = [];
-      global.IntersectionObserver = vi.fn().mockImplementation(
+      globalThis.IntersectionObserver = vi.fn().mockImplementation(
         (callback: IntersectionObserverCallback) => {
           ioCallback = callback;
           return {
@@ -445,7 +620,7 @@ describe("createEditorController", () => {
             disconnect: vi.fn(),
           };
         },
-      );
+      ) as unknown as typeof IntersectionObserver;
 
       const container = document.createElement("div");
       const ctrl = createEditorController(
@@ -502,6 +677,300 @@ describe("createEditorController", () => {
     });
   });
 
+  describe("painting (virtual tree) — lazy materialize", () => {
+    it("sizes page slots from the plan WITHOUT materializeAll on a collapsed-selection update", () => {
+      const container = document.createElement("div");
+      const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
+      const { tree, materializeAll } = makeSpyVirtualTree(3, 600, 100, 24);
+
+      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+
+      // Slots created from the plan; never materialized the whole tree.
+      const slots = container.querySelectorAll("div[data-page-index]");
+      expect(slots.length).toBe(3);
+      expect((slots[0] as HTMLDivElement).style.width).toBe("600px");
+      expect((slots[0] as HTMLDivElement).style.height).toBe("100px");
+      expect(materializeAll).not.toHaveBeenCalled();
+
+      ctrl.destroy();
+    });
+
+    it("paints visible pages via getPage(idx), never materializeAll, on the collapsed hot path", () => {
+      const container = document.createElement("div");
+      const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
+      const { tree, getPage, materializeAll } = makeSpyVirtualTree(3, 600, 100, 24);
+
+      // fakeEditorBase's selection is collapsed (fresh empty doc), so this is
+      // the typing/Enter hot path: no computeSelectionRects, no bridge.
+      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+
+      // The mock IntersectionObserver marks all slots visible → getPage per page.
+      expect(getPage).toHaveBeenCalled();
+      expect(canvasRenderer.paintPage).toHaveBeenCalled();
+      // THE WIN: the whole tree is never materialized on the collapsed path.
+      expect(materializeAll).not.toHaveBeenCalled();
+
+      ctrl.destroy();
+    });
+
+    it("scroll spacer / total height uses plan.totalBlockSize (no materialize)", () => {
+      const container = document.createElement("div");
+      const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
+      const { tree, materializeAll } = makeSpyVirtualTree(4, 600, 100, 24);
+
+      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      // Paginated mode uses per-slot divs (no single spacer), but the key
+      // guarantee is no materialize on the collapsed update.
+      expect(materializeAll).not.toHaveBeenCalled();
+
+      ctrl.destroy();
+    });
+
+    it("non-collapsed selection (non-spanning blocks) computes rects per-page, never materializeAll", () => {
+      const container = document.createElement("div");
+      const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
+      const { tree, getPage, materializeAll } = makeSpyVirtualTree(3, 600, 100, 24);
+
+      // A non-collapsed selection. The spy tree's `pageSpanOfBlock` returns null
+      // (non-spanning), so the per-page selection-rect path is taken — the
+      // bridge `materializeAll()` is NOT used (it would be only for a boundary
+      // block that straddles a page break).
+      const anchor = core.createPosition("doc" as core.BlockId, 0);
+      const focus = core.createPosition("doc" as core.BlockId, 1);
+      ctrl.update(
+        makeFakeEditorState({
+          layoutTree: tree,
+          selection: core.createSpan(anchor, focus),
+        }),
+      );
+
+      expect(materializeAll).not.toHaveBeenCalled();
+      expect(getPage).toHaveBeenCalled(); // per-page paint + rect computation
+
+      ctrl.destroy();
+    });
+
+    it("hides the caret over a non-collapsed selection (paginated rects are empty)", () => {
+      const container = document.createElement("div");
+      const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
+      const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
+
+      const anchor = core.createPosition("doc" as core.BlockId, 0);
+      const focus = core.createPosition("doc" as core.BlockId, 1);
+      ctrl.update(
+        makeFakeEditorState({ layoutTree: tree, selection: core.createSpan(anchor, focus) }),
+      );
+
+      // In paginated mode `selectionRects` is empty (rects are per-page), so the
+      // caret-hide MUST come from the `hasSelectionHighlight` flag: every
+      // paintPage call's cursorState (arg index 4) is "hidden".
+      const calls = vi.mocked(canvasRenderer.paintPage).mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      for (const call of calls) expect(call[4]).toBe("hidden");
+
+      ctrl.destroy();
+    });
+
+    it("spanning-block selection boundary falls back to materializeAll (rare)", () => {
+      const container = document.createElement("div");
+      const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
+      const { tree, materializeAll } = makeSpyVirtualTree(3, 600, 100, 24);
+      // Force a boundary block to straddle a page break.
+      (tree.plan as { pageSpanOfBlock: (id: core.BlockId) => { first: number; last: number } | null })
+        .pageSpanOfBlock = () => ({ first: 0, last: 1 });
+
+      const anchor = core.createPosition("doc" as core.BlockId, 0);
+      const focus = core.createPosition("doc" as core.BlockId, 1);
+      ctrl.update(
+        makeFakeEditorState({ layoutTree: tree, selection: core.createSpan(anchor, focus) }),
+      );
+
+      // A spanning boundary block can't be resolved per-page → the bridge fires.
+      expect(materializeAll).toHaveBeenCalled();
+
+      ctrl.destroy();
+    });
+
+    it("paginated mousedown hit-test resolves via getPage(clicked), never materializeAll", () => {
+      const dispatch = vi.fn();
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const ctrl = createEditorController(
+        container,
+        makeOptions({ dispatch, pageHeight: 100, pageGap: 24 }),
+      );
+      const { tree, getPage, materializeAll } = makeSpyVirtualTree(3, 600, 100, 24);
+      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+
+      // Paint already called getPage for visible pages; isolate the mousedown.
+      getPage.mockClear();
+      materializeAll.mockClear();
+
+      container.getBoundingClientRect = vi.fn(() => ({
+        left: 0, top: 0, right: 600, bottom: 372, width: 600, height: 372, x: 0, y: 0, toJSON: () => {},
+      }));
+      // clientY 150 → page 1 (slotHeight = pageHeight 100 + gap 24 = 124).
+      container.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 150, detail: 1, bubbles: true }),
+      );
+
+      // The hit-test materializes ONLY the clicked page — never the whole tree.
+      expect(materializeAll).not.toHaveBeenCalled();
+      expect(getPage).toHaveBeenCalledWith(1);
+
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+  });
+
+  describe("per-section page geometry (C.2b-2)", () => {
+    // A doc with a TALL/WIDE section starting at page 1: page 0 is the doc-wide
+    // default (100×600, gap 24); pages 1-2 belong to a section overriding to
+    // 200 tall × 800 wide, gap 40.
+    function makeTallSectionTree() {
+      return makeSpyVirtualTreeWithGeom(
+        [100, 200, 200],
+        [600, 800, 800],
+        [24, 40, 40],
+      );
+    }
+
+    it("slot heights/widths/gaps come from each entry's pageConfig", () => {
+      const container = document.createElement("div");
+      const ctrl = createEditorController(
+        container,
+        makeOptions({ pageHeight: 100, pageGap: 24 }),
+      );
+      const { tree } = makeTallSectionTree();
+      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+
+      const slots = container.querySelectorAll("div[data-page-index]");
+      expect(slots.length).toBe(3);
+
+      // Page 0: doc-wide default.
+      expect((slots[0] as HTMLDivElement).style.width).toBe("600px");
+      expect((slots[0] as HTMLDivElement).style.height).toBe("100px");
+      // Per-entry gap AFTER page 0 (page 0's own gap = 24).
+      expect((slots[0] as HTMLDivElement).style.marginBottom).toBe("24px");
+
+      // Page 1: section override — taller + wider.
+      expect((slots[1] as HTMLDivElement).style.width).toBe("800px");
+      expect((slots[1] as HTMLDivElement).style.height).toBe("200px");
+      // Per-entry gap AFTER page 1 (section gap = 40).
+      expect((slots[1] as HTMLDivElement).style.marginBottom).toBe("40px");
+
+      // Page 2: last slot — no trailing margin.
+      expect((slots[2] as HTMLDivElement).style.width).toBe("800px");
+      expect((slots[2] as HTMLDivElement).style.height).toBe("200px");
+      expect((slots[2] as HTMLDivElement).style.marginBottom).toBe("0px");
+
+      ctrl.destroy();
+    });
+
+    it("textarea/caret top uses the entry's running-sum blockOffset, not pageIndex*(H+gap)", () => {
+      const container = document.createElement("div");
+      const ctrl = createEditorController(
+        container,
+        makeOptions({ pageHeight: 100, pageGap: 24 }),
+      );
+      const { tree, offsets } = makeTallSectionTree();
+
+      // Cursor on page 2 (post-boundary). cursorPos.y = 20 (from MOCK).
+      vi.mocked(core.resolvePixelPosition).mockReturnValue({
+        x: 10, y: 20, height: 16, lineY: 18, lineHeight: 24,
+        lineMarginTop: 0, lineMarginBottom: 0, pageIndex: 2,
+      });
+
+      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+
+      const textarea = container.querySelector("textarea")!;
+      // Running sum: offsets[2] = 100+24 + 200+40 = 364. + cursorPos.y(20) = 384.
+      // A uniform pageIndex*(100+24)+20 would be 2*124+20 = 268 — WRONG.
+      expect(offsets[2]).toBe(364);
+      expect(textarea.style.top).toBe(`${offsets[2] + 20}px`);
+
+      ctrl.destroy();
+      vi.mocked(core.resolvePixelPosition).mockReturnValue(MOCK_PIXEL_POSITION);
+    });
+
+    it("mouse fallback (click outside any slot) maps across a geometry boundary to the right page, clamped to THAT page's height", () => {
+      const dispatch = vi.fn();
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const ctrl = createEditorController(
+        container,
+        makeOptions({ dispatch, pageHeight: 100, pageGap: 24 }),
+      );
+      const { tree, getPage } = makeTallSectionTree();
+      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      getPage.mockClear();
+      vi.mocked(core.resolvePositionFromPixel).mockClear();
+
+      // Container rect spans the whole doc; the event target is the container
+      // itself (no data-page-index) → the "outside any slot" fallback runs.
+      container.getBoundingClientRect = vi.fn(() => ({
+        left: 0, top: 0, right: 800, bottom: 564, width: 800, height: 564,
+        x: 0, y: 0, toJSON: () => {},
+      }));
+
+      // visualY = 500 lands inside page 2 (offsets[2] = 364, page 2 spans
+      // [364, 564)). A uniform floor(500/124) would give page 4 — out of range.
+      container.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 500, detail: 1, bubbles: true }),
+      );
+
+      // Hit-tested page 2 via getPage (never materializeAll).
+      expect(getPage).toHaveBeenCalledWith(2);
+
+      // resolvePositionFromPixel called with pageLocalY = 500 - 364 = 136,
+      // clamped to page 2's own height (200) ⇒ 136 (not clamped to the
+      // short default 100). Args: (state, tree, measurer, x, y, pageIndex).
+      const call = vi.mocked(core.resolvePositionFromPixel).mock.calls.at(-1)!;
+      expect(call[5]).toBe(2); // pageIndex
+      expect(call[4]).toBe(136); // pageLocalY clamped to the tall page's height
+
+      ctrl.destroy();
+      document.body.removeChild(container);
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValue(
+        core.createPosition("mock-block" as core.BlockId, 0),
+      );
+    });
+
+    it("mouse fallback clamps a click below a page's content to THAT page's height (not the doc-wide default)", () => {
+      const dispatch = vi.fn();
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const ctrl = createEditorController(
+        container,
+        makeOptions({ dispatch, pageHeight: 100, pageGap: 24 }),
+      );
+      const { tree } = makeTallSectionTree();
+      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      vi.mocked(core.resolvePositionFromPixel).mockClear();
+
+      container.getBoundingClientRect = vi.fn(() => ({
+        left: 0, top: 0, right: 800, bottom: 564, width: 800, height: 564,
+        x: 0, y: 0, toJSON: () => {},
+      }));
+
+      // visualY = 555 — near the bottom of page 2 (spans [364, 564)).
+      // pageLocalY = 555 - 364 = 191, which is < page 2's height (200), so it
+      // stays 191. Critically NOT clamped to the short default (100).
+      container.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 555, detail: 1, bubbles: true }),
+      );
+      const call = vi.mocked(core.resolvePositionFromPixel).mock.calls.at(-1)!;
+      expect(call[5]).toBe(2);
+      expect(call[4]).toBe(191);
+
+      ctrl.destroy();
+      document.body.removeChild(container);
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValue(
+        core.createPosition("mock-block" as core.BlockId, 0),
+      );
+    });
+  });
+
   describe("cursor blink", () => {
     it("toggles cursor visibility every 500ms", () => {
       const container = document.createElement("div");
@@ -550,12 +1019,13 @@ describe("createEditorController", () => {
       const container = document.createElement("div");
       document.body.appendChild(container);
       const ctrl = createEditorController(container, makeOptions());
+      const focusBlockId = fakeEditorBase.selection.focus.blockId;
       ctrl.update(
         makeFakeEditorState({
-          selection: {
-            anchor: { path: [0, 0], offset: 0 },
-            focus: { path: [0, 0], offset: 5 },
-          },
+          selection: core.createSpan(
+            core.createPosition(focusBlockId, 0),
+            core.createPosition(focusBlockId, 5),
+          ),
         }),
       );
 
@@ -573,12 +1043,13 @@ describe("createEditorController", () => {
       const ctrl = createEditorController(container, makeOptions());
 
       // Non-collapsed selection with virtual line break (like select-all in empty doc)
+      const focusBlockId = fakeEditorBase.selection.focus.blockId;
       ctrl.update(
         makeFakeEditorState({
-          selection: {
-            anchor: { path: [0, 0], offset: 0 },
-            focus: { path: [0, 0], offset: 1 }, // virtual line break
-          },
+          selection: core.createSpan(
+            core.createPosition(focusBlockId, 0),
+            core.createPosition(focusBlockId, 1),
+          ),
         }),
       );
 
@@ -667,12 +1138,13 @@ describe("createEditorController", () => {
       document.body.appendChild(container);
       const ctrl = createEditorController(container, makeOptions());
       // Non-collapsed selection
+      const focusBlockId = fakeEditorBase.selection.focus.blockId;
       ctrl.update(
         makeFakeEditorState({
-          selection: {
-            anchor: { path: [0, 0], offset: 0 },
-            focus: { path: [0, 0], offset: 3 },
-          },
+          selection: core.createSpan(
+            core.createPosition(focusBlockId, 0),
+            core.createPosition(focusBlockId, 3),
+          ),
         }),
       );
 
@@ -849,25 +1321,18 @@ describe("createEditorController", () => {
         makeOptions({ dispatch }),
       );
 
-      // Need a state with actual children so getNodeByPath works
-      const state = makeFakeEditorState({
-        state: {
-          type: "doc",
-          id: "doc",
-          properties: {},
-          children: [
-            {
-              type: "paragraph",
-              id: "p1",
-              properties: {},
-              children: [
-                { type: "text", id: "t1", properties: { content: "hello" }, children: [] },
-              ],
-            },
-          ],
-        },
-      });
-      ctrl.update(state);
+      // Use the real initial-document state — it has a single empty paragraph
+      // block whose id is reachable via the base selection. The
+      // resolvePositionFromPixel mock returns a "mock-block" id which does
+      // NOT exist in state, so triple-click no-ops the dispatch. To make
+      // the triple-click branch fire a dispatch we override the mock to
+      // return the real paragraph's blockId.
+      const realParagraphId = fakeEditorBase.selection.focus.blockId;
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(
+        core.createPosition(realParagraphId, 0),
+      );
+
+      ctrl.update(makeFakeEditorState());
 
       container.getBoundingClientRect = vi.fn(() => ({
         left: 0,
@@ -932,7 +1397,15 @@ describe("createEditorController", () => {
 
       dispatch.mockClear();
 
-      // Shift-click
+      // Shift-click. The hit-test must resolve into a block in the SAME
+      // selection context as the current anchor (the seeded paragraph), or the
+      // cross-context guard correctly skips the extension. The default mock
+      // returns "mock-block" (not in state, hence a different/null context), so
+      // pin this resolve to the real anchor block.
+      const anchorBlockId = fakeEditorBase.selection.anchor.blockId;
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(
+        core.createPosition(anchorBlockId, 0),
+      );
       container.dispatchEvent(
         new MouseEvent("mousedown", {
           clientX: 50,
@@ -972,6 +1445,18 @@ describe("createEditorController", () => {
         y: 0,
         toJSON: () => {},
       }));
+
+      // The drag's mousedown (dragAnchor) and mousemove (focus) must resolve to
+      // a REAL in-state block so both are in the same (non-null) selection
+      // context — the cross-context guard skips any extension whose endpoint has
+      // a null context (the default "mock-block" mock id isn't in state).
+      const realDragPos = core.createPosition(
+        fakeEditorBase.selection.focus.blockId,
+        0,
+      );
+      vi.mocked(core.resolvePositionFromPixel)
+        .mockReturnValueOnce(realDragPos)
+        .mockReturnValueOnce(realDragPos);
 
       // Mousedown starts drag
       container.dispatchEvent(
@@ -1052,6 +1537,405 @@ describe("createEditorController", () => {
     });
   });
 
+  // ── Cross-context pointer-selection guard (footnote slot crash) ────────────
+  //
+  // A document with a footnote has MULTIPLE selection contexts: the main body
+  // tree and each footnote BODY (an embedContents subtree). A pointer
+  // selection-EXTENSION (drag or shift-click) whose anchor is in one context
+  // and whose hit-test resolves into ANOTHER context would build a
+  // cross-context `Span`. Storing such a span crashes the next render:
+  // `getActiveFormatting` runs `iterateSpan`, which THROWS
+  // "anchor and focus are in different selection contexts". Google Docs
+  // confines a pointer selection to the context it began in, so the controller
+  // must skip the extension instead of dispatching the cross-context span.
+  describe("cross-context pointer-selection guard (footnote slot)", () => {
+    // Build a real EditorState with a footnote so there are two selection
+    // contexts. Returns the editor state plus a main-body position and a
+    // footnote-body position that live in DIFFERENT contexts.
+    function makeFootnoteEditorState(): {
+      editorState: core.EditorState;
+      bodyPos: core.Position;
+      footnotePos: core.Position;
+    } {
+      const config: core.EditorConfig = {
+        measurer: core.createMockMeasurer(8, 16),
+        componentRegistry: core.createDefaultComponentRegistry(),
+        attrRegistry: core.createDefaultAttrRegistry(),
+        containerWidth: 600,
+      };
+      const initial = core.createInitialEditorState(config);
+      // Main-body paragraph (the seeded empty paragraph) — context A.
+      const bodyBlockId = initial.selection.focus.blockId;
+      const typed = core.reduceEditor(
+        initial,
+        { type: "INSERT_TEXT", text: "hello" },
+        config,
+      );
+      // INSERT_FOOTNOTE drops the caret into the footnote body — context B.
+      const withFn = core.reduceEditor(typed, { type: "INSERT_FOOTNOTE" }, config);
+      const footnoteBlockId = withFn.selection.focus.blockId;
+      // Sanity: the two ends are genuinely in different selection contexts.
+      expect(core.selectionContextOf(withFn.state, bodyBlockId)).not.toBe(
+        core.selectionContextOf(withFn.state, footnoteBlockId),
+      );
+      return {
+        editorState: withFn,
+        bodyPos: core.createPosition(bodyBlockId, 0),
+        footnotePos: core.createPosition(footnoteBlockId, 0),
+      };
+    }
+
+    function makeContainer(dispatch: ReturnType<typeof vi.fn>) {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const ctrl = createEditorController(container, makeOptions({ dispatch }));
+      container.getBoundingClientRect = vi.fn(() => ({
+        left: 0, top: 0, right: 600, bottom: 100, width: 600, height: 100, x: 0, y: 0, toJSON: () => {},
+      }));
+      return { container, ctrl };
+    }
+
+    it("drag from body into footnote slot does NOT dispatch a cross-context span", () => {
+      const { editorState, bodyPos, footnotePos } = makeFootnoteEditorState();
+      const dispatch = vi.fn();
+      const { container, ctrl } = makeContainer(dispatch);
+      ctrl.update(editorState);
+
+      // mousedown resolves into the BODY (context A) → drag anchor in body.
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(bodyPos);
+      container.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 20, detail: 1, bubbles: true }),
+      );
+      dispatch.mockClear();
+
+      // mousemove resolves into the FOOTNOTE body (context B). A 1px pointer
+      // drift during a double-click fires this same path.
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(footnotePos);
+      document.dispatchEvent(
+        new MouseEvent("mousemove", { clientX: 12, clientY: 20, bubbles: true }),
+      );
+
+      // The cross-context extension must be skipped: no SET_SELECTION dispatched.
+      expect(dispatch).not.toHaveBeenCalled();
+
+      // And the crash is genuinely prevented: feeding the WOULD-BE span (the
+      // body anchor + footnote focus) to getActiveFormatting throws today —
+      // that is exactly the render-path crash this guard avoids storing.
+      const crossContextSpan = core.createSpan(bodyPos, footnotePos);
+      expect(() =>
+        core.getActiveFormatting(editorState.state, crossContextSpan),
+      ).toThrow(/different selection contexts/);
+
+      document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("shift-click from body into footnote slot does NOT dispatch a cross-context span", () => {
+      const { editorState, bodyPos, footnotePos } = makeFootnoteEditorState();
+      const dispatch = vi.fn();
+      const { container, ctrl } = makeContainer(dispatch);
+      // Anchor the current selection in the BODY (context A).
+      ctrl.update({
+        ...editorState,
+        selection: core.createSpan(bodyPos, bodyPos),
+      });
+
+      // shift-click resolves into the FOOTNOTE body (context B).
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(footnotePos);
+      container.dispatchEvent(
+        new MouseEvent("mousedown", {
+          clientX: 50, clientY: 20, detail: 1, shiftKey: true, bubbles: true,
+        }),
+      );
+
+      expect(dispatch).not.toHaveBeenCalled();
+
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("drag WITHIN the footnote slot still extends (same-context span allowed)", () => {
+      const { editorState, footnotePos } = makeFootnoteEditorState();
+      const dispatch = vi.fn();
+      const { container, ctrl } = makeContainer(dispatch);
+      ctrl.update(editorState);
+
+      // mousedown AND mousemove both resolve into the footnote body (context B).
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(footnotePos);
+      container.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 20, detail: 1, bubbles: true }),
+      );
+      dispatch.mockClear();
+
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(footnotePos);
+      document.dispatchEvent(
+        new MouseEvent("mousemove", { clientX: 30, clientY: 20, bubbles: true }),
+      );
+
+      // Same-context extension is permitted → SET_SELECTION dispatched.
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "SET_SELECTION" }),
+      );
+
+      document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("shift-click onto a block that is in NO tree (null context) does NOT dispatch", () => {
+      // Defensive: a hit-test position whose block is absent from every tree has
+      // a null selection context. The guard treats null as a definitive skip
+      // (`posCtx === null`), so it can never extend into an unknown context —
+      // and two unknown contexts can never `null === null` false-pass into an
+      // extension. Anchor is a real body block; the shift-click target is a
+      // freshly-allocated id never inserted into the document.
+      const { editorState, bodyPos } = makeFootnoteEditorState();
+      const dispatch = vi.fn();
+      const { container, ctrl } = makeContainer(dispatch);
+      ctrl.update({
+        ...editorState,
+        selection: core.createSpan(bodyPos, bodyPos),
+      });
+
+      const ghostId = core.createTestAllocator().allocate();
+      expect(core.selectionContextOf(editorState.state, ghostId)).toBeNull();
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(
+        core.createPosition(ghostId, 0),
+      );
+      container.dispatchEvent(
+        new MouseEvent("mousedown", {
+          clientX: 50, clientY: 20, detail: 1, shiftKey: true, bubbles: true,
+        }),
+      );
+
+      expect(dispatch).not.toHaveBeenCalled();
+
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+  });
+
+  // ── #323 Cycle B: per-page caret hint wiring ───────────────────────────────
+  //
+  // A click into a header/footer slot must (1) carry the clicked page index as
+  // `caretPageHint` on the dispatched SET_SELECTION, and (2) thread the
+  // EditorState's `caretPageHint` into ALL THREE `resolvePixelPosition` calls
+  // (caret + selection-rect endpoints), so the caret AND the highlight resolve
+  // on the page the user clicked — not the template block's default first page.
+  describe("per-page caret hint (#323 Cycle B)", () => {
+    function makePaginatedContainer(dispatch = vi.fn()) {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const ctrl = createEditorController(
+        container,
+        makeOptions({ dispatch, pageHeight: 100, pageGap: 24 }),
+      );
+      const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
+      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      // Make container coords deterministic for resolveMouseToLayout.
+      container.getBoundingClientRect = vi.fn(() => ({
+        left: 0, top: 0, right: 600, bottom: 372, width: 600, height: 372, x: 0, y: 0, toJSON: () => {},
+      }));
+      return { container, ctrl, dispatch };
+    }
+
+    it("single click on page 1 dispatches SET_SELECTION with caretPageHint === 1", () => {
+      const { container, ctrl, dispatch } = makePaginatedContainer();
+      // clientY 150 → page 1 (slotHeight = pageHeight 100 + gap 24 = 124).
+      container.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 150, detail: 1, bubbles: true }),
+      );
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "SET_SELECTION", caretPageHint: 1 }),
+      );
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("single click on page 0 dispatches caretPageHint === 0 (body click harmless)", () => {
+      const { container, ctrl, dispatch } = makePaginatedContainer();
+      // clientY 10 → page 0.
+      container.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 10, detail: 1, bubbles: true }),
+      );
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "SET_SELECTION", caretPageHint: 0 }),
+      );
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("double-click (word) carries the clicked page as caretPageHint", () => {
+      const { container, ctrl, dispatch } = makePaginatedContainer();
+      container.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 150, detail: 2, bubbles: true }),
+      );
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "SET_SELECTION", caretPageHint: 1 }),
+      );
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("triple-click (paragraph) carries the clicked page as caretPageHint", () => {
+      const dispatch = vi.fn();
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const ctrl = createEditorController(
+        container,
+        makeOptions({ dispatch, pageHeight: 100, pageGap: 24 }),
+      );
+      const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
+      // Triple-click needs a real blockId so the dispatch fires (the
+      // resolvePositionFromPixel mock's "mock-block" id is not in state).
+      const realParagraphId = fakeEditorBase.selection.focus.blockId;
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(
+        core.createPosition(realParagraphId, 0),
+      );
+      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      container.getBoundingClientRect = vi.fn(() => ({
+        left: 0, top: 0, right: 600, bottom: 372, width: 600, height: 372, x: 0, y: 0, toJSON: () => {},
+      }));
+      container.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 150, detail: 3, bubbles: true }),
+      );
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "SET_SELECTION", caretPageHint: 1 }),
+      );
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("shift-click (extend) carries the clicked page as caretPageHint", () => {
+      const { container, ctrl, dispatch } = makePaginatedContainer();
+      // Plant an anchor with a first click on page 0.
+      container.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 10, detail: 1, bubbles: true }),
+      );
+      // The controller reads its anchor from the EditorState; feed back a
+      // collapsed selection at the real paragraph so the shift-click extends.
+      const realParagraphId = fakeEditorBase.selection.focus.blockId;
+      const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
+      ctrl.update(
+        makeFakeEditorState({
+          layoutTree: tree,
+          selection: core.createSpan(
+            core.createPosition(realParagraphId, 0),
+            core.createPosition(realParagraphId, 0),
+          ),
+        }),
+      );
+      dispatch.mockClear();
+      // Shift-click on page 1. Pin the hit-test to the real paragraph so the
+      // extension stays IN-CONTEXT (the default "mock-block" mock is not in
+      // state, so the cross-context guard would correctly skip it).
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(
+        core.createPosition(realParagraphId, 0),
+      );
+      container.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 150, detail: 1, shiftKey: true, bubbles: true }),
+      );
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "SET_SELECTION", caretPageHint: 1 }),
+      );
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("drag (mousemove) carries the FOCUS page as caretPageHint", () => {
+      const { container, ctrl, dispatch } = makePaginatedContainer();
+      // Pin both drag-resolves to a REAL in-state block so the cross-context
+      // guard permits the same-context extension (the default "mock-block" id is
+      // not in state → null context → the guard would skip the drag). The page
+      // hint still derives from the pixel→page mapping, not the block.
+      const realDragPos = core.createPosition(
+        fakeEditorBase.selection.focus.blockId,
+        0,
+      );
+      vi.mocked(core.resolvePositionFromPixel)
+        .mockReturnValueOnce(realDragPos)
+        .mockReturnValueOnce(realDragPos);
+      // Mousedown on page 0 starts the drag.
+      container.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 10, detail: 1, bubbles: true }),
+      );
+      dispatch.mockClear();
+      // Drag to page 1 — the hint must track the drag point (page 1).
+      document.dispatchEvent(
+        new MouseEvent("mousemove", { clientX: 10, clientY: 150, bubbles: true }),
+      );
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "SET_SELECTION", caretPageHint: 1 }),
+      );
+      document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("threads state.caretPageHint into the CARET resolvePixelPosition call", () => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const ctrl = createEditorController(
+        container,
+        makeOptions({ pageHeight: 100, pageGap: 24 }),
+      );
+      const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
+      vi.mocked(core.resolvePixelPosition).mockClear();
+      ctrl.update(makeFakeEditorState({ layoutTree: tree, caretPageHint: 1 }));
+      // The caret (focus) resolve is the first resolvePixelPosition call.
+      const caretCall = vi.mocked(core.resolvePixelPosition).mock.calls[0];
+      // Signature: (state, position, layoutTree, measurer, caretPageHint).
+      expect(caretCall[4]).toBe(1);
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("threads state.caretPageHint into BOTH selection-rect endpoint resolves (I2)", () => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const ctrl = createEditorController(
+        container,
+        makeOptions({ pageHeight: 100, pageGap: 24 }),
+      );
+      const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
+      const realParagraphId = fakeEditorBase.selection.focus.blockId;
+      vi.mocked(core.resolvePixelPosition).mockClear();
+      // Non-collapsed, non-spanning selection (pageSpanOfBlock → null in the
+      // spy tree) → controller resolves selStart + selEnd via resolvePixelPosition.
+      ctrl.update(
+        makeFakeEditorState({
+          layoutTree: tree,
+          caretPageHint: 1,
+          selection: core.createSpan(
+            core.createPosition(realParagraphId, 0),
+            core.createPosition(realParagraphId, 3),
+          ),
+        }),
+      );
+      const calls = vi.mocked(core.resolvePixelPosition).mock.calls;
+      // 3 calls: caret(focus) + selStart + selEnd — all must carry the hint.
+      expect(calls.length).toBe(3);
+      expect(calls[0][4]).toBe(1); // caret
+      expect(calls[1][4]).toBe(1); // selStart
+      expect(calls[2][4]).toBe(1); // selEnd
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("NO-REGRESSION: with no hint, resolvePixelPosition gets undefined (single-page body)", () => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const ctrl = createEditorController(container, makeOptions());
+      vi.mocked(core.resolvePixelPosition).mockClear();
+      ctrl.update(makeFakeEditorState());
+      const caretCall = vi.mocked(core.resolvePixelPosition).mock.calls[0];
+      expect(caretCall[4]).toBeUndefined();
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+  });
+
   describe("clipboard", () => {
     it("copies text on copy event", () => {
       const container = document.createElement("div");
@@ -1059,11 +1943,12 @@ describe("createEditorController", () => {
       const ctrl = createEditorController(container, makeOptions());
 
       // Set up a non-collapsed selection
+      const focusBlockId = fakeEditorBase.selection.focus.blockId;
       const state = makeFakeEditorState({
-        selection: {
-          anchor: { path: [0, 0], offset: 0 },
-          focus: { path: [0, 0], offset: 5 },
-        },
+        selection: core.createSpan(
+          core.createPosition(focusBlockId, 0),
+          core.createPosition(focusBlockId, 5),
+        ),
       });
       ctrl.update(state);
 
@@ -1096,11 +1981,12 @@ describe("createEditorController", () => {
         makeOptions({ dispatch }),
       );
 
+      const focusBlockId = fakeEditorBase.selection.focus.blockId;
       const state = makeFakeEditorState({
-        selection: {
-          anchor: { path: [0, 0], offset: 0 },
-          focus: { path: [0, 0], offset: 5 },
-        },
+        selection: core.createSpan(
+          core.createPosition(focusBlockId, 0),
+          core.createPosition(focusBlockId, 5),
+        ),
       });
       ctrl.update(state);
 
@@ -1237,6 +2123,134 @@ describe("createEditorController", () => {
     });
   });
 
+  // ── #305 (C.2b-2 follow-up): scrollCursorIntoView per-page running-sum Y ───
+  //
+  // `scrollCursorIntoView` derives the cursor's document-y as
+  // `cursorSlot.top + cursorPos.y`, where `cursorSlot.top` is the per-page
+  // RUNNING-SUM `blockOffset` (a section may make later pages taller/wider with
+  // a different gap), NOT a uniform `pageIndex * (pageHeight + pageGap)`. These
+  // tests pin the resulting smooth-scroll TARGET to that running-sum geometry:
+  // the mixed-height fixture below makes the uniform formula give a different
+  // (wrong) answer, so a regression to `pageIndex*(H+gap)` would flip the
+  // asserted number.
+  describe("scrollCursorIntoView (per-page running-sum geometry, #305)", () => {
+    // page 0: 100 tall / 600 wide / gap 24 (doc-wide default).
+    // pages 1-2: 200 tall / 800 wide / gap 40 (a taller+wider section).
+    // Running-sum slot tops: [0, 124, 364]. Uniform `i*(100+24)` would give
+    // [0, 124, 248] — so page 2's top (364) differs from uniform (248) by 116.
+    function makeTallSectionTree() {
+      return makeSpyVirtualTreeWithGeom([100, 200, 200], [600, 800, 800], [24, 40, 40]);
+    }
+
+    // Build a controller whose detected scroll-parent is a scrollable <div>
+    // wrapping the container (overflowY:auto is picked up by detectScrollParent,
+    // which runs at construction — so the wrapper must exist BEFORE create).
+    function makeScrollableController(
+      scrollParentGeom: { scrollTop: number; clientHeight: number; rectTop: number },
+      containerRectTop: number,
+    ) {
+      const sp = document.createElement("div");
+      sp.style.overflowY = "auto";
+      document.body.appendChild(sp);
+      const container = document.createElement("div");
+      sp.appendChild(container);
+
+      // jsdom leaves layout metrics at 0; stub the ones the HTMLElement branch
+      // of scrollCursorIntoView reads. scrollTop is writable so smoothScrollTo
+      // (which assigns sp.scrollTop over rAF frames) lands the final target.
+      sp.scrollTop = scrollParentGeom.scrollTop;
+      Object.defineProperty(sp, "clientHeight", {
+        value: scrollParentGeom.clientHeight,
+        configurable: true,
+      });
+      sp.getBoundingClientRect = vi.fn(() => ({
+        left: 0, top: scrollParentGeom.rectTop, right: 800,
+        bottom: scrollParentGeom.rectTop + scrollParentGeom.clientHeight,
+        width: 800, height: scrollParentGeom.clientHeight, x: 0, y: 0, toJSON: () => {},
+      }));
+      container.getBoundingClientRect = vi.fn(() => ({
+        left: 0, top: containerRectTop, right: 800, bottom: containerRectTop + 564,
+        width: 800, height: 564, x: 0, y: 0, toJSON: () => {},
+      }));
+
+      const ctrl = createEditorController(
+        container,
+        makeOptions({ pageHeight: 100, pageGap: 24 }),
+      );
+      return { sp, container, ctrl };
+    }
+
+    afterEach(() => {
+      vi.mocked(core.resolvePixelPosition).mockReturnValue(MOCK_PIXEL_POSITION);
+    });
+
+    it("cursor below the viewport scrolls down to a target derived from the slot's running-sum top (not pageIndex*(H+gap))", () => {
+      // Scroll-parent fully at top (scrollTop 0), short viewport (clientHeight
+      // 200), container flush with the scroll-parent (both rect tops 0).
+      const { sp, ctrl } = makeScrollableController(
+        { scrollTop: 0, clientHeight: 200, rectTop: 0 },
+        0,
+      );
+      const { tree, offsets } = makeTallSectionTree();
+
+      // Cursor on page 2, cursorPos.y = 20, height 16.
+      vi.mocked(core.resolvePixelPosition).mockReturnValue({
+        x: 10, y: 20, height: 16, lineY: 18, lineHeight: 24,
+        lineMarginTop: 0, lineMarginBottom: 0, pageIndex: 2,
+      });
+
+      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      // smoothScrollTo animates sp.scrollTop over SCROLL_DURATION (250ms);
+      // advance past it so easing reaches the final value exactly.
+      vi.advanceTimersByTime(400);
+
+      // Running-sum: offsets[2] = 364 (≠ uniform 2*(100+24) = 248).
+      expect(offsets[2]).toBe(364);
+      // cursorVisualY = 364 + 20 = 384. cursorInSp = 0 - 0 + 0 + 384 = 384.
+      // Below-viewport branch: 384 + 16(h) + 64(pad) = 464 > visBottom(0+200).
+      // target = cursorInSp + h + pad - clientHeight = 464 - 200 = 264.
+      const RUNNING_SUM_TARGET = 364 + 20 + 16 + 64 - 200; // 264
+      // A uniform `pageIndex*(H+gap)` (=248) would yield 248+20+16+64-200 = 148.
+      const UNIFORM_WRONG_TARGET = 248 + 20 + 16 + 64 - 200; // 148
+      expect(RUNNING_SUM_TARGET).not.toBe(UNIFORM_WRONG_TARGET);
+      expect(sp.scrollTop).toBeCloseTo(RUNNING_SUM_TARGET, 3);
+
+      ctrl.destroy();
+      document.body.removeChild(sp);
+    });
+
+    it("cursor above the viewport scrolls up to a target derived from the slot's running-sum top (not pageIndex*(H+gap))", () => {
+      // Scroll-parent scrolled down to 500 with the container scrolled up by the
+      // same amount (rect top -500), so page 2 sits above the visible window.
+      const { sp, ctrl } = makeScrollableController(
+        { scrollTop: 500, clientHeight: 200, rectTop: 0 },
+        -500,
+      );
+      const { tree, offsets } = makeTallSectionTree();
+
+      vi.mocked(core.resolvePixelPosition).mockReturnValue({
+        x: 10, y: 20, height: 16, lineY: 18, lineHeight: 24,
+        lineMarginTop: 0, lineMarginBottom: 0, pageIndex: 2,
+      });
+
+      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      vi.advanceTimersByTime(400);
+
+      expect(offsets[2]).toBe(364);
+      // cursorVisualY = 364 + 20 = 384. cursorInSp = (-500) - 0 + 500 + 384 = 384.
+      // Above-viewport branch: cursorInSp(384) < visTop(500) + pad(64) = 564.
+      // target = max(0, cursorInSp - pad) = max(0, 384 - 64) = 320.
+      const RUNNING_SUM_TARGET = Math.max(0, 364 + 20 - 64); // 320
+      // Uniform 248 would give max(0, 248+20-64) = 204.
+      const UNIFORM_WRONG_TARGET = Math.max(0, 248 + 20 - 64); // 204
+      expect(RUNNING_SUM_TARGET).not.toBe(UNIFORM_WRONG_TARGET);
+      expect(sp.scrollTop).toBeCloseTo(RUNNING_SUM_TARGET, 3);
+
+      ctrl.destroy();
+      document.body.removeChild(sp);
+    });
+  });
+
   describe("textarea positioning", () => {
     it("positions textarea at cursor position on update", () => {
       const container = document.createElement("div");
@@ -1248,6 +2262,9 @@ describe("createEditorController", () => {
         height: 16,
         lineY: 82,
         lineHeight: 24,
+        lineMarginTop: 0,
+        lineMarginBottom: 0,
+        pageIndex: 0,
       });
 
       ctrl.update(makeFakeEditorState());

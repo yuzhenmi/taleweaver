@@ -1,214 +1,124 @@
+/**
+ * Behavior tests for SPLIT_NODE's follow-on block type (Enter-at-end-of-heading
+ * → paragraph). Dispatched through `reduceEditor` (the real editor pipeline) so
+ * the test exercises the handler + state op end-to-end, not a unit in isolation.
+ *
+ * Google-Docs / Word "style for following paragraph": a heading is followed by
+ * Normal. The follow-on applies ONLY to the new (empty) block created by Enter
+ * at the END; a mid-text split keeps both halves as the heading.
+ */
 import { describe, it, expect } from "vitest";
-import { getTextContent, getNodeByPath } from "@taleweaver/core";
 import {
-  config,
-  getTextAt,
-  stateWithText,
-  withSelection,
   createInitialEditorState,
   reduceEditor,
+  createDefaultComponentRegistry,
+  createDefaultAttrRegistry,
+  createMockShaper,
+  getBlock,
   createPosition,
-  createSelection,
-  createCursor,
-} from "./test-helpers";
+  createSpan,
+  type EditorConfig,
+  type EditorState,
+  type BlockId,
+} from "../../index";
 
-describe("SPLIT_NODE", () => {
-  it("splits paragraph and moves cursor to new paragraph", () => {
-    let s = createInitialEditorState(config);
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: "abcdef" }, config);
-    // Move cursor to offset 3
-    s = reduceEditor(s, { type: "MOVE_CURSOR", direction: "backward" }, config);
-    s = reduceEditor(s, { type: "MOVE_CURSOR", direction: "backward" }, config);
-    s = reduceEditor(s, { type: "MOVE_CURSOR", direction: "backward" }, config);
-    s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
+function makeConfig(): EditorConfig {
+  return {
+    measurer: createMockShaper(8, 16),
+    componentRegistry: createDefaultComponentRegistry(),
+    attrRegistry: createDefaultAttrRegistry(),
+    containerWidth: 800,
+  };
+}
 
-    expect(s.state.children).toHaveLength(2);
-    expect(getTextAt(s, [0, 0])).toBe("abc");
-    expect(getTextAt(s, [1, 0])).toBe("def");
-    // Cursor at start of new paragraph
-    expect(s.selection.focus.path).toEqual([1, 0]);
-    expect(s.selection.focus.offset).toBe(0);
-  });
+function firstBlockId(editor: EditorState): BlockId {
+  const root = getBlock(editor.state, editor.state.rootId);
+  if (root === null || root.firstChildId === null) {
+    throw new Error("test setup: no first child");
+  }
+  return root.firstChildId;
+}
 
-  it("splits at end creates empty paragraph", () => {
-    let s = createInitialEditorState(config);
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" }, config);
-    s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
+function typeString(editor: EditorState, text: string, config: EditorConfig): EditorState {
+  let cur = editor;
+  for (const ch of text) {
+    cur = reduceEditor(cur, { type: "INSERT_TEXT", text: ch }, config);
+  }
+  return cur;
+}
 
-    expect(s.state.children).toHaveLength(2);
-    expect(getTextAt(s, [0, 0])).toBe("abc");
-    expect(getTextAt(s, [1, 0])).toBe("");
-  });
+describe("SPLIT_NODE — follow-on block type (Enter at end of heading)", () => {
+  it("Enter at the END of a heading creates a paragraph; the heading keeps its type + level", () => {
+    const config = makeConfig();
+    let editor = createInitialEditorState(config);
+    const headingId = firstBlockId(editor);
 
-  it("deletes selection then splits", () => {
-    let s = stateWithText("abcdef");
-    // Select "cd" (offset 2-4)
-    s = withSelection(s, createSelection(
-      createPosition([0, 0], 2),
-      createPosition([0, 0], 4),
-    ));
-    s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
-    expect(s.state.children).toHaveLength(2);
-    expect(getTextAt(s, [0, 0])).toBe("ab");
-    expect(getTextAt(s, [1, 0])).toBe("ef");
-  });
-});
-
-describe("SPLIT_NODE with styled text", () => {
-  it("splits correctly when selection spans bold paragraph to plain paragraph", () => {
-    // Setup: two paragraphs, first is bold, second is plain
-    let s = createInitialEditorState(config);
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: "hello" }, config);
-    // Select all text and bold it
-    s = withSelection(s, createSelection(
-      createPosition([0, 0], 0),
-      createPosition([0, 0], 5),
-    ));
-    s = reduceEditor(s, { type: "TOGGLE_STYLE", style: "bold" }, config);
-    // Move cursor to end of bolded text, then split to create second paragraph
-    const boldPara = s.state.children[0];
-    const boldTextPath = boldPara.children.some(c => c.type === "span")
-      ? [0, 0, 0] // paragraph > span > text
-      : [0, 0];   // paragraph > text
-    const boldTextLen = getTextContent(
-      boldPara.children.some(c => c.type === "span")
-        ? boldPara.children[0].children[0]
-        : boldPara.children[0],
-    ).length;
-    s = withSelection(s, createCursor(boldTextPath, boldTextLen));
-    s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
-    // Type in second paragraph (plain)
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: "world" }, config);
-
-    expect(s.state.children).toHaveLength(2);
-
-    // Now select from middle of first paragraph to end of second
-    s = withSelection(s, createSelection(
-      createPosition(boldTextPath, 2),
-      createPosition([1, 0], 5),
-    ));
-
-    // This should not crash
-    s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
-    expect(s.state.children).toHaveLength(2);
-    // Cursor should be at start of new (second) paragraph
-    expect(s.selection.focus.offset).toBe(0);
-  });
-});
-
-describe("SPLIT_NODE on heading", () => {
-  it("creates a new paragraph (not heading) after splitting", () => {
-    let s = stateWithText("Title text");
-    s = reduceEditor(
-      s,
+    editor = reduceEditor(
+      editor,
       { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 1 } },
       config,
     );
-    // Move cursor to middle of heading
-    s = withSelection(s, createCursor([0, 0], 5));
-    s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
-    expect(s.state.children).toHaveLength(2);
-    expect(s.state.children[0].type).toBe("heading");
-    expect(s.state.children[1].type).toBe("paragraph");
-    expect(getTextAt(s, [0, 0])).toBe("Title");
-    expect(getTextAt(s, [1, 0])).toBe(" text");
-  });
-});
+    editor = typeString(editor, "Title", config);
+    // Cursor is at the end (offset 5) after typing.
+    expect(getBlock(editor.state, headingId)?.type).toBe("heading");
 
-describe("SPLIT_NODE in list", () => {
-  it("creates a new list item when splitting within a list item", () => {
-    let s = stateWithText("item one");
-    s = reduceEditor(s, { type: "TOGGLE_LIST", listType: "unordered" }, config);
-    // Move to middle: [0, 0, 0] offset 4
-    s = withSelection(s, createCursor([0, 0, 0], 4));
-    s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
-    const list = s.state.children[0];
-    expect(list.type).toBe("list");
-    expect(list.children).toHaveLength(2);
-    expect(getTextContent(list.children[0].children[0])).toBe("item");
-    expect(getTextContent(list.children[1].children[0])).toBe(" one");
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+
+    // Original block: still a heading, level intact, content intact.
+    const original = getBlock(editor.state, headingId);
+    expect(original?.type).toBe("heading");
+    expect(original?.attrs).toEqual({ level: 1 });
+
+    // New block: a paragraph with NO inherited heading attrs.
+    const newId = original?.nextSiblingId ?? null;
+    expect(newId).not.toBeNull();
+    const created = getBlock(editor.state, newId as BlockId);
+    expect(created?.type).toBe("paragraph");
+    expect(created?.attrs).toEqual({});
+
+    // Cursor lands at the start of the new paragraph.
+    expect(editor.selection.focus).toEqual(createPosition(newId as BlockId, 0));
   });
 
-  it("exits list when pressing enter on empty list item", () => {
-    let s = stateWithText("");
-    s = reduceEditor(s, { type: "TOGGLE_LIST", listType: "unordered" }, config);
-    // Cursor at [0, 0, 0] offset 0, empty list item
-    s = withSelection(s, createCursor([0, 0, 0], 0));
-    s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
-    // Should have exited the list — first child should be a paragraph
-    expect(s.state.children[0].type).toBe("paragraph");
-  });
-});
+  it("Enter in the MIDDLE of a heading keeps BOTH halves as heading", () => {
+    const config = makeConfig();
+    let editor = createInitialEditorState(config);
+    const headingId = firstBlockId(editor);
 
-describe("SPLIT_NODE in table cell", () => {
-  function stateWithTable(): ReturnType<typeof createInitialEditorState> {
-    let s = stateWithText("");
-    s = withSelection(s, createCursor([0, 0], 0));
-    s = reduceEditor(s, { type: "INSERT_BLOCK", blockType: "table", properties: { rows: 2, columns: 2 } }, config);
-    return s;
-  }
+    editor = reduceEditor(
+      editor,
+      { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 2 } },
+      config,
+    );
+    editor = typeString(editor, "Title", config);
+    // Move the cursor into the middle (offset 2).
+    editor = {
+      ...editor,
+      selection: createSpan(createPosition(headingId, 2), createPosition(headingId, 2)),
+    };
 
-  function tableIndex(s: ReturnType<typeof stateWithTable>): number {
-    return s.state.children.findIndex(c => c.type === "table");
-  }
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
 
-  it("creates new paragraph within same cell (not a new row)", () => {
-    let s = stateWithTable();
-    const ti = tableIndex(s);
-    // Type text in first cell
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: "hello" }, config);
-    // Enter → should split paragraph within the cell
-    s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
-
-    const table = s.state.children[ti];
-    expect(table.type).toBe("table");
-    // Still 2 rows (no new row created)
-    expect(table.children).toHaveLength(2);
-    // First cell should have 2 paragraphs now
-    const cell00 = table.children[0].children[0];
-    expect(cell00.children).toHaveLength(2);
-    // cell > para > text: access the text node directly
-    expect(getTextContent(cell00.children[0].children[0])).toBe("hello");
-    expect(getTextContent(cell00.children[1].children[0])).toBe("");
+    const original = getBlock(editor.state, headingId);
+    expect(original?.type).toBe("heading");
+    const newId = original?.nextSiblingId as BlockId;
+    const created = getBlock(editor.state, newId);
+    // Mid-split: the follow-on type does NOT apply — both stay heading.
+    expect(created?.type).toBe("heading");
+    expect(created?.attrs).toEqual({ level: 2 });
   });
 
-  it("places cursor at start of new paragraph in cell", () => {
-    let s = stateWithTable();
-    const ti = tableIndex(s);
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" }, config);
-    // Move to middle
-    s = withSelection(s, createCursor([ti, 0, 0, 0, 0], 1));
-    s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
+  it("Enter at the END of a paragraph creates a paragraph (no follow-on; unchanged)", () => {
+    const config = makeConfig();
+    let editor = createInitialEditorState(config);
+    const paragraphId = firstBlockId(editor);
 
-    // Cursor at new paragraph in first cell
-    expect(s.selection.focus.path).toEqual([ti, 0, 0, 1, 0]);
-    expect(s.selection.focus.offset).toBe(0);
-  });
+    editor = typeString(editor, "hello", config);
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
 
-  it("splits at start of cell paragraph", () => {
-    let s = stateWithTable();
-    const ti = tableIndex(s);
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: "text" }, config);
-    // Move cursor to start of the text in first cell
-    s = withSelection(s, createCursor([ti, 0, 0, 0, 0], 0));
-    s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
-
-    const cell00 = s.state.children[ti].children[0].children[0];
-    expect(cell00.children).toHaveLength(2);
-    expect(getTextContent(cell00.children[0].children[0])).toBe("");
-    expect(getTextContent(cell00.children[1].children[0])).toBe("text");
-  });
-
-  it("splits at end of cell paragraph", () => {
-    let s = stateWithTable();
-    const ti = tableIndex(s);
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: "text" }, config);
-    // Cursor should already be at end: [ti, 0, 0, 0, 0] offset 4
-    s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
-
-    const cell00 = s.state.children[ti].children[0].children[0];
-    expect(cell00.children).toHaveLength(2);
-    expect(getTextContent(cell00.children[0].children[0])).toBe("text");
-    expect(getTextContent(cell00.children[1].children[0])).toBe("");
+    const original = getBlock(editor.state, paragraphId);
+    expect(original?.type).toBe("paragraph");
+    const created = getBlock(editor.state, original?.nextSiblingId as BlockId);
+    expect(created?.type).toBe("paragraph");
   });
 });

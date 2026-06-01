@@ -1,33 +1,106 @@
-import type { RenderStyles } from "../render/render-node";
+import type { ComputedStyle } from "../styles";
+import type { TextShaper, ShapedRun, FontMetrics } from "./text-shaper";
+import { createMockShaper } from "./mock-shaper";
 
-/** Interface for measuring text dimensions. */
+/**
+ * Narrow legacy interface — width and height only. Layout-internal callers
+ * should prefer `TextShaper` directly for correctness with ligatures,
+ * complex scripts, and per-cluster positioning. New code should use
+ * `TextShaper`; this interface is kept for backwards-compat callers.
+ */
 export interface TextMeasurer {
-  /** Measure the width of a string given style properties. */
-  measureWidth(text: string, styles: RenderStyles): number;
-  /** Get the line height for the given styles. */
-  measureHeight(styles: RenderStyles): number;
-  /** Get the cursor height for the given styles (font bounding box height). */
-  measureCursorHeight(styles: RenderStyles): number;
+  measureWidth(text: string, style: Readonly<ComputedStyle>): number;
+  measureHeight(style: Readonly<ComputedStyle>): number;
+}
+
+/** Adapt a `TextShaper` to the narrow `TextMeasurer` interface. */
+export function adaptShaperToMeasurer(shaper: TextShaper): TextMeasurer {
+  return {
+    measureWidth(text, style) {
+      const run = shaper.shape(text, style, style.direction);
+      let total = 0;
+      for (const c of run.clusters) total += c.inlineAdvance;
+      return total;
+    },
+    measureHeight(style) {
+      const fm = shaper.measureFontMetrics(style);
+      return fm.ascent + fm.descent + fm.lineGap;
+    },
+  };
+}
+
+/** Runtime check: does this object implement the `TextShaper` interface? */
+export function isTextShaper(value: TextShaper | TextMeasurer): value is TextShaper {
+  return typeof (value as TextShaper).shape === "function";
 }
 
 /**
- * Mock text measurer for testing.
- * Uses a fixed character width (default 8px per char) and line height (default 16px).
+ * Adapt a `TextMeasurer` to the `TextShaper` interface.
+ * Clusters are per-character (each codepoint is its own cluster) with width
+ * derived from the measurer's total width divided by character count.
+ * Break opportunities are emitted at whitespace (soft) only.
+ * This adapter is used for backward-compat when callers pass a `TextMeasurer`
+ * to APIs that now require a `TextShaper`.
  */
-export function createMockMeasurer(
-  charWidth: number = 8,
-  lineHeight: number = 16,
-  cursorHeight?: number,
-): TextMeasurer {
+export function measurerToShaper(measurer: TextMeasurer): TextShaper {
   return {
-    measureWidth(text: string, _styles: RenderStyles): number {
-      return text.length * charWidth;
+    shape(text: string, style: Readonly<ComputedStyle>): ShapedRun {
+      const totalWidth = text.length > 0 ? measurer.measureWidth(text, style) : 0;
+      const perCharWidth = text.length > 0 ? totalWidth / text.length : 0;
+
+      const clusters = Array.from({ length: text.length }, (_, i) => ({
+        start: i,
+        end: i + 1,
+        inlineAdvance: perCharWidth,
+        isLigature: false,
+        glyphs: [text.charCodeAt(i)],
+      }));
+
+      const breakOpportunities = [];
+      for (let i = 1; i < text.length; i++) {
+        if (/\s/.test(text[i])) {
+          breakOpportunities.push({ clusterIndex: i, kind: "soft" as const });
+        }
+      }
+
+      const totalHeight = measurer.measureHeight(style);
+      const ascent  = totalHeight * 0.8;
+      const descent = totalHeight * 0.2;
+      const lineGap = totalHeight - ascent - descent;
+
+      return {
+        text,
+        computedStyle: style,
+        clusters,
+        ascent,
+        descent,
+        lineGap,
+        minClusterInlineSize: perCharWidth,
+        unbreakableRunInlineSize: totalWidth,
+        breakOpportunities,
+        bidiLevel: 0,
+      };
     },
-    measureHeight(_styles: RenderStyles): number {
-      return lineHeight;
-    },
-    measureCursorHeight(_styles: RenderStyles): number {
-      return cursorHeight ?? lineHeight;
+
+    measureFontMetrics(style: Readonly<ComputedStyle>): FontMetrics {
+      const totalHeight = measurer.measureHeight(style);
+      const ascent  = totalHeight * 0.8;
+      const descent = totalHeight * 0.2;
+      return {
+        ascent,
+        descent,
+        lineGap: totalHeight - ascent - descent,
+        capHeight: totalHeight * 0.7,
+        xHeight:   totalHeight * 0.5,
+      };
     },
   };
+}
+
+/**
+ * Legacy convenience helper for tests: returns a fixed-char-width measurer
+ * by adapting a mock shaper.
+ */
+export function createMockMeasurer(charWidth: number, lineHeight: number): TextMeasurer {
+  return adaptShaperToMeasurer(createMockShaper(charWidth, lineHeight));
 }

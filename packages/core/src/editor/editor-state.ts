@@ -1,19 +1,16 @@
-import type { StateNode } from "../state/state-node";
-import type { Selection } from "../cursor/selection";
-import type { Change } from "../state/change";
+import { createEmptyDocument, History, createHistory, getBlock, createPosition, createSpan } from "../state";
+import type { State, Selection, BlockId } from "../state";
+import { render, type RenderOutput } from "../render/render";
+import { cascadePass } from "../cascade";
+import { layoutTree } from "../layout/dispatch";
+import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
-import type { RenderNode } from "../render/render-node";
+import type { RenderNode, ElementBox } from "../render/render-node";
 import type { LayoutBox } from "../layout/layout-node";
-import type { PageMargins } from "../layout/layout-engine";
-import {
-  createEmptyDocument,
-} from "../state/initial-state";
-import {
-  createCursor,
-} from "../cursor/selection";
-import { renderTree } from "../render/render";
-import { layoutTree } from "../layout/layout-engine";
-import { ComponentRegistry } from "../components";
+import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
+import type { PageConfig } from "../layout/page-config";
+import type { ComponentRegistry } from "../components/component-registry";
+import type { AttrRegistry } from "../cascade/attr-registry";
 import type { EditorAction } from "./editor-action";
 import {
   handleInsertText,
@@ -38,121 +35,191 @@ import {
   handleSetBlockType,
   handleToggleList,
   handleToggleStyle,
+  handleSetLink,
+  handleSetTextColor,
+  handleSetHighlight,
+  handleSetFontSize,
+  handleSetFontFamily,
+  handleClearFormatting,
   handleUndo,
   handleRedo,
   handlePaste,
-  handleInsertBlock,
+  handleInsertNode,
+  handleSectionBreak,
+  handleToggleSectionLandscape,
+  handleInsertHeaderFooter,
+  handleInsertFootnote,
+  handleSetTextAlign,
+  handleSetLineSpacing,
+  handleIndent,
+  INDENT_STEP,
+  handleSetParagraphSpacing,
+  handleSetFootnotePolicy,
 } from "./actions";
 
-// Re-export helpers that are part of the public API
-export { findFirstTextDescendant, findLastTextDescendant } from "./actions";
+import { cascadeTemplateContents, cascadeEmbedContents } from "./actions/helpers";
 
-// --- EditorHistory (selection-aware wrapper around core changes) ---
-
-const MAX_HISTORY_DEPTH = 500;
-const MERGE_THRESHOLD_MS = 500;
-
-export interface EditorHistoryEntry {
-  change: Change;
-  selectionBefore: Selection;
-  selectionAfter: Selection;
-}
-
-export interface EditorHistory {
-  undoStack: readonly EditorHistoryEntry[];
-  redoStack: readonly EditorHistoryEntry[];
-  /** Timestamp of last mergeable edit (0 = none / chain broken). */
-  lastEditTimestamp: number;
-  /** Tag identifying the kind of mergeable edit (e.g. "insert", "delete"). */
-  lastEditTag: string;
-}
-
-function createEditorHistory(): EditorHistory {
-  return { undoStack: [], redoStack: [], lastEditTimestamp: 0, lastEditTag: "" };
-}
-
-/**
- * Push a history entry. When `mergeTag` is provided (non-empty), the entry
- * is merged with the previous one if the timestamps are within the threshold
- * and the tag matches. This groups rapid keystrokes into a single undo step.
- */
-export function pushEditorChange(
-  history: EditorHistory,
-  entry: EditorHistoryEntry,
-  mergeTag = "",
-): EditorHistory {
-  const now = entry.change.timestamp;
-
-  const shouldMerge =
-    mergeTag !== "" &&
-    mergeTag === history.lastEditTag &&
-    history.lastEditTimestamp > 0 &&
-    now - history.lastEditTimestamp <= MERGE_THRESHOLD_MS &&
-    history.undoStack.length > 0;
-
-  let newStack: EditorHistoryEntry[];
-
-  if (shouldMerge) {
-    const prev = history.undoStack[history.undoStack.length - 1];
-    const merged: EditorHistoryEntry = {
-      change: { oldState: prev.change.oldState, newState: entry.change.newState, timestamp: now },
-      selectionBefore: prev.selectionBefore,
-      selectionAfter: entry.selectionAfter,
-    };
-    newStack = [...history.undoStack.slice(0, -1), merged];
-  } else {
-    newStack = [...history.undoStack, entry];
-  }
-
-  // Cap stack depth
-  if (newStack.length > MAX_HISTORY_DEPTH) {
-    newStack = newStack.slice(newStack.length - MAX_HISTORY_DEPTH);
-  }
-
-  return {
-    undoStack: newStack,
-    redoStack: [],
-    lastEditTimestamp: mergeTag !== "" ? now : 0,
-    lastEditTag: mergeTag,
-  };
-}
+// Re-export helpers that are part of the public API.
+export { findFirstContentBlock, findLastContentBlock } from "./actions";
 
 // --- EditorState ---
 
 export interface EditorState {
-  state: StateNode;
-  selection: Selection;
-  history: EditorHistory;
-  renderTree: RenderNode;
-  layoutTree: LayoutBox;
-  containerWidth: number;
-  nextId: number;
-  targetX: number | null;
+  readonly state: State;
+  readonly selection: Selection;
+  readonly history: History;
+  /**
+   * Convenience alias for `renderOutput.root`. Pre-R-D field; many
+   * downstream consumers (paint, react integration) read `renderTree`
+   * directly. New code should prefer `renderOutput` for full access
+   * including `embedContents`.
+   */
+  readonly renderTree: RenderNode;
+  /**
+   * Full render output (root + embedContents + templateContents) — needed
+   * as the `prev` input to the next `renderIncremental` call so unchanged
+   * RenderNodes flow through by reference.
+   */
+  readonly renderOutput: RenderOutput;
+  /**
+   * Post-cascade render tree (every node has `computedStyle`). Stored
+   * to feed `cascadePassIncremental` on the next reducer cycle —
+   * reusing it preserves the ref-equality chain that the incremental
+   * render set up.
+   */
+  readonly cascadedRoot: RenderNode;
+  /**
+   * Cascaded header/footer template bodies (C.2c), keyed by the template
+   * body's root BlockId — one entry per `renderOutput.templateContents`
+   * entry. Each value is the body root after `cascadePass` (so it carries
+   * a populated `computedStyle`, ready for slot layout). Empty for docs with
+   * no header/footer bodies. Stored so the next reducer cycle can reuse an
+   * unchanged body's cascaded tree by reference (the incremental path keys
+   * reuse off `dirtyIds`), and threaded into the layout pass so
+   * `materializePage` can lay the bodies into each page's header/footer slot
+   * (T4 consumes it; T3 only makes it available).
+   */
+  readonly cascadedTemplateContents: ReadonlyMap<BlockId, ElementBox>;
+  /**
+   * Cascaded footnote-body bodies (FN-1), keyed by the embed-content body's
+   * root BlockId — one entry per `renderOutput.embedContents` entry. Each value
+   * is the body root after `cascadePass` (so it carries a populated
+   * `computedStyle`, ready for the `resolveFootnotes` slot layout). Empty for
+   * docs with no footnotes. The exact parallel to `cascadedTemplateContents`
+   * (headers/footers): stored so the next reducer cycle can reuse an unchanged
+   * body's cascaded tree by reference (the incremental path keys reuse off
+   * `dirtyIds`). FN-1 only makes it available; the footnote layout pass
+   * (`resolveFootnotes`, FN-4) consumes it.
+   */
+  readonly cascadedEmbedContents: ReadonlyMap<BlockId, ElementBox>;
+  /**
+   * The layout result. In paginated mode (the common word-processor case) this
+   * is a `VirtualLayoutTree` — a `PagePlan` plus lazily-materialized
+   * `PageBox`es — produced by `layoutTreeIncremental` / `layoutTree`. In
+   * unpaginated mode, or for documents using features the measure pass cannot
+   * reproduce (float/`clear`), it is a fully-positioned `LayoutBox`. Consumers
+   * expecting a positioned tree bridge through `resolvePositionedTree`.
+   */
+  readonly layoutTree: LayoutBox | VirtualLayoutTree;
+  readonly containerWidth: number;
+  readonly targetX: number | null;
+  /**
+   * NON-undoable view state (#323): which page's header/footer SLOT instance the
+   * caret is visually on. A header/footer body is ONE shared `templateContents`
+   * subtree rendered into EVERY page's slot, so a slot caret `Position` is
+   * page-AMBIGUOUS; this records the page the user is editing so caret-render
+   * resolves on that page (via `getPage(hint)`, O(1)) instead of always pinning
+   * to the body's first carrying page. `undefined` for a body caret /
+   * single-page doc.
+   *
+   * Lifecycle (the OPPOSITE model from `targetX`, which is centrally cleared in
+   * `reduceEditor`): set by `SET_SELECTION` (the controller passes the clicked
+   * page), PRESERVED through other handlers by their `{...editor}` spread, and
+   * cleared EXPLICITLY only by undo/redo (post-restore page is ambiguous) and a
+   * body `SET_SELECTION` (which passes no hint). It is view state — never stored
+   * in `History`, never part of `Position` / `Selection`.
+   */
+  readonly caretPageHint?: number;
 }
 
 export interface EditorConfig {
-  measurer: TextMeasurer;
-  registry: ComponentRegistry;
-  containerWidth: number;
-  pageHeight?: number;
-  pageMargins?: PageMargins;
+  readonly measurer: TextShaper | TextMeasurer;
+  readonly componentRegistry: ComponentRegistry;
+  readonly attrRegistry: AttrRegistry;
+  readonly containerWidth: number;
+  readonly pageConfig?: PageConfig;
 }
 
 export function createInitialEditorState(config: EditorConfig): EditorState {
   const state = createEmptyDocument();
-  const selection = createCursor([0, 0], 0);
-  const render = renderTree(state, config.registry);
-  const layout = layoutTree(render, config.containerWidth, config.measurer, config.pageHeight, config.pageMargins);
+  const docBlock = getBlock(state, state.rootId);
+  if (docBlock === null) {
+    throw new Error("createInitialEditorState: root block not found");
+  }
+  const firstParagraphId = docBlock.firstChildId;
+  if (firstParagraphId === null) {
+    throw new Error(
+      "createInitialEditorState: empty document has no paragraph child",
+    );
+  }
+  const cursor = createPosition(firstParagraphId, 0);
+  const selection = createSpan(cursor, cursor);
+
+  const rendered = render(state, config.componentRegistry, config.attrRegistry);
+  // Cascade explicitly so we can store the cascaded tree on
+  // EditorState for the next cycle's `cascadePassIncremental`.
+  const cascadedRoot = cascadePass(rendered.root);
+  // C.2c: full-cascade every header/footer template body (no prev → full
+  // cascade each). Empty for the standard empty document (no template bodies).
+  const cascadedTemplateContents = cascadeTemplateContents(
+    rendered,
+    null,
+    null,
+    undefined,
+  );
+  // FN-1: full-cascade every footnote body (no prev → full cascade each).
+  // Empty for the standard empty document (no footnotes).
+  const cascadedEmbedContents = cascadeEmbedContents(
+    rendered,
+    null,
+    null,
+    undefined,
+  );
+  // FN-4.0: ordered footnote anchors over the main document, threaded into the
+  // initial full build for the footnote layout pass (FN-4.2 `resolveFootnotes`).
+  // FN-8: read the anchors `render` already collected (and cached on the
+  // RenderOutput) — no separate walk. The full-render path collects them once
+  // (skipping the walk entirely for a footnote-free doc, the standard empty
+  // document). Subsequent incremental cycles (`rebuildTrees`) read the same
+  // field, which is reused across cycles when no anchor changed.
+  const footnoteAnchors = rendered.footnoteAnchors;
+  const layout = layoutTree(
+    cascadedRoot,
+    config.containerWidth,
+    config.measurer,
+    config.pageConfig,
+    // #328 (C1): thread the cascaded header/footer bodies through the initial
+    // full build so a seeded tall-header doc paginates with the GROWN insets.
+    cascadedTemplateContents,
+    // FN-4.0: cascaded footnote bodies + anchors, threaded for the (later)
+    // footnote layout pass. Unused for layout output today.
+    cascadedEmbedContents,
+    footnoteAnchors,
+  );
 
   return {
     state,
     selection,
-    history: createEditorHistory(),
-    renderTree: render,
+    history: createHistory(state),
+    renderTree: rendered.root,
+    renderOutput: rendered,
+    cascadedRoot,
+    cascadedTemplateContents,
+    cascadedEmbedContents,
     layoutTree: layout,
     containerWidth: config.containerWidth,
-    nextId: 1,
     targetX: null,
+    caretPageHint: undefined,
   };
 }
 
@@ -162,7 +229,7 @@ export function reduceEditor(
   action: EditorAction,
   config: EditorConfig,
 ): EditorState {
-  // Vertical actions preserve targetX; all others clear it
+  // Vertical actions preserve targetX; all others clear it.
   const isVertical = action.type === "MOVE_LINE" || action.type === "EXPAND_LINE";
 
   let result: EditorState;
@@ -195,7 +262,7 @@ export function reduceEditor(
       result = handleSetContainerWidth(editor, action.width, config);
       break;
     case "SET_SELECTION":
-      result = handleSetSelection(editor, action.selection);
+      result = handleSetSelection(editor, action.selection, action.caretPageHint);
       break;
     case "EXPAND_SELECTION":
       result = handleExpandSelection(editor, action.direction);
@@ -212,11 +279,34 @@ export function reduceEditor(
     case "TOGGLE_STYLE":
       result = handleToggleStyle(editor, action.style, config);
       break;
+    case "SET_LINK":
+      result = handleSetLink(editor, action.url, config);
+      break;
+    case "SET_TEXT_COLOR":
+      result = handleSetTextColor(editor, action.color, config);
+      break;
+    case "SET_HIGHLIGHT":
+      result = handleSetHighlight(editor, action.color, config);
+      break;
+    case "SET_FONT_SIZE":
+      result = handleSetFontSize(editor, action.size, config);
+      break;
+    case "SET_FONT_FAMILY":
+      result = handleSetFontFamily(editor, action.family, config);
+      break;
+    case "CLEAR_FORMATTING":
+      result = handleClearFormatting(editor, config);
+      break;
     case "PASTE":
       result = handlePaste(editor, action.text, config);
       break;
     case "SET_BLOCK_TYPE":
-      result = handleSetBlockType(editor, action.blockType, action.properties ?? {}, config);
+      result = handleSetBlockType(
+        editor,
+        action.blockType,
+        action.properties ?? {},
+        config,
+      );
       break;
     case "TOGGLE_LIST":
       result = handleToggleList(editor, action.listType, config);
@@ -242,11 +332,48 @@ export function reduceEditor(
     case "DELETE_LINE":
       result = handleDeleteLine(editor, config);
       break;
-    case "INSERT_BLOCK":
-      result = handleInsertBlock(editor, action.blockType, action.properties ?? {}, config);
+    case "INSERT_NODE":
+      result = handleInsertNode(editor, action.node, action.position, config);
+      break;
+    case "SECTION_BREAK":
+      result = handleSectionBreak(editor, config);
+      break;
+    case "TOGGLE_SECTION_LANDSCAPE":
+      result = handleToggleSectionLandscape(editor, config);
+      break;
+    case "INSERT_HEADER":
+      result = handleInsertHeaderFooter(editor, "header", config);
+      break;
+    case "INSERT_FOOTER":
+      result = handleInsertHeaderFooter(editor, "footer", config);
+      break;
+    case "INSERT_FOOTNOTE":
+      result = handleInsertFootnote(editor, config);
+      break;
+    case "SET_TEXT_ALIGN":
+      result = handleSetTextAlign(editor, action.align, config);
+      break;
+    case "SET_LINE_SPACING":
+      result = handleSetLineSpacing(editor, action.spacing, config);
+      break;
+    case "INDENT":
+      result = handleIndent(editor, INDENT_STEP, config);
+      break;
+    case "OUTDENT":
+      result = handleIndent(editor, -INDENT_STEP, config);
+      break;
+    case "SET_PARAGRAPH_SPACING":
+      result = handleSetParagraphSpacing(editor, action.edge, action.value, config);
+      break;
+    case "SET_FOOTNOTE_POLICY":
+      result = handleSetFootnotePolicy(
+        editor,
+        { reset: action.reset, format: action.format },
+        config,
+      );
       break;
     default: {
-      const _exhaustive: never = action;
+      action satisfies never;
       result = editor;
       break;
     }

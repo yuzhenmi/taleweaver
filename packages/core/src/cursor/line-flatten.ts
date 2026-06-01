@@ -1,0 +1,362 @@
+import type { LayoutBox, LineBox, TextRunBox, InlineBlockBox } from "../layout/layout-node";
+import type { ComputedStyle } from "../styles";
+import type { Position, BlockId, State } from "../state";
+import { selectionContextOf } from "../state";
+
+/**
+ * A `LineBox` paired with its absolute (document-relative) coordinates
+ * and the page it lives on. Produced by `collectLineBoxes` from a
+ * layout tree.
+ *
+ * Coordinates are page-relative inside a paginated tree (the page's
+ * own `(x, y)` is the page's document-relative origin; descendants use
+ * the page's content-box frame). For non-paginated trees,
+ * `(absoluteX, absoluteY)` are document-relative.
+ *
+ * Line identity is `line` (the LineBox reference itself) — the
+ * canonical replacement for the prior `(pageIndex, absoluteY)` line
+ * key. Two `AbsoluteLineBox` entries describe the same line iff
+ * `a.line === b.line`.
+ */
+export interface AbsoluteLineBox {
+  readonly line: LineBox;
+  readonly absoluteX: number;
+  readonly absoluteY: number;
+  readonly pageIndex: number;
+}
+
+/**
+ * Walk a layout tree, collecting every `LineBox` with absolute
+ * coordinates. Only `LineBox` nodes are emitted — text-runs, markers,
+ * and structural boxes are skipped.
+ *
+ * The walk DOES descend into a `LineBox`'s children, but only to
+ * reach nested `LineBox`es living inside inline-block descendants
+ * (their own BFC produces their own LineBoxes). A within-line
+ * text-run is never emitted itself; consumers needing
+ * character-precision walk `line.children` directly for that.
+ *
+ * For line-level geometry (selection-rect spans, line navigation,
+ * hit-test by Y) the LineBox itself carries everything needed
+ * (`ownerBlockId`, `inlineOffsetStart/End`, `isBlockBoundaryLine`,
+ * `inlineSize`, `blockSize`, `baseline`).
+ *
+ * Replaces the text-run-driven flatten (`collectAllTextBoxes`) for
+ * line-level consumers. Hit-test, cursor-position, selection-geometry,
+ * and line-navigation all migrate from `AbsoluteTextBox[]` keyed by
+ * `(pageIndex, absoluteY)` to `AbsoluteLineBox[]` keyed by the
+ * `LineBox` reference.
+ *
+ * Page boundaries: PageBox is a frame; descendants are walked with
+ * page-content-relative origin `(0, 0)` and the page's `pageIndex`.
+ * The page's own `(x, y)` is document-relative and not part of the
+ * descendant coordinate system.
+ */
+export function collectLineBoxes(
+  box: LayoutBox,
+  parentX: number,
+  parentY: number,
+  out: AbsoluteLineBox[],
+  pageIndex: number = 0,
+): void {
+  if (box.type === "text-run" || box.type === "marker") return;
+  if (box.type === "page") {
+    // Header/footer SLOTS (C.2c T6) are page-local BlockBoxes laid into the top
+    // / bottom margin bands, kept OUT of `box.children` as distinct named
+    // fields. Walk them too so their lines enter the flat list AND
+    // `getLineIndex(page).byBlock` — feeding hit-test, cursor-position, and
+    // selection-geometry for slot content. Slot block ids are globally unique
+    // (templateContents lives in its own map), so they never collide with body
+    // ids in `byBlock`. Header BEFORE the body children (it paints above),
+    // footer AFTER (below). Origin is the page-content frame `(0, 0)` — the
+    // slot's own `(x, y)` (set by `materializePage` to the band origin) is
+    // applied as the slot box is descended.
+    if (box.headerSlot) collectLineBoxes(box.headerSlot, 0, 0, out, box.pageIndex);
+    for (const child of box.children) {
+      collectLineBoxes(child, 0, 0, out, box.pageIndex);
+    }
+    if (box.footerSlot) collectLineBoxes(box.footerSlot, 0, 0, out, box.pageIndex);
+    return;
+  }
+  const absX = parentX + box.x;
+  const absY = parentY + box.y;
+  if (box.type === "line") {
+    out.push({ line: box, absoluteX: absX, absoluteY: absY, pageIndex });
+    // LineBox children: most are text-runs (skipped by the text-run
+    // branch). When an inline-block lives on this line, its own BFC
+    // produced nested LineBoxes inside its children — descend so
+    // those nested lines are also collected. Line-level consumers
+    // call `line.children` directly when they need within-line
+    // char-precision; the descent here is purely for the cross-
+    // boundary case of inline-block-internal lines.
+    for (const child of box.children) {
+      collectLineBoxes(child, absX, absY, out, pageIndex);
+    }
+    return;
+  }
+  for (const child of box.children) {
+    collectLineBoxes(child, absX, absY, out, pageIndex);
+  }
+}
+
+/**
+ * Indexed view of every `AbsoluteLineBox` in a layout tree:
+ *   - `all`: flat list in document order (same shape `collectLineBoxes`
+ *     produces).
+ *   - `byBlock`: lines grouped by their `ownerBlockId`, preserving
+ *     document order within each group.
+ *
+ * Built lazily on first call to `getLineIndex(root)` and memoized via
+ * a module-level `WeakMap<LayoutBox, LineIndex>`. Per-cursor-query
+ * consumers (cursor-position, line-navigation, selection-geometry) all
+ * pull from the same cached instance, so a single `collectLineBoxes`
+ * walk amortizes across all consumers of one layout cycle. cursor-
+ * position's `byBlock.get(blockId)` lookup is O(1); without the index
+ * it had to walk every line in the doc and filter — O(N_lines) per
+ * cursor query, dominant on large docs (L-PERF-D).
+ */
+export interface LineIndex {
+  readonly all: readonly AbsoluteLineBox[];
+  readonly byBlock: ReadonlyMap<BlockId, readonly AbsoluteLineBox[]>;
+}
+
+const _lineIndexCache: WeakMap<LayoutBox, LineIndex> = new WeakMap();
+
+/**
+ * Return the `LineIndex` for a layout-tree root, building it on first
+ * access and caching by reference. The cache is a `WeakMap` keyed on
+ * the root `LayoutBox`, so when a new layout cycle produces a new root
+ * the old index becomes eligible for GC; subsequent calls within the
+ * same cycle (same root) reuse the cached index.
+ */
+export function getLineIndex(root: LayoutBox): LineIndex {
+  const cached = _lineIndexCache.get(root);
+  if (cached !== undefined) return cached;
+  const all: AbsoluteLineBox[] = [];
+  collectLineBoxes(root, 0, 0, all);
+  const byBlock = new Map<BlockId, AbsoluteLineBox[]>();
+  for (const al of all) {
+    let arr = byBlock.get(al.line.ownerBlockId);
+    if (arr === undefined) {
+      arr = [];
+      byBlock.set(al.line.ownerBlockId, arr);
+    }
+    arr.push(al);
+  }
+  const index: LineIndex = { all, byBlock };
+  _lineIndexCache.set(root, index);
+  return index;
+}
+
+/**
+ * Context filter (#327): constrain a flat line list to ONE editing context —
+ * the page BODY and a header/footer SLOT are isolated editing contexts (Google
+ * Docs convention: arrow keys never carry the caret across the body↔header
+ * boundary; you CLICK into a header to edit it; SELECT_ALL highlights only the
+ * context the caret is in).
+ *
+ * C.2c T6 made the per-page `LineIndex.all` include the header/footer slot lines
+ * (in doc order each page is `[header lines, body lines, footer lines]`), so an
+ * unfiltered consumer — line-navigation (#327) and selection-geometry — would
+ * leak across the boundary: ArrowUp from the body's top line would step into the
+ * header; a body select-all's rects would bleed into the interleaved
+ * header/footer slot bands between pages. Each candidate line is kept only if
+ * `selectionContextOf(state, line.ownerBlockId)` EQUALS `context`.
+ *
+ * Perf: `selectionContextOf` walks parentId to the tree root (O(depth)). The
+ * returned closure MEMOIZES per `ownerBlockId` (a `Map`) so each block's context
+ * resolves once per call, not once per line. For the common main-only page (no
+ * header/footer slot lines) the filter still SCANS the lines once (O(unique
+ * blocks × depth), memoized) but, finding every line already in `context`,
+ * returns the SAME array reference unchanged — so no new array is allocated and
+ * line order is byte-identical to the pre-#327 hot path (allocation-free, not
+ * walk-free).
+ *
+ * Shared by `line-navigation.ts` (#327) and `selection-geometry.ts` (this
+ * change) so both consumers apply identical isolation.
+ */
+export function makeContextFilter(
+  state: State,
+  context: BlockId | null,
+): (lines: readonly AbsoluteLineBox[]) => readonly AbsoluteLineBox[] {
+  const memo = new Map<BlockId, BlockId | null>();
+  const ctxOf = (blockId: BlockId): BlockId | null => {
+    const cached = memo.get(blockId);
+    if (cached !== undefined) return cached;
+    const ctx = selectionContextOf(state, blockId);
+    memo.set(blockId, ctx);
+    return ctx;
+  };
+  return (lines) => {
+    // Fast-path probe: if every line already shares `context` (the common
+    // main-only / single-context page), return the array unchanged so no new
+    // array is allocated and order is byte-identical.
+    let allSame = true;
+    for (const lb of lines) {
+      if (ctxOf(lb.line.ownerBlockId) !== context) {
+        allSame = false;
+        break;
+      }
+    }
+    if (allSame) return lines;
+    return lines.filter((lb) => ctxOf(lb.line.ownerBlockId) === context);
+  };
+}
+
+/**
+ * A leaf box within a LineBox (text-run or inline-block) paired with
+ * its absolute X coordinate and state-model offset contribution. Used
+ * by within-line hit-test and X-from-offset queries to find the
+ * specific run that contains a given X / contains a given offset.
+ *
+ * Discriminated union: the `kind` field narrows `box` to its concrete
+ * type (TextRunBox for text-runs, InlineBlockBox for inline-blocks),
+ * so consumers can access `box.text` etc. without casts.
+ *
+ * `offsetContribution` is the STATE-character span this leaf owns,
+ * matching the IFC's per-token accumulator rule: a text-run's
+ * `offsetLength` (≥ its rendered `text.length` — strictly greater when
+ * trailing collapsed whitespace was absorbed into the run, so cursor
+ * offsets after a collapsed double space stay aligned with state
+ * offsets), and `1` for an inline-block (state-model embed). Summed
+ * across leaves, the total equals the line's
+ * `inlineOffsetEnd - inlineOffsetStart`.
+ */
+export type LineLeaf =
+  | {
+      readonly kind: "text-run";
+      readonly box: TextRunBox;
+      readonly absoluteX: number;
+      readonly width: number;
+      /** Convenience copy from `box.computedStyle`. */
+      readonly computedStyle: Readonly<ComputedStyle>;
+      readonly offsetContribution: number;
+    }
+  | {
+      readonly kind: "inline-block";
+      readonly box: InlineBlockBox;
+      readonly absoluteX: number;
+      readonly width: number;
+      readonly computedStyle: Readonly<ComputedStyle>;
+      readonly offsetContribution: number;
+    };
+
+/**
+ * Walk a single `LineBox`'s subtree, emitting one `LineLeaf` per
+ * leaf box (text-run or inline-block) in visual (post-bidi-reorder)
+ * order. Descends into `InlineBox` children (which wrap groups of
+ * same-inline-element text-runs) but stops at text-runs and inline-
+ * blocks — they are the leaves.
+ *
+ * Skips MarkerBoxes (list bullets etc.) which don't contribute
+ * cursor positions.
+ *
+ * Used by hit-test (pick target leaf by X within the picked line)
+ * and by cursor-position (map Position → leaf for X measurement).
+ */
+export function collectLineLeaves(line: LineBox, lineAbsX: number): LineLeaf[] {
+  const out: LineLeaf[] = [];
+  // Contract mismatch: `collectLineLeaves` is GIVEN the line's ABSOLUTE x
+  // (`lineAbsX` = blockAbsX + line.x; the callers read it straight off the
+  // `AbsoluteLineBox`). But `collectLeavesRec`'s `line`/`inline` branch expects
+  // the PARENT-frame x and re-adds the box's own `.x` (`absX = parentX +
+  // box.x`). So we hand it the parent-frame x (`lineAbsX - line.x`); the
+  // recursion re-adds `line.x` exactly once, yielding `lineAbsX` for the line
+  // and `lineAbsX + childRelX` for its children. This is what kills the
+  // double-count that over-shifted the caret/selection/hit-test on lines whose
+  // `.x` is non-zero (#336 fix). Post-#333, `line.x` is the natural inline-start
+  // (typically 0; non-zero only for float-adjusted lines) — the alignment offset
+  // now rides on the children's `inlineOffset` instead of `line.x`, so the
+  // subtraction is a no-op for unfloated lines but still correct + load-bearing
+  // for the floated case. Works in both writing directions because `box.x` IS
+  // the physical coordinate, so `lineAbsX - line.x + line.x === lineAbsX`
+  // regardless of LTR/RTL.
+  collectLeavesRec(line, lineAbsX - line.x, out);
+  return out;
+}
+
+/**
+ * Find the index of the `AbsoluteLineBox` that contains `position`.
+ * Returns -1 if no line owns the position's block (e.g. block has
+ * no LineBoxes — container block with null inlineContent).
+ *
+ * Soft-wrap preference: at `position.offset === current.inlineOffsetEnd`
+ * with a next line for the same block, prefer the next line's start.
+ * This matches Word / Google Docs caret behavior at visual wrap edges.
+ *
+ * Consumed by `cursor-position` and `selection-geometry` to anchor
+ * Position → line lookups.
+ */
+export function findLineForPosition(lines: readonly AbsoluteLineBox[], position: Position): number {
+  // Walk the full list (don't early-exit on foreign-block entries):
+  // `collectLineBoxes` interleaves inline-block-internal lines into
+  // the flat array, so a wrapped outer paragraph containing an
+  // inline-block has foreign-block lines BETWEEN its own lines. The
+  // last matching candidate is what we return for past-block-end
+  // offsets.
+  let candidate = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i].line;
+    if (l.ownerBlockId !== position.blockId) continue;
+    candidate = i;
+    if (position.offset < l.inlineOffsetStart) {
+      return i;
+    }
+    if (position.offset <= l.inlineOffsetEnd) {
+      const isExactEnd = position.offset === l.inlineOffsetEnd;
+      // Look ahead for the NEXT same-block line (skipping any
+      // intervening foreign-block lines from interleaved inline-
+      // block descendants).
+      if (isExactEnd) {
+        for (let j = i + 1; j < lines.length; j++) {
+          if (lines[j].line.ownerBlockId === position.blockId) {
+            return j;
+          }
+        }
+      }
+      return i;
+    }
+  }
+  return candidate;
+}
+
+function collectLeavesRec(box: LayoutBox, parentX: number, out: LineLeaf[]): void {
+  if (box.type === "text-run") {
+    out.push({
+      kind: "text-run",
+      box,
+      absoluteX: parentX + box.x,
+      width: box.width,
+      computedStyle: box.computedStyle,
+      // STATE-char span, not rendered text.length: a run that absorbed
+      // trailing collapsed whitespace owns more offsets than it renders.
+      offsetContribution: box.offsetLength,
+    });
+    return;
+  }
+  if (box.type === "inline-block") {
+    out.push({
+      kind: "inline-block",
+      box,
+      absoluteX: parentX + box.x,
+      width: box.width,
+      computedStyle: box.computedStyle,
+      offsetContribution: 1,
+    });
+    return;
+  }
+  if (box.type === "marker") return;
+  if (box.type === "page" || box.type === "block" || box.type === "table" || box.type === "table-row" || box.type === "table-cell") {
+    // Block-axis containers shouldn't appear as a line's descendants;
+    // defensively descend with the same X frame anyway.
+    for (const child of box.children) {
+      collectLeavesRec(child, parentX, out);
+    }
+    return;
+  }
+  // box.type === "line" or "inline" — descend with own X offset.
+  const absX = parentX + box.x;
+  for (const child of box.children) {
+    collectLeavesRec(child, absX, out);
+  }
+}

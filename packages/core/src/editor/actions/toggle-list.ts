@@ -1,107 +1,69 @@
-import type { StateNode } from "../../state/state-node";
 import type { EditorState, EditorConfig } from "../editor-state";
-import { pushEditorChange } from "../editor-state";
-import { createCursor } from "../../cursor/selection";
-import { createNode } from "../../state/create-node";
+import { getBlock, setBlockType, setBlockAttrs } from "../../state";
+import type { BlockId } from "../../state";
 import { rebuildTrees } from "./helpers";
 
+/**
+ * Toggle list-item on the block containing the cursor.
+ *
+ * Simplified algorithm vs. legacy wrap/unwrap-in-list:
+ *   - If the focus block is already a list-item, revert to paragraph.
+ *   - Else, set the focus block's type to "list-item" with attrs
+ *     `{ listType }`.
+ *
+ * The legacy code wrapped the paragraph in a list container. P11-cutover
+ * relies on the renderer being able to render list-items directly; the
+ * list-container wrap is a follow-up.
+ */
 export function handleToggleList(
   editor: EditorState,
   listType: "ordered" | "unordered",
   config: EditorConfig,
 ): EditorState {
-  const pos = editor.selection.focus;
-  const paraIdx = pos.path[0];
-  const currentBlock = editor.state.children[paraIdx];
-  if (!currentBlock) return editor;
+  // E-A13 / 2026-05-23 audit: toggle the LEAF block containing the cursor,
+  // not the outermost ancestor. The pre-fix walk-up logic retyped the
+  // containing LIST for cursors inside list-items — a cross-kind change
+  // (container → leaf) that setBlockType refuses per T11, so the toggle
+  // either threw or silently no-op'd. Under the nested document model,
+  // toggle-list must operate on the cursor's leaf paragraph/list-item.
+  // Google Docs / Word convention: TOGGLE_LIST on a paragraph → list-item;
+  // on an existing list-item → paragraph (un-list).
+  const targetId = editor.selection.focus.blockId;
+  const target = getBlock(editor.state, targetId);
+  if (target === null) return editor;
 
-  // If already in a list, unwrap
-  if (currentBlock.type === "list") {
-    // Extract list items as paragraphs
-    const newChildren = [...editor.state.children];
-    const listItems = currentBlock.children;
-    const paragraphs: StateNode[] = [];
-
-    for (const item of listItems) {
-      const para = createNode(
-        item.id,
-        "paragraph",
-        {},
-        item.children,
-      );
-      paragraphs.push(para);
-    }
-
-    newChildren.splice(paraIdx, 1, ...paragraphs);
-    const newDoc = createNode(
-      editor.state.id,
-      editor.state.type,
-      { ...editor.state.properties },
-      newChildren,
-    );
-    const change = { oldState: editor.state, newState: newDoc, timestamp: 0 };
-
-    // Adjust selection path — cursor was at [paraIdx, itemIdx, textIdx...], now [paraIdx + itemIdx, textIdx...]
-    const itemIdx = pos.path[1] ?? 0;
-    const newSelection = createCursor([paraIdx + itemIdx, ...pos.path.slice(2)], pos.offset);
-
-    return rebuildTrees(
-      {
-        ...editor,
-        state: newDoc,
-        selection: newSelection,
-        history: pushEditorChange(editor.history, {
-          change,
-          selectionBefore: editor.selection,
-          selectionAfter: newSelection,
-        }),
-      },
-      editor,
-      config,
-    );
-  }
-
-  // Wrap current paragraph in a list
-  const listItem = createNode(
-    `li-${editor.nextId}`,
-    "list-item",
-    {},
-    currentBlock.children,
+  const isListItem = target.type === "list-item";
+  const typeResult = setBlockType(
+    editor.state,
+    targetId,
+    isListItem ? "paragraph" : "list-item",
+    config.componentRegistry,
   );
-  const list = createNode(
-    `list-${editor.nextId}`,
-    "list",
-    { listType },
-    [listItem],
+  const attrsResult = setBlockAttrs(
+    typeResult.state,
+    targetId,
+    isListItem ? {} : { listType },
+    config.attrRegistry,
   );
 
-  const newChildren = [...editor.state.children];
-  newChildren[paraIdx] = list;
-  const newDoc = createNode(
-    editor.state.id,
-    editor.state.type,
-    { ...editor.state.properties },
-    newChildren,
+  // Union dirtyIds across the chained ops.
+  const mergedDirtyIds = new Set<BlockId>([
+    ...typeResult.dirtyIds,
+    ...attrsResult.dirtyIds,
+  ]);
+  // T7 identity contract: state-equality is the authoritative no-op
+  // signal across the editor module, preserving the "no change → same
+  // editor reference" invariant. (`history.commit` is itself no-op-safe.)
+  if (attrsResult.state === editor.state) return editor;
+
+  editor.history.commit(
+    { state: attrsResult.state, dirtyIds: mergedDirtyIds },
+    { before: editor.selection, after: editor.selection },
   );
-  const change = { oldState: editor.state, newState: newDoc, timestamp: 0 };
-
-  // Selection path changes: [paraIdx, textIdx] → [paraIdx, 0, textIdx]
-  const textPathRest = pos.path.slice(1);
-  const newSelection = createCursor([paraIdx, 0, ...textPathRest], pos.offset);
-
   return rebuildTrees(
-    {
-      ...editor,
-      state: newDoc,
-      selection: newSelection,
-      history: pushEditorChange(editor.history, {
-        change,
-        selectionBefore: editor.selection,
-        selectionAfter: newSelection,
-      }),
-      nextId: editor.nextId + 1,
-    },
+    { ...editor, state: attrsResult.state },
     editor,
     config,
+    mergedDirtyIds,
   );
 }

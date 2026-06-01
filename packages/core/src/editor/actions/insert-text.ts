@@ -1,58 +1,57 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { pushEditorChange } from "../editor-state";
-import { createCursor, isCollapsed } from "../../cursor/selection";
-import { createPosition, normalizeSpan } from "../../state/position";
-import { insertText, replaceRange } from "../../state/transformations";
+import { insertText, replaceRange, createPosition, createSpan, spanStart } from "../../state";
+import type { OperationResult } from "../../state";
+import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
+import { isCrossContextSelection } from "./selection-guards";
 
 export function handleInsertText(
   editor: EditorState,
   text: string,
   config: EditorConfig,
 ): EditorState {
-  // If selection is expanded, replace the selected range
-  if (!isCollapsed(editor.selection)) {
-    const normalized = normalizeSpan(editor.selection);
-    const change = replaceRange(editor.state, normalized, text);
-    const newPos = createPosition(
-      normalized.anchor.path,
-      normalized.anchor.offset + text.length,
-    );
-    const newSelection = createCursor(newPos.path, newPos.offset);
+  const selectionBefore = editor.selection;
 
-    return rebuildTrees(
-      {
-        ...editor,
-        state: change.newState,
-        selection: newSelection,
-        history: pushEditorChange(editor.history, {
-          change,
-          selectionBefore: editor.selection,
-          selectionAfter: newSelection,
-        }),
-      },
-      editor,
-      config,
-    );
+  let result: OperationResult;
+  let newCursorBlockId;
+  let newCursorOffset;
+  if (!isCollapsed(selectionBefore)) {
+    // C.2c §6: cross-CONTEXT selection refusal (see isCrossContextSelection).
+    // replaceRange's spanStart would throw "no common ancestor" on a cross-tree
+    // span. NOTE: insert-text intentionally has ONLY this guard — not the
+    // deletable-span (resolveBlock/parentId) guard the delete/split handlers
+    // add — so its guard SET is unchanged.
+    if (isCrossContextSelection(editor.state, selectionBefore)) return editor;
+    const start = spanStart(editor.state, selectionBefore);
+    result = replaceRange(editor.state, selectionBefore, text, {});
+    newCursorBlockId = start.blockId;
+    newCursorOffset = start.offset + text.length;
+  } else {
+    const focus = selectionBefore.focus;
+    result = insertText(editor.state, focus, text, {});
+    newCursorBlockId = focus.blockId;
+    newCursorOffset = focus.offset + text.length;
   }
 
-  const pos = editor.selection.focus;
-  const change = insertText(editor.state, pos, text);
-  const newPos = createPosition(pos.path, pos.offset + text.length);
-  const newSelection = createCursor(newPos.path, newPos.offset);
+  // T7 identity contract: a no-op op returns the same state reference,
+  // so the editor module's "no change → same editor reference" invariant
+  // requires the early return here. `history.commit` is itself no-op-safe
+  // (it silently drops empty `dirtyIds`), so this short-circuit is about
+  // the identity invariant, not commit safety.
+  if (result.state === editor.state) return editor;
+
+  const newCursor = createPosition(newCursorBlockId, newCursorOffset);
+  const newSelection = createSpan(newCursor, newCursor);
+
+  editor.history.commit(result, {
+    before: selectionBefore,
+    after: newSelection,
+  });
 
   return rebuildTrees(
-    {
-      ...editor,
-      state: change.newState,
-      selection: newSelection,
-      history: pushEditorChange(editor.history, {
-        change,
-        selectionBefore: editor.selection,
-        selectionAfter: newSelection,
-      }, "insert"),
-    },
+    { ...editor, state: result.state, selection: newSelection },
     editor,
     config,
+    result.dirtyIds,
   );
 }

@@ -1,14 +1,15 @@
-import type { ComponentDefinition } from "./component-definition";
-import { createBlockNode } from "../render/render-node";
+import type { LeafComponentDefinition } from "./component-definition";
+import { createElementBox } from "../render/render-node";
 
-export const horizontalLineComponent: ComponentDefinition = {
+export const horizontalLineComponent: LeafComponentDefinition = {
   type: "horizontal-line",
-  render: (node) =>
-    createBlockNode(
-      node.id,
-      { paddingTop: 12, paddingBottom: 12, lineMarginTop: 0, lineMarginBottom: 0, blockMarginTop: 0.2, blockMarginBottom: 0.2 },
+  kind: "leaf",
+  leafShape: "atomic",
+  render: (view, _ctx, _inlineRenderNodes) =>
+    createElementBox(
+      view.id,
+      { display: "block", blockSize: 16 },
       [],
-      undefined,
-      { type: "horizontal-line" },
+      { horizontalLine: true },
     ),
 };

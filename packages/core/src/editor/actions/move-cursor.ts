@@ -1,35 +1,23 @@
 import type { EditorState } from "../editor-state";
-import {
-  createCursor,
-  isCollapsed,
-  selectionStart,
-  selectionEnd,
-} from "../../cursor/selection";
+import { createSpan, spanStart, spanEnd } from "../../state";
 import { moveByCharacter } from "../../cursor/cursor-ops";
-import { getNodeByPath } from "../../state/operations";
-import { getTextContentLength } from "../../state/text-utils";
+import { isCollapsed } from "../../cursor/selection";
 
 export function handleMoveCursor(
   editor: EditorState,
   direction: "forward" | "backward",
 ): EditorState {
-  // If selection is expanded, collapse to start/end without moving
-  if (!isCollapsed(editor.selection)) {
+  const { selection } = editor;
+
+  // If selection is expanded, collapse to start/end without moving.
+  if (!isCollapsed(selection)) {
     const pos =
       direction === "forward"
-        ? selectionEnd(editor.selection)
-        : selectionStart(editor.selection);
-    // Clamp virtual line break offset to textLength
-    const node = getNodeByPath(editor.state, pos.path);
-    const maxOffset = node ? getTextContentLength(node) : pos.offset;
-    const offset = Math.min(pos.offset, maxOffset);
-    return { ...editor, selection: createCursor(pos.path, offset) };
+        ? spanEnd(editor.state, selection)
+        : spanStart(editor.state, selection);
+    return { ...editor, selection: createSpan(pos, pos) };
   }
 
-  const newSelection = moveByCharacter(
-    editor.state,
-    editor.selection.focus,
-    direction,
-  );
-  return { ...editor, selection: newSelection };
+  const newFocus = moveByCharacter(editor.state, selection.focus, direction);
+  return { ...editor, selection: createSpan(newFocus, newFocus) };
 }

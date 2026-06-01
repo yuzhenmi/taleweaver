@@ -1,8 +1,9 @@
-import type { ComponentDefinition } from "./component-definition";
-import { createBlockNode } from "../render/block-render-node";
+import type { ContainerComponentDefinition } from "./component-definition";
+import { createElementBox } from "../render/render-node";
 
-export const tableRowComponent: ComponentDefinition = {
+export const tableRowComponent: ContainerComponentDefinition = {
   type: "table-row",
-  render: (node, children) =>
-    createBlockNode(node.id, { lineMarginTop: 0, lineMarginBottom: 0 }, children),
+  kind: "container",
+  render: (view, _ctx, childRenderNodes) =>
+    createElementBox(view.id, { display: "table-row" }, childRenderNodes),
 };

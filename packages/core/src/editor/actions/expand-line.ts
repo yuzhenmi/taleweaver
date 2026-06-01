@@ -1,6 +1,6 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { createSelection } from "../../cursor/selection";
-import { moveToLine } from "../line-navigation";
+import { createSpan } from "../../state";
+import { moveToLine } from "../../cursor/line-navigation";
 
 export function handleExpandLine(
   editor: EditorState,
@@ -14,14 +14,13 @@ export function handleExpandLine(
     config.measurer,
     direction,
     editor.targetX,
+    // #323/C1: shift+Up/Down must stay on the editing page too.
+    editor.caretPageHint,
   );
-  if (!result) return editor;
+  if (result === null) return editor;
   return {
     ...editor,
-    selection: createSelection(
-      editor.selection.anchor,
-      result.position,
-    ),
+    selection: createSpan(editor.selection.anchor, result.position),
     targetX: result.targetX,
   };
 }

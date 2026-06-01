@@ -1,135 +1,146 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { pushEditorChange } from "../editor-state";
-import { createCursor, isCollapsed } from "../../cursor/selection";
-import { createPosition, createSpan, positionsEqual } from "../../state/position";
-import { deleteRange } from "../../state/transformations";
+import { resolveBlock, createPosition, createSpan, deleteRange, mergeAdjacentBlocks, mergeSectionWithPrevious, inlineContentLength } from "../../state";
 import { moveByCharacter } from "../../cursor/cursor-ops";
-import { getNodeByPath } from "../../state/operations";
-import { getTextContentLength } from "../../state/text-utils";
-import { createNode } from "../../state/create-node";
-import { isStructuralParagraph } from "../../state/normalize";
-import { rebuildTrees, deleteSelectionRange, findFirstTextDescendant, isAtCellBoundary } from "./helpers";
+import { isCollapsed } from "../../cursor/selection";
+import { rebuildTrees } from "./helpers";
+import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
 
 export function handleDeleteBackward(
   editor: EditorState,
   config: EditorConfig,
 ): EditorState {
-  // If selection is expanded, delete the range
-  if (!isCollapsed(editor.selection)) {
-    return deleteSelectionRange(editor, config);
+  const { selection } = editor;
+
+  // Non-collapsed: delete range. Cursor goes to spanStart.
+  if (!isCollapsed(selection)) {
+    // C.2c §6: cross-CONTEXT selection refusal (see isCrossContextSelection).
+    if (isCrossContextSelection(editor.state, selection)) return editor;
+    // Deletable-span guard + collapse point (see expandedSpanCollapsePoint):
+    // refuses an unresolvable or cross-parent span.
+    const start = expandedSpanCollapsePoint(editor.state, selection);
+    if (start === null) return editor;
+    const result = deleteRange(editor.state, selection);
+    if (result.state === editor.state) return editor;
+    const newCursor = createPosition(start.blockId, start.offset);
+    const newSelection = createSpan(newCursor, newCursor);
+    editor.history.commit(result, {
+      before: selection,
+      after: newSelection,
+    });
+    return rebuildTrees(
+      { ...editor, state: result.state, selection: newSelection },
+      editor,
+      config,
+      result.dirtyIds,
+    );
   }
 
-  const pos = editor.selection.focus;
+  const pos = selection.focus;
 
-  // At very start of document — nothing to delete
-  if (pos.path.every((v) => v === 0) && pos.offset === 0) {
+  // Mid-block: delete one grapheme cluster going backward.
+  if (pos.offset > 0) {
+    const prev = moveByCharacter(editor.state, pos, "backward");
+    if (prev.blockId !== pos.blockId) return editor;
+    if (prev.offset === pos.offset) return editor;
+    const span = createSpan(prev, pos);
+    const result = deleteRange(editor.state, span);
+    if (result.state === editor.state) return editor;
+    const newCursor = createPosition(prev.blockId, prev.offset);
+    const newSelection = createSpan(newCursor, newCursor);
+    editor.history.commit(result, {
+      before: selection,
+      after: newSelection,
+    });
+    return rebuildTrees(
+      { ...editor, state: result.state, selection: newSelection },
+      editor,
+      config,
+      result.dirtyIds,
+    );
+  }
+
+  // pos.offset === 0: cross-block backspace.
+  const currentBlock = resolveBlock(editor.state, pos.blockId)?.block ?? null;
+  if (currentBlock === null) return editor;
+  const prevPos = moveByCharacter(editor.state, pos, "backward");
+  if (prevPos.blockId === pos.blockId) {
+    // moveByCharacter returned same position (at start of doc, or no
+    // prev content block) — no-op.
     return editor;
   }
+  const prevBlock = resolveBlock(editor.state, prevPos.blockId)?.block ?? null;
+  if (prevBlock === null) return editor;
 
-  // At start of a table cell — prevent cross-cell merge
-  if (isAtCellBoundary(editor.state, pos, "start")) {
-    return editor;
-  }
-
-  // At offset 0 of a structural paragraph — no-op to preserve cursor landing spot
-  if (pos.offset === 0 && pos.path.length === 2 && isStructuralParagraph(editor.state, pos.path[0])) {
-    return editor;
-  }
-
-  // At start of a block (offset 0), check if previous sibling is a void block
-  if (pos.offset === 0 && pos.path[0] > 0) {
-    const prevIdx = pos.path[0] - 1;
-    const prevBlock = editor.state.children[prevIdx];
-    if (prevBlock && prevBlock.children.length === 0) {
-      // Remove the void block
-      const docChildren = [...editor.state.children];
-      docChildren.splice(prevIdx, 1);
-      const newDoc = createNode(
-        editor.state.id,
-        editor.state.type,
-        { ...editor.state.properties },
-        docChildren,
-      );
-
-      // Adjust cursor path: the current block moved up by 1
-      const newBlockIdx = pos.path[0] - 1;
-      const currentBlock = newDoc.children[newBlockIdx];
-      const firstText = currentBlock ? findFirstTextDescendant(currentBlock, [newBlockIdx]) : null;
-      const newSelection = firstText
-        ? createCursor(firstText.path, 0)
-        : createCursor([newBlockIdx, 0], 0);
-
+  // Section-boundary backspace: the cursor is at the START of a flat doc-root
+  // `section`'s FIRST child, and that section has a previous section sibling.
+  // Remove the break by merging this section into its predecessor (the block
+  // keeps its id — it just reparents onto the end of the previous section —
+  // so the cursor stays put). The boundary paragraphs are NOT merged (Word /
+  // Google Docs behavior: a second Backspace then merges them via the
+  // same-parent path below).
+  if (currentBlock.parentId !== null) {
+    // resolveBlock so a header/footer caret's parent (the body root, in
+    // templateContents) resolves — but the section-merge below is gated to
+    // doc-root `section`s (`section.parentId === editor.state.rootId`), so a
+    // header body root (whose parent is null / not the doc root) cannot
+    // satisfy the guard and the branch SKIPS: a header backspace falls through
+    // to the normal same-parent merge path. Main-tree behavior byte-identical
+    // (resolveBlock's first arm is getBlock).
+    const section = resolveBlock(editor.state, currentBlock.parentId)?.block ?? null;
+    if (
+      section !== null &&
+      section.type === "section" &&
+      section.parentId === editor.state.rootId &&
+      section.firstChildId === currentBlock.id &&
+      section.prevSiblingId !== null
+    ) {
+      const result = mergeSectionWithPrevious(editor.state, section.id);
+      if (result.state === editor.state) return editor;
+      const newCursor = createPosition(pos.blockId, 0);
+      const newSelection = createSpan(newCursor, newCursor);
+      editor.history.commit(result, {
+        before: selection,
+        after: newSelection,
+      });
       return rebuildTrees(
-        {
-          ...editor,
-          state: newDoc,
-          selection: newSelection,
-          history: pushEditorChange(editor.history, {
-            change: { oldState: editor.state, newState: newDoc, timestamp: 0 },
-            selectionBefore: editor.selection,
-            selectionAfter: newSelection,
-          }),
-        },
+        { ...editor, state: result.state, selection: newSelection },
         editor,
         config,
+        result.dirtyIds,
       );
     }
   }
 
-  if (pos.offset > 0) {
-    // Delete within the same text node
-    const prevSel = moveByCharacter(editor.state, pos, "backward");
-    const deleteSpan = createSpan(prevSel.focus, pos);
-    const change = deleteRange(editor.state, deleteSpan);
-    const newSelection = createCursor(prevSel.focus.path, prevSel.focus.offset);
-
-    return rebuildTrees(
-      {
-        ...editor,
-        state: change.newState,
-        selection: newSelection,
-        history: pushEditorChange(editor.history, {
-          change,
-          selectionBefore: editor.selection,
-          selectionAfter: newSelection,
-        }, "delete"),
-      },
-      editor,
-      config,
-    );
-  }
-
-  // At start of a text node with offset 0 — merge with previous block
-  // Use moveByCharacter to find previous position, which handles all nesting
-  const prevSel = moveByCharacter(editor.state, pos, "backward");
-  const prevPos = prevSel.focus;
-
-  // If we didn't move (already at document start), nothing to delete
-  if (positionsEqual(prevPos, pos)) {
+  // Only merge if same parent + adjacent siblings.
+  if (
+    prevBlock.parentId !== currentBlock.parentId ||
+    prevBlock.nextSiblingId !== currentBlock.id ||
+    currentBlock.prevSiblingId !== prevBlock.id
+  ) {
     return editor;
   }
 
-  // Find the end of the previous text node (one char forward from where moveByCharacter landed)
-  const prevTextNode = getNodeByPath(editor.state, prevPos.path);
-  if (!prevTextNode) return editor;
-  const prevTextEnd = createPosition(prevPos.path, getTextContentLength(prevTextNode));
+  const prevEndOffset =
+    prevBlock.inlineContent === null
+      ? 0
+      : inlineContentLength(prevBlock.inlineContent);
 
-  const deleteSpan = createSpan(prevTextEnd, pos);
-  const change = deleteRange(editor.state, deleteSpan);
-  const newSelection = createCursor(prevTextEnd.path, prevTextEnd.offset);
-
+  const result = mergeAdjacentBlocks(
+    editor.state,
+    prevBlock.id,
+    currentBlock.id,
+  );
+  if (result.state === editor.state) return editor;
+  const newCursor = createPosition(prevBlock.id, prevEndOffset);
+  const newSelection = createSpan(newCursor, newCursor);
+  editor.history.commit(result, {
+    before: selection,
+    after: newSelection,
+  });
   return rebuildTrees(
-    {
-      ...editor,
-      state: change.newState,
-      selection: newSelection,
-      history: pushEditorChange(editor.history, {
-        change,
-        selectionBefore: editor.selection,
-        selectionAfter: newSelection,
-      }),
-    },
+    { ...editor, state: result.state, selection: newSelection },
     editor,
     config,
+    result.dirtyIds,
   );
 }

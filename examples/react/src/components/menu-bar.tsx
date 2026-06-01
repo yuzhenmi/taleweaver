@@ -8,6 +8,15 @@ import {
   MenubarTrigger,
 } from "@/components/ui/menubar";
 import type { EditorAction, EditorState } from "@taleweaver/dom";
+import type { BlockInit } from "@taleweaver/core";
+
+// Minimal paragraph factory. Builds a BlockInit for a paragraph block with
+// no inlineContent (empty paragraph). `INSERT_NODE` validates the shape via
+// the component registry (paragraph's `leafShape: "inline-bearing"` maps to
+// `BlockKind "inline-bearing-leaf"`).
+function createParagraph(): BlockInit {
+  return { type: "paragraph", attrs: {}, inlineContent: { items: [] } };
+}
 
 interface DocMenuBarProps {
   dispatch: React.Dispatch<EditorAction>;
@@ -15,38 +24,9 @@ interface DocMenuBarProps {
   focus?: () => void;
 }
 
-function insertImage(dispatch: React.Dispatch<EditorAction>, focus?: () => void) {
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = "image/*";
-  input.onchange = () => {
-    const file = input.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const src = reader.result as string;
-      const img = new Image();
-      img.onload = () => {
-        const maxWidth = 400;
-        let width = img.naturalWidth;
-        let height = img.naturalHeight;
-        if (width > maxWidth) {
-          height = Math.round(height * (maxWidth / width));
-          width = maxWidth;
-        }
-        dispatch({
-          type: "INSERT_BLOCK",
-          blockType: "image",
-          properties: { src, alt: file.name, width, height },
-        });
-        focus?.();
-      };
-      img.src = src;
-    };
-    reader.readAsDataURL(file);
-  };
-  input.click();
-}
+// Plan 2 will re-add: insertImage (INSERT_NODE with image factory)
+// Plan 2 will re-add: table insertion (INSERT_NODE with table factory)
+// Plan 2 will re-add: horizontal-line insertion (INSERT_NODE with hr factory)
 
 export function DocMenuBar({ dispatch, focus }: DocMenuBarProps) {
   return (
@@ -88,9 +68,10 @@ export function DocMenuBar({ dispatch, focus }: DocMenuBarProps) {
       <MenubarMenu>
         <MenubarTrigger className="text-sm font-normal px-2 py-0.5">Insert</MenubarTrigger>
         <MenubarContent>
-          <MenubarItem onSelect={() => insertImage(dispatch, focus)}>Image</MenubarItem>
-          <MenubarItem onSelect={() => { dispatch({ type: "INSERT_BLOCK", blockType: "table", properties: { rows: 2, columns: 3 } }); focus?.(); }}>Table</MenubarItem>
-          <MenubarItem onSelect={() => { dispatch({ type: "INSERT_BLOCK", blockType: "horizontal-line" }); focus?.(); }}>Horizontal line</MenubarItem>
+          <MenubarItem onSelect={() => { dispatch({ type: "INSERT_NODE", node: createParagraph() }); focus?.(); }}>
+            Paragraph
+          </MenubarItem>
+          {/* Plan 2 will re-add: Image, Table, Horizontal line */}
         </MenubarContent>
       </MenubarMenu>
 

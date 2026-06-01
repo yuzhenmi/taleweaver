@@ -1,6 +1,6 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { createCursor } from "../../cursor/selection";
-import { moveToLineBoundary } from "../line-navigation";
+import { createSpan } from "../../state";
+import { moveToLineBoundary } from "../../cursor/line-navigation";
 
 export function handleMoveLineBoundary(
   editor: EditorState,
@@ -13,7 +13,9 @@ export function handleMoveLineBoundary(
     editor.layoutTree,
     config.measurer,
     boundary,
+    // #323/C1: Home/End on a header/footer resolves on the editing page.
+    editor.caretPageHint,
   );
-  if (!pos) return editor;
-  return { ...editor, selection: createCursor(pos.path, pos.offset) };
+  if (pos === null) return editor;
+  return { ...editor, selection: createSpan(pos, pos) };
 }

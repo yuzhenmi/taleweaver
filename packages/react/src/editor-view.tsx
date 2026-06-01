@@ -1,8 +1,13 @@
-import { useEffect, useRef } from "react";
+import { Profiler, useEffect, useRef, type ProfilerOnRenderCallback } from "react";
 import {
+  type TextShaper,
   type TextMeasurer,
   type EditorAction,
   type EditorState,
+  markStart,
+  markEnd,
+  recordSample,
+  isPerfTraceEnabled,
 } from "@taleweaver/core";
 import {
   createEditorController,
@@ -13,10 +18,15 @@ export interface EditorViewProps {
   editorState: EditorState;
   dispatch: React.Dispatch<EditorAction>;
   containerRef: React.RefObject<HTMLDivElement | null>;
-  measurer: TextMeasurer;
+  measurer: TextShaper | TextMeasurer;
   pageHeight?: number;
   pageGap?: number;
 }
+
+const handleProfile: ProfilerOnRenderCallback = (id, _phase, actualDuration) => {
+  if (!isPerfTraceEnabled()) return;
+  recordSample(`react.render.${id}`, actualDuration);
+};
 
 export function EditorView({
   editorState,
@@ -44,8 +54,17 @@ export function EditorView({
   }, []); // mount-only
 
   useEffect(() => {
-    controllerRef.current?.update(editorState);
+    const t = markStart("react.subscribe.notify");
+    try {
+      controllerRef.current?.update(editorState);
+    } finally {
+      markEnd("react.subscribe.notify", t);
+    }
   }, [editorState]);
 
-  return <div ref={containerRef} />;
+  return (
+    <Profiler id="EditorView" onRender={handleProfile}>
+      <div ref={containerRef} />
+    </Profiler>
+  );
 }

@@ -1,56 +1,97 @@
-import type { NodeStyles } from "../../state/state-node";
 import type { EditorState, EditorConfig } from "../editor-state";
-import { pushEditorChange } from "../editor-state";
-import { createSelection, isCollapsed } from "../../cursor/selection";
-import {
-  applyInlineStyle,
-  getStyleInRange,
-  remapPosition,
-} from "../../state/formatting";
+import { createPosition, createSpan, spanStart, spanEnd, iterateSpan, findItemAtOffset, applyAttrsToRange } from "../../state";
+import type { State, Span } from "../../state";
+import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 
-const STYLE_VALUES: Record<string, { property: keyof NodeStyles; value: string }> = {
-  bold: { property: "fontWeight", value: "bold" },
-  italic: { property: "fontStyle", value: "italic" },
-  underline: { property: "textDecoration", value: "underline" },
+const STYLE_KEYS: Record<"bold" | "italic" | "underline" | "strikethrough", string> = {
+  bold: "bold",
+  italic: "italic",
+  underline: "underline",
+  strikethrough: "strikethrough",
 };
+
+/**
+ * True iff every text item intersecting the span's per-block ranges has
+ * the given attr set to a truthy value. Returns false for an empty range
+ * (no items to check). Embed items (kind === "embed") in the range do
+ * NOT contribute to the determination — they're neither required to have
+ * the attr nor blocked from contributing if they do.
+ */
+function selectionAllHaveAttr(
+  state: State,
+  span: Span,
+  attrKey: string,
+): boolean {
+  let sawText = false;
+  for (const seg of iterateSpan(state, span)) {
+    const content = seg.block.inlineContent;
+    if (content === null) continue;
+    // Skip directly to the first item containing rangeStart; iterate
+    // forward only while the item's start is still before rangeEnd.
+    // The prior implementation walked every item in the block — O(N)
+    // per segment regardless of span size.
+    const startInfo = findItemAtOffset(content, seg.rangeStart);
+    let cursor = seg.rangeStart - startInfo.withinItem;
+    for (let i = startInfo.itemIndex; i < content.items.length; i++) {
+      const item = content.items[i];
+      if (item === undefined) break;
+      const itemLen = item.kind === "text" ? item.text.length : 1;
+      const itemEnd = cursor + itemLen;
+      if (cursor >= seg.rangeEnd) break;
+      if (item.kind === "text") {
+        // Within rangeEnd by the loop guard; itemEnd may exceed but the
+        // overlap is non-empty since cursor < rangeEnd.
+        sawText = true;
+        if (!item.attrs[attrKey]) {
+          // Early exit: a single non-attr text item is enough to know
+          // the result is false. No need to keep scanning.
+          return false;
+        }
+      }
+      cursor = itemEnd;
+    }
+  }
+  return sawText;
+}
 
 export function handleToggleStyle(
   editor: EditorState,
-  style: "bold" | "italic" | "underline",
+  style: "bold" | "italic" | "underline" | "strikethrough",
   config: EditorConfig,
 ): EditorState {
-  if (isCollapsed(editor.selection)) return editor;
+  const { selection } = editor;
+  if (isCollapsed(selection)) return editor;
 
-  const { property, value } = STYLE_VALUES[style];
-  const idBase = `style-${editor.nextId}`;
-  const current = getStyleInRange(editor.state, editor.selection, property);
+  const attrKey = STYLE_KEYS[style];
+  const all = selectionAllHaveAttr(editor.state, selection, attrKey);
+  // When all items have the attr → toggle OFF (remove). Else toggle ON.
+  const incoming = all ? { [attrKey]: undefined } : { [attrKey]: true };
+  const result = applyAttrsToRange(editor.state, selection, incoming);
+  if (result.state === editor.state) {
+    return editor;
+  }
 
-  const change = current !== undefined
-    ? applyInlineStyle(editor.state, editor.selection, { [property]: undefined }, idBase)
-    : applyInlineStyle(editor.state, editor.selection, { [property]: value }, idBase);
-
-  if (change.newState === editor.state) return editor;
-
-  // Remap selection through the tree restructuring (paths change but text content doesn't)
-  const newSelection = createSelection(
-    remapPosition(editor.state, change.newState, editor.selection.anchor),
-    remapPosition(editor.state, change.newState, editor.selection.focus),
+  // Selection is invariant under attribute changes (no block tree
+  // restructure, no item count change in the cursor-position sense —
+  // attrs apply atomically to the existing ranges). Preserve the
+  // original anchor/focus positions but rebuild span ordering from the
+  // normalized start/end so consumers see consistent shape.
+  const start = spanStart(editor.state, selection);
+  const end = spanEnd(editor.state, selection);
+  const newSelection = createSpan(
+    createPosition(start.blockId, start.offset),
+    createPosition(end.blockId, end.offset),
   );
 
+  editor.history.commit(result, {
+    before: selection,
+    after: newSelection,
+  });
   return rebuildTrees(
-    {
-      ...editor,
-      state: change.newState,
-      selection: newSelection,
-      history: pushEditorChange(editor.history, {
-        change,
-        selectionBefore: editor.selection,
-        selectionAfter: newSelection,
-      }),
-      nextId: editor.nextId + 1,
-    },
+    { ...editor, state: result.state, selection: newSelection },
     editor,
     config,
+    result.dirtyIds,
   );
 }

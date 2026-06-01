@@ -1,13 +1,15 @@
-import {
-  createMockMeasurer,
-  createRegistry,
-  defaultComponents,
-  getNodeByPath,
-  getTextContent,
-  createPosition,
-  createSelection,
-  createCursor,
-} from "@taleweaver/core";
+/**
+ * Test-only fixtures shared by `actions/*.test.ts`. Re-rewritten for the
+ * P11-cutover: editor states are built from the new pipeline
+ * (createEmptyDocument → render → layout). Tests assert against
+ * `editor.state` (new State + getBlock) rather than the legacy
+ * `editor.stateLegacy`.
+ */
+import { createMockShaper } from "../../layout/mock-shaper";
+import { createDefaultComponentRegistry } from "../../components/component-registry";
+import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
+import { getBlock, createPosition, createSpan, inlineContentLength } from "../../state";
+import type { State, BlockId, Selection } from "../../state";
 import {
   createInitialEditorState,
   reduceEditor,
@@ -15,26 +17,33 @@ import {
   type EditorState,
 } from "../editor-state";
 
-export const measurer = createMockMeasurer(8, 16);
-export const registry = createRegistry([...defaultComponents]);
-export const config: EditorConfig = { measurer, registry, containerWidth: 200 };
+export const measurer = createMockShaper(8, 16);
+export const componentRegistry = createDefaultComponentRegistry();
+export const attrRegistry = createDefaultAttrRegistry();
+export const config: EditorConfig = {
+  measurer,
+  componentRegistry,
+  attrRegistry,
+  containerWidth: 200,
+};
 
-export function getTextAt(
-  state: EditorState,
-  path: readonly number[],
-): string {
-  const node = getNodeByPath(state.state, path);
-  return node ? getTextContent(node) : "";
+/** Get plain text of a block (concatenation of its text-item runs). */
+export function getTextOf(state: State, blockId: BlockId): string {
+  const block = getBlock(state, blockId);
+  if (block === null || block.inlineContent === null) return "";
+  return block.inlineContent.items
+    .map((it) => (it.kind === "text" ? it.text : ""))
+    .join("");
 }
 
-/** Build an editor state with the given text typed in, cursor at end. */
+/** Build an editor with the given text typed in, cursor at end. */
 export function stateWithText(text: string): EditorState {
   let s = createInitialEditorState(config);
   s = reduceEditor(s, { type: "INSERT_TEXT", text }, config);
   return s;
 }
 
-/** Build an editor state with two paragraphs: "abc" and "def". */
+/** Build an editor with two paragraphs: "abc" and "def". */
 export function stateWithTwoParagraphs(): EditorState {
   let s = createInitialEditorState(config);
   s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" }, config);
@@ -44,10 +53,7 @@ export function stateWithTwoParagraphs(): EditorState {
 }
 
 /** Set a specific selection on an editor state. */
-export function withSelection(
-  s: EditorState,
-  sel: ReturnType<typeof createSelection>,
-): EditorState {
+export function withSelection(s: EditorState, sel: Selection): EditorState {
   return reduceEditor(s, { type: "SET_SELECTION", selection: sel }, config);
 }
 
@@ -60,18 +66,25 @@ export function typeChars(state: EditorState, chars: string): EditorState {
   return s;
 }
 
-// Re-export things tests commonly need
+/** Get the first block id under the document root. */
+export function firstChildId(state: State): BlockId | null {
+  const root = getBlock(state, state.rootId);
+  return root === null ? null : root.firstChildId;
+}
+
+/** Block content length helper for cursor-end positions. */
+export function blockEnd(state: State, blockId: BlockId): number {
+  const block = getBlock(state, blockId);
+  if (block === null || block.inlineContent === null) return 0;
+  return inlineContentLength(block.inlineContent);
+}
+
+// Re-exports tests commonly need.
 export {
   createInitialEditorState,
   reduceEditor,
   type EditorConfig,
   type EditorState,
 } from "../editor-state";
-export {
-  createPosition,
-  createSelection,
-  createCursor,
-  isCollapsed,
-  getTextContent,
-  getTextContentLength,
-} from "@taleweaver/core";
+export { createPosition, createSpan };
+export type { Selection } from "../../state";

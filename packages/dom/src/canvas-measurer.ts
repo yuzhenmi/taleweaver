@@ -1,55 +1,42 @@
-import type { TextMeasurer, RenderStyles } from "@taleweaver/core";
-import { buildCssFontString, getEffectiveStyles } from "./font-config";
-
-const DEFAULT_CACHE_SIZE = 10_000;
+import { adaptShaperToMeasurer, type TextMeasurer } from "@taleweaver/core";
+import { createCanvasShaper } from "./canvas-shaper";
 
 export interface CanvasMeasurerOptions {
+  // Reserved for future caching options. The implementation no longer
+  // caches measurement results — measurement happens via the shaper.
   cacheSize?: number;
 }
 
-/** Create a TextMeasurer backed by a canvas 2D context. */
+/**
+ * @deprecated Use `createCanvasShaper(canvas)` directly. The measurer
+ * adapter synthesizes per-character widths by dividing the total string
+ * width by character count, which produces equal advances for every
+ * glyph — visibly wrong for any proportional font. The shaper provides
+ * true per-cluster glyph advances, ligature boundaries, and UAX-14
+ * break opportunities the IFC needs. The `TextShaper` type is accepted
+ * directly by `EditorConfig.measurer` and `EditorController.measurer`.
+ *
+ * Internally still a thin adapter over `createCanvasShaper` for
+ * backwards-compat with existing callers; emits a dev-mode warning
+ * pointing them at the shaper.
+ */
 export function createCanvasMeasurer(
   canvas: HTMLCanvasElement,
-  options?: CanvasMeasurerOptions,
+  _options?: CanvasMeasurerOptions,
 ): TextMeasurer {
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Failed to get 2D canvas context");
-
-  const maxSize = options?.cacheSize ?? DEFAULT_CACHE_SIZE;
-  const widthCache = new Map<string, number>();
-  const cursorHeightCache = new Map<string, number>();
-
-  return {
-    measureWidth(text: string, styles: RenderStyles): number {
-      const font = buildCssFontString(styles);
-      const key = font + "\0" + text;
-      let width = widthCache.get(key);
-      if (width === undefined) {
-        if (widthCache.size >= maxSize) {
-          widthCache.clear();
-        }
-        ctx.font = font;
-        width = ctx.measureText(text).width;
-        widthCache.set(key, width);
-      }
-      return width;
-    },
-
-    measureHeight(styles: RenderStyles): number {
-      const effective = getEffectiveStyles(styles);
-      return effective.lineHeight * effective.fontSize;
-    },
-
-    measureCursorHeight(styles: RenderStyles): number {
-      const font = buildCssFontString(styles);
-      let height = cursorHeightCache.get(font);
-      if (height === undefined) {
-        ctx.font = font;
-        const metrics = ctx.measureText("\u200b"); // zero-width space
-        height = metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent;
-        cursorHeightCache.set(font, height);
-      }
-      return height;
-    },
+  const g = globalThis as {
+    process?: { env?: { NODE_ENV?: string } };
+    console?: { warn(...args: unknown[]): void };
   };
+  const isDev = g.process?.env?.NODE_ENV !== "production";
+  if (isDev && g.console !== undefined) {
+    g.console.warn(
+      "[@taleweaver/dom] createCanvasMeasurer is deprecated. " +
+        "Use createCanvasShaper(canvas) directly — per-glyph cluster " +
+        "info is needed by the IFC, and createCanvasMeasurer synthesizes " +
+        "equal per-character widths via division (wrong for proportional " +
+        "fonts). EditorConfig.measurer accepts TextShaper directly.",
+    );
+  }
+  return adaptShaperToMeasurer(createCanvasShaper(canvas));
 }

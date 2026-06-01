@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { mapKeyEvent, type EditorAction } from "./key-handler";
+import { mapKeyEvent } from "./key-handler";
 
 function key(overrides: {
   key: string;
+  code?: string;
   ctrlKey?: boolean;
   metaKey?: boolean;
   altKey?: boolean;
@@ -10,6 +11,7 @@ function key(overrides: {
 }): KeyboardEvent {
   return new KeyboardEvent("keydown", {
     key: overrides.key,
+    code: overrides.code ?? "",
     ctrlKey: overrides.ctrlKey ?? false,
     metaKey: overrides.metaKey ?? false,
     altKey: overrides.altKey ?? false,
@@ -86,6 +88,77 @@ describe("mapKeyEvent", () => {
     expect(
       mapKeyEvent(key({ key: "z", ctrlKey: true, shiftKey: true })),
     ).toEqual({ type: "REDO" });
+    // Real browsers report the SHIFTED key "Z" (uppercase) when Shift is held —
+    // the chord must still map (regression guard for the case-normalization).
+    expect(
+      mapKeyEvent(key({ key: "Z", ctrlKey: true, shiftKey: true })),
+    ).toEqual({ type: "REDO" });
+  });
+
+  it("maps the real-browser uppercase Ctrl+Shift+X to strikethrough", () => {
+    // With Shift held the browser sets key to "X" (uppercase); the chord must
+    // still fire (a lowercase-only `=== \"x\"` compare would silently miss it).
+    expect(
+      mapKeyEvent(key({ key: "X", ctrlKey: true, shiftKey: true })),
+    ).toEqual({ type: "TOGGLE_STYLE", style: "strikethrough" });
+    expect(
+      mapKeyEvent(key({ key: "X", metaKey: true, shiftKey: true })),
+    ).toEqual({ type: "TOGGLE_STYLE", style: "strikethrough" });
+  });
+
+  it("maps the real-browser uppercase Ctrl+Shift+L/E/R/J to alignment", () => {
+    // Browser sends the uppercase letter when Shift is held; the chord must
+    // still fire after normalization. `align` is logical (L→start, R→end).
+    expect(
+      mapKeyEvent(key({ key: "L", ctrlKey: true, shiftKey: true })),
+    ).toEqual({ type: "SET_TEXT_ALIGN", align: "start" });
+    expect(
+      mapKeyEvent(key({ key: "E", ctrlKey: true, shiftKey: true })),
+    ).toEqual({ type: "SET_TEXT_ALIGN", align: "center" });
+    expect(
+      mapKeyEvent(key({ key: "R", metaKey: true, shiftKey: true })),
+    ).toEqual({ type: "SET_TEXT_ALIGN", align: "end" });
+    expect(
+      mapKeyEvent(key({ key: "J", ctrlKey: true, shiftKey: true })),
+    ).toEqual({ type: "SET_TEXT_ALIGN", align: "justify" });
+  });
+
+  it("does not map the alignment letters without the modifier+shift", () => {
+    // Bare/Shift-only/mod-only must NOT trigger alignment (would clobber typing).
+    expect(mapKeyEvent(key({ key: "l" }))).toBeNull();
+    expect(mapKeyEvent(key({ key: "L", shiftKey: true }))).toBeNull();
+    expect(mapKeyEvent(key({ key: "j", ctrlKey: true }))).toBeNull();
+  });
+
+  it("maps Ctrl/Cmd+Alt+0..6 (by event.code) to block-type shortcuts", () => {
+    // Uses event.code (not key) — a digit under AltGr is layout-dependent.
+    // The `key` here is deliberately a wrong/symbol value to prove code wins.
+    expect(
+      mapKeyEvent(key({ key: "0", code: "Digit0", ctrlKey: true, altKey: true })),
+    ).toEqual({ type: "SET_BLOCK_TYPE", blockType: "paragraph" });
+    expect(
+      mapKeyEvent(key({ key: "1", code: "Digit1", ctrlKey: true, altKey: true })),
+    ).toEqual({ type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 1 } });
+    expect(
+      mapKeyEvent(key({ key: "§", code: "Digit6", metaKey: true, altKey: true })),
+    ).toEqual({ type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 6 } });
+  });
+
+  it("maps Ctrl/Cmd+Shift+7|8 (by event.code) to list shortcuts", () => {
+    expect(
+      mapKeyEvent(key({ key: "&", code: "Digit7", ctrlKey: true, shiftKey: true })),
+    ).toEqual({ type: "TOGGLE_LIST", listType: "ordered" });
+    expect(
+      mapKeyEvent(key({ key: "*", code: "Digit8", metaKey: true, shiftKey: true })),
+    ).toEqual({ type: "TOGGLE_LIST", listType: "unordered" });
+  });
+
+  it("does not fire block-type/list digit shortcuts without the right modifiers", () => {
+    // Digit alone (textarea input), or wrong modifier set, must NOT map.
+    expect(mapKeyEvent(key({ key: "1", code: "Digit1" }))).toBeNull();
+    expect(mapKeyEvent(key({ key: "1", code: "Digit1", ctrlKey: true }))).toBeNull(); // no alt
+    expect(mapKeyEvent(key({ key: "7", code: "Digit7", ctrlKey: true }))).toBeNull(); // no shift
+    expect(mapKeyEvent(key({ key: "9", code: "Digit9", ctrlKey: true, altKey: true }))).toBeNull(); // out of range
   });
 
   it("maps Ctrl+Y to REDO", () => {
@@ -193,11 +266,45 @@ describe("mapKeyEvent", () => {
     });
   });
 
+  it("maps Cmd+Shift+X to TOGGLE_STYLE strikethrough", () => {
+    expect(
+      mapKeyEvent(key({ key: "x", metaKey: true, shiftKey: true })),
+    ).toEqual({
+      type: "TOGGLE_STYLE",
+      style: "strikethrough",
+    });
+  });
+
+  it("maps Ctrl+Shift+X to TOGGLE_STYLE strikethrough", () => {
+    expect(
+      mapKeyEvent(key({ key: "x", ctrlKey: true, shiftKey: true })),
+    ).toEqual({
+      type: "TOGGLE_STYLE",
+      style: "strikethrough",
+    });
+  });
+
   it("maps Cmd+U to TOGGLE_STYLE underline", () => {
     expect(mapKeyEvent(key({ key: "u", metaKey: true }))).toEqual({
       type: "TOGGLE_STYLE",
       style: "underline",
     });
+  });
+
+  it("maps Ctrl+\\ to CLEAR_FORMATTING", () => {
+    expect(mapKeyEvent(key({ key: "\\", ctrlKey: true }))).toEqual({
+      type: "CLEAR_FORMATTING",
+    });
+  });
+
+  it("maps Cmd+\\ to CLEAR_FORMATTING (macOS)", () => {
+    expect(mapKeyEvent(key({ key: "\\", metaKey: true }))).toEqual({
+      type: "CLEAR_FORMATTING",
+    });
+  });
+
+  it("returns null for a bare backslash (no modifier — handled by textarea input)", () => {
+    expect(mapKeyEvent(key({ key: "\\" }))).toBeNull();
   });
 
   // --- Printable chars with shift should still insert ---
@@ -273,6 +380,36 @@ describe("mapKeyEvent", () => {
 
   it("maps Shift+Ctrl+End to EXPAND_DOCUMENT_BOUNDARY end", () => {
     expect(mapKeyEvent(key({ key: "End", shiftKey: true, ctrlKey: true }))).toEqual({
+      type: "EXPAND_DOCUMENT_BOUNDARY",
+      boundary: "end",
+    });
+  });
+
+  // --- Cmd+Home / Cmd+End (Mac convention — should match Ctrl behavior) ---
+
+  it("maps Cmd+Home to MOVE_DOCUMENT_BOUNDARY start (Mac, #174)", () => {
+    expect(mapKeyEvent(key({ key: "Home", metaKey: true }))).toEqual({
+      type: "MOVE_DOCUMENT_BOUNDARY",
+      boundary: "start",
+    });
+  });
+
+  it("maps Cmd+End to MOVE_DOCUMENT_BOUNDARY end (Mac, #174)", () => {
+    expect(mapKeyEvent(key({ key: "End", metaKey: true }))).toEqual({
+      type: "MOVE_DOCUMENT_BOUNDARY",
+      boundary: "end",
+    });
+  });
+
+  it("maps Shift+Cmd+Home to EXPAND_DOCUMENT_BOUNDARY start (Mac, #174)", () => {
+    expect(mapKeyEvent(key({ key: "Home", shiftKey: true, metaKey: true }))).toEqual({
+      type: "EXPAND_DOCUMENT_BOUNDARY",
+      boundary: "start",
+    });
+  });
+
+  it("maps Shift+Cmd+End to EXPAND_DOCUMENT_BOUNDARY end (Mac, #174)", () => {
+    expect(mapKeyEvent(key({ key: "End", shiftKey: true, metaKey: true }))).toEqual({
       type: "EXPAND_DOCUMENT_BOUNDARY",
       boundary: "end",
     });

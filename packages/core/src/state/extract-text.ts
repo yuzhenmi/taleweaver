@@ -1,82 +1,106 @@
-import type { StateNode } from "./state-node";
-import type { Span, Position } from "./position";
-import { normalizeSpan, comparePositions, createPosition, pathsEqual } from "./position";
-import { getTextContent, getTextContentLength } from "./text-utils";
-import { getNodeByPath } from "./operations";
+import type { State } from "./state";
+import type { Span } from "./block-position";
+import { iterateSpan } from "./span-iteration";
+import type { InlineItem, EmbedItem } from "./inline-content";
 
-const BLOCK_TYPES = new Set(["paragraph", "heading", "list-item"]);
+/** Object Replacement Character — represents an embed in extracted text. */
+const EMBED_CHAR = "￼";
 
 /**
- * Extract plain text from a document within a selection span.
- * Paragraph boundaries become newlines.
+ * Per-embed serializer used by {@link extractText} to convert an embed
+ * item to its plain-text representation. Default behavior maps every
+ * embed to U+FFFC (Object Replacement Character); callers that need
+ * meaningful plain text (clipboard, find/replace) should pass
+ * {@link builtinEmbedSerializer} or a custom function.
+ */
+export type EmbedSerializer = (item: EmbedItem) => string;
+
+/**
+ * Default embed serializer: maps every embed to U+FFFC.
+ * Preserves the legacy contract for callers that don't specify a serializer.
+ */
+const defaultEmbedSerializer: EmbedSerializer = () => EMBED_CHAR;
+
+/**
+ * Built-in embed serializer for clipboard / find-replace use cases.
+ * Maps:
+ *   - hard-break → "\n"
+ *   - tab        → "\t"
+ *   - other embed types → U+FFFC (fallback)
+ *
+ * Exported so callers can opt-in by passing `builtinEmbedSerializer` as
+ * the `embedSerializer` argument to {@link extractText}.
+ */
+export const builtinEmbedSerializer: EmbedSerializer = (item) => {
+  switch (item.embedType) {
+    case "hard-break":
+      return "\n";
+    case "tab":
+      return "\t";
+    default:
+      return EMBED_CHAR;
+  }
+};
+
+/**
+ * Extract plain text from a span.
+ *
+ * Each leaf block contributes a substring of its inline-content items
+ * over the per-block range. Embed items are converted via the optional
+ * `embedSerializer` argument — by default, every embed becomes a single
+ * OBJECT REPLACEMENT CHARACTER (U+FFFC), matching the Apple TextKit
+ * convention. Pass {@link builtinEmbedSerializer} (or a custom
+ * {@link EmbedSerializer}) when meaningful plain text is required, e.g.
+ * clipboard and find/replace, where hard-break embeds should become
+ * `"\n"` and tab embeds should become `"\t"`.
+ *
+ * Multi-block spans are joined with `\n` between blocks.
+ *
+ * Used by clipboard, find/replace, accessibility.
  */
 export function extractText(
-  state: StateNode,
+  state: State,
   span: Span,
+  embedSerializer: EmbedSerializer = defaultEmbedSerializer,
 ): string {
-  const normalized = normalizeSpan(span);
-  if (comparePositions(normalized.anchor, normalized.focus) === 0) return "";
-
   const parts: string[] = [];
-  collectText(state, state, [], normalized.anchor, normalized.focus, parts, { lastBlockKey: "" });
-
+  let isFirst = true;
+  for (const { block, rangeStart, rangeEnd } of iterateSpan(state, span)) {
+    if (!isFirst) parts.push("\n");
+    isFirst = false;
+    if (!block.inlineContent) continue;
+    parts.push(
+      extractTextFromBlock(block.inlineContent.items, rangeStart, rangeEnd, embedSerializer),
+    );
+  }
   return parts.join("");
 }
 
-interface CollectState {
-  /** Key that uniquely identifies the last block-level parent we visited. */
-  lastBlockKey: string;
-}
-
-/** Find the path to the nearest block-level ancestor of a text node. */
-function findBlockAncestorPath(root: StateNode, textPath: number[]): number[] {
-  // Walk up from the text node to find the nearest block-type ancestor
-  for (let depth = textPath.length - 1; depth >= 0; depth--) {
-    const ancestorPath = textPath.slice(0, depth);
-    const ancestor = getNodeByPath(root, ancestorPath);
-    if (ancestor && BLOCK_TYPES.has(ancestor.type)) {
-      return ancestorPath;
+function extractTextFromBlock(
+  items: ReadonlyArray<InlineItem>,
+  rangeStart: number,
+  rangeEnd: number,
+  embedSerializer: EmbedSerializer,
+): string {
+  if (rangeStart >= rangeEnd) return "";
+  const out: string[] = [];
+  let cursor = 0;
+  for (const item of items) {
+    if (cursor >= rangeEnd) break;
+    const itemLen = item.kind === "text" ? item.text.length : 1;
+    const itemStart = cursor;
+    const itemEnd = cursor + itemLen;
+    cursor = itemEnd;
+    if (itemEnd <= rangeStart) continue;
+    // Overlap: [max(itemStart, rangeStart), min(itemEnd, rangeEnd)] within this item.
+    const subStart = Math.max(itemStart, rangeStart) - itemStart;
+    const subEnd = Math.min(itemEnd, rangeEnd) - itemStart;
+    if (item.kind === "text") {
+      out.push(item.text.slice(subStart, subEnd));
+    } else {
+      // Embed item is one position; if any of [0,1) overlaps the range, include it.
+      if (subStart < 1 && subEnd > 0) out.push(embedSerializer(item));
     }
   }
-  // Fallback: use everything except the last element
-  return textPath.slice(0, -1);
-}
-
-function collectText(
-  root: StateNode,
-  node: StateNode,
-  path: number[],
-  start: Position,
-  end: Position,
-  parts: string[],
-  state: CollectState,
-): void {
-  if (node.type === "text") {
-    const pos = createPosition(path, 0);
-    const endPos = createPosition(path, getTextContentLength(node));
-
-    if (comparePositions(endPos, start) <= 0) return;
-    if (comparePositions(pos, end) >= 0) return;
-
-    const content = getTextContent(node);
-
-    const effectiveStart = pathsEqual(path, start.path) ? start.offset : 0;
-    const effectiveEnd = pathsEqual(path, end.path) ? end.offset : content.length;
-
-    // Find the nearest block-level ancestor to determine paragraph boundaries
-    const blockPath = findBlockAncestorPath(root, path);
-    const blockKey = blockPath.join(",");
-
-    if (state.lastBlockKey !== "" && blockKey !== state.lastBlockKey) {
-      parts.push("\n");
-    }
-    state.lastBlockKey = blockKey;
-
-    parts.push(content.slice(effectiveStart, effectiveEnd));
-    return;
-  }
-
-  for (let i = 0; i < node.children.length; i++) {
-    collectText(root, node.children[i], [...path, i], start, end, parts, state);
-  }
+  return out.join("");
 }

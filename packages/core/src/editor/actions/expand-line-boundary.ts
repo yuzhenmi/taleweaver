@@ -1,6 +1,6 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { createSelection } from "../../cursor/selection";
-import { moveToLineBoundary } from "../line-navigation";
+import { createSpan } from "../../state";
+import { moveToLineBoundary } from "../../cursor/line-navigation";
 
 export function handleExpandLineBoundary(
   editor: EditorState,
@@ -13,13 +13,12 @@ export function handleExpandLineBoundary(
     editor.layoutTree,
     config.measurer,
     boundary,
+    // #323/C1: shift+Home/End on a header/footer resolves on the editing page.
+    editor.caretPageHint,
   );
-  if (!pos) return editor;
+  if (pos === null) return editor;
   return {
     ...editor,
-    selection: createSelection(
-      editor.selection.anchor,
-      pos,
-    ),
+    selection: createSpan(editor.selection.anchor, pos),
   };
 }
