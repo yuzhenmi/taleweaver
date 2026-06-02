@@ -1,10 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { applySectionBreak } from "./section-break";
-import { getBlock } from "../state";
+import {
+  applySectionBreak,
+  buildSectionBreakPlan,
+  applySectionBreakInTx,
+} from "./section-break";
+import { applyOperation, getBlock } from "../state";
 import { createPosition } from "../block-position";
 import { firstLeafBlock } from "../block-traversal";
 import { createTestAllocator } from "../block-id";
 import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
+import { STATE_INTERNAL } from "../state-internal";
 import type { BlockId } from "../block-id";
 
 /**
@@ -379,6 +384,143 @@ describe("applySectionBreak — atomicity (single applyOperation)", () => {
     }
     // Exactly two sections + root + 4 paragraphs reachable.
     expect(reachable.size).toBe(7);
+  });
+});
+
+describe("buildSectionBreakPlan + applySectionBreakInTx — plan/InTx pair", () => {
+  it("(implicit) plan drives the same two-section split through applyOperation", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p4" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", nextSiblingId: "p4", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "p4", type: "paragraph", parentId: "doc", prevSiblingId: "p3", inlineContent: inlineContent([]) }),
+      ],
+    });
+    const plan = buildSectionBreakPlan(
+      state,
+      createPosition(bid("p3"), 0),
+      createTestAllocator("sec"),
+    );
+    expect(plan).not.toBeNull();
+    if (plan === null) throw new Error("expected a non-null implicit plan");
+    expect(plan.kind).toBe("implicit");
+    expect(plan.boundary).toBe("p3");
+
+    // Drive the InTx primitive directly through applyOperation (the same
+    // harness the public op uses internally).
+    const { state: next } = applyOperation(state, (doc) => {
+      applySectionBreakInTx(doc, plan);
+    });
+
+    const rootChildren = childIds(next, "doc");
+    expect(rootChildren.length).toBe(2);
+    const [aId, bId] = rootChildren;
+    if (aId === undefined || bId === undefined) throw new Error("missing section ids");
+    expect(getBlock(next, bid(aId))?.type).toBe("section");
+    expect(getBlock(next, bid(bId))?.type).toBe("section");
+    expect(childIds(next, aId)).toEqual(["p1", "p2"]);
+    expect(childIds(next, bId)).toEqual(["p3", "p4"]);
+    expect(pointers(next, aId)).toEqual({
+      parentId: "doc",
+      prevSiblingId: null,
+      nextSiblingId: bId,
+      firstChildId: "p1",
+      lastChildId: "p2",
+    });
+    expect(pointers(next, bId)).toEqual({
+      parentId: "doc",
+      prevSiblingId: aId,
+      nextSiblingId: null,
+      firstChildId: "p3",
+      lastChildId: "p4",
+    });
+    expect(getBlock(next, bid("doc"))?.firstChildId).toBe(aId);
+    expect(getBlock(next, bid("doc"))?.lastChildId).toBe(bId);
+  });
+
+  it("(explicit) plan drives the in-place section split through applyOperation", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "S", lastChildId: "T" }),
+        buildBlock({ id: "S", type: "section", parentId: "doc", nextSiblingId: "T", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "T", type: "section", parentId: "doc", prevSiblingId: "S", firstChildId: "q1", lastChildId: "q1" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "S", nextSiblingId: "p2", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "S", prevSiblingId: "p1", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "q1", type: "paragraph", parentId: "T", inlineContent: inlineContent([]) }),
+      ],
+    });
+    const plan = buildSectionBreakPlan(
+      state,
+      createPosition(bid("p2"), 0),
+      createTestAllocator("sec"),
+    );
+    expect(plan).not.toBeNull();
+    if (plan === null) throw new Error("expected a non-null explicit plan");
+    expect(plan.kind).toBe("explicit");
+    expect(plan.boundary).toBe("p2");
+
+    const { state: next } = applyOperation(state, (doc) => {
+      applySectionBreakInTx(doc, plan);
+    });
+
+    const rootChildren = childIds(next, "doc");
+    expect(rootChildren.length).toBe(3);
+    const [sId, sPrimeId, tId] = rootChildren;
+    expect(sId).toBe("S");
+    expect(tId).toBe("T");
+    if (sPrimeId === undefined) throw new Error("missing S'");
+    expect(getBlock(next, bid(sPrimeId))?.type).toBe("section");
+    expect(childIds(next, "S")).toEqual(["p1"]);
+    expect(childIds(next, sPrimeId)).toEqual(["p2"]);
+    // S' threads between S and T.
+    expect(getBlock(next, bid("S"))?.nextSiblingId).toBe(sPrimeId);
+    expect(getBlock(next, bid(sPrimeId))?.prevSiblingId).toBe("S");
+    expect(getBlock(next, bid(sPrimeId))?.nextSiblingId).toBe("T");
+    expect(getBlock(next, bid("T"))?.prevSiblingId).toBe(sPrimeId);
+    expect(getBlock(next, bid("doc"))?.lastChildId).toBe("T");
+  });
+
+  it("(no-op) buildSectionBreakPlan returns null when boundary is the container's first child", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([]) }),
+      ],
+    });
+    const plan = buildSectionBreakPlan(
+      state,
+      createPosition(bid("p1"), 0),
+      createTestAllocator("sec"),
+    );
+    expect(plan).toBeNull();
+  });
+
+  it("(guard) applySectionBreakInTx throws outside any Y.Doc transaction", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: inlineContent([]) }),
+      ],
+    });
+    const plan = buildSectionBreakPlan(
+      state,
+      createPosition(bid("p2"), 0),
+      createTestAllocator("sec"),
+    );
+    expect(plan).not.toBeNull();
+    if (plan === null) throw new Error("expected a non-null plan");
+    expect(() => applySectionBreakInTx(state[STATE_INTERNAL].doc, plan)).toThrow(
+      /applySectionBreak: must be called inside Y\.Doc\.transact/,
+    );
   });
 });
 

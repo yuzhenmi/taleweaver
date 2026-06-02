@@ -5,7 +5,6 @@ import type { BlockId } from "../block-id";
 import { getTreeMap, getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
 import { cloneInlineItem, mergeAdjacentSameAttrsTextItems } from "../y-utils";
 import { assertSameTree } from "../assert-same-tree";
-import { STATE_INTERNAL } from "../state-internal";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
 import type { AttrRegistry } from "../../cascade/attr-registry";
 
@@ -88,8 +87,8 @@ export function mergeAdjacentBlocks(
   registry?: AttrRegistry,
 ): OperationResult {
   const plan = planMergeAdjacentBlocks(state, leftId, rightId);
-  return applyOperation(state, () => {
-    mergeAdjacentBlocksInTx(state[STATE_INTERNAL].doc, plan, registry);
+  return applyOperation(state, (doc) => {
+    mergeAdjacentBlocksInTx(doc, plan, registry);
   });
 }
 

@@ -100,6 +100,13 @@ export function allTreeBlockCount(doc: Y.Doc): number {
  * Returns the doc's meta Y.Map. Currently holds only `rootId`, which is
  * set once in `createYDoc` and never reassigned during a session.
  *
+ * **doc-meta holds ONLY the immutable `rootId`.** Mutable, user-observable
+ * state belongs in the Layer-3 block-tree Y.Maps (blocks / embedContents /
+ * templateContents), NOT here — doc-meta is outside the History
+ * UndoManager's tracked scopes, so a doc-meta write silently lapses out of
+ * undo/redo and loses state across a session. The `A14` whitelist test
+ * (`encapsulation.test.ts`) fails the moment a non-`rootId` key appears.
+ *
  * **Not tracked by the History UndoManager.** The `History` class
  * (`history.ts`) constructs its `Y.UndoManager` with the blocks map,
  * the embedContents map, and the templateContents map as tracked scopes —

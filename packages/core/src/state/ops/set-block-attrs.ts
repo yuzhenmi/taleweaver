@@ -5,7 +5,6 @@ import type { ReadonlyAttrs } from "../attrs";
 import { attrsEqual } from "../attrs";
 import { getYBlock } from "../yjs-doc";
 import { buildYAttrs } from "../y-block";
-import { STATE_INTERNAL } from "../state-internal";
 import type { AttrRegistry } from "../../cascade/attr-registry";
 
 /**
@@ -38,11 +37,11 @@ export function setBlockAttrs(
     throw new Error(`setBlockAttrs: block "${blockId}" not found`);
   }
   const { block, kind } = resolved;
-  return applyOperation(state, () => {
+  return applyOperation(state, (doc) => {
     if (attrsEqual(block.attrs, attrs, registry)) {
       return;
     }
-    const yBlock = getYBlock(state[STATE_INTERNAL].doc, blockId, "setBlockAttrs", kind);
+    const yBlock = getYBlock(doc, blockId, "setBlockAttrs", kind);
     yBlock.set("attrs", buildYAttrs(attrs));
   });
 }

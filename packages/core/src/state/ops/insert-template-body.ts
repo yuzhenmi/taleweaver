@@ -6,7 +6,6 @@ import { mergeAttrs } from "../attrs";
 import { getTreeMap, getYBlock } from "../yjs-doc";
 import { buildYBlock, buildYAttrs } from "../y-block";
 import { assertNoIdCollision } from "../id-collision-check";
-import { STATE_INTERNAL } from "../state-internal";
 
 /** Which page region a template body fills, and the attr key it links through. */
 export type TemplateRegion = "header" | "footer";
@@ -106,8 +105,7 @@ export function insertTemplateBody(
   const bodyRootId = allocator.allocate();
   const firstParagraphId = allocator.allocate();
 
-  const result = applyOperation(state, () => {
-    const doc = state[STATE_INTERNAL].doc;
+  const result = applyOperation(state, (doc) => {
     // Dev-mode defense against allocator id collision (counter-based test
     // allocators can collide with seeded state). Checks all three trees.
     assertNoIdCollision(doc, bodyRootId, "insertTemplateBody");

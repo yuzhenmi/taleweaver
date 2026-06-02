@@ -7,7 +7,6 @@ import type { InlineContent } from "../inline-content";
 import { getBlocksMap, getYBlock, requireInTransaction } from "../yjs-doc";
 import { buildYBlock } from "../y-block";
 import { assertNoIdCollision } from "../id-collision-check";
-import { STATE_INTERNAL } from "../state-internal";
 import type { BlockKindResolver } from "../block-kinds";
 
 export interface InsertBlockArgs {
@@ -89,8 +88,8 @@ export function insertBlock(
   resolver?: BlockKindResolver,
 ): OperationResult {
   const plan = planInsertBlock(state, parentId, beforeSiblingId, args, allocator, resolver);
-  return applyOperation(state, () => {
-    insertBlockInTx(state[STATE_INTERNAL].doc, plan);
+  return applyOperation(state, (doc) => {
+    insertBlockInTx(doc, plan);
   });
 }
 

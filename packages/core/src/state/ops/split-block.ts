@@ -7,10 +7,9 @@ import type { Position } from "../block-position";
 import { inlineContentLength } from "../inline-content";
 import { getTreeMap, getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
 import { buildYBlock, buildYInlineItem } from "../y-block";
-import { yMapAsObject, cloneInlineItem } from "../y-utils";
+import { yMapAsObject, cloneInlineItem, yItemLength } from "../y-utils";
 import { assertNoIdCollision } from "../id-collision-check";
 import { assertSameTree } from "../assert-same-tree";
-import { STATE_INTERNAL } from "../state-internal";
 
 /**
  * Pre-computed mutation plan for `splitBlockAtPositionInTx`. Captures the
@@ -95,8 +94,8 @@ export function splitBlockAtPosition(
   newBlockInit?: { readonly type?: string; readonly attrs?: ReadonlyAttrs },
 ): OperationResult {
   const plan = planSplitBlockAtPosition(state, position, allocator, newBlockInit);
-  return applyOperation(state, () => {
-    splitBlockAtPositionInTx(state[STATE_INTERNAL].doc, plan);
+  return applyOperation(state, (doc) => {
+    splitBlockAtPositionInTx(doc, plan);
   });
 }
 
@@ -271,8 +270,7 @@ function splitInlineContent(yOriginal: Y.Map<unknown>, offset: number): Y.Map<un
   let i = 0;
   while (i < yItems.length) {
     const yItem = yItems.get(i);
-    const kind = yItem.get("kind") as "text" | "embed";
-    const itemLen = kind === "text" ? (yItem.get("text") as Y.Text).length : 1;
+    const itemLen = yItemLength(yItem);
     const itemEnd = cursor + itemLen;
 
     if (itemEnd <= offset) {

@@ -379,14 +379,36 @@ function buildBlockSnapshot(id: BlockId, yBlock: Y.Map<unknown>): Block {
   return Object.freeze(result) as unknown as Block;
 }
 
+/**
+ * Like `requireField`, but for an inline item inside `buildInlineContentSnapshot`.
+ * Yjs `Y.Map.get` returns `undefined` for absent keys; casting the result
+ * silently widens `undefined` to the expected type and crashes opaquely
+ * downstream (e.g. `Cannot read properties of undefined`). This turns a
+ * malformed item (a collab peer / migration that wrote an item missing a
+ * required key) into a clear error naming the field and its index.
+ */
+function requireItemField<T>(
+  yItem: Y.Map<unknown>,
+  i: number,
+  key: string,
+): T {
+  const raw = yItem.get(key);
+  if (raw === undefined) {
+    throw new Error(
+      `buildInlineContentSnapshot: inline item at index ${i} missing required "${key}" field`,
+    );
+  }
+  return raw as T;
+}
+
 function buildInlineContentSnapshot(yItems: Y.Array<Y.Map<unknown>>): InlineContent {
   const items: InlineItem[] = [];
   for (let i = 0; i < yItems.length; i++) {
     const yItem = yItems.get(i);
-    const kind = yItem.get("kind") as "text" | "embed";
+    const kind = requireItemField<"text" | "embed">(yItem, i, "kind");
     if (kind === "text") {
-      const yText = yItem.get("text") as Y.Text;
-      const yAttrs = yItem.get("attrs") as Y.Map<unknown>;
+      const yText = requireItemField<Y.Text>(yItem, i, "text");
+      const yAttrs = requireItemField<Y.Map<unknown>>(yItem, i, "attrs");
       const item: TextItem = Object.freeze({
         kind: "text",
         text: yText.toString(),
@@ -394,9 +416,9 @@ function buildInlineContentSnapshot(yItems: Y.Array<Y.Map<unknown>>): InlineCont
       });
       items.push(item);
     } else {
-      const embedType = yItem.get("embedType") as string;
-      const yAttrs = yItem.get("attrs") as Y.Map<unknown>;
-      const yProps = yItem.get("properties") as Y.Map<unknown>;
+      const embedType = requireItemField<string>(yItem, i, "embedType");
+      const yAttrs = requireItemField<Y.Map<unknown>>(yItem, i, "attrs");
+      const yProps = requireItemField<Y.Map<unknown>>(yItem, i, "properties");
       const item: EmbedItem = Object.freeze({
         kind: "embed",
         embedType,

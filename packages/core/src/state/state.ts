@@ -69,6 +69,13 @@ export interface State {
 export function createState(args: { rootId: BlockId; doc?: Y.Doc }): State {
   const doc = args.doc ?? createYDoc({ rootId: args.rootId });
   // Ensure meta.rootId is set (in case caller passed an externally-built doc).
+  //
+  // `rootId` is the ONLY field doc-meta may hold: it is immutable for the
+  // document's lifetime. doc-meta is outside the History UndoManager's
+  // tracked scopes, so any MUTABLE field written here would silently lapse
+  // out of undo/redo — mutable, user-observable state must live in the
+  // Layer-3 Y.Maps (blocks / embedContents / templateContents) instead.
+  // See `getMetaMap` (yjs-doc.ts) and the A14 whitelist test.
   const meta = getMetaMap(doc);
   if (meta.get("rootId") === undefined) {
     doc.transact(() => meta.set("rootId", args.rootId));
@@ -367,9 +374,13 @@ export function freshStateFromDoc(state: State): State {
  * pass entirely. The overlay allocation only runs on the non-no-op
  * branch.
  */
-export function applyOperation(state: State, fn: () => void): OperationResult {
+export function applyOperation(
+  state: State,
+  fn: (doc: Y.Doc) => void,
+): OperationResult {
   const internal = state[STATE_INTERNAL];
-  const { dirtyIds } = runTransaction(internal.doc, fn);
+  const doc = internal.doc;
+  const { dirtyIds } = runTransaction(doc, () => fn(doc));
   if (dirtyIds.size === 0) {
     // No-op transaction: return the input state reference unchanged.
     // Preserves identity so callers can short-circuit on

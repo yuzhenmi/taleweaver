@@ -7,7 +7,6 @@ import type { InlineContent } from "../inline-content";
 import { getBlocksMap, getYBlock, requireInTransaction } from "../yjs-doc";
 import { buildYBlock } from "../y-block";
 import { assertNoIdCollision } from "../id-collision-check";
-import { STATE_INTERNAL } from "../state-internal";
 
 export interface SiblingBlockInit {
   type: string;
@@ -96,8 +95,8 @@ export function insertBlocksAfter(
     return { state, dirtyIds: new Set<BlockId>(), newBlockIds: [] };
   }
 
-  const result = applyOperation(state, () => {
-    insertBlocksAfterInTx(state[STATE_INTERNAL].doc, plan);
+  const result = applyOperation(state, (doc) => {
+    insertBlocksAfterInTx(doc, plan);
   });
 
   return { ...result, newBlockIds: plan.entries.map((e) => e.id) };

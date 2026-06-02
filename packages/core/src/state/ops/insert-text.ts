@@ -1,7 +1,6 @@
 import * as Y from "yjs";
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
-import { STATE_INTERNAL } from "../state-internal";
 import type { BlockId } from "../block-id";
 import type { Position } from "../block-position";
 import type { ReadonlyAttrs } from "../attrs";
@@ -102,8 +101,8 @@ export function insertText(
   }
 
   const plan = planInsertText(state, position, text, attrs, registry);
-  return applyOperation(state, () => {
-    insertTextInTx(state[STATE_INTERNAL].doc, plan);
+  return applyOperation(state, (doc) => {
+    insertTextInTx(doc, plan);
   });
 }
 

@@ -1,7 +1,6 @@
 import * as Y from "yjs";
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
-import { STATE_INTERNAL } from "../state-internal";
 import type { BlockId } from "../block-id";
 import type { Span } from "../block-position";
 import {
@@ -145,8 +144,8 @@ export function deleteRange(
     return { state, dirtyIds: new Set<BlockId>() };
   }
 
-  return applyOperation(state, () => {
-    deleteRangeInTx(state[STATE_INTERNAL].doc, plan);
+  return applyOperation(state, (doc) => {
+    deleteRangeInTx(doc, plan);
   });
 }
 

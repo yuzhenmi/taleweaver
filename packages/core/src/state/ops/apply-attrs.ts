@@ -8,8 +8,7 @@ import { mergeAttrs, attrsEqual } from "../attrs";
 import { iterateSpan, type BlockRange } from "../span-iteration";
 import { getYBlock, requireInTransaction } from "../yjs-doc";
 import { buildYAttrs, buildYInlineItem } from "../y-block";
-import { yMapAsObject, mergeAdjacentSameAttrsTextItems } from "../y-utils";
-import { STATE_INTERNAL } from "../state-internal";
+import { yMapAsObject, mergeAdjacentSameAttrsTextItems, yItemLength } from "../y-utils";
 import type { ResolvedBlockKind } from "../state";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
 import type { AttrRegistry } from "../../cascade/attr-registry";
@@ -96,8 +95,8 @@ export function applyAttrsToRange(
     return { state, dirtyIds: new Set<BlockId>() };
   }
 
-  return applyOperation(state, () => {
-    applyAttrsToRangeInTx(state[STATE_INTERNAL].doc, plan, attrs, registry);
+  return applyOperation(state, (doc) => {
+    applyAttrsToRangeInTx(doc, plan, attrs, registry);
   });
 }
 
@@ -204,7 +203,7 @@ function applyAttrsToBlockRange(
   while (i < yItems.length) {
     const yItem = yItems.get(i);
     const kind = yItem.get("kind") as "text" | "embed";
-    const itemLen = kind === "text" ? (yItem.get("text") as Y.Text).length : 1;
+    const itemLen = yItemLength(yItem);
     const itemEnd = cursor + itemLen;
 
     // Item entirely before the range — advance.

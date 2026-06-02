@@ -10,7 +10,6 @@ import {
   planDeleteRange,
 } from "./delete-range";
 import { insertText, insertTextInTx, planInsertTextFullReplace } from "./insert-text";
-import { STATE_INTERNAL } from "../state-internal";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
 import type { AttrRegistry } from "../../cascade/attr-registry";
 
@@ -140,8 +139,8 @@ export function replaceRange(
     if (deletePlan === null) {
       return { state, dirtyIds: new Set<BlockId>() };
     }
-    return applyOperation(state, () => {
-      deleteRangeInTx(state[STATE_INTERNAL].doc, deletePlan);
+    return applyOperation(state, (doc) => {
+      deleteRangeInTx(doc, deletePlan);
     });
   }
 
@@ -187,8 +186,7 @@ export function replaceRange(
     registry,
   );
 
-  return applyOperation(state, () => {
-    const doc = state[STATE_INTERNAL].doc;
+  return applyOperation(state, (doc) => {
     deleteRangeInTx(doc, deletePlan);
     insertTextInTx(doc, insertPlan);
   });
