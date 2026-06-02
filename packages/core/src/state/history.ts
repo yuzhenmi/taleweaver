@@ -160,10 +160,31 @@ function readSelectionEntry(item: YStackItem): SelectionEntry | null {
  */
 const DEFAULT_MAX_UNDO_DEPTH = 1000;
 
+/**
+ * Pause window (ms) for typing coalescing (#420). Consecutive same-kind text
+ * edits whose gap is `< UNDO_COALESCE_PAUSE_MS` merge into one undo unit; a
+ * longer gap starts a fresh unit. Time is supplied by the caller (the reducer's
+ * injected clock), so this is deterministic in tests. ~500ms matches the
+ * ProseMirror default and a Google-Docs-ish feel; tunable in-browser.
+ */
+export const UNDO_COALESCE_PAUSE_MS = 500;
+
+/** The coalescing classes `beginEntry` accepts (selection/inert are filtered upstream). */
+export type BeginKey = "insert" | "delete" | "command";
+
 export class History {
   private readonly undoManager: Y.UndoManager;
   private readonly maxDepth: number;
   private currentState: State;
+
+  // Typing-coalescing state (#420). `coalesceKey` is the open group's kind, or
+  // null when no coalescible group is open. `lastEditTime` is the injected-clock
+  // time of the last edit in the open group. `didCoalesce` records whether the
+  // most recent `beginEntry` merged into the open group (read by `commit` to
+  // decide selection-meta handling).
+  private coalesceKey: BeginKey | null = null;
+  private lastEditTime = 0;
+  private didCoalesce = false;
 
   constructor(state: State, maxDepth: number = DEFAULT_MAX_UNDO_DEPTH) {
     if (maxDepth < 1) {
@@ -199,9 +220,61 @@ export class History {
   }
 
   /**
-   * Record an undo entry. Updates the wrapper's notion of current state,
-   * closes the current Y.UndoManager capture group, and welds the
-   * before/after selection pair onto the just-closed StackItem's `.meta`.
+   * Open the undo group for an about-to-be-applied committing action (#420).
+   * MUST be called BEFORE the action's `applyOperation` (with `captureTimeout:
+   * MAX`, a transaction merges into the currently-open StackItem unless
+   * `stopCapturing` was already called — so the break decision has to precede
+   * the transaction).
+   *
+   * Coalesces with the open group iff: the key is coalescible (`insert`/
+   * `delete`), matches the open group's key, and the gap since the last edit is
+   * `< UNDO_COALESCE_PAUSE_MS`. Otherwise it closes the open group
+   * (`stopCapturing`) so this action starts a fresh undo entry. Commands never
+   * coalesce (their `coalesceKey` is set to null, so the next action also
+   * breaks).
+   */
+  beginEntry(key: BeginKey, now: number): void {
+    const coalescible = key === "insert" || key === "delete";
+    const canCoalesce =
+      coalescible &&
+      key === this.coalesceKey &&
+      now - this.lastEditTime < UNDO_COALESCE_PAUSE_MS;
+    if (!canCoalesce) {
+      // Close the previous group so this action's transaction starts a new item.
+      this.undoManager.stopCapturing();
+    }
+    this.didCoalesce = canCoalesce;
+    this.coalesceKey = coalescible ? key : null;
+    this.lastEditTime = now;
+  }
+
+  /**
+   * Close the open undo group without recording an entry (#420). Called on
+   * selection jumps (caret move / click) and on undo/redo, so the next edit
+   * starts a fresh undo unit. Idempotent and cheap.
+   */
+  breakCoalescing(): void {
+    this.undoManager.stopCapturing();
+    this.coalesceKey = null;
+  }
+
+  /**
+   * Record an undo entry. Updates the wrapper's notion of current state and
+   * welds the before/after selection pair onto the action's StackItem `.meta`.
+   *
+   * Undo-group BOUNDARIES are no longer owned here (#420): `beginEntry` (called
+   * before each committing action) and `breakCoalescing` (on selection jumps /
+   * undo/redo) decide whether the action opens a fresh group or merges into the
+   * open one via `stopCapturing`. `commit` only writes selection meta. The
+   * action's transaction has already pushed/merged its StackItem onto
+   * `undoStack` (Yjs does this in `afterTransaction`, before `commit` runs), so
+   * the top item is locatable without any `stopCapturing` call here.
+   *
+   * **Coalesced merges preserve the group's original `before` selection.** When
+   * `beginEntry` merged this action into the open group (`didCoalesce`), the top
+   * item is the SAME StackItem the previous edit committed to and already
+   * carries this group's `SelectionEntry`; `commit` keeps its `before` and
+   * advances only `after`. On a fresh group it writes the full pair.
    *
    * Yjs clears its own redo stack on any new tracked edit (in its
    * `afterTransaction` handler, BEFORE this `commit` runs), so there is
@@ -228,9 +301,9 @@ export class History {
     if (opResult.dirtyIds.size === 0) {
       return;
     }
-    // Close the current capture group. After this, the top of `undoStack` is
-    // the merged StackItem produced by this action's transaction(s).
-    this.undoManager.stopCapturing();
+    // The action's transaction has already pushed/merged its StackItem onto
+    // `undoStack` (Yjs does this in `afterTransaction`); the group boundary was
+    // decided by `beginEntry`/`breakCoalescing` before the transaction ran.
     // Locate that item BEFORE advancing `currentState`, so a mid-commit throw
     // (the "impossible" no-item case) never leaves the wrapper half-updated.
     const top =
@@ -240,8 +313,8 @@ export class History {
       // undo StackItem — should be impossible. Surface loudly rather than
       // silently dropping the selection. `currentState` is NOT yet advanced.
       throw new Error(
-        `History.commit: no undo StackItem to attach selection to after ` +
-          `stopCapturing (dirtyIds=${opResult.dirtyIds.size}). ` +
+        `History.commit: no undo StackItem to attach selection to ` +
+          `(dirtyIds=${opResult.dirtyIds.size}). ` +
           `A tracked mutation should always produce a StackItem.`,
       );
     }
@@ -249,7 +322,22 @@ export class History {
     // the live undo item and can never desync from the Yjs stack. (`undo` /
     // `redo` re-weld it onto the opposite stack's new item as the action
     // flips direction — Yjs does not copy `.meta` across undo↔redo.)
-    top.meta.set(SEL_KEY, selections);
+    //
+    // #420: on a coalesced merge the top item is the SAME StackItem the previous
+    // edit committed to (it already carries this group's SelectionEntry). Keep
+    // the group's original `before` and advance only `after`. On a fresh group
+    // write the full pair (the pre-#420 behavior). The `.meta.get` cast follows
+    // the existing localized-Yjs-cast pattern used by `readSelectionEntry`
+    // (Y.Map.meta is typed loosely by Yjs) — not new type-unsafety.
+    if (this.didCoalesce) {
+      const existing = top.meta.get(SEL_KEY) as SelectionEntry | undefined;
+      top.meta.set(SEL_KEY, {
+        before: existing !== undefined ? existing.before : selections.before,
+        after: selections.after,
+      });
+    } else {
+      top.meta.set(SEL_KEY, selections);
+    }
     // All bookkeeping succeeded — now advance the wrapper's current state.
     this.currentState = opResult.state;
     // #234: cap undo depth. Y.UndoManager has no maxDepth, so once the stack

@@ -39,7 +39,11 @@ carrying `inlineContent: InlineItem[]`, with ID-based positions
 (`{ blockId, offset }`). Layered operations (Layer-1 Y-primitives →
 Layer-2 read utilities → Layer-3 mutations: insertText, deleteRange,
 replaceRange, splitBlock, mergeBlocks, set/mergeBlockAttrs, clonePastedSubtree).
-History is a `Y.UndoManager` wrapper with an aligned selection-entry stack.
+History is a `Y.UndoManager` wrapper that welds each undo unit's before/after
+selection onto its `StackItem.meta` (no parallel array), with Google-Docs-style
+typing coalescing: same-kind text edits within a pause window merge into one
+undo unit, with the boundary owned explicitly by `beginEntry` /
+`breakCoalescing` (the reducer classifies actions via `coalesceKeyOf`).
 Dirty tracking is write-time: `dirtyIds` captured from Yjs's
 `afterTransaction` change event (not tree diffing), consumed by the
 incremental render/cascade/layout passes. `applyOperation` returns the input

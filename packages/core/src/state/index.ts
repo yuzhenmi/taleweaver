@@ -224,8 +224,8 @@ export {
 } from "./ops/insert-footnote";
 
 // History (Y.UndoManager-backed undo/redo with aligned selection stacks).
-export type { SelectionEntry, UndoRedoResult } from "./history";
-export { History, createHistory } from "./history";
+export type { SelectionEntry, UndoRedoResult, BeginKey } from "./history";
+export { History, createHistory, UNDO_COALESCE_PAUSE_MS } from "./history";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Boot

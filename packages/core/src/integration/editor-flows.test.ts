@@ -306,45 +306,42 @@ describe("editor flow: TOGGLE_STYLE strikethrough over a selection", () => {
 });
 
 describe("editor flow: undo / redo", () => {
-  it('typing "hello" then UNDO five times empties the paragraph; REDO five times restores "hello"', () => {
-    // The History/UndoManager records one entry per `push()`, and each
-    // INSERT_TEXT action pushes once. There is no time-based grouping (the
-    // UndoManager runs with `captureTimeout: 0`), so each keystroke is its
-    // own undo entry. Five UNDOs are required to unwind "hello".
+  it('typing "hello" in one burst then UNDO once empties the paragraph; REDO once restores "hello"', () => {
+    // #420: typing coalescing. A continuous typing burst (each INSERT_TEXT
+    // within UNDO_COALESCE_PAUSE_MS of the previous, with no kind switch or
+    // command/selection break between) collapses into ONE undo entry — matching
+    // Google Docs. So one Ctrl+Z removes the whole "hello", and one Ctrl+Y
+    // restores it. We inject a fake clock that never advances so the burst is
+    // deterministically coalesced (no wall-clock flakiness).
     //
-    // KNOWN QUIRK (selection on undo): `History.push` stores the POST-action
-    // selection; `undo()` pops that same snapshot. After undoing the last
-    // INSERT_TEXT, the selection restored is "where the cursor was AFTER
-    // typing the FIRST char" — i.e. offset 1 — even though the doc has
-    // been rolled back to empty. This is a real divergence from the
-    // intuitive "selection-before-the-action" semantics most editors
-    // present. Tracked as a P13/P11-followup; the test pins the current
-    // behavior so a future fix is a visible change.
-    const config = makeConfig();
+    // Selection on undo (pre-action selection algebra, T1/T4): undo restores the
+    // caret to BEFORE the first keystroke of the coalesced run — offset 0.
+    const clock = (() => {
+      let t = 0;
+      return { now: () => t, advance: (ms: number) => (t += ms) };
+    })();
+    const config: EditorConfig = { ...makeConfig(), now: clock.now };
     let editor = createInitialEditorState(config);
     const blockId = firstParagraph(editor).id;
     editor = typeString(editor, "hello", config);
     expect(blockText(editor, blockId)).toBe("hello");
 
-    for (let i = 0; i < 5; i++) {
-      editor = reduceEditor(editor, { type: "UNDO" }, config);
-    }
+    // ONE undo removes the whole coalesced burst.
+    editor = reduceEditor(editor, { type: "UNDO" }, config);
 
     const afterUndoBlock = getBlock(editor.state, blockId);
     expect(afterUndoBlock).not.toBeNull();
     if (afterUndoBlock !== null && afterUndoBlock.inlineContent !== null) {
       expect(inlineContentLength(afterUndoBlock.inlineContent)).toBe(0);
     }
-    // Selection: with the pre-action selection algebra (T1/T4), undo
-    // restores the caret to where it sat BEFORE each keystroke. After
-    // undoing all five keystrokes, the caret is back at the original
-    // pre-typing position (offset 0).
+    // The burst was a single entry — nothing left to undo.
+    expect(editor.history.canUndo()).toBe(false);
+    // Caret restored to before the first keystroke (offset 0).
     expect(editor.selection.focus.blockId).toBe(blockId);
     expect(editor.selection.focus.offset).toBe(0);
 
-    for (let i = 0; i < 5; i++) {
-      editor = reduceEditor(editor, { type: "REDO" }, config);
-    }
+    // ONE redo restores the whole burst, caret after the last keystroke.
+    editor = reduceEditor(editor, { type: "REDO" }, config);
     expect(blockText(editor, blockId)).toBe("hello");
     expect(editor.selection.focus).toEqual(createPosition(blockId, 5));
   });

@@ -12,6 +12,7 @@ import type { PageConfig } from "../layout/page-config";
 import type { ComponentRegistry } from "../components/component-registry";
 import type { AttrRegistry } from "../cascade/attr-registry";
 import type { EditorAction } from "./editor-action";
+import { coalesceKeyOf } from "./coalesce-key";
 import {
   handleInsertText,
   handleDeleteBackward,
@@ -148,6 +149,11 @@ export interface EditorConfig {
   readonly attrRegistry: AttrRegistry;
   readonly containerWidth: number;
   readonly pageConfig?: PageConfig;
+  /**
+   * Injected clock for undo-coalescing timing (#420). Defaults to `Date.now`.
+   * Tests pass a controllable counter so the pause window is deterministic.
+   */
+  readonly now?: () => number;
 }
 
 export function createInitialEditorState(config: EditorConfig): EditorState {
@@ -229,6 +235,31 @@ export function reduceEditor(
   action: EditorAction,
   config: EditorConfig,
 ): EditorState {
+  // #420: undo-group coalescing. Decide the undo boundary BEFORE the operation
+  // runs (with `captureTimeout: MAX`, a transaction merges into the open group
+  // unless we `stopCapturing` first). Committing actions open/continue a group;
+  // selection jumps and undo/redo close it; inert actions (container resize) do
+  // neither. This runs before the per-action handler's no-op short-circuit (the
+  // "Accepted edge" in the design): a no-op committing action still advances the
+  // boundary, which is intentional — keeping the policy in one place.
+  const coalesceClass = coalesceKeyOf(action);
+  switch (coalesceClass) {
+    case "insert":
+    case "delete":
+    case "command":
+      editor.history.beginEntry(coalesceClass, (config.now ?? Date.now)());
+      break;
+    case "selection-break":
+      editor.history.breakCoalescing();
+      break;
+    case "inert":
+      break;
+    default: {
+      coalesceClass satisfies never;
+      break;
+    }
+  }
+
   // Vertical actions preserve targetX; all others clear it.
   const isVertical = action.type === "MOVE_LINE" || action.type === "EXPAND_LINE";
 
