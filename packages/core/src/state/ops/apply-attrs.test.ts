@@ -1,9 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { applyAttrsToRange } from "./apply-attrs";
-import { getBlock } from "../state";
+import { applyAttrsToRange, planApplyAttrsToRange, applyAttrsToRangeInTx } from "./apply-attrs";
+import { getBlock, applyOperation } from "../state";
 import { buildBlock, buildState, text, embed, inlineContent } from "../../test-utils/state-builders";
 import { createPosition, createSpan } from "../block-position";
 import type { BlockId } from "../block-id";
+import { STATE_INTERNAL } from "../state-internal";
 
 describe("applyAttrsToRange — single-block sub-range (splits one item into prefix + middle + suffix)", () => {
   // Block: [text("helloworld") {}]
@@ -628,5 +629,83 @@ describe("applyAttrsToRange — error cases", () => {
       createPosition("fn" as BlockId, 1),
     );
     expect(() => applyAttrsToRange(state, span, { bold: true })).toThrow(/different selection contexts/);
+  });
+});
+
+describe("applyAttrsToRange — plan/InTx split (composition primitive)", () => {
+  // Block: [text("helloworld") {}] — apply { bold: true } to [3, 7) through the
+  // InTx primitive directly (not the public op), asserting the same per-item
+  // split the public op produces lands AND the merge post-pass runs.
+  const fixture = () =>
+    buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([text("helloworld")]),
+        }),
+      ],
+    });
+
+  it("planApplyAttrsToRange + applyAttrsToRangeInTx applies attrs through a transaction", () => {
+    const state = fixture();
+    const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 7));
+    const plan = planApplyAttrsToRange(state, span);
+    expect(plan).not.toBeNull();
+    if (plan === null) return;
+    // Drive the InTx primitive through applyOperation so reading back the
+    // result sees a fresh State snapshot (a raw runTransaction mutates Yjs but
+    // does not refresh the original state's lazy snapshot cache).
+    const result = applyOperation(state, () =>
+      applyAttrsToRangeInTx(state[STATE_INTERNAL].doc, plan, { bold: true }, undefined),
+    );
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(3);
+    expect(items?.[0]).toMatchObject({ kind: "text", text: "hel", attrs: {} });
+    expect(items?.[1]).toMatchObject({ kind: "text", text: "lowo", attrs: { bold: true } });
+    expect(items?.[2]).toMatchObject({ kind: "text", text: "rld", attrs: {} });
+  });
+
+  it("InTx merge post-pass collapses adjacent same-attrs items", () => {
+    // Two adjacent items that converge to the same attrs after applying
+    // { bold: true } across the full span — the merge pass must collapse them.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([text("hello"), text("world", { italic: true })]),
+        }),
+      ],
+    });
+    // Apply { italic: true } across both → first becomes {italic:true}, second
+    // stays {italic:true} → adjacent same-attrs → merge collapses to one item.
+    const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 10));
+    const plan = planApplyAttrsToRange(state, span);
+    expect(plan).not.toBeNull();
+    if (plan === null) return;
+    const result = applyOperation(state, () =>
+      applyAttrsToRangeInTx(state[STATE_INTERNAL].doc, plan, { italic: true }, undefined),
+    );
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(1);
+    expect(items?.[0]).toMatchObject({ kind: "text", text: "helloworld", attrs: { italic: true } });
+  });
+
+  it("applyAttrsToRangeInTx throws when called outside any Y.Doc transaction", () => {
+    const state = fixture();
+    const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 7));
+    const plan = planApplyAttrsToRange(state, span);
+    expect(plan).not.toBeNull();
+    if (plan === null) return;
+    expect(() =>
+      applyAttrsToRangeInTx(state[STATE_INTERNAL].doc, plan, { bold: true }, undefined),
+    ).toThrow(/applyAttrsToRange: must be called inside Y\.Doc\.transact/);
   });
 });

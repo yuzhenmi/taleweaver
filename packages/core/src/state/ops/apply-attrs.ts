@@ -5,11 +5,12 @@ import type { BlockId } from "../block-id";
 import type { Span } from "../block-position";
 import type { ReadonlyAttrs } from "../attrs";
 import { mergeAttrs, attrsEqual } from "../attrs";
-import { iterateSpan } from "../span-iteration";
-import { getYBlock } from "../yjs-doc";
+import { iterateSpan, type BlockRange } from "../span-iteration";
+import { getYBlock, requireInTransaction } from "../yjs-doc";
 import { buildYAttrs, buildYInlineItem } from "../y-block";
 import { yMapAsObject, mergeAdjacentSameAttrsTextItems } from "../y-utils";
 import { STATE_INTERNAL } from "../state-internal";
+import type { ResolvedBlockKind } from "../state";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
 import type { AttrRegistry } from "../../cascade/attr-registry";
 
@@ -56,6 +57,13 @@ import type { AttrRegistry } from "../../cascade/attr-registry";
  * custom per-key `equals` (e.g. a `comment` interpreter that ignores
  * `timestamp`) opt into custom adjacent-item compare semantics during
  * the post-apply merge pass. Omitted → deep-value compare.
+ *
+ * Composition: see `applyAttrsToRangeInTx` for the in-transaction primitive
+ * (resolved via `planApplyAttrsToRange`) used to compose attr application
+ * with other span/structural ops in a single Y.Doc transaction (one undo
+ * entry / one collab event). Note its narrower composition scope: the
+ * applier reads live Y items, so it is correct only when prior in-tx ops do
+ * NOT shift this span's offsets.
  */
 export function applyAttrsToRange(
   state: State,
@@ -80,36 +88,94 @@ export function applyAttrsToRange(
     return { state, dirtyIds: new Set<BlockId>() };
   }
 
-  // iterateSpan owns precondition validation (existence, leaf-block,
-  // same-selection-context) AND normalization. We resolve the segments
-  // up-front (outside the transaction) so its precondition errors throw
-  // with their original messages, before any Y.Doc mutation happens.
-  const segments = Array.from(iterateSpan(state, span));
-
-  // C.2c T7b: resolve the OWNING tree so a span inside a header/footer body
-  // (templateContents) mutates the right Y.Map. A span is confined to a single
-  // selection context (cross-context spans are refused by iterateSpan), so all
-  // segments share one kind — resolve it ONCE, here, from the first segment.
-  // Resolving BEFORE opening the transaction keeps the applier read-free,
-  // matching the plan/apply pattern the rest of Layer 3 uses (deleteRange,
-  // reparentChildren). `?? "block"` is a defensive fallback (segments were just
-  // yielded by iterateSpan, so resolveBlock cannot return null in correct code)
-  // that keeps the main-tree default.
-  const kind =
-    segments.length > 0
-      ? resolveBlock(state, segments[0].block.id)?.kind ?? "block"
-      : "block";
+  // Resolve the segments + owning tree BEFORE opening the transaction; the
+  // public op then composes plan → applyOperation(InTx). iterateSpan's
+  // precondition errors throw here (pre-tx) with their original messages.
+  const plan = planApplyAttrsToRange(state, span);
+  if (plan === null) {
+    return { state, dirtyIds: new Set<BlockId>() };
+  }
 
   return applyOperation(state, () => {
-    for (const seg of segments) {
-      if (seg.rangeStart >= seg.rangeEnd) continue; // zero-width range in this block
-      const yBlock = getYBlock(state[STATE_INTERNAL].doc, seg.block.id, "applyAttrsToRange", kind);
-      const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
-      if (yItems === null) continue; // defensive — iterateSpan only yields leaves
-      applyAttrsToBlockRange(yItems, seg.rangeStart, seg.rangeEnd, attrs, registry);
-      mergeAdjacentSameAttrsTextItems(yItems, registry);
-    }
+    applyAttrsToRangeInTx(state[STATE_INTERNAL].doc, plan, attrs, registry);
   });
+}
+
+/**
+ * Pre-computed plan for `applyAttrsToRangeInTx`. `segments` is the list of
+ * per-leaf-block ranges yielded by `iterateSpan` (resolved against the
+ * pre-mutation snapshot); `kind` is the span's single owning tree.
+ */
+export interface ApplyAttrsToRangePlan {
+  readonly segments: readonly BlockRange[];
+  readonly kind: ResolvedBlockKind;
+}
+
+/**
+ * Validate `span` against `state` and produce an `ApplyAttrsToRangePlan`.
+ *
+ * All validation + snapshot reads happen here, BEFORE the surrounding
+ * `applyOperation` is opened. `iterateSpan` owns precondition validation
+ * (existence, leaf-block, same-selection-context) AND normalization, so its
+ * precondition errors throw pre-tx with their original messages.
+ *
+ * Returns `null` when there is nothing to do (empty segment list — e.g. an
+ * all-zero-width span). The two public-op no-ops (empty attrs; collapsed
+ * span) are handled by the caller BEFORE planning, to preserve the
+ * identity contract; they are not re-checked here.
+ *
+ * C.2c T7b: a span is confined to a single selection context (cross-context
+ * spans are refused by `iterateSpan`), so all segments share one owning tree
+ * — resolved ONCE from the first segment. `?? "block"` is a defensive
+ * fallback (segments were just yielded by `iterateSpan`, so `resolveBlock`
+ * cannot return null in correct code) that keeps the main-tree default.
+ */
+export function planApplyAttrsToRange(
+  state: State,
+  span: Span,
+): ApplyAttrsToRangePlan | null {
+  const segments = Array.from(iterateSpan(state, span));
+  if (segments.length === 0) {
+    return null;
+  }
+  const kind = resolveBlock(state, segments[0].block.id)?.kind ?? "block";
+  return { segments, kind };
+}
+
+/**
+ * Pure Y.Doc-mutation primitive: applies a pre-computed
+ * `ApplyAttrsToRangePlan` to `doc`. Caller is responsible for all
+ * validation (via `planApplyAttrsToRange`) and for opening the surrounding
+ * `applyOperation` / `runTransaction` (this MUST run inside an already-open
+ * transaction; it does NOT open one itself).
+ *
+ * Unlike the read-free structural-write primitives (e.g. `insertBlockInTx`),
+ * this applier READS live Y items by necessity: it walks the live Y.Array to
+ * locate item boundaries and split partially-covered text, performing in-place
+ * identity-preserving attr writes (`yItem.set("attrs", …)`) so a fully-covered
+ * item keeps its Y.Text — and therefore its per-character CRDT — identity.
+ *
+ * Composition scope: correct for the standalone op AND for composition with
+ * prior in-tx ops that do NOT shift this span's offsets. Composing it
+ * atomically AFTER an offset-changing op (delete/insert) requires re-resolving
+ * the span against the mid-transaction live Y state — out of scope for this
+ * primitive; that re-resolution lands with the consuming feature.
+ */
+export function applyAttrsToRangeInTx(
+  doc: Y.Doc,
+  plan: ApplyAttrsToRangePlan,
+  attrs: ReadonlyAttrs,
+  registry: AttrRegistry | undefined,
+): void {
+  requireInTransaction(doc, "applyAttrsToRange");
+  for (const seg of plan.segments) {
+    if (seg.rangeStart >= seg.rangeEnd) continue; // zero-width range in this block
+    const yBlock = getYBlock(doc, seg.block.id, "applyAttrsToRange", plan.kind);
+    const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
+    if (yItems === null) continue; // defensive — iterateSpan only yields leaves
+    applyAttrsToBlockRange(yItems, seg.rangeStart, seg.rangeEnd, attrs, registry);
+    mergeAdjacentSameAttrsTextItems(yItems, registry);
+  }
 }
 
 /**
