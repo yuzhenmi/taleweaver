@@ -202,7 +202,7 @@ describe("footnoteBodyComponent — leading number marker (FN-6.2b)", () => {
     if (rendered.type !== "element") throw new Error("render returned non-element");
     // The component appends NOTHING — it sets markerText to exactly what
     // `ctx.footnoteNumber` returns. In production the bottom-slot "." suffix is
-    // added UPSTREAM by `makeRenderContext` (render.ts), so the real body marker
+    // added UPSTREAM by `makeRenderContext` (render-footnotes.ts), so the real body marker
     // reads "2." while the superscript call marker reads "2". Here the stub
     // returns the bare "2", so the component echoes "2".
     expect(rendered.style.markerText).toBe("2");

@@ -4,7 +4,7 @@ import type { BlockId } from "../state";
  * Parsed result of a new-renderer inline-item box key.
  *
  * The new renderer keys inline items as `${blockId}/inline/${itemIndex}`
- * (see `render.ts` -> `expandInlineItems`). The IFC may further append
+ * (see `render-core.ts` -> `expandInlineItems`). The IFC may further append
  * `:${runIndex}` when an item is split across multiple text-runs by the
  * line-break pass; both forms parse to the same blockId + itemIndex.
  */

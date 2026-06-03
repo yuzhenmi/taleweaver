@@ -16,6 +16,7 @@
  */
 import {
   ancestorChain,
+  asBlockId,
   getBlock,
   nextBlockInDocOrder,
   FOOTNOTE_ANCHOR_EMBED_TYPE,
@@ -72,7 +73,7 @@ export function collectFootnoteAnchors(
         const contentBlockId = item.properties.contentBlockId;
         if (typeof contentBlockId !== "string") continue;
         refs.push({
-          contentBlockId: contentBlockId as BlockId,
+          contentBlockId: asBlockId(contentBlockId),
           blockId: currentId,
           sectionId,
         });

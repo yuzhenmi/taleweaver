@@ -22,7 +22,7 @@
  *
  * Cursor semantics: the marker is ONE inline-block ElementBox = exactly one
  * state-model cursor stop (one offset unit), identical to every other embed
- * (see `expandInlineItems` in `render.ts`). Giving it visible text content
+ * (see `expandInlineItems` in `render-core.ts`). Giving it visible text content
  * does NOT change its offset contribution — the IFC emits one atomic token per
  * inline-block regardless of its children.
  */

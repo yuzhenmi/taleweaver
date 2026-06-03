@@ -22,6 +22,14 @@ export function coerceBlockId(value: unknown): BlockId | undefined {
 }
 
 /**
+ * Brand a string already known (via a `typeof` guard) to be a BlockId; keeps
+ * the no-bare-cast rule literal at validated boundaries.
+ */
+export function asBlockId(value: string): BlockId {
+  return value as BlockId;
+}
+
+/**
  * Allocates BlockIds. Production uses crypto.randomUUID(); tests inject
  * a deterministic counter-based allocator via createTestAllocator.
  */

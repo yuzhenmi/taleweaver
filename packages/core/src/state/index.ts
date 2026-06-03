@@ -72,6 +72,7 @@ export type { BlockInit } from "./block-init";
 // Block identity and allocation.
 export type { BlockId, IdAllocator } from "./block-id";
 export {
+  asBlockId,
   coerceBlockId,
   productionAllocator,
   createTestAllocator,

@@ -8,7 +8,7 @@
  * BARE (no trailing `"."`): this is the reference number used by the inline
  * superscript CALL marker, which reads like a bare superscript ("1"). The
  * bottom-slot BODY marker reads like a numbered list ("1.") — that trailing
- * `"."` suffix is added DOWNSTREAM in `render.ts`'s `makeRenderContext` body
+ * `"."` suffix is added DOWNSTREAM in `render-footnotes.ts`'s `makeRenderContext` body
  * accessor (symbol-exempt), so the two markers intentionally differ. Keep this
  * function bare; do not add the dot here.
  *
