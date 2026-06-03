@@ -182,10 +182,11 @@ function makeBodyBlock(opts: { key: string; y: number; text: string }): LayoutBo
   } as unknown as LayoutBox;
 }
 
-/** A PageBox with optional header/footer slots and a body child. */
+/** A PageBox with optional header/footer/footnote slots and a body child. */
 function makePage(opts: {
   headerSlot?: LayoutBox | null;
   footerSlot?: LayoutBox | null;
+  footnoteSlot?: LayoutBox | null;
   children?: LayoutBox[];
   width?: number;
   height?: number;
@@ -206,11 +207,15 @@ function makePage(opts: {
     pageIndex: 0,
     headerSlot: opts.headerSlot ?? null,
     footerSlot: opts.footerSlot ?? null,
+    footnoteSlot: opts.footnoteSlot ?? null,
   } as unknown as LayoutBox;
 }
 
 const PAGE_HEIGHT = 800;
 const FOOTER_BAND_Y = PAGE_HEIGHT - 96; // pageBlockSize − blockEnd (mirrors materializePage)
+// The footnote slot sits BETWEEN the body content and the footer: above the footer
+// band, below the body. A representative band y for the test slot.
+const FOOTNOTE_BAND_Y = PAGE_HEIGHT - 160;
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
@@ -267,6 +272,32 @@ describe("C.2c T5: paint header/footer slots", () => {
     const painted = ctx._fills.map((f) => f.text).join("");
     expect(painted).toBe("BODY");
   });
+
+  // DA3: the footnote slot is a PURE NAMED field (NOT in `page.children`), exactly
+  // like header/footer. paintBox must reach it BY NAME — otherwise footnote bodies
+  // silently stop painting. Single-paint (exactly once): the slot's text appears in
+  // the painted output the same number of times as its clusters, no more.
+  it("paints the footnote-slot text exactly once (by-name, slot NOT in children)", () => {
+    const footnote = makeSlot({ key: "fn", y: FOOTNOTE_BAND_Y, text: "FN" });
+    const body = makeBodyBlock({ key: "body", y: 96, text: "BODY" });
+    // The slot is the NAMED field only — NOT in children (mirrors production after DA3).
+    const page = makePage({ footnoteSlot: footnote, children: [body] });
+
+    paintPage(ctx, page, [], noCursor, noCursorState);
+
+    // "FN" → clusters "F","N". Both must be painted (the slot is reached by name),
+    // and EXACTLY once each (not double-painted from also being in children).
+    expect(ctx._fills.filter((f) => f.text === "F")).toHaveLength(1);
+    expect(ctx._fills.filter((f) => f.text === "N")).toHaveLength(1);
+    // Geometry: footnote band sits below the body and above the page bottom.
+    const fnFill = ctx._fills.find((f) => f.text === "F");
+    const bodyFill = ctx._fills.find((f) => f.text === "B");
+    expect(fnFill).toBeDefined();
+    expect(bodyFill).toBeDefined();
+    if (fnFill === undefined || bodyFill === undefined) throw new Error("missing fill");
+    expect(fnFill.y).toBeGreaterThanOrEqual(FOOTNOTE_BAND_Y);
+    expect(bodyFill.y).toBeLessThan(fnFill.y);
+  });
 });
 
 describe("C.2c T5: walkAndDetectChanges covers header/footer slots", () => {
@@ -320,32 +351,64 @@ describe("C.2c T5: walkAndDetectChanges covers header/footer slots", () => {
     expect(coversFooter).toBe(true);
   });
 
+  // DA3: walkAndDetectChanges must reach the footnote slot BY NAME (it is NOT in
+  // children). Otherwise a changed footnote body never marks its region dirty and
+  // the stale number/text is never repainted.
+  it("marks the footnote slot region dirty when the slot changes", () => {
+    const cache = createPaintCache();
+
+    const footnoteA = makeSlot({ key: "fn", y: FOOTNOTE_BAND_Y, text: "1" });
+    const body = makeBodyBlock({ key: "body", y: 96, text: "BODY" });
+    const ctx1 = createSpyCtx(600, PAGE_HEIGHT);
+    paintPage(ctx1, makePage({ footnoteSlot: footnoteA, children: [body] }), [], noCursor, noCursorState, undefined, cache);
+
+    const footnoteB = makeSlot({ key: "fn", y: FOOTNOTE_BAND_Y, text: "2" });
+    const ctx2 = createSpyCtx(600, PAGE_HEIGHT);
+    const dirty = paintPage(
+      ctx2,
+      makePage({ footnoteSlot: footnoteB, children: [body] }),
+      [], noCursor, noCursorState, undefined, cache,
+    );
+
+    // The footnote slot's region (its band) must be dirty — and slot-sized, not the
+    // full-page box (always dirty since the page wrapper is a fresh ref each paint).
+    const coversFootnote = dirty.some((r) => r.y >= FOOTNOTE_BAND_Y && r.h < 100);
+    expect(coversFootnote).toBe(true);
+  });
+
   it("does NOT dirty an unchanged slot (same ref, warm cache)", () => {
     const cache = createPaintCache();
 
     const header = makeSlot({ key: "hdr", y: 0, text: "STABLE" });
     const footer = makeSlot({ key: "ftr", y: FOOTER_BAND_Y, text: "STABLE" });
+    // DA3: a stable footnote slot too — same by-name reach as header/footer.
+    const footnote = makeSlot({ key: "fn", y: FOOTNOTE_BAND_Y, text: "STABLE" });
     const body = makeBodyBlock({ key: "body", y: 96, text: "BODY" });
 
     // First paint seeds the cache with these exact slot/body refs.
     const ctx1 = createSpyCtx(600, PAGE_HEIGHT);
-    paintPage(ctx1, makePage({ headerSlot: header, footerSlot: footer, children: [body] }), [], noCursor, noCursorState, undefined, cache);
+    paintPage(ctx1, makePage({ headerSlot: header, footerSlot: footer, footnoteSlot: footnote, children: [body] }), [], noCursor, noCursorState, undefined, cache);
 
     // Second paint: a FRESH page wrapper (so the root short-circuit can't fire),
-    // but with the SAME header/footer/body slot references. Nothing should be dirty.
+    // but with the SAME header/footer/footnote/body slot references. Nothing should
+    // be dirty.
     const ctx2 = createSpyCtx(600, PAGE_HEIGHT);
     const dirty = paintPage(
       ctx2,
-      makePage({ headerSlot: header, footerSlot: footer, children: [body] }),
+      makePage({ headerSlot: header, footerSlot: footer, footnoteSlot: footnote, children: [body] }),
       [], noCursor, noCursorState, undefined, cache,
     );
 
     // Only the page box itself is a fresh ref; its slots/children are warm.
-    // No dirty rect should fall in the header (top band) or footer (bottom band).
+    // No dirty rect should fall in the header (top band), footer (bottom band), or
+    // footnote band. The footnote band check mirrors the footer assertion: a future
+    // regression that always-dirties the by-name footnote slot would fail here.
     const coversHeader = dirty.some((r) => r.y < BASE_US.lineHeight && r.h < 100);
     const coversFooter = dirty.some((r) => r.y >= FOOTER_BAND_Y);
+    const coversFootnote = dirty.some((r) => r.y >= FOOTNOTE_BAND_Y && r.h < 100);
     expect(coversHeader).toBe(false);
     expect(coversFooter).toBe(false);
+    expect(coversFootnote).toBe(false);
   });
 
   it("NO-REGRESSION: page with null slots — identical re-walk yields no dirty rects", () => {

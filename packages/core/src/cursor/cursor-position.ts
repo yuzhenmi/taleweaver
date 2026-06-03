@@ -504,6 +504,15 @@ function findBlockBaseline(
       const found = findBlockBaseline(box.footerSlot, blockId, 0, 0, box.pageIndex);
       if (found !== null) return found;
     }
+    // DA3: the footnote SLOT is a NAMED field (like header/footer), NOT in
+    // `box.children`, so the baseline walk must reach it BY NAME — otherwise a
+    // footnote-body block id never resolves to a baseline (used by the defensive
+    // fallback for the rare multi-block / bridge cursor-read path). Page-local
+    // origin, same pageIndex.
+    if (box.footnoteSlot !== null) {
+      const found = findBlockBaseline(box.footnoteSlot, blockId, 0, 0, box.pageIndex);
+      if (found !== null) return found;
+    }
     return null;
   }
   if (box.type === "text-run" || box.type === "marker") return null;

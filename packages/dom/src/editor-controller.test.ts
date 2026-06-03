@@ -657,6 +657,60 @@ describe("createEditorController", () => {
       ctrl.destroy();
     });
 
+    it("constructs the IntersectionObserver with the scrollable ancestor as root", () => {
+      // Editor embedded in a scrollable <div> (overflow:auto). The
+      // IntersectionObserver must observe relative to that container, not the
+      // viewport, or pages acquire/release against the wrong scroll region.
+      const scroller = document.createElement("div");
+      scroller.style.overflowY = "auto";
+      scroller.style.height = "200px";
+      const container = document.createElement("div");
+      scroller.appendChild(container);
+      document.body.appendChild(scroller);
+
+      const ioMock = vi.mocked(globalThis.IntersectionObserver);
+      ioMock.mockClear();
+
+      const ctrl = createEditorController(
+        container,
+        makeOptions({ pageHeight: 100 }),
+      );
+      ctrl.update(makePaginatedEditorState());
+
+      // The last IntersectionObserver constructed should target the scroller.
+      expect(ioMock).toHaveBeenCalled();
+      const lastCall = ioMock.mock.calls[ioMock.mock.calls.length - 1];
+      const options = lastCall[1] as IntersectionObserverInit | undefined;
+      expect(options?.root).toBe(scroller);
+
+      ctrl.destroy();
+      scroller.remove();
+    });
+
+    it("constructs the IntersectionObserver with root null when scrolled by the window", () => {
+      // No scrollable ancestor → falls back to window scrolling, which maps to
+      // a null IntersectionObserver root (the viewport).
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+
+      const ioMock = vi.mocked(globalThis.IntersectionObserver);
+      ioMock.mockClear();
+
+      const ctrl = createEditorController(
+        container,
+        makeOptions({ pageHeight: 100 }),
+      );
+      ctrl.update(makePaginatedEditorState());
+
+      expect(ioMock).toHaveBeenCalled();
+      const lastCall = ioMock.mock.calls[ioMock.mock.calls.length - 1];
+      const options = lastCall[1] as IntersectionObserverInit | undefined;
+      expect(options?.root ?? null).toBeNull();
+
+      ctrl.destroy();
+      container.remove();
+    });
+
     it("falls back to single canvas when no pages in paginated mode", () => {
       const container = document.createElement("div");
       const ctrl = createEditorController(

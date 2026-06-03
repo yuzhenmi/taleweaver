@@ -88,6 +88,7 @@ function makePage(child: LayoutBox): LayoutBox {
     pageIndex: 0,
     headerSlot: null,
     footerSlot: null,
+    footnoteSlot: null,
   } as unknown as LayoutBox;
 }
 

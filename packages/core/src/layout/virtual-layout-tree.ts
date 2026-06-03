@@ -547,9 +547,11 @@ export function makeVirtualLayoutTree(
     // a section may override its geometry). The PageBox block-size is the
     // SECTION's effective page block-size, not the content size.
     // The body BFC box (guarded — can be null when nothing fit). The FN-4
-    // footnote slot, when present, is appended to `children` below so existing
-    // paint / line-collection walks pick it up (it is ALSO exposed as the named
-    // `PageBox.footnoteSlot` for consumers that want it distinctly).
+    // footnote slot is NOT in `children`: it is a PURE NAMED field
+    // (`PageBox.footnoteSlot`), exactly like `headerSlot` / `footerSlot`. The
+    // paint / dirty-detect / line-collection / cursor-baseline walkers reach it
+    // BY NAME (DA3); keeping it out of `children` is what guarantees it is
+    // painted / collected EXACTLY ONCE (no double-processing).
     const bodyChildren: LayoutBox[] = box ? [box] : [];
 
     // C.2c (T4) + #328 (growing slot): lay the page's header/footer template
@@ -864,11 +866,11 @@ export function makeVirtualLayoutTree(
             );
           })();
 
-    // Page children = the body BFC box + (when present) the footnote slot. The
-    // slot is page-relative (its `blockOffset` is the page-local slot top), so it
-    // stacks correctly alongside the body box.
-    const children: readonly LayoutBox[] =
-      footnoteSlot !== null ? [...bodyChildren, footnoteSlot] : bodyChildren;
+    // Page children = the body BFC box ONLY. The footnote slot is the named
+    // `PageBox.footnoteSlot` field (passed below), NOT a child — see the
+    // `bodyChildren` comment above (DA3: pure named slot, walked by name, so it
+    // is processed exactly once).
+    const children: readonly LayoutBox[] = bodyChildren;
 
     return createPageBox(
       `page-${pageIndex}`,

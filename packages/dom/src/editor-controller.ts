@@ -709,7 +709,14 @@ export function createEditorController(
         }
         if (changed) paint();
       },
-      { rootMargin: "200px" },
+      {
+        // IntersectionObserver wants Element | Document | null, never Window.
+        // A non-window scroll parent (editor embedded in a scrollable <div>)
+        // becomes the observer root; the window fallback maps to null (the
+        // viewport).
+        root: scrollParent instanceof HTMLElement ? scrollParent : null,
+        rootMargin: "200px",
+      },
     );
 
     for (const slot of pageSlots) {

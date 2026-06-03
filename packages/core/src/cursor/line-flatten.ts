@@ -76,6 +76,15 @@ export function collectLineBoxes(
       collectLineBoxes(child, 0, 0, out, box.pageIndex);
     }
     if (box.footerSlot) collectLineBoxes(box.footerSlot, 0, 0, out, box.pageIndex);
+    // DA3: the footnote SLOT is a NAMED field (like header/footer), kept OUT of
+    // `box.children`, so walk it BY NAME too. Its lines enter the flat list AND
+    // `getLineIndex(page).byBlock`, feeding hit-test, cursor-position, and
+    // selection-geometry for footnote-body content. Footnote-body block ids live
+    // in `embedContents` (their own map), so they never collide with body ids in
+    // `byBlock`. Page-content frame origin `(0, 0)`; the slot's own `(x, y)` is
+    // applied as it is descended. Collected AFTER the footer in the flat list
+    // (the footnote band sits below the page body content).
+    if (box.footnoteSlot) collectLineBoxes(box.footnoteSlot, 0, 0, out, box.pageIndex);
     return;
   }
   const absX = parentX + box.x;

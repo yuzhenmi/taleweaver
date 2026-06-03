@@ -420,6 +420,13 @@ function walkAndDetectChanges(
     if (box.footerSlot !== null) {
       walkAndDetectChanges(box.footerSlot, absX, absY, cache, dirty, false);
     }
+    // DA3: the footnote SLOT is a NAMED field (like header/footer), NOT in
+    // `box.children`, so walk it BY NAME — otherwise a changed footnote body
+    // never marks its region dirty and the stale text/number is never repainted.
+    // Same page-local origin (absX/absY); the slot carries its own page-local x/y.
+    if (box.footnoteSlot !== null) {
+      walkAndDetectChanges(box.footnoteSlot, absX, absY, cache, dirty, false);
+    }
   }
   } finally {
     markEnd("paint.walk", t);
@@ -639,6 +646,13 @@ function paintBox(
     }
     if (box.footerSlot !== null) {
       paintBox(ctx, box.footerSlot, absX, absY, visibleTop, visibleBottom, state);
+    }
+    // DA3: the footnote SLOT is a NAMED field (like header/footer), NOT in
+    // `box.children`, so paint it BY NAME — otherwise footnote bodies never
+    // render. It sits between the body content and the footer (its own page-local
+    // blockOffset). Painted with the same page-local origin as the slots above.
+    if (box.footnoteSlot !== null) {
+      paintBox(ctx, box.footnoteSlot, absX, absY, visibleTop, visibleBottom, state);
     }
     return;
   }

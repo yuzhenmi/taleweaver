@@ -25,6 +25,7 @@ import { buildBlockFitMetas } from "../build-fit-metas";
 import { measurePass, type SlotInsets } from "../measure-pass";
 import type { SectionPlan } from "../section-plan";
 import { flattenContents } from "../group-children";
+import { collectLineBoxes, type AbsoluteLineBox } from "../../cursor/line-flatten";
 import {
   resolveFootnotes,
   FOOTNOTE_SEPARATOR_HEIGHT,
@@ -215,8 +216,21 @@ describe("FN-4.3 — PageBox.footnoteSlot rendered via buildVirtualPaginatedTree
     // The slot wrapper sits at the page content inline-start (0 here, no margins).
     expect(slot.inlineOffset).toBe(PAGE.pageMargins.inlineStart);
 
-    // The slot is ALSO appended to page children (paint/line-collection see it).
-    expect(page0.children).toContain(slot);
+    // DA3: the footnote slot is a PURE NAMED field — NOT in `page.children`
+    // (exactly like `headerSlot` / `footerSlot`). The three DOM walkers reach it
+    // BY NAME, so it must NOT also appear in children (that would double-process
+    // it: double-paint, double-collect). The named field is the single source.
+    expect(page0.children).not.toContain(slot);
+
+    // …and `collectLineBoxes` (the line-collection walker) reaches the slot's
+    // body line BY NAME and emits it EXACTLY ONCE. The footnote body's owner
+    // block id is `${fnRootId}-p0` (the fnBody's single paragraph). It is a
+    // distinct context from the page body, so it must appear once — not zero
+    // (dropped because no longer in children) and not twice (double-walked).
+    const lines: AbsoluteLineBox[] = [];
+    collectLineBoxes(page0, 0, 0, lines);
+    const slotLines = lines.filter((l) => l.line.ownerBlockId === "fn0-p0");
+    expect(slotLines.length).toBe(1);
 
     // Page 1 (eviction target) carries NO footnote slot.
     const page1 = tree.getPage(1);
