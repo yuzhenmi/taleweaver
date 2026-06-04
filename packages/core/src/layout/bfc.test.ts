@@ -343,11 +343,16 @@ describe("BFC — explicit markerText (generated marker, offset-excluded)", () =
   }
 
   it("emits a MarkerBox with the explicit text before a plain display:block paragraph", () => {
+    // Production leaf shape (#414): the marker-bearing block carries its OWN
+    // paddingInlineStart (the marker gutter); there is NO wrapping indent
+    // container. markerText "1" is 1ch × 8 = 8px + 4 gap = 12px, comfortably
+    // inside the 30px gutter, so the `outside` marker hangs at a positive offset
+    // before the content edge (no auto-widen).
     const tree = cascadePass(
-      createElementBox("root", { display: "block", paddingInlineStart: 30 }, [
+      createElementBox("root", { display: "block" }, [
         createElementBox(
           "para",
-          { display: "block", markerText: "1" },
+          { display: "block", markerText: "1", paddingInlineStart: 30 },
           [createTextBox("t", {}, "body")],
         ),
       ]),
@@ -418,9 +423,11 @@ describe("BFC — explicit markerText (generated marker, offset-excluded)", () =
   });
 
   it("offset-exclusion: the marker is a direct sibling of the block, NOT inside its LineBox", () => {
+    // Production leaf shape (#414): the marker gutter lives on the para's OWN
+    // paddingInlineStart, not a wrapping container.
     const tree = cascadePass(
-      createElementBox("root", { display: "block", paddingInlineStart: 30 }, [
-        createElementBox("para", { display: "block", markerText: "1" }, [createTextBox("t", {}, "body")]),
+      createElementBox("root", { display: "block" }, [
+        createElementBox("para", { display: "block", markerText: "1", paddingInlineStart: 30 }, [createTextBox("t", {}, "body")]),
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
@@ -449,8 +456,8 @@ describe("BFC — explicit markerText (generated marker, offset-excluded)", () =
     // (x relative to the para's content box) it would have WITHOUT the marker —
     // proving the marker did not shift the inline flow.
     const treeNoMarker = cascadePass(
-      createElementBox("root", { display: "block", paddingInlineStart: 30 }, [
-        createElementBox("para", { display: "block" }, [createTextBox("t", {}, "body")]),
+      createElementBox("root", { display: "block" }, [
+        createElementBox("para", { display: "block", paddingInlineStart: 30 }, [createTextBox("t", {}, "body")]),
       ]),
     );
     if (treeNoMarker.type !== "element") throw new Error("?");
@@ -474,6 +481,145 @@ describe("BFC — explicit markerText (generated marker, offset-excluded)", () =
     expect(xWithMarker).not.toBeNull();
     expect(xWithMarker).toBe(xNoMarker);
   });
+
+  it("auto-widens the indent when an outside marker is wider than paddingInlineStart (#426)", () => {
+    // mockShaper: 8px/char advance. An explicit `markerText` of "888." is
+    // 4 chars × 8 = 32px wide; with the 4px markerGap the marker gutter needs
+    // 36px, but the item's authored paddingInlineStart (the marker gutter) is
+    // only 30px. WITHOUT auto-widen the outside marker would hang at
+    // `markerContentEdge − markerWidth − markerGap = 30 − 32 − 4 = −6` — left
+    // of the item's border edge, off the page. Google Docs instead AUTO-WIDENS
+    // the effective paddingInlineStart to `markerWidth + markerGap` (36) so the
+    // marker fills the widened gutter (offset 0) and the content shifts right.
+    const tree = cascadePass(
+      createElementBox("root", { display: "block" }, [
+        createElementBox(
+          "wide",
+          { display: "block", markerText: "888.", paddingInlineStart: 30 },
+          [createTextBox("t", {}, "body")],
+        ),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+
+    const markers = collectMarkers(out);
+    expect(markers).toHaveLength(1);
+    const marker = markers[0];
+    const markerWidth = marker.inlineSize;
+    expect(markerWidth).toBe(32); // "888." × 8px
+    const markerGap = 4;
+
+    // The "wide" item is a top-level child of the padding-free root, so its
+    // border/margin edge (childInlineStart) is at inline offset 0.
+    const childInlineStart = 0;
+
+    // (a) Marker offset is NOT negative — it sits at/after the item border edge.
+    expect(marker.inlineOffset).toBeGreaterThanOrEqual(childInlineStart);
+    expect(marker.inlineOffset).toBe(0);
+
+    // (b) Marker's inline-end edge + gap does not overlap the content edge.
+    const contentLeftEdge = contentEdgeOf(out, "wide");
+    expect(marker.inlineOffset + markerWidth + markerGap).toBeLessThanOrEqual(contentLeftEdge);
+
+    // (c) Content shifted right to childInlineStart + (markerWidth + gap).
+    expect(contentLeftEdge).toBe(childInlineStart + markerWidth + markerGap);
+  });
+
+  it("auto-widens for an INDENTED leaf (childInlineStart > 0) — marker never hangs left of the item border (#426)", () => {
+    // The buggy gate gated auto-widen on `childInlineStart + paddingInlineStart`
+    // (the absolute content edge) instead of the item's OWN paddingInlineStart.
+    // That UNDER-fires for an indented leaf: with marginInlineStart pushing
+    // childInlineStart > 0, a marker wider than the item's padding but narrower
+    // than `childInlineStart + padding` would NOT widen and would hang LEFT of
+    // the item's border edge, overlapping sibling/preceding content.
+    //
+    // mockShaper: 8px/char. markerText "777." = 4ch × 8 = 32px; + 4 gap = 36px.
+    // The leaf carries marginInlineStart 48 (→ childInlineStart = root padding 0
+    // + 48 = 48) and its OWN paddingInlineStart 30. 36 is in (30, 78] — wider
+    // than the 30 indent but NOT wider than childInlineStart + 30 = 78.
+    //   - OLD (buggy) gate: 36 > 78 → false → no widen → marker hangs at
+    //     78 − 36 = 42, which is LEFT of childInlineStart (48). RED.
+    //   - CORRECT gate:     36 > 30 → true → widen to 36 → marker at
+    //     48 + 36 − 36 = 48 = childInlineStart; content edge at 48 + 36 = 84.
+    const tree = cascadePass(
+      createElementBox("root", { display: "block" }, [
+        createElementBox(
+          "indented",
+          { display: "block", markerText: "777.", paddingInlineStart: 30, marginInlineStart: 48 },
+          [createTextBox("t", {}, "body")],
+        ),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+
+    const markers = collectMarkers(out);
+    expect(markers).toHaveLength(1);
+    const marker = markers[0];
+    const markerWidth = marker.inlineSize;
+    expect(markerWidth).toBe(32); // "777." × 8px
+    const markerGap = 4;
+
+    // childInlineStart = root paddingInlineStart (0) + leaf marginInlineStart (48).
+    const childInlineStart = 48;
+
+    // (a) Marker sits at/after the item's BORDER edge — NEVER hanging left into
+    //     sibling/preceding territory. Under the old buggy gate it landed at 42
+    //     (< 48), which this assertion would catch (RED).
+    expect(marker.inlineOffset).toBeGreaterThanOrEqual(childInlineStart);
+    expect(marker.inlineOffset).toBe(childInlineStart);
+
+    // (b) Content edge shifted right to childInlineStart + (markerWidth + gap).
+    //     `contentEdgeOf` returns the first line's inlineOffset, which is the
+    //     padding RELATIVE to the indented child's own content box. The marker
+    //     offset is expressed in the PARENT's coordinate space, so add the
+    //     child's outer offset (its inlineOffset == childInlineStart) to compare
+    //     them in the same space.
+    const indentedBlock = out.children.find((c) => c.key === "indented");
+    if (indentedBlock === undefined) throw new Error("indented block not found");
+    const absContentEdge = indentedBlock.inlineOffset + contentEdgeOf(out, "indented");
+    expect(absContentEdge).toBe(childInlineStart + markerWidth + markerGap);
+
+    // (c) No marker/content overlap: marker inline-end + gap == content edge.
+    expect(marker.inlineOffset + markerWidth + markerGap).toBeLessThanOrEqual(absContentEdge);
+  });
+
+  // Inline-start of the first LINE box inside the named block child, RELATIVE
+  // to that child block's own origin — i.e. the content edge contributed by the
+  // child's (possibly auto-widened) paddingInlineStart. This equals the ABSOLUTE
+  // content edge only when the child block itself sits at inlineOffset 0; for an
+  // indented child (childInlineStart > 0) the caller adds the child block's own
+  // inlineOffset to recover the absolute coordinate.
+  function contentEdgeOf(
+    root: import("./layout-box").LayoutBox,
+    childKey: string,
+  ): number {
+    if (root.type !== "block") throw new Error("expected block root");
+    const child = root.children.find((c) => c.key === childKey);
+    if (child === undefined) throw new Error(`child ${childKey} not found`);
+    function firstLineInlineOffset(
+      box: import("./layout-box").LayoutBox,
+    ): number | null {
+      if (box.type === "line") return box.inlineOffset;
+      if ("children" in box && box.children) {
+        for (const c of box.children) {
+          const off = firstLineInlineOffset(c);
+          if (off !== null) return off;
+        }
+      }
+      return null;
+    }
+    const lineOffset = firstLineInlineOffset(child);
+    if (lineOffset === null) throw new Error("no line box in child");
+    return lineOffset;
+  }
 });
 
 // Recursively find the first LayoutBox whose key contains `keyFragment`.

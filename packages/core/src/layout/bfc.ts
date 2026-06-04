@@ -589,6 +589,14 @@ export function layoutBlock(
       listCounter++;
       markerText = resolveMarkerText(childCs, listCounter);
     }
+    // Auto-widen state (#426). When an `outside` marker is wider than the item's
+    // OWN paddingInlineStart (its marker gutter), the item's effective
+    // paddingInlineStart is widened so the marker fills the widened gutter
+    // instead of hanging LEFT of the item's border edge. Computed in the marker
+    // block below and read by the child-layout call so the content shifts right
+    // to match. Defaults to the authored padding (no widening) so non-marker /
+    // fits-case children are byte-identical.
+    let effectivePaddingInlineStart = childUsedStyle.paddingInlineStart;
     if (markerText !== null) {
       // Use a measurer adapter for the simple width/height calls needed for marker boxes.
       const measurer = adaptShaperToMeasurer(shaper);
@@ -611,10 +619,32 @@ export function layoutBlock(
       // For the legacy container-wrapped shape (padding on the parent `list`,
       // none on the item) `childUsedStyle.paddingInlineStart === 0`, so this is
       // byte-identical to the pre-leaf marker position.
-      const markerContentEdge = childInlineStart + childUsedStyle.paddingInlineStart;
+      //
+      // AUTO-WIDEN (#426, Google Docs parity): when the marker + gap is WIDER
+      // than the item's OWN paddingInlineStart — i.e.
+      // `markerInlineSize + markerGap > childUsedStyle.paddingInlineStart` — the
+      // `outside` marker would hang LEFT of `childInlineStart` (the item's border
+      // edge), overlapping sibling content / running off the inline-start. The
+      // `childInlineStart` term cancels: marker-left
+      // `= childInlineStart + padding − markerW − gap ≥ childInlineStart` iff
+      // `markerW + gap ≤ padding`. So the gate is on the item's OWN padding, NOT
+      // on `childInlineStart + padding` — gating on the latter under-fires for an
+      // INDENTED leaf (`marginInlineStart > 0`, so `childInlineStart > 0`), where
+      // a marker with `padding < markerW+gap ≤ childInlineStart+padding` would
+      // STILL hang left of the border. When it fires, widen the effective
+      // paddingInlineStart to exactly `markerInlineSize + markerGap`: the marker
+      // lands flush at `childInlineStart` and the content shifts right to match.
+      // `inside` markers sit AT the content edge and never hang, so they never
+      // widen.
+      effectivePaddingInlineStart =
+        childCs.listStylePosition !== "inside" &&
+        markerInlineSize + markerGap > childUsedStyle.paddingInlineStart
+          ? markerInlineSize + markerGap
+          : childUsedStyle.paddingInlineStart;
+      const effectiveContentEdge = childInlineStart + effectivePaddingInlineStart;
       const markerInlineOffset = childCs.listStylePosition === "inside"
-        ? markerContentEdge
-        : markerContentEdge - markerInlineSize - markerGap;
+        ? effectiveContentEdge
+        : effectiveContentEdge - markerInlineSize - markerGap;
       const markerBox = createMarkerBox(
         `${child.key}-marker`,
         markerInlineOffset, childBlockOffset,
@@ -627,12 +657,33 @@ export function layoutBlock(
       layoutChildren.push(markerBox);
     }
 
-    // Pass childCs (child's own computed style) so makeChildContext can detect
-    // whether the child establishes a new BFC and create a fresh float env.
-    // The child's containing inline size is its OWN content box, narrowed by
-    // its inline margins (`childContentInlineSize`); the parent re-mirrors the
-    // resulting box against the parent content box via `positionChildInline`.
-    const childCtx = makeChildContext(ctx, childCs, childContentInlineSize, "indefinite");
+    // When the marker auto-widened the gutter (#426), lay the child's content
+    // out against the WIDENED padding so the content edge matches the marker's
+    // new flush position. We clone the child element with a paddingInlineStart-
+    // overridden ComputedStyle — ONLY when widened, so the common (fits) case
+    // uses the original `child`/`childCs` unchanged and stays byte-identical
+    // (including layout-cache reuse, which keys on `child.key` — preserved by
+    // the clone). The cloned childCs is used for BOTH the child layout call and
+    // `makeChildContext` (padding does not affect BFC detection, but keeping a
+    // single childCs identity avoids any drift).
+    const widened = effectivePaddingInlineStart > childUsedStyle.paddingInlineStart;
+    const layoutChild: ElementBox = widened
+      ? Object.freeze({
+          ...child,
+          computedStyle: Object.freeze({
+            ...childCs,
+            paddingInlineStart: effectivePaddingInlineStart,
+          }),
+        })
+      : child;
+    const layoutChildCs = layoutChild.computedStyle ?? childCs;
+
+    // Pass layoutChildCs (child's own computed style) so makeChildContext can
+    // detect whether the child establishes a new BFC and create a fresh float
+    // env. The child's containing inline size is its OWN content box, narrowed
+    // by its inline margins (`childContentInlineSize`); the parent re-mirrors
+    // the resulting box against the parent content box via `positionChildInline`.
+    const childCtx = makeChildContext(ctx, layoutChildCs, childContentInlineSize, "indefinite");
 
     // Derive a FragmentationContext for the child with reduced availableBlockSize.
     // C.7: thread firstChildResumeToken into the FIRST iteration (the resumed child);
@@ -657,13 +708,14 @@ export function layoutBlock(
      * result. The next sibling will then be pushed to a new fragment via the
      * standard fit-check.
      */
-    // Capture the narrowed ElementBox reference so the closure below can use it
-    // without losing the type-narrowing established by `child.type !== "element"`.
-    const childElement: ElementBox = child;
+    // Use the (possibly auto-widened, #426) child element so the closure below
+    // lays out the content against the same padding the marker positioned
+    // against. `layoutChild` is a properly-narrowed `ElementBox` (the original
+    // `child` when not widened) — no separate narrowing capture needed.
     function applyOverflowRule(): LayoutBox {
       const fullResult = childCs.display === "table"
-        ? layoutTable(childElement, paddingInlineStart, childBlockOffset, childCtx, shaper, undefined)
-        : layoutBlock(childElement, paddingInlineStart, childBlockOffset, childCtx, shaper, undefined);
+        ? layoutTable(layoutChild, paddingInlineStart, childBlockOffset, childCtx, shaper, undefined)
+        : layoutBlock(layoutChild, paddingInlineStart, childBlockOffset, childCtx, shaper, undefined);
       if (fullResult.box === null) {
         throw new Error("layout without fragmentation returned null box; unreachable");
       }
@@ -675,7 +727,7 @@ export function layoutBlock(
     let childLayout: LayoutBox;
     let childResultBreakToken: BreakToken | null = null;
     if (childCs.display === "table") {
-      const tableResult = layoutTable(child, paddingInlineStart, childBlockOffset, childCtx, shaper, childFragmentation);
+      const tableResult = layoutTable(layoutChild, paddingInlineStart, childBlockOffset, childCtx, shaper, childFragmentation);
       if (tableResult.box === null) {
         // Table couldn't fit anything on this fragment.
         // C.6 overflow rule: if fragment is empty, place it anyway (overflow).
@@ -696,7 +748,7 @@ export function layoutBlock(
       childLayout = positionChildInline(tableResult.box);
       childResultBreakToken = tableResult.breakToken;
     } else {
-      const childResult = layoutBlock(child, paddingInlineStart, childBlockOffset, childCtx, shaper, childFragmentation);
+      const childResult = layoutBlock(layoutChild, paddingInlineStart, childBlockOffset, childCtx, shaper, childFragmentation);
       if (childResult.box === null) {
         // Child couldn't fit anything on this fragment.
         // C.6 overflow rule: if fragment is empty, place it anyway (overflow).
