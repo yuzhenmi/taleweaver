@@ -528,7 +528,7 @@ function paintBox(
     paintBorders(ctx, us, absX, absY, box.width, box.height);
     // Image content
     if (box.metadata?.image) {
-      const img = box.metadata.image as { src: string; width: number; height: number };
+      const img = box.metadata.image;
       const cached = state.imageCache?.get(img.src);
       if (cached) {
         ctx.drawImage(cached, absX, absY, img.width, img.height);

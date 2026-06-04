@@ -14,8 +14,12 @@ describe("ElementBox", () => {
   });
 
   it("accepts metadata", () => {
-    const box = createElementBox("k1", {}, [], { image: { src: "x.png" } });
-    expect(box.metadata).toEqual({ image: { src: "x.png" } });
+    const box = createElementBox("k1", {}, [], {
+      image: { src: "x.png", width: 10, height: 20 },
+    });
+    expect(box.metadata).toEqual({
+      image: { src: "x.png", width: 10, height: 20 },
+    });
   });
 
   it("freezes the result", () => {

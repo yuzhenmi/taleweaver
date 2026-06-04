@@ -27,6 +27,7 @@
  * inline-block regardless of its children.
  */
 import type { Length, Style } from "../styles";
+import type { LayoutBoxMetadata } from "./layout-metadata";
 import { createElementBox, createTextBox, type RenderNode } from "./render-node";
 
 /**
@@ -70,7 +71,7 @@ export function buildFootnoteMarker(
   key: string,
   itemStyle: Partial<Style>,
   formatted: string | undefined,
-  metadata?: Record<string, unknown>,
+  metadata?: Readonly<LayoutBoxMetadata>,
 ): RenderNode {
   const text = formatted ?? FOOTNOTE_MARKER_MISSING_TEXT;
   // Marker container: inline-block (one atomic IFC token = one cursor stop),

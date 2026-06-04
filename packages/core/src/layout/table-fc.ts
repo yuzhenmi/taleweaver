@@ -222,8 +222,7 @@ export function layoutTable(
   const writingMode = ctx.writingMode;
   const direction = ctx.direction;
 
-  const meta = node.metadata as { columnWidths?: readonly number[] } | undefined;
-  const explicitColumnWidths = meta?.columnWidths;
+  const explicitColumnWidths = node.metadata?.columnWidths;
 
   const tableUsedStyle = computeUsedStyle(cs, availableInlineSize, "indefinite");
 

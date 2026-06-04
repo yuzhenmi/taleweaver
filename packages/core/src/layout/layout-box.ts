@@ -2,6 +2,7 @@ import type { ComputedStyle, UsedStyle } from "../styles";
 import type { WritingMode, Direction } from "../styles/writing-mode";
 import { logicalToPhysical } from "../styles/writing-mode";
 import type { BlockId } from "../state";
+import type { LayoutBoxMetadata } from "../render/layout-metadata";
 import type { PageBox } from "./page-box";
 import { createPageBox } from "./page-box";
 import { isDevMode } from "./dev-mode";
@@ -44,7 +45,7 @@ interface LayoutBoxBase {
 export interface BlockBox extends LayoutBoxBase {
   readonly type: "block";
   readonly children: readonly LayoutBox[];
-  readonly metadata?: Readonly<Record<string, unknown>>;
+  readonly metadata?: Readonly<LayoutBoxMetadata>;
 }
 
 export interface LineBox extends LayoutBoxBase {
@@ -228,7 +229,7 @@ export function createBlockBox(
   usedStyle: UsedStyle,
   children: readonly LayoutBox[],
   containingInlineSize: number,
-  metadata?: Readonly<Record<string, unknown>>,
+  metadata?: Readonly<LayoutBoxMetadata>,
 ): BlockBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,

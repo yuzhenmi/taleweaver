@@ -238,7 +238,7 @@ Per-variant additions:
 
 | Type | Adds |
 |---|---|
-| `block` | `children: readonly LayoutBox[]`; optional `metadata: Record<string, unknown>` (e.g., image src). |
+| `block` | `children: readonly LayoutBox[]`; optional `metadata: LayoutBoxMetadata` (typed struct — see below). |
 | `line` | `children: readonly LayoutBox[]`; `baseline: number` (offset from top of line). |
 | `text-run` | `text: string`. |
 | `inline` | `children: readonly LayoutBox[]`; `fragmentEdge: "first" \| "middle" \| "last" \| "only"` (which side has padding/border). |
@@ -251,6 +251,53 @@ Per-variant additions:
 Positions are **parent-relative**. Painters/hit-testers walk the tree accumulating offsets cumulatively.
 
 Factories: one per variant (`createBlockBox`, etc.). Each takes logical-axis args plus `containingInlineSize` and runs `logicalToPhysical` to fill `x` / `y` / `width` / `height`. All output is `Object.freeze`d.
+
+### `LayoutBoxMetadata`
+
+The optional `metadata` carried by `BlockBox` (layout) and `ElementBox`
+(render) is a **typed struct of optional fields** — `LayoutBoxMetadata` —
+not an untyped `Record<string, unknown>` bag and not a discriminated union.
+It is a struct rather than a union because a `section` box carries
+`blockType` alongside optional page-geometry and header/footer keys, so no
+single field discriminates the shape; every field is optional.
+
+```ts
+interface LayoutBoxMetadata {
+  // Known-shape keys — strongly typed (these are what removed the prior
+  // unchecked `as {...}` casts at the read sites).
+  readonly image?: { readonly src: string; readonly width: number; readonly height: number };
+  readonly horizontalLine?: boolean;
+  readonly columnWidths?: readonly number[];
+  readonly blockType?: "section";
+  readonly embedType?: string;        // EmbedItem kind on an embed-anchor marker box
+
+  // Attrs-/properties-derived values — kept `unknown`, validated/coerced
+  // at their read boundaries (resolveSectionPageConfig, coerceBlockId, the
+  // footnote-numbering lookup). They ride RAW from open-schema `attrs` /
+  // embed `properties` (themselves `unknown`); typing them honestly as
+  // `unknown` keeps the validation at the read site instead of pushing it
+  // around.
+  readonly pageInlineSize?: unknown;
+  readonly pageBlockSize?: unknown;
+  readonly pageMargins?: unknown;
+  readonly pageGap?: unknown;
+  readonly headerBlockId?: unknown;
+  readonly footerBlockId?: unknown;
+  readonly contentBlockId?: unknown;  // embed-content root id (from embed `properties`)
+}
+```
+
+Producers stamp these keys: the `image` / `horizontalLine` components
+(read by the canvas renderer), the table layout (`columnWidths`, read by
+the Table FC), and `section` / `document` (`blockType` + page-geometry +
+header/footer ids, read by `section-plan`); embed anchors stamp
+`embedType` + `contentBlockId`.
+
+The type **lives in the render layer** (`render/layout-metadata.ts`)
+because both `ElementBox` (render) and `BlockBox` (layout) need it and the
+established dependency direction is layout → render — layout imports from
+render, never the reverse. A render-side leaf module keeps the dependency
+one-directional; placing it under `layout/` would invert the layering.
 
 ### `UsedStyle`
 

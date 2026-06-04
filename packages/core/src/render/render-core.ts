@@ -241,9 +241,12 @@ export function expandInlineItems(
           ? fnNumbers.get(asBlockId(contentBlockId))?.formatted
           : undefined;
       out.push(
+        // Same closed-struct marker metadata as the plain-embed branch below:
+        // the embed-kind discriminator + the footnote body's `contentBlockId`
+        // (the only property a footnote anchor carries).
         buildFootnoteMarker(key, itemStyle, formatted, {
           embedType: item.embedType,
-          ...item.properties,
+          contentBlockId,
         }),
       );
     } else {
@@ -284,9 +287,17 @@ export function expandInlineItems(
         ...itemStyle,
       };
       out.push(
+        // Embed-anchor marker metadata: the embed-kind discriminator plus the
+        // linked embed-content root id from the embed's open `properties` bag.
+        // `contentBlockId` is the only property any embed produces or any
+        // consumer reads off the marker box today (typed `unknown`, coerced at
+        // the read site); narrowing the stamp to it (vs spreading the whole
+        // open `properties` bag) keeps `LayoutBoxMetadata` a closed struct. If
+        // a future embed surfaces another marker property, add it here and to
+        // the type together.
         createElementBox(key, embedStyle, [], {
           embedType: item.embedType,
-          ...item.properties,
+          contentBlockId: item.properties.contentBlockId,
         }),
       );
     }

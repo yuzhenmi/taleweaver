@@ -1,4 +1,5 @@
 import type { Style, ComputedStyle } from "../styles";
+import type { LayoutBoxMetadata } from "./layout-metadata";
 
 export type RenderNode = ElementBox | TextBox;
 
@@ -7,7 +8,7 @@ export interface ElementBox {
   readonly key: string;
   readonly style: Readonly<Style>;
   readonly computedStyle?: Readonly<ComputedStyle>;
-  readonly metadata?: Readonly<Record<string, unknown>>;
+  readonly metadata?: Readonly<LayoutBoxMetadata>;
   readonly children: readonly RenderNode[];
 }
 
@@ -23,7 +24,7 @@ export function createElementBox(
   key: string,
   style: Style,
   children: readonly RenderNode[],
-  metadata?: Record<string, unknown>,
+  metadata?: Readonly<LayoutBoxMetadata>,
 ): ElementBox {
   return Object.freeze({
     type: "element" as const,

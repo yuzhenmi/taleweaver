@@ -862,7 +862,6 @@ export function makeVirtualLayoutTree(
               effRootUsedStyle,
               slotChildren,
               effContentInlineSize,
-              { footnoteSlot: true },
             );
           })();
 
