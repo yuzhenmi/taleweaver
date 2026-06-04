@@ -251,7 +251,11 @@ describe("applyOperation", () => {
     const snap = getBlock(state, "cold" as BlockId);
     expect(snap).not.toBeNull();
     expect(snap?.type).toBe("paragraph");
-  }, 30_000);
+    // #428: generous timeout — this is a heavy stress test (15K-deep chain) that
+    // asserts correctness (no stack overflow), not wall-clock. It runs ~30s in
+    // isolation but can balloon under full-suite parallel CPU contention; 120s
+    // absorbs that so the suite stays deterministically green.
+  }, 120_000);
 
   it("freshState compacts deep chains so undo/redo runs stay bounded (#273)", () => {
     // Each undo/redo mints a freshState(state, dirtyIds). Before #273 that
