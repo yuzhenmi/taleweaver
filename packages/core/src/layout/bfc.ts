@@ -262,17 +262,45 @@ export function layoutBlock(
     }
   }
 
-  // When resuming at startIndex > 0, seed listCounter from preceding list-item
-  // children so ordered-list numbering continues correctly across page breaks.
-  // Without this, list items on page 2+ would restart from 1.
+  // When resuming at startIndex > 0, seed listCounter by REPLAYING the
+  // consecutive-run rule (#425) over the preceding groups [0, startIndex) so
+  // ordered-list numbering on page 2+ continues from the CURRENT run only —
+  // "list-items since the last run-break before startIndex," NOT "all preceding
+  // list-items." This MUST mirror the main loop's marker block (see ~:604-625)
+  // EXACTLY — a THREE-WAY split, not two-way:
+  //   1. a `display:list-item` block WITHOUT an explicit markerText → ++  (the
+  //      auto-counter branch, `else if (childCs.display === "list-item")`);
+  //   2. a `display:list-item` block WITH an explicit markerText → NEITHER, a
+  //      counter NO-OP (the explicit-markerText branch does not ++, and the run
+  //      reset `if (childCs.display !== "list-item")` does not fire either since
+  //      display IS list-item — it does not break the run);
+  //   3. ANY other group (a non-list-item block OR an `inline-run`) → reset 0
+  //      (breaks the run).
+  // The explicit-markerText carve-out (case 2) is the load-bearing detail: an
+  // earlier two-way seed that incremented for EVERY `display:list-item` over-
+  // counted when an explicit-markerText item preceded a resumed auto item on the
+  // next page (the resumed item read "n+1." instead of "n."). The increment
+  // condition mirrors the main loop's explicit-markerText test
+  // (`markerText !== undefined && markerText !== ""`).
   if (startIndex > 0) {
     for (let i = 0; i < startIndex; i++) {
       const g = groups[i];
-      if (g.kind === "block") {
-        const c = g.child;
-        if (c.type === "element" && c.computedStyle?.display === "list-item") {
+      const childCs =
+        g.kind === "block" && g.child.type === "element"
+          ? g.child.computedStyle
+          : undefined;
+      const isListItem = childCs?.display === "list-item";
+      const hasExplicitMarker =
+        childCs?.markerText !== undefined && childCs.markerText !== "";
+      if (isListItem) {
+        // Case 1 vs 2: auto-counter list-item increments; explicit-markerText
+        // list-item is a no-op (neither ++ nor reset — it does not break the run).
+        if (!hasExplicitMarker) {
           listCounter++;
         }
+      } else {
+        // Case 3: a non-list-item group breaks the run.
+        listCounter = 0;
       }
     }
   }
@@ -404,6 +432,15 @@ export function layoutBlock(
 
       childBlockOffset += anonBlockSize;
       prevMarginBlockEnd = 0; // anonymous box has no margin
+
+      // #425: an `inline-run` group (anonymous inline/text content) is NOT a
+      // list-item, so it BREAKS the ordered-list consecutive run — reset the
+      // counter so a following list-item restarts at 1. Placed after the run's
+      // lines are appended (the group is placed on this page), mirroring the
+      // block branch's "placed on this page" reset. A fully-deferred inline-run
+      // (ifcResult.box === null, handled above) returns before reaching here, so
+      // it does not reset on this page; the next page's seed reconstructs it.
+      listCounter = 0;
 
       // If IFC produced a break token, stop here and propagate it.
       if (ifcResult.breakToken !== null) {
@@ -588,6 +625,21 @@ export function layoutBlock(
     } else if (childCs.display === "list-item") {
       listCounter++;
       markerText = resolveMarkerText(childCs, listCounter);
+    }
+    // #425: ordered-list consecutive-run rule (Google Docs). A "list" is a
+    // maximal CONSECUTIVE run of `display: list-item` block children at one BFC
+    // level. A non-list-item BLOCK child BREAKS the run, so the next list-item
+    // restarts at 1 — reset the counter to 0 here. (An explicit-markerText
+    // list-item neither increments nor resets: it is still display:list-item, so
+    // it does not break the run.) This reset is placed at the SAME
+    // "placed on this page" point as the `listCounter++` above — after the
+    // section-cap and break-before-page checks — so a child DEFERRED to the next
+    // page does not reset on this page; the next page's seed loop reconstructs
+    // the counter (see the seed at the top of the function). The main-loop reset
+    // and the seed reset MUST apply identical run-reset semantics or a list that
+    // straddles a page break renumbers wrong.
+    if (childCs.display !== "list-item") {
+      listCounter = 0;
     }
     // Auto-widen state (#426). When an `outside` marker is wider than the item's
     // OWN paddingInlineStart (its marker gutter), the item's effective

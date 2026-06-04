@@ -247,3 +247,171 @@ describe("virtualized layout — EditorState.layoutTree is virtual-root after a 
     expect(positioned.type).toBe("block");
   });
 });
+
+// #425: cross-page interaction between the consecutive-run counter reset and the
+// seed-on-resume that reconstructs the counter at a page break. These exercise
+// the PAGINATED path (real page breaks), where listCounter is rebuilt per page
+// from the seed loop. The seed and the main-loop reset MUST apply identical
+// run-reset semantics or a list that straddles a page break renumbers wrong.
+describe("pagination integration — ordered-list counter across page breaks (#425)", () => {
+  function listItem(key: string, text: string): RenderNode {
+    return {
+      type: "element" as const,
+      key,
+      style: { display: "list-item" },
+      children: [{ type: "text" as const, key: `${key}-t`, style: {}, text }],
+    };
+  }
+
+  function paragraphBlock(key: string, text: string): RenderNode {
+    return {
+      type: "element" as const,
+      key,
+      style: { display: "block" },
+      children: [{ type: "text" as const, key: `${key}-t`, style: {}, text }],
+    };
+  }
+
+  function ol(key: string, children: readonly RenderNode[]): RenderNode {
+    return {
+      type: "element" as const,
+      key,
+      style: { display: "block", paddingInlineStart: 30, listStyleType: "decimal" },
+      children,
+    };
+  }
+
+  // Collect marker texts page-by-page (document order within each page).
+  function markersByPage(result: ReturnType<typeof paginatedHarness>): string[][] {
+    function collect(box: LayoutBox, out: string[]): void {
+      if (box.type === "marker") {
+        out.push(box.text);
+        return;
+      }
+      if ("children" in box) {
+        for (const c of box.children as readonly LayoutBox[]) collect(c, out);
+      }
+    }
+    return result.pages.map((p) => {
+      const out: string[] = [];
+      collect(p, out);
+      return out;
+    });
+  }
+
+  // Flatten markers across all pages in document order, dropping the duplicate
+  // that a list-item straddling the page break emits on BOTH the origin-page
+  // tail and the resume-page head (a geometry artifact orthogonal to #425's
+  // counter semantics — the same marker text appearing twice at the seam).
+  function flatMarkers(result: ReturnType<typeof paginatedHarness>): string[] {
+    const flat: string[] = [];
+    for (const page of markersByPage(result)) {
+      for (const m of page) {
+        if (flat.length > 0 && flat[flat.length - 1] === m) continue; // seam dup
+        flat.push(m);
+      }
+    }
+    return flat;
+  }
+
+  it("a single list split across a page break CONTINUES numbering (seed)", () => {
+    // 16 single-line list-items split across pages. The whole run must number
+    // 1..16 continuously — the seed reconstructs the run on the resume page so
+    // page-2 items continue (NOT restart at 1.).
+    const items = Array.from({ length: 16 }, (_, i) => listItem(`li${i + 1}`, `item${i + 1}`));
+    const root = buildDocumentRoot([ol("ol", items)]);
+    const result = paginatedHarness(root, PAGE);
+    expect(result.pages.length).toBeGreaterThanOrEqual(2);
+    // Continuous numbering across the break (the subtle GREEN case).
+    expect(flatMarkers(result)).toEqual(
+      Array.from({ length: 16 }, (_, i) => `${i + 1}.`),
+    );
+    // The resume page's leading marker must NOT be "1." (would mean restarted).
+    const byPage = markersByPage(result);
+    expect(byPage[1][0]).not.toBe("1.");
+  });
+
+  function explicitMarkerItem(key: string, text: string, marker: string): RenderNode {
+    return {
+      type: "element" as const,
+      key,
+      style: { display: "list-item", markerText: marker },
+      children: [{ type: "text" as const, key: `${key}-t`, style: {}, text }],
+    };
+  }
+
+  it("an explicit-markerText list-item before a page break does NOT make the seed over-count the resumed auto item", () => {
+    // #425 FIX 1 (seed↔loop asymmetry). The main loop increments listCounter
+    // ONLY for `display:list-item` WITHOUT an explicit markerText (an explicit-
+    // markerText item is a counter NO-OP — neither ++ nor reset). The seed-on-
+    // resume loop MUST mirror that exactly. Before the fix the seed incremented
+    // for EVERY display:list-item (including explicit-markerText ones), so a run
+    // that places an explicit-markerText item on page 1 and resumes an auto-
+    // counter item on page 2 over-counted → the resumed item read "13." not "12.".
+    //
+    // 12 single-line items fill page 1 (12 lines/page). One of them (index 5)
+    // carries an explicit markerText "*" — a counter no-op. The remaining auto
+    // items must number 1.,2.,3.,4.,5.,[*],6.,7.,8.,9.,10.,11. on page 1, then
+    // CONTINUE 12.,13.,... on page 2.
+    const items: RenderNode[] = [];
+    let autoN = 0;
+    for (let i = 0; i < 18; i++) {
+      if (i === 5) {
+        items.push(explicitMarkerItem("liStar", "starred", "*"));
+      } else {
+        autoN++;
+        items.push(listItem(`li${i}`, `item${autoN}`));
+      }
+    }
+    const root = buildDocumentRoot([ol("ol", items)]);
+    const result = paginatedHarness(root, PAGE);
+    expect(result.pages.length).toBeGreaterThanOrEqual(2);
+
+    // The explicit-marker item is a counter no-op: auto items number 1..17
+    // continuously across the page break, with "*" interleaved at its slot.
+    const expected: string[] = [];
+    let n = 0;
+    for (let i = 0; i < 18; i++) {
+      if (i === 5) {
+        expected.push("*");
+      } else {
+        n++;
+        expected.push(`${n}.`);
+      }
+    }
+    expect(flatMarkers(result)).toEqual(expected);
+
+    // The seam: the resumed auto item on page 2 must NOT be over-counted. Before
+    // the fix the seed counted "*" → the first page-2 auto marker jumped by one.
+    const byPage = markersByPage(result);
+    // Page 2's leading auto marker continues the run (no "*" on page 2's head
+    // unless the seam-dup carries it; flatMarkers already proves continuity, but
+    // assert directly that "13." never appears where "12." should — i.e. the
+    // markers are a strictly-incrementing auto sequence with no skipped number).
+    const autoMarkers = flatMarkers(result).filter((m) => m !== "*");
+    expect(autoMarkers).toEqual(Array.from({ length: 17 }, (_, i) => `${i + 1}.`));
+    // And the page-2 head is not a phantom over-count.
+    expect(byPage[1][0]).not.toBe("1."); // would mean a wrong restart
+  });
+
+  it("list A + paragraph + list B that straddles the break: B continues B's run", () => {
+    // List A: 5 items. Paragraph separator breaks the run → list B restarts at 1.
+    // List B: 16 items, long enough to straddle the page break.
+    // The whole sequence must read A:1..5, then B:1..16 continuously — proving
+    // (a) the separator reset (B starts at 1, not 6), AND (b) the seed
+    // reconstructs B's run from AFTER the paragraph on the resume page (B's
+    // page-2 items continue B's own count — NOT list A's, NOT restarted).
+    const listA = Array.from({ length: 5 }, (_, i) => listItem(`a${i + 1}`, `a${i + 1}`));
+    const listB = Array.from({ length: 16 }, (_, i) => listItem(`b${i + 1}`, `b${i + 1}`));
+    const root = buildDocumentRoot([
+      ol("olAll", [...listA, paragraphBlock("sep", "separator"), ...listB]),
+    ]);
+    const result = paginatedHarness(root, PAGE);
+    expect(result.pages.length).toBeGreaterThanOrEqual(2);
+    const expected = [
+      ...Array.from({ length: 5 }, (_, i) => `${i + 1}.`), // list A: 1..5
+      ...Array.from({ length: 16 }, (_, i) => `${i + 1}.`), // list B restarts: 1..16
+    ];
+    expect(flatMarkers(result)).toEqual(expected);
+  });
+});

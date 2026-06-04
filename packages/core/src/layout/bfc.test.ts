@@ -327,6 +327,65 @@ describe("BFC — list-item markers (outside)", () => {
     // Document order: outer 1 marker, inner 1, inner 2, outer 2
     expect(markers.map(m => m.text)).toEqual(["1.", "1.", "2.", "2."]);
   });
+
+  // #425: an ordered list is a maximal CONSECUTIVE run of list-items. A
+  // separating non-list-item BLOCK breaks the run, so the next list begins at 1.
+  it("resets the counter when a non-list-item BLOCK separates two ordered runs", () => {
+    const tree = cascadePass(
+      createElementBox("ol", { display: "block", paddingInlineStart: 30, listStyleType: "decimal" }, [
+        createElementBox("li1", { display: "list-item" }, [createTextBox("t1", {}, "a1")]),
+        createElementBox("li2", { display: "list-item" }, [createTextBox("t2", {}, "a2")]),
+        createElementBox("li3", { display: "list-item" }, [createTextBox("t3", {}, "a3")]),
+        // Separator: a plain paragraph BLOCK breaks the run.
+        createElementBox("sep", { display: "block" }, [createTextBox("ts", {}, "paragraph")]),
+        createElementBox("li4", { display: "list-item" }, [createTextBox("t4", {}, "b1")]),
+        createElementBox("li5", { display: "list-item" }, [createTextBox("t5", {}, "b2")]),
+        createElementBox("li6", { display: "list-item" }, [createTextBox("t6", {}, "b3")]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    const markers: { text: string }[] = [];
+    function walk(b: any) {
+      if (!b) return;
+      if (b.type === "marker") markers.push({ text: b.text });
+      if (b.children) for (const c of b.children) walk(c);
+    }
+    walk(out);
+    // Second run restarts at 1 (RED before fix: 4., 5., 6.).
+    expect(markers.map(m => m.text)).toEqual(["1.", "2.", "3.", "1.", "2.", "3."]);
+  });
+
+  // #425: anonymous inline/text content (an `inline-run` group) also breaks the run.
+  it("resets the counter when an inline-run separates two ordered runs", () => {
+    const tree = cascadePass(
+      createElementBox("ol", { display: "block", paddingInlineStart: 30, listStyleType: "decimal" }, [
+        createElementBox("li1", { display: "list-item" }, [createTextBox("t1", {}, "a1")]),
+        createElementBox("li2", { display: "list-item" }, [createTextBox("t2", {}, "a2")]),
+        // Bare text child of the OL → an `inline-run` group → breaks the run.
+        createTextBox("anon", {}, "interleaved prose"),
+        createElementBox("li3", { display: "list-item" }, [createTextBox("t3", {}, "b1")]),
+        createElementBox("li4", { display: "list-item" }, [createTextBox("t4", {}, "b2")]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    const markers: { text: string }[] = [];
+    function walk(b: any) {
+      if (!b) return;
+      if (b.type === "marker") markers.push({ text: b.text });
+      if (b.children) for (const c of b.children) walk(c);
+    }
+    walk(out);
+    // Second run restarts at 1 (RED before fix: 3., 4.).
+    expect(markers.map(m => m.text)).toEqual(["1.", "2.", "1.", "2."]);
+  });
 });
 
 describe("BFC — explicit markerText (generated marker, offset-excluded)", () => {
