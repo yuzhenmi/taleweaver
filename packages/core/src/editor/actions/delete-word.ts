@@ -1,8 +1,9 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { getBlock, createPosition, createSpan, spanStart, deleteRange } from "../../state";
+import { createPosition, createSpan, deleteRange } from "../../state";
 import { moveByWord } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
+import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
 
 export function handleDeleteWord(
   editor: EditorState,
@@ -12,16 +13,16 @@ export function handleDeleteWord(
   const { selection } = editor;
 
   if (!isCollapsed(selection)) {
-    const anchorBlock = getBlock(editor.state, selection.anchor.blockId);
-    const focusBlock = getBlock(editor.state, selection.focus.blockId);
-    if (anchorBlock === null || focusBlock === null) return editor;
-    if (
-      selection.anchor.blockId !== selection.focus.blockId &&
-      anchorBlock.parentId !== focusBlock.parentId
-    ) {
-      return editor;
-    }
-    const start = spanStart(editor.state, selection);
+    // A non-collapsed selection delete just removes the selection (the
+    // word-extension below only applies to a collapsed caret). Mirror the
+    // canonical delete-backward path so a range inside a footnote/header/footer
+    // body (embedContents / templateContents) is actually deleted: the
+    // cross-CONTEXT refusal + the tree-aware (resolveBlock) deletable-span
+    // guard. Using getBlock here (main-tree only) would early-return a no-op for
+    // a body-context range (#430).
+    if (isCrossContextSelection(editor.state, selection)) return editor;
+    const start = expandedSpanCollapsePoint(editor.state, selection);
+    if (start === null) return editor;
     const result = deleteRange(editor.state, selection);
     if (result.state === editor.state) return editor;
     const newCursor = createPosition(start.blockId, start.offset);
