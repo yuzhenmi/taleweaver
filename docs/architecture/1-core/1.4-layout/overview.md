@@ -95,8 +95,13 @@ each box's `display` value.
 
 - **`intrinsic-sizes`** + **`intrinsic-sizes-pass`** — computes
   min-content and max-content per render node. `IntrinsicSizes` holds
-  the values; `IntrinsicSizesCache` memoizes them per render-node
-  reference. The BFC consults intrinsic sizes for shrink-to-fit
+  the public `{minContent, maxContent}`; the pass threads an extended
+  `IntrinsicContribution` (adds `firstCluster`/`restMin`) so it can apply
+  `text-indent` to a block's first formatted line (CSS Text §8 + CSS
+  Sizing §5). `IntrinsicSizesCache` memoizes the `IntrinsicContribution`
+  per render-node reference (a warm entry short-circuits the whole
+  subtree); `computeIntrinsicSizes` derives the `IntrinsicSizes` view at
+  its boundary. The BFC consults intrinsic sizes for shrink-to-fit
   inline-blocks and floats; the Table FC uses them for auto-layout
   column widths.
 

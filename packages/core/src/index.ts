@@ -159,7 +159,7 @@ export { createMockShaper } from "./layout/mock-shaper";
 export type {
   TextShaper, ShapedRun, Cluster, BreakOpportunity, FontMetrics, GlyphId,
 } from "./layout/text-shaper";
-export type { IntrinsicSizes, IntrinsicSizesCache } from "./layout/intrinsic-sizes";
+export type { IntrinsicSizes, IntrinsicContribution, IntrinsicSizesCache } from "./layout/intrinsic-sizes";
 export { createIntrinsicSizesCache } from "./layout/intrinsic-sizes";
 export { computeIntrinsicSizes } from "./layout/intrinsic-sizes-pass";
 export type { IFCState, IFCStateCache } from "./layout/ifc-state";

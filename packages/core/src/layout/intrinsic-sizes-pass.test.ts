@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import { createIntrinsicSizesCache } from "./intrinsic-sizes";
-import { createMockShaper } from "./mock-shaper";
+import { createMockShaper, createVariableMockShaper } from "./mock-shaper";
 import { createElementBox, createTextBox } from "../render/render-node";
 import { cascadePass } from "../cascade";
 
@@ -68,7 +68,14 @@ describe("computeIntrinsicSizes", () => {
     const cache = createIntrinsicSizesCache();
     const r1 = computeIntrinsicSizes(cascaded, shaper, cache);
     const r2 = computeIntrinsicSizes(cascaded, shaper, cache);
-    expect(r1).toBe(r2); // same reference — came from cache
+    // The cache now stores the extended IntrinsicContribution and the public
+    // boundary derives a fresh {min,max} view per call, so reference identity is
+    // no longer guaranteed; equal VALUES confirm both reads hit the same cached
+    // contribution. The no-re-shape guarantee is pinned by the dedicated
+    // shape-count test in the #392 block below.
+    expect(r2).toEqual(r1);
+    // The contribution is cached after the first call (subtree not recomputed).
+    expect(cache.get(cascaded.key)).toBeDefined();
   });
 
   it("inline element: min=max(child.min), max=sum(child.max)", () => {
@@ -248,5 +255,337 @@ describe("computeIntrinsicSizes — display: contents (P1.C.1a)", () => {
     // wrapper is filtered out by the display !== "table-row" check). The fix
     // makes the wrapped case match the un-wrapped result exactly.
     expect(w).toEqual(u);
+  });
+});
+
+describe("computeIntrinsicSizes — text-indent (#392)", () => {
+  const shaper = createMockShaper(10, 16);
+
+  // Case 1: pure-inline block, positive indent.
+  it("pure-inline block, positive indent: max += indent, min = max(widest, indent + firstCluster)", () => {
+    // "hello" charWidth 10 → no-indent max = 50, widest cluster = 10.
+    // indent 40 → max = 50 + 40 = 90; min = max(10, 40 + 10) = 50.
+    const block = createElementBox(
+      "p",
+      { display: "block", textIndent: { value: 40, unit: "px" } },
+      [createTextBox("t", { display: "inline" }, "hello")],
+    );
+    const cascaded = cascadePass(block);
+    const result = computeIntrinsicSizes(cascaded, shaper, createIntrinsicSizesCache());
+    expect(result.maxContent).toBe(90);
+    expect(result.minContent).toBe(50);
+  });
+
+  // Case 2: first cluster ≠ widest — guards the restMin form against
+  // a naive `widestCluster + indent`. Requires variable cluster widths.
+  it("first cluster narrower than widest: min uses restMin, NOT widest + indent", () => {
+    // text "iW": i = 4, W = 14. no-indent min (widest cluster) = 14, max = 18.
+    // indent 5 → min = max(5 + 4, restMin=14) = 14 (NOT widest+indent = 19).
+    //            max = 18 + 5 = 23.
+    const varShaper = createVariableMockShaper({ i: 4, W: 14 }, 16);
+    const block = createElementBox(
+      "p",
+      { display: "block", textIndent: { value: 5, unit: "px" } },
+      [createTextBox("t", { display: "inline" }, "iW")],
+    );
+    const cascaded = cascadePass(block);
+    const result = computeIntrinsicSizes(cascaded, varShaper, createIntrinsicSizesCache());
+    expect(result.minContent).toBe(14);
+    expect(result.maxContent).toBe(23);
+  });
+
+  // Case 3: negative indent (hanging) — clamp ≥ 0, restMin form lets min
+  // fall below the no-indent blockMin.
+  it("negative indent (hanging): min and max clamp ≥ 0 via restMin form", () => {
+    // single-char "a" charWidth 10 → firstCluster = 10, restMin = 0.
+    // indent −16 → min = clamp(max(−16 + 10, 0)) = clamp(0) = 0
+    //              (NOT the naive max(blockMin=10, …) = 10).
+    //            max = max(0, 10 + (−16)) = 0.
+    const block = createElementBox(
+      "p",
+      { display: "block", textIndent: { value: -16, unit: "px" } },
+      [createTextBox("t", { display: "inline" }, "a")],
+    );
+    const cascaded = cascadePass(block);
+    const result = computeIntrinsicSizes(cascaded, shaper, createIntrinsicSizesCache());
+    expect(result.minContent).toBe(0);
+    expect(result.maxContent).toBe(0);
+  });
+
+  // Case 4: percentage indent contributes 0 (indefinite basis → resolve basis 0).
+  it("percentage indent contributes 0 to both min and max (indefinite basis)", () => {
+    // "hello" no-indent: min = 10, max = 50. 50% indent → contributes 0.
+    const block = createElementBox(
+      "p",
+      { display: "block", textIndent: { value: 50, unit: "percent" } },
+      [createTextBox("t", { display: "inline" }, "hello")],
+    );
+    const cascaded = cascadePass(block);
+    const result = computeIntrinsicSizes(cascaded, shaper, createIntrinsicSizesCache());
+    expect(result.minContent).toBe(10);
+    expect(result.maxContent).toBe(50);
+  });
+
+  // Case 5a: mixed block + inline children — indent applies to the doc's FIRST
+  // inline run only; a later inline run is unchanged at the doc level. The
+  // intervening block child carries an explicit `textIndent: 0` to suppress
+  // inheritance, isolating the doc-level first-run rule (text-indent is
+  // `inherits: true`, so a child block with NO explicit indent legitimately
+  // indents ITS own first line — exercised separately below).
+  it("mixed children: indent applies only to the doc's first inline run", () => {
+    // doc (indent 25) {
+    //   inline "abc" (run #1: max=30, min=10)        ← doc's first run → indented
+    //   block "abcdefghij" (textIndent:0 → max=100, min=10)
+    //   inline "de" (run #2: max=20, min=10)          ← NOT the first run
+    // }
+    // run #1: max = 30 + 25 = 55; min = max(25 + 10, restMin=0) = 35.
+    // block (indent suppressed): max=100, min=10. run #2: max=20, min=10.
+    // container max = max(55, 100, 20) = 100; min = max(35, 10, 10) = 35.
+    const inline1 = createTextBox("t1", { display: "inline" }, "abc");
+    const blockChild = createElementBox(
+      "b",
+      { display: "block", textIndent: { value: 0, unit: "px" } },
+      [createTextBox("tb", { display: "inline" }, "abcdefghij")],
+    );
+    const inline2 = createTextBox("t2", { display: "inline" }, "de");
+    const doc = createElementBox(
+      "doc",
+      { display: "block", textIndent: { value: 25, unit: "px" } },
+      [inline1, blockChild, inline2],
+    );
+    const cascaded = cascadePass(doc);
+    const result = computeIntrinsicSizes(cascaded, shaper, createIntrinsicSizesCache());
+    expect(result.maxContent).toBe(100);
+    expect(result.minContent).toBe(35);
+  });
+
+  // Case 5a': text-indent inherits — a child block with NO explicit indent
+  // indents its OWN first formatted line (matches the IFC, which reads the
+  // resolved/inherited value off the block's computed style).
+  it("text-indent inherits: a child block indents its own first line", () => {
+    // doc (indent 25) {
+    //   inline "abc" (run #1 max = 30 + 25 = 55; min = max(35, 0) = 35)
+    //   block "abcdefghij" (INHERITS 25 → max = 100 + 25 = 125; min = max(35,0) = 35)
+    // }
+    // container max = max(55, 125) = 125; min = max(35, 35) = 35.
+    const inline1 = createTextBox("t1", { display: "inline" }, "abc");
+    const blockChild = createElementBox(
+      "b",
+      { display: "block" }, // no explicit indent → inherits doc's 25
+      [createTextBox("tb", { display: "inline" }, "abcdefghij")],
+    );
+    const doc = createElementBox(
+      "doc",
+      { display: "block", textIndent: { value: 25, unit: "px" } },
+      [inline1, blockChild],
+    );
+    const result = computeIntrinsicSizes(cascadePass(doc), shaper, createIntrinsicSizesCache());
+    expect(result.maxContent).toBe(125);
+    expect(result.minContent).toBe(35);
+  });
+
+  // Case 5b: a block whose FIRST child is a real block → the doc's own indent
+  // produces no indented run (no "first formatted line" of inline content
+  // before the block). Child block carries `textIndent: 0` to suppress
+  // inheritance, so the ONLY thing the doc's indent could touch is a
+  // (nonexistent) leading inline run — and it touches nothing.
+  it("first child is a real block: the doc-level indent affects nothing", () => {
+    // doc {
+    //   block "abc" (textIndent:0 → max=30, min=10)  ← first child is a block
+    //   inline "de" (max=20, min=10)                  ← run is NOT the first run
+    // }
+    // Doc indent of 100 finds no first inline run → container unchanged:
+    // max = max(30, 20) = 30; min = 10. Equal to the no-indent doc.
+    const makeBlockChild = () =>
+      createElementBox(
+        "b",
+        { display: "block", textIndent: { value: 0, unit: "px" } },
+        [createTextBox("tb", { display: "inline" }, "abc")],
+      );
+    const make = (indent: number | undefined) =>
+      createElementBox(
+        "doc",
+        indent === undefined
+          ? { display: "block" }
+          : { display: "block", textIndent: { value: indent, unit: "px" } },
+        [makeBlockChild(), createTextBox("t2", { display: "inline" }, "de")],
+      );
+    const indented = computeIntrinsicSizes(
+      cascadePass(make(100)),
+      shaper,
+      createIntrinsicSizesCache(),
+    );
+    const plain = computeIntrinsicSizes(
+      cascadePass(make(undefined)),
+      shaper,
+      createIntrinsicSizesCache(),
+    );
+    expect(indented).toEqual(plain);
+    expect(indented.maxContent).toBe(30);
+    expect(indented.minContent).toBe(10);
+  });
+
+  // Case 6: indent: 0 (default) is byte-identical to the no-indent fixture.
+  it("indent 0 is byte-identical to the no-indent equivalent (regression guard)", () => {
+    // Mirror the existing "paragraph with inline text" fixture: min=10, max=50.
+    const make = (withIndent: boolean) => {
+      const t1 = createTextBox("t1", { display: "inline" }, "abc");
+      const t2 = createTextBox("t2", { display: "inline" }, "de");
+      return createElementBox(
+        "p",
+        withIndent
+          ? { display: "block", textIndent: { value: 0, unit: "px" } }
+          : { display: "block" },
+        [t1, t2],
+      );
+    };
+    const zeroIndent = computeIntrinsicSizes(
+      cascadePass(make(true)),
+      shaper,
+      createIntrinsicSizesCache(),
+    );
+    const noIndent = computeIntrinsicSizes(
+      cascadePass(make(false)),
+      shaper,
+      createIntrinsicSizesCache(),
+    );
+    expect(zeroIndent).toEqual(noIndent);
+    // Exact pre-existing expected values (byte-identical regression guard).
+    expect(zeroIndent.minContent).toBe(10);
+    expect(zeroIndent.maxContent).toBe(50);
+  });
+
+  // Consistency assertion from the spec: for a uniform text run,
+  // max(firstCluster, restMin) === minClusterInlineSize.
+  it("text-node consistency: max(firstCluster, restMin) === minClusterInlineSize", () => {
+    // The pass-level guarantee is exercised indirectly: a pure-inline block
+    // with indent 0 must produce minContent === the run's minClusterInlineSize.
+    // "hello" → minClusterInlineSize = 10.
+    const block = createElementBox(
+      "p",
+      { display: "block", textIndent: { value: 0, unit: "px" } },
+      [createTextBox("t", { display: "inline" }, "hello")],
+    );
+    const result = computeIntrinsicSizes(cascadePass(block), shaper, createIntrinsicSizesCache());
+    expect(result.minContent).toBe(10); // === minClusterInlineSize
+  });
+
+  // FINDING 1: restMin is the widest cluster in the TAIL (clusters after the
+  // first), NOT the whole-run widest. When the first cluster is itself the
+  // widest, the old over-conservative restMin (= whole-run min) wrongly refused
+  // to narrow the box under a negative indent.
+  it("restMin is the tail's widest cluster, not the whole-run widest (negative indent)", () => {
+    // text "Wa": W = 14 (widest, and FIRST), a = 4. tail = ["a"] → restMin = 4.
+    // indent −5 → min = clamp(max(−5 + 14, restMin=4)) = max(9, 4) = 9 (NOT 14,
+    //   which the old `restMin = whole-run min = 14` would have produced).
+    //   max = max(0, (14 + 4) + (−5)) = 13.
+    const varShaper = createVariableMockShaper({ W: 14, a: 4 }, 16);
+    const block = createElementBox(
+      "p",
+      { display: "block", textIndent: { value: -5, unit: "px" } },
+      [createTextBox("t", { display: "inline" }, "Wa")],
+    );
+    const result = computeIntrinsicSizes(
+      cascadePass(block),
+      varShaper,
+      createIntrinsicSizesCache(),
+    );
+    expect(result.minContent).toBe(9);
+    expect(result.maxContent).toBe(13);
+  });
+
+  // FINDING 3: an inline-block as the FIRST child of an indented run is an
+  // ATOMIC inline-level box, so the indent pushes the WHOLE inline-block — its
+  // first-unit contribution is its own min-content, not 0. With the old
+  // `firstCluster: 0`, `indent + firstCluster = indent` undercounted min-content
+  // by the inline-block's width and the inline-block overflowed.
+  it("inline-block first child of an indented run contributes its own width past the indent", () => {
+    // Build an inline-block whose OWN min-content is 30: a single wide cluster
+    // "X" (width 30) via the variable shaper (break-at-any-cluster would split a
+    // multi-char run to its widest cluster, so a single fat cluster is the clean
+    // way to get a 30-wide atomic box). Its firstCluster as an atomic inline-
+    // level box must be its own min-content (30), NOT 0.
+    const varShaper = createVariableMockShaper({ X: 30, a: 4, b: 4 }, 16);
+    // `textIndent: 0` suppresses inheritance of the outer block's indent into the
+    // inline-block's OWN first line — isolating the rule under test (the indent
+    // pushing the inline-block as the outer run's atomic first unit).
+    const leadingInlineBlock = createElementBox(
+      "lib",
+      { display: "inline-block", textIndent: { value: 0, unit: "px" } },
+      [createTextBox("libt", { display: "inline" }, "X")], // atomic, min-content = 30
+    );
+    const trailingText = createTextBox("tt", { display: "inline" }, "ab"); // min=4
+    const make = (indent: number | undefined) =>
+      createElementBox(
+        "p",
+        indent === undefined
+          ? { display: "block" }
+          : { display: "block", textIndent: { value: indent, unit: "px" } },
+        [leadingInlineBlock, trailingText],
+      );
+    // Non-indented: leading-run min = max(firstCluster=30, restMin=max(0, "ab".min=4)) = 30.
+    const plain = computeIntrinsicSizes(
+      cascadePass(make(undefined)),
+      varShaper,
+      createIntrinsicSizesCache(),
+    );
+    expect(plain.minContent).toBe(30);
+    // indent 10: leading-run min = max(0, max(10 + firstCluster=30, restMin=4)) = 40
+    //   (NOT 30 — the inline-block's own width 30 is included PAST the indent;
+    //   with the old `firstCluster: 0` it would have stayed 30).
+    const indented = computeIntrinsicSizes(
+      cascadePass(make(10)),
+      varShaper,
+      createIntrinsicSizesCache(),
+    );
+    expect(indented.minContent).toBe(40);
+  });
+
+  // FINDING 2: a warm cache short-circuits the whole subtree — a text node is
+  // shaped only ONCE across two computeIntrinsicSizes calls with the same cache.
+  // (The old per-call `new Map()` re-shaped the subtree on every top-level query.)
+  it("warm cache short-circuits the subtree: a text node is shaped once across two calls", () => {
+    const base = createMockShaper(10, 16);
+    let shapeCalls = 0;
+    const countingShaper = {
+      shape(text: string, style: Parameters<typeof base.shape>[1], dir: Parameters<typeof base.shape>[2]) {
+        shapeCalls++;
+        return base.shape(text, style, dir);
+      },
+      measureFontMetrics: base.measureFontMetrics,
+    };
+    const block = createElementBox(
+      "p",
+      { display: "block" },
+      [createTextBox("t", { display: "inline" }, "hello")],
+    );
+    const cascaded = cascadePass(block);
+    const cache = createIntrinsicSizesCache();
+    computeIntrinsicSizes(cascaded, countingShaper, cache);
+    expect(shapeCalls).toBe(1);
+    // Second query with the SAME cache must NOT re-shape.
+    computeIntrinsicSizes(cascaded, countingShaper, cache);
+    expect(shapeCalls).toBe(1);
+  });
+
+  // Case 7 (consumer): drive an inline-block with text-indent through the pass
+  // as a child of a block; its shrink-to-fit contribution (max-content) must be
+  // ≥ indent + firstCluster.
+  it("inline-block consumer: max-content contribution ≥ indent + firstCluster", () => {
+    // inline-block "hi there" (8 chars, max=80) with indent 30.
+    // Its block-level max = 80 + 30 = 110 ≥ indent(30) + firstCluster(10) = 40.
+    const indent = 30;
+    const firstCluster = 10;
+    const widget = createElementBox(
+      "w",
+      { display: "inline-block", textIndent: { value: indent, unit: "px" } },
+      [createTextBox("t", { display: "inline" }, "hi there")],
+    );
+    // Drive it as the inline child of a block (the shrink-to-fit consumer path:
+    // a block container takes the inline-block's intrinsic max as a run member).
+    const parent = createElementBox("p", { display: "block" }, [widget]);
+    const result = computeIntrinsicSizes(cascadePass(parent), shaper, createIntrinsicSizesCache());
+    expect(result.maxContent).toBe(110);
+    expect(result.maxContent).toBeGreaterThanOrEqual(indent + firstCluster);
   });
 });
