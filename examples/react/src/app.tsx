@@ -99,6 +99,34 @@ export function App() {
       },
     });
 
+    // Letter-/word-spacing smoke paragraph (P5, CSS Text 3 §8): justified, with
+    // 3px letter-spacing (tracking after every glyph, trimmed at each line end)
+    // and 6px word-spacing (wider inter-word gaps). Engine-only — there is no
+    // toolbar control (Google Docs has none), so this seeded paragraph is how the
+    // feature is exercised in the browser: confirm visible tracking, that the
+    // caret lands between the correct glyphs (incl. the trimmed line end), that
+    // selection rects match the glyphs, and that justify still flushes both edges.
+    editor.dispatch({
+      type: "INSERT_NODE",
+      node: {
+        type: "paragraph",
+        attrs: {
+          letterSpacing: { value: 3, unit: "px" },
+          wordSpacing: { value: 6, unit: "px" },
+          textAlign: "justify",
+        },
+        inlineContent: {
+          items: [
+            {
+              kind: "text",
+              text: "Letter-spacing and word-spacing demo: this justified paragraph carries three pixels of letter-spacing and six pixels of word-spacing, so the tracking between glyphs and the wider gaps between words are both visible, and justify still reaches both margins.",
+              attrs: {},
+            },
+          ],
+        },
+      },
+    });
+
     // Move cursor to the very start of the document. INSERT_TEXT leaves the
     // cursor at the END of the inserted text (offset 76 of the welcome
     // paragraph) — landing the cursor there on first paint isn't useful for
