@@ -181,18 +181,28 @@ Known gaps:
   Home/End on the second wrapped line of a paragraph) — disabled by
   earlier test deletions; require restoration when typography work
   ships.
-- **Triple-click paragraph selection** and **shift-click extension**
-  exist but use path arithmetic that hasn't been re-verified against
-  the current state-tree shape.
-- **Toolbar bold/italic/underline indicators** in the example app
-  query state nodes for inline styles in a way that may produce
-  incorrect "active" indicators if the state tree applies styles
-  directly on text nodes rather than wrapping them in span nodes.
-- **Paste-then-select-all reverts content** (user-observed,
-  unprofiled). Rapid paste followed by an immediate select-all
-  causes some of the pasted content to disappear from the editor.
-  Likely a reducer-level race or a state-tree mutation timing
-  issue. Not investigated. No reproducer harness yet.
+
+Resolved since this section was first written (kept here as a record of
+closed gaps, no remaining action):
+- **Triple-click paragraph selection** and **shift-click extension** —
+  re-verified against the current leaf-block model: the controller's
+  `mousedown` handler builds the span directly from the hit-test leaf
+  (`createSpan(createPosition(leafId, 0), …)`), no path arithmetic.
+- **Toolbar bold/italic/underline indicators** — superseded by the tested
+  `getActiveFormatting` engine query, which reads inline-item `attrs`
+  directly (the new model stores styles on text-item attrs, not span
+  nodes), and the example app's toolbar live-state wiring.
+- **Paste-then-select-all reverts content** (was: user-observed,
+  unprofiled) — investigated. The reducer path is provably
+  content-preserving: `PASTE` commits atomically in a single
+  transaction, `SELECT_ALL` is purely read-only (sets `selection`,
+  never mutates the block tree), and the DOM controller dispatches
+  both as stateless actions through React `useReducer` (no
+  stale-closure race). Locked by a regression test
+  (`actions/paste.test.ts` — "paste-then-select-all preserves
+  content"). Any residual symptom would live only in the browser
+  event / hidden-textarea sync layer and is covered by the user's
+  in-browser smoke.
 
 ### `perf/` `[implemented]`
 
@@ -296,12 +306,8 @@ documents fragment correctly across pages with content visibly inset
 from the page edges.
 
 Known issues:
-- Several editor utilities (triple-click, shift-click, toolbar
-  bold/italic indicators) need verification against the current
-  state-tree shape.
 - The visible word-spacing bug from `canvas-shaper` shows up most
   obviously here (adjacent words appear merged in seeded text).
-- Paste-then-select-all reverts content (see editor `[partial]`).
 - The example's perf fixture loader (activated via `?perfFixture=N`
   URL parameter) builds large synthetic documents; the per-page
   canvas-pool virtualization handles thousand-paragraph documents
