@@ -626,6 +626,21 @@ export function layoutBlock(
       listCounter++;
       markerText = resolveMarkerText(childCs, listCounter);
     }
+    // #431: a list-item whose content STRADDLES a page break must emit its
+    // marker only on the page where it STARTS — NOT on both the origin-page tail
+    // and the resume-page head. The resuming fragment is the FIRST child of the
+    // resumed BFC (`i === startIndex`) carrying a non-null resume token (a
+    // MID-CONTENT continuation; a null token at startIndex means a clean child
+    // boundary where the fresh child SHOULD show its marker). Google-Docs parity:
+    // a split list-item's continuation has no marker.
+    //
+    // The `listCounter++` above stays UNCONDITIONAL: numbering MUST advance even
+    // on the continuation. The resumed page's seed counts list-items in
+    // [0, startIndex) (EXCLUDING the resuming item at startIndex), so if the main
+    // loop skipped this increment the NEXT item (startIndex+1) would take the
+    // resuming item's number. We suppress only the marker-BOX creation below
+    // (covers both the explicit-markerText and the auto-counter branches).
+    const isResumeFragment = i === startIndex && firstChildResumeToken !== null;
     // #425: ordered-list consecutive-run rule (Google Docs). A "list" is a
     // maximal CONSECUTIVE run of `display: list-item` block children at one BFC
     // level. A non-list-item BLOCK child BREAKS the run, so the next list-item
@@ -693,20 +708,26 @@ export function layoutBlock(
         markerInlineSize + markerGap > childUsedStyle.paddingInlineStart
           ? markerInlineSize + markerGap
           : childUsedStyle.paddingInlineStart;
-      const effectiveContentEdge = childInlineStart + effectivePaddingInlineStart;
-      const markerInlineOffset = childCs.listStylePosition === "inside"
-        ? effectiveContentEdge
-        : effectiveContentEdge - markerInlineSize - markerGap;
-      const markerBox = createMarkerBox(
-        `${child.key}-marker`,
-        markerInlineOffset, childBlockOffset,
-        markerInlineSize, markerBlockSize,
-        cs.writingMode, cs.direction,
-        childCs, childUsedStyle,
-        markerText,
-        /* containingInlineSize */ contentInlineSize,
-      );
-      layoutChildren.push(markerBox);
+      // #431: still compute the auto-widen above on the resume fragment so the
+      // split item's CONTINUATION content keeps the same content edge as the
+      // origin fragment (the wrapped tail must align with the head). Only the
+      // marker BOX is suppressed — the resume fragment emits NO marker.
+      if (!isResumeFragment) {
+        const effectiveContentEdge = childInlineStart + effectivePaddingInlineStart;
+        const markerInlineOffset = childCs.listStylePosition === "inside"
+          ? effectiveContentEdge
+          : effectiveContentEdge - markerInlineSize - markerGap;
+        const markerBox = createMarkerBox(
+          `${child.key}-marker`,
+          markerInlineOffset, childBlockOffset,
+          markerInlineSize, markerBlockSize,
+          cs.writingMode, cs.direction,
+          childCs, childUsedStyle,
+          markerText,
+          /* containingInlineSize */ contentInlineSize,
+        );
+        layoutChildren.push(markerBox);
+      }
     }
 
     // When the marker auto-widened the gutter (#426), lay the child's content

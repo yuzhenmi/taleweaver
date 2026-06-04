@@ -299,15 +299,17 @@ describe("pagination integration — ordered-list counter across page breaks (#4
     });
   }
 
-  // Flatten markers across all pages in document order, dropping the duplicate
-  // that a list-item straddling the page break emits on BOTH the origin-page
-  // tail and the resume-page head (a geometry artifact orthogonal to #425's
-  // counter semantics — the same marker text appearing twice at the seam).
+  // Flatten markers across all pages in document order. Pre-#431, a list-item
+  // straddling a page break emitted its marker TWICE — on the origin-page tail
+  // AND the resume-page head — and this helper de-duplicated that seam artifact
+  // (orthogonal to #425's counter semantics). #431 fixed the double-emit at the
+  // source (the resume fragment now creates no MarkerBox), so the dedup below no
+  // longer fires in practice; it is retained as a harmless safety net.
   function flatMarkers(result: ReturnType<typeof paginatedHarness>): string[] {
     const flat: string[] = [];
     for (const page of markersByPage(result)) {
       for (const m of page) {
-        if (flat.length > 0 && flat[flat.length - 1] === m) continue; // seam dup
+        if (flat.length > 0 && flat[flat.length - 1] === m) continue; // pre-#431 seam-dup safety net (now a no-op)
         flat.push(m);
       }
     }
@@ -392,6 +394,54 @@ describe("pagination integration — ordered-list counter across page breaks (#4
     expect(autoMarkers).toEqual(Array.from({ length: 17 }, (_, i) => `${i + 1}.`));
     // And the page-2 head is not a phantom over-count.
     expect(byPage[1][0]).not.toBe("1."); // would mean a wrong restart
+  });
+
+  it("#431: a list-item whose CONTENT straddles a page break emits its marker only on the page it starts", () => {
+    // Items 1 and 2 are single-line. Item 3 has ~20 lines of text (15 words/line):
+    // it starts on page 1 (at line 3) and its content WRAPS across the page break,
+    // so its tail flows onto page 2 mid-item (a true content straddle, not a clean
+    // item-boundary break). Items 4, 5 are single-line and follow on page 2.
+    //
+    // Google-Docs parity: item 3's marker ("3.") must appear EXACTLY ONCE, on the
+    // page where item 3 STARTS (page 1). The page-2 head fragment of item 3 (its
+    // wrapped continuation) must produce NO MarkerBox. Subsequent items still
+    // number correctly (4., 5.). Before the #431 fix the resume fragment
+    // regenerated item 3's marker → "3." appeared on BOTH pages (raw count 2).
+    const straddleText = "word ".repeat(20 * 15).trim(); // ~20 lines of content
+    const items: RenderNode[] = [
+      listItem("li1", "item one"),
+      listItem("li2", "item two"),
+      {
+        type: "element" as const,
+        key: "li3",
+        style: { display: "list-item" },
+        children: [{ type: "text" as const, key: "li3-t", style: {}, text: straddleText }],
+      },
+      listItem("li4", "item four"),
+      listItem("li5", "item five"),
+    ];
+    const root = buildDocumentRoot([ol("olStraddle", items)]);
+    const result = paginatedHarness(root, PAGE);
+    expect(result.pages.length).toBeGreaterThanOrEqual(2);
+
+    // Assert on the RAW (non-deduped) per-page marker boxes — NOT through
+    // flatMarkers' seam-dedup, which would mask the double-marker.
+    const byPage = markersByPage(result);
+    const allRaw = byPage.flat();
+
+    // Item 3's marker "3." must appear EXACTLY ONCE across all pages.
+    expect(allRaw.filter((m) => m === "3.").length).toBe(1);
+
+    // "3." appears on page 1 (where item 3 starts), and the page-2 head fragment
+    // of item 3 (the first marker on page 2) is NOT "3." (no regenerated marker).
+    expect(byPage[0]).toContain("3.");
+    if (byPage[1].length > 0) {
+      expect(byPage[1][0]).not.toBe("3.");
+    }
+
+    // Subsequent items number correctly: the full marker sequence (deduped or not,
+    // since each appears once) is 1.,2.,3.,4.,5. in document order.
+    expect(allRaw).toEqual(["1.", "2.", "3.", "4.", "5."]);
   });
 
   it("list A + paragraph + list B that straddles the break: B continues B's run", () => {
