@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { listItemComponent } from "./list-item";
+import { paragraphComponent } from "./paragraph";
 import type { LeafBlockView, RenderContext } from "../render/block-view";
 import type { ElementBox } from "../render/render-node";
 import type { BlockId, State, ReadonlyAttrs } from "../state";
@@ -101,6 +102,56 @@ describe("listItemComponent (new)", () => {
   it("the structural padding is always present, even for a bare list-item", () => {
     const el = listItemComponent.render(leafView(), stubCtx(), []) as ElementBox;
     expect(el.style.paddingInlineStart as number).toBeGreaterThan(0);
+  });
+
+  // #418 — DELIBERATE inter-item spacing difference (property-lock, GREEN).
+  // A user reported list-item spacing looked "reduced." Investigation: WITHIN
+  // a list item, line spacing is CORRECT (same default lineHeight as a
+  // paragraph). BETWEEN consecutive list items the gap is ZERO — vs 0.5em
+  // between paragraphs — because the list-item component sets NO default
+  // marginBlockEnd while paragraph defaults marginBlockEnd: 0.5em. The zero
+  // inter-item gap is INTENTIONAL (tight, cohesive list packing — the
+  // Google-Docs / word-processor convention), NOT a bug. This test locks that
+  // deliberate difference so it can't silently regress. If Google-Docs parity
+  // ever requires inter-item spacing, this test + the list-item default margin
+  // must change together.
+  describe("#418 deliberate list-item vs paragraph spacing", () => {
+    function paragraphView(attrs: ReadonlyAttrs = {}): LeafBlockView {
+      return {
+        id: "p1" as BlockId,
+        type: "paragraph",
+        attrs: Object.freeze(attrs),
+        computedStyle: {} as ComputedStyle,
+        kind: "leaf",
+        inlineContent: { items: [] },
+      };
+    }
+
+    it("list-item has NO default block margins; paragraph defaults marginBlockEnd 0.5em", () => {
+      const li = listItemComponent.render(leafView(), stubCtx(), []) as ElementBox;
+      const p = paragraphComponent.render(paragraphView(), stubCtx(), []) as ElementBox;
+
+      // List-item: zero default block margins → consecutive items pack tightly.
+      expect("marginBlockStart" in li.style).toBe(false);
+      expect("marginBlockEnd" in li.style).toBe(false);
+
+      // Paragraph: default 0.5em marginBlockEnd → inter-paragraph spacing.
+      // (16px default fontSize → 0.5em resolves to 8px downstream.)
+      expect(p.style.marginBlockEnd).toEqual({ unit: "em", value: 0.5 });
+    });
+
+    it("WITHIN-item line spacing is the SAME as a paragraph (lineHeight not reduced)", () => {
+      // Neither component sets a default lineHeight on its style, so both
+      // inherit the identical cascaded default — a list item's own lines are
+      // spaced exactly like a paragraph's. (The reported "reduced" spacing was
+      // the zero INTER-item gap above, never a WITHIN-item lineHeight override.)
+      const li = listItemComponent.render(leafView(), stubCtx(), []) as ElementBox;
+      const p = paragraphComponent.render(paragraphView(), stubCtx(), []) as ElementBox;
+
+      expect("lineHeight" in li.style).toBe(false);
+      expect("lineHeight" in p.style).toBe(false);
+      expect(li.style.lineHeight).toEqual(p.style.lineHeight);
+    });
   });
 
   it("forwards a user marginInlineStart indent ON TOP OF the structural padding", () => {

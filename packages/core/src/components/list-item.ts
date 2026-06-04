@@ -73,8 +73,20 @@ export const listItemComponent: LeafComponentDefinition = {
       ...(lineHeight !== undefined ? { lineHeight } : {}),
       // User indent (INDENT/OUTDENT) composes ON TOP OF the structural padding.
       ...(marginInlineStart !== undefined ? { marginInlineStart } : {}),
-      // Paragraph-spacing attrs (list-item has no default block margins of its
-      // own, but supports the same space-before/after control). Absent → unset.
+      // Paragraph-spacing attrs (space-before/after control). Authored
+      // marginBlockStart/End apply when set — only the DEFAULT differs from
+      // paragraph.
+      //
+      // DESIGN RATIONALE (#418): a list-item intentionally has ZERO default
+      // block margins — UNLIKE the paragraph component, which defaults
+      // `marginBlockEnd: 0.5em` for inter-paragraph spacing. With no default
+      // marginBlockEnd, consecutive list items in one list collapse to a zero
+      // inter-item gap and pack tightly into a cohesive list, matching the
+      // Google-Docs / word-processor convention where list items are NOT
+      // separated by full inter-paragraph spacing. (WITHIN-item line spacing is
+      // unchanged: list-item and paragraph both inherit the same default
+      // lineHeight, so a list item's own lines are spaced exactly like a
+      // paragraph's.) Locked by a regression test in list-item.test.ts.
       ...(marginBlockStart !== undefined ? { marginBlockStart } : {}),
       ...(marginBlockEnd !== undefined ? { marginBlockEnd } : {}),
     };
