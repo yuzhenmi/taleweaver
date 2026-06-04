@@ -77,11 +77,6 @@ export function hashPaintInputs(box: LayoutBox): PaintInputHash {
   return h;
 }
 
-/**
- * Per-box paint-input hash cache. Keys are LayoutBox references (held in
- * a WeakMap so dropped boxes are auto-cleared). Persists across paints
- * to enable change detection.
- */
 /** Snapshot of the cursor's last paint inputs — used by the incremental paint
  * loop to detect cursor moves / blink-state changes that don't touch layout.
  * `null` means "no cursor painted last frame." */
@@ -92,6 +87,11 @@ export interface CursorSnapshot {
   readonly state: "active" | "inactive" | "hidden";
 }
 
+/**
+ * Per-box paint-input hash cache. Keys are LayoutBox references (held in
+ * a WeakMap so dropped boxes are auto-cleared). Persists across paints
+ * to enable change detection.
+ */
 export interface PaintCache {
   get(box: LayoutBox): PaintInputHash | undefined;
   set(box: LayoutBox, hash: PaintInputHash): void;
