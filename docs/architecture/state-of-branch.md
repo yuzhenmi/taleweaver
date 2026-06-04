@@ -227,8 +227,14 @@ find SESSION + navigation shipped on top: `findStart`/`findNext`/`findPrev`/
 `findClose` (returning `FindStatus`) run `findMatches`, highlight + cycle
 (wrap) the active match, scroll it into view via the generalized
 `scrollVisualIntoView` (without moving the doc cursor), and live-recompute
-on every doc edit in `update()`. The Ctrl+F / Ctrl+H find-bar React UI is
-the remaining F&R-UI slice.
+on every doc edit in `update()`. The controller's replace methods
+(`replaceActive` / `replaceAll`) + public `findStatus()` shipped: they
+dispatch `REPLACE_MATCH` / `REPLACE_ALL` from the live session and the find
+bar polls `findStatus()` each render for the authoritative count (the
+post-replace count lands via the live-recompute after the dispatched edit).
+`EditorView` exposes them through a `forwardRef` + `useImperativeHandle`
+`EditorViewHandle`. The Ctrl+F / Ctrl+H find-bar React UI (the bar component
++ keyboard wiring) is the remaining F&R-UI slice.
 
 Paint strategy is "clear-dirty + full-repaint" rather than true
 per-box compositing — the v1 ceiling without a layer compositor.

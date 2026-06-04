@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { createRef } from "react";
 import { render, act } from "@testing-library/react";
-import { EditorView } from "./editor-view";
+import { EditorView, type EditorViewHandle } from "./editor-view";
 import { useEditor } from "./use-editor";
 import { createEditorController } from "@taleweaver/dom";
 
@@ -18,6 +19,13 @@ Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
 
 const mockUpdate = vi.fn();
 const mockDestroy = vi.fn();
+const mockFindStart = vi.fn(() => ({ total: 3, activeIndex: 0 }));
+const mockFindNext = vi.fn(() => ({ total: 3, activeIndex: 1 }));
+const mockFindPrev = vi.fn(() => ({ total: 3, activeIndex: 2 }));
+const mockFindClose = vi.fn();
+const mockReplaceActive = vi.fn(() => ({ total: 2, activeIndex: 0 }));
+const mockReplaceAll = vi.fn(() => ({ total: 0, activeIndex: -1 }));
+const mockFindStatus = vi.fn(() => ({ total: 3, activeIndex: 0 }));
 
 vi.mock("@taleweaver/dom", async () => {
   const actual = await vi.importActual<typeof import("@taleweaver/dom")>(
@@ -28,6 +36,13 @@ vi.mock("@taleweaver/dom", async () => {
     createEditorController: vi.fn(() => ({
       update: mockUpdate,
       destroy: mockDestroy,
+      findStart: mockFindStart,
+      findNext: mockFindNext,
+      findPrev: mockFindPrev,
+      findClose: mockFindClose,
+      replaceActive: mockReplaceActive,
+      replaceAll: mockReplaceAll,
+      findStatus: mockFindStatus,
     })),
   };
 });
@@ -37,6 +52,13 @@ let originalResizeObserver: typeof ResizeObserver | undefined;
 beforeEach(() => {
   mockUpdate.mockClear();
   mockDestroy.mockClear();
+  mockFindStart.mockClear();
+  mockFindNext.mockClear();
+  mockFindPrev.mockClear();
+  mockFindClose.mockClear();
+  mockReplaceActive.mockClear();
+  mockReplaceAll.mockClear();
+  mockFindStatus.mockClear();
 
   originalResizeObserver = global.ResizeObserver;
   global.ResizeObserver = vi.fn().mockImplementation(() => ({
@@ -57,6 +79,11 @@ afterEach(() => {
 function EditorHarness() {
   const editor = useEditor();
   return <EditorView {...editor} />;
+}
+
+function RefHarness({ handleRef }: { handleRef: React.Ref<EditorViewHandle> }) {
+  const editor = useEditor();
+  return <EditorView {...editor} ref={handleRef} />;
 }
 
 function PaginatedEditorHarness() {
@@ -115,5 +142,54 @@ describe("EditorView", () => {
     const div = container.firstElementChild;
     expect(div).toBeDefined();
     expect(mockUpdate).toHaveBeenCalled();
+  });
+
+  // ── Imperative handle (#433 sub-slice A) ───────────────────────────────────
+
+  it("exposes the 7 find/replace methods on the forwarded ref handle", () => {
+    const handleRef = createRef<EditorViewHandle>();
+    render(<RefHarness handleRef={handleRef} />);
+
+    const handle = handleRef.current;
+    expect(handle).not.toBeNull();
+    expect(typeof handle?.findStart).toBe("function");
+    expect(typeof handle?.findNext).toBe("function");
+    expect(typeof handle?.findPrev).toBe("function");
+    expect(typeof handle?.findClose).toBe("function");
+    expect(typeof handle?.replaceActive).toBe("function");
+    expect(typeof handle?.replaceAll).toBe("function");
+    expect(typeof handle?.findStatus).toBe("function");
+  });
+
+  it("handle methods delegate to the controller (args forwarded + result returned)", () => {
+    const handleRef = createRef<EditorViewHandle>();
+    render(<RefHarness handleRef={handleRef} />);
+    const handle = handleRef.current;
+    if (handle === null) throw new Error("handle not mounted");
+
+    // findStart forwards the query + options and returns the controller's status.
+    expect(handle.findStart("foo", { caseSensitive: true })).toEqual({
+      total: 3,
+      activeIndex: 0,
+    });
+    expect(mockFindStart).toHaveBeenCalledWith("foo", { caseSensitive: true });
+
+    expect(handle.findNext()).toEqual({ total: 3, activeIndex: 1 });
+    expect(mockFindNext).toHaveBeenCalledTimes(1);
+
+    expect(handle.findPrev()).toEqual({ total: 3, activeIndex: 2 });
+    expect(mockFindPrev).toHaveBeenCalledTimes(1);
+
+    expect(handle.replaceActive("bar")).toEqual({ total: 2, activeIndex: 0 });
+    expect(mockReplaceActive).toHaveBeenCalledWith("bar");
+
+    expect(handle.replaceAll("bar")).toEqual({ total: 0, activeIndex: -1 });
+    expect(mockReplaceAll).toHaveBeenCalledWith("bar");
+
+    expect(handle.findStatus()).toEqual({ total: 3, activeIndex: 0 });
+    expect(mockFindStatus).toHaveBeenCalledTimes(1);
+
+    handle.findClose();
+    expect(mockFindClose).toHaveBeenCalledTimes(1);
   });
 });

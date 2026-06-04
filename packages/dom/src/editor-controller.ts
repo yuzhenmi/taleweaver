@@ -77,6 +77,11 @@ export interface EditorControllerOptions {
  * `total` matches found and the `activeIndex` of the currently-emphasized one
  * (the find bar shows "activeIndex+1 of total"). `total === 0` ⇒ no matches,
  * with `activeIndex === -1`.
+ *
+ * `activeIndex === -1` means "no match is currently emphasized" and can occur
+ * even when `total > 0` — e.g. a direct `setFindHighlights(matches, -1)` call
+ * highlights the matches without emphasizing any. A consumer (the find bar)
+ * must render this as "– of N" / "0 of N", NOT "-1 of N".
  */
 export interface FindStatus {
   readonly total: number;
@@ -105,6 +110,33 @@ export interface EditorController {
    * `{ caseSensitive: false, wholeWord: false }`. Returns the find status.
    */
   findStart(query: string, options?: FindMatchesOptions): FindStatus;
+  /**
+   * The current find status — `{ total, activeIndex }` for the active session
+   * (`total 0` / `activeIndex -1` when there's no session or no matches). The
+   * find bar polls this each render for the authoritative "n of N" count, since
+   * `replaceActive`/`replaceAll` dispatch asynchronously (the post-replace count
+   * only lands after the React reducer feeds the new state back via `update()`).
+   */
+  findStatus(): FindStatus;
+  /**
+   * Replace the ACTIVE find match with `replacement` (#433). When a session is
+   * active and there's an active match, dispatches `REPLACE_MATCH` with that
+   * match (`findHighlights.matches[activeIndex]`). Does NOT manually advance the
+   * active index — the live-recompute clamp in `update()` (after the dispatched
+   * edit refreshes state) advances it (the replaced match is gone, so the same
+   * index now points at the following match, clamped). Returns the CURRENT
+   * (pre-refresh) status; the find bar polls `findStatus()` after the update for
+   * the authoritative count. No-op (returns the current status, no dispatch) when
+   * there's no session / no active match.
+   */
+  replaceActive(replacement: string): FindStatus;
+  /**
+   * Replace EVERY match in the active session with `replacement` (#433) in one
+   * undo step — dispatches `REPLACE_ALL` with the session's matches
+   * (`findHighlights.matches`). Returns the current (pre-refresh) status. No-op
+   * (no dispatch) when there's no session / no matches.
+   */
+  replaceAll(replacement: string): FindStatus;
   /**
    * Advance to the next match (wrapping last → first), re-emphasize, and scroll
    * it into view. No-op (returns the current status, no scroll) when there are no
@@ -1380,6 +1412,32 @@ export function createEditorController(
     return { total: findHighlights.matches.length, activeIndex: findHighlights.activeIndex };
   }
 
+  function replaceActive(replacement: string): FindStatus {
+    if (destroyed || findHighlights === null) return findStatus();
+    const { matches, activeIndex } = findHighlights;
+    // No active match (out of range / empty set) → no-op.
+    if (activeIndex < 0 || activeIndex >= matches.length) return findStatus();
+    // Dispatch the engine action; the React reducer produces the new state and
+    // EditorView's effect calls `update()`, whose live recompute refreshes the
+    // highlights AND clamps the activeIndex onto the following match (the
+    // replaced one is gone). We do NOT advance the index here (that would
+    // double-advance / skip). Return the CURRENT (pre-refresh) status — the find
+    // bar polls `findStatus()` after the update for the authoritative count.
+    dispatch({ type: "REPLACE_MATCH", match: matches[activeIndex], replacement });
+    return findStatus();
+  }
+
+  function replaceAll(replacement: string): FindStatus {
+    if (destroyed || findHighlights === null) return findStatus();
+    const { matches } = findHighlights;
+    if (matches.length === 0) return findStatus();
+    // One undo step (guaranteed by the REPLACE_ALL action). The live recompute
+    // in the subsequent `update()` refreshes the highlights (typically empty for
+    // the replaced query). Return the current (pre-refresh) status.
+    dispatch({ type: "REPLACE_ALL", matches: [...matches], replacement });
+    return findStatus();
+  }
+
   /**
    * Scroll the active match into view via the active match's START
    * `PixelPosition` (Stage-1 `resolvedMatches[activeIndex].startPos`). NEVER
@@ -1538,6 +1596,9 @@ export function createEditorController(
     setFindHighlights,
     clearFindHighlights,
     findStart,
+    findStatus,
+    replaceActive,
+    replaceAll,
     findNext,
     findPrev,
     findClose,
