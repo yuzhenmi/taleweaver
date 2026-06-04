@@ -97,7 +97,7 @@ export interface PaintCache {
   set(box: LayoutBox, hash: PaintInputHash): void;
   /** Returns true if the cached hash matches the current input hash. */
   isUnchanged(box: LayoutBox): boolean;
-  /** Returns true if the cached hash matches the current input hash. */
+  /** Reset all per-box hashes and snapshots (cursor, selection, match highlights). */
   clear(): void;
   /** Get the root of the last walked tree, or null if no walk has happened. */
   getLastRoot(): LayoutBox | null;

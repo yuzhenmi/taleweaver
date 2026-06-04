@@ -4,7 +4,7 @@ import {
   planReplaceMatches,
   applyReplaceAllPlan,
   resolveBlock,
-  findItemAtOffset,
+  attrsAtOffset,
   createPosition,
   createSpan,
 } from "../../state";
@@ -13,20 +13,17 @@ import { rebuildTrees } from "./helpers";
 
 /**
  * Resolve the formatting the replacement text should take: the attrs of the run
- * containing the match's FIRST char (Google Docs behavior). Mirrors
- * `planReplaceMatches`'s `attrsAt` — `findItemAtOffset` returns the item at
- * `offset`; at a run boundary it returns the FOLLOWING run (the run the match
- * starts in). Falls back to `{}` when the block can't be resolved or the offset
- * lands at end-of-content / on an embed (unreachable for a real `TextMatch`).
+ * containing the match's FIRST char (Google Docs behavior). Shares the
+ * `attrsAtOffset` helper with `planReplaceMatches` (REPLACE_ALL) — at a run
+ * boundary it returns the FOLLOWING run (the run the match starts in). Falls
+ * back to `{}` when the block can't be resolved or the offset lands at
+ * end-of-content / on an embed (unreachable for a real `TextMatch`).
  */
 function attrsAtMatchStart(editor: EditorState, match: TextMatch): ReadonlyAttrs {
   const resolved = resolveBlock(editor.state, match.blockId);
   const inline = resolved?.block.inlineContent ?? null;
   if (inline === null) return {};
-  const { itemIndex } = findItemAtOffset(inline, match.start);
-  const item = inline.items[itemIndex];
-  if (item === undefined) return {};
-  return item.attrs;
+  return attrsAtOffset(inline, match.start);
 }
 
 /**

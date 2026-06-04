@@ -296,6 +296,7 @@ export function paintPage(
       paintMatchHighlights(ctx, matchHighlights, 0, pageBox.height);
 
       // Selection rects (over backgrounds, under text)
+      // Rects are already page-local and filtered to this page by the controller.
       if (selectionRects.length > 0) {
         ctx.fillStyle = SELECTION_FILL;
         for (const rect of selectionRects) {
@@ -373,20 +374,6 @@ export function paintPage(
 
 // ── Dirty-region detection (Task 3 + 4) ─────────────────────────────────────
 
-/**
- * Walk the layout tree and record the bounding rectangle of every box whose
- * paint-input hash differs from what is in `cache`.
- *
- * After the walk `cache` is updated so the next call sees the latest hashes.
- * The caller uses the returned `dirty` list to issue targeted clearRect calls
- * before a full repaint.
- *
- * @param box       Current node.
- * @param parentX   Accumulated x offset from parent nodes.
- * @param parentY   Accumulated y offset from parent nodes.
- * @param cache     Per-canvas PaintCache (1:1 with paint target).
- * @param dirty     Accumulator — rectangles of changed boxes are appended here.
- */
 /**
  * If the cursor's position or state has changed since the last paint, push
  * the OLD and NEW cursor rects into `dirty` so the paint loop clears + redraws
@@ -509,6 +496,20 @@ function addMatchHighlightDirty(
   }
 }
 
+/**
+ * Walk the layout tree and record the bounding rectangle of every box whose
+ * paint-input hash differs from what is in `cache`.
+ *
+ * After the walk `cache` is updated so the next call sees the latest hashes.
+ * The caller uses the returned `dirty` list to issue targeted clearRect calls
+ * before a full repaint.
+ *
+ * @param box       Current node.
+ * @param parentX   Accumulated x offset from parent nodes.
+ * @param parentY   Accumulated y offset from parent nodes.
+ * @param cache     Per-canvas PaintCache (1:1 with paint target).
+ * @param dirty     Accumulator — rectangles of changed boxes are appended here.
+ */
 function walkAndDetectChanges(
   box: LayoutBox,
   parentX: number,

@@ -5,7 +5,7 @@ import type { ReadonlyAttrs } from "../attrs";
 import {
   splitInlineContentAtOffset,
   mergeAdjacentTextItems,
-  findItemAtOffset,
+  attrsAtOffset,
   type InlineItem,
 } from "../inline-content";
 import type { BlockTreeKind } from "../yjs-doc";
@@ -70,24 +70,6 @@ function spliceRun(
   const right = splitInlineContentAtOffset({ items }, end)[1];
   const mid: InlineItem[] = text === "" ? [] : [{ kind: "text", text, attrs }];
   return mergeAdjacentTextItems([...left, ...mid, ...right], registry);
-}
-
-/**
- * The attrs for a replacement = the attrs of the run containing the match's
- * FIRST char (Google Docs behavior). `findItemAtOffset` returns the item at
- * `start`; at a run boundary it returns the FOLLOWING run (the run the match
- * starts in). Use it DIRECTLY — NOT `getActiveFormatting`/`cursorTextItem`,
- * which use left-of-cursor caret semantics (the opposite direction).
- *
- * Falls back to `{}` when the match starts at end-of-content (no item there) or
- * the run at `start` is an embed — neither happens for a real `findMatches`
- * match (a non-empty match starts inside text), but the planner stays total.
- */
-function attrsAt(items: ReadonlyArray<InlineItem>, start: number): ReadonlyAttrs {
-  const { itemIndex } = findItemAtOffset({ items }, start);
-  const item = items[itemIndex];
-  if (item === undefined) return {};
-  return item.attrs;
 }
 
 /**
@@ -167,7 +149,11 @@ export function planReplaceMatches(
         embedContentIdsToDelete,
       );
 
-      const attrs = attrsAt(items, m.start);
+      // attrs for the replacement = the run containing the match's FIRST char
+      // (Google Docs behavior; `findItemAtOffset`'s following-run boundary
+      // semantics). NOT `getActiveFormatting`/`cursorTextItem`, which use
+      // left-of-cursor caret semantics (the opposite direction).
+      const attrs = attrsAtOffset({ items }, m.start);
       items = spliceRun(items, m.start, m.end, replacement, attrs, registry);
     }
 

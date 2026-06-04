@@ -5,6 +5,7 @@ import type { BlockId } from "../block-id";
 import type { Span } from "../block-position";
 import type { ReadonlyAttrs } from "../attrs";
 import { normalizeSpan } from "../span-iteration";
+import { requireInTransaction } from "../yjs-doc";
 import {
   assertDeleteRangeEndpoints,
   deleteRangeInTx,
@@ -141,6 +142,7 @@ export function replaceRange(
  * `insertTextInTx` here.
  */
 export function replaceRangeInTx(doc: Y.Doc, plan: ReplaceRangePlan): void {
+  requireInTransaction(doc, "replaceRange");
   if (plan.deletePlan !== null) {
     deleteRangeInTx(doc, plan.deletePlan);
   }

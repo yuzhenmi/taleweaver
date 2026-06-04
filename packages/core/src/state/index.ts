@@ -97,6 +97,7 @@ export type {
 export {
   inlineContentLength,
   findItemAtOffset,
+  attrsAtOffset,
   mergeAdjacentTextItems,
   splitInlineContentAtOffset,
 } from "./inline-content";
@@ -188,6 +189,9 @@ export { deleteRange } from "./ops/delete-range";
 export { replaceRange } from "./ops/replace-range";
 export type { ReplaceAllPlan, BlockWrite } from "./ops/replace-matches";
 export {
+  // Planner + applier are split-exposed (unlike planDeleteRange etc., which stay
+  // private) so REPLACE_ALL can plan, then read the plan for cursor placement,
+  // before applying in one transaction.
   planReplaceMatches,
   replaceAllMatches,
   applyReplaceAllPlan,

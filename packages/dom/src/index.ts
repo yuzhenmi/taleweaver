@@ -16,6 +16,7 @@ export { createEditorController } from "./editor-controller";
 export type { EditorController, EditorControllerOptions, FindStatus } from "./editor-controller";
 export { ImageCache } from "./image-cache";
 export type { PaintInputHash, PaintCache } from "./paint-cache";
+export type { Rect, CursorSnapshot, MatchHighlightRectSnapshot } from "./paint-cache";
 export { hashPaintInputs, createPaintCache } from "./paint-cache";
 
 // Re-exports from core (backward compatibility)

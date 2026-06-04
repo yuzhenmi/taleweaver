@@ -49,6 +49,20 @@ const DEFAULT_PAGE_GAP = 24;
 const SCROLL_DURATION = 250;
 
 /**
+ * A find-match's boundary positions resolved against the current layout tree.
+ * Stage 1 (`resolveFindHighlights`) populates these; Stage 2 (paint) emits
+ * per-page rects from them without re-resolving. Internal to the controller.
+ */
+interface ResolvedMatch {
+  span: Span;
+  startPos: PixelPosition;
+  endPos: PixelPosition;
+  /** Boundary block straddles a page break → per-page rects can't see the
+   * other-page fragment; fall back to the full-bridge `computeSelectionRects`. */
+  spanned: boolean;
+}
+
+/**
  * Get the link URL at a Position, or null if the position isn't on
  * a hyperlink. Used by Cmd+Click handling.
  */
@@ -279,14 +293,6 @@ export function createEditorController(
   // `paintPages`/`paintSingle` (Stage 2) emit per-page rects from these without
   // ever re-resolving (the two-stage split that keeps next/prev + paint off the
   // `materializeAll` bridge — only a `spanned` match falls back to it).
-  interface ResolvedMatch {
-    span: Span;
-    startPos: PixelPosition;
-    endPos: PixelPosition;
-    /** Boundary block straddles a page break → per-page rects can't see the
-     * other-page fragment; fall back to the full-bridge `computeSelectionRects`. */
-    spanned: boolean;
-  }
   let resolvedMatches: ResolvedMatch[] = [];
 
   // ── Page model (paginated mode) ──────────────────────────────────────────
@@ -1344,10 +1350,13 @@ export function createEditorController(
     // session alive with an empty (no-match) highlight set.
     if (findSession !== null) {
       const matches = findMatches(state.state, findSession.query, findSession.options);
-      // `-1` (the no-active-match sentinel) is the safe default: findHighlights is
-      // non-null whenever findSession is, so this branch is normally unreachable,
-      // but using `-1` (not `0`) means an invariant break can't silently land the
-      // user on index 0 — `Math.max(prior, 0)` still clamps to 0 when total > 0.
+      // `-1` (the no-active-match sentinel) is the safe default. The `?.` is
+      // correct, not defensive padding: `setFindHighlights` is public and can
+      // set `findHighlights` directly (without a session), so the
+      // findSession-implies-findHighlights pairing isn't enforced — findHighlights
+      // may legitimately be null here. Using `-1` (not `0`) means a null
+      // findHighlights can't silently land the user on index 0 —
+      // `Math.max(prior, 0)` still clamps to 0 when total > 0.
       const prior = findHighlights?.activeIndex ?? -1;
       const activeIndex =
         matches.length === 0 ? -1 : Math.min(Math.max(prior, 0), matches.length - 1);
@@ -1386,8 +1395,11 @@ export function createEditorController(
     if (destroyed) return;
     findHighlights = { matches, activeIndex };
     // Stage 1: resolve boundary positions against the current layout, then
-    // repaint. `addMatchHighlightDirty` marks the affected page regions so the
-    // incremental path doesn't short-circuit (layout + cursor are unchanged).
+    // repaint. A bare `paint()` suffices: the renderer drives the match-highlight
+    // dirty bookkeeping. Inside paintPage/paintCanvas, `addMatchHighlightDirty`
+    // (in canvas-renderer.ts) compares `cache.getLastMatchHighlightRects()` vs
+    // the current rects each paint, so the incremental path doesn't short-circuit
+    // even though layout + cursor are unchanged.
     resolveFindHighlights();
     paint();
   }
@@ -1397,8 +1409,11 @@ export function createEditorController(
     if (findHighlights === null && resolvedMatches.length === 0) return;
     findHighlights = null;
     resolvedMatches = [];
-    // Repaint: `addMatchHighlightDirty` dirties the PRIOR rects' regions so the
-    // old highlight band is erased.
+    // A bare `paint()` suffices: the dirty-region bookkeeping happens inside the
+    // renderer. `addMatchHighlightDirty` (in canvas-renderer.ts) compares
+    // `cache.getLastMatchHighlightRects()` vs the now-empty current set each
+    // paint, so it dirties the PRIOR rects' regions and the old highlight band
+    // is erased.
     paint();
   }
 
@@ -1496,7 +1511,10 @@ export function createEditorController(
     if (matches.length === 0) {
       // Keep the session active (so a later edit live-recomputes), but no match.
       setFindHighlights(matches, -1);
-      return { total: 0, activeIndex: -1 };
+      // `findStatus()` is the single source of truth (matches findNext/findPrev):
+      // after `setFindHighlights(matches, -1)` with empty matches it returns
+      // `{ total: 0, activeIndex: -1 }`.
+      return findStatus();
     }
     const activeIndex = initialActiveIndex(matches);
     setFindHighlights(matches, activeIndex);
