@@ -11,6 +11,8 @@ import {
   resolvePixelPosition,
   resolvePositionFromPixel,
   selectionContextOf,
+  comparePositions,
+  findMatches,
   computeSelectionRects,
   computeSelectionRectsForPage,
   resolvePositionedTree,
@@ -29,6 +31,7 @@ import {
   type SelectionRect,
   type PixelPosition,
   type TextMatch,
+  type FindMatchesOptions,
   type Span,
 } from "@taleweaver/core";
 import { mapKeyEvent } from "./key-handler";
@@ -69,6 +72,17 @@ export interface EditorControllerOptions {
   pageGap?: number;
 }
 
+/**
+ * The state of an active find session, surfaced to the find-bar UI (#433):
+ * `total` matches found and the `activeIndex` of the currently-emphasized one
+ * (the find bar shows "activeIndex+1 of total"). `total === 0` ⇒ no matches,
+ * with `activeIndex === -1`.
+ */
+export interface FindStatus {
+  readonly total: number;
+  readonly activeIndex: number;
+}
+
 export interface EditorController {
   update(editorState: EditorState): void;
   focus(): void;
@@ -82,6 +96,32 @@ export interface EditorController {
   setFindHighlights(matches: readonly TextMatch[], activeIndex: number): void;
   /** Hide the find-match highlight overlay and repaint (erases the band). */
   clearFindHighlights(): void;
+  /**
+   * Start a find session (#433): run `findMatches(state, query, options)`,
+   * highlight every match, pick the initial active match (the first at/after the
+   * document cursor — Google Docs "find from here"), and scroll it into view.
+   * Stores the session so a doc edit live-recomputes the matches (in `update()`).
+   * Calling it again overwrites the session and re-queries. `options` defaults to
+   * `{ caseSensitive: false, wholeWord: false }`. Returns the find status.
+   */
+  findStart(query: string, options?: FindMatchesOptions): FindStatus;
+  /**
+   * Advance to the next match (wrapping last → first), re-emphasize, and scroll
+   * it into view. No-op (returns the current status, no scroll) when there are no
+   * matches. Does NOT move the document cursor.
+   */
+  findNext(): FindStatus;
+  /**
+   * Retreat to the previous match (wrapping first → last), re-emphasize, and
+   * scroll it into view. No-op when there are no matches. Does NOT move the
+   * document cursor.
+   */
+  findPrev(): FindStatus;
+  /**
+   * End the find session: clear the highlights and forget the session. Does NOT
+   * move the document selection (Google Docs keeps the caret where it was).
+   */
+  findClose(): void;
 }
 
 export function createEditorController(
@@ -195,6 +235,13 @@ export function createEditorController(
   let findHighlights:
     | { matches: readonly TextMatch[]; activeIndex: number }
     | null = null;
+  // The active find SESSION (#433): the query + options that drive the matches.
+  // `null` = no session. Distinct from `findHighlights` (the resolved matches +
+  // activeIndex for rendering): the session is what makes a doc edit
+  // live-recompute the matches in `update()`. `findStart` sets it; `findClose`
+  // and `destroy` null it. `findNext`/`findPrev` only move the activeIndex held
+  // in `findHighlights` — the session (query/options) is unchanged.
+  let findSession: { query: string; options: FindMatchesOptions } | null = null;
   // Stage-1 resolved boundary positions, ONE per match, recomputed in
   // `resolveFindHighlights()` (on `update()`/matches change — NOT on blink).
   // `paintPages`/`paintSingle` (Stage 2) emit per-page rects from these without
@@ -583,37 +630,50 @@ export function createEditorController(
 
   function scrollCursorIntoView() {
     if (!focused || !state) return;
+    scrollVisualIntoView(cursorPos);
+  }
+
+  /**
+   * Scroll a visual position into view (smooth). Takes a `{pageIndex, y,
+   * height}` — the cursor path passes `cursorPos`; the find-session path passes
+   * an active match's start `PixelPosition`. Unlike `scrollCursorIntoView`, this
+   * has NO `!focused`/`!state` guard: it reads only `pos` + the closure-local
+   * `pageSlotGeoms`/`container`/`scrollParent`, all valid after ≥1 `update()`.
+   * Find callers (the find bar holds focus, not the canvas) scroll regardless of
+   * the editor's focus, by calling this directly with the match position.
+   */
+  function scrollVisualIntoView(pos: { pageIndex: number; y: number; height: number }) {
     const sp = scrollParent;
 
-    // Compute visual Y from the cursor's page slot. Per-page geometry (C.2b-2):
+    // Compute visual Y from the target's page slot. Per-page geometry (C.2b-2):
     // the page's document-y is its slot `top` (running-sum offset), NOT a
     // uniform `pageIndex * (pageHeight + pageGap)`. Paginated-vs-not is keyed on
     // slot presence (an empty `pageSlotGeoms` ⇒ non-paginated single canvas).
-    const cursorSlot = pageSlotGeoms[cursorPos.pageIndex];
-    const cursorVisualY =
-      pageCount() > 0 && cursorSlot ? cursorSlot.top + cursorPos.y : cursorPos.y;
-    const cursorH = cursorPos.height;
+    const targetSlot = pageSlotGeoms[pos.pageIndex];
+    const targetVisualY =
+      pageCount() > 0 && targetSlot ? targetSlot.top + pos.y : pos.y;
+    const targetH = pos.height;
     const scrollPadding = 64;
 
     const containerRect = container.getBoundingClientRect();
 
     if (sp instanceof Window) {
-      const cursorScreenTop = containerRect.top + cursorVisualY;
-      const cursorScreenBottom = cursorScreenTop + cursorH + scrollPadding;
-      if (cursorScreenBottom > sp.innerHeight) {
-        smoothScrollTo(sp, sp.scrollY + cursorScreenBottom - sp.innerHeight, SCROLL_DURATION);
-      } else if (cursorScreenTop < 0) {
-        smoothScrollTo(sp, sp.scrollY + cursorScreenTop - scrollPadding, SCROLL_DURATION);
+      const targetScreenTop = containerRect.top + targetVisualY;
+      const targetScreenBottom = targetScreenTop + targetH + scrollPadding;
+      if (targetScreenBottom > sp.innerHeight) {
+        smoothScrollTo(sp, sp.scrollY + targetScreenBottom - sp.innerHeight, SCROLL_DURATION);
+      } else if (targetScreenTop < 0) {
+        smoothScrollTo(sp, sp.scrollY + targetScreenTop - scrollPadding, SCROLL_DURATION);
       }
     } else if (typeof sp.getBoundingClientRect === "function") {
       const spRect = sp.getBoundingClientRect();
-      const cursorInSp = containerRect.top - spRect.top + sp.scrollTop + cursorVisualY;
+      const targetInSp = containerRect.top - spRect.top + sp.scrollTop + targetVisualY;
       const visTop = sp.scrollTop;
       const visBottom = sp.scrollTop + sp.clientHeight;
-      if (cursorInSp + cursorH + scrollPadding > visBottom) {
-        smoothScrollTo(sp, cursorInSp + cursorH + scrollPadding - sp.clientHeight, SCROLL_DURATION);
-      } else if (cursorInSp < visTop + scrollPadding) {
-        smoothScrollTo(sp, Math.max(0, cursorInSp - scrollPadding), SCROLL_DURATION);
+      if (targetInSp + targetH + scrollPadding > visBottom) {
+        smoothScrollTo(sp, targetInSp + targetH + scrollPadding - sp.clientHeight, SCROLL_DURATION);
+      } else if (targetInSp < visTop + scrollPadding) {
+        smoothScrollTo(sp, Math.max(0, targetInSp - scrollPadding), SCROLL_DURATION);
       }
     }
   }
@@ -1243,6 +1303,30 @@ export function createEditorController(
     }
     markEnd("ctrl.selectionRects", tSel);
 
+    // Find live-recompute (D9): while a session is active, re-run findMatches
+    // against the fresh state after every doc change. Preserve the user's place
+    // by clamping the activeIndex into the new range (if the prior active match
+    // was deleted the clamp lands on a surviving neighbor — accepted v1 behavior,
+    // no identity remap). Does NOT scroll (only findStart/Next/Prev scroll) — a
+    // recompute mid-typing must not yank the viewport. `total === 0` keeps the
+    // session alive with an empty (no-match) highlight set.
+    if (findSession !== null) {
+      const matches = findMatches(state.state, findSession.query, findSession.options);
+      // `-1` (the no-active-match sentinel) is the safe default: findHighlights is
+      // non-null whenever findSession is, so this branch is normally unreachable,
+      // but using `-1` (not `0`) means an invariant break can't silently land the
+      // user on index 0 — `Math.max(prior, 0)` still clamps to 0 when total > 0.
+      const prior = findHighlights?.activeIndex ?? -1;
+      const activeIndex =
+        matches.length === 0 ? -1 : Math.min(Math.max(prior, 0), matches.length - 1);
+      // Direct assignment (not `setFindHighlights(...)`): that helper calls
+      // `paint()`, which is redundant here because `update()` calls `paint()`
+      // unconditionally below. We still invoke `resolveFindHighlights()` (just
+      // past this block) to refresh the match geometry. A future maintainer
+      // adding bookkeeping to `setFindHighlights` must mirror it here.
+      findHighlights = { matches, activeIndex };
+    }
+
     // Find-highlight Stage 1: re-resolve each match's boundary positions against
     // the fresh layout tree (matches geometry can shift when the doc changes).
     resolveFindHighlights();
@@ -1286,6 +1370,109 @@ export function createEditorController(
     paint();
   }
 
+  // ── Find session + navigation (#433) ─────────────────────────────────────
+
+  /** The current find status from `findHighlights` (total + activeIndex). */
+  function findStatus(): FindStatus {
+    if (findHighlights === null || findHighlights.matches.length === 0) {
+      return { total: 0, activeIndex: -1 };
+    }
+    return { total: findHighlights.matches.length, activeIndex: findHighlights.activeIndex };
+  }
+
+  /**
+   * Scroll the active match into view via the active match's START
+   * `PixelPosition` (Stage-1 `resolvedMatches[activeIndex].startPos`). NEVER
+   * moves the document cursor. No-op when there is no active match or its
+   * position hasn't resolved (off-layout block). Scrolls regardless of editor
+   * focus (the find bar holds focus) — `scrollVisualIntoView` has no focus guard.
+   */
+  function scrollActiveMatchIntoView(): void {
+    if (findHighlights === null) return;
+    const { activeIndex } = findHighlights;
+    const rm = resolvedMatches[activeIndex];
+    if (rm === undefined) return;
+    scrollVisualIntoView(rm.startPos);
+  }
+
+  /**
+   * The initial active index for `findStart`: the first match whose start is
+   * at-or-after the document cursor (Google Docs "find from here"), wrapping to 0
+   * if none follow. 0 when there's no resolvable cursor, or when the cursor and
+   * the matches live in different selection contexts (`comparePositions` throws
+   * "no common ancestor" — guarded here).
+   */
+  function initialActiveIndex(matches: readonly TextMatch[]): number {
+    const st = state;
+    if (st === null || matches.length === 0) return 0;
+    const cursorPosn = st.selection.focus;
+    // Cross-context guard: a cursor in a footnote/header body and main-tree
+    // matches have no common ancestor → comparePositions throws. Fall back to 0.
+    if (selectionContextOf(st.state, cursorPosn.blockId) !==
+        selectionContextOf(st.state, matches[0].blockId)) {
+      return 0;
+    }
+    for (let i = 0; i < matches.length; i++) {
+      const m = matches[i];
+      const matchStart = createPosition(m.blockId, m.start);
+      try {
+        if (comparePositions(st.state, matchStart, cursorPosn) >= 0) return i;
+      } catch {
+        /* cross-context (e.g. caller passed cross-context `blockIds`): this match
+           lives in a different selection context than the cursor, so
+           comparePositions throws "no common ancestor". The pre-check above only
+           compares the cursor to matches[0]; with caller-supplied blockIds later
+           matches can still span contexts. Treat this match as not-after-cursor
+           and fall through — eventually wrapping to the first match (return 0). */
+      }
+    }
+    // No match at/after the cursor → wrap to the first match.
+    return 0;
+  }
+
+  function findStart(query: string, options?: FindMatchesOptions): FindStatus {
+    if (destroyed || state === null) return { total: 0, activeIndex: -1 };
+    const opts: FindMatchesOptions = options ?? { caseSensitive: false, wholeWord: false };
+    findSession = { query, options: opts };
+    const matches = findMatches(state.state, query, opts);
+    if (matches.length === 0) {
+      // Keep the session active (so a later edit live-recomputes), but no match.
+      setFindHighlights(matches, -1);
+      return { total: 0, activeIndex: -1 };
+    }
+    const activeIndex = initialActiveIndex(matches);
+    setFindHighlights(matches, activeIndex);
+    scrollActiveMatchIntoView();
+    return { total: matches.length, activeIndex };
+  }
+
+  function findNext(): FindStatus {
+    if (destroyed || findHighlights === null) return findStatus();
+    const total = findHighlights.matches.length;
+    if (total === 0) return findStatus();
+    const activeIndex = (findHighlights.activeIndex + 1) % total;
+    setFindHighlights(findHighlights.matches, activeIndex);
+    scrollActiveMatchIntoView();
+    return { total, activeIndex };
+  }
+
+  function findPrev(): FindStatus {
+    if (destroyed || findHighlights === null) return findStatus();
+    const total = findHighlights.matches.length;
+    if (total === 0) return findStatus();
+    const activeIndex = (findHighlights.activeIndex - 1 + total) % total;
+    setFindHighlights(findHighlights.matches, activeIndex);
+    scrollActiveMatchIntoView();
+    return { total, activeIndex };
+  }
+
+  function findClose(): void {
+    if (destroyed) return;
+    findSession = null;
+    // Does NOT move the document selection — the caret stays where it was.
+    clearFindHighlights();
+  }
+
   function destroy() {
     destroyed = true;
     layoutTree = null;
@@ -1297,6 +1484,7 @@ export function createEditorController(
     selSpanningFallback = false;
     findHighlights = null;
     resolvedMatches = [];
+    findSession = null;
 
     // Remove event listeners
     container.removeEventListener("mousedown", handleMouseDown);
@@ -1343,5 +1531,15 @@ export function createEditorController(
     textarea.focus();
   }
 
-  return { update, focus, destroy, setFindHighlights, clearFindHighlights };
+  return {
+    update,
+    focus,
+    destroy,
+    setFindHighlights,
+    clearFindHighlights,
+    findStart,
+    findNext,
+    findPrev,
+    findClose,
+  };
 }

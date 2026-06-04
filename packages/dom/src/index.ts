@@ -13,7 +13,7 @@ export {
   ACTIVE_MATCH_HIGHLIGHT_FILL,
 } from "./canvas-renderer";
 export { createEditorController } from "./editor-controller";
-export type { EditorController, EditorControllerOptions } from "./editor-controller";
+export type { EditorController, EditorControllerOptions, FindStatus } from "./editor-controller";
 export { ImageCache } from "./image-cache";
 export type { PaintInputHash, PaintCache } from "./paint-cache";
 export { hashPaintInputs, createPaintCache } from "./paint-cache";
@@ -29,3 +29,6 @@ export { collectLineBoxes, collectLineLeaves, findLineForPosition } from "@talew
 export { createInitialEditorState, reduceEditor } from "@taleweaver/core";
 export type { CounterFormat, FootnoteNumberingPolicy } from "@taleweaver/core";
 export { documentFootnotePolicy } from "@taleweaver/core";
+// Find & Replace (#433): re-export the find primitives the find-bar UI needs.
+export { findMatches } from "@taleweaver/core";
+export type { TextMatch, FindMatchesOptions } from "@taleweaver/core";

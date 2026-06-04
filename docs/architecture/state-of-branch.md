@@ -222,8 +222,13 @@ highlights → selection → text`: the find-match highlight overlay
 (`MatchHighlightRect[]`, #433) paints under the selection tint and under
 text, with `addMatchHighlightDirty` per-page dirty marking so a next/prev
 (active-index change) repaints. The controller's `setFindHighlights` /
-`clearFindHighlights` drive it via a two-stage rect resolution; the
-find-session + Ctrl+F find-bar are later F&R-UI slices.
+`clearFindHighlights` drive it via a two-stage rect resolution. The
+find SESSION + navigation shipped on top: `findStart`/`findNext`/`findPrev`/
+`findClose` (returning `FindStatus`) run `findMatches`, highlight + cycle
+(wrap) the active match, scroll it into view via the generalized
+`scrollVisualIntoView` (without moving the doc cursor), and live-recompute
+on every doc edit in `update()`. The Ctrl+F / Ctrl+H find-bar React UI is
+the remaining F&R-UI slice.
 
 Paint strategy is "clear-dirty + full-repaint" rather than true
 per-box compositing — the v1 ceiling without a layer compositor.
