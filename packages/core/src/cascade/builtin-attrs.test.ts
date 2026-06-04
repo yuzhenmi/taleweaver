@@ -343,6 +343,36 @@ describe("wordSpacingInterpreter", () => {
   });
 });
 
+import { textTransformInterpreter } from "./builtin-attrs";
+
+describe("textTransformInterpreter", () => {
+  it("contributes textTransform for each valid CSS keyword", () => {
+    expect(textTransformInterpreter.attrKey).toBe("textTransform");
+    expect(textTransformInterpreter.toStyle("none")).toEqual({ textTransform: "none" });
+    expect(textTransformInterpreter.toStyle("capitalize")).toEqual({ textTransform: "capitalize" });
+    expect(textTransformInterpreter.toStyle("uppercase")).toEqual({ textTransform: "uppercase" });
+    expect(textTransformInterpreter.toStyle("lowercase")).toEqual({ textTransform: "lowercase" });
+  });
+
+  it("contributes nothing for unknown string values", () => {
+    expect(textTransformInterpreter.toStyle("bogus")).toEqual({});
+    expect(textTransformInterpreter.toStyle("small-caps")).toEqual({});
+    expect(textTransformInterpreter.toStyle("")).toEqual({});
+  });
+
+  it("contributes nothing for non-string values", () => {
+    expect(textTransformInterpreter.toStyle(undefined)).toEqual({});
+    expect(textTransformInterpreter.toStyle(null)).toEqual({});
+    expect(textTransformInterpreter.toStyle(42)).toEqual({});
+  });
+
+  it("is registered by registerBuiltinAttrs (guards the declared-but-unregistered regression)", () => {
+    const r = new AttrRegistry();
+    registerBuiltinAttrs(r);
+    expect(r.has("textTransform")).toBe(true);
+  });
+});
+
 import { registerBuiltinAttrs } from "./builtin-attrs";
 import { AttrRegistry } from "./attr-registry";
 
@@ -371,6 +401,7 @@ describe("registerBuiltinAttrs", () => {
     expect(r.has("textIndent")).toBe(true);
     expect(r.has("letterSpacing")).toBe(true);
     expect(r.has("wordSpacing")).toBe(true);
+    expect(r.has("textTransform")).toBe(true);
   });
 
   it("end-to-end: a typical inline attrs bag produces the expected Style contribution", () => {

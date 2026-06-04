@@ -1,4 +1,9 @@
-export type TextTransform = "none" | "capitalize" | "uppercase" | "lowercase";
+import type { TextTransform } from "../styles/style";
+
+// Re-export the canonical `TextTransform` (defined in `styles/style.ts`, the
+// lower layer) so existing importers of `layout/text-transform`'s
+// `TextTransform` keep working without a wrong-direction styles→layout import.
+export type { TextTransform };
 
 /**
  * Transform one run's text per `mode`. Returns the display string + per SOURCE

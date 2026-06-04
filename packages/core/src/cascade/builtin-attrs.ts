@@ -1,5 +1,5 @@
 import type { AttrInterpreter } from "./attr-registry";
-import type { Length, Style } from "../styles";
+import type { Length, Style, TextTransform } from "../styles";
 
 /**
  * Built-in attribute interpreters for the standard text styles.
@@ -204,6 +204,36 @@ export const textAlignInterpreter: AttrInterpreter = {
   toStyle: (value) => (isTextAlign(value) ? { textAlign: value } : {}),
 };
 
+const VALID_TEXT_TRANSFORMS = [
+  "none",
+  "capitalize",
+  "uppercase",
+  "lowercase",
+] as const;
+
+/**
+ * Type guard for the CSS `text-transform` keywords (`"none" | "capitalize" |
+ * "uppercase" | "lowercase"`). The canonical `TextTransform` type lives in
+ * `styles/style.ts`; the layout pass consumes it to map glyphs to display case.
+ */
+function isTextTransform(value: unknown): value is TextTransform {
+  return (
+    typeof value === "string" &&
+    (VALID_TEXT_TRANSFORMS as readonly string[]).includes(value)
+  );
+}
+
+/**
+ * textTransform accepts only the CSS keywords declared on
+ * `Style.textTransform`: `"none" | "capitalize" | "uppercase" | "lowercase"`.
+ * Any other value contributes nothing.
+ */
+export const textTransformInterpreter: AttrInterpreter = {
+  attrKey: "textTransform",
+  toStyle: (value) =>
+    isTextTransform(value) ? { textTransform: value } : {},
+};
+
 /**
  * lineHeight accepts:
  *   - `number` → unitless ratio (preferred; inherits as a ratio so children
@@ -272,6 +302,7 @@ export function registerBuiltinAttrs(registry: AttrRegistry): void {
   // C-C: typography interpreters for inheritable text properties that
   // no component synthesizes.
   registry.register(textAlignInterpreter);
+  registry.register(textTransformInterpreter);
   registry.register(lineHeightInterpreter);
   registry.register(textIndentInterpreter);
   registry.register(letterSpacingInterpreter);

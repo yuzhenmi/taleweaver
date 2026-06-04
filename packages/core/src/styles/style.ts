@@ -25,6 +25,7 @@ export type WhiteSpace = "normal" | "nowrap" | "pre" | "pre-wrap" | "pre-line" |
 export type VerticalAlign = "baseline" | "sub" | "super" | "top" | "middle" | "bottom";
 
 export type TextAlign = "start" | "end" | "center" | "justify";
+export type TextTransform = "none" | "capitalize" | "uppercase" | "lowercase";
 
 export type Float = "none" | "inline-start" | "inline-end";
 export type Clear = "none" | "inline-start" | "inline-end" | "both";
@@ -113,7 +114,7 @@ export interface Style {
   readonly hyphens?:             "none" | "manual" | "auto";
   readonly letterSpacing?:       Length | "normal";
   readonly wordSpacing?:         Length | "normal";
-  readonly textTransform?:       "none" | "capitalize" | "uppercase" | "lowercase";
+  readonly textTransform?:       TextTransform;
   readonly fontFeatureSettings?: readonly string[];
   readonly tabSize?:             number;
 

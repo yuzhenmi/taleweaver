@@ -1,6 +1,6 @@
 import type {
   Display, BorderStyle, FontWeight, FontStyle,
-  WhiteSpace, VerticalAlign, TextAlign, Float, Clear,
+  WhiteSpace, VerticalAlign, TextAlign, TextTransform, Float, Clear,
   BreakBefore, BreakAfter, BreakInside,
   ListStyleType, ListStylePosition, BoxSizing,
 } from "./style";
@@ -71,7 +71,7 @@ export interface ComputedStyle {
   hyphens:             "none" | "manual" | "auto";
   letterSpacing:       ComputedLength | "normal";
   wordSpacing:         ComputedLength | "normal";
-  textTransform:       "none" | "capitalize" | "uppercase" | "lowercase";
+  textTransform:       TextTransform;
   fontFeatureSettings: readonly string[];
   tabSize:             number;
 
