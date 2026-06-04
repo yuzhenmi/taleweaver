@@ -428,7 +428,21 @@ function resolvePositionInOwnLines(
         // clamp): an offset inside the collapsed tail measures to the run's
         // rendered right edge, which is the visual boundary before the next
         // run/word.
-        const localChar = Math.min(localOffset, leaf.box.text.length);
+        // For a length-changing text-transform leaf (e.g. uppercase ß→SS),
+        // `leaf.box.text` is the DISPLAY string but `localOffset` is a STATE
+        // offset, so slicing display by state would land the caret mid-glyph.
+        // `sourceDisplayLengths[i]` is the display-unit count produced by the
+        // i-th STATE code unit; summing the counts for the state units BEFORE
+        // `localOffset` gives the matching display index. When it's undefined
+        // (the common case — 1:1 / untransformed leaves) state offset === display
+        // index, so this is identical to the old `Math.min(localOffset, …)`.
+        const sdl = leaf.box.sourceDisplayLengths;
+        const localChar = sdl
+          ? Math.min(
+              sdl.slice(0, localOffset).reduce((a, b) => a + b, 0),
+              leaf.box.text.length,
+            )
+          : Math.min(localOffset, leaf.box.text.length);
         const prefix = leaf.box.text.slice(0, localChar);
         const xOffset = measurer.measureWidth(prefix, leaf.computedStyle);
         // #338 P2 — clamp the caret to the LEAF's own box right edge. For a

@@ -435,4 +435,74 @@ describe("resolvePixelPosition (new)", () => {
     expect(resultMid.x).toBe(24); // 16 + 8
     expect(resultMid.y).toBe(0);
   });
+
+  /**
+   * Build a single-paragraph document whose text run carries a `textTransform`
+   * inline attr. The inline cascade computes the transform onto the run's
+   * `ComputedStyle.textTransform`, so the IFC produces a DISPLAY string (e.g.
+   * "aß" + uppercase → "ASS") and, when length-changing, a
+   * `sourceDisplayLengths` map on the leaf box.
+   */
+  function transformedParagraph(textContent: string, textTransform: string): State {
+    return buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({
+          id: "doc",
+          type: "document",
+          firstChildId: "p",
+          lastChildId: "p",
+        }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([text(textContent, { textTransform })]),
+        }),
+      ],
+    });
+  }
+
+  it("remaps within-leaf STATE offset to display index for a length-changing transform (ß→SS)", () => {
+    // "aß" under text-transform: uppercase renders the DISPLAY string "ASS"
+    // (ß→SS, length-changing). The leaf carries sourceDisplayLengths [1, 2].
+    // The caret must measure the DISPLAY prefix, not slice the display string
+    // by the raw STATE offset.
+    const state = transformedParagraph("aß", "uppercase");
+    const { layout, shaper } = pipeline(state, 800);
+
+    // state offset 0 → leaf left edge (no glyph rendered).
+    const r0 = resolvePixelPosition(state, createPosition("p" as BlockId, 0), layout, shaper);
+    expect(r0?.x).toBe(0);
+
+    // state offset 1 (between "a" and "ß") → after "A" → +8.
+    const r1 = resolvePixelPosition(state, createPosition("p" as BlockId, 1), layout, shaper);
+    expect(r1?.x).toBe(8);
+
+    // state offset 2 (after "ß") → after the WHOLE "SS" → +24 (NOT +16, which a
+    // raw `text.slice(0, 2)` = "AS" would give).
+    const r2 = resolvePixelPosition(state, createPosition("p" as BlockId, 2), layout, shaper);
+    expect(r2?.x).toBe(24);
+  });
+
+  it("leaves the caret unchanged for a 1:1 transform (uppercase, no length change)", () => {
+    // "ab" uppercased → "AB", a 1:1 transform — sourceDisplayLengths is
+    // undefined, so the state offset IS the display index.
+    const state = transformedParagraph("ab", "uppercase");
+    const { layout, shaper } = pipeline(state, 800);
+    const r1 = resolvePixelPosition(state, createPosition("p" as BlockId, 1), layout, shaper);
+    expect(r1?.x).toBe(8); // after "A"
+    const r2 = resolvePixelPosition(state, createPosition("p" as BlockId, 2), layout, shaper);
+    expect(r2?.x).toBe(16); // after "AB"
+  });
+
+  it("leaves the caret unchanged for an untransformed leaf (text-transform: none)", () => {
+    const state = transformedParagraph("aß", "none");
+    const { layout, shaper } = pipeline(state, 800);
+    // No transform — "aß" renders as-is (2 code units), state offset === index.
+    const r1 = resolvePixelPosition(state, createPosition("p" as BlockId, 1), layout, shaper);
+    expect(r1?.x).toBe(8); // after "a"
+    const r2 = resolvePixelPosition(state, createPosition("p" as BlockId, 2), layout, shaper);
+    expect(r2?.x).toBe(16); // after "ß"
+  });
 });
