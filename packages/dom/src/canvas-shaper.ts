@@ -15,7 +15,9 @@ import { segmentClusters } from "./text-clusters";
  * Canvas-based TextShaper. Default backend bundled with `@taleweaver/dom`.
  *
  * Limitations vs a HarfBuzz backend:
- *   - Each codepoint is one cluster (no ligature detection).
+ *   - Each UAX #29 grapheme cluster is one cluster (combining marks, surrogate
+ *     pairs, ZWJ sequences, regional-indicator flags each form one cluster) with
+ *     per-cluster `measureText` metrics — no HarfBuzz shaping / ligature detection.
  *   - Break opportunities use a simple whitespace + hard-break heuristic
  *     (full UAX-14 deferred).
  *   - Bidi level is uniform per shaped run (0 or 1 based on baseDirection).

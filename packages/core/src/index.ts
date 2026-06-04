@@ -184,6 +184,7 @@ export type { PageConfig, PageMargins } from "./layout/page-config";
 // Only the two functions called across the package boundary are surfaced;
 // `isWordSeparatorCluster` is an internal detail of `clusterSpacing`.
 export { resolveSpacingPx, clusterSpacing } from "./layout/text-spacing";
+export { graphemeClusters } from "./layout/graphemes";
 
 // Components (new pipeline)
 export type {
