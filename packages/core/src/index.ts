@@ -10,7 +10,7 @@
 export type {
   Style, ComputedStyle, UsedStyle, Length, LengthOrAuto, Color,
   Display, BorderStyle, FontWeight, FontStyle,
-  WhiteSpace, VerticalAlign, Float, Clear,
+  WhiteSpace, VerticalAlign, TextTransform, Float, Clear,
   BreakBefore, BreakAfter, BreakInside,
   ListStyleType, ListStylePosition, BoxSizing,
   Direction, WritingMode,

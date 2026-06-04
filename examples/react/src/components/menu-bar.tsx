@@ -3,12 +3,29 @@ import {
   MenubarContent,
   MenubarItem,
   MenubarMenu,
+  MenubarRadioGroup,
+  MenubarRadioItem,
   MenubarSeparator,
   MenubarShortcut,
+  MenubarSub,
+  MenubarSubContent,
+  MenubarSubTrigger,
   MenubarTrigger,
 } from "@/components/ui/menubar";
 import type { EditorAction, EditorState } from "@taleweaver/dom";
-import type { BlockInit } from "@taleweaver/core";
+import type { BlockInit, TextTransform } from "@taleweaver/core";
+import { getActiveFormatting } from "@taleweaver/core";
+
+// Capitalization (CSS text-transform) options for the Format ▸ Capitalization
+// submenu. The labels SHOW the visual effect; the `value` is the CSS
+// `text-transform` literal dispatched via SET_TEXT_TRANSFORM. Typed as
+// `TextTransform` so the dispatched `value` matches the action union exactly.
+const TEXT_TRANSFORM_OPTIONS: ReadonlyArray<{ value: TextTransform; label: string }> = [
+  { value: "none", label: "None" },
+  { value: "uppercase", label: "UPPERCASE" },
+  { value: "lowercase", label: "lowercase" },
+  { value: "capitalize", label: "Capitalize Each Word" },
+];
 
 // Minimal paragraph factory. Builds a BlockInit for a paragraph block with
 // no inlineContent (empty paragraph). `INSERT_NODE` validates the shape via
@@ -28,7 +45,21 @@ interface DocMenuBarProps {
 // Plan 2 will re-add: table insertion (INSERT_NODE with table factory)
 // Plan 2 will re-add: horizontal-line insertion (INSERT_NODE with hr factory)
 
-export function DocMenuBar({ dispatch, focus }: DocMenuBarProps) {
+export function DocMenuBar({ dispatch, editorState, focus }: DocMenuBarProps) {
+  // Active capitalization at the selection. `getActiveFormatting().textTransform`
+  // returns the inline `textTransform` value, `null` when unset (which IS the
+  // default — "none"), or `"mixed"` across a multi-value selection. The radio
+  // group's `value` drives the checkmark: map `null` → "none" (the default item
+  // is active when nothing overrides it), and `"mixed"` → "" so NO item shows
+  // active.
+  const activeTextTransform = getActiveFormatting(
+    editorState.state,
+    editorState.selection,
+  ).textTransform;
+  const textTransformValue =
+    activeTextTransform === "mixed"
+      ? ""
+      : activeTextTransform ?? "none";
   return (
     <Menubar className="rounded-none border-x-0 border-t-0 border-b border-[#dadce0] bg-white px-2 shadow-none h-8">
       <MenubarMenu>
@@ -87,6 +118,27 @@ export function DocMenuBar({ dispatch, focus }: DocMenuBarProps) {
           <MenubarItem onSelect={() => { dispatch({ type: "TOGGLE_STYLE", style: "underline" }); focus?.(); }}>
             Underline <MenubarShortcut>Ctrl+U</MenubarShortcut>
           </MenubarItem>
+          <MenubarSeparator />
+          <MenubarSub>
+            <MenubarSubTrigger>Capitalization</MenubarSubTrigger>
+            <MenubarSubContent>
+              <MenubarRadioGroup
+                value={textTransformValue}
+                onValueChange={(next) => {
+                  const option = TEXT_TRANSFORM_OPTIONS.find((o) => o.value === next);
+                  if (!option) return;
+                  dispatch({ type: "SET_TEXT_TRANSFORM", value: option.value });
+                  focus?.();
+                }}
+              >
+                {TEXT_TRANSFORM_OPTIONS.map((option) => (
+                  <MenubarRadioItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenubarRadioItem>
+                ))}
+              </MenubarRadioGroup>
+            </MenubarSubContent>
+          </MenubarSub>
         </MenubarContent>
       </MenubarMenu>
     </Menubar>
