@@ -1,9 +1,10 @@
-import { useEffect, useRef } from "react";
-import { EditorView } from "@taleweaver/react";
+import { useEffect, useRef, useState } from "react";
+import { EditorView, type EditorViewHandle } from "@taleweaver/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Header } from "@/components/header";
 import { DocMenuBar } from "@/components/menu-bar";
 import { Toolbar } from "@/components/toolbar";
+import { FindBar } from "@/components/find-bar";
 import { usePerfEditor } from "./use-perf-editor";
 import { setPerfTraceEnabled, report, resetPerfTrace } from "@taleweaver/core";
 import "./app.css";
@@ -16,6 +17,32 @@ export function App() {
   // and initializes the editor with a synthetic N-paragraph document when set.
   const editor = usePerfEditor();
   const seededRef = useRef(false);
+
+  // Imperative handle into the EditorView's controller (#433): the find-bar
+  // drives find/replace through it without reaching into the controller.
+  const viewRef = useRef<EditorViewHandle>(null);
+  // null when the find-bar is hidden; otherwise its mode (Ctrl+F vs Ctrl+H).
+  const [findMode, setFindMode] = useState<null | "find" | "replace">(null);
+
+  // Ctrl/Cmd+F → find; Ctrl/Cmd+H → replace. preventDefault overrides the
+  // browser's native find/replace so our in-document bar takes over. Escape is
+  // handled inside the bar (it has the focus while open).
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key === "f") {
+        e.preventDefault();
+        setFindMode("find");
+      } else if (key === "h") {
+        e.preventDefault();
+        setFindMode("replace");
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // When a perf fixture is active: enable tracing and expose dev console hooks.
   useEffect(() => {
@@ -89,10 +116,22 @@ export function App() {
         <Header />
         <DocMenuBar dispatch={editor.dispatch} editorState={editor.editorState} focus={editor.focus} />
         <Toolbar dispatch={editor.dispatch} editorState={editor.editorState} />
-        <div className="flex-1 overflow-y-auto bg-[#f9fbfd]">
+        <div className="relative flex-1 overflow-y-auto bg-[#f9fbfd]">
+          {findMode && viewRef.current && (
+            <FindBar
+              handle={viewRef.current}
+              mode={findMode}
+              editorState={editor.editorState}
+              onClose={() => {
+                setFindMode(null);
+                editor.focus();
+              }}
+            />
+          )}
           <div className="mx-auto mt-4 mb-12" style={{ width: 816 }}>
             <EditorView
               {...editor}
+              ref={viewRef}
               pageHeight={PAGE_HEIGHT}
               pageGap={PAGE_GAP}
             />
