@@ -3,6 +3,7 @@ import type { Direction } from "../styles/writing-mode";
 import type {
   TextShaper, ShapedRun, Cluster, BreakOpportunity, FontMetrics,
 } from "./text-shaper";
+import { resolveSpacingPx, clusterSpacing } from "./text-spacing";
 
 /**
  * Shared break-opportunity logic for the mock shapers: hard break at `\n`/`\r`;
@@ -44,15 +45,22 @@ export function createMockShaper(charWidth: number, lineHeight: number): TextSha
     style: Readonly<ComputedStyle>,
     baseDirection: Direction,
   ): ShapedRun {
+    const letterPx = resolveSpacingPx(style.letterSpacing);
+    const wordPx   = resolveSpacingPx(style.wordSpacing);
     const clusters: Cluster[] = [];
+    let total = 0;
+    let widest = 0;
     for (let i = 0; i < text.length; i++) {
+      const adv = charWidth + clusterSpacing(text[i], letterPx, wordPx);
       clusters.push({
         start: i,
         end:   i + 1,
-        inlineAdvance: charWidth,
+        inlineAdvance: adv,
         isLigature:    false,
         glyphs: [text.charCodeAt(i)],
       });
+      total += adv;
+      if (adv > widest) widest = adv;
     }
 
     const breakOpportunities = computeBreakOpportunities(text);
@@ -64,8 +72,8 @@ export function createMockShaper(charWidth: number, lineHeight: number): TextSha
       ascent:  fontMetrics.ascent,
       descent: fontMetrics.descent,
       lineGap: fontMetrics.lineGap,
-      minClusterInlineSize:     text.length === 0 ? 0 : charWidth,
-      unbreakableRunInlineSize: text.length * charWidth,
+      minClusterInlineSize:     text.length === 0 ? 0 : widest,
+      unbreakableRunInlineSize: total,
       breakOpportunities,
       bidiLevel: baseDirection === "rtl" ? 1 : 0,
     };
@@ -110,20 +118,22 @@ export function createVariableMockShaper(
     style: Readonly<ComputedStyle>,
     baseDirection: Direction,
   ): ShapedRun {
+    const letterPx = resolveSpacingPx(style.letterSpacing);
+    const wordPx   = resolveSpacingPx(style.wordSpacing);
     const clusters: Cluster[] = [];
     let total = 0;
     let widest = 0;
     for (let i = 0; i < text.length; i++) {
-      const w = widthOf(text[i]);
+      const adv = widthOf(text[i]) + clusterSpacing(text[i], letterPx, wordPx);
       clusters.push({
         start: i,
         end:   i + 1,
-        inlineAdvance: w,
+        inlineAdvance: adv,
         isLigature:    false,
         glyphs: [text.charCodeAt(i)],
       });
-      total += w;
-      if (w > widest) widest = w;
+      total += adv;
+      if (adv > widest) widest = adv;
     }
 
     const breakOpportunities = computeBreakOpportunities(text);
