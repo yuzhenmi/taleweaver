@@ -24,7 +24,7 @@ imports from here.
 
 Schema reservations (present in `Style` and `ComputedStyle` but not yet consumed by any code path):
 - `widows`, `orphans` — required by pagination.
-- `hyphens`, `textTransform`, `fontFeatureSettings`, `tabSize` — required by typography phase 1 (P5); resolved into `UsedStyle` but not yet read by any tokenizer/layout/paint consumer. (`textAlign` incl. justify, `textWrap`/`whiteSpace`, `textIndent`, and `letterSpacing`/`wordSpacing` are NOW consumed — shipped via #312/#333/#309/#314/#338, #391/#392, and the P5 letter/word-spacing slice (`layout/text-spacing.ts`, applied in the shapers + IFC trailing-trim + renderer) — so they are no longer schema-only.)
+- `hyphens`, `fontFeatureSettings`, `tabSize` — required by typography phase 1 (P5); resolved into `UsedStyle` but not yet read by any tokenizer/layout/paint consumer. (`textAlign` incl. justify, `textWrap`/`whiteSpace`, `textIndent`, `letterSpacing`/`wordSpacing`, and `textTransform` are NOW consumed — `letterSpacing`/`wordSpacing` via `layout/text-spacing.ts` (applied in the shapers + IFC trailing-trim + renderer); `textTransform` via the `textTransformInterpreter` cascade interpreter + the IFC's per-token display transform (`layout/text-transform.ts`) + the `SET_TEXT_TRANSFORM` editor action + toolbar — so they are no longer schema-only.)
 - Vertical writing-mode values (`vertical-rl`, `vertical-lr`) — typed but `logicalToPhysical` throws for them.
 
 Schema items genuinely missing:
