@@ -32,6 +32,27 @@ describe("LineBox", () => {
   });
 });
 
+describe("TextRunBox sourceDisplayLengths", () => {
+  it("carries sourceDisplayLengths when the trailing arg is provided", () => {
+    const tr = createTextRunBox("t", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, "hi", 2, 50, [1, 2]);
+    expect(tr.sourceDisplayLengths).toEqual([1, 2]);
+  });
+
+  it("leaves sourceDisplayLengths undefined when the trailing arg is omitted", () => {
+    const tr = createTextRunBox("t", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, "hi", 2, 50);
+    expect(tr.sourceDisplayLengths).toBeUndefined();
+  });
+
+  it("preserves sourceDisplayLengths through withInlineOffset (no silent strip on rebuild)", () => {
+    const tr = createTextRunBox("t", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, "hi", 2, 50, [1, 2]);
+    const moved = withInlineOffset(tr, 75, /* containingInlineSize */ 200);
+    expect(moved.type).toBe("text-run");
+    if (moved.type !== "text-run") throw new Error("?");
+    expect(moved.inlineOffset).toBe(75);
+    expect(moved.sourceDisplayLengths).toEqual([1, 2]);
+  });
+});
+
 describe("LayoutBox union narrowing", () => {
   it("narrows by type", () => {
     const items: LayoutBox[] = [

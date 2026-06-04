@@ -115,6 +115,16 @@ export interface TextRunBox extends LayoutBoxBase {
    * rendered glyph with no backing state char) carries `offsetLength: 0`.
    */
   readonly offsetLength: number;
+  /**
+   * Per-state-code-unit count of DISPLAY code units this run renders, used
+   * by length-changing CSS `text-transform` (e.g. `ß` → `SS`, where one
+   * state code unit maps to two display code units). `undefined` when the
+   * run's display length equals its state length 1:1 (the common case).
+   *
+   * Pure code-unit counts — geometry-independent — so the alignment-shift
+   * and bidi-reorder rebuild passes copy it through verbatim.
+   */
+  readonly sourceDisplayLengths?: readonly number[];
 }
 
 /**
@@ -284,6 +294,7 @@ export function createTextRunBox(
   text: string,
   offsetLength: number,
   containingInlineSize: number,
+  sourceDisplayLengths?: readonly number[],
 ): TextRunBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,
@@ -294,6 +305,7 @@ export function createTextRunBox(
     ...base,
     text,
     offsetLength,
+    sourceDisplayLengths,
   });
 }
 
@@ -522,7 +534,7 @@ function rebuildBoxWithOffsets(
       return createTextRunBox(
         box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
-        box.text, box.offsetLength, containingInlineSize,
+        box.text, box.offsetLength, containingInlineSize, box.sourceDisplayLengths,
       );
     case "inline":
       return createInlineBox(
