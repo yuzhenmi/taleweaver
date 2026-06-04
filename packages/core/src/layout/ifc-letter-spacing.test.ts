@@ -5,7 +5,7 @@ import { createMockShaper } from "./mock-shaper";
 import { layoutBlock } from "./bfc";
 import { makeRootContext } from "./layout-context";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
-import type { LineBox, LayoutBox, TextRunBox } from "./layout-box";
+import type { LineBox, LayoutBox, TextRunBox, InlineBox } from "./layout-box";
 import type { Style } from "../styles";
 
 // The IFC test harness uses an 8px/char mock shaper.
@@ -132,5 +132,146 @@ describe("IFC — trailing letter-spacing trim (CSS Text 3 §8.1)", () => {
     // assertion fails against the buggy code that trimmed the last child, the
     // space leaf, leaving the word leaf at 24.)
     expect(wordLeaf?.inlineSize).toBe(20);
+  });
+});
+
+describe("IFC — trailing letter-spacing trim inside an INLINE element (#434)", () => {
+  // When the line's last glyph is nested inside a `display:inline` element
+  // (e.g. `<em>word</em>` at the line end) WITH non-normal letter-spacing, the
+  // trailing tracking lives on a text-run leaf INSIDE an InlineBox — not at the
+  // top level. CSS Text 3 §8.1 still requires trimming that trailing tracking
+  // from the visible content edge. The caret/selection layer sums leaf
+  // `inlineSize`s (recursing into InlineBoxes), so both the inner text-run leaf
+  // AND its enclosing InlineBox must shrink by `trim`, or the end-of-line caret
+  // sits `trim` px too far right.
+
+  /**
+   * Lay out a paragraph whose inline content is `[text(lead), <inline em>emText</inline>]`.
+   * `letterSpacing` is set on the block and inherits into both the lead text and
+   * the em's text. Returns the line boxes + the line inline-size.
+   */
+  function inlineWrappedLetterSpacingLines(
+    lead: string,
+    emText: string,
+    width: number,
+    letterSpacing: number,
+  ): { lines: readonly LineBox[]; lineInlineSize: number } {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", letterSpacing: { value: letterSpacing, unit: "px" } }, [
+        createTextBox("t1", {}, lead),
+        createElementBox("em", { display: "inline" }, [
+          createTextBox("t2", {}, emText),
+        ]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("expected element tree");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    if (r.box.type !== "block") throw new Error("expected block box");
+    const lines = r.box.children.filter((c): c is LineBox => c.type === "line");
+    return { lines, lineInlineSize: width };
+  }
+
+  /** The first (top-level) InlineBox child of a line — the `<em>` box. */
+  function inlineBoxOf(line: LineBox): InlineBox {
+    const box = line.children.find((c): c is InlineBox => c.type === "inline");
+    if (box === undefined) throw new Error("expected an InlineBox child");
+    return box;
+  }
+
+  /** The innermost trailing text-run leaf reachable through InlineBoxes. */
+  function innermostTrailingLeaf(box: LayoutBox): TextRunBox {
+    if (box.type === "text-run") return box;
+    if (box.type === "inline") {
+      for (let i = box.children.length - 1; i >= 0; i--) {
+        const child = box.children[i];
+        if (child.type === "text-run" && child.text.trim() === "") continue;
+        return innermostTrailingLeaf(child);
+      }
+    }
+    throw new Error("no trailing text-run leaf");
+  }
+
+  /**
+   * Sum of every text-run leaf's `inlineSize`, recursing into InlineBoxes — this
+   * is the accumulation the end-of-line caret/selection geometry performs, so it
+   * is the load-bearing caret-edge quantity.
+   */
+  function sumLeafInlineSizes(line: LineBox): number {
+    let sum = 0;
+    const walk = (boxes: readonly LayoutBox[]) => {
+      for (const b of boxes) {
+        if (b.type === "text-run") sum += b.inlineSize;
+        else if (b.type === "inline") walk(b.children);
+      }
+    };
+    walk(line.children);
+    return sum;
+  }
+
+  it("trims the trailing tracking from the nested text-run leaf AND its enclosing InlineBox", () => {
+    // letterSpacing 4 → each char 8+4 = 12px. "aaaa" = 48, em "bb" = 24. The
+    // line's last retained glyph is the em's "b" → trim = b's trailing 4.
+    // Nested leaf "bb": 24 → 20. The enclosing <em> InlineBox: 24 → 20.
+    const { lines } = inlineWrappedLetterSpacingLines("aaaa", "bb", 500, 4);
+    expect(lines).toHaveLength(1);
+
+    const em = inlineBoxOf(lines[0]);
+    // RED today: the InlineBox keeps its full 24 (untrimmed).
+    expect(em.inlineSize).toBe(20);
+
+    const leaf = innermostTrailingLeaf(em);
+    expect(leaf.text).toBe("bb");
+    // RED today: the nested leaf keeps its full 24 (untrimmed).
+    expect(leaf.inlineSize).toBe(20);
+  });
+
+  it("end-of-line caret edge (sum of leaf inlineSizes) excludes the nested trailing tracking", () => {
+    // "aaaa" (48) + em "bb" (20 after trim) = 68. The caret/selection layer sums
+    // leaf inlineSizes recursing into the InlineBox, so the end-of-line caret
+    // lands at 68 — not 72 (trim px too far right).
+    const { lines } = inlineWrappedLetterSpacingLines("aaaa", "bb", 500, 4);
+    expect(lines).toHaveLength(1);
+    // RED today: sum is 72 (the nested 4px tracking is never trimmed).
+    expect(sumLeafInlineSizes(lines[0])).toBe(68);
+  });
+
+  it("normal-identity: letterSpacing normal → nested InlineBox leaf widths unchanged", () => {
+    // No spacing: "aaaa" = 32, em "bb" = 16. No trailing trim anywhere.
+    const { lines } = inlineWrappedLetterSpacingLines("aaaa", "bb", 500, 0);
+    expect(lines).toHaveLength(1);
+    const em = inlineBoxOf(lines[0]);
+    expect(em.inlineSize).toBe(16);
+    expect(innermostTrailingLeaf(em).inlineSize).toBe(16);
+    expect(sumLeafInlineSizes(lines[0])).toBe(48); // 32 + 16
+  });
+
+  it("skips a trailing ALL-WHITESPACE InlineBox and trims the preceding word", () => {
+    // When the line's last top-level child is an all-whitespace InlineBox
+    // (`<em> </em>` under a whitespace-preserving mode), the trailing trim must
+    // SKIP it (no glyph to trim) and land on the preceding word "aaaa",
+    // mirroring how `trailingLetterSpacingOf` skips the trailing space unit. The
+    // skip is driven by `trimTrailingLetterSpacing` returning `undefined`. With
+    // letterSpacing 4 → "aaaa" = 48; the last 'a' trailing tracking (4) is
+    // trimmed → 44. Without the unified walk the loop stops at the em InlineBox,
+    // the helper returns `undefined`, and the trim is silently dropped (→ 48).
+    const tree = cascadePass(
+      createElementBox(
+        "p",
+        { display: "block", letterSpacing: { value: 4, unit: "px" }, whiteSpace: "pre-wrap" },
+        [
+          createTextBox("t1", {}, "aaaa"),
+          createElementBox("em", { display: "inline" }, [createTextBox("t2", {}, " ")]),
+        ],
+      ),
+    );
+    if (tree.type !== "element") throw new Error("expected element tree");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null || r.box.type !== "block") throw new Error("expected block box");
+    const lines = r.box.children.filter((c): c is LineBox => c.type === "line");
+    expect(lines).toHaveLength(1);
+    const word = leavesOf(lines[0]).find((l) => l.text === "aaaa");
+    expect(word).toBeDefined();
+    expect(word?.inlineSize).toBe(44);
   });
 });

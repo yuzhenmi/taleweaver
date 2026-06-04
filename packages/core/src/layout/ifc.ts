@@ -1,7 +1,7 @@
 import type { RenderNode } from "../render/render-node";
 import type { ElementBox } from "../render/render-node";
 import type { ComputedStyle, WhiteSpace } from "../styles";
-import type { LayoutBox, LineBox, InlineBox, BlockBox, TextRunBox } from "./layout-box";
+import type { LayoutBox, LineBox, InlineBox, BlockBox } from "./layout-box";
 import type { BlockId } from "../state";
 import { createInlineBox, createInlineBlockBox, createLineBox, createTextRunBox, withInlineOffset, withBlockOffset, assertLayoutBoxConsistent, createBlockBox } from "./layout-box";
 import type { FragmentationContext, LayoutResult } from "./fragmentation";
@@ -245,6 +245,84 @@ function trailingLetterSpacingOf(units: readonly WrapUnit[]): number {
     if (unit.tokens.length === 0) break;
   }
   return 0;
+}
+
+/**
+ * CSS Text 3 §8.1 caret-edge trim, applied to a single line-end leaf. Returns
+ * `box` rebuilt with its trailing glyph's letter-spacing trimmed off (inlineSize
+ * reduced by `trim`), or `undefined` when `box` is NOT a trimmable glyph leaf
+ * (trailing whitespace-only text-run, or an atomic inline-block/marker) — the
+ * caller skips an `undefined` result and tries the preceding leaf.
+ *
+ * The last typographic unit can be a top-level `text-run` OR a `text-run` nested
+ * inside one or more `display:inline` InlineBoxes (e.g. `<em>word</em>` at the
+ * line end). For the nested case the trailing tracking lives on the innermost
+ * text-run leaf, and BOTH that leaf and every enclosing InlineBox must shrink by
+ * `trim` so the line-end caret/selection (which sums leaf inline extents while
+ * recursing into InlineBoxes) lands at the trimmed content edge.
+ *
+ * Every box in a line is built with `containingInlineSize = lineInlineSize` at
+ * EVERY nesting level (top-level runs, nested InlineBoxes, and their children
+ * alike), so the caller passes `lineInlineSize` as `containingInlineSize` and
+ * this helper forwards it unchanged through the recursion. The rebuild only
+ * shrinks `inlineSize`; offsets are untouched (the later `alignmentOffset` shift
+ * composes fine), and a text-run's `sourceDisplayLengths` is geometry-
+ * independent so it copies through verbatim.
+ *
+ * Note (documented limitation): an inline element with trailing padding/border
+ * is not modeled here — a simple `inlineSize - trim` would over-trim the box by
+ * the padding. Inline padding/border isn't laid out in the IFC yet, so this
+ * cannot arise today; revisit when inline box decoration lands.
+ */
+function trimTrailingLetterSpacing(
+  box: LayoutBox,
+  trim: number,
+  containingInlineSize: number,
+): LayoutBox | undefined {
+  if (box.type === "text-run") {
+    // Whitespace-only leaf: its tracking left with the space — skip it so the
+    // caller (or the enclosing inline) targets the preceding glyph leaf.
+    if (box.text.trim() === "") return undefined;
+    return createTextRunBox(
+      box.key,
+      box.inlineOffset, box.blockOffset, box.inlineSize - trim, box.blockSize,
+      box.writingMode, box.direction,
+      box.computedStyle, box.usedStyle,
+      box.text,
+      box.offsetLength,
+      containingInlineSize,
+      box.sourceDisplayLengths,
+    );
+  }
+  if (box.type === "inline") {
+    // Find the last trimmable descendant (skip trailing whitespace-only leaves),
+    // recurse to rebuild it, then shrink THIS InlineBox by the same `trim`.
+    let idx = box.children.length - 1;
+    let trimmedChild: LayoutBox | undefined;
+    while (idx >= 0) {
+      trimmedChild = trimTrailingLetterSpacing(box.children[idx], trim, containingInlineSize);
+      if (trimmedChild !== undefined) break;
+      idx--;
+    }
+    if (trimmedChild === undefined) return undefined; // all-whitespace inline
+    const newChildren = [
+      ...box.children.slice(0, idx),
+      trimmedChild,
+      ...box.children.slice(idx + 1),
+    ];
+    return createInlineBox(
+      box.key,
+      box.inlineOffset, box.blockOffset, box.inlineSize - trim, box.blockSize,
+      box.writingMode, box.direction,
+      box.computedStyle, box.usedStyle,
+      newChildren,
+      box.fragmentEdge,
+      box.ancestorKey,
+      containingInlineSize,
+    );
+  }
+  // inline-block / marker / etc: atomic, not letter-spacing-trimmable.
+  return undefined;
 }
 
 /**
@@ -1862,51 +1940,33 @@ function buildLineWithFragments(
   // tracking).
   const trim = hyphenBreak === null ? trailingLetterSpacingOf(units) : 0;
   if (trim > 0 && children.length > 0) {
-    // Skip trailing whitespace-only text-run leaves before applying the trim
-    // (mirrors `trailingLetterSpacingOf`'s unit-level skip): under
-    // `break-spaces` (the editor default) a hung trailing space is its own
-    // TextRunBox that lands AFTER the word leaf in `children`, so the last
-    // child is the SPACE, not the retained glyph. The trim targets the last
-    // RETAINED glyph leaf — the same unit `trailingLetterSpacingOf` measured.
+    // Walk children backward to the last RETAINED glyph leaf and shrink it by
+    // `trim`. `trimTrailingLetterSpacing` IS the skip oracle: it returns the
+    // rebuilt box for a trimmable glyph leaf (a top-level `text-run`, OR an
+    // InlineBox whose last glyph is nested inside a `display:inline` element,
+    // e.g. `<em>word</em>` at the line end — #434), and `undefined` for a box
+    // that carries no trimmable trailing glyph (a whitespace-only `text-run` —
+    // the hung trailing space that lands AFTER the word leaf under
+    // `break-spaces`; an all-whitespace InlineBox like `<em> </em>`; or an
+    // atomic inline-block/marker). Advance past every `undefined` so the trim
+    // lands on the same glyph `trailingLetterSpacingOf` measured at the unit
+    // level. For an InlineBox it recurses to the innermost trailing glyph and
+    // shrinks BOTH that leaf and every enclosing InlineBox by `trim`.
+    // Every line-tree box is built with `containingInlineSize: lineInlineSize`
+    // (see buildLineChildrenForAncestorLevel), which isn't stored on the box,
+    // so re-pass it here; inlineSize-only reductions don't change physical-coord
+    // derivation for LTR, and for RTL the reduced inline extent re-mirrors
+    // correctly off the same containing size.
     let trimIdx = children.length - 1;
-    while (
-      trimIdx >= 0 &&
-      children[trimIdx].type === "text-run" &&
-      (children[trimIdx] as TextRunBox).text.trim() === ""
-    ) {
+    let rebuilt: LayoutBox | undefined;
+    while (trimIdx >= 0) {
+      rebuilt = trimTrailingLetterSpacing(children[trimIdx], trim, lineInlineSize);
+      if (rebuilt !== undefined) break;
       trimIdx--;
     }
-    const last = trimIdx >= 0 ? children[trimIdx] : undefined;
-    if (last !== undefined && last.type === "text-run") {
-      const trimmed = createTextRunBox(
-        last.key,
-        last.inlineOffset, last.blockOffset, last.inlineSize - trim, last.blockSize,
-        last.writingMode, last.direction,
-        last.computedStyle, last.usedStyle,
-        last.text,
-        last.offsetLength,
-        // Top-level line children are built with `containingInlineSize:
-        // lineInlineSize` (see buildLineChildrenForAncestorLevel); `lineInlineSize`
-        // isn't stored on the box, so re-pass it here. inlineSize-only reductions
-        // don't change physical-coord derivation for LTR; for RTL the reduced
-        // inline extent re-mirrors correctly off the same containing size.
-        lineInlineSize,
-        // SDL is geometry-independent — the trim only changes `inlineSize`, not
-        // the source→display offset map — so it copies through verbatim (no
-        // recompute). Forwarding it here closes the latent strip site flagged in
-        // T3's review where the rebuilt leaf dropped its sourceDisplayLengths.
-        last.sourceDisplayLengths,
-      );
-      children = [...children.slice(0, trimIdx), trimmed, ...children.slice(trimIdx + 1)];
+    if (rebuilt !== undefined) {
+      children = [...children.slice(0, trimIdx), rebuilt, ...children.slice(trimIdx + 1)];
     }
-    // If `last` is an InlineBox (the line's last glyph is nested inside a
-    // `display:inline` element, e.g. `<em>word</em>` at the line end), the
-    // enclosing InlineBox(es) would also need to shrink by `trim`. No test or
-    // fixture currently reaches this with non-`normal` letter-spacing; the
-    // `contentWidth` trim above still positions the line correctly for
-    // alignment. Reconstructing the trailing InlineBox chain is deferred
-    // (#434) until a case exercises it (it needs box-rebuild API beyond
-    // createTextRunBox).
   }
 
   const lineBlockSize = lineBlockSizeTracker.value > 0 ? lineBlockSizeTracker.value : measurer.measureHeight(parentCs);
