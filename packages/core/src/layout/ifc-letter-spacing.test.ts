@@ -85,6 +85,35 @@ describe("IFC — trailing letter-spacing trim (CSS Text 3 §8.1)", () => {
     expect(leavesOf(centered[0])[0].x).toBe((W - 16) / 2); // 42
   });
 
+  it("justify + letter-spacing: a non-last (justified) line still FILLS lineInlineSize (gap computed from the spaced contentWidth)", () => {
+    // Multi-word paragraph forced to wrap to >= 2 lines, justified, with
+    // non-zero letter-spacing. The justify gap is `lineInlineSize − contentWidth`
+    // where contentWidth already INCLUDES letter-spacing (and excludes the
+    // trailing hung space + trailing tracking). So the justified line must reach
+    // the FULL `lineInlineSize` — letter-spacing does NOT pull the right edge in
+    // to `lineInlineSize − letterSpacing*k`. A justified line fills both edges
+    // REGARDLESS of letter-spacing, exactly as it would WITHOUT it.
+    const W = 88;
+    const TEXT = "aa bb cc dd ee ff gg hh";
+
+    // Baseline (no letter-spacing): the first justified line fills W.
+    const baseLines = layoutPara(TEXT, W, { textAlign: "justify", whiteSpace: "normal" });
+    expect(baseLines.length).toBeGreaterThanOrEqual(2);
+    const baseLeaves = leavesOf(baseLines[0]);
+    const baseRight = baseLeaves[baseLeaves.length - 1];
+    expect(baseRight.x + baseRight.inlineSize).toBe(W);
+
+    // With letter-spacing: the first justified line STILL fills W (not W − k·4).
+    const lines = layoutPara(TEXT, W, { letterSpacing: 4, textAlign: "justify", whiteSpace: "normal" });
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    const leaves = leavesOf(lines[0]);
+    const rightmost = leaves[leaves.length - 1];
+    // The rightmost leaf's right edge reaches the full lineInlineSize — letter-
+    // spacing did not break justify (the residual gap was computed from the
+    // spaced contentWidth, so the line still flushes both edges).
+    expect(rightmost.x + rightmost.inlineSize).toBe(W);
+  });
+
   it("line ending in a trailing space: trim targets the last RETAINED unit (b), not double-counted with the hung space", () => {
     // "ab " under break-spaces, letterSpacing 4: word "ab"=24, space=8+4=12.
     // raw currentWidth = 36. trailingSpaceWidthOf removes the hung space (12) →

@@ -24,7 +24,7 @@ imports from here.
 
 Schema reservations (present in `Style` and `ComputedStyle` but not yet consumed by any code path):
 - `widows`, `orphans` — required by pagination.
-- `hyphens`, `letterSpacing`, `wordSpacing`, `textTransform`, `fontFeatureSettings`, `tabSize` — required by typography phase 1 (P5); resolved into `UsedStyle` but not yet read by any tokenizer/layout/paint consumer. (`textAlign` incl. justify, `textWrap`/`whiteSpace`, and `textIndent` are NOW consumed — shipped via #312/#333/#309/#314/#338 and #391/#392 — so they are no longer schema-only.)
+- `hyphens`, `textTransform`, `fontFeatureSettings`, `tabSize` — required by typography phase 1 (P5); resolved into `UsedStyle` but not yet read by any tokenizer/layout/paint consumer. (`textAlign` incl. justify, `textWrap`/`whiteSpace`, `textIndent`, and `letterSpacing`/`wordSpacing` are NOW consumed — shipped via #312/#333/#309/#314/#338, #391/#392, and the P5 letter/word-spacing slice (`layout/text-spacing.ts`, applied in the shapers + IFC trailing-trim + renderer) — so they are no longer schema-only.)
 - Vertical writing-mode values (`vertical-rl`, `vertical-lr`) — typed but `logicalToPhysical` throws for them.
 
 Schema items genuinely missing:
@@ -294,12 +294,12 @@ older `TextMeasurer` interface.
 Gaps as documented under `core`'s text section: full UAX #14, full
 grapheme-cluster boundaries, hyphenation dictionaries.
 
-Visible bug: **inter-word spacing is wrong** for plain ASCII text in
-the example app — adjacent words appear visually merged (e.g.
-"Welcometo Taleweaver—a documenteditor" instead of properly-spaced
-words). Caused by a measurement / paint mismatch between space tokens
-and word tokens, surfacing as overlapping or dropped space advances.
-Not investigated; observed during P1.B browser smoke testing.
+The earlier inter-word paint/measure mismatch (space advances dropped vs.
+measured, observed at P1.B) no longer has a code cause: paint sums
+per-cluster `measureText` advances identically to layout (#330), and the
+letter/word-spacing slice adds the same per-cluster `clusterSpacing` to both
+the shaper advances and the paint loop — so painted glyph origins equal the
+laid-out advances by construction (`cluster-paint.test.ts` locks it).
 
 ### Other dom helpers `[implemented]`
 
@@ -334,8 +334,6 @@ documents fragment correctly across pages with content visibly inset
 from the page edges.
 
 Known issues:
-- The visible word-spacing bug from `canvas-shaper` shows up most
-  obviously here (adjacent words appear merged in seeded text).
 - The example's perf fixture loader (activated via `?perfFixture=N`
   URL parameter) builds large synthetic documents; the per-page
   canvas-pool virtualization handles thousand-paragraph documents
