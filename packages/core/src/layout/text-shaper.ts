@@ -28,7 +28,11 @@ export interface Cluster {
  * produce them until a hyphenation backend is wired in (Plan 4 or later).
  */
 export interface BreakOpportunity {
-  /** Cluster index where the break can occur (break is BEFORE this cluster). */
+  /**
+   * UTF-16 code-unit offset where the break can occur (break is BEFORE this
+   * offset). This is a code-unit offset into the source text — aligned with the
+   * state address space and `Cluster.start`/`end` — NOT a grapheme-ordinal index.
+   */
   readonly clusterIndex: number;
   /**
    * The kind of break:

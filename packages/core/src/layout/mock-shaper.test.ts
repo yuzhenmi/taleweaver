@@ -59,6 +59,27 @@ describe("createMockShaper", () => {
   });
 });
 
+describe("createMockShaper grapheme clustering (P6-S1)", () => {
+  const shaper = createMockShaper(8, 16);
+  const cs = INITIAL_COMPUTED_STYLE;
+  it("ASCII: one cluster per char, unchanged (start/end per code unit, advance 8)", () => {
+    const run = shaper.shape("ab", cs, cs.direction);
+    expect(run.clusters.map(c => [c.start, c.end, c.inlineAdvance])).toEqual([[0, 1, 8], [1, 2, 8]]);
+  });
+  it("combining sequence is ONE cluster spanning 2 code units with one base advance", () => {
+    const text = "e\u0301"; // e + combining acute = 2 UTF-16 code units (decomposed)
+    expect(text.length).toBe(2); // guard: fails loudly if re-normalized to precomposed U+00E9
+    const run = shaper.shape(text, cs, cs.direction);
+    expect(run.clusters).toHaveLength(1);
+    expect([run.clusters[0].start, run.clusters[0].end, run.clusters[0].inlineAdvance]).toEqual([0, 2, 8]);
+  });
+  it("surrogate-pair emoji is ONE cluster spanning 2 code units", () => {
+    const run = shaper.shape("\u{1F600}", cs, cs.direction);
+    expect(run.clusters).toHaveLength(1);
+    expect([run.clusters[0].start, run.clusters[0].end]).toEqual([0, 2]);
+  });
+});
+
 const spacingShaper = createMockShaper(10, 16); // 10px/char
 
 function styleWith(over: Partial<ComputedStyle>): ComputedStyle {

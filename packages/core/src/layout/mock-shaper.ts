@@ -4,6 +4,7 @@ import type {
   TextShaper, ShapedRun, Cluster, BreakOpportunity, FontMetrics,
 } from "./text-shaper";
 import { resolveSpacingPx, clusterSpacing } from "./text-spacing";
+import { graphemeClusters } from "./graphemes";
 
 /**
  * Shared break-opportunity logic for the mock shapers: hard break at `\n`/`\r`;
@@ -25,8 +26,8 @@ function computeBreakOpportunities(text: string): BreakOpportunity[] {
 }
 
 /**
- * Mock shaper for tests: each codepoint is one cluster of fixed width;
- * soft breaks at whitespace; hard breaks at \n / \r.
+ * Mock shaper for tests: each UAX #29 grapheme cluster is one cluster of fixed
+ * width; soft breaks at whitespace; hard breaks at \n / \r.
  */
 export function createMockShaper(charWidth: number, lineHeight: number): TextShaper {
   const ascent  = lineHeight * 0.8;
@@ -50,17 +51,22 @@ export function createMockShaper(charWidth: number, lineHeight: number): TextSha
     const clusters: Cluster[] = [];
     let total = 0;
     let widest = 0;
-    for (let i = 0; i < text.length; i++) {
-      const adv = charWidth + clusterSpacing(text[i], letterPx, wordPx);
+    let start = 0;
+    for (const g of graphemeClusters(text)) {
+      // One BASE width per grapheme (not per code unit) + per-cluster spacing.
+      // Single-code-unit graphemes (ASCII/BMP) keep `charWidth + clusterSpacing(g)`,
+      // byte-identical to the old per-code-unit path.
+      const adv = charWidth + clusterSpacing(g, letterPx, wordPx);
       clusters.push({
-        start: i,
-        end:   i + 1,
+        start,
+        end:   start + g.length,
         inlineAdvance: adv,
         isLigature:    false,
-        glyphs: [text.charCodeAt(i)],
+        glyphs: [g.charCodeAt(0)],
       });
       total += adv;
       if (adv > widest) widest = adv;
+      start += g.length;
     }
 
     const breakOpportunities = computeBreakOpportunities(text);
@@ -87,9 +93,11 @@ export function createMockShaper(charWidth: number, lineHeight: number): TextSha
 }
 
 /**
- * Variable-width mock shaper for tests: each codepoint is one cluster whose
- * width is looked up per character via `widthByChar` (defaulting to
- * `defaultWidth` for chars not in the map). Unlike `createMockShaper` (uniform
+ * Variable-width mock shaper for tests: each UAX #29 grapheme cluster is one
+ * cluster whose width is looked up via `widthByChar` keyed by the grapheme's
+ * first code unit (defaulting to `defaultWidth` for chars not in the map; a
+ * multi-code-unit grapheme's first unit is a lone high surrogate → default).
+ * Unlike `createMockShaper` (uniform
  * cluster widths), this lets a test produce a run whose FIRST cluster is not
  * the widest — exercising the `restMin` form of the text-indent intrinsic rule
  * (which `widestCluster + indent` would get wrong).
@@ -123,17 +131,22 @@ export function createVariableMockShaper(
     const clusters: Cluster[] = [];
     let total = 0;
     let widest = 0;
-    for (let i = 0; i < text.length; i++) {
-      const adv = widthOf(text[i]) + clusterSpacing(text[i], letterPx, wordPx);
+    let start = 0;
+    for (const g of graphemeClusters(text)) {
+      // widthByChar keys are single UTF-16 code units; a multi-code-unit grapheme's
+      // g[0] is its first code unit (a lone high surrogate for astral graphemes) and
+      // falls to defaultWidth — the map cannot encode grapheme-string keys (S1 ok).
+      const adv = widthOf(g[0]) + clusterSpacing(g, letterPx, wordPx);
       clusters.push({
-        start: i,
-        end:   i + 1,
+        start,
+        end:   start + g.length,
         inlineAdvance: adv,
         isLigature:    false,
-        glyphs: [text.charCodeAt(i)],
+        glyphs: [g.charCodeAt(0)],
       });
       total += adv;
       if (adv > widest) widest = adv;
+      start += g.length;
     }
 
     const breakOpportunities = computeBreakOpportunities(text);
