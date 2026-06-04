@@ -235,10 +235,20 @@ read-path functions. React example exposes `window.__perfReport()` /
 
 ### `editor-controller` `[partial]`
 
-Single-canvas mode, paginated multi-canvas mode (dormant — activates
-when given `pageHeight` and `PageBox`-shaped layout children, neither
-of which the engine currently produces), input listeners, key-handler
-integration, cursor blink, scroll syncing, image-cache integration.
+Two render modes. **Paginated** is the active primary path: the engine
+produces a virtualized page model (`layoutTree: LayoutBox |
+VirtualLayoutTree`), which drives a per-page canvas pool with per-page
+paint caches; paint, caret, mouse hit-test, and selection rects are
+resolved per page via `getPage(visible ∪ cursorPage)` without
+materializing the whole tree (the `materializeAll()` bridge survives only
+for the rare spanning-block selection fallback — a single block taller
+than a page). **Non-paginated single-canvas** is the fallback — one canvas +
+a fully-positioned `LayoutBox`, used for identity sizing and the
+unsupported-feature path (float/`clear` documents fall back to the legacy
+full positioned tree in v1, per the virtualized-layout decision). Input
+listeners, key-handler integration, cursor blink, scroll syncing, and
+image-cache integration are all present. See
+`2-dom/2.1-editor-controller.md` for the virtual page model.
 
 ### `canvas-renderer` `[implemented]`
 
