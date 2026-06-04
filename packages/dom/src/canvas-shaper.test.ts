@@ -105,4 +105,59 @@ describe("createCanvasShaper", () => {
     expect(run.unbreakableRunInlineSize).toBe(0);
     expect(run.minClusterInlineSize).toBe(0);
   });
+
+  it("adds letterSpacing to each cluster advance vs the normal baseline", () => {
+    const shaper = createCanvasShaper(canvas);
+    const base = shaper.shape("ab", { ...INITIAL_COMPUTED_STYLE }, "ltr");
+    const spaced = shaper.shape(
+      "ab",
+      { ...INITIAL_COMPUTED_STYLE, letterSpacing: 5 },
+      "ltr",
+    );
+    for (let i = 0; i < base.clusters.length; i++) {
+      expect(spaced.clusters[i].inlineAdvance).toBeCloseTo(
+        base.clusters[i].inlineAdvance + 5,
+        5,
+      );
+    }
+    expect(spaced.unbreakableRunInlineSize).toBeCloseTo(
+      base.unbreakableRunInlineSize + 10,
+      5,
+    );
+    // The intrinsic-sizing aggregate grows too: letterSpacing adds to EVERY
+    // cluster, so the widest spaced cluster is the widest base cluster + 5.
+    expect(spaced.minClusterInlineSize).toBeCloseTo(
+      base.minClusterInlineSize + 5,
+      5,
+    );
+  });
+
+  it("wordSpacing adds only to the space cluster", () => {
+    const shaper = createCanvasShaper(canvas);
+    const base = shaper.shape("a b", { ...INITIAL_COMPUTED_STYLE }, "ltr");
+    const spaced = shaper.shape(
+      "a b",
+      { ...INITIAL_COMPUTED_STYLE, wordSpacing: 7 },
+      "ltr",
+    );
+    // only the middle cluster (the space) grows by 7; 'a' and 'b' unchanged
+    expect(spaced.clusters[0].inlineAdvance).toBeCloseTo(
+      base.clusters[0].inlineAdvance,
+      5,
+    );
+    expect(spaced.clusters[1].inlineAdvance).toBeCloseTo(
+      base.clusters[1].inlineAdvance + 7,
+      5,
+    );
+    expect(spaced.clusters[2].inlineAdvance).toBeCloseTo(
+      base.clusters[2].inlineAdvance,
+      5,
+    );
+    // The run sum grows by exactly the one space's word-spacing (7) — robust
+    // regardless of which cluster is widest, unlike minClusterInlineSize.
+    expect(spaced.unbreakableRunInlineSize).toBeCloseTo(
+      base.unbreakableRunInlineSize + 7,
+      5,
+    );
+  });
 });

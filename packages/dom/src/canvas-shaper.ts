@@ -7,6 +7,7 @@ import type {
   BreakOpportunity,
   FontMetrics,
 } from "@taleweaver/core";
+import { resolveSpacingPx, clusterSpacing } from "@taleweaver/core";
 import { buildCssFontString } from "./font-config";
 import { segmentClusters } from "./text-clusters";
 
@@ -70,12 +71,17 @@ export function createCanvasShaper(
     const clusters: Cluster[] = [];
     let max = 0;
     let total = 0;
+    // CSS letter-/word-spacing: resolve once, then add per-cluster extra advance
+    // (letter-spacing on every cluster + word-spacing on word separators). The
+    // `normal`-identity contract means default styles add 0 (see text-spacing.ts).
+    const letterPx = resolveSpacingPx(style.letterSpacing);
+    const wordPx = resolveSpacingPx(style.wordSpacing);
     // Segment via the shared helper so the renderer (which paints each cluster
     // at the matching cumulative advance, #330) can never diverge from how the
     // shaper measured. v1 clusters are single code units.
     let start = 0;
     for (const c of segmentClusters(text)) {
-      const w = ctx.measureText(c).width;
+      const w = ctx.measureText(c).width + clusterSpacing(c, letterPx, wordPx);
       clusters.push({
         start,
         end: start + c.length,
@@ -108,7 +114,7 @@ export function createCanvasShaper(
       ascent: fm.ascent,
       descent: fm.descent,
       lineGap: fm.lineGap,
-      minClusterInlineSize: max,
+      minClusterInlineSize: text.length === 0 ? 0 : max,
       unbreakableRunInlineSize: total,
       breakOpportunities,
       bidiLevel: baseDirection === "rtl" ? 1 : 0,
