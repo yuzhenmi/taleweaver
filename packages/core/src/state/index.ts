@@ -186,6 +186,12 @@ export { getActiveFormatting } from "./active-formatting";
 export { insertText } from "./ops/insert-text";
 export { deleteRange } from "./ops/delete-range";
 export { replaceRange } from "./ops/replace-range";
+export type { ReplaceAllPlan, BlockWrite } from "./ops/replace-matches";
+export {
+  planReplaceMatches,
+  replaceAllMatches,
+  applyReplaceAllPlan,
+} from "./ops/replace-matches";
 export { applyAttrsToRange } from "./ops/apply-attrs";
 
 // Block-structural edits.

@@ -46,6 +46,8 @@ export function coalesceKeyOf(action: EditorAction): ActionClass {
     case "SET_PARAGRAPH_SPACING":
     case "INDENT":
     case "OUTDENT":
+    case "REPLACE_MATCH":
+    case "REPLACE_ALL":
       return "command";
     case "MOVE_CURSOR":
     case "MOVE_WORD":

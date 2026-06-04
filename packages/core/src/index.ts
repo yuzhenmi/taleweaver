@@ -90,6 +90,8 @@ export { normalizeSpan, iterateSpan, iterateBlocksInSpan } from "./state";
 export { insertText } from "./state";
 export { deleteRange } from "./state";
 export { replaceRange } from "./state";
+export { planReplaceMatches, replaceAllMatches, applyReplaceAllPlan } from "./state";
+export type { ReplaceAllPlan, BlockWrite } from "./state";
 export { splitBlockAtPosition } from "./state";
 export { insertBlock } from "./state";
 export type { InsertBlockArgs } from "./state";

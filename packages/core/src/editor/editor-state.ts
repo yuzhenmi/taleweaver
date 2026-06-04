@@ -57,6 +57,8 @@ import {
   INDENT_STEP,
   handleSetParagraphSpacing,
   handleSetFootnotePolicy,
+  handleReplaceMatch,
+  handleReplaceAll,
 } from "./actions";
 
 import { cascadeTemplateContents, cascadeEmbedContents } from "./actions/helpers";
@@ -431,6 +433,12 @@ export function reduceEditor(
         { reset: action.reset, format: action.format },
         config,
       );
+      break;
+    case "REPLACE_MATCH":
+      result = handleReplaceMatch(editor, action.match, action.replacement, config);
+      break;
+    case "REPLACE_ALL":
+      result = handleReplaceAll(editor, action.matches, action.replacement, config);
       break;
     default: {
       action satisfies never;

@@ -1,4 +1,4 @@
-import type { Selection, Position, BlockInit } from "../state";
+import type { Selection, Position, BlockInit, TextMatch } from "../state";
 import type { TextAlign } from "../styles/style";
 import type { CounterFormat, FootnoteNumberingPolicy } from "../footnotes";
 
@@ -49,4 +49,6 @@ export type EditorAction =
       type: "SET_FOOTNOTE_POLICY";
       reset?: FootnoteNumberingPolicy["reset"];
       format?: CounterFormat;
-    };
+    }
+  | { type: "REPLACE_MATCH"; match: TextMatch; replacement: string }
+  | { type: "REPLACE_ALL"; matches: TextMatch[]; replacement: string };

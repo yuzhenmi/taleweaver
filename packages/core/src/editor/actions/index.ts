@@ -40,3 +40,4 @@ export { handleSetLineSpacing } from "./set-line-spacing";
 export { handleIndent, INDENT_STEP } from "./indent";
 export { handleSetParagraphSpacing } from "./set-paragraph-spacing";
 export { handleSetFootnotePolicy } from "./set-footnote-policy-action";
+export { handleReplaceMatch, handleReplaceAll } from "./replace";
