@@ -108,10 +108,17 @@ Known gaps:
   implemented. Hebrew embedded in English (or vice versa) renders in
   source order rather than visual order. Closes when the canvas shaper
   emits per-cluster bidi levels and the IFC's reorder consumes them.
-- **Convergence detection for incremental wrap** is implemented in
-  `wrap-incremental.ts` but not yet wired into the IFC's main wrap
-  loop. The paragraph cache provides 90%+ of the expected benefit
-  even without it.
+- **Convergence detection for incremental wrap** (`rewrapIncremental`)
+  is implemented and tested in `wrap-incremental.ts` but not yet wired
+  into the IFC's main wrap loop — foundation-built-ahead, scoped to P18.
+  The IFC's all-or-nothing paragraph cache (`findChangePoint`) already
+  provides the dominant benefit (every un-edited paragraph reused each
+  keystroke); `rewrapIncremental` adds only marginal partial reuse within
+  the single edited paragraph. A correct wire-in must first resolve four
+  integration hazards (tail vertical-repositioning, float-environment
+  gate, bidi-context gate, fragmentation interaction) — see
+  `1.4-layout/1.4.2-ifc.md` "Convergence (incremental wrap)". Wiring it
+  naively would ship a degraded, incorrect partial-reuse.
 - **Auto-table rowspan / colspan** — schema doesn't yet have
   `rowSpan`/`colSpan`; column-width algorithm uses sequential
   `colIdx++`.

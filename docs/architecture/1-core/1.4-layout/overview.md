@@ -113,9 +113,12 @@ each box's `display` value.
   `IFCStateCache` (paragraph-level identity cache). Lets a paragraph
   whose tokens haven't changed reuse its cached line layout wholesale.
 
-- **`wrap-incremental`** — convergence-detection algorithm for
-  within-paragraph incremental wrap (algorithm only; not yet wired into
-  the IFC's main wrap loop).
+- **`wrap-incremental`** — `findChangePoint` (live: powers the IFC's
+  all-or-nothing paragraph reuse) plus `rewrapIncremental`, the
+  convergence-detection algorithm for within-paragraph incremental wrap
+  (algorithm only; not yet wired into the IFC's main wrap loop — scoped
+  to P18, blocked on four integration hazards detailed in
+  `1.4.2-ifc.md` "Convergence (incremental wrap)").
 
 ### Tokenization and text-measurement
 
