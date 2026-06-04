@@ -94,7 +94,15 @@ export function paintCanvas(
         ctx.clearRect(r.x, r.y, r.w, r.h);
       }
 
-      // Selection rects (drawn first, behind text)
+      // Two-phase paint (#397): background layer → selection overlay →
+      // foreground (text) layer → cursor, so the translucent selection tint
+      // composites OVER content backgrounds and UNDER the glyphs.
+      const state: PaintState = { lastFont: "", imageCache };
+
+      // Background phase: content backgrounds, borders, images, highlights.
+      paintBox(ctx, layoutTree, 0, 0, visibleTop, visibleBottom, state, "background");
+
+      // Selection rects (over backgrounds, under text)
       if (selectionRects.length > 0) {
         ctx.fillStyle = "rgba(59, 130, 246, 0.3)";
         for (const rect of selectionRects) {
@@ -103,9 +111,8 @@ export function paintCanvas(
         }
       }
 
-      // Layout tree
-      const state: PaintState = { lastFont: "", imageCache };
-      paintBox(ctx, layoutTree, 0, 0, visibleTop, visibleBottom, state);
+      // Foreground phase: glyphs + text decorations.
+      paintBox(ctx, layoutTree, 0, 0, visibleTop, visibleBottom, state, "foreground");
 
       // Cursor
       if (cursorState === "active") {
@@ -123,7 +130,14 @@ export function paintCanvas(
   // Non-incremental path (cache = null / undefined): original behaviour.
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
-  // Selection rects (drawn first, behind text)
+  // Two-phase paint (#397): background → selection overlay → foreground (text)
+  // → cursor. The selection tint composites over content backgrounds, under text.
+  const state: PaintState = { lastFont: "", imageCache };
+
+  // Background phase
+  paintBox(ctx, layoutTree, 0, 0, visibleTop, visibleBottom, state, "background");
+
+  // Selection rects (over backgrounds, under text)
   if (selectionRects.length > 0) {
     ctx.fillStyle = "rgba(59, 130, 246, 0.3)";
     for (const rect of selectionRects) {
@@ -132,9 +146,8 @@ export function paintCanvas(
     }
   }
 
-  // Layout tree
-  const state: PaintState = { lastFont: "", imageCache };
-  paintBox(ctx, layoutTree, 0, 0, visibleTop, visibleBottom, state);
+  // Foreground phase (glyphs + decorations)
+  paintBox(ctx, layoutTree, 0, 0, visibleTop, visibleBottom, state, "foreground");
 
   // Cursor
   if (cursorState === "active") {
@@ -205,15 +218,8 @@ export function paintPage(
       ctx.fillStyle = "white";
       ctx.fillRect(0, 0, pageBox.width, pageBox.height);
 
-      // Selection rects
-      if (selectionRects.length > 0) {
-        ctx.fillStyle = "rgba(59, 130, 246, 0.3)";
-        for (const rect of selectionRects) {
-          ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
-        }
-      }
-
-      // Paint the page box contents.
+      // Two-phase paint (#397): page white bg (above) → background phase →
+      // selection overlay → foreground (text) phase → cursor.
       const state: PaintState = { lastFont: "", imageCache };
       // pageBox.x/y are document-relative (the page's offset within the wrapping
   // root BlockBox). The canvas paints in page-local coordinates (origin at the
@@ -222,7 +228,20 @@ export function paintPage(
   // its absY (≈ pageBlockOffset = pageIndex × pageHeight) exceeds the
   // canvas's visible bound (pageBox.height). This bug was latent until P1.B
   // since page 0 has y=0 and rendered correctly by accident.
-  paintBox(ctx, pageBox, -pageBox.x, -pageBox.y, 0, pageBox.height, state);
+
+      // Background phase: content backgrounds, borders, images, highlights.
+      paintBox(ctx, pageBox, -pageBox.x, -pageBox.y, 0, pageBox.height, state, "background");
+
+      // Selection rects (over backgrounds, under text)
+      if (selectionRects.length > 0) {
+        ctx.fillStyle = "rgba(59, 130, 246, 0.3)";
+        for (const rect of selectionRects) {
+          ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+        }
+      }
+
+      // Foreground phase: glyphs + text decorations.
+      paintBox(ctx, pageBox, -pageBox.x, -pageBox.y, 0, pageBox.height, state, "foreground");
 
       // Cursor
       if (cursorPos) {
@@ -244,15 +263,8 @@ export function paintPage(
   ctx.fillStyle = "white";
   ctx.fillRect(0, 0, pageBox.width, pageBox.height);
 
-  // Selection rects (already page-relative and filtered by pageIndex)
-  if (selectionRects.length > 0) {
-    ctx.fillStyle = "rgba(59, 130, 246, 0.3)";
-    for (const rect of selectionRects) {
-      ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
-    }
-  }
-
-  // Paint the page box contents (page.y is 0, children are page-relative)
+  // Two-phase paint (#397): page white bg (above) → background phase →
+  // selection overlay → foreground (text) phase → cursor.
   const state: PaintState = { lastFont: "", imageCache };
   // pageBox.x/y are document-relative (the page's offset within the wrapping
   // root BlockBox). The canvas paints in page-local coordinates (origin at the
@@ -261,7 +273,20 @@ export function paintPage(
   // its absY (≈ pageBlockOffset = pageIndex × pageHeight) exceeds the
   // canvas's visible bound (pageBox.height). This bug was latent until P1.B
   // since page 0 has y=0 and rendered correctly by accident.
-  paintBox(ctx, pageBox, -pageBox.x, -pageBox.y, 0, pageBox.height, state);
+
+  // Background phase: content backgrounds, borders, images, highlights.
+  paintBox(ctx, pageBox, -pageBox.x, -pageBox.y, 0, pageBox.height, state, "background");
+
+  // Selection rects (already page-relative and filtered by pageIndex)
+  if (selectionRects.length > 0) {
+    ctx.fillStyle = "rgba(59, 130, 246, 0.3)";
+    for (const rect of selectionRects) {
+      ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+    }
+  }
+
+  // Foreground phase: glyphs + text decorations.
+  paintBox(ctx, pageBox, -pageBox.x, -pageBox.y, 0, pageBox.height, state, "foreground");
 
   // Cursor (null means cursor is not on this page)
   if (cursorPos) {
@@ -433,6 +458,30 @@ function walkAndDetectChanges(
   }
 }
 
+/**
+ * Two-phase paint (see `docs/architecture/2-dom/2.2-canvas-renderer.md`).
+ *
+ * `phase` selects which visual layer this walk paints, so the caller can
+ * interleave the translucent selection overlay BETWEEN them:
+ *
+ *   paintBox(..., "background")  → content backgrounds, borders, images,
+ *                                  text-run highlights, horizontal-line rules
+ *   <selection rects>            → the translucent blue tint
+ *   paintBox(..., "foreground")  → glyphs + text decorations (under/strike)
+ *   <cursor>
+ *
+ * This matches the browser / Google Docs: the selection composites OVER content
+ * backgrounds (so a highlighted run shows blue-over-yellow) and UNDER the text
+ * glyphs (which stay crisp). #397.
+ *
+ * Both phases walk the SAME (virtualized/visible) tree with the SAME clip args,
+ * so the same set of draws happens — only split across the two layers. The
+ * deliberate double-walk is bounded (it only touches the visible subtree).
+ * `phase` threads through the recursion unchanged: children are painted in the
+ * same phase as their parent.
+ */
+type PaintPhase = "background" | "foreground";
+
 function paintBox(
   ctx: CanvasRenderingContext2D,
   box: LayoutBox,
@@ -441,6 +490,7 @@ function paintBox(
   visibleTop: number,
   visibleBottom: number,
   state: PaintState,
+  phase: PaintPhase,
 ): void {
   const t = markStart("paint.draw");
   try {
@@ -454,17 +504,21 @@ function paintBox(
   const us = box.usedStyle;
 
   if (box.type === "text-run") {
+    // Highlight (text background color) — BACKGROUND phase: paint the full run
+    // rect so the selection tint composites OVER it. Mirrors the block-branch
+    // backgroundColor guard.
+    if (phase === "background") {
+      if (cs.backgroundColor && cs.backgroundColor !== "transparent") {
+        ctx.fillStyle = cs.backgroundColor;
+        ctx.fillRect(absX, absY, box.width, box.height);
+      }
+      return;
+    }
+    // FOREGROUND phase: glyphs + text decorations (painted OVER the selection).
     const fontStr = buildCssFontString(cs);
     if (fontStr !== state.lastFont) {
       ctx.font = fontStr;
       state.lastFont = fontStr;
-    }
-    // Highlight (text background color) — paint the full run rect BEHIND the
-    // glyphs, then reset fillStyle to cs.color for the glyphs below. Mirrors
-    // the block-branch backgroundColor guard.
-    if (cs.backgroundColor && cs.backgroundColor !== "transparent") {
-      ctx.fillStyle = cs.backgroundColor;
-      ctx.fillRect(absX, absY, box.width, box.height);
     }
     ctx.fillStyle = cs.color;
     const fontSize = cs.fontSize;
@@ -505,6 +559,9 @@ function paintBox(
   }
 
   if (box.type === "marker") {
+    // Marker glyph (list bullet/number, footnote marker) — FOREGROUND only;
+    // it's text, painted OVER the selection.
+    if (phase !== "foreground") return;
     const fontStr = buildCssFontString(cs);
     if (fontStr !== state.lastFont) {
       ctx.font = fontStr;
@@ -519,36 +576,38 @@ function paintBox(
   }
 
   if (box.type === "block") {
-    // Background
-    if (cs.backgroundColor && cs.backgroundColor !== "transparent") {
-      ctx.fillStyle = cs.backgroundColor;
-      ctx.fillRect(absX, absY, box.width, box.height);
-    }
-    // Borders
-    paintBorders(ctx, us, absX, absY, box.width, box.height);
-    // Image content
-    if (box.metadata?.image) {
-      const img = box.metadata.image;
-      const cached = state.imageCache?.get(img.src);
-      if (cached) {
-        ctx.drawImage(cached, absX, absY, img.width, img.height);
-      } else {
-        ctx.fillStyle = "#f0f0f0";
-        ctx.fillRect(absX, absY, img.width, img.height);
+    if (phase === "background") {
+      // Background
+      if (cs.backgroundColor && cs.backgroundColor !== "transparent") {
+        ctx.fillStyle = cs.backgroundColor;
+        ctx.fillRect(absX, absY, box.width, box.height);
       }
+      // Borders
+      paintBorders(ctx, us, absX, absY, box.width, box.height);
+      // Image content
+      if (box.metadata?.image) {
+        const img = box.metadata.image;
+        const cached = state.imageCache?.get(img.src);
+        if (cached) {
+          ctx.drawImage(cached, absX, absY, img.width, img.height);
+        } else {
+          ctx.fillStyle = "#f0f0f0";
+          ctx.fillRect(absX, absY, img.width, img.height);
+        }
+      }
+      // Horizontal line
+      if (box.metadata?.horizontalLine) {
+        ctx.fillStyle = "#dadce0";
+        ctx.fillRect(absX + 8, absY + box.height / 2 - 0.5, box.width - 16, 1);
+      }
+      // Footnote separator rule: REMOVED (user directive — deliberate deviation
+      // from Google Docs). The layout no longer emits a `footnoteSeparator` box,
+      // and even if one were present we no longer paint a rule for it. The slot
+      // still reserves `FOOTNOTE_SEPARATOR_HEIGHT` as a plain gap above the bodies.
     }
-    // Horizontal line
-    if (box.metadata?.horizontalLine) {
-      ctx.fillStyle = "#dadce0";
-      ctx.fillRect(absX + 8, absY + box.height / 2 - 0.5, box.width - 16, 1);
-    }
-    // Footnote separator rule: REMOVED (user directive — deliberate deviation
-    // from Google Docs). The layout no longer emits a `footnoteSeparator` box,
-    // and even if one were present we no longer paint a rule for it. The slot
-    // still reserves `FOOTNOTE_SEPARATOR_HEIGHT` as a plain gap above the bodies.
-    // Recurse into children
+    // Recurse into children (same phase)
     for (const child of box.children) {
-      paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state);
+      paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state, phase);
     }
     return;
   }
@@ -558,61 +617,65 @@ function paintBox(
     // footnote call-marker's superscript glyph). It paints like a block —
     // full-box background + borders (NOT edge-split like an inline fragment) —
     // then recurses into its inner BFC's line boxes.
-    if (cs.backgroundColor && cs.backgroundColor !== "transparent") {
-      ctx.fillStyle = cs.backgroundColor;
-      ctx.fillRect(absX, absY, box.width, box.height);
+    if (phase === "background") {
+      if (cs.backgroundColor && cs.backgroundColor !== "transparent") {
+        ctx.fillStyle = cs.backgroundColor;
+        ctx.fillRect(absX, absY, box.width, box.height);
+      }
+      paintBorders(ctx, us, absX, absY, box.width, box.height);
     }
-    paintBorders(ctx, us, absX, absY, box.width, box.height);
     for (const child of box.children) {
-      paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state);
+      paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state, phase);
     }
     return;
   }
 
   if (box.type === "line") {
-    // Lines don't paint themselves; just recurse into children.
+    // Lines don't paint themselves; just recurse into children (same phase).
     for (const child of box.children) {
-      paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state);
+      paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state, phase);
     }
     return;
   }
 
   if (box.type === "inline") {
-    // Background: full fragment
-    if (cs.backgroundColor && cs.backgroundColor !== "transparent") {
-      ctx.fillStyle = cs.backgroundColor;
-      ctx.fillRect(absX, absY, box.width, box.height);
+    if (phase === "background") {
+      // Background: full fragment
+      if (cs.backgroundColor && cs.backgroundColor !== "transparent") {
+        ctx.fillStyle = cs.backgroundColor;
+        ctx.fillRect(absX, absY, box.width, box.height);
+      }
+      // Borders: edge-aware
+      paintInlineBorders(ctx, us, absX, absY, box.width, box.height, box.fragmentEdge);
     }
-
-    // Borders: edge-aware
-    paintInlineBorders(ctx, us, absX, absY, box.width, box.height, box.fragmentEdge);
-
-    // Recurse
+    // Recurse (same phase)
     for (const child of box.children) {
-      paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state);
+      paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state, phase);
     }
     return;
   }
 
   if (box.type === "table" || box.type === "table-row") {
-    // Table and table-row just recurse into children
+    // Table and table-row just recurse into children (same phase)
     for (const child of box.children) {
-      paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state);
+      paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state, phase);
     }
     return;
   }
 
   if (box.type === "table-cell") {
-    // Background
-    if (cs.backgroundColor && cs.backgroundColor !== "transparent") {
-      ctx.fillStyle = cs.backgroundColor;
-      ctx.fillRect(absX, absY, box.width, box.height);
+    if (phase === "background") {
+      // Background
+      if (cs.backgroundColor && cs.backgroundColor !== "transparent") {
+        ctx.fillStyle = cs.backgroundColor;
+        ctx.fillRect(absX, absY, box.width, box.height);
+      }
+      // Borders
+      paintBorders(ctx, us, absX, absY, box.width, box.height);
     }
-    // Borders
-    paintBorders(ctx, us, absX, absY, box.width, box.height);
-    // Recurse into cell content
+    // Recurse into cell content (same phase)
     for (const child of box.children) {
-      paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state);
+      paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state, phase);
     }
     return;
   }
@@ -629,7 +692,7 @@ function paintBox(
     // routes paginated layouts through `paintPages` / `paintPage`). The
     // fallback was dead code masking a real rendering bug.
     for (const child of box.children) {
-      paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state);
+      paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state, phase);
     }
     // C.2c (T5) + #328: paint the header/footer slots. They are NAMED fields
     // (not in `box.children`), positioned in PAGE-LOCAL coords (header at
@@ -642,17 +705,17 @@ function paintBox(
     // page-local x/y it carries). Painted after children, using the same
     // page-local origin.
     if (box.headerSlot !== null) {
-      paintBox(ctx, box.headerSlot, absX, absY, visibleTop, visibleBottom, state);
+      paintBox(ctx, box.headerSlot, absX, absY, visibleTop, visibleBottom, state, phase);
     }
     if (box.footerSlot !== null) {
-      paintBox(ctx, box.footerSlot, absX, absY, visibleTop, visibleBottom, state);
+      paintBox(ctx, box.footerSlot, absX, absY, visibleTop, visibleBottom, state, phase);
     }
     // DA3: the footnote SLOT is a NAMED field (like header/footer), NOT in
     // `box.children`, so paint it BY NAME — otherwise footnote bodies never
     // render. It sits between the body content and the footer (its own page-local
     // blockOffset). Painted with the same page-local origin as the slots above.
     if (box.footnoteSlot !== null) {
-      paintBox(ctx, box.footnoteSlot, absX, absY, visibleTop, visibleBottom, state);
+      paintBox(ctx, box.footnoteSlot, absX, absY, visibleTop, visibleBottom, state, phase);
     }
     return;
   }
