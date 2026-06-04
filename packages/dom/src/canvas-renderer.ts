@@ -1,5 +1,5 @@
 import type { LayoutBox, SelectionRect, UsedStyle, BorderStyle, Color } from "@taleweaver/core";
-import { markStart, markEnd } from "@taleweaver/core";
+import { markStart, markEnd, resolveSpacingPx, clusterSpacing } from "@taleweaver/core";
 import { buildCssFontString } from "./font-config";
 import { segmentClusters } from "./text-clusters";
 import type { ImageCache } from "./image-cache";
@@ -656,10 +656,17 @@ function paintBox(
     // painted glyph origins == summed advances == caret x by construction.
     // (Trades whole-string kerning for caret accuracy — correct for a word
     // processor; real cluster-shaping/HarfBuzz restores both later.)
+    // CSS Text 3 §8: letter-/word-spacing add extra inline advance per cluster.
+    // The LAYOUT advances (shapers + IFC, Tasks 1-5) already include this, so the
+    // paint loop must add the SAME spacing or painted glyphs drift from the caret
+    // (the #330 no-drift requirement). usedStyle spacing is numeric px (or
+    // "normal" ≡ 0); resolveSpacingPx/clusterSpacing apply the identical rule.
+    const letterPx = resolveSpacingPx(us.letterSpacing);
+    const wordPx = resolveSpacingPx(us.wordSpacing);
     let clusterX = absX;
     for (const cluster of segmentClusters(box.text)) {
       ctx.fillText(cluster, clusterX, baselineY);
-      clusterX += ctx.measureText(cluster).width;
+      clusterX += ctx.measureText(cluster).width + clusterSpacing(cluster, letterPx, wordPx);
     }
     // Text decorations are an INDEPENDENT-FLAG set (CSS text-decoration-line):
     // a run can carry both at once, so paint each with its own `if` (NOT

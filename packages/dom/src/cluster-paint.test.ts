@@ -133,7 +133,14 @@ const BASE_US = {
   lineHeight: 20,
 };
 
-function makeTextRun(opts: { text: string; x?: number; width?: number; height?: number }): LayoutBox {
+function makeTextRun(opts: {
+  text: string;
+  x?: number;
+  width?: number;
+  height?: number;
+  letterSpacing?: number | "normal";
+  wordSpacing?: number | "normal";
+}): LayoutBox {
   const h = opts.height ?? 16;
   return {
     type: "text-run",
@@ -145,7 +152,11 @@ function makeTextRun(opts: { text: string; x?: number; width?: number; height?: 
     writingMode: "horizontal-tb", direction: "ltr",
     text: opts.text,
     computedStyle: { ...BASE_CS },
-    usedStyle: { ...BASE_US },
+    usedStyle: {
+      ...BASE_US,
+      letterSpacing: opts.letterSpacing ?? "normal",
+      wordSpacing: opts.wordSpacing ?? "normal",
+    },
   } as unknown as LayoutBox;
 }
 
@@ -245,5 +256,34 @@ describe("#330 cluster-positioned painting", () => {
     expect(ctx._fills[0].x).toBeCloseTo(0, 6);
     expect(ctx._fills[1].x).toBeCloseTo(8, 6);
     expect(ctx._fills[2].x).toBeCloseTo(13, 6);
+  });
+
+  it("paint advances include letter-spacing (no glyph/caret drift)", () => {
+    // CSS Text 3 §8: letter-spacing adds extra advance after EVERY cluster, so
+    // the painted origin of cluster i+1 must include the per-cluster spacing the
+    // LAYOUT/shaper added — otherwise glyphs drift from the caret/layout. Here
+    // letterSpacing = 5 (numeric px, as in UsedStyle).
+    const box = makeTextRun({ text: "ab", x: 0, letterSpacing: 5 });
+    paint(ctx, box);
+
+    expect(ctx._fills.map((f) => f.text)).toEqual(["a", "b"]);
+    // a@0; b@ measureText("a").width (8) + letterSpacing (5) = 13.
+    expect(ctx._fills[0].x).toBeCloseTo(0, 6);
+    expect(ctx._fills[1].x).toBeCloseTo(ctx.measureText("a").width + 5, 6);
+  });
+
+  it("paint advances include word-spacing on word separators", () => {
+    // word-spacing adds extra advance only on word-separator clusters (U+0020).
+    // letterSpacing also applies to every cluster. "a b": a@0, space@(8+2)=10,
+    // b@(10 + 5[space width] + 2[letter] + 3[word]) = 20.
+    const box = makeTextRun({ text: "a b", x: 0, letterSpacing: 2, wordSpacing: 3 });
+    paint(ctx, box);
+
+    expect(ctx._fills.map((f) => f.text)).toEqual(["a", " ", "b"]);
+    expect(ctx._fills[0].x).toBeCloseTo(0, 6);
+    // after "a": width 8 + letter 2 = 10
+    expect(ctx._fills[1].x).toBeCloseTo(10, 6);
+    // after " ": prev 10 + width 5 + letter 2 + word 3 = 20
+    expect(ctx._fills[2].x).toBeCloseTo(20, 6);
   });
 });
