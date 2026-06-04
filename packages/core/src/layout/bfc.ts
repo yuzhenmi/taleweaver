@@ -381,11 +381,20 @@ export function layoutBlock(
     if (group.kind === "inline-run") {
       // Synthesize an anonymous ElementBox for this inline-run group and lay it out via IFC.
       const anonKey = anonymousBlockKey(node.key, group.positionalIndex);
+      // #432: CSS2 §16.1 — `text-indent` indents the first line of an anonymous
+      // block box ONLY when that anon block is its parent's first child (the
+      // block's first formatted line). The LEADING inline run is the first group
+      // (`i === 0`); a run at `i > 0` is always preceded by a block group
+      // (`groupChildren` coalesces consecutive inline children into one group),
+      // so it is NOT the first child and must NOT be indented. Suppress the
+      // indent on non-leading runs by zeroing `textIndent` on their anon style.
+      const anonCs: ComputedStyle =
+        i === 0 ? cs : Object.freeze({ ...cs, textIndent: 0 });
       const anonElement: ElementBox = Object.freeze({
         type: "element" as const,
         key: anonKey,
         style: node.style,
-        computedStyle: cs,
+        computedStyle: anonCs,
         children: Object.freeze([...group.children]),
       });
 

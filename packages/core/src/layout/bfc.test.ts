@@ -214,6 +214,44 @@ describe("layoutBlock — mixed block + inline children (anonymous box generatio
     expect(afterP.some(c => c.type === "line")).toBe(true);
   });
 
+  it("#432: text-indent indents only the LEADING inline run, not a run after a block child (CSS2 §16.1)", () => {
+    // Mixed content [text "intro", block "p", text "outro"] with textIndent 40.
+    // CSS2 §16.1: text-indent indents the first line of an anonymous block box
+    // ONLY when that anon block is the parent's first child. So the LEADING run
+    // ("intro", first child) is indented by 40; the run AFTER the block child
+    // ("outro") is NOT indented.
+    const t1 = createTextBox("t1", { display: "inline" }, "intro");
+    const para = createElementBox("p", { display: "block" }, [
+      createTextBox("p-text", { display: "inline" }, "paragraph"),
+    ]);
+    const t2 = createTextBox("t2", { display: "inline" }, "outro");
+    const doc = createElementBox(
+      "doc",
+      { display: "block", textIndent: { value: 40, unit: "px" } },
+      [t1, para, t2],
+    );
+    const cascaded = cascadePass(doc);
+    if (cascaded.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const r = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16));
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error();
+
+    // Leading run: its line is the first child, indented by 40.
+    const leadingLine = out.children[0];
+    expect(leadingLine.type).toBe("line");
+    if (leadingLine.type !== "line") throw new Error();
+    expect(leadingLine.x).toBe(40);
+
+    // Trailing run (after block "p"): first line is NOT indented (x === 0).
+    const pIndex = out.children.findIndex(c => c.type === "block" && c.key === "p");
+    const trailingLine = out.children.slice(pIndex + 1).find(c => c.type === "line");
+    expect(trailingLine).toBeDefined();
+    if (!trailingLine || trailingLine.type !== "line") throw new Error();
+    expect(trailingLine.x).toBe(0);
+  });
+
   it("a paragraph (all-inline children) still produces line boxes via groupChildren", () => {
     const tree = createElementBox("p", { display: "block" }, [
       createTextBox("t", {}, "hello world"),
