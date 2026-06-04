@@ -491,6 +491,92 @@ describe("editor default white-space: break-spaces (multiple spaces render)", ()
   });
 });
 
+describe("text-transform hit-test: display→state reverse remap (ß→SS)", () => {
+  // A length-changing text-transform (uppercase ß→SS) renders DISPLAY text "ASS"
+  // while state offsets stay pristine ("aß" = 2 code units). The leaf carries
+  // `sourceDisplayLengths` [1, 2]. `findCharOffset` returns a DISPLAY offset into
+  // the leaf's display text; hit-test must reverse-map it to a STATE offset so a
+  // click inside the "SS" resolves to the source boundary before/after the ß
+  // (offset 1 or 2), NEVER an interior offset that splits the ß.
+  function transformedParagraph(textContent: string, textTransform: string): State {
+    return buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({
+          id: "doc",
+          type: "document",
+          firstChildId: "p",
+          lastChildId: "p",
+        }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([text(textContent, { textTransform })]),
+        }),
+      ],
+    });
+  }
+
+  it("'aß' uppercase: click in 'a' → state offset 0; mid-'SS' → nearest source boundary (1 or 2); past end → 2", () => {
+    // Display "ASS" (8px/char); leaf spans x ∈ [0, 24). sourceDisplayLengths [1,2].
+    const state = transformedParagraph("aß", "uppercase");
+    const { layout, shaper } = pipeline(state, 800);
+
+    // Click in 'A' (x = 2, clearly left of the char midpoint at 4) → display
+    // offset 0 → state offset 0.
+    const inA = resolvePositionFromPixel(state, layout, shaper, 2, 0);
+    expect(inA).not.toBeNull();
+    if (inA === null) return;
+    expect(inA.blockId).toBe("p");
+    expect(inA.offset).toBe(0);
+
+    // Click in the right half of the SECOND "S" (x = 22, char S2 spans [16, 24),
+    // right of its midpoint 20) → DISPLAY offset 3. This is the interior of the
+    // ß (state code unit 1 spans display [1, 3)). The raw display offset 3 must
+    // be reverse-mapped to the nearest SOURCE boundary — state offset 2 (the
+    // position AFTER the ß), NEVER the raw display 3 (which would be an offset
+    // PAST the 2-code-unit source). It must be 1 OR 2, never an interior/3.
+    const midSS = resolvePositionFromPixel(state, layout, shaper, 22, 0);
+    expect(midSS).not.toBeNull();
+    if (midSS === null) return;
+    expect(midSS.blockId).toBe("p");
+    expect([1, 2]).toContain(midSS.offset);
+
+    // Click past the end (x = 30) → display offset 3 → state offset 2 (NOT the
+    // raw display offset 3, which would split/overrun the 2-code-unit source).
+    const pastEnd = resolvePositionFromPixel(state, layout, shaper, 30, 0);
+    expect(pastEnd).not.toBeNull();
+    if (pastEnd === null) return;
+    expect(pastEnd.blockId).toBe("p");
+    expect(pastEnd.offset).toBe(2);
+  });
+
+  it("'ab' uppercase (1:1, sourceDisplayLengths undefined): click in 'b' resolves normally to state offset 1", () => {
+    // Display "AB" 1:1 — no sourceDisplayLengths, state offset === display offset.
+    const state = transformedParagraph("ab", "uppercase");
+    const { layout, shaper } = pipeline(state, 800);
+    // Click in 'B' (x = 10, char "B" spans [8, 16), left of its midpoint 12) → 1.
+    const inB = resolvePositionFromPixel(state, layout, shaper, 10, 0);
+    expect(inB).not.toBeNull();
+    if (inB === null) return;
+    expect(inB.blockId).toBe("p");
+    expect(inB.offset).toBe(1);
+  });
+
+  it("'aß' none (untransformed): click resolves normally, state offset === index", () => {
+    const state = transformedParagraph("aß", "none");
+    const { layout, shaper } = pipeline(state, 800);
+    // "aß" renders as-is (2 code units). Click in 'ß' (x = 10, spans [8, 16),
+    // left of its midpoint 12) → 1.
+    const inSecond = resolvePositionFromPixel(state, layout, shaper, 10, 0);
+    expect(inSecond).not.toBeNull();
+    if (inSecond === null) return;
+    expect(inSecond.blockId).toBe("p");
+    expect(inSecond.offset).toBe(1);
+  });
+});
+
 describe("collapsed-whitespace offset drift (double-click third word after double space)", () => {
   // Root-cause repro: under white-space:normal a double space collapses to one
   // rendered space, but cursor offsets are STATE offsets. A click at the

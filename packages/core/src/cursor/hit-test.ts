@@ -150,12 +150,26 @@ export function resolvePositionFromPixel(
     let charOffset: number;
     if (targetLeaf.kind === "text-run") {
       const localX = x - targetLeaf.absoluteX;
-      charOffset = findCharOffset(
+      // `findCharOffset` searches `targetLeaf.box.text` by measured width, so it
+      // returns a DISPLAY code-unit offset into that string. For a length-
+      // changing text-transform leaf (e.g. uppercase ß→SS, display "ASS") the
+      // display string differs from the source, so this display offset must be
+      // reverse-mapped to a STATE offset before it's added to the line/leaf STATE
+      // offsets below — otherwise a click inside the "SS" would resolve to an
+      // interior offset that splits the ß. `sourceDisplayLengths[i]` is the
+      // display-unit count produced by the i-th STATE code unit; `stateOffsetOf`
+      // walks it to find the nearest source boundary for a display index. When it
+      // is undefined (the common case — 1:1 / untransformed leaves) state offset
+      // === display index, so this branch is skipped and `charOffset` is left
+      // exactly as `findCharOffset` returned it.
+      const displayOffset = findCharOffset(
         targetLeaf.box.text,
         localX,
         targetLeaf.computedStyle,
         measurer,
       );
+      const sdl = targetLeaf.box.sourceDisplayLengths;
+      charOffset = sdl ? stateOffsetOf(sdl, displayOffset) : displayOffset;
     } else {
       // Inline-block (e.g. a footnote call-marker): one atomic box owning ONE
       // state offset unit (`offsetContribution === 1`). The cursor lands at the
@@ -324,6 +338,31 @@ function pickRegionByBand(
   }
   if (headerLines.length > 0 && y < contentTop) return headerLines;
   return bodyLines;
+}
+
+/**
+ * Reverse-map a DISPLAY code-unit offset `d` (an index into a text-transformed
+ * leaf's display string) to a STATE offset, using the leaf's
+ * `sourceDisplayLengths` — the per-state-code-unit display-unit counts (e.g.
+ * "aß" uppercased → display "ASS" carries `[1, 2]`).
+ *
+ * Walks the cumulative display length per state code unit and returns the
+ * nearest SOURCE boundary for `d`: an offset that lands exactly on a state
+ * boundary maps to that boundary; an interior display offset (one that splits a
+ * length-expanding unit like ß→SS) maps to whichever of the two surrounding
+ * state boundaries is nearer (ties round to the trailing one), NEVER to an
+ * interior offset that would split the source code unit. This is the inverse of
+ * `cursor-position.ts`'s state→display prefix sum, so click↔render round-trips.
+ */
+function stateOffsetOf(sdl: readonly number[], d: number): number {
+  let cum = 0;
+  for (let o = 0; o < sdl.length; o++) {
+    const next = cum + sdl[o];
+    if (d <= cum) return o;
+    if (d < next) return d - cum < next - d ? o : o + 1; // nearest boundary
+    cum = next;
+  }
+  return sdl.length;
 }
 
 /**
