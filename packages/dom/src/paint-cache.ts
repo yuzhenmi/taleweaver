@@ -16,6 +16,16 @@ export interface Rect {
 }
 
 /**
+ * A match-highlight rect snapshot for dirty-region tracking. Carries the painted
+ * region (`x/y/w/h`) PLUS the `active` flag, so an active-index change on
+ * next/prev — identical geometry, different fill colour — is detected as a diff
+ * and repaints (the geometry-only `Rect` compare would miss it).
+ */
+export interface MatchHighlightRectSnapshot extends Rect {
+  active: boolean;
+}
+
+/**
  * A hash representing all paint-relevant inputs for a LayoutBox.
  * Two boxes with the same hash produce identical paint output.
  *
@@ -101,6 +111,10 @@ export interface PaintCache {
   getLastSelectionRects(): readonly Rect[] | null;
   /** Record this frame's selection rects. */
   setLastSelectionRects(rects: readonly Rect[] | null): void;
+  /** Last frame's match-highlight rects (or null on first paint). */
+  getLastMatchHighlightRects(): readonly MatchHighlightRectSnapshot[] | null;
+  /** Record this frame's match-highlight rects. */
+  setLastMatchHighlightRects(rects: readonly MatchHighlightRectSnapshot[] | null): void;
 }
 
 export function createPaintCache(): PaintCache {
@@ -108,6 +122,7 @@ export function createPaintCache(): PaintCache {
   let lastRoot: LayoutBox | null = null;
   let lastCursor: CursorSnapshot | null = null;
   let lastSelectionRects: readonly Rect[] | null = null;
+  let lastMatchHighlightRects: readonly MatchHighlightRectSnapshot[] | null = null;
   return {
     get(box) {
       return map.get(box);
@@ -125,6 +140,7 @@ export function createPaintCache(): PaintCache {
       lastRoot = null;
       lastCursor = null;
       lastSelectionRects = null;
+      lastMatchHighlightRects = null;
       // WeakMap entries auto-clear when keys are GC'd
     },
     getLastRoot() {
@@ -144,6 +160,12 @@ export function createPaintCache(): PaintCache {
     },
     setLastSelectionRects(r) {
       lastSelectionRects = r;
+    },
+    getLastMatchHighlightRects() {
+      return lastMatchHighlightRects;
+    },
+    setLastMatchHighlightRects(r) {
+      lastMatchHighlightRects = r;
     },
   };
 }

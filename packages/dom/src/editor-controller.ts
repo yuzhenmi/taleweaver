@@ -28,10 +28,17 @@ import {
   type EditorState,
   type SelectionRect,
   type PixelPosition,
+  type TextMatch,
+  type Span,
 } from "@taleweaver/core";
 import { mapKeyEvent } from "./key-handler";
 import { FONT_CONFIG } from "./font-config";
-import { paintCanvas, paintPage, type CursorState } from "./canvas-renderer";
+import {
+  paintCanvas,
+  paintPage,
+  type CursorState,
+  type MatchHighlightRect,
+} from "./canvas-renderer";
 import { createPaintCache, type PaintCache } from "./paint-cache";
 import { ImageCache } from "./image-cache";
 
@@ -66,6 +73,15 @@ export interface EditorController {
   update(editorState: EditorState): void;
   focus(): void;
   destroy(): void;
+  /**
+   * Show the find-match highlight overlay (#433): paint `matches` as a
+   * translucent yellow band, with the match at `activeIndex` emphasized in
+   * orange. `activeIndex` out of range (< 0 or >= matches.length) → no match
+   * emphasized (all inactive). Triggers a repaint. The find session drives this.
+   */
+  setFindHighlights(matches: readonly TextMatch[], activeIndex: number): void;
+  /** Hide the find-match highlight overlay and repaint (erases the band). */
+  clearFindHighlights(): void;
 }
 
 export function createEditorController(
@@ -170,6 +186,29 @@ export function createEditorController(
   let selStart: PixelPosition | null = null;
   let selEnd: PixelPosition | null = null;
   let selSpanningFallback = false;
+
+  // ── Find-match highlight overlay (#433) ──────────────────────────────────
+  //
+  // Transient overlay (like selection, never document attrs): the find session
+  // drives `setFindHighlights(matches, activeIndex)`. `null` = find inactive.
+  // `activeIndex` out of range (< 0 or >= matches.length) → no match emphasized.
+  let findHighlights:
+    | { matches: readonly TextMatch[]; activeIndex: number }
+    | null = null;
+  // Stage-1 resolved boundary positions, ONE per match, recomputed in
+  // `resolveFindHighlights()` (on `update()`/matches change — NOT on blink).
+  // `paintPages`/`paintSingle` (Stage 2) emit per-page rects from these without
+  // ever re-resolving (the two-stage split that keeps next/prev + paint off the
+  // `materializeAll` bridge — only a `spanned` match falls back to it).
+  interface ResolvedMatch {
+    span: Span;
+    startPos: PixelPosition;
+    endPos: PixelPosition;
+    /** Boundary block straddles a page break → per-page rects can't see the
+     * other-page fragment; fall back to the full-bridge `computeSelectionRects`. */
+    spanned: boolean;
+  }
+  let resolvedMatches: ResolvedMatch[] = [];
 
   // ── Page model (paginated mode) ──────────────────────────────────────────
   //
@@ -283,6 +322,81 @@ export function createEditorController(
 
   // ── Paint ──────────────────────────────────────────────────────────────
 
+  // ── Find-highlight Stage 1 (boundary-position resolution) ────────────────
+  //
+  // For each match, resolve its start/end PixelPosition ONCE (mirroring the
+  // selection's `selStart`/`selEnd` + `blockSpansPages` detection). Recomputed
+  // whenever the layout/matches change (`update()` + `setFindHighlights`), NOT
+  // on blink/scroll. `paintPages`/`paintSingle` (Stage 2) emit per-page rects
+  // from these cached positions without re-resolving — the load-bearing split
+  // that keeps N matches off `materializeAll()` per paint.
+  function resolveFindHighlights(): void {
+    resolvedMatches = [];
+    const st = state;
+    if (!st || findHighlights === null || layoutTree === null) return;
+    for (const m of findHighlights.matches) {
+      const span = createSpan(
+        createPosition(m.blockId, m.start),
+        createPosition(m.blockId, m.end),
+      );
+      let spanned = false;
+      if (layoutTree.type === "virtual-root") {
+        spanned = blockSpansPages(layoutTree.plan, m.blockId);
+      }
+      const startPos = resolvePixelPosition(
+        st.state, span.anchor, layoutTree, measurer, st.caretPageHint,
+      );
+      const endPos = resolvePixelPosition(
+        st.state, span.focus, layoutTree, measurer, st.caretPageHint,
+      );
+      if (startPos === null || endPos === null) continue;
+      resolvedMatches.push({ span, startPos, endPos, spanned });
+    }
+  }
+
+  // ── Find-highlight Stage 2 (per-page rect emission) ──────────────────────
+  //
+  // Emit this page's `MatchHighlightRect[]` from the Stage-1 resolved positions.
+  // Reuses the selection's per-page routing (`computeSelectionRectsForPage`, or
+  // the bridge `computeSelectionRects` for a `spanned` match). The match at
+  // `activeIndex` is tagged `active: true`; all others `false`. `pageIndex`
+  // null (single-canvas / non-paginated path) emits from the positioned tree.
+  function matchHighlightsForPage(pageBox: LayoutBox | null, pageIndex: number | null): MatchHighlightRect[] {
+    const st = state;
+    if (!st || findHighlights === null || resolvedMatches.length === 0) return [];
+    const activeIndex = findHighlights.activeIndex;
+    const out: MatchHighlightRect[] = [];
+    for (let i = 0; i < resolvedMatches.length; i++) {
+      const rm = resolvedMatches[i];
+      const active = i === activeIndex;
+      let rects: SelectionRect[];
+      if (pageBox !== null && pageIndex !== null && !rm.spanned) {
+        // Page-range cull: a non-spanned match only produces rects on pages
+        // within [startPos.pageIndex, endPos.pageIndex]. Skip the costly
+        // `computeSelectionRectsForPage` call for pages outside that range —
+        // otherwise every match would be probed for every visible page
+        // (O(N×P) per paint). Spanned matches keep the bridge fallback below.
+        if (rm.startPos.pageIndex > pageIndex || rm.endPos.pageIndex < pageIndex) {
+          continue;
+        }
+        rects = computeSelectionRectsForPage(
+          st.state, rm.span, pageBox, pageIndex, rm.startPos, rm.endPos, measurer,
+        );
+      } else {
+        // Non-paginated single canvas, OR a spanned match → bridge.
+        const positioned = getPositionedTree();
+        rects = positioned
+          ? computeSelectionRects(st.state, rm.span, positioned, measurer)
+          : [];
+        if (pageIndex !== null) {
+          rects = rects.filter((r) => r.pageIndex === pageIndex);
+        }
+      }
+      for (const r of rects) out.push({ ...r, active });
+    }
+    return out;
+  }
+
   function getCursorState(): CursorState {
     // Hide the caret over a non-collapsed selection. Use the flag, not
     // `selectionRects.length`: in paginated mode the rects are computed
@@ -337,6 +451,7 @@ export function createEditorController(
       ctx,
       tree,
       selectionRects,
+      matchHighlightsForPage(null, null),
       cursorPos,
       getCursorState(),
       logicalWidth,
@@ -402,12 +517,15 @@ export function createEditorController(
           )
         : selectionRects.filter((r) => r.pageIndex === idx);
 
+      // Find-match highlights for this page (Stage 2; empty when find inactive).
+      const pageMatchHighlights = matchHighlightsForPage(page, idx);
+
       // Cursor on this page? (null if not)
       const pageCursor = cursorPos.pageIndex === idx
         ? { x: cursorPos.x, y: cursorPos.y, height: cursorPos.height }
         : null;
 
-      paintPage(ctx, page, pageSelRects, pageCursor, cs, imageCache, getOrCreatePageCache(idx));
+      paintPage(ctx, page, pageSelRects, pageMatchHighlights, pageCursor, cs, imageCache, getOrCreatePageCache(idx));
     }
   }
 
@@ -1125,6 +1243,10 @@ export function createEditorController(
     }
     markEnd("ctrl.selectionRects", tSel);
 
+    // Find-highlight Stage 1: re-resolve each match's boundary positions against
+    // the fresh layout tree (matches geometry can shift when the doc changes).
+    resolveFindHighlights();
+
     const tSync = markStart("ctrl.syncDom");
     syncDom();
     markEnd("ctrl.syncDom", tSync);
@@ -1144,6 +1266,26 @@ export function createEditorController(
     markEnd("ctrl.update", tTotal);
   }
 
+  function setFindHighlights(matches: readonly TextMatch[], activeIndex: number): void {
+    if (destroyed) return;
+    findHighlights = { matches, activeIndex };
+    // Stage 1: resolve boundary positions against the current layout, then
+    // repaint. `addMatchHighlightDirty` marks the affected page regions so the
+    // incremental path doesn't short-circuit (layout + cursor are unchanged).
+    resolveFindHighlights();
+    paint();
+  }
+
+  function clearFindHighlights(): void {
+    if (destroyed) return;
+    if (findHighlights === null && resolvedMatches.length === 0) return;
+    findHighlights = null;
+    resolvedMatches = [];
+    // Repaint: `addMatchHighlightDirty` dirties the PRIOR rects' regions so the
+    // old highlight band is erased.
+    paint();
+  }
+
   function destroy() {
     destroyed = true;
     layoutTree = null;
@@ -1153,6 +1295,8 @@ export function createEditorController(
     selStart = null;
     selEnd = null;
     selSpanningFallback = false;
+    findHighlights = null;
+    resolvedMatches = [];
 
     // Remove event listeners
     container.removeEventListener("mousedown", handleMouseDown);
@@ -1199,5 +1343,5 @@ export function createEditorController(
     textarea.focus();
   }
 
-  return { update, focus, destroy };
+  return { update, focus, destroy, setFindHighlights, clearFindHighlights };
 }

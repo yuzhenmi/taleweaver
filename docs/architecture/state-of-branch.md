@@ -217,7 +217,13 @@ integration, cursor blink, scroll syncing, image-cache integration.
 `paintCanvas` and `paintPage` both work. Viewport culling works. Two
 paint paths (with cache, without cache) both correct. Root short-circuit
 in `walkAndDetectChanges` fires correctly when wired in via the
-controller's paint cache.
+controller's paint cache. The overlay band is `background → match
+highlights → selection → text`: the find-match highlight overlay
+(`MatchHighlightRect[]`, #433) paints under the selection tint and under
+text, with `addMatchHighlightDirty` per-page dirty marking so a next/prev
+(active-index change) repaints. The controller's `setFindHighlights` /
+`clearFindHighlights` drive it via a two-stage rect resolution; the
+find-session + Ctrl+F find-bar are later F&R-UI slices.
 
 Paint strategy is "clear-dirty + full-repaint" rather than true
 per-box compositing — the v1 ceiling without a layer compositor.

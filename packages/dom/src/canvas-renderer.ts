@@ -4,7 +4,53 @@ import { buildCssFontString } from "./font-config";
 import { segmentClusters } from "./text-clusters";
 import type { ImageCache } from "./image-cache";
 import { hashPaintInputs } from "./paint-cache";
-import type { PaintCache, Rect } from "./paint-cache";
+import type { PaintCache, Rect, MatchHighlightRectSnapshot } from "./paint-cache";
+
+/**
+ * A find-match highlight rect. A paint-layer concept (NOT a core type): it is
+ * a `SelectionRect` (so it reuses the selection-rect geometry machinery wholesale)
+ * tagged with whether it belongs to the ACTIVE match (the one next/prev cycles to).
+ * Painted in the overlay band BELOW the selection tint and BELOW text — they are
+ * background highlights the blue selection and the glyphs composite over (matching
+ * Google Docs' yellow find-highlights).
+ */
+export type MatchHighlightRect = SelectionRect & { active: boolean };
+
+/** Inactive find-match highlight fill (yellow). */
+export const MATCH_HIGHLIGHT_FILL = "rgba(255, 213, 0, 0.40)";
+/** Active find-match highlight fill (orange) — the match next/prev is currently on. */
+export const ACTIVE_MATCH_HIGHLIGHT_FILL = "rgba(255, 138, 0, 0.55)";
+
+const SELECTION_FILL = "rgba(59, 130, 246, 0.3)";
+
+/**
+ * Paint the match-highlight band: inactive matches first, then active, so the
+ * active colour wins any overlap. Each rect is viewport-culled identically to
+ * the selection-rect loop. Painted IMMEDIATELY BEFORE the selection tint (so
+ * highlights sit under selection and under text).
+ */
+function paintMatchHighlights(
+  ctx: CanvasRenderingContext2D,
+  matchHighlights: readonly MatchHighlightRect[],
+  visibleTop: number,
+  visibleBottom: number,
+): void {
+  if (matchHighlights.length === 0) return;
+  // Inactive pass.
+  ctx.fillStyle = MATCH_HIGHLIGHT_FILL;
+  for (const rect of matchHighlights) {
+    if (rect.active) continue;
+    if (rect.y + rect.height < visibleTop || rect.y > visibleBottom) continue;
+    ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+  }
+  // Active pass (over the inactive band, so active colour wins overlaps).
+  ctx.fillStyle = ACTIVE_MATCH_HIGHLIGHT_FILL;
+  for (const rect of matchHighlights) {
+    if (!rect.active) continue;
+    if (rect.y + rect.height < visibleTop || rect.y > visibleBottom) continue;
+    ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+  }
+}
 
 interface PhysicalBorderSides {
   topWidth: number; rightWidth: number; bottomWidth: number; leftWidth: number;
@@ -64,6 +110,7 @@ export function paintCanvas(
   ctx: CanvasRenderingContext2D,
   layoutTree: LayoutBox,
   selectionRects: SelectionRect[],
+  matchHighlights: readonly MatchHighlightRect[],
   cursorPos: { x: number; y: number; height: number },
   cursorState: CursorState,
   canvasWidth: number,
@@ -88,23 +135,28 @@ export function paintCanvas(
     // click, selection rects on drag, cursor visibility on blink).
     addCursorDirty(dirty, cache, cursorPos, cursorState);
     addSelectionDirty(dirty, cache, selectionRects);
+    addMatchHighlightDirty(dirty, cache, matchHighlights);
 
     if (dirty.length > 0) {
       for (const r of dirty) {
         ctx.clearRect(r.x, r.y, r.w, r.h);
       }
 
-      // Two-phase paint (#397): background layer → selection overlay →
-      // foreground (text) layer → cursor, so the translucent selection tint
-      // composites OVER content backgrounds and UNDER the glyphs.
+      // Two-phase paint (#397): background layer → MATCH HIGHLIGHTS → selection
+      // overlay → foreground (text) layer → cursor, so the translucent selection
+      // tint composites OVER content backgrounds and UNDER the glyphs, and the
+      // find-match highlights sit UNDER the selection tint and under text.
       const state: PaintState = { lastFont: "", imageCache };
 
       // Background phase: content backgrounds, borders, images, highlights.
       paintBox(ctx, layoutTree, 0, 0, visibleTop, visibleBottom, state, "background");
 
+      // Match highlights (under selection, under text)
+      paintMatchHighlights(ctx, matchHighlights, visibleTop, visibleBottom);
+
       // Selection rects (over backgrounds, under text)
       if (selectionRects.length > 0) {
-        ctx.fillStyle = "rgba(59, 130, 246, 0.3)";
+        ctx.fillStyle = SELECTION_FILL;
         for (const rect of selectionRects) {
           if (rect.y + rect.height < visibleTop || rect.y > visibleBottom) continue;
           ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
@@ -130,16 +182,20 @@ export function paintCanvas(
   // Non-incremental path (cache = null / undefined): original behaviour.
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
-  // Two-phase paint (#397): background → selection overlay → foreground (text)
-  // → cursor. The selection tint composites over content backgrounds, under text.
+  // Two-phase paint (#397): background → MATCH HIGHLIGHTS → selection overlay →
+  // foreground (text) → cursor. The selection tint composites over content
+  // backgrounds, under text; the find-match highlights sit under both.
   const state: PaintState = { lastFont: "", imageCache };
 
   // Background phase
   paintBox(ctx, layoutTree, 0, 0, visibleTop, visibleBottom, state, "background");
 
+  // Match highlights (under selection, under text)
+  paintMatchHighlights(ctx, matchHighlights, visibleTop, visibleBottom);
+
   // Selection rects (over backgrounds, under text)
   if (selectionRects.length > 0) {
-    ctx.fillStyle = "rgba(59, 130, 246, 0.3)";
+    ctx.fillStyle = SELECTION_FILL;
     for (const rect of selectionRects) {
       if (rect.y + rect.height < visibleTop || rect.y > visibleBottom) continue;
       ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
@@ -179,6 +235,7 @@ export function paintPage(
   ctx: CanvasRenderingContext2D,
   pageBox: LayoutBox,
   selectionRects: SelectionRect[],
+  matchHighlights: readonly MatchHighlightRect[],
   cursorPos: { x: number; y: number; height: number } | null,
   cursorState: CursorState,
   imageCache?: ImageCache,
@@ -206,6 +263,7 @@ export function paintPage(
       cursorPos === null ? "hidden" : cursorState,
     );
     addSelectionDirty(dirty, cache, selectionRects);
+    addMatchHighlightDirty(dirty, cache, matchHighlights);
 
     if (dirty.length > 0) {
       for (const r of dirty) {
@@ -219,7 +277,7 @@ export function paintPage(
       ctx.fillRect(0, 0, pageBox.width, pageBox.height);
 
       // Two-phase paint (#397): page white bg (above) → background phase →
-      // selection overlay → foreground (text) phase → cursor.
+      // MATCH HIGHLIGHTS → selection overlay → foreground (text) phase → cursor.
       const state: PaintState = { lastFont: "", imageCache };
       // pageBox.x/y are document-relative (the page's offset within the wrapping
   // root BlockBox). The canvas paints in page-local coordinates (origin at the
@@ -232,9 +290,14 @@ export function paintPage(
       // Background phase: content backgrounds, borders, images, highlights.
       paintBox(ctx, pageBox, -pageBox.x, -pageBox.y, 0, pageBox.height, state, "background");
 
+      // Match highlights (under selection, under text). Rects are already
+      // page-local (the controller emits them per-page from the per-page
+      // selection-rect machinery).
+      paintMatchHighlights(ctx, matchHighlights, 0, pageBox.height);
+
       // Selection rects (over backgrounds, under text)
       if (selectionRects.length > 0) {
-        ctx.fillStyle = "rgba(59, 130, 246, 0.3)";
+        ctx.fillStyle = SELECTION_FILL;
         for (const rect of selectionRects) {
           ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
         }
@@ -264,7 +327,7 @@ export function paintPage(
   ctx.fillRect(0, 0, pageBox.width, pageBox.height);
 
   // Two-phase paint (#397): page white bg (above) → background phase →
-  // selection overlay → foreground (text) phase → cursor.
+  // MATCH HIGHLIGHTS → selection overlay → foreground (text) phase → cursor.
   const state: PaintState = { lastFont: "", imageCache };
   // pageBox.x/y are document-relative (the page's offset within the wrapping
   // root BlockBox). The canvas paints in page-local coordinates (origin at the
@@ -277,9 +340,12 @@ export function paintPage(
   // Background phase: content backgrounds, borders, images, highlights.
   paintBox(ctx, pageBox, -pageBox.x, -pageBox.y, 0, pageBox.height, state, "background");
 
+  // Match highlights (already page-relative; under selection, under text)
+  paintMatchHighlights(ctx, matchHighlights, 0, pageBox.height);
+
   // Selection rects (already page-relative and filtered by pageIndex)
   if (selectionRects.length > 0) {
-    ctx.fillStyle = "rgba(59, 130, 246, 0.3)";
+    ctx.fillStyle = SELECTION_FILL;
     for (const rect of selectionRects) {
       ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
     }
@@ -390,6 +456,56 @@ function addSelectionDirty(
     }
     for (const r of current) dirty.push({ x: r.x, y: r.y, w: r.w, h: r.h });
     cache.setLastSelectionRects(current);
+  }
+}
+
+/**
+ * If the match-highlight rects changed since the last paint, push union(prev,
+ * curr) into `dirty`. Match-highlight changes happen on a find-bar open/type
+ * (recompute) and on next/prev (the active rect's colour flips even though the
+ * layout + cursor are reference-equal); without this dirty entry the
+ * layout-reference-equal short-circuit would skip painting and a next/prev
+ * would not visually move the active highlight. Clearing matches (curr empty)
+ * still dirties the prior rects so the old highlights are erased.
+ *
+ * Mirrors `addSelectionDirty`. The `active` flag is folded into the comparison
+ * so an active-index change (same geometry, different colour) is detected.
+ */
+function addMatchHighlightDirty(
+  dirty: Rect[],
+  cache: PaintCache,
+  matchHighlights: readonly MatchHighlightRect[],
+): void {
+  const last = cache.getLastMatchHighlightRects();
+  const current: MatchHighlightRectSnapshot[] = matchHighlights.map((r) => ({
+    x: r.x,
+    y: r.y,
+    w: r.width,
+    h: r.height,
+    active: r.active,
+  }));
+  // Structural compare INCLUDING `active`: on next/prev the geometry is
+  // unchanged but the active match's colour flips, so the active flag must be
+  // part of the diff or the incremental short-circuit would skip the repaint.
+  let same = last !== null && last.length === current.length;
+  if (same && last !== null) {
+    for (let i = 0; i < current.length; i++) {
+      const a = last[i];
+      const b = current[i];
+      if (a.x !== b.x || a.y !== b.y || a.w !== b.w || a.h !== b.h || a.active !== b.active) {
+        same = false;
+        break;
+      }
+    }
+  }
+  if (!same) {
+    // Dirty the prior rects' regions (erases old/cleared highlights) and the
+    // current rects' regions (paints the new band).
+    if (last !== null) {
+      for (const r of last) dirty.push({ x: r.x, y: r.y, w: r.w, h: r.h });
+    }
+    for (const r of current) dirty.push({ x: r.x, y: r.y, w: r.w, h: r.h });
+    cache.setLastMatchHighlightRects(current);
   }
 }
 

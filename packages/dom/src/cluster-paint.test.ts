@@ -154,6 +154,7 @@ function paint(ctx: KernedCtx, box: LayoutBox): void {
     ctx,
     box,
     [],
+    [],
     { x: 0, y: 0, height: 0 },
     "hidden",
     600,

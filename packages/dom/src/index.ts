@@ -5,8 +5,13 @@ export { FONT_CONFIG, buildCssFontString, getEffectiveStyles } from "./font-conf
 export { createCanvasMeasurer } from "./canvas-measurer";
 export { createCanvasShaper } from "./canvas-shaper";
 export { mapKeyEvent } from "./key-handler";
-export type { CursorState } from "./canvas-renderer";
-export { paintCanvas, paintPage } from "./canvas-renderer";
+export type { CursorState, MatchHighlightRect } from "./canvas-renderer";
+export {
+  paintCanvas,
+  paintPage,
+  MATCH_HIGHLIGHT_FILL,
+  ACTIVE_MATCH_HIGHLIGHT_FILL,
+} from "./canvas-renderer";
 export { createEditorController } from "./editor-controller";
 export type { EditorController, EditorControllerOptions } from "./editor-controller";
 export { ImageCache } from "./image-cache";
