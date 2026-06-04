@@ -177,13 +177,18 @@ expand selection, apply inline style, set block type, insert node.
 
 Known gaps:
 - **Editor-utility edge cases** (cursor placement within a word
-  broken across lines, empty-line indicator on empty selected lines,
-  Home/End on the second wrapped line of a paragraph) — disabled by
-  earlier test deletions; require restoration when typography work
-  ships.
+  broken across lines, empty-line indicator on empty selected lines)
+  — disabled by earlier test deletions; require restoration when
+  typography work ships.
 
 Resolved since this section was first written (kept here as a record of
 closed gaps, no remaining action):
+- **Home/End on a wrapped line** — the LineBox-canonical line-navigation
+  (E-E.6) resolves Home/End against the specific visual LineBox the caret
+  sits on, so on a wrapped middle line they go to that line's
+  `inlineOffsetStart`/`inlineOffsetEnd`, not the block boundary. Verified
+  by `cursor/line-navigation.test.ts` ("Home/End on a wrapped MIDDLE line
+  go to the VISUAL-line boundary, not the block boundary").
 - **Triple-click paragraph selection** and **shift-click extension** —
   re-verified against the current leaf-block model: the controller's
   `mousedown` handler builds the span directly from the hit-test leaf

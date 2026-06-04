@@ -317,6 +317,52 @@ describe("moveToLineBoundary (new)", () => {
     expect(result.offset).toBe(0);
   });
 
+  it("Home/End on a wrapped MIDDLE line go to the VISUAL-line boundary, not the block boundary", () => {
+    // 300 chars at 8px/char in an 800px container → 3 visual lines
+    // (~100 chars/line). The MIDDLE line (line 1) is the discriminating
+    // case: a block-boundary implementation would return 0 (Home) / 300
+    // (End); a correct visual-line implementation returns the line-1 seam.
+    let s = "";
+    for (let i = 0; i < 30; i++) s += "abcdefghi "; // 300 chars, 3 lines
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([text(s)]),
+        }),
+      ],
+    });
+    const { layout, shaper } = pipeline(state, 800);
+    const at = (o: number) => createPosition("p" as BlockId, o);
+    const homeOf = (o: number) => moveToLineBoundary(state, at(o), layout, shaper, "start");
+    const endOf = (o: number) => moveToLineBoundary(state, at(o), layout, shaper, "end");
+
+    // Two carets safely inside line 1 (between ~100 and ~200).
+    const home150 = homeOf(150);
+    const end150 = endOf(150);
+    expect(home150).not.toBeNull();
+    expect(end150).not.toBeNull();
+    if (home150 === null || end150 === null) return;
+
+    // Home does NOT collapse to block start (0); End does NOT run to block end (300).
+    expect(home150.offset).toBeGreaterThan(0);
+    expect(home150.offset).toBeLessThanOrEqual(150);
+    expect(end150.offset).toBeLessThan(300);
+    expect(end150.offset).toBeGreaterThanOrEqual(150);
+
+    // Stable across carets on the SAME visual line.
+    expect(homeOf(130)?.offset).toBe(home150.offset);
+    expect(endOf(130)?.offset).toBe(end150.offset);
+
+    // Distinct from line 0: a caret on line 0 (offset 40) homes to block start
+    // 0, while line 1's home (asserted > 0 above) is a DIFFERENT, later seam.
+    expect(homeOf(40)?.offset).toBe(0);
+  });
+
   it("returns offset at line end (End)", () => {
     const state = buildState({
       rootId: "doc",
