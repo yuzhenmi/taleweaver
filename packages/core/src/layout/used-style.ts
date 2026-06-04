@@ -106,7 +106,8 @@ export function computeUsedStyle(
     fontSize: cs.fontSize,
     fontWeight: cs.fontWeight,
     fontStyle: cs.fontStyle,
-    textDecoration: cs.textDecoration,
+    underline: cs.underline,
+    lineThrough: cs.lineThrough,
     // C-B (#166): line-height resolution per CSS Inline Layout.
     //   - unitless number → ratio × own fontSize (the most common author form).
     //   - percent ComputedLength → resolve against OWN fontSize, NOT the

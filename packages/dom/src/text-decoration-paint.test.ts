@@ -1,10 +1,11 @@
 /**
- * P5: paint `text-decoration: line-through` (strikethrough — a core Google Docs
- * feature, Ctrl+Shift+X). The canvas-renderer painted `underline` but had no
- * `line-through` branch, so the cascaded/used `textDecoration: "line-through"`
- * never rendered. These tests pin that a strike rule is now painted, positioned
- * ABOVE the underline (through the middle of the text), and that `none` paints
- * no decoration rule.
+ * P5 / #393: paint text decorations as an independent-flag set. A run carries
+ * two booleans — `underline` and `lineThrough` (CSS text-decoration-line ∋
+ * underline / line-through) — and the canvas-renderer paints each independently
+ * with two separate `if`s (NOT mutually-exclusive). These tests pin: underline
+ * draws a rule below the baseline; line-through draws a rule ABOVE the underline
+ * (through the middle of the text); BOTH flags draw BOTH rules at once (Google
+ * Docs parity); neither flag draws nothing.
  *
  * Geometry is asserted RELATIVELY (strike y < underline y) to avoid coupling to
  * the exact half-leading math; the strike's existence + full-width 1px shape +
@@ -43,7 +44,8 @@ const BASE_CS = {
   fontSize: 16,
   fontWeight: "normal",
   fontStyle: "normal",
-  textDecoration: "none",
+  underline: false,
+  lineThrough: false,
   direction: "ltr",
 };
 const BASE_US = {
@@ -54,7 +56,7 @@ const BASE_US = {
   direction: "ltr", lineHeight: 20,
 };
 
-function makeRun(textDecoration: "none" | "underline" | "line-through"): LayoutBox {
+function makeRun(deco: { underline?: boolean; lineThrough?: boolean }): LayoutBox {
   return {
     type: "text-run",
     key: "run",
@@ -63,7 +65,11 @@ function makeRun(textDecoration: "none" | "underline" | "line-through"): LayoutB
     x: 0, y: 0, width: RUN_WIDTH, height: 16,
     writingMode: "horizontal-tb", direction: "ltr",
     text: "abc",
-    computedStyle: { ...BASE_CS, textDecoration },
+    computedStyle: {
+      ...BASE_CS,
+      underline: deco.underline ?? false,
+      lineThrough: deco.lineThrough ?? false,
+    },
     usedStyle: { ...BASE_US },
   } as unknown as LayoutBox;
 }
@@ -79,22 +85,38 @@ function paint(box: LayoutBox): SpyCtx {
 const decoRule = (r: FillRectCall) => r.h === 1 && r.w === RUN_WIDTH;
 
 describe("text-decoration paint", () => {
-  it("line-through paints a strike rule (was never painted)", () => {
-    const strike = paint(makeRun("line-through"))._fillRects.find(decoRule);
-    expect(strike).toBeDefined();
+  it("line-through paints exactly one strike rule", () => {
+    const rules = paint(makeRun({ lineThrough: true }))._fillRects.filter(decoRule);
+    expect(rules).toHaveLength(1);
   });
 
-  it("none paints no decoration rule", () => {
-    const rule = paint(makeRun("none"))._fillRects.find(decoRule);
+  it("underline paints exactly one rule", () => {
+    const rules = paint(makeRun({ underline: true }))._fillRects.filter(decoRule);
+    expect(rules).toHaveLength(1);
+  });
+
+  it("neither flag paints no decoration rule", () => {
+    const rule = paint(makeRun({}))._fillRects.find(decoRule);
     expect(rule).toBeUndefined();
   });
 
   it("the strike sits ABOVE the underline (through the middle of the text)", () => {
-    const strike = paint(makeRun("line-through"))._fillRects.find(decoRule);
-    const underline = paint(makeRun("underline"))._fillRects.find(decoRule);
+    const strike = paint(makeRun({ lineThrough: true }))._fillRects.find(decoRule);
+    const underline = paint(makeRun({ underline: true }))._fillRects.find(decoRule);
     expect(strike).toBeDefined();
     expect(underline).toBeDefined();
     if (strike === undefined || underline === undefined) throw new Error("missing rule");
     expect(strike.y).toBeLessThan(underline.y);
+  });
+
+  it("#393: underline + lineThrough paints BOTH rules at once", () => {
+    // The two flags are independent (Google Docs / CSS text-decoration-line is a
+    // SET). RED before #393: the renderer used `if … else if`, so a run carrying
+    // both decorations only ever drew one. Now two separate `if`s draw both.
+    const rules = paint(makeRun({ underline: true, lineThrough: true }))._fillRects.filter(decoRule);
+    expect(rules).toHaveLength(2);
+    // And they sit at distinct y's: the strike (mid-em) above the underline.
+    const ys = rules.map((r) => r.y).sort((a, b) => a - b);
+    expect(ys[0]).toBeLessThan(ys[1]);
   });
 });

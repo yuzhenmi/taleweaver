@@ -39,7 +39,7 @@ export function hashPaintInputs(box: LayoutBox): PaintInputHash {
 
   // ComputedStyle: paint-relevant fields
   const cs = box.computedStyle;
-  h += `|cs:${cs.backgroundColor}:${cs.color}:${cs.fontFamily}:${cs.fontSize}:${cs.fontWeight}:${cs.fontStyle}:${cs.textDecoration}`;
+  h += `|cs:${cs.backgroundColor}:${cs.color}:${cs.fontFamily}:${cs.fontSize}:${cs.fontWeight}:${cs.fontStyle}:${cs.underline}:${cs.lineThrough}`;
   h += `:${cs.borderBlockStartStyle}:${cs.borderBlockEndStyle}:${cs.borderInlineStartStyle}:${cs.borderInlineEndStyle}`;
   h += `:${cs.borderBlockStartColor}:${cs.borderBlockEndColor}:${cs.borderInlineStartColor}:${cs.borderInlineEndColor}`;
   h += `:${cs.direction}`;

@@ -34,14 +34,15 @@ describe("composeComputed", () => {
     expect(result.marginBlockStart).toBe(0);
   });
 
-  it("does NOT inherit textDecoration from parent (CSS spec)", () => {
+  it("does NOT inherit underline / lineThrough from parent (CSS spec)", () => {
     // Per CSS Text Decoration Module Level 3, `text-decoration` does not
-    // inherit. Otherwise a child span with no specified textDecoration
-    // would silently pick up the parent's underline — and the user could
-    // never remove underline from a sub-run by leaving the attr off.
-    const parent = { ...INITIAL_COMPUTED_STYLE, textDecoration: "underline" as const };
+    // inherit. Otherwise a child span with no specified decoration would
+    // silently pick up the parent's underline — and the user could never
+    // remove underline from a sub-run by leaving the attr off.
+    const parent = { ...INITIAL_COMPUTED_STYLE, underline: true, lineThrough: true };
     const result = composeComputed({}, parent);
-    expect(result.textDecoration).toBe("none");  // initial, NOT "underline"
+    expect(result.underline).toBe(false);    // initial, NOT inherited
+    expect(result.lineThrough).toBe(false);  // initial, NOT inherited
   });
 
   it("flows specified markerText through generically", () => {

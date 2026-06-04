@@ -544,14 +544,18 @@ function paintBox(
       ctx.fillText(cluster, clusterX, baselineY);
       clusterX += ctx.measureText(cluster).width;
     }
-    if (cs.textDecoration === "underline") {
+    // Text decorations are an INDEPENDENT-FLAG set (CSS text-decoration-line):
+    // a run can carry both at once, so paint each with its own `if` (NOT
+    // mutually-exclusive). Both use the current fillStyle (= cs.color, i.e.
+    // currentColor per CSS text-decoration-color).
+    if (cs.underline) {
       const ulY = absY + halfLeading + fontSize + 1;
       ctx.fillRect(absX, ulY, box.width, 1);
-    } else if (cs.textDecoration === "line-through") {
+    }
+    if (cs.lineThrough) {
       // Strikethrough (Google Docs / CSS line-through): a rule through the middle
-      // of the text. ~em-box center is a good approximation; uses the current
-      // fillStyle (= cs.color, i.e. currentColor per CSS text-decoration-color).
-      // Exact y is a pixel detail tunable in-browser.
+      // of the text. ~em-box center is a good approximation. Exact y is a pixel
+      // detail tunable in-browser.
       const stY = absY + halfLeading + fontSize * 0.5;
       ctx.fillRect(absX, stY, box.width, 1);
     }

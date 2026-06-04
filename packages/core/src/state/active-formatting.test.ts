@@ -70,6 +70,16 @@ describe("getActiveFormatting — inline toggles", () => {
     const state = doc([["abcd"]]);
     expect(getActiveFormatting(state, range("p", 0, 4)).bold).toBe(false);
   });
+
+  it("#393: a run carrying BOTH underline + strikethrough reports both active", () => {
+    // The read path reads the two inline attrs independently, so a multi-
+    // decorated run surfaces both toggles as active at once (Google Docs
+    // parity — toolbar lights up underline AND strikethrough together).
+    const state = doc([["abc", { underline: true, strikethrough: true }]]);
+    const fmt = getActiveFormatting(state, range("p", 0, 3));
+    expect(fmt.underline).toBe(true);
+    expect(fmt.strikethrough).toBe(true);
+  });
 });
 
 describe("getActiveFormatting — inline values", () => {

@@ -117,12 +117,12 @@ export const italicInterpreter: AttrInterpreter = {
 
 export const underlineInterpreter: AttrInterpreter = {
   attrKey: "underline",
-  toStyle: (value) => (value ? { textDecoration: "underline" } : {}),
+  toStyle: (value) => (value ? { underline: true } : {}),
 };
 
 export const strikethroughInterpreter: AttrInterpreter = {
   attrKey: "strikethrough",
-  toStyle: (value) => (value ? { textDecoration: "line-through" } : {}),
+  toStyle: (value) => (value ? { lineThrough: true } : {}),
 };
 
 /**
@@ -131,10 +131,10 @@ export const strikethroughInterpreter: AttrInterpreter = {
  * an underline. Setting the value to anything non-string (or absent) is a
  * no-op (no link styling).
  *
- * Underline color matches text color (a single string in `TextDecoration`
- * today). Google-Docs-exact rendering with a separately-colored
- * underline would require widening `TextDecoration` to a structured
- * shape — deferred per the spec.
+ * Writes the `underline` flag (disjoint from `strikethrough`'s `lineThrough`),
+ * so a struck-through link keeps BOTH decorations. Underline color matches
+ * text color today; a separately-colored underline (CSS
+ * text-decoration-color) would extend the flag set later.
  *
  * Click handling (Cmd/Ctrl-click to open URL, hover tooltip, etc.) is
  * the DOM editor controller's responsibility, not the cascade's.
@@ -143,7 +143,7 @@ export const linkInterpreter: AttrInterpreter = {
   attrKey: "link",
   toStyle: (value) =>
     typeof value === "string"
-      ? { color: "#1a73e8", textDecoration: "underline" }
+      ? { color: "#1a73e8", underline: true }
       : {},
 };
 

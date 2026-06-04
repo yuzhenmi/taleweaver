@@ -49,8 +49,11 @@ export const PROPERTY_META: Record<keyof Style, { inherits: boolean }> = {
   // paint-time concern (ancestor box paints the decoration across its
   // line area, visually covering descendants), not a cascade concern.
   // Inheriting at cascade would make `{ underline: false }` on a child
-  // span ineffective — the parent's underline would inherit back.
-  textDecoration: { inherits: false },
+  // span ineffective — the parent's underline would inherit back. Modelled
+  // as two independent flags (CSS text-decoration-line is a SET), so a run
+  // can carry underline + line-through at once.
+  underline:   { inherits: false },
+  lineThrough: { inherits: false },
   lineHeight:     { inherits: true },
   color:          { inherits: true },
 
@@ -126,7 +129,8 @@ export const INITIAL_COMPUTED_STYLE: ComputedStyle = {
   fontSize:       16,
   fontWeight:     "normal",
   fontStyle:      "normal",
-  textDecoration: "none",
+  underline:      false,
+  lineThrough:    false,
   lineHeight:     1.2,
   color:          "#000",
 

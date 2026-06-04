@@ -20,8 +20,6 @@ export type FontWeight =
 
 export type FontStyle = "normal" | "italic" | "oblique";
 
-export type TextDecoration = "none" | "underline" | "line-through";
-
 export type WhiteSpace = "normal" | "nowrap" | "pre" | "pre-wrap" | "pre-line" | "break-spaces";
 
 export type VerticalAlign = "baseline" | "sub" | "super" | "top" | "middle" | "bottom";
@@ -97,7 +95,10 @@ export interface Style {
   readonly fontSize?:       Length;
   readonly fontWeight?:     FontWeight;
   readonly fontStyle?:      FontStyle;
-  readonly textDecoration?: TextDecoration;
+  // Text decorations — an independent-flag SET (CSS text-decoration-line).
+  // A run can carry both at once; each composes via a disjoint Style key.
+  readonly underline?:      boolean;  // text-decoration-line ∋ underline
+  readonly lineThrough?:    boolean;  // text-decoration-line ∋ line-through
   readonly lineHeight?:     number | Length;
   readonly color?:          Color;
 

@@ -26,9 +26,9 @@ describe("italicInterpreter", () => {
 });
 
 describe("underlineInterpreter", () => {
-  it("contributes textDecoration: underline for truthy values", () => {
+  it("contributes underline: true for truthy values", () => {
     expect(underlineInterpreter.attrKey).toBe("underline");
-    expect(underlineInterpreter.toStyle(true)).toEqual({ textDecoration: "underline" });
+    expect(underlineInterpreter.toStyle(true)).toEqual({ underline: true });
   });
 
   it("contributes nothing for falsy values", () => {
@@ -37,9 +37,9 @@ describe("underlineInterpreter", () => {
 });
 
 describe("strikethroughInterpreter", () => {
-  it("contributes textDecoration: line-through for truthy values", () => {
+  it("contributes lineThrough: true for truthy values", () => {
     expect(strikethroughInterpreter.attrKey).toBe("strikethrough");
-    expect(strikethroughInterpreter.toStyle(true)).toEqual({ textDecoration: "line-through" });
+    expect(strikethroughInterpreter.toStyle(true)).toEqual({ lineThrough: true });
   });
 
   it("contributes nothing for falsy values", () => {
@@ -48,11 +48,11 @@ describe("strikethroughInterpreter", () => {
 });
 
 describe("linkInterpreter", () => {
-  it("contributes color + textDecoration for string URL values", () => {
+  it("contributes color + underline for string URL values", () => {
     expect(linkInterpreter.attrKey).toBe("link");
     expect(linkInterpreter.toStyle("https://example.com")).toEqual({
       color: "#1a73e8",
-      textDecoration: "underline",
+      underline: true,
     });
   });
 
@@ -70,7 +70,54 @@ describe("linkInterpreter", () => {
     // (HL.2), not the cascade.
     expect(linkInterpreter.toStyle("")).toEqual({
       color: "#1a73e8",
-      textDecoration: "underline",
+      underline: true,
+    });
+  });
+});
+
+describe("text-decoration set composition (#393)", () => {
+  it("underline + strikethrough compose into BOTH flags (disjoint keys)", () => {
+    // The two interpreters own DISJOINT Style keys, so applyAll's Object.assign
+    // composes them collision-free — a run can carry both decorations at once
+    // (Google Docs / CSS text-decoration-line parity). RED before #393: both
+    // wrote the single `textDecoration` key, so last-wins dropped one.
+    const r = new AttrRegistry();
+    registerBuiltinAttrs(r);
+    expect(r.applyAll({ underline: true, strikethrough: true })).toEqual({
+      underline: true,
+      lineThrough: true,
+    });
+  });
+
+  it("underline-only contributes underline without lineThrough", () => {
+    const r = new AttrRegistry();
+    registerBuiltinAttrs(r);
+    expect(r.applyAll({ underline: true })).toEqual({ underline: true });
+  });
+
+  it("strikethrough-only contributes lineThrough without underline", () => {
+    const r = new AttrRegistry();
+    registerBuiltinAttrs(r);
+    expect(r.applyAll({ strikethrough: true })).toEqual({ lineThrough: true });
+  });
+
+  it("neither attr → no decoration flags (both interpreters silent absent their attr)", () => {
+    const r = new AttrRegistry();
+    registerBuiltinAttrs(r);
+    expect(r.applyAll({})).toEqual({});
+  });
+
+  it("link + strikethrough → link underline SURVIVES alongside lineThrough", () => {
+    // link writes `underline`, strikethrough writes `lineThrough`: disjoint, so
+    // the link's underline is no longer clobbered by the strikethrough. RED
+    // before #393: both wrote `textDecoration`, so the strikethrough erased the
+    // link underline.
+    const r = new AttrRegistry();
+    registerBuiltinAttrs(r);
+    expect(r.applyAll({ link: "https://x.test", strikethrough: true })).toEqual({
+      color: "#1a73e8",
+      underline: true,
+      lineThrough: true,
     });
   });
 });

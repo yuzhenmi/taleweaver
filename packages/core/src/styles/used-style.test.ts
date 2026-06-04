@@ -29,7 +29,8 @@ describe("UsedStyle", () => {
       fontSize: 16,
       fontWeight: "normal",
       fontStyle: "normal",
-      textDecoration: "none",
+      underline: false,
+      lineThrough: false,
       lineHeight: 19.2,
       color: "#000",
 

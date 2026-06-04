@@ -1,5 +1,5 @@
 import type {
-  Display, BorderStyle, FontWeight, FontStyle, TextDecoration,
+  Display, BorderStyle, FontWeight, FontStyle,
   WhiteSpace, VerticalAlign, TextAlign, Float, Clear,
   BreakBefore, BreakAfter, BreakInside,
   ListStyleType, ListStylePosition, BoxSizing,
@@ -56,7 +56,8 @@ export interface ComputedStyle {
   fontSize:       number;       // em/rem already resolved at cascade time
   fontWeight:     FontWeight;
   fontStyle:      FontStyle;
-  textDecoration: TextDecoration;
+  underline:      boolean;  // text-decoration-line ∋ underline
+  lineThrough:    boolean;  // text-decoration-line ∋ line-through
   lineHeight:     number | ComputedLength;
   color:          Color;
 

@@ -55,7 +55,8 @@ const BASE_CS = {
   fontSize: 16,
   fontWeight: "normal",
   fontStyle: "normal",
-  textDecoration: "none",
+  underline: false,
+  lineThrough: false,
   direction: "ltr",
 };
 
