@@ -589,3 +589,61 @@ describe("computeIntrinsicSizes — text-indent (#392)", () => {
     expect(result.maxContent).toBeGreaterThanOrEqual(indent + firstCluster);
   });
 });
+
+// P5-LWS Task 5: letter-/word-spacing flows into intrinsic sizing FOR FREE
+// (CSS Text 3 §8). The shapers (Tasks 1-4) bake letter-spacing into every
+// cluster advance and word-spacing into space clusters, and aggregate the
+// result into `minClusterInlineSize` (widest cluster → min-content) and
+// `unbreakableRunInlineSize` (run sum → max-content). `computeTextContribution`
+// reads those aggregates verbatim, so spacing requires NO code change in the
+// intrinsic-sizes pass. These tests lock that flow-through in and guard against
+// a future regression that recomputes intrinsic sizes off the unspaced advance.
+describe("computeIntrinsicSizes — letter/word-spacing (P5-LWS Task 5)", () => {
+  const shaper = createMockShaper(10, 16); // charWidth W = 10
+
+  it("min/max-content include letter-spacing (flows from the shaper aggregates)", () => {
+    // "ab" with letterSpacing N = 4. Each cluster advance = W + N = 14.
+    //   max-content = 2 * (W + N) = 28  (= plain 20 + 2*N)
+    //   min-content = widest spaced cluster = W + N = 14  (= plain 10 + N)
+    const N = 4;
+    const make = (spaced: boolean) =>
+      createElementBox(
+        "p",
+        spaced
+          ? { display: "block", letterSpacing: { value: N, unit: "px" } }
+          : { display: "block" },
+        [createTextBox("t", { display: "inline" }, "ab")],
+      );
+    const spaced = computeIntrinsicSizes(cascadePass(make(true)), shaper, createIntrinsicSizesCache());
+    const plain = computeIntrinsicSizes(cascadePass(make(false)), shaper, createIntrinsicSizesCache());
+    // Anchor the plain baseline (W = 10): max = 2*W = 20, min = W = 10.
+    expect(plain.maxContent).toBe(20);
+    expect(plain.minContent).toBe(10);
+    // Spacing grows both: every cluster gains N (max), and the widest cluster
+    // gains N (min).
+    expect(spaced.maxContent).toBe(plain.maxContent + 2 * N); // 28
+    expect(spaced.minContent).toBe(plain.minContent + N); // 14
+  });
+
+  it("max-content includes word-spacing (the one space grows)", () => {
+    // "a b" with wordSpacing M = 6 (no letterSpacing). Only the separator
+    // cluster gains M: advances = [10, 10 + M, 10].
+    //   max-content = 3*W + M = 36  (= plain 30 + M)
+    // min-content is left unasserted here: word-spacing on the separator can
+    // make the SPACE the widest cluster (16 > 10), so min-content is not a
+    // robust "+M" relation — the max-content assertion is the stable lock-in.
+    const M = 6;
+    const make = (spaced: boolean) =>
+      createElementBox(
+        "p",
+        spaced
+          ? { display: "block", wordSpacing: { value: M, unit: "px" } }
+          : { display: "block" },
+        [createTextBox("t", { display: "inline" }, "a b")],
+      );
+    const spaced = computeIntrinsicSizes(cascadePass(make(true)), shaper, createIntrinsicSizesCache());
+    const plain = computeIntrinsicSizes(cascadePass(make(false)), shaper, createIntrinsicSizesCache());
+    expect(plain.maxContent).toBe(30); // 3 * W
+    expect(spaced.maxContent).toBe(plain.maxContent + M); // 36
+  });
+});
