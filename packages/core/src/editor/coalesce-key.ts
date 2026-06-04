@@ -37,6 +37,7 @@ export function coalesceKeyOf(action: EditorAction): ActionClass {
     case "TOGGLE_STYLE":
     case "SET_LINK":
     case "SET_TEXT_COLOR":
+    case "SET_TEXT_TRANSFORM":
     case "SET_HIGHLIGHT":
     case "SET_FONT_SIZE":
     case "SET_FONT_FAMILY":

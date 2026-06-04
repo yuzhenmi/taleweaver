@@ -107,6 +107,27 @@ describe("getActiveFormatting — inline values", () => {
     const state = doc([["link", { link: "https://x.test" }]]);
     expect(getActiveFormatting(state, caret("p", 4)).link).toBe("https://x.test");
   });
+
+  it("textTransform uniform across the span → that value", () => {
+    const state = doc([
+      ["ab", { textTransform: "uppercase" }],
+      ["cd", { textTransform: "uppercase" }],
+    ]);
+    expect(getActiveFormatting(state, range("p", 0, 4)).textTransform).toBe("uppercase");
+  });
+
+  it("textTransform differing across the span → mixed", () => {
+    const state = doc([
+      ["ab", { textTransform: "uppercase" }],
+      ["cd", { textTransform: "lowercase" }],
+    ]);
+    expect(getActiveFormatting(state, range("p", 0, 4)).textTransform).toBe("mixed");
+  });
+
+  it("range with no textTransform attr → null", () => {
+    const state = doc([["abcd"]]);
+    expect(getActiveFormatting(state, range("p", 0, 4)).textTransform).toBeNull();
+  });
 });
 
 describe("getActiveFormatting — block attrs", () => {
@@ -189,6 +210,7 @@ describe("getActiveFormatting — empty block", () => {
     expect(fmt.color).toBeNull();
     expect(fmt.backgroundColor).toBeNull();
     expect(fmt.link).toBeNull();
+    expect(fmt.textTransform).toBeNull();
     expect(fmt.blockType).toBe("paragraph");
     expect(fmt.headingLevel).toBeNull();
     expect(fmt.textAlign).toBeNull();

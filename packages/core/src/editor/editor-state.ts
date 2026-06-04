@@ -39,6 +39,7 @@ import {
   handleToggleStyle,
   handleSetLink,
   handleSetTextColor,
+  handleSetTextTransform,
   handleSetHighlight,
   handleSetFontSize,
   handleSetFontFamily,
@@ -346,6 +347,9 @@ export function reduceEditor(
       break;
     case "SET_TEXT_COLOR":
       result = handleSetTextColor(editor, action.color, config);
+      break;
+    case "SET_TEXT_TRANSFORM":
+      result = handleSetTextTransform(editor, action.value, config);
       break;
     case "SET_HIGHLIGHT":
       result = handleSetHighlight(editor, action.color, config);

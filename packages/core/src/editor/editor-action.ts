@@ -1,5 +1,5 @@
 import type { Selection, Position, BlockInit, TextMatch } from "../state";
-import type { TextAlign } from "../styles/style";
+import type { TextAlign, TextTransform } from "../styles/style";
 import type { CounterFormat, FootnoteNumberingPolicy } from "../footnotes";
 
 export type EditorAction =
@@ -20,6 +20,7 @@ export type EditorAction =
   | { type: "TOGGLE_STYLE"; style: "bold" | "italic" | "underline" | "strikethrough" }
   | { type: "SET_LINK"; url: string | null }
   | { type: "SET_TEXT_COLOR"; color: string | null }
+  | { type: "SET_TEXT_TRANSFORM"; value: TextTransform }
   | { type: "SET_HIGHLIGHT"; color: string | null }
   | { type: "SET_FONT_SIZE"; size: number | null }
   | { type: "SET_FONT_FAMILY"; family: string | null }

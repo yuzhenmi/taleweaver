@@ -117,3 +117,68 @@ describe("handleSetTextColor", () => {
     expect(firstTextItem(editor)?.attrs.color).toBe("#ff0000");
   });
 });
+
+describe("handleSetTextTransform", () => {
+  it("no-op on collapsed selection (no transform can target a single cursor)", () => {
+    const config = makeConfig();
+    const initial = createInitialEditorState(config);
+    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hello" }, config);
+    const before = editor;
+    editor = reduceEditor(editor, { type: "SET_TEXT_TRANSFORM", value: "uppercase" }, config);
+    expect(editor).toBe(before);
+  });
+
+  it("sets textTransform attr on every text item in the selection", () => {
+    const config = makeConfig();
+    let editor = createInitialEditorState(config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "shout me" }, config);
+    editor = selectAll(editor, 8, config);
+    editor = reduceEditor(editor, { type: "SET_TEXT_TRANSFORM", value: "uppercase" }, config);
+
+    const item = firstTextItem(editor);
+    expect(item).not.toBeNull();
+    if (item === null) return;
+    expect(item.text).toBe("shout me");
+    expect(item.attrs.textTransform).toBe("uppercase");
+  });
+
+  it("sets textTransform 'none' by REMOVING the attr (none is the initial value; removal lets runs re-merge)", () => {
+    const config = makeConfig();
+    let editor = createInitialEditorState(config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "shout me" }, config);
+    editor = selectAll(editor, 8, config);
+    editor = reduceEditor(editor, { type: "SET_TEXT_TRANSFORM", value: "uppercase" }, config);
+    expect(firstTextItem(editor)?.attrs.textTransform).toBe("uppercase");
+    editor = reduceEditor(editor, { type: "SET_TEXT_TRANSFORM", value: "none" }, config);
+    // "none" removes the attr entirely (mirrors how color clears to default) so
+    // the run carries no textTransform key and can re-merge with untransformed
+    // neighbours — it does NOT persist an explicit { textTransform: "none" }.
+    expect(firstTextItem(editor)?.attrs.textTransform).toBeUndefined();
+  });
+
+  it("CLEAR_FORMATTING removes textTransform (it is in INLINE_FORMAT_ATTR_KEYS)", () => {
+    const config = makeConfig();
+    let editor = createInitialEditorState(config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "shout me" }, config);
+    editor = selectAll(editor, 8, config);
+    editor = reduceEditor(editor, { type: "SET_TEXT_TRANSFORM", value: "uppercase" }, config);
+    expect(firstTextItem(editor)?.attrs.textTransform).toBe("uppercase");
+    editor = reduceEditor(editor, { type: "CLEAR_FORMATTING" }, config);
+    expect(firstTextItem(editor)?.attrs.textTransform).toBeUndefined();
+  });
+
+  it("undo restores the pre-transform state", () => {
+    const config = makeConfig();
+    let editor = createInitialEditorState(config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "shout me" }, config);
+    editor = selectAll(editor, 8, config);
+    editor = reduceEditor(editor, { type: "SET_TEXT_TRANSFORM", value: "uppercase" }, config);
+    expect(firstTextItem(editor)?.attrs.textTransform).toBe("uppercase");
+
+    editor = reduceEditor(editor, { type: "UNDO" }, config);
+    expect(firstTextItem(editor)?.attrs.textTransform).toBeUndefined();
+
+    editor = reduceEditor(editor, { type: "REDO" }, config);
+    expect(firstTextItem(editor)?.attrs.textTransform).toBe("uppercase");
+  });
+});

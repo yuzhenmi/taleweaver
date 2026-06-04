@@ -23,6 +23,7 @@ export { handleToggleList } from "./toggle-list";
 export { handleToggleStyle } from "./toggle-style";
 export { handleSetLink } from "./set-link";
 export { handleSetTextColor } from "./set-text-color";
+export { handleSetTextTransform } from "./set-text-transform";
 export { handleSetHighlight } from "./set-highlight";
 export { handleSetFontSize } from "./set-font-size";
 export { handleSetFontFamily } from "./set-font-family";
