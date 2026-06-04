@@ -514,4 +514,106 @@ describe("computeSelectionRects (new)", () => {
     // Spans 1*8 to ~24 (mid "cd"). Width > 0.
     expect(r.width).toBeGreaterThan(0);
   });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Text-transform selection geometry (Task 7). The transform renders a
+  // DISPLAY string (uppercase ß→SS) while STATE offsets stay pristine.
+  // Selection-geometry derives every edge-x by calling resolvePixelPosition
+  // (Task 5), which remaps a within-leaf STATE offset to the DISPLAY index
+  // via `box.sourceDisplayLengths`. So a selection over a length-changing
+  // leaf must cover the FULL rendered glyphs — no independent offset→x path
+  // exists in selection-geometry that would slice the display string by the
+  // raw state offset. These lock that behavior (no production change needed).
+  // ─────────────────────────────────────────────────────────────────────
+
+  /**
+   * Single-paragraph document whose text run carries a `textTransform` inline
+   * attr (the only path that reaches the run — a block attr does NOT, per the
+   * pre-existing #310 gap). The inline cascade computes the transform, so the
+   * IFC produces a DISPLAY string and, when length-changing, a
+   * `sourceDisplayLengths` map on the leaf box.
+   */
+  function transformedParagraph(textContent: string, textTransform: string): State {
+    return buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({
+          id: "doc",
+          type: "document",
+          firstChildId: "p",
+          lastChildId: "p",
+        }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([text(textContent, { textTransform })]),
+        }),
+      ],
+    });
+  }
+
+  it("selects the full 'SS' for a length-changing transform (ß→SS), not half", () => {
+    // "aß" under text-transform: uppercase renders "ASS" (ß→SS, length-changing;
+    // leaf carries sourceDisplayLengths [1, 2]). Selecting the ß — STATE span
+    // offset 1..2 — must cover the WHOLE rendered "SS" (display index 1..3):
+    // left ≈ leaf left + 8, right ≈ leaf left + 24 (width 16). A raw
+    // `text.slice(0, 2)` = "AS" would wrongly give the end edge at +16 → width 8.
+    const state = transformedParagraph("aß", "uppercase");
+    const { layout, shaper } = pipeline(state, 800);
+    const span = createSpan(
+      createPosition("p" as BlockId, 1),
+      createPosition("p" as BlockId, 2),
+    );
+    const rects = computeSelectionRects(state, span, layout, shaper);
+    expect(rects.length).toBe(1);
+    const r = rects[0];
+    expect(r.x).toBe(8); // after "A"
+    expect(r.width).toBe(16); // full "SS", NOT 8 (half)
+    expect(r.pageIndex).toBe(0);
+  });
+
+  it("1:1 transformed selection ('ab' uppercase) is geometry-identical to untransformed", () => {
+    // "ab" uppercased → "AB" (1:1, sourceDisplayLengths undefined → state offset
+    // IS display index). Selecting offset 0..2 covers the full 16px, identical
+    // to the untransformed "ab" selection.
+    const transformed = transformedParagraph("ab", "uppercase");
+    const { layout: tLayout, shaper: tShaper } = pipeline(transformed, 800);
+    const tSpan = createSpan(
+      createPosition("p" as BlockId, 0),
+      createPosition("p" as BlockId, 2),
+    );
+    const tRects = computeSelectionRects(transformed, tSpan, tLayout, tShaper);
+
+    const plain = singleParagraph("ab");
+    const { layout: pLayout, shaper: pShaper } = pipeline(plain, 800);
+    const pSpan = createSpan(
+      createPosition("p" as BlockId, 0),
+      createPosition("p" as BlockId, 2),
+    );
+    const pRects = computeSelectionRects(plain, pSpan, pLayout, pShaper);
+
+    expect(tRects.length).toBe(1);
+    expect(pRects.length).toBe(1);
+    expect(tRects[0].x).toBe(pRects[0].x);
+    expect(tRects[0].width).toBe(pRects[0].width);
+    expect(tRects[0].x).toBe(0);
+    expect(tRects[0].width).toBe(16); // full "AB"
+  });
+
+  it("untransformed 'aß' selection (offset 1..2) covers the ß's single 8px", () => {
+    // Sanity that the harness distinguishes transformed vs not: text-transform:
+    // none → "aß" renders as-is (2 code units, no sourceDisplayLengths), so
+    // selecting the ß (offset 1..2) covers a single 8px glyph.
+    const state = transformedParagraph("aß", "none");
+    const { layout, shaper } = pipeline(state, 800);
+    const span = createSpan(
+      createPosition("p" as BlockId, 1),
+      createPosition("p" as BlockId, 2),
+    );
+    const rects = computeSelectionRects(state, span, layout, shaper);
+    expect(rects.length).toBe(1);
+    expect(rects[0].x).toBe(8); // after "a"
+    expect(rects[0].width).toBe(8); // single ß glyph
+  });
 });
