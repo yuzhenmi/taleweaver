@@ -176,13 +176,26 @@ forward, by word, by line), move (char, word, line, document boundary),
 expand selection, apply inline style, set block type, insert node.
 
 Known gaps:
-- **Editor-utility edge cases** (cursor placement within a word
-  broken across lines, empty-line indicator on empty selected lines)
-  — disabled by earlier test deletions; require restoration when
-  typography work ships.
+- **Cursor placement within a word broken across lines** — a word splits
+  across two visual lines only via hyphenation (`hyphens` defaults to
+  `manual`, so only an explicit soft-hyphen U+00AD breaks today; the IFC's
+  manual hyphen-split machinery handles that path) or `overflow-wrap:
+  break-word`. Automatic hyphenation is **P7 (not implemented)**,
+  `overflow-wrap: break-word` is not in the IFC, and the mock shaper emits
+  no `hyphen`-kind break opportunities — so this is a future-feature item
+  (lands with P7 / overflow-wrap), not a restorable disabled test.
 
 Resolved since this section was first written (kept here as a record of
 closed gaps, no remaining action):
+- **Empty-line indicator on empty selected lines** — a selection crossing
+  empty paragraphs paints one NARROW paragraph-break indicator rect per
+  empty line (browser/Google-Docs faithful: the line return is selected,
+  not the full line width). Implemented via the strut LineBox (#168) plus
+  the empty-line edge-collapse in `selection-geometry.ts` (an empty strut
+  line collapses to zero content width, so the paragraph-break indicator
+  width is emitted instead of the full line). Verified by
+  `cursor/selection-geometry.test.ts` (per-line rects across one and across
+  N consecutive empty paragraphs; the narrow-not-full-line assertion).
 - **Home/End on a wrapped line** — the LineBox-canonical line-navigation
   (E-E.6) resolves Home/End against the specific visual LineBox the caret
   sits on, so on a wrapped middle line they go to that line's
