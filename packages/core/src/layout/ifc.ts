@@ -1,7 +1,7 @@
 import type { RenderNode } from "../render/render-node";
 import type { ElementBox } from "../render/render-node";
 import type { ComputedStyle, WhiteSpace } from "../styles";
-import type { LayoutBox, LineBox, InlineBox, BlockBox } from "./layout-box";
+import type { LayoutBox, LineBox, InlineBox, BlockBox, TextRunBox } from "./layout-box";
 import type { BlockId } from "../state";
 import { createInlineBox, createInlineBlockBox, createLineBox, createTextRunBox, withInlineOffset, withBlockOffset, assertLayoutBoxConsistent, createBlockBox } from "./layout-box";
 import type { FragmentationContext, LayoutResult } from "./fragmentation";
@@ -20,6 +20,7 @@ import { findChangePoint } from "./wrap-incremental";
 import { flattenContents } from "./group-children";
 import { markStart, markEnd } from "../perf/perf-trace";
 import { computeAlignmentOffset, computeJustifyExpansions } from "./ifc-align";
+import { resolveSpacingPx } from "./text-spacing";
 
 /**
  * Derive the SOURCE block id from an IFC parent's render-node key.
@@ -190,6 +191,47 @@ function trailingSpaceWidthOf(units: readonly WrapUnit[]): number {
     if (sawNonSpace || unit.tokens.length === 0) break;
   }
   return w;
+}
+
+/**
+ * CSS Text 3 §8.1: the trailing tracking (`letter-spacing`) of the LAST
+ * typographic unit on a line is removed — a line's content box does not include
+ * hanging tracking, and the end-of-line caret sits at the trimmed edge.
+ *
+ * This returns the letter-spacing (px) baked into the last RETAINED typographic
+ * unit's advance — i.e. the last non-space token, skipping any trailing run of
+ * space units exactly as `trailingSpaceWidthOf` does. The skip is load-bearing:
+ * a hung/clamped trailing space (and its own letter+word spacing) is already
+ * removed by the trailing-space path, so the trim targets the last visible
+ * GLYPH unit underneath it (NOT the space — that would double-subtract). When
+ * the line ends in a letter, that letter's trailing tracking is removed; when
+ * it ends in a space, the space leaves with its spacing and the preceding
+ * word's trailing tracking is removed instead.
+ *
+ * Returns 0 when there is no visible (non-space) unit on the line, or when the
+ * last unit's effective `letterSpacing` is `normal` (the default — the
+ * normal-identity contract).
+ *
+ * Reads the SAME per-token `style` source `trailingSpaceWidthOf` uses to detect
+ * spaces (`token.isSpace`) and the run's resolved letter-spacing
+ * (`token.style.letterSpacing`, already flattened by the cascade).
+ * Allocation-free.
+ */
+function trailingLetterSpacingOf(units: readonly WrapUnit[]): number {
+  for (let u = units.length - 1; u >= 0; u--) {
+    const unit = units[u];
+    for (let i = unit.tokens.length - 1; i >= 0; i--) {
+      const tok = unit.tokens[i];
+      if (!tok.isSpace) {
+        return resolveSpacingPx(tok.style.letterSpacing);
+      }
+    }
+    // `unit` was entirely spaces (or empty) — continue to the previous unit,
+    // mirroring `trailingSpaceWidthOf`'s "skip the trailing run of space units"
+    // walk. An empty-tokens unit (degenerate) stops the walk.
+    if (unit.tokens.length === 0) break;
+  }
+  return 0;
 }
 
 /**
@@ -1103,7 +1145,13 @@ export function layoutInlineContent(
     // and the standalone space units in break-spaces #314/#339 —
     // `trailingSpaceWidthOf` sums the full trailing RUN of space units across
     // both shapes).
-    const contentWidth = currentWidth - trailingSpaceWidthOf(currentUnits);
+    // CSS Text 3 §8.1: also exclude the trailing tracking (letter-spacing) of
+    // the last retained typographic unit — composes with the trailing-space
+    // trim (the space already carried away its own spacing, so no double count).
+    const contentWidth =
+      currentWidth
+      - trailingSpaceWidthOf(currentUnits)
+      - trailingLetterSpacingOf(currentUnits);
     const alignmentOffset = computeAlignmentOffset(lineInlineSize, contentWidth, textAlign, direction);
 
     // P3 (#312): JUSTIFY widens interior inter-word spaces (it does NOT shift
@@ -1738,6 +1786,62 @@ function buildLineWithFragments(
       /* containingInlineSize */ lineInlineSize,
     );
     children = [...children, hyphenBox];
+  }
+
+  // CSS Text 3 §8.1 caret-edge trim: the trailing tracking of the line's last
+  // typographic unit is removed so the end-of-line caret + the last selection
+  // rect (both of which sum leaf advances) land at the trimmed content edge —
+  // matching the `contentWidth` trim `flushLine` applies for alignment. Skip
+  // hyphenated lines: the visible edge is the synthetic hyphen glyph (whose
+  // own tracking ≠ the word's), and the line continues on the next line so the
+  // end-of-line caret semantics don't apply. `trim` is 0 under the default
+  // (`letter-spacing: normal`) → this block is inert (the normal-identity
+  // contract). The last unit is always a text-run leaf (trailing tracking sits
+  // after a glyph; trailing spaces are excluded from the content edge by
+  // `flushLine`'s trailing-space trim, and a space leaf carries away its own
+  // tracking).
+  const trim = hyphenBreak === null ? trailingLetterSpacingOf(units) : 0;
+  if (trim > 0 && children.length > 0) {
+    // Skip trailing whitespace-only text-run leaves before applying the trim
+    // (mirrors `trailingLetterSpacingOf`'s unit-level skip): under
+    // `break-spaces` (the editor default) a hung trailing space is its own
+    // TextRunBox that lands AFTER the word leaf in `children`, so the last
+    // child is the SPACE, not the retained glyph. The trim targets the last
+    // RETAINED glyph leaf — the same unit `trailingLetterSpacingOf` measured.
+    let trimIdx = children.length - 1;
+    while (
+      trimIdx >= 0 &&
+      children[trimIdx].type === "text-run" &&
+      (children[trimIdx] as TextRunBox).text.trim() === ""
+    ) {
+      trimIdx--;
+    }
+    const last = trimIdx >= 0 ? children[trimIdx] : undefined;
+    if (last !== undefined && last.type === "text-run") {
+      const trimmed = createTextRunBox(
+        last.key,
+        last.inlineOffset, last.blockOffset, last.inlineSize - trim, last.blockSize,
+        last.writingMode, last.direction,
+        last.computedStyle, last.usedStyle,
+        last.text,
+        last.offsetLength,
+        // Top-level line children are built with `containingInlineSize:
+        // lineInlineSize` (see buildLineChildrenForAncestorLevel); `lineInlineSize`
+        // isn't stored on the box, so re-pass it here. inlineSize-only reductions
+        // don't change physical-coord derivation for LTR; for RTL the reduced
+        // inline extent re-mirrors correctly off the same containing size.
+        lineInlineSize,
+      );
+      children = [...children.slice(0, trimIdx), trimmed, ...children.slice(trimIdx + 1)];
+    }
+    // If `last` is an InlineBox (the line's last glyph is nested inside a
+    // `display:inline` element, e.g. `<em>word</em>` at the line end), the
+    // enclosing InlineBox(es) would also need to shrink by `trim`. No test or
+    // fixture currently reaches this with non-`normal` letter-spacing; the
+    // `contentWidth` trim above still positions the line correctly for
+    // alignment. Reconstructing the trailing InlineBox chain is deferred
+    // (#434) until a case exercises it (it needs box-rebuild API beyond
+    // createTextRunBox).
   }
 
   const lineBlockSize = lineBlockSizeTracker.value > 0 ? lineBlockSizeTracker.value : measurer.measureHeight(parentCs);
