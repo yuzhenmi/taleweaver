@@ -7,6 +7,7 @@ import type {
 } from "./intrinsic-sizes";
 import { flattenContents } from "./group-children";
 import { resolveUsedLength } from "./used-style";
+import { transformRun } from "./text-transform";
 
 const ZERO_CONTRIBUTION: IntrinsicContribution = {
   minContent: 0,
@@ -113,8 +114,18 @@ function computeTextContribution(
   shaper: TextShaper,
 ): IntrinsicContribution {
   if (!node.computedStyle) return ZERO_CONTRIBUTION;
-  const text = node.text;
-  if (text.length === 0) return ZERO_CONTRIBUTION;
+  const rawText = node.text;
+  if (rawText.length === 0) return ZERO_CONTRIBUTION;
+  // Shape the DISPLAY text under `text-transform`: a case mapping can change the
+  // glyph count/width (e.g. `ß`→`SS` under `uppercase`), and the IFC shapes the
+  // same transformed string. Intrinsic min/max-content must match so a
+  // shrink-to-fit / inline-block box sizes to the rendered width (else it clips).
+  // Transforming the whole node text is correct here — we only need the total
+  // display width, and `capitalize`'s word boundaries resolve identically across
+  // the whole string as per-token. `none` (the default) is a no-op, keeping
+  // existing layout byte-identical.
+  const tt = node.computedStyle.textTransform;
+  const text = tt !== "none" ? transformRun(rawText, tt).display : rawText;
   const run = shaper.shape(text, node.computedStyle, node.computedStyle.direction);
   // `minClusterInlineSize` is the shaper's authoritative min-content for the run
   // (the widest unbreakable unit). We anchor `minContent` to it so this pass is

@@ -647,3 +647,44 @@ describe("computeIntrinsicSizes — letter/word-spacing (P5-LWS Task 5)", () => 
     expect(spaced.maxContent).toBe(plain.maxContent + M); // 36
   });
 });
+
+describe("computeIntrinsicSizes — text-transform (C1)", () => {
+  const shaper = createMockShaper(10, 16); // charWidth W = 10
+
+  it("intrinsic sizes reflect the DISPLAY length of a growing transform (ß→SS)", () => {
+    // "aß" under uppercase renders "ASS" (3 display chars). The intrinsic pass
+    // must shape the TRANSFORMED text so an inline-block / shrink-to-fit box
+    // sizes to the rendered width, not the 2-source-char width (else it clips).
+    const make = (transform: "none" | "uppercase") =>
+      createElementBox(
+        "p",
+        { display: "block" },
+        [createTextBox("t", { display: "inline", textTransform: transform }, "aß")],
+      );
+    const transformed = computeIntrinsicSizes(
+      cascadePass(make("uppercase")),
+      shaper,
+      createIntrinsicSizesCache(),
+    );
+    const plain = computeIntrinsicSizes(
+      cascadePass(make("none")),
+      shaper,
+      createIntrinsicSizesCache(),
+    );
+    // none: "aß" = 2 source chars → max-content = 2*W = 20.
+    expect(plain.maxContent).toBe(20);
+    // uppercase: "ASS" = 3 display chars → max-content = 3*W = 30, NOT 20.
+    expect(transformed.maxContent).toBe(30);
+  });
+
+  it("textTransform: none is a no-op (byte-identical to untransformed text)", () => {
+    const node = createTextBox("t", { display: "inline", textTransform: "none" }, "hello");
+    const withNone = computeIntrinsicSizes(cascadePass(node), shaper, createIntrinsicSizesCache());
+    const bare = computeIntrinsicSizes(
+      cascadePass(createTextBox("t", { display: "inline" }, "hello")),
+      shaper,
+      createIntrinsicSizesCache(),
+    );
+    expect(withNone).toEqual(bare);
+  });
+});

@@ -9,6 +9,7 @@ import type { TextShaper } from "./text-shaper";
 import type { TextMeasurer } from "./text-measurer";
 import { adaptShaperToMeasurer } from "./text-measurer";
 import { tokenize, LINE_BREAK } from "./text-tokenize";
+import { transformRun } from "./text-transform";
 import { layoutBlock } from "./bfc";
 import type { WritingMode, Direction } from "../styles/writing-mode";
 import { computeUsedStyle, resolveUsedLength } from "./used-style";
@@ -110,6 +111,18 @@ interface Token {
    * Used to compute the width of a prefix when splitting at a hyphen break.
    */
   clusterWidths?: readonly number[];
+  /**
+   * Present only when a `text-transform` (other than `none`) changed this
+   * token's DISPLAY length relative to its SOURCE length (a "grow" mapping,
+   * e.g. `ß`→`SS` under `uppercase`). `sourceDisplayLengths[i]` is the number
+   * of DISPLAY UTF-16 code units produced by SOURCE code unit `i` (so its
+   * length equals the token's SOURCE length, i.e. `text` before transform).
+   * For a 1:1 transform (every source unit → one display unit) it is omitted
+   * (the leaf concat treats absence as all-1s). Whitespace tokens never carry
+   * this — case mapping never alters whitespace, so token boundaries are
+   * identical in source and display.
+   */
+  sourceDisplayLengths?: readonly number[];
 }
 
 /**
@@ -517,7 +530,8 @@ function collectInlineTokens(
         // Collect per-cluster widths and hyphen break opportunities within this token's range.
         let clusterWidths: number[] | undefined;
         let hyphenBreaks: number[] | undefined;
-        if (shapedRun && !(/^\s+$/.test(part))) {
+        const isWhitespaceToken = /^\s+$/.test(part);
+        if (shapedRun && !isWhitespaceToken) {
           clusterWidths = [];
           for (let ci = 0; ci < part.length; ci++) {
             // Find the cluster in shapedRun that corresponds to matchStart + ci.
@@ -534,22 +548,68 @@ function collectInlineTokens(
           if (tokenHyphenBreaks.length > 0) hyphenBreaks = tokenHyphenBreaks;
         }
 
+        // text-transform (CSS Text 3 §2.1): render the case-mapped DISPLAY text
+        // while keeping `sourceLength` = the SOURCE span. Applied PER-TOKEN (each
+        // whitespace-delimited token in isolation) — case mapping never alters
+        // whitespace/`\n`, so source and display token boundaries are identical
+        // and we avoid any run-level source→display offset translation. Skipped
+        // for whitespace tokens and when `textTransform === "none"` (the default,
+        // so existing layout is byte-for-byte unchanged).
+        let tokenText = part;
+        let tokenWidth = width;
+        let tokenSourceDisplayLengths: readonly number[] | undefined;
+        if (cs.textTransform !== "none" && !isWhitespaceToken) {
+          const { display, sourceDisplayLengths } = transformRun(part, cs.textTransform);
+          // Re-shape the DISPLAY text: case mapping can change glyph count/width
+          // (e.g. `ß`→`SS`) and the painter shapes the same display string, so
+          // measurement must shape it too (keeps caret/glyph geometry aligned).
+          const dShaped = shaper.shape(display, cs, direction);
+          tokenText = display;
+          tokenWidth = dShaped.clusters.reduce((sum, c) => sum + c.inlineAdvance, 0);
+          // Per-DISPLAY-char advances (one entry per display code unit) — mirror
+          // the SOURCE clusterWidths loop above, now over the display clusters.
+          const displayClusterWidths: number[] = [];
+          for (let ci = 0; ci < display.length; ci++) {
+            const cluster = dShaped.clusters.find(c => c.start === ci);
+            displayClusterWidths.push(cluster ? cluster.inlineAdvance : 0);
+          }
+          // For a 1:1 transform (display.length === part.length) clusterWidths is
+          // indexed at DISPLAY positions, which equal source positions — so
+          // hyphenBreaks (source-relative, kept for 1:1) stay valid indices into
+          // clusterWidths in tryHyphenSplit. Grow/shrink tokens CLEAR hyphenBreaks
+          // (below), so the source==display assumption that tryHyphenSplit relies
+          // on is never violated.
+          clusterWidths = displayClusterWidths;
+          if (display.length !== part.length) {
+            // GROW (or shrink) mapping: record the source→display length map so
+            // later cursor tasks can translate state↔display offsets. Its
+            // `hyphenBreaks` indices are SOURCE-relative and become invalid once
+            // the display length differs (a grow char shifts later positions),
+            // so clear them — a transformed-and-grown word simply won't
+            // auto-hyphenate (correct + safe). 1:1 transforms keep hyphenBreaks
+            // and omit the map (absence === all-1s in the leaf concat).
+            tokenSourceDisplayLengths = sourceDisplayLengths;
+            hyphenBreaks = undefined;
+          }
+        }
+
         nodeTokens.push({
           matchStart,
           token: {
             id: `${child.key}:${matchStart}`,
             sourceKey: child.key,
-            text: part,
+            text: tokenText,
             // Patched in the second pass below.
             sourceLength: part.length,
-            width,
+            width: tokenWidth,
             style: cs,
-            isSpace: /^\s+$/.test(part),
+            isSpace: isWhitespaceToken,
             isLineBreak: false,
             inlineAncestors: ancestors,
             inlineAncestorStyles: ancestorStyles,
             ...(clusterWidths ? { clusterWidths } : {}),
             ...(hyphenBreaks ? { hyphenBreaks } : {}),
+            ...(tokenSourceDisplayLengths ? { sourceDisplayLengths: tokenSourceDisplayLengths } : {}),
           },
         });
 
@@ -1831,6 +1891,11 @@ function buildLineWithFragments(
         // don't change physical-coord derivation for LTR; for RTL the reduced
         // inline extent re-mirrors correctly off the same containing size.
         lineInlineSize,
+        // SDL is geometry-independent — the trim only changes `inlineSize`, not
+        // the source→display offset map — so it copies through verbatim (no
+        // recompute). Forwarding it here closes the latent strip site flagged in
+        // T3's review where the rebuilt leaf dropped its sourceDisplayLengths.
+        last.sourceDisplayLengths,
       );
       children = [...children.slice(0, trimIdx), trimmed, ...children.slice(trimIdx + 1)];
     }
@@ -1936,6 +2001,26 @@ function buildLineChildrenForAncestorLevel(
         // trailing whitespace it absorbed). This is ≥ the rendered text length
         // and is what the cursor layer uses to keep offsets state-aligned.
         const offsetLength = unit.tokens.reduce((sum, t) => sum + t.sourceLength, 0);
+
+        // text-transform leaf concat: build the per-SOURCE-code-unit → display-
+        // code-unit length map for the WHOLE run by concatenating each token's
+        // map. Only materialized when some token actually grew/shrank (a token
+        // carries `sourceDisplayLengths` only then); otherwise the run is 1:1
+        // and the field stays undefined (the existing fast path). For each token
+        // we push its rendered source-unit lengths, then one `0` per collapsed-
+        // away whitespace unit it absorbed (`sourceLength − renderedSourceUnits`)
+        // so the leaf map's length equals `offsetLength` (the state span).
+        let leafSDL: number[] | undefined;
+        if (unit.tokens.some(t => t.sourceDisplayLengths)) {
+          leafSDL = [];
+          for (const t of unit.tokens) {
+            const sdl = t.sourceDisplayLengths ?? new Array<number>(t.text.length).fill(1);
+            leafSDL.push(...sdl);
+            const collapsed = t.sourceLength - sdl.length;
+            for (let k = 0; k < collapsed; k++) leafSDL.push(0);
+          }
+        }
+
         const tokBlockSize = measurer.measureHeight(tokStyle);
         lineBlockSizeTracker.value = Math.max(lineBlockSizeTracker.value, tokBlockSize);
 
@@ -1978,6 +2063,7 @@ function buildLineChildrenForAncestorLevel(
           writeInlineOffset, 0, writeWidth, tokBlockSize, writingMode, direction, tokStyle, tokUsedStyle, text,
           offsetLength,
           /* containingInlineSize */ lineInlineSize,
+          /* sourceDisplayLengths */ leafSDL,
         ));
       }
       cursorInlineOffset += unitWidth;
