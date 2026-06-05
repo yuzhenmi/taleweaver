@@ -1098,8 +1098,8 @@ export function layoutInlineContent(
   const tokens: Token[] = [];
   const asm = newIfcSourceAssembly();
   collectInlineTokens(parent.children, emptyAncestors, emptyAncestorStyles, shaper, direction, tokens, asm, ctx.intrinsicCache, ctx);
-  // S2.4: derive UAX #14 softBreaks/breakableBefore over the assembled IFC
-  // source (inert until Task 6 wires the wrap loop to consult them).
+  // Derive UAX #14 softBreaks/breakableBefore over the assembled IFC source;
+  // the wrap loop consults them via trySoftSplit + the breakableBefore gate.
   annotateLineBreaks(tokens, asm);
 
   // Incremental-wrap cache: if tokens are identical and the available inline size hasn't
