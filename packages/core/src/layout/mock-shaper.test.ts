@@ -6,7 +6,7 @@ import type { ComputedStyle } from "../styles";
 describe("createMockShaper", () => {
   const cs = INITIAL_COMPUTED_STYLE;
 
-  it("produces one cluster per codepoint with fixed width", () => {
+  it("produces one cluster per grapheme with fixed width (single-code-unit chars unchanged)", () => {
     const shaper = createMockShaper(8, 16);
     const run = shaper.shape("abc", cs, "ltr");
     expect(run.clusters).toHaveLength(3);

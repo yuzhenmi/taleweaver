@@ -56,7 +56,7 @@ describe("createCanvasShaper", () => {
 
   const cs = INITIAL_COMPUTED_STYLE;
 
-  it("produces one cluster per codepoint", () => {
+  it("produces one cluster per grapheme (single-code-unit chars unchanged)", () => {
     const shaper = createCanvasShaper(canvas);
     const run = shaper.shape("abc", cs, "ltr");
     expect(run.clusters).toHaveLength(3);
