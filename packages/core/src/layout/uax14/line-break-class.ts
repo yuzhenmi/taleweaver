@@ -2,6 +2,9 @@ import {
   LINE_BREAK_RANGES,
   LINE_BREAK_CLASS_NAMES,
   EAST_ASIAN_WIDE_RANGES,
+  EXTENDED_PICTOGRAPHIC_CN_RANGES,
+  PI_QU_RANGES,
+  PF_QU_RANGES,
 } from "./line-break-table";
 
 /**
@@ -73,4 +76,37 @@ export function lineBreakClass(codePoint: number): LineBreakClass {
 export function isEastAsianWide(codePoint: number): boolean {
   if (codePoint < 0 || codePoint > 0x10ffff) return false;
   return findRange(EAST_ASIAN_WIDE_RANGES, 2, codePoint) !== -1;
+}
+
+/**
+ * True if `codePoint` is BOTH Extended_Pictographic AND General_Category=Cn
+ * (unassigned) — the left operand of the LB30b 2nd clause
+ * `[\p{Extended_Pictographic} & \p{gc=Cn}] × EM`. These "reserved pictographic"
+ * code points carry a default Line_Break class (typically ID) that does not
+ * identify them, so the rule needs this dedicated lookup. Binary search over the
+ * generated [lo, hi] range table.
+ */
+export function isExtendedPictographicCn(codePoint: number): boolean {
+  if (codePoint < 0 || codePoint > 0x10ffff) return false;
+  return findRange(EXTENDED_PICTOGRAPHIC_CN_RANGES, 2, codePoint) !== -1;
+}
+
+/**
+ * True if `codePoint` has Line_Break=QU AND General_Category=Pi (initial
+ * quotation mark) — the opening-quote set LB15a pins. Codegen-derived (QU ∩ Pi)
+ * so the runtime carries no General_Category table and the set never silently
+ * goes stale on a Unicode upgrade. Binary search over the generated [lo,hi] table.
+ */
+export function isPiQu(codePoint: number): boolean {
+  if (codePoint < 0 || codePoint > 0x10ffff) return false;
+  return findRange(PI_QU_RANGES, 2, codePoint) !== -1;
+}
+
+/**
+ * True if `codePoint` has Line_Break=QU AND General_Category=Pf (final
+ * quotation mark) — the closing-quote set LB15b pins. Codegen-derived (QU ∩ Pf).
+ */
+export function isPfQu(codePoint: number): boolean {
+  if (codePoint < 0 || codePoint > 0x10ffff) return false;
+  return findRange(PF_QU_RANGES, 2, codePoint) !== -1;
 }
