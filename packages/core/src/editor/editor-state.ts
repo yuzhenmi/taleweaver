@@ -145,6 +145,24 @@ export interface EditorState {
    * in `History`, never part of `Position` / `Selection`.
    */
   readonly caretPageHint?: number;
+  /**
+   * NON-undoable view state (P4-C.2 §D): the caret ASSOCIATION (which logical
+   * side a collapsed caret sticks to) at a bidi direction boundary. One logical
+   * `offset` has TWO visual positions at an LTR↔RTL boundary; `"before"` draws
+   * the caret at the trailing edge of the leaf ENDING at the offset, `"after"`
+   * at the leading edge of the leaf STARTING at it. `undefined` / `"after"` is
+   * today's LTR behavior (both sides give the same X on a uniform line, so the
+   * field is inert there).
+   *
+   * Lifecycle (the same OPPOSITE-of-`targetX` model as `caretPageHint`): SET by
+   * mouse hit-test (from the hit side) and by visual-order arrow motion at a
+   * boundary flip; RESET to `undefined` by edits and non-arrow selection changes
+   * so it never goes stale. It is VIEW state — never stored in `History`, never
+   * part of `Position` / `Selection` / `Span`. The handler wiring (the central
+   * reset + the hit-test / arrow writes) lands in P4-C.2.1+; this field + its
+   * default are the shared primitive.
+   */
+  readonly caretAffinity?: "before" | "after";
 }
 
 export interface EditorConfig {
@@ -230,6 +248,7 @@ export function createInitialEditorState(config: EditorConfig): EditorState {
     containerWidth: config.containerWidth,
     targetX: null,
     caretPageHint: undefined,
+    caretAffinity: undefined,
   };
 }
 

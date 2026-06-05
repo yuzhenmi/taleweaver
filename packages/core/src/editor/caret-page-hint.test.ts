@@ -16,6 +16,9 @@ describe("#323 Cycle A — caretPageHint lifecycle", () => {
   it("createInitialEditorState seeds caretPageHint undefined", () => {
     const editor = createInitialEditorState(config);
     expect(editor.caretPageHint).toBeUndefined();
+    // P4-C.2 §D: the sibling non-undoable view field `caretAffinity` also
+    // defaults to undefined on a fresh state.
+    expect(editor.caretAffinity).toBeUndefined();
   });
 
   it("SET_SELECTION with caretPageHint sets it", () => {
