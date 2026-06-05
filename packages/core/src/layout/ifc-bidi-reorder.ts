@@ -1,5 +1,10 @@
 import type { ParagraphBidi } from "./ifc-bidi";
-import { createTextRunBox, type LayoutBox, type TextRunBox } from "./layout-box";
+import {
+  createTextRunBox,
+  type InlineBox,
+  type LayoutBox,
+  type TextRunBox,
+} from "./layout-box";
 
 /**
  * Split a line `TextRunBox` into two single-level fragments at a DISPLAY-U16
@@ -304,5 +309,67 @@ function segmentTextRun(
     out.push({ box: prefix, level: spanLevel });
     current = suffix;
     currentSourceStart += boundary;
+  }
+}
+
+/**
+ * A LEAF box of a line (never an `InlineBox`), tagged with its chain of
+ * `InlineBox` ancestors. Produced by {@link flattenLineToLeaves}; the bidi
+ * reorder of a line containing inline elements (`<em>`, links) segments and
+ * reorders these leaves, then re-nests them back into `InlineBox` fragments
+ * (later tasks).
+ */
+export interface FlatLeaf {
+  /** A `TextRunBox | InlineBlockBox | MarkerBox` (or a defensively-passed-through
+   * atomic box) — never an `InlineBox`. */
+  readonly leaf: LayoutBox;
+  /** The chain of `InlineBox` ancestors, ROOT-MOST first (`[]` for a top-level
+   * leaf). */
+  readonly ancestors: readonly InlineBox[];
+}
+
+/**
+ * Flatten a line's nested child tree into a flat list of LEAF runs, each tagged
+ * with its `InlineBox` ancestor chain.
+ *
+ * Depth-first, preserving LOGICAL (child) order. `InlineBox` children are
+ * recursed into with the ancestor chain extended by the box (appended, so the
+ * root-most ancestor stays FIRST); leaf boxes (`text-run` / `inline-block` /
+ * `marker`) are emitted with the current chain.
+ *
+ * Any other box type that could appear inline is not expected on a normal line,
+ * but flatten is TOTAL: rather than throw, an unrecognized box is emitted as a
+ * leaf with the current chain (defensive — a line could in principle carry an
+ * unexpected atomic box, and the caller's reorder handles it as an atomic
+ * segment). We do NOT recurse into unknown container types, since their
+ * children's relationship to the inline ancestor chain is undefined.
+ *
+ * Pure: inputs are not mutated; each leaf's `ancestors` array is fresh.
+ *
+ * @param children the line's child boxes, in logical order.
+ * @returns the line's leaf boxes in logical order, each with its root-most-first
+ *   `InlineBox` ancestor chain.
+ */
+export function flattenLineToLeaves(children: readonly LayoutBox[]): FlatLeaf[] {
+  const out: FlatLeaf[] = [];
+  flattenChildren(children, [], out);
+  return out;
+}
+
+function flattenChildren(
+  children: readonly LayoutBox[],
+  ancestors: readonly InlineBox[],
+  out: FlatLeaf[],
+): void {
+  for (const child of children) {
+    if (child.type === "inline") {
+      // Recurse, extending the chain by this InlineBox (append keeps root-most
+      // first).
+      flattenChildren(child.children, [...ancestors, child], out);
+    } else {
+      // text-run / inline-block / marker — and, defensively, any other atomic
+      // box type that might appear inline — is a leaf at the current chain.
+      out.push({ leaf: child, ancestors });
+    }
   }
 }

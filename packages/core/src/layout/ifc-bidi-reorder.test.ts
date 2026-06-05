@@ -6,11 +6,18 @@ import {
   createInlineBlockBox,
   createInlineBox,
   createTextRunBox,
+  type InlineBlockBox,
+  type InlineBox,
+  type LayoutBox,
   type TextRunBox,
 } from "./layout-box";
 import { resolveParagraphBidi } from "./ifc-bidi";
 import { applyL1 } from "./uax9/reorder";
-import { segmentLine, splitTextRunBoxAtOffset } from "./ifc-bidi-reorder";
+import {
+  flattenLineToLeaves,
+  segmentLine,
+  splitTextRunBoxAtOffset,
+} from "./ifc-bidi-reorder";
 
 const computedStyle: ComputedStyle = INITIAL_COMPUTED_STYLE;
 const usedStyle = computeUsedStyle(computedStyle, 1000, "indefinite");
@@ -432,5 +439,135 @@ describe("segmentLine", () => {
       const trb = seg.box as TextRunBox;
       expect(trb.clusterWidths?.length).toBe(trb.text.length);
     }
+  });
+});
+
+describe("flattenLineToLeaves", () => {
+  function makeInline(args: {
+    ancestorKey: string;
+    children: readonly LayoutBox[];
+    key?: string;
+  }): InlineBox {
+    return createInlineBox(
+      args.key ?? args.ancestorKey,
+      /* inlineOffset */ 0,
+      /* blockOffset */ 0,
+      /* inlineSize */ 20,
+      /* blockSize */ 16,
+      /* writingMode */ "horizontal-tb",
+      /* direction */ "ltr",
+      computedStyle,
+      usedStyle,
+      args.children,
+      /* fragmentEdge */ "only",
+      args.ancestorKey,
+      /* containingInlineSize */ 1000,
+    );
+  }
+
+  function makeInlineBlock(key: string): InlineBlockBox {
+    return createInlineBlockBox(
+      key,
+      0, 0, 20, 16,
+      "horizontal-tb", "ltr",
+      computedStyle, usedStyle,
+      [],
+      1000,
+      /* sourceStart */ 0,
+    );
+  }
+
+  it("flat line with no inline: every leaf has empty ancestors, order preserved", () => {
+    const a = makeBox({ key: "a", text: "a", offsetLength: 1, inlineSize: 10 });
+    const b = makeBox({ key: "b", text: "b", offsetLength: 1, inlineSize: 10 });
+
+    const leaves = flattenLineToLeaves([a, b]);
+
+    expect(leaves.length).toBe(2);
+    expect(leaves[0].leaf).toBe(a);
+    expect(leaves[0].ancestors).toEqual([]);
+    expect(leaves[1].leaf).toBe(b);
+    expect(leaves[1].ancestors).toEqual([]);
+  });
+
+  it("one inline: middle leaf carries the em ancestor, outer leaves are bare", () => {
+    const before = makeBox({ key: "before", text: "a ", offsetLength: 2, inlineSize: 20 });
+    const bc = makeBox({ key: "bc", text: "bc", offsetLength: 2, inlineSize: 20 });
+    const em = makeInline({ ancestorKey: "em", children: [bc] });
+    const after = makeBox({ key: "after", text: " d", offsetLength: 2, inlineSize: 20 });
+
+    const leaves = flattenLineToLeaves([before, em, after]);
+
+    expect(leaves.length).toBe(3);
+    // logical (child) order preserved
+    expect(leaves[0].leaf).toBe(before);
+    expect(leaves[0].ancestors).toEqual([]);
+
+    expect(leaves[1].leaf).toBe(bc);
+    expect(leaves[1].ancestors.length).toBe(1);
+    expect(leaves[1].ancestors[0]).toBe(em);
+    expect(leaves[1].ancestors[0].ancestorKey).toBe("em");
+
+    expect(leaves[2].leaf).toBe(after);
+    expect(leaves[2].ancestors).toEqual([]);
+  });
+
+  it("nested inline (<em><strong>): ancestors are root-most first", () => {
+    const x = makeBox({ key: "x", text: "x", offsetLength: 1, inlineSize: 10 });
+    const strong = makeInline({ ancestorKey: "strong", children: [x] });
+    const em = makeInline({ ancestorKey: "em", children: [strong] });
+
+    const leaves = flattenLineToLeaves([em]);
+
+    expect(leaves.length).toBe(1);
+    expect(leaves[0].leaf).toBe(x);
+    expect(leaves[0].ancestors.length).toBe(2);
+    // root-most (em) first, then strong
+    expect(leaves[0].ancestors[0]).toBe(em);
+    expect(leaves[0].ancestors[0].ancestorKey).toBe("em");
+    expect(leaves[0].ancestors[1]).toBe(strong);
+    expect(leaves[0].ancestors[1].ancestorKey).toBe("strong");
+  });
+
+  it("inline-block inside an inline is emitted as a leaf with the inline's chain", () => {
+    const ib = makeInlineBlock("ib");
+    const link = makeInline({ ancestorKey: "a", children: [ib] });
+
+    const leaves = flattenLineToLeaves([link]);
+
+    expect(leaves.length).toBe(1);
+    expect(leaves[0].leaf).toBe(ib);
+    expect(leaves[0].leaf.type).toBe("inline-block");
+    expect(leaves[0].ancestors.length).toBe(1);
+    expect(leaves[0].ancestors[0]).toBe(link);
+    expect(leaves[0].ancestors[0].ancestorKey).toBe("a");
+  });
+
+  it("multiple leaves in one inline share the same single-element ancestor chain", () => {
+    const t1 = makeBox({ key: "t1", text: "ab", offsetLength: 2, inlineSize: 20 });
+    const t2 = makeBox({ key: "t2", text: "cd", offsetLength: 2, inlineSize: 20 });
+    const em = makeInline({ ancestorKey: "em", children: [t1, t2] });
+
+    const leaves = flattenLineToLeaves([em]);
+
+    expect(leaves.length).toBe(2);
+    expect(leaves[0].leaf).toBe(t1);
+    expect(leaves[1].leaf).toBe(t2);
+    expect(leaves[0].ancestors.length).toBe(1);
+    expect(leaves[1].ancestors.length).toBe(1);
+    expect(leaves[0].ancestors[0]).toBe(em);
+    expect(leaves[1].ancestors[0]).toBe(em);
+  });
+
+  it("does not mutate the input boxes", () => {
+    const x = makeBox({ key: "x", text: "x", offsetLength: 1, inlineSize: 10 });
+    const em = makeInline({ ancestorKey: "em", children: [x] });
+    const children: readonly LayoutBox[] = [em];
+
+    flattenLineToLeaves(children);
+
+    expect(children.length).toBe(1);
+    expect(em.children.length).toBe(1);
+    expect(em.children[0]).toBe(x);
   });
 });
