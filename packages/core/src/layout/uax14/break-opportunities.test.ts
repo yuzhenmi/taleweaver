@@ -61,3 +61,15 @@ describe("lineBreakOpportunities — headline behavior", () => {
     expect(lineBreakOpportunities("")).toEqual([]);
   });
 });
+
+import * as coreBarrel from "../../index";
+
+describe("uax14 public barrel", () => {
+  it("re-exports the classifier from @taleweaver/core", () => {
+    expect(typeof coreBarrel.lineBreakOpportunities).toBe("function");
+    expect(typeof coreBarrel.lineBreakClass).toBe("function");
+    expect(coreBarrel.UAX14_UNICODE_VERSION).toBe("16.0.0");
+    expect(coreBarrel.lineBreakClass(0x0041)).toBe("AL");
+    expect(coreBarrel.lineBreakOpportunities("ab cd").map((p) => p.index)).toEqual([3]);
+  });
+});

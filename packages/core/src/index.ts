@@ -161,6 +161,13 @@ export { createMockShaper } from "./layout/mock-shaper";
 export type {
   TextShaper, ShapedRun, Cluster, BreakOpportunity, FontMetrics, GlyphId,
 } from "./layout/text-shaper";
+// Layout — UAX #14 line-break segmentation (text core)
+export {
+  lineBreakClass,
+  lineBreakOpportunities,
+  UAX14_UNICODE_VERSION,
+} from "./layout/uax14";
+export type { LineBreakClass, LineBreakPoint, LineBreakOptions } from "./layout/uax14";
 export type { IntrinsicSizes, IntrinsicContribution, IntrinsicSizesCache } from "./layout/intrinsic-sizes";
 export { createIntrinsicSizesCache } from "./layout/intrinsic-sizes";
 export { computeIntrinsicSizes } from "./layout/intrinsic-sizes-pass";
