@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveBidiLevels } from "./bidi";
-import { reorderVisual } from "./reorder";
+import { applyL1, reorderRunsByLevel, reorderVisual } from "./reorder";
 
 describe("reorderVisual — UAX #9 L1 + L2", () => {
   it("reverses a single RTL run inside an LTR paragraph (L2 only)", () => {
@@ -87,5 +87,80 @@ describe("reorderVisual — UAX #9 L1 + L2", () => {
     //   Relative result reverses [0,1,2] → [2,1,0].
     const { levels, types, paragraphLevel } = resolveBidiLevels("abc אבג", "ltr");
     expect(reorderVisual(levels, types, paragraphLevel, 4, 7)).toEqual([2, 1, 0]);
+  });
+});
+
+describe("reorderRunsByLevel — L2 over per-run levels", () => {
+  it("reverses a single embedded run", () => {
+    // [0,1,1,0]: maxLevel=1, minOdd=1. Reverse the level>=1 run [1,2] →
+    //   perm [0,1,2,3] → [0,2,1,3].
+    expect(reorderRunsByLevel([0, 1, 1, 0])).toEqual([0, 2, 1, 3]);
+  });
+
+  it("reverses nested runs from max down to minOdd", () => {
+    // [1,2,1]: maxLevel=2, minOdd=1, perm=[0,1,2].
+    //   level 2: reverse level>=2 span [1] (singleton, no-op) → [0,1,2].
+    //   level 1: reverse level>=1 span [0,1,2] (all) → [2,1,0].
+    expect(reorderRunsByLevel([1, 2, 1])).toEqual([2, 1, 0]);
+  });
+
+  it("is identity when there is no odd level", () => {
+    expect(reorderRunsByLevel([0, 0])).toEqual([0, 1]);
+  });
+
+  it("reverses the whole array when all levels are the same odd level", () => {
+    expect(reorderRunsByLevel([1, 1, 1])).toEqual([2, 1, 0]);
+  });
+
+  it("returns the singleton for a single run", () => {
+    expect(reorderRunsByLevel([0])).toEqual([0]);
+  });
+
+  it("returns [] for an empty array", () => {
+    expect(reorderRunsByLevel([])).toEqual([]);
+  });
+});
+
+describe("applyL1 — post-L1 line levels (lineStart-relative)", () => {
+  it("resets a segment separator (TAB) to the paragraph level", () => {
+    // "a אב\tגד": levels [0,0,1,1,1,1,1], types [L,WS,R,R,S,R,R].
+    //   L1 resets the S (idx 4) to paragraphLevel 0 → [0,0,1,1,0,1,1].
+    const { levels, types, paragraphLevel } = resolveBidiLevels(
+      "a אב\tגד",
+      "ltr",
+    );
+    expect([...applyL1(levels, types, paragraphLevel, 0, 7)]).toEqual([
+      0, 0, 1, 1, 0, 1, 1,
+    ]);
+  });
+
+  it("resets a trailing whitespace run at end of line", () => {
+    // Hand-built: levels=[1,1,1,1], types=[R,R,WS,WS], paragraphLevel=0.
+    //   L1 rule iv resets the trailing WS run [2,3] → [1,1,0,0].
+    const levels = Uint8Array.of(1, 1, 1, 1);
+    const CC_R = 1;
+    const CC_WS = 12;
+    const types = Uint8Array.of(CC_R, CC_R, CC_WS, CC_WS);
+    expect([...applyL1(levels, types, 0, 0, 4)]).toEqual([1, 1, 0, 0]);
+  });
+
+  it("leaves levels unchanged when L1 has no effect", () => {
+    // "abc אבג": levels [0,0,0,0,1,1,1], ends in R, interior WS not before S/B.
+    //   L1 is a no-op → post-L1 levels equal the input slice.
+    const { levels, types, paragraphLevel } = resolveBidiLevels("abc אבג", "ltr");
+    expect([...applyL1(levels, types, paragraphLevel, 0, 7)]).toEqual([
+      0, 0, 0, 0, 1, 1, 1,
+    ]);
+  });
+
+  it("returns levels relative to a non-zero lineStart", () => {
+    // "abc אבג" sliced to [4,7): the RTL tail at level 1, L1 no-op.
+    const { levels, types, paragraphLevel } = resolveBidiLevels("abc אבג", "ltr");
+    expect([...applyL1(levels, types, paragraphLevel, 4, 7)]).toEqual([1, 1, 1]);
+  });
+
+  it("returns an empty array for an empty line", () => {
+    const { levels, types, paragraphLevel } = resolveBidiLevels("a", "ltr");
+    expect([...applyL1(levels, types, paragraphLevel, 0, 0)]).toEqual([]);
   });
 });

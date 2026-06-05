@@ -52,13 +52,53 @@ export function reorderVisual(
   const n = lineEnd - lineStart;
   if (n <= 0) return [];
 
+  // L1 → post-L1 line levels (lineStart-relative private copy).
+  const lineLevels = applyL1(levels, types, paragraphLevel, lineStart, lineEnd);
+
+  // L2 over the per-codepoint post-L1 levels. Each codepoint is its own
+  // single-position "run"; reordering those runs by their levels yields the
+  // per-codepoint visual permutation, indices relative to `lineStart`.
+  return reorderRunsByLevel(Array.from(lineLevels));
+}
+
+/**
+ * UAX #9 rule L1 — reset to `paragraphLevel` the embedding levels of segment
+ * separators (`S`), paragraph separators (`B`), and runs of whitespace /
+ * isolate-format characters that precede an `S`/`B` or end the line.
+ *
+ * Operates on the line slice `[lineStart, lineEnd)` of the paragraph-wide
+ * `levels` / `types` arrays. Returns a NEW `Uint8Array` of length
+ * `lineEnd - lineStart` holding the post-L1 levels, indexed RELATIVE to
+ * `lineStart` (so `result[0]` is the level of codepoint `lineStart`). The
+ * shared `levels` array is never mutated.
+ *
+ * Per UAX #9 L1, the character TYPES consulted here are the ORIGINAL bidi
+ * classes (read from `types[lineStart + i]`), not those modified by earlier
+ * phases — which is why {@link BidiResult.types} carries the original codes.
+ *
+ * @param levels         per-codepoint resolved embedding levels (paragraph-wide)
+ * @param types          per-codepoint ORIGINAL bidi-class codes (paragraph-wide)
+ * @param paragraphLevel the paragraph (base) embedding level
+ * @param lineStart      inclusive start index of the line slice
+ * @param lineEnd        exclusive end index of the line slice
+ * @returns post-L1 levels for the slice, indices relative to `lineStart`
+ */
+export function applyL1(
+  levels: Uint8Array,
+  types: Uint8Array,
+  paragraphLevel: number,
+  lineStart: number,
+  lineEnd: number,
+): Uint8Array {
+  const n = lineEnd - lineStart;
+  if (n <= 0) return new Uint8Array(0);
+
   // Private mutable copy of the slice's levels — L1 must not touch `levels`.
   const lineLevels = new Uint8Array(n);
   for (let i = 0; i < n; i++) {
     lineLevels[i] = levels[lineStart + i];
   }
 
-  // --- L1, using ORIGINAL types -------------------------------------------
   const isResetWhitespace = (code: number): boolean =>
     code === CC.WS ||
     code === CC.LRI ||
@@ -87,43 +127,64 @@ export function reorderVisual(
     }
   }
 
-  // --- L2 ------------------------------------------------------------------
+  return lineLevels;
+}
+
+/**
+ * UAX #9 rule L2 — generalized to an arbitrary array of per-RUN embedding
+ * levels. From the highest level present down to the lowest ODD level, reverse
+ * each maximal contiguous span of runs whose level is `>= level`.
+ *
+ * Returns the visual-order permutation of run indices: `perm[k]` is the index
+ * (into `runLevels`) of the run that appears in visual position `k`. If no odd
+ * level is present, the permutation is the identity.
+ *
+ * This is the same reversal {@link reorderVisual} applies to its per-codepoint
+ * order array — each codepoint being a single-position run — lifted to operate
+ * on any caller-supplied level array (e.g. one level per visual run).
+ *
+ * @param runLevels per-run embedding levels in logical order
+ * @returns visual-order permutation of run indices `[0, runLevels.length)`
+ */
+export function reorderRunsByLevel(runLevels: readonly number[]): number[] {
+  const n = runLevels.length;
+
   let maxLevel = 0;
   let minOdd = Number.MAX_SAFE_INTEGER;
   for (let i = 0; i < n; i++) {
-    const lvl = lineLevels[i];
+    const lvl = runLevels[i];
     if (lvl > maxLevel) maxLevel = lvl;
     if (lvl % 2 === 1 && lvl < minOdd) minOdd = lvl;
   }
 
-  const order: number[] = new Array(n);
-  for (let i = 0; i < n; i++) order[i] = i;
+  const perm: number[] = new Array(n);
+  for (let i = 0; i < n; i++) perm[i] = i;
 
   // No odd level → nothing to reverse (everything is left-to-right).
-  if (minOdd === Number.MAX_SAFE_INTEGER) return order;
+  if (minOdd === Number.MAX_SAFE_INTEGER) return perm;
 
   for (let level = maxLevel; level >= minOdd; level--) {
     let i = 0;
     while (i < n) {
-      if (lineLevels[i] < level) {
+      if (runLevels[i] < level) {
         i++;
         continue;
       }
-      // [start, end) is a maximal run with level >= `level`.
+      // [start, i) is a maximal run with level >= `level`.
       const start = i;
-      while (i < n && lineLevels[i] >= level) i++;
-      // Reverse order[start, i) in place.
+      while (i < n && runLevels[i] >= level) i++;
+      // Reverse perm[start, i) in place.
       let lo = start;
       let hi = i - 1;
       while (lo < hi) {
-        const tmp = order[lo];
-        order[lo] = order[hi];
-        order[hi] = tmp;
+        const tmp = perm[lo];
+        perm[lo] = perm[hi];
+        perm[hi] = tmp;
         lo++;
         hi--;
       }
     }
   }
 
-  return order;
+  return perm;
 }
