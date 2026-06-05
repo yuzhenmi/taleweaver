@@ -11,7 +11,12 @@ export type EditorAction =
   | { type: "UNDO" }
   | { type: "REDO" }
   | { type: "SET_CONTAINER_WIDTH"; width: number }
-  | { type: "SET_SELECTION"; selection: Selection; caretPageHint?: number }
+  | {
+      type: "SET_SELECTION";
+      selection: Selection;
+      caretPageHint?: number;
+      caretAffinity?: "before" | "after";
+    }
   | { type: "EXPAND_SELECTION"; direction: "forward" | "backward" }
   | { type: "EXPAND_WORD"; direction: "forward" | "backward" }
   | { type: "DELETE_FORWARD" }

@@ -17,7 +17,7 @@
 // Design: docs/superpowers/specs/2026-05-02-p1c-pagination-templates-design.md
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { resolvePositionFromPixel } from "./hit-test";
+import { resolveHitPosition as resolvePositionFromPixel } from "../test-utils/hit-position";
 import { resolvePixelPosition } from "./cursor-position";
 import { computeSelectionRects } from "./selection-geometry";
 import { getLineIndex } from "./line-flatten";

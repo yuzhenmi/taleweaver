@@ -342,7 +342,12 @@ export function reduceEditor(
         }
         result = editor; // production backstop: no-op, keep the prior in-context selection
       } else {
-        result = handleSetSelection(editor, action.selection, action.caretPageHint);
+        result = handleSetSelection(
+          editor,
+          action.selection,
+          action.caretPageHint,
+          action.caretAffinity,
+        );
       }
       break;
     }
@@ -474,5 +479,31 @@ export function reduceEditor(
     result = { ...result, targetX: null };
   }
 
+  // Central caret-affinity reset (P4-C.2.2b §C, mirrors the `targetX` clear
+  // above). `caretAffinity` is a bidi-boundary VIEW seed; it must persist ONLY
+  // across the actions that explicitly manage it, and reset to `undefined` after
+  // any other action (every edit / non-managing selection change) so it never
+  // goes stale. `actionManagesCaretAffinity` is the single extension point —
+  // C.2.3/C.2.6 add the visual-arrow / Home-End / expand actions there.
+  if (!actionManagesCaretAffinity(action) && result.caretAffinity !== undefined) {
+    result = { ...result, caretAffinity: undefined };
+  }
+
   return result;
+}
+
+/**
+ * Does this action explicitly MANAGE `EditorState.caretAffinity` (set or
+ * deliberately clear it), exempting it from the central reset above?
+ *
+ * Today only `SET_SELECTION` qualifies — the DOM click seeds the hit side, and a
+ * programmatic `SET_SELECTION` with no affinity passes `undefined` to clear it.
+ * EXTENSION POINT (P4-C.2.3 / C.2.6): the visual-order arrow motions
+ * (`MOVE_CURSOR` at a boundary flip), `MOVE_LINE_BOUNDARY` (Home/End), and the
+ * `EXPAND_*` selection motions will be added here as they learn to carry
+ * affinity. Until then they fall through to the reset (correct — they don't yet
+ * track a boundary side).
+ */
+function actionManagesCaretAffinity(action: EditorAction): boolean {
+  return action.type === "SET_SELECTION";
 }

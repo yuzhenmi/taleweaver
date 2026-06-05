@@ -29,15 +29,26 @@ const MOCK_PIXEL_POSITION: core.PixelPosition = {
   pageIndex: 0,
 };
 
+// P4-C.2.2b: `resolvePositionFromPixel` returns `{ position, caretAffinity }`.
+// `hit(pos)` wraps a bare `Position` into that shape for the mock returns below
+// (affinity "after" is the inert default — these tests assert dispatch / page
+// behavior, not the boundary affinity itself).
+function hit(
+  position: core.Position,
+): { position: core.Position; caretAffinity: "before" | "after" } {
+  return { position, caretAffinity: "after" };
+}
+
 vi.mock("@taleweaver/core", async () => {
   const actual = await vi.importActual<typeof core>("@taleweaver/core");
   return {
     ...actual,
     resolvePixelPosition: vi.fn(() => MOCK_PIXEL_POSITION),
     computeSelectionRects: vi.fn(() => []),
-    resolvePositionFromPixel: vi.fn(() =>
-      actual.createPosition("mock-block" as core.BlockId, 0),
-    ),
+    resolvePositionFromPixel: vi.fn(() => ({
+      position: actual.createPosition("mock-block" as core.BlockId, 0),
+      caretAffinity: "after" as const,
+    })),
     selectWord: vi.fn(() =>
       actual.createSpan(
         actual.createPosition("mock-block" as core.BlockId, 0),
@@ -987,7 +998,7 @@ describe("createEditorController", () => {
       ctrl.destroy();
       document.body.removeChild(container);
       vi.mocked(core.resolvePositionFromPixel).mockReturnValue(
-        core.createPosition("mock-block" as core.BlockId, 0),
+        hit(core.createPosition("mock-block" as core.BlockId, 0)),
       );
     });
 
@@ -1021,7 +1032,7 @@ describe("createEditorController", () => {
       ctrl.destroy();
       document.body.removeChild(container);
       vi.mocked(core.resolvePositionFromPixel).mockReturnValue(
-        core.createPosition("mock-block" as core.BlockId, 0),
+        hit(core.createPosition("mock-block" as core.BlockId, 0)),
       );
     });
   });
@@ -1384,7 +1395,7 @@ describe("createEditorController", () => {
       // return the real paragraph's blockId.
       const realParagraphId = fakeEditorBase.selection.focus.blockId;
       vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(
-        core.createPosition(realParagraphId, 0),
+        hit(core.createPosition(realParagraphId, 0)),
       );
 
       ctrl.update(makeFakeEditorState());
@@ -1459,7 +1470,7 @@ describe("createEditorController", () => {
       // pin this resolve to the real anchor block.
       const anchorBlockId = fakeEditorBase.selection.anchor.blockId;
       vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(
-        core.createPosition(anchorBlockId, 0),
+        hit(core.createPosition(anchorBlockId, 0)),
       );
       container.dispatchEvent(
         new MouseEvent("mousedown", {
@@ -1510,8 +1521,8 @@ describe("createEditorController", () => {
         0,
       );
       vi.mocked(core.resolvePositionFromPixel)
-        .mockReturnValueOnce(realDragPos)
-        .mockReturnValueOnce(realDragPos);
+        .mockReturnValueOnce(hit(realDragPos))
+        .mockReturnValueOnce(hit(realDragPos));
 
       // Mousedown starts drag
       container.dispatchEvent(
@@ -1657,7 +1668,7 @@ describe("createEditorController", () => {
       ctrl.update(editorState);
 
       // mousedown resolves into the BODY (context A) → drag anchor in body.
-      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(bodyPos);
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(hit(bodyPos));
       container.dispatchEvent(
         new MouseEvent("mousedown", { clientX: 10, clientY: 20, detail: 1, bubbles: true }),
       );
@@ -1665,7 +1676,7 @@ describe("createEditorController", () => {
 
       // mousemove resolves into the FOOTNOTE body (context B). A 1px pointer
       // drift during a double-click fires this same path.
-      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(footnotePos);
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(hit(footnotePos));
       document.dispatchEvent(
         new MouseEvent("mousemove", { clientX: 12, clientY: 20, bubbles: true }),
       );
@@ -1697,7 +1708,7 @@ describe("createEditorController", () => {
       });
 
       // shift-click resolves into the FOOTNOTE body (context B).
-      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(footnotePos);
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(hit(footnotePos));
       container.dispatchEvent(
         new MouseEvent("mousedown", {
           clientX: 50, clientY: 20, detail: 1, shiftKey: true, bubbles: true,
@@ -1717,13 +1728,13 @@ describe("createEditorController", () => {
       ctrl.update(editorState);
 
       // mousedown AND mousemove both resolve into the footnote body (context B).
-      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(footnotePos);
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(hit(footnotePos));
       container.dispatchEvent(
         new MouseEvent("mousedown", { clientX: 10, clientY: 20, detail: 1, bubbles: true }),
       );
       dispatch.mockClear();
 
-      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(footnotePos);
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(hit(footnotePos));
       document.dispatchEvent(
         new MouseEvent("mousemove", { clientX: 30, clientY: 20, bubbles: true }),
       );
@@ -1756,7 +1767,7 @@ describe("createEditorController", () => {
       const ghostId = core.createTestAllocator().allocate();
       expect(core.selectionContextOf(editorState.state, ghostId)).toBeNull();
       vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(
-        core.createPosition(ghostId, 0),
+        hit(core.createPosition(ghostId, 0)),
       );
       container.dispatchEvent(
         new MouseEvent("mousedown", {
@@ -1846,7 +1857,7 @@ describe("createEditorController", () => {
       // resolvePositionFromPixel mock's "mock-block" id is not in state).
       const realParagraphId = fakeEditorBase.selection.focus.blockId;
       vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(
-        core.createPosition(realParagraphId, 0),
+        hit(core.createPosition(realParagraphId, 0)),
       );
       ctrl.update(makeFakeEditorState({ layoutTree: tree }));
       container.getBoundingClientRect = vi.fn(() => ({
@@ -1886,7 +1897,7 @@ describe("createEditorController", () => {
       // extension stays IN-CONTEXT (the default "mock-block" mock is not in
       // state, so the cross-context guard would correctly skip it).
       vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(
-        core.createPosition(realParagraphId, 0),
+        hit(core.createPosition(realParagraphId, 0)),
       );
       container.dispatchEvent(
         new MouseEvent("mousedown", { clientX: 10, clientY: 150, detail: 1, shiftKey: true, bubbles: true }),
@@ -1909,8 +1920,8 @@ describe("createEditorController", () => {
         0,
       );
       vi.mocked(core.resolvePositionFromPixel)
-        .mockReturnValueOnce(realDragPos)
-        .mockReturnValueOnce(realDragPos);
+        .mockReturnValueOnce(hit(realDragPos))
+        .mockReturnValueOnce(hit(realDragPos));
       // Mousedown on page 0 starts the drag.
       container.dispatchEvent(
         new MouseEvent("mousedown", { clientX: 10, clientY: 10, detail: 1, bubbles: true }),
@@ -1924,6 +1935,29 @@ describe("createEditorController", () => {
         expect.objectContaining({ type: "SET_SELECTION", caretPageHint: 1 }),
       );
       document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("single click dispatches SET_SELECTION carrying the hit-test caretAffinity seed (P4-C.2.2b)", () => {
+      const { container, ctrl, dispatch } = makePaginatedContainer();
+      const realParagraphId = fakeEditorBase.selection.focus.blockId;
+      const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
+      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      dispatch.mockClear();
+      // The hit-test resolves to a boundary offset on the clicked side → "before".
+      // The click handler must forward that seed onto SET_SELECTION so the
+      // dual-caret renders on the clicked side.
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce({
+        position: core.createPosition(realParagraphId, 3),
+        caretAffinity: "before",
+      });
+      container.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 10, detail: 1, bubbles: true }),
+      );
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "SET_SELECTION", caretAffinity: "before" }),
+      );
       ctrl.destroy();
       document.body.removeChild(container);
     });

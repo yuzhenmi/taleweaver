@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { resolvePositionFromPixel } from "./hit-test";
+import { resolvePositionFromPixel as resolveHitRaw } from "./hit-test";
+import { resolveHitPosition as resolvePositionFromPixel } from "../test-utils/hit-position";
 import { selectWord } from "./cursor-ops";
 import { render } from "../render/render";
 import { createDefaultComponentRegistry } from "../components/component-registry";
@@ -541,6 +542,101 @@ describe("P4-C.2.2a — RTL-aware hit-test OFFSET (click → correct logical off
     // Click mid Hebrew (x=47, caret X of offset 5 is 48) → offset 5.
     const hebMid = resolvePositionFromPixel(state, layout, shaper, 47, 0);
     expect(hebMid?.offset).toBe(5);
+  });
+});
+
+describe("P4-C.2.2b — caret-affinity SEED (hit-leaf-owner rule)", () => {
+  // `resolveHitRaw` is the raw `resolvePositionFromPixel` returning
+  // `{ position, caretAffinity }` (P4-C.2.2b §D). The HIT leaf owns the offset:
+  // a click landing on a leaf's TRAILING edge sticks to that (preceding) leaf →
+  // "before"; everything else → "after" (mid-leaf / leading edge / empty line).
+  // Geometry reuses the C.2.2a fixtures: "abcאבג" → Latin "abc" lvl0 x[0,24]
+  // owns state [0,3]; Hebrew "אבג" lvl1 x[24,48] owns state [3,6].
+
+  it("returns the { position, caretAffinity } shape", () => {
+    const state = singleParagraph("hello");
+    const { layout, shaper } = pipeline(state);
+    const hit = resolveHitRaw(state, layout, shaper, 0, 0);
+    expect(hit).not.toBeNull();
+    expect(hit?.position.blockId).toBe("p");
+    expect(hit?.position.offset).toBe(0);
+    expect(hit?.caretAffinity).toBe("after");
+  });
+
+  it("clicking the LATIN side of the boundary seeds 'before' (offset 3 == Latin leaf's trailing edge)", () => {
+    // Latin run x[0,24]: a click near its visual-RIGHT edge (x=23) resolves to
+    // offset 3 — the Latin leaf's logEnd (its trailing edge) — so the caret
+    // sticks to the Latin (preceding) leaf → "before".
+    const state = singleParagraph("abcאבג");
+    const { layout, shaper } = pipeline(state);
+    const hit = resolveHitRaw(state, layout, shaper, 23, 0);
+    expect(hit?.position.offset).toBe(3);
+    expect(hit?.caretAffinity).toBe("before");
+  });
+
+  it("clicking the HEBREW side of the boundary seeds 'after' (offset 3 is the Hebrew leaf's LEADING edge)", () => {
+    // Hebrew run x[24,48] is RTL: offset 3 (its logStart, the boundary) sits at
+    // the run's RIGHT edge (x=48). A click near x=47 lands in the HEBREW leaf and
+    // resolves to offset 3 = that leaf's logStart (leading edge), NOT its trailing
+    // edge → "after". Same logical offset 3 as the Latin-side click, OPPOSITE
+    // affinity — exactly the dual-caret boundary the seed disambiguates.
+    const state = singleParagraph("abcאבג");
+    const { layout, shaper } = pipeline(state);
+    const hit = resolveHitRaw(state, layout, shaper, 47, 0);
+    expect(hit?.position.offset).toBe(3);
+    expect(hit?.caretAffinity).toBe("after");
+  });
+
+  it("a mid-run click seeds 'after' (interior offset is inert)", () => {
+    // Click mid-"b" (x=10) → offset 1, interior to the Latin leaf [0,3]. An
+    // interior offset is neither leaf's trailing edge → "after".
+    const state = singleParagraph("abcאבג");
+    const { layout, shaper } = pipeline(state);
+    const hit = resolveHitRaw(state, layout, shaper, 10, 0);
+    expect(hit?.position.offset).toBe(1);
+    expect(hit?.caretAffinity).toBe("after");
+  });
+
+  it("pure-LTR click at line END seeds 'before' (end-of-run is the only run's trailing edge) — still inert at render", () => {
+    // "hello" single LTR leaf [0,5]. A click past the end (x=1000) resolves to
+    // offset 5 = the leaf's logEnd → "before". On a uniform LTR line both sides
+    // give the same X, so this is inert at render; it just confirms the
+    // hit-leaf-owner rule fires symmetrically (not RTL-only).
+    const state = singleParagraph("hello");
+    const { layout, shaper } = pipeline(state);
+    const hit = resolveHitRaw(state, layout, shaper, 1000, 0);
+    expect(hit?.position.offset).toBe(5);
+    expect(hit?.caretAffinity).toBe("before");
+  });
+
+  it("empty line seeds 'after'", () => {
+    const state = singleParagraph("");
+    const { layout, shaper } = pipeline(state);
+    const hit = resolveHitRaw(state, layout, shaper, 0, 0);
+    expect(hit?.position.offset).toBe(0);
+    expect(hit?.caretAffinity).toBe("after");
+  });
+
+  it("synthetic-glyph regression (C.2.2a): a click past EVERY line's end returns that line's inlineOffsetEnd, NEVER inlineOffsetEnd + 1", () => {
+    // The C.2.2a bug: a synthetic trailing glyph (the hyphenation hyphen, the
+    // soft-wrap break) owns no state offsets but the pre-C.2.2a hit-test
+    // accumulator could COUNT it as a caret target, returning inlineOffsetEnd +
+    // 1. `buildLineBidiView` now excludes synthetic runs, so a click past the
+    // line content clamps to the line's real inlineOffsetEnd. This wraps a word
+    // across lines so the non-final wrapped lines carry a synthetic line-break
+    // glyph at their visual edge — the exact place the +1 could have leaked.
+    const state = singleParagraph("aaaa bbbb cccc dddd", "normal");
+    const { layout, shaper } = pipeline(state, 40); // narrow ⇒ multiple wrapped lines
+    const lines = getLineIndex(layout).byBlock.get("p" as BlockId) ?? [];
+    expect(lines.length).toBeGreaterThan(1); // it wrapped
+    for (const al of lines) {
+      // Click far past the line's content edge — onto the trailing synthetic
+      // glyph / past line end. The resolved offset is the line's real
+      // inlineOffsetEnd, never one past it.
+      const hit = resolveHitRaw(state, layout, shaper, 1000, al.absoluteY);
+      expect(hit?.position.offset).toBe(al.line.inlineOffsetEnd);
+      expect(hit?.position.offset).not.toBe(al.line.inlineOffsetEnd + 1);
+    }
   });
 });
 

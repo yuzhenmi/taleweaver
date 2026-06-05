@@ -1028,7 +1028,7 @@ export function createEditorController(
     // materialize the whole document (Phase 4).
     const hitTree = treeForPageHitTest(coords.pageIndex);
     if (!hitTree) return;
-    const pos = resolvePositionFromPixel(
+    const hit = resolvePositionFromPixel(
       state.state,
       hitTree,
       measurer,
@@ -1036,10 +1036,16 @@ export function createEditorController(
       coords.y,
       coords.pageIndex,
     );
-    if (!pos) {
+    if (!hit) {
       dispatch({ type: "MOVE_DOCUMENT_BOUNDARY", boundary: "end" });
       return;
     }
+    // P4-C.2.2b §D: carry the hit-side caret-affinity seed through to the click's
+    // SET_SELECTION so a collapsed caret at a bidi direction boundary renders on
+    // the clicked side. Multi-click / shift-extend selections are non-collapsed
+    // (affinity is inert there) — they pass no seed, which clears any stale value.
+    const pos = hit.position;
+    const caretAffinity = hit.caretAffinity;
 
     // HL.3: Cmd/Ctrl+Click on a hyperlink opens the URL in a new
     // tab instead of placing the cursor. Plain click still positions
@@ -1107,13 +1113,16 @@ export function createEditorController(
       return;
     }
 
-    // Single click: position cursor + start drag
+    // Single click: position cursor + start drag. Seed the caret affinity from
+    // the hit side so a collapsed caret at a bidi direction boundary renders
+    // there (P4-C.2.2b §D).
     isDragging = true;
     dragAnchor = pos;
     dispatch({
       type: "SET_SELECTION",
       selection: createSpan(pos, pos),
       caretPageHint: coords.pageIndex,
+      caretAffinity,
     });
   }
 
@@ -1127,7 +1136,7 @@ export function createEditorController(
     // handleMouseDown) — never materialize the whole document.
     const hitTree = treeForPageHitTest(coords.pageIndex);
     if (!hitTree) return;
-    const pos = resolvePositionFromPixel(
+    const hit = resolvePositionFromPixel(
       state.state,
       hitTree,
       measurer,
@@ -1135,7 +1144,13 @@ export function createEditorController(
       coords.y,
       coords.pageIndex,
     );
-    if (pos) {
+    if (hit) {
+      // P4-C.2.2b §D: a drag builds a (usually non-collapsed) span — caret
+      // affinity is inert across a range, so the drag's SET_SELECTION carries the
+      // hit-side seed only so a drag that collapses back onto a boundary still
+      // renders on the pointer side.
+      const pos = hit.position;
+      const caretAffinity = hit.caretAffinity;
       // A drag selection is CONFINED to the selection context it began in
       // (Google Docs): once the pointer crosses from the body into a footnote
       // slot (a different selection context), the drag does NOT extend into it.
@@ -1156,6 +1171,7 @@ export function createEditorController(
         type: "SET_SELECTION",
         selection: createSpan(dragAnchor, pos),
         caretPageHint: coords.pageIndex,
+        caretAffinity,
       });
     }
   }

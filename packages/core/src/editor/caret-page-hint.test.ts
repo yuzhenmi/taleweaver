@@ -101,3 +101,58 @@ describe("#323 Cycle A — caretPageHint lifecycle", () => {
     expect(redone.caretPageHint).toBeUndefined();
   });
 });
+
+describe("P4-C.2.2b — caretAffinity lifecycle (central-reset model)", () => {
+  // UNLIKE caretPageHint (preserved by the per-handler spread), caretAffinity is
+  // CENTRALLY RESET in reduceEditor for any action that does NOT explicitly
+  // manage it (the `actionManagesCaretAffinity` predicate — today only
+  // SET_SELECTION). So it persists ONLY across the actions that set it and never
+  // goes stale after an edit.
+
+  it("SET_SELECTION with caretAffinity:'before' sets editor.caretAffinity", () => {
+    const editor = createInitialEditorState(config);
+    const first = editor.selection.focus;
+    const sel = createSpan(first, first);
+    const next = reduceEditor(
+      editor,
+      { type: "SET_SELECTION", selection: sel, caretAffinity: "before" },
+      config,
+    );
+    expect(next.caretAffinity).toBe("before");
+  });
+
+  it("a programmatic SET_SELECTION WITHOUT caretAffinity clears it to undefined", () => {
+    let editor = createInitialEditorState(config);
+    const first = editor.selection.focus;
+    const sel = createSpan(first, first);
+    editor = reduceEditor(
+      editor,
+      { type: "SET_SELECTION", selection: sel, caretAffinity: "before" },
+      config,
+    );
+    expect(editor.caretAffinity).toBe("before");
+    // A SET_SELECTION with no affinity explicitly clears it (no boundary context).
+    const cleared = reduceEditor(
+      editor,
+      { type: "SET_SELECTION", selection: sel },
+      config,
+    );
+    expect(cleared.caretAffinity).toBeUndefined();
+  });
+
+  it("INSERT_TEXT (a non-managing action) RESETS caretAffinity — the central reset", () => {
+    let editor = createInitialEditorState(config);
+    const first = editor.selection.focus;
+    const sel = createSpan(first, first);
+    editor = reduceEditor(
+      editor,
+      { type: "SET_SELECTION", selection: sel, caretAffinity: "before" },
+      config,
+    );
+    expect(editor.caretAffinity).toBe("before");
+    // An edit does NOT manage affinity → the central reset clears it (whereas
+    // caretPageHint would survive the same INSERT_TEXT).
+    const typed = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" }, config);
+    expect(typed.caretAffinity).toBeUndefined();
+  });
+});

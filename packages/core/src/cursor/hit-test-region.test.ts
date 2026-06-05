@@ -19,7 +19,7 @@
 // makeVirtualLayoutTree(..., cascadedTemplateContents) → resolvePositionedTree.
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { resolvePositionFromPixel } from "./hit-test";
+import { resolveHitPosition as resolvePositionFromPixel } from "../test-utils/hit-position";
 import { getLineIndex } from "./line-flatten";
 import { render } from "../render/render";
 import { cascadePass } from "../cascade";

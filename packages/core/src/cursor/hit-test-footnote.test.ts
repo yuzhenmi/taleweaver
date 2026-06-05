@@ -19,7 +19,7 @@
 // `resolveBlock` / `selectionContextOf` line up with the line `ownerBlockId`s.
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { resolvePositionFromPixel } from "./hit-test";
+import { resolveHitPosition as resolvePositionFromPixel } from "../test-utils/hit-position";
 import { getLineIndex, collectLineLeaves } from "./line-flatten";
 import { render } from "../render/render";
 import { cascadePass } from "../cascade";

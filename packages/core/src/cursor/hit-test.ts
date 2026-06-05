@@ -50,6 +50,16 @@ import { markStart, markEnd } from "../perf/perf-trace";
  *      is gone. This is the exact inverse of `cursor-position.ts`'s
  *      `caretXInLeaf`, so click↔render round-trips on bidi lines.
  *
+ * Returns (P4-C.2.2b §D) `{ position, caretAffinity }` — the resolved
+ * `Position` plus the caret ASSOCIATION seed for `EditorState.caretAffinity`.
+ * The hit LEAF (the leaf whose X range the click landed in) is the authoritative
+ * owner of the offset: when the resolved offset is that leaf's TRAILING edge
+ * (`logEnd`, and the leaf is non-degenerate so `logEnd !== logStart`) the caret
+ * sticks to the PRECEDING leaf → `"before"`; otherwise → `"after"`. A mid-leaf
+ * offset is `"after"` (inert — both sides are the same leaf). Empty-line / null
+ * paths seed `"after"`. At an LTR↔RTL boundary this records which logical side
+ * the click chose so the dual-caret renders on the clicked side.
+ *
  * Returns `null` when:
  *   - The layout has no lines (e.g., empty document).
  *   - The picked line's `ownerBlockId` is unknown to `state`
@@ -62,7 +72,7 @@ export function resolvePositionFromPixel(
   x: number,
   y: number,
   pageIndex: number = 0,
-): Position | null {
+): { position: Position; caretAffinity: "before" | "after" } | null {
   const t = markStart("cursor.hit-test");
   try {
     const measurer: TextMeasurer = isTextShaper(shaperOrMeasurer)
@@ -134,8 +144,11 @@ export function resolvePositionFromPixel(
     const view = buildLineBidiView(targetLine);
     if (view.isEmpty) {
       // Empty line (strut-only). LineBox is first-class — return the
-      // line's start offset.
-      return createPosition(ownerBlockId, targetLine.line.inlineOffsetStart);
+      // line's start offset. No direction boundary here → seed "after".
+      return {
+        position: createPosition(ownerBlockId, targetLine.line.inlineOffsetStart),
+        caretAffinity: "after",
+      };
     }
     const visualLeaves = view.visualLeaves;
 
@@ -168,7 +181,17 @@ export function resolvePositionFromPixel(
       measurer,
     );
 
-    return createPosition(ownerBlockId, offset);
+    // Caret-affinity seed (P4-C.2.2b §D): the HIT leaf owns the offset. When the
+    // offset is that leaf's TRAILING edge (and the leaf is non-degenerate) the
+    // caret sticks to the preceding leaf → "before"; else → "after" (mid-leaf
+    // offsets are inert, both sides are the same leaf). At an LTR↔RTL boundary
+    // this records the clicked side so the dual-caret renders there.
+    const caretAffinity: "before" | "after" =
+      offset === targetBidiLeaf.logEnd && offset !== targetBidiLeaf.logStart
+        ? "before"
+        : "after";
+
+    return { position: createPosition(ownerBlockId, offset), caretAffinity };
   } finally {
     markEnd("cursor.hit-test", t);
   }

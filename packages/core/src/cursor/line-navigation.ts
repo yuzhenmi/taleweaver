@@ -290,11 +290,14 @@ function resolveTargetLine(
   x: number,
   target: AbsoluteLineBox,
 ): { position: Position; targetX: number } | null {
-  const pos = resolvePositionFromPixel(
+  // Up/down navigation does NOT reseed caret affinity (it preserves the existing
+  // caret's affinity); this wrapper only needs the resolved position. Destructure
+  // `.position` from the hit-test result and discard the affinity seed.
+  const hit = resolvePositionFromPixel(
     state, pageBoxOrRoot, measurer, x, target.absoluteY, target.pageIndex,
   );
-  if (pos === null) return null;
-  return { position: pos, targetX: x };
+  if (hit === null) return null;
+  return { position: hit.position, targetX: x };
 }
 
 function startOfDocument(state: State, x: number): { position: Position; targetX: number } | null {

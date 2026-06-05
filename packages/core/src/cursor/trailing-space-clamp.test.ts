@@ -18,7 +18,7 @@
 import { describe, it, expect } from "vitest";
 import { resolvePixelPosition } from "./cursor-position";
 import { computeSelectionRects } from "./selection-geometry";
-import { resolvePositionFromPixel } from "./hit-test";
+import { resolveHitPosition as resolvePositionFromPixel } from "../test-utils/hit-position";
 import { getLineIndex } from "./line-flatten";
 import { render } from "../render/render";
 import { createDefaultComponentRegistry } from "../components/component-registry";

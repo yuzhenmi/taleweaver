@@ -11,11 +11,19 @@ import type { EditorState } from "../editor-state";
  *
  * Because the value is set here (not centrally cleared in `reduceEditor` the way
  * `targetX` is), passing `undefined` is the explicit clear.
+ *
+ * `caretAffinity` (P4-C.2.2b §D) is the caret ASSOCIATION seed at a bidi
+ * direction boundary. UNLIKE `caretPageHint`, this field IS centrally reset in
+ * `reduceEditor` (the `actionManagesCaretAffinity` predicate keeps it ONLY
+ * across the actions that set it — `SET_SELECTION` is one). The DOM click seeds
+ * the hit side; a programmatic `SET_SELECTION` with no affinity passes
+ * `undefined`, which clears it (correct — no boundary context to preserve).
  */
 export function handleSetSelection(
   editor: EditorState,
   selection: Selection,
   caretPageHint?: number,
+  caretAffinity?: "before" | "after",
 ): EditorState {
-  return { ...editor, selection, caretPageHint };
+  return { ...editor, selection, caretPageHint, caretAffinity };
 }
