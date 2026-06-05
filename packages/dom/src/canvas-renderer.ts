@@ -663,10 +663,30 @@ function paintBox(
     // "normal" ≡ 0); resolveSpacingPx/clusterSpacing apply the identical rule.
     const letterPx = resolveSpacingPx(us.letterSpacing);
     const wordPx = resolveSpacingPx(us.wordSpacing);
-    let clusterX = absX;
-    for (const cluster of segmentClusters(box.text)) {
-      ctx.fillText(cluster, clusterX, baselineY);
-      clusterX += ctx.measureText(cluster).width + clusterSpacing(cluster, letterPx, wordPx);
+    // P4-C.1: an odd resolved UAX #9 level paints its clusters RIGHT-to-LEFT.
+    // The authoritative signal is `box.bidiLevel` (stamped by the line reorder),
+    // NOT `cs.direction` — a Hebrew word in an `ltr` paragraph has bidiLevel 1
+    // but direction "ltr", and a reordered box's POSITIONING direction is always
+    // "ltr" (the physical-coordinate contract). `undefined`/even ⇒ LTR (the
+    // overwhelmingly common case), painted exactly as before.
+    const rtl = box.bidiLevel !== undefined && box.bidiLevel % 2 === 1;
+    if (rtl) {
+      // Place the logically-first cluster at the box's RIGHT edge and walk left.
+      // Using the SAME per-cluster advances as the LTR path (so the run still
+      // spans exactly [absX, absX + box.width]); only the WITHIN-box placement
+      // is reversed. Cluster i's left edge sits at rightEdge − Σadvances(0..=i).
+      const rightEdge = absX + box.width;
+      let cum = 0;
+      for (const cluster of segmentClusters(box.text)) {
+        cum += ctx.measureText(cluster).width + clusterSpacing(cluster, letterPx, wordPx);
+        ctx.fillText(cluster, rightEdge - cum, baselineY);
+      }
+    } else {
+      let clusterX = absX;
+      for (const cluster of segmentClusters(box.text)) {
+        ctx.fillText(cluster, clusterX, baselineY);
+        clusterX += ctx.measureText(cluster).width + clusterSpacing(cluster, letterPx, wordPx);
+      }
     }
     // Text decorations are an INDEPENDENT-FLAG set (CSS text-decoration-line):
     // a run can carry both at once, so paint each with its own `if` (NOT

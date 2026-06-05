@@ -140,6 +140,7 @@ function makeTextRun(opts: {
   height?: number;
   letterSpacing?: number | "normal";
   wordSpacing?: number | "normal";
+  bidiLevel?: number;
 }): LayoutBox {
   const h = opts.height ?? 16;
   return {
@@ -151,6 +152,7 @@ function makeTextRun(opts: {
     width: opts.width ?? 100, height: h,
     writingMode: "horizontal-tb", direction: "ltr",
     text: opts.text,
+    bidiLevel: opts.bidiLevel,
     computedStyle: { ...BASE_CS },
     usedStyle: {
       ...BASE_US,
@@ -285,5 +287,87 @@ describe("#330 cluster-positioned painting", () => {
     expect(ctx._fills[1].x).toBeCloseTo(10, 6);
     // after " ": prev 10 + width 5 + letter 2 + word 3 = 20
     expect(ctx._fills[2].x).toBeCloseTo(20, 6);
+  });
+});
+
+// ── P4-C.1 Task 7: intra-run RTL glyph paint (driven by bidiLevel) ───────────
+// An odd resolved UAX #9 level paints clusters RIGHT-to-LEFT WITHIN the box.
+// The box's physical x/width are already correct from the reorder; this only
+// reverses cluster PLACEMENT inside it. The decision signal is `box.bidiLevel`
+// (odd ⇒ RTL), NOT `cs.direction` (which stays "ltr" under the physical-
+// coordinate contract). Even/undefined ⇒ LTR, byte-identical to the #330 path.
+describe("P4-C.1 RTL intra-run cluster paint", () => {
+  let ctx: KernedCtx;
+
+  beforeEach(() => {
+    ctx = createKernedCtx();
+  });
+
+  it("paints an odd-bidiLevel run's clusters RIGHT-to-LEFT (logical-first cluster rightmost)", () => {
+    // 4 single-unit clusters, each 8px wide, no kerning between (these are the
+    // per-cluster advances; the run width is the per-cluster sum = 32).
+    const text = "abcd";
+    const absX = 7;
+    const width = perClusterSum(text); // 32
+    const box = makeTextRun({ text, x: absX, width, bidiLevel: 1 });
+
+    paint(ctx, box);
+
+    // One draw call per cluster, in LOGICAL order (segmentClusters order).
+    expect(ctx._fills.length).toBe(text.length);
+    expect(ctx._fills.map((f) => f.text)).toEqual(["a", "b", "c", "d"]);
+
+    // RTL placement: logically-first cluster sits at the RIGHT edge; cluster i's
+    // LEFT edge = rightEdge − Σadvances(0..=i). With 8px clusters, rightEdge =
+    // absX + 32 = 39:  a@(39−8)=31, b@(39−16)=23, c@(39−24)=15, d@(39−32)=7.
+    const rightEdge = absX + width;
+    const advances = [8, 8, 8, 8];
+    let cum = 0;
+    for (let k = 0; k < text.length; k++) {
+      cum += advances[k];
+      expect(ctx._fills[k].x).toBeCloseTo(rightEdge - cum, 6);
+    }
+
+    // Reversed vs LTR: logically-first cluster is RIGHTMOST, last is LEFTMOST.
+    const firstX = ctx._fills[0].x;
+    const lastX = ctx._fills[text.length - 1].x;
+    expect(firstX).toBeGreaterThan(lastX);
+
+    // The run still spans exactly [absX, absX + width]: leftmost glyph's left
+    // edge == absX, and the rightmost glyph's right edge == absX + width.
+    expect(lastX).toBeCloseTo(absX, 6);
+    expect(firstX + ctx.measureText("a").width).toBeCloseTo(absX + width, 6);
+  });
+
+  it("LTR (bidiLevel undefined) is byte-identical to the #330 left-to-right path", () => {
+    const text = "abcd";
+    const absX = 7;
+    const width = perClusterSum(text);
+    const ltrBox = makeTextRun({ text, x: absX, width, bidiLevel: undefined });
+
+    paint(ctx, ltrBox);
+
+    // Left-to-right cumulative advances, exactly as the LTR path produces.
+    expect(ctx._fills.map((f) => f.text)).toEqual(["a", "b", "c", "d"]);
+    let cum = 0;
+    for (let k = 0; k < text.length; k++) {
+      expect(ctx._fills[k].x).toBeCloseTo(absX + cum, 6);
+      cum += CLUSTER_WIDTH(text[k]);
+    }
+  });
+
+  it("an EVEN bidiLevel (e.g. 2) is treated as LTR (not reversed)", () => {
+    const text = "abcd";
+    const absX = 7;
+    const width = perClusterSum(text);
+    const box = makeTextRun({ text, x: absX, width, bidiLevel: 2 });
+
+    paint(ctx, box);
+
+    let cum = 0;
+    for (let k = 0; k < text.length; k++) {
+      expect(ctx._fills[k].x).toBeCloseTo(absX + cum, 6);
+      cum += CLUSTER_WIDTH(text[k]);
+    }
   });
 });
