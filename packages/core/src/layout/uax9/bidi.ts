@@ -1,4 +1,5 @@
 import { bidiClass, type BidiClass } from "./bidi-class";
+import { bracketPair, canonicalBracketEquiv } from "./mirror";
 
 /**
  * UAX #9 Unicode Bidirectional Algorithm — rule engine.
@@ -632,5 +633,235 @@ export function applyWeak(seq: IsolatingRunSequence, types: Uint8Array): void {
         types[idx[k]] = CC.L;
       }
     }
+  }
+}
+
+// ===========================================================================
+// N0–N2 — neutral and isolate-formatting resolution. MODULE-INTERNAL
+// (exported for tests + the later I pass that the Task-7 driver chains).
+// ===========================================================================
+
+/** UAX #9 BD16 bracket-pair stack capacity (63 entries). */
+const BD16_STACK_CAPACITY = 63;
+
+/** Direction code for N0/N1: 0 = L, 1 = R. */
+type Dir = 0 | 1;
+
+/**
+ * Strong-direction classification used by N0 and N1, per UAX #9: L counts as L;
+ * R, EN, and AN all count as R. Returns 0 (L) or 1 (R) for a strong/numeric
+ * resolved type, or -1 for a non-strong (neutral/isolate) type.
+ */
+function strongDir(type: number): Dir | -1 {
+  if (type === CC.L) return 0;
+  if (type === CC.R || type === CC.EN || type === CC.AN) return 1;
+  return -1;
+}
+
+/** Narrow a possibly-(-1) strong direction to a Dir, falling back to `fallback`. */
+function boundOrFallback(d: Dir | -1, fallback: Dir): Dir {
+  return d === -1 ? fallback : d;
+}
+
+/** True if `type` is an NI — a neutral or isolate-formatting type (N1/N2 scope). */
+function isNI(type: number): boolean {
+  return (
+    type === CC.B ||
+    type === CC.S ||
+    type === CC.WS ||
+    type === CC.ON ||
+    type === CC.FSI ||
+    type === CC.LRI ||
+    type === CC.RLI ||
+    type === CC.PDI
+  );
+}
+
+/**
+ * UAX #9 rules N0–N2 — resolve neutral and isolate-formatting types of one
+ * isolating run sequence, IN PLACE in `types`. Only the positions in
+ * `seq.indices` are read or written.
+ *
+ * Applied in order over the sequence:
+ *
+ *  - N0 (BD16 + N0): identify paired brackets among the positions still typed ON
+ *    (matched via canonical equivalence — BD16), then resolve each pair's
+ *    direction from the strong types it encloses (with EN/AN counting as R), with
+ *    a backward-context fallback when only the opposite direction is enclosed. An
+ *    NSM immediately following a bracket that N0 set takes the same direction
+ *    ("characters that had original bidirectional character type NSM prior to W1").
+ *  - N1: a maximal run of NIs takes the common direction when the strong text on
+ *    BOTH sides is the same (sos/eos supply the boundary direction; EN/AN count
+ *    as R).
+ *  - N2: any NI still unresolved takes the embedding direction (by level parity).
+ *
+ * `codePoints` are the ORIGINAL per-codepoint code points (1:1 with the input),
+ * needed by N0 for `bracketPair` lookup and the NSM-follow-on test. `levels` give
+ * each character's embedding level (for the N0 pair direction and N2).
+ */
+export function applyNeutral(
+  seq: IsolatingRunSequence,
+  codePoints: ReadonlyArray<number> | Uint32Array,
+  levels: Uint8Array,
+  types: Uint8Array,
+): void {
+  const idx = seq.indices;
+  const n = idx.length;
+
+  // -----------------------------------------------------------------------
+  // N0 — paired brackets (BD16 identification, then per-pair resolution).
+  // -----------------------------------------------------------------------
+
+  // BD16 stack: each entry is the expected (canonical) closing key + the
+  // SEQUENCE position of the opener. Fixed capacity (63).
+  const stackKey = new Int32Array(BD16_STACK_CAPACITY);
+  const stackOpenPos = new Int32Array(BD16_STACK_CAPACITY);
+  let stackSize = 0;
+
+  // Recorded pairs as parallel (openSeqPos, closeSeqPos) arrays.
+  const pairOpen: number[] = [];
+  const pairClose: number[] = [];
+
+  identify: for (let k = 0; k < n; k++) {
+    const abs = idx[k];
+    if (types[abs] !== CC.ON) continue;
+    const bp = bracketPair(codePoints[abs]);
+    if (bp === null) continue;
+    if (bp.kind === "open") {
+      if (stackSize >= BD16_STACK_CAPACITY) {
+        // Stack full: stop the entire BD16 identification (per BD16) and
+        // resolve the pairs found so far.
+        break identify;
+      }
+      stackKey[stackSize] = canonicalBracketEquiv(bp.paired);
+      stackOpenPos[stackSize] = k;
+      stackSize++;
+    } else {
+      // Closing bracket: search from the TOP down for a matching opener.
+      const closeKey = canonicalBracketEquiv(codePoints[abs]);
+      for (let s = stackSize - 1; s >= 0; s--) {
+        if (stackKey[s] === closeKey) {
+          pairOpen.push(stackOpenPos[s]);
+          pairClose.push(k);
+          // Pop the matched entry AND everything above it.
+          stackSize = s;
+          break;
+        }
+      }
+    }
+  }
+
+  // Sort pairs by opening position (ascending). Build an index permutation so
+  // the two parallel arrays stay aligned.
+  const order = pairOpen.map((_, i) => i);
+  order.sort((a, b) => pairOpen[a] - pairOpen[b]);
+
+  for (const oi of order) {
+    const openPos = pairOpen[oi];
+    const closePos = pairClose[oi];
+    const openAbs = idx[openPos];
+    const closeAbs = idx[closePos];
+
+    // Embedding direction of the pair (EN/AN treated as R within N0 already
+    // folds into strongDir for the enclosed scan).
+    const e: Dir = (levels[openAbs] & 1) === 0 ? 0 : 1;
+
+    // Inspect the strong types strictly BETWEEN the brackets (sequence order).
+    let sawEmbedding = false;
+    let sawOpposite = false;
+    for (let k = openPos + 1; k < closePos; k++) {
+      const d = strongDir(types[idx[k]]);
+      if (d === -1) continue;
+      if (d === e) {
+        sawEmbedding = true;
+        break;
+      }
+      sawOpposite = true;
+    }
+
+    let resolved: Dir | -1 = -1;
+    if (sawEmbedding) {
+      // (a) a strong type matching the embedding appears → use e.
+      resolved = e;
+    } else if (sawOpposite) {
+      // (b) only the opposite strong type appears → establish context by
+      // scanning backward from just before the opener to the first strong type
+      // (or sos). If that preceding strong type is opposite e → use it;
+      // otherwise fall back to e.
+      const opposite: Dir = e === 0 ? 1 : 0;
+      let context: Dir = seq.sos;
+      for (let k = openPos - 1; k >= 0; k--) {
+        const d = strongDir(types[idx[k]]);
+        if (d !== -1) {
+          context = d;
+          break;
+        }
+      }
+      resolved = context === opposite ? opposite : e;
+    }
+    // (c) no strong enclosed → leave the brackets for N1/N2.
+
+    if (resolved !== -1) {
+      types[openAbs] = resolved === 0 ? CC.L : CC.R;
+      types[closeAbs] = resolved === 0 ? CC.L : CC.R;
+      // NSM follow-on: positions immediately after each bracket whose ORIGINAL
+      // type (prior to W1) was NSM take the same direction.
+      applyNsmFollowOn(idx, openPos, codePoints, types, resolved);
+      applyNsmFollowOn(idx, closePos, codePoints, types, resolved);
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // N1 — a maximal run of NIs takes the common direction of the strong text on
+  // both sides (sos/eos at the sequence ends; EN/AN count as R).
+  // -----------------------------------------------------------------------
+  for (let k = 0; k < n; ) {
+    if (!isNI(types[idx[k]])) {
+      k++;
+      continue;
+    }
+    // [k, j) is a maximal NI run.
+    let j = k;
+    while (j < n && isNI(types[idx[j]])) j++;
+    // Boundary directions: the strong text on each side, or sos/eos at the ends.
+    // The chars at k-1 / j are non-NI by construction, so strongDir is never -1
+    // there; the `?? seq.s*s` fallbacks cover only the sequence-edge cases.
+    const left: Dir = k > 0 ? boundOrFallback(strongDir(types[idx[k - 1]]), seq.sos) : seq.sos;
+    const right: Dir = j < n ? boundOrFallback(strongDir(types[idx[j]]), seq.eos) : seq.eos;
+    if (left === right) {
+      const t = left === 0 ? CC.L : CC.R;
+      for (let m = k; m < j; m++) types[idx[m]] = t;
+    }
+    k = j;
+  }
+
+  // -----------------------------------------------------------------------
+  // N2 — any NI still unresolved takes the embedding direction (level parity).
+  // -----------------------------------------------------------------------
+  for (let k = 0; k < n; k++) {
+    const abs = idx[k];
+    if (isNI(types[abs])) {
+      types[abs] = (levels[abs] & 1) === 0 ? CC.L : CC.R;
+    }
+  }
+}
+
+/**
+ * N0 NSM follow-on: starting at the position immediately after a bracket at
+ * sequence position `bracketPos`, set every consecutive position whose ORIGINAL
+ * (pre-W1) bidi type was NSM to the resolved bracket direction `dir`.
+ */
+function applyNsmFollowOn(
+  idx: readonly number[],
+  bracketPos: number,
+  codePoints: ReadonlyArray<number> | Uint32Array,
+  types: Uint8Array,
+  dir: Dir,
+): void {
+  const t = dir === 0 ? CC.L : CC.R;
+  for (let k = bracketPos + 1; k < idx.length; k++) {
+    const cp = codePoints[idx[k]];
+    if (cp === undefined || classCode(cp) !== CC.NSM) break;
+    types[idx[k]] = t;
   }
 }

@@ -7,6 +7,7 @@ import {
   applyExplicit,
   computeIsolatingRunSequences,
   applyWeak,
+  applyNeutral,
 } from "./bidi";
 
 // Explicit-formatting code points used by the X-pass tests.
@@ -446,5 +447,161 @@ describe("applyWeak (W1–W7)", () => {
     // (not L) → EN stays. Confirms the sos=R boundary neither bridges to AN nor L.
     const t = runWeak("1", 1);
     expect(t[0]).toBe(CC.EN);
+  });
+});
+
+// Bracket / cross-form code points used by the N0 tests. Built by explicit code
+// point (NOT glyph literals) — U+2329 ⟨ and U+3008 〈 are visually identical, so
+// a pasted glyph silently picks the wrong one; only a U+2329 opener (paired =
+// U+232A) with a U+3009 closer exercises the BD16 canonical-equivalence path.
+const LANGLE = String.fromCodePoint(0x2329); // ⟨ paired = U+232A, canon ≡ U+3008
+const RANGLE_CANON = String.fromCodePoint(0x3009); // 〉 RIGHT ANGLE BRACKET; canon ≡ U+232A
+const EN_DIGIT = "1"; // U+0031 EN
+
+/**
+ * Run the X then W passes for `s` at `paragraphLevel`, then apply N0–N2 to the
+ * post-W `resolvedTypes` for every isolating run sequence — mirroring `runWeak`
+ * but threading the original CODE POINTS into `applyNeutral` (N0 needs them for
+ * BD16 bracket lookup). Returns the post-N resolved-types array.
+ */
+function runNeutral(s: string, paragraphLevel: number): Uint8Array {
+  const c = codes(s);
+  const codePoints = Uint32Array.from(
+    [...s].map((ch) => ch.codePointAt(0) ?? 0),
+  );
+  const { matchingPDI, matchingIsolate } = computeMatchingPDI(c);
+  const { levels, workingTypes } = applyExplicit(
+    c,
+    paragraphLevel,
+    matchingPDI,
+    matchingIsolate,
+  );
+  const seqs = computeIsolatingRunSequences(
+    c,
+    levels,
+    workingTypes,
+    matchingPDI,
+    matchingIsolate,
+    paragraphLevel,
+  );
+  const resolvedTypes = Uint8Array.from(workingTypes);
+  for (const seq of seqs) {
+    applyWeak(seq, resolvedTypes);
+    applyNeutral(seq, codePoints, levels, resolvedTypes);
+  }
+  return resolvedTypes;
+}
+
+describe("applyNeutral (N0–N2)", () => {
+  it("N0(a): a bracket pair enclosing a strong char matching the embedding takes the embedding direction (RTL)", () => {
+    // base 1 (RTL, e=R): 0:HEB(R) 1:'('(ON) 2:HEB(R) 3:')'(ON). The pair (1,3)
+    // encloses index 2 = R, which MATCHES e=R → both brackets resolve to R.
+    const t = runNeutral(`${HEB}(${HEB})`, 1);
+    expect(t[1]).toBe(CC.R);
+    expect(t[3]).toBe(CC.R);
+  });
+
+  it("N0(a): EN/AN count as R inside the bracket for the embedding-match test (RTL)", () => {
+    // base 1 (RTL, e=R): 0:HEB(R) 1:'(' 2:EN 3:')'. After W, the EN stays EN
+    // (preceded by R). N0 treats EN as R, which matches e=R → both → R.
+    const t = runNeutral(`${HEB}(${EN_DIGIT})`, 1);
+    expect(t[1]).toBe(CC.R);
+    expect(t[3]).toBe(CC.R);
+  });
+
+  it("N0(b): opposite-direction enclosed + preceding opposite context → both brackets take the opposite direction", () => {
+    // base 1 (RTL, e=R): 0:a(L) 1:'(' 2:a(L) 3:')'. Enclosed index 2 = L is
+    // OPPOSITE to e=R. Scan back before the opening bracket: index 0 = L, which
+    // is OPPOSITE to e → both brackets take that opposite direction (L).
+    const t = runNeutral("a(a)", 1);
+    expect(t[1]).toBe(CC.L);
+    expect(t[3]).toBe(CC.L);
+  });
+
+  it("N0(b): opposite-direction enclosed but NON-opposite preceding context → both brackets fall back to the embedding direction", () => {
+    // base 1 (RTL, e=R): 0:HEB(R) 1:'(' 2:a(L) 3:')'. Enclosed index 2 = L is
+    // OPPOSITE to e=R. Scan back before the opening bracket: index 0 = HEB(R),
+    // the SAME as e (not opposite) → fall back to e=R → both brackets → R.
+    const t = runNeutral(`${HEB}(a)`, 1);
+    expect(t[1]).toBe(CC.R);
+    expect(t[3]).toBe(CC.R);
+  });
+
+  it("N0(b): opposite enclosed at the sequence start uses sos as the preceding context", () => {
+    // base 0 (LTR, e=L): 0:'(' 1:HEB(R) 2:')'. Enclosed index 1 = R is OPPOSITE
+    // to e=L. There is no preceding strong char → the backward scan terminates
+    // at sos. sos = L (level 0) = SAME as e → fall back to e=L → both → L.
+    const t = runNeutral(`(${HEB})`, 0);
+    expect(t[0]).toBe(CC.L);
+    expect(t[2]).toBe(CC.L);
+  });
+
+  it("N0 cross-form BD16: a U+2329 opener with a U+3009 closer is a pair via canonical equivalence", () => {
+    // base 0 (LTR, e=L): 0:HEB(R) 1:⟨(U+2329, ON) 2:HEB(R) 3:〉(U+3009, ON). A
+    // naive paired===closer check FAILS here (2329's paired is 232A, not 3009);
+    // only canonicalBracketEquiv matches them, so this is the cross-form guard.
+    //
+    // The assertion is DISCRIMINATING: only if the pair is identified does N0(b)
+    // fire — the enclosed HEB(R) is opposite e=L, the preceding context (HEB@0,
+    // R) is also opposite, so both brackets → R. If canonical normalization were
+    // removed, the pair is NOT found and the brackets resolve as bare neutrals:
+    // the opener@1 sits between R(@0) and R(@2) → N1 → R (coincides), but the
+    // CLOSER@3 sits between R(@2) and eos=L → N1 can't resolve it → N2 gives it
+    // the embedding direction L. So t[3] flips R→L without the fix. Guards the
+    // exact raw-comparison regression a same-form test cannot catch.
+    const t = runNeutral(`${HEB}${LANGLE}${HEB}${RANGLE_CANON}`, 0);
+    expect(t[1]).toBe(CC.R);
+    expect(t[3]).toBe(CC.R); // ← the discriminating assertion (L if BD16 canon is dropped)
+  });
+
+  it("N0 NSM follow-on: an NSM immediately after a resolved bracket takes the bracket's direction", () => {
+    // base 1 (RTL, e=R): 0:HEB(R) 1:'(' 2:HEB(R) 3:')' 4:NSM. The pair (1,3)
+    // resolves to R (encloses R). The NSM at 4 has ORIGINAL type NSM and
+    // immediately follows the closing bracket → it also becomes R (N0 NSM rule).
+    const t = runNeutral(`${HEB}(${HEB})${NSM}`, 1);
+    expect(t[3]).toBe(CC.R);
+    expect(t[4]).toBe(CC.R);
+  });
+
+  it("N0(c): a bracket pair enclosing NO strong type is left for N1/N2", () => {
+    // base 0 (LTR, e=L): 0:a(L) 1:'(' 2:'.'(ON, a CS→ON after W) 3:')' 4:a(L).
+    // No strong type between the brackets → N0 leaves them; N1 then resolves the
+    // whole neutral run '( . )' between two L's to L.
+    const t = runNeutral("a(,)a", 0);
+    expect(t[1]).toBe(CC.L);
+    expect(t[2]).toBe(CC.L);
+    expect(t[3]).toBe(CC.L);
+  });
+
+  it("N1: an ON run between two L's becomes L", () => {
+    // 0:a(L) 1:ON 2:a(L). The neutral takes the common L direction.
+    const t = runNeutral("a*a", 0);
+    expect(t[1]).toBe(CC.L);
+  });
+
+  it("N1: an ON run between two R's becomes R", () => {
+    // base 1: 0:HEB(R) 1:ON 2:HEB(R). The neutral takes the common R direction.
+    const t = runNeutral(`${HEB}*${HEB}`, 1);
+    expect(t[1]).toBe(CC.R);
+  });
+
+  it("N1: an ON between R and EN becomes R (EN counts as R on the boundary)", () => {
+    // base 1: 0:HEB(R) 1:ON 2:EN. EN counts as R for N1 → R ON R → R.
+    const t = runNeutral(`${HEB}*${EN_DIGIT}`, 1);
+    expect(t[1]).toBe(CC.R);
+  });
+
+  it("N1: a leading ON with sos=R and a following R becomes R (sos boundary)", () => {
+    // base 1 (RTL, e=R, sos=R): 0:ON 1:HEB(R). The neutral run starts the
+    // sequence; sos=R on the left and R on the right → the ON becomes R.
+    const t = runNeutral(`*${HEB}`, 1);
+    expect(t[0]).toBe(CC.R);
+  });
+
+  it("N2: a lone ON between opposite strongs takes the embedding direction", () => {
+    // base 0 (LTR, e=L): 0:a(L) 1:ON 2:HEB(R). N1 cannot resolve (L vs R differ),
+    // so N2 applies the embedding direction of the ON (level 0 → L).
+    const t = runNeutral("a*" + HEB, 0);
+    expect(t[1]).toBe(CC.L);
   });
 });
