@@ -1,5 +1,8 @@
 {
   "name": "taleweaver",
   "private": true,
-  "workspaces": ["packages/*", "examples/*"]
+  "workspaces": ["packages/*", "examples/*"],
+  "scripts": {
+    "gen:uax14": "node scripts/gen-uax14-table.ts"
+  }
 }
