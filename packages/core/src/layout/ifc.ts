@@ -87,6 +87,20 @@ interface Token {
    * embed = 1 state unit) and a lone `LINE_BREAK` token carry `1`.
    */
   sourceLength: number;
+  /**
+   * Absolute UTF-16 offset of this token's first code unit into the assembled
+   * paragraph source (`IfcSourceAssembly.source`) — i.e. `childBase + matchStart`
+   * for text tokens, the OBJECT REPLACEMENT char's offset for an inline-block,
+   * and the `\n`'s offset for a LINE_BREAK. Mirrors the parallel
+   * `asm.tokenBases[]` at construction time; the bidi reorder (P4-C) reads it
+   * off the token directly so boxes built from a token can be ordered by source
+   * position without re-walking the tree. When a token is split at wrap time
+   * (`trySoftSplit` / `tryHyphenSplit`) the prefix keeps the original base and
+   * the suffix's base advances by the prefix's DISPLAY length (the same quantity
+   * used to slice the prefix `text`); a synthetic run (e.g. the hyphen glyph)
+   * with no backing source takes the split point's base (it owns 0 source).
+   */
+  absoluteSourceBase: number;
   width: number;
   style: ComputedStyle;
   isSpace: boolean;
@@ -384,6 +398,29 @@ function singleTokenUnit(from: WrapUnit, token: Token, tokenIdx: number): WrapUn
 }
 
 /**
+ * The ONE source-offset derivation for a wrap-time token split (M1
+ * consolidation). When a text token is split at DISPLAY code-unit index
+ * `prefixDisplayLen`, the suffix's absolute source base advances by exactly
+ * that many code units past the prefix's base (the same quantity used to slice
+ * the prefix `text`). Both `trySoftSplit` and `tryHyphenSplit` route through
+ * this rather than re-parsing the token `id` string, so there is a single
+ * offset-derivation path.
+ *
+ * Note this DOES change the suffix token's source value vs the old code: the
+ * old `id`-parse recovered a NODE-RELATIVE offset (`matchStart + prefixDisplayLen`,
+ * since `id` is `${key}:${matchStart}`), whereas this returns the ABSOLUTE base
+ * (`childBase + matchStart + prefixDisplayLen`) — the correct value for the bidi
+ * consumer. Safe because a split suffix's `id`/base is consumed by nothing
+ * identity- or cache-bearing: split tokens live only in the transient
+ * `unit.tokens` of the wrap loop and never enter the cached pre-wrap
+ * `IFCState.tokens` array that `tokensEqual`/`findChangePoint` compare; box keys
+ * derive from `runKey`, not the token id.
+ */
+export function splitSuffixSourceBase(prefixBase: number, prefixDisplayLen: number): number {
+  return prefixBase + prefixDisplayLen;
+}
+
+/**
  * P3 — JUSTIFY a line's units (CSS Text 3 §7.3): widen the INTERIOR inter-word
  * spaces so the last non-trailing glyph's right edge reaches `lineInlineSize`,
  * WITHOUT shifting the line (its inline-start stays at the float-start).
@@ -605,6 +642,8 @@ function collectInlineTokens(
               text: LINE_BREAK,
               // Patched in the second pass; provisional value here.
               sourceLength: 1,
+              // Absolute base of the `\n` this LINE_BREAK replaces.
+              absoluteSourceBase: childBase + lbStart,
               width: 0,
               style: cs,
               isSpace: false,
@@ -748,6 +787,8 @@ function collectInlineTokens(
             text: tokenText,
             // Patched in the second pass below.
             sourceLength: part.length,
+            // Absolute base into asm.source (mirrors asm.tokenBases push below).
+            absoluteSourceBase: childBase + matchStart,
             width: tokenWidth,
             style: cs,
             isSpace: isWhitespaceToken,
@@ -859,6 +900,9 @@ function collectInlineTokens(
         text: "",
         // An inline-block is a state-model embed item = exactly 1 cursor unit.
         sourceLength: 1,
+        // Absolute base = the OBJECT REPLACEMENT char's offset (mirrors the
+        // asm.tokenBases.push(ibBase) below).
+        absoluteSourceBase: ibBase,
         width: finalInlineSize,
         style: cs,
         isSpace: false,
@@ -1377,11 +1421,15 @@ export function layoutInlineContent(
     const prefixText = firstTok.text.slice(0, bestBreakIdx);
     const suffixText = firstTok.text.slice(bestBreakIdx);
 
-    // Compute the suffix token's id by adding bestBreakIdx to the original token's source offset.
-    // firstTok.id has the form "{sourceKey}:{offset}" for text tokens.
-    const colonIdx = firstTok.id.lastIndexOf(":");
-    const originalOffset = colonIdx >= 0 ? Number(firstTok.id.slice(colonIdx + 1)) : 0;
-    const suffixOffset = (Number.isFinite(originalOffset) ? originalOffset : 0) + bestBreakIdx;
+    // M1: derive the suffix's source position from the token's
+    // `absoluteSourceBase` field (the ONE offset-derivation path) rather than
+    // re-parsing `firstTok.id`. The suffix begins `bestBreakIdx` DISPLAY code
+    // units after the prefix, so its absolute base advances by exactly that
+    // (the same quantity used to slice the prefix `text`). The suffix `id` is
+    // rebuilt from this ABSOLUTE base — a value change vs the old node-relative
+    // id-parse, safe because the suffix id is consumed by nothing identity/cache
+    // bearing (see splitSuffixSourceBase docstring).
+    const suffixSourceBase = splitSuffixSourceBase(firstTok.absoluteSourceBase, bestBreakIdx);
 
     const prefixToken: Token = {
       id: firstTok.id,
@@ -1392,6 +1440,8 @@ export function layoutInlineContent(
       // explicitly (no `?? text.length` fallback) so the sum of split tokens'
       // sourceLength always equals the original — never NaN on hyphen lines.
       sourceLength: bestBreakIdx,
+      // Prefix keeps the original token's absolute base.
+      absoluteSourceBase: firstTok.absoluteSourceBase,
       width: bestPrefixWidth,
       style: firstTok.style,
       isSpace: false,
@@ -1401,7 +1451,7 @@ export function layoutInlineContent(
     };
 
     const suffixToken: Token = {
-      id: `${firstTok.sourceKey}:${suffixOffset}`,
+      id: `${firstTok.sourceKey}:${suffixSourceBase}`,
       sourceKey: firstTok.sourceKey,
       text: suffixText,
       // The remainder of the original token's source span. Together with the
@@ -1409,6 +1459,8 @@ export function layoutInlineContent(
       // (for a word token under collapse) may exceed text.length — the excess
       // trailing collapsed whitespace stays with the suffix's last position.
       sourceLength: firstTok.sourceLength - bestBreakIdx,
+      // Suffix base advances by the prefix's DISPLAY length (bestBreakIdx).
+      absoluteSourceBase: suffixSourceBase,
       width: firstTok.width - bestPrefixWidth,
       style: firstTok.style,
       isSpace: false,
@@ -1507,15 +1559,19 @@ export function layoutInlineContent(
     const prefixText = firstTok.text.slice(0, splitAt);
     const suffixText = firstTok.text.slice(splitAt);
 
-    const colonIdx = firstTok.id.lastIndexOf(":");
-    const originalOffset = colonIdx >= 0 ? Number(firstTok.id.slice(colonIdx + 1)) : 0;
-    const suffixOffset = (Number.isFinite(originalOffset) ? originalOffset : 0) + splitAt;
+    // M1: mirror tryHyphenSplit — derive the suffix source position from the
+    // `absoluteSourceBase` field (the single offset-derivation path), not by
+    // re-parsing `firstTok.id`. The suffix begins `splitAt` DISPLAY code units
+    // after the prefix.
+    const suffixSourceBase = splitSuffixSourceBase(firstTok.absoluteSourceBase, splitAt);
 
     const prefixToken: Token = {
       id: firstTok.id,
       sourceKey: firstTok.sourceKey,
       text: prefixText,
       sourceLength: splitAt,
+      // Prefix keeps the original token's absolute base.
+      absoluteSourceBase: firstTok.absoluteSourceBase,
       width: bestPrefixWidth,
       style: firstTok.style,
       isSpace: false,
@@ -1525,10 +1581,12 @@ export function layoutInlineContent(
     };
 
     const suffixToken: Token = {
-      id: `${firstTok.sourceKey}:${suffixOffset}`,
+      id: `${firstTok.sourceKey}:${suffixSourceBase}`,
       sourceKey: firstTok.sourceKey,
       text: suffixText,
       sourceLength: firstTok.sourceLength - splitAt,
+      // Suffix base advances by the prefix's DISPLAY length (splitAt).
+      absoluteSourceBase: suffixSourceBase,
       width: firstTok.width - bestPrefixWidth,
       style: firstTok.style,
       isSpace: false,

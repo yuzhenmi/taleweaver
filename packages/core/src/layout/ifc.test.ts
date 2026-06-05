@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createElementBox, createTextBox } from "../render/render-node";
 import { cascadePass } from "../cascade";
 import { createMockShaper } from "./mock-shaper";
-import { layoutInlineContent, collectTokens, SUPERSCRIPT_RAISE_FRACTION, SUBSCRIPT_LOWER_FRACTION } from "./ifc";
+import { layoutInlineContent, collectTokens, splitSuffixSourceBase, SUPERSCRIPT_RAISE_FRACTION, SUBSCRIPT_LOWER_FRACTION } from "./ifc";
 import { layoutBlock } from "./bfc";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import type { TextShaper, ShapedRun, BreakOpportunity, FontMetrics, Cluster } from "./text-shaper";
@@ -12,6 +12,37 @@ import type { Direction } from "../styles/writing-mode";
 import { makeRootContext } from "./layout-context";
 
 const shaper = createMockShaper(8, 16);
+
+/**
+ * Shared hyphen-test shaper: each char is one 10px cluster; a "hyphen"-kind
+ * break opportunity is reported after cluster index 5 (prefix [0,5)) for any
+ * text ≥ 6 chars. Used by the P4-C.1 split test (the `IFC — hyphen break`
+ * describe block defines its own local copy of the same shaper).
+ */
+function makeHyphenShaper(): TextShaper {
+  const fontMetrics: FontMetrics = { ascent: 12, descent: 4, lineGap: 0, capHeight: 11, xHeight: 7 };
+  function shape(text: string, style: Readonly<ComputedStyle>, baseDirection: Direction): ShapedRun {
+    const clusters: Cluster[] = [];
+    for (let i = 0; i < text.length; i++) {
+      clusters.push({ start: i, end: i + 1, inlineAdvance: 10, isLigature: false, glyphs: [text.charCodeAt(i)] });
+    }
+    const breakOpportunities: BreakOpportunity[] = [];
+    if (text.length >= 6) breakOpportunities.push({ clusterIndex: 5, kind: "hyphen" });
+    return {
+      text,
+      computedStyle: style,
+      clusters,
+      ascent: fontMetrics.ascent,
+      descent: fontMetrics.descent,
+      lineGap: fontMetrics.lineGap,
+      minClusterInlineSize: text.length === 0 ? 0 : 10,
+      unbreakableRunInlineSize: text.length * 10,
+      breakOpportunities,
+      bidiLevel: baseDirection === "rtl" ? 1 : 0,
+    };
+  }
+  return { shape, measureFontMetrics: () => fontMetrics };
+}
 
 function ifcOf(text: string, width: number) {
   const tree = cascadePass(
@@ -2218,6 +2249,97 @@ describe("collectTokens — sourceLength (collapsed-whitespace offset accounting
     expect(tokens.map(t => t.text)).toEqual([" ", " ", "hello"]);
     expect(tokens.map(t => t.sourceLength)).toEqual([1, 1, 5]);
     expect(tokens.reduce((s, t) => s + t.sourceLength, 0)).toBe(text.length);
+  });
+});
+
+describe("collectTokens — absoluteSourceBase (P4-C.1: token's absolute UTF-16 offset into asm.source)", () => {
+  it("two adjacent text nodes: each token's absoluteSourceBase = its running UTF-16 offset into the concatenated source", () => {
+    // Source assembled as "abc" + "def ghi" = "abcdef ghi". The second node's
+    // tokens must be offset by "abc".length (= 3). Expected token shape under
+    // white-space:normal: ["abc"]@0, ["def"]@3, [" "]@6, ["ghi"]@7.
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t1", {}, "abc"),
+        createTextBox("t2", {}, "def ghi"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const tokens = collectTokens(tree, shaper, "ltr", ctx.intrinsicCache);
+
+    expect(tokens.map(t => t.text)).toEqual(["abc", "def", " ", "ghi"]);
+    expect(tokens.map(t => t.absoluteSourceBase)).toEqual([0, 3, 6, 7]);
+    // The base of each text token equals the source offset embedded in its id
+    // ("{sourceKey}:{offset}" is RELATIVE to the node; base is ABSOLUTE).
+    expect(tokens[0].absoluteSourceBase).toBe(0); // t1 "abc" at node-offset 0, childBase 0
+    expect(tokens[1].absoluteSourceBase).toBe(3); // t2 "def" at node-offset 0, childBase 3
+  });
+
+  it("absoluteSourceBase mirrors the parallel asm.tokenBases for every token", () => {
+    // The field must equal what the parallel array records — across a mix of
+    // text, collapsed whitespace, a hard break, and an inline-block.
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", whiteSpace: "pre" }, [
+        createTextBox("t1", {}, "ab\ncd"),
+        createElementBox("ib", { display: "inline-block", inlineSize: 40, blockSize: 20 }, []),
+        createTextBox("t2", {}, "ef"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const tokens = collectTokens(tree, shaper, "ltr", ctx.intrinsicCache);
+
+    // Re-derive the expected absolute bases by walking the assembled source:
+    // "ab" @0, "\n" (LINE_BREAK) @2, "cd" @3, OBJECT_REPLACEMENT (ib) @5,
+    // "ef" @6. (whitespace:pre — no collapse.)
+    const expectedBases = [0, 2, 3, 5, 6];
+    expect(tokens.map(t => t.absoluteSourceBase)).toEqual(expectedBases);
+  });
+
+  it("wrap-time split: suffix absoluteSourceBase = prefix base + prefix DISPLAY length (single-sourced rule)", () => {
+    // The production split helpers (`trySoftSplit` / `tryHyphenSplit`) both route
+    // the suffix's source-offset derivation through the exported, single-sourced
+    // `splitSuffixSourceBase`. We assert that rule against a token whose base is
+    // NON-ZERO (a second text node), proving the suffix base reflects BOTH the
+    // node offset AND the intra-token split index — not a node-relative reset.
+    //
+    // Node "pad" = "xy" (childBase 0), node "t" = "abcdefgh" (childBase 2).
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("pad", {}, "xy"),
+        createTextBox("t", {}, "abcdefgh"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const tokens = collectTokens(tree, makeHyphenShaper(), "ltr", ctx.intrinsicCache);
+    const word = tokens.find(t => t.text === "abcdefgh");
+    if (word === undefined) throw new Error("expected the word token");
+    // The word starts at absolute base 2 ("xy" precedes it).
+    expect(word.absoluteSourceBase).toBe(2);
+
+    // shaperWithHyphen breaks "abcdefgh" at DISPLAY index 5 (prefix "abcde").
+    // The single-sourced rule: suffix base = word base + prefix display length.
+    const prefixDisplayLen = 5;
+    expect(splitSuffixSourceBase(word.absoluteSourceBase, prefixDisplayLen)).toBe(7);
+
+    // And the REAL wrap path actually splits the word at that break (geometry
+    // proof the rule is exercised end-to-end): line 1 ends with "abcde" + "-",
+    // line 2 starts with the suffix "fgh".
+    const result = layoutInlineContent(
+      tree, 0, 0,
+      // Width that fits "xy" + "abcde-" but not the whole word, forcing a split.
+      makeRootContext(INITIAL_COMPUTED_STYLE, 80),
+      makeHyphenShaper(),
+    );
+    if (result.box === null) throw new Error("layoutInlineContent returned null box");
+    const lines = result.box.children.filter((c): c is import("./layout-box").LineBox => c.type === "line");
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    const lastLine = lines[lines.length - 1];
+    const firstChildOfLast = lastLine.children[0];
+    expect(firstChildOfLast.type).toBe("text-run");
+    if (firstChildOfLast.type !== "text-run") throw new Error();
+    expect(firstChildOfLast.text).toBe("fgh");
   });
 });
 
