@@ -601,6 +601,110 @@ describe("computeSelectionRects (new)", () => {
     expect(tRects[0].width).toBe(16); // full "AB"
   });
 
+  // ─────────────────────────────────────────────────────────────────────
+  // Bidi-aware selection-rect segmentation (P4-C.2.5, spec §F). A logical
+  // range crossing a direction boundary must render as ≥2 VISUAL highlight
+  // rects (the legacy same-line `{x:startX, width:endX-startX}` strip is wrong
+  // and can be NEGATIVE-width on a reordered line). Pure-LTR output stays
+  // byte-identical; widths are always ≥ 0.
+  // ─────────────────────────────────────────────────────────────────────
+
+  it("pure-LTR same-line range is ONE rect, byte-identical to the legacy strip", () => {
+    const state = singleParagraph("abc");
+    const { layout, shaper } = pipeline(state, 800);
+    // offsets 0..2 of "abc" (LTR, 8px/char): x=0, width=16.
+    const span = createSpan(
+      createPosition("p" as BlockId, 0),
+      createPosition("p" as BlockId, 2),
+    );
+    const rects = computeSelectionRects(state, span, layout, shaper);
+    expect(rects.length).toBe(1);
+    expect(rects[0].x).toBe(0);
+    expect(rects[0].width).toBe(16);
+  });
+
+  it("uniform-RTL same-line range is ONE non-negative-width rect over the glyph extent", () => {
+    // "אבג" resolves to a single RTL (level-1) run. caretX: off0→24, off3→0.
+    // Selecting the whole run (0..3) → xLo=caretX(3)=0, xHi=caretX(0)=24 →
+    // {x:0, width:24}. The legacy `endX - startX` (= 0 - 24) would be -24.
+    const state = singleParagraph("אבג");
+    const { layout, shaper } = pipeline(state, 800);
+    const span = createSpan(
+      createPosition("p" as BlockId, 0),
+      createPosition("p" as BlockId, 3),
+    );
+    const rects = computeSelectionRects(state, span, layout, shaper);
+    expect(rects.length).toBe(1);
+    expect(rects[0].x).toBe(0);
+    expect(rects[0].width).toBe(24);
+    expect(rects[0].width).toBeGreaterThan(0);
+  });
+
+  it("mixed boundary-crossing range yields ≥2 disjoint rects with correct x/width (KEY)", () => {
+    // "abcאבג" in an LTR paragraph: Latin run [0,3) level 0 at x0-24, Hebrew
+    // run [3,6) level 1 at x24-48 (RTL: caretX off3→48, off4→40, off5→32,
+    // off6→24). A logical range 2..5 crosses the Latin→Hebrew boundary:
+    //   Latin overlap [2,3): LTR → xLo=caretX(2)=16, xHi=caretX(3)=24 → {16,8}
+    //   Hebrew overlap [3,5): RTL → xLo=caretX(5)=32, xHi=caretX(3)=48 → {32,16}
+    // Two DISJOINT rects (24 ≠ 32 → not coalesced; different levels anyway).
+    const state = singleParagraph("abcאבג");
+    const { layout, shaper } = pipeline(state, 800);
+    const span = createSpan(
+      createPosition("p" as BlockId, 2),
+      createPosition("p" as BlockId, 5),
+    );
+    const rects = computeSelectionRects(state, span, layout, shaper);
+    expect(rects.length).toBe(2);
+    // Logical order: Latin segment first, Hebrew second.
+    expect(rects[0].x).toBe(16);
+    expect(rects[0].width).toBe(8);
+    expect(rects[1].x).toBe(32);
+    expect(rects[1].width).toBe(16);
+    // Disjoint (no overlap; Latin ends at 24, Hebrew starts at 32).
+    expect(rects[0].x + rects[0].width).toBeLessThanOrEqual(rects[1].x);
+    // No negative widths.
+    for (const r of rects) expect(r.width).toBeGreaterThanOrEqual(0);
+  });
+
+  it("within-RTL-run sub-range has SWAPPED endpoints (logically-later → lower x)", () => {
+    // "abcאבג": a range 4..6 lies entirely inside the Hebrew RTL run [3,6).
+    // RTL swap: xLo=caretX(6)=24, xHi=caretX(4)=40 → {x:24, width:16}. The
+    // logically-LATER offset (6) sits at the LOWER x (24).
+    const state = singleParagraph("abcאבג");
+    const { layout, shaper } = pipeline(state, 800);
+    const span = createSpan(
+      createPosition("p" as BlockId, 4),
+      createPosition("p" as BlockId, 6),
+    );
+    const rects = computeSelectionRects(state, span, layout, shaper);
+    expect(rects.length).toBe(1);
+    expect(rects[0].x).toBe(24);
+    expect(rects[0].width).toBe(16);
+    expect(rects[0].width).toBeGreaterThan(0);
+  });
+
+  it("middle full line of a multi-line selection is byte-identical (computeLineEdges)", () => {
+    // A wrapped LTR paragraph: a selection spanning ≥3 lines leaves the middle
+    // line as a full-content rect from lineLeft to lineRight — unchanged by the
+    // bidi segmentation (which only touches first/last/same-line partials).
+    let s = "";
+    for (let i = 0; i < 40; i++) s += "abcdefghi "; // 400 chars → ≥4 lines @800px
+    const state = singleParagraph(s);
+    const { layout, shaper } = pipeline(state, 800);
+    const span = createSpan(
+      createPosition("p" as BlockId, 5),
+      createPosition("p" as BlockId, 395),
+    );
+    const rects = computeSelectionRects(state, span, layout, shaper);
+    expect(rects.length).toBeGreaterThanOrEqual(3);
+    // A middle rect (neither first nor last) spans the full content width: it
+    // starts at lineLeft (x=0) and is much wider than a single character.
+    const middle = rects[1];
+    expect(middle.x).toBe(0);
+    expect(middle.width).toBeGreaterThan(100);
+    for (const r of rects) expect(r.width).toBeGreaterThanOrEqual(0);
+  });
+
   it("untransformed 'aß' selection (offset 1..2) covers the ß's single 8px", () => {
     // Sanity that the harness distinguishes transformed vs not: text-transform:
     // none → "aß" renders as-is (2 code units, no sourceDisplayLengths), so

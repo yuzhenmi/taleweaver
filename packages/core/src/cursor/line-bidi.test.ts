@@ -26,6 +26,7 @@ import {
   caretXInLeaf,
   offsetInLeaf,
   moveVisually,
+  selectionRectsForLineRange,
   type GraphemeStepper,
   type MoveVisuallyResult,
 } from "./line-bidi";
@@ -407,6 +408,108 @@ describe("caretXInLeaf / offsetInLeaf", () => {
     // offsetInLeaf: left half → logStart, right half → logEnd (midpoint split).
     expect(offsetInLeaf(ib, ib.leaf.width * 0.25, measurer)).toBe(ib.logStart);
     expect(offsetInLeaf(ib, ib.leaf.width * 0.75, measurer)).toBe(ib.logEnd);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// selectionRectsForLineRange (P4-C.2.5 §F) — bidi-aware selection segmentation
+// ---------------------------------------------------------------------------
+
+describe("selectionRectsForLineRange", () => {
+  it("pure-LTR range: ONE interval [startX, endX], xLo <= xHi", () => {
+    const state = para("abc");
+    const { layout, measurer } = pipeline(state);
+    const view = buildLineBidiView(bodyLine(layout));
+    // offsets 0..2 → x 0..16.
+    const segs = selectionRectsForLineRange(view, 0, 2, measurer);
+    expect(segs.length).toBe(1);
+    expect(segs[0].xLo).toBe(0);
+    expect(segs[0].xHi).toBe(16);
+    expect(segs[0].level % 2).toBe(0);
+  });
+
+  it("uniform-RTL range: ONE interval with non-negative extent (endpoints swapped)", () => {
+    // "אבג" RTL: caretX off0→24, off3→0. Range 0..3 → xLo=caretX(3)=0,
+    // xHi=caretX(0)=24 (the logically-later offset 3 is the LOWER x).
+    const state = para("אבג");
+    const { layout, measurer } = pipeline(state);
+    const view = buildLineBidiView(bodyLine(layout));
+    const segs = selectionRectsForLineRange(view, 0, 3, measurer);
+    expect(segs.length).toBe(1);
+    expect(segs[0].xLo).toBe(0);
+    expect(segs[0].xHi).toBe(24);
+    expect(segs[0].xHi).toBeGreaterThanOrEqual(segs[0].xLo);
+    expect(segs[0].level % 2).toBe(1);
+  });
+
+  it("boundary-crossing range: TWO intervals, NOT coalesced across the direction boundary", () => {
+    // "abcאבג": Latin [0,3) x0-24 LTR, Hebrew [3,6) x24-48 RTL. Range 2..5:
+    //   Latin overlap [2,3) → LTR xLo=16, xHi=24 (level 0)
+    //   Hebrew overlap [3,5) → RTL xLo=caretX(5)=32, xHi=caretX(3)=48 (level 1)
+    // Latin xHi=24 ≠ Hebrew xLo=32 (not physically adjacent) AND different
+    // level → two separate intervals.
+    const state = para("abcאבג");
+    const { layout, measurer } = pipeline(state);
+    const view = buildLineBidiView(bodyLine(layout));
+    const segs = selectionRectsForLineRange(view, 2, 5, measurer);
+    expect(segs.length).toBe(2);
+    expect(segs[0].xLo).toBe(16);
+    expect(segs[0].xHi).toBe(24);
+    expect(segs[0].level % 2).toBe(0);
+    expect(segs[1].xLo).toBe(32);
+    expect(segs[1].xHi).toBe(48);
+    expect(segs[1].level % 2).toBe(1);
+    for (const s of segs) expect(s.xHi).toBeGreaterThanOrEqual(s.xLo);
+  });
+
+  it("within-RTL sub-range: endpoints swap (logically-later offset → lower x)", () => {
+    // "abcאבג": range 4..6 inside the Hebrew RTL run. caretX off4→40, off6→24.
+    // xLo=caretX(6)=24, xHi=caretX(4)=40.
+    const state = para("abcאבג");
+    const { layout, measurer } = pipeline(state);
+    const view = buildLineBidiView(bodyLine(layout));
+    const segs = selectionRectsForLineRange(view, 4, 6, measurer);
+    expect(segs.length).toBe(1);
+    expect(segs[0].xLo).toBe(24);
+    expect(segs[0].xHi).toBe(40);
+  });
+
+  it("same-parity adjacent runs coalesce into ONE interval", () => {
+    // "ab" bold + "cd" — two LTR (level-0) runs that abut at x16. A range
+    // covering both (0..4) coalesces into a single [0, 32] interval (same level,
+    // physically adjacent).
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([text("ab", { fontWeight: "bold" }), text("cd")]),
+        }),
+      ],
+    });
+    const { layout, measurer } = pipeline(state);
+    const view = buildLineBidiView(bodyLine(layout));
+    for (const lv of view.logicalLeaves) expect(lv.level % 2).toBe(0);
+    const segs = selectionRectsForLineRange(view, 0, 4, measurer);
+    expect(segs.length).toBe(1);
+    expect(segs[0].xLo).toBe(0);
+    expect(segs[0].xHi).toBe(32);
+  });
+
+  it("empty range and strut line yield no intervals", () => {
+    const state = para("abc");
+    const { layout, measurer } = pipeline(state);
+    const view = buildLineBidiView(bodyLine(layout));
+    expect(selectionRectsForLineRange(view, 2, 2, measurer)).toEqual([]);
+
+    const empty = para("");
+    const { layout: el, measurer: em } = pipeline(empty);
+    const emptyView = buildLineBidiView(bodyLine(el));
+    expect(emptyView.isEmpty).toBe(true);
+    expect(selectionRectsForLineRange(emptyView, 0, 0, em)).toEqual([]);
   });
 });
 

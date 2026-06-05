@@ -13,6 +13,7 @@ import {
   makeContextFilter,
   type AbsoluteLineBox,
 } from "./line-flatten";
+import { buildLineBidiView, selectionRectsForLineRange } from "./line-bidi";
 import { markStart, markEnd } from "../perf/perf-trace";
 
 /**
@@ -27,6 +28,12 @@ export interface SelectionRect {
   height: number;
   pageIndex: number;
 }
+
+/**
+ * Tolerance (px) for treating a content segment's right edge as coincident with
+ * the line's right edge when fusing the paragraph-break indicator onto it.
+ */
+const INDICATOR_EPSILON = 1e-6;
 
 /**
  * Compute visual highlight rectangles for a selection span.
@@ -97,10 +104,15 @@ export function computeSelectionRects(
     const rects: SelectionRect[] = [];
 
     for (let i = startLineIdx; i <= endLineIdx; i++) {
-      const rect = emitLineRect(
-        allLines[i], i === startLineIdx, i === endLineIdx, startPos, endPos, measurer,
+      const lineRects = emitLineRect(
+        allLines[i],
+        i === startLineIdx,
+        i === endLineIdx,
+        start.offset,
+        end.offset,
+        measurer,
       );
-      if (rect !== null) rects.push(rect);
+      for (const r of lineRects) rects.push(r);
     }
 
     return rects;
@@ -160,15 +172,15 @@ export function computeSelectionRectsForPage(
 
     const rects: SelectionRect[] = [];
     for (let i = lo; i <= hi; i++) {
-      const rect = emitLineRect(
+      const lineRects = emitLineRect(
         pageLines[i],
         pageIndex === startPage && i === lo,
         pageIndex === endPage && i === hi,
-        startPos,
-        endPos,
+        start.offset,
+        end.offset,
         measurer,
       );
-      if (rect !== null) rects.push(rect);
+      for (const r of lineRects) rects.push(r);
     }
     return rects;
   } finally {
@@ -177,43 +189,112 @@ export function computeSelectionRectsForPage(
 }
 
 /**
- * Emit the highlight rect for one line of a selection. `isGlobalFirst` /
+ * Emit the highlight rect(s) for one line of a selection. `isGlobalFirst` /
  * `isGlobalLast` are relative to the WHOLE selection (across pages), not just
  * this page — so a line on a fully-enclosed middle page is neither, getting a
- * full-width rect. Returns null for a zero/negative width (skipped).
+ * full-width rect. Returns an EMPTY array when the line contributes nothing.
+ *
+ * Bidi-aware (P4-C.2 §F): the partial branches (same-line, first-line,
+ * last-line) segment the line-local logical range into its VISUAL intervals via
+ * `selectionRectsForLineRange`, so a range crossing a direction boundary draws
+ * >= 2 disjoint rects (never the old single `endX - startX` strip, which could
+ * go NEGATIVE on a reordered line). The middle-full-line branch keeps
+ * `computeLineEdges` (already direction-safe: a min/max over all leaf
+ * positions). The paragraph-break indicator (after a block-boundary line) is a
+ * separate small rect at the line's right edge, appended to first/middle lines.
  */
 function emitLineRect(
   al: AbsoluteLineBox,
   isGlobalFirst: boolean,
   isGlobalLast: boolean,
-  startPos: PixelPosition,
-  endPos: PixelPosition,
+  selectionStartOffset: number,
+  selectionEndOffset: number,
   measurer: TextMeasurer,
-): SelectionRect | null {
+): SelectionRect[] {
   const line = al.line;
   const { lineLeft, lineRight, trailingStyle } = computeLineEdges(al);
   const indicatorW = line.isBlockBoundaryLine
     ? measurer.measureWidth("  ", trailingStyle)
     : 0;
 
-  let x: number;
-  let width: number;
-  if (isGlobalFirst && isGlobalLast) {
-    x = startPos.x;
-    width = endPos.x - startPos.x;
-  } else if (isGlobalFirst) {
-    x = startPos.x;
-    width = lineRight + indicatorW - startPos.x;
-  } else if (isGlobalLast) {
-    x = lineLeft;
-    width = endPos.x - lineLeft;
-  } else {
-    x = lineLeft;
-    width = lineRight + indicatorW - lineLeft;
+  const out: SelectionRect[] = [];
+  const push = (x: number, width: number): void => {
+    if (width <= 0) return;
+    out.push({
+      x,
+      y: al.absoluteY,
+      width,
+      height: line.blockSize,
+      pageIndex: al.pageIndex,
+    });
+  };
+
+  if (!isGlobalFirst && !isGlobalLast) {
+    // Middle full line: the whole line's content (direction-safe via the
+    // min/max over leaf positions), plus the paragraph-break indicator.
+    push(lineLeft, lineRight + indicatorW - lineLeft);
+    return out;
   }
 
-  if (width <= 0) return null;
-  return { x, y: al.absoluteY, width, height: line.blockSize, pageIndex: al.pageIndex };
+  // Partial line — segment the line-local logical range into VISUAL intervals.
+  // first line: from the selection's start offset to the line end;
+  // last line:  from the line start to the selection's end offset;
+  // same-line:  from the selection's start to its end offset.
+  // All clipped into this line's own [inlineOffsetStart, inlineOffsetEnd].
+  const rangeStart = isGlobalFirst
+    ? Math.max(selectionStartOffset, line.inlineOffsetStart)
+    : line.inlineOffsetStart;
+  const rangeEnd = isGlobalLast
+    ? Math.min(selectionEndOffset, line.inlineOffsetEnd)
+    : line.inlineOffsetEnd;
+
+  const view = buildLineBidiView(al);
+  if (view.isEmpty) {
+    // Strut-only line (empty paragraph). No caret-target leaves, so the
+    // segmentation yields nothing — fall back to the line's content edges (for
+    // an empty line both collapse to the line X) plus the paragraph-break
+    // indicator. This keeps the empty-paragraph narrow indicator (#169/#201).
+    // Only the first/middle lines carry the trailing indicator (an empty LAST
+    // line contributes only its collapsed content edge, i.e. nothing visible).
+    if (isGlobalFirst) {
+      push(lineLeft, lineRight + indicatorW - lineLeft);
+    } else {
+      push(lineLeft, lineRight - lineLeft);
+    }
+    return out;
+  }
+
+  const segments = selectionRectsForLineRange(view, rangeStart, rangeEnd, measurer);
+
+  // The paragraph-break indicator trails a block-boundary line whenever the
+  // selection continues past it (i.e. this is NOT the global-last line). It sits
+  // at the line's right edge (`[lineRight, lineRight + indicatorW]`), past the
+  // logical line end — so it is direction-agnostic. When a content segment
+  // already ends AT `lineRight` (the LTR case: the trailing run reaches the
+  // line's right edge), the indicator is FUSED onto that segment so a pure-LTR
+  // line stays a SINGLE rect (byte-identical to the legacy merged strip). When
+  // no segment reaches `lineRight` (e.g. an RTL trailing run, or no content at
+  // all) the indicator is emitted as its own rect at the right edge.
+  const indicatorActive = !isGlobalLast && indicatorW > 0;
+  let indicatorFused = false;
+  if (indicatorActive) {
+    for (const seg of segments) {
+      if (Math.abs(seg.xHi - lineRight) <= INDICATOR_EPSILON) {
+        seg.xHi = lineRight + indicatorW;
+        indicatorFused = true;
+        break;
+      }
+    }
+  }
+
+  for (const seg of segments) {
+    push(seg.xLo, seg.xHi - seg.xLo);
+  }
+  if (indicatorActive && !indicatorFused) {
+    push(lineRight, indicatorW);
+  }
+
+  return out;
 }
 
 /**

@@ -268,6 +268,104 @@ function clamp(value: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(value, hi));
 }
 
+/**
+ * One VISUAL highlight interval `[xLo, xHi]` (xLo <= xHi) for a selection
+ * segment, paired with the embedding `level` of the run that produced it (used
+ * by `selectionRectsForLineRange` to coalesce ONLY physically-adjacent
+ * same-`level` runs — never across a direction boundary).
+ */
+interface VisualInterval {
+  xLo: number;
+  xHi: number;
+  level: number;
+}
+
+/** Two x-coords are physically the same point if within this epsilon (px). */
+const X_EPSILON = 1e-6;
+
+/**
+ * Segment a line-local LOGICAL selection range `[rangeStartOffset,
+ * rangeEndOffset)` into its VISUAL highlight intervals (P4-C.2 spec §F).
+ *
+ * A contiguous logical range can map to MULTIPLE disjoint visual intervals
+ * once the line is bidi-reordered: each leaf the range overlaps contributes one
+ * interval, computed from the §B caret-X formula at BOTH clipped endpoints. For
+ * an LTR leaf the logically-earlier offset is the LOWER x; for an RTL leaf the
+ * endpoints SWAP (the logically-later offset sits at the LOWER x). Both are
+ * emitted as `xLo <= xHi`, so a rect's width is never negative — fixing the
+ * legacy `endX - startX` strip which could go negative on a reordered line.
+ *
+ * Coalescing: two adjacent intervals merge into one ONLY when they are
+ * physically adjacent (`prev.xHi === next.xLo` within `X_EPSILON`) AND share the
+ * same embedding `level` (a single maximal same-direction run). Two
+ * logically-distinct runs that merely abut visually are kept SEPARATE so the
+ * highlight reflects the true visual segments. Thus a pure-LTR or pure-RTL range
+ * yields ONE interval; a boundary-crossing range yields >= 2.
+ *
+ * Walks `view.logicalLeaves` (logical order) so intervals come out in logical
+ * order; coalescing is intentionally adjacency-based (not a global sort), so it
+ * only fuses runs that are BOTH logically and physically contiguous.
+ *
+ * Empty `view` (strut line) or an empty clipped range yields `[]`.
+ */
+export function selectionRectsForLineRange(
+  view: LineBidiView,
+  rangeStartOffset: number,
+  rangeEndOffset: number,
+  measurer: TextMeasurer,
+): VisualInterval[] {
+  if (view.isEmpty || rangeEndOffset <= rangeStartOffset) return [];
+
+  const intervals: VisualInterval[] = [];
+  for (const v of view.logicalLeaves) {
+    // Clip the range to this leaf's logical span.
+    const a = Math.max(rangeStartOffset, v.logStart);
+    const b = Math.min(rangeEndOffset, v.logEnd);
+    if (b <= a) continue; // no overlap with this leaf
+
+    const ltr = v.level % 2 === 0;
+    // §B caret-X at both clipped endpoints. LTR: a → lower x, b → higher x.
+    // RTL: the logically-later offset sits at the LOWER x, so the endpoints
+    // swap (b → lower x, a → higher x). Emit as xLo <= xHi (width never < 0).
+    //
+    // #338 P2 clamp: pin each endpoint to the OWNING leaf's own box edges
+    // (`[absoluteX, absoluteX + width]`). For a CLAMPED hung trailing-space run
+    // (the IFC gave it width 0 at the content edge), `caretXInLeaf`'s prefix
+    // measurement still adds ~one glyph advance, which would land a selection
+    // rect PAST the content edge. Clamping pins it to the (clamped) box edge —
+    // mirrors `cursor-position.ts`'s identical clamp so selection geometry and
+    // caret X agree. Direction-agnostic: LTR hits the upper bound, RTL the lower.
+    const leafLeft = v.leaf.absoluteX;
+    const leafRight = v.leaf.absoluteX + v.leaf.width;
+    const xa = clamp(caretXInLeaf(v, a, measurer), leafLeft, leafRight);
+    const xb = clamp(caretXInLeaf(v, b, measurer), leafLeft, leafRight);
+    const xLo = ltr ? xa : xb;
+    const xHi = ltr ? xb : xa;
+    intervals.push({ xLo, xHi, level: v.level });
+  }
+
+  // Coalesce ONLY physically-adjacent same-level intervals (a single maximal
+  // same-direction run split across leaves). A direction boundary (different
+  // level) is never merged, even if the two runs visually abut.
+  const merged: VisualInterval[] = [];
+  for (const cur of intervals) {
+    const prev = merged[merged.length - 1];
+    if (
+      prev !== undefined &&
+      prev.level === cur.level &&
+      Math.abs(prev.xHi - cur.xLo) <= X_EPSILON
+    ) {
+      prev.xHi = cur.xHi;
+    } else {
+      merged.push({ ...cur });
+    }
+  }
+  return merged;
+}
+
+// Re-export for selection-geometry's consumption.
+export type { VisualInterval };
+
 // ---------------------------------------------------------------------------
 // Visual-order caret motion (P4-C.2 §E) — ArrowLeft / ArrowRight
 // ---------------------------------------------------------------------------
