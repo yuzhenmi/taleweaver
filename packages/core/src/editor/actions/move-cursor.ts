@@ -3,9 +3,7 @@ import {
   createSpan,
   spanStart,
   spanEnd,
-  resolveBlock,
   type Position,
-  type InlineContent,
 } from "../../state";
 import { moveByCharacter } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
@@ -14,20 +12,11 @@ import {
   adaptShaperToMeasurer,
   type TextMeasurer,
 } from "../../layout/text-measurer";
-import { getLineIndex, findLineForPosition, type AbsoluteLineBox } from "../../cursor/line-flatten";
-import { resolvePixelPosition } from "../../cursor/cursor-position";
+import { buildLineBidiView, moveVisually } from "../../cursor/line-bidi";
 import {
-  buildLineBidiView,
-  moveVisually,
-  type GraphemeStepper,
-} from "../../cursor/line-bidi";
-import {
-  nextGraphemeBoundary,
-  prevGraphemeBoundary,
-} from "../../cursor/grapheme-utils";
-
-/** Object Replacement Character — one state unit per embed, for grapheme stepping. */
-const EMBED_CHAR = "￼";
+  resolveLineForPosition,
+  buildBlockGraphemeStepper,
+} from "../../cursor/visual-motion";
 
 /**
  * Handle `MOVE_CURSOR` (ArrowLeft / ArrowRight) with VISUAL-order caret motion in
@@ -70,7 +59,13 @@ export function handleMoveCursor(
     ? adaptShaperToMeasurer(config.measurer)
     : config.measurer;
 
-  const line = resolveCurrentLine(editor, measurer);
+  const line = resolveLineForPosition(
+    editor.state,
+    selection.focus,
+    editor.layoutTree,
+    measurer,
+    editor.caretPageHint,
+  );
   if (line === null) {
     // No resolvable line (defensive). Fall back to the logical motion.
     const newFocus = moveByCharacter(editor.state, selection.focus, direction);
@@ -78,7 +73,7 @@ export function handleMoveCursor(
   }
 
   const view = buildLineBidiView(line);
-  const step = blockGraphemeStepper(blockStateText(editor.state, selection.focus.blockId));
+  const step = buildBlockGraphemeStepper(editor.state, selection.focus.blockId);
   const result = moveVisually(view, selection.focus.offset, editor.caretAffinity, visualDir, step);
 
   if ("exit" in result) {
@@ -100,80 +95,4 @@ export function handleMoveCursor(
     selection: createSpan(newFocus, newFocus),
     caretAffinity: result.caretAffinity,
   };
-}
-
-/**
- * The `AbsoluteLineBox` containing `editor.selection.focus`, or null if it can't
- * be resolved. Handles both the positioned-tree and virtual-tree layouts: for a
- * virtual tree, resolve the caret's page via `resolvePixelPosition` (O(1) per
- * the plan), then read that page's lines.
- */
-function resolveCurrentLine(editor: EditorState, measurer: TextMeasurer): AbsoluteLineBox | null {
-  const position = editor.selection.focus;
-  const layoutTree = editor.layoutTree;
-
-  if (layoutTree.type === "virtual-root") {
-    const pixel = resolvePixelPosition(
-      editor.state,
-      position,
-      layoutTree,
-      measurer,
-      editor.caretPageHint,
-    );
-    if (pixel === null) return null;
-    const page = layoutTree.getPage(pixel.pageIndex);
-    const ownLines = getLineIndex(page).byBlock.get(position.blockId) ?? [];
-    return pickLine(ownLines, position);
-  }
-
-  const ownLines = getLineIndex(layoutTree).byBlock.get(position.blockId) ?? [];
-  return pickLine(ownLines, position);
-}
-
-/**
- * Pick the line owning `position` from the block's own lines (in document
- * order). At an exact line-end boundary prefer the next same-block line (the
- * caret has wrapped onto it) — mirrors `resolvePositionInOwnLines`'s soft-wrap
- * preference so `moveVisually` operates on the line the caret renders on.
- */
-function pickLine(
-  ownLines: readonly AbsoluteLineBox[],
-  position: Position,
-): AbsoluteLineBox | null {
-  if (ownLines.length === 0) return null;
-  const idx = findLineForPosition(ownLines, position);
-  if (idx >= 0) {
-    const l = ownLines[idx].line;
-    if (position.offset === l.inlineOffsetEnd && ownLines[idx + 1] !== undefined) {
-      return ownLines[idx + 1];
-    }
-    return ownLines[idx];
-  }
-  // Defensive: clamp to the first/last line.
-  return ownLines[0];
-}
-
-/**
- * Build the block's full STATE-indexed text: text items concatenated, each embed
- * a single U+FFFC code unit (one cursor position). Block-relative state offsets
- * index directly into this string, so a grapheme step over it is exactly the
- * within-block ±1-grapheme step (embeds are atomic single-unit graphemes).
- */
-function blockStateText(state: EditorState["state"], blockId: Position["blockId"]): string {
-  const block = resolveBlock(state, blockId)?.block ?? null;
-  if (block === null || block.inlineContent === null) return "";
-  const content: InlineContent = block.inlineContent;
-  let out = "";
-  for (const item of content.items) {
-    out += item.kind === "text" ? item.text : EMBED_CHAR;
-  }
-  return out;
-}
-
-/** A `GraphemeStepper` over a block-relative state string. */
-function blockGraphemeStepper(blockText: string): GraphemeStepper {
-  return (offset, direction) =>
-    direction === "forward"
-      ? nextGraphemeBoundary(blockText, offset)
-      : prevGraphemeBoundary(blockText, offset);
 }

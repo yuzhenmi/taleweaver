@@ -352,7 +352,7 @@ export function reduceEditor(
       break;
     }
     case "EXPAND_SELECTION":
-      result = handleExpandSelection(editor, action.direction);
+      result = handleExpandSelection(editor, action.direction, config);
       break;
     case "EXPAND_WORD":
       result = handleExpandWord(editor, action.direction);
@@ -503,11 +503,17 @@ export function reduceEditor(
  *   - `MOVE_CURSOR` (P4-C.2.3) — visual-order ArrowLeft/Right sets the boundary
  *     affinity from `moveVisually` (the dual-caret flip side), or clears it to
  *     `undefined` on an exit / collapse.
- * EXTENSION POINT (P4-C.2.4 / C.2.6): the `EXPAND_*` selection motions and
- * `MOVE_LINE_BOUNDARY` (Home/End) join here as they learn to carry affinity.
- * Until then they fall through to the reset (correct — they don't yet track a
- * boundary side).
+ *   - `EXPAND_SELECTION` (P4-C.2.4) — visual-order Shift+ArrowLeft/Right extends
+ *     the FOCUS via the same `moveVisually`, carrying the focus's boundary
+ *     affinity (or clearing it to `undefined` on an exit / logical fallback).
+ * EXTENSION POINT (P4-C.2.6): `MOVE_LINE_BOUNDARY` (Home/End) joins here as it
+ * learns to carry affinity. Until then it falls through to the reset (correct —
+ * it doesn't yet track a boundary side).
  */
 function actionManagesCaretAffinity(action: EditorAction): boolean {
-  return action.type === "SET_SELECTION" || action.type === "MOVE_CURSOR";
+  return (
+    action.type === "SET_SELECTION" ||
+    action.type === "MOVE_CURSOR" ||
+    action.type === "EXPAND_SELECTION"
+  );
 }
