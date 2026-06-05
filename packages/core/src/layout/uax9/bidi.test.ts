@@ -6,6 +6,7 @@ import {
   computeMatchingPDI,
   applyExplicit,
   computeIsolatingRunSequences,
+  applyWeak,
 } from "./bidi";
 
 // Explicit-formatting code points used by the X-pass tests.
@@ -271,5 +272,179 @@ describe("computeIsolatingRunSequences (X10 / BD13)", () => {
     expect(seqWithA).toBeDefined();
     if (seqWithA === undefined) throw new Error("missing seq");
     expect(seqWithA.eos).toBe(1); // paragraph level 1 → R
+  });
+});
+
+// Strong / weak / neutral code points used by the W-pass tests.
+const HEB = "א"; // U+05D0  R
+const ARB = "ا"; // U+0627  AL (Arabic letter)
+const AND = "٠"; // U+0660  AN (Arabic-Indic digit zero)
+const NSM = "́"; // combining acute accent — NSM
+const ES = "+"; // U+002B  ES
+const CS = ","; // U+002C  CS
+const ET = "$"; // U+0024  ET
+
+/**
+ * Run the X passes for `s` at `paragraphLevel`, then apply W1–W7 to a FRESH
+ * mutable `resolvedTypes` cloned from `workingTypes` for every isolating run
+ * sequence. Returns the post-W resolved-types array so tests can assert on the
+ * type at any absolute codepoint index.
+ */
+function runWeak(s: string, paragraphLevel: number): Uint8Array {
+  const c = codes(s);
+  const { matchingPDI, matchingIsolate } = computeMatchingPDI(c);
+  const { levels, workingTypes } = applyExplicit(
+    c,
+    paragraphLevel,
+    matchingPDI,
+    matchingIsolate,
+  );
+  const seqs = computeIsolatingRunSequences(
+    c,
+    levels,
+    workingTypes,
+    matchingPDI,
+    matchingIsolate,
+    paragraphLevel,
+  );
+  const resolvedTypes = Uint8Array.from(workingTypes);
+  for (const seq of seqs) applyWeak(seq, resolvedTypes);
+  return resolvedTypes;
+}
+
+describe("applyWeak (W1–W7)", () => {
+  it("W1: an NSM takes the type of the previous character (propagating along a run)", () => {
+    // 0:a(L) 1:NSM 2:NSM → each NSM becomes L (type of the previous char). The
+    // second NSM relies on W1 reading the ALREADY-UPDATED type of the first NSM
+    // (L), not its original NSM — i.e. the resolution propagates along the run.
+    const t = runWeak(`a${NSM}${NSM}`, 0);
+    expect(t[1]).toBe(CC.L);
+    expect(t[2]).toBe(CC.L);
+  });
+
+  it("W1: an NSM whose sequence-predecessor is an isolate initiator becomes ON", () => {
+    // The isolate-initiator branch of W1 is only reachable when an initiator and
+    // an NSM are adjacent WITHIN one isolating run sequence. (In raw text an
+    // initiator's sequence-successor is always its matching PDI, so this is
+    // exercised directly on a hand-built sequence — exactly the unit-test path
+    // the task calls out.) Sequence [RLI, NSM] at sos=L: the NSM's previous type
+    // is RLI (an isolate initiator) → ON, NOT the RLI's type.
+    const types = Uint8Array.from([CC.RLI, CC.NSM]);
+    applyWeak({ indices: [0, 1], sos: 0, eos: 0 }, types);
+    expect(types[1]).toBe(CC.ON);
+  });
+
+  it("W1: an NSM after a PDI becomes ON", () => {
+    // 0:a 1:RLI 2:b 3:PDI 4:NSM. Sequence (level 0) is [0,1,3,4]; within it the
+    // NSM(4)'s previous char is the PDI(3) → ON.
+    const t = runWeak(`a${RLI}b${PDI}${NSM}`, 0);
+    expect(t[4]).toBe(CC.ON);
+  });
+
+  it("W1: an NSM first in the sequence takes sos", () => {
+    // base 1 (RTL paragraph): 0:NSM 1:a. The sequence starts with the NSM; with
+    // no previous char it takes sos. Para level 1 → sos = R, so the NSM → R.
+    const t = runWeak(`${NSM}a`, 1);
+    expect(t[0]).toBe(CC.R);
+  });
+
+  it("W2: an EN after AL becomes AN", () => {
+    // 0:ARB(AL) 1:EN. Searching back from the EN the first strong is AL → AN.
+    const t = runWeak(`${ARB}1`, 0);
+    expect(t[1]).toBe(CC.AN);
+  });
+
+  it("W2: an EN after L stays EN (W2), then W7 makes it L", () => {
+    // 0:a(L) 1:EN. W2 keeps EN (first strong is L, not AL). W7 then sees the
+    // first strong before the EN is L → EN becomes L.
+    const t = runWeak("a1", 0);
+    expect(t[1]).toBe(CC.L);
+  });
+
+  it("W3: every AL becomes R", () => {
+    // 0:ARB(AL) 1:b(L). The AL → R.
+    const t = runWeak(`${ARB}b`, 0);
+    expect(t[0]).toBe(CC.R);
+  });
+
+  it("W4: a single ES between two EN becomes EN", () => {
+    // 0:HEB(R) 1:EN 2:ES 3:EN. (Hebrew keeps W7 from turning the ENs into L.)
+    const t = runWeak(`${HEB}1+2`, 0);
+    expect(t[1]).toBe(CC.EN);
+    expect(t[2]).toBe(CC.EN); // ES bridged
+    expect(t[3]).toBe(CC.EN);
+  });
+
+  it("W4: a single CS between two AN becomes AN", () => {
+    // 0:AND 1:CS 2:AND. CS between two AN → AN.
+    const t = runWeak(`${AND}${CS}${AND}`, 0);
+    expect(t[0]).toBe(CC.AN);
+    expect(t[1]).toBe(CC.AN); // CS bridged
+    expect(t[2]).toBe(CC.AN);
+  });
+
+  it("W4: a CS between EN and AN does NOT bridge (W6 makes it ON)", () => {
+    // 0:HEB(R) 1:EN 2:CS 3:AND. CS sits between an EN and an AN — mismatched
+    // number types, so W4 leaves it; W6 then turns it into ON. The EN/AN keep.
+    const t = runWeak(`${HEB}1${CS}${AND}`, 0);
+    expect(t[1]).toBe(CC.EN);
+    expect(t[2]).toBe(CC.ON); // not bridged → W6
+    expect(t[3]).toBe(CC.AN);
+  });
+
+  it("W5: a run of ET before an EN becomes EN", () => {
+    // 0:HEB(R) 1:ET 2:ET 3:EN. The ET run is adjacent (before) an EN → all EN.
+    const t = runWeak(`${HEB}${ET}${ET}1`, 0);
+    expect(t[1]).toBe(CC.EN);
+    expect(t[2]).toBe(CC.EN);
+    expect(t[3]).toBe(CC.EN);
+  });
+
+  it("W5: a run of ET after an EN becomes EN (incl. the far end of the run)", () => {
+    // 0:HEB(R) 1:EN 2:ET 3:ET 4:ET. The whole maximal ET run flips — including
+    // index 4, the ET FARTHEST from the EN that touches it. Guards that W5 walks
+    // the entire run, not just the single ET immediately adjacent to the EN.
+    const t = runWeak(`${HEB}1${ET}${ET}${ET}`, 0);
+    expect(t[1]).toBe(CC.EN);
+    expect(t[2]).toBe(CC.EN);
+    expect(t[3]).toBe(CC.EN);
+    expect(t[4]).toBe(CC.EN);
+  });
+
+  it("W6: a separator/terminator with no number neighbor becomes ON", () => {
+    // 0:a(L) 1:ES 2:ET 3:CS 4:b(L). None is adjacent to a number → all ON.
+    const t = runWeak(`a${ES}${ET}${CS}b`, 0);
+    expect(t[1]).toBe(CC.ON);
+    expect(t[2]).toBe(CC.ON);
+    expect(t[3]).toBe(CC.ON);
+  });
+
+  it("W7: an EN after L becomes L", () => {
+    // 0:a(L) 1:EN. First strong before the EN is L → EN becomes L.
+    const t = runWeak("a1", 0);
+    expect(t[1]).toBe(CC.L);
+  });
+
+  it("W7: an EN after R stays EN", () => {
+    // 0:HEB(R) 1:EN. First strong before the EN is R → EN stays EN.
+    const t = runWeak(`${HEB}1`, 0);
+    expect(t[1]).toBe(CC.EN);
+  });
+
+  it("W2/W7: a leading EN uses sos as the strong boundary (sos=L → EN becomes L)", () => {
+    // 0:EN 1:a(L) at base 0. The EN is FIRST in the sequence — there is no real
+    // preceding char, so W2's and W7's backward strong-scan terminates at sos.
+    // sos = L (level 0): W2 keeps the EN (sos is not AL), then W7 turns it into L.
+    // Pins that sos — not a real index — is consulted as the strong boundary.
+    const t = runWeak("1a", 0);
+    expect(t[0]).toBe(CC.L);
+  });
+
+  it("W2/W7: a leading EN with sos=R stays EN (no spurious AN or L)", () => {
+    // base 1 (RTL paragraph): 0:EN alone. The sequence level is the paragraph
+    // level 1, so sos = R. W2 sees sos=R (not AL) → EN stays; W7 sees sos=R
+    // (not L) → EN stays. Confirms the sos=R boundary neither bridges to AN nor L.
+    const t = runWeak("1", 1);
+    expect(t[0]).toBe(CC.EN);
   });
 });

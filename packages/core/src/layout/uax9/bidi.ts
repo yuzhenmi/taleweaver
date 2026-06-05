@@ -504,3 +504,133 @@ export function computeIsolatingRunSequences(
 
   return sequences;
 }
+
+// ===========================================================================
+// W1–W7 — weak-type resolution. MODULE-INTERNAL (exported for tests + the
+// later N/I passes that the Task-7 driver chains after this one).
+// ===========================================================================
+
+/** Map a sos/eos boundary (0=L, 1=R) to the corresponding strong class code. */
+function boundaryToType(boundary: 0 | 1): number {
+  return boundary === 0 ? CC.L : CC.R;
+}
+
+/**
+ * UAX #9 rules W1–W7 — resolve the weak types of one isolating run sequence,
+ * IN PLACE, in the array `types`. Only the positions in `seq.indices` are read
+ * or written; the array is otherwise left untouched (it is 1:1 with the input
+ * codepoints, with BN positions excluded from `seq.indices`). `seq.sos` is the
+ * virtual strong/type at the start of the sequence (the §X10 boundary): a
+ * before-the-first-character context of L (sos=0) or R (sos=1).
+ *
+ * The seven rules are applied in order, each over the SEQUENCE (not raw
+ * codepoint order); "previous" means previous within `seq.indices`:
+ *
+ *  - W1: each NSM → ON if the previous char is an isolate initiator
+ *        (LRI/RLI/FSI) or PDI; else the type of the previous char; at the
+ *        sequence start, sos's type. (Earlier NSMs are already resolved, so
+ *        "previous type" reads the updated array — a chain of NSMs all take
+ *        the type that resolved the first.)
+ *  - W2: each EN → AN if the first strong type (R/L/AL/sos) found scanning
+ *        backward is AL.
+ *  - W3: every AL → R.
+ *  - W4: a single ES between two EN → EN; a single CS between two EN → EN; a
+ *        single CS between two AN → AN.
+ *  - W5: a contiguous run of ET adjacent (before or after) an EN → EN.
+ *  - W6: any remaining ES/ET/CS → ON.
+ *  - W7: each EN → L if the first strong type (R/L/sos — AL is gone after W3)
+ *        found scanning backward is L.
+ */
+export function applyWeak(seq: IsolatingRunSequence, types: Uint8Array): void {
+  const idx = seq.indices;
+  const n = idx.length;
+  const sosType = boundaryToType(seq.sos);
+
+  // W1 — non-spacing marks.
+  for (let k = 0; k < n; k++) {
+    if (types[idx[k]] !== CC.NSM) continue;
+    if (k === 0) {
+      types[idx[k]] = sosType;
+    } else {
+      const prev = types[idx[k - 1]];
+      if (prev === CC.LRI || prev === CC.RLI || prev === CC.FSI || prev === CC.PDI) {
+        types[idx[k]] = CC.ON;
+      } else {
+        types[idx[k]] = prev;
+      }
+    }
+  }
+
+  // W2 — EN after AL becomes AN. Track the most recent strong type as we scan
+  // forward (starting from sos): L, R, or AL. (One pass; no backward rescan.)
+  {
+    let lastStrong = sosType; // L or R from sos; updated to L/R/AL inline.
+    for (let k = 0; k < n; k++) {
+      const t = types[idx[k]];
+      if (t === CC.L || t === CC.R || t === CC.AL) {
+        lastStrong = t;
+      } else if (t === CC.EN && lastStrong === CC.AL) {
+        types[idx[k]] = CC.AN;
+      }
+    }
+  }
+
+  // W3 — AL becomes R.
+  for (let k = 0; k < n; k++) {
+    if (types[idx[k]] === CC.AL) types[idx[k]] = CC.R;
+  }
+
+  // W4 — a single separator between two numbers of the matching type. ES only
+  // bridges EN; CS bridges EN…EN and AN…AN. "Single" = the neighbours are the
+  // immediately-adjacent sequence positions (k-1, k+1).
+  for (let k = 1; k < n - 1; k++) {
+    const t = types[idx[k]];
+    const prev = types[idx[k - 1]];
+    const next = types[idx[k + 1]];
+    if (t === CC.ES) {
+      if (prev === CC.EN && next === CC.EN) types[idx[k]] = CC.EN;
+    } else if (t === CC.CS) {
+      if (prev === CC.EN && next === CC.EN) types[idx[k]] = CC.EN;
+      else if (prev === CC.AN && next === CC.AN) types[idx[k]] = CC.AN;
+    }
+  }
+
+  // W5 — a contiguous run of ET adjacent to an EN becomes EN. Scan for maximal
+  // ET runs and convert the whole run if either neighbour (or, for an edge run,
+  // not applicable — sos/eos are never EN) is EN.
+  for (let k = 0; k < n; ) {
+    if (types[idx[k]] !== CC.ET) {
+      k++;
+      continue;
+    }
+    let j = k;
+    while (j < n && types[idx[j]] === CC.ET) j++;
+    // [k, j) is a maximal ET run; check the chars immediately before/after.
+    const beforeIsEN = k > 0 && types[idx[k - 1]] === CC.EN;
+    const afterIsEN = j < n && types[idx[j]] === CC.EN;
+    if (beforeIsEN || afterIsEN) {
+      for (let m = k; m < j; m++) types[idx[m]] = CC.EN;
+    }
+    k = j;
+  }
+
+  // W6 — any remaining ES/ET/CS becomes ON.
+  for (let k = 0; k < n; k++) {
+    const t = types[idx[k]];
+    if (t === CC.ES || t === CC.ET || t === CC.CS) types[idx[k]] = CC.ON;
+  }
+
+  // W7 — EN after L becomes L. Track the most recent strong type (L or R;
+  // AL is gone after W3) scanning forward from sos.
+  {
+    let lastStrong = sosType;
+    for (let k = 0; k < n; k++) {
+      const t = types[idx[k]];
+      if (t === CC.L || t === CC.R) {
+        lastStrong = t;
+      } else if (t === CC.EN && lastStrong === CC.L) {
+        types[idx[k]] = CC.L;
+      }
+    }
+  }
+}
