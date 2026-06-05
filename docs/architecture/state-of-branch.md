@@ -149,10 +149,17 @@ with stable IDs and break opportunities; canvas shaper supplies font
 metrics, cluster boundaries, and (uniform-direction) bidi levels.
 
 Known gaps:
-- **UAX #14 line-break algorithm** is heuristic-based (whitespace +
-  dash) rather than the full Unicode line-break property table.
-  Sufficient for Latin and most CJK; corners for languages with
-  unusual break behavior.
+- **UAX #14 line-break algorithm** is **implemented** (`layout/uax14/`): a
+  hand-rolled conformant rule engine (`lineBreakOpportunities` /
+  `lineBreakClass`, rules LB1–LB31 with §8.2 number tailoring) backed by a
+  committed Unicode break-property table, passing the full
+  `LineBreakTest.txt` suite. It feeds the canvas/mock shapers' break
+  opportunities and is the IFC wrap loop's break authority (the IFC
+  classifies the assembled inline source once and annotates tokens with
+  `softBreaks` / `breakableBefore`). CJK paragraphs wrap between ideographs;
+  NBSP/`GL` glue holds its neighbours together; hyphens break. `cjBreakable`
+  selects the CSS `line-break` behavior for CJ small-kana (default keeps
+  them together).
 - **UAX #29 grapheme cluster boundaries** are correct: `segmentClusters`
   groups graphemes via `Intl.Segmenter` (`graphemeClusters`), so a base +
   combining marks, a surrogate-pair emoji, an emoji ZWJ sequence, and a
@@ -292,13 +299,15 @@ last-root tracking, `hashPaintInputs`. Wired into the editor controller.
 
 Canvas-based default text shaper. Uniform-direction bidi, UAX #29
 grapheme-cluster boundaries (via `Intl.Segmenter` / `graphemeClusters`),
-font metrics, break-opportunity heuristics. Paired with a legacy
+font metrics, and UAX #14 break opportunities (calls the `core`
+`layout/uax14` classifier `lineBreakOpportunities`). Paired with a legacy
 `canvas-measurer` for callers that still consume the older `TextMeasurer`
 interface.
 
-Gaps as documented under `core`'s text section: full UAX #14, per-cluster
-UAX #9 bidi, complex-script glyph metrics (cluster advances approximate one
-base width per grapheme), hyphenation dictionaries.
+Gaps as documented under `core`'s text section: per-cluster UAX #9 bidi,
+complex-script glyph metrics (cluster advances approximate one base width
+per grapheme), hyphenation dictionaries. (UAX #14 line-break is no longer
+a gap — implemented.)
 
 The earlier inter-word paint/measure mismatch (space advances dropped vs.
 measured, observed at P1.B) no longer has a code cause: paint sums
