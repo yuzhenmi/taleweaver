@@ -1,7 +1,10 @@
 import type { ParagraphBidi } from "./ifc-bidi";
 import {
+  createInlineBox,
   createTextRunBox,
+  withInlineOffset,
   type InlineBox,
+  type InlineFragmentEdge,
   type LayoutBox,
   type TextRunBox,
 } from "./layout-box";
@@ -372,4 +375,200 @@ function flattenChildren(
       out.push({ leaf: child, ancestors });
     }
   }
+}
+
+/**
+ * Re-nest a line's VISUAL-ORDER leaves back into the nested `InlineBox` tree —
+ * the INVERSE of the IFC's `buildLineChildrenForAncestorLevel`.
+ *
+ * After {@link flattenLineToLeaves} produced ancestor-tagged leaves and the
+ * Task-6 reorder permuted them into VISUAL (left-to-right) order, this rebuilds
+ * the line's nested top-level children. Each `InlineBox` ancestor is
+ * reconstructed from its template (the original `InlineBox` carried on the
+ * leaves' `ancestors`, shared by `ancestorKey`), wrapping the recursively-built
+ * inner children. Geometry is packed left-to-right at every nesting level.
+ *
+ * **Contiguous-only grouping (the key bidi property).** Grouping at each depth
+ * is over MAXIMAL CONTIGUOUS runs sharing the same `ancestors[depth].ancestorKey`
+ * — mirroring the build's `j`-loop exactly. A bidi split that makes one inline's
+ * pieces NON-ADJACENT in visual order therefore yields TWO separate `InlineBox`
+ * fragments for that key (not one box spanning the gap). Both fragments carry the
+ * element's `ancestorKey` (the cross-line `assignFragmentEdges` post-pass groups
+ * by it); the 2nd+ fragment's `key` is suffixed to keep keys distinct.
+ *
+ * **fragmentEdge for SAME-LINE splits.** If a key produced exactly ONE fragment
+ * on this line → `"only"` (the cross-line post-pass refines it across lines). If
+ * it produced ≥2 fragments (a bidi split broke visual continuity), edges are
+ * assigned by LOGICAL order — each fragment's logical position is the MIN
+ * `sourceStart` among its leaves: logically-first → `"first"`, logically-last →
+ * `"last"`, any in between → `"middle"`. (CSS puts start-side decoration on the
+ * logically-first fragment, end-side on the last.)
+ *
+ * **Cross-line composition deferral.** A same-line-split inline that ALSO wraps
+ * to another line is the wire step's concern: it composes these single-line
+ * edges across lines (verified there). This function assigns ONLY the single-line
+ * edges.
+ *
+ * Pure: inputs are not mutated; every returned box is freshly built. Returned
+ * top-level children are packed from inline-offset 0; the caller shifts by the
+ * line's alignment origin later (out of scope here).
+ *
+ * @param visualLeaves leaves in VISUAL order, each tagged with its `ancestors`
+ *   (root-most first).
+ * @param lineInlineSize the line's inline size — passed as `containingInlineSize`
+ *   to every box on the line, at every nesting level (matching the build).
+ * @returns the line's nested top-level children, packed left-to-right.
+ */
+export function renestLeaves(
+  visualLeaves: readonly FlatLeaf[],
+  lineInlineSize: number,
+): LayoutBox[] {
+  return renestAtDepth(visualLeaves, 0, lineInlineSize);
+}
+
+/**
+ * Build the children at `depth`: leaves whose chain is shallow enough to live at
+ * this depth are emitted directly; maximal contiguous runs sharing the same
+ * ancestor key at this depth are wrapped in a rebuilt `InlineBox`. Children are
+ * packed left-to-right (first at offset 0, each next at prev.inlineOffset +
+ * prev.inlineSize).
+ */
+function renestAtDepth(
+  leaves: readonly FlatLeaf[],
+  depth: number,
+  lineInlineSize: number,
+): LayoutBox[] {
+  const out: LayoutBox[] = [];
+  // Per-ancestorKey fragment counter at THIS depth — used to suffix the 2nd+
+  // fragment's `key` (distinct keys) and to decide single-vs-split fragmentEdge.
+  const fragmentsForKey: Map<string, RebuiltFragment[]> = new Map();
+
+  let cursorInlineOffset = 0;
+  let i = 0;
+  while (i < leaves.length) {
+    const leaf = leaves[i];
+
+    if (leaf.ancestors.length <= depth) {
+      // Belongs at this depth — emit the leaf directly, repacked from the
+      // running cursor (its incoming inlineOffset is the pre-reorder value).
+      const repacked = withInlineOffset(leaf.leaf, cursorInlineOffset, lineInlineSize);
+      out.push(repacked);
+      cursorInlineOffset += repacked.inlineSize;
+      i += 1;
+      continue;
+    }
+
+    // Gather the maximal CONTIGUOUS run sharing the same ancestor key at `depth`.
+    const tmpl = leaf.ancestors[depth];
+    const ancestorKey = tmpl.ancestorKey;
+    let j = i;
+    while (
+      j < leaves.length &&
+      leaves[j].ancestors.length > depth &&
+      leaves[j].ancestors[depth].ancestorKey === ancestorKey
+    ) {
+      j += 1;
+    }
+    const run = leaves.slice(i, j);
+
+    // Recurse to build the inner children, packed from 0 RELATIVE to this box.
+    const innerChildren = renestAtDepth(run, depth + 1, lineInlineSize);
+    const boxInlineSize = innerChildren.reduce((acc, c) => acc + c.inlineSize, 0);
+
+    // Record the fragment; fragmentEdge is resolved in a second pass once all
+    // fragments for this key on this line are known.
+    const fragments = fragmentsForKey.get(ancestorKey) ?? [];
+    const fragmentIndex = fragments.length;
+    // Distinct key for the 2nd+ fragment to avoid collisions; ancestorKey
+    // (the element key) stays put for the cross-line post-pass.
+    const fragKey = fragmentIndex === 0 ? tmpl.key : `${tmpl.key}-frag${fragmentIndex}`;
+    const placeholder = createInlineBox(
+      fragKey,
+      cursorInlineOffset,
+      tmpl.blockOffset,
+      boxInlineSize,
+      tmpl.blockSize,
+      tmpl.writingMode,
+      tmpl.direction,
+      tmpl.computedStyle,
+      tmpl.usedStyle,
+      innerChildren,
+      /* fragmentEdge — provisional, fixed up below */ "only",
+      ancestorKey,
+      lineInlineSize,
+    );
+    const outIndex = out.length;
+    out.push(placeholder);
+    fragments.push({ outIndex, minSourceStart: minSourceStartOf(run) });
+    fragmentsForKey.set(ancestorKey, fragments);
+
+    cursorInlineOffset += boxInlineSize;
+    i = j;
+  }
+
+  // Second pass: assign fragmentEdge for keys that split into ≥2 fragments on
+  // this line. A single fragment stays "only" (cross-line post-pass refines it).
+  for (const fragments of fragmentsForKey.values()) {
+    if (fragments.length < 2) continue;
+    // Logical order = ascending minSourceStart. logically-first → "first",
+    // logically-last → "last", interior → "middle".
+    const byLogical = [...fragments].sort((a, b) => a.minSourceStart - b.minSourceStart);
+    for (let k = 0; k < byLogical.length; k++) {
+      const edge: InlineFragmentEdge =
+        k === 0 ? "first" : k === byLogical.length - 1 ? "last" : "middle";
+      const frag = byLogical[k];
+      const box = out[frag.outIndex];
+      if (box.type !== "inline") continue; // type guard; always an inline here.
+      out[frag.outIndex] = createInlineBox(
+        box.key,
+        box.inlineOffset,
+        box.blockOffset,
+        box.inlineSize,
+        box.blockSize,
+        box.writingMode,
+        box.direction,
+        box.computedStyle,
+        box.usedStyle,
+        box.children,
+        edge,
+        box.ancestorKey,
+        lineInlineSize,
+      );
+    }
+  }
+
+  return out;
+}
+
+/** Bookkeeping for an `InlineBox` fragment emitted at one depth on one line. */
+interface RebuiltFragment {
+  /** Index into the depth's `out` array where the fragment box lives. */
+  readonly outIndex: number;
+  /** The fragment's logical position — the MIN `sourceStart` over its leaves. */
+  readonly minSourceStart: number;
+}
+
+/**
+ * The minimum `sourceStart` over a run of leaves, recursing through any rebuilt
+ * `InlineBox` children. A leaf with no `sourceStart` (e.g. the empty-paragraph
+ * strut, or a MarkerBox) contributes `+Infinity` so it never falsely pulls a
+ * fragment's logical position earlier; if EVERY leaf lacks one, the result is
+ * `+Infinity` and the relative order among such fragments falls back to their
+ * stable sort position (visual order).
+ */
+function minSourceStartOf(leaves: readonly FlatLeaf[]): number {
+  let min = Number.POSITIVE_INFINITY;
+  for (const { leaf } of leaves) {
+    const s = sourceStartOfBox(leaf);
+    if (s < min) min = s;
+  }
+  return min;
+}
+
+/** `sourceStart` of a leaf box, or `+Infinity` if it carries none. */
+function sourceStartOfBox(box: LayoutBox): number {
+  if (box.type === "text-run" || box.type === "inline-block") {
+    return box.sourceStart ?? Number.POSITIVE_INFINITY;
+  }
+  return Number.POSITIVE_INFINITY;
 }

@@ -15,8 +15,10 @@ import { resolveParagraphBidi } from "./ifc-bidi";
 import { applyL1 } from "./uax9/reorder";
 import {
   flattenLineToLeaves,
+  renestLeaves,
   segmentLine,
   splitTextRunBoxAtOffset,
+  type FlatLeaf,
 } from "./ifc-bidi-reorder";
 
 const computedStyle: ComputedStyle = INITIAL_COMPUTED_STYLE;
@@ -569,5 +571,211 @@ describe("flattenLineToLeaves", () => {
     expect(children.length).toBe(1);
     expect(em.children.length).toBe(1);
     expect(em.children[0]).toBe(x);
+  });
+});
+
+describe("renestLeaves", () => {
+  const LINE_INLINE_SIZE = 1000;
+
+  function inlineTemplate(args: {
+    ancestorKey: string;
+    key?: string;
+  }): InlineBox {
+    // The ancestor template only contributes style/key/geometry metadata; its
+    // own children list is irrelevant to renest (which rebuilds children).
+    return createInlineBox(
+      args.key ?? args.ancestorKey,
+      /* inlineOffset */ 0,
+      /* blockOffset */ 0,
+      /* inlineSize */ 0,
+      /* blockSize */ 16,
+      /* writingMode */ "horizontal-tb",
+      /* direction */ "ltr",
+      computedStyle,
+      usedStyle,
+      /* children */ [],
+      /* fragmentEdge */ "only",
+      args.ancestorKey,
+      /* containingInlineSize */ LINE_INLINE_SIZE,
+    );
+  }
+
+  function leaf(box: LayoutBox, ancestors: readonly InlineBox[]): FlatLeaf {
+    return { leaf: box, ancestors };
+  }
+
+  function asInline(box: LayoutBox): InlineBox {
+    if (box.type !== "inline") throw new Error(`expected inline, got ${box.type}`);
+    return box;
+  }
+  function asTextRun(box: LayoutBox): TextRunBox {
+    if (box.type !== "text-run") throw new Error(`expected text-run, got ${box.type}`);
+    return box;
+  }
+
+  it("no inline: bare leaves returned as-is, repacked left-to-right", () => {
+    const a = makeBox({ key: "a", text: "a", offsetLength: 1, inlineSize: 10, sourceStart: 0 });
+    const b = makeBox({ key: "b", text: "b", offsetLength: 1, inlineSize: 20, sourceStart: 1 });
+    const c = makeBox({ key: "c", text: "c", offsetLength: 1, inlineSize: 30, sourceStart: 2 });
+
+    const out = renestLeaves([leaf(a, []), leaf(b, []), leaf(c, [])], LINE_INLINE_SIZE);
+
+    expect(out.length).toBe(3);
+    expect(out.map((x) => x.type)).toEqual(["text-run", "text-run", "text-run"]);
+    expect(asTextRun(out[0]).text).toBe("a");
+    expect(asTextRun(out[1]).text).toBe("b");
+    expect(asTextRun(out[2]).text).toBe("c");
+    // Packed: 0, 10, 10+20.
+    expect(out[0].inlineOffset).toBe(0);
+    expect(out[1].inlineOffset).toBe(10);
+    expect(out[2].inlineOffset).toBe(30);
+  });
+
+  it("uniform inline (no split): one InlineBox fragment, fragmentEdge 'only'", () => {
+    const em = inlineTemplate({ ancestorKey: "em" });
+    const a = makeBox({ key: "a", text: "a", offsetLength: 1, inlineSize: 10, sourceStart: 0 });
+    const bc = makeBox({ key: "bc", text: "bc", offsetLength: 2, inlineSize: 25, sourceStart: 1 });
+    const d = makeBox({ key: "d", text: "d", offsetLength: 1, inlineSize: 10, sourceStart: 3 });
+
+    const out = renestLeaves(
+      [leaf(a, []), leaf(bc, [em]), leaf(d, [])],
+      LINE_INLINE_SIZE,
+    );
+
+    expect(out.map((x) => x.type)).toEqual(["text-run", "inline", "text-run"]);
+    const emBox = asInline(out[1]);
+    expect(emBox.ancestorKey).toBe("em");
+    expect(emBox.fragmentEdge).toBe("only");
+    // em inlineSize = bc width; packed after a (offset 10).
+    expect(emBox.inlineSize).toBe(25);
+    expect(emBox.inlineOffset).toBe(10);
+    // bc inside the em at offset 0 (parent-relative).
+    expect(emBox.children.length).toBe(1);
+    expect(asTextRun(emBox.children[0]).text).toBe("bc");
+    expect(emBox.children[0].inlineOffset).toBe(0);
+    // d packed after the em (10 + 25).
+    expect(out[2].inlineOffset).toBe(35);
+  });
+
+  it("bidi-split inline: two non-adjacent pieces → two fragments, edges by logical order", () => {
+    const em = inlineTemplate({ ancestorKey: "em" });
+    // piece1 has the LOWER sourceStart (logically first); 'other' is between
+    // them in VISUAL order; piece2 has the higher sourceStart.
+    const piece1 = makeBox({ key: "p1", text: "x", offsetLength: 1, inlineSize: 12, sourceStart: 2 });
+    const other = makeBox({ key: "o", text: "o", offsetLength: 1, inlineSize: 10, sourceStart: 5 });
+    const piece2 = makeBox({ key: "p2", text: "y", offsetLength: 1, inlineSize: 14, sourceStart: 8 });
+
+    const out = renestLeaves(
+      [leaf(piece1, [em]), leaf(other, []), leaf(piece2, [em])],
+      LINE_INLINE_SIZE,
+    );
+
+    // TWO separate InlineBox fragments (contiguous-only grouping), with the
+    // bare leaf between them.
+    expect(out.map((x) => x.type)).toEqual(["inline", "text-run", "inline"]);
+    const frag1 = asInline(out[0]);
+    const frag2 = asInline(out[2]);
+    // Both carry the element's ancestorKey (for the cross-line post-pass).
+    expect(frag1.ancestorKey).toBe("em");
+    expect(frag2.ancestorKey).toBe("em");
+    // Logically-first fragment (lower sourceStart = piece1) → "first";
+    // logically-last (piece2) → "last".
+    expect(frag1.fragmentEdge).toBe("first");
+    expect(frag2.fragmentEdge).toBe("last");
+    // Each wraps its own piece.
+    expect(asTextRun(frag1.children[0]).text).toBe("x");
+    expect(asTextRun(frag2.children[0]).text).toBe("y");
+    // Geometry: frag1@0 (w12), other@12 (w10), frag2@22 (w14).
+    expect(frag1.inlineOffset).toBe(0);
+    expect(frag1.inlineSize).toBe(12);
+    expect(out[1].inlineOffset).toBe(12);
+    expect(frag2.inlineOffset).toBe(22);
+    expect(frag2.inlineSize).toBe(14);
+  });
+
+  it("bidi-split edges follow LOGICAL order even when visual order is reversed", () => {
+    const em = inlineTemplate({ ancestorKey: "em" });
+    // VISUAL order places the HIGHER-sourceStart piece first (RTL-style flip).
+    const visFirst = makeBox({ key: "vf", text: "y", offsetLength: 1, inlineSize: 14, sourceStart: 8 });
+    const other = makeBox({ key: "o", text: "o", offsetLength: 1, inlineSize: 10, sourceStart: 5 });
+    const visLast = makeBox({ key: "vl", text: "x", offsetLength: 1, inlineSize: 12, sourceStart: 2 });
+
+    const out = renestLeaves(
+      [leaf(visFirst, [em]), leaf(other, []), leaf(visLast, [em])],
+      LINE_INLINE_SIZE,
+    );
+
+    const fragVisFirst = asInline(out[0]);
+    const fragVisLast = asInline(out[2]);
+    // The visually-first fragment is logically LAST (sourceStart 8) → "last";
+    // the visually-last fragment is logically FIRST (sourceStart 2) → "first".
+    expect(fragVisFirst.fragmentEdge).toBe("last");
+    expect(fragVisLast.fragmentEdge).toBe("first");
+  });
+
+  it("nested <em><strong>: renests bottom-up into 2 levels", () => {
+    const em = inlineTemplate({ ancestorKey: "em" });
+    const strong = inlineTemplate({ ancestorKey: "strong" });
+    const z = makeBox({ key: "z", text: "z", offsetLength: 1, inlineSize: 18, sourceStart: 0 });
+
+    const out = renestLeaves([leaf(z, [em, strong])], LINE_INLINE_SIZE);
+
+    expect(out.length).toBe(1);
+    const emBox = asInline(out[0]);
+    expect(emBox.ancestorKey).toBe("em");
+    expect(emBox.fragmentEdge).toBe("only");
+    expect(emBox.children.length).toBe(1);
+    const strongBox = asInline(emBox.children[0]);
+    expect(strongBox.ancestorKey).toBe("strong");
+    expect(strongBox.fragmentEdge).toBe("only");
+    expect(asTextRun(strongBox.children[0]).text).toBe("z");
+    // Geometry rolls up: strong inlineSize = z width; em inlineSize = strong.
+    expect(strongBox.inlineSize).toBe(18);
+    expect(emBox.inlineSize).toBe(18);
+    // Children are parent-relative at offset 0 at each level.
+    expect(emBox.children[0].inlineOffset).toBe(0);
+    expect(strongBox.children[0].inlineOffset).toBe(0);
+  });
+
+  it("geometry: InlineBox inlineSize = sum of children; offsets pack left-to-right", () => {
+    const em = inlineTemplate({ ancestorKey: "em" });
+    const a = makeBox({ key: "a", text: "a", offsetLength: 1, inlineSize: 10, sourceStart: 0 });
+    const b = makeBox({ key: "b", text: "bb", offsetLength: 2, inlineSize: 20, sourceStart: 1 });
+    const c = makeBox({ key: "c", text: "ccc", offsetLength: 3, inlineSize: 30, sourceStart: 3 });
+
+    // <em>a bb ccc</em> — all three under em, contiguous (one fragment).
+    const out = renestLeaves(
+      [leaf(a, [em]), leaf(b, [em]), leaf(c, [em])],
+      LINE_INLINE_SIZE,
+    );
+
+    expect(out.length).toBe(1);
+    const emBox = asInline(out[0]);
+    expect(emBox.fragmentEdge).toBe("only");
+    expect(emBox.inlineSize).toBe(60); // 10 + 20 + 30
+    // Inner children packed 0, 10, 30.
+    expect(emBox.children.map((x) => x.inlineOffset)).toEqual([0, 10, 30]);
+    expect(emBox.children.map((x) => x.inlineSize)).toEqual([10, 20, 30]);
+  });
+
+  it("split fragments get distinct keys (2nd suffixed) but the same ancestorKey", () => {
+    const em = inlineTemplate({ ancestorKey: "em", key: "em-key" });
+    const p1 = makeBox({ key: "p1", text: "x", offsetLength: 1, inlineSize: 10, sourceStart: 1 });
+    const mid = makeBox({ key: "m", text: "m", offsetLength: 1, inlineSize: 10, sourceStart: 4 });
+    const p2 = makeBox({ key: "p2", text: "y", offsetLength: 1, inlineSize: 10, sourceStart: 7 });
+
+    const out = renestLeaves(
+      [leaf(p1, [em]), leaf(mid, []), leaf(p2, [em])],
+      LINE_INLINE_SIZE,
+    );
+
+    const frag1 = asInline(out[0]);
+    const frag2 = asInline(out[2]);
+    expect(frag1.key).toBe("em-key");
+    expect(frag2.key).toBe("em-key-frag1");
+    expect(frag1.key).not.toBe(frag2.key);
+    // ancestorKey stays the element key on BOTH (cross-line grouping).
+    expect(frag1.ancestorKey).toBe("em");
+    expect(frag2.ancestorKey).toBe("em");
   });
 });
