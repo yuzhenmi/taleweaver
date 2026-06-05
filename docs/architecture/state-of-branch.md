@@ -90,8 +90,9 @@ Most of the layout pass is implemented and working:
   runs. Subtree reuse works including the "rebuilt parent with
   unchanged children" gate.
 - IFC: line wrap, baseline alignment, full UAX #9 bidi reorder
-  (mixed-direction geometry — see gaps re: glyph paint), hyphen
-  splitting, inline-block sizing, paragraph-level reuse.
+  (mixed-direction geometry + RTL glyph paint + RTL cursor — see the
+  bidi entry below for browser-smoke status), hyphen splitting,
+  inline-block sizing, paragraph-level reuse.
 - Table FC: auto-layout column widths from intrinsic sizes,
   anonymous row/cell synthesis.
 - Float environment: full CSS 9.5 placement with push-below-if-needed,
@@ -105,23 +106,34 @@ Known gaps:
 - **Inline-block shrink-to-fit** does not clamp `max-content` to
   available width, diverging from CSS Sizing 3 §10.3.5. Long inline-
   blocks overflow horizontally instead of clamping.
-- **Bidi reorder — geometry done, glyph paint + RTL cursor pending.**
-  The **full UAX #9 algorithm engine** (`layout/uax9/`, P4-A:
-  `resolveBidiLevels` P/X/W/N/I + `reorderVisual`/`applyL1`/
+- **Bidi — geometry + glyph paint + RTL cursor implemented; in-browser
+  smoke pending.** The **full UAX #9 algorithm engine** (`layout/uax9/`,
+  P4-A: `resolveBidiLevels` P/X/W/N/I + `reorderVisual`/`applyL1`/
   `reorderRunsByLevel`, conformant against the official `BidiTest.txt` +
   `BidiCharacterTest.txt` at 100%, zero runtime deps) is wired into the IFC
   (P4-B `resolveParagraphBidi`; P4-C.1 `reorderLineForBidi` +
-  `ifc-bidi-reorder.ts`). Mixed-direction lines now reorder into correct
+  `ifc-bidi-reorder.ts`). Mixed-direction lines reorder into correct
   **visual box geometry** — paragraph-level resolution → post-L1
   segmentation → flatten/segment/`reorderRunsByLevel`/re-nest → physical
-  coordinates (see `1.4-layout/1.4.2-ifc.md` "Bidi handling"). Each
-  reordered run carries its `bidiLevel`. `[partial]` Remaining: (a) the
-  painter still draws each run's glyphs left-to-right — intra-run **RTL
-  glyph order** keyed on `bidiLevel` is P4-C.1 T7; (b) **RTL cursor /
-  hit-test / selection** (caret affinity, visual-order navigation) is
-  P4-C.2. So Hebrew embedded in English now sits in the right place, but
-  the RTL word's own glyphs are not yet reversed and caret motion through
-  it is not yet visual-order-aware.
+  coordinates (see `1.4-layout/1.4.2-ifc.md` "Bidi handling"); each
+  reordered run carries its `bidiLevel`. **Glyph paint** (P4-C.1 T7) is
+  done: the canvas renderer reverses a run's cluster placement when
+  `bidiLevel` is odd, so an RTL run's own glyphs read right-to-left. **RTL
+  cursor / hit-test / selection / navigation** (P4-C.2) is done: the cursor
+  layer (`cursor/line-bidi.ts` `LineBidiView` + `caretXInLeaf` /
+  `offsetInLeaf` / `moveVisually` / `selectionRectsForLineRange`,
+  `cursor/visual-motion.ts`, and `EditorState.caretAffinity` managed by
+  `actionManagesCaretAffinity`) makes caret X, click→offset, boundary-
+  crossing selection rects, and visual-order ArrowLeft/Right + Shift+Arrow
+  all bidi-aware; Home/End stay logical and render at the correct visual
+  edge via affinity (see `1.7-editor.md` "Bidi cursor"). So Hebrew embedded
+  in English now sits in the right place, reads right-to-left, and caret
+  motion through it is visual-order-aware — all unit-verified. `[partial]`
+  Remaining for the whole P4 bidi feature: the in-browser smoke validation,
+  including a handful of `TODO(C.2.7 browser-confirm)` boundary cases (the
+  left-going dual-caret double-stop; the cross-line visual edge when a
+  line's content direction differs from the paragraph base; the exact
+  Google-Docs RTL Home/End rendering).
 - **Convergence detection for incremental wrap** (`rewrapIncremental`)
   is implemented and tested in `wrap-incremental.ts` but not yet wired
   into the IFC's main wrap loop — foundation-built-ahead, scoped to P18.
