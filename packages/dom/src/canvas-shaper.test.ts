@@ -69,14 +69,37 @@ describe("createCanvasShaper", () => {
     const shaper = createCanvasShaper(canvas);
     const run = shaper.shape("a b c", cs, "ltr");
     const softs = run.breakOpportunities.filter((b) => b.kind === "soft");
-    expect(softs.map((b) => b.clusterIndex)).toEqual([1, 3]);
+    // UAX #14 places the break AFTER the space (before the next word), not AT
+    // the space. For "a b c" (spaces at 1, 3) the opportunities are at 2 and 4.
+    expect(softs.map((b) => b.clusterIndex)).toEqual([2, 4]);
   });
 
   it("emits hard breaks at newlines", () => {
     const shaper = createCanvasShaper(canvas);
     const run = shaper.shape("a\nb\rc", cs, "ltr");
     const hards = run.breakOpportunities.filter((b) => b.kind === "hard");
-    expect(hards.map((b) => b.clusterIndex)).toEqual([1, 3]);
+    // UAX #14 LB5: the mandatory break is AFTER the newline (before the next
+    // char). For "a\nb\rc" (\n at 1, \r at 3) the breaks are at 2 and 4.
+    expect(hards.map((b) => b.clusterIndex)).toEqual([2, 4]);
+  });
+
+  it("CJK: soft break between every ideograph (UAX #14)", () => {
+    const shaper = createCanvasShaper(canvas);
+    const run = shaper.shape("一二三四", cs, "ltr");
+    const softs = run.breakOpportunities
+      .filter((b) => b.kind === "soft")
+      .map((b) => b.clusterIndex);
+    expect(softs).toEqual([1, 2, 3]);
+  });
+
+  it("NBSP (U+00A0, GL): NO soft break around the non-breaking space", () => {
+    const shaper = createCanvasShaper(canvas);
+    const run = shaper.shape("a\u00A0b", cs, "ltr"); // a + NBSP (U+00A0) + b
+    const softs = run.breakOpportunities
+      .filter((b) => b.kind === "soft")
+      .map((b) => b.clusterIndex);
+    expect(softs).not.toContain(1);
+    expect(softs).not.toContain(2);
   });
 
   it("RTL baseDirection sets bidiLevel to 1", () => {

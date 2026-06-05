@@ -21,11 +21,10 @@ export interface Cluster {
 
 /**
  * A break opportunity in a shaped run. The IFC consults these when
- * choosing line-wrap points. UAX-14 line-break-opportunity-spec is the
- * source of truth for canonical implementations.
- *
- * Plan 3.C reserves the `"hyphen"` kind; the canvas backend does not
- * produce them until a hyphenation backend is wired in (Plan 4 or later).
+ * choosing line-wrap points. The `"soft"` and `"hard"` kinds are produced by
+ * the conformant UAX #14 line-break classifier (both the mock and canvas
+ * backends call it). The `"hyphen"` kind remains reserved for a future
+ * hyphenation backend — no backend produces it yet.
  */
 export interface BreakOpportunity {
   /**

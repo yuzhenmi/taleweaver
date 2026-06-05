@@ -7,7 +7,7 @@ import type {
   BreakOpportunity,
   FontMetrics,
 } from "@taleweaver/core";
-import { resolveSpacingPx, clusterSpacing } from "@taleweaver/core";
+import { resolveSpacingPx, clusterSpacing, lineBreakOpportunities } from "@taleweaver/core";
 import { buildCssFontString } from "./font-config";
 import { segmentClusters } from "./text-clusters";
 
@@ -18,8 +18,9 @@ import { segmentClusters } from "./text-clusters";
  *   - Each UAX #29 grapheme cluster is one cluster (combining marks, surrogate
  *     pairs, ZWJ sequences, regional-indicator flags each form one cluster) with
  *     per-cluster `measureText` metrics — no HarfBuzz shaping / ligature detection.
- *   - Break opportunities use a simple whitespace + hard-break heuristic
- *     (full UAX-14 deferred).
+ *   - Break opportunities come from the conformant UAX #14 line-break
+ *     classifier (soft/hard kinds); the `hyphen` kind stays reserved for a
+ *     future hyphenation backend.
  *   - Bidi level is uniform per shaped run (0 or 1 based on baseDirection).
  *     Mixed-direction text is not bidi-resolved at the cluster level.
  *
@@ -96,16 +97,16 @@ export function createCanvasShaper(
       start += c.length;
     }
 
-    const breakOpportunities: BreakOpportunity[] = [];
-    for (let i = 0; i < text.length; i++) {
-      const c = text[i];
-      if (c === "\n" || c === "\r") {
-        breakOpportunities.push({ clusterIndex: i, kind: "hard" });
-      } else if (i > 0 && /\s/.test(c)) {
-        breakOpportunities.push({ clusterIndex: i, kind: "soft" });
-      }
-    }
-    breakOpportunities.sort((a, b) => a.clusterIndex - b.clusterIndex);
+    // UAX #14 line-break opportunities. `cjBreakable: true` mirrors CSS
+    // `line-break: normal` (the editor default — CJ small-kana breakable).
+    // Maps the classifier's `mandatory` → "hard", optional → "soft".
+    // `clusterIndex` is the UTF-16 code-unit offset of the break (BEFORE it).
+    const breakOpportunities: BreakOpportunity[] = lineBreakOpportunities(text, {
+      cjBreakable: true,
+    }).map((p) => ({
+      clusterIndex: p.index,
+      kind: p.mandatory ? ("hard" as const) : ("soft" as const),
+    }));
 
     const fm = measureFontMetricsImpl(style);
 
