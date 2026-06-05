@@ -26,7 +26,8 @@ export type WrapOneLineFn = (
  * Compare two tokens for full content equality.
  * Compares: id, text, width, isSpace, isLineBreak, style (by reference),
  * inlineBlock (by reference), inlineAncestors (shallow array equality),
- * and inlineAncestorStyles (shallow array equality).
+ * inlineAncestorStyles (shallow array equality), softBreaks (shallow array
+ * equality, absent ≡ empty), and breakableBefore (absent ≡ true).
  */
 function tokensEqual(a: Token, b: Token): boolean {
   if (a === b) return true;
@@ -39,8 +40,16 @@ function tokensEqual(a: Token, b: Token): boolean {
   if (a.inlineBlock !== b.inlineBlock) return false;
   if (!arraysShallowEqual(a.inlineAncestors, b.inlineAncestors)) return false;
   if (!arraysShallowEqual(a.inlineAncestorStyles, b.inlineAncestorStyles)) return false;
+  // softBreaks / breakableBefore are pure derivations of the IFC source text, so
+  // including them in the cache key never weakens it — it tracks the
+  // already-implied source change.
+  if (!arraysShallowEqual(a.softBreaks ?? EMPTY_NUM, b.softBreaks ?? EMPTY_NUM)) return false;
+  if ((a.breakableBefore ?? true) !== (b.breakableBefore ?? true)) return false;
   return true;
 }
+
+/** Module-scope empty array to avoid per-call allocation in the softBreaks default. */
+const EMPTY_NUM: readonly number[] = [];
 
 /**
  * Check if two arrays are equal by shallow reference comparison.

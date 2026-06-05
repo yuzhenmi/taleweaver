@@ -107,6 +107,21 @@ interface Token {
    */
   hyphenBreaks?: readonly number[];
   /**
+   * UAX #14 SOFT break opportunities INTERIOR to this token's display text
+   * (offsets relative to `text`, in (0, text.length)). The wrap loop may
+   * split the token here (via `trySoftSplit`) — e.g. between CJK ideographs.
+   * Mirrors `hyphenBreaks` but carries no hyphen glyph. Bounded to the DISPLAY
+   * span, never the collapsed-whitespace zone.
+   */
+  softBreaks?: readonly number[];
+  /**
+   * Whether the wrap loop may break the line BEFORE this token. Derived from
+   * UAX #14 over the IFC source text (gated by white-space). Default-absent is
+   * treated as `true` (break allowed). `false` = e.g. an NBSP-joined neighbour
+   * that must stay on the same line even if it overflows.
+   */
+  breakableBefore?: boolean;
+  /**
    * Width of each character (cluster) in this token's text, in order.
    * Used to compute the width of a prefix when splitting at a hyphen break.
    */

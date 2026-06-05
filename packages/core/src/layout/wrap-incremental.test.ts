@@ -126,6 +126,28 @@ describe("findChangePoint", () => {
     const b = { ...makeToken("t:0"), style: style2 };
     expect(findChangePoint([a], [b])).toBe(0);
   });
+
+  it("tokens differing only in softBreaks are NOT equal (cache key includes derived breaks)", () => {
+    const base = makeToken("k:0");
+    const a = { ...base, softBreaks: [1] as readonly number[] };
+    const b = { ...base, softBreaks: [2] as readonly number[] };
+    expect(findChangePoint([a], [b])).toBe(0);
+  });
+
+  it("tokens differing only in breakableBefore are NOT equal", () => {
+    const base = makeToken("k:0");
+    expect(
+      findChangePoint(
+        [{ ...base, breakableBefore: true }],
+        [{ ...base, breakableBefore: false }],
+      ),
+    ).toBe(0);
+  });
+
+  it("identical softBreaks/breakableBefore stay equal (reuse preserved)", () => {
+    const t = makeToken("k:0", { softBreaks: [1], breakableBefore: false });
+    expect(findChangePoint([t], [{ ...t }])).toBe(-1);
+  });
 });
 
 describe("findLineForToken", () => {
