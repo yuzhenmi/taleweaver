@@ -19,15 +19,20 @@ describe("createMockShaper", () => {
     const shaper = createMockShaper(8, 16);
     const run = shaper.shape("a b c", cs, "ltr");
     const softs = run.breakOpportunities.filter(b => b.kind === "soft");
-    // Spaces at indices 1 and 3
-    expect(softs.map(b => b.clusterIndex)).toEqual([1, 3]);
+    // UAX #14 places the break opportunity AFTER the space (before the next
+    // word), not AT the space. For "a b c" (spaces at 1, 3) the opportunities
+    // are at offsets 2 and 4. Derived from lineBreakOpportunities("a b c").
+    expect(softs.map(b => b.clusterIndex)).toEqual([2, 4]);
   });
 
   it("emits hard breaks at \\n and \\r", () => {
     const shaper = createMockShaper(8, 16);
     const run = shaper.shape("a\nb\rc", cs, "ltr");
     const hards = run.breakOpportunities.filter(b => b.kind === "hard");
-    expect(hards.map(b => b.clusterIndex)).toEqual([1, 3]);
+    // UAX #14 LB5: the mandatory break is AFTER the newline (before the next
+    // char), not AT the newline. For "a\nb\rc" (\n at 1, \r at 3) the mandatory
+    // breaks are at offsets 2 and 4. Derived from lineBreakOpportunities.
+    expect(hards.map(b => b.clusterIndex)).toEqual([2, 4]);
   });
 
   it("RTL baseDirection sets bidiLevel to 1", () => {
@@ -114,5 +119,31 @@ describe("mock-shaper letter/word-spacing", () => {
     expect(run.clusters.map(c => c.inlineAdvance)).toEqual([9, 11]); // 6+3, 8+3
     expect(run.unbreakableRunInlineSize).toBe(20);
     expect(run.minClusterInlineSize).toBe(11); // widest spaced cluster
+  });
+});
+
+describe("mock-shaper UAX#14 breakOpportunities (S2.3)", () => {
+  const cs = INITIAL_COMPUTED_STYLE;
+  it("CJK: soft break between every ideograph", () => {
+    const run = createMockShaper(8, 16).shape("一二三四", cs, "ltr");
+    const softs = run.breakOpportunities.filter(b => b.kind === "soft").map(b => b.clusterIndex);
+    expect(softs).toEqual([1, 2, 3]);
+  });
+  it("NBSP (U+00A0, GL): NO soft break around the non-breaking space", () => {
+    const text = "a\u00A0b"; // a + NBSP (U+00A0) + b
+    const run = createMockShaper(8, 16).shape(text, cs, "ltr");
+    const softs = run.breakOpportunities.filter(b => b.kind === "soft").map(b => b.clusterIndex);
+    expect(softs).not.toContain(1);
+    expect(softs).not.toContain(2);
+  });
+  it("regular space still a soft break (Latin unchanged)", () => {
+    const run = createMockShaper(8, 16).shape("a b", cs, "ltr");
+    const softs = run.breakOpportunities.filter(b => b.kind === "soft").map(b => b.clusterIndex);
+    expect(softs).toContain(2); // break before 'b' (after the space)
+  });
+  it("newline is a hard break", () => {
+    const run = createMockShaper(8, 16).shape("a\nb", cs, "ltr");
+    // UAX #14 LB5: mandatory break is AFTER the LF (before 'b'), i.e. offset 2.
+    expect(run.breakOpportunities.filter(b => b.kind === "hard").map(b => b.clusterIndex)).toEqual([2]);
   });
 });

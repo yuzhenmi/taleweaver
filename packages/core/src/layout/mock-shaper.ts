@@ -5,29 +5,27 @@ import type {
 } from "./text-shaper";
 import { resolveSpacingPx, clusterSpacing } from "./text-spacing";
 import { graphemeClusters } from "./graphemes";
+import { lineBreakOpportunities } from "./uax14";
 
 /**
- * Shared break-opportunity logic for the mock shapers: hard break at `\n`/`\r`;
- * soft break before any whitespace cluster past index 0. Sorted by clusterIndex.
- * Kept in one place so the fixed-width and variable-width mocks can't drift.
+ * Shared break-opportunity logic for the mock shapers, via the UAX #14 line-break
+ * classifier. `cjBreakable: true` mirrors CSS `line-break: normal` (the editor
+ * default — CJ small-kana breakable). Maps the classifier's `mandatory` →
+ * `"hard"` and optional → `"soft"`. `clusterIndex` is the UTF-16 code-unit offset
+ * where the break may occur (break is BEFORE this offset), matching
+ * `BreakOpportunity.clusterIndex`. Kept in one place so the fixed-width and
+ * variable-width mocks can't drift. Returns already-sorted offsets.
  */
 function computeBreakOpportunities(text: string): BreakOpportunity[] {
-  const breakOpportunities: BreakOpportunity[] = [];
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (c === "\n" || c === "\r") {
-      breakOpportunities.push({ clusterIndex: i, kind: "hard" });
-    } else if (i > 0 && /\s/.test(c)) {
-      breakOpportunities.push({ clusterIndex: i, kind: "soft" });
-    }
-  }
-  breakOpportunities.sort((a, b) => a.clusterIndex - b.clusterIndex);
-  return breakOpportunities;
+  return lineBreakOpportunities(text, { cjBreakable: true }).map(p => ({
+    clusterIndex: p.index,
+    kind: p.mandatory ? ("hard" as const) : ("soft" as const),
+  }));
 }
 
 /**
  * Mock shaper for tests: each UAX #29 grapheme cluster is one cluster of fixed
- * width; soft breaks at whitespace; hard breaks at \n / \r.
+ * width; break opportunities from the UAX #14 classifier (soft/hard).
  */
 export function createMockShaper(charWidth: number, lineHeight: number): TextShaper {
   const ascent  = lineHeight * 0.8;
@@ -102,7 +100,7 @@ export function createMockShaper(charWidth: number, lineHeight: number): TextSha
  * the widest — exercising the `restMin` form of the text-indent intrinsic rule
  * (which `widestCluster + indent` would get wrong).
  *
- * Soft breaks at whitespace; hard breaks at \n / \r (same as createMockShaper).
+ * Break opportunities from the UAX #14 classifier (same as createMockShaper).
  */
 export function createVariableMockShaper(
   widthByChar: Readonly<Record<string, number>>,
