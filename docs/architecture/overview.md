@@ -76,7 +76,7 @@ The repository is an npm workspaces monorepo.
 
 Consequences for the architecture:
 
-- **Unicode algorithms (UAX #9 / #14 / #29).** The canvas shaper uses `Intl.Segmenter` (a built-in browser/Node API, not a dependency) for grapheme + word segmentation. UAX #14 line-break and UAX #9 bidi are hand-rolled — the spec tables are small and embeddable.
+- **Unicode algorithms (UAX #9 / #14 / #29).** The shaper segments text into **grapheme clusters** (UAX #29) via `Intl.Segmenter` (a built-in browser/Node API, not a dependency) — each cluster is one shaper cluster, and cursor/selection/delete snap to cluster boundaries. UAX #14 line-break and UAX #9 bidi are **not yet implemented**: v1 uses a whitespace + hard-break heuristic and a single uniform per-run bidi level; the target is hand-rolled algorithms (the spec tables are small and embeddable).
 - **Hyphenation.** Hyphenation patterns (multi-megabyte language dictionaries) are provided by the host through an optional callback on the canvas shaper. Dictionaries are not bundled in either package. Consumers who want real hyphenation supply patterns from their own loader.
 - **Heavier text shapers (e.g., HarfBuzz).** Layered as separate packages (`@taleweaver/shaper-harfbuzz`) that the consumer optionally installs. Such packages can have their own runtime dependencies; they implement the `TextShaper` interface and the consumer wires them in via `EditorConfig.measurer`.
 - **Embedded media, charts, equations.** Same pattern — separate optional packages plug in via custom render-fn `ComponentDefinition`s.

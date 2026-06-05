@@ -153,9 +153,13 @@ Known gaps:
   dash) rather than the full Unicode line-break property table.
   Sufficient for Latin and most CJK; corners for languages with
   unusual break behavior.
-- **UAX #29 grapheme clusters** are partially correct (basic combining
-  marks via canvas measurement) but cluster boundaries for emoji ZWJ
-  sequences may be imperfect.
+- **UAX #29 grapheme cluster boundaries** are correct: `segmentClusters`
+  groups graphemes via `Intl.Segmenter` (`graphemeClusters`), so a base +
+  combining marks, a surrogate-pair emoji, an emoji ZWJ sequence, and a
+  regional-indicator flag are each one cluster. The gap is glyph *metrics*,
+  not boundaries: a cluster's advance is one base width per grapheme (combining
+  marks add 0), an approximation of true complex-script positioning until a
+  HarfBuzz-quality shaper is wired.
 - **Hyphenation dictionaries** are not loaded; `hyphens: auto` falls
   back to no-hyphenation regardless of language.
 
@@ -286,13 +290,15 @@ last-root tracking, `hashPaintInputs`. Wired into the editor controller.
 
 ### `canvas-shaper` `[partial]`
 
-Canvas-based default text shaper. Uniform-direction bidi, basic
-cluster boundaries, font metrics, break-opportunity heuristics. Paired
-with a legacy `canvas-measurer` for callers that still consume the
-older `TextMeasurer` interface.
+Canvas-based default text shaper. Uniform-direction bidi, UAX #29
+grapheme-cluster boundaries (via `Intl.Segmenter` / `graphemeClusters`),
+font metrics, break-opportunity heuristics. Paired with a legacy
+`canvas-measurer` for callers that still consume the older `TextMeasurer`
+interface.
 
-Gaps as documented under `core`'s text section: full UAX #14, full
-grapheme-cluster boundaries, hyphenation dictionaries.
+Gaps as documented under `core`'s text section: full UAX #14, per-cluster
+UAX #9 bidi, complex-script glyph metrics (cluster advances approximate one
+base width per grapheme), hyphenation dictionaries.
 
 The earlier inter-word paint/measure mismatch (space advances dropped vs.
 measured, observed at P1.B) no longer has a code cause: paint sums
