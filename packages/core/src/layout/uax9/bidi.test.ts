@@ -8,6 +8,8 @@ import {
   computeIsolatingRunSequences,
   applyWeak,
   applyNeutral,
+  applyImplicit,
+  resolveBidiLevels,
 } from "./bidi";
 
 // Explicit-formatting code points used by the X-pass tests.
@@ -603,5 +605,132 @@ describe("applyNeutral (N0–N2)", () => {
     // so N2 applies the embedding direction of the ON (level 0 → L).
     const t = runNeutral("a*" + HEB, 0);
     expect(t[1]).toBe(CC.L);
+  });
+});
+
+/**
+ * Run the X→W→N passes for `s` at `paragraphLevel`, then apply I1/I2 per
+ * isolating run sequence (mutating `levels` in place). Returns the post-I
+ * `levels` array so tests can assert the implicit embedding levels. Mirrors
+ * `runNeutral` but adds `applyImplicit` and surfaces `levels`.
+ */
+function runImplicit(s: string, paragraphLevel: number): Uint8Array {
+  const c = codes(s);
+  const codePoints = Uint32Array.from(
+    [...s].map((ch) => ch.codePointAt(0) ?? 0),
+  );
+  const { matchingPDI, matchingIsolate } = computeMatchingPDI(c);
+  const { levels, workingTypes } = applyExplicit(
+    c,
+    paragraphLevel,
+    matchingPDI,
+    matchingIsolate,
+  );
+  const seqs = computeIsolatingRunSequences(
+    c,
+    levels,
+    workingTypes,
+    matchingPDI,
+    matchingIsolate,
+    paragraphLevel,
+  );
+  const resolvedTypes = Uint8Array.from(workingTypes);
+  for (const seq of seqs) {
+    applyWeak(seq, resolvedTypes);
+    applyNeutral(seq, codePoints, levels, resolvedTypes);
+    applyImplicit(seq, levels, resolvedTypes);
+  }
+  return levels;
+}
+
+describe("applyImplicit (I1/I2)", () => {
+  it("I1: at an even (LTR) level, an R bumps +1 (0→1)", () => {
+    // base 0: 0:a(L) 1:HEB(R). a stays level 0 (L at even); the R → level 1.
+    const levels = runImplicit(`a${HEB}`, 0);
+    expect(levels[0]).toBe(0); // L at even level — unchanged
+    expect(levels[1]).toBe(1); // R at even level → +1
+  });
+
+  it("I1: at an even (LTR) level, EN bumps +2 (0→2) and AN bumps +2 (0→2)", () => {
+    // base 0: 0:HEB(R) 1:EN 2:AND(AN). HEB keeps the EN/AN as EN/AN through W
+    // (preceded by R, so W7 does not turn the EN into L). At even level 0 both
+    // the EN and the AN bump +2 → level 2. (HEB itself → 1 by I1.)
+    const levels = runImplicit(`${HEB}${EN_DIGIT}${AND}`, 0);
+    expect(levels[0]).toBe(1); // R → +1
+    expect(levels[1]).toBe(2); // EN at even level → +2
+    expect(levels[2]).toBe(2); // AN at even level → +2
+  });
+
+  it("I2: at an odd (RTL) level, an L bumps +1, and EN/AN bump +1", () => {
+    // base 1 (odd embedding level 1): 0:a(L) 1:EN 2:AND(AN). At level 1 the L,
+    // EN and AN each bump +1 → level 2. (W7 cannot turn the EN into L because the
+    // sos at base 1 is R; the EN stays EN preceded by R-context.)
+    const levels = runImplicit(`a${EN_DIGIT}${AND}`, 1);
+    expect(levels[0]).toBe(2); // L at odd level → +1
+    expect(levels[1]).toBe(2); // EN at odd level → +1
+    expect(levels[2]).toBe(2); // AN at odd level → +1
+  });
+
+  it("I2: at an odd (RTL) level, an R keeps its level", () => {
+    // base 1: 0:HEB(R). R at odd level 1 stays 1.
+    const levels = runImplicit(`${HEB}`, 1);
+    expect(levels[0]).toBe(1);
+  });
+});
+
+describe("resolveBidiLevels (full pipeline)", () => {
+  it("base ltr: Latin level 0, Hebrew level 1, digits resolve, paragraphLevel 0", () => {
+    const text = "hello אבג 123";
+    const { levels, types, paragraphLevel } = resolveBidiLevels(text, "ltr");
+    expect(paragraphLevel).toBe(0);
+    expect(levels.length).toBe([...text].length);
+    // "hello" — Latin (L) at level 0.
+    for (let i = 0; i < 5; i++) expect(levels[i]).toBe(0);
+    expect(levels[5]).toBe(0); // the space between "hello" and Hebrew → L run, level 0
+    // "אבג" — Hebrew (R) at level 1 (I1 even+R → +1).
+    expect(levels[6]).toBe(1);
+    expect(levels[7]).toBe(1);
+    expect(levels[8]).toBe(1);
+    // " 123" — the digits follow Hebrew context; EN preceded by R stays EN, and
+    // at even level 0 I1 bumps EN +2 → level 2.
+    expect(levels[10]).toBe(2); // '1'
+    expect(levels[11]).toBe(2); // '2'
+    expect(levels[12]).toBe(2); // '3'
+    // `types` is the ORIGINAL class codes (NOT resolved): leading 'h' is L.
+    expect(types[0]).toBe(CC.L);
+    expect(types[6]).toBe(CC.R); // Hebrew alef original class is R
+    // DISCRIMINATING: index 5 is the space, originally WS. The neutral passes
+    // resolve its *type* to a strong direction, so this assertion FAILS if the
+    // return ever regresses to `types: resolvedTypes` instead of the raw codes —
+    // the exact slip that would silently break L1 in the reorder pass.
+    expect(types[5]).toBe(CC.WS);
+    expect(types.length).toBe([...text].length);
+  });
+
+  it("base rtl: a leading Latin run sits at an odd level above the RTL base", () => {
+    // paragraphLevel 1 (RTL). "abc" is L at odd level 1 → I2 bumps each +1 → 2.
+    const text = "abc";
+    const { levels, paragraphLevel } = resolveBidiLevels(text, "rtl");
+    expect(paragraphLevel).toBe(1);
+    expect(levels[0]).toBe(2);
+    expect(levels[1]).toBe(2);
+    expect(levels[2]).toBe(2);
+  });
+
+  it("base auto: the first strong char picks the direction (Hebrew → paragraphLevel 1)", () => {
+    const text = "אבג hello";
+    const { levels, paragraphLevel } = resolveBidiLevels(text, "auto");
+    expect(paragraphLevel).toBe(1);
+    // Hebrew (R) at odd base level 1 stays 1.
+    expect(levels[0]).toBe(1);
+    expect(levels[1]).toBe(1);
+    expect(levels[2]).toBe(1);
+    // "hello" — Latin (L) at odd level 1 → I2 +1 → 2.
+    expect(levels[4]).toBe(2);
+  });
+
+  it("base auto: a leading Latin char picks LTR (paragraphLevel 0)", () => {
+    const { paragraphLevel } = resolveBidiLevels("hello אבג", "auto");
+    expect(paragraphLevel).toBe(0);
   });
 });

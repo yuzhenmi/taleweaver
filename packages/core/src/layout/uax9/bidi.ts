@@ -865,3 +865,111 @@ function applyNsmFollowOn(
     types[idx[k]] = t;
   }
 }
+
+// ===========================================================================
+// I1–I2 — implicit (resolved) embedding levels. MODULE-INTERNAL (exported for
+// tests + the resolveBidiLevels driver below).
+// ===========================================================================
+
+/**
+ * UAX #9 rules I1 and I2 — raise the embedding levels of one isolating run
+ * sequence, IN PLACE in `levels`, based on each character's RESOLVED type (the
+ * post-W/post-N type in `types`) and its OWN current level parity. Only the
+ * positions in `seq.indices` are read or written.
+ *
+ *  - I1 (character at an EVEN — LTR — embedding level): if its resolved type is
+ *    R → level += 1; if EN or AN → level += 2.
+ *  - I2 (character at an ODD — RTL — embedding level): if its resolved type is
+ *    L, EN, or AN → level += 1.
+ *
+ * A character whose resolved type is L at an even level, or R at an odd level,
+ * keeps its level. After the W and N passes every position in a sequence is
+ * resolved to one of L, R, EN, or AN, so those are the only cases handled here.
+ *
+ * BN positions and the explicit-formatting positions are already excluded from
+ * `seq.indices` (the §5.2 retaining model drops them from sequences), so they
+ * are never touched here — they keep the X-pass levels they were assigned.
+ */
+export function applyImplicit(
+  seq: IsolatingRunSequence,
+  levels: Uint8Array,
+  types: Uint8Array,
+): void {
+  const idx = seq.indices;
+  for (let k = 0; k < idx.length; k++) {
+    const abs = idx[k];
+    const t = types[abs];
+    if ((levels[abs] & 1) === 0) {
+      // I1 — even (LTR) level.
+      if (t === CC.R) levels[abs] += 1;
+      else if (t === CC.EN || t === CC.AN) levels[abs] += 2;
+    } else {
+      // I2 — odd (RTL) level.
+      if (t === CC.L || t === CC.EN || t === CC.AN) levels[abs] += 1;
+    }
+  }
+}
+
+// ===========================================================================
+// resolveBidiLevels — the public single-paragraph driver wiring the whole UBA.
+// MODULE-INTERNAL (the barrel export lands in a later task).
+// ===========================================================================
+
+/**
+ * Resolve the per-codepoint embedding levels of a SINGLE paragraph via the full
+ * Unicode Bidirectional Algorithm.
+ *
+ * Pipeline (UAX #9), per codepoint, 1:1 with the input throughout:
+ *  1. Classify each code point (Bidi_Class → class code).
+ *  2. Paragraph level (P2/P3): "ltr" → 0, "rtl" → 1, "auto" → computed from the
+ *     first strong character.
+ *  3. BD9 isolate pre-scan (computeMatchingPDI).
+ *  4. X1–X10 explicit levels / isolating-run-sequence partition.
+ *  5. Per isolating run sequence, in order: W1–W7 (applyWeak), then N0–N2
+ *     (applyNeutral), then I1–I2 (applyImplicit, which mutates `levels`).
+ *
+ * Returns `levels` (resolved embedding level per input codepoint), `types` (the
+ * ORIGINAL class codes — NOT the resolved types; L1 in the reorder pass needs
+ * the original B/S/WS/isolate classes), and the `paragraphLevel`. All arrays are
+ * 1:1 with the input codepoints (NOT UTF-16 units).
+ */
+export function resolveBidiLevels(
+  text: string,
+  base: BaseDirection,
+): BidiResult {
+  const codePoints = [...text].map((ch) => ch.codePointAt(0) ?? 0);
+  const codes = Uint8Array.from(codePoints.map((cp) => classCode(cp)));
+
+  const paragraphLevel =
+    base === "ltr"
+      ? 0
+      : base === "rtl"
+        ? 1
+        : computeParagraphLevel(codes, 0, codes.length);
+
+  const { matchingPDI, matchingIsolate } = computeMatchingPDI(codes);
+  const { levels, workingTypes } = applyExplicit(
+    codes,
+    paragraphLevel,
+    matchingPDI,
+    matchingIsolate,
+  );
+  const sequences = computeIsolatingRunSequences(
+    codes,
+    levels,
+    workingTypes,
+    matchingPDI,
+    matchingIsolate,
+    paragraphLevel,
+  );
+
+  const resolvedTypes = Uint8Array.from(workingTypes);
+  for (const seq of sequences) {
+    applyWeak(seq, resolvedTypes);
+    applyNeutral(seq, codePoints, levels, resolvedTypes);
+    applyImplicit(seq, levels, resolvedTypes);
+  }
+
+  // `types` is the ORIGINAL class codes (NOT the resolved types) for L1.
+  return { levels, types: codes, paragraphLevel };
+}
