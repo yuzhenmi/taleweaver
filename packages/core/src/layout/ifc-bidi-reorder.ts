@@ -3,7 +3,7 @@ import {
   createInlineBox,
   createTextRunBox,
   withBidiLevel,
-  withInlineOffset,
+  withPhysicalInlineOffset,
   type InlineBox,
   type InlineFragmentEdge,
   type LayoutBox,
@@ -114,7 +114,13 @@ export function splitTextRunBoxAtOffset(
     box.sourceStart === undefined ? undefined : box.sourceStart + splitAtDisplayU16;
 
   // 5. Keys / geometry. Both fragments keep the box's current offset/geometry;
-  //    the caller repositions inlineOffset in Task 6.
+  //    the caller repositions inlineOffset in Task 6. These split fragments are
+  //    REORDER OUTPUT, so they are positioned with `direction:"ltr"` (identity in
+  //    logicalToPhysical → `x === inlineOffset`) per the P4-C coordinate contract;
+  //    their true RTL-ness rides on `computedStyle.direction` (unchanged) and the
+  //    `bidiLevel` the reorder stamps. `renestLeaves` repacks each fragment's
+  //    physical inlineOffset; emitting them ltr here keeps the convention even on
+  //    any path that doesn't re-touch them.
   const prefix = createTextRunBox(
     box.key,
     box.inlineOffset,
@@ -122,7 +128,7 @@ export function splitTextRunBoxAtOffset(
     prefixInlineSize,
     box.blockSize,
     box.writingMode,
-    box.direction,
+    "ltr",
     box.computedStyle,
     box.usedStyle,
     prefixText,
@@ -139,7 +145,7 @@ export function splitTextRunBoxAtOffset(
     suffixInlineSize,
     box.blockSize,
     box.writingMode,
-    box.direction,
+    "ltr",
     box.computedStyle,
     box.usedStyle,
     suffixText,
@@ -453,7 +459,11 @@ function renestAtDepth(
     if (leaf.ancestors.length <= depth) {
       // Belongs at this depth — emit the leaf directly, repacked from the
       // running cursor (its incoming inlineOffset is the pre-reorder value).
-      const repacked = withInlineOffset(leaf.leaf, cursorInlineOffset, lineInlineSize);
+      // PHYSICAL/identity positioning (`direction:"ltr"` → `x === inlineOffset`):
+      // these leaves are already in VISUAL (left-to-right) order, so the box
+      // factory must NOT re-apply the RTL flip. The run's RTL-ness rides on
+      // `computedStyle.direction` (preserved) and `bidiLevel` (stamped earlier).
+      const repacked = withPhysicalInlineOffset(leaf.leaf, cursorInlineOffset, lineInlineSize);
       out.push(repacked);
       cursorInlineOffset += repacked.inlineSize;
       i += 1;
@@ -484,6 +494,11 @@ function renestAtDepth(
     // Distinct key for the 2nd+ fragment to avoid collisions; ancestorKey
     // (the element key) stays put for the cross-line post-pass.
     const fragKey = fragmentIndex === 0 ? tmpl.key : `${tmpl.key}-frag${fragmentIndex}`;
+    // PHYSICAL/identity positioning: this rebuilt InlineBox fragment wraps
+    // already-visual-order children, so its own offset is physical — force
+    // `direction:"ltr"` (identity in logicalToPhysical → `x === inlineOffset`)
+    // rather than `tmpl.direction`, which would re-mirror it. The element's CSS
+    // direction is preserved on `tmpl.computedStyle.direction`.
     const placeholder = createInlineBox(
       fragKey,
       cursorInlineOffset,
@@ -491,7 +506,7 @@ function renestAtDepth(
       boxInlineSize,
       tmpl.blockSize,
       tmpl.writingMode,
-      tmpl.direction,
+      "ltr",
       tmpl.computedStyle,
       tmpl.usedStyle,
       innerChildren,
@@ -521,6 +536,8 @@ function renestAtDepth(
       const frag = byLogical[k];
       const box = out[frag.outIndex];
       if (box.type !== "inline") continue; // type guard; always an inline here.
+      // `box.direction` is already "ltr" here — the placeholder above was built
+      // physical/identity-positioned — so re-passing it preserves `x === inlineOffset`.
       out[frag.outIndex] = createInlineBox(
         box.key,
         box.inlineOffset,

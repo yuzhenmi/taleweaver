@@ -7,6 +7,7 @@ import {
   createBlockBox, createLineBox, createTextRunBox, createInlineBox, createInlineBlockBox, createMarkerBox,
   createTableBox, createTableRowBox, createTableCellBox,
   withInlineOffset, withBlockOffset, withOffsets, withBidiLevel,
+  withPhysicalInlineOffset,
   assertLayoutBoxConsistent,
 } from "./layout-box";
 
@@ -268,6 +269,63 @@ describe("withInlineOffset", () => {
     // 500 - 50 - 100 = 350
     expect(moved.inlineOffset).toBe(50);
     expect(moved.x).toBe(350);
+  });
+});
+
+describe("withPhysicalInlineOffset (P4-C bidi reorder: physical/identity positioning)", () => {
+  it("forces direction:'ltr' so x === inlineOffset even when the source box was rtl", () => {
+    // An RTL-positioned text-run: its physical x is mirrored.
+    const orig = createTextRunBox("t", 30, 0, 100, 16, "horizontal-tb", "rtl", cs, us, "x", 1, 500);
+    expect(orig.x).toBe(500 - 30 - 100); // 370, mirrored
+    // Reposition physically at inlineOffset 50: identity → x === inlineOffset.
+    const moved = withPhysicalInlineOffset(orig, 50, 500);
+    expect(moved.type).toBe("text-run");
+    expect(moved.inlineOffset).toBe(50);
+    expect(moved.x).toBe(50); // NOT mirrored — direction forced ltr
+    expect(moved.direction).toBe("ltr");
+    // CSS direction preserved on computedStyle (the page paragraph is still rtl).
+    expect(moved.computedStyle).toEqual(orig.computedStyle);
+    if (moved.type !== "text-run") throw new Error("?");
+    expect(moved.text).toBe("x");
+  });
+
+  it("preserves bidiLevel / clusterWidths / sourceStart on a text-run", () => {
+    const orig = createTextRunBox(
+      "t", 0, 0, 30, 16, "horizontal-tb", "rtl", cs, us, "abc", 3, 500,
+      /* sourceDisplayLengths */ undefined, /* clusterWidths */ [10, 10, 10],
+      /* sourceStart */ 7, /* bidiLevel */ 1,
+    );
+    const moved = withPhysicalInlineOffset(orig, 12, 500);
+    if (moved.type !== "text-run") throw new Error("?");
+    expect(moved.x).toBe(12);
+    expect(moved.bidiLevel).toBe(1);
+    expect(moved.clusterWidths).toEqual([10, 10, 10]);
+    expect(moved.sourceStart).toBe(7);
+  });
+
+  it("handles inline / inline-block / marker; recursively identity-positions an InlineBox", () => {
+    const inner = createTextRunBox("in", 0, 0, 10, 16, "horizontal-tb", "rtl", cs, us, "x", 1, 500);
+    const inline = createInlineBox("em", 5, 0, 10, 16, "horizontal-tb", "rtl", cs, us, [inner], "only", "em", 500);
+    const movedInline = withPhysicalInlineOffset(inline, 40, 500);
+    expect(movedInline.direction).toBe("ltr");
+    expect(movedInline.x).toBe(40);
+
+    const ib = createInlineBlockBox("ib", 0, 0, 10, 16, "horizontal-tb", "rtl", cs, us, [], 500, 3);
+    const movedIb = withPhysicalInlineOffset(ib, 22, 500);
+    expect(movedIb.direction).toBe("ltr");
+    expect(movedIb.x).toBe(22);
+    if (movedIb.type !== "inline-block") throw new Error("?");
+    expect(movedIb.sourceStart).toBe(3);
+
+    const marker = createMarkerBox("m", 0, 0, 10, 16, "horizontal-tb", "rtl", cs, us, "1.", 500);
+    const movedMarker = withPhysicalInlineOffset(marker, 9, 500);
+    expect(movedMarker.direction).toBe("ltr");
+    expect(movedMarker.x).toBe(9);
+  });
+
+  it("throws on a non-reorder-reachable box type (block)", () => {
+    const block = createBlockBox("b", 0, 0, 100, 50, "horizontal-tb", "ltr", cs, us, [], 200);
+    expect(() => withPhysicalInlineOffset(block, 10, 200)).toThrow(/not reorder-reachable/);
   });
 });
 

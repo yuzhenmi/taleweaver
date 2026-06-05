@@ -528,6 +528,70 @@ export function withInlineOffset(
 }
 
 /**
+ * Recreate a reorder-reachable leaf/inline box at a PHYSICAL (visual-order)
+ * inline offset — its positioning `direction` is forced to `"ltr"` so
+ * `logicalToPhysical` is the IDENTITY and `x === inlineOffset`. Used by the
+ * P4-C bidi reorder (`reorderLineLeaves` / `renestLeaves` /
+ * `splitTextRunBoxAtOffset`), which emits boxes already in physical
+ * (left-to-right) order: a second uniform RTL flip by the factory would invert
+ * them (the double-flip bug).
+ *
+ * The box's true directionality is NOT lost — it rides on `computedStyle.direction`
+ * (the CSS property, preserved unchanged) and, for leaves, on `bidiLevel` (stamped
+ * by the reorder for T7 glyph paint). This is the deliberate three-way split
+ * documented in the P4-C reorder coordinate contract: positioning `direction`
+ * on a reordered box means "offsets are already physical/visual", while
+ * `computedStyle.direction` / `bidiLevel` carry the real RTL-ness.
+ *
+ * Only the reorder-reachable box types are handled (`text-run` / `inline` /
+ * `inline-block` / `marker`); the reorder never repositions a container/line/page
+ * box, so passing one is a programmer error and throws.
+ *
+ * @param containingInlineSize the box's containing-block inline-size — passed to
+ *   the factory for parity with the rest of the line (the ltr identity makes it
+ *   irrelevant to the derived `x`, but the factory still records it via
+ *   `usedStyle`/children parity).
+ */
+export function withPhysicalInlineOffset(
+  box: LayoutBox,
+  newInlineOffset: number,
+  containingInlineSize: number,
+): LayoutBox {
+  switch (box.type) {
+    case "text-run":
+      return createTextRunBox(
+        box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, "ltr", box.computedStyle, box.usedStyle,
+        box.text, box.offsetLength, containingInlineSize, box.sourceDisplayLengths,
+        box.clusterWidths, box.sourceStart, box.bidiLevel,
+      );
+    case "inline":
+      return createInlineBox(
+        box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, "ltr", box.computedStyle, box.usedStyle,
+        box.children, box.fragmentEdge, box.ancestorKey, containingInlineSize,
+      );
+    case "inline-block":
+      return createInlineBlockBox(
+        box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, "ltr", box.computedStyle, box.usedStyle,
+        box.children, containingInlineSize, box.sourceStart, box.bidiLevel,
+      );
+    case "marker":
+      return createMarkerBox(
+        box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, "ltr", box.computedStyle, box.usedStyle,
+        box.text, containingInlineSize, box.bidiLevel,
+      );
+    default:
+      throw new Error(
+        `withPhysicalInlineOffset: box type ${JSON.stringify(box.type)} (key=${box.key}) is ` +
+          "not reorder-reachable; only text-run / inline / inline-block / marker boxes are repositioned by the bidi reorder.",
+      );
+  }
+}
+
+/**
  * Recreate a layout box with a new block-offset. Used by IFC vertical-align
  * and similar passes that reposition a box on the block axis without
  * re-running its children's layout.

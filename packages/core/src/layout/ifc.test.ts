@@ -1612,13 +1612,16 @@ describe("IFC — text wraps around floats", () => {
 });
 
 describe("IFC — RTL bidi reordering", () => {
-  it("reorders clusters for RTL paragraph: logical-second child has smaller inlineOffset than logical-first", () => {
+  it("RTL paragraph: Latin runs stay in logical order but the content block hugs the RIGHT edge (PHYSICAL x)", () => {
     // mockShaper(8, 16): each char is 8px wide.
-    // "abc" = 3 chars = 24px wide; "def" = 3 chars = 24px wide.
-    // Line available = 200px — both fit on one line.
-    // Logical order: text1("abc") then text2("def").
-    // After RTL reorder: text2 appears visually first (smaller inlineOffset),
-    // text1 appears visually second (larger inlineOffset).
+    // "abc" = 3 chars = 24px; "def" = 3 chars = 24px. Line = 200px.
+    // Two LATIN runs in an RTL paragraph resolve to bidi LEVEL 2 (LTR embedded
+    // in RTL) — UAX #9 L2 does NOT swap equal-level runs, so logical order
+    // [t1, t2] is preserved. The whole content block (48px) then hugs the RIGHT
+    // edge of the 200px line. Asserting PHYSICAL x per the P4-C coordinate
+    // contract: reordered boxes are ltr-positioned so `x === inlineOffset`.
+    //   contentWidth = 48; physicalStart (rtl, start-align) = 200 - 0 - 48 = 152.
+    //   t1.x = 152 (left of the block); t2.x = 152 + 24 = 176 (right edge at 200).
     const rtlShaper = createMockShaper(8, 16);
     const tree = cascadePass(
       createElementBox("p", { display: "block", direction: "rtl" }, [
@@ -1648,16 +1651,54 @@ describe("IFC — RTL bidi reordering", () => {
     expect(t2Box).toBeDefined();
     if (!t1Box || !t2Box) throw new Error("?");
 
-    // After RTL reorder, the logical-second child (t2) should appear visually
-    // before the logical-first child (t1): t2.inlineOffset < t1.inlineOffset.
-    expect(t2Box.inlineOffset).toBeLessThan(t1Box.inlineOffset);
+    // PHYSICAL x: reordered boxes are identity-positioned (x === inlineOffset).
+    expect(t1Box.x).toBe(t1Box.inlineOffset);
+    expect(t2Box.x).toBe(t2Box.inlineOffset);
+    // Logical order preserved (Latin level-2 runs don't swap): t1 left of t2.
+    expect(t1Box.x).toBe(152);
+    expect(t2Box.x).toBe(176);
+    // The content block hugs the RIGHT edge: rightmost box's right edge == line size.
+    expect(t2Box.x + t2Box.inlineSize).toBe(200);
+    // Leftmost box sits at lineInlineSize − contentWidth.
+    expect(t1Box.x).toBe(200 - (t1Box.inlineSize + t2Box.inlineSize));
+  });
 
-    // Also verify the rightmost child (t1, logical-first) sits at the right edge.
-    // For a 200px line with t1=24px at the visual end:
-    //   t1.inlineOffset = 200 - 0 - 24 = 176 (it was originally at offset 0, size 24)
-    // Wait: logical order places t1 at offset 0, size 24.
-    // Reorder: newInlineOffset = 200 - 0 - 24 = 176.
-    expect(t1Box.inlineOffset).toBe(200 - t1Box.inlineSize);
+  it("RTL paragraph with two HEBREW runs: logical-first is RIGHTMOST (level-1 runs swap, PHYSICAL x)", () => {
+    // Two real-RTL (Hebrew) runs in an RTL paragraph → both bidi LEVEL 1.
+    // UAX #9 L2 reverses equal odd-level runs, so visual order is [t2, t1]:
+    // the logically-FIRST run (t1) ends up RIGHTMOST. 8px/char, 3 chars each.
+    //   visual pack: t2@0 (24px), t1@24 (24px); contentWidth 48.
+    //   physicalStart (rtl) = 200 - 0 - 48 = 152.
+    //   t2.x = 152 (left); t1.x = 176 (right edge 200).
+    const rtlShaper = createMockShaper(8, 16);
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", direction: "rtl" }, [
+        createTextBox("t1", {}, "אבג"),
+        createTextBox("t2", {}, "דהו"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ifcResultRtl = layoutInlineContent(
+      tree,
+      0, 0,
+      makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 200),
+      rtlShaper,
+    );
+    if (ifcResultRtl.box === null) throw new Error("layoutInlineContent returned null box");
+    const line = ifcResultRtl.box.children[0];
+    if (line.type !== "line") throw new Error("expected line box");
+
+    const t1Box = line.children.find(c => c.key.startsWith("t1"));
+    const t2Box = line.children.find(c => c.key.startsWith("t2"));
+    if (!t1Box || !t2Box) throw new Error("?");
+
+    // PHYSICAL identity.
+    expect(t1Box.x).toBe(t1Box.inlineOffset);
+    expect(t2Box.x).toBe(t2Box.inlineOffset);
+    // Level-1 runs SWAP: logical-first (t1) is rightmost.
+    expect(t2Box.x).toBe(152);
+    expect(t1Box.x).toBe(176);
+    expect(t1Box.x + t1Box.inlineSize).toBe(200); // hugs the right edge
   });
 
   it("LTR paragraph children are not reordered (identity pass)", () => {
@@ -1685,6 +1726,117 @@ describe("IFC — RTL bidi reordering", () => {
 
     // LTR: t1 comes before t2 in visual order (smaller inlineOffset).
     expect(t1Box.inlineOffset).toBeLessThan(t2Box.inlineOffset);
+  });
+
+  it("mixed LTR-base (Latin + embedded Hebrew): Hebrew run sits AFTER Latin, both at left, PHYSICAL x", () => {
+    // LTR paragraph; child t1 = Latin "abc" (level 0), child t2 = Hebrew "אבג"
+    // (level 1, a single embedded run). L2 does not move a single embedded run
+    // relative to the surrounding level-0 text, so visual order is [Latin,
+    // Hebrew]. LTR start-align → physicalStart 0 → content sits at the LEFT.
+    //   t1.x = 0 (24px); t2.x = 24 (24px). Hebrew glyphs paint RTL via bidiLevel
+    //   (T7); geometry here is the run placement only.
+    const rtlShaper = createMockShaper(8, 16);
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t1", {}, "abc"),
+        createTextBox("t2", {}, "אבג"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const result = layoutInlineContent(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), rtlShaper);
+    if (result.box === null) throw new Error("null box");
+    const line = result.box.children[0];
+    if (line.type !== "line") throw new Error("expected line");
+    const t1 = line.children.find(c => c.key.startsWith("t1"));
+    const t2 = line.children.find(c => c.key.startsWith("t2"));
+    if (!t1 || !t2) throw new Error("?");
+
+    expect(t1.x).toBe(t1.inlineOffset);
+    expect(t2.x).toBe(t2.inlineOffset);
+    expect(t1.x).toBe(0);    // Latin at the left
+    expect(t2.x).toBe(24);   // Hebrew right after Latin
+    // The run stamped bidiLevel: Latin 0, Hebrew 1 (used by the T7 glyph paint).
+    if (t1.type !== "text-run" || t2.type !== "text-run") throw new Error("?");
+    expect(t1.bidiLevel).toBe(0);
+    expect(t2.bidiLevel).toBe(1);
+  });
+
+  it("mixed RTL-base (Hebrew + embedded Latin): the Latin run reorders to the LEFT, content hugs right, PHYSICAL x", () => {
+    // RTL paragraph; child t1 = Hebrew "אבג" (level 1), child t2 = Latin "abc"
+    // (level 2). UAX #9 L2 over [1,2] reverses the level-2 run then the level-1
+    // span → visual order is [Latin, Hebrew] (the Latin embedded run lands to the
+    // LEFT of the Hebrew). The 48px block hugs the RIGHT edge.
+    //   physicalStart (rtl) = 200 - 0 - 48 = 152.
+    //   Latin (t2).x = 152; Hebrew (t1).x = 176 (right edge 200).
+    const rtlShaper = createMockShaper(8, 16);
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", direction: "rtl" }, [
+        createTextBox("t1", {}, "אבג"),
+        createTextBox("t2", {}, "abc"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const result = layoutInlineContent(
+      tree, 0, 0,
+      makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 200),
+      rtlShaper,
+    );
+    if (result.box === null) throw new Error("null box");
+    const line = result.box.children[0];
+    if (line.type !== "line") throw new Error("expected line");
+    const t1 = line.children.find(c => c.key.startsWith("t1"));
+    const t2 = line.children.find(c => c.key.startsWith("t2"));
+    if (!t1 || !t2) throw new Error("?");
+
+    expect(t1.x).toBe(t1.inlineOffset);
+    expect(t2.x).toBe(t2.inlineOffset);
+    // Latin (t2) reorders to the LEFT of Hebrew (t1).
+    expect(t2.x).toBe(152);
+    expect(t1.x).toBe(176);
+    expect(t1.x + t1.inlineSize).toBe(200); // content hugs the right edge
+    if (t1.type !== "text-run" || t2.type !== "text-run") throw new Error("?");
+    expect(t1.bidiLevel).toBe(1); // Hebrew
+    expect(t2.bidiLevel).toBe(2); // Latin embedded in RTL
+  });
+
+  it("centered RTL line: alignment is applied PHYSICALLY (physicalStart === gap/2), not zeroed nor double-shifted", () => {
+    // Centered (text-align:center) RTL paragraph with two Hebrew runs (level 1).
+    // contentWidth = 48; gap = 200 - 48 = 152; center alignmentOffset = gap/2 = 76.
+    // For center, physicalStart === gap/2 in EITHER direction (the contract's
+    // worked example). The first VISUAL box therefore starts at x = 76.
+    //   level-1 runs swap → visual [t2, t1]: t2.x = 76, t1.x = 100.
+    const rtlShaper = createMockShaper(8, 16);
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", direction: "rtl", textAlign: "center" }, [
+        createTextBox("t1", {}, "אבג"),
+        createTextBox("t2", {}, "דהו"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const result = layoutInlineContent(
+      tree, 0, 0,
+      makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl", textAlign: "center" }, 200),
+      rtlShaper,
+    );
+    if (result.box === null) throw new Error("null box");
+    const line = result.box.children[0];
+    if (line.type !== "line") throw new Error("expected line");
+    const t1 = line.children.find(c => c.key.startsWith("t1"));
+    const t2 = line.children.find(c => c.key.startsWith("t2"));
+    if (!t1 || !t2) throw new Error("?");
+
+    expect(t1.x).toBe(t1.inlineOffset);
+    expect(t2.x).toBe(t2.inlineOffset);
+    // The leftmost (visual-first) box starts at gap/2 = 76 — alignment is
+    // physical, not zeroed (would be 0) and not double-shifted.
+    const leftmost = Math.min(t1.x, t2.x);
+    expect(leftmost).toBe(76);
+    // level-1 swap: t2 visual-first (left), t1 right.
+    expect(t2.x).toBe(76);
+    expect(t1.x).toBe(100);
+    // The content is centered: equal gap on both sides (76 left, 76 right).
+    expect(t1.x + t1.inlineSize).toBe(124);
+    expect(200 - (t1.x + t1.inlineSize)).toBe(76);
   });
 });
 
@@ -1775,11 +1927,11 @@ describe("IFC — P4-C.1 T3 paragraphBidi plumbing (fast path + no behavior chan
     expect(t1.inlineOffset).toBe(0);
   });
 
-  it("RTL (Hebrew) paragraph still mirrors via the temporary fallback (no crash, existing behavior)", () => {
+  it("RTL (Hebrew) paragraph skips the fast path (odd paragraphLevel) and reorders via the real UAX #9 pass", () => {
     // Hebrew text (real RTL codepoints) under an RTL paragraph base. The
-    // paragraphLevel is odd (1) so the fast path is skipped; the temporary
-    // uniform-RTL fallback mirrors the line. Proves resolveParagraphBidi
-    // integration doesn't crash and existing RTL geometry holds.
+    // paragraphLevel is odd (1) so the LTR fast path is skipped and the real
+    // reorder runs. Proves resolveParagraphBidi integration produces PHYSICAL
+    // (identity-positioned) geometry: the level-1 runs swap, content hugs right.
     const rtlShaper = createMockShaper(8, 16);
     const tree = cascadePass(
       createElementBox("p", { display: "block", direction: "rtl" }, [
@@ -1799,10 +1951,14 @@ describe("IFC — P4-C.1 T3 paragraphBidi plumbing (fast path + no behavior chan
     const t1 = line.children.find(c => c.key.startsWith("t1"));
     const t2 = line.children.find(c => c.key.startsWith("t2"));
     if (!t1 || !t2) throw new Error("?");
-    // RTL mirror: logical-second (t2) appears visually before logical-first (t1).
-    expect(t2.inlineOffset).toBeLessThan(t1.inlineOffset);
-    // Logical-first sits at the visual (right) end.
-    expect(t1.inlineOffset).toBe(200 - t1.inlineSize);
+    // PHYSICAL identity (reordered boxes are ltr-positioned).
+    expect(t1.x).toBe(t1.inlineOffset);
+    expect(t2.x).toBe(t2.inlineOffset);
+    // Level-1 runs swap: logical-second (t2) is visually first (left); the
+    // logically-first (t1) is rightmost, its right edge at the line size.
+    expect(t2.x).toBe(152);
+    expect(t1.x).toBe(176);
+    expect(t1.x + t1.inlineSize).toBe(200);
   });
 
   it("empty paragraph (no source) lays out a strut without crash (paragraphBidi === null)", () => {

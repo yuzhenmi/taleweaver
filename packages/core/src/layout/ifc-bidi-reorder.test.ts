@@ -1000,4 +1000,115 @@ describe("reorderLineLeaves (end-to-end pure line reorder)", () => {
     expect(run.bidiLevel).toBe(1);
     expect(run.inlineOffset).toBe(0);
   });
+
+  // Build a TextRunBox positioned with an RTL `direction`, to prove the reorder
+  // FORCES physical/identity positioning on its output regardless of the source
+  // box's direction (the double-flip the contract eliminates).
+  function makeRtlBox(args: {
+    key?: string;
+    text: string;
+    offsetLength: number;
+    inlineSize: number;
+    clusterWidths?: readonly number[];
+    sourceStart?: number;
+  }): TextRunBox {
+    return createTextRunBox(
+      args.key ?? "run",
+      /* inlineOffset */ 0,
+      /* blockOffset */ 0,
+      args.inlineSize,
+      /* blockSize */ 16,
+      "horizontal-tb",
+      /* direction */ "rtl",
+      computedStyle,
+      usedStyle,
+      args.text,
+      args.offsetLength,
+      LINE_INLINE_SIZE,
+      undefined,
+      args.clusterWidths,
+      args.sourceStart,
+    );
+  }
+
+  /**
+   * Part-A invariant: EVERY box `reorderLineLeaves` emits is physical/identity-
+   * positioned (`x === inlineOffset`), recursively for InlineBox children
+   * (parent-relative). Asserting `x === inlineOffset` is the concrete check that
+   * the box was built `direction:"ltr"` so `logicalToPhysical` is the identity.
+   */
+  function assertPhysicalIdentity(boxes: readonly LayoutBox[]): void {
+    for (const b of boxes) {
+      expect(b.x).toBe(b.inlineOffset);
+      if (b.type === "inline") assertPhysicalIdentity(b.children);
+    }
+  }
+
+  it("Part-A invariant: emitted boxes are physical/identity-positioned (x === inlineOffset) even from RTL-direction input", () => {
+    // Mixed content under an RTL paragraph, with the input boxes carrying
+    // direction:"rtl". The reorder output must be ltr-positioned so a downstream
+    // logicalToPhysical never re-flips it.
+    const source = "abcאבג";
+    const { pb, postL1 } = postL1Of(source, "rtl");
+    const box = makeRtlBox({
+      key: "k",
+      text: source,
+      offsetLength: source.length,
+      inlineSize: source.length * 10,
+      clusterWidths: new Array(source.length).fill(10),
+      sourceStart: 0,
+    });
+
+    const out = reorderLineLeaves([box], pb, 0, postL1, LINE_INLINE_SIZE);
+
+    // Every emitted box is physical/identity-positioned.
+    assertPhysicalIdentity(out);
+    // The output boxes are positioned ltr (so the factory derived x === inlineOffset);
+    // the CSS direction is still preserved on computedStyle (the page paragraph is rtl).
+    for (const b of out) expect(b.direction).toBe("ltr");
+    // Sanity: the reorder still happened (Hebrew visual-first).
+    const runs = out.map(asTextRun);
+    expect(runs.map((r) => r.text)).toEqual(["אבג", "abc"]);
+  });
+
+  it("Part-A invariant holds with nested InlineBox (RTL-direction <em>): recursive x === inlineOffset", () => {
+    const source = "abc אבג";
+    const { pb, postL1 } = postL1Of(source, "ltr");
+    const before = makeRtlBox({
+      key: "before",
+      text: "abc ",
+      offsetLength: 4,
+      inlineSize: 40,
+      clusterWidths: [10, 10, 10, 10],
+      sourceStart: 0,
+    });
+    const emText = makeRtlBox({
+      key: "emtext",
+      text: "אבג",
+      offsetLength: 3,
+      inlineSize: 30,
+      clusterWidths: [10, 10, 10],
+      sourceStart: 4,
+    });
+    const em = createInlineBox(
+      "em-key",
+      0, 0, 30, 16,
+      "horizontal-tb", "rtl",
+      computedStyle, usedStyle,
+      [emText],
+      "only",
+      "em",
+      LINE_INLINE_SIZE,
+    );
+
+    const out = reorderLineLeaves([before, em], pb, 0, postL1, LINE_INLINE_SIZE);
+
+    assertPhysicalIdentity(out);
+    // The rebuilt InlineBox and its inner run are both ltr-positioned.
+    const emFrags = out.filter((b) => b.type === "inline");
+    expect(emFrags.length).toBe(1);
+    const emBox = asInline(emFrags[0]);
+    expect(emBox.direction).toBe("ltr");
+    expect(emBox.children.every((c) => c.direction === "ltr")).toBe(true);
+  });
 });

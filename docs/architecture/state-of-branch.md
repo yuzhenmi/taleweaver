@@ -89,8 +89,9 @@ Most of the layout pass is implemented and working:
 - BFC: margin collapsing, clearance, list markers, anonymous block
   runs. Subtree reuse works including the "rebuilt parent with
   unchanged children" gate.
-- IFC: line wrap, baseline alignment, uniform-direction bidi reorder,
-  hyphen splitting, inline-block sizing, paragraph-level reuse.
+- IFC: line wrap, baseline alignment, full UAX #9 bidi reorder
+  (mixed-direction geometry — see gaps re: glyph paint), hyphen
+  splitting, inline-block sizing, paragraph-level reuse.
 - Table FC: auto-layout column widths from intrinsic sizes,
   anonymous row/cell synthesis.
 - Float environment: full CSS 9.5 placement with push-below-if-needed,
@@ -104,17 +105,23 @@ Known gaps:
 - **Inline-block shrink-to-fit** does not clamp `max-content` to
   available width, diverging from CSS Sizing 3 §10.3.5. Long inline-
   blocks overflow horizontally instead of clamping.
-- **Mixed-direction bidi within a single shaped run** is not yet
-  rendered, but the **full UAX #9 algorithm engine is implemented**
-  (`layout/uax9/`, P4-A): `resolveBidiLevels(text, base)` (P/X/W/N/I
-  per-codepoint levels) + `reorderVisual(...)` (L1/L2 visual permutation),
-  conformant against the official `BidiTest.txt` + `BidiCharacterTest.txt`
-  oracles at 100%, zero runtime deps. What remains is **integration**:
-  the canvas shaper still emits one uniform level per run (threading
-  `resolveBidiLevels` into per-cluster levels is P4-B) and the IFC reorders
-  only uniform-direction lines (wiring `reorderVisual` + RTL cursor/hit-test
-  is P4-C). Until then, Hebrew embedded in English (or vice versa) renders
-  in source order rather than visual order.
+- **Bidi reorder — geometry done, glyph paint + RTL cursor pending.**
+  The **full UAX #9 algorithm engine** (`layout/uax9/`, P4-A:
+  `resolveBidiLevels` P/X/W/N/I + `reorderVisual`/`applyL1`/
+  `reorderRunsByLevel`, conformant against the official `BidiTest.txt` +
+  `BidiCharacterTest.txt` at 100%, zero runtime deps) is wired into the IFC
+  (P4-B `resolveParagraphBidi`; P4-C.1 `reorderLineForBidi` +
+  `ifc-bidi-reorder.ts`). Mixed-direction lines now reorder into correct
+  **visual box geometry** — paragraph-level resolution → post-L1
+  segmentation → flatten/segment/`reorderRunsByLevel`/re-nest → physical
+  coordinates (see `1.4-layout/1.4.2-ifc.md` "Bidi handling"). Each
+  reordered run carries its `bidiLevel`. `[partial]` Remaining: (a) the
+  painter still draws each run's glyphs left-to-right — intra-run **RTL
+  glyph order** keyed on `bidiLevel` is P4-C.1 T7; (b) **RTL cursor /
+  hit-test / selection** (caret affinity, visual-order navigation) is
+  P4-C.2. So Hebrew embedded in English now sits in the right place, but
+  the RTL word's own glyphs are not yet reversed and caret motion through
+  it is not yet visual-order-aware.
 - **Convergence detection for incremental wrap** (`rewrapIncremental`)
   is implemented and tested in `wrap-incremental.ts` but not yet wired
   into the IFC's main wrap loop — foundation-built-ahead, scoped to P18.

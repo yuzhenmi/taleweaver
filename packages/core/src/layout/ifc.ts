@@ -24,6 +24,8 @@ import { markStart, markEnd } from "../perf/perf-trace";
 import { computeAlignmentOffset, computeJustifyExpansions } from "./ifc-align";
 import { resolveSpacingPx } from "./text-spacing";
 import { resolveParagraphBidi, type ParagraphBidi } from "./ifc-bidi";
+import { applyL1 } from "./uax9/reorder";
+import { reorderLineLeaves } from "./ifc-bidi-reorder";
 
 /**
  * Derive the SOURCE block id from an IFC parent's render-node key.
@@ -2443,6 +2445,8 @@ function buildLineWithFragments(
     paragraphBidi,
     lineSourceRange?.startU16 ?? -1,
     lineSourceRange?.endU16 ?? -1,
+    alignmentOffset,
+    direction,
   );
   return createLineBox(`${parentKey}-l${lineIndex}`, lineInlineCursor, lineBlockOffset, lineInlineSize, lineBlockSize, writingMode, direction, parentCs, parentUsedStyle, reordered,
     /* baseline */ lineBlockSize,
@@ -2798,6 +2802,8 @@ function reorderLineForBidi(
   paragraphBidi: ParagraphBidi | null,
   lineSourceStartU16: number,
   lineSourceEndU16: number,
+  alignmentOffset: number,
+  direction: Direction,
 ): LayoutBox[] {
   if (children.length === 0) return [];
 
@@ -2805,7 +2811,10 @@ function reorderLineForBidi(
   // bidi resolution (empty/source-less) OR the paragraph base is LTR (level 0)
   // AND no codepoint in THIS line's source span carries an RTL (level > 0)
   // embedding. This covers the overwhelmingly common pure-LTR case at zero
-  // allocation — just a tight scan of the line's level slice.
+  // allocation — just a tight scan of the line's level slice. The fast path is
+  // IDENTITY: under LTR the incoming `children` are already physical-correct
+  // (logical == physical, alignment pre-shift applied at the call site), so
+  // pure-LTR content is byte-identical to pre-P4-C.
   if (paragraphBidi === null) {
     return [...children];
   }
@@ -2814,16 +2823,17 @@ function reorderLineForBidi(
   if (lineSourceStartU16 < 0 || lineSourceEndU16 < 0) {
     return [...children];
   }
+  // Map the line's U16 span to the codepoint index space, clamped into the valid
+  // `cpIndexAtUtf16` range. Needed both for the LTR fast-path scan and for the
+  // reorder's `applyL1` window below.
+  const maxU16 = paragraphBidi.cpIndexAtUtf16.length - 1;
+  const startU16 = Math.min(lineSourceStartU16, maxU16);
+  const endU16 = Math.min(lineSourceEndU16, maxU16);
+  const lineStartCp = paragraphBidi.cpIndexAtUtf16[startU16];
+  const lineEndCp = paragraphBidi.cpIndexAtUtf16[endU16];
+
   if (paragraphBidi.paragraphLevel === 0) {
-    // Map the line's U16 span to the codepoint index space, clamped into the
-    // valid `cpIndexAtUtf16` range, then scan the level slice for any RTL run.
-    // Both offsets are >= 0 here (the degenerate-range guard above returned).
-    // Clamp the upper bound into `cpIndexAtUtf16`'s valid index range.
-    const maxU16 = paragraphBidi.cpIndexAtUtf16.length - 1;
-    const startU16 = Math.min(lineSourceStartU16, maxU16);
-    const endU16 = Math.min(lineSourceEndU16, maxU16);
-    const lineStartCp = paragraphBidi.cpIndexAtUtf16[startU16];
-    const lineEndCp = paragraphBidi.cpIndexAtUtf16[endU16];
+    // Scan the line's level slice for any RTL run.
     let hasRtl = false;
     for (let cp = lineStartCp; cp < lineEndCp; cp++) {
       if (paragraphBidi.levels[cp] > 0) {
@@ -2837,25 +2847,47 @@ function reorderLineForBidi(
     }
   }
 
-  // TEMPORARY FALLBACK (P4-C.1 T6 will replace this): the line has RTL content
-  // (or an RTL paragraph base). Keep the EXISTING uniform-direction mirror so
-  // current (uniform-direction) content renders identically while the
-  // paragraphBidi plumbing lands. This is NOT correct for mixed-direction lines
-  // — that is exactly what Task 6 implements.
-  // TODO(P4-C.1 T6): replace this uniform mirror with real bidi-run segmentation
-  // + reorderRunsByLevel.
-  const allRtl = children.every(c => c.computedStyle.direction === "rtl");
-  if (!allRtl) {
-    // LTR-uniform with stray RTL, or mixed — treated as LTR for now (identity).
-    return [...children];
+  // REORDER PATH (P4-C.1 T6): the line carries RTL content (or an RTL paragraph
+  // base). Produce real UAX #9 L1/L2 visual order via `reorderLineLeaves`, which
+  // emits PHYSICAL (left-to-right, packed-from-0) boxes positioned `direction:"ltr"`
+  // so `logicalToPhysical` is the identity (`x === inlineOffset`). The line's
+  // alignment is then applied as a PHYSICAL offset, mapping the logical
+  // `alignmentOffset` through `logicalToPhysical` for the line's base `direction`.
+  //
+  // Note: the incoming `children` were pre-shifted by `alignmentOffset` (LOGICAL)
+  // at the call site, but `reorderLineLeaves` repacks from 0 (it ignores incoming
+  // offsets for ordering), so we recompute the physical start fresh from
+  // `alignmentOffset`; we do NOT re-add the incoming logical shift.
+  const postL1 = applyL1(
+    paragraphBidi.levels,
+    paragraphBidi.types,
+    paragraphBidi.paragraphLevel,
+    lineStartCp,
+    lineEndCp,
+  );
+  const reordered = reorderLineLeaves(
+    children,
+    paragraphBidi,
+    lineStartCp,
+    postL1,
+    lineInlineSize,
+  );
+  const contentWidth = reordered.reduce((sum, c) => sum + c.inlineSize, 0);
+  // Map the logical alignment origin to a physical start. Equivalent to
+  // logicalToPhysical({ inlineOffset: alignmentOffset, inlineSize: contentWidth },
+  // …, direction, lineInlineSize).x — LTR identity, RTL inline-axis flip.
+  const physicalStart =
+    direction === "ltr"
+      ? alignmentOffset
+      : lineInlineSize - alignmentOffset - contentWidth;
+  if (physicalStart === 0) {
+    return reordered;
   }
-
-  // RTL-uniform: mirror inline offsets so visual order is reversed.
-  // new inlineOffset = lineInlineSize - oldInlineOffset - inlineSize
-  return children.map(child => {
-    const newInlineOffset = lineInlineSize - child.inlineOffset - child.inlineSize;
-    return withInlineOffset(child, newInlineOffset, lineInlineSize);
-  });
+  // Shift every top-level reordered box by the physical start. The boxes are
+  // ltr-positioned (identity), so `x` tracks `inlineOffset + physicalStart`.
+  return reordered.map(child =>
+    withInlineOffset(child, child.inlineOffset + physicalStart, lineInlineSize),
+  );
 }
 
 function correctFragmentEdge(
