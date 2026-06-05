@@ -734,3 +734,27 @@ describe("resolveBidiLevels (full pipeline)", () => {
     expect(paragraphLevel).toBe(0);
   });
 });
+
+import * as coreBarrel from "../../index";
+
+describe("uax9 public barrel", () => {
+  it("re-exports the bidi surface from @taleweaver/core", () => {
+    expect(typeof coreBarrel.resolveBidiLevels).toBe("function");
+    expect(typeof coreBarrel.reorderVisual).toBe("function");
+    expect(typeof coreBarrel.bidiMirror).toBe("function");
+    expect(typeof coreBarrel.bidiClass).toBe("function");
+    expect(coreBarrel.UAX9_UNICODE_VERSION).toBe("16.0.0");
+    expect(coreBarrel.bidiMirror(0x28)).toBe(0x29); // ( -> )
+    expect(coreBarrel.bidiClass(0x05d0)).toBe("R"); // Hebrew alef
+    // End-to-end smoke through the barrel: an RTL run inside an LTR paragraph
+    // reverses to visual order.
+    const { levels, types, paragraphLevel } = coreBarrel.resolveBidiLevels(
+      "abc אבג",
+      "ltr",
+    );
+    expect(paragraphLevel).toBe(0);
+    expect(coreBarrel.reorderVisual(levels, types, paragraphLevel, 0, 7)).toEqual([
+      0, 1, 2, 3, 6, 5, 4,
+    ]);
+  });
+});

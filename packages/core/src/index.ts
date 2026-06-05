@@ -169,6 +169,15 @@ export {
   UAX14_UNICODE_VERSION,
 } from "./layout/uax14";
 export type { LineBreakClass, LineBreakPoint, LineBreakOptions } from "./layout/uax14";
+// Layout — UAX #9 bidirectional text (text core)
+export {
+  resolveBidiLevels,
+  reorderVisual,
+  bidiMirror,
+  bidiClass,
+  UAX9_UNICODE_VERSION,
+} from "./layout/uax9";
+export type { BidiClass, BaseDirection, BidiResult } from "./layout/uax9";
 export type { IntrinsicSizes, IntrinsicContribution, IntrinsicSizesCache } from "./layout/intrinsic-sizes";
 export { createIntrinsicSizesCache } from "./layout/intrinsic-sizes";
 export { computeIntrinsicSizes } from "./layout/intrinsic-sizes-pass";

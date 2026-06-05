@@ -105,9 +105,16 @@ Known gaps:
   available width, diverging from CSS Sizing 3 §10.3.5. Long inline-
   blocks overflow horizontally instead of clamping.
 - **Mixed-direction bidi within a single shaped run** is not yet
-  implemented. Hebrew embedded in English (or vice versa) renders in
-  source order rather than visual order. Closes when the canvas shaper
-  emits per-cluster bidi levels and the IFC's reorder consumes them.
+  rendered, but the **full UAX #9 algorithm engine is implemented**
+  (`layout/uax9/`, P4-A): `resolveBidiLevels(text, base)` (P/X/W/N/I
+  per-codepoint levels) + `reorderVisual(...)` (L1/L2 visual permutation),
+  conformant against the official `BidiTest.txt` + `BidiCharacterTest.txt`
+  oracles at 100%, zero runtime deps. What remains is **integration**:
+  the canvas shaper still emits one uniform level per run (threading
+  `resolveBidiLevels` into per-cluster levels is P4-B) and the IFC reorders
+  only uniform-direction lines (wiring `reorderVisual` + RTL cursor/hit-test
+  is P4-C). Until then, Hebrew embedded in English (or vice versa) renders
+  in source order rather than visual order.
 - **Convergence detection for incremental wrap** (`rewrapIncremental`)
   is implemented and tested in `wrap-incremental.ts` but not yet wired
   into the IFC's main wrap loop — foundation-built-ahead, scoped to P18.
