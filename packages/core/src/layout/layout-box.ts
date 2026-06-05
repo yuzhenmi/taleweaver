@@ -125,6 +125,36 @@ export interface TextRunBox extends LayoutBoxBase {
    * and bidi-reorder rebuild passes copy it through verbatim.
    */
   readonly sourceDisplayLengths?: readonly number[];
+  /**
+   * Per DISPLAY UTF-16 code unit of `text`, the inline advance that code unit
+   * contributes. Interior code units of a multi-unit grapheme carry 0 (the
+   * full advance is attributed to the grapheme's FIRST code unit) — the SAME
+   * partition as `sourceDisplayLengths`. Whitespace tokens that carry no
+   * token-level cluster widths are synthesized here (whole advance on the
+   * first unit, 0 on the rest) so the partition stays display-aligned.
+   *
+   * Used by the P4-C bidi reorder to SPLIT a run at a bidi-level boundary
+   * (the prefix advance is the prefix-sum of these). The ONLY hard invariant is
+   * `clusterWidths.length === text.length` (when present).
+   *
+   * These are NATURAL per-unit advances. They normally sum to `inlineSize`, but
+   * a width-REDUCING rebuild does NOT adjust them: a trailing-letter-spacing
+   * trim (`inlineSize - trim`) and a hung/overflowing-space clamp leave
+   * `sum(clusterWidths) > inlineSize`. So a consumer that splits a run must
+   * RECONCILE the prefix-sum against the box's actual `inlineSize` (e.g. clamp
+   * the trailing fragment to `inlineSize`), NOT assume the sum equals it. Being
+   * geometry-independent of the trim/clamp, they copy through rebuilds verbatim
+   * (like `sourceDisplayLengths`).
+   */
+  readonly clusterWidths?: readonly number[];
+  /**
+   * The box's absolute UTF-16 offset into the paragraph source (`asm.source`),
+   * i.e. the `absoluteSourceBase` of its first constituent token. The P4-C
+   * reorder uses it to compute each split fragment's absolute source span.
+   * Undefined for synthetic runs with no backing source (the empty-paragraph
+   * strut).
+   */
+  readonly sourceStart?: number;
 }
 
 /**
@@ -157,6 +187,12 @@ export interface InlineBox extends LayoutBoxBase {
 export interface InlineBlockBox extends LayoutBoxBase {
   readonly type: "inline-block";
   readonly children: readonly LayoutBox[];
+  /**
+   * The absolute UTF-16 offset into the paragraph source of this inline-block's
+   * single OBJECT_REPLACEMENT char (its `absoluteSourceBase`). Used by the
+   * P4-C bidi reorder to position the atomic box's source span.
+   */
+  readonly sourceStart?: number;
 }
 
 export interface MarkerBox extends LayoutBoxBase {
@@ -295,6 +331,8 @@ export function createTextRunBox(
   offsetLength: number,
   containingInlineSize: number,
   sourceDisplayLengths?: readonly number[],
+  clusterWidths?: readonly number[],
+  sourceStart?: number,
 ): TextRunBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,
@@ -306,6 +344,8 @@ export function createTextRunBox(
     text,
     offsetLength,
     sourceDisplayLengths,
+    clusterWidths,
+    sourceStart,
   });
 }
 
@@ -341,6 +381,7 @@ export function createInlineBlockBox(
   usedStyle: UsedStyle,
   children: readonly LayoutBox[],
   containingInlineSize: number,
+  sourceStart?: number,
 ): InlineBlockBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,
@@ -350,6 +391,7 @@ export function createInlineBlockBox(
     type: "inline-block" as const,
     ...base,
     children: Object.freeze([...children]),
+    sourceStart,
   });
 }
 
@@ -535,6 +577,7 @@ function rebuildBoxWithOffsets(
         box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.text, box.offsetLength, containingInlineSize, box.sourceDisplayLengths,
+        box.clusterWidths, box.sourceStart,
       );
     case "inline":
       return createInlineBox(
@@ -546,7 +589,7 @@ function rebuildBoxWithOffsets(
       return createInlineBlockBox(
         box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
-        box.children, containingInlineSize,
+        box.children, containingInlineSize, box.sourceStart,
       );
     case "marker":
       return createMarkerBox(

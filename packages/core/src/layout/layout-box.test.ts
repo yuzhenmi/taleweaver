@@ -53,6 +53,80 @@ describe("TextRunBox sourceDisplayLengths", () => {
   });
 });
 
+describe("TextRunBox clusterWidths + sourceStart (bidi-split fields)", () => {
+  it("round-trips clusterWidths and sourceStart from the factory", () => {
+    const tr = createTextRunBox(
+      "t", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, "hi", 2, 50,
+      /* sourceDisplayLengths */ undefined,
+      /* clusterWidths */ [25, 25],
+      /* sourceStart */ 7,
+    );
+    expect(tr.clusterWidths).toEqual([25, 25]);
+    expect(tr.sourceStart).toBe(7);
+  });
+
+  it("leaves clusterWidths and sourceStart undefined when omitted", () => {
+    const tr = createTextRunBox("t", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, "hi", 2, 50);
+    expect(tr.clusterWidths).toBeUndefined();
+    expect(tr.sourceStart).toBeUndefined();
+  });
+
+  it("PRESERVES clusterWidths and sourceStart through withInlineOffset (I1 regression guard)", () => {
+    const widths = [25, 25];
+    const tr = createTextRunBox(
+      "t", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, "hi", 2, 50,
+      undefined, widths, 7,
+    );
+    const moved = withInlineOffset(tr, 75, /* containingInlineSize */ 200);
+    expect(moved.type).toBe("text-run");
+    if (moved.type !== "text-run") throw new Error("?");
+    expect(moved.inlineOffset).toBe(75);
+    // Identity preservation — the rebuild must pass the SAME references through.
+    expect(moved.clusterWidths).toBe(tr.clusterWidths);
+    expect(moved.sourceStart).toBe(tr.sourceStart);
+  });
+
+  it("PRESERVES clusterWidths and sourceStart through withBlockOffset (I1 regression guard)", () => {
+    const widths = [25, 25];
+    const tr = createTextRunBox(
+      "t", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, "hi", 2, 50,
+      undefined, widths, 7,
+    );
+    const moved = withBlockOffset(tr, 99, /* containingInlineSize */ 200);
+    expect(moved.type).toBe("text-run");
+    if (moved.type !== "text-run") throw new Error("?");
+    expect(moved.blockOffset).toBe(99);
+    expect(moved.clusterWidths).toBe(tr.clusterWidths);
+    expect(moved.sourceStart).toBe(tr.sourceStart);
+  });
+});
+
+describe("InlineBlockBox sourceStart", () => {
+  it("round-trips sourceStart from the factory", () => {
+    const tr = createTextRunBox("t", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, "x", 1, 50);
+    const ib = createInlineBlockBox("ib", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, [tr], 50, /* sourceStart */ 13);
+    expect(ib.sourceStart).toBe(13);
+  });
+
+  it("leaves sourceStart undefined when omitted", () => {
+    const tr = createTextRunBox("t", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, "x", 1, 50);
+    const ib = createInlineBlockBox("ib", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, [tr], 50);
+    expect(ib.sourceStart).toBeUndefined();
+  });
+
+  it("PRESERVES sourceStart through withInlineOffset and withBlockOffset", () => {
+    const tr = createTextRunBox("t", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, "x", 1, 50);
+    const ib = createInlineBlockBox("ib", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, [tr], 50, 13);
+    const movedI = withInlineOffset(ib, 75, 200);
+    const movedB = withBlockOffset(ib, 99, 200);
+    expect(movedI.type).toBe("inline-block");
+    expect(movedB.type).toBe("inline-block");
+    if (movedI.type !== "inline-block" || movedB.type !== "inline-block") throw new Error("?");
+    expect(movedI.sourceStart).toBe(13);
+    expect(movedB.sourceStart).toBe(13);
+  });
+});
+
 describe("LayoutBox union narrowing", () => {
   it("narrows by type", () => {
     const items: LayoutBox[] = [

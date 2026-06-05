@@ -322,6 +322,12 @@ function trimTrailingLetterSpacing(
       box.offsetLength,
       containingInlineSize,
       box.sourceDisplayLengths,
+      // `clusterWidths`/`sourceStart` are geometry-independent of the trim (they
+      // carry NATURAL per-unit advances + the source offset), so they copy
+      // through verbatim — same rationale as `sourceDisplayLengths`. Forwarding
+      // them keeps the trimmed line-end leaf splittable by the bidi reorder.
+      box.clusterWidths,
+      box.sourceStart,
     );
   }
   if (box.type === "inline") {
@@ -1774,6 +1780,11 @@ export function layoutInlineContent(
       // null-width anchor (offsetContribution 0 in `collectLineLeaves`).
       /* offsetLength */ 0,
       /* containingInlineSize */ lineInlineSize,
+      // The strut owns no source span — leave sourceDisplayLengths/clusterWidths/
+      // sourceStart undefined (never a bidi-split target).
+      /* sourceDisplayLengths */ undefined,
+      /* clusterWidths */ undefined,
+      /* sourceStart */ undefined,
     );
     const strutLine = createLineBox(
       `${parent.key}-l${lineIndex++}`,
@@ -2337,6 +2348,11 @@ function buildLineWithFragments(
       // zero state offsets so cursor accounting skips over it.
       /* offsetLength */ 0,
       /* containingInlineSize */ lineInlineSize,
+      /* sourceDisplayLengths */ undefined,
+      // The hyphen owns no source span and is never a bidi-split target —
+      // leave clusterWidths/sourceStart undefined (P4-C skips it).
+      /* clusterWidths */ undefined,
+      /* sourceStart */ undefined,
     );
     children = [...children, hyphenBox];
   }
@@ -2467,6 +2483,7 @@ function buildLineChildrenForAncestorLevel(
           `${parentKey}-l${lineIndex}-ib${out.length}-${ib.key}`,
           cursorInlineOffset, 0, unitWidth, ibBlockSize, writingMode, direction, tokStyle, ibUsedStyle, ib.children,
           /* containingInlineSize */ lineInlineSize,
+          /* sourceStart — the OBJECT_REPLACEMENT char's absolute source offset */ firstTok.absoluteSourceBase,
         ));
       } else {
         // Regular token — emit a TextRunBox (merging tokens in the unit).
@@ -2495,6 +2512,28 @@ function buildLineChildrenForAncestorLevel(
             for (let k = 0; k < collapsed; k++) leafSDL.push(0);
           }
         }
+
+        // Per-DISPLAY-code-unit advances for the WHOLE run, used by the P4-C
+        // bidi reorder to split the box at a level boundary. Built by
+        // concatenating each token's `clusterWidths` — SAME partition shape as
+        // `leafSDL` above, but over DISPLAY code units (`t.text.length`), not
+        // the state span. Whitespace tokens carry NO token-level clusterWidths
+        // (gated at tokenization), so synthesize them: one entry per display
+        // code unit, the token's whole advance on the first unit and 0 on the
+        // rest (mirroring the first-unit-full / interior-0 grapheme attribution
+        // the non-whitespace clusterWidths loop uses). Invariant:
+        // `clusterWidths.length === text.length` (the assembled box text).
+        const clusterWidths: number[] = [];
+        for (const t of unit.tokens) {
+          if (t.clusterWidths) {
+            clusterWidths.push(...t.clusterWidths);
+          } else {
+            for (let k = 0; k < t.text.length; k++) {
+              clusterWidths.push(k === 0 ? t.width : 0);
+            }
+          }
+        }
+        const sourceStart = firstTok.absoluteSourceBase;
 
         const tokBlockSize = measurer.measureHeight(tokStyle);
         lineBlockSizeTracker.value = Math.max(lineBlockSizeTracker.value, tokBlockSize);
@@ -2539,6 +2578,8 @@ function buildLineChildrenForAncestorLevel(
           offsetLength,
           /* containingInlineSize */ lineInlineSize,
           /* sourceDisplayLengths */ leafSDL,
+          /* clusterWidths */ clusterWidths,
+          /* sourceStart */ sourceStart,
         ));
       }
       cursorInlineOffset += unitWidth;

@@ -67,7 +67,19 @@ describe("IFC — trailing letter-spacing trim (CSS Text 3 §8.1)", () => {
     const sum = leaves.reduce((s, l) => s + l.inlineSize, 0);
     expect(sum).toBe(20);
     // The last leaf carries the trim.
-    expect(leaves[leaves.length - 1].inlineSize).toBe(20);
+    const last = leaves[leaves.length - 1];
+    expect(last.inlineSize).toBe(20);
+    // P4-C.1 T2/F1: trimTrailingLetterSpacing rebuilds this leaf via the factory;
+    // it MUST forward clusterWidths + sourceStart (else the bidi reorder can't
+    // split the line-end run). Without the forward they come back undefined —
+    // this asserts they survive the trim rebuild, with the length===text.length
+    // invariant intact.
+    expect(last.type).toBe("text-run");
+    if (last.type === "text-run") {
+      expect(last.clusterWidths).toBeDefined();
+      expect(last.clusterWidths?.length).toBe(last.text.length);
+      expect(last.sourceStart).toBe(0);
+    }
   });
 
   it("normal-identity: letterSpacing normal → no trim, widths unchanged", () => {

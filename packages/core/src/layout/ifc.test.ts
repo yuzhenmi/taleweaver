@@ -1134,6 +1134,89 @@ describe("IFC — inline-block atomic placement", () => {
   });
 });
 
+describe("IFC — line TextRunBox carries sourceStart + clusterWidths (P4-C bidi-split inputs)", () => {
+  // Collect text-run leaves of a line (recursing into inline boxes).
+  function textRunLeaves(line: import("./layout-box").LayoutBox): import("./layout-box").TextRunBox[] {
+    const out: import("./layout-box").TextRunBox[] = [];
+    const walk = (b: import("./layout-box").LayoutBox): void => {
+      if (b.type === "text-run") { out.push(b); return; }
+      if (b.type === "inline" || b.type === "inline-block") b.children.forEach(walk);
+    };
+    if (line.type === "line") line.children.forEach(walk);
+    return out;
+  }
+
+  it("a single-line run starting at source offset 0 has sourceStart 0 and clusterWidths.length === text.length", () => {
+    const lines = ifcOf("hello", 500);
+    expect(lines).toHaveLength(1);
+    const runs = textRunLeaves(lines[0]).filter(r => r.text.length > 0);
+    expect(runs.length).toBeGreaterThanOrEqual(1);
+    const run = runs[0];
+    expect(run.sourceStart).toBe(0);
+    expect(run.clusterWidths).toBeDefined();
+    if (run.clusterWidths === undefined) throw new Error("?");
+    expect(run.clusterWidths.length).toBe(run.text.length);
+    // Each non-grapheme-interior cluster carries the full advance; sum equals the run's inline advance.
+    const sum = run.clusterWidths.reduce((s, w) => s + w, 0);
+    expect(sum).toBeCloseTo(run.inlineSize, 5);
+  });
+
+  it("a later word's run has sourceStart equal to its absolute source offset", () => {
+    // "ab cd": the second word begins at source offset 3.
+    const lines = ifcOf("ab cd", 500);
+    expect(lines).toHaveLength(1);
+    const runs = textRunLeaves(lines[0]);
+    // Find the run whose text starts with the second word.
+    const second = runs.find(r => r.text.startsWith("cd"));
+    expect(second).toBeDefined();
+    if (second === undefined) throw new Error("?");
+    expect(second.sourceStart).toBe(3);
+    if (second.clusterWidths === undefined) throw new Error("?");
+    expect(second.clusterWidths.length).toBe(second.text.length);
+  });
+
+  it("a run that absorbs a TRAILING SPACE token synthesizes a clusterWidth for the whitespace (length === text.length)", () => {
+    // A merged word+trailing-space run: the wrap unit packs the word and its
+    // following space token together, exercising the whitespace-synthesis path
+    // (space tokens carry no token-level clusterWidths).
+    const lines = ifcOf("foo bar", 500);
+    expect(lines).toHaveLength(1);
+    const runs = textRunLeaves(lines[0]);
+    // The first wrap unit is "foo " (word + trailing space) — find a run whose
+    // text contains a space.
+    const spaced = runs.find(r => /\s/.test(r.text));
+    expect(spaced).toBeDefined();
+    if (spaced === undefined) throw new Error("?");
+    expect(spaced.clusterWidths).toBeDefined();
+    if (spaced.clusterWidths === undefined) throw new Error("?");
+    // Invariant: one entry per DISPLAY code unit of the box text.
+    expect(spaced.clusterWidths.length).toBe(spaced.text.length);
+    // Sum of synthesized + real cluster widths ≈ the run's inline advance.
+    const sum = spaced.clusterWidths.reduce((s, w) => s + w, 0);
+    expect(sum).toBeCloseTo(spaced.inlineSize, 5);
+  });
+
+  it("an InlineBlockBox carries sourceStart = its OBJECT_REPLACEMENT source offset", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t1", {}, "ab "),
+        createElementBox("ib", { display: "inline-block", inlineSize: 50, blockSize: 30 }, []),
+        createTextBox("t2", {}, " cd"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null || r.box.type !== "block") throw new Error("?");
+    const line = r.box.children.find(c => c.type === "line");
+    if (line === undefined || line.type !== "line") throw new Error("?");
+    const ib = line.children.find(c => c.type === "inline-block");
+    expect(ib).toBeDefined();
+    if (ib?.type !== "inline-block") throw new Error("?");
+    // "ab " is source offsets 0..2 (3 chars); the OBJECT_REPLACEMENT char is at offset 3.
+    expect(ib.sourceStart).toBe(3);
+  });
+});
+
 describe("IFC — fragmentEdge across lines", () => {
   it("first-line fragment has fragmentEdge='first', last-line has 'last'", () => {
     const tree = cascadePass(
