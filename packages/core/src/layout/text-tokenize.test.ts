@@ -77,6 +77,18 @@ describe("tokenize (whiteSpace: normal)", () => {
   it("single leading space + word + trailing spaces all emit (#308 boundary case)", () => {
     expect(tokenize(" hi  ", "normal")).toEqual([" ", "hi", " ", " "]);
   });
+
+  it("keeps a leading TAB in the offset accounting (#365)", () => {
+    // A leading TAB is whitespace under `normal` (collapsed visually) but its
+    // SOURCE offset must still be owned by a token so the IFC's per-line offset
+    // cursor advances over it. "\t word" has 2 leading whitespace chars (TAB +
+    // space) → 2 orphan " " tokens covering offsets 0 and 1, then "word"
+    // covering offsets 2..5. Without the leading-emit, the TAB's offset 0 is
+    // unowned and the caret cannot land on/after it (#365). UAX #14 classifies
+    // TAB as BA (break-after-allowed); the mandatory-set extension here must
+    // not strand its source offset.
+    expect(tokenize("\t word", "normal")).toEqual([" ", " ", "word"]);
+  });
 });
 
 describe("tokenize (whiteSpace: nowrap)", () => {
@@ -104,6 +116,25 @@ describe("tokenize (whiteSpace: pre)", () => {
   it("multiple newlines produce multiple LINE_BREAKs", () => {
     expect(tokenize("a\n\nb", "pre")).toEqual(["a", LINE_BREAK, "", LINE_BREAK, "b"]);
   });
+  it("LINE SEPARATOR (U+2028) / PARAGRAPH SEPARATOR (U+2029) are mandatory breaks (UAX #14 LB4)", () => {
+    // The mandatory-break set is a superset of `\n`: LS/PS/FF/VT/NEL also force
+    // a line break per UAX #14 LB4 (FF/LS/PS hard) and LB5 (CR/LF/NEL hard).
+    expect(tokenize("a\u2028b", "pre")).toEqual(["a", LINE_BREAK, "b"]);
+    expect(tokenize("a\u2029b", "pre")).toEqual(["a", LINE_BREAK, "b"]);
+  });
+  it("FF (U+000C) / VT (U+000B) / NEL (U+0085) are mandatory breaks (UAX #14 LB4/LB5)", () => {
+    expect(tokenize("a\u000Cb", "pre")).toEqual(["a", LINE_BREAK, "b"]);
+    expect(tokenize("a\u000Bb", "pre")).toEqual(["a", LINE_BREAK, "b"]);
+    expect(tokenize("a\u0085b", "pre")).toEqual(["a", LINE_BREAK, "b"]);
+  });
+  it("CRLF (U+000D U+000A) is a SINGLE mandatory break, not two (UAX #14 LB5)", () => {
+    // The `\r\n` alternant must lead MANDATORY_BREAK_RE so a CRLF pair yields ONE
+    // LINE_BREAK (not CR-break + empty-segment + LF-break). This is the
+    // load-bearing reason for the alternation order.
+    expect(tokenize("a\r\nb", "pre")).toEqual(["a", LINE_BREAK, "b"]);
+    expect(tokenize("a\r\nb", "pre-wrap")).toEqual(["a", LINE_BREAK, "b"]);
+    expect(tokenize("a\r\nb", "pre-line")).toEqual(["a", LINE_BREAK, "b"]);
+  });
   it("empty string returns empty array", () => {
     expect(tokenize("", "pre")).toEqual([]);
   });
@@ -121,6 +152,13 @@ describe("tokenize (whiteSpace: pre-wrap)", () => {
   });
   it("emits LINE_BREAK at newlines", () => {
     expect(tokenize("a\nb", "pre-wrap")).toEqual(["a", LINE_BREAK, "b"]);
+  });
+  it("LS (U+2028) / PS (U+2029) force a LINE_BREAK under pre-wrap (UAX #14 LB4)", () => {
+    // Mandatory-break superset applies to pre-wrap too: LS/PS split segments
+    // exactly like `\n`, so they become a LINE_BREAK rather than a wrappable
+    // " " space token.
+    expect(tokenize("a\u2028b", "pre-wrap")).toEqual(["a", LINE_BREAK, "b"]);
+    expect(tokenize("a\u2029b", "pre-wrap")).toEqual(["a", LINE_BREAK, "b"]);
   });
   it("interior single space (no leading/trailing) is byte-identical to normal", () => {
     // Scoped parity: matches `normal` ONLY for interior single spaces with no
