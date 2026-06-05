@@ -4,6 +4,38 @@ import type { Direction } from "../styles";
 import type { TextMeasurer } from "../layout/text-measurer";
 
 /**
+ * Caret affinity at a bidi run boundary (P4-C.2 §D). Re-declared here (not
+ * imported from `cursor-position.ts`) to keep `line-bidi.ts` the dependency-free
+ * primitive the four concern files import FROM, not a module that depends on
+ * them. The two declarations are structurally identical (`"before" | "after"`).
+ */
+export type CaretAffinity = "before" | "after";
+
+/** Visual (physical) horizontal motion direction from the arrow key. */
+export type VisualDirection = "left" | "right";
+
+/**
+ * Take exactly one grapheme-cluster step in STATE space, in the given LOGICAL
+ * direction, starting at block-relative state `offset`. The caller supplies this
+ * (it owns the block's inline content); `moveVisually` is otherwise pure on the
+ * `LineBidiView`. `"forward"` returns the next grapheme boundary at or after
+ * `offset`; `"backward"` the previous one. Must clamp at the block ends.
+ */
+export type GraphemeStepper = (
+  offset: number,
+  direction: "forward" | "backward",
+) => number;
+
+/**
+ * Result of `moveVisually`: either a new in-line caret `{ offset, affinity }`,
+ * or an `{ exit }` signal that the motion ran off the line's visual edge (the
+ * caller moves to the visual start/end of the adjacent line).
+ */
+export type MoveVisuallyResult =
+  | { readonly offset: number; readonly caretAffinity: CaretAffinity }
+  | { readonly exit: VisualDirection };
+
+/**
  * One non-synthetic leaf of a line, paired with its LOGICAL state span and
  * resolved bidi level. `leaf` is the visual-order `LineLeaf` (carrying
  * `absoluteX`/`width`/`computedStyle`/`box`); `logStart`/`logEnd` are the
@@ -234,6 +266,193 @@ export function offsetInLeaf(
 
 function clamp(value: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(value, hi));
+}
+
+// ---------------------------------------------------------------------------
+// Visual-order caret motion (P4-C.2 §E) — ArrowLeft / ArrowRight
+// ---------------------------------------------------------------------------
+
+/**
+ * Move the collapsed caret ONE visual step (ArrowLeft / ArrowRight) within a
+ * bidi-reordered line (P4-C.2 spec §E). Ported from the ALGORITHM of
+ * CodeMirror 6's `moveVisually` (the de-facto browser-equivalent for visual
+ * caret motion across bidi runs) — restructured to operate on our
+ * `LineBidiView`, NOT copied verbatim.
+ *
+ * Visual direction maps to a LOGICAL grapheme step by the OWNING run's level
+ * PARITY: in an LTR run (even level) visual-right = logical-FORWARD; in an RTL
+ * run (odd level) visual-right = logical-BACKWARD (and visual-left the reverse).
+ *
+ * Run-crossing model:
+ *   1. Resolve the OWNING run from `(offset, caretAffinity)`. At a shared
+ *      logical boundary (`offset === leafA.logEnd === leafB.logStart`) the
+ *      affinity disambiguates: `"before"` → the leaf ENDING at the offset,
+ *      `"after"`/undefined → the leaf STARTING at it.
+ *   2. If `offset` is NOT yet at the run's visual-`visualDir` edge: take one
+ *      grapheme step in the within-run logical direction and stay in the run.
+ *      The within-run side gives the natural affinity: stepping toward the run's
+ *      visual-`visualDir` edge, the caret hugs THIS run (so at the far edge it is
+ *      `"before"` for an LTR run / `"after"` for an RTL run — the side facing
+ *      back into the run).
+ *   3. If `offset` IS already at the run's visual-`visualDir` edge: CROSS to the
+ *      visually-adjacent run on that side (the next/prev entry in
+ *      `visualLeaves`). The caret lands at the ENTERED run's NEAR (facing) edge
+ *      with the SAME logical `offset`, flipping `caretAffinity` to belong to the
+ *      entered run — this is the dual-caret "first press flips, second advances"
+ *      at a DIRECTION boundary. When the two runs share level PARITY (an ordinary
+ *      word break in a uniform-direction stretch) the facing edges carry the SAME
+ *      logical offset AND the step already advanced in (2) — there is no spurious
+ *      flip; the caret advances immediately.
+ *   4. No run on that visual side → `{ exit: visualDir }` (the caller moves to
+ *      the adjacent line's visual edge).
+ *
+ * `view.isEmpty` (strut-only line) → always `{ exit: visualDir }` (no caret
+ * targets on this line; cross to a neighbor).
+ */
+export function moveVisually(
+  view: LineBidiView,
+  offset: number,
+  caretAffinity: CaretAffinity | undefined,
+  visualDir: VisualDirection,
+  step: GraphemeStepper,
+): MoveVisuallyResult {
+  if (view.isEmpty || view.visualLeaves.length === 0) {
+    return { exit: visualDir };
+  }
+
+  const visualIndex = findOwningVisualIndex(view.visualLeaves, offset, caretAffinity);
+  const run = view.visualLeaves[visualIndex];
+  const ltr = run.level % 2 === 0;
+
+  // Visual-right is logical-forward in an LTR run, logical-backward in an RTL
+  // run; visual-left is the reverse.
+  const forward = (visualDir === "right") === ltr;
+
+  // The run's VISUAL-`visualDir` edge in STATE offsets: stepping forward heads
+  // toward logEnd, backward toward logStart.
+  const farEdge = forward ? run.logEnd : run.logStart;
+
+  if (offset !== farEdge) {
+    // Still room to move inside this run: one grapheme step, stay in-run.
+    const next = forward ? step(offset, "forward") : step(offset, "backward");
+    const clamped = forward
+      ? Math.min(next, run.logEnd)
+      : Math.max(next, run.logStart);
+    // Affinity hugs THIS run on the side facing back into it: at the run's
+    // forward (visual-`visualDir`) edge an LTR run wants `"before"` (caret on
+    // its trailing edge) and an RTL run wants `"after"`. Interior offsets are
+    // owned by a single leaf, so the value is inert there.
+    const inRunAffinity: CaretAffinity = ltr ? "before" : "after";
+    return { offset: clamped, caretAffinity: inRunAffinity };
+  }
+
+  // At the run's visual-`visualDir` edge — cross to the visually-adjacent run.
+  const nextVisualIndex = visualDir === "right" ? visualIndex + 1 : visualIndex - 1;
+  if (nextVisualIndex < 0 || nextVisualIndex >= view.visualLeaves.length) {
+    return { exit: visualDir };
+  }
+  const entered = view.visualLeaves[nextVisualIndex];
+  const enteredLtr = entered.level % 2 === 0;
+
+  // Enter at the run's NEAR (facing) edge. We moved toward `visualDir`, so we
+  // enter the next run from the opposite side: entering from the LEFT when
+  // moving right (its visual-left edge), from the RIGHT when moving left (its
+  // visual-right edge). Visual-left edge = logStart for LTR / logEnd for RTL;
+  // visual-right edge = logEnd for LTR / logStart for RTL.
+  const enterAtVisualLeft = visualDir === "right";
+  const enteredOffset = enteredLtr
+    ? enterAtVisualLeft
+      ? entered.logStart
+      : entered.logEnd
+    : enterAtVisualLeft
+      ? entered.logEnd
+      : entered.logStart;
+
+  // Affinity so the caret belongs to the ENTERED run at that facing edge: at the
+  // entered run's leading (facing-back-in) side. Entering at its visual-left
+  // edge, an LTR run's caret hugs forward → `"after"` (logStart), an RTL run's
+  // caret at logEnd hugs `"before"`. Entering at its visual-right edge, mirror.
+  const enteredAffinity: CaretAffinity = enteredLtr
+    ? enterAtVisualLeft
+      ? "after"
+      : "before"
+    : enterAtVisualLeft
+      ? "before"
+      : "after";
+
+  // DIRECTION-BOUNDARY vs SAME-PARITY discriminator (spec §E):
+  //   - DIFFERENT parity (LTR↔RTL): the entered run's facing edge is its FAR
+  //     logical end, so `enteredOffset !== offset` — the caret JUMPS to the other
+  //     run's edge at the same VISUAL x but a different logical offset (the
+  //     dual-caret flip). The NEXT press advances within the entered run.
+  //   - SAME parity (ordinary word break in a uniform stretch): the entered run's
+  //     facing edge carries the SAME logical offset (`enteredOffset === offset`),
+  //     so crossing made NO progress. The caret must advance one grapheme into
+  //     the entered run immediately — no spurious flip.
+  if (enteredOffset === offset) {
+    const enteredForward = (visualDir === "right") === enteredLtr;
+    const stepped = enteredForward
+      ? Math.min(step(offset, "forward"), entered.logEnd)
+      : Math.max(step(offset, "backward"), entered.logStart);
+    return { offset: stepped, caretAffinity: enteredAffinity };
+  }
+
+  return { offset: enteredOffset, caretAffinity: enteredAffinity };
+}
+
+/**
+ * The index into `visualLeaves` of the run that OWNS `(offset, caretAffinity)`.
+ * Interior offsets (`logStart <= offset < logEnd`) belong to exactly one run. At
+ * a shared logical boundary two runs meet (`offset === a.logEnd === b.logStart`)
+ * and `caretAffinity` picks the side: `"before"` → the run ENDING at the offset,
+ * `"after"`/undefined → the run STARTING at it. Walks visual order; falls back to
+ * the run whose state span contains the (clamped) offset.
+ */
+function findOwningVisualIndex(
+  visualLeaves: readonly BidiViewLeaf[],
+  offset: number,
+  caretAffinity: CaretAffinity | undefined,
+): number {
+  // Boundary disambiguation first: if `offset` sits exactly between two runs in
+  // STATE space, the affinity chooses which one owns it.
+  let endingHere = -1; // run with logEnd === offset (the "before" choice)
+  let startingHere = -1; // run with logStart === offset (the "after" choice)
+  for (let i = 0; i < visualLeaves.length; i++) {
+    const v = visualLeaves[i];
+    if (offset > v.logStart && offset < v.logEnd) {
+      // Strictly interior — unambiguous owner.
+      return i;
+    }
+    if (offset === v.logEnd) endingHere = i;
+    if (offset === v.logStart) startingHere = i;
+  }
+  if (caretAffinity === "before") {
+    if (endingHere >= 0) return endingHere;
+    if (startingHere >= 0) return startingHere;
+  } else {
+    if (startingHere >= 0) return startingHere;
+    if (endingHere >= 0) return endingHere;
+  }
+  // Out-of-range (defensive): clamp to the nearest run by state span.
+  return offset <= visualLeaves[0].logStart ? leftmostByState(visualLeaves) : rightmostByState(visualLeaves);
+}
+
+/** Visual index of the run with the smallest logStart (defensive clamp). */
+function leftmostByState(visualLeaves: readonly BidiViewLeaf[]): number {
+  let best = 0;
+  for (let i = 1; i < visualLeaves.length; i++) {
+    if (visualLeaves[i].logStart < visualLeaves[best].logStart) best = i;
+  }
+  return best;
+}
+
+/** Visual index of the run with the largest logEnd (defensive clamp). */
+function rightmostByState(visualLeaves: readonly BidiViewLeaf[]): number {
+  let best = 0;
+  for (let i = 1; i < visualLeaves.length; i++) {
+    if (visualLeaves[i].logEnd > visualLeaves[best].logEnd) best = i;
+  }
+  return best;
 }
 
 /**

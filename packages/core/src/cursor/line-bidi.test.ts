@@ -25,7 +25,14 @@ import {
   buildLineBidiView,
   caretXInLeaf,
   offsetInLeaf,
+  moveVisually,
+  type GraphemeStepper,
+  type MoveVisuallyResult,
 } from "./line-bidi";
+import {
+  nextGraphemeBoundary,
+  prevGraphemeBoundary,
+} from "./grapheme-utils";
 
 const CHAR_W = 8;
 const LINE_H = 16;
@@ -400,5 +407,229 @@ describe("caretXInLeaf / offsetInLeaf", () => {
     // offsetInLeaf: left half → logStart, right half → logEnd (midpoint split).
     expect(offsetInLeaf(ib, ib.leaf.width * 0.25, measurer)).toBe(ib.logStart);
     expect(offsetInLeaf(ib, ib.leaf.width * 0.75, measurer)).toBe(ib.logEnd);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// moveVisually (P4-C.2.3 §E) — ArrowLeft / ArrowRight visual-order caret motion
+// ---------------------------------------------------------------------------
+
+/**
+ * A grapheme stepper over a plain block-relative state string (the test docs
+ * are single-block, so block-relative offset === string index). Mirrors what
+ * the production wiring builds from the block's inline content.
+ */
+function stepperFor(blockText: string): GraphemeStepper {
+  return (offset, direction) =>
+    direction === "forward"
+      ? nextGraphemeBoundary(blockText, offset)
+      : prevGraphemeBoundary(blockText, offset);
+}
+
+/** Pretty-print a result for trace-failure messages. */
+function fmt(r: MoveVisuallyResult): string {
+  return "exit" in r ? `exit:${r.exit}` : `${r.offset}/${r.caretAffinity}`;
+}
+
+describe("moveVisually", () => {
+  it("pure-LTR ArrowRight = logical-forward (byte-identical to offset+1)", () => {
+    const state = para("abc");
+    const { layout } = pipeline(state);
+    const view = buildLineBidiView(bodyLine(layout));
+    const step = stepperFor("abc");
+
+    // From each interior offset, ArrowRight advances exactly one state unit.
+    for (let off = 0; off < 3; off++) {
+      const r = moveVisually(view, off, undefined, "right", step);
+      expect("exit" in r).toBe(false);
+      if (!("exit" in r)) expect(r.offset).toBe(off + 1);
+    }
+    // At the visual-right edge (logEnd) ArrowRight exits the line to the right.
+    expect(moveVisually(view, 3, undefined, "right", step)).toEqual({ exit: "right" });
+  });
+
+  it("pure-LTR ArrowLeft = logical-backward (byte-identical to offset−1)", () => {
+    const state = para("abc");
+    const { layout } = pipeline(state);
+    const view = buildLineBidiView(bodyLine(layout));
+    const step = stepperFor("abc");
+
+    for (let off = 3; off > 0; off--) {
+      const r = moveVisually(view, off, undefined, "left", step);
+      expect("exit" in r).toBe(false);
+      if (!("exit" in r)) expect(r.offset).toBe(off - 1);
+    }
+    expect(moveVisually(view, 0, undefined, "left", step)).toEqual({ exit: "left" });
+  });
+
+  it("uniform-RTL ArrowRight moves toward logical START (offset−1); exits at offset 0", () => {
+    // "אבג" → a single odd-level (RTL) run [0,3). Visual-right = logical-backward.
+    const state = para("אבג");
+    const { layout } = pipeline(state);
+    const view = buildLineBidiView(bodyLine(layout));
+    expect(view.logicalLeaves[0].level % 2).toBe(1);
+    const step = stepperFor("אבג");
+
+    // Full ArrowRight sequence from the logical END (visual-left edge):
+    // 3 → 2 → 1 → 0 → exit-right.
+    const seq: string[] = [];
+    let off = 3;
+    for (let i = 0; i < 5; i++) {
+      const r = moveVisually(view, off, "after", "right", step);
+      seq.push(fmt(r));
+      if ("exit" in r) break;
+      off = r.offset;
+    }
+    // Each press decrements the offset (toward logical start); offset 0 exits.
+    expect(seq).toEqual(["2/after", "1/after", "0/after", "exit:right"]);
+  });
+
+  it("uniform-RTL ArrowLeft moves toward logical END (offset+1); exits at logEnd", () => {
+    const state = para("אבג");
+    const { layout } = pipeline(state);
+    const view = buildLineBidiView(bodyLine(layout));
+    const step = stepperFor("אבג");
+
+    const seq: string[] = [];
+    let off = 0;
+    for (let i = 0; i < 5; i++) {
+      const r = moveVisually(view, off, "after", "left", step);
+      seq.push(fmt(r));
+      if ("exit" in r) break;
+      off = r.offset;
+    }
+    expect(seq).toEqual(["1/after", "2/after", "3/after", "exit:left"]);
+  });
+
+  it("mixed LTR+RTL ArrowRight: full visual sequence incl. the dual-caret flip", () => {
+    // "abcאבג" (LTR-base paragraph): Latin run [0,3) level 0, Hebrew run [3,6)
+    // level 1. On-screen glyphs L→R: a b c ג ב א. visualLeaves = [latin, hebrew].
+    //
+    // TRACE of repeated ArrowRight from (0, undefined), derived step-by-step from
+    // the ported algorithm AND cross-checked against the L→R glyph order:
+    //   (0)        a|… caret left of a          → step fwd in LTR  → 1
+    //   (1)        a|b                          → 2
+    //   (2)        ab|c                         → 3 (latin logEnd = its visual-RIGHT edge)
+    //   (3,before) abc| (right edge of latin)   → CROSS right into Hebrew run; its
+    //              visual-LEFT edge is logEnd=6 (different parity ⇒ FLIP, same x)
+    //              → 6,before
+    //   (6,before) …|  (left edge of hebrew)    → step back in RTL → 5,after
+    //   (5,after)  ג|ב                          → 4,after
+    //   (4,after)  גב|א                          → 3,after (hebrew logStart = its
+    //              visual-RIGHT edge)
+    //   (3,after)  …גבא| (rightmost)            → CROSS right, no next run → exit-right
+    const state = para("abcאבג");
+    const { layout } = pipeline(state);
+    const view = buildLineBidiView(bodyLine(layout));
+    const step = stepperFor("abcאבג");
+
+    // Confirm the visual order assumption the trace depends on (latin left of
+    // hebrew). If the engine ever reorders differently this guards the trace.
+    expect(view.visualLeaves.length).toBe(2);
+    expect(view.visualLeaves[0].level % 2).toBe(0); // latin (LTR) leftmost
+    expect(view.visualLeaves[1].level % 2).toBe(1); // hebrew (RTL) to its right
+    expect(view.visualLeaves[0].logStart).toBe(0);
+    expect(view.visualLeaves[1].logStart).toBe(3);
+
+    const seq: string[] = [];
+    let off = 0;
+    let aff: "before" | "after" | undefined = undefined;
+    for (let i = 0; i < 9; i++) {
+      const r = moveVisually(view, off, aff, "right", step);
+      seq.push(fmt(r));
+      if ("exit" in r) break;
+      off = r.offset;
+      aff = r.caretAffinity;
+    }
+    expect(seq).toEqual([
+      "1/before", // within latin
+      "2/before",
+      "3/before", // latin right edge
+      "6/before", // FLIP into hebrew (visual-left edge = logEnd) — same x, dual caret
+      "5/after", // within hebrew, moving visual-right = logical-backward
+      "4/after",
+      "3/after", // hebrew right edge (logStart)
+      "exit:right",
+    ]);
+  });
+
+  it("mixed LTR+RTL ArrowLeft from the end mirrors ArrowRight", () => {
+    // From (6, after) — the logical END (rightmost in the RTL run is the LEFTMOST
+    // glyph 'א' at logEnd... the caret at offset 6 sits at the hebrew run's
+    // visual-LEFT edge). Pressing ArrowLeft walks visual-left across the glyphs.
+    // We assert the WITHIN-run + boundary steps we are confident in.
+    const state = para("abcאבג");
+    const { layout } = pipeline(state);
+    const view = buildLineBidiView(bodyLine(layout));
+    const step = stepperFor("abcאבג");
+
+    // Start at the visual-left end of the line: offset 6 is the hebrew run's
+    // logEnd, which renders at its visual-LEFT edge (leftmost of the RTL run).
+    // ArrowLeft from there crosses LEFT into… nothing further left than latin's
+    // right edge — but offset 6 is to the RIGHT of latin visually, so the first
+    // ArrowLeft stays/crosses per the algorithm. Assert the confident steps:
+    //   (3,after)  hebrew visual-RIGHT edge (rightmost) → ArrowLeft = logical-fwd
+    //              in RTL → 4,after
+    const r1 = moveVisually(view, 3, "after", "left", step);
+    expect(fmt(r1)).toBe("4/after"); // within hebrew, visual-left = logical-forward
+
+    // Within latin, ArrowLeft = logical-backward (LTR).
+    const r2 = moveVisually(view, 2, "before", "left", step);
+    expect(fmt(r2)).toBe("1/before");
+
+    // At latin's visual-LEFT edge (logStart 0) ArrowLeft exits left.
+    expect(moveVisually(view, 0, "after", "left", step)).toEqual({ exit: "left" });
+
+    // Boundary FLIP going visual-left: from the hebrew run's visual-LEFT edge
+    // (offset 6) ArrowLeft crosses left into latin. TODO(C.2.7 browser-confirm):
+    // the exact entered offset/affinity at this left-going boundary flip is
+    // asserted here from the ported algorithm; confirm against Google Docs.
+    const flip = moveVisually(view, 6, "before", "left", step);
+    expect(fmt(flip)).toBe("3/before"); // enters latin at its visual-right edge (logEnd)
+  });
+
+  it("same-parity boundary (two adjacent LTR runs) advances with NO flip", () => {
+    // "ab" bold + "cd" — two LTR runs split by an attr change, same level parity.
+    // ArrowRight across the run boundary must ADVANCE one unit, never produce a
+    // same-offset affinity flip.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([
+            text("ab", { fontWeight: "bold" }),
+            text("cd"),
+          ]),
+        }),
+      ],
+    });
+    const { layout } = pipeline(state);
+    const view = buildLineBidiView(bodyLine(layout));
+    const step = stepperFor("abcd");
+
+    // Both runs are LTR (even level), so this is a same-parity boundary at off 2.
+    for (const lv of view.logicalLeaves) expect(lv.level % 2).toBe(0);
+
+    // ArrowRight at the boundary (offset 2) advances to 3 — NOT a 2/2 flip.
+    const r = moveVisually(view, 2, "before", "right", step);
+    expect("exit" in r).toBe(false);
+    if (!("exit" in r)) {
+      expect(r.offset).toBe(3);
+      expect(r.offset).not.toBe(2); // crucial: no spurious same-offset flip
+    }
+  });
+
+  it("empty (strut-only) line exits in the press direction", () => {
+    const state = para("");
+    const { layout } = pipeline(state);
+    const view = buildLineBidiView(bodyLine(layout));
+    expect(view.isEmpty).toBe(true);
+    const step = stepperFor("");
+    expect(moveVisually(view, 0, undefined, "right", step)).toEqual({ exit: "right" });
+    expect(moveVisually(view, 0, undefined, "left", step)).toEqual({ exit: "left" });
   });
 });

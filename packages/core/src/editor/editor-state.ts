@@ -301,7 +301,7 @@ export function reduceEditor(
       result = handleSplitNode(editor, config);
       break;
     case "MOVE_CURSOR":
-      result = handleMoveCursor(editor, action.direction);
+      result = handleMoveCursor(editor, action.direction, config);
       break;
     case "MOVE_WORD":
       result = handleMoveWord(editor, action.direction);
@@ -496,14 +496,18 @@ export function reduceEditor(
  * Does this action explicitly MANAGE `EditorState.caretAffinity` (set or
  * deliberately clear it), exempting it from the central reset above?
  *
- * Today only `SET_SELECTION` qualifies — the DOM click seeds the hit side, and a
- * programmatic `SET_SELECTION` with no affinity passes `undefined` to clear it.
- * EXTENSION POINT (P4-C.2.3 / C.2.6): the visual-order arrow motions
- * (`MOVE_CURSOR` at a boundary flip), `MOVE_LINE_BOUNDARY` (Home/End), and the
- * `EXPAND_*` selection motions will be added here as they learn to carry
- * affinity. Until then they fall through to the reset (correct — they don't yet
- * track a boundary side).
+ * Qualifying actions (each SETS `caretAffinity` on its result, so the central
+ * reset must NOT clobber it):
+ *   - `SET_SELECTION` — the DOM click seeds the hit side; a programmatic
+ *     selection with no affinity passes `undefined` to clear it.
+ *   - `MOVE_CURSOR` (P4-C.2.3) — visual-order ArrowLeft/Right sets the boundary
+ *     affinity from `moveVisually` (the dual-caret flip side), or clears it to
+ *     `undefined` on an exit / collapse.
+ * EXTENSION POINT (P4-C.2.4 / C.2.6): the `EXPAND_*` selection motions and
+ * `MOVE_LINE_BOUNDARY` (Home/End) join here as they learn to carry affinity.
+ * Until then they fall through to the reset (correct — they don't yet track a
+ * boundary side).
  */
 function actionManagesCaretAffinity(action: EditorAction): boolean {
-  return action.type === "SET_SELECTION";
+  return action.type === "SET_SELECTION" || action.type === "MOVE_CURSOR";
 }
