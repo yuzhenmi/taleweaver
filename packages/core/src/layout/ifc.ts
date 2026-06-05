@@ -23,6 +23,7 @@ import { flattenContents } from "./group-children";
 import { markStart, markEnd } from "../perf/perf-trace";
 import { computeAlignmentOffset, computeJustifyExpansions } from "./ifc-align";
 import { resolveSpacingPx } from "./text-spacing";
+import { resolveParagraphBidi, type ParagraphBidi } from "./ifc-bidi";
 
 /**
  * Derive the SOURCE block id from an IFC parent's render-node key.
@@ -1156,6 +1157,16 @@ export function layoutInlineContent(
   // the wrap loop consults them via trySoftSplit + the breakableBefore gate.
   annotateLineBreaks(tokens, asm);
 
+  // P4-C: resolve UAX #9 bidi embedding levels ONCE for the whole paragraph
+  // (a run's level depends on surrounding runs, so it must run over the full
+  // assembled source, not per-line). Each line later derives its U16 source
+  // span and queries these levels in `reorderLineForBidi` (via the cheap fast
+  // path that no-ops on pure-LTR lines). `direction` ("ltr"|"rtl") is a subset
+  // of `BaseDirection`, so it threads through directly. Empty paragraphs (no
+  // source) skip resolution — `null` makes the reorder no-op.
+  const paragraphBidi: ParagraphBidi | null =
+    asm.source.length === 0 ? null : resolveParagraphBidi(asm.source, direction);
+
   // Incremental-wrap cache: if tokens are identical and the available inline size hasn't
   // changed since the last layout, reuse the cached lines (no re-wrap needed).
   // Bypass the cache when fragmentation is active: the cached box was produced
@@ -1693,6 +1704,7 @@ export function layoutInlineContent(
       startOff,              // inlineOffsetStart
       cursorOffset,          // inlineOffsetEnd
       alignmentOffset,
+      paragraphBidi,         // P4-C: per-paragraph bidi levels (closure-captured)
     );
     if (currentLineStartTokenIdx >= 0) {
       lineMeta.set(line, {
@@ -2312,6 +2324,11 @@ function buildLineWithFragments(
   // end/center under both directions. See the design doc:
   // docs/superpowers/specs/2026-05-28-textalign-rtl-fullwidth-line-design.md.
   alignmentOffset: number = 0,
+  // P4-C: the paragraph's resolved bidi levels (resolved once per paragraph in
+  // `layoutInlineContent`). `null` for an empty/source-less paragraph. The line
+  // derives its own U16 source span from `units` and passes both to
+  // `reorderLineForBidi`, which fast-paths to identity when the line is pure-LTR.
+  paragraphBidi: ParagraphBidi | null = null,
 ): LineBox {
   const parentUsedStyle = computeUsedStyle(parentCs, containingInlineSize, "indefinite");
   const lineBlockSizeTracker = { value: 0 };
@@ -2417,7 +2434,16 @@ function buildLineWithFragments(
   }
 
   const aligned = applyVerticalAlign(children, lineBlockSize, lineInlineSize, parentCs.fontSize);
-  const reordered = reorderLineForBidi(aligned, lineInlineSize);
+  // P4-C: derive this line's U16 source span from its wrap units, then reorder
+  // by the paragraph's bidi levels. The fast path no-ops for pure-LTR lines.
+  const lineSourceRange = deriveLineSourceRangeU16(units);
+  const reordered = reorderLineForBidi(
+    aligned,
+    lineInlineSize,
+    paragraphBidi,
+    lineSourceRange?.startU16 ?? -1,
+    lineSourceRange?.endU16 ?? -1,
+  );
   return createLineBox(`${parentKey}-l${lineIndex}`, lineInlineCursor, lineBlockOffset, lineInlineSize, lineBlockSize, writingMode, direction, parentCs, parentUsedStyle, reordered,
     /* baseline */ lineBlockSize,
     /* containingInlineSize */ containingInlineSize,
@@ -2703,19 +2729,124 @@ function visitInlineBoxes(children: readonly LayoutBox[], visit: (b: InlineBox) 
  * @param lineInlineSize the line's inline-extent.
  * @returns children in visual order with rewritten `inlineOffset`s.
  */
+/**
+ * The half-open U16 source span `[startU16, endU16)` a line covers in the
+ * assembled paragraph source (`IfcSourceAssembly.source`). Both ends are
+ * UTF-16 code-unit offsets into that source — the SAME coordinate space as
+ * `Token.absoluteSourceBase` and `ParagraphBidi.cpIndexAtUtf16`.
+ */
+export interface LineSourceRangeU16 {
+  /** First U16 offset the line covers (the first real token's base). */
+  readonly startU16: number;
+  /**
+   * One-past-the-last U16 offset the line covers (EXCLUSIVE) — the last real
+   * token's base plus its DISPLAY length. "Display" (not state) length so a
+   * line ending in collapsed/hung trailing whitespace still extends the span
+   * to the visible edge (for a single-line paragraph this equals
+   * `source.length`).
+   */
+  readonly endU16: number;
+}
+
+/**
+ * Structural view of a wrap unit that {@link deriveLineSourceRangeU16} consumes.
+ * The full {@link WrapUnit} is assignable to this; declaring the narrow shape
+ * keeps the helper unit-testable without constructing a complete `WrapUnit`.
+ */
+export interface LineRangeUnit {
+  readonly tokens: readonly { readonly absoluteSourceBase: number; readonly text: string }[];
+}
+
+/**
+ * Derive a line's half-open U16 source range from its wrap units.
+ *
+ * The start is the FIRST real token's `absoluteSourceBase`; the end is the LAST
+ * real token's `absoluteSourceBase + text.length` (an EXCLUSIVE display-U16
+ * offset — `text` is the DISPLAY string, so trailing collapsed/hung whitespace
+ * folded into a token's display extends the span to the visible edge).
+ *
+ * "Real" excludes synthetic tokens (the hyphen glyph is appended AFTER this in
+ * `buildLineWithFragments`, never inside `units`, but a defensive empty-tokens
+ * unit is skipped). A line with no real tokens (empty/strut-only flush) returns
+ * `null` so `reorderLineForBidi` no-ops via its fast path.
+ *
+ * Note: `text.length` is the DISPLAY length, never `sourceLength` (the
+ * state-model count). The bidi levels are indexed over the same DISPLAY source
+ * the IFC assembled, so the display span is the correct query window.
+ */
+export function deriveLineSourceRangeU16(
+  units: readonly LineRangeUnit[],
+): LineSourceRangeU16 | null {
+  let startU16 = -1;
+  let endU16 = -1;
+  for (const unit of units) {
+    for (const tok of unit.tokens) {
+      if (startU16 < 0) startU16 = tok.absoluteSourceBase;
+      // The end advances with EVERY real token; the last one wins. Using the
+      // token's display `text.length` (not `sourceLength`) keeps the end on the
+      // display-U16 axis the bidi levels are indexed in.
+      endU16 = tok.absoluteSourceBase + tok.text.length;
+    }
+  }
+  if (startU16 < 0) return null;
+  return { startU16, endU16 };
+}
+
 function reorderLineForBidi(
   children: readonly LayoutBox[],
   lineInlineSize: number,
+  paragraphBidi: ParagraphBidi | null,
+  lineSourceStartU16: number,
+  lineSourceEndU16: number,
 ): LayoutBox[] {
   if (children.length === 0) return [];
 
-  // Infer the line's overall bidi direction from the first child's
-  // computedStyle. All children of a uniform RTL paragraph share
-  // direction "rtl" (set by the cascade from the paragraph element).
-  const allRtl = children.every(c => c.computedStyle.direction === "rtl");
+  // FAST PATH (P4-C.1 T3): a line needs no reorder when the paragraph has no
+  // bidi resolution (empty/source-less) OR the paragraph base is LTR (level 0)
+  // AND no codepoint in THIS line's source span carries an RTL (level > 0)
+  // embedding. This covers the overwhelmingly common pure-LTR case at zero
+  // allocation — just a tight scan of the line's level slice.
+  if (paragraphBidi === null) {
+    return [...children];
+  }
+  // A strut-only / empty-source line (degenerate range) carries no real text to
+  // reorder — identity.
+  if (lineSourceStartU16 < 0 || lineSourceEndU16 < 0) {
+    return [...children];
+  }
+  if (paragraphBidi.paragraphLevel === 0) {
+    // Map the line's U16 span to the codepoint index space, clamped into the
+    // valid `cpIndexAtUtf16` range, then scan the level slice for any RTL run.
+    // Both offsets are >= 0 here (the degenerate-range guard above returned).
+    // Clamp the upper bound into `cpIndexAtUtf16`'s valid index range.
+    const maxU16 = paragraphBidi.cpIndexAtUtf16.length - 1;
+    const startU16 = Math.min(lineSourceStartU16, maxU16);
+    const endU16 = Math.min(lineSourceEndU16, maxU16);
+    const lineStartCp = paragraphBidi.cpIndexAtUtf16[startU16];
+    const lineEndCp = paragraphBidi.cpIndexAtUtf16[endU16];
+    let hasRtl = false;
+    for (let cp = lineStartCp; cp < lineEndCp; cp++) {
+      if (paragraphBidi.levels[cp] > 0) {
+        hasRtl = true;
+        break;
+      }
+    }
+    if (!hasRtl) {
+      // Pure-LTR line under an LTR paragraph — identity, same as before P4-C.
+      return [...children];
+    }
+  }
 
+  // TEMPORARY FALLBACK (P4-C.1 T6 will replace this): the line has RTL content
+  // (or an RTL paragraph base). Keep the EXISTING uniform-direction mirror so
+  // current (uniform-direction) content renders identically while the
+  // paragraphBidi plumbing lands. This is NOT correct for mixed-direction lines
+  // — that is exactly what Task 6 implements.
+  // TODO(P4-C.1 T6): replace this uniform mirror with real bidi-run segmentation
+  // + reorderRunsByLevel.
+  const allRtl = children.every(c => c.computedStyle.direction === "rtl");
   if (!allRtl) {
-    // LTR-uniform (or mixed; mixed treated as LTR for v1) — identity.
+    // LTR-uniform with stray RTL, or mixed — treated as LTR for now (identity).
     return [...children];
   }
 

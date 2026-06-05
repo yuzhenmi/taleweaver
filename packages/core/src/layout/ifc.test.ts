@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { createElementBox, createTextBox } from "../render/render-node";
 import { cascadePass } from "../cascade";
 import { createMockShaper } from "./mock-shaper";
-import { layoutInlineContent, collectTokens, splitSuffixSourceBase, SUPERSCRIPT_RAISE_FRACTION, SUBSCRIPT_LOWER_FRACTION } from "./ifc";
+import { layoutInlineContent, collectTokens, splitSuffixSourceBase, deriveLineSourceRangeU16, SUPERSCRIPT_RAISE_FRACTION, SUBSCRIPT_LOWER_FRACTION } from "./ifc";
+import type { LineRangeUnit } from "./ifc";
 import { layoutBlock } from "./bfc";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import type { TextShaper, ShapedRun, BreakOpportunity, FontMetrics, Cluster } from "./text-shaper";
@@ -1684,6 +1685,134 @@ describe("IFC — RTL bidi reordering", () => {
 
     // LTR: t1 comes before t2 in visual order (smaller inlineOffset).
     expect(t1Box.inlineOffset).toBeLessThan(t2Box.inlineOffset);
+  });
+});
+
+describe("deriveLineSourceRangeU16 (P4-C.1 T3: line's half-open U16 source span)", () => {
+  // Build a minimal wrap-unit-shaped object: the helper reads only
+  // tokens[].absoluteSourceBase and tokens[].text (the LineRangeUnit shape).
+  function unit(...tokens: { absoluteSourceBase: number; text: string }[]): LineRangeUnit {
+    return { tokens };
+  }
+
+  it("multi-unit line: start = first token base, end = last token base + display length (EXCLUSIVE)", () => {
+    // Two units: ["ab"]@0 then ["cd"]@3 → covers [0, 5): one-past the last char.
+    const range = deriveLineSourceRangeU16([
+      unit({ absoluteSourceBase: 0, text: "ab" }),
+      unit({ absoluteSourceBase: 3, text: "cd" }),
+    ]);
+    expect(range).not.toBeNull();
+    expect(range?.startU16).toBe(0);
+    // Exclusive end: 3 (last token base) + 2 ("cd".length) = 5, NOT 4 (the last
+    // char's index). This is the half-open [start, end) contract.
+    expect(range?.endU16).toBe(5);
+  });
+
+  it("trailing whitespace extends the EXCLUSIVE end by the space's DISPLAY extent", () => {
+    // Source "ab cd " (length 6) — the trailing space is its own unit under a
+    // preserving mode. Units: ["ab"]@0, [" "]@2, ["cd"]@3, [" "]@5. The end must
+    // include the trailing space's display extent → 5 + 1 = 6 = source.length.
+    const range = deriveLineSourceRangeU16([
+      unit({ absoluteSourceBase: 0, text: "ab" }),
+      unit({ absoluteSourceBase: 2, text: " " }),
+      unit({ absoluteSourceBase: 3, text: "cd" }),
+      unit({ absoluteSourceBase: 5, text: " " }),
+    ]);
+    expect(range?.startU16).toBe(0);
+    // EXCLUSIVE end includes the trailing whitespace by display extent → for a
+    // single-line paragraph this equals source.length ("ab cd ".length === 6).
+    expect(range?.endU16).toBe(6);
+    expect("ab cd ".length).toBe(6);
+  });
+
+  it("empty / strut-only line (no units, or empty-tokens unit) → null", () => {
+    expect(deriveLineSourceRangeU16([])).toBeNull();
+    // A degenerate empty-tokens unit contributes no real token → still null.
+    expect(deriveLineSourceRangeU16([{ tokens: [] }])).toBeNull();
+  });
+
+  it("single-line LTR paragraph: end equals the assembled source length (integration)", () => {
+    // Lay out a real LTR paragraph WITH a trailing space under break-spaces
+    // (preserves the trailing space as its own unit) and assert the derived
+    // range spans the whole source. mockShaper(8,16): 8px/char, 500px width →
+    // one line. Source "ab cd " has length 6.
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", whiteSpace: "break-spaces" }, [
+        createTextBox("t", {}, "ab cd "),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const tokens = collectTokens(tree, shaper, "ltr", makeRootContext(INITIAL_COMPUTED_STYLE, 500).intrinsicCache);
+    // Build one "line" worth of units from the flat tokens (every token on the
+    // single line). The derived end must be the source length (6).
+    const range = deriveLineSourceRangeU16(tokens.map(t => ({ tokens: [t] })));
+    expect(range?.startU16).toBe(0);
+    expect(range?.endU16).toBe(6);
+  });
+});
+
+describe("IFC — P4-C.1 T3 paragraphBidi plumbing (fast path + no behavior change)", () => {
+  it("pure-LTR paragraph lays out identically (fast path → identity reorder)", () => {
+    // The fast path (LTR paragraph, no RTL codepoint in the line) returns the
+    // children unchanged — same geometry as before P4-C plumbing landed.
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t1", {}, "abc"),
+        createTextBox("t2", {}, "def"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const result = layoutInlineContent(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
+    if (result.box === null) throw new Error("null box");
+    const line = result.box.children[0];
+    if (line.type !== "line") throw new Error("expected line");
+    const t1 = line.children.find(c => c.key.startsWith("t1"));
+    const t2 = line.children.find(c => c.key.startsWith("t2"));
+    if (!t1 || !t2) throw new Error("?");
+    // LTR visual order preserved (identity): t1 before t2.
+    expect(t1.inlineOffset).toBeLessThan(t2.inlineOffset);
+    // t1 sits at the line start (offset 0) — not mirrored.
+    expect(t1.inlineOffset).toBe(0);
+  });
+
+  it("RTL (Hebrew) paragraph still mirrors via the temporary fallback (no crash, existing behavior)", () => {
+    // Hebrew text (real RTL codepoints) under an RTL paragraph base. The
+    // paragraphLevel is odd (1) so the fast path is skipped; the temporary
+    // uniform-RTL fallback mirrors the line. Proves resolveParagraphBidi
+    // integration doesn't crash and existing RTL geometry holds.
+    const rtlShaper = createMockShaper(8, 16);
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", direction: "rtl" }, [
+        createTextBox("t1", {}, "אבג"), // אבג
+        createTextBox("t2", {}, "דהו"), // דהו
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const result = layoutInlineContent(
+      tree, 0, 0,
+      makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 200),
+      rtlShaper,
+    );
+    if (result.box === null) throw new Error("null box");
+    const line = result.box.children[0];
+    if (line.type !== "line") throw new Error("expected line");
+    const t1 = line.children.find(c => c.key.startsWith("t1"));
+    const t2 = line.children.find(c => c.key.startsWith("t2"));
+    if (!t1 || !t2) throw new Error("?");
+    // RTL mirror: logical-second (t2) appears visually before logical-first (t1).
+    expect(t2.inlineOffset).toBeLessThan(t1.inlineOffset);
+    // Logical-first sits at the visual (right) end.
+    expect(t1.inlineOffset).toBe(200 - t1.inlineSize);
+  });
+
+  it("empty paragraph (no source) lays out a strut without crash (paragraphBidi === null)", () => {
+    const tree = cascadePass(createElementBox("p", { display: "block" }, []));
+    if (tree.type !== "element") throw new Error("?");
+    const result = layoutInlineContent(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
+    if (result.box === null) throw new Error("null box");
+    // One strut line, no crash.
+    expect(result.box.children.length).toBe(1);
+    expect(result.box.children[0].type).toBe("line");
   });
 });
 
