@@ -1,5 +1,6 @@
 import type { Selection } from "../../state";
 import type { EditorState } from "../editor-state";
+import type { CaretAffinity } from "../../cursor/line-bidi";
 
 /**
  * `SET_SELECTION` handler. Sets the new selection and the (#323) non-undoable
@@ -23,7 +24,7 @@ export function handleSetSelection(
   editor: EditorState,
   selection: Selection,
   caretPageHint?: number,
-  caretAffinity?: "before" | "after",
+  caretAffinity?: CaretAffinity,
 ): EditorState {
   return { ...editor, selection, caretPageHint, caretAffinity };
 }

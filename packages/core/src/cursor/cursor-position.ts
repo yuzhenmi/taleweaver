@@ -10,18 +10,17 @@ import {
   getLineIndex,
   type AbsoluteLineBox,
 } from "./line-flatten";
-import { buildLineBidiView, caretXInLeaf, type BidiViewLeaf } from "./line-bidi";
+import {
+  buildLineBidiView,
+  caretXInLeaf,
+  type BidiViewLeaf,
+  type CaretAffinity,
+} from "./line-bidi";
 import { markStart, markEnd } from "../perf/perf-trace";
 
-/**
- * Caret affinity at a bidi run boundary (P4-C.2 §B). One logical `offset` has
- * TWO visual positions where two leaves meet (`offset == leafA.logEnd ==
- * leafB.logStart`): `"before"` draws at the leaf ENDING at the offset, `"after"`
- * (the default — today's behavior) at the leaf STARTING at it. On a uniform line
- * both pick the same X, so the field is inert there. Threaded from
- * `EditorState.caretAffinity` (view state — never stored in History).
- */
-export type CaretAffinity = "before" | "after";
+// Re-exported so existing importers of `cursor-position.ts` keep working; the
+// single declaration lives in `line-bidi.ts`.
+export type { CaretAffinity };
 
 /**
  * Pixel-position result for a resolved Position. Coords are page-

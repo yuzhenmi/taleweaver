@@ -13,6 +13,7 @@ import type { PageConfig } from "../layout/page-config";
 import type { ComponentRegistry } from "../components/component-registry";
 import type { AttrRegistry } from "../cascade/attr-registry";
 import type { EditorAction } from "./editor-action";
+import type { CaretAffinity } from "../cursor/line-bidi";
 import { coalesceKeyOf } from "./coalesce-key";
 import {
   handleInsertText,
@@ -162,7 +163,7 @@ export interface EditorState {
    * reset + the hit-test / arrow writes) lands in P4-C.2.1+; this field + its
    * default are the shared primitive.
    */
-  readonly caretAffinity?: "before" | "after";
+  readonly caretAffinity?: CaretAffinity;
 }
 
 export interface EditorConfig {

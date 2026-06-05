@@ -4,10 +4,14 @@ import type { Direction } from "../styles";
 import type { TextMeasurer } from "../layout/text-measurer";
 
 /**
- * Caret affinity at a bidi run boundary (P4-C.2 §D). Re-declared here (not
- * imported from `cursor-position.ts`) to keep `line-bidi.ts` the dependency-free
- * primitive the four concern files import FROM, not a module that depends on
- * them. The two declarations are structurally identical (`"before" | "after"`).
+ * Caret affinity at a bidi run boundary (P4-C.2 §B). One logical `offset` has
+ * TWO visual positions where two leaves meet (`offset == leafA.logEnd ==
+ * leafB.logStart`): `"before"` draws at the leaf ENDING at the offset, `"after"`
+ * (the default) at the leaf STARTING at it. On a uniform line both pick the same
+ * X, so the field is inert there. Threaded from `EditorState.caretAffinity`
+ * (view state — never stored in History). This is the single declaration; the
+ * cursor and editor layers import it FROM here (`cursor-position.ts` re-exports
+ * it for its existing consumers).
  */
 export type CaretAffinity = "before" | "after";
 
@@ -581,9 +585,9 @@ function stateToDisplay(
 /**
  * Reverse-map a DISPLAY code-unit offset `d` to a STATE offset via
  * `sourceDisplayLengths`, returning the nearest SOURCE boundary (never an
- * interior offset that would split an expanding unit like ß→SS). Lifted verbatim
- * from `hit-test.ts`'s private `stateOffsetOf` (P4-C.2.1+ will dedupe the
- * consumers onto this copy).
+ * interior offset that would split an expanding unit like ß→SS). Walks the
+ * per-source display lengths, accumulating display width; when `d` falls inside
+ * a source unit's span it snaps to whichever end of that span is closer.
  */
 function stateOffsetOf(sdl: readonly number[], d: number): number {
   let cum = 0;
@@ -598,8 +602,8 @@ function stateOffsetOf(sdl: readonly number[], d: number): number {
 
 /**
  * Find the DISPLAY char offset closest to `localX` within `text` (binary search
- * on memoized prefix widths). Lifted verbatim from `hit-test.ts`'s private
- * `findCharOffset` (P4-C.2.1+ will dedupe the consumers onto this copy).
+ * on prefix widths, memoizing each `measureWidth` call so a prefix is measured
+ * at most once). Returns 0 for non-positive `localX` or empty `text`.
  */
 function findCharOffset(
   text: string,

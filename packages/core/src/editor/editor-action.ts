@@ -1,6 +1,7 @@
 import type { Selection, Position, BlockInit, TextMatch } from "../state";
 import type { TextAlign, TextTransform } from "../styles/style";
 import type { CounterFormat, FootnoteNumberingPolicy } from "../footnotes";
+import type { CaretAffinity } from "../cursor/line-bidi";
 
 export type EditorAction =
   | { type: "INSERT_TEXT"; text: string }
@@ -15,7 +16,7 @@ export type EditorAction =
       type: "SET_SELECTION";
       selection: Selection;
       caretPageHint?: number;
-      caretAffinity?: "before" | "after";
+      caretAffinity?: CaretAffinity;
     }
   | { type: "EXPAND_SELECTION"; direction: "forward" | "backward" }
   | { type: "EXPAND_WORD"; direction: "forward" | "backward" }

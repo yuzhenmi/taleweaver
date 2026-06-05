@@ -7,7 +7,7 @@ import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
 import { getLineIndex } from "./line-flatten";
-import { buildLineBidiView, offsetInLeaf } from "./line-bidi";
+import { buildLineBidiView, offsetInLeaf, type CaretAffinity } from "./line-bidi";
 import { markStart, markEnd } from "../perf/perf-trace";
 
 /**
@@ -72,7 +72,7 @@ export function resolvePositionFromPixel(
   x: number,
   y: number,
   pageIndex: number = 0,
-): { position: Position; caretAffinity: "before" | "after" } | null {
+): { position: Position; caretAffinity: CaretAffinity } | null {
   const t = markStart("cursor.hit-test");
   try {
     const measurer: TextMeasurer = isTextShaper(shaperOrMeasurer)
@@ -186,7 +186,7 @@ export function resolvePositionFromPixel(
     // caret sticks to the preceding leaf → "before"; else → "after" (mid-leaf
     // offsets are inert, both sides are the same leaf). At an LTR↔RTL boundary
     // this records the clicked side so the dual-caret renders there.
-    const caretAffinity: "before" | "after" =
+    const caretAffinity: CaretAffinity =
       offset === targetBidiLeaf.logEnd && offset !== targetBidiLeaf.logStart
         ? "before"
         : "after";
