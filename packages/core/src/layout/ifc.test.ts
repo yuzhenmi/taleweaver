@@ -2495,3 +2495,78 @@ describe("IFC — inline-block auto shrink-to-fit clamp (CSS Sizing 3 §10.3.5)"
     expect(w).toBeLessThan(MIN_CONTENT);
   });
 });
+
+describe("IFC — UAX #14 token annotation (S2.4) + S2.3/S2.4-scaffold negative test", () => {
+  function tokensOf(text: string, whiteSpace?: ComputedStyle["whiteSpace"]) {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", ...(whiteSpace ? { whiteSpace } : {}) }, [
+        createTextBox("t", {}, text),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    return collectTokens(tree, shaper, "ltr", ctx.intrinsicCache);
+  }
+
+  it("S2.3/S2.4-scaffold: a CJK paragraph does NOT YET wrap (no premature consumption)", () => {
+    // Narrow IFC; the 10-ideograph run (10×8 = 80px) far exceeds 40px. Until
+    // Task 6 wires the wrap loop to consult softBreaks, the single unbreakable
+    // unit stays on ONE line (the first unit is always force-placed). Task 6
+    // flips this to assert wrapping. This LOCKS "no geometry change" through
+    // this slice: populating softBreaks/breakableBefore must stay inert.
+    const lines = ifcOf("一二三四五六七八九十", 40);
+    expect(lines).toHaveLength(1);
+  });
+
+  it("CJK run: token carries softBreaks at the inter-ideograph offsets", () => {
+    // "一二" → one word token (no whitespace). UAX #14 (cjBreakable:true) allows
+    // a break between adjacent ideographs → soft offset 1, strictly inside the
+    // token's display span (0,2) → token-relative softBreaks [1].
+    const tokens = tokensOf("一二");
+    expect(tokens.map(t => t.text)).toEqual(["一二"]);
+    expect(tokens[0].softBreaks).toEqual([1]);
+    // A longer run carries every interior inter-ideograph offset.
+    const five = tokensOf("一二三四五");
+    expect(five[0].softBreaks).toEqual([1, 2, 3, 4]);
+  });
+
+  it("NBSP (U+00A0, GL): the spanning space token has NO softBreaks and breakableBefore false", () => {
+    // "a b" tokenizes (white-space:normal) to ["a", " ", "b"]; the middle
+    // " " token is the NBSP-origin synthetic space. UAX #14 puts NO break
+    // opportunity around a GL non-breaking space (LB12/12a), so:
+    //  - the space token (whitespace → never carries softBreaks) is breakableBefore:false
+    //    (keyed at gapEnd = base + sourceLength, the boundary AFTER the gap — NOT
+    //    its base; LB7 forbids breaks before any space, so base would be false for
+    //    both NBSP and a regular space — gapEnd is the bit that distinguishes them);
+    //  - the trailing "b" token is breakableBefore:false too (no opportunity before it).
+    const tokens = tokensOf("a b");
+    expect(tokens.map(t => t.text)).toEqual(["a", " ", "b"]);
+    const space = tokens[1];
+    expect(space.isSpace).toBe(true);
+    expect(space.softBreaks).toBeUndefined();
+    expect(space.breakableBefore).toBe(false);
+    // "b" at base 2: no opportunity before it across the NBSP.
+    expect(tokens[2].breakableBefore).toBe(false);
+  });
+
+  it("regular space: the spanning space token IS breakableBefore (Latin unchanged)", () => {
+    // "a b" with an ordinary space (SP) — UAX #14 allows a break before the SP
+    // (after "a") AND before "b" (after the SP). The synthetic " " space token's
+    // breakableBefore is true (regular space), distinguishing it from the NBSP case.
+    const tokens = tokensOf("a b");
+    expect(tokens.map(t => t.text)).toEqual(["a", " ", "b"]);
+    // breakableBefore is OMITTED when true (default-absent === true) — so the
+    // regular-space token has no explicit `false`, unlike the NBSP case above.
+    expect(tokens[1].breakableBefore).not.toBe(false);
+    expect(tokens[2].breakableBefore).not.toBe(false);
+  });
+
+  it("plain ASCII word: no softBreaks, breakableBefore omitted (byte-identical common case)", () => {
+    // "hello" — no interior UAX #14 opportunities, no leading break → softBreaks
+    // and breakableBefore are both omitted, keeping the token byte-identical to
+    // the pre-S2.4 shape (cache key default-equal).
+    const tokens = tokensOf("hello");
+    expect(tokens[0].softBreaks).toBeUndefined();
+    expect(tokens[0].breakableBefore).toBeUndefined();
+  });
+});

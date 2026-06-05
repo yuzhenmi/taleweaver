@@ -9,6 +9,7 @@ import type { TextShaper } from "./text-shaper";
 import type { TextMeasurer } from "./text-measurer";
 import { adaptShaperToMeasurer } from "./text-measurer";
 import { tokenize, LINE_BREAK } from "./text-tokenize";
+import { lineBreakOpportunities } from "./uax14";
 import { transformRun } from "./text-transform";
 import { layoutBlock } from "./bfc";
 import type { WritingMode, Direction } from "../styles/writing-mode";
@@ -482,6 +483,44 @@ function justifyUnits(
 }
 
 /**
+ * U+FFFC OBJECT REPLACEMENT CHARACTER — appended to `ifcSourceText` for each
+ * non-text inline atomic (inline-block). UAX #14 classes it CB (Contingent
+ * Break, LB20): a break is allowed BOTH before and after, giving the correct
+ * "breakable around an inline object" semantics. (AL would WRONGLY suppress
+ * breaks via LB28; that is why CB — not AL — is used here.)
+ */
+const OBJECT_REPLACEMENT = "￼";
+
+/**
+ * Accumulator threaded through `collectInlineTokens` so the IFC can derive
+ * UAX #14 line-break opportunities (S2.4). It records:
+ *  - `source`: the IFC's full SOURCE text, in child/visual order (each text
+ *    child's verbatim `fullText`; one OBJECT REPLACEMENT char per inline atomic).
+ *    This is the ONLY representation that is both source-faithful (NBSP/WJ seen,
+ *    not the collapsed token-display text) and cross-run-correct (adjacent runs
+ *    are ordinary adjacent code points, so cross-run pair rules — e.g.
+ *    `well<b>known</b>` — resolve for free).
+ *  - `runs`: one entry per source child, mapping an absolute offset back to the
+ *    owning run's `whiteSpace` (for per-run soft-break gating).
+ *  - `tokenBases`: parallel to `out`; tokenBases[i] is `out[i]`'s absolute base
+ *    offset into `source`. Recorded at every push so the post-pass annotation can
+ *    map each token's source span without re-walking the tree.
+ *
+ * The annotation runs as a POST-PASS (`annotateLineBreaks`) over the flat `out`
+ * stream — the recursion only appends source + bases; classification + gating +
+ * per-token annotation happen once, after the whole IFC is collected.
+ */
+interface IfcSourceAssembly {
+  source: string;
+  readonly runs: { start: number; end: number; whiteSpace: WhiteSpace }[];
+  readonly tokenBases: number[];
+}
+
+function newIfcSourceAssembly(): IfcSourceAssembly {
+  return { source: "", runs: [], tokenBases: [] };
+}
+
+/**
  * Recursively collect tokens from inline content, accumulating the ancestor
  * stack as we descend into display:inline element children.
  */
@@ -492,6 +531,7 @@ function collectInlineTokens(
   shaper: TextShaper,
   direction: Direction,
   out: Token[],
+  asm: IfcSourceAssembly,
   intrinsicCache: IntrinsicSizesCache,
   // L-D (A6): parent layout context for inline-block sub-layout. When
   // present, inline-block descendants use makeChildContext so they
@@ -517,6 +557,13 @@ function collectInlineTokens(
       // Shape the entire text node once; then sum cluster advances per token.
       const fullText = child.text;
       const shapedRun = fullText.length > 0 ? shaper.shape(fullText, cs, direction) : null;
+
+      // S2.4: record this run's SOURCE span + white-space mode for UAX #14
+      // line-break derivation. `childBase` is this run's absolute start offset
+      // into `asm.source`; a token's absolute base = `childBase + matchStart`.
+      const childBase = asm.source.length;
+      asm.source += fullText;
+      asm.runs.push({ start: childBase, end: childBase + fullText.length, whiteSpace: cs.whiteSpace });
 
       /**
        * Return the total inline advance for the substring [start, end) of the
@@ -728,12 +775,20 @@ function collectInlineTokens(
           : fullText.length;
         nodeTokens[ti].token.sourceLength = nextStart - start;
         out.push(nodeTokens[ti].token);
+        // S2.4: this token's absolute base into `asm.source` (kept parallel to `out`).
+        asm.tokenBases.push(childBase + start);
       }
     } else if (child.type === "element" && cs.display === "inline") {
       const newAncestors = [...ancestors, child.key];
       const newStyles = [...ancestorStyles, cs];
-      collectInlineTokens(child.children, newAncestors, newStyles, shaper, direction, out, intrinsicCache, parentCtx);
+      collectInlineTokens(child.children, newAncestors, newStyles, shaper, direction, out, asm, intrinsicCache, parentCtx);
     } else if (child.type === "element" && cs.display === "inline-block") {
+      // S2.4: an inline atomic occupies one OBJECT REPLACEMENT char (class CB)
+      // in the source string — breakable around (LB20), the correct
+      // wrap-around-an-inline-object semantics.
+      const ibBase = asm.source.length;
+      asm.source += OBJECT_REPLACEMENT;
+      asm.runs.push({ start: ibBase, end: ibBase + OBJECT_REPLACEMENT.length, whiteSpace: cs.whiteSpace });
       // Resolve inlineSize using intrinsic sizes for auto (shrink-to-fit, CSS Sizing 3 §10.3.5).
       // cs.inlineSize: ComputedLengthOrAuto | IntrinsicSizingKeyword =
       //   number | { unit: "percent"; value } | "auto" | "min-content" | "max-content" | "fit-content".
@@ -816,8 +871,126 @@ function collectInlineTokens(
           children: bfc.type === "block" ? Array.from(bfc.children) : [],
         },
       });
+      // S2.4: the inline atomic's base is the OBJECT REPLACEMENT char's offset.
+      asm.tokenBases.push(ibBase);
     }
     // Other display values (block, etc.) are ignored at this level.
+  }
+}
+
+/**
+ * S2.4 — POST-PASS: derive UAX #14 line-break opportunities over the IFC's
+ * assembled SOURCE text and annotate each collected token with `softBreaks`
+ * (interior soft positions) + `breakableBefore` (whether the wrap loop may
+ * break before it). Populated but NOT consumed by the wrap loop yet (Task 6) —
+ * so this is provably inert with respect to geometry.
+ *
+ * `cjBreakable: true` hardcoded = CSS `line-break: normal/auto` (the editor
+ * default — CJK ideographs break between each other regardless, and CJ small-
+ * kana become breakable). There is no `line-break` computed-style property yet;
+ * when one is added it threads through to this call site.
+ */
+function annotateLineBreaks(out: Token[], asm: IfcSourceAssembly): void {
+  if (asm.source.length === 0) return;
+  const pts = lineBreakOpportunities(asm.source, { cjBreakable: true });
+  const softAt = new Set<number>();
+  const mandatoryAt = new Set<number>();
+  for (const p of pts) {
+    if (p.mandatory) mandatoryAt.add(p.index);
+    else softAt.add(p.index);
+  }
+
+  // Map an absolute offset to the white-space mode of the run that OWNS it (the
+  // run whose [start, end) span contains it). Returns undefined if no run covers
+  // the offset (only at/after the very end — never for an interior offset).
+  const runWhiteSpaceAt = (offset: number): WhiteSpace | undefined => {
+    for (const r of asm.runs) {
+      if (offset >= r.start && offset < r.end) return r.whiteSpace;
+    }
+    return undefined;
+  };
+  // A white-space mode permits soft wrapping iff it is NOT `nowrap`/`pre`
+  // (CSS Text 3 §3 — those two disallow soft-wrap opportunities; `normal`,
+  // `pre-wrap`, `pre-line`, `break-spaces` keep them).
+  const wsWraps = (ws: WhiteSpace | undefined): boolean => ws !== "nowrap" && ws !== "pre";
+
+  // A SOFT break at absolute offset `k` ("the line may end after k-1") is active
+  // after white-space gating:
+  //   INTERIOR (k-1 and k in the same run): gate by that run's white-space.
+  //   RUN-BOUNDARY (k-1 in run A, k in run B): active if EITHER run permits
+  //     wrapping (CSS Text 3 §3 — a boundary BETWEEN inline elements is not
+  //     interior to either, so a `nowrap` span governs only its own interior).
+  const softActiveAt = (k: number): boolean => {
+    if (!softAt.has(k)) return false;
+    const wsBefore = runWhiteSpaceAt(k - 1);
+    const wsAfter = runWhiteSpaceAt(k);
+    if (wsBefore !== undefined && wsAfter !== undefined && wsBefore === wsAfter) {
+      // Same white-space on both sides — interior to one run, OR a boundary
+      // between two identically-styled runs. Either way one verdict governs.
+      return wsWraps(wsBefore);
+    }
+    // Run-boundary (or an offset at the string edge): active if either side wraps.
+    return wsWraps(wsBefore) || wsWraps(wsAfter);
+  };
+  // Mandatory breaks are never white-space-gated (forced regardless).
+  const breakableAt = (k: number): boolean => mandatoryAt.has(k) || softActiveAt(k);
+
+  for (let i = 0; i < out.length; i++) {
+    const token = out[i];
+    const base = asm.tokenBases[i];
+
+    // LINE_BREAK tokens are mandatory-flushed by the wrap loop on their own
+    // sentinel; they carry no soft-break annotation (the source `\n` is already
+    // a mandatory break the tokenizer handles).
+    if (token.isLineBreak) continue;
+
+    if (token.isSpace) {
+      // Whitespace tokens carry NO interior softBreaks. Their `breakableBefore`
+      // reflects the inter-token boundary at the END of the (possibly collapsed)
+      // gap they own — i.e. whether the line may break to separate them from the
+      // following content. For a regular space this boundary IS a UAX #14
+      // opportunity (true → omitted); for an NBSP-origin space it is NOT
+      // (false → recorded). LB7 forbids a break BEFORE a space, so keying at
+      // `base` would mislabel even regular spaces as non-breakable — the
+      // meaningful boundary is `base + sourceLength` (== the next token's base).
+      const gapEnd = base + token.sourceLength;
+      // Only record `false` for an INTERIOR boundary (gapEnd < source.length):
+      // a trailing-whitespace token whose gap runs to the IFC end has no
+      // following content to join, so `false` would be meaningless.
+      if (gapEnd < asm.source.length && !breakableAt(gapEnd)) token.breakableBefore = false;
+      continue;
+    }
+
+    // breakableBefore: whether the wrap loop may break BEFORE this token, i.e.
+    // whether a gated soft (or mandatory) opportunity exists at its base offset.
+    // Recorded only when FALSE (default-absent === true) to keep the common case
+    // byte-identical and the rewrap cache key default-equal. SKIP `base === 0`:
+    // that is start-of-IFC-text (LB2 — never a break opportunity), but there is
+    // no preceding content to join, so the first token stays default-true. A
+    // recorded `false` means "an interior boundary that UAX #14 forbids breaking
+    // at" (NBSP join, cross-run no-break) — the bit the Task-6 wrap gate reads.
+    if (base > 0 && !breakableAt(base)) token.breakableBefore = false;
+
+    // softBreaks: gated soft offsets STRICTLY inside the token's DISPLAY span
+    // (base, base + text.length) — NOT the source span. A soft offset in the
+    // collapsed-whitespace zone (>= base + text.length) has no glyph to split at
+    // and is carried by the NEXT token's breakableBefore, never a split here.
+    //
+    // GROW-CASE (text-transform): when `sourceDisplayLengths` is set the token's
+    // DISPLAY length differs from its SOURCE span, so a SOURCE offset does not
+    // map 1:1 to a DISPLAY offset — OMIT softBreaks entirely (mirrors how the
+    // collection code CLEARS hyphenBreaks for grow-case tokens). `breakableBefore`
+    // (a boundary-at-base bit, not an interior offset) is unaffected.
+    if (token.sourceDisplayLengths === undefined && !token.inlineBlock) {
+      const displayEnd = base + token.text.length;
+      let softBreaks: number[] | undefined;
+      for (let k = base + 1; k < displayEnd; k++) {
+        if (softActiveAt(k) || mandatoryAt.has(k)) {
+          (softBreaks ??= []).push(k - base);
+        }
+      }
+      if (softBreaks !== undefined && softBreaks.length > 0) token.softBreaks = softBreaks;
+    }
   }
 }
 
@@ -839,10 +1012,12 @@ export function collectTokens(
 ): Token[] {
   if (!parent.computedStyle) throw new Error("cascade required");
   const tokens: Token[] = [];
+  const asm = newIfcSourceAssembly();
   // External path (rewrap-incremental + tests): no parent context
   // available. Inline-block sub-layout falls back to makeRootContext —
   // the production path uses makeChildContext (see layoutInlineContent).
-  collectInlineTokens(parent.children, emptyAncestors, emptyAncestorStyles, shaper, direction, tokens, intrinsicCache, null);
+  collectInlineTokens(parent.children, emptyAncestors, emptyAncestorStyles, shaper, direction, tokens, asm, intrinsicCache, null);
+  annotateLineBreaks(tokens, asm);
   return tokens;
 }
 
@@ -921,7 +1096,11 @@ export function layoutInlineContent(
 
   // Collect tokens from all inline children recursively
   const tokens: Token[] = [];
-  collectInlineTokens(parent.children, emptyAncestors, emptyAncestorStyles, shaper, direction, tokens, ctx.intrinsicCache, ctx);
+  const asm = newIfcSourceAssembly();
+  collectInlineTokens(parent.children, emptyAncestors, emptyAncestorStyles, shaper, direction, tokens, asm, ctx.intrinsicCache, ctx);
+  // S2.4: derive UAX #14 softBreaks/breakableBefore over the assembled IFC
+  // source (inert until Task 6 wires the wrap loop to consult them).
+  annotateLineBreaks(tokens, asm);
 
   // Incremental-wrap cache: if tokens are identical and the available inline size hasn't
   // changed since the last layout, reuse the cached lines (no re-wrap needed).
