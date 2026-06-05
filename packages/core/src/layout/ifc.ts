@@ -611,6 +611,10 @@ function collectInlineTokens(
         const isWhitespaceToken = /^\s+$/.test(part);
         if (shapedRun && !isWhitespaceToken) {
           clusterWidths = [];
+          // A grapheme cluster spans multiple code units; clusters.find matches only at
+          // the grapheme's FIRST code unit (full advance there); interior code units find
+          // no cluster -> 0. Prefix-sums (tryHyphenSplit) over code-unit indices therefore
+          // still total each grapheme's full advance.
           for (let ci = 0; ci < part.length; ci++) {
             // Find the cluster in shapedRun that corresponds to matchStart + ci.
             const clusterStart = matchStart + ci;
@@ -647,6 +651,9 @@ function collectInlineTokens(
           // Per-DISPLAY-char advances (one entry per display code unit) — mirror
           // the SOURCE clusterWidths loop above, now over the display clusters.
           const displayClusterWidths: number[] = [];
+          // Same first-unit-full / interior-0 grapheme attribution as the SOURCE
+          // loop above: clusters.find matches only at each grapheme's first code
+          // unit, so a multi-code-unit display grapheme's interior units push 0.
           for (let ci = 0; ci < display.length; ci++) {
             const cluster = dShaped.clusters.find(c => c.start === ci);
             displayClusterWidths.push(cluster ? cluster.inlineAdvance : 0);
