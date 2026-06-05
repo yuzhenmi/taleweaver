@@ -12,10 +12,11 @@ import {
   type TextRunBox,
 } from "./layout-box";
 import { resolveParagraphBidi } from "./ifc-bidi";
-import { applyL1 } from "./uax9/reorder";
+import { applyL1, reorderRunsByLevel } from "./uax9/reorder";
 import {
   flattenLineToLeaves,
   renestLeaves,
+  reorderLineLeaves,
   segmentLine,
   splitTextRunBoxAtOffset,
   type FlatLeaf,
@@ -777,5 +778,226 @@ describe("renestLeaves", () => {
     // ancestorKey stays the element key on BOTH (cross-line grouping).
     expect(frag1.ancestorKey).toBe("em");
     expect(frag2.ancestorKey).toBe("em");
+  });
+});
+
+describe("reorderLineLeaves (end-to-end pure line reorder)", () => {
+  const LINE_INLINE_SIZE = 1000;
+
+  function asInline(box: LayoutBox): InlineBox {
+    if (box.type !== "inline") throw new Error(`expected inline, got ${box.type}`);
+    return box;
+  }
+  function asTextRun(box: LayoutBox): TextRunBox {
+    if (box.type !== "text-run") throw new Error(`expected text-run, got ${box.type}`);
+    return box;
+  }
+
+  function postL1Of(source: string, base: "ltr" | "rtl") {
+    const pb = resolveParagraphBidi(source, base);
+    const endCp = [...source].length;
+    const postL1 = applyL1(pb.levels, pb.types, pb.paragraphLevel, 0, endCp);
+    return { pb, postL1 };
+  }
+
+  it("pure-LTR line: identity order, levels all 0, packed left-to-right", () => {
+    const source = "abc def";
+    const { pb, postL1 } = postL1Of(source, "ltr");
+    const box = makeBox({
+      key: "k",
+      text: source,
+      offsetLength: source.length,
+      inlineSize: source.length * 10,
+      clusterWidths: new Array(source.length).fill(10),
+      sourceStart: 0,
+    });
+
+    const out = reorderLineLeaves([box], pb, 0, postL1, LINE_INLINE_SIZE);
+
+    // No bidi → one level-0 run, identity, full text preserved.
+    expect(out.length).toBe(1);
+    const run = asTextRun(out[0]);
+    expect(run.text).toBe(source);
+    expect(run.bidiLevel).toBe(0);
+    expect(run.inlineOffset).toBe(0);
+  });
+
+  it("mixed LTR-base with embedded RTL: Hebrew run reorders, per-leaf bidiLevel, packed LTR", () => {
+    // "abc " (Latin, level 0) + "אבג" (Hebrew, level 1) in an LTR paragraph.
+    const source = "abc אבג";
+    const { pb, postL1 } = postL1Of(source, "ltr");
+
+    // One TextRunBox covering the whole line, straddling the level boundary.
+    const box = makeBox({
+      key: "k",
+      text: source,
+      offsetLength: source.length,
+      inlineSize: source.length * 10,
+      clusterWidths: new Array(source.length).fill(10),
+      sourceStart: 0,
+    });
+
+    // Compute the segment levels the orchestrator will see, then the expected
+    // visual permutation, independently from reorderRunsByLevel.
+    const segs = segmentLine([box], pb, 0, postL1);
+    const segLevels = segs.map((s) => s.level);
+    const expectedVisual = reorderRunsByLevel(segLevels);
+    // Sanity: this fixture genuinely has two segments (Latin@0, Hebrew@1).
+    expect(segLevels).toEqual([0, 1]);
+    // For a single embedded level-1 run, L2 only reverses the run internally
+    // (a single-segment reversal is a no-op at the SEGMENT level) — the
+    // segment order stays [Latin, Hebrew], but the Hebrew run is stamped
+    // level 1 so the painter renders it right-to-left.
+    expect(expectedVisual).toEqual([0, 1]);
+
+    const out = reorderLineLeaves([box], pb, 0, postL1, LINE_INLINE_SIZE);
+
+    // Output is flat text-runs (no inline ancestors).
+    expect(out.every((b) => b.type === "text-run")).toBe(true);
+    const runs = out.map(asTextRun);
+
+    // Per-leaf bidiLevel matches the visual-ordered segment levels.
+    expect(runs.map((r) => r.bidiLevel)).toEqual(expectedVisual.map((i) => segLevels[i]));
+
+    // Latin leaf carries level 0, Hebrew leaf level 1.
+    const latin = runs.find((r) => r.text === "abc ");
+    const hebrew = runs.find((r) => r.text === "אבג");
+    expect(latin?.bidiLevel).toBe(0);
+    expect(hebrew?.bidiLevel).toBe(1);
+
+    // VISUAL order: text concatenated in output order equals the visual-ordered
+    // segment texts (the Hebrew run is repositioned relative to logical).
+    expect(runs.map((r) => r.text)).toEqual(
+      expectedVisual.map((i) => asTextRun(segs[i].box).text),
+    );
+
+    // Geometry packs left-to-right from 0, contiguous, no gaps/overlaps.
+    let cursor = 0;
+    for (const r of runs) {
+      expect(r.inlineOffset).toBe(cursor);
+      cursor += r.inlineSize;
+    }
+  });
+
+  it("RTL base with embedded LTR: the level-2 run genuinely MOVES relative to logical order", () => {
+    // "abcאבג" in an RTL paragraph: Latin "abc" (level 2), Hebrew "אבג" (level 1).
+    // segments = [Latin@2, Hebrew@1]; reorderRunsByLevel([2,1]) = [1,0] — the runs
+    // SWAP. This is the proof that a non-trivial reorder reaches reorderLineLeaves.
+    const source = "abcאבג";
+    const { pb, postL1 } = postL1Of(source, "rtl");
+    const box = makeBox({
+      key: "k",
+      text: source,
+      offsetLength: source.length,
+      inlineSize: source.length * 10,
+      clusterWidths: new Array(source.length).fill(10),
+      sourceStart: 0,
+    });
+
+    const segs = segmentLine([box], pb, 0, postL1);
+    const segLevels = segs.map((s) => s.level);
+    expect(segLevels).toEqual([2, 1]);
+    const expectedVisual = reorderRunsByLevel(segLevels);
+    // Non-identity: the runs swap.
+    expect(expectedVisual).toEqual([1, 0]);
+
+    const out = reorderLineLeaves([box], pb, 0, postL1, LINE_INLINE_SIZE);
+    const runs = out.map(asTextRun);
+
+    // VISUAL order: Hebrew run first (it had the lower level), Latin second.
+    expect(runs.map((r) => r.text)).toEqual(["אבג", "abc"]);
+    // Per-leaf bidiLevel: Hebrew@1 (visual-first), Latin@2 (visual-second).
+    expect(runs.map((r) => r.bidiLevel)).toEqual([1, 2]);
+    // Geometry packs left-to-right.
+    let cursor = 0;
+    for (const r of runs) {
+      expect(r.inlineOffset).toBe(cursor);
+      cursor += r.inlineSize;
+    }
+  });
+
+  it("an <em> whose text is RTL: one fragment at level 1, ancestorKey preserved, edge 'only'", () => {
+    // Line: [TextRun("abc "), <em>[TextRun("אבג")]</em>] in an LTR paragraph.
+    const source = "abc אבג";
+    const { pb, postL1 } = postL1Of(source, "ltr");
+
+    const before = makeBox({
+      key: "before",
+      text: "abc ",
+      offsetLength: 4,
+      inlineSize: 40,
+      clusterWidths: [10, 10, 10, 10],
+      sourceStart: 0,
+    });
+    const emText = makeBox({
+      key: "emtext",
+      text: "אבג",
+      offsetLength: 3,
+      inlineSize: 30,
+      clusterWidths: [10, 10, 10],
+      sourceStart: 4, // codepoint 4 == UTF-16 offset 4 (all BMP)
+    });
+    const em = createInlineBox(
+      "em-key",
+      0, 0, 30, 16,
+      "horizontal-tb", "ltr",
+      computedStyle, usedStyle,
+      [emText],
+      "only",
+      "em",
+      LINE_INLINE_SIZE,
+    );
+
+    const out = reorderLineLeaves([before, em], pb, 0, postL1, LINE_INLINE_SIZE);
+
+    // The em re-nests as a single InlineBox fragment (its single run, one level).
+    const emFrags = out.filter((b) => b.type === "inline");
+    expect(emFrags.length).toBe(1);
+    const emBox = asInline(emFrags[0]);
+    expect(emBox.ancestorKey).toBe("em");
+    expect(emBox.fragmentEdge).toBe("only");
+    // Its single child is the Hebrew run stamped at level 1.
+    expect(emBox.children.length).toBe(1);
+    const inner = asTextRun(emBox.children[0]);
+    expect(inner.text).toBe("אבג");
+    expect(inner.bidiLevel).toBe(1);
+
+    // The bare Latin leaf is level 0.
+    const bareLatin = out.find((b) => b.type === "text-run" && asTextRun(b).text === "abc ");
+    expect(bareLatin).toBeDefined();
+    if (bareLatin === undefined || bareLatin.type !== "text-run") throw new Error("?");
+    expect(bareLatin.bidiLevel).toBe(0);
+
+    // Geometry packs left-to-right.
+    let cursor = 0;
+    for (const b of out) {
+      expect(b.inlineOffset).toBe(cursor);
+      cursor += b.inlineSize;
+    }
+  });
+
+  it("RTL base uniform: the run reverses (level 1), bidiLevel 1", () => {
+    const source = "אבג";
+    const { pb, postL1 } = postL1Of(source, "rtl");
+    // Guard: uniform level 1.
+    expect(Array.from(postL1)).toEqual([1, 1, 1]);
+
+    const box = makeBox({
+      key: "k",
+      text: source,
+      offsetLength: source.length,
+      inlineSize: 30,
+      clusterWidths: [10, 10, 10],
+      sourceStart: 0,
+    });
+
+    const out = reorderLineLeaves([box], pb, 0, postL1, LINE_INLINE_SIZE);
+
+    // One uniform-level-1 segment → emitted as a single run; level stamped 1.
+    expect(out.length).toBe(1);
+    const run = asTextRun(out[0]);
+    expect(run.text).toBe(source);
+    expect(run.bidiLevel).toBe(1);
+    expect(run.inlineOffset).toBe(0);
   });
 });

@@ -155,6 +155,13 @@ export interface TextRunBox extends LayoutBoxBase {
    * strut).
    */
   readonly sourceStart?: number;
+  /**
+   * The run's resolved UAX #9 bidi embedding level (even = LTR, odd = RTL).
+   * Stamped by the P4-C line reorder (`reorderLineLeaves`) so the painter can
+   * render an RTL run right-to-left. `undefined` for any box the reorder did
+   * not touch (the overwhelmingly common LTR-only case).
+   */
+  readonly bidiLevel?: number;
 }
 
 /**
@@ -193,11 +200,23 @@ export interface InlineBlockBox extends LayoutBoxBase {
    * P4-C bidi reorder to position the atomic box's source span.
    */
   readonly sourceStart?: number;
+  /**
+   * The atomic inline's resolved UAX #9 bidi embedding level (even = LTR, odd
+   * = RTL). Stamped by the P4-C line reorder (`reorderLineLeaves`); `undefined`
+   * for any box the reorder did not touch.
+   */
+  readonly bidiLevel?: number;
 }
 
 export interface MarkerBox extends LayoutBoxBase {
   readonly type: "marker";
   readonly text: string;
+  /**
+   * The marker's resolved UAX #9 bidi embedding level (even = LTR, odd = RTL).
+   * Stamped by the P4-C line reorder (`reorderLineLeaves`) when a marker is
+   * defensively carried through it; `undefined` otherwise.
+   */
+  readonly bidiLevel?: number;
 }
 
 export interface TableBox extends LayoutBoxBase {
@@ -333,6 +352,7 @@ export function createTextRunBox(
   sourceDisplayLengths?: readonly number[],
   clusterWidths?: readonly number[],
   sourceStart?: number,
+  bidiLevel?: number,
 ): TextRunBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,
@@ -346,6 +366,7 @@ export function createTextRunBox(
     sourceDisplayLengths,
     clusterWidths,
     sourceStart,
+    bidiLevel,
   });
 }
 
@@ -382,6 +403,7 @@ export function createInlineBlockBox(
   children: readonly LayoutBox[],
   containingInlineSize: number,
   sourceStart?: number,
+  bidiLevel?: number,
 ): InlineBlockBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,
@@ -392,6 +414,7 @@ export function createInlineBlockBox(
     ...base,
     children: Object.freeze([...children]),
     sourceStart,
+    bidiLevel,
   });
 }
 
@@ -403,6 +426,7 @@ export function createMarkerBox(
   usedStyle: UsedStyle,
   text: string,
   containingInlineSize: number,
+  bidiLevel?: number,
 ): MarkerBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,
@@ -412,6 +436,7 @@ export function createMarkerBox(
     type: "marker" as const,
     ...base,
     text,
+    bidiLevel,
   });
 }
 
@@ -550,6 +575,54 @@ export function withOffsets(
   return rebuildBoxWithOffsets(box, newInlineOffset, newBlockOffset, containingInlineSize);
 }
 
+/**
+ * Recreate a leaf layout box with its UAX #9 bidi embedding `level` set. Used by
+ * the P4-C line reorder (`reorderLineLeaves`) to stamp each reordered run with
+ * its resolved level (even = LTR, odd = RTL) so the painter can render an RTL
+ * run right-to-left.
+ *
+ * Only the three reorder-reachable LEAF types carry `bidiLevel`
+ * (`text-run` / `inline-block` / `marker`); the reorder never stamps a
+ * container or page box, so passing one is a programmer error and throws.
+ * Geometry is preserved (offsets unchanged); physical `x` / `y` are re-derived
+ * by the factory, so the logical↔physical invariant holds.
+ *
+ * @param containingInlineSize the box's containing-block inline-size (used for
+ *   RTL physical-x derivation; same value passed to the original factory).
+ */
+export function withBidiLevel(
+  box: LayoutBox,
+  level: number,
+  containingInlineSize: number,
+): LayoutBox {
+  switch (box.type) {
+    case "text-run":
+      return createTextRunBox(
+        box.key, box.inlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, box.direction, box.computedStyle, box.usedStyle,
+        box.text, box.offsetLength, containingInlineSize, box.sourceDisplayLengths,
+        box.clusterWidths, box.sourceStart, level,
+      );
+    case "inline-block":
+      return createInlineBlockBox(
+        box.key, box.inlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, box.direction, box.computedStyle, box.usedStyle,
+        box.children, containingInlineSize, box.sourceStart, level,
+      );
+    case "marker":
+      return createMarkerBox(
+        box.key, box.inlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, box.direction, box.computedStyle, box.usedStyle,
+        box.text, containingInlineSize, level,
+      );
+    default:
+      throw new Error(
+        `withBidiLevel: box type ${JSON.stringify(box.type)} (key=${box.key}) does not ` +
+          "carry a bidiLevel; only text-run / inline-block / marker leaves are reordered.",
+      );
+  }
+}
+
 function rebuildBoxWithOffsets(
   box: LayoutBox,
   newInlineOffset: number,
@@ -577,7 +650,7 @@ function rebuildBoxWithOffsets(
         box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.text, box.offsetLength, containingInlineSize, box.sourceDisplayLengths,
-        box.clusterWidths, box.sourceStart,
+        box.clusterWidths, box.sourceStart, box.bidiLevel,
       );
     case "inline":
       return createInlineBox(
@@ -589,13 +662,13 @@ function rebuildBoxWithOffsets(
       return createInlineBlockBox(
         box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
-        box.children, containingInlineSize, box.sourceStart,
+        box.children, containingInlineSize, box.sourceStart, box.bidiLevel,
       );
     case "marker":
       return createMarkerBox(
         box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
-        box.text, containingInlineSize,
+        box.text, containingInlineSize, box.bidiLevel,
       );
     case "table":
       return createTableBox(

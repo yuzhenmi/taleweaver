@@ -6,7 +6,7 @@ import {
   type LayoutBox, type BlockBox, type LineBox, type TextRunBox,
   createBlockBox, createLineBox, createTextRunBox, createInlineBox, createInlineBlockBox, createMarkerBox,
   createTableBox, createTableRowBox, createTableCellBox,
-  withInlineOffset, withBlockOffset, withOffsets,
+  withInlineOffset, withBlockOffset, withOffsets, withBidiLevel,
   assertLayoutBoxConsistent,
 } from "./layout-box";
 
@@ -335,6 +335,88 @@ describe("withOffsets", () => {
     expect(moved.blockOffset).toBe(22);
     expect(moved.x).toBe(370);
     expect(moved.y).toBe(22);
+  });
+});
+
+describe("bidiLevel (P4-C reorder field)", () => {
+  it("round-trips bidiLevel through createTextRunBox (trailing optional arg)", () => {
+    const tr = createTextRunBox(
+      "t", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, "hi", 2, 50,
+      /* sourceDisplayLengths */ undefined,
+      /* clusterWidths */ [25, 25],
+      /* sourceStart */ 7,
+      /* bidiLevel */ 1,
+    );
+    expect(tr.bidiLevel).toBe(1);
+  });
+
+  it("leaves bidiLevel undefined when omitted (text-run / inline-block / marker)", () => {
+    const tr = createTextRunBox("t", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, "hi", 2, 50);
+    const ib = createInlineBlockBox("ib", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, [], 50);
+    const mk = createMarkerBox("m", 0, 0, 20, 16, "horizontal-tb", "ltr", cs, us, "•", 50);
+    expect(tr.bidiLevel).toBeUndefined();
+    expect(ib.bidiLevel).toBeUndefined();
+    expect(mk.bidiLevel).toBeUndefined();
+  });
+
+  it("round-trips bidiLevel through createInlineBlockBox and createMarkerBox", () => {
+    const ib = createInlineBlockBox(
+      "ib", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, [], 50,
+      /* sourceStart */ 3, /* bidiLevel */ 1,
+    );
+    const mk = createMarkerBox("m", 0, 0, 20, 16, "horizontal-tb", "ltr", cs, us, "•", 50, /* bidiLevel */ 2);
+    expect(ib.bidiLevel).toBe(1);
+    expect(mk.bidiLevel).toBe(2);
+  });
+
+  it("withBidiLevel sets the level on a text-run leaf", () => {
+    const tr = createTextRunBox("t", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, "hi", 2, 50);
+    expect(tr.bidiLevel).toBeUndefined();
+    const stamped = withBidiLevel(tr, 1, 50);
+    expect(stamped.type).toBe("text-run");
+    if (stamped.type !== "text-run") throw new Error("?");
+    expect(stamped.bidiLevel).toBe(1);
+    // Geometry preserved.
+    expect(stamped.inlineOffset).toBe(0);
+    expect(stamped.inlineSize).toBe(50);
+  });
+
+  it("withBidiLevel sets the level on inline-block and marker leaves", () => {
+    const ib = createInlineBlockBox("ib", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, [], 50, 3);
+    const mk = createMarkerBox("m", 0, 0, 20, 16, "horizontal-tb", "ltr", cs, us, "•", 50);
+    const ibStamped = withBidiLevel(ib, 1, 50);
+    const mkStamped = withBidiLevel(mk, 2, 50);
+    if (ibStamped.type !== "inline-block" || mkStamped.type !== "marker") throw new Error("?");
+    expect(ibStamped.bidiLevel).toBe(1);
+    expect(ibStamped.sourceStart).toBe(3); // unrelated fields preserved
+    expect(mkStamped.bidiLevel).toBe(2);
+  });
+
+  it("throws when withBidiLevel is given a non-leaf box (block)", () => {
+    const b = createBlockBox("k", 0, 0, 100, 50, "horizontal-tb", "ltr", cs, us, [], 100);
+    expect(() => withBidiLevel(b, 1, 100)).toThrow();
+  });
+
+  it("PRESERVES bidiLevel through withInlineOffset (preservation guard — painter needs it)", () => {
+    const tr = createTextRunBox(
+      "t", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, "hi", 2, 50,
+      undefined, [25, 25], 7, /* bidiLevel */ 1,
+    );
+    const moved = withInlineOffset(tr, 75, /* containingInlineSize */ 200);
+    expect(moved.type).toBe("text-run");
+    if (moved.type !== "text-run") throw new Error("?");
+    expect(moved.inlineOffset).toBe(75);
+    expect(moved.bidiLevel).toBe(1);
+  });
+
+  it("PRESERVES bidiLevel through withBlockOffset (inline-block + marker)", () => {
+    const ib = createInlineBlockBox("ib", 0, 0, 50, 16, "horizontal-tb", "ltr", cs, us, [], 50, 3, /* bidiLevel */ 1);
+    const mk = createMarkerBox("m", 0, 0, 20, 16, "horizontal-tb", "ltr", cs, us, "•", 50, /* bidiLevel */ 2);
+    const movedIb = withBlockOffset(ib, 99, 200);
+    const movedMk = withBlockOffset(mk, 99, 200);
+    if (movedIb.type !== "inline-block" || movedMk.type !== "marker") throw new Error("?");
+    expect(movedIb.bidiLevel).toBe(1);
+    expect(movedMk.bidiLevel).toBe(2);
   });
 });
 

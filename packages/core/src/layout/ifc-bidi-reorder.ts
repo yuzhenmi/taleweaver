@@ -2,12 +2,14 @@ import type { ParagraphBidi } from "./ifc-bidi";
 import {
   createInlineBox,
   createTextRunBox,
+  withBidiLevel,
   withInlineOffset,
   type InlineBox,
   type InlineFragmentEdge,
   type LayoutBox,
   type TextRunBox,
 } from "./layout-box";
+import { reorderRunsByLevel } from "./uax9/reorder";
 
 /**
  * Split a line `TextRunBox` into two single-level fragments at a DISPLAY-U16
@@ -571,4 +573,73 @@ function sourceStartOfBox(box: LayoutBox): number {
     return box.sourceStart ?? Number.POSITIVE_INFINITY;
   }
   return Number.POSITIVE_INFINITY;
+}
+
+/**
+ * End-to-end PURE bidi reorder of one laid-out line: take the line's nested
+ * logical-order children and produce the line's nested VISUAL-order children,
+ * with each run stamped with its resolved UAX #9 bidi level.
+ *
+ * The orchestration composes the four pure pieces of this module:
+ * 1. {@link flattenLineToLeaves} — strip the `InlineBox` nesting into a flat
+ *    list of ancestor-tagged LEAF runs, in logical order.
+ * 2. {@link segmentLine} per leaf — split any leaf `TextRunBox` that straddles a
+ *    bidi-level boundary into single-level pieces (an atomic inline returns one
+ *    piece). Because flatten already removed every `InlineBox`, `segmentLine`
+ *    never sees one here, so its InlineBox-throw never fires. Each piece is
+ *    stamped with its level via {@link withBidiLevel} and keeps its leaf's
+ *    `ancestors`.
+ * 3. {@link reorderRunsByLevel} (UAX #9 L2) — permute the logical-order segments
+ *    into left-to-right VISUAL order by their per-segment levels.
+ * 4. {@link renestLeaves} — re-nest the visual-order leaves back into the line's
+ *    nested top-level children, packed left-to-right, reconstructing `InlineBox`
+ *    fragments (with same-line `fragmentEdge`s) by contiguous ancestor-key runs.
+ *
+ * Pure: inputs are not mutated; every returned box is freshly built. This does
+ * NO IFC wiring (computing `postL1Levels`, stamping the line, etc.) — that is the
+ * caller's job (Task 6-ii); this only produces the reordered nested boxes.
+ *
+ * @param children       the line's nested children, in logical order.
+ * @param paragraphBidi  paragraph-wide bidi result (for `cpIndexAtUtf16`).
+ * @param lineStartCp    codepoint index of the line's first character (makes
+ *   `postL1Levels` line-relative).
+ * @param postL1Levels   post-L1 line levels (line-relative), from `applyL1`.
+ * @param lineInlineSize the line's inline size, passed as `containingInlineSize`
+ *   to every rebuilt box at every nesting level (matching the build).
+ * @returns the line's nested top-level children in VISUAL order, packed
+ *   left-to-right, each leaf stamped with its bidi `level`.
+ */
+export function reorderLineLeaves(
+  children: readonly LayoutBox[],
+  paragraphBidi: ParagraphBidi,
+  lineStartCp: number,
+  postL1Levels: Uint8Array,
+  lineInlineSize: number,
+): LayoutBox[] {
+  // 1. Strip InlineBox nesting → flat logical-order leaves with ancestor chains.
+  const flat = flattenLineToLeaves(children);
+
+  // 2. Segment each leaf into single-level pieces, stamp each with its level,
+  //    and carry the leaf's ancestor chain. Collected in LOGICAL order.
+  const segments: { readonly leaf: LayoutBox; readonly level: number; readonly ancestors: readonly InlineBox[] }[] = [];
+  for (const fl of flat) {
+    const pieces = segmentLine([fl.leaf], paragraphBidi, lineStartCp, postL1Levels);
+    for (const { box, level } of pieces) {
+      segments.push({
+        leaf: withBidiLevel(box, level, lineInlineSize),
+        level,
+        ancestors: fl.ancestors,
+      });
+    }
+  }
+
+  // 3. UAX #9 L2: visual-order permutation of the logical-order segments.
+  const visual = reorderRunsByLevel(segments.map((s) => s.level));
+
+  // 4. Re-nest the visual-order leaves into the line's nested children.
+  const visualLeaves: FlatLeaf[] = visual.map((i) => ({
+    leaf: segments[i].leaf,
+    ancestors: segments[i].ancestors,
+  }));
+  return renestLeaves(visualLeaves, lineInlineSize);
 }
