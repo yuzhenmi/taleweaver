@@ -6,11 +6,8 @@ import type { PageBox } from "../layout/page-box";
 import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
-import type { ComputedStyle } from "../styles";
-import {
-  getLineIndex,
-  collectLineLeaves,
-} from "./line-flatten";
+import { getLineIndex } from "./line-flatten";
+import { buildLineBidiView, offsetInLeaf } from "./line-bidi";
 import { markStart, markEnd } from "../perf/perf-trace";
 
 /**
@@ -31,21 +28,27 @@ import { markStart, markEnd } from "../perf/perf-trace";
  *      `Position(line.ownerBlockId, line.inlineOffsetStart)`. No
  *      synthetic-strut fallback needed — the LineBox itself carries
  *      the owning block and the offset.
- *   5. Within the picked line, walk leaves (text-runs +
- *      inline-blocks) in visual order via `collectLineLeaves`. Pick
- *      the leaf whose X range contains `x`; fall back to the last
- *      leaf for clicks past line end.
- *   6. For text-run leaves: `findCharOffset` over the run's text.
- *      For inline-block leaves (a 1-unit embed, e.g. a footnote marker):
- *      split at the box midpoint — `charOffset = 0` (leading, before the
- *      embed) when `x` is in the left half, `charOffset = 1` (trailing,
- *      after the embed) when `x` is in the right half. Mirrors the
- *      nearest-edge rule `findCharOffset` applies to glyphs and is the
- *      inverse of `cursor-position.ts`'s inline-block offset→x mapping
- *      (0 → left edge, 1 → right edge), so click↔render round-trips.
- *   7. Position = `(line.ownerBlockId, line.inlineOffsetStart +
- *      withinLineOffset + charOffset)`, where `withinLineOffset` is
- *      the sum of preceding leaves' `offsetContribution`.
+ *   5. Build the line's `LineBidiView` (P4-C.2). Within the picked
+ *      line, walk leaves (text-runs + inline-blocks) in VISUAL order
+ *      via `collectLineLeaves`. Pick the leaf whose X range contains
+ *      `x`; fall back to the last leaf for clicks past line end. The
+ *      view's `visualLeaves` is in the SAME collection order, so the
+ *      picked leaf's `BidiViewLeaf` (carrying its `logStart` and bidi
+ *      `level`) is `visualLeaves[targetLeafIdx]`.
+ *   6. `offset = offsetInLeaf(thatBidiViewLeaf, x − leaf.absoluteX,
+ *      measurer)` (P4-C.2 §C). This is RTL-aware: an LTR leaf measures
+ *      the click from its left edge; an RTL leaf measures from its right
+ *      edge (so a click on the visual-left of an RTL run resolves to the
+ *      logically-LAST offset, the OPPOSITE of LTR). For an inline-block
+ *      leaf (a 1-unit embed, e.g. a footnote marker) it splits at the
+ *      box midpoint — `logStart` (leading, before the embed) when `x` is
+ *      in the left half, `logEnd` (trailing, after it) when in the right
+ *      half. `offsetInLeaf` returns the STATE offset directly (it adds
+ *      the leaf's `logStart` and reverse-maps any text-transform display
+ *      length internally), so there is NO visual-order accumulation —
+ *      the old `withinLineOffset` sum (correct only for an all-LTR line)
+ *      is gone. This is the exact inverse of `cursor-position.ts`'s
+ *      `caretXInLeaf`, so click↔render round-trips on bidi lines.
  *
  * Returns `null` when:
  *   - The layout has no lines (e.g., empty document).
@@ -123,18 +126,24 @@ export function resolvePositionFromPixel(
     // embed / template).
     if (resolveBlock(state, ownerBlockId) === null) return null;
 
-    // 4-5. Collect leaves within the picked line.
-    const leaves = collectLineLeaves(targetLine.line, targetLine.absoluteX);
-    if (leaves.length === 0) {
-      // Empty line (strut). LineBox is first-class — return the
+    // 4-5. Build the line's bidi view. `visualLeaves` is the line's caret-target
+    // leaves in COLLECTION (visual, post-reorder) order — the same order the X
+    // pick below walks — paired with each leaf's LOGICAL state span (`logStart`/
+    // `logEnd`) and UAX #9 bidi `level`. Synthetic struts/hyphens are excluded
+    // (they own no state offsets), so an empty line surfaces as `view.isEmpty`.
+    const view = buildLineBidiView(targetLine);
+    if (view.isEmpty) {
+      // Empty line (strut-only). LineBox is first-class — return the
       // line's start offset.
       return createPosition(ownerBlockId, targetLine.line.inlineOffsetStart);
     }
+    const visualLeaves = view.visualLeaves;
 
-    // Pick target leaf by X. Default: last leaf for clicks past end.
-    let targetLeafIdx = leaves.length - 1;
-    for (let i = 0; i < leaves.length; i++) {
-      const leaf = leaves[i];
+    // Pick target leaf by VISUAL X (leaves are in visual order). Default: last
+    // leaf for clicks past end.
+    let targetLeafIdx = visualLeaves.length - 1;
+    for (let i = 0; i < visualLeaves.length; i++) {
+      const leaf = visualLeaves[i].leaf;
       if (x < leaf.absoluteX) {
         targetLeafIdx = i > 0 ? i - 1 : i;
         break;
@@ -145,57 +154,21 @@ export function resolvePositionFromPixel(
       }
     }
 
-    // 6. Char offset within the target leaf.
-    const targetLeaf = leaves[targetLeafIdx];
-    let charOffset: number;
-    if (targetLeaf.kind === "text-run") {
-      const localX = x - targetLeaf.absoluteX;
-      // `findCharOffset` searches `targetLeaf.box.text` by measured width, so it
-      // returns a DISPLAY code-unit offset into that string. For a length-
-      // changing text-transform leaf (e.g. uppercase ß→SS, display "ASS") the
-      // display string differs from the source, so this display offset must be
-      // reverse-mapped to a STATE offset before it's added to the line/leaf STATE
-      // offsets below — otherwise a click inside the "SS" would resolve to an
-      // interior offset that splits the ß. `sourceDisplayLengths[i]` is the
-      // display-unit count produced by the i-th STATE code unit; `stateOffsetOf`
-      // walks it to find the nearest source boundary for a display index. When it
-      // is undefined (the common case — 1:1 / untransformed leaves) state offset
-      // === display index, so this branch is skipped and `charOffset` is left
-      // exactly as `findCharOffset` returned it.
-      const displayOffset = findCharOffset(
-        targetLeaf.box.text,
-        localX,
-        targetLeaf.computedStyle,
-        measurer,
-      );
-      const sdl = targetLeaf.box.sourceDisplayLengths;
-      charOffset = sdl ? stateOffsetOf(sdl, displayOffset) : displayOffset;
-    } else {
-      // Inline-block (e.g. a footnote call-marker): one atomic box owning ONE
-      // state offset unit (`offsetContribution === 1`). The cursor lands at the
-      // LEADING edge (charOffset 0, the position BEFORE the embed) for a click in
-      // the box's left half, and the TRAILING edge (charOffset 1, the position
-      // AFTER the embed) for a click in the right half — split at the box
-      // midpoint, the same nearest-edge rule `findCharOffset` applies to a text
-      // glyph. Always-leading (the prior behaviour) made a click anywhere on the
-      // marker — including just past it — resolve to the position BEFORE it, so a
-      // caret could never be placed after a footnote marker by clicking (and the
-      // wrong offset then fed downstream edits). This mirrors `cursor-position`'s
-      // inline-block branch, which already maps offset 0 → leading / 1 → trailing.
-      const midpoint = targetLeaf.absoluteX + targetLeaf.width / 2;
-      charOffset = x >= midpoint ? 1 : 0;
-    }
-
-    // 7. Accumulate within-line offset for all preceding leaves.
-    let withinLineOffset = 0;
-    for (let i = 0; i < targetLeafIdx; i++) {
-      withinLineOffset += leaves[i].offsetContribution;
-    }
-
-    return createPosition(
-      ownerBlockId,
-      targetLine.line.inlineOffsetStart + withinLineOffset + charOffset,
+    // 6. STATE offset within the target leaf — RTL-aware. `offsetInLeaf` keys off
+    // the leaf's bidi `level` (LTR measures the click from the left edge, RTL
+    // from the right), reverse-maps any text-transform display length, and adds
+    // the leaf's own `logStart`. It returns the absolute STATE offset directly —
+    // the inverse of `cursor-position.ts`'s `caretXInLeaf` — so NO visual-order
+    // accumulation is needed (the old `withinLineOffset` sum, correct only on an
+    // all-LTR line, is gone).
+    const targetBidiLeaf = visualLeaves[targetLeafIdx];
+    const offset = offsetInLeaf(
+      targetBidiLeaf,
+      x - targetBidiLeaf.leaf.absoluteX,
+      measurer,
     );
+
+    return createPosition(ownerBlockId, offset);
   } finally {
     markEnd("cursor.hit-test", t);
   }
@@ -338,82 +311,4 @@ function pickRegionByBand(
   }
   if (headerLines.length > 0 && y < contentTop) return headerLines;
   return bodyLines;
-}
-
-/**
- * Reverse-map a DISPLAY code-unit offset `d` (an index into a text-transformed
- * leaf's display string) to a STATE offset, using the leaf's
- * `sourceDisplayLengths` — the per-state-code-unit display-unit counts (e.g.
- * "aß" uppercased → display "ASS" carries `[1, 2]`).
- *
- * Walks the cumulative display length per state code unit and returns the
- * nearest SOURCE boundary for `d`: an offset that lands exactly on a state
- * boundary maps to that boundary; an interior display offset (one that splits a
- * length-expanding unit like ß→SS) maps to whichever of the two surrounding
- * state boundaries is nearer (ties round to the trailing one), NEVER to an
- * interior offset that would split the source code unit. This is the inverse of
- * `cursor-position.ts`'s state→display prefix sum, so click↔render round-trips.
- */
-function stateOffsetOf(sdl: readonly number[], d: number): number {
-  let cum = 0;
-  for (let o = 0; o < sdl.length; o++) {
-    const next = cum + sdl[o];
-    if (d <= cum) return o;
-    if (d < next) return d - cum < next - d ? o : o + 1; // nearest boundary
-    cum = next;
-  }
-  return sdl.length;
-}
-
-/**
- * Find the character offset closest to a given X position within `text`.
- * Compares midpoints between adjacent character widths (so a click closer
- * to char i than to char i+1 returns i).
- *
- * Binary search on prefix widths, with memoization of each prefix
- * measurement so no prefix is measured twice. Worst case O(log n)
- * `measureWidth` calls. The previous implementation did a linear scan
- * with two `measureWidth` calls per iteration (one for prefix i, one
- * for prefix i-1) — O(n) calls, each internally O(prefix), giving
- * O(n²) total.
- */
-function findCharOffset(
-  text: string,
-  localX: number,
-  styles: Readonly<ComputedStyle>,
-  measurer: TextMeasurer,
-): number {
-  if (localX <= 0) return 0;
-  if (text.length === 0) return 0;
-
-  const widthCache = new Map<number, number>();
-  widthCache.set(0, 0);
-  const widthOfPrefix = (n: number): number => {
-    let v = widthCache.get(n);
-    if (v === undefined) {
-      v = measurer.measureWidth(text.slice(0, n), styles);
-      widthCache.set(n, v);
-    }
-    return v;
-  };
-
-  // Past the midpoint of the last character: snap to end. Safe because
-  // the `text.length === 0` guard above ensures text.length >= 1 here.
-  const fullW = widthOfPrefix(text.length);
-  const lastMidpoint = (widthOfPrefix(text.length - 1) + fullW) / 2;
-  if (localX >= lastMidpoint) return text.length;
-
-  // Binary-search the smallest i in [1, text.length] such that the
-  // midpoint between prefix(i-1) and prefix(i) is strictly greater than
-  // localX. Returning i-1 matches the original "click closer to char i
-  // than char i+1 returns i" semantics.
-  let lo = 1;
-  let hi = text.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >>> 1;
-    const midpoint = (widthOfPrefix(mid - 1) + widthOfPrefix(mid)) / 2;
-    if (midpoint > localX) hi = mid;
-    else lo = mid + 1;
-  }
-  return lo - 1;
 }

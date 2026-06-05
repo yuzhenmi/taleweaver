@@ -442,6 +442,108 @@ describe("resolvePositionFromPixel (new)", () => {
   });
 });
 
+describe("P4-C.2.2a — RTL-aware hit-test OFFSET (click → correct logical offset)", () => {
+  // The mock shaper is 8px/char. The paragraph base stays LTR (no `direction`
+  // attr), but Hebrew CONTENT resolves to level-1 (RTL) runs by UAX #9 — exactly
+  // the leaf-level the §C intra-leaf RTL math keys off. Geometry mirrors
+  // cursor-position.test.ts's P4-C.2.1 fixtures (this is the INVERSE direction):
+  //   "אבג"     → Hebrew run (lvl1) x[0,24]; offset 0 at right edge 24, offset 3
+  //               at left edge 0.
+  //   "abcאבג"  → Latin "abc" (lvl0) x[0,24], Hebrew "אבג" (lvl1) x[24,48].
+  //   "abc אבג" → "abc" x[0,24], " " x[24,32], "אבג" x[32,56].
+
+  it("round-trip with C.2.1 (uniform RTL 'אבג'): click at caret X of offset k returns offset k", () => {
+    // caretXInLeaf places offset k of the RTL run at x = 24 − 8k (from
+    // cursor-position.test.ts): offset 0→24, 1→16, 2→8, 3→0. Clicking those
+    // exact Xs must invert back to k. The clamps below (+2 / −2) nudge off the
+    // exact glyph boundary so the nearest-char midpoint rule resolves
+    // deterministically (a click ON a midpoint is ambiguous).
+    const state = singleParagraph("אבג");
+    const { layout, shaper } = pipeline(state, 800);
+    // offset 0 at right edge (24) — click just inside (x=23) → offset 0.
+    const k0 = resolvePositionFromPixel(state, layout, shaper, 23, 0);
+    expect(k0?.blockId).toBe("p");
+    expect(k0?.offset).toBe(0);
+    // offset 1 at x=16 — click at x=15 (left of midpoint between glyph 0 and 1).
+    const k1 = resolvePositionFromPixel(state, layout, shaper, 15, 0);
+    expect(k1?.offset).toBe(1);
+    // offset 2 at x=8 — click at x=7.
+    const k2 = resolvePositionFromPixel(state, layout, shaper, 7, 0);
+    expect(k2?.offset).toBe(2);
+    // offset 3 at left edge (0) — click at x=1 → offset 3 (the logical END).
+    const k3 = resolvePositionFromPixel(state, layout, shaper, 1, 0);
+    expect(k3?.offset).toBe(3);
+  });
+
+  it("uniform RTL 'אבג': click near visual-LEFT edge → logical-LAST offset (3); near visual-RIGHT → offset 0 (OPPOSITE of LTR)", () => {
+    // The decisive direction test. Under the OLD LTR-only `findCharOffset(text,
+    // localX)` a click at the visual LEFT (x≈0) returned offset 0 (the logically
+    // FIRST char) — wrong, because that glyph is visually RIGHTMOST in an RTL run.
+    // RTL-aware: visual-left → logical-LAST (3), visual-right → logical-FIRST (0).
+    const state = singleParagraph("אבג");
+    const { layout, shaper } = pipeline(state, 800);
+
+    const nearLeft = resolvePositionFromPixel(state, layout, shaper, 1, 0);
+    expect(nearLeft?.blockId).toBe("p");
+    expect(nearLeft?.offset).toBe(3); // logical LAST — was 0 under the LTR bug
+
+    const nearRight = resolvePositionFromPixel(state, layout, shaper, 23, 0);
+    expect(nearRight?.blockId).toBe("p");
+    expect(nearRight?.offset).toBe(0); // logical FIRST — was 3 under the LTR bug
+  });
+
+  it("mixed 'abcאבג': click in the Latin run → a Latin offset; click in the Hebrew run → a Hebrew offset (visual→logical leaf mapping)", () => {
+    // Latin "abc" lvl0 x[0,24] owns state [0,3]; Hebrew "אבג" lvl1 x[24,48] owns
+    // state [3,6]. The OLD visual `withinLineOffset` accumulation summed leaves
+    // in VISUAL order then added as a LOGICAL offset — here visual order ==
+    // logical order so it happened to work, BUT the WITHIN-leaf direction was
+    // still wrong for the Hebrew run. Assert both the right leaf AND the right
+    // intra-run direction.
+    const state = singleParagraph("abcאבג");
+    const { layout, shaper } = pipeline(state, 800);
+
+    // Click mid-"b" (x=10, glyph "b" spans [8,16)) → Latin offset 1.
+    const inLatin = resolvePositionFromPixel(state, layout, shaper, 10, 0);
+    expect(inLatin?.blockId).toBe("p");
+    expect(inLatin?.offset).toBe(1);
+
+    // Hebrew run x[24,48] is RTL: by C.2.1's geometry offset 3 (logical FIRST,
+    // == boundary) sits at the RIGHT edge 48, offset 6 (logical LAST) at the LEFT
+    // edge 24. So clicking near the visual-RIGHT edge (x=47) → logical-FIRST
+    // Hebrew offset 3; near the visual-LEFT edge (x=25) → logical-LAST offset 6.
+    // Under the OLD LTR-only within-leaf math these would be SWAPPED.
+    const hebRight = resolvePositionFromPixel(state, layout, shaper, 47, 0);
+    expect(hebRight?.blockId).toBe("p");
+    expect(hebRight?.offset).toBe(3);
+
+    const hebLeft = resolvePositionFromPixel(state, layout, shaper, 25, 0);
+    expect(hebLeft?.blockId).toBe("p");
+    expect(hebLeft?.offset).toBe(6);
+  });
+
+  it("mixed 'abc אבג' (with space): a click in each run resolves to that run's logical offset", () => {
+    // "abc" x[0,24] state [0,3]; " " x[24,32] state [3,4]; "אבג" x[32,56] state
+    // [4,7]. Round-trips C.2.1's xAt values (offset 5→48, 6→40, 7→32).
+    const state = singleParagraph("abc אבג");
+    const { layout, shaper } = pipeline(state, 800);
+
+    // Click mid-"a" (x=2) → Latin offset 0.
+    const inLatin = resolvePositionFromPixel(state, layout, shaper, 2, 0);
+    expect(inLatin?.offset).toBe(0);
+
+    // Hebrew run [32,56]: offset 4 at right edge 56, offset 7 at left edge 32.
+    // Click at x=33 (near visual-left) → logical-LAST Hebrew offset 7.
+    const hebLeft = resolvePositionFromPixel(state, layout, shaper, 33, 0);
+    expect(hebLeft?.offset).toBe(7);
+    // Click at x=55 (near visual-right) → logical-FIRST Hebrew offset 4.
+    const hebRight = resolvePositionFromPixel(state, layout, shaper, 55, 0);
+    expect(hebRight?.offset).toBe(4);
+    // Click mid Hebrew (x=47, caret X of offset 5 is 48) → offset 5.
+    const hebMid = resolvePositionFromPixel(state, layout, shaper, 47, 0);
+    expect(hebMid?.offset).toBe(5);
+  });
+});
+
 describe("editor default white-space: break-spaces (multiple spaces render)", () => {
   // Under the editor's default white-space (now `break-spaces`, set on the
   // document root and inherited), a paragraph that contains two interior
