@@ -879,16 +879,20 @@ function collectInlineTokens(
 }
 
 /**
- * S2.4 — POST-PASS: derive UAX #14 line-break opportunities over the IFC's
- * assembled SOURCE text and annotate each collected token with `softBreaks`
- * (interior soft positions) + `breakableBefore` (whether the wrap loop may
- * break before it). Populated but NOT consumed by the wrap loop yet (Task 6) —
- * so this is provably inert with respect to geometry.
+ * POST-PASS: derive UAX #14 line-break opportunities over the IFC's assembled
+ * SOURCE text and annotate each collected token with `softBreaks` (interior
+ * soft positions) + `breakableBefore` (whether the wrap loop may break before
+ * it). The wrap loop consumes these via `trySoftSplit` + the `breakableBefore`
+ * gate (so CJK wraps between ideographs and NBSP/`GL` glue holds).
  *
  * `cjBreakable: true` hardcoded = CSS `line-break: normal/auto` (the editor
  * default — CJK ideographs break between each other regardless, and CJ small-
  * kana become breakable). There is no `line-break` computed-style property yet;
- * when one is added it threads through to this call site.
+ * when one is added it threads through to this call site. NOTE for P7
+ * (hyphenation): `hyphens: auto` + the document `language` will thread through
+ * this same path — so when the `line-break` property is modeled, pass a
+ * `ComputedStyle`-derived `LineBreakOptions` here rather than a literal, to
+ * avoid two separate threading passes.
  */
 function annotateLineBreaks(out: Token[], asm: IfcSourceAssembly): void {
   if (asm.source.length === 0) return;

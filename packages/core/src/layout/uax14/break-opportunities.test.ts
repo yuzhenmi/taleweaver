@@ -43,6 +43,17 @@ describe("lineBreakOpportunities — headline behavior", () => {
     expect(breakIdx(text)).toEqual([4]);
   });
 
+  it("lone surrogate: decode advances by ONE code unit (no astral mis-index)", () => {
+    // A lone surrogate (no pair) is class SG → resolved to AL. The decode loop
+    // must advance by 1 code unit here (not 2 as it would for a valid pair), or
+    // every offset after it would be wrong. "<loneHi> a" → break before 'a' at
+    // offset 2 (surrogate=1cu, space=1cu). A 2-unit mis-advance would yield 1.
+    expect(breakIdx("\uD800 a")).toEqual([2]);
+    // A single lone surrogate is one AL cluster → no interior break, no crash.
+    expect(lineBreakOpportunities("\uD800")).toEqual([]);
+    expect(lineBreakOpportunities("\uDC00")).toEqual([]); // lone LOW surrogate too
+  });
+
   it("mandatory breaks at LF, LS (U+2028), PS (U+2029)", () => {
     // UAX #14 LB4/LB5: the mandatory break is AFTER the separator, i.e. before
     // the following character (offset 2 in "a<sep>b"), not before the separator.

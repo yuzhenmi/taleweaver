@@ -164,6 +164,13 @@ export function lineBreakOpportunities(text: string, options: LineBreakOptions =
   // The last NON-SPACE class at or before the `before` element. Rules LB14/LB15/
   // LB16/LB17 "look through" runs of SP* — the governing class is the one BEFORE
   // the spaces, which `prevNonSpace` carries. (For a non-space `a`, it equals `a`.)
+  // Initialized to eff[0].cls: when eff[0] is itself SP (text starts with a
+  // space), this seeds prevNonSpace = "SP", which is safe — none of the rules
+  // that CONSULT prevNonSpace (LB8 ZW, LB14 OP, LB15a QU, LB16 CL/CP, LB17 B2)
+  // match prevNonSpace === "SP": they each require a specific non-SP opener
+  // class. (LB18 fires on the direct predecessor `a === "SP"`, not prevNonSpace,
+  // so it is unrelated to this seeding.) Keep this invariant when editing the
+  // loop: prevNonSpace must only ever gate rules whose governing class is non-SP.
   let prevNonSpace: WClass = eff[0].cls;
   let prevNonSpaceIdx = 0; // eff index of prevNonSpace (look-around for LB15a)
 
