@@ -17,8 +17,21 @@ export function handleExpandLineBoundary(
     editor.caretPageHint,
   );
   if (pos === null) return editor;
+  // P4-C.2.6 §G: Shift+Home/End move the FOCUS to a logical line boundary (the
+  // anchor is fixed). The offset is unchanged (logical boundaries in BOTH
+  // directions); we seed the FOCUS's direction-independent `caretAffinity` so the
+  // logical boundary renders at the correct visual edge of an RTL line:
+  //   Home (boundary "start") → "after"  (first logical leaf → visual-start edge)
+  //   End  (boundary "end")   → "before" (last logical leaf → visual-end edge)
+  // `EXPAND_LINE_BOUNDARY` is registered in `actionManagesCaretAffinity` so the
+  // central reset preserves this; a later edit clears it.
+  // TODO(C.2.7 browser-confirm): the logical-Home convention is near-universal,
+  // but exact Google-Docs RTL Home/End behavior is the same browser-divergent
+  // class as C.2.3's visual-motion flags; confirm in the browser smoke.
+  const caretAffinity = boundary === "start" ? "after" : "before";
   return {
     ...editor,
     selection: createSpan(editor.selection.anchor, pos),
+    caretAffinity,
   };
 }

@@ -506,14 +506,18 @@ export function reduceEditor(
  *   - `EXPAND_SELECTION` (P4-C.2.4) — visual-order Shift+ArrowLeft/Right extends
  *     the FOCUS via the same `moveVisually`, carrying the focus's boundary
  *     affinity (or clearing it to `undefined` on an exit / logical fallback).
- * EXTENSION POINT (P4-C.2.6): `MOVE_LINE_BOUNDARY` (Home/End) joins here as it
- * learns to carry affinity. Until then it falls through to the reset (correct —
- * it doesn't yet track a boundary side).
+ *   - `MOVE_LINE_BOUNDARY` (P4-C.2.6 §G) — Home/End set a direction-independent
+ *     affinity (Home→"after", End→"before") so the LOGICAL line boundary renders
+ *     at the correct visual edge of an RTL line. (Inert on uniform LTR lines.)
+ *   - `EXPAND_LINE_BOUNDARY` (P4-C.2.6 §G) — Shift+Home/End move the FOCUS to a
+ *     logical boundary and seed the focus affinity the same way.
  */
 function actionManagesCaretAffinity(action: EditorAction): boolean {
   return (
     action.type === "SET_SELECTION" ||
     action.type === "MOVE_CURSOR" ||
-    action.type === "EXPAND_SELECTION"
+    action.type === "EXPAND_SELECTION" ||
+    action.type === "MOVE_LINE_BOUNDARY" ||
+    action.type === "EXPAND_LINE_BOUNDARY"
   );
 }
