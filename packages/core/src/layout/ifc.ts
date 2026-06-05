@@ -1416,6 +1416,10 @@ export function layoutInlineContent(
       hyphenBreaks: firstTok.hyphenBreaks
         .filter(b => b > bestBreakIdx!)
         .map(b => b - bestBreakIdx!),
+      // The hyphenation point IS a break opportunity — the suffix may begin a
+      // line. Set explicitly (mirrors trySoftSplit's suffix) so the symmetry is
+      // self-documenting rather than relying on absent-means-breakable.
+      breakableBefore: true,
     };
 
     const prefixUnit: WrapUnit = {
@@ -1453,6 +1457,113 @@ export function layoutInlineContent(
     };
 
     return [prefixUnit, suffixUnit, hyphenBreak];
+  }
+
+  /**
+   * UAX #14 soft-split: the no-hyphen-glyph mirror of `tryHyphenSplit`, used to
+   * break a unit at an interior `softBreaks` opportunity (e.g. between CJK
+   * ideographs). Returns a 2-TUPLE (no `HyphenBreak`) — the line flushes with no
+   * hyphen. The suffix carries its remaining `softBreaks` (re-sliced) and
+   * `breakableBefore: true` (the split point IS a break opportunity).
+   */
+  function trySoftSplit(
+    unit: WrapUnit,
+    available: number,
+  ): [WrapUnit, WrapUnit] | null {
+    const firstTok = unit.tokens[0];
+    if (!firstTok.softBreaks || !firstTok.clusterWidths || firstTok.softBreaks.length === 0) return null;
+    if (firstTok.isSpace || firstTok.inlineBlock) return null;
+    // No hyphen term here (tryHyphenSplit is implicitly safe because every
+    // candidate adds hyphenInlineSize>0). A zero-width prefix would pass
+    // `0 <= available` → zero-width line → the suffix re-enters the same overflow
+    // → infinite loop. Guard: require available>0 AND a strictly non-zero prefix
+    // (skips a combining-mark-only prefix).
+    if (available <= 0) return null;
+
+    const clusterWidths = firstTok.clusterWidths;
+
+    let bestBreakIdx: number | null = null;
+    let bestPrefixWidth = 0;
+    for (const breakAt of firstTok.softBreaks) {
+      let w = 0;
+      for (let ci = 0; ci < breakAt && ci < clusterWidths.length; ci++) {
+        w += clusterWidths[ci];
+      }
+      if (w > 0 && w <= available) {
+        bestBreakIdx = breakAt;
+        bestPrefixWidth = w;
+      }
+    }
+
+    if (bestBreakIdx === null) return null;
+    // Capture the narrowed value in a const so the closures below don't need a
+    // `!` non-null assertion (TS won't narrow the `let` inside a nested closure).
+    const splitAt: number = bestBreakIdx;
+
+    const prefixText = firstTok.text.slice(0, splitAt);
+    const suffixText = firstTok.text.slice(splitAt);
+
+    const colonIdx = firstTok.id.lastIndexOf(":");
+    const originalOffset = colonIdx >= 0 ? Number(firstTok.id.slice(colonIdx + 1)) : 0;
+    const suffixOffset = (Number.isFinite(originalOffset) ? originalOffset : 0) + splitAt;
+
+    const prefixToken: Token = {
+      id: firstTok.id,
+      sourceKey: firstTok.sourceKey,
+      text: prefixText,
+      sourceLength: splitAt,
+      width: bestPrefixWidth,
+      style: firstTok.style,
+      isSpace: false,
+      isLineBreak: false,
+      inlineAncestors: firstTok.inlineAncestors,
+      inlineAncestorStyles: firstTok.inlineAncestorStyles,
+    };
+
+    const suffixToken: Token = {
+      id: `${firstTok.sourceKey}:${suffixOffset}`,
+      sourceKey: firstTok.sourceKey,
+      text: suffixText,
+      sourceLength: firstTok.sourceLength - splitAt,
+      width: firstTok.width - bestPrefixWidth,
+      style: firstTok.style,
+      isSpace: false,
+      isLineBreak: false,
+      inlineAncestors: firstTok.inlineAncestors,
+      inlineAncestorStyles: firstTok.inlineAncestorStyles,
+      clusterWidths: firstTok.clusterWidths.slice(splitAt),
+      softBreaks: firstTok.softBreaks
+        .filter(b => b > splitAt)
+        .map(b => b - splitAt),
+      // The split point is a break opportunity — the suffix may begin a line.
+      breakableBefore: true,
+    };
+
+    const prefixUnit: WrapUnit = {
+      tokens: [prefixToken],
+      totalWidth: bestPrefixWidth,
+      sourceKey: unit.sourceKey,
+      isLineBreak: false,
+      inlineAncestors: unit.inlineAncestors,
+      inlineAncestorStyles: unit.inlineAncestorStyles,
+      tokenStartIdx: unit.tokenStartIdx,
+      tokenEndIdx: unit.tokenStartIdx,
+    };
+
+    const trailingTokens = unit.tokens.slice(1);
+    const trailingWidth = trailingTokens.reduce((s, t) => s + t.width, 0);
+    const suffixUnit: WrapUnit = {
+      tokens: [suffixToken, ...trailingTokens],
+      totalWidth: suffixToken.width + trailingWidth,
+      sourceKey: unit.sourceKey,
+      isLineBreak: false,
+      inlineAncestors: unit.inlineAncestors,
+      inlineAncestorStyles: unit.inlineAncestorStyles,
+      tokenStartIdx: unit.tokenStartIdx,
+      tokenEndIdx: unit.tokenEndIdx,
+    };
+
+    return [prefixUnit, suffixUnit];
   }
 
   /**
@@ -1674,8 +1785,26 @@ export function layoutInlineContent(
     // before. (P2/#338 will CLAMP the hung space to the content edge; for now it
     // may extend past it.)
     if (canWrap && !isSpaceUnit(unit) && currentWidth + unit.totalWidth > lineInlineSize && currentUnits.length > 0) {
-      // Before flushing: try hyphen-split on the overflowing unit.
       const available = lineInlineSize - currentWidth;
+      // UAX #14 soft split first (e.g. CJK between ideographs) — no hyphen glyph.
+      // This is an INTERIOR break (inside the unit's first token), orthogonal to
+      // `breakableBefore` (which only forbids a break BEFORE the unit's leading
+      // boundary, e.g. an NBSP join). So we try it even when breakableBefore is
+      // false: a long CJK run glued to the previous word by an NBSP still wraps
+      // at its interior ideograph boundaries — the NBSP only pins the boundary.
+      const softSplit = trySoftSplit(unit, available);
+      if (softSplit !== null) {
+        const [prefixUnit, suffixUnit] = softSplit;
+        pushUnit(prefixUnit);
+        flushLine(lineInlineCursor, lineInlineSize, pendingHyphen);
+        ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0));
+        unitQueue.splice(uqi, 0, suffixUnit);
+        continue;
+      }
+      // Then a hyphenation split on the overflowing unit. Also an INTERIOR break
+      // (it splits the word at a hyphenation point and inserts the hyphen glyph),
+      // so it too is independent of `breakableBefore` — the prefix stays glued to
+      // the previous unit on the current line; only the word's interior splits.
       const split = tryHyphenSplit(unit, available);
       if (split !== null) {
         const [prefixUnit, suffixUnit, hyphenBreak] = split;
@@ -1688,10 +1817,18 @@ export function layoutInlineContent(
         unitQueue.splice(uqi, 0, suffixUnit);
         continue;
       }
-      // No hyphen split possible — normal word wrap.
-      flushLine(lineInlineCursor, lineInlineSize, pendingHyphen);
-      // Recompute dims for the new line position
-      ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0));
+      // No split possible — normal word wrap. This is the ONLY path here that
+      // emits a break BEFORE the unit (the whole unit moves to the next line), so
+      // it is the one gated by `breakableBefore`: a unit glued to the previous by
+      // an NBSP (breakableBefore===false) is instead force-placed on the current
+      // line — it overflows `lineInlineSize` (CSS-correct for a no-break space:
+      // the line legitimately extends past its content box), falling through to
+      // the end-of-loop `pushUnit`. Absent/true ⇒ unchanged (normal wrap).
+      if (unit.tokens[0].breakableBefore !== false) {
+        flushLine(lineInlineCursor, lineInlineSize, pendingHyphen);
+        // Recompute dims for the new line position
+        ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0));
+      }
     }
 
     // If even an empty line can't fit the token and there are active floats,
@@ -1714,10 +1851,25 @@ export function layoutInlineContent(
       }
     }
 
-    // Hyphen split on an otherwise-empty line: the unit doesn't fit even alone,
-    // but a hyphen break opportunity allows a prefix to fit.
+    // Split on an otherwise-empty line: the unit doesn't fit even alone, but a
+    // soft (UAX #14, e.g. CJK between ideographs) or hyphen break opportunity
+    // lets a prefix fit. This is where a wide CJK run wraps across lines.
     if (canWrap && currentWidth + unit.totalWidth > lineInlineSize && currentUnits.length === 0) {
       const available = lineInlineSize - currentWidth;
+      // Soft split first (UAX #14 interior break, e.g. CJK between ideographs).
+      // No `breakableBefore` gate here: the unit is ALONE on this line
+      // (currentUnits.length === 0), so there is no preceding unit on the line to
+      // break away from — `breakableBefore` (a leading-boundary constraint) is
+      // irrelevant. Both splits below are interior and run unconditionally.
+      const softSplit = trySoftSplit(unit, available);
+      if (softSplit !== null) {
+        const [prefixUnit, suffixUnit] = softSplit;
+        pushUnit(prefixUnit);
+        flushLine(lineInlineCursor, lineInlineSize, pendingHyphen);
+        ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0));
+        unitQueue.splice(uqi, 0, suffixUnit);
+        continue;
+      }
       const split = tryHyphenSplit(unit, available);
       if (split !== null) {
         const [prefixUnit, suffixUnit, hyphenBreak] = split;

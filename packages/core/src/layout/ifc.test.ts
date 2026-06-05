@@ -2508,14 +2508,47 @@ describe("IFC — UAX #14 token annotation (S2.4) + S2.3/S2.4-scaffold negative 
     return collectTokens(tree, shaper, "ltr", ctx.intrinsicCache);
   }
 
-  it("S2.3/S2.4-scaffold: a CJK paragraph does NOT YET wrap (no premature consumption)", () => {
-    // Narrow IFC; the 10-ideograph run (10×8 = 80px) far exceeds 40px. Until
-    // Task 6 wires the wrap loop to consult softBreaks, the single unbreakable
-    // unit stays on ONE line (the first unit is always force-placed). Task 6
-    // flips this to assert wrapping. This LOCKS "no geometry change" through
-    // this slice: populating softBreaks/breakableBefore must stay inert.
+  it("CJK paragraph WRAPS across lines (the S2.4 win)", () => {
+    // 10 ideographs (10×8 = 80px) in a 40px IFC. UAX #14 allows a break between
+    // every ideograph (class ID via LB31), so `trySoftSplit` wraps the single
+    // run: 5 ideographs (40px) per line → 2 lines. (Before S2.4 wired the wrap
+    // loop, this stayed on ONE overflowing line — see git history of this test.)
     const lines = ifcOf("一二三四五六七八九十", 40);
-    expect(lines).toHaveLength(1);
+    expect(lines.length).toBe(2);
+    for (const ln of lines) {
+      if (ln.type !== "line") throw new Error("?");
+      expect(ln.width).toBeLessThanOrEqual(40);
+    }
+  });
+
+  it("NBSP (U+00A0, GL) keeps its neighbours on ONE line even when narrow", () => {
+    // "aaaa bbbb" at width 40: a REGULAR space lets "bbbb" wrap → 2 lines.
+    expect(ifcOf("aaaa bbbb", 40).length).toBe(2);
+    // With a NON-BREAKING space (U+00A0), `breakableBefore:false` on "bbbb"
+    // suppresses the flush → both words stay on one (overflowing) line. This is
+    // the NBSP fix: the old `/\s/` tokenizer wrongly broke here.
+    expect(ifcOf("aaaa\u00A0bbbb", 40).length).toBe(1);
+  });
+
+  it("NBSP pins only the BOUNDARY \u2014 an NBSP-joined run still wraps at its INTERIOR breaks", () => {
+    // "a\u00A0\u4E00\u4E8C\u4E09\u56DB\u4E94\u516D\u4E03\u516B\u4E5D\u5341": an NBSP glues "a" to a 10-ideograph CJK run.
+    // `breakableBefore:false` on the CJK run forbids a break AT the NBSP, but the
+    // inter-ideograph soft breaks INSIDE the run are independent UAX #14
+    // opportunities, so the run must still wrap across lines (it far exceeds the
+    // 40px line). Regression guard: an earlier revision gated the ENTIRE
+    // overflow/empty-line wrap branch on `breakableBefore`, which wrongly
+    // suppressed `trySoftSplit` too and force-placed the whole run on one
+    // overflowing line (length 1). `breakableBefore` must gate ONLY the
+    // break-before-the-unit flush, never the interior split.
+    const lines = ifcOf("a\u00A0\u4E00\u4E8C\u4E09\u56DB\u4E94\u516D\u4E03\u516B\u4E5D\u5341", 40);
+    expect(lines.length).toBeGreaterThan(1);
+    for (const ln of lines) {
+      if (ln.type !== "line") throw new Error("?");
+      // Every line except the one carrying the un-splittable "a\u00A0\u4E00" prefix
+      // fits; assert no line runs away unboundedly (the whole 88px run is NOT on
+      // one line).
+      expect(ln.width).toBeLessThanOrEqual(48);
+    }
   });
 
   it("CJK run: token carries softBreaks at the inter-ideograph offsets", () => {
