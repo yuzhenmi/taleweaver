@@ -1,7 +1,7 @@
 import type { ComputedStyle } from "../styles";
 import type { TextShaper, ShapedRun, FontMetrics } from "./text-shaper";
+import { toBreakOpportunities } from "./text-shaper";
 import { createMockShaper } from "./mock-shaper";
-import { lineBreakOpportunities } from "./uax14";
 
 /**
  * Narrow legacy interface — width and height only. Layout-internal callers
@@ -57,15 +57,9 @@ export function measurerToShaper(measurer: TextMeasurer): TextShaper {
         glyphs: [text.charCodeAt(i)],
       }));
 
-      // UAX #14 line-break opportunities. `cjBreakable: true` mirrors CSS
-      // `line-break: normal` (the editor default). Maps mandatory → "hard",
-      // optional → "soft"; `clusterIndex` is the code-unit offset of the break.
-      const breakOpportunities = lineBreakOpportunities(text, {
-        cjBreakable: true,
-      }).map((p) => ({
-        clusterIndex: p.index,
-        kind: p.mandatory ? ("hard" as const) : ("soft" as const),
-      }));
+      // UAX #14 line-break opportunities (default CSS `line-break: normal`),
+      // via the single-sourced `toBreakOpportunities` adapter.
+      const breakOpportunities = toBreakOpportunities(text);
 
       const totalHeight = measurer.measureHeight(style);
       const ascent  = totalHeight * 0.8;

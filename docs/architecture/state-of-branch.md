@@ -299,8 +299,8 @@ last-root tracking, `hashPaintInputs`. Wired into the editor controller.
 
 Canvas-based default text shaper. Uniform-direction bidi, UAX #29
 grapheme-cluster boundaries (via `Intl.Segmenter` / `graphemeClusters`),
-font metrics, and UAX #14 break opportunities (calls the `core`
-`layout/uax14` classifier `lineBreakOpportunities`). Paired with a legacy
+font metrics, and UAX #14 break opportunities (via the `core`
+`toBreakOpportunities` adapter over the `layout/uax14` classifier). Paired with a legacy
 `canvas-measurer` for callers that still consume the older `TextMeasurer`
 interface.
 

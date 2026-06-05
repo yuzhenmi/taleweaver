@@ -1,27 +1,11 @@
 import type { ComputedStyle } from "../styles";
 import type { Direction } from "../styles/writing-mode";
 import type {
-  TextShaper, ShapedRun, Cluster, BreakOpportunity, FontMetrics,
+  TextShaper, ShapedRun, Cluster, FontMetrics,
 } from "./text-shaper";
+import { toBreakOpportunities } from "./text-shaper";
 import { resolveSpacingPx, clusterSpacing } from "./text-spacing";
 import { graphemeClusters } from "./graphemes";
-import { lineBreakOpportunities } from "./uax14";
-
-/**
- * Shared break-opportunity logic for the mock shapers, via the UAX #14 line-break
- * classifier. `cjBreakable: true` mirrors CSS `line-break: normal` (the editor
- * default — CJ small-kana breakable). Maps the classifier's `mandatory` →
- * `"hard"` and optional → `"soft"`. `clusterIndex` is the UTF-16 code-unit offset
- * where the break may occur (break is BEFORE this offset), matching
- * `BreakOpportunity.clusterIndex`. Kept in one place so the fixed-width and
- * variable-width mocks can't drift. Returns already-sorted offsets.
- */
-function computeBreakOpportunities(text: string): BreakOpportunity[] {
-  return lineBreakOpportunities(text, { cjBreakable: true }).map(p => ({
-    clusterIndex: p.index,
-    kind: p.mandatory ? ("hard" as const) : ("soft" as const),
-  }));
-}
 
 /**
  * Mock shaper for tests: each UAX #29 grapheme cluster is one cluster of fixed
@@ -67,7 +51,7 @@ export function createMockShaper(charWidth: number, lineHeight: number): TextSha
       start += g.length;
     }
 
-    const breakOpportunities = computeBreakOpportunities(text);
+    const breakOpportunities = toBreakOpportunities(text);
 
     return {
       text,
@@ -147,7 +131,7 @@ export function createVariableMockShaper(
       start += g.length;
     }
 
-    const breakOpportunities = computeBreakOpportunities(text);
+    const breakOpportunities = toBreakOpportunities(text);
 
     return {
       text,

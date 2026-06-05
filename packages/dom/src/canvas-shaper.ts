@@ -7,7 +7,7 @@ import type {
   BreakOpportunity,
   FontMetrics,
 } from "@taleweaver/core";
-import { resolveSpacingPx, clusterSpacing, lineBreakOpportunities } from "@taleweaver/core";
+import { resolveSpacingPx, clusterSpacing, toBreakOpportunities } from "@taleweaver/core";
 import { buildCssFontString } from "./font-config";
 import { segmentClusters } from "./text-clusters";
 
@@ -97,16 +97,9 @@ export function createCanvasShaper(
       start += c.length;
     }
 
-    // UAX #14 line-break opportunities. `cjBreakable: true` mirrors CSS
-    // `line-break: normal` (the editor default — CJ small-kana breakable).
-    // Maps the classifier's `mandatory` → "hard", optional → "soft".
-    // `clusterIndex` is the UTF-16 code-unit offset of the break (BEFORE it).
-    const breakOpportunities: BreakOpportunity[] = lineBreakOpportunities(text, {
-      cjBreakable: true,
-    }).map((p) => ({
-      clusterIndex: p.index,
-      kind: p.mandatory ? ("hard" as const) : ("soft" as const),
-    }));
+    // UAX #14 line-break opportunities (default CSS `line-break: normal`),
+    // via the single-sourced `toBreakOpportunities` adapter in core.
+    const breakOpportunities: BreakOpportunity[] = toBreakOpportunities(text);
 
     const fm = measureFontMetricsImpl(style);
 
