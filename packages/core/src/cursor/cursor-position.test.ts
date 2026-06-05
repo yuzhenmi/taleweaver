@@ -505,4 +505,140 @@ describe("resolvePixelPosition (new)", () => {
     const r2 = resolvePixelPosition(state, createPosition("p" as BlockId, 2), layout, shaper);
     expect(r2?.x).toBe(16); // after "ß"
   });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // P4-C.2.1 — direction-aware caret X in bidi-reordered lines.
+  //
+  // The mock shaper is 8px/char. There is no registered `direction` block attr,
+  // so the paragraph base stays LTR; Hebrew CONTENT still resolves to level-1
+  // (RTL) runs by UAX #9 — which is what the §B intra-leaf RTL math keys off
+  // (the LEAF level parity, not the paragraph direction). See line-bidi.test.ts.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  it("uniform RTL run: caret X decreases monotonically (offset 0 → right edge, end → left edge)", () => {
+    // "אבג" (3 Hebrew chars) in an LTR paragraph: one level-1 run at x[0,24].
+    // BEFORE this task the LTR-only `absoluteX + measureWidth(prefix)` formula
+    // produced INCREASING x (0,8,16,24) — the bug. Direction-aware: offset 0 is
+    // the logical START, which under RTL sits at the run's RIGHT edge (24);
+    // offset 3 (logical end) sits at the LEFT edge (0); monotonically decreasing.
+    const state = singleParagraph("אבג");
+    const { layout, shaper } = pipeline(state, 800);
+    const xs = [0, 1, 2, 3].map((off) => {
+      const r = resolvePixelPosition(state, createPosition("p" as BlockId, off), layout, shaper);
+      expect(r).not.toBeNull();
+      return r?.x ?? NaN;
+    });
+    expect(xs).toEqual([24, 16, 8, 0]); // rightmost → leftmost
+    for (let i = 1; i < xs.length; i++) {
+      expect(xs[i]).toBeLessThan(xs[i - 1]); // strictly decreasing
+    }
+  });
+
+  it("mixed LTR+RTL (no space): caret X tracks the bidi visual layout; the run-boundary offset is a DUAL caret", () => {
+    // "abcאבג": Latin "abc" (level 0) at x[0,24], Hebrew "אבג" (level 1) at
+    // x[24,48]. State offsets: a=0,b=1,c=2 | boundary=3 | Hebrew=[3,6].
+    const state = singleParagraph("abcאבג");
+    const { layout, shaper } = pipeline(state, 800);
+    const xAt = (off: number, affinity?: "before" | "after") => {
+      const r = resolvePixelPosition(
+        state,
+        createPosition("p" as BlockId, off),
+        layout,
+        shaper,
+        undefined,
+        affinity,
+      );
+      expect(r).not.toBeNull();
+      return r?.x ?? NaN;
+    };
+
+    // Latin prefix grows left→right.
+    expect(xAt(0)).toBe(0);
+    expect(xAt(1)).toBe(8);
+    expect(xAt(2)).toBe(16);
+
+    // Hebrew interior offsets DECREASE off the run's right edge (48).
+    expect(xAt(4)).toBe(40); // 48 − 8
+    expect(xAt(5)).toBe(32); // 48 − 16
+    expect(xAt(6)).toBe(24); // 48 − 24 = Hebrew run's left edge
+
+    // Boundary offset 3 == Latin.logEnd == Hebrew.logStart: DUAL caret.
+    //   "after"  → the leaf STARTING at 3 (the RTL Hebrew run) → its RIGHT edge 48.
+    //   "before" → the leaf ENDING at 3 (the LTR Latin run)   → its RIGHT edge 24.
+    expect(xAt(3, "after")).toBe(48);
+    expect(xAt(3, "before")).toBe(24);
+    expect(xAt(3, "after")).not.toBe(xAt(3, "before"));
+    // Default (undefined) === "after".
+    expect(xAt(3)).toBe(48);
+  });
+
+  it("mixed LTR+space+RTL: caret X tracks the bidi visual layout; the space↔Hebrew offset is a DUAL caret", () => {
+    // "abc אבג": "abc" (lvl0) x[0,24], " " (lvl0) x[24,32], "אבג" (lvl1) x[32,56].
+    // State: a=0,b=1,c=2 | space=[3,4] | Hebrew=[4,7].
+    const state = singleParagraph("abc אבג");
+    const { layout, shaper } = pipeline(state, 800);
+    const xAt = (off: number, affinity?: "before" | "after") => {
+      const r = resolvePixelPosition(
+        state,
+        createPosition("p" as BlockId, off),
+        layout,
+        shaper,
+        undefined,
+        affinity,
+      );
+      expect(r).not.toBeNull();
+      return r?.x ?? NaN;
+    };
+
+    expect(xAt(0)).toBe(0);
+    expect(xAt(3)).toBe(24); // end of "abc" / start of the (LTR) space
+    // Hebrew interior decreases off its right edge (56).
+    expect(xAt(5)).toBe(48); // 56 − 8
+    expect(xAt(6)).toBe(40); // 56 − 16
+    expect(xAt(7)).toBe(32); // 56 − 24 = Hebrew run's left edge
+
+    // Boundary offset 4 == space.logEnd == Hebrew.logStart: DUAL caret.
+    //   "after"  → the RTL Hebrew run STARTING at 4 → its RIGHT edge 56.
+    //   "before" → the LTR space leaf ENDING at 4   → its RIGHT edge 32.
+    expect(xAt(4, "after")).toBe(56);
+    expect(xAt(4, "before")).toBe(32);
+    expect(xAt(4, "after")).not.toBe(xAt(4, "before"));
+  });
+
+  it("RTL run followed by a clamped trailing space (#338): caret pins to the correct physical edges", () => {
+    // "אבג " — Hebrew (lvl1) x[0,24] + a logically-trailing space. By UAX #9 L1
+    // the trailing whitespace takes the PARAGRAPH level (0 = LTR here), so it
+    // sits as a separate level-0 leaf at x[24,32], to the PHYSICAL RIGHT of the
+    // Hebrew run. The break-spaces clamp (#338) must still land the caret on the
+    // leaf's own box edge — not overflow past it.
+    const state = singleParagraph("אבג ");
+    const { layout, shaper } = pipeline(state, 800);
+    const xAt = (off: number, affinity?: "before" | "after") => {
+      const r = resolvePixelPosition(
+        state,
+        createPosition("p" as BlockId, off),
+        layout,
+        shaper,
+        undefined,
+        affinity,
+      );
+      expect(r).not.toBeNull();
+      return r?.x ?? NaN;
+    };
+
+    // Hebrew interior: offset 0 → right edge 24, offset 3 → left edge 0.
+    expect(xAt(0)).toBe(24);
+    expect(xAt(1)).toBe(16);
+    expect(xAt(2)).toBe(8);
+
+    // Boundary offset 3 == Hebrew.logEnd == space.logStart: DUAL caret.
+    //   "before" → the RTL Hebrew run ENDING at 3 → its LEFT edge 0.
+    //   "after"  → the LTR space leaf STARTING at 3 → its LEFT edge 24.
+    expect(xAt(3, "before")).toBe(0);
+    expect(xAt(3, "after")).toBe(24);
+
+    // Offset 4 (logical end of the trailing space): pinned to the space leaf's
+    // own right edge (32) — the clamp keeps it ON the box edge, never past it.
+    expect(xAt(4)).toBe(32);
+  });
 });

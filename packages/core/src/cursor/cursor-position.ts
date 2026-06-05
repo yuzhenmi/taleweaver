@@ -7,11 +7,21 @@ import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
 import {
-  collectLineLeaves,
   getLineIndex,
   type AbsoluteLineBox,
 } from "./line-flatten";
+import { buildLineBidiView, caretXInLeaf, type BidiViewLeaf } from "./line-bidi";
 import { markStart, markEnd } from "../perf/perf-trace";
+
+/**
+ * Caret affinity at a bidi run boundary (P4-C.2 §B). One logical `offset` has
+ * TWO visual positions where two leaves meet (`offset == leafA.logEnd ==
+ * leafB.logStart`): `"before"` draws at the leaf ENDING at the offset, `"after"`
+ * (the default — today's behavior) at the leaf STARTING at it. On a uniform line
+ * both pick the same X, so the field is inert there. Threaded from
+ * `EditorState.caretAffinity` (view state — never stored in History).
+ */
+export type CaretAffinity = "before" | "after";
 
 /**
  * Pixel-position result for a resolved Position. Coords are page-
@@ -94,6 +104,10 @@ export function resolvePixelPosition(
   // default). Ignored for a normal main-tree caret (the plan maps it to its own
   // page). View state — see `EditorState.caretPageHint`.
   caretPageHint?: number,
+  // P4-C.2.1: which side a collapsed caret sticks to at a bidi run boundary.
+  // `undefined` defaults to `"after"` (today's behavior). View state — see
+  // `EditorState.caretAffinity`. Inert on uniform (single-direction) lines.
+  caretAffinity?: CaretAffinity,
 ): PixelPosition | null {
   const t = markStart("cursor.cursor-position");
   try {
@@ -108,7 +122,7 @@ export function resolvePixelPosition(
       : shaperOrMeasurer;
 
     if (layoutTree.type === "virtual-root") {
-      return resolveInVirtualTree(layoutTree, position, measurer, state, caretPageHint);
+      return resolveInVirtualTree(layoutTree, position, measurer, state, caretPageHint, caretAffinity);
     }
 
     // Positioned-tree path (unchanged): O(1) lookup via the cached
@@ -124,7 +138,7 @@ export function resolvePixelPosition(
       return baseline ?? defaultPixelPosition();
     }
 
-    return resolvePositionInOwnLines(ownLines, position, measurer);
+    return resolvePositionInOwnLines(ownLines, position, measurer, caretAffinity);
   } finally {
     markEnd("cursor.cursor-position", t);
   }
@@ -160,6 +174,7 @@ function resolveInVirtualTree(
   measurer: TextMeasurer,
   state: State,
   caretPageHint?: number,
+  caretAffinity?: CaretAffinity,
 ): PixelPosition | null {
   const plan = tree.plan;
   const endPage = plan.pageIndexOfBlock(position.blockId);
@@ -178,7 +193,7 @@ function resolveInVirtualTree(
     // not the slot ROOT id).
     const resolvedPage = resolveTemplateBlockPage(state, plan, position.blockId, caretPageHint);
     if (resolvedPage >= 0) {
-      const onResolved = resolveSlotOnPage(tree, resolvedPage, position, measurer);
+      const onResolved = resolveSlotOnPage(tree, resolvedPage, position, measurer, caretAffinity);
       if (onResolved !== null) return onResolved;
 
       // I1 STALE-FALLBACK: the hinted page exists but its slot doesn't carry
@@ -189,7 +204,7 @@ function resolveInVirtualTree(
       if (caretPageHint !== undefined) {
         const defaultPage = resolveTemplateBlockPage(state, plan, position.blockId, undefined);
         if (defaultPage >= 0 && defaultPage !== resolvedPage) {
-          const onDefault = resolveSlotOnPage(tree, defaultPage, position, measurer);
+          const onDefault = resolveSlotOnPage(tree, defaultPage, position, measurer, caretAffinity);
           if (onDefault !== null) return onDefault;
         }
       }
@@ -206,7 +221,7 @@ function resolveInVirtualTree(
       const baseline = findBlockBaseline(positioned, position.blockId);
       return baseline ?? defaultPixelPosition();
     }
-    return resolvePositionInOwnLines(ownLines, position, measurer);
+    return resolvePositionInOwnLines(ownLines, position, measurer, caretAffinity);
   }
 
   // The block's FIRST page floors the backward walk. `pageIndexOfBlock`
@@ -263,11 +278,11 @@ function resolveInVirtualTree(
     const nextPage = tree.getPage(pageIndex + 1);
     const nextOwn = getLineIndex(nextPage).byBlock.get(position.blockId) ?? [];
     if (nextOwn.length > 0) {
-      return resolvePositionInOwnLines([nextOwn[0]], position, measurer);
+      return resolvePositionInOwnLines([nextOwn[0]], position, measurer, caretAffinity);
     }
   }
 
-  return resolvePositionInOwnLines(ownLines, position, measurer);
+  return resolvePositionInOwnLines(ownLines, position, measurer, caretAffinity);
 }
 
 /**
@@ -337,11 +352,12 @@ function resolveSlotOnPage(
   pageIndex: number,
   position: Position,
   measurer: TextMeasurer,
+  caretAffinity?: CaretAffinity,
 ): PixelPosition | null {
   const page = tree.getPage(pageIndex);
   const slotLines = getLineIndex(page).byBlock.get(position.blockId) ?? [];
   if (slotLines.length > 0) {
-    return resolvePositionInOwnLines(slotLines, position, measurer);
+    return resolvePositionInOwnLines(slotLines, position, measurer, caretAffinity);
   }
   // No own-lines (e.g. the #326 CONTAINER root carries no IFC itself — its
   // paragraph child does). If the page nonetheless carries the body's box, pin
@@ -364,6 +380,7 @@ function resolvePositionInOwnLines(
   ownLines: readonly AbsoluteLineBox[],
   position: Position,
   measurer: TextMeasurer,
+  caretAffinity?: CaretAffinity,
 ): PixelPosition {
   // Pick the target line. Walk in order; the line whose [start, end] contains
   // the offset wins. At the soft-wrap edge (offset === current.end AND next is
@@ -399,77 +416,86 @@ function resolvePositionInOwnLines(
   const target = ownLines[targetIdx];
   const line = target.line;
 
-  // Per-line within-offset.
-  const withinLineOffset = Math.max(
-    0,
-    Math.min(position.offset - line.inlineOffsetStart, line.inlineOffsetEnd - line.inlineOffsetStart),
+  // P4-C.2.1: the LineBidiView is the single place that knows the line's
+  // VISUAL↔LOGICAL leaf correspondence, so the intra-line caret X is now
+  // direction-aware (LTR leaves measure left→right, RTL leaves right→left;
+  // inline-blocks are atomic edges). It walks leaves in LOGICAL (state) order,
+  // so a bidi-reordered line picks the right OWNING leaf (the old visual-order
+  // accumulation picked the wrong leaf on a reordered line).
+  const view = buildLineBidiView(target);
+  if (view.isEmpty) {
+    // Strut-only line (empty paragraph): caret at the line's content edge. For
+    // an LTR paragraph that's the line's inline start (`absoluteX`) — byte-
+    // identical to the pre-bidi empty-line fast path. For an RTL paragraph the
+    // content edge is the line's RIGHT edge.
+    const x =
+      view.paragraphDirection === "rtl"
+        ? target.absoluteX + line.inlineSize
+        : target.absoluteX;
+    return pixelPositionForLine(target, x);
+  }
+
+  // STATE offset to resolve, clamped into the line's own [start, end] range
+  // (the offset is already line-scoped by the pick loop above, but a past-block-
+  // end position can land here as the last line's end).
+  const stateOffset = Math.max(
+    line.inlineOffsetStart,
+    Math.min(position.offset, line.inlineOffsetEnd),
   );
 
-  const leaves = collectLineLeaves(line, target.absoluteX);
-  if (leaves.length === 0) {
-    // Defensive fallback: malformed line with no children. Under normal
-    // operation this is unreachable post-#333 — strut lines (empty paragraphs)
-    // carry a zero-width strut TextRunBox child as the empty-line caret anchor,
-    // so the leaf-walk below handles them.
-    return pixelPositionForLine(target, target.absoluteX);
-  }
+  const owner = findLeafForOffset(view.logicalLeaves, stateOffset, caretAffinity);
+  const rawX = caretXInLeaf(owner, stateOffset, measurer);
 
-  // Walk leaves accumulating offsetContribution until covering withinLineOffset.
-  let cursorOffset = 0;
-  for (const leaf of leaves) {
-    const leafEnd = cursorOffset + leaf.offsetContribution;
-    if (withinLineOffset <= leafEnd) {
-      const localOffset = withinLineOffset - cursorOffset;
-      if (leaf.kind === "text-run") {
-        // `offsetContribution` (state span) can exceed the rendered text
-        // length when this run absorbed trailing collapsed whitespace, so
-        // `localOffset` may point INTO that collapsed-whitespace tail. Clamp
-        // to the rendered chars explicitly (don't rely on JS slice's silent
-        // clamp): an offset inside the collapsed tail measures to the run's
-        // rendered right edge, which is the visual boundary before the next
-        // run/word.
-        // For a length-changing text-transform leaf (e.g. uppercase ß→SS),
-        // `leaf.box.text` is the DISPLAY string but `localOffset` is a STATE
-        // offset, so slicing display by state would land the caret mid-glyph.
-        // `sourceDisplayLengths[i]` is the display-unit count produced by the
-        // i-th STATE code unit; summing the counts for the state units BEFORE
-        // `localOffset` gives the matching display index. When it's undefined
-        // (the common case — 1:1 / untransformed leaves) state offset === display
-        // index, so this is identical to the old `Math.min(localOffset, …)`.
-        const sdl = leaf.box.sourceDisplayLengths;
-        const localChar = sdl
-          ? Math.min(
-              sdl.slice(0, localOffset).reduce((a, b) => a + b, 0),
-              leaf.box.text.length,
-            )
-          : Math.min(localOffset, leaf.box.text.length);
-        const prefix = leaf.box.text.slice(0, localChar);
-        const xOffset = measurer.measureWidth(prefix, leaf.computedStyle);
-        // #338 P2 — clamp the caret to the LEAF's own box right edge. For a
-        // CLAMPED hung space (IFC gave it width 0 at the line content edge),
-        // `measureWidth(" ")` still adds ~one glyph advance, which would land the
-        // caret PAST the edge (the reverted-Phase-2 off-page caret bug — the box
-        // clamp alone does NOT fix this). Clamping to `leaf.absoluteX +
-        // leaf.width` pins the caret to the (clamped) edge. For a normal word
-        // leaf `xOffset ≤ leaf.width`, so the clamp is a no-op; for a
-        // force-placed overflowing word leaf the box width spans the full word,
-        // so the caret correctly follows the glyph (still within the word).
-        const resolvedX = leaf.absoluteX + xOffset;
-        const leafRightEdge = leaf.absoluteX + leaf.width;
-        return pixelPositionForLine(target, Math.min(resolvedX, leafRightEdge));
-      }
-      // inline-block: localOffset is either 0 (leading edge) or 1 (trailing
-      // edge — past the embed).
-      const x = localOffset === 0 ? leaf.absoluteX : leaf.absoluteX + leaf.width;
-      return pixelPositionForLine(target, x);
+  // #338 P2 — pin the caret to the OWNING leaf's own box edges. For a CLAMPED
+  // hung trailing space (IFC gave it width 0 at the content edge), the prefix
+  // measurement inside `caretXInLeaf` still adds ~one glyph advance, which would
+  // land the caret PAST the box edge (the reverted-Phase-2 off-page caret bug).
+  // Clamping to `[absoluteX, absoluteX + width]` pins it to the (clamped) edge.
+  // Direction-agnostic: for an LTR leaf the upper bound bites, for an RTL leaf
+  // the lower bound bites; for a normal word leaf the caret is already inside,
+  // so the clamp is a no-op.
+  const leafLeft = owner.leaf.absoluteX;
+  const leafRight = owner.leaf.absoluteX + owner.leaf.width;
+  const x = Math.max(leafLeft, Math.min(rawX, leafRight));
+  return pixelPositionForLine(target, x);
+}
+
+/**
+ * Find the `BidiViewLeaf` whose STATE span owns `stateOffset`, walking
+ * `logicalLeaves` (LOGICAL/state order, contiguous spans). At a leaf boundary
+ * (`stateOffset === leaf.logEnd === nextLeaf.logStart`) the caret has two visual
+ * positions (the bidi dual caret); `caretAffinity` disambiguates:
+ *   - `"before"` → the leaf ENDING at the offset (its `logEnd`).
+ *   - `"after"` / undefined → the leaf STARTING at it (its `logStart`).
+ *
+ * `logicalLeaves` is non-empty (the empty-line case is handled by the caller).
+ */
+function findLeafForOffset(
+  logicalLeaves: readonly BidiViewLeaf[],
+  stateOffset: number,
+  caretAffinity?: CaretAffinity,
+): BidiViewLeaf {
+  for (let i = 0; i < logicalLeaves.length; i++) {
+    const leaf = logicalLeaves[i];
+    if (stateOffset < leaf.logEnd) {
+      // Strictly inside this leaf's span (or at its logStart): it owns the
+      // offset. (Offsets before the first leaf's logStart can't occur — the
+      // caller clamps to `line.inlineOffsetStart === logicalLeaves[0].logStart`.)
+      return leaf;
     }
-    cursorOffset = leafEnd;
+    if (stateOffset === leaf.logEnd) {
+      // Boundary. Default ("after") prefers the NEXT leaf (the one STARTING
+      // here) when it exists; "before" keeps THIS leaf (the one ENDING here).
+      const next = logicalLeaves[i + 1];
+      if (caretAffinity === "before" || next === undefined) return leaf;
+      return next;
+    }
+    // Offset past this leaf's span — continue to the next leaf.
   }
-  // Past last leaf (shouldn't happen if withinLineOffset is clamped to
-  // <= line.inlineOffsetEnd - inlineOffsetStart). Defensive: caret at the end
-  // of the last leaf.
-  const last = leaves[leaves.length - 1];
-  return pixelPositionForLine(target, last.absoluteX + last.width);
+  // Past the last leaf's logEnd (defensive — the caller clamps to
+  // `line.inlineOffsetEnd === last.logEnd`, so this is unreachable). Return the
+  // last leaf so the caret pins to its trailing edge.
+  return logicalLeaves[logicalLeaves.length - 1];
 }
 
 function pixelPositionForLine(target: AbsoluteLineBox, x: number): PixelPosition {
