@@ -57,6 +57,7 @@ import {
   handleSetLineSpacing,
   handleIndent,
   INDENT_STEP,
+  handleListIndent,
   handleSetParagraphSpacing,
   handleSetFootnotePolicy,
   handleReplaceMatch,
@@ -452,6 +453,12 @@ export function reduceEditor(
       break;
     case "OUTDENT":
       result = handleIndent(editor, -INDENT_STEP, config);
+      break;
+    case "LIST_INDENT":
+      result = handleListIndent(editor, 1, config);
+      break;
+    case "LIST_OUTDENT":
+      result = handleListIndent(editor, -1, config);
       break;
     case "SET_PARAGRAPH_SPACING":
       result = handleSetParagraphSpacing(editor, action.edge, action.value, config);
