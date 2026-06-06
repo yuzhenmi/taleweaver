@@ -5,7 +5,7 @@ import { createDefaultComponentRegistry } from "../components/component-registry
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
 import { buildStateWithListDefs } from "../state/build-state-from-blocks";
 import { buildBlock, inlineContent, text } from "../test-utils/state-builders";
-import { asBlockId, type ListDef } from "../state";
+import { asBlockId, removeBlock, type ListDef } from "../state";
 
 const ORDERED_DEF: ListDef = {
   levels: [{ style: "decimal", start: 1, restart: "after-break" }],
@@ -112,5 +112,29 @@ describe("render — flat list numbering (service-wired)", () => {
       dirtyIds: new Set([asBlockId("i2")]),
     });
     expect(listMarkers(out.root)).toEqual(["1.", "2.", "3."]);
+  });
+
+  it("renumbers FOLLOWING items incrementally when an earlier item is deleted (Task 11 diff)", () => {
+    const reg = createDefaultComponentRegistry();
+    const attrReg = createDefaultAttrRegistry();
+    const state = buildStateWithListDefs({
+      rootId: asBlockId("doc"),
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "i1", lastChildId: "i3" }),
+        li("i1", null, "i2"),
+        li("i2", "i1", "i3"),
+        li("i3", "i2", null),
+      ],
+      listDefs: { L1: ORDERED_DEF },
+    });
+    const prev = render(state, reg, attrReg);
+    expect(listMarkers(prev.root)).toEqual(["1.", "2.", "3."]);
+
+    // Delete the FIRST item. i2/i3 are NOT in dirtyIds (only i1 + doc are), so
+    // without the renumber diff they'd be reused with stale "2."/"3.". The diff
+    // must catch their number change (2→1, 3→2) and re-render them.
+    const { state: next, dirtyIds } = removeBlock(state, asBlockId("i1"));
+    const out = render(next, reg, attrReg, { prev, prevState: state, dirtyIds });
+    expect(listMarkers(out.root)).toEqual(["1.", "2."]);
   });
 });

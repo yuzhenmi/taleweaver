@@ -39,7 +39,7 @@ import type { RenderNode } from "./render-node";
 import type { RenderOutput } from "./render";
 import { EMPTY_LIST_COUNTERS } from "./render";
 import { renderBlockBody } from "./render-core";
-import { collectListEvents, computeCounters } from "../numbering";
+import { collectListEvents, computeCounters, listCounterRenumberedBlocks } from "../numbering";
 import { docHasLists, getListDefsForState } from "../state";
 import {
   effectiveRenderPolicy,
@@ -215,6 +215,20 @@ export function renderIncremental(
     listEvents.length > 0
       ? computeCounters(listEvents, getListDefsForState(state))
       : EMPTY_LIST_COUNTERS;
+
+  // List renumber diff (mirrors the footnote renumber pass above): an edit that
+  // changes a FOLLOWING item's number — insert/delete/reorder/restart — affects
+  // items that are NOT themselves in `dirtyIds`, so they'd otherwise be REUSED
+  // from prev with a stale marker. Diff this cycle's counters against prev's and
+  // force every number-changed list-item (and its ancestors, so the parent's
+  // children array is rebuilt with the new marker) into the invalidation set.
+  // A list-free doc has empty maps on both sides → the diff is empty → no cost.
+  for (const blockId of listCounterRenumberedBlocks(listCounters, prev.listCounters)) {
+    if (invalidated.has(blockId)) continue;
+    invalidated.add(blockId);
+    addAncestorsToInvalidated(state, prevState, blockId, invalidated);
+  }
+
   const context: RenderContext = makeRenderContext(state, fnNumbers, listCounters);
 
   const rootBlock = getBlock(state, state.rootId);
@@ -306,6 +320,7 @@ export function renderIncremental(
     templateContents,
     footnoteAnchors: fnAnchors,
     footnoteNumbers: fnNumbers,
+    listCounters,
   });
 }
 

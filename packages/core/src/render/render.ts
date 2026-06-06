@@ -50,6 +50,15 @@ export interface RenderOutput {
    * renumber diff is also skipped. Empty for a footnote-free document.
    */
   readonly footnoteNumbers: ReadonlyMap<BlockId, FootnoteNumber>;
+  /**
+   * The per-list-item numbering map for THIS cycle (keyed by list-item blockId),
+   * cached so the NEXT incremental cycle can diff against it: an edit that
+   * changes a FOLLOWING item's number (insert/delete/reorder) renumbers items
+   * that are not themselves dirty, so the incremental pass adds the
+   * number-changed blocks to its invalidation set (mirrors the footnote
+   * renumber diff). Empty for a list-free document.
+   */
+  readonly listCounters: ReadonlyMap<BlockId, CounterValue>;
 }
 
 /**
@@ -260,6 +269,7 @@ export function render(
     templateContents,
     footnoteAnchors: fnAnchors,
     footnoteNumbers: fnNumbers,
+    listCounters,
   });
 }
 
