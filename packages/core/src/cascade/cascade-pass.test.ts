@@ -1,8 +1,35 @@
 import { describe, it, expect } from "vitest";
 import { createElementBox, createTextBox } from "../render/render-node";
+import type { ElementBox, RenderNode } from "../render/render-node";
 import { PROPERTY_META, INITIAL_COMPUTED_STYLE } from "../styles";
 import type { ComputedStyle } from "../styles";
+import type { ContentValue } from "../styles/style";
 import { cascadePass, cascadePassIncremental, COMPUTED_STYLE_KEYS, computedStylesEqual } from "./cascade-pass";
+
+/** Narrow a cascaded node to ElementBox or throw (test helper). */
+function asElement(node: RenderNode): ElementBox {
+  if (node.type !== "element") throw new Error("expected element");
+  return node;
+}
+
+/**
+ * The resolved `content` of a cascaded node, flattened to a plain string.
+ * After P9a.3 resolution, every `counter()`/`counters()` part is a `string`
+ * part, so concatenating the string parts yields the displayed value.
+ */
+function resolvedContentString(content: ContentValue): string {
+  if (typeof content === "string") {
+    throw new Error(`expected a ContentPart[] content, got keyword "${content}"`);
+  }
+  return content
+    .map((part) => {
+      if (part.kind !== "string") {
+        throw new Error(`content part not resolved to a string: kind "${part.kind}"`);
+      }
+      return part.value;
+    })
+    .join("");
+}
 
 describe("cascadePass", () => {
   it("produces a tree where every node carries computedStyle", () => {
@@ -99,6 +126,243 @@ describe("cascadePassIncremental", () => {
     if (cascadedA.children[0].type !== "element" || cascadedB.children[0].type !== "element") throw new Error("?");
     expect(cascadedA.children[0].computedStyle?.color).toBe("red");
     expect(cascadedB.children[0].computedStyle?.color).toBe("blue");
+  });
+});
+
+describe("cascadePass — counter resolution (P9a.3, child-bracket walk)", () => {
+  it("resolves content:[counter(c)] against the node's own reset+increment", () => {
+    // <root counter-reset:c><item counter-increment:c content:[counter(c)]/></root>
+    // root resets c→0 (scope), item increments c→1, then content counter(c)→"1".
+    const tree = createElementBox("root", { counterReset: [{ name: "c", value: 0 }] }, [
+      createElementBox(
+        "item",
+        {
+          counterIncrement: [{ name: "c", value: 1 }],
+          content: [{ kind: "counter", name: "c", style: "decimal" }],
+        },
+        [],
+      ),
+    ]);
+
+    const cascaded = asElement(cascadePass(tree));
+    const item = asElement(cascaded.children[0] as RenderNode);
+    expect(item.computedStyle).toBeDefined();
+    expect(resolvedContentString(item.computedStyle?.content ?? "normal")).toBe("1");
+  });
+
+  it("bare-following-sibling 1,2,3 END-TO-END through cascadePass", () => {
+    // The canonical numbered-list pattern (CSS §12.4.1): E1 resets+increments c,
+    // E2 and E3 only increment — E1's reset must stay visible to its FOLLOWING
+    // siblings, so they read 2 and 3 (NOT each restarting at 1).
+    const mk = (key: string, reset: boolean) =>
+      createElementBox(
+        key,
+        {
+          ...(reset ? { counterReset: [{ name: "c", value: 0 }] } : {}),
+          counterIncrement: [{ name: "c", value: 1 }],
+          content: [{ kind: "counter", name: "c", style: "decimal" }],
+        },
+        [],
+      );
+    const tree = createElementBox("root", {}, [
+      mk("e1", true),
+      mk("e2", false),
+      mk("e3", false),
+    ]);
+
+    const cascaded = asElement(cascadePass(tree));
+    const got = cascaded.children.map((c) =>
+      resolvedContentString(asElement(c as RenderNode).computedStyle?.content ?? "normal"),
+    );
+    expect(got).toEqual(["1", "2", "3"]);
+  });
+
+  it("two same-depth siblings each reset+increment → each restarts at 1", () => {
+    const mk = (key: string) =>
+      createElementBox(
+        key,
+        {
+          counterReset: [{ name: "c", value: 0 }],
+          counterIncrement: [{ name: "c", value: 1 }],
+          content: [{ kind: "counter", name: "c", style: "decimal" }],
+        },
+        [],
+      );
+    const tree = createElementBox("root", {}, [mk("a"), mk("b")]);
+    const cascaded = asElement(cascadePass(tree));
+    const got = cascaded.children.map((c) =>
+      resolvedContentString(asElement(c as RenderNode).computedStyle?.content ?? "normal"),
+    );
+    expect(got).toEqual(["1", "1"]);
+  });
+
+  it("nested counters(c, '.') resolves the dotted nested form across sibling resets", () => {
+    // The canonical nested-list `counters()` pattern, exercising sibling-reset
+    // visibility (CSS §12.4.1): a counter-reset on l2a is visible to its
+    // FOLLOWING SIBLING l2b, so the c stack still carries l2a's frame when l2b
+    // resets again. With each leaf incrementing the innermost value:
+    //   root reset c → [0]
+    //   l1   incr  c → [1]                                content "1"
+    //   l2a  reset c → [1,0]; i1 incr → [1,1]             content "1.1"
+    //     (l2a's child bracket pops i1's pushes; i1 only incremented, so the
+    //      shared [.,0] frame is now [.,1] — descendant increments persist)
+    //   l2b  reset c → [1,1,0]; i2 incr → [1,1,1]         content "1.1.1"
+    // i2 shows depth 3 BECAUSE l2a's reset frame survives into its sibling l2b
+    // (sibling-visibility) and i1's increment mutated that shared frame in place.
+    const leaf = (key: string) =>
+      createElementBox(
+        key,
+        {
+          counterIncrement: [{ name: "c", value: 1 }],
+          content: [{ kind: "counters", name: "c", sep: ".", style: "decimal" }],
+        },
+        [],
+      );
+    const tree = createElementBox("root", { counterReset: [{ name: "c", value: 0 }] }, [
+      createElementBox(
+        "l1",
+        {
+          counterIncrement: [{ name: "c", value: 1 }],
+          content: [{ kind: "counters", name: "c", sep: ".", style: "decimal" }],
+        },
+        [
+          createElementBox("l2a", { counterReset: [{ name: "c", value: 0 }] }, [
+            leaf("i1"),
+          ]),
+          createElementBox("l2b", { counterReset: [{ name: "c", value: 0 }] }, [
+            leaf("i2"),
+          ]),
+        ],
+      ),
+    ]);
+
+    const cascaded = asElement(cascadePass(tree));
+    const l1 = asElement(cascaded.children[0] as RenderNode);
+    expect(resolvedContentString(l1.computedStyle?.content ?? "normal")).toBe("1");
+    const l2a = asElement(l1.children[0] as RenderNode);
+    const i1 = asElement(l2a.children[0] as RenderNode);
+    expect(resolvedContentString(i1.computedStyle?.content ?? "normal")).toBe("1.1");
+    const l2b = asElement(l1.children[1] as RenderNode);
+    const i2 = asElement(l2b.children[0] as RenderNode);
+    expect(resolvedContentString(i2.computedStyle?.content ?? "normal")).toBe("1.1.1");
+  });
+
+  it("nested counters() WITH a containing list element gives the true (1.1, 1.2.1) form", () => {
+    // The HTML-list shape where each level's reset lives on a wrapper that
+    // contains its items (so sibling items at one level share ONE reset frame).
+    //   <root>
+    //     <ol1 reset:c>
+    //       <li1 incr:c counters>                 → "1"
+    //         <ol2 reset:c>
+    //           <li2a incr:c counters>            → "1.1"
+    //           <li2b incr:c counters>            → "1.2"
+    //             <ol3 reset:c>
+    //               <li3 incr:c counters>         → "1.2.1"
+    const item = (key: string, children: RenderNode[] = []) =>
+      createElementBox(
+        key,
+        {
+          counterIncrement: [{ name: "c", value: 1 }],
+          content: [{ kind: "counters", name: "c", sep: ".", style: "decimal" }],
+        },
+        children,
+      );
+    const ol = (key: string, children: RenderNode[]) =>
+      createElementBox(key, { counterReset: [{ name: "c", value: 0 }] }, children);
+
+    const tree = createElementBox("root-wrap", {}, [
+      ol("ol1", [
+        item("li1", [
+          ol("ol2", [
+            item("li2a"),
+            item("li2b", [ol("ol3", [item("li3")])]),
+          ]),
+        ]),
+      ]),
+    ]);
+
+    const cascaded = asElement(cascadePass(tree));
+    const ol1 = asElement(cascaded.children[0] as RenderNode);
+    const li1 = asElement(ol1.children[0] as RenderNode);
+    expect(resolvedContentString(li1.computedStyle?.content ?? "normal")).toBe("1");
+    const ol2 = asElement(li1.children[0] as RenderNode);
+    const li2a = asElement(ol2.children[0] as RenderNode);
+    expect(resolvedContentString(li2a.computedStyle?.content ?? "normal")).toBe("1.1");
+    const li2b = asElement(ol2.children[1] as RenderNode);
+    expect(resolvedContentString(li2b.computedStyle?.content ?? "normal")).toBe("1.2");
+    const ol3 = asElement(li2b.children[0] as RenderNode);
+    const li3 = asElement(ol3.children[0] as RenderNode);
+    expect(resolvedContentString(li3.computedStyle?.content ?? "normal")).toBe("1.2.1");
+  });
+
+  it("keeps verbatim string parts and resolves only counter parts (mixed content)", () => {
+    const tree = createElementBox("root", { counterReset: [{ name: "c", value: 0 }] }, [
+      createElementBox(
+        "item",
+        {
+          counterIncrement: [{ name: "c", value: 4 }],
+          content: [
+            { kind: "string", value: "Chapter " },
+            { kind: "counter", name: "c", style: "upper-roman" },
+            { kind: "string", value: ": " },
+          ],
+        },
+        [],
+      ),
+    ]);
+    const cascaded = asElement(cascadePass(tree));
+    const item = asElement(cascaded.children[0] as RenderNode);
+    expect(resolvedContentString(item.computedStyle?.content ?? "normal")).toBe("Chapter IV: ");
+  });
+
+  it("per-root isolation (M4): two cascadePass calls each start a fresh scope", () => {
+    // A body root and a footnote/template body root each cascade via their own
+    // cascadePass call. Counters in one must NOT leak into the other.
+    const mk = () =>
+      createElementBox("root", {}, [
+        createElementBox(
+          "item",
+          {
+            counterReset: [{ name: "c", value: 0 }],
+            counterIncrement: [{ name: "c", value: 1 }],
+            content: [{ kind: "counter", name: "c", style: "decimal" }],
+          },
+          [],
+        ),
+      ]);
+
+    const bodyA = asElement(cascadePass(mk()));
+    const bodyB = asElement(cascadePass(mk()));
+    const itemA = asElement(bodyA.children[0] as RenderNode);
+    const itemB = asElement(bodyB.children[0] as RenderNode);
+    // Both start fresh → each "1" (B did not continue A's counter to "2").
+    expect(resolvedContentString(itemA.computedStyle?.content ?? "normal")).toBe("1");
+    expect(resolvedContentString(itemB.computedStyle?.content ?? "normal")).toBe("1");
+  });
+
+  it("create-on-use: counter(c) with no prior reset/increment resolves to '0'", () => {
+    const tree = createElementBox("root", {}, [
+      createElementBox(
+        "item",
+        { content: [{ kind: "counter", name: "missing", style: "decimal" }] },
+        [],
+      ),
+    ]);
+    const cascaded = asElement(cascadePass(tree));
+    const item = asElement(cascaded.children[0] as RenderNode);
+    expect(resolvedContentString(item.computedStyle?.content ?? "normal")).toBe("0");
+  });
+
+  it("no-counter content keyword ('normal'/'none') passes through unchanged", () => {
+    const tree = createElementBox("root", {}, [
+      createElementBox("normal", {}, []),
+      createElementBox("none", { content: "none" }, []),
+    ]);
+    const cascaded = asElement(cascadePass(tree));
+    const n0 = asElement(cascaded.children[0] as RenderNode);
+    const n1 = asElement(cascaded.children[1] as RenderNode);
+    expect(n0.computedStyle?.content).toBe("normal");
+    expect(n1.computedStyle?.content).toBe("none");
   });
 });
 
