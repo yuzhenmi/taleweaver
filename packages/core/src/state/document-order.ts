@@ -26,6 +26,26 @@ export function* iterateBlocksInDocumentOrder(state: State): Iterable<Block> {
   yield* walk(state, state.rootId, new Set<BlockId>());
 }
 
+/**
+ * True iff the document contains at least one `list-item` BODY block.
+ *
+ * The render pass calls this to short-circuit the O(N_blocks) list-event
+ * collection walk (`collectListEvents`) for the common list-free document — the
+ * mirror of `docHasFootnotes`'s footnote-free short-circuit. Unlike footnotes
+ * (whose bodies live in their own `embedContents` Y.Map, giving an O(1) cached
+ * root-id-set check), list membership is a per-paragraph attr with no dedicated
+ * index, so this is an early-exit linear scan in document order — returning at
+ * the FIRST `list-item`, so a list-bearing doc costs O(1) up to the first item
+ * and a list-free doc pays one full walk (the same walk `collectListEvents`
+ * would do, but allocation-free).
+ */
+export function docHasLists(state: State): boolean {
+  for (const block of iterateBlocksInDocumentOrder(state)) {
+    if (block.type === "list-item") return true;
+  }
+  return false;
+}
+
 function* walk(state: State, id: BlockId, visited: Set<BlockId>): Iterable<Block> {
   if (visited.has(id)) {
     throw new Error(

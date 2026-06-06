@@ -141,8 +141,15 @@ export {
 export type { BlockRange } from "./span-iteration";
 export { normalizeSpan, iterateSpan, iterateBlocksInSpan } from "./span-iteration";
 
-// Whole-document depth-first block walk.
-export { iterateBlocksInDocumentOrder } from "./document-order";
+// Whole-document depth-first block walk + the list-presence predicate the
+// render pass uses to short-circuit list-event collection on list-free docs.
+export { iterateBlocksInDocumentOrder, docHasLists } from "./document-order";
+
+// List numbering definitions (per-list level configuration). `getListDefsForState`
+// is the render-pass entry point — it resolves all defs as a plain Map for the
+// numbering engine (`computeCounters`).
+export type { ListDef, ListLevelConfig } from "./list-defs";
+export { getListDefsForState } from "./list-defs";
 
 // Defensive load-time migration: OLD structural `list` containers → FLAT
 // list-item attrs. A consumer that loads a persisted document runs this once

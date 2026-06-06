@@ -37,7 +37,10 @@ import {
 import type { RenderContext } from "./block-view";
 import type { RenderNode } from "./render-node";
 import type { RenderOutput } from "./render";
+import { EMPTY_LIST_COUNTERS } from "./render";
 import { renderBlockBody } from "./render-core";
+import { collectListEvents, computeCounters } from "../numbering";
+import { docHasLists, getListDefsForState } from "../state";
 import {
   effectiveRenderPolicy,
   makeRenderContext,
@@ -198,7 +201,21 @@ export function renderIncremental(
     indexRenderNodesByKey(bodyNode, prevByKey);
   }
 
-  const context: RenderContext = makeRenderContext(state, fnNumbers);
+  // List-item markers: COMPUTE the counter map the same way render.ts's full
+  // path does, so any list-item that gets re-rendered on this cycle (i.e. it's
+  // in `invalidated` — e.g. the user typed inside it) bakes its CORRECT marker
+  // rather than losing it. This is a render-time computation (position + defs),
+  // independent of the incremental diff. What Task 11 still adds is the renumber
+  // DIFF — expanding `invalidated` to the FOLLOWING items when an edit changes
+  // their numbers (insert/delete/reorder), mirroring the footnote renumber pass
+  // above. Until then, a structural edit renumbers correctly only for the items
+  // already in `invalidated`; a reused (unchanged) item keeps its prev marker.
+  const listEvents = docHasLists(state) ? collectListEvents(state) : [];
+  const listCounters =
+    listEvents.length > 0
+      ? computeCounters(listEvents, getListDefsForState(state))
+      : EMPTY_LIST_COUNTERS;
+  const context: RenderContext = makeRenderContext(state, fnNumbers, listCounters);
 
   const rootBlock = getBlock(state, state.rootId);
   if (rootBlock === null) {

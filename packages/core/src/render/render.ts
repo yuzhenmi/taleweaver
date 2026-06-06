@@ -1,4 +1,4 @@
-import { getBlock, getEmbedContent, getEmbedContentIds, getTemplateContent, getTemplateContentIds, docHasFootnotes } from "../state";
+import { getBlock, getEmbedContent, getEmbedContentIds, getTemplateContent, getTemplateContentIds, docHasFootnotes, docHasLists, getListDefsForState } from "../state";
 import type { Block, BlockId, State } from "../state";
 import type { Style, ComputedStyle } from "../styles";
 import type { AttrRegistry } from "../cascade/attr-registry";
@@ -10,6 +10,8 @@ import {
   type FootnoteAnchorRef,
   type FootnoteNumber,
 } from "../footnotes";
+import { collectListEvents, computeCounters } from "../numbering";
+import type { CounterValue } from "../numbering/types";
 import type { RenderContext } from "./block-view";
 import type { RenderNode } from "./render-node";
 import { renderBlockBody } from "./render-core";
@@ -74,6 +76,15 @@ export interface RenderOutput {
  * leaf block, ancestors are a small chain, descendants is empty —
  * the common-case cost is O(depth) per edit instead of O(N).
  */
+/**
+ * Shared frozen empty list-counter map for the list-free path (and the
+ * incremental path until Task 11 wires incremental list-renumbering). A document
+ * with no list-items computes no counters; the list-item component's
+ * `ctx.counterValue` lookup then misses for every block, so no marker is baked —
+ * identical to the pre-wiring behavior, minus the collection walk.
+ */
+export const EMPTY_LIST_COUNTERS: ReadonlyMap<BlockId, CounterValue> = new Map();
+
 export interface RenderOptions {
   readonly prev?: RenderOutput;
   readonly prevState?: State;
@@ -164,7 +175,17 @@ export function render(
     : fnAnchors.length > 0
       ? footnoteNumbers(fnAnchors, effectiveRenderPolicy(state))
       : EMPTY_FOOTNOTE_NUMBERS;
-  const context: RenderContext = makeRenderContext(state, fnNumbers);
+  // P10: compute the list-item numbering map once for this render cycle and
+  // thread it down so each list-item bakes its marker by id. A list-free doc
+  // skips the O(N_blocks) `collectListEvents` walk (`docHasLists` early-exits at
+  // the first list-item; a list-free doc pays one allocation-free walk) and uses
+  // the shared empty map — identical output, minus the work.
+  const listEvents = docHasLists(state) ? collectListEvents(state) : [];
+  const listCounters =
+    listEvents.length > 0
+      ? computeCounters(listEvents, getListDefsForState(state))
+      : EMPTY_LIST_COUNTERS;
+  const context: RenderContext = makeRenderContext(state, fnNumbers, listCounters);
   const visited = new Set<BlockId>();
   const rootBlock = getBlock(state, state.rootId);
   if (rootBlock === null) {

@@ -25,6 +25,7 @@ import {
   type FootnoteNumber,
   type FootnoteNumberingPolicy,
 } from "../footnotes";
+import type { CounterValue } from "../numbering/types";
 import type { RenderContext } from "./block-view";
 import type { RenderOutput } from "./render";
 
@@ -79,6 +80,7 @@ export const EMPTY_FOOTNOTE_NUMBERS: ReadonlyMap<BlockId, FootnoteNumber> =
 export function makeRenderContext(
   state: State,
   fnNumbers: ReadonlyMap<BlockId, FootnoteNumber>,
+  listCounters: ReadonlyMap<BlockId, CounterValue>,
 ): RenderContext {
   const format = documentFootnotePolicy(state).format;
   const suffix = format === "symbol" ? "" : ".";
@@ -88,6 +90,15 @@ export function makeRenderContext(
       const formatted = fnNumbers.get(contentBlockId)?.formatted;
       return formatted === undefined ? undefined : formatted + suffix;
     },
+    // List-item marker lookup. `listCounters` is the per-cycle numbering map
+    // computed once in `render.ts` from the document's list events + defs. The
+    // map is keyed by blockId (each block is in exactly one scope), so the
+    // `scopeKey` (listId) is not needed for the lookup — mirroring the by-id
+    // `footnoteNumber` lookup above.
+    counterValue: (
+      _scopeKey: string,
+      blockId: BlockId,
+    ): CounterValue | undefined => listCounters.get(blockId),
   };
 }
 
