@@ -144,6 +144,12 @@ export { normalizeSpan, iterateSpan, iterateBlocksInSpan } from "./span-iteratio
 // Whole-document depth-first block walk.
 export { iterateBlocksInDocumentOrder } from "./document-order";
 
+// Defensive load-time migration: OLD structural `list` containers → FLAT
+// list-item attrs. A consumer that loads a persisted document runs this once
+// before editing; live editing never produces structural lists, so the engine
+// has no auto-call site (persistence is a downstream concern).
+export { migrateListStructure } from "./migrate-list-structure";
+
 // Flatten a span to plain text (clipboard, find/replace, a11y).
 export type { EmbedSerializer } from "./extract-text";
 export { extractText, builtinEmbedSerializer } from "./extract-text";

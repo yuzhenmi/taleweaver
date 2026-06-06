@@ -111,7 +111,10 @@ function topLevelKeysOnPage(page: PageBox): string[] {
   if (rootBfc === undefined || !("children" in rootBfc)) return [];
   const keys: string[] = [];
   for (const c of rootBfc.children as readonly LayoutBox[]) {
-    if (c.type === "block") keys.push(c.key);
+    // A section's top-level child block keys: in-flow `block` boxes plus
+    // `table` boxes (a table FC root carries its own key but is not a
+    // `block`-typed box).
+    if (c.type === "block" || c.type === "table") keys.push(c.key);
   }
   return keys;
 }
@@ -241,12 +244,13 @@ describe("handleToggleSectionLandscape — TOGGLE_SECTION_LANDSCAPE action", () 
     expect(sectionPageGeometry(restored, sectionB)).toEqual(docWide);
   });
 
-  it("resolves the section when the cursor is in a block nested DEEPER than a direct child (section → list → list-item)", () => {
+  it("resolves the section when the cursor is in a block nested DEEPER than a direct child (section → table → row → cell → paragraph)", () => {
     // Build genuine multi-level nesting the flat-paste path can't produce: a
-    // section whose child is a `list` CONTAINER holding a `list-item` leaf. The
-    // cursor sits in the leaf, so resolving the active section requires walking
-    // UP two parent hops (list-item → list → section) — exercising the
-    // multi-step parent walk, not just the one-hop direct-child case.
+    // section whose child is a `table` CONTAINER (table → row → cell → para).
+    // The cursor sits in the leaf paragraph, so resolving the active section
+    // requires walking UP several parent hops (para → cell → row → table →
+    // section) — exercising the multi-step parent walk, not just the one-hop
+    // direct-child case.
     const config = makeConfig();
     if (config.pageConfig === undefined) throw new Error("config.pageConfig required");
 
@@ -254,13 +258,14 @@ describe("handleToggleSectionLandscape — TOGGLE_SECTION_LANDSCAPE action", () 
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "sec", lastChildId: "sec" }),
-        buildBlock({ id: "sec", type: "section", parentId: "doc", firstChildId: "list", lastChildId: "list" }),
-        buildBlock({ id: "list", type: "list", parentId: "sec", firstChildId: "li", lastChildId: "li" }),
+        buildBlock({ id: "sec", type: "section", parentId: "doc", firstChildId: "tbl", lastChildId: "tbl" }),
+        buildBlock({ id: "tbl", type: "table", parentId: "sec", firstChildId: "row", lastChildId: "row" }),
+        buildBlock({ id: "row", type: "table-row", parentId: "tbl", firstChildId: "cell", lastChildId: "cell" }),
+        buildBlock({ id: "cell", type: "table-cell", parentId: "row", firstChildId: "li", lastChildId: "li" }),
         buildBlock({
           id: "li",
-          type: "list-item",
-          parentId: "list",
-          attrs: { listType: "unordered" },
+          type: "paragraph",
+          parentId: "cell",
           inlineContent: inlineContent([text("nested item")]),
         }),
       ],

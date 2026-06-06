@@ -6,7 +6,6 @@ import { templateBodyComponent } from "./template-body";
 import { footnoteBodyComponent } from "./footnote-body";
 import { paragraphComponent } from "./paragraph";
 import { headingComponent } from "./heading";
-import { listComponent } from "./list";
 import { listItemComponent } from "./list-item";
 import { tableComponent } from "./table";
 import { tableRowComponent } from "./table-row";
@@ -80,7 +79,6 @@ export function createDefaultComponentRegistry(): ComponentRegistry {
   reg.register(sectionComponent);
   reg.register(templateBodyComponent);
   reg.register(footnoteBodyComponent);
-  reg.register(listComponent);
   reg.register(tableComponent);
   reg.register(tableRowComponent);
   reg.register(tableCellComponent);

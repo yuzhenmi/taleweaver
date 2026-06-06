@@ -141,22 +141,14 @@ describe("handleSetParagraphSpacing — SET_PARAGRAPH_SPACING action", () => {
           parentId: "doc",
           prevSiblingId: "p0",
           nextSiblingId: "p2",
-          firstChildId: "list",
-          lastChildId: "list",
-        }),
-        buildBlock({
-          id: "list",
-          type: "list",
-          parentId: "sec",
           firstChildId: "li",
           lastChildId: "li",
-          attrs: { listType: "unordered" },
         }),
         buildBlock({
           id: "li",
           type: "list-item",
-          parentId: "list",
-          attrs: { listType: "unordered" },
+          parentId: "sec",
+          attrs: { listId: "L1", listLevel: 0 },
           inlineContent: inlineContent([text("li")]),
         }),
         buildBlock({
@@ -201,9 +193,12 @@ describe("handleSetParagraphSpacing — SET_PARAGRAPH_SPACING action", () => {
 
     // Containers are NOT spaced: their attrs are untouched.
     expect(getBlock(next.state, "sec" as BlockId)?.attrs.marginBlockEnd).toBeUndefined();
-    expect(getBlock(next.state, "list" as BlockId)?.attrs.marginBlockEnd).toBeUndefined();
-    // The list keeps exactly its original attrs (no margin smuggled in).
-    expect(getBlock(next.state, "list" as BlockId)?.attrs).toEqual({ listType: "unordered" });
+    // The flat list-item is a leaf, so it gets spaced; its list attrs are kept.
+    expect(getBlock(next.state, "li" as BlockId)?.attrs).toEqual({
+      listId: "L1",
+      listLevel: 0,
+      marginBlockEnd: 32,
+    });
   });
 
   it("undo restores the prior spacing", () => {

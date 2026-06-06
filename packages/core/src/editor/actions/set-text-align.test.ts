@@ -108,22 +108,14 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
           parentId: "doc",
           prevSiblingId: "p0",
           nextSiblingId: "p2",
-          firstChildId: "list",
-          lastChildId: "list",
-        }),
-        buildBlock({
-          id: "list",
-          type: "list",
-          parentId: "sec",
           firstChildId: "li",
           lastChildId: "li",
-          attrs: { listType: "unordered" },
         }),
         buildBlock({
           id: "li",
           type: "list-item",
-          parentId: "list",
-          attrs: { listType: "unordered" },
+          parentId: "sec",
+          attrs: { listId: "L1", listLevel: 0 },
           inlineContent: inlineContent([text("li")]),
         }),
         buildBlock({
@@ -164,9 +156,13 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
 
     // Containers are NOT aligned (C-3): their attrs are untouched.
     expect(getBlock(next.state, "sec" as BlockId)?.attrs.textAlign).toBeUndefined();
-    expect(getBlock(next.state, "list" as BlockId)?.attrs.textAlign).toBeUndefined();
-    // The list keeps exactly its original attrs (no textAlign smuggled in).
-    expect(getBlock(next.state, "list" as BlockId)?.attrs).toEqual({ listType: "unordered" });
+    // The flat list-item keeps exactly its original attrs (no textAlign smuggled
+    // in beyond the one applied above — but it IS a leaf, so it gets aligned).
+    expect(getBlock(next.state, "li" as BlockId)?.attrs).toEqual({
+      listId: "L1",
+      listLevel: 0,
+      textAlign: "center",
+    });
   });
 
   it("undo restores the prior alignment", () => {

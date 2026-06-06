@@ -75,13 +75,14 @@ describe("handleToggleList — paragraph ⇄ list-item round-trip (regression #1
   // Pre-fix walked up to document's direct child (the LIST), tried
   // setBlockType(list, "list-item") — cross-kind (container → leaf)
   // refused by T11. Silently no-op or throw.
-  it("E-A13: cursor inside a list-item toggles the leaf back to paragraph (NOT the containing list)", () => {
+  it("E-A13: cursor inside a list-item toggles the leaf back to paragraph", () => {
+    // Flat list model: the list-item is a direct child of the document,
+    // carrying listId/listLevel attrs — there is no wrapping `list` container.
     const initialState = buildState({
       rootId: "doc",
       blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "list", lastChildId: "list" }),
-        buildBlock({ id: "list", type: "list", parentId: "doc", firstChildId: "li", lastChildId: "li", attrs: { listType: "unordered" } }),
-        buildBlock({ id: "li", type: "list-item", parentId: "list", inlineContent: inlineContent([text("hello")]) }),
+        buildBlock({ id: "doc", type: "document", firstChildId: "li", lastChildId: "li" }),
+        buildBlock({ id: "li", type: "list-item", parentId: "doc", attrs: { listId: "L1", listLevel: 0, listType: "unordered" }, inlineContent: inlineContent([text("hello")]) }),
       ],
     });
     // Render + layout up-front (mirrors createInitialEditorState) so the
@@ -114,6 +115,5 @@ describe("handleToggleList — paragraph ⇄ list-item round-trip (regression #1
       config,
     );
     expect(getBlock(next.state, "li" as BlockId)?.type).toBe("paragraph");
-    expect(getBlock(next.state, "list" as BlockId)?.type).toBe("list");
   });
 });

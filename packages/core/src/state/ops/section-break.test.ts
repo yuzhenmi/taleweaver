@@ -176,22 +176,25 @@ describe("applySectionBreak — break-at-start no-op (implicit)", () => {
   });
 });
 
-describe("applySectionBreak — nested boundary (cursor inside a list item)", () => {
-  // root → [p1, list([li1,li2]), p2]; cursor in li1 → boundary = list.
+describe("applySectionBreak — nested boundary (cursor inside a nested container's child)", () => {
+  // root → [p1, tbl([li1,li2]), p2]; cursor in li1 → boundary = tbl.
+  // (`tbl` is a generic CONTAINER; applySectionBreak is a pure state op and
+  // does not validate component kinds — list-item children just exercise the
+  // first-leaf walk.)
   const fixture = () =>
     buildState({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "list", inlineContent: inlineContent([]) }),
-        buildBlock({ id: "list", type: "list", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p2", firstChildId: "li1", lastChildId: "li2" }),
-        buildBlock({ id: "li1", type: "list-item", parentId: "list", nextSiblingId: "li2", inlineContent: inlineContent([]) }),
-        buildBlock({ id: "li2", type: "list-item", parentId: "list", prevSiblingId: "li1", inlineContent: inlineContent([]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "list", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "tbl", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "tbl", type: "table", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p2", firstChildId: "li1", lastChildId: "li2" }),
+        buildBlock({ id: "li1", type: "list-item", parentId: "tbl", nextSiblingId: "li2", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "li2", type: "list-item", parentId: "tbl", prevSiblingId: "li1", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "tbl", inlineContent: inlineContent([]) }),
       ],
     });
 
-  it("boundary is the top-level list; A=[p1], B=[list,p2]; cursor === firstLeaf(list)=li1", () => {
+  it("boundary is the top-level container; A=[p1], B=[tbl,p2]; cursor === firstLeaf(tbl)=li1", () => {
     const state = fixture();
     const result = applySectionBreak(state, createPosition(bid("li1"), 0), createTestAllocator("sec"));
 
@@ -201,13 +204,13 @@ describe("applySectionBreak — nested boundary (cursor inside a list item)", ()
     if (aId === undefined || bId === undefined) throw new Error("missing section ids");
 
     expect(childIds(result.state, aId)).toEqual(["p1"]);
-    expect(childIds(result.state, bId)).toEqual(["list", "p2"]);
+    expect(childIds(result.state, bId)).toEqual(["tbl", "p2"]);
 
-    // The list keeps its children intact; only its parent moved.
-    expect(childIds(result.state, "list")).toEqual(["li1", "li2"]);
-    expect(getBlock(result.state, bid("list"))?.parentId).toBe(bId);
+    // The container keeps its children intact; only its parent moved.
+    expect(childIds(result.state, "tbl")).toEqual(["li1", "li2"]);
+    expect(getBlock(result.state, bid("tbl"))?.parentId).toBe(bId);
 
-    expect(result.newCursorBlockId).toBe(firstLeafBlock(result.state, bid("list")));
+    expect(result.newCursorBlockId).toBe(firstLeafBlock(result.state, bid("tbl")));
     expect(result.newCursorBlockId).toBe("li1");
   });
 });

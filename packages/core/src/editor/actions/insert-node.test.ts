@@ -114,16 +114,25 @@ describe("handleInsertNode — BlockInit shape (T31)", () => {
     expect(inserted?.firstChildId).toBeNull();
   });
 
-  it("inserts a container with recursive children (list with list-item child)", () => {
+  it("inserts a container with recursive children (table with table-row child)", () => {
     const initial = createInitialEditorState(config);
 
     const init: BlockInit = {
-      type: "list",
+      type: "table",
       children: [
         {
-          type: "list-item",
-          attrs: { listType: "unordered" },
-          inlineContent: { items: [{ kind: "text", text: "a", attrs: {} }] },
+          type: "table-row",
+          children: [
+            {
+              type: "table-cell",
+              children: [
+                {
+                  type: "paragraph",
+                  inlineContent: { items: [{ kind: "text", text: "a", attrs: {} }] },
+                },
+              ],
+            },
+          ],
         },
       ],
     };
@@ -134,16 +143,24 @@ describe("handleInsertNode — BlockInit shape (T31)", () => {
       config,
     );
 
-    const listId = lastChildOf(next.state, next.state.rootId);
-    const list = getBlock(next.state, listId);
-    expect(list?.type).toBe("list");
-    expect(list?.inlineContent).toBeNull();
+    const tableId = lastChildOf(next.state, next.state.rootId);
+    const table = getBlock(next.state, tableId);
+    expect(table?.type).toBe("table");
+    expect(table?.inlineContent).toBeNull();
 
-    const itemId = lastChildOf(next.state, listId);
-    const item = getBlock(next.state, itemId);
-    expect(item?.type).toBe("list-item");
-    expect(item?.parentId).toBe(listId);
-    expect(item?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "a" });
+    const rowId = lastChildOf(next.state, tableId);
+    const row = getBlock(next.state, rowId);
+    expect(row?.type).toBe("table-row");
+    expect(row?.parentId).toBe(tableId);
+
+    const cellId = lastChildOf(next.state, rowId);
+    const cell = getBlock(next.state, cellId);
+    expect(cell?.type).toBe("table-cell");
+
+    const paraId = lastChildOf(next.state, cellId);
+    const para = getBlock(next.state, paraId);
+    expect(para?.type).toBe("paragraph");
+    expect(para?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "a" });
   });
 
   it("throws when an inline-bearing-leaf BlockInit carries children", () => {

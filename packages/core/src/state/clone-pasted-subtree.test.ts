@@ -93,28 +93,30 @@ describe("clonePastedSubtree — tree shapes", () => {
   });
 
   it("clones a deeply nested tree (3+ levels)", () => {
-    // Source: doc > section > list > [item1, item2]. Clone the section.
+    // Source: doc > section > table > [item1, item2]. Clone the section.
+    // (A generic CONTAINER nesting test — `clonePastedSubtree` is pure
+    // structural copy and does not validate component kinds.)
     const sourceState = buildState({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "section" }),
-        buildBlock({ id: "section", type: "section", parentId: "doc", firstChildId: "list", lastChildId: "list" }),
-        buildBlock({ id: "list", type: "list", parentId: "section", firstChildId: "i1", lastChildId: "i2" }),
-        buildBlock({ id: "i1", type: "list-item", parentId: "list", nextSiblingId: "i2", inlineContent: inlineContent([text("a")]) }),
-        buildBlock({ id: "i2", type: "list-item", parentId: "list", prevSiblingId: "i1", inlineContent: inlineContent([text("b")]) }),
+        buildBlock({ id: "section", type: "section", parentId: "doc", firstChildId: "table", lastChildId: "table" }),
+        buildBlock({ id: "table", type: "table", parentId: "section", firstChildId: "i1", lastChildId: "i2" }),
+        buildBlock({ id: "i1", type: "list-item", parentId: "table", nextSiblingId: "i2", inlineContent: inlineContent([text("a")]) }),
+        buildBlock({ id: "i2", type: "list-item", parentId: "table", prevSiblingId: "i1", inlineContent: inlineContent([text("b")]) }),
       ],
     });
     const allocator = createTestAllocator("c");
     const result = clonePastedSubtree(sourceState, "section" as BlockId, allocator);
 
-    // 4 blocks cloned: section + list + i1 + i2.
+    // 4 blocks cloned: section + table + i1 + i2.
     expect(result.blocks.size).toBe(4);
 
-    // Walk down: section.firstChildId → list. list.firstChildId → i1. i1.nextSiblingId → i2.
+    // Walk down: section.firstChildId → table. table.firstChildId → i1. i1.nextSiblingId → i2.
     const newSection = result.blocks.get(result.rootId);
-    if (!newSection?.firstChildId) throw new Error("missing list child");
+    if (!newSection?.firstChildId) throw new Error("missing table child");
     const newList = result.blocks.get(newSection.firstChildId);
-    expect(newList?.type).toBe("list");
+    expect(newList?.type).toBe("table");
     expect(newList?.parentId).toBe(result.rootId);
 
     if (!newList?.firstChildId) throw new Error("missing i1 child");

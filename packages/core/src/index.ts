@@ -215,7 +215,6 @@ export {
   documentComponent,
   paragraphComponent,
   headingComponent,
-  listComponent,
   listItemComponent,
   imageComponent,
   horizontalLineComponent,

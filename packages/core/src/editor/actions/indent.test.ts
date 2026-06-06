@@ -129,22 +129,14 @@ describe("handleIndent — INDENT / OUTDENT actions", () => {
           parentId: "doc",
           prevSiblingId: "p0",
           nextSiblingId: "p2",
-          firstChildId: "list",
-          lastChildId: "list",
-        }),
-        buildBlock({
-          id: "list",
-          type: "list",
-          parentId: "sec",
           firstChildId: "li",
           lastChildId: "li",
-          attrs: { listType: "unordered" },
         }),
         buildBlock({
           id: "li",
           type: "list-item",
-          parentId: "list",
-          attrs: { listType: "unordered", marginInlineStart: 48 },
+          parentId: "sec",
+          attrs: { listId: "L1", listLevel: 0, marginInlineStart: 48 },
           inlineContent: inlineContent([text("li")]),
         }),
         buildBlock({
@@ -185,7 +177,6 @@ describe("handleIndent — INDENT / OUTDENT actions", () => {
 
     // Containers are NOT indented.
     expect(getBlock(next.state, "sec" as BlockId)?.attrs.marginInlineStart).toBeUndefined();
-    expect(getBlock(next.state, "list" as BlockId)?.attrs.marginInlineStart).toBeUndefined();
   });
 
   it("preserves the selection (indent does not move the caret)", () => {

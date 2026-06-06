@@ -11,7 +11,6 @@ import type { BlockId } from "../block-id";
 // the test contract needs to exercise.
 const TYPE_KINDS: Record<string, BlockKind> = {
   document: "container",
-  list: "container",
   table: "container",
   "table-row": "container",
   "table-cell": "container",
@@ -135,16 +134,16 @@ describe("setBlockType", () => {
     expect(getBlock(result.state, "li" as BlockId)?.type).toBe("paragraph");
   });
 
-  it("allows same-kind change: list -> table (both container)", () => {
+  it("allows same-kind change: table -> table-row (both container)", () => {
     const state = buildState({
       rootId: "doc",
       blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "list", lastChildId: "list" }),
-        buildBlock({ id: "list", type: "list", parentId: "doc" }),
+        buildBlock({ id: "doc", type: "document", firstChildId: "tbl", lastChildId: "tbl" }),
+        buildBlock({ id: "tbl", type: "table", parentId: "doc" }),
       ],
     });
-    const result = setBlockType(state, "list" as BlockId, "table", resolver);
-    expect(getBlock(result.state, "list" as BlockId)?.type).toBe("table");
+    const result = setBlockType(state, "tbl" as BlockId, "table-row", resolver);
+    expect(getBlock(result.state, "tbl" as BlockId)?.type).toBe("table-row");
   });
 
   it("allows same-kind change: image -> horizontal-line (both atomic-leaf)", () => {
@@ -159,14 +158,14 @@ describe("setBlockType", () => {
     expect(getBlock(result.state, "img" as BlockId)?.type).toBe("horizontal-line");
   });
 
-  it("refuses cross-kind change: paragraph -> list (inline-bearing-leaf -> container)", () => {
+  it("refuses cross-kind change: paragraph -> table (inline-bearing-leaf -> container)", () => {
     const state = fixture();
-    expect(() => setBlockType(state, "p" as BlockId, "list", resolver)).toThrow(
+    expect(() => setBlockType(state, "p" as BlockId, "table", resolver)).toThrow(
       /cross-kind change refused.*inline-bearing-leaf.*container/,
     );
   });
 
-  it("refuses cross-kind change: image -> list (atomic-leaf -> container)", () => {
+  it("refuses cross-kind change: image -> table (atomic-leaf -> container)", () => {
     const state = buildState({
       rootId: "doc",
       blocks: [
@@ -174,20 +173,20 @@ describe("setBlockType", () => {
         buildBlock({ id: "img", type: "image", parentId: "doc" }),
       ],
     });
-    expect(() => setBlockType(state, "img" as BlockId, "list", resolver)).toThrow(
+    expect(() => setBlockType(state, "img" as BlockId, "table", resolver)).toThrow(
       /cross-kind change refused.*atomic-leaf.*container/,
     );
   });
 
-  it("refuses cross-kind change: list -> paragraph (container -> inline-bearing-leaf)", () => {
+  it("refuses cross-kind change: table -> paragraph (container -> inline-bearing-leaf)", () => {
     const state = buildState({
       rootId: "doc",
       blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "list", lastChildId: "list" }),
-        buildBlock({ id: "list", type: "list", parentId: "doc" }),
+        buildBlock({ id: "doc", type: "document", firstChildId: "tbl", lastChildId: "tbl" }),
+        buildBlock({ id: "tbl", type: "table", parentId: "doc" }),
       ],
     });
-    expect(() => setBlockType(state, "list" as BlockId, "paragraph", resolver)).toThrow(
+    expect(() => setBlockType(state, "tbl" as BlockId, "paragraph", resolver)).toThrow(
       /cross-kind change refused.*container.*inline-bearing-leaf/,
     );
   });
