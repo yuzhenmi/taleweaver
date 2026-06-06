@@ -9,6 +9,7 @@ import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
 import { getLineIndex, coordOf, sizeAlong, lineCoordOf, lineSizeAlong } from "./line-flatten";
 import { buildLineBidiView, offsetInLeaf, type CaretAffinity } from "./line-bidi";
 import { axisMapFor } from "../styles/writing-mode";
+import type { AxisMap } from "../styles/writing-mode";
 import { markStart, markEnd } from "../perf/perf-trace";
 
 /**
@@ -117,7 +118,7 @@ export function resolvePositionFromPixel(
     // nearest-y loop walks past the body lines and lands on a slot line. We
     // classify `visible` into a body set and slot zones, then pick the zone the
     // click `y` falls in.
-    const region = pickRegionByBand(state, layoutTree, pageIndex, visible, y);
+    const region = pickRegionByBand(state, layoutTree, pageIndex, visible, x, y);
 
     // 3. Pick target line by the click's BLOCK-axis component within the chosen
     // band (P3.5b). `region` is in document order, which for h-tb / vertical-lr is
@@ -302,7 +303,7 @@ function findPageBox(root: LayoutBox, pageIndex: number): PageBox | null {
  *
  * #332: the zones are the FULL top/bottom page MARGINS, not just the slot text
  * extents. Within a `page` box the line walker resets coordinates to (0,0), so
- * every `absoluteY` here is PAGE-LOCAL and the click `y` is compared in the same
+ * every line coord here is PAGE-LOCAL and the click is compared in the same
  * frame. The body content area is exactly `[effectiveTopInset, blockSize −
  * effectiveBottomInset]` (read off the PageBox). A click above `contentTop`
  * (anywhere in the top margin, incl. the gap below short header text) → header;
@@ -310,6 +311,21 @@ function findPageBox(root: LayoutBox, pageIndex: number): PageBox | null {
  * in between → body. The earlier version derived the zone boundaries from slot
  * LINE extents, so a click in the top-margin gap below the header text fell
  * through to the body.
+ *
+ * P3 (#438): the zone edges (`contentTop`/`contentBottom`/`footnoteSlotTop`) are
+ * LOGICAL BLOCK-AXIS quantities (insets/`blockSize`/`blockOffset` are all
+ * block-axis). For h-tb the block axis IS physical Y, so a line's `absoluteY` and
+ * the click `y` ARE logical block offsets and the comparisons work directly. For
+ * the vertical modes the block axis is physical X, and `vertical-rl` MIRRORS it
+ * against the page block-size (P3.1). Rather than hand-flip the comparison
+ * directions per mode (the error-prone path), we project each slot line's
+ * physical block coord AND the click's physical block component back to LOGICAL
+ * block-offset space (un-mirroring vertical-rl against the SAME `page.blockSize`
+ * the physicalize pass mirrored against), then run the EXISTING zone comparisons
+ * unchanged — they are already written in logical-block-offset terms. For h-tb
+ * the projection reduces to the identity (`logicalBlockOffsetOf(l) ===
+ * lineCoordOf(l, "y") === l.absoluteY`, `logicalClickBlock === y`), so the
+ * function is byte-identical for every horizontal doc.
  *
  * Classification uses `selectionContextOf`: a MAIN-body line's owner resolves to
  * `state.rootId`; a header/footer/footnote slot line's owner resolves to that
@@ -330,6 +346,7 @@ function pickRegionByBand(
   layoutTree: LayoutBox,
   pageIndex: number,
   visible: readonly AbsoluteLineBox[],
+  x: number,
   y: number,
 ): readonly AbsoluteLineBox[] {
   // 1. Split into body lines (owner context === state.rootId) and slot lines.
@@ -355,45 +372,79 @@ function pickRegionByBand(
   if (page === null) return visible;
   if (bodyLines.length === 0) return visible;
 
-  // 4. The body content area (page-local). The full margins outside it are the
-  // header (above `contentTop`) / footer (at-or-below `contentBottom`) zones.
-  // FN-7.2: the footnote slot, when present, occupies `[footnoteSlotTop,
-  // contentBottom)` INSIDE the content area — its top comes from the named
-  // `footnoteSlot` box (page-local `blockOffset`; same coordinate frame as the
-  // lines' `absoluteY`). Classify slot lines by band: footer (>= contentBottom),
+  // 3b. Project physical block coords → LOGICAL block-offset space (#438). The
+  // zone edges below (`contentTop`/`contentBottom`/`footnoteSlotTop`) are all
+  // LOGICAL block-axis quantities. For h-tb the block axis is physical Y, so a
+  // line's `absoluteY` and the click `y` ARE logical block offsets and the
+  // projection is the identity. For the vertical modes the block axis is physical
+  // X; `vertical-rl` additionally MIRRORS it against the page block-size (P3.1).
+  // We un-mirror against the SAME `page.blockSize` the physicalize pass mirrored
+  // against, so the zone comparisons can run UNCHANGED. We discriminate the
+  // descending (mirrored) block axis ONLY by `vertical-rl` (vertical-lr's block
+  // axis ascends along physical X, same as h-tb along Y).
+  const pageAm: AxisMap = axisMapFor(page.writingMode, page.direction);
+  const pageBlockSize = page.blockSize;
+  const blockReversed = page.writingMode === "vertical-rl";
+  // A LINE's logical block-START offset. ASCENDING: the physical block-start
+  // coord IS the logical offset. DESCENDING (vertical-rl): the logical-start
+  // edge is at the HIGH physical coord, so it is `pageBlockSize − physicalEnd`
+  // (physicalEnd = physical block-start + physical block-extent).
+  const lineLogicalBlockOffset = (l: AbsoluteLineBox): number => {
+    const physStart = lineCoordOf(l, pageAm.block);
+    if (!blockReversed) return physStart;
+    return pageBlockSize - (physStart + lineSizeAlong(l, pageAm.block));
+  };
+  // The click POINT's physical block component (size 0). DESCENDING: a point's
+  // logical offset is `pageBlockSize − physicalCoord`.
+  const clickBlockPhys = pageAm.block === "x" ? x : y;
+  const clickLogicalBlock = blockReversed
+    ? pageBlockSize - clickBlockPhys
+    : clickBlockPhys;
+
+  // 4. The body content area (logical block-offset space). The full margins
+  // outside it are the header (above `contentTop`) / footer (at-or-below
+  // `contentBottom`) zones. FN-7.2: the footnote slot, when present, occupies
+  // `[footnoteSlotTop, contentBottom)` INSIDE the content area — its top comes
+  // from the named `footnoteSlot` box (`blockOffset` is ALREADY a logical
+  // block-offset). Classify slot lines by band: footer (>= contentBottom),
   // footnote (>= footnoteSlotTop && < contentBottom), header (< contentTop). A
   // slot line in `[contentTop, footnoteSlotTop)` (none should occur) lands in no
   // bucket so it can't capture the click.
   const contentTop = page.effectiveTopInset;
   const contentBottom = page.blockSize - page.effectiveBottomInset;
   // `+Infinity` ⇒ no footnote band on this page (no footnote-slot line can match
-  // `l.absoluteY >= footnoteSlotTop`), so the classification collapses to the
-  // unchanged header/footer two-bucket split.
+  // `logicalBlockOffsetOf(l) >= footnoteSlotTop`), so the classification
+  // collapses to the unchanged header/footer two-bucket split.
   const footnoteSlotTop =
     page.footnoteSlot !== null ? page.footnoteSlot.blockOffset : Number.POSITIVE_INFINITY;
   const headerLines: AbsoluteLineBox[] = [];
   const footnoteLines: AbsoluteLineBox[] = [];
   const footerLines: AbsoluteLineBox[] = [];
   for (const l of slotLines) {
-    if (l.absoluteY >= contentBottom) {
+    const lBlock = lineLogicalBlockOffset(l);
+    if (lBlock >= contentBottom) {
       footerLines.push(l);
-    } else if (l.absoluteY >= footnoteSlotTop) {
+    } else if (lBlock >= footnoteSlotTop) {
       footnoteLines.push(l);
-    } else if (l.absoluteY < contentTop) {
+    } else if (lBlock < contentTop) {
       headerLines.push(l);
     }
   }
 
-  // 5. Choose the region by the click `y` against the band edges. Footer wins
-  // when the click is at/below `contentBottom`; then the footnote slot when the
-  // click is in `[footnoteSlotTop, contentBottom)`; then the header zone above
-  // `contentTop`; else the body (which captures the empty body tail above the
-  // footnote slot — the #331 clamp). Each branch is gated on having such lines;
-  // the fallthrough is `bodyLines`, non-empty here.
-  if (footerLines.length > 0 && y >= contentBottom) return footerLines;
-  if (footnoteLines.length > 0 && y >= footnoteSlotTop && y < contentBottom) {
+  // 5. Choose the region by the click's LOGICAL block offset against the band
+  // edges. Footer wins when the click is at/below `contentBottom`; then the
+  // footnote slot when the click is in `[footnoteSlotTop, contentBottom)`; then
+  // the header zone above `contentTop`; else the body (which captures the empty
+  // body tail above the footnote slot — the #331 clamp). Each branch is gated on
+  // having such lines; the fallthrough is `bodyLines`, non-empty here.
+  if (footerLines.length > 0 && clickLogicalBlock >= contentBottom) return footerLines;
+  if (
+    footnoteLines.length > 0 &&
+    clickLogicalBlock >= footnoteSlotTop &&
+    clickLogicalBlock < contentBottom
+  ) {
     return footnoteLines;
   }
-  if (headerLines.length > 0 && y < contentTop) return headerLines;
+  if (headerLines.length > 0 && clickLogicalBlock < contentTop) return headerLines;
   return bodyLines;
 }
