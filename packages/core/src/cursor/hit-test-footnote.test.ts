@@ -376,7 +376,7 @@ describe("FN-7.2 — click into the footnote-slot band resolves to the footnote 
     const bp1Lines = getLineIndex(positioned).byBlock.get("bp1" as BlockId) ?? [];
     expect(bp1Lines.length).toBe(1);
     const line = bp1Lines[0];
-    const leaves = collectLineLeaves(line.line, line.absoluteX);
+    const leaves = collectLineLeaves(line.line, line.absoluteX, line.absoluteY);
     const marker = leaves.find((l) => l.kind === "inline-block");
     expect(marker).toBeDefined();
     if (marker === undefined) return;

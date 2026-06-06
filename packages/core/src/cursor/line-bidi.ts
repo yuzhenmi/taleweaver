@@ -1,6 +1,8 @@
 import type { LineLeaf, AbsoluteLineBox } from "./line-flatten";
-import { collectLineLeaves } from "./line-flatten";
+import { collectLineLeaves, coordOf, sizeAlong } from "./line-flatten";
 import type { Direction } from "../styles";
+import type { AxisMap } from "../styles/writing-mode";
+import { axisMapFor } from "../styles/writing-mode";
 import type { TextMeasurer } from "../layout/text-measurer";
 
 /**
@@ -74,6 +76,16 @@ export interface LineBidiView {
   readonly visualLeaves: readonly BidiViewLeaf[];
   readonly logicalLeaves: readonly BidiViewLeaf[];
   readonly paragraphDirection: Direction;
+  /**
+   * The line's axis map (`axisMapFor(line.writingMode,
+   * line.computedStyle.direction)`): which physical axis each logical axis maps
+   * to. Carried on the view so the caret-X / offset / selection-interval helpers
+   * project the INLINE axis to the right physical letter (x for h-tb, y for
+   * vertical) without re-deriving it. `direction` is sourced from
+   * `computedStyle.direction` (the canonical source, M3) — the same field
+   * `paragraphDirection` reads.
+   */
+  readonly axisMap: AxisMap;
   readonly isEmpty: boolean;
 }
 
@@ -115,8 +127,11 @@ function isSyntheticLeaf(leaf: LineLeaf): boolean {
 export function buildLineBidiView(alb: AbsoluteLineBox): LineBidiView {
   const paragraphDirection = alb.line.computedStyle.direction;
   const paragraphLevel = paragraphDirection === "rtl" ? 1 : 0;
+  // M3: the canonical direction source is `computedStyle.direction` (same field
+  // `paragraphDirection` reads); writing-mode comes off the line box.
+  const axisMap = axisMapFor(alb.line.writingMode, paragraphDirection);
 
-  const rawLeaves = collectLineLeaves(alb.line, alb.absoluteX);
+  const rawLeaves = collectLineLeaves(alb.line, alb.absoluteX, alb.absoluteY);
   const contentLeaves = rawLeaves.filter((leaf) => !isSyntheticLeaf(leaf));
 
   if (contentLeaves.length === 0) {
@@ -124,6 +139,7 @@ export function buildLineBidiView(alb: AbsoluteLineBox): LineBidiView {
       visualLeaves: [],
       logicalLeaves: [],
       paragraphDirection,
+      axisMap,
       isEmpty: true,
     };
   }
@@ -170,7 +186,7 @@ export function buildLineBidiView(alb: AbsoluteLineBox): LineBidiView {
     return v;
   });
 
-  return { visualLeaves, logicalLeaves, paragraphDirection, isEmpty: false };
+  return { visualLeaves, logicalLeaves, paragraphDirection, axisMap, isEmpty: false };
 }
 
 /** Non-synthetic leaves always carry a `sourceStart`; default 0 defensively. */
@@ -179,30 +195,42 @@ function sourceStartOf(leaf: LineLeaf): number {
 }
 
 /**
- * Caret X for a STATE offset within a leaf (P4-C.2 spec §B intra-leaf).
+ * Caret INLINE-AXIS coordinate for a STATE offset within a leaf (P4-C.2 spec §B
+ * intra-leaf, P3.5a generalized to the inline axis).
  *
  *   - text-run: convert the leaf-local STATE offset to a DISPLAY index via
  *     `sourceDisplayLengths` (1:1 when absent), measure the display prefix, then
- *     LTR → `absoluteX + w`, RTL → `absoluteX + width − w`.
- *   - inline-block: the atomic box owns one state unit; X is the leading edge
- *     at `logStart` else the trailing edge (lifted from cursor-position.ts's
- *     inline-block branch).
+ *     even-level → `base + w`, odd-level → `base + size − w`, where `base`/`size`
+ *     are the leaf's coord/extent along the INLINE physical axis (`am.inline`).
+ *   - inline-block: the atomic box owns one state unit; the coord is the leading
+ *     edge at `logStart` else the trailing edge.
+ *
+ * The base coord + extent are projected onto the inline axis via `am`
+ * (`coordOf`/`sizeAlong`), so for h-tb (`am.inline === "x"`) this returns the
+ * physical X exactly as before; for vertical (`am.inline === "y"`) it returns a
+ * physical-Y value (inline runs down the page).
+ *
+ * **C2 (load-bearing):** the `v.level % 2` parity branch is the INTRA-leaf visual
+ * direction (already baked against the physicalized coords) and is UNTOUCHED.
+ * `am.inlineReversed` is NOT applied here — that would double-reverse the
+ * paragraph direction the box physicalization already encodes.
  *
  * `stateOffset` is clamped to `[logStart, logEnd]`.
  */
-export function caretXInLeaf(
+export function caretInlineCoordInLeaf(
   v: BidiViewLeaf,
   stateOffset: number,
   measurer: TextMeasurer,
+  am: AxisMap,
 ): number {
   const leaf = v.leaf;
   const localState = clamp(stateOffset, v.logStart, v.logEnd) - v.logStart;
+  const base = coordOf(leaf, am.inline);
+  const size = sizeAlong(leaf, am.inline);
 
   if (leaf.kind === "inline-block") {
-    // Atomic embed: leading edge at logStart, trailing edge past it. Mirrors
-    // cursor-position.ts's inline-block branch (`localOffset === 0 ? leading :
-    // trailing`).
-    return localState === 0 ? leaf.absoluteX : leaf.absoluteX + leaf.width;
+    // Atomic embed: leading edge at logStart, trailing edge past it.
+    return localState === 0 ? base : base + size;
   }
 
   // text-run. STATE → DISPLAY index via sourceDisplayLengths (mirrors
@@ -213,53 +241,60 @@ export function caretXInLeaf(
   const w = measurer.measureWidth(prefix, leaf.computedStyle);
 
   if (v.level % 2 === 0) {
-    // LTR leaf: prefix grows left→right.
-    return leaf.absoluteX + w;
+    // Even (LTR) leaf: prefix grows toward the inline-end.
+    return base + w;
   }
-  // RTL leaf: the logically-earlier prefix sits at the RIGHT edge.
-  return leaf.absoluteX + leaf.width - w;
+  // Odd (RTL) leaf: the logically-earlier prefix sits at the far inline edge.
+  return base + size - w;
 }
 
 /**
- * Inverse of `caretXInLeaf`: the STATE offset for a LEAF-LOCAL X (`localX =
- * clickX − leaf.absoluteX`) (P4-C.2 spec §C intra-leaf).
+ * Inverse of `caretInlineCoordInLeaf`: the STATE offset for a LEAF-LOCAL INLINE
+ * offset (`localInline = clickInline − coordOf(leaf, am.inline)`) (P4-C.2 spec §C
+ * intra-leaf, P3.5a generalized to the inline axis).
  *
- *   - text-run: LTR → `findCharOffset(text, localX)`; RTL →
- *     `offsetLength − findCharOffset(text, width − localX)`. The display offset
- *     is reverse-mapped to STATE via `sourceDisplayLengths`, then added to
- *     `logStart`.
- *   - inline-block: `localX < width/2` → `logStart`, else `logEnd` (lifted from
- *     hit-test.ts's inline-block midpoint split).
+ *   - text-run: even-level → `findCharOffset(text, localInline)`; odd-level →
+ *     measured from `size − localInline`. The display offset is reverse-mapped to
+ *     STATE via `sourceDisplayLengths`, then added to `logStart`.
+ *   - inline-block: `localInline < size/2` → `logStart`, else `logEnd`.
+ *
+ * The extent (`size`) is the leaf's INLINE-axis extent (`sizeAlong(leaf,
+ * am.inline)`). For h-tb this is `leaf.width` (unchanged); for vertical it is
+ * `leaf.height`. **C2:** the `v.level % 2` parity branch is UNTOUCHED;
+ * `am.inlineReversed` is not applied here.
  */
 export function offsetInLeaf(
   v: BidiViewLeaf,
-  localX: number,
+  localInline: number,
   measurer: TextMeasurer,
+  am: AxisMap,
 ): number {
   const leaf = v.leaf;
+  const size = sizeAlong(leaf, am.inline);
 
   if (leaf.kind === "inline-block") {
-    // Midpoint split (lifted from hit-test.ts:185-186): left half → before the
-    // embed (logStart), right half → after it (logEnd).
-    const midpoint = leaf.width / 2;
-    return localX >= midpoint ? v.logEnd : v.logStart;
+    // Midpoint split: first half → before the embed (logStart), second half →
+    // after it (logEnd).
+    const midpoint = size / 2;
+    return localInline >= midpoint ? v.logEnd : v.logStart;
   }
 
   const sdl = leaf.box.sourceDisplayLengths;
   let stateLocal: number;
   if (v.level % 2 === 0) {
-    // LTR leaf: measured from the left edge.
-    const displayOffset = findCharOffset(leaf.box.text, localX, leaf.computedStyle, measurer);
+    // Even (LTR) leaf: measured from the inline-start edge.
+    const displayOffset = findCharOffset(leaf.box.text, localInline, leaf.computedStyle, measurer);
     stateLocal = sdl ? stateOffsetOf(sdl, displayOffset) : displayOffset;
   } else {
-    // RTL leaf: `caretXInLeaf` places the logical prefix of width `w` at
-    // `absoluteX + width − w`, so `w = width − localX`. `findCharOffset(text,
-    // width − localX)` returns exactly that logical prefix's DISPLAY length —
-    // the inverse of the caret-X formula (no extra mirroring; `text` is already
-    // the LOGICAL string measured from its own start). Map display → state.
+    // Odd (RTL) leaf: `caretInlineCoordInLeaf` places the logical prefix of width
+    // `w` at `base + size − w`, so `w = size − localInline`. `findCharOffset(text,
+    // size − localInline)` returns exactly that logical prefix's DISPLAY length —
+    // the inverse of the caret-coord formula (no extra mirroring; `text` is
+    // already the LOGICAL string measured from its own start). Map display →
+    // state.
     const displayOffset = findCharOffset(
       leaf.box.text,
-      leaf.width - localX,
+      size - localInline,
       leaf.computedStyle,
       measurer,
     );
@@ -320,6 +355,7 @@ export function selectionRectsForLineRange(
 ): VisualInterval[] {
   if (view.isEmpty || rangeEndOffset <= rangeStartOffset) return [];
 
+  const am = view.axisMap;
   const intervals: VisualInterval[] = [];
   for (const v of view.logicalLeaves) {
     // Clip the range to this leaf's logical span.
@@ -328,21 +364,24 @@ export function selectionRectsForLineRange(
     if (b <= a) continue; // no overlap with this leaf
 
     const ltr = v.level % 2 === 0;
-    // §B caret-X at both clipped endpoints. LTR: a → lower x, b → higher x.
-    // RTL: the logically-later offset sits at the LOWER x, so the endpoints
-    // swap (b → lower x, a → higher x). Emit as xLo <= xHi (width never < 0).
+    // §B caret inline-coord at both clipped endpoints. Even-level: a → lower,
+    // b → higher. Odd-level: the logically-later offset sits LOWER, so the
+    // endpoints swap (b → lower, a → higher). Emit as xLo <= xHi (width never < 0).
     //
-    // #338 P2 clamp: pin each endpoint to the OWNING leaf's own box edges
-    // (`[absoluteX, absoluteX + width]`). For a CLAMPED hung trailing-space run
-    // (the IFC gave it width 0 at the content edge), `caretXInLeaf`'s prefix
-    // measurement still adds ~one glyph advance, which would land a selection
-    // rect PAST the content edge. Clamping pins it to the (clamped) box edge —
-    // mirrors `cursor-position.ts`'s identical clamp so selection geometry and
-    // caret X agree. Direction-agnostic: LTR hits the upper bound, RTL the lower.
-    const leafLeft = v.leaf.absoluteX;
-    const leafRight = v.leaf.absoluteX + v.leaf.width;
-    const xa = clamp(caretXInLeaf(v, a, measurer), leafLeft, leafRight);
-    const xb = clamp(caretXInLeaf(v, b, measurer), leafLeft, leafRight);
+    // #338 P2 clamp (I2): pin each endpoint to the OWNING leaf's own inline-axis
+    // box edges (`[coordOf(leaf, am.inline), + sizeAlong(leaf, am.inline)]`). For
+    // a CLAMPED hung trailing-space run (the IFC gave it width 0 at the content
+    // edge), `caretInlineCoordInLeaf`'s prefix measurement still adds ~one glyph
+    // advance, which would land a selection rect PAST the content edge. Clamping
+    // pins it to the (clamped) box edge — mirrors `cursor-position.ts`'s
+    // identical clamp so selection geometry and caret coord agree.
+    // Direction-agnostic: even-level hits the upper bound, odd-level the lower.
+    // These are INLINE-axis intervals; the selection caller projects them to
+    // physical in P3.5c.
+    const leafLo = coordOf(v.leaf, am.inline);
+    const leafHi = leafLo + sizeAlong(v.leaf, am.inline);
+    const xa = clamp(caretInlineCoordInLeaf(v, a, measurer, am), leafLo, leafHi);
+    const xb = clamp(caretInlineCoordInLeaf(v, b, measurer, am), leafLo, leafHi);
     const xLo = ltr ? xa : xb;
     const xHi = ltr ? xb : xa;
     intervals.push({ xLo, xHi, level: v.level });

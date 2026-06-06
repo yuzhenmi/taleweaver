@@ -1,5 +1,6 @@
 import type { LayoutBox, LineBox, TextRunBox, InlineBlockBox } from "../layout/layout-node";
 import type { ComputedStyle } from "../styles";
+import { axisMapFor } from "../styles/writing-mode";
 import type { Position, BlockId, State } from "../state";
 import { selectionContextOf } from "../state";
 
@@ -236,7 +237,12 @@ export type LineLeaf =
       readonly kind: "text-run";
       readonly box: TextRunBox;
       readonly absoluteX: number;
+      /** Absolute (document/page-relative) PHYSICAL-Y coordinate of the leaf. */
+      readonly absoluteY: number;
+      /** PHYSICAL-X extent of the leaf (`box.width`). */
       readonly width: number;
+      /** PHYSICAL-Y extent of the leaf (`box.height`). */
+      readonly height: number;
       /** Convenience copy from `box.computedStyle`. */
       readonly computedStyle: Readonly<ComputedStyle>;
       readonly offsetContribution: number;
@@ -245,10 +251,53 @@ export type LineLeaf =
       readonly kind: "inline-block";
       readonly box: InlineBlockBox;
       readonly absoluteX: number;
+      readonly absoluteY: number;
       readonly width: number;
+      readonly height: number;
       readonly computedStyle: Readonly<ComputedStyle>;
       readonly offsetContribution: number;
     };
+
+/**
+ * The leaf's coordinate along a given PHYSICAL axis. Boxes are pre-physicalized
+ * (P3.1), so `absoluteX`/`absoluteY` are the correct physical coords for every
+ * writing mode. Consumers project a logical axis (`am.inline`/`am.block`) to its
+ * physical letter via `axisMapFor`, then read the matching coord here.
+ */
+export function coordOf(leaf: LineLeaf, axis: "x" | "y"): number {
+  return axis === "x" ? leaf.absoluteX : leaf.absoluteY;
+}
+
+/** The leaf's extent along a given PHYSICAL axis (mirror of `coordOf`). */
+export function sizeAlong(leaf: LineLeaf, axis: "x" | "y"): number {
+  return axis === "x" ? leaf.width : leaf.height;
+}
+
+/**
+ * A LINE's coordinate along a given PHYSICAL axis. Unlike a leaf (which carries
+ * both physical coords directly), an `AbsoluteLineBox` carries `absoluteX`/
+ * `absoluteY` for the START coords but the line's EXTENT is stored LOGICALLY
+ * (`inlineSize`/`blockSize`). The start coords are already physical, so the same
+ * axis-letter read works; `lineSizeAlong` does the logical→physical projection.
+ */
+export function lineCoordOf(line: AbsoluteLineBox, axis: "x" | "y"): number {
+  return axis === "x" ? line.absoluteX : line.absoluteY;
+}
+
+/**
+ * A LINE's PHYSICAL extent along a given axis. The line's logical extents
+ * (`inlineSize`/`blockSize`) project to physical x/y per the line's OWN axis map
+ * (`axisMapFor(line.writingMode, line.computedStyle.direction)`): the inline
+ * extent maps to `am.inline`'s physical axis, the block extent to `am.block`'s.
+ * For h-tb (`inline→x`, `block→y`) this returns `inlineSize` along x and
+ * `blockSize` along y — i.e. the physical width/height — identical to the old
+ * direct reads.
+ */
+export function lineSizeAlong(line: AbsoluteLineBox, axis: "x" | "y"): number {
+  const lb = line.line;
+  const am = axisMapFor(lb.writingMode, lb.computedStyle.direction);
+  return am.inline === axis ? lb.inlineSize : lb.blockSize;
+}
 
 /**
  * Walk a single `LineBox`'s subtree, emitting one `LineLeaf` per
@@ -263,7 +312,7 @@ export type LineLeaf =
  * Used by hit-test (pick target leaf by X within the picked line)
  * and by cursor-position (map Position → leaf for X measurement).
  */
-export function collectLineLeaves(line: LineBox, lineAbsX: number): LineLeaf[] {
+export function collectLineLeaves(line: LineBox, lineAbsX: number, lineAbsY: number): LineLeaf[] {
   const out: LineLeaf[] = [];
   // Contract mismatch: `collectLineLeaves` is GIVEN the line's ABSOLUTE x
   // (`lineAbsX` = blockAbsX + line.x; the callers read it straight off the
@@ -280,7 +329,16 @@ export function collectLineLeaves(line: LineBox, lineAbsX: number): LineLeaf[] {
   // for the floated case. Works in both writing directions because `box.x` IS
   // the physical coordinate, so `lineAbsX - line.x + line.x === lineAbsX`
   // regardless of LTR/RTL.
-  collectLeavesRec(line, lineAbsX - line.x, out);
+  //
+  // P3.5a: the SAME parent-frame contract applies to the block axis (`parentY`).
+  // We hand `lineAbsY - line.y`; the recursion re-adds `line.y` exactly once,
+  // yielding `lineAbsY` for the line and `lineAbsY + childRelY` for its children.
+  // Boxes are pre-physicalized (P3.1), so `box.y` is the physical-Y coordinate in
+  // every writing mode — this stamps `leaf.absoluteY`/`leaf.height` symmetrically
+  // to the X fields. h-tb is byte-identical because these fields were never read
+  // before; they exist to let vertical consumers read the inline axis (which maps
+  // to physical Y) via `coordOf(leaf, "y")`.
+  collectLeavesRec(line, lineAbsX - line.x, lineAbsY - line.y, out);
   return out;
 }
 
@@ -329,13 +387,15 @@ export function findLineForPosition(lines: readonly AbsoluteLineBox[], position:
   return candidate;
 }
 
-function collectLeavesRec(box: LayoutBox, parentX: number, out: LineLeaf[]): void {
+function collectLeavesRec(box: LayoutBox, parentX: number, parentY: number, out: LineLeaf[]): void {
   if (box.type === "text-run") {
     out.push({
       kind: "text-run",
       box,
       absoluteX: parentX + box.x,
+      absoluteY: parentY + box.y,
       width: box.width,
+      height: box.height,
       computedStyle: box.computedStyle,
       // STATE-char span, not rendered text.length: a run that absorbed
       // trailing collapsed whitespace owns more offsets than it renders.
@@ -348,7 +408,9 @@ function collectLeavesRec(box: LayoutBox, parentX: number, out: LineLeaf[]): voi
       kind: "inline-block",
       box,
       absoluteX: parentX + box.x,
+      absoluteY: parentY + box.y,
       width: box.width,
+      height: box.height,
       computedStyle: box.computedStyle,
       offsetContribution: 1,
     });
@@ -357,15 +419,16 @@ function collectLeavesRec(box: LayoutBox, parentX: number, out: LineLeaf[]): voi
   if (box.type === "marker") return;
   if (box.type === "page" || box.type === "block" || box.type === "table" || box.type === "table-row" || box.type === "table-cell") {
     // Block-axis containers shouldn't appear as a line's descendants;
-    // defensively descend with the same X frame anyway.
+    // defensively descend with the same X/Y frame anyway.
     for (const child of box.children) {
-      collectLeavesRec(child, parentX, out);
+      collectLeavesRec(child, parentX, parentY, out);
     }
     return;
   }
-  // box.type === "line" or "inline" — descend with own X offset.
+  // box.type === "line" or "inline" — descend with own X/Y offset.
   const absX = parentX + box.x;
+  const absY = parentY + box.y;
   for (const child of box.children) {
-    collectLeavesRec(child, absX, out);
+    collectLeavesRec(child, absX, absY, out);
   }
 }

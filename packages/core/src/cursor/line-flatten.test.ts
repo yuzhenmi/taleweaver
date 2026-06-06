@@ -434,7 +434,7 @@ describe("collectLineLeaves — offsetContribution = state span (collapsed white
     collectLineBoxes(r.box, 0, 0, lines);
     expect(lines.length).toBe(1);
 
-    const leaves = collectLineLeaves(lines[0].line, lines[0].absoluteX);
+    const leaves = collectLineLeaves(lines[0].line, lines[0].absoluteX, lines[0].absoluteY);
     const textLeaves = leaves.filter(l => l.kind === "text-run");
     // The "idoajs " run: rendered text length 7, offsetContribution 8.
     const idoajs = textLeaves.find(l => l.kind === "text-run" && l.box.text === "idoajs ");
@@ -489,7 +489,7 @@ describe("collectLineLeaves — no double-count of the line's own x (alignment o
     ]);
     expect(line.x).toBe(50); // physical x === alignment offset
 
-    const leaves = collectLineLeaves(line, 50);
+    const leaves = collectLineLeaves(line, 50, 0);
     expect(leaves).toHaveLength(2);
     // First child: lineAbsX + relX = 50 + 0 = 50. BUG returned 100 (50 + 50 + 0).
     expect(leaves[0].absoluteX).toBe(50);
@@ -506,7 +506,7 @@ describe("collectLineLeaves — no double-count of the line's own x (alignment o
     ]);
     expect(line.x).toBe(0);
 
-    const leaves = collectLineLeaves(line, 0);
+    const leaves = collectLineLeaves(line, 0, 0);
     expect(leaves).toHaveLength(2);
     expect(leaves[0].absoluteX).toBe(0);
     expect(leaves[1].absoluteX).toBe(40);
@@ -524,7 +524,7 @@ describe("collectLineLeaves — no double-count of the line's own x (alignment o
     expect(line.x).toBe(30);
 
     const lineAbsX = 130; // block at doc x 100, line.x 30
-    const leaves = collectLineLeaves(line, lineAbsX);
+    const leaves = collectLineLeaves(line, lineAbsX, 0);
     expect(leaves[0].absoluteX).toBe(130);
     expect(leaves[1].absoluteX).toBe(170);
   });

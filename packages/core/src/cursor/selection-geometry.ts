@@ -314,7 +314,7 @@ function computeLineEdges(al: AbsoluteLineBox): {
   lineRight: number;
   trailingStyle: ComputedStyle;
 } {
-  const leaves = collectLineLeaves(al.line, al.absoluteX);
+  const leaves = collectLineLeaves(al.line, al.absoluteX, al.absoluteY);
   if (leaves.length === 0) {
     // Empty (strut) line — both edges collapse to the line's X.
     // Trailing style falls back to the LineBox's own computedStyle

@@ -23,7 +23,7 @@ import { getLineIndex } from "./line-flatten";
 import type { AbsoluteLineBox } from "./line-flatten";
 import {
   buildLineBidiView,
-  caretXInLeaf,
+  caretInlineCoordInLeaf,
   offsetInLeaf,
   moveVisually,
   selectionRectsForLineRange,
@@ -259,7 +259,7 @@ describe("buildLineBidiView", () => {
   });
 });
 
-describe("caretXInLeaf / offsetInLeaf", () => {
+describe("caretInlineCoordInLeaf / offsetInLeaf", () => {
   it("LTR run: caret X strictly increasing in stateOffset; round-trips", () => {
     const state = para("abc");
     const { layout, measurer } = pipeline(state);
@@ -268,17 +268,17 @@ describe("caretXInLeaf / offsetInLeaf", () => {
 
     const xs: number[] = [];
     for (let off = leaf.logStart; off <= leaf.logEnd; off++) {
-      xs.push(caretXInLeaf(leaf, off, measurer));
+      xs.push(caretInlineCoordInLeaf(leaf, off, measurer, view.axisMap));
     }
     for (let i = 1; i < xs.length; i++) {
       expect(xs[i]).toBeGreaterThan(xs[i - 1]);
     }
 
-    // offsetInLeaf round-trips caretXInLeaf for an interior offset.
+    // offsetInLeaf round-trips caretInlineCoordInLeaf for an interior offset.
     for (let off = leaf.logStart; off <= leaf.logEnd; off++) {
-      const x = caretXInLeaf(leaf, off, measurer);
+      const x = caretInlineCoordInLeaf(leaf, off, measurer, view.axisMap);
       const localX = x - leaf.leaf.absoluteX;
-      expect(offsetInLeaf(leaf, localX, measurer)).toBe(off);
+      expect(offsetInLeaf(leaf, localX, measurer, view.axisMap)).toBe(off);
     }
   });
 
@@ -291,7 +291,7 @@ describe("caretXInLeaf / offsetInLeaf", () => {
 
     const xs: number[] = [];
     for (let off = leaf.logStart; off <= leaf.logEnd; off++) {
-      xs.push(caretXInLeaf(leaf, off, measurer));
+      xs.push(caretInlineCoordInLeaf(leaf, off, measurer, view.axisMap));
     }
     // Logically-later offset sits at a LOWER x under RTL.
     for (let i = 1; i < xs.length; i++) {
@@ -300,25 +300,25 @@ describe("caretXInLeaf / offsetInLeaf", () => {
 
     // offsetInLeaf round-trips for RTL too.
     for (let off = leaf.logStart; off <= leaf.logEnd; off++) {
-      const x = caretXInLeaf(leaf, off, measurer);
+      const x = caretInlineCoordInLeaf(leaf, off, measurer, view.axisMap);
       const localX = x - leaf.leaf.absoluteX;
-      expect(offsetInLeaf(leaf, localX, measurer)).toBe(off);
+      expect(offsetInLeaf(leaf, localX, measurer, view.axisMap)).toBe(off);
     }
   });
 
-  it("caretXInLeaf RTL endpoints: logStart at leaf right edge, logEnd at left edge", () => {
+  it("caretInlineCoordInLeaf RTL endpoints: logStart at leaf right edge, logEnd at left edge", () => {
     const state = para("אבג");
     const { layout, measurer } = pipeline(state);
     const view = buildLineBidiView(bodyLine(layout));
     const leaf = view.logicalLeaves[0];
 
-    const xStart = caretXInLeaf(leaf, leaf.logStart, measurer);
-    const xEnd = caretXInLeaf(leaf, leaf.logEnd, measurer);
+    const xStart = caretInlineCoordInLeaf(leaf, leaf.logStart, measurer, view.axisMap);
+    const xEnd = caretInlineCoordInLeaf(leaf, leaf.logEnd, measurer, view.axisMap);
     expect(xStart).toBeCloseTo(leaf.leaf.absoluteX + leaf.leaf.width, 5);
     expect(xEnd).toBeCloseTo(leaf.leaf.absoluteX, 5);
   });
 
-  it("inline-block leaf: caretXInLeaf returns the two edges; offsetInLeaf maps by midpoint", () => {
+  it("inline-block leaf: caretInlineCoordInLeaf returns the two edges; offsetInLeaf maps by midpoint", () => {
     // A footnote anchor renders as an inline-block call-marker (one atomic IFC
     // token = one cursor stop). Build it through the real footnote producer so
     // the leaf is a genuine InlineBlockBox (no `.text`).
@@ -398,16 +398,16 @@ describe("caretXInLeaf / offsetInLeaf", () => {
     if (ib === undefined) return;
     expect(ib.logEnd - ib.logStart).toBe(1);
 
-    // caretXInLeaf: leading edge at logStart, trailing edge at logEnd.
-    expect(caretXInLeaf(ib, ib.logStart, measurer)).toBeCloseTo(ib.leaf.absoluteX, 5);
-    expect(caretXInLeaf(ib, ib.logEnd, measurer)).toBeCloseTo(
+    // caretInlineCoordInLeaf: leading edge at logStart, trailing edge at logEnd.
+    expect(caretInlineCoordInLeaf(ib, ib.logStart, measurer, view.axisMap)).toBeCloseTo(ib.leaf.absoluteX, 5);
+    expect(caretInlineCoordInLeaf(ib, ib.logEnd, measurer, view.axisMap)).toBeCloseTo(
       ib.leaf.absoluteX + ib.leaf.width,
       5,
     );
 
     // offsetInLeaf: left half → logStart, right half → logEnd (midpoint split).
-    expect(offsetInLeaf(ib, ib.leaf.width * 0.25, measurer)).toBe(ib.logStart);
-    expect(offsetInLeaf(ib, ib.leaf.width * 0.75, measurer)).toBe(ib.logEnd);
+    expect(offsetInLeaf(ib, ib.leaf.width * 0.25, measurer, view.axisMap)).toBe(ib.logStart);
+    expect(offsetInLeaf(ib, ib.leaf.width * 0.75, measurer, view.axisMap)).toBe(ib.logEnd);
   });
 });
 

@@ -48,7 +48,7 @@ import { markStart, markEnd } from "../perf/perf-trace";
  *      length internally), so there is NO visual-order accumulation —
  *      the old `withinLineOffset` sum (correct only for an all-LTR line)
  *      is gone. This is the exact inverse of `cursor-position.ts`'s
- *      `caretXInLeaf`, so click↔render round-trips on bidi lines.
+ *      `caretInlineCoordInLeaf`, so click↔render round-trips on bidi lines.
  *
  * Returns (P4-C.2.2b §D) `{ position, caretAffinity }` — the resolved
  * `Position` plus the caret ASSOCIATION seed for `EditorState.caretAffinity`.
@@ -171,14 +171,19 @@ export function resolvePositionFromPixel(
     // the leaf's bidi `level` (LTR measures the click from the left edge, RTL
     // from the right), reverse-maps any text-transform display length, and adds
     // the leaf's own `logStart`. It returns the absolute STATE offset directly —
-    // the inverse of `cursor-position.ts`'s `caretXInLeaf` — so NO visual-order
+    // the inverse of `cursor-position.ts`'s `caretInlineCoordInLeaf` — so NO visual-order
     // accumulation is needed (the old `withinLineOffset` sum, correct only on an
     // all-LTR line, is gone).
     const targetBidiLeaf = visualLeaves[targetLeafIdx];
+    // P3.5a: `offsetInLeaf` now takes the leaf-local INLINE-axis offset + the
+    // line's axis map. The BODY line/leaf pick is generalized to the inline axis
+    // in P3.5b; for now (h-tb path) `am.inline === "x"`, so `x − leaf.absoluteX`
+    // IS the inline-axis local offset and this is byte-identical.
     const offset = offsetInLeaf(
       targetBidiLeaf,
       x - targetBidiLeaf.leaf.absoluteX,
       measurer,
+      view.axisMap,
     );
 
     // Caret-affinity seed (P4-C.2.2b §D): the HIT leaf owns the offset. When the

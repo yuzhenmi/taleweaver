@@ -8,14 +8,19 @@ import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
 import {
   getLineIndex,
+  coordOf,
+  sizeAlong,
+  lineCoordOf,
+  lineSizeAlong,
   type AbsoluteLineBox,
 } from "./line-flatten";
 import {
   buildLineBidiView,
-  caretXInLeaf,
+  caretInlineCoordInLeaf,
   type BidiViewLeaf,
   type CaretAffinity,
 } from "./line-bidi";
+import { axisMapFor } from "../styles/writing-mode";
 import { markStart, markEnd } from "../perf/perf-trace";
 
 // Re-exported so existing importers of `cursor-position.ts` keep working; the
@@ -421,17 +426,23 @@ function resolvePositionInOwnLines(
   // inline-blocks are atomic edges). It walks leaves in LOGICAL (state) order,
   // so a bidi-reordered line picks the right OWNING leaf (the old visual-order
   // accumulation picked the wrong leaf on a reordered line).
+  // The line's axis map: which physical axis the inline/block axes map to.
+  // `direction` is `computedStyle.direction` (M3, the canonical source).
+  const am = axisMapFor(line.writingMode, line.computedStyle.direction);
+
   const view = buildLineBidiView(target);
   if (view.isEmpty) {
-    // Strut-only line (empty paragraph): caret at the line's content edge. For
-    // an LTR paragraph that's the line's inline start (`absoluteX`) — byte-
-    // identical to the pre-bidi empty-line fast path. For an RTL paragraph the
-    // content edge is the line's RIGHT edge.
-    const x =
-      view.paragraphDirection === "rtl"
-        ? target.absoluteX + line.inlineSize
-        : target.absoluteX;
-    return pixelPositionForLine(target, x);
+    // Strut-only line (empty paragraph): caret at the line's content edge along
+    // the INLINE axis. For a non-reversed inline direction that's the line's
+    // inline-start (`coordOf(target-as-line, am.inline)`) — byte-identical to the
+    // pre-bidi empty-line fast path for h-tb LTR. For the reversed inline
+    // direction (`am.inlineReversed`, which folds in both v-rl... no: it folds in
+    // RTL in any mode) the content edge is the far inline edge, so add the line's
+    // inline-size along the inline axis. This is the ONE place `inlineReversed` is
+    // consulted at the line level (I1).
+    const base = lineCoordOf(target, am.inline);
+    const x = am.inlineReversed ? base + line.inlineSize : base;
+    return pixelPositionForLine(target, x, am);
   }
 
   // STATE offset to resolve, clamped into the line's own [start, end] range
@@ -443,20 +454,21 @@ function resolvePositionInOwnLines(
   );
 
   const owner = findLeafForOffset(view.logicalLeaves, stateOffset, caretAffinity);
-  const rawX = caretXInLeaf(owner, stateOffset, measurer);
+  const rawX = caretInlineCoordInLeaf(owner, stateOffset, measurer, am);
 
-  // #338 P2 — pin the caret to the OWNING leaf's own box edges. For a CLAMPED
-  // hung trailing space (IFC gave it width 0 at the content edge), the prefix
-  // measurement inside `caretXInLeaf` still adds ~one glyph advance, which would
-  // land the caret PAST the box edge (the reverted-Phase-2 off-page caret bug).
-  // Clamping to `[absoluteX, absoluteX + width]` pins it to the (clamped) edge.
-  // Direction-agnostic: for an LTR leaf the upper bound bites, for an RTL leaf
-  // the lower bound bites; for a normal word leaf the caret is already inside,
-  // so the clamp is a no-op.
-  const leafLeft = owner.leaf.absoluteX;
-  const leafRight = owner.leaf.absoluteX + owner.leaf.width;
-  const x = Math.max(leafLeft, Math.min(rawX, leafRight));
-  return pixelPositionForLine(target, x);
+  // #338 P2 (I2) — pin the caret to the OWNING leaf's own INLINE-axis box edges.
+  // For a CLAMPED hung trailing space (IFC gave it width 0 at the content edge),
+  // the prefix measurement inside `caretInlineCoordInLeaf` still adds ~one glyph
+  // advance, which would land the caret PAST the box edge (the reverted-Phase-2
+  // off-page caret bug). Clamping to `[coordOf(leaf, am.inline), + sizeAlong(leaf,
+  // am.inline)]` pins it to the (clamped) edge. Direction-agnostic: for an
+  // even-level leaf the upper bound bites, for an odd-level leaf the lower bound
+  // bites; for a normal word leaf the caret is already inside, so the clamp is a
+  // no-op.
+  const leafLo = coordOf(owner.leaf, am.inline);
+  const leafHi = leafLo + sizeAlong(owner.leaf, am.inline);
+  const x = Math.max(leafLo, Math.min(rawX, leafHi));
+  return pixelPositionForLine(target, x, am);
 }
 
 /**
@@ -497,14 +509,23 @@ function findLeafForOffset(
   return logicalLeaves[logicalLeaves.length - 1];
 }
 
-function pixelPositionForLine(target: AbsoluteLineBox, x: number): PixelPosition {
-  const line = target.line;
+function pixelPositionForLine(
+  target: AbsoluteLineBox,
+  x: number,
+  am: ReturnType<typeof axisMapFor>,
+): PixelPosition {
+  // `x` is the caret's INLINE-axis coordinate (already projected by the caller).
+  // `y`/`lineY` is the line block-START along the BLOCK axis; `height`/
+  // `lineHeight` its extent along the BLOCK axis. For h-tb (`am.block === "y"`)
+  // these read `absoluteY` + the physical-Y extent — byte-identical to before.
+  const blockStart = lineCoordOf(target, am.block);
+  const blockExtent = lineSizeAlong(target, am.block);
   return {
     x,
-    y: target.absoluteY,
-    height: line.blockSize,
-    lineY: target.absoluteY,
-    lineHeight: line.blockSize,
+    y: blockStart,
+    height: blockExtent,
+    lineY: blockStart,
+    lineHeight: blockExtent,
     lineMarginTop: 0,
     lineMarginBottom: 0,
     pageIndex: target.pageIndex,
@@ -560,12 +581,23 @@ function findBlockBaseline(
   const absY = parentY + box.y;
 
   if (box.key === blockId) {
+    // M1: project the box's PHYSICAL accumulators onto the inline/block field
+    // contract. `x` ← the box's physical coord along the INLINE axis, `y`/`lineY`
+    // ← along the BLOCK axis; `height`/`lineHeight` ← the box's BLOCK-axis extent
+    // (`box.width` for a vertical mode, `box.height` for h-tb). For h-tb
+    // (`am.inline === "x"`, `am.block === "y"`) this is byte-identical to the old
+    // `{x: absX, y: absY, height: box.height}`.
+    const am = axisMapFor(box.writingMode, box.computedStyle.direction);
+    const inlineCoord = am.inline === "x" ? absX : absY;
+    const blockCoord = am.block === "x" ? absX : absY;
+    const blockExtentRaw = am.block === "x" ? box.width : box.height;
+    const blockExtent = blockExtentRaw > 0 ? blockExtentRaw : 16;
     return {
-      x: absX,
-      y: absY,
-      height: box.height > 0 ? box.height : 16,
-      lineY: absY,
-      lineHeight: box.height > 0 ? box.height : 16,
+      x: inlineCoord,
+      y: blockCoord,
+      height: blockExtent,
+      lineY: blockCoord,
+      lineHeight: blockExtent,
       lineMarginTop: 0,
       lineMarginBottom: 0,
       pageIndex,

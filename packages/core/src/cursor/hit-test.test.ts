@@ -454,7 +454,7 @@ describe("P4-C.2.2a — RTL-aware hit-test OFFSET (click → correct logical off
   //   "abc אבג" → "abc" x[0,24], " " x[24,32], "אבג" x[32,56].
 
   it("round-trip with C.2.1 (uniform RTL 'אבג'): click at caret X of offset k returns offset k", () => {
-    // caretXInLeaf places offset k of the RTL run at x = 24 − 8k (from
+    // caretInlineCoordInLeaf places offset k of the RTL run at x = 24 − 8k (from
     // cursor-position.test.ts): offset 0→24, 1→16, 2→8, 3→0. Clicking those
     // exact Xs must invert back to k. The clamps below (+2 / −2) nudge off the
     // exact glyph boundary so the nearest-char midpoint rule resolves
@@ -664,7 +664,7 @@ describe("editor default white-space: break-spaces (multiple spaces render)", ()
     // Rendered content width: "a"(8) + " "(8) + " "(8) + "b"(8) = 32px.
     // Under collapse it would be 24px (one space dropped). Sum the rendered
     // widths of the line's leaves (text-runs).
-    const leaves = collectLineLeaves(al.line, al.absoluteX);
+    const leaves = collectLineLeaves(al.line, al.absoluteX, al.absoluteY);
     const width = leaves.reduce((sum, leaf) => sum + leaf.width, 0);
     expect(width).toBe(32);
   });
