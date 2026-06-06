@@ -376,11 +376,24 @@ export function freshStateFromDoc(state: State): State {
  */
 export function applyOperation(
   state: State,
-  fn: (doc: Y.Doc) => void,
+  fn: (doc: Y.Doc) => void | ReadonlySet<BlockId>,
 ): OperationResult {
   const internal = state[STATE_INTERNAL];
   const doc = internal.doc;
-  const { dirtyIds } = runTransaction(doc, () => fn(doc));
+  let extra: ReadonlySet<BlockId> | undefined;
+  const { dirtyIds: captured } = runTransaction(doc, () => {
+    extra = fn(doc) ?? undefined;
+  });
+  // Union op-contributed ids (e.g. a listDef-only write → affected-block-ids)
+  // with the transaction-captured ids — BEFORE the size===0 short-circuit and
+  // BEFORE cache invalidation, so a config-only write that touches no block in
+  // the tree (and therefore captures nothing) still invalidates the blocks it
+  // affects. When fn returns nothing (the common case), `captured` is reused as
+  // a reference so existing void-returning ops allocate nothing extra.
+  const dirtyIds: ReadonlySet<BlockId> =
+    extra === undefined || extra.size === 0
+      ? captured
+      : new Set<BlockId>([...captured, ...extra]);
   if (dirtyIds.size === 0) {
     // No-op transaction: return the input state reference unchanged.
     // Preserves identity so callers can short-circuit on
