@@ -52,6 +52,7 @@ import {
   handleSectionBreak,
   handleToggleSectionLandscape,
   handleInsertHeaderFooter,
+  handleInsertHorizontalLine,
   handleInsertFootnote,
   handleSetTextAlign,
   handleSetLineSpacing,
@@ -443,6 +444,9 @@ export function reduceEditor(
       break;
     case "INSERT_FOOTNOTE":
       result = handleInsertFootnote(editor, config);
+      break;
+    case "INSERT_HORIZONTAL_LINE":
+      result = handleInsertHorizontalLine(editor, config);
       break;
     case "SET_TEXT_ALIGN":
       result = handleSetTextAlign(editor, action.align, config);

@@ -49,6 +49,7 @@ export type EditorAction =
   | { type: "INSERT_HEADER" }
   | { type: "INSERT_FOOTER" }
   | { type: "INSERT_FOOTNOTE" }
+  | { type: "INSERT_HORIZONTAL_LINE" }
   | { type: "SET_TEXT_ALIGN"; align: TextAlign }
   | { type: "SET_LINE_SPACING"; spacing: number }
   | { type: "INDENT" }
