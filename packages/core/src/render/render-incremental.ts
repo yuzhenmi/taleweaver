@@ -205,11 +205,9 @@ export function renderIncremental(
   // path does, so any list-item that gets re-rendered on this cycle (i.e. it's
   // in `invalidated` — e.g. the user typed inside it) bakes its CORRECT marker
   // rather than losing it. This is a render-time computation (position + defs),
-  // independent of the incremental diff. What Task 11 still adds is the renumber
-  // DIFF — expanding `invalidated` to the FOLLOWING items when an edit changes
-  // their numbers (insert/delete/reorder), mirroring the footnote renumber pass
-  // above. Until then, a structural edit renumbers correctly only for the items
-  // already in `invalidated`; a reused (unchanged) item keeps its prev marker.
+  // independent of the incremental diff. The renumber DIFF that expands
+  // `invalidated` to the FOLLOWING items whose numbers changed is applied
+  // immediately below (mirroring the footnote renumber pass above).
   const listEvents = docHasLists(state) ? collectListEvents(state) : [];
   const listCounters =
     listEvents.length > 0

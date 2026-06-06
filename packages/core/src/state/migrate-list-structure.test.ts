@@ -76,6 +76,40 @@ describe("migrateListStructure", () => {
     expect(getBlock(migrated, "i2" as BlockId)?.nextSiblingId).toBe("i3");
   });
 
+  it("two adjacent sibling lists each get a DISTINCT listId (independent numbering)", () => {
+    // OLD structural: root > [list1 > [i1, i2], list2 > [i3, i4]] — two
+    // independent top-level lists. Each must migrate to its own listId so their
+    // counters restart independently rather than running together.
+    const twoLists = buildState({
+      rootId: "root",
+      blocks: [
+        buildBlock({ id: "root", type: "doc", firstChildId: "list1", lastChildId: "list2" }),
+        buildBlock({ id: "list1", type: "list", parentId: "root", nextSiblingId: "list2", firstChildId: "i1", lastChildId: "i2", attrs: { listType: "ordered" } }),
+        buildBlock({ id: "i1", type: "list-item", parentId: "list1", nextSiblingId: "i2", inlineContent: { items: [] } }),
+        buildBlock({ id: "i2", type: "list-item", parentId: "list1", prevSiblingId: "i1", inlineContent: { items: [] } }),
+        buildBlock({ id: "list2", type: "list", parentId: "root", prevSiblingId: "list1", firstChildId: "i3", lastChildId: "i4", attrs: { listType: "ordered" } }),
+        buildBlock({ id: "i3", type: "list-item", parentId: "list2", nextSiblingId: "i4", inlineContent: { items: [] } }),
+        buildBlock({ id: "i4", type: "list-item", parentId: "list2", prevSiblingId: "i3", inlineContent: { items: [] } }),
+      ],
+    });
+    const migrated = migrateListStructure(twoLists);
+
+    const listId1 = getBlock(migrated, "i1" as BlockId)?.attrs.listId;
+    const listId3 = getBlock(migrated, "i3" as BlockId)?.attrs.listId;
+    expect(typeof listId1).toBe("string");
+    expect(typeof listId3).toBe("string");
+    // The two original lists migrate to DISTINCT listIds.
+    expect(listId1).not.toBe(listId3);
+    // Items within one original list share its listId.
+    expect(getBlock(migrated, "i2" as BlockId)?.attrs.listId).toBe(listId1);
+    expect(getBlock(migrated, "i4" as BlockId)?.attrs.listId).toBe(listId3);
+    // Both containers removed; items reparented flat under root in document order.
+    expect(getBlock(migrated, "list1" as BlockId)).toBeNull();
+    expect(getBlock(migrated, "list2" as BlockId)).toBeNull();
+    expect(getBlock(migrated, "root" as BlockId)?.firstChildId).toBe("i1");
+    expect(getBlock(migrated, "i2" as BlockId)?.nextSiblingId).toBe("i3");
+  });
+
   it("is a no-op (identity) on a doc with no list containers", () => {
     const plain = buildState({
       rootId: "root",
