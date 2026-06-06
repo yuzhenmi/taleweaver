@@ -6,6 +6,7 @@ import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
 import { handleListIndent } from "./list-indent";
 import { listLevelOf, unlistBlock } from "./list-edits";
+import { deleteAdjacentAtomicLeaf } from "./atomic-edits";
 
 export function handleDeleteBackward(
   editor: EditorState,
@@ -73,6 +74,19 @@ export function handleDeleteBackward(
       ? handleListIndent(editor, -1, config)
       : unlistBlock(editor, currentBlock, config);
   }
+
+  // Backspace at the start of a block whose immediately-preceding sibling is an
+  // atomic-leaf (image / horizontal-line): delete that atomic object as a unit
+  // (Google Docs). moveByCharacter skips atomic blocks (no inlineContent), so
+  // without this the merge path no-ops and the object can't be removed.
+  const atomicDeleted = deleteAdjacentAtomicLeaf(
+    editor,
+    config,
+    currentBlock,
+    "backward",
+    pos,
+  );
+  if (atomicDeleted !== null) return atomicDeleted;
 
   const prevPos = moveByCharacter(editor.state, pos, "backward");
   if (prevPos.blockId === pos.blockId) {

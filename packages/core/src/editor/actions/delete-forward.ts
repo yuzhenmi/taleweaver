@@ -4,6 +4,7 @@ import { moveByCharacter } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
+import { deleteAdjacentAtomicLeaf } from "./atomic-edits";
 
 export function handleDeleteForward(
   editor: EditorState,
@@ -64,6 +65,19 @@ export function handleDeleteForward(
       result.dirtyIds,
     );
   }
+
+  // Delete at the end of a block whose immediately-following sibling is an
+  // atomic-leaf (image / horizontal-line): delete that atomic object as a unit
+  // (Google Docs). moveByCharacter skips atomic blocks (no inlineContent), so
+  // without this the merge path no-ops and the object can't be removed.
+  const atomicDeleted = deleteAdjacentAtomicLeaf(
+    editor,
+    config,
+    currentBlock,
+    "forward",
+    pos,
+  );
+  if (atomicDeleted !== null) return atomicDeleted;
 
   // pos.offset === end of block: cross-block forward delete (merge next into current).
   const nextPos = moveByCharacter(editor.state, pos, "forward");
