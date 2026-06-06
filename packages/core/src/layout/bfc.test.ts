@@ -1392,9 +1392,16 @@ describe("BFC — list-item leaf carries its own marker presentation (component-
   const MARKER_GAP = 4;
   const CHAR_W = 8;
 
+  // FLAT model: the marker comes from the render-time numbering service via
+  // ctx.counterValue (the component bakes it into style.markerText). These BFC
+  // tests supply the counter directly per item (in production the render pass
+  // computes it via computeCounters); the component appends "." for numbered
+  // styles and renders bullet glyphs as-is. `counter.formatted` is what the
+  // numbering engine would produce ("1"/"2"/… for decimal, "•"/"○"/"▪" for
+  // bullets). Items carry flat attrs (listId/listLevel), not the old listType.
   function listItemBox(
     key: string,
-    listType: "ordered" | "unordered",
+    counter: { value: number; formatted: string },
     text: string,
     extraAttrs: Record<string, unknown> = {},
   ): ReturnType<typeof createElementBox> {
@@ -1402,12 +1409,16 @@ describe("BFC — list-item leaf carries its own marker presentation (component-
       {
         id: key as unknown as import("../state").BlockId,
         type: "list-item",
-        attrs: Object.freeze({ listType, ...extraAttrs }),
+        attrs: Object.freeze({ listId: "L1", listLevel: 0, ...extraAttrs }),
         computedStyle: {} as import("../styles").ComputedStyle,
         kind: "leaf",
         inlineContent: { items: [] },
       },
-      { state: {} as import("../state").State, footnoteNumber: () => undefined },
+      {
+        state: {} as import("../state").State,
+        footnoteNumber: () => undefined,
+        counterValue: () => counter,
+      },
       [createTextBox(`${key}-t`, {}, text)],
     );
     if (el.type !== "element") throw new Error("component did not return an element");
@@ -1424,15 +1435,15 @@ describe("BFC — list-item leaf carries its own marker presentation (component-
 
   it("ordered list-items emit DECIMAL counter markers (1., 2., 3.) — not bullets — continuing across consecutive items", () => {
     const out = layoutItems([
-      listItemBox("li1", "ordered", "first"),
-      listItemBox("li2", "ordered", "second"),
-      listItemBox("li3", "ordered", "third"),
+      listItemBox("li1", { value: 1, formatted: "1" }, "first"),
+      listItemBox("li2", { value: 2, formatted: "2" }, "second"),
+      listItemBox("li3", { value: 3, formatted: "3" }, "third"),
     ]);
     expect(collectMarkers(out).map(m => m.text)).toEqual(["1.", "2.", "3."]);
   });
 
   it("ordered marker sits at a POSITIVE inline offset inside the content column, glued to the indented content edge", () => {
-    const out = layoutItems([listItemBox("li1", "ordered", "first")]);
+    const out = layoutItems([listItemBox("li1", { value: 1, formatted: "1" }, "first")]);
     const li1 = out.children.find(c => c.key === "li1");
     if (!li1) throw new Error("li1 block not found");
     const pad = absoluteContentEdge(li1); // content lines start at paddingInlineStart
@@ -1449,7 +1460,7 @@ describe("BFC — list-item leaf carries its own marker presentation (component-
   });
 
   it("unordered list-item emits the bullet '•' at the same positive offset", () => {
-    const out = layoutItems([listItemBox("ul1", "unordered", "x")]);
+    const out = layoutItems([listItemBox("ul1", { value: 1, formatted: "•" }, "x")]);
     const ul1 = out.children.find(c => c.key === "ul1");
     if (!ul1) throw new Error("ul1 block not found");
     const pad = absoluteContentEdge(ul1);
@@ -1461,12 +1472,12 @@ describe("BFC — list-item leaf carries its own marker presentation (component-
   });
 
   it("a user marginInlineStart indent ADDS ON TOP OF the base list indent (content + marker shift together)", () => {
-    const base = layoutItems([listItemBox("li1", "ordered", "first")]);
+    const base = layoutItems([listItemBox("li1", { value: 1, formatted: "1" }, "first")]);
     const baseLi = base.children.find(c => c.key === "li1");
     if (!baseLi) throw new Error("baseLi not found");
     const basePad = absoluteContentEdge(baseLi);
 
-    const indented = layoutItems([listItemBox("li1", "ordered", "first", { marginInlineStart: 48 })]);
+    const indented = layoutItems([listItemBox("li1", { value: 1, formatted: "1" }, "first", { marginInlineStart: 48 })]);
     const indentedLi = indented.children.find(c => c.key === "li1");
     if (!indentedLi) throw new Error("indentedLi not found");
     const indentedPad = absoluteContentEdge(indentedLi);

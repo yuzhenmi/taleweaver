@@ -1,5 +1,6 @@
 import type { BlockId, ReadonlyAttrs, InlineContent, State } from "../state";
 import type { ComputedStyle } from "../styles";
+import type { CounterValue } from "../numbering/types";
 
 /**
  * Render-time view of a single block. Components receive this; the
@@ -61,4 +62,13 @@ export interface RenderContext {
    * cursor offsets).
    */
   footnoteNumber(contentBlockId: BlockId): string | undefined;
+  /**
+   * General render-time counter lookup. Returns the computed number for a block
+   * within a numbering scope (e.g. a list-item within its listId), or undefined
+   * if the block has no counter / the scope isn't numbered this cycle. OPTIONAL
+   * so existing stubs and the not-yet-wired path remain valid; the production
+   * factory (makeRenderContext) supplies it in a later task. Lists are the first
+   * consumer; custom numbered components consume the same API.
+   */
+  counterValue?(scopeKey: string, blockId: BlockId): CounterValue | undefined;
 }
