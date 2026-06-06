@@ -1,7 +1,61 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { getBlock, removeBlock, createSpan } from "../../state";
-import type { Block, Position } from "../../state";
+import {
+  getBlock,
+  removeBlock,
+  insertBlocksAfter,
+  productionAllocator,
+  createPosition,
+  createSpan,
+} from "../../state";
+import type { Block, Position, SiblingBlockInit } from "../../state";
 import { rebuildTrees } from "./helpers";
+
+/**
+ * Insert an atomic-leaf block (image / horizontal-line) immediately AFTER the
+ * caret's focus block, followed by a fresh empty paragraph so the caret has an
+ * editable landing spot below it (Google Docs leaves you on a new line after an
+ * inserted rule/image); the caret lands at the start of that paragraph. One
+ * undo entry. Shared by `handleInsertHorizontalLine` / `handleInsertImage` —
+ * only the atomic block's init differs.
+ *
+ * No-op (same `editor` reference, no `history.commit`) when the focus block is
+ * missing, is the root, or is not in the MAIN tree — `insertBlocksAfter` /
+ * `getBlock` are main-tree-only, so a caret inside a header/footer/footnote
+ * body is out of scope (design D3).
+ */
+export function insertAtomicBlockAfterFocus(
+  editor: EditorState,
+  config: EditorConfig,
+  atomicInit: SiblingBlockInit,
+): EditorState {
+  const focus = getBlock(editor.state, editor.selection.focus.blockId);
+  if (focus === null || focus.parentId === null) return editor;
+
+  const result = insertBlocksAfter(
+    editor.state,
+    focus.id,
+    [atomicInit, { type: "paragraph", inlineContent: { items: [] } }],
+    productionAllocator,
+  );
+  if (result.state === editor.state) return editor;
+
+  // newBlockIds = [atomic, paragraph]; caret lands in the paragraph.
+  const paragraphId = result.newBlockIds[1];
+  if (paragraphId === undefined) return editor; // defensive: both always inserted
+
+  const caret = createPosition(paragraphId, 0);
+  const after = createSpan(caret, caret);
+  editor.history.commit(
+    { state: result.state, dirtyIds: result.dirtyIds },
+    { before: editor.selection, after },
+  );
+  return rebuildTrees(
+    { ...editor, state: result.state, selection: after },
+    editor,
+    config,
+    result.dirtyIds,
+  );
+}
 
 /**
  * Google-Docs atomic-object deletion at a block boundary (#P11.3). An
