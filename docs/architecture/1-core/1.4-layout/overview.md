@@ -151,8 +151,13 @@ each box's `display` value.
   (`BlockBox`, `LineBox`, `TextRunBox`, `InlineBox`, `MarkerBox`,
   `TableBox`, `TableRowBox`, `TableCellBox`) and the per-type frozen
   factories. Each factory takes logical-axis args, applies `writingMode`
-  + `direction`, and emits both logical and physical fields. Also
-  defines `withInlineOffset` for IFC bidi reorder.
+  + `direction` via `logicalToPhysical`, and emits both logical and
+  physical fields. Also defines `withInlineOffset` for IFC bidi reorder.
+
+- **`physicalize-vertical`** — `physicalizeVertical(box,
+  containerBlockSize)` runs the `vertical-rl` post-layout block-axis mirror
+  (see [Logical-axis discipline](#logical-axis-discipline-and-the-vertical-rl-physicalize-pass)
+  below).
 
 - **`used-style`** — `computeUsedStyle(computedStyle,
   containingInlineSize, containingBlockSize)` resolves
@@ -192,6 +197,39 @@ widths) calls into it without recomputing.
 
 The IFC-state cache sits per-paragraph; an unchanged paragraph short-
 circuits its entire wrap.
+
+## Logical-axis discipline and the vertical-rl physicalize pass
+
+The formatting contexts compute geometry on the **logical** axes, never on
+the physical `width`/`height`/`x`/`y`. BFC block-advancement and the final
+block-size accumulate the child's `blockSize`; IFC line packing and content
+extents use `inlineSize`; inline-block sizing projects the child's physical
+box onto the parent IFC's inline/block axes via `axisMapFor`; the bidi
+reorder packs visual order into the logical `inlineOffset` so that
+`logicalToPhysical` maps it onto the active physical inline axis (x for
+`horizontal-tb`, y for the vertical modes). Each box's physical fields are
+derived from its logical fields by its factory's `logicalToPhysical` call.
+This keeps a single layout algorithm correct across all three writing modes
+— the FC code reads no physical coordinate, so the writing mode lives
+entirely in the logical→physical mapping.
+
+The one mapping a factory cannot complete eagerly is the `vertical-rl`
+block-axis mirror (`x = containingBlockSize − blockOffset − blockSize`): an
+auto-size block's block-size is the OUTPUT of laying out its children, so at
+factory time the containing block-size is `"indefinite"` and the factory
+stores the un-mirrored pending x. `physicalizeVertical(box,
+containerBlockSize)` runs after layout (and pagination) finishes, when every
+container's `blockSize` is resolved, and recursively bakes the mirror into a
+fully-physical tree. It runs at both layout seams — the non-virtual
+`paginateRoot` and the virtual `materializePage` — and recurses into a
+`PageBox`'s named `headerSlot` / `footerSlot` / `footnoteSlot` as well as its
+`children`; the page FRAME itself is not mirrored, only the page CONTENT.
+For `horizontal-tb` and `vertical-lr` (no block-axis mirror) it returns the
+input box by reference — zero cost, byte-identical for all non-`vertical-rl`
+content. After this pass `box.x` / `box.y` are authoritative for every
+downstream consumer (paint, hit-test, caret, selection). See
+[`1.0-styles.md`](../1.0-styles.md#logicaltophysical--full-mapping-for-all-writing-modes)
+for the per-mode mapping table.
 
 ## Reading order
 
@@ -258,7 +296,7 @@ Per-variant additions:
 
 Positions are **parent-relative**. Painters/hit-testers walk the tree accumulating offsets cumulatively.
 
-Factories: one per variant (`createBlockBox`, etc.). Each takes logical-axis args plus `containingInlineSize` and runs `logicalToPhysical` to fill `x` / `y` / `width` / `height`. All output is `Object.freeze`d.
+Factories: one per variant (`createBlockBox`, etc.). Each takes logical-axis args plus `containingInlineSize` (and, for `vertical-rl`, an optional `containingBlockSize` — absent at factory time, supplied later by the `physicalizeVertical` pass) and runs `logicalToPhysical` to fill `x` / `y` / `width` / `height`. All output is `Object.freeze`d.
 
 ### `LayoutBoxMetadata`
 

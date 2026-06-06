@@ -25,8 +25,6 @@ imports from here.
 Schema reservations (present in `Style` and `ComputedStyle` but not yet consumed by any code path):
 - `widows`, `orphans` — required by pagination.
 - `hyphens`, `fontFeatureSettings`, `tabSize` — required by typography phase 1 (P5); resolved into `UsedStyle` but not yet read by any tokenizer/layout/paint consumer. (`textAlign` incl. justify, `textWrap`/`whiteSpace`, `textIndent`, `letterSpacing`/`wordSpacing`, and `textTransform` are NOW consumed — `letterSpacing`/`wordSpacing` via `layout/text-spacing.ts` (applied in the shapers + IFC trailing-trim + renderer); `textTransform` via the `textTransformInterpreter` cascade interpreter + the IFC's per-token display transform (`layout/text-transform.ts`) + the `SET_TEXT_TRANSFORM` editor action + toolbar — so they are no longer schema-only.)
-- Vertical writing-mode values (`vertical-rl`, `vertical-lr`) — typed but `logicalToPhysical` throws for them.
-
 Schema items genuinely missing:
 - `overflow` — required by `establishesNewBFC`'s full check.
 - `position: absolute / fixed`, `transform`, `opacity` — required by positioning + visual-chrome work.
@@ -265,6 +263,50 @@ Flag-gated `markStart` / `markEnd` / `recordSample` / `report` /
 `resetPerfTrace`. Markers installed across cascade, layout, paint, and
 read-path functions. React example exposes `window.__perfReport()` /
 `window.__perfReset()` when a perf fixture is loaded.
+
+### Vertical writing modes (`vertical-rl`, `vertical-lr`) `[partial]`
+
+A cross-cutting feature spanning styles, cascade, layout, and the
+editing-geometry layer. The `writingMode` block attribute flows through the
+component-set convention (`components/leaf-style-attrs.ts`) into the cascade
+(inherited, per `PROPERTY_META`) and layout.
+
+Implemented:
+- **Axis arithmetic.** `logicalToPhysical` handles all three modes via an
+  exhaustive switch guarded by `assertNeverWritingMode` (a future 4th mode is
+  a compile error at every call site); `axisMapFor` exposes which physical
+  axis each logical axis maps to, and `physicalToLogical` is the exact
+  inverse. See [`1-core/1.0-styles.md`](1-core/1.0-styles.md).
+- **Layout.** Block-advancement and inline-extent sites operate on the logical
+  `blockSize`/`inlineSize` (not physical `width`/`height`); inline-block sizing
+  projects the child's physical box onto the parent IFC's axes via `axisMapFor`;
+  the bidi reorder packs visual order into the logical `inlineOffset` so it maps
+  to the active physical inline axis. The `vertical-rl` block-axis mirror (`x =
+  containingBlockSize − blockOffset − blockSize`), which needs a containing
+  block-size that is indefinite at box-factory time, is applied by a post-layout
+  `physicalizeVertical` pass at both layout seams (the non-virtual `paginateRoot`
+  and the virtual `materializePage`); `horizontal-tb` and `vertical-lr` are a
+  reference-identity no-op.
+- **Editing geometry.** Caret placement, hit-test (BODY line/leaf pick),
+  selection rects, and line-navigation read already-physical box coords through
+  `axisMapFor` to operate on the active inline/block axes; the bidi cursor is
+  generalized to the inline axis. See [`1-core/1.7-editor.md`](1-core/1.7-editor.md).
+- **Border-side mapping.** `physicalBorderSides` resolves logical border/padding
+  sides to physical top/right/bottom/left for every (writingMode, direction)
+  combo via an exhaustive switch. See [`2-dom/2.2-canvas-renderer.md`](2-dom/2.2-canvas-renderer.md).
+
+Missing (the browser-gated remainder):
+- **Glyph rotation for vertical text** — per-run ±90° rotation so a
+  horizontal-script run paints downward along the inline axis (`text-orientation:
+  upright` for CJK is a future property). The renderer still paints horizontally.
+- **Caret-bar orientation** — drawing the caret's block-axis extent as a
+  horizontal bar in vertical modes; the caret still draws as a vertical bar.
+- **Controller projection** — the DOM controller's projection of the
+  inline/block-semantic `PixelPosition` to CSS left/top for vertical modes
+  (identity for `horizontal-tb`, so no current divergence there).
+- **Slot-zone hit-test** — `pickRegionByBand`'s header/footer/footnote zone
+  classification stays on the `horizontal-tb` (vertical-band) path; only the
+  BODY hit-test is axis-generalized.
 
 ---
 
