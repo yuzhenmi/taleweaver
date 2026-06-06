@@ -713,6 +713,25 @@ describe("BFC — inline-block shrink-to-fit", () => {
     // Should shrink-to-fit to "abc" max-content = 30, not fill parent's 500.
     expect(ibBox.width).toBe(30);
   });
+
+  it("inline-block with auto inline-size CLAMPS to available when max-content exceeds it (CSS Sizing 3 §10.3.5)", () => {
+    // "ab cd" charWidth=10 → maxContent=50 (both words + space). available=30 is
+    // below maxContent and at/above the min-content floor, so shrink-to-fit =
+    // min(maxContent=50, max(minContent, available=30)) = 30 — it CLAMPS to
+    // available rather than overflowing at maxContent.
+    const text = createTextBox("t", {}, "ab cd");
+    const ib = createElementBox("ib", { display: "inline-block" }, [text]);
+    const para = createElementBox("p", { display: "block" }, [ib]);
+    const cascaded = cascadePass(para);
+    if (cascaded.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 30);
+    const r = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16));
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const ibBox = findBoxByKey(r.box, "ib");
+    expect(ibBox).toBeDefined();
+    expect(ibBox?.width).toBe(30);
+  });
+
 });
 
 describe("BFC — floats", () => {
