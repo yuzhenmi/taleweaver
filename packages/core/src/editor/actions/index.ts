@@ -36,6 +36,7 @@ export { handleSectionBreak } from "./section-break";
 export { handleToggleSectionLandscape } from "./toggle-section-landscape";
 export { handleInsertHeaderFooter } from "./insert-header-footer";
 export { handleInsertHorizontalLine } from "./insert-horizontal-line";
+export { handleInsertImage } from "./insert-image";
 export { handleInsertFootnote } from "./insert-footnote-action";
 export { handleSetTextAlign } from "./set-text-align";
 export { handleSetLineSpacing } from "./set-line-spacing";
