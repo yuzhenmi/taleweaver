@@ -1,4 +1,4 @@
-import type { Style } from "./style";
+import type { Style, CounterAction } from "./style";
 import type { ComputedStyle } from "./computed-style";
 
 export const PROPERTY_META: Record<keyof Style, { inherits: boolean }> = {
@@ -84,7 +84,23 @@ export const PROPERTY_META: Record<keyof Style, { inherits: boolean }> = {
   listStylePosition: { inherits: true },
 
   markerText:        { inherits: false },
+
+  // Generated content + CSS counters — none inherit (CSS Generated Content 3 /
+  // Lists 3).
+  content:           { inherits: false },
+  counterReset:      { inherits: false },
+  counterIncrement:  { inherits: false },
 };
+
+/**
+ * Shared frozen empty array used as the INITIAL value for BOTH `counterReset`
+ * and `counterIncrement`. A single reference keeps `composeComputed`'s
+ * initial-value fallthrough ref-equal across all default-path computed styles
+ * (so `computedStylesEqual`'s `av === bv` fast-path fires and incremental reuse
+ * is preserved), mirroring the `fontFeatureSettings: []` precedent above. Frozen
+ * so it can't be mutated through the readonly array type.
+ */
+const EMPTY_COUNTER_ACTIONS: readonly CounterAction[] = Object.freeze([]);
 
 export const INITIAL_COMPUTED_STYLE: ComputedStyle = {
   display: "inline",
@@ -161,4 +177,8 @@ export const INITIAL_COMPUTED_STYLE: ComputedStyle = {
   listStylePosition: "outside",
 
   markerText: undefined,
+
+  content:          "normal",
+  counterReset:     EMPTY_COUNTER_ACTIONS,
+  counterIncrement: EMPTY_COUNTER_ACTIONS,
 };

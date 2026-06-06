@@ -1,6 +1,7 @@
 import type { Length, LengthOrAuto, IntrinsicSizingKeyword } from "./length";
 import type { Color } from "./color";
 import type { WritingMode, Direction } from "./writing-mode";
+import type { CounterStyle } from "./format-counter";
 
 export type Display =
   | "block" | "inline" | "inline-block" | "list-item"
@@ -43,6 +44,39 @@ export type ListStyleType =
 export type ListStylePosition = "outside" | "inside";
 
 export type BoxSizing = "content-box" | "border-box";
+
+/**
+ * One segment of a CSS `content` value (CSS Generated Content 3). A `content`
+ * value is a concatenated sequence of these parts.
+ *
+ * Discriminated on `kind` so future part kinds (e.g. `attr()`, `url()`) slot in
+ * as additional members WITHOUT a breaking change — every consumer narrows on
+ * `kind` and an exhaustive switch surfaces the new member at compile time.
+ *
+ * - `string`  — a literal string written verbatim.
+ * - `counter` — `counter(name, style?)`: the innermost in-scope value of `name`,
+ *   formatted BARE via the shared `formatCounter` under `style`.
+ * - `counters` — `counters(name, sep, style?)`: ALL in-scope values of `name`
+ *   joined by `sep` (the nested form, e.g. "1.2.3"), each formatted bare.
+ */
+export type ContentPart =
+  | { readonly kind: "string"; readonly value: string }
+  | { readonly kind: "counter"; readonly name: string; readonly style: CounterStyle }
+  | { readonly kind: "counters"; readonly name: string; readonly sep: string; readonly style: CounterStyle };
+
+/**
+ * A CSS `content` value: `"normal"` / `"none"` (no generated content), or a
+ * concatenated sequence of `ContentPart`s (synthesized into a `::before`/
+ * `::after` pseudo-element at cascade time — P9a.4).
+ */
+export type ContentValue = "normal" | "none" | readonly ContentPart[];
+
+/**
+ * One `counter-reset` / `counter-increment` action. `value` is always explicit
+ * in the stored shape — the attr interpreter applies the CSS defaults (reset 0,
+ * increment 1) when authoring, so the resolver never re-derives them.
+ */
+export type CounterAction = { readonly name: string; readonly value: number };
 
 /** Partial style — what a render fn or state node specifies. Properties are optional. */
 export interface Style {
@@ -141,4 +175,11 @@ export interface Style {
   // marker". Non-inheriting. The marker is a generated layout sibling, NOT an
   // editable/offset-bearing inline item.
   readonly markerText?: string;
+
+  // Generated content + CSS counters (CSS Generated Content 3 / Lists 3). These
+  // are COMPUTED-STYLE properties set by components/attr-interpreters (like
+  // `listStyleType`), not user-facing editor attributes in P9a. None inherit.
+  readonly content?:          ContentValue;
+  readonly counterReset?:     readonly CounterAction[];
+  readonly counterIncrement?: readonly CounterAction[];
 }
