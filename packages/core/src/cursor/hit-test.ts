@@ -6,8 +6,9 @@ import type { PageBox } from "../layout/page-box";
 import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
-import { getLineIndex } from "./line-flatten";
+import { getLineIndex, coordOf, sizeAlong, lineCoordOf, lineSizeAlong } from "./line-flatten";
 import { buildLineBidiView, offsetInLeaf, type CaretAffinity } from "./line-bidi";
+import { axisMapFor } from "../styles/writing-mode";
 import { markStart, markEnd } from "../perf/perf-trace";
 
 /**
@@ -20,30 +21,40 @@ import { markStart, markEnd } from "../perf/perf-trace";
  *      `collectLineBoxes` (line identity is the LineBox reference, not
  *      a `(pageIndex, absoluteY)` tuple — float-Y fragility resolved).
  *   2. Filter to the requested `pageIndex` when the doc is paginated.
- *   3. Pick the line whose vertical range `[absoluteY,
- *      absoluteY + line.blockSize]` contains `y`, falling back to the
- *      last line for clicks below all content. Sub-pixel snap at line
- *      boundaries (0.5 px tolerance to the next line's top).
+ *   3. Pick the line whose BLOCK-axis band `[blockStart, blockStart +
+ *      blockExtent]` contains the click's block-axis component, falling
+ *      back to the last line for clicks past all content. The block axis is
+ *      physical Y for h-tb and physical X for the vertical modes
+ *      (`axisMapFor(line.writingMode, line.computedStyle.direction)`,
+ *      read per line); `vertical-rl` stacks blocks right→left so the walk
+ *      runs in FLOW order (the block coord negated for the reversed axis).
+ *      Sub-pixel snap at line boundaries (0.5 px tolerance to the next
+ *      line's block-start). h-tb is byte-identical to the old `y <
+ *      absoluteY + blockSize` ascending pick.
  *   4. Empty line (no leaf children): return
  *      `Position(line.ownerBlockId, line.inlineOffsetStart)`. No
  *      synthetic-strut fallback needed — the LineBox itself carries
  *      the owning block and the offset.
  *   5. Build the line's `LineBidiView` (P4-C.2). Within the picked
  *      line, walk leaves (text-runs + inline-blocks) in VISUAL order
- *      via `collectLineLeaves`. Pick the leaf whose X range contains
- *      `x`; fall back to the last leaf for clicks past line end. The
- *      view's `visualLeaves` is in the SAME collection order, so the
- *      picked leaf's `BidiViewLeaf` (carrying its `logStart` and bidi
- *      `level`) is `visualLeaves[targetLeafIdx]`.
- *   6. `offset = offsetInLeaf(thatBidiViewLeaf, x − leaf.absoluteX,
- *      measurer)` (P4-C.2 §C). This is RTL-aware: an LTR leaf measures
- *      the click from its left edge; an RTL leaf measures from its right
- *      edge (so a click on the visual-left of an RTL run resolves to the
- *      logically-LAST offset, the OPPOSITE of LTR). For an inline-block
- *      leaf (a 1-unit embed, e.g. a footnote marker) it splits at the
- *      box midpoint — `logStart` (leading, before the embed) when `x` is
- *      in the left half, `logEnd` (trailing, after it) when in the right
- *      half. `offsetInLeaf` returns the STATE offset directly (it adds
+ *      via `collectLineLeaves`. Pick the leaf whose INLINE-axis range
+ *      (`coordOf(leaf, am.inline)` .. `+ sizeAlong(leaf, am.inline)`)
+ *      contains the click's inline-axis component — physical X for h-tb,
+ *      physical Y for the vertical modes (inline runs down the page) —
+ *      falling back to the last leaf for clicks past line end. The view's
+ *      `visualLeaves` is in the SAME collection order (ascending along the
+ *      inline axis in every mode), so the picked leaf's `BidiViewLeaf`
+ *      (carrying its `logStart` and bidi `level`) is
+ *      `visualLeaves[targetLeafIdx]`.
+ *   6. `offset = offsetInLeaf(thatBidiViewLeaf, clickInline −
+ *      coordOf(leaf, am.inline), measurer, am)` (P4-C.2 §C). This is
+ *      RTL-aware: an LTR leaf measures the click from its inline-start
+ *      edge; an RTL leaf from its inline-end (so a click on the visual-left
+ *      of an RTL run resolves to the logically-LAST offset, the OPPOSITE of
+ *      LTR). For an inline-block leaf (a 1-unit embed, e.g. a footnote
+ *      marker) it splits at the box midpoint — `logStart` (leading, before
+ *      the embed) in the first half, `logEnd` (trailing, after it) in the
+ *      second. `offsetInLeaf` returns the STATE offset directly (it adds
  *      the leaf's `logStart` and reverse-maps any text-transform display
  *      length internally), so there is NO visual-order accumulation —
  *      the old `withinLineOffset` sum (correct only for an all-LTR line)
@@ -108,18 +119,53 @@ export function resolvePositionFromPixel(
     // click `y` falls in.
     const region = pickRegionByBand(state, layoutTree, pageIndex, visible, y);
 
-    // 3. Pick target line by Y within the chosen band. `region` is a filtered
-    // subset of the ascending-y `visible`, so it stays ascending-y ordered.
+    // 3. Pick target line by the click's BLOCK-axis component within the chosen
+    // band (P3.5b). `region` is in document order, which for h-tb / vertical-lr is
+    // ASCENDING along the block axis (physical Y resp. physical X) and for
+    // vertical-rl is DESCENDING (blocks stack right→left via the block-axis
+    // mirror). We project the click + each line's block band onto the block axis
+    // via the line's OWN axis map (a per-line read — a doc could in principle mix
+    // modes), then walk in FLOW order (`flowSign` negates the coord for the
+    // reversed block axis so the comparison is monotone in document order). For
+    // h-tb (`am.block === "y"`, `flowSign === +1`) this is byte-identical to the
+    // old `y < absoluteY + blockSize` ascending pick.
     let targetIdx = region.length - 1;
     for (let i = 0; i < region.length; i++) {
       const l = region[i];
-      const lineBottom = l.absoluteY + l.line.blockSize;
-      if (y < lineBottom || i === region.length - 1) {
-        // Sub-pixel snap: if the click is within 0.5 px of the next
-        // line's top, prefer the next line. (Layout pixel rounding
-        // can place a click exactly on the boundary.)
-        if (i + 1 < region.length && Math.abs(y - region[i + 1].absoluteY) < 0.5) {
-          targetIdx = i + 1;
+      const lAm = axisMapFor(l.line.writingMode, l.line.computedStyle.direction);
+      const clickBlock = lAm.block === "x" ? x : y;
+      const lineBlockStart = lineCoordOf(l, lAm.block);
+      const lineBlockExtent = lineSizeAlong(l, lAm.block);
+      const blockReversed = l.line.writingMode === "vertical-rl";
+      const flowSign = blockReversed ? -1 : 1;
+      // The band edge facing the NEXT document line: the high edge (start +
+      // extent) when block flow is ascending, the low edge (start) when reversed.
+      const facingEdge = blockReversed ? lineBlockStart : lineBlockStart + lineBlockExtent;
+      if (flowSign * clickBlock < flowSign * facingEdge || i === region.length - 1) {
+        // Sub-pixel snap: if the click is within 0.5 px of the NEXT line's
+        // block-start, prefer the next line. (Layout pixel rounding can place a
+        // click exactly on the boundary.) The distance is along the block axis;
+        // `Math.abs` makes it direction-agnostic. Read the next line's
+        // block-start via its own axis map.
+        const next = i + 1 < region.length ? region[i + 1] : undefined;
+        if (next !== undefined) {
+          const nextAm = axisMapFor(next.line.writingMode, next.line.computedStyle.direction);
+          // Snap to the edge of `next` that FACES line `i` (the shared boundary),
+          // mode-aware — mirroring the `facingEdge` selection above. For h-tb /
+          // vertical-lr (ascending block axis) that is `next`'s low edge
+          // (`lineCoordOf`); for vertical-rl (descending block axis) it is
+          // `next`'s HIGH edge (start + extent), since `next` sits at a LOWER
+          // block coord than line `i`. Using the low edge in v-rl targeted the
+          // far edge — one full line-extent away — so the snap never fired.
+          const nextReversed = next.line.writingMode === "vertical-rl";
+          const nextFacing = nextReversed
+            ? lineCoordOf(next, nextAm.block) + lineSizeAlong(next, nextAm.block)
+            : lineCoordOf(next, nextAm.block);
+          if (Math.abs(clickBlock - nextFacing) < 0.5) {
+            targetIdx = i + 1;
+          } else {
+            targetIdx = i;
+          }
         } else {
           targetIdx = i;
         }
@@ -151,39 +197,50 @@ export function resolvePositionFromPixel(
       };
     }
     const visualLeaves = view.visualLeaves;
+    // The picked line's axis map (`view.axisMap` == `axisMapFor(line.writingMode,
+    // line.computedStyle.direction)`). The leaf pick + offset run along the INLINE
+    // axis: physical X for h-tb (`am.inline === "x"`), physical Y for the vertical
+    // modes (inline runs DOWN the page). The click's inline-axis component is the
+    // matching physical coordinate.
+    const am = view.axisMap;
+    const clickInline = am.inline === "x" ? x : y;
 
-    // Pick target leaf by VISUAL X (leaves are in visual order). Default: last
-    // leaf for clicks past end.
+    // Pick target leaf by VISUAL inline-axis coord (leaves are in visual order;
+    // for v-rl inline runs +Y top→bottom, so visual order stays ASCENDING along
+    // the inline axis — same ascending assumption this loop has always relied on).
+    // Default: last leaf for clicks past end. For h-tb (`am.inline === "x"`,
+    // `coordOf(leaf, "x") === leaf.absoluteX`, `sizeAlong(leaf, "x") === leaf.width`)
+    // this is byte-identical to the old physical-X pick.
     let targetLeafIdx = visualLeaves.length - 1;
     for (let i = 0; i < visualLeaves.length; i++) {
       const leaf = visualLeaves[i].leaf;
-      if (x < leaf.absoluteX) {
+      const leafStart = coordOf(leaf, am.inline);
+      if (clickInline < leafStart) {
         targetLeafIdx = i > 0 ? i - 1 : i;
         break;
       }
-      if (x < leaf.absoluteX + leaf.width) {
+      if (clickInline < leafStart + sizeAlong(leaf, am.inline)) {
         targetLeafIdx = i;
         break;
       }
     }
 
     // 6. STATE offset within the target leaf — RTL-aware. `offsetInLeaf` keys off
-    // the leaf's bidi `level` (LTR measures the click from the left edge, RTL
-    // from the right), reverse-maps any text-transform display length, and adds
-    // the leaf's own `logStart`. It returns the absolute STATE offset directly —
-    // the inverse of `cursor-position.ts`'s `caretInlineCoordInLeaf` — so NO visual-order
-    // accumulation is needed (the old `withinLineOffset` sum, correct only on an
-    // all-LTR line, is gone).
+    // the leaf's bidi `level` (LTR measures the click from the inline-start edge,
+    // RTL from the inline-end), reverse-maps any text-transform display length, and
+    // adds the leaf's own `logStart`. It returns the absolute STATE offset directly
+    // — the inverse of `cursor-position.ts`'s `caretInlineCoordInLeaf` — so NO
+    // visual-order accumulation is needed (the old `withinLineOffset` sum, correct
+    // only on an all-LTR line, is gone).
     const targetBidiLeaf = visualLeaves[targetLeafIdx];
-    // P3.5a: `offsetInLeaf` now takes the leaf-local INLINE-axis offset + the
-    // line's axis map. The BODY line/leaf pick is generalized to the inline axis
-    // in P3.5b; for now (h-tb path) `am.inline === "x"`, so `x − leaf.absoluteX`
-    // IS the inline-axis local offset and this is byte-identical.
+    // P3.5b: `offsetInLeaf` takes the leaf-local INLINE-axis offset (`clickInline −
+    // coordOf(leaf, am.inline)`) + the line's axis map. For h-tb this is
+    // `x − leaf.absoluteX` (byte-identical); for vertical it is `y − leaf.absoluteY`.
     const offset = offsetInLeaf(
       targetBidiLeaf,
-      x - targetBidiLeaf.leaf.absoluteX,
+      clickInline - coordOf(targetBidiLeaf.leaf, am.inline),
       measurer,
-      view.axisMap,
+      am,
     );
 
     // Caret-affinity seed (P4-C.2.2b §D): the HIT leaf owns the offset. When the

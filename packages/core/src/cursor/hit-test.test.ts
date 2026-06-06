@@ -9,8 +9,10 @@ import { layoutTree } from "../layout/dispatch";
 import { resolvePositionedTree } from "../layout/positioned-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import { getLineIndex, collectLineLeaves } from "./line-flatten";
+import { resolvePixelPosition } from "./cursor-position";
 import type { TextShaper } from "../layout/text-shaper";
 import type { PageConfig } from "../layout/page-config";
+import type { WritingMode } from "../styles/writing-mode";
 import {
   buildState,
   buildBlock,
@@ -18,6 +20,7 @@ import {
   text,
   embed,
 } from "../test-utils/state-builders";
+import { createPosition } from "../state";
 import type { State, BlockId } from "../state";
 import type { LayoutBox } from "../layout/layout-node";
 
@@ -904,5 +907,229 @@ describe("#308 — click at x=0 of a line with leading collapsed whitespace land
     if (r0 === null) return;
     expect(r0.offset).toBeGreaterThanOrEqual(0);
     expect(r0.offset).toBeLessThanOrEqual(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P3.5b — vertical-mode BODY hit-test (click → offset)
+// ---------------------------------------------------------------------------
+//
+// The BODY line/leaf pick in `resolvePositionFromPixel` is generalized to the
+// active line's axis map (P3.5b): the LINE is picked by the click's BLOCK-axis
+// component (physical X for the vertical modes — blocks stack across the page),
+// the LEAF by the click's INLINE-axis component (physical Y — inline runs DOWN
+// the page). For `vertical-rl` blocks stack right→left (the block-axis mirror),
+// so document order is DESCENDING physical-X; for `vertical-lr` ascending.
+//
+// Geometry mirrors `vertical-cursor-position.test.ts` (and `layout/
+// vertical-geometry.test.ts`): an 8px-char mock shaper, a 20px-inline narrow
+// page so "aa bb cc" wraps into three lines, page block-size 1000 (so the v-rl
+// block-axis mirror lands line 0 at the far/right physical X). Probed concrete
+// coords:
+//   vertical-rl: line0 absX=984, line1 absX=968, line2 absX=952 (absY=0 each).
+//   vertical-lr: line0 absX=0,  line1 absX=16,  line2 absX=32  (absY=0 each).
+//   each line inlineSize=20, blockSize=16; leaves "aa"/"bb"/"cc" w=16 h=16.
+// State offsets ("aa bb cc"): line0 owns "aa" [0,2] (end 3 incl. the space),
+// line1 owns "bb" [3,5] (end 6), line2 owns "cc" [6,8].
+//
+// These click coordinates are RED against the OLD h-tb-path code, which picked
+// the LINE by a physical-Y band (`y < absoluteY + blockSize`) and the LEAF by a
+// physical-X coord (`x < leaf.absoluteX`). With every line at absY=0 the old
+// line-pick ALWAYS chose line 0 (y < 16) regardless of the click's X, and the
+// old leaf-pick measured `x − leaf.absoluteX` against the wrong axis — so the
+// resolved offset landed in the wrong line at the wrong character.
+
+const VCHAR_W = 8;
+const VLINE_CROSS = 16;
+
+const verticalPageConfig: PageConfig = {
+  pageInlineSize: 20,
+  pageBlockSize: 1000,
+  pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
+  pageGap: 20,
+};
+
+function verticalDoc(wm: WritingMode): State {
+  return buildState({
+    rootId: "doc",
+    blocks: [
+      buildBlock({
+        id: "doc",
+        type: "document",
+        attrs: { writingMode: wm },
+        firstChildId: "p",
+        lastChildId: "p",
+      }),
+      buildBlock({
+        id: "p",
+        type: "paragraph",
+        parentId: "doc",
+        attrs: { writingMode: wm },
+        inlineContent: inlineContent([text("aa bb cc")]),
+      }),
+    ],
+  });
+}
+
+function verticalPipeline(state: State): { layout: LayoutBox; shaper: TextShaper } {
+  const root = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
+  const shaper = createMockShaper(VCHAR_W, VLINE_CROSS);
+  const layout = resolvePositionedTree(
+    layoutTree(root, verticalPageConfig.pageInlineSize, shaper, verticalPageConfig),
+  );
+  return { layout, shaper };
+}
+
+function vLines(layout: LayoutBox): ReturnType<typeof getLineIndex>["all"] {
+  return getLineIndex(layout).byBlock.get("p" as BlockId) ?? [];
+}
+
+describe("P3.5b vertical hit-test — vertical-rl (blocks stack right→left)", () => {
+  const state = verticalDoc("vertical-rl");
+  const { layout, shaper } = verticalPipeline(state);
+  const lines = vLines(layout);
+
+  it("layout sanity: three lines, descending physical X, absY=0", () => {
+    expect(lines.length).toBe(3);
+    expect(lines[0].absoluteX).toBeGreaterThan(lines[1].absoluteX);
+    expect(lines[1].absoluteX).toBeGreaterThan(lines[2].absoluteX);
+    expect(lines[0].absoluteY).toBe(0);
+  });
+
+  it("click in line 1's block band, mid-'b' → offset 4 (RED: old code → line 0 / offset 0)", () => {
+    // line1 block-X band [968, 984]; click X=975 falls inside it. Inline Y=4 is
+    // inside "bb"'s glyph 0 vs 1 boundary → display offset 1 → state offset
+    // 3 ("bb" logStart) + 1 = 4 ("b|b"). Old code: line-pick by Y picked line0
+    // (4 < 16); leaf-pick by X measured 975 − 984 = −9 → offset 0 in line0.
+    const r = resolvePositionFromPixel(state, layout, shaper, 975, 4);
+    expect(r).not.toBeNull();
+    if (r === null) return;
+    expect(r.blockId).toBe("p");
+    expect(r.offset).toBe(4);
+  });
+
+  it("click in line 2's block band, line-start inline → offset 6 (start of 'cc')", () => {
+    // line2 block-X band [952, 968]; click X=958. Inline Y=1 → display offset 0
+    // ("c"'s glyph midpoint is 4) → state offset 6 ("cc" logStart). Old code →
+    // line0 / offset 0.
+    const r = resolvePositionFromPixel(state, layout, shaper, 958, 1);
+    expect(r).not.toBeNull();
+    if (r === null) return;
+    expect(r.blockId).toBe("p");
+    expect(r.offset).toBe(6);
+
+    // Sub-pixel boundary snap (mode-aware facing-edge). The line1/line2 shared
+    // boundary is at block-X 968 (line1 band [968,984], line2 band [952,968]).
+    // A click at X=968.2 lands just INSIDE line1 but within 0.5px of the
+    // boundary → it must snap FORWARD to line2 (offset 6, start of "cc"). RED
+    // against pre-fix code, which compared to line2's LOW edge (952) — 16.2px
+    // away, so the snap never fired and it resolved to line1 (offset 3, "bb").
+    const snap = resolvePositionFromPixel(state, layout, shaper, 968.2, 1);
+    expect(snap?.blockId).toBe("p");
+    expect(snap?.offset).toBe(6);
+  });
+
+  it("pixel→offset→pixel round-trips offset 7 (mid 'cc') against resolvePixelPosition", () => {
+    const pos = createPosition("p" as BlockId, 7);
+    const px = resolvePixelPosition(state, pos, layout, shaper);
+    expect(px).not.toBeNull();
+    if (px === null) return;
+    // px.x = caret INLINE coord (physical Y) = 8; px.y = BLOCK coord = line2 X.
+    expect(px.x).toBe(8);
+    expect(px.y).toBe(lines[2].absoluteX);
+    // Click that pixel back: block component = physical X = px.y, inline = px.x.
+    const r = resolvePositionFromPixel(state, layout, shaper, px.y, px.x);
+    expect(r).not.toBeNull();
+    if (r === null) return;
+    expect(r.blockId).toBe("p");
+    expect(r.offset).toBe(7);
+  });
+
+  it("edge: click before the first line (block-X past content start) → line 0 start (offset 0)", () => {
+    // X=5000 is beyond line0's far edge in flow; clamps to the document-first
+    // (visual-first) line. Inline Y=0 → offset 0.
+    const r = resolvePositionFromPixel(state, layout, shaper, 5000, 0);
+    expect(r).not.toBeNull();
+    if (r === null) return;
+    expect(r.blockId).toBe("p");
+    expect(r.offset).toBe(0);
+  });
+
+  it("edge: click after the last line (block-X past content end) → last line (offset 6 start of 'cc')", () => {
+    // X=0 is past line2's near edge in flow; clamps to the document-last line2.
+    // Inline Y=1 → offset 6.
+    const r = resolvePositionFromPixel(state, layout, shaper, 0, 1);
+    expect(r).not.toBeNull();
+    if (r === null) return;
+    expect(r.blockId).toBe("p");
+    expect(r.offset).toBe(6);
+  });
+
+  it("edge: before-first-leaf (inline-Y < 0) → line start; after-last-leaf (inline-Y past end) → line end", () => {
+    // Click in line0's block band (X=990) at inline Y below the leaf → offset 0
+    // (line0 inlineOffsetStart); at inline Y past the leaf → line0's
+    // inlineOffsetEnd (the trailing-space-inclusive content end, 3).
+    const before = resolvePositionFromPixel(state, layout, shaper, 990, -5);
+    expect(before?.blockId).toBe("p");
+    expect(before?.offset).toBe(lines[0].line.inlineOffsetStart);
+    expect(before?.offset).toBe(0);
+    const after = resolvePositionFromPixel(state, layout, shaper, 990, 1000);
+    expect(after?.blockId).toBe("p");
+    expect(after?.offset).toBe(lines[0].line.inlineOffsetEnd);
+  });
+});
+
+describe("P3.5b vertical hit-test — vertical-lr (blocks stack left→right)", () => {
+  const state = verticalDoc("vertical-lr");
+  const { layout, shaper } = verticalPipeline(state);
+  const lines = vLines(layout);
+
+  it("layout sanity: three lines, ascending physical X, absY=0", () => {
+    expect(lines.length).toBe(3);
+    expect(lines[0].absoluteX).toBeLessThan(lines[1].absoluteX);
+    expect(lines[1].absoluteX).toBeLessThan(lines[2].absoluteX);
+    expect(lines[0].absoluteY).toBe(0);
+  });
+
+  it("click in line 1's block band, mid-'b' → offset 4 (RED: old code → line 0 / offset 2)", () => {
+    // line1 block-X band [16, 32]; click X=20. Inline Y=4 → state offset 4.
+    // Old code: line-pick by Y → line0 (4 < 16); leaf-pick by X measured the
+    // line0 leaf "aa" at 20 − 0 = 20 ≥ lastMidpoint → offset 2 in line0.
+    const r = resolvePositionFromPixel(state, layout, shaper, 20, 4);
+    expect(r).not.toBeNull();
+    if (r === null) return;
+    expect(r.blockId).toBe("p");
+    expect(r.offset).toBe(4);
+  });
+
+  it("pixel→offset→pixel round-trips offset 7 (mid 'cc') against resolvePixelPosition", () => {
+    const pos = createPosition("p" as BlockId, 7);
+    const px = resolvePixelPosition(state, pos, layout, shaper);
+    expect(px).not.toBeNull();
+    if (px === null) return;
+    expect(px.x).toBe(8);
+    expect(px.y).toBe(lines[2].absoluteX); // = 32
+    const r = resolvePositionFromPixel(state, layout, shaper, px.y, px.x);
+    expect(r).not.toBeNull();
+    if (r === null) return;
+    expect(r.blockId).toBe("p");
+    expect(r.offset).toBe(7);
+  });
+
+  it("edge: click after the last line (block-X past content end) → last line", () => {
+    // X=5000 is past line2's far edge; clamps to the document-last line2.
+    const r = resolvePositionFromPixel(state, layout, shaper, 5000, 1);
+    expect(r).not.toBeNull();
+    if (r === null) return;
+    expect(r.blockId).toBe("p");
+    expect(r.offset).toBe(6);
+  });
+
+  it("edge: click before the first line (block-X negative) → first line start (offset 0)", () => {
+    const r = resolvePositionFromPixel(state, layout, shaper, -5, 0);
+    expect(r).not.toBeNull();
+    if (r === null) return;
+    expect(r.blockId).toBe("p");
+    expect(r.offset).toBe(0);
   });
 });
