@@ -1,149 +1,49 @@
 import type { RenderNode, ElementBox, TextBox } from "../render/render-node";
 import type { ComputedStyle } from "../styles";
-import type { ContentPart, ContentValue, CounterAction } from "../styles/style";
+import type { ContentPart, CounterAction } from "../styles/style";
 import { PROPERTY_META } from "../styles";
 import { composeComputed } from "./compose";
 import { flattenLengths } from "./flatten-lengths";
-import {
-  createCounterScope,
-  applyResets,
-  applyIncrements,
-  resolveCounter,
-  resolveCounters,
-  restore,
-  type CounterScope,
-} from "./counter-scope";
 import { markStart, markEnd } from "../perf/perf-trace";
 
 /**
  * Walk the render tree and produce a new tree where every node carries
  * a populated `computedStyle`. The original tree is not mutated.
- *
- * Each `cascadePass` invocation seeds a FRESH `CounterScope` (CSS counters do
- * not cross context-root boundaries — the main body, each header/footer template
- * body, and each footnote body cascade via their own `cascadePass` call, so
- * counters in one never leak into another; spec §7 / M4).
  */
 export function cascadePass(root: RenderNode): RenderNode {
   const t = markStart("cascadePass");
   try {
-    return cascadeNode(root, null, createCounterScope()).node;
+    return cascadeNode(root, null);
   } finally {
     markEnd("cascadePass", t);
   }
 }
 
-/**
- * Cascade `node` against `parentComputed` and the document-order counter
- * `scope`, returning the cascaded node AND the scope to thread to `node`'s
- * FOLLOWING siblings.
- *
- * Counter visibility (CSS §12.4.1) is implemented with the CHILD-BRACKET
- * discipline (spec §2 / counter-scope.ts): the node applies its OWN resets +
- * increments (leaving its own resets PUSHED on return so following siblings see
- * them), resolves its `content` counters against that post-increment scope, then
- * brackets only its CHILDREN — saving marks before recursing left-to-right and
- * restoring them after, so a child's resets are visible to that child's
- * descendants and following siblings but not to its parent's later siblings.
- */
 function cascadeNode(
   node: RenderNode,
   parentComputed: ComputedStyle | null,
-  scopeIn: CounterScope,
-): { readonly node: RenderNode; readonly scope: CounterScope } {
+): RenderNode {
   // 1. Compose computed style from specified + parent + initial
   const baseComputed = composeComputed(node.style, parentComputed);
   // 2. Flatten length values using own fontSize
-  const flattened = flattenLengths(baseComputed);
+  const computed = flattenLengths(baseComputed);
 
-  // Text nodes carry no counter inputs and have no children: the scope passes
-  // through unchanged to their following siblings.
   if (node.type === "text") {
     const out: TextBox = {
       ...node,
-      computedStyle: Object.freeze(flattened),
+      computedStyle: Object.freeze(computed),
     };
-    return { node: Object.freeze(out), scope: scopeIn };
+    return Object.freeze(out);
   }
 
-  // 3a. This element's OWN counter-reset (pushed; NOT popped here — stays visible
-  //     to following siblings) then counter-increment (§12.4.2 reset-before-incr).
-  const { scope: afterReset } = applyResets(scopeIn, flattened.counterReset);
-  const scopeHere = applyIncrements(afterReset, flattened.counterIncrement);
-
-  // 3b. Resolve this element's `content` counter()/counters() against the scope
-  //     as seen AT this element (post reset+increment, spec §2/§3). Non-counter
-  //     content (keywords, or arrays with no counter parts) is returned as-is —
-  //     a pure no-op for documents with no counters.
-  const computed = resolveContentInComputed(flattened, scopeHere);
-
-  // 4. Bracket this element's CHILDREN: save marks, recurse left-to-right
-  //    threading the scope, then restore — popping only what descendants pushed.
-  const { marks: childMarks } = applyResets(scopeHere, []);
-  let childScope = scopeHere;
-  const newChildren = node.children.map((c) => {
-    const result = cascadeNode(c, computed, childScope);
-    childScope = result.scope;
-    return result.node;
-  });
-  const scopeOut = restore(childScope, childMarks);
-
+  // ElementBox: recurse into children
+  const newChildren = node.children.map((c) => cascadeNode(c, computed));
   const out: ElementBox = {
     ...node,
     computedStyle: Object.freeze(computed),
     children: Object.freeze(newChildren),
   };
-  // Return scopeOut: child resets popped, this element's OWN resets still pushed
-  // (visible to its following siblings; the PARENT pops them via its bracket).
-  return { node: Object.freeze(out), scope: scopeOut };
-}
-
-/**
- * Resolve `counter()`/`counters()` parts in `computed.content` against `scope`,
- * replacing each with a `string` part carrying its formatted value (string parts
- * pass through verbatim). Returns the same ComputedStyle reference when `content`
- * has nothing to resolve (a keyword, or an array with no counter parts) so the
- * common no-counter path allocates nothing extra and stays reuse-stable.
- */
-function resolveContentInComputed(
-  computed: ComputedStyle,
-  scope: CounterScope,
-): ComputedStyle {
-  const content = computed.content;
-  if (typeof content === "string") {
-    return computed; // "normal" / "none" — no counters to resolve.
-  }
-  let hasCounterPart = false;
-  for (const part of content) {
-    if (part.kind === "counter" || part.kind === "counters") {
-      hasCounterPart = true;
-      break;
-    }
-  }
-  if (!hasCounterPart) {
-    return computed; // string-only content — order-independent, nothing to do.
-  }
-  const resolved: ContentValue = content.map((part) => resolveContentPart(part, scope));
-  return { ...computed, content: resolved };
-}
-
-/** Resolve a single `content` part against `scope`; counters → a `string` part. */
-function resolveContentPart(part: ContentPart, scope: CounterScope): ContentPart {
-  switch (part.kind) {
-    case "string":
-      return part;
-    case "counter":
-      return { kind: "string", value: resolveCounter(scope, part.name, part.style) };
-    case "counters":
-      return {
-        kind: "string",
-        value: resolveCounters(scope, part.name, part.sep, part.style),
-      };
-    default: {
-      const _exhaustive: never = part;
-      return _exhaustive;
-    }
-  }
+  return Object.freeze(out);
 }
 
 /**
