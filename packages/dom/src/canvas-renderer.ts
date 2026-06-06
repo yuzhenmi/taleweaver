@@ -59,24 +59,97 @@ interface PhysicalBorderSides {
   topPadding: number; rightPadding: number; bottomPadding: number; leftPadding: number;
 }
 
-function physicalBorderSides(us: Readonly<UsedStyle>): PhysicalBorderSides {
-  // Plan 3.A: horizontal-tb only.
-  // LTR: blockStart=top, blockEnd=bottom, inlineStart=left, inlineEnd=right.
-  // RTL: blockStart=top, blockEnd=bottom, inlineStart=right, inlineEnd=left.
+type PhysicalSide = "top" | "right" | "bottom" | "left";
+
+/**
+ * The four logical sides resolved to physical sides for a given
+ * (writingMode, direction). Consistent with `logicalToPhysical` in
+ * `@taleweaver/core` (the source of truth for axis→physical mapping).
+ */
+interface LogicalSideMap {
+  blockStart: PhysicalSide;
+  blockEnd: PhysicalSide;
+  inlineStart: PhysicalSide;
+  inlineEnd: PhysicalSide;
+}
+
+/**
+ * Map each logical side to its physical side, derived ONCE per box, agreeing
+ * with `logicalToPhysical`:
+ *   - block axis → physical side:
+ *       horizontal-tb: block-start→top,   block-end→bottom
+ *       vertical-rl:   block-start→right,  block-end→left   (blocks stack right→left)
+ *       vertical-lr:   block-start→left,   block-end→right  (blocks stack left→right)
+ *   - inline axis → physical side:
+ *       horizontal-tb LTR: inline-start→left,   inline-end→right
+ *       horizontal-tb RTL: inline-start→right,  inline-end→left
+ *       vertical * LTR (inline runs top→bottom): inline-start→top,    inline-end→bottom
+ *       vertical * RTL (inline runs bottom→top): inline-start→bottom, inline-end→top
+ */
+function resolveLogicalSides(us: Readonly<UsedStyle>): LogicalSideMap {
   const isRtl = us.direction === "rtl";
+  // Vertical modes: inline axis → physical y (top/bottom), block axis → physical x
+  // (left/right). h-tb is the CSS-initial mode and the fall-through default — it
+  // is the only mode whose mapping never touches the vertical inline/block axes,
+  // so handling it as the residual keeps h-tb byte-identical to the legacy path.
+  if (us.writingMode === "vertical-rl" || us.writingMode === "vertical-lr") {
+    return {
+      // Blocks stack right→left (rl) or left→right (lr).
+      blockStart: us.writingMode === "vertical-rl" ? "right" : "left",
+      blockEnd: us.writingMode === "vertical-rl" ? "left" : "right",
+      // Inline runs top→bottom (LTR) or bottom→top (RTL).
+      inlineStart: isRtl ? "bottom" : "top",
+      inlineEnd: isRtl ? "top" : "bottom",
+    };
+  }
+  // horizontal-tb (and any legacy UsedStyle lacking writingMode): block →
+  // top/bottom, inline → left/right (flipped under RTL).
   return {
-    topWidth: us.borderBlockStartWidth, bottomWidth: us.borderBlockEndWidth,
-    leftWidth: isRtl ? us.borderInlineEndWidth : us.borderInlineStartWidth,
-    rightWidth: isRtl ? us.borderInlineStartWidth : us.borderInlineEndWidth,
-    topStyle: us.borderBlockStartStyle, bottomStyle: us.borderBlockEndStyle,
-    leftStyle: isRtl ? us.borderInlineEndStyle : us.borderInlineStartStyle,
-    rightStyle: isRtl ? us.borderInlineStartStyle : us.borderInlineEndStyle,
-    topColor: us.borderBlockStartColor, bottomColor: us.borderBlockEndColor,
-    leftColor: isRtl ? us.borderInlineEndColor : us.borderInlineStartColor,
-    rightColor: isRtl ? us.borderInlineStartColor : us.borderInlineEndColor,
-    topPadding: us.paddingBlockStart, bottomPadding: us.paddingBlockEnd,
-    leftPadding: isRtl ? us.paddingInlineEnd : us.paddingInlineStart,
-    rightPadding: isRtl ? us.paddingInlineStart : us.paddingInlineEnd,
+    blockStart: "top",
+    blockEnd: "bottom",
+    inlineStart: isRtl ? "right" : "left",
+    inlineEnd: isRtl ? "left" : "right",
+  };
+}
+
+export function physicalBorderSides(us: Readonly<UsedStyle>): PhysicalBorderSides {
+  const sides = resolveLogicalSides(us);
+
+  // Per-physical-side accumulators. Defaults are the absent-side values that the
+  // legacy h-tb code produced for the inline sides when not assigned; every
+  // physical side is overwritten exactly once by the four logical assignments,
+  // so the defaults only guard the type — they are never observed.
+  const width: Record<PhysicalSide, number> = { top: 0, right: 0, bottom: 0, left: 0 };
+  const style: Record<PhysicalSide, BorderStyle> = { top: "none", right: "none", bottom: "none", left: "none" };
+  const color: Record<PhysicalSide, Color> = { top: "black", right: "black", bottom: "black", left: "black" };
+  const padding: Record<PhysicalSide, number> = { top: 0, right: 0, bottom: 0, left: 0 };
+
+  // Assign each logical field family to the physical side it maps to.
+  width[sides.blockStart] = us.borderBlockStartWidth;
+  width[sides.blockEnd] = us.borderBlockEndWidth;
+  width[sides.inlineStart] = us.borderInlineStartWidth;
+  width[sides.inlineEnd] = us.borderInlineEndWidth;
+
+  style[sides.blockStart] = us.borderBlockStartStyle;
+  style[sides.blockEnd] = us.borderBlockEndStyle;
+  style[sides.inlineStart] = us.borderInlineStartStyle;
+  style[sides.inlineEnd] = us.borderInlineEndStyle;
+
+  color[sides.blockStart] = us.borderBlockStartColor;
+  color[sides.blockEnd] = us.borderBlockEndColor;
+  color[sides.inlineStart] = us.borderInlineStartColor;
+  color[sides.inlineEnd] = us.borderInlineEndColor;
+
+  padding[sides.blockStart] = us.paddingBlockStart;
+  padding[sides.blockEnd] = us.paddingBlockEnd;
+  padding[sides.inlineStart] = us.paddingInlineStart;
+  padding[sides.inlineEnd] = us.paddingInlineEnd;
+
+  return {
+    topWidth: width.top, rightWidth: width.right, bottomWidth: width.bottom, leftWidth: width.left,
+    topStyle: style.top, rightStyle: style.right, bottomStyle: style.bottom, leftStyle: style.left,
+    topColor: color.top, rightColor: color.right, bottomColor: color.bottom, leftColor: color.left,
+    topPadding: padding.top, rightPadding: padding.right, bottomPadding: padding.bottom, leftPadding: padding.left,
   };
 }
 
