@@ -1,42 +1,28 @@
-export type CounterStyle = "decimal" | "lower-alpha" | "upper-alpha" | "lower-roman" | "upper-roman";
+import { type CounterStyle, formatCounter as formatBareCounter } from "../styles/format-counter";
 
-export function formatCounter(value: number, style: CounterStyle): string {
-  switch (style) {
-    case "decimal":
-      return `${value}.`;
-    case "lower-alpha":
-      return `${toAlpha(value, "a")}.`;
-    case "upper-alpha":
-      return `${toAlpha(value, "A")}.`;
-    case "lower-roman":
-      return `${toRoman(value).toLowerCase()}.`;
-    case "upper-roman":
-      return `${toRoman(value)}.`;
-  }
-}
+// Re-exported so existing layout consumers can keep importing `CounterStyle`
+// from here; its canonical home is now the leaf `styles/format-counter`.
+export type { CounterStyle };
 
-function toAlpha(n: number, base: "a" | "A"): string {
-  let s = "";
-  let cur = n;
-  while (cur > 0) {
-    cur--;
-    const c = String.fromCharCode(base.charCodeAt(0) + (cur % 26));
-    s = c + s;
-    cur = Math.floor(cur / 26);
-  }
-  return s;
-}
+/**
+ * The algorithmic (numeric/alpha/roman) list styles whose marker is the bare
+ * counter string followed by a `"."` suffix. The bullet styles (disc/circle/
+ * square) are NOT here: their marker is the glyph alone with no dot, resolved
+ * directly in `bfc.ts`'s `resolveMarkerText`.
+ */
+export type NumberedListStyle =
+  | "decimal"
+  | "lower-alpha"
+  | "upper-alpha"
+  | "lower-roman"
+  | "upper-roman";
 
-function toRoman(n: number): string {
-  const pairs: [number, string][] = [
-    [1000, "M"], [900, "CM"], [500, "D"], [400, "CD"],
-    [100,  "C"], [90,  "XC"], [50,  "L"], [40,  "XL"],
-    [10,   "X"], [9,   "IX"], [5,   "V"], [4,   "IV"], [1, "I"],
-  ];
-  let s = "";
-  let cur = n;
-  for (const [v, lit] of pairs) {
-    while (cur >= v) { s += lit; cur -= v; }
-  }
-  return s;
+/**
+ * Format a numbered-list marker: the shared BARE counter string plus the list's
+ * `"."` suffix (e.g. `1.`, `iv.`, `AA.`). The dot is the LIST MARKER's concern
+ * (the CSS `<suffix>` separator), so it is appended HERE around the shared bare
+ * `formatCounter` — the bare formatter never emits a suffix.
+ */
+export function formatCounter(value: number, style: NumberedListStyle): string {
+  return `${formatBareCounter(value, style)}.`;
 }
