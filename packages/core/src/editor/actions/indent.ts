@@ -113,25 +113,33 @@ export function handleIndent(
 
 /**
  * The LEAF block ids the indent applies to:
- *  - collapsed selection → the focus block (if it's a leaf);
- *  - range selection → every leaf the span covers (containers filtered out).
+ *  - collapsed selection → the focus block (if it's an indentable leaf);
+ *  - range selection → every indentable leaf the span covers.
  *
- * A leaf is a block with `inlineContent !== null` (containers — sections,
- * lists, the document root — have `inlineContent === null`). Indenting a
- * container is nonsensical: it owns no text. Mirrors `handleSetLineSpacing`.
+ * An indentable leaf is a non-`list-item` block with `inlineContent !== null`.
+ * Containers (sections, the document root) have `inlineContent === null` and own
+ * no text, so indenting them is nonsensical. `list-item`s ARE leaves but are
+ * EXCLUDED (I5): list nesting is the `listLevel` attr, edited by LIST_INDENT /
+ * LIST_OUTDENT (Tab / Shift+Tab), not the `marginInlineStart` this handler sets.
+ * The toolbar increase/decrease-indent button (which dispatches INDENT/OUTDENT)
+ * therefore leaves list-items alone — matching Google Docs, where Tab does the
+ * nesting. A list-item CAN still carry a user `marginInlineStart` from another
+ * path; the BFC composes it ON TOP of the level padding (paddingInlineStart +
+ * marginInlineStart). Mirrors `handleSetLineSpacing` otherwise.
  */
 function targetLeafBlockIds(editor: EditorState): BlockId[] {
   const { state, selection } = editor;
 
   if (positionsEqual(selection.anchor, selection.focus)) {
     const focus = getBlock(state, selection.focus.blockId);
-    if (focus === null || focus.inlineContent === null) return [];
+    if (focus === null || focus.inlineContent === null || focus.type === "list-item")
+      return [];
     return [focus.id];
   }
 
   const ids: BlockId[] = [];
   for (const block of iterateBlocksInSpan(state, selection)) {
-    if (block.inlineContent !== null) ids.push(block.id);
+    if (block.inlineContent !== null && block.type !== "list-item") ids.push(block.id);
   }
   return ids;
 }
