@@ -13,6 +13,7 @@ import { lineBreakOpportunities } from "./uax14";
 import { transformRun } from "./text-transform";
 import { layoutBlock } from "./bfc";
 import type { WritingMode, Direction } from "../styles/writing-mode";
+import { axisMapFor } from "../styles/writing-mode";
 import { computeUsedStyle, resolveUsedLength } from "./used-style";
 import type { LayoutContext } from "./layout-context";
 import { makeRootContext, makeChildContext } from "./layout-context";
@@ -575,6 +576,12 @@ function collectInlineTokens(
   ancestors: readonly string[],
   ancestorStyles: readonly ComputedStyle[],
   shaper: TextShaper,
+  // The PARENT IFC's writing-mode + direction (the mode the IFC lays everything
+  // out in). Threaded together because both are needed to project an
+  // inline-block child's PHYSICAL box onto the parent's inline/block axes (see
+  // the inline-block sizing site below). `direction` is also consumed by text
+  // shaping; `writingMode` is consumed only by the inline-block projection.
+  writingMode: WritingMode,
   direction: Direction,
   out: Token[],
   asm: IfcSourceAssembly,
@@ -831,7 +838,7 @@ function collectInlineTokens(
     } else if (child.type === "element" && cs.display === "inline") {
       const newAncestors = [...ancestors, child.key];
       const newStyles = [...ancestorStyles, cs];
-      collectInlineTokens(child.children, newAncestors, newStyles, shaper, direction, out, asm, intrinsicCache, parentCtx);
+      collectInlineTokens(child.children, newAncestors, newStyles, shaper, writingMode, direction, out, asm, intrinsicCache, parentCtx);
     } else if (child.type === "element" && cs.display === "inline-block") {
       // S2.4: an inline atomic occupies one OBJECT REPLACEMENT char (class CB)
       // in the source string — breakable around (LB20), the correct
@@ -895,12 +902,24 @@ function collectInlineTokens(
         throw new Error("layoutBlock without fragmentation returned null box; should be unreachable (no FragmentationContext passed)");
       }
       const bfc = bfcResult.box;
-      const finalInlineSize = inlineSizePx > 0 ? inlineSizePx : bfc.width;
+      // `bfc` is the inline-block laid out in ITS OWN writing mode, so
+      // `bfc.width`/`bfc.height` are PHYSICAL extents. The parent IFC consumes
+      // `finalInlineSize` as the token's advance along the PARENT's inline axis
+      // and `finalBlockSize` as its extent along the PARENT's block axis. Project
+      // the child's physical box onto the parent's axes via the parent IFC's
+      // axisMap — NOT a blanket rename to bfc.inlineSize/blockSize (that would
+      // break the cross-mode case, e.g. an h-tb parent with a vertical
+      // inline-block child where bfc.width IS the correct parent inline advance).
+      // For an h-tb parent (inline=x, block=y) this reduces to bfc.width/bfc.height.
+      const parentAxisMap = axisMapFor(writingMode, direction);
+      const childInlineFromPhysical = parentAxisMap.inline === "x" ? bfc.width : bfc.height;
+      const childBlockFromPhysical = parentAxisMap.block === "x" ? bfc.width : bfc.height;
+      const finalInlineSize = inlineSizePx > 0 ? inlineSizePx : childInlineFromPhysical;
       let finalBlockSize: number;
       if (typeof cs.blockSize === "number") {
         finalBlockSize = cs.blockSize;
       } else {
-        finalBlockSize = bfc.height;
+        finalBlockSize = childBlockFromPhysical;
       }
 
       out.push({
@@ -1070,10 +1089,14 @@ export function collectTokens(
   if (!parent.computedStyle) throw new Error("cascade required");
   const tokens: Token[] = [];
   const asm = newIfcSourceAssembly();
+  // The IFC's writing mode is the parent block's own (writing-mode inherits;
+  // ctx.writingMode === parent.computedStyle.writingMode on the production
+  // layoutInlineContent path). Used by the inline-block sizing projection.
+  const writingMode = parent.computedStyle.writingMode;
   // External path (rewrap-incremental + tests): no parent context
   // available. Inline-block sub-layout falls back to makeRootContext —
   // the production path uses makeChildContext (see layoutInlineContent).
-  collectInlineTokens(parent.children, emptyAncestors, emptyAncestorStyles, shaper, direction, tokens, asm, intrinsicCache, null);
+  collectInlineTokens(parent.children, emptyAncestors, emptyAncestorStyles, shaper, writingMode, direction, tokens, asm, intrinsicCache, null);
   annotateLineBreaks(tokens, asm);
   return tokens;
 }
@@ -1154,7 +1177,7 @@ export function layoutInlineContent(
   // Collect tokens from all inline children recursively
   const tokens: Token[] = [];
   const asm = newIfcSourceAssembly();
-  collectInlineTokens(parent.children, emptyAncestors, emptyAncestorStyles, shaper, direction, tokens, asm, ctx.intrinsicCache, ctx);
+  collectInlineTokens(parent.children, emptyAncestors, emptyAncestorStyles, shaper, writingMode, direction, tokens, asm, ctx.intrinsicCache, ctx);
   // Derive UAX #14 softBreaks/breakableBefore over the assembled IFC source;
   // the wrap loop consults them via trySoftSplit + the breakableBefore gate.
   annotateLineBreaks(tokens, asm);
@@ -1194,7 +1217,7 @@ export function layoutInlineContent(
       const tHit = markStart("ifc.cache.hit");
       try {
         const cachedLines = Array.from(prevState.lines);
-        const cachedBlockSize = cachedLines.reduce((acc, l) => Math.max(acc, l.y + l.height - blockOffset), 0);
+        const cachedBlockSize = cachedLines.reduce((acc, l) => Math.max(acc, l.blockOffset + l.blockSize - blockOffset), 0);
         const cachedUsedStyle = computeUsedStyle(parentCs, availableInlineSize, "indefinite");
         return { box: createBlockBox(parent.key, inlineOffset, blockOffset, availableInlineSize, cachedBlockSize, writingMode, direction, parentCs, cachedUsedStyle, cachedLines, availableInlineSize), breakToken: null };
       } finally {
@@ -1715,7 +1738,7 @@ export function layoutInlineContent(
       });
     }
     lines.push(line);
-    lineBlockOffset += line.height;
+    lineBlockOffset += line.blockSize;
     currentUnits = [];
     currentWidth = 0;
     pendingHyphen = null;
@@ -2199,7 +2222,7 @@ export function layoutInlineContent(
   // a subsequent layout pass returns the patched lines while the
   // BlockBox would have the pre-patch lines on a fresh build, breaking
   // ref-equality contracts.
-  const totalBlockSize = resultLines.reduce((acc, l) => Math.max(acc, l.y + l.height - blockOffset), 0);
+  const totalBlockSize = resultLines.reduce((acc, l) => Math.max(acc, l.blockOffset + l.blockSize - blockOffset), 0);
   const parentUsedStyleForBox = computeUsedStyle(parentCs, availableInlineSize, "indefinite");
   const box = createBlockBox(parent.key, inlineOffset, blockOffset, availableInlineSize, totalBlockSize, writingMode, direction, parentCs, parentUsedStyleForBox, resultLines, availableInlineSize);
   return { box, breakToken: null };
@@ -2639,7 +2662,7 @@ function buildLineChildrenForAncestorLevel(
       /* originInlineOffset */ originInlineOffset + cursorInlineOffset,
     );
 
-    const boxInlineSize = innerChildren.reduce((acc, c) => acc + c.width, 0);
+    const boxInlineSize = innerChildren.reduce((acc, c) => acc + c.inlineSize, 0);
     const boxBlockSize = innerBlockSizeTracker.value > 0 ? innerBlockSizeTracker.value : measurer.measureHeight(ancestorStyle);
     lineBlockSizeTracker.value = Math.max(lineBlockSizeTracker.value, boxBlockSize);
 

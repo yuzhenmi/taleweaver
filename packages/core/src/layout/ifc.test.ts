@@ -1133,6 +1133,62 @@ describe("IFC — inline-block atomic placement", () => {
     const lines = out.children.filter(c => c.type === "line");
     expect(lines.length).toBeGreaterThanOrEqual(2);
   });
+
+  it("C-1: same-mode (vertical-lr) inline-block projects child PHYSICAL box onto the PARENT's axes (not raw bfc.width/height)", () => {
+    // C-1 regression: the inline-block sizing site fed the PARENT IFC the child's
+    // RAW physical bfc.width/bfc.height. For a vertical PARENT that transposes the
+    // inline-advance and block-extent. The fix projects the child's physical box
+    // onto the parent's inline/block axes via axisMapFor(parentWritingMode, ...).
+    //
+    // Setup: a vertical-lr paragraph (parent IFC) with an inline-block child that
+    // inherits vertical-lr (same-mode). The child uses auto inlineSize + auto
+    // blockSize so BOTH final sizes flow from the child's laid-out box — exercising
+    // the projection on both axes. Its content "abc" makes the child's physical
+    // width (block extent = line-height) differ from its physical height (inline
+    // extent = content advance), so a transposition is observable.
+    const vlrCs = { ...INITIAL_COMPUTED_STYLE, writingMode: "vertical-lr" as const };
+
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", writingMode: "vertical-lr" }, [
+        createElementBox("ib", { display: "inline-block" }, [
+          createTextBox("ibt", {}, "abc"),
+        ]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+
+    // Lay out the inline content in a vertical-lr PARENT context (production path).
+    const ctx = makeRootContext(vlrCs, 500);
+    const res = layoutInlineContent(tree, 0, 0, ctx, shaper);
+    if (res.box === null || res.box.type !== "block") throw new Error("?");
+    const line = res.box.children.find(c => c.type === "line");
+    if (line === undefined || line.type !== "line") throw new Error("?");
+    const ib = line.children.find(c => c.type === "inline-block");
+    expect(ib).toBeDefined();
+    if (ib?.type !== "inline-block") throw new Error("?");
+
+    // The inline-block child laid out in its OWN (vertical-lr) mode has PHYSICAL
+    // extents: width === its block extent (one line-height: mock 16px), height ===
+    // its inline extent (content advance: mock 8px × "abc" = 24px). These are the
+    // raw bfc.width (16) / bfc.height (24) the buggy code fed straight to the parent.
+    const EXPECTED_CONTENT_ADVANCE = 24; // child's own inlineSize  → child physical HEIGHT (bfc.height)
+    const EXPECTED_LINE_HEIGHT = 16;     // child's own blockSize   → child physical WIDTH  (bfc.width)
+    expect(EXPECTED_CONTENT_ADVANCE).not.toBe(EXPECTED_LINE_HEIGHT); // transposition is observable
+
+    // The inline-block box's LOGICAL inlineSize is the parent inline advance
+    // (finalInlineSize); its LOGICAL blockSize is the parent block extent
+    // (finalBlockSize). For a vertical-lr PARENT, axisMapFor maps inline→y and
+    // block→x, so the CORRECT projection is:
+    //   parent inline advance (inlineSize) = child physical HEIGHT = content advance (24)
+    //   parent block extent   (blockSize)  = child physical WIDTH  = line-height   (16)
+    // The raw bfc.width/bfc.height code transposed these (inlineSize=16, blockSize=24),
+    // which this asserts AGAINST.
+    expect(ib.inlineSize).toBe(EXPECTED_CONTENT_ADVANCE);
+    expect(ib.blockSize).toBe(EXPECTED_LINE_HEIGHT);
+    // Explicitly lock the NOT-transposed contract (would have been swapped by the bug).
+    expect(ib.inlineSize).not.toBe(EXPECTED_LINE_HEIGHT);
+    expect(ib.blockSize).not.toBe(EXPECTED_CONTENT_ADVANCE);
+  });
 });
 
 describe("IFC — line TextRunBox carries sourceStart + clusterWidths (P4-C bidi-split inputs)", () => {

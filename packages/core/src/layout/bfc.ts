@@ -434,7 +434,7 @@ export function layoutBlock(
       }
       const ifcBox = ifcResult.box;
 
-      const anonBlockSize = ifcBox.height;
+      const anonBlockSize = ifcBox.blockSize;
 
       // Append lines directly to layoutChildren (anonymous boxes are layout-time-only).
       for (const line of ifcBox.children) layoutChildren.push(line);
@@ -530,8 +530,8 @@ export function layoutBlock(
       }
       const floatLayout = floatResult.box;
       const floatExplicitBlockSize = resolveExplicitBlockSize(childCs.blockSize, contentInlineSize);
-      const floatInlineSize = floatLayout.width;
-      const floatBlockSize = floatExplicitBlockSize > 0 ? floatExplicitBlockSize : floatLayout.height;
+      const floatInlineSize = floatLayout.inlineSize;
+      const floatBlockSize = floatExplicitBlockSize > 0 ? floatExplicitBlockSize : floatLayout.blockSize;
       const result = floatEnv.placeFloat(
         childCs.float === "inline-start" ? "inline-start" : "inline-end",
         childBlockOffset,
@@ -816,7 +816,7 @@ export function layoutBlock(
         if (fragmentation !== undefined && layoutChildren.length === 0) {
           const overflowBox = applyOverflowRule();
           layoutChildren.push(overflowBox);
-          childBlockOffset += overflowBox.height;
+          childBlockOffset += overflowBox.blockSize;
           prevMarginBlockEnd = childUsedStyle.marginBlockEnd;
           continue;
         }
@@ -837,7 +837,7 @@ export function layoutBlock(
         if (fragmentation !== undefined && layoutChildren.length === 0) {
           const overflowBox = applyOverflowRule();
           layoutChildren.push(overflowBox);
-          childBlockOffset += overflowBox.height;
+          childBlockOffset += overflowBox.blockSize;
           prevMarginBlockEnd = childUsedStyle.marginBlockEnd;
           continue;
         }
@@ -853,7 +853,7 @@ export function layoutBlock(
     }
 
     const explicitBlockSize = resolveExplicitBlockSize(childCs.blockSize, contentInlineSize);
-    const finalBlockSize = explicitBlockSize > 0 ? explicitBlockSize : childLayout.height;
+    const finalBlockSize = explicitBlockSize > 0 ? explicitBlockSize : childLayout.blockSize;
     const placedChild = explicitBlockSize > 0
       ? createBlockBox(child.key, childInlineStart, childBlockOffset, childContentInlineSize, finalBlockSize, cs.writingMode, cs.direction, childCs, childUsedStyle, [],
           /* containingInlineSize */ contentInlineSize,
@@ -865,11 +865,11 @@ export function layoutBlock(
     // This check uses the final placed size (after explicit block-size override).
     if (fragmentation !== undefined) {
       const remaining = fragmentation.availableBlockSize - childBlockOffset;
-      if (placedChild.height > remaining) {
+      if (placedChild.blockSize > remaining) {
         // C.6 overflow rule: if fragment is empty, place it anyway (overflow).
         if (layoutChildren.length === 0) {
           layoutChildren.push(placedChild);
-          childBlockOffset += placedChild.height;
+          childBlockOffset += placedChild.blockSize;
           prevMarginBlockEnd = childUsedStyle.marginBlockEnd;
           continue;
         }
@@ -893,7 +893,7 @@ export function layoutBlock(
           if (layoutChildren.length === 0) {
             const overflowBox = applyOverflowRule();
             layoutChildren.push(overflowBox);
-            childBlockOffset += overflowBox.height;
+            childBlockOffset += overflowBox.blockSize;
             prevMarginBlockEnd = childUsedStyle.marginBlockEnd;
             continue;
           }
@@ -905,7 +905,7 @@ export function layoutBlock(
         }
       }
       layoutChildren.push(placedChild);
-      childBlockOffset += placedChild.height;
+      childBlockOffset += placedChild.blockSize;
       return buildPartialResult(layoutChildren, {
         type: "block",
         resumeChildIndex: i,
@@ -922,7 +922,7 @@ export function layoutBlock(
     const isEmpty = (childExplicitBlockSize === null || childExplicitBlockSize === 0)
                  && childPaddingV === 0
                  && childBorderV === 0
-                 && childLayout.height === 0;
+                 && childLayout.blockSize === 0;
 
     if (isEmpty) {
       // Undo the marginBlockStart advance; the combined margin is held for the next sibling collapse
@@ -944,7 +944,7 @@ export function layoutBlock(
       );
     } else {
       layoutChildren.push(placedChild);
-      childBlockOffset += placedChild.height;
+      childBlockOffset += placedChild.blockSize;
       prevMarginBlockEnd = childMarginBlockEnd;
     }
 

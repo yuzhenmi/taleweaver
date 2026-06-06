@@ -103,6 +103,66 @@ describe("layoutBlock — margin collapse: parent / first child", () => {
   });
 });
 
+describe("layoutBlock — vertical-lr block advancement (P3.2)", () => {
+  // P3.2 regression guard: the BFC must advance the block axis using the
+  // LOGICAL `blockSize`, not the PHYSICAL `height`. For a vertical-lr box the
+  // factory derives `height === inlineSize` and `width === blockSize` (see
+  // logicalToPhysical), so an implementation that advanced by `.height` would
+  // step the next child by the WRONG amount (the inline extent). This test sets
+  // each child's inlineSize ≠ blockSize so the two are distinguishable, then
+  // asserts children stack by blockSize along the block axis (physical x in
+  // vertical-lr). The h-tb equivalence harness cannot catch this because for
+  // h-tb `.height === .blockSize`.
+  function layoutOfVertical(tree: ReturnType<typeof createElementBox>) {
+    const cascaded = cascadePass(tree);
+    if (cascaded.type !== "element") throw new Error("?");
+    const rootCs = { ...INITIAL_COMPUTED_STYLE, writingMode: "vertical-lr" as const };
+    const ctx = makeRootContext(rootCs, 600);
+    const result = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const box = result.box;
+    if (box === null) throw new Error("layoutBlock returned null box");
+    if (box.type !== "block") throw new Error("layoutBlock returned non-block box");
+    return box;
+  }
+
+  it("stacks children along the block axis by blockSize, not by height (inlineSize)", () => {
+    // In-flow blocks fill the container's inline extent (600), so each child's
+    // inlineSize (600) differs sharply from its blockSize (50 / 30) — advancing
+    // by the wrong field is therefore observable.
+    const child1 = createElementBox("c1", { display: "block", blockSize: 50 }, []);
+    const child2 = createElementBox("c2", { display: "block", blockSize: 30 }, []);
+    const tree = createElementBox(
+      "root",
+      { display: "block", writingMode: "vertical-lr" },
+      [child1, child2],
+    );
+    const out = layoutOfVertical(tree);
+    expect(out.writingMode).toBe("vertical-lr");
+    expect(out.children).toHaveLength(2);
+    const c1 = out.children[0];
+    const c2 = out.children[1];
+    if (c1.type !== "block" || c2.type !== "block") throw new Error("?");
+
+    // Logical block-axis offsets advance by the prior child's blockSize.
+    expect(c1.blockOffset).toBe(0);
+    expect(c2.blockOffset).toBe(50);           // = c1.blockSize, NOT c1.inlineSize (600)
+    expect(c1.blockSize).toBe(50);
+    expect(c2.blockSize).toBe(30);
+
+    // Physical: vertical-lr maps the block axis onto physical x; each child's
+    // width === its blockSize. If the BFC had advanced by `.height`, c2.x would
+    // be 600 (c1's inlineSize) instead of 50.
+    expect(c1.x).toBe(0);
+    expect(c2.x).toBe(50);
+    expect(c1.width).toBe(50);                 // width === blockSize in vertical-lr
+    expect(c1.height).toBe(600);               // height === inlineSize in vertical-lr
+
+    // The container's block extent (logical) sums the children's blockSizes.
+    expect(out.blockSize).toBe(80);
+    expect(out.width).toBe(80);                // physical width === blockSize
+  });
+});
+
 describe("layoutBlock — margin collapse: parent / last child", () => {
   it("last child marginBlockEnd is suppressed when parent has no bottom padding/border", () => {
     const child = createElementBox("c", {
