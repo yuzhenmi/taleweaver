@@ -18,6 +18,7 @@ import {
 import { createPosition, createSpan } from "../state";
 import type { BlockId, State } from "../state";
 import type { LayoutBox } from "../layout/layout-node";
+import { getLineIndex } from "./line-flatten";
 
 function pipeline(
   state: State,
@@ -719,5 +720,201 @@ describe("computeSelectionRects (new)", () => {
     expect(rects.length).toBe(1);
     expect(rects[0].x).toBe(8); // after "a"
     expect(rects[0].width).toBe(8); // single ß glyph
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// P3.5c — vertical-mode SelectionRect projection (I5).
+//
+// `SelectionRect {x,y,width,height}` feeds paint DIRECTLY, so it must be TRUE
+// PHYSICAL for every writing mode. Per I5, the projection maps BOTH axes via
+// `am = axisMapFor(line.writingMode, line.computedStyle.direction)`:
+//   - the INLINE interval (the selected span within the line) → `am.inline`'s
+//     physical axis (x+width if am.inline==="x", else y+height);
+//   - the BLOCK band (the line's block-start + block-size) → `am.block`'s axis.
+// For the vertical modes inline==Y, block==X, so the selected inline span lands
+// on physical Y and the line's block band on physical X.
+//
+// Geometry mirrors `vertical-cursor-position.test.ts`: an 8px-char / 16px-cross
+// mock shaper, a 20px-inline narrow page so "aa bb cc" wraps into three lines,
+// page block-size 1000 (so the v-rl block-axis mirror lands line 0 at the
+// far/right physical x). Probed concrete coords (identical setup):
+//   vertical-rl: line0 absX=984, line1 absX=968, line2 absX=952 (absY=0 each).
+//   vertical-lr: line0 absX=0,  line1 absX=16,  line2 absX=32  (absY=0 each).
+//   each line inlineSize=20, blockSize=16; leaves "aa"/"bb"/"cc" w=16 h=16.
+//
+// These assertions are RED against the h-tb-only code (which emits
+// y=al.absoluteY / height=line.blockSize for the block band and folds the
+// inline extent onto x/width regardless of writing mode).
+const VERTICAL_LINE_BLOCK = 16; // line blockSize (physical-X extent in vertical)
+
+const verticalPageConfig: PageConfig = {
+  pageInlineSize: 20,
+  pageBlockSize: 1000,
+  pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
+  pageGap: 20,
+};
+
+function verticalDoc(wm: "vertical-rl" | "vertical-lr"): State {
+  return buildState({
+    rootId: "doc",
+    blocks: [
+      buildBlock({
+        id: "doc",
+        type: "document",
+        attrs: { writingMode: wm },
+        firstChildId: "p",
+        lastChildId: "p",
+      }),
+      buildBlock({
+        id: "p",
+        type: "paragraph",
+        parentId: "doc",
+        attrs: { writingMode: wm },
+        inlineContent: inlineContent([text("aa bb cc")]),
+      }),
+    ],
+  });
+}
+
+function verticalPipeline(state: State): { layout: LayoutBox; shaper: TextShaper } {
+  const root = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
+  const shaper = createMockShaper(8, 16);
+  const layout = resolvePositionedTree(
+    layoutTree(root, verticalPageConfig.pageInlineSize, shaper, verticalPageConfig),
+  );
+  return { layout, shaper };
+}
+
+function pLines(layout: LayoutBox): ReturnType<typeof getLineIndex>["all"] {
+  return getLineIndex(layout).byBlock.get("p" as BlockId) ?? [];
+}
+
+describe("P3.5c vertical SelectionRect projection — vertical-rl", () => {
+  const state = verticalDoc("vertical-rl");
+  const { layout, shaper } = verticalPipeline(state);
+  const lines = pLines(layout);
+
+  it("layout sanity: three lines, block band mirrored along physical X (line0 far/high)", () => {
+    expect(lines.length).toBe(3);
+    expect(lines[0].absoluteX).toBeGreaterThan(lines[1].absoluteX);
+    expect(lines[1].absoluteX).toBeGreaterThan(lines[2].absoluteX);
+    expect(lines[0].absoluteY).toBe(0);
+  });
+
+  it("multi-line selection: each rect's block band on physical X, inline span on physical Y", () => {
+    // Select offset 0 ("aa bb cc" start) through offset 8 (end) — spans all
+    // three lines: line0 "aa" (inOff 0..3), line1 "bb" (3..6), line2 "cc" (6..8).
+    const span = createSpan(
+      createPosition("p" as BlockId, 0),
+      createPosition("p" as BlockId, 8),
+    );
+    const rects = computeSelectionRects(state, span, layout, shaper);
+    // One rect per line (no bidi splits, pure-LTR runs).
+    expect(rects.length).toBe(3);
+
+    // line0 "aa ": the FIRST line covers offsets 0..3 (incl. the trailing space,
+    // which hangs/clamps to the content edge), so its inline span is the line's
+    // full inlineSize 20 down physical Y; block band = the line's physical x
+    // (mirrored to 984) + blockSize 16 → physical X.
+    const r0 = rects[0];
+    expect(r0.x).toBe(lines[0].absoluteX); // block band start = physical x
+    expect(r0.width).toBe(VERTICAL_LINE_BLOCK); // block band extent = blockSize
+    expect(r0.y).toBe(0); // inline span start (physical Y)
+    expect(r0.height).toBe(20); // full inline extent of the wrapped line
+    expect(r0.pageIndex).toBe(0);
+
+    // line1 "bb ": the MIDDLE full line — its whole content (inlineSize 20).
+    const r1 = rects[1];
+    expect(r1.x).toBe(lines[1].absoluteX);
+    expect(r1.width).toBe(VERTICAL_LINE_BLOCK);
+    expect(r1.y).toBe(0);
+    expect(r1.height).toBe(20);
+
+    // line2 "cc": the LAST line (offset 6..8) — "cc" = 2 chars * 8px, no
+    // trailing space, so 16px down the inline (physical-Y) axis.
+    const r2 = rects[2];
+    expect(r2.x).toBe(lines[2].absoluteX);
+    expect(r2.width).toBe(VERTICAL_LINE_BLOCK);
+    expect(r2.y).toBe(0);
+    expect(r2.height).toBe(16);
+
+    // The block band marches DOWN in physical x (v-rl mirror): r0 > r1 > r2.
+    expect(r0.x).toBeGreaterThan(r1.x);
+    expect(r1.x).toBeGreaterThan(r2.x);
+  });
+
+  it("partial single-line selection: sub-span inline extent on physical Y, block band on physical X", () => {
+    // Select just the first char of line0 "aa" (offset 0..1) — a sub-span of
+    // one line. Inline extent = one char = 8px down physical Y; block band =
+    // line0's physical x + blockSize 16 along physical X.
+    const span = createSpan(
+      createPosition("p" as BlockId, 0),
+      createPosition("p" as BlockId, 1),
+    );
+    const rects = computeSelectionRects(state, span, layout, shaper);
+    expect(rects.length).toBe(1);
+    const r = rects[0];
+    expect(r.x).toBe(lines[0].absoluteX); // block band start
+    expect(r.width).toBe(VERTICAL_LINE_BLOCK); // block band extent
+    expect(r.y).toBe(0); // inline start
+    expect(r.height).toBe(8); // one char along the inline (physical-Y) axis
+  });
+});
+
+describe("P3.5c vertical SelectionRect projection — vertical-lr", () => {
+  const state = verticalDoc("vertical-lr");
+  const { layout, shaper } = verticalPipeline(state);
+  const lines = pLines(layout);
+
+  it("layout sanity: three lines, block band ascending along physical X (no mirror)", () => {
+    expect(lines.length).toBe(3);
+    expect(lines[0].absoluteX).toBeLessThan(lines[1].absoluteX);
+    expect(lines[1].absoluteX).toBeLessThan(lines[2].absoluteX);
+  });
+
+  it("multi-line selection: block band ascends on physical X, inline span on physical Y", () => {
+    const span = createSpan(
+      createPosition("p" as BlockId, 0),
+      createPosition("p" as BlockId, 8),
+    );
+    const rects = computeSelectionRects(state, span, layout, shaper);
+    expect(rects.length).toBe(3);
+
+    const r0 = rects[0];
+    expect(r0.x).toBe(lines[0].absoluteX); // = 0, block band start
+    expect(r0.width).toBe(VERTICAL_LINE_BLOCK);
+    expect(r0.y).toBe(0);
+    expect(r0.height).toBe(20); // first wrapped line — full inline extent
+
+    const r1 = rects[1];
+    expect(r1.x).toBe(lines[1].absoluteX); // = 16
+    expect(r1.width).toBe(VERTICAL_LINE_BLOCK);
+    expect(r1.y).toBe(0);
+    expect(r1.height).toBe(20); // middle full line — full inline extent
+
+    const r2 = rects[2];
+    expect(r2.x).toBe(lines[2].absoluteX); // = 32
+    expect(r2.width).toBe(VERTICAL_LINE_BLOCK);
+    expect(r2.y).toBe(0);
+    expect(r2.height).toBe(16); // last line "cc" — 2 chars, no trailing space
+
+    // Block band marches UP in physical x (no mirror): r0 < r1 < r2.
+    expect(r0.x).toBeLessThan(r1.x);
+    expect(r1.x).toBeLessThan(r2.x);
+  });
+
+  it("partial single-line selection: sub-span inline extent on physical Y", () => {
+    const span = createSpan(
+      createPosition("p" as BlockId, 0),
+      createPosition("p" as BlockId, 1),
+    );
+    const rects = computeSelectionRects(state, span, layout, shaper);
+    expect(rects.length).toBe(1);
+    const r = rects[0];
+    expect(r.x).toBe(lines[0].absoluteX);
+    expect(r.width).toBe(VERTICAL_LINE_BLOCK);
+    expect(r.y).toBe(0);
+    expect(r.height).toBe(8);
   });
 });

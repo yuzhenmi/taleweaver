@@ -8,12 +8,17 @@ import type { ComputedStyle } from "../styles";
 import { resolvePixelPosition, type PixelPosition } from "./cursor-position";
 import {
   collectLineLeaves,
+  coordOf,
+  sizeAlong,
+  lineCoordOf,
+  lineSizeAlong,
   findLineForPosition,
   getLineIndex,
   makeContextFilter,
   type AbsoluteLineBox,
 } from "./line-flatten";
 import { buildLineBidiView, selectionRectsForLineRange } from "./line-bidi";
+import { axisMapFor, type AxisMap } from "../styles/writing-mode";
 import { markStart, markEnd } from "../perf/perf-trace";
 
 /**
@@ -189,6 +194,36 @@ export function computeSelectionRectsForPage(
 }
 
 /**
+ * Project an INLINE interval (`[inlineLo, inlineHi]` along the inline axis) plus
+ * a BLOCK band (`blockLo`, extent `blockSize` along the block axis) into a TRUE
+ * PHYSICAL `SelectionRect`-shaped `{x, y, width, height}` via the line's axis
+ * map (I5). `SelectionRect` feeds paint directly, so unlike `PixelPosition`
+ * (which stays inline/block until P3.8) it must be physical here.
+ *
+ * The inline span lands on the `am.inline` physical axis (x+width if
+ * `am.inline === "x"`, else y+height); the block band lands on the `am.block`
+ * physical axis. For `horizontal-tb` (`inline→x`, `block→y`) this is identity:
+ * `{x: inlineLo, width: inlineHi − inlineLo, y: blockLo, height: blockSize}`
+ * — byte-identical to the legacy hard-coded shape.
+ */
+function physicalRectFromAxes(
+  am: AxisMap,
+  inlineLo: number,
+  inlineHi: number,
+  blockLo: number,
+  blockSize: number,
+  pageIndex: number,
+): SelectionRect {
+  const inlineExtent = inlineHi - inlineLo;
+  if (am.inline === "x") {
+    // inline→x, block→y (horizontal-tb).
+    return { x: inlineLo, y: blockLo, width: inlineExtent, height: blockSize, pageIndex };
+  }
+  // inline→y, block→x (vertical modes).
+  return { x: blockLo, y: inlineLo, width: blockSize, height: inlineExtent, pageIndex };
+}
+
+/**
  * Emit the highlight rect(s) for one line of a selection. `isGlobalFirst` /
  * `isGlobalLast` are relative to the WHOLE selection (across pages), not just
  * this page — so a line on a fully-enclosed middle page is neither, getting a
@@ -201,7 +236,15 @@ export function computeSelectionRectsForPage(
  * go NEGATIVE on a reordered line). The middle-full-line branch keeps
  * `computeLineEdges` (already direction-safe: a min/max over all leaf
  * positions). The paragraph-break indicator (after a block-boundary line) is a
- * separate small rect at the line's right edge, appended to first/middle lines.
+ * separate small rect at the line's inline end, appended to first/middle lines.
+ *
+ * Writing-mode-aware (P3.5c §I5): all geometry below is computed in INLINE/BLOCK
+ * terms (the selected inline span + the line's block band) and projected to a
+ * TRUE PHYSICAL `SelectionRect` via `physicalRectFromAxes` at the LAST step. The
+ * `VisualInterval {xLo,xHi}` from `selectionRectsForLineRange` are INLINE-axis
+ * intervals (P3.5a) — they are projected HERE, never re-projected in line-bidi.
+ * The paragraph-break indicator is an INLINE advance, folded into the inline
+ * span BEFORE projection. For h-tb the projection is identity (byte-identical).
  */
 function emitLineRect(
   al: AbsoluteLineBox,
@@ -212,27 +255,30 @@ function emitLineRect(
   measurer: TextMeasurer,
 ): SelectionRect[] {
   const line = al.line;
-  const { lineLeft, lineRight, trailingStyle } = computeLineEdges(al);
+  const am = axisMapFor(line.writingMode, line.computedStyle.direction);
+  const { inlineLo: lineInlineLo, inlineHi: lineInlineHi, trailingStyle } =
+    computeLineEdges(al, am);
   const indicatorW = line.isBlockBoundaryLine
     ? measurer.measureWidth("  ", trailingStyle)
     : 0;
 
+  // The line's block band — shared by every rect emitted for this line. Both
+  // are physical coords (start coords are pre-physicalized; the extent projects
+  // the logical block-size to its physical axis).
+  const blockLo = lineCoordOf(al, am.block);
+  const blockSize = lineSizeAlong(al, am.block);
+
   const out: SelectionRect[] = [];
-  const push = (x: number, width: number): void => {
-    if (width <= 0) return;
-    out.push({
-      x,
-      y: al.absoluteY,
-      width,
-      height: line.blockSize,
-      pageIndex: al.pageIndex,
-    });
+  const push = (inlineLo: number, inlineHi: number): void => {
+    if (inlineHi - inlineLo <= 0) return;
+    out.push(physicalRectFromAxes(am, inlineLo, inlineHi, blockLo, blockSize, al.pageIndex));
   };
 
   if (!isGlobalFirst && !isGlobalLast) {
     // Middle full line: the whole line's content (direction-safe via the
-    // min/max over leaf positions), plus the paragraph-break indicator.
-    push(lineLeft, lineRight + indicatorW - lineLeft);
+    // min/max over leaf positions), plus the paragraph-break indicator (an
+    // inline advance past the line's inline end).
+    push(lineInlineLo, lineInlineHi + indicatorW);
     return out;
   }
 
@@ -252,14 +298,15 @@ function emitLineRect(
   if (view.isEmpty) {
     // Strut-only line (empty paragraph). No caret-target leaves, so the
     // segmentation yields nothing — fall back to the line's content edges (for
-    // an empty line both collapse to the line X) plus the paragraph-break
-    // indicator. This keeps the empty-paragraph narrow indicator (#169/#201).
-    // Only the first/middle lines carry the trailing indicator (an empty LAST
-    // line contributes only its collapsed content edge, i.e. nothing visible).
+    // an empty line both collapse to the line inline-start) plus the
+    // paragraph-break indicator. This keeps the empty-paragraph narrow indicator
+    // (#169/#201). Only the first/middle lines carry the trailing indicator (an
+    // empty LAST line contributes only its collapsed content edge, i.e. nothing
+    // visible).
     if (isGlobalFirst) {
-      push(lineLeft, lineRight + indicatorW - lineLeft);
+      push(lineInlineLo, lineInlineHi + indicatorW);
     } else {
-      push(lineLeft, lineRight - lineLeft);
+      push(lineInlineLo, lineInlineHi);
     }
     return out;
   }
@@ -268,19 +315,20 @@ function emitLineRect(
 
   // The paragraph-break indicator trails a block-boundary line whenever the
   // selection continues past it (i.e. this is NOT the global-last line). It sits
-  // at the line's right edge (`[lineRight, lineRight + indicatorW]`), past the
-  // logical line end — so it is direction-agnostic. When a content segment
-  // already ends AT `lineRight` (the LTR case: the trailing run reaches the
-  // line's right edge), the indicator is FUSED onto that segment so a pure-LTR
+  // at the line's inline end (`[lineInlineHi, lineInlineHi + indicatorW]`), past
+  // the logical line end — so it is bidi-agnostic. When a content segment
+  // already ends AT `lineInlineHi` (the LTR case: the trailing run reaches the
+  // line's inline end), the indicator is FUSED onto that segment so a pure-LTR
   // line stays a SINGLE rect (byte-identical to the legacy merged strip). When
-  // no segment reaches `lineRight` (e.g. an RTL trailing run, or no content at
-  // all) the indicator is emitted as its own rect at the right edge.
+  // no segment reaches `lineInlineHi` (e.g. an RTL trailing run, or no content
+  // at all) the indicator is emitted as its own rect at the inline end. All of
+  // this is in INLINE space; the `push` projection maps it to physical.
   const indicatorActive = !isGlobalLast && indicatorW > 0;
   let indicatorFused = false;
   if (indicatorActive) {
     for (const seg of segments) {
-      if (Math.abs(seg.xHi - lineRight) <= INDICATOR_EPSILON) {
-        seg.xHi = lineRight + indicatorW;
+      if (Math.abs(seg.xHi - lineInlineHi) <= INDICATOR_EPSILON) {
+        seg.xHi = lineInlineHi + indicatorW;
         indicatorFused = true;
         break;
       }
@@ -288,54 +336,63 @@ function emitLineRect(
   }
 
   for (const seg of segments) {
-    push(seg.xLo, seg.xHi - seg.xLo);
+    push(seg.xLo, seg.xHi);
   }
   if (indicatorActive && !indicatorFused) {
-    push(lineRight, indicatorW);
+    push(lineInlineHi, lineInlineHi + indicatorW);
   }
 
   return out;
 }
 
 /**
- * Compute the horizontal X extent of a line's content. For lines
- * with at least one leaf (text-run or inline-block), returns the
- * leftmost leaf's X and the rightmost leaf's right edge. For empty
- * (strut) lines, both edges collapse to the line's own X — no visible
- * content to highlight.
+ * Compute the INLINE-axis extent of a line's content. For lines with at least
+ * one leaf (text-run or inline-block), returns the lowest leaf inline-start and
+ * the highest leaf inline-end (a min/max over leaf positions along the inline
+ * axis — direction-safe). For empty (strut) lines, both edges collapse to the
+ * line's own inline-start coord — no visible content to highlight.
  *
- * Also returns the trailing leaf's computed style for paragraph-break
- * indicator measurement; null for empty lines (no content style to
- * measure against — the LineBox's own style could be used as a
- * fallback, but for now we suppress the indicator on empty lines).
+ * The fold is along `am.inline` (the line's own axis map): for h-tb that is
+ * physical X (`coordOf(leaf, "x")` = `absoluteX`, `sizeAlong(leaf, "x")` =
+ * `width`), so this is byte-identical to the legacy X-fold; for vertical modes
+ * it folds along physical Y. The caller projects the returned inline interval to
+ * physical via `physicalRectFromAxes`.
+ *
+ * Also returns the trailing leaf's computed style for paragraph-break indicator
+ * measurement; falls back to the LineBox's own computedStyle for empty lines.
  */
-function computeLineEdges(al: AbsoluteLineBox): {
-  lineLeft: number;
-  lineRight: number;
+function computeLineEdges(
+  al: AbsoluteLineBox,
+  am: AxisMap,
+): {
+  inlineLo: number;
+  inlineHi: number;
   trailingStyle: ComputedStyle;
 } {
   const leaves = collectLineLeaves(al.line, al.absoluteX, al.absoluteY);
   if (leaves.length === 0) {
-    // Empty (strut) line — both edges collapse to the line's X.
-    // Trailing style falls back to the LineBox's own computedStyle
-    // (the IFC stamps it from the source block's parentCs at strut
-    // creation), so paragraph-break indicators on empty paragraphs
-    // are measured against the block's text style.
+    // Empty (strut) line — both edges collapse to the line's inline-start coord.
+    // Trailing style falls back to the LineBox's own computedStyle (the IFC
+    // stamps it from the source block's parentCs at strut creation), so
+    // paragraph-break indicators on empty paragraphs are measured against the
+    // block's text style.
+    const lineInline = lineCoordOf(al, am.inline);
     return {
-      lineLeft: al.absoluteX,
-      lineRight: al.absoluteX,
+      inlineLo: lineInline,
+      inlineHi: lineInline,
       trailingStyle: al.line.computedStyle,
     };
   }
-  let minX = leaves[0].absoluteX;
-  let maxRight = leaves[0].absoluteX + leaves[0].width;
+  let minInline = coordOf(leaves[0], am.inline);
+  let maxInline = minInline + sizeAlong(leaves[0], am.inline);
   for (const leaf of leaves) {
-    if (leaf.absoluteX < minX) minX = leaf.absoluteX;
-    const right = leaf.absoluteX + leaf.width;
-    if (right > maxRight) maxRight = right;
+    const lo = coordOf(leaf, am.inline);
+    if (lo < minInline) minInline = lo;
+    const hi = lo + sizeAlong(leaf, am.inline);
+    if (hi > maxInline) maxInline = hi;
   }
   const trailing = leaves[leaves.length - 1].computedStyle;
-  return { lineLeft: minX, lineRight: maxRight, trailingStyle: trailing };
+  return { inlineLo: minInline, inlineHi: maxInline, trailingStyle: trailing };
 }
 
 // Re-export for tests' convenience.
