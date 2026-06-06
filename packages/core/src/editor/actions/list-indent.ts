@@ -2,6 +2,7 @@ import type { EditorState, EditorConfig } from "../editor-state";
 import { getBlock, mergeBlockAttrs, iterateBlocksInSpan, positionsEqual } from "../../state";
 import type { State, BlockId } from "../../state";
 import { rebuildTrees } from "./helpers";
+import { listLevelOf } from "./list-edits";
 
 /** Google-Docs list nesting depth is 0–8 (level 0 = top of the list). */
 export const MAX_LIST_LEVEL = 8;
@@ -34,11 +35,7 @@ export function handleListIndent(
   for (const blockId of targetIds) {
     const block = getBlock(state, blockId);
     if (block === null) continue;
-    const levelRaw = block.attrs.listLevel;
-    const current =
-      typeof levelRaw === "number" && Number.isFinite(levelRaw) && levelRaw > 0
-        ? levelRaw
-        : 0;
+    const current = listLevelOf(block);
     const next = Math.max(0, Math.min(MAX_LIST_LEVEL, current + delta));
     if (next === current) continue;
     // Level 0 clears the attr (undefined → mergeAttrs removes the key), so a

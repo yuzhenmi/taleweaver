@@ -4,6 +4,8 @@ import { moveByCharacter } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
+import { handleListIndent } from "./list-indent";
+import { listLevelOf, unlistBlock } from "./list-edits";
 
 export function handleDeleteBackward(
   editor: EditorState,
@@ -62,6 +64,16 @@ export function handleDeleteBackward(
   // pos.offset === 0: cross-block backspace.
   const currentBlock = resolveBlock(editor.state, pos.blockId)?.block ?? null;
   if (currentBlock === null) return editor;
+
+  // Backspace at the START of a list-item (Google Docs): a nested item (level>0)
+  // outdents one level; a top-level item (level 0) drops its list formatting and
+  // becomes a plain paragraph — rather than merging into the previous block.
+  if (currentBlock.type === "list-item") {
+    return listLevelOf(currentBlock) > 0
+      ? handleListIndent(editor, -1, config)
+      : unlistBlock(editor, currentBlock, config);
+  }
+
   const prevPos = moveByCharacter(editor.state, pos, "backward");
   if (prevPos.blockId === pos.blockId) {
     // moveByCharacter returned same position (at start of doc, or no

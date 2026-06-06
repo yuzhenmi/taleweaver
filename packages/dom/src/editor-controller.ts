@@ -1184,7 +1184,15 @@ export function createEditorController(
 
   function handleKeyDown(e: KeyboardEvent) {
     if (isComposing || e.isComposing) return;
-    const action = mapKeyEvent(e);
+    // Tab / Shift+Tab routing is context-sensitive: pass whether the caret's
+    // focus block is a list-item so the keymap can map Tab → list nesting.
+    const focusBlock =
+      state !== null
+        ? getBlock(state.state, state.selection.focus.blockId)
+        : null;
+    const action = mapKeyEvent(e, {
+      inListItem: focusBlock?.type === "list-item",
+    });
     if (action) {
       e.preventDefault();
       dispatch(action);

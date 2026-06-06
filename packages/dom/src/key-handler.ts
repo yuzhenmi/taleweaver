@@ -1,7 +1,23 @@
 import type { EditorAction } from "@taleweaver/core";
 
+/**
+ * Document context the keymap needs for context-sensitive chords. Optional so
+ * callers that don't supply it get the non-list behavior (Tab unmapped).
+ */
+export interface KeyContext {
+  /**
+   * True when the caret's focus block is a `list-item`. Enables Tab / Shift+Tab
+   * to nest / un-nest the list (LIST_INDENT / LIST_OUTDENT); outside a list-item
+   * Tab is left unmapped (its current behavior).
+   */
+  readonly inListItem?: boolean;
+}
+
 /** Map a KeyboardEvent to an EditorAction, or null if unrecognized. */
-export function mapKeyEvent(event: KeyboardEvent): EditorAction | null {
+export function mapKeyEvent(
+  event: KeyboardEvent,
+  context: KeyContext = {},
+): EditorAction | null {
   const { key: rawKey, ctrlKey, metaKey, altKey, shiftKey } = event;
   // Normalize single printable chars to lowercase: `KeyboardEvent.key` returns
   // the SHIFTED value, so a chord like Ctrl+Shift+X reports `key === "X"`
@@ -80,6 +96,15 @@ export function mapKeyEvent(event: KeyboardEvent): EditorAction | null {
   }
 
   if (key === "Enter") return { type: "SPLIT_NODE" };
+
+  // Tab / Shift+Tab — nest / un-nest the current list item (Google Docs). Only
+  // when the caret is in a list-item; otherwise unmapped (Tab keeps its current
+  // behavior). `handleIndent` deliberately skips list-items, so list nesting has
+  // to route through LIST_INDENT/LIST_OUTDENT here rather than INDENT/OUTDENT.
+  if (key === "Tab") {
+    if (!context.inListItem) return null;
+    return shiftKey ? { type: "LIST_OUTDENT" } : { type: "LIST_INDENT" };
+  }
 
   // Text styling shortcuts
   if (mod && key === "b") return { type: "TOGGLE_STYLE", style: "bold" };

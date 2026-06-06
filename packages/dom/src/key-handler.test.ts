@@ -510,4 +510,24 @@ describe("mapKeyEvent", () => {
       type: "DELETE_LINE",
     });
   });
+
+  // --- Tab / Shift+Tab list nesting (context-sensitive, #L16) ---
+
+  it("maps Tab in a list-item to LIST_INDENT", () => {
+    expect(mapKeyEvent(key({ key: "Tab" }), { inListItem: true })).toEqual({
+      type: "LIST_INDENT",
+    });
+  });
+
+  it("maps Shift+Tab in a list-item to LIST_OUTDENT", () => {
+    expect(
+      mapKeyEvent(key({ key: "Tab", shiftKey: true }), { inListItem: true }),
+    ).toEqual({ type: "LIST_OUTDENT" });
+  });
+
+  it("leaves Tab unmapped outside a list-item (context absent or not a list)", () => {
+    expect(mapKeyEvent(key({ key: "Tab" }), { inListItem: false })).toBeNull();
+    expect(mapKeyEvent(key({ key: "Tab" }))).toBeNull();
+    expect(mapKeyEvent(key({ key: "Tab", shiftKey: true }))).toBeNull();
+  });
 });

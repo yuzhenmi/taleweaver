@@ -4,6 +4,8 @@ import type { BlockId } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
+import { handleListIndent } from "./list-indent";
+import { listLevelOf, unlistBlock } from "./list-edits";
 
 export function handleSplitNode(
   editor: EditorState,
@@ -41,6 +43,21 @@ export function handleSplitNode(
   // Split is only meaningful on leaf blocks under a non-null parent.
   if (block.inlineContent === null || block.parentId === null) {
     return current === editor ? editor : current;
+  }
+
+  // Enter on an EMPTY list-item exits the list rather than creating another
+  // empty item (Google Docs): a nested item (level>0) outdents one level; a
+  // top-level item (level 0) becomes a plain paragraph. Gated to a plain
+  // collapsed Enter (no preceding range-delete, `current === editor`) so the
+  // rare delete-then-empty case falls through to a normal split.
+  if (
+    current === editor &&
+    block.type === "list-item" &&
+    inlineContentLength(block.inlineContent) === 0
+  ) {
+    return listLevelOf(block) > 0
+      ? handleListIndent(editor, -1, config)
+      : unlistBlock(editor, block, config);
   }
 
   // "Style for the following paragraph" (Word / Google Docs): pressing Enter at
