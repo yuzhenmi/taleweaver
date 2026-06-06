@@ -165,8 +165,14 @@ each box's `display` value.
   containing block. Called by every formatting context as it lays out
   each box.
 
-- **`list-counter`** — `formatCounter(value, style)` for ordered-list
-  marker text generation. Used by the BFC when emitting marker boxes.
+  (Note: the layout pass no longer COUNTS list markers — the old
+  `layout/list-counter.ts` was deleted. Marker text is computed at render
+  time by the numbering service and baked onto the list-item's
+  `markerText` style; the BFC reads it and paints it. The shared marker
+  formatter is `formatCounter(value, style)` in `styles/format-counter.ts`,
+  consumed by the render-time numbering service, not by layout. See
+  [`1.2-render.md`](../1.2-render.md) "Numbering (list markers)" and
+  [`1.4.1-bfc.md`](1.4.1-bfc.md) "List markers".)
 
 ## How the modules connect
 

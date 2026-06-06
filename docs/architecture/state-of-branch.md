@@ -86,7 +86,12 @@ preserved upstream. Length flattening (`em` → px) works at cascade time;
 Most of the layout pass is implemented and working:
 - BFC: margin collapsing, clearance, list markers, anonymous block
   runs. Subtree reuse works including the "rebuilt parent with
-  unchanged children" gate.
+  unchanged children" gate. The BFC no longer COUNTS list markers — it
+  reads the render-baked `markerText` off the cascaded style and paints
+  it (the old `layout/list-counter.ts` counter / seed-replay / run-reset
+  / auto-counter machinery was deleted). The marker-gutter behaviors
+  (#426 auto-widen, #431 straddling-break marker on the correct page,
+  #418 list spacing) are preserved. See the "Lists & numbering" section.
 - IFC: line wrap, baseline alignment, full UAX #9 bidi reorder
   (mixed-direction geometry + RTL glyph paint + RTL cursor — see the
   bidi entry below for browser-smoke status), hyphen splitting,
@@ -163,7 +168,7 @@ Still missing (deferred to P1.C and later):
 - All P1.C sub-pieces (headers/footers/footnotes/templates).
 - Bottom-side margin truncation across breaks for the edge case where the parent has bottom padding/border on a partial fragment (top side already shipped in P1.B).
 - Cross-page floats (P1.D-or-P12; current float environment is single-fragment-aware).
-- Generated content / counters consumers (target-counter resolves only after P9b).
+- Cross-references (Google-Docs reference fields, NOT CSS `target-counter`) — not yet built; the render-time numbering service is the foundation when they land.
 - Cross-page table header row (`<thead>`) repetition (requires `Display: "table-header-group"` schema addition).
 
 ### Text `[partial]`
@@ -256,6 +261,44 @@ closed gaps, no remaining action):
   content"). Any residual symptom would live only in the browser
   event / hidden-textarea sync layer and is covered by the user's
   in-browser smoke.
+
+### Lists & numbering `[implemented]`
+
+The flat Google-Docs list model is shipped end-to-end. A "list" is a
+document-order run of `list-item` LEAF blocks sharing a `listId` attr;
+nesting is the per-item `listLevel`; per-list numbering config lives in the
+`listDefs` Y.Doc side-table (4th top-level map). The old STRUCTURAL model
+(a `list` container wrapping `list-item`s, with a `listType` attr) is gone:
+the `list` component and `components/list.ts` were deleted, and a
+`migrate-list-structure` migration upgrades legacy documents.
+
+- **State** (`1.1-state.md`): `listDefs` map (`getListDef(s)` /
+  `getListDefsForState` / `writeListDefInTx` / `classifyListDef`), tracked
+  as a 4th UndoManager scope and seeded by `createYDoc`; flat list-item
+  attrs (`listId`/`listLevel`/`listCounterOverride`); ops `setListType`
+  (via the `applyOperation` dirty-union channel) and `setListRestart`;
+  `newListId`.
+- **Numbering service** (`numbering/`, `1.2-render.md`): a general
+  render-time `computeCounters` engine + `collectListEvents` collector +
+  `listCounterRenumberedBlocks` diff. Pure, render-time-only (no layout
+  dependency). Lists are the first consumer; footnotes/custom components
+  are intended future consumers.
+- **Render** (`1.2-render.md`): full + incremental render compute the
+  counter map and expose it via `RenderContext.counterValue`; the
+  `list-item` component bakes the bullet/number into `style.markerText`;
+  `RenderOutput.listCounters` caches the per-cycle map and the incremental
+  path expands `invalidated` by the renumber diff.
+- **Layout** (BFC, see `layout/` above): the BFC reads the render-baked
+  `markerText` only — it COUNTS nothing. `layout/list-counter.ts` deleted;
+  the #426/#431/#418 marker-gutter behaviors preserved.
+- **Editing** (`1.7-editor.md`): `TOGGLE_LIST` (flat unified toggle),
+  `SET_LIST_TYPE`, `SET_LIST_RESTART`, `LIST_INDENT`/`LIST_OUTDENT`; Enter
+  on an empty list-item exits the list; Backspace at offset 0 outdents /
+  un-lists; `INDENT`/`OUTDENT` skip list-items (I5); Tab/Shift+Tab route to
+  LIST_INDENT/OUTDENT via the context-sensitive key-handler.
+
+Browser smoke for the list editing UX rides the user's in-browser pass
+(per the project's browser-verification convention).
 
 ### `perf/` `[implemented]`
 
