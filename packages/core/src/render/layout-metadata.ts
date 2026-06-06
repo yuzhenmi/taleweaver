@@ -26,6 +26,12 @@ export interface LayoutBoxMetadata {
   readonly image?: { readonly src: string; readonly width: number; readonly height: number };
   readonly horizontalLine?: boolean;
   readonly columnWidths?: readonly number[];
+  // Table-cell spanning (P8). Structural grid facts (HTML rowspan/colspan model,
+  // NOT cascaded style): stamped by the `table-cell` component from the cell's
+  // open-schema `attrs`, read raw by the Table FC + intrinsic pass via
+  // `cellSpan` (layout/table-grid.ts). Absent ⇒ 1.
+  readonly rowSpan?: number;
+  readonly colSpan?: number;
   readonly blockType?: "section";
   readonly pageInlineSize?: unknown;
   readonly pageBlockSize?: unknown;
