@@ -7,6 +7,7 @@ import { insertText } from "./ops/insert-text";
 import { deleteRange } from "./ops/delete-range";
 import { applyOperation, getBlock } from "./state";
 import { getMetaMap, getTemplateContentsMap, getYBlock } from "./yjs-doc";
+import { getListDef, writeListDefInTx, type ListDef } from "./list-defs";
 import { createPosition, createSpan } from "./block-position";
 import { inlineContentLength } from "./inline-content";
 import { extractText } from "./extract-text";
@@ -427,6 +428,52 @@ describe("history (Y.UndoManager wrapper)", () => {
     expect(redone).not.toBeNull();
     if (redone === null) throw new Error("expected redo to succeed");
     expect(getTemplateContentsMap(doc).get(bodyId)?.get("type")).toBe("heading");
+  });
+
+  it("undoes a listDef write atomically (Task 5)", () => {
+    // The listDefs config side-table is a 4th tracked UndoManager scope
+    // (history.ts). It is intentionally NOT a dirty-capture dimension
+    // (captureDirtyIds only scans the block trees), so a listDefs-only op
+    // yields empty dirtyIds and History.commit would no-op. To exercise the
+    // undo path we mutate a real block in the SAME op so dirtyIds is non-empty
+    // (the natural workaround documented in the task); the listDef revert is
+    // what we assert. Asserted at the raw Y.Doc level via getListDef.
+    const state = createEmptyDocument();
+    const doc = state[STATE_INTERNAL].doc;
+    const child = firstChild(state);
+    const sample: ListDef = {
+      levels: [
+        { style: "decimal", start: 1, restart: "after-break" },
+        { style: "lower-alpha", start: 1, restart: "after-break" },
+      ],
+    };
+
+    expect(getListDef(doc, "L1")).toBeUndefined();
+
+    const history = createHistory(state);
+    const opResult = applyOperation(state, () => {
+      writeListDefInTx(doc, "L1", sample);
+      // Co-mutate a real block so dirtyIds is non-empty (listDefs is not a
+      // dirty-capture dimension); this keeps both writes in one undo group.
+      getYBlock(doc, child.id, "test").set("type", "heading");
+    });
+    expect(getListDef(doc, "L1")).toEqual(sample);
+
+    const sel = createSpan(createPosition(child.id, 0), createPosition(child.id, 0));
+    history.commit(opResult, { before: sel, after: sel });
+    expect(history.canUndo()).toBe(true);
+
+    const undone = history.undo();
+    expect(undone).not.toBeNull();
+    if (undone === null) throw new Error("expected undo to succeed");
+    // The listDef write is reverted atomically with the block mutation.
+    expect(getListDef(doc, "L1")).toBeUndefined();
+
+    // Redo re-applies the listDef.
+    const redone = history.redo();
+    expect(redone).not.toBeNull();
+    if (redone === null) throw new Error("expected redo to succeed");
+    expect(getListDef(doc, "L1")).toEqual(sample);
   });
 
   it("a new commit after undo clears the redo stack", () => {

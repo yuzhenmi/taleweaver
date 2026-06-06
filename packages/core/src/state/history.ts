@@ -7,6 +7,7 @@ import {
   captureDirtyIds,
   getBlocksMap,
   getEmbedContentsMap,
+  getListDefsMap,
   getTemplateContentsMap,
 } from "./yjs-doc";
 import { STATE_INTERNAL } from "./state-internal";
@@ -91,9 +92,9 @@ function readSelectionEntry(item: YStackItem): SelectionEntry | null {
  * opposite stack's new item — see `SelectionEntry`.)
  *
  * **Meta-map exclusion (intentional).** The Y.UndoManager is constructed
- * with the blocks map, the embedContents map, and the templateContents map
- * as tracked scopes. Writes to the doc's meta Y.Map (see `getMetaMap` in
- * `yjs-doc.ts`) are deliberately NOT undoable. Today the meta map holds only `rootId`,
+ * with the blocks map, the embedContents map, the templateContents map, and
+ * the listDefs config side-table as tracked scopes. Writes to the doc's meta
+ * Y.Map (see `getMetaMap` in `yjs-doc.ts`) are deliberately NOT undoable. Today the meta map holds only `rootId`,
  * which is immutable for the lifetime of a session (created once in
  * `createYDoc`, never reassigned). Because that single field never
  * changes after document construction, there is nothing to undo and no
@@ -197,6 +198,7 @@ export class History {
         getBlocksMap(state[STATE_INTERNAL].doc),
         getEmbedContentsMap(state[STATE_INTERNAL].doc),
         getTemplateContentsMap(state[STATE_INTERNAL].doc),
+        getListDefsMap(state[STATE_INTERNAL].doc),
       ],
       {
         // captureTimeout: Number.MAX_SAFE_INTEGER means "never auto-close

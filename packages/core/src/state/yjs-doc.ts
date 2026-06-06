@@ -5,6 +5,7 @@ import { isDevMode } from "./dev-mode";
 const BLOCKS_KEY = "blocks";
 const EMBED_CONTENTS_KEY = "embedContents";
 const TEMPLATE_CONTENTS_KEY = "templateContents";
+const LIST_DEFS_KEY = "listDefs";
 const META_KEY = "meta";
 
 export function createYDoc(args?: { rootId?: BlockId }): Y.Doc {
@@ -12,6 +13,7 @@ export function createYDoc(args?: { rootId?: BlockId }): Y.Doc {
   doc.getMap(BLOCKS_KEY);
   doc.getMap(EMBED_CONTENTS_KEY);
   doc.getMap(TEMPLATE_CONTENTS_KEY);
+  doc.getMap(LIST_DEFS_KEY);
   const meta = doc.getMap(META_KEY);
   if (args?.rootId !== undefined) {
     meta.set("rootId", args.rootId);
@@ -29,6 +31,16 @@ export function getEmbedContentsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
 
 export function getTemplateContentsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
   return doc.getMap(TEMPLATE_CONTENTS_KEY) as Y.Map<Y.Map<unknown>>;
+}
+
+/**
+ * The top-level `listDefs` config side-table: listId → per-list numbering
+ * config (Y.Map). NOT a block tree (keys are listId strings, not BlockIds), so
+ * it is intentionally excluded from TREE_MAP_GETTERS / dirty-capture / the
+ * snapshot cache. Tracked by the UndoManager (history.ts) as a 4th scope.
+ */
+export function getListDefsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
+  return doc.getMap(LIST_DEFS_KEY) as Y.Map<Y.Map<unknown>>;
 }
 
 /**
@@ -109,8 +121,9 @@ export function allTreeBlockCount(doc: Y.Doc): number {
  *
  * **Not tracked by the History UndoManager.** The `History` class
  * (`history.ts`) constructs its `Y.UndoManager` with the blocks map,
- * the embedContents map, and the templateContents map as tracked scopes —
- * writes to this meta map are intentionally outside the undo/redo stack.
+ * the embedContents map, the templateContents map, and the listDefs config
+ * side-table as tracked scopes — writes to this meta map are intentionally
+ * outside the undo/redo stack.
  * The current design relies on the meta map holding only immutable
  * session-level fields (rootId today; possibly format version, doc id,
  * etc. in the future).
