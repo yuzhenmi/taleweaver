@@ -141,6 +141,9 @@ export {
 export type { BlockRange } from "./span-iteration";
 export { normalizeSpan, iterateSpan, iterateBlocksInSpan } from "./span-iteration";
 
+// Whole-document depth-first block walk.
+export { iterateBlocksInDocumentOrder } from "./document-order";
+
 // Flatten a span to plain text (clipboard, find/replace, a11y).
 export type { EmbedSerializer } from "./extract-text";
 export { extractText, builtinEmbedSerializer } from "./extract-text";
