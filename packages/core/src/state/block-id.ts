@@ -42,6 +42,17 @@ export const productionAllocator: IdAllocator = {
 };
 
 /**
+ * Mint a fresh list id. List ids are a plain-string namespace, DISTINCT from
+ * block ids (a `listId` groups a run of `list-item` blocks; it is not itself a
+ * block). Minting here co-locates id generation with the block-id allocator and
+ * reuses the same ambient `crypto`, while keeping the two namespaces typed apart
+ * (this returns `string`, not the branded `BlockId`).
+ */
+export function newListId(): string {
+  return crypto.randomUUID();
+}
+
+/**
  * Creates a deterministic allocator for tests.
  * Each call to allocate() returns `${prefix}-${n}` where n increments from 0.
  */

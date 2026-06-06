@@ -76,6 +76,7 @@ export {
   coerceBlockId,
   productionAllocator,
   createTestAllocator,
+  newListId,
 } from "./block-id";
 
 // Positions, spans, selections + pure builders / comparisons.
@@ -227,6 +228,10 @@ export { removeBlock } from "./ops/remove-block";
 export { setBlockAttrs } from "./ops/set-block-attrs";
 export { mergeBlockAttrs } from "./ops/merge-block-attrs";
 export { setBlockType } from "./ops/set-block-type";
+
+// List config edits (per-list numbering type + per-item counter restart).
+export { setListType } from "./ops/set-list-type";
+export { setListRestart } from "./ops/set-list-restart";
 
 // Section structure (flat never-nested `section` blocks).
 export { reparentChildren } from "./ops/reparent-children";
