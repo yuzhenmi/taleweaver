@@ -256,59 +256,6 @@ describe("BFC fragmentation — break-before", () => {
     expect(page2Markers).toEqual(["child-1-marker"]);
   });
 
-  it("does NOT advance the list-counter on the pre-break page for a list-item that breaks (FN-6.2a)", () => {
-    // ol with 3 list-items. child-0 lands on page 1 (gets marker "1.").
-    // child-1 carries breakBefore: page → break fires before it (fragment non-empty).
-    // Because listCounter++ now runs AFTER the break check, child-1 does NOT
-    // consume a counter on page 1; on page 2 it correctly becomes "2.".
-    const children = [
-      createElementBox("li-0", { display: "list-item" } as Style, [createTextBox("t0", {}, "a")]),
-      createElementBox("li-1", { display: "list-item", breakBefore: "page" } as Style, [createTextBox("t1", {}, "b")]),
-      createElementBox("li-2", { display: "list-item" } as Style, [createTextBox("t2", {}, "c")]),
-    ];
-    const olNode = createElementBox(
-      "ol",
-      { display: "block", paddingInlineStart: 30, listStyleType: "decimal" } as Style,
-      children,
-    );
-    const cascaded = cascadePass(olNode);
-    if (cascaded.type !== "element") throw new Error("cascadePass returned non-element");
-
-    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
-    const shaper = createMockShaper(8, 16);
-
-    // Page 1: only li-0 placed; its marker is "1.". li-1 broke before placement,
-    // so it did NOT advance the counter (no "2." orphaned here).
-    const r1 = layoutBlock(cascaded, 0, 0, ctx, shaper, {
-      availableBlockSize: 1000,
-      pageIndex: 0,
-      resumeFrom: null,
-    });
-    expect(r1.box).not.toBeNull();
-    expect(collectMarkerKeys(placed(r1.box))).not.toContain("li-1-marker");
-    expect(r1.breakToken).toEqual({ type: "block", resumeChildIndex: 1, resumeChildToken: null });
-
-    // Page 2: li-1 resumes and lands; its marker is "2." (counter correctly
-    // seeded from the preceding li-0, advanced exactly once for li-1).
-    const r2 = layoutBlock(cascaded, 0, 0, ctx, shaper, {
-      availableBlockSize: 1000,
-      pageIndex: 1,
-      resumeFrom: r1.breakToken,
-    });
-    expect(r2.box).not.toBeNull();
-    function markerTextFor(box: LayoutBox, key: string): string | null {
-      let found: string | null = null;
-      function walk(b: LayoutBox) {
-        if (b.type === "marker" && b.key === key) found = b.text;
-        if ("children" in b && b.children) {
-          for (const c of b.children) walk(c);
-        }
-      }
-      walk(box);
-      return found;
-    }
-    expect(markerTextFor(placed(r2.box), "li-1-marker")).toBe("2.");
-  });
 });
 
 /** Build a root with one child X that itself has N block-children of fixed size. */

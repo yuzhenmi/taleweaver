@@ -346,146 +346,6 @@ describe("layoutBlock — mixed block + inline children (anonymous box generatio
   });
 });
 
-describe("BFC — list-item markers (outside)", () => {
-  it("decimal markers count up: 1., 2., 3.", () => {
-    const tree = cascadePass(
-      createElementBox("ol", {
-        display: "block", paddingInlineStart: 30, listStyleType: "decimal",
-      }, [
-        createElementBox("li1", { display: "list-item" }, [createTextBox("t1", {}, "first")]),
-        createElementBox("li2", { display: "list-item" }, [createTextBox("t2", {}, "second")]),
-        createElementBox("li3", { display: "list-item" }, [createTextBox("t3", {}, "third")]),
-      ]),
-    );
-    if (tree.type !== "element") throw new Error("?");
-    const r5 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
-    if (r5.box === null) throw new Error("layoutBlock returned null box");
-    const out = r5.box;
-    if (out.type !== "block") throw new Error("?");
-
-    const markers: { text: string }[] = [];
-    function walk(b: any) {
-      if (!b) return;
-      if (b.type === "marker") markers.push({ text: b.text });
-      if (b.children) for (const c of b.children) walk(c);
-    }
-    walk(out);
-    expect(markers.map(m => m.text)).toEqual(["1.", "2.", "3."]);
-  });
-
-  it("disc markers are bullet glyphs", () => {
-    const tree = cascadePass(
-      createElementBox("ul", {
-        display: "block", paddingInlineStart: 30, listStyleType: "disc",
-      }, [
-        createElementBox("li1", { display: "list-item" }, [createTextBox("t1", {}, "x")]),
-      ]),
-    );
-    if (tree.type !== "element") throw new Error("?");
-    const r6 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
-    if (r6.box === null) throw new Error("layoutBlock returned null box");
-    const out = r6.box;
-    if (out.type !== "block") throw new Error("?");
-    let foundMarker: { text: string } | null = null;
-    function walk(b: any) {
-      if (!b) return;
-      if (b.type === "marker") foundMarker = { text: b.text };
-      if (b.children) for (const c of b.children) walk(c);
-    }
-    walk(out);
-    expect(foundMarker).toBeTruthy();
-    if (foundMarker) expect((foundMarker as { text: string }).text).toBe("•");
-  });
-
-  it("nested lists have independent counters", () => {
-    const tree = cascadePass(
-      createElementBox("ol", { display: "block", paddingInlineStart: 30, listStyleType: "decimal" }, [
-        createElementBox("li1", { display: "list-item" }, [
-          createTextBox("t1", {}, "outer 1"),
-          createElementBox("ol2", { display: "block", paddingInlineStart: 30, listStyleType: "decimal" }, [
-            createElementBox("li2a", { display: "list-item" }, [createTextBox("t2a", {}, "inner 1")]),
-            createElementBox("li2b", { display: "list-item" }, [createTextBox("t2b", {}, "inner 2")]),
-          ]),
-        ]),
-        createElementBox("li2", { display: "list-item" }, [createTextBox("t2", {}, "outer 2")]),
-      ]),
-    );
-    if (tree.type !== "element") throw new Error("?");
-    const r7 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
-    if (r7.box === null) throw new Error("layoutBlock returned null box");
-    const out = r7.box;
-    if (out.type !== "block") throw new Error("?");
-    const markers: { text: string }[] = [];
-    function walk(b: any) {
-      if (!b) return;
-      if (b.type === "marker") markers.push({ text: b.text });
-      if (b.children) for (const c of b.children) walk(c);
-    }
-    walk(out);
-    // Document order: outer 1 marker, inner 1, inner 2, outer 2
-    expect(markers.map(m => m.text)).toEqual(["1.", "1.", "2.", "2."]);
-  });
-
-  // #425: an ordered list is a maximal CONSECUTIVE run of list-items. A
-  // separating non-list-item BLOCK breaks the run, so the next list begins at 1.
-  it("resets the counter when a non-list-item BLOCK separates two ordered runs", () => {
-    const tree = cascadePass(
-      createElementBox("ol", { display: "block", paddingInlineStart: 30, listStyleType: "decimal" }, [
-        createElementBox("li1", { display: "list-item" }, [createTextBox("t1", {}, "a1")]),
-        createElementBox("li2", { display: "list-item" }, [createTextBox("t2", {}, "a2")]),
-        createElementBox("li3", { display: "list-item" }, [createTextBox("t3", {}, "a3")]),
-        // Separator: a plain paragraph BLOCK breaks the run.
-        createElementBox("sep", { display: "block" }, [createTextBox("ts", {}, "paragraph")]),
-        createElementBox("li4", { display: "list-item" }, [createTextBox("t4", {}, "b1")]),
-        createElementBox("li5", { display: "list-item" }, [createTextBox("t5", {}, "b2")]),
-        createElementBox("li6", { display: "list-item" }, [createTextBox("t6", {}, "b3")]),
-      ]),
-    );
-    if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
-    if (r.box === null) throw new Error("layoutBlock returned null box");
-    const out = r.box;
-    if (out.type !== "block") throw new Error("?");
-    const markers: { text: string }[] = [];
-    function walk(b: any) {
-      if (!b) return;
-      if (b.type === "marker") markers.push({ text: b.text });
-      if (b.children) for (const c of b.children) walk(c);
-    }
-    walk(out);
-    // Second run restarts at 1 (RED before fix: 4., 5., 6.).
-    expect(markers.map(m => m.text)).toEqual(["1.", "2.", "3.", "1.", "2.", "3."]);
-  });
-
-  // #425: anonymous inline/text content (an `inline-run` group) also breaks the run.
-  it("resets the counter when an inline-run separates two ordered runs", () => {
-    const tree = cascadePass(
-      createElementBox("ol", { display: "block", paddingInlineStart: 30, listStyleType: "decimal" }, [
-        createElementBox("li1", { display: "list-item" }, [createTextBox("t1", {}, "a1")]),
-        createElementBox("li2", { display: "list-item" }, [createTextBox("t2", {}, "a2")]),
-        // Bare text child of the OL → an `inline-run` group → breaks the run.
-        createTextBox("anon", {}, "interleaved prose"),
-        createElementBox("li3", { display: "list-item" }, [createTextBox("t3", {}, "b1")]),
-        createElementBox("li4", { display: "list-item" }, [createTextBox("t4", {}, "b2")]),
-      ]),
-    );
-    if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
-    if (r.box === null) throw new Error("layoutBlock returned null box");
-    const out = r.box;
-    if (out.type !== "block") throw new Error("?");
-    const markers: { text: string }[] = [];
-    function walk(b: any) {
-      if (!b) return;
-      if (b.type === "marker") markers.push({ text: b.text });
-      if (b.children) for (const c of b.children) walk(c);
-    }
-    walk(out);
-    // Second run restarts at 1 (RED before fix: 3., 4.).
-    expect(markers.map(m => m.text)).toEqual(["1.", "2.", "1.", "2."]);
-  });
-});
-
 describe("BFC — explicit markerText (generated marker, offset-excluded)", () => {
   function collectMarkers(root: import("./layout-box").LayoutBox): import("./layout-box").MarkerBox[] {
     const out: import("./layout-box").MarkerBox[] = [];
@@ -543,40 +403,6 @@ describe("BFC — explicit markerText (generated marker, offset-excluded)", () =
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
     expect(collectMarkers(out)).toHaveLength(0);
-  });
-
-  it("display:list-item still emits its auto-counter marker (no regression)", () => {
-    const tree = cascadePass(
-      createElementBox("ol", { display: "block", paddingInlineStart: 30, listStyleType: "decimal" }, [
-        createElementBox("li1", { display: "list-item" }, [createTextBox("t1", {}, "a")]),
-        createElementBox("li2", { display: "list-item" }, [createTextBox("t2", {}, "b")]),
-      ]),
-    );
-    if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
-    if (r.box === null) throw new Error("layoutBlock returned null box");
-    const out = r.box;
-    if (out.type !== "block") throw new Error("?");
-    expect(collectMarkers(out).map(m => m.text)).toEqual(["1.", "2."]);
-  });
-
-  it("explicit markerText takes precedence and does NOT advance the list counter when on a list-item", () => {
-    // A list-item that ALSO carries an explicit markerText renders the explicit
-    // text, and the list counter is NOT incremented for it — the next plain
-    // list-item sibling stays at 1.
-    const tree = cascadePass(
-      createElementBox("ol", { display: "block", paddingInlineStart: 30, listStyleType: "decimal" }, [
-        createElementBox("li1", { display: "list-item", markerText: "*" }, [createTextBox("t1", {}, "a")]),
-        createElementBox("li2", { display: "list-item" }, [createTextBox("t2", {}, "b")]),
-      ]),
-    );
-    if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
-    if (r.box === null) throw new Error("layoutBlock returned null box");
-    const out = r.box;
-    if (out.type !== "block") throw new Error("?");
-    // li1 → explicit "*" (counter NOT advanced); li2 → "1." (still first).
-    expect(collectMarkers(out).map(m => m.text)).toEqual(["*", "1."]);
   });
 
   it("offset-exclusion: the marker is a direct sibling of the block, NOT inside its LineBox", () => {
@@ -1287,11 +1113,11 @@ describe("BFC — in-flow block inline margins (box model)", () => {
   });
 
   it("list-item marker stays glued to indented content under inline margin", () => {
-    // Reference: marker offset with no inline margin.
-    const refLi = createElementBox("li", { display: "list-item" }, [createTextBox("t", {}, "x")]);
-    const refOl = createElementBox("ol", {
-      display: "block", paddingInlineStart: 30, listStyleType: "decimal",
-    }, [refLi]);
+    // Reference: marker offset with no inline margin. Flat model — the list-item
+    // leaf carries its OWN paddingInlineStart (marker gutter) + a render-baked
+    // markerText; there is no wrapping `list` container with padding.
+    const refLi = createElementBox("li", { display: "list-item", markerText: "1.", paddingInlineStart: 30 }, [createTextBox("t", {}, "x")]);
+    const refOl = createElementBox("ol", { display: "block" }, [refLi]);
     const refCascaded = cascadePass(refOl);
     if (refCascaded.type !== "element") throw new Error("?");
     const refOut = layoutBlock(refCascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper).box;
@@ -1301,10 +1127,8 @@ describe("BFC — in-flow block inline margins (box model)", () => {
 
     // With marginInlineStart on the list-item, BOTH the marker and the
     // content indent by the margin (the whole item shifts).
-    const li = createElementBox("li", { display: "list-item", marginInlineStart: 40 }, [createTextBox("t", {}, "x")]);
-    const ol = createElementBox("ol", {
-      display: "block", paddingInlineStart: 30, listStyleType: "decimal",
-    }, [li]);
+    const li = createElementBox("li", { display: "list-item", markerText: "1.", paddingInlineStart: 30, marginInlineStart: 40 }, [createTextBox("t", {}, "x")]);
+    const ol = createElementBox("ol", { display: "block" }, [li]);
     const cascaded = cascadePass(ol);
     if (cascaded.type !== "element") throw new Error("?");
     const out = layoutBlock(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper).box;
@@ -1313,10 +1137,11 @@ describe("BFC — in-flow block inline margins (box model)", () => {
     if (marker === undefined) throw new Error("no marker");
     // Marker shifts by exactly the inline margin relative to the reference.
     expect(marker.inlineOffset).toBe(refMarker.inlineOffset + 40);
-    // The list-item content block also shifts by the margin.
+    // The list-item content block shifts by the margin (its own padding gutter
+    // is INSIDE the box, so the box's outer inline offset is just the margin).
     const liBox = out.children.find((c) => c.type === "block" && c.key === "li");
     if (liBox === undefined || liBox.type !== "block") throw new Error("no li box");
-    expect(liBox.inlineOffset).toBe(30 + 40);
+    expect(liBox.inlineOffset).toBe(40);
   });
 
   it("regression: marginInline 0 (unset) is byte-identical to no-margin layout", () => {

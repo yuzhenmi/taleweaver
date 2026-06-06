@@ -8,7 +8,6 @@ import { layoutTable } from "./table-fc";
 import type { TextShaper } from "./text-shaper";
 import { adaptShaperToMeasurer } from "./text-measurer";
 import type { ComputedStyle } from "../styles";
-import { formatCounter } from "./list-counter";
 import { computeUsedStyle, resolveUsedLength } from "./used-style";
 import type { LayoutContext } from "./layout-context";
 import { makeChildContext } from "./layout-context";
@@ -237,7 +236,6 @@ export function layoutBlock(
   const isOwnBFC = ctx.isBFCRoot;
 
   let prevMarginBlockEnd = 0;
-  let listCounter = 0;
 
   const groups = groupChildren(node);
 
@@ -262,48 +260,11 @@ export function layoutBlock(
     }
   }
 
-  // When resuming at startIndex > 0, seed listCounter by REPLAYING the
-  // consecutive-run rule (#425) over the preceding groups [0, startIndex) so
-  // ordered-list numbering on page 2+ continues from the CURRENT run only —
-  // "list-items since the last run-break before startIndex," NOT "all preceding
-  // list-items." This MUST mirror the main loop's marker block (see ~:604-625)
-  // EXACTLY — a THREE-WAY split, not two-way:
-  //   1. a `display:list-item` block WITHOUT an explicit markerText → ++  (the
-  //      auto-counter branch, `else if (childCs.display === "list-item")`);
-  //   2. a `display:list-item` block WITH an explicit markerText → NEITHER, a
-  //      counter NO-OP (the explicit-markerText branch does not ++, and the run
-  //      reset `if (childCs.display !== "list-item")` does not fire either since
-  //      display IS list-item — it does not break the run);
-  //   3. ANY other group (a non-list-item block OR an `inline-run`) → reset 0
-  //      (breaks the run).
-  // The explicit-markerText carve-out (case 2) is the load-bearing detail: an
-  // earlier two-way seed that incremented for EVERY `display:list-item` over-
-  // counted when an explicit-markerText item preceded a resumed auto item on the
-  // next page (the resumed item read "n+1." instead of "n."). The increment
-  // condition mirrors the main loop's explicit-markerText test
-  // (`markerText !== undefined && markerText !== ""`).
-  if (startIndex > 0) {
-    for (let i = 0; i < startIndex; i++) {
-      const g = groups[i];
-      const childCs =
-        g.kind === "block" && g.child.type === "element"
-          ? g.child.computedStyle
-          : undefined;
-      const isListItem = childCs?.display === "list-item";
-      const hasExplicitMarker =
-        childCs?.markerText !== undefined && childCs.markerText !== "";
-      if (isListItem) {
-        // Case 1 vs 2: auto-counter list-item increments; explicit-markerText
-        // list-item is a no-op (neither ++ nor reset — it does not break the run).
-        if (!hasExplicitMarker) {
-          listCounter++;
-        }
-      } else {
-        // Case 3: a non-list-item group breaks the run.
-        listCounter = 0;
-      }
-    }
-  }
+  // (List numbering is no longer counted in the BFC. The list-item marker is a
+  // render-baked `markerText` on the cascaded ComputedStyle — produced by the
+  // render-time numbering service (`numbering/`) and emitted by the list-item
+  // component — so it is identical on every fragment and needs no seed/replay
+  // across page boundaries. The BFC only READS `childCs.markerText` below.)
 
   /**
    * Build a partial LayoutResult<BlockBox> from the children placed so far
@@ -441,15 +402,6 @@ export function layoutBlock(
 
       childBlockOffset += anonBlockSize;
       prevMarginBlockEnd = 0; // anonymous box has no margin
-
-      // #425: an `inline-run` group (anonymous inline/text content) is NOT a
-      // list-item, so it BREAKS the ordered-list consecutive run — reset the
-      // counter so a following list-item restarts at 1. Placed after the run's
-      // lines are appended (the group is placed on this page), mirroring the
-      // block branch's "placed on this page" reset. A fully-deferred inline-run
-      // (ifcResult.box === null, handled above) returns before reaching here, so
-      // it does not reset on this page; the next page's seed reconstructs it.
-      listCounter = 0;
 
       // If IFC produced a break token, stop here and propagate it.
       if (ifcResult.breakToken !== null) {
@@ -620,20 +572,16 @@ export function layoutBlock(
       }
     }
 
-    // Marker generation. Two sources, mutually exclusive:
-    //   1. Explicit `markerText` (a `::marker`-content-like presentation string)
-    //      — takes precedence, works on ANY display, and does NOT advance the
-    //      list-item auto-counter.
-    //   2. `display: list-item` auto-counter (resolveMarkerText from
-    //      `list-style-type`) — only when no explicit markerText is set.
-    // Either way the marker is a GENERATED sibling box, never an offset-bearing
-    // inline item, so it adds zero cursor stops.
+    // Marker generation. The marker is the render-baked `markerText` on the
+    // cascaded ComputedStyle (produced by the render-time numbering service +
+    // the list-item component — numbering, restart, and the #425 consecutive-run
+    // rule all live there now, not in the BFC). It is a GENERATED sibling box,
+    // never an offset-bearing inline item, so it adds zero cursor stops. Empty/
+    // absent markerText → no marker (a non-list block, or a list-item the
+    // numbering pass didn't number).
     let markerText: string | null = null;
     if (childCs.markerText !== undefined && childCs.markerText !== "") {
       markerText = childCs.markerText;
-    } else if (childCs.display === "list-item") {
-      listCounter++;
-      markerText = resolveMarkerText(childCs, listCounter);
     }
     // #431: a list-item whose content STRADDLES a page break must emit its
     // marker only on the page where it STARTS — NOT on both the origin-page tail
@@ -641,30 +589,10 @@ export function layoutBlock(
     // resumed BFC (`i === startIndex`) carrying a non-null resume token (a
     // MID-CONTENT continuation; a null token at startIndex means a clean child
     // boundary where the fresh child SHOULD show its marker). Google-Docs parity:
-    // a split list-item's continuation has no marker.
-    //
-    // The `listCounter++` above stays UNCONDITIONAL: numbering MUST advance even
-    // on the continuation. The resumed page's seed counts list-items in
-    // [0, startIndex) (EXCLUDING the resuming item at startIndex), so if the main
-    // loop skipped this increment the NEXT item (startIndex+1) would take the
-    // resuming item's number. We suppress only the marker-BOX creation below
-    // (covers both the explicit-markerText and the auto-counter branches).
+    // a split list-item's continuation has no marker. The baked `markerText` is
+    // identical on every fragment (it is position-derived once, at render time),
+    // so suppressing the marker BOX on the continuation is all that is needed.
     const isResumeFragment = i === startIndex && firstChildResumeToken !== null;
-    // #425: ordered-list consecutive-run rule (Google Docs). A "list" is a
-    // maximal CONSECUTIVE run of `display: list-item` block children at one BFC
-    // level. A non-list-item BLOCK child BREAKS the run, so the next list-item
-    // restarts at 1 — reset the counter to 0 here. (An explicit-markerText
-    // list-item neither increments nor resets: it is still display:list-item, so
-    // it does not break the run.) This reset is placed at the SAME
-    // "placed on this page" point as the `listCounter++` above — after the
-    // section-cap and break-before-page checks — so a child DEFERRED to the next
-    // page does not reset on this page; the next page's seed loop reconstructs
-    // the counter (see the seed at the top of the function). The main-loop reset
-    // and the seed reset MUST apply identical run-reset semantics or a list that
-    // straddles a page break renumbers wrong.
-    if (childCs.display !== "list-item") {
-      listCounter = 0;
-    }
     // Auto-widen state (#426). When an `outside` marker is wider than the item's
     // OWN paddingInlineStart (its marker gutter), the item's effective
     // paddingInlineStart is widened so the marker fills the widened gutter
@@ -1069,26 +997,3 @@ function resolveExplicitBlockSizeOrNull(
   return resolveUsedLength(blockSize, containingInlineSize, 0);
 }
 
-function resolveMarkerText(cs: ComputedStyle, counter: number): string | null {
-  const lst = cs.listStyleType;
-  if (lst === "none") return null;
-  if (typeof lst === "object") return lst.content;
-  switch (lst) {
-    case "disc":   return "•";
-    case "circle": return "○";
-    case "square": return "▪";
-    case "decimal":
-    case "lower-alpha":
-    case "upper-alpha":
-    case "lower-roman":
-    case "upper-roman":
-      return formatCounter(counter, lst);
-    default: {
-      // Exhaustiveness check: if a new ListStyleType literal is added, this
-      // forces TS to flag the missing case here instead of silently returning
-      // null. Closes Plan 1 F7.x preexisting unreachable-code diagnostic.
-      const _exhaustive: never = lst;
-      return _exhaustive;
-    }
-  }
-}
