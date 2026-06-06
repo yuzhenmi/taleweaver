@@ -42,9 +42,6 @@ describe("ComputedStyle", () => {
       listStyleType: "disc",
       listStylePosition: "outside",
       markerText: undefined,
-      content: "normal",
-      counterReset: [],
-      counterIncrement: [],
       writingMode: "horizontal-tb",
       direction: "ltr",
     };

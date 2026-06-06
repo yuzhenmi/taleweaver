@@ -3,7 +3,6 @@ import type {
   WhiteSpace, VerticalAlign, TextAlign, TextTransform, Float, Clear,
   BreakBefore, BreakAfter, BreakInside,
   ListStyleType, ListStylePosition, BoxSizing,
-  ContentValue, CounterAction,
 } from "./style";
 import type { Color } from "./color";
 import type { ComputedLength, ComputedLengthOrAuto, IntrinsicSizingKeyword } from "./length";
@@ -93,11 +92,4 @@ export interface ComputedStyle {
   // Generated marker content (see Style.markerText). `undefined` = no explicit
   // marker. Non-inheriting; flows through composeComputed generically.
   markerText: string | undefined;
-
-  // Generated content + CSS counters (see Style.content/counterReset/
-  // counterIncrement). Non-inheriting; flow through composeComputed generically.
-  // Defaults: content "normal", the two counter arrays a SHARED FROZEN [].
-  content:          ContentValue;
-  counterReset:     readonly CounterAction[];
-  counterIncrement: readonly CounterAction[];
 }

@@ -44,35 +44,3 @@ describe("PROPERTY_META — markerText (generated marker content)", () => {
     expect(PROPERTY_META.markerText.inherits).toBe(false);
   });
 });
-
-describe("PROPERTY_META — content / counterReset / counterIncrement (P9a)", () => {
-  it("none of the generated-content / counter properties inherit (CSS)", () => {
-    expect(PROPERTY_META.content.inherits).toBe(false);
-    expect(PROPERTY_META.counterReset.inherits).toBe(false);
-    expect(PROPERTY_META.counterIncrement.inherits).toBe(false);
-  });
-});
-
-describe("INITIAL_COMPUTED_STYLE — content / counterReset / counterIncrement (P9a)", () => {
-  it("content defaults to 'normal'", () => {
-    expect(INITIAL_COMPUTED_STYLE.content).toBe("normal");
-  });
-
-  it("counterReset / counterIncrement default to empty arrays", () => {
-    expect(INITIAL_COMPUTED_STYLE.counterReset).toEqual([]);
-    expect(INITIAL_COMPUTED_STYLE.counterIncrement).toEqual([]);
-  });
-
-  it("counterReset and counterIncrement share ONE frozen [] reference (reuse-preserving)", () => {
-    // Same reference each access (it is a constant on a module-level object).
-    expect(INITIAL_COMPUTED_STYLE.counterReset).toBe(INITIAL_COMPUTED_STYLE.counterReset);
-    expect(INITIAL_COMPUTED_STYLE.counterIncrement).toBe(INITIAL_COMPUTED_STYLE.counterIncrement);
-    // Both initials are the SAME shared reference (mirrors fontFeatureSettings precedent).
-    expect(INITIAL_COMPUTED_STYLE.counterReset).toBe(INITIAL_COMPUTED_STYLE.counterIncrement);
-  });
-
-  it("the shared empty counter-action array is frozen", () => {
-    expect(Object.isFrozen(INITIAL_COMPUTED_STYLE.counterReset)).toBe(true);
-    expect(Object.isFrozen(INITIAL_COMPUTED_STYLE.counterIncrement)).toBe(true);
-  });
-});
