@@ -18,13 +18,17 @@ import {
   getLineIndex,
   findLineForPosition,
   makeContextFilter,
+  lineCoordOf,
+  lineSizeAlong,
   type AbsoluteLineBox,
 } from "./line-flatten";
+import { axisMapFor } from "../styles/writing-mode";
 import { markStart, markEnd } from "../perf/perf-trace";
 
 /**
  * Move cursor to the line above or below `position`, preserving the
- * horizontal x-coordinate (caret-affinity).
+ * inline-axis goal coordinate (the visual column; physical-X in
+ * horizontal-tb, physical-Y in vertical modes).
  *
  * Returns `{ position, targetX }` for the new caret location.
  * `targetX` is the value to thread into the next vertical move (pass
@@ -76,13 +80,15 @@ export function moveToLine(
 
 /**
  * Positioned-tree line move (algorithm LineBox-canonical):
- *   1. Resolve current position to a PixelPosition for the initial X.
+ *   1. Resolve current position to a PixelPosition for the initial inline-axis
+ *      goal (`PixelPosition.x` is the INLINE-axis coord per the P3.5 contract).
  *   2. Use the WeakMap-cached doc-wide `LineIndex` (L-PERF-D) and find
  *      the current line via `findLineForPosition`.
  *   3. Pick the previous / next entry in the flat list (CONTEXT-FILTERED
  *      per #327 — only same-context lines are candidates).
- *   4. Resolve the target X on the adjacent line's Y via
- *      `resolvePositionFromPixel`.
+ *   4. Resolve the preserved inline-axis goal onto the adjacent line's
+ *      block-axis band via `resolveTargetLine` (which projects to a physical
+ *      click through the target line's axis map).
  * Also the fallback the virtual path delegates to (over `materializeAll()`)
  * for blocks that span pages.
  */
@@ -277,11 +283,39 @@ function resolveTemplateBlockPageWithLines(
 }
 
 /**
- * Resolve `targetX` onto a target line via hit-test. `pageBoxOrRoot` is
- * either the full positioned root or a single `PageBox` (virtual path) —
- * `resolvePositionFromPixel` filters by `target.pageIndex`, which for a
- * single page is every line on it (a no-op filter), and `target.absoluteY`
- * is page-content-relative in both cases, so the two are consistent.
+ * Resolve the preserved INLINE-axis goal `x` onto a target line via hit-test.
+ * `pageBoxOrRoot` is either the full positioned root or a single `PageBox`
+ * (virtual path) — `resolvePositionFromPixel` filters by `target.pageIndex`,
+ * which for a single page is every line on it (a no-op filter), and the
+ * target line's coords are page-content-relative in both cases, so the two
+ * are consistent.
+ *
+ * `x` is the preserved inline-axis goal (the visual column to keep across
+ * up/down): physical-X in `horizontal-tb`, physical-Y in the vertical modes.
+ * `resolvePositionFromPixel` takes a PHYSICAL click `(clickX, clickY)`, so we
+ * project `(inlineGoal=x, targetBlockCoord=target's block-axis position)` to a
+ * physical point via the TARGET line's axis map (the line the caret is moving
+ * TO — a per-line read, since a doc could mix writing modes). The inline goal
+ * goes on the physical INLINE axis, the target line's block coord on the
+ * physical BLOCK axis.
+ *
+ * `targetBlockCoord` is the target line's FLOW-START block edge — the edge that
+ * faces the PREVIOUS line in document/flow order, so the click lands strictly
+ * INSIDE the target line's block band (mirroring `target.absoluteY` = a line's
+ * top in `horizontal-tb`). For the ascending block axis (`horizontal-tb`,
+ * `vertical-lr`) that edge is `lineCoordOf` (the block-start). For `vertical-rl`
+ * blocks stack right→left, so the flow-start edge is the line's HIGH edge
+ * (`lineCoordOf + lineSizeAlong`); using the low edge would put the click
+ * exactly on the target line's own block boundary, and the hit-test's
+ * band-membership test (`flowSign * clickBlock < flowSign * facingEdge` in
+ * `hit-test.ts`) uses a strict `<`, so a click sitting ON that edge falls
+ * through past the target — skipping a line. The HIGH edge places the click
+ * strictly inside the band. For
+ * `horizontal-tb` (`am.inline === "x"`, `am.block === "y"`, ascending) this
+ * reduces to `clickX = x`, `clickY = target.absoluteY` — byte-identical to the
+ * prior hardcoded call. For `vertical-lr` (ascending, `am.inline === "y"`) it is
+ * `clickX = target.absoluteX`, `clickY = x`; for `vertical-rl` (descending)
+ * `clickX = target.absoluteX + blockSize`, `clickY = x`.
  */
 function resolveTargetLine(
   state: State,
@@ -290,11 +324,24 @@ function resolveTargetLine(
   x: number,
   target: AbsoluteLineBox,
 ): { position: Position; targetX: number } | null {
+  const am = axisMapFor(target.line.writingMode, target.line.computedStyle.direction);
+  const inlineGoal = x;
+  // The flow-START block edge of the target line (faces the previous line in
+  // flow), so the click sits strictly inside the line's own block band and
+  // passes hit-test's strict-`<` band-membership test. Ascending block axis:
+  // the block-start (`lineCoordOf`). `vertical-rl` (the only descending
+  // block-axis mode): the HIGH edge (start + extent).
+  const blockReversed = target.line.writingMode === "vertical-rl";
+  const targetBlockCoord = blockReversed
+    ? lineCoordOf(target, am.block) + lineSizeAlong(target, am.block)
+    : lineCoordOf(target, am.block);
+  const clickX = am.inline === "x" ? inlineGoal : targetBlockCoord;
+  const clickY = am.inline === "y" ? inlineGoal : targetBlockCoord;
   // Up/down navigation does NOT reseed caret affinity (it preserves the existing
   // caret's affinity); this wrapper only needs the resolved position. Destructure
   // `.position` from the hit-test result and discard the affinity seed.
   const hit = resolvePositionFromPixel(
-    state, pageBoxOrRoot, measurer, x, target.absoluteY, target.pageIndex,
+    state, pageBoxOrRoot, measurer, clickX, clickY, target.pageIndex,
   );
   if (hit === null) return null;
   return { position: hit.position, targetX: x };
