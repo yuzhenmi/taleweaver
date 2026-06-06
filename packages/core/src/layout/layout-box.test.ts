@@ -518,5 +518,28 @@ describe("assertLayoutBoxConsistent (C1 prevention)", () => {
     const corrupt = Object.freeze({ ...orig, x: 30 }) as LayoutBox;
     expect(() => assertLayoutBoxConsistent(corrupt, 500)).toThrow(/LayoutBox invariant violated/);
   });
+
+  it("skips the block-axis check for vertical-rl (P3.1 physicalize-pass guarantee)", () => {
+    // vertical-rl stores an un-mirrored x at factory time; the P3.1 pass later
+    // mirrors it against the (then-known) containing block-size. After that
+    // mirror, the stored x no longer matches a from-scratch un-mirrored recompute
+    // — so the guard must skip the v-rl block-axis check rather than throw.
+    const orig = createBlockBox("k", 10, 20, 100, 50, "vertical-rl", "ltr", cs, us, [], 500);
+    // Factory stores the un-mirrored block-axis x = blockOffset.
+    expect(orig.x).toBe(20);
+    // Simulate the post-physicalize mirrored x (x = containingBlockSize − blockOffset − blockSize).
+    const mirrored = Object.freeze({ ...orig, x: 800 - 20 - 50 }) as LayoutBox;
+    expect(() => assertLayoutBoxConsistent(mirrored, 500)).not.toThrow();
+  });
+
+  it("still checks vertical-lr boxes (guard is tight to vertical-rl)", () => {
+    const orig = createBlockBox("k", 10, 20, 100, 50, "vertical-lr", "ltr", cs, us, [], 500);
+    // vertical-lr is fully derivable at factory time: x = blockOffset.
+    expect(orig.x).toBe(20);
+    expect(() => assertLayoutBoxConsistent(orig, 500)).not.toThrow();
+    // A stale x must still be caught for v-lr.
+    const corrupt = Object.freeze({ ...orig, x: 9999 }) as LayoutBox;
+    expect(() => assertLayoutBoxConsistent(corrupt, 500)).toThrow(/LayoutBox invariant violated/);
+  });
 });
 

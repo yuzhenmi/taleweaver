@@ -791,6 +791,12 @@ export function assertLayoutBoxConsistent(
   containingInlineSize: number,
 ): void {
   if (!isDevMode()) return;
+  // vertical-rl stores an un-mirrored block-axis x at factory time (the
+  // containing block-size is not available there). The P3.1 physicalize pass
+  // applies the right-to-left mirror once the containing size is known, so the
+  // block-axis consistency check is meaningless here — skip it. v-lr and h-tb
+  // are fully derivable at factory time and stay checked.
+  if (box.writingMode === "vertical-rl") return;
   const expected = logicalToPhysical(
     {
       inlineOffset: box.inlineOffset,
