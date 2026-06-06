@@ -40,6 +40,8 @@ export { handleSetTextAlign } from "./set-text-align";
 export { handleSetLineSpacing } from "./set-line-spacing";
 export { handleIndent, INDENT_STEP } from "./indent";
 export { handleListIndent, MAX_LIST_LEVEL } from "./list-indent";
+export { handleSetListType } from "./set-list-type";
+export { handleSetListRestart } from "./set-list-restart";
 export { handleSetParagraphSpacing } from "./set-paragraph-spacing";
 export { handleSetFootnotePolicy } from "./set-footnote-policy-action";
 export { handleReplaceMatch, handleReplaceAll } from "./replace";

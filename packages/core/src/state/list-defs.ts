@@ -21,6 +21,24 @@ export interface ListDef {
   readonly levels: ReadonlyArray<ListLevelConfig>;
 }
 
+/** The bullet marker styles — a def whose level-0 style is one of these is unordered. */
+const BULLET_STYLES: ReadonlySet<CounterStyle> = new Set<CounterStyle>([
+  "disc",
+  "circle",
+  "square",
+]);
+
+/**
+ * Classify a list def as ordered (numbered) or unordered (bulleted) by its
+ * level-0 marker style. A def with no levels defaults to ordered (degenerate;
+ * harmless). Shared by the toggle-list and set-list-type editor handlers so the
+ * ordered-vs-unordered rule lives in one place.
+ */
+export function classifyListDef(def: ListDef): "ordered" | "unordered" {
+  const style = def.levels[0]?.style;
+  return style !== undefined && BULLET_STYLES.has(style) ? "unordered" : "ordered";
+}
+
 /**
  * Guarded read of a required field out of an untyped Yjs `Y.Map<unknown>`.
  * Mirrors snapshot.ts's `requireField`/`requireItemField` idiom: `Y.Map.get`

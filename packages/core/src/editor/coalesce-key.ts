@@ -28,6 +28,8 @@ export function coalesceKeyOf(action: EditorAction): ActionClass {
     case "INSERT_NODE":
     case "SET_BLOCK_TYPE":
     case "TOGGLE_LIST":
+    case "SET_LIST_TYPE":
+    case "SET_LIST_RESTART":
     case "SECTION_BREAK":
     case "TOGGLE_SECTION_LANDSCAPE":
     case "INSERT_HEADER":

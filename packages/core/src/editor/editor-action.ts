@@ -34,6 +34,8 @@ export type EditorAction =
   | { type: "PASTE"; text: string }
   | { type: "SET_BLOCK_TYPE"; blockType: string; properties?: Record<string, unknown> }
   | { type: "TOGGLE_LIST"; listType: "ordered" | "unordered" }
+  | { type: "SET_LIST_TYPE"; listType: "ordered" | "unordered" }
+  | { type: "SET_LIST_RESTART"; value: number | null }
   | { type: "MOVE_LINE_BOUNDARY"; boundary: "start" | "end" }
   | { type: "EXPAND_LINE_BOUNDARY"; boundary: "start" | "end" }
   | { type: "MOVE_DOCUMENT_BOUNDARY"; boundary: "start" | "end" }

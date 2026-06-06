@@ -150,7 +150,7 @@ export { iterateBlocksInDocumentOrder, docHasLists } from "./document-order";
 // is the render-pass entry point — it resolves all defs as a plain Map for the
 // numbering engine (`computeCounters`).
 export type { ListDef, ListLevelConfig } from "./list-defs";
-export { getListDefsForState } from "./list-defs";
+export { getListDefsForState, classifyListDef } from "./list-defs";
 
 // Defensive load-time migration: OLD structural `list` containers → FLAT
 // list-item attrs. A consumer that loads a persisted document runs this once

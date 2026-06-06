@@ -5,6 +5,7 @@ import {
   mergeBlockAttrs,
   setListType,
   getListDefsForState,
+  classifyListDef,
   iterateBlocksInSpan,
   positionsEqual,
   newListId,
@@ -13,9 +14,6 @@ import type { Block, BlockId, State, OperationResult } from "../../state";
 import { rebuildTrees } from "./helpers";
 
 type ListType = "ordered" | "unordered";
-
-/** Level-0 marker styles that mark a list def as unordered (bulleted). */
-const BULLET_STYLES = new Set(["disc", "circle", "square"]);
 
 /**
  * Toggle list formatting over the selection (Google Docs numbered/bulleted-list
@@ -55,8 +53,7 @@ export function handleToggleList(
   const defs = getListDefsForState(editor.state);
   const typeOfList = (listId: string): ListType | undefined => {
     const def = defs.get(listId);
-    if (def === undefined || def.levels.length === 0) return undefined;
-    return BULLET_STYLES.has(def.levels[0].style) ? "unordered" : "ordered";
+    return def === undefined ? undefined : classifyListDef(def);
   };
 
   // A target counts as "already this type" only when it is a list-item whose
