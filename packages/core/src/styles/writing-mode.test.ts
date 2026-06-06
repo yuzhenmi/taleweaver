@@ -3,8 +3,10 @@ import {
   logicalToPhysical,
   physicalToLogical,
   axisMapFor,
+  assertNeverWritingMode,
   type LogicalRect,
   type PhysicalRect,
+  type WritingMode,
 } from "./writing-mode";
 
 describe("logicalToPhysical", () => {
@@ -176,5 +178,27 @@ describe("axisMapFor", () => {
     expect(axisMapFor("vertical-lr", "rtl")).toEqual({
       inline: "y", block: "x", inlineReversed: true,
     });
+  });
+});
+
+describe("writing-mode exhaustiveness guard", () => {
+  // A bogus mode is only reachable via a cast. Before #437 the residual `else`
+  // in logicalToPhysical silently treated it as vertical-rl; now the exhaustive
+  // switch routes it through assertNeverWritingMode and throws — discriminating.
+  const bogus = "sideways-rl" as unknown as WritingMode;
+
+  it("logicalToPhysical throws on an out-of-union writing mode", () => {
+    const logical: LogicalRect = {
+      inlineOffset: 10, blockOffset: 20, inlineSize: 100, blockSize: 50,
+    };
+    expect(() => logicalToPhysical(logical, bogus, "ltr", 500)).toThrow(
+      /Unhandled writing mode/,
+    );
+  });
+
+  it("assertNeverWritingMode throws naming the offending value", () => {
+    expect(() => assertNeverWritingMode(bogus as never)).toThrow(
+      "Unhandled writing mode: sideways-rl",
+    );
   });
 });

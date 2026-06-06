@@ -99,6 +99,7 @@ const BASE_US = {
   borderInlineEndColor: "black",
   direction: "ltr",
   lineHeight: 20,
+  writingMode: "horizontal-tb",
 };
 
 function makeTextRun(opts: {

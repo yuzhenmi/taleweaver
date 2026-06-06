@@ -79,6 +79,7 @@ const BASE_US = {
   borderInlineStartColor: "black", borderInlineEndColor: "black",
   direction: "ltr",
   lineHeight: 20,
+  writingMode: "horizontal-tb",
 };
 
 /** A block-level image box carrying typed `metadata.image`, at (x, y). */

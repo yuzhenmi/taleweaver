@@ -16,6 +16,7 @@ export type {
   Direction, WritingMode,
 } from "./styles";
 export { PROPERTY_META, INITIAL_COMPUTED_STYLE } from "./styles";
+export { assertNeverWritingMode } from "./styles";
 
 // State (Y.Doc-backed) — re-exported through the `state/` barrel
 // (`./state/index.ts`), the intra-core API contract for the document model.

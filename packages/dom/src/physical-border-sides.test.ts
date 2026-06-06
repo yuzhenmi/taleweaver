@@ -128,4 +128,12 @@ describe("physicalBorderSides — writing-mode generalization (P3.4)", () => {
       topPadding: 10, rightPadding: 40, bottomPadding: 20, leftPadding: 30,
     });
   });
+
+  // ── #437 exhaustiveness guard: an out-of-union writing mode (reachable only via
+  //    a cast) throws instead of silently falling through to the h-tb mapping.
+  //    Discriminating: before #437 the residual fall-through treated it as h-tb. ──
+  it("throws on an out-of-union writing mode (exhaustiveness guard)", () => {
+    const us = makeUsedStyle("sideways-rl" as unknown as WritingMode, "ltr");
+    expect(() => physicalBorderSides(us)).toThrow(/Unhandled writing mode/);
+  });
 });

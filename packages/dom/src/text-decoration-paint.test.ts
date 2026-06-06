@@ -53,7 +53,7 @@ const BASE_US = {
   borderBlockStartWidth: 0, borderBlockEndWidth: 0, borderInlineStartWidth: 0, borderInlineEndWidth: 0,
   borderBlockStartStyle: "none", borderBlockEndStyle: "none", borderInlineStartStyle: "none", borderInlineEndStyle: "none",
   borderBlockStartColor: "black", borderBlockEndColor: "black", borderInlineStartColor: "black", borderInlineEndColor: "black",
-  direction: "ltr", lineHeight: 20,
+  direction: "ltr", lineHeight: 20, writingMode: "horizontal-tb",
 };
 
 function makeRun(deco: { underline?: boolean; lineThrough?: boolean }): LayoutBox {

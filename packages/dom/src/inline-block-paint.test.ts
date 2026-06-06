@@ -71,6 +71,7 @@ const BASE_US = {
   borderInlineStartColor: "black", borderInlineEndColor: "black",
   direction: "ltr",
   lineHeight: 20,
+  writingMode: "horizontal-tb",
 };
 
 function makeTextRun(opts: { text: string; x: number; y: number; width?: number; height?: number }): LayoutBox {

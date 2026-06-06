@@ -1,5 +1,5 @@
 import type { LayoutBox, SelectionRect, UsedStyle, BorderStyle, Color } from "@taleweaver/core";
-import { markStart, markEnd, resolveSpacingPx, clusterSpacing } from "@taleweaver/core";
+import { markStart, markEnd, resolveSpacingPx, clusterSpacing, assertNeverWritingMode } from "@taleweaver/core";
 import { buildCssFontString } from "./font-config";
 import { segmentClusters } from "./text-clusters";
 import type { ImageCache } from "./image-cache";
@@ -88,28 +88,33 @@ interface LogicalSideMap {
  */
 function resolveLogicalSides(us: Readonly<UsedStyle>): LogicalSideMap {
   const isRtl = us.direction === "rtl";
-  // Vertical modes: inline axis → physical y (top/bottom), block axis → physical x
-  // (left/right). h-tb is the CSS-initial mode and the fall-through default — it
-  // is the only mode whose mapping never touches the vertical inline/block axes,
-  // so handling it as the residual keeps h-tb byte-identical to the legacy path.
-  if (us.writingMode === "vertical-rl" || us.writingMode === "vertical-lr") {
-    return {
-      // Blocks stack right→left (rl) or left→right (lr).
-      blockStart: us.writingMode === "vertical-rl" ? "right" : "left",
-      blockEnd: us.writingMode === "vertical-rl" ? "left" : "right",
-      // Inline runs top→bottom (LTR) or bottom→top (RTL).
-      inlineStart: isRtl ? "bottom" : "top",
-      inlineEnd: isRtl ? "top" : "bottom",
-    };
+  // Exhaustive over the WritingMode union: a future 4th mode makes the `default`
+  // arm a compile error (#437), and an out-of-union value throws rather than
+  // silently mapping as h-tb. h-tb stays byte-identical to the legacy path.
+  switch (us.writingMode) {
+    case "horizontal-tb":
+      // block → top/bottom, inline → left/right (flipped under RTL).
+      return {
+        blockStart: "top",
+        blockEnd: "bottom",
+        inlineStart: isRtl ? "right" : "left",
+        inlineEnd: isRtl ? "left" : "right",
+      };
+    case "vertical-rl":
+    case "vertical-lr":
+      // Vertical modes: inline axis → physical y (top/bottom), block axis →
+      // physical x (left/right).
+      return {
+        // Blocks stack right→left (rl) or left→right (lr).
+        blockStart: us.writingMode === "vertical-rl" ? "right" : "left",
+        blockEnd: us.writingMode === "vertical-rl" ? "left" : "right",
+        // Inline runs top→bottom (LTR) or bottom→top (RTL).
+        inlineStart: isRtl ? "bottom" : "top",
+        inlineEnd: isRtl ? "top" : "bottom",
+      };
+    default:
+      return assertNeverWritingMode(us.writingMode);
   }
-  // horizontal-tb (and any legacy UsedStyle lacking writingMode): block →
-  // top/bottom, inline → left/right (flipped under RTL).
-  return {
-    blockStart: "top",
-    blockEnd: "bottom",
-    inlineStart: isRtl ? "right" : "left",
-    inlineEnd: isRtl ? "left" : "right",
-  };
 }
 
 export function physicalBorderSides(us: Readonly<UsedStyle>): PhysicalBorderSides {

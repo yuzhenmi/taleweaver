@@ -1,6 +1,19 @@
 export type WritingMode = "horizontal-tb" | "vertical-rl" | "vertical-lr";
 export type Direction = "ltr" | "rtl";
 
+/**
+ * Exhaustiveness guard for the `WritingMode` union. Placed in the `default` arm
+ * of every `switch (writingMode)`: a future 4th mode makes the `never` parameter
+ * a COMPILE error at every call site (the new case is no longer assignable to
+ * `never`), and an out-of-union value (reachable only via a cast) throws at
+ * runtime. The throw is unconditional (not dev-gated): the branch is unreachable
+ * by the types, so it costs nothing on the happy path, and throwing in prod is
+ * the correct behaviour for a value that violates the union contract.
+ */
+export function assertNeverWritingMode(wm: never): never {
+  throw new Error(`Unhandled writing mode: ${String(wm)}`);
+}
+
 export interface LogicalRect {
   readonly inlineOffset: number;
   readonly blockOffset: number;
@@ -54,49 +67,53 @@ export function logicalToPhysical(
   containingInlineSize: number,
   containingBlockSize?: number | "indefinite",
 ): PhysicalRect {
-  if (writingMode === "horizontal-tb") {
-    if (direction === "ltr") {
+  switch (writingMode) {
+    case "horizontal-tb": {
+      if (direction === "ltr") {
+        return {
+          x: logical.inlineOffset,
+          y: logical.blockOffset,
+          width: logical.inlineSize,
+          height: logical.blockSize,
+        };
+      }
       return {
-        x: logical.inlineOffset,
+        x: containingInlineSize - logical.inlineOffset - logical.inlineSize,
         y: logical.blockOffset,
         width: logical.inlineSize,
         height: logical.blockSize,
       };
     }
-    return {
-      x: containingInlineSize - logical.inlineOffset - logical.inlineSize,
-      y: logical.blockOffset,
-      width: logical.inlineSize,
-      height: logical.blockSize,
-    };
+    case "vertical-lr":
+    case "vertical-rl": {
+      // Vertical modes: inline axis → physical y, block axis → physical x.
+      // width = blockSize, height = inlineSize.
+      const y =
+        direction === "ltr"
+          ? logical.inlineOffset
+          : containingInlineSize - logical.inlineOffset - logical.inlineSize;
+
+      const x =
+        writingMode === "vertical-lr"
+          ? // Blocks stack left-to-right: physical x = blockOffset.
+            logical.blockOffset
+          : // vertical-rl: blocks stack right-to-left, x is mirrored against the
+            // containing block-size. Without it, return the un-mirrored pending x.
+            containingBlockSize === undefined ||
+              containingBlockSize === "indefinite"
+            ? logical.blockOffset
+            : containingBlockSize - logical.blockOffset - logical.blockSize;
+
+      return {
+        x,
+        y,
+        width: logical.blockSize,
+        height: logical.inlineSize,
+      };
+    }
+    default:
+      return assertNeverWritingMode(writingMode);
   }
-
-  // Vertical modes: inline axis → physical y, block axis → physical x.
-  // width = blockSize, height = inlineSize.
-  const y =
-    direction === "ltr"
-      ? logical.inlineOffset
-      : containingInlineSize - logical.inlineOffset - logical.inlineSize;
-
-  let x: number;
-  if (writingMode === "vertical-lr") {
-    // Blocks stack left-to-right: physical x = blockOffset.
-    x = logical.blockOffset;
-  } else {
-    // vertical-rl: blocks stack right-to-left, x is mirrored against the
-    // containing block-size. Without it, return the un-mirrored pending x.
-    x =
-      containingBlockSize === undefined || containingBlockSize === "indefinite"
-        ? logical.blockOffset
-        : containingBlockSize - logical.blockOffset - logical.blockSize;
-  }
-
-  return {
-    x,
-    y,
-    width: logical.blockSize,
-    height: logical.inlineSize,
-  };
 }
 
 /**

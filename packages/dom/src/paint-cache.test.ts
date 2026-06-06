@@ -17,6 +17,7 @@ const BASE_US: Pick<
   | "borderBlockEndWidth"
   | "borderInlineStartWidth"
   | "borderInlineEndWidth"
+  | "writingMode"
 > = {
   paddingBlockStart: 0,
   paddingBlockEnd: 0,
@@ -26,6 +27,7 @@ const BASE_US: Pick<
   borderBlockEndWidth: 0,
   borderInlineStartWidth: 0,
   borderInlineEndWidth: 0,
+  writingMode: "horizontal-tb",
 };
 
 function makeBlockBox(overrides: Partial<LayoutBox> = {}): LayoutBox {
