@@ -7,6 +7,7 @@ import {
   marginInlineStartFromAttrs,
   marginBlockStartFromAttrs,
   marginBlockEndFromAttrs,
+  writingModeFromAttrs,
 } from "./leaf-style-attrs";
 
 /**
@@ -56,6 +57,7 @@ export const listItemComponent: LeafComponentDefinition = {
   kind: "leaf",
   leafShape: "inline-bearing",
   render: (view, _ctx, inlineRenderNodes) => {
+    const writingMode = writingModeFromAttrs(view.attrs.writingMode);
     const textAlign = textAlignFromAttrs(view.attrs.textAlign);
     const lineHeight = lineHeightFromAttrs(view.attrs.lineHeight);
     const marginInlineStart = marginInlineStartFromAttrs(view.attrs.marginInlineStart);
@@ -69,6 +71,7 @@ export const listItemComponent: LeafComponentDefinition = {
       // Structural marker gutter / list indent — always present so the marker
       // lands at a positive inline offset inside the content column.
       paddingInlineStart: LIST_INDENT,
+      ...(writingMode !== undefined ? { writingMode } : {}),
       ...(textAlign !== undefined ? { textAlign } : {}),
       ...(lineHeight !== undefined ? { lineHeight } : {}),
       // User indent (INDENT/OUTDENT) composes ON TOP OF the structural padding.

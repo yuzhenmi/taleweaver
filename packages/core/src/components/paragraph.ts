@@ -7,6 +7,7 @@ import {
   marginInlineStartFromAttrs,
   marginBlockStartFromAttrs,
   marginBlockEndFromAttrs,
+  writingModeFromAttrs,
 } from "./leaf-style-attrs";
 
 const VALID_WHITE_SPACES: ReadonlySet<WhiteSpace> = new Set<WhiteSpace>([
@@ -47,8 +48,8 @@ function whiteSpaceFromAttrs(value: unknown): WhiteSpace | undefined {
  * for inter-paragraph spacing. An authored `whiteSpace` attr overrides the
  * inherited document default (`break-spaces`) — e.g. `"normal"` to collapse,
  * or `"pre"` for a code-style block — baked onto the ElementBox `style` so it
- * reaches the layout cascade. An authored `textAlign` attr is forwarded the
- * same way (see `leaf-style-attrs.ts`).
+ * reaches the layout cascade. Authored `textAlign` and `writingMode` attrs are
+ * forwarded the same way (see `leaf-style-attrs.ts`).
  */
 export const paragraphComponent: LeafComponentDefinition = {
   type: "paragraph",
@@ -56,6 +57,7 @@ export const paragraphComponent: LeafComponentDefinition = {
   leafShape: "inline-bearing",
   render: (view, _ctx, inlineRenderNodes) => {
     const whiteSpace = whiteSpaceFromAttrs(view.attrs.whiteSpace);
+    const writingMode = writingModeFromAttrs(view.attrs.writingMode);
     const textAlign = textAlignFromAttrs(view.attrs.textAlign);
     const lineHeight = lineHeightFromAttrs(view.attrs.lineHeight);
     const marginInlineStart = marginInlineStartFromAttrs(view.attrs.marginInlineStart);
@@ -65,6 +67,7 @@ export const paragraphComponent: LeafComponentDefinition = {
       display: "block",
       marginBlockEnd: { unit: "em", value: 0.5 },
       ...(whiteSpace !== undefined ? { whiteSpace } : {}),
+      ...(writingMode !== undefined ? { writingMode } : {}),
       ...(textAlign !== undefined ? { textAlign } : {}),
       ...(lineHeight !== undefined ? { lineHeight } : {}),
       ...(marginInlineStart !== undefined ? { marginInlineStart } : {}),

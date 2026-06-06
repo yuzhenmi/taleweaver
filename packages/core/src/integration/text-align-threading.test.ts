@@ -109,3 +109,40 @@ describe("textAlign attr → layout cascade threading (#310 P1)", () => {
     expect(leaf.computedStyle?.whiteSpace).toBe("pre");
   });
 });
+
+describe("writingMode attr → layout cascade threading (P3.3)", () => {
+  const WRITING_MODES = ["horizontal-tb", "vertical-rl", "vertical-lr"] as const;
+
+  it("flows a paragraph's writingMode attr to the cascaded computedStyle", () => {
+    const leaf = cascadeLeaf("paragraph", { writingMode: "vertical-rl" });
+    expect(leaf.computedStyle?.writingMode).toBe("vertical-rl");
+  });
+
+  it("flows a paragraph's writingMode attr through to the layout UsedStyle", () => {
+    const leaf = cascadeLeaf("paragraph", { writingMode: "vertical-lr" });
+    if (leaf.computedStyle === undefined) throw new Error("missing computedStyle");
+    const used = computeUsedStyle(leaf.computedStyle, 800, "indefinite");
+    expect(used.writingMode).toBe("vertical-lr");
+  });
+
+  for (const leafType of LEAF_TYPES) {
+    describe(leafType, () => {
+      for (const wm of WRITING_MODES) {
+        it(`round-trips the "${wm}" keyword to cascaded computedStyle`, () => {
+          const leaf = cascadeLeaf(leafType, { writingMode: wm });
+          expect(leaf.computedStyle?.writingMode).toBe(wm);
+        });
+      }
+
+      it("rejects an invalid writingMode attr (falls back to initial 'horizontal-tb')", () => {
+        const leaf = cascadeLeaf(leafType, { writingMode: "sideways-lr" });
+        expect(leaf.computedStyle?.writingMode).toBe("horizontal-tb");
+      });
+
+      it("leaves writingMode at the initial 'horizontal-tb' when the attr is absent", () => {
+        const leaf = cascadeLeaf(leafType, {});
+        expect(leaf.computedStyle?.writingMode).toBe("horizontal-tb");
+      });
+    });
+  }
+});

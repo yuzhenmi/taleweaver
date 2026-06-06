@@ -1,5 +1,43 @@
 import type { TextAlign } from "../cascade/builtin-attrs";
 import { isTextAlign } from "../cascade/builtin-attrs";
+import type { WritingMode } from "../styles";
+
+const VALID_WRITING_MODES: ReadonlySet<WritingMode> = new Set<WritingMode>([
+  "horizontal-tb",
+  "vertical-rl",
+  "vertical-lr",
+]);
+
+/**
+ * Type guard for the CSS `writing-mode` keywords this engine supports
+ * (`"horizontal-tb" | "vertical-rl" | "vertical-lr"` — the `WritingMode`
+ * union in `styles/writing-mode.ts`). Physical-flow-only keywords
+ * (`sideways-rl`/`sideways-lr`) are out of scope and rejected.
+ */
+export function isWritingMode(value: unknown): value is WritingMode {
+  return typeof value === "string" && VALID_WRITING_MODES.has(value as WritingMode);
+}
+
+/**
+ * Read a block-level `writingMode` attr override for a block component
+ * (document / paragraph / heading / list-item).
+ *
+ * Per the components/builtin-attrs "component-set" convention (see
+ * `textAlignFromAttrs` above and `cascade/builtin-attrs.ts`), block-level
+ * structural style that must reach layout is synthesized by the component onto
+ * its ElementBox `style`: the layout cascade re-derives `computedStyle` from
+ * `node.style`, and the render-time attrs-derived `view.computedStyle` is not
+ * threaded onto the ElementBox style, so a generic cascade interpreter alone
+ * never reaches layout for this property. `writingMode` is an inherited property
+ * (`property-meta.ts`), so declaring it once on the document root cascades to
+ * all descendant blocks; a per-block override sets it on that block's leaf.
+ *
+ * Returns the validated keyword, or `undefined` to leave the property unset so
+ * the layout cascade falls back to inheritance / the initial `"horizontal-tb"`.
+ */
+export function writingModeFromAttrs(value: unknown): WritingMode | undefined {
+  return isWritingMode(value) ? value : undefined;
+}
 
 /**
  * Read a block-level `textAlign` attr override for an inline-bearing-leaf
