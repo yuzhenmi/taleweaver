@@ -54,6 +54,7 @@ import {
   handleInsertHeaderFooter,
   handleInsertHorizontalLine,
   handleInsertImage,
+  handleSetImageSize,
   handleInsertFootnote,
   handleSetTextAlign,
   handleSetLineSpacing,
@@ -451,6 +452,9 @@ export function reduceEditor(
       break;
     case "INSERT_IMAGE":
       result = handleInsertImage(editor, action.src, action.width, action.height, config);
+      break;
+    case "SET_IMAGE_SIZE":
+      result = handleSetImageSize(editor, action.blockId, action.width, action.height, config);
       break;
     case "SET_TEXT_ALIGN":
       result = handleSetTextAlign(editor, action.align, config);

@@ -1,4 +1,4 @@
-import type { Selection, Position, BlockInit, TextMatch } from "../state";
+import type { Selection, Position, BlockInit, TextMatch, BlockId } from "../state";
 import type { TextAlign, TextTransform } from "../styles/style";
 import type { CounterFormat, FootnoteNumberingPolicy } from "../footnotes";
 import type { CaretAffinity } from "../cursor/line-bidi";
@@ -51,6 +51,7 @@ export type EditorAction =
   | { type: "INSERT_FOOTNOTE" }
   | { type: "INSERT_HORIZONTAL_LINE" }
   | { type: "INSERT_IMAGE"; src: string; width?: number; height?: number }
+  | { type: "SET_IMAGE_SIZE"; blockId: BlockId; width: number; height: number }
   | { type: "SET_TEXT_ALIGN"; align: TextAlign }
   | { type: "SET_LINE_SPACING"; spacing: number }
   | { type: "INDENT" }
