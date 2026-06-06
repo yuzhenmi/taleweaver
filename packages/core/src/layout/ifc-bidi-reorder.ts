@@ -115,12 +115,18 @@ export function splitTextRunBoxAtOffset(
 
   // 5. Keys / geometry. Both fragments keep the box's current offset/geometry;
   //    the caller repositions inlineOffset in Task 6. These split fragments are
-  //    REORDER OUTPUT, so they are positioned with `direction:"ltr"` (identity in
-  //    logicalToPhysical → `x === inlineOffset`) per the P4-C coordinate contract;
-  //    their true RTL-ness rides on `computedStyle.direction` (unchanged) and the
-  //    `bidiLevel` the reorder stamps. `renestLeaves` repacks each fragment's
-  //    physical inlineOffset; emitting them ltr here keeps the convention even on
-  //    any path that doesn't re-touch them.
+  //    REORDER OUTPUT, so they are positioned with `direction:"ltr"` per the P4-C
+  //    coordinate contract: the reorder already produced VISUAL order, so the box
+  //    factory must NOT re-apply the RTL inline-flip. Positioning is into the
+  //    LOGICAL `inlineOffset`; `logicalToPhysical(inlineOffset, …, writingMode,
+  //    "ltr")` then maps it to the ACTIVE physical inline axis — physical X for
+  //    horizontal-tb (so `x === inlineOffset`), physical Y for vertical-lr/rl. The
+  //    "ltr" identity is on the inline-OFFSET axis, not literally "x"; the
+  //    mechanism is inline-axis-general (the X phrasing elsewhere is the h-tb
+  //    projection). The fragments' true RTL-ness rides on `computedStyle.direction`
+  //    (unchanged) and the `bidiLevel` the reorder stamps. `renestLeaves` repacks
+  //    each fragment's inlineOffset; emitting them ltr here keeps the convention
+  //    even on any path that doesn't re-touch them.
   const prefix = createTextRunBox(
     box.key,
     box.inlineOffset,
@@ -394,7 +400,12 @@ function flattenChildren(
  * the line's nested top-level children. Each `InlineBox` ancestor is
  * reconstructed from its template (the original `InlineBox` carried on the
  * leaves' `ancestors`, shared by `ancestorKey`), wrapping the recursively-built
- * inner children. Geometry is packed left-to-right at every nesting level.
+ * inner children. Geometry is packed in VISUAL order along the LOGICAL inline
+ * axis (`inlineOffset` 0, then accumulating each child's `inlineSize`) at every
+ * nesting level; `logicalToPhysical` later maps that inline offset to the active
+ * physical inline axis (X for horizontal-tb, Y for vertical) — so "packed
+ * left-to-right" below is the horizontal-tb projection of an inline-axis-general
+ * packing.
  *
  * **Contiguous-only grouping (the key bidi property).** Grouping at each depth
  * is over MAXIMAL CONTIGUOUS runs sharing the same `ancestors[depth].ancestorKey`
@@ -459,10 +470,12 @@ function renestAtDepth(
     if (leaf.ancestors.length <= depth) {
       // Belongs at this depth — emit the leaf directly, repacked from the
       // running cursor (its incoming inlineOffset is the pre-reorder value).
-      // PHYSICAL/identity positioning (`direction:"ltr"` → `x === inlineOffset`):
-      // these leaves are already in VISUAL (left-to-right) order, so the box
-      // factory must NOT re-apply the RTL flip. The run's RTL-ness rides on
-      // `computedStyle.direction` (preserved) and `bidiLevel` (stamped earlier).
+      // Positioning is into the LOGICAL `inlineOffset` with `direction:"ltr"`:
+      // these leaves are already in VISUAL order, so the box factory must NOT
+      // re-apply the RTL inline-flip. `logicalToPhysical` maps the packed
+      // inlineOffset to the active physical inline axis — X for horizontal-tb
+      // (so `x === inlineOffset`), Y for vertical-lr/rl. The run's RTL-ness rides
+      // on `computedStyle.direction` (preserved) and `bidiLevel` (stamped earlier).
       const repacked = withPhysicalInlineOffset(leaf.leaf, cursorInlineOffset, lineInlineSize);
       out.push(repacked);
       cursorInlineOffset += repacked.inlineSize;
@@ -494,11 +507,13 @@ function renestAtDepth(
     // Distinct key for the 2nd+ fragment to avoid collisions; ancestorKey
     // (the element key) stays put for the cross-line post-pass.
     const fragKey = fragmentIndex === 0 ? tmpl.key : `${tmpl.key}-frag${fragmentIndex}`;
-    // PHYSICAL/identity positioning: this rebuilt InlineBox fragment wraps
-    // already-visual-order children, so its own offset is physical — force
-    // `direction:"ltr"` (identity in logicalToPhysical → `x === inlineOffset`)
-    // rather than `tmpl.direction`, which would re-mirror it. The element's CSS
-    // direction is preserved on `tmpl.computedStyle.direction`.
+    // Inline-offset positioning: this rebuilt InlineBox fragment wraps
+    // already-visual-order children, so its own offset is in visual order — force
+    // `direction:"ltr"` (no RTL inline-flip in logicalToPhysical) rather than
+    // `tmpl.direction`, which would re-mirror it. `logicalToPhysical` maps the
+    // inlineOffset to the active physical inline axis (X for horizontal-tb so
+    // `x === inlineOffset`, Y for vertical). The element's CSS direction is
+    // preserved on `tmpl.computedStyle.direction`.
     const placeholder = createInlineBox(
       fragKey,
       cursorInlineOffset,
@@ -607,10 +622,14 @@ function sourceStartOfBox(box: LayoutBox): number {
  *    stamped with its level via {@link withBidiLevel} and keeps its leaf's
  *    `ancestors`.
  * 3. {@link reorderRunsByLevel} (UAX #9 L2) — permute the logical-order segments
- *    into left-to-right VISUAL order by their per-segment levels.
+ *    into VISUAL (inline-start → inline-end) order by their per-segment levels.
+ *    UAX #9 is writing-mode-AGNOSTIC: it produces the visual SEQUENCE; which
+ *    physical axis that sequence runs along is decided later by
+ *    `logicalToPhysical` (X for horizontal-tb, Y for vertical).
  * 4. {@link renestLeaves} — re-nest the visual-order leaves back into the line's
- *    nested top-level children, packed left-to-right, reconstructing `InlineBox`
- *    fragments (with same-line `fragmentEdge`s) by contiguous ancestor-key runs.
+ *    nested top-level children, packed along the LOGICAL inline axis,
+ *    reconstructing `InlineBox` fragments (with same-line `fragmentEdge`s) by
+ *    contiguous ancestor-key runs.
  *
  * Pure: inputs are not mutated; every returned box is freshly built. This does
  * NO IFC wiring (computing `postL1Levels`, stamping the line, etc.) — that is the
@@ -623,8 +642,10 @@ function sourceStartOfBox(box: LayoutBox): number {
  * @param postL1Levels   post-L1 line levels (line-relative), from `applyL1`.
  * @param lineInlineSize the line's inline size, passed as `containingInlineSize`
  *   to every rebuilt box at every nesting level (matching the build).
- * @returns the line's nested top-level children in VISUAL order, packed
- *   left-to-right, each leaf stamped with its bidi `level`.
+ * @returns the line's nested top-level children in VISUAL order, packed along
+ *   the LOGICAL inline axis (which `logicalToPhysical` maps to physical X for
+ *   horizontal-tb, physical Y for vertical), each leaf stamped with its bidi
+ *   `level`.
  */
 export function reorderLineLeaves(
   children: readonly LayoutBox[],

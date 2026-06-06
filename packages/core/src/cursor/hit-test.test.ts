@@ -1133,3 +1133,67 @@ describe("P3.5b vertical hit-test — vertical-lr (blocks stack left→right)", 
     expect(r.offset).toBe(0);
   });
 });
+
+describe("P3.7 vertical bidi hit-test — RTL run on the inline (physical-Y) axis", () => {
+  // "abאב": Latin "ab" (lvl0, state [0,2], inline-Y [0,16]) + Hebrew "אב"
+  // (lvl1, state [2,4], inline-Y [16,32]). Paragraph base LTR; Hebrew CONTENT
+  // gives the level-1 run. WIDE page → one line. A click's BLOCK component is
+  // physical X (the line band), its INLINE component is physical Y.
+  //
+  // By-hand click→offset: in the RTL Hebrew run [16,32] the visual-NEAR (low-Y)
+  // edge is the logical-LAST char and the visual-FAR (high-Y) edge is the
+  // logical-FIRST — the exact INVERSE of an LTR run. So:
+  //   inline-Y 1  → off 0 (start of "ab")
+  //   inline-Y 9  → off 1 (mid "ab")
+  //   inline-Y 17 → off 4 (just inside Hebrew at its near edge → logical LAST)
+  //   inline-Y 25 → off 3 (mid Hebrew)
+  //   inline-Y 31 → off 2 (Hebrew far edge → logical FIRST)
+  // An LTR-only within-leaf assumption would SWAP 17↔31 (give 2 and 4). The
+  // inline axis is physical-Y for BOTH vertical modes, so the offsets are
+  // identical across them — only the block band (physical X) differs.
+  const wideBidiPage: PageConfig = {
+    pageInlineSize: 800,
+    pageBlockSize: 1000,
+    pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
+    pageGap: 20,
+  };
+
+  function bidiDoc(wm: WritingMode): State {
+    return buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", attrs: { writingMode: wm }, firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", attrs: { writingMode: wm }, inlineContent: inlineContent([text("abאב")]) }),
+      ],
+    });
+  }
+
+  function bidiPipeline(state: State): { layout: LayoutBox; shaper: TextShaper } {
+    const root = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
+    const shaper = createMockShaper(VCHAR_W, VLINE_CROSS);
+    const layout = resolvePositionedTree(
+      layoutTree(root, wideBidiPage.pageInlineSize, shaper, wideBidiPage),
+    );
+    return { layout, shaper };
+  }
+
+  for (const wm of ["vertical-lr", "vertical-rl"] as const) {
+    it(`${wm}: click→offset inverts correctly inside the RTL run on inline-Y`, () => {
+      const state = bidiDoc(wm);
+      const { layout, shaper } = bidiPipeline(state);
+      const lines = vLines(layout);
+      expect(lines.length).toBe(1);
+      const blockX = lines[0].absoluteX + 1; // inside the line's block band.
+
+      const off = (inlineY: number): number | undefined =>
+        resolvePositionFromPixel(state, layout, shaper, blockX, inlineY)?.offset;
+
+      expect(off(1)).toBe(0);
+      expect(off(9)).toBe(1);
+      // RTL inversion on the inline-Y axis (the discriminating pair):
+      expect(off(17)).toBe(4); // near edge → logical LAST
+      expect(off(25)).toBe(3);
+      expect(off(31)).toBe(2); // far edge → logical FIRST
+    });
+  }
+});

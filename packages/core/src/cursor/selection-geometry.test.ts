@@ -918,3 +918,77 @@ describe("P3.5c vertical SelectionRect projection — vertical-lr", () => {
     expect(r.height).toBe(8);
   });
 });
+
+describe("P3.7 vertical bidi SelectionRect — range crossing an LTR↔RTL boundary on inline-Y", () => {
+  // "abאב": Latin "ab" (lvl0, state [0,2], inline-Y [0,16]) + Hebrew "אב"
+  // (lvl1, state [2,4], inline-Y [16,32]). Paragraph base LTR; the Hebrew CONTENT
+  // gives the level-1 run. WIDE page → one line, so the only axis at play is the
+  // inline (physical-Y) axis with the line's block band on physical X.
+  //
+  // Select logical [1,3): one char of the LTR run ("b", inline-Y [8,16]) and one
+  // char of the RTL run (the Hebrew logical-FIRST char, which in an RTL run sits
+  // at the run's FAR inline-Y edge [24,32]). A contiguous LOGICAL range therefore
+  // maps to TWO DISJOINT visual intervals — the bidi-reorder signature — each
+  // projected onto physical Y (height), with the block band on physical X (x +
+  // width). The two intervals are NOT coalesced (different bidi levels).
+  const wideBidiPage: PageConfig = {
+    pageInlineSize: 800,
+    pageBlockSize: 1000,
+    pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
+    pageGap: 20,
+  };
+
+  function bidiDoc(wm: "vertical-rl" | "vertical-lr"): State {
+    return buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", attrs: { writingMode: wm }, firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", attrs: { writingMode: wm }, inlineContent: inlineContent([text("abאב")]) }),
+      ],
+    });
+  }
+
+  function bidiPipeline(state: State): { layout: LayoutBox; shaper: TextShaper } {
+    const root = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
+    const shaper = createMockShaper(8, 16);
+    const layout = resolvePositionedTree(
+      layoutTree(root, wideBidiPage.pageInlineSize, shaper, wideBidiPage),
+    );
+    return { layout, shaper };
+  }
+
+  for (const wm of ["vertical-lr", "vertical-rl"] as const) {
+    it(`${wm}: two disjoint rects projected onto physical Y, block band on physical X`, () => {
+      const state = bidiDoc(wm);
+      const { layout, shaper } = bidiPipeline(state);
+      const lines = pLines(layout);
+      expect(lines.length).toBe(1);
+      const blockX = lines[0].absoluteX;
+
+      const span = createSpan(
+        createPosition("p" as BlockId, 1),
+        createPosition("p" as BlockId, 3),
+      );
+      const rects = computeSelectionRects(state, span, layout, shaper);
+      // The bidi-reorder signature: a single logical range → TWO visual rects.
+      expect(rects.length).toBe(2);
+
+      // Both rects sit in the line's block band on physical X (width = line
+      // blockSize 16), with their inline extent on physical Y (height).
+      for (const r of rects) {
+        expect(r.x).toBe(blockX);
+        expect(r.width).toBe(16);
+      }
+      // Sort by physical-Y start so the assertion is order-independent.
+      const byY = [...rects].sort((a, b) => a.y - b.y);
+      // LTR "b": inline-Y [8,16] → y=8, height=8.
+      expect(byY[0].y).toBe(8);
+      expect(byY[0].height).toBe(8);
+      // RTL Hebrew logical-first char at the run's FAR inline-Y edge [24,32].
+      // An LTR assumption would put it at the NEAR edge [16,24] (y=16) — the
+      // discriminating value is y=24.
+      expect(byY[1].y).toBe(24);
+      expect(byY[1].height).toBe(8);
+    });
+  }
+});

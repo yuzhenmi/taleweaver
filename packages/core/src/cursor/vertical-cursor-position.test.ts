@@ -240,6 +240,75 @@ describe("P3.5a empty/strut-only vertical line — inline content edge (I1)", ()
   });
 });
 
+describe("P3.7 vertical bidi caret — RTL run on the inline (physical-Y) axis", () => {
+  // "abאב": Latin "ab" (lvl0, state [0,2]) then Hebrew "אב" (lvl1, state [2,4]).
+  // Paragraph base is LTR (no `direction` cascade attr); the Hebrew CONTENT
+  // resolves to a level-1 run. A WIDE page keeps it on one line. The Latin run
+  // occupies inline-Y [0,16], the Hebrew run inline-Y [16,32] (each char 8px).
+  //
+  // By-hand caret INLINE coords (a physical-Y value here; the inline axis is Y in
+  // every vertical mode). For the RTL Hebrew run the logically-EARLIER offset sits
+  // at the FAR (high-Y) inline edge — the §B `base + size − w` formula:
+  //   off0 → 0   (start of LTR "ab")
+  //   off1 → 8   (mid "ab")
+  //   off2 → 32  (Hebrew logical-START at its FAR edge 16+16; an LTR assumption
+  //               would wrongly give 16)
+  //   off3 → 24  (mid Hebrew: 16 + 16 − 8)
+  //   off4 → 16  (Hebrew logical-END at its NEAR edge 16+16−16)
+  // The discriminating signature is offsets 2..4 DESCENDING along inline-Y — the
+  // RTL inversion projected onto the vertical inline axis.
+  const wideBidiPage: PageConfig = {
+    pageInlineSize: 800,
+    pageBlockSize: 1000,
+    pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
+    pageGap: 20,
+  };
+
+  function bidiDoc(wm: WritingMode): State {
+    return buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", attrs: { writingMode: wm }, firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", attrs: { writingMode: wm }, inlineContent: inlineContent([text("abאב")]) }),
+      ],
+    });
+  }
+
+  function bidiPipeline(state: State): { layout: LayoutBox; shaper: TextShaper } {
+    const root = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
+    const shaper = createMockShaper(CHAR_W, LINE_CROSS);
+    const layout = resolvePositionedTree(layoutTree(root, wideBidiPage.pageInlineSize, shaper, wideBidiPage));
+    return { layout, shaper };
+  }
+
+  for (const wm of ["vertical-lr", "vertical-rl"] as const) {
+    it(`${wm}: caret coords across the LTR↔RTL boundary run down the inline (physical-Y) axis`, () => {
+      const state = bidiDoc(wm);
+      const { layout, shaper } = bidiPipeline(state);
+      const lines = pLines(layout);
+      expect(lines.length).toBe(1);
+      const blockCoord = lines[0].absoluteX; // BLOCK axis = physical X.
+
+      const xAt = (off: number): number => {
+        const r = resolvePixelPosition(state, createPosition("p" as BlockId, off), layout, shaper);
+        expect(r).not.toBeNull();
+        if (r === null) throw new Error("null");
+        // The BLOCK coord (y/lineY) is the line's physical x in every offset.
+        expect(r.y).toBe(blockCoord);
+        return r.x; // caret INLINE coord = physical Y.
+      };
+
+      expect(xAt(0)).toBe(0);
+      expect(xAt(1)).toBe(8);
+      // The RTL signature on the inline-Y axis: logical-start at the FAR edge,
+      // descending as the offset advances.
+      expect(xAt(2)).toBe(32);
+      expect(xAt(3)).toBe(24);
+      expect(xAt(4)).toBe(16);
+    });
+  }
+});
+
 describe("P3.5a #338 trailing-space clamp — vertical (I2)", () => {
   it("vertical-rl: caret at a trailing space clamps to the leaf's inline-axis edge", () => {
     // "ab   " (two letters + three trailing spaces) under break-spaces: the hung

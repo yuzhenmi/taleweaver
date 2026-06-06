@@ -2872,10 +2872,14 @@ function reorderLineForBidi(
 
   // REORDER PATH (P4-C.1 T6): the line carries RTL content (or an RTL paragraph
   // base). Produce real UAX #9 L1/L2 visual order via `reorderLineLeaves`, which
-  // emits PHYSICAL (left-to-right, packed-from-0) boxes positioned `direction:"ltr"`
-  // so `logicalToPhysical` is the identity (`x === inlineOffset`). The line's
-  // alignment is then applied as a PHYSICAL offset, mapping the logical
-  // `alignmentOffset` through `logicalToPhysical` for the line's base `direction`.
+  // emits VISUAL-ORDER boxes packed-from-0 on the LOGICAL inline axis, positioned
+  // `direction:"ltr"` so `logicalToPhysical` applies no RTL inline-flip. That
+  // inline offset then maps to the active physical inline axis (X for
+  // horizontal-tb — so `x === inlineOffset`; Y for vertical). The line's alignment
+  // is applied as an inline-axis offset, mapping the logical `alignmentOffset`
+  // through `logicalToPhysical` for the line's base `direction`. (The "physical
+  // start" / "x" naming below is the horizontal-tb projection; the computation is
+  // on the inline-OFFSET axis and is writing-mode-general.)
   //
   // Note: the incoming `children` were pre-shifted by `alignmentOffset` (LOGICAL)
   // at the call site, but `reorderLineLeaves` repacks from 0 (it ignores incoming
