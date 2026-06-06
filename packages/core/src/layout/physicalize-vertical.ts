@@ -1,0 +1,124 @@
+import type { BlockBox, LayoutBox } from "./layout-box";
+import { rebuildBoxWithOffsets } from "./layout-box";
+
+/**
+ * P3.1 — the vertical-rl post-layout physicalize pass (C-1 option B).
+ *
+ * For `writing-mode: vertical-rl`, a box's physical block-axis coordinate is the
+ * right-to-left mirror `x = containerBlockSize − blockOffset − blockSize`. But
+ * `containerBlockSize` is `"indefinite"` at box-factory time — an auto-size
+ * block's block extent is the OUTPUT of laying out its children, not an input —
+ * so the factory stores the un-mirrored PENDING x (`x = blockOffset`). This pass
+ * runs AFTER `layoutBlock` returns its frozen tree (every container's `blockSize`
+ * is now resolved on its box) and bakes the mirror in, producing a fully-physical
+ * tree where `box.x`/`box.y` are authoritative for every consumer.
+ *
+ * Recursion: each box is mirrored against ITS OWN container's resolved
+ * `blockSize`; its children are then physicalized against THIS box's `blockSize`
+ * (this box is their container). Because the rebuild is PARENT-RELATIVE, the
+ * existing consumer accumulation (`absoluteX += parent.x`) composes the correct
+ * absolute x at any nesting depth (verified 2 levels in the design: page P,
+ * container (b1,s1), grandchild (b2,s2) → grandchild abs x = P−b1−b2−s2).
+ *
+ * No-op for the common case: `horizontal-tb` and `vertical-lr` are fully
+ * factory-derivable (no block-axis mirror), so this returns the input box
+ * UNCHANGED (same reference) — zero cost, byte-identical for all existing content.
+ *
+ * @param box the frozen layout box to physicalize.
+ * @param containerBlockSize the box's containing-block block-size — the size the
+ *   box's block-axis x is mirrored against. For a top-level page-content box this
+ *   is the page CONTENT block-size.
+ * @returns a fully-physical box: the SAME reference for non-vertical-rl, or a NEW
+ *   frozen tree with the mirror baked in for vertical-rl.
+ */
+export function physicalizeVertical(
+  box: LayoutBox,
+  containerBlockSize: number,
+): LayoutBox {
+  // Fast top-level early-return: horizontal-tb AND vertical-lr are already
+  // correct from the factory (no block-axis mirror needed). Returning the input
+  // unchanged keeps non-vertical-rl trees zero-cost + byte-identical.
+  if (box.writingMode !== "vertical-rl") return box;
+  return physicalizeVrl(box, containerBlockSize);
+}
+
+/**
+ * Physicalize a PageBox named slot (`headerSlot` / `footerSlot` / `footnoteSlot`,
+ * always a `BlockBox` or null). Mirrors the slot's v-rl content against the page
+ * content block-size. The slot is itself a `BlockBox`, and `physicalizeVertical`
+ * preserves box type (it rebuilds via the matching factory), so the result stays
+ * a `BlockBox`.
+ */
+function physicalizeSlot(
+  slot: BlockBox | null,
+  containerBlockSize: number,
+): BlockBox | null {
+  if (slot === null) return null;
+  const phys = physicalizeVertical(slot, containerBlockSize);
+  if (phys.type !== "block") {
+    throw new Error(
+      `physicalizeVertical: a PageBox slot changed type to ${phys.type} (expected block)`,
+    );
+  }
+  return phys;
+}
+
+/**
+ * Physicalize a known `vertical-rl` box: mirror its block-axis x against
+ * `containerBlockSize`, then recurse into its children (and, for a PageBox, its
+ * named header/footer/footnote slots) with this box as their container.
+ *
+ * The PageBox FRAME (its own page placement) is NOT writing-mode-mirrored — only
+ * the page CONTENT is. So a PageBox keeps its frame coords and we recurse into
+ * its content/slots against the supplied page-content block-size; a non-page box
+ * gets its block-axis x mirrored.
+ */
+function physicalizeVrl(box: LayoutBox, containerBlockSize: number): LayoutBox {
+  if (box.type === "page") {
+    // Page frame stays as pagination placed it; only content/slots are mirrored,
+    // against the page CONTENT block-size (the value handed to this pass).
+    const newChildren = box.children.map((c) =>
+      physicalizeVertical(c, containerBlockSize),
+    );
+    return Object.freeze({
+      ...box,
+      children: Object.freeze(newChildren),
+      headerSlot: physicalizeSlot(box.headerSlot, containerBlockSize),
+      footerSlot: physicalizeSlot(box.footerSlot, containerBlockSize),
+      footnoteSlot: physicalizeSlot(box.footnoteSlot, containerBlockSize),
+    });
+  }
+
+  // Mirror THIS box's block-axis x against its container's resolved block-size.
+  // The rebuild re-runs the factory with the resolved containingBlockSize so the
+  // physical fields (mirrored x; unchanged inline-axis y/width/height) stay
+  // consistent with the logical fields per the LayoutBox invariant.
+  //
+  // The inline-axis y depends on the box's containingInlineSize: under RTL it is
+  // `containingInlineSize − inlineOffset − inlineSize`. Recover the SAME value
+  // the original factory used so y is preserved exactly:
+  //   RTL: y = CIS − inlineOffset − inlineSize ⇒ CIS = y + inlineOffset + inlineSize.
+  //   LTR: y = inlineOffset (CIS irrelevant) ⇒ the recovered value is harmless.
+  const containingInlineSize = box.y + box.inlineOffset + box.inlineSize;
+  const mirrored = rebuildBoxWithOffsets(
+    box,
+    box.inlineOffset,
+    box.blockOffset,
+    containingInlineSize,
+    containerBlockSize,
+  );
+
+  // Recurse into children with THIS box as their container (its resolved
+  // blockSize is the child's containing block-size). Only container box types
+  // carry children; leaves (text-run / marker) have none.
+  if (!("children" in mirrored) || mirrored.children.length === 0) {
+    return mirrored;
+  }
+  const newChildren = mirrored.children.map((c) =>
+    physicalizeVertical(c, mirrored.blockSize),
+  );
+  return Object.freeze({
+    ...mirrored,
+    children: Object.freeze(newChildren),
+  });
+}

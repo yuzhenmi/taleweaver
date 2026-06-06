@@ -27,6 +27,7 @@ import type { TextShaper } from "./text-shaper";
 import type { PageConfig } from "./page-config";
 import type { BlockBox, LayoutBox } from "./layout-box";
 import { createBlockBox, createMarkerBox } from "./layout-box";
+import { physicalizeVertical } from "./physicalize-vertical";
 import { adaptShaperToMeasurer } from "./text-measurer";
 import type { PageBox } from "./page-box";
 import { createPageBox } from "./page-box";
@@ -871,7 +872,7 @@ export function makeVirtualLayoutTree(
     // is processed exactly once).
     const children: readonly LayoutBox[] = bodyChildren;
 
-    return createPageBox(
+    const page = createPageBox(
       `page-${pageIndex}`,
       0, entry.blockOffset,
       effCfg.pageInlineSize, effCfg.pageBlockSize,
@@ -887,6 +888,22 @@ export function makeVirtualLayoutTree(
       // raw margins; on a plain page they equal the page's content margins.
       effTopInset, effBottomInset,
     );
+    // P3.1: bake the vertical-rl block-axis mirror into the assembled page's
+    // CONTENT + named slots (the page FRAME is NOT mirrored). No-op (same
+    // reference) for horizontal-tb / vertical-lr, so this is byte-identical for
+    // all existing content. Mirror against the page's FULL block-size — the body
+    // box and named slots carry PAGE-RELATIVE blockOffsets (body at
+    // `effTopInset`, slots at their page-relative offsets), so the
+    // coordinate-system parent is the whole page, NOT the content area. This is
+    // distinct from `effContentBlockSize`, the CSS containing-block
+    // available-size used for body child layout.
+    const physPage = physicalizeVertical(page, effCfg.pageBlockSize);
+    if (physPage.type !== "page") {
+      throw new Error(
+        `materializePage: physicalizeVertical changed the page box type to ${physPage.type}`,
+      );
+    }
+    return physPage;
   }
 
   function getPages(from: number, to: number): PageBox[] {

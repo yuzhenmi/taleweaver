@@ -262,6 +262,13 @@ function createBoxBase(args: {
   computedStyle: ComputedStyle;
   usedStyle: UsedStyle;
   containingInlineSize: number;
+  // Only consulted for vertical-rl, where the physical block-axis x is the
+  // right-to-left mirror `containingBlockSize − blockOffset − blockSize`. The
+  // box factory does not have this at construction time (the containing block
+  // size is layout's OUTPUT), so it stays undefined there and the un-mirrored
+  // PENDING x is stored; the P3.1 physicalize pass re-runs the factory with the
+  // resolved size to bake the mirror. h-tb / v-lr ignore it (factory-derivable).
+  containingBlockSize?: number;
 }): BoxBaseFields {
   const phys = logicalToPhysical(
     {
@@ -271,6 +278,7 @@ function createBoxBase(args: {
       blockSize:    args.blockSize,
     },
     args.writingMode, args.direction, args.containingInlineSize,
+    args.containingBlockSize,
   );
   return {
     key: args.key,
@@ -295,10 +303,12 @@ export function createBlockBox(
   children: readonly LayoutBox[],
   containingInlineSize: number,
   metadata?: Readonly<LayoutBoxMetadata>,
+  containingBlockSize?: number,
 ): BlockBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,
     writingMode, direction, computedStyle, usedStyle, containingInlineSize,
+    containingBlockSize,
   });
   return Object.freeze({
     type: "block" as const,
@@ -322,10 +332,12 @@ export function createLineBox(
   inlineOffsetEnd: number,
   isBlockBoundaryLine: boolean,
   endsWithHyphenContinuation?: boolean,
+  containingBlockSize?: number,
 ): LineBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,
     writingMode, direction, computedStyle, usedStyle, containingInlineSize,
+    containingBlockSize,
   });
   return Object.freeze({
     type: "line" as const,
@@ -353,10 +365,12 @@ export function createTextRunBox(
   clusterWidths?: readonly number[],
   sourceStart?: number,
   bidiLevel?: number,
+  containingBlockSize?: number,
 ): TextRunBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,
     writingMode, direction, computedStyle, usedStyle, containingInlineSize,
+    containingBlockSize,
   });
   return Object.freeze({
     type: "text-run" as const,
@@ -380,10 +394,12 @@ export function createInlineBox(
   fragmentEdge: InlineFragmentEdge,
   ancestorKey: string,
   containingInlineSize: number,
+  containingBlockSize?: number,
 ): InlineBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,
     writingMode, direction, computedStyle, usedStyle, containingInlineSize,
+    containingBlockSize,
   });
   return Object.freeze({
     type: "inline" as const,
@@ -404,10 +420,12 @@ export function createInlineBlockBox(
   containingInlineSize: number,
   sourceStart?: number,
   bidiLevel?: number,
+  containingBlockSize?: number,
 ): InlineBlockBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,
     writingMode, direction, computedStyle, usedStyle, containingInlineSize,
+    containingBlockSize,
   });
   return Object.freeze({
     type: "inline-block" as const,
@@ -427,10 +445,12 @@ export function createMarkerBox(
   text: string,
   containingInlineSize: number,
   bidiLevel?: number,
+  containingBlockSize?: number,
 ): MarkerBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,
     writingMode, direction, computedStyle, usedStyle, containingInlineSize,
+    containingBlockSize,
   });
   return Object.freeze({
     type: "marker" as const,
@@ -449,10 +469,12 @@ export function createTableBox(
   children: readonly LayoutBox[],
   columnPxWidths: readonly number[],
   containingInlineSize: number,
+  containingBlockSize?: number,
 ): TableBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,
     writingMode, direction, computedStyle, usedStyle, containingInlineSize,
+    containingBlockSize,
   });
   return Object.freeze({
     type: "table" as const,
@@ -470,10 +492,12 @@ export function createTableRowBox(
   usedStyle: UsedStyle,
   children: readonly LayoutBox[],
   containingInlineSize: number,
+  containingBlockSize?: number,
 ): TableRowBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,
     writingMode, direction, computedStyle, usedStyle, containingInlineSize,
+    containingBlockSize,
   });
   return Object.freeze({
     type: "table-row" as const,
@@ -490,10 +514,12 @@ export function createTableCellBox(
   usedStyle: UsedStyle,
   children: readonly LayoutBox[],
   containingInlineSize: number,
+  containingBlockSize?: number,
 ): TableCellBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,
     writingMode, direction, computedStyle, usedStyle, containingInlineSize,
+    containingBlockSize,
   });
   return Object.freeze({
     type: "table-cell" as const,
@@ -687,18 +713,44 @@ export function withBidiLevel(
   }
 }
 
-function rebuildBoxWithOffsets(
+/**
+ * Recreate a layout box with new inline + block offsets, optionally baking the
+ * vertical-rl block-axis physical-x mirror.
+ *
+ * EXPORTED (P3.1) so the `physicalizeVertical` post-layout pass can re-run the
+ * box factory once the containing block-size is resolved: for `vertical-rl` the
+ * factory could not compute the block-axis mirror at construction time (the
+ * containing block-size is layout's OUTPUT), so it stored a PENDING un-mirrored
+ * x; this rebuild bakes `x = containingBlockSize − blockOffset − blockSize` when
+ * `containingBlockSize` is supplied. `containingBlockSize` is consulted ONLY for
+ * `vertical-rl`; for `horizontal-tb` / `vertical-lr` the physical fields are
+ * fully factory-derivable and the param is ignored (byte-identical).
+ *
+ * The 3 offset-only callers (`withInlineOffset` / `withBlockOffset` /
+ * `withOffsets`) pass nothing → `containingBlockSize` defaults to undefined →
+ * the v-rl box keeps its PENDING x exactly as before (behavior unchanged).
+ *
+ * A `page` box's OWN frame coords are page-placement, assigned by pagination,
+ * and are NEVER writing-mode-mirrored (only the page CONTENT is) — so the `page`
+ * case does NOT thread `containingBlockSize`; the physicalize pass mirrors a
+ * page's content/slots separately, not its frame.
+ *
+ * @param containingBlockSize the box's containing-block block-size, for the
+ *   v-rl block-axis mirror. Omit (undefined) to keep the PENDING un-mirrored x.
+ */
+export function rebuildBoxWithOffsets(
   box: LayoutBox,
   newInlineOffset: number,
   newBlockOffset: number,
   containingInlineSize: number,
+  containingBlockSize?: number,
 ): LayoutBox {
   switch (box.type) {
     case "block":
       return createBlockBox(
         box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
-        box.children, containingInlineSize, box.metadata,
+        box.children, containingInlineSize, box.metadata, containingBlockSize,
       );
     case "line":
       return createLineBox(
@@ -707,52 +759,57 @@ function rebuildBoxWithOffsets(
         box.children, box.baseline, containingInlineSize,
         box.ownerBlockId, box.inlineOffsetStart, box.inlineOffsetEnd,
         box.isBlockBoundaryLine,
-        box.endsWithHyphenContinuation,
+        box.endsWithHyphenContinuation, containingBlockSize,
       );
     case "text-run":
       return createTextRunBox(
         box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.text, box.offsetLength, containingInlineSize, box.sourceDisplayLengths,
-        box.clusterWidths, box.sourceStart, box.bidiLevel,
+        box.clusterWidths, box.sourceStart, box.bidiLevel, containingBlockSize,
       );
     case "inline":
       return createInlineBox(
         box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.children, box.fragmentEdge, box.ancestorKey, containingInlineSize,
+        containingBlockSize,
       );
     case "inline-block":
       return createInlineBlockBox(
         box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.children, containingInlineSize, box.sourceStart, box.bidiLevel,
+        containingBlockSize,
       );
     case "marker":
       return createMarkerBox(
         box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
-        box.text, containingInlineSize, box.bidiLevel,
+        box.text, containingInlineSize, box.bidiLevel, containingBlockSize,
       );
     case "table":
       return createTableBox(
         box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
-        box.children, box.columnPxWidths, containingInlineSize,
+        box.children, box.columnPxWidths, containingInlineSize, containingBlockSize,
       );
     case "table-row":
       return createTableRowBox(
         box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
-        box.children, containingInlineSize,
+        box.children, containingInlineSize, containingBlockSize,
       );
     case "table-cell":
       return createTableCellBox(
         box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
-        box.children, containingInlineSize,
+        box.children, containingInlineSize, containingBlockSize,
       );
     case "page":
+      // The page FRAME is never writing-mode-mirrored (page placement is
+      // assigned by pagination; only the page CONTENT is mirrored, by the
+      // physicalize pass). So `containingBlockSize` is deliberately NOT threaded.
       return createPageBox(
         box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,

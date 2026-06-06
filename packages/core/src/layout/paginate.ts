@@ -5,6 +5,7 @@ import type { TextShaper } from "./text-shaper";
 import type { PageConfig } from "./page-config";
 import type { BlockBox, LayoutBox } from "./layout-box";
 import { createBlockBox } from "./layout-box";
+import { physicalizeVertical } from "./physicalize-vertical";
 import type { PageBox } from "./page-box";
 import { createPageBox } from "./page-box";
 import { layoutBlock } from "./bfc";
@@ -227,12 +228,33 @@ export function paginateRoot(
       shaper,
       fragmentation,
     );
+    // P3.1: bake the vertical-rl block-axis mirror now that the BFC box's
+    // container block sizes are all resolved. No-op (same reference) for
+    // horizontal-tb / vertical-lr, so this is byte-identical for all existing
+    // content. The mirror is against the page's FULL block-size — the BFC body
+    // box carries a PAGE-RELATIVE blockOffset (it sits at `margins.blockStart`
+    // from the page's block-start edge), so the coordinate-system parent is the
+    // whole page, NOT the content area. This is distinct from the CSS
+    // containing-block available-size (`pageContentBlockSize`) used for child
+    // layout above.
+    let physBox: BlockBox | null = null;
+    if (box !== null) {
+      const phys = physicalizeVertical(box, pageConfig.pageBlockSize);
+      // Input is a BlockBox; physicalizeVertical preserves the box type (it
+      // rebuilds via the matching factory for v-rl, or returns the same box).
+      if (phys.type !== "block") {
+        throw new Error(
+          `paginateRoot: physicalizeVertical changed the BFC box type to ${phys.type}`,
+        );
+      }
+      physBox = phys;
+    }
     // Wrap the BFC's BlockBox as a single page child so its (margins.inlineStart,
     // margins.blockStart) offset is preserved in the descendant coordinate
     // system. PageBox.children are walked with parent (0, 0) per P1.A.14's
     // PageBox-as-frame convention; nesting the BFC under PageBox lets the
     // margin offset propagate naturally to paint and editor utilities.
-    const placedChildren: readonly LayoutBox[] = box ? [box] : [];
+    const placedChildren: readonly LayoutBox[] = physBox ? [physBox] : [];
     const pageBlockOffset = pageIndex * (pageConfig.pageBlockSize + pageConfig.pageGap);
     const page = createPageBox(
       `page-${pageIndex}`,
