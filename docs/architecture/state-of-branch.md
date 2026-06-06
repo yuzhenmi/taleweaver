@@ -58,12 +58,21 @@ Y-utils helper (#358).
 
 Built-in components register and render. Plugin registry works.
 
-Gaps in built-in component behavior:
-- `imageComponent`, `horizontalLineComponent`, `tableComponent`,
-  `tableRowComponent`, `tableCellComponent` are present but several
-  paint paths and editor-action paths are stubs from the foundation
-  rewrite. Insert / delete / edit operations on tables, images, and
-  horizontal lines may not produce correct end-to-end behavior.
+Built-in component behavior:
+- `imageComponent`, `horizontalLineComponent` are complete end-to-end:
+  they render AND paint (canvas-renderer `drawImage` for images, the rule
+  stroke for horizontal lines; `image-cache` drives async load + re-paint).
+  Editing is wired — `INSERT_IMAGE` / `INSERT_HORIZONTAL_LINE` insert the
+  atomic-leaf block + a trailing paragraph; atomic-leaf Backspace/Delete at
+  a block boundary removes the object as a unit (`atomic-edits.ts`);
+  `SET_IMAGE_SIZE` writes width/height back. Browser-gated remainder
+  (P11 tail): image natural-size feedback, resize-handle paint + drag,
+  example-app Insert menu.
+- `tableComponent`, `tableRowComponent`, `tableCellComponent` render but
+  table editor-action paths (insert/delete rows & cells, in-table edit)
+  are not yet built — a future feature (tables are after P11 in ship
+  order). Table layout (Table FC) is implemented; table *editing* is the
+  gap.
 
 ### `render/` `[implemented]`
 
