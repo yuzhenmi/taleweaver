@@ -7,6 +7,7 @@ import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
 import { getLineIndex, coordOf, sizeAlong, lineCoordOf, lineSizeAlong } from "./line-flatten";
+import { locateTableCellAtPoint } from "../layout/table-cell-at-point";
 import { buildLineBidiView, offsetInLeaf, type CaretAffinity } from "./line-bidi";
 import { axisMapFor } from "../styles/writing-mode";
 import type { AxisMap } from "../styles/writing-mode";
@@ -118,7 +119,29 @@ export function resolvePositionFromPixel(
     // nearest-y loop walks past the body lines and lands on a slot line. We
     // classify `visible` into a body set and slot zones, then pick the zone the
     // click `y` falls in.
-    const region = pickRegionByBand(state, layoutTree, pageIndex, visible, x, y);
+    const bandRegion = pickRegionByBand(state, layoutTree, pageIndex, visible, x, y);
+
+    // 2c. Table-cell restriction (P8.S4b). The flat band-pick below is column-
+    // UNAWARE — it picks the first line whose block-axis band contains the click,
+    // ignoring the inline axis until the in-line leaf pick. In a multi-column row
+    // every cell's line shares the block band, so a click in column B would resolve
+    // into column A (and a click in a rowSpan cell's lower region into the wrong
+    // row's cell). When the click lands in a table cell, restrict the candidate
+    // lines to that cell's physical rect first, so the band+leaf pick runs WITHIN
+    // the owning cell. `locateTableCellAtPoint` resolves the cell (incl. spanning
+    // cells) in the same page-local coordinate space the lines carry. An empty cell
+    // (no lines inside) falls back to the unrestricted region.
+    let region = bandRegion;
+    const located = locateTableCellAtPoint(layoutTree, x, y, pageIndex);
+    if (located !== null) {
+      const { cell, absX, absY } = located;
+      const inCell = bandRegion.filter(
+        (l) =>
+          l.absoluteX >= absX && l.absoluteX < absX + cell.width &&
+          l.absoluteY >= absY && l.absoluteY < absY + cell.height,
+      );
+      if (inCell.length > 0) region = inCell;
+    }
 
     // 3. Pick target line by the click's BLOCK-axis component within the chosen
     // band (P3.5b). `region` is in document order, which for h-tb / vertical-lr is

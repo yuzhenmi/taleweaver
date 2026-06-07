@@ -1197,3 +1197,38 @@ describe("P3.7 vertical bidi hit-test — RTL run on the inline (physical-Y) axi
     });
   }
 });
+
+describe("resolvePositionFromPixel — table cell awareness (#P8.S4b)", () => {
+  // doc > table[cols 0.5/0.5] > row > (cellA > pA"AAAA") (cellB > pB"BBBB")
+  function tableState(): State {
+    return buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "tbl", lastChildId: "tbl" }),
+        buildBlock({ id: "tbl", type: "table", parentId: "doc", attrs: { columnWidths: [0.5, 0.5] }, firstChildId: "row", lastChildId: "row" }),
+        buildBlock({ id: "row", type: "table-row", parentId: "tbl", firstChildId: "cA", lastChildId: "cB" }),
+        buildBlock({ id: "cA", type: "table-cell", parentId: "row", nextSiblingId: "cB", firstChildId: "pA", lastChildId: "pA" }),
+        buildBlock({ id: "cB", type: "table-cell", parentId: "row", prevSiblingId: "cA", firstChildId: "pB", lastChildId: "pB" }),
+        buildBlock({ id: "pA", type: "paragraph", parentId: "cA", inlineContent: inlineContent([text("AAAA")]) }),
+        buildBlock({ id: "pB", type: "paragraph", parentId: "cB", inlineContent: inlineContent([text("BBBB")]) }),
+      ],
+    });
+  }
+
+  it("a click in column B resolves into column B (was: column A — flat band-pick is column-unaware)", () => {
+    const state = tableState();
+    const { layout, shaper } = pipeline(state, 400); // cols [200, 200]
+    // Sanity: a click in column A lands in pA.
+    const inA = resolvePositionFromPixel(state, layout, shaper, 8, 4);
+    expect(inA?.blockId).toBe("pA");
+    // The fix: a click in column B's region lands in pB (NOT pA, NOT end-of-A).
+    const inB = resolvePositionFromPixel(state, layout, shaper, 230, 4);
+    expect(inB?.blockId).toBe("pB");
+    // ...and the offset is measured WITHIN cell B: a click past "BBBB" clamps to
+    // the END of pB (offset 4). On the old column-unaware pick this resolved into
+    // pA (the click's x fell past cell A's content → clamped to end of pA).
+    const inBEnd = resolvePositionFromPixel(state, layout, shaper, 398, 4);
+    expect(inBEnd?.blockId).toBe("pB");
+    expect(inBEnd?.offset).toBe(4);
+  });
+});
