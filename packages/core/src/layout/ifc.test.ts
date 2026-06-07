@@ -3214,7 +3214,7 @@ describe("IFC — hyphens: soft-hyphen break handling (HYPH.S2/S3)", () => {
     expect(tok.softBreaks).toBeUndefined();
   });
 
-  it("manual: a soft-hyphenated overflow line ends with a hyphen glyph", () => {
+  it("manual: a soft-hyphenated overflow line ends with a hyphen glyph at the LTR inline-end (HYPH.S4 RTL baseline)", () => {
     // "hy<SHY>phen" = 6 visible letters × 8px = 48px (SHY zero-advance) in a 40px
     // line → wraps at the soft hyphen. Line 1 ends with the synthetic "-" glyph
     // and carries endsWithHyphenContinuation; line 2 is the "phen" suffix.
@@ -3222,9 +3222,41 @@ describe("IFC — hyphens: soft-hyphen break handling (HYPH.S2/S3)", () => {
     expect(lines.length).toBe(2);
     expect(lines[0].endsWithHyphenContinuation).toBe(true);
     const runs = lines[0].children.filter((c): c is TextRunBox => c.type === "text-run");
-    expect(runs.map((r) => r.text)).toContain("-");
+    const hyphen = runs.find((r) => r.text === "-");
+    expect(hyphen).toBeDefined();
+    // LTR baseline for the named RTL-hyphen-placement follow-up (spec "Out of
+    // scope"): the synthetic hyphen sits at the inline-END of the prefix — after
+    // "hy<SHY>" (h=8 + y=8 + SHY=0 = 16). On an RTL line the follow-up must move it
+    // to the inline-START; this assertion pins the correct LTR position so that
+    // work has a baseline.
+    expect(hyphen?.inlineOffset).toBe(16);
     // The suffix line carries no hyphen continuation.
     expect(lines[1].endsWithHyphenContinuation).not.toBe(true);
+  });
+
+  it("manual: a soft-hyphenated paragraph survives the live incremental wrap cache (correct geometry reused)", () => {
+    // The live IFC incremental path is a full-reuse-or-full-rewrap cache keyed on
+    // `findChangePoint` (the partial-rewrap `rewrapIncremental` is P18-deferred and
+    // NOT on the live path — so hyphenation can never yield wrong incremental
+    // geometry here; the fallback is always a correct full re-wrap). Re-laying the
+    // SAME soft-hyphenated paragraph through the SAME ctx hits the cache and reuses
+    // the hyphen-split lines verbatim — proving the hyphenated geometry round-trips
+    // the cache. Object-IDENTITY of the LineBoxes proves the cache path was taken
+    // (a re-wrap would allocate fresh LineBoxes).
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 40);
+    const tree = styledTree("hy" + SHY + "phen", "manual");
+    const r1 = layoutInlineContent(tree, 0, 0, ctx, shaper);
+    const r2 = layoutInlineContent(tree, 0, 0, ctx, shaper); // same ctx → cache hit
+    if (r1.box === null || r2.box === null) throw new Error("null box");
+    expect(r2.box.children.length).toBe(2);
+    expect(r2.box.children[0]).toBe(r1.box.children[0]); // same LineBox ref → cache reuse
+    expect(r2.box.children[1]).toBe(r1.box.children[1]);
+    const line0 = r2.box.children[0];
+    if (line0.type !== "line") throw new Error("expected line");
+    expect(line0.endsWithHyphenContinuation).toBe(true);
+    expect(
+      line0.children.filter((c): c is TextRunBox => c.type === "text-run").map((r) => r.text),
+    ).toContain("-");
   });
 
   // --- S2: none suppression (still holds) ---
