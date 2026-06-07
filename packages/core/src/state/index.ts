@@ -135,6 +135,11 @@ export { resolveTableContext, getChildIds } from "./table-context";
 export type { TableContext } from "./table-context";
 export { spliceColumnWidth, removeColumnWidth } from "./table-column-widths";
 export { spanValue, isSpan } from "./table-cell-span";
+// Layering-neutral occupancy-grid core (P8 §17.5 scan, shared by layout + the
+// P15b state-side span-aware editing ops). Layout's `assignTableGrid` adapter
+// (layout/table-grid.ts) and state ops build the SAME grid from this core.
+export { assignTableGrid } from "./table-grid-core";
+export type { GridCell, AssignedCell, TableGrid } from "./table-grid-core";
 
 // Document-order comparison + span endpoints + selection-context lookup.
 export {
