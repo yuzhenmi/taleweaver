@@ -1,4 +1,4 @@
-import type { Selection, Position, BlockInit, TextMatch, BlockId } from "../state";
+import type { Selection, Position, BlockInit, TextMatch, BlockId, CrossReferenceMode } from "../state";
 import type { TextAlign, TextTransform } from "../styles/style";
 import type { CounterFormat, FootnoteNumberingPolicy } from "../footnotes";
 import type { CaretAffinity } from "../cursor/line-bidi";
@@ -49,6 +49,7 @@ export type EditorAction =
   | { type: "INSERT_HEADER" }
   | { type: "INSERT_FOOTER" }
   | { type: "INSERT_FOOTNOTE" }
+  | { type: "INSERT_CROSS_REFERENCE"; targetId: BlockId; refMode: CrossReferenceMode }
   | { type: "INSERT_HORIZONTAL_LINE" }
   | { type: "INSERT_TABLE_ROW"; position: "above" | "below" }
   | { type: "INSERT_TABLE_COLUMN"; position: "left" | "right" }

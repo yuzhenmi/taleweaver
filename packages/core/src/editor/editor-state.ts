@@ -63,6 +63,7 @@ import {
   handleInsertImage,
   handleSetImageSize,
   handleInsertFootnote,
+  handleInsertCrossReference,
   handleSetTextAlign,
   handleSetLineSpacing,
   handleIndent,
@@ -467,6 +468,9 @@ export function reduceEditor(
       break;
     case "INSERT_FOOTNOTE":
       result = handleInsertFootnote(editor, config);
+      break;
+    case "INSERT_CROSS_REFERENCE":
+      result = handleInsertCrossReference(editor, action.targetId, action.refMode, config);
       break;
     case "INSERT_HORIZONTAL_LINE":
       result = handleInsertHorizontalLine(editor, config);

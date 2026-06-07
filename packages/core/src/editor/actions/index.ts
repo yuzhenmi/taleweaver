@@ -40,6 +40,7 @@ export { handleInsertTableRow, handleInsertTableColumn, handleDeleteTableRow, ha
 export { handleInsertImage } from "./insert-image";
 export { handleSetImageSize } from "./set-image-size";
 export { handleInsertFootnote } from "./insert-footnote-action";
+export { handleInsertCrossReference } from "./insert-cross-reference-action";
 export { handleSetTextAlign } from "./set-text-align";
 export { handleSetLineSpacing } from "./set-line-spacing";
 export { handleIndent, INDENT_STEP } from "./indent";
