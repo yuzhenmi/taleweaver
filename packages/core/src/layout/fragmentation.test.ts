@@ -51,7 +51,7 @@ describe("TableBreakToken.spanningCells (P8.S5.T1)", () => {
     const c = (tok.spanningCells ?? [])[0];
     expect(c?.cellId).toBe("cellA");
     expect(c?.rowSpan).toBe(3);
-    expect(c?.interiorBreakToken.type).toBe("block");
+    expect(c?.interiorBreakToken?.type).toBe("block");
   });
 });
 

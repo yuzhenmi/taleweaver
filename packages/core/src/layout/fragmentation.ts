@@ -44,8 +44,17 @@ export interface SpanningCellContinuation {
   readonly gridCol: number;
   readonly rowSpan: number;
   readonly colSpan: number;
-  /** The cell interior's break token — its content continues on the next fragment. */
-  readonly interiorBreakToken: BreakToken;
+  /**
+   * The cell interior's break token — its remaining content continues on the next
+   * fragment. NULL for the "empty spanned tail" case: the cell's content fit
+   * entirely within the placed rows, but its merged box still spans rows that
+   * resume on the next fragment (those rows were made tall by OTHER cells). The
+   * continuation is still emitted so the resume knows columns
+   * `[gridCol, gridCol+colSpan)` stay occupied for rows `[resumeAtRow, gridRow+rowSpan)`
+   * — the post-break rows must route around them — even though there is no
+   * interior left to lay out.
+   */
+  readonly interiorBreakToken: BreakToken | null;
 }
 
 export interface TableBreakToken {

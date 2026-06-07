@@ -2,7 +2,7 @@ import type { RenderNode, ElementBox } from "../render/render-node";
 import type { ComputedStyle } from "../styles";
 import type { BlockId } from "../state";
 import { asBlockId } from "../state";
-import type { TableBox, TableRowBox, LayoutBox } from "./layout-box";
+import type { TableBox, TableRowBox, TableCellBox, LayoutBox } from "./layout-box";
 import { createTableBox, createTableRowBox, createTableCellBox } from "./layout-box";
 import { assignTableGrid } from "./table-grid";
 import type { GridCellInput, AssignedCell } from "./table-grid";
@@ -17,7 +17,7 @@ import { makeChildContext } from "./layout-context";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import { anonymousBlockKey } from "./group-children";
 import { markStart, markEnd } from "../perf/perf-trace";
-import type { FragmentationContext, LayoutResult } from "./fragmentation";
+import type { FragmentationContext, LayoutResult, SpanningCellContinuation } from "./fragmentation";
 
 // ---------------------------------------------------------------------------
 // Anonymous-box grouping helpers
@@ -223,6 +223,25 @@ function collectIntrinsicSizes(
 }
 
 // ---------------------------------------------------------------------------
+// Per-cell layout result, grouped by starting row (Pass A output). Module-scope
+// so the S5 fragmentation logic — and the future S5.T4 resume pass, which also
+// consumes `laidByRow` — can reference it.
+// ---------------------------------------------------------------------------
+interface LaidCell {
+  readonly key: string;
+  readonly cellCs: Readonly<ComputedStyle>;
+  readonly cellUsedStyle: ReturnType<typeof computeUsedStyle>;
+  readonly interiorChildren: LayoutBox[];
+  readonly interiorHeight: number;
+  readonly inlineOffset: number;
+  readonly inlineSize: number;
+  readonly placement: AssignedCell;
+  /** The cell's source element — kept so a rowSpan cell straddling a page break
+   *  can re-lay its interior under a FragmentationContext (S5.T3). */
+  readonly cellEl: ElementBox;
+}
+
+// ---------------------------------------------------------------------------
 // Main layout entry point
 // ---------------------------------------------------------------------------
 
@@ -338,16 +357,6 @@ export function layoutTable(
   // cell belongs to its top row only). gridCol/colSpan come from the §17.5 grid
   // (S2), so inline geometry is already span-aware.
   // ---------------------------------------------------------------------------
-  interface LaidCell {
-    readonly key: string;
-    readonly cellCs: Readonly<ComputedStyle>;
-    readonly cellUsedStyle: ReturnType<typeof computeUsedStyle>;
-    readonly interiorChildren: LayoutBox[];
-    readonly interiorHeight: number;
-    readonly inlineOffset: number;
-    readonly inlineSize: number;
-    readonly placement: AssignedCell;
-  }
   const laidByRow: LaidCell[][] = rows.map(() => []);
 
   for (let rowIdx = startBodyRow; rowIdx < rows.length; rowIdx++) {
@@ -405,6 +414,7 @@ export function layoutTable(
         inlineOffset: cellInlineOffset,
         inlineSize: cellInlineSize,
         placement,
+        cellEl,
       });
     }
   }
@@ -531,8 +541,107 @@ export function layoutTable(
 
     if (placedRowCount < rowBoxes.length) {
       // Partial fit — emit placed rows only.
-      const placedRows = rowBoxes.slice(0, placedRowCount);
+      const breakRow = startBodyRow + placedRowCount;
       const partialBlockSize = used;
+
+      // P8.S5.T3 — fragment any rowSpan>1 cell that ORIGINATES in the placed rows
+      // but whose merged rectangle reaches past the break. Its interior is re-laid
+      // under a FragmentationContext sized to the placed portion, its box trimmed
+      // to that height (so it doesn't overflow the trimmed page), and a
+      // SpanningCellContinuation emitted so the next fragment knows the cell still
+      // occupies its columns (and, when it has remaining content, where to resume).
+      const continuations: SpanningCellContinuation[] = [];
+      // start-row index → (cell key → trimmed cell box) for the rows we must rebuild.
+      const trimmedByRow = new Map<number, Map<string, TableCellBox>>();
+      for (let r = startBodyRow; r < breakRow; r++) {
+        for (const lc of laidByRow[r] ?? []) {
+          const start = lc.placement.gridRow;
+          const end = start + lc.placement.rowSpan;
+          if (end <= breakRow) continue; // span ends within the placed rows — not crossing
+
+          // Placed portion height = sum of the spanned rows that are ON this page.
+          // This is the cell's BORDER-BOX budget (rowHeights already include cell
+          // padding/border — Pass A's unfragmented layoutBlock returns a
+          // padding-inclusive height that drives them); layoutBlock subtracts its
+          // own padding when fragmenting, so placedHeight is the correct budget.
+          let placedHeight = 0;
+          for (let rr = start; rr < breakRow; rr++) placedHeight += rowHeights[rr] ?? 0;
+
+          // Re-lay the interior with a block-size budget = placedHeight. A non-null
+          // breakToken means content spills to the next fragment; null means the
+          // content fit but the box still spans past the break (empty tail).
+          // resumeFrom is null because this is the FIRST time the cell is
+          // fragmented — its content was laid unfragmented in Pass A. The S5.T4
+          // resume path must instead pass the incoming continuation's
+          // interiorBreakToken here (a rowSpan≥3 cell can break on >1 page).
+          const cellCtx = makeChildContext(ctx, cs, lc.inlineSize, "indefinite");
+          const frag = layoutBlock(lc.cellEl, 0, 0, cellCtx, shaper, {
+            availableBlockSize: placedHeight,
+            pageIndex: fragmentation.pageIndex,
+            resumeFrom: null,
+          });
+          const top = frag.box;
+          const topChildren =
+            top !== null && top.type === "block" ? Array.from(top.children) : [];
+
+          const trimmed = createTableCellBox(
+            lc.key, lc.inlineOffset, 0, lc.inlineSize, placedHeight,
+            cs.writingMode, cs.direction,
+            lc.cellCs, lc.cellUsedStyle,
+            topChildren,
+            {
+              gridRow: lc.placement.gridRow,
+              gridCol: lc.placement.gridCol,
+              rowSpan: lc.placement.rowSpan,
+              colSpan: lc.placement.colSpan,
+            },
+            /* containingInlineSize */ tableInlineSize,
+          );
+          let m = trimmedByRow.get(start);
+          if (m === undefined) {
+            m = new Map();
+            trimmedByRow.set(start, m);
+          }
+          m.set(lc.key, trimmed);
+
+          continuations.push({
+            cellId: asBlockId(lc.key),
+            gridRow: lc.placement.gridRow,
+            gridCol: lc.placement.gridCol,
+            rowSpan: lc.placement.rowSpan,
+            colSpan: lc.placement.colSpan,
+            interiorBreakToken: frag.breakToken,
+          });
+        }
+      }
+
+      // Rebuild the placed row boxes whose cells were trimmed (others pass through
+      // unchanged, so 1×1 / non-crossing tables produce byte-identical output).
+      let placedRows: readonly TableRowBox[] = rowBoxes.slice(0, placedRowCount);
+      if (trimmedByRow.size > 0) {
+        placedRows = placedRows.map((rb, i) => {
+          // trimmedByRow is keyed by absolute grid row (lc.placement.gridRow);
+          // placedRows[i] corresponds to grid row startBodyRow + i.
+          const trims = trimmedByRow.get(startBodyRow + i);
+          if (trims === undefined) return rb;
+          const newCells = rb.children.map((cellBox) =>
+            cellBox.type === "table-cell" ? trims.get(cellBox.key) ?? cellBox : cellBox,
+          );
+          return createTableRowBox(
+            rb.key, rb.inlineOffset, rb.blockOffset, rb.inlineSize, rb.blockSize,
+            cs.writingMode, cs.direction,
+            rb.computedStyle, rb.usedStyle,
+            newCells,
+            /* containingInlineSize */ tableInlineSize,
+          );
+        });
+      }
+
+      const breakToken =
+        continuations.length > 0
+          ? { type: "table" as const, resumeAtRow: breakRow, spanningCells: continuations }
+          : { type: "table" as const, resumeAtRow: breakRow };
+
       return {
         box: createTableBox(
           node.key, inlineOffset, blockOffset, tableInlineSize, partialBlockSize,
@@ -541,7 +650,7 @@ export function layoutTable(
           placedRows, columnPxWidths, gridInfo,
           /* containingInlineSize */ availableInlineSize,
         ),
-        breakToken: { type: "table", resumeAtRow: startBodyRow + placedRowCount },
+        breakToken,
       };
     }
 
