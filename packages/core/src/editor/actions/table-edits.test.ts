@@ -550,3 +550,96 @@ describe("handleSplitCell — SPLIT_CELL (P15b.S2)", () => {
     expect(getBlock(undone.state, "A" as BlockId)?.attrs.colSpan).toBe(2);
   });
 });
+
+describe("handleMergeCells — MERGE_CELLS (P15b.S3)", () => {
+  /** Set a span selection from paragraph `aPara` to `bPara` (anchor→focus). */
+  const spanSelect = (editor: EditorState, aPara: BlockId, bPara: BlockId): EditorState =>
+    reduceEditor(
+      editor,
+      { type: "SET_SELECTION", selection: createSpan(createPosition(aPara, 0), createPosition(bPara, 0)) },
+      config,
+    );
+
+  it("no-ops (same editor ref) when the caret is not inside a table", () => {
+    const editor = createInitialEditorState(config);
+    const next = reduceEditor(editor, { type: "MERGE_CELLS" }, config);
+    expect(next).toBe(editor);
+  });
+
+  it("no-ops on a single-cell (collapsed) selection — nothing to merge", () => {
+    let editor = editorWithTable();
+    const tableId = findTableId(editor.state);
+    editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
+    const next = reduceEditor(editor, { type: "MERGE_CELLS" }, config);
+    expect(next).toBe(editor);
+  });
+
+  it("merges a 2×2 selection: survivor spans 2×2, row1 empties, caret lands in the survivor", () => {
+    let editor = editorWithTable(); // uniform 2×2
+    const tableId = findTableId(editor.state);
+    const r0 = getChildIds(editor.state, tableId)[0];
+    const r1 = getChildIds(editor.state, tableId)[1];
+    const survivor = getChildIds(editor.state, r0)[0]; // cell (0,0)
+    const p00 = cellParagraph(editor.state, tableId, 0, 0);
+    const p11 = cellParagraph(editor.state, tableId, 1, 1);
+    editor = spanSelect(editor, p00, p11);
+    // Sanity: a same-table cross-cell span IS accepted (not dropped by the
+    // cross-context selection guard #424) — so the merge below has real input.
+    expect(editor.selection.anchor.blockId).toBe(p00);
+    expect(editor.selection.focus.blockId).toBe(p11);
+
+    const next = reduceEditor(editor, { type: "MERGE_CELLS" }, config);
+    expect(next).not.toBe(editor);
+
+    expect(getBlock(next.state, survivor)?.attrs.rowSpan).toBe(2);
+    expect(getBlock(next.state, survivor)?.attrs.colSpan).toBe(2);
+    expect(getChildIds(next.state, r0)).toEqual([survivor]);
+    expect(getChildIds(next.state, r1)).toEqual([]);
+    // Caret → collapsed at the survivor's first paragraph (p00 survives).
+    expect(next.selection.focus.blockId).toBe(p00);
+    expect(next.selection.anchor.blockId).toBe(p00);
+    expect(next.selection.focus.offset).toBe(0);
+  });
+
+  it("is one undo entry: UNDO restores the 4 separate cells", () => {
+    let editor = editorWithTable();
+    const tableId = findTableId(editor.state);
+    const r0 = getChildIds(editor.state, tableId)[0];
+    const survivor = getChildIds(editor.state, r0)[0];
+    const p00 = cellParagraph(editor.state, tableId, 0, 0);
+    const p11 = cellParagraph(editor.state, tableId, 1, 1);
+    editor = spanSelect(editor, p00, p11);
+
+    const merged = reduceEditor(editor, { type: "MERGE_CELLS" }, config);
+    const undone = reduceEditor(merged, { type: "UNDO" }, config);
+    expect(getChildIds(undone.state, r0).length).toBe(2);
+    expect(getBlock(undone.state, survivor)?.attrs.rowSpan).toBeUndefined();
+    expect(getBlock(undone.state, survivor)?.attrs.colSpan).toBeUndefined();
+  });
+
+  it("no-ops (same editor ref) on a ragged table — the degenerate carve-out (ctx.ragged gate)", () => {
+    // Holed table: row0=[A(colSpan2),B], row1=[C,D] → occupancy [[A,A,B],[C,D,null]].
+    const blocks = [
+      buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
+      buildBlock({ id: "table", type: "table", parentId: "doc", firstChildId: "r0", lastChildId: "r1" }),
+      buildBlock({ id: "r0", type: "table-row", parentId: "table", nextSiblingId: "r1", firstChildId: "A", lastChildId: "B" }),
+      buildBlock({ id: "r1", type: "table-row", parentId: "table", prevSiblingId: "r0", firstChildId: "C", lastChildId: "D" }),
+      buildBlock({ id: "A", type: "table-cell", parentId: "r0", attrs: { colSpan: 2 }, nextSiblingId: "B", firstChildId: "Ap", lastChildId: "Ap" }),
+      buildBlock({ id: "Ap", type: "paragraph", parentId: "A", inlineContent: inlineContent([]) }),
+      buildBlock({ id: "B", type: "table-cell", parentId: "r0", prevSiblingId: "A", firstChildId: "Bp", lastChildId: "Bp" }),
+      buildBlock({ id: "Bp", type: "paragraph", parentId: "B", inlineContent: inlineContent([]) }),
+      buildBlock({ id: "C", type: "table-cell", parentId: "r1", nextSiblingId: "D", firstChildId: "Cp", lastChildId: "Cp" }),
+      buildBlock({ id: "Cp", type: "paragraph", parentId: "C", inlineContent: inlineContent([]) }),
+      buildBlock({ id: "D", type: "table-cell", parentId: "r1", prevSiblingId: "C", firstChildId: "Dp", lastChildId: "Dp" }),
+      buildBlock({ id: "Dp", type: "paragraph", parentId: "D", inlineContent: inlineContent([]) }),
+    ];
+    const state = buildState({ rootId: "doc", blocks });
+    const editor = createEditorStateFromState(
+      state,
+      createSpan(createPosition("Ap" as BlockId, 0), createPosition("Dp" as BlockId, 0)),
+      config,
+    );
+    const next = reduceEditor(editor, { type: "MERGE_CELLS" }, config);
+    expect(next).toBe(editor);
+  });
+});

@@ -42,6 +42,7 @@ export function coalesceKeyOf(action: EditorAction): ActionClass {
     case "DELETE_TABLE_COLUMN":
     case "DELETE_TABLE":
     case "SPLIT_CELL":
+    case "MERGE_CELLS":
     case "INSERT_IMAGE":
     case "SET_IMAGE_SIZE":
     case "SET_FOOTNOTE_POLICY":

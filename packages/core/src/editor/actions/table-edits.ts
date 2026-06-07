@@ -6,6 +6,9 @@ import {
   insertTableColumn,
   deleteTableColumn,
   splitCell,
+  mergeCells,
+  resolveCellRange,
+  buildTableGrid,
   deleteTableWithReplacement,
   removeBlock,
   getBlock,
@@ -251,4 +254,44 @@ export function handleSplitCell(editor: EditorState, config: EditorConfig): Edit
     config,
     result.dirtyIds,
   );
+}
+
+/**
+ * `MERGE_CELLS` handler (P15b). Merges the cells spanned by the selection into one
+ * spanned cell (the survivor at the range's top-left), via `resolveCellRange` →
+ * `mergeCells`.
+ *
+ * No-op (same `editor` ref) when the caret is not inside a main-tree table, the
+ * table is `ragged` (the degenerate carve-out, like `SPLIT_CELL`), or the selection
+ * resolves to no cross-cell range / a single cell (`resolveCellRange` null, or
+ * `mergeCells`'s own same-`State` short-circuit).
+ *
+ * Caret-after: COLLAPSED at offset 0 of the survivor's first paragraph (F4). The
+ * survivor is the cell originating at `(minRow, minCol)`; its id survives the merge,
+ * so its first paragraph is read from the POST-op state (I4). One undo (`"command"`).
+ */
+export function handleMergeCells(editor: EditorState, config: EditorConfig): EditorState {
+  const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
+  if (ctx === null || ctx.ragged) return editor;
+
+  const range = resolveCellRange(editor.state, editor.selection);
+  if (range === null) return editor;
+
+  const result = mergeCells(editor.state, range);
+  if (result.state === editor.state) return editor; // single-cell range → nothing merged
+
+  // Survivor = the cell originating at the range's top-left (pre-op grid); its id
+  // is stable across the merge, so read its first paragraph from the post-op state.
+  const grid = buildTableGrid(editor.state, range.tableId);
+  const survivor = grid?.cells.find((c) => c.gridRow === range.minRow && c.gridCol === range.minCol) ?? null;
+  const caretBlockId = survivor !== null ? getBlock(result.state, survivor.cellId)?.firstChildId ?? null : null;
+  if (caretBlockId === null) return editor; // defensive: a survivor always has a first paragraph
+
+  const cursor = createPosition(caretBlockId, 0);
+  const after = createSpan(cursor, cursor);
+  editor.history.commit(
+    { state: result.state, dirtyIds: result.dirtyIds },
+    { before: editor.selection, after },
+  );
+  return rebuildTrees({ ...editor, state: result.state, selection: after }, editor, config, result.dirtyIds);
 }
