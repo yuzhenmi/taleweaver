@@ -153,6 +153,37 @@ describe("layoutTable", () => {
     ).toEqual([[0, 300], [300, 300]]);
   });
 
+  it("auto-layout distributes a colSpan-2 cell's width across its columns (§17.4, #P8.S2)", () => {
+    // charWidth=8. Banner "abcdefgh" colSpan-2: min 8, max 64. Row1 cells
+    // "abc" (max 24) and "ab" (max 16) set the span-1 bases. The banner's max
+    // shortfall (64 − 40 = 24) distributes proportional to [24, 16] →
+    // col0 += 24·24/40 = 14.4 → 38.4; col1 += 24·16/40 = 9.6 → 25.6.
+    // available 200 ≥ sumMax 64, so each column gets its max-content width.
+    // The OLD sequential walk charged the whole 64 to col0 → [64, 16].
+    const banner = createElementBox(
+      "c0", { display: "table-cell" }, [createTextBox("t0", {}, "abcdefgh")], { colSpan: 2 },
+    );
+    const row0 = createElementBox("r0", { display: "table-row" }, [banner]);
+    const a = createElementBox("c1a", { display: "table-cell" }, [createTextBox("t1", {}, "abc")]);
+    const b = createElementBox("c1b", { display: "table-cell" }, [createTextBox("t2", {}, "ab")]);
+    const row1 = createElementBox("r1", { display: "table-row" }, [a, b]);
+    const cascaded = cascadePass(createElementBox("t", { display: "table" }, [row0, row1]));
+    if (cascaded.type !== "element") throw new Error("?");
+    const result = layoutTable(cascaded, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
+    if (result.box === null) throw new Error("null");
+    const out = result.box;
+    expect(out.columnCount).toBe(2);
+    const [w0, w1] = out.columnPxWidths;
+    expect(w0).toBeCloseTo(38.4);
+    expect(w1).toBeCloseTo(25.6);
+
+    const r0 = out.children[0];
+    if (r0.type !== "table-row") throw new Error("?");
+    const bannerBox = r0.children[0];
+    if (bannerBox.type !== "table-cell") throw new Error("?");
+    expect(bannerBox.inlineSize).toBeCloseTo(64); // spans both columns
+  });
+
   it("bare table-cell direct children are wrapped in an anonymous row", () => {
     // Two table-cell children placed directly inside the table (no table-row).
     // The layout should produce exactly one TableRowBox (anonymous) containing both cells.

@@ -6,6 +6,8 @@ import type { TableBox, TableRowBox, TableCellBox } from "./layout-box";
 import { createTableBox, createTableRowBox, createTableCellBox } from "./layout-box";
 import { assignTableGrid } from "./table-grid";
 import type { GridCellInput, AssignedCell } from "./table-grid";
+import { distributeColumnIntrinsics } from "./table-column-sizing";
+import type { SpannedCellIntrinsic } from "./table-column-sizing";
 import type { TextShaper } from "./text-shaper";
 import { layoutBlock } from "./bfc";
 import { computeUsedStyle } from "./used-style";
@@ -163,23 +165,32 @@ function collectIntrinsicSizes(
   shaper: TextShaper,
   intrinsicCache: LayoutContext["intrinsicCache"],
 ): { colMins: number[]; colMaxes: number[] } {
-  const colMins: number[] = [];
-  const colMaxes: number[] = [];
+  // Build the SAME grid the layout pass builds (assignTableGrid) so the column
+  // structure intrinsic sizing assumes matches the one geometry will produce,
+  // then feed each cell's intrinsic size — keyed by its grid placement — into
+  // the §17.4 span-aware distributor (P8.S2). For a span-1-only table this
+  // reduces to the legacy per-column max-over-cells (byte-identical pre-P8).
+  const gridRows: GridCellInput[][] = [];
+  const measures: { min: number; max: number }[] = []; // document order, 1:1 with grid cells
 
-  const rows = groupTableRows(table);
-  for (const row of rows) {
-    const cellGroups = groupRowCells(row);
-    let colIdx = 0;
-    for (const cg of cellGroups) {
-      // For a real (non-anonymous) cell, cg.content is [cellElement].
-      // For an anonymous cell, we need a synthetic ElementBox to measure.
-      let cellEl: ElementBox;
+  for (const row of groupTableRows(table)) {
+    const rowInputs: GridCellInput[] = [];
+    for (const cg of groupRowCells(row)) {
+      // For a real (non-anonymous) cell, cg.content is [cellElement] and carries
+      // metadata (rowSpan/colSpan). For an anonymous cell we synthesize one to
+      // measure; anonymous cells never span (no metadata).
+      let cellEl: ElementBox | null;
+      let metadata: ElementBox["metadata"];
       if (!cg.isAnonymous) {
         const el = cg.content[0];
-        if (el.type !== "element") { colIdx++; continue; }
-        cellEl = el;
+        if (el.type !== "element") {
+          cellEl = null;
+          metadata = undefined;
+        } else {
+          cellEl = el;
+          metadata = el.metadata;
+        }
       } else {
-        // Build a minimal synthetic ElementBox for intrinsic measurement.
         cellEl = {
           type: "element",
           key: cg.key,
@@ -187,15 +198,27 @@ function collectIntrinsicSizes(
           computedStyle: { ...cg.cs, display: "table-cell" },
           children: cg.content,
         };
+        metadata = undefined;
       }
-      const sizes = computeIntrinsicSizes(cellEl, shaper, intrinsicCache);
-      colMins[colIdx] = Math.max(colMins[colIdx] ?? 0, sizes.minContent);
-      colMaxes[colIdx] = Math.max(colMaxes[colIdx] ?? 0, sizes.maxContent);
-      colIdx++;
+      rowInputs.push({ key: asBlockId(cg.key), metadata });
+      if (cellEl === null) {
+        measures.push({ min: 0, max: 0 });
+      } else {
+        const s = computeIntrinsicSizes(cellEl, shaper, intrinsicCache);
+        measures.push({ min: s.minContent, max: s.maxContent });
+      }
     }
+    gridRows.push(rowInputs);
   }
 
-  return { colMins, colMaxes };
+  const grid = assignTableGrid(gridRows);
+  const spanned: SpannedCellIntrinsic[] = grid.cells.map((ac, i) => ({
+    gridCol: ac.gridCol,
+    colSpan: ac.colSpan,
+    min: measures[i]?.min ?? 0,
+    max: measures[i]?.max ?? 0,
+  }));
+  return distributeColumnIntrinsics(spanned, grid.columnCount);
 }
 
 // ---------------------------------------------------------------------------

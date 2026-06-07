@@ -8,6 +8,11 @@ import type {
 import { flattenContents } from "./group-children";
 import { resolveUsedLength } from "./used-style";
 import { transformRun } from "./text-transform";
+import { assignTableGrid } from "./table-grid";
+import type { GridCellInput } from "./table-grid";
+import { distributeColumnIntrinsics } from "./table-column-sizing";
+import type { SpannedCellIntrinsic } from "./table-column-sizing";
+import { asBlockId } from "../state";
 
 const ZERO_CONTRIBUTION: IntrinsicContribution = {
   minContent: 0,
@@ -337,25 +342,38 @@ function computeTableIntrinsicSizes(
   //              colMax = max(cell.max for cells in this column).
   // Table min = sum(colMin); table max = sum(colMax).
 
-  const colMins: number[] = [];
-  const colMaxes: number[] = [];
-
   // Both walks go through `flattenContents` so a `display: contents` wrapper
   // (e.g. a `section` containing table rows in P1.C) is transparent here, just
   // as it is in BFC / IFC layout and in the inline intrinsic path above. Without
   // the flatten, the `display !== "table-row"` / "table-cell" filters would skip
   // the contents wrapper and silently produce { min: 0, max: 0 }.
+  //
+  // Cells are placed onto the same §17.5 grid the Table FC builds (assignTableGrid)
+  // and their intrinsic sizes fed — keyed by grid placement — into the §17.4
+  // span-aware distributor (P8.S2), so a colSpan>1 cell contributes across the
+  // columns it spans rather than being charged entirely to one column.
+  const gridRows: GridCellInput[][] = [];
+  const measures: { min: number; max: number }[] = []; // document order, 1:1 with grid cells
   for (const row of flattenContents(node.children)) {
     if (row.type !== "element" || row.computedStyle?.display !== "table-row") continue;
-    let colIdx = 0;
+    const rowInputs: GridCellInput[] = [];
     for (const cell of flattenContents(row.children)) {
       if (cell.type !== "element" || cell.computedStyle?.display !== "table-cell") continue;
+      rowInputs.push({ key: asBlockId(cell.key), metadata: cell.metadata });
       const cellSizes = computeIntrinsicSizes(cell, shaper, cache);
-      colMins[colIdx] = Math.max(colMins[colIdx] ?? 0, cellSizes.minContent);
-      colMaxes[colIdx] = Math.max(colMaxes[colIdx] ?? 0, cellSizes.maxContent);
-      colIdx++;
+      measures.push({ min: cellSizes.minContent, max: cellSizes.maxContent });
     }
+    gridRows.push(rowInputs);
   }
+
+  const grid = assignTableGrid(gridRows);
+  const spanned: SpannedCellIntrinsic[] = grid.cells.map((ac, i) => ({
+    gridCol: ac.gridCol,
+    colSpan: ac.colSpan,
+    min: measures[i]?.min ?? 0,
+    max: measures[i]?.max ?? 0,
+  }));
+  const { colMins, colMaxes } = distributeColumnIntrinsics(spanned, grid.columnCount);
 
   const tableMin = colMins.reduce((s, v) => s + v, 0);
   const tableMax = colMaxes.reduce((s, v) => s + v, 0);

@@ -256,6 +256,29 @@ describe("computeIntrinsicSizes — display: contents (P1.C.1a)", () => {
     // makes the wrapped case match the un-wrapped result exactly.
     expect(w).toEqual(u);
   });
+
+  // §17.4 (P8.S2): a colSpan>1 cell contributes its intrinsic size across the
+  // columns it spans, not entirely to its first column.
+  it("a colSpan-2 cell's max distributes across its columns (§17.4)", () => {
+    // charWidth 10. Banner "abcdef" colSpan-2: max 60. Row1 "abc" (max 30) +
+    // "ab" (max 20) set span-1 bases [30, 20]. Banner max shortfall 60−50=10
+    // distributes proportional to [30, 20] → [36, 24]; tableMax = 60.
+    // The OLD sequential walk charged 60 to col0 → colMaxes [60, 20] → 80.
+    const banner = createElementBox(
+      "c0", { display: "table-cell" }, [createTextBox("t0", { display: "inline" }, "abcdef")],
+      { colSpan: 2 },
+    );
+    const table = createElementBox("t", { display: "table" }, [
+      createElementBox("r0", { display: "table-row" }, [banner]),
+      createElementBox("r1", { display: "table-row" }, [
+        createElementBox("c1a", { display: "table-cell" }, [createTextBox("t1", { display: "inline" }, "abc")]),
+        createElementBox("c1b", { display: "table-cell" }, [createTextBox("t2", { display: "inline" }, "ab")]),
+      ]),
+    ]);
+    const r = computeIntrinsicSizes(cascadePass(table), shaper, createIntrinsicSizesCache());
+    expect(r.maxContent).toBe(60);
+    expect(r.minContent).toBe(20); // colMins [10, 10]
+  });
 });
 
 describe("computeIntrinsicSizes — text-indent (#392)", () => {
