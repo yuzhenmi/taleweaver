@@ -43,3 +43,13 @@ export function removeColumnWidth(widths: readonly number[], at: number): number
   if (at < 0 || at >= n) return normalize(widths);
   return normalize(widths.filter((_, i) => i !== at));
 }
+
+/**
+ * True when a `table` block's raw `columnWidths` attr is a usable fraction array
+ * (explicit column sizing). Absent / non-array / non-numeric → false, meaning
+ * auto-layout: the column ops then make NO `columnWidths` change and let
+ * auto-layout recompute widths from the new cell set.
+ */
+export function isColumnWidths(v: unknown): v is readonly number[] {
+  return Array.isArray(v) && v.every((n) => typeof n === "number");
+}

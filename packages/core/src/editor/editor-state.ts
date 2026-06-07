@@ -56,6 +56,7 @@ import {
   handleInsertTableRow,
   handleInsertTableColumn,
   handleDeleteTableRow,
+  handleDeleteTableColumn,
   handleDeleteTable,
   handleInsertImage,
   handleSetImageSize,
@@ -476,6 +477,9 @@ export function reduceEditor(
       break;
     case "DELETE_TABLE_ROW":
       result = handleDeleteTableRow(editor, config);
+      break;
+    case "DELETE_TABLE_COLUMN":
+      result = handleDeleteTableColumn(editor, config);
       break;
     case "DELETE_TABLE":
       result = handleDeleteTable(editor, config);

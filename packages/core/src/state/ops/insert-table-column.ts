@@ -7,16 +7,11 @@ import { getBlocksMap, getYBlock, requireInTransaction } from "../yjs-doc";
 import { buildYBlock } from "../y-block";
 import { assertNoIdCollision } from "../id-collision-check";
 import { setBlockAttrsInTx } from "./set-block-attrs";
-import { spliceColumnWidth } from "../table-column-widths";
+import { spliceColumnWidth, isColumnWidths } from "../table-column-widths";
 import type { TableContext } from "../table-context";
 
 /** Where the new column goes relative to the caret's column. */
 export type ColumnPosition = "left" | "right";
-
-/** True when `v` is a usable `columnWidths` array (auto-layout when absent). */
-function isWidthArray(v: unknown): v is readonly number[] {
-  return Array.isArray(v) && v.every((n) => typeof n === "number");
-}
 
 /**
  * Pre-computed mutation plan for `insertTableColumnInTx`. All ids are allocated
@@ -96,7 +91,7 @@ export function planInsertTableColumn(
   const table = getBlock(state, ctx.tableId);
   const cw = table?.attrs.columnWidths;
   const newTableAttrs: ReadonlyAttrs | null =
-    table !== null && isWidthArray(cw)
+    table !== null && isColumnWidths(cw)
       ? { ...table.attrs, columnWidths: spliceColumnWidth(cw, targetCol) }
       : null;
 

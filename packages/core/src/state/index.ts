@@ -232,6 +232,7 @@ export type { RowPosition } from "./ops/insert-table-row";
 export { deleteTableWithReplacement } from "./ops/delete-table";
 export { insertTableColumn } from "./ops/insert-table-column";
 export type { ColumnPosition } from "./ops/insert-table-column";
+export { deleteTableColumn } from "./ops/delete-table-column";
 
 // Block-attribute + type edits.
 export { setBlockAttrs, setBlockAttrsInTx } from "./ops/set-block-attrs";

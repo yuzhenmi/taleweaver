@@ -4,6 +4,7 @@ import {
   resolveTableContext,
   insertTableRow,
   insertTableColumn,
+  deleteTableColumn,
   deleteTableWithReplacement,
   removeBlock,
   getBlock,
@@ -161,6 +162,52 @@ export function handleDeleteTableRow(editor: EditorState, config: EditorConfig):
   const targetCell = targetCellId !== null ? getBlock(result.state, targetCellId) : null;
   const caretBlockId = targetCell?.firstChildId ?? null;
   if (caretBlockId === null) return editor; // defensive: non-ragged rowCount>1 always has a target
+
+  const cursor = createPosition(caretBlockId, 0);
+  const after = createSpan(cursor, cursor);
+  editor.history.commit(
+    { state: result.state, dirtyIds: result.dirtyIds },
+    { before: editor.selection, after },
+  );
+  return rebuildTrees({ ...editor, state: result.state, selection: after }, editor, config, result.dirtyIds);
+}
+
+/**
+ * `DELETE_TABLE_COLUMN` handler (P15a). Removes the caret's column.
+ *
+ * No-op (same `editor` ref) when the caret is not inside an editable table
+ * (`resolveTableContext` null) OR the table `hasSpans` (the P15a → P15b
+ * boundary). When the caret's column is the LAST remaining column, deleting it
+ * would empty the table, so this collapses to deleting the whole table (Google
+ * Docs) via `deleteWholeTable`.
+ *
+ * Caret-after (`colCount > 1`): same row, the next column's cell, else the
+ * previous column's (when the deleted column was last). The target cell id is
+ * resolved from the PRE-op `ctx`; its first paragraph is read from the POST-op
+ * `result.state` (I4). The op rewrites `columnWidths` (when present) in the same
+ * transaction → one undo entry (`"command"`).
+ */
+export function handleDeleteTableColumn(editor: EditorState, config: EditorConfig): EditorState {
+  const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
+  if (ctx === null || ctx.hasSpans) return editor;
+
+  const colCount = ctx.cellIdsByRow[ctx.rowIndex].length;
+  // Last remaining column → deleting it collapses the whole table.
+  if (colCount <= 1) {
+    return deleteWholeTable(editor, ctx.tableId, config);
+  }
+
+  // Caret target: same row, next column's cell, else the previous (pre-op ctx).
+  const row = ctx.cellIdsByRow[ctx.rowIndex];
+  const targetCellId = row[ctx.colIndex + 1] ?? row[ctx.colIndex - 1] ?? null;
+
+  const result = deleteTableColumn(editor.state, ctx);
+  if (result.state === editor.state) return editor;
+
+  // Read the target cell's first paragraph from the POST-op state (I4).
+  const targetCell = targetCellId !== null ? getBlock(result.state, targetCellId) : null;
+  const caretBlockId = targetCell?.firstChildId ?? null;
+  if (caretBlockId === null) return editor; // defensive: non-ragged colCount>1 always has a target
 
   const cursor = createPosition(caretBlockId, 0);
   const after = createSpan(cursor, cursor);

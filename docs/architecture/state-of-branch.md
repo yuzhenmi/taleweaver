@@ -74,11 +74,13 @@ Built-in component behavior:
   `resolveTableContext` + `insertTableRow`), `INSERT_TABLE_COLUMN`
   `[implemented]` (insert column left/right; re-splices `columnWidths` atomically
   via `setBlockAttrsInTx`), `DELETE_TABLE_ROW` `[implemented]` (remove the
-  caret's row; last-row deletion collapses the whole table), and `DELETE_TABLE`
-  `[implemented]` (delete the whole table, replacement paragraph when it is the
-  body's sole child, span-agnostic) have shipped. Still `[missing]`: delete
-  column (P15a final op slice), and spanned-table row/column edits (P15b — the
-  span-gated ops currently no-op on `hasSpans`).
+  caret's row; last-row deletion collapses the whole table), `DELETE_TABLE_COLUMN`
+  `[implemented]` (remove the caret's column; re-removes `columnWidths`; last-column
+  deletion collapses the whole table), and `DELETE_TABLE` `[implemented]` (delete
+  the whole table, replacement paragraph when it is the body's sole child,
+  span-agnostic) have shipped — the no-span P15a table-editing surface is complete.
+  Still `[missing]`: spanned-table row/column edits (P15b — the span-gated ops
+  currently no-op on `hasSpans`); browser-gated example-app Table menu wiring.
 
 ### `render/` `[implemented]`
 

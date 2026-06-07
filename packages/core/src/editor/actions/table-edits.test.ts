@@ -365,3 +365,101 @@ describe("handleInsertTableColumn — INSERT_TABLE_COLUMN (P15a.S5)", () => {
     expect(getBlock(undone.state, tableId)?.attrs.columnWidths).toEqual([0.5, 0.5]);
   });
 });
+
+describe("handleDeleteTableColumn — DELETE_TABLE_COLUMN (P15a.S6)", () => {
+  /** A 1×2 single-row table BlockInit (one row, two columns). */
+  function oneRowTableInit(): BlockInit {
+    const cell = (): BlockInit => ({
+      type: "table-cell",
+      children: [{ type: "paragraph", inlineContent: { items: [] } }],
+    });
+    return { type: "table", attrs: { columnWidths: [0.5, 0.5] }, children: [{ type: "table-row", children: [cell(), cell()] }] };
+  }
+
+  it("no-ops (same editor ref) when the caret is not inside a table", () => {
+    const editor = createInitialEditorState(config);
+    const next = reduceEditor(editor, { type: "DELETE_TABLE_COLUMN" }, config);
+    expect(next).toBe(editor);
+  });
+
+  it("no-ops on a ragged table (hasSpans boundary → defer to P15b)", () => {
+    const cell = (): BlockInit => ({ type: "table-cell", children: [{ type: "paragraph", inlineContent: { items: [] } }] });
+    const ragged: BlockInit = {
+      type: "table",
+      attrs: { columnWidths: [0.5, 0.5] },
+      children: [
+        { type: "table-row", children: [cell(), cell()] },
+        { type: "table-row", children: [cell()] },
+      ],
+    };
+    let editor = createInitialEditorState(config);
+    editor = reduceEditor(editor, { type: "INSERT_NODE", node: ragged }, config);
+    const tableId = findTableId(editor.state);
+    editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
+
+    const next = reduceEditor(editor, { type: "DELETE_TABLE_COLUMN" }, config);
+    expect(next).toBe(editor);
+  });
+
+  it("deletes the caret's column; caret moves to the same row's NEXT column", () => {
+    let editor = editorWithTable(); // 2×2
+    const tableId = findTableId(editor.state);
+    // caret in row 0, column 0; the same row's column-1 cell survives.
+    const survivingTarget = cellParagraph(editor.state, tableId, 0, 1);
+    editor = selectInto(editor, cellParagraph(editor.state, tableId, 0, 0));
+
+    const next = reduceEditor(editor, { type: "DELETE_TABLE_COLUMN" }, config);
+
+    for (const rowId of getChildIds(next.state, tableId)) {
+      expect(getChildIds(next.state, rowId).length).toBe(1);
+    }
+    expect(next.selection.focus.blockId).toBe(survivingTarget);
+  });
+
+  it("deleting the LAST column moves the caret to the same row's PREVIOUS column", () => {
+    let editor = editorWithTable(); // 2×2
+    const tableId = findTableId(editor.state);
+    // caret in row 1, column 1 (last); the same row's column-0 cell survives.
+    const survivingTarget = cellParagraph(editor.state, tableId, 1, 0);
+    editor = selectInto(editor, cellParagraph(editor.state, tableId, 1, 1));
+
+    const next = reduceEditor(editor, { type: "DELETE_TABLE_COLUMN" }, config);
+
+    for (const rowId of getChildIds(next.state, tableId)) {
+      expect(getChildIds(next.state, rowId).length).toBe(1);
+    }
+    expect(next.selection.focus.blockId).toBe(survivingTarget);
+  });
+
+  it("deleting the ONLY column collapses the whole table; caret → surviving sibling", () => {
+    let editor = createInitialEditorState(config);
+    editor = reduceEditor(editor, { type: "INSERT_NODE", node: oneRowTableInit() }, config);
+    let tableId = findTableId(editor.state);
+    const seededPara = getBlock(editor.state, editor.state.rootId)?.firstChildId ?? null;
+    // Delete column 0, then column 0 again: the second delete is on a 1-column
+    // table → collapses the whole table.
+    editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
+    editor = reduceEditor(editor, { type: "DELETE_TABLE_COLUMN" }, config);
+    tableId = findTableId(editor.state);
+    editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
+
+    const next = reduceEditor(editor, { type: "DELETE_TABLE_COLUMN" }, config);
+
+    expect(getBlock(next.state, tableId)).toBeNull();
+    expect(next.selection.focus.blockId).toBe(seededPara);
+  });
+
+  it("one undo entry restores BOTH the deleted column AND the columnWidths", () => {
+    let editor = editorWithTable(); // 2×2, columnWidths [0.5, 0.5]
+    const tableId = findTableId(editor.state);
+    editor = selectInto(editor, cellParagraph(editor.state, tableId, 0, 0));
+
+    const deleted = reduceEditor(editor, { type: "DELETE_TABLE_COLUMN" }, config);
+    expect(getChildIds(deleted.state, getChildIds(deleted.state, tableId)[0]).length).toBe(1);
+    expect(getBlock(deleted.state, tableId)?.attrs.columnWidths).toEqual([1]);
+
+    const undone = reduceEditor(deleted, { type: "UNDO" }, config);
+    expect(getChildIds(undone.state, getChildIds(undone.state, tableId)[0]).length).toBe(2);
+    expect(getBlock(undone.state, tableId)?.attrs.columnWidths).toEqual([0.5, 0.5]);
+  });
+});
