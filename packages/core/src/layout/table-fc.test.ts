@@ -193,6 +193,86 @@ describe("layoutTable", () => {
     expect(bannerBox.inlineSize).toBeCloseTo(64); // spans both columns
   });
 
+  // #P8.S3 — a rowSpan-2 sidebar cell spans both rows; later rows route around
+  // it via occupancy. Parametrized over writing mode (#P8.S3.T3): the block-axis
+  // distribution is purely LOGICAL, so vertical-rl yields identical logical
+  // blockOffset/blockSize.
+  for (const wm of ["horizontal-tb", "vertical-rl"] as const) {
+    it(`rowSpan-2 cell spans both rows; next row routes around it (${wm}, #P8.S3)`, () => {
+      const cellA = createElementBox(
+        "a", { display: "table-cell" }, [createTextBox("ta", {}, "a")], { rowSpan: 2 },
+      );
+      const cellB = createElementBox("b", { display: "table-cell" }, [createTextBox("tb", {}, "b")]);
+      const row0 = createElementBox("r0", { display: "table-row" }, [cellA, cellB]);
+      const cellC = createElementBox("c", { display: "table-cell" }, [createTextBox("tc", {}, "c")]);
+      const row1 = createElementBox("r1", { display: "table-row" }, [cellC]);
+      const table = cascadePass(
+        createElementBox("t", { display: "table", writingMode: wm }, [row0, row1], {
+          columnWidths: [0.5, 0.5],
+        }),
+      );
+      if (table.type !== "element" || !table.computedStyle) throw new Error("?");
+      const result = layoutTable(table, 0, 0, makeRootContext(table.computedStyle, 400), shaper);
+      if (result.box === null) throw new Error("null");
+      const out = result.box;
+      expect(out.columnCount).toBe(2);
+
+      const r0 = out.children[0];
+      const r1 = out.children[1];
+      if (r0.type !== "table-row" || r1.type !== "table-row") throw new Error("?");
+
+      // row0 holds A (col0, rowSpan2) + B (col1). A spans both rows' heights.
+      const aBox = r0.children.find((c) => c.type === "table-cell" && c.gridCol === 0);
+      if (aBox === undefined || aBox.type !== "table-cell") throw new Error("A?");
+      expect(aBox.rowSpan).toBe(2);
+      expect(aBox.gridCol).toBe(0);
+      expect(aBox.inlineOffset).toBe(0);
+      expect(aBox.blockOffset).toBe(0);
+      expect(aBox.blockSize).toBe(r0.blockSize + r1.blockSize); // spans both rows
+
+      // row1 holds only C, routed to col1 (col0 still occupied by A).
+      expect(r1.children).toHaveLength(1);
+      const cBox = r1.children[0];
+      if (cBox.type !== "table-cell") throw new Error("C?");
+      expect(cBox.gridCol).toBe(1);
+      expect(cBox.inlineOffset).toBe(200); // sum of col0 width
+      expect(r1.blockOffset).toBe(r0.blockSize); // rows stack
+    });
+  }
+
+  it("rowSpan cell taller than its rows distributes the deficit (§17.5.3, #P8.S3)", () => {
+    // cellA (rowSpan-2) holds 3 stacked block lines → interior 48 (3×16).
+    // B and C are single-line (16). Base rows = [16, 16], Σ=32 < 48 → deficit 16
+    // distributed equally → rows [24, 24]; A spans 48.
+    const cellA = createElementBox(
+      "a", { display: "table-cell" }, [
+        createElementBox("ap0", { display: "block" }, [createTextBox("a0", {}, "x")]),
+        createElementBox("ap1", { display: "block" }, [createTextBox("a1", {}, "y")]),
+        createElementBox("ap2", { display: "block" }, [createTextBox("a2", {}, "z")]),
+      ], { rowSpan: 2 },
+    );
+    const cellB = createElementBox("b", { display: "table-cell" }, [createTextBox("tb", {}, "b")]);
+    const row0 = createElementBox("r0", { display: "table-row" }, [cellA, cellB]);
+    const cellC = createElementBox("c", { display: "table-cell" }, [createTextBox("tc", {}, "c")]);
+    const row1 = createElementBox("r1", { display: "table-row" }, [cellC]);
+    const table = cascadePass(
+      createElementBox("t", { display: "table" }, [row0, row1], { columnWidths: [0.5, 0.5] }),
+    );
+    if (table.type !== "element" || !table.computedStyle) throw new Error("?");
+    const result = layoutTable(table, 0, 0, makeRootContext(table.computedStyle, 400), shaper);
+    if (result.box === null) throw new Error("null");
+    const out = result.box;
+
+    const r0 = out.children[0];
+    const r1 = out.children[1];
+    if (r0.type !== "table-row" || r1.type !== "table-row") throw new Error("?");
+    expect(r0.blockSize).toBe(24); // grew from 16
+    expect(r1.blockSize).toBe(24); // equal split
+    const aBox = r0.children.find((c) => c.type === "table-cell" && c.gridCol === 0);
+    if (aBox === undefined || aBox.type !== "table-cell") throw new Error("A?");
+    expect(aBox.blockSize).toBe(48); // = r0 + r1, absorbs the tall interior
+  });
+
   it("bare table-cell direct children are wrapped in an anonymous row", () => {
     // Two table-cell children placed directly inside the table (no table-row).
     // The layout should produce exactly one TableRowBox (anonymous) containing both cells.

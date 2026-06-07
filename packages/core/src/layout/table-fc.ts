@@ -2,12 +2,13 @@ import type { RenderNode, ElementBox } from "../render/render-node";
 import type { ComputedStyle } from "../styles";
 import type { BlockId } from "../state";
 import { asBlockId } from "../state";
-import type { TableBox, TableRowBox, TableCellBox } from "./layout-box";
+import type { TableBox, TableRowBox, LayoutBox } from "./layout-box";
 import { createTableBox, createTableRowBox, createTableCellBox } from "./layout-box";
 import { assignTableGrid } from "./table-grid";
 import type { GridCellInput, AssignedCell } from "./table-grid";
 import { distributeColumnIntrinsics } from "./table-column-sizing";
 import type { SpannedCellIntrinsic } from "./table-column-sizing";
+import { isDevMode } from "./dev-mode";
 import type { TextShaper } from "./text-shaper";
 import { layoutBlock } from "./bfc";
 import { computeUsedStyle } from "./used-style";
@@ -331,17 +332,27 @@ export function layoutTable(
     for (let c = from; c < to; c++) s += columnPxWidths[c] ?? 0;
     return s;
   };
-  for (let rowIdx = 0; rowIdx < rows.length; rowIdx++) {
-    // E.3: skip rows before the resume point.
-    if (rowIdx < startBodyRow) continue;
+  // ---------------------------------------------------------------------------
+  // Pass A — lay out every cell's interior at its summed inline-size; collect
+  // the per-cell data grouped by its STARTING row (the HTML model: a rowSpan>1
+  // cell belongs to its top row only). gridCol/colSpan come from the §17.5 grid
+  // (S2), so inline geometry is already span-aware.
+  // ---------------------------------------------------------------------------
+  interface LaidCell {
+    readonly key: string;
+    readonly cellCs: Readonly<ComputedStyle>;
+    readonly cellUsedStyle: ReturnType<typeof computeUsedStyle>;
+    readonly interiorChildren: LayoutBox[];
+    readonly interiorHeight: number;
+    readonly inlineOffset: number;
+    readonly inlineSize: number;
+    readonly placement: AssignedCell;
+  }
+  const laidByRow: LaidCell[][] = rows.map(() => []);
+
+  for (let rowIdx = startBodyRow; rowIdx < rows.length; rowIdx++) {
     const row = rows[rowIdx];
-    const rowUsedStyle = computeUsedStyle(row.cs, tableInlineSize, "indefinite");
-
     const cellGroups = groupRowCells(row);
-
-    let maxBlockSize = 0;
-    const cellBoxes: TableCellBox[] = [];
-
     for (let ci = 0; ci < cellGroups.length; ci++) {
       const cg = cellGroups[ci];
       const cellCs = cg.cs;
@@ -354,10 +365,6 @@ export function layoutTable(
         rowSpan: 1,
         colSpan: 1,
       };
-      // P8: a cell spans columns [gridCol, gridCol+colSpan); its inline-size is the
-      // sum of those column widths and its inline-offset is the sum of all columns
-      // before gridCol. For a 1×1 cell gridCol === ci and colSpan === 1, so this
-      // reduces to the running `columnPxWidths[ci]` offset (byte-identical pre-P8).
       const cellInlineOffset = sumCols(0, placement.gridCol);
       const cellInlineSize = sumCols(placement.gridCol, placement.gridCol + placement.colSpan);
 
@@ -366,7 +373,7 @@ export function layoutTable(
       let cellEl: ElementBox;
       if (!cg.isAnonymous) {
         const el = cg.content[0];
-        if (el.type !== "element") continue; // no box; gridCol-based offsets need no accumulator
+        if (el.type !== "element") continue; // no box; the grid slot stays empty
         cellEl = el;
       } else {
         cellEl = {
@@ -389,57 +396,114 @@ export function layoutTable(
         throw new Error("layoutBlock returned non-block box for table cell; unexpected");
       }
 
-      const cellBlockSize = interior.height;
-      maxBlockSize = Math.max(maxBlockSize, cellBlockSize);
+      laidByRow[rowIdx]?.push({
+        key: cg.key,
+        cellCs,
+        cellUsedStyle,
+        interiorChildren: Array.from(interior.children),
+        interiorHeight: interior.height,
+        inlineOffset: cellInlineOffset,
+        inlineSize: cellInlineSize,
+        placement,
+      });
+    }
+  }
 
-      const interiorChildren = Array.from(interior.children);
+  // ---------------------------------------------------------------------------
+  // Pass B — base row heights from cells that span exactly one row (max over
+  // those cells, honoring an explicit row block-size).
+  // ---------------------------------------------------------------------------
+  const rowHeights: number[] = [];
+  for (let r = startBodyRow; r < rows.length; r++) {
+    const rowCs = rows[r].cs;
+    // typeof narrows the stable binding (an indexed `rows[r].cs.blockSize` re-access
+    // would NOT narrow); explicit block-size is the row's floor height.
+    let h = typeof rowCs.blockSize === "number" ? rowCs.blockSize : 0;
+    for (const lc of laidByRow[r] ?? []) {
+      if (lc.placement.rowSpan === 1) h = Math.max(h, lc.interiorHeight);
+    }
+    rowHeights[r] = h;
+  }
 
-      const cellBox = createTableCellBox(
-        cg.key, cellInlineOffset, 0, cellInlineSize, cellBlockSize,
+  // ---------------------------------------------------------------------------
+  // Pass C — CSS Tables §17.5.3: for each rowSpan>1 cell whose interior is taller
+  // than the rows it spans, distribute the deficit across those rows (proportional
+  // to current height; equal when all equal/zero). Heights only ever grow, so this
+  // converges monotonically; iterate until stable, bounded by the row count.
+  // ---------------------------------------------------------------------------
+  const spanningCells = laidByRow.flat().filter((lc) => lc.placement.rowSpan > 1);
+  if (spanningCells.length > 0) {
+    // Each spanning cell can drive a height increase at most once: heights only
+    // grow, so once a cell's spanned rows cover its interior they always do (a
+    // later cell sharing a row only grows it further). The fixpoint is therefore
+    // reached within `spanningCells.length` passes; one more pass confirms no
+    // further change. The cap is a runaway-bug backstop, not the normal exit
+    // (the natural exit is `changed === false`), checked BEFORE each pass.
+    const maxIterations = spanningCells.length + 1;
+    let iterations = 0;
+    let changed = true;
+    while (changed) {
+      if (iterations++ >= maxIterations) {
+        if (isDevMode()) {
+          throw new Error("layoutTable: rowSpan height distribution did not converge");
+        }
+        break;
+      }
+      changed = false; // natural fixpoint exit: a pass that grows nothing ends the loop
+      for (const lc of spanningCells) {
+        const r0 = lc.placement.gridRow;
+        const r1 = r0 + lc.placement.rowSpan;
+        let current = 0;
+        for (let r = r0; r < r1; r++) current += rowHeights[r] ?? 0;
+        const deficit = lc.interiorHeight - current;
+        if (deficit <= 1e-9) continue;
+        const weightSum = current;
+        const span = r1 - r0;
+        for (let r = r0; r < r1; r++) {
+          const share =
+            weightSum > 0 ? deficit * ((rowHeights[r] ?? 0) / weightSum) : deficit / span;
+          rowHeights[r] = (rowHeights[r] ?? 0) + share;
+        }
+        changed = true;
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Pass D — build row + cell boxes at cumulative offsets. Each cell's block-size
+  // is the SUM of the rows it spans (rowSpan=1 ⇒ just its own row, byte-identical
+  // to the pre-P8 stretch-to-row-height behavior).
+  // ---------------------------------------------------------------------------
+  for (let r = startBodyRow; r < rows.length; r++) {
+    const row = rows[r];
+    const rowUsedStyle = computeUsedStyle(row.cs, tableInlineSize, "indefinite");
+    const rowBlockSize = rowHeights[r] ?? 0;
+
+    const cellBoxes = (laidByRow[r] ?? []).map((lc) => {
+      const start = lc.placement.gridRow;
+      const end = start + lc.placement.rowSpan;
+      let spannedBlockSize = 0;
+      for (let rr = start; rr < end; rr++) spannedBlockSize += rowHeights[rr] ?? 0;
+      return createTableCellBox(
+        lc.key, lc.inlineOffset, 0, lc.inlineSize, spannedBlockSize,
         cs.writingMode, cs.direction,
-        cellCs, cellUsedStyle,
-        interiorChildren,
+        lc.cellCs, lc.cellUsedStyle,
+        lc.interiorChildren,
         {
-          gridRow: placement.gridRow,
-          gridCol: placement.gridCol,
-          rowSpan: placement.rowSpan,
-          colSpan: placement.colSpan,
+          gridRow: lc.placement.gridRow,
+          gridCol: lc.placement.gridCol,
+          rowSpan: lc.placement.rowSpan,
+          colSpan: lc.placement.colSpan,
         },
         /* containingInlineSize */ tableInlineSize,
       );
-      cellBoxes.push(cellBox);
-    }
-
-    // Resolve row block-size: explicit or auto.
-    const explicitBlockSize =
-      typeof row.cs.blockSize === "number" ? row.cs.blockSize : null;
-    const rowBlockSize =
-      explicitBlockSize !== null ? Math.max(maxBlockSize, explicitBlockSize) : maxBlockSize;
-
-    // Stretch each cell to the row's resolved block-size.
-    const stretchedCells = cellBoxes.map((cb) =>
-      cb.height === rowBlockSize
-        ? cb
-        : createTableCellBox(
-            cb.key,
-            cb.inlineOffset,
-            cb.blockOffset,
-            cb.inlineSize,
-            rowBlockSize,
-            cs.writingMode, cs.direction,
-            cb.computedStyle,
-            cb.usedStyle,
-            Array.from(cb.children),
-            { gridRow: cb.gridRow, gridCol: cb.gridCol, rowSpan: cb.rowSpan, colSpan: cb.colSpan },
-            /* containingInlineSize */ tableInlineSize,
-          ),
-    );
+    });
 
     rowBoxes.push(createTableRowBox(
       row.key, 0, rowBlockOffset, tableInlineSize, rowBlockSize,
       cs.writingMode, cs.direction,
       row.cs, rowUsedStyle,
-      stretchedCells,
+      cellBoxes,
       /* containingInlineSize */ tableInlineSize,
     ));
     rowBlockOffset += rowBlockSize;
