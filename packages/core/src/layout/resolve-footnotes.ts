@@ -51,6 +51,7 @@ import {
 } from "./measure-pass";
 import { pageConfigsEqual, sectionStateAt, type SectionPlan } from "./section-plan";
 import type { BreakToken } from "./fragmentation";
+import { breakTokensEqual } from "./fragmentation";
 import { isDevMode } from "./dev-mode";
 
 // ---------------------------------------------------------------------------
@@ -1098,21 +1099,6 @@ function sameIds(a: readonly BlockId[], b: readonly BlockId[]): boolean {
  * gate; FN-4.4's `canReuseFootnotePage` compares the prior resolved entry's
  * `resumeInto` to the current loop's `resumeInto` with it.
  */
-function breakTokensEqual(a: BreakToken | null, b: BreakToken | null): boolean {
-  if (a === b) return true;
-  if (a === null || b === null) return false;
-  if (a.type !== b.type) return false;
-  if (a.type === "block" && b.type === "block") {
-    return (
-      a.resumeChildIndex === b.resumeChildIndex &&
-      breakTokensEqual(a.resumeChildToken, b.resumeChildToken)
-    );
-  }
-  if (a.type === "ifc" && b.type === "ifc") return a.resumeAtLine === b.resumeAtLine;
-  if (a.type === "table" && b.type === "table") return a.resumeAtRow === b.resumeAtRow;
-  return false;
-}
-
 /**
  * FN-4.4 incremental carry-forward reuse gate: decide whether a swept page's
  * PRIOR resolution (`prevEntry`, from the prior cycle's resolved plan) may be

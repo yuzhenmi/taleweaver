@@ -1,6 +1,7 @@
 // packages/core/src/layout/fragmentation.ts
 
 import type { LayoutBox } from "./layout-box";
+import type { BlockId } from "../state";
 
 /**
  * Break-token continuation model. When a fragmentation-aware layout call
@@ -29,11 +30,88 @@ export interface IFCBreakToken {
   readonly resumeAtLine: number;
 }
 
+/**
+ * One `rowSpan > 1` cell whose origin is ABOVE the page break but whose spanned
+ * rectangle extends INTO the rows resuming on the next fragment (CSS Tables
+ * §17.5.3 × fragmentation, P8.S5). It carries the cell's grid placement (so the
+ * resume can rebuild the occupied columns the post-break rows must route around)
+ * plus its interior continuation (`interiorBreakToken`) — the cell's own content
+ * fragmented at the break, the remainder laid out on the next fragment.
+ */
+export interface SpanningCellContinuation {
+  readonly cellId: BlockId;
+  readonly gridRow: number;
+  readonly gridCol: number;
+  readonly rowSpan: number;
+  readonly colSpan: number;
+  /** The cell interior's break token — its content continues on the next fragment. */
+  readonly interiorBreakToken: BreakToken;
+}
+
 export interface TableBreakToken {
   readonly type: "table";
   /** 0-based row index in the table BODY (excluding thead) at which to resume.
    * thead rows always repeat at the top of each fragment. */
   readonly resumeAtRow: number;
+  /**
+   * Cells with `rowSpan > 1` whose rectangle straddles this break (origin before
+   * `resumeAtRow`, extent reaching at/after it). OPTIONAL (P8.S5.T1): absent ⇒ no
+   * spanning cell crosses the break (the only case before S5; keeps every existing
+   * `{ type: "table", resumeAtRow }` construction valid with no broken-build
+   * window). Consumers read `spanningCells ?? []`.
+   */
+  readonly spanningCells?: readonly SpanningCellContinuation[];
+}
+
+/**
+ * Structural equality of two break tokens — the shared predicate the incremental
+ * page-reuse gates (measure-pass, virtual-layout-tree) and resolve-footnotes use
+ * to decide whether a fragment's resume state is unchanged. Single source of
+ * truth (was triplicated). Recurses through block child tokens and, for table
+ * tokens, compares `resumeAtRow` AND the `spanningCells` continuation list
+ * (P8.S5) — two tables resuming at the same row but with different rowSpan
+ * continuations are NOT equal, so a reuse gate cannot stale-reuse one for the other.
+ */
+export function breakTokensEqual(a: BreakToken | null, b: BreakToken | null): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  if (a.type !== b.type) return false;
+  if (a.type === "block" && b.type === "block") {
+    return a.resumeChildIndex === b.resumeChildIndex &&
+      breakTokensEqual(a.resumeChildToken, b.resumeChildToken);
+  }
+  if (a.type === "ifc" && b.type === "ifc") return a.resumeAtLine === b.resumeAtLine;
+  if (a.type === "table" && b.type === "table") {
+    return a.resumeAtRow === b.resumeAtRow &&
+      spanningCellsEqual(a.spanningCells, b.spanningCells);
+  }
+  return false;
+}
+
+/** Element-wise equality of two spanning-cell continuation lists (absent ≡ empty). */
+function spanningCellsEqual(
+  a: readonly SpanningCellContinuation[] | undefined,
+  b: readonly SpanningCellContinuation[] | undefined,
+): boolean {
+  const aa = a ?? [];
+  const bb = b ?? [];
+  if (aa.length !== bb.length) return false;
+  for (let i = 0; i < aa.length; i++) {
+    const ca = aa[i];
+    const cb = bb[i];
+    if (ca === undefined || cb === undefined) return false;
+    if (
+      ca.cellId !== cb.cellId ||
+      ca.gridRow !== cb.gridRow ||
+      ca.gridCol !== cb.gridCol ||
+      ca.rowSpan !== cb.rowSpan ||
+      ca.colSpan !== cb.colSpan ||
+      !breakTokensEqual(ca.interiorBreakToken, cb.interiorBreakToken)
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**

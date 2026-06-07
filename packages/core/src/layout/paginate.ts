@@ -12,6 +12,7 @@ import { layoutBlock } from "./bfc";
 import { flattenContents } from "./group-children";
 import { computeUsedStyle } from "./used-style";
 import type { BreakToken, FragmentationContext } from "./fragmentation";
+import { breakTokensEqual } from "./fragmentation";
 
 /**
  * Per-page reuse fingerprint (L-PERF-C).
@@ -58,30 +59,6 @@ const _paginationCache: WeakMap<BlockBox, PaginationCache> = new WeakMap();
 function getPaginationCache(root: LayoutBox | null): PaginationCache | null {
   if (root === null || root.type !== "block") return null;
   return _paginationCache.get(root) ?? null;
-}
-
-/**
- * Structural equality for BreakToken chains. References differ across
- * cycles even when the chain is identical (a fresh layoutBlock builds
- * fresh tokens), so the page cache compares resumeFrom by structure
- * to decide reuse. Conservative on any future unknown types —
- * defaults to false to avoid false-positive cache hits.
- */
-function breakTokensEqual(a: BreakToken | null, b: BreakToken | null): boolean {
-  if (a === b) return true;
-  if (a === null || b === null) return false;
-  if (a.type !== b.type) return false;
-  if (a.type === "block" && b.type === "block") {
-    if (a.resumeChildIndex !== b.resumeChildIndex) return false;
-    return breakTokensEqual(a.resumeChildToken, b.resumeChildToken);
-  }
-  if (a.type === "ifc" && b.type === "ifc") {
-    return a.resumeAtLine === b.resumeAtLine;
-  }
-  if (a.type === "table" && b.type === "table") {
-    return a.resumeAtRow === b.resumeAtRow;
-  }
-  return false;
 }
 
 /**

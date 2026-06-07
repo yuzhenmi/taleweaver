@@ -36,6 +36,7 @@ import { computeUsedStyle } from "./used-style";
 import type { ComputedStyle, UsedStyle } from "../styles";
 import type { PagePlan, PagePlanEntry, FootnoteContinuation } from "./measure-pass";
 import type { BreakToken } from "./fragmentation";
+import { breakTokensEqual } from "./fragmentation";
 import { pageConfigsEqual } from "./section-plan";
 import { isDevMode } from "./dev-mode";
 import { FOOTNOTE_SEPARATOR_HEIGHT, FOOTNOTE_MARKER_GAP, footnoteMarkerGutter } from "./resolve-footnotes";
@@ -236,18 +237,6 @@ function footnoteContinuationsEqual(
 }
 
 /** Structural break-token equality (references differ across measure cycles). */
-function breakTokensEqual(a: BreakToken | null, b: BreakToken | null): boolean {
-  if (a === b) return true;
-  if (a === null || b === null) return false;
-  if (a.type !== b.type) return false;
-  if (a.type === "block" && b.type === "block") {
-    return a.resumeChildIndex === b.resumeChildIndex && breakTokensEqual(a.resumeChildToken, b.resumeChildToken);
-  }
-  if (a.type === "ifc" && b.type === "ifc") return a.resumeAtLine === b.resumeAtLine;
-  if (a.type === "table" && b.type === "table") return a.resumeAtRow === b.resumeAtRow;
-  return false;
-}
-
 function childrenRefsEqual(a: readonly unknown[], b: readonly unknown[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {

@@ -14,6 +14,7 @@
 import type { RenderNode, ElementBox } from "../render/render-node";
 import type { BlockId } from "../state";
 import type { BreakToken } from "./fragmentation";
+import { breakTokensEqual } from "./fragmentation";
 import type { BlockFitMeta } from "./fit-core";
 import { fitOnePage } from "./fit-core";
 import { isDevMode } from "./dev-mode";
@@ -854,18 +855,6 @@ export function buildPagePlan(
  * equivalence oracle use; the incremental reuse below compares the prior
  * entry's `resumeInto` to the current loop's `resumeInto` with it.
  */
-function breakTokensEqual(a: BreakToken | null, b: BreakToken | null): boolean {
-  if (a === b) return true;
-  if (a === null || b === null) return false;
-  if (a.type !== b.type) return false;
-  if (a.type === "block" && b.type === "block") {
-    return a.resumeChildIndex === b.resumeChildIndex && breakTokensEqual(a.resumeChildToken, b.resumeChildToken);
-  }
-  if (a.type === "ifc" && b.type === "ifc") return a.resumeAtLine === b.resumeAtLine;
-  if (a.type === "table" && b.type === "table") return a.resumeAtRow === b.resumeAtRow;
-  return false;
-}
-
 /**
  * Whether two `SectionStateAt`s are equal for the incremental reuse gate
  * (C.2b-1): the page belongs to the SAME section AND was capped at the SAME next
