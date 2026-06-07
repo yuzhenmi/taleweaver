@@ -115,6 +115,44 @@ describe("layoutTable", () => {
     expect(w1).toBeCloseTo(8 + 14 * (32 / 48));
   });
 
+  it("a colSpan-2 cell spans both columns' widths + the next row routes around it (#P8.S2)", () => {
+    // Banner: row0 has one cell colSpan-2; row1 has two cells. Fixed columns
+    // [0.5, 0.5] over 600 → [300, 300]. The banner's inline-size is the SUM of
+    // both columns (600) at offset 0; row1's cells sit at 0/300, 300 wide each.
+    const banner = createElementBox(
+      "c0", { display: "table-cell" }, [createTextBox("t0", {}, "x")], { colSpan: 2 },
+    );
+    const row0 = createElementBox("r0", { display: "table-row" }, [banner]);
+    const a = createElementBox("c1a", { display: "table-cell" }, [createTextBox("t1", {}, "y")]);
+    const b = createElementBox("c1b", { display: "table-cell" }, [createTextBox("t2", {}, "z")]);
+    const row1 = createElementBox("r1", { display: "table-row" }, [a, b]);
+    const table = cascadePass(
+      createElementBox("t", { display: "table" }, [row0, row1], { columnWidths: [0.5, 0.5] }),
+    );
+    if (table.type !== "element") throw new Error("?");
+    const result = layoutTable(table, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 600), shaper);
+    if (result.box === null) throw new Error("null");
+    const out = result.box;
+    expect(out.columnPxWidths).toEqual([300, 300]);
+    expect(out.columnCount).toBe(2);
+
+    const r0 = out.children[0];
+    if (r0.type !== "table-row") throw new Error("?");
+    expect(r0.children).toHaveLength(1);
+    const bannerBox = r0.children[0];
+    if (bannerBox.type !== "table-cell") throw new Error("?");
+    expect(bannerBox.inlineOffset).toBe(0);
+    expect(bannerBox.inlineSize).toBe(600);
+    expect(bannerBox.gridCol).toBe(0);
+    expect(bannerBox.colSpan).toBe(2);
+
+    const r1 = out.children[1];
+    if (r1.type !== "table-row") throw new Error("?");
+    expect(
+      r1.children.map((c) => [c.inlineOffset, c.inlineSize]),
+    ).toEqual([[0, 300], [300, 300]]);
+  });
+
   it("bare table-cell direct children are wrapped in an anonymous row", () => {
     // Two table-cell children placed directly inside the table (no table-row).
     // The layout should produce exactly one TableRowBox (anonymous) containing both cells.

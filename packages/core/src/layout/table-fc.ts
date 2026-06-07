@@ -1,6 +1,7 @@
 import type { RenderNode, ElementBox } from "../render/render-node";
 import type { ComputedStyle } from "../styles";
 import type { BlockId } from "../state";
+import { asBlockId } from "../state";
 import type { TableBox, TableRowBox, TableCellBox } from "./layout-box";
 import { createTableBox, createTableRowBox, createTableCellBox } from "./layout-box";
 import { assignTableGrid } from "./table-grid";
@@ -299,6 +300,14 @@ export function layoutTable(
   const placementByKey = new Map<string, AssignedCell>();
   for (const ac of grid.cells) placementByKey.set(ac.cellId, ac);
   const gridInfo = { occupancy: grid.occupancy, columnCount: grid.columnCount };
+
+  /** Sum of column px-widths over `[from, to)` (P8: a cell's inline-offset is
+   *  `sumCols(0, gridCol)`; its inline-size is `sumCols(gridCol, gridCol+colSpan)`). */
+  const sumCols = (from: number, to: number): number => {
+    let s = 0;
+    for (let c = from; c < to; c++) s += columnPxWidths[c] ?? 0;
+    return s;
+  };
   for (let rowIdx = 0; rowIdx < rows.length; rowIdx++) {
     // E.3: skip rows before the resume point.
     if (rowIdx < startBodyRow) continue;
@@ -308,24 +317,33 @@ export function layoutTable(
     const cellGroups = groupRowCells(row);
 
     let maxBlockSize = 0;
-    let cellInlineOffset = 0;
     const cellBoxes: TableCellBox[] = [];
 
     for (let ci = 0; ci < cellGroups.length; ci++) {
       const cg = cellGroups[ci];
       const cellCs = cg.cs;
       const cellUsedStyle = computeUsedStyle(cellCs, tableInlineSize, "indefinite");
-      const cellInlineSize = ci < columnPxWidths.length ? columnPxWidths[ci] : 0;
+
+      const placement = placementByKey.get(cg.key) ?? {
+        cellId: asBlockId(cg.key),
+        gridRow: rowIdx,
+        gridCol: ci,
+        rowSpan: 1,
+        colSpan: 1,
+      };
+      // P8: a cell spans columns [gridCol, gridCol+colSpan); its inline-size is the
+      // sum of those column widths and its inline-offset is the sum of all columns
+      // before gridCol. For a 1×1 cell gridCol === ci and colSpan === 1, so this
+      // reduces to the running `columnPxWidths[ci]` offset (byte-identical pre-P8).
+      const cellInlineOffset = sumCols(0, placement.gridCol);
+      const cellInlineSize = sumCols(placement.gridCol, placement.gridCol + placement.colSpan);
 
       // Build a synthetic ElementBox for anonymous cells so `layoutBlock` has
       // something to recurse into.
       let cellEl: ElementBox;
       if (!cg.isAnonymous) {
         const el = cg.content[0];
-        if (el.type !== "element") {
-          cellInlineOffset += cellInlineSize;
-          continue;
-        }
+        if (el.type !== "element") continue; // no box; gridCol-based offsets need no accumulator
         cellEl = el;
       } else {
         cellEl = {
@@ -353,12 +371,6 @@ export function layoutTable(
 
       const interiorChildren = Array.from(interior.children);
 
-      const placement = placementByKey.get(cg.key) ?? {
-        gridRow: rowIdx,
-        gridCol: ci,
-        rowSpan: 1,
-        colSpan: 1,
-      };
       const cellBox = createTableCellBox(
         cg.key, cellInlineOffset, 0, cellInlineSize, cellBlockSize,
         cs.writingMode, cs.direction,
@@ -373,7 +385,6 @@ export function layoutTable(
         /* containingInlineSize */ tableInlineSize,
       );
       cellBoxes.push(cellBox);
-      cellInlineOffset += cellInlineSize;
     }
 
     // Resolve row block-size: explicit or auto.
