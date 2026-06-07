@@ -69,18 +69,26 @@ Built-in component behavior:
   (P11 tail): image natural-size feedback, resize-handle paint + drag,
   example-app Insert menu.
 - `tableComponent`, `tableRowComponent`, `tableCellComponent` render, and
-  table layout (Table FC) is implemented. Table *editing* is in progress
-  (P15a): `INSERT_TABLE_ROW` `[implemented]` (insert row above/below, via
-  `resolveTableContext` + `insertTableRow`), `INSERT_TABLE_COLUMN`
-  `[implemented]` (insert column left/right; re-splices `columnWidths` atomically
-  via `setBlockAttrsInTx`), `DELETE_TABLE_ROW` `[implemented]` (remove the
-  caret's row; last-row deletion collapses the whole table), `DELETE_TABLE_COLUMN`
-  `[implemented]` (remove the caret's column; re-removes `columnWidths`; last-column
-  deletion collapses the whole table), and `DELETE_TABLE` `[implemented]` (delete
-  the whole table, replacement paragraph when it is the body's sole child,
-  span-agnostic) have shipped — the no-span P15a table-editing surface is complete.
-  Still `[missing]`: spanned-table row/column edits (P15b — the span-gated ops
-  currently no-op on `hasSpans`); browser-gated example-app Table menu wiring.
+  table layout (Table FC) is implemented. Table *editing* is `[implemented]`
+  end-to-end, both the uniform (P15a) and span-aware (P15b) surfaces:
+  `INSERT_TABLE_ROW`, `INSERT_TABLE_COLUMN`, `DELETE_TABLE_ROW`,
+  `DELETE_TABLE_COLUMN` (insert above/below or left/right, remove the caret's
+  row/column; `columnWidths` re-spliced/-removed atomically via
+  `setBlockAttrsInTx`; last-row/column deletion collapses the whole table),
+  `SPLIT_CELL` (unmerge a span back to 1×1 cells), `MERGE_CELLS` (merge a
+  selected cell rectangle into one span, via `resolveCellRange`), and
+  `DELETE_TABLE` (delete the whole table, replacement paragraph when it is the
+  body's sole child). Each row/column handler gates on `ctx.ragged` ONLY (a
+  degenerate hole-bearing table is the carve-out) and routes a WELL-FORMED
+  SPANNED table (`ctx.spanned`) to the span-aware op (`insertTableRowSpanAware`,
+  `insertTableColumnSpanAware`, `deleteTableRowSpanAware`,
+  `deleteTableColumnSpanAware` — covering spans shrink/grow, an originating span
+  re-homes/decrements, a 1×1 in the deleted line is removed), a plain no-span
+  table to the byte-identical P15a op. The span-aware ops reason in the SAME
+  occupancy-grid coordinates the Table FC lays out in (shared `table-grid-core`;
+  see [`1.4.3-table-fc.md`](1-core/1.4-layout/1.4.3-table-fc.md)), so an edit
+  preserves the rectangular-grid invariant layout depends on. Still `[missing]`:
+  browser-gated example-app Table menu wiring for the span-aware actions.
 
 ### `render/` `[implemented]`
 

@@ -31,9 +31,10 @@ export interface DeleteTableColumnPlan {
  * and rewritten in the SAME transaction so cells and widths revert together.
  *
  * Caller (the editor handler) must have already resolved `ctx` via
- * `resolveTableContext`, guarded the P15a span boundary (`ctx.hasSpans` → no-op),
- * AND ensured this is NOT the last column — a single-column table collapses to a
- * whole-table delete via `deleteTableWithReplacement`. This op THROWS on a
+ * `resolveTableContext`, guarded on `ctx.ragged` (no-op on a degenerate ragged
+ * table), routed a `ctx.spanned` table to the span-aware op (this op assumes
+ * `!ctx.spanned`), AND ensured this is NOT the last column — a single-column table
+ * collapses to a whole-table delete via `deleteTableWithReplacement`. This op THROWS on a
  * 1-column table (caller contract).
  *
  * MAIN-TREE ONLY. dirtyIds covers the table (its `columnWidths` attr write and/or

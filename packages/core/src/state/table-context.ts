@@ -11,13 +11,15 @@ import type { GridCell, TableGrid } from "./table-grid-core";
  * caret's table / row / cell and the full row×cell grid, in document order, so the
  * insert/delete row/column handlers can operate without re-walking the tree.
  *
- * `hasSpans` is the P15a no-op boundary: it is true when the table contains ANY
- * real `rowSpan`/`colSpan` (`spanned`) OR is ragged (rows with differing cell
- * counts — `ragged`). Both make the simple grid model unsafe, so every P15a action
- * no-ops and defers to the span-aware piece (P15b).
+ * `hasSpans = spanned || ragged` is a DERIVED CONVENIENCE — "is this anything
+ * other than a plain uniform table?" It is NOT the editor no-op boundary: the
+ * handlers gate on `ragged` ALONE (a degenerate, hole-bearing table) and route a
+ * well-formed `spanned` table to the span-aware op. `spanned` is true when any
+ * cell carries a real `rowSpan`/`colSpan`; `ragged` when the occupancy grid has
+ * a hole (an uncovered slot).
  *
  * `spanned` and `ragged` are exposed SEPARATELY (not just their `hasSpans` union)
- * because P15b dispatches on them DIFFERENTLY: a `spanned` (well-formed) table
+ * because the handlers dispatch on them DIFFERENTLY: a `spanned` (well-formed) table
  * routes to the span-aware op, but a `ragged` table stays gated (a degenerate
  * state, out of P15b scope). A handler must check `ragged` BEFORE `spanned` so a
  * spanned-AND-ragged table still no-ops (the ragged gate wins).
@@ -35,7 +37,8 @@ export interface TableContext {
   readonly spanned: boolean;
   /** Rows have differing cell counts (a degenerate table; P15b leaves it gated). */
   readonly ragged: boolean;
-  /** `spanned || ragged` — the P15a no-op boundary. */
+  /** `spanned || ragged` — a derived convenience, NOT the editor no-op boundary
+   *  (that is `ragged` alone; `spanned` routes to the span-aware op). */
   readonly hasSpans: boolean;
   /**
    * The P8 occupancy grid for this table, built ONCE from the PRE-mutation

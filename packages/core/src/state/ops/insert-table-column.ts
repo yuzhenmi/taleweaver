@@ -43,8 +43,9 @@ export interface InsertTableColumnPlan {
  * transaction so the cells and the widths revert together on one undo.
  *
  * Caller (the editor handler) must have already resolved `ctx` via
- * `resolveTableContext` and guarded the P15a boundary (`ctx.hasSpans` → no-op):
- * this op assumes a rectangular no-span table.
+ * `resolveTableContext` and guarded on `ctx.ragged` (no-op on a degenerate ragged
+ * table) AND routed a `ctx.spanned` table to the span-aware op: this op assumes a
+ * well-formed no-span (`!ctx.spanned`, `!ctx.ragged`) table.
  *
  * MAIN-TREE ONLY. dirtyIds covers the table (its `columnWidths` attr write
  * and/or a row's child-list change) plus every touched row + new cell.
