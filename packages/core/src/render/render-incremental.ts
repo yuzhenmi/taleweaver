@@ -39,7 +39,12 @@ import type { RenderNode } from "./render-node";
 import type { RenderOutput } from "./render";
 import { EMPTY_LIST_COUNTERS } from "./render";
 import { renderBlockBody } from "./render-core";
-import { collectListEvents, computeCounters, listCounterRenumberedBlocks } from "../numbering";
+import {
+  collectListEvents,
+  computeCounters,
+  listCounterRenumberedBlocks,
+  type CounterValue,
+} from "../numbering";
 import { docHasLists, getListDefsForState } from "../state";
 import {
   effectiveRenderPolicy,
@@ -246,6 +251,7 @@ export function renderIncremental(
     invalidated,
     prevByKey,
     fnNumbers,
+    listCounters,
   );
 
   // Embed contents: reuse prev's RenderNode unless the embed's source
@@ -275,6 +281,7 @@ export function renderIncremental(
         invalidated,
         prevByKey,
         fnNumbers,
+        listCounters,
       ),
     );
   }
@@ -306,6 +313,7 @@ export function renderIncremental(
         invalidated,
         prevByKey,
         fnNumbers,
+        listCounters,
       ),
     );
   }
@@ -341,6 +349,7 @@ function renderBlockIncremental(
   invalidated: ReadonlySet<BlockId>,
   prevByKey: ReadonlyMap<string, RenderNode>,
   fnNumbers: ReadonlyMap<BlockId, FootnoteNumber>,
+  numbering: ReadonlyMap<BlockId, CounterValue>,
 ): RenderNode {
   if (!invalidated.has(block.id)) {
     const cached = prevByKey.get(block.id);
@@ -371,6 +380,7 @@ function renderBlockIncremental(
     context,
     visited,
     fnNumbers,
+    numbering,
     (child, computed, specified) =>
       renderBlockIncremental(
         child,
@@ -384,6 +394,7 @@ function renderBlockIncremental(
         invalidated,
         prevByKey,
         fnNumbers,
+        numbering,
       ),
   );
 }

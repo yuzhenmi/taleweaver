@@ -210,6 +210,7 @@ export function render(
     context,
     visited,
     fnNumbers,
+    listCounters,
   );
   const embedContents = new Map<BlockId, RenderNode>();
   for (const id of getEmbedContentIds(state)) {
@@ -236,6 +237,7 @@ export function render(
         context,
         visitedEmbed,
         fnNumbers,
+        listCounters,
       ),
     );
   }
@@ -260,6 +262,7 @@ export function render(
         context,
         visitedTemplate,
         fnNumbers,
+        listCounters,
       ),
     );
   }
@@ -308,6 +311,7 @@ function renderBlock(
   context: RenderContext,
   visited: Set<BlockId>,
   fnNumbers: ReadonlyMap<BlockId, FootnoteNumber>,
+  numbering: ReadonlyMap<BlockId, CounterValue>,
 ): RenderNode {
   return renderBlockBody(
     block,
@@ -319,6 +323,7 @@ function renderBlock(
     context,
     visited,
     fnNumbers,
+    numbering,
     (child, computed, specified) =>
       renderBlock(
         child,
@@ -330,6 +335,7 @@ function renderBlock(
         context,
         visited,
         fnNumbers,
+        numbering,
       ),
   );
 }

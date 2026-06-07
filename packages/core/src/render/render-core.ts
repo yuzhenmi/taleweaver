@@ -17,8 +17,11 @@ import {
   resolveBlock,
   asBlockId,
   FOOTNOTE_ANCHOR_EMBED_TYPE,
+  CROSS_REFERENCE_EMBED_TYPE,
 } from "../state";
-import type { Block, BlockId, State, ReadonlyAttrs, InlineContent } from "../state";
+import type { Block, BlockId, State, ReadonlyAttrs, InlineContent, CrossReferenceMode } from "../state";
+import type { CounterValue } from "../numbering";
+import { resolveCrossReference, BROKEN_CROSS_REFERENCE_TEXT } from "./resolve-cross-reference";
 import type { Style, ComputedStyle } from "../styles";
 import { INITIAL_COMPUTED_STYLE } from "../styles/property-meta";
 import { composeComputed } from "../cascade/compose";
@@ -82,6 +85,7 @@ export function renderBlockBody(
   context: RenderContext,
   visited: Set<BlockId>,
   fnNumbers: ReadonlyMap<BlockId, FootnoteNumber>,
+  numbering: ReadonlyMap<BlockId, CounterValue>,
   recurse: (
     child: Block,
     parentComputed: ComputedStyle | null,
@@ -154,7 +158,7 @@ export function renderBlockBody(
     // components can't accidentally consume the sentinel.
     const inlineRenderNodes: ReadonlyArray<RenderNode> = def.leafShape === "atomic"
       ? []
-      : expandInlineItems(block.id, inline, specified, attrRegistry, fnNumbers);
+      : expandInlineItems(block.id, inline, specified, attrRegistry, fnNumbers, state, numbering);
     return def.render(view, context, inlineRenderNodes);
   } finally {
     // A2: visited tracks the ACTIVE recursion path, not the cumulative
@@ -216,6 +220,8 @@ export function expandInlineItems(
   blockSpecified: Partial<Style>,
   attrRegistry: AttrRegistry,
   fnNumbers: ReadonlyMap<BlockId, FootnoteNumber>,
+  state: State,
+  numbering: ReadonlyMap<BlockId, CounterValue>,
 ): RenderNode[] {
   const out: RenderNode[] = [];
   let i = 0;
@@ -248,6 +254,48 @@ export function expandInlineItems(
           embedType: item.embedType,
           contentBlockId,
         }),
+      );
+    } else if (item.embedType === CROSS_REFERENCE_EMBED_TYPE) {
+      // A cross-reference field renders its RESOLVED string (the target's number or
+      // text) as ONE inline-block ATOM — exactly one IFC token = one cursor stop,
+      // matching the state model's 1-unit offset for an EmbedItem. A plain
+      // `createTextBox(resolved)` would tokenize the string into len(text) IFC
+      // tokens and drift the per-line offset accumulator by len−1, corrupting
+      // cursor/hit-test for everything after the field (see resolveCrossReference
+      // + the spec's S3 correction). The inline-block emits one atomic token
+      // regardless of its child text (the footnote-marker invariant) and is
+      // atomic-for-editing, matching Google Docs fields.
+      const targetId = item.properties.targetId;
+      const refMode = item.properties.refMode;
+      const resolved =
+        typeof targetId === "string" && (refMode === "number" || refMode === "text")
+          ? resolveCrossReference(state, numbering, {
+              targetId: asBlockId(targetId),
+              refMode: refMode as CrossReferenceMode,
+            })
+          : BROKEN_CROSS_REFERENCE_TEXT;
+      out.push(
+        createElementBox(
+          key,
+          // `display: "inline-block"` is spread LAST so it ALWAYS wins over
+          // `itemStyle`: the single-token atomicity is load-bearing for the IFC
+          // offset accounting (one EmbedItem = one cursor stop), not a stylistic
+          // default. This deliberately differs from the footnote marker, whose
+          // defaults-first order lets `itemStyle` override `display` — here the
+          // invariant must not be overridable. The embed's own attrs (font, etc.)
+          // still apply via `itemStyle`.
+          { ...itemStyle, display: "inline-block" },
+          // Inner text gets `{}` (not `itemStyle`): it inherits font/etc. from the
+          // container's cascade. Re-applying `itemStyle` here would DOUBLE-apply
+          // em-relative properties (e.g. a `1.5em` fontSize compounds to 2.25×).
+          // Mirrors `buildFootnoteMarker`'s empty-style inner text child.
+          [createTextBox(`${key}/0`, {}, resolved)],
+          // Only `embedType` — a cross-reference is a POINTER with no owned body,
+          // so (unlike the footnote anchor) there is no `contentBlockId` to stamp.
+          // The target lives in `properties.targetId`; downstream navigation
+          // (a later slice) reads it from state, not from box metadata.
+          { embedType: item.embedType },
+        ),
       );
     } else {
       // InlineItem narrows to EmbedItem here.
