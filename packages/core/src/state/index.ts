@@ -140,6 +140,11 @@ export { spanValue, isSpan } from "./table-cell-span";
 // (layout/table-grid.ts) and state ops build the SAME grid from this core.
 export { assignTableGrid } from "./table-grid-core";
 export type { GridCell, AssignedCell, TableGrid } from "./table-grid-core";
+// Cross-cell selection → grid rectangle resolver (P15b span-aware editing input):
+// bounding-box the anchor/focus cells over the occupancy grid, then fixpoint-
+// expand to whole span-rectangles. The editor `Selection` stays linear.
+export { resolveCellRange } from "./table-cell-range";
+export type { CellRange } from "./table-cell-range";
 
 // Document-order comparison + span endpoints + selection-context lookup.
 export {
