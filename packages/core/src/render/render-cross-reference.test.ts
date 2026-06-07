@@ -6,7 +6,7 @@ import { createDefaultAttrRegistry } from "../cascade/attr-registry";
 import { buildState } from "../test-utils/state-builders";
 import { buildStateWithListDefs } from "../state/build-state-from-blocks";
 import { buildBlock, inlineContent, text, embed } from "../test-utils/state-builders";
-import { asBlockId, insertText, createPosition, type ListDef } from "../state";
+import { asBlockId, insertText, removeBlock, createPosition, type ListDef } from "../state";
 import { CROSS_REFERENCE_EMBED_TYPE } from "../state";
 import { BROKEN_CROSS_REFERENCE_TEXT } from "./resolve-cross-reference";
 
@@ -239,5 +239,166 @@ describe("render — cross-reference field wiring", () => {
     const el = findCrossRef(out.root);
     expect(el?.style.display).toBe("inline-block");
     expect(crossRefText(el as ElementBox)).toBe("Title");
+  });
+});
+
+describe("render — cross-reference incremental dirty-propagation (XR.S4)", () => {
+  it("re-renders the ref host when the TARGET's text is edited (host not in dirtyIds)", () => {
+    const state = buildState({
+      rootId: asBlockId("doc"),
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "h", lastChildId: "p" }),
+        buildBlock({
+          id: "h",
+          type: "paragraph",
+          parentId: "doc",
+          nextSiblingId: "p",
+          inlineContent: inlineContent([text("Intro")]),
+        }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "h",
+          inlineContent: inlineContent([
+            embed(CROSS_REFERENCE_EMBED_TYPE, { targetId: "h", refMode: "text" }),
+          ]),
+        }),
+      ],
+    });
+    const prev = render(state, reg, attrReg);
+    expect(crossRefText(findCrossRef(prev.root) as ElementBox)).toBe("Intro");
+
+    // Edit the TARGET only. dirtyIds names "h" (and the doc chain), NOT the host
+    // "p". Without the crossReferenceIndex expansion the incremental walk would
+    // REUSE p's cached node with the stale "Intro"; the expansion must invalidate
+    // p because its target "h" changed value.
+    const { state: next, dirtyIds } = insertText(state, createPosition(asBlockId("h"), 5), "duction", {});
+    expect(dirtyIds.has(asBlockId("p"))).toBe(false); // host genuinely not dirty
+    const out = render(next, reg, attrReg, { prev, prevState: state, dirtyIds });
+    expect(crossRefText(findCrossRef(out.root) as ElementBox)).toBe("Introduction");
+  });
+
+  it("re-renders the ref host to broken-ref when the TARGET is deleted (host not in dirtyIds)", () => {
+    // "h" is the target; "mid" sits between it and the host "p" so deleting "h"
+    // does NOT make "p" an adjacent sibling (p stays out of dirtyIds).
+    const state = buildState({
+      rootId: asBlockId("doc"),
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "h", lastChildId: "p" }),
+        buildBlock({
+          id: "h",
+          type: "paragraph",
+          parentId: "doc",
+          nextSiblingId: "mid",
+          inlineContent: inlineContent([text("Intro")]),
+        }),
+        buildBlock({
+          id: "mid",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "h",
+          nextSiblingId: "p",
+          inlineContent: inlineContent([text("middle")]),
+        }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "mid",
+          inlineContent: inlineContent([
+            embed(CROSS_REFERENCE_EMBED_TYPE, { targetId: "h", refMode: "text" }),
+          ]),
+        }),
+      ],
+    });
+    const prev = render(state, reg, attrReg);
+    expect(crossRefText(findCrossRef(prev.root) as ElementBox)).toBe("Intro");
+
+    const { state: next, dirtyIds } = removeBlock(state, asBlockId("h"));
+    expect(dirtyIds.has(asBlockId("p"))).toBe(false); // host genuinely not dirty
+    const out = render(next, reg, attrReg, { prev, prevState: state, dirtyIds });
+    expect(crossRefText(findCrossRef(out.root) as ElementBox)).toBe(BROKEN_CROSS_REFERENCE_TEXT);
+  });
+
+  it("re-renders a number-mode host when the target RENUMBERS without itself being dirty", () => {
+    // Refs i3 (the 3rd item → "3"). Deleting i1 renumbers i3 to "2"; i3 is NOT
+    // adjacent to i1, so i3 ∉ dirtyIds — only the list-renumber diff surfaces it,
+    // and the cross-reference expansion must pick the host up via that set.
+    const state = buildStateWithListDefs({
+      rootId: asBlockId("doc"),
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "i1", lastChildId: "p" }),
+        buildBlock({ id: "i1", type: "list-item", parentId: "doc", nextSiblingId: "i2", attrs: { listId: "L1", listLevel: 0 }, inlineContent: inlineContent([text("a")]) }),
+        buildBlock({ id: "i2", type: "list-item", parentId: "doc", prevSiblingId: "i1", nextSiblingId: "i3", attrs: { listId: "L1", listLevel: 0 }, inlineContent: inlineContent([text("b")]) }),
+        buildBlock({ id: "i3", type: "list-item", parentId: "doc", prevSiblingId: "i2", nextSiblingId: "p", attrs: { listId: "L1", listLevel: 0 }, inlineContent: inlineContent([text("c")]) }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "i3",
+          inlineContent: inlineContent([
+            embed(CROSS_REFERENCE_EMBED_TYPE, { targetId: "i3", refMode: "number" }),
+          ]),
+        }),
+      ],
+      listDefs: { L1: ORDERED_DEF },
+    });
+    const prev = render(state, reg, attrReg);
+    expect(crossRefText(findCrossRef(prev.root) as ElementBox)).toBe("3");
+
+    const { state: next, dirtyIds } = removeBlock(state, asBlockId("i1"));
+    expect(dirtyIds.has(asBlockId("i3"))).toBe(false); // target renumbers but isn't dirty
+    expect(dirtyIds.has(asBlockId("p"))).toBe(false); // host not dirty either
+    const out = render(next, reg, attrReg, { prev, prevState: state, dirtyIds });
+    expect(crossRefText(findCrossRef(out.root) as ElementBox)).toBe("2");
+  });
+
+  it("populates RenderOutput.crossReferenceIndex (target → hosts) on the full path", () => {
+    const state = buildState({
+      rootId: asBlockId("doc"),
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "h", lastChildId: "p" }),
+        buildBlock({ id: "h", type: "paragraph", parentId: "doc", nextSiblingId: "p", inlineContent: inlineContent([text("Intro")]) }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "h",
+          inlineContent: inlineContent([
+            embed(CROSS_REFERENCE_EMBED_TYPE, { targetId: "h", refMode: "text" }),
+          ]),
+        }),
+      ],
+    });
+    const out = render(state, reg, attrReg);
+    expect([...(out.crossReferenceIndex.get(asBlockId("h")) ?? [])]).toEqual([asBlockId("p")]);
+  });
+
+  it("REUSES the cached index (no O(N) rebuild) when no dirty block touches a cross-reference", () => {
+    const state = buildState({
+      rootId: asBlockId("doc"),
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "h", lastChildId: "q" }),
+        buildBlock({ id: "h", type: "paragraph", parentId: "doc", nextSiblingId: "p", inlineContent: inlineContent([text("Intro")]) }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "h",
+          nextSiblingId: "q",
+          inlineContent: inlineContent([
+            embed(CROSS_REFERENCE_EMBED_TYPE, { targetId: "h", refMode: "text" }),
+          ]),
+        }),
+        buildBlock({ id: "q", type: "paragraph", parentId: "doc", prevSiblingId: "p", inlineContent: inlineContent([text("z")]) }),
+      ],
+    });
+    const prev = render(state, reg, attrReg);
+    // Edit the unrelated paragraph "q" — it holds no cross-reference, so the
+    // target→hosts index is provably unchanged and must be reused by reference.
+    const { state: next, dirtyIds } = insertText(state, createPosition(asBlockId("q"), 1), "zz", {});
+    const out = render(next, reg, attrReg, { prev, prevState: state, dirtyIds });
+    expect(out.crossReferenceIndex).toBe(prev.crossReferenceIndex);
   });
 });

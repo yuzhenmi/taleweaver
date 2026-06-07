@@ -15,6 +15,7 @@ import type { CounterValue } from "../numbering/types";
 import type { RenderContext } from "./block-view";
 import type { RenderNode } from "./render-node";
 import { renderBlockBody } from "./render-core";
+import { buildCrossReferenceIndex } from "./collect-cross-references";
 import {
   effectiveRenderPolicy,
   makeRenderContext,
@@ -59,6 +60,16 @@ export interface RenderOutput {
    * renumber diff). Empty for a list-free document.
    */
   readonly listCounters: ReadonlyMap<BlockId, CounterValue>;
+  /**
+   * Reverse index `targetId → [host blockIds]` over the document's cross-
+   * reference fields, cached so the NEXT incremental cycle can (a) REUSE it
+   * unchanged when no dirty block touched a cross-reference (the
+   * `footnoteAnchors` reuse precedent) and (b) expand its invalidation set: a
+   * target whose value changed this cycle (edited, deleted, or renumbered)
+   * forces every host referencing it to re-render, even though the host's own
+   * content is unchanged. Empty for a cross-reference-free document.
+   */
+  readonly crossReferenceIndex: ReadonlyMap<BlockId, ReadonlyArray<BlockId>>;
 }
 
 /**
@@ -194,6 +205,10 @@ export function render(
     listEvents.length > 0
       ? computeCounters(listEvents, getListDefsForState(state))
       : EMPTY_LIST_COUNTERS;
+  // Build the cross-reference target→hosts index for THIS cycle so the next
+  // incremental cycle can reuse it (and expand its invalidation set). The full
+  // path always walks every block anyway, so this adds no asymptotic cost.
+  const crossReferenceIndex = buildCrossReferenceIndex(state);
   const context: RenderContext = makeRenderContext(state, fnNumbers, listCounters);
   const visited = new Set<BlockId>();
   const rootBlock = getBlock(state, state.rootId);
@@ -273,6 +288,7 @@ export function render(
     footnoteAnchors: fnAnchors,
     footnoteNumbers: fnNumbers,
     listCounters,
+    crossReferenceIndex,
   });
 }
 

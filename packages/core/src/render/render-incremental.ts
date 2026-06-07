@@ -40,6 +40,10 @@ import type { RenderOutput } from "./render";
 import { EMPTY_LIST_COUNTERS } from "./render";
 import { renderBlockBody } from "./render-core";
 import {
+  buildCrossReferenceIndex,
+  blockHasCrossReference,
+} from "./collect-cross-references";
+import {
   collectListEvents,
   computeCounters,
   listCounterRenumberedBlocks,
@@ -226,10 +230,39 @@ export function renderIncremental(
   // force every number-changed list-item (and its ancestors, so the parent's
   // children array is rebuilt with the new marker) into the invalidation set.
   // A list-free doc has empty maps on both sides → the diff is empty → no cost.
-  for (const blockId of listCounterRenumberedBlocks(listCounters, prev.listCounters)) {
+  // Materialize the renumber set: the cross-reference expansion below needs to
+  // test target membership in it (a number-mode ref to a list-item whose counter
+  // shifted must re-render even though neither the ref host nor the target is in
+  // dirtyIds).
+  const listRenumbered = new Set<BlockId>(
+    listCounterRenumberedBlocks(listCounters, prev.listCounters),
+  );
+  for (const blockId of listRenumbered) {
     if (invalidated.has(blockId)) continue;
     invalidated.add(blockId);
     addAncestorsToInvalidated(state, prevState, blockId, invalidated);
+  }
+
+  // Cross-reference target→hosts (XR.S4): a ref displays a target it does not
+  // own, so when the target's VALUE changes this cycle the host's cached
+  // RenderNode carries a stale resolved string — but the host's own block is not
+  // in dirtyIds. Reuse the cached index unless a dirty block gained/lost/
+  // retargeted a ref (a target edit/delete does NOT change the index, only the
+  // resolved value), then invalidate every host whose target changed value:
+  // targetId ∈ dirtyIds (edited / inserted / deleted-via-captureDirtyIds → text
+  // mode + broken-ref transitions) OR targetId ∈ listRenumbered (number mode).
+  const crossReferenceIndex = crossReferenceIndexUnchanged(state, prevState, dirtyIds)
+    ? prev.crossReferenceIndex
+    : buildCrossReferenceIndex(state);
+  if (crossReferenceIndex.size > 0) {
+    for (const [targetId, hosts] of crossReferenceIndex) {
+      if (!dirtyIds.has(targetId) && !listRenumbered.has(targetId)) continue;
+      for (const host of hosts) {
+        if (invalidated.has(host)) continue;
+        invalidated.add(host);
+        addAncestorsToInvalidated(state, prevState, host, invalidated);
+      }
+    }
   }
 
   const context: RenderContext = makeRenderContext(state, fnNumbers, listCounters);
@@ -327,7 +360,37 @@ export function renderIncremental(
     footnoteAnchors: fnAnchors,
     footnoteNumbers: fnNumbers,
     listCounters,
+    crossReferenceIndex,
   });
+}
+
+/**
+ * Whether the cross-reference target→hosts index can be reused from `prev`
+ * unchanged. The index's CONTENT (which blocks hold refs to which targets)
+ * changes only when a dirty block gained, lost, or retargeted a cross-reference
+ * field — a target's own edit/delete does NOT alter the index (the host still
+ * holds the same pointer; only the RESOLVED value changes, handled separately by
+ * the invalidation expansion). So a cycle whose dirty blocks carry no cross-
+ * reference in either new or prev state reuses the cached index without the
+ * O(N_blocks) rebuild walk. Mirrors `footnoteAnchorsUnchanged`.
+ */
+function crossReferenceIndexUnchanged(
+  state: State,
+  prevState: State,
+  dirtyIds: ReadonlySet<BlockId>,
+): boolean {
+  // Every render path (full + incremental) populates `prev.crossReferenceIndex`,
+  // so there is always an index to reuse — the only question is whether a dirty
+  // block changed it.
+  for (const id of dirtyIds) {
+    if (
+      blockHasCrossReference(getBlock(state, id)) ||
+      blockHasCrossReference(getBlock(prevState, id))
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**
