@@ -67,6 +67,8 @@ describe("resolveTableContext", () => {
     expect(ctx.rowIds).toEqual(["row0", "row1"]);
     expect(ctx.cellIdsByRow).toEqual([["cA", "cB"], ["cC", "cD"]]);
     expect(ctx.hasSpans).toBe(false);
+    expect(ctx.spanned).toBe(false);
+    expect(ctx.ragged).toBe(false);
   });
 
   it("resolves when given the cell id directly", () => {
@@ -108,10 +110,13 @@ describe("resolveTableContext", () => {
     expect(resolveTableContext(state, "tplPara" as BlockId)).toBeNull();
   });
 
-  it("flags hasSpans when any cell carries a real rowSpan/colSpan", () => {
+  it("flags hasSpans/spanned when any cell carries a real rowSpan/colSpan", () => {
     const state = buildTableState({ cAattrs: { colSpan: 2 } });
     const ctx = resolveTableContext(state, "pA" as BlockId);
     expect(ctx?.hasSpans).toBe(true);
+    // spanned (well-formed merged cells) → P15b routes to the span-aware op.
+    expect(ctx?.spanned).toBe(true);
+    expect(ctx?.ragged).toBe(false);
   });
 
   it("does NOT flag a malformed (non-integer) span — agrees with the component predicate", () => {
@@ -120,10 +125,14 @@ describe("resolveTableContext", () => {
     expect(ctx?.hasSpans).toBe(false);
   });
 
-  it("flags hasSpans for a ragged table (rows with differing cell counts)", () => {
+  it("flags hasSpans/ragged for a ragged table (rows with differing cell counts)", () => {
     const state = buildTableState({ dropCellD: true }); // row1 has 1 cell, row0 has 2
     const ctx = resolveTableContext(state, "pA" as BlockId);
     expect(ctx).not.toBeNull();
     expect(ctx?.hasSpans).toBe(true);
+    // ragged (degenerate) → P15b LEAVES IT GATED (a handler checks `ragged` first
+    // so a spanned-AND-ragged table still no-ops — the ragged gate wins).
+    expect(ctx?.ragged).toBe(true);
+    expect(ctx?.spanned).toBe(false);
   });
 });

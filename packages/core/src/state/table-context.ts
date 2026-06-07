@@ -10,9 +10,15 @@ import { isSpan } from "./table-cell-span";
  * insert/delete row/column handlers can operate without re-walking the tree.
  *
  * `hasSpans` is the P15a no-op boundary: it is true when the table contains ANY
- * real `rowSpan`/`colSpan` OR is ragged (rows with differing cell counts). Both
- * make the simple grid model unsafe, so every P15a action no-ops and defers to the
- * span-aware piece (P15b).
+ * real `rowSpan`/`colSpan` (`spanned`) OR is ragged (rows with differing cell
+ * counts — `ragged`). Both make the simple grid model unsafe, so every P15a action
+ * no-ops and defers to the span-aware piece (P15b).
+ *
+ * `spanned` and `ragged` are exposed SEPARATELY (not just their `hasSpans` union)
+ * because P15b dispatches on them DIFFERENTLY: a `spanned` (well-formed) table
+ * routes to the span-aware op, but a `ragged` table stays gated (a degenerate
+ * state, out of P15b scope). A handler must check `ragged` BEFORE `spanned` so a
+ * spanned-AND-ragged table still no-ops (the ragged gate wins).
  */
 export interface TableContext {
   readonly tableId: BlockId;
@@ -23,6 +29,11 @@ export interface TableContext {
   readonly rowIds: readonly BlockId[];
   /** cells per row, document order; `cellIdsByRow[rowIndex]` is the caret row. */
   readonly cellIdsByRow: readonly (readonly BlockId[])[];
+  /** Any cell carries a real `rowSpan`/`colSpan` (> 1, per `isSpan`). */
+  readonly spanned: boolean;
+  /** Rows have differing cell counts (a degenerate table; P15b leaves it gated). */
+  readonly ragged: boolean;
+  /** `spanned || ragged` — the P15a no-op boundary. */
   readonly hasSpans: boolean;
 }
 
@@ -109,6 +120,8 @@ export function resolveTableContext(state: State, blockId: BlockId): TableContex
     colIndex,
     rowIds,
     cellIdsByRow,
+    spanned,
+    ragged,
     hasSpans: ragged || spanned,
   };
 }
