@@ -109,8 +109,9 @@ describe("Intrinsic sizing — end-to-end", () => {
     expect(innerBox?.inlineSize).toBe(50); // 5 chars × 10px
   });
 
-  it("block with inline-size: min-content sizes to minContent (widest cluster)", () => {
-    // "abc" — each cluster is 10px; minContent = minClusterInlineSize = 10px
+  it("block with inline-size: min-content sizes to minContent (widest unbreakable word)", () => {
+    // "abc" — each cluster is 10px; "abc" is one unbreakable word (no internal
+    // break opportunity), so minContent = the whole word = 30px.
     const block = createElementBox(
       "b",
       { display: "block", inlineSize: "min-content" },
@@ -125,7 +126,7 @@ describe("Intrinsic sizing — end-to-end", () => {
     const out = r4.box;
     const innerBox = findBoxByKey(out, "b");
     expect(innerBox).not.toBeNull();
-    expect(innerBox?.inlineSize).toBe(10); // minClusterInlineSize = charWidth = 10
+    expect(innerBox?.inlineSize).toBe(30); // widest unbreakable word "abc" = 3 × 10
   });
 
   it("auto-table: column widths from per-cell intrinsics (sumMax fits)", () => {
@@ -202,13 +203,14 @@ describe("Inline-block intrinsic sizing — edge cases", () => {
     expect(ibBox?.inlineSize).toBe(200);
   });
 
-  it("inline-block with auto inlineSize shrinks-to-fit: clamps to available when below maxContent (CSS Sizing 3 §10.3.5)", () => {
+  it("inline-block with auto inlineSize floors at min-content when one unbreakable word exceeds available (CSS Sizing 3 §10.3.5)", () => {
     // 80 chars × 10px = 800px maxContent. Container is only 500px wide.
-    // The mock shaper reports a single-char min-cluster (10px), so min-content
-    // is 10px (well below the 500px available).
+    // "aaaa…" is one unbreakable word (no internal break opportunity), so its
+    // min-content = the whole word = 800px (> the 500px available).
     // Shrink-to-fit = min(maxContent, max(minContent, available))
-    //               = min(800, max(10, 500)) = min(800, 500) = 500.
-    // The inline-block clamps DOWN to the available 500px container width.
+    //               = min(800, max(800, 500)) = min(800, 800) = 800.
+    // The box CANNOT clamp below its min-content: it floors at 800px (overflows
+    // the container) — an unbreakable word can't be made narrower than itself.
     const ib = createElementBox(
       "ib",
       { display: "inline-block", inlineSize: "auto" },
@@ -223,8 +225,9 @@ describe("Inline-block intrinsic sizing — edge cases", () => {
     const out = r7.box;
     const ibBox = findBoxByKeyFragment(out, "ib");
     expect(ibBox).not.toBeNull();
-    // 500px — clamped to the available container width (shrink-to-fit).
-    expect(ibBox?.inlineSize).toBe(500);
+    // 800px — floored at min-content (the unbreakable word), overflowing the
+    // 500px container per CSS Sizing 3 §10.3.5.
+    expect(ibBox?.inlineSize).toBe(800);
   });
 
   it("nested inline-block: outer and inner both shrink to their content maxContent", () => {

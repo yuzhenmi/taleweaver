@@ -132,16 +132,34 @@ function computeTextContribution(
   const tt = node.computedStyle.textTransform;
   const text = tt !== "none" ? transformRun(rawText, tt).display : rawText;
   const run = shaper.shape(text, node.computedStyle, node.computedStyle.direction);
-  // `minClusterInlineSize` is the shaper's authoritative min-content for the run
-  // (the widest unbreakable unit). We anchor `minContent` to it so this pass is
-  // byte-identical to the pre-text-indent behavior at indent 0, and so we honor
-  // a shaper whose break model is coarser than per-cluster (e.g. a word-aware
-  // min that floors at the longest whitespace-delimited word, not the widest
-  // single glyph).
-  const minContent = run.minClusterInlineSize;
   // Clusters are in LOGICAL order (text-shaper.ts), so clusters[0] is the
   // run's first grapheme cluster.
   const clusters = run.clusters;
+  // CSS min-content of a text run is the WIDEST UNBREAKABLE SEGMENT — the widest
+  // run of clusters between two UAX #14 break opportunities — NOT the widest
+  // single grapheme cluster. A `minClusterInlineSize`-only floor under-sizes any
+  // unbreakable multi-character word (e.g. a 10-char word floored at one glyph),
+  // so a shrink-to-fit / inline-block / `min-content` box clamps narrower than
+  // its content and clips it. `breakOpportunities[i].clusterIndex` is a UTF-16
+  // code-unit offset at which a line MAY break (break is BEFORE the offset),
+  // aligned with `Cluster.start`/`end` — so we close the running segment whenever
+  // a cluster's start coincides with a break offset and take the widest segment.
+  // Computing from the SAME break offsets the IFC wraps at makes min-content equal
+  // the narrowest line the IFC can produce. `minClusterInlineSize` (widest single
+  // cluster, always ≤ a segment) is kept as a `max` lower bound so a coarser
+  // word-aware shaper still floors correctly.
+  const breakOffsets = new Set(run.breakOpportunities.map((b) => b.clusterIndex));
+  let widestSegment = 0;
+  let segWidth = 0;
+  for (const cl of clusters) {
+    if (segWidth > 0 && breakOffsets.has(cl.start)) {
+      if (segWidth > widestSegment) widestSegment = segWidth;
+      segWidth = 0;
+    }
+    segWidth += cl.inlineAdvance;
+  }
+  if (segWidth > widestSegment) widestSegment = segWidth;
+  const minContent = Math.max(run.minClusterInlineSize, widestSegment);
   const firstCluster = clusters[0]?.inlineAdvance ?? 0;
   // `restMin` = the run's min-content EXCLUDING the first (indented) unit. The
   // indent pushes only the first formatted line, which holds the run's first

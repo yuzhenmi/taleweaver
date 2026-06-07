@@ -2870,10 +2870,15 @@ describe("IFC — inline-block auto shrink-to-fit clamp (CSS Sizing 3 §10.3.5)"
     };
   }
 
-  // Phrase "aaaa bb cc": longest word "aaaa" = 4*8 = 32 (min-content);
-  // full phrase "aaaa bb cc" = 10*8 = 80 (max-content). So minContent=32 < 80.
+  // Phrase "aaaa bb cc": min-content is the widest UNBREAKABLE SEGMENT — the
+  // widest run of clusters between two UAX #14 break opportunities. Breaks fall
+  // AFTER each space (before the next word), so the first segment is "aaaa "
+  // (the word PLUS its trailing space) = 5*8 = 40. (`minClusterInlineSize` is
+  // overridden to the longest bare word, 32, but the segment-aware floor 40
+  // dominates via `max(minClusterInlineSize, widestSegment)`.) full phrase
+  // "aaaa bb cc" = 10*8 = 80 (max-content). So minContent=40 < 80.
   const PHRASE = "aaaa bb cc";
-  const MIN_CONTENT = 4 * CW;          // 32 — longest word "aaaa"
+  const MIN_CONTENT = 5 * CW;          // 40 — widest segment "aaaa " (word + trailing space)
   const MAX_CONTENT = PHRASE.length * CW; // 80 — full phrase incl. spaces
 
   function resolvedInlineBlockWidth(
@@ -2907,7 +2912,7 @@ describe("IFC — inline-block auto shrink-to-fit clamp (CSS Sizing 3 §10.3.5)"
   }
 
   // Sanity: confirm the fixture's intrinsic min/max are what we think.
-  it("fixture: min-content (longest word) < max-content (full phrase)", () => {
+  it("fixture: min-content (widest unbreakable segment) < max-content (full phrase)", () => {
     const shp = wordAwareShaper();
     const tree = cascadePass(
       createElementBox("p", { display: "block" }, [
@@ -2926,7 +2931,7 @@ describe("IFC — inline-block auto shrink-to-fit clamp (CSS Sizing 3 §10.3.5)"
   });
 
   it("1. clamps to available when maxContent > available (the fix)", () => {
-    // available between min (32) and max (80) → clamp down to available.
+    // available between min (40) and max (80) → clamp down to available.
     const available = 56; // MIN_CONTENT < 56 < MAX_CONTENT
     const w = resolvedInlineBlockWidth(available);
     expect(w).toBe(available);            // clamped to available
@@ -2943,7 +2948,7 @@ describe("IFC — inline-block auto shrink-to-fit clamp (CSS Sizing 3 §10.3.5)"
   it("3. floors at min-content when minContent > available (overflow, CSS-correct)", () => {
     // available narrower than min-content → max(minContent, available) = minContent,
     // and min(maxContent, minContent) = minContent. It overflows the IFC; correct.
-    const available = MIN_CONTENT - 16; // 16 < MIN_CONTENT (32)
+    const available = MIN_CONTENT - 16; // 24 < MIN_CONTENT (40)
     const w = resolvedInlineBlockWidth(available);
     expect(w).toBe(MIN_CONTENT);   // floored at min-content, NOT clamped to available
     expect(w).toBeGreaterThan(available);
@@ -2994,7 +2999,7 @@ describe("IFC — inline-block auto shrink-to-fit clamp (CSS Sizing 3 §10.3.5)"
   // to min-content unconditionally; "max-content" to max-content uncond.
 
   it('6. inlineSize: "max-content" keeps max-content even when available < maxContent (NOT clamped)', () => {
-    // available between min (32) and max (80) — the auto/fit-content arm would
+    // available between min (40) and max (80) — the auto/fit-content arm would
     // clamp to available; max-content must ignore available entirely.
     const available = 56; // MIN_CONTENT < 56 < MAX_CONTENT
     const w = resolvedInlineBlockWidth(available, "max-content");
@@ -3002,7 +3007,7 @@ describe("IFC — inline-block auto shrink-to-fit clamp (CSS Sizing 3 §10.3.5)"
   });
 
   it('6b. inlineSize: "max-content" keeps max-content when available is far below max', () => {
-    const available = MIN_CONTENT - 8; // 24 < MIN_CONTENT (32) < MAX_CONTENT
+    const available = MIN_CONTENT - 8; // 32 < MIN_CONTENT (40) < MAX_CONTENT
     const w = resolvedInlineBlockWidth(available, "max-content");
     expect(w).toBe(MAX_CONTENT);
   });
@@ -3032,12 +3037,12 @@ describe("IFC — inline-block auto shrink-to-fit clamp (CSS Sizing 3 §10.3.5)"
 
   it('9. inlineSize: 50% resolves to a DEFINITE 0.5 * available (NOT shrink-to-fit, NOT clamped to maxContent)', () => {
     const available = 56; // 0.5*56 = 28: differs from maxContent (80) AND the
-                          // auto/fit-content clamp result (min(80,max(32,56))=56).
+                          // auto/fit-content clamp result (min(80,max(40,56))=56).
     const w = resolvedInlineBlockWidth(available, { unit: "percent", value: 50 });
     expect(w).toBe(28);                 // definite: 0.5 * available
     expect(w).not.toBe(MAX_CONTENT);    // NOT clamped to max-content
     expect(w).not.toBe(available);      // NOT the shrink-to-fit clamp result
-    // 28 < MIN_CONTENT (32): a definite percent size is NOT floored at min-content.
+    // 28 < MIN_CONTENT (40): a definite percent size is NOT floored at min-content.
     expect(w).toBeLessThan(MIN_CONTENT);
   });
 });

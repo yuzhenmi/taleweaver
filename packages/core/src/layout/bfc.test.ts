@@ -635,8 +635,8 @@ describe("BFC — intrinsic-sizing keywords on inlineSize", () => {
   });
 
   it("inlineSize: 'min-content' sizes to minContent", () => {
-    // Mock shaper: minContent = minClusterInlineSize = charWidth = 10
-    // (smallest single cluster width, representing per-character min).
+    // Mock shaper: "abc" is one unbreakable word (no internal break opportunity),
+    // so minContent = the whole word = 3 × charWidth = 30.
     const text = createTextBox("t", {}, "abc");
     const block = createElementBox("b", { display: "block", inlineSize: "min-content" }, [text]);
     const para = createElementBox("p", { display: "block" }, [block]);
@@ -648,8 +648,8 @@ describe("BFC — intrinsic-sizing keywords on inlineSize", () => {
     const out = r9.box;
     const inner = findBoxByKey(out, "b");
     expect(inner).toBeDefined();
-    // minContent = max(child.minContent) = minClusterInlineSize = 10 (per mock shaper)
-    expect(inner?.width).toBe(10);
+    // minContent = max(child.minContent) = widest unbreakable word "abc" = 30
+    expect(inner?.width).toBe(30);
   });
 
   it("inlineSize: 'fit-content' clamps to available space when maxContent fits", () => {
@@ -730,6 +730,24 @@ describe("BFC — inline-block shrink-to-fit", () => {
     const ibBox = findBoxByKey(r.box, "ib");
     expect(ibBox).toBeDefined();
     expect(ibBox?.width).toBe(30);
+  });
+
+  it("inline-block with a single unbreakable word WIDER than available honors the min-content floor (CSS Sizing 3 §10.3.5)", () => {
+    // "abcdefghij" charWidth=10 → minContent = maxContent = 100px (one unbreakable
+    // word). available=30 is BELOW minContent, so shrink-to-fit =
+    // min(100, max(100, 30)) = 100 — the box must lay out at its min-content floor
+    // (100), NOT clamp to the 30px available ceiling.
+    const text = createTextBox("t", {}, "abcdefghij");
+    const ib = createElementBox("ib", { display: "inline-block" }, [text]);
+    const para = createElementBox("p", { display: "block" }, [ib]);
+    const cascaded = cascadePass(para);
+    if (cascaded.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 30);
+    const r = layoutBlock(cascaded, 0, 0, ctx, createMockShaper(10, 16));
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const ibBox = findBoxByKey(r.box, "ib");
+    expect(ibBox).toBeDefined();
+    expect(ibBox?.width).toBe(100);
   });
 
 });

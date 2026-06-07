@@ -121,22 +121,14 @@ Most of the layout pass is implemented and working:
 - Float environment: full CSS 9.5 placement with push-below-if-needed,
   clearance integrated with margin-collapse, dirty-offset tracking.
 - Intrinsic sizing pass: `min-content` and `max-content` per render
-  node, cached.
+  node, cached. A text run's `min-content` is the widest UNBREAKABLE
+  segment — the widest run of clusters between UAX #14 break opportunities
+  (the widest "word"), computed in `computeTextContribution` from the run's
+  `breakOpportunities` — NOT the widest single grapheme cluster.
 - Layout-box reuse: `LayoutBoxCache`, `isLayoutBoxReusable`,
   `renderNodesLayoutEquivalent`.
 
 Known gaps:
-- **Inline-block shrink-to-fit min-content floor.** An `auto`/`fit-content`
-  inline-block IS clamped to the available width — both the IFC atomic-inline
-  sizing (`ifc.ts`) and the plain-block/float `resolveBoxInlineSize` (`bfc.ts`)
-  compute `min(maxContent, max(minContent, available))` per CSS Sizing 3 §10.3.5,
-  so a multi-word inline-block narrows to fit (covered by `bfc.test.ts`). The
-  residual gap is the preferred-MINIMUM floor end-to-end: a single unbreakable
-  word WIDER than the available width lays out at the available width rather than
-  at its min-content (word) width — observed, the laid-out box does not honor the
-  §10.3.5 floor for an atomic inline-block whose min-content exceeds available.
-  Root cause not yet isolated (the sizing formula floors, but the laid-out box
-  does not).
 - **Bidi — geometry + glyph paint + RTL cursor implemented; in-browser
   smoke pending.** The **full UAX #9 algorithm engine** (`layout/uax9/`,
   P4-A: `resolveBidiLevels` P/X/W/N/I + `reorderVisual`/`applyL1`/

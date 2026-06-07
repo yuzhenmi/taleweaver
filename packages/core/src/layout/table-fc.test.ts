@@ -89,12 +89,11 @@ describe("layoutTable", () => {
   });
 
   it("auto-layout uses colMin widths when table overflows", () => {
-    // shaper charWidth=8: each word has minContent=8 (one char cluster).
-    // "abc" → maxContent=24; "abcde" → maxContent=40.
-    // available=30; sumMin=8+8=16 < 30 < sumMax=64.
-    // slack = 30-16 = 14; totalRange = 64-16 = 48.
-    // col0: min=8, range=16, contribution = 14*(16/48) ≈ 4.67 → 8 + 4.67 ≈ 12.67
-    // col1: min=8, range=32, contribution = 14*(32/48) ≈ 9.33 → 8 + 9.33 ≈ 17.33
+    // shaper charWidth=8. Each cell holds ONE unbreakable word (no internal break
+    // opportunity), so its minContent equals its maxContent (the whole word):
+    // "abc" → min=max=24; "abcde" → min=max=40. sumMin=24+40=64.
+    // available=30 < sumMin=64, so the table OVERFLOWS: each column floors at its
+    // colMin (no slack to distribute). columns = colMins = [24, 40].
     const cell1a = createElementBox("c2a", { display: "table-cell" }, [
       createTextBox("t3", {}, "abc"),
     ]);
@@ -109,10 +108,10 @@ describe("layoutTable", () => {
     if (result.box === null) throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
     const out = result.box;
     expect(out.type).toBe("table");
-    // Proportional distribution between colMin and colMax.
+    // Overflow: each column floors at its colMin (the whole unbreakable word).
     const [w0, w1] = out.columnPxWidths;
-    expect(w0).toBeCloseTo(8 + 14 * (16 / 48));
-    expect(w1).toBeCloseTo(8 + 14 * (32 / 48));
+    expect(w0).toBeCloseTo(24); // "abc" colMin
+    expect(w1).toBeCloseTo(40); // "abcde" colMin
   });
 
   // #P8.S2 — a colSpan-2 cell spans both columns; the next row routes around it.

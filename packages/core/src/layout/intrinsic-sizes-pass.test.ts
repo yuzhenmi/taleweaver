@@ -8,34 +8,37 @@ import { cascadePass } from "../cascade";
 describe("computeIntrinsicSizes", () => {
   const shaper = createMockShaper(10, 16);
 
-  it("text node: minContent = widest cluster, maxContent = total run", () => {
-    // "hello" = 5 chars; mock shaper: each char is width 10.
-    // minClusterInlineSize = 10 (one cluster), unbreakableRunInlineSize = 50.
+  it("text node: minContent = widest unbreakable segment, maxContent = total run", () => {
+    // "hello" = 5 chars; mock shaper: each char is width 10. "hello" has NO
+    // internal UAX #14 break opportunity, so it is one unbreakable segment:
+    // min-content = the whole word = 50 (NOT the widest single cluster, 10).
+    // unbreakableRunInlineSize = 50.
     const node = createTextBox("t", { display: "inline" }, "hello");
     const cascaded = cascadePass(node);
     const cache = createIntrinsicSizesCache();
     const result = computeIntrinsicSizes(cascaded, shaper, cache);
-    expect(result.minContent).toBe(10);
+    expect(result.minContent).toBe(50);
     expect(result.maxContent).toBe(50);
   });
 
   it("paragraph with inline text aggregates as inline (sum max-content)", () => {
-    // t1 = "abc" (3 chars, max=30), t2 = "de" (2 chars, max=20).
-    // Block with inline children: min = max(10, 10) = 10; max = 30 + 20 = 50.
+    // t1 = "abc" (3 chars, min=30, max=30), t2 = "de" (2 chars, min=20, max=20).
+    // Each is one unbreakable word, so its min-content = its whole width.
+    // Block with inline children: min = max(30, 20) = 30; max = 30 + 20 = 50.
     const t1 = createTextBox("t1", { display: "inline" }, "abc");
     const t2 = createTextBox("t2", { display: "inline" }, "de");
     const para = createElementBox("p", { display: "block" }, [t1, t2]);
     const cascaded = cascadePass(para);
     const cache = createIntrinsicSizesCache();
     const result = computeIntrinsicSizes(cascaded, shaper, cache);
-    expect(result.minContent).toBe(10);
+    expect(result.minContent).toBe(30);
     expect(result.maxContent).toBe(50);
   });
 
   it("block with block children: max-over-children for both min and max", () => {
-    // p1: "abc" (3 chars) -> min=10, max=30
-    // p2: "abcde" (5 chars) -> min=10, max=50
-    // doc block: min=max(10,10)=10, max=max(30,50)=50
+    // p1: "abc" (3 chars, one unbreakable word) -> min=30, max=30
+    // p2: "abcde" (5 chars, one unbreakable word) -> min=50, max=50
+    // doc block: min=max(30,50)=50, max=max(30,50)=50
     const p1 = createElementBox(
       "p1",
       { display: "block" },
@@ -50,7 +53,7 @@ describe("computeIntrinsicSizes", () => {
     const cascaded = cascadePass(doc);
     const cache = createIntrinsicSizesCache();
     const result = computeIntrinsicSizes(cascaded, shaper, cache);
-    expect(result.minContent).toBe(10);
+    expect(result.minContent).toBe(50);
     expect(result.maxContent).toBe(50);
   });
 
@@ -80,21 +83,23 @@ describe("computeIntrinsicSizes", () => {
 
   it("inline element: min=max(child.min), max=sum(child.max)", () => {
     // An inline <span> wrapping two text nodes.
-    // t1 = "ab" (max=20), t2 = "cde" (max=30).
-    // inline span: min = max(10, 10) = 10; max = 20 + 30 = 50.
+    // t1 = "ab" (min=20, max=20), t2 = "cde" (min=30, max=30) — each is one
+    // unbreakable word, so its min-content = its whole width.
+    // inline span: min = max(20, 30) = 30; max = 20 + 30 = 50.
     const t1 = createTextBox("t1", { display: "inline" }, "ab");
     const t2 = createTextBox("t2", { display: "inline" }, "cde");
     const span = createElementBox("span", { display: "inline" }, [t1, t2]);
     const cascaded = cascadePass(span);
     const cache = createIntrinsicSizesCache();
     const result = computeIntrinsicSizes(cascaded, shaper, cache);
-    expect(result.minContent).toBe(10);
+    expect(result.minContent).toBe(30);
     expect(result.maxContent).toBe(50);
   });
 
   it("inline-block: treated as block (max-over-children)", () => {
     // inline-block containing two block paragraphs.
-    // p1: max=20, p2: max=40. Block aggregation: max=40.
+    // p1 "ab": min=20, max=20. p2 "abcd": min=40, max=40 (each one unbreakable
+    // word). Block aggregation: min=max(20,40)=40, max=max(20,40)=40.
     const p1 = createElementBox(
       "p1",
       { display: "block" },
@@ -109,7 +114,7 @@ describe("computeIntrinsicSizes", () => {
     const cascaded = cascadePass(widget);
     const cache = createIntrinsicSizesCache();
     const result = computeIntrinsicSizes(cascaded, shaper, cache);
-    expect(result.minContent).toBe(10);
+    expect(result.minContent).toBe(40);
     expect(result.maxContent).toBe(40);
   });
 
@@ -159,7 +164,9 @@ describe("computeIntrinsicSizes", () => {
     const cache = createIntrinsicSizesCache();
     const result = computeIntrinsicSizes(cascaded, shaper, cache);
     expect(result.maxContent).toBe(100);
-    expect(result.minContent).toBe(10);
+    // min-content = max over (run #1 "abc"=30, block "abcdefghij"=100, run #2
+    // "de"=20) = 100 (each is one unbreakable word).
+    expect(result.minContent).toBe(100);
   });
 
   it("C3: consecutive inline siblings within one anonymous-block run sum (no wrap at max-content)", () => {
@@ -182,7 +189,9 @@ describe("computeIntrinsicSizes", () => {
     const result = computeIntrinsicSizes(cascaded, shaper, cache);
     // Run #1 max = 30 + 20 = 50; block max = 10. Container max = 50.
     expect(result.maxContent).toBe(50);
-    expect(result.minContent).toBe(10);
+    // min-content: run #1 = max("abc"=30, "de"=20) = 30; block "x" = 10.
+    // Container min = max(30, 10) = 30 (each text node is one unbreakable word).
+    expect(result.minContent).toBe(30);
   });
 });
 
@@ -223,8 +232,10 @@ describe("computeIntrinsicSizes — display: contents (P1.C.1a)", () => {
   // entirely (producing 0/0). The pre-fix bug yields min=max=0 for the
   // wrapped case; the post-fix result equals the un-wrapped equivalent.
   it("table flattens a `display: contents` wrapper around rows (#266)", () => {
-    // cells: c1 = "abc" (max=30), c2 = "abcde" (max=50).
-    // Un-wrapped table: row [c1, c2] → colMaxes = [30, 50] → tableMax = 80.
+    // cells: c1 = "abc" (min=30, max=30), c2 = "abcde" (min=50, max=50) — each is
+    // one unbreakable word, so its min-content = its whole width.
+    // Un-wrapped table: row [c1, c2] → colMaxes = [30, 50] → tableMax = 80,
+    // colMins = [30, 50] → tableMin = 80.
     const cellText = (id: string, s: string) =>
       createElementBox(id, { display: "table-cell" }, [
         createTextBox(`${id}t`, { display: "inline" }, s),
@@ -249,7 +260,7 @@ describe("computeIntrinsicSizes — display: contents (P1.C.1a)", () => {
     const u = computeIntrinsicSizes(cascadePass(unwrapped), shaper, createIntrinsicSizesCache());
     const w = computeIntrinsicSizes(cascadePass(wrapped), shaper, createIntrinsicSizesCache());
 
-    expect(u.minContent).toBe(20); // colMins = [10, 10]
+    expect(u.minContent).toBe(80); // colMins = [30, 50]
     expect(u.maxContent).toBe(80); // colMaxes = [30, 50]
     // The pre-fix bug: w === { minContent: 0, maxContent: 0 } (the contents
     // wrapper is filtered out by the display !== "table-row" check). The fix
@@ -277,7 +288,10 @@ describe("computeIntrinsicSizes — display: contents (P1.C.1a)", () => {
     ]);
     const r = computeIntrinsicSizes(cascadePass(table), shaper, createIntrinsicSizesCache());
     expect(r.maxContent).toBe(60);
-    expect(r.minContent).toBe(20); // colMins [10, 10]
+    // Each cell text is one unbreakable word, so its min-content = its max-content.
+    // span-1 col mins [30, 20] (sum 50); banner min 60 distributes the 10
+    // shortfall proportionally → [36, 24] → tableMin = 60.
+    expect(r.minContent).toBe(60);
   });
 });
 
@@ -302,8 +316,10 @@ describe("computeIntrinsicSizes — text-indent (#392)", () => {
   // Case 2: first cluster ≠ widest — guards the restMin form against
   // a naive `widestCluster + indent`. Requires variable cluster widths.
   it("first cluster narrower than widest: min uses restMin, NOT widest + indent", () => {
-    // text "iW": i = 4, W = 14. no-indent min (widest cluster) = 14, max = 18.
-    // indent 5 → min = max(5 + 4, restMin=14) = 14 (NOT widest+indent = 19).
+    // text "iW": i = 4, W = 14. "iW" is one unbreakable word (no internal break),
+    // so no-indent min-content = the whole segment = 4 + 14 = 18, max = 18.
+    // firstCluster = 4 < minContent 18 → restMin = 18.
+    // indent 5 → min = max(5 + 4, restMin=18) = 18 (NOT widest cluster 14 + indent).
     //            max = 18 + 5 = 23.
     const varShaper = createVariableMockShaper({ i: 4, W: 14 }, 16);
     const block = createElementBox(
@@ -313,7 +329,7 @@ describe("computeIntrinsicSizes — text-indent (#392)", () => {
     );
     const cascaded = cascadePass(block);
     const result = computeIntrinsicSizes(cascaded, varShaper, createIntrinsicSizesCache());
-    expect(result.minContent).toBe(14);
+    expect(result.minContent).toBe(18);
     expect(result.maxContent).toBe(23);
   });
 
@@ -337,7 +353,8 @@ describe("computeIntrinsicSizes — text-indent (#392)", () => {
 
   // Case 4: percentage indent contributes 0 (indefinite basis → resolve basis 0).
   it("percentage indent contributes 0 to both min and max (indefinite basis)", () => {
-    // "hello" no-indent: min = 10, max = 50. 50% indent → contributes 0.
+    // "hello" no-indent: min = 50 (one unbreakable word), max = 50. 50% indent →
+    // contributes 0.
     const block = createElementBox(
       "p",
       { display: "block", textIndent: { value: 50, unit: "percent" } },
@@ -345,7 +362,7 @@ describe("computeIntrinsicSizes — text-indent (#392)", () => {
     );
     const cascaded = cascadePass(block);
     const result = computeIntrinsicSizes(cascaded, shaper, createIntrinsicSizesCache());
-    expect(result.minContent).toBe(10);
+    expect(result.minContent).toBe(50);
     expect(result.maxContent).toBe(50);
   });
 
@@ -361,9 +378,9 @@ describe("computeIntrinsicSizes — text-indent (#392)", () => {
     //   block "abcdefghij" (textIndent:0 → max=100, min=10)
     //   inline "de" (run #2: max=20, min=10)          ← NOT the first run
     // }
-    // run #1: max = 30 + 25 = 55; min = max(25 + 10, restMin=0) = 35.
-    // block (indent suppressed): max=100, min=10. run #2: max=20, min=10.
-    // container max = max(55, 100, 20) = 100; min = max(35, 10, 10) = 35.
+    // run #1: max = 30 + 25 = 55; min = max(25 + 10, restMin=30) = 35.
+    // block (indent suppressed): max=100, min=100. run #2: max=20, min=20.
+    // container max = max(55, 100, 20) = 100; min = max(35, 100, 20) = 100.
     const inline1 = createTextBox("t1", { display: "inline" }, "abc");
     const blockChild = createElementBox(
       "b",
@@ -379,7 +396,7 @@ describe("computeIntrinsicSizes — text-indent (#392)", () => {
     const cascaded = cascadePass(doc);
     const result = computeIntrinsicSizes(cascaded, shaper, createIntrinsicSizesCache());
     expect(result.maxContent).toBe(100);
-    expect(result.minContent).toBe(35);
+    expect(result.minContent).toBe(100);
   });
 
   // Case 5a': text-indent inherits — a child block with NO explicit indent
@@ -387,10 +404,11 @@ describe("computeIntrinsicSizes — text-indent (#392)", () => {
   // resolved/inherited value off the block's computed style).
   it("text-indent inherits: a child block indents its own first line", () => {
     // doc (indent 25) {
-    //   inline "abc" (run #1 max = 30 + 25 = 55; min = max(35, 0) = 35)
-    //   block "abcdefghij" (INHERITS 25 → max = 100 + 25 = 125; min = max(35,0) = 35)
+    //   inline "abc" (run #1 max = 30 + 25 = 55; min = max(25+10, 30) = 35)
+    //   block "abcdefghij" (INHERITS 25 → max = 100 + 25 = 125;
+    //     its OWN first line: min = max(25+10, restMin=100) = 100)
     // }
-    // container max = max(55, 125) = 125; min = max(35, 35) = 35.
+    // container max = max(55, 125) = 125; min = max(35, 100) = 100.
     const inline1 = createTextBox("t1", { display: "inline" }, "abc");
     const blockChild = createElementBox(
       "b",
@@ -404,7 +422,7 @@ describe("computeIntrinsicSizes — text-indent (#392)", () => {
     );
     const result = computeIntrinsicSizes(cascadePass(doc), shaper, createIntrinsicSizesCache());
     expect(result.maxContent).toBe(125);
-    expect(result.minContent).toBe(35);
+    expect(result.minContent).toBe(100);
   });
 
   // Case 5b: a block whose FIRST child is a real block → the doc's own indent
@@ -414,11 +432,12 @@ describe("computeIntrinsicSizes — text-indent (#392)", () => {
   // (nonexistent) leading inline run — and it touches nothing.
   it("first child is a real block: the doc-level indent affects nothing", () => {
     // doc {
-    //   block "abc" (textIndent:0 → max=30, min=10)  ← first child is a block
-    //   inline "de" (max=20, min=10)                  ← run is NOT the first run
+    //   block "abc" (textIndent:0 → max=30, min=30)  ← first child is a block
+    //   inline "de" (max=20, min=20)                  ← run is NOT the first run
     // }
+    // Each text node is one unbreakable word, so min-content = its whole width.
     // Doc indent of 100 finds no first inline run → container unchanged:
-    // max = max(30, 20) = 30; min = 10. Equal to the no-indent doc.
+    // max = max(30, 20) = 30; min = max(30, 20) = 30. Equal to the no-indent doc.
     const makeBlockChild = () =>
       createElementBox(
         "b",
@@ -445,12 +464,13 @@ describe("computeIntrinsicSizes — text-indent (#392)", () => {
     );
     expect(indented).toEqual(plain);
     expect(indented.maxContent).toBe(30);
-    expect(indented.minContent).toBe(10);
+    expect(indented.minContent).toBe(30);
   });
 
   // Case 6: indent: 0 (default) is byte-identical to the no-indent fixture.
   it("indent 0 is byte-identical to the no-indent equivalent (regression guard)", () => {
-    // Mirror the existing "paragraph with inline text" fixture: min=10, max=50.
+    // Mirror the existing "paragraph with inline text" fixture: min=30, max=50
+    // (t1 "abc"=30, t2 "de"=20; each one unbreakable word; min=max(30,20)=30).
     const make = (withIndent: boolean) => {
       const t1 = createTextBox("t1", { display: "inline" }, "abc");
       const t2 = createTextBox("t2", { display: "inline" }, "de");
@@ -473,24 +493,26 @@ describe("computeIntrinsicSizes — text-indent (#392)", () => {
       createIntrinsicSizesCache(),
     );
     expect(zeroIndent).toEqual(noIndent);
-    // Exact pre-existing expected values (byte-identical regression guard).
-    expect(zeroIndent.minContent).toBe(10);
+    // Exact expected values (byte-identical regression guard).
+    expect(zeroIndent.minContent).toBe(30);
     expect(zeroIndent.maxContent).toBe(50);
   });
 
-  // Consistency assertion from the spec: for a uniform text run,
-  // max(firstCluster, restMin) === minClusterInlineSize.
-  it("text-node consistency: max(firstCluster, restMin) === minClusterInlineSize", () => {
-    // The pass-level guarantee is exercised indirectly: a pure-inline block
-    // with indent 0 must produce minContent === the run's minClusterInlineSize.
-    // "hello" → minClusterInlineSize = 10.
+  // Consistency assertion from the spec: a text run's pass-level minContent is
+  // the run's widest unbreakable segment, and the indent plumbing preserves the
+  // invariant max(firstCluster, restMin) === minContent (so a NON-indented run
+  // fold reproduces the authoritative min byte-identically).
+  it("text-node consistency: max(firstCluster, restMin) === minContent", () => {
+    // A pure-inline block with indent 0 must produce minContent === the run's
+    // widest unbreakable segment. "hello" has no internal break opportunity, so
+    // the whole word is one segment → minContent = 50 (NOT minClusterInlineSize=10).
     const block = createElementBox(
       "p",
       { display: "block", textIndent: { value: 0, unit: "px" } },
       [createTextBox("t", { display: "inline" }, "hello")],
     );
     const result = computeIntrinsicSizes(cascadePass(block), shaper, createIntrinsicSizesCache());
-    expect(result.minContent).toBe(10); // === minClusterInlineSize
+    expect(result.minContent).toBe(50); // === widest unbreakable segment
   });
 
   // FINDING 1: restMin is the widest cluster in the TAIL (clusters after the
@@ -498,23 +520,29 @@ describe("computeIntrinsicSizes — text-indent (#392)", () => {
   // widest, the old over-conservative restMin (= whole-run min) wrongly refused
   // to narrow the box under a negative indent.
   it("restMin is the tail's widest cluster, not the whole-run widest (negative indent)", () => {
-    // text "Wa": W = 14 (widest, and FIRST), a = 4. tail = ["a"] → restMin = 4.
-    // indent −5 → min = clamp(max(−5 + 14, restMin=4)) = max(9, 4) = 9 (NOT 14,
-    //   which the old `restMin = whole-run min = 14` would have produced).
-    //   max = max(0, (14 + 4) + (−5)) = 13.
-    const varShaper = createVariableMockShaper({ W: 14, a: 4 }, 16);
+    // To exercise the `firstCluster === minContent` branch (restMin = tail's
+    // widest cluster) under the widest-unbreakable-SEGMENT min-content rule, the
+    // run's first cluster must itself BE the widest unbreakable segment — i.e. a
+    // single-cluster word. text "X a": X = 30, space = 0, a = 4. Two segments:
+    // "X " = 30 + 0 = 30 (the FIRST cluster is the whole segment) and "a" = 4.
+    // minContent = 30; firstCluster = 30 === minContent → restMin = tail's widest
+    // cluster = max(space=0, a=4) = 4.
+    // indent −5 → min = clamp(max(−5 + 30, restMin=4)) = max(25, 4) = 25 (NOT 30,
+    //   which the old over-conservative `restMin = whole-run min` would force).
+    //   max = max(0, (30 + 0 + 4) + (−5)) = 29.
+    const varShaper = createVariableMockShaper({ X: 30, " ": 0, a: 4 }, 16);
     const block = createElementBox(
       "p",
       { display: "block", textIndent: { value: -5, unit: "px" } },
-      [createTextBox("t", { display: "inline" }, "Wa")],
+      [createTextBox("t", { display: "inline" }, "X a")],
     );
     const result = computeIntrinsicSizes(
       cascadePass(block),
       varShaper,
       createIntrinsicSizesCache(),
     );
-    expect(result.minContent).toBe(9);
-    expect(result.maxContent).toBe(13);
+    expect(result.minContent).toBe(25);
+    expect(result.maxContent).toBe(29);
   });
 
   // FINDING 3: an inline-block as the FIRST child of an indented run is an
@@ -626,8 +654,10 @@ describe("computeIntrinsicSizes — letter/word-spacing (P5-LWS Task 5)", () => 
 
   it("min/max-content include letter-spacing (flows from the shaper aggregates)", () => {
     // "ab" with letterSpacing N = 4. Each cluster advance = W + N = 14.
+    // "ab" is one unbreakable word (no internal break), so min-content =
+    // max-content = the whole spaced word = 2 * (W + N) = 28.
     //   max-content = 2 * (W + N) = 28  (= plain 20 + 2*N)
-    //   min-content = widest spaced cluster = W + N = 14  (= plain 10 + N)
+    //   min-content = whole word     = 28  (= plain 20 + 2*N)
     const N = 4;
     const make = (spaced: boolean) =>
       createElementBox(
@@ -639,13 +669,14 @@ describe("computeIntrinsicSizes — letter/word-spacing (P5-LWS Task 5)", () => 
       );
     const spaced = computeIntrinsicSizes(cascadePass(make(true)), shaper, createIntrinsicSizesCache());
     const plain = computeIntrinsicSizes(cascadePass(make(false)), shaper, createIntrinsicSizesCache());
-    // Anchor the plain baseline (W = 10): max = 2*W = 20, min = W = 10.
+    // Anchor the plain baseline (W = 10): "ab" is one unbreakable word, so
+    // max = min = 2*W = 20.
     expect(plain.maxContent).toBe(20);
-    expect(plain.minContent).toBe(10);
-    // Spacing grows both: every cluster gains N (max), and the widest cluster
-    // gains N (min).
+    expect(plain.minContent).toBe(20);
+    // Spacing grows the whole word by 2*N (both clusters gain N), so both the
+    // max-content AND the unbreakable-segment min-content gain 2*N.
     expect(spaced.maxContent).toBe(plain.maxContent + 2 * N); // 28
-    expect(spaced.minContent).toBe(plain.minContent + N); // 14
+    expect(spaced.minContent).toBe(plain.minContent + 2 * N); // 28
   });
 
   it("max-content includes word-spacing (the one space grows)", () => {
