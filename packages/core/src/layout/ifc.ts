@@ -2165,9 +2165,9 @@ export function layoutInlineContent(
     // D.4 — Hyphen-pair constraint (CSS Fragmentation L4 §5).
     // A page break must not fall between two lines of a hyphenated word. If the
     // last placed line ends with a hyphen continuation, back off past it.
-    // This is a no-op until hyphenation infrastructure produces actual
-    // hyphenated lines (P7 — hyphens); the guard is in place so P7 doesn't
-    // need to revisit this code.
+    // Live now that `hyphens: manual` produces real hyphenated lines from authored
+    // U+00AD soft hyphens (the producer sets `endsWithHyphenContinuation`); covered
+    // by the IFC-fragmentation hyphen-pair test.
     while (placedLineCount > 0 && placedLineCount < linesToConsider.length && linesToConsider[placedLineCount - 1].endsWithHyphenContinuation === true) {
       placedLineCount--;
     }

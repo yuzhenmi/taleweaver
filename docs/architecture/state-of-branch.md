@@ -24,7 +24,7 @@ imports from here.
 
 Schema reservations (present in `Style` and `ComputedStyle` but not yet consumed by any code path):
 - `widows`, `orphans` — required by pagination.
-- `hyphens`, `fontFeatureSettings`, `tabSize` — required by typography phase 1 (P5); resolved into `UsedStyle` but not yet read by any tokenizer/layout/paint consumer. (`textAlign` incl. justify, `textWrap`/`whiteSpace`, `textIndent`, `letterSpacing`/`wordSpacing`, and `textTransform` are NOW consumed — `letterSpacing`/`wordSpacing` via `layout/text-spacing.ts` (applied in the shapers + IFC trailing-trim + renderer); `textTransform` via the `textTransformInterpreter` cascade interpreter + the IFC's per-token display transform (`layout/text-transform.ts`) + the `SET_TEXT_TRANSFORM` editor action + toolbar — so they are no longer schema-only.)
+- `fontFeatureSettings`, `tabSize` — required by typography phase 1 (P5); resolved into `UsedStyle` but not yet read by any tokenizer/layout/paint consumer. (`textAlign` incl. justify, `textWrap`/`whiteSpace`, `textIndent`, `letterSpacing`/`wordSpacing`, `textTransform`, and `hyphens` are NOW consumed — `letterSpacing`/`wordSpacing` via `layout/text-spacing.ts` (applied in the shapers + IFC trailing-trim + renderer); `textTransform` via the `textTransformInterpreter` cascade interpreter + the IFC's per-token display transform (`layout/text-transform.ts`) + the `SET_TEXT_TRANSFORM` editor action + toolbar; `hyphens` via the manual soft-hyphen producer in the IFC + `tryHyphenSplit` (see `1.6-text.md` Hyphenation, `auto` dictionary still future) — so they are no longer schema-only.)
 Schema items genuinely missing:
 - `overflow` — required by `establishesNewBFC`'s full check.
 - `position: absolute / fixed`, `transform`, `opacity` — required by positioning + visual-chrome work.
@@ -225,8 +225,14 @@ Known gaps:
   not boundaries: a cluster's advance is one base width per grapheme (combining
   marks add 0), an approximation of true complex-script positioning until a
   HarfBuzz-quality shaper is wired.
-- **Hyphenation dictionaries** are not loaded; `hyphens: auto` falls
-  back to no-hyphenation regardless of language.
+- **Manual hyphenation** (`hyphens: manual`, the cascade default — authored
+  U+00AD SOFT HYPHENs) is `[implemented]` end-to-end: zero-advance soft hyphen,
+  the IFC producer that synthesizes `hyphenBreaks`, `none`-suppression, the
+  `tryHyphenSplit` "-" glyph, and the D.4 hyphen-pair page-break back-off (see
+  `1.6-text.md` Hyphenation). **Dictionary `auto` hyphenation** is not loaded;
+  `hyphens: auto` falls back to `manual` (honor soft hyphens, no automatic breaks)
+  regardless of language — the correct CSS-UA behavior when no hyphenation resource
+  exists, not a degraded build.
 
 A legacy `TextMeasurer` interface exists alongside `TextShaper` for
 backwards compatibility; new code uses `TextShaper`.
@@ -245,14 +251,17 @@ forward, by word, by line), move (char, word, line, document boundary),
 expand selection, apply inline style, set block type, insert node.
 
 Known gaps:
-- **Cursor placement within a word broken across lines** — a word splits
-  across two visual lines only via hyphenation (`hyphens` defaults to
-  `manual`, so only an explicit soft-hyphen U+00AD breaks today; the IFC's
-  manual hyphen-split machinery handles that path) or `overflow-wrap:
-  break-word`. Automatic hyphenation is **P7 (not implemented)**,
-  `overflow-wrap: break-word` is not in the IFC, and the mock shaper emits
-  no `hyphen`-kind break opportunities — so this is a future-feature item
-  (lands with P7 / overflow-wrap), not a restorable disabled test.
+- **Cursor placement within a word broken across lines** — `[implemented]` for
+  manual hyphenation: a word splits across two visual lines at an authored U+00AD
+  SOFT HYPHEN (`hyphens` defaults to `manual`). Caret/click/selection around AND
+  across the soft-hyphen break are behavior-tested through the real editor
+  (`cursor/soft-hyphen-caret.test.ts`): the soft hyphen is a real 1-unit source
+  char that stays in the offset↔x map despite zero width (offsets before/after it
+  share an x). The other split path — `overflow-wrap: break-word` — is still NOT in
+  the IFC, and dictionary `auto` hyphenation is a future feature; those remain
+  gaps. (The mock/canvas shapers classify U+00AD as `kind:"soft"`; the IFC
+  synthesizes the `hyphen`-kind opportunity, so the manual path does not depend on
+  the shaper emitting `kind:"hyphen"`.)
 
 Resolved since this section was first written (kept here as a record of
 closed gaps, no remaining action):

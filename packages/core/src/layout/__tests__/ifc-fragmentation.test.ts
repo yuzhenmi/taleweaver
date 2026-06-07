@@ -164,17 +164,58 @@ describe("IFC fragmentation — widows", () => {
 });
 
 describe("IFC fragmentation — hyphen-pair constraint", () => {
-  // Hyphenation dictionaries are not loaded; `hyphens: auto` falls back to no-hyphenation
-  // regardless of language (per CLAUDE.md). The wrap pass therefore never sets
-  // endsWithHyphenContinuation: true on any LineBox in practice.
-  // The algorithmic guard is in place in the split-point search so that when
-  // hyphenation infrastructure (P7 — hyphens) lands, it activates automatically.
-  // TODO: un-skip when hyphenation dictionaries land and the wrap pass produces
-  // real hyphenated lines with endsWithHyphenContinuation: true.
-  it.skip("avoids splitting between two hyphenated lines (requires hyphenation infrastructure)", () => {
-    // Expected behavior once real hyphenation lands:
-    // A paragraph where line N ends with a hyphen continuation (word split across N and N+1).
-    // If the page break would fall between lines N and N+1, the split must be backed off to N-1.
+  // `hyphens: manual` (the cascade default) now produces REAL hyphenated lines from
+  // U+00AD SOFT HYPHENs (HYPH slices 1-3). So the D.4 hyphen-pair back-off — a page
+  // break must not fall BETWEEN the two lines of a soft-hyphenated word — is now
+  // reachable end-to-end and is asserted here (was skipped pending hyphenation).
+  const SHY = "­";
+
+  // Build a wrapping paragraph (white-space: normal) of `text` in a `width`-px
+  // column. Unlike `buildParagraph` (white-space: pre + \n hard lines) this lets
+  // a soft-hyphenated word actually wrap and emit `endsWithHyphenContinuation`.
+  function buildWrapPara(text: string, width: number, overrides?: Partial<Style>): {
+    paragraph: ElementBox;
+    ctx: ReturnType<typeof makeChildContext>;
+  } {
+    const textNode = createTextBox("t", { whiteSpace: "normal" }, text);
+    const baseStyle: Style = { display: "block", whiteSpace: "normal", ...overrides };
+    const paragraph = cascadePass(createElementBox("p", baseStyle, [textNode]));
+    if (paragraph.type !== "element") throw new Error("cascadePass returned non-element");
+    const rootCtx = makeRootContext(INITIAL_COMPUTED_STYLE, width);
+    const ctx = makeChildContext(rootCtx, INITIAL_COMPUTED_STYLE, width, "indefinite");
+    return { paragraph, ctx };
+  }
+
+  it("backs the page break off a soft-hyphenated line so the word's two fragments stay together", () => {
+    const shaper = createMockShaper(8, 16); // 8px/char, 16px/line
+    // "aaaa bbb<SHY>bbb" in a 40px column wraps to 3 lines:
+    //   line 0 "aaaa", line 1 "bbb<SHY>" + the "-" glyph, line 2 "bbb".
+    // Line 1 carries endsWithHyphenContinuation (it is the first half of the split
+    // word). First confirm the setup via a non-fragmented full layout.
+    const full = buildWrapPara("aaaa bbb" + SHY + "bbb", 40);
+    const fullBox = layoutInlineContent(full.paragraph, 0, 0, full.ctx, shaper).box;
+    expect(fullBox).not.toBeNull();
+    if (fullBox === null) return;
+    expect(fullBox.children.length).toBe(3);
+    const line1 = fullBox.children[1];
+    if (line1.type !== "line") throw new Error("expected line");
+    expect(line1.endsWithHyphenContinuation).toBe(true);
+
+    // Now fragment with room for exactly 2 lines (32px) and orphans/widows = 1
+    // (so ONLY the D.4 hyphen-pair rule governs the back-off). The greedy fit
+    // would place lines 0 + 1 and break before line 2 — but that break falls
+    // between the two halves of the hyphenated word, so D.4 backs it off to break
+    // before line 1 instead: only line 0 is placed; the whole "bbb<SHY>bbb" word
+    // (lines 1-2) carries to the next fragment.
+    const frag = buildWrapPara("aaaa bbb" + SHY + "bbb", 40, { orphans: 1, widows: 1 });
+    const { box, breakToken } = layoutInlineContent(frag.paragraph, 0, 0, frag.ctx, shaper, {
+      availableBlockSize: 32,
+      pageIndex: 0,
+      resumeFrom: null,
+    });
+    expect(box).not.toBeNull();
+    expect(box?.children.length).toBe(1); // only line 0 — NOT 2
+    expect(breakToken).toEqual({ type: "ifc", resumeAtLine: 1 }); // backed off from 2 to 1
   });
 });
 
