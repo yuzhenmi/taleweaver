@@ -105,8 +105,11 @@ Most of the layout pass is implemented and working:
   (mixed-direction geometry + RTL glyph paint + RTL cursor — see the
   bidi entry below for browser-smoke status), hyphen splitting,
   inline-block sizing, paragraph-level reuse.
-- Table FC: auto-layout column widths from intrinsic sizes,
-  anonymous row/cell synthesis.
+- Table FC: occupancy-grid model (§17.5), `colSpan`-aware auto-layout
+  column widths (§17.4) and `rowSpan` row-height distribution (§17.5.3),
+  anonymous row/cell synthesis, and fragmentation across pages — including
+  `rowSpan` cells that straddle a page break (interior fragmented + a
+  `SpanningCellContinuation` emitted, then resumed on the next fragment).
 - Float environment: full CSS 9.5 placement with push-below-if-needed,
   clearance integrated with margin-collapse, dirty-offset tracking.
 - Intrinsic sizing pass: `min-content` and `max-content` per render
@@ -165,9 +168,11 @@ Known gaps:
   gate, bidi-context gate, fragmentation interaction) — see
   `1.4-layout/1.4.2-ifc.md` "Convergence (incremental wrap)". Wiring it
   naively would ship a degraded, incorrect partial-reuse.
-- **Auto-table rowspan / colspan** — schema doesn't yet have
-  `rowSpan`/`colSpan`; column-width algorithm uses sequential
-  `colIdx++`.
+- **Table `border-collapse: collapse`** — every cell draws its own
+  borders; the heaviest-wins collapse resolution is not implemented.
+- **Repeating `<thead>`/`<tfoot>` across page fragments** — needs a
+  `table-header-group` schema addition; `resumeAtRow` already indexes the
+  body.
 
 ### Pagination `[partial]`
 
