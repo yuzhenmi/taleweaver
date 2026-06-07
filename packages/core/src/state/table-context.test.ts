@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveTableContext, getChildIds } from "./table-context";
+import { resolveTableContext, getChildIds, buildTableGrid } from "./table-context";
 import { buildBlock, buildState, inlineContent } from "../test-utils/state-builders";
 import type { BlockId } from "./block-id";
 import type { Block } from "./block";
@@ -134,5 +134,61 @@ describe("resolveTableContext", () => {
     // so a spanned-AND-ragged table still no-ops — the ragged gate wins).
     expect(ctx?.ragged).toBe(true);
     expect(ctx?.spanned).toBe(false);
+  });
+});
+
+describe("buildTableGrid", () => {
+  it("builds the occupancy grid for a uniform 2×2 table from the State tree", () => {
+    const state = buildTableState();
+    const grid = buildTableGrid(state, "table" as BlockId);
+    expect(grid).not.toBeNull();
+    if (grid === null) throw new Error("expected a grid");
+    expect(grid.columnCount).toBe(2);
+    expect(grid.occupancy).toEqual([["cA", "cB"], ["cC", "cD"]]);
+    // every cell is 1×1 at its document position
+    expect(grid.cells).toEqual([
+      { cellId: "cA", gridRow: 0, gridCol: 0, rowSpan: 1, colSpan: 1 },
+      { cellId: "cB", gridRow: 0, gridCol: 1, rowSpan: 1, colSpan: 1 },
+      { cellId: "cC", gridRow: 1, gridCol: 0, rowSpan: 1, colSpan: 1 },
+      { cellId: "cD", gridRow: 1, gridCol: 1, rowSpan: 1, colSpan: 1 },
+    ]);
+  });
+
+  it("reads spans via spanValue: a colSpan-2 cell claims two grid columns (state-built grid matches layout)", () => {
+    const state = buildTableState({ cAattrs: { colSpan: 2 } });
+    const grid = buildTableGrid(state, "table" as BlockId);
+    if (grid === null) throw new Error("expected a grid");
+    // cA spans cols 0–1, cB lands at col 2 → columnCount 3; row1 has a null tail.
+    expect(grid.columnCount).toBe(3);
+    expect(grid.occupancy).toEqual([["cA", "cA", "cB"], ["cC", "cD", null]]);
+    expect(grid.cells[0]).toEqual({ cellId: "cA", gridRow: 0, gridCol: 0, rowSpan: 1, colSpan: 2 });
+  });
+
+  it("ignores a malformed (non-integer) span — agrees with the component's spanValue predicate", () => {
+    const state = buildTableState({ cAattrs: { colSpan: 2.9 } });
+    const grid = buildTableGrid(state, "table" as BlockId);
+    if (grid === null) throw new Error("expected a grid");
+    // spanValue(2.9) → undefined → 1×1 (NOT clampSpan(2.9)=2). Byte-identical to layout.
+    expect(grid.columnCount).toBe(2);
+    expect(grid.cells[0].colSpan).toBe(1);
+  });
+
+  it("reads rowSpan via spanValue: a rowSpan-2 cell reserves its column into the next row", () => {
+    // row0 = [cA(rowSpan 2), cB], row1 = [cC] (dropCellD). cA fills (0,0) AND (1,0),
+    // so cC lands at col 1 — the grid is rectangular even though the rows have
+    // differing CELL counts. Exercises assignTableGrid's freeAtRow carryover.
+    const state = buildTableState({ cAattrs: { rowSpan: 2 }, dropCellD: true });
+    const grid = buildTableGrid(state, "table" as BlockId);
+    if (grid === null) throw new Error("expected a grid");
+    expect(grid.columnCount).toBe(2);
+    expect(grid.occupancy).toEqual([["cA", "cB"], ["cA", "cC"]]);
+    expect(grid.cells[0]).toEqual({ cellId: "cA", gridRow: 0, gridCol: 0, rowSpan: 2, colSpan: 1 });
+    expect(grid.cells[2]).toEqual({ cellId: "cC", gridRow: 1, gridCol: 1, rowSpan: 1, colSpan: 1 });
+  });
+
+  it("returns null when the id is not a main-tree table block", () => {
+    const state = buildTableState();
+    expect(buildTableGrid(state, "row0" as BlockId)).toBeNull();
+    expect(buildTableGrid(state, "missing" as BlockId)).toBeNull();
   });
 });

@@ -131,7 +131,7 @@ export {
 
 // Table editing (P15a): caret→table context resolution + columnWidths helpers +
 // the shared cell-span predicate.
-export { resolveTableContext, getChildIds } from "./table-context";
+export { resolveTableContext, getChildIds, buildTableGrid } from "./table-context";
 export type { TableContext } from "./table-context";
 export { spliceColumnWidth, removeColumnWidth } from "./table-column-widths";
 export { spanValue, isSpan } from "./table-cell-span";

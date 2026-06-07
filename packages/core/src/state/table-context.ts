@@ -2,7 +2,9 @@ import type { State } from "./state";
 import { getBlock, blockCount } from "./state";
 import type { BlockId } from "./block-id";
 import { ancestorChain } from "./block-traversal";
-import { isSpan } from "./table-cell-span";
+import { isSpan, spanValue } from "./table-cell-span";
+import { assignTableGrid } from "./table-grid-core";
+import type { GridCell, TableGrid } from "./table-grid-core";
 
 /**
  * The table-editing context derived from a caret position (P15a). Identifies the
@@ -124,4 +126,39 @@ export function resolveTableContext(state: State, blockId: BlockId): TableContex
     ragged,
     hasSpans: ragged || spanned,
   };
+}
+
+/**
+ * Build the P8 occupancy grid (`TableGrid`) for a main-tree `table` block from
+ * the STATE Block tree — the state-side counterpart of the layout Table FC's grid
+ * pass, so the P15b span-aware editing ops can reason in grid coordinates
+ * (gridRow/gridCol/occupancy) from the PRE-mutation `State`.
+ *
+ * Spans are read as `spanValue(attrs.rowSpan/colSpan) ?? 1` — the SAME predicate
+ * `table-cell.ts` stamps into layout metadata — so the state-built grid is
+ * BYTE-IDENTICAL to the layout-built grid. (NOT `clampSpan` on raw attrs:
+ * `clampSpan(2.9) = 2` would diverge from the layout path's `1×1`. See the
+ * `table-grid-core` F1 contract.)
+ *
+ * Returns `null` when `tableId` is not a main-tree `table` block. Rows/cells are
+ * filtered to `table-row`/`table-cell` types (anonymous-row/cell synthesis is a
+ * layout concern, not present in the state tree).
+ */
+export function buildTableGrid(state: State, tableId: BlockId): TableGrid | null {
+  if (getBlock(state, tableId)?.type !== "table") return null;
+  const rows: GridCell[][] = getChildIds(state, tableId)
+    .filter((rid) => getBlock(state, rid)?.type === "table-row")
+    .map((rid) =>
+      getChildIds(state, rid)
+        .filter((cid) => getBlock(state, cid)?.type === "table-cell")
+        .map((cid): GridCell => {
+          const attrs = getBlock(state, cid)?.attrs ?? {};
+          return {
+            cellId: cid,
+            rowSpan: spanValue(attrs.rowSpan) ?? 1,
+            colSpan: spanValue(attrs.colSpan) ?? 1,
+          };
+        }),
+    );
+  return assignTableGrid(rows);
 }
