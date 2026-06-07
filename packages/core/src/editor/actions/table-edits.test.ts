@@ -238,7 +238,7 @@ describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
     expect(next).toBe(editor);
   });
 
-  it("no-ops on a ragged table (hasSpans boundary → defer to P15b)", () => {
+  it("no-ops on a ragged table (the degenerate carve-out — ctx.ragged gate)", () => {
     const cell = (): BlockInit => ({ type: "table-cell", children: [{ type: "paragraph", inlineContent: { items: [] } }] });
     const ragged: BlockInit = {
       type: "table",
@@ -255,6 +255,36 @@ describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
 
     const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" }, config);
     expect(next).toBe(editor);
+  });
+
+  it("routes a WELL-FORMED SPANNED table to the span-aware op (P15b): a covering rowSpan shrinks + caret lands", () => {
+    // row0=[A(rowSpan 2), B], row1=[C] → occupancy [[A,B],[A,C]]. Caret in C (row 1);
+    // delete row1 → A covering-shrinks to rowSpan 1; caret → the cell now in C's
+    // column at the row that took row1's place = the previous row (row1 was last) =
+    // B's column-1 slot, i.e. B's first paragraph.
+    const blocks = [
+      buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
+      buildBlock({ id: "table", type: "table", parentId: "doc", firstChildId: "r0", lastChildId: "r1" }),
+      buildBlock({ id: "r0", type: "table-row", parentId: "table", nextSiblingId: "r1", firstChildId: "A", lastChildId: "B" }),
+      buildBlock({ id: "r1", type: "table-row", parentId: "table", prevSiblingId: "r0", firstChildId: "C", lastChildId: "C" }),
+      buildBlock({ id: "A", type: "table-cell", parentId: "r0", attrs: { rowSpan: 2 }, nextSiblingId: "B", firstChildId: "Ap", lastChildId: "Ap" }),
+      buildBlock({ id: "Ap", type: "paragraph", parentId: "A", inlineContent: inlineContent([]) }),
+      buildBlock({ id: "B", type: "table-cell", parentId: "r0", prevSiblingId: "A", firstChildId: "Bp", lastChildId: "Bp" }),
+      buildBlock({ id: "Bp", type: "paragraph", parentId: "B", inlineContent: inlineContent([]) }),
+      buildBlock({ id: "C", type: "table-cell", parentId: "r1", firstChildId: "Cp", lastChildId: "Cp" }),
+      buildBlock({ id: "Cp", type: "paragraph", parentId: "C", inlineContent: inlineContent([]) }),
+    ];
+    const state = buildState({ rootId: "doc", blocks });
+    const caret = createPosition("Cp" as BlockId, 0);
+    const editor = createEditorStateFromState(state, createSpan(caret, caret), config);
+
+    const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" }, config);
+    expect(next).not.toBe(editor);
+    expect(getBlock(next.state, "A" as BlockId)?.attrs.rowSpan).toBeUndefined(); // 2→1
+    expect(getChildIds(next.state, "table" as BlockId)).toEqual(["r0"]); // row1 gone
+    expect(getBlock(next.state, "C" as BlockId)).toBeNull();
+    // caret → column 1 of the surviving row (B's first paragraph).
+    expect(next.selection.focus.blockId).toBe("Bp");
   });
 
   it("deletes the caret's row; caret moves to the same column in the NEXT row", () => {

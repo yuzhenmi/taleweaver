@@ -37,6 +37,14 @@ export interface TableContext {
   readonly ragged: boolean;
   /** `spanned || ragged` — the P15a no-op boundary. */
   readonly hasSpans: boolean;
+  /**
+   * The P8 occupancy grid for this table, built ONCE from the PRE-mutation
+   * `state` (it is what `ragged` is derived from). `null` only for a non-main-tree
+   * table — unreachable here, since `tableId` is already proven a main-tree
+   * `table`. Span-aware handlers reuse this for caret targeting instead of
+   * re-scanning the tree with a second `buildTableGrid` call.
+   */
+  readonly grid: TableGrid | null;
 }
 
 /** The main-tree child ids of `parentId` in document order (sibling-chain walk).
@@ -137,6 +145,7 @@ export function resolveTableContext(state: State, blockId: BlockId): TableContex
     spanned,
     ragged,
     hasSpans: ragged || spanned,
+    grid,
   };
 }
 
