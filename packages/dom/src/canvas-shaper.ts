@@ -84,7 +84,13 @@ export function createCanvasShaper(
     // shaper measured. v1 clusters are single code units.
     let start = 0;
     for (const c of segmentClusters(text)) {
-      const w = ctx.measureText(c).width + clusterSpacing(c, letterPx, wordPx);
+      // U+00AD SOFT HYPHEN is a zero-advance format char (Cf): it renders nothing
+      // and adds no width unless it is the chosen line-end break (where the IFC
+      // shapes a "-" glyph separately). `ctx.measureText("­")` is browser/
+      // font-dependent (often the width of a rendered hyphen), so we force 0 here
+      // to match real shapers (HarfBuzz zero-advances default-ignorable Cf chars)
+      // and keep word widths invariant to embedded soft hyphens (hyphenation).
+      const w = c === "­" ? 0 : ctx.measureText(c).width + clusterSpacing(c, letterPx, wordPx);
       clusters.push({
         start,
         end: start + c.length,

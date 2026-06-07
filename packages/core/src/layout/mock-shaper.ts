@@ -38,7 +38,13 @@ export function createMockShaper(charWidth: number, lineHeight: number): TextSha
       // One BASE width per grapheme (not per code unit) + per-cluster spacing.
       // Single-code-unit graphemes (ASCII/BMP) keep `charWidth + clusterSpacing(g)`,
       // byte-identical to the old per-code-unit path.
-      const adv = charWidth + clusterSpacing(g, letterPx, wordPx);
+      //
+      // U+00AD SOFT HYPHEN is a zero-advance format char (Cf): it renders nothing
+      // and adds no width unless it is the chosen line-end break, where the IFC
+      // shapes a "-" glyph separately. Real shapers zero default-ignorable Cf
+      // chars; matching that here makes a word measure the same with or without
+      // its embedded soft hyphens (hyphenation slice 1).
+      const adv = g === "­" ? 0 : charWidth + clusterSpacing(g, letterPx, wordPx);
       clusters.push({
         start,
         end:   start + g.length,
@@ -118,7 +124,8 @@ export function createVariableMockShaper(
       // widthByChar keys are single UTF-16 code units; a multi-code-unit grapheme's
       // g[0] is its first code unit (a lone high surrogate for astral graphemes) and
       // falls to defaultWidth — the map cannot encode grapheme-string keys (S1 ok).
-      const adv = widthOf(g[0]) + clusterSpacing(g, letterPx, wordPx);
+      // U+00AD SOFT HYPHEN is a zero-advance format char (see createMockShaper).
+      const adv = g === "­" ? 0 : widthOf(g[0]) + clusterSpacing(g, letterPx, wordPx);
       clusters.push({
         start,
         end:   start + g.length,
