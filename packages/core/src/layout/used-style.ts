@@ -132,6 +132,7 @@ export function computeUsedStyle(
     textIndent: resolveUsedLength(cs.textIndent, containingInlineSize, 0),
     textWrap: cs.textWrap,
     hyphens: cs.hyphens,
+    overflowWrap: cs.overflowWrap,
     letterSpacing: resolveUsedLengthOrNormal(cs.letterSpacing, containingInlineSize),
     wordSpacing: resolveUsedLengthOrNormal(cs.wordSpacing, containingInlineSize),
     textTransform: cs.textTransform,

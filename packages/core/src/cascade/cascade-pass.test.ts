@@ -47,6 +47,25 @@ describe("cascadePass", () => {
     expect(t.computedStyle?.fontSize).toBe(24);
   });
 
+  it("overflowWrap: defaults to `normal` and inherits (overflow-wrap break-word v1)", () => {
+    // Default: a node with no `overflowWrap` gets the CSS initial `normal`.
+    const def = cascadePass(createElementBox("root", { display: "block" }, []));
+    if (def.type !== "element") throw new Error("?");
+    expect(def.computedStyle?.overflowWrap).toBe("normal");
+    // Inherits (CSS Text 3 — overflow-wrap is inherited): a text leaf inherits the
+    // root's `break-word` through an intervening element with no own value.
+    const tree = createElementBox("root", { overflowWrap: "break-word" }, [
+      createElementBox("p", {}, [createTextBox("t", {}, "hello")]),
+    ]);
+    const cascaded = cascadePass(tree);
+    if (cascaded.type !== "element") throw new Error("?");
+    const p = cascaded.children[0];
+    if (p.type !== "element") throw new Error("?");
+    const t = p.children[0];
+    if (t.type !== "text") throw new Error("?");
+    expect(t.computedStyle?.overflowWrap).toBe("break-word");
+  });
+
   it("does NOT propagate non-inheritable properties", () => {
     const tree = createElementBox("root", { marginBlockStart: 50 }, [
       createElementBox("p", {}, []),

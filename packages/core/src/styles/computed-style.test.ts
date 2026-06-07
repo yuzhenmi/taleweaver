@@ -29,6 +29,7 @@ describe("ComputedStyle", () => {
       textIndent: 0,
       textWrap: "wrap",
       hyphens: "manual",
+      overflowWrap: "normal",
       letterSpacing: "normal",
       wordSpacing: "normal",
       textTransform: "none",

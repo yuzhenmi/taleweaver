@@ -52,6 +52,7 @@ function makeUsedStyle(writingMode: WritingMode, direction: Direction): UsedStyl
     underline: false, lineThrough: false, lineHeight: 20, color: "black",
     whiteSpace: "normal", verticalAlign: "baseline",
     textAlign: "start", textIndent: 0, textWrap: "wrap", hyphens: "none",
+    overflowWrap: "normal",
     letterSpacing: "normal", wordSpacing: "normal", textTransform: "none",
     fontFeatureSettings: [], tabSize: 8,
     float: "none", clear: "none",

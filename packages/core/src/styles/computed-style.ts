@@ -69,6 +69,10 @@ export interface ComputedStyle {
   textIndent:          ComputedLength;
   textWrap:            "wrap" | "nowrap" | "balance" | "pretty" | "stable";
   hyphens:             "none" | "manual" | "auto";
+  // CSS Text 3 §5.1 — last-resort within-word break to avoid overflow. v1 ships
+  // `normal` (initial — overflow) + `break-word` (break an unbreakable word at a
+  // grapheme boundary). `anywhere` (the min-content variant) is a follow-up.
+  overflowWrap:        "normal" | "break-word";
   letterSpacing:       ComputedLength | "normal";
   wordSpacing:         ComputedLength | "normal";
   textTransform:       TextTransform;
