@@ -594,6 +594,15 @@ function fitOnePageRecursive(
         leafResumeToken !== null && leafResumeToken.type === "table"
           ? leafResumeToken.resumeAtRow
           : 0;
+      // P8.S5.T2: a rowSpan cell straddling THIS table's incoming break is carried
+      // on the leaf resume token's `spanningCells`. The measure pass works only off
+      // `rowBlockSizes` (no cell interiors), so it cannot recompute the list — it
+      // THREADS the incoming continuation through unchanged so the page plan doesn't
+      // drop it; the FC refines the exact interiorBreakToken at getPage time (S5.T3).
+      const inheritedSpanningCells =
+        leafResumeToken !== null && leafResumeToken.type === "table"
+          ? leafResumeToken.spanningCells
+          : undefined;
       const fit = fitRowsInTable(rowSizes, remaining, startRow);
       if (fit.placedRowCount === 0) {
         // Table couldn't place a row (bfc.ts:573–588). §C.6 overflow if first.
@@ -607,7 +616,7 @@ function fitOnePageRecursive(
         }
         return finish({
           childrenCount,
-          resumeOut: { type: "block", resumeChildIndex: i, resumeChildToken: { type: "table", resumeAtRow: startRow } },
+          resumeOut: { type: "block", resumeChildIndex: i, resumeChildToken: { type: "table", resumeAtRow: startRow, ...(inheritedSpanningCells ? { spanningCells: inheritedSpanningCells } : {}) } },
           listCounterAtEnd: meta.listItem ? listCounter - 1 : listCounter,
         });
       }
@@ -620,7 +629,7 @@ function fitOnePageRecursive(
         runningOffset += placedRowsUsed;
         return finish({
           childrenCount,
-          resumeOut: { type: "block", resumeChildIndex: i, resumeChildToken: { type: "table", resumeAtRow: fit.resumeAtRow } },
+          resumeOut: { type: "block", resumeChildIndex: i, resumeChildToken: { type: "table", resumeAtRow: fit.resumeAtRow, ...(inheritedSpanningCells ? { spanningCells: inheritedSpanningCells } : {}) } },
           listCounterAtEnd: listCounter,
         });
       }

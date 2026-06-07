@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { fitLinesInIFC, fitRowsInTable, fitOnePage } from "../fit-core";
 import type { BlockFitMeta } from "../fit-core";
+import type { SpanningCellContinuation } from "../fragmentation";
+import type { BlockId } from "../../state";
 
 /** A minimal leaf-block meta (no inline content) of the given height. */
 function blockMeta(totalBlockSize: number, extra?: Partial<BlockFitMeta>): BlockFitMeta {
@@ -501,5 +503,47 @@ describe("fitOnePage stopBeforeIndex (C.2b-1 T2, section cap)", () => {
     const result = fitOnePage(metas, 0, null, BIG, 0, 3);
     expect(result.childrenCount).toBe(3);
     expect(result.resumeOut).toBeNull();
+  });
+});
+
+describe("fitOnePage — table spanningCells pass-through (P8.S5.T2)", () => {
+  // A table meta whose rows are pre-distributed [100,100,100]; the measure pass
+  // only decides resumeAtRow over these, with no cell-interior knowledge.
+  function tableMeta(rowBlockSizes: readonly number[]): BlockFitMeta {
+    return {
+      kind: "table",
+      marginBlockStart: 0, marginBlockEnd: 0,
+      breakBefore: "auto", breakAfter: "auto", breakInsideAvoid: false,
+      totalBlockSize: rowBlockSizes.reduce((s, v) => s + v, 0),
+      rowBlockSizes,
+    } as unknown as BlockFitMeta;
+  }
+
+  const spanCont: SpanningCellContinuation = {
+    cellId: "cellA" as BlockId,
+    gridRow: 0, gridCol: 0, rowSpan: 3, colSpan: 1,
+    interiorBreakToken: { type: "block", resumeChildIndex: 1, resumeChildToken: null },
+  };
+
+  it("partial fit on resume threads the incoming spanningCells into the output token", () => {
+    const metas = [tableMeta([100, 100, 100])];
+    // Resume into row 1 with a cell already straddling; page fits one more row.
+    const resumeInto = {
+      type: "block" as const,
+      resumeChildIndex: 0,
+      resumeChildToken: { type: "table" as const, resumeAtRow: 1, spanningCells: [spanCont] },
+    };
+    const res = fitOnePage(metas, 0, resumeInto, 150, 0);
+    expect(res.resumeOut).toMatchObject({
+      type: "block",
+      resumeChildToken: { type: "table", resumeAtRow: 2, spanningCells: [spanCont] },
+    });
+  });
+
+  it("a fresh table (no incoming continuation) emits NO spanningCells key", () => {
+    const metas = [tableMeta([100, 100, 100])];
+    const res = fitOnePage(metas, 0, null, 150, 0);
+    const tok = res.resumeOut as { resumeChildToken?: { spanningCells?: unknown } } | null;
+    expect(tok?.resumeChildToken?.spanningCells).toBeUndefined();
   });
 });
