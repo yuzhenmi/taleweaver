@@ -354,11 +354,12 @@ references are deferred. Built on the render-time numbering service.
   ordered list-item for `"number"`, inline-bearing for `"text"`); a "command"
   undo unit.
 
-Deferred follow-ups: page-mode (layout-dependent), heading-number references
-(needs heading numbering), footnote-number references, bookmarks, captions;
-and a shared `handleInsert*` selection-delete (neither this nor the footnote
-handler clears an expanded selection before inserting). Browser smoke of the
-live insertion UX rides the user's in-browser pass.
+A non-collapsed selection is replaced on insert (deleted then the field spliced
+at the collapse point, one undo step) via the shared `prepareEmbedInsertPoint`
+helper — which also fixed the same gap in `INSERT_FOOTNOTE`. Deferred follow-ups:
+page-mode (layout-dependent), heading-number references (needs heading
+numbering), footnote-number references, bookmarks, captions. Browser smoke of
+the live insertion UX rides the user's in-browser pass.
 
 ### `perf/` `[implemented]`
 
