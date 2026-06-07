@@ -992,3 +992,43 @@ describe("P3.7 vertical bidi SelectionRect — range crossing an LTR↔RTL bound
     });
   }
 });
+
+describe("computeSelectionRects — table cells (#P8.S4.T3 audit)", () => {
+  function tableState(): State {
+    return buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "tbl", lastChildId: "tbl" }),
+        buildBlock({ id: "tbl", type: "table", parentId: "doc", attrs: { columnWidths: [0.5, 0.5] }, firstChildId: "row", lastChildId: "row" }),
+        buildBlock({ id: "row", type: "table-row", parentId: "tbl", firstChildId: "cA", lastChildId: "cB" }),
+        buildBlock({ id: "cA", type: "table-cell", parentId: "row", nextSiblingId: "cB", firstChildId: "pA", lastChildId: "pA" }),
+        buildBlock({ id: "cB", type: "table-cell", parentId: "row", prevSiblingId: "cA", firstChildId: "pB", lastChildId: "pB" }),
+        buildBlock({ id: "pA", type: "paragraph", parentId: "cA", inlineContent: inlineContent([text("AAAA")]) }),
+        buildBlock({ id: "pB", type: "paragraph", parentId: "cB", inlineContent: inlineContent([text("BBBB")]) }),
+      ],
+    });
+  }
+
+  // Selection geometry iterates the document-order lines BETWEEN the two
+  // positions and emits one rect per line from that line's own absolute leaf
+  // coords — so each rect is naturally CELL-LOCAL (no cross-cell bleed). Unlike
+  // the band-PICK in hit-test (which had to choose ONE line and was column-
+  // unaware, #P8.S4b), selection emits every in-range line, so it needs no
+  // cell-restriction. This locks that per-cell correctness. (Whole-cell grid
+  // selection — Google Docs highlighting entire cells when you drag across a
+  // column — is a separate future selection-MODEL feature, not text-flow rect
+  // geometry; out of scope here.)
+  it("selection across two cells emits a per-cell rect, each within its own column", () => {
+    const state = tableState();
+    const { layout, shaper } = pipeline(state, 400); // cols [200, 200]
+    const span = createSpan(createPosition("pA" as BlockId, 1), createPosition("pB" as BlockId, 2));
+    const rects = computeSelectionRects(state, span, layout, shaper);
+    expect(rects).toHaveLength(2);
+    const [rA, rB] = rects;
+    // Cell A's rect stays inside column 0 [0, 200); cell B's inside column 1 [200, 400).
+    expect(rA.x).toBeGreaterThanOrEqual(0);
+    expect(rA.x + rA.width).toBeLessThanOrEqual(200);
+    expect(rB.x).toBeGreaterThanOrEqual(200);
+    expect(rB.x + rB.width).toBeLessThanOrEqual(400);
+  });
+});
