@@ -3155,14 +3155,16 @@ describe("IFC — UAX #14 token annotation (S2.4) + S2.3/S2.4-scaffold negative 
   });
 });
 
-describe("IFC — hyphens: none suppresses the soft-hyphen break (HYPH.S2)", () => {
+describe("IFC — hyphens: soft-hyphen break handling (HYPH.S2/S3)", () => {
   const SHY = "­";
+  type LineBox = import("./layout-box").LineBox;
+  type TextRunBox = import("./layout-box").TextRunBox;
   // SHY is UAX #14 class BA (break-after), so `lineBreakOpportunities` emits a
-  // soft break at the index immediately AFTER it. `hyphens: none` (CSS Text 4)
-  // means "words are not broken even if characters inside suggest break points",
-  // so that single soft break must be suppressed — leaving real-space breaks
-  // intact. Under `manual` (the default) the break stays a plain soft wrap in
-  // slice 2 (slice 3 converts it to a glyph-bearing hyphen break).
+  // soft break at the index immediately AFTER it. Under ALL three `hyphens`
+  // values the glyph-less soft break at a U+00AD is suppressed: `none` removes
+  // it entirely (the word stays unbroken — CSS Text 4); `manual`/`auto` MOVE it
+  // to a hyphen break that renders a "-" glyph at the line end. Real-space
+  // breaks elsewhere are never affected.
   function styledTree(text: string, hyphens?: ComputedStyle["hyphens"]) {
     const tree = cascadePass(
       createElementBox("p", { display: "block", ...(hyphens ? { hyphens } : {}) }, [
@@ -3176,35 +3178,67 @@ describe("IFC — hyphens: none suppresses the soft-hyphen break (HYPH.S2)", () 
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
     return collectTokens(styledTree(text, hyphens), shaper, "ltr", ctx.intrinsicCache);
   }
-  function ifcOfStyled(text: string, width: number, hyphens?: ComputedStyle["hyphens"]) {
+  function linesOf(text: string, width: number, hyphens?: ComputedStyle["hyphens"]): LineBox[] {
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, width);
     const result = layoutInlineContent(styledTree(text, hyphens), 0, 0, ctx, shaper);
     if (result.box === null) throw new Error("layoutInlineContent returned null box");
-    return result.box.children;
+    return result.box.children.filter((c): c is LineBox => c.type === "line");
   }
 
-  it("manual (default): the post-U+00AD soft break is recorded on the token", () => {
-    // "hy<SHY>phen": SHY at index 2 → UAX #14 BA emits a soft break at index 3,
-    // strictly inside the token's display span → token-relative softBreaks [3].
-    expect(tokensOf("hy" + SHY + "phen")[0].softBreaks).toEqual([3]);
+  // --- S3: manual producer (soft → hyphen) ---
+
+  it("manual (default): the break MOVES from soft to hyphen on the token", () => {
+    // "hy<SHY>phen": SHY at token-relative index 2 → the suffix begins at the
+    // char AFTER it, so the hyphen break is at index 3 (prefix = slice(0,3) =
+    // "hy<SHY>", keeping the soft hyphen on the prefix where it renders as "-").
+    // The glyph-less soft break is REMOVED (moved, not duplicated).
+    const tok = tokensOf("hy" + SHY + "phen")[0];
+    expect(tok.hyphenBreaks).toEqual([3]);
+    expect(tok.softBreaks).toBeUndefined();
   });
 
-  it("none: the post-U+00AD soft break is suppressed (no softBreaks)", () => {
-    expect(tokensOf("hy" + SHY + "phen", "none")[0].softBreaks).toBeUndefined();
+  it("auto ≡ manual: same hyphenBreaks (auto falls back to manual until a dictionary)", () => {
+    expect(tokensOf("hy" + SHY + "phen", "auto")[0].hyphenBreaks).toEqual([3]);
   });
+
+  it("multiple soft hyphens → a hyphenBreaks entry at each i+1, none for a trailing SHY", () => {
+    // "a<SHY>b<SHY>c<SHY>": SHY at indices 1, 3, 5. The first two yield interior
+    // hyphen breaks at 2 and 4; the TRAILING SHY (index 5, last char) has no
+    // suffix to break to → no entry.
+    expect(tokensOf("a" + SHY + "b" + SHY + "c" + SHY)[0].hyphenBreaks).toEqual([2, 4]);
+  });
+
+  it("none: NO hyphenBreaks are produced (the word is unbreakable at the soft hyphen)", () => {
+    const tok = tokensOf("hy" + SHY + "phen", "none")[0];
+    expect(tok.hyphenBreaks).toBeUndefined();
+    expect(tok.softBreaks).toBeUndefined();
+  });
+
+  it("manual: a soft-hyphenated overflow line ends with a hyphen glyph", () => {
+    // "hy<SHY>phen" = 6 visible letters × 8px = 48px (SHY zero-advance) in a 40px
+    // line → wraps at the soft hyphen. Line 1 ends with the synthetic "-" glyph
+    // and carries endsWithHyphenContinuation; line 2 is the "phen" suffix.
+    const lines = linesOf("hy" + SHY + "phen", 40, "manual");
+    expect(lines.length).toBe(2);
+    expect(lines[0].endsWithHyphenContinuation).toBe(true);
+    const runs = lines[0].children.filter((c): c is TextRunBox => c.type === "text-run");
+    expect(runs.map((r) => r.text)).toContain("-");
+    // The suffix line carries no hyphen continuation.
+    expect(lines[1].endsWithHyphenContinuation).not.toBe(true);
+  });
+
+  // --- S2: none suppression (still holds) ---
 
   it("none: a soft-hyphenated word that overflows does NOT break at the soft hyphen", () => {
-    // "hy<SHY>phen" = 6 visible letters × 8px = 48px (SHY is zero-advance). At a
-    // 40px line it overflows. Under `manual` it wraps at the soft hyphen (→ 2
-    // lines); under `none` it stays on ONE overflowing line.
-    expect(ifcOfStyled("hy" + SHY + "phen", 40, "manual").length).toBe(2);
-    expect(ifcOfStyled("hy" + SHY + "phen", 40, "none").length).toBe(1);
+    // Under `manual` it wraps at the soft hyphen (→ 2 lines); under `none` it
+    // stays on ONE overflowing line.
+    expect(linesOf("hy" + SHY + "phen", 40, "manual").length).toBe(2);
+    expect(linesOf("hy" + SHY + "phen", 40, "none").length).toBe(1);
   });
 
   it("none: a real-space break is still honored (only the soft-hyphen break is removed)", () => {
     // "hy<SHY>phen aaaa" under `none` at width 40: the in-word soft-hyphen break
     // is gone, but the SPACE break before "aaaa" remains → still wraps to 2 lines.
-    const lines = ifcOfStyled("hy" + SHY + "phen aaaa", 40, "none");
-    expect(lines.length).toBe(2);
+    expect(linesOf("hy" + SHY + "phen aaaa", 40, "none").length).toBe(2);
   });
 });
