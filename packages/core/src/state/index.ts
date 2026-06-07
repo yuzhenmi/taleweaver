@@ -243,6 +243,7 @@ export { deleteTableWithReplacement } from "./ops/delete-table";
 export { insertTableColumn } from "./ops/insert-table-column";
 export type { ColumnPosition } from "./ops/insert-table-column";
 export { splitCell } from "./ops/split-cell";
+export { mergeCells } from "./ops/merge-cells";
 export { deleteTableColumn } from "./ops/delete-table-column";
 
 // Block-attribute + type edits.
