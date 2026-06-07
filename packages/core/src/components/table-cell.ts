@@ -1,16 +1,7 @@
 import type { ContainerComponentDefinition } from "./component-definition";
 import type { LayoutBoxMetadata } from "../render/layout-metadata";
 import { createElementBox } from "../render/render-node";
-
-/**
- * A real (non-identity) span: a finite integer > 1, else undefined. A span of 1
- * is the HTML default — stamping it would be a no-op that still breaks the
- * byte-identical-for-1×1 invariant (the box would carry metadata where before it
- * didn't), so identity/absent/invalid spans return undefined and are not stamped.
- */
-function spanAttr(v: unknown): number | undefined {
-  return typeof v === "number" && Number.isFinite(v) && v > 1 ? Math.floor(v) : undefined;
-}
+import { spanValue } from "../state/table-cell-span";
 
 /**
  * Table cell: hardcoded 1px solid border + 4/8px padding match legacy
@@ -28,8 +19,8 @@ export const tableCellComponent: ContainerComponentDefinition = {
   type: "table-cell",
   kind: "container",
   render: (view, _ctx, childRenderNodes) => {
-    const rowSpan = spanAttr(view.attrs.rowSpan);
-    const colSpan = spanAttr(view.attrs.colSpan);
+    const rowSpan = spanValue(view.attrs.rowSpan);
+    const colSpan = spanValue(view.attrs.colSpan);
     const metadata: LayoutBoxMetadata | undefined =
       rowSpan !== undefined || colSpan !== undefined
         ? {

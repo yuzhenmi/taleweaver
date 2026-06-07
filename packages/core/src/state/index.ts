@@ -129,6 +129,13 @@ export {
   lastLeafBlock,
 } from "./block-traversal";
 
+// Table editing (P15a): caret→table context resolution + columnWidths helpers +
+// the shared cell-span predicate.
+export { resolveTableContext, getChildIds } from "./table-context";
+export type { TableContext } from "./table-context";
+export { spliceColumnWidth, removeColumnWidth } from "./table-column-widths";
+export { spanValue, isSpan } from "./table-cell-span";
+
 // Document-order comparison + span endpoints + selection-context lookup.
 export {
   compareBlocksInDocOrder,

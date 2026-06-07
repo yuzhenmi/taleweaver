@@ -55,14 +55,16 @@ describe("tableCellComponent (new)", () => {
     expect(el.metadata?.colSpan).toBe(3);
   });
 
-  it("floors fractional + drops invalid spans, and omits the absent dimension", () => {
+  it("drops a non-integer span and the absent/invalid dimension", () => {
     const el = tableCellComponent.render(
       containerView({ rowSpan: 2.9, colSpan: 0 }),
       stubCtx(),
       [],
     ) as ElementBox;
-    expect(el.metadata?.rowSpan).toBe(2);
-    expect(el.metadata?.colSpan).toBeUndefined(); // 0 is invalid → not stamped
+    // 2.9 is not an integer → not a real span (the shared `spanValue` predicate
+    // requires a finite integer > 1, so the component, the table-editing context
+    // resolver, and layout's clampSpan all agree). 0 is invalid → not stamped.
+    expect(el.metadata).toBeUndefined();
   });
 
   it("drops negative + non-number spans (open-schema attrs)", () => {
