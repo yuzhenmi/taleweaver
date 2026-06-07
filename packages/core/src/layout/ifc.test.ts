@@ -3154,3 +3154,57 @@ describe("IFC — UAX #14 token annotation (S2.4) + S2.3/S2.4-scaffold negative 
     expect(tokens[0].breakableBefore).toBeUndefined();
   });
 });
+
+describe("IFC — hyphens: none suppresses the soft-hyphen break (HYPH.S2)", () => {
+  const SHY = "­";
+  // SHY is UAX #14 class BA (break-after), so `lineBreakOpportunities` emits a
+  // soft break at the index immediately AFTER it. `hyphens: none` (CSS Text 4)
+  // means "words are not broken even if characters inside suggest break points",
+  // so that single soft break must be suppressed — leaving real-space breaks
+  // intact. Under `manual` (the default) the break stays a plain soft wrap in
+  // slice 2 (slice 3 converts it to a glyph-bearing hyphen break).
+  function styledTree(text: string, hyphens?: ComputedStyle["hyphens"]) {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", ...(hyphens ? { hyphens } : {}) }, [
+        createTextBox("t", {}, text),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    return tree;
+  }
+  function tokensOf(text: string, hyphens?: ComputedStyle["hyphens"]) {
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    return collectTokens(styledTree(text, hyphens), shaper, "ltr", ctx.intrinsicCache);
+  }
+  function ifcOfStyled(text: string, width: number, hyphens?: ComputedStyle["hyphens"]) {
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, width);
+    const result = layoutInlineContent(styledTree(text, hyphens), 0, 0, ctx, shaper);
+    if (result.box === null) throw new Error("layoutInlineContent returned null box");
+    return result.box.children;
+  }
+
+  it("manual (default): the post-U+00AD soft break is recorded on the token", () => {
+    // "hy<SHY>phen": SHY at index 2 → UAX #14 BA emits a soft break at index 3,
+    // strictly inside the token's display span → token-relative softBreaks [3].
+    expect(tokensOf("hy" + SHY + "phen")[0].softBreaks).toEqual([3]);
+  });
+
+  it("none: the post-U+00AD soft break is suppressed (no softBreaks)", () => {
+    expect(tokensOf("hy" + SHY + "phen", "none")[0].softBreaks).toBeUndefined();
+  });
+
+  it("none: a soft-hyphenated word that overflows does NOT break at the soft hyphen", () => {
+    // "hy<SHY>phen" = 6 visible letters × 8px = 48px (SHY is zero-advance). At a
+    // 40px line it overflows. Under `manual` it wraps at the soft hyphen (→ 2
+    // lines); under `none` it stays on ONE overflowing line.
+    expect(ifcOfStyled("hy" + SHY + "phen", 40, "manual").length).toBe(2);
+    expect(ifcOfStyled("hy" + SHY + "phen", 40, "none").length).toBe(1);
+  });
+
+  it("none: a real-space break is still honored (only the soft-hyphen break is removed)", () => {
+    // "hy<SHY>phen aaaa" under `none` at width 40: the in-word soft-hyphen break
+    // is gone, but the SPACE break before "aaaa" remains → still wraps to 2 lines.
+    const lines = ifcOfStyled("hy" + SHY + "phen aaaa", 40, "none");
+    expect(lines.length).toBe(2);
+  });
+});

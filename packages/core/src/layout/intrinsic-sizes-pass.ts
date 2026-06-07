@@ -148,7 +148,18 @@ function computeTextContribution(
   // the narrowest line the IFC can produce. `minClusterInlineSize` (widest single
   // cluster, always ≤ a segment) is kept as a `max` lower bound so a coarser
   // word-aware shaper still floors correctly.
-  const breakOffsets = new Set(run.breakOpportunities.map((b) => b.clusterIndex));
+  // HYPH.S2 — under `hyphens: none`, drop the in-word break a soft hyphen
+  // (U+00AD, UAX #14 class BA) suggests, mirroring the IFC's `annotateLineBreaks`
+  // suppression. This is a DISTINCT correction from the slice-1 zero-advance fix:
+  // zeroing the soft hyphen's width does NOT remove its break opportunity, so
+  // without this filter min-content would still split the word there. A break at
+  // `clusterIndex` is BEFORE that offset, so the soft hyphen sits at `idx - 1`.
+  const noHyphenBreaks = node.computedStyle.hyphens === "none";
+  const breakOffsets = new Set(
+    run.breakOpportunities
+      .filter((b) => !(noHyphenBreaks && text.charCodeAt(b.clusterIndex - 1) === 0x00ad))
+      .map((b) => b.clusterIndex),
+  );
   let widestSegment = 0;
   let segWidth = 0;
   for (const cl of clusters) {

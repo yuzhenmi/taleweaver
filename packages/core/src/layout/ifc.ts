@@ -559,7 +559,7 @@ const OBJECT_REPLACEMENT = "￼";
  */
 interface IfcSourceAssembly {
   source: string;
-  readonly runs: { start: number; end: number; whiteSpace: WhiteSpace }[];
+  readonly runs: { start: number; end: number; whiteSpace: WhiteSpace; hyphens: ComputedStyle["hyphens"] }[];
   readonly tokenBases: number[];
 }
 
@@ -616,7 +616,7 @@ function collectInlineTokens(
       // into `asm.source`; a token's absolute base = `childBase + matchStart`.
       const childBase = asm.source.length;
       asm.source += fullText;
-      asm.runs.push({ start: childBase, end: childBase + fullText.length, whiteSpace: cs.whiteSpace });
+      asm.runs.push({ start: childBase, end: childBase + fullText.length, whiteSpace: cs.whiteSpace, hyphens: cs.hyphens });
 
       /**
        * Return the total inline advance for the substring [start, end) of the
@@ -845,7 +845,7 @@ function collectInlineTokens(
       // wrap-around-an-inline-object semantics.
       const ibBase = asm.source.length;
       asm.source += OBJECT_REPLACEMENT;
-      asm.runs.push({ start: ibBase, end: ibBase + OBJECT_REPLACEMENT.length, whiteSpace: cs.whiteSpace });
+      asm.runs.push({ start: ibBase, end: ibBase + OBJECT_REPLACEMENT.length, whiteSpace: cs.whiteSpace, hyphens: cs.hyphens });
       // Resolve inlineSize using intrinsic sizes for auto (shrink-to-fit, CSS Sizing 3 §10.3.5).
       // cs.inlineSize: ComputedLengthOrAuto | IntrinsicSizingKeyword =
       //   number | { unit: "percent"; value } | "auto" | "min-content" | "max-content" | "fit-content".
@@ -985,6 +985,27 @@ function annotateLineBreaks(out: Token[], asm: IfcSourceAssembly): void {
     }
     return undefined;
   };
+  // Map an absolute offset to the `hyphens` mode of the owning run (parallel to
+  // `runWhiteSpaceAt`). Used to suppress the soft-hyphen break under `none`.
+  const runHyphensAt = (offset: number): ComputedStyle["hyphens"] | undefined => {
+    for (const r of asm.runs) {
+      if (offset >= r.start && offset < r.end) return r.hyphens;
+    }
+    return undefined;
+  };
+  // HYPH.S2 — `hyphens: none` (CSS Text 4 §6.1): a word is not broken even if a
+  // character inside it suggests a break point. U+00AD SOFT HYPHEN is UAX #14
+  // class BA, so `lineBreakOpportunities` emits a soft break at the offset
+  // immediately AFTER it; under `none` that single in-word opportunity must be
+  // removed (real-space breaks elsewhere are unaffected — they are not preceded
+  // by a soft hyphen). Gating at the opportunity source (rather than scrubbing
+  // already-written token `softBreaks`) also covers the rare case where the
+  // post-soft-hyphen offset lands on a token boundary (`breakableBefore`), not
+  // an interior `softBreaks` index. `hyphens` is keyed at `k - 1` (the soft
+  // hyphen itself) — the run that OWNS the suggested break, matching how the
+  // producer in slice 3 keys the hyphen break on the soft hyphen's owning token.
+  const suppressedSoftHyphenBreakAt = (k: number): boolean =>
+    asm.source.charCodeAt(k - 1) === 0x00ad && runHyphensAt(k - 1) === "none";
   // A white-space mode permits soft wrapping iff it is NOT `nowrap`/`pre`
   // (CSS Text 3 §3 — those two disallow soft-wrap opportunities; `normal`,
   // `pre-wrap`, `pre-line`, `break-spaces` keep them).
@@ -998,6 +1019,7 @@ function annotateLineBreaks(out: Token[], asm: IfcSourceAssembly): void {
   //     interior to either, so a `nowrap` span governs only its own interior).
   const softActiveAt = (k: number): boolean => {
     if (!softAt.has(k)) return false;
+    if (suppressedSoftHyphenBreakAt(k)) return false;
     const wsBefore = runWhiteSpaceAt(k - 1);
     const wsAfter = runWhiteSpaceAt(k);
     if (wsBefore !== undefined && wsAfter !== undefined && wsBefore === wsAfter) {

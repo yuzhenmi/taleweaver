@@ -5,6 +5,29 @@ import { createMockShaper, createVariableMockShaper } from "./mock-shaper";
 import { createElementBox, createTextBox } from "../render/render-node";
 import { cascadePass } from "../cascade";
 
+describe("computeIntrinsicSizes — hyphens: none (HYPH.S2)", () => {
+  const shaper = createMockShaper(10, 16);
+  const SHY = "­";
+  // min-content is the narrowest line the IFC can produce. A soft hyphen adds a
+  // UAX #14 break (class BA), so by default a word can break there. `hyphens:
+  // none` removes that in-word break — min-content must then equal the WHOLE
+  // word. The `inlineAdvance`-summing width path is already corrected by slice 1
+  // (SHY is zero-advance); this asserts the SEPARATE break-point correction.
+  it("none: min-content of a soft-hyphenated word is the WHOLE word (no split at the soft hyphen)", () => {
+    const minOf = (h: "none" | "manual") =>
+      computeIntrinsicSizes(
+        cascadePass(createTextBox("t", { display: "inline", hyphens: h }, "hy" + SHY + "phen")),
+        shaper,
+        createIntrinsicSizesCache(),
+      ).minContent;
+    // 6 visible letters × 10px = 60px (SHY zero-advance). Under `manual` the soft
+    // break after the SHY splits it → widest segment "phen" = 40. Under `none`
+    // the word is unbreakable → 60.
+    expect(minOf("manual")).toBe(40);
+    expect(minOf("none")).toBe(60);
+  });
+});
+
 describe("computeIntrinsicSizes", () => {
   const shaper = createMockShaper(10, 16);
 
