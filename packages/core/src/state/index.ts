@@ -246,6 +246,7 @@ export { splitCell } from "./ops/split-cell";
 export { mergeCells } from "./ops/merge-cells";
 export { insertTableRowSpanAware } from "./ops/insert-table-row-span-aware";
 export { insertTableColumnSpanAware } from "./ops/insert-table-column-span-aware";
+export { deleteTableRowSpanAware } from "./ops/delete-table-row-span-aware";
 export { deleteTableColumn } from "./ops/delete-table-column";
 
 // Block-attribute + type edits.
