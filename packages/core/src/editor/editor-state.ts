@@ -53,6 +53,7 @@ import {
   handleToggleSectionLandscape,
   handleInsertHeaderFooter,
   handleInsertHorizontalLine,
+  handleInsertTableRow,
   handleInsertImage,
   handleSetImageSize,
   handleInsertFootnote,
@@ -449,6 +450,9 @@ export function reduceEditor(
       break;
     case "INSERT_HORIZONTAL_LINE":
       result = handleInsertHorizontalLine(editor, config);
+      break;
+    case "INSERT_TABLE_ROW":
+      result = handleInsertTableRow(editor, action.position, config);
       break;
     case "INSERT_IMAGE":
       result = handleInsertImage(editor, action.src, action.width, action.height, config);

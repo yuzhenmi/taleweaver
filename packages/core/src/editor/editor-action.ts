@@ -50,6 +50,7 @@ export type EditorAction =
   | { type: "INSERT_FOOTER" }
   | { type: "INSERT_FOOTNOTE" }
   | { type: "INSERT_HORIZONTAL_LINE" }
+  | { type: "INSERT_TABLE_ROW"; position: "above" | "below" }
   | { type: "INSERT_IMAGE"; src: string; width?: number; height?: number }
   | { type: "SET_IMAGE_SIZE"; blockId: BlockId; width: number; height: number }
   | { type: "SET_TEXT_ALIGN"; align: TextAlign }

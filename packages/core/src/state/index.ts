@@ -224,6 +224,11 @@ export { insertBlock } from "./ops/insert-block";
 export type { SiblingBlockInit } from "./ops/insert-blocks-after";
 export { insertBlocksAfter } from "./ops/insert-blocks-after";
 export { removeBlock } from "./ops/remove-block";
+// Table editing (P15a). `planInsertTableRow` / `insertTableRowInTx` are
+// intentionally NOT re-exported (the in-tx primitives stay op-internal, matching
+// planInsertBlock / insertBlockInTx).
+export { insertTableRow } from "./ops/insert-table-row";
+export type { RowPosition } from "./ops/insert-table-row";
 
 // Block-attribute + type edits.
 export { setBlockAttrs } from "./ops/set-block-attrs";
