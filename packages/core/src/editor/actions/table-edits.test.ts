@@ -60,8 +60,8 @@ describe("handleInsertTableRow — INSERT_TABLE_ROW (P15a.S2)", () => {
     expect(next).toBe(editor);
   });
 
-  it("no-ops on a ragged table (hasSpans boundary → defer to P15b)", () => {
-    // row0 has 2 cells, row1 has 1 cell → resolveTableContext.hasSpans = true.
+  it("no-ops on a ragged table (the degenerate carve-out — ctx.ragged gate)", () => {
+    // row0 has 2 cells, row1 has 1 cell → a grid hole → resolveTableContext.ragged = true.
     const cell = (): BlockInit => ({ type: "table-cell", children: [{ type: "paragraph", inlineContent: { items: [] } }] });
     const ragged: BlockInit = {
       type: "table",
@@ -112,6 +112,33 @@ describe("handleInsertTableRow — INSERT_TABLE_ROW (P15a.S2)", () => {
 
     const undone = reduceEditor(inserted, { type: "UNDO" }, config);
     expect(getChildIds(undone.state, tableId).length).toBe(2);
+  });
+
+  it("routes a WELL-FORMED SPANNED table to the span-aware op (P15b): a crossing rowSpan grows", () => {
+    // row0=[A(rowSpan 2), B], row1=[C] → occupancy [[A,B],[A,C]]. Caret in B; insert
+    // below → A crosses the new boundary → A.rowSpan 2→3. (The old hasSpans gate
+    // would have no-op'd this; the new ragged-only gate routes to span-aware insert.)
+    const blocks = [
+      buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
+      buildBlock({ id: "table", type: "table", parentId: "doc", firstChildId: "r0", lastChildId: "r1" }),
+      buildBlock({ id: "r0", type: "table-row", parentId: "table", nextSiblingId: "r1", firstChildId: "A", lastChildId: "B" }),
+      buildBlock({ id: "r1", type: "table-row", parentId: "table", prevSiblingId: "r0", firstChildId: "C", lastChildId: "C" }),
+      buildBlock({ id: "A", type: "table-cell", parentId: "r0", attrs: { rowSpan: 2 }, nextSiblingId: "B", firstChildId: "Ap", lastChildId: "Ap" }),
+      buildBlock({ id: "Ap", type: "paragraph", parentId: "A", inlineContent: inlineContent([]) }),
+      buildBlock({ id: "B", type: "table-cell", parentId: "r0", prevSiblingId: "A", firstChildId: "Bp", lastChildId: "Bp" }),
+      buildBlock({ id: "Bp", type: "paragraph", parentId: "B", inlineContent: inlineContent([]) }),
+      buildBlock({ id: "C", type: "table-cell", parentId: "r1", firstChildId: "Cp", lastChildId: "Cp" }),
+      buildBlock({ id: "Cp", type: "paragraph", parentId: "C", inlineContent: inlineContent([]) }),
+    ];
+    const state = buildState({ rootId: "doc", blocks });
+    const caret = createPosition("Bp" as BlockId, 0);
+    let editor = createEditorStateFromState(state, createSpan(caret, caret), config);
+
+    const next = reduceEditor(editor, { type: "INSERT_TABLE_ROW", position: "below" }, config);
+    expect(next).not.toBe(editor);
+    expect(getBlock(next.state, "A" as BlockId)?.attrs.rowSpan).toBe(3);
+    expect(getChildIds(next.state, "table" as BlockId).length).toBe(3);
+    expect(next.selection.focus.blockId).toBe("Bp"); // selection unchanged
   });
 });
 

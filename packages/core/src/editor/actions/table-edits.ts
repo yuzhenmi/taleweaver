@@ -3,6 +3,7 @@ import type { BlockId } from "../../state";
 import {
   resolveTableContext,
   insertTableRow,
+  insertTableRowSpanAware,
   insertTableColumn,
   deleteTableColumn,
   splitCell,
@@ -20,11 +21,13 @@ import type { RowPosition, ColumnPosition } from "../../state";
 import { rebuildTrees } from "./helpers";
 
 /**
- * `INSERT_TABLE_ROW` handler (P15a). Inserts a row above/below the caret's row.
+ * `INSERT_TABLE_ROW` handler. Inserts a row above/below the caret's row.
  *
  * No-ops (returns the same `editor` reference) when the caret is not inside an
- * editable table — `resolveTableContext` returns null — OR the table has any
- * span / ragged rows (`ctx.hasSpans`, the P15a → P15b boundary).
+ * editable table — `resolveTableContext` returns null — OR the table is `ragged`
+ * (the degenerate carve-out). A WELL-FORMED SPANNED table routes to the span-aware
+ * op (`insertTableRowSpanAware`, P15b); a plain no-span table uses the byte-
+ * identical P15a `insertTableRow`.
  *
  * Selection is UNCHANGED: Google Docs keeps the cursor in its current cell on
  * insert-row, and the caret's paragraph still exists after the edit. One undo
@@ -36,9 +39,11 @@ export function handleInsertTableRow(
   config: EditorConfig,
 ): EditorState {
   const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
-  if (ctx === null || ctx.hasSpans) return editor;
+  if (ctx === null || ctx.ragged) return editor;
 
-  const result = insertTableRow(editor.state, ctx, position, productionAllocator);
+  const result = ctx.spanned
+    ? insertTableRowSpanAware(editor.state, ctx, position, productionAllocator)
+    : insertTableRow(editor.state, ctx, position, productionAllocator);
   if (result.state === editor.state) return editor; // defensive no-op short-circuit
 
   editor.history.commit(
