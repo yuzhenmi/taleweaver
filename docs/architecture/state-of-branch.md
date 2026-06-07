@@ -198,7 +198,6 @@ Still missing (deferred to P1.C and later):
 - All P1.C sub-pieces (headers/footers/footnotes/templates).
 - Bottom-side margin truncation across breaks for the edge case where the parent has bottom padding/border on a partial fragment (top side already shipped in P1.B).
 - Cross-page floats (P1.D-or-P12; current float environment is single-fragment-aware).
-- Cross-references (Google-Docs reference fields, NOT CSS `target-counter`) — not yet built; the render-time numbering service is the foundation when they land.
 - Cross-page table header row (`<thead>`) repetition (requires `Display: "table-header-group"` schema addition).
 
 ### Text `[partial]`
@@ -329,6 +328,37 @@ the `list` component and `components/list.ts` were deleted, and a
 
 Browser smoke for the list editing UX rides the user's in-browser pass
 (per the project's browser-verification convention).
+
+### Cross-references `[implemented]`
+
+The Google-Docs reference field (NOT CSS `target-counter`) is shipped
+end-to-end for v1: an inline `cross-reference` `EmbedItem`
+(`properties: { targetId, refMode }`) that displays a target's number or
+text and auto-updates. v1 supports `refMode: "number" | "text"` against
+MAIN-tree targets; page-number / heading-number / bookmark / caption
+references are deferred. Built on the render-time numbering service.
+
+- **State** (`1.1-state.md`): `insertCrossReference` op + the
+  `cross-reference` embed type (`CrossReferenceMode`); a POINTER that owns
+  no body (cascade scanners ignore it); `clonePastedSubtree` remaps a copied
+  ref's `targetId` when the target is in the clone set, else preserves it. A
+  dangling target is a legal state.
+- **Render** (`1.2-render.md`): `resolveCrossReference` (number → numbering
+  map; text → `extractText`; broken-ref otherwise); `expandInlineItems`
+  renders the field as a one-token inline-block atom (the offset-accounting
+  invariant); `buildCrossReferenceIndex` (`targetId → hosts`) on
+  `RenderOutput.crossReferenceIndex`, reused + invalidation-expanded on the
+  incremental path so a target edit/delete/renumber re-renders its hosts.
+- **Editing** (`1.7-editor.md`): `INSERT_CROSS_REFERENCE` action + handler
+  with structural target validation (main-body caret, main-tree target,
+  ordered list-item for `"number"`, inline-bearing for `"text"`); a "command"
+  undo unit.
+
+Deferred follow-ups: page-mode (layout-dependent), heading-number references
+(needs heading numbering), footnote-number references, bookmarks, captions;
+and a shared `handleInsert*` selection-delete (neither this nor the footnote
+handler clears an expanded selection before inserting). Browser smoke of the
+live insertion UX rides the user's in-browser pass.
 
 ### `perf/` `[implemented]`
 
