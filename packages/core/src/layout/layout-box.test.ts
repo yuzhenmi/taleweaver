@@ -178,10 +178,21 @@ describe("MarkerBox", () => {
 });
 
 describe("Table layout boxes", () => {
-  it("TableBox has columnPxWidths", () => {
-    const t = createTableBox("t", 0, 0, 500, 200, "horizontal-tb", "ltr", cs, us, [], [200, 300], 500);
+  it("TableBox has columnPxWidths + P8 grid (occupancy/columnCount/cellBoxById)", () => {
+    const cell = createTableCellBox(
+      "c", 0, 0, 100, 30, "horizontal-tb", "ltr", cs, us, [],
+      { gridRow: 0, gridCol: 0, rowSpan: 1, colSpan: 1 }, 100,
+    );
+    const row = createTableRowBox("r", 0, 0, 500, 30, "horizontal-tb", "ltr", cs, us, [cell], 500);
+    const t = createTableBox(
+      "t", 0, 0, 500, 200, "horizontal-tb", "ltr", cs, us, [row], [200, 300],
+      { occupancy: [["c" as BlockId, null]], columnCount: 2 }, 500,
+    );
     expect(t.type).toBe("table");
     expect(t.columnPxWidths).toEqual([200, 300]);
+    expect(t.columnCount).toBe(2);
+    expect(t.occupancy).toEqual([["c", null]]);
+    expect(t.cellBoxById.get("c" as BlockId)).toBe(cell);
   });
 
   it("TableRowBox holds cells", () => {
@@ -189,9 +200,14 @@ describe("Table layout boxes", () => {
     expect(r.type).toBe("table-row");
   });
 
-  it("TableCellBox holds content", () => {
-    const c = createTableCellBox("c", 0, 0, 100, 30, "horizontal-tb", "ltr", cs, us, [], 100);
+  it("TableCellBox holds content + carries its grid placement (P8)", () => {
+    const c = createTableCellBox(
+      "c", 0, 0, 100, 30, "horizontal-tb", "ltr", cs, us, [],
+      { gridRow: 1, gridCol: 2, rowSpan: 2, colSpan: 3 }, 100,
+    );
     expect(c.type).toBe("table-cell");
+    expect({ gridRow: c.gridRow, gridCol: c.gridCol, rowSpan: c.rowSpan, colSpan: c.colSpan })
+      .toEqual({ gridRow: 1, gridCol: 2, rowSpan: 2, colSpan: 3 });
   });
 });
 
@@ -362,7 +378,10 @@ describe("withBlockOffset", () => {
     expect(movedIb.blockOffset).toBe(7);
     expect(movedIb.children).toHaveLength(1);
 
-    const tb = createTableBox("tb", 0, 0, 500, 200, "horizontal-tb", "ltr", cs, us, [], [200, 300], 500);
+    const tb = createTableBox(
+      "tb", 0, 0, 500, 200, "horizontal-tb", "ltr", cs, us, [], [200, 300],
+      { occupancy: [], columnCount: 2 }, 500,
+    );
     const movedTb = withBlockOffset(tb, 11, 500);
     if (movedTb.type !== "table") throw new Error("?");
     expect(movedTb.columnPxWidths).toEqual([200, 300]);

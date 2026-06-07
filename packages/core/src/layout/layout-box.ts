@@ -219,10 +219,28 @@ export interface MarkerBox extends LayoutBoxBase {
   readonly bidiLevel?: number;
 }
 
+/** A table cell's placement in the table grid (P8 rowSpan/colSpan). */
+export interface TableCellGrid {
+  readonly gridRow: number;
+  readonly gridCol: number;
+  readonly rowSpan: number;
+  readonly colSpan: number;
+}
+
 export interface TableBox extends LayoutBoxBase {
   readonly type: "table";
   readonly children: readonly LayoutBox[];
   readonly columnPxWidths: readonly number[];
+  /**
+   * `occupancy[row][col]` = the owning cell's id, or `null` for an empty slot
+   * (P8). The reverse map a point/selection uses to find the merged cell that
+   * owns a grid slot — a spanning cell's box lives only in its first row's
+   * children, so lower rows' slots resolve here. Rectangular (`columnCount` wide).
+   */
+  readonly occupancy: readonly (readonly (BlockId | null)[])[];
+  readonly columnCount: number;
+  /** cell id → its box, for O(1) reverse lookup from `occupancy` (P8). */
+  readonly cellBoxById: ReadonlyMap<BlockId, TableCellBox>;
 }
 
 export interface TableRowBox extends LayoutBoxBase {
@@ -230,7 +248,7 @@ export interface TableRowBox extends LayoutBoxBase {
   readonly children: readonly LayoutBox[];
 }
 
-export interface TableCellBox extends LayoutBoxBase {
+export interface TableCellBox extends LayoutBoxBase, TableCellGrid {
   readonly type: "table-cell";
   readonly children: readonly LayoutBox[];
 }
@@ -468,6 +486,7 @@ export function createTableBox(
   usedStyle: UsedStyle,
   children: readonly LayoutBox[],
   columnPxWidths: readonly number[],
+  grid: { readonly occupancy: readonly (readonly (BlockId | null)[])[]; readonly columnCount: number },
   containingInlineSize: number,
   containingBlockSize?: number,
 ): TableBox {
@@ -476,11 +495,23 @@ export function createTableBox(
     writingMode, direction, computedStyle, usedStyle, containingInlineSize,
     containingBlockSize,
   });
+  // O(1) reverse lookup from an occupancy id → its cell box (P8). A spanning
+  // cell's box lives only in its first row's children, so we walk rows→cells.
+  const cellBoxById = new Map<BlockId, TableCellBox>();
+  for (const row of children) {
+    if (row.type !== "table-row") continue;
+    for (const cell of row.children) {
+      if (cell.type === "table-cell") cellBoxById.set(cell.key as BlockId, cell);
+    }
+  }
   return Object.freeze({
     type: "table" as const,
     ...base,
     children: Object.freeze([...children]),
     columnPxWidths: Object.freeze([...columnPxWidths]),
+    occupancy: Object.freeze(grid.occupancy.map((r) => Object.freeze([...r]))),
+    columnCount: grid.columnCount,
+    cellBoxById: Object.freeze(cellBoxById),
   });
 }
 
@@ -513,6 +544,7 @@ export function createTableCellBox(
   computedStyle: ComputedStyle,
   usedStyle: UsedStyle,
   children: readonly LayoutBox[],
+  grid: TableCellGrid,
   containingInlineSize: number,
   containingBlockSize?: number,
 ): TableCellBox {
@@ -525,6 +557,10 @@ export function createTableCellBox(
     type: "table-cell" as const,
     ...base,
     children: Object.freeze([...children]),
+    gridRow: grid.gridRow,
+    gridCol: grid.gridCol,
+    rowSpan: grid.rowSpan,
+    colSpan: grid.colSpan,
   });
 }
 
@@ -792,7 +828,9 @@ export function rebuildBoxWithOffsets(
       return createTableBox(
         box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
-        box.children, box.columnPxWidths, containingInlineSize, containingBlockSize,
+        box.children, box.columnPxWidths,
+        { occupancy: box.occupancy, columnCount: box.columnCount },
+        containingInlineSize, containingBlockSize,
       );
     case "table-row":
       return createTableRowBox(
@@ -804,7 +842,9 @@ export function rebuildBoxWithOffsets(
       return createTableCellBox(
         box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
-        box.children, containingInlineSize, containingBlockSize,
+        box.children,
+        { gridRow: box.gridRow, gridCol: box.gridCol, rowSpan: box.rowSpan, colSpan: box.colSpan },
+        containingInlineSize, containingBlockSize,
       );
     case "page":
       // The page FRAME is never writing-mode-mirrored (page placement is

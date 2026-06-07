@@ -1,7 +1,10 @@
 import type { RenderNode, ElementBox } from "../render/render-node";
 import type { ComputedStyle } from "../styles";
+import type { BlockId } from "../state";
 import type { TableBox, TableRowBox, TableCellBox } from "./layout-box";
 import { createTableBox, createTableRowBox, createTableCellBox } from "./layout-box";
+import { assignTableGrid } from "./table-grid";
+import type { GridCellInput, AssignedCell } from "./table-grid";
 import type { TextShaper } from "./text-shaper";
 import { layoutBlock } from "./bfc";
 import { computeUsedStyle } from "./used-style";
@@ -278,6 +281,24 @@ export function layoutTable(
   const rowBoxes: TableRowBox[] = [];
 
   const rows = groupTableRows(node);
+
+  // P8 grid model: assign every cell its (gridRow, gridCol) + span over the WHOLE
+  // table (independent of fragmentation trimming), and build the occupancy map.
+  // For 1×1 cells each cell's gridCol === its per-row index, so S1 geometry is
+  // unchanged — only the grid/occupancy metadata is now carried on the boxes.
+  const gridInput: GridCellInput[][] = rows.map((r) =>
+    groupRowCells(r).map((cg): GridCellInput => ({
+      key: cg.key as BlockId,
+      metadata:
+        !cg.isAnonymous && cg.content[0]?.type === "element"
+          ? cg.content[0].metadata
+          : undefined,
+    })),
+  );
+  const grid = assignTableGrid(gridInput);
+  const placementByKey = new Map<string, AssignedCell>();
+  for (const ac of grid.cells) placementByKey.set(ac.cellId, ac);
+  const gridInfo = { occupancy: grid.occupancy, columnCount: grid.columnCount };
   for (let rowIdx = 0; rowIdx < rows.length; rowIdx++) {
     // E.3: skip rows before the resume point.
     if (rowIdx < startBodyRow) continue;
@@ -332,11 +353,23 @@ export function layoutTable(
 
       const interiorChildren = Array.from(interior.children);
 
+      const placement = placementByKey.get(cg.key) ?? {
+        gridRow: rowIdx,
+        gridCol: ci,
+        rowSpan: 1,
+        colSpan: 1,
+      };
       const cellBox = createTableCellBox(
         cg.key, cellInlineOffset, 0, cellInlineSize, cellBlockSize,
         cs.writingMode, cs.direction,
         cellCs, cellUsedStyle,
         interiorChildren,
+        {
+          gridRow: placement.gridRow,
+          gridCol: placement.gridCol,
+          rowSpan: placement.rowSpan,
+          colSpan: placement.colSpan,
+        },
         /* containingInlineSize */ tableInlineSize,
       );
       cellBoxes.push(cellBox);
@@ -363,6 +396,7 @@ export function layoutTable(
             cb.computedStyle,
             cb.usedStyle,
             Array.from(cb.children),
+            { gridRow: cb.gridRow, gridCol: cb.gridCol, rowSpan: cb.rowSpan, colSpan: cb.colSpan },
             /* containingInlineSize */ tableInlineSize,
           ),
     );
@@ -406,7 +440,7 @@ export function layoutTable(
           node.key, inlineOffset, blockOffset, tableInlineSize, partialBlockSize,
           writingMode, direction,
           cs, tableUsedStyle,
-          placedRows, columnPxWidths,
+          placedRows, columnPxWidths, gridInfo,
           /* containingInlineSize */ availableInlineSize,
         ),
         breakToken: { type: "table", resumeAtRow: startBodyRow + placedRowCount },
@@ -422,7 +456,7 @@ export function layoutTable(
     node.key, inlineOffset, blockOffset, tableInlineSize, tableBlockSize,
     writingMode, direction,
     cs, tableUsedStyle,
-    rowBoxes, columnPxWidths,
+    rowBoxes, columnPxWidths, gridInfo,
     /* containingInlineSize */ availableInlineSize,
   ), breakToken: null };
   } finally {
