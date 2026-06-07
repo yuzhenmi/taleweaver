@@ -280,6 +280,11 @@ export {
   insertFootnote,
   FOOTNOTE_ANCHOR_EMBED_TYPE,
 } from "./ops/insert-footnote";
+export type { CrossReferenceMode } from "./ops/insert-cross-reference";
+export {
+  insertCrossReference,
+  CROSS_REFERENCE_EMBED_TYPE,
+} from "./ops/insert-cross-reference";
 
 // History (Y.UndoManager-backed undo/redo with aligned selection stacks).
 export type { SelectionEntry, UndoRedoResult, BeginKey } from "./history";

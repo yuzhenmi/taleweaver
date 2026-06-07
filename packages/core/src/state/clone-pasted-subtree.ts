@@ -323,6 +323,27 @@ function rewriteInlineContent(
         });
         return rewritten;
       }
+      // A POINTER embed (a cross-reference: `properties.targetId`) points at a block
+      // it does NOT own — unlike `contentBlockId`, which the walkers follow + clone.
+      // The walkers never follow `targetId` (they key on `contentBlockId`), so the
+      // target is in `idMap` ONLY when it was independently part of the copied
+      // subtree. Rebind in that case (you copied the reference AND its target → the
+      // clone references the cloned target, matching Google Docs); otherwise leave it
+      // pointing at the ORIGINAL target (the target is outside the paste). NEVER throw
+      // on a missing id — a pointer to an outside block is a legal state.
+      const targetId = item.properties.targetId;
+      if (typeof targetId === "string") {
+        const newTargetId = idMap.get(targetId as BlockId);
+        if (newTargetId !== undefined) {
+          const rewritten: InlineItem = Object.freeze({
+            kind: "embed",
+            embedType: item.embedType,
+            attrs: item.attrs,
+            properties: Object.freeze({ ...item.properties, targetId: newTargetId }),
+          });
+          return rewritten;
+        }
+      }
     }
     return item;
   });
