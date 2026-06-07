@@ -54,6 +54,7 @@ import {
   handleInsertHeaderFooter,
   handleInsertHorizontalLine,
   handleInsertTableRow,
+  handleDeleteTable,
   handleInsertImage,
   handleSetImageSize,
   handleInsertFootnote,
@@ -200,7 +201,21 @@ export function createInitialEditorState(config: EditorConfig): EditorState {
   }
   const cursor = createPosition(firstParagraphId, 0);
   const selection = createSpan(cursor, cursor);
+  return createEditorStateFromState(state, selection, config);
+}
 
+/**
+ * Build a fresh `EditorState` from an arbitrary `State` + initial `Selection`
+ * (a fresh `History` bound to that state, plus the full render → cascade →
+ * layout build). `createInitialEditorState` delegates here with the empty
+ * document. Primarily for tests that need a non-default seed document (e.g. a
+ * table-only body) without an editor-from-state injection seam.
+ */
+export function createEditorStateFromState(
+  state: State,
+  selection: Selection,
+  config: EditorConfig,
+): EditorState {
   const rendered = render(state, config.componentRegistry, config.attrRegistry);
   // Cascade explicitly so we can store the cascaded tree on
   // EditorState for the next cycle's `cascadePassIncremental`.
@@ -453,6 +468,9 @@ export function reduceEditor(
       break;
     case "INSERT_TABLE_ROW":
       result = handleInsertTableRow(editor, action.position, config);
+      break;
+    case "DELETE_TABLE":
+      result = handleDeleteTable(editor, config);
       break;
     case "INSERT_IMAGE":
       result = handleInsertImage(editor, action.src, action.width, action.height, config);

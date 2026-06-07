@@ -229,6 +229,7 @@ export { removeBlock } from "./ops/remove-block";
 // planInsertBlock / insertBlockInTx).
 export { insertTableRow } from "./ops/insert-table-row";
 export type { RowPosition } from "./ops/insert-table-row";
+export { deleteTableWithReplacement } from "./ops/delete-table";
 
 // Block-attribute + type edits.
 export { setBlockAttrs } from "./ops/set-block-attrs";

@@ -37,6 +37,7 @@ export function coalesceKeyOf(action: EditorAction): ActionClass {
     case "INSERT_FOOTNOTE":
     case "INSERT_HORIZONTAL_LINE":
     case "INSERT_TABLE_ROW":
+    case "DELETE_TABLE":
     case "INSERT_IMAGE":
     case "SET_IMAGE_SIZE":
     case "SET_FOOTNOTE_POLICY":

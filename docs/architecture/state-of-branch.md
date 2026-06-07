@@ -68,11 +68,14 @@ Built-in component behavior:
   `SET_IMAGE_SIZE` writes width/height back. Browser-gated remainder
   (P11 tail): image natural-size feedback, resize-handle paint + drag,
   example-app Insert menu.
-- `tableComponent`, `tableRowComponent`, `tableCellComponent` render but
-  table editor-action paths (insert/delete rows & cells, in-table edit)
-  are not yet built — a future feature (tables are after P11 in ship
-  order). Table layout (Table FC) is implemented; table *editing* is the
-  gap.
+- `tableComponent`, `tableRowComponent`, `tableCellComponent` render, and
+  table layout (Table FC) is implemented. Table *editing* is in progress
+  (P15a): `INSERT_TABLE_ROW` `[implemented]` (insert row above/below, via
+  `resolveTableContext` + `insertTableRow`) and `DELETE_TABLE`
+  `[implemented]` (delete the whole table, replacement paragraph when it
+  is the body's sole child, span-agnostic) have shipped. Still `[missing]`:
+  delete row, insert/delete column (P15a remaining slices), and spanned-table
+  row/column edits (P15b — the span-gated ops currently no-op on `hasSpans`).
 
 ### `render/` `[implemented]`
 
