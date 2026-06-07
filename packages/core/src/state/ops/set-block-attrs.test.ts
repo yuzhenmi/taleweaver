@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { setBlockAttrs } from "./set-block-attrs";
-import { getBlock } from "../state";
+import { setBlockAttrs, setBlockAttrsInTx } from "./set-block-attrs";
+import { getBlock, applyOperation } from "../state";
 import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
 import type { BlockId } from "../block-id";
 import { AttrRegistry } from "../../cascade/attr-registry";
@@ -56,6 +56,37 @@ describe("setBlockAttrs", () => {
     const result = setBlockAttrs(state, "p" as BlockId, { textAlign: "right" });
     expect(result.state).not.toBe(state);
     expect([...result.dirtyIds]).toEqual(["p"]);
+  });
+});
+
+describe("setBlockAttrsInTx (in-transaction primitive, C1)", () => {
+  const fixture = () =>
+    buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", attrs: { foo: 1 }, firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", attrs: { textAlign: "left" }, inlineContent: inlineContent([]) }),
+      ],
+    });
+
+  it("writes a main-tree block's attrs inside an open transaction (round-trip)", () => {
+    const state = fixture();
+    const result = applyOperation(state, (doc) => {
+      setBlockAttrsInTx(doc, "p" as BlockId, { textAlign: "center" }, "test");
+    });
+    expect(getBlock(result.state, "p" as BlockId)?.attrs).toEqual({ textAlign: "center" });
+    expect([...result.dirtyIds]).toEqual(["p"]);
+  });
+
+  it("composes multiple attr writes into ONE transaction (single dirty set)", () => {
+    const state = fixture();
+    const result = applyOperation(state, (doc) => {
+      setBlockAttrsInTx(doc, "p" as BlockId, { textAlign: "right" }, "test");
+      setBlockAttrsInTx(doc, "doc" as BlockId, { foo: 2 }, "test");
+    });
+    expect(getBlock(result.state, "p" as BlockId)?.attrs).toEqual({ textAlign: "right" });
+    expect(getBlock(result.state, "doc" as BlockId)?.attrs).toEqual({ foo: 2 });
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p", "doc"]));
   });
 });
 

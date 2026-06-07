@@ -3,6 +3,7 @@ import type { BlockId } from "../../state";
 import {
   resolveTableContext,
   insertTableRow,
+  insertTableColumn,
   deleteTableWithReplacement,
   removeBlock,
   getBlock,
@@ -10,7 +11,7 @@ import {
   createSpan,
   productionAllocator,
 } from "../../state";
-import type { RowPosition } from "../../state";
+import type { RowPosition, ColumnPosition } from "../../state";
 import { rebuildTrees } from "./helpers";
 
 /**
@@ -33,6 +34,39 @@ export function handleInsertTableRow(
   if (ctx === null || ctx.hasSpans) return editor;
 
   const result = insertTableRow(editor.state, ctx, position, productionAllocator);
+  if (result.state === editor.state) return editor; // defensive no-op short-circuit
+
+  editor.history.commit(
+    { state: result.state, dirtyIds: result.dirtyIds },
+    { before: editor.selection, after: editor.selection },
+  );
+  return rebuildTrees(
+    { ...editor, state: result.state },
+    editor,
+    config,
+    result.dirtyIds,
+  );
+}
+
+/**
+ * `INSERT_TABLE_COLUMN` handler (P15a). Inserts a column (one empty cell per row)
+ * left/right of the caret's column, via `resolveTableContext` → `insertTableColumn`.
+ *
+ * No-ops (same `editor` ref) when the caret is not inside an editable table OR
+ * the table `hasSpans` (the P15a → P15b boundary). Selection is UNCHANGED:
+ * Google Docs keeps the cursor in its current cell on insert-column, and the
+ * caret's paragraph still exists after the edit. The op rewrites `columnWidths`
+ * (when present) in the same transaction → one undo entry reverts both.
+ */
+export function handleInsertTableColumn(
+  editor: EditorState,
+  position: ColumnPosition,
+  config: EditorConfig,
+): EditorState {
+  const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
+  if (ctx === null || ctx.hasSpans) return editor;
+
+  const result = insertTableColumn(editor.state, ctx, position, productionAllocator);
   if (result.state === editor.state) return editor; // defensive no-op short-circuit
 
   editor.history.commit(

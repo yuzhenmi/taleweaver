@@ -71,13 +71,14 @@ Built-in component behavior:
 - `tableComponent`, `tableRowComponent`, `tableCellComponent` render, and
   table layout (Table FC) is implemented. Table *editing* is in progress
   (P15a): `INSERT_TABLE_ROW` `[implemented]` (insert row above/below, via
-  `resolveTableContext` + `insertTableRow`), `DELETE_TABLE_ROW`
-  `[implemented]` (remove the caret's row; last-row deletion collapses the
-  whole table), and `DELETE_TABLE` `[implemented]` (delete the whole table,
-  replacement paragraph when it is the body's sole child, span-agnostic) have
-  shipped. Still `[missing]`: insert/delete column (P15a remaining slices), and
-  spanned-table row/column edits (P15b — the span-gated ops currently no-op on
-  `hasSpans`).
+  `resolveTableContext` + `insertTableRow`), `INSERT_TABLE_COLUMN`
+  `[implemented]` (insert column left/right; re-splices `columnWidths` atomically
+  via `setBlockAttrsInTx`), `DELETE_TABLE_ROW` `[implemented]` (remove the
+  caret's row; last-row deletion collapses the whole table), and `DELETE_TABLE`
+  `[implemented]` (delete the whole table, replacement paragraph when it is the
+  body's sole child, span-agnostic) have shipped. Still `[missing]`: delete
+  column (P15a final op slice), and spanned-table row/column edits (P15b — the
+  span-gated ops currently no-op on `hasSpans`).
 
 ### `render/` `[implemented]`
 

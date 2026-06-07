@@ -306,3 +306,62 @@ describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
     expect(getChildIds(undone.state, tableId).length).toBe(2);
   });
 });
+
+describe("handleInsertTableColumn — INSERT_TABLE_COLUMN (P15a.S5)", () => {
+  it("no-ops (same editor ref) when the caret is not inside a table", () => {
+    const editor = createInitialEditorState(config);
+    const next = reduceEditor(editor, { type: "INSERT_TABLE_COLUMN", position: "right" }, config);
+    expect(next).toBe(editor);
+  });
+
+  it("no-ops on a ragged table (hasSpans boundary → defer to P15b)", () => {
+    const cell = (): BlockInit => ({ type: "table-cell", children: [{ type: "paragraph", inlineContent: { items: [] } }] });
+    const ragged: BlockInit = {
+      type: "table",
+      attrs: { columnWidths: [0.5, 0.5] },
+      children: [
+        { type: "table-row", children: [cell(), cell()] },
+        { type: "table-row", children: [cell()] },
+      ],
+    };
+    let editor = createInitialEditorState(config);
+    editor = reduceEditor(editor, { type: "INSERT_NODE", node: ragged }, config);
+    const tableId = findTableId(editor.state);
+    editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
+
+    const next = reduceEditor(editor, { type: "INSERT_TABLE_COLUMN", position: "right" }, config);
+    expect(next).toBe(editor);
+  });
+
+  it("inserts a column right of the caret's column in every row; caret unchanged", () => {
+    let editor = editorWithTable(); // 2×2
+    const tableId = findTableId(editor.state);
+    editor = selectInto(editor, cellParagraph(editor.state, tableId, 0, 0));
+    const before = createSpan(editor.selection.anchor, editor.selection.focus);
+
+    const next = reduceEditor(editor, { type: "INSERT_TABLE_COLUMN", position: "right" }, config);
+
+    // every row grew 2 → 3 cells
+    for (const rowId of getChildIds(next.state, tableId)) {
+      expect(getChildIds(next.state, rowId).length).toBe(3);
+    }
+    // Google Docs keeps the cursor in its current cell on insert-column.
+    expect(next.selection).toEqual(before);
+  });
+
+  it("one undo entry reverts BOTH the new cells AND the columnWidths (C1/D4 atomicity)", () => {
+    let editor = editorWithTable(); // 2×2, columnWidths [0.5, 0.5]
+    const tableId = findTableId(editor.state);
+    editor = selectInto(editor, cellParagraph(editor.state, tableId, 0, 0));
+
+    const inserted = reduceEditor(editor, { type: "INSERT_TABLE_COLUMN", position: "left" }, config);
+    // cells grew and columnWidths re-spliced to 3 entries
+    expect(getChildIds(inserted.state, getChildIds(inserted.state, tableId)[0]).length).toBe(3);
+    expect((getBlock(inserted.state, tableId)?.attrs.columnWidths as number[]).length).toBe(3);
+
+    // ONE undo reverts both dimensions together (single transaction → single entry)
+    const undone = reduceEditor(inserted, { type: "UNDO" }, config);
+    expect(getChildIds(undone.state, getChildIds(undone.state, tableId)[0]).length).toBe(2);
+    expect(getBlock(undone.state, tableId)?.attrs.columnWidths).toEqual([0.5, 0.5]);
+  });
+});

@@ -51,6 +51,7 @@ export type EditorAction =
   | { type: "INSERT_FOOTNOTE" }
   | { type: "INSERT_HORIZONTAL_LINE" }
   | { type: "INSERT_TABLE_ROW"; position: "above" | "below" }
+  | { type: "INSERT_TABLE_COLUMN"; position: "left" | "right" }
   | { type: "DELETE_TABLE_ROW" }
   | { type: "DELETE_TABLE" }
   | { type: "INSERT_IMAGE"; src: string; width?: number; height?: number }

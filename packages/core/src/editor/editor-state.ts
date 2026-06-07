@@ -54,6 +54,7 @@ import {
   handleInsertHeaderFooter,
   handleInsertHorizontalLine,
   handleInsertTableRow,
+  handleInsertTableColumn,
   handleDeleteTableRow,
   handleDeleteTable,
   handleInsertImage,
@@ -469,6 +470,9 @@ export function reduceEditor(
       break;
     case "INSERT_TABLE_ROW":
       result = handleInsertTableRow(editor, action.position, config);
+      break;
+    case "INSERT_TABLE_COLUMN":
+      result = handleInsertTableColumn(editor, action.position, config);
       break;
     case "DELETE_TABLE_ROW":
       result = handleDeleteTableRow(editor, config);

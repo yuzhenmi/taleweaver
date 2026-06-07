@@ -230,9 +230,11 @@ export { removeBlock } from "./ops/remove-block";
 export { insertTableRow } from "./ops/insert-table-row";
 export type { RowPosition } from "./ops/insert-table-row";
 export { deleteTableWithReplacement } from "./ops/delete-table";
+export { insertTableColumn } from "./ops/insert-table-column";
+export type { ColumnPosition } from "./ops/insert-table-column";
 
 // Block-attribute + type edits.
-export { setBlockAttrs } from "./ops/set-block-attrs";
+export { setBlockAttrs, setBlockAttrsInTx } from "./ops/set-block-attrs";
 export { mergeBlockAttrs } from "./ops/merge-block-attrs";
 export { setBlockType } from "./ops/set-block-type";
 
