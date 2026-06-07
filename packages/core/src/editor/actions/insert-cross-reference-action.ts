@@ -11,6 +11,7 @@ import {
   type CrossReferenceMode,
 } from "../../state";
 import { rebuildTrees } from "./helpers";
+import { prepareEmbedInsertPoint } from "./selection-guards";
 
 /**
  * `INSERT_CROSS_REFERENCE` handler — splices a `cross-reference` EmbedItem at the
@@ -38,10 +39,15 @@ import { rebuildTrees } from "./helpers";
  *    container has no text to extract).
  *
  * A rejected insert is a silent no-op (the host app validates target choice in
- * its picker UI; this is the engine-level backstop). On success the ref occupies
- * exactly ONE position-offset unit, so the caret lands just AFTER it
- * (`focus.offset + 1`), ready for continued typing — the Google-Docs field
- * convention.
+ * its picker UI; this is the engine-level backstop).
+ *
+ * **Non-collapsed selection** is REPLACED, not preserved: `prepareEmbedInsertPoint`
+ * deletes the selected range first (folding its dirtyIds into the single commit
+ * so delete+insert is one undo step) and returns the collapse point — matching
+ * INSERT_TEXT / PASTE / Google Docs. A cross-context / cross-parent span is
+ * un-deletable → no-op. On success the ref occupies exactly ONE position-offset
+ * unit, so the caret lands just AFTER it (`position.offset + 1`), ready for
+ * continued typing — the Google-Docs field convention.
  */
 export function handleInsertCrossReference(
   editor: EditorState,
@@ -74,20 +80,36 @@ export function handleInsertCrossReference(
   }
   if (refMode === "text" && target.inlineContent === null) return editor;
 
-  const result = insertCrossReference(editor.state, focus, targetId, refMode);
+  // Delete a non-collapsed selection first (Google Docs replaces the selection),
+  // then splice the field at the collapse point. A cross-context / cross-parent
+  // expanded selection is un-deletable → no-op.
+  //
+  // The target was validated against the PRE-delete state. If the selection
+  // happened to span the target block and the delete merged it away, the ref is
+  // now dangling — a documented LEGAL state that renders as broken-ref (see the
+  // cross-references section of state-of-branch.md), not a bug.
+  const prep = prepareEmbedInsertPoint(editor.state, editor.selection);
+  if (!prep.ok) return editor;
+
+  const result = insertCrossReference(prep.state, prep.position, targetId, refMode);
+  // Identity invariant: nothing changed (no delete AND a no-op insert) → return
+  // the editor unchanged so the "no change → same reference" contract holds.
+  if (result.state === prep.state && prep.dirtyIds.size === 0) return editor;
+  const dirtyIds = new Set<BlockId>(prep.dirtyIds);
+  for (const id of result.dirtyIds) dirtyIds.add(id);
 
   // The ref is one offset unit; place a collapsed caret just after it.
-  const cursor = createPosition(focus.blockId, focus.offset + 1);
+  const cursor = createPosition(prep.position.blockId, prep.position.offset + 1);
   const selectionAfter = createSpan(cursor, cursor);
 
   editor.history.commit(
-    { state: result.state, dirtyIds: result.dirtyIds },
+    { state: result.state, dirtyIds },
     { before: editor.selection, after: selectionAfter },
   );
   return rebuildTrees(
     { ...editor, state: result.state, selection: selectionAfter },
     editor,
     config,
-    result.dirtyIds,
+    dirtyIds,
   );
 }

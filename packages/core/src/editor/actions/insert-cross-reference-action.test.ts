@@ -16,6 +16,7 @@ import {
   stateWithTwoParagraphs,
   firstChildId,
   blockEnd,
+  getTextOf,
   type EditorState,
 } from "./test-helpers";
 import {
@@ -86,6 +87,34 @@ describe("handleInsertCrossReference — INSERT_CROSS_REFERENCE", () => {
     expect(crossRefsOf(inserted, hostId)).toHaveLength(1);
 
     const undone = reduceEditor(inserted, { type: "UNDO" }, config);
+    expect(crossRefsOf(undone, hostId)).toHaveLength(0);
+  });
+
+  it("replaces a non-collapsed selection (deletes it) and inserts the field, as one undo step", () => {
+    // Host "def"; select "e" (offset 1..2) and insert a text-ref to "abc".
+    const doc = stateWithTwoParagraphs();
+    const targetId = firstChildId(doc.state);
+    if (targetId === null) throw new Error("no target paragraph");
+    const hostId = doc.selection.focus.blockId;
+    const sel = reduceEditor(
+      doc,
+      { type: "SET_SELECTION", selection: createSpan(createPosition(hostId, 1), createPosition(hostId, 2)) },
+      config,
+    );
+
+    const out = reduceEditor(
+      sel,
+      { type: "INSERT_CROSS_REFERENCE", targetId, refMode: "text" },
+      config,
+    );
+    // "e" deleted; the ref sits between "d" and "f"; caret just after the ref.
+    expect(getTextOf(out.state, hostId)).toBe("df");
+    expect(crossRefsOf(out, hostId)).toEqual([{ targetId, refMode: "text" }]);
+    expect(out.selection.focus.offset).toBe(2); // after "d" + the 1-unit field
+
+    // ONE undo step restores the deleted text AND removes the field.
+    const undone = reduceEditor(out, { type: "UNDO" }, config);
+    expect(getTextOf(undone.state, hostId)).toBe("def");
     expect(crossRefsOf(undone, hostId)).toHaveLength(0);
   });
 

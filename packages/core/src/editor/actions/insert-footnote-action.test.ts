@@ -15,12 +15,15 @@ import {
   config,
   reduceEditor,
   createInitialEditorState,
+  getTextOf,
   type EditorState,
 } from "./test-helpers";
 import {
   getBlock,
   getEmbedContent,
   resolveBlock,
+  createPosition,
+  createSpan,
   FOOTNOTE_ANCHOR_EMBED_TYPE,
 } from "../../state";
 import type { BlockId } from "../../state";
@@ -63,6 +66,28 @@ function anchorEmbedsOf(
 }
 
 describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
+  it("replaces a non-collapsed selection (deletes it) before inserting the anchor, as one undo step", () => {
+    const initial = createInitialEditorState(config);
+    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abcdef" }, config);
+    const paraId = bodyParaId(typed);
+    // Select "cd" (offset 2..4).
+    const placed = reduceEditor(
+      typed,
+      { type: "SET_SELECTION", selection: createSpan(createPosition(paraId, 2), createPosition(paraId, 4)) },
+      config,
+    );
+
+    const next = reduceEditor(placed, { type: "INSERT_FOOTNOTE" }, config);
+    // "cd" deleted; the anchor sits between "ab" and "ef".
+    expect(getTextOf(next.state, paraId)).toBe("abef");
+    expect(anchorEmbedsOf(next, paraId).length).toBe(1);
+
+    // ONE undo step restores "abcdef" AND removes the anchor + body.
+    const undone = reduceEditor(next, { type: "UNDO" }, config);
+    expect(getTextOf(undone.state, paraId)).toBe("abcdef");
+    expect(anchorEmbedsOf(undone, paraId).length).toBe(0);
+  });
+
   it("splices a footnote-anchor at the caret, creates the body, and carets into the body paragraph", () => {
     const initial = createInitialEditorState(config);
     const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" }, config);
