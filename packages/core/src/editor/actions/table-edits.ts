@@ -5,6 +5,7 @@ import {
   insertTableRow,
   insertTableColumn,
   deleteTableColumn,
+  splitCell,
   deleteTableWithReplacement,
   removeBlock,
   getBlock,
@@ -216,4 +217,38 @@ export function handleDeleteTableColumn(editor: EditorState, config: EditorConfi
     { before: editor.selection, after },
   );
   return rebuildTrees({ ...editor, state: result.state, selection: after }, editor, config, result.dirtyIds);
+}
+
+/**
+ * `SPLIT_CELL` handler (P15b). Unmerges the caret's merged cell into 1×1 cells.
+ *
+ * No-op (same `editor` ref) when the caret is not inside a main-tree table
+ * (`resolveTableContext` null) OR the table is `ragged` (a degenerate shape P15b
+ * leaves gated — the ragged carve-out wins even over a span; see the design's F7).
+ * Unlike the P15a row/column ops this is NOT gated on `ctx.hasSpans`: split only
+ * makes sense ON a spanned table, and `splitCell` itself no-ops (same `State` ref)
+ * when the caret cell is a plain 1×1, so a spanned-table-but-caret-on-a-1×1-cell
+ * is a clean no-op too.
+ *
+ * Selection is UNCHANGED (Google Docs keeps the caret in the surviving top-left
+ * cell, whose paragraph still exists after the unmerge). One undo entry (the op
+ * is a single transaction; classified `"command"`).
+ */
+export function handleSplitCell(editor: EditorState, config: EditorConfig): EditorState {
+  const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
+  if (ctx === null || ctx.ragged) return editor;
+
+  const result = splitCell(editor.state, ctx, productionAllocator);
+  if (result.state === editor.state) return editor; // caret cell is not a real span
+
+  editor.history.commit(
+    { state: result.state, dirtyIds: result.dirtyIds },
+    { before: editor.selection, after: editor.selection },
+  );
+  return rebuildTrees(
+    { ...editor, state: result.state },
+    editor,
+    config,
+    result.dirtyIds,
+  );
 }

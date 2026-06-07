@@ -105,14 +105,26 @@ export function resolveTableContext(state: State, blockId: BlockId): TableContex
   const colIndex = rowIndex >= 0 ? cellIdsByRow[rowIndex].indexOf(cellId) : -1;
   if (rowIndex < 0 || colIndex < 0) return null;
 
-  const colCount = cellIdsByRow[rowIndex].length;
-  const ragged = cellIdsByRow.some((cells) => cells.length !== colCount);
   const spanned = cellIdsByRow.some((cells) =>
     cells.some((cid) => {
       const c = getBlock(state, cid);
       return c !== null && (isSpan(c.attrs.rowSpan) || isSpan(c.attrs.colSpan));
     }),
   );
+  // `ragged` (degenerate) is SPAN-AWARE: the occupancy grid is not a clean
+  // rectangle — some slot is uncovered (a hole). A well-formed spanned table
+  // tiles its grid fully (no holes → ragged false, so P15b's span-aware ops run);
+  // genuinely-missing cells OR a malformed span that leaves a gap produce a hole
+  // (ragged true → stays gated, the degenerate carve-out). Computing from raw cell
+  // COUNTS per row would wrongly flag every colSpan/rowSpan table as ragged (a span
+  // legitimately makes a row hold fewer cells than the grid is wide). `buildTableGrid`
+  // returns null only for a non-main-tree table, which `tableId` is already proven
+  // not to be — the count-based fallback is unreachable defence.
+  const grid = buildTableGrid(state, tableId);
+  const ragged =
+    grid === null
+      ? cellIdsByRow.some((cells) => cells.length !== cellIdsByRow[rowIndex].length)
+      : grid.occupancy.some((row) => row.some((slot) => slot === null));
 
   return {
     tableId,

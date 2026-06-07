@@ -111,12 +111,39 @@ describe("resolveTableContext", () => {
   });
 
   it("flags hasSpans/spanned when any cell carries a real rowSpan/colSpan", () => {
+    // cA colSpan 2 on the 2×2 fixture: cB is pushed to grid col 2, but row1 only
+    // fills cols 0–1 → occupancy [[cA,cA,cB],[cC,cD,null]] has a HOLE at (1,2). So
+    // this fixture is spanned AND ragged (the span is not compensated below). The
+    // ragged gate wins → P15b leaves it gated. (A WELL-FORMED spanned table — span
+    // compensated so the grid tiles fully — is the next test.)
     const state = buildTableState({ cAattrs: { colSpan: 2 } });
     const ctx = resolveTableContext(state, "pA" as BlockId);
     expect(ctx?.hasSpans).toBe(true);
-    // spanned (well-formed merged cells) → P15b routes to the span-aware op.
+    expect(ctx?.spanned).toBe(true);
+    expect(ctx?.ragged).toBe(true);
+  });
+
+  it("a WELL-FORMED spanned table tiles fully: spanned=true, ragged=false (P15b runs)", () => {
+    // row0 = [A(colSpan 2)]; row1 = [C, D]. occupancy [[A,A],[C,D]] — no holes.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
+        buildBlock({ id: "table", type: "table", parentId: "doc", firstChildId: "r0", lastChildId: "r1" }),
+        buildBlock({ id: "r0", type: "table-row", parentId: "table", nextSiblingId: "r1", firstChildId: "A", lastChildId: "A" }),
+        buildBlock({ id: "r1", type: "table-row", parentId: "table", prevSiblingId: "r0", firstChildId: "C", lastChildId: "D" }),
+        buildBlock({ id: "A", type: "table-cell", parentId: "r0", attrs: { colSpan: 2 }, firstChildId: "Ap", lastChildId: "Ap" }),
+        buildBlock({ id: "Ap", type: "paragraph", parentId: "A", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "C", type: "table-cell", parentId: "r1", nextSiblingId: "D", firstChildId: "Cp", lastChildId: "Cp" }),
+        buildBlock({ id: "Cp", type: "paragraph", parentId: "C", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "D", type: "table-cell", parentId: "r1", prevSiblingId: "C", firstChildId: "Dp", lastChildId: "Dp" }),
+        buildBlock({ id: "Dp", type: "paragraph", parentId: "D", inlineContent: inlineContent([]) }),
+      ],
+    });
+    const ctx = resolveTableContext(state, "Ap" as BlockId);
     expect(ctx?.spanned).toBe(true);
     expect(ctx?.ragged).toBe(false);
+    expect(ctx?.hasSpans).toBe(true);
   });
 
   it("does NOT flag a malformed (non-integer) span — agrees with the component predicate", () => {

@@ -58,6 +58,7 @@ import {
   handleDeleteTableRow,
   handleDeleteTableColumn,
   handleDeleteTable,
+  handleSplitCell,
   handleInsertImage,
   handleSetImageSize,
   handleInsertFootnote,
@@ -483,6 +484,9 @@ export function reduceEditor(
       break;
     case "DELETE_TABLE":
       result = handleDeleteTable(editor, config);
+      break;
+    case "SPLIT_CELL":
+      result = handleSplitCell(editor, config);
       break;
     case "INSERT_IMAGE":
       result = handleInsertImage(editor, action.src, action.width, action.height, config);

@@ -463,3 +463,90 @@ describe("handleDeleteTableColumn — DELETE_TABLE_COLUMN (P15a.S6)", () => {
     expect(getBlock(undone.state, tableId)?.attrs.columnWidths).toEqual([0.5, 0.5]);
   });
 });
+
+describe("handleSplitCell — SPLIT_CELL (P15b.S2)", () => {
+  /**
+   * A spanned table: row0 = [A(colSpan 2)], row1 = [C, D]. occupancy [[A,A],[C,D]].
+   * Built directly (INSERT_NODE can't stamp spans) and wrapped in an editor with
+   * the caret in A's paragraph.
+   */
+  function editorWithSpannedTable(): EditorState {
+    const blocks = [
+      buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
+      buildBlock({ id: "table", type: "table", parentId: "doc", attrs: { columnWidths: [0.5, 0.5] }, firstChildId: "r0", lastChildId: "r1" }),
+      buildBlock({ id: "r0", type: "table-row", parentId: "table", nextSiblingId: "r1", firstChildId: "A", lastChildId: "A" }),
+      buildBlock({ id: "r1", type: "table-row", parentId: "table", prevSiblingId: "r0", firstChildId: "C", lastChildId: "D" }),
+      buildBlock({ id: "A", type: "table-cell", parentId: "r0", attrs: { colSpan: 2 }, firstChildId: "Ap", lastChildId: "Ap" }),
+      buildBlock({ id: "Ap", type: "paragraph", parentId: "A", inlineContent: inlineContent([]) }),
+      buildBlock({ id: "C", type: "table-cell", parentId: "r1", nextSiblingId: "D", firstChildId: "Cp", lastChildId: "Cp" }),
+      buildBlock({ id: "Cp", type: "paragraph", parentId: "C", inlineContent: inlineContent([]) }),
+      buildBlock({ id: "D", type: "table-cell", parentId: "r1", prevSiblingId: "C", firstChildId: "Dp", lastChildId: "Dp" }),
+      buildBlock({ id: "Dp", type: "paragraph", parentId: "D", inlineContent: inlineContent([]) }),
+    ];
+    const state = buildState({ rootId: "doc", blocks });
+    const caret = createPosition("Ap" as BlockId, 0);
+    return createEditorStateFromState(state, createSpan(caret, caret), config);
+  }
+
+  it("no-ops (same editor ref) when the caret is not inside a table", () => {
+    const editor = createInitialEditorState(config);
+    const next = reduceEditor(editor, { type: "SPLIT_CELL" }, config);
+    expect(next).toBe(editor);
+  });
+
+  it("no-ops when the caret cell is a plain 1×1 (nothing to unmerge)", () => {
+    let editor = editorWithTable(); // uniform 2×2, no spans
+    const tableId = findTableId(editor.state);
+    editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
+    const next = reduceEditor(editor, { type: "SPLIT_CELL" }, config);
+    expect(next).toBe(editor);
+  });
+
+  it("no-ops (same editor ref) on a ragged table — the degenerate carve-out (ctx.ragged gate)", () => {
+    // row0 = [A(colSpan 2), B], row1 = [C, D] → A spans cols 0–1, B lands at col 2,
+    // but row1 only fills cols 0–1 → occupancy [[A,A,B],[C,D,null]] has a HOLE at
+    // (1,2). The grid-based `ragged` flag is true, so SPLIT_CELL stays gated.
+    const blocks = [
+      buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
+      buildBlock({ id: "table", type: "table", parentId: "doc", firstChildId: "r0", lastChildId: "r1" }),
+      buildBlock({ id: "r0", type: "table-row", parentId: "table", nextSiblingId: "r1", firstChildId: "A", lastChildId: "B" }),
+      buildBlock({ id: "r1", type: "table-row", parentId: "table", prevSiblingId: "r0", firstChildId: "C", lastChildId: "D" }),
+      buildBlock({ id: "A", type: "table-cell", parentId: "r0", attrs: { colSpan: 2 }, nextSiblingId: "B", firstChildId: "Ap", lastChildId: "Ap" }),
+      buildBlock({ id: "Ap", type: "paragraph", parentId: "A", inlineContent: inlineContent([]) }),
+      buildBlock({ id: "B", type: "table-cell", parentId: "r0", prevSiblingId: "A", firstChildId: "Bp", lastChildId: "Bp" }),
+      buildBlock({ id: "Bp", type: "paragraph", parentId: "B", inlineContent: inlineContent([]) }),
+      buildBlock({ id: "C", type: "table-cell", parentId: "r1", nextSiblingId: "D", firstChildId: "Cp", lastChildId: "Cp" }),
+      buildBlock({ id: "Cp", type: "paragraph", parentId: "C", inlineContent: inlineContent([]) }),
+      buildBlock({ id: "D", type: "table-cell", parentId: "r1", prevSiblingId: "C", firstChildId: "Dp", lastChildId: "Dp" }),
+      buildBlock({ id: "Dp", type: "paragraph", parentId: "D", inlineContent: inlineContent([]) }),
+    ];
+    const state = buildState({ rootId: "doc", blocks });
+    const caret = createPosition("Ap" as BlockId, 0);
+    const editor = createEditorStateFromState(state, createSpan(caret, caret), config);
+    const next = reduceEditor(editor, { type: "SPLIT_CELL" }, config);
+    expect(next).toBe(editor);
+  });
+
+  it("unmerges a colSpan-2 cell: row0 grows to 2 cells, the survivor drops its span, caret stays", () => {
+    const editor = editorWithSpannedTable();
+    const next = reduceEditor(editor, { type: "SPLIT_CELL" }, config);
+    expect(next).not.toBe(editor);
+
+    const r0 = getChildIds(next.state, "r0" as BlockId);
+    expect(r0.length).toBe(2);
+    expect(r0[0]).toBe("A");
+    expect(getBlock(next.state, "A" as BlockId)?.attrs.colSpan).toBeUndefined();
+    expect(getBlock(next.state, r0[1])?.type).toBe("table-cell");
+    // Selection is unchanged (caret still in the survivor's paragraph).
+    expect(next.selection.focus.blockId).toBe("Ap");
+    expect(next.selection.anchor.blockId).toBe("Ap");
+  });
+
+  it("is one undo entry: UNDO restores the merged cell (row0 back to 1 cell, colSpan 2)", () => {
+    const editor = editorWithSpannedTable();
+    const split = reduceEditor(editor, { type: "SPLIT_CELL" }, config);
+    const undone = reduceEditor(split, { type: "UNDO" }, config);
+    expect(getChildIds(undone.state, "r0" as BlockId).length).toBe(1);
+    expect(getBlock(undone.state, "A" as BlockId)?.attrs.colSpan).toBe(2);
+  });
+});

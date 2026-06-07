@@ -55,6 +55,7 @@ export type EditorAction =
   | { type: "DELETE_TABLE_ROW" }
   | { type: "DELETE_TABLE_COLUMN" }
   | { type: "DELETE_TABLE" }
+  | { type: "SPLIT_CELL" }
   | { type: "INSERT_IMAGE"; src: string; width?: number; height?: number }
   | { type: "SET_IMAGE_SIZE"; blockId: BlockId; width: number; height: number }
   | { type: "SET_TEXT_ALIGN"; align: TextAlign }
