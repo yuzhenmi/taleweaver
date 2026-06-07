@@ -39,6 +39,15 @@ function firstCellParagraph(state: State, tableId: BlockId): BlockId {
   return para;
 }
 
+/** The first paragraph inside the cell at [row r, column c] of the table. */
+function cellParagraph(state: State, tableId: BlockId, r: number, c: number): BlockId {
+  const row = getChildIds(state, tableId)[r];
+  const cell = getChildIds(state, row)[c];
+  const para = getBlock(state, cell)?.firstChildId;
+  if (para == null) throw new Error(`no paragraph in cell [${r}, ${c}]`);
+  return para;
+}
+
 const selectInto = (editor: EditorState, blockId: BlockId): EditorState => {
   const caret = createPosition(blockId, 0);
   return reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(caret, caret) }, config);
@@ -183,5 +192,117 @@ describe("handleDeleteTable — DELETE_TABLE (P15a.S3)", () => {
     expect(getBlock(next.state, replacement)?.type).toBe("paragraph");
     // caret landed on the fresh replacement paragraph (no sibling fallback)
     expect(next.selection.focus.blockId).toBe(replacement);
+  });
+});
+
+describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
+  /** A 1×2 single-row table BlockInit (one row, two cells). */
+  function oneRowTableInit(): BlockInit {
+    const cell = (): BlockInit => ({
+      type: "table-cell",
+      children: [{ type: "paragraph", inlineContent: { items: [] } }],
+    });
+    return { type: "table", attrs: { columnWidths: [0.5, 0.5] }, children: [{ type: "table-row", children: [cell(), cell()] }] };
+  }
+
+  it("no-ops (same editor ref) when the caret is not inside a table", () => {
+    const editor = createInitialEditorState(config);
+    const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" }, config);
+    expect(next).toBe(editor);
+  });
+
+  it("no-ops on a ragged table (hasSpans boundary → defer to P15b)", () => {
+    const cell = (): BlockInit => ({ type: "table-cell", children: [{ type: "paragraph", inlineContent: { items: [] } }] });
+    const ragged: BlockInit = {
+      type: "table",
+      attrs: { columnWidths: [0.5, 0.5] },
+      children: [
+        { type: "table-row", children: [cell(), cell()] },
+        { type: "table-row", children: [cell()] },
+      ],
+    };
+    let editor = createInitialEditorState(config);
+    editor = reduceEditor(editor, { type: "INSERT_NODE", node: ragged }, config);
+    const tableId = findTableId(editor.state);
+    editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
+
+    const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" }, config);
+    expect(next).toBe(editor);
+  });
+
+  it("deletes the caret's row; caret moves to the same column in the NEXT row", () => {
+    let editor = editorWithTable(); // 2×2
+    const tableId = findTableId(editor.state);
+    // caret in row 0, column 0; the next row's column-0 paragraph survives.
+    const survivingTarget = cellParagraph(editor.state, tableId, 1, 0);
+    editor = selectInto(editor, cellParagraph(editor.state, tableId, 0, 0));
+
+    const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" }, config);
+
+    expect(getChildIds(next.state, tableId).length).toBe(1);
+    expect(next.selection.focus.blockId).toBe(survivingTarget);
+  });
+
+  it("deleting the LAST row moves the caret to the same column in the PREVIOUS row", () => {
+    let editor = editorWithTable(); // 2×2
+    const tableId = findTableId(editor.state);
+    // caret in row 1 (last), column 1; the previous row's column-1 paragraph survives.
+    const survivingTarget = cellParagraph(editor.state, tableId, 0, 1);
+    editor = selectInto(editor, cellParagraph(editor.state, tableId, 1, 1));
+
+    const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" }, config);
+
+    expect(getChildIds(next.state, tableId).length).toBe(1);
+    expect(next.selection.focus.blockId).toBe(survivingTarget);
+  });
+
+  it("deleting the ONLY row collapses the whole table; caret → surviving sibling", () => {
+    // editorWithTable seeds a sibling paragraph before the table, so a 1-row
+    // table collapse is the plain-removal path (caret → that sibling).
+    let editor = createInitialEditorState(config);
+    editor = reduceEditor(editor, { type: "INSERT_NODE", node: oneRowTableInit() }, config);
+    const tableId = findTableId(editor.state);
+    const seededPara = getBlock(editor.state, editor.state.rootId)?.firstChildId ?? null;
+    editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
+
+    const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" }, config);
+
+    expect(getBlock(next.state, tableId)).toBeNull();
+    expect(next.selection.focus.blockId).toBe(seededPara);
+  });
+
+  it("deleting the only row of a sole-child table → fresh replacement paragraph", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
+        buildBlock({ id: "table", type: "table", attrs: { columnWidths: [1] }, parentId: "doc", firstChildId: "row", lastChildId: "row" }),
+        buildBlock({ id: "row", type: "table-row", parentId: "table", firstChildId: "cell", lastChildId: "cell" }),
+        buildBlock({ id: "cell", type: "table-cell", parentId: "row", firstChildId: "cp", lastChildId: "cp" }),
+        buildBlock({ id: "cp", type: "paragraph", parentId: "cell", inlineContent: inlineContent([]) }),
+      ],
+    });
+    const caret = createPosition("cp" as BlockId, 0);
+    const editor = createEditorStateFromState(state, createSpan(caret, caret), config);
+
+    const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" }, config);
+
+    expect(getBlock(next.state, "table" as BlockId)).toBeNull();
+    const bodyChildren = getChildIds(next.state, next.state.rootId);
+    expect(bodyChildren.length).toBe(1);
+    expect(getBlock(next.state, bodyChildren[0])?.type).toBe("paragraph");
+    expect(next.selection.focus.blockId).toBe(bodyChildren[0]);
+  });
+
+  it("one undo entry restores the deleted row", () => {
+    let editor = editorWithTable();
+    const tableId = findTableId(editor.state);
+    editor = selectInto(editor, cellParagraph(editor.state, tableId, 0, 0));
+
+    const deleted = reduceEditor(editor, { type: "DELETE_TABLE_ROW" }, config);
+    expect(getChildIds(deleted.state, tableId).length).toBe(1);
+
+    const undone = reduceEditor(deleted, { type: "UNDO" }, config);
+    expect(getChildIds(undone.state, tableId).length).toBe(2);
   });
 });
