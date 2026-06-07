@@ -17,7 +17,7 @@ import { makeChildContext } from "./layout-context";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import { anonymousBlockKey } from "./group-children";
 import { markStart, markEnd } from "../perf/perf-trace";
-import type { FragmentationContext, LayoutResult, SpanningCellContinuation } from "./fragmentation";
+import type { FragmentationContext, LayoutResult, SpanningCellContinuation, BreakToken } from "./fragmentation";
 
 // ---------------------------------------------------------------------------
 // Anonymous-box grouping helpers
@@ -239,6 +239,39 @@ interface LaidCell {
   /** The cell's source element — kept so a rowSpan cell straddling a page break
    *  can re-lay its interior under a FragmentationContext (S5.T3). */
   readonly cellEl: ElementBox;
+  /** For a cell synthesized by the S5.T4 resume preamble (a still-spanning cell
+   *  whose origin is on an earlier fragment): the break token its interior should
+   *  resume from when E.1 re-fragments it. `undefined`/`null` for fresh cells (laid
+   *  whole in Pass A) ⇒ E.1 re-lays from the start. */
+  readonly resumeInteriorToken?: BreakToken | null;
+  /** For a resumed cell: its ORIGINAL grid origin + full span (the synthesized
+   *  `placement` is CLAMPED to this fragment for positioning). E.1 emits the
+   *  continuation from this — so `gridRow` keeps pointing at the cell's true origin
+   *  row (where its element lives, for the next resume's element lookup) and
+   *  `gridRow + rowSpan` keeps pointing at the true end. Absent for fresh cells,
+   *  whose `placement` already IS the origin. */
+  readonly spanOrigin?: { readonly gridRow: number; readonly rowSpan: number };
+}
+
+/**
+ * Resolve a cell group to the ElementBox `layoutBlock` recurses into: the real
+ * cell element for a non-anonymous group, or a synthetic `table-cell` wrapper for
+ * an anonymous one. Returns null when a non-anonymous group's content isn't an
+ * element (no box; the grid slot stays empty). Shared by Pass A and the S5.T4
+ * resume preamble so both build the cell the same way.
+ */
+function materializeCellElement(cg: CellGroup): ElementBox | null {
+  if (!cg.isAnonymous) {
+    const el = cg.content[0];
+    return el !== undefined && el.type === "element" ? el : null;
+  }
+  return {
+    type: "element",
+    key: cg.key,
+    style: {},
+    computedStyle: { ...cg.cs, display: "table-cell" },
+    children: cg.content,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -377,22 +410,10 @@ export function layoutTable(
       const cellInlineOffset = sumCols(0, placement.gridCol);
       const cellInlineSize = sumCols(placement.gridCol, placement.gridCol + placement.colSpan);
 
-      // Build a synthetic ElementBox for anonymous cells so `layoutBlock` has
-      // something to recurse into.
-      let cellEl: ElementBox;
-      if (!cg.isAnonymous) {
-        const el = cg.content[0];
-        if (el.type !== "element") continue; // no box; the grid slot stays empty
-        cellEl = el;
-      } else {
-        cellEl = {
-          type: "element",
-          key: cg.key,
-          style: {},
-          computedStyle: { ...cellCs, display: "table-cell" },
-          children: cg.content,
-        };
-      }
+      // Build the ElementBox `layoutBlock` recurses into (synthetic for anonymous
+      // cells). Null ⇒ no box; the grid slot stays empty.
+      const cellEl = materializeCellElement(cg);
+      if (cellEl === null) continue;
 
       // Lay out cell interior as BFC at cellInlineSize.
       const cellCtx = makeChildContext(ctx, cs, cellInlineSize, "indefinite");
@@ -415,6 +436,81 @@ export function layoutTable(
         inlineSize: cellInlineSize,
         placement,
         cellEl,
+      });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Resume preamble (S5.T4) — a rowSpan>1 cell whose origin is on an EARLIER
+  // fragment doesn't appear in Pass A (which starts at startBodyRow), but its
+  // merged box reaches into the rows resuming here. Column routing is already
+  // correct (assignTableGrid runs over the whole table on every fragment, so the
+  // post-break rows are assigned around the still-occupied columns); the only
+  // missing piece is laying the cell's REMAINING interior on this fragment.
+  // Synthesize a LaidCell clamped to [startBodyRow, gridRow+rowSpan) and feed it
+  // into Pass B/C/D (and E.1 re-break) exactly like any spanning cell.
+  // ---------------------------------------------------------------------------
+  if (
+    fragmentation !== undefined &&
+    fragmentation.resumeFrom?.type === "table" &&
+    fragmentation.resumeFrom.spanningCells !== undefined
+  ) {
+    for (const cont of fragmentation.resumeFrom.spanningCells) {
+      const end = cont.gridRow + cont.rowSpan;
+      const remainingSpan = end - startBodyRow;
+      if (remainingSpan <= 0) continue; // already fully placed (defensive)
+
+      // Resolve the originating cell's element + style by walking its origin row.
+      const originRow = rows[cont.gridRow];
+      if (originRow === undefined) continue;
+      let originGroup: CellGroup | undefined;
+      for (const g of groupRowCells(originRow)) {
+        if (g.key === cont.cellId) { originGroup = g; break; }
+      }
+      if (originGroup === undefined) continue;
+      const cellEl = materializeCellElement(originGroup);
+      if (cellEl === null) continue;
+      const cellCs = originGroup.cs;
+      const cellUsedStyle = computeUsedStyle(cellCs, tableInlineSize, "indefinite");
+      const inlineOffset = sumCols(0, cont.gridCol);
+      const inlineSize = sumCols(cont.gridCol, cont.gridCol + cont.colSpan);
+
+      // Lay the REMAINING interior at NATURAL height — a huge budget so nothing
+      // breaks here; E.1 performs the real per-fragment split. An empty-tail
+      // continuation (null token) contributes no interior.
+      let interiorChildren: LayoutBox[] = [];
+      let interiorHeight = 0;
+      if (cont.interiorBreakToken !== null) {
+        const cellCtx = makeChildContext(ctx, cs, inlineSize, "indefinite");
+        const r = layoutBlock(cellEl, 0, 0, cellCtx, shaper, {
+          availableBlockSize: Number.MAX_SAFE_INTEGER,
+          pageIndex: fragmentation.pageIndex,
+          resumeFrom: cont.interiorBreakToken,
+        });
+        if (r.box !== null && r.box.type === "block") {
+          interiorChildren = Array.from(r.box.children);
+          interiorHeight = r.box.height;
+        }
+      }
+
+      laidByRow[startBodyRow]?.push({
+        key: cont.cellId,
+        cellCs,
+        cellUsedStyle,
+        interiorChildren,
+        interiorHeight,
+        inlineOffset,
+        inlineSize,
+        placement: {
+          cellId: cont.cellId,
+          gridRow: startBodyRow, // clamped: the cell resumes at the top of this fragment
+          gridCol: cont.gridCol,
+          rowSpan: remainingSpan,
+          colSpan: cont.colSpan,
+        },
+        cellEl,
+        resumeInteriorToken: cont.interiorBreakToken,
+        spanOrigin: { gridRow: cont.gridRow, rowSpan: cont.rowSpan },
       });
     }
   }
@@ -570,15 +666,16 @@ export function layoutTable(
           // Re-lay the interior with a block-size budget = placedHeight. A non-null
           // breakToken means content spills to the next fragment; null means the
           // content fit but the box still spans past the break (empty tail).
-          // resumeFrom is null because this is the FIRST time the cell is
-          // fragmented — its content was laid unfragmented in Pass A. The S5.T4
-          // resume path must instead pass the incoming continuation's
-          // interiorBreakToken here (a rowSpan≥3 cell can break on >1 page).
+          // resumeFrom: for a cell laid fresh in Pass A this is null (first
+          // fragmentation — its content was laid whole). For a cell carried in by
+          // the S5.T4 resume preamble, it is the incoming continuation's interior
+          // token, so a rowSpan≥3 cell re-breaks from where it left off (the
+          // continuation chain across >2 pages).
           const cellCtx = makeChildContext(ctx, cs, lc.inlineSize, "indefinite");
           const frag = layoutBlock(lc.cellEl, 0, 0, cellCtx, shaper, {
             availableBlockSize: placedHeight,
             pageIndex: fragmentation.pageIndex,
-            resumeFrom: null,
+            resumeFrom: lc.resumeInteriorToken ?? null,
           });
           const top = frag.box;
           const topChildren =
@@ -604,11 +701,14 @@ export function layoutTable(
           }
           m.set(lc.key, trimmed);
 
+          // Emit the cell's ORIGINAL origin/span (spanOrigin for a resumed cell;
+          // the placement itself for a fresh one) so the continuation keeps
+          // pointing at the cell's true origin row + end across the whole chain.
           continuations.push({
             cellId: asBlockId(lc.key),
-            gridRow: lc.placement.gridRow,
+            gridRow: lc.spanOrigin?.gridRow ?? lc.placement.gridRow,
             gridCol: lc.placement.gridCol,
-            rowSpan: lc.placement.rowSpan,
+            rowSpan: lc.spanOrigin?.rowSpan ?? lc.placement.rowSpan,
             colSpan: lc.placement.colSpan,
             interiorBreakToken: frag.breakToken,
           });

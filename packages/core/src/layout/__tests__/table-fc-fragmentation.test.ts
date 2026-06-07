@@ -233,3 +233,121 @@ describe("Table FC fragmentation — rowSpan cell crossing the break (S5)", () =
     expect(placedA.children.length).toBe(1);
   });
 });
+
+/** 2-col, 3-row table: col-0 cell A spans all three rows (3 blocks); B/C/D are the
+ *  single-line col-1 cells of rows 0/1/2. cols 50/50. */
+function buildRowSpan3Table(): ElementBox {
+  const cellA = createElementBox(
+    "cellA",
+    { display: "table-cell" },
+    [blockLine("a0"), blockLine("a1"), blockLine("a2")],
+    { rowSpan: 3 },
+  );
+  const cellB = createElementBox("cellB", { display: "table-cell" }, [blockLine("b0")]);
+  const cellC = createElementBox("cellC", { display: "table-cell" }, [blockLine("c0")]);
+  const cellD = createElementBox("cellD", { display: "table-cell" }, [blockLine("d0")]);
+  const row0 = createElementBox("row-0", { display: "table-row" }, [cellA, cellB]);
+  const row1 = createElementBox("row-1", { display: "table-row" }, [cellC]);
+  const row2 = createElementBox("row-2", { display: "table-row" }, [cellD]);
+  const table = createElementBox(
+    "table",
+    { display: "table" },
+    [row0, row1, row2],
+    { columnWidths: [0.5, 0.5] },
+  );
+  const cascaded = cascadePass(table);
+  if (cascaded.type !== "element") throw new Error("cascadePass returned non-element");
+  return cascaded;
+}
+
+describe("Table FC fragmentation — resume of a rowSpan cell (S5.T4)", () => {
+  it("lays the still-spanning cell's remainder on the resume page, beside the post-break row's own cell", () => {
+    const table = buildRowSpanTable(["a0", "a1"], ["c0"]);
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+
+    const p1 = layoutTable(table, 0, 0, ctx, shaper, {
+      availableBlockSize: 20, pageIndex: 0, resumeFrom: null,
+    });
+    if (p1.breakToken === null || p1.breakToken.type !== "table") {
+      throw new Error("expected a TableBreakToken on page 1");
+    }
+    expect(p1.breakToken.resumeAtRow).toBe(1);
+
+    const p2 = layoutTable(table, 0, 0, ctx, shaper, {
+      availableBlockSize: 200, pageIndex: 1, resumeFrom: p1.breakToken,
+    });
+    expect(p2.breakToken).toBeNull();
+    if (p2.box === null) throw new Error("expected a box on page 2");
+
+    // Just row 1 on the resume page.
+    expect(p2.box.children.length).toBe(1);
+    const row1 = p2.box.children[0];
+    if (row1.type !== "table-row") throw new Error("expected a table-row");
+
+    const a = row1.children.find((c) => c.key === "cellA");
+    const c = row1.children.find((c) => c.key === "cellC");
+    if (a === undefined || a.type !== "table-cell") throw new Error("A missing on resume");
+    if (c === undefined || c.type !== "table-cell") throw new Error("C missing on resume");
+    // A resumes in col 0, C in col 1 (assignTableGrid routed C around A's column).
+    expect(a.inlineOffset).toBe(0);
+    expect(c.inlineOffset).toBe(300);
+    // A carries ONLY its second block (the resumed remainder), spanning row 1 (16).
+    expect(a.children.length).toBe(1);
+    expect(a.blockSize).toBe(16);
+  });
+
+  it("re-breaks a rowSpan-3 cell across three pages (continuation chains)", () => {
+    const table = buildRowSpan3Table();
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+
+    // Page 1: fits row 0 only → A (rowSpan 3) straddles.
+    const p1 = layoutTable(table, 0, 0, ctx, shaper, {
+      availableBlockSize: 20, pageIndex: 0, resumeFrom: null,
+    });
+    if (p1.breakToken === null || p1.breakToken.type !== "table") throw new Error("p1 token");
+    expect(p1.breakToken.resumeAtRow).toBe(1);
+    expect((p1.breakToken.spanningCells ?? []).length).toBe(1);
+
+    // Page 2: resume, fits row 1 only → A still straddles (re-break), resumes at row 2.
+    const p2 = layoutTable(table, 0, 0, ctx, shaper, {
+      availableBlockSize: 20, pageIndex: 1, resumeFrom: p1.breakToken,
+    });
+    if (p2.breakToken === null || p2.breakToken.type !== "table") throw new Error("p2 token");
+    expect(p2.breakToken.resumeAtRow).toBe(2);
+    const p2Span = p2.breakToken.spanningCells ?? [];
+    expect(p2Span.length).toBe(1);
+    expect(p2Span[0].cellId).toBe("cellA");
+    // CRITICAL chain invariant: the re-emitted continuation must carry A's ORIGINAL
+    // origin (row 0, span 3), NOT the clamped placement (row 1, span 2) — page 3's
+    // preamble looks A's element up in rows[gridRow] and computes end = gridRow+rowSpan.
+    expect(p2Span[0].gridRow).toBe(0);
+    expect(p2Span[0].rowSpan).toBe(3);
+    expect(p2Span[0].interiorBreakToken).not.toBeNull();
+    // A's middle fragment on page 2 is trimmed to one row (16) carrying its 2nd block.
+    if (p2.box === null) throw new Error("p2 box");
+    const p2Row = p2.box.children[0];
+    if (p2Row.type !== "table-row") throw new Error("p2 row");
+    const p2A = p2Row.children.find((c) => c.key === "cellA");
+    if (p2A === undefined || p2A.type !== "table-cell") throw new Error("p2 A");
+    expect(p2A.blockSize).toBe(16);
+    expect(p2A.children.length).toBe(1);
+
+    // Page 3: resume, fits the rest → A's last block lands, no further break.
+    const p3 = layoutTable(table, 0, 0, ctx, shaper, {
+      availableBlockSize: 200, pageIndex: 2, resumeFrom: p2.breakToken,
+    });
+    expect(p3.breakToken).toBeNull();
+    if (p3.box === null) throw new Error("p3 box");
+    const p3Row = p3.box.children[0];
+    if (p3Row.type !== "table-row") throw new Error("p3 row");
+    const p3A = p3Row.children.find((c) => c.key === "cellA");
+    const p3D = p3Row.children.find((c) => c.key === "cellD");
+    if (p3A === undefined || p3A.type !== "table-cell") throw new Error("p3 A");
+    if (p3D === undefined || p3D.type !== "table-cell") throw new Error("p3 D");
+    expect(p3A.children.length).toBe(1); // the final block a2
+    expect(p3A.inlineOffset).toBe(0);
+    expect(p3D.inlineOffset).toBe(300);
+  });
+});
