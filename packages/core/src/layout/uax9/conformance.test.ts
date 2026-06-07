@@ -308,10 +308,11 @@ const REP: Record<BidiClass, number> = {
 
 /**
  * Stride for BidiTest.txt data-line × base-direction expansions (1 = full file,
- * no sampling). The full file (~770K expansions) completes in a few seconds, so
- * we run it in full — this is the conformance gate. If CPU contention ever makes
- * the full run too slow, raise this to a documented prime (the run LOGS the
- * stride + covered/total counts, so any sampling is announced, never silent).
+ * no sampling). The full file (~770K expansions) completes in ~2s isolated — this
+ * is the conformance gate, run in full. Full-suite CPU contention can slow it past
+ * the default 5s test timeout, so the `it` carries a generous explicit timeout
+ * (preferred over sampling, which would silently shrink coverage). The run LOGS the
+ * stride + covered/total counts, so any future sampling would be announced.
  */
 const BIDI_TEST_STRIDE = 1;
 
@@ -425,5 +426,8 @@ describe("UAX #9 conformance — BidiTest.txt (Unicode 16.0.0)", () => {
     // coverage floor when an early break trims `covered`).
     expect(failures, `\n${failures.join("\n")}`).toHaveLength(0);
     expect(covered).toBeGreaterThan(10000);
-  });
+    // Generous per-test timeout (the default 5s flakes under full-suite CPU
+    // contention — this run is ~2s isolated but ~5.5s contended). Raising the
+    // timeout keeps FULL stride=1 coverage rather than sampling it away.
+  }, 30_000);
 });
