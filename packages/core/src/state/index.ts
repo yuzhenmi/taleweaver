@@ -248,6 +248,7 @@ export { insertTableRowSpanAware } from "./ops/insert-table-row-span-aware";
 export { insertTableColumnSpanAware } from "./ops/insert-table-column-span-aware";
 export { deleteTableRowSpanAware } from "./ops/delete-table-row-span-aware";
 export { deleteTableColumn } from "./ops/delete-table-column";
+export { deleteTableColumnSpanAware } from "./ops/delete-table-column-span-aware";
 
 // Block-attribute + type edits.
 export { setBlockAttrs, setBlockAttrsInTx } from "./ops/set-block-attrs";
