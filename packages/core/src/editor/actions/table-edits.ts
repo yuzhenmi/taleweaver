@@ -5,6 +5,7 @@ import {
   insertTableRow,
   insertTableRowSpanAware,
   insertTableColumn,
+  insertTableColumnSpanAware,
   deleteTableColumn,
   splitCell,
   mergeCells,
@@ -59,14 +60,15 @@ export function handleInsertTableRow(
 }
 
 /**
- * `INSERT_TABLE_COLUMN` handler (P15a). Inserts a column (one empty cell per row)
- * left/right of the caret's column, via `resolveTableContext` → `insertTableColumn`.
+ * `INSERT_TABLE_COLUMN` handler. Inserts a column left/right of the caret's column.
  *
- * No-ops (same `editor` ref) when the caret is not inside an editable table OR
- * the table `hasSpans` (the P15a → P15b boundary). Selection is UNCHANGED:
- * Google Docs keeps the cursor in its current cell on insert-column, and the
- * caret's paragraph still exists after the edit. The op rewrites `columnWidths`
- * (when present) in the same transaction → one undo entry reverts both.
+ * No-ops (same `editor` ref) when the caret is not inside an editable table OR the
+ * table is `ragged` (the degenerate carve-out). A WELL-FORMED SPANNED table routes
+ * to the span-aware `insertTableColumnSpanAware` (P15b — a crossing colSpan grows,
+ * new cells only in uncovered rows); a plain no-span table uses the byte-identical
+ * P15a `insertTableColumn`. Both rewrite `columnWidths` (when present) in the same
+ * transaction → one undo reverts cells + widths. Selection is UNCHANGED (Google
+ * Docs keeps the cursor in its current cell on insert-column).
  */
 export function handleInsertTableColumn(
   editor: EditorState,
@@ -74,9 +76,11 @@ export function handleInsertTableColumn(
   config: EditorConfig,
 ): EditorState {
   const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
-  if (ctx === null || ctx.hasSpans) return editor;
+  if (ctx === null || ctx.ragged) return editor;
 
-  const result = insertTableColumn(editor.state, ctx, position, productionAllocator);
+  const result = ctx.spanned
+    ? insertTableColumnSpanAware(editor.state, ctx, position, productionAllocator)
+    : insertTableColumn(editor.state, ctx, position, productionAllocator);
   if (result.state === editor.state) return editor; // defensive no-op short-circuit
 
   editor.history.commit(

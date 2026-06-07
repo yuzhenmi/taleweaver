@@ -341,7 +341,7 @@ describe("handleInsertTableColumn — INSERT_TABLE_COLUMN (P15a.S5)", () => {
     expect(next).toBe(editor);
   });
 
-  it("no-ops on a ragged table (hasSpans boundary → defer to P15b)", () => {
+  it("no-ops on a ragged table (the degenerate carve-out — ctx.ragged gate)", () => {
     const cell = (): BlockInit => ({ type: "table-cell", children: [{ type: "paragraph", inlineContent: { items: [] } }] });
     const ragged: BlockInit = {
       type: "table",
@@ -358,6 +358,33 @@ describe("handleInsertTableColumn — INSERT_TABLE_COLUMN (P15a.S5)", () => {
 
     const next = reduceEditor(editor, { type: "INSERT_TABLE_COLUMN", position: "right" }, config);
     expect(next).toBe(editor);
+  });
+
+  it("routes a WELL-FORMED SPANNED table to the span-aware op (P15b): a crossing colSpan grows", () => {
+    // row0=[A(colSpan 2)], row1=[C, D] → occupancy [[A,A],[C,D]]. Caret in C; insert
+    // right → A crosses the new boundary → A.colSpan 2→3. (The old hasSpans gate would
+    // have no-op'd this; the new ragged-only gate routes to span-aware insert-column.)
+    const blocks = [
+      buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
+      buildBlock({ id: "table", type: "table", parentId: "doc", firstChildId: "r0", lastChildId: "r1" }),
+      buildBlock({ id: "r0", type: "table-row", parentId: "table", nextSiblingId: "r1", firstChildId: "A", lastChildId: "A" }),
+      buildBlock({ id: "r1", type: "table-row", parentId: "table", prevSiblingId: "r0", firstChildId: "C", lastChildId: "D" }),
+      buildBlock({ id: "A", type: "table-cell", parentId: "r0", attrs: { colSpan: 2 }, firstChildId: "Ap", lastChildId: "Ap" }),
+      buildBlock({ id: "Ap", type: "paragraph", parentId: "A", inlineContent: inlineContent([]) }),
+      buildBlock({ id: "C", type: "table-cell", parentId: "r1", nextSiblingId: "D", firstChildId: "Cp", lastChildId: "Cp" }),
+      buildBlock({ id: "Cp", type: "paragraph", parentId: "C", inlineContent: inlineContent([]) }),
+      buildBlock({ id: "D", type: "table-cell", parentId: "r1", prevSiblingId: "C", firstChildId: "Dp", lastChildId: "Dp" }),
+      buildBlock({ id: "Dp", type: "paragraph", parentId: "D", inlineContent: inlineContent([]) }),
+    ];
+    const state = buildState({ rootId: "doc", blocks });
+    const caret = createPosition("Cp" as BlockId, 0);
+    const editor = createEditorStateFromState(state, createSpan(caret, caret), config);
+
+    const next = reduceEditor(editor, { type: "INSERT_TABLE_COLUMN", position: "right" }, config);
+    expect(next).not.toBe(editor);
+    expect(getBlock(next.state, "A" as BlockId)?.attrs.colSpan).toBe(3);
+    expect(getChildIds(next.state, "r1" as BlockId).length).toBe(3); // C, new, D
+    expect(next.selection.focus.blockId).toBe("Cp"); // selection unchanged
   });
 
   it("inserts a column right of the caret's column in every row; caret unchanged", () => {
