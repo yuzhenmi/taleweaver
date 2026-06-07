@@ -557,9 +557,10 @@ export function layoutBlock(
     // (a) `fragmentHasContent` would be spuriously true for the FIRST child (its
     // own marker counts as "preceding content"), and (b) on a real forced break
     // the marker would be orphaned into the partial result AND regenerated when
-    // the block resumes on the next page — a double marker, and a double
-    // list-counter increment. Deciding the break first means the marker (and the
-    // `listCounter++`) only happen once the block is actually placed on this page.
+    // the block resumes on the next page — a double marker. Deciding the break
+    // first means the marker is emitted only once the block is actually placed on
+    // this page. (List numbering itself is computed in the render pass now — the
+    // BFC only consumes the baked `markerText`; it no longer counts.)
     if (fragmentation !== undefined) {
       const breakBefore = normalizeBreakValue(childCs.breakBefore ?? "auto");
       const fragmentHasContent = layoutChildren.length > 0;
