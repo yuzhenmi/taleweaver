@@ -69,7 +69,10 @@ export const PROPERTY_META: Record<keyof Style, { inherits: boolean }> = {
   wordSpacing:         { inherits: true },
   textTransform:       { inherits: true },
   fontFeatureSettings: { inherits: true },
-  tabSize:             { inherits: true },
+  // Per CSS Text 4, `tab-size` (the default interval) inherits; the explicit
+  // stop LIST is a paragraph property and does NOT inherit.
+  tabStops:            { inherits: false },
+  defaultTabStop:      { inherits: true },
 
   float: { inherits: false },
   clear: { inherits: false },
@@ -147,7 +150,8 @@ export const INITIAL_COMPUTED_STYLE: ComputedStyle = {
   wordSpacing:         "normal",
   textTransform:       "none",
   fontFeatureSettings: [],
-  tabSize:             4,
+  tabStops:            [],
+  defaultTabStop:      48,
 
   float: "none",
   clear: "none",

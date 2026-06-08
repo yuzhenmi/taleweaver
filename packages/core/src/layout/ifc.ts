@@ -1,6 +1,6 @@
 import type { RenderNode } from "../render/render-node";
 import type { ElementBox } from "../render/render-node";
-import type { ComputedStyle, WhiteSpace } from "../styles";
+import type { ComputedStyle, WhiteSpace, TabStop } from "../styles";
 import type { LayoutBox, LineBox, InlineBox, BlockBox } from "./layout-box";
 import type { BlockId } from "../state";
 import { createInlineBox, createInlineBlockBox, createLineBox, createTextRunBox, withInlineOffset, withBlockOffset, assertLayoutBoxConsistent, createBlockBox } from "./layout-box";
@@ -46,6 +46,29 @@ function sourceBlockIdOf(parentKey: string): BlockId {
   const idx = parentKey.lastIndexOf("/anon[");
   if (idx === -1) return parentKey as BlockId;
   return parentKey.slice(0, idx) as BlockId;
+}
+
+/**
+ * Structural equality for two resolved tab-stop lists. The cached lines bake in
+ * the tab-stop geometry, so the incremental-wrap cache-hit gate must reject a
+ * tab-stop change even when tokens + width + align + indent are unchanged.
+ * Compares length + per-index position/alignment/leader.
+ */
+function tabStopsEqual(a: readonly TabStop[], b: readonly TabStop[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const sa = a[i];
+    const sb = b[i];
+    if (
+      sa.position !== sb.position ||
+      sa.alignment !== sb.alignment ||
+      sa.leader !== sb.leader
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**
@@ -1241,7 +1264,13 @@ export function layoutInlineContent(
   // Bypass the cache when fragmentation is active: the cached box was produced
   // without fragmentation and contains all lines. We must re-run the fit-check
   // to produce the correct partial box and breakToken for this fragment.
-  const prevState = fragmentation === undefined ? ctx.ifcStateCache.get(parent.key) : undefined;
+  // P-tabs: a cached entry that contains a tab cannot feed the cheap
+  // incremental-wrap fast path — a tab's advance depends on its position
+  // within the line, which the token-equality short-circuit doesn't capture.
+  // Treat `hasTab` entries as a cache miss. (Inert in S1: saves always write
+  // `hasTab: false`; the tab-token producer flips it in S2.)
+  const cachedState = fragmentation === undefined ? ctx.ifcStateCache.get(parent.key) : undefined;
+  const prevState = cachedState !== undefined && !cachedState.hasTab ? cachedState : undefined;
   // P2 (#312) / #333: the cached lines bake in their alignment offset — each
   // top-level child's `inlineOffset` carries the alignment delta (the line
   // itself spans the full width at the natural inline-start). A change to ONLY
@@ -1255,7 +1284,9 @@ export function layoutInlineContent(
     prevState.availableInlineSize === availableInlineSize &&
     prevState.textAlign === textAlign &&
     prevState.direction === direction &&
-    prevState.textIndent === blockTextIndent
+    prevState.textIndent === blockTextIndent &&
+    prevState.defaultTabStop === parentCs.defaultTabStop &&
+    tabStopsEqual(prevState.tabStops, parentCs.tabStops)
   ) {
     if (findChangePoint(prevState.tokens, tokens) === -1) {
       const tHit = markStart("ifc.cache.hit");
@@ -2273,6 +2304,11 @@ export function layoutInlineContent(
       textAlign,
       direction,
       textIndent: blockTextIndent,
+      tabStops: parentCs.tabStops,
+      defaultTabStop: parentCs.defaultTabStop,
+      // S1 placeholder: no tab tokens exist yet. S2 replaces this with
+      // `tokens.some(t => t.isTab)` once the tab-token producer lands.
+      hasTab: false,
     });
   }
 

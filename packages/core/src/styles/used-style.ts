@@ -7,6 +7,7 @@ import type {
 import type { Color } from "./color";
 import type { UsedLength } from "./length";
 import type { WritingMode, Direction } from "./writing-mode";
+import type { TabStop } from "./tab-stops";
 
 /**
  * Used style — fully numeric. Produced by the layout pass per LayoutBox.
@@ -68,7 +69,8 @@ export interface UsedStyle {
   wordSpacing:         UsedLength | "normal";
   textTransform:       TextTransform;
   fontFeatureSettings: readonly string[];
-  tabSize:             number;
+  tabStops:            readonly TabStop[];
+  defaultTabStop:      number;
 
   float: Float;
   clear: Clear;

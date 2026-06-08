@@ -402,6 +402,7 @@ describe("registerBuiltinAttrs", () => {
     expect(r.has("letterSpacing")).toBe(true);
     expect(r.has("wordSpacing")).toBe(true);
     expect(r.has("textTransform")).toBe(true);
+    expect(r.has("tabStops")).toBe(true);
   });
 
   it("end-to-end: a typical inline attrs bag produces the expected Style contribution", () => {

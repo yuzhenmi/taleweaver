@@ -1,6 +1,6 @@
 import type { LineBox } from "./layout-box";
 import type { Token } from "./ifc";
-import type { TextAlign } from "../styles";
+import type { TextAlign, TabStop } from "../styles";
 import type { Direction } from "../styles/writing-mode";
 
 /**
@@ -32,6 +32,22 @@ export interface IFCState {
    * rationale as `textAlign`/`direction` above.
    */
   readonly textIndent: number;
+  /**
+   * The block's resolved tab-stop list + default interval at layout time. Tab
+   * glyphs advance to these stops, so the cached lines bake in the stop
+   * geometry — a stop-list or default-interval change (same tokens/width/align/
+   * indent) must NOT reuse them. The cache-hit gate compares these.
+   */
+  readonly tabStops: readonly TabStop[];
+  readonly defaultTabStop: number;
+  /**
+   * Whether this paragraph contains at least one tab. A tab's advance depends on
+   * its position WITHIN the line (the cursor when it is reached), so a cached
+   * entry with a tab cannot be reused by the cheap incremental-wrap fast path —
+   * the fragmentation-gate seam treats `hasTab: true` as a cache miss. (S1
+   * always writes `false`; the tab-token producer flips it in S2.)
+   */
+  readonly hasTab: boolean;
 }
 
 /**

@@ -54,7 +54,7 @@ function makeUsedStyle(writingMode: WritingMode, direction: Direction): UsedStyl
     textAlign: "start", textIndent: 0, textWrap: "wrap", hyphens: "none",
     overflowWrap: "normal",
     letterSpacing: "normal", wordSpacing: "normal", textTransform: "none",
-    fontFeatureSettings: [], tabSize: 8,
+    fontFeatureSettings: [], tabStops: [], defaultTabStop: 48,
     float: "none", clear: "none",
     breakBefore: "auto", breakAfter: "auto", breakInside: "auto",
     widows: 2, orphans: 2,

@@ -150,4 +150,37 @@ describe("createDefaultAttrRegistry", () => {
     const b = createDefaultAttrRegistry();
     expect(a).not.toBe(b);
   });
+
+  it("tabStops interpreter sorts stops ascending and clamps negative positions to 0", () => {
+    const reg = createDefaultAttrRegistry();
+    const interp = reg.get("tabStops");
+    expect(interp).toBeDefined();
+    if (!interp) throw new Error("tabStops interpreter not registered");
+    const partial = interp.toStyle([
+      { position: 200, alignment: "right", leader: "none" },
+      { position: -5, alignment: "left", leader: "dot" },
+    ]);
+    expect(partial.tabStops).toEqual([
+      { position: 0, alignment: "left", leader: "dot" },
+      { position: 200, alignment: "right", leader: "none" },
+    ]);
+  });
+
+  it("tabStops interpreter coerces invalid input (non-array → {}, bad alignment/leader → defaults, non-object skipped)", () => {
+    const reg = createDefaultAttrRegistry();
+    const interp = reg.get("tabStops");
+    expect(interp).toBeDefined();
+    if (!interp) throw new Error("tabStops interpreter not registered");
+    // Non-array / nullish input contributes nothing.
+    expect(interp.toStyle("not-an-array")).toEqual({});
+    expect(interp.toStyle(null)).toEqual({});
+    // Invalid alignment/leader coerced to defaults; non-object entries skipped.
+    const partial = interp.toStyle([
+      { position: 50, alignment: "bogus", leader: "invalid" },
+      "not-an-object",
+    ]);
+    expect(partial.tabStops).toEqual([
+      { position: 50, alignment: "left", leader: "none" },
+    ]);
+  });
 });

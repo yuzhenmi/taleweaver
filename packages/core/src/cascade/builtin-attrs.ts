@@ -1,5 +1,5 @@
 import type { AttrInterpreter } from "./attr-registry";
-import type { Length, Style, TextTransform } from "../styles";
+import type { Length, Style, TextTransform, TabStop, TabAlignment, LeaderStyle } from "../styles";
 
 /**
  * Built-in attribute interpreters for the standard text styles.
@@ -279,6 +279,55 @@ export const letterSpacingInterpreter: AttrInterpreter =
 export const wordSpacingInterpreter: AttrInterpreter =
   makeLengthOrNormalInterpreter("wordSpacing");
 
+const TAB_ALIGNMENTS: ReadonlySet<TabAlignment> = new Set<TabAlignment>([
+  "left", "center", "right", "decimal",
+]);
+const LEADER_STYLES: ReadonlySet<LeaderStyle> = new Set<LeaderStyle>([
+  "none", "dot", "dash", "line",
+]);
+
+function coerceTabAlignment(value: unknown): TabAlignment {
+  return typeof value === "string" && TAB_ALIGNMENTS.has(value as TabAlignment)
+    ? (value as TabAlignment)
+    : "left";
+}
+
+function coerceLeaderStyle(value: unknown): LeaderStyle {
+  return typeof value === "string" && LEADER_STYLES.has(value as LeaderStyle)
+    ? (value as LeaderStyle)
+    : "none";
+}
+
+/**
+ * `tabStops` accepts an array of per-paragraph tab-stop descriptors. Each entry
+ * is coerced into a closed `TabStop`: `position` clamped to `>= 0` (negative
+ * stops are meaningless; CSS Text 4 disallows them), `alignment` defaulting to
+ * `"left"` and `leader` to `"none"` when absent/invalid. The returned array is a
+ * NEW array sorted ascending by `position` (the IFC tab-resolution pass and the
+ * cache-hit gate rely on a canonical order). Non-array / non-object inputs
+ * contribute nothing.
+ */
+export const tabStopsInterpreter: AttrInterpreter = {
+  attrKey: "tabStops",
+  toStyle: (value) => {
+    if (!Array.isArray(value)) return {};
+    const stops: TabStop[] = [];
+    for (const raw of value) {
+      if (typeof raw !== "object" || raw === null) continue;
+      const entry = raw as Record<string, unknown>;
+      const pos = entry.position;
+      const position = typeof pos === "number" && Number.isFinite(pos) ? Math.max(0, pos) : 0;
+      stops.push({
+        position,
+        alignment: coerceTabAlignment(entry.alignment),
+        leader: coerceLeaderStyle(entry.leader),
+      });
+    }
+    stops.sort((a, b) => a.position - b.position);
+    return { tabStops: stops };
+  },
+};
+
 import type { AttrRegistry } from "./attr-registry";
 
 /**
@@ -307,4 +356,5 @@ export function registerBuiltinAttrs(registry: AttrRegistry): void {
   registry.register(textIndentInterpreter);
   registry.register(letterSpacingInterpreter);
   registry.register(wordSpacingInterpreter);
+  registry.register(tabStopsInterpreter);
 }

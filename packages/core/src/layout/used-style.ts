@@ -137,7 +137,8 @@ export function computeUsedStyle(
     wordSpacing: resolveUsedLengthOrNormal(cs.wordSpacing, containingInlineSize),
     textTransform: cs.textTransform,
     fontFeatureSettings: cs.fontFeatureSettings,
-    tabSize: cs.tabSize,
+    tabStops: cs.tabStops,
+    defaultTabStop: cs.defaultTabStop,
 
     float: cs.float,
     clear: cs.clear,

@@ -46,7 +46,8 @@ describe("UsedStyle", () => {
       wordSpacing: "normal",
       textTransform: "none",
       fontFeatureSettings: [],
-      tabSize: 4,
+      tabStops: [],
+      defaultTabStop: 48,
 
       float: "none", clear: "none",
 

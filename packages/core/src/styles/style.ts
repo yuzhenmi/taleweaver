@@ -1,6 +1,7 @@
 import type { Length, LengthOrAuto, IntrinsicSizingKeyword } from "./length";
 import type { Color } from "./color";
 import type { WritingMode, Direction } from "./writing-mode";
+import type { TabStop } from "./tab-stops";
 
 export type Display =
   | "block" | "inline" | "inline-block" | "list-item"
@@ -117,7 +118,10 @@ export interface Style {
   readonly wordSpacing?:         Length | "normal";
   readonly textTransform?:       TextTransform;
   readonly fontFeatureSettings?: readonly string[];
-  readonly tabSize?:             number;
+  // Tab stops — per-paragraph stop list + default interval (paragraph style).
+  // A tab itself is the `"tab"` inline embed; these style its placement.
+  readonly tabStops?:            readonly TabStop[];
+  readonly defaultTabStop?:      number;
 
   // Float / clear (sides are logical now)
   readonly float?: Float;

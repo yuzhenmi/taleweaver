@@ -11,6 +11,7 @@ export type {
   BreakBefore, BreakAfter, BreakInside,
   ListStyleType, ListStylePosition, BoxSizing,
 } from "./style";
+export type { TabAlignment, LeaderStyle, TabStop } from "./tab-stops";
 export type { ComputedStyle } from "./computed-style";
 export type { UsedStyle } from "./used-style";
 export { PROPERTY_META, INITIAL_COMPUTED_STYLE } from "./property-meta";

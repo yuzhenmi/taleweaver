@@ -7,6 +7,7 @@ import type {
 import type { Color } from "./color";
 import type { ComputedLength, ComputedLengthOrAuto, IntrinsicSizingKeyword } from "./length";
 import type { WritingMode, Direction } from "./writing-mode";
+import type { TabStop } from "./tab-stops";
 
 /**
  * Resolved style — every property is required. Lengths are in canonical
@@ -77,7 +78,8 @@ export interface ComputedStyle {
   wordSpacing:         ComputedLength | "normal";
   textTransform:       TextTransform;
   fontFeatureSettings: readonly string[];
-  tabSize:             number;
+  tabStops:            readonly TabStop[];
+  defaultTabStop:      number;
 
   float: Float;
   clear: Clear;
