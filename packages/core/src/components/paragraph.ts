@@ -8,6 +8,7 @@ import {
   marginBlockStartFromAttrs,
   marginBlockEndFromAttrs,
   writingModeFromAttrs,
+  tabStopsFromAttrs,
 } from "./leaf-style-attrs";
 
 const VALID_WHITE_SPACES: ReadonlySet<WhiteSpace> = new Set<WhiteSpace>([
@@ -63,6 +64,7 @@ export const paragraphComponent: LeafComponentDefinition = {
     const marginInlineStart = marginInlineStartFromAttrs(view.attrs.marginInlineStart);
     const marginBlockStart = marginBlockStartFromAttrs(view.attrs.marginBlockStart);
     const marginBlockEnd = marginBlockEndFromAttrs(view.attrs.marginBlockEnd);
+    const tabStops = tabStopsFromAttrs(view.attrs.tabStops);
     const style: Style = {
       display: "block",
       marginBlockEnd: { unit: "em", value: 0.5 },
@@ -70,6 +72,7 @@ export const paragraphComponent: LeafComponentDefinition = {
       ...(writingMode !== undefined ? { writingMode } : {}),
       ...(textAlign !== undefined ? { textAlign } : {}),
       ...(lineHeight !== undefined ? { lineHeight } : {}),
+      ...(tabStops !== undefined ? { tabStops } : {}),
       ...(marginInlineStart !== undefined ? { marginInlineStart } : {}),
       // Paragraph-spacing attrs WIN over the component's default em margins
       // (the 0.5em `marginBlockEnd` above) — they're spread last so the attr

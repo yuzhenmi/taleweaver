@@ -1,6 +1,6 @@
 import type { TextAlign } from "../cascade/builtin-attrs";
-import { isTextAlign } from "../cascade/builtin-attrs";
-import type { WritingMode } from "../styles";
+import { isTextAlign, normalizeTabStops } from "../cascade/builtin-attrs";
+import type { WritingMode, TabStop } from "../styles";
 
 const VALID_WRITING_MODES: ReadonlySet<WritingMode> = new Set<WritingMode>([
   "horizontal-tb",
@@ -148,4 +148,27 @@ export function marginBlockStartFromAttrs(value: unknown): number | undefined {
  */
 export function marginBlockEndFromAttrs(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+/**
+ * Read a block-level `tabStops` (per-paragraph tab-stop list) attr override for
+ * an inline-bearing-leaf component (paragraph / heading / list-item).
+ *
+ * Per the same component-set convention as `textAlignFromAttrs` /
+ * `marginInlineStartFromAttrs` above: the stop list must reach the layout
+ * cascade — the IFC resolves each tab's destination stop from the paragraph's
+ * `tabStops` at wrap time — but the render-time attrs-derived
+ * `view.computedStyle` is not threaded onto the ElementBox style, so the
+ * component synthesizes `tabStops` onto `node.style`. Reuses the shared
+ * `normalizeTabStops` so the validation/sort matches the `tabStopsInterpreter`
+ * exactly (clamp `position >= 0`, default `alignment`/`leader`, sort ascending).
+ *
+ * `tabStops` is a NON-inherited property (`property-meta.ts`) — each paragraph
+ * carries its own stops, so an absent attr leaves the property unset and the
+ * layout cascade falls back to the initial empty list (the default grid).
+ * Returns the normalized array, or `undefined` for a non-array / absent attr.
+ */
+export function tabStopsFromAttrs(value: unknown): readonly TabStop[] | undefined {
+  const stops = normalizeTabStops(value);
+  return stops !== null ? stops : undefined;
 }

@@ -310,23 +310,38 @@ function coerceLeaderStyle(value: unknown): LeaderStyle {
 export const tabStopsInterpreter: AttrInterpreter = {
   attrKey: "tabStops",
   toStyle: (value) => {
-    if (!Array.isArray(value)) return {};
-    const stops: TabStop[] = [];
-    for (const raw of value) {
-      if (typeof raw !== "object" || raw === null) continue;
-      const entry = raw as Record<string, unknown>;
-      const pos = entry.position;
-      const position = typeof pos === "number" && Number.isFinite(pos) ? Math.max(0, pos) : 0;
-      stops.push({
-        position,
-        alignment: coerceTabAlignment(entry.alignment),
-        leader: coerceLeaderStyle(entry.leader),
-      });
-    }
-    stops.sort((a, b) => a.position - b.position);
-    return { tabStops: stops };
+    const stops = normalizeTabStops(value);
+    return stops !== null ? { tabStops: stops } : {};
   },
 };
+
+/**
+ * Shared `tabStops` attr → closed `TabStop[]` normalizer. Coerces each entry
+ * (clamp `position >= 0`, default `alignment`/`leader`) and returns a NEW array
+ * sorted ascending by position, or `null` for a non-array input (so a caller can
+ * leave the property unset). Reused by BOTH the `tabStopsInterpreter` (the
+ * generic cascade path) AND the leaf component's `tabStopsFromAttrs` (the
+ * block-level component-synthesis path that threads the stops onto the
+ * ElementBox `style` so they reach the layout cascade — see
+ * `components/leaf-style-attrs.ts`).
+ */
+export function normalizeTabStops(value: unknown): readonly TabStop[] | null {
+  if (!Array.isArray(value)) return null;
+  const stops: TabStop[] = [];
+  for (const raw of value) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const entry = raw as Record<string, unknown>;
+    const pos = entry.position;
+    const position = typeof pos === "number" && Number.isFinite(pos) ? Math.max(0, pos) : 0;
+    stops.push({
+      position,
+      alignment: coerceTabAlignment(entry.alignment),
+      leader: coerceLeaderStyle(entry.leader),
+    });
+  }
+  stops.sort((a, b) => a.position - b.position);
+  return stops;
+}
 
 import type { AttrRegistry } from "./attr-registry";
 

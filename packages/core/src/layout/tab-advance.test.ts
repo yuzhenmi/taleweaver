@@ -22,11 +22,19 @@ import { buildBlock, buildState, inlineContent, text, embed } from "../test-util
 import { render } from "../render/render";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
+import { cascadePass } from "../cascade";
 import { layoutTree } from "./dispatch";
+import { layoutBlock } from "./bfc";
+import { makeRootContext } from "./layout-context";
 import { resolvePositionedTree } from "./positioned-tree";
 import { createMockShaper } from "./mock-shaper";
+import { INITIAL_COMPUTED_STYLE } from "../styles";
+import type { TabStop } from "../styles";
 import type { LayoutBox, InlineBlockBox } from "./layout-box";
 import type { PageConfig } from "./page-config";
+import { resolvePixelPosition } from "../cursor/cursor-position";
+import { createPosition } from "../state";
+import type { BlockId, State } from "../state";
 
 const componentRegistry = createDefaultComponentRegistry();
 const attrRegistry = createDefaultAttrRegistry();
@@ -39,8 +47,12 @@ const pageConfig: PageConfig = {
   pageGap: 20,
 };
 
-/** Doc = document → paragraph with inlineContent [text("a"), embed("tab"), text("b")]. */
-function tabDoc(): ReturnType<typeof buildState> {
+/**
+ * Doc = document → paragraph with inlineContent [text("a"), embed("tab"), text("b")].
+ * `tabStops` is carried as a paragraph block-attr → cascade resolves it onto the
+ * paragraph's ComputedStyle, which the IFC reads to resolve the tab's advance.
+ */
+function tabDoc(tabStops: readonly TabStop[] = []): State {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -54,6 +66,7 @@ function tabDoc(): ReturnType<typeof buildState> {
         id: "p",
         type: "paragraph",
         parentId: "doc",
+        attrs: { tabStops },
         inlineContent: inlineContent([text("a"), embed("tab"), text("b")]),
       }),
     ],
@@ -61,11 +74,22 @@ function tabDoc(): ReturnType<typeof buildState> {
 }
 
 /** Lay the doc out through the real render→layout pipeline; materialize the tree. */
-function layoutTabDoc(): LayoutBox {
-  const state = tabDoc();
+function layoutTabDoc(tabStops: readonly TabStop[] = []): LayoutBox {
+  const state = tabDoc(tabStops);
   const renderOutput = render(state, componentRegistry, attrRegistry);
   const laid = layoutTree(renderOutput.root, pageConfig.pageInlineSize, shaper, pageConfig);
   return resolvePositionedTree(laid);
+}
+
+/**
+ * Caret x of `position(blockId, offset)` against a positioned layout, mirroring
+ * the `overflow-wrap-caret.test.ts` pipeline. Returns the resolved x or `NaN` if
+ * the position fails to resolve (so the assertion fails loudly rather than
+ * silently passing on `null`).
+ */
+function caretX(state: State, blockId: string, offset: number, layout: LayoutBox): number {
+  const r = resolvePixelPosition(state, createPosition(blockId as BlockId, offset), layout, shaper);
+  return r === null ? Number.NaN : r.x;
 }
 
 /** Collect every box of a given type in document order. */
@@ -116,5 +140,70 @@ describe("tab-stops S2 — IFC recognizes the tab inline-block", () => {
     const tabBox = inlineBlocks.find((b) => b.inlineMeta?.embedType === "tab");
     expect(tabBox).toBeDefined();
     expect(tabBox?.inlineMeta?.leader).toBe("none");
+  });
+});
+
+describe("tab-stops S3 — IFC left/default-grid advance", () => {
+  it("left/default-grid tab advances to the next 48px multiple", () => {
+    // No explicit stops → default grid 48. pen after "a" = 8 → nextStop(8) = 48
+    // → advance = 40 → "b" starts at x=48. Caret offset 2 (just after the tab,
+    // before "b") sits at the resolved stop x=48.
+    const state = tabDoc();
+    const layout = layoutTabDoc();
+    expect(caretX(state, "p", 2, layout)).toBe(48);
+  });
+
+  it("explicit left stop overrides the default grid", () => {
+    // pen after "a" = 8; the only explicit stop is at 100 (> 8) → nextStop = 100
+    // → "b" starts at the stop x=100.
+    const stops: readonly TabStop[] = [{ position: 100, alignment: "left", leader: "none" }];
+    const state = tabDoc(stops);
+    const layout = layoutTabDoc(stops);
+    expect(caretX(state, "p", 2, layout)).toBe(100);
+  });
+
+  it("a default-grid tab carries leader 'none'; an explicit-stop tab carries its leader", () => {
+    // Default grid → no stop, leader "none".
+    const defaultTree = layoutTabDoc();
+    const defaultTab = collectByType(defaultTree, "inline-block")
+      .filter((b): b is InlineBlockBox => b.type === "inline-block")
+      .find((b) => b.inlineMeta?.embedType === "tab");
+    expect(defaultTab?.inlineMeta?.leader).toBe("none");
+
+    // Explicit stop with a dot leader → the destination stop's leader is stamped.
+    const stops: readonly TabStop[] = [{ position: 100, alignment: "left", leader: "dot" }];
+    const dotTree = layoutTabDoc(stops);
+    const dotTab = collectByType(dotTree, "inline-block")
+      .filter((b): b is InlineBlockBox => b.type === "inline-block")
+      .find((b) => b.inlineMeta?.embedType === "tab");
+    expect(dotTab?.inlineMeta?.leader).toBe("dot");
+  });
+
+  it("invalidates the IFC cache when tabStops change with identical content (S1 cache-gate regression)", () => {
+    // LOAD-BEARING: share ONE LayoutContext (hence one ifcStateCache) across two
+    // layoutBlock calls. The IFC keys its cache by `parent.key` ("p"), which is
+    // identical across both render trees — so the second call would HIT the cached
+    // lines from the first if the `hasTab` bypass + tabStops gate didn't force a
+    // miss. The inline tokens are byte-identical (same "a"+tab+"b"); only the
+    // tabStops style differs (100 → 200). Without invalidation, "b" would stay at
+    // x=100; with it, it re-flows to x=200.
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 800);
+
+    const layoutWithStop = (pos: number): { state: State; layout: LayoutBox } => {
+      const stops: readonly TabStop[] = [{ position: pos, alignment: "left", leader: "none" }];
+      const state = tabDoc(stops);
+      const root = cascadePass(render(state, componentRegistry, attrRegistry).root);
+      if (root.type !== "element") throw new Error("expected element root");
+      const result = layoutBlock(root, 0, 0, ctx, shaper);
+      if (result.box === null) throw new Error("layoutBlock returned null");
+      return { state, layout: result.box };
+    };
+
+    const first = layoutWithStop(100);
+    expect(caretX(first.state, "p", 2, first.layout)).toBe(100);
+
+    // Re-layout the SAME paragraph key with a different stop on the SAME ctx/cache.
+    const second = layoutWithStop(200);
+    expect(caretX(second.state, "p", 2, second.layout)).toBe(200);
   });
 });

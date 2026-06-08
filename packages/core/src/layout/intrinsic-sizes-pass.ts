@@ -73,6 +73,16 @@ function computeContributionUncached(
     // Should not happen post-cascade, but be defensive.
     return ZERO_CONTRIBUTION;
   }
+  // Tab stops S3: a `"tab"` embed (recognized by its marker metadata) is an
+  // atomic inline-block whose advance is position-dependent at layout time and
+  // has no stop context during an intrinsic query. Reserve `defaultTabStop` (D)
+  // as a conservative advance so a shrink-to-fit / inline-block container sizes
+  // to include the tab (matching browsers' `tab-size` intrinsic treatment).
+  // Without this the tab's rendered `inlineSize: 0` would undercount the line.
+  if (node.metadata?.embedType === "tab") {
+    const d = cs.defaultTabStop;
+    return { minContent: d, maxContent: d, firstCluster: d, restMin: d };
+  }
   switch (cs.display) {
     case "block":
     case "list-item":

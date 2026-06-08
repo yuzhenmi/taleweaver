@@ -9,6 +9,7 @@ import {
   marginBlockStartFromAttrs,
   marginBlockEndFromAttrs,
   writingModeFromAttrs,
+  tabStopsFromAttrs,
 } from "./leaf-style-attrs";
 
 /**
@@ -104,6 +105,7 @@ export const listItemComponent: LeafComponentDefinition = {
     const marginInlineStart = marginInlineStartFromAttrs(view.attrs.marginInlineStart);
     const marginBlockStart = marginBlockStartFromAttrs(view.attrs.marginBlockStart);
     const marginBlockEnd = marginBlockEndFromAttrs(view.attrs.marginBlockEnd);
+    const tabStops = tabStopsFromAttrs(view.attrs.tabStops);
 
     const style: Style = {
       display: "list-item",
@@ -117,6 +119,7 @@ export const listItemComponent: LeafComponentDefinition = {
       ...(writingMode !== undefined ? { writingMode } : {}),
       ...(textAlign !== undefined ? { textAlign } : {}),
       ...(lineHeight !== undefined ? { lineHeight } : {}),
+      ...(tabStops !== undefined ? { tabStops } : {}),
       // User indent (INDENT/OUTDENT) composes ON TOP OF the structural padding.
       ...(marginInlineStart !== undefined ? { marginInlineStart } : {}),
       // Paragraph-spacing attrs (space-before/after). Default is ZERO block

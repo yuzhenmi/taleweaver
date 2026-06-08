@@ -1,6 +1,6 @@
 import type { RenderNode } from "../render/render-node";
 import type { ElementBox } from "../render/render-node";
-import type { ComputedStyle, WhiteSpace, TabStop } from "../styles";
+import type { ComputedStyle, WhiteSpace, TabStop, LeaderStyle } from "../styles";
 import type { LayoutBox, LineBox, InlineBox, BlockBox } from "./layout-box";
 import type { BlockId } from "../state";
 import { createInlineBox, createInlineBlockBox, createLineBox, createTextRunBox, withInlineOffset, withBlockOffset, assertLayoutBoxConsistent, createBlockBox } from "./layout-box";
@@ -69,6 +69,35 @@ function tabStopsEqual(a: readonly TabStop[], b: readonly TabStop[]): boolean {
     }
   }
   return true;
+}
+
+/**
+ * Resolve the next tab stop strictly to the RIGHT of pen position `x`
+ * (tab stops, S3). Returns both the destination `position` and the explicit
+ * `stop` it landed on (or `null` for a default-grid stop) so the caller can read
+ * the stop's `leader`.
+ *
+ * Algorithm (Google-Docs / word-processor convergent model, spec §"The model"):
+ *  - the explicit stop with the smallest `position > x`, if any; otherwise
+ *  - the next default-grid position `(floor(x / D) + 1) * D` — the smallest
+ *    multiple of `D` strictly greater than `x`.
+ *
+ * `tabStops` is assumed sorted ascending (the cascade interpreter sorts on
+ * write), so the first stop with `position > x` is the nearest.
+ */
+function nextStop(
+  x: number,
+  tabStops: readonly TabStop[],
+  defaultTabStop: number,
+): { position: number; stop: TabStop | null } {
+  for (const stop of tabStops) {
+    if (stop.position > x) return { position: stop.position, stop };
+  }
+  // No explicit stop right of the pen → next default-grid multiple. Guard a
+  // non-positive `D` (defensive — the cascade default is 48) so we always make
+  // forward progress.
+  const grid = defaultTabStop > 0 ? defaultTabStop : 48;
+  return { position: (Math.floor(x / grid) + 1) * grid, stop: null };
 }
 
 /**
@@ -150,6 +179,16 @@ interface Token {
    * inline-block in S2 — no advance logic rides this flag yet.
    */
   isTab?: boolean;
+  /**
+   * Destination-stop leader for a recognized tab token (tab stops S3). The tab's
+   * advance is position-dependent, so its destination stop — and therefore its
+   * leader — is resolved only at the wrap-loop overflow-check seam, where the
+   * frozen unit's token carries the resolved leader. Read by the box-emit
+   * (`buildLineChildrenForAncestorLevel`) to stamp `InlineBlockBox.inlineMeta`.
+   * Absent until the tab is resolved (the S2 zero-advance sentinel has none →
+   * the box-emit defaults to `"none"`).
+   */
+  tabLeader?: LeaderStyle;
   /**
    * Hyphen break opportunities within this token's text (cluster indices
    * relative to this token's text). Only present for text tokens from a
@@ -2089,7 +2128,7 @@ export function layoutInlineContent(
   const tWrap = markStart("ifc.wrap");
   try {
   while (uqi < unitQueue.length) {
-    const unit = unitQueue[uqi++];
+    let unit = unitQueue[uqi++];
 
     // Hard break on LINE_BREAK — advance the offset cursor by the
     // sentinel's contribution (1 char, matching the source `\n` in
@@ -2111,6 +2150,41 @@ export function layoutInlineContent(
 
     // Soft wrap — only when canWrap is true
     let { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0);
+
+    // Tab stops S3 — resolve-at-the-overflow-check, freeze-geometry. A tab's
+    // advance is POSITION-DEPENDENT: it depends on the running pen position
+    // (`currentWidth`) when the tab is reached on this line. Resolve it HERE,
+    // before the overflow test reads `unit.totalWidth`, and substitute a frozen
+    // clone so both the wrap decision and the emitted box see the real advance.
+    //
+    // S3 handles LEFT / default-grid stops only: advance to the destination
+    // stop's `position`. (A right/center/decimal stop is still advanced to its
+    // `position` here — its segment-aware look-ahead is S5/S6. `nextStop`
+    // returns the stop regardless of alignment.) The advance is clamped to the
+    // line's remaining width so a stop beyond the column edge cannot overflow.
+    //
+    // Freezing must write BOTH fields the downstream reads: `unit.totalWidth`
+    // (read by `pushUnit` to advance `currentWidth`) AND `unit.tokens[0].width`
+    // (read by `buildLineChildrenForAncestorLevel` to size the box). The
+    // destination stop's `leader` rides `tokens[0].tabLeader` to the box-emit.
+    if (unit.isTab === true) {
+      const { position: stopX, stop } = nextStop(
+        currentWidth,
+        parentCs.tabStops,
+        parentCs.defaultTabStop,
+      );
+      const rawAdvance = stopX - currentWidth;
+      // Clamp: a left/default stop is always > pen so the raw advance is ≥ one
+      // cell; `min` guards a stop beyond the line edge, `max(0, …)` guards the
+      // degenerate clamp-below-zero case (line already full).
+      const advance = Math.max(0, Math.min(rawAdvance, lineInlineSize - currentWidth));
+      const tok = unit.tokens[0];
+      unit = {
+        ...unit,
+        totalWidth: advance,
+        tokens: [{ ...tok, width: advance, tabLeader: stop?.leader ?? "none" }],
+      };
+    }
 
     // #338 (trailing-space HANG, match Google Docs): a SPACE unit never
     // triggers its own soft wrap. Only word / inline-block units wrap. When an
@@ -2807,10 +2881,13 @@ function buildLineChildrenForAncestorLevel(
           /* sourceStart — the OBJECT_REPLACEMENT char's absolute source offset */ firstTok.absoluteSourceBase,
           /* bidiLevel */ undefined,
           /* containingBlockSize */ undefined,
-          // Tab stops S2: stamp typed tab metadata onto the recognized tab box.
-          // `leader: "none"` is the S2 placeholder — S3 resolves the real
-          // destination-stop leader when it computes the tab's advance.
-          firstTok.isTab === true ? { embedType: "tab", leader: "none" } : undefined,
+          // Tab stops S2/S3: stamp typed tab metadata onto the recognized tab
+          // box. The destination-stop leader is resolved at the overflow-check
+          // seam (S3) and carried on `firstTok.tabLeader`; absent (the S2
+          // zero-advance sentinel, or a default-grid stop) defaults to "none".
+          firstTok.isTab === true
+            ? { embedType: "tab", leader: firstTok.tabLeader ?? "none" }
+            : undefined,
         ));
       } else {
         // Regular token — emit a TextRunBox (merging tokens in the unit).
