@@ -1,4 +1,5 @@
 import type { ComputedStyle, UsedStyle } from "../styles";
+import type { LeaderStyle } from "../styles/tab-stops";
 import type { WritingMode, Direction } from "../styles/writing-mode";
 import { logicalToPhysical } from "../styles/writing-mode";
 import type { BlockId } from "../state";
@@ -206,6 +207,14 @@ export interface InlineBlockBox extends LayoutBoxBase {
    * for any box the reorder did not touch.
    */
   readonly bidiLevel?: number;
+  /**
+   * Present only on a `"tab"` embed's inline-block (tab stops S2). Carries the
+   * embed-kind discriminator plus the resolved tab-leader style so the painter
+   * (S9) and the advance pass (S3) can recognize a tab without re-deriving it
+   * from render metadata. In S2 `leader` is always `"none"` (the placeholder);
+   * S3 resolves the real destination-stop leader when it computes the advance.
+   */
+  readonly inlineMeta?: { readonly embedType: "tab"; readonly leader: LeaderStyle };
 }
 
 export interface MarkerBox extends LayoutBoxBase {
@@ -439,6 +448,7 @@ export function createInlineBlockBox(
   sourceStart?: number,
   bidiLevel?: number,
   containingBlockSize?: number,
+  inlineMeta?: { readonly embedType: "tab"; readonly leader: LeaderStyle },
 ): InlineBlockBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,
@@ -451,6 +461,7 @@ export function createInlineBlockBox(
     children: Object.freeze([...children]),
     sourceStart,
     bidiLevel,
+    inlineMeta,
   });
 }
 
@@ -638,6 +649,7 @@ export function withPhysicalInlineOffset(
         box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
         box.writingMode, "ltr", box.computedStyle, box.usedStyle,
         box.children, containingInlineSize, box.sourceStart, box.bidiLevel,
+        /* containingBlockSize */ undefined, box.inlineMeta,
       );
     case "marker":
       return createMarkerBox(
@@ -734,6 +746,7 @@ export function withBidiLevel(
         box.key, box.inlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.children, containingInlineSize, box.sourceStart, level,
+        /* containingBlockSize */ undefined, box.inlineMeta,
       );
     case "marker":
       return createMarkerBox(
@@ -816,7 +829,7 @@ export function rebuildBoxWithOffsets(
         box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.children, containingInlineSize, box.sourceStart, box.bidiLevel,
-        containingBlockSize,
+        containingBlockSize, box.inlineMeta,
       );
     case "marker":
       return createMarkerBox(

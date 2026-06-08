@@ -144,6 +144,13 @@ interface Token {
     children: readonly LayoutBox[];
   };
   /**
+   * Set on the inline-block token of a `"tab"` embed (tab stops S2). Recognizes
+   * the tab as a tab unit so later slices can compute its destination-stop
+   * advance (S3) + leader paint (S9). A recognized tab is still a zero-advance
+   * inline-block in S2 — no advance logic rides this flag yet.
+   */
+  isTab?: boolean;
+  /**
    * Hyphen break opportunities within this token's text (cluster indices
    * relative to this token's text). Only present for text tokens from a
    * shaped run that contains "hyphen" kind break opportunities.
@@ -208,6 +215,11 @@ interface WrapUnit {
    * Usually tokenStartIdx or tokenStartIdx+1 (for a word + trailing space unit).
    */
   tokenEndIdx: number;
+  /**
+   * Set when this unit's (single) token is a recognized `"tab"` inline-block
+   * (tab stops S2). A tab inline-block is always its own one-token wrap unit.
+   */
+  isTab?: boolean;
 }
 
 /**
@@ -990,6 +1002,10 @@ function collectInlineTokens(
           blockSize: finalBlockSize,
           children: bfc.type === "block" ? Array.from(bfc.children) : [],
         },
+        // Tab stops S2: recognize a `"tab"` embed's inline-block as a tab unit.
+        // The render layer emits the tab via its generic embed fallback as an
+        // inline-block ElementBox carrying `metadata.embedType === "tab"`.
+        isTab: child.metadata?.embedType === "tab",
       });
       // S2.4: the inline atomic's base is the OBJECT REPLACEMENT char's offset.
       asm.tokenBases.push(ibBase);
@@ -1267,8 +1283,8 @@ export function layoutInlineContent(
   // P-tabs: a cached entry that contains a tab cannot feed the cheap
   // incremental-wrap fast path — a tab's advance depends on its position
   // within the line, which the token-equality short-circuit doesn't capture.
-  // Treat `hasTab` entries as a cache miss. (Inert in S1: saves always write
-  // `hasTab: false`; the tab-token producer flips it in S2.)
+  // Treat `hasTab` entries as a cache miss (`hasTab` is set at cache-save time
+  // from `tokens.some((t) => t.isTab === true)`).
   const cachedState = fragmentation === undefined ? ctx.ifcStateCache.get(parent.key) : undefined;
   const prevState = cachedState !== undefined && !cachedState.hasTab ? cachedState : undefined;
   // P2 (#312) / #333: the cached lines bake in their alignment offset — each
@@ -1473,6 +1489,9 @@ export function layoutInlineContent(
       inlineAncestorStyles: tok.inlineAncestorStyles,
       tokenStartIdx: unitStartIdx,
       tokenEndIdx: i - 1,
+      // Tab stops S2: a recognized tab inline-block is its own single-token
+      // unit (an inline-block never slurps trailing spaces — it has none).
+      isTab: tok.isTab === true,
     });
   }
 
@@ -2306,9 +2325,11 @@ export function layoutInlineContent(
       textIndent: blockTextIndent,
       tabStops: parentCs.tabStops,
       defaultTabStop: parentCs.defaultTabStop,
-      // S1 placeholder: no tab tokens exist yet. S2 replaces this with
-      // `tokens.some(t => t.isTab)` once the tab-token producer lands.
-      hasTab: false,
+      // S2: true when this block contains a recognized `"tab"` inline-block.
+      // The cache READ path treats a `hasTab` entry as a forced miss (a tab's
+      // resolved advance depends on its line-position, not just its token text),
+      // so an incremental re-wrap of a tab-bearing block always re-lays.
+      hasTab: tokens.some((t) => t.isTab === true),
     });
   }
 
@@ -2784,6 +2805,12 @@ function buildLineChildrenForAncestorLevel(
           cursorInlineOffset, 0, unitWidth, ibBlockSize, writingMode, direction, tokStyle, ibUsedStyle, ib.children,
           /* containingInlineSize */ lineInlineSize,
           /* sourceStart — the OBJECT_REPLACEMENT char's absolute source offset */ firstTok.absoluteSourceBase,
+          /* bidiLevel */ undefined,
+          /* containingBlockSize */ undefined,
+          // Tab stops S2: stamp typed tab metadata onto the recognized tab box.
+          // `leader: "none"` is the S2 placeholder — S3 resolves the real
+          // destination-stop leader when it computes the tab's advance.
+          firstTok.isTab === true ? { embedType: "tab", leader: "none" } : undefined,
         ));
       } else {
         // Regular token — emit a TextRunBox (merging tokens in the unit).

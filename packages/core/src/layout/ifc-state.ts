@@ -44,8 +44,8 @@ export interface IFCState {
    * Whether this paragraph contains at least one tab. A tab's advance depends on
    * its position WITHIN the line (the cursor when it is reached), so a cached
    * entry with a tab cannot be reused by the cheap incremental-wrap fast path —
-   * the fragmentation-gate seam treats `hasTab: true` as a cache miss. (S1
-   * always writes `false`; the tab-token producer flips it in S2.)
+   * the fragmentation-gate seam treats `hasTab: true` as a cache miss. Set at
+   * cache-save time from `tokens.some((t) => t.isTab === true)`.
    */
   readonly hasTab: boolean;
 }
