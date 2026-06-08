@@ -84,9 +84,16 @@ LOSSLESS binary serializer (`createBinaryDocumentSerializer`, `BINARY_FORMAT =
 (derived) snapshot cache; a decoded doc with no rootId throws
 `MalformedDocumentError`. Lives inside `state/` for `STATE_INTERNAL` access; the
 barrel surface re-exports through `state/index.ts` and the core barrel. Host owns
-persistence (engine = encode→bytes / decode→`State` only). Named follow-ups:
-editor-level export/import wrapper, a human-friendly text serializer, v2 +
-migration path. See [`1.10-serialization.md`](1-core/1.10-serialization.md).
+persistence (engine = encode→bytes / decode→`State` only). The editor-level
+open/save surface has shipped: `exportDocument` / `loadDocument`
+(`editor/document-io.ts`, on the core barrel) wrap the engine dispatch —
+`loadDocument` deserializes into a FRESH `EditorState` (fresh History + a valid
+initial caret via the shared `initialSelectionForState` + full render/cascade/
+layout). Remaining named follow-ups: pairing the wire document with the rest of
+editor-session view state (scroll) for full save/restore, a human-friendly text
+serializer, v2 + migration path. See
+[`1.10-serialization.md`](1-core/1.10-serialization.md) and
+[`1.7-editor.md`](1-core/1.7-editor.md).
 
 ### `components/` `[partial]`
 

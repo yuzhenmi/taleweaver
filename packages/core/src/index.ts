@@ -284,6 +284,7 @@ export {
   findFirstContentBlock,
   findLastContentBlock,
 } from "./editor/editor-state";
+export { exportDocument, loadDocument } from "./editor/document-io";
 
 // Public input shape for the INSERT_NODE action payload.
 export type { BlockInit } from "./state";

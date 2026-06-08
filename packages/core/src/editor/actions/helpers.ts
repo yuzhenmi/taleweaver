@@ -1,5 +1,5 @@
-import { getBlock, firstLeafBlock, lastLeafBlock, nextBlockInDocOrder, prevBlockInDocOrder } from "../../state";
-import type { State, BlockId } from "../../state";
+import { getBlock, firstLeafBlock, lastLeafBlock, nextBlockInDocOrder, prevBlockInDocOrder, createPosition, createSpan } from "../../state";
+import type { State, BlockId, Selection } from "../../state";
 import type { EditorState, EditorConfig } from "../editor-state";
 import { render, type RenderOutput } from "../../render/render";
 import { cascadePass, cascadePassIncremental } from "../../cascade";
@@ -464,6 +464,23 @@ export function findFirstContentBlock(state: State): BlockId | null {
     cursor = nextBlockInDocOrder(state, cursor);
   }
   return null;
+}
+
+/**
+ * Derive the initial collapsed `Selection` for a freshly-built or freshly-loaded
+ * document: a caret at offset 0 of the first content-bearing leaf block
+ * (`findFirstContentBlock`). Falls back to the root block id when the document
+ * has no content leaf (a degenerate container-only doc) so the caller always
+ * gets a well-formed Selection. Shared by `createInitialEditorState` (the empty
+ * document) and `loadDocument` (an arbitrary deserialized document) so both
+ * derive the caret the same robust way (the empty-document factory seeds a
+ * paragraph, so this matches the prior `firstChildId` result there, but it also
+ * handles a loaded doc whose first child is a container, e.g. a section).
+ */
+export function initialSelectionForState(state: State): Selection {
+  const firstContent = findFirstContentBlock(state) ?? state.rootId;
+  const caret = createPosition(firstContent, 0);
+  return createSpan(caret, caret);
 }
 
 /**

@@ -1,4 +1,4 @@
-export { findFirstContentBlock, findLastContentBlock } from "./helpers";
+export { findFirstContentBlock, findLastContentBlock, initialSelectionForState } from "./helpers";
 export { handleInsertText } from "./insert-text";
 export { handleDeleteBackward } from "./delete-backward";
 export { handleDeleteForward } from "./delete-forward";

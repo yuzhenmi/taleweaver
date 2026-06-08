@@ -1,4 +1,4 @@
-import { createEmptyDocument, History, createHistory, getBlock, createPosition, createSpan, selectionContextOf } from "../state";
+import { createEmptyDocument, History, createHistory, selectionContextOf } from "../state";
 import { isDevMode } from "../state/dev-mode";
 import type { State, Selection, BlockId } from "../state";
 import { render, type RenderOutput } from "../render/render";
@@ -80,6 +80,7 @@ import {
 } from "./actions";
 
 import { cascadeTemplateContents, cascadeEmbedContents } from "./actions/helpers";
+import { initialSelectionForState } from "./actions";
 
 // Re-export helpers that are part of the public API.
 export { findFirstContentBlock, findLastContentBlock } from "./actions";
@@ -197,18 +198,7 @@ export interface EditorConfig {
 
 export function createInitialEditorState(config: EditorConfig): EditorState {
   const state = createEmptyDocument();
-  const docBlock = getBlock(state, state.rootId);
-  if (docBlock === null) {
-    throw new Error("createInitialEditorState: root block not found");
-  }
-  const firstParagraphId = docBlock.firstChildId;
-  if (firstParagraphId === null) {
-    throw new Error(
-      "createInitialEditorState: empty document has no paragraph child",
-    );
-  }
-  const cursor = createPosition(firstParagraphId, 0);
-  const selection = createSpan(cursor, cursor);
+  const selection = initialSelectionForState(state);
   return createEditorStateFromState(state, selection, config);
 }
 
