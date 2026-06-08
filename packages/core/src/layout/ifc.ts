@@ -2164,10 +2164,11 @@ export function layoutInlineContent(
     //     segment's width `w` → `position − w − pen` (S5).
     //   - center: advance so the segment is CENTERED on the stop → `position
     //     − w/2 − pen` (S5).
-    //   - decimal: the first '.' lands on the stop (S6 — not yet; falls through
-    //     to the left branch for now, matching the pre-S5 behavior).
-    // Right/center read the post-tab segment width via a bounded look-ahead over
-    // the SAME `unitQueue` (peeking by index from `uqi`, the cursor already
+    //   - decimal: the first '.' (U+002E) in the segment lands on the stop (S6).
+    //     Needs the inline distance from the segment start to that '.' →
+    //     `position − dOff − pen`. No '.' on the line → right fallback.
+    // Right/center/decimal read the post-tab segment via a bounded look-ahead
+    // over the SAME `unitQueue` (peeking by index from `uqi`, the cursor already
     // advanced past this tab) — it does NOT consume the loop cursor, so those
     // units still get placed by their normal loop iterations.
     //
@@ -2185,29 +2186,72 @@ export function layoutInlineContent(
       const alignment = stop?.alignment ?? "left";
 
       let rawAdvance: number;
-      if (alignment === "right" || alignment === "center") {
-        // Bounded look-ahead: sum the intrinsic widths of the units AFTER the
-        // tab (unitQueue[uqi..]), stopping at the next tab unit (exclusive), the
-        // end of the queue, or when the running sum would exceed the line's
-        // remaining budget (so a wrapped tail does not skew the on-line head's
-        // alignment). Reads the same per-unit `totalWidth` the wrap loop uses —
-        // no re-measure — and never advances `uqi`.
+      if (alignment === "right" || alignment === "center" || alignment === "decimal") {
+        // Bounded look-ahead: walk the units AFTER the tab (unitQueue[uqi..]),
+        // stopping at the next tab unit (exclusive), the end of the queue, or
+        // when the running sum would exceed the line's remaining budget (so a
+        // wrapped tail does not skew the on-line head's alignment). Reads the
+        // same per-unit `totalWidth` the wrap loop uses — no re-measure — and
+        // never advances `uqi`.
+        //
+        // For `decimal` (S6) we ALSO locate the FIRST decimal separator (v1 =
+        // `.` U+002E) in the segment's DISPLAY text and accumulate the inline
+        // distance from the segment start to the START of that `.` grapheme
+        // (`dOff`). Within the unit/token that contains the `.`, the sub-token
+        // prefix width is summed from the token's `clusterWidths` (the same
+        // per-cluster advances `trySoftSplit`/`tryHyphenSplit` use for sub-token
+        // measurement — no re-measure), falling back to a proportional split of
+        // the token width when a token carries no `clusterWidths` (e.g. a
+        // strut). A `.` beyond the remaining budget is treated as not-found on
+        // this line → right fallback on the on-line head.
         let segmentWidth = 0;
+        let dotOffset: number | null = null;
         for (let j = uqi; j < unitQueue.length; j++) {
           const peek = unitQueue[j];
           if (peek.isTab === true || peek.isLineBreak) break;
           if (segmentWidth + peek.totalWidth > remaining) break;
+          if (alignment === "decimal" && dotOffset === null) {
+            // Search this unit's tokens in order for the first `.` grapheme.
+            let unitConsumed = 0;
+            for (const tok of peek.tokens) {
+              const dotIdx = tok.text.indexOf(".");
+              if (dotIdx >= 0) {
+                let prefix = 0;
+                if (tok.clusterWidths) {
+                  for (let ci = 0; ci < dotIdx && ci < tok.clusterWidths.length; ci++) {
+                    prefix += tok.clusterWidths[ci];
+                  }
+                } else if (tok.text.length > 0) {
+                  // No per-cluster widths: split the token width proportionally
+                  // by code-unit count (uniform-advance fallback).
+                  prefix = (tok.width * dotIdx) / tok.text.length;
+                }
+                dotOffset = segmentWidth + unitConsumed + prefix;
+                break;
+              }
+              unitConsumed += tok.width;
+            }
+          }
           segmentWidth += peek.totalWidth;
         }
-        const offset = alignment === "right" ? segmentWidth : segmentWidth / 2;
-        // max(0, …): a right/center stop can sit LEFT of where the segment would
-        // end → the ideal advance goes negative; clamp to 0 (no backward move,
-        // the left-tab fallback). The segment then flows from the current pen.
+        // The pre-stop quantity: decimal → distance to the first `.`; right →
+        // the full segment width; center → half the segment width. Decimal with
+        // no on-line `.` falls back to right (`dOff = segmentWidth`).
+        let offset: number;
+        if (alignment === "right") {
+          offset = segmentWidth;
+        } else if (alignment === "center") {
+          offset = segmentWidth / 2;
+        } else {
+          offset = dotOffset ?? segmentWidth;
+        }
+        // max(0, …): the stop can sit LEFT of where the aligned point would land
+        // → the ideal advance goes negative; clamp to 0 (no backward move, the
+        // left-tab fallback). The segment then flows from the current pen.
         rawAdvance = Math.max(0, stopX - offset - currentWidth);
       } else {
-        // left / default-grid (and decimal until S6): advance straight to the
-        // stop. A left/default stop is always > pen so the raw advance is ≥ one
-        // cell.
+        // left / default-grid: advance straight to the stop. A left/default stop
+        // is always > pen so the raw advance is ≥ one cell.
         rawAdvance = stopX - currentWidth;
       }
 

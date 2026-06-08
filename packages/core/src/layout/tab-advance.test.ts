@@ -244,3 +244,27 @@ describe("tab-stops S5 — right/center alignment via bounded segment look-ahead
     expect(caretX(state, "p", 2, layout)).toBe(8); // "bb" starts at the pen, no backward move
   });
 });
+
+describe("tab-stops S6 — decimal alignment (first '.' on the stop; right fallback)", () => {
+  it("decimal tab aligns the first '.' on the stop", () => {
+    // "a"(8) + tab(decimal@100) + "12.5". The '.' is the 3rd char of the segment,
+    // so dOff = width of "12" = 16. advance = max(0, 100 − 16 − 8) = 76 → the
+    // segment starts at 84, and the '.' sits at 84 + 16 = 100. The caret offset
+    // just BEFORE the '.' (segment offset 4 = before "."; "12.5" offsets:
+    // 2=before"1", 3=before"2", 4=before".", 5=before"5", 6=after"5") = x 100.
+    const stops: readonly TabStop[] = [{ position: 100, alignment: "decimal", leader: "none" }];
+    const state = tabDoc(stops, "12.5");
+    const layout = layoutTabDoc(stops, "12.5");
+    expect(caretX(state, "p", 2, layout)).toBe(84); // segment starts at 84
+    expect(caretX(state, "p", 4, layout)).toBe(100); // caret before the '.' = the stop
+  });
+
+  it("decimal tab with no separator falls back to right alignment", () => {
+    // "bb" has no '.', so decimal → right: the segment ENDS at the stop.
+    // "bb"(16) → advance = max(0, 100 − 16 − 8) = 76 → "bb" runs 84..100.
+    const stops: readonly TabStop[] = [{ position: 100, alignment: "decimal", leader: "none" }];
+    const state = tabDoc(stops, "bb");
+    const layout = layoutTabDoc(stops, "bb");
+    expect(caretX(state, "p", 4, layout)).toBe(100); // "bb" ends at the stop (right fallback)
+  });
+});
