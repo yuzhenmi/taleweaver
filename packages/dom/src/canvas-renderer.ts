@@ -1,4 +1,4 @@
-import type { LayoutBox, SelectionRect, UsedStyle, BorderStyle, Color } from "@taleweaver/core";
+import type { LayoutBox, SelectionRect, UsedStyle, BorderStyle, Color, ComputedStyle, LeaderStyle } from "@taleweaver/core";
 import { markStart, markEnd, resolveSpacingPx, clusterSpacing, assertNeverWritingMode } from "@taleweaver/core";
 import { buildCssFontString } from "./font-config";
 import { segmentClusters } from "./text-clusters";
@@ -850,6 +850,21 @@ function paintBox(
       }
       paintBorders(ctx, us, absX, absY, box.width, box.height);
     }
+    // Tab-leader (dot / dash / line): a `"tab"` inline embed carries
+    // `inlineMeta: { embedType: "tab"; leader }` stamped by the IFC from the
+    // destination tab stop. When the leader is not "none", paint it across the
+    // tab's inline advance [absX, absX+box.width] at the text baseline, in the
+    // computed text color. Leaders are FOREGROUND (drawn over the selection,
+    // like text); when the leader is "none" or the box is a non-tab
+    // inline-block (no inlineMeta), this is a no-op and the branch behaves
+    // exactly as before (background/borders + recurse).
+    if (
+      phase === "foreground" &&
+      box.inlineMeta?.embedType === "tab" &&
+      box.inlineMeta.leader !== "none"
+    ) {
+      paintTabLeader(ctx, box.inlineMeta.leader, absX, absY, box.width, box.height, cs);
+    }
     for (const child of box.children) {
       paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state, phase);
     }
@@ -949,6 +964,81 @@ function paintBox(
   // Plan 2/3 types: skip silently (not produced in Plan 1)
   } finally {
     markEnd("paint.draw", t);
+  }
+}
+
+/**
+ * Tab-leader paint. A tab whose destination stop carries a leader (dot / dash /
+ * line) fills its inline advance [x, x+w] with the leader pattern, drawn at the
+ * text baseline in the computed text color.
+ *
+ * The leader is positioned at the alphabetic baseline (`y + halfLeading +
+ * fontSize`, mirroring the text-run branch's underline geometry), so the
+ * dots/dashes sit on the same line the surrounding text rests on. The leader is
+ * clamped to the box's vertical extent: with `box.height >= fontSize` the
+ * baseline lands inside `[y, y+h]`.
+ *
+ * `leader` is the typed `LeaderStyle`; the caller guarantees it is not "none".
+ * The switch is exhaustive over the remaining dot / dash / line cases (the
+ * `default` is a type-level guard, never reached at runtime).
+ */
+function paintTabLeader(
+  ctx: CanvasRenderingContext2D,
+  leader: LeaderStyle,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  cs: Readonly<ComputedStyle>,
+): void {
+  if (w <= 0) return;
+  const fontSize = cs.fontSize;
+  // Mirror the text-run branch: halfLeading centers the em-box in the line, and
+  // the alphabetic baseline sits a font-size below the em-box top.
+  const halfLeading = (h - fontSize) / 2;
+  const baselineY = y + halfLeading + fontSize;
+  ctx.fillStyle = cs.color;
+  switch (leader) {
+    case "none":
+      // Caller guarantees leader !== "none"; nothing to paint.
+      return;
+    case "dot": {
+      // A row of small filled circles resting on the baseline, evenly spaced.
+      const radius = Math.max(0.5, fontSize * 0.05);
+      const gap = Math.max(3, fontSize * 0.35);
+      const dotY = baselineY - radius;
+      // Start one gap in so the leader doesn't crowd the preceding glyph; stop
+      // one gap before the destination so it doesn't crowd the following text.
+      for (let dx = gap; dx <= w - gap; dx += gap) {
+        ctx.beginPath();
+        ctx.arc(x + dx, dotY, radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      return;
+    }
+    case "dash": {
+      // A row of short horizontal segments along the baseline.
+      const thickness = Math.max(0.5, fontSize * 0.06);
+      const dashLen = Math.max(2, fontSize * 0.25);
+      const gap = dashLen * 1.5;
+      const stride = dashLen + gap;
+      const dashY = baselineY - thickness;
+      for (let dx = gap; dx + dashLen <= w; dx += stride) {
+        ctx.fillRect(x + dx, dashY, dashLen, thickness);
+      }
+      return;
+    }
+    case "line": {
+      // A single horizontal rule spanning the whole advance at the baseline.
+      const thickness = Math.max(0.5, fontSize * 0.06);
+      ctx.fillRect(x, baselineY - thickness, w, thickness);
+      return;
+    }
+    default: {
+      // Exhaustiveness guard: a new LeaderStyle variant must add a case above.
+      const _exhaustive: never = leader;
+      return _exhaustive;
+    }
   }
 }
 

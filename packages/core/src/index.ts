@@ -13,7 +13,7 @@ export type {
   WhiteSpace, VerticalAlign, TextTransform, Float, Clear,
   BreakBefore, BreakAfter, BreakInside,
   ListStyleType, ListStylePosition, BoxSizing,
-  Direction, WritingMode,
+  Direction, WritingMode, LeaderStyle,
 } from "./styles";
 export { PROPERTY_META, INITIAL_COMPUTED_STYLE } from "./styles";
 export { assertNeverWritingMode } from "./styles";
