@@ -94,11 +94,21 @@ shipped: `buildDocumentFromTree` (`state/build-document-from-tree.ts`, on the
 state + core barrels) lowers a declarative nested `BlockNode` tree → `State`,
 minting ids and DERIVING all structural links — the SAFE public counterpart to
 the internal `buildStateFromBlocks`, and the construction target a future
-HTML/JSON importer's `decode` builds. Remaining named follow-ups: pairing the
-wire document with the rest of editor-session view state (scroll) for full
-save/restore, the human-friendly HTML serializer itself (`packages/dom`,
-consuming `buildDocumentFromTree`), v2 + migration path. See
-[`1.10-serialization.md`](1-core/1.10-serialization.md) and
+HTML/JSON importer's `decode` builds. The human-friendly HTML serializer itself
+has SHIPPED in `packages/dom` — the `taleweaver-html` `DocumentSerializer<string>`
+(`html-serializer.ts` + `html-encode.ts` + `html-decode.ts`, on the dom barrel as
+`HTML_FORMAT` / `createHtmlDocumentSerializer`). ENCODE is a pure `State` → HTML
+walk; DECODE parses with the browser-native `DOMParser` (hence dom, not core) into
+a `BlockNode` tree consumed by `buildDocumentFromTree`. It round-trips a
+Google-Docs-complete prose + list subset SEMANTICALLY (not id-preserving; binary
+owns lossless), dev-warns on dropped content-bearing embeds (footnote-anchor /
+cross-reference), and never throws `MalformedDocumentError` (empty body →
+single-empty-paragraph doc). Remaining named follow-ups: pairing the wire document
+with the rest of editor-session view state (scroll) for full save/restore, a
+diff-friendly Markdown/JSON-AST serializer over the same `buildDocumentFromTree`
+foundation, v2 + migration path. See
+[`1.10-serialization.md`](1-core/1.10-serialization.md),
+[`2.5-html-serializer.md`](2-dom/2.5-html-serializer.md), and
 [`1.7-editor.md`](1-core/1.7-editor.md).
 
 ### `components/` `[partial]`

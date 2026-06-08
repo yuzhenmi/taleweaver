@@ -46,9 +46,19 @@ specialized helpers it composes.
   controller calls into it; the keymap has no DOM side effects of its
   own.
 
+- **`html-serializer/`** (files: `html-serializer.ts`, `html-encode.ts`,
+  `html-decode.ts`) — the human-friendly `taleweaver-html`
+  `DocumentSerializer<string>`. ENCODE is a pure `State` → HTML-string walk;
+  DECODE parses HTML with the browser-native `DOMParser` (which is why this lives
+  in `dom`, not the platform-agnostic `core`) into a declarative `BlockNode` tree
+  and lowers it with core's `buildDocumentFromTree`. A readable AUTHORING/seeding
+  format over a Google-Docs-complete prose + list subset; the binary serializer
+  in `core` owns lossless interchange.
+
 Smaller helpers — `font-config` (font defaults), `image-cache` (async
-image loading), `canvas-measurer` (legacy `TextMeasurer` adapter) — are
-support modules consumed by the renderer and the controller.
+image loading), `canvas-measurer` (legacy `TextMeasurer` adapter),
+`dev-mode` (the dom-local `isDevMode()` gate) — are support modules consumed by
+the renderer, the controller, and the serializer.
 
 ## How modules connect
 
@@ -95,6 +105,7 @@ created on construction and discarded on destroy.
 2. [`2.2-canvas-renderer.md`](2.2-canvas-renderer.md) — paint pipeline, viewport culling, dirty regions.
 3. [`2.3-paint-cache.md`](2.3-paint-cache.md) — paint-input hashing, root short-circuit.
 4. [`2.4-canvas-shaper.md`](2.4-canvas-shaper.md) — `TextShaper` implementation, Unicode algorithm integration.
+5. [`2.5-html-serializer.md`](2.5-html-serializer.md) — the `taleweaver-html` serializer: supported subset, lossiness boundary, DOMParser-in-dom rationale.
 
 ## Public API surface
 
@@ -107,6 +118,8 @@ created on construction and discarded on destroy.
 **Paint cache** — `PaintInputHash`, `PaintCache`. `createPaintCache`, `hashPaintInputs`.
 
 **Default text shaper** — `createCanvasShaper`. (Plus the legacy `createCanvasMeasurer` for backwards compatibility.)
+
+**HTML serializer** — `HTML_FORMAT`, `createHtmlDocumentSerializer` (the `taleweaver-html` `DocumentSerializer<string>`).
 
 **Helpers** — `mapKeyEvent` (DOM keyboard event → `EditorAction`). `ImageCache`. `FONT_CONFIG`, `buildCssFontString`, `getEffectiveStyles` (font defaults).
 

@@ -127,6 +127,16 @@ export type {
 export { getActiveFormatting } from "./state";
 export type { ActiveFormatting } from "./state";
 
+// List numbering definitions — surfaced for human-friendly serializers that
+// classify a list as ordered/unordered and mint fresh list ids on decode.
+export type { ListDef } from "./state";
+export { getListDefsForState, classifyListDef, newListId } from "./state";
+
+// Content-bearing inline-embed type ids — surfaced so a lossy human serializer
+// can detect (and dev-warn about) dropped footnote-anchor / cross-reference
+// embeds on export (the binary serializer is the lossless path).
+export { FOOTNOTE_ANCHOR_EMBED_TYPE, CROSS_REFERENCE_EMBED_TYPE } from "./state";
+
 // History (Y.UndoManager-backed)
 export {
   History,

@@ -12,6 +12,9 @@ export {
   MATCH_HIGHLIGHT_FILL,
   ACTIVE_MATCH_HIGHLIGHT_FILL,
 } from "./canvas-renderer";
+// Human-friendly HTML serializer (taleweaver-html) — DOMParser-backed, so it
+// lives in dom. The host composes it into a core SerializerRegistry manually.
+export { HTML_FORMAT, createHtmlDocumentSerializer } from "./html-serializer";
 export { createEditorController } from "./editor-controller";
 export type { EditorController, EditorControllerOptions, FindStatus } from "./editor-controller";
 export { ImageCache } from "./image-cache";
