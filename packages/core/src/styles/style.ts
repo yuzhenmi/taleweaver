@@ -2,6 +2,7 @@ import type { Length, LengthOrAuto, IntrinsicSizingKeyword } from "./length";
 import type { Color } from "./color";
 import type { WritingMode, Direction } from "./writing-mode";
 import type { TabStop } from "./tab-stops";
+import type { Position, TransformFn, TransformOrigin } from "./position";
 
 export type Display =
   | "block" | "inline" | "inline-block" | "list-item"
@@ -146,4 +147,20 @@ export interface Style {
   // marker". Non-inheriting. The marker is a generated layout sibling, NOT an
   // editable/offset-bearing inline item.
   readonly markerText?: string;
+
+  // Positioning (CSS Positioned Layout 3 / Transforms 1) — all non-inheriting.
+  // Layout/paint consumers land in later positioning slices; the vocabulary is
+  // inert until then.
+  readonly position?: Position;
+  // Logical insets. `insetInlineStart` wins over `insetInlineEnd` when both are
+  // set (and the block pair symmetrically); resolved against the containing
+  // block at the use-site (NOT in UsedStyle).
+  readonly insetBlockStart?:  LengthOrAuto;
+  readonly insetBlockEnd?:    LengthOrAuto;
+  readonly insetInlineStart?: LengthOrAuto;
+  readonly insetInlineEnd?:   LengthOrAuto;
+  readonly zIndex?:          number | "auto";
+  readonly transform?:       readonly TransformFn[];
+  readonly transformOrigin?: TransformOrigin;
+  readonly opacity?:         number;
 }

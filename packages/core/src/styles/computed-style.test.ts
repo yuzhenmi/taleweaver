@@ -46,6 +46,13 @@ describe("ComputedStyle", () => {
       markerText: undefined,
       writingMode: "horizontal-tb",
       direction: "ltr",
+      position: "static",
+      insetBlockStart: "auto", insetBlockEnd: "auto",
+      insetInlineStart: "auto", insetInlineEnd: "auto",
+      zIndex: "auto",
+      transform: [],
+      transformOrigin: { x: { unit: "percent", value: 50 }, y: { unit: "percent", value: 50 } },
+      opacity: 1,
     };
     expect(cs.display).toBe("block");
   });

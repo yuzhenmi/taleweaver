@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
+import type { ComputedStyle } from "../styles";
 import { composeComputed } from "./compose";
 
 describe("composeComputed", () => {
@@ -58,5 +59,64 @@ describe("composeComputed", () => {
     const parent = { ...INITIAL_COMPUTED_STYLE, markerText: "1" };
     const result = composeComputed({}, parent);
     expect(result.markerText).toBeUndefined();  // initial (absent), NOT "1"
+  });
+
+  // ── Positioning vocabulary (slice 1 — inert schema + cascade) ───────────────
+
+  it("defaults every positioning property to its initial value when undeclared", () => {
+    const result = composeComputed({}, INITIAL_COMPUTED_STYLE);
+    expect(result.position).toBe("static");
+    expect(result.insetBlockStart).toBe("auto");
+    expect(result.insetBlockEnd).toBe("auto");
+    expect(result.insetInlineStart).toBe("auto");
+    expect(result.insetInlineEnd).toBe("auto");
+    expect(result.zIndex).toBe("auto");
+    expect(result.transform).toEqual([]);
+    expect(result.transformOrigin).toEqual({
+      x: { unit: "percent", value: 50 },
+      y: { unit: "percent", value: 50 },
+    });
+    expect(result.opacity).toBe(1);
+  });
+
+  it("passes declared positioning values through verbatim", () => {
+    const result = composeComputed(
+      {
+        position: "absolute",
+        insetInlineStart: 10,
+        zIndex: 5,
+        transform: [{ fn: "rotate", angleRad: 1 }],
+        transformOrigin: { x: 0, y: 0 },
+        opacity: 0.5,
+      },
+      INITIAL_COMPUTED_STYLE,
+    );
+    expect(result.position).toBe("absolute");
+    expect(result.insetInlineStart).toBe(10);
+    expect(result.zIndex).toBe(5);
+    expect(result.transform).toEqual([{ fn: "rotate", angleRad: 1 }]);
+    expect(result.transformOrigin).toEqual({ x: 0, y: 0 });
+    expect(result.opacity).toBe(0.5);
+  });
+
+  it("does NOT inherit positioning properties from parent (inherits: false)", () => {
+    // A child must NOT pick up a parent's declared position/inset/z-index/
+    // transform/opacity — these are non-inheriting per CSS.
+    const parent: ComputedStyle = {
+      ...INITIAL_COMPUTED_STYLE,
+      position: "absolute",
+      insetBlockStart: 20,
+      insetInlineStart: 20,
+      zIndex: 7,
+      transform: [{ fn: "scale", sx: 2, sy: 2 }],
+      opacity: 0.25,
+    };
+    const result = composeComputed({}, parent);
+    expect(result.position).toBe("static");         // initial, NOT inherited
+    expect(result.insetBlockStart).toBe("auto");
+    expect(result.insetInlineStart).toBe("auto");
+    expect(result.zIndex).toBe("auto");
+    expect(result.transform).toEqual([]);
+    expect(result.opacity).toBe(1);
   });
 });

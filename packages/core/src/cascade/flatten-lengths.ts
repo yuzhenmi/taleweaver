@@ -42,6 +42,15 @@ export function flattenLengths(cs: ComputedStyle): ComputedStyle {
     letterSpacing: flattenLengthOrNormal(cs.letterSpacing, fontSize),
     wordSpacing:   flattenLengthOrNormal(cs.wordSpacing, fontSize),
     textIndent:    flattenLength(cs.textIndent, fontSize),
+
+    // Positioning insets — `LengthOrAuto`, flattened exactly like margins
+    // (em→px against own fontSize; percent stays symbolic; auto passes
+    // through). Use-site resolution against the containing block happens in
+    // later positioning slices, NOT here.
+    insetBlockStart:  flattenLengthOrAuto(cs.insetBlockStart, fontSize),
+    insetBlockEnd:    flattenLengthOrAuto(cs.insetBlockEnd, fontSize),
+    insetInlineStart: flattenLengthOrAuto(cs.insetInlineStart, fontSize),
+    insetInlineEnd:   flattenLengthOrAuto(cs.insetInlineEnd, fontSize),
   };
 }
 

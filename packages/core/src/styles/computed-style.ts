@@ -8,6 +8,7 @@ import type { Color } from "./color";
 import type { ComputedLength, ComputedLengthOrAuto, IntrinsicSizingKeyword } from "./length";
 import type { WritingMode, Direction } from "./writing-mode";
 import type { TabStop } from "./tab-stops";
+import type { Position, TransformFn, TransformOrigin } from "./position";
 
 /**
  * Resolved style — every property is required. Lengths are in canonical
@@ -98,4 +99,19 @@ export interface ComputedStyle {
   // Generated marker content (see Style.markerText). `undefined` = no explicit
   // marker. Non-inheriting; flows through composeComputed generically.
   markerText: string | undefined;
+
+  // Positioning (resolved). Insets are `ComputedLength | "auto"` — `em` is
+  // flattened to px in the cascade like other length-valued computed
+  // properties; `percent` stays symbolic (resolved at the use-site against the
+  // containing block). `transform` length args stay verbatim (paint-time
+  // resolved). All non-inheriting.
+  position: Position;
+  insetBlockStart:  ComputedLength | "auto";
+  insetBlockEnd:    ComputedLength | "auto";
+  insetInlineStart: ComputedLength | "auto";
+  insetInlineEnd:   ComputedLength | "auto";
+  zIndex:          number | "auto";
+  transform:       readonly TransformFn[];
+  transformOrigin: TransformOrigin;
+  opacity:         number;
 }

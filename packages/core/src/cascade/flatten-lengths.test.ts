@@ -134,4 +134,35 @@ describe("flattenLengths", () => {
     const out = flattenLengths(cs);
     expect(out.lineHeight).toBe(INITIAL_COMPUTED_STYLE.lineHeight);
   });
+
+  // ── Positioning insets (slice 1): em→px like margins; %/auto pass through ───
+
+  it("flattens em insetInlineStart against own fontSize (like margins)", () => {
+    const cs = csWith("insetInlineStart", { unit: "em", value: 2 });
+    const out = flattenLengths({ ...cs, fontSize: 16 });
+    expect(out.insetInlineStart).toBe(32);  // 16 * 2
+  });
+
+  it("flattens em insetBlockEnd against own fontSize", () => {
+    const cs = csWith("insetBlockEnd", { unit: "em", value: 1.5 });
+    const out = flattenLengths({ ...cs, fontSize: 16 });
+    expect(out.insetBlockEnd).toBe(24);  // 16 * 1.5
+  });
+
+  it("passes through 'auto' insets unchanged", () => {
+    const out = flattenLengths(INITIAL_COMPUTED_STYLE);
+    expect(out.insetBlockStart).toBe("auto");
+    expect(out.insetBlockEnd).toBe("auto");
+    expect(out.insetInlineStart).toBe("auto");
+    expect(out.insetInlineEnd).toBe("auto");
+  });
+
+  it("preserves percent insets unresolved (cascade can't resolve %)", () => {
+    const cs: ComputedStyle = {
+      ...INITIAL_COMPUTED_STYLE,
+      insetInlineStart: { unit: "percent", value: 25 },
+    };
+    const out = flattenLengths(cs);
+    expect(out.insetInlineStart).toEqual({ unit: "percent", value: 25 });
+  });
 });

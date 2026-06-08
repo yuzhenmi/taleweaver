@@ -1,5 +1,20 @@
 import type { Style } from "./style";
 import type { ComputedStyle } from "./computed-style";
+import type { TransformFn, TransformOrigin } from "./position";
+import type { Length } from "./length";
+
+/**
+ * Shared frozen defaults for the object/array-valued positioning properties, so
+ * every default ComputedStyle references the same instance (mirrors how
+ * `fontFeatureSettings`/`tabStops` reuse a constant rather than allocating a new
+ * literal per cascade).
+ */
+const EMPTY_TRANSFORM: readonly TransformFn[] = Object.freeze([]);
+const CENTER_LENGTH: Length = Object.freeze({ unit: "percent", value: 50 });
+const CENTER_TRANSFORM_ORIGIN: TransformOrigin = Object.freeze({
+  x: CENTER_LENGTH,
+  y: CENTER_LENGTH,
+});
 
 export const PROPERTY_META: Record<keyof Style, { inherits: boolean }> = {
   display:         { inherits: false },
@@ -88,6 +103,17 @@ export const PROPERTY_META: Record<keyof Style, { inherits: boolean }> = {
   listStylePosition: { inherits: true },
 
   markerText:        { inherits: false },
+
+  // Positioning — all non-inheriting (CSS Positioned Layout 3 / Transforms 1).
+  position:         { inherits: false },
+  insetBlockStart:  { inherits: false },
+  insetBlockEnd:    { inherits: false },
+  insetInlineStart: { inherits: false },
+  insetInlineEnd:   { inherits: false },
+  zIndex:           { inherits: false },
+  transform:        { inherits: false },
+  transformOrigin:  { inherits: false },
+  opacity:          { inherits: false },
 };
 
 export const INITIAL_COMPUTED_STYLE: ComputedStyle = {
@@ -167,4 +193,14 @@ export const INITIAL_COMPUTED_STYLE: ComputedStyle = {
   listStylePosition: "outside",
 
   markerText: undefined,
+
+  position:         "static",
+  insetBlockStart:  "auto",
+  insetBlockEnd:    "auto",
+  insetInlineStart: "auto",
+  insetInlineEnd:   "auto",
+  zIndex:           "auto",
+  transform:        EMPTY_TRANSFORM,
+  transformOrigin:  CENTER_TRANSFORM_ORIGIN,
+  opacity:          1,
 };
