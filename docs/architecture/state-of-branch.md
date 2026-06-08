@@ -24,7 +24,7 @@ imports from here.
 
 Schema reservations (present in `Style` and `ComputedStyle` but not yet consumed by any code path):
 - `widows`, `orphans` — required by pagination.
-- `fontFeatureSettings`, `tabSize` — required by typography phase 1 (P5); resolved into `UsedStyle` but not yet read by any tokenizer/layout/paint consumer. (`textAlign` incl. justify, `textWrap`/`whiteSpace`, `textIndent`, `letterSpacing`/`wordSpacing`, `textTransform`, and `hyphens` are NOW consumed — `letterSpacing`/`wordSpacing` via `layout/text-spacing.ts` (applied in the shapers + IFC trailing-trim + renderer); `textTransform` via the `textTransformInterpreter` cascade interpreter + the IFC's per-token display transform (`layout/text-transform.ts`) + the `SET_TEXT_TRANSFORM` editor action + toolbar; `hyphens` via the manual soft-hyphen producer in the IFC + `tryHyphenSplit` (see `1.6-text.md` Hyphenation, `auto` dictionary still future) — so they are no longer schema-only.)
+- `fontFeatureSettings`, `tabSize` — required by typography phase 1 (P5); resolved into `UsedStyle` but not yet read by any tokenizer/layout/paint consumer. (`textAlign` incl. justify, `textWrap`/`whiteSpace`, `textIndent`, `letterSpacing`/`wordSpacing`, `textTransform`, and `hyphens` are NOW consumed — `letterSpacing`/`wordSpacing` via `layout/text-spacing.ts` (applied in the shapers + IFC trailing-trim + renderer); `textTransform` via the `textTransformInterpreter` cascade interpreter + the IFC's per-token display transform (`layout/text-transform.ts`) + the `SET_TEXT_TRANSFORM` editor action + toolbar; `hyphens` via the manual soft-hyphen producer in the IFC + `tryHyphenSplit` (see `1.6-text.md` Hyphenation, `auto` dictionary still future); `overflowWrap` (net-new, never schema-only) via the IFC `tryEmergencyBreak` last-resort grapheme split + the editor body default (`break-word`; `anywhere` is future) — so they are no longer schema-only.)
 Schema items genuinely missing:
 - `overflow` — required by `establishesNewBFC`'s full check.
 - `position: absolute / fixed`, `transform`, `opacity` — required by positioning + visual-chrome work.
@@ -251,17 +251,20 @@ forward, by word, by line), move (char, word, line, document boundary),
 expand selection, apply inline style, set block type, insert node.
 
 Known gaps:
-- **Cursor placement within a word broken across lines** — `[implemented]` for
-  manual hyphenation: a word splits across two visual lines at an authored U+00AD
-  SOFT HYPHEN (`hyphens` defaults to `manual`). Caret/click/selection around AND
-  across the soft-hyphen break are behavior-tested through the real editor
-  (`cursor/soft-hyphen-caret.test.ts`): the soft hyphen is a real 1-unit source
-  char that stays in the offset↔x map despite zero width (offsets before/after it
-  share an x). The other split path — `overflow-wrap: break-word` — is still NOT in
-  the IFC, and dictionary `auto` hyphenation is a future feature; those remain
-  gaps. (The mock/canvas shapers classify U+00AD as `kind:"soft"`; the IFC
-  synthesizes the `hyphen`-kind opportunity, so the manual path does not depend on
-  the shaper emitting `kind:"hyphen"`.)
+- **Cursor placement within a word broken across lines** — `[implemented]` for BOTH
+  within-word split paths: (1) manual hyphenation — a word splits at an authored
+  U+00AD SOFT HYPHEN (`hyphens` defaults to `manual`); the soft hyphen is a real
+  1-unit source char that stays in the offset↔x map despite zero width
+  (offsets before/after share an x); behavior-tested in `cursor/soft-hyphen-caret.test.ts`.
+  (2) `overflow-wrap: break-word` — a long unbreakable word splits at a grapheme
+  boundary (the editor BODY default for Google-Docs parity); the split is an
+  ordinary token split with contiguous source offsets (no inserted char);
+  behavior-tested in `cursor/overflow-wrap-caret.test.ts`. Remaining gaps:
+  dictionary `auto` hyphenation, `overflow-wrap: anywhere` (the min-content
+  variant), and `word-break: break-all/keep-all` are future features. (The
+  mock/canvas shapers classify U+00AD as `kind:"soft"`; the IFC synthesizes the
+  `hyphen`-kind opportunity, so the manual path does not depend on the shaper
+  emitting `kind:"hyphen"`.)
 
 Resolved since this section was first written (kept here as a record of
 closed gaps, no remaining action):
