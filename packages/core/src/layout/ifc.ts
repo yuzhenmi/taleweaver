@@ -1599,6 +1599,11 @@ export function layoutInlineContent(
     }
 
     if (bestBreakIdx === null) return null;
+    // Capture into a const so the non-null narrowing flows into the closures
+    // below (a `let` re-widens to `number | null` inside arrow bodies, which
+    // would otherwise force a non-null `!`). Mirrors the `const splitAt` idiom
+    // in trySoftSplit / tryEmergencyBreak.
+    const breakIdx: number = bestBreakIdx;
 
     const prefixText = firstTok.text.slice(0, bestBreakIdx);
     const suffixText = firstTok.text.slice(bestBreakIdx);
@@ -1652,8 +1657,8 @@ export function layoutInlineContent(
       // Pass remaining cluster widths and hyphen breaks to suffix for potential future splits.
       clusterWidths: firstTok.clusterWidths.slice(bestBreakIdx),
       hyphenBreaks: firstTok.hyphenBreaks
-        .filter(b => b > bestBreakIdx!)
-        .map(b => b - bestBreakIdx!),
+        .filter(b => b > breakIdx)
+        .map(b => b - breakIdx),
       // The hyphenation point IS a break opportunity — the suffix may begin a
       // line. Set explicitly (mirrors trySoftSplit's suffix) so the symmetry is
       // self-documenting rather than relying on absent-means-breakable.
