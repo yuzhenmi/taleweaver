@@ -89,9 +89,15 @@ open/save surface has shipped: `exportDocument` / `loadDocument`
 (`editor/document-io.ts`, on the core barrel) wrap the engine dispatch —
 `loadDocument` deserializes into a FRESH `EditorState` (fresh History + a valid
 initial caret via the shared `initialSelectionForState` + full render/cascade/
-layout). Remaining named follow-ups: pairing the wire document with the rest of
-editor-session view state (scroll) for full save/restore, a human-friendly text
-serializer, v2 + migration path. See
+layout). The format-agnostic core foundation for a human-friendly importer has
+shipped: `buildDocumentFromTree` (`state/build-document-from-tree.ts`, on the
+state + core barrels) lowers a declarative nested `BlockNode` tree → `State`,
+minting ids and DERIVING all structural links — the SAFE public counterpart to
+the internal `buildStateFromBlocks`, and the construction target a future
+HTML/JSON importer's `decode` builds. Remaining named follow-ups: pairing the
+wire document with the rest of editor-session view state (scroll) for full
+save/restore, the human-friendly HTML serializer itself (`packages/dom`,
+consuming `buildDocumentFromTree`), v2 + migration path. See
 [`1.10-serialization.md`](1-core/1.10-serialization.md) and
 [`1.7-editor.md`](1-core/1.7-editor.md).
 

@@ -39,6 +39,12 @@ export {
   resolveBlock,
 } from "./state";
 export { createEmptyDocument } from "./state";
+// Declarative construction: lower a nested `BlockNode` tree → `State` (mints
+// ids, derives all structural links). The safe public counterpart to the
+// internal bulk constructor; the foundation importers (e.g. the HTML
+// serializer) target.
+export { buildDocumentFromTree } from "./state";
+export type { BlockNode, ContainerBlockNode, LeafBlockNode } from "./state";
 export type { Block } from "./state";
 export type { BlockId, IdAllocator } from "./state";
 export {

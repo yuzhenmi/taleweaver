@@ -298,6 +298,16 @@ export { History, createHistory, UNDO_COALESCE_PAUSE_MS } from "./history";
 export type { CreateEmptyDocumentArgs } from "./initial-state";
 export { createEmptyDocument } from "./initial-state";
 
+// Declarative construction — the SAFE public counterpart to the internal
+// `buildStateFromBlocks`. `buildDocumentFromTree` lowers a nested `BlockNode`
+// tree (no ids, no manual sibling/parent pointers) to a `State`, minting ids
+// and DERIVING all structural links. It is the format-agnostic foundation any
+// importer (e.g. the HTML serializer) targets. (`buildStateFromBlocks` /
+// `buildStateWithListDefs` stay state-module-internal — barrel-excluded — since
+// their manual link fields are a footgun.)
+export type { BlockNode, ContainerBlockNode, LeafBlockNode } from "./build-document-from-tree";
+export { buildDocumentFromTree } from "./build-document-from-tree";
+
 // ───────────────────────────────────────────────────────────────────────────
 // Document serialization — pluggable DocumentSerializer + registry + engine
 // dispatch + the v1 lossless Yjs-binary serializer. The serialize module lives
