@@ -123,6 +123,32 @@ function collectText(box: LayoutBox): string {
 }
 
 describe("Integration: state → render → cascade → layout (R-C)", () => {
+  it("editor body default `overflow-wrap: break-word`: a long unbreakable word breaks to fit (OW.S3)", () => {
+    // Google-Docs parity: a long unbreakable string in the BODY (no explicit
+    // overflowWrap) breaks to fit the page rather than running off it. The
+    // `document` component sets `overflowWrap: "break-word"` (slice 3); it cascades
+    // to the paragraph's text (slice 1) and the IFC breaks it (slice 2). This
+    // exercises the WHOLE pipeline end-to-end with NO per-block override.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc",
+          inlineContent: inlineContent([text("aaaaaaaaaa")]) }), // 10 × 8px = 80px
+      ],
+    });
+    const renderOutput = render(state, componentRegistry, attrRegistry);
+    // In a 40px column the 80px word must break (→ ≥2 lines). Without the body
+    // default it would overflow on a single line.
+    const layout = resolvePositionedTree(layoutTree(renderOutput.root, 40, shaper));
+    function countLines(box: LayoutBox): number {
+      let n = box.type === "line" ? 1 : 0;
+      if ("children" in box) for (const c of box.children) n += countLines(c);
+      return n;
+    }
+    expect(countLines(layout)).toBeGreaterThanOrEqual(2);
+  });
+
   it("pipes a realistic doc through render() → cascadePass → layoutTree without throwing", () => {
     const state = buildRealisticDoc();
     expect(() => {

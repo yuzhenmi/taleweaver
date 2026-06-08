@@ -115,6 +115,9 @@ describe("footnoteBodyComponent — orphans/widows = 1 (single-line splitting, F
     if (rendered.type !== "element") throw new Error("render returned non-element");
     expect(rendered.style.orphans).toBe(1);
     expect(rendered.style.widows).toBe(1);
+    // Google-Docs body default — long unbreakable strings break to fit (mirrors
+    // the document/template body defaults).
+    expect(rendered.style.overflowWrap).toBe("break-word");
   });
 
   it("splits a 2-line body at a single line: 1 line placed + non-null breakToken (NOT box: null)", () => {

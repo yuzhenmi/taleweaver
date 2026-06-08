@@ -43,6 +43,11 @@ export const documentComponent: ContainerComponentDefinition = {
     const style: Style = {
       display: "block",
       whiteSpace: "break-spaces",
+      // Google-Docs body default: a long unbreakable string (URL, hash, "aaaa…")
+      // breaks to fit the page rather than running off it. Mirrors the
+      // `whiteSpace: "break-spaces"` decision — principle 7 (Google Docs) over the
+      // CSS `overflow-wrap: normal` initial. See overflow-wrap design spec.
+      overflowWrap: "break-word",
       ...(writingMode !== undefined ? { writingMode } : {}),
     };
     return createElementBox(
