@@ -80,9 +80,19 @@ function physicalizeVrl(box: LayoutBox, containerBlockSize: number): LayoutBox {
     const newChildren = box.children.map((c) =>
       physicalizeVertical(c, containerBlockSize),
     );
+    // A PageBox FRAME never establishes an abc (positioning establishment happens
+    // on the body block boxes inside it), so `absoluteChildren` is always absent
+    // here — but physicalize them for union coherence if ever present, against the
+    // SAME page-content block-size the page's in-flow `children` use as container.
+    const newAbsoluteChildren = box.absoluteChildren?.map((c) =>
+      physicalizeVertical(c, containerBlockSize),
+    );
     return Object.freeze({
       ...box,
       children: Object.freeze(newChildren),
+      ...(newAbsoluteChildren !== undefined
+        ? { absoluteChildren: Object.freeze(newAbsoluteChildren) }
+        : {}),
       headerSlot: physicalizeSlot(box.headerSlot, containerBlockSize),
       footerSlot: physicalizeSlot(box.footerSlot, containerBlockSize),
       footnoteSlot: physicalizeSlot(box.footnoteSlot, containerBlockSize),
@@ -108,17 +118,31 @@ function physicalizeVrl(box: LayoutBox, containerBlockSize: number): LayoutBox {
     containerBlockSize,
   );
 
+  // Recurse abs-pos descendants (if any) against THIS box's resolved blockSize.
+  // They are positioned in THIS box's OWN frame — the same frame its in-flow
+  // `children` live in — so they take the SAME container block-size the children
+  // recursion uses (`mirrored.blockSize`), NOT the outer `containerBlockSize`. An
+  // abs-establishing box can carry `absoluteChildren` even with empty `children`,
+  // so this must be handled independently of the children early-return below.
+  const newAbsoluteChildren = mirrored.absoluteChildren?.map((c) =>
+    physicalizeVertical(c, mirrored.blockSize),
+  );
+
   // Recurse into children with THIS box as their container (its resolved
   // blockSize is the child's containing block-size). Only container box types
   // carry children; leaves (text-run / marker) have none.
-  if (!("children" in mirrored) || mirrored.children.length === 0) {
+  const hasChildren = "children" in mirrored && mirrored.children.length > 0;
+  if (!hasChildren && newAbsoluteChildren === undefined) {
     return mirrored;
   }
-  const newChildren = mirrored.children.map((c) =>
-    physicalizeVertical(c, mirrored.blockSize),
-  );
+  const newChildren = hasChildren
+    ? mirrored.children.map((c) => physicalizeVertical(c, mirrored.blockSize))
+    : undefined;
   return Object.freeze({
     ...mirrored,
-    children: Object.freeze(newChildren),
+    ...(newChildren !== undefined ? { children: Object.freeze(newChildren) } : {}),
+    ...(newAbsoluteChildren !== undefined
+      ? { absoluteChildren: Object.freeze(newAbsoluteChildren) }
+      : {}),
   });
 }

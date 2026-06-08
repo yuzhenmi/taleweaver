@@ -25,9 +25,18 @@ imports from here.
 Schema reservations (present in `Style` and `ComputedStyle` but not yet consumed by any code path):
 - `widows`, `orphans` — required by pagination.
 - `fontFeatureSettings` — required by typography phase 1 (P5); resolved into `UsedStyle` but not yet read by any tokenizer/layout/paint consumer. (`textAlign` incl. justify, `textWrap`/`whiteSpace`, `textIndent`, `letterSpacing`/`wordSpacing`, `textTransform`, and `hyphens` are NOW consumed — `letterSpacing`/`wordSpacing` via `layout/text-spacing.ts` (applied in the shapers + IFC trailing-trim + renderer); `textTransform` via the `textTransformInterpreter` cascade interpreter + the IFC's per-token display transform (`layout/text-transform.ts`) + the `SET_TEXT_TRANSFORM` editor action + toolbar; `hyphens` via the manual soft-hyphen producer in the IFC + `tryHyphenSplit` (see `1.6-text.md` Hyphenation, `auto` dictionary still future); `overflowWrap` (net-new, never schema-only) via the IFC `tryEmergencyBreak` last-resort grapheme split + the editor body default (`break-word`; `anywhere` is future); `tabStops`/`defaultTabStop` (net-new; the former CSS `tabSize` reservation was REMOVED) via the `"tab"` embed + the IFC resolve-at-overflow-check advance (`nextStop`; left/center/right/decimal alignments + default-grid fallback) + `INSERT_TAB`/`SET_TAB_STOPS` editor actions + the Tab key + leader paint (see `1.6-text.md` Tab stops) — so they are no longer schema-only.)
+Positioning vocabulary present and consumed (slice 1): `position`, the four
+logical `inset*`, `zIndex`, `transform`, `transformOrigin`, `opacity` live in
+`styles/position.ts` + `ComputedStyle`, all `inherits: false`. `position:
+relative`/`absolute` are consumed by layout (see `layout/` below); `zIndex` /
+`transform` / `opacity` are cascade-resolved but not yet read by a paint
+consumer (the stacking / transform / opacity slices are not yet built). NO
+positioning property enters `UsedStyle` — they are read at their use-sites from
+`ComputedStyle` (insets resolved against the containing block where both axis
+percent bases are available). See [`1.9-positioning.md`](1-core/1.9-positioning.md).
+
 Schema items genuinely missing:
 - `overflow` — required by `establishesNewBFC`'s full check.
-- `position: absolute / fixed`, `transform`, `opacity` — required by positioning + visual-chrome work.
 
 ### `state/` `[implemented]`
 
@@ -135,8 +144,29 @@ Most of the layout pass is implemented and working:
   `breakOpportunities` — NOT the widest single grapheme cluster.
 - Layout-box reuse: `LayoutBoxCache`, `isLayoutBoxReusable`,
   `renderNodesLayoutEquivalent`.
+- Positioning (slices 1–3, see [`1.9-positioning.md`](1-core/1.9-positioning.md)):
+  `position: relative` resolves a physical `relativeOffset` in the BFC and the
+  painter shifts the box + descendants by it (block-level; inline-block-relative
+  and caret-for-relative-content are named follow-ups). `position: absolute`
+  (and `fixed`, treated as absolute) is laid out OUT of flow via a two-pass
+  scheme: the in-flow loop registers the child's static position into the
+  nearest absolute containing block (abc — `LayoutContext.absoluteContainingBlock`
+  + `ownsAbsoluteContainingBlock` + `originFromAbc`; established by
+  `position ∈ {relative,absolute,fixed}` or `transform`), and the establishing
+  box DRAINS its pending list in a post-loop second pass, resolving each child's
+  size/position from `cs.inset*` against the abc and attaching results to
+  `box.absoluteChildren` (on `LayoutBoxBase`). Abs content is cursor-reachable
+  because `cursor/line-flatten.ts` `collectLineBoxes` descends `absoluteChildren`
+  into the flat `LineIndex`.
 
 Known gaps:
+- **Positioning** — z-index / stacking contexts, `transform` (paint apply +
+  hit-test inversion), and `opacity` (offscreen compositing) are NOT yet built
+  (cascade-resolved but no paint consumer). Named follow-ups within the shipped
+  slices: paginated abs-pos fragmentation (a fragmented box's second pass doesn't
+  run, so abs children registered before a break are not drained onto the
+  fragment), and an establishing box's own explicit block-size not folded into
+  the abc block percent-base (a pre-existing BFC limitation).
 - **Bidi — geometry + glyph paint + RTL cursor implemented; in-browser
   smoke pending.** The **full UAX #9 algorithm engine** (`layout/uax9/`,
   P4-A: `resolveBidiLevels` P/X/W/N/I + `reorderVisual`/`applyL1`/

@@ -1489,3 +1489,191 @@ describe("layoutBlock — position: relative offset resolution (slice 2)", () =>
     expect(box.relativeOffset).toEqual({ dx: -6, dy: 11 });
   });
 });
+
+// ── POSITIONING slice 3 — position: absolute (the layout slice) ───────────────
+//
+// A `position: absolute` child is REMOVED from flow (its in-flow siblings do not
+// advance past it), and is laid out in a SECOND PASS against its absolute
+// containing block (the nearest positioned ancestor, or the root). It attaches to
+// the establishing box's `absoluteChildren` (NOT `children`), positioned in that
+// box's coordinate frame. These tests pin: removal-from-flow, inset positioning on
+// both axes, auto-size fill, static-position fallback, nearest-positioned-ancestor
+// abc resolution, abc=root, and the indefinite-block-% → auto rule.
+
+describe("layoutBlock — position: absolute (slice 3)", () => {
+  // Root with `position: relative` so it establishes the abc; the abs child
+  // resolves its insets against the root content box (600 wide). Block size of the
+  // root is content-derived → indefinite, so block-% insets resolve as auto.
+  function absUnderRelativeRoot(absStyle: Record<string, unknown>, siblings: ReturnType<typeof createElementBox>[] = []) {
+    const abs = createElementBox("abs", { display: "block", blockSize: 30, inlineSize: 40, position: "absolute", ...absStyle }, []);
+    const tree = createElementBox("root", { display: "block", position: "relative" }, [...siblings, abs]);
+    const out = layoutOf(tree);
+    return out;
+  }
+
+  it("an abs box is REMOVED from flow — in-flow siblings do not advance past it", () => {
+    // Two in-flow siblings (height 50, 30) + one abs box between them. Without the
+    // abs box the second in-flow sibling sits at y=50; the abs box must not push it.
+    const s1 = createElementBox("s1", { display: "block", blockSize: 50 }, []);
+    const s2 = createElementBox("s2", { display: "block", blockSize: 30 }, []);
+    const out = absUnderRelativeRoot({ insetInlineStart: 10, insetBlockStart: 10 }, [s1, s2]);
+    const inFlow = out.children.filter((c) => c.type === "block" && (c.key === "s1" || c.key === "s2"));
+    expect(inFlow).toHaveLength(2);
+    const s2box = out.children.find((c) => c.key === "s2");
+    if (s2box === undefined || s2box.type !== "block") throw new Error("?");
+    // s2 sits right after s1 (y=50), unaffected by the abs box.
+    expect(s2box.y).toBe(50);
+    // Root height is the in-flow total (80), NOT grown by the abs box.
+    expect(out.height).toBe(80);
+    // The abs box is NOT in `children`.
+    expect(out.children.some((c) => c.key === "abs")).toBe(false);
+    // It IS in `absoluteChildren`.
+    expect(out.absoluteChildren).toBeDefined();
+    expect(out.absoluteChildren?.length).toBe(1);
+  });
+
+  it("inset-inline-start + inset-block-start position the box against the abc origin", () => {
+    const out = absUnderRelativeRoot({ insetInlineStart: 25, insetBlockStart: 15 });
+    const abs = out.absoluteChildren?.[0];
+    if (abs === undefined || abs.type !== "block") throw new Error("?");
+    // abc content origin is (0,0) for an unpadded root; start insets pin directly.
+    expect(abs.x).toBe(25);
+    expect(abs.y).toBe(15);
+    expect(abs.inlineSize).toBe(40);
+  });
+
+  it("inset-inline-end anchors the inline-end edge (start = abcInline − end − width)", () => {
+    // abc inline-size 600; end 30, width 40 → inline-start = 600 − 30 − 40 = 530.
+    const out = absUnderRelativeRoot({ insetInlineEnd: 30 });
+    const abs = out.absoluteChildren?.[0];
+    if (abs === undefined || abs.type !== "block") throw new Error("?");
+    expect(abs.x).toBe(530);
+  });
+
+  it("auto inline-size with BOTH inline insets set fills the gap (abcInline − start − end)", () => {
+    // 600 − 100 − 150 = 350.
+    const out = absUnderRelativeRoot({ inlineSize: "auto", insetInlineStart: 100, insetInlineEnd: 150 });
+    const abs = out.absoluteChildren?.[0];
+    if (abs === undefined || abs.type !== "block") throw new Error("?");
+    expect(abs.inlineSize).toBe(350);
+    expect(abs.x).toBe(100);
+  });
+
+  it("static-position fallback: with all insets auto, the box uses its in-flow static position", () => {
+    // No insets → static fallback. One preceding in-flow sibling of height 50, so
+    // the abs box's static block offset is 50 (where it would have been in flow);
+    // static inline offset is the content inline-start (0 here).
+    const s1 = createElementBox("s1", { display: "block", blockSize: 50 }, []);
+    const out = absUnderRelativeRoot({}, [s1]);
+    const abs = out.absoluteChildren?.[0];
+    if (abs === undefined || abs.type !== "block") throw new Error("?");
+    expect(abs.x).toBe(0);
+    expect(abs.y).toBe(50);
+  });
+
+  it("the abc is the NEAREST positioned ancestor, not a static intermediate parent", () => {
+    // root(relative) > mid(static, offset down by a sibling) > abs.
+    // The abc is `root` (mid is static), so inset-block-start resolves against
+    // root's frame. With inset-block-start 0 the abs box pins to root's top (y=0),
+    // NOT to mid's content top — proving the abc skipped the static `mid`.
+    const filler = createElementBox("filler", { display: "block", blockSize: 70 }, []);
+    const abs = createElementBox("abs", { display: "block", blockSize: 20, inlineSize: 40, position: "absolute", insetBlockStart: 0, insetInlineStart: 5 }, []);
+    const mid = createElementBox("mid", { display: "block" }, [abs]);
+    const root = createElementBox("root", { display: "block", position: "relative" }, [filler, mid]);
+    const out = layoutOf(root);
+    // The abs child rises to root's abc, so it attaches to ROOT's absoluteChildren.
+    expect(out.absoluteChildren?.length).toBe(1);
+    const absBox = out.absoluteChildren?.[0];
+    if (absBox === undefined || absBox.type !== "block") throw new Error("?");
+    // inset-block-start 0 against root → y=0 (root frame), NOT y=70 (mid's top).
+    expect(absBox.y).toBe(0);
+    expect(absBox.x).toBe(5);
+    // `mid` carries no absoluteChildren (it didn't establish the abc).
+    const midBox = out.children.find((c) => c.key === "mid");
+    if (midBox === undefined || midBox.type !== "block") throw new Error("?");
+    expect(midBox.absoluteChildren).toBeUndefined();
+  });
+
+  it("abc = ROOT when there is no positioned ancestor (static root)", () => {
+    // Root is static (no position) → it still OWNS the root abc (seeded by
+    // makeRootContext), so the abs child resolves against the page/viewport.
+    const abs = createElementBox("abs", { display: "block", blockSize: 20, inlineSize: 40, position: "absolute", insetInlineStart: 12, insetBlockStart: 8 }, []);
+    const root = createElementBox("root", { display: "block" }, [abs]);
+    const out = layoutOf(root);
+    expect(out.absoluteChildren?.length).toBe(1);
+    const absBox = out.absoluteChildren?.[0];
+    if (absBox === undefined || absBox.type !== "block") throw new Error("?");
+    expect(absBox.x).toBe(12);
+    expect(absBox.y).toBe(8);
+  });
+
+  it("indefinite abc block-size → a block-PERCENT inset resolves as auto (falls back to static)", () => {
+    // Root is auto-height (content-derived) → indefinite abc block size. A percent
+    // inset-block-start computes to auto, so the box falls back to its static
+    // block offset (0 — no preceding sibling). A PX inset would still apply.
+    const out = absUnderRelativeRoot({ insetBlockStart: { unit: "percent", value: 50 }, insetInlineStart: 7 });
+    const abs = out.absoluteChildren?.[0];
+    if (abs === undefined || abs.type !== "block") throw new Error("?");
+    expect(abs.y).toBe(0); // percent block-inset → auto → static fallback (0)
+    expect(abs.x).toBe(7); // px inline inset still applies
+  });
+
+  it("fixed is treated as absolute by layout (same out-of-flow + inset resolution)", () => {
+    const out = absUnderRelativeRoot({ position: "fixed", insetInlineStart: 18, insetBlockStart: 9 });
+    expect(out.children.some((c) => c.key === "abs")).toBe(false);
+    const abs = out.absoluteChildren?.[0];
+    if (abs === undefined || abs.type !== "block") throw new Error("?");
+    expect(abs.x).toBe(18);
+    expect(abs.y).toBe(9);
+  });
+
+  // F6 — a `transform` (with NO `position`) establishes the abc (CSS Transforms 1
+  // §6 / Positioned Layout §2): the abs child resolves against the TRANSFORMED
+  // ancestor's frame, not the root's. This is the `transform.length > 0` abc
+  // trigger; without it the abs child would rise to the root.
+  it("a transformed ancestor (no position) establishes the abc", () => {
+    const filler = createElementBox("filler", { display: "block", blockSize: 60 }, []);
+    const abs = createElementBox("abs", { display: "block", blockSize: 20, inlineSize: 40, position: "absolute", insetBlockStart: 0, insetInlineStart: 5 }, []);
+    // `mid` carries a transform but NO position → still establishes the abc.
+    const mid = createElementBox("mid", { display: "block", transform: [{ fn: "translateX", tx: 10 }] }, [abs]);
+    const root = createElementBox("root", { display: "block" }, [filler, mid]);
+    const out = layoutOf(root);
+    // The abs child resolves against `mid` (the transformed ancestor) → it attaches
+    // to MID's absoluteChildren, NOT root's.
+    const midBox = out.children.find((c) => c.key === "mid");
+    if (midBox === undefined || midBox.type !== "block") throw new Error("?");
+    expect(midBox.absoluteChildren?.length).toBe(1);
+    expect(out.absoluteChildren).toBeUndefined();
+    const absBox = midBox.absoluteChildren?.[0];
+    if (absBox === undefined || absBox.type !== "block") throw new Error("?");
+    // inset-block-start 0 against mid's content frame → y=0 in MID's own frame
+    // (mid sits at root y=60; the abs box is parent-relative within mid).
+    expect(absBox.y).toBe(0);
+    expect(absBox.x).toBe(5);
+  });
+
+  // F7 — inset-block-end anchors the block-END edge against a DEFINITE-block-size
+  // abc: end-edge offset = abc.contentBlockResolved − insetBlockEnd − usedBlockSize.
+  it("inset-block-end anchors the block-end edge against a definite-block-size abc", () => {
+    // Root with an explicit block-size (200) AND an in-flow filler of height 200,
+    // so the resolved abc block-size is a DEFINITE 200. abs box height 30,
+    // inset-block-end 20 → y = 200 − 20 − 30 = 150.
+    const filler = createElementBox("filler", { display: "block", blockSize: 200 }, []);
+    const abs = createElementBox("abs", { display: "block", blockSize: 30, inlineSize: 40, position: "absolute", insetBlockEnd: 20, insetInlineStart: 0 }, []);
+    const root = createElementBox("root", { display: "block", position: "relative", blockSize: 200 }, [filler, abs]);
+    const out = layoutOf(root);
+    const absBox = out.absoluteChildren?.[0];
+    if (absBox === undefined || absBox.type !== "block") throw new Error("?");
+    expect(absBox.y).toBe(150);
+  });
+
+  // F8 — a PERCENT inset-inline-start resolves against the abc INLINE-size (the C2
+  // reason insets are NOT in UsedStyle: inline-% uses the inline base). abc
+  // inline-size 600, 50% → 300.
+  it("percent inset-inline-start resolves against abc.inlineSize", () => {
+    const out = absUnderRelativeRoot({ insetInlineStart: { unit: "percent", value: 50 } });
+    const abs = out.absoluteChildren?.[0];
+    if (abs === undefined || abs.type !== "block") throw new Error("?");
+    expect(abs.x).toBe(300);
+  });
+});

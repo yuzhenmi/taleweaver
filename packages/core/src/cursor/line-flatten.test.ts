@@ -12,6 +12,8 @@ import { makeRootContext } from "../layout/layout-context";
 import { createPosition } from "../state";
 import type { BlockId } from "../state";
 import { collectLineBoxes, collectLineLeaves, findLineForPosition, getLineIndex, type AbsoluteLineBox } from "./line-flatten";
+import { resolvePositionFromPixel } from "./hit-test";
+import { buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
 
 const shaper = createMockShaper(8, 16);
 
@@ -204,6 +206,72 @@ describe("collectLineBoxes", () => {
     // IFC-runner block (which may be the anonymous wrap).
     expect([...ownerIds].some(id => /^p(\/anon\[\d+\])?$/.test(id))).toBe(true);
     expect([...ownerIds].some(id => /^ib-p(\/anon\[\d+\])?$/.test(id))).toBe(true);
+  });
+});
+
+// POSITIONING slice 3 (LOAD-BEARING, design-review C3) — `collectLineBoxes` MUST
+// descend `absoluteChildren`. Abs-pos content is reachable ONLY via that field; if
+// the walk skipped it, lines inside an abs-pos subtree would be ABSENT from
+// `getLineIndex().all` → invisible to hit-test / cursor / selection / line-nav. These
+// tests prove the abs paragraph's line enters the flat index AND that a click inside
+// it resolves to the correct caret offset.
+describe("collectLineBoxes — descends absoluteChildren (slice 3)", () => {
+  // A relative root with one normal paragraph + one abs paragraph (offset down so
+  // its line sits at a known y). `position`/`inset*` are real Style fields (slice 1),
+  // so cascadePass composes them — no attr interpreter needed. The abs paragraph's
+  // text is DIRECT inline content so the IFC stamps `ownerBlockId === "pabs"` (the
+  // source block), matching the State below for the hit-test.
+  function relativeRootWithAbs() {
+    const tree = cascadePass(
+      createElementBox("doc", { display: "block", position: "relative" }, [
+        createElementBox("pnorm", { display: "block" }, [createTextBox("tn", {}, "normal text")]),
+        createElementBox("pabs", { display: "block", position: "absolute", insetInlineStart: 30, insetBlockStart: 100 }, [
+          createTextBox("ta", {}, "absolute text"),
+        ]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    if (r.box === null) throw new Error("?");
+    return r.box;
+  }
+
+  it("the abs paragraph's line IS present in getLineIndex().all at its resolved abs coords", () => {
+    const root = relativeRootWithAbs();
+    const all = getLineIndex(root).all;
+    // Both the normal line and the abs line are present (2 lines).
+    const absLine = all.find((al) => al.line.ownerBlockId === "pabs");
+    expect(absLine).toBeDefined();
+    if (absLine === undefined) throw new Error("abs line missing from LineIndex");
+    // The abs line sits at the resolved inset position: inset-inline-start 30 → x≈30,
+    // inset-block-start 100 → y≈100. (Exact x may include the line's own inset; assert
+    // the resolved offset is reflected, proving the absoluteChildren walk carried the
+    // establishing box's origin.)
+    expect(absLine.absoluteX).toBe(30);
+    expect(absLine.absoluteY).toBe(100);
+  });
+
+  it("a click inside the abs paragraph resolves to the correct caret offset (reachability)", () => {
+    const root = relativeRootWithAbs();
+    // State whose `pabs` block carries the same text, so the picked line's
+    // ownerBlockId resolves to a real block and the within-line offset maps to a
+    // Position. (Mirror of the layout: a document root + two paragraphs.)
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "pnorm", lastChildId: "pabs" }),
+        buildBlock({ id: "pnorm", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("normal text")]) }),
+        buildBlock({ id: "pabs", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("absolute text")]) }),
+      ],
+    });
+    // Click ~3 chars into the abs line (each glyph 8px; line baseline at y≈100..116).
+    // x = 30 (line start) + 3*8 + 1 = 55 lands in the 4th char's cell → offset 3.
+    const hit = resolvePositionFromPixel(state, root, shaper, 55, 108);
+    expect(hit).not.toBeNull();
+    if (hit === null) throw new Error("hit-test returned null inside abs paragraph");
+    expect(hit.position.blockId).toBe("pabs" as BlockId);
+    expect(hit.position.offset).toBe(3);
   });
 });
 

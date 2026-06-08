@@ -212,3 +212,77 @@ describe("position: relative paint-time offset", () => {
     expect(relClear?.y).toBe(13);
   });
 });
+
+// POSITIONING slice 3 — abs-pos children are painted via `box.absoluteChildren`
+// (OUT of `box.children`), with the SAME parent origin (absX/absY) the box uses for
+// its in-flow children, AFTER them (document order). The incremental dirty-rect walk
+// must also cover them (else a painted abs box absent from the dirty walk leaves
+// stale pixels — the same lesson as slice 2's relativeOffset).
+describe("position: absolute paint", () => {
+  let ctx: SpyCtx;
+  beforeEach(() => { ctx = createSpyCtx(); });
+
+  // A block carrying an abs child block (already resolved at its inset position in
+  // the establishing box's frame).
+  function makeBlockWithAbs(opts: {
+    key: string; x: number; y: number; width: number; height: number;
+    children: LayoutBox[]; absoluteChildren: LayoutBox[];
+  }): LayoutBox {
+    return {
+      type: "block", key: opts.key,
+      inlineOffset: opts.x, blockOffset: opts.y,
+      inlineSize: opts.width, blockSize: opts.height,
+      x: opts.x, y: opts.y, width: opts.width, height: opts.height,
+      writingMode: "horizontal-tb", direction: "ltr",
+      children: opts.children,
+      absoluteChildren: opts.absoluteChildren,
+      computedStyle: { ...BASE_CS }, usedStyle: { ...BASE_US },
+    } as unknown as LayoutBox;
+  }
+
+  it("paints an abs child's content at its resolved absolute position", () => {
+    // An abs child block at (50, 60) in the establishing box's frame, containing a
+    // text-run at local (0, 0). The glyph lands at absX = root.x(0) + abs.x(50) +
+    // run.x(0) = 50; absY = 60.
+    const absRun = makeTextRun({ text: "A", x: 0, y: 0, width: 16, height: 16 });
+    const absChild = makeBlock({ key: "abs", x: 50, y: 60, width: 40, height: 16, children: [absRun] });
+    const inflowRun = makeTextRun({ text: "F", x: 0, y: 0, width: 16, height: 16 });
+    const inflow = makeBlock({ key: "inflow", x: 0, y: 0, width: 100, height: 16, children: [inflowRun] });
+    const root = makeBlockWithAbs({
+      key: "root", x: 0, y: 0, width: 200, height: 100,
+      children: [inflow], absoluteChildren: [absChild],
+    });
+
+    paint(ctx, root);
+
+    // In-flow glyph at its normal spot.
+    const fInflow = ctx._fills.find((f) => f.text === "F");
+    expect(fInflow?.x).toBeCloseTo(0, 6);
+    expect(fInflow?.y).toBeCloseTo(0, 6);
+    // Abs glyph at the resolved abs position (proves absoluteChildren were painted).
+    const fAbs = ctx._fills.find((f) => f.text === "A");
+    expect(fAbs).toBeDefined();
+    expect(fAbs?.x).toBeCloseTo(50, 6);
+    expect(fAbs?.y).toBeCloseTo(60, 6);
+  });
+
+  it("incremental dirty-rect walk covers absoluteChildren (clearRect at the abs region)", () => {
+    const absRun = makeTextRun({ text: "A", x: 0, y: 0, width: 16, height: 16 });
+    const absChild = makeBlock({ key: "abs", x: 50, y: 60, width: 40, height: 16, children: [absRun] });
+    const root = makeBlockWithAbs({
+      key: "root", x: 0, y: 0, width: 200, height: 100,
+      children: [], absoluteChildren: [absChild],
+    });
+    const cache = createPaintCache();
+
+    paintCanvas(ctx, root, [], [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800, undefined, cache);
+
+    // The abs block's dirty rect (w=40, h=16) lands at its resolved (50, 60) — proving
+    // walkAndDetectChanges descended absoluteChildren. Without it, the abs region is
+    // never marked dirty and a stale abs box never clears/repaints.
+    const absClear = ctx._clears.find((c) => c.w === 40 && c.h === 16);
+    expect(absClear).toBeDefined();
+    expect(absClear?.x).toBe(50);
+    expect(absClear?.y).toBe(60);
+  });
+});

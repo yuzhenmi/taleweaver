@@ -13,6 +13,7 @@ import { logicalToPhysical } from "../styles/writing-mode";
 import { computeUsedStyle, resolveUsedLength } from "./used-style";
 import type { LayoutContext } from "./layout-context";
 import { makeChildContext } from "./layout-context";
+import type { PendingAbsChild } from "./abs-pos-context";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import { groupChildren, anonymousBlockKey } from "./group-children";
 import { isLayoutBoxReusable, renderNodesLayoutEquivalent } from "./layout-reuse";
@@ -306,6 +307,11 @@ export function layoutBlock(
             // at paint, independent of the outer (inlineOffset, blockOffset)
             // reposition, so it carries through verbatim.
             entry.box.relativeOffset,
+            // Preserve abs-pos children across the reposition clone (slice 3):
+            // they are positioned in this box's own frame, independent of the
+            // outer reposition, so they carry through verbatim. A dropped clone
+            // here would silently lose the abs subtree on cache reuse.
+            entry.box.absoluteChildren,
           ),
           breakToken: null,
         };
@@ -406,6 +412,15 @@ export function layoutBlock(
         node.metadata,
         /* containingBlockSize */ undefined,
         relativeOffset,
+        // TODO (positioning v1 edge): abs-pos children registered into this box's
+        // own abc BEFORE this fragmentation break are NOT drained onto the partial
+        // box — the abs-pos second pass (which builds `absoluteChildren`) only runs
+        // on the FULL, non-fragmented return below, never on a partial result. They
+        // remain in `ctx.absoluteContainingBlock.pending` and are abandoned.
+        // Correct behavior would drain the abs children whose static position falls
+        // in this placed fragment onto this box (and carry the rest to the resumed
+        // fragment). Tracked as a named v1 follow-up (spec §6, slice 3). No
+        // `absoluteChildren` arg here, hence the omission is deliberate.
       ),
       breakToken,
     };
@@ -617,6 +632,29 @@ export function layoutBlock(
       continue;
     }
 
+    // ABS-POS BRANCH (POSITIONING slice 3): an absolutely- (or fixed-, treated
+    // as absolute) positioned child is OUT OF FLOW. Mirror the float branch: skip
+    // ALL in-flow placement (no `childBlockOffset` advance, no margin collapse, no
+    // `prevMarginBlockEnd` update), capture its STATIC position (where the in-flow
+    // algorithm WOULD place it — `childInlineStart` on the inline axis,
+    // `childBlockOffset` on the block axis, both pre-advance), and register it into
+    // the current abc's pending-list for the second pass to drain. The static
+    // position is expressed in the abc's coordinate frame by adding
+    // `ctx.originFromAbc` (zero for a direct child of the establishing box; the
+    // accumulated intervening offsets for a deeper in-flow descendant), so the
+    // `auto`-inset fallback lands in the same frame the resolved insets produce.
+    // `continue` exactly like the float branch.
+    if (childCs.position === "absolute" || childCs.position === "fixed") {
+      ctx.absoluteContainingBlock.pending.register({
+        node: child,
+        computedStyle: childCs,
+        usedStyle: childUsedStyle,
+        staticInlineOffset: ctx.originFromAbc.inlineOffset + childInlineStart,
+        staticBlockOffset:  ctx.originFromAbc.blockOffset  + childBlockOffset,
+      });
+      continue;
+    }
+
     // CLEAR BRANCH: compute clearance.
     let clearanceApplied = 0;
     if (childCs.clear !== "none") {
@@ -801,7 +839,17 @@ export function layoutBlock(
     // env. The child's containing inline size is its OWN content box, narrowed
     // by its inline margins (`childContentInlineSize`); the parent re-mirrors
     // the resulting box against the parent content box via `positionChildInline`.
-    const childCtx = makeChildContext(ctx, layoutChildCs, childContentInlineSize, "indefinite");
+    //
+    // POSITIONING slice 3: pass the child's in-flow frame origin
+    // `(childInlineStart, childBlockOffset)` as `contentOrigin` so that a NESTED
+    // abs-pos descendant of this (non-establishing) child captures its static
+    // position in the abc's frame (`makeChildContext` accumulates it onto
+    // `originFromAbc`). When THIS child establishes an abc, `makeChildContext`
+    // resets the accumulator to `{0, 0}`, so the origin is harmlessly ignored.
+    const childCtx = makeChildContext(ctx, layoutChildCs, childContentInlineSize, "indefinite", {
+      inlineOffset: childInlineStart,
+      blockOffset: childBlockOffset,
+    });
 
     // Derive a FragmentationContext for the child with reduced availableBlockSize.
     // C.7: thread firstChildResumeToken into the FIRST iteration (the resumed child);
@@ -898,6 +946,11 @@ export function layoutBlock(
           // Preserve the child's `position: relative` paint-time offset across the
           // explicit-block-size box re-creation (it would otherwise be dropped).
           childLayout.relativeOffset,
+          // Preserve the child's abs-pos descendants across the explicit-block-size
+          // box re-creation (slice 3): a child that established an abc resolves them
+          // in its OWN frame, independent of this re-creation, so they carry through
+          // verbatim — a dropped clone here would silently lose the abs subtree.
+          childLayout.absoluteChildren,
         )
       : childLayout;
 
@@ -984,6 +1037,11 @@ export function layoutBlock(
           // Preserve the child's `position: relative` paint-time offset across the
           // empty-block re-creation.
           placedChild.relativeOffset,
+          // Preserve the child's abs-pos descendants across the empty-block
+          // re-creation (slice 3): resolved in the child's OWN frame, independent of
+          // this re-creation, so they carry through verbatim — a dropped clone here
+          // would silently lose the abs subtree.
+          placedChild.absoluteChildren,
         ),
       );
     } else {
@@ -1022,12 +1080,51 @@ export function layoutBlock(
     totalBlockSize = inFlowBlockSize;
   }
 
+  // ABS-POS SECOND PASS (POSITIONING slice 3): if THIS box owns its absolute
+  // containing block (it established a fresh pending-list — the root always, or
+  // an `establishesAbsoluteContainingBlock(cs)` box), drain the pending list and
+  // lay out each abs-pos child against the now-resolved abc frame. Mirrors the
+  // float second pass (`floatEnv.lowestFloatBlockEdge()` above): the in-flow walk
+  // is done, the box's size is known, so the deferred out-of-flow children are
+  // resolved here. The abc frame is built from THIS box's RESOLVED locals — the
+  // authoritative content origin/sizes — not the placeholder carried in context.
+  // A non-fragmented full layout only (paginated abs-pos splitting is a v1 edge —
+  // see the `buildPartialResult` note: a partial/fragmented return never reaches
+  // this second pass, so abs children registered before a fragmentation break are
+  // left undrained in the pending list); the pending list is empty for the
+  // overwhelmingly common un-positioned document, so this whole block is a cheap
+  // no-op there.
+  let absoluteChildren: readonly LayoutBox[] | undefined;
+  if (ctx.ownsAbsoluteContainingBlock) {
+    const pendingAbs = ctx.absoluteContainingBlock.pending.drain();
+    if (pendingAbs.length > 0) {
+      const contentBlockResolved = Math.max(0, totalBlockSize - paddingBlockStart - paddingBlockEnd);
+      // The percent-resolution base for block-axis insets: CSS §10.5 — a
+      // percentage resolves against the abc's block size only when that size is
+      // DEFINITE (an explicit `block-size`); against an auto-height abc the
+      // percentage computes to `auto`. `resolveExplicitBlockSizeOrNull` returns
+      // null for `auto`/intrinsic → "indefinite".
+      const explicitBlock = resolveExplicitBlockSizeOrNull(cs.blockSize, availableInlineSize);
+      const abcBlockPercentBase: number | "indefinite" =
+        explicitBlock !== null && explicitBlock > 0 ? contentBlockResolved : "indefinite";
+      const abc: ResolvedAbc = {
+        originInline: paddingInlineStart,
+        originBlock:  paddingBlockStart,
+        inlineSize:   contentInlineSize,
+        contentBlockResolved,
+        blockPercentBase: abcBlockPercentBase,
+      };
+      absoluteChildren = layoutAbsoluteChildren(pendingAbs, abc, ctx, shaper);
+    }
+  }
+
   return { box: createBlockBox(
     node.key, inlineOffset, blockOffset, finalInlineSize, totalBlockSize, writingMode, direction, cs, usedStyle, layoutChildren,
     /* containingInlineSize */ availableInlineSize,
     node.metadata,
     /* containingBlockSize */ undefined,
     relativeOffset,
+    absoluteChildren,
   ), breakToken: null };
   } finally {
     markEnd("bfc.layoutBlock", t);
@@ -1113,5 +1210,162 @@ function resolveExplicitBlockSizeOrNull(
     return null;
   }
   return resolveUsedLength(blockSize, containingInlineSize, 0);
+}
+
+/**
+ * POSITIONING slice 3 — the RESOLVED absolute containing block frame, built by
+ * the establishing box's second pass from its own resolved locals. All values are
+ * in the establishing box's OWN coordinate frame (the frame `absoluteChildren`
+ * are pushed into), so an abs child's resolved offsets are parent-relative there.
+ */
+interface ResolvedAbc {
+  /** The abc content-box inline-start, in the establishing box's frame (= paddingInlineStart). */
+  readonly originInline: number;
+  /** The abc content-box block-start, in the establishing box's frame (= paddingBlockStart). */
+  readonly originBlock: number;
+  /** The abc content-area inline-size (definite). */
+  readonly inlineSize: number;
+  /** The abc content-area block-size, resolved at drain time (definite). Used for px end-anchoring / fill. */
+  readonly contentBlockResolved: number;
+  /**
+   * The base a block-axis PERCENT inset resolves against: a definite number when
+   * the abc has an explicit block-size, else `"indefinite"` (CSS §10.5 — a percent
+   * against an auto-height abc computes to `auto`).
+   */
+  readonly blockPercentBase: number | "indefinite";
+}
+
+/**
+ * POSITIONING slice 3 — lay out the abs-pos children whose abc is the box that
+ * just finished its in-flow layout. For each pending child:
+ *   1. resolve inline + block insets against the abc (inline-axis against
+ *      `abc.inlineSize`; block-axis against `abc.blockPercentBase` for percents,
+ *      `abc.contentBlockResolved` for px end-anchoring/fill);
+ *   2. resolve the used inline/block size (`auto` → fill-from-both-insets, else
+ *      shrink-to-content via the BFC's intrinsic sizing);
+ *   3. resolve the position (inset-start wins; else inset-end anchors the
+ *      end-edge; else the captured static position);
+ *   4. recursively lay the child out as its own BFC root at the resolved position
+ *      and push the result.
+ * Returns the laid-out abs children (document order), or `undefined` if none.
+ */
+function layoutAbsoluteChildren(
+  pending: readonly PendingAbsChild[],
+  abc: ResolvedAbc,
+  ctx: LayoutContext,
+  shaper: TextShaper,
+): readonly LayoutBox[] | undefined {
+  const out: LayoutBox[] = [];
+  for (const p of pending) {
+    const childCs = p.computedStyle;
+
+    // ── Inline axis ──────────────────────────────────────────────────────────
+    // Insets resolve against the abc inline-size (concrete). Logical inset-inline-*
+    // are mapped to the abc frame: start anchors the inline-start edge, end anchors
+    // the inline-end edge.
+    const insetInlineStart = childCs.insetInlineStart === "auto"
+      ? null : resolveInset(childCs.insetInlineStart, abc.inlineSize);
+    const insetInlineEnd = childCs.insetInlineEnd === "auto"
+      ? null : resolveInset(childCs.insetInlineEnd, abc.inlineSize);
+
+    // Used inline-size. `auto` with BOTH inline insets set → fill the gap
+    // (abc.inlineSize − start − end). Otherwise shrink-to-fit via the existing BFC
+    // intrinsic-size resolution (same path floats/inline-blocks use).
+    let usedInlineSize: number;
+    if (childCs.inlineSize === "auto" && insetInlineStart !== null && insetInlineEnd !== null) {
+      usedInlineSize = Math.max(0, abc.inlineSize - insetInlineStart - insetInlineEnd);
+    } else {
+      usedInlineSize = resolveBoxInlineSize(childCs, abc.inlineSize, /* isShrinkToFit */ true, p.node, shaper, ctx);
+    }
+
+    // Inline position (in the abc content frame): inset-inline-start wins; else
+    // inset-inline-end anchors the inline-end edge (start = size − end − used);
+    // else the captured static inline offset (already abc-frame-relative).
+    let inlineOffsetInAbcContent: number;
+    if (insetInlineStart !== null) {
+      inlineOffsetInAbcContent = insetInlineStart;
+    } else if (insetInlineEnd !== null) {
+      inlineOffsetInAbcContent = abc.inlineSize - insetInlineEnd - usedInlineSize;
+    } else {
+      // Static fallback: the captured static is in the establishing box's FRAME;
+      // subtract the abc content origin to express it in the abc CONTENT frame
+      // (the layout below re-adds the origin).
+      inlineOffsetInAbcContent = p.staticInlineOffset - abc.originInline;
+    }
+
+    // ── Block axis ───────────────────────────────────────────────────────────
+    // Percent block insets resolve against `abc.blockPercentBase` — `"indefinite"`
+    // collapses them to `auto` (resolveInset returns 0 for an indefinite percent).
+    const insetBlockStart = resolveBlockInset(childCs.insetBlockStart, abc.blockPercentBase);
+    const insetBlockEnd = resolveBlockInset(childCs.insetBlockEnd, abc.blockPercentBase);
+
+    // ── Lay the child out as its own BFC root at a provisional (0,0). The child
+    // establishes a new BFC (position:absolute → establishesNewBFC), so its
+    // context is fresh; pass the resolved inline-size as its containing inline
+    // size. We lay out first to learn its auto block-size, then resolve the block
+    // position, then reposition. ──────────────────────────────────────────────
+    const childCtx = makeChildContext(ctx, childCs, usedInlineSize, "indefinite");
+    const provisional = layoutBlock(p.node, 0, 0, childCtx, shaper);
+    if (provisional.box === null) {
+      throw new Error("layoutAbsoluteChildren: abs child layout returned null (no fragmentation passed)");
+    }
+    const provisionalBox = provisional.box;
+
+    // Used block-size. `auto` with BOTH block insets definite → fill
+    // (contentBlockResolved − start − end). Else use the content-measured block
+    // size from the provisional layout (or an explicit block-size if set).
+    const explicitChildBlock = resolveExplicitBlockSizeOrNull(childCs.blockSize, abc.inlineSize);
+    let usedBlockSize: number;
+    if (childCs.blockSize === "auto" && insetBlockStart !== null && insetBlockEnd !== null) {
+      usedBlockSize = Math.max(0, abc.contentBlockResolved - insetBlockStart - insetBlockEnd);
+    } else if (explicitChildBlock !== null && explicitChildBlock > 0) {
+      usedBlockSize = explicitChildBlock;
+    } else {
+      usedBlockSize = provisionalBox.blockSize;
+    }
+
+    // Block position (in the abc content frame): inset-block-start wins; else
+    // inset-block-end anchors the block-end edge; else the captured static block
+    // offset (abc-frame → abc-content-frame).
+    let blockOffsetInAbcContent: number;
+    if (insetBlockStart !== null) {
+      blockOffsetInAbcContent = insetBlockStart;
+    } else if (insetBlockEnd !== null) {
+      blockOffsetInAbcContent = abc.contentBlockResolved - insetBlockEnd - usedBlockSize;
+    } else {
+      blockOffsetInAbcContent = p.staticBlockOffset - abc.originBlock;
+    }
+
+    // Translate the abc-content-frame offsets into the establishing box's frame
+    // by adding the abc content origin, then lay the child out FINALLY at that
+    // position (re-running so the box's own offsets/physical coords bake in).
+    const finalInlineOffset = abc.originInline + inlineOffsetInAbcContent;
+    const finalBlockOffset = abc.originBlock + blockOffsetInAbcContent;
+    const finalCtx = makeChildContext(ctx, childCs, usedInlineSize, "indefinite");
+    const finalResult = layoutBlock(p.node, finalInlineOffset, finalBlockOffset, finalCtx, shaper);
+    if (finalResult.box === null) {
+      throw new Error("layoutAbsoluteChildren: abs child final layout returned null");
+    }
+    out.push(finalResult.box);
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+/**
+ * POSITIONING slice 3 — resolve a block-axis inset against the abc's block
+ * percent-base. Mirrors `resolveInset` but returns `null` for `auto` (so the
+ * caller can distinguish "no inset" from "inset 0") and collapses a PERCENT
+ * against an `"indefinite"` base to `null` (= `auto`, CSS §10.5). A px inset
+ * always applies.
+ */
+function resolveBlockInset(
+  value: ComputedStyle["insetBlockStart"],
+  percentBase: number | "indefinite",
+): number | null {
+  if (value === "auto") return null;
+  if (typeof value === "number") return value;
+  // percent
+  if (percentBase === "indefinite") return null;
+  return resolveUsedLength(value, percentBase, 0);
 }
 

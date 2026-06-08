@@ -53,6 +53,21 @@ interface LayoutBoxBase {
   // just BlockBox) so the clone paths thread it uniformly across box types
   // (an inline-block can also be `position: relative` — IFC path is a follow-up).
   readonly relativeOffset?: { readonly dx: number; readonly dy: number };
+
+  // POSITIONING slice 3 — `position: absolute | fixed` descendants whose absolute
+  // containing block is THIS box. Out-of-flow: they are NOT in `children` (they do
+  // not advance the in-flow block offset and do not participate in margin
+  // collapse). The BFC drains them in its post-loop second pass at the box that
+  // ESTABLISHES their abc (this box), laid out at their resolved inset position in
+  // THIS box's coordinate frame. The painter recurses them with the SAME parent
+  // origin (absX/absY, incl. any relativeOffset) it uses for `children`, and
+  // `collectLineBoxes` likewise descends them so their lines enter the flat
+  // LineIndex (reachable by hit-test / cursor / selection / line-nav). Omitted
+  // (undefined) when no abs-pos descendant resolves against this box — the common
+  // case — so the un-positioned fast path is read-free. Lives on the base (not
+  // just BlockBox) because abc-establishment can occur on inline-block / table
+  // boxes too; optional → inert on box types that never carry it.
+  readonly absoluteChildren?: readonly LayoutBox[];
 }
 
 export interface BlockBox extends LayoutBoxBase {
@@ -289,6 +304,7 @@ interface BoxBaseFields {
   readonly computedStyle: Readonly<ComputedStyle>;
   readonly usedStyle:     Readonly<UsedStyle>;
   readonly relativeOffset?: { readonly dx: number; readonly dy: number };
+  readonly absoluteChildren?: readonly LayoutBox[];
 }
 
 function createBoxBase(args: {
@@ -306,6 +322,9 @@ function createBoxBase(args: {
   // Omitted when the box is not relatively positioned or resolves to (0, 0);
   // the painter then takes the no-offset fast path.
   relativeOffset?: { readonly dx: number; readonly dy: number };
+  // POSITIONING slice 3 — abs-pos descendants whose abc is this box (out-of-flow;
+  // drained by the BFC second pass). Omitted when there are none.
+  absoluteChildren?: readonly LayoutBox[];
   // Only consulted for vertical-rl, where the physical block-axis x is the
   // right-to-left mirror `containingBlockSize − blockOffset − blockSize`. The
   // box factory does not have this at construction time (the containing block
@@ -338,6 +357,9 @@ function createBoxBase(args: {
     ...(args.relativeOffset !== undefined
       ? { relativeOffset: Object.freeze({ ...args.relativeOffset }) }
       : {}),
+    ...(args.absoluteChildren !== undefined
+      ? { absoluteChildren: Object.freeze([...args.absoluteChildren]) }
+      : {}),
   };
 }
 
@@ -352,11 +374,12 @@ export function createBlockBox(
   metadata?: Readonly<LayoutBoxMetadata>,
   containingBlockSize?: number,
   relativeOffset?: { readonly dx: number; readonly dy: number },
+  absoluteChildren?: readonly LayoutBox[],
 ): BlockBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,
     writingMode, direction, computedStyle, usedStyle, containingInlineSize,
-    containingBlockSize, relativeOffset,
+    containingBlockSize, relativeOffset, absoluteChildren,
   });
   return Object.freeze({
     type: "block" as const,
@@ -823,6 +846,11 @@ export function rebuildBoxWithOffsets(
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.children, containingInlineSize, box.metadata, containingBlockSize,
         box.relativeOffset,
+        // Preserve abs-pos children across the reposition clone (slice 3): they
+        // are positioned in this box's OWN frame (parent-relative), independent of
+        // the outer (inlineOffset, blockOffset) reposition, so they carry through
+        // verbatim — a dropped clone would lose the abs subtree entirely.
+        box.absoluteChildren,
       );
     case "line":
       return createLineBox(

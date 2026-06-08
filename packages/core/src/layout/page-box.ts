@@ -41,6 +41,15 @@ export interface PageBox {
    */
   readonly relativeOffset?: { readonly dx: number; readonly dy: number };
 
+  /**
+   * POSITIONING — `position: absolute` children whose abc is this box, mirrored
+   * from `LayoutBoxBase` to keep the `LayoutBox` union coherent (painter /
+   * line-flatten read it uniformly). A page FRAME is never an abc-establishing
+   * box (positioning establishment happens on the body block boxes inside it), so
+   * this is always absent on a PageBox; it exists only for union coherence.
+   */
+  readonly absoluteChildren?: readonly LayoutBox[];
+
   /** Direct children that fit on this page (page-relative blockOffsets). */
   readonly children: readonly LayoutBox[];
 

@@ -634,6 +634,16 @@ function walkAndDetectChanges(
       walkAndDetectChanges(child, absX, absY, cache, dirty, false);
     }
   }
+  // POSITIONING slice 3 — abs-pos children are NAMED out-of-flow descendants (NOT in
+  // `box.children`), so the recursion above never reaches them. Walk them BY NAME so a
+  // changed abs subtree marks its region dirty for repaint AND its old region is
+  // cleared — same lesson as the relative-offset dirty-rect (a painted box absent from
+  // the dirty walk leaves stale pixels). Same origin (absX/absY) the painter uses.
+  if (box.absoluteChildren !== undefined) {
+    for (const absChild of box.absoluteChildren) {
+      walkAndDetectChanges(absChild, absX, absY, cache, dirty, false);
+    }
+  }
   // C.2c (T5): a page's header/footer slots are NAMED fields, NOT in
   // `box.children`, so the `"children" in box` recursion above never reaches
   // them. Walk them explicitly so a slot's content/geometry change marks its
@@ -682,6 +692,30 @@ function walkAndDetectChanges(
  * same phase as their parent.
  */
 type PaintPhase = "background" | "foreground";
+
+/**
+ * POSITIONING slice 3 — paint a box's `absoluteChildren` (abs-pos descendants whose
+ * abc is this box). They are out-of-flow (not in `box.children`), positioned in the
+ * box's own coordinate frame, so they paint with the SAME parent origin the box uses
+ * for its in-flow children. Painted in document order (z-index ordering is slice 4).
+ * A no-op for the common box with no abs-pos descendants. Shared by every container
+ * paint branch that may establish an abc.
+ */
+function paintAbsoluteChildren(
+  ctx: CanvasRenderingContext2D,
+  box: LayoutBox,
+  absX: number,
+  absY: number,
+  visibleTop: number,
+  visibleBottom: number,
+  state: PaintState,
+  phase: PaintPhase,
+): void {
+  if (box.absoluteChildren === undefined) return;
+  for (const absChild of box.absoluteChildren) {
+    paintBox(ctx, absChild, absX, absY, visibleTop, visibleBottom, state, phase);
+  }
+}
 
 function paintBox(
   ctx: CanvasRenderingContext2D,
@@ -849,6 +883,12 @@ function paintBox(
     for (const child of box.children) {
       paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state, phase);
     }
+    // POSITIONING slice 3 — paint abs-pos children whose abc is THIS box. They are
+    // OUT of `box.children` (out-of-flow), positioned in this box's own frame, so
+    // they recurse with the SAME parent origin (absX/absY, incl. any
+    // relativeOffset). Painted AFTER the in-flow children (document order; z-index
+    // ordering is slice 4). No-op when there are none.
+    paintAbsoluteChildren(ctx, box, absX, absY, visibleTop, visibleBottom, state, phase);
     return;
   }
 
@@ -882,6 +922,7 @@ function paintBox(
     for (const child of box.children) {
       paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state, phase);
     }
+    paintAbsoluteChildren(ctx, box, absX, absY, visibleTop, visibleBottom, state, phase);
     return;
   }
 
@@ -915,6 +956,9 @@ function paintBox(
     for (const child of box.children) {
       paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state, phase);
     }
+    // A `position:relative`/transformed table (or table-row) can establish an abc;
+    // paint its abs-pos descendants like every other container branch does.
+    paintAbsoluteChildren(ctx, box, absX, absY, visibleTop, visibleBottom, state, phase);
     return;
   }
 
@@ -932,6 +976,7 @@ function paintBox(
     for (const child of box.children) {
       paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state, phase);
     }
+    paintAbsoluteChildren(ctx, box, absX, absY, visibleTop, visibleBottom, state, phase);
     return;
   }
 

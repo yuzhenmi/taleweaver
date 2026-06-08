@@ -413,6 +413,34 @@ describe("withOffsets", () => {
     expect(moved.x).toBe(370);
     expect(moved.y).toBe(22);
   });
+
+  // POSITIONING slice 3 (F9) — `absoluteChildren` must SURVIVE the reposition
+  // clone, exactly like `relativeOffset` (the slice-2 Critical regression
+  // pattern): a dropped clone here would silently lose the abs subtree on cache
+  // reuse / reposition. Abs children are positioned in the box's OWN frame, so
+  // they carry through verbatim — the clone re-derives only the box's own offsets.
+  it("PRESERVES absoluteChildren through withOffsets and withBlockOffset", () => {
+    const absChild = createBlockBox("abs", 5, 8, 40, 20, "horizontal-tb", "ltr", cs, us, [], 100);
+    const orig = createBlockBox(
+      "k", 0, 0, 100, 50, "horizontal-tb", "ltr", cs, us, [], 500,
+      /* metadata */ undefined,
+      /* containingBlockSize */ undefined,
+      /* relativeOffset */ undefined,
+      /* absoluteChildren */ [absChild],
+    );
+    expect(orig.absoluteChildren).toHaveLength(1);
+
+    const movedOffsets = withOffsets(orig, 12, 34, 500);
+    expect(movedOffsets.absoluteChildren).toHaveLength(1);
+    expect(movedOffsets.absoluteChildren?.[0].key).toBe("abs");
+    // The abs child itself is unchanged (own-frame, parent-relative).
+    expect(movedOffsets.absoluteChildren?.[0].inlineOffset).toBe(5);
+    expect(movedOffsets.absoluteChildren?.[0].blockOffset).toBe(8);
+
+    const movedBlock = withBlockOffset(orig, 77, 500);
+    expect(movedBlock.absoluteChildren).toHaveLength(1);
+    expect(movedBlock.absoluteChildren?.[0].key).toBe("abs");
+  });
 });
 
 describe("bidiLevel (P4-C reorder field)", () => {

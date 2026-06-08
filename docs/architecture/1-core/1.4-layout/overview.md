@@ -144,10 +144,10 @@ each box's `display` value.
 
 ### Layout-box types and helpers
 
-- **`layout-node`** — re-exports from `layout-box-v2` for downstream
+- **`layout-node`** — re-exports from `layout-box` for downstream
   consumers.
 
-- **`layout-box-v2`** — defines the `LayoutBox` discriminated union
+- **`layout-box`** — defines the `LayoutBox` discriminated union
   (`BlockBox`, `LineBox`, `TextRunBox`, `InlineBox`, `MarkerBox`,
   `TableBox`, `TableRowBox`, `TableCellBox`) and the per-type frozen
   factories. Each factory takes logical-axis args, applies `writingMode`
@@ -283,6 +283,11 @@ interface LayoutBoxBase {
 
   readonly computedStyle: Readonly<ComputedStyle>;
   readonly usedStyle:     Readonly<UsedStyle>;
+
+  // Positioning (optional; see 1.9-positioning.md). Omitted on the common path
+  // so the un-positioned fast paths stay read-free.
+  readonly relativeOffset?:   { readonly dx: number; readonly dy: number };  // position: relative paint-time delta
+  readonly absoluteChildren?: readonly LayoutBox[];                          // position: absolute out-of-flow descendants whose abc is this box
 }
 ```
 
@@ -370,16 +375,22 @@ interface LayoutContext {
   readonly floatEnv:   FloatEnvironment;
   readonly isBFCRoot:  boolean;
 
+  // Absolute-positioning containing block (see 1.9-positioning.md).
+  readonly absoluteContainingBlock:    AbsoluteContainingBlock;
+  readonly ownsAbsoluteContainingBlock: boolean;
+  readonly originFromAbc: { readonly inlineOffset: number; readonly blockOffset: number };
+
   readonly prevLayoutCache: LayoutBoxCache | null;
   readonly prevFloatEnv:    FloatEnvironment | null;
 }
 
 function makeRootContext(rootCs: ComputedStyle, containerInlineSize: number): LayoutContext;
 function makeChildContext(parent: LayoutContext, parentCs: ComputedStyle,
-                          contentInlineSize: number, contentBlockSize: number | "indefinite"): LayoutContext;
+                          contentInlineSize: number, contentBlockSize: number | "indefinite",
+                          contentOrigin?: { readonly inlineOffset: number; readonly blockOffset: number }): LayoutContext;
 ```
 
-`makeChildContext` decides whether the child establishes its own BFC by calling `establishesNewBFC(parentCs)` — which returns `true` for `display: flow-root | inline-block | table-cell`, for any `float != "none"`, for `overflow != "visible"` (when present), and for the document root via the explicit `isBFCRoot` flag passed by `makeRootContext`. When a new BFC is established, the child gets a fresh `FloatEnvironment`; otherwise it shares the parent's so floats rise to the nearest ancestor BFC.
+`makeChildContext` decides whether the child establishes its own BFC by calling `establishesNewBFC(parentCs)` — which returns `true` for `display: flow-root | inline-block | table-cell`, for any `float != "none"`, for `position: absolute | fixed`, for `overflow != "visible"` (when present), and for the document root via the explicit `isBFCRoot` flag passed by `makeRootContext`. When a new BFC is established, the child gets a fresh `FloatEnvironment`; otherwise it shares the parent's so floats rise to the nearest ancestor BFC. Independently, `makeChildContext` resets `absoluteContainingBlock` (a fresh `AbsPosEnvironment` + the box's content frame) when the child establishes one per `establishesAbsoluteContainingBlock(cs)` (`position ∈ {relative,absolute,fixed}` or `transform.length > 0`); otherwise it inherits the parent's abc and accumulates `originFromAbc` so a descendant's static position is captured in the abc's frame. See [1.9-positioning.md](../1.9-positioning.md).
 
 ### Display → formatting-context dispatch
 

@@ -102,10 +102,38 @@ export function collectLineBoxes(
     for (const child of box.children) {
       collectLineBoxes(child, absX, absY, out, pageIndex);
     }
+    collectAbsoluteLineBoxes(box, absX, absY, out, pageIndex);
     return;
   }
   for (const child of box.children) {
     collectLineBoxes(child, absX, absY, out, pageIndex);
+  }
+  // POSITIONING slice 3 (LOAD-BEARING) — descend `box.absoluteChildren` too. Abs-pos
+  // content is reachable ONLY via `absoluteChildren` (it is OUT of `children`); if
+  // this walk skipped it, every line inside an abs-pos subtree would be ABSENT from
+  // `getLineIndex().all` → invisible to hit-test, cursor-position, selection-geometry,
+  // AND line-navigation (the flat LineIndex is the single source of truth for all
+  // cursor ops). Abs children are positioned in THIS box's own frame, so they descend
+  // with the SAME parent origin `(absX, absY)` as `children`.
+  collectAbsoluteLineBoxes(box, absX, absY, out, pageIndex);
+}
+
+/**
+ * POSITIONING slice 3 — descend a box's `absoluteChildren` (if any) into the flat
+ * LineBox list with the box's own accumulated origin. Factored out so both the
+ * LineBox early-return branch and the generic-container branch share it. A no-op for
+ * the overwhelmingly common box with no abs-pos descendants.
+ */
+function collectAbsoluteLineBoxes(
+  box: LayoutBox,
+  absX: number,
+  absY: number,
+  out: AbsoluteLineBox[],
+  pageIndex: number,
+): void {
+  if (box.absoluteChildren === undefined) return;
+  for (const absChild of box.absoluteChildren) {
+    collectLineBoxes(absChild, absX, absY, out, pageIndex);
   }
 }
 
