@@ -14,6 +14,9 @@ export type {
   BreakBefore, BreakAfter, BreakInside,
   ListStyleType, ListStylePosition, BoxSizing,
   Direction, WritingMode, LeaderStyle,
+  // CSS positioning vocabulary (the styles `Position` is NOT re-exported here to
+  // avoid colliding with the state/cursor `Position` already on this barrel).
+  TransformFn, TransformOrigin,
 } from "./styles";
 export { PROPERTY_META, INITIAL_COMPUTED_STYLE } from "./styles";
 export { assertNeverWritingMode } from "./styles";
@@ -158,6 +161,14 @@ export {
 } from "./layout/layout-node";
 export type { TextMeasurer } from "./layout/text-measurer";
 export { createMockMeasurer, adaptShaperToMeasurer } from "./layout/text-measurer";
+// POSITIONING slice 5 — the zero-dep 2×3 affine matrix. The painter
+// (`fromTransformFns` + `resolveTransformOrigin`) and the hit-test inverse
+// (`line-flatten`) share the IDENTICAL math so paint and hit-test never diverge.
+export type { Mat2D } from "./layout/mat2d";
+export {
+  fromTransformFns, resolveTransformOrigin, identity, compose, translate,
+  rotate, scale, invert, apply,
+} from "./layout/mat2d";
 export { createMockShaper } from "./layout/mock-shaper";
 export type {
   TextShaper, ShapedRun, Cluster, BreakOpportunity, FontMetrics, GlyphId,

@@ -53,6 +53,14 @@ export function hashPaintInputs(box: LayoutBox): PaintInputHash {
   h += `:${cs.borderBlockStartStyle}:${cs.borderBlockEndStyle}:${cs.borderInlineStartStyle}:${cs.borderInlineEndStyle}`;
   h += `:${cs.borderBlockStartColor}:${cs.borderBlockEndColor}:${cs.borderInlineStartColor}:${cs.borderInlineEndColor}`;
   h += `:${cs.direction}`;
+  // Transform changes the painted output (paint applies it as a canvas matrix).
+  // Guarded so the 99% untransformed box keeps a short hash byte-identical to
+  // before this field existed. (A cs edit already changes the box ref → marks a
+  // transformed box dirty via the WeakMap miss; including it here keeps the hash
+  // an honest, complete record of every paint-relevant field as a backstop.)
+  if (cs.transform !== undefined && cs.transform.length > 0) {
+    h += `|tf:${JSON.stringify(cs.transform)}:${JSON.stringify(cs.transformOrigin)}`;
+  }
 
   // UsedStyle: padding + border widths
   const us = box.usedStyle;

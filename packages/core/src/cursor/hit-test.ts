@@ -11,7 +11,30 @@ import { locateTableCellAtPoint } from "../layout/table-cell-at-point";
 import { buildLineBidiView, offsetInLeaf, type CaretAffinity } from "./line-bidi";
 import { axisMapFor } from "../styles/writing-mode";
 import type { AxisMap } from "../styles/writing-mode";
+import { apply } from "../layout/mat2d";
 import { markStart, markEnd } from "../perf/perf-trace";
+
+/**
+ * POSITIONING slice 5 — map a click point `(x, y)` into a LINE's PRE-transform
+ * coordinate space via its baked three-state `inverseTransform`:
+ *   - `undefined` → no transform in the line's ancestor chain → IDENTITY: the
+ *     click is returned verbatim (the 99% zero-overhead fast path).
+ *   - a `Mat2D` → an invertible cumulative transform → the click is mapped through
+ *     the inverse so the line's PRE-transform bounds test correctly
+ *     (point-in-transformed-quad ≡ inverse-point-in-pretransform-rect).
+ *   - `"singular"` → a degenerate (zero-area / invisible) transform → returns
+ *     `null` so the caller SKIPS the line (it can never own the click).
+ */
+function mapClickForLine(
+  line: AbsoluteLineBox,
+  x: number,
+  y: number,
+): { readonly x: number; readonly y: number } | null {
+  const inv = line.inverseTransform;
+  if (inv === undefined) return { x, y };
+  if (inv === "singular") return null;
+  return apply(inv, x, y);
+}
 
 /**
  * Resolve a pixel (x, y) coordinate to a document Position using the
@@ -156,8 +179,17 @@ export function resolvePositionFromPixel(
     let targetIdx = region.length - 1;
     for (let i = 0; i < region.length; i++) {
       const l = region[i];
+      // POSITIONING slice 5 — map the click into THIS line's PRE-transform space
+      // through its baked three-state `inverseTransform`. `undefined` → identity
+      // (no transform anywhere in the chain → the click is used verbatim, the 99%
+      // zero-overhead fast path). A `Mat2D` → the click is inverse-mapped so the
+      // pre-transform line bounds below test correctly (point-in-transformed-quad ≡
+      // inverse-point-in-pretransform-rect). `"singular"` → the line is zero-area /
+      // invisible → SKIP it (it can never own the click).
+      const mapped = mapClickForLine(l, x, y);
+      if (mapped === null) continue;
       const lAm = axisMapFor(l.line.writingMode, l.line.computedStyle.direction);
-      const clickBlock = lAm.block === "x" ? x : y;
+      const clickBlock = lAm.block === "x" ? mapped.x : mapped.y;
       const lineBlockStart = lineCoordOf(l, lAm.block);
       const lineBlockExtent = lineSizeAlong(l, lAm.block);
       const blockReversed = l.line.writingMode === "vertical-rl";
@@ -227,7 +259,21 @@ export function resolvePositionFromPixel(
     // modes (inline runs DOWN the page). The click's inline-axis component is the
     // matching physical coordinate.
     const am = view.axisMap;
-    const clickInline = am.inline === "x" ? x : y;
+    // POSITIONING slice 5 — the leaf pick + offset run in the target line's
+    // PRE-transform space, so map the click through the line's `inverseTransform`
+    // first. `undefined` → identity (the click is used verbatim, the 99% path). A
+    // singular last-line fallback (mapped === null) cannot resolve a real offset →
+    // use the raw click defensively (the band loop already skips singular lines, so
+    // this only triggers for the degenerate all-singular region edge case).
+    // NOTE (transform v1 asymmetry — named follow-up, see 1.9-positioning.md):
+    // hit-test (click→offset) IS transform-corrected here via the per-line inverse,
+    // but the COMPLEMENTARY path — cursor-position (offset→caret pixel) and
+    // selection-geometry rects — still returns PRE-transform coordinates in v1. So a
+    // click inside a transformed box resolves to the right offset, yet the caret for
+    // that offset may render at the un-transformed position. Resolving both reuses the
+    // same per-line `Mat2D` (forward) and is deferred with the selection-rect follow-up.
+    const targetClick = mapClickForLine(targetLine, x, y) ?? { x, y };
+    const clickInline = am.inline === "x" ? targetClick.x : targetClick.y;
 
     // Pick target leaf by VISUAL inline-axis coord (leaves are in visual order;
     // for v-rl inline runs +Y top→bottom, so visual order stays ASCENDING along

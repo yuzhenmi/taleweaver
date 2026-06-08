@@ -81,6 +81,18 @@ describe("hashPaintInputs", () => {
     const b = makeBlockBox({ computedStyle: { ...BASE_CS, underline: true } });
     expect(hashPaintInputs(a)).not.toBe(hashPaintInputs(b));
   });
+
+  it("P-S5: a transform change → different hash (paint applies it as a matrix)", () => {
+    const plain = makeBlockBox();
+    const tx10: ComputedStyle = { ...BASE_CS, transform: [{ fn: "translateX", tx: 10 }] };
+    const tx20: ComputedStyle = { ...BASE_CS, transform: [{ fn: "translateX", tx: 20 }] };
+    const a = makeBlockBox({ computedStyle: tx10 });
+    const b = makeBlockBox({ computedStyle: tx20 });
+    expect(hashPaintInputs(a)).not.toBe(hashPaintInputs(b));
+    // Guard: the untransformed box's hash is unchanged by the new field (no `|tf:`).
+    expect(hashPaintInputs(plain)).not.toContain("|tf:");
+    expect(hashPaintInputs(a)).toContain("|tf:");
+  });
 });
 
 describe("createPaintCache", () => {

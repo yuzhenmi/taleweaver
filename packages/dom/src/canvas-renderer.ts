@@ -1,5 +1,5 @@
 import type { LayoutBox, SelectionRect, UsedStyle, BorderStyle, Color, ComputedStyle, LeaderStyle } from "@taleweaver/core";
-import { markStart, markEnd, resolveSpacingPx, clusterSpacing, assertNeverWritingMode } from "@taleweaver/core";
+import { markStart, markEnd, resolveSpacingPx, clusterSpacing, assertNeverWritingMode, fromTransformFns, resolveTransformOrigin } from "@taleweaver/core";
 import { buildCssFontString } from "./font-config";
 import { segmentClusters } from "./text-clusters";
 import type { ImageCache } from "./image-cache";
@@ -624,6 +624,15 @@ function walkAndDetectChanges(
 
   if (cachedHash !== currentHash) {
     // Box changed (or is new): record its region as dirty and update cache.
+    // KNOWN v1 LIMITATION (named follow-up — see 1.9-positioning.md): for a
+    // `transform`-bearing box the PAINTED bounds (after rotate / large translate)
+    // can extend outside this pre-transform `[absX,absY,width,height]` rect, so an
+    // incremental repaint may not clear stale pixels at the prior painted position.
+    // No functional bug today: a `transform` edit changes the box's computedStyle →
+    // a new LayoutBox ref → the root short-circuit breaks and the full walk fires
+    // (and transforms aren't user-reachable yet). The fix — expand the dirty rect to
+    // the transformed painted bounding box, like the relativeOffset shift above — is
+    // deferred, bundled with the transformed-content selection/caret follow-up.
     dirty.push({ x: absX, y: absY, w: box.width, h: box.height });
     cache.set(box, currentHash);
   }
@@ -715,6 +724,28 @@ function paintAbsoluteChildren(
   for (const absChild of box.absoluteChildren) {
     paintBox(ctx, absChild, absX, absY, visibleTop, visibleBottom, state, phase);
   }
+}
+
+/**
+ * POSITIONING slice 5 — multiply a `transform`-bearing box's matrix into the
+ * canvas's current transform. Uses the SAME core helpers the hit-test thread uses
+ * (`resolveTransformOrigin` + `fromTransformFns`), so the painted matrix and the
+ * baked `inverseTransform` are derived from byte-identical math (paint and
+ * hit-test can never diverge). `fromTransformFns` already folds the
+ * translate(origin) ∘ fns ∘ translate(−origin) pivot, so a single `ctx.transform`
+ * applies the whole thing. The caller has done `ctx.save()` and restores after.
+ */
+function applyBoxTransform(
+  ctx: CanvasRenderingContext2D,
+  cs: Readonly<ComputedStyle>,
+  absX: number,
+  absY: number,
+  boxWidth: number,
+  boxHeight: number,
+): void {
+  const origin = resolveTransformOrigin(cs.transformOrigin, absX, absY, boxWidth, boxHeight);
+  const m = fromTransformFns(cs.transform, origin.x, origin.y, boxWidth, boxHeight);
+  ctx.transform(m.a, m.b, m.c, m.d, m.e, m.f);
 }
 
 // ── POSITIONING slice 4 — z-index + stacking contexts (CSS 2.2 §E.2) ──────────
@@ -973,11 +1004,45 @@ function paintBox(
   const absX = parentX + box.x + (rel !== undefined ? rel.dx : 0);
   const absY = parentY + box.y + (rel !== undefined ? rel.dy : 0);
 
-  // Viewport culling: skip entire subtree if out of visible range
-  if (absY + box.height < visibleTop || absY > visibleBottom) return;
-
   const cs = box.computedStyle;
   const us = box.usedStyle;
+
+  // POSITIONING slice 5 — a `transform`-bearing box paints under a saved canvas
+  // matrix: translate→origin, apply each TransformFn in ARRAY order, translate
+  // back. A transform-bearing box is already a stacking context (slice 4) so it
+  // paints ATOMICALLY (its whole subtree + descendants under the same matrix).
+  // The transform-origin is the box's absolute origin + `transformOrigin`
+  // resolved against the box's border-box size (`{50%,50%}` default = box center)
+  // — the IDENTICAL frame `line-flatten`'s `transformAt` uses for hit-test, so
+  // paint and hit-test share the same matrix. UN-transformed boxes take NO
+  // save/restore (zero overhead — guarded on `cs.transform.length > 0`).
+  // Only a TRANSFORMABLE box applies its transform (CSS Transforms 1 §3:
+  // block-level + atomic-inline-level). The IFC STAMPS its block's `computedStyle`
+  // (incl. `transform`) onto the generated `line` fragments, and a non-atomic
+  // `inline`/`text-run`/`marker` copies a parent cs — so reading `transform` off
+  // those fragment types would RE-APPLY the establishing block's transform a
+  // second time. The block/inline-block/table* box already applied it for the
+  // subtree, so the line/run/etc. paint UNDER that saved matrix without
+  // re-applying. (Mirrors `line-flatten.transformAt`'s identical gate so paint and
+  // hit-test compose the SAME cumulative matrix.)
+  const transformable =
+    box.type !== "line" && box.type !== "text-run" &&
+    box.type !== "marker" && box.type !== "inline";
+  // `cs.transform` is `[]` by default on cascaded boxes; guard `undefined` for
+  // synthetic fixtures whose computedStyle omits positioning fields.
+  const hasTransform = transformable && cs.transform !== undefined && cs.transform.length > 0;
+  if (hasTransform) {
+    ctx.save();
+    applyBoxTransform(ctx, cs, absX, absY, box.width, box.height);
+  }
+  try {
+
+  // Viewport culling: skip entire subtree if out of visible range. SKIPPED for a
+  // transformed box — its painted bounds can move outside the pre-transform
+  // `[absY, absY+height]` band (a translate/rotate can bring it into view), so the
+  // pre-transform cull would wrongly drop it. Transformed boxes are rare, so always
+  // painting them is acceptable.
+  if (!hasTransform && (absY + box.height < visibleTop || absY > visibleBottom)) return;
 
   if (box.type === "text-run") {
     // Highlight (text background color) — BACKGROUND phase: paint the full run
@@ -1253,6 +1318,12 @@ function paintBox(
   }
 
   // Plan 2/3 types: skip silently (not produced in Plan 1)
+  } finally {
+    // POSITIONING slice 5 — restore the canvas matrix if this box pushed a
+    // transform. In a `finally` so every per-type early `return` (and any throw)
+    // still balances the `ctx.save()` above.
+    if (hasTransform) ctx.restore();
+  }
   } finally {
     markEnd("paint.draw", t);
   }

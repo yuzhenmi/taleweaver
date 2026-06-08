@@ -3,6 +3,8 @@ import type { ComputedStyle } from "../styles";
 import { axisMapFor } from "../styles/writing-mode";
 import type { Position, BlockId, State } from "../state";
 import { selectionContextOf } from "../state";
+import type { Mat2D } from "../layout/mat2d";
+import { compose, invert, fromTransformFns, resolveTransformOrigin } from "../layout/mat2d";
 
 /**
  * A `LineBox` paired with its absolute (document-relative) coordinates
@@ -24,6 +26,28 @@ export interface AbsoluteLineBox {
   readonly absoluteX: number;
   readonly absoluteY: number;
   readonly pageIndex: number;
+
+  /**
+   * POSITIONING slice 5 — the inverse of the CUMULATIVE ancestor `transform`
+   * chain that paints this line, baked at flatten time (hit-test approach (b)).
+   * THREE states:
+   *   - `undefined` → NO transform anywhere in the ancestor chain → the IDENTITY
+   *     fast-path. The line's `(absoluteX, absoluteY)` bounds ARE its painted
+   *     bounds, so hit-test runs the existing bounds test verbatim with ZERO
+   *     overhead (the 99% untransformed document).
+   *   - a `Mat2D` → an INVERTIBLE cumulative transform. The line's bounds stay
+   *     PRE-transform (layout absolute coords); hit-test maps the click point
+   *     through this inverse into the line's pre-transform space, THEN runs the
+   *     existing bounds test. point-in-transformed-quad ≡ inverse-point-in-
+   *     pretransform-rect, so this handles translate/rotate/scale uniformly,
+   *     O(1) per transformed line.
+   *   - `"singular"` → a degenerate cumulative transform (det 0, e.g. `scale(0)`)
+   *     → the painted region is zero-area / invisible → hit-test SKIPS the line
+   *     (no hit), matching CSS Transforms 1.
+   * The forward (non-inverted) cumulative matrix is the same mechanism the named
+   * selection-geometry / relative-caret follow-ups will reuse.
+   */
+  readonly inverseTransform?: Mat2D | "singular";
 }
 
 /**
@@ -59,6 +83,12 @@ export function collectLineBoxes(
   parentY: number,
   out: AbsoluteLineBox[],
   pageIndex: number = 0,
+  // POSITIONING slice 5 — the CUMULATIVE forward `transform` matrix of every
+  // transform-bearing ancestor of `box` (in the page-content coordinate frame),
+  // or `undefined` for the identity (no transform in the chain → the 99% case,
+  // zero overhead). Composed onto when descending into a transform-bearing box;
+  // each emitted line bakes `invert(cumulative)` as its `inverseTransform`.
+  cumulativeTransform?: Mat2D,
 ): void {
   if (box.type === "text-run" || box.type === "marker") return;
   if (box.type === "page") {
@@ -90,8 +120,18 @@ export function collectLineBoxes(
   }
   const absX = parentX + box.x;
   const absY = parentY + box.y;
+
+  // POSITIONING slice 5 — when this box carries a `transform`, compose its matrix
+  // (about its transform-origin in the CURRENT accumulated absolute frame, exactly
+  // as the painter does in `paintBox`) onto the cumulative ancestor transform. The
+  // painter applies the ancestor transform FIRST (outer canvas state) then this
+  // box's, so a local point maps boxMatrix-then-ancestor → the forward cumulative
+  // is `compose(ancestorCumulative, boxMatrix)` (ancestor is the OUTER, applied
+  // last). Descendants (and this box's own lines) inherit `childCumulative`.
+  const childCumulative = transformAt(box, absX, absY, cumulativeTransform);
+
   if (box.type === "line") {
-    out.push({ line: box, absoluteX: absX, absoluteY: absY, pageIndex });
+    out.push(makeAbsoluteLineBox(box, absX, absY, pageIndex, childCumulative));
     // LineBox children: most are text-runs (skipped by the text-run
     // branch). When an inline-block lives on this line, its own BFC
     // produced nested LineBoxes inside its children — descend so
@@ -100,13 +140,13 @@ export function collectLineBoxes(
     // char-precision; the descent here is purely for the cross-
     // boundary case of inline-block-internal lines.
     for (const child of box.children) {
-      collectLineBoxes(child, absX, absY, out, pageIndex);
+      collectLineBoxes(child, absX, absY, out, pageIndex, childCumulative);
     }
-    collectAbsoluteLineBoxes(box, absX, absY, out, pageIndex);
+    collectAbsoluteLineBoxes(box, absX, absY, out, pageIndex, childCumulative);
     return;
   }
   for (const child of box.children) {
-    collectLineBoxes(child, absX, absY, out, pageIndex);
+    collectLineBoxes(child, absX, absY, out, pageIndex, childCumulative);
   }
   // POSITIONING slice 3 (LOAD-BEARING) — descend `box.absoluteChildren` too. Abs-pos
   // content is reachable ONLY via `absoluteChildren` (it is OUT of `children`); if
@@ -114,15 +154,79 @@ export function collectLineBoxes(
   // `getLineIndex().all` → invisible to hit-test, cursor-position, selection-geometry,
   // AND line-navigation (the flat LineIndex is the single source of truth for all
   // cursor ops). Abs children are positioned in THIS box's own frame, so they descend
-  // with the SAME parent origin `(absX, absY)` as `children`.
-  collectAbsoluteLineBoxes(box, absX, absY, out, pageIndex);
+  // with the SAME parent origin `(absX, absY)` as `children`, and inherit THIS box's
+  // cumulative transform (a transform on the abc-establishing box transforms its
+  // abs-pos descendants too — CSS Transforms 1).
+  collectAbsoluteLineBoxes(box, absX, absY, out, pageIndex, childCumulative);
+}
+
+/**
+ * POSITIONING slice 5 — compose `box`'s `transform` (if any) about its
+ * transform-origin onto the cumulative ancestor transform, returning the matrix
+ * descendants inherit. When the box has no transform, the cumulative is unchanged
+ * (returned verbatim, so the identity fast-path threads `undefined` through). The
+ * transform-origin is resolved in the SAME accumulated absolute frame the painter
+ * uses (`absX/absY + transformOrigin` against the box's border-box width/height),
+ * so paint and hit-test share the IDENTICAL matrix.
+ */
+function transformAt(
+  box: LayoutBox,
+  absX: number,
+  absY: number,
+  cumulative: Mat2D | undefined,
+): Mat2D | undefined {
+  // Only a TRANSFORMABLE box carries an author transform (CSS Transforms 1 §3:
+  // block-level + atomic-inline-level boxes). The IFC STAMPS its block's
+  // `computedStyle` (incl. `transform`) onto the generated `line` fragments, and a
+  // non-atomic `inline`/`text-run`/`marker` likewise copies a parent cs — so those
+  // fragment types would RE-COMPOSE their establishing block's transform a second
+  // time (double-counting it) if we read `transform` off them. Skip them; the
+  // block/inline-block/table* box already composed the transform for the subtree.
+  if (box.type === "line" || box.type === "text-run" || box.type === "marker" || box.type === "inline") {
+    return cumulative;
+  }
+  const cs = box.computedStyle;
+  if (cs.transform.length === 0) return cumulative;
+  const origin = resolveTransformOrigin(cs.transformOrigin, absX, absY, box.width, box.height);
+  const boxMatrix = fromTransformFns(cs.transform, origin.x, origin.y, box.width, box.height);
+  // Ancestor cumulative is the OUTER (applied last by the painter); this box's
+  // matrix is the INNER (applied first). `compose(outer, inner)` = inner-then-outer.
+  return cumulative === undefined ? boxMatrix : compose(cumulative, boxMatrix);
+}
+
+/**
+ * POSITIONING slice 5 — build an `AbsoluteLineBox`, baking the three-state
+ * `inverseTransform` from the cumulative ancestor transform: `undefined`
+ * cumulative → identity (field omitted, fast-path); a `Mat2D` → `invert` it
+ * (`null` from a singular matrix → the `"singular"` sentinel so a degenerate
+ * transform is type-safely distinguished from identity, no `!`); else the inverse.
+ */
+function makeAbsoluteLineBox(
+  line: LineBox,
+  absoluteX: number,
+  absoluteY: number,
+  pageIndex: number,
+  cumulative: Mat2D | undefined,
+): AbsoluteLineBox {
+  if (cumulative === undefined) {
+    return { line, absoluteX, absoluteY, pageIndex };
+  }
+  const inv = invert(cumulative);
+  return {
+    line,
+    absoluteX,
+    absoluteY,
+    pageIndex,
+    inverseTransform: inv === null ? "singular" : inv,
+  };
 }
 
 /**
  * POSITIONING slice 3 — descend a box's `absoluteChildren` (if any) into the flat
  * LineBox list with the box's own accumulated origin. Factored out so both the
  * LineBox early-return branch and the generic-container branch share it. A no-op for
- * the overwhelmingly common box with no abs-pos descendants.
+ * the overwhelmingly common box with no abs-pos descendants. The cumulative ancestor
+ * `transform` (slice 5) threads through to the abs descendants unchanged.
  */
 function collectAbsoluteLineBoxes(
   box: LayoutBox,
@@ -130,10 +234,11 @@ function collectAbsoluteLineBoxes(
   absY: number,
   out: AbsoluteLineBox[],
   pageIndex: number,
+  cumulative: Mat2D | undefined,
 ): void {
   if (box.absoluteChildren === undefined) return;
   for (const absChild of box.absoluteChildren) {
-    collectLineBoxes(absChild, absX, absY, out, pageIndex);
+    collectLineBoxes(absChild, absX, absY, out, pageIndex, cumulative);
   }
 }
 

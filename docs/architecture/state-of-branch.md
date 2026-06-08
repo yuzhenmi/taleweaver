@@ -30,8 +30,11 @@ logical `inset*`, `zIndex`, `transform`, `transformOrigin`, `opacity` live in
 `styles/position.ts` + `ComputedStyle`, all `inherits: false`. `position:
 relative`/`absolute` are consumed by layout (see `layout/` below); `zIndex` is
 consumed by paint (slice 4 — z-index / stacking contexts, see DOM below);
-`transform` / `opacity` are cascade-resolved but not yet read by a paint consumer
-(the transform / opacity slices are not yet built). NO positioning property enters
+`transform` is consumed by BOTH paint (the `paintBox` save/transform/restore via
+the shared `layout/mat2d.ts` `fromTransformFns`) AND hit-test (the per-line
+three-state `inverseTransform` baked by `collectLineBoxes`, mapped by
+`resolvePositionFromPixel`); `opacity` is cascade-resolved but not yet read by a
+paint consumer (the opacity slice is not yet built). NO positioning property enters
 `UsedStyle` — they are read at their use-sites from `ComputedStyle` (insets
 resolved against the containing block where both axis percent bases are
 available). See [`1.9-positioning.md`](1-core/1.9-positioning.md).
@@ -164,10 +167,14 @@ Most of the layout pass is implemented and working:
   §E.2 ordered paint, gated so the no-stacking common path is byte-identical.
 
 Known gaps:
-- **Positioning** — `transform` (paint apply + hit-test inversion) and `opacity`
-  (offscreen compositing) are NOT yet built (cascade-resolved but no paint
-  consumer). Named follow-ups within the shipped
-  slices: paginated abs-pos fragmentation (a fragmented box's second pass doesn't
+- **Positioning** — `transform` (slice 5) is SHIPPED: paint apply
+  (`paintBox` save/transform/restore via `layout/mat2d.ts`) + per-line inverse
+  hit-test (`collectLineBoxes` bakes a three-state `inverseTransform`;
+  `resolvePositionFromPixel` maps the click through it). `opacity` (offscreen
+  compositing) is NOT yet built (cascade-resolved but no paint consumer). Named
+  follow-ups within the shipped slices: transformed-content selection-rect +
+  caret geometry stay PRE-transform in v1 (reuse the per-line `Mat2D` forward);
+  paginated abs-pos fragmentation (a fragmented box's second pass doesn't
   run, so abs children registered before a break are not drained onto the
   fragment), and an establishing box's own explicit block-size not folded into
   the abc block percent-base (a pre-existing BFC limitation).
