@@ -70,6 +70,24 @@ change events → scattered same-value-write guards in ops like
 `reparent-children.ts` self-move; consolidate via a `setIfChanged`
 Y-utils helper (#358).
 
+### Document serialization (`state/serialize/`) `[implemented]`
+
+Pluggable `DocumentSerializer` (one per wire format) + a `SerializerRegistry`
+(mirrors the component/attr registries: empty + default-populated factories) +
+engine-level `serializeDocument` / `deserializeDocument` dispatch, with
+`UnknownSerializerFormatError` on an unregistered format. The v1 built-in is a
+LOSSLESS binary serializer (`createBinaryDocumentSerializer`, `BINARY_FORMAT =
+"taleweaver-binary"`) backed by Yjs's native update codec
+(`Y.encodeStateAsUpdate` / `Y.applyUpdate`): one round-trip over the WHOLE
+`Y.Doc` (all three block trees + `listDefs` + `meta` rootId). Decode reads
+`rootId` via the state-private `getMetaRootId` and rebuilds `State` with a fresh
+(derived) snapshot cache; a decoded doc with no rootId throws
+`MalformedDocumentError`. Lives inside `state/` for `STATE_INTERNAL` access; the
+barrel surface re-exports through `state/index.ts` and the core barrel. Host owns
+persistence (engine = encode→bytes / decode→`State` only). Named follow-ups:
+editor-level export/import wrapper, a human-friendly text serializer, v2 +
+migration path. See [`1.10-serialization.md`](1-core/1.10-serialization.md).
+
 ### `components/` `[partial]`
 
 Built-in components register and render. Plugin registry works.

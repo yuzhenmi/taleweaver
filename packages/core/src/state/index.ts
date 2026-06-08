@@ -298,6 +298,25 @@ export { History, createHistory, UNDO_COALESCE_PAUSE_MS } from "./history";
 export type { CreateEmptyDocumentArgs } from "./initial-state";
 export { createEmptyDocument } from "./initial-state";
 
+// ───────────────────────────────────────────────────────────────────────────
+// Document serialization — pluggable DocumentSerializer + registry + engine
+// dispatch + the v1 lossless Yjs-binary serializer. The serialize module lives
+// INSIDE state/ because it consumes/produces State and needs the raw Y.Doc
+// (read via STATE_INTERNAL by sibling import); its barrel surface is re-exported
+// here. `getMetaRootId` (yjs-doc) stays state-private and is NOT re-exported.
+// ───────────────────────────────────────────────────────────────────────────
+export type { SerializedDocument, DocumentSerializer, SerializerRegistry } from "./serialize";
+export {
+  createSerializerRegistry,
+  createDefaultSerializerRegistry,
+  serializeDocument,
+  deserializeDocument,
+  createBinaryDocumentSerializer,
+  BINARY_FORMAT,
+  UnknownSerializerFormatError,
+  MalformedDocumentError,
+} from "./serialize";
+
 // NOTE: the reparent write-list machinery (`computeReparentWrites`,
 // `planReparentChildren`, `reparentChildrenInTx`, `BlockFieldWrite`,
 // `ReparentPlan`) and the paste helper `clonePastedSubtree` / `ClonedSubtree`

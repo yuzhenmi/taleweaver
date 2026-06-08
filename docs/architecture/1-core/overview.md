@@ -18,6 +18,9 @@ directory is one module.
   styled-run sequences, with id-based positions, three layers of API
   (types and access; pure utilities; state-mutating operations), and
   Y.UndoManager-backed history with per-entry selection alignment.
+  Its `serialize/` subdirectory holds document serialization (it lives
+  inside `state/` because it consumes/produces `State` and needs the raw
+  `Y.Doc`) — see `1.10-serialization.md`.
 
 - **`components/`** — the plugin registry. Each component registers a
   render function for a block type. Lets downstream consumers add new
@@ -105,6 +108,7 @@ module imports its type vocabulary.
 7. [`1.7-editor.md`](1.7-editor.md) — reducer, action handlers, geometry queries.
 8. [`1.8-perf.md`](1.8-perf.md) — instrumentation.
 9. [`1.9-positioning.md`](1.9-positioning.md) — `position: relative / absolute`, transforms, opacity, stacking contexts.
+10. [`1.10-serialization.md`](1.10-serialization.md) — pluggable document (de)serialization, the serializer registry, the v1 lossless Yjs-binary format.
 
 ## Public API surface
 
@@ -131,3 +135,5 @@ module imports its type vocabulary.
 **Line traversal (under `cursor/`)** — `AbsoluteLineBox`, `LineLeaf`. `collectLineBoxes`, `collectLineLeaves`, `findLineForPosition`. (Consumed by hit-test, cursor-position, selection-geometry, line-navigation for line-level geometry queries.)
 
 **Perf** — `PerfReport`. `setPerfTraceEnabled`, `isPerfTraceEnabled`, `markStart`, `markEnd`, `recordSample`, `report`, `resetPerfTrace`.
+
+**Document serialization** — Types: `SerializedDocument`, `DocumentSerializer`, `SerializerRegistry`. Registry + dispatch: `createSerializerRegistry`, `createDefaultSerializerRegistry`, `serializeDocument`, `deserializeDocument`. v1 Yjs-binary serializer: `createBinaryDocumentSerializer`, `BINARY_FORMAT`. Errors: `UnknownSerializerFormatError`, `MalformedDocumentError`. (See `1.10-serialization.md`. Re-exported through the `state/` barrel.)

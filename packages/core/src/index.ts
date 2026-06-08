@@ -129,6 +129,19 @@ export {
   type UndoRedoResult,
 } from "./state";
 
+// Document serialization (pluggable serializer + registry + Yjs-binary v1).
+export type { SerializedDocument, DocumentSerializer, SerializerRegistry } from "./state";
+export {
+  createSerializerRegistry,
+  createDefaultSerializerRegistry,
+  serializeDocument,
+  deserializeDocument,
+  createBinaryDocumentSerializer,
+  BINARY_FORMAT,
+  UnknownSerializerFormatError,
+  MalformedDocumentError,
+} from "./state";
+
 // Cascade
 export { cascadePass, composeComputed, resolveLength } from "./cascade";
 export { AttrRegistry, createDefaultAttrRegistry } from "./cascade/attr-registry";

@@ -1,5 +1,6 @@
 import * as Y from "yjs";
 import type { BlockId } from "./block-id";
+import { asBlockId } from "./block-id";
 import { isDevMode } from "./dev-mode";
 
 const BLOCKS_KEY = "blocks";
@@ -148,6 +149,19 @@ export function allTreeBlockCount(doc: Y.Doc): number {
  */
 export function getMetaMap(doc: Y.Doc): Y.Map<unknown> {
   return doc.getMap(META_KEY);
+}
+
+/**
+ * Read the immutable document `rootId` out of the meta map of a raw Y.Doc.
+ * Returns undefined when the meta map carries no (valid) rootId — e.g. a
+ * freshly-decoded update that never seeded one. The `typeof === "string"` guard
+ * + `asBlockId` is the codebase's validated branded-string construction (BlockId
+ * is a branded string), NOT a forbidden narrowing cast. Used by the binary
+ * document serializer's decode to reconstruct State from a decoded Y.Doc.
+ */
+export function getMetaRootId(doc: Y.Doc): BlockId | undefined {
+  const v = getMetaMap(doc).get("rootId");
+  return typeof v === "string" ? asBlockId(v) : undefined;
 }
 
 /**
