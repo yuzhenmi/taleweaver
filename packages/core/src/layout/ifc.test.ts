@@ -3274,3 +3274,89 @@ describe("IFC — hyphens: soft-hyphen break handling (HYPH.S2/S3)", () => {
     expect(linesOf("hy" + SHY + "phen aaaa", 40, "none").length).toBe(2);
   });
 });
+
+describe("IFC — overflow-wrap: break-word (OW.S2)", () => {
+  // The last-resort within-word break: a word with NO real break opportunity that
+  // exceeds the line is broken at a grapheme-cluster boundary under `break-word`
+  // (CSS Text 3 §5.1); under `normal` (the initial) it overflows. Ordering is
+  // soft → hyphen → emergency, so a real break (space/soft-hyphen) always wins.
+  type LineBox = import("./layout-box").LineBox;
+  type TextRunBox = import("./layout-box").TextRunBox;
+  function styledTree(text: string, overflowWrap?: ComputedStyle["overflowWrap"], hyphens?: ComputedStyle["hyphens"]) {
+    const tree = cascadePass(
+      createElementBox("p", {
+        display: "block",
+        ...(overflowWrap ? { overflowWrap } : {}),
+        ...(hyphens ? { hyphens } : {}),
+      }, [createTextBox("t", {}, text)]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    return tree;
+  }
+  function linesOf(text: string, width: number, overflowWrap?: ComputedStyle["overflowWrap"], hyphens?: ComputedStyle["hyphens"]): LineBox[] {
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, width);
+    const result = layoutInlineContent(styledTree(text, overflowWrap, hyphens), 0, 0, ctx, shaper);
+    if (result.box === null) throw new Error("null box");
+    return result.box.children.filter((c): c is LineBox => c.type === "line");
+  }
+
+  it("break-word breaks a long unbreakable word; normal overflows on one line", () => {
+    // "aaaaaaaa" = 8 × 8px = 64px in a 40px column. Under break-word it breaks at
+    // the widest fitting grapheme boundary ("aaaaa" = 40px) → 2 lines; the first
+    // line fits the column. Under `normal` the word overflows on ONE line.
+    const bw = linesOf("aaaaaaaa", 40, "break-word");
+    expect(bw.length).toBe(2);
+    expect(bw[0].width).toBeLessThanOrEqual(40);
+    expect(linesOf("aaaaaaaa", 40, "normal").length).toBe(1);
+    // Default (no overflowWrap → `normal` initial) also overflows.
+    expect(linesOf("aaaaaaaa", 40).length).toBe(1);
+  });
+
+  it("≥1-grapheme progress guarantee: a grapheme wider than the line still places one (no infinite loop)", () => {
+    // "abc" with each glyph 8px in a 4px column: no grapheme fits, but break-word
+    // must place at least one grapheme per line (CSS §5.1) — "a" | "b" | "c", each
+    // overflowing. 3 lines proves progress + termination (the single-grapheme tail
+    // "c" cannot split, so it force-places).
+    const lines = linesOf("abc", 4, "break-word");
+    expect(lines.length).toBe(3);
+  });
+
+  it("real breaks win first: a soft hyphen is used before an emergency break", () => {
+    // "aa<SHY>aaaa" (6 visible × 8 = 48px) in a 40px column under break-word +
+    // default `manual` hyphens. The soft hyphen gives a hyphen break at index 3
+    // (prefix "aa<SHY>" + "-" = 24px ≤ 40) — tried BEFORE the emergency break, so
+    // line 0 ends with the "-" glyph rather than chopping mid-run at "aaaaa".
+    const lines = linesOf("aa" + "­" + "aaaa", 40, "break-word", "manual");
+    expect(lines[0].endsWithHyphenContinuation).toBe(true);
+    expect(
+      lines[0].children.filter((c): c is TextRunBox => c.type === "text-run").map((r) => r.text),
+    ).toContain("-");
+  });
+
+  it("break-word breaks an NBSP-glued overflowing word on a shared line (the breakableBefore===false else-branch)", () => {
+    // "word longword": the NBSP (U+00A0) glues "longword" to "word"
+    // (breakableBefore===false → it can't move to a fresh line). In an 80px column
+    // the run overflows (word 32 + NBSP 8 + longword 64 = 104). Without break-word
+    // the glued word force-places + overflows; UNDER break-word it must split in
+    // place on the shared line. This is the only path through the shared-line
+    // `else` branch (every other OW.S2 test goes via the alone-on-line site).
+    const lines = linesOf("word longword", 80, "break-word");
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    expect(lines[0].width).toBeLessThanOrEqual(80); // broken, not force-placed past the column
+    // Sanity: under `normal` the glued word force-places on ONE overflowing line.
+    expect(linesOf("word longword", 80, "normal").length).toBe(1);
+  });
+
+  it("break-word prefix/suffix re-sum to the original word (no dropped chars / NaN)", () => {
+    const lines = linesOf("aaaaaaaa", 40, "break-word");
+    const text = lines
+      .flatMap((l) => l.children.filter((c): c is TextRunBox => c.type === "text-run"))
+      .map((r) => r.text)
+      .join("");
+    expect(text).toBe("aaaaaaaa");
+    for (const l of lines) {
+      expect(Number.isFinite(l.inlineOffsetStart)).toBe(true);
+      expect(Number.isFinite(l.inlineOffsetEnd)).toBe(true);
+    }
+  });
+});

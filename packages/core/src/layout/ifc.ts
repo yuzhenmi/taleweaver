@@ -9,6 +9,7 @@ import type { TextShaper } from "./text-shaper";
 import type { TextMeasurer } from "./text-measurer";
 import { adaptShaperToMeasurer } from "./text-measurer";
 import { tokenize, LINE_BREAK } from "./text-tokenize";
+import { graphemeClusters } from "./graphemes";
 import { lineBreakOpportunities } from "./uax14";
 import { transformRun } from "./text-transform";
 import { layoutBlock } from "./bfc";
@@ -1714,6 +1715,142 @@ export function layoutInlineContent(
   }
 
   /**
+   * `overflow-wrap: break-word` (CSS Text 3 §5.1): the LAST-RESORT within-word
+   * break. When a word has no real break opportunity (no UAX #14 soft break, no
+   * authored hyphen) and exceeds the line, break it at a GRAPHEME-CLUSTER boundary.
+   * Tried only AFTER `trySoftSplit` + `tryHyphenSplit` both fail, so a real break
+   * always wins. Returns a 2-TUPLE (no `HyphenBreak`, NO glyph — break-word draws
+   * no visible mark), structurally identical to `trySoftSplit` but breaking at an
+   * arbitrary grapheme boundary rather than a precomputed `softBreaks` index.
+   *
+   * Gated on `overflowWrap === "break-word"` (so `normal` — the initial — is a pure
+   * no-op, existing layout byte-identical). Skips space / inline-block / line-break
+   * units and (mirroring `tryHyphenSplit`'s grow-token punt) text-transform
+   * grow/shrink tokens whose `sourceDisplayLengths` make display≠source offsets
+   * unsafe for the source-base split — a named follow-up, consistent with the
+   * shipped hyphen behavior, not a new degradation.
+   */
+  function tryEmergencyBreak(
+    unit: WrapUnit,
+    available: number,
+  ): [WrapUnit, WrapUnit] | null {
+    const firstTok = unit.tokens[0];
+    if (firstTok.style.overflowWrap !== "break-word") return null;
+    if (firstTok.isSpace || firstTok.inlineBlock || firstTok.isLineBreak) return null;
+    if (!firstTok.clusterWidths) return null;
+    if (firstTok.sourceDisplayLengths !== undefined) return null;
+
+    const clusterWidths = firstTok.clusterWidths;
+    // Interior grapheme-cluster boundaries (code-unit offsets where a new grapheme
+    // begins, excluding 0 and the end). break-word breaks BETWEEN graphemes, never
+    // inside one (a surrogate pair / combining sequence stays whole). For 1:1
+    // tokens (grow tokens are excluded above) these display indices equal source
+    // indices, so `splitSuffixSourceBase` and `clusterWidths` slicing align.
+    const boundaries: number[] = [];
+    let idx = 0;
+    for (const g of graphemeClusters(firstTok.text)) {
+      idx += g.length;
+      if (idx < firstTok.text.length) boundaries.push(idx);
+    }
+    // A single grapheme cannot be broken.
+    if (boundaries.length === 0) return null;
+
+    // Widest prefix (in grapheme boundaries) whose width fits. Mirror
+    // `trySoftSplit`'s candidate-scan shape (prefix-sum `clusterWidths`).
+    let bestBreakIdx: number | null = null;
+    let bestPrefixWidth = 0;
+    for (const breakAt of boundaries) {
+      let w = 0;
+      for (let ci = 0; ci < breakAt && ci < clusterWidths.length; ci++) w += clusterWidths[ci];
+      // `w > 0` mirrors trySoftSplit (ifc.ts ~1633): a zero-width prefix (e.g. a
+      // leading combining-mark-only grapheme) would emit a spurious zero-width
+      // line. The progress-guarantee path below still places grapheme 0 when no
+      // positive-width prefix fits, so a genuinely too-wide first glyph is handled.
+      if (w > 0 && w <= available) { bestBreakIdx = breakAt; bestPrefixWidth = w; }
+    }
+    // Progress guarantee (CSS Text 3 §5.1): if not even the first grapheme fits,
+    // still place exactly one grapheme (it overflows the line). This guarantees the
+    // wrap loop advances and never infinite-loops on a giant grapheme.
+    if (bestBreakIdx === null) {
+      bestBreakIdx = boundaries[0];
+      bestPrefixWidth = 0;
+      for (let ci = 0; ci < bestBreakIdx && ci < clusterWidths.length; ci++) bestPrefixWidth += clusterWidths[ci];
+    }
+    const splitAt: number = bestBreakIdx;
+
+    const prefixText = firstTok.text.slice(0, splitAt);
+    const suffixText = firstTok.text.slice(splitAt);
+    const suffixSourceBase = splitSuffixSourceBase(firstTok.absoluteSourceBase, splitAt);
+
+    const prefixToken: Token = {
+      id: firstTok.id,
+      sourceKey: firstTok.sourceKey,
+      text: prefixText,
+      sourceLength: splitAt,
+      absoluteSourceBase: firstTok.absoluteSourceBase,
+      width: bestPrefixWidth,
+      style: firstTok.style,
+      isSpace: false,
+      isLineBreak: false,
+      inlineAncestors: firstTok.inlineAncestors,
+      inlineAncestorStyles: firstTok.inlineAncestorStyles,
+    };
+
+    const suffixToken: Token = {
+      id: `${firstTok.sourceKey}:${suffixSourceBase}`,
+      sourceKey: firstTok.sourceKey,
+      text: suffixText,
+      sourceLength: firstTok.sourceLength - splitAt,
+      absoluteSourceBase: suffixSourceBase,
+      width: firstTok.width - bestPrefixWidth,
+      style: firstTok.style,
+      isSpace: false,
+      isLineBreak: false,
+      inlineAncestors: firstTok.inlineAncestors,
+      inlineAncestorStyles: firstTok.inlineAncestorStyles,
+      clusterWidths: firstTok.clusterWidths.slice(splitAt),
+      // Preserve any real break opportunities BEYOND the split so the suffix can
+      // still soft/hyphen-break on a later line (re-sliced to suffix-relative
+      // offsets). Emergency break is the last resort here, but the suffix is a
+      // generic token that may carry breaks the emergency split moved past.
+      ...(firstTok.softBreaks
+        ? { softBreaks: firstTok.softBreaks.filter(b => b > splitAt).map(b => b - splitAt) }
+        : {}),
+      ...(firstTok.hyphenBreaks
+        ? { hyphenBreaks: firstTok.hyphenBreaks.filter(b => b > splitAt).map(b => b - splitAt) }
+        : {}),
+      // The split point is a break opportunity — the suffix may begin a line.
+      breakableBefore: true,
+    };
+
+    const prefixUnit: WrapUnit = {
+      tokens: [prefixToken],
+      totalWidth: bestPrefixWidth,
+      sourceKey: unit.sourceKey,
+      isLineBreak: false,
+      inlineAncestors: unit.inlineAncestors,
+      inlineAncestorStyles: unit.inlineAncestorStyles,
+      tokenStartIdx: unit.tokenStartIdx,
+      tokenEndIdx: unit.tokenStartIdx,
+    };
+
+    const trailingTokens = unit.tokens.slice(1);
+    const trailingWidth = trailingTokens.reduce((s, t) => s + t.width, 0);
+    const suffixUnit: WrapUnit = {
+      tokens: [suffixToken, ...trailingTokens],
+      totalWidth: suffixToken.width + trailingWidth,
+      sourceKey: unit.sourceKey,
+      isLineBreak: false,
+      inlineAncestors: unit.inlineAncestors,
+      inlineAncestorStyles: unit.inlineAncestorStyles,
+      tokenStartIdx: unit.tokenStartIdx,
+      tokenEndIdx: unit.tokenEndIdx,
+    };
+
+    return [prefixUnit, suffixUnit];
+  }
+
+  /**
    * Flush the current accumulated units into a line, record its token-range
    * metadata, and reset accumulation state.
    */
@@ -1981,6 +2118,23 @@ export function layoutInlineContent(
         flushLine(lineInlineCursor, lineInlineSize, pendingHyphen);
         // Recompute dims for the new line position
         ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0));
+      } else {
+        // Glued (NBSP, breakableBefore===false): the unit can't move to a fresh
+        // line, so without break-word it force-places + overflows. Under
+        // `overflow-wrap: break-word` break it HERE as a last resort (CSS §5.1) —
+        // prefix stays on the current line, suffix continues. (When breakableBefore
+        // is TRUE the flush above moves the whole word to a fresh line, where the
+        // alone-on-line site below emergency-breaks it if it still overflows —
+        // matching browsers, which never break a word that can wholly move down.)
+        const emergency = tryEmergencyBreak(unit, available);
+        if (emergency !== null) {
+          const [prefixUnit, suffixUnit] = emergency;
+          pushUnit(prefixUnit);
+          flushLine(lineInlineCursor, lineInlineSize, pendingHyphen);
+          ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0));
+          unitQueue.splice(uqi, 0, suffixUnit);
+          continue;
+        }
       }
     }
 
@@ -2028,6 +2182,20 @@ export function layoutInlineContent(
         const [prefixUnit, suffixUnit, hyphenBreak] = split;
         pushUnit(prefixUnit);
         flushLine(lineInlineCursor, lineInlineSize, hyphenBreak);
+        ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0));
+        unitQueue.splice(uqi, 0, suffixUnit);
+        continue;
+      }
+      // Last resort: `overflow-wrap: break-word` (CSS §5.1). A long unbreakable
+      // word ALONE on a line that still overflows is broken at a grapheme boundary
+      // (the ≥1-grapheme progress guarantee inside guarantees termination). No-op
+      // under `overflow-wrap: normal`, so the word falls through to `pushUnit` and
+      // overflows (the correct CSS `normal` behavior).
+      const emergency = tryEmergencyBreak(unit, available);
+      if (emergency !== null) {
+        const [prefixUnit, suffixUnit] = emergency;
+        pushUnit(prefixUnit);
+        flushLine(lineInlineCursor, lineInlineSize, pendingHyphen);
         ({ lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0));
         unitQueue.splice(uqi, 0, suffixUnit);
         continue;
