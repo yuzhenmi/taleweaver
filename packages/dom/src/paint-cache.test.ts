@@ -93,6 +93,18 @@ describe("hashPaintInputs", () => {
     expect(hashPaintInputs(plain)).not.toContain("|tf:");
     expect(hashPaintInputs(a)).toContain("|tf:");
   });
+
+  it("P-S6: an opacity change → different hash (paint composites the group at globalAlpha)", () => {
+    const opaque = makeBlockBox();
+    const op50: ComputedStyle = { ...BASE_CS, opacity: 0.5 };
+    const op25: ComputedStyle = { ...BASE_CS, opacity: 0.25 };
+    const a = makeBlockBox({ computedStyle: op50 });
+    const b = makeBlockBox({ computedStyle: op25 });
+    expect(hashPaintInputs(a)).not.toBe(hashPaintInputs(b));
+    // Guard: the fully-opaque box's hash is unchanged by the new field (no `|op:`).
+    expect(hashPaintInputs(opaque)).not.toContain("|op:");
+    expect(hashPaintInputs(a)).toContain("|op:");
+  });
 });
 
 describe("createPaintCache", () => {

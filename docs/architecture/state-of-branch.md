@@ -33,8 +33,11 @@ consumed by paint (slice 4 — z-index / stacking contexts, see DOM below);
 `transform` is consumed by BOTH paint (the `paintBox` save/transform/restore via
 the shared `layout/mat2d.ts` `fromTransformFns`) AND hit-test (the per-line
 three-state `inverseTransform` baked by `collectLineBoxes`, mapped by
-`resolvePositionFromPixel`); `opacity` is cascade-resolved but not yet read by a
-paint consumer (the opacity slice is not yet built). NO positioning property enters
+`resolvePositionFromPixel`); `opacity` is consumed by paint (slice 6 — offscreen
+GROUP compositing: an `opacity < 1` box's whole atomic subtree paints into an
+offscreen `<canvas>` and composites once at `globalAlpha`, via `paintOpacityGroup` +
+the `offscreen-surface.ts` factory seam; `opacity === 1` takes the zero-alloc
+direct path). NO positioning property enters
 `UsedStyle` — they are read at their use-sites from `ComputedStyle` (insets
 resolved against the containing block where both axis percent bases are
 available). See [`1.9-positioning.md`](1-core/1.9-positioning.md).
@@ -148,7 +151,7 @@ Most of the layout pass is implemented and working:
   `breakOpportunities` — NOT the widest single grapheme cluster.
 - Layout-box reuse: `LayoutBoxCache`, `isLayoutBoxReusable`,
   `renderNodesLayoutEquivalent`.
-- Positioning (slices 1–4, see [`1.9-positioning.md`](1-core/1.9-positioning.md)):
+- Positioning (slices 1–6, see [`1.9-positioning.md`](1-core/1.9-positioning.md)):
   `position: relative` resolves a physical `relativeOffset` in the BFC and the
   painter shifts the box + descendants by it (block-level; inline-block-relative
   and caret-for-relative-content are named follow-ups). `position: absolute`
@@ -167,11 +170,14 @@ Most of the layout pass is implemented and working:
   §E.2 ordered paint, gated so the no-stacking common path is byte-identical.
 
 Known gaps:
-- **Positioning** — `transform` (slice 5) is SHIPPED: paint apply
-  (`paintBox` save/transform/restore via `layout/mat2d.ts`) + per-line inverse
-  hit-test (`collectLineBoxes` bakes a three-state `inverseTransform`;
-  `resolvePositionFromPixel` maps the click through it). `opacity` (offscreen
-  compositing) is NOT yet built (cascade-resolved but no paint consumer). Named
+- **Positioning** — ALL functional slices are SHIPPED: `transform` (slice 5) —
+  paint apply (`paintBox` save/transform/restore via `layout/mat2d.ts`) +
+  per-line inverse hit-test (`collectLineBoxes` bakes a three-state
+  `inverseTransform`; `resolvePositionFromPixel` maps the click through it); and
+  `opacity` (slice 6) — offscreen GROUP compositing (`paintOpacityGroup` renders an
+  `opacity < 1` box's whole atomic subtree into an offscreen `<canvas>` via the
+  `offscreen-surface.ts` factory seam and `drawImage`s it once at `globalAlpha`;
+  `opacity === 1` takes the zero-alloc direct path). Named
   follow-ups within the shipped slices: transformed-content selection-rect +
   caret geometry stay PRE-transform in v1 (reuse the per-line `Mat2D` forward);
   paginated abs-pos fragmentation (a fragmented box's second pass doesn't

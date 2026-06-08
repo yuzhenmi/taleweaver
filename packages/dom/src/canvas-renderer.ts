@@ -5,6 +5,7 @@ import { segmentClusters } from "./text-clusters";
 import type { ImageCache } from "./image-cache";
 import { hashPaintInputs } from "./paint-cache";
 import type { PaintCache, Rect, MatchHighlightRectSnapshot } from "./paint-cache";
+import { createOffscreenSurface } from "./offscreen-surface";
 
 /**
  * A find-match highlight rect. A paint-layer concept (NOT a core type): it is
@@ -748,6 +749,80 @@ function applyBoxTransform(
   ctx.transform(m.a, m.b, m.c, m.d, m.e, m.f);
 }
 
+/**
+ * POSITIONING slice 6 — `opacity` group compositing.
+ *
+ * A box with `cs.opacity < 1` is a stacking context (slice 4), so it paints
+ * ATOMICALLY — its whole subtree (both paint sub-phases + all descendants, incl.
+ * its own transform and its §E.2 stacking children) is one self-contained unit.
+ * This routine renders that COMPLETE atomic paint into a temporary offscreen
+ * surface at FULL opacity, then composites the surface onto the parent ctx ONCE
+ * with `globalAlpha = cs.opacity`. That honors CSS-spec opacity GROUPING: the
+ * half-opaque box with overlapping children reads as ONE translucent region (the
+ * group composites a single time), NOT additive per-child alpha.
+ *
+ * The offscreen is sized to the box's painted region and translated so the box's
+ * absolute paint origin maps to the surface's top-left (the subtree paints with
+ * the SAME absolute coords it would on the parent, minus the box origin, so a
+ * single `drawImage(surface.canvas, absX, absY)` lands it back at the right
+ * place). The surface is obtained through `createOffscreenSurface` — an injectable
+ * factory seam so the path is exercisable under jsdom (which has no real
+ * `OffscreenCanvas`); see `offscreen-surface.ts`.
+ *
+ * Nested opacity composes naturally: an inner opacity<1 descendant recurses
+ * through `paintBox` again, allocates ITS own offscreen, and `drawImage`s into
+ * THIS group's offscreen ctx — so the inner group composites into the outer
+ * group's surface before the outer surface composites onto the page.
+ *
+ * Called ONLY from the FOREGROUND phase (the box's atomic content spans both
+ * sub-phases, but the composite must happen once); the background-phase entry for
+ * an opacity box is a no-op (it returns before painting), exactly like a
+ * bucket-6/7 stacking child whose atomic paint is gated to the foreground phase.
+ */
+function paintOpacityGroup(
+  ctx: CanvasRenderingContext2D,
+  box: LayoutBox,
+  absX: number,
+  absY: number,
+  state: PaintState,
+): void {
+  const opacity = box.computedStyle.opacity;
+  // Painted region: the box's border-box. A transform on the box itself is applied
+  // INSIDE the offscreen render (paintBox re-enters with hasOpacity already
+  // consumed and applies the transform under the saved offscreen matrix).
+  const surface = createOffscreenSurface(box.width, box.height);
+  const offCtx = surface.ctx;
+  offCtx.textBaseline = "top";
+  // Render the WHOLE atomic subtree into the offscreen, translated so the box's
+  // absolute origin (absX, absY) maps to the surface origin (0, 0). Both
+  // sub-phases run so the group is complete (background fills + foreground glyphs).
+  // `state.lastFont` is per-ctx, so use a fresh paint-state for the offscreen ctx
+  // (its `ctx.font` starts empty) to avoid a stale-font skip; the image cache is
+  // shared (images are ctx-independent).
+  const offState: PaintState = { lastFont: "", imageCache: state.imageCache };
+  // Visible band = the full surface in surface-local coords; the subtree is small
+  // (one box) and already culled by the parent walk, so paint it all.
+  const offVisibleTop = -Infinity;
+  const offVisibleBottom = Infinity;
+  // parentX/parentY are chosen so the box's SHIFTED origin lands at surface-local
+  // (0, 0). paintBox computes `absX = parentX + box.x + relativeOffset.dx`, so the
+  // relativeOffset must be subtracted HERE too: parentX = -(box.x + rel.dx) → inner
+  // absX = 0. The composite below draws at the outer `absX`/`absY`, which ALREADY
+  // include the relativeOffset shift; re-adding it inside the surface would
+  // double-apply it (off by rel.dx/dy for a position:relative + opacity<1 box).
+  const rel = box.relativeOffset;
+  const offParentX = -(box.x + (rel !== undefined ? rel.dx : 0));
+  const offParentY = -(box.y + (rel !== undefined ? rel.dy : 0));
+  paintBox(offCtx, box, offParentX, offParentY, offVisibleTop, offVisibleBottom, offState, "background", true);
+  paintBox(offCtx, box, offParentX, offParentY, offVisibleTop, offVisibleBottom, offState, "foreground", true);
+  // Composite the finished group onto the parent at the box's painted origin,
+  // at the group alpha. Restore globalAlpha to 1 so no alpha leaks to siblings.
+  const priorAlpha = ctx.globalAlpha;
+  ctx.globalAlpha = opacity;
+  ctx.drawImage(surface.canvas, absX, absY);
+  ctx.globalAlpha = priorAlpha;
+}
+
 // ── POSITIONING slice 4 — z-index + stacking contexts (CSS 2.2 §E.2) ──────────
 //
 // Within a stacking context the §E.2 painting order is:
@@ -990,6 +1065,10 @@ function paintBox(
   visibleBottom: number,
   state: PaintState,
   phase: PaintPhase,
+  // POSITIONING slice 6 — set when this call is the OFFSCREEN render of an opacity
+  // group (so the box's own opacity has already been consumed by `paintOpacityGroup`
+  // and must NOT re-trigger the offscreen intercept → infinite recursion).
+  skipOpacity: boolean = false,
 ): void {
   const t = markStart("paint.draw");
   try {
@@ -1006,6 +1085,26 @@ function paintBox(
 
   const cs = box.computedStyle;
   const us = box.usedStyle;
+
+  // POSITIONING slice 6 — `opacity < 1` GROUP compositing. An opacity<1 box is a
+  // stacking context (slice 4) → it paints atomically; redirect its WHOLE atomic
+  // paint into an offscreen surface and composite that once at `globalAlpha =
+  // opacity` (CSS opacity grouping: one translucent region, not additive). The
+  // composite runs in the FOREGROUND phase only (the atomic content spans both
+  // sub-phases, but composites once, above the box's background-phase siblings);
+  // the BACKGROUND-phase entry returns as a no-op. `opacity === 1` / `undefined`
+  // → the DIRECT path below (ZERO offscreen alloc, `globalAlpha` untouched — the
+  // 99.99% common case is byte-identical). `skipOpacity` is set while rendering
+  // INTO the offscreen so the box's own opacity is consumed exactly once.
+  // `cs.opacity` is `1` by default on cascaded boxes; guard `undefined` for
+  // synthetic fixtures whose computedStyle omits positioning fields.
+  const hasOpacity = !skipOpacity && cs.opacity !== undefined && cs.opacity < 1;
+  if (hasOpacity) {
+    if (phase === "foreground") {
+      paintOpacityGroup(ctx, box, absX, absY, state);
+    }
+    return;
+  }
 
   // POSITIONING slice 5 — a `transform`-bearing box paints under a saved canvas
   // matrix: translate→origin, apply each TransformFn in ARRAY order, translate

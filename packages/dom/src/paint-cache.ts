@@ -61,6 +61,16 @@ export function hashPaintInputs(box: LayoutBox): PaintInputHash {
   if (cs.transform !== undefined && cs.transform.length > 0) {
     h += `|tf:${JSON.stringify(cs.transform)}:${JSON.stringify(cs.transformOrigin)}`;
   }
+  // Opacity changes the painted output (paint composites an opacity<1 box's group
+  // at globalAlpha). Guarded EXACTLY like transform — append only when opacity<1
+  // so the 99.99% fully-opaque box keeps a short hash byte-identical to before
+  // this field existed (a missing guard would also crash partial-mock fixtures
+  // whose computedStyle omits `opacity`). Same backstop rationale as transform:
+  // an opacity edit already changes the box ref → WeakMap miss; the hash stays an
+  // honest, complete record of every paint-relevant field.
+  if (cs.opacity !== undefined && cs.opacity < 1) {
+    h += `|op:${cs.opacity}`;
+  }
 
   // UsedStyle: padding + border widths
   const us = box.usedStyle;
