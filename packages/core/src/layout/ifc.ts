@@ -2151,17 +2151,25 @@ export function layoutInlineContent(
     // Soft wrap — only when canWrap is true
     let { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0);
 
-    // Tab stops S3 — resolve-at-the-overflow-check, freeze-geometry. A tab's
+    // Tab stops S3/S5 — resolve-at-the-overflow-check, freeze-geometry. A tab's
     // advance is POSITION-DEPENDENT: it depends on the running pen position
     // (`currentWidth`) when the tab is reached on this line. Resolve it HERE,
     // before the overflow test reads `unit.totalWidth`, and substitute a frozen
     // clone so both the wrap decision and the emitted box see the real advance.
     //
-    // S3 handles LEFT / default-grid stops only: advance to the destination
-    // stop's `position`. (A right/center/decimal stop is still advanced to its
-    // `position` here — its segment-aware look-ahead is S5/S6. `nextStop`
-    // returns the stop regardless of alignment.) The advance is clamped to the
-    // line's remaining width so a stop beyond the column edge cannot overflow.
+    // The destination stop's `alignment` selects how the advance is computed:
+    //   - left / default-grid (`stop === null`): advance to the stop `position`
+    //     (S3). The pen lands ON the stop; the following segment flows from it.
+    //   - right: advance so the post-tab SEGMENT ENDS on the stop. Needs the
+    //     segment's width `w` → `position − w − pen` (S5).
+    //   - center: advance so the segment is CENTERED on the stop → `position
+    //     − w/2 − pen` (S5).
+    //   - decimal: the first '.' lands on the stop (S6 — not yet; falls through
+    //     to the left branch for now, matching the pre-S5 behavior).
+    // Right/center read the post-tab segment width via a bounded look-ahead over
+    // the SAME `unitQueue` (peeking by index from `uqi`, the cursor already
+    // advanced past this tab) — it does NOT consume the loop cursor, so those
+    // units still get placed by their normal loop iterations.
     //
     // Freezing must write BOTH fields the downstream reads: `unit.totalWidth`
     // (read by `pushUnit` to advance `currentWidth`) AND `unit.tokens[0].width`
@@ -2173,11 +2181,39 @@ export function layoutInlineContent(
         parentCs.tabStops,
         parentCs.defaultTabStop,
       );
-      const rawAdvance = stopX - currentWidth;
-      // Clamp: a left/default stop is always > pen so the raw advance is ≥ one
-      // cell; `min` guards a stop beyond the line edge, `max(0, …)` guards the
+      const remaining = lineInlineSize - currentWidth;
+      const alignment = stop?.alignment ?? "left";
+
+      let rawAdvance: number;
+      if (alignment === "right" || alignment === "center") {
+        // Bounded look-ahead: sum the intrinsic widths of the units AFTER the
+        // tab (unitQueue[uqi..]), stopping at the next tab unit (exclusive), the
+        // end of the queue, or when the running sum would exceed the line's
+        // remaining budget (so a wrapped tail does not skew the on-line head's
+        // alignment). Reads the same per-unit `totalWidth` the wrap loop uses —
+        // no re-measure — and never advances `uqi`.
+        let segmentWidth = 0;
+        for (let j = uqi; j < unitQueue.length; j++) {
+          const peek = unitQueue[j];
+          if (peek.isTab === true || peek.isLineBreak) break;
+          if (segmentWidth + peek.totalWidth > remaining) break;
+          segmentWidth += peek.totalWidth;
+        }
+        const offset = alignment === "right" ? segmentWidth : segmentWidth / 2;
+        // max(0, …): a right/center stop can sit LEFT of where the segment would
+        // end → the ideal advance goes negative; clamp to 0 (no backward move,
+        // the left-tab fallback). The segment then flows from the current pen.
+        rawAdvance = Math.max(0, stopX - offset - currentWidth);
+      } else {
+        // left / default-grid (and decimal until S6): advance straight to the
+        // stop. A left/default stop is always > pen so the raw advance is ≥ one
+        // cell.
+        rawAdvance = stopX - currentWidth;
+      }
+
+      // `min` guards a stop beyond the line edge, `max(0, …)` guards the
       // degenerate clamp-below-zero case (line already full).
-      const advance = Math.max(0, Math.min(rawAdvance, lineInlineSize - currentWidth));
+      const advance = Math.max(0, Math.min(rawAdvance, remaining));
       const tok = unit.tokens[0];
       unit = {
         ...unit,

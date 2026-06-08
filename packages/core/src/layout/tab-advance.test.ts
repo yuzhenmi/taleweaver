@@ -48,11 +48,15 @@ const pageConfig: PageConfig = {
 };
 
 /**
- * Doc = document → paragraph with inlineContent [text("a"), embed("tab"), text("b")].
+ * Doc = document → paragraph with inlineContent [text("a"), embed("tab"), trailing].
  * `tabStops` is carried as a paragraph block-attr → cascade resolves it onto the
  * paragraph's ComputedStyle, which the IFC reads to resolve the tab's advance.
+ *
+ * `trailing` is the text AFTER the tab (the post-tab segment). Defaults to "b"
+ * (the S2/S3 single-char fixture); right/center alignment (S5) needs a
+ * multi-char segment (e.g. "bb") so the look-ahead has a non-trivial width.
  */
-function tabDoc(tabStops: readonly TabStop[] = []): State {
+function tabDoc(tabStops: readonly TabStop[] = [], trailing = "b"): State {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -67,15 +71,15 @@ function tabDoc(tabStops: readonly TabStop[] = []): State {
         type: "paragraph",
         parentId: "doc",
         attrs: { tabStops },
-        inlineContent: inlineContent([text("a"), embed("tab"), text("b")]),
+        inlineContent: inlineContent([text("a"), embed("tab"), text(trailing)]),
       }),
     ],
   });
 }
 
 /** Lay the doc out through the real render→layout pipeline; materialize the tree. */
-function layoutTabDoc(tabStops: readonly TabStop[] = []): LayoutBox {
-  const state = tabDoc(tabStops);
+function layoutTabDoc(tabStops: readonly TabStop[] = [], trailing = "b"): LayoutBox {
+  const state = tabDoc(tabStops, trailing);
   const renderOutput = render(state, componentRegistry, attrRegistry);
   const laid = layoutTree(renderOutput.root, pageConfig.pageInlineSize, shaper, pageConfig);
   return resolvePositionedTree(laid);
@@ -205,5 +209,38 @@ describe("tab-stops S3 — IFC left/default-grid advance", () => {
     // Re-layout the SAME paragraph key with a different stop on the SAME ctx/cache.
     const second = layoutWithStop(200);
     expect(caretX(second.state, "p", 2, second.layout)).toBe(200);
+  });
+});
+
+describe("tab-stops S5 — right/center alignment via bounded segment look-ahead", () => {
+  it("right tab: the segment after the tab ends at the stop", () => {
+    // "a"(8) + tab(right@100) + "bb"(16). Post-tab segment width w=16 → tab
+    // advance = max(0, min(100 − 16 − 8, ...)) = 76 → "bb" runs 84..100, ending
+    // exactly on the stop.
+    const stops: readonly TabStop[] = [{ position: 100, alignment: "right", leader: "none" }];
+    const state = tabDoc(stops, "bb");
+    const layout = layoutTabDoc(stops, "bb");
+    expect(caretX(state, "p", 2, layout)).toBe(84); // "bb" starts at 84
+    expect(caretX(state, "p", 4, layout)).toBe(100); // "bb" ends at the stop
+  });
+
+  it("center tab: the segment is centered on the stop", () => {
+    // "a"(8) + tab(center@100) + "bb"(16). advance = max(0, 100 − 16/2 − 8) = 84
+    // → "bb" runs 92..108, centered on the stop (100).
+    const stops: readonly TabStop[] = [{ position: 100, alignment: "center", leader: "none" }];
+    const state = tabDoc(stops, "bb");
+    const layout = layoutTabDoc(stops, "bb");
+    expect(caretX(state, "p", 2, layout)).toBe(92); // "bb" starts at 92
+    expect(caretX(state, "p", 4, layout)).toBe(108); // "bb" ends at 108 (centered on 100)
+  });
+
+  it("right tab overflow falls back to left (advance 0)", () => {
+    // Stop must be > pen so nextStop returns it (not the default grid), but with
+    // S − w − pen < 0: S=20, pen=8, w=16 → 20 − 16 − 8 = −4 → max(0, …) = 0.
+    // The tab makes no backward move; "bb" starts at the current pen (x=8).
+    const stops: readonly TabStop[] = [{ position: 20, alignment: "right", leader: "none" }];
+    const state = tabDoc(stops, "bb");
+    const layout = layoutTabDoc(stops, "bb");
+    expect(caretX(state, "p", 2, layout)).toBe(8); // "bb" starts at the pen, no backward move
   });
 });
