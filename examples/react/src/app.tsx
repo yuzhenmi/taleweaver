@@ -16,7 +16,6 @@ export function App() {
   // usePerfEditor mirrors useEditor but also checks ?perfFixture=N on mount
   // and initializes the editor with a synthetic N-paragraph document when set.
   const editor = usePerfEditor();
-  const seededRef = useRef(false);
 
   // Imperative handle into the EditorView's controller (#433): the find-bar
   // drives find/replace through it without reaching into the controller.
@@ -58,85 +57,6 @@ export function App() {
       console.log("Perf trace reset");
     };
   }, [editor.isPerfFixture]);
-
-  useEffect(() => {
-    // Skip default seeding when a perf fixture is already loaded via URL.
-    if (seededRef.current || editor.isPerfFixture) return;
-    seededRef.current = true;
-
-    // Seed the initial document with some demo content so there is visible text
-    // to exercise the layout engine on first load.
-    //
-    // createEmptyDocument seeds the doc with a single empty paragraph and the
-    // initial cursor sits inside it. We INSERT_TEXT into that existing empty
-    // paragraph rather than appending a new one — otherwise the empty
-    // paragraph remains as a tiny invisible line above the seeded content,
-    // and the cursor lands there on first load.
-    editor.dispatch({
-      type: "INSERT_TEXT",
-      text: "Welcome to Taleweaver — a document editor built with a custom layout engine.",
-    });
-
-    // RTL smoke-test paragraph: Hebrew + Latin mixed text, direction rtl.
-    // The canvas shaper shapes each run independently; bidi reordering within
-    // a mixed-direction run is not yet implemented (reserved for Plan 4), so
-    // Latin words inside the Hebrew text render LTR within their shaped run.
-    // The paragraph itself is right-aligned due to direction: "rtl".
-    editor.dispatch({
-      type: "INSERT_NODE",
-      node: {
-        type: "paragraph",
-        attrs: { direction: "rtl" },
-        inlineContent: {
-          items: [
-            {
-              kind: "text",
-              text: "שלום world עולם",
-              attrs: {},
-            },
-          ],
-        },
-      },
-    });
-
-    // Letter-/word-spacing smoke paragraph (P5, CSS Text 3 §8): justified, with
-    // 3px letter-spacing (tracking after every glyph, trimmed at each line end)
-    // and 6px word-spacing (wider inter-word gaps). Engine-only — there is no
-    // toolbar control (Google Docs has none), so this seeded paragraph is how the
-    // feature is exercised in the browser: confirm visible tracking, that the
-    // caret lands between the correct glyphs (incl. the trimmed line end), that
-    // selection rects match the glyphs, and that justify still flushes both edges.
-    editor.dispatch({
-      type: "INSERT_NODE",
-      node: {
-        type: "paragraph",
-        attrs: {
-          letterSpacing: { value: 3, unit: "px" },
-          wordSpacing: { value: 6, unit: "px" },
-          textAlign: "justify",
-        },
-        inlineContent: {
-          items: [
-            {
-              kind: "text",
-              text: "Letter-spacing and word-spacing demo: this justified paragraph carries three pixels of letter-spacing and six pixels of word-spacing, so the tracking between glyphs and the wider gaps between words are both visible, and justify still reaches both margins.",
-              attrs: {},
-            },
-          ],
-        },
-      },
-    });
-
-    // Move cursor to the very start of the document. INSERT_TEXT leaves the
-    // cursor at the END of the inserted text (offset 76 of the welcome
-    // paragraph) — landing the cursor there on first paint isn't useful for
-    // a fresh editor. Put the cursor at offset 0 so a fresh user sees it at
-    // the document start.
-    editor.dispatch({
-      type: "MOVE_DOCUMENT_BOUNDARY",
-      boundary: "start",
-    });
-  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <TooltipProvider>

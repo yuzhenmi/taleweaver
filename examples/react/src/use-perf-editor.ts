@@ -53,7 +53,6 @@ declare global {
 import {
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
-  createInitialEditorState,
   reduceEditor,
   setPerfTraceEnabled,
   resetPerfTrace,
@@ -65,6 +64,7 @@ import {
 } from "@taleweaver/core";
 import { createCanvasShaper } from "@taleweaver/dom";
 import { tryLoadPerfFixtureFromUrl } from "./perf-fixture";
+import { loadFairytale } from "./fairytale-seed";
 
 const DEFAULT_WIDTH = 600;
 
@@ -135,7 +135,7 @@ export function usePerfEditor(): UsePerfEditorResult {
       reduceEditor(state, action, config),
     initialArg,
     ({ config: cfg, fixture }) =>
-      fixture !== null ? fixture : createInitialEditorState(cfg),
+      fixture !== null ? fixture : loadFairytale(cfg),
   );
 
   const containerRef = useRef<HTMLDivElement>(null);

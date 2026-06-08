@@ -226,6 +226,118 @@ describe("createHtmlDocumentSerializer", () => {
     expect(leaves[2].inline.map(([t]) => t).join("")).toBe("He set out into the world.");
   });
 
+  // §5 — coverage-lock for REALISTIC multi-section content (mirrors the
+  // example app's seeded fairytale, Slice 3): an <h1> title + two <h2>
+  // section heads + several <p> + a <ul> + an <ol>, with bold/italic/link
+  // marks and a <br> hard-break, decodes to the expected block sequence.
+  // Locks the serializer's handling of a real document end to end (the
+  // fragment is INLINE — the dom package must not depend on examples).
+  it("decodes a realistic multi-section fairytale fragment end to end", () => {
+    const html =
+      "<h1>The Lantern-Keeper's Daughter</h1>" +
+      "<p>There stood a <strong>lighthouse</strong> no taller than a barn.</p>" +
+      "<p>Each night the lamp burned a little <em>dimmer</em>.</p>" +
+      "<h2>The Three Gifts of the Tide</h2>" +
+      "<p>The sea left three gifts on the shingle:</p>" +
+      "<ul>" +
+      "<li>a brass key, <em>warm to the touch</em>;</li>" +
+      "<li>a bottle with a single word inside it;</li>" +
+      "<li>and a lantern that held no flame.</li>" +
+      "</ul>" +
+      "<p>She turned it once.<br>Nothing.<br>She turned it twice.</p>" +
+      "<h2>What the Light Remembered</h2>" +
+      "<p>Instead it <strong><em>remembered</em></strong> every ship.</p>" +
+      "<ol>" +
+      "<li>watch the water until it trusts you;</li>" +
+      "<li>mend what others would throw away;</li>" +
+      "<li>and never let a borrowed light forget.</li>" +
+      "</ol>" +
+      "<p>The <a href=\"https://example.com/keepers-log\">keepers' log</a> waits.</p>";
+
+    const ser = createHtmlDocumentSerializer({ allocator: createTestAllocator("fairy") });
+    const leaves = readLeaves(ser.decode(html));
+
+    // The full doc-order block-type sequence.
+    expect(leaves.map((b) => b.type)).toEqual([
+      "heading",      // h1 title
+      "paragraph",
+      "paragraph",
+      "heading",      // h2
+      "paragraph",
+      "list-item", "list-item", "list-item",  // ul
+      "paragraph",    // hard-breaks
+      "heading",      // h2
+      "paragraph",
+      "list-item", "list-item", "list-item",  // ol
+      "paragraph",    // link
+    ]);
+
+    // Heading levels: h1 then the two h2s.
+    const headings = leaves.filter((b) => b.type === "heading");
+    expect(headings.map((b) => b.attrs.level)).toEqual([1, 2, 2]);
+
+    // List-items carry listLevel 0 and group into TWO distinct lists
+    // (the <ul> and the <ol>), each with its own listId shared by its items.
+    const items = leaves.filter((b) => b.type === "list-item");
+    expect(items.map((b) => b.attrs.listLevel)).toEqual([0, 0, 0, 0, 0, 0]);
+    const ulId = items[0].attrs.listId;
+    expect(items[1].attrs.listId).toBe(ulId);
+    expect(items[2].attrs.listId).toBe(ulId);
+    const olId = items[3].attrs.listId;
+    expect(items[4].attrs.listId).toBe(olId);
+    expect(items[5].attrs.listId).toBe(olId);
+    expect(olId).not.toBe(ulId);
+
+    // The <ul> classifies unordered and the <ol> ordered.
+    const decoded = ser.decode(html);
+    const decItems = readLeaves(decoded).filter((b) => b.type === "list-item");
+    const decUlId = decItems[0].attrs.listId;
+    const decOlId = decItems[3].attrs.listId;
+    const defs = getListDefsForState(decoded);
+    const ulDef = defs.get(typeof decUlId === "string" ? decUlId : "");
+    const olDef = defs.get(typeof decOlId === "string" ? decOlId : "");
+    expect(ulDef).toBeDefined();
+    expect(olDef).toBeDefined();
+    if (ulDef) expect(classifyListDef(ulDef)).toBe("unordered");
+    if (olDef) expect(classifyListDef(olDef)).toBe("ordered");
+
+    // A paragraph carries a bold+italic mark set (the nested <strong><em>).
+    const remembered = leaves.find((b) =>
+      b.inline.some(([t]) => t === "remembered"),
+    );
+    expect(remembered).toBeDefined();
+    expect(remembered?.inline.find(([t]) => t === "remembered")?.[1]).toEqual([
+      "bold",
+      "italic",
+    ]);
+
+    // A paragraph carries a link mark whose URL payload survives decode.
+    const logBlock = leaves.find((b) =>
+      b.inline.some(([t]) => t === "keepers' log"),
+    );
+    expect(logBlock?.inline.find(([t]) => t === "keepers' log")?.[1]).toEqual([
+      "link",
+    ]);
+    // The link is the document's last block; assert the href round-tripped (the
+    // SemBlock mark-set drops the URL, so read the raw TextItem).
+    const decRoot = getBlock(decoded, decoded.rootId);
+    const linkPara = getBlock(decoded, decRoot?.lastChildId ?? decoded.rootId);
+    const linkItem = linkPara?.inlineContent?.items.find(
+      (i): i is TextItem => i.kind === "text" && i.attrs.link !== undefined,
+    );
+    expect(linkItem?.text).toBe("keepers' log");
+    expect(linkItem?.attrs.link).toBe("https://example.com/keepers-log");
+
+    // A paragraph preserves the <br> hard-break embeds.
+    const breakPara = leaves.find((b) =>
+      b.inline.some(([t]) => t === "hard-break"),
+    );
+    expect(breakPara).toBeDefined();
+    expect(
+      breakPara?.inline.filter(([t]) => t === "hard-break").length,
+    ).toBe(2);
+  });
+
   // §5 / M1 — order-independent mark accumulation.
   it("accumulates marks order-independently (<strong><em> ≡ <em><strong>)", () => {
     const ser = createHtmlDocumentSerializer({ allocator: createTestAllocator("oi") });
