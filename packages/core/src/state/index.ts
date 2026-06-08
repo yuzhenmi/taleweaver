@@ -285,6 +285,7 @@ export {
   insertCrossReference,
   CROSS_REFERENCE_EMBED_TYPE,
 } from "./ops/insert-cross-reference";
+export { insertTab, TAB_EMBED_TYPE } from "./ops/insert-tab";
 
 // History (Y.UndoManager-backed undo/redo with aligned selection stacks).
 export type { SelectionEntry, UndoRedoResult, BeginKey } from "./history";

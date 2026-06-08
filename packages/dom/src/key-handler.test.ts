@@ -178,7 +178,6 @@ describe("mapKeyEvent", () => {
   it("returns null for unrecognized keys", () => {
     expect(mapKeyEvent(key({ key: "F1" }))).toBeNull();
     expect(mapKeyEvent(key({ key: "Escape" }))).toBeNull();
-    expect(mapKeyEvent(key({ key: "Tab" }))).toBeNull();
   });
 
   // --- Delete forward ---
@@ -525,9 +524,15 @@ describe("mapKeyEvent", () => {
     ).toEqual({ type: "LIST_OUTDENT" });
   });
 
-  it("leaves Tab unmapped outside a list-item (context absent or not a list)", () => {
-    expect(mapKeyEvent(key({ key: "Tab" }), { inListItem: false })).toBeNull();
-    expect(mapKeyEvent(key({ key: "Tab" }))).toBeNull();
+  it("maps Tab outside a list-item to INSERT_TAB", () => {
+    expect(mapKeyEvent(key({ key: "Tab" }), { inListItem: false })).toEqual({
+      type: "INSERT_TAB",
+    });
+    expect(mapKeyEvent(key({ key: "Tab" }))).toEqual({ type: "INSERT_TAB" });
+  });
+
+  it("leaves Shift+Tab unmapped outside a list-item (no reverse-tab/outdent)", () => {
+    expect(mapKeyEvent(key({ key: "Tab", shiftKey: true }), { inListItem: false })).toBeNull();
     expect(mapKeyEvent(key({ key: "Tab", shiftKey: true }))).toBeNull();
   });
 });

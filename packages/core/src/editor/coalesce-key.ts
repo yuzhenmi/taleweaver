@@ -36,6 +36,8 @@ export function coalesceKeyOf(action: EditorAction): ActionClass {
     case "INSERT_FOOTER":
     case "INSERT_FOOTNOTE":
     case "INSERT_CROSS_REFERENCE":
+    case "INSERT_TAB":
+    case "SET_TAB_STOPS":
     case "INSERT_HORIZONTAL_LINE":
     case "INSERT_TABLE_ROW":
     case "INSERT_TABLE_COLUMN":

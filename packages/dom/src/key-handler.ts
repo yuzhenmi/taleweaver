@@ -97,12 +97,14 @@ export function mapKeyEvent(
 
   if (key === "Enter") return { type: "SPLIT_NODE" };
 
-  // Tab / Shift+Tab — nest / un-nest the current list item (Google Docs). Only
-  // when the caret is in a list-item; otherwise unmapped (Tab keeps its current
-  // behavior). `handleIndent` deliberately skips list-items, so list nesting has
-  // to route through LIST_INDENT/LIST_OUTDENT here rather than INDENT/OUTDENT.
+  // Tab / Shift+Tab — context-sensitive (Google Docs):
+  //  - In a list-item: nest / un-nest (LIST_INDENT / LIST_OUTDENT). `handleIndent`
+  //    deliberately skips list-items, so list nesting routes through
+  //    LIST_INDENT/LIST_OUTDENT here rather than INDENT/OUTDENT.
+  //  - Outside a list-item: Tab inserts a tab (INSERT_TAB); Shift+Tab is a no-op
+  //    (Google Docs has no reverse-tab/outdent for body text).
   if (key === "Tab") {
-    if (!context.inListItem) return null;
+    if (!context.inListItem) return shiftKey ? null : { type: "INSERT_TAB" };
     return shiftKey ? { type: "LIST_OUTDENT" } : { type: "LIST_INDENT" };
   }
 

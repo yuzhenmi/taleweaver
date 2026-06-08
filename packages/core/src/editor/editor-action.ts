@@ -1,5 +1,6 @@
 import type { Selection, Position, BlockInit, TextMatch, BlockId, CrossReferenceMode } from "../state";
 import type { TextAlign, TextTransform } from "../styles/style";
+import type { TabStop } from "../styles/tab-stops";
 import type { CounterFormat, FootnoteNumberingPolicy } from "../footnotes";
 import type { CaretAffinity } from "../cursor/line-bidi";
 
@@ -50,6 +51,8 @@ export type EditorAction =
   | { type: "INSERT_FOOTER" }
   | { type: "INSERT_FOOTNOTE" }
   | { type: "INSERT_CROSS_REFERENCE"; targetId: BlockId; refMode: CrossReferenceMode }
+  | { type: "INSERT_TAB" }
+  | { type: "SET_TAB_STOPS"; blockId: BlockId; tabStops: readonly TabStop[] }
   | { type: "INSERT_HORIZONTAL_LINE" }
   | { type: "INSERT_TABLE_ROW"; position: "above" | "below" }
   | { type: "INSERT_TABLE_COLUMN"; position: "left" | "right" }

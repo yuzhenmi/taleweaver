@@ -64,6 +64,8 @@ import {
   handleSetImageSize,
   handleInsertFootnote,
   handleInsertCrossReference,
+  handleInsertTab,
+  handleSetTabStops,
   handleSetTextAlign,
   handleSetLineSpacing,
   handleIndent,
@@ -471,6 +473,12 @@ export function reduceEditor(
       break;
     case "INSERT_CROSS_REFERENCE":
       result = handleInsertCrossReference(editor, action.targetId, action.refMode, config);
+      break;
+    case "INSERT_TAB":
+      result = handleInsertTab(editor, config);
+      break;
+    case "SET_TAB_STOPS":
+      result = handleSetTabStops(editor, action.blockId, action.tabStops, config);
       break;
     case "INSERT_HORIZONTAL_LINE":
       result = handleInsertHorizontalLine(editor, config);
