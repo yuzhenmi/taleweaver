@@ -1352,3 +1352,140 @@ describe("BFC — list-item leaf carries its own marker presentation (component-
     expect(collectMarkers(indented)[0].x).toBe(indentedPad - markerWidth - MARKER_GAP);
   });
 });
+
+// ── POSITIONING slice 2 — position: relative (paint-time visual offset) ───────
+//
+// A `position: relative` block keeps its in-flow LayoutBox geometry (x/y/offsets
+// stay PRE-offset); the BFC resolves a SEPARATE physical `relativeOffset` (dx,dy)
+// from the box's `inset*` against its containing block, which the painter adds at
+// paint time. These tests pin the LAYOUT-side resolution: the stored offset value,
+// that geometry is unchanged, percent bases, start-wins, auto→0, the indefinite-
+// block-size → 0 rule, and the writing-mode-correct logical→physical mapping.
+
+describe("layoutBlock — position: relative offset resolution (slice 2)", () => {
+  // A relative child of the root. The root passes "indefinite" as the child's
+  // containing block-size (the codebase default), so px insets apply on both axes
+  // but a PERCENT block-inset resolves to 0 here (tested separately below). The
+  // child's containing INLINE size is the root content inline-size (600, definite).
+  function relativeChild(style: Record<string, unknown>) {
+    const child = createElementBox("rel", { display: "block", blockSize: 40, position: "relative", ...style }, []);
+    const tree = createElementBox("root", { display: "block" }, [child]);
+    const out = layoutOf(tree);
+    const box = out.children.find((c) => c.key === "rel");
+    if (box === undefined || box.type !== "block") throw new Error("rel child not found");
+    return box;
+  }
+
+  it("px inset-inline-start + inset-block-start → physical (dx, dy); geometry unchanged", () => {
+    const box = relativeChild({ insetInlineStart: 12, insetBlockStart: 7 });
+    // Geometry stays PRE-offset: a relative box does not move in the flow.
+    expect(box.x).toBe(0);
+    expect(box.y).toBe(0);
+    expect(box.inlineOffset).toBe(0);
+    expect(box.blockOffset).toBe(0);
+    // The resolved paint-time delta.
+    expect(box.relativeOffset).toEqual({ dx: 12, dy: 7 });
+  });
+
+  it("inset-inline-end / inset-block-end push in the NEGATIVE physical direction", () => {
+    const box = relativeChild({ insetInlineEnd: 10, insetBlockEnd: 5 });
+    expect(box.relativeOffset).toEqual({ dx: -10, dy: -5 });
+  });
+
+  it("inset-inline-start WINS over inset-inline-end when both are set (CSS)", () => {
+    const box = relativeChild({ insetInlineStart: 8, insetInlineEnd: 99 });
+    expect(box.relativeOffset).toEqual({ dx: 8, dy: 0 });
+  });
+
+  it("auto insets contribute 0 (no offset → field omitted entirely)", () => {
+    const box = relativeChild({ insetInlineStart: "auto", insetBlockStart: "auto" });
+    expect(box.relativeOffset).toBeUndefined();
+  });
+
+  it("a non-relative box never carries a relativeOffset even with insets set", () => {
+    // position defaults to "static"; insets are inert.
+    const child = createElementBox("s", { display: "block", blockSize: 40, insetInlineStart: 20 }, []);
+    const tree = createElementBox("root", { display: "block" }, [child]);
+    const out = layoutOf(tree);
+    const box = out.children.find((c) => c.key === "s");
+    if (box === undefined || box.type !== "block") throw new Error("static child not found");
+    expect(box.relativeOffset).toBeUndefined();
+  });
+
+  it("percent inset-inline-start resolves against the containing-block INLINE size", () => {
+    // Containing inline size = root content width = 600. 25% → 150.
+    const box = relativeChild({ insetInlineStart: { unit: "percent", value: 25 } });
+    expect(box.relativeOffset).toEqual({ dx: 150, dy: 0 });
+  });
+
+  it("percent inset-block-start against an INDEFINITE containing block-size resolves to 0 (CSS §5)", () => {
+    // The child's containing block-size is "indefinite" (root content height is
+    // content-derived), so a percent block-inset computes to 0 — a px inset would
+    // still apply.
+    const box = relativeChild({ insetBlockStart: { unit: "percent", value: 50 } });
+    expect(box.relativeOffset).toBeUndefined();
+  });
+
+  it("percent inset-block-start against a DEFINITE containing block-size resolves (px)", () => {
+    // Build a context whose containing block-size is definite so the block-axis
+    // percent resolves. 30% of 400 = 120.
+    const child = createElementBox("rel", {
+      display: "block", blockSize: 40, position: "relative",
+      insetBlockStart: { unit: "percent", value: 30 },
+    }, []);
+    const cascaded = cascadePass(child);
+    if (cascaded.type !== "element") throw new Error("?");
+    const rootCtx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const ctx = { ...rootCtx, containingInlineSize: 500, containingBlockSize: 400 as number };
+    const result = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const box = result.box;
+    if (box === null || box.type !== "block") throw new Error("?");
+    expect(box.relativeOffset).toEqual({ dx: 0, dy: 120 });
+  });
+
+  it("horizontal-tb RTL mirrors the inline-axis delta onto physical x", () => {
+    // direction: rtl makes the inline axis run right-to-left, so a positive
+    // inset-inline-start (toward the inline-start = right edge) maps to NEGATIVE
+    // physical x. Block axis is unaffected.
+    const child = createElementBox("rel", {
+      display: "block", blockSize: 40, position: "relative",
+      direction: "rtl", insetInlineStart: 15, insetBlockStart: 9,
+    }, []);
+    const tree = createElementBox("root", { display: "block", direction: "rtl" }, [child]);
+    const out = layoutOf(tree);
+    const box = out.children.find((c) => c.key === "rel");
+    if (box === undefined || box.type !== "block") throw new Error("?");
+    expect(box.relativeOffset).toEqual({ dx: -15, dy: 9 });
+  });
+
+  it("vertical-lr maps inline→y and block→x", () => {
+    // vertical writing modes: the logical inline axis runs along physical y, the
+    // block axis along physical x. inset-inline-start 11 → dy 11; inset-block-start
+    // 6 → dx 6 (v-lr blocks stack left-to-right, so block is NOT reversed on x).
+    const child = createElementBox("rel", {
+      display: "block", blockSize: 40, position: "relative",
+      writingMode: "vertical-lr", insetInlineStart: 11, insetBlockStart: 6,
+    }, []);
+    const tree = createElementBox("root", { display: "block", writingMode: "vertical-lr" }, [child]);
+    const out = layoutOf(tree);
+    const box = out.children.find((c) => c.key === "rel");
+    if (box === undefined || box.type !== "block") throw new Error("?");
+    expect(box.relativeOffset).toEqual({ dx: 6, dy: 11 });
+  });
+
+  it("vertical-rl REVERSES the block axis onto physical x (inline→y unchanged)", () => {
+    // vertical-rl: the inline axis still runs along physical y (top-to-bottom),
+    // but blocks stack RIGHT-to-left, so the block axis maps to NEGATIVE physical
+    // x. inset-inline-start 11 → dy 11; inset-block-start 6 → dx -6 (the sign-flip
+    // that distinguishes v-rl from v-lr).
+    const child = createElementBox("rel", {
+      display: "block", blockSize: 40, position: "relative",
+      writingMode: "vertical-rl", insetInlineStart: 11, insetBlockStart: 6,
+    }, []);
+    const tree = createElementBox("root", { display: "block", writingMode: "vertical-rl" }, [child]);
+    const out = layoutOf(tree);
+    const box = out.children.find((c) => c.key === "rel");
+    if (box === undefined || box.type !== "block") throw new Error("?");
+    expect(box.relativeOffset).toEqual({ dx: -6, dy: 11 });
+  });
+});

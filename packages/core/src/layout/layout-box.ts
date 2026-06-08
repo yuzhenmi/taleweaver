@@ -41,6 +41,18 @@ interface LayoutBoxBase {
 
   readonly computedStyle: Readonly<ComputedStyle>;
   readonly usedStyle:     Readonly<UsedStyle>;
+
+  // POSITIONING — `position: relative` PAINT-TIME visual offset (positioning
+  // slice 2). The box's logical/physical geometry (inlineOffset/blockOffset/x/y)
+  // stays PRE-OFFSET; this PHYSICAL `(dx, dy)` delta — resolved in the BFC from
+  // the box's `inset*` against its containing block, mapped logical→physical —
+  // is added by the painter to the box's accumulated `(absX, absY)`, shifting
+  // the box AND its descendants together. Omitted (undefined) when the box is
+  // not `position: relative` or resolves to a zero offset, keeping the
+  // untransformed fast path allocation- and read-free. Lives on the base (not
+  // just BlockBox) so the clone paths thread it uniformly across box types
+  // (an inline-block can also be `position: relative` — IFC path is a follow-up).
+  readonly relativeOffset?: { readonly dx: number; readonly dy: number };
 }
 
 export interface BlockBox extends LayoutBoxBase {
@@ -276,6 +288,7 @@ interface BoxBaseFields {
   readonly direction:   Direction;
   readonly computedStyle: Readonly<ComputedStyle>;
   readonly usedStyle:     Readonly<UsedStyle>;
+  readonly relativeOffset?: { readonly dx: number; readonly dy: number };
 }
 
 function createBoxBase(args: {
@@ -289,6 +302,10 @@ function createBoxBase(args: {
   computedStyle: ComputedStyle;
   usedStyle: UsedStyle;
   containingInlineSize: number;
+  // POSITIONING — `position: relative` physical paint-time offset (slice 2).
+  // Omitted when the box is not relatively positioned or resolves to (0, 0);
+  // the painter then takes the no-offset fast path.
+  relativeOffset?: { readonly dx: number; readonly dy: number };
   // Only consulted for vertical-rl, where the physical block-axis x is the
   // right-to-left mirror `containingBlockSize − blockOffset − blockSize`. The
   // box factory does not have this at construction time (the containing block
@@ -318,6 +335,9 @@ function createBoxBase(args: {
     direction:   args.direction,
     computedStyle: Object.freeze({ ...args.computedStyle }),
     usedStyle:     Object.freeze({ ...args.usedStyle }),
+    ...(args.relativeOffset !== undefined
+      ? { relativeOffset: Object.freeze({ ...args.relativeOffset }) }
+      : {}),
   };
 }
 
@@ -331,11 +351,12 @@ export function createBlockBox(
   containingInlineSize: number,
   metadata?: Readonly<LayoutBoxMetadata>,
   containingBlockSize?: number,
+  relativeOffset?: { readonly dx: number; readonly dy: number },
 ): BlockBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,
     writingMode, direction, computedStyle, usedStyle, containingInlineSize,
-    containingBlockSize,
+    containingBlockSize, relativeOffset,
   });
   return Object.freeze({
     type: "block" as const,
@@ -449,11 +470,12 @@ export function createInlineBlockBox(
   bidiLevel?: number,
   containingBlockSize?: number,
   inlineMeta?: { readonly embedType: "tab"; readonly leader: LeaderStyle },
+  relativeOffset?: { readonly dx: number; readonly dy: number },
 ): InlineBlockBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,
     writingMode, direction, computedStyle, usedStyle, containingInlineSize,
-    containingBlockSize,
+    containingBlockSize, relativeOffset,
   });
   return Object.freeze({
     type: "inline-block" as const,
@@ -649,7 +671,7 @@ export function withPhysicalInlineOffset(
         box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
         box.writingMode, "ltr", box.computedStyle, box.usedStyle,
         box.children, containingInlineSize, box.sourceStart, box.bidiLevel,
-        /* containingBlockSize */ undefined, box.inlineMeta,
+        /* containingBlockSize */ undefined, box.inlineMeta, box.relativeOffset,
       );
     case "marker":
       return createMarkerBox(
@@ -746,7 +768,7 @@ export function withBidiLevel(
         box.key, box.inlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.children, containingInlineSize, box.sourceStart, level,
-        /* containingBlockSize */ undefined, box.inlineMeta,
+        /* containingBlockSize */ undefined, box.inlineMeta, box.relativeOffset,
       );
     case "marker":
       return createMarkerBox(
@@ -800,6 +822,7 @@ export function rebuildBoxWithOffsets(
         box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.children, containingInlineSize, box.metadata, containingBlockSize,
+        box.relativeOffset,
       );
     case "line":
       return createLineBox(
@@ -829,7 +852,7 @@ export function rebuildBoxWithOffsets(
         box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.children, containingInlineSize, box.sourceStart, box.bidiLevel,
-        containingBlockSize, box.inlineMeta,
+        containingBlockSize, box.inlineMeta, box.relativeOffset,
       );
     case "marker":
       return createMarkerBox(

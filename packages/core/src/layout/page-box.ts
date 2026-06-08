@@ -33,6 +33,14 @@ export interface PageBox {
   readonly computedStyle: Readonly<ComputedStyle>;
   readonly usedStyle:     Readonly<UsedStyle>;
 
+  /**
+   * POSITIONING — `position: relative` paint-time physical offset, mirrored from
+   * `LayoutBoxBase` so the union member carries it and the painter can read it
+   * uniformly. A page frame is never relatively positioned, so this is always
+   * absent on a PageBox; it exists only to keep the `LayoutBox` union coherent.
+   */
+  readonly relativeOffset?: { readonly dx: number; readonly dy: number };
+
   /** Direct children that fit on this page (page-relative blockOffsets). */
   readonly children: readonly LayoutBox[];
 

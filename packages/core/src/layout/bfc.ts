@@ -8,6 +8,8 @@ import { layoutTable } from "./table-fc";
 import type { TextShaper } from "./text-shaper";
 import { adaptShaperToMeasurer } from "./text-measurer";
 import type { ComputedStyle } from "../styles";
+import type { WritingMode, Direction } from "../styles/writing-mode";
+import { logicalToPhysical } from "../styles/writing-mode";
 import { computeUsedStyle, resolveUsedLength } from "./used-style";
 import type { LayoutContext } from "./layout-context";
 import { makeChildContext } from "./layout-context";
@@ -15,6 +17,91 @@ import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import { groupChildren, anonymousBlockKey } from "./group-children";
 import { isLayoutBoxReusable, renderNodesLayoutEquivalent } from "./layout-reuse";
 import { markStart, markEnd } from "../perf/perf-trace";
+
+/**
+ * Resolve a `ComputedLength | "auto"` inset against a containing-block axis size.
+ * `"auto"` → 0 (no contribution). A `number` is px. A `{unit:"percent"}` resolves
+ * against `axisSize` UNLESS `axisSize` is `"indefinite"` (the containing block has
+ * no definite size on this axis), in which case the percent resolves to 0 — CSS
+ * Positioned Layout §5: a percentage block-inset against an indefinite-height
+ * containing block computes to `auto`. (A px inset still applies; only the percent
+ * form is suppressed.)
+ */
+function resolveInset(
+  value: ComputedStyle["insetInlineStart"],
+  axisSize: number | "indefinite",
+): number {
+  if (value === "auto") return 0;
+  if (typeof value === "number") return value;
+  // percent
+  if (axisSize === "indefinite") return 0;
+  return resolveUsedLength(value, axisSize, 0);
+}
+
+/**
+ * POSITIONING slice 2 — resolve the physical `position: relative` paint-time
+ * offset for a box from its logical `inset*`, against its containing block.
+ *
+ * The relative box keeps its in-flow geometry; this is a SEPARATE physical
+ * `(dx, dy)` delta the painter adds to the box's accumulated origin (shifting the
+ * box and its descendants together). Resolved HERE, in layout, because percent
+ * insets need both axis bases of the containing block (CSS resolves
+ * `inset-inline-*` against inline size, `inset-block-*` against block size — two
+ * distinct bases), which paint does not have.
+ *
+ * Logical→physical: the (inlineDelta, blockDelta) logical pair is mapped through
+ * the SAME `logicalToPhysical` machinery the box uses for its physical x/y, so the
+ * offset is writing-mode- and direction-correct (including the vertical-rl block-
+ * axis reversal). Because a translation is constant-free, the mapping is computed
+ * as the difference of the origin and the shifted point — the containing-block
+ * sizes used for any mirror cancel, so a `0` is safe when block-size is indefinite.
+ *
+ * Returns `undefined` when `position !== "relative"` OR both deltas resolve to 0,
+ * keeping the un-positioned fast path allocation-free.
+ */
+function resolveRelativeOffset(
+  cs: ComputedStyle,
+  writingMode: WritingMode,
+  direction: Direction,
+  containingInlineSize: number,
+  containingBlockSize: number | "indefinite",
+): { readonly dx: number; readonly dy: number } | undefined {
+  if (cs.position !== "relative") return undefined;
+
+  // Inline axis: inset-inline-start wins over inset-inline-end (CSS). A non-auto
+  // start adds +start; else a non-auto end adds −end; else 0.
+  let inlineDelta = 0;
+  if (cs.insetInlineStart !== "auto") {
+    inlineDelta = resolveInset(cs.insetInlineStart, containingInlineSize);
+  } else if (cs.insetInlineEnd !== "auto") {
+    inlineDelta = -resolveInset(cs.insetInlineEnd, containingInlineSize);
+  }
+
+  // Block axis: symmetric, against the containing-block BLOCK size.
+  let blockDelta = 0;
+  if (cs.insetBlockStart !== "auto") {
+    blockDelta = resolveInset(cs.insetBlockStart, containingBlockSize);
+  } else if (cs.insetBlockEnd !== "auto") {
+    blockDelta = -resolveInset(cs.insetBlockEnd, containingBlockSize);
+  }
+
+  if (inlineDelta === 0 && blockDelta === 0) return undefined;
+
+  // Map the logical (inlineDelta, blockDelta) to a physical (dx, dy) by taking the
+  // difference of the shifted point and the origin under the box's own
+  // logicalToPhysical mapping. A concrete containing-block size for the vertical-rl
+  // mirror is irrelevant (it cancels in the difference) — pass 0 when indefinite.
+  const cbSizeForMirror = containingBlockSize === "indefinite" ? 0 : containingBlockSize;
+  const origin = logicalToPhysical(
+    { inlineOffset: 0, blockOffset: 0, inlineSize: 0, blockSize: 0 },
+    writingMode, direction, containingInlineSize, cbSizeForMirror,
+  );
+  const shifted = logicalToPhysical(
+    { inlineOffset: inlineDelta, blockOffset: blockDelta, inlineSize: 0, blockSize: 0 },
+    writingMode, direction, containingInlineSize, cbSizeForMirror,
+  );
+  return { dx: shifted.x - origin.x, dy: shifted.y - origin.y };
+}
 
 /**
  * Lay out a block-level element in a Block Formatting Context.
@@ -105,6 +192,18 @@ export function layoutBlock(
   const direction = ctx.direction;
   if (!node.computedStyle) throw new Error("cascade required");
   const cs = node.computedStyle;
+
+  // POSITIONING slice 2 — `position: relative` paint-time offset. Resolved here
+  // (in layout), where this box's containing-block inline + block sizes are in
+  // hand (the two distinct percent bases for inset-inline-* vs inset-block-*).
+  // `undefined` for the un-positioned common case (zero-cost). The box geometry
+  // stays pre-offset; the painter adds this physical delta. NOTE the cache-reuse
+  // fast paths below preserve `entry.box.relativeOffset` rather than recomputing
+  // it: a cached box was laid out with the same cs/containing sizes, so its stored
+  // offset is still correct, and the reposition-clone re-attaches it verbatim.
+  const relativeOffset = resolveRelativeOffset(
+    cs, writingMode, direction, availableInlineSize, ctx.containingBlockSize,
+  );
 
   // Subtree reuse: if a previous layout exists, check whether this block's
   // output is still valid. Conservative — only reuse when all inputs match.
@@ -201,6 +300,12 @@ export function layoutBlock(
             entry.box.children,
             /* containingInlineSize */ availableInlineSize,
             entry.box.metadata,
+            /* containingBlockSize */ undefined,
+            // Preserve the `position: relative` paint-time offset across the
+            // reposition clone (slice 2): the offset is a physical delta added
+            // at paint, independent of the outer (inlineOffset, blockOffset)
+            // reposition, so it carries through verbatim.
+            entry.box.relativeOffset,
           ),
           breakToken: null,
         };
@@ -299,6 +404,8 @@ export function layoutBlock(
         writingMode, direction, cs, usedStyle, placedChildren,
         /* containingInlineSize */ availableInlineSize,
         node.metadata,
+        /* containingBlockSize */ undefined,
+        relativeOffset,
       ),
       breakToken,
     };
@@ -787,6 +894,10 @@ export function layoutBlock(
       ? createBlockBox(child.key, childInlineStart, childBlockOffset, childContentInlineSize, finalBlockSize, cs.writingMode, cs.direction, childCs, childUsedStyle, [],
           /* containingInlineSize */ contentInlineSize,
           child.metadata,
+          /* containingBlockSize */ undefined,
+          // Preserve the child's `position: relative` paint-time offset across the
+          // explicit-block-size box re-creation (it would otherwise be dropped).
+          childLayout.relativeOffset,
         )
       : childLayout;
 
@@ -869,6 +980,10 @@ export function layoutBlock(
         createBlockBox(child.key, childInlineStart, preAdvanceBlockOffset, placedChild.inlineSize, 0, cs.writingMode, cs.direction, childCs, childUsedStyle, [],
           /* containingInlineSize */ contentInlineSize,
           child.metadata,
+          /* containingBlockSize */ undefined,
+          // Preserve the child's `position: relative` paint-time offset across the
+          // empty-block re-creation.
+          placedChild.relativeOffset,
         ),
       );
     } else {
@@ -911,6 +1026,8 @@ export function layoutBlock(
     node.key, inlineOffset, blockOffset, finalInlineSize, totalBlockSize, writingMode, direction, cs, usedStyle, layoutChildren,
     /* containingInlineSize */ availableInlineSize,
     node.metadata,
+    /* containingBlockSize */ undefined,
+    relativeOffset,
   ), breakToken: null };
   } finally {
     markEnd("bfc.layoutBlock", t);

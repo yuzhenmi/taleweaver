@@ -610,8 +610,14 @@ function walkAndDetectChanges(
     return;
   }
 
-  const absX = parentX + box.x;
-  const absY = parentY + box.y;
+  // Mirror paintBox's `position: relative` shift: a relatively-positioned box
+  // and its descendants paint at `box.{x,y} + relativeOffset`, so the dirty
+  // rect AND the child-recursion origin must use the SHIFTED coordinates.
+  // Without this, incremental repaint clears the pre-offset region while
+  // paintBox draws at the shifted region → stale pixels linger at the shift.
+  const rel = box.relativeOffset;
+  const absX = parentX + box.x + (rel !== undefined ? rel.dx : 0);
+  const absY = parentY + box.y + (rel !== undefined ? rel.dy : 0);
 
   const currentHash = hashPaintInputs(box);
   const cachedHash = cache.get(box);
@@ -689,8 +695,16 @@ function paintBox(
 ): void {
   const t = markStart("paint.draw");
   try {
-  const absX = parentX + box.x;
-  const absY = parentY + box.y;
+  // POSITIONING slice 2 — `position: relative` paint-time visual offset. The
+  // box's geometry (box.x/box.y) is PRE-offset; `relativeOffset` is a physical
+  // (dx, dy) delta the BFC resolved from the box's `inset*` against its
+  // containing block. Adding it to the accumulated origin shifts this box AND
+  // all its descendants (they inherit the shifted absX/absY as their parent
+  // origin). Paint stays dumb — it reads the pre-resolved delta, never cs.inset*.
+  // `undefined` for the un-positioned common case → no offset, no read cost.
+  const rel = box.relativeOffset;
+  const absX = parentX + box.x + (rel !== undefined ? rel.dx : 0);
+  const absY = parentY + box.y + (rel !== undefined ? rel.dy : 0);
 
   // Viewport culling: skip entire subtree if out of visible range
   if (absY + box.height < visibleTop || absY > visibleBottom) return;
