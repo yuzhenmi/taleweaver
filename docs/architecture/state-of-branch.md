@@ -28,12 +28,13 @@ Schema reservations (present in `Style` and `ComputedStyle` but not yet consumed
 Positioning vocabulary present and consumed (slice 1): `position`, the four
 logical `inset*`, `zIndex`, `transform`, `transformOrigin`, `opacity` live in
 `styles/position.ts` + `ComputedStyle`, all `inherits: false`. `position:
-relative`/`absolute` are consumed by layout (see `layout/` below); `zIndex` /
-`transform` / `opacity` are cascade-resolved but not yet read by a paint
-consumer (the stacking / transform / opacity slices are not yet built). NO
-positioning property enters `UsedStyle` — they are read at their use-sites from
-`ComputedStyle` (insets resolved against the containing block where both axis
-percent bases are available). See [`1.9-positioning.md`](1-core/1.9-positioning.md).
+relative`/`absolute` are consumed by layout (see `layout/` below); `zIndex` is
+consumed by paint (slice 4 — z-index / stacking contexts, see DOM below);
+`transform` / `opacity` are cascade-resolved but not yet read by a paint consumer
+(the transform / opacity slices are not yet built). NO positioning property enters
+`UsedStyle` — they are read at their use-sites from `ComputedStyle` (insets
+resolved against the containing block where both axis percent bases are
+available). See [`1.9-positioning.md`](1-core/1.9-positioning.md).
 
 Schema items genuinely missing:
 - `overflow` — required by `establishesNewBFC`'s full check.
@@ -144,7 +145,7 @@ Most of the layout pass is implemented and working:
   `breakOpportunities` — NOT the widest single grapheme cluster.
 - Layout-box reuse: `LayoutBoxCache`, `isLayoutBoxReusable`,
   `renderNodesLayoutEquivalent`.
-- Positioning (slices 1–3, see [`1.9-positioning.md`](1-core/1.9-positioning.md)):
+- Positioning (slices 1–4, see [`1.9-positioning.md`](1-core/1.9-positioning.md)):
   `position: relative` resolves a physical `relativeOffset` in the BFC and the
   painter shifts the box + descendants by it (block-level; inline-block-relative
   and caret-for-relative-content are named follow-ups). `position: absolute`
@@ -157,12 +158,15 @@ Most of the layout pass is implemented and working:
   size/position from `cs.inset*` against the abc and attaching results to
   `box.absoluteChildren` (on `LayoutBoxBase`). Abs content is cursor-reachable
   because `cursor/line-flatten.ts` `collectLineBoxes` descends `absoluteChildren`
-  into the flat `LineIndex`.
+  into the flat `LineIndex`. **z-index / stacking contexts (slice 4)** ship in the
+  PAINTER (`packages/dom`, see DOM below): `stackingContextRole` on
+  `LayoutBoxBase` (computed by the factory from `computedStyle`) drives a CSS 2.2
+  §E.2 ordered paint, gated so the no-stacking common path is byte-identical.
 
 Known gaps:
-- **Positioning** — z-index / stacking contexts, `transform` (paint apply +
-  hit-test inversion), and `opacity` (offscreen compositing) are NOT yet built
-  (cascade-resolved but no paint consumer). Named follow-ups within the shipped
+- **Positioning** — `transform` (paint apply + hit-test inversion) and `opacity`
+  (offscreen compositing) are NOT yet built (cascade-resolved but no paint
+  consumer). Named follow-ups within the shipped
   slices: paginated abs-pos fragmentation (a fragmented box's second pass doesn't
   run, so abs children registered before a break are not drained onto the
   fragment), and an establishing box's own explicit block-size not folded into

@@ -717,6 +717,239 @@ function paintAbsoluteChildren(
   }
 }
 
+// ── POSITIONING slice 4 — z-index + stacking contexts (CSS 2.2 §E.2) ──────────
+//
+// Within a stacking context the §E.2 painting order is:
+//   1. negative-z stacking-context children (z<0, ascending);
+//   2. the box's own background + borders;
+//   3. in-flow non-positioned BLOCK descendants (recursive, static only);
+//   4. floats;
+//   5. in-flow non-positioned INLINE content;
+//   6. all positioned descendants with z-index auto|0 (relative AND absolute/fixed
+//      together), in tree (document) order;
+//   7. positive-z stacking-context children (z>0, ascending).
+//
+// Reconciliation with the two-phase (background/foreground) paint: the GLOBAL
+// two-phase walk still drives the box's own background (bucket 2, background
+// phase) and its in-flow non-positioned descendants (buckets 3–5, both phases).
+// Buckets 1/6/7 paint ATOMICALLY — each such child's WHOLE subtree paints in
+// BOTH sub-phases via two `paintBox` calls — but gated to run EXACTLY ONCE:
+// bucket 1 (negative-z) runs in the BACKGROUND phase, BEFORE the box paints its
+// own background, so it sits below; buckets 6/7 run in the FOREGROUND phase,
+// AFTER the box's in-flow glyphs, so they sit above. Canvas paint order is
+// composite order, so this yields the §E.2 stacking.
+//
+// COMMON-PATH GUARANTEE: a box with NO stacking-context child and NO non-auto
+// z-index child takes the unmodified document-order path (children loop +
+// `paintAbsoluteChildren`), byte-identical to the pre-slice-4 painter. Only a
+// box that actually carries stacking participants partitions into buckets.
+
+interface StackingPartition {
+  /** Negative-z stacking-context children (sorted by z ascending). Bucket 1. */
+  readonly negZ: readonly LayoutBox[];
+  /** Non-positioned, non-stacking-context children — recurse normally (buckets 3–5). */
+  readonly inFlow: readonly LayoutBox[];
+  /** Positioned z:auto|0 + opacity/transform stacking contexts with z:auto|0, tree order. Bucket 6. Atomic. */
+  readonly bucket6: readonly LayoutBox[];
+  /** Positive-z stacking-context children (sorted by z ascending). Bucket 7. Atomic. */
+  readonly posZ: readonly LayoutBox[];
+}
+
+/** A box is a stacking context iff the factory stamped `stackingContextRole`. */
+function isStackingContext(box: LayoutBox): boolean {
+  return box.stackingContextRole === "self";
+}
+
+/**
+ * Whether a box is positioned (participates in stacking buckets 1/6/7). A box is
+ * positioned when its computed `position` is relative / absolute / fixed. Treats
+ * an ABSENT `position` (`undefined`) as NOT positioned (static) — every box laid
+ * out through the cascade carries `position: "static"` for the unpositioned case,
+ * but defending against absence keeps the reorder gate from false-firing on a box
+ * whose computed style omits the field (and `static`/`undefined` are equivalent:
+ * "not positioned").
+ */
+function isPositioned(box: LayoutBox): boolean {
+  const p = box.computedStyle.position;
+  return p === "relative" || p === "absolute" || p === "fixed";
+}
+
+/**
+ * True when ANY direct in-flow child OR `absoluteChild` participates in stacking
+ * ordering — i.e. is itself a stacking context, or is positioned (relative /
+ * absolute / fixed). When false, the box paints in plain document order (the
+ * common path). `z-index` only applies to POSITIONED boxes, so a `z-index` on a
+ * `position: static` box never trips this gate (it is also never a stacking
+ * context via z-index — `computeStackingContextRole` gates on `position`).
+ */
+function needsStackingReorder(box: LayoutBox): boolean {
+  const children = "children" in box ? box.children : [];
+  for (const c of children) {
+    if (isStackingContext(c) || isPositioned(c)) return true;
+  }
+  if (box.absoluteChildren !== undefined) {
+    // Every abs/fixed child is positioned by definition → always a participant.
+    if (box.absoluteChildren.length > 0) return true;
+  }
+  return false;
+}
+
+/**
+ * Partition a box's direct children + `absoluteChildren` into the §E.2 buckets.
+ * Tree (document) order is `children` first, then `absoluteChildren` (matching the
+ * pre-slice-4 paint, which recursed children then abs children). The numeric-z
+ * buckets are stably sorted by z ascending with document-order tiebreak.
+ */
+function partitionStackingChildren(box: LayoutBox): StackingPartition {
+  const negZ: { box: LayoutBox; z: number; order: number }[] = [];
+  const posZ: { box: LayoutBox; z: number; order: number }[] = [];
+  const inFlow: LayoutBox[] = [];
+  const bucket6: LayoutBox[] = [];
+
+  const children = "children" in box ? box.children : [];
+  let order = 0;
+  const classify = (c: LayoutBox): void => {
+    const z = c.computedStyle.zIndex;
+    const positioned = isPositioned(c);
+    const isSC = isStackingContext(c);
+    if (isSC && typeof z === "number" && z < 0) {
+      negZ.push({ box: c, z, order: order++ });
+    } else if (isSC && typeof z === "number" && z > 0) {
+      posZ.push({ box: c, z, order: order++ });
+    } else if (positioned || isSC) {
+      // Positioned (z auto|0), or a static opacity/transform stacking context
+      // (a z:0-equivalent context, §E.2 step 6). Painted atomically in tree order.
+      bucket6.push(c);
+      order++;
+    } else {
+      // Plain in-flow, non-positioned, non-stacking — recurse normally (both phases).
+      inFlow.push(c);
+      order++;
+    }
+  };
+  for (const c of children) classify(c);
+  if (box.absoluteChildren !== undefined) {
+    for (const c of box.absoluteChildren) classify(c);
+  }
+
+  // Stable sort by z ascending, document-order tiebreak (the `order` field).
+  const byZThenOrder = (a: { z: number; order: number }, b: { z: number; order: number }): number =>
+    a.z !== b.z ? a.z - b.z : a.order - b.order;
+  negZ.sort(byZThenOrder);
+  posZ.sort(byZThenOrder);
+
+  return {
+    negZ: negZ.map((e) => e.box),
+    inFlow,
+    bucket6,
+    posZ: posZ.map((e) => e.box),
+  };
+}
+
+/**
+ * Paint a stacking participant ATOMICALLY — its entire subtree, BOTH sub-phases
+ * (background then foreground), in a single call. Used for buckets 1/6/7 so a
+ * child stacking context paints as one self-contained unit at its z-slot (its own
+ * §E.2 walk runs recursively inside the two `paintBox` calls). The global phase
+ * gates WHEN this runs (negative-z in background, buckets 6/7 in foreground) so it
+ * is invoked exactly once per child.
+ */
+function paintStackingChildAtomic(
+  ctx: CanvasRenderingContext2D,
+  child: LayoutBox,
+  absX: number,
+  absY: number,
+  visibleTop: number,
+  visibleBottom: number,
+  state: PaintState,
+): void {
+  paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state, "background");
+  paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state, "foreground");
+}
+
+/**
+ * Paint negative-z stacking-context children (bucket 1). Called at the TOP of a
+ * container branch, BEFORE the box paints its own background, and ONLY in the
+ * background phase (so each runs once and sits BELOW the box's background). A
+ * no-op when there is no reorder or no negative-z child — the common path.
+ */
+function paintNegativeZBeforeBackground(
+  ctx: CanvasRenderingContext2D,
+  partition: StackingPartition | null,
+  phase: PaintPhase,
+  absX: number,
+  absY: number,
+  visibleTop: number,
+  visibleBottom: number,
+  state: PaintState,
+): void {
+  if (partition === null || phase !== "background") return;
+  for (const c of partition.negZ) {
+    paintStackingChildAtomic(ctx, c, absX, absY, visibleTop, visibleBottom, state);
+  }
+}
+
+/**
+ * Paint a container box's children in §E.2 stacking order (replaces the plain
+ * `for child of children { paintBox }` + `paintAbsoluteChildren` pair). When
+ * `partition` is null (the common path — no stacking participant), it recurses
+ * children in document order then abs children, byte-identical to the old path.
+ * Otherwise: in-flow non-positioned children recurse normally in the CURRENT
+ * phase (buckets 3–5); positioned + stacking children (buckets 6/7) paint
+ * ATOMICALLY in the FOREGROUND phase, after the in-flow content. (Bucket 1 is
+ * painted separately, before the box's background, by
+ * `paintNegativeZBeforeBackground`.)
+ */
+function paintContainerChildren(
+  ctx: CanvasRenderingContext2D,
+  box: LayoutBox,
+  partition: StackingPartition | null,
+  absX: number,
+  absY: number,
+  visibleTop: number,
+  visibleBottom: number,
+  state: PaintState,
+  phase: PaintPhase,
+): void {
+  if (partition === null) {
+    // Common path — unchanged document order: children, then abs children.
+    if ("children" in box) {
+      for (const child of box.children) {
+        paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state, phase);
+      }
+    }
+    paintAbsoluteChildren(ctx, box, absX, absY, visibleTop, visibleBottom, state, phase);
+    return;
+  }
+  // Reorder path. Buckets 3–5: in-flow non-positioned, recurse in the current phase.
+  for (const child of partition.inFlow) {
+    paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state, phase);
+  }
+  // Buckets 6 then 7: positioned auto/0 (tree order), then positive-z (ascending).
+  // Atomic (both sub-phases), gated to the FOREGROUND phase so each runs once and
+  // composites ABOVE the box's own in-flow content.
+  //
+  // KNOWN v1 LIMITATION (named follow-up — see 1.9-positioning.md + spec §6):
+  // a bucket-6/7 child's OWN background (its backgroundColor fillRect) paints HERE,
+  // in the foreground phase, which runs AFTER the global selection rects are drawn
+  // (paintCanvas draws selection between the background and foreground passes). So a
+  // positioned (relative/absolute) child WITH a non-transparent backgroundColor
+  // overpaints the selection tint, making the selection invisible on that child's
+  // background region. (Negative-z bucket-1 children are NOT affected — they paint in
+  // the background phase, before selection.) The correct fix needs a third paint
+  // sub-phase (positioned-backgrounds before selection) or per-box selection
+  // compositing — an architectural change deferred to a named v1 follow-up. Not yet
+  // user-reachable: positioning is substrate for not-yet-built anchored objects.
+  if (phase === "foreground") {
+    for (const c of partition.bucket6) {
+      paintStackingChildAtomic(ctx, c, absX, absY, visibleTop, visibleBottom, state);
+    }
+    for (const c of partition.posZ) {
+      paintStackingChildAtomic(ctx, c, absX, absY, visibleTop, visibleBottom, state);
+    }
+  }
+}
+
 function paintBox(
   ctx: CanvasRenderingContext2D,
   box: LayoutBox,
@@ -850,6 +1083,11 @@ function paintBox(
   }
 
   if (box.type === "block") {
+    // POSITIONING slice 4 — partition once when a stacking participant is present;
+    // null (the common path) means plain document-order paint (byte-identical).
+    const stack = needsStackingReorder(box) ? partitionStackingChildren(box) : null;
+    // Bucket 1 — negative-z stacking contexts paint BELOW this box's background.
+    paintNegativeZBeforeBackground(ctx, stack, phase, absX, absY, visibleTop, visibleBottom, state);
     if (phase === "background") {
       // Background
       if (cs.backgroundColor && cs.backgroundColor !== "transparent") {
@@ -879,16 +1117,12 @@ function paintBox(
       // and even if one were present we no longer paint a rule for it. The slot
       // still reserves `FOOTNOTE_SEPARATOR_HEIGHT` as a plain gap above the bodies.
     }
-    // Recurse into children (same phase)
-    for (const child of box.children) {
-      paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state, phase);
-    }
-    // POSITIONING slice 3 — paint abs-pos children whose abc is THIS box. They are
-    // OUT of `box.children` (out-of-flow), positioned in this box's own frame, so
-    // they recurse with the SAME parent origin (absX/absY, incl. any
-    // relativeOffset). Painted AFTER the in-flow children (document order; z-index
-    // ordering is slice 4). No-op when there are none.
-    paintAbsoluteChildren(ctx, box, absX, absY, visibleTop, visibleBottom, state, phase);
+    // POSITIONING slice 4 — children in §E.2 order (buckets 3–7). On the common
+    // path (`stack === null`) this is the old children-loop + paintAbsoluteChildren.
+    // Abs-pos children whose abc is THIS box are reached here (via the partition's
+    // abs walk, or the common-path `paintAbsoluteChildren`) with the SAME parent
+    // origin (absX/absY, incl. any relativeOffset) the box uses for `children`.
+    paintContainerChildren(ctx, box, stack, absX, absY, visibleTop, visibleBottom, state, phase);
     return;
   }
 
@@ -897,6 +1131,8 @@ function paintBox(
     // footnote call-marker's superscript glyph). It paints like a block —
     // full-box background + borders (NOT edge-split like an inline fragment) —
     // then recurses into its inner BFC's line boxes.
+    const stack = needsStackingReorder(box) ? partitionStackingChildren(box) : null;
+    paintNegativeZBeforeBackground(ctx, stack, phase, absX, absY, visibleTop, visibleBottom, state);
     if (phase === "background") {
       if (cs.backgroundColor && cs.backgroundColor !== "transparent") {
         ctx.fillStyle = cs.backgroundColor;
@@ -919,10 +1155,7 @@ function paintBox(
     ) {
       paintTabLeader(ctx, box.inlineMeta.leader, absX, absY, box.width, box.height, cs);
     }
-    for (const child of box.children) {
-      paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state, phase);
-    }
-    paintAbsoluteChildren(ctx, box, absX, absY, visibleTop, visibleBottom, state, phase);
+    paintContainerChildren(ctx, box, stack, absX, absY, visibleTop, visibleBottom, state, phase);
     return;
   }
 
@@ -952,17 +1185,19 @@ function paintBox(
   }
 
   if (box.type === "table" || box.type === "table-row") {
-    // Table and table-row just recurse into children (same phase)
-    for (const child of box.children) {
-      paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state, phase);
-    }
-    // A `position:relative`/transformed table (or table-row) can establish an abc;
-    // paint its abs-pos descendants like every other container branch does.
-    paintAbsoluteChildren(ctx, box, absX, absY, visibleTop, visibleBottom, state, phase);
+    // Table and table-row don't paint themselves; recurse children in §E.2 order
+    // (common path = plain document order). A `position:relative`/transformed table
+    // (or table-row) can establish an abc / stacking participants — handled by the
+    // partition. Negative-z bucket-1 children paint before (a table has no own bg).
+    const stack = needsStackingReorder(box) ? partitionStackingChildren(box) : null;
+    paintNegativeZBeforeBackground(ctx, stack, phase, absX, absY, visibleTop, visibleBottom, state);
+    paintContainerChildren(ctx, box, stack, absX, absY, visibleTop, visibleBottom, state, phase);
     return;
   }
 
   if (box.type === "table-cell") {
+    const stack = needsStackingReorder(box) ? partitionStackingChildren(box) : null;
+    paintNegativeZBeforeBackground(ctx, stack, phase, absX, absY, visibleTop, visibleBottom, state);
     if (phase === "background") {
       // Background
       if (cs.backgroundColor && cs.backgroundColor !== "transparent") {
@@ -972,11 +1207,8 @@ function paintBox(
       // Borders
       paintBorders(ctx, us, absX, absY, box.width, box.height);
     }
-    // Recurse into cell content (same phase)
-    for (const child of box.children) {
-      paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state, phase);
-    }
-    paintAbsoluteChildren(ctx, box, absX, absY, visibleTop, visibleBottom, state, phase);
+    // Recurse into cell content in §E.2 order (common path = document order).
+    paintContainerChildren(ctx, box, stack, absX, absY, visibleTop, visibleBottom, state, phase);
     return;
   }
 

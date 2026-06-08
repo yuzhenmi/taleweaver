@@ -12,7 +12,8 @@ export type {
   ListStyleType, ListStylePosition, BoxSizing,
 } from "./style";
 export type { TabAlignment, LeaderStyle, TabStop } from "./tab-stops";
-export type { Position, TransformFn, TransformOrigin } from "./position";
+export type { Position, TransformFn, TransformOrigin, StackingContextRole } from "./position";
+export { computeStackingContextRole } from "./position";
 export type { ComputedStyle } from "./computed-style";
 export type { UsedStyle } from "./used-style";
 export { PROPERTY_META, INITIAL_COMPUTED_STYLE } from "./property-meta";

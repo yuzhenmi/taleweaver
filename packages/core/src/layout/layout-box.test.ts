@@ -590,3 +590,59 @@ describe("assertLayoutBoxConsistent (C1 prevention)", () => {
   });
 });
 
+// POSITIONING slice 4 — `stackingContextRole` is computed DETERMINISTICALLY by the
+// box factory from the box's computedStyle (a POSITIONED box with a non-`auto`
+// z-index, OR opacity<1, OR a non-empty transform → "self"; absent otherwise),
+// so every factory + clone/rebuild path carries it without separate threading.
+describe("LayoutBox stackingContextRole (slice 4)", () => {
+  function csWith(overrides: Partial<ComputedStyle>): ComputedStyle {
+    return { ...INITIAL_COMPUTED_STYLE, ...overrides };
+  }
+  const usFor = (c: ComputedStyle) => computeUsedStyle(c, 100, "indefinite");
+
+  it("a POSITIONED box with a numeric z-index is a stacking context (self)", () => {
+    const c = csWith({ position: "relative", zIndex: 5 });
+    const b = createBlockBox("k", 0, 0, 100, 50, "horizontal-tb", "ltr", c, usFor(c), [], 100);
+    expect(b.stackingContextRole).toBe("self");
+  });
+
+  it("a STATIC box with a numeric z-index is NOT a stacking context (z ignored on static)", () => {
+    // CSS 2.2 §9.9.1 — z-index has no effect on a static box; the position gate
+    // in computeStackingContextRole must reject it.
+    const c = csWith({ position: "static", zIndex: 5 });
+    const b = createBlockBox("k", 0, 0, 100, 50, "horizontal-tb", "ltr", c, usFor(c), [], 100);
+    expect(b.stackingContextRole).toBeUndefined();
+  });
+
+  it("a POSITIONED box with z-index:auto is NOT a stacking context", () => {
+    const c = csWith({ position: "absolute", zIndex: "auto" });
+    const b = createBlockBox("k", 0, 0, 100, 50, "horizontal-tb", "ltr", c, usFor(c), [], 100);
+    expect(b.stackingContextRole).toBeUndefined();
+  });
+
+  it("opacity<1 makes a box a stacking context (forward-compat trigger)", () => {
+    const c = csWith({ opacity: 0.5 });
+    const b = createBlockBox("k", 0, 0, 100, 50, "horizontal-tb", "ltr", c, usFor(c), [], 100);
+    expect(b.stackingContextRole).toBe("self");
+  });
+
+  it("a non-empty transform makes a box a stacking context (forward-compat trigger)", () => {
+    const c = csWith({ transform: [{ fn: "scale", sx: 2, sy: 2 }] });
+    const b = createBlockBox("k", 0, 0, 100, 50, "horizontal-tb", "ltr", c, usFor(c), [], 100);
+    expect(b.stackingContextRole).toBe("self");
+  });
+
+  it("a default (unpositioned, opaque, untransformed) box has NO stacking-context role", () => {
+    const b = createBlockBox("k", 0, 0, 100, 50, "horizontal-tb", "ltr", cs, us, [], 100);
+    expect(b.stackingContextRole).toBeUndefined();
+  });
+
+  it("survives withOffsets / rebuild (deterministic from computedStyle, never dropped on clone)", () => {
+    const c = csWith({ position: "relative", zIndex: 3 });
+    const b = createBlockBox("k", 0, 0, 100, 50, "horizontal-tb", "ltr", c, usFor(c), [], 100);
+    expect(b.stackingContextRole).toBe("self");
+    const moved = withOffsets(b, 10, 20, 100);
+    expect(moved.stackingContextRole).toBe("self");
+  });
+});
+

@@ -1,4 +1,5 @@
-import type { ComputedStyle, UsedStyle } from "../styles";
+import type { ComputedStyle, UsedStyle, StackingContextRole } from "../styles";
+import { computeStackingContextRole } from "../styles";
 import type { LeaderStyle } from "../styles/tab-stops";
 import type { WritingMode, Direction } from "../styles/writing-mode";
 import { logicalToPhysical } from "../styles/writing-mode";
@@ -68,6 +69,20 @@ interface LayoutBoxBase {
   // just BlockBox) because abc-establishment can occur on inline-block / table
   // boxes too; optional → inert on box types that never carry it.
   readonly absoluteChildren?: readonly LayoutBox[];
+
+  // POSITIONING slice 4 — whether this box establishes its own CSS stacking
+  // context (CSS 2.2 §9.9 / Positioned Layout 3). Two-valued: `"self"` when it
+  // does, ABSENT (undefined) otherwise — "none" is the field's absence. Computed
+  // DETERMINISTICALLY from this box's `computedStyle` by `createBoxBase` (a
+  // POSITIONED box with a non-`auto` z-index, OR `opacity < 1`, OR a non-empty
+  // `transform`), so every factory and every clone/rebuild path that re-runs the
+  // factory with the same `computedStyle` carries it automatically — no separate
+  // threading, no clone-drop risk. The painter reads it to detect stacking-context
+  // boundaries and paint such a box ATOMICALLY at its z-position (CSS §E.2).
+  // `undefined` for the overwhelmingly common unpositioned / auto-z / opaque /
+  // untransformed box keeps the §E.2 reorder gate off and the common paint path
+  // byte-identical.
+  readonly stackingContextRole?: StackingContextRole;
 }
 
 export interface BlockBox extends LayoutBoxBase {
@@ -305,6 +320,7 @@ interface BoxBaseFields {
   readonly usedStyle:     Readonly<UsedStyle>;
   readonly relativeOffset?: { readonly dx: number; readonly dy: number };
   readonly absoluteChildren?: readonly LayoutBox[];
+  readonly stackingContextRole?: StackingContextRole;
 }
 
 function createBoxBase(args: {
@@ -343,6 +359,7 @@ function createBoxBase(args: {
     args.writingMode, args.direction, args.containingInlineSize,
     args.containingBlockSize,
   );
+  const stackingContextRole = computeStackingContextRole(args.computedStyle);
   return {
     key: args.key,
     inlineOffset: args.inlineOffset,
@@ -360,6 +377,12 @@ function createBoxBase(args: {
     ...(args.absoluteChildren !== undefined
       ? { absoluteChildren: Object.freeze([...args.absoluteChildren]) }
       : {}),
+    // POSITIONING slice 4 — stacking-context role is a pure function of this box's
+    // computedStyle, computed HERE so every factory and clone/rebuild path picks it
+    // up uniformly (the field is never threaded as a constructor arg → it can never
+    // be dropped on a clone). Spread only when "self" so the common unpositioned box
+    // omits the field entirely (keeping the painter's reorder gate off).
+    ...(stackingContextRole !== undefined ? { stackingContextRole } : {}),
   };
 }
 
