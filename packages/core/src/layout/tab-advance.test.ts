@@ -20,21 +20,25 @@
 import { describe, it, expect } from "vitest";
 import { buildBlock, buildState, inlineContent, text, embed } from "../test-utils/state-builders";
 import { render } from "../render/render";
+import { createElementBox, createTextBox } from "../render/render-node";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
 import { cascadePass } from "../cascade";
 import { layoutTree } from "./dispatch";
 import { layoutBlock } from "./bfc";
+import { layoutInlineContent } from "./ifc";
 import { makeRootContext } from "./layout-context";
 import { resolvePositionedTree } from "./positioned-tree";
 import { createMockShaper } from "./mock-shaper";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
-import type { TabStop } from "../styles";
-import type { LayoutBox, InlineBlockBox } from "./layout-box";
+import type { Style, TabStop } from "../styles";
+import type { Direction } from "../styles/writing-mode";
+import type { LayoutBox, InlineBlockBox, LineBox, TextRunBox } from "./layout-box";
 import type { PageConfig } from "./page-config";
 import { resolvePixelPosition } from "../cursor/cursor-position";
 import { createPosition } from "../state";
 import type { BlockId, State } from "../state";
+import type { RenderNode } from "../render/render-node";
 
 const componentRegistry = createDefaultComponentRegistry();
 const attrRegistry = createDefaultAttrRegistry();
@@ -266,5 +270,185 @@ describe("tab-stops S6 — decimal alignment (first '.' on the stop; right fallb
     const state = tabDoc(stops, "bb");
     const layout = layoutTabDoc(stops, "bb");
     expect(caretX(state, "p", 4, layout)).toBe(100); // "bb" ends at the stop (right fallback)
+  });
+});
+
+// ---------------------------------------------------------------------------
+// S8 — justify suppression + RTL logical-inline advance
+// ---------------------------------------------------------------------------
+
+/**
+ * Lay out a single paragraph from explicit render children (text runs + a tab
+ * inline-block embed) through the IFC, mirroring `ifc-align.test.ts`'s
+ * `layoutPara` but allowing an embedded `metadata.embedType === "tab"`
+ * inline-block — which `tabDoc` cannot express through the state-builders' plain
+ * `embed("tab")` when we also need to control the container width and the inline
+ * base `direction` precisely.
+ *
+ * The tab embed is emitted exactly as the render layer emits it (an
+ * `inline-block` ElementBox with `metadata.embedType: "tab"` and `inlineSize: 0`)
+ * so the IFC's recognition + advance path runs unchanged.
+ */
+function tabRun(key: string, content: string): RenderNode {
+  return createTextBox(key, {}, content);
+}
+
+function tabEmbed(key: string): RenderNode {
+  return createElementBox(
+    key,
+    { display: "inline-block", inlineSize: 0 },
+    [],
+    { embedType: "tab" },
+  );
+}
+
+function layoutParaWithChildren(
+  children: readonly RenderNode[],
+  width: number,
+  style: Style,
+  direction: Direction = "ltr",
+): LineBox[] {
+  const tree = cascadePass(createElementBox("p", { display: "block", ...style }, children));
+  if (tree.type !== "element") throw new Error("expected element");
+  const baseCtx = makeRootContext(INITIAL_COMPUTED_STYLE, width);
+  // The IFC reads the inline base direction from `ctx.direction`; override for
+  // the RTL case (makeRootContext derives it from the root computed style).
+  const ctx = direction === baseCtx.direction ? baseCtx : { ...baseCtx, direction };
+  const result = layoutInlineContent(tree, 0, 0, ctx, shaper);
+  if (result.box === null) throw new Error("layoutInlineContent returned null box");
+  return result.box.children.filter((c): c is LineBox => c.type === "line");
+}
+
+/** Text-run children of a line (visible glyph runs), in inline order. */
+function lineTextRuns(line: LineBox): TextRunBox[] {
+  return line.children.filter((c): c is TextRunBox => c.type === "text-run");
+}
+
+/** The single inline-block tab box on a line (its physical x + frozen width). */
+function lineTabBox(line: LineBox): InlineBlockBox {
+  const tab = line.children.find(
+    (c): c is InlineBlockBox => c.type === "inline-block" && c.inlineMeta?.embedType === "tab",
+  );
+  if (tab === undefined) throw new Error("expected a tab inline-block on the line");
+  return tab;
+}
+
+describe("tab-stops S8 — justify is suppressed on a line containing a tab", () => {
+  // Mock shaper CHAR_W = 8, default tab interval 48.
+  // Children: "a"(8) + tab(default-grid → 48, advance 40) + "bb cc"(40) + "dddd"(32).
+  // W = 100 makes the FIRST line wrap BEFORE "dddd":
+  //   pen: a→8, tab→48, "bb"→64, " "→72, "cc"→88  (≤ 100, fits)
+  //        + "dddd" → 120 > 100 ⇒ wraps. So line 0 = "a<tab>bb cc " (NON-LAST,
+  //   the only line justify would fire on); line 1 = "dddd" (last, never justified).
+  const W = 100;
+  const CHILDREN = [
+    tabRun("t0", "a"),
+    tabEmbed("tab"),
+    tabRun("t1", "bb cc dddd"),
+  ];
+
+  it("keeps the interior inter-word space at its NATURAL width (no stretch) on a tabbed line", () => {
+    const lines = layoutParaWithChildren(CHILDREN, W, {
+      textAlign: "justify",
+      whiteSpace: "normal",
+    });
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    const runs = lineTextRuns(lines[0]);
+    // The interior space between "bb" and "cc" is a standalone run only if
+    // justify split it; suppressed justify leaves "bb cc " merged with the space
+    // at its NATURAL 8px. Assert via geometry: "cc" sits immediately after the
+    // natural-width space, i.e. NOT shifted right by any justify gap.
+    // "bb" starts at the tab stop (48); "bb"=16 → 48..64; natural space 64..72;
+    // "cc" → 72..88. A stretched space would push "cc" past 72.
+    const cc = runs.find((r) => r.text.includes("cc"));
+    if (cc === undefined) throw new Error("expected a 'cc' run on line 0");
+    expect(lines[0].x + cc.x).toBe(72);
+  });
+
+  it("CONTROL: the SAME justified line WITHOUT a tab DOES stretch its interior space", () => {
+    // Drop the tab: "aaaaaa"(48) + "bb cc dddd". Same W=100, same wrap point
+    // before "dddd" (pen: "aaaaaa"→48, "bb"→64, " "→72, "cc"→88; +dddd overflows).
+    // Line 0 = "aaaaaa bb cc " is NON-LAST ⇒ justify fires ⇒ interior spaces
+    // widen, pushing "cc" RIGHT of its natural x (72). This proves the gate (not
+    // a broken justify) is what suppresses stretching in the tabbed case.
+    const lines = layoutParaWithChildren(
+      [tabRun("t0", "aaaaaa"), tabRun("t1", "bb cc dddd")],
+      W,
+      { textAlign: "justify", whiteSpace: "normal" },
+    );
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    const runs = lineTextRuns(lines[0]);
+    const cc = runs.find((r) => r.text === "cc");
+    if (cc === undefined) throw new Error("expected a standalone 'cc' run on line 0");
+    expect(lines[0].x + cc.x).toBeGreaterThan(72); // shifted right by the justify gap
+  });
+});
+
+describe("tab-stops S8 — RTL tab advance is logical-inline (test-lock)", () => {
+  // INVARIANT lock (robust, no brittle exact-pixel mirror): lay out the SAME
+  // "a"<tab>"b" doc LTR and RTL with the SAME explicit left stop and assert the
+  // two LOGICAL-INLINE invariants that prove the tab advance is computed from
+  // the logical pen and projected to physical by the writing-mode axisMap —
+  // NOT computed/applied in physical x:
+  //
+  //   (1) The tab box's LOGICAL advance (its frozen `inlineSize`/width) is
+  //       IDENTICAL across directions (92px either way). The advance magnitude
+  //       depends only on the logical pen + the logical stop position, so it is
+  //       direction-independent. A physical-coord implementation would compute a
+  //       DIFFERENT advance under RTL (mirrored stop), so identical advance ⇒
+  //       logical-inline.
+  //
+  //   (2) The post-tab "b" stays in LOGICAL order after the tab (b = a + 8 + 92
+  //       = a + 100) in BOTH directions — the run "a tab b" is all-LTR content,
+  //       so bidi keeps its visual order intact; and the WHOLE logical run is
+  //       mirrored to the inline-END under RTL: in LTR the content sits at the
+  //       inline-START (a.x = 0); in RTL the axisMap pushes it to the inline-END
+  //       (a.x = lineWidth − contentWidth = 300 − 108 = 192 > 0). That nonzero
+  //       RTL offset is the mirror signature — the advance rode logical→physical
+  //       projection, it was not re-derived in physical space.
+  const W = 300;
+  const STOP: readonly TabStop[] = [{ position: 100, alignment: "left", leader: "none" }];
+  const CHILDREN = [tabRun("t0", "a"), tabEmbed("tab"), tabRun("t1", "b")];
+
+  function paContent(direction: Direction): {
+    tab: InlineBlockBox;
+    aRun: TextRunBox;
+    bRun: TextRunBox;
+  } {
+    const lines = layoutParaWithChildren(CHILDREN, W, { tabStops: STOP }, direction);
+    expect(lines).toHaveLength(1);
+    const line = lines[0];
+    const runs = lineTextRuns(line);
+    const aRun = runs.find((r) => r.text === "a");
+    const bRun = runs.find((r) => r.text === "b");
+    if (aRun === undefined || bRun === undefined) {
+      throw new Error("expected both 'a' and 'b' runs on the line");
+    }
+    return { tab: lineTabBox(line), aRun, bRun };
+  }
+
+  it("LTR: content sits at the inline-start; 'b' is one tab advance (92) past 'a'", () => {
+    const { tab, aRun, bRun } = paContent("ltr");
+    // pen after "a" = 8 → left stop 100 → logical advance = 92.
+    expect(tab.inlineSize).toBe(92);
+    expect(aRun.x).toBe(0); // content at the inline-START (physical left).
+    // "a"(0..8) + tab(8..100) → "b" one full advance past "a": 0 + 8 + 92 = 100.
+    expect(bRun.x).toBe(aRun.x + 8 + tab.inlineSize);
+  });
+
+  it("RTL: the tab's LOGICAL advance is IDENTICAL; the whole run mirrors to the inline-end", () => {
+    const ltr = paContent("ltr");
+    const rtl = paContent("rtl");
+    // (1) advance magnitude is direction-independent (logical-inline).
+    expect(rtl.tab.inlineSize).toBe(ltr.tab.inlineSize); // 92 either way
+    // (2a) intra-run logical order preserved: "b" is still one advance past "a"
+    // (the same +100 relationship as LTR) — the advance is applied in logical
+    // coords, not flipped per-glyph.
+    expect(rtl.bRun.x).toBe(rtl.aRun.x + 8 + rtl.tab.inlineSize);
+    // (2b) MIRROR signature: the content block is pushed to the inline-END under
+    // RTL (a.x = lineWidth − contentWidth), whereas LTR pins it at 0. content
+    // width = "a"(8) + tab(92) + "b"(8) = 108 → RTL a.x = 300 − 108 = 192.
+    expect(ltr.aRun.x).toBe(0);
+    expect(rtl.aRun.x).toBe(W - (8 + rtl.tab.inlineSize + 8)); // 192
   });
 });

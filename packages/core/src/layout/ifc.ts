@@ -542,6 +542,13 @@ function justifyUnits(
   lineInlineSize: number,
   contentWidth: number,
 ): readonly WrapUnit[] {
+  // Tab stops S8: Google Docs does NOT stretch a line that contains a tab. The
+  // tab advances already position content to the stops; widening the inter-word
+  // spaces would displace that content from its stops. Return the line units
+  // UNCHANGED whenever any unit on the line is a tab. (Placed before any gap
+  // computation so a tabbed line is byte-identical to its non-justified layout.)
+  if (units.some((u) => u.isTab === true)) return units;
+
   const gap = lineInlineSize - contentWidth;
   if (gap <= 0 || units.length === 0) return units;
 
