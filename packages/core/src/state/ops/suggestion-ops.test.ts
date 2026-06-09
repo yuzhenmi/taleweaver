@@ -16,7 +16,13 @@
  * identity no-ops short-circuit (return the same State reference).
  */
 import { describe, it, expect } from "vitest";
-import { markFormatting, markDeletion, mintInsertion } from "./suggestion-ops";
+import {
+  markFormatting,
+  markDeletion,
+  mintInsertion,
+  acceptSuggestion,
+  rejectSuggestion,
+} from "./suggestion-ops";
 import {
   getSuggestions,
   writeSuggestionRecordInTx,
@@ -840,5 +846,277 @@ describe("mintInsertion — identity no-op", () => {
     const r = mintInsertion(s, createPosition("p" as BlockId, 3), "", {}, INS_INPUT);
     expect(r.state).toBe(s);
     expect(r.dirtyIds.size).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// acceptSuggestion / rejectSuggestion (slice 3d-i) — resolve ONE suggestion by
+// id: apply it for real (accept) or discard it (reject), then delete the
+// record. NON-undoable (Google Docs convention).
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("acceptSuggestion / rejectSuggestion — insertion", () => {
+  it("accept STRIPS the insertion id (the run becomes plain text), text stays", () => {
+    // mintInsertion "XY" at offset 3 → "abcXYdef" tagged with INS_SID.
+    const minted = mintInsertion(
+      oneBlock(),
+      createPosition("p" as BlockId, 3),
+      "XY",
+      {},
+      INS_INPUT,
+    ).state;
+    expect(insertedRunAttr(minted)).toBe(INS_SID);
+
+    const s = acceptSuggestion(minted, INS_SID).state;
+    // Text is preserved; the run is now PLAIN (no insertion id).
+    expect(pText(s)).toBe("abcXYdef");
+    expect(insertedRunAttr(s)).toBeUndefined();
+    // Record gone.
+    expect(getSuggestions(s).length).toBe(0);
+  });
+
+  it("reject DROPS the inserted run (real delete back to original)", () => {
+    const minted = mintInsertion(
+      oneBlock(),
+      createPosition("p" as BlockId, 3),
+      "XY",
+      {},
+      INS_INPUT,
+    ).state;
+    expect(pText(minted)).toBe("abcXYdef");
+
+    const s = rejectSuggestion(minted, INS_SID).state;
+    // "XY" deleted for real → back to "abcdef".
+    expect(pText(s)).toBe("abcdef");
+    expect(insertedRunAttr(s)).toBeUndefined();
+    expect(getSuggestions(s).length).toBe(0);
+  });
+});
+
+describe("acceptSuggestion / rejectSuggestion — deletion", () => {
+  it("accept DROPS the soft-deleted run (real delete of the marked text)", () => {
+    // markDeletion over "bcd" (offsets 1..4) → "abcdef" with "bcd" tagged.
+    const marked = markDeletion(oneBlock(), span(1, 4), DEL_INPUT).state;
+    expect(pText(marked)).toBe("abcdef");
+    expect(deletedRunAttr(marked)).toBe(DEL_SID);
+
+    const s = acceptSuggestion(marked, DEL_SID).state;
+    // "bcd" deleted for real → "aef".
+    expect(pText(s)).toBe("aef");
+    expect(deletedRunAttr(s)).toBeUndefined();
+    expect(getSuggestions(s).length).toBe(0);
+  });
+
+  it("reject STRIPS the deletion id (the text stays, un-tagged)", () => {
+    const marked = markDeletion(oneBlock(), span(1, 4), DEL_INPUT).state;
+
+    const s = rejectSuggestion(marked, DEL_SID).state;
+    // Text fully preserved; no deletion attr remains.
+    expect(pText(s)).toBe("abcdef");
+    expect(deletedRunAttr(s)).toBeUndefined();
+    expect(getSuggestions(s).length).toBe(0);
+  });
+});
+
+describe("acceptSuggestion / rejectSuggestion — formatting", () => {
+  it("accept APPLIES proposedAttrs LIVE and strips the formatting id", () => {
+    // markFormatting over "bcd" (1..4) proposing bold:true on a non-bold run.
+    const marked = markFormatting(oneBlock(), span(1, 4), { bold: true }, INPUT).state;
+    expect(markedRunAttr(marked)).toBe(SID);
+
+    const s = acceptSuggestion(marked, SID).state;
+    expect(getSuggestions(s).length).toBe(0);
+    // The in-range run is now LIVE bold and carries NO formatting id.
+    const run = pItems(s).find((it) => it.kind === "text" && it.text === "bcd");
+    if (run === undefined || run.kind !== "text") {
+      throw new Error("expected the bcd run");
+    }
+    expect(run.attrs.bold).toBe(true);
+    expect(FORMATTING_SUGGESTION_ATTR in run.attrs).toBe(false);
+  });
+
+  it("reject STRIPS the formatting id and leaves live attrs unchanged (proposal discarded)", () => {
+    const marked = markFormatting(oneBlock(), span(1, 4), { bold: true }, INPUT).state;
+
+    const s = rejectSuggestion(marked, SID).state;
+    expect(getSuggestions(s).length).toBe(0);
+    // The proposal was NOT applied: no run is bold, and no formatting id
+    // survives anywhere. (Stripping the id makes the once-marked "bcd" run's
+    // attrs identical to its neighbors, so it re-merges into a single plain
+    // "abcdef" run.)
+    expect(pText(s)).toBe("abcdef");
+    for (const it of pItems(s)) {
+      if (it.kind !== "text") continue;
+      expect("bold" in it.attrs).toBe(false);
+      expect(FORMATTING_SUGGESTION_ATTR in it.attrs).toBe(false);
+    }
+    expect(markedRunAttr(s)).toBeUndefined();
+  });
+});
+
+describe("acceptSuggestion — NON-undoable (invisible to the UndoManager)", () => {
+  it("an accept pushes NO undo step: undo still reverts the prior tracked edit, then nothing remains", () => {
+    // Two blocks: pA carries a tracked, committed formatting edit (the ONLY
+    // undo entry); pB carries an INDEPENDENT suggestion we will accept. The
+    // accept rewrites ONLY pB (a non-undoable SUGGESTION_RESOLVE_ORIGIN txn → no
+    // UndoManager StackItem), so it can neither entangle pA's StackItem nor add
+    // its own. We then assert undo() cleanly reverts the pA edit and that NO
+    // second undo step exists — proving the accept was invisible to the undo
+    // manager. (A same-block design fails because rewriting the block the undo
+    // entry touched detaches that StackItem's content; isolating the accept to a
+    // different block is the clean proof.)
+    const aSid = "fmtA" as SuggestionId;
+    const bSid = "fmtB" as SuggestionId;
+    const twoBlocks = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "pA", lastChildId: "pB" }),
+        buildBlock({
+          id: "pA",
+          type: "paragraph",
+          parentId: "doc",
+          nextSiblingId: "pB",
+          inlineContent: inlineContent([text("aaaaaa")]),
+        }),
+        buildBlock({
+          id: "pB",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "pA",
+          inlineContent: inlineContent([text("bbbbbb")]),
+        }),
+      ],
+    });
+    const spanIn = (block: string, a: number, b: number): Span =>
+      createSpan(createPosition(block as BlockId, a), createPosition(block as BlockId, b));
+    const fmtAttr = (s: State, block: string): unknown => {
+      for (const it of getBlock(s, block as BlockId)?.inlineContent?.items ?? []) {
+        if (it.kind === "text" && it.attrs[FORMATTING_SUGGESTION_ATTR] !== undefined) {
+          return it.attrs[FORMATTING_SUGGESTION_ATTR];
+        }
+      }
+      return undefined;
+    };
+
+    // Seed pB's suggestion BEFORE constructing the History (so the UndoManager,
+    // built over `withB`, never sees this create as an undo entry — it is
+    // irrelevant to the undoability proof; we only need a live suggestion in pB
+    // to accept).
+    const withB = markFormatting(twoBlocks, spanIn("pB", 1, 4), { bold: true }, {
+      id: bSid,
+      author: "alice",
+      createdAt: 1,
+    }).state;
+
+    const history = createHistory(withB);
+
+    // The ONE tracked, committed undo entry: a formatting suggestion in pA.
+    history.beginEntry("command", 100);
+    const markedA = markFormatting(withB, spanIn("pA", 1, 4), { italic: true }, {
+      id: aSid,
+      author: "alice",
+      createdAt: 2,
+    });
+    history.commit(markedA, { before: null, after: null });
+    const s1 = markedA.state;
+    expect(fmtAttr(s1, "pA")).toBe(aSid);
+    expect(getSuggestions(s1).length).toBe(2);
+
+    // Close the open undo group BEFORE the non-undoable resolve, so the untracked
+    // resolve txn cannot merge into it under captureTimeout:MAX (the same
+    // stopCapturing the editor does before any non-coalescing op).
+    history.breakCoalescing();
+    // Accept pB's suggestion — NON-undoable; rewrites ONLY pB. Reconcile cached
+    // state (the resolve txn skipped History.commit).
+    const accepted = acceptSuggestion(s1, bSid);
+    history.advanceState(accepted.state);
+    expect(fmtAttr(accepted.state, "pB")).toBeUndefined(); // applied + stripped in pB
+    expect(getSuggestions(accepted.state).length).toBe(1); // only pA's remains
+
+    // undo() pops the ONLY tracked entry — pA's create — and reverts it cleanly.
+    const undone = history.undo();
+    if (undone === null) throw new Error("expected undo to return a result");
+    expect(fmtAttr(undone.state, "pA")).toBeUndefined(); // pA edit reverted
+    // The accept itself produced NO undo step → no second undo remains.
+    expect(history.canUndo()).toBe(false);
+
+    history.destroy();
+  });
+});
+
+describe("acceptSuggestion / rejectSuggestion — absent record no-op", () => {
+  it("accepting a nonexistent id returns the SAME state reference + empty dirtyIds", () => {
+    const s = oneBlock();
+    const r = acceptSuggestion(s, "nonexistent" as SuggestionId);
+    expect(r.state).toBe(s);
+    expect(r.dirtyIds.size).toBe(0);
+  });
+
+  it("rejecting a nonexistent id returns the SAME state reference + empty dirtyIds", () => {
+    const s = oneBlock();
+    const r = rejectSuggestion(s, "nonexistent" as SuggestionId);
+    expect(r.state).toBe(s);
+    expect(r.dirtyIds.size).toBe(0);
+  });
+
+  it("orphaned-by-presence (record exists but NO run carries its id) deletes the record + advances state", () => {
+    // A record present in the map with NO inline run carrying its id — e.g. a
+    // collab peer stripped the tags first, or a footnote-body suggestion the
+    // main-tree scan can't reach. Distinct from the absent-record path (which
+    // returns early): here the block scan finds nothing, so the resolve must
+    // surface state.rootId so the record-delete still advances state (not a stale
+    // identity return that would leave a zombie record forever).
+    const orphan = "orphan" as SuggestionId;
+    const seeded = applyOperation(oneBlock(), (doc) => {
+      writeSuggestionRecordInTx(doc, {
+        id: orphan,
+        kind: "deletion",
+        author: "alice",
+        createdAt: 1,
+      });
+    }).state;
+    expect(getSuggestions(seeded).length).toBe(1);
+
+    const r = acceptSuggestion(seeded, orphan);
+    expect(r.state).not.toBe(seeded); // state advanced (not an identity no-op)
+    expect(r.dirtyIds.size).toBeGreaterThan(0);
+    expect(getSuggestions(r.state).length).toBe(0); // the dangling record is gone
+  });
+});
+
+describe("acceptSuggestion / rejectSuggestion — multi-block deletion (write loop over >1 block)", () => {
+  it("accept DROPS the tagged runs in BOTH blocks the suggestion spans", () => {
+    // p1="abcdef", p2="ghijkl"; markDeletion across the boundary tags "cdef" in
+    // p1 (offsets 2..6) and "ghij" in p2 (offsets 0..4) with ONE id.
+    const marked = markDeletion(
+      twoBlocks(inlineContent([text("abcdef")]), inlineContent([text("ghijkl")])),
+      createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 4)),
+      DEL_INPUT,
+    ).state;
+
+    const s = acceptSuggestion(marked, DEL_SID).state;
+    // Tagged text removed for real in BOTH blocks.
+    expect(itemsOf(s, "p1").map((it) => (it.kind === "text" ? it.text : "")).join("")).toBe("ab");
+    expect(itemsOf(s, "p2").map((it) => (it.kind === "text" ? it.text : "")).join("")).toBe("kl");
+    expect(getSuggestions(s).length).toBe(0);
+  });
+
+  it("reject STRIPS the deletion id from BOTH blocks (text preserved everywhere)", () => {
+    const marked = markDeletion(
+      twoBlocks(inlineContent([text("abcdef")]), inlineContent([text("ghijkl")])),
+      createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 4)),
+      DEL_INPUT,
+    ).state;
+
+    const s = rejectSuggestion(marked, DEL_SID).state;
+    // Text intact in both blocks; no deletion attr survives anywhere.
+    expect(itemsOf(s, "p1").map((it) => (it.kind === "text" ? it.text : "")).join("")).toBe("abcdef");
+    expect(itemsOf(s, "p2").map((it) => (it.kind === "text" ? it.text : "")).join("")).toBe("ghijkl");
+    for (const id of ["p1", "p2"]) {
+      for (const it of itemsOf(s, id)) {
+        if (it.kind === "text") expect(DELETION_SUGGESTION_ATTR in it.attrs).toBe(false);
+      }
+    }
+    expect(getSuggestions(s).length).toBe(0);
   });
 });

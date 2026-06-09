@@ -691,9 +691,18 @@ in-span preserved untagged (named follow-up). **Slice 3c (`mintInsertion`) shipp
 the INSERT_TEXT/PASTE suggesting-mode op — inserts text carrying
 `insertionSuggestionId` (composing `planInsertText`/`insertTextInTx`) + writes an
 `insertion` record, with insertion-point coalescing (same-author adjacent insertion
-→ reuse id, before-preferred) so a continuous typing run is one suggestion. REMAINING
-(spec §10, slice 3 sub-sliced 3a–3d): 3d accept/reject/acceptAll/rejectAll
-(non-undoable origin + `advanceState`, cross-block reverse-order boundary walk);
+→ reuse id, before-preferred) so a continuous typing run is one suggestion.
+**Slice 3d-i (`acceptSuggestion`/`rejectSuggestion`) shipped:** the single-id
+RESOLVE ops, dispatching by record `kind` (spec §6: accept-insertion strip /
+reject-insertion drop / accept-deletion drop / reject-deletion strip /
+accept-formatting apply-proposed+strip / reject-formatting strip), each a
+**NON-undoable** `applyOperation(...,{origin:SUGGESTION_RESOLVE_ORIGIN})` that
+deletes the record (per-owning-block full-replace; the editor handler calls
+`History.advanceState` after). **KNOWN follow-up:** the resolve scan +
+`buildSuggestionRangeIndex` are MAIN-TREE-ONLY (footnote/header-body suggestions
+aren't surfaced/resolved — a pre-existing slice-2 read-scope limit; multi-tree is a
+one-place scan enhancement). REMAINING (spec §10, slice 3 sub-sliced 3a–3d):
+3d-ii `acceptAll`/`rejectAll` (batched combined-per-block rewrite);
 4 editor actions + `EditorConfig.suggestingAuthor` mode;
 5 render (insertion=color+underline, deletion=color+strikethrough, formatting=
 proposedAttrs); 6 host query + overlay; 7 arch docs. See `1.1-state.md` "The

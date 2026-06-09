@@ -6,7 +6,7 @@ import type { Position, Span } from "../block-position";
 import { createSpan } from "../block-position";
 import { spanStart, spanEnd } from "../block-compare";
 import type { ReadonlyAttrs } from "../attrs";
-import { attrsEqual } from "../attrs";
+import { attrsEqual, mergeAttrs } from "../attrs";
 import {
   mergeAdjacentTextItems,
   type InlineItem,
@@ -15,12 +15,15 @@ import {
   DELETION_SUGGESTION_ATTR,
   FORMATTING_SUGGESTION_ATTR,
   INSERTION_SUGGESTION_ATTR,
+  SUGGESTION_RESOLVE_ORIGIN,
   readSuggestionRecord,
   writeSuggestionRecordInTx,
   type SuggestionId,
+  type SuggestionKind,
 } from "../suggestions";
+import { iterateBlocksInDocumentOrder } from "../document-order";
 import { STATE_INTERNAL } from "../state-internal";
-import { getYBlock } from "../yjs-doc";
+import { getSuggestionsMap, getYBlock, type BlockTreeKind } from "../yjs-doc";
 import { buildYInlineContent } from "../y-block";
 import { planApplyAttrsToRange, applyAttrsToRangeInTx } from "./apply-attrs";
 import { planInsertText, insertTextInTx } from "./insert-text";
@@ -345,6 +348,187 @@ export function mintInsertion(
       });
     }
   });
+}
+
+/**
+ * ACCEPT one suggestion by id (Suggesting-mode resolution). Dispatches on the
+ * record's {@link SuggestionKind}:
+ *   - insertion  → STRIP the `insertionSuggestionId` from each tagged run (the
+ *     suggested text becomes plain, permanent text).
+ *   - deletion   → DROP each tagged run (the soft-deleted text is removed FOR
+ *     REAL).
+ *   - formatting → APPLY the record's `proposedAttrs` to each tagged run's LIVE
+ *     attrs AND strip the `formattingSuggestionId` (the proposal lands).
+ * After the content rewrite the record is deleted from the `suggestions` map.
+ *
+ * NON-undoable: the resolve transaction is tagged with
+ * {@link SUGGESTION_RESOLVE_ORIGIN}, so the History's UndoManager (tracking only
+ * `null`-origin txns) fires no StackItem — accepting is a final resolution that
+ * Ctrl+Z cannot revert (Google Docs convention). See {@link resolve}.
+ *
+ * Identity no-op (returns the SAME `state` reference + empty dirtyIds, per the
+ * T7 contract) when no record exists for `id`.
+ */
+export function acceptSuggestion(state: State, id: SuggestionId): OperationResult {
+  return resolve(state, id, "accept");
+}
+
+/**
+ * REJECT one suggestion by id. The inverse resolution of {@link acceptSuggestion}:
+ *   - insertion  → DROP each tagged run (the suggested text never lands).
+ *   - deletion   → STRIP the `deletionSuggestionId` from each tagged run (the
+ *     text stays; the deletion is discarded).
+ *   - formatting → STRIP the `formattingSuggestionId` (the proposal is discarded;
+ *     the run's live attrs are unchanged).
+ * After the rewrite the record is deleted from the `suggestions` map.
+ *
+ * NON-undoable (same {@link SUGGESTION_RESOLVE_ORIGIN} txn tag as accept).
+ * Identity no-op when no record exists for `id`.
+ */
+export function rejectSuggestion(state: State, id: SuggestionId): OperationResult {
+  return resolve(state, id, "reject");
+}
+
+/** What a resolve does to each TAGGED run of the resolved suggestion. */
+type ResolveAction = "strip" | "drop" | "applyStrip";
+
+/** A pre-computed per-owning-block rewrite for a resolve. */
+interface ResolveWrite {
+  readonly blockId: BlockId;
+  readonly kind: BlockTreeKind;
+  readonly items: ReadonlyArray<InlineItem>;
+}
+
+/**
+ * The shared accept/reject implementation. Picks the kind's provenance
+ * `attrKey` and a per-run {@link ResolveAction} from `record.kind` × `mode`
+ * (spec §6), then does a per-OWNING-BLOCK FULL-REPLACE rewrite (mirror of
+ * {@link markDeletion} / `deleteComment`): the new `InlineItem[]` per block is
+ * computed PRE-transaction (pure), then written in ONE
+ * {@link SUGGESTION_RESOLVE_ORIGIN}-tagged (non-undoable) `applyOperation`
+ * transaction that also deletes the record. Only TEXT runs carry suggestion ids
+ * (the create ops never tag embeds), so the scan narrows to `item.kind ===
+ * "text"` before testing `attrs[attrKey]`; embeds are always kept as-is.
+ *
+ * Block writes are tree-map writes (dirty-captured), so dirtyIds flow normally.
+ * The ORPHANED case — the record is present but no MAIN-TREE run carries its id
+ * (already-resolved, or an out-of-main-tree suggestion) — does no block write,
+ * so it surfaces `state.rootId` (mirror of `deleteComment`'s orphaned-by-absence
+ * branch) so the record-delete still advances state.
+ */
+function resolve(
+  state: State,
+  id: SuggestionId,
+  mode: "accept" | "reject",
+): OperationResult {
+  const doc = state[STATE_INTERNAL].doc;
+  const record = readSuggestionRecord(doc, id);
+  // Absent record → identity no-op (return the input State reference).
+  if (record === null) {
+    return { state, dirtyIds: NO_DIRTY };
+  }
+
+  const attrKey = ATTR_KEY_BY_KIND[record.kind];
+  const action = resolveAction(record.kind, mode);
+  const proposedAttrs = record.proposedAttrs ?? {};
+
+  // Compute the per-owning-block rewrites PRE-transaction (pure). The per-block
+  // full-replace from this snapshot is inherently offset-safe (no block merges
+  // happen here), so no reverse-order walk is needed.
+  const writes: ResolveWrite[] = [];
+  for (const block of iterateBlocksInDocumentOrder(state)) {
+    const content = block.inlineContent;
+    if (content === null) continue;
+    let touched = false;
+    const newItems: InlineItem[] = [];
+    for (const item of content.items) {
+      if (item.kind === "text" && item.attrs[attrKey] === id) {
+        touched = true;
+        switch (action) {
+          case "strip":
+            newItems.push({
+              kind: "text",
+              text: item.text,
+              attrs: attrsWithout(item.attrs, attrKey),
+            });
+            break;
+          case "drop":
+            // Omit the run entirely (real delete).
+            break;
+          case "applyStrip":
+            newItems.push({
+              kind: "text",
+              text: item.text,
+              attrs: mergeAttrs(attrsWithout(item.attrs, attrKey), proposedAttrs),
+            });
+            break;
+        }
+        continue;
+      }
+      // Non-touched item (incl. every embed) — keep as-is.
+      newItems.push(item);
+    }
+    if (touched) {
+      writes.push({
+        blockId: block.id,
+        kind: resolveBlock(state, block.id)?.kind ?? "block",
+        items: mergeAdjacentTextItems(newItems),
+      });
+    }
+  }
+
+  return applyOperation(
+    state,
+    (d) => {
+      for (const write of writes) {
+        getYBlock(d, write.blockId, "resolveSuggestion", write.kind).set(
+          "inlineContent",
+          buildYInlineContent({ items: write.items }),
+        );
+      }
+      getSuggestionsMap(d).delete(id);
+      // Orphaned-by-absence: no main-tree run carried the id, so the only
+      // mutation is the record delete (the `suggestions` map is excluded from
+      // dirty-capture). Surface the document root so the delete advances state.
+      if (writes.length === 0) return new Set<BlockId>([state.rootId]);
+    },
+    { origin: SUGGESTION_RESOLVE_ORIGIN },
+  );
+}
+
+/** The provenance attr key carrying a suggestion id for each {@link SuggestionKind}. */
+const ATTR_KEY_BY_KIND: Record<SuggestionKind, string> = {
+  insertion: INSERTION_SUGGESTION_ATTR,
+  deletion: DELETION_SUGGESTION_ATTR,
+  formatting: FORMATTING_SUGGESTION_ATTR,
+};
+
+/**
+ * The per-run {@link ResolveAction} for a `record.kind` × `mode` pair (spec §6):
+ *
+ * | kind        | accept       | reject  |
+ * |-------------|--------------|---------|
+ * | insertion   | strip        | drop    |
+ * | deletion    | drop         | strip   |
+ * | formatting  | applyStrip   | strip   |
+ *
+ * (`applyStrip` is the ONLY action that also merges `proposedAttrs`.)
+ */
+function resolveAction(kind: SuggestionKind, mode: "accept" | "reject"): ResolveAction {
+  switch (kind) {
+    case "insertion":
+      return mode === "accept" ? "strip" : "drop";
+    case "deletion":
+      return mode === "accept" ? "drop" : "strip";
+    case "formatting":
+      return mode === "accept" ? "applyStrip" : "strip";
+  }
+}
+
+/** A copy of `attrs` with `key` omitted (the run loses its provenance id). */
+function attrsWithout(attrs: ReadonlyAttrs, key: string): ReadonlyAttrs {
+  const { [key]: _omit, ...rest } = attrs;
+  return rest;
 }
 
 /** Outcome of {@link rebuildBlockForDeletion}: the new items + whether any run was tagged. */
