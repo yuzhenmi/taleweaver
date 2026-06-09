@@ -14,32 +14,36 @@ import {
 } from "@taleweaver/core";
 import { createHtmlDocumentSerializer, HTML_FORMAT } from "@taleweaver/dom";
 
-/** A self-contained fairytale, authored in the human-friendly `taleweaver-html`
- *  format. Original prose (not a reproduction) so the example carries no rights
- *  ambiguity; swap in any public-domain chapter — the wiring is content-agnostic.
- *  Exercises the full supported subset: h1/h2 headings, paragraphs, bold/italic/
- *  link marks, an ordered + unordered list, hard breaks, and an embedded RTL
- *  phrase (the engine's UAX-9 bidi reorders it from the text alone). */
-export const FAIRYTALE_HTML = `<h1>The Lantern-Keeper's Daughter</h1>
-<p>On the edge of the world, where the cliffs lean out over a <strong>restless grey sea</strong>, there stood a lighthouse no taller than a barn. Its keeper was an old man named Orin, and his daughter, <em>Maren</em>, who could mend any broken thing with patience and a length of copper wire.</p>
-<p>Each night Orin climbed the narrow stair to light the great lamp, and each night the lamp burned a little dimmer. "It is only tired," he would say. But Maren knew that tired things, like tired people, need more than kind words.</p>
-<h2>The Three Gifts of the Tide</h2>
-<p>One morning the sea left three gifts on the shingle, as the sea sometimes does for those who watch it closely:</p>
+/** "Little Red Riding Hood" (Brothers Grimm, "Little Red-Cap") — a well-known
+ *  PUBLIC-DOMAIN fairytale, authored in the human-friendly `taleweaver-html`
+ *  format and loaded through the `taleweaver-html` serializer. Public domain, so
+ *  the example carries no rights ambiguity; swap in any public-domain chapter —
+ *  the wiring is content-agnostic. Exercises the full supported subset: h1/h2
+ *  headings, paragraphs, bold/italic/link marks, an ordered + unordered list,
+ *  hard breaks (the famous call-and-response), and an embedded RTL phrase (the
+ *  engine's UAX-9 bidi reorders it from the text alone). */
+export const FAIRYTALE_HTML = `<h1>Little Red Riding Hood</h1>
+<p>Once upon a time there was a dear little girl who was loved by everyone who looked at her, but most of all by her grandmother. Once she gave her a little cap of red velvet, which suited her so well that she would never wear anything else; and so she was always called <strong>Little Red Riding Hood</strong>.</p>
+<p>One day her mother said to her: "Come, Little Red Riding Hood, here is a piece of cake and a bottle of wine. Take them to your grandmother, who is ill and weak. Set out before it grows hot, and walk <em>nicely and quietly</em> &mdash; do not run off the path, or you may fall and break the bottle."</p>
+<h2>Into the Wood</h2>
+<p>Now the grandmother lived out in the wood, half a league from the village. As Little Red Riding Hood entered the trees, a <strong>wolf</strong> met her. She did not know what a wicked creature he was, and was not at all afraid of him.</p>
+<p>"Good day, Little Red Riding Hood," said he. "Whither away so early?" She told him she was going to her grandmother, who lived among the three great oak trees beyond the mill. The wolf thought to himself how he might have them both, and walked beside her a while, pointing out the things she might gather:</p>
 <ul>
-<li>a brass key, green with salt and <em>warm to the touch</em>;</li>
-<li>a bottle with a single word inside it, written in a script she could not read &mdash; <strong>שלום</strong>;</li>
-<li>and a lantern that held no flame, yet was somehow never dark.</li>
+<li>the <em>wild flowers</em> nodding in the long grass;</li>
+<li>the birds that sang so sweetly overhead;</li>
+<li>the cool green hush beneath the oaks &mdash; <strong>זאב</strong>, the old tales call him, the wolf who waits.</li>
 </ul>
-<p>Maren carried all three up the winding stair. She fitted the brass key to the lamp's rusted heart, and turned it once.<br>Nothing.<br>She turned it <em>twice</em>, and spoke the word from the bottle aloud, though she did not know its meaning.</p>
-<h2>What the Light Remembered</h2>
-<p>The lamp did not blaze. Instead it <strong>remembered</strong> &mdash; every ship it had ever guided home, every storm it had outlasted, every small boat that had found the harbour by its steady eye. The flameless lantern drank that memory and gave it back as light, soft and certain, the colour of a held breath.</p>
-<p>From that night the lighthouse never dimmed again, and sailors told of a lamp that seemed to <em>know</em> them. If you should ever pass that coast, the keepers say, you have only to do three things:</p>
+<p>While Little Red Riding Hood gathered her nosegay, the wolf ran straight to the grandmother's house and knocked. He swallowed the poor grandmother whole, put on her cap and gown, and lay down in her bed to wait.</p>
+<h2>What Big Eyes You Have</h2>
+<p>When at last the child arrived, she found the door open and the room strangely dim. She drew back the curtains of the bed, and her grandmother looked so very odd that she said:</p>
+<p>"Oh, grandmother, what big <em>ears</em> you have!"<br>"All the better to hear you with, my child."<br>"But, grandmother, what big <em>eyes</em> you have!"<br>"All the better to see you with."<br>"But, grandmother, what big <strong>teeth</strong> you have!"<br>"All the better to eat you with!"</p>
+<p>And scarcely had the wolf said this than he sprang from the bed and swallowed up Little Red Riding Hood too. But a huntsman was passing, and hearing the snores, he cut open the sleeping wolf and freed them both, alive and well. To stay safe in the wood, the child resolved, one had only to remember three things:</p>
 <ol>
-<li>watch the water until it trusts you;</li>
-<li>mend what others would throw away;</li>
-<li>and never let a borrowed light forget where it has been.</li>
+<li>keep to the path your mother sets you;</li>
+<li>never stop to talk with a stranger, however kind his voice;</li>
+<li>and trust the quiet voice inside that whispers when something is wrong.</li>
 </ol>
-<p>As for Maren &mdash; she keeps the lantern still, and the sea, when it is in a giving mood, still leaves her <strong>gifts</strong>. You can read the rest of her story, they say, in the old keepers' logbook, page after salt-stained page. <a href="https://example.com/keepers-log">The keepers' log</a> waits for anyone patient enough to turn the pages.</p>`;
+<p>So Little Red Riding Hood went home, and no one ever did her any harm again. You can read this tale and a hundred more, they say, in the old book of household stories. <a href="https://www.gutenberg.org/ebooks/2591">Grimms' Fairy Tales</a> waits for anyone patient enough to turn the pages.</p>`;
 
 /** Build the initial EditorState for the example from FAIRYTALE_HTML, using the
  *  hook's own config (so the measurer/registries match the live editor). */
