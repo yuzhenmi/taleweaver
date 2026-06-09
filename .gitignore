@@ -5,3 +5,7 @@ dist
 docs
 !docs/architecture
 CLAUDE.md
+
+# Machine / tooling cruft (recurring)
+.DS_Store
+.playwright-mcp/
