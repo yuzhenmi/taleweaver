@@ -79,7 +79,7 @@ engine-level `serializeDocument` / `deserializeDocument` dispatch, with
 LOSSLESS binary serializer (`createBinaryDocumentSerializer`, `BINARY_FORMAT =
 "taleweaver-binary"`) backed by Yjs's native update codec
 (`Y.encodeStateAsUpdate` / `Y.applyUpdate`): one round-trip over the WHOLE
-`Y.Doc` (all three block trees + `listDefs` + `meta` rootId). Decode reads
+`Y.Doc` (all three block trees + `listDefs` + `comments` + `meta` rootId). Decode reads
 `rootId` via the state-private `getMetaRootId` and rebuilds `State` with a fresh
 (derived) snapshot cache; a decoded doc with no rootId throws
 `MalformedDocumentError`. Lives inside `state/` for `STATE_INTERNAL` access; the
@@ -612,6 +612,53 @@ page-mode (layout-dependent), heading-number references (needs heading
 numbering), footnote-number references, bookmarks, captions. Browser smoke of
 the live insertion UX rides the user's in-browser pass.
 
+### Comments `[implemented]`
+
+Google-Docs anchored comments are shipped end-to-end for the v1 main-body entry
+surface: select a range, add a comment thread (author / body / replies /
+resolved), the range highlights, and the anchor survives arbitrary edits
+(typing / delete / split / merge / paste) — orphaning when the whole anchored
+range is deleted.
+
+- **Anchor** (`1.1-state.md`): paired zero-width `comment-start` / `comment-end`
+  marker `EmbedItem`s in inline content, each carrying `properties.commentId`.
+  Markers ARE content, so existing ops move/clone them for free (a slice-0 spike
+  rejected Yjs `RelativePosition`, which orphaned on delete/split/merge). Each
+  marker is one offset / one cursor stop, renders as a zero-width inline-block
+  atom, serializes to `""` (excluded from `extractText`/`getWordCount`), and is
+  STRIPPED on paste. Orphaning is DERIVED by the `buildCommentRangeIndex` marker
+  scan (no eager hook).
+- **Data** (`1.1-state.md`): the `comments` Y.Map — the 5th top-level map
+  (side-table like `listDefs`, NOT in `TREE_MAP_GETTERS`), keyed by `CommentId`;
+  `CommentRecord` with `replies` a `Y.Array<Y.Map>` (CRDT-mergeable). Comment ops
+  (`addComment` / `resolveComment` / `reopenComment` / `deleteComment` /
+  `addReply`, + `getComments`) are NORMAL tracked content ops; the `comments` map
+  is the 5th `Y.UndoManager` scope, so a comment is UNDOABLE AS CONTENT (a
+  deliberate, documented GDocs deviation forced by the marker-anchor + collab-safe
+  via per-origin undo). Side-table-only ops surface `state.rootId` as the dirtyId
+  so they land a committable/undoable entry.
+- **Editing** (`1.7-editor.md`): `ADD_COMMENT` / `RESOLVE_COMMENT` /
+  `REOPEN_COMMENT` / `DELETE_COMMENT` / `ADD_REPLY` actions (all `"command"` undo
+  units; host-injected ids + timestamps). `ADD_COMMENT` no-ops on collapsed /
+  cross-context / non-main-body selections, inserts end- then start-marker, and
+  preserves the visible selection across the +2 marker offsets.
+- **Geometry + overlay**: `getCommentRangeRects` (`cursor/comment-rects.ts`) for
+  margin thread-anchor indicators; the DOM controller's `setCommentHighlights` /
+  `clearCommentHighlights` paint-overlay (`2.1-editor-controller.md` /
+  `2.2-canvas-renderer.md`) — a host-driven amber band, two-stage resolve mirroring
+  find, re-resolved from live state each `update()` (self-healing).
+- **Serialization** (`1.10-serialization.md`): the binary serializer round-trips
+  comments + markers losslessly with no comment-specific code (verified by a
+  `serialize-document.test.ts` case).
+
+Named follow-ups (separable wholes, NOT degradations): commenting inside
+footnote / header / footer bodies (the entry surface — v1 `ADD_COMMENT` is
+main-body-only, the find-searches-main-tree parallel; the marker scan is already
+tree-complete); the thread-panel UI (a host concern; the engine provides the
+queries above); @-mentions / reactions / non-text anchors; the `taleweaver-html`
+serializer dropping comments. Browser smoke of the live add/highlight/orphan UX
+rides the user's in-browser pass.
+
 ### `perf/` `[implemented]`
 
 Flag-gated `markStart` / `markEnd` / `recordSample` / `report` /
@@ -689,12 +736,17 @@ image-cache integration are all present. See
 `paintCanvas` and `paintPage` both work. Viewport culling works. Two
 paint paths (with cache, without cache) both correct. Root short-circuit
 in `walkAndDetectChanges` fires correctly when wired in via the
-controller's paint cache. The overlay band is `background → match
-highlights → selection → text`: the find-match highlight overlay
-(`MatchHighlightRect[]`, #433) paints under the selection tint and under
+controller's paint cache. The overlay band is `background → comment
+highlights → match highlights → selection → text`: the find-match highlight
+overlay (`MatchHighlightRect[]`, #433) paints under the selection tint and under
 text, with `addMatchHighlightDirty` per-page dirty marking so a next/prev
 (active-index change) repaints. The controller's `setFindHighlights` /
-`clearFindHighlights` drive it via a two-stage rect resolution. The
+`clearFindHighlights` drive it via a two-stage rect resolution. The COMMENT
+highlight overlay (`CommentHighlightRect[]`, amber) paints in the bottommost band
+below the find highlights via the same two-stage resolve; the controller's
+`setCommentHighlights` / `clearCommentHighlights` store `{ commentId, active }`
+and re-resolve each comment's range from live state every `update()` (with
+`addCommentHighlightDirty` per-page dirty marking). The
 find SESSION + navigation shipped on top: `findStart`/`findNext`/`findPrev`/
 `findClose` (returning `FindStatus`) run `findMatches`, highlight + cycle
 (wrap) the active match, scroll it into view via the generalized

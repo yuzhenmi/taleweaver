@@ -53,9 +53,12 @@ export function getListDefsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
  * it is intentionally excluded from TREE_MAP_GETTERS / dirty-capture / the
  * snapshot cache. The comment RANGE is NOT stored here: paired zero-width
  * `comment-start`/`comment-end` marker embeds in inline content ARE the anchor
- * (see `state/comments.ts`). UndoManager tracking is added in a later slice
- * (so a comment thread reverts atomically with its markers); slice 1 only seeds
- * + exposes the map, which is unused until the data ops land.
+ * (see `state/comments.ts`). The map IS undo-tracked: `history.ts` adds it as a
+ * Y.UndoManager scope, so a comment thread reverts atomically with its markers
+ * (per-transaction tracking means a pure text edit, which never touches this
+ * map, leaves comments untouched). It is excluded from dirty-capture, so a
+ * comments-only write surfaces `state.rootId` as its dirtyId (the `setListType`
+ * precedent) to advance state and land a committable, undoable entry.
  */
 export function getCommentsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
   return doc.getMap(COMMENTS_KEY) as Y.Map<Y.Map<unknown>>;
@@ -139,9 +142,9 @@ export function allTreeBlockCount(doc: Y.Doc): number {
  *
  * **Not tracked by the History UndoManager.** The `History` class
  * (`history.ts`) constructs its `Y.UndoManager` with the blocks map,
- * the embedContents map, the templateContents map, and the listDefs config
- * side-table as tracked scopes — writes to this meta map are intentionally
- * outside the undo/redo stack.
+ * the embedContents map, the templateContents map, the listDefs config
+ * side-table, and the comments side-table as tracked scopes — writes to this
+ * meta map are intentionally outside the undo/redo stack.
  * The current design relies on the meta map holding only immutable
  * session-level fields (rootId today; possibly format version, doc id,
  * etc. in the future).
