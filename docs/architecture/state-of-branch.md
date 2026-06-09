@@ -288,6 +288,29 @@ Still missing (deferred to P1.C and later):
 - Cross-page floats (P1.D-or-P12; current float environment is single-fragment-aware).
 - Cross-page table header row (`<thead>`) repetition (requires `Display: "table-header-group"` schema addition).
 
+### Multi-column (Format ▸ Columns) `[partial]`
+
+Section-scoped multi-column (the Google-Docs model) is in vocabulary +
+plan-threading only. Shipped: the `ColumnConfig` / `ColumnRule` type
+vocabulary + `DEFAULT_COLUMN_CONFIG` + `columnConfigsEqual`
+(`layout/column-config.ts`); the `resolveColumnConfig` validator that merges
+a section's stamped `columnCount` / `columnGap` / `columnRule` metadata over a
+doc default (`layout/section-column-config.ts`); the `section` component
+stamping those attrs RAW into `ElementBox` metadata; and `section-plan`
+threading the resolved config onto `SectionBoundary.columnConfig` /
+`SectionStateAt.columnConfig`, stamped only when it differs from the doc
+default (the no-override path stays inert), plus exposing the resolved
+doc-wide default as the required `SectionPlan.effectiveDefaultColumns` (the
+fallback slice 2 reads for boundaries with no override) — exactly mirroring
+the per-section `PageConfig` machinery.
+
+Still missing (the layout consumers): the `MultiColumnBox` `LayoutBox`
+variant (N sibling column `BlockBox`es side by side, each a contiguous
+doc-order run); column fragmentation via a `ColumnBreakToken`; column fill +
+balance-last; column-aware cursor/hit-test/line-nav; column-rule paint; the
+`SET_SECTION_COLUMNS` action + toolbar. Until those land, a doc carrying
+column attrs still lays out single-column.
+
 ### Text `[partial]`
 
 `TextShaper` interface defined; `text-tokenize` produces wrap-units

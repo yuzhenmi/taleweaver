@@ -24,6 +24,7 @@ import { buildVirtualPaginatedTree } from "../virtual-producer";
 import { buildBlockFitMetas } from "../build-fit-metas";
 import { measurePass, type SlotInsets } from "../measure-pass";
 import type { SectionPlan } from "../section-plan";
+import { DEFAULT_COLUMN_CONFIG } from "../column-config";
 import { flattenContents } from "../group-children";
 import { collectLineBoxes, type AbsoluteLineBox } from "../../cursor/line-flatten";
 import {
@@ -445,6 +446,7 @@ describe("FN-4.3 D9 — multi-section footnote geometry derives from sectionStat
     // Hand-built section plan: section 1 (implicit, null) for indices 0..3,
     // section 2 (sec2, with its own geometry) from index 4.
     const sectionPlan: SectionPlan = {
+      effectiveDefaultColumns: DEFAULT_COLUMN_CONFIG,
       boundaries: [
         { startFlattenedIndex: 0, sectionId: null },
         { startFlattenedIndex: 4, sectionId: SECTION2_ID, pageConfig: section2Cfg },

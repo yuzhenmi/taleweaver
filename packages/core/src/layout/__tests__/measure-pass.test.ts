@@ -15,6 +15,7 @@ import {
 } from "../measure-pass";
 import type { BlockFitMeta } from "../fit-core";
 import type { PageConfig } from "../page-config";
+import { DEFAULT_COLUMN_CONFIG } from "../column-config";
 import { cascadePass, cascadePassIncremental } from "../../cascade";
 import { createElementBox, createTextBox } from "../../render/render-node";
 import type { ElementBox, RenderNode } from "../../render/render-node";
@@ -952,6 +953,7 @@ describe("measurePass — section incremental reuse gate", () => {
     // start, but s1's status at startIndex 0 (activeSectionId s1, nextBoundaryIndex
     // 3) is UNCHANGED. So page 0 (s1) reuses; the pages from s2 onward refit.
     const sectionPlanB: SectionPlan = {
+      effectiveDefaultColumns: DEFAULT_COLUMN_CONFIG,
       boundaries: [
         { startFlattenedIndex: 0, sectionId: "s1" as BlockId },
         { startFlattenedIndex: 3, sectionId: "s2" as BlockId },
@@ -1005,6 +1007,7 @@ describe("measurePass — per-section page geometry", () => {
     // back to pageIndex*(H+gap) — identical to the IMPLICIT_SECTION_PLAN run.
     const metas = Array.from({ length: 10 }, () => blockMeta(100));
     const uniformPlan: SectionPlan = {
+      effectiveDefaultColumns: DEFAULT_COLUMN_CONFIG,
       boundaries: [{ startFlattenedIndex: 0, sectionId: null }],
     };
     const plan = measurePass(metas, DOC_WIDE_PAGE, uniformPlan);
@@ -1038,6 +1041,7 @@ describe("measurePass — per-section page geometry", () => {
       metas,
       DOC_WIDE_PAGE,
       {
+        effectiveDefaultColumns: DEFAULT_COLUMN_CONFIG,
         boundaries: [
           { startFlattenedIndex: 0, sectionId: null },
           { startFlattenedIndex: 3, sectionId: "s2" as BlockId, pageConfig: TALL_PAGE },
@@ -1070,6 +1074,7 @@ describe("measurePass — per-section page geometry", () => {
       metas,
       DOC_WIDE_PAGE,
       {
+        effectiveDefaultColumns: DEFAULT_COLUMN_CONFIG,
         boundaries: [
           { startFlattenedIndex: 0, sectionId: null },
           { startFlattenedIndex: 3, sectionId: "s2" as BlockId, pageConfig: TALL_PAGE },
@@ -1105,6 +1110,7 @@ describe("measurePass — per-section page geometry", () => {
     };
     const metas = Array.from({ length: 6 }, () => blockMeta(100));
     const shortSectionPlan: SectionPlan = {
+      effectiveDefaultColumns: DEFAULT_COLUMN_CONFIG,
       boundaries: [
         { startFlattenedIndex: 0, sectionId: null },
         { startFlattenedIndex: 3, sectionId: "s2" as BlockId, pageConfig: SHORT_PAGE },
@@ -1163,6 +1169,7 @@ describe("measurePass — per-section geometry incremental reuse gate", () => {
     const metas = Array.from({ length: 6 }, () => blockMeta(100));
     const children = fakeChildren(6);
     const sectionPlan: SectionPlan = {
+      effectiveDefaultColumns: DEFAULT_COLUMN_CONFIG,
       boundaries: [
         { startFlattenedIndex: 0, sectionId: null },
         { startFlattenedIndex: 3, sectionId: "s2" as BlockId, pageConfig: TALL_PAGE },
@@ -1191,6 +1198,7 @@ describe("measurePass — per-section geometry incremental reuse gate", () => {
     const metas = Array.from({ length: 6 }, () => blockMeta(100));
     const children = fakeChildren(6);
     const planUniform: SectionPlan = {
+      effectiveDefaultColumns: DEFAULT_COLUMN_CONFIG,
       boundaries: [
         { startFlattenedIndex: 0, sectionId: null },
         { startFlattenedIndex: 3, sectionId: "s2" as BlockId },
@@ -1203,6 +1211,7 @@ describe("measurePass — per-section geometry incremental reuse gate", () => {
     // New plan: section 2 GAINS a taller geometry. Section 1's page (0) effCfg
     // is unchanged (doc-wide) ⇒ reuses; section 2's page effCfg changed ⇒ refits.
     const planOverridden: SectionPlan = {
+      effectiveDefaultColumns: DEFAULT_COLUMN_CONFIG,
       boundaries: [
         { startFlattenedIndex: 0, sectionId: null },
         { startFlattenedIndex: 3, sectionId: "s2" as BlockId, pageConfig: TALL_PAGE },
@@ -1231,6 +1240,7 @@ describe("measurePass — per-section geometry incremental reuse gate", () => {
     const metas = Array.from({ length: 6 }, () => blockMeta(100));
     const children = fakeChildren(6);
     const planUniform: SectionPlan = {
+      effectiveDefaultColumns: DEFAULT_COLUMN_CONFIG,
       boundaries: [
         { startFlattenedIndex: 0, sectionId: null },
         { startFlattenedIndex: 3, sectionId: "s2" as BlockId },
@@ -1246,6 +1256,7 @@ describe("measurePass — per-section geometry incremental reuse gate", () => {
     // its OFFSET must shift DOWN by the running-sum delta from section 1's
     // taller page; it must NOT keep plan1's offset of 320.
     const planSection1Tall: SectionPlan = {
+      effectiveDefaultColumns: DEFAULT_COLUMN_CONFIG,
       boundaries: [
         { startFlattenedIndex: 0, sectionId: null, pageConfig: TALL_PAGE },
         { startFlattenedIndex: 3, sectionId: "s2" as BlockId },

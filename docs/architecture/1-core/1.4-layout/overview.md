@@ -340,6 +340,11 @@ interface LayoutBoxMetadata {
   readonly pageGap?: unknown;
   readonly headerBlockId?: unknown;
   readonly footerBlockId?: unknown;
+  // Per-section multi-column overrides (Format ▸ Columns) — validated/coerced
+  // by `resolveColumnConfig` (`section-column-config.ts`).
+  readonly columnCount?: unknown;
+  readonly columnGap?: unknown;
+  readonly columnRule?: unknown;
   readonly contentBlockId?: unknown;  // embed-content root id (from embed `properties`)
 }
 ```
@@ -347,8 +352,19 @@ interface LayoutBoxMetadata {
 Producers stamp these keys: the `image` / `horizontalLine` components
 (read by the canvas renderer), the table layout (`columnWidths`, read by
 the Table FC), and `section` / `document` (`blockType` + page-geometry +
-header/footer ids, read by `section-plan`); embed anchors stamp
-`embedType` + `contentBlockId`.
+header/footer ids + multi-column overrides, read by `section-plan`); embed
+anchors stamp `embedType` + `contentBlockId`.
+
+**Multi-column (Format ▸ Columns) — section-scoped, the Google-Docs model.**
+A `section` may declare `columnCount` / `columnGap` / `columnRule` in its
+attrs; `section-column-config.resolveColumnConfig` validates them over a
+doc-default `ColumnConfig` (`column-config.ts`), and `section-plan` threads
+the resolved config onto each `SectionBoundary.columnConfig` — stamped ONLY
+when it differs from the doc default (the no-override path stays inert),
+exactly mirroring the per-section `PageConfig` machinery. The vocabulary +
+plan-threading is in place; the `MultiColumnBox` layout variant + column
+fragmentation that *consume* `columnConfig` are not yet built, so a doc
+carrying column attrs currently still lays out single-column. [partial]
 
 The type **lives in the render layer** (`render/layout-metadata.ts`)
 because both `ElementBox` (render) and `BlockBox` (layout) need it and the

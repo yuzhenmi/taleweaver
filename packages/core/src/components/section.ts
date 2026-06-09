@@ -33,5 +33,11 @@ export const sectionComponent: ContainerComponentDefinition = {
       // `makeSectionBoundary` coerces them (string ⇒ BlockId, else undefined).
       headerBlockId: view.attrs.headerBlockId,
       footerBlockId: view.attrs.footerBlockId,
+      // Per-section multi-column overrides (Format ▸ Columns). Stamped RAW like
+      // the geometry keys; `section-plan`'s `makeSectionBoundary` resolves them
+      // via `resolveColumnConfig`. INERT in slice 1 (no layout consumer yet).
+      columnCount: view.attrs.columnCount,
+      columnGap: view.attrs.columnGap,
+      columnRule: view.attrs.columnRule,
     }),
 };

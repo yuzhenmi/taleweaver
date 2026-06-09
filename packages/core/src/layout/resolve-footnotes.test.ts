@@ -24,6 +24,7 @@ import { makeRootContext } from "./layout-context";
 import { layoutBlock } from "./bfc";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import type { PageConfig } from "./page-config";
+import { DEFAULT_COLUMN_CONFIG } from "./column-config";
 import {
   buildBlockToTopLevelIndex,
   buildFootnotePageAssignment,
@@ -893,6 +894,7 @@ describe("resolveFootnotes — FN-4.4 incremental carry-forward (prevResolvedPla
     // directly (the SECTION_BREAK op would be heavy to drive through measurePass
     // here) so cycle 2's sectionStateAt yields nextBoundaryIndex === 1 at index 0.
     const plan2: SectionPlan = {
+      effectiveDefaultColumns: DEFAULT_COLUMN_CONFIG,
       boundaries: [
         { startFlattenedIndex: 0, sectionId: null },
         { startFlattenedIndex: 1, sectionId: "sec1" as BlockId },

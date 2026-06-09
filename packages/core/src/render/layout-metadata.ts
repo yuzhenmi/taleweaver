@@ -39,6 +39,13 @@ export interface LayoutBoxMetadata {
   readonly pageGap?: unknown;
   readonly headerBlockId?: unknown;
   readonly footerBlockId?: unknown;
+  // Per-section multi-column overrides (Format ▸ Columns). Stamped RAW from the
+  // section's open-schema `attrs` by the `section` component; validated/coerced
+  // at the read boundary (`resolveColumnConfig`). `unknown` for the same honesty
+  // reason as the page-geometry keys above.
+  readonly columnCount?: unknown;
+  readonly columnGap?: unknown;
+  readonly columnRule?: unknown;
   // Embed-anchor markers (FN-2): the embed kind discriminator + the linked
   // embed-content root id. `embedType` is the EmbedItem kind (e.g. the
   // footnote-anchor type); `contentBlockId` rides RAW from the embed's
