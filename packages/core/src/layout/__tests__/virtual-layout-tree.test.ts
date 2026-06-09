@@ -31,6 +31,7 @@ import { measurePass } from "../measure-pass";
 import type { PagePlan, PagePlanEntry } from "../measure-pass";
 import { IMPLICIT_SECTION_PLAN } from "../section-plan";
 import { DEFAULT_COLUMN_CONFIG } from "../column-config";
+import { balanceColumnHeight, fitColumnsOnPage } from "../column-fit";
 import {
   makeVirtualLayoutTree,
   __getGetPageDriverCountForTest,
@@ -508,10 +509,22 @@ describe("VirtualLayoutTree — carry-forward memo", () => {
     // Tree B's plan = tree A's plan with page 0's columnConfig flipped 1 → 2
     // columns; every other field — children refs, resume tokens, offsets,
     // dimensions, list seed, cap — byte-for-byte identical, built against the
-    // SAME rootA. The ONLY fingerprint delta is page 0's column config.
+    // SAME rootA. The ONLY fingerprint delta is page 0's column config. T5
+    // materializes the MultiColumnBox, so the flipped entry must carry the same
+    // `columnFit` + `balancedColumnHeight` the measure pass would stamp for a real
+    // 2-column page-0 (otherwise materialization has no per-column distribution).
+    const metasA = buildBlockFitMetas(rootA, createMockShaper(8, 16), pageConfig.pageInlineSize);
+    const page0Height = planA.entries[0].pageConfig.pageBlockSize; // no margins
+    const balancedHeight = balanceColumnHeight(metasA, 0, planA.entries[0].resumeInto, 2, 1, page0Height);
+    const page0ColumnFit = fitColumnsOnPage(metasA, 0, planA.entries[0].resumeInto, balancedHeight, 2, 1);
     const entriesB: PagePlanEntry[] = planA.entries.map((e) =>
       e.pageIndex === 0
-        ? { ...e, columnConfig: { columnCount: 2, columnGap: 48, columnRule: null } }
+        ? {
+            ...e,
+            columnConfig: { columnCount: 2, columnGap: 48, columnRule: null },
+            columnFit: page0ColumnFit,
+            balancedColumnHeight: balancedHeight,
+          }
         : e,
     );
     const planB: PagePlan = {

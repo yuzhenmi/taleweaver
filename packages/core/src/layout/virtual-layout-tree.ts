@@ -25,8 +25,8 @@ import type { BlockId } from "../state";
 import type { LayoutContext } from "./layout-context";
 import type { TextShaper } from "./text-shaper";
 import type { PageConfig } from "./page-config";
-import type { BlockBox, LayoutBox } from "./layout-box";
-import { createBlockBox, createMarkerBox } from "./layout-box";
+import type { BlockBox, LayoutBox, MultiColumnBox } from "./layout-box";
+import { createBlockBox, createMarkerBox, createMultiColumnBox } from "./layout-box";
 import { physicalizeVertical } from "./physicalize-vertical";
 import { adaptShaperToMeasurer } from "./text-measurer";
 import type { PageBox } from "./page-box";
@@ -82,12 +82,13 @@ export interface VirtualLayoutTree {
 // ---------------------------------------------------------------------------
 // Test-only instrumentation: count per-page `layoutBlock` DRIVER invocations.
 //
-// `getPage` invokes `layoutBlock(root, …)` exactly once per page it positions
-// (the top-level per-page driver call — recursion into children is internal).
+// `getPage` invokes `layoutBlock(root, …)` once per SINGLE-COLUMN page it
+// positions (the top-level per-page driver call — recursion into children is
+// internal). A MULTICOL page (Task 5) drives it N times — once per column track.
 // The Phase-2 guard test asserts that calling only `getPage(19)` on a 20-page
-// tree drives layout ONCE, not 20 times — i.e. positioning page 19 does NOT
-// position pages 0–18. Production code pays one integer increment per page it
-// actually materializes.
+// SINGLE-COLUMN tree drives layout ONCE, not 20 times — i.e. positioning page 19
+// does NOT position pages 0–18. Production code pays one integer increment per
+// per-page body driver call it actually materializes (N for a multicol page).
 // ---------------------------------------------------------------------------
 
 let _getPageDriverCount = 0;
@@ -534,27 +535,150 @@ export function makeVirtualLayoutTree(
     // correctness comes first. `getPage` runs the SAME per-page driver call
     // paginateRoot runs (paginate.ts:213–220), seeded from the PLAN's
     // resumeInto — NOT a sequential previous-page break.
-    _getPageDriverCount++;
-    const { box } = layoutBlock(
-      cascadedRoot,
-      effMargins.inlineStart,
-      // Body origin (#328): the EFFECTIVE top inset, not the raw margin — a tall
-      // header has grown `effectiveTopInset` past `blockStart`, pushing the body
-      // down. For a no-slot page this equals `effMargins.blockStart`.
-      effTopInset,
-      effContentCtx,
-      shaper,
-      {
-        availableBlockSize: effContentBlockSize,
-        pageIndex,
-        resumeFrom: entry.resumeInto,
-        // Section cap (C.2b-1): honor the SAME `stopBeforeIndex` the plan's
-        // `fitOnePage` applied to this page, so positioning stops before the
-        // next section's leading block instead of greedily filling the leftover
-        // room with it. `null` (no next boundary) ⇒ `undefined` ⇒ no cap.
-        stopBeforeIndex: entry.stopBeforeIndex ?? undefined,
-      },
-    );
+    // Multi-column body construction (T5). Build the page's `MultiColumnBox` by
+    // laying the SAME cascaded root into N side-by-side column tracks, each at the
+    // per-column slice the measure pass (`fitColumnsOnPage`) computed. The result
+    // flows downstream EXACTLY like the single-column body box: it becomes
+    // `bodyChildren`, the page's content child, and every box-walker (paint,
+    // `collectLineBoxes`, `physicalizeVertical`, dirty-detect) already has a
+    // "multicolumn" arm descending `columns` (slice 2b).
+    const materializeMultiColumnBody = (
+      mcEntry: PagePlanEntry,
+      cap: number | undefined,
+    ): MultiColumnBox => {
+      // `columnFit` is REQUIRED for a multicol entry (the measure pass stamps it
+      // whenever `columnConfig.columnCount > 1`); its absence is a producer bug.
+      const columnFit = mcEntry.columnFit;
+      if (columnFit === undefined) {
+        throw new Error(
+          `materializePage: multicol page ${pageIndex} (columnCount=` +
+            `${mcEntry.columnConfig.columnCount}) is missing columnFit — the measure ` +
+            `pass must stamp per-column distribution for every multicol page.`,
+        );
+      }
+      const N = mcEntry.columnConfig.columnCount;
+      const gap = mcEntry.columnConfig.columnGap;
+      // Equal track width: the content area minus the (N−1) inter-column gaps,
+      // split N ways (the Google-Docs uniform-column model).
+      const trackInlineSize = (effContentInlineSize - (N - 1) * gap) / N;
+      // Each column is laid into `balancedColumnHeight` (FILL pages: the full body
+      // block-size; the section's final page: the balanced height) — the SAME
+      // per-column height the measure pass distributed against.
+      const columnHeight = mcEntry.balancedColumnHeight;
+      const columnBoxes: BlockBox[] = [];
+      for (let k = 0; k < N; k++) {
+        const fit = columnFit.columns[k];
+        // Column inline-offset: the content inline-start plus k tracks + gaps.
+        // The column box is positioned at this offset (passed as `inlineStart` to
+        // `layoutBlock`), so its children are already in page-content coordinates.
+        const columnInlineStart = effMargins.inlineStart + k * (trackInlineSize + gap);
+        _getPageDriverCount++;
+        const { box: rawColBox, breakToken: colBreakToken } = layoutBlock(
+          cascadedRoot,
+          columnInlineStart,
+          effTopInset,
+          // Override ONLY the inline size to the track width (mirrors the per-page
+          // inline override at the `effContentCtx` computation above — there is no
+          // `makeChildContext` helper in this scope).
+          { ...effContentCtx, containingInlineSize: trackInlineSize },
+          shaper,
+          {
+            availableBlockSize: columnHeight,
+            pageIndex,
+            // Each column resumes from the inner BFC token the measure pass seeded
+            // it with (column 0's is the page's `resumeInto` unwrapped, set inside
+            // `fitColumnsOnPage`; NEVER a column token).
+            resumeFrom: fit.resumeInto,
+            stopBeforeIndex: cap,
+          },
+        );
+        // Measure↔materialize agreement (the classic virtualized-layout hazard): a
+        // column must materialize EXACTLY the slice the measure pass planned. The
+        // resume-out token is the precise, partial-fragment-aware signal of "where
+        // this column stopped" — comparing it to the planned `ColumnFit.resumeOut`
+        // catches any drift (wrong start index, wrong height, wrong cap) that a raw
+        // child-COUNT compare would miss (`childrenCount` counts only WHOLE consumed
+        // children, so a leading/trailing partial fragment makes the box's
+        // `children.length` ambiguous). Dev-only throw; prod never pays.
+        if (isDevMode() && !breakTokensEqual(colBreakToken, fit.resumeOut)) {
+          throw new Error(
+            `materializePage: multicol page ${pageIndex} column ${k} materialized a ` +
+              `resume token that disagrees with the measure pass's planned ColumnFit ` +
+              `(measure-vs-materialize drift) — startIndex=${fit.startIndex}, ` +
+              `columnHeight=${columnHeight}.`,
+          );
+        }
+        // An empty (content-exhausted) column yields a `null` box — produce an
+        // EMPTY column `BlockBox` (zero children, `blockSize: 0`) at the column's
+        // inline/block origin so geometry + paint stay uniform across all N columns.
+        const colBox =
+          rawColBox ??
+          createBlockBox(
+            `${cascadedRoot.key}-mc-p${pageIndex}-col${k}`,
+            columnInlineStart,
+            effTopInset,
+            trackInlineSize,
+            0,
+            ctx.writingMode,
+            ctx.direction,
+            rootComputed,
+            effRootUsedStyle,
+            [],
+            trackInlineSize,
+          );
+        columnBoxes.push(colBox);
+      }
+      // The MultiColumnBox spans the FULL content inline width at the content
+      // origin; its block-size is the ACTUAL rendered column height
+      // (`balancedColumnHeight`), NOT `effContentBlockSize` — they differ for a
+      // short FILL/balanced page (M-2).
+      return createMultiColumnBox(
+        `${cascadedRoot.key}-mc-p${pageIndex}`,
+        effMargins.inlineStart,
+        effTopInset,
+        effContentInlineSize,
+        columnHeight,
+        ctx.writingMode,
+        ctx.direction,
+        rootComputed,
+        effRootUsedStyle,
+        columnBoxes,
+        effContentInlineSize,
+      );
+    };
+
+    // Section cap (C.2b-1): honor the SAME `stopBeforeIndex` the plan's
+    // `fitOnePage` / `fitColumnsOnPage` applied to this page, so positioning stops
+    // before the next section's leading block instead of greedily filling the
+    // leftover room with it. `null` (no next boundary) ⇒ `undefined` ⇒ no cap.
+    // A BLOCK-level cap shared by ALL columns of a multicol section's page.
+    const stopBeforeIndex = entry.stopBeforeIndex ?? undefined;
+    // The body box — a plain `BlockBox` for a single-column page (BYTE-IDENTICAL
+    // to the pre-multicol path: same `layoutBlock` call, same args), or a
+    // `MultiColumnBox` for a multicol section's page (T5). `null` when nothing fit
+    // (guarded downstream identically to the single-column null body).
+    let box: LayoutBox | null;
+    if (entry.columnConfig.columnCount > 1) {
+      box = materializeMultiColumnBody(entry, stopBeforeIndex);
+    } else {
+      _getPageDriverCount++;
+      box = layoutBlock(
+        cascadedRoot,
+        effMargins.inlineStart,
+        // Body origin (#328): the EFFECTIVE top inset, not the raw margin — a tall
+        // header has grown `effectiveTopInset` past `blockStart`, pushing the body
+        // down. For a no-slot page this equals `effMargins.blockStart`.
+        effTopInset,
+        effContentCtx,
+        shaper,
+        {
+          availableBlockSize: effContentBlockSize,
+          pageIndex,
+          resumeFrom: entry.resumeInto,
+          stopBeforeIndex,
+        },
+      ).box;
+    }
     // Wrap exactly as paginate.ts:226–237. The BFC BlockBox can be null
     // (no content fit) — guard it. blockOffset is the plan's RUNNING SUM over
     // the per-page heights before this one (no longer pageIndex*(H+gap), since

@@ -257,7 +257,9 @@ type LayoutBox =
   | MarkerBox       // type: "marker"
   | TableBox        // type: "table"
   | TableRowBox     // type: "table-row"
-  | TableCellBox;   // type: "table-cell"
+  | TableCellBox    // type: "table-cell"
+  | MultiColumnBox  // type: "multicolumn" — N side-by-side column tracks (a multicol page body)
+  | PageBox;        // type: "page"
 ```
 
 All variants extend a common base:
@@ -304,7 +306,7 @@ Per-variant additions:
 | `table` | `children: readonly LayoutBox[]`; `columnPxWidths: readonly number[]`. |
 | `table-row` | `children: readonly LayoutBox[]`. |
 | `table-cell` | `children: readonly LayoutBox[]`. |
-| `multicolumn` | `columns: readonly BlockBox[]` (N side-by-side column boxes, each holding a contiguous doc-order run). A container variant like `table` — its own type so it can carry distinct paint (column-rule), hit-test (column-X filter), and fragmentation (column distribution) semantics. The generic box-walkers descend `columns` (not `children`); a depth-first walk left-to-right emits lines in visual reading order. Multi-column (Format ▸ Columns); the producer that emits one lands in a later slice. |
+| `multicolumn` | `columns: readonly BlockBox[]` (N side-by-side column boxes, each holding a contiguous doc-order run). A container variant like `table` — its own type so it can carry distinct paint (column-rule), hit-test (column-X filter), and fragmentation (column distribution) semantics. The generic box-walkers descend `columns` (not `children`); a depth-first walk left-to-right emits lines in visual reading order. Multi-column (Format ▸ Columns); `materializePage` emits one as a multicol page's body box (each column laid into its `ColumnFit` slice at the balanced height). |
 
 Positions are **parent-relative**. Painters/hit-testers walk the tree accumulating offsets cumulatively.
 
@@ -362,10 +364,16 @@ attrs; `section-column-config.resolveColumnConfig` validates them over a
 doc-default `ColumnConfig` (`column-config.ts`), and `section-plan` threads
 the resolved config onto each `SectionBoundary.columnConfig` — stamped ONLY
 when it differs from the doc default (the no-override path stays inert),
-exactly mirroring the per-section `PageConfig` machinery. The vocabulary +
-plan-threading is in place; the `MultiColumnBox` layout variant + column
-fragmentation that *consume* `columnConfig` are not yet built, so a doc
-carrying column attrs currently still lays out single-column. [partial]
+exactly mirroring the per-section `PageConfig` machinery. The measure pass
+distributes a multicol section's content across N columns per page
+(`column-fit.ts` — FILL each page, BALANCE the section's final page) and
+records the per-page `columnFit` + `balancedColumnHeight` on the
+`PagePlanEntry`; `materializePage` consumes those to build the page's
+`MultiColumnBox` (each column laid into its `ColumnFit` slice at the balanced
+height, side by side at `trackInlineSize = (bodyInlineSize − (N−1)·gap)/N`).
+A single-column section is byte-identical to the pre-multicol body. STILL
+PENDING: the column-rule paint (line-between) and the column-aware cursor
+(hit-test column-X filter + line-nav goal-X remap at a column crossing). [partial]
 
 The type **lives in the render layer** (`render/layout-metadata.ts`)
 because both `ElementBox` (render) and `BlockBox` (layout) need it and the

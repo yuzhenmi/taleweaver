@@ -308,9 +308,9 @@ The `ColumnBreakToken` resume-token vocabulary has also landed: a new
 `"column"` member of the `BreakToken` union (`{ resumeColumnIndex,
 resumeChildToken }`) plus its `breakTokensEqual` arm (compares the column
 index and recurses into the inner BFC child token). This is the LOAD-BEARING
-shared predicate the incremental reuse gates use, added ahead of its producer
-so column resume state compares correctly the moment the distribution loop
-lands. INERT: no producer emits a `ColumnBreakToken` yet.
+shared predicate the incremental reuse gates use. The measure pass's
+`fitColumnsOnPage` now emits a `ColumnBreakToken` to carry last-column overflow
+forward to the next page's column 0.
 
 The `MultiColumnBox` `LayoutBox` variant has landed too: a new
 `type:"multicolumn"` union member with `columns: readonly BlockBox[]` (N
@@ -321,8 +321,8 @@ factory, and a `"multicolumn"` arm at every generic box-walking site that descen
 read later by hit-test/line-nav), `cursor-position`, `table-cell-at-point`,
 `physicalize-vertical`, the canvas painter (`paintBox` + `walkAndDetectChanges`),
 and `paint-cache`. `collectLineBoxes` descending columns left-to-right gives the
-visual-reading-order guarantee for free. INERT: no producer constructs a
-`MultiColumnBox` yet.
+visual-reading-order guarantee for free. `materializePage` constructs a
+`MultiColumnBox` for every multicol page (see the wiring paragraph below).
 
 The pure FILL core has also landed: `fitColumnsOnPage` (`layout/column-fit.ts`)
 distributes one multicol page's content across N equal-height columns by chaining
@@ -332,7 +332,8 @@ guarantee hold), honoring the section cap, leaving short-content trailing column
 empty, and wrapping last-column overflow in a `ColumnBreakToken` for the next
 page. Pure (operates on cached `BlockFitMeta`, positions no boxes); `columnCount
 === 1` reduces to a single `fitOnePage`, so single-column pages are unaffected.
-INERT: no caller wires it into the measure pass / `getPage` yet.
+The measure pass dispatches it for every multicol page and stamps the per-column
+`columnFit` + `balancedColumnHeight` on the `PagePlanEntry`.
 
 The final-page BALANCE refinement (`column-fill: balance`, the Google-Docs/Word
 parity behavior — v1, not optional) has also landed: `balanceColumnHeight`
@@ -341,7 +342,9 @@ page, via a binary search over a monotonic STABLE-FIT oracle (content packs into
 ≤ N columns AND no column overflows past the trial height — the second clause
 defeats the forced-single-box rule that would otherwise collapse the height to
 ~0). This evens short content instead of dumping it into column 0 and leaving
-column 1 empty. Pure; the caller fits at the returned height. INERT.
+column 1 empty. Pure; the caller fits at the returned height. The measure pass
+calls it on a section's final page and re-fits the columns at the balanced
+height, recording it as `PagePlanEntry.balancedColumnHeight`.
 
 Wiring has begun: `PagePlanEntry.columnConfig` (the measure pass's per-page
 effective `ColumnConfig`, resolved from `sectionStateAt(...).columnConfig ??
@@ -352,17 +355,24 @@ predicate (via `columnConfigsEqual(effColCfg, reusable.columnConfig)`, beside th
 `pageConfig` gate) and the cross-tree `PageFingerprint` (a `columnConfig` field
 compared by `columnConfigsEqual` in `fingerprintsEqual`). A column-config change
 between cycles therefore refuses per-page reuse and re-materializes the page —
-exactly as a `pageConfig` change does. Still INERT for the fit itself (no
-`fitColumnsOnPage` dispatch yet, so re-fitting yields the same boundaries); T3
-dispatches `fitColumnsOnPage` on it.
+exactly as a `pageConfig` change does.
 
-Still missing (the rest of the wiring + remaining behavior): wiring `fitColumnsOnPage` /
-`balanceColumnHeight` into the measure pass + `getPage`
-to BUILD the `MultiColumnBox` and thread the `ColumnBreakToken` through the page
-plan + `PageFingerprint`; column-aware hit-test (column-X filter) + line-nav
-(`targetX` remap) that READ the stamped `columnIndex`; column-rule paint; the
-`SET_SECTION_COLUMNS` action + toolbar. Until those land, a doc carrying column
-attrs still lays out single-column.
+`materializePage` (`getPage`) builds the `MultiColumnBox` for every multicol
+page: it lays the cascaded root into N side-by-side column tracks (each at
+`trackInlineSize = (bodyInlineSize − (N−1)·gap)/N`), seeding each column from its
+`ColumnFit.resumeInto` inner token at the `balancedColumnHeight`, and wraps them
+in a `MultiColumnBox` sized to the full content inline width × the balanced
+column height. A dev-only assert compares each materialized column's resume-out
+token to the planned `ColumnFit.resumeOut` (`breakTokensEqual`) to catch
+measure-vs-materialize drift. A single-column page is byte-identical to the
+pre-multicol body box. The `MultiColumnBox` flows downstream like any container
+body box (the `"multicolumn"` walker arms descend `columns`).
+
+Still missing (the rest of the wiring + remaining behavior): column-aware
+hit-test (column-X filter) + line-nav (`targetX` remap) that READ the stamped
+`columnIndex`; column-rule paint; the `SET_SECTION_COLUMNS` action + toolbar.
+Until the cursor work lands, multicol pages render correctly but hit-test /
+line-nav are not yet column-aware.
 
 ### Text `[partial]`
 
