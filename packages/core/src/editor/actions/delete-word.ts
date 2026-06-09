@@ -1,9 +1,10 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { createPosition, createSpan, deleteRange } from "../../state";
+import { createPosition, createSpan, spanEnd } from "../../state";
 import { moveByWord } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
+import { deleteRangeOrSuggest } from "./suggestion-mode";
 
 export function handleDeleteWord(
   editor: EditorState,
@@ -23,9 +24,19 @@ export function handleDeleteWord(
     if (isCrossContextSelection(editor.state, selection)) return editor;
     const start = expandedSpanCollapsePoint(editor.state, selection);
     if (start === null) return editor;
-    const result = deleteRange(editor.state, selection);
+    const result = deleteRangeOrSuggest(editor.state, selection, config);
     if (result.state === editor.state) return editor;
-    const newCursor = createPosition(start.blockId, start.offset);
+    // In suggesting mode a forward word-delete must leave the caret PAST the
+    // struck span (its END) so a repeated Delete strikes the NEXT span rather than
+    // re-targeting the already-struck text (markDeletion coalesces → no-op);
+    // backward keeps the caret at the span START (= `start`). Direct mode always
+    // collapses to `start` (content shrank).
+    const suggesting = (config.suggestingAuthor ?? null) !== null;
+    const collapseTo =
+      suggesting && direction === "forward"
+        ? spanEnd(editor.state, selection)
+        : start;
+    const newCursor = createPosition(collapseTo.blockId, collapseTo.offset);
     const newSelection = createSpan(newCursor, newCursor);
     editor.history.commit(result, {
       before: selection,
@@ -52,9 +63,15 @@ export function handleDeleteWord(
     direction === "backward"
       ? createSpan(target, pos)
       : createSpan(pos, target);
-  const result = deleteRange(editor.state, span);
+  const result = deleteRangeOrSuggest(editor.state, span, config);
   if (result.state === editor.state) return editor;
-  const newCursor = direction === "backward" ? target : pos;
+  // Soft-delete leaves the caret on the FAR edge of the struck span in the
+  // deletion direction. For BACKWARD that far edge IS `target` (the word-boundary
+  // before the caret = span start) in both modes. For FORWARD the far edge is the
+  // span END (`target`, the word-boundary past the caret) so a repeated Delete
+  // strikes the NEXT word; direct mode keeps the existing caret at `pos`.
+  const suggesting = (config.suggestingAuthor ?? null) !== null;
+  const newCursor = direction === "backward" ? target : suggesting ? target : pos;
   const newSelection = createSpan(newCursor, newCursor);
   editor.history.commit(result, {
     before: selection,

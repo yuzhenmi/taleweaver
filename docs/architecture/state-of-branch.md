@@ -724,7 +724,15 @@ helper on the EXPANDED-selection and collapsed MID-BLOCK-char paths, but the car
 advances to the span END (not span start) so repeated Delete strikes successive
 chars; a forward delete at block END (block-merge / section-break removal /
 atomic-leaf delete) is a NO-OP in suggesting mode.
-REMAINING: 4c-iii DELETE_WORD/LINE → markDeletion + the type-over-selection
+4c-iii shipped — `DELETE_WORD` + `DELETE_LINE` SOFT-delete via the same
+`deleteRangeOrSuggest` helper on their EXPANDED-selection and collapsed
+word-span / line paths, completing the delete-handler suggesting wiring (all four:
+backward / forward / word / line). DELETE_WORD applies the directional caret rule
+(forward → span END `target` so repeated word-delete strikes the NEXT word; backward
+→ span START `target`); DELETE_LINE is backward-only (caret at line start in both
+modes). Both are structurally simple — cross-block delete is already a no-op in both
+modes, so no structural gate.
+REMAINING: the type-over-selection
 composite, 4d format handlers →
 markFormatting (+ INLINE_FORMAT_ATTR_KEYS guard), 4e block-split/join embeds
 (SPLIT_NODE + break-delete);

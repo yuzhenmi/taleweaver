@@ -1,9 +1,10 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { createPosition, createSpan, deleteRange } from "../../state";
+import { createPosition, createSpan } from "../../state";
 import { moveToLineBoundary } from "../../cursor/line-navigation";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
+import { deleteRangeOrSuggest } from "./suggestion-mode";
 
 export function handleDeleteLine(
   editor: EditorState,
@@ -22,7 +23,7 @@ export function handleDeleteLine(
     if (isCrossContextSelection(editor.state, selection)) return editor;
     const start = expandedSpanCollapsePoint(editor.state, selection);
     if (start === null) return editor;
-    const result = deleteRange(editor.state, selection);
+    const result = deleteRangeOrSuggest(editor.state, selection, config);
     if (result.state === editor.state) return editor;
     const newCursor = createPosition(start.blockId, start.offset);
     const newSelection = createSpan(newCursor, newCursor);
@@ -55,7 +56,10 @@ export function handleDeleteLine(
   if (lineStart.blockId !== pos.blockId) return editor;
 
   const span = createSpan(lineStart, pos);
-  const result = deleteRange(editor.state, span);
+  // Delete-line is BACKWARD-only (lineStart → caret); the caret stays at the span
+  // start (`lineStart`) in BOTH modes — no directional rule. In suggesting mode
+  // this SOFT-deletes (markDeletion stamps the runs, struck text stays).
+  const result = deleteRangeOrSuggest(editor.state, span, config);
   if (result.state === editor.state) return editor;
   const newCursor = createPosition(lineStart.blockId, lineStart.offset);
   const newSelection = createSpan(newCursor, newCursor);
