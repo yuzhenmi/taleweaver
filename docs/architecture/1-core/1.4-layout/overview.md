@@ -371,9 +371,10 @@ records the per-page `columnFit` + `balancedColumnHeight` on the
 `PagePlanEntry`; `materializePage` consumes those to build the page's
 `MultiColumnBox` (each column laid into its `ColumnFit` slice at the balanced
 height, side by side at `trackInlineSize = (bodyInlineSize − (N−1)·gap)/N`).
-A single-column section is byte-identical to the pre-multicol body. STILL
-PENDING: the column-rule paint (line-between) and the column-aware cursor
-(hit-test column-X filter + line-nav goal-X remap at a column crossing). [partial]
+A single-column section is byte-identical to the pre-multicol body. The
+column-aware cursor has shipped (hit-test column-X filter via
+`column-at-point.ts`; line-nav clamps the goal-X to the target line's column at a
+column crossing). STILL PENDING: the column-rule paint (line-between). [partial]
 
 The type **lives in the render layer** (`render/layout-metadata.ts`)
 because both `ElementBox` (render) and `BlockBox` (layout) need it and the

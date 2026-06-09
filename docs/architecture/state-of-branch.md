@@ -368,19 +368,22 @@ measure-vs-materialize drift. A single-column page is byte-identical to the
 pre-multicol body box. The `MultiColumnBox` flows downstream like any container
 body box (the `"multicolumn"` walker arms descend `columns`).
 
-Column-aware HIT-TEST has landed (slice 3a): `column-at-point.ts`
+Column-aware CURSOR has landed. HIT-TEST (slice 3a): `column-at-point.ts`
 (`locateColumnAtPoint`) finds the clicked column's physical rect, and `hit-test.ts`
 restricts the candidate lines to that rect BEFORE the block-axis band-pick —
 mirroring the `table-cell-at-point` restriction — so a click in column B at a Y
 shared with column A resolves into column B's line (the column filter composes with
-the table-cell filter, column-first). Single-column pages are unaffected
-(`locateColumnAtPoint` returns null → unrestricted pick).
+the table-cell filter, column-first). LINE-NAV (slice 3b): the up/down target line
+is already selected in visual column-flow order (the LineIndex orders multicol lines
+[col0 top→bottom, col1 top→bottom]); `resolveTargetLine` now CLAMPS the preserved
+inline goal to the target line's own inline extent before the hit-test, so a
+cross-column ArrowDown/Up lands on the selected target's column instead of re-picking
+a source-column line (it returns the ORIGINAL goal so Up-undoes-Down returns to the
+original column). Both are no-ops for single-column pages.
 
-Still missing (the rest of the wiring + remaining behavior): column-aware LINE-NAV
-(ArrowUp/Down cross-column visual order + `targetX` remap); column-rule paint; the
+Still missing (the rest of the wiring + remaining behavior): column-rule paint; the
 `SET_SECTION_COLUMNS` action + toolbar; the footnote-bearing FINAL multicol page's
-column BALANCE (T4b). Until line-nav lands, clicking is column-aware but arrowing
-between columns follows document order, not visual column order.
+column BALANCE (T4b).
 
 ### Text `[partial]`
 

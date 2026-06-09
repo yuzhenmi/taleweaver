@@ -325,7 +325,20 @@ function resolveTargetLine(
   target: AbsoluteLineBox,
 ): { position: Position; targetX: number } | null {
   const am = axisMapFor(target.line.writingMode, target.line.computedStyle.direction);
-  const inlineGoal = x;
+  // Multi-column slice 3b: clamp the preserved inline goal to the TARGET line's
+  // inline extent so the hit-test below lands on THIS line's column (after slice
+  // 3a the hit-test restricts candidates to the column containing the click; a
+  // cross-column move's raw goal X is the SOURCE column's X, which would re-pick
+  // a SOURCE-column line at the target's block band). For single-column the goal
+  // already lies within the full-width line (or the hit-test clamps identically),
+  // so this is a no-op. Mode-general: clamp along the INLINE axis (`am.inline`),
+  // reusing the SAME `lineCoordOf`/`lineSizeAlong` helpers used for the block
+  // axis. NOTE: the RETURNED `targetX` stays the ORIGINAL unclamped `x` (below)
+  // so the goal column is preserved across successive moves (Up-undoes-Down
+  // returns to the original column).
+  const lineInlineStart = lineCoordOf(target, am.inline);
+  const lineInlineExtent = lineSizeAlong(target, am.inline);
+  const inlineGoal = Math.max(lineInlineStart, Math.min(x, lineInlineStart + lineInlineExtent));
   // The flow-START block edge of the target line (faces the previous line in
   // flow), so the click sits strictly inside the line's own block band and
   // passes hit-test's strict-`<` band-membership test. Ascending block axis:
