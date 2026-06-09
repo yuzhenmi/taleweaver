@@ -343,7 +343,15 @@ defeats the forced-single-box rule that would otherwise collapse the height to
 ~0). This evens short content instead of dumping it into column 0 and leaving
 column 1 empty. Pure; the caller fits at the returned height. INERT.
 
-Still missing (the wiring + remaining behavior): wiring `fitColumnsOnPage` /
+Wiring has begun: `PagePlanEntry.columnConfig` (the measure pass's per-page
+effective `ColumnConfig`, resolved from `sectionStateAt(...).columnConfig ??
+sectionPlan.effectiveDefaultColumns`, mirroring the per-page `pageConfig`) is now
+stamped on every page-plan entry by both `measurePass` and `resolveFootnotes`.
+INERT so far — no consumer reads it yet (T2 joins it to the fingerprint/reuse
+gate, T3 dispatches `fitColumnsOnPage` on it).
+
+Still missing (the rest of the wiring + remaining behavior): joining `columnConfig`
+to the page-reuse / `PageFingerprint` gate; wiring `fitColumnsOnPage` /
 `balanceColumnHeight` into the measure pass + `getPage`
 to BUILD the `MultiColumnBox` and thread the `ColumnBreakToken` through the page
 plan + `PageFingerprint`; column-aware hit-test (column-X filter) + line-nav

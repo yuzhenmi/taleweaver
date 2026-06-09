@@ -765,6 +765,10 @@ export function resolveFootnotes(
     // `pageBlockSize − topInset − bottomInset`; the footnote slot reduces it
     // further by `footnoteSlotHeight` (D1 — the insets themselves are UNCHANGED).
     const effCfg = st.pageConfig ?? docWidePageConfig;
+    // Effective multi-column config for THIS page (multi-column wiring T1) —
+    // mirrors `effCfg`; the rebuilt entry carries the same value measurePass did
+    // (the reuse gate proved this page's section state equals the prior entry's).
+    const effColCfg = st.columnConfig ?? sectionPlan.effectiveDefaultColumns;
     const sectionInsets = slotInsets?.get(st.activeSectionId ?? null);
     const effTopInset = sectionInsets?.top ?? effCfg.pageMargins.blockStart;
     const effBottomInset = sectionInsets?.bottom ?? effCfg.pageMargins.blockEnd;
@@ -993,6 +997,7 @@ export function resolveFootnotes(
       blockOffset,
       blockSize: effCfg.pageBlockSize,
       pageConfig: effCfg,
+      columnConfig: effColCfg,
       children,
       startIndex,
       resumeInto,

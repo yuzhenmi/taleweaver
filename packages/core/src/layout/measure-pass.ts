@@ -19,6 +19,7 @@ import type { BlockFitMeta } from "./fit-core";
 import { fitOnePage } from "./fit-core";
 import { isDevMode } from "./dev-mode";
 import type { PageConfig } from "./page-config";
+import type { ColumnConfig } from "./column-config";
 import {
   pageConfigsEqual,
   sectionStateAt,
@@ -107,6 +108,15 @@ export interface PagePlanEntry {
    * inline-size / margins off it.
    */
   readonly pageConfig: PageConfig;
+  /**
+   * The EFFECTIVE multi-column config for THIS page (multi-column wiring T1): the
+   * active section's `columnConfig` override if any, else the doc-wide
+   * `sectionPlan.effectiveDefaultColumns`. Mirrors `pageConfig` — always the
+   * resolved value. INERT in T1 (no consumer reads it yet); T2 joins it to the
+   * page-reuse / fingerprint gate, T3 dispatches `fitColumnsOnPage` on it, T5
+   * materializes the `MultiColumnBox` from it.
+   */
+  readonly columnConfig: ColumnConfig;
   /** Cascaded top-level child references that begin/continue on this page. */
   readonly children: readonly RenderNode[];
   /** Index of the first top-level child on this page (into the doc's children). */
@@ -469,6 +479,9 @@ export function measurePass(
     // doc with no override every page resolves to `pageConfig`, so the content
     // size equals the doc-wide `pageContentBlockSize` and the path is inert.
     const effCfg = st.pageConfig ?? pageConfig;
+    // Effective multi-column config for THIS page (mirrors `effCfg`): the active
+    // section's override, else the doc-wide resolved default. INERT in T1.
+    const effColCfg = st.columnConfig ?? sectionPlan.effectiveDefaultColumns;
     // Effective slot insets for THIS page's active section (#328 growing slot).
     // The producer keys `slotInsets` by `activeSectionId`; when absent (no
     // header/footer for the section, or the map was omitted) we fall back to the
@@ -581,6 +594,7 @@ export function measurePass(
           // the reuse gate proved field-equal to `reusable.pageConfig`.
           blockSize: effCfg.pageBlockSize,
           pageConfig: effCfg,
+          columnConfig: effColCfg,
           children: reusedChildren,
           startIndex,
           resumeInto,
@@ -713,6 +727,7 @@ export function measurePass(
       // block-size shaped the fit above.
       blockSize: effCfg.pageBlockSize,
       pageConfig: effCfg,
+      columnConfig: effColCfg,
       children,
       startIndex,
       resumeInto,

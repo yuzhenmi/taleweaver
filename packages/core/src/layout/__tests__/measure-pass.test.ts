@@ -51,6 +51,35 @@ const PAGE: PageConfig = {
   pageGap: 20,
 };
 
+describe("measurePass — per-page columnConfig (multi-column wiring T1)", () => {
+  it("stamps the doc-wide effective columnConfig (single-column default) on every entry", () => {
+    const metas = [blockMeta(100), blockMeta(100), blockMeta(100), blockMeta(100)];
+    const plan = measurePass(metas, PAGE, IMPLICIT_SECTION_PLAN);
+    expect(plan.entries.length).toBeGreaterThan(0);
+    for (const e of plan.entries) {
+      expect(e.columnConfig).toEqual(DEFAULT_COLUMN_CONFIG);
+    }
+  });
+
+  it("stamps a doc-wide 2-column default (effectiveDefaultColumns) onto every entry", () => {
+    const metas = [blockMeta(100), blockMeta(100), blockMeta(100), blockMeta(100)];
+    const twoCol: SectionPlan = {
+      boundaries: [{ startFlattenedIndex: 0, sectionId: null }],
+      effectiveDefaultColumns: { columnCount: 2, columnGap: 48, columnRule: null },
+    };
+    const plan = measurePass(metas, PAGE, twoCol);
+    for (const e of plan.entries) {
+      expect(e.columnConfig.columnCount).toBe(2);
+      expect(e.columnConfig.columnGap).toBe(48);
+    }
+    // INERT in T1: column config does not yet change page boundaries — the plan
+    // is byte-identical to the single-column plan (no fitColumnsOnPage dispatch).
+    const single = measurePass(metas, PAGE, IMPLICIT_SECTION_PLAN);
+    expect(plan.entries.length).toBe(single.entries.length);
+    expect(plan.entries.map((e) => e.startIndex)).toEqual(single.entries.map((e) => e.startIndex));
+  });
+});
+
 describe("measurePass", () => {
   it("single page when all blocks fit", () => {
     const metas = [blockMeta(50), blockMeta(50), blockMeta(50)];
