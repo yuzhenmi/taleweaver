@@ -52,7 +52,7 @@ import {
 import { pageConfigsEqual, sectionStateAt, type SectionPlan } from "./section-plan";
 import type { BreakToken } from "./fragmentation";
 import { breakTokensEqual, innerBfcToken } from "./fragmentation";
-import { fitColumnsOnPage, type ColumnsFitResult } from "./column-fit";
+import { fitColumnsOnPage, balanceColumnHeight, type ColumnsFitResult } from "./column-fit";
 import { isDevMode } from "./dev-mode";
 
 // ---------------------------------------------------------------------------
@@ -1061,9 +1061,50 @@ export function resolveFootnotes(
     // T4: the rendered per-column height — the slot-reduced body height the page's
     // columns FILL into (the final `fitBody` ran at `pageContentBlockSize −
     // footnoteSlotHeight`). Task 5's `materializePage` lays each column into this.
-    // TODO(T4b): a footnote-bearing FINAL multicol page should BALANCE its columns
-    // at the reduced height (balanceColumnHeight), not just FILL. Deferred.
-    resolvedBalancedColumnHeight = pageContentBlockSize - footnoteSlotHeight;
+    const reducedBodyHeight = pageContentBlockSize - footnoteSlotHeight;
+    resolvedBalancedColumnHeight = reducedBodyHeight;
+    // T4b: a footnote-bearing FINAL multicol page BALANCES its columns at the
+    // slot-reduced height (Google Docs / Word `column-fill: balance`), mirroring
+    // measurePass's footnote-FREE final-page balance — without this a page would
+    // lose its balance the moment a footnote landed on it. Finality is EXPLICIT
+    // (matches measurePass's I-1 form): the columns took all the section's
+    // remaining content (`fit.columnFit.pageResumeOut === null`, read PRE-F-1-synth
+    // so a section-capped final page still balances) AND content is exhausted at or
+    // past the section boundary/end. A footnote-CAP-tightened page is NOT final —
+    // its content ends at `footnoteCap < sectionEnd`, so `>= sectionEnd` is false and
+    // this is skipped (the contested block + footnote moved to the next page).
+    // Balance only REDISTRIBUTES the already-placed body more evenly, so the placed
+    // anchor blocks — and thus the converged footnote slot — are unchanged; it is a
+    // pure post-convergence step. The reuse path carries the prior entry's already-
+    // balanced `columnFit`/`balancedColumnHeight`, so it needs no balance here.
+    if (effColCfg.columnCount > 1 && fit.columnFit !== undefined) {
+      const cf = fit.columnFit;
+      const sectionEnd = sectionCap ?? metas.length;
+      const isFinalMulticolPage =
+        cf.pageResumeOut === null && startIndex + cf.totalChildrenCount >= sectionEnd;
+      if (isFinalMulticolPage) {
+        const effCap = tightenCap(sectionCap, footnoteCap);
+        const balancedHeight = balanceColumnHeight(
+          metas, startIndex, innerResumeInto, effColCfg.columnCount,
+          listCounterAtStart, reducedBodyHeight, effCap,
+        );
+        const balanced = fitColumnsOnPage(
+          metas, startIndex, innerResumeInto, balancedHeight,
+          effColCfg.columnCount, listCounterAtStart, effCap,
+        );
+        // Balance must not change WHICH/how-many children are placed (it only evens
+        // the per-column height); assert in dev to catch any drift, then adopt it.
+        if (isDevMode() && balanced.totalChildrenCount !== cf.totalChildrenCount) {
+          throw new Error(
+            `resolveFootnotes: balanced re-fit placed ${balanced.totalChildrenCount} ` +
+              `children but FILL placed ${cf.totalChildrenCount} on final multicol ` +
+              `footnote page ${pageIndex}`,
+          );
+        }
+        resolvedColumnFit = balanced;
+        resolvedBalancedColumnHeight = balancedHeight;
+      }
+    }
     } // end miss path
 
     // Block-axis bookkeeping reasons about the INNER BFC token: a multicol page's

@@ -344,7 +344,16 @@ defeats the forced-single-box rule that would otherwise collapse the height to
 ~0). This evens short content instead of dumping it into column 0 and leaving
 column 1 empty. Pure; the caller fits at the returned height. The measure pass
 calls it on a section's final page and re-fits the columns at the balanced
-height, recording it as `PagePlanEntry.balancedColumnHeight`.
+height, recording it as `PagePlanEntry.balancedColumnHeight`. The footnote sweep
+(`resolveFootnotes`) applies the SAME balance to a footnote-bearing final multicol
+page (T4b): after convergence settles the slot, a final multicol page
+(`fit.columnFit.pageResumeOut === null` read pre-F-1-synth, content exhausted at or
+past the section boundary) re-balances at the SLOT-REDUCED body height
+(`pageContentBlockSize − footnoteSlotHeight`) so a page does not lose its balance
+the moment a footnote lands on it. A footnote-cap-tightened page is not final (its
+content ends at `footnoteCap < sectionEnd`), so it is correctly skipped; balance only
+redistributes already-placed children, so the converged slot is unchanged. The reuse
+path carries the prior entry's already-balanced `columnFit`/`balancedColumnHeight`.
 
 Wiring has begun: `PagePlanEntry.columnConfig` (the measure pass's per-page
 effective `ColumnConfig`, resolved from `sectionStateAt(...).columnConfig ??
@@ -405,8 +414,9 @@ single-column state. It mirrors `TOGGLE_SECTION_LANDSCAPE` (shared
 `resolveActiveSection` parent-walk helper, T7 identity guard, one undo unit) and is
 wired into the example-app toolbar (1 / 2 / 3-column buttons).
 
-Still missing (remaining behavior): the footnote-bearing FINAL multicol page's
-column BALANCE (T4b).
+Multi-column is now feature-complete end-to-end (measure → materialize → paint →
+cursor → user-action → column-rule → footnote-final-page balance). The remaining
+gap is browser smoke verification (T6).
 
 ### Text `[partial]`
 

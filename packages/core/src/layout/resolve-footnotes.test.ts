@@ -1985,4 +1985,53 @@ describe("resolveFootnotes — multicol ColumnBreakToken threading (3.5a)", () =
       expect(span?.first, `b${i} on a page after section 1`).toBeGreaterThan(0);
     }
   });
+
+  it("T4b: a footnote-bearing FINAL multicol page BALANCES its columns at the slot-reduced height", () => {
+    // A short 2-column section whose ONLY page carries a footnote. FILL alone dumps
+    // all of the page's body into column 0 (the slot-reduced height still holds it
+    // all) and leaves column 1 empty — the ugly `column-fill: auto` look. Google
+    // Docs / Word balance the FINAL page (`column-fill: balance`): the body is
+    // re-fit at the minimal even per-column height so BOTH columns carry content,
+    // BELOW the page (where the footnote slot spans the full width). T4b applies
+    // that balance on the footnote sweep's final multicol page too — measurePass
+    // already balances footnote-free final pages, so without T4b a page would lose
+    // its balance the moment a footnote landed on it.
+    const TALL: PageConfig = { ...FN_PAGE, pageBlockSize: 128 };
+    // 4 single-line paras (16px each). availBody = 128 − slotHeight (~29 for a
+    // 1-line footnote) ≈ 99 ⇒ all 4 (64px) FILL into column 0; column 1 empty.
+    const render = fnDoc(Array.from({ length: 4 }, (_, i) => fnPara(`b${i}`)));
+    const { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx, pageConfig } =
+      setupCols(render, new Map([["fn0", fnBody("fn0", 1)]]), TWO_COL, TALL);
+
+    const anchors = [fnAnchor("b0", "fn0")];
+    const out = resolveFootnotes(
+      rawPlan, metas, sectionPlan, rootChildren,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
+    );
+
+    // The section fits on ONE page (its final page), and it carries fn0's slot.
+    expect(out.entries.length).toBe(1);
+    const entry = out.entries[0];
+    expect(entry.footnoteContentBlockIds).toEqual(["fn0" as BlockId]);
+    expect(entry.footnoteSlotHeight).toBeGreaterThan(0);
+
+    const effTopInset = pageConfig.pageMargins.blockStart;
+    const effBottomInset = pageConfig.pageMargins.blockEnd;
+    const pageContentBlockSize = pageConfig.pageBlockSize - effTopInset - effBottomInset;
+    const reducedHeight = pageContentBlockSize - entry.footnoteSlotHeight;
+
+    // BALANCE (T4b): the per-column rendered height is the MINIMAL even height
+    // (≈ 2 paras = 32px), strictly below the slot-reduced FILL height. Without T4b
+    // this equals `reducedHeight` (the page just FILLs into the reduced body).
+    expect(entry.balancedColumnHeight).toBeLessThan(reducedHeight);
+
+    // And the balance spreads the body across BOTH columns (FILL left col 1 empty).
+    const cf = entry.columnFit;
+    expect(cf, "final multicol footnote page keeps its columnFit").toBeDefined();
+    expect(cf?.columns.length).toBe(2);
+    expect(cf?.columns[0].childrenCount, "col 0 non-empty").toBeGreaterThan(0);
+    expect(cf?.columns[1].childrenCount, "col 1 non-empty (balanced, not FILL)").toBeGreaterThan(0);
+    // Balance only REDISTRIBUTES — all 4 paras stay placed (childrenCount invariant).
+    expect(cf?.totalChildrenCount).toBe(4);
+  });
 });
