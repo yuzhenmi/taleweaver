@@ -370,6 +370,24 @@ export class History {
     }
   }
 
+  /**
+   * Advance `currentState` after a NON-undoable change (an accept/reject
+   * suggestion-resolve txn that skipped `commit`). It sets `this.currentState =
+   * newState` ONLY — it does NOT touch the undo/redo stacks, the coalescing
+   * state, or the UndoManager.
+   *
+   * Without this, `currentState` stays pinned at the pre-resolve snapshot, and
+   * the next `undo`/`redo` — which builds via `freshState(this.currentState,
+   * dirtyIds)` — serves any block the resolve changed but the undo did NOT
+   * re-dirty from a STALE snapshot (silently wrong render). It deliberately does
+   * NOT call `commit` (a non-`null`-origin txn fires no UndoManager StackItem
+   * event, so the stacks stay correct; `advanceState` only reconciles the cached
+   * `currentState`).
+   */
+  advanceState(newState: State): void {
+    this.currentState = newState;
+  }
+
   canUndo(): boolean {
     return this.undoManager.canUndo();
   }

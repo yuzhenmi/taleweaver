@@ -342,7 +342,17 @@ export function freshStateFromDoc(state: State): State {
 
 /**
  * Run a mutating `fn` inside a Y.Doc transaction and produce an
- * OperationResult. The returned State has a fresh SnapshotCache built
+ * OperationResult.
+ *
+ * **`options.origin`** (optional) tags the underlying `doc.transact` so the
+ * `History`'s `Y.UndoManager` can decide whether to track the change. Omitting
+ * `options` (the common case) is byte-identical to the pre-origin signature —
+ * Yjs's default `null` origin, which History tracks (undoable). The suggestion
+ * accept/reject ops (slice 3) pass `{ origin: SUGGESTION_RESOLVE_ORIGIN }` so the
+ * resolve is NON-undoable; that caller then reconciles History's cached
+ * `currentState` via `History.advanceState` (the txn skipped `History.commit`).
+ *
+ * The returned State has a fresh SnapshotCache built
  * as an overlay on top of the input state's cache, giving three
  * properties at once:
  *   - **O(dirtyIds.size) per-mutation bookkeeping**: the new cache
@@ -377,13 +387,22 @@ export function freshStateFromDoc(state: State): State {
 export function applyOperation(
   state: State,
   fn: (doc: Y.Doc) => void | ReadonlySet<BlockId>,
+  options?: { readonly origin?: unknown },
 ): OperationResult {
   const internal = state[STATE_INTERNAL];
   const doc = internal.doc;
   let extra: ReadonlySet<BlockId> | undefined;
-  const { dirtyIds: captured } = runTransaction(doc, () => {
-    extra = fn(doc) ?? undefined;
-  });
+  // `options?.origin` (default `undefined`) tags the transaction so the History's
+  // Y.UndoManager can opt the change OUT of undo tracking (the suggestion
+  // accept/reject ops pass SUGGESTION_RESOLVE_ORIGIN). `undefined` is
+  // byte-identical to the pre-origin call (Yjs's default `null` origin, tracked).
+  const { dirtyIds: captured } = runTransaction(
+    doc,
+    () => {
+      extra = fn(doc) ?? undefined;
+    },
+    options?.origin,
+  );
   // Union op-contributed ids (e.g. a listDef-only write → affected-block-ids)
   // with the transaction-captured ids — BEFORE the size===0 short-circuit and
   // BEFORE cache invalidation, so a config-only write that touches no block in

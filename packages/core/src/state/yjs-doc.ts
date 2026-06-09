@@ -342,10 +342,19 @@ export function requireInTransaction(doc: Y.Doc, opName: string): void {
  * instead, mutate raw Y types directly and let the outer caller's
  * `runTransaction` capture dirty ids. Layer 3 ops are the only intended
  * call site.
+ *
+ * **`origin`** (optional) is forwarded to `doc.transact(fn, origin)`. It tags
+ * the transaction so `History`'s `Y.UndoManager` (constructed with
+ * `trackedOrigins: new Set([null])`) can decide whether to track it: the default
+ * (`undefined` → Yjs's `null`) IS tracked (undoable); a non-`null` tag (e.g.
+ * `SUGGESTION_RESOLVE_ORIGIN` from the suggestion accept/reject ops) is NOT, so
+ * the change is non-undoable. `undefined` is byte-identical to the pre-origin
+ * call.
  */
 export function runTransaction(
   doc: Y.Doc,
   fn: () => void,
+  origin?: unknown,
 ): TransactionResult {
   // Reentrancy guard (dev-mode). A nested `runTransaction` silently returns an
   // empty dirtyIds set — Yjs merges the inner `doc.transact` into the outer
@@ -361,7 +370,12 @@ export function runTransaction(
         "directly and let the outer caller's runTransaction capture dirtyIds.",
     );
   }
-  const dirtyIds = captureDirtyIds(doc, () => doc.transact(fn));
+  // Forward `origin` to Yjs (`doc.transact(fn, origin?)`). `undefined` (the
+  // default) is byte-identical to a no-origin call — Yjs treats it as the
+  // default `null` origin, which `History`'s UndoManager tracks. A non-undoable
+  // caller (the slice-3 suggestion accept/reject ops) passes
+  // SUGGESTION_RESOLVE_ORIGIN here so the txn fires no UndoManager StackItem.
+  const dirtyIds = captureDirtyIds(doc, () => doc.transact(fn, origin));
   return { dirtyIds };
 }
 

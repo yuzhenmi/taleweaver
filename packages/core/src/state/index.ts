@@ -340,6 +340,8 @@ export type {
   SuggestionId,
   SuggestionKind,
   SuggestionRecord,
+  SuggestionRange,
+  ResolvedSuggestion,
 } from "./suggestions";
 export {
   INSERTION_SUGGESTION_ATTR,
@@ -347,6 +349,12 @@ export {
   FORMATTING_SUGGESTION_ATTR,
   BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
   BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
+  buildSuggestionRangeIndex,
+  resolveSuggestionRange,
+  getSuggestions,
+  // The Layer-1 origin slice-3's accept/reject ops pass to make the resolve
+  // txn non-undoable; intra-state (consumed by ops), barrel-exposed here.
+  SUGGESTION_RESOLVE_ORIGIN,
 } from "./suggestions";
 
 // History (Y.UndoManager-backed undo/redo with aligned selection stacks).

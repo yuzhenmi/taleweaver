@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import * as Y from "yjs";
 import { createHistory, UNDO_COALESCE_PAUSE_MS, type History } from "./history";
 import { createEmptyDocument } from "./initial-state";
-import { setBlockAttrs } from "./ops/set-block-attrs";
+import { setBlockAttrs, setBlockAttrsInTx } from "./ops/set-block-attrs";
 import { insertText } from "./ops/insert-text";
 import { deleteRange } from "./ops/delete-range";
 import { applyOperation, getBlock } from "./state";
@@ -13,7 +13,8 @@ import { inlineContentLength } from "./inline-content";
 import { extractText } from "./extract-text";
 import type { BlockId } from "./block-id";
 import { STATE_INTERNAL } from "./state-internal";
-import { buildState, buildBlock } from "../test-utils/state-builders";
+import { buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
+import { SUGGESTION_RESOLVE_ORIGIN } from "./suggestions";
 
 describe("Yjs UndoManager no-op behavior (empirical baseline)", () => {
   // Step 1.1 finding (2026-05-22): Yjs SKIPS no-op groups under
@@ -1039,5 +1040,94 @@ describe("History — typing coalescing (#420)", () => {
     if (redone === null) throw new Error("expected redo to succeed");
     // redo restores the caret to AFTER the last keystroke (offset 2).
     expect(redone.selection?.focus.offset).toBe(2);
+  });
+});
+
+describe("History.advanceState — C1 stale-snapshot hazard (slice 2 piece C)", () => {
+  const BLOCK_A = "a" as BlockId;
+  const BLOCK_B = "b" as BlockId;
+
+  /** doc > [ a("AAA"), b("BBB") ] */
+  function twoBlockDoc(): ReturnType<typeof buildState> {
+    return buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "a", lastChildId: "b" }),
+        buildBlock({
+          id: "a",
+          type: "paragraph",
+          parentId: "doc",
+          nextSiblingId: "b",
+          inlineContent: inlineContent([text("AAA")]),
+        }),
+        buildBlock({
+          id: "b",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "a",
+          inlineContent: inlineContent([text("BBB")]),
+        }),
+      ],
+    });
+  }
+
+  /**
+   * A non-undoable resolve that mutates block B: stamps `{ resolved: true }`
+   * onto B's attrs under SUGGESTION_RESOLVE_ORIGIN (the txn the slice-3
+   * accept/reject ops produce — origin-tagged, undo-manager-invisible).
+   */
+  function resolveOnB(state: ReturnType<typeof buildState>) {
+    return applyOperation(
+      state,
+      (doc) => {
+        setBlockAttrsInTx(doc, BLOCK_B, { resolved: true }, "test-resolve");
+        return new Set<BlockId>([BLOCK_B]);
+      },
+      { origin: SUGGESTION_RESOLVE_ORIGIN },
+    );
+  }
+
+  it("after a non-undoable resolve on block B, undoing the prior block-A edit still reflects the resolve in B", () => {
+    const s0 = twoBlockDoc();
+    const history = createHistory(s0);
+
+    // (2) Normal tracked edit on block A: insert "X" at offset 0 → "XAAA".
+    history.beginEntry("insert", 0);
+    const edit1 = insertText(s0, createPosition(BLOCK_A, 0), "X", {});
+    history.commit(edit1, { before: null, after: null });
+
+    // Read block B from the PRE-resolve snapshot so it is CACHED as "BBB" with no
+    // `resolved` attr. This is what makes the C1 staleness observable: a stale
+    // `currentState` then has block B already snapshotted pre-resolve, and the
+    // undo's `freshState(currentState, dirtyIds)` overlay serves that cached
+    // snapshot for any block the undo did not re-dirty (here, B).
+    expect(getBlock(edit1.state, BLOCK_B)?.attrs.resolved).toBeUndefined();
+
+    // (3) Non-undoable resolve that changes block B (origin-tagged, skips commit)
+    // + advanceState to reconcile History's cached currentState to the
+    // POST-resolve snapshot.
+    const resolve = resolveOnB(edit1.state);
+    history.advanceState(resolve.state);
+
+    // (4) Undo the block-A edit from step 2. The undo's dirty set is {A} (only A
+    // was reversed), so block B is served from `currentState`'s overlay base.
+    // With advanceState, that base is the POST-resolve cache → B carries the
+    // resolve. A reverts to "AAA" (length 3).
+    const undone = history.undo();
+    if (undone === null) throw new Error("expected undo to return a result");
+    const blockA = getBlock(undone.state, BLOCK_A);
+    const blockB = getBlock(undone.state, BLOCK_B);
+    if (blockA === null || blockB === null) throw new Error("missing block");
+    if (blockA.inlineContent === null) throw new Error("missing block-A content");
+    expect(inlineContentLength(blockA.inlineContent)).toBe(3); // "AAA"
+    expect(blockB.attrs.resolved).toBe(true);
+    // Proven by manual removal: deleting the `history.advanceState(resolve.state)`
+    // call above makes the `expect(blockB.attrs.resolved).toBe(true)` assertion
+    // FAIL — the undo's `freshState(stale-currentState=edit1.state, {A})` overlays
+    // the PRE-resolve cache (where B was snapshotted above), so block B (not
+    // re-dirtied by the undo) is served the stale no-`resolved` snapshot even
+    // though the live Y.Doc holds the resolve. advanceState reconciles
+    // currentState to the post-resolve cache so the overlay serves the fresh B.
+    // (This is the exact silent-stale-render C1 hazard the design review caught.)
   });
 });

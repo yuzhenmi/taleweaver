@@ -176,11 +176,16 @@ export {
   FORMATTING_SUGGESTION_ATTR,
   BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
   BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
+  buildSuggestionRangeIndex,
+  resolveSuggestionRange,
+  getSuggestions,
 } from "./state";
 export type {
   SuggestionId,
   SuggestionKind,
   SuggestionRecord,
+  SuggestionRange,
+  ResolvedSuggestion,
 } from "./state";
 
 // History (Y.UndoManager-backed)

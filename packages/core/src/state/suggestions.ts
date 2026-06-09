@@ -1,7 +1,12 @@
 import * as Y from "yjs";
 import type { ReadonlyAttrs } from "./attrs";
+import type { State } from "./state";
+import type { Position } from "./block-position";
+import { createPosition } from "./block-position";
+import { iterateBlocksInDocumentOrder } from "./document-order";
 import { buildYAttrs } from "./y-block";
 import { yMapAsObject } from "./y-utils";
+import { STATE_INTERNAL } from "./state-internal";
 import { getSuggestionsMap, requireInTransaction } from "./yjs-doc";
 
 /**
@@ -81,6 +86,28 @@ export const BLOCK_JOIN_SUGGESTION_EMBED_TYPE = "block-join-suggestion";
 export const BLOCK_SPLIT_SUGGESTION_EMBED_TYPE = "block-split-suggestion";
 
 /**
+ * The Y.Doc transaction `origin` slice-3's accept/reject ops pass so the resolve
+ * txn is NON-undoable. The `History` constructs its `Y.UndoManager` with
+ * `trackedOrigins: new Set([null])` — only `null`-origin (default) transactions
+ * are tracked — so a transaction tagged with this symbol fires NO UndoManager
+ * StackItem event and cannot be reverted by `History.undo`. Accepting/rejecting a
+ * suggestion is a final resolution (Google Docs does not let you undo an
+ * accept/reject through the normal Ctrl+Z stack), so it must be invisible to the
+ * undo manager. Passed via `applyOperation(state, fn, { origin:
+ * SUGGESTION_RESOLVE_ORIGIN })` (which forwards it to `runTransaction` →
+ * `doc.transact(fn, origin)`); the caller then reconciles the cached
+ * `currentState` via {@link History.advanceState} (the non-undoable txn skipped
+ * `History.commit`, so `currentState` would otherwise stay pinned at the
+ * pre-resolve snapshot).
+ *
+ * A unique `Symbol` (not a string) keeps the origin from ever colliding with any
+ * future origin tag.
+ */
+export const SUGGESTION_RESOLVE_ORIGIN: unique symbol = Symbol(
+  "suggestion-resolve",
+);
+
+/**
  * Guarded read of a required field out of an untyped Yjs `Y.Map<unknown>` — the
  * suggestions-map mirror of comments.ts's `requireRecordField`. `Y.Map.get`
  * returns `undefined` for an absent key; a bare `as T` would silently widen that
@@ -138,4 +165,193 @@ export function readSuggestionRecord(doc: Y.Doc, id: SuggestionId): SuggestionRe
     });
   }
   return Object.freeze(base);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Range index + read surface (slice 2)
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * A suggestion's resolved RANGE — the span its tagged items cover in document
+ * order. `start` is the position of the FIRST item carrying the id; `end` is the
+ * position JUST AFTER the LAST (i.e. `[start, end)` is the tagged extent). A
+ * suggestion can span multiple contiguous items (a whole inserted run) or even
+ * cross blocks (the same id on text in two paragraphs), in which case `start`
+ * and `end` name positions in different blocks.
+ *
+ * Unlike {@link CommentRange} there is NO `orphaned` field on the range itself:
+ * a suggestion's items ARE its content (not a paired marker pair that can go
+ * one-sided), so the LIVE condition is simply "≥1 item carries the id". Orphaning
+ * is therefore derived purely at the read side ({@link getSuggestions}): a record
+ * whose id tags no item has NO entry in the index → it is reported `orphaned:
+ * true, range: null`. The index thus only ever holds well-formed (non-empty)
+ * ranges.
+ */
+export interface SuggestionRange {
+  readonly start: Position;
+  readonly end: Position;
+}
+
+/** Mutable per-id accumulator used during the single content scan. */
+interface RangeAccumulator {
+  start: Position;
+  end: Position;
+}
+
+/**
+ * Scan the MAIN-TREE inline content ONCE and build the per-suggestion range
+ * index. For every leaf block in document order, accumulate an offset cursor
+ * over its inline items:
+ *   - a `text` item advances the cursor by `text.length`. For each of the three
+ *     suggestion attr keys present in its `attrs`, extend that id's range to
+ *     `[min(start, itemStart), max(end, itemEnd)]`.
+ *   - an `embed` item advances the cursor by 1. If its `embedType` is one of the
+ *     break-suggestion embeds ({@link BLOCK_JOIN_SUGGESTION_EMBED_TYPE} /
+ *     {@link BLOCK_SPLIT_SUGGESTION_EMBED_TYPE}), read `properties.suggestionId`
+ *     and extend that id's range by the embed's 1-offset slot.
+ *
+ * A single id may appear on multiple contiguous items (a whole inserted run) and
+ * across multiple blocks. Because the scan visits items in strictly-monotone
+ * document order (`iterateBlocksInDocumentOrder` × per-block offset cursor), the
+ * FIRST occurrence of an id seeds `start` and every later occurrence only needs
+ * to advance `end` forward — the unconditional overwrite in {@link extend} is
+ * correct precisely because the cursor never moves backward within or across
+ * blocks (no `comparePositions` / min-max needed).
+ *
+ * Returns only ids with ≥1 tagged item. A record with no items is
+ * orphaned-by-absence and surfaced as orphaned at the read side, which holds the
+ * record list. One O(N inline-items) walk, no layout — the mirror of
+ * {@link buildCommentRangeIndex}.
+ */
+export function buildSuggestionRangeIndex(
+  state: State,
+): Map<SuggestionId, SuggestionRange> {
+  const acc = new Map<SuggestionId, RangeAccumulator>();
+
+  for (const block of iterateBlocksInDocumentOrder(state)) {
+    const content = block.inlineContent;
+    if (content === null) continue;
+    let offset = 0;
+    for (const item of content.items) {
+      if (item.kind === "text") {
+        const itemStart = createPosition(block.id, offset);
+        offset += item.text.length;
+        const itemEnd = createPosition(block.id, offset);
+        // A text item may carry up to all three suggestion-id dimensions at
+        // once (insertion-A + deletion-B + formatting-C — distinct ids). Extend
+        // every present id's range.
+        for (const key of SUGGESTION_ATTR_KEYS) {
+          const rawId = item.attrs[key];
+          if (typeof rawId === "string") {
+            extend(acc, rawId as SuggestionId, itemStart, itemEnd);
+          }
+        }
+        continue;
+      }
+      // Embed: contributes one offset unit. A break-suggestion embed carries its
+      // owning id in `properties.suggestionId`.
+      const itemStart = createPosition(block.id, offset);
+      offset += 1;
+      const itemEnd = createPosition(block.id, offset);
+      if (
+        item.embedType === BLOCK_JOIN_SUGGESTION_EMBED_TYPE ||
+        item.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE
+      ) {
+        const rawId = item.properties.suggestionId;
+        if (typeof rawId === "string") {
+          extend(acc, rawId as SuggestionId, itemStart, itemEnd);
+        }
+      }
+    }
+  }
+
+  const index = new Map<SuggestionId, SuggestionRange>();
+  for (const [id, range] of acc) {
+    index.set(id, Object.freeze({ start: range.start, end: range.end }));
+  }
+  return index;
+}
+
+/** The three inline suggestion-id attr keys, iterated by the range scan. */
+const SUGGESTION_ATTR_KEYS = [
+  INSERTION_SUGGESTION_ATTR,
+  DELETION_SUGGESTION_ATTR,
+  FORMATTING_SUGGESTION_ATTR,
+] as const;
+
+/**
+ * Extend the accumulated range for `id` to enclose `[itemStart, itemEnd]`. The
+ * scan visits items in document order, so the first call seeds `start`; later
+ * calls only ever advance `end` forward — but a positional min/max keeps the
+ * result correct regardless. Positions within the same block compare by offset
+ * directly (cheap, no tree walk); the running cursor never moves backward within
+ * a block and blocks are visited in document order, so a same-block offset
+ * compare is the only case that arises.
+ */
+function extend(
+  acc: Map<SuggestionId, RangeAccumulator>,
+  id: SuggestionId,
+  itemStart: Position,
+  itemEnd: Position,
+): void {
+  const existing = acc.get(id);
+  if (existing === undefined) {
+    acc.set(id, { start: itemStart, end: itemEnd });
+    return;
+  }
+  // Document-order monotonicity: the scan only advances, so `itemStart` is never
+  // before `existing.start` and `itemEnd` is never before `existing.end`. We
+  // therefore only need to push `end` forward; `start` stays at the first
+  // occurrence.
+  existing.end = itemEnd;
+}
+
+/**
+ * Resolve a single suggestion's range by content scan, or `null` when no item
+ * carries its id (orphaned-by-absence). Mirror of {@link resolveCommentRange}.
+ */
+export function resolveSuggestionRange(
+  state: State,
+  id: SuggestionId,
+): SuggestionRange | null {
+  return buildSuggestionRangeIndex(state).get(id) ?? null;
+}
+
+/**
+ * A suggestion record combined with its scanned RANGE. `orphaned: true` (with
+ * `range: null`) when the record exists in the `suggestions` map but no item
+ * carries its id — the whole tagged extent was deleted, or the record was
+ * written before any item adopted it. Mirror of {@link ResolvedComment}'s
+ * orphaned-by-absence, except a suggestion's range is `null` when orphaned (a
+ * suggestion has no defensive paired-marker position to fall back on — its items
+ * ARE its content).
+ */
+export interface ResolvedSuggestion extends SuggestionRecord {
+  readonly range: SuggestionRange | null;
+  readonly orphaned: boolean;
+}
+
+/**
+ * The read surface for suggestions: every record in the `suggestions` map joined
+ * with its scanned range. A record whose id tags ≥1 item → `{ ...record, range,
+ * orphaned: false }`; a record whose id tags nothing → `{ ...record, range:
+ * null, orphaned: true }`. One range scan ({@link buildSuggestionRangeIndex})
+ * feeds every record — a single O(N inline-items + N records) pass. Frozen
+ * output, stable iteration order (the `suggestions` map's key order). Mirror of
+ * {@link getComments}.
+ */
+export function getSuggestions(state: State): readonly ResolvedSuggestion[] {
+  const doc = state[STATE_INTERNAL].doc;
+  const rangeIndex = buildSuggestionRangeIndex(state);
+  const out: ResolvedSuggestion[] = [];
+  for (const key of getSuggestionsMap(doc).keys()) {
+    const id = key as SuggestionId;
+    const record = readSuggestionRecord(doc, id);
+    if (record === null) continue;
+    const range = rangeIndex.get(id) ?? null;
+    out.push(
+      Object.freeze({ ...record, range, orphaned: range === null }),
+    );
+  }
+  return Object.freeze(out);
 }
