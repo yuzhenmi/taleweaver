@@ -1,4 +1,4 @@
-import type { Selection, Position, BlockInit, TextMatch, BlockId, CrossReferenceMode, CommentId } from "../state";
+import type { Selection, Position, BlockInit, TextMatch, BlockId, CrossReferenceMode, CommentId, SuggestionId } from "../state";
 import type { TextAlign, TextTransform } from "../styles/style";
 import type { TabStop } from "../styles/tab-stops";
 import type { CounterFormat, FootnoteNumberingPolicy } from "../footnotes";
@@ -90,4 +90,12 @@ export type EditorAction =
       author: string;
       body: string;
       createdAt: number;
-    };
+    }
+  // Change-tracking (Suggesting mode) RESOLVE actions. NON-undoable — the state
+  // ops run a `SUGGESTION_RESOLVE_ORIGIN` txn that fires no UndoManager StackItem
+  // (accept/reject is final, Ctrl+Z cannot revert it — the Google Docs
+  // convention). Classified `"resolve"` in `coalesce-key.ts`.
+  | { type: "ACCEPT_SUGGESTION"; id: SuggestionId }
+  | { type: "REJECT_SUGGESTION"; id: SuggestionId }
+  | { type: "ACCEPT_ALL_SUGGESTIONS" }
+  | { type: "REJECT_ALL_SUGGESTIONS" };

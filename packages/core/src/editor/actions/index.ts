@@ -60,3 +60,9 @@ export {
   handleDeleteComment,
   handleAddReply,
 } from "./comment-actions";
+export {
+  handleAcceptSuggestion,
+  handleRejectSuggestion,
+  handleAcceptAllSuggestions,
+  handleRejectAllSuggestions,
+} from "./suggestion-actions";

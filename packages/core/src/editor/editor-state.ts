@@ -83,6 +83,10 @@ import {
   handleReopenComment,
   handleDeleteComment,
   handleAddReply,
+  handleAcceptSuggestion,
+  handleRejectSuggestion,
+  handleAcceptAllSuggestions,
+  handleRejectAllSuggestions,
 } from "./actions";
 
 import { cascadeTemplateContents, cascadeEmbedContents } from "./actions/helpers";
@@ -298,6 +302,13 @@ export function reduceEditor(
     case "delete":
     case "command":
       editor.history.beginEntry(coalesceClass, (config.now ?? Date.now)());
+      break;
+    case "resolve":
+      // Non-undoable suggestion accept/reject: BREAK the open group (so any
+      // preceding typing commits as its own unit) WITHOUT opening a tracked one —
+      // the resolve op's `SUGGESTION_RESOLVE_ORIGIN` txn fires no StackItem, so
+      // `beginEntry` (the committing arm) would open a group that never fills.
+      editor.history.breakCoalescing();
       break;
     case "selection-break":
       editor.history.breakCoalescing();
@@ -578,6 +589,18 @@ export function reduceEditor(
         action.createdAt,
         config,
       );
+      break;
+    case "ACCEPT_SUGGESTION":
+      result = handleAcceptSuggestion(editor, action.id, config);
+      break;
+    case "REJECT_SUGGESTION":
+      result = handleRejectSuggestion(editor, action.id, config);
+      break;
+    case "ACCEPT_ALL_SUGGESTIONS":
+      result = handleAcceptAllSuggestions(editor, config);
+      break;
+    case "REJECT_ALL_SUGGESTIONS":
+      result = handleRejectAllSuggestions(editor, config);
       break;
     default: {
       action satisfies never;

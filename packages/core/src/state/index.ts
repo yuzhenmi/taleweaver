@@ -356,6 +356,25 @@ export {
   // txn non-undoable; intra-state (consumed by ops), barrel-exposed here.
   SUGGESTION_RESOLVE_ORIGIN,
 } from "./suggestions";
+// Suggesting-mode Layer-3 op surface (the complete feature op set). The three
+// CREATE ops (`markFormatting`/`markDeletion`/`mintInsertion`) mint suggestions
+// from the editor's mutating handlers in Suggesting mode (slice 4b+); the four
+// RESOLVE ops (`acceptSuggestion`/`rejectSuggestion`/`acceptAll`/`rejectAll`)
+// run a `SUGGESTION_RESOLVE_ORIGIN` (non-undoable) transaction.
+export {
+  markFormatting,
+  markDeletion,
+  mintInsertion,
+  acceptSuggestion,
+  rejectSuggestion,
+  acceptAll,
+  rejectAll,
+} from "./ops/suggestion-ops";
+export type {
+  MarkFormattingInput,
+  MarkDeletionInput,
+  MarkInsertionInput,
+} from "./ops/suggestion-ops";
 
 // History (Y.UndoManager-backed undo/redo with aligned selection stacks).
 export type { SelectionEntry, UndoRedoResult, BeginKey } from "./history";
