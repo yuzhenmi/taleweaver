@@ -12,7 +12,7 @@ import type { BlockId } from "../state";
  * BreakTokens are recursive: a BlockBreakToken's resumeChildToken carries
  * the inner FC's break state when a child was itself mid-fragment.
  */
-export type BreakToken = BlockBreakToken | IFCBreakToken | TableBreakToken;
+export type BreakToken = BlockBreakToken | IFCBreakToken | TableBreakToken | ColumnBreakToken;
 
 export interface BlockBreakToken {
   readonly type: "block";
@@ -73,13 +73,45 @@ export interface TableBreakToken {
 }
 
 /**
+ * Multi-column resume token (multi-column slice 2). Columns are an inline-axis
+ * fragmentation sub-axis nested inside page block-axis fragmentation: a page's
+ * `MultiColumnBox` fills its column boxes left-to-right via the existing BFC
+ * fill, and when the LAST column overflows the page is full. The remaining
+ * content's resume state is wrapped in a `ColumnBreakToken` that becomes the
+ * NEXT page's `MultiColumnBox` entry point.
+ *
+ * - `resumeColumnIndex` — the column at which to resume distributing on the next
+ *   page (0-based; the column-distribution loop seeds from here). For a token
+ *   that ends a page, the next page resumes at column 0; the index exists so a
+ *   measure/getPage re-entry can target a specific column deterministically.
+ * - `resumeChildToken` — the inner BFC token for the content that was mid-fill
+ *   when the page filled (the same recursive nesting as `BlockBreakToken`'s
+ *   `resumeChildToken`). Null when the resumed column starts a child fresh.
+ *
+ * INERT until the slice-2 column-distribution loop emits these — added here
+ * (union + `breakTokensEqual`) first so the LOAD-BEARING reuse gates
+ * (measure-pass `canReusePage`, virtual-layout `PageFingerprint`) compare column
+ * resume state correctly the moment the distribution loop lands. A missing
+ * `"column"` arm would make every multicol page re-fit every keystroke.
+ */
+export interface ColumnBreakToken {
+  readonly type: "column";
+  /** 0-based column index at which to resume distribution on the next fragment. */
+  readonly resumeColumnIndex: number;
+  /** The inner BFC continuation for the column that was mid-fill, or null to
+   * start the resumed column's content fresh. */
+  readonly resumeChildToken: BreakToken | null;
+}
+
+/**
  * Structural equality of two break tokens — the shared predicate the incremental
  * page-reuse gates (measure-pass, virtual-layout-tree) and resolve-footnotes use
  * to decide whether a fragment's resume state is unchanged. Single source of
- * truth (was triplicated). Recurses through block child tokens and, for table
- * tokens, compares `resumeAtRow` AND the `spanningCells` continuation list
- * (P8.S5) — two tables resuming at the same row but with different rowSpan
- * continuations are NOT equal, so a reuse gate cannot stale-reuse one for the other.
+ * truth (was triplicated). Recurses through block child tokens and column
+ * child tokens, and for table tokens compares `resumeAtRow` AND the
+ * `spanningCells` continuation list (P8.S5) — two tables resuming at the same
+ * row but with different rowSpan continuations are NOT equal, so a reuse gate
+ * cannot stale-reuse one for the other.
  */
 export function breakTokensEqual(a: BreakToken | null, b: BreakToken | null): boolean {
   if (a === b) return true;
@@ -93,6 +125,10 @@ export function breakTokensEqual(a: BreakToken | null, b: BreakToken | null): bo
   if (a.type === "table" && b.type === "table") {
     return a.resumeAtRow === b.resumeAtRow &&
       spanningCellsEqual(a.spanningCells, b.spanningCells);
+  }
+  if (a.type === "column" && b.type === "column") {
+    return a.resumeColumnIndex === b.resumeColumnIndex &&
+      breakTokensEqual(a.resumeChildToken, b.resumeChildToken);
   }
   return false;
 }

@@ -304,12 +304,21 @@ doc-wide default as the required `SectionPlan.effectiveDefaultColumns` (the
 fallback slice 2 reads for boundaries with no override) — exactly mirroring
 the per-section `PageConfig` machinery.
 
+The `ColumnBreakToken` resume-token vocabulary has also landed: a new
+`"column"` member of the `BreakToken` union (`{ resumeColumnIndex,
+resumeChildToken }`) plus its `breakTokensEqual` arm (compares the column
+index and recurses into the inner BFC child token). This is the LOAD-BEARING
+shared predicate the incremental reuse gates use, added ahead of its producer
+so column resume state compares correctly the moment the distribution loop
+lands. INERT: no producer emits a `ColumnBreakToken` yet.
+
 Still missing (the layout consumers): the `MultiColumnBox` `LayoutBox`
 variant (N sibling column `BlockBox`es side by side, each a contiguous
-doc-order run); column fragmentation via a `ColumnBreakToken`; column fill +
-balance-last; column-aware cursor/hit-test/line-nav; column-rule paint; the
-`SET_SECTION_COLUMNS` action + toolbar. Until those land, a doc carrying
-column attrs still lays out single-column.
+doc-order run); the column-distribution loop that wraps BFC fill and EMITS the
+`ColumnBreakToken`; column fill + balance-last; column-aware
+cursor/hit-test/line-nav; column-rule paint; the `SET_SECTION_COLUMNS` action +
+toolbar. Until those land, a doc carrying column attrs still lays out
+single-column.
 
 ### Text `[partial]`
 

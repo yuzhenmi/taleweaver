@@ -1,7 +1,11 @@
 // packages/core/src/layout/fragmentation.test.ts
 import { describe, it, expect } from "vitest";
 import { normalizeBreakValue, breakTokensEqual } from "./fragmentation";
-import type { TableBreakToken, SpanningCellContinuation } from "./fragmentation";
+import type {
+  TableBreakToken,
+  SpanningCellContinuation,
+  ColumnBreakToken,
+} from "./fragmentation";
 import type { BlockId } from "../state";
 
 describe("normalizeBreakValue", () => {
@@ -81,5 +85,47 @@ describe("breakTokensEqual — spanningCells awareness (P8.S5.T1)", () => {
     const a: TableBreakToken = { type: "table", resumeAtRow: 2, spanningCells: [cont(3)] };
     const b: TableBreakToken = { type: "table", resumeAtRow: 2, spanningCells: [cont(3)] };
     expect(breakTokensEqual(a, b)).toBe(true);
+  });
+});
+
+describe("breakTokensEqual — ColumnBreakToken (multi-column slice 2)", () => {
+  // NOTE on guard coverage: a missing "column" arm makes `breakTokensEqual` fall
+  // through to `return false` for ANY two column tokens. So only `true`-expecting
+  // assertions actually fail when the arm is deleted — each test below pairs its
+  // `false` case with a `true` case so the whole block guards the arm.
+
+  it("two equal column tokens (same index, null child) → equal", () => {
+    const a: ColumnBreakToken = { type: "column", resumeColumnIndex: 1, resumeChildToken: null };
+    const b: ColumnBreakToken = { type: "column", resumeColumnIndex: 1, resumeChildToken: null };
+    expect(breakTokensEqual(a, b)).toBe(true); // FAILS if the "column" arm is removed.
+  });
+
+  it("resumeColumnIndex is compared: equal index → equal, different index → NOT equal", () => {
+    const base: ColumnBreakToken = { type: "column", resumeColumnIndex: 0, resumeChildToken: null };
+    const sameIdx: ColumnBreakToken = { type: "column", resumeColumnIndex: 0, resumeChildToken: null };
+    const diffIdx: ColumnBreakToken = { type: "column", resumeColumnIndex: 1, resumeChildToken: null };
+    expect(breakTokensEqual(base, sameIdx)).toBe(true); // guards the arm
+    expect(breakTokensEqual(base, diffIdx)).toBe(false); // a column-distribution shift must invalidate
+  });
+
+  it("recurses into the inner BFC child token: identical child → equal, differing child → NOT equal", () => {
+    const withChild = (resumeChildIndex: number): ColumnBreakToken => ({
+      type: "column",
+      resumeColumnIndex: 2,
+      resumeChildToken: {
+        type: "block",
+        resumeChildIndex,
+        resumeChildToken: { type: "ifc", resumeAtLine: 2 },
+      },
+    });
+    expect(breakTokensEqual(withChild(3), withChild(3))).toBe(true); // deep-equal nested → equal (guards the arm + recursion)
+    expect(breakTokensEqual(withChild(3), withChild(4))).toBe(false); // differing inner BFC state → NOT equal
+  });
+
+  it("a column token is never equal to a same-shaped block token (type discriminates)", () => {
+    const col: ColumnBreakToken = { type: "column", resumeColumnIndex: 1, resumeChildToken: null };
+    expect(breakTokensEqual(col, { type: "block", resumeChildIndex: 1, resumeChildToken: null })).toBe(
+      false,
+    );
   });
 });
