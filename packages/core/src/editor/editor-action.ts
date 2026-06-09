@@ -1,4 +1,4 @@
-import type { Selection, Position, BlockInit, TextMatch, BlockId, CrossReferenceMode } from "../state";
+import type { Selection, Position, BlockInit, TextMatch, BlockId, CrossReferenceMode, CommentId } from "../state";
 import type { TextAlign, TextTransform } from "../styles/style";
 import type { TabStop } from "../styles/tab-stops";
 import type { CounterFormat, FootnoteNumberingPolicy } from "../footnotes";
@@ -78,4 +78,16 @@ export type EditorAction =
       format?: CounterFormat;
     }
   | { type: "REPLACE_MATCH"; match: TextMatch; replacement: string }
-  | { type: "REPLACE_ALL"; matches: TextMatch[]; replacement: string };
+  | { type: "REPLACE_ALL"; matches: TextMatch[]; replacement: string }
+  | { type: "ADD_COMMENT"; id: CommentId; author: string; body: string; createdAt: number }
+  | { type: "RESOLVE_COMMENT"; id: CommentId }
+  | { type: "REOPEN_COMMENT"; id: CommentId }
+  | { type: "DELETE_COMMENT"; id: CommentId }
+  | {
+      type: "ADD_REPLY";
+      commentId: CommentId;
+      replyId: string;
+      author: string;
+      body: string;
+      createdAt: number;
+    };

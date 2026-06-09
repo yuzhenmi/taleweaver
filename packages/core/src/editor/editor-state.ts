@@ -78,6 +78,11 @@ import {
   handleSetFootnotePolicy,
   handleReplaceMatch,
   handleReplaceAll,
+  handleAddComment,
+  handleResolveComment,
+  handleReopenComment,
+  handleDeleteComment,
+  handleAddReply,
 } from "./actions";
 
 import { cascadeTemplateContents, cascadeEmbedContents } from "./actions/helpers";
@@ -543,6 +548,36 @@ export function reduceEditor(
       break;
     case "REPLACE_ALL":
       result = handleReplaceAll(editor, action.matches, action.replacement, config);
+      break;
+    case "ADD_COMMENT":
+      result = handleAddComment(
+        editor,
+        action.id,
+        action.author,
+        action.body,
+        action.createdAt,
+        config,
+      );
+      break;
+    case "RESOLVE_COMMENT":
+      result = handleResolveComment(editor, action.id, config);
+      break;
+    case "REOPEN_COMMENT":
+      result = handleReopenComment(editor, action.id, config);
+      break;
+    case "DELETE_COMMENT":
+      result = handleDeleteComment(editor, action.id, config);
+      break;
+    case "ADD_REPLY":
+      result = handleAddReply(
+        editor,
+        action.commentId,
+        action.replyId,
+        action.author,
+        action.body,
+        action.createdAt,
+        config,
+      );
       break;
     default: {
       action satisfies never;

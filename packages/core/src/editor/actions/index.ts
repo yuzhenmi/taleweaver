@@ -53,3 +53,10 @@ export { handleSetListRestart } from "./set-list-restart";
 export { handleSetParagraphSpacing } from "./set-paragraph-spacing";
 export { handleSetFootnotePolicy } from "./set-footnote-policy-action";
 export { handleReplaceMatch, handleReplaceAll } from "./replace";
+export {
+  handleAddComment,
+  handleResolveComment,
+  handleReopenComment,
+  handleDeleteComment,
+  handleAddReply,
+} from "./comment-actions";

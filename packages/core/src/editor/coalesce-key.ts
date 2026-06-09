@@ -67,6 +67,11 @@ export function coalesceKeyOf(action: EditorAction): ActionClass {
     case "LIST_OUTDENT":
     case "REPLACE_MATCH":
     case "REPLACE_ALL":
+    case "ADD_COMMENT":
+    case "RESOLVE_COMMENT":
+    case "REOPEN_COMMENT":
+    case "DELETE_COMMENT":
+    case "ADD_REPLY":
       return "command";
     case "MOVE_CURSOR":
     case "MOVE_WORD":

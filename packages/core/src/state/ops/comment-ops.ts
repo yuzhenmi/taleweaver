@@ -96,7 +96,9 @@ export function addComment(
  * Mark a comment resolved. Tracked op (the `comments` map is in the
  * UndoManager's scopes). Identity no-op (returns the same `state` reference, so
  * the editor short-circuits per the T7 contract) if the comment is absent or
- * already resolved.
+ * already resolved. A real flip surfaces `state.rootId` as the dirtyId (the
+ * `comments` map is excluded from dirty-capture) so the op advances state and
+ * lands a committable, undoable entry — see {@link setResolved}.
  */
 export function resolveComment(state: State, id: CommentId): OperationResult {
   return setResolved(state, id, true);
@@ -118,6 +120,16 @@ function setResolved(state: State, id: CommentId, resolved: boolean): OperationR
   return applyOperation(state, (d) => {
     const rec = getCommentsMap(d).get(id);
     if (rec !== undefined) rec.set("resolved", resolved);
+    // The `comments` map is EXCLUDED from dirty-capture (a side-table, not a
+    // block tree — see `yjs-doc.ts`), so this flip alone would capture no
+    // dirtyId, making `applyOperation` short-circuit to the input `state`
+    // (identity) and `History.commit` drop the entry (`dirtyIds.size === 0` →
+    // no StackItem committed → the tracked map mutation lands an ORPHAN
+    // StackItem with no SelectionEntry, crashing the next undo). Surface the
+    // document root so the flip advances state and lands a tracked, undoable
+    // entry — the same `extra`-channel pattern `deleteComment` uses for its
+    // orphaned-by-absence case.
+    return new Set<BlockId>([state.rootId]);
   });
 }
 
@@ -176,7 +188,10 @@ export function deleteComment(state: State, id: CommentId): OperationResult {
 
 /**
  * Append a reply to a comment thread. Pushes a reply `Y.Map` onto the record's
- * `replies` `Y.Array` (tracked). Identity no-op if the comment is absent.
+ * `replies` `Y.Array` (tracked). Identity no-op (same `state` reference) if the
+ * comment is absent. A real push surfaces `state.rootId` as the dirtyId (the
+ * `comments` map is excluded from dirty-capture) so the op advances state and
+ * lands a committable, undoable entry — mirrors {@link setResolved}.
  */
 export function addReply(
   state: State,
@@ -195,9 +210,21 @@ export function addReply(
     const yRecord = getCommentsMap(d).get(id);
     if (yRecord === undefined) return;
     const yReplies = yRecord.get("replies");
-    if (yReplies instanceof Y.Array) {
-      yReplies.push([replyToY(reply)]);
-    }
+    // Only surface the dirtyId when the push ACTUALLY happens. If `replies` is
+    // not a `Y.Array` (corrupted record), no tracked mutation occurs, so
+    // surfacing `state.rootId` would force `History.commit` to run with a dirty
+    // root yet NO Yjs StackItem → "no undo StackItem" throw. Returning nothing
+    // there yields the identity no-op (the `applyOperation` short-circuit) — the
+    // correct outcome for a write that didn't land.
+    if (!(yReplies instanceof Y.Array)) return;
+    yReplies.push([replyToY(reply)]);
+    // The `comments` map is EXCLUDED from dirty-capture (a side-table, not a
+    // block tree), so this reply push alone would capture no dirtyId — the same
+    // hazard `setResolved` documents: `applyOperation` short-circuits to the
+    // input `state` (identity) and `History.commit` drops the entry, leaving an
+    // orphan StackItem that crashes the next undo. Surface the document root so
+    // the push advances state and lands a tracked, undoable entry.
+    return new Set<BlockId>([state.rootId]);
   });
 }
 
