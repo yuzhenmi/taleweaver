@@ -1,7 +1,8 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { createPosition, createSpan, spanStart, spanEnd, iterateSpan, findItemAtOffset, applyAttrsToRange } from "../../state";
+import { createPosition, createSpan, spanStart, spanEnd, iterateSpan, findItemAtOffset } from "../../state";
 import type { State, Span } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
+import { applyAttrsOrSuggest } from "./suggestion-mode";
 import { rebuildTrees } from "./helpers";
 
 const STYLE_KEYS: Record<"bold" | "italic" | "underline" | "strikethrough", string> = {
@@ -67,7 +68,7 @@ export function handleToggleStyle(
   const all = selectionAllHaveAttr(editor.state, selection, attrKey);
   // When all items have the attr → toggle OFF (remove). Else toggle ON.
   const incoming = all ? { [attrKey]: undefined } : { [attrKey]: true };
-  const result = applyAttrsToRange(editor.state, selection, incoming);
+  const result = applyAttrsOrSuggest(editor.state, selection, incoming, config);
   if (result.state === editor.state) {
     return editor;
   }

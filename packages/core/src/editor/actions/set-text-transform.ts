@@ -1,7 +1,8 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { createPosition, createSpan, spanStart, spanEnd, applyAttrsToRange } from "../../state";
+import { createPosition, createSpan, spanStart, spanEnd } from "../../state";
 import type { TextTransform } from "../../styles";
 import { isCollapsed } from "../../cursor/selection";
+import { applyAttrsOrSuggest } from "./suggestion-mode";
 import { rebuildTrees } from "./helpers";
 
 /**
@@ -41,7 +42,7 @@ export function handleSetTextTransform(
   // mergeAttrs) so the run re-merges with untransformed neighbours; any other
   // keyword is written explicitly.
   const attrValue = value === "none" ? undefined : value;
-  const result = applyAttrsToRange(editor.state, selection, { textTransform: attrValue });
+  const result = applyAttrsOrSuggest(editor.state, selection, { textTransform: attrValue }, config);
   if (result.state === editor.state) return editor;
 
   // Selection invariant under attribute changes — preserve anchor/focus but

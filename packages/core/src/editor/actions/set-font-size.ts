@@ -1,6 +1,7 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { createPosition, createSpan, spanStart, spanEnd, applyAttrsToRange } from "../../state";
+import { createPosition, createSpan, spanStart, spanEnd } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
+import { applyAttrsOrSuggest } from "./suggestion-mode";
 import { rebuildTrees } from "./helpers";
 
 /**
@@ -41,7 +42,7 @@ export function handleSetFontSize(
   const incoming = size !== null && size > 0
     ? { fontSize: size }
     : { fontSize: undefined };
-  const result = applyAttrsToRange(editor.state, selection, incoming);
+  const result = applyAttrsOrSuggest(editor.state, selection, incoming, config);
   if (result.state === editor.state) return editor;
 
   // Selection invariant under attribute changes — preserve anchor/focus but

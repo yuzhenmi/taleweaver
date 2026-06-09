@@ -1,7 +1,8 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { createPosition, createSpan, spanStart, spanEnd, applyAttrsToRange } from "../../state";
+import { createPosition, createSpan, spanStart, spanEnd } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { INLINE_FORMAT_ATTR_KEYS } from "../inline-format-keys";
+import { applyAttrsOrSuggest } from "./suggestion-mode";
 import { rebuildTrees } from "./helpers";
 
 /**
@@ -33,12 +34,14 @@ export function handleClearFormatting(
   if (isCollapsed(selection)) return editor;
 
   // One object mapping every inline-format key to `undefined` — a single
-  // applyAttrsToRange call removes them all atomically (one undo step).
+  // applyAttrsOrSuggest call removes them all atomically (one undo step) in
+  // direct mode, or suggests their removal as ONE formatting record (the
+  // clear-all delta is a valid `proposedAttrs`) in suggesting mode.
   const incoming: Record<string, undefined> = {};
   for (const key of INLINE_FORMAT_ATTR_KEYS) {
     incoming[key] = undefined;
   }
-  const result = applyAttrsToRange(editor.state, selection, incoming);
+  const result = applyAttrsOrSuggest(editor.state, selection, incoming, config);
   // No attr was actually present to remove → no state change → no-op
   // (also short-circuits an already-clean selection, no history entry).
   if (result.state === editor.state) return editor;

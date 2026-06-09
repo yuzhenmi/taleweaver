@@ -748,8 +748,17 @@ caret = `start.offset + text.length`. Direct mode keeps the destructive `replace
 **KNOWN follow-up:** PASTE over a selection in suggesting mode is NOT yet tracked —
 `handlePaste` still does a destructive replace; suggesting-aware paste (needs
 multi-block suggestion content) is a later change-tracking slice.
-REMAINING: 4d format handlers →
-markFormatting (+ INLINE_FORMAT_ATTR_KEYS guard), 4e block-split/join embeds
+**Slice 4d-format shipped:** all 8 inline-format handlers (`TOGGLE_STYLE`,
+`SET_TEXT_COLOR`, `SET_HIGHLIGHT`, `SET_FONT_SIZE`, `SET_FONT_FAMILY`, `SET_LINK`,
+`SET_TEXT_TRANSFORM`, `CLEAR_FORMATTING`) are now suggesting-aware via the shared
+`applyAttrsOrSuggest` helper (`suggestion-mode.ts`, mirroring `deleteRangeOrSuggest`):
+direct mode keeps live `applyAttrsToRange`; suggesting mode routes through
+`markFormatting`, stamping a `formattingSuggestionId` + a `formatting` record with
+`proposedAttrs` (the delta the action would have applied — incl. toggle-OFF
+`{ bold: undefined }` and `CLEAR_FORMATTING`'s clear-all delta); the LIVE attrs stay
+unchanged until ACCEPT. `INLINE_FORMAT_ATTR_KEYS` is a curated allow-list, so a
+direct `CLEAR_FORMATTING` never strips a suggestion-provenance id.
+REMAINING: 4e block-split/join embeds
 (SPLIT_NODE + break-delete);
 5 render (insertion=color+underline, deletion=color+strikethrough, formatting=
 proposedAttrs); 6 host query + overlay; 7 arch docs. See `1.1-state.md` "The

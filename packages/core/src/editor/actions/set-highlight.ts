@@ -1,6 +1,7 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { createPosition, createSpan, spanStart, spanEnd, applyAttrsToRange } from "../../state";
+import { createPosition, createSpan, spanStart, spanEnd } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
+import { applyAttrsOrSuggest } from "./suggestion-mode";
 import { rebuildTrees } from "./helpers";
 
 /**
@@ -39,7 +40,7 @@ export function handleSetHighlight(
   const incoming = color !== null && color.length > 0
     ? { backgroundColor: color }
     : { backgroundColor: undefined };
-  const result = applyAttrsToRange(editor.state, selection, incoming);
+  const result = applyAttrsOrSuggest(editor.state, selection, incoming, config);
   if (result.state === editor.state) return editor;
 
   // Selection invariant under attribute changes — preserve anchor/focus but
