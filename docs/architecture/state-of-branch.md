@@ -714,8 +714,13 @@ NON-undoable accept/reject editor actions (`ACCEPT_SUGGESTION`/`REJECT_SUGGESTIO
 (breaks the open undo group, `advanceState` not commit). 4b shipped —
 `EditorConfig.suggestingAuthor` + `newSuggestionId`/`newSuggestionInput` + the
 `INSERT_TEXT` collapsed-caret branch → `mintInsertion` (type-over-selection in
-suggesting mode = tracked interim no-op). REMAINING: 4c DELETE handlers →
-markDeletion + the type-over-selection composite, 4d format handlers →
+suggesting mode = tracked interim no-op). 4c-i shipped — `DELETE_BACKWARD`
+SOFT-deletes via the `deleteRangeOrSuggest` helper (`suggestion-mode.ts` → `markDeletion`)
+on the EXPANDED-selection and collapsed MID-BLOCK-char paths (caret = span start,
+undoable); a block-start backspace (block-merge / list-outdent / atomic-leaf delete)
+is a NO-OP in suggesting mode (the suggested block-join break embed is slice 4e).
+REMAINING: 4c-ii/iii DELETE_FORWARD/WORD/LINE → markDeletion + the type-over-selection
+composite, 4d format handlers →
 markFormatting (+ INLINE_FORMAT_ATTR_KEYS guard), 4e block-split/join embeds
 (SPLIT_NODE + break-delete);
 5 render (insertion=color+underline, deletion=color+strikethrough, formatting=

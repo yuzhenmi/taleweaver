@@ -1,5 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { resolveBlock, createPosition, createSpan, deleteRange, mergeAdjacentBlocks, mergeSectionWithPrevious, inlineContentLength } from "../../state";
+import { resolveBlock, createPosition, createSpan, mergeAdjacentBlocks, mergeSectionWithPrevious, inlineContentLength } from "../../state";
 import { moveByCharacter } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
@@ -7,6 +7,7 @@ import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-
 import { handleListIndent } from "./list-indent";
 import { listLevelOf, unlistBlock } from "./list-edits";
 import { deleteAdjacentAtomicLeaf } from "./atomic-edits";
+import { deleteRangeOrSuggest } from "./suggestion-mode";
 
 export function handleDeleteBackward(
   editor: EditorState,
@@ -22,7 +23,7 @@ export function handleDeleteBackward(
     // refuses an unresolvable or cross-parent span.
     const start = expandedSpanCollapsePoint(editor.state, selection);
     if (start === null) return editor;
-    const result = deleteRange(editor.state, selection);
+    const result = deleteRangeOrSuggest(editor.state, selection, config);
     if (result.state === editor.state) return editor;
     const newCursor = createPosition(start.blockId, start.offset);
     const newSelection = createSpan(newCursor, newCursor);
@@ -46,7 +47,7 @@ export function handleDeleteBackward(
     if (prev.blockId !== pos.blockId) return editor;
     if (prev.offset === pos.offset) return editor;
     const span = createSpan(prev, pos);
-    const result = deleteRange(editor.state, span);
+    const result = deleteRangeOrSuggest(editor.state, span, config);
     if (result.state === editor.state) return editor;
     const newCursor = createPosition(prev.blockId, prev.offset);
     const newSelection = createSpan(newCursor, newCursor);
@@ -63,6 +64,15 @@ export function handleDeleteBackward(
   }
 
   // pos.offset === 0: cross-block backspace.
+  // Suggesting mode: a backspace at the START of a block would MERGE blocks
+  // (or delete an adjacent atomic leaf / outdent a list item) — structural
+  // changes that are not yet representable as tracked suggestions. The suggested
+  // paragraph-break / block-join (a zero-width break embed) is a later
+  // change-tracking slice (4e). Until then, block-start Backspace in suggesting
+  // mode is a safe NO-OP: never really-merge (that would silently bypass
+  // tracking).
+  if ((config.suggestingAuthor ?? null) !== null) return editor;
+
   const currentBlock = resolveBlock(editor.state, pos.blockId)?.block ?? null;
   if (currentBlock === null) return editor;
 
