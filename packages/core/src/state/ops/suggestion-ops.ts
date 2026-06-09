@@ -10,7 +10,6 @@ import { attrsEqual, mergeAttrs } from "../attrs";
 import {
   inlineContentLength,
   mergeAdjacentTextItems,
-  splitInlineContentAtOffset,
   type EmbedItem,
   type InlineItem,
   type TextItem,
@@ -30,7 +29,7 @@ import {
 import { iterateBlocksInDocumentOrder } from "../document-order";
 import { STATE_INTERNAL } from "../state-internal";
 import { getSuggestionsMap, getYBlock, type BlockTreeKind } from "../yjs-doc";
-import { buildYInlineContent } from "../y-block";
+import { buildYInlineContent, buildYInlineItem } from "../y-block";
 import { planApplyAttrsToRange, applyAttrsToRangeInTx } from "./apply-attrs";
 import { planInsertText, insertTextInTx, planInsertTextFullReplace } from "./insert-text";
 import {
@@ -50,6 +49,34 @@ import type { ResolvedBlockKind } from "../state";
 
 /** An empty dirtyIds set — the identity-no-op return per the T7 contract. */
 const NO_DIRTY: ReadonlySet<BlockId> = new Set<BlockId>();
+
+/**
+ * The SINGLE full-replace seam for the genuinely-rebuilding suggestion ops
+ * (markDeletion, replaceWithSuggestion's strike-writes, resolve, resolveAll):
+ * `getYBlock(...).set("inlineContent", buildYInlineContent({ items }))`.
+ *
+ * These sites REBUILD a block's inline content (re-tagging / dropping runs), so a
+ * full-replace is correct — but it materializes FRESH `Y.Text`/`Y.Map` per item,
+ * discarding the block's per-character CRDT identity. Funneling them through one
+ * function localizes that identity cost: a future minimal-diff optimization (apply
+ * only the changed runs, preserving identity) changes ONLY this function. MUST run
+ * inside an already-open transaction (the caller's `applyOperation` body).
+ *
+ * The APPEND sites (split/join break-embed) do NOT route through this — they push a
+ * single embed onto the live Y.Array, preserving identity already.
+ */
+function writeBlockInlineContentInTx(
+  doc: Y.Doc,
+  blockId: BlockId,
+  kind: BlockTreeKind,
+  items: ReadonlyArray<InlineItem>,
+  opName: string,
+): void {
+  getYBlock(doc, blockId, opName, kind).set(
+    "inlineContent",
+    buildYInlineContent({ items }),
+  );
+}
 
 /**
  * Fields the host supplies when minting a formatting suggestion. `id` is the
@@ -213,10 +240,7 @@ export function markDeletion(
 
   return applyOperation(state, (d) => {
     for (const write of plan.writes) {
-      getYBlock(d, write.blockId, "markDeletion", plan.kind).set(
-        "inlineContent",
-        buildYInlineContent({ items: write.items }),
-      );
+      writeBlockInlineContentInTx(d, write.blockId, plan.kind, write.items, "markDeletion");
     }
     // Write the deletion record only when ≥1 run was actually tagged AND we are
     // not reusing an existing (coalesced) record. A whole-span-was-own-insertions
@@ -567,9 +591,12 @@ export function replaceWithSuggestion(
     // an in-place mutation into the live (untouched) start block.
     for (const write of delPlan.writes) {
       if (startWrite !== undefined && write.blockId === start.blockId) continue;
-      getYBlock(d, write.blockId, "replaceWithSuggestion", delPlan.kind).set(
-        "inlineContent",
-        buildYInlineContent({ items: write.items }),
+      writeBlockInlineContentInTx(
+        d,
+        write.blockId,
+        delPlan.kind,
+        write.items,
+        "replaceWithSuggestion",
       );
     }
     insertTextInTx(d, insertPlan);
@@ -604,9 +631,9 @@ export function replaceWithSuggestion(
  * event.
  *
  * Composes {@link planMarkDeletion} (the strike plan) with the structural
- * {@link planSplitBlockAtPosition} + {@link splitBlockAtPositionInTx}, then appends a
- * zero-width {@link BLOCK_SPLIT_SUGGESTION_EMBED_TYPE} embed to block N — exactly the
- * {@link splitWithSuggestion} embed/full-replace discipline.
+ * {@link planSplitBlockAtPosition} + {@link splitBlockAtPositionInTx}, then APPENDS a
+ * zero-width {@link BLOCK_SPLIT_SUGGESTION_EMBED_TYPE} embed to block N's live
+ * Y.Array — exactly the {@link splitWithSuggestion} embed-append discipline.
  *
  * SINGLE-BLOCK scope: the editor caller guarantees `spanStart.blockId ===
  * spanEnd.blockId` (a cross-block Enter-over-selection needs block-JOIN suggestions
@@ -626,11 +653,13 @@ export function replaceWithSuggestion(
  * split materializes N+1 from B's post-strike LIVE content `[splitOffset, postLen)`
  * (the unstruck tail), leaving the struck selection in N.
  *
- * Dominance of the full-replace over the split's in-place write (mirror of
- * {@link splitWithSuggestion}): `splitBlockAtPositionInTx` sets B's content to
- * `[0, splitOffset)` in place; this op then FULL-REPLACES B with `[0, splitOffset)` +
- * the break embed. The full-replace supersedes the split's in-place write to B; N+1 +
- * the sibling rewiring stay as the split left them.
+ * Append discipline (mirror of {@link splitWithSuggestion}): the strike
+ * FULL-REPLACES B's Y.Array (a genuine rebuild — re-tagging the struck runs), so the
+ * split reads B's POST-strike live content. `splitBlockAtPositionInTx` then sets B's
+ * content to `[0, splitOffset)` IN PLACE (identity-preserving); this op then APPENDS
+ * just the zero-width break embed to B's live `inlineContent` Y.Array — no second
+ * full-replace of B, so B's surviving post-strike text-run CRDT identity is preserved.
+ * N+1 + the sibling rewiring stay as the split left them.
  *
  * The two records share `createdAt` as the render-layer "this was ONE replace"
  * grouping signal (like {@link replaceWithSuggestion}). The deletion record is written
@@ -714,36 +743,41 @@ export function splitWithSuggestionOverSelection(
     newBlockInit,
   );
 
-  // The post-split LEFT half of N is B's post-strike items in [0, splitOffset).
-  // Append the zero-width break embed carrying the insertion suggestion id.
-  const [leftItems] = splitInlineContentAtOffset({ items: bItems }, splitOffset);
+  // The zero-width break embed carrying the insertion suggestion id, built as plain
+  // data PRE-transaction. It is a merge BARRIER (never folded into a neighbor), so
+  // after the in-place split (which leaves B's content normalized as [0, splitOffset))
+  // appending it keeps B normalized and the embed stays last.
   const embed: EmbedItem = Object.freeze({
     kind: "embed",
     embedType: BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
     attrs: Object.freeze({}),
     properties: Object.freeze({ suggestionId: input.insertionId }),
   });
-  const nItems = mergeAdjacentTextItems([...leftItems, embed]);
 
   return applyOperation(state, (doc) => {
     // 1. Apply the strike writes (B written BEFORE the split so the split reads
-    //    B's post-strike content). For a single-block span this is just B.
+    //    B's post-strike content). For a single-block span this is just B. These
+    //    GENUINELY rebuild the struck blocks → the full-replace seam.
     for (const w of delPlan.writes) {
-      getYBlock(doc, w.blockId, "splitWithSuggestionOverSelection", delPlan.kind).set(
-        "inlineContent",
-        buildYInlineContent({ items: w.items }),
+      writeBlockInlineContentInTx(
+        doc,
+        w.blockId,
+        delPlan.kind,
+        w.items,
+        "splitWithSuggestionOverSelection",
       );
     }
     // 2. The REAL structural split: materializes N+1 from B's now-post-strike LIVE
     //    content [splitOffset, postLen) (the unstruck tail) + rewires siblings; sets
-    //    B's content to [0, splitOffset) in place (superseded next).
+    //    B's content to [0, splitOffset) IN PLACE (identity-preserving).
     splitBlockAtPositionInTx(doc, splitPlan);
-    // 3. FULL-REPLACE B's content with [0, splitOffset) + the break embed. This
-    //    supersedes the split's in-place write to B; N+1 + the rewiring stay.
-    getYBlock(doc, blockB, "splitWithSuggestionOverSelection", splitPlan.kind).set(
-      "inlineContent",
-      buildYInlineContent({ items: nItems }),
-    );
+    // 3. APPEND just the break embed to B's LIVE inlineContent Y.Array. The in-place
+    //    split already left B's content as [0, splitOffset); appending the barrier
+    //    embed preserves B's surviving text-run CRDT identity (no full-replace). N+1 +
+    //    the rewiring stay as the split left them.
+    const yB = getYBlock(doc, blockB, "splitWithSuggestionOverSelection", splitPlan.kind);
+    const yBItems = yB.get("inlineContent") as Y.Array<Y.Map<unknown>>;
+    yBItems.push([buildYInlineItem(embed)]);
     // 4. The deletion record (≥1 run tagged AND not coalesced).
     if (delPlan.taggedAny && !delPlan.reusing) {
       writeSuggestionRecordInTx(doc, {
@@ -961,10 +995,7 @@ function resolve(
     state,
     (d) => {
       for (const write of writes) {
-        getYBlock(d, write.blockId, "resolveSuggestion", write.kind).set(
-          "inlineContent",
-          buildYInlineContent({ items: write.items }),
-        );
+        writeBlockInlineContentInTx(d, write.blockId, write.kind, write.items, "resolveSuggestion");
       }
       // Phase-2: the conditional break merge. Runs AFTER the phase-1 writes (which
       // dropped the embed from N), reading N's post-phase-1 (embed-free) content
@@ -1219,10 +1250,7 @@ function resolveAll(state: State, mode: "accept" | "reject"): OperationResult {
     state,
     (d) => {
       for (const write of writes) {
-        getYBlock(d, write.blockId, "resolveAll", write.kind).set(
-          "inlineContent",
-          buildYInlineContent({ items: write.items }),
-        );
+        writeBlockInlineContentInTx(d, write.blockId, write.kind, write.items, "resolveAll");
       }
       // Phase-2: the conditional break merges. Walk REVERSE document order so each
       // owner is still alive when processed (an owner is removed only by its

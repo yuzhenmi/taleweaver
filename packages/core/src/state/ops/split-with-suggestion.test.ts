@@ -15,6 +15,7 @@
  * block.
  */
 import { describe, it, expect } from "vitest";
+import * as Y from "yjs";
 import { splitWithSuggestion } from "./split-block";
 import {
   getSuggestions,
@@ -24,6 +25,8 @@ import {
 import { createHistory } from "../history";
 import { getBlock } from "../state";
 import type { State } from "../state";
+import { STATE_INTERNAL } from "../state-internal";
+import { getYBlock } from "../yjs-doc";
 import { inlineContentLength } from "../inline-content";
 import {
   buildBlock,
@@ -295,5 +298,55 @@ describe("splitWithSuggestion — non-first block", () => {
     expect(suggestions.length).toBe(1);
     expect(suggestions[0].kind).toBe("insertion");
     expect(suggestions[0].id).toBe(SID);
+  });
+});
+
+describe("splitWithSuggestion — CRDT identity: block N's surviving text-run Y.Text is preserved (append, not full-replace)", () => {
+  /**
+   * The underlying Y.Text instance of block N's FIRST inline item (a text run).
+   * Reaches through the module-private Symbol → live Y.Doc → owning tree map →
+   * the block's `inlineContent` Y.Array → item 0 Y.Map → its `text` Y.Text.
+   */
+  function firstRunYText(s: State, blockId: string): Y.Text {
+    const doc = s[STATE_INTERNAL].doc;
+    const yBlock = getYBlock(doc, blockId as BlockId, "test", "block");
+    const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>>;
+    const yText = yItems.get(0).get("text");
+    if (!(yText instanceof Y.Text)) {
+      throw new Error("expected block N's first item to be a text run with a Y.Text");
+    }
+    return yText;
+  }
+
+  it("the SAME Y.Text instance is still N's first run after a mid-run suggested split", () => {
+    const s0 = oneBlock();
+    // Capture the Y.Text instance BEFORE the op. The append-the-embed path shortens
+    // this Y.Text in place (the structural split) and pushes the break embed AFTER it,
+    // so the instance survives === . The old full-replace materialized a fresh Y.Text
+    // per item → this assertion would FAIL (reference inequality).
+    const before = firstRunYText(s0, "p");
+    expect(before.toString()).toBe("abcdef");
+
+    const allocator = createTestAllocator("p2");
+    const s = splitWithSuggestion(
+      s0,
+      createPosition("p" as BlockId, 3),
+      allocator,
+      INPUT,
+    ).state;
+
+    // Identity lock: N's surviving first text run is the SAME Y.Text instance.
+    const after = firstRunYText(s, "p");
+    expect(after).toBe(before);
+    // ...shortened in place to the left half "abc".
+    expect(after.toString()).toBe("abc");
+
+    // Behavioral guards still hold: N = "abc" + the break embed last; N+1 = "def".
+    const nItems = itemsOf(s, "p");
+    expect(textOf(s, "p")).toBe("abc");
+    expect(nItems[nItems.length - 1].kind).toBe("embed");
+    expect(textOf(s, "p2-0")).toBe("def");
+    // ...and the insertion record is written.
+    expect(getSuggestions(s).length).toBe(1);
   });
 });

@@ -4,8 +4,8 @@ import { applyOperation, resolveBlock } from "../state";
 import { asBlockId, type BlockId } from "../block-id";
 import { getTreeMap, getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
 import { cloneInlineItem, mergeAdjacentSameAttrsTextItems } from "../y-utils";
-import { mergeAdjacentTextItems, type EmbedItem } from "../inline-content";
-import { buildYInlineContent } from "../y-block";
+import { type EmbedItem } from "../inline-content";
+import { buildYInlineItem } from "../y-block";
 import { assertSameTree } from "../assert-same-tree";
 import {
   BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
@@ -344,12 +344,14 @@ export interface MarkBlockJoinInput {
  *
  * Symmetric mirror of {@link splitWithSuggestion} (the suggested-SPLIT create op),
  * but simpler: there is no structural change. A suggested join is modeled as a
- * single zero-width {@link BLOCK_JOIN_SUGGESTION_EMBED_TYPE} embed appended at the
- * END of block N (the prev sibling of `secondBlockId`) carrying the owning
- * `suggestionId` in its `properties`, PLUS a `deletion` {@link SuggestionRecord} —
- * both in ONE tracked `applyOperation` transaction (one undo entry / one collab
- * event). The embed occupies exactly ONE `Position` offset (every embed does) and
- * serializes to "" — it is the marker the range scan
+ * single zero-width {@link BLOCK_JOIN_SUGGESTION_EMBED_TYPE} embed APPENDED to block
+ * N's live `inlineContent` Y.Array (the prev sibling of `secondBlockId`) carrying the
+ * owning `suggestionId` in its `properties`, PLUS a `deletion` {@link SuggestionRecord}
+ * — both in ONE tracked `applyOperation` transaction (one undo entry / one collab
+ * event). Appending — rather than full-replacing N — preserves the per-character CRDT
+ * identity of N's surviving text runs (the foundation the Yjs-backed state model
+ * exists to protect for collab). The embed occupies exactly ONE `Position` offset
+ * (every embed does) and serializes to "" — it is the marker the range scan
  * ({@link buildSuggestionRangeIndex}) reads to surface the suggestion's range.
  *
  * Why NOT merge now: Google Docs shows both paragraphs intact while the deletion
@@ -395,25 +397,24 @@ export function markBlockJoinSuggestion(
     return { state, dirtyIds: NO_DIRTY };
   }
 
-  // Append the zero-width join-break embed (carrying the owning deletion id) to
-  // the END of block N. `mergeAdjacentTextItems` normalizes N's items around the
-  // embed (the embed is a merge BARRIER, so it is never folded into a neighbor —
-  // it stays the LAST item).
+  // The zero-width join-break embed (carrying the owning deletion id), built as
+  // plain data PRE-transaction. It is a merge BARRIER (never folded into a
+  // neighbor), so it stays the LAST item of block N after the append.
   const embed: EmbedItem = Object.freeze({
     kind: "embed",
     embedType: BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
     attrs: Object.freeze({}),
     properties: Object.freeze({ suggestionId: input.id }),
   });
-  const nItems = mergeAdjacentTextItems([...prev.block.inlineContent.items, embed]);
 
   return applyOperation(state, (doc) => {
-    // 1. Append the break embed to block N's content (single block write — no
-    //    structural change, no double-write).
-    getYBlock(doc, prevId, "markBlockJoinSuggestion", prev.kind).set(
-      "inlineContent",
-      buildYInlineContent({ items: nItems }),
-    );
+    // 1. APPEND the break embed to block N's LIVE inlineContent Y.Array (single block
+    //    write — no structural change). Appending preserves N's text-run CRDT identity
+    //    (no full-replace); N's existing content is already normalized and the barrier
+    //    embed stays last.
+    const yN = getYBlock(doc, prevId, "markBlockJoinSuggestion", prev.kind);
+    const yItems = yN.get("inlineContent") as Y.Array<Y.Map<unknown>>;
+    yItems.push([buildYInlineItem(embed)]);
     // 2. Write the `deletion` record (a suggested join IS a tracked deletion of a
     //    paragraph break).
     writeSuggestionRecordInTx(doc, {
