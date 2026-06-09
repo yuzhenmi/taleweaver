@@ -1,14 +1,17 @@
 import type * as Y from "yjs";
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
-import type { BlockId } from "../block-id";
+import type { BlockId, IdAllocator } from "../block-id";
 import type { Position, Span } from "../block-position";
-import { createSpan } from "../block-position";
+import { createSpan, createPosition } from "../block-position";
 import { spanStart, spanEnd } from "../block-compare";
 import type { ReadonlyAttrs } from "../attrs";
 import { attrsEqual, mergeAttrs } from "../attrs";
 import {
+  inlineContentLength,
   mergeAdjacentTextItems,
+  splitInlineContentAtOffset,
+  type EmbedItem,
   type InlineItem,
   type TextItem,
 } from "../inline-content";
@@ -30,6 +33,11 @@ import { getSuggestionsMap, getYBlock, type BlockTreeKind } from "../yjs-doc";
 import { buildYInlineContent } from "../y-block";
 import { planApplyAttrsToRange, applyAttrsToRangeInTx } from "./apply-attrs";
 import { planInsertText, insertTextInTx, planInsertTextFullReplace } from "./insert-text";
+import {
+  planSplitBlockAtPosition,
+  splitBlockAtPositionInTx,
+  splitWithSuggestion,
+} from "./split-block";
 import {
   planMergeAdjacentBlocks,
   mergeAdjacentBlocksInTx,
@@ -583,6 +591,176 @@ export function replaceWithSuggestion(
         createdAt: input.createdAt,
       });
     }
+  });
+}
+
+/**
+ * ENTER (paragraph SPLIT) over a NON-COLLAPSED selection in Suggesting mode: the
+ * SPLIT_NODE analog of {@link replaceWithSuggestion}. SOFT-DELETE the selection (the
+ * text STAYS, struck with `deletionSuggestionId`) AND insert a suggested paragraph
+ * SPLIT at the END of the selection, in ONE tracked `applyOperation` transaction — so
+ * the strike, the structural split, the `block-split-suggestion` embed, and BOTH
+ * records (a `deletion` and an `insertion`) land as ONE undo entry and one collab
+ * event.
+ *
+ * Composes {@link planMarkDeletion} (the strike plan) with the structural
+ * {@link planSplitBlockAtPosition} + {@link splitBlockAtPositionInTx}, then appends a
+ * zero-width {@link BLOCK_SPLIT_SUGGESTION_EMBED_TYPE} embed to block N — exactly the
+ * {@link splitWithSuggestion} embed/full-replace discipline.
+ *
+ * SINGLE-BLOCK scope: the editor caller guarantees `spanStart.blockId ===
+ * spanEnd.blockId` (a cross-block Enter-over-selection needs block-JOIN suggestions
+ * for the intervening paragraph breaks — the same multi-block-suggestion machinery
+ * paste-as-suggestion needs — and is gated to a no-op in the caller). This op stays
+ * correct / non-corrupting on a same-block span; it does not attempt the multi-block
+ * case.
+ *
+ * Post-strike-offset HAZARD (mirrors {@link replaceWithSuggestion}): the strike
+ * FULL-REPLACES block B's Y.Array, and — critically — `markDeletion` REMOVES the
+ * author's OWN pending insertions in-range, which SHORTENS the block. So the split
+ * offset MUST be computed against the POST-strike length, not the pre-strike
+ * `end.offset`. The unstruck tail `[end, preLen)` is never touched by the strike, so
+ * `tailLen = preLen - end.offset` is invariant; the post-strike split offset is
+ * `splitOffset = postLen - tailLen` (for the common case — striking another author's
+ * text, tagged in place — `postLen === preLen` so `splitOffset === end.offset`). The
+ * split materializes N+1 from B's post-strike LIVE content `[splitOffset, postLen)`
+ * (the unstruck tail), leaving the struck selection in N.
+ *
+ * Dominance of the full-replace over the split's in-place write (mirror of
+ * {@link splitWithSuggestion}): `splitBlockAtPositionInTx` sets B's content to
+ * `[0, splitOffset)` in place; this op then FULL-REPLACES B with `[0, splitOffset)` +
+ * the break embed. The full-replace supersedes the split's in-place write to B; N+1 +
+ * the sibling rewiring stay as the split left them.
+ *
+ * The two records share `createdAt` as the render-layer "this was ONE replace"
+ * grouping signal (like {@link replaceWithSuggestion}). The deletion record is written
+ * only when ≥1 run was tagged AND not coalesced (the `markDeletion` contract); the
+ * insertion record is always written (a suggested split is its OWN discrete tracked
+ * insertion — NO coalescing).
+ *
+ * Degenerate: when {@link planMarkDeletion} returns `null` (the span
+ * normalized-collapsed / nothing to strike — e.g. an all-zero-width span), this
+ * reduces to a pure {@link splitWithSuggestion} at the span start (a suggested split,
+ * no strike, no deletion record).
+ *
+ * `newBlockInit` overrides N+1's `type` / `attrs` (the heading→paragraph follow-on
+ * hook), threaded through to {@link planSplitBlockAtPosition} unchanged. `registry`
+ * is accepted for signature parity with the other composites; the strike + split do
+ * not consult a custom run-merge, so it is currently unused.
+ */
+export function splitWithSuggestionOverSelection(
+  state: State,
+  span: Span,
+  allocator: IdAllocator,
+  input: ReplaceSuggestionInput,
+  newBlockInit?: { readonly type?: string; readonly attrs?: ReadonlyAttrs },
+  registry?: AttrRegistry,
+): OperationResult {
+  void registry; // accepted for parity; the strike + split don't consult it.
+
+  const start = spanStart(state, span);
+  const end = spanEnd(state, span);
+  const blockB = start.blockId; // === end.blockId for a single-block span.
+
+  // Plan the strike (pure, pre-tx). A `null` plan means the span re-collapsed /
+  // yields nothing to strike — reduce to a pure suggested split at the span start.
+  const delPlan = planMarkDeletion(state, span, {
+    id: input.deletionId,
+    author: input.author,
+    createdAt: input.createdAt,
+  });
+  if (delPlan === null) {
+    return splitWithSuggestion(state, start, allocator, {
+      id: input.insertionId,
+      author: input.author,
+      createdAt: input.createdAt,
+    }, newBlockInit);
+  }
+
+  const resolvedB = resolveBlock(state, blockB);
+  if (resolvedB === null || resolvedB.block.inlineContent === null) {
+    // Unreachable: planMarkDeletion produced a write only for a real leaf block.
+    throw new Error(
+      `splitWithSuggestionOverSelection: block "${blockB}" not found or not a leaf`,
+    );
+  }
+
+  // The POST-strike items of B. If B has no strike write (the selection struck
+  // nothing IN B itself — defensive, e.g. a same-block zero-width range), B's
+  // post-strike items are its live pre-strike items.
+  const bWrite = delPlan.writes.find((w) => w.blockId === blockB);
+  const bItems: ReadonlyArray<InlineItem> = bWrite
+    ? bWrite.items
+    : resolvedB.block.inlineContent.items;
+
+  // Post-strike split offset (robust to own-insertion removal shortening B):
+  //   tailLen   = the unchanged content after the selection (the strike never
+  //               touches [end, preLen)).
+  //   splitOffset = postLen - tailLen.
+  const preLen = inlineContentLength(resolvedB.block.inlineContent);
+  const tailLen = preLen - end.offset;
+  const postLen = inlineContentLength({ items: bItems });
+  const splitOffset = postLen - tailLen;
+
+  // Plan the structural split at the post-strike offset. The plan validates the
+  // offset against the PRE-strike state (totalLen = preLen); since the unstruck
+  // tail [end.offset, preLen) is untouched, postLen >= tailLen so splitOffset >= 0,
+  // and splitOffset <= postLen <= preLen — always within [0, preLen], so it passes.
+  // The plan allocates N+1's id + computes the sibling rewiring.
+  const splitPlan = planSplitBlockAtPosition(
+    state,
+    createPosition(blockB, splitOffset),
+    allocator,
+    newBlockInit,
+  );
+
+  // The post-split LEFT half of N is B's post-strike items in [0, splitOffset).
+  // Append the zero-width break embed carrying the insertion suggestion id.
+  const [leftItems] = splitInlineContentAtOffset({ items: bItems }, splitOffset);
+  const embed: EmbedItem = Object.freeze({
+    kind: "embed",
+    embedType: BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
+    attrs: Object.freeze({}),
+    properties: Object.freeze({ suggestionId: input.insertionId }),
+  });
+  const nItems = mergeAdjacentTextItems([...leftItems, embed]);
+
+  return applyOperation(state, (doc) => {
+    // 1. Apply the strike writes (B written BEFORE the split so the split reads
+    //    B's post-strike content). For a single-block span this is just B.
+    for (const w of delPlan.writes) {
+      getYBlock(doc, w.blockId, "splitWithSuggestionOverSelection", delPlan.kind).set(
+        "inlineContent",
+        buildYInlineContent({ items: w.items }),
+      );
+    }
+    // 2. The REAL structural split: materializes N+1 from B's now-post-strike LIVE
+    //    content [splitOffset, postLen) (the unstruck tail) + rewires siblings; sets
+    //    B's content to [0, splitOffset) in place (superseded next).
+    splitBlockAtPositionInTx(doc, splitPlan);
+    // 3. FULL-REPLACE B's content with [0, splitOffset) + the break embed. This
+    //    supersedes the split's in-place write to B; N+1 + the rewiring stay.
+    getYBlock(doc, blockB, "splitWithSuggestionOverSelection", splitPlan.kind).set(
+      "inlineContent",
+      buildYInlineContent({ items: nItems }),
+    );
+    // 4. The deletion record (≥1 run tagged AND not coalesced).
+    if (delPlan.taggedAny && !delPlan.reusing) {
+      writeSuggestionRecordInTx(doc, {
+        id: delPlan.id,
+        kind: "deletion",
+        author: input.author,
+        createdAt: input.createdAt,
+      });
+    }
+    // 5. The insertion record (a suggested split is its OWN tracked insertion — NO
+    //    coalescing).
+    writeSuggestionRecordInTx(doc, {
+      id: input.insertionId,
+      kind: "insertion",
+      author: input.author,
+      createdAt: input.createdAt,
+    });
   });
 }
 

@@ -825,21 +825,32 @@ COLLAPSED Enter, `handleSplitNode` routes through `splitWithSuggestion` when
 suggesting (`newSuggestionInput`) — a tracked INSERTION of a paragraph break (real
 split + a `block-split-suggestion` embed on block N + an `insertion` record, one
 undoable op); the cursor / commit / rebuild path is byte-identical to the direct
-split, and the heading follow-on-type (`newBlockInit`) is threaded through. A
-NON-collapsed (type-over) Enter is an interim NO-OP in suggesting mode (never runs the
-untracked range-delete) — the soft-delete-then-suggested-split composite is slice
-4e-editor-composite (NEXT). On the delete side, the blanket block-boundary suggesting
+split, and the heading follow-on-type (`newBlockInit`) is threaded through. On the delete side, the blanket block-boundary suggesting
 NO-OP gate was REMOVED from `handleDeleteBackward` / `handleDeleteForward` (reordered
 after the list-item / atomic-leaf / section-merge branches, which keep their current
 untracked behavior in suggesting mode); at a PLAIN paragraph↔paragraph boundary the
 real `mergeAdjacentBlocks` is replaced by `markBlockJoinSuggestion` (a
 `block-join-suggestion` embed on the preceding block + a `deletion` record, blocks stay
-SEPARATE, caret unchanged, one undoable op). NEXT = 4e-editor-composite (the
-non-collapsed Enter composite); list/atomic/section boundary-as-suggestion are explicit
+SEPARATE, caret unchanged, one undoable op). list/atomic/section boundary-as-suggestion are explicit
 follow-ups.
-REMAINING: 4e-editor-composite (non-collapsed Enter);
-5 render (insertion=color+underline, deletion=color+strikethrough, formatting=
-proposedAttrs); 6 host query + overlay; 7 arch docs. See `1.1-state.md` "The
+
+**Slice 4e-editor-composite shipped (slice 4e COMPLETE):** the SPLIT_NODE non-collapsed
+Enter-over-selection composite. In suggesting mode a SINGLE-BLOCK non-collapsed Enter now
+routes through the new state op `splitWithSuggestionOverSelection` (via
+`newReplaceSuggestionInput`): it SOFT-deletes the selection (`deletionSuggestionId`, text
+stays) THEN inserts a suggested split AFTER it (real split + `block-split-suggestion` embed
+on N at the POST-strike offset — robust to own-insertion removal shortening the block) +
+both records (a `deletion` + an `insertion` sharing `createdAt`), in ONE undoable op; caret
+→ newBlock:0, heading follow-on computed at the selection END. The cross-context guard +
+collapse-point run ONCE for both modes; the direct-mode path keeps its byte-identical
+`deleteRange`+collapse behavior. A CROSS-block non-collapsed Enter in suggesting mode stays
+an interim NO-OP (it needs the multi-block-suggestion machinery the paste-as-suggestion
+follow-up brings) — named alongside the `handlePaste`-not-suggesting-aware follow-up. Slice
+4e is now COMPLETE (create + resolve + editor + composite).
+REMAINING (all browser/host-gated):
+5 render (pilcrows: split=inserted-flavored ¶, join=struck ¶ — the break embeds already
+render as zero-width atoms; insertion=color+underline, deletion=color+strikethrough,
+formatting=proposedAttrs); 6 host query + overlay; 7 arch docs. See `1.1-state.md` "The
 `suggestions` map" + `1.7-editor.md`.
 
 ### `perf/` `[implemented]`

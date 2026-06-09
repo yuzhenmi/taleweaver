@@ -380,6 +380,7 @@ export {
   markDeletion,
   mintInsertion,
   replaceWithSuggestion,
+  splitWithSuggestionOverSelection,
   acceptSuggestion,
   rejectSuggestion,
   acceptAll,

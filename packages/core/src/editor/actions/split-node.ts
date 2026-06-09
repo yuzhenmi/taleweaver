@@ -1,12 +1,12 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { resolveBlock, productionAllocator, createPosition, createSpan, deleteRange, splitBlockAtPosition, splitWithSuggestion, inlineContentLength } from "../../state";
+import { resolveBlock, productionAllocator, createPosition, createSpan, deleteRange, splitBlockAtPosition, splitWithSuggestion, splitWithSuggestionOverSelection, spanStart, spanEnd, inlineContentLength } from "../../state";
 import type { BlockId } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
 import { handleListIndent } from "./list-indent";
 import { listLevelOf, unlistBlock } from "./list-edits";
-import { newSuggestionInput } from "./suggestion-mode";
+import { newSuggestionInput, newReplaceSuggestionInput } from "./suggestion-mode";
 
 export function handleSplitNode(
   editor: EditorState,
@@ -19,20 +19,69 @@ export function handleSplitNode(
   const accumulatedDirtyIds = new Set<BlockId>();
 
   if (!isCollapsed(selection)) {
-    // Suggesting mode: a non-collapsed Enter = soft-delete-the-selection THEN a
-    // suggested split (post-strike offset) — a composite deferred to slice
-    // 4e-editor-composite. Until then, interim NO-OP: never run the untracked
-    // deleteRange below (that would silently bypass change-tracking). Mirrors the
-    // 4b expanded-INSERT_TEXT interim no-op.
-    if ((config.suggestingAuthor ?? null) !== null) return editor;
     // C.2c §6: cross-CONTEXT selection refusal (see isCrossContextSelection).
-    // The expanded-selection branch first deletes the span (deleteRange would
-    // throw "no common ancestor" on a cross-tree span), so refuse before that.
+    // Both the suggesting composite and the direct deleteRange would otherwise
+    // operate on a cross-tree span (deleteRange throws "no common ancestor"), so
+    // refuse here ONCE for both modes.
     if (isCrossContextSelection(editor.state, selection)) return editor;
     // Deletable-span guard + collapse point (see expandedSpanCollapsePoint):
     // refuses an unresolvable or cross-parent span.
     const start = expandedSpanCollapsePoint(editor.state, selection);
     if (start === null) return editor;
+
+    const replaceInput = newReplaceSuggestionInput(config);
+    if (replaceInput !== null) {
+      // Suggesting mode (4e-editor-composite): a non-collapsed Enter SOFT-DELETES
+      // the selection (text stays, struck) THEN inserts a suggested split AFTER it
+      // (post-strike offset), in ONE undoable transaction. SINGLE-BLOCK only — a
+      // cross-block Enter-over-selection needs multi-block-suggestion content (the
+      // paste-as-suggestion follow-up), so it is an interim NO-OP here.
+      const sStart = spanStart(editor.state, selection);
+      const sEnd = spanEnd(editor.state, selection);
+      if (sStart.blockId !== sEnd.blockId) return editor; // cross-block → defer
+      const splitBlock = resolveBlock(editor.state, sStart.blockId)?.block ?? null;
+      if (
+        splitBlock === null ||
+        splitBlock.inlineContent === null ||
+        splitBlock.parentId === null
+      ) {
+        return editor;
+      }
+      // "Style for the following paragraph": the split lands at the selection END,
+      // so the follow-on (heading→paragraph) gate is END-only at sEnd.offset —
+      // mirror of the collapsed path's `atEnd` computation.
+      const atEnd = sEnd.offset === inlineContentLength(splitBlock.inlineContent);
+      const def = config.componentRegistry.get(splitBlock.type);
+      const followOnType =
+        atEnd && def !== undefined && def.kind === "leaf" ? def.splitFollowOnType : undefined;
+      const newBlockInit =
+        followOnType !== undefined ? { type: followOnType, attrs: {} } : undefined;
+
+      const result = splitWithSuggestionOverSelection(
+        editor.state,
+        selection,
+        productionAllocator,
+        replaceInput,
+        newBlockInit,
+      );
+      if (result.state === editor.state) return editor;
+
+      // Caret → start of the new (suffix) block.
+      const updated = resolveBlock(result.state, sStart.blockId)?.block ?? null;
+      const newBlockId = updated?.nextSiblingId ?? null;
+      if (newBlockId === null) return editor;
+      const newCursor = createPosition(newBlockId, 0);
+      const newSelection = createSpan(newCursor, newCursor);
+      editor.history.commit(result, { before: selection, after: newSelection });
+      return rebuildTrees(
+        { ...editor, state: result.state, selection: newSelection },
+        editor,
+        config,
+        result.dirtyIds,
+      );
+    }
+
+    // Direct mode: delete the span, then fall through to the shared collapsed split.
     const deleteResult = deleteRange(editor.state, selection);
     for (const id of deleteResult.dirtyIds) accumulatedDirtyIds.add(id);
     const collapsedCursor = createPosition(start.blockId, start.offset);

@@ -8,10 +8,12 @@
  * `block-split-suggestion` embed appended to the END of block N + an `insertion`
  * SuggestionRecord — one undoable transaction.
  *
- * Scope of THIS slice: the COLLAPSED cases. A NON-collapsed (type-over) Enter in
- * suggesting mode is an interim NO-OP (the soft-delete-then-suggested-split
- * composite is the next slice, 4e-editor-composite) — never run the untracked
- * deleteRange, which would silently bypass change-tracking.
+ * Scope of THIS slice: the COLLAPSED cases plus (slice 4e-editor-composite) the
+ * SINGLE-BLOCK NON-collapsed case — Enter over a selection soft-deletes the
+ * selection (text stays, struck) then inserts a suggested split AFTER it, in one
+ * undoable transaction, via `splitWithSuggestionOverSelection`. A CROSS-block
+ * non-collapsed Enter in suggesting mode stays an interim NO-OP (it needs the
+ * multi-block-suggestion machinery the paste-as-suggestion follow-up brings).
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -28,6 +30,7 @@ import {
   getBlock,
   getSuggestions,
   BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
+  DELETION_SUGGESTION_ATTR,
   type BlockId,
 } from "../../state";
 
@@ -220,17 +223,73 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
     expect(getSuggestions(next.state)).toHaveLength(0);
   });
 
-  it("non-collapsed Enter in suggesting mode is an interim NO-OP (editor + state + selection unchanged)", () => {
+  it("single-block non-collapsed Enter in suggesting mode: selection struck (stays) + suggested split after it + caret → newBlock:0 + one undo reverts all", () => {
     const seeded = seed("abcdef");
     const paraId = bodyParaId(seeded);
     const selected = select(seeded, paraId, 1, 4, suggestingConfig); // select "bcd"
 
     const next = reduceEditor(selected, { type: "SPLIT_NODE" }, suggestingConfig);
 
-    // NO-OP: editor reference unchanged, no split, no soft-delete, no suggestion.
-    expect(next).toBe(selected);
-    expect(getTextOf(next.state, paraId)).toBe("abcdef");
-    expect(getBlock(next.state, paraId)?.nextSiblingId).toBeNull();
+    // Block N: "a" + struck "bcd" (text STAYS) + the split embed.
+    expect(getTextOf(next.state, paraId)).toBe("abcd");
+    expect(endsWithSplitEmbed(next, paraId)).toBe(true);
+    const bcd = getBlock(next.state, paraId)?.inlineContent?.items.find(
+      (it) => it.kind === "text" && it.text === "bcd",
+    );
+    if (bcd?.kind !== "text") throw new Error("expected the struck bcd run");
+    expect(bcd.attrs[DELETION_SUGGESTION_ATTR]).not.toBeUndefined();
+
+    // Block N+1: the unstruck tail "ef".
+    const newId = getBlock(next.state, paraId)?.nextSiblingId ?? null;
+    expect(newId).not.toBeNull();
+    if (newId === null) throw new Error("expected a new sibling block");
+    expect(getTextOf(next.state, newId)).toBe("ef");
+
+    // Two records — a deletion + an insertion — and the caret at the new block.
+    const suggestions = getSuggestions(next.state);
+    expect(suggestions).toHaveLength(2);
+    expect(suggestions.some((s) => s.kind === "deletion")).toBe(true);
+    expect(suggestions.some((s) => s.kind === "insertion")).toBe(true);
+    expect(next.selection.focus).toEqual(createPosition(newId, 0));
+    expect(next.selection.anchor).toEqual(next.selection.focus);
+
+    // ONE undo reverts the strike + the split + both records.
+    expect(next.history.canUndo()).toBe(true);
+    const undone = reduceEditor(next, { type: "UNDO" }, suggestingConfig);
+    expect(getTextOf(undone.state, paraId)).toBe("abcdef");
+    expect(getBlock(undone.state, paraId)?.nextSiblingId).toBeNull();
+    expect(endsWithSplitEmbed(undone, paraId)).toBe(false);
+    expect(getSuggestions(undone.state)).toHaveLength(0);
+  });
+
+  it("CROSS-block non-collapsed Enter in suggesting mode is an interim NO-OP (deferred multi-block-suggestion case)", () => {
+    // Two paragraphs "abc" | "def" (built in direct mode), then a selection that
+    // crosses the boundary. A cross-block Enter-over-selection needs block-JOIN
+    // suggestions for the paragraph break — the paste-as-suggestion follow-up — so
+    // it stays a NO-OP here.
+    let editor = seed("abc");
+    const para1 = bodyParaId(editor);
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, directConfig); // "abc" | ""
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "def" }, directConfig);
+    const para2 = getBlock(editor.state, para1)?.nextSiblingId ?? null;
+    if (para2 === null) throw new Error("expected a second paragraph");
+
+    // Select from para1 offset 1 through para2 offset 2 ("bc" + break + "de").
+    const crossed = reduceEditor(
+      editor,
+      {
+        type: "SET_SELECTION",
+        selection: createSpan(createPosition(para1, 1), createPosition(para2, 2)),
+      },
+      suggestingConfig,
+    );
+
+    const next = reduceEditor(crossed, { type: "SPLIT_NODE" }, suggestingConfig);
+
+    // NO-OP: editor reference unchanged, no soft-delete, no suggestion.
+    expect(next).toBe(crossed);
+    expect(getTextOf(next.state, para1)).toBe("abc");
+    expect(getTextOf(next.state, para2)).toBe("def");
     expect(getSuggestions(next.state)).toHaveLength(0);
   });
 
