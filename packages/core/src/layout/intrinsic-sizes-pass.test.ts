@@ -44,6 +44,25 @@ describe("computeIntrinsicSizes", () => {
     expect(result.maxContent).toBe(50);
   });
 
+  it("overflow-wrap: anywhere collapses min-content to the widest single grapheme; break-word does not", () => {
+    // "hello" = 5 chars × 10px, one unbreakable segment. Under `normal`/`break-word`
+    // min-content is the WHOLE word (50) — break-word per CSS does NOT affect
+    // min-content. Under `anywhere` the break point counts for min-content, so a
+    // shrink-to-fit / inline-block box can narrow to one grapheme: min-content = 10.
+    // max-content is unaffected (the longest unbreakable RUN — a used-layout-only
+    // concept — stays 50).
+    const sizesOf = (ow: "normal" | "break-word" | "anywhere") =>
+      computeIntrinsicSizes(
+        cascadePass(createTextBox("t", { display: "inline", overflowWrap: ow }, "hello")),
+        shaper,
+        createIntrinsicSizesCache(),
+      );
+    expect(sizesOf("normal").minContent).toBe(50);
+    expect(sizesOf("break-word").minContent).toBe(50);
+    expect(sizesOf("anywhere").minContent).toBe(10);
+    expect(sizesOf("anywhere").maxContent).toBe(50);
+  });
+
   it("paragraph with inline text aggregates as inline (sum max-content)", () => {
     // t1 = "abc" (3 chars, min=30, max=30), t2 = "de" (2 chars, min=20, max=20).
     // Each is one unbreakable word, so its min-content = its whole width.

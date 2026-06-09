@@ -64,7 +64,7 @@ export interface UsedStyle {
   textIndent:          UsedLength;
   textWrap:            "wrap" | "nowrap" | "balance" | "pretty" | "stable";
   hyphens:             "none" | "manual" | "auto";
-  overflowWrap:        "normal" | "break-word";
+  overflowWrap:        "normal" | "break-word" | "anywhere";
   letterSpacing:       UsedLength | "normal";
   wordSpacing:         UsedLength | "normal";
   textTransform:       TextTransform;

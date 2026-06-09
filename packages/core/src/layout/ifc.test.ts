@@ -3310,6 +3310,12 @@ describe("IFC — overflow-wrap: break-word (OW.S2)", () => {
     expect(linesOf("aaaaaaaa", 40, "normal").length).toBe(1);
     // Default (no overflowWrap → `normal` initial) also overflows.
     expect(linesOf("aaaaaaaa", 40).length).toBe(1);
+    // `anywhere`'s USED-layout break is IDENTICAL to break-word (CSS Text 3 §5.1):
+    // it emergency-breaks the same way — only its intrinsic min-content differs
+    // (covered in intrinsic-sizes-pass.test.ts). Same word, same column ⇒ same lines.
+    const any = linesOf("aaaaaaaa", 40, "anywhere");
+    expect(any.length).toBe(2);
+    expect(any[0].width).toBeLessThanOrEqual(40);
   });
 
   it("≥1-grapheme progress guarantee: a grapheme wider than the line still places one (no infinite loop)", () => {

@@ -24,7 +24,7 @@ imports from here.
 
 Schema reservations (present in `Style` and `ComputedStyle` but not yet consumed by any code path):
 - `widows`, `orphans` — required by pagination.
-- `fontFeatureSettings` — required by typography phase 1 (P5); resolved into `UsedStyle` but not yet read by any tokenizer/layout/paint consumer. (`textAlign` incl. justify, `textWrap`/`whiteSpace`, `textIndent`, `letterSpacing`/`wordSpacing`, `textTransform`, and `hyphens` are NOW consumed — `letterSpacing`/`wordSpacing` via `layout/text-spacing.ts` (applied in the shapers + IFC trailing-trim + renderer); `textTransform` via the `textTransformInterpreter` cascade interpreter + the IFC's per-token display transform (`layout/text-transform.ts`) + the `SET_TEXT_TRANSFORM` editor action + toolbar; `hyphens` via the manual soft-hyphen producer in the IFC + `tryHyphenSplit` (see `1.6-text.md` Hyphenation, `auto` dictionary still future); `overflowWrap` (net-new, never schema-only) via the IFC `tryEmergencyBreak` last-resort grapheme split + the editor body default (`break-word`; `anywhere` is future); `tabStops`/`defaultTabStop` (net-new; the former CSS `tabSize` reservation was REMOVED) via the `"tab"` embed + the IFC resolve-at-overflow-check advance (`nextStop`; left/center/right/decimal alignments + default-grid fallback) + `INSERT_TAB`/`SET_TAB_STOPS` editor actions + the Tab key + leader paint (see `1.6-text.md` Tab stops) — so they are no longer schema-only.)
+- `fontFeatureSettings` — required by typography phase 1 (P5); resolved into `UsedStyle` but not yet read by any tokenizer/layout/paint consumer. (`textAlign` incl. justify, `textWrap`/`whiteSpace`, `textIndent`, `letterSpacing`/`wordSpacing`, `textTransform`, and `hyphens` are NOW consumed — `letterSpacing`/`wordSpacing` via `layout/text-spacing.ts` (applied in the shapers + IFC trailing-trim + renderer); `textTransform` via the `textTransformInterpreter` cascade interpreter + the IFC's per-token display transform (`layout/text-transform.ts`) + the `SET_TEXT_TRANSFORM` editor action + toolbar; `hyphens` via the manual soft-hyphen producer in the IFC + `tryHyphenSplit` (see `1.6-text.md` Hyphenation, `auto` dictionary still future); `overflowWrap` (net-new, never schema-only) via the IFC `tryEmergencyBreak` last-resort grapheme split + the editor body default (`break-word`; `anywhere` ALSO shipped — same used-layout break, plus the min-content collapse in `intrinsic-sizes-pass.ts`); `tabStops`/`defaultTabStop` (net-new; the former CSS `tabSize` reservation was REMOVED) via the `"tab"` embed + the IFC resolve-at-overflow-check advance (`nextStop`; left/center/right/decimal alignments + default-grid fallback) + `INSERT_TAB`/`SET_TAB_STOPS` editor actions + the Tab key + leader paint (see `1.6-text.md` Tab stops) — so they are no longer schema-only.)
 Positioning vocabulary present and consumed (slice 1): `position`, the four
 logical `inset*`, `zIndex`, `transform`, `transformOrigin`, `opacity` live in
 `styles/position.ts` + `ComputedStyle`, all `inherits: false`. `position:
@@ -495,9 +495,12 @@ Known gaps:
   (2) `overflow-wrap: break-word` — a long unbreakable word splits at a grapheme
   boundary (the editor BODY default for Google-Docs parity); the split is an
   ordinary token split with contiguous source offsets (no inserted char);
-  behavior-tested in `cursor/overflow-wrap-caret.test.ts`. Remaining gaps:
-  dictionary `auto` hyphenation, `overflow-wrap: anywhere` (the min-content
-  variant), and `word-break: break-all/keep-all` are future features. (The
+  behavior-tested in `cursor/overflow-wrap-caret.test.ts`. `overflow-wrap: anywhere`
+  ALSO ships: identical used-layout break to `break-word`, plus it collapses
+  min-content to the widest single grapheme (`intrinsic-sizes-pass.ts`) so a
+  shrink-to-fit / inline-block box can narrow to one cluster. Remaining gaps:
+  dictionary `auto` hyphenation and `word-break: break-all/keep-all` are future
+  features. (The
   mock/canvas shapers classify U+00AD as `kind:"soft"`; the IFC synthesizes the
   `hyphen`-kind opportunity, so the manual path does not depend on the shaper
   emitting `kind:"hyphen"`.)

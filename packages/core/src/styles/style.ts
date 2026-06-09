@@ -114,7 +114,7 @@ export interface Style {
   readonly textIndent?:          Length;
   readonly textWrap?:            "wrap" | "nowrap" | "balance" | "pretty" | "stable";
   readonly hyphens?:             "none" | "manual" | "auto";
-  readonly overflowWrap?:        "normal" | "break-word";
+  readonly overflowWrap?:        "normal" | "break-word" | "anywhere";
   readonly letterSpacing?:       Length | "normal";
   readonly wordSpacing?:         Length | "normal";
   readonly textTransform?:       TextTransform;

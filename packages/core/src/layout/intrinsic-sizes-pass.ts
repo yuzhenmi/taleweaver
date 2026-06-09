@@ -180,7 +180,16 @@ function computeTextContribution(
     segWidth += cl.inlineAdvance;
   }
   if (segWidth > widestSegment) widestSegment = segWidth;
-  const minContent = Math.max(run.minClusterInlineSize, widestSegment);
+  // `overflow-wrap: anywhere` (CSS Text 3 §5.1) makes the last-resort within-word
+  // break point COUNT for min-content: a shrink-to-fit / inline-block box can narrow
+  // to ONE grapheme. So min-content collapses to the widest single cluster, NOT the
+  // widest unbreakable segment. `break-word` does NOT change min-content (used-layout
+  // break only) — only `anywhere` does. (max-content is the longest unbreakable RUN,
+  // a used-layout concept, unaffected by either.)
+  const minContent =
+    node.computedStyle.overflowWrap === "anywhere"
+      ? run.minClusterInlineSize
+      : Math.max(run.minClusterInlineSize, widestSegment);
   const firstCluster = clusters[0]?.inlineAdvance ?? 0;
   // `restMin` = the run's min-content EXCLUDING the first (indented) unit. The
   // indent pushes only the first formatted line, which holds the run's first

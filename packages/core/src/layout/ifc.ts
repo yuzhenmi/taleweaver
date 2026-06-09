@@ -1824,19 +1824,22 @@ export function layoutInlineContent(
    * no visible mark), structurally identical to `trySoftSplit` but breaking at an
    * arbitrary grapheme boundary rather than a precomputed `softBreaks` index.
    *
-   * Gated on `overflowWrap === "break-word"` (so `normal` — the initial — is a pure
-   * no-op, existing layout byte-identical). Skips space / inline-block / line-break
-   * units and (mirroring `tryHyphenSplit`'s grow-token punt) text-transform
-   * grow/shrink tokens whose `sourceDisplayLengths` make display≠source offsets
-   * unsafe for the source-base split — a named follow-up, consistent with the
-   * shipped hyphen behavior, not a new degradation.
+   * Gated to suppress ONLY `normal` (the initial — pure no-op, existing layout
+   * byte-identical). Both `break-word` and `anywhere` emergency-break IDENTICALLY
+   * in USED layout (CSS Text 3 §5.1: `anywhere`'s used break == `break-word`'s; the
+   * two differ only in min-content intrinsic sizing, handled in
+   * `intrinsic-sizes-pass.ts`). Skips space / inline-block / line-break units and
+   * (mirroring `tryHyphenSplit`'s grow-token punt) text-transform grow/shrink tokens
+   * whose `sourceDisplayLengths` make display≠source offsets unsafe for the
+   * source-base split — a named follow-up, consistent with the shipped hyphen
+   * behavior, not a new degradation.
    */
   function tryEmergencyBreak(
     unit: WrapUnit,
     available: number,
   ): [WrapUnit, WrapUnit] | null {
     const firstTok = unit.tokens[0];
-    if (firstTok.style.overflowWrap !== "break-word") return null;
+    if (firstTok.style.overflowWrap === "normal") return null;
     if (firstTok.isSpace || firstTok.inlineBlock || firstTok.isLineBreak) return null;
     if (!firstTok.clusterWidths) return null;
     if (firstTok.sourceDisplayLengths !== undefined) return null;
