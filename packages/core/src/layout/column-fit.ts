@@ -153,3 +153,84 @@ export function fitColumnsOnPage(
     totalChildrenCount: curIndex - startIndex,
   };
 }
+
+/** Binary-search tolerance (px) for the balanced column height — sub-pixel, far
+ *  finer than any visible difference, and the search runs only on final pages. */
+const BALANCE_TOLERANCE = 0.5;
+
+/**
+ * The balanced column height for a section's FINAL page (CSS `column-fill:
+ * balance`, the Google-Docs / Word parity behavior — v1, NOT optional). FILL
+ * alone would dump short 2-column content into column 0 and leave column 1 empty;
+ * balancing evens the columns so the page looks right.
+ *
+ * Balance = MINIMIZE the maximum column height. With the per-column greedy fill
+ * (`fitColumnsOnPage`) over contiguous runs, this is the classic linear-partition
+ * minimal-max-subarray problem, solved by binary search on the candidate height
+ * `M` via a monotonic STABLE-FIT oracle:
+ *
+ *   `stableFits(M)` ⇔ the content packs into ≤ N columns at trial height `M`
+ *   (`pageResumeOut === null`) AND no column's CONSUMED height exceeds `M` (no
+ *   column was forced to overflow past `M` by the "place at least one box per
+ *   fragment" rule). The second clause is essential: without it, the forced
+ *   single-box rule makes arbitrarily small `M` "fit" (one box per column), so
+ *   the minimum would collapse to ~0 instead of the content's natural height.
+ *
+ * `stableFits` is monotonic (larger `M` ⇒ fits and stays stable once `M` clears
+ * the tallest single box and the pack-count), so binary search over
+ * `(0, maxColumnHeight]` returns the minimal balanced height.
+ *
+ * PRECONDITION: this is a FINAL page — its content fits within N columns at
+ * `maxColumnHeight` (the caller decides finality by FILL-fitting at the page body
+ * height). If that does not hold (e.g. a single box taller than the page body),
+ * there is nothing to balance: `maxColumnHeight` is returned. `columnCount <= 1`
+ * also returns `maxColumnHeight` (single column — no balancing).
+ *
+ * Pure; the caller runs `fitColumnsOnPage` at the returned height to get the
+ * balanced per-column distribution. Chose binary search over the spec's
+ * "next-break-offset" linear bump: simpler and more robust (no break-offset
+ * bookkeeping), bounded at ≈ log₂(maxColumnHeight / tolerance) · N `fitOnePage`
+ * calls on FINAL pages only — NOT quadratic, matching the spec's intent.
+ */
+export function balanceColumnHeight(
+  metas: readonly BlockFitMeta[],
+  startIndex: number,
+  resumeInto: BreakToken | null,
+  columnCount: number,
+  listCounterAtStart: number,
+  maxColumnHeight: number,
+  stopBeforeIndex?: number,
+): number {
+  if (columnCount <= 1) return maxColumnHeight;
+
+  const stableFits = (h: number): boolean => {
+    const r = fitColumnsOnPage(
+      metas,
+      startIndex,
+      resumeInto,
+      h,
+      columnCount,
+      listCounterAtStart,
+      stopBeforeIndex,
+    );
+    return r.pageResumeOut === null && r.columns.every((c) => c.consumedBlockSize <= h);
+  };
+
+  // Precondition guard: if even the full page body cannot stably hold the
+  // content in N columns, there is nothing to balance.
+  if (!stableFits(maxColumnHeight)) return maxColumnHeight;
+
+  // Invariant: `lo` does not stable-fit, `hi` does. Converge `hi` down to the
+  // minimal balanced height.
+  let lo = 0;
+  let hi = maxColumnHeight;
+  while (hi - lo > BALANCE_TOLERANCE) {
+    const mid = (lo + hi) / 2;
+    if (stableFits(mid)) {
+      hi = mid;
+    } else {
+      lo = mid;
+    }
+  }
+  return hi;
+}

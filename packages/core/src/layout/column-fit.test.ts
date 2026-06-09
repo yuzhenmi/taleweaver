@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fitColumnsOnPage } from "./column-fit";
+import { fitColumnsOnPage, balanceColumnHeight } from "./column-fit";
 import { fitOnePage } from "./fit-core";
 import type { BlockFitMeta } from "./fit-core";
 
@@ -132,5 +132,89 @@ describe("fitColumnsOnPage", () => {
     expect(page2.pageResumeOut).toBeNull(); // document ends
     // sanity: page1 (loose) placed everything in 2 columns with no overflow.
     expect(page1.pageResumeOut).toBeNull();
+  });
+});
+
+describe("balanceColumnHeight", () => {
+  it("columnCount 1 → returns maxColumnHeight unchanged (no balancing)", () => {
+    expect(balanceColumnHeight([m(100), m(100)], 0, null, 1, 0, 1000)).toBe(1000);
+  });
+
+  it("evens content that divides cleanly (4 blocks, 2 columns → height ≈ 2 blocks)", () => {
+    const metas = [m(100), m(100), m(100), m(100)];
+    const h = balanceColumnHeight(metas, 0, null, 2, 0, 1000);
+    // Two 100-blocks per column ⇒ balanced height ≈ 200 (within tolerance above).
+    expect(h).toBeGreaterThanOrEqual(200);
+    expect(h).toBeLessThan(201);
+    const r = fitColumnsOnPage(metas, 0, null, h, 2, 0);
+    expect(r.columns[0].childrenCount).toBe(2);
+    expect(r.columns[1].childrenCount).toBe(2);
+    expect(r.pageResumeOut).toBeNull();
+  });
+
+  it("balances indivisible content to the minimal max (3 blocks, 2 columns → ≈ 200)", () => {
+    // 3 × 100 into 2 columns: best partition is [0,1]/[2] (max 200) — cannot do
+    // better given indivisible blocks; balance must NOT under-shoot to 150.
+    const metas = [m(100), m(100), m(100)];
+    const h = balanceColumnHeight(metas, 0, null, 2, 0, 1000);
+    expect(h).toBeGreaterThanOrEqual(200);
+    expect(h).toBeLessThan(201);
+    const r = fitColumnsOnPage(metas, 0, null, h, 2, 0);
+    expect(r.columns[0].childrenCount).toBe(2); // [0,1]
+    expect(r.columns[1].childrenCount).toBe(1); // [2]
+    expect(r.pageResumeOut).toBeNull();
+  });
+
+  it("evens SHORT content instead of dumping it into column 0 (the no-MVP case)", () => {
+    // Two 100-blocks, page body 1000. FILL (height 1000) puts BOTH in column 0
+    // and leaves column 1 empty. Balance must shrink the height to ≈ 100 so each
+    // column gets one block.
+    const metas = [m(100), m(100)];
+    const fill = fitColumnsOnPage(metas, 0, null, 1000, 2, 0);
+    expect(fill.columns[0].childrenCount).toBe(2); // FILL dumps both into col0
+    expect(fill.columns[1].childrenCount).toBe(0);
+
+    const h = balanceColumnHeight(metas, 0, null, 2, 0, 1000);
+    expect(h).toBeGreaterThanOrEqual(100);
+    expect(h).toBeLessThan(101);
+    const r = fitColumnsOnPage(metas, 0, null, h, 2, 0);
+    expect(r.columns[0].childrenCount).toBe(1); // evened: one block each
+    expect(r.columns[1].childrenCount).toBe(1);
+    expect(r.pageResumeOut).toBeNull();
+  });
+
+  it("the balanced height is stable (every column fits within it) and minimal", () => {
+    const metas = [m(100), m(100)];
+    const h = balanceColumnHeight(metas, 0, null, 2, 0, 1000);
+    // Stable at h: no column's consumed height exceeds h.
+    const at = fitColumnsOnPage(metas, 0, null, h, 2, 0);
+    expect(at.columns.every((c) => c.consumedBlockSize <= h)).toBe(true);
+    // Minimal: a height a hair below the block height is NOT stable — column 0
+    // would be FORCED to place its 100-block, overflowing past the trial height.
+    const below = fitColumnsOnPage(metas, 0, null, 99, 2, 0);
+    expect(below.columns.some((c) => c.consumedBlockSize > 99)).toBe(true);
+  });
+
+  it("balances a fragmenting paragraph at line granularity (6 lines, 2 columns → ≈ 3 lines each)", () => {
+    // One 6-line paragraph (300 tall), page body 1000. Balance must shrink to a
+    // sub-block height (≈ 150 = 3 lines) so the paragraph splits ~evenly across
+    // the two columns — proving balance works below whole-block granularity.
+    const metas = [ifcMeta(6, 50)];
+    const h = balanceColumnHeight(metas, 0, null, 2, 0, 1000);
+    expect(h).toBeGreaterThanOrEqual(150);
+    expect(h).toBeLessThan(151);
+    const r = fitColumnsOnPage(metas, 0, null, h, 2, 0);
+    // The single paragraph fragments: head in col0 (not fully consumed), tail
+    // finishes in col1; the whole para counts once and the page does not overflow.
+    expect(r.columns[0].childrenCount).toBe(0);
+    expect(r.columns[0].resumeOut).not.toBeNull();
+    expect(r.columns[1].childrenCount).toBe(1);
+    expect(r.pageResumeOut).toBeNull();
+  });
+
+  it("nothing to balance when a single box exceeds the page body → returns maxColumnHeight", () => {
+    // A 2000-tall block can't stably fit in a 1000 page body; the page would not
+    // be 'final' — the guard returns maxColumnHeight rather than searching.
+    expect(balanceColumnHeight([m(2000)], 0, null, 2, 0, 1000)).toBe(1000);
   });
 });

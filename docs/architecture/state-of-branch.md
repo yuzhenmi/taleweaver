@@ -334,9 +334,17 @@ page. Pure (operates on cached `BlockFitMeta`, positions no boxes); `columnCount
 === 1` reduces to a single `fitOnePage`, so single-column pages are unaffected.
 INERT: no caller wires it into the measure pass / `getPage` yet.
 
-Still missing (the wiring + remaining behavior): the final-page BALANCE
-refinement (`column-fill: balance` — the balanced column height) layered on
-`fitColumnsOnPage`; wiring `fitColumnsOnPage` into the measure pass + `getPage`
+The final-page BALANCE refinement (`column-fill: balance`, the Google-Docs/Word
+parity behavior — v1, not optional) has also landed: `balanceColumnHeight`
+(same module) returns the minimal column height that evens a section's final
+page, via a binary search over a monotonic STABLE-FIT oracle (content packs into
+≤ N columns AND no column overflows past the trial height — the second clause
+defeats the forced-single-box rule that would otherwise collapse the height to
+~0). This evens short content instead of dumping it into column 0 and leaving
+column 1 empty. Pure; the caller fits at the returned height. INERT.
+
+Still missing (the wiring + remaining behavior): wiring `fitColumnsOnPage` /
+`balanceColumnHeight` into the measure pass + `getPage`
 to BUILD the `MultiColumnBox` and thread the `ColumnBreakToken` through the page
 plan + `PageFingerprint`; column-aware hit-test (column-X filter) + line-nav
 (`targetX` remap) that READ the stamped `columnIndex`; column-rule paint; the
