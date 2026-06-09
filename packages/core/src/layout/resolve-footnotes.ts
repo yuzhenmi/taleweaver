@@ -52,7 +52,7 @@ import {
 import { pageConfigsEqual, sectionStateAt, type SectionPlan } from "./section-plan";
 import type { BreakToken } from "./fragmentation";
 import { breakTokensEqual, innerBfcToken } from "./fragmentation";
-import type { ColumnsFitResult } from "./column-fit";
+import { fitColumnsOnPage, type ColumnsFitResult } from "./column-fit";
 import { isDevMode } from "./dev-mode";
 
 // ---------------------------------------------------------------------------
@@ -806,12 +806,11 @@ export function resolveFootnotes(
     let resolvedChildrenCount = 0;
     // The multi-column distribution (multi-column wiring T3) this page carries.
     // Carried from the prior measure-pass entry on the REUSE path (a footnote-free
-    // multicol page keeps its `fitColumnsOnPage` result); stays `undefined` on the
-    // MISS path (the footnote re-fit runs `fitOnePage`, which produces no
-    // ColumnsFitResult — TODO(3.5b) replaces that with `fitColumnsOnPage` so a
-    // footnote-bearing multicol page keeps its columns). Without carrying this,
-    // Task 5's `materializePage` would silently fall to single-column for every
-    // multicol page rewritten by this sweep.
+    // multicol page keeps its `fitColumnsOnPage` result); set from the MISS path's
+    // `fitBody` (3.5b: the footnote re-fit runs `fitColumnsOnPage` at the
+    // slot-reduced height for a multicol page, so it keeps its columns). `undefined`
+    // only for single-column pages. Without it, Task 5's `materializePage` would
+    // silently fall to single-column for every multicol page rewritten by this sweep.
     let resolvedColumnFit: ColumnsFitResult | undefined = undefined;
     let reused = false;
 
@@ -886,37 +885,62 @@ export function resolveFootnotes(
       // Reuse path: every resolved output was copied from the prior entry above.
       // Nothing further to compute — fall through to the entry emission below.
     } else {
-    // `fitOnePage` is a single-column BFC fit; it does not understand a
-    // `ColumnBreakToken`. A multicol page's threaded `resumeInto` is a column
-    // token, so unwrap it to the inner BFC token before every re-fit. Identity for
-    // single-column pages (mirrors measure-pass's `innerBfcToken(resumeInto)`).
+    // `fitOnePage` / `fitColumnsOnPage` do not understand a `ColumnBreakToken`. A
+    // multicol page's threaded `resumeInto` is a column token, so unwrap it to the
+    // inner BFC token before every re-fit. Identity for single-column pages
+    // (mirrors measure-pass's `innerBfcToken(resumeInto)`).
     const innerResumeInto = innerBfcToken(resumeInto);
-    // TODO(3.5b): this miss-path re-fit runs `fitOnePage` (a single-column BFC),
-    // so it COLLAPSES any multicol page to one column. This is reached for EVERY
-    // multicol page in the forward-sweep region (from the first footnote page
-    // onward) — whether or not that page itself carries a footnote anchor — since
-    // a fresh `resolveFootnotes` call re-fits each such page here. (Pages BEFORE
-    // the first footnote are copied ref-equal by the pre-sweep loop and keep their
-    // `fitColumnsOnPage` distribution.) 3.5b replaces this with `fitColumnsOnPage`
-    // at the slot-reduced height (page-wide footnote slot, columns shrink
-    // uniformly). The dev-guard below flags EVERY collapsing multicol page, not
-    // only footnote-bearing ones, so the deferral is reported honestly.
-    if (isDevMode() && effColCfg.columnCount > 1) {
-      const g = globalThis as { console?: { warn(...args: unknown[]): void } };
-      const carriesFootnote = (anchorsByPage.get(pageIndex)?.length ?? 0) > 0;
-      g.console?.warn(
-        `resolveFootnotes: multicol page ${pageIndex} (columnCount=` +
-          `${effColCfg.columnCount}${carriesFootnote ? ", carries footnote anchors" : ""}) ` +
-          `is re-fit single-column by the footnote sweep — its column distribution ` +
-          `collapses. Multicol+footnote convergence is deferred to plan Task 3.5b ` +
-          `(fitColumnsOnPage at the reduced height).`,
-      );
+    // 3.5b: re-fit the page body at `columnHeight` honoring `cap`. A multicol page
+    // distributes its body across N columns via `fitColumnsOnPage` (Google Docs:
+    // footnotes span the full page width below the body, so the columns shrink
+    // uniformly into the slot-reduced height); a single-column page uses the
+    // unchanged `fitOnePage`. The normalized `BodyFit` lets the convergence loop +
+    // publish read one shape regardless of column count.
+    interface BodyFit {
+      readonly childrenCount: number;
+      readonly resumeOut: BreakToken | null;
+      readonly listCounterAtEnd: number;
+      readonly columnFit: ColumnsFitResult | undefined;
     }
-    const seedNoSlotFit = fitOnePage(
-      metas, startIndex, innerResumeInto,
-      pageContentBlockSize, listCounterAtStart,
-      sectionCap ?? undefined,
-    );
+    const fitBody = (columnHeight: number, cap: number | undefined): BodyFit => {
+      if (effColCfg.columnCount > 1) {
+        const cf = fitColumnsOnPage(
+          metas, startIndex, innerResumeInto, columnHeight,
+          effColCfg.columnCount, listCounterAtStart, cap,
+        );
+        // F-1 (mirror measure-pass T3): `fitColumnsOnPage` returns
+        // `pageResumeOut === null` when content exhausts AT a cap (section cap OR a
+        // footnote atomic cap) even though more document remains. Single-column
+        // `fitOnePage` emits a forced-break token there; the column fit does not, so
+        // synthesize the same token so the threading/sweep continue and the next
+        // page picks up the remaining content. (At true document end,
+        // `startIndex + totalChildrenCount === metas.length`, so no synthesis. On a
+        // real column overflow `pageResumeOut` is a non-null column token, so this
+        // branch is skipped and the column token threads.)
+        let resumeOut: BreakToken | null = cf.pageResumeOut;
+        if (resumeOut === null && startIndex + cf.totalChildrenCount < metas.length) {
+          resumeOut = {
+            type: "block",
+            resumeChildIndex: startIndex + cf.totalChildrenCount,
+            resumeChildToken: null,
+          };
+        }
+        return {
+          childrenCount: cf.totalChildrenCount,
+          resumeOut,
+          listCounterAtEnd: cf.listCounterAtEnd,
+          columnFit: cf,
+        };
+      }
+      const r = fitOnePage(metas, startIndex, innerResumeInto, columnHeight, listCounterAtStart, cap);
+      return {
+        childrenCount: r.childrenCount,
+        resumeOut: r.resumeOut,
+        listCounterAtEnd: r.listCounterAtEnd,
+        columnFit: undefined,
+      };
+    };
+    const seedNoSlotFit = fitBody(pageContentBlockSize, sectionCap ?? undefined);
     let contentBlockIds = unionIds(
       anchorsByPage.get(pageIndex) ?? [],
       collectForSlice(startIndex, seedNoSlotFit.childrenCount),
@@ -931,7 +955,7 @@ export function resolveFootnotes(
     // The effective stop cap = the section cap tightened by any footnote-driven
     // atomic cap discovered on a cycle. `undefined` ⇒ no cap beyond section.
     let footnoteCap: number | undefined = undefined;
-    let fit = seedNoSlotFit;
+    let fit: BodyFit = seedNoSlotFit;
     const seen: string[] = [];
     // The `MAX_CONVERGENCE_ITERATIONS` cap is a DEFENSIVE bound, not an expected
     // operating point. The slot ⇄ blocks relationship is monotone/contracting
@@ -947,11 +971,7 @@ export function resolveFootnotes(
       );
       footnoteSlotHeight = slotResult.slotHeight;
       const effCap = tightenCap(sectionCap, footnoteCap);
-      fit = fitOnePage(
-        metas, startIndex, innerResumeInto,
-        pageContentBlockSize - footnoteSlotHeight, listCounterAtStart,
-        effCap,
-      );
+      fit = fitBody(pageContentBlockSize - footnoteSlotHeight, effCap);
       const recollected = collectForSlice(startIndex, fit.childrenCount);
       if (sameIds(recollected, contentBlockIds)) break;
 
@@ -978,11 +998,7 @@ export function resolveFootnotes(
             inboundContinuations, contentBlockIds, contentInlineSize, pageContentBlockSize,
           );
           footnoteSlotHeight = slotResult.slotHeight;
-          fit = fitOnePage(
-            metas, startIndex, innerResumeInto,
-            pageContentBlockSize - footnoteSlotHeight, listCounterAtStart,
-            tightenCap(sectionCap, footnoteCap),
-          );
+          fit = fitBody(pageContentBlockSize - footnoteSlotHeight, tightenCap(sectionCap, footnoteCap));
           contentBlockIds = collectForSlice(startIndex, fit.childrenCount);
         }
         break;
@@ -1027,6 +1043,10 @@ export function resolveFootnotes(
     resolvedResumeOut = fit.resumeOut;
     resolvedChildrenCount = fit.childrenCount;
     resolvedListCounterAtEnd = fit.listCounterAtEnd;
+    // 3.5b: the multicol distribution from the final `fitBody` (a `ColumnsFitResult`
+    // for a multicol page; `undefined` for single-column). Threads to Task 5's
+    // `materializePage` so a footnote-bearing multicol page builds a MultiColumnBox.
+    resolvedColumnFit = fit.columnFit;
     } // end miss path
 
     // Block-axis bookkeeping reasons about the INNER BFC token: a multicol page's

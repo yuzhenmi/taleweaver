@@ -1889,29 +1889,100 @@ describe("resolveFootnotes — multicol ColumnBreakToken threading (3.5a)", () =
     }
   });
 
-  it("footnote-BEARING 2-column page does not crash and produces a plan (3.5b deferral guard)", () => {
-    // A 2-column page that ACTUALLY carries a footnote anchor reaches the
-    // fitOnePage re-fit (single-column collapse) — full multicol+footnote
-    // convergence is deferred to 3.5b. 3.5a only proves the path does not crash
-    // and the footnote slot is computed (the TODO(3.5b)/dev-warn path is reached).
+  it("footnote-BEARING 2-column page re-fits via fitColumnsOnPage at the slot-reduced height (3.5b convergence)", () => {
+    // A 2-column page that carries a footnote anchor must re-distribute its body
+    // across 2 columns at the SLOT-REDUCED height (Google Docs: footnotes span the
+    // full page width below the body; the body columns shrink uniformly into
+    // `pageContentBlockSize - footnoteSlotHeight`). Before 3.5b the miss-path re-fit
+    // ran a single-column `fitOnePage`, COLLAPSING the page to one column
+    // (`columnFit === undefined`); after 3.5b it runs `fitColumnsOnPage` and stamps
+    // a real `ColumnsFitResult`.
     const render = fnDoc(Array.from({ length: 12 }, (_, i) => fnPara(`b${i}`)));
     const { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx, pageConfig } =
       setupCols(render, new Map([["fn0", fnBody("fn0", 1)]]), TWO_COL);
 
     const anchors = [fnAnchor("b0", "fn0")];
-    expect(() =>
-      resolveFootnotes(
-        rawPlan, metas, sectionPlan, rootChildren,
-        cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
-      ),
-    ).not.toThrow();
-
     const out = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
       cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
     );
-    // The footnote slot for fn0 is reserved on the page carrying b0 (page 0).
+
+    // The footnote slot for fn0 is reserved page-wide on the page carrying b0 (page 0).
     expect(out.entries[0].footnoteContentBlockIds).toEqual(["fn0" as BlockId]);
     expect(out.entries[0].footnoteSlotHeight).toBeGreaterThan(0);
+
+    // 3.5b: the footnote-bearing page's body is re-fit as 2 columns (NOT collapsed
+    // to single-column). `columnFit` is DEFINED with 2 columns.
+    const cf = out.entries[0].columnFit;
+    expect(cf, "footnote-bearing multicol page keeps its columnFit").toBeDefined();
+    expect(cf?.columns.length).toBe(2);
+    expect(out.entries[0].columnConfig.columnCount).toBe(2);
+
+    // Each non-empty column shrinks into the slot-reduced height: its consumed
+    // block-size leaves room for the page-wide footnote slot.
+    const effTopInset = pageConfig.pageMargins.blockStart;
+    const effBottomInset = pageConfig.pageMargins.blockEnd;
+    const pageContentBlockSize = pageConfig.pageBlockSize - effTopInset - effBottomInset;
+    const reducedHeight = pageContentBlockSize - out.entries[0].footnoteSlotHeight;
+    for (const col of cf?.columns ?? []) {
+      if (col.childrenCount === 0) continue;
+      expect(
+        col.consumedBlockSize,
+        "column shrinks into the slot-reduced height",
+      ).toBeLessThanOrEqual(reducedHeight);
+    }
+  });
+
+  it("F-1: a capped multicol footnote page synthesizes a forced-break so the next section is NOT dropped (3.5b fitBody synth)", () => {
+    // Two sections, both 2-column: section 1 = b0..b3 (capped before index 4),
+    // section 2 = b4..b7. A footnote on b0 puts section 1's page in the footnote
+    // sweep, so its body is re-fit by `fitBody` → `fitColumnsOnPage`. Section 1's
+    // 4 blocks FIT within its 2 columns at the slot-reduced height, so
+    // `fitColumnsOnPage` exhausts AT the section cap (index 4) and returns
+    // `pageResumeOut === null` — even though section 2 still follows. Without the
+    // F-1 forced-break synthesis in `fitBody`, `resolvedResumeOut` would be null,
+    // the sweep would treat page 0 as the document end, and section 2's blocks
+    // (b4..b7) would be SILENTLY DROPPED. The synth makes `resumeOut` a block token
+    // at index 4 so the sweep continues and section 2 paginates.
+    const sectioned: SectionPlan = {
+      boundaries: [
+        { startFlattenedIndex: 0, sectionId: "s1" as BlockId },
+        { startFlattenedIndex: 4, sectionId: "s2" as BlockId },
+      ],
+      effectiveDefaultColumns: { columnCount: 2, columnGap: 48, columnRule: null },
+    };
+    const render = fnDoc(Array.from({ length: 8 }, (_, i) => fnPara(`b${i}`)));
+    const { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx, pageConfig } =
+      setupCols(render, new Map([["fn0", fnBody("fn0", 1)]]), sectioned);
+
+    // Sanity: the raw plan caps section 1 on page 0 (b0..b3) and starts section 2
+    // on page 1 — measurePass's own T3 F-1 synth produced the page-0 forced-break.
+    expect(rawPlan.entries.length).toBeGreaterThanOrEqual(2);
+    expect(rawPlan.entries[0].activeSectionId).toBe("s1");
+    expect(rawPlan.entries[0].resumeOut?.type).toBe("block");
+
+    const anchors = [fnAnchor("b0", "fn0")];
+    const out = resolveFootnotes(
+      rawPlan, metas, sectionPlan, rootChildren,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
+    );
+
+    // Page 0 (section 1, re-fit by the footnote sweep) carries the synthesized
+    // forced-break at the section boundary — NOT a stale null that would end the doc.
+    expect(out.entries[0].activeSectionId).toBe("s1");
+    expect(out.entries[0].resumeOut).toEqual({
+      type: "block",
+      resumeChildIndex: 4,
+      resumeChildToken: null,
+    });
+    // And it kept its 2-column distribution (3.5b body re-fit).
+    expect(out.entries[0].columnFit?.columns.length).toBe(2);
+
+    // Section 2's blocks are NOT dropped — every one appears on some page > 0.
+    for (let i = 4; i < 8; i++) {
+      const span = out.pageSpanOfBlock(`b${i}`);
+      expect(span, `b${i} (section 2) present`).not.toBeNull();
+      expect(span?.first, `b${i} on a page after section 1`).toBeGreaterThan(0);
+    }
   });
 });
