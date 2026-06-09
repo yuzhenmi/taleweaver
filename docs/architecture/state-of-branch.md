@@ -368,11 +368,19 @@ measure-vs-materialize drift. A single-column page is byte-identical to the
 pre-multicol body box. The `MultiColumnBox` flows downstream like any container
 body box (the `"multicolumn"` walker arms descend `columns`).
 
-Still missing (the rest of the wiring + remaining behavior): column-aware
-hit-test (column-X filter) + line-nav (`targetX` remap) that READ the stamped
-`columnIndex`; column-rule paint; the `SET_SECTION_COLUMNS` action + toolbar.
-Until the cursor work lands, multicol pages render correctly but hit-test /
-line-nav are not yet column-aware.
+Column-aware HIT-TEST has landed (slice 3a): `column-at-point.ts`
+(`locateColumnAtPoint`) finds the clicked column's physical rect, and `hit-test.ts`
+restricts the candidate lines to that rect BEFORE the block-axis band-pick —
+mirroring the `table-cell-at-point` restriction — so a click in column B at a Y
+shared with column A resolves into column B's line (the column filter composes with
+the table-cell filter, column-first). Single-column pages are unaffected
+(`locateColumnAtPoint` returns null → unrestricted pick).
+
+Still missing (the rest of the wiring + remaining behavior): column-aware LINE-NAV
+(ArrowUp/Down cross-column visual order + `targetX` remap); column-rule paint; the
+`SET_SECTION_COLUMNS` action + toolbar; the footnote-bearing FINAL multicol page's
+column BALANCE (T4b). Until line-nav lands, clicking is column-aware but arrowing
+between columns follows document order, not visual column order.
 
 ### Text `[partial]`
 

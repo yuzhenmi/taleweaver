@@ -8,6 +8,7 @@ import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
 import { getLineIndex, coordOf, sizeAlong, lineCoordOf, lineSizeAlong } from "./line-flatten";
 import { locateTableCellAtPoint } from "../layout/table-cell-at-point";
+import { locateColumnAtPoint } from "../layout/column-at-point";
 import { buildLineBidiView, offsetInLeaf, type CaretAffinity } from "./line-bidi";
 import { axisMapFor } from "../styles/writing-mode";
 import type { AxisMap } from "../styles/writing-mode";
@@ -155,10 +156,32 @@ export function resolvePositionFromPixel(
     // cells) in the same page-local coordinate space the lines carry. An empty cell
     // (no lines inside) falls back to the unrestricted region.
     let region = bandRegion;
+
+    // 2c-i. Multi-column restriction (slice 3a). The band-pick in step 3 is
+    // inline-axis-UNAWARE, so for N side-by-side columns sharing a block band a
+    // click in column B (right) would resolve into column A's (left) line.
+    // Restrict the candidate lines to the clicked column's PHYSICAL rect FIRST —
+    // exactly like the table-cell restriction below. `locateColumnAtPoint` returns
+    // `null` for a single-column page (no `MultiColumnBox`) ⇒ region unchanged, so
+    // single-column hit-testing is completely unaffected. An empty column (no
+    // lines inside) also falls back to the unrestricted region. The table-cell
+    // restriction below then composes WITHIN the column (a table nested in a
+    // column resolves correctly) because it filters the already-narrowed `region`.
+    const locatedCol = locateColumnAtPoint(layoutTree, x, y, pageIndex);
+    if (locatedCol !== null) {
+      const { column, absX, absY } = locatedCol;
+      const inColumn = region.filter(
+        (l) =>
+          l.absoluteX >= absX && l.absoluteX < absX + column.width &&
+          l.absoluteY >= absY && l.absoluteY < absY + column.height,
+      );
+      if (inColumn.length > 0) region = inColumn;
+    }
+
     const located = locateTableCellAtPoint(layoutTree, x, y, pageIndex);
     if (located !== null) {
       const { cell, absX, absY } = located;
-      const inCell = bandRegion.filter(
+      const inCell = region.filter(
         (l) =>
           l.absoluteX >= absX && l.absoluteX < absX + cell.width &&
           l.absoluteY >= absY && l.absoluteY < absY + cell.height,
