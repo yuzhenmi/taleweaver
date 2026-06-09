@@ -30,6 +30,7 @@ import { buildBlockFitMetas } from "../build-fit-metas";
 import { measurePass } from "../measure-pass";
 import type { PagePlan, PagePlanEntry } from "../measure-pass";
 import { IMPLICIT_SECTION_PLAN } from "../section-plan";
+import { DEFAULT_COLUMN_CONFIG } from "../column-config";
 import {
   makeVirtualLayoutTree,
   __getGetPageDriverCountForTest,
@@ -483,6 +484,53 @@ describe("VirtualLayoutTree — carry-forward memo", () => {
     // Page 0's cap changed ⇒ NOT reused (re-materialized with the cap).
     expect(treeB.getPage(0)).not.toBe(treeA.getPage(0));
     // A later page with an unchanged (still-null) cap ⇒ still reused by ref.
+    const laterUnchanged = planA.entries.length - 1;
+    expect(treeB.getPage(laterUnchanged)).toBe(treeA.getPage(laterUnchanged));
+  });
+
+  it("a page whose columnConfig changed is NOT reused (multi-column wiring T2 fingerprint)", () => {
+    // The effective multi-column config is applied at POSITIONING time (once
+    // T3+ land, materializePage builds a MultiColumnBox), so two entries with
+    // identical children/resume tokens but different `columnConfig` produce
+    // DIFFERENT PageBoxes. A SET_SECTION_COLUMNS (slice 5) flips a section's
+    // column count while leaving its body refs unchanged — without
+    // `columnConfig` in the fingerprint the memo would reuse the prior box and
+    // never re-distribute the columns. This proves the fingerprint guard fires.
+    const pageConfig = noMarginPageConfig(300, 600);
+    const childrenA = Array.from({ length: 6 }, (_, i) => fixedBlock(`b${i}`, 100));
+    const rootA = cascadeRoot({ display: "block" }, childrenA);
+    const { plan: planA, tree: treeA } = buildPlanAndTree(rootA, pageConfig);
+    expect(planA.entries.length).toBeGreaterThanOrEqual(2);
+    // Baseline (IMPLICIT_SECTION_PLAN) ⇒ every page is single-column.
+    expect(planA.entries.every((e) => e.columnConfig === DEFAULT_COLUMN_CONFIG)).toBe(true);
+    for (let i = 0; i < planA.entries.length; i++) treeA.getPage(i);
+
+    // Tree B's plan = tree A's plan with page 0's columnConfig flipped 1 → 2
+    // columns; every other field — children refs, resume tokens, offsets,
+    // dimensions, list seed, cap — byte-for-byte identical, built against the
+    // SAME rootA. The ONLY fingerprint delta is page 0's column config.
+    const entriesB: PagePlanEntry[] = planA.entries.map((e) =>
+      e.pageIndex === 0
+        ? { ...e, columnConfig: { columnCount: 2, columnGap: 48, columnRule: null } }
+        : e,
+    );
+    const planB: PagePlan = {
+      entries: entriesB,
+      sectionPlan: planA.sectionPlan,
+      totalBlockSize: planA.totalBlockSize,
+      pageInlineSize: planA.pageInlineSize,
+      pageContentBlockSize: planA.pageContentBlockSize,
+      pageIndexAtBlockOffset: planA.pageIndexAtBlockOffset.bind(planA),
+      pageIndexOfBlock: planA.pageIndexOfBlock.bind(planA),
+      pageSpanOfBlock: planA.pageSpanOfBlock.bind(planA),
+      pageIndexOfTemplateBlock: planA.pageIndexOfTemplateBlock.bind(planA),
+    };
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
+    const treeB = makeVirtualLayoutTree(planB, rootA, ctx, createMockShaper(8, 16), pageConfig, treeA);
+
+    // Page 0's column config changed ⇒ NOT reused.
+    expect(treeB.getPage(0)).not.toBe(treeA.getPage(0));
+    // A later page with unchanged (still single-column) config ⇒ still reused.
     const laterUnchanged = planA.entries.length - 1;
     expect(treeB.getPage(laterUnchanged)).toBe(treeA.getPage(laterUnchanged));
   });

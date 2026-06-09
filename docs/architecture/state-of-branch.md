@@ -346,12 +346,17 @@ column 1 empty. Pure; the caller fits at the returned height. INERT.
 Wiring has begun: `PagePlanEntry.columnConfig` (the measure pass's per-page
 effective `ColumnConfig`, resolved from `sectionStateAt(...).columnConfig ??
 sectionPlan.effectiveDefaultColumns`, mirroring the per-page `pageConfig`) is now
-stamped on every page-plan entry by both `measurePass` and `resolveFootnotes`.
-INERT so far — no consumer reads it yet (T2 joins it to the fingerprint/reuse
-gate, T3 dispatches `fitColumnsOnPage` on it).
+stamped on every page-plan entry by both `measurePass` and `resolveFootnotes`, and
+participates in BOTH reuse gates: the measure pass's inline per-entry reuse
+predicate (via `columnConfigsEqual(effColCfg, reusable.columnConfig)`, beside the
+`pageConfig` gate) and the cross-tree `PageFingerprint` (a `columnConfig` field
+compared by `columnConfigsEqual` in `fingerprintsEqual`). A column-config change
+between cycles therefore refuses per-page reuse and re-materializes the page —
+exactly as a `pageConfig` change does. Still INERT for the fit itself (no
+`fitColumnsOnPage` dispatch yet, so re-fitting yields the same boundaries); T3
+dispatches `fitColumnsOnPage` on it.
 
-Still missing (the rest of the wiring + remaining behavior): joining `columnConfig`
-to the page-reuse / `PageFingerprint` gate; wiring `fitColumnsOnPage` /
+Still missing (the rest of the wiring + remaining behavior): wiring `fitColumnsOnPage` /
 `balanceColumnHeight` into the measure pass + `getPage`
 to BUILD the `MultiColumnBox` and thread the `ColumnBreakToken` through the page
 plan + `PageFingerprint`; column-aware hit-test (column-X filter) + line-nav

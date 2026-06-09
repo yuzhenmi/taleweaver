@@ -19,7 +19,7 @@ import type { BlockFitMeta } from "./fit-core";
 import { fitOnePage } from "./fit-core";
 import { isDevMode } from "./dev-mode";
 import type { PageConfig } from "./page-config";
-import type { ColumnConfig } from "./column-config";
+import { columnConfigsEqual, type ColumnConfig } from "./column-config";
 import {
   pageConfigsEqual,
   sectionStateAt,
@@ -570,6 +570,12 @@ export function measurePass(
         // correctly shifts every later page's offset while unchanged-fit pages
         // keep their children/resumeOut.
         pageConfigsEqual(effCfg, reusable.pageConfig) &&
+        // Per-page multi-column config (multi-column wiring T2): mirrors the
+        // `pageConfig` gate — a column-count / gap / rule change re-fits exactly
+        // the affected section's pages (once T3 makes columns change the fit) and
+        // re-materializes the `MultiColumnBox`, while earlier sections reuse.
+        // INERT in T2 (no fit consumer yet) but always-equal so it adds no misses.
+        columnConfigsEqual(effColCfg, reusable.columnConfig) &&
         // Effective slot insets (#328): the prior page's fit depends on its
         // content block-size, which the GROWN insets determine. Reuse is sound
         // ONLY when THIS page's effective insets equal the prior entry's. This

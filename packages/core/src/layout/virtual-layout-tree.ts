@@ -38,6 +38,7 @@ import type { PagePlan, PagePlanEntry, FootnoteContinuation } from "./measure-pa
 import type { BreakToken } from "./fragmentation";
 import { breakTokensEqual } from "./fragmentation";
 import { pageConfigsEqual } from "./section-plan";
+import { columnConfigsEqual, type ColumnConfig } from "./column-config";
 import { isDevMode } from "./dev-mode";
 import { FOOTNOTE_SEPARATOR_HEIGHT, FOOTNOTE_MARKER_GAP, footnoteMarkerGutter } from "./resolve-footnotes";
 
@@ -128,6 +129,16 @@ interface PageFingerprint {
    * earlier sections (unchanged config) still carry forward.
    */
   readonly pageConfig: PageConfig;
+  /**
+   * The effective multi-column config this page was POSITIONED with (see
+   * `PagePlanEntry.columnConfig`). MUST participate in the fingerprint: a
+   * column-count / gap / rule change re-materializes the `MultiColumnBox` (and,
+   * once T3+ land, changes the page's column distribution). Compared via
+   * `columnConfigsEqual` (deep — `columnConfigsEqual` covers count/gap/rule).
+   * INERT until T3 makes a multicol page lay out differently; until then it is
+   * always the resolved default and never flips, so it adds no reuse misses.
+   */
+  readonly columnConfig: ColumnConfig;
   /**
    * The section page-break cap this page was POSITIONED with (see
    * `PagePlanEntry.stopBeforeIndex`). MUST participate in the fingerprint:
@@ -250,6 +261,7 @@ function fingerprintsEqual(a: PageFingerprint, b: PageFingerprint): boolean {
     a.blockOffset === b.blockOffset &&
     a.listCounterAtStart === b.listCounterAtStart &&
     pageConfigsEqual(a.pageConfig, b.pageConfig) &&
+    columnConfigsEqual(a.columnConfig, b.columnConfig) &&
     a.stopBeforeIndex === b.stopBeforeIndex &&
     a.headerBlockId === b.headerBlockId &&
     a.footerBlockId === b.footerBlockId &&
@@ -378,6 +390,7 @@ export function makeVirtualLayoutTree(
       blockOffset: entry.blockOffset,
       listCounterAtStart: entry.listCounterAtStart,
       pageConfig: entry.pageConfig,
+      columnConfig: entry.columnConfig,
       stopBeforeIndex: entry.stopBeforeIndex,
       headerBlockId,
       footerBlockId,

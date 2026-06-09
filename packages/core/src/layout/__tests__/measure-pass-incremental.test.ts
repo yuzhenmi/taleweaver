@@ -28,7 +28,8 @@ import type { ElementBox, RenderNode } from "../../render/render-node";
 import type { Style } from "../../styles";
 import type { PageConfig } from "../page-config";
 import { createMockShaper } from "../mock-shaper";
-import { IMPLICIT_SECTION_PLAN } from "../section-plan";
+import { IMPLICIT_SECTION_PLAN, type SectionPlan } from "../section-plan";
+import { DEFAULT_COLUMN_CONFIG } from "../column-config";
 
 // ---------------------------------------------------------------------------
 // Fixtures + helpers
@@ -382,6 +383,64 @@ describe("measurePass incremental — (B) reuse engages / does not over-fire", (
     __resetFitOnePageCallCountForTest();
     measurePass(metas1, PAGE, IMPLICIT_SECTION_PLAN, cascaded1.children, planA);
     expect(__getFitOnePageCallCountForTest()).toBeLessThanOrEqual(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// (D) COLUMN-CONFIG REUSE GATE (multi-column wiring T2) — a change in the
+// effective `ColumnConfig` between two measure cycles MUST refuse per-page
+// reuse and re-fit every affected page, exactly as a `pageConfig` change does.
+// In T2 the column config is still INERT for the fit (no `fitColumnsOnPage`
+// dispatch yet), so re-fitting produces the SAME boundaries — the only
+// observable is that `fitOnePage` is actually re-invoked rather than the prior
+// cycle's entries being copied. Without the `columnConfigsEqual` gate the prior
+// plan would be spuriously reused (the column change invisible), leaving stale
+// per-page `columnConfig` once the fit becomes column-aware. This is the
+// RED→GREEN guard for that gate.
+// ---------------------------------------------------------------------------
+
+describe("measurePass incremental — (D) column-config change refuses reuse", () => {
+  function bigRender(): ElementBox {
+    return docRoot(Array.from({ length: 180 }, (_, i) => paragraphNode(`p${i}`, `para ${i}`)));
+  }
+  const PAGE = noMarginPageConfig(48); // 3 lines/page ⇒ 60 pages.
+
+  const twoColumnPlan: SectionPlan = {
+    boundaries: [{ startFlattenedIndex: 0, sectionId: null }],
+    effectiveDefaultColumns: { columnCount: 2, columnGap: 48, columnRule: null },
+  };
+
+  it("a doc-wide column-count change between cycles re-fits every page (no spurious reuse)", () => {
+    const cascaded = cascadeRoot(bigRender());
+    const metas = buildBlockFitMetas(cascaded, SHAPER, CONTENT_INLINE);
+
+    // Cycle 1: single-column (DEFAULT_COLUMN_CONFIG).
+    const planA = measurePass(metas, PAGE, IMPLICIT_SECTION_PLAN, cascaded.children);
+    expect(planA.entries.length).toBe(60);
+    expect(planA.entries[0].columnConfig).toEqual(DEFAULT_COLUMN_CONFIG);
+
+    // Cycle 2: SAME content/metas, but the effective default flips to 2 columns.
+    // Every page's stamped columnConfig now differs from the prior cycle's, so
+    // the per-page reuse gate must refuse and re-fit all 60 pages.
+    __resetFitOnePageCallCountForTest();
+    const planB = measurePass(metas, PAGE, twoColumnPlan, cascaded.children, planA);
+    expect(__getFitOnePageCallCountForTest()).toBe(planB.entries.length);
+    expect(planB.entries.length).toBe(60);
+    for (const e of planB.entries) {
+      expect(e.columnConfig.columnCount).toBe(2);
+    }
+  });
+
+  it("an unchanged column-config between cycles still reuses (gate does not over-fire)", () => {
+    const cascaded = cascadeRoot(bigRender());
+    const metas = buildBlockFitMetas(cascaded, SHAPER, CONTENT_INLINE);
+
+    // Both cycles use the SAME 2-column plan + identical content ⇒ every page is
+    // reusable; the column gate is equal so it adds no misses.
+    const planA = measurePass(metas, PAGE, twoColumnPlan, cascaded.children);
+    __resetFitOnePageCallCountForTest();
+    measurePass(metas, PAGE, twoColumnPlan, cascaded.children, planA);
+    expect(__getFitOnePageCallCountForTest()).toBe(0);
   });
 });
 
