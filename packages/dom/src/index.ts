@@ -5,21 +5,23 @@ export { FONT_CONFIG, buildCssFontString, getEffectiveStyles } from "./font-conf
 export { createCanvasMeasurer } from "./canvas-measurer";
 export { createCanvasShaper } from "./canvas-shaper";
 export { mapKeyEvent } from "./key-handler";
-export type { CursorState, MatchHighlightRect } from "./canvas-renderer";
+export type { CursorState, MatchHighlightRect, CommentHighlightRect } from "./canvas-renderer";
 export {
   paintCanvas,
   paintPage,
   MATCH_HIGHLIGHT_FILL,
   ACTIVE_MATCH_HIGHLIGHT_FILL,
+  COMMENT_HIGHLIGHT_FILL,
+  ACTIVE_COMMENT_HIGHLIGHT_FILL,
 } from "./canvas-renderer";
 // Human-friendly HTML serializer (taleweaver-html) — DOMParser-backed, so it
 // lives in dom. The host composes it into a core SerializerRegistry manually.
 export { HTML_FORMAT, createHtmlDocumentSerializer } from "./html-serializer";
 export { createEditorController } from "./editor-controller";
-export type { EditorController, EditorControllerOptions, FindStatus } from "./editor-controller";
+export type { EditorController, EditorControllerOptions, FindStatus, CommentHighlight } from "./editor-controller";
 export { ImageCache } from "./image-cache";
 export type { PaintInputHash, PaintCache } from "./paint-cache";
-export type { Rect, CursorSnapshot, MatchHighlightRectSnapshot } from "./paint-cache";
+export type { Rect, CursorSnapshot, MatchHighlightRectSnapshot, CommentHighlightRectSnapshot } from "./paint-cache";
 export { hashPaintInputs, createPaintCache } from "./paint-cache";
 
 // Re-exports from core (backward compatibility)

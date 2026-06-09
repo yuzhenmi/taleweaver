@@ -159,7 +159,7 @@ describe("paintCanvas incremental (cache)", () => {
 
   it("without cache: clears full canvas on every paint", () => {
     const root = makeBlock();
-    paintCanvas(ctx, root, [], [], noCursor, noCursorState, 800, 600, 0, 600);
+    paintCanvas(ctx, root, [], [], [], noCursor, noCursorState, 800, 600, 0, 600);
 
     // Must have exactly one full-canvas clear.
     expect(ctx._clearRects).toHaveLength(1);
@@ -170,7 +170,7 @@ describe("paintCanvas incremental (cache)", () => {
     const root = makeBlock({ width: 800, height: 600 });
     const cache = createPaintCache();
 
-    const dirty = paintCanvas(ctx, root, [], [], noCursor, noCursorState, 800, 600, 0, 600, undefined, cache);
+    const dirty = paintCanvas(ctx, root, [], [], [], noCursor, noCursorState, 800, 600, 0, 600, undefined, cache);
 
     // On the first pass every box is new → dirty regions must be non-empty.
     expect(dirty.length).toBeGreaterThan(0);
@@ -181,12 +181,12 @@ describe("paintCanvas incremental (cache)", () => {
     const cache = createPaintCache();
 
     // First paint — seeds the cache.
-    paintCanvas(ctx, root, [], [], noCursor, noCursorState, 800, 600, 0, 600, undefined, cache);
+    paintCanvas(ctx, root, [], [], [], noCursor, noCursorState, 800, 600, 0, 600, undefined, cache);
 
     ctx._clearRects.length = 0; // reset spy
 
     // Second paint with identical layout.
-    const dirty = paintCanvas(ctx, root, [], [], noCursor, noCursorState, 800, 600, 0, 600, undefined, cache);
+    const dirty = paintCanvas(ctx, root, [], [], [], noCursor, noCursorState, 800, 600, 0, 600, undefined, cache);
 
     expect(dirty).toHaveLength(0);
     // No clearRects should have been issued (nothing was dirty).
@@ -203,7 +203,7 @@ describe("paintCanvas incremental (cache)", () => {
     const cache = createPaintCache();
 
     // First paint seeds cache.
-    paintCanvas(ctx, rootA, [], [], noCursor, noCursorState, 800, 600, 0, 600, undefined, cache);
+    paintCanvas(ctx, rootA, [], [], [], noCursor, noCursorState, 800, 600, 0, 600, undefined, cache);
 
     // Build a fresh tree representing the post-layout-change state.
     const text1b = makeTextRun({ key: "t1", x: 0, y: 0, width: 120, height: 20, text: "world!" });
@@ -211,7 +211,7 @@ describe("paintCanvas incremental (cache)", () => {
 
     ctx._clearRects.length = 0;
 
-    const dirty = paintCanvas(ctx, rootB, [], [], noCursor, noCursorState, 800, 600, 0, 600, undefined, cache);
+    const dirty = paintCanvas(ctx, rootB, [], [], [], noCursor, noCursorState, 800, 600, 0, 600, undefined, cache);
 
     // The changed text-run must appear in dirty regions.
     expect(dirty.length).toBeGreaterThan(0);
@@ -261,16 +261,18 @@ describe("paintCanvas root short-circuit", () => {
       setLastSelectionRects(r: Parameters<typeof baseCache.setLastSelectionRects>[0]) { baseCache.setLastSelectionRects(r); },
       getLastMatchHighlightRects() { return baseCache.getLastMatchHighlightRects(); },
       setLastMatchHighlightRects(r: Parameters<typeof baseCache.setLastMatchHighlightRects>[0]) { baseCache.setLastMatchHighlightRects(r); },
+      getLastCommentHighlightRects() { return baseCache.getLastCommentHighlightRects(); },
+      setLastCommentHighlightRects(r: Parameters<typeof baseCache.setLastCommentHighlightRects>[0]) { baseCache.setLastCommentHighlightRects(r); },
     };
 
     // First paint: walks the whole tree, populates cache. Many `get` calls.
-    const dirty1 = paintCanvas(ctx, root, [], [], noCursor, noCursorState, 800, 600, 0, 600, undefined, cache);
+    const dirty1 = paintCanvas(ctx, root, [], [], [], noCursor, noCursorState, 800, 600, 0, 600, undefined, cache);
     expect(dirty1.length).toBeGreaterThan(0);
     expect(getCount).toBeGreaterThan(0);
 
     // Second paint with SAME root reference: short-circuit fires.
     getCount = 0;
-    const dirty2 = paintCanvas(ctx, root, [], [], noCursor, noCursorState, 800, 600, 0, 600, undefined, cache);
+    const dirty2 = paintCanvas(ctx, root, [], [], [], noCursor, noCursorState, 800, 600, 0, 600, undefined, cache);
     expect(dirty2.length).toBe(0);
     expect(getCount).toBe(0); // Zero hash work — the optimization is real.
   });
@@ -290,8 +292,8 @@ describe("paintCanvas root short-circuit", () => {
     });
     const cache = createPaintCache();
 
-    paintCanvas(ctx, treeA, [], [], noCursor, noCursorState, 800, 600, 0, 600, undefined, cache);
-    const dirty = paintCanvas(ctx, treeB, [], [], noCursor, noCursorState, 800, 600, 0, 600, undefined, cache);
+    paintCanvas(ctx, treeA, [], [], [], noCursor, noCursorState, 800, 600, 0, 600, undefined, cache);
+    const dirty = paintCanvas(ctx, treeB, [], [], [], noCursor, noCursorState, 800, 600, 0, 600, undefined, cache);
     // The text-run with different text produces a dirty region.
     expect(dirty.length).toBeGreaterThan(0);
   });
@@ -308,7 +310,7 @@ describe("paintPage incremental (cache)", () => {
 
   it("without cache: paints full page background on every call", () => {
     const page = makeBlock({ width: 600, height: 800, backgroundColor: "white" });
-    paintPage(ctx, page, [], [], noCursor, noCursorState);
+    paintPage(ctx, page, [], [], [], noCursor, noCursorState);
     // Should not have clearRect calls (paintPage uses fillRect for white bg, not clearRect).
     // Just verify it doesn't throw.
     expect(true).toBe(true);
@@ -319,10 +321,10 @@ describe("paintPage incremental (cache)", () => {
     const cache = createPaintCache();
 
     // First paint.
-    paintPage(ctx, page, [], [], noCursor, noCursorState, undefined, cache);
+    paintPage(ctx, page, [], [], [], noCursor, noCursorState, undefined, cache);
 
     // Second paint — same layout.
-    const dirty = paintPage(ctx, page, [], [], noCursor, noCursorState, undefined, cache);
+    const dirty = paintPage(ctx, page, [], [], [], noCursor, noCursorState, undefined, cache);
 
     expect(dirty).toHaveLength(0);
   });
@@ -334,13 +336,13 @@ describe("paintPage incremental (cache)", () => {
     const cache = createPaintCache();
 
     // First paint.
-    paintPage(ctx, pageA, [], [], noCursor, noCursorState, undefined, cache);
+    paintPage(ctx, pageA, [], [], [], noCursor, noCursorState, undefined, cache);
 
     // Build a fresh page tree with the updated text.
     const text1b = makeTextRun({ key: "t1", x: 0, y: 0, width: 100, height: 20, text: "changed" });
     const pageB = makeBlock({ width: 600, height: 800, backgroundColor: "white", children: [text1b] });
 
-    const dirty = paintPage(ctx, pageB, [], [], noCursor, noCursorState, undefined, cache);
+    const dirty = paintPage(ctx, pageB, [], [], [], noCursor, noCursorState, undefined, cache);
 
     expect(dirty.length).toBeGreaterThan(0);
   });

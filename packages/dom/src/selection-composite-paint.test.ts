@@ -90,7 +90,7 @@ const SEL: SelectionRect[] = [
 
 function paint(box: LayoutBox, selection: SelectionRect[]): SpyCtx {
   const ctx = createSpyCtx();
-  paintCanvas(ctx, box, selection, [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
+  paintCanvas(ctx, box, selection, [], [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
   return ctx;
 }
 
@@ -190,7 +190,7 @@ const isWhitePageBg = (o: Op): boolean =>
 describe("selection composites over content backgrounds — paintPage path (#397)", () => {
   it("paints page-bg + highlight BEFORE selection BEFORE glyphs on highlighted text", () => {
     const ctx = createSpyCtx();
-    paintPage(ctx, makeHighlightedPage("#ffff00"), PAGE_SEL, [], null, "hidden");
+    paintPage(ctx, makeHighlightedPage("#ffff00"), PAGE_SEL, [], [], null, "hidden");
     const ops = ctx._ops;
 
     const whiteBg = ops.findIndex(isWhitePageBg);
@@ -215,7 +215,7 @@ describe("selection composites over content backgrounds — paintPage path (#397
 
   it("plain-text selection still paints selection BEFORE glyphs (paintPage)", () => {
     const ctx = createSpyCtx();
-    paintPage(ctx, makeHighlightedPage("transparent"), PAGE_SEL, [], null, "hidden");
+    paintPage(ctx, makeHighlightedPage("transparent"), PAGE_SEL, [], [], null, "hidden");
     const ops = ctx._ops;
     const sel = ops.findIndex(isSelection);
     const glyph = ops.findIndex(isGlyph);

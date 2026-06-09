@@ -236,7 +236,7 @@ describe("C.2c T5: paint header/footer slots", () => {
     const body = makeBodyBlock({ key: "body", y: 96, text: "BODY" });
     const page = makePage({ headerSlot: header, footerSlot: footer, children: [body] });
 
-    paintPage(ctx, page, [], [], noCursor, noCursorState);
+    paintPage(ctx, page, [], [], [], noCursor, noCursorState);
 
     // #330: text paints one fillText PER CLUSTER (per code unit), not one per
     // run. Each word's first cluster carries the run's baseline y, which is what
@@ -267,7 +267,7 @@ describe("C.2c T5: paint header/footer slots", () => {
     const body = makeBodyBlock({ key: "body", y: 96, text: "BODY" });
     const page = makePage({ headerSlot: null, footerSlot: null, children: [body] });
 
-    paintPage(ctx, page, [], [], noCursor, noCursorState);
+    paintPage(ctx, page, [], [], [], noCursor, noCursorState);
 
     // #330: only the body paints (no slots) — but now one fillText per cluster,
     // so the fills spell out "BODY" letter-by-letter rather than in one call.
@@ -285,7 +285,7 @@ describe("C.2c T5: paint header/footer slots", () => {
     // The slot is the NAMED field only — NOT in children (mirrors production after DA3).
     const page = makePage({ footnoteSlot: footnote, children: [body] });
 
-    paintPage(ctx, page, [], [], noCursor, noCursorState);
+    paintPage(ctx, page, [], [], [], noCursor, noCursorState);
 
     // "FN" → clusters "F","N". Both must be painted (the slot is reached by name),
     // and EXACTLY once each (not double-painted from also being in children).
@@ -313,7 +313,7 @@ describe("C.2c T5: walkAndDetectChanges covers header/footer slots", () => {
     const headerA = makeSlot({ key: "hdr", y: 0, text: "PAGE 1" });
     const body = makeBodyBlock({ key: "body", y: 96, text: "BODY" });
     const ctx1 = createSpyCtx(600, PAGE_HEIGHT);
-    paintPage(ctx1, makePage({ headerSlot: headerA, children: [body] }), [], [], noCursor, noCursorState, undefined, cache);
+    paintPage(ctx1, makePage({ headerSlot: headerA, children: [body] }), [], [], [], noCursor, noCursorState, undefined, cache);
 
     // Second paint: fresh page tree, header changed (different text/ref), same body ref.
     const headerB = makeSlot({ key: "hdr", y: 0, text: "PAGE 2" });
@@ -321,7 +321,7 @@ describe("C.2c T5: walkAndDetectChanges covers header/footer slots", () => {
     const dirty = paintPage(
       ctx2,
       makePage({ headerSlot: headerB, children: [body] }),
-      [], [], noCursor, noCursorState, undefined, cache,
+      [], [], [], noCursor, noCursorState, undefined, cache,
     );
 
     // The header slot's region (top band) must be dirty. The header text-run
@@ -338,14 +338,14 @@ describe("C.2c T5: walkAndDetectChanges covers header/footer slots", () => {
     const footerA = makeSlot({ key: "ftr", y: FOOTER_BAND_Y, text: "1" });
     const body = makeBodyBlock({ key: "body", y: 96, text: "BODY" });
     const ctx1 = createSpyCtx(600, PAGE_HEIGHT);
-    paintPage(ctx1, makePage({ footerSlot: footerA, children: [body] }), [], [], noCursor, noCursorState, undefined, cache);
+    paintPage(ctx1, makePage({ footerSlot: footerA, children: [body] }), [], [], [], noCursor, noCursorState, undefined, cache);
 
     const footerB = makeSlot({ key: "ftr", y: FOOTER_BAND_Y, text: "2" });
     const ctx2 = createSpyCtx(600, PAGE_HEIGHT);
     const dirty = paintPage(
       ctx2,
       makePage({ footerSlot: footerB, children: [body] }),
-      [], [], noCursor, noCursorState, undefined, cache,
+      [], [], [], noCursor, noCursorState, undefined, cache,
     );
 
     // The footer slot's region (bottom band) must be dirty.
@@ -362,14 +362,14 @@ describe("C.2c T5: walkAndDetectChanges covers header/footer slots", () => {
     const footnoteA = makeSlot({ key: "fn", y: FOOTNOTE_BAND_Y, text: "1" });
     const body = makeBodyBlock({ key: "body", y: 96, text: "BODY" });
     const ctx1 = createSpyCtx(600, PAGE_HEIGHT);
-    paintPage(ctx1, makePage({ footnoteSlot: footnoteA, children: [body] }), [], [], noCursor, noCursorState, undefined, cache);
+    paintPage(ctx1, makePage({ footnoteSlot: footnoteA, children: [body] }), [], [], [], noCursor, noCursorState, undefined, cache);
 
     const footnoteB = makeSlot({ key: "fn", y: FOOTNOTE_BAND_Y, text: "2" });
     const ctx2 = createSpyCtx(600, PAGE_HEIGHT);
     const dirty = paintPage(
       ctx2,
       makePage({ footnoteSlot: footnoteB, children: [body] }),
-      [], [], noCursor, noCursorState, undefined, cache,
+      [], [], [], noCursor, noCursorState, undefined, cache,
     );
 
     // The footnote slot's region (its band) must be dirty — and slot-sized, not the
@@ -389,7 +389,7 @@ describe("C.2c T5: walkAndDetectChanges covers header/footer slots", () => {
 
     // First paint seeds the cache with these exact slot/body refs.
     const ctx1 = createSpyCtx(600, PAGE_HEIGHT);
-    paintPage(ctx1, makePage({ headerSlot: header, footerSlot: footer, footnoteSlot: footnote, children: [body] }), [], [], noCursor, noCursorState, undefined, cache);
+    paintPage(ctx1, makePage({ headerSlot: header, footerSlot: footer, footnoteSlot: footnote, children: [body] }), [], [], [], noCursor, noCursorState, undefined, cache);
 
     // Second paint: a FRESH page wrapper (so the root short-circuit can't fire),
     // but with the SAME header/footer/footnote/body slot references. Nothing should
@@ -398,7 +398,7 @@ describe("C.2c T5: walkAndDetectChanges covers header/footer slots", () => {
     const dirty = paintPage(
       ctx2,
       makePage({ headerSlot: header, footerSlot: footer, footnoteSlot: footnote, children: [body] }),
-      [], [], noCursor, noCursorState, undefined, cache,
+      [], [], [], noCursor, noCursorState, undefined, cache,
     );
 
     // Only the page box itself is a fresh ref; its slots/children are warm.
@@ -419,11 +419,11 @@ describe("C.2c T5: walkAndDetectChanges covers header/footer slots", () => {
     const page = makePage({ headerSlot: null, footerSlot: null, children: [body] });
 
     const ctx1 = createSpyCtx(600, PAGE_HEIGHT);
-    paintPage(ctx1, page, [], [], noCursor, noCursorState, undefined, cache);
+    paintPage(ctx1, page, [], [], [], noCursor, noCursorState, undefined, cache);
 
     // Re-paint the SAME page reference — root short-circuit fires, zero dirty.
     const ctx2 = createSpyCtx(600, PAGE_HEIGHT);
-    const dirty = paintPage(ctx2, page, [], [], noCursor, noCursorState, undefined, cache);
+    const dirty = paintPage(ctx2, page, [], [], [], noCursor, noCursorState, undefined, cache);
     expect(dirty).toHaveLength(0);
   });
 });

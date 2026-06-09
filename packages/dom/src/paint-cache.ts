@@ -26,6 +26,18 @@ export interface MatchHighlightRectSnapshot extends Rect {
 }
 
 /**
+ * A comment-highlight rect snapshot for dirty-region tracking. Mirrors
+ * `MatchHighlightRectSnapshot` EXACTLY: the painted region (`x/y/w/h`) PLUS the
+ * `active` flag (the hovered/selected comment's emphasis), so an active-flag
+ * change — identical geometry, different fill — is detected as a diff and
+ * repaints. The `commentId` is deliberately ABSENT: it never affects pixels, so
+ * it plays no part in the dirty-track diff.
+ */
+export interface CommentHighlightRectSnapshot extends Rect {
+  active: boolean;
+}
+
+/**
  * A hash representing all paint-relevant inputs for a LayoutBox.
  * Two boxes with the same hash produce identical paint output.
  *
@@ -141,6 +153,10 @@ export interface PaintCache {
   getLastMatchHighlightRects(): readonly MatchHighlightRectSnapshot[] | null;
   /** Record this frame's match-highlight rects. */
   setLastMatchHighlightRects(rects: readonly MatchHighlightRectSnapshot[] | null): void;
+  /** Last frame's comment-highlight rects (or null on first paint). */
+  getLastCommentHighlightRects(): readonly CommentHighlightRectSnapshot[] | null;
+  /** Record this frame's comment-highlight rects. */
+  setLastCommentHighlightRects(rects: readonly CommentHighlightRectSnapshot[] | null): void;
 }
 
 export function createPaintCache(): PaintCache {
@@ -149,6 +165,7 @@ export function createPaintCache(): PaintCache {
   let lastCursor: CursorSnapshot | null = null;
   let lastSelectionRects: readonly Rect[] | null = null;
   let lastMatchHighlightRects: readonly MatchHighlightRectSnapshot[] | null = null;
+  let lastCommentHighlightRects: readonly CommentHighlightRectSnapshot[] | null = null;
   return {
     get(box) {
       return map.get(box);
@@ -167,6 +184,7 @@ export function createPaintCache(): PaintCache {
       lastCursor = null;
       lastSelectionRects = null;
       lastMatchHighlightRects = null;
+      lastCommentHighlightRects = null;
       // WeakMap entries auto-clear when keys are GC'd
     },
     getLastRoot() {
@@ -192,6 +210,12 @@ export function createPaintCache(): PaintCache {
     },
     setLastMatchHighlightRects(r) {
       lastMatchHighlightRects = r;
+    },
+    getLastCommentHighlightRects() {
+      return lastCommentHighlightRects;
+    },
+    setLastCommentHighlightRects(r) {
+      lastCommentHighlightRects = r;
     },
   };
 }

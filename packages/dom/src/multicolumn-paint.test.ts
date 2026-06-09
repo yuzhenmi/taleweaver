@@ -114,7 +114,7 @@ function makeMultiColumn(columns: LayoutBox[], columnRule: ColumnRuleLike | null
 }
 
 function paint(ctx: SpyCtx, box: LayoutBox): void {
-  paintCanvas(ctx, box, [], [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
+  paintCanvas(ctx, box, [], [], [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
 }
 
 describe("multicolumn paint (slice 2 structural)", () => {

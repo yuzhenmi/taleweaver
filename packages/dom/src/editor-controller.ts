@@ -16,6 +16,7 @@ import {
   computeSelectionRects,
   computeSelectionRectsForPage,
   resolvePositionedTree,
+  resolveCommentRange,
   spanStart,
   spanEnd,
   markStart,
@@ -24,6 +25,7 @@ import {
   type VirtualLayoutTree,
   type Position,
   type BlockId,
+  type CommentId,
   type TextShaper,
   type TextMeasurer,
   type EditorAction,
@@ -41,6 +43,7 @@ import {
   paintPage,
   type CursorState,
   type MatchHighlightRect,
+  type CommentHighlightRect,
 } from "./canvas-renderer";
 import { createPaintCache, type PaintCache } from "./paint-cache";
 import { ImageCache } from "./image-cache";
@@ -58,6 +61,37 @@ interface ResolvedMatch {
   startPos: PixelPosition;
   endPos: PixelPosition;
   /** Boundary block straddles a page break → per-page rects can't see the
+   * other-page fragment; fall back to the full-bridge `computeSelectionRects`. */
+  spanned: boolean;
+}
+
+/**
+ * A host-set comment highlight (comments slice 5): which comment is lit and
+ * whether it is the active (hovered/selected) one. The controller RE-RESOLVES
+ * the comment's range from live state each `update()`, so the host re-calls
+ * `setCommentHighlights` only when the comment SET or active-flag changes — not
+ * on every keystroke. The controller never calls `getComments`; the host owns
+ * WHICH comments are lit.
+ */
+export interface CommentHighlight {
+  commentId: CommentId;
+  active: boolean;
+}
+
+/**
+ * A comment highlight's boundary positions resolved against the current layout
+ * tree (comments slice 5). The exact analog of `ResolvedMatch`, plus the
+ * `commentId`/`active` carried from the host-set slot. Stage 1
+ * (`resolveCommentHighlights`) populates these; Stage 2 (paint) emits per-page
+ * rects from them without re-resolving. Internal to the controller.
+ */
+interface ResolvedCommentHighlight {
+  commentId: CommentId;
+  active: boolean;
+  span: Span;
+  startPos: PixelPosition;
+  endPos: PixelPosition;
+  /** Boundary block(s) straddle a page break → per-page rects can't see the
    * other-page fragment; fall back to the full-bridge `computeSelectionRects`. */
   spanned: boolean;
 }
@@ -115,6 +149,18 @@ export interface EditorController {
   setFindHighlights(matches: readonly TextMatch[], activeIndex: number): void;
   /** Hide the find-match highlight overlay and repaint (erases the band). */
   clearFindHighlights(): void;
+  /**
+   * Show the comment-highlight overlay (comments slice 5): paint each given
+   * comment's anchored range as a translucent amber band, with the comment(s)
+   * flagged `active` emphasized in a deeper amber. The controller RE-RESOLVES
+   * each comment's range from live state every `update()`, so the host only
+   * re-calls this when the comment SET or active-flag changes — NOT on every
+   * keystroke (markers self-heal: they move with the text). Comments resolving
+   * orphaned (a marker deleted) emit no band. Triggers a repaint.
+   */
+  setCommentHighlights(highlights: readonly CommentHighlight[]): void;
+  /** Hide the comment-highlight overlay and repaint (erases the band). */
+  clearCommentHighlights(): void;
   /**
    * Start a find session (#433): run `findMatches(state, query, options)`,
    * highlight every match, pick the initial active match (the first at/after the
@@ -294,6 +340,22 @@ export function createEditorController(
   // ever re-resolving (the two-stage split that keeps next/prev + paint off the
   // `materializeAll` bridge — only a `spanned` match falls back to it).
   let resolvedMatches: ResolvedMatch[] = [];
+
+  // ── Comment highlight overlay (comments slice 5) ─────────────────────────
+  //
+  // Transient overlay (like selection/find, never document attrs): the host
+  // drives `setCommentHighlights([{ commentId, active }])`. `null` = no comments
+  // lit. The controller stores `{ commentId, active }` (NOT raw Positions) and
+  // RE-RESOLVES each comment's range from live state every `update()`, so the
+  // band self-heals across edits (markers move with the text); the host re-calls
+  // only when the comment SET or active-flag changes. The controller never reads
+  // `getComments` — the host owns WHICH comments are lit.
+  let commentHighlights: readonly CommentHighlight[] | null = null;
+  // Stage-1 resolved boundary positions, ONE per non-orphaned lit comment,
+  // recomputed in `resolveCommentHighlights()` (on `update()`/set change — NOT on
+  // blink). `paintPages`/`paintSingle` (Stage 2) emit per-page rects from these
+  // without ever re-resolving (mirrors `resolvedMatches`).
+  let resolvedCommentHighlights: ResolvedCommentHighlight[] = [];
 
   // ── Page model (paginated mode) ──────────────────────────────────────────
   //
@@ -482,6 +544,82 @@ export function createEditorController(
     return out;
   }
 
+  // ── Comment-highlight Stage 1 (boundary-position resolution) ─────────────
+  //
+  // For each host-lit comment, re-resolve its range from LIVE state
+  // (`resolveCommentRange`) and then its start/end PixelPosition (mirroring
+  // `resolveFindHighlights`). Recomputed whenever the layout/comment-set changes
+  // (`update()` + `setCommentHighlights`), NOT on blink/scroll. Orphaned comments
+  // (a marker deleted) are skipped. `paintPages`/`paintSingle` (Stage 2) emit
+  // per-page rects from these cached positions without re-resolving.
+  function resolveCommentHighlights(): void {
+    resolvedCommentHighlights = [];
+    const st = state;
+    if (!st || commentHighlights === null || layoutTree === null) return;
+    for (const { commentId, active } of commentHighlights) {
+      const range = resolveCommentRange(st.state, commentId);
+      if (range === null || range.orphaned) continue;
+      const span = createSpan(range.start, range.end);
+      // A comment's range can be cross-block. A non-spanned single block matches
+      // a find-match's single-blockId case; for a multi-block comment, fall back
+      // to the bridge if EITHER endpoint block straddles a page break (per-page
+      // rects can't see the other-page fragment).
+      let spanned = false;
+      if (layoutTree.type === "virtual-root") {
+        spanned =
+          blockSpansPages(layoutTree.plan, range.start.blockId) ||
+          blockSpansPages(layoutTree.plan, range.end.blockId);
+      }
+      const startPos = resolvePixelPosition(
+        st.state, span.anchor, layoutTree, measurer, st.caretPageHint,
+      );
+      const endPos = resolvePixelPosition(
+        st.state, span.focus, layoutTree, measurer, st.caretPageHint,
+      );
+      if (startPos === null || endPos === null) continue;
+      resolvedCommentHighlights.push({ commentId, active, span, startPos, endPos, spanned });
+    }
+  }
+
+  // ── Comment-highlight Stage 2 (per-page rect emission) ───────────────────
+  //
+  // Emit this page's `CommentHighlightRect[]` from the Stage-1 resolved
+  // positions. Reuses the selection's per-page routing
+  // (`computeSelectionRectsForPage`, or the bridge `computeSelectionRects` for a
+  // `spanned` comment) — the exact analog of `matchHighlightsForPage`. Each rect
+  // is tagged with the comment's `commentId` + `active`. `pageIndex` null
+  // (single-canvas / non-paginated path) emits from the positioned tree.
+  function commentHighlightsForPage(pageBox: LayoutBox | null, pageIndex: number | null): CommentHighlightRect[] {
+    const st = state;
+    if (!st || commentHighlights === null || resolvedCommentHighlights.length === 0) return [];
+    const out: CommentHighlightRect[] = [];
+    for (const rch of resolvedCommentHighlights) {
+      let rects: SelectionRect[];
+      if (pageBox !== null && pageIndex !== null && !rch.spanned) {
+        // Page-range cull: a non-spanned comment only produces rects on pages
+        // within [startPos.pageIndex, endPos.pageIndex]. Skip the costly
+        // `computeSelectionRectsForPage` call for pages outside that range.
+        if (rch.startPos.pageIndex > pageIndex || rch.endPos.pageIndex < pageIndex) {
+          continue;
+        }
+        rects = computeSelectionRectsForPage(
+          st.state, rch.span, pageBox, pageIndex, rch.startPos, rch.endPos, measurer,
+        );
+      } else {
+        // Non-paginated single canvas, OR a spanned comment → bridge.
+        const positioned = getPositionedTree();
+        rects = positioned
+          ? computeSelectionRects(st.state, rch.span, positioned, measurer)
+          : [];
+        if (pageIndex !== null) {
+          rects = rects.filter((r) => r.pageIndex === pageIndex);
+        }
+      }
+      for (const r of rects) out.push({ ...r, commentId: rch.commentId, active: rch.active });
+    }
+    return out;
+  }
+
   function getCursorState(): CursorState {
     // Hide the caret over a non-collapsed selection. Use the flag, not
     // `selectionRects.length`: in paginated mode the rects are computed
@@ -537,6 +675,7 @@ export function createEditorController(
       tree,
       selectionRects,
       matchHighlightsForPage(null, null),
+      commentHighlightsForPage(null, null),
       cursorPos,
       getCursorState(),
       logicalWidth,
@@ -605,12 +744,15 @@ export function createEditorController(
       // Find-match highlights for this page (Stage 2; empty when find inactive).
       const pageMatchHighlights = matchHighlightsForPage(page, idx);
 
+      // Comment highlights for this page (Stage 2; empty when no comments lit).
+      const pageCommentHighlights = commentHighlightsForPage(page, idx);
+
       // Cursor on this page? (null if not)
       const pageCursor = cursorPos.pageIndex === idx
         ? { x: cursorPos.x, y: cursorPos.y, height: cursorPos.height }
         : null;
 
-      paintPage(ctx, page, pageSelRects, pageMatchHighlights, pageCursor, cs, imageCache, getOrCreatePageCache(idx));
+      paintPage(ctx, page, pageSelRects, pageMatchHighlights, pageCommentHighlights, pageCursor, cs, imageCache, getOrCreatePageCache(idx));
     }
   }
 
@@ -1396,6 +1538,11 @@ export function createEditorController(
     // the fresh layout tree (matches geometry can shift when the doc changes).
     resolveFindHighlights();
 
+    // Comment-highlight Stage 1: re-resolve each lit comment's range + boundary
+    // positions against the fresh state/layout (markers self-heal across edits —
+    // the host doesn't re-call setCommentHighlights per keystroke).
+    resolveCommentHighlights();
+
     const tSync = markStart("ctrl.syncDom");
     syncDom();
     markEnd("ctrl.syncDom", tSync);
@@ -1438,6 +1585,32 @@ export function createEditorController(
     // `cache.getLastMatchHighlightRects()` vs the now-empty current set each
     // paint, so it dirties the PRIOR rects' regions and the old highlight band
     // is erased.
+    paint();
+  }
+
+  // ── Comment highlight overlay (comments slice 5) ─────────────────────────
+
+  function setCommentHighlights(highlights: readonly CommentHighlight[]): void {
+    if (destroyed) return;
+    commentHighlights = highlights;
+    // Stage 1: resolve each lit comment's range + boundary positions against the
+    // current state/layout, then repaint. A bare `paint()` suffices: the renderer
+    // drives the comment-highlight dirty bookkeeping. Inside paintPage/paintCanvas,
+    // `addCommentHighlightDirty` compares `cache.getLastCommentHighlightRects()`
+    // vs the current rects each paint, so the incremental path doesn't
+    // short-circuit even though layout + cursor are unchanged.
+    resolveCommentHighlights();
+    paint();
+  }
+
+  function clearCommentHighlights(): void {
+    if (destroyed) return;
+    if (commentHighlights === null && resolvedCommentHighlights.length === 0) return;
+    commentHighlights = null;
+    resolvedCommentHighlights = [];
+    // A bare `paint()` suffices: `addCommentHighlightDirty` compares
+    // `cache.getLastCommentHighlightRects()` vs the now-empty current set each
+    // paint, so it dirties the PRIOR rects' regions and the old band is erased.
     paint();
   }
 
@@ -1585,6 +1758,8 @@ export function createEditorController(
     findHighlights = null;
     resolvedMatches = [];
     findSession = null;
+    commentHighlights = null;
+    resolvedCommentHighlights = [];
 
     // Remove event listeners
     container.removeEventListener("mousedown", handleMouseDown);
@@ -1637,6 +1812,8 @@ export function createEditorController(
     destroy,
     setFindHighlights,
     clearFindHighlights,
+    setCommentHighlights,
+    clearCommentHighlights,
     findStart,
     findStatus,
     replaceActive,

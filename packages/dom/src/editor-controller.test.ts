@@ -828,11 +828,11 @@ describe("createEditorController", () => {
 
       // In paginated mode `selectionRects` is empty (rects are per-page), so the
       // caret-hide MUST come from the `hasSelectionHighlight` flag: every
-      // paintPage call's cursorState (arg index 5, after the matchHighlights
-      // param #433) is "hidden".
+      // paintPage call's cursorState (arg index 6, after the matchHighlights
+      // param #433 and the commentHighlights param comments-slice-5) is "hidden".
       const calls = vi.mocked(canvasRenderer.paintPage).mock.calls;
       expect(calls.length).toBeGreaterThan(0);
-      for (const call of calls) expect(call[5]).toBe("hidden");
+      for (const call of calls) expect(call[6]).toBe("hidden");
 
       ctrl.destroy();
     });
@@ -1096,7 +1096,7 @@ describe("createEditorController", () => {
       );
 
       const lastCall = vi.mocked(canvasRenderer.paintCanvas).mock.calls.at(-1)!;
-      expect(lastCall[5]).toBe("hidden");
+      expect(lastCall[6]).toBe("hidden");
 
       ctrl.destroy();
       document.body.removeChild(container);
@@ -1141,7 +1141,7 @@ describe("createEditorController", () => {
 
       // The paint from update() should show the cursor as "active", not "hidden"
       const lastCall = vi.mocked(canvasRenderer.paintCanvas).mock.calls.at(-1)!;
-      expect(lastCall[5]).toBe("active");
+      expect(lastCall[6]).toBe("active");
 
       ctrl.destroy();
       document.body.removeChild(container);
@@ -1163,7 +1163,7 @@ describe("createEditorController", () => {
       expect(canvasRenderer.paintCanvas).toHaveBeenCalled();
       // The cursorState arg should be "inactive"
       const lastCall = vi.mocked(canvasRenderer.paintCanvas).mock.calls.at(-1)!;
-      expect(lastCall[5]).toBe("inactive");
+      expect(lastCall[6]).toBe("inactive");
 
       ctrl.destroy();
       document.body.removeChild(container);
@@ -1184,7 +1184,7 @@ describe("createEditorController", () => {
       // Should repaint with active cursor
       expect(canvasRenderer.paintCanvas).toHaveBeenCalled();
       const lastCall = vi.mocked(canvasRenderer.paintCanvas).mock.calls.at(-1)!;
-      expect(lastCall[5]).toBe("active");
+      expect(lastCall[6]).toBe("active");
 
       // Blink resumes
       vi.mocked(canvasRenderer.paintCanvas).mockClear();
@@ -1221,7 +1221,7 @@ describe("createEditorController", () => {
       expect(canvasRenderer.paintCanvas).toHaveBeenCalled();
       // Cursor should be hidden (not inactive) because there's a selection
       const lastCall = vi.mocked(canvasRenderer.paintCanvas).mock.calls.at(-1)!;
-      expect(lastCall[5]).toBe("hidden");
+      expect(lastCall[6]).toBe("hidden");
 
       ctrl.destroy();
       document.body.removeChild(container);

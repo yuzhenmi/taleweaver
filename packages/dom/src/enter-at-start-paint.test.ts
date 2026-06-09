@@ -76,7 +76,7 @@ describe("Enter at first position repaints page 0 (view-layer regression)", () =
 
     const cache = createPaintCache();
     const mount = makeSpyCtx();
-    paintPage(mount.ctx, getPage0(editor), [], [], CURSOR, "active", undefined, cache);
+    paintPage(mount.ctx, getPage0(editor), [], [], [], CURSOR, "active", undefined, cache);
     const mountY = welcomeY(mount.fills);
 
     // Enter at the very start, then repaint page 0 with the SAME persistent
@@ -85,7 +85,7 @@ describe("Enter at first position repaints page 0 (view-layer regression)", () =
     editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
 
     const after = makeSpyCtx();
-    paintPage(after.ctx, getPage0(editor), [], [], CURSOR, "active", undefined, cache);
+    paintPage(after.ctx, getPage0(editor), [], [], [], CURSOR, "active", undefined, cache);
 
     // 'Welcome' must be redrawn LOWER (it moved from line 0 to line 1).
     expect(welcomeY(after.fills)).toBeGreaterThan(mountY);
