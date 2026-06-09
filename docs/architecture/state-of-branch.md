@@ -719,7 +719,12 @@ SOFT-deletes via the `deleteRangeOrSuggest` helper (`suggestion-mode.ts` → `ma
 on the EXPANDED-selection and collapsed MID-BLOCK-char paths (caret = span start,
 undoable); a block-start backspace (block-merge / list-outdent / atomic-leaf delete)
 is a NO-OP in suggesting mode (the suggested block-join break embed is slice 4e).
-REMAINING: 4c-ii/iii DELETE_FORWARD/WORD/LINE → markDeletion + the type-over-selection
+4c-ii shipped — `DELETE_FORWARD` SOFT-deletes via the same `deleteRangeOrSuggest`
+helper on the EXPANDED-selection and collapsed MID-BLOCK-char paths, but the caret
+advances to the span END (not span start) so repeated Delete strikes successive
+chars; a forward delete at block END (block-merge / section-break removal /
+atomic-leaf delete) is a NO-OP in suggesting mode.
+REMAINING: 4c-iii DELETE_WORD/LINE → markDeletion + the type-over-selection
 composite, 4d format handlers →
 markFormatting (+ INLINE_FORMAT_ATTR_KEYS guard), 4e block-split/join embeds
 (SPLIT_NODE + break-delete);

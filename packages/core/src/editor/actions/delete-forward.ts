@@ -1,10 +1,11 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { resolveBlock, createPosition, createSpan, deleteRange, mergeAdjacentBlocks, mergeSectionWithPrevious, inlineContentLength } from "../../state";
+import { resolveBlock, createPosition, createSpan, spanEnd, mergeAdjacentBlocks, mergeSectionWithPrevious, inlineContentLength } from "../../state";
 import { moveByCharacter } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
 import { deleteAdjacentAtomicLeaf } from "./atomic-edits";
+import { deleteRangeOrSuggest } from "./suggestion-mode";
 
 export function handleDeleteForward(
   editor: EditorState,
@@ -20,9 +21,14 @@ export function handleDeleteForward(
     // refuses an unresolvable or cross-parent span.
     const start = expandedSpanCollapsePoint(editor.state, selection);
     if (start === null) return editor;
-    const result = deleteRange(editor.state, selection);
+    const result = deleteRangeOrSuggest(editor.state, selection, config);
     if (result.state === editor.state) return editor;
-    const newCursor = createPosition(start.blockId, start.offset);
+    // Forward soft-delete leaves the struck text in place, so the caret must
+    // land PAST it (span END); a direct delete removes the text, so the caret
+    // stays at the span start. (Backward soft-delete uses the span start.)
+    const suggesting = (config.suggestingAuthor ?? null) !== null;
+    const collapseTo = suggesting ? spanEnd(editor.state, selection) : start;
+    const newCursor = createPosition(collapseTo.blockId, collapseTo.offset);
     const newSelection = createSpan(newCursor, newCursor);
     editor.history.commit(result, {
       before: selection,
@@ -50,9 +56,16 @@ export function handleDeleteForward(
     if (next.blockId !== pos.blockId) return editor;
     if (next.offset === pos.offset) return editor;
     const span = createSpan(pos, next);
-    const result = deleteRange(editor.state, span);
+    const result = deleteRangeOrSuggest(editor.state, span, config);
     if (result.state === editor.state) return editor;
-    const newCursor = createPosition(pos.blockId, pos.offset);
+    // Forward soft-delete strikes the char in place, so the caret must ADVANCE
+    // past it (to `next`, the span end) — else the next Delete would re-target
+    // the already-struck char (markDeletion coalesces → no-op). A direct delete
+    // removes the char, so the caret stays at `pos` (content shrank).
+    const suggesting = (config.suggestingAuthor ?? null) !== null;
+    const newCursor = suggesting
+      ? createPosition(next.blockId, next.offset)
+      : createPosition(pos.blockId, pos.offset);
     const newSelection = createSpan(newCursor, newCursor);
     editor.history.commit(result, {
       before: selection,
@@ -65,6 +78,13 @@ export function handleDeleteForward(
       result.dirtyIds,
     );
   }
+
+  // Suggesting mode: a forward-delete at the END of a block would MERGE the next
+  // block in (or delete an adjacent atomic leaf / remove a section break) —
+  // structural changes not yet representable as tracked suggestions (the suggested
+  // block-join break-embed is a later change-tracking slice, 4e). Until then it is
+  // a safe NO-OP: never really-merge (that would silently bypass tracking).
+  if ((config.suggestingAuthor ?? null) !== null) return editor;
 
   // Delete at the end of a block whose immediately-following sibling is an
   // atomic-leaf (image / horizontal-line): delete that atomic object as a unit
