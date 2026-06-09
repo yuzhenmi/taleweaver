@@ -3,6 +3,7 @@ import {
   insertText,
   mintInsertion,
   replaceRange,
+  replaceWithSuggestion,
   createPosition,
   createSpan,
   spanStart,
@@ -11,7 +12,7 @@ import type { OperationResult } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection } from "./selection-guards";
-import { newSuggestionInput } from "./suggestion-mode";
+import { newSuggestionInput, newReplaceSuggestionInput } from "./suggestion-mode";
 
 export function handleInsertText(
   editor: EditorState,
@@ -30,15 +31,18 @@ export function handleInsertText(
     // deletable-span (resolveBlock/parentId) guard the delete/split handlers
     // add — so its guard SET is unchanged.
     if (isCrossContextSelection(editor.state, selectionBefore)) return editor;
-    // Suggesting mode: type-over-an-EXPANDED-selection is a tracked interim
-    // NO-OP. The correct behavior is a soft-delete (markDeletion) of the
-    // selection + a suggested insertion (mintInsertion) of `text` as ONE
-    // composite — that lands in a later change-tracking slice (the deletes /
-    // composite slice). Until then we refuse the edit rather than do a plain
-    // destructive replaceRange (which would discard the selected text untracked).
-    if ((config.suggestingAuthor ?? null) !== null) return editor;
     const start = spanStart(editor.state, selectionBefore);
-    result = replaceRange(editor.state, selectionBefore, text, {});
+    // Suggesting mode: type-over-a-selection is the tracked composite — soft-delete
+    // the selection + insert `text` as a suggestion at its start, in ONE undoable op
+    // (replaceWithSuggestion, the suggestion analog of replaceRange). Direct mode uses
+    // the destructive replaceRange. The caret formula is identical for both: the new
+    // text lands at `start`, so the cursor is `start.offset + text.length` (in
+    // suggesting mode the struck old text follows the caret; in direct mode it's gone).
+    const replaceInput = newReplaceSuggestionInput(config);
+    result =
+      replaceInput === null
+        ? replaceRange(editor.state, selectionBefore, text, {})
+        : replaceWithSuggestion(editor.state, selectionBefore, text, {}, replaceInput);
     newCursorBlockId = start.blockId;
     newCursorOffset = start.offset + text.length;
   } else {

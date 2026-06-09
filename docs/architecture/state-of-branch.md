@@ -713,8 +713,7 @@ NON-undoable accept/reject editor actions (`ACCEPT_SUGGESTION`/`REJECT_SUGGESTIO
 `ACCEPT_ALL_SUGGESTIONS`/`REJECT_ALL_SUGGESTIONS`) via a new `"resolve"` ActionClass
 (breaks the open undo group, `advanceState` not commit). 4b shipped —
 `EditorConfig.suggestingAuthor` + `newSuggestionId`/`newSuggestionInput` + the
-`INSERT_TEXT` collapsed-caret branch → `mintInsertion` (type-over-selection in
-suggesting mode = tracked interim no-op). 4c-i shipped — `DELETE_BACKWARD`
+`INSERT_TEXT` collapsed-caret branch → `mintInsertion`. 4c-i shipped — `DELETE_BACKWARD`
 SOFT-deletes via the `deleteRangeOrSuggest` helper (`suggestion-mode.ts` → `markDeletion`)
 on the EXPANDED-selection and collapsed MID-BLOCK-char paths (caret = span start,
 undoable); a block-start backspace (block-merge / list-outdent / atomic-leaf delete)
@@ -740,11 +739,16 @@ producing TWO records (an insertion + a deletion sharing `createdAt` as the rend
 out of `markDeletion` (behavior-preserving) and composing it with
 `planInsertTextFullReplace` against the POST-strike start-block items (same
 full-replace hazard as `replaceRange`). Degenerate inputs delegate to
-`markDeletion` (empty text) / `mintInsertion` (collapsed span). The EDITOR WIRE-UP
-(routing the expanded-selection `INSERT_TEXT`/PASTE branch to this op + computing the
-post-edit cursor) is pending the next change-tracking slice.
-REMAINING: the type-over-selection
-EDITOR wire-up, 4d format handlers →
+`markDeletion` (empty text) / `mintInsertion` (collapsed span).
+**Slice 4d-editor shipped:** `handleInsertText`'s expanded-selection branch routes
+type-over-a-selection in suggesting mode through `replaceWithSuggestion` (via
+`newReplaceSuggestionInput` in `suggestion-mode.ts`) — soft-deletes the selection +
+inserts the text as a tracked insertion at the selection start in ONE undoable op;
+caret = `start.offset + text.length`. Direct mode keeps the destructive `replaceRange`.
+**KNOWN follow-up:** PASTE over a selection in suggesting mode is NOT yet tracked —
+`handlePaste` still does a destructive replace; suggesting-aware paste (needs
+multi-block suggestion content) is a later change-tracking slice.
+REMAINING: 4d format handlers →
 markFormatting (+ INLINE_FORMAT_ATTR_KEYS guard), 4e block-split/join embeds
 (SPLIT_NODE + break-delete);
 5 render (insertion=color+underline, deletion=color+strikethrough, formatting=

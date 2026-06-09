@@ -4,6 +4,7 @@ import {
   deleteRange,
   markDeletion,
   type SuggestionId,
+  type ReplaceSuggestionInput,
   type State,
   type Span,
   type OperationResult,
@@ -19,6 +20,24 @@ export function newSuggestionInput(
   const author = config.suggestingAuthor ?? null;
   if (author === null) return null;
   return { id: newSuggestionId(), author, createdAt: (config.now ?? Date.now)() };
+}
+
+/** The create-op `input` for a TYPE-OVER-A-SELECTION suggestion (the suggestion
+ *  analog of `replaceRange`), or `null` when not suggesting (direct editing). Mints
+ *  TWO ids — `deletionId` for the struck selection + `insertionId` for the new run —
+ *  the configured author, and the injected timestamp (SHARED by both records as the
+ *  render-layer "this was ONE replace" grouping signal). */
+export function newReplaceSuggestionInput(
+  config: EditorConfig,
+): ReplaceSuggestionInput | null {
+  const author = config.suggestingAuthor ?? null;
+  if (author === null) return null;
+  return {
+    deletionId: newSuggestionId(),
+    insertionId: newSuggestionId(),
+    author,
+    createdAt: (config.now ?? Date.now)(),
+  };
 }
 
 /**
