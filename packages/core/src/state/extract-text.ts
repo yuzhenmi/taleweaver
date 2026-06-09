@@ -2,6 +2,7 @@ import type { State } from "./state";
 import type { Span } from "./block-position";
 import { iterateSpan } from "./span-iteration";
 import type { InlineItem, EmbedItem } from "./inline-content";
+import { COMMENT_START_EMBED_TYPE, COMMENT_END_EMBED_TYPE } from "./comments";
 
 /** Object Replacement Character — represents an embed in extracted text. */
 const EMBED_CHAR = "￼";
@@ -37,6 +38,13 @@ export const builtinEmbedSerializer: EmbedSerializer = (item) => {
       return "\n";
     case "tab":
       return "\t";
+    case COMMENT_START_EMBED_TYPE:
+    case COMMENT_END_EMBED_TYPE:
+      // Comment-range markers are zero-width anchors — they must NOT emit the
+      // U+FFFC EMBED_CHAR into extractText / getWordCount / clipboard. They
+      // still occupy one Position offset in the document model (handled by the
+      // cursor path), but contribute no extracted text and no word count.
+      return "";
     default:
       return EMBED_CHAR;
   }

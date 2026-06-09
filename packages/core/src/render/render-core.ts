@@ -18,6 +18,8 @@ import {
   asBlockId,
   FOOTNOTE_ANCHOR_EMBED_TYPE,
   CROSS_REFERENCE_EMBED_TYPE,
+  COMMENT_START_EMBED_TYPE,
+  COMMENT_END_EMBED_TYPE,
 } from "../state";
 import type { Block, BlockId, State, ReadonlyAttrs, InlineContent, CrossReferenceMode } from "../state";
 import type { CounterValue } from "../numbering";
@@ -294,6 +296,43 @@ export function expandInlineItems(
           // so (unlike the footnote anchor) there is no `contentBlockId` to stamp.
           // The target lives in `properties.targetId`; downstream navigation
           // (a later slice) reads it from state, not from box metadata.
+          { embedType: item.embedType },
+        ),
+      );
+    } else if (
+      item.embedType === COMMENT_START_EMBED_TYPE ||
+      item.embedType === COMMENT_END_EMBED_TYPE
+    ) {
+      // A comment-range marker is a ZERO-WIDTH INLINE-BLOCK ATOM: it occupies
+      // exactly one state-model `Position` offset (atomic embed) and must emit
+      // exactly ONE IFC token — like every other embed — so the IFC's per-line
+      // offset cursor (`inlineOffsetStart`/`inlineOffsetEnd`) advances past it.
+      // The `offset↔box` 1:1 invariant (#407) is load-bearing: the line index
+      // IS token-driven, so SKIPPING emission would leave `inlineOffsetEnd`
+      // short by the marker count and corrupt cursor/hit-test for every offset
+      // after a marker on the line. It differs from the footnote-anchor (a
+      // VISIBLE superscript marker) and the cross-reference (a visible resolved
+      // string) in that it renders NOTHING VISIBLE — an empty inline-block of
+      // width 0: no glyph, no U+FFFC placeholder. The comment highlight is a
+      // separate paint overlay derived from the marker scan (a later slice),
+      // NOT this render-tree box. Reuses the same zero-width-inline-block shape
+      // as the empty-embed branch below (defaults `inlineSize: 0` so the
+      // inline-block intrinsic sizing does NOT apply its empty-content 100px
+      // fallback). `display: "inline-block"` is spread LAST so the
+      // single-token atomicity is not overridable by `itemStyle` (the IFC
+      // offset accounting is load-bearing, matching the cross-reference
+      // branch's precedence, not the footnote marker's).
+      out.push(
+        createElementBox(
+          key,
+          { ...itemStyle, inlineSize: 0, display: "inline-block" },
+          // No children → no glyph, no text. One atomic IFC token, 0px wide.
+          [],
+          // Stamp the embed kind so downstream cursor/hit-test/comment-overlay
+          // can recognize the marker box without re-deriving it from state. A
+          // comment marker is a POINTER (its `commentId` lives in `properties`,
+          // read from state by the overlay), so — like the cross-reference —
+          // there is no `contentBlockId` body to stamp.
           { embedType: item.embedType },
         ),
       );

@@ -7,6 +7,7 @@ const BLOCKS_KEY = "blocks";
 const EMBED_CONTENTS_KEY = "embedContents";
 const TEMPLATE_CONTENTS_KEY = "templateContents";
 const LIST_DEFS_KEY = "listDefs";
+const COMMENTS_KEY = "comments";
 const META_KEY = "meta";
 
 export function createYDoc(args?: { rootId?: BlockId }): Y.Doc {
@@ -15,6 +16,7 @@ export function createYDoc(args?: { rootId?: BlockId }): Y.Doc {
   doc.getMap(EMBED_CONTENTS_KEY);
   doc.getMap(TEMPLATE_CONTENTS_KEY);
   doc.getMap(LIST_DEFS_KEY);
+  doc.getMap(COMMENTS_KEY);
   const meta = doc.getMap(META_KEY);
   if (args?.rootId !== undefined) {
     meta.set("rootId", args.rootId);
@@ -42,6 +44,21 @@ export function getTemplateContentsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
  */
 export function getListDefsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
   return doc.getMap(LIST_DEFS_KEY) as Y.Map<Y.Map<unknown>>;
+}
+
+/**
+ * The top-level `comments` side-table: commentId → comment thread record
+ * (Y.Map of author/body/createdAt/resolved scalars + a replies Y.Array). NOT a
+ * block tree (keys are commentId strings, not BlockIds), so — like `listDefs` —
+ * it is intentionally excluded from TREE_MAP_GETTERS / dirty-capture / the
+ * snapshot cache. The comment RANGE is NOT stored here: paired zero-width
+ * `comment-start`/`comment-end` marker embeds in inline content ARE the anchor
+ * (see `state/comments.ts`). UndoManager tracking is added in a later slice
+ * (so a comment thread reverts atomically with its markers); slice 1 only seeds
+ * + exposes the map, which is unused until the data ops land.
+ */
+export function getCommentsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
+  return doc.getMap(COMMENTS_KEY) as Y.Map<Y.Map<unknown>>;
 }
 
 /**

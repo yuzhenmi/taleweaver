@@ -137,6 +137,21 @@ export { getListDefsForState, classifyListDef, newListId } from "./state";
 // embeds on export (the binary serializer is the lossless path).
 export { FOOTNOTE_ANCHOR_EMBED_TYPE, CROSS_REFERENCE_EMBED_TYPE } from "./state";
 
+// Comments (slice 1 — marker-embed anchor foundation). Paired zero-width
+// `comment-start`/`comment-end` marker embeds delimit a comment range and ARE
+// the anchor; `insertCommentMarkers` inserts the pair, and
+// `buildCommentRangeIndex` / `resolveCommentRange` resolve it (with a derived
+// `orphaned` flag) by content scan. The thread-record CRUD + Y.Map side-table
+// land in later slices.
+export { insertCommentMarkers } from "./state";
+export {
+  COMMENT_START_EMBED_TYPE,
+  COMMENT_END_EMBED_TYPE,
+  buildCommentRangeIndex,
+  resolveCommentRange,
+} from "./state";
+export type { CommentId, CommentReply, CommentRecord, CommentRange } from "./state";
+
 // History (Y.UndoManager-backed)
 export {
   History,

@@ -5,6 +5,7 @@ import type { BlockId, IdAllocator } from "./block-id";
 import type { InlineContent, InlineItem } from "./inline-content";
 import { assertNoIdCollision } from "./id-collision-check";
 import { STATE_INTERNAL } from "./state-internal";
+import { COMMENT_START_EMBED_TYPE, COMMENT_END_EMBED_TYPE } from "./comments";
 
 /**
  * The product of cloning a subtree from a source state. Self-contained
@@ -305,8 +306,19 @@ function rewriteInlineContent(
   content: InlineContent,
   idMap: Map<BlockId, BlockId>,
 ): InlineContent {
-  const newItems: InlineItem[] = content.items.map((item) => {
+  const newItems: InlineItem[] = content.items.flatMap((item) => {
     if (item.kind === "embed") {
+      // Strip comment-range markers: pasting commented text must NOT duplicate
+      // the comment / its commentId (Google-Docs-faithful — a paste of a
+      // commented range drops the markers, leaving the copied text uncommented).
+      // The markers carry `properties.commentId` and own no body, so they pass
+      // the contentBlockId/targetId rebinds below verbatim if not dropped here.
+      if (
+        item.embedType === COMMENT_START_EMBED_TYPE ||
+        item.embedType === COMMENT_END_EMBED_TYPE
+      ) {
+        return [];
+      }
       const cbId = item.properties.contentBlockId;
       if (typeof cbId === "string") {
         const newCbId = idMap.get(cbId as BlockId);

@@ -287,6 +287,22 @@ export {
 } from "./ops/insert-cross-reference";
 export { insertTab, TAB_EMBED_TYPE } from "./ops/insert-tab";
 
+// Comments (slice 1 — the marker-embed anchor foundation). Paired zero-width
+// `comment-start`/`comment-end` marker embeds delimit a comment range; the
+// markers ARE the anchor (they move/clone with surrounding text for free).
+// `insertCommentMarkers` inserts the pair; `buildCommentRangeIndex` /
+// `resolveCommentRange` resolve the range (incl. derived `orphaned`) by content
+// scan. The `comments` Y.Map side-table + the data ops that write thread
+// records land in a later slice.
+export { insertCommentMarkers } from "./ops/insert-comment-markers";
+export type { CommentId, CommentReply, CommentRecord, CommentRange } from "./comments";
+export {
+  COMMENT_START_EMBED_TYPE,
+  COMMENT_END_EMBED_TYPE,
+  buildCommentRangeIndex,
+  resolveCommentRange,
+} from "./comments";
+
 // History (Y.UndoManager-backed undo/redo with aligned selection stacks).
 export type { SelectionEntry, UndoRedoResult, BeginKey } from "./history";
 export { History, createHistory, UNDO_COALESCE_PAUSE_MS } from "./history";
