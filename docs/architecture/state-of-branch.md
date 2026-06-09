@@ -773,7 +773,23 @@ Enter is a discrete suggestion). The break embed occupies exactly ONE offset and
 serializes to `""`. RESOLUTION (accept removes embed / reject re-merges) is a later
 slice. This begins the break-suggestion CREATE side; the SPLIT_NODE editor wiring +
 the suggested block-JOIN (break-delete) embed are still to come.
-REMAINING: 4e block-join embed + SPLIT_NODE/break-delete editor wiring;
+
+**Slice 4e-state-join (`markBlockJoinSuggestion`) shipped:** the STATE op for a
+suggested paragraph JOIN (Backspace at block-start / Delete at block-end in suggesting
+mode) — the symmetric mirror of `splitWithSuggestion`, but simpler: it does NOT merge
+the two blocks. It marks the break BEFORE `secondBlockId` (the boundary with its prev
+sibling, block N) as a suggested DELETION by appending a zero-width
+`block-join-suggestion` embed at the END of block N carrying the owning `suggestionId`
+in its `properties`, plus a `deletion` `SuggestionRecord` — ALL in ONE transaction (one
+undo entry, a single block write — no structural change). Both paragraphs stay REAL
+separate, linked blocks while the deletion is pending (Google Docs). The embed occupies
+exactly ONE offset, serializes to `""`, and stays the LAST item via the merge-barrier
+rule. Identity no-op when there is no boundary to mark (block missing / first-child /
+container N). No coalescing (each break is a discrete suggestion). RESOLUTION (accept
+merges the blocks / reject removes the embed) is a later slice. The break-suggestion
+CREATE side now covers BOTH split and join; the SPLIT_NODE/break-delete editor wiring is
+still to come.
+REMAINING: SPLIT_NODE/break-delete editor wiring;
 5 render (insertion=color+underline, deletion=color+strikethrough, formatting=
 proposedAttrs); 6 host query + overlay; 7 arch docs. See `1.1-state.md` "The
 `suggestions` map" + `1.7-editor.md`.

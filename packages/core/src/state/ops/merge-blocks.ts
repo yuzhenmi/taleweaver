@@ -4,9 +4,22 @@ import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
 import { getTreeMap, getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
 import { cloneInlineItem, mergeAdjacentSameAttrsTextItems } from "../y-utils";
+import { mergeAdjacentTextItems, type EmbedItem } from "../inline-content";
+import { buildYInlineContent } from "../y-block";
 import { assertSameTree } from "../assert-same-tree";
+import {
+  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
+  writeSuggestionRecordInTx,
+  type SuggestionId,
+} from "../suggestions";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
 import type { AttrRegistry } from "../../cascade/attr-registry";
+
+// Shared empty dirty-set for identity no-op returns (mirror suggestion-ops.ts's
+// NO_DIRTY): a degenerate `markBlockJoinSuggestion` returns the input `state`
+// reference + this shared empty set so callers can short-circuit on
+// `result.state === state`.
+const NO_DIRTY: ReadonlySet<BlockId> = new Set<BlockId>();
 
 /**
  * Pre-computed mutation plan for `mergeAdjacentBlocksInTx`. Captures the
@@ -246,4 +259,109 @@ export function mergeAdjacentBlocksInTx(
 
   // Delete right last (after reads of yRight are done) from the owning tree.
   yTree.delete(plan.rightId);
+}
+
+/**
+ * Fields the host supplies when minting a suggested JOIN (Suggesting-mode
+ * Backspace at the start of a paragraph / Delete at the end of one). `id` is the
+ * branded {@link SuggestionId} (minted host-side); `author`/`createdAt` are
+ * deterministic host-injected values. Same shape as {@link SplitWithSuggestionInput}
+ * — a suggested join IS a tracked deletion (of a paragraph break), so it carries a
+ * `deletion` {@link SuggestionRecord}.
+ */
+export interface MarkBlockJoinInput {
+  readonly id: SuggestionId;
+  readonly author: string;
+  readonly createdAt: number;
+}
+
+/**
+ * The Backspace-at-block-start / Delete-at-block-end JOIN op in Suggesting mode:
+ * mark the paragraph break BEFORE `secondBlockId` (the boundary between
+ * `secondBlockId` and its previous sibling, block N) as a tracked suggested
+ * DELETION — WITHOUT merging the two blocks. The merge is deferred to resolution
+ * (a LATER slice): on ACCEPT the blocks merge (the break is removed); on REJECT
+ * the embed is removed (the break stays). This op only CREATES the suggestion.
+ *
+ * Symmetric mirror of {@link splitWithSuggestion} (the suggested-SPLIT create op),
+ * but simpler: there is no structural change. A suggested join is modeled as a
+ * single zero-width {@link BLOCK_JOIN_SUGGESTION_EMBED_TYPE} embed appended at the
+ * END of block N (the prev sibling of `secondBlockId`) carrying the owning
+ * `suggestionId` in its `properties`, PLUS a `deletion` {@link SuggestionRecord} —
+ * both in ONE tracked `applyOperation` transaction (one undo entry / one collab
+ * event). The embed occupies exactly ONE `Position` offset (every embed does) and
+ * serializes to "" — it is the marker the range scan
+ * ({@link buildSuggestionRangeIndex}) reads to surface the suggestion's range.
+ *
+ * Why NOT merge now: Google Docs shows both paragraphs intact while the deletion
+ * is pending — the author can still see and edit the break-to-be-removed. The
+ * blocks stay two REAL separate blocks until the suggestion is accepted.
+ *
+ * Identity no-op (returns the input `state` reference + an empty dirtyIds set,
+ * mirroring {@link markDeletion}/{@link mintInsertion}'s degenerate-input returns)
+ * when there is no boundary to mark:
+ *   - `secondBlockId` does not resolve (block missing).
+ *   - `secondBlockId` is a FIRST child (`prevSiblingId === null`): there is no
+ *     preceding break before a first child, so there is nothing to suggest-delete.
+ *   - the prev sibling (block N) does not resolve, or is a CONTAINER
+ *     (`inlineContent === null`): a container can't hold an inline break embed.
+ *
+ * Unlike the in-place suggestion CREATE ops ({@link mintInsertion} et al.) there is
+ * NO coalescing: a paragraph break is a discrete structural change — each removed
+ * break is its own suggestion (mirror of {@link splitWithSuggestion} and the
+ * undo-coalescing model, where each structural keystroke is its own entry).
+ */
+export function markBlockJoinSuggestion(
+  state: State,
+  secondBlockId: BlockId,
+  input: MarkBlockJoinInput,
+): OperationResult {
+  // Resolve the SECOND block (the one whose preceding break is being marked). A
+  // missing block is a no-op — return identity (mirror markDeletion's null guard).
+  const second = resolveBlock(state, secondBlockId);
+  if (second === null) {
+    return { state, dirtyIds: NO_DIRTY };
+  }
+
+  // A first child has no preceding boundary to mark — identity no-op.
+  const prevId = second.block.prevSiblingId;
+  if (prevId === null) {
+    return { state, dirtyIds: NO_DIRTY };
+  }
+
+  // Block N (the first block / the prev sibling) hosts the break embed. It must
+  // be a leaf (non-null inlineContent) — a container can't hold an inline embed.
+  const prev = resolveBlock(state, prevId);
+  if (prev === null || prev.block.inlineContent === null) {
+    return { state, dirtyIds: NO_DIRTY };
+  }
+
+  // Append the zero-width join-break embed (carrying the owning deletion id) to
+  // the END of block N. `mergeAdjacentTextItems` normalizes N's items around the
+  // embed (the embed is a merge BARRIER, so it is never folded into a neighbor —
+  // it stays the LAST item).
+  const embed: EmbedItem = Object.freeze({
+    kind: "embed",
+    embedType: BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
+    attrs: Object.freeze({}),
+    properties: Object.freeze({ suggestionId: input.id }),
+  });
+  const nItems = mergeAdjacentTextItems([...prev.block.inlineContent.items, embed]);
+
+  return applyOperation(state, (doc) => {
+    // 1. Append the break embed to block N's content (single block write — no
+    //    structural change, no double-write).
+    getYBlock(doc, prevId, "markBlockJoinSuggestion", prev.kind).set(
+      "inlineContent",
+      buildYInlineContent({ items: nItems }),
+    );
+    // 2. Write the `deletion` record (a suggested join IS a tracked deletion of a
+    //    paragraph break).
+    writeSuggestionRecordInTx(doc, {
+      id: input.id,
+      kind: "deletion",
+      author: input.author,
+      createdAt: input.createdAt,
+    });
+  });
 }

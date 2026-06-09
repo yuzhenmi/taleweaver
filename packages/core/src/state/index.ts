@@ -236,6 +236,12 @@ export { splitBlockAtPosition } from "./ops/split-block";
 export { splitWithSuggestion } from "./ops/split-block";
 export type { SplitWithSuggestionInput } from "./ops/split-block";
 export { mergeAdjacentBlocks } from "./ops/merge-blocks";
+// Suggesting-mode paragraph JOIN (Backspace at block-start / Delete at block-end):
+// a zero-width `block-join-suggestion` embed at the end of the FIRST block + a
+// `deletion` record, in ONE transaction. Does NOT merge the blocks (resolution
+// does). Mirror of `splitWithSuggestion`; lives next to the merge op it pairs with.
+export { markBlockJoinSuggestion } from "./ops/merge-blocks";
+export type { MarkBlockJoinInput } from "./ops/merge-blocks";
 export type { InsertBlockArgs } from "./ops/insert-block";
 export { insertBlock } from "./ops/insert-block";
 export type { SiblingBlockInit } from "./ops/insert-blocks-after";
