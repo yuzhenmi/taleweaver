@@ -1,7 +1,7 @@
 import * as Y from "yjs";
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
-import type { BlockId } from "../block-id";
+import { asBlockId, type BlockId } from "../block-id";
 import { getTreeMap, getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
 import { cloneInlineItem, mergeAdjacentSameAttrsTextItems } from "../y-utils";
 import { mergeAdjacentTextItems, type EmbedItem } from "../inline-content";
@@ -259,6 +259,65 @@ export function mergeAdjacentBlocksInTx(
 
   // Delete right last (after reads of yRight are done) from the owning tree.
   yTree.delete(plan.rightId);
+}
+
+/**
+ * Merge `leftId` with its CURRENT next sibling, reading both blocks' sibling ids
+ * + content LIVE from `doc` inside the open transaction (NOT a pre-tx plan). Use
+ * when chaining multiple merges in one tx where an earlier merge invalidates a
+ * later block's pre-computed nextSiblingId (the `resolveAll` break cascade: a run
+ * of consecutive owners each merge with their next sibling, REVERSE document
+ * order, so by the time `leftId` is processed its next sibling may have absorbed
+ * a block that came after it). No-op (returns without merging) when there is no
+ * next sibling, or the pair is not a valid same-parent adjacent LEAF pair
+ * (defensive — the boundary may have moved). MUST run inside an already-open
+ * transaction.
+ *
+ * Unlike {@link mergeAdjacentBlocksInTx} (which trusts a pre-validated
+ * {@link MergeBlocksPlan}), this builds the plan from LIVE Y.Doc reads so it
+ * reflects prior merges in the same transaction — `rightId` and `rightNextId`
+ * are read off the live blocks, never a stale snapshot.
+ */
+export function mergeWithNextSiblingLiveInTx(
+  doc: Y.Doc,
+  leftId: BlockId,
+  kind: BlockTreeKind,
+  registry?: AttrRegistry,
+): void {
+  requireInTransaction(doc, "mergeWithNextSiblingLive");
+
+  const yLeft = getYBlock(doc, leftId, "mergeWithNextSiblingLive", kind);
+  // No next sibling (last child, or already merged away) — nothing to merge.
+  const rightRaw = yLeft.get("nextSiblingId");
+  if (typeof rightRaw !== "string") return;
+  const rightId = asBlockId(rightRaw);
+  const yRight = getYBlock(doc, rightId, "mergeWithNextSiblingLive", kind);
+
+  // Same-parent adjacent LEAF-pair validity, read LIVE. The root has a null
+  // parent (can't merge); a cross-parent boundary or a container is not a valid
+  // merge. A leaf has a NON-null `inlineContent` Y.Array and a null `firstChildId`
+  // (mutually exclusive). Check BOTH — a true superset of what
+  // `mergeAdjacentBlocksInTx` requires (which reads both blocks' `inlineContent`
+  // arrays unconditionally), matching `planMergeAdjacentBlocks`'s leaf guard so a
+  // degenerate block can never reach the unconditional Y.Array read.
+  const parentRaw = yLeft.get("parentId");
+  if (typeof parentRaw !== "string") return;
+  if (yRight.get("parentId") !== parentRaw) return;
+  if (yLeft.get("firstChildId") !== null || yRight.get("firstChildId") !== null) return;
+  if (yLeft.get("inlineContent") == null || yRight.get("inlineContent") == null) return;
+
+  // Right's old next sibling — threaded into the plan as the post-merge linkage.
+  const rightNextRaw = yRight.get("nextSiblingId");
+  const rightNextId = typeof rightNextRaw === "string" ? asBlockId(rightNextRaw) : null;
+
+  const plan: MergeBlocksPlan = {
+    leftId,
+    rightId,
+    kind,
+    parentId: asBlockId(parentRaw),
+    rightNextId,
+  };
+  mergeAdjacentBlocksInTx(doc, plan, registry);
 }
 
 /**

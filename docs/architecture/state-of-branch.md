@@ -802,9 +802,21 @@ the merge reads N's post-phase-1 embed-free content LIVE before appending N+1). 
 and join-reject keep the blocks split. A merge-validity guard re-checks the boundary against
 the pre-tx snapshot (still a same-parent adjacent leaf pair); a MOVED boundary clears the
 embed but SKIPS the merge (never calls `planMergeAdjacentBlocks` on an invalid boundary).
-The text-run resolution path is byte-identical (the embed branch is purely additive). The
-`resolveAll` bulk path does NOT yet cascade break split/merge — a tracked follow-up.
-REMAINING: acceptAll/rejectAll break cascade; SPLIT_NODE/break-delete editor wiring;
+The text-run resolution path is byte-identical (the embed branch is purely additive).
+
+**Slice 4e-resolve-all shipped:** the BULK break RESOLUTION extends `resolveAll(state, mode)`
+(used by `acceptAll`/`rejectAll`) symmetrically: the scan DROPS every break embed (a non-break
+embed is kept) and, when `(insertion && reject) || (deletion && accept)`, records the owning
+block N as a merge owner (in document order, since the scan is document-ordered). Phase-2 then
+walks the merge owners in REVERSE document order and merges each via the new
+`mergeWithNextSiblingLiveInTx` primitive (`merge-blocks.ts`), which reads the owner's CURRENT
+next sibling + that sibling's next id LIVE from the Y.Doc inside the open transaction (NOT a
+pre-tx plan). This solves the CASCADE: a run of consecutive owners merging in one tx (e.g.
+rejectAll over three consecutive splits → ONE block) cannot use pre-computed `nextSiblingId`s
+(an earlier merge invalidates a later block's); reverse order keeps each owner alive when
+processed, and live reads reflect the prior merges. The live helper is a no-op on a no-next /
+moved-boundary owner (defensive skip). Break resolution is now COMPLETE (single + bulk).
+REMAINING: SPLIT_NODE/break-delete editor wiring;
 5 render (insertion=color+underline, deletion=color+strikethrough, formatting=
 proposedAttrs); 6 host query + overlay; 7 arch docs. See `1.1-state.md` "The
 `suggestions` map" + `1.7-editor.md`.

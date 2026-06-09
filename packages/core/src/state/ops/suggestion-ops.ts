@@ -33,6 +33,7 @@ import { planInsertText, insertTextInTx, planInsertTextFullReplace } from "./ins
 import {
   planMergeAdjacentBlocks,
   mergeAdjacentBlocksInTx,
+  mergeWithNextSiblingLiveInTx,
   type MergeBlocksPlan,
 } from "./merge-blocks";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
@@ -973,14 +974,50 @@ function resolveAll(state: State, mode: "accept" | "reject"): OperationResult {
   }
 
   // Compute the per-block combined rewrites PRE-transaction (pure). A per-block
-  // full-replace from this snapshot is offset-safe (no block merges happen here).
+  // full-replace from this snapshot is offset-safe (no block merges happen here —
+  // any conditional block merges run in phase-2 AFTER all writes).
+  //
+  // BREAK suggestions (a suggested paragraph SPLIT or JOIN) carry their id on a
+  // zero-width break embed appended to the END of the owning block N, NOT a text
+  // run. Each is ALWAYS dropped (the embed branch below omits it → a normal
+  // full-replace `write` on N) and CONDITIONALLY merges N with its next sibling
+  // (`(insertion && reject) || (deletion && accept)` — split-reject undoes the
+  // split, join-accept does the join). Because the scan iterates in document
+  // order, `mergeOwners` ends up in DOC ORDER; phase-2 walks it in REVERSE so a
+  // cascade of consecutive merges never reads a block a prior merge removed.
   const writes: ResolveWrite[] = [];
+  const mergeOwners: { ownerId: BlockId; kind: BlockTreeKind }[] = [];
   for (const block of iterateBlocksInDocumentOrder(state)) {
     const content = block.inlineContent;
     if (content === null) continue;
     let touched = false;
     const newItems: InlineItem[] = [];
     for (const item of content.items) {
+      // BREAK embed — DROP it (always), and decide whether the owning block N
+      // merges with its next sibling. Only the two break embedTypes are dropped;
+      // every other embed (footnote-anchor/tab/comment) is kept as-is below.
+      if (
+        item.kind === "embed" &&
+        (item.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE ||
+          item.embedType === BLOCK_JOIN_SUGGESTION_EMBED_TYPE)
+      ) {
+        touched = true;
+        const sidRaw = item.properties.suggestionId;
+        if (typeof sidRaw === "string") {
+          const record = readSuggestionRecord(doc, sidRaw as SuggestionId);
+          if (
+            record !== null &&
+            ((record.kind === "insertion" && mode === "reject") ||
+              (record.kind === "deletion" && mode === "accept"))
+          ) {
+            mergeOwners.push({
+              ownerId: block.id,
+              kind: resolveBlock(state, block.id)?.kind ?? "block",
+            });
+          }
+        }
+        continue;
+      }
       if (item.kind === "text") {
         const rewrite =
           mode === "accept" ? acceptAllRun(item, doc) : rejectAllRun(item);
@@ -988,8 +1025,7 @@ function resolveAll(state: State, mode: "accept" | "reject"): OperationResult {
         if (rewrite.keep && rewrite.item !== undefined) newItems.push(rewrite.item);
         continue;
       }
-      // Embeds never carry inline suggestion ids (the create ops only tag text);
-      // keep as-is.
+      // A non-break embed (footnote-anchor/tab/comment) — keep as-is.
       newItems.push(item);
     }
     if (touched) {
@@ -1009,6 +1045,18 @@ function resolveAll(state: State, mode: "accept" | "reject"): OperationResult {
           "inlineContent",
           buildYInlineContent({ items: write.items }),
         );
+      }
+      // Phase-2: the conditional break merges. Walk REVERSE document order so each
+      // owner is still alive when processed (an owner is removed only by its
+      // PREVIOUS sibling's merge, which comes LATER in reverse order). The live
+      // helper reads each owner's CURRENT next sibling + that sibling's next id
+      // off the Y.Doc, so a cascade of consecutive merges reflects prior merges
+      // (never a stale pre-computed nextSiblingId), and skips a no-next /
+      // moved-boundary owner defensively.
+      for (let i = mergeOwners.length - 1; i >= 0; i--) {
+        const owner = mergeOwners[i];
+        if (owner === undefined) continue;
+        mergeWithNextSiblingLiveInTx(d, owner.ownerId, owner.kind);
       }
       const map = getSuggestionsMap(d);
       for (const id of ids) {
