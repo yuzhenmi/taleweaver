@@ -326,6 +326,29 @@ export {
   replyToY,
 } from "./comments";
 
+// Change-tracking / Suggesting mode (slice 1 — INERT state vocabulary). The
+// three inline-attr dimensions (`insertion/deletion/formattingSuggestionId`) +
+// the two zero-width break embeds (block-join/split) tag tracked changes; their
+// records live in the 6th `suggestions` side-table Y.Map keyed by SuggestionId.
+// The types + attr-key + embed-type consts are part of the public surface (the
+// editor/render layers + downstream consumers need them broadly); the side-table
+// IO helpers (`getSuggestionsMap`, `writeSuggestionRecordInTx`,
+// `readSuggestionRecord`) are intra-state — imported directly from `./yjs-doc` /
+// `./suggestions`, NOT re-exported here (mirror of comments' `getCommentsMap` /
+// `writeCommentRecordInTx`).
+export type {
+  SuggestionId,
+  SuggestionKind,
+  SuggestionRecord,
+} from "./suggestions";
+export {
+  INSERTION_SUGGESTION_ATTR,
+  DELETION_SUGGESTION_ATTR,
+  FORMATTING_SUGGESTION_ATTR,
+  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
+  BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
+} from "./suggestions";
+
 // History (Y.UndoManager-backed undo/redo with aligned selection stacks).
 export type { SelectionEntry, UndoRedoResult, BeginKey } from "./history";
 export { History, createHistory, UNDO_COALESCE_PAUSE_MS } from "./history";

@@ -16,6 +16,16 @@ import {
 import { getListDefsForState, type ListDef } from "../list-defs";
 import { addComment } from "../ops/comment-ops";
 import { getComments, buildCommentRangeIndex, type CommentId } from "../comments";
+import {
+  writeSuggestionRecordInTx,
+  readSuggestionRecord,
+  INSERTION_SUGGESTION_ATTR,
+  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
+  type SuggestionId,
+  type SuggestionRecord,
+} from "../suggestions";
+import { applyOperation } from "../state";
+import { STATE_INTERNAL } from "../state-internal";
 import { createPosition, createSpan } from "../block-position";
 import type { InlineItem } from "../inline-content";
 import type { DocumentSerializer } from "./document-serializer";
@@ -331,6 +341,81 @@ describe("serialize-document", () => {
       expect(newComments[0].range.orphaned).toBe(false);
       expect(newComments[0].range).toEqual(origComments[0].range);
       expect(buildCommentRangeIndex(state2).get("cm-1" as CommentId)?.orphaned).toBe(false);
+    });
+
+    it("round-trips a suggestion losslessly (record + tagged TextItem + break embed)", () => {
+      // A doc carrying a change-tracking suggestion: a `SuggestionRecord` in the
+      // 6th `suggestions` side-table, a TextItem tagged with
+      // `insertionSuggestionId`, AND a `block-join-suggestion` zero-width embed.
+      // The binary serializer captures the WHOLE Y.Doc, so all three survive
+      // encode→decode with no new serializer code.
+      const rootId = ID("s-root");
+      const para = ID("s-para");
+      const record: SuggestionRecord = {
+        id: "sg-1" as SuggestionId,
+        kind: "insertion",
+        author: "alice",
+        createdAt: 99,
+      };
+      const blocks: Block[] = [
+        {
+          id: rootId,
+          type: "document",
+          attrs: {},
+          parentId: null,
+          prevSiblingId: null,
+          nextSiblingId: null,
+          firstChildId: para,
+          lastChildId: para,
+          inlineContent: null,
+        },
+        {
+          id: para,
+          type: "paragraph",
+          attrs: {},
+          parentId: rootId,
+          prevSiblingId: null,
+          nextSiblingId: null,
+          firstChildId: null,
+          lastChildId: null,
+          inlineContent: {
+            items: [
+              { kind: "text", text: "kept ", attrs: {} },
+              {
+                kind: "text",
+                text: "added",
+                attrs: { [INSERTION_SUGGESTION_ATTR]: record.id },
+              },
+              {
+                kind: "embed",
+                embedType: BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
+                attrs: {},
+                properties: { suggestionId: record.id },
+              },
+            ],
+          },
+        },
+      ];
+      const base = buildStateFromBlocks({ rootId, blocks });
+      // Side-table-only write surfaces state.rootId (the comments/listDefs
+      // precedent) so applyOperation advances state.
+      const state = applyOperation(base, (doc) => {
+        writeSuggestionRecordInTx(doc, record);
+        return new Set<BlockId>([base.rootId]);
+      }).state;
+
+      const reg = createDefaultSerializerRegistry();
+      const bytes = serializeDocument(state, BINARY_FORMAT, reg);
+      const state2 = deserializeDocument(bytes, BINARY_FORMAT, reg);
+
+      // The side-table record survives.
+      const doc2 = state2[STATE_INTERNAL].doc;
+      expect(readSuggestionRecord(doc2, record.id)).toEqual(record);
+
+      // The tagged TextItem AND the break embed survive (the whole paragraph
+      // round-trips, incl. the suggestion attr and the embed properties).
+      const origPara = requireBlock(getBlock(state, para));
+      expectBlockEqual(getBlock(state2, para), origPara);
     });
 
     it("round-trips an empty document (rootId + root block preserved)", () => {

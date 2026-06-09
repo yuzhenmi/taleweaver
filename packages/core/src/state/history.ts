@@ -9,6 +9,7 @@ import {
   getCommentsMap,
   getEmbedContentsMap,
   getListDefsMap,
+  getSuggestionsMap,
   getTemplateContentsMap,
 } from "./yjs-doc";
 import { STATE_INTERNAL } from "./state-internal";
@@ -94,13 +95,19 @@ function readSelectionEntry(item: YStackItem): SelectionEntry | null {
  *
  * **Meta-map exclusion (intentional).** The Y.UndoManager is constructed
  * with the blocks map, the embedContents map, the templateContents map, the
- * listDefs config side-table, and the comments side-table as tracked scopes.
+ * listDefs config side-table, the comments side-table, and the suggestions
+ * side-table as tracked scopes.
  * Tracking the comments map makes a comment thread record revert ATOMICALLY
  * with its in-content `comment-start`/`comment-end` markers (undoable-as-
  * content; the markers live in the tracked block trees) — a comment is one undo
- * unit. Per-TRANSACTION tracking (Yjs reverts the types a transaction changed,
+ * unit. Tracking the suggestions map makes a tracked-change record revert
+ * atomically with the inline `insertion/deletion/formattingSuggestionId` attrs
+ * (and the block-join/split break embeds) that carry its id — a suggestion is
+ * one undo unit, same as a comment. Per-TRANSACTION tracking (Yjs reverts the
+ * types a transaction changed,
  * not a whole map) means a pure text edit, which never touches the comments
- * map, is undone WITHOUT affecting any comment. Writes to the doc's meta
+ * or suggestions map, is undone WITHOUT affecting any comment or suggestion.
+ * Writes to the doc's meta
  * Y.Map (see `getMetaMap` in `yjs-doc.ts`) are deliberately NOT undoable. Today the meta map holds only `rootId`,
  * which is immutable for the lifetime of a session (created once in
  * `createYDoc`, never reassigned). Because that single field never
@@ -207,6 +214,7 @@ export class History {
         getTemplateContentsMap(state[STATE_INTERNAL].doc),
         getListDefsMap(state[STATE_INTERNAL].doc),
         getCommentsMap(state[STATE_INTERNAL].doc),
+        getSuggestionsMap(state[STATE_INTERNAL].doc),
       ],
       {
         // captureTimeout: Number.MAX_SAFE_INTEGER means "never auto-close

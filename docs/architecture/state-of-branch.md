@@ -79,7 +79,7 @@ engine-level `serializeDocument` / `deserializeDocument` dispatch, with
 LOSSLESS binary serializer (`createBinaryDocumentSerializer`, `BINARY_FORMAT =
 "taleweaver-binary"`) backed by Yjs's native update codec
 (`Y.encodeStateAsUpdate` / `Y.applyUpdate`): one round-trip over the WHOLE
-`Y.Doc` (all three block trees + `listDefs` + `comments` + `meta` rootId). Decode reads
+`Y.Doc` (all three block trees + `listDefs` + `comments` + `suggestions` + `meta` rootId). Decode reads
 `rootId` via the state-private `getMetaRootId` and rebuilds `State` with a fresh
 (derived) snapshot cache; a decoded doc with no rootId throws
 `MalformedDocumentError`. Lives inside `state/` for `STATE_INTERNAL` access; the
@@ -658,6 +658,28 @@ tree-complete); the thread-panel UI (a host concern; the engine provides the
 queries above); @-mentions / reactions / non-text anchors; the `taleweaver-html`
 serializer dropping comments. Browser smoke of the live add/highlight/orphan UX
 rides the user's in-browser pass.
+
+### Change-tracking / Suggesting mode `[partial]`
+
+Google-Docs "Suggesting" mode (every edit becomes a tracked, attributed,
+accept/reject-able suggestion) is UNDER CONSTRUCTION — design-review-clean spec
+(`docs/superpowers/specs/2026-06-09-change-tracking-design.md`), foundations-first
+7-slice plan. **Slice 1 (state vocabulary) shipped:** the `suggestions` Y.Map — the
+6th top-level side-table (NOT in `TREE_MAP_GETTERS`, the 6th `Y.UndoManager`
+scope), `SuggestionId`/`SuggestionKind`/`SuggestionRecord` + record IO; the THREE
+independent inline-attr dimensions (`insertionSuggestionId` / `deletionSuggestionId`
+/ `formattingSuggestionId` — a char can be all three at once, dissolving the
+overlap problem); the two zero-width break embeds (`block-join-suggestion` /
+`block-split-suggestion`, one IFC token each, serialize to `""`); binary
+serialize round-trip. Slice 1 is INERT vocabulary — no editor action / op / render
+behavior yet. REMAINING slices (per the spec §10): 2 range-index + read +
+Layer-1 hooks (the `origin` param on `applyOperation`/`runTransaction` +
+`History.advanceState` for non-undoable accept/reject); 3 record/mark + accept/
+reject ops (cross-block soft-delete = tag text + join embed, accept walks
+boundaries reverse-order); 4 editor actions + `EditorConfig.suggestingAuthor` mode;
+5 render (insertion=color+underline, deletion=color+strikethrough, formatting=
+proposedAttrs); 6 host query + overlay; 7 arch docs. See `1.1-state.md` "The
+`suggestions` map".
 
 ### `perf/` `[implemented]`
 

@@ -167,6 +167,22 @@ export type {
   ResolvedComment,
 } from "./state";
 
+// Change-tracking / Suggesting mode (slice 1 — INERT state vocabulary): the
+// three suggestion-attr-key consts, the two break-embed-type consts, and the
+// record types. The side-table IO helpers stay intra-state (mirror comments).
+export {
+  INSERTION_SUGGESTION_ATTR,
+  DELETION_SUGGESTION_ATTR,
+  FORMATTING_SUGGESTION_ATTR,
+  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
+  BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
+} from "./state";
+export type {
+  SuggestionId,
+  SuggestionKind,
+  SuggestionRecord,
+} from "./state";
+
 // History (Y.UndoManager-backed)
 export {
   History,

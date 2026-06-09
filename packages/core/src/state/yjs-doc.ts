@@ -8,6 +8,7 @@ const EMBED_CONTENTS_KEY = "embedContents";
 const TEMPLATE_CONTENTS_KEY = "templateContents";
 const LIST_DEFS_KEY = "listDefs";
 const COMMENTS_KEY = "comments";
+const SUGGESTIONS_KEY = "suggestions";
 const META_KEY = "meta";
 
 export function createYDoc(args?: { rootId?: BlockId }): Y.Doc {
@@ -17,6 +18,7 @@ export function createYDoc(args?: { rootId?: BlockId }): Y.Doc {
   doc.getMap(TEMPLATE_CONTENTS_KEY);
   doc.getMap(LIST_DEFS_KEY);
   doc.getMap(COMMENTS_KEY);
+  doc.getMap(SUGGESTIONS_KEY);
   const meta = doc.getMap(META_KEY);
   if (args?.rootId !== undefined) {
     meta.set("rootId", args.rootId);
@@ -62,6 +64,28 @@ export function getListDefsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
  */
 export function getCommentsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
   return doc.getMap(COMMENTS_KEY) as Y.Map<Y.Map<unknown>>;
+}
+
+/**
+ * The top-level `suggestions` side-table (change-tracking / Suggesting mode):
+ * suggestionId → suggestion record (Y.Map of kind/author/createdAt scalars +
+ * an optional nested `proposedAttrs` Y.Map for the formatting variant). NOT a
+ * block tree (keys are suggestionId strings, not BlockIds), so — like
+ * `listDefs` and `comments` — it is intentionally excluded from
+ * TREE_MAP_GETTERS / dirty-capture / the snapshot cache. The suggestion RANGE
+ * is NOT stored here: it is DERIVED by a content scan over the three
+ * `insertion/deletion/formattingSuggestionId` inline attrs (and the two
+ * block-join/split break embeds) that carry the id (see `state/suggestions.ts`)
+ * — exactly as comments derive their range from in-content markers. The map IS
+ * undo-tracked: `history.ts` adds it as a Y.UndoManager scope, so a suggestion
+ * record reverts atomically with the tagged items / break embeds (per-transaction
+ * tracking means a pure text edit, which never touches this map, leaves
+ * suggestions untouched). It is excluded from dirty-capture, so a
+ * suggestions-only write surfaces `state.rootId` as its dirtyId (the `setListType`
+ * precedent) to advance state and land a committable, undoable entry.
+ */
+export function getSuggestionsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
+  return doc.getMap(SUGGESTIONS_KEY) as Y.Map<Y.Map<unknown>>;
 }
 
 /**
@@ -143,7 +167,8 @@ export function allTreeBlockCount(doc: Y.Doc): number {
  * **Not tracked by the History UndoManager.** The `History` class
  * (`history.ts`) constructs its `Y.UndoManager` with the blocks map,
  * the embedContents map, the templateContents map, the listDefs config
- * side-table, and the comments side-table as tracked scopes — writes to this
+ * side-table, the comments side-table, and the suggestions side-table as
+ * tracked scopes — writes to this
  * meta map are intentionally outside the undo/redo stack.
  * The current design relies on the meta map holding only immutable
  * session-level fields (rootId today; possibly format version, doc id,

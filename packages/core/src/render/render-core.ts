@@ -20,6 +20,8 @@ import {
   CROSS_REFERENCE_EMBED_TYPE,
   COMMENT_START_EMBED_TYPE,
   COMMENT_END_EMBED_TYPE,
+  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
+  BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
 } from "../state";
 import type { Block, BlockId, State, ReadonlyAttrs, InlineContent, CrossReferenceMode } from "../state";
 import type { CounterValue } from "../numbering";
@@ -301,8 +303,16 @@ export function expandInlineItems(
       );
     } else if (
       item.embedType === COMMENT_START_EMBED_TYPE ||
-      item.embedType === COMMENT_END_EMBED_TYPE
+      item.embedType === COMMENT_END_EMBED_TYPE ||
+      item.embedType === BLOCK_JOIN_SUGGESTION_EMBED_TYPE ||
+      item.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE
     ) {
+      // The comment-range markers AND the change-tracking break-suggestion
+      // embeds (`block-join-suggestion` / `block-split-suggestion`) share this
+      // branch: each is a ZERO-WIDTH INLINE-BLOCK ATOM. (The visible struck/added
+      // pilcrow for the break embeds is slice 5; slice 1 only preserves the
+      // offset invariant.)
+      //
       // A comment-range marker is a ZERO-WIDTH INLINE-BLOCK ATOM: it occupies
       // exactly one state-model `Position` offset (atomic embed) and must emit
       // exactly ONE IFC token — like every other embed — so the IFC's per-line
