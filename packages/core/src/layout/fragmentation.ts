@@ -104,6 +104,30 @@ export interface ColumnBreakToken {
 }
 
 /**
+ * Unwrap a page-level resume token to the INNER BFC token that carries its
+ * block-axis bookkeeping. For a multicol page the page's `resumeOut` is a
+ * `ColumnBreakToken` whose `resumeChildToken` is the actual block/ifc/table/null
+ * continuation; for a single-column page the token is already that inner token
+ * (so this is the identity).
+ *
+ * The COLUMN token is what an entry stores and the page loop threads to the next
+ * page (so the next multicol page unwraps it into the column distribution). But
+ * the block-axis bookkeeping — `nextStartIndex`, `recordBlockMaps`, and the
+ * page-reuse gates, which reason about which top-level child index the page
+ * reached — must operate on the INNER BFC token: they check `.type === "block"`
+ * to read `resumeChildIndex`, and a raw `ColumnBreakToken` would fall to their
+ * `else` branches and compute WRONG values (e.g. `recordBlockMaps` would map ALL
+ * remaining blocks onto this page). For single-column pages this is the identity
+ * (the token has no `"column"` wrapper), so single-column behavior is unchanged.
+ *
+ * Shared by `measure-pass.ts` and `resolve-footnotes.ts` (the latter rewrites the
+ * page plan after the measure pass and threads the same resume tokens).
+ */
+export function innerBfcToken(token: BreakToken | null): BreakToken | null {
+  return token !== null && token.type === "column" ? token.resumeChildToken : token;
+}
+
+/**
  * Structural equality of two break tokens — the shared predicate the incremental
  * page-reuse gates (measure-pass, virtual-layout-tree) and resolve-footnotes use
  * to decide whether a fragment's resume state is unchanged. Single source of

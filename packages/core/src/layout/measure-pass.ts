@@ -14,7 +14,7 @@
 import type { RenderNode, ElementBox } from "../render/render-node";
 import type { BlockId } from "../state";
 import type { BreakToken } from "./fragmentation";
-import { breakTokensEqual } from "./fragmentation";
+import { breakTokensEqual, innerBfcToken } from "./fragmentation";
 import type { BlockFitMeta } from "./fit-core";
 import { fitOnePage } from "./fit-core";
 import { fitColumnsOnPage, type ColumnsFitResult } from "./column-fit";
@@ -316,26 +316,6 @@ export interface PagePlan {
  * doc with no header/footer is byte-identical.
  */
 export type SlotInsets = ReadonlyMap<BlockId | null, { readonly top: number; readonly bottom: number }>;
-
-/**
- * The inner BFC token a page-level resume token carries (multi-column wiring T3).
- * A multicol page's page-level `resumeOut` is a `ColumnBreakToken` that WRAPS the
- * last column's inner BFC token; any other token (a single-column page's bare
- * `block`/`ifc`/`table` token, or `null`) IS its own inner token.
- *
- * The COLUMN token is what the entry stores and the page loop threads to the next
- * page (so the next multicol page unwraps it via this helper into the column
- * distribution). But the block-axis bookkeeping — `nextStartIndex` and
- * `recordBlockMaps`, which reason about which top-level child index the page
- * reached — must operate on the INNER BFC token: they check `.type === "block"`
- * to read `resumeChildIndex`, and a raw `ColumnBreakToken` would fall to their
- * `else` branches and compute WRONG values (e.g. `recordBlockMaps` would map ALL
- * remaining blocks onto this page). For single-column pages this is the identity
- * (the token has no `"column"` wrapper), so single-column behavior is unchanged.
- */
-function innerBfcToken(token: BreakToken | null): BreakToken | null {
-  return token !== null && token.type === "column" ? token.resumeChildToken : token;
-}
 
 /**
  * Compute the `PagePlan` for a document from its top-level block metas. Pure;

@@ -51,7 +51,8 @@ import {
 } from "./measure-pass";
 import { pageConfigsEqual, sectionStateAt, type SectionPlan } from "./section-plan";
 import type { BreakToken } from "./fragmentation";
-import { breakTokensEqual } from "./fragmentation";
+import { breakTokensEqual, innerBfcToken } from "./fragmentation";
+import type { ColumnsFitResult } from "./column-fit";
 import { isDevMode } from "./dev-mode";
 
 // ---------------------------------------------------------------------------
@@ -655,9 +656,14 @@ export function resolveFootnotes(
   for (let p = 0; p < firstFootnotePage; p++) {
     const e = rawPlan.entries[p];
     newEntries.push(e);
+    // `recordBlockMaps` reasons about the block-axis index range, so it takes the
+    // INNER BFC tokens — a multicol page's `resumeInto`/`resumeOut` is a
+    // `ColumnBreakToken` that would otherwise fall to the `else` branch and
+    // mis-map all remaining blocks. `innerBfcToken` is the identity for
+    // single-column pages (mirrors measure-pass's `recordBlockMaps` call).
     recordBlockMaps(
       e.children, rootChildren, metas, e.startIndex, e.pageIndex,
-      e.resumeInto, e.resumeOut, blockToPage, blockToSpan,
+      innerBfcToken(e.resumeInto), innerBfcToken(e.resumeOut), blockToPage, blockToSpan,
     );
   }
 
@@ -798,6 +804,15 @@ export function resolveFootnotes(
     let resolvedListCounterAtEnd = listCounterAtStart;
     // Whole-block-progress child count placed on this page (slice length basis).
     let resolvedChildrenCount = 0;
+    // The multi-column distribution (multi-column wiring T3) this page carries.
+    // Carried from the prior measure-pass entry on the REUSE path (a footnote-free
+    // multicol page keeps its `fitColumnsOnPage` result); stays `undefined` on the
+    // MISS path (the footnote re-fit runs `fitOnePage`, which produces no
+    // ColumnsFitResult — TODO(3.5b) replaces that with `fitColumnsOnPage` so a
+    // footnote-bearing multicol page keeps its columns). Without carrying this,
+    // Task 5's `materializePage` would silently fall to single-column for every
+    // multicol page rewritten by this sweep.
+    let resolvedColumnFit: ColumnsFitResult | undefined = undefined;
     let reused = false;
 
     if (prevResolvedIndexByStartIndex !== null && prevResolvedPlan !== undefined) {
@@ -833,6 +848,9 @@ export function resolveFootnotes(
         resolvedStopBeforeIndex = tightenCap(sectionCap, undefined);
         resolvedResumeOut = prevEntry.resumeOut;
         resolvedChildrenCount = prevEntry.children.length;
+        // Carry the prior measure-pass entry's column distribution (T3). The reuse
+        // gate proved this page's fit is unchanged, so its `columnFit` is still valid.
+        resolvedColumnFit = prevEntry.columnFit;
         // The page's list-counter INCREMENT is a pure function of its (proved
         // identical) content; reading it off the prior plan as
         // `prevNext.listCounterAtStart − prevEntry.listCounterAtStart` reproduces
@@ -868,8 +886,34 @@ export function resolveFootnotes(
       // Reuse path: every resolved output was copied from the prior entry above.
       // Nothing further to compute — fall through to the entry emission below.
     } else {
+    // `fitOnePage` is a single-column BFC fit; it does not understand a
+    // `ColumnBreakToken`. A multicol page's threaded `resumeInto` is a column
+    // token, so unwrap it to the inner BFC token before every re-fit. Identity for
+    // single-column pages (mirrors measure-pass's `innerBfcToken(resumeInto)`).
+    const innerResumeInto = innerBfcToken(resumeInto);
+    // TODO(3.5b): this miss-path re-fit runs `fitOnePage` (a single-column BFC),
+    // so it COLLAPSES any multicol page to one column. This is reached for EVERY
+    // multicol page in the forward-sweep region (from the first footnote page
+    // onward) — whether or not that page itself carries a footnote anchor — since
+    // a fresh `resolveFootnotes` call re-fits each such page here. (Pages BEFORE
+    // the first footnote are copied ref-equal by the pre-sweep loop and keep their
+    // `fitColumnsOnPage` distribution.) 3.5b replaces this with `fitColumnsOnPage`
+    // at the slot-reduced height (page-wide footnote slot, columns shrink
+    // uniformly). The dev-guard below flags EVERY collapsing multicol page, not
+    // only footnote-bearing ones, so the deferral is reported honestly.
+    if (isDevMode() && effColCfg.columnCount > 1) {
+      const g = globalThis as { console?: { warn(...args: unknown[]): void } };
+      const carriesFootnote = (anchorsByPage.get(pageIndex)?.length ?? 0) > 0;
+      g.console?.warn(
+        `resolveFootnotes: multicol page ${pageIndex} (columnCount=` +
+          `${effColCfg.columnCount}${carriesFootnote ? ", carries footnote anchors" : ""}) ` +
+          `is re-fit single-column by the footnote sweep — its column distribution ` +
+          `collapses. Multicol+footnote convergence is deferred to plan Task 3.5b ` +
+          `(fitColumnsOnPage at the reduced height).`,
+      );
+    }
     const seedNoSlotFit = fitOnePage(
-      metas, startIndex, resumeInto,
+      metas, startIndex, innerResumeInto,
       pageContentBlockSize, listCounterAtStart,
       sectionCap ?? undefined,
     );
@@ -904,7 +948,7 @@ export function resolveFootnotes(
       footnoteSlotHeight = slotResult.slotHeight;
       const effCap = tightenCap(sectionCap, footnoteCap);
       fit = fitOnePage(
-        metas, startIndex, resumeInto,
+        metas, startIndex, innerResumeInto,
         pageContentBlockSize - footnoteSlotHeight, listCounterAtStart,
         effCap,
       );
@@ -935,7 +979,7 @@ export function resolveFootnotes(
           );
           footnoteSlotHeight = slotResult.slotHeight;
           fit = fitOnePage(
-            metas, startIndex, resumeInto,
+            metas, startIndex, innerResumeInto,
             pageContentBlockSize - footnoteSlotHeight, listCounterAtStart,
             tightenCap(sectionCap, footnoteCap),
           );
@@ -985,9 +1029,16 @@ export function resolveFootnotes(
     resolvedListCounterAtEnd = fit.listCounterAtEnd;
     } // end miss path
 
+    // Block-axis bookkeeping reasons about the INNER BFC token: a multicol page's
+    // `resolvedResumeOut` is a `ColumnBreakToken` wrapping the last column's block
+    // token, and a raw column token would fall to the `else` branch and compute a
+    // wrong `nextStartIndex`. `innerBfcToken` is the identity for single-column
+    // pages. (For an overflowing multicol page the inner token is a block token at
+    // index `startIndex + totalChildrenCount`, so this stays correct.)
+    const innerResolvedResumeOut = innerBfcToken(resolvedResumeOut);
     const nextStartIndex =
-      resolvedResumeOut !== null && resolvedResumeOut.type === "block"
-        ? resolvedResumeOut.resumeChildIndex
+      innerResolvedResumeOut !== null && innerResolvedResumeOut.type === "block"
+        ? innerResolvedResumeOut.resumeChildIndex
         : startIndex + resolvedChildrenCount;
     const sliceEnd = resolvedResumeOut === null ? metas.length : nextStartIndex;
     const children: readonly RenderNode[] = rootChildren.slice(startIndex, sliceEnd);
@@ -998,6 +1049,7 @@ export function resolveFootnotes(
       blockSize: effCfg.pageBlockSize,
       pageConfig: effCfg,
       columnConfig: effColCfg,
+      columnFit: resolvedColumnFit,
       children,
       startIndex,
       resumeInto,
@@ -1028,9 +1080,13 @@ export function resolveFootnotes(
       footnoteContinuation: inboundContinuations,
     });
 
+    // `recordBlockMaps` reasons about the block-axis index range, so it takes the
+    // INNER BFC tokens (a multicol page's column wrapper would fall to its `else`
+    // branch and mis-map all remaining blocks). `innerBfcToken` is the identity
+    // for single-column pages. Mirrors measure-pass's `recordBlockMaps` call.
     recordBlockMaps(
       children, rootChildren, metas, startIndex, pageIndex,
-      resumeInto, resolvedResumeOut, blockToPage, blockToSpan,
+      innerBfcToken(resumeInto), innerResolvedResumeOut, blockToPage, blockToSpan,
     );
 
     // Advance the running-sum document-y by THIS page's height + gap (C.2b-2).
@@ -1202,14 +1258,19 @@ function canReuseFootnotePage(
   for (let i = 0; i < sliceLen; i++) {
     if (rootChildren[startIndex + i] !== prevEntry.children[i]) return false;
   }
-  if (prevEntry.resumeOut === null) {
+  // The block-axis index a multicol page reached is carried by the INNER BFC
+  // token its `ColumnBreakToken` wraps; for a single-column page this is the
+  // identity. The reuse proof reasons about that block index, so unwrap first
+  // (mirrors measure-pass's `canReusePage`).
+  const innerPrevResumeOut = innerBfcToken(prevEntry.resumeOut);
+  if (innerPrevResumeOut === null) {
     // Prior page ended the document: reusable only if it still does (no append).
     if (startIndex + sliceLen !== metasLength) return false;
-  } else if (prevEntry.resumeOut.type === "block") {
+  } else if (innerPrevResumeOut.type === "block") {
     // A child resuming onto the NEXT page placed content on THIS page that shaped
     // `resumeOut`. It sits at the slice end and is omitted from `children`, so
     // verify it via the prior NEXT entry's first child (the prior node at K).
-    const k = prevEntry.resumeOut.resumeChildIndex;
+    const k = innerPrevResumeOut.resumeChildIndex;
     if (k < 0 || k >= rootChildren.length) return false;
     if (prevNext === undefined || prevNext.children.length === 0) return false;
     if (prevNext.startIndex !== k) return false;

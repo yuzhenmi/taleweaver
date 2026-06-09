@@ -1802,3 +1802,116 @@ describe("VirtualLayoutTree.footnoteAnchorPages (FN-6.4 slice 1, producer path)"
     expect(tree.footnoteAnchorPages.size).toBe(expected.size);
   });
 });
+
+// ===========================================================================
+// 3.5a — resolveFootnotes threads/unwraps a multicol page's `ColumnBreakToken`.
+// `resolveFootnotes` runs after `measurePass` and REWRITES the PagePlanEntry[],
+// threading resumeOut → next page's resumeInto exactly like the measure loop.
+// A multicol page's `resumeOut` is a `ColumnBreakToken`; without unwrapping it
+// via `innerBfcToken`, the page-level block-axis reads (`nextStartIndex`,
+// `recordBlockMaps`) fall to the wrong branch and CORRUPT the boundaries — even
+// for a footnote-FREE multicol page swept over because a LATER page carries a
+// footnote. (Full multicol+footnote re-distribution is deferred to 3.5b.)
+// ===========================================================================
+describe("resolveFootnotes — multicol ColumnBreakToken threading (3.5a)", () => {
+  /** Build resolveFootnotes inputs with an explicit multicol SectionPlan. */
+  function setupCols(
+    renderRoot: ElementBox,
+    bodies: ReadonlyMap<string, ElementBox>,
+    sectionPlan: SectionPlan,
+    pageConfig: PageConfig = FN_PAGE,
+  ) {
+    const cascaded = fnCascade(renderRoot);
+    const metas = buildBlockFitMetas(cascaded, FN_SHAPER, FN_CONTENT_INLINE);
+    const rootChildren = flattenContents(cascaded.children) as ElementBox[];
+    const rawPlan = measurePass(metas, pageConfig, sectionPlan, rootChildren);
+    const cascadedEmbedContents = new Map<BlockId, ElementBox>();
+    for (const [id, body] of bodies) {
+      cascadedEmbedContents.set(id as BlockId, fnCascade(body));
+    }
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, FN_CONTENT_INLINE);
+    return { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx, pageConfig };
+  }
+
+  const TWO_COL: SectionPlan = {
+    boundaries: [{ startFlattenedIndex: 0, sectionId: null }],
+    effectiveDefaultColumns: { columnCount: 2, columnGap: 48, columnRule: null },
+  };
+
+  it("footnote-FREE 2-column pages carry forward UNCORRUPTED (column token threading)", () => {
+    // 12 single-line paras, 2 columns, 64px page (4 lines ⇒ 8 blocks/page).
+    // RAW measure plan: page 0 = column token at index 8 (b0..b7), page 1 = b8..b11.
+    // A footnote on b8 (page 1's first block) makes `resolveFootnotes` SWEEP from
+    // page 1 — but it carries page 0 (a footnote-FREE multicol page whose
+    // `resumeOut` is a `ColumnBreakToken`) through unchanged. WITHOUT the unwrap
+    // fix, page 0's `recordBlockMaps`/`nextStartIndex` reads of the column token
+    // mis-map ALL remaining blocks onto page 0 — `pageSpanOfBlock` for the page-1
+    // blocks then wrongly reports page 0. With the fix the boundaries match raw.
+    const render = fnDoc(Array.from({ length: 12 }, (_, i) => fnPara(`b${i}`)));
+    const { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx, pageConfig } =
+      setupCols(render, new Map([["fn8", fnBody("fn8", 1)]]), TWO_COL);
+
+    // Sanity: the raw multicol plan is 2 pages with a column token on page 0.
+    expect(rawPlan.entries.length).toBe(2);
+    expect(rawPlan.entries[0].resumeOut?.type).toBe("column");
+    expect(rawPlan.entries[0].startIndex).toBe(0);
+    expect(rawPlan.entries[1].startIndex).toBe(8);
+    expect(rawPlan.entries[1].resumeOut).toBeNull();
+
+    const anchors = [fnAnchor("b8", "fn8")];
+    const out = resolveFootnotes(
+      rawPlan, metas, sectionPlan, rootChildren,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
+    );
+
+    // Page 0 (footnote-free multicol) is carried through with its boundaries +
+    // column token byte-identical to the raw plan — never corrupted.
+    expect(out.entries[0].startIndex).toBe(0);
+    expect(out.entries[0].resumeOut).toBe(rawPlan.entries[0].resumeOut);
+    expect(out.entries[0].resumeOut?.type).toBe("column");
+    expect(out.entries[0].columnConfig.columnCount).toBe(2);
+
+    // Page 0's own blocks (b0..b7) stay on page 0 — NOT spread across later pages.
+    // This is the load-bearing guard: a mis-threaded column token makes page 0's
+    // `recordBlockMaps` set `lastOccupied = metas.length - 1`, claiming ALL blocks
+    // (b8..b11 included) on page 0 (`pageSpanOfBlock(...).first === 0`).
+    for (let i = 0; i < 8; i++) {
+      expect(out.pageSpanOfBlock(`b${i}`), `b${i} span`).toEqual({ first: 0, last: 0 });
+    }
+    // Page 1+ blocks (b8..b11) are NOT mis-claimed by page 0 — their span starts
+    // strictly AFTER page 0. (Their exact page can shift past page 1 because the
+    // footnote on b8 reserves a slot that evicts later blocks — correct behavior,
+    // distinct from the column-token corruption this test guards against.)
+    for (let i = 8; i < 12; i++) {
+      const span = out.pageSpanOfBlock(`b${i}`);
+      expect(span, `b${i} span present`).not.toBeNull();
+      expect(span?.first, `b${i} not on page 0`).toBeGreaterThan(0);
+    }
+  });
+
+  it("footnote-BEARING 2-column page does not crash and produces a plan (3.5b deferral guard)", () => {
+    // A 2-column page that ACTUALLY carries a footnote anchor reaches the
+    // fitOnePage re-fit (single-column collapse) — full multicol+footnote
+    // convergence is deferred to 3.5b. 3.5a only proves the path does not crash
+    // and the footnote slot is computed (the TODO(3.5b)/dev-warn path is reached).
+    const render = fnDoc(Array.from({ length: 12 }, (_, i) => fnPara(`b${i}`)));
+    const { rawPlan, metas, sectionPlan, rootChildren, cascadedEmbedContents, ctx, pageConfig } =
+      setupCols(render, new Map([["fn0", fnBody("fn0", 1)]]), TWO_COL);
+
+    const anchors = [fnAnchor("b0", "fn0")];
+    expect(() =>
+      resolveFootnotes(
+        rawPlan, metas, sectionPlan, rootChildren,
+        cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
+      ),
+    ).not.toThrow();
+
+    const out = resolveFootnotes(
+      rawPlan, metas, sectionPlan, rootChildren,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
+    );
+    // The footnote slot for fn0 is reserved on the page carrying b0 (page 0).
+    expect(out.entries[0].footnoteContentBlockIds).toEqual(["fn0" as BlockId]);
+    expect(out.entries[0].footnoteSlotHeight).toBeGreaterThan(0);
+  });
+});
