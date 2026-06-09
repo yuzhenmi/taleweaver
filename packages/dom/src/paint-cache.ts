@@ -88,6 +88,14 @@ export function hashPaintInputs(box: LayoutBox): PaintInputHash {
     h += `|fragment:${box.fragmentEdge}`;
   } else if (box.type === "table") {
     h += `|cols:${box.columnPxWidths.join(",")}`;
+  } else if (box.type === "multicolumn") {
+    // A MultiColumnBox paints nothing of its own (no column-rule this slice), so
+    // its OWN paint-input footprint is the column count + each column's identity
+    // (position/size). The per-column subtree hashes are computed by the
+    // per-box walk; here we record the column boundary so a change to the column
+    // GEOMETRY (a column added/removed or repositioned) marks the container dirty
+    // — mirroring how `table` records its `columnPxWidths`.
+    h += `|mcols:${box.columns.length}:${box.columns.map((c) => `${c.x},${c.y},${c.width},${c.height}`).join(";")}`;
   } else if (box.type === "page") {
     h += `|page:${box.pageIndex}`;
   }

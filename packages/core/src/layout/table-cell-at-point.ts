@@ -172,6 +172,16 @@ export function locateTableCellAtPoint(
     }
     // Leaf boxes (text-run / marker) have no children to descend into.
     if (box.type === "text-run" || box.type === "marker") return null;
+    // A MultiColumnBox is NOT a table — it is a container whose `columns`
+    // (BlockBoxes) may themselves contain tables. Descend the columns so a table
+    // nested inside a column still resolves; the box itself is never a table-cell.
+    if (box.type === "multicolumn") {
+      for (const col of box.columns) {
+        const r = walk(col, absX, absY);
+        if (r !== null) return r;
+      }
+      return null;
+    }
     for (const child of box.children) {
       const r = walk(child, absX, absY);
       if (r !== null) return r;

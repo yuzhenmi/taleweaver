@@ -604,6 +604,16 @@ function findBlockBaseline(
     };
   }
 
+  if (box.type === "multicolumn") {
+    // A MultiColumnBox is a CONTAINER whose `columns` (BlockBoxes) hold the
+    // section's content; descend each column to reach the target block's baseline.
+    for (const col of box.columns) {
+      const found = findBlockBaseline(col, blockId, absX, absY, pageIndex);
+      if (found !== null) return found;
+    }
+    return null;
+  }
+
   if (
     box.type === "block" ||
     box.type === "line" ||

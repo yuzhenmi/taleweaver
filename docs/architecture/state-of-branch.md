@@ -312,13 +312,24 @@ shared predicate the incremental reuse gates use, added ahead of its producer
 so column resume state compares correctly the moment the distribution loop
 lands. INERT: no producer emits a `ColumnBreakToken` yet.
 
-Still missing (the layout consumers): the `MultiColumnBox` `LayoutBox`
-variant (N sibling column `BlockBox`es side by side, each a contiguous
-doc-order run); the column-distribution loop that wraps BFC fill and EMITS the
-`ColumnBreakToken`; column fill + balance-last; column-aware
-cursor/hit-test/line-nav; column-rule paint; the `SET_SECTION_COLUMNS` action +
-toolbar. Until those land, a doc carrying column attrs still lays out
-single-column.
+The `MultiColumnBox` `LayoutBox` variant has landed too: a new
+`type:"multicolumn"` union member with `columns: readonly BlockBox[]` (N
+side-by-side column boxes, each a contiguous doc-order run), `createMultiColumnBox`
+factory, and a `"multicolumn"` arm at every generic box-walking site that descends
+`columns` as a container — `rebuildBoxWithOffsets`, `collectLineBoxes` /
+`collectLeavesRec` (which also STAMP `AbsoluteLineBox.columnIndex` per column —
+read later by hit-test/line-nav), `cursor-position`, `table-cell-at-point`,
+`physicalize-vertical`, the canvas painter (`paintBox` + `walkAndDetectChanges`),
+and `paint-cache`. `collectLineBoxes` descending columns left-to-right gives the
+visual-reading-order guarantee for free. INERT: no producer constructs a
+`MultiColumnBox` yet.
+
+Still missing (the producer + behavior): the column-distribution loop that wraps
+BFC fill, builds the `MultiColumnBox`, and EMITS the `ColumnBreakToken`; column
+fill + balance-last; column-aware hit-test (column-X filter) + line-nav
+(`targetX` remap) that READ the stamped `columnIndex`; column-rule paint; the
+`SET_SECTION_COLUMNS` action + toolbar. Until those land, a doc carrying column
+attrs still lays out single-column.
 
 ### Text `[partial]`
 

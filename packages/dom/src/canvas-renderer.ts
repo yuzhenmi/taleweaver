@@ -644,6 +644,17 @@ function walkAndDetectChanges(
       walkAndDetectChanges(child, absX, absY, cache, dirty, false);
     }
   }
+  // A MultiColumnBox holds its content under `columns` (NOT `children`), so the
+  // generic `"children" in box` recursion above never reaches it. Walk each column
+  // BY NAME so a changed column subtree marks its region dirty — same lesson as the
+  // header/footer slots below (a painted box absent from this walk leaves stale
+  // pixels on incremental repaint). Same page-local origin (absX/absY) the painter
+  // uses for the columns.
+  if (box.type === "multicolumn") {
+    for (const col of box.columns) {
+      walkAndDetectChanges(col, absX, absY, cache, dirty, false);
+    }
+  }
   // POSITIONING slice 3 — abs-pos children are NAMED out-of-flow descendants (NOT in
   // `box.children`), so the recursion above never reaches them. Walk them BY NAME so a
   // changed abs subtree marks its region dirty for repaint AND its old region is
@@ -1373,6 +1384,26 @@ function paintBox(
     }
     // Recurse into cell content in §E.2 order (common path = document order).
     paintContainerChildren(ctx, box, stack, absX, absY, visibleTop, visibleBottom, state, phase);
+    return;
+  }
+
+  if (box.type === "multicolumn") {
+    // A MultiColumnBox paints NOTHING of its own (NO column-rule — that is a later
+    // slice). It is a plain container: recurse-paint each column box (each a
+    // BlockBox) in order, same phase. The column boxes are positioned in this box's
+    // frame, so they recurse with origin (absX, absY). Each column is a BlockBox
+    // whose own paint arm handles its background/borders/stacking — so a direct
+    // loop over `columns` is the full container paint (the §E.2 stacking partition
+    // operates WITHIN each column's block arm, not across columns). NB: the generic
+    // `"children" in box` container helpers don't see `columns`, hence the explicit
+    // loop here.
+    for (const col of box.columns) {
+      paintBox(ctx, col, absX, absY, visibleTop, visibleBottom, state, phase);
+    }
+    // Abs-pos descendants whose containing block is the multicol box itself
+    // (not inside a column) — paint them like every other container arm, else a
+    // positioned child anchored to the MultiColumnBox would never paint.
+    paintAbsoluteChildren(ctx, box, absX, absY, visibleTop, visibleBottom, state, phase);
     return;
   }
 

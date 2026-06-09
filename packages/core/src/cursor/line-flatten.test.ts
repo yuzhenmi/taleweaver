@@ -7,7 +7,7 @@ import { resolvePositionedTree } from "../layout/positioned-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import { computeUsedStyle } from "../layout/used-style";
-import { createLineBox, createTextRunBox } from "../layout/layout-box";
+import { createLineBox, createTextRunBox, createBlockBox, createMultiColumnBox } from "../layout/layout-box";
 import { makeRootContext } from "../layout/layout-context";
 import { createPosition } from "../state";
 import type { BlockId } from "../state";
@@ -42,6 +42,9 @@ describe("collectLineBoxes", () => {
     expect(out[0].pageIndex).toBe(0);
     expect(out[0].absoluteX).toBeGreaterThanOrEqual(0);
     expect(out[0].absoluteY).toBeGreaterThanOrEqual(0);
+    // A line NOT under a MultiColumnBox carries no columnIndex (the field is
+    // spread only when present — no stale-undefined leak in single-column docs).
+    expect(out[0].columnIndex).toBeUndefined();
   });
 
   it("collects lines from multiple sibling blocks in document order", () => {
@@ -119,6 +122,52 @@ describe("collectLineBoxes", () => {
     for (let i = 0; i < out1.length; i++) {
       expect(out2[i].line).toBe(out1[i].line);
     }
+  });
+
+  it("multicolumn: emits lines in column order (col0 then col1) and stamps columnIndex", () => {
+    // Multi-column slice 2 — the VISUAL-ORDER GUARANTEE. Hand-build a
+    // MultiColumnBox nested under a body block. col0 holds two paragraph blocks
+    // (each one line); col1 holds one. A depth-first walk descending `columns`
+    // left-to-right must emit col0's two lines BEFORE col1's one — visual reading
+    // order — and stamp each line's enclosing columnIndex (0, 0, then 1).
+    const mcCs = INITIAL_COMPUTED_STYLE;
+    const mcUs = computeUsedStyle(mcCs, 240, "indefinite");
+    const blockId = "b" as BlockId;
+    // A single-line paragraph block at the given block-offset inside a 240px column.
+    const para = (key: string, blockOffset: number): ReturnType<typeof createBlockBox> => {
+      const run = createTextRunBox(
+        `${key}-run`, 0, 0, 40, 16, "horizontal-tb", "ltr", mcCs, mcUs, "x", 1, 240,
+      );
+      const line = createLineBox(
+        `${key}-line`, 0, 0, 240, 16, "horizontal-tb", "ltr", mcCs, mcUs, [run],
+        16, 240, blockId, 0, 1, true,
+      );
+      return createBlockBox(key, 0, blockOffset, 240, 16, "horizontal-tb", "ltr", mcCs, mcUs, [line], 240);
+    };
+    // col0: two stacked paragraphs; col1: one. Columns sit side by side.
+    const col0 = createBlockBox(
+      "col0", 0, 0, 240, 400, "horizontal-tb", "ltr", mcCs, mcUs,
+      [para("c0p0", 0), para("c0p1", 20)], 500,
+    );
+    const col1 = createBlockBox(
+      "col1", 260, 0, 240, 400, "horizontal-tb", "ltr", mcCs, mcUs,
+      [para("c1p0", 0)], 500,
+    );
+    const mc = createMultiColumnBox(
+      "mc", 0, 0, 500, 400, "horizontal-tb", "ltr", mcCs, mcUs, [col0, col1], 500,
+    );
+    const body = createBlockBox("body", 0, 0, 500, 400, "horizontal-tb", "ltr", mcCs, mcUs, [mc], 500);
+
+    const out: AbsoluteLineBox[] = [];
+    collectLineBoxes(body, 0, 0, out);
+
+    // Three lines total, in column order: col0's two, then col1's one.
+    expect(out.map((e) => e.line.key)).toEqual(["c0p0-line", "c0p1-line", "c1p0-line"]);
+    // columnIndex stamped per the enclosing column box (0, 0, then 1).
+    expect(out.map((e) => e.columnIndex)).toEqual([0, 0, 1]);
+    // col1 sits to the RIGHT of col0 (visual side-by-side), even though it comes
+    // LATER in the flat (reading) order — the visual-order proof's premise.
+    expect(out[2].absoluteX).toBeGreaterThan(out[0].absoluteX);
   });
 
   it("handles paginated trees: pageIndex propagates to children, coordinates page-relative", () => {

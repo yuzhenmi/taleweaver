@@ -5,7 +5,7 @@ import { computeUsedStyle } from "./used-style";
 import {
   type LayoutBox, type BlockBox, type LineBox, type TextRunBox,
   createBlockBox, createLineBox, createTextRunBox, createInlineBox, createInlineBlockBox, createMarkerBox,
-  createTableBox, createTableRowBox, createTableCellBox,
+  createTableBox, createTableRowBox, createTableCellBox, createMultiColumnBox,
   withInlineOffset, withBlockOffset, withOffsets, withBidiLevel,
   withPhysicalInlineOffset,
   assertLayoutBoxConsistent,
@@ -208,6 +208,52 @@ describe("Table layout boxes", () => {
     expect(c.type).toBe("table-cell");
     expect({ gridRow: c.gridRow, gridCol: c.gridCol, rowSpan: c.rowSpan, colSpan: c.colSpan })
       .toEqual({ gridRow: 1, gridCol: 2, rowSpan: 2, colSpan: 3 });
+  });
+});
+
+describe("MultiColumnBox (multi-column slice 2)", () => {
+  const makeColumn = (key: string, inlineOffset: number): BlockBox =>
+    createBlockBox(key, inlineOffset, 0, 240, 400, "horizontal-tb", "ltr", cs, us, [], 500);
+
+  it("assembles N column BlockBoxes, freezes, and carries type:multicolumn", () => {
+    const col0 = makeColumn("c0", 0);
+    const col1 = makeColumn("c1", 260);
+    const mc = createMultiColumnBox(
+      "mc", 0, 0, 500, 400, "horizontal-tb", "ltr", cs, us, [col0, col1], 500,
+    );
+    expect(mc.type).toBe("multicolumn");
+    expect(mc.columns).toHaveLength(2);
+    expect(mc.columns[0]).toBe(col0);
+    expect(mc.columns[1]).toBe(col1);
+    expect(Object.isFrozen(mc)).toBe(true);
+    expect(Object.isFrozen(mc.columns)).toBe(true);
+    // Identity physical for LTR h-tb.
+    expect(mc.x).toBe(0);
+    expect(mc.width).toBe(500);
+  });
+
+  it("rebuildBoxWithOffsets (via withOffsets) repositions the container, preserves type + columns + frozen", () => {
+    const col0 = makeColumn("c0", 0);
+    const col1 = makeColumn("c1", 260);
+    const mc = createMultiColumnBox(
+      "mc", 5, 7, 500, 400, "horizontal-tb", "ltr", cs, us, [col0, col1], 500,
+    );
+    const moved = withOffsets(mc, 12, 34, 500);
+    if (moved.type !== "multicolumn") throw new Error("expected multicolumn after rebuild");
+    // Container repositioned…
+    expect(moved.inlineOffset).toBe(12);
+    expect(moved.blockOffset).toBe(34);
+    expect(moved.x).toBe(12);
+    expect(moved.y).toBe(34);
+    // …columns carried through (parent-relative, like table children)…
+    expect(moved.columns).toHaveLength(2);
+    expect(moved.columns[0].key).toBe("c0");
+    expect(moved.columns[1].key).toBe("c1");
+    expect(moved.columns[0].inlineOffset).toBe(0);
+    expect(moved.columns[1].inlineOffset).toBe(260);
+    // …and the result stays frozen.
+    expect(Object.isFrozen(moved)).toBe(true);
+    expect(Object.isFrozen(moved.columns)).toBe(true);
   });
 });
 

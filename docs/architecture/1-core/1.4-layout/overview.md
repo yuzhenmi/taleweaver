@@ -304,6 +304,7 @@ Per-variant additions:
 | `table` | `children: readonly LayoutBox[]`; `columnPxWidths: readonly number[]`. |
 | `table-row` | `children: readonly LayoutBox[]`. |
 | `table-cell` | `children: readonly LayoutBox[]`. |
+| `multicolumn` | `columns: readonly BlockBox[]` (N side-by-side column boxes, each holding a contiguous doc-order run). A container variant like `table` — its own type so it can carry distinct paint (column-rule), hit-test (column-X filter), and fragmentation (column distribution) semantics. The generic box-walkers descend `columns` (not `children`); a depth-first walk left-to-right emits lines in visual reading order. Multi-column (Format ▸ Columns); the producer that emits one lands in a later slice. |
 
 Positions are **parent-relative**. Painters/hit-testers walk the tree accumulating offsets cumulatively.
 

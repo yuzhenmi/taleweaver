@@ -99,6 +99,48 @@ function physicalizeVrl(box: LayoutBox, containerBlockSize: number): LayoutBox {
     });
   }
 
+  if (box.type === "multicolumn") {
+    // A MultiColumnBox is a CONTAINER whose `columns` (BlockBoxes) live in its own
+    // frame. Mirror the container's block-axis x, then recurse each column against
+    // THIS box's resolved block-size — the generic `"children" in box` path below
+    // would skip `columns` (no `children` field) and leave the columns un-mirrored.
+    // NOTE: vertical-mode multicol is OUT v1 (the design declares columns a
+    // horizontal-mode feature), so no producer reaches here today; this arm keeps
+    // the pass type-complete should vertical multicol ever be added.
+    const cisMc = box.y + box.inlineOffset + box.inlineSize;
+    const mirroredMc = rebuildBoxWithOffsets(
+      box, box.inlineOffset, box.blockOffset, cisMc, containerBlockSize,
+    );
+    if (mirroredMc.type !== "multicolumn") {
+      throw new Error(
+        `physicalizeVertical: a MultiColumnBox changed type to ${mirroredMc.type} on rebuild`,
+      );
+    }
+    const newColumns = mirroredMc.columns.map((col) => {
+      const phys = physicalizeVertical(col, mirroredMc.blockSize);
+      if (phys.type !== "block") {
+        throw new Error(
+          `physicalizeVertical: a MultiColumnBox column changed type to ${phys.type} (expected block)`,
+        );
+      }
+      return phys;
+    });
+    // Abs-pos descendants anchored to the MultiColumnBox itself live in its own
+    // frame — physicalize them against THIS box's resolved block-size, exactly as
+    // the generic path does for `children`'s peers. Omitting this would leave a
+    // vertical-mode multicol's abs-pos child on un-mirrored logical coords.
+    const newAbsoluteChildrenMc = mirroredMc.absoluteChildren?.map((c) =>
+      physicalizeVertical(c, mirroredMc.blockSize),
+    );
+    return Object.freeze({
+      ...mirroredMc,
+      columns: Object.freeze(newColumns),
+      ...(newAbsoluteChildrenMc !== undefined
+        ? { absoluteChildren: Object.freeze(newAbsoluteChildrenMc) }
+        : {}),
+    });
+  }
+
   // Mirror THIS box's block-axis x against its container's resolved block-size.
   // The rebuild re-runs the factory with the resolved containingBlockSize so the
   // physical fields (mirrored x; unchanged inline-axis y/width/height) stay

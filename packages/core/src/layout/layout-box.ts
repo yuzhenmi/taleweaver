@@ -10,7 +10,7 @@ import { createPageBox } from "./page-box";
 import { isDevMode } from "./dev-mode";
 export type { PageBox } from "./page-box";
 
-export type LayoutBox = BlockBox | LineBox | TextRunBox | InlineBox | InlineBlockBox | MarkerBox | TableBox | TableRowBox | TableCellBox | PageBox;
+export type LayoutBox = BlockBox | LineBox | TextRunBox | InlineBox | InlineBlockBox | MarkerBox | TableBox | TableRowBox | TableCellBox | MultiColumnBox | PageBox;
 
 interface LayoutBoxBase {
   readonly key: string;
@@ -302,6 +302,29 @@ export interface TableRowBox extends LayoutBoxBase {
 export interface TableCellBox extends LayoutBoxBase, TableCellGrid {
   readonly type: "table-cell";
   readonly children: readonly LayoutBox[];
+}
+
+/**
+ * A multi-column section's body region (multi-column slice 2). A CONTAINER box
+ * whose children are N **column boxes** (each a `BlockBox`), positioned side by
+ * side, each holding a CONTIGUOUS doc-order run of the section's content
+ * (fragmented into it). Its own variant — like `TableBox` — because it carries
+ * distinct paint (column-rule), hit-test (the column-X filter), and
+ * fragmentation (column distribution) semantics.
+ *
+ * VISUAL-ORDER GUARANTEE: because each column holds a contiguous doc-order run,
+ * a depth-first walk descending `columns` LEFT-TO-RIGHT emits lines in visual
+ * reading order (column-0's lines, then column-1's, …). So `collectLineBoxes`
+ * needs NO reorder — it just descends `columns` in order, stamping each line's
+ * enclosing column index onto its `AbsoluteLineBox.columnIndex`.
+ *
+ * The field is named `columns` (NOT `children`) so the type makes the per-column
+ * grouping explicit; every generic box-walking concern descends `columns` exactly
+ * as a `children`-bearing container descends `children`.
+ */
+export interface MultiColumnBox extends LayoutBoxBase {
+  readonly type: "multicolumn";
+  readonly columns: readonly BlockBox[];
 }
 
 interface BoxBaseFields {
@@ -644,6 +667,36 @@ export function createTableCellBox(
 }
 
 /**
+ * Multi-column slice 2 — assemble a `MultiColumnBox` from its already-built
+ * column boxes. Mirrors `createTableBox`: logical-axis args + `containingInlineSize`
+ * (for the RTL inline-axis inversion in `logicalToPhysical`), runs the shared base
+ * factory, and `Object.freeze`s the output. The producer (a later slice) positions
+ * each column box at its inline-offset and passes them in here; this factory just
+ * freezes the assembled container.
+ */
+export function createMultiColumnBox(
+  key: string,
+  inlineOffset: number, blockOffset: number, inlineSize: number, blockSize: number,
+  writingMode: WritingMode, direction: Direction,
+  computedStyle: ComputedStyle,
+  usedStyle: UsedStyle,
+  columns: readonly BlockBox[],
+  containingInlineSize: number,
+  containingBlockSize?: number,
+): MultiColumnBox {
+  const base = createBoxBase({
+    key, inlineOffset, blockOffset, inlineSize, blockSize,
+    writingMode, direction, computedStyle, usedStyle, containingInlineSize,
+    containingBlockSize,
+  });
+  return Object.freeze({
+    type: "multicolumn" as const,
+    ...base,
+    columns: Object.freeze([...columns]),
+  });
+}
+
+/**
  * Recreate a layout box with a new inline-offset. Used by IFC bidi
  * reordering and similar passes that need to reposition a box without
  * re-running its children's layout.
@@ -932,6 +985,16 @@ export function rebuildBoxWithOffsets(
         box.children,
         { gridRow: box.gridRow, gridCol: box.gridCol, rowSpan: box.rowSpan, colSpan: box.colSpan },
         containingInlineSize, containingBlockSize,
+      );
+    case "multicolumn":
+      // Reposition the container at the new offsets; the column boxes are
+      // PARENT-RELATIVE (positioned in this box's own frame), so they carry
+      // through verbatim — exactly as the `table` arm carries `children`. A
+      // dropped column would lose that column's whole content subtree.
+      return createMultiColumnBox(
+        box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
+        box.writingMode, box.direction, box.computedStyle, box.usedStyle,
+        box.columns, containingInlineSize, containingBlockSize,
       );
     case "page":
       // The page FRAME is never writing-mode-mirrored (page placement is
