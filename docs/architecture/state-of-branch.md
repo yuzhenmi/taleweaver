@@ -758,8 +758,22 @@ direct mode keeps live `applyAttrsToRange`; suggesting mode routes through
 `{ bold: undefined }` and `CLEAR_FORMATTING`'s clear-all delta); the LIVE attrs stay
 unchanged until ACCEPT. `INLINE_FORMAT_ATTR_KEYS` is a curated allow-list, so a
 direct `CLEAR_FORMATTING` never strips a suggestion-provenance id.
-REMAINING: 4e block-split/join embeds
-(SPLIT_NODE + break-delete);
+**Slice 4e-state-split (`splitWithSuggestion`) shipped:** the STATE op for a
+suggested paragraph SPLIT (Enter in suggesting mode), building on the shipped
+`block-split-suggestion` embed. It performs a REAL `splitBlockAtPosition` (both
+halves immediately real/laid-out/navigable) AND appends a zero-width
+`block-split-suggestion` embed at the END of the first block carrying the owning
+`suggestionId` in its `properties`, plus an `insertion` `SuggestionRecord` — ALL in
+ONE transaction (one undo entry). Composes `planSplitBlockAtPosition` +
+`splitBlockAtPositionInTx` (for the structural split + canonical validation) with a
+full-replace of block N's content (`[0, offset)` + the break embed, the embed staying
+the LAST item via the merge-barrier rule); the full-replace supersedes the split's
+in-place write to N, leaving N+1 + sibling rewiring untouched. No coalescing (each
+Enter is a discrete suggestion). The break embed occupies exactly ONE offset and
+serializes to `""`. RESOLUTION (accept removes embed / reject re-merges) is a later
+slice. This begins the break-suggestion CREATE side; the SPLIT_NODE editor wiring +
+the suggested block-JOIN (break-delete) embed are still to come.
+REMAINING: 4e block-join embed + SPLIT_NODE/break-delete editor wiring;
 5 render (insertion=color+underline, deletion=color+strikethrough, formatting=
 proposedAttrs); 6 host query + overlay; 7 arch docs. See `1.1-state.md` "The
 `suggestions` map" + `1.7-editor.md`.

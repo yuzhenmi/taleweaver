@@ -228,6 +228,13 @@ export { applyAttrsToRange } from "./ops/apply-attrs";
 
 // Block-structural edits.
 export { splitBlockAtPosition } from "./ops/split-block";
+// Suggesting-mode paragraph SPLIT (Enter): a real `splitBlockAtPosition` + a
+// zero-width `block-split-suggestion` embed at the end of the first block + an
+// `insertion` record, all in ONE transaction. Grouped with the suggestion CREATE
+// ops (`mintInsertion`/`markDeletion`) below by intent; lives here next to the
+// split op it builds on.
+export { splitWithSuggestion } from "./ops/split-block";
+export type { SplitWithSuggestionInput } from "./ops/split-block";
 export { mergeAdjacentBlocks } from "./ops/merge-blocks";
 export type { InsertBlockArgs } from "./ops/insert-block";
 export { insertBlock } from "./ops/insert-block";
