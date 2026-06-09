@@ -219,7 +219,7 @@ describe("MultiColumnBox (multi-column slice 2)", () => {
     const col0 = makeColumn("c0", 0);
     const col1 = makeColumn("c1", 260);
     const mc = createMultiColumnBox(
-      "mc", 0, 0, 500, 400, "horizontal-tb", "ltr", cs, us, [col0, col1], 500,
+      "mc", 0, 0, 500, 400, "horizontal-tb", "ltr", cs, us, [col0, col1], null, 500,
     );
     expect(mc.type).toBe("multicolumn");
     expect(mc.columns).toHaveLength(2);
@@ -236,7 +236,7 @@ describe("MultiColumnBox (multi-column slice 2)", () => {
     const col0 = makeColumn("c0", 0);
     const col1 = makeColumn("c1", 260);
     const mc = createMultiColumnBox(
-      "mc", 5, 7, 500, 400, "horizontal-tb", "ltr", cs, us, [col0, col1], 500,
+      "mc", 5, 7, 500, 400, "horizontal-tb", "ltr", cs, us, [col0, col1], null, 500,
     );
     const moved = withOffsets(mc, 12, 34, 500);
     if (moved.type !== "multicolumn") throw new Error("expected multicolumn after rebuild");
@@ -251,9 +251,25 @@ describe("MultiColumnBox (multi-column slice 2)", () => {
     expect(moved.columns[1].key).toBe("c1");
     expect(moved.columns[0].inlineOffset).toBe(0);
     expect(moved.columns[1].inlineOffset).toBe(260);
+    // …the column-rule carries through (null here)…
+    expect(moved.columnRule).toBeNull();
     // …and the result stays frozen.
     expect(Object.isFrozen(moved)).toBe(true);
     expect(Object.isFrozen(moved.columns)).toBe(true);
+  });
+
+  it("rebuildBoxWithOffsets preserves a non-null columnRule across the reposition", () => {
+    const col0 = makeColumn("c0", 0);
+    const col1 = makeColumn("c1", 260);
+    const rule = { width: 2, style: "solid" as const, color: "#abc" };
+    const mc = createMultiColumnBox(
+      "mc", 5, 7, 500, 400, "horizontal-tb", "ltr", cs, us, [col0, col1], rule, 500,
+    );
+    const moved = withOffsets(mc, 12, 34, 500);
+    if (moved.type !== "multicolumn") throw new Error("expected multicolumn after rebuild");
+    // The rule survives the offset rebuild (else a bidi reorder / reposition would
+    // silently drop the column-rule).
+    expect(moved.columnRule).toEqual(rule);
   });
 });
 

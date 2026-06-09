@@ -154,7 +154,7 @@ describe("collectLineBoxes", () => {
       [para("c1p0", 0)], 500,
     );
     const mc = createMultiColumnBox(
-      "mc", 0, 0, 500, 400, "horizontal-tb", "ltr", mcCs, mcUs, [col0, col1], 500,
+      "mc", 0, 0, 500, 400, "horizontal-tb", "ltr", mcCs, mcUs, [col0, col1], null, 500,
     );
     const body = createBlockBox("body", 0, 0, 500, 400, "horizontal-tb", "ltr", mcCs, mcUs, [mc], 500);
 

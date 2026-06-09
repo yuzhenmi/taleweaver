@@ -366,7 +366,22 @@ column height. A dev-only assert compares each materialized column's resume-out
 token to the planned `ColumnFit.resumeOut` (`breakTokensEqual`) to catch
 measure-vs-materialize drift. A single-column page is byte-identical to the
 pre-multicol body box. The `MultiColumnBox` flows downstream like any container
-body box (the `"multicolumn"` walker arms descend `columns`).
+body box (the `"multicolumn"` walker arms descend `columns`). The box also carries
+the section's resolved `columnRule: ColumnRule | null` (threaded from
+`entry.columnConfig.columnRule`), which the painter consumes (see column-rule paint
+below).
+
+Column-rule PAINT has landed: the canvas painter's `"multicolumn"` arm, after
+descending the columns, draws the `column-rule` (CSS `column-rule`) in the
+BACKGROUND phase (the same phase as `paintBorders`, so it paints exactly once and
+never double-paints across the foreground pass). For each adjacent column pair it
+fills a rule rect centered in the inter-column gap, spanning the `MultiColumnBox`'s
+block extent (NOT the column's own — an empty trailing column has `blockSize 0`).
+The inline axis is derived from `box.writingMode` (horizontal-tb ⇒ a vertical line
+along physical X; vertical modes ⇒ a horizontal line along physical Y). Like
+`paintBorders`, it draws a solid `fillRect` for any non-`none` style (no dash/dot
+rendering) and the gate (`columnRule !== null && width > 0 && style !== "none"`)
+short-circuits the common no-rule case at zero overhead.
 
 Column-aware CURSOR has landed. HIT-TEST (slice 3a): `column-at-point.ts`
 (`locateColumnAtPoint`) finds the clicked column's physical rect, and `hit-test.ts`
@@ -390,8 +405,8 @@ single-column state. It mirrors `TOGGLE_SECTION_LANDSCAPE` (shared
 `resolveActiveSection` parent-walk helper, T7 identity guard, one undo unit) and is
 wired into the example-app toolbar (1 / 2 / 3-column buttons).
 
-Still missing (the rest of the wiring + remaining behavior): column-rule paint; the
-footnote-bearing FINAL multicol page's column BALANCE (T4b).
+Still missing (remaining behavior): the footnote-bearing FINAL multicol page's
+column BALANCE (T4b).
 
 ### Text `[partial]`
 

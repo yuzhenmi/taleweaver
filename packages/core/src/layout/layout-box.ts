@@ -7,6 +7,7 @@ import type { BlockId } from "../state";
 import type { LayoutBoxMetadata } from "../render/layout-metadata";
 import type { PageBox } from "./page-box";
 import { createPageBox } from "./page-box";
+import type { ColumnRule } from "./column-config";
 import { isDevMode } from "./dev-mode";
 export type { PageBox } from "./page-box";
 
@@ -325,6 +326,13 @@ export interface TableCellBox extends LayoutBoxBase, TableCellGrid {
 export interface MultiColumnBox extends LayoutBoxBase {
   readonly type: "multicolumn";
   readonly columns: readonly BlockBox[];
+  /**
+   * The line-between (CSS `column-rule`) painted in each gap between adjacent
+   * columns, or `null` for no rule. Threaded from the section's resolved
+   * `ColumnConfig.columnRule`; the painter draws it centered in each inter-column
+   * gap, spanning this box's block extent.
+   */
+  readonly columnRule: ColumnRule | null;
 }
 
 interface BoxBaseFields {
@@ -681,6 +689,7 @@ export function createMultiColumnBox(
   computedStyle: ComputedStyle,
   usedStyle: UsedStyle,
   columns: readonly BlockBox[],
+  columnRule: ColumnRule | null,
   containingInlineSize: number,
   containingBlockSize?: number,
 ): MultiColumnBox {
@@ -693,6 +702,7 @@ export function createMultiColumnBox(
     type: "multicolumn" as const,
     ...base,
     columns: Object.freeze([...columns]),
+    columnRule,
   });
 }
 
@@ -994,7 +1004,7 @@ export function rebuildBoxWithOffsets(
       return createMultiColumnBox(
         box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
-        box.columns, containingInlineSize, containingBlockSize,
+        box.columns, box.columnRule, containingInlineSize, containingBlockSize,
       );
     case "page":
       // The page FRAME is never writing-mode-mirrored (page placement is

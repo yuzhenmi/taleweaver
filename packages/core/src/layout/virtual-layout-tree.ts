@@ -643,6 +643,7 @@ export function makeVirtualLayoutTree(
         rootComputed,
         effRootUsedStyle,
         columnBoxes,
+        entry.columnConfig.columnRule,
         effContentInlineSize,
       );
     };

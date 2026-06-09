@@ -1388,15 +1388,15 @@ function paintBox(
   }
 
   if (box.type === "multicolumn") {
-    // A MultiColumnBox paints NOTHING of its own (NO column-rule — that is a later
-    // slice). It is a plain container: recurse-paint each column box (each a
-    // BlockBox) in order, same phase. The column boxes are positioned in this box's
-    // frame, so they recurse with origin (absX, absY). Each column is a BlockBox
-    // whose own paint arm handles its background/borders/stacking — so a direct
-    // loop over `columns` is the full container paint (the §E.2 stacking partition
-    // operates WITHIN each column's block arm, not across columns). NB: the generic
-    // `"children" in box` container helpers don't see `columns`, hence the explicit
-    // loop here.
+    // A MultiColumnBox recurse-paints each column box (each a BlockBox) in order,
+    // same phase, then draws the column-rule (CSS `column-rule`) in the BACKGROUND
+    // phase. It is otherwise a plain container: the column boxes are positioned in
+    // this box's frame, so they recurse with origin (absX, absY). Each column is a
+    // BlockBox whose own paint arm handles its background/borders/stacking — so a
+    // direct loop over `columns` is the full container paint (the §E.2 stacking
+    // partition operates WITHIN each column's block arm, not across columns). NB:
+    // the generic `"children" in box` container helpers don't see `columns`, hence
+    // the explicit loop here.
     for (const col of box.columns) {
       paintBox(ctx, col, absX, absY, visibleTop, visibleBottom, state, phase);
     }
@@ -1404,6 +1404,39 @@ function paintBox(
     // (not inside a column) — paint them like every other container arm, else a
     // positioned child anchored to the MultiColumnBox would never paint.
     paintAbsoluteChildren(ctx, box, absX, absY, visibleTop, visibleBottom, state, phase);
+    // The column-rule (CSS `column-rule`) — a border-like line painted in EACH
+    // gap between adjacent columns. Border-like ⇒ painted in the BACKGROUND phase
+    // (same phase as `paintBorders` in the block/cell arms), so it draws exactly
+    // once and never double-paints across the foreground pass. The gate short-
+    // circuits the common no-rule case (zero overhead). Like `paintBorders`, we
+    // draw a SOLID `fillRect` for ANY non-`none` style (no dash/dot rendering),
+    // keeping the painter's rule handling consistent with its border handling.
+    const rule = box.columnRule;
+    if (
+      phase === "background" &&
+      rule !== null && rule.width > 0 && rule.style !== "none" && box.columns.length > 1
+    ) {
+      ctx.fillStyle = rule.color;
+      // The columns are separated along the INLINE axis. In horizontal-tb that is
+      // physical X (a VERTICAL line spanning the box height); in vertical modes it
+      // is physical Y (a HORIZONTAL line spanning the box width). Each column's
+      // physical position (`col.x` / `col.y`) is in the MultiColumnBox's own frame,
+      // painted at origin (absX, absY) — so we add absX / absY. The line spans the
+      // BOX's block extent (NOT the column's own, which is 0 for an empty trailing
+      // column), so we use box.width / box.height.
+      const isVertical = box.writingMode === "vertical-rl" || box.writingMode === "vertical-lr";
+      for (let k = 0; k < box.columns.length - 1; k++) {
+        const a = box.columns[k];
+        const b = box.columns[k + 1];
+        if (isVertical) {
+          const gapCenterY = absY + (a.y + a.height + b.y) / 2;
+          ctx.fillRect(absX, gapCenterY - rule.width / 2, box.width, rule.width);
+        } else {
+          const gapCenterX = absX + (a.x + a.width + b.x) / 2;
+          ctx.fillRect(gapCenterX - rule.width / 2, absY, rule.width, box.height);
+        }
+      }
+    }
     return;
   }
 

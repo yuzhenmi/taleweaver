@@ -97,10 +97,11 @@ describe("materializePage — multi-column body", () => {
       { display: "block" },
       Array.from({ length: 8 }, (_, i) => fixedBlock(`b${i}`, 50)),
     );
+    const columnRule = { width: 1, style: "solid" as const, color: "#000" };
     const { plan, tree } = buildTree(
       root,
       pageConfig,
-      columnSectionPlan({ columnCount: 2, columnGap, columnRule: null }),
+      columnSectionPlan({ columnCount: 2, columnGap, columnRule }),
     );
 
     // The plan must be a single multicol page (sanity — the test geometry).
@@ -112,6 +113,8 @@ describe("materializePage — multi-column body", () => {
     expect(body.type).toBe("multicolumn");
     const mc = body as MultiColumnBox;
     expect(mc.columns.length).toBe(2);
+    // The section's column-rule is threaded onto the MultiColumnBox.
+    expect(mc.columnRule).toEqual(columnRule);
 
     const bodyContentInlineStart = pageConfig.pageMargins.inlineStart; // 0
     const bodyInlineSize =
@@ -169,6 +172,8 @@ describe("materializePage — multi-column body", () => {
       pageConfig.pageMargins.inlineEnd; // 570
     const trackInlineSize = (bodyInlineSize - columnGap) / 2; // (570−30)/2 = 270
 
+    // No rule configured on this section ⇒ the box carries `columnRule: null`.
+    expect(mc.columnRule).toBeNull();
     expect(mc.inlineOffset).toBe(inlineStart);
     expect(mc.inlineSize).toBe(bodyInlineSize);
     const [col0, col1] = mc.columns;
@@ -193,6 +198,8 @@ describe("materializePage — multi-column body", () => {
     const page = tree.getPage(0);
     const body = bodyBoxOf(page);
     expect(body.type).toBe("block");
+    // A single-column body is a plain BlockBox, which has no columnRule field.
+    expect((body as { columnRule?: unknown }).columnRule).toBeUndefined();
     const block = body as BlockBox;
     // The whole-page-width single column body (byte-identical to today).
     expect(block.inlineSize).toBe(600);
