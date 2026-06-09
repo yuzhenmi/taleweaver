@@ -6,7 +6,7 @@ import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
 import { handleListIndent } from "./list-indent";
 import { listLevelOf, unlistBlock } from "./list-edits";
-import { newSuggestionInput, newReplaceSuggestionInput } from "./suggestion-mode";
+import { suggestionInputForBlock, replaceSuggestionInputForBlock } from "./suggestion-mode";
 
 export function handleSplitNode(
   editor: EditorState,
@@ -29,14 +29,17 @@ export function handleSplitNode(
     const start = expandedSpanCollapsePoint(editor.state, selection);
     if (start === null) return editor;
 
-    const replaceInput = newReplaceSuggestionInput(config);
+    // Gate on the selection-start block's context: a split-over-selection inside a
+    // footnote/header/footer body falls back to the DIRECT delete-then-split path
+    // (untracked). `replaceSuggestionInputForBlock` returns null for a body block.
+    const sStart = spanStart(editor.state, selection);
+    const replaceInput = replaceSuggestionInputForBlock(editor.state, sStart.blockId, config);
     if (replaceInput !== null) {
       // Suggesting mode (4e-editor-composite): a non-collapsed Enter SOFT-DELETES
       // the selection (text stays, struck) THEN inserts a suggested split AFTER it
       // (post-strike offset), in ONE undoable transaction. SINGLE-BLOCK only — a
       // cross-block Enter-over-selection needs multi-block-suggestion content (the
       // paste-as-suggestion follow-up), so it is an interim NO-OP here.
-      const sStart = spanStart(editor.state, selection);
       const sEnd = spanEnd(editor.state, selection);
       if (sStart.blockId !== sEnd.blockId) return editor; // cross-block → defer
       const splitBlock = resolveBlock(editor.state, sStart.blockId)?.block ?? null;
@@ -138,7 +141,9 @@ export function handleSplitNode(
   // `updatedOriginal.nextSiblingId`, `history.commit`, `rebuildTrees`) is
   // IDENTICAL to the direct path because the split is real; `newBlockInit` is
   // threaded through unchanged.
-  const suggestInput = newSuggestionInput(config);
+  // Gate on the split block's context: a split inside a footnote/header/footer
+  // body falls back to the DIRECT `splitBlockAtPosition` path (untracked).
+  const suggestInput = suggestionInputForBlock(current.state, pos.blockId, config);
   const splitResult =
     suggestInput === null
       ? splitBlockAtPosition(current.state, pos, productionAllocator, newBlockInit)

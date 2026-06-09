@@ -1,10 +1,10 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { createPosition, createSpan, spanEnd } from "../../state";
+import { createPosition, createSpan, spanStart, spanEnd } from "../../state";
 import { moveByWord } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
-import { deleteRangeOrSuggest } from "./suggestion-mode";
+import { deleteRangeOrSuggest, isSuggestingInBlock } from "./suggestion-mode";
 
 export function handleDeleteWord(
   editor: EditorState,
@@ -30,8 +30,13 @@ export function handleDeleteWord(
     // struck span (its END) so a repeated Delete strikes the NEXT span rather than
     // re-targeting the already-struck text (markDeletion coalesces → no-op);
     // backward keeps the caret at the span START (= `start`). Direct mode always
-    // collapses to `start` (content shrank).
-    const suggesting = (config.suggestingAuthor ?? null) !== null;
+    // collapses to `start` (content shrank). `suggesting` reflects the ACTUAL
+    // outcome — a body delete in suggesting mode falls back to a direct delete.
+    const suggesting = isSuggestingInBlock(
+      editor.state,
+      spanStart(editor.state, selection).blockId,
+      config,
+    );
     const collapseTo =
       suggesting && direction === "forward"
         ? spanEnd(editor.state, selection)
@@ -70,7 +75,13 @@ export function handleDeleteWord(
   // before the caret = span start) in both modes. For FORWARD the far edge is the
   // span END (`target`, the word-boundary past the caret) so a repeated Delete
   // strikes the NEXT word; direct mode keeps the existing caret at `pos`.
-  const suggesting = (config.suggestingAuthor ?? null) !== null;
+  // `suggesting` reflects the ACTUAL outcome — a body forward word-delete in
+  // suggesting mode falls back to a direct delete, so the caret stays at `pos`.
+  const suggesting = isSuggestingInBlock(
+    editor.state,
+    spanStart(editor.state, span).blockId,
+    config,
+  );
   const newCursor = direction === "backward" ? target : suggesting ? target : pos;
   const newSelection = createSpan(newCursor, newCursor);
   editor.history.commit(result, {

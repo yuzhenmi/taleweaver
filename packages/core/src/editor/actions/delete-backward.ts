@@ -7,7 +7,7 @@ import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-
 import { handleListIndent } from "./list-indent";
 import { listLevelOf, unlistBlock } from "./list-edits";
 import { deleteAdjacentAtomicLeaf } from "./atomic-edits";
-import { deleteRangeOrSuggest, newSuggestionInput } from "./suggestion-mode";
+import { deleteRangeOrSuggest, suggestionInputForBlock } from "./suggestion-mode";
 
 export function handleDeleteBackward(
   editor: EditorState,
@@ -153,7 +153,11 @@ export function handleDeleteBackward(
   // `block-join-suggestion` embed to currentBlock's prev sibling = prevBlock (N).
   // Blocks stay separate; the caret stays at currentBlock:0 (= pos; no merge
   // happened, so the selection is unchanged). One undoable op.
-  const joinInput = newSuggestionInput(config);
+  // Gate on the join-target block's context: a paragraph-boundary backspace
+  // inside a footnote/header/footer body falls back to the DIRECT real-merge
+  // path below (untracked). A body IS a container of paragraphs, so para↔para
+  // joins are reachable there.
+  const joinInput = suggestionInputForBlock(editor.state, currentBlock.id, config);
   if (joinInput !== null) {
     const result = markBlockJoinSuggestion(editor.state, currentBlock.id, joinInput);
     if (result.state === editor.state) return editor;

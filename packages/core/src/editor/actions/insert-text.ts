@@ -12,7 +12,7 @@ import type { OperationResult } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection } from "./selection-guards";
-import { newSuggestionInput, newReplaceSuggestionInput } from "./suggestion-mode";
+import { suggestionInputForBlock, replaceSuggestionInputForBlock } from "./suggestion-mode";
 
 export function handleInsertText(
   editor: EditorState,
@@ -38,7 +38,9 @@ export function handleInsertText(
     // the destructive replaceRange. The caret formula is identical for both: the new
     // text lands at `start`, so the cursor is `start.offset + text.length` (in
     // suggesting mode the struck old text follows the caret; in direct mode it's gone).
-    const replaceInput = newReplaceSuggestionInput(config);
+    // Gate on the selection-start block's context: a body type-over (footnote/
+    // header/footer) falls back to direct `replaceRange` (untracked).
+    const replaceInput = replaceSuggestionInputForBlock(editor.state, start.blockId, config);
     result =
       replaceInput === null
         ? replaceRange(editor.state, selectionBefore, text, {})
@@ -52,7 +54,9 @@ export function handleInsertText(
     // record) instead of plain text. mintInsertion advances `text.length`
     // offsets exactly as insertText, so the cursor lands identically; it is a
     // normal tracked/undoable op, so the commit + rebuild below are unchanged.
-    const sugInput = newSuggestionInput(config);
+    // Gate on the caret block's context: a body caret (footnote/header/footer)
+    // falls back to direct `insertText` (untracked).
+    const sugInput = suggestionInputForBlock(editor.state, focus.blockId, config);
     result =
       sugInput === null
         ? insertText(editor.state, focus, text, {})

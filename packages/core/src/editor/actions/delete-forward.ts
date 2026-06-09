@@ -1,11 +1,11 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { resolveBlock, createPosition, createSpan, spanEnd, mergeAdjacentBlocks, markBlockJoinSuggestion, mergeSectionWithPrevious, inlineContentLength } from "../../state";
+import { resolveBlock, createPosition, createSpan, spanStart, spanEnd, mergeAdjacentBlocks, markBlockJoinSuggestion, mergeSectionWithPrevious, inlineContentLength } from "../../state";
 import { moveByCharacter } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
 import { deleteAdjacentAtomicLeaf } from "./atomic-edits";
-import { deleteRangeOrSuggest, newSuggestionInput } from "./suggestion-mode";
+import { deleteRangeOrSuggest, suggestionInputForBlock, isSuggestingInBlock } from "./suggestion-mode";
 
 export function handleDeleteForward(
   editor: EditorState,
@@ -26,7 +26,13 @@ export function handleDeleteForward(
     // Forward soft-delete leaves the struck text in place, so the caret must
     // land PAST it (span END); a direct delete removes the text, so the caret
     // stays at the span start. (Backward soft-delete uses the span start.)
-    const suggesting = (config.suggestingAuthor ?? null) !== null;
+    // `suggesting` reflects the ACTUAL outcome — a body delete in suggesting mode
+    // falls back to a direct delete (text removed), so the caret stays at start.
+    const suggesting = isSuggestingInBlock(
+      editor.state,
+      spanStart(editor.state, selection).blockId,
+      config,
+    );
     const collapseTo = suggesting ? spanEnd(editor.state, selection) : start;
     const newCursor = createPosition(collapseTo.blockId, collapseTo.offset);
     const newSelection = createSpan(newCursor, newCursor);
@@ -62,7 +68,13 @@ export function handleDeleteForward(
     // past it (to `next`, the span end) — else the next Delete would re-target
     // the already-struck char (markDeletion coalesces → no-op). A direct delete
     // removes the char, so the caret stays at `pos` (content shrank).
-    const suggesting = (config.suggestingAuthor ?? null) !== null;
+    // `suggesting` reflects the ACTUAL outcome — a body delete in suggesting mode
+    // falls back to a direct delete, so the caret stays at `pos`.
+    const suggesting = isSuggestingInBlock(
+      editor.state,
+      spanStart(editor.state, span).blockId,
+      config,
+    );
     const newCursor = suggesting
       ? createPosition(next.blockId, next.offset)
       : createPosition(pos.blockId, pos.offset);
@@ -155,7 +167,11 @@ export function handleDeleteForward(
   // at currentBlock's end (nextBlock's prev sibling = currentBlock). Blocks stay
   // separate; the caret stays at currentBlock:currentLen (= pos; no merge). One
   // undoable op.
-  const joinInput = newSuggestionInput(config);
+  // Gate on the join-target block's context: a paragraph-boundary forward-delete
+  // inside a footnote/header/footer body falls back to the DIRECT real-merge path
+  // below (untracked). A body IS a container of paragraphs, so para↔para joins
+  // are reachable there.
+  const joinInput = suggestionInputForBlock(editor.state, nextBlock.id, config);
   if (joinInput !== null) {
     const result = markBlockJoinSuggestion(editor.state, nextBlock.id, joinInput);
     if (result.state === editor.state) return editor;

@@ -707,7 +707,10 @@ drop dominates; a both-insertion-and-deletion run is dropped under both). **With
 (markFormatting/markDeletion/mintInsertion) + resolve (accept/reject single + all).**
 **KNOWN follow-up:** the resolve scan + `buildSuggestionRangeIndex` are MAIN-TREE-ONLY
 (footnote/header-body suggestions aren't surfaced/resolved — a pre-existing slice-2
-read-scope limit; multi-tree is a one-place scan enhancement). **Slice 4 (editor
+read-scope limit; multi-tree is a one-place scan enhancement). The editor now GATES
+suggesting mode to the main body so body edits fall back to direct (untracked) editing —
+closing the body-suggestion corruption path (slice-4-followup below); full multi-tree
+resolution remains the open enhancement. **Slice 4 (editor
 actions + suggesting mode) IN PROGRESS, sub-sliced 4a–4e:** 4a shipped — the 4
 NON-undoable accept/reject editor actions (`ACCEPT_SUGGESTION`/`REJECT_SUGGESTION`/
 `ACCEPT_ALL_SUGGESTIONS`/`REJECT_ALL_SUGGESTIONS`) via a new `"resolve"` ActionClass
@@ -824,7 +827,7 @@ moved-boundary owner (defensive skip). Break resolution is now COMPLETE (single 
 
 **Slice 4e-editor shipped:** the break-suggestion EDITOR wiring (collapsed cases). On a
 COLLAPSED Enter, `handleSplitNode` routes through `splitWithSuggestion` when
-suggesting (`newSuggestionInput`) — a tracked INSERTION of a paragraph break (real
+suggesting (`suggestionInputForBlock`, main-body-gated — see slice-4-followup) — a tracked INSERTION of a paragraph break (real
 split + a `block-split-suggestion` embed on block N + an `insertion` record, one
 undoable op); the cursor / commit / rebuild path is byte-identical to the direct
 split, and the heading follow-on-type (`newBlockInit`) is threaded through. On the delete side, the blanket block-boundary suggesting
@@ -849,6 +852,22 @@ collapse-point run ONCE for both modes; the direct-mode path keeps its byte-iden
 an interim NO-OP (it needs the multi-block-suggestion machinery the paste-as-suggestion
 follow-up brings) — named alongside the `handlePaste`-not-suggesting-aware follow-up. Slice
 4e is now COMPLETE (create + resolve + editor + composite).
+**Slice 4-followup shipped (main-body gate — Finding 3a):** suggesting mode is now gated
+to the MAIN BODY at every mutating editor seam. Because the resolve scan +
+`buildSuggestionRangeIndex` are MAIN-TREE-ONLY, a suggesting-mode edit whose target block
+lives OUTSIDE the main body (a footnote / header / footer / template body, in the
+embedContents / templateContents trees) previously created a body suggestion the scan could
+never reach — on accept/reject-all the record was deleted but the tagged runs / break embed
+were left as un-resolvable zombies (silent state corruption). The fix: every seam routes its
+create-input through the context-aware `suggestionInputForBlock` /
+`replaceSuggestionInputForBlock` (`suggestion-mode.ts`), which return null — diverting to the
+existing DIRECT (untracked) branch — when `selectionContextOf(state, blockId) !==
+state.rootId`. This covers INSERT_TEXT (collapsed + type-over), all four delete handlers +
+the paragraph-boundary suggested-joins (via `deleteRangeOrSuggest` + the join sites), all
+eight inline-format handlers (via `applyAttrsOrSuggest`), and SPLIT_NODE (collapsed + composite).
+A body edit still happens, just untracked, creating no un-resolvable suggestion. The full
+multi-tree resolution scan (actually tracking + resolving body suggestions) remains the named
+follow-up below.
 REMAINING (all browser/host-gated):
 5 render (pilcrows: split=inserted-flavored ¶, join=struck ¶ — the break embeds already
 render as zero-width atoms; insertion=color+underline, deletion=color+strikethrough,
