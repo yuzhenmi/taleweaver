@@ -786,10 +786,25 @@ separate, linked blocks while the deletion is pending (Google Docs). The embed o
 exactly ONE offset, serializes to `""`, and stays the LAST item via the merge-barrier
 rule. Identity no-op when there is no boundary to mark (block missing / first-child /
 container N). No coalescing (each break is a discrete suggestion). RESOLUTION (accept
-merges the blocks / reject removes the embed) is a later slice. The break-suggestion
-CREATE side now covers BOTH split and join; the SPLIT_NODE/break-delete editor wiring is
-still to come.
-REMAINING: SPLIT_NODE/break-delete editor wiring;
+merges the blocks / reject removes the embed) lands in `resolve` (slice 4e-resolve-single).
+The break-suggestion CREATE side now covers BOTH split and join; the SPLIT_NODE/break-delete
+editor wiring is still to come.
+**Slice 4e-resolve-single shipped:** single-suggestion break RESOLUTION extends the
+shared `resolve(state, id, mode)` (used by `acceptSuggestion`/`rejectSuggestion`) to
+handle the two break embeds additively. The scan loop drops a `block-split-suggestion` /
+`block-join-suggestion` embed carrying the resolved id (ALWAYS, all four cases) via the
+existing per-block full-replace, recording its owning block N; after the scan, when
+`(insertion && reject) || (deletion && accept)` — split-reject UNDOES the split,
+join-accept DOES the join — it also MERGES N with its next sibling N+1 via
+`mergeAdjacentBlocksInTx`, run in the SAME non-undoable transaction AFTER the phase-1
+writes (which dropped the embed, leaving the structural-ids-only `MergeBlocksPlan` valid;
+the merge reads N's post-phase-1 embed-free content LIVE before appending N+1). Split-accept
+and join-reject keep the blocks split. A merge-validity guard re-checks the boundary against
+the pre-tx snapshot (still a same-parent adjacent leaf pair); a MOVED boundary clears the
+embed but SKIPS the merge (never calls `planMergeAdjacentBlocks` on an invalid boundary).
+The text-run resolution path is byte-identical (the embed branch is purely additive). The
+`resolveAll` bulk path does NOT yet cascade break split/merge — a tracked follow-up.
+REMAINING: acceptAll/rejectAll break cascade; SPLIT_NODE/break-delete editor wiring;
 5 render (insertion=color+underline, deletion=color+strikethrough, formatting=
 proposedAttrs); 6 host query + overlay; 7 arch docs. See `1.1-state.md` "The
 `suggestions` map" + `1.7-editor.md`.

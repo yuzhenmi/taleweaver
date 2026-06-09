@@ -13,6 +13,8 @@ import {
   type TextItem,
 } from "../inline-content";
 import {
+  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
+  BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
   DELETION_SUGGESTION_ATTR,
   FORMATTING_SUGGESTION_ATTR,
   INSERTION_SUGGESTION_ATTR,
@@ -28,6 +30,11 @@ import { getSuggestionsMap, getYBlock, type BlockTreeKind } from "../yjs-doc";
 import { buildYInlineContent } from "../y-block";
 import { planApplyAttrsToRange, applyAttrsToRangeInTx } from "./apply-attrs";
 import { planInsertText, insertTextInTx, planInsertTextFullReplace } from "./insert-text";
+import {
+  planMergeAdjacentBlocks,
+  mergeAdjacentBlocksInTx,
+  type MergeBlocksPlan,
+} from "./merge-blocks";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
 import type { AttrRegistry } from "../../cascade/attr-registry";
 import type { ResolvedBlockKind } from "../state";
@@ -643,6 +650,25 @@ interface ResolveWrite {
  * (already-resolved, or an out-of-main-tree suggestion) — does no block write,
  * so it surfaces `state.rootId` (mirror of `deleteComment`'s orphaned-by-absence
  * branch) so the record-delete still advances state.
+ *
+ * BREAK suggestions (a suggested paragraph SPLIT or JOIN) carry their id on a
+ * zero-width break embed ({@link BLOCK_SPLIT_SUGGESTION_EMBED_TYPE} /
+ * {@link BLOCK_JOIN_SUGGESTION_EMBED_TYPE}) appended to the END of the owning block
+ * N (`properties.suggestionId`), NOT on a text run. Resolving one:
+ *   - ALWAYS drops the break embed (the additive embed branch in the scan loop —
+ *     it yields a normal full-replace `write` on N that omits the embed);
+ *   - and CONDITIONALLY MERGES block N with its next sibling (N+1) when
+ *     `shouldMerge = (insertion && reject) || (deletion && accept)` — split-reject
+ *     UNDOES the split, join-accept DOES the join; split-accept and join-reject
+ *     keep the two blocks split. The merge is {@link mergeAdjacentBlocksInTx} run
+ *     AFTER the phase-1 writes in the SAME transaction — phase-1 only rewrites N's
+ *     content (drops the embed), so the structural-ids-only {@link MergeBlocksPlan}
+ *     stays valid, and the merge reads N's post-phase-1 (embed-free) content LIVE
+ *     before appending N+1's items.
+ *   - A merge-validity guard re-checks the boundary against the pre-tx snapshot
+ *     (same-parent adjacent leaf pair); if it MOVED since the mark was created the
+ *     embed is still cleared but the merge is SKIPPED (never call
+ *     {@link planMergeAdjacentBlocks} on an invalid boundary — it throws).
  */
 function resolve(
   state: State,
@@ -662,7 +688,10 @@ function resolve(
 
   // Compute the per-owning-block rewrites PRE-transaction (pure). The per-block
   // full-replace from this snapshot is inherently offset-safe (no block merges
-  // happen here), so no reverse-order walk is needed.
+  // happen here — any conditional block merge runs in phase-2 AFTER all writes).
+  // A BREAK suggestion carries its id on a single zero-width break embed; this
+  // tracks the owning block N so the conditional merge can target N + N+1.
+  let breakOwnerBlockId: BlockId | null = null;
   const writes: ResolveWrite[] = [];
   for (const block of iterateBlocksInDocumentOrder(state)) {
     const content = block.inlineContent;
@@ -670,6 +699,19 @@ function resolve(
     let touched = false;
     const newItems: InlineItem[] = [];
     for (const item of content.items) {
+      // BREAK embed carrying this id — DROP it (always). A break suggestion has
+      // exactly ONE such embed, so `breakOwnerBlockId` is set once. The owning
+      // block N thus gets a normal full-replace `write` with the embed removed.
+      if (
+        item.kind === "embed" &&
+        (item.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE ||
+          item.embedType === BLOCK_JOIN_SUGGESTION_EMBED_TYPE) &&
+        item.properties.suggestionId === id
+      ) {
+        touched = true;
+        breakOwnerBlockId = block.id;
+        continue;
+      }
       if (item.kind === "text" && item.attrs[attrKey] === id) {
         touched = true;
         switch (action) {
@@ -705,6 +747,37 @@ function resolve(
     }
   }
 
+  // Plan the conditional break merge PRE-transaction (pure, defensive). A break
+  // resolution MERGES N + N+1 when undoing a split (insertion+reject) or doing a
+  // join (deletion+accept); a split-accept / join-reject keeps the split.
+  const shouldMerge =
+    breakOwnerBlockId !== null &&
+    ((record.kind === "insertion" && mode === "reject") ||
+      (record.kind === "deletion" && mode === "accept"));
+  let mergePlan: MergeBlocksPlan | null = null;
+  if (shouldMerge && breakOwnerBlockId !== null) {
+    const owner = resolveBlock(state, breakOwnerBlockId)?.block ?? null;
+    const nextId = owner?.nextSiblingId ?? null;
+    const next = nextId !== null ? (resolveBlock(state, nextId)?.block ?? null) : null;
+    // Merge-validity guard: only merge a still-valid same-parent adjacent LEAF
+    // pair. If the boundary moved since the mark was created (an intervening
+    // block, N+1 became a first-child, a container), phase-1 already CLEARED the
+    // embed — SKIP the merge here; never call planMergeAdjacentBlocks on an
+    // invalid boundary (it throws).
+    if (
+      owner !== null &&
+      nextId !== null &&
+      next !== null &&
+      owner.parentId === next.parentId &&
+      owner.nextSiblingId === nextId &&
+      next.prevSiblingId === breakOwnerBlockId &&
+      owner.inlineContent !== null &&
+      next.inlineContent !== null
+    ) {
+      mergePlan = planMergeAdjacentBlocks(state, breakOwnerBlockId, nextId);
+    }
+  }
+
   return applyOperation(
     state,
     (d) => {
@@ -713,6 +786,13 @@ function resolve(
           "inlineContent",
           buildYInlineContent({ items: write.items }),
         );
+      }
+      // Phase-2: the conditional break merge. Runs AFTER the phase-1 writes (which
+      // dropped the embed from N), reading N's post-phase-1 (embed-free) content
+      // LIVE before appending N+1's items. The structural-ids-only plan is not
+      // staled by phase-1's content-only change.
+      if (mergePlan !== null) {
+        mergeAdjacentBlocksInTx(d, mergePlan);
       }
       getSuggestionsMap(d).delete(id);
       // Orphaned-by-absence: no main-tree run carried the id, so the only
