@@ -1,5 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { resolveBlock, createPosition, createSpan, mergeAdjacentBlocks, mergeSectionWithPrevious, inlineContentLength } from "../../state";
+import { resolveBlock, createPosition, createSpan, mergeAdjacentBlocks, markBlockJoinSuggestion, mergeSectionWithPrevious, inlineContentLength } from "../../state";
 import { moveByCharacter } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
@@ -7,7 +7,7 @@ import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-
 import { handleListIndent } from "./list-indent";
 import { listLevelOf, unlistBlock } from "./list-edits";
 import { deleteAdjacentAtomicLeaf } from "./atomic-edits";
-import { deleteRangeOrSuggest } from "./suggestion-mode";
+import { deleteRangeOrSuggest, newSuggestionInput } from "./suggestion-mode";
 
 export function handleDeleteBackward(
   editor: EditorState,
@@ -64,15 +64,6 @@ export function handleDeleteBackward(
   }
 
   // pos.offset === 0: cross-block backspace.
-  // Suggesting mode: a backspace at the START of a block would MERGE blocks
-  // (or delete an adjacent atomic leaf / outdent a list item) — structural
-  // changes that are not yet representable as tracked suggestions. The suggested
-  // paragraph-break / block-join (a zero-width break embed) is a later
-  // change-tracking slice (4e). Until then, block-start Backspace in suggesting
-  // mode is a safe NO-OP: never really-merge (that would silently bypass
-  // tracking).
-  if ((config.suggestingAuthor ?? null) !== null) return editor;
-
   const currentBlock = resolveBlock(editor.state, pos.blockId)?.block ?? null;
   if (currentBlock === null) return editor;
 
@@ -154,6 +145,25 @@ export function handleDeleteBackward(
     currentBlock.prevSiblingId !== prevBlock.id
   ) {
     return editor;
+  }
+
+  // Suggesting mode: mark the paragraph break BEFORE currentBlock for deletion
+  // (a suggested JOIN) instead of really merging. `markBlockJoinSuggestion`'s
+  // `secondBlockId` = currentBlock.id (N+1); it appends the zero-width
+  // `block-join-suggestion` embed to currentBlock's prev sibling = prevBlock (N).
+  // Blocks stay separate; the caret stays at currentBlock:0 (= pos; no merge
+  // happened, so the selection is unchanged). One undoable op.
+  const joinInput = newSuggestionInput(config);
+  if (joinInput !== null) {
+    const result = markBlockJoinSuggestion(editor.state, currentBlock.id, joinInput);
+    if (result.state === editor.state) return editor;
+    editor.history.commit(result, { before: selection, after: selection });
+    return rebuildTrees(
+      { ...editor, state: result.state, selection },
+      editor,
+      config,
+      result.dirtyIds,
+    );
   }
 
   const prevEndOffset =

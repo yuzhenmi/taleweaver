@@ -1,11 +1,11 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { resolveBlock, createPosition, createSpan, spanEnd, mergeAdjacentBlocks, mergeSectionWithPrevious, inlineContentLength } from "../../state";
+import { resolveBlock, createPosition, createSpan, spanEnd, mergeAdjacentBlocks, markBlockJoinSuggestion, mergeSectionWithPrevious, inlineContentLength } from "../../state";
 import { moveByCharacter } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
 import { deleteAdjacentAtomicLeaf } from "./atomic-edits";
-import { deleteRangeOrSuggest } from "./suggestion-mode";
+import { deleteRangeOrSuggest, newSuggestionInput } from "./suggestion-mode";
 
 export function handleDeleteForward(
   editor: EditorState,
@@ -79,13 +79,6 @@ export function handleDeleteForward(
     );
   }
 
-  // Suggesting mode: a forward-delete at the END of a block would MERGE the next
-  // block in (or delete an adjacent atomic leaf / remove a section break) —
-  // structural changes not yet representable as tracked suggestions (the suggested
-  // block-join break-embed is a later change-tracking slice, 4e). Until then it is
-  // a safe NO-OP: never really-merge (that would silently bypass tracking).
-  if ((config.suggestingAuthor ?? null) !== null) return editor;
-
   // Delete at the end of a block whose immediately-following sibling is an
   // atomic-leaf (image / horizontal-line): delete that atomic object as a unit
   // (Google Docs). moveByCharacter skips atomic blocks (no inlineContent), so
@@ -154,6 +147,27 @@ export function handleDeleteForward(
     nextBlock.prevSiblingId !== currentBlock.id
   ) {
     return editor;
+  }
+
+  // Suggesting mode: mark the paragraph break AFTER currentBlock (before
+  // nextBlock) for deletion (a suggested JOIN) instead of really merging.
+  // `markBlockJoinSuggestion`'s `secondBlockId` = nextBlock.id → the embed lands
+  // at currentBlock's end (nextBlock's prev sibling = currentBlock). Blocks stay
+  // separate; the caret stays at currentBlock:currentLen (= pos; no merge). One
+  // undoable op.
+  const joinInput = newSuggestionInput(config);
+  if (joinInput !== null) {
+    const result = markBlockJoinSuggestion(editor.state, nextBlock.id, joinInput);
+    if (result.state === editor.state) return editor;
+    const newCursor = createPosition(currentBlock.id, currentLen);
+    const newSelection = createSpan(newCursor, newCursor);
+    editor.history.commit(result, { before: selection, after: newSelection });
+    return rebuildTrees(
+      { ...editor, state: result.state, selection: newSelection },
+      editor,
+      config,
+      result.dirtyIds,
+    );
   }
 
   const result = mergeAdjacentBlocks(

@@ -716,13 +716,15 @@ NON-undoable accept/reject editor actions (`ACCEPT_SUGGESTION`/`REJECT_SUGGESTIO
 `INSERT_TEXT` collapsed-caret branch → `mintInsertion`. 4c-i shipped — `DELETE_BACKWARD`
 SOFT-deletes via the `deleteRangeOrSuggest` helper (`suggestion-mode.ts` → `markDeletion`)
 on the EXPANDED-selection and collapsed MID-BLOCK-char paths (caret = span start,
-undoable); a block-start backspace (block-merge / list-outdent / atomic-leaf delete)
-is a NO-OP in suggesting mode (the suggested block-join break embed is slice 4e).
+undoable); a block-start backspace at a PLAIN paragraph boundary marks a suggested
+JOIN (slice 4e-editor below), while list-outdent / atomic-leaf delete keep their
+untracked behavior.
 4c-ii shipped — `DELETE_FORWARD` SOFT-deletes via the same `deleteRangeOrSuggest`
 helper on the EXPANDED-selection and collapsed MID-BLOCK-char paths, but the caret
 advances to the span END (not span start) so repeated Delete strikes successive
-chars; a forward delete at block END (block-merge / section-break removal /
-atomic-leaf delete) is a NO-OP in suggesting mode.
+chars; a forward delete at a PLAIN paragraph boundary marks a suggested JOIN (slice
+4e-editor below), while section-break removal / atomic-leaf delete keep their
+untracked behavior.
 4c-iii shipped — `DELETE_WORD` + `DELETE_LINE` SOFT-delete via the same
 `deleteRangeOrSuggest` helper on their EXPANDED-selection and collapsed
 word-span / line paths, completing the delete-handler suggesting wiring (all four:
@@ -771,8 +773,9 @@ the LAST item via the merge-barrier rule); the full-replace supersedes the split
 in-place write to N, leaving N+1 + sibling rewiring untouched. No coalescing (each
 Enter is a discrete suggestion). The break embed occupies exactly ONE offset and
 serializes to `""`. RESOLUTION (accept removes embed / reject re-merges) is a later
-slice. This begins the break-suggestion CREATE side; the SPLIT_NODE editor wiring +
-the suggested block-JOIN (break-delete) embed are still to come.
+slice. This begins the break-suggestion CREATE side; the block-JOIN (break-delete)
+embed and the SPLIT_NODE/break-delete editor wiring follow in slices 4e-state-join
+and 4e-editor (below).
 
 **Slice 4e-state-join (`markBlockJoinSuggestion`) shipped:** the STATE op for a
 suggested paragraph JOIN (Backspace at block-start / Delete at block-end in suggesting
@@ -788,7 +791,7 @@ rule. Identity no-op when there is no boundary to mark (block missing / first-ch
 container N). No coalescing (each break is a discrete suggestion). RESOLUTION (accept
 merges the blocks / reject removes the embed) lands in `resolve` (slice 4e-resolve-single).
 The break-suggestion CREATE side now covers BOTH split and join; the SPLIT_NODE/break-delete
-editor wiring is still to come.
+editor wiring lands in slice 4e-editor (below).
 **Slice 4e-resolve-single shipped:** single-suggestion break RESOLUTION extends the
 shared `resolve(state, id, mode)` (used by `acceptSuggestion`/`rejectSuggestion`) to
 handle the two break embeds additively. The scan loop drops a `block-split-suggestion` /
@@ -816,7 +819,25 @@ rejectAll over three consecutive splits → ONE block) cannot use pre-computed `
 (an earlier merge invalidates a later block's); reverse order keeps each owner alive when
 processed, and live reads reflect the prior merges. The live helper is a no-op on a no-next /
 moved-boundary owner (defensive skip). Break resolution is now COMPLETE (single + bulk).
-REMAINING: SPLIT_NODE/break-delete editor wiring;
+
+**Slice 4e-editor shipped:** the break-suggestion EDITOR wiring (collapsed cases). On a
+COLLAPSED Enter, `handleSplitNode` routes through `splitWithSuggestion` when
+suggesting (`newSuggestionInput`) — a tracked INSERTION of a paragraph break (real
+split + a `block-split-suggestion` embed on block N + an `insertion` record, one
+undoable op); the cursor / commit / rebuild path is byte-identical to the direct
+split, and the heading follow-on-type (`newBlockInit`) is threaded through. A
+NON-collapsed (type-over) Enter is an interim NO-OP in suggesting mode (never runs the
+untracked range-delete) — the soft-delete-then-suggested-split composite is slice
+4e-editor-composite (NEXT). On the delete side, the blanket block-boundary suggesting
+NO-OP gate was REMOVED from `handleDeleteBackward` / `handleDeleteForward` (reordered
+after the list-item / atomic-leaf / section-merge branches, which keep their current
+untracked behavior in suggesting mode); at a PLAIN paragraph↔paragraph boundary the
+real `mergeAdjacentBlocks` is replaced by `markBlockJoinSuggestion` (a
+`block-join-suggestion` embed on the preceding block + a `deletion` record, blocks stay
+SEPARATE, caret unchanged, one undoable op). NEXT = 4e-editor-composite (the
+non-collapsed Enter composite); list/atomic/section boundary-as-suggestion are explicit
+follow-ups.
+REMAINING: 4e-editor-composite (non-collapsed Enter);
 5 render (insertion=color+underline, deletion=color+strikethrough, formatting=
 proposedAttrs); 6 host query + overlay; 7 arch docs. See `1.1-state.md` "The
 `suggestions` map" + `1.7-editor.md`.

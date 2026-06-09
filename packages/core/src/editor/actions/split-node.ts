@@ -1,11 +1,12 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { resolveBlock, productionAllocator, createPosition, createSpan, deleteRange, splitBlockAtPosition, inlineContentLength } from "../../state";
+import { resolveBlock, productionAllocator, createPosition, createSpan, deleteRange, splitBlockAtPosition, splitWithSuggestion, inlineContentLength } from "../../state";
 import type { BlockId } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
 import { handleListIndent } from "./list-indent";
 import { listLevelOf, unlistBlock } from "./list-edits";
+import { newSuggestionInput } from "./suggestion-mode";
 
 export function handleSplitNode(
   editor: EditorState,
@@ -18,6 +19,12 @@ export function handleSplitNode(
   const accumulatedDirtyIds = new Set<BlockId>();
 
   if (!isCollapsed(selection)) {
+    // Suggesting mode: a non-collapsed Enter = soft-delete-the-selection THEN a
+    // suggested split (post-strike offset) — a composite deferred to slice
+    // 4e-editor-composite. Until then, interim NO-OP: never run the untracked
+    // deleteRange below (that would silently bypass change-tracking). Mirrors the
+    // 4b expanded-INSERT_TEXT interim no-op.
+    if ((config.suggestingAuthor ?? null) !== null) return editor;
     // C.2c §6: cross-CONTEXT selection refusal (see isCrossContextSelection).
     // The expanded-selection branch first deletes the span (deleteRange would
     // throw "no common ancestor" on a cross-tree span), so refuse before that.
@@ -75,12 +82,18 @@ export function handleSplitNode(
   const newBlockInit =
     followOnType !== undefined ? { type: followOnType, attrs: {} } : undefined;
 
-  const splitResult = splitBlockAtPosition(
-    current.state,
-    pos,
-    productionAllocator,
-    newBlockInit,
-  );
+  // Suggesting mode: route the split through `splitWithSuggestion` (a tracked
+  // INSERTION of a paragraph break — a REAL structural split PLUS a zero-width
+  // `block-split-suggestion` embed on block N + an `insertion` record, ONE
+  // undoable op). Everything downstream (cursor → newBlockId:0 via
+  // `updatedOriginal.nextSiblingId`, `history.commit`, `rebuildTrees`) is
+  // IDENTICAL to the direct path because the split is real; `newBlockInit` is
+  // threaded through unchanged.
+  const suggestInput = newSuggestionInput(config);
+  const splitResult =
+    suggestInput === null
+      ? splitBlockAtPosition(current.state, pos, productionAllocator, newBlockInit)
+      : splitWithSuggestion(current.state, pos, productionAllocator, suggestInput, newBlockInit);
   for (const id of splitResult.dirtyIds) accumulatedDirtyIds.add(id);
 
   // E-B / #141: chained ops accumulate dirtyIds manually. Use the T7
