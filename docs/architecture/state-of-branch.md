@@ -672,11 +672,21 @@ independent inline-attr dimensions (`insertionSuggestionId` / `deletionSuggestio
 overlap problem); the two zero-width break embeds (`block-join-suggestion` /
 `block-split-suggestion`, one IFC token each, serialize to `""`); binary
 serialize round-trip. Slice 1 is INERT vocabulary — no editor action / op / render
-behavior yet. REMAINING slices (per the spec §10): 2 range-index + read +
-Layer-1 hooks (the `origin` param on `applyOperation`/`runTransaction` +
-`History.advanceState` for non-undoable accept/reject); 3 record/mark + accept/
-reject ops (cross-block soft-delete = tag text + join embed, accept walks
-boundaries reverse-order); 4 editor actions + `EditorConfig.suggestingAuthor` mode;
+behavior yet. **Slice 2 (range index + read + Layer-1 hooks) shipped:**
+`buildSuggestionRangeIndex` / `resolveSuggestionRange` / `getSuggestions(state) →
+ResolvedSuggestion[]` (orphaned-by-absence derived); the optional `origin` param on
+BOTH `applyOperation` and `runTransaction` (→ `doc.transact(fn, origin)`) +
+`SUGGESTION_RESOLVE_ORIGIN`; `History.advanceState(newState)` (advance
+`currentState` only) for the non-undoable accept/reject path. **Slice 3a
+(`markFormatting`) shipped:** the first suggestion-CREATION op in
+`state/ops/suggestion-ops.ts` — stamps `formattingSuggestionId` over a span +
+writes a `formatting` record with `proposedAttrs` in one tracked `applyOperation`
+(one undo unit; live attrs untouched; same-author/same-proposal adjacency
+coalesces by id reuse). REMAINING (spec §10, with slice 3 sub-sliced 3a–3d):
+3b `markDeletion` (soft-delete = `deletionSuggestionId` + delete-own-insertion +
+nesting), 3c `mintInsertion` (insert tagged text + coalesce), 3d accept/reject/
+acceptAll/rejectAll (non-undoable origin + `advanceState`, cross-block reverse-
+order boundary walk); 4 editor actions + `EditorConfig.suggestingAuthor` mode;
 5 render (insertion=color+underline, deletion=color+strikethrough, formatting=
 proposedAttrs); 6 host query + overlay; 7 arch docs. See `1.1-state.md` "The
 `suggestions` map".
