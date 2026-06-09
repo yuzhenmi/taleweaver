@@ -682,9 +682,13 @@ BOTH `applyOperation` and `runTransaction` (→ `doc.transact(fn, origin)`) +
 `state/ops/suggestion-ops.ts` — stamps `formattingSuggestionId` over a span +
 writes a `formatting` record with `proposedAttrs` in one tracked `applyOperation`
 (one undo unit; live attrs untouched; same-author/same-proposal adjacency
-coalesces by id reuse). REMAINING (spec §10, with slice 3 sub-sliced 3a–3d):
-3b `markDeletion` (soft-delete = `deletionSuggestionId` + delete-own-insertion +
-nesting), 3c `mintInsertion` (insert tagged text + coalesce), 3d accept/reject/
+coalesces by id reuse). **Slice 3b (`markDeletion`) shipped:** soft-delete a span's
+text (stamp `deletionSuggestionId`, text stays visible) via a per-owning-block
+full-replace rewrite (NOT `applyAttrsToRangeInTx`), with the delete-own-insertion
+(your own pending insertion → real remove, in-range only) + nesting (different-
+author insertion also gains the deletion id) + same-author coalescing rules; embeds
+in-span preserved untagged (named follow-up). REMAINING (spec §10, slice 3 sub-
+sliced 3a–3d): 3c `mintInsertion` (insert tagged text + coalesce), 3d accept/reject/
 acceptAll/rejectAll (non-undoable origin + `advanceState`, cross-block reverse-
 order boundary walk); 4 editor actions + `EditorConfig.suggestingAuthor` mode;
 5 render (insertion=color+underline, deletion=color+strikethrough, formatting=
