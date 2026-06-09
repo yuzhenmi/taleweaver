@@ -381,9 +381,17 @@ cross-column ArrowDown/Up lands on the selected target's column instead of re-pi
 a source-column line (it returns the ORIGINAL goal so Up-undoes-Down returns to the
 original column). Both are no-ops for single-column pages.
 
+User-reachable multicol has landed (slice 5): the `SET_SECTION_COLUMNS` editor
+action sets `columnCount`/`columnGap`/`columnRule` on the active section (or, for a
+section-less doc, on the doc root → whole-doc columns via the document component
+stamping its column attrs onto `cascadedRoot.metadata`, which `buildSectionPlan`
+reads into `effectiveDefaultColumns`); `columnCount: 1` is the explicit
+single-column state. It mirrors `TOGGLE_SECTION_LANDSCAPE` (shared
+`resolveActiveSection` parent-walk helper, T7 identity guard, one undo unit) and is
+wired into the example-app toolbar (1 / 2 / 3-column buttons).
+
 Still missing (the rest of the wiring + remaining behavior): column-rule paint; the
-`SET_SECTION_COLUMNS` action + toolbar; the footnote-bearing FINAL multicol page's
-column BALANCE (T4b).
+footnote-bearing FINAL multicol page's column BALANCE (T4b).
 
 ### Text `[partial]`
 

@@ -3,6 +3,7 @@ import type { TextAlign, TextTransform } from "../styles/style";
 import type { TabStop } from "../styles/tab-stops";
 import type { CounterFormat, FootnoteNumberingPolicy } from "../footnotes";
 import type { CaretAffinity } from "../cursor/line-bidi";
+import type { ColumnRule } from "../layout/column-config";
 
 export type EditorAction =
   | { type: "INSERT_TEXT"; text: string }
@@ -47,6 +48,7 @@ export type EditorAction =
   | { type: "INSERT_NODE"; node: BlockInit; position?: Position }
   | { type: "SECTION_BREAK" }
   | { type: "TOGGLE_SECTION_LANDSCAPE" }
+  | { type: "SET_SECTION_COLUMNS"; columnCount: number; columnGap?: number; columnRule?: ColumnRule | null }
   | { type: "INSERT_HEADER" }
   | { type: "INSERT_FOOTER" }
   | { type: "INSERT_FOOTNOTE" }

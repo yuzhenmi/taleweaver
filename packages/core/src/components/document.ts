@@ -64,6 +64,15 @@ export const documentComponent: ContainerComponentDefinition = {
       {
         headerBlockId: view.attrs.headerBlockId,
         footerBlockId: view.attrs.footerBlockId,
+        // Whole-doc multi-column default (Format ▸ Columns applied with no
+        // section break). `buildSectionPlan` reads these off `cascadedRoot.metadata`
+        // (the doc-root box IS the cascaded root) via `resolveColumnConfig` into
+        // `effectiveDefaultColumns`, mirroring how the per-section component stamps
+        // its own overrides and how `headerBlockId`/`footerBlockId` flow doc-wide.
+        // Stamped RAW (no AttrRegistry interpreter); the plan validates them.
+        columnCount: view.attrs.columnCount,
+        columnGap: view.attrs.columnGap,
+        columnRule: view.attrs.columnRule,
       },
     );
   },

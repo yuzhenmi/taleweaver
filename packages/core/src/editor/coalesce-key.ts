@@ -32,6 +32,7 @@ export function coalesceKeyOf(action: EditorAction): ActionClass {
     case "SET_LIST_RESTART":
     case "SECTION_BREAK":
     case "TOGGLE_SECTION_LANDSCAPE":
+    case "SET_SECTION_COLUMNS":
     case "INSERT_HEADER":
     case "INSERT_FOOTER":
     case "INSERT_FOOTNOTE":

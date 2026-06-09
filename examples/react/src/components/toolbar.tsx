@@ -11,6 +11,9 @@ import {
   ChevronDown,
   SeparatorHorizontal,
   RectangleHorizontal,
+  Square,
+  Columns2,
+  Columns3,
   PanelTop,
   PanelBottom,
   Superscript,
@@ -598,6 +601,27 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
         label="Toggle section orientation"
         icon={RectangleHorizontal}
         onAction={() => dispatch({ type: "TOGGLE_SECTION_LANDSCAPE" })}
+      />
+
+      {/* Multi-column layout (Format ▸ Columns) for the SECTION at the cursor,
+          or doc-wide when there is no section break. 1 = single column; 2 / 3
+          flow the content through that many equal-width columns. We omit
+          `columnGap` so the engine's Google-Docs-parity default
+          (`DEFAULT_COLUMN_GAP`, 0.5in / 48px) applies. */}
+      <ToolbarButton
+        label="One column"
+        icon={Square}
+        onAction={() => dispatch({ type: "SET_SECTION_COLUMNS", columnCount: 1 })}
+      />
+      <ToolbarButton
+        label="Two columns"
+        icon={Columns2}
+        onAction={() => dispatch({ type: "SET_SECTION_COLUMNS", columnCount: 2 })}
+      />
+      <ToolbarButton
+        label="Three columns"
+        icon={Columns3}
+        onAction={() => dispatch({ type: "SET_SECTION_COLUMNS", columnCount: 3 })}
       />
 
       <Separator orientation="vertical" className="mx-1 h-5 bg-[#c4c7c5]" />

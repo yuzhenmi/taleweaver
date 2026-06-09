@@ -34,6 +34,7 @@ export { handlePaste } from "./paste";
 export { handleInsertNode } from "./insert-node";
 export { handleSectionBreak } from "./section-break";
 export { handleToggleSectionLandscape } from "./toggle-section-landscape";
+export { handleSetSectionColumns } from "./set-section-columns";
 export { handleInsertHeaderFooter } from "./insert-header-footer";
 export { handleInsertHorizontalLine } from "./insert-horizontal-line";
 export { handleInsertTableRow, handleInsertTableColumn, handleDeleteTableRow, handleDeleteTableColumn, handleDeleteTable, handleSplitCell, handleMergeCells } from "./table-edits";

@@ -51,6 +51,7 @@ import {
   handleInsertNode,
   handleSectionBreak,
   handleToggleSectionLandscape,
+  handleSetSectionColumns,
   handleInsertHeaderFooter,
   handleInsertHorizontalLine,
   handleInsertTableRow,
@@ -451,6 +452,9 @@ export function reduceEditor(
       break;
     case "TOGGLE_SECTION_LANDSCAPE":
       result = handleToggleSectionLandscape(editor, config);
+      break;
+    case "SET_SECTION_COLUMNS":
+      result = handleSetSectionColumns(editor, action, config);
       break;
     case "INSERT_HEADER":
       result = handleInsertHeaderFooter(editor, "header", config);
