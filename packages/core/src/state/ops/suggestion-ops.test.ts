@@ -16,7 +16,7 @@
  * identity no-ops short-circuit (return the same State reference).
  */
 import { describe, it, expect } from "vitest";
-import { markFormatting, markDeletion } from "./suggestion-ops";
+import { markFormatting, markDeletion, mintInsertion } from "./suggestion-ops";
 import {
   getSuggestions,
   writeSuggestionRecordInTx,
@@ -647,6 +647,197 @@ describe("markDeletion — identity no-ops", () => {
   it("a collapsed span returns the SAME state reference + empty dirtyIds", () => {
     const s = oneBlock();
     const r = markDeletion(s, span(2, 2), DEL_INPUT);
+    expect(r.state).toBe(s);
+    expect(r.dirtyIds.size).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// mintInsertion (slice 3c) — the INSERT_TEXT/PASTE suggesting-mode op: insert
+// text carrying an `insertionSuggestionId` attr + write an `insertion` record,
+// in ONE tracked op (one undo unit). Coalesces a continuous typing run into ONE
+// suggestion.
+// ─────────────────────────────────────────────────────────────────────────
+
+const INS_SID = "ins1" as SuggestionId;
+const INS_INPUT = { id: INS_SID, author: "alice", createdAt: 7000 } as const;
+
+/** The first text item of p whose attrs carry the insertion-suggestion attr. */
+function insertedRunAttr(s: State): unknown {
+  for (const it of pItems(s)) {
+    if (it.kind === "text" && it.attrs[INSERTION_SUGGESTION_ATTR] !== undefined) {
+      return it.attrs[INSERTION_SUGGESTION_ATTR];
+    }
+  }
+  return undefined;
+}
+
+describe("mintInsertion — insert text carrying an insertion id + write record in ONE tracked op", () => {
+  it("inserts the text, stamps the inserted run with insertionSuggestionId, writes an insertion record with a live range", () => {
+    const s = mintInsertion(oneBlock(), createPosition("p" as BlockId, 3), "XY", {}, INS_INPUT).state;
+
+    // "XY" landed at offset 3 → "abcXYdef".
+    expect(pText(s)).toBe("abcXYdef");
+    // The inserted run carries the insertion id.
+    expect(insertedRunAttr(s)).toBe(INS_SID);
+
+    const suggestions = getSuggestions(s);
+    expect(suggestions.length).toBe(1);
+    const sug = suggestions[0];
+    expect(sug.id).toBe(INS_SID);
+    expect(sug.kind).toBe("insertion");
+    expect(sug.author).toBe("alice");
+    expect(sug.createdAt).toBe(7000);
+    expect(sug.proposedAttrs).toBeUndefined();
+    expect(sug.orphaned).toBe(false);
+    // Range covers the inserted "XY" run (offsets 3..5).
+    expect(sug.range?.start).toEqual(createPosition("p" as BlockId, 3));
+    expect(sug.range?.end).toEqual(createPosition("p" as BlockId, 5));
+  });
+
+  it("the caller's attrs become the inserted run's live format; the resolved id overwrites any insertionSuggestionId in attrs", () => {
+    // Caller passes bold + a STALE insertionSuggestionId; the op must keep bold
+    // and OVERWRITE the id with the resolved (minted) one.
+    const s = mintInsertion(
+      oneBlock(),
+      createPosition("p" as BlockId, 3),
+      "XY",
+      { bold: true, [INSERTION_SUGGESTION_ATTR]: "stale" } as ReadonlyAttrs,
+      INS_INPUT,
+    ).state;
+
+    const inserted = pItems(s).find(
+      (it) => it.kind === "text" && it.text === "XY",
+    );
+    if (inserted === undefined || inserted.kind !== "text") {
+      throw new Error("expected the inserted XY run");
+    }
+    expect(inserted.attrs.bold).toBe(true);
+    expect(inserted.attrs[INSERTION_SUGGESTION_ATTR]).toBe(INS_SID);
+  });
+});
+
+describe("mintInsertion — undo atomicity (text + record revert together)", () => {
+  it("undo removes BOTH the inserted text AND the record; redo restores both", () => {
+    const s0 = oneBlock();
+    const history = createHistory(s0);
+
+    history.beginEntry("command", 0);
+    const minted = mintInsertion(s0, createPosition("p" as BlockId, 3), "XY", {}, INS_INPUT);
+    history.commit(minted, { before: null, after: null });
+    const s1 = minted.state;
+    expect(pText(s1)).toBe("abcXYdef");
+    expect(getSuggestions(s1).length).toBe(1);
+    expect(insertedRunAttr(s1)).toBe(INS_SID);
+
+    const undone = history.undo();
+    if (undone === null) throw new Error("expected undo to return a result");
+    const s2 = undone.state;
+    expect(pText(s2)).toBe("abcdef");
+    expect(getSuggestions(s2).length).toBe(0);
+    expect(insertedRunAttr(s2)).toBeUndefined();
+
+    const redone = history.redo();
+    if (redone === null) throw new Error("expected redo to return a result");
+    const s3 = redone.state;
+    expect(pText(s3)).toBe("abcXYdef");
+    expect(getSuggestions(s3).length).toBe(1);
+    expect(insertedRunAttr(s3)).toBe(INS_SID);
+
+    history.destroy();
+  });
+});
+
+describe("mintInsertion — coalesce a continuous typing run into ONE suggestion", () => {
+  it("an immediately-adjacent insertion by the SAME author reuses the first id (ONE record, widened range)", () => {
+    // Insert "XX" at offset 3 → "abcXXdef"; then "YY" at offset 5 (right after
+    // the XX) → "abcXXYYdef". Same author, different minted id.
+    let s = mintInsertion(oneBlock(), createPosition("p" as BlockId, 3), "XX", {}, {
+      id: "first" as SuggestionId,
+      author: "alice",
+      createdAt: 1000,
+    }).state;
+    s = mintInsertion(s, createPosition("p" as BlockId, 5), "YY", {}, {
+      id: "second" as SuggestionId,
+      author: "alice",
+      createdAt: 2000,
+    }).state;
+
+    expect(pText(s)).toBe("abcXXYYdef");
+
+    const suggestions = getSuggestions(s);
+    // Coalesced into ONE record (the second reused the first's id).
+    expect(suggestions.length).toBe(1);
+    expect(suggestions[0].id).toBe("first");
+    expect(suggestions[0].kind).toBe("insertion");
+    // Range widened to cover BOTH inserts (offsets 3..7).
+    expect(suggestions[0].range?.start).toEqual(createPosition("p" as BlockId, 3));
+    expect(suggestions[0].range?.end).toEqual(createPosition("p" as BlockId, 7));
+
+    // The combined inserted text is contiguous and carries ONE id (the format
+    // matches the neighbor, so planInsertText merged it into one physical run).
+    const inserted = pItems(s).filter(
+      (it) => it.kind === "text" && it.attrs[INSERTION_SUGGESTION_ATTR] === "first",
+    );
+    expect(inserted.length).toBe(1);
+    if (inserted[0].kind === "text") {
+      expect(inserted[0].text).toBe("XXYY");
+    }
+  });
+
+  it("coalesces via the AFTER neighbor (inserting at the START of an existing insertion run)", () => {
+    // Insert "XX" at offset 0 → "XXabcdef"; then "YY" at offset 0 AGAIN. The
+    // before-neighbor is null (offset -1); the after-neighbor is the "XX" run
+    // (starts at offset 0). planInsertText prepends "YY" into that run. This
+    // exercises the after-neighbor path, distinct from the before-neighbor tests
+    // above because mintInsertion routes through planInsertText's in-place path.
+    let s = mintInsertion(oneBlock(), createPosition("p" as BlockId, 0), "XX", {}, {
+      id: "first" as SuggestionId,
+      author: "alice",
+      createdAt: 1000,
+    }).state;
+    s = mintInsertion(s, createPosition("p" as BlockId, 0), "YY", {}, {
+      id: "second" as SuggestionId,
+      author: "alice",
+      createdAt: 2000,
+    }).state;
+
+    expect(pText(s)).toBe("YYXXabcdef");
+    const suggestions = getSuggestions(s);
+    expect(suggestions.length).toBe(1);
+    expect(suggestions[0].id).toBe("first"); // reused from the after-neighbor
+    expect(suggestions[0].range?.start).toEqual(createPosition("p" as BlockId, 0));
+    expect(suggestions[0].range?.end).toEqual(createPosition("p" as BlockId, 4));
+  });
+
+  it("does NOT coalesce across a DIFFERENT author (two records)", () => {
+    let s = mintInsertion(oneBlock(), createPosition("p" as BlockId, 3), "XX", {}, {
+      id: "first" as SuggestionId,
+      author: "alice",
+      createdAt: 1000,
+    }).state;
+    s = mintInsertion(s, createPosition("p" as BlockId, 5), "YY", {}, {
+      id: "second" as SuggestionId,
+      author: "bob",
+      createdAt: 2000,
+    }).state;
+
+    expect(getSuggestions(s).filter((x) => x.kind === "insertion").length).toBe(2);
+  });
+
+  it("an insertion not adjacent to any insertion mints a fresh record", () => {
+    // Plain "abcdef", no adjacent insertion → one fresh insertion suggestion.
+    const s = mintInsertion(oneBlock(), createPosition("p" as BlockId, 3), "XY", {}, INS_INPUT).state;
+    const suggestions = getSuggestions(s);
+    expect(suggestions.length).toBe(1);
+    expect(suggestions[0].id).toBe(INS_SID);
+  });
+});
+
+describe("mintInsertion — identity no-op", () => {
+  it("empty text returns the SAME state reference + empty dirtyIds", () => {
+    const s = oneBlock();
+    const r = mintInsertion(s, createPosition("p" as BlockId, 3), "", {}, INS_INPUT);
     expect(r.state).toBe(s);
     expect(r.dirtyIds.size).toBe(0);
   });

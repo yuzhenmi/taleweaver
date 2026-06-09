@@ -2,7 +2,8 @@ import type * as Y from "yjs";
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
-import type { Span } from "../block-position";
+import type { Position, Span } from "../block-position";
+import { createSpan } from "../block-position";
 import { spanStart, spanEnd } from "../block-compare";
 import type { ReadonlyAttrs } from "../attrs";
 import { attrsEqual } from "../attrs";
@@ -22,6 +23,7 @@ import { STATE_INTERNAL } from "../state-internal";
 import { getYBlock } from "../yjs-doc";
 import { buildYInlineContent } from "../y-block";
 import { planApplyAttrsToRange, applyAttrsToRangeInTx } from "./apply-attrs";
+import { planInsertText, insertTextInTx } from "./insert-text";
 
 /** An empty dirtyIds set — the identity-no-op return per the T7 contract. */
 const NO_DIRTY: ReadonlySet<BlockId> = new Set<BlockId>();
@@ -242,6 +244,102 @@ export function markDeletion(
       writeSuggestionRecordInTx(d, {
         id,
         kind: "deletion",
+        author: input.author,
+        createdAt: input.createdAt,
+      });
+    }
+  });
+}
+
+/**
+ * Fields the host supplies when minting an insertion suggestion. `id` is the
+ * branded `SuggestionId` (minted host-side); it is REUSED (not consumed) when the
+ * insertion coalesces into an adjacent same-author insertion at the insertion
+ * point (a continuous typing run → ONE suggestion). `author`/`createdAt` are
+ * deterministic host-injected values.
+ */
+export interface MarkInsertionInput {
+  readonly id: SuggestionId;
+  readonly author: string;
+  readonly createdAt: number;
+}
+
+/**
+ * The INSERT_TEXT / PASTE op in Suggesting mode: instead of inserting plain text,
+ * insert `text` carrying an `insertionSuggestionId` attr AND write an `insertion`
+ * {@link SuggestionRecord}, in ONE tracked `applyOperation` transaction — so the
+ * inserted text + record land as ONE undo entry and one collab event.
+ *
+ * `attrs` is the INTENDED FORMATTING of the inserted text (bold/italic/color/…,
+ * the surrounding-context attrs the editor would have used for a plain insert).
+ * The op stamps the insertion-provenance id on TOP of it: `insertAttrs = { ...attrs,
+ * [INSERTION_SUGGESTION_ATTR]: id }`. This OVERWRITES only `insertionSuggestionId`
+ * (any stale value the caller passed is replaced by the resolved/coalesced id) and
+ * leaves every live format attr untouched.
+ *
+ * Unlike {@link markFormatting} / {@link markDeletion} (which MARK an existing
+ * span) this op INSERTS: it composes `insert-text`'s PLAN + its `*InTx` applier
+ * (NOT the public `insertText`, which opens its own transaction) so the insert and
+ * the record-write share one transaction. The insert lands on a block-tree map
+ * (dirty-captured), so — unlike the side-table-only comment flips — no
+ * `state.rootId` surfacing is needed.
+ *
+ * Coalescing: if the run IMMEDIATELY adjacent to the insertion point already
+ * carries an `insertionSuggestionId` whose record is an `insertion` by the SAME
+ * author, this insertion REUSES that id (so a continuous typing run is ONE
+ * suggestion) and writes NO new record. The BEFORE neighbor (the run holding
+ * `position.offset - 1`) is preferred over the AFTER neighbor (the run starting at
+ * `position.offset`). When coalescing AND the caller's `attrs` equal the
+ * neighbor's live format, `planInsertText`'s in-place path merges the new text
+ * into the neighbor's Y.Text (ONE physical run); when they differ a new run is
+ * created but carries the SAME id — both correct (coalescing is about the id /
+ * record, not physical run-merge).
+ *
+ * No-op (identity — returns the SAME input `state` reference + empty dirtyIds, so
+ * the editor short-circuits per the T7 contract): empty `text`. Mirrors
+ * `insertText`'s empty-text guard.
+ *
+ * Position validation (block missing / non-leaf / offset out of range) is left to
+ * `planInsertText`, which throws exactly as `insertText` does — the editor action
+ * validates the caret first, so no redundant guard here.
+ */
+export function mintInsertion(
+  state: State,
+  position: Position,
+  text: string,
+  attrs: ReadonlyAttrs,
+  input: MarkInsertionInput,
+): OperationResult {
+  // Empty text = no-op. Mirrors insertText's empty-text guard; must return the
+  // input State reference (identity).
+  if (text === "") {
+    return { state, dirtyIds: NO_DIRTY };
+  }
+
+  // Coalesce decision is PURE and computed BEFORE opening the transaction. The
+  // collapsed span at `position` makes `resolveCoalesce` inspect the run BEFORE
+  // (`position.offset - 1`) and the run starting AT (`position.offset`) the
+  // insertion point — exactly the insertion-point neighbors.
+  const { id, reusing } = resolveCoalesce(
+    state,
+    createSpan(position, position),
+    input.id,
+    INSERTION_SUGGESTION_ATTR,
+    (record) => record.kind === "insertion" && record.author === input.author,
+  );
+
+  // Stamp the resolved (possibly coalesced) id over the intended format. This
+  // OVERWRITES any `insertionSuggestionId` already in `attrs` — load-bearing: the
+  // inserted text must carry the coalesced id, not a stale one.
+  const insertAttrs = { ...attrs, [INSERTION_SUGGESTION_ATTR]: id };
+  const plan = planInsertText(state, position, text, insertAttrs);
+
+  return applyOperation(state, (doc) => {
+    insertTextInTx(doc, plan);
+    if (!reusing) {
+      writeSuggestionRecordInTx(doc, {
+        id,
+        kind: "insertion",
         author: input.author,
         createdAt: input.createdAt,
       });

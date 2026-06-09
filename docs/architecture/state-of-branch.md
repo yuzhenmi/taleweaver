@@ -687,10 +687,14 @@ text (stamp `deletionSuggestionId`, text stays visible) via a per-owning-block
 full-replace rewrite (NOT `applyAttrsToRangeInTx`), with the delete-own-insertion
 (your own pending insertion → real remove, in-range only) + nesting (different-
 author insertion also gains the deletion id) + same-author coalescing rules; embeds
-in-span preserved untagged (named follow-up). REMAINING (spec §10, slice 3 sub-
-sliced 3a–3d): 3c `mintInsertion` (insert tagged text + coalesce), 3d accept/reject/
-acceptAll/rejectAll (non-undoable origin + `advanceState`, cross-block reverse-
-order boundary walk); 4 editor actions + `EditorConfig.suggestingAuthor` mode;
+in-span preserved untagged (named follow-up). **Slice 3c (`mintInsertion`) shipped:**
+the INSERT_TEXT/PASTE suggesting-mode op — inserts text carrying
+`insertionSuggestionId` (composing `planInsertText`/`insertTextInTx`) + writes an
+`insertion` record, with insertion-point coalescing (same-author adjacent insertion
+→ reuse id, before-preferred) so a continuous typing run is one suggestion. REMAINING
+(spec §10, slice 3 sub-sliced 3a–3d): 3d accept/reject/acceptAll/rejectAll
+(non-undoable origin + `advanceState`, cross-block reverse-order boundary walk);
+4 editor actions + `EditorConfig.suggestingAuthor` mode;
 5 render (insertion=color+underline, deletion=color+strikethrough, formatting=
 proposedAttrs); 6 host query + overlay; 7 arch docs. See `1.1-state.md` "The
 `suggestions` map".
