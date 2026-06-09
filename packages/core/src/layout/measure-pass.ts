@@ -17,6 +17,7 @@ import type { BreakToken } from "./fragmentation";
 import { breakTokensEqual } from "./fragmentation";
 import type { BlockFitMeta } from "./fit-core";
 import { fitOnePage } from "./fit-core";
+import { fitColumnsOnPage, type ColumnsFitResult } from "./column-fit";
 import { isDevMode } from "./dev-mode";
 import type { PageConfig } from "./page-config";
 import { columnConfigsEqual, type ColumnConfig } from "./column-config";
@@ -117,6 +118,16 @@ export interface PagePlanEntry {
    * materializes the `MultiColumnBox` from it.
    */
   readonly columnConfig: ColumnConfig;
+  /**
+   * The per-column content distribution for THIS page (multi-column wiring T3),
+   * from `fitColumnsOnPage`. OPTIONAL — set ONLY on multicol pages
+   * (`columnConfig.columnCount > 1`); `undefined` for single-column pages (which
+   * keep the bare `fitOnePage` path, byte-identical to pre-T3). T5 materializes
+   * the `MultiColumnBox` from `columnFit.columns`. Its `pageResumeOut` (a
+   * `ColumnBreakToken`) is the SAME token this entry's `resumeOut` stores and the
+   * page loop threads to the next multicol page.
+   */
+  readonly columnFit?: ColumnsFitResult;
   /** Cascaded top-level child references that begin/continue on this page. */
   readonly children: readonly RenderNode[];
   /** Index of the first top-level child on this page (into the doc's children). */
@@ -305,6 +316,26 @@ export interface PagePlan {
  * doc with no header/footer is byte-identical.
  */
 export type SlotInsets = ReadonlyMap<BlockId | null, { readonly top: number; readonly bottom: number }>;
+
+/**
+ * The inner BFC token a page-level resume token carries (multi-column wiring T3).
+ * A multicol page's page-level `resumeOut` is a `ColumnBreakToken` that WRAPS the
+ * last column's inner BFC token; any other token (a single-column page's bare
+ * `block`/`ifc`/`table` token, or `null`) IS its own inner token.
+ *
+ * The COLUMN token is what the entry stores and the page loop threads to the next
+ * page (so the next multicol page unwraps it via this helper into the column
+ * distribution). But the block-axis bookkeeping — `nextStartIndex` and
+ * `recordBlockMaps`, which reason about which top-level child index the page
+ * reached — must operate on the INNER BFC token: they check `.type === "block"`
+ * to read `resumeChildIndex`, and a raw `ColumnBreakToken` would fall to their
+ * `else` branches and compute WRONG values (e.g. `recordBlockMaps` would map ALL
+ * remaining blocks onto this page). For single-column pages this is the identity
+ * (the token has no `"column"` wrapper), so single-column behavior is unchanged.
+ */
+function innerBfcToken(token: BreakToken | null): BreakToken | null {
+  return token !== null && token.type === "column" ? token.resumeChildToken : token;
+}
 
 /**
  * Compute the `PagePlan` for a document from its top-level block metas. Pure;
@@ -601,9 +632,17 @@ export function measurePass(
           blockSize: effCfg.pageBlockSize,
           pageConfig: effCfg,
           columnConfig: effColCfg,
+          // Carry the prior entry's per-column distribution (T3). `columnFit` is
+          // position-INDEPENDENT (child indices + tokens + consumed sizes relative
+          // to the page's content), so the reused page's distribution is identical
+          // — the reuse gate's `columnConfigsEqual` + `canReusePage` proofs cover
+          // the inputs that determined it. `undefined` for single-column pages.
+          columnFit: reusable.columnFit,
           children: reusedChildren,
           startIndex,
           resumeInto,
+          // The ACTUAL prior token (a `ColumnBreakToken` for a reused overflowing
+          // multicol page) — threaded to the next page, which unwraps it.
           resumeOut: reusable.resumeOut,
           listCounterAtStart,
           // Stamp from the RUNNING section vars (computed above), NOT the prior
@@ -639,14 +678,17 @@ export function measurePass(
         });
 
         // Populate blockToPage / blockToSpan exactly as the miss path does.
+        // Pass the INNER BFC tokens (a reused multicol page's `resumeInto` /
+        // `resumeOut` may be `ColumnBreakToken`s) so the block-axis index range is
+        // computed correctly, identical to the re-fit path.
         recordBlockMaps(
           reusedChildren,
           rootChildren,
           metas,
           startIndex,
           pageIndex,
-          resumeInto,
-          reusable.resumeOut,
+          innerBfcToken(resumeInto),
+          innerBfcToken(reusable.resumeOut),
           blockToPage,
           blockToSpan,
         );
@@ -671,9 +713,12 @@ export function measurePass(
         // partial contribution — applied to the CURRENT running seed (never the
         // prior page's stale seed). The successor always exists here because
         // `resumeOut !== null` ⇒ the prior plan had a page after this one.
+        // Unwrap a multicol page's `ColumnBreakToken` to its inner BFC token for
+        // the block-axis advance (identity for single-column pages).
+        const reusedInnerResumeOut = innerBfcToken(reusable.resumeOut);
         const reusedNextStartIndex =
-          reusable.resumeOut.type === "block"
-            ? reusable.resumeOut.resumeChildIndex
+          reusedInnerResumeOut !== null && reusedInnerResumeOut.type === "block"
+            ? reusedInnerResumeOut.resumeChildIndex
             : startIndex + reusable.children.length;
         const listCounterDelta =
           prevNext !== undefined ? prevNext.listCounterAtStart - reusable.listCounterAtStart : 0;
@@ -685,32 +730,93 @@ export function measurePass(
       }
     }
 
-    _fitOnePageCallCount++;
-    const result = fitOnePage(
-      metas,
-      startIndex,
-      resumeInto,
-      // This page's EFFECTIVE content block-size (C.2b-2): the doc-wide
-      // `pageContentBlockSize` for a non-overriding page, else the active
-      // section's geometry. The fit honors the page's OWN height.
-      effContentBlockSize,
-      listCounterAtStart,
-      // Section cap (C.2b-1): stop before the next section boundary so a block
-      // belonging to the NEXT section starts a fresh page. `null` (no next
-      // boundary — last/only section) ⇒ no cap. `fitOnePage` normalizes a cap
-      // `<= startIndex` to no-cap, but the SectionPlan's strictly-increasing
-      // boundaries (invariant I-2) guarantee `nextBoundaryIndex > startIndex`
-      // whenever it is non-null.
-      st.nextBoundaryIndex ?? undefined,
-    );
+    // --- Per-page fit: multicol branch vs single-column branch (T3). ---
+    // `columnCount > 1` ⇒ distribute the page's content across N columns via
+    // `fitColumnsOnPage` (FILL: every column at the page body block-size); the
+    // page's `resumeOut` is a `ColumnBreakToken` (wrapping the last column's
+    // inner BFC token) when content overflowed the last column. `columnCount === 1`
+    // ⇒ the EXISTING bare `fitOnePage`, byte-identical to pre-T3.
+    let childrenCount: number;
+    let resumeOut: BreakToken | null;
+    let listCounterAtEnd: number;
+    let columnFit: ColumnsFitResult | undefined;
+    if (effColCfg.columnCount > 1) {
+      // A prior multicol page threaded its `ColumnBreakToken` into `resumeInto`;
+      // `fitColumnsOnPage` wants the INNER BFC token, so unwrap it.
+      const innerResume = innerBfcToken(resumeInto);
+      // M-1: `fitColumnsOnPage`'s internal `fitOnePage` calls are NOT counted by
+      // `_fitOnePageCallCount` (which instruments the single-column branch only,
+      // preserving `__getFitOnePageCallCountForTest`'s meaning). A multicol
+      // call-count instrument, if ever wanted, gets its own counter.
+      columnFit = fitColumnsOnPage(
+        metas,
+        startIndex,
+        innerResume,
+        effContentBlockSize,
+        effColCfg.columnCount,
+        listCounterAtStart,
+        st.nextBoundaryIndex ?? undefined,
+      );
+      childrenCount = columnFit.totalChildrenCount;
+      resumeOut = columnFit.pageResumeOut; // ColumnBreakToken | null (entry/threaded)
+      listCounterAtEnd = columnFit.listCounterAtEnd;
+      // F-1: when the multicol page exhausted its content at the SECTION CAP
+      // (`stopBeforeIndex`) rather than the true document end, `fitColumnsOnPage`
+      // returns `pageResumeOut === null` — but there IS more document (the next
+      // section). Single-column gets a non-null forced-break token from
+      // `fitOnePage` here; the column fit does not, so synthesize the SAME token
+      // so the measure loop continues to the next section instead of terminating
+      // early and dropping it. `startIndex + totalChildrenCount === nextBoundaryIndex`
+      // in this case (the section's content consumed exactly up to the cap), so
+      // the next page's `sectionStateAt(startIndex)` resolves the next section.
+      if (
+        resumeOut === null &&
+        st.nextBoundaryIndex !== null &&
+        startIndex + columnFit.totalChildrenCount < metas.length
+      ) {
+        resumeOut = {
+          type: "block",
+          resumeChildIndex: startIndex + columnFit.totalChildrenCount,
+          resumeChildToken: null,
+        };
+      }
+    } else {
+      _fitOnePageCallCount++;
+      const result = fitOnePage(
+        metas,
+        startIndex,
+        resumeInto,
+        // This page's EFFECTIVE content block-size (C.2b-2): the doc-wide
+        // `pageContentBlockSize` for a non-overriding page, else the active
+        // section's geometry. The fit honors the page's OWN height.
+        effContentBlockSize,
+        listCounterAtStart,
+        // Section cap (C.2b-1): stop before the next section boundary so a block
+        // belonging to the NEXT section starts a fresh page. `null` (no next
+        // boundary — last/only section) ⇒ no cap. `fitOnePage` normalizes a cap
+        // `<= startIndex` to no-cap, but the SectionPlan's strictly-increasing
+        // boundaries (invariant I-2) guarantee `nextBoundaryIndex > startIndex`
+        // whenever it is non-null.
+        st.nextBoundaryIndex ?? undefined,
+      );
+      childrenCount = result.childrenCount;
+      resumeOut = result.resumeOut;
+      listCounterAtEnd = result.listCounterAtEnd;
+      columnFit = undefined;
+    }
 
     // The next page begins at the first child not fully consumed on this page.
-    // When `resumeOut` is a block token, that index is `resumeChildIndex`;
-    // otherwise it's `startIndex + childrenCount`.
+    // Block-axis bookkeeping reasons about the INNER BFC token (a multicol page's
+    // `resumeOut` is a `ColumnBreakToken` wrapping it; `innerBfcToken` is the
+    // identity for single-column pages). When that inner token is a block token,
+    // the next index is `resumeChildIndex`; otherwise it's
+    // `startIndex + childrenCount`. (For an overflowing multicol page these agree:
+    // the inner token is a block token at index `startIndex + totalChildrenCount`.)
+    const innerResumeOut = innerBfcToken(resumeOut);
     const nextStartIndex =
-      result.resumeOut !== null && result.resumeOut.type === "block"
-        ? result.resumeOut.resumeChildIndex
-        : startIndex + result.childrenCount;
+      innerResumeOut !== null && innerResumeOut.type === "block"
+        ? innerResumeOut.resumeChildIndex
+        : startIndex + childrenCount;
 
     // `children` references come from the caller's cascaded root. The metas are
     // 1:1 with the root's block children, so the slice is
@@ -722,7 +828,7 @@ export function measurePass(
     // the equivalence harness comparing the same boundary on both sides.
     // Callers that only need boundaries may omit `rootChildren`; `children` is
     // then empty.
-    const sliceEnd = result.resumeOut === null ? metas.length : nextStartIndex;
+    const sliceEnd = resumeOut === null ? metas.length : nextStartIndex;
     const children: readonly RenderNode[] =
       rootChildren !== undefined ? rootChildren.slice(startIndex, sliceEnd) : [];
 
@@ -734,15 +840,21 @@ export function measurePass(
       blockSize: effCfg.pageBlockSize,
       pageConfig: effCfg,
       columnConfig: effColCfg,
+      // The per-column distribution (T3) — set only on the multicol branch;
+      // `undefined` for single-column pages.
+      columnFit,
       children,
       startIndex,
       resumeInto,
-      resumeOut: result.resumeOut,
+      // The ACTUAL token (a `ColumnBreakToken` for an overflowing multicol page,
+      // a bare token for single-column) — the next page unwraps it via
+      // `innerBfcToken`.
+      resumeOut,
       listCounterAtStart,
       activeSectionId,
       sectionPageIndex,
-      // The SAME cap (`st.nextBoundaryIndex`) passed to `fitOnePage` above — so
-      // the positioning pass reproduces this page's fit exactly.
+      // The SAME cap (`st.nextBoundaryIndex`) passed to the fit above — so the
+      // positioning pass reproduces this page's fit exactly.
       stopBeforeIndex: st.nextBoundaryIndex ?? null,
       // Header/footer body ids for THIS page (C.2c), from the CURRENT `st`.
       headerBlockId,
@@ -760,15 +872,17 @@ export function measurePass(
     });
 
     // Populate blockToPage / blockToSpan — shared with the reuse path so the
-    // two routes produce byte-identical maps.
+    // two routes produce byte-identical maps. `recordBlockMaps` reasons about the
+    // block-axis index range, so it takes the INNER BFC token (the column wrapper
+    // would fall to its `else` branch and mis-map all remaining blocks).
     recordBlockMaps(
       children,
       rootChildren,
       metas,
       startIndex,
       pageIndex,
-      resumeInto,
-      result.resumeOut,
+      innerBfcToken(resumeInto),
+      innerResumeOut,
       blockToPage,
       blockToSpan,
     );
@@ -777,14 +891,14 @@ export function measurePass(
     // (C.2b-2), mirroring the reuse path. Done before BOTH exits.
     runningBlockOffset += effCfg.pageBlockSize + effCfg.pageGap;
 
-    if (result.resumeOut === null) {
+    if (resumeOut === null) {
       pageIndex++;
       break;
     }
 
     startIndex = nextStartIndex;
-    resumeInto = result.resumeOut;
-    listCounterAtStart = result.listCounterAtEnd;
+    resumeInto = resumeOut;
+    listCounterAtStart = listCounterAtEnd;
     pageIndex++;
   }
 
@@ -935,23 +1049,28 @@ function canReusePage(
     return startIndex + sliceLen === metasLength;
   }
 
-  if (reusable.resumeOut.type === "block") {
+  // The block-axis index a multicol page reached is carried by the INNER BFC
+  // token its `ColumnBreakToken` wraps; for a single-column page this is the
+  // identity. The reuse proof reasons about that block index, so unwrap first.
+  const innerResumeOut = innerBfcToken(reusable.resumeOut);
+  if (innerResumeOut !== null && innerResumeOut.type === "block") {
     // A child resuming onto the next page placed content on THIS page that
     // shaped `resumeOut`. It sits at the slice end (== K) and is omitted from
     // `children`, so verify it is unchanged via the prior NEXT entry's first
     // child (the prior tree's node at K). If the prior plan can't vouch for K
     // (no next entry, or its slice is empty), refuse reuse.
-    const k = reusable.resumeOut.resumeChildIndex;
+    const k = innerResumeOut.resumeChildIndex;
     if (k < 0 || k >= rootChildren.length) return false;
     if (prevNext === undefined || prevNext.children.length === 0) return false;
     if (prevNext.startIndex !== k) return false;
     return rootChildren[k] === prevNext.children[0];
   }
 
-  // Bare ifc/table resumeOut is unreachable at the top level: `fitOnePage`
-  // always wraps a leaf's resume token in a top-level `block` token (the doc
-  // root is a block FC), so the two branches above cover every real case. Refuse
-  // reuse conservatively if one ever surfaces.
+  // Bare ifc/table resumeOut is unreachable at the top level: the fit always
+  // wraps a leaf's resume token in a top-level `block` token (the doc root is a
+  // block FC) — and a multicol page's `ColumnBreakToken` likewise wraps a `block`
+  // inner token — so the branches above cover every real case. Refuse reuse
+  // conservatively if one ever surfaces.
   return false;
 }
 
@@ -959,7 +1078,10 @@ function canReusePage(
  * Populate `blockToPage` / `blockToSpan` for one page. Shared by the re-fit and
  * the reuse paths so they produce byte-identical maps. `pageChildren` is the
  * page's whole-block-progress slice (`[startIndex, sliceEnd)`); `resumeInto` /
- * `resumeOut` are this page's tokens. No-op when `rootChildren` is omitted.
+ * `resumeOut` are this page's INNER BFC tokens (the caller unwraps a multicol
+ * page's `ColumnBreakToken` via `innerBfcToken` first, so the block-axis index
+ * reasoning here only ever sees `block`/`ifc`/`table`/null). No-op when
+ * `rootChildren` is omitted.
  */
 export function recordBlockMaps(
   pageChildren: readonly RenderNode[],

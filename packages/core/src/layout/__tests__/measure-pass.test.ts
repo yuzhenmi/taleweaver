@@ -72,11 +72,130 @@ describe("measurePass — per-page columnConfig (multi-column wiring T1)", () =>
       expect(e.columnConfig.columnCount).toBe(2);
       expect(e.columnConfig.columnGap).toBe(48);
     }
-    // INERT in T1: column config does not yet change page boundaries — the plan
-    // is byte-identical to the single-column plan (no fitColumnsOnPage dispatch).
+    // T3: the effective column config now drives the page fit (`fitColumnsOnPage`),
+    // so a 2-column plan packs more content per page than the single-column plan.
+    // (4 size-100 blocks at 300-px page body: single-column = 2 pages of 3+1;
+    // 2-column = 1 page, all 4 in two columns.) The per-page columnFit detail is
+    // asserted in the "multicol FILL fit" describe block above.
     const single = measurePass(metas, PAGE, IMPLICIT_SECTION_PLAN);
-    expect(plan.entries.length).toBe(single.entries.length);
-    expect(plan.entries.map((e) => e.startIndex)).toEqual(single.entries.map((e) => e.startIndex));
+    expect(plan.entries.length).toBeLessThan(single.entries.length);
+    expect(plan.entries[0].columnFit).toBeDefined();
+  });
+});
+
+describe("measurePass — multicol FILL fit (multi-column wiring T3)", () => {
+  // PAGE body block-size = 300 (no margins). With size-100 blocks, one column
+  // holds floor(300/100) = 3 blocks; a 2-column page holds 6. 8 blocks ⇒ page 0
+  // fills 6 (3+3), page 1 holds the trailing 2.
+  const twoCol: SectionPlan = {
+    boundaries: [{ startFlattenedIndex: 0, sectionId: null }],
+    effectiveDefaultColumns: { columnCount: 2, columnGap: 48, columnRule: null },
+  };
+
+  it("page 0 fills 2 columns, overflows into page 1 with a column resume token", () => {
+    const metas = Array.from({ length: 8 }, () => blockMeta(100));
+    const plan = measurePass(metas, PAGE, twoCol);
+    expect(plan.entries.length).toBe(2);
+
+    const p0 = plan.entries[0];
+    // columnFit set on the multicol branch.
+    expect(p0.columnFit).toBeDefined();
+    const fit0 = p0.columnFit;
+    if (fit0 === undefined) throw new Error("expected columnFit on multicol page 0");
+    expect(fit0.columns.length).toBe(2);
+    // Two non-empty columns: 3 blocks each.
+    expect(fit0.columns[0].childrenCount).toBe(3);
+    expect(fit0.columns[1].childrenCount).toBe(3);
+    expect(fit0.totalChildrenCount).toBe(6);
+    // The page overflows ⇒ a ColumnBreakToken, and the entry stores THAT token.
+    expect(fit0.pageResumeOut?.type).toBe("column");
+    expect(p0.resumeOut).toBe(fit0.pageResumeOut);
+    expect(p0.startIndex).toBe(0);
+
+    // Per-column FILL height: each non-empty column consumed <= the page body
+    // block-size (FILL fills to the page height).
+    for (const c of fit0.columns) {
+      if (c.childrenCount > 0) expect(c.consumedBlockSize).toBeLessThanOrEqual(300);
+    }
+
+    // Page 1 resumes where page 0's column token left off.
+    const p1 = plan.entries[1];
+    expect(p1.startIndex).toBe(p0.startIndex + fit0.totalChildrenCount); // 6
+    // The loop threads page 0's column token into page 1's resumeInto.
+    expect(p1.resumeInto).toBe(fit0.pageResumeOut);
+    expect(p1.columnFit).toBeDefined();
+    const fit1 = p1.columnFit;
+    if (fit1 === undefined) throw new Error("expected columnFit on multicol page 1");
+    expect(fit1.totalChildrenCount).toBe(2);
+    // Content exhausts on page 1 ⇒ no further column overflow.
+    expect(fit1.pageResumeOut).toBeNull();
+    expect(p1.resumeOut).toBeNull();
+  });
+
+  it("inner-token block index agrees with nextStartIndex (threading invariant)", () => {
+    // Verify the CRITICAL threading: innerBfcToken(columnFit.pageResumeOut) is a
+    // block token at index startIndex + totalChildrenCount, so the next page's
+    // startIndex (computed via the inner token's block branch) matches.
+    const metas = Array.from({ length: 8 }, () => blockMeta(100));
+    const plan = measurePass(metas, PAGE, twoCol);
+    const p0 = plan.entries[0];
+    const fit0 = p0.columnFit;
+    if (fit0 === undefined) throw new Error("expected columnFit");
+    const inner = fit0.pageResumeOut?.resumeChildToken;
+    expect(inner?.type).toBe("block");
+    if (inner !== undefined && inner !== null && inner.type === "block") {
+      expect(inner.resumeChildIndex).toBe(p0.startIndex + fit0.totalChildrenCount);
+      expect(plan.entries[1].startIndex).toBe(inner.resumeChildIndex);
+    }
+  });
+
+  it("single-column pages have columnFit === undefined (byte-identical plan)", () => {
+    const metas = Array.from({ length: 8 }, () => blockMeta(100));
+    const single = measurePass(metas, PAGE, IMPLICIT_SECTION_PLAN);
+    for (const e of single.entries) {
+      expect(e.columnFit).toBeUndefined();
+    }
+    // The single-column plan is unchanged from the pre-T3 boundaries: 3 blocks
+    // per page (300/100), 8 blocks ⇒ 3 pages.
+    expect(single.entries.length).toBe(3);
+    expect(single.entries.map((e) => e.startIndex)).toEqual([0, 3, 6]);
+  });
+
+  it("F-1: a multicol section whose content fits in one page does NOT drop the next section", () => {
+    // Two sections: s1 = indices 0-1 (multicol), s2 = indices 2-3. s1's 2 blocks
+    // (200px) fit within page 0's first column (≤300), so `fitColumnsOnPage`
+    // exhausts at the section cap and returns `pageResumeOut === null`. Without
+    // the F-1 forced-break synthesis the measure loop would treat page 0 as the
+    // document end and SILENTLY DROP section 2; with it, section 2 lands on page 1.
+    const sectioned: SectionPlan = {
+      boundaries: [
+        { startFlattenedIndex: 0, sectionId: "s1" as BlockId },
+        { startFlattenedIndex: 2, sectionId: "s2" as BlockId },
+      ],
+      effectiveDefaultColumns: { columnCount: 2, columnGap: 0, columnRule: null },
+    };
+    const metas = Array.from({ length: 4 }, () => blockMeta(100));
+    const plan = measurePass(metas, PAGE, sectioned);
+
+    // The bug manifests as a 1-page plan; the fix yields 2 pages.
+    expect(plan.entries.length).toBe(2);
+
+    const p0 = plan.entries[0];
+    expect(p0.startIndex).toBe(0);
+    expect(p0.activeSectionId).toBe("s1");
+    expect(p0.columnFit).toBeDefined();
+    // Section 1's content (indices 0-1) is capped at the boundary; the page
+    // resumes (a synthesized forced-break block token) into the next section.
+    expect(p0.columnFit?.totalChildrenCount).toBe(2);
+    expect(p0.resumeOut).toEqual({ type: "block", resumeChildIndex: 2, resumeChildToken: null });
+
+    // Section 2 is NOT dropped — it begins a fresh page at its boundary index.
+    const p1 = plan.entries[1];
+    expect(p1.startIndex).toBe(2);
+    expect(p1.activeSectionId).toBe("s2");
+    expect(p1.columnFit).toBeDefined();
+    expect(p1.columnFit?.totalChildrenCount).toBe(2);
+    expect(p1.resumeOut).toBeNull();
   });
 });
 
