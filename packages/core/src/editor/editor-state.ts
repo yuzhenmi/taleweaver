@@ -204,6 +204,13 @@ export interface EditorConfig {
    * Tests pass a controllable counter so the pause window is deterministic.
    */
   readonly now?: () => number;
+  /**
+   * Suggesting mode (change-tracking, spec §3): when a non-null author string, every
+   * mutating edit becomes a tracked SUGGESTION attributed to that author (timestamped
+   * via `now`), instead of a direct edit. `null`/undefined = direct editing. The HOST
+   * owns "who is suggesting" (this is configuration, not session state).
+   */
+  readonly suggestingAuthor?: string | null;
 }
 
 export function createInitialEditorState(config: EditorConfig): EditorState {

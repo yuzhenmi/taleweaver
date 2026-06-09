@@ -344,6 +344,7 @@ export type {
   ResolvedSuggestion,
 } from "./suggestions";
 export {
+  newSuggestionId,
   INSERTION_SUGGESTION_ATTR,
   DELETION_SUGGESTION_ATTR,
   FORMATTING_SUGGESTION_ATTR,

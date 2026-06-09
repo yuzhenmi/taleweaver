@@ -707,11 +707,20 @@ drop dominates; a both-insertion-and-deletion run is dropped under both). **With
 (markFormatting/markDeletion/mintInsertion) + resolve (accept/reject single + all).**
 **KNOWN follow-up:** the resolve scan + `buildSuggestionRangeIndex` are MAIN-TREE-ONLY
 (footnote/header-body suggestions aren't surfaced/resolved — a pre-existing slice-2
-read-scope limit; multi-tree is a one-place scan enhancement). REMAINING (spec §10):
-4 editor actions + `EditorConfig.suggestingAuthor` mode;
+read-scope limit; multi-tree is a one-place scan enhancement). **Slice 4 (editor
+actions + suggesting mode) IN PROGRESS, sub-sliced 4a–4e:** 4a shipped — the 4
+NON-undoable accept/reject editor actions (`ACCEPT_SUGGESTION`/`REJECT_SUGGESTION`/
+`ACCEPT_ALL_SUGGESTIONS`/`REJECT_ALL_SUGGESTIONS`) via a new `"resolve"` ActionClass
+(breaks the open undo group, `advanceState` not commit). 4b shipped —
+`EditorConfig.suggestingAuthor` + `newSuggestionId`/`newSuggestionInput` + the
+`INSERT_TEXT` collapsed-caret branch → `mintInsertion` (type-over-selection in
+suggesting mode = tracked interim no-op). REMAINING: 4c DELETE handlers →
+markDeletion + the type-over-selection composite, 4d format handlers →
+markFormatting (+ INLINE_FORMAT_ATTR_KEYS guard), 4e block-split/join embeds
+(SPLIT_NODE + break-delete);
 5 render (insertion=color+underline, deletion=color+strikethrough, formatting=
 proposedAttrs); 6 host query + overlay; 7 arch docs. See `1.1-state.md` "The
-`suggestions` map".
+`suggestions` map" + `1.7-editor.md`.
 
 ### `perf/` `[implemented]`
 

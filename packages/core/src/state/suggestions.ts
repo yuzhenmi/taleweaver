@@ -9,6 +9,8 @@ import { yMapAsObject } from "./y-utils";
 import { STATE_INTERNAL } from "./state-internal";
 import { getSuggestionsMap, requireInTransaction } from "./yjs-doc";
 
+declare const crypto: { randomUUID(): string };
+
 /**
  * Branded identifier for a tracked-change suggestion. Minted host-side (slice 3)
  * and stamped into the inline `attrs` of every `TextItem` the suggestion covers
@@ -20,6 +22,19 @@ import { getSuggestionsMap, requireInTransaction } from "./yjs-doc";
  * {@link BLOCK_SPLIT_SUGGESTION_EMBED_TYPE} embed instead.
  */
 export type SuggestionId = string & { readonly __brand: "SuggestionId" };
+
+/**
+ * Mint a fresh {@link SuggestionId} for a brand-new suggestion. Mirrors
+ * `newListId` (block-id.ts): reuses the same ambient `crypto.randomUUID()` and
+ * brands the result. The CREATE ops ({@link mintInsertion} / {@link markDeletion}
+ * / {@link markFormatting}) take a pre-minted id as `input.id` (so it can be
+ * REUSED when a mark coalesces into an adjacent same-author suggestion); the
+ * suggesting-mode editor handlers call this once per create-branch to produce
+ * that id.
+ */
+export function newSuggestionId(): SuggestionId {
+  return crypto.randomUUID() as SuggestionId;
+}
 
 /**
  * The three independent suggestion dimensions. A single run can simultaneously

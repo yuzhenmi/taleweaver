@@ -1,9 +1,17 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { insertText, replaceRange, createPosition, createSpan, spanStart } from "../../state";
+import {
+  insertText,
+  mintInsertion,
+  replaceRange,
+  createPosition,
+  createSpan,
+  spanStart,
+} from "../../state";
 import type { OperationResult } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection } from "./selection-guards";
+import { newSuggestionInput } from "./suggestion-mode";
 
 export function handleInsertText(
   editor: EditorState,
@@ -22,13 +30,29 @@ export function handleInsertText(
     // deletable-span (resolveBlock/parentId) guard the delete/split handlers
     // add — so its guard SET is unchanged.
     if (isCrossContextSelection(editor.state, selectionBefore)) return editor;
+    // Suggesting mode: type-over-an-EXPANDED-selection is a tracked interim
+    // NO-OP. The correct behavior is a soft-delete (markDeletion) of the
+    // selection + a suggested insertion (mintInsertion) of `text` as ONE
+    // composite — that lands in a later change-tracking slice (the deletes /
+    // composite slice). Until then we refuse the edit rather than do a plain
+    // destructive replaceRange (which would discard the selected text untracked).
+    if ((config.suggestingAuthor ?? null) !== null) return editor;
     const start = spanStart(editor.state, selectionBefore);
     result = replaceRange(editor.state, selectionBefore, text, {});
     newCursorBlockId = start.blockId;
     newCursorOffset = start.offset + text.length;
   } else {
     const focus = selectionBefore.focus;
-    result = insertText(editor.state, focus, text, {});
+    // Suggesting mode: insert `text` as a tracked SUGGESTION (mintInsertion
+    // stamps the insertion-provenance id + writes/coalesces an `insertion`
+    // record) instead of plain text. mintInsertion advances `text.length`
+    // offsets exactly as insertText, so the cursor lands identically; it is a
+    // normal tracked/undoable op, so the commit + rebuild below are unchanged.
+    const sugInput = newSuggestionInput(config);
+    result =
+      sugInput === null
+        ? insertText(editor.state, focus, text, {})
+        : mintInsertion(editor.state, focus, text, {}, sugInput);
     newCursorBlockId = focus.blockId;
     newCursorOffset = focus.offset + text.length;
   }
