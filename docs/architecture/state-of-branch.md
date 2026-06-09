@@ -324,9 +324,21 @@ and `paint-cache`. `collectLineBoxes` descending columns left-to-right gives the
 visual-reading-order guarantee for free. INERT: no producer constructs a
 `MultiColumnBox` yet.
 
-Still missing (the producer + behavior): the column-distribution loop that wraps
-BFC fill, builds the `MultiColumnBox`, and EMITS the `ColumnBreakToken`; column
-fill + balance-last; column-aware hit-test (column-X filter) + line-nav
+The pure FILL core has also landed: `fitColumnsOnPage` (`layout/column-fit.ts`)
+distributes one multicol page's content across N equal-height columns by chaining
+the existing pure `fitOnePage` per column (column k+1 resumes where column k
+stopped — the contiguous doc-order runs that make the slice-2b visual-order
+guarantee hold), honoring the section cap, leaving short-content trailing columns
+empty, and wrapping last-column overflow in a `ColumnBreakToken` for the next
+page. Pure (operates on cached `BlockFitMeta`, positions no boxes); `columnCount
+=== 1` reduces to a single `fitOnePage`, so single-column pages are unaffected.
+INERT: no caller wires it into the measure pass / `getPage` yet.
+
+Still missing (the wiring + remaining behavior): the final-page BALANCE
+refinement (`column-fill: balance` — the balanced column height) layered on
+`fitColumnsOnPage`; wiring `fitColumnsOnPage` into the measure pass + `getPage`
+to BUILD the `MultiColumnBox` and thread the `ColumnBreakToken` through the page
+plan + `PageFingerprint`; column-aware hit-test (column-X filter) + line-nav
 (`targetX` remap) that READ the stamped `columnIndex`; column-rule paint; the
 `SET_SECTION_COLUMNS` action + toolbar. Until those land, a doc carrying column
 attrs still lays out single-column.
