@@ -37,6 +37,21 @@ export function newSuggestionId(): SuggestionId {
 }
 
 /**
+ * The fields a host supplies to MINT a single-id suggestion (insertion / deletion /
+ * formatting / a suggested split or join). `id` is the branded {@link SuggestionId}
+ * (minted host-side; REUSED — not consumed — when a create op coalesces into an
+ * adjacent same-author suggestion); `author` / `createdAt` are deterministic
+ * host-injected values. Shared by every single-id create op
+ * (markFormatting / markDeletion / mintInsertion / splitWithSuggestion /
+ * markBlockJoinSuggestion). The two-id replace input is {@link ReplaceSuggestionInput}.
+ */
+export interface SuggestionMintInput {
+  readonly id: SuggestionId;
+  readonly author: string;
+  readonly createdAt: number;
+}
+
+/**
  * The three independent suggestion dimensions. A single run can simultaneously
  * be an `insertion` by one author and a pending `deletion` by another, so these
  * are distinct attr dimensions, NOT mutually-exclusive states (see design §2).

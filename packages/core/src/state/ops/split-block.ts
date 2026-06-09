@@ -16,7 +16,7 @@ import { assertSameTree } from "../assert-same-tree";
 import {
   BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
   writeSuggestionRecordInTx,
-  type SuggestionId,
+  type SuggestionMintInput,
 } from "../suggestions";
 
 /**
@@ -310,19 +310,6 @@ function splitInlineContent(yOriginal: Y.Map<unknown>, offset: number): Y.Map<un
 }
 
 /**
- * Fields the host supplies when minting a suggested SPLIT (Suggesting-mode Enter).
- * `id` is the branded {@link SuggestionId} (minted host-side); `author`/`createdAt`
- * are deterministic host-injected values. Same shape as {@link MarkInsertionInput}
- * — a suggested split IS a tracked insertion (of a paragraph break), so it carries
- * an `insertion` {@link SuggestionRecord}.
- */
-export interface SplitWithSuggestionInput {
-  readonly id: SuggestionId;
-  readonly author: string;
-  readonly createdAt: number;
-}
-
-/**
  * The Enter / paragraph-SPLIT op in Suggesting mode: perform a REAL block split AND
  * mark the new boundary as a tracked suggestion, in ONE tracked `applyOperation`
  * transaction — so the split + the boundary embed + the record land as ONE undo
@@ -373,7 +360,7 @@ export function splitWithSuggestion(
   state: State,
   position: Position,
   allocator: IdAllocator,
-  input: SplitWithSuggestionInput,
+  input: SuggestionMintInput,
   newBlockInit?: { readonly type?: string; readonly attrs?: ReadonlyAttrs },
 ): OperationResult {
   // Validate + plan FIRST so the canonical split errors (block missing / non-leaf /

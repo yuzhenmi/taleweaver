@@ -10,7 +10,7 @@ import { assertSameTree } from "../assert-same-tree";
 import {
   BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
   writeSuggestionRecordInTx,
-  type SuggestionId,
+  type SuggestionMintInput,
 } from "../suggestions";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
 import type { AttrRegistry } from "../../cascade/attr-registry";
@@ -321,20 +321,6 @@ export function mergeWithNextSiblingLiveInTx(
 }
 
 /**
- * Fields the host supplies when minting a suggested JOIN (Suggesting-mode
- * Backspace at the start of a paragraph / Delete at the end of one). `id` is the
- * branded {@link SuggestionId} (minted host-side); `author`/`createdAt` are
- * deterministic host-injected values. Same shape as {@link SplitWithSuggestionInput}
- * — a suggested join IS a tracked deletion (of a paragraph break), so it carries a
- * `deletion` {@link SuggestionRecord}.
- */
-export interface MarkBlockJoinInput {
-  readonly id: SuggestionId;
-  readonly author: string;
-  readonly createdAt: number;
-}
-
-/**
  * The Backspace-at-block-start / Delete-at-block-end JOIN op in Suggesting mode:
  * mark the paragraph break BEFORE `secondBlockId` (the boundary between
  * `secondBlockId` and its previous sibling, block N) as a tracked suggested
@@ -375,7 +361,7 @@ export interface MarkBlockJoinInput {
 export function markBlockJoinSuggestion(
   state: State,
   secondBlockId: BlockId,
-  input: MarkBlockJoinInput,
+  input: SuggestionMintInput,
 ): OperationResult {
   // Resolve the SECOND block (the one whose preceding break is being marked). A
   // missing block is a no-op — return identity (mirror markDeletion's null guard).

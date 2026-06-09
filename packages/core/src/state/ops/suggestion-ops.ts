@@ -25,6 +25,7 @@ import {
   writeSuggestionRecordInTx,
   type SuggestionId,
   type SuggestionKind,
+  type SuggestionMintInput,
 } from "../suggestions";
 import { iterateBlocksInDocumentOrder } from "../document-order";
 import { STATE_INTERNAL } from "../state-internal";
@@ -74,18 +75,6 @@ function writeBlockInlineContentInTx(
 }
 
 /**
- * Fields the host supplies when minting a formatting suggestion. `id` is the
- * branded `SuggestionId` (minted host-side); it is REUSED (not consumed) when an
- * adjacent same-author/same-proposal mark coalesces. `author`/`createdAt` are
- * deterministic host-injected values.
- */
-export interface MarkFormattingInput {
-  readonly id: SuggestionId;
-  readonly author: string;
-  readonly createdAt: number;
-}
-
-/**
  * Mark `span` with a formatting SUGGESTION: stamp a `formattingSuggestionId`
  * attr over the span AND write a `formatting` {@link SuggestionRecord} carrying
  * `proposedAttrs` (the format delta the action WOULD have applied, e.g.
@@ -119,7 +108,7 @@ export function markFormatting(
   state: State,
   span: Span,
   proposedAttrs: ReadonlyAttrs,
-  input: MarkFormattingInput,
+  input: SuggestionMintInput,
 ): OperationResult {
   // Empty proposal = no-op (nothing to suggest). Mirrors applyAttrsToRange's
   // empty-attrs guard; must return the input State reference (identity).
@@ -169,18 +158,6 @@ export function markFormatting(
 }
 
 /**
- * Fields the host supplies when minting a deletion suggestion. `id` is the
- * branded `SuggestionId` (minted host-side); REUSED (not consumed) when an
- * adjacent same-author deletion coalesces. `author`/`createdAt` are deterministic
- * host-injected values.
- */
-export interface MarkDeletionInput {
-  readonly id: SuggestionId;
-  readonly author: string;
-  readonly createdAt: number;
-}
-
-/**
  * Mark `span` as a SUGGESTED DELETION (Suggesting-mode soft-delete). For each
  * TEXT run (or sub-portion) inside the normalized span:
  *   - plain text (no insertion suggestion) → stamp `deletionSuggestionId = id`
@@ -225,7 +202,7 @@ export interface MarkDeletionInput {
 export function markDeletion(
   state: State,
   span: Span,
-  input: MarkDeletionInput,
+  input: SuggestionMintInput,
 ): OperationResult {
   const plan = planMarkDeletion(state, span, input);
   // Collapsed span / nothing to mark → identity no-op (the input State reference).
@@ -268,7 +245,7 @@ export function markDeletion(
 function planMarkDeletion(
   state: State,
   span: Span,
-  input: MarkDeletionInput,
+  input: SuggestionMintInput,
 ): MarkDeletionPlan | null {
   // Collapsed span = no-op. Collapsed-ness (same block + same offset) is
   // normalization-invariant, so we check raw positions directly.
@@ -335,19 +312,6 @@ interface MarkDeletionPlan {
 }
 
 /**
- * Fields the host supplies when minting an insertion suggestion. `id` is the
- * branded `SuggestionId` (minted host-side); it is REUSED (not consumed) when the
- * insertion coalesces into an adjacent same-author insertion at the insertion
- * point (a continuous typing run → ONE suggestion). `author`/`createdAt` are
- * deterministic host-injected values.
- */
-export interface MarkInsertionInput {
-  readonly id: SuggestionId;
-  readonly author: string;
-  readonly createdAt: number;
-}
-
-/**
  * The INSERT_TEXT / PASTE op in Suggesting mode: instead of inserting plain text,
  * insert `text` carrying an `insertionSuggestionId` attr AND write an `insertion`
  * {@link SuggestionRecord}, in ONE tracked `applyOperation` transaction — so the
@@ -391,7 +355,7 @@ export function mintInsertion(
   position: Position,
   text: string,
   attrs: ReadonlyAttrs,
-  input: MarkInsertionInput,
+  input: SuggestionMintInput,
 ): OperationResult {
   // Empty text = no-op. Mirrors insertText's empty-text guard; must return the
   // input State reference (identity).

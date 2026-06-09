@@ -7,7 +7,7 @@ import {
   markFormatting,
   selectionContextOf,
   spanStart,
-  type SuggestionId,
+  type SuggestionMintInput,
   type ReplaceSuggestionInput,
   type State,
   type Span,
@@ -22,7 +22,7 @@ import {
  *  injected timestamp. */
 export function newSuggestionInput(
   config: EditorConfig,
-): { id: SuggestionId; author: string; createdAt: number } | null {
+): SuggestionMintInput | null {
   const author = config.suggestingAuthor ?? null;
   if (author === null) return null;
   return { id: newSuggestionId(), author, createdAt: (config.now ?? Date.now)() };
@@ -67,7 +67,7 @@ export function suggestionInputForBlock(
   state: State,
   blockId: BlockId,
   config: EditorConfig,
-): { id: SuggestionId; author: string; createdAt: number } | null {
+): SuggestionMintInput | null {
   if (selectionContextOf(state, blockId) !== state.rootId) return null;
   return newSuggestionInput(config);
 }
