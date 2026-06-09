@@ -24,8 +24,13 @@ import {
  * Pre-computed write for ONE leaf block: its tree provenance plus the new
  * `items[]` to full-replace its inlineContent with. An embed is a merge
  * barrier, so marker insertion is always a full-replace of the leaf's items.
+ *
+ * Exported so a higher-level op (`addComment`, slice 2) can compose the marker
+ * insert with its thread-record write in ONE `applyOperation` transaction:
+ * `planCommentMarkers` against the pre-transaction snapshot, then
+ * `applyCommentMarkerWritesInTx` inside the surrounding transaction.
  */
-interface LeafWrite {
+export interface LeafWrite {
   readonly blockId: BlockId;
   readonly kind: BlockTreeKind;
   readonly items: ReadonlyArray<InlineItem>;
@@ -67,9 +72,7 @@ export function insertCommentMarkers(
   const writes = planCommentMarkers(state, start, end, commentId);
 
   return applyOperation(state, (doc) => {
-    for (const write of writes) {
-      insertLeafWriteInTx(doc, write);
-    }
+    applyCommentMarkerWritesInTx(doc, writes);
   });
 }
 
@@ -86,7 +89,7 @@ export function insertCommentMarkers(
  * Throws on a missing block, a non-leaf host, or an out-of-range offset for
  * either endpoint.
  */
-function planCommentMarkers(
+export function planCommentMarkers(
   state: State,
   start: Position,
   end: Position,
@@ -185,4 +188,21 @@ function insertLeafWriteInTx(doc: Y.Doc, write: LeafWrite): void {
   requireInTransaction(doc, "insertCommentMarkers");
   const yBlock = getYBlock(doc, write.blockId, "insertCommentMarkers", write.kind);
   yBlock.set("inlineContent", buildYInlineContent({ items: write.items }));
+}
+
+/**
+ * In-transaction primitive: apply a pre-computed list of marker `LeafWrite`s.
+ * Caller owns the surrounding transaction (this MUST run inside an already-open
+ * `applyOperation`/`runTransaction`). The companion to `planCommentMarkers`: a
+ * higher-level op (`addComment`) plans against the pre-transaction snapshot,
+ * then calls this inside the SAME transaction as its thread-record write so the
+ * markers + record land as ONE undo entry / one collab event.
+ */
+export function applyCommentMarkerWritesInTx(
+  doc: Y.Doc,
+  writes: readonly LeafWrite[],
+): void {
+  for (const write of writes) {
+    insertLeafWriteInTx(doc, write);
+  }
 }

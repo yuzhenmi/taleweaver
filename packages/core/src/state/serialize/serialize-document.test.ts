@@ -14,6 +14,9 @@ import {
   type State,
 } from "../state";
 import { getListDefsForState, type ListDef } from "../list-defs";
+import { addComment } from "../ops/comment-ops";
+import { getComments, buildCommentRangeIndex, type CommentId } from "../comments";
+import { createPosition, createSpan } from "../block-position";
 import type { InlineItem } from "../inline-content";
 import type { DocumentSerializer } from "./document-serializer";
 import {
@@ -268,6 +271,66 @@ describe("serialize-document", () => {
       const newDefs = getListDefsForState(state2);
       expect([...newDefs.entries()]).toEqual([...origDefs.entries()]);
       expect(newDefs.get("list-1")).toEqual(listDefs["list-1"]);
+    });
+
+    it("round-trips a comment losslessly (thread record + in-content markers)", () => {
+      // A doc with a paragraph + a comment over part of its text. The binary
+      // serializer captures the WHOLE Y.Doc, so both the `comments` map record
+      // AND the in-content `comment-start`/`comment-end` marker embeds must
+      // survive encode→decode with no new serializer code.
+      const rootId = ID("c-root");
+      const para = ID("c-para");
+      const blocks: Block[] = [
+        {
+          id: rootId,
+          type: "document",
+          attrs: {},
+          parentId: null,
+          prevSiblingId: null,
+          nextSiblingId: null,
+          firstChildId: para,
+          lastChildId: para,
+          inlineContent: null,
+        },
+        {
+          id: para,
+          type: "paragraph",
+          attrs: {},
+          parentId: rootId,
+          prevSiblingId: null,
+          nextSiblingId: null,
+          firstChildId: null,
+          lastChildId: null,
+          inlineContent: { items: [{ kind: "text", text: "hello world", attrs: {} }] },
+        },
+      ];
+      const base = buildStateFromBlocks({ rootId, blocks });
+      const state = addComment(
+        base,
+        createSpan(createPosition(para, 6), createPosition(para, 11)),
+        { id: "cm-1" as CommentId, author: "alice", body: "note", createdAt: 42 },
+      ).state;
+
+      const origComments = getComments(state);
+      expect(origComments.length).toBe(1);
+
+      const reg = createDefaultSerializerRegistry();
+      const bytes = serializeDocument(state, BINARY_FORMAT, reg);
+      const state2 = deserializeDocument(bytes, BINARY_FORMAT, reg);
+
+      // The record survives (author/body/createdAt/resolved + empty replies).
+      const newComments = getComments(state2);
+      expect(newComments.length).toBe(1);
+      expect(newComments[0].author).toBe("alice");
+      expect(newComments[0].body).toBe("note");
+      expect(newComments[0].createdAt).toBe(42);
+      expect(newComments[0].resolved).toBe(false);
+      expect(newComments[0].replies).toEqual([]);
+      // The in-content markers survive: the range resolves live (not orphaned),
+      // proving both `comment-start`/`comment-end` embeds round-tripped.
+      expect(newComments[0].range.orphaned).toBe(false);
+      expect(newComments[0].range).toEqual(origComments[0].range);
+      expect(buildCommentRangeIndex(state2).get("cm-1" as CommentId)?.orphaned).toBe(false);
     });
 
     it("round-trips an empty document (rootId + root block preserved)", () => {

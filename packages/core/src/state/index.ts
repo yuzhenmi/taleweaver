@@ -287,20 +287,43 @@ export {
 } from "./ops/insert-cross-reference";
 export { insertTab, TAB_EMBED_TYPE } from "./ops/insert-tab";
 
-// Comments (slice 1 — the marker-embed anchor foundation). Paired zero-width
-// `comment-start`/`comment-end` marker embeds delimit a comment range; the
-// markers ARE the anchor (they move/clone with surrounding text for free).
-// `insertCommentMarkers` inserts the pair; `buildCommentRangeIndex` /
-// `resolveCommentRange` resolve the range (incl. derived `orphaned`) by content
-// scan. The `comments` Y.Map side-table + the data ops that write thread
-// records land in a later slice.
+// Comments. Paired zero-width `comment-start`/`comment-end` marker embeds
+// delimit a comment range; the markers ARE the anchor (they move/clone with
+// surrounding text for free). `insertCommentMarkers` inserts the pair;
+// `buildCommentRangeIndex` / `resolveCommentRange` resolve the range (incl.
+// derived `orphaned`) by content scan. The thread-record CRUD ops
+// (`addComment`/`resolveComment`/`reopenComment`/`deleteComment`/`addReply`)
+// are NORMAL tracked `applyOperation` content ops — the comments Y.Map is in
+// the UndoManager's tracked scopes, so a comment reverts atomically with its
+// markers. `getComments` is the read surface (record + scanned range).
 export { insertCommentMarkers } from "./ops/insert-comment-markers";
-export type { CommentId, CommentReply, CommentRecord, CommentRange } from "./comments";
+export {
+  addComment,
+  resolveComment,
+  reopenComment,
+  deleteComment,
+  addReply,
+} from "./ops/comment-ops";
+export type { AddCommentInput, AddReplyInput } from "./ops/comment-ops";
+export type {
+  CommentId,
+  CommentReply,
+  CommentRecord,
+  CommentRange,
+  ResolvedComment,
+} from "./comments";
 export {
   COMMENT_START_EMBED_TYPE,
   COMMENT_END_EMBED_TYPE,
   buildCommentRangeIndex,
   resolveCommentRange,
+  getComments,
+  // `replyToY` (CommentReply → Y.Map) is re-exported here for INTRA-STATE use
+  // only (the `addReply` op in ops/comment-ops.ts) — it is deliberately NOT on
+  // the public core barrel (`packages/core/src/index.ts`), since nothing outside
+  // `state/` builds reply Y.Maps. Mirrors how the `*InTx` write-path helpers are
+  // exposed state-internally without leaking to the cross-package surface.
+  replyToY,
 } from "./comments";
 
 // History (Y.UndoManager-backed undo/redo with aligned selection stacks).

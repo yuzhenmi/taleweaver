@@ -137,20 +137,35 @@ export { getListDefsForState, classifyListDef, newListId } from "./state";
 // embeds on export (the binary serializer is the lossless path).
 export { FOOTNOTE_ANCHOR_EMBED_TYPE, CROSS_REFERENCE_EMBED_TYPE } from "./state";
 
-// Comments (slice 1 — marker-embed anchor foundation). Paired zero-width
-// `comment-start`/`comment-end` marker embeds delimit a comment range and ARE
-// the anchor; `insertCommentMarkers` inserts the pair, and
-// `buildCommentRangeIndex` / `resolveCommentRange` resolve it (with a derived
-// `orphaned` flag) by content scan. The thread-record CRUD + Y.Map side-table
-// land in later slices.
+// Comments. Paired zero-width `comment-start`/`comment-end` marker embeds
+// delimit a comment range and ARE the anchor; `insertCommentMarkers` inserts the
+// pair, and `buildCommentRangeIndex` / `resolveCommentRange` resolve it (with a
+// derived `orphaned` flag) by content scan. The thread-record CRUD ops
+// (`addComment`/`resolveComment`/`reopenComment`/`deleteComment`/`addReply`) are
+// NORMAL tracked content ops (a comment reverts atomically with its markers);
+// `getComments` is the read surface (record + scanned range).
 export { insertCommentMarkers } from "./state";
 export {
+  addComment,
+  resolveComment,
+  reopenComment,
+  deleteComment,
+  addReply,
   COMMENT_START_EMBED_TYPE,
   COMMENT_END_EMBED_TYPE,
   buildCommentRangeIndex,
   resolveCommentRange,
+  getComments,
 } from "./state";
-export type { CommentId, CommentReply, CommentRecord, CommentRange } from "./state";
+export type {
+  AddCommentInput,
+  AddReplyInput,
+  CommentId,
+  CommentReply,
+  CommentRecord,
+  CommentRange,
+  ResolvedComment,
+} from "./state";
 
 // History (Y.UndoManager-backed)
 export {

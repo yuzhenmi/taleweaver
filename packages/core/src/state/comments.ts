@@ -1,10 +1,13 @@
+import * as Y from "yjs";
 import type { State } from "./state";
 import { getBlock } from "./state";
+import { STATE_INTERNAL } from "./state-internal";
 import type { BlockId } from "./block-id";
 import type { Position } from "./block-position";
 import { createPosition } from "./block-position";
 import { comparePositions } from "./block-compare";
 import { iterateBlocksInDocumentOrder } from "./document-order";
+import { getCommentsMap, requireInTransaction } from "./yjs-doc";
 
 /**
  * Branded identifier for a comment thread. Minted host-side (slice 3) and
@@ -191,4 +194,143 @@ function deriveRange(state: State, tally: MarkerTally): CommentRange {
 function rootLeafId(state: State): BlockId {
   const root = getBlock(state, state.rootId);
   return root?.id ?? state.rootId;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Thread-record ↔ Y.Map storage (slice 2)
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * A comment thread combined with its RANGE, resolved from the marker scan.
+ * `getComments` returns one of these per record in the `comments` map; the host
+ * panel uses `range.orphaned` to skip the highlight (the markers are gone /
+ * one-sided / inverted — see {@link CommentRange}). For an orphaned comment the
+ * `range.start`/`end` positions are still concrete (defensive fill — consumers
+ * skip them), so the type stays total.
+ */
+export interface ResolvedComment extends CommentRecord {
+  readonly range: CommentRange;
+}
+
+/**
+ * Guarded read of a required field out of an untyped Yjs `Y.Map<unknown>` —
+ * the comments-map mirror of list-defs.ts's `requireDefField`. `Y.Map.get`
+ * returns `undefined` for an absent key; a bare `as T` would silently widen
+ * that to the expected type and crash opaquely downstream. This turns a
+ * malformed record (a collab peer / migration that wrote a record missing a
+ * required key) into a clear error naming the field.
+ */
+function requireRecordField<T>(yMap: Y.Map<unknown>, id: string, key: string): T {
+  const raw = yMap.get(key);
+  if (raw === undefined) {
+    throw new Error(`comments: record "${id}" missing required "${key}" field`);
+  }
+  return raw as T;
+}
+
+/** Freeze ONE reply `Y.Map` into a plain frozen `CommentReply`. */
+function replyFromY(m: Y.Map<unknown>, recordId: string): CommentReply {
+  return Object.freeze({
+    id: requireRecordField<string>(m, recordId, "id"),
+    author: requireRecordField<string>(m, recordId, "author"),
+    body: requireRecordField<string>(m, recordId, "body"),
+    createdAt: requireRecordField<number>(m, recordId, "createdAt"),
+  });
+}
+
+/**
+ * Build the storage `Y.Map` for a thread record: scalar fields plus `replies`
+ * as a `Y.Array<Y.Map>` (NOT a plain JS array) so concurrent reply appends
+ * MERGE under collab rather than clobbering the list. Used by both
+ * {@link writeCommentRecordInTx} (whole-record write) and the slice-2
+ * `addReply` op (which reuses {@link replyToY} for a single reply).
+ *
+ * State-internal: re-exported from `state/index.ts` for intra-state use (the
+ * `addReply` op in `ops/comment-ops.ts`), NOT from the public core barrel — it
+ * lives here with the `CommentReply` type it converts.
+ */
+export function replyToY(reply: CommentReply): Y.Map<unknown> {
+  const m = new Y.Map<unknown>();
+  m.set("id", reply.id);
+  m.set("author", reply.author);
+  m.set("body", reply.body);
+  m.set("createdAt", reply.createdAt);
+  return m;
+}
+
+/**
+ * Write (or overwrite) a comment thread record into the top-level `comments`
+ * Y.Map keyed by `record.id`. Must run inside a transaction (mirrors
+ * `writeListDefInTx`). Scalars (`author`/`body`/`createdAt`/`resolved`) are
+ * plain values; `replies` becomes a `Y.Array<Y.Map>` so concurrent reply
+ * appends merge under collab.
+ */
+export function writeCommentRecordInTx(doc: Y.Doc, record: CommentRecord): void {
+  requireInTransaction(doc, "writeCommentRecord");
+  const yRecord = new Y.Map<unknown>();
+  yRecord.set("author", record.author);
+  yRecord.set("body", record.body);
+  yRecord.set("createdAt", record.createdAt);
+  yRecord.set("resolved", record.resolved);
+  const yReplies = new Y.Array<Y.Map<unknown>>();
+  yReplies.push(record.replies.map(replyToY));
+  yRecord.set("replies", yReplies);
+  getCommentsMap(doc).set(record.id, yRecord);
+}
+
+/**
+ * Read a thread record back out of the `comments` map, or `null` if absent.
+ * Freezes the stored `replies` `Y.Array` into a `readonly CommentReply[]`. The
+ * returned record (and its `replies` array) is frozen.
+ */
+export function readCommentRecord(doc: Y.Doc, id: CommentId): CommentRecord | null {
+  const yRecord = getCommentsMap(doc).get(id);
+  if (yRecord === undefined) return null;
+  const yReplies = requireRecordField<Y.Array<Y.Map<unknown>>>(yRecord, id, "replies");
+  const replies = Object.freeze(yReplies.map((m) => replyFromY(m, id)));
+  return Object.freeze({
+    id,
+    author: requireRecordField<string>(yRecord, id, "author"),
+    body: requireRecordField<string>(yRecord, id, "body"),
+    createdAt: requireRecordField<number>(yRecord, id, "createdAt"),
+    replies,
+    resolved: requireRecordField<boolean>(yRecord, id, "resolved"),
+  });
+}
+
+/**
+ * The read surface for comments: every thread record in the `comments` map,
+ * each combined with its RANGE resolved from the in-content marker scan
+ * (§1/§3). A record whose markers are gone / one-sided / inverted gets a
+ * `range` with `orphaned: true` (the host skips its highlight); a record with
+ * NO markers at all gets a degenerate orphaned range pinned to the document
+ * origin. Frozen output, stable iteration order (the `comments` map's key
+ * order).
+ *
+ * One marker scan (`buildCommentRangeIndex`) feeds every record, so this is a
+ * single O(N inline-items + N records) pass — no per-record re-scan.
+ */
+export function getComments(state: State): readonly ResolvedComment[] {
+  const doc = state[STATE_INTERNAL].doc;
+  const rangeIndex = buildCommentRangeIndex(state);
+  const out: ResolvedComment[] = [];
+  for (const key of getCommentsMap(doc).keys()) {
+    const id = key as CommentId;
+    const record = readCommentRecord(doc, id);
+    if (record === null) continue;
+    const range = rangeIndex.get(id) ?? orphanOriginRange(state);
+    out.push(Object.freeze({ ...record, range: Object.freeze(range) }));
+  }
+  return Object.freeze(out);
+}
+
+/**
+ * The degenerate orphaned range for a record whose markers are entirely absent
+ * (both gone — `buildCommentRangeIndex` produces no entry). Pinned to the
+ * document origin with `orphaned: true`; the host skips it. Positions are
+ * concrete so the type stays total.
+ */
+function orphanOriginRange(state: State): CommentRange {
+  const origin = createPosition(rootLeafId(state), 0);
+  return Object.freeze({ start: origin, end: origin, orphaned: true });
 }
