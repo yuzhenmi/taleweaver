@@ -451,6 +451,24 @@ Known gaps:
   `hyphens: auto` falls back to `manual` (honor soft hyphens, no automatic breaks)
   regardless of language — the correct CSS-UA behavior when no hyphenation resource
   exists, not a degraded build.
+- **Tab stops** are `[implemented]` end-to-end, modeled the Google-Docs way (a
+  paragraph stop list, NOT CSS `tab-size` — the former `tabSize` reservation was
+  REMOVED). A `tabStops` block-attr (`{position, alignment: left|center|right|decimal,
+  leader: none|dot|dash|line}`) + a scalar `defaultTabStop` (px, default 48 = 0.5in,
+  inherits) cascade onto `ComputedStyle`/`UsedStyle`. A tab is the `"tab"` inline
+  EMBED (atomic, one offset), so caret/click/selection/bidi reuse the inline-block
+  leaf path with no tab-specific cursor code. The IFC resolves each tab's
+  position-dependent advance at the wrap-loop overflow-check seam (`nextStop`;
+  left/default-grid + bounded look-ahead for right/center/decimal) and freezes it
+  onto a fixed-width inline-block box carrying `inlineMeta = {embedType:"tab"; leader}`;
+  the `IFCState` cache gates on `tabStops`/`defaultTabStop` and a `hasTab` flag bypasses
+  the incremental fast path. Pressing **Tab** inserts the embed (`INSERT_TAB`, discrete
+  undo) except when the caret is in a list-item block at any offset (Tab/Shift+Tab →
+  `LIST_INDENT`/`LIST_OUTDENT`);
+  `SET_TAB_STOPS` sets the stop list. Tab lines are not justify-stretched; leaders paint
+  in the renderer's inline-block branch (see `1.6-text.md` Tab stops). OUT follow-ups:
+  ruler UI, bar tabs, locale decimal separator, per-segment justify, and `SET_TAB_STOPS`
+  inside embed/template bodies.
 
 A legacy `TextMeasurer` interface exists alongside `TextShaper` for
 backwards compatibility; new code uses `TextShaper`.
