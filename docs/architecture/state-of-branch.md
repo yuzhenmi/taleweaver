@@ -794,18 +794,20 @@ The break-suggestion CREATE side now covers BOTH split and join; the SPLIT_NODE/
 editor wiring lands in slice 4e-editor (below).
 **Slice 4e-resolve-single shipped:** single-suggestion break RESOLUTION extends the
 shared `resolve(state, id, mode)` (used by `acceptSuggestion`/`rejectSuggestion`) to
-handle the two break embeds additively. The scan loop drops a `block-split-suggestion` /
+handle the two break embeds additively. The scan drops a `block-split-suggestion` /
 `block-join-suggestion` embed carrying the resolved id (ALWAYS, all four cases) via the
-existing per-block full-replace, recording its owning block N; after the scan, when
-`(insertion && reject) || (deletion && accept)` — split-reject UNDOES the split,
-join-accept DOES the join — it also MERGES N with its next sibling N+1 via
-`mergeAdjacentBlocksInTx`, run in the SAME non-undoable transaction AFTER the phase-1
-writes (which dropped the embed, leaving the structural-ids-only `MergeBlocksPlan` valid;
-the merge reads N's post-phase-1 embed-free content LIVE before appending N+1). Split-accept
-and join-reject keep the blocks split. A merge-validity guard re-checks the boundary against
-the pre-tx snapshot (still a same-parent adjacent leaf pair); a MOVED boundary clears the
-embed but SKIPS the merge (never calls `planMergeAdjacentBlocks` on an invalid boundary).
-The text-run resolution path is byte-identical (the embed branch is purely additive).
+existing per-block full-replace, recording its owning block N as a merge owner; after the
+writes, when `(insertion && reject) || (deletion && accept)` — split-reject UNDOES the
+split, join-accept DOES the join — it MERGES N with its next sibling N+1 via the live
+`mergeWithNextSiblingLiveInTx` primitive (the same one `resolveAll` uses), run in the SAME
+non-undoable transaction AFTER the phase-1 writes (which dropped the embed). The live
+helper reads N's CURRENT next sibling off the Y.Doc and defensively SKIPS a moved/absent/
+non-leaf boundary — subsuming the earlier hand-written pre-tx merge-validity guard.
+Split-accept and join-reject keep the blocks split. The text-run resolution path is
+byte-identical (the embed branch is purely additive). NOTE: `resolve` and `resolveAll`
+share one engine — `resolveBlockScan` (doc-order scan → per-block writes + merge owners)
++ `runResolve` (the non-undoable write/merge/delete-records tail) — differing only in the
+per-item `classify` callback (single-id vs all-ids) and the id set deleted.
 
 **Slice 4e-resolve-all shipped:** the BULK break RESOLUTION extends `resolveAll(state, mode)`
 (used by `acceptAll`/`rejectAll`) symmetrically: the scan DROPS every break embed (a non-break

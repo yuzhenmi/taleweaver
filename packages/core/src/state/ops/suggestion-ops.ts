@@ -37,12 +37,7 @@ import {
   splitBlockAtPositionInTx,
   splitWithSuggestion,
 } from "./split-block";
-import {
-  planMergeAdjacentBlocks,
-  mergeAdjacentBlocksInTx,
-  mergeWithNextSiblingLiveInTx,
-  type MergeBlocksPlan,
-} from "./merge-blocks";
+import { mergeWithNextSiblingLiveInTx } from "./merge-blocks";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
 import type { AttrRegistry } from "../../cascade/attr-registry";
 import type { ResolvedBlockKind } from "../state";
@@ -848,40 +843,167 @@ interface ResolveWrite {
 }
 
 /**
- * The shared accept/reject implementation. Picks the kind's provenance
- * `attrKey` and a per-run {@link ResolveAction} from `record.kind` × `mode`
- * (spec §6), then does a per-OWNING-BLOCK FULL-REPLACE rewrite (mirror of
- * {@link markDeletion} / `deleteComment`): the new `InlineItem[]` per block is
- * computed PRE-transaction (pure), then written in ONE
- * {@link SUGGESTION_RESOLVE_ORIGIN}-tagged (non-undoable) `applyOperation`
- * transaction that also deletes the record. Only TEXT runs carry suggestion ids
- * (the create ops never tag embeds), so the scan narrows to `item.kind ===
- * "text"` before testing `attrs[attrKey]`; embeds are always kept as-is.
+ * True iff `item` is one of the two break-suggestion embeds (a zero-width
+ * {@link BLOCK_SPLIT_SUGGESTION_EMBED_TYPE} / {@link BLOCK_JOIN_SUGGESTION_EMBED_TYPE}
+ * appended to the END of an owning block, carrying its id on
+ * `properties.suggestionId`). Centralizes the kind+embedType narrowing the resolve
+ * scans need before reading `properties.suggestionId` (the type guard also narrows
+ * `item` to {@link EmbedItem} for the callers).
+ */
+function isBreakEmbed(item: InlineItem): item is EmbedItem {
+  return (
+    item.kind === "embed" &&
+    (item.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE ||
+      item.embedType === BLOCK_JOIN_SUGGESTION_EMBED_TYPE)
+  );
+}
+
+/** Per-item decision for the shared resolve scan ({@link resolveBlockScan}). */
+type ScanItemResult =
+  // keep item as-is (untouched).
+  | { readonly op: "keep" }
+  // touched: replace this run with the rewritten one (kept).
+  | { readonly op: "rewrite"; readonly item: TextItem }
+  // touched: omit this run (real delete).
+  | { readonly op: "drop" }
+  // touched: a break embed → drop it; `merge` ⇒ record this owner for phase-2.
+  | { readonly op: "breakDrop"; readonly merge: boolean };
+
+/**
+ * Shared block-scan for {@link resolve} / {@link resolveAll}: walks MAIN-TREE blocks
+ * in document order, applies `classify` to each item, and accumulates the
+ * per-owning-block full-replace {@link ResolveWrite}s (a block is rewritten iff any
+ * of its items was "touched") plus the break-embed merge owners. The single-id and
+ * bulk resolvers differ ONLY in `classify`; this is their common spine.
  *
- * Block writes are tree-map writes (dirty-captured), so dirtyIds flow normally.
- * The ORPHANED case — the record is present but no MAIN-TREE run carries its id
- * (already-resolved, or an out-of-main-tree suggestion) — does no block write,
- * so it surfaces `state.rootId` (mirror of `deleteComment`'s orphaned-by-absence
- * branch) so the record-delete still advances state.
+ * `mergeOwners` is built in DOCUMENT ORDER (the iteration order); phase-2 in
+ * {@link runResolve} walks it in REVERSE so a cascade of consecutive merges never
+ * reads a block a prior merge removed.
+ */
+function resolveBlockScan(
+  state: State,
+  classify: (item: InlineItem) => ScanItemResult,
+): {
+  writes: ResolveWrite[];
+  mergeOwners: { ownerId: BlockId; kind: BlockTreeKind }[];
+} {
+  const writes: ResolveWrite[] = [];
+  const mergeOwners: { ownerId: BlockId; kind: BlockTreeKind }[] = [];
+  for (const block of iterateBlocksInDocumentOrder(state)) {
+    const content = block.inlineContent;
+    if (content === null) continue;
+    let touched = false;
+    const newItems: InlineItem[] = [];
+    for (const item of content.items) {
+      const r = classify(item);
+      switch (r.op) {
+        case "keep":
+          newItems.push(item);
+          break;
+        case "rewrite":
+          touched = true;
+          newItems.push(r.item);
+          break;
+        case "drop":
+          touched = true;
+          break;
+        case "breakDrop":
+          touched = true;
+          if (r.merge) {
+            mergeOwners.push({
+              ownerId: block.id,
+              kind: resolveBlock(state, block.id)?.kind ?? "block",
+            });
+          }
+          break;
+      }
+    }
+    if (touched) {
+      writes.push({
+        blockId: block.id,
+        kind: resolveBlock(state, block.id)?.kind ?? "block",
+        items: mergeAdjacentTextItems(newItems),
+      });
+    }
+  }
+  return { writes, mergeOwners };
+}
+
+/**
+ * Shared resolve engine for {@link resolve} / {@link resolveAll}: runs
+ * {@link resolveBlockScan}, then in ONE {@link SUGGESTION_RESOLVE_ORIGIN}-tagged
+ * (non-undoable) `applyOperation` transaction:
+ *   1. writes the per-block rewrites (the full-replace seam,
+ *      {@link writeBlockInlineContentInTx});
+ *   2. runs the conditional break MERGES in REVERSE document order via the live
+ *      {@link mergeWithNextSiblingLiveInTx} helper — which reads each owner's
+ *      CURRENT next sibling off the Y.Doc (so a cascade reflects prior merges) and
+ *      DEFENSIVELY SKIPS a no-next / moved / absent / non-leaf boundary (subsuming
+ *      the old pre-planned merge-validity guard); phase-1 only dropped the embed, so
+ *      N's content is embed-free and structurally unchanged before the merge;
+ *   3. deletes every id in `idsToDelete` from the `suggestions` map;
+ *   4. surfaces `state.rootId` when NOTHING was touched (orphaned-by-absence: the
+ *      `suggestions` map is excluded from dirty-capture, so the record deletes must
+ *      still advance state).
+ *
+ * Both resolvers feed it a per-item `classify`; the single-id resolver passes one id
+ * (at most one break owner → the reverse loop is a no-op distinction), the bulk
+ * resolver passes all ids.
+ */
+function runResolve(
+  state: State,
+  idsToDelete: ReadonlyArray<SuggestionId>,
+  classify: (item: InlineItem) => ScanItemResult,
+): OperationResult {
+  const { writes, mergeOwners } = resolveBlockScan(state, classify);
+  return applyOperation(
+    state,
+    (d) => {
+      for (const write of writes) {
+        writeBlockInlineContentInTx(d, write.blockId, write.kind, write.items, "resolveSuggestion");
+      }
+      for (let i = mergeOwners.length - 1; i >= 0; i--) {
+        const owner = mergeOwners[i];
+        if (owner === undefined) continue;
+        mergeWithNextSiblingLiveInTx(d, owner.ownerId, owner.kind);
+      }
+      const map = getSuggestionsMap(d);
+      for (const id of idsToDelete) {
+        map.delete(id);
+      }
+      if (writes.length === 0) return new Set<BlockId>([state.rootId]);
+    },
+    { origin: SUGGESTION_RESOLVE_ORIGIN },
+  );
+}
+
+/**
+ * The shared accept/reject implementation. Picks the kind's provenance `attrKey`
+ * and a per-run {@link ResolveAction} from `record.kind` × `mode` (spec §6), then
+ * delegates to the shared {@link runResolve} engine with a single-id `classify`.
+ * Only TEXT runs carry suggestion ids (the create ops never tag embeds), so the
+ * classify narrows to `item.kind === "text"` before testing `attrs[attrKey]`;
+ * non-matching items (incl. every non-break embed) are kept as-is.
+ *
+ * Per-run {@link ResolveAction}: `strip` drops the provenance attr (the run stays
+ * plain); `drop` omits the run (real delete); `applyStrip` also merges the record's
+ * `proposedAttrs` into the run's live attrs (formatting accept). Block writes are
+ * tree-map writes (dirty-captured); the ORPHANED case — record present but no
+ * MAIN-TREE run carries its id — does no block write, so {@link runResolve} surfaces
+ * `state.rootId` for the record delete.
  *
  * BREAK suggestions (a suggested paragraph SPLIT or JOIN) carry their id on a
- * zero-width break embed ({@link BLOCK_SPLIT_SUGGESTION_EMBED_TYPE} /
- * {@link BLOCK_JOIN_SUGGESTION_EMBED_TYPE}) appended to the END of the owning block
- * N (`properties.suggestionId`), NOT on a text run. Resolving one:
- *   - ALWAYS drops the break embed (the additive embed branch in the scan loop —
- *     it yields a normal full-replace `write` on N that omits the embed);
- *   - and CONDITIONALLY MERGES block N with its next sibling (N+1) when
- *     `shouldMerge = (insertion && reject) || (deletion && accept)` — split-reject
- *     UNDOES the split, join-accept DOES the join; split-accept and join-reject
- *     keep the two blocks split. The merge is {@link mergeAdjacentBlocksInTx} run
- *     AFTER the phase-1 writes in the SAME transaction — phase-1 only rewrites N's
- *     content (drops the embed), so the structural-ids-only {@link MergeBlocksPlan}
- *     stays valid, and the merge reads N's post-phase-1 (embed-free) content LIVE
- *     before appending N+1's items.
- *   - A merge-validity guard re-checks the boundary against the pre-tx snapshot
- *     (same-parent adjacent leaf pair); if it MOVED since the mark was created the
- *     embed is still cleared but the merge is SKIPPED (never call
- *     {@link planMergeAdjacentBlocks} on an invalid boundary — it throws).
+ * zero-width {@link isBreakEmbed} appended to the END of the owning block N
+ * (`properties.suggestionId`), NOT a text run. The classify yields `breakDrop` for
+ * it — always dropping the embed, and recording N as a merge owner when
+ * `breakMerge = (insertion && reject) || (deletion && accept)` (split-reject UNDOES
+ * the split, join-accept DOES the join; split-accept / join-reject keep the split).
+ * {@link runResolve} performs the conditional merge via the live
+ * {@link mergeWithNextSiblingLiveInTx} helper, whose defensive skip subsumes the
+ * boundary-validity check. A single-id resolve has at most ONE break owner.
+ *
+ * NON-undoable + the absent-record identity no-op are documented on
+ * {@link acceptSuggestion} / {@link rejectSuggestion} and {@link runResolve}.
  */
 function resolve(
   state: State,
@@ -898,120 +1020,40 @@ function resolve(
   const attrKey = ATTR_KEY_BY_KIND[record.kind];
   const action = resolveAction(record.kind, mode);
   const proposedAttrs = record.proposedAttrs ?? {};
+  // A break resolution MERGES N + N+1 when undoing a split (insertion+reject) or
+  // doing a join (deletion+accept); a split-accept / join-reject keeps the split.
+  const breakMerge =
+    (record.kind === "insertion" && mode === "reject") ||
+    (record.kind === "deletion" && mode === "accept");
 
-  // Compute the per-owning-block rewrites PRE-transaction (pure). The per-block
-  // full-replace from this snapshot is inherently offset-safe (no block merges
-  // happen here — any conditional block merge runs in phase-2 AFTER all writes).
-  // A BREAK suggestion carries its id on a single zero-width break embed; this
-  // tracks the owning block N so the conditional merge can target N + N+1.
-  let breakOwnerBlockId: BlockId | null = null;
-  const writes: ResolveWrite[] = [];
-  for (const block of iterateBlocksInDocumentOrder(state)) {
-    const content = block.inlineContent;
-    if (content === null) continue;
-    let touched = false;
-    const newItems: InlineItem[] = [];
-    for (const item of content.items) {
-      // BREAK embed carrying this id — DROP it (always). A break suggestion has
-      // exactly ONE such embed, so `breakOwnerBlockId` is set once. The owning
-      // block N thus gets a normal full-replace `write` with the embed removed.
-      if (
-        item.kind === "embed" &&
-        (item.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE ||
-          item.embedType === BLOCK_JOIN_SUGGESTION_EMBED_TYPE) &&
-        item.properties.suggestionId === id
-      ) {
-        touched = true;
-        breakOwnerBlockId = block.id;
-        continue;
-      }
-      if (item.kind === "text" && item.attrs[attrKey] === id) {
-        touched = true;
-        switch (action) {
-          case "strip":
-            newItems.push({
-              kind: "text",
-              text: item.text,
-              attrs: attrsWithout(item.attrs, attrKey),
-            });
-            break;
-          case "drop":
-            // Omit the run entirely (real delete).
-            break;
-          case "applyStrip":
-            newItems.push({
+  return runResolve(state, [id], (item) => {
+    // BREAK embed carrying this id — DROP it (always); conditionally merge.
+    if (isBreakEmbed(item) && item.properties.suggestionId === id) {
+      return { op: "breakDrop", merge: breakMerge };
+    }
+    if (item.kind === "text" && item.attrs[attrKey] === id) {
+      switch (action) {
+        case "strip":
+          return {
+            op: "rewrite",
+            item: { kind: "text", text: item.text, attrs: attrsWithout(item.attrs, attrKey) },
+          };
+        case "drop":
+          return { op: "drop" };
+        case "applyStrip":
+          return {
+            op: "rewrite",
+            item: {
               kind: "text",
               text: item.text,
               attrs: mergeAttrs(attrsWithout(item.attrs, attrKey), proposedAttrs),
-            });
-            break;
-        }
-        continue;
+            },
+          };
       }
-      // Non-touched item (incl. every embed) — keep as-is.
-      newItems.push(item);
     }
-    if (touched) {
-      writes.push({
-        blockId: block.id,
-        kind: resolveBlock(state, block.id)?.kind ?? "block",
-        items: mergeAdjacentTextItems(newItems),
-      });
-    }
-  }
-
-  // Plan the conditional break merge PRE-transaction (pure, defensive). A break
-  // resolution MERGES N + N+1 when undoing a split (insertion+reject) or doing a
-  // join (deletion+accept); a split-accept / join-reject keeps the split.
-  const shouldMerge =
-    breakOwnerBlockId !== null &&
-    ((record.kind === "insertion" && mode === "reject") ||
-      (record.kind === "deletion" && mode === "accept"));
-  let mergePlan: MergeBlocksPlan | null = null;
-  if (shouldMerge && breakOwnerBlockId !== null) {
-    const owner = resolveBlock(state, breakOwnerBlockId)?.block ?? null;
-    const nextId = owner?.nextSiblingId ?? null;
-    const next = nextId !== null ? (resolveBlock(state, nextId)?.block ?? null) : null;
-    // Merge-validity guard: only merge a still-valid same-parent adjacent LEAF
-    // pair. If the boundary moved since the mark was created (an intervening
-    // block, N+1 became a first-child, a container), phase-1 already CLEARED the
-    // embed — SKIP the merge here; never call planMergeAdjacentBlocks on an
-    // invalid boundary (it throws).
-    if (
-      owner !== null &&
-      nextId !== null &&
-      next !== null &&
-      owner.parentId === next.parentId &&
-      owner.nextSiblingId === nextId &&
-      next.prevSiblingId === breakOwnerBlockId &&
-      owner.inlineContent !== null &&
-      next.inlineContent !== null
-    ) {
-      mergePlan = planMergeAdjacentBlocks(state, breakOwnerBlockId, nextId);
-    }
-  }
-
-  return applyOperation(
-    state,
-    (d) => {
-      for (const write of writes) {
-        writeBlockInlineContentInTx(d, write.blockId, write.kind, write.items, "resolveSuggestion");
-      }
-      // Phase-2: the conditional break merge. Runs AFTER the phase-1 writes (which
-      // dropped the embed from N), reading N's post-phase-1 (embed-free) content
-      // LIVE before appending N+1's items. The structural-ids-only plan is not
-      // staled by phase-1's content-only change.
-      if (mergePlan !== null) {
-        mergeAdjacentBlocksInTx(d, mergePlan);
-      }
-      getSuggestionsMap(d).delete(id);
-      // Orphaned-by-absence: no main-tree run carried the id, so the only
-      // mutation is the record delete (the `suggestions` map is excluded from
-      // dirty-capture). Surface the document root so the delete advances state.
-      if (writes.length === 0) return new Set<BlockId>([state.rootId]);
-    },
-    { origin: SUGGESTION_RESOLVE_ORIGIN },
-  );
+    // Non-matching item (incl. every non-break embed) — keep as-is.
+    return { op: "keep" };
+  });
 }
 
 /** The provenance attr key carrying a suggestion id for each {@link SuggestionKind}. */
@@ -1156,125 +1198,60 @@ function rejectAllRun(item: TextItem): AllRewrite {
 
 /**
  * The shared {@link acceptAll} / {@link rejectAll} implementation. Unlike the
- * single-id {@link resolve} (which walks blocks once PER id), this walks each
- * block ONCE and resolves EVERY id every run carries in one combined rewrite —
- * looping the single-id resolve against the same pre-tx snapshot would clobber
- * blocks (each does a full-replace), and a single run can carry insertion +
- * deletion + formatting ids at once.
+ * single-id {@link resolve} (which classifies per ONE id), this resolves EVERY id
+ * every run carries in one combined rewrite — looping the single-id resolve against
+ * the same pre-tx snapshot would clobber blocks (each does a full-replace), and a
+ * single run can carry insertion + deletion + formatting ids at once.
  *
- * Per text run, {@link acceptAllRun} / {@link rejectAllRun} decides keep-with-
- * rewritten-attrs vs drop (with the mode's dominance order). Embeds and untouched
- * runs are kept as-is. Then ALL records are deleted in one
- * {@link SUGGESTION_RESOLVE_ORIGIN}-tagged (non-undoable) transaction. If the
- * document has no suggestions → identity no-op. If records exist but NO main-tree
- * run carries any of their ids (all orphaned) → no block is rewritten, so
- * `state.rootId` is surfaced (mirror of {@link resolve}'s orphaned branch) so the
- * record deletes still advance state.
+ * Delegates the scan + transaction to the shared {@link runResolve} engine with an
+ * all-ids `classify`: per text run {@link acceptAllRun} / {@link rejectAllRun}
+ * decides keep-with-rewritten-attrs vs drop (the mode's dominance order); a BREAK
+ * embed ({@link isBreakEmbed}) is always dropped and conditionally merges its owner
+ * N with N+1 (`(insertion && reject) || (deletion && accept)`); other embeds +
+ * untouched runs are kept. ALL records are then deleted. If the document has no
+ * suggestions → identity no-op. If records exist but NO main-tree run carries any of
+ * their ids (all orphaned) → {@link runResolve} surfaces `state.rootId` so the record
+ * deletes still advance state.
  *
  * MAIN-TREE-ONLY scan (same as {@link resolve} + `buildSuggestionRangeIndex`);
  * resolving suggestions inside embed/template bodies is a tracked follow-up.
  */
 function resolveAll(state: State, mode: "accept" | "reject"): OperationResult {
   const doc = state[STATE_INTERNAL].doc;
-  const ids = [...getSuggestionsMap(doc).keys()];
+  const ids: SuggestionId[] = [...getSuggestionsMap(doc).keys()].map(
+    (key) => key as SuggestionId,
+  );
   // No suggestions → identity no-op (return the input State reference).
   if (ids.length === 0) {
     return { state, dirtyIds: NO_DIRTY };
   }
 
-  // Compute the per-block combined rewrites PRE-transaction (pure). A per-block
-  // full-replace from this snapshot is offset-safe (no block merges happen here —
-  // any conditional block merges run in phase-2 AFTER all writes).
-  //
-  // BREAK suggestions (a suggested paragraph SPLIT or JOIN) carry their id on a
-  // zero-width break embed appended to the END of the owning block N, NOT a text
-  // run. Each is ALWAYS dropped (the embed branch below omits it → a normal
-  // full-replace `write` on N) and CONDITIONALLY merges N with its next sibling
-  // (`(insertion && reject) || (deletion && accept)` — split-reject undoes the
-  // split, join-accept does the join). Because the scan iterates in document
-  // order, `mergeOwners` ends up in DOC ORDER; phase-2 walks it in REVERSE so a
-  // cascade of consecutive merges never reads a block a prior merge removed.
-  const writes: ResolveWrite[] = [];
-  const mergeOwners: { ownerId: BlockId; kind: BlockTreeKind }[] = [];
-  for (const block of iterateBlocksInDocumentOrder(state)) {
-    const content = block.inlineContent;
-    if (content === null) continue;
-    let touched = false;
-    const newItems: InlineItem[] = [];
-    for (const item of content.items) {
-      // BREAK embed — DROP it (always), and decide whether the owning block N
-      // merges with its next sibling. Only the two break embedTypes are dropped;
-      // every other embed (footnote-anchor/tab/comment) is kept as-is below.
-      if (
-        item.kind === "embed" &&
-        (item.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE ||
-          item.embedType === BLOCK_JOIN_SUGGESTION_EMBED_TYPE)
-      ) {
-        touched = true;
-        const sidRaw = item.properties.suggestionId;
-        if (typeof sidRaw === "string") {
-          const record = readSuggestionRecord(doc, sidRaw as SuggestionId);
-          if (
-            record !== null &&
-            ((record.kind === "insertion" && mode === "reject") ||
-              (record.kind === "deletion" && mode === "accept"))
-          ) {
-            mergeOwners.push({
-              ownerId: block.id,
-              kind: resolveBlock(state, block.id)?.kind ?? "block",
-            });
-          }
-        }
-        continue;
+  return runResolve(state, ids, (item) => {
+    // BREAK embed — DROP it (always), and decide whether the owning block N merges
+    // with its next sibling. Only the two break embedTypes are dropped; every other
+    // embed (footnote-anchor/tab/comment) is kept as-is.
+    if (isBreakEmbed(item)) {
+      const sidRaw = item.properties.suggestionId;
+      let merge = false;
+      if (typeof sidRaw === "string") {
+        const record = readSuggestionRecord(doc, sidRaw as SuggestionId);
+        merge =
+          record !== null &&
+          ((record.kind === "insertion" && mode === "reject") ||
+            (record.kind === "deletion" && mode === "accept"));
       }
-      if (item.kind === "text") {
-        const rewrite =
-          mode === "accept" ? acceptAllRun(item, doc) : rejectAllRun(item);
-        if (rewrite.touched) touched = true;
-        if (rewrite.keep && rewrite.item !== undefined) newItems.push(rewrite.item);
-        continue;
-      }
-      // A non-break embed (footnote-anchor/tab/comment) — keep as-is.
-      newItems.push(item);
+      return { op: "breakDrop", merge };
     }
-    if (touched) {
-      writes.push({
-        blockId: block.id,
-        kind: resolveBlock(state, block.id)?.kind ?? "block",
-        items: mergeAdjacentTextItems(newItems),
-      });
+    if (item.kind === "text") {
+      const rewrite = mode === "accept" ? acceptAllRun(item, doc) : rejectAllRun(item);
+      if (!rewrite.touched) return { op: "keep" };
+      return rewrite.keep && rewrite.item !== undefined
+        ? { op: "rewrite", item: rewrite.item }
+        : { op: "drop" };
     }
-  }
-
-  return applyOperation(
-    state,
-    (d) => {
-      for (const write of writes) {
-        writeBlockInlineContentInTx(d, write.blockId, write.kind, write.items, "resolveAll");
-      }
-      // Phase-2: the conditional break merges. Walk REVERSE document order so each
-      // owner is still alive when processed (an owner is removed only by its
-      // PREVIOUS sibling's merge, which comes LATER in reverse order). The live
-      // helper reads each owner's CURRENT next sibling + that sibling's next id
-      // off the Y.Doc, so a cascade of consecutive merges reflects prior merges
-      // (never a stale pre-computed nextSiblingId), and skips a no-next /
-      // moved-boundary owner defensively.
-      for (let i = mergeOwners.length - 1; i >= 0; i--) {
-        const owner = mergeOwners[i];
-        if (owner === undefined) continue;
-        mergeWithNextSiblingLiveInTx(d, owner.ownerId, owner.kind);
-      }
-      const map = getSuggestionsMap(d);
-      for (const id of ids) {
-        map.delete(id);
-      }
-      // All records were orphaned (no main-tree run carried any id) — the only
-      // mutation is the record deletes (the `suggestions` map is excluded from
-      // dirty-capture). Surface the document root so the deletes advance state.
-      if (writes.length === 0) return new Set<BlockId>([state.rootId]);
-    },
-    { origin: SUGGESTION_RESOLVE_ORIGIN },
-  );
+    // A non-break embed (footnote-anchor/tab/comment) — keep as-is.
+    return { op: "keep" };
+  });
 }
 
 /** Outcome of {@link rebuildBlockForDeletion}: the new items + whether any run was tagged. */
