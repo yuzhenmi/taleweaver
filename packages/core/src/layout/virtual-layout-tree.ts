@@ -140,6 +140,15 @@ interface PageFingerprint {
    */
   readonly columnConfig: ColumnConfig;
   /**
+   * The actual per-column rendered height this page was POSITIONED with (see
+   * `PagePlanEntry.balancedColumnHeight`). MUST participate in the fingerprint:
+   * `materializePage` lays each column into this height, so a final-page balance
+   * change (FILL height → balanced height) produces a DIFFERENT MultiColumnBox even
+   * when the children/resume tokens / columnConfig are unchanged. Compared by `===`
+   * (a plain number).
+   */
+  readonly balancedColumnHeight: number;
+  /**
    * The section page-break cap this page was POSITIONED with (see
    * `PagePlanEntry.stopBeforeIndex`). MUST participate in the fingerprint:
    * `materializePage` threads it into `bfc.layoutBlock`, so two entries with
@@ -262,6 +271,7 @@ function fingerprintsEqual(a: PageFingerprint, b: PageFingerprint): boolean {
     a.listCounterAtStart === b.listCounterAtStart &&
     pageConfigsEqual(a.pageConfig, b.pageConfig) &&
     columnConfigsEqual(a.columnConfig, b.columnConfig) &&
+    a.balancedColumnHeight === b.balancedColumnHeight &&
     a.stopBeforeIndex === b.stopBeforeIndex &&
     a.headerBlockId === b.headerBlockId &&
     a.footerBlockId === b.footerBlockId &&
@@ -391,6 +401,7 @@ export function makeVirtualLayoutTree(
       listCounterAtStart: entry.listCounterAtStart,
       pageConfig: entry.pageConfig,
       columnConfig: entry.columnConfig,
+      balancedColumnHeight: entry.balancedColumnHeight,
       stopBeforeIndex: entry.stopBeforeIndex,
       headerBlockId,
       footerBlockId,

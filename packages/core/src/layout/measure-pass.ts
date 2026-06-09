@@ -17,7 +17,7 @@ import type { BreakToken } from "./fragmentation";
 import { breakTokensEqual, innerBfcToken } from "./fragmentation";
 import type { BlockFitMeta } from "./fit-core";
 import { fitOnePage } from "./fit-core";
-import { fitColumnsOnPage, type ColumnsFitResult } from "./column-fit";
+import { fitColumnsOnPage, balanceColumnHeight, type ColumnsFitResult } from "./column-fit";
 import { isDevMode } from "./dev-mode";
 import type { PageConfig } from "./page-config";
 import { columnConfigsEqual, type ColumnConfig } from "./column-config";
@@ -128,6 +128,16 @@ export interface PagePlanEntry {
    * page loop threads to the next multicol page.
    */
   readonly columnFit?: ColumnsFitResult;
+  /**
+   * The ACTUAL per-column rendered height for THIS page (multi-column wiring T4) —
+   * the block-size Task 5's `materializePage` lays each column into. ALWAYS
+   * present: `effContentBlockSize` (the full page body block-size) for
+   * single-column pages and for non-final multicol (FILL) pages; the BALANCED
+   * height (`balanceColumnHeight`, < the page body) on a multicol section's FINAL
+   * page, so its columns are evened (CSS `column-fill: balance`, Google-Docs
+   * parity). Joins the `PageFingerprint` so a balance change re-materializes.
+   */
+  readonly balancedColumnHeight: number;
   /** Cascaded top-level child references that begin/continue on this page. */
   readonly children: readonly RenderNode[];
   /** Index of the first top-level child on this page (into the doc's children). */
@@ -618,6 +628,10 @@ export function measurePass(
           // — the reuse gate's `columnConfigsEqual` + `canReusePage` proofs cover
           // the inputs that determined it. `undefined` for single-column pages.
           columnFit: reusable.columnFit,
+          // Carry the prior entry's rendered per-column height (T4) — like
+          // `columnFit`, it is position-INDEPENDENT (a pure function of the page's
+          // content + column config, both proved unchanged by the reuse gate).
+          balancedColumnHeight: reusable.balancedColumnHeight,
           children: reusedChildren,
           startIndex,
           resumeInto,
@@ -720,6 +734,11 @@ export function measurePass(
     let resumeOut: BreakToken | null;
     let listCounterAtEnd: number;
     let columnFit: ColumnsFitResult | undefined;
+    // The actual per-column rendered height (T4): the full page body block-size
+    // for single-column / FILL pages (the initializer below); the BALANCED height
+    // for a multicol section's FINAL page (set in the multicol branch). Declared
+    // in the shared fit scope so both branches and the entry pushes read it.
+    let balancedColumnHeight = effContentBlockSize;
     if (effColCfg.columnCount > 1) {
       // A prior multicol page threaded its `ColumnBreakToken` into `resumeInto`;
       // `fitColumnsOnPage` wants the INNER BFC token, so unwrap it.
@@ -759,6 +778,51 @@ export function measurePass(
           resumeChildIndex: startIndex + columnFit.totalChildrenCount,
           resumeChildToken: null,
         };
+      }
+      // Final-page BALANCE (Task 4): the section's last multicol page evens its
+      // columns (Google Docs `column-fill: balance`). Finality is EXPLICIT
+      // (resolves plan-review I-1): the columns took all the section's remaining
+      // content (`columnFit.pageResumeOut === null`) AND content is exhausted at the
+      // section boundary/end. `>= sectionEnd` is the robust form; `pageResumeOut ===
+      // null` already implies reaching effectiveEnd, so they agree today. (Read
+      // `pageResumeOut`, NOT the F-1-synthesized `resumeOut`: a section-capped final
+      // page synthesizes a forced-break token above, but it IS still its section's
+      // final page and must balance.)
+      const sectionEnd = st.nextBoundaryIndex ?? metas.length;
+      const isFinalMulticolPage =
+        columnFit.pageResumeOut === null &&
+        startIndex + columnFit.totalChildrenCount >= sectionEnd;
+      if (isFinalMulticolPage) {
+        balancedColumnHeight = balanceColumnHeight(
+          metas,
+          startIndex,
+          innerResume,
+          effColCfg.columnCount,
+          listCounterAtStart,
+          effContentBlockSize,
+          st.nextBoundaryIndex ?? undefined,
+        );
+        const balanced = fitColumnsOnPage(
+          metas,
+          startIndex,
+          innerResume,
+          balancedColumnHeight,
+          effColCfg.columnCount,
+          listCounterAtStart,
+          st.nextBoundaryIndex ?? undefined,
+        );
+        // Balance only REDISTRIBUTES the same content more evenly — it must not
+        // change which/how-many top-level children are placed, the resume state, or
+        // the list counter. Assert in dev to catch measure drift; then adopt the
+        // balanced fit. `childrenCount`/`resumeOut`/`listCounterAtEnd` stay the FILL
+        // values (the dev-assert guards their invariance); we do NOT re-read them.
+        if (isDevMode() && balanced.totalChildrenCount !== columnFit.totalChildrenCount) {
+          throw new Error(
+            `measurePass: balanced re-fit placed ${balanced.totalChildrenCount} children ` +
+              `but FILL placed ${columnFit.totalChildrenCount} on final multicol page ${pageIndex}`,
+          );
+        }
+        columnFit = balanced;
       }
     } else {
       _fitOnePageCallCount++;
@@ -823,6 +887,10 @@ export function measurePass(
       // The per-column distribution (T3) — set only on the multicol branch;
       // `undefined` for single-column pages.
       columnFit,
+      // The actual per-column rendered height (T4): `effContentBlockSize` for
+      // single-column / FILL pages, the balanced height on a section's final
+      // multicol page.
+      balancedColumnHeight,
       children,
       startIndex,
       resumeInto,

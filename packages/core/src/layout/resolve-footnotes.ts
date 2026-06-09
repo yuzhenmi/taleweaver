@@ -812,6 +812,14 @@ export function resolveFootnotes(
     // only for single-column pages. Without it, Task 5's `materializePage` would
     // silently fall to single-column for every multicol page rewritten by this sweep.
     let resolvedColumnFit: ColumnsFitResult | undefined = undefined;
+    // The actual per-column rendered height (multi-column wiring T4) this page
+    // carries — what Task 5's `materializePage` lays each column into. ALWAYS
+    // present (REQUIRED `PagePlanEntry` field). Carried from the prior entry on the
+    // REUSE path; on the MISS path it is the slot-reduced FILL height (the height
+    // the footnote page's columns actually fill into). Initialized to the full body
+    // content size so it is definitely-assigned for single-column / footnote-free
+    // pages too.
+    let resolvedBalancedColumnHeight = pageContentBlockSize;
     let reused = false;
 
     if (prevResolvedIndexByStartIndex !== null && prevResolvedPlan !== undefined) {
@@ -850,6 +858,9 @@ export function resolveFootnotes(
         // Carry the prior measure-pass entry's column distribution (T3). The reuse
         // gate proved this page's fit is unchanged, so its `columnFit` is still valid.
         resolvedColumnFit = prevEntry.columnFit;
+        // Carry the prior entry's rendered per-column height (T4); the reuse gate
+        // proved this page's fit/geometry are unchanged, so it is still valid.
+        resolvedBalancedColumnHeight = prevEntry.balancedColumnHeight;
         // The page's list-counter INCREMENT is a pure function of its (proved
         // identical) content; reading it off the prior plan as
         // `prevNext.listCounterAtStart − prevEntry.listCounterAtStart` reproduces
@@ -1047,6 +1058,12 @@ export function resolveFootnotes(
     // for a multicol page; `undefined` for single-column). Threads to Task 5's
     // `materializePage` so a footnote-bearing multicol page builds a MultiColumnBox.
     resolvedColumnFit = fit.columnFit;
+    // T4: the rendered per-column height — the slot-reduced body height the page's
+    // columns FILL into (the final `fitBody` ran at `pageContentBlockSize −
+    // footnoteSlotHeight`). Task 5's `materializePage` lays each column into this.
+    // TODO(T4b): a footnote-bearing FINAL multicol page should BALANCE its columns
+    // at the reduced height (balanceColumnHeight), not just FILL. Deferred.
+    resolvedBalancedColumnHeight = pageContentBlockSize - footnoteSlotHeight;
     } // end miss path
 
     // Block-axis bookkeeping reasons about the INNER BFC token: a multicol page's
@@ -1070,6 +1087,7 @@ export function resolveFootnotes(
       pageConfig: effCfg,
       columnConfig: effColCfg,
       columnFit: resolvedColumnFit,
+      balancedColumnHeight: resolvedBalancedColumnHeight,
       children,
       startIndex,
       resumeInto,

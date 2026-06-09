@@ -188,6 +188,12 @@ describe("measurePass — multicol FILL fit (multi-column wiring T3)", () => {
     // resumes (a synthesized forced-break block token) into the next section.
     expect(p0.columnFit?.totalChildrenCount).toBe(2);
     expect(p0.resumeOut).toEqual({ type: "block", resumeChildIndex: 2, resumeChildToken: null });
+    // T4 finality detection: page 0 is the SECTION-capped final multicol page —
+    // its content exhausts at the section boundary (index 2), so it BALANCES. This
+    // guards the `sectionEnd = st.nextBoundaryIndex ?? metas.length` clause: if
+    // finality used `metas.length` (4) instead of the section boundary (2), this
+    // page would read as non-final and keep `balancedColumnHeight === pageBlockSize`.
+    expect(p0.balancedColumnHeight).toBeLessThan(PAGE.pageBlockSize);
 
     // Section 2 is NOT dropped — it begins a fresh page at its boundary index.
     const p1 = plan.entries[1];
@@ -196,6 +202,72 @@ describe("measurePass — multicol FILL fit (multi-column wiring T3)", () => {
     expect(p1.columnFit).toBeDefined();
     expect(p1.columnFit?.totalChildrenCount).toBe(2);
     expect(p1.resumeOut).toBeNull();
+  });
+});
+
+describe("measurePass — final-page BALANCE (multi-column wiring T4)", () => {
+  // PAGE body block-size = 300, blocks of size 100, 2 columns. At FILL one column
+  // holds floor(300/100) = 3 blocks. The page body block-size (effContentBlockSize)
+  // is 300 for these no-margin pages.
+  const twoCol: SectionPlan = {
+    boundaries: [{ startFlattenedIndex: 0, sectionId: null }],
+    effectiveDefaultColumns: { columnCount: 2, columnGap: 48, columnRule: null },
+  };
+
+  it("a SHORT multicol section (fits one page) BALANCES — column 1 non-empty, balancedColumnHeight < page body", () => {
+    // 3 blocks of 100 → at FILL all 3 land in column 0 (300), column 1 empty.
+    // Balance evens them: minimal equal height ~200 spreads 2 into column 0 and 1
+    // into column 1 — so column 1 becomes non-empty. The section's single page is
+    // its FINAL page (content exhausts, no overflow).
+    const metas = Array.from({ length: 3 }, () => blockMeta(100));
+    const plan = measurePass(metas, PAGE, twoCol);
+    expect(plan.entries.length).toBe(1);
+
+    const p0 = plan.entries[0];
+    // This page is the section's final page (content exhausts here).
+    expect(p0.resumeOut).toBeNull();
+    // The page body block-size for these no-margin pages is 300.
+    const pageBodyBlockSize = PAGE.pageBlockSize; // 300, no margins
+    // Balance reduced the per-column height below the full page body height.
+    expect(p0.balancedColumnHeight).toBeLessThan(pageBodyBlockSize);
+    // Content now spreads across BOTH columns (NOT all in column 0).
+    const fit = p0.columnFit;
+    if (fit === undefined) throw new Error("expected columnFit on multicol page 0");
+    expect(fit.columns.length).toBe(2);
+    expect(fit.columns[1].childrenCount).toBeGreaterThan(0);
+    // The balanced re-fit still places all 3 children (balance only redistributes).
+    expect(fit.totalChildrenCount).toBe(3);
+  });
+
+  it("a multi-page multicol section: overflow page FILLs (balancedColumnHeight === page body, NOT final); the last page BALANCES", () => {
+    // 8 blocks of 100, 2 columns: page 0 fills 6 (3+3) and OVERFLOWS (not final);
+    // page 1 holds the trailing 2 (short) and is the section's FINAL page → balances.
+    const metas = Array.from({ length: 8 }, () => blockMeta(100));
+    const plan = measurePass(metas, PAGE, twoCol);
+    expect(plan.entries.length).toBe(2);
+    const pageBodyBlockSize = PAGE.pageBlockSize; // 300
+
+    // Overflow page 0: FILL, NOT the final page.
+    const p0 = plan.entries[0];
+    expect(p0.resumeOut).not.toBeNull();
+    expect(p0.balancedColumnHeight).toBe(pageBodyBlockSize);
+
+    // Final page 1: short (2 blocks) → balances below the page body height.
+    const p1 = plan.entries[1];
+    expect(p1.resumeOut).toBeNull();
+    expect(p1.balancedColumnHeight).toBeLessThan(pageBodyBlockSize);
+  });
+
+  it("single-column pages: balancedColumnHeight === page body block-size for every entry", () => {
+    const metas = Array.from({ length: 8 }, () => blockMeta(100));
+    const single = measurePass(metas, PAGE, IMPLICIT_SECTION_PLAN);
+    const pageBodyBlockSize = PAGE.pageBlockSize; // 300, no margins
+    for (const e of single.entries) {
+      expect(e.balancedColumnHeight).toBe(pageBodyBlockSize);
+    }
+    // Plan boundaries unchanged from pre-T4 (equivalence): 3 blocks/page, 3 pages.
+    expect(single.entries.length).toBe(3);
+    expect(single.entries.map((e) => e.startIndex)).toEqual([0, 3, 6]);
   });
 });
 
