@@ -27,7 +27,10 @@ import { STATE_INTERNAL } from "../state-internal";
 import { getSuggestionsMap, getYBlock, type BlockTreeKind } from "../yjs-doc";
 import { buildYInlineContent } from "../y-block";
 import { planApplyAttrsToRange, applyAttrsToRangeInTx } from "./apply-attrs";
-import { planInsertText, insertTextInTx } from "./insert-text";
+import { planInsertText, insertTextInTx, planInsertTextFullReplace } from "./insert-text";
+// Type-only import — runtime cycle is broken by `import type` (erased at runtime).
+import type { AttrRegistry } from "../../cascade/attr-registry";
+import type { ResolvedBlockKind } from "../state";
 
 /** An empty dirtyIds set — the identity-no-op return per the T7 contract. */
 const NO_DIRTY: ReadonlySet<BlockId> = new Set<BlockId>();
@@ -186,19 +189,64 @@ export function markDeletion(
   span: Span,
   input: MarkDeletionInput,
 ): OperationResult {
+  const plan = planMarkDeletion(state, span, input);
+  // Collapsed span / nothing to mark → identity no-op (the input State reference).
+  if (plan === null) {
+    return { state, dirtyIds: NO_DIRTY };
+  }
+
+  return applyOperation(state, (d) => {
+    for (const write of plan.writes) {
+      getYBlock(d, write.blockId, "markDeletion", plan.kind).set(
+        "inlineContent",
+        buildYInlineContent({ items: write.items }),
+      );
+    }
+    // Write the deletion record only when ≥1 run was actually tagged AND we are
+    // not reusing an existing (coalesced) record. A whole-span-was-own-insertions
+    // delete tags nothing → no record (the removal is itself the change).
+    if (plan.taggedAny && !plan.reusing) {
+      writeSuggestionRecordInTx(d, {
+        id: plan.id,
+        kind: "deletion",
+        author: input.author,
+        createdAt: input.createdAt,
+      });
+    }
+  });
+}
+
+/**
+ * The pure pre-transaction plan for a suggested deletion: the per-owning-block
+ * full-replace `writes`, whether ≥1 run was actually TAGGED (`taggedAny` — drives
+ * the record write), the resolved/coalesced deletion `id` + whether it `reusing`s
+ * an existing record, and the span's owning tree `kind`.
+ *
+ * Extracted from {@link markDeletion} so the composite {@link replaceWithSuggestion}
+ * can reuse the strike plan: it inspects `writes` to build the insert plan against
+ * the POST-strike items of the start block (the strike full-REPLACES that block's
+ * Y.Array, so an in-place insert against the pre-strike `state` would be unsafe).
+ *
+ * Returns `null` for the no-op cases (collapsed span, or `planApplyAttrsToRange`
+ * yields nothing) so the caller short-circuits with the identity contract.
+ */
+function planMarkDeletion(
+  state: State,
+  span: Span,
+  input: MarkDeletionInput,
+): MarkDeletionPlan | null {
   // Collapsed span = no-op. Collapsed-ness (same block + same offset) is
-  // normalization-invariant, so we check raw positions directly; must return the
-  // input State reference (identity).
+  // normalization-invariant, so we check raw positions directly.
   if (
     span.anchor.blockId === span.focus.blockId &&
     span.anchor.offset === span.focus.offset
   ) {
-    return { state, dirtyIds: NO_DIRTY };
+    return null;
   }
 
   const plan = planApplyAttrsToRange(state, span);
   if (plan === null) {
-    return { state, dirtyIds: NO_DIRTY };
+    return null;
   }
 
   // Coalesce decision is PURE and computed BEFORE opening the transaction. A
@@ -213,8 +261,8 @@ export function markDeletion(
   );
 
   // Compute the per-owning-block rewrites + whether any run was TAGGED (vs all
-  // own-insertions removed) PRE-transaction (pure); apply them in the tx — mirror
-  // of `deleteComment`, which plans writes pre-tx then applies them in the tx.
+  // own-insertions removed) PRE-transaction (pure) — mirror of `deleteComment`,
+  // which plans writes pre-tx then applies them in the tx.
   const doc = state[STATE_INTERNAL].doc;
   const writes: { blockId: BlockId; items: ReadonlyArray<InlineItem> }[] = [];
   let taggedAny = false;
@@ -234,25 +282,21 @@ export function markDeletion(
     writes.push({ blockId: seg.block.id, items: mergeAdjacentTextItems(result.items) });
   }
 
-  return applyOperation(state, (d) => {
-    for (const write of writes) {
-      getYBlock(d, write.blockId, "markDeletion", plan.kind).set(
-        "inlineContent",
-        buildYInlineContent({ items: write.items }),
-      );
-    }
-    // Write the deletion record only when ≥1 run was actually tagged AND we are
-    // not reusing an existing (coalesced) record. A whole-span-was-own-insertions
-    // delete tags nothing → no record (the removal is itself the change).
-    if (taggedAny && !reusing) {
-      writeSuggestionRecordInTx(d, {
-        id,
-        kind: "deletion",
-        author: input.author,
-        createdAt: input.createdAt,
-      });
-    }
-  });
+  return { writes, taggedAny, id, reusing, kind: plan.kind };
+}
+
+/** The pure pre-transaction plan produced by {@link planMarkDeletion}. */
+interface MarkDeletionPlan {
+  /** The per-owning-block full-replace inlineContent rewrites (post-strike items). */
+  readonly writes: { blockId: BlockId; items: ReadonlyArray<InlineItem> }[];
+  /** True iff ≥1 in-range run received the deletion attr (drives the record write). */
+  readonly taggedAny: boolean;
+  /** The resolved (possibly coalesced) deletion id to stamp / record. */
+  readonly id: SuggestionId;
+  /** True iff the id coalesced into an existing record → write NO new record. */
+  readonly reusing: boolean;
+  /** The span's single owning tree (main / embedContents / templateContents). */
+  readonly kind: ResolvedBlockKind;
 }
 
 /**
@@ -343,6 +387,189 @@ export function mintInsertion(
     if (!reusing) {
       writeSuggestionRecordInTx(doc, {
         id,
+        kind: "insertion",
+        author: input.author,
+        createdAt: input.createdAt,
+      });
+    }
+  });
+}
+
+/**
+ * Fields the host supplies when typing OVER a selection in Suggesting mode (the
+ * suggestion analog of `replaceRange`). Two ids — `deletionId` (for the struck
+ * selection) and `insertionId` (for the new text) — are minted host-side; each is
+ * REUSED (not consumed) when its half coalesces into an adjacent same-author
+ * suggestion. `author`/`createdAt` are deterministic host-injected values; the
+ * SAME `createdAt` flows onto BOTH records as the render layer's "this was ONE
+ * replace" grouping signal.
+ */
+export interface ReplaceSuggestionInput {
+  readonly deletionId: SuggestionId;
+  readonly insertionId: SuggestionId;
+  readonly author: string;
+  /** SHARED by both the insertion + deletion records — the render-layer "replace" grouping signal. */
+  readonly createdAt: number;
+}
+
+/**
+ * TYPE OVER A SELECTION in Suggesting mode: soft-delete the selection AND insert
+ * `text` at the selection start, in ONE tracked `applyOperation` transaction — the
+ * suggestion analog of `replaceRange` (which composes deleteRange + insertText
+ * atomically). The strike + the insert + BOTH records (an `insertion` and a
+ * `deletion`) land as ONE undo entry and one collab event.
+ *
+ * Composes {@link planMarkDeletion} (the strike plan) with
+ * {@link planInsertTextFullReplace} (the insert). The KEY hazard — identical to
+ * `replaceRange` — is that the strike FULL-REPLACES the start block's Y.Array
+ * (each owning block is rewritten via `getYBlock(...).set("inlineContent", …)`),
+ * so the insert plan MUST be built against the POST-strike items (the start
+ * block's `writes` entry), NOT against the pre-strike `state` (whose snapshot is
+ * still un-struck and whose Y.Text identity the strike blows away). The insert
+ * therefore always uses `planInsertTextFullReplace` (mode = full-replace) when the
+ * start block was struck.
+ *
+ * The new run lands at `start.offset` — BEFORE the struck selection text — and
+ * carries `insertionSuggestionId`. `attrs` is its INTENDED live format (the
+ * surrounding-context attrs the editor would have used); the resolved insertion id
+ * is stamped on top, OVERWRITING only `insertionSuggestionId`.
+ *
+ * The two records share `createdAt` as the render-layer "replace" grouping signal.
+ * Coalescing is per-half + independent: the insertion coalesces into an adjacent
+ * same-author insertion at the start (computed against the PRE-strike state — the
+ * strike never touches the run before `start`); the deletion coalesces per
+ * {@link planMarkDeletion}. A coalesced half writes no new record.
+ *
+ * Block-write discipline: the start block is written EXACTLY ONCE — by the
+ * `insertTextInTx` full-replace (its `items` already include the struck-tail of
+ * the start block, since the insert plan was built against the post-strike
+ * `startWrite.items`); the loop writes every OTHER struck block. Writing the start
+ * block in both the loop and the insert would double-write (the loop's struck-only
+ * items, missing the inserted run, would land last and lose the insert).
+ *
+ * Degenerate delegation (the editor caller is always the expanded non-empty
+ * branch, but these keep the op total):
+ *   - `text === ""` → a pure {@link markDeletion} (no insertion record).
+ *   - a collapsed span → a pure {@link mintInsertion} at the cursor (no deletion
+ *     record).
+ *   - the strike plan is `null` (nothing to strike, e.g. an all-zero-width span) →
+ *     a pure {@link mintInsertion} at the span start.
+ *
+ * The caller computes the resulting cursor (`start.offset + text.length`) itself —
+ * that is the editor's job (the next change-tracking slice); this op only mutates
+ * state.
+ *
+ * `registry` (optional): an `AttrRegistry`; threaded to the insert plan's run-merge
+ * so interpreters with a custom per-key `equals` opt into custom adjacent-item
+ * compare semantics. Omitted → deep-value compare.
+ */
+export function replaceWithSuggestion(
+  state: State,
+  span: Span,
+  text: string,
+  attrs: ReadonlyAttrs,
+  input: ReplaceSuggestionInput,
+  registry?: AttrRegistry,
+): OperationResult {
+  // Degenerate: nothing to insert → a pure suggested deletion of the selection.
+  if (text === "") {
+    return markDeletion(state, span, {
+      id: input.deletionId,
+      author: input.author,
+      createdAt: input.createdAt,
+    });
+  }
+
+  // Degenerate: collapsed span → nothing to strike, a pure suggested insertion.
+  if (
+    span.anchor.blockId === span.focus.blockId &&
+    span.anchor.offset === span.focus.offset
+  ) {
+    return mintInsertion(state, span.anchor, text, attrs, {
+      id: input.insertionId,
+      author: input.author,
+      createdAt: input.createdAt,
+    });
+  }
+
+  // Plan the strike (pure, pre-tx). A `null` plan means the span re-collapsed /
+  // yields nothing to strike — reduce to a pure suggested insertion at the span
+  // start (the document-order earliest endpoint).
+  const delPlan = planMarkDeletion(state, span, {
+    id: input.deletionId,
+    author: input.author,
+    createdAt: input.createdAt,
+  });
+  const start = spanStart(state, span);
+  if (delPlan === null) {
+    return mintInsertion(state, start, text, attrs, {
+      id: input.insertionId,
+      author: input.author,
+      createdAt: input.createdAt,
+    });
+  }
+
+  // Insertion coalesce decision — computed against the PRE-strike `state` (the
+  // strike never alters the run before `start`, so a same-author insertion
+  // neighbor there is still valid). Mirrors `mintInsertion`'s collapsed-span probe.
+  const { id: insId, reusing: reusingIns } = resolveCoalesce(
+    state,
+    createSpan(start, start),
+    input.insertionId,
+    INSERTION_SUGGESTION_ATTR,
+    (record) => record.kind === "insertion" && record.author === input.author,
+  );
+
+  // Stamp the resolved insertion id over the intended live format. OVERWRITES only
+  // `insertionSuggestionId` (any stale caller value is replaced by the resolved id).
+  const insertAttrs: ReadonlyAttrs = { ...attrs, [INSERTION_SUGGESTION_ATTR]: insId };
+
+  // Build the insert plan against the POST-strike items of the start block (its
+  // `writes` entry) — NOT `state` (still pre-strike; its Y.Text identity is blown
+  // away by the strike full-replace). If the start block has no struck write (it
+  // contributed no in-range text — e.g. the span starts exactly at end-of-block),
+  // the start block is untouched by the strike, so an in-place plan against the
+  // live `state` is safe.
+  const startWrite = delPlan.writes.find((w) => w.blockId === start.blockId);
+  const insertPlan = startWrite
+    ? planInsertTextFullReplace(
+        start.blockId,
+        delPlan.kind,
+        startWrite.items,
+        start.offset,
+        text,
+        insertAttrs,
+        registry,
+      )
+    : planInsertText(state, start, text, insertAttrs, registry);
+
+  return applyOperation(state, (d) => {
+    // Write every struck block EXCEPT the start block: the start block is written
+    // once by `insertTextInTx` below (whose full-replace items already carry the
+    // struck start-block tail). The branch where `startWrite` is undefined writes
+    // ALL struck blocks here (the start block was never struck) and the insert is
+    // an in-place mutation into the live (untouched) start block.
+    for (const write of delPlan.writes) {
+      if (startWrite !== undefined && write.blockId === start.blockId) continue;
+      getYBlock(d, write.blockId, "replaceWithSuggestion", delPlan.kind).set(
+        "inlineContent",
+        buildYInlineContent({ items: write.items }),
+      );
+    }
+    insertTextInTx(d, insertPlan);
+    // Write the deletion record (≥1 run tagged AND not coalesced).
+    if (delPlan.taggedAny && !delPlan.reusing) {
+      writeSuggestionRecordInTx(d, {
+        id: delPlan.id,
+        kind: "deletion",
+        author: input.author,
+        createdAt: input.createdAt,
+      });
+    }
+    // Write the insertion record (unless coalesced into an existing one).
+    if (!reusingIns) {
+      writeSuggestionRecordInTx(d, {
+        id: insId,
         kind: "insertion",
         author: input.author,
         createdAt: input.createdAt,

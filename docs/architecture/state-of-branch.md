@@ -732,8 +732,19 @@ backward / forward / word / line). DELETE_WORD applies the directional caret rul
 → span START `target`); DELETE_LINE is backward-only (caret at line start in both
 modes). Both are structurally simple — cross-block delete is already a no-op in both
 modes, so no structural gate.
+**Slice 4d-state (`replaceWithSuggestion`) shipped:** the STATE op for type-over-
+selection in suggesting mode (the suggestion analog of `replaceRange`) — soft-deletes
+the selection AND inserts new text at the selection start in ONE transaction,
+producing TWO records (an insertion + a deletion sharing `createdAt` as the render
+"replace" grouping signal). Built by extracting the strike's pure `planMarkDeletion`
+out of `markDeletion` (behavior-preserving) and composing it with
+`planInsertTextFullReplace` against the POST-strike start-block items (same
+full-replace hazard as `replaceRange`). Degenerate inputs delegate to
+`markDeletion` (empty text) / `mintInsertion` (collapsed span). The EDITOR WIRE-UP
+(routing the expanded-selection `INSERT_TEXT`/PASTE branch to this op + computing the
+post-edit cursor) is pending the next change-tracking slice.
 REMAINING: the type-over-selection
-composite, 4d format handlers →
+EDITOR wire-up, 4d format handlers →
 markFormatting (+ INLINE_FORMAT_ATTR_KEYS guard), 4e block-split/join embeds
 (SPLIT_NODE + break-delete);
 5 render (insertion=color+underline, deletion=color+strikethrough, formatting=

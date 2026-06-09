@@ -366,6 +366,7 @@ export {
   markFormatting,
   markDeletion,
   mintInsertion,
+  replaceWithSuggestion,
   acceptSuggestion,
   rejectSuggestion,
   acceptAll,
@@ -375,6 +376,7 @@ export type {
   MarkFormattingInput,
   MarkDeletionInput,
   MarkInsertionInput,
+  ReplaceSuggestionInput,
 } from "./ops/suggestion-ops";
 
 // History (Y.UndoManager-backed undo/redo with aligned selection stacks).
