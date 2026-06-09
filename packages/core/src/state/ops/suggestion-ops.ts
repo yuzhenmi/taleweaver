@@ -10,6 +10,7 @@ import { attrsEqual, mergeAttrs } from "../attrs";
 import {
   mergeAdjacentTextItems,
   type InlineItem,
+  type TextItem,
 } from "../inline-content";
 import {
   DELETION_SUGGESTION_ATTR,
@@ -529,6 +530,190 @@ function resolveAction(kind: SuggestionKind, mode: "accept" | "reject"): Resolve
 function attrsWithout(attrs: ReadonlyAttrs, key: string): ReadonlyAttrs {
   const { [key]: _omit, ...rest } = attrs;
   return rest;
+}
+
+/**
+ * ACCEPT EVERY suggestion in the document in ONE non-undoable transaction (the
+ * "Accept all" command). Each TEXT run is resolved against ALL the suggestion
+ * ids it carries at once (a run can be insertion-by-A + deletion-by-B +
+ * formatting-by-C simultaneously), with the accept dominance order from
+ * {@link acceptAllRun}: accept-deletion DROPS the run; otherwise the run is kept
+ * plain (insertion id stripped) with any formatting proposal applied live. ALL
+ * records are deleted. See {@link resolveAll}.
+ *
+ * NON-undoable ({@link SUGGESTION_RESOLVE_ORIGIN}) — Ctrl+Z cannot revert a bulk
+ * accept, exactly as {@link acceptSuggestion}. Identity no-op (same `state` ref +
+ * empty dirtyIds) when the document has no suggestions.
+ */
+export function acceptAll(state: State): OperationResult {
+  return resolveAll(state, "accept");
+}
+
+/**
+ * REJECT EVERY suggestion in the document in ONE non-undoable transaction (the
+ * "Reject all" command). The inverse of {@link acceptAll}: per run, the reject
+ * dominance order from {@link rejectAllRun} applies — reject-insertion DROPS the
+ * run; otherwise the run is kept (deletion + formatting ids stripped, no proposal
+ * applied). ALL records are deleted. See {@link resolveAll}.
+ *
+ * NON-undoable, same identity no-op contract as {@link acceptAll}.
+ */
+export function rejectAll(state: State): OperationResult {
+  return resolveAll(state, "reject");
+}
+
+/**
+ * The outcome of resolving ONE text run against EVERY suggestion id it carries
+ * under a bulk-resolve mode: `touched` = the run carried ≥1 suggestion id (so the
+ * block must be rewritten); `keep` = the resolved run survives (`false` → it is
+ * dropped); `item` = the rewritten run, present iff `keep`.
+ */
+interface AllRewrite {
+  readonly touched: boolean;
+  readonly keep: boolean;
+  readonly item?: TextItem;
+}
+
+/** A copy of `item` with `attrs` replaced — the rewritten kept run. */
+function withAttrs(item: TextItem, attrs: ReadonlyAttrs): TextItem {
+  return { kind: "text", text: item.text, attrs };
+}
+
+/**
+ * Resolve ONE text run for {@link acceptAll}. Dominance: a deletion id (accept-
+ * deletion) DROPS the run — a char inserted-by-A AND deletion-suggested-by-B,
+ * both accepted, ends up deleted. Otherwise the run is KEPT with: the insertion
+ * id stripped (if present); and — if it carries a formatting id — the record's
+ * `proposedAttrs` applied live (`mergeAttrs(attrsWithout(attrs, fmtKey), proposed)`,
+ * a null record → just stripping the id). A run carrying none of the three ids is
+ * untouched (`touched: false`).
+ */
+function acceptAllRun(item: TextItem, doc: Y.Doc): AllRewrite {
+  const hasInsertion = typeof item.attrs[INSERTION_SUGGESTION_ATTR] === "string";
+  const hasDeletion = typeof item.attrs[DELETION_SUGGESTION_ATTR] === "string";
+  const fmtRaw = item.attrs[FORMATTING_SUGGESTION_ATTR];
+  const hasFormatting = typeof fmtRaw === "string";
+
+  if (!hasInsertion && !hasDeletion && !hasFormatting) {
+    return { touched: false, keep: true, item };
+  }
+  // Accept-deletion dominates → drop the run.
+  if (hasDeletion) {
+    return { touched: true, keep: false };
+  }
+  // Keep: strip the insertion id; apply the formatting proposal (if any).
+  let attrs = attrsWithout(item.attrs, INSERTION_SUGGESTION_ATTR);
+  if (hasFormatting) {
+    const record = readSuggestionRecord(doc, fmtRaw as SuggestionId);
+    const proposed = record?.proposedAttrs ?? {};
+    attrs = mergeAttrs(attrsWithout(attrs, FORMATTING_SUGGESTION_ATTR), proposed);
+  }
+  return { touched: true, keep: true, item: withAttrs(item, attrs) };
+}
+
+/**
+ * Resolve ONE text run for {@link rejectAll}. Dominance: an insertion id (reject-
+ * insertion) DROPS the run — the suggested text never lands (so a run that is
+ * BOTH insertion AND deletion is also dropped). Otherwise the run is KEPT with the
+ * deletion id and the formatting id stripped (the proposal discarded). A run
+ * carrying none of the three ids is untouched (`touched: false`).
+ */
+function rejectAllRun(item: TextItem): AllRewrite {
+  const hasInsertion = typeof item.attrs[INSERTION_SUGGESTION_ATTR] === "string";
+  const hasDeletion = typeof item.attrs[DELETION_SUGGESTION_ATTR] === "string";
+  const hasFormatting = typeof item.attrs[FORMATTING_SUGGESTION_ATTR] === "string";
+
+  if (!hasInsertion && !hasDeletion && !hasFormatting) {
+    return { touched: false, keep: true, item };
+  }
+  // Reject-insertion dominates → drop the run.
+  if (hasInsertion) {
+    return { touched: true, keep: false };
+  }
+  // Keep: strip the deletion + formatting ids (proposal discarded).
+  let attrs = item.attrs;
+  if (hasDeletion) attrs = attrsWithout(attrs, DELETION_SUGGESTION_ATTR);
+  if (hasFormatting) attrs = attrsWithout(attrs, FORMATTING_SUGGESTION_ATTR);
+  return { touched: true, keep: true, item: withAttrs(item, attrs) };
+}
+
+/**
+ * The shared {@link acceptAll} / {@link rejectAll} implementation. Unlike the
+ * single-id {@link resolve} (which walks blocks once PER id), this walks each
+ * block ONCE and resolves EVERY id every run carries in one combined rewrite —
+ * looping the single-id resolve against the same pre-tx snapshot would clobber
+ * blocks (each does a full-replace), and a single run can carry insertion +
+ * deletion + formatting ids at once.
+ *
+ * Per text run, {@link acceptAllRun} / {@link rejectAllRun} decides keep-with-
+ * rewritten-attrs vs drop (with the mode's dominance order). Embeds and untouched
+ * runs are kept as-is. Then ALL records are deleted in one
+ * {@link SUGGESTION_RESOLVE_ORIGIN}-tagged (non-undoable) transaction. If the
+ * document has no suggestions → identity no-op. If records exist but NO main-tree
+ * run carries any of their ids (all orphaned) → no block is rewritten, so
+ * `state.rootId` is surfaced (mirror of {@link resolve}'s orphaned branch) so the
+ * record deletes still advance state.
+ *
+ * MAIN-TREE-ONLY scan (same as {@link resolve} + `buildSuggestionRangeIndex`);
+ * resolving suggestions inside embed/template bodies is a tracked follow-up.
+ */
+function resolveAll(state: State, mode: "accept" | "reject"): OperationResult {
+  const doc = state[STATE_INTERNAL].doc;
+  const ids = [...getSuggestionsMap(doc).keys()];
+  // No suggestions → identity no-op (return the input State reference).
+  if (ids.length === 0) {
+    return { state, dirtyIds: NO_DIRTY };
+  }
+
+  // Compute the per-block combined rewrites PRE-transaction (pure). A per-block
+  // full-replace from this snapshot is offset-safe (no block merges happen here).
+  const writes: ResolveWrite[] = [];
+  for (const block of iterateBlocksInDocumentOrder(state)) {
+    const content = block.inlineContent;
+    if (content === null) continue;
+    let touched = false;
+    const newItems: InlineItem[] = [];
+    for (const item of content.items) {
+      if (item.kind === "text") {
+        const rewrite =
+          mode === "accept" ? acceptAllRun(item, doc) : rejectAllRun(item);
+        if (rewrite.touched) touched = true;
+        if (rewrite.keep && rewrite.item !== undefined) newItems.push(rewrite.item);
+        continue;
+      }
+      // Embeds never carry inline suggestion ids (the create ops only tag text);
+      // keep as-is.
+      newItems.push(item);
+    }
+    if (touched) {
+      writes.push({
+        blockId: block.id,
+        kind: resolveBlock(state, block.id)?.kind ?? "block",
+        items: mergeAdjacentTextItems(newItems),
+      });
+    }
+  }
+
+  return applyOperation(
+    state,
+    (d) => {
+      for (const write of writes) {
+        getYBlock(d, write.blockId, "resolveAll", write.kind).set(
+          "inlineContent",
+          buildYInlineContent({ items: write.items }),
+        );
+      }
+      const map = getSuggestionsMap(d);
+      for (const id of ids) {
+        map.delete(id);
+      }
+      // All records were orphaned (no main-tree run carried any id) — the only
+      // mutation is the record deletes (the `suggestions` map is excluded from
+      // dirty-capture). Surface the document root so the deletes advance state.
+      if (writes.length === 0) return new Set<BlockId>([state.rootId]);
+    },
+    { origin: SUGGESTION_RESOLVE_ORIGIN },
+  );
 }
 
 /** Outcome of {@link rebuildBlockForDeletion}: the new items + whether any run was tagged. */

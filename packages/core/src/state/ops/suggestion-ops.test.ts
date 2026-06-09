@@ -22,6 +22,8 @@ import {
   mintInsertion,
   acceptSuggestion,
   rejectSuggestion,
+  acceptAll,
+  rejectAll,
 } from "./suggestion-ops";
 import {
   getSuggestions,
@@ -33,6 +35,7 @@ import {
   type SuggestionRecord,
 } from "../suggestions";
 import { createHistory } from "../history";
+import { insertText } from "./insert-text";
 import { applyOperation, getBlock } from "../state";
 import { createPosition, createSpan } from "../block-position";
 import type { Span } from "../block-position";
@@ -1118,5 +1121,359 @@ describe("acceptSuggestion / rejectSuggestion — multi-block deletion (write lo
       }
     }
     expect(getSuggestions(s).length).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// acceptAll / rejectAll — bulk resolution (slice 3d-ii)
+// ─────────────────────────────────────────────────────────────────────────
+
+const ALL_INS_SID = "allIns" as SuggestionId;
+const ALL_DEL_SID = "allDel" as SuggestionId;
+const ALL_FMT_SID = "allFmt" as SuggestionId;
+
+/**
+ * A doc with THREE separate suggestion runs in one paragraph: an insertion run,
+ * a deletion run, and a formatting run (proposing bold:true), each created via
+ * its create op. Layout (left → right): "a" [ins "INS"] [del "DEL"] [fmt "FMT"]
+ * "z". The DEL/FMT/INS runs each carry a DISTINCT live `color` so that — after
+ * resolution strips the provenance ids — they do NOT re-merge with each other or
+ * with the surrounding plain text, and stay independently findable (the
+ * assertions look runs up by their text). The INS run is introduced by
+ * `mintInsertion` (so it carries a real insertion record).
+ */
+function threeSuggestionDoc(): State {
+  // Distinct-colored base runs so resolved runs stay independently findable.
+  let s = oneBlock(
+    inlineContent([
+      text("a"),
+      text("DEL", { color: "del" }),
+      text("FMT", { color: "fmt" }),
+      text("z"),
+    ]),
+  );
+  // Insert "INS" (color: "ins") at offset 1 (right after "a"): "aINSDELFMTz".
+  s = mintInsertion(s, createPosition("p" as BlockId, 1), "INS", { color: "ins" }, {
+    id: ALL_INS_SID,
+    author: "alice",
+    createdAt: 10,
+  }).state;
+  // "DEL" now at offsets 4..7 — soft-delete it.
+  s = markDeletion(s, span(4, 7), {
+    id: ALL_DEL_SID,
+    author: "alice",
+    createdAt: 20,
+  }).state;
+  // "FMT" now at offsets 7..10 — propose bold:true.
+  s = markFormatting(s, span(7, 10), { bold: true }, {
+    id: ALL_FMT_SID,
+    author: "alice",
+    createdAt: 30,
+  }).state;
+  return s;
+}
+
+/** The single text run whose text equals `t` (throws if no such text run). */
+function runWithText(s: State, t: string) {
+  const run = pItems(s).find((it) => it.kind === "text" && it.text === t);
+  if (run === undefined || run.kind !== "text") {
+    throw new Error(`expected a text run "${t}"`);
+  }
+  return run;
+}
+
+describe("acceptAll — resolve every suggestion (accept dominance) in ONE non-undoable op", () => {
+  it("insertion→plain, deletion→dropped, formatting→proposal applied live; suggestions cleared", () => {
+    const s = acceptAll(threeSuggestionDoc()).state;
+
+    // "DEL" is gone (accept-deletion removes the text); INS + FMT survive.
+    expect(pText(s)).toBe("aINSFMTz");
+
+    // The INS run is now plain (no insertion id).
+    const ins = runWithText(s, "INS");
+    expect(INSERTION_SUGGESTION_ATTR in ins.attrs).toBe(false);
+
+    // The FMT run is LIVE bold and carries no formatting id.
+    const fmt = runWithText(s, "FMT");
+    expect(fmt.attrs.bold).toBe(true);
+    expect(FORMATTING_SUGGESTION_ATTR in fmt.attrs).toBe(false);
+
+    // No deletion id survives anywhere.
+    for (const it of pItems(s)) {
+      if (it.kind === "text") expect(DELETION_SUGGESTION_ATTR in it.attrs).toBe(false);
+    }
+    expect(getSuggestions(s).length).toBe(0);
+  });
+});
+
+describe("rejectAll — resolve every suggestion (reject dominance) in ONE non-undoable op", () => {
+  it("insertion→dropped, deletion→text kept (id stripped), formatting→proposal discarded; suggestions cleared", () => {
+    const s = rejectAll(threeSuggestionDoc()).state;
+
+    // "INS" is gone (reject-insertion drops the suggested text); DEL + FMT stay.
+    expect(pText(s)).toBe("aDELFMTz");
+
+    // The DEL run keeps its text with no deletion id.
+    const del = runWithText(s, "DEL");
+    expect(DELETION_SUGGESTION_ATTR in del.attrs).toBe(false);
+
+    // The FMT run keeps original (non-bold) attrs, no formatting id.
+    const fmt = runWithText(s, "FMT");
+    expect("bold" in fmt.attrs).toBe(false);
+    expect(FORMATTING_SUGGESTION_ATTR in fmt.attrs).toBe(false);
+
+    // No insertion id survives anywhere.
+    for (const it of pItems(s)) {
+      if (it.kind === "text") expect(INSERTION_SUGGESTION_ATTR in it.attrs).toBe(false);
+    }
+    expect(getSuggestions(s).length).toBe(0);
+  });
+});
+
+describe("acceptAll / rejectAll — NESTED insertion + deletion on ONE run is DROPPED under both", () => {
+  /**
+   * A doc whose single run carries BOTH `insertionSuggestionId` (by bob) and
+   * `deletionSuggestionId` (by alice) — A inserted it, B suggested deleting it.
+   * Both records are present. Under accept (delete dominates) AND reject (insert
+   * dominates) the run must be DROPPED.
+   */
+  function nestedInsDelDoc(): State {
+    // The run "X" carries both ids in its attrs; seed both records.
+    let s = oneBlock(
+      inlineContent([
+        text("a"),
+        text("X", {
+          [INSERTION_SUGGESTION_ATTR]: ALL_INS_SID,
+          [DELETION_SUGGESTION_ATTR]: ALL_DEL_SID,
+        }),
+        text("z"),
+      ]),
+    );
+    s = seedInsertionRecord(s, ALL_INS_SID, "bob");
+    s = applyOperation(s, (doc) => {
+      writeSuggestionRecordInTx(doc, {
+        id: ALL_DEL_SID,
+        kind: "deletion",
+        author: "alice",
+        createdAt: 1,
+      });
+      return new Set<BlockId>([s.rootId]);
+    }).state;
+    return s;
+  }
+
+  it("acceptAll DROPS the nested run", () => {
+    const s = acceptAll(nestedInsDelDoc()).state;
+    expect(pText(s)).toBe("az");
+    expect(getSuggestions(s).length).toBe(0);
+  });
+
+  it("rejectAll DROPS the nested run", () => {
+    const s = rejectAll(nestedInsDelDoc()).state;
+    expect(pText(s)).toBe("az");
+    expect(getSuggestions(s).length).toBe(0);
+  });
+});
+
+describe("acceptAll / rejectAll — NESTED insertion + formatting on ONE run (combined keep path)", () => {
+  /**
+   * A run "X" carrying BOTH an `insertionSuggestionId` (alice) and a
+   * `formattingSuggestionId` (alice, proposing bold:true). Under acceptAll the
+   * run KEEPS (no deletion id), strips the insertion id, AND applies the
+   * proposal live. Under rejectAll the insertion dominates → the run is DROPPED.
+   */
+  function nestedInsFmtDoc(): State {
+    let s = oneBlock(
+      inlineContent([
+        text("a"),
+        text("X", {
+          [INSERTION_SUGGESTION_ATTR]: ALL_INS_SID,
+          [FORMATTING_SUGGESTION_ATTR]: ALL_FMT_SID,
+        }),
+        text("z"),
+      ]),
+    );
+    s = seedInsertionRecord(s, ALL_INS_SID, "alice");
+    s = applyOperation(s, (doc) => {
+      writeSuggestionRecordInTx(doc, {
+        id: ALL_FMT_SID,
+        kind: "formatting",
+        author: "alice",
+        createdAt: 1,
+        proposedAttrs: { bold: true },
+      });
+      return new Set<BlockId>([s.rootId]);
+    }).state;
+    return s;
+  }
+
+  it("acceptAll KEEPS the run as plain text WITH the proposed format applied", () => {
+    const s = acceptAll(nestedInsFmtDoc()).state;
+    expect(pText(s)).toBe("aXz");
+    const x = runWithText(s, "X");
+    expect(x.attrs.bold).toBe(true);
+    expect(INSERTION_SUGGESTION_ATTR in x.attrs).toBe(false);
+    expect(FORMATTING_SUGGESTION_ATTR in x.attrs).toBe(false);
+    expect(getSuggestions(s).length).toBe(0);
+  });
+
+  it("rejectAll DROPS the run (insertion dominates)", () => {
+    const s = rejectAll(nestedInsFmtDoc()).state;
+    expect(pText(s)).toBe("az");
+    expect(getSuggestions(s).length).toBe(0);
+  });
+});
+
+describe("acceptAll / rejectAll — NESTED deletion + formatting on ONE run", () => {
+  /**
+   * A run "X" carrying BOTH a `deletionSuggestionId` (alice) and a
+   * `formattingSuggestionId` (alice, proposing bold:true), no insertion. Under
+   * acceptAll the deletion dominates → the run is DROPPED (its pending proposal
+   * is moot). Under rejectAll (no insertion to dominate) the run is KEPT with
+   * BOTH ids stripped and the proposal DISCARDED (text unchanged, not bold) —
+   * the one non-trivial `rejectAll` keep-path distinct from the drop + single-id
+   * strip paths.
+   */
+  function nestedDelFmtDoc(): State {
+    let s = oneBlock(
+      inlineContent([
+        text("a"),
+        text("X", {
+          [DELETION_SUGGESTION_ATTR]: ALL_DEL_SID,
+          [FORMATTING_SUGGESTION_ATTR]: ALL_FMT_SID,
+        }),
+        text("z"),
+      ]),
+    );
+    s = applyOperation(s, (doc) => {
+      writeSuggestionRecordInTx(doc, {
+        id: ALL_DEL_SID,
+        kind: "deletion",
+        author: "alice",
+        createdAt: 1,
+      });
+      writeSuggestionRecordInTx(doc, {
+        id: ALL_FMT_SID,
+        kind: "formatting",
+        author: "alice",
+        createdAt: 2,
+        proposedAttrs: { bold: true },
+      });
+      return new Set<BlockId>([s.rootId]);
+    }).state;
+    return s;
+  }
+
+  it("acceptAll DROPS the run (deletion dominates; the proposal is moot)", () => {
+    const s = acceptAll(nestedDelFmtDoc()).state;
+    expect(pText(s)).toBe("az");
+    expect(getSuggestions(s).length).toBe(0);
+  });
+
+  it("rejectAll KEEPS the text with BOTH ids stripped and the proposal discarded (not bold)", () => {
+    const s = rejectAll(nestedDelFmtDoc()).state;
+    // Text fully preserved. Stripping both ids makes the once-marked "X" run's
+    // attrs plain `{}` — identical to its "a"/"z" neighbors — so it re-merges
+    // into a single plain "aXz" run (no standalone "X" run survives).
+    expect(pText(s)).toBe("aXz");
+    for (const it of pItems(s)) {
+      if (it.kind !== "text") continue;
+      expect("bold" in it.attrs).toBe(false); // proposal discarded
+      expect(DELETION_SUGGESTION_ATTR in it.attrs).toBe(false);
+      expect(FORMATTING_SUGGESTION_ATTR in it.attrs).toBe(false);
+    }
+    expect(getSuggestions(s).length).toBe(0);
+  });
+});
+
+describe("acceptAll — NON-undoable (invisible to the UndoManager)", () => {
+  it("acceptAll pushes NO undo step: undo reverts only the prior tracked edit", () => {
+    // Mirror of the single-id NON-undoable proof, adapted for the BULK op: because
+    // acceptAll resolves EVERY suggestion, pA's tracked undo entry must NOT itself
+    // be a suggestion (else acceptAll would rewrite pA and detach its StackItem).
+    // So pA carries a PLAIN tracked insertText (the ONLY undo entry); the single
+    // suggestion lives in pB and is the only thing acceptAll rewrites. The accept
+    // (non-undoable SUGGESTION_RESOLVE_ORIGIN txn) can thus neither entangle nor
+    // add to the undo stack — undo() cleanly reverts only the pA insert.
+    const bSid = "fmtB" as SuggestionId;
+    const doc2 = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "pA", lastChildId: "pB" }),
+        buildBlock({
+          id: "pA",
+          type: "paragraph",
+          parentId: "doc",
+          nextSiblingId: "pB",
+          inlineContent: inlineContent([text("aaaaaa")]),
+        }),
+        buildBlock({
+          id: "pB",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "pA",
+          inlineContent: inlineContent([text("bbbbbb")]),
+        }),
+      ],
+    });
+    const spanIn = (block: string, a: number, b: number): Span =>
+      createSpan(createPosition(block as BlockId, a), createPosition(block as BlockId, b));
+    const pAText = (s: State): string =>
+      (getBlock(s, "pA" as BlockId)?.inlineContent?.items ?? [])
+        .filter((it): it is Extract<typeof it, { kind: "text" }> => it.kind === "text")
+        .map((it) => it.text)
+        .join("");
+
+    // Seed pB's suggestion BEFORE the History is built (irrelevant to the undo
+    // stack — we only need a live suggestion in pB to bulk-accept).
+    const withB = markFormatting(doc2, spanIn("pB", 1, 4), { bold: true }, {
+      id: bSid,
+      author: "alice",
+      createdAt: 1,
+    }).state;
+
+    const history = createHistory(withB);
+
+    // The ONE tracked, committed undo entry: a PLAIN insert in pA (NOT a
+    // suggestion — so acceptAll never rewrites pA and pA's StackItem stays whole).
+    history.beginEntry("command", 100);
+    const editedA = insertText(withB, createPosition("pA" as BlockId, 6), "XYZ", {});
+    history.commit(editedA, { before: null, after: null });
+    const s1 = editedA.state;
+    expect(pAText(s1)).toBe("aaaaaaXYZ");
+    expect(getSuggestions(s1).length).toBe(1); // only pB's suggestion
+
+    history.breakCoalescing();
+    // acceptAll resolves pB's suggestion — a non-undoable txn that touches ONLY
+    // pB, pushing no StackItem; reconcile the cached state.
+    const accepted = acceptAll(s1);
+    history.advanceState(accepted.state);
+    expect(getSuggestions(accepted.state).length).toBe(0); // suggestion resolved
+    expect(pAText(accepted.state)).toBe("aaaaaaXYZ"); // pA untouched by acceptAll
+
+    // undo() pops the ONLY tracked entry — pA's insert — and reverts it cleanly.
+    const undone = history.undo();
+    if (undone === null) throw new Error("expected undo to return a result");
+    expect(pAText(undone.state)).toBe("aaaaaa"); // pA insert reverted
+    // The acceptAll itself produced NO undo step → nothing remains.
+    expect(history.canUndo()).toBe(false);
+
+    history.destroy();
+  });
+});
+
+describe("acceptAll / rejectAll — empty-doc / no-suggestions identity no-op", () => {
+  it("acceptAll on a doc with no suggestions returns the SAME state reference + empty dirtyIds", () => {
+    const s = oneBlock();
+    const r = acceptAll(s);
+    expect(r.state).toBe(s);
+    expect(r.dirtyIds.size).toBe(0);
+  });
+
+  it("rejectAll on a doc with no suggestions returns the SAME state reference + empty dirtyIds", () => {
+    const s = oneBlock();
+    const r = rejectAll(s);
+    expect(r.state).toBe(s);
+    expect(r.dirtyIds.size).toBe(0);
   });
 });

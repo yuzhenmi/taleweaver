@@ -698,11 +698,16 @@ reject-insertion drop / accept-deletion drop / reject-deletion strip /
 accept-formatting apply-proposed+strip / reject-formatting strip), each a
 **NON-undoable** `applyOperation(...,{origin:SUGGESTION_RESOLVE_ORIGIN})` that
 deletes the record (per-owning-block full-replace; the editor handler calls
-`History.advanceState` after). **KNOWN follow-up:** the resolve scan +
-`buildSuggestionRangeIndex` are MAIN-TREE-ONLY (footnote/header-body suggestions
-aren't surfaced/resolved — a pre-existing slice-2 read-scope limit; multi-tree is a
-one-place scan enhancement). REMAINING (spec §10, slice 3 sub-sliced 3a–3d):
-3d-ii `acceptAll`/`rejectAll` (batched combined-per-block rewrite);
+`History.advanceState` after). **Slice 3d-ii (`acceptAll`/`rejectAll`) shipped:**
+resolve EVERY suggestion in one non-undoable txn via a COMBINED per-block rewrite
+(a run can carry insertion+deletion+formatting at once, so each block is walked once
+with a dominance order — acceptAll: deletion-drop dominates; rejectAll: insertion-
+drop dominates; a both-insertion-and-deletion run is dropped under both). **With
+3d-ii, ALL of change-tracking slice 3 (the state ops) is COMPLETE: create
+(markFormatting/markDeletion/mintInsertion) + resolve (accept/reject single + all).**
+**KNOWN follow-up:** the resolve scan + `buildSuggestionRangeIndex` are MAIN-TREE-ONLY
+(footnote/header-body suggestions aren't surfaced/resolved — a pre-existing slice-2
+read-scope limit; multi-tree is a one-place scan enhancement). REMAINING (spec §10):
 4 editor actions + `EditorConfig.suggestingAuthor` mode;
 5 render (insertion=color+underline, deletion=color+strikethrough, formatting=
 proposedAttrs); 6 host query + overlay; 7 arch docs. See `1.1-state.md` "The
