@@ -310,6 +310,21 @@ export interface PagePlan {
    * `headerBlockId` / `footerBlockId`; empty when no page declares either.
    */
   pageIndexOfTemplateBlock(blockId: BlockId): number;
+  /**
+   * Footnote-body root id → the FIRST page whose footnote slot renders that body
+   * FRESH (i.e. the page the body STARTS on); `-1` if the id is no page's
+   * footnote body. A footnote body lives in the `embedContents` tree, so it is
+   * neither a top-level main child (`pageIndexOfBlock` → -1) nor a header/footer
+   * body (`pageIndexOfTemplateBlock` → -1); this is the only plan-level page
+   * resolver for a footnote-body caret. Built from each entry's
+   * `footnoteContentBlockIds` (the FRESH-started bodies on that page); a body
+   * that splits across pages appears only on its FRESH page here, and consumers
+   * walk forward through later pages' slots to find a continuation-line offset.
+   * `measurePass` is footnote-unaware (it stamps `footnoteContentBlockIds: []`),
+   * so a footnote-free doc maps nothing here — byte-identical to before footnotes
+   * existed; only the `resolveFootnotes` pass populates it.
+   */
+  pageIndexOfFootnoteBlock(blockId: BlockId): number;
 }
 
 /**
@@ -1000,12 +1015,23 @@ export function buildPagePlan(
   // caret resolves to that first instance (#323). `set`-only-if-absent
   // preserves the first carrier when a later page repeats the id.
   const templateBlockToPage = new Map<string, number>();
+  // Footnote-body root id → FIRST (fresh) page whose slot renders it. Built from
+  // each entry's `footnoteContentBlockIds` (the FRESH-started bodies on that page;
+  // `measurePass` stamps `[]`, so a footnote-free doc leaves this empty). Like the
+  // template map, keep the FIRST carrier — a body splitting across pages is FRESH
+  // only on its starting page; consumers walk forward to its continuation pages.
+  const footnoteBlockToPage = new Map<string, number>();
   for (const e of entries) {
     if (e.headerBlockId !== undefined && !templateBlockToPage.has(e.headerBlockId)) {
       templateBlockToPage.set(e.headerBlockId, e.pageIndex);
     }
     if (e.footerBlockId !== undefined && !templateBlockToPage.has(e.footerBlockId)) {
       templateBlockToPage.set(e.footerBlockId, e.pageIndex);
+    }
+    for (const fnId of e.footnoteContentBlockIds) {
+      if (!footnoteBlockToPage.has(fnId)) {
+        footnoteBlockToPage.set(fnId, e.pageIndex);
+      }
     }
   }
 
@@ -1027,6 +1053,9 @@ export function buildPagePlan(
     },
     pageIndexOfTemplateBlock(blockId: BlockId): number {
       return templateBlockToPage.get(blockId) ?? -1;
+    },
+    pageIndexOfFootnoteBlock(blockId: BlockId): number {
+      return footnoteBlockToPage.get(blockId) ?? -1;
     },
   };
 }

@@ -210,6 +210,7 @@ function planWithEntries(
     pageIndexOfBlock: base.pageIndexOfBlock.bind(base),
     pageSpanOfBlock: base.pageSpanOfBlock.bind(base),
     pageIndexOfTemplateBlock: (blockId) => templateBlockToPage.get(blockId) ?? -1,
+    pageIndexOfFootnoteBlock: () => -1,
   };
 }
 

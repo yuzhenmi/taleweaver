@@ -936,13 +936,15 @@ produces a virtualized page model (`layoutTree: LayoutBox |
 VirtualLayoutTree`), which drives a per-page canvas pool with per-page
 paint caches; paint, caret, mouse hit-test, and selection rects are
 resolved per page via `getPage(visible ∪ cursorPage)` without
-materializing the whole tree (the `materializeAll()` bridge is being removed
-via an in-progress per-page migration: for a spanning block — one taller than a
-page — both line navigation (`collectBlockLinesAcrossPages`) and selection/find/
-comment rects (`selectionRectsAcrossPages`, a per-page concat over the virtual
-tree) already use per-page paths rather than the bridge; the remaining bridge
-consumers are a few defensive template/empty-adjacent-page fallback guards in
-`line-navigation.ts`, migrated next, with full bridge deletion at the end).
+materializing the whole tree (the `materializeAll()` bridge is being removed via
+an in-progress per-page migration: for a spanning block — one taller than a page —
+both line navigation (`collectBlockLinesAcrossPages`) and selection/find/comment
+rects (`selectionRectsAcrossPages`) use per-page paths; the cursor/ defensive
+fallback guards now dev-throw / clamp-to-document-boundary / resolve-per-page
+(footnote bodies map via `pageIndexOfFootnoteBlock`) instead of materializing. No
+production code calls the bridge anymore — the only remaining callers are the
+bridge definition itself (`virtual-layout-tree.ts` / `positioned-tree.ts`) and the
+equivalence-oracle test files, both deleted/migrated in the final slice).
 **Non-paginated single-canvas** is the fallback — one canvas +
 a fully-positioned `LayoutBox`, used for identity sizing and the
 unsupported-feature path (float/`clear` documents fall back to the legacy

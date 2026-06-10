@@ -12,7 +12,7 @@ import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
 import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
-import { resolvePixelPosition, resolveTemplateBlockPage } from "./cursor-position";
+import { resolvePixelPosition, resolveTemplateBlockPage, resolveFootnoteBlockPage } from "./cursor-position";
 import { resolvePositionFromPixel } from "./hit-test";
 import { collectBlockLinesAcrossPages } from "./block-line-collector";
 import {
@@ -25,6 +25,7 @@ import {
 } from "./line-flatten";
 import { axisMapFor } from "../styles/writing-mode";
 import { markStart, markEnd } from "../perf/perf-trace";
+import { isDevMode } from "../layout/dev-mode";
 
 /**
  * Move cursor to the line above or below `position`, preserving the
@@ -171,12 +172,28 @@ function moveToLineVirtual(
   // #327 context filter), but it must run on the right page.
   if (endPage < 0) {
     const templatePage = resolveTemplateBlockPageWithLines(state, tree, position.blockId, caretPageHint);
-    if (templatePage < 0) {
-      // Not a template block we can resolve (or its slot produced no lines):
-      // fall back to the bridge. Off the hot path.
-      return moveToLineInPositioned(state, position, tree.materializeAll(), measurer, direction, targetX);
+    if (templatePage >= 0) {
+      return moveToLineOnPage(state, position, tree, measurer, direction, targetX, templatePage);
     }
-    return moveToLineOnPage(state, position, tree, measurer, direction, targetX, templatePage);
+    // FOOTNOTE-body caret: resolve its slot page per-page (the body lives in the
+    // embedContents tree, so neither `pageIndexOfBlock` nor the template resolver
+    // maps it). Up/Down is a no-op within the isolated footnote context (#327
+    // filter), but it must run on the right page.
+    const footnotePage = resolveFootnoteBlockPage(state, tree, position);
+    if (footnotePage >= 0) {
+      return moveToLineOnPage(state, position, tree, measurer, direction, targetX, footnotePage);
+    }
+    // Not a top-level body, header/footer, or footnote block. In a well-formed
+    // doc every caret maps to a page; reaching here is a stale-caret programmer
+    // error. Dev-throw to catch it; in prod no-op (the caret stays put —
+    // `moveToLine`'s contract allows null). NEVER materialize the whole tree.
+    if (isDevMode()) {
+      throw new Error(
+        `moveToLineVirtual: block ${position.blockId} maps to no page ` +
+          `(not a top-level body, header/footer, or footnote block) — stale caret?`,
+      );
+    }
+    return null;
   }
 
   if (span !== null && span.first !== span.last) {
@@ -292,7 +309,17 @@ function moveToLineOnPage(
   const pageLines = filter(getLineIndex(tree.getPage(p)).all);
   const idx = findLineForPosition(pageLines, position);
   if (idx < 0) {
-    return moveToLineInPositioned(state, position, tree.materializeAll(), measurer, direction, targetX);
+    // A valid caret always has a line on its own (context-filtered) page. `< 0`
+    // means the position is out of sync with the layout — a programmer error
+    // (stale caret). Dev-throw to catch it; in prod no-op (caret stays put;
+    // `moveToLine`'s contract allows null). NEVER materialize the whole tree.
+    if (isDevMode()) {
+      throw new Error(
+        `moveToLineOnPage: position (block ${position.blockId}, offset ${position.offset}) ` +
+          `has no line on page ${p} — stale caret?`,
+      );
+    }
+    return null;
   }
 
   if (direction === "up") {
@@ -305,7 +332,10 @@ function moveToLineOnPage(
     if (p > 0) {
       const prev = filter(getLineIndex(tree.getPage(p - 1)).all);
       if (prev.length === 0) {
-        return moveToLineInPositioned(state, position, tree.materializeAll(), measurer, direction, targetX);
+        // Degenerate previous page with zero context-lines: clamp to the document
+        // start (the same fallback the `p === 0` branch below uses) rather than
+        // materializing. Crash-free, sensible behavior.
+        return startOfDocument(state, x);
       }
       // Target the adjacent visual line directly (NOT filtered by blockId).
       return resolveTargetLine(state, tree.getPage(p - 1), measurer, x, prev[prev.length - 1]);
@@ -321,7 +351,10 @@ function moveToLineOnPage(
   if (p < plan.entries.length - 1) {
     const next = filter(getLineIndex(tree.getPage(p + 1)).all);
     if (next.length === 0) {
-      return moveToLineInPositioned(state, position, tree.materializeAll(), measurer, direction, targetX);
+      // Degenerate next page with zero context-lines: clamp to the document end
+      // (the same fallback the last-page branch below uses) rather than
+      // materializing. Crash-free, sensible behavior.
+      return endOfDocument(state, x);
     }
     return resolveTargetLine(state, tree.getPage(p + 1), measurer, x, next[0]);
   }
@@ -333,8 +366,9 @@ function moveToLineOnPage(
  * caret is on, then VERIFY the chosen page actually carries the block's lines —
  * applying the I1 empty-slot fallback (a hint at a page whose slot lacks this
  * body recomputes WITHOUT the hint). Returns the page that carries the block's
- * lines, or -1 if none does (the caller falls back to the bridge). Never calls
- * `materializeAll` — only `getPage` of the candidate page(s).
+ * lines, or -1 if none does (the caller then tries the footnote resolver, else
+ * degrades safely). Never calls `materializeAll` — only `getPage` of the
+ * candidate page(s).
  */
 function resolveTemplateBlockPageWithLines(
   state: State,
@@ -503,13 +537,36 @@ export function moveToLineBoundary(
         // materializeAll. Home/End stays inside the slot context (one LineBox).
         p = resolveTemplateBlockPageWithLines(state, layoutTree, position.blockId, caretPageHint);
         if (p < 0) {
-          return lineBoundaryInPositioned(layoutTree.materializeAll(), position, boundary);
+          // FOOTNOTE-body caret: resolve its slot page per-page (embedContents
+          // body — neither pageIndexOfBlock nor the template resolver maps it).
+          p = resolveFootnoteBlockPage(state, layoutTree, position);
+          if (p < 0) {
+            // Not a top-level body, header/footer, or footnote block. Stale-caret
+            // programmer error: dev-throw to catch it; in prod no-op (return the
+            // input position unchanged — Home/End does nothing). NEVER materialize.
+            if (isDevMode()) {
+              throw new Error(
+                `moveToLineBoundary: block ${position.blockId} maps to no page ` +
+                  `(not a top-level body, header/footer, or footnote block) — stale caret?`,
+              );
+            }
+            return position;
+          }
         }
       }
       const pageLines = getLineIndex(layoutTree.getPage(p)).all;
       const idx = findLineForPosition(pageLines, position);
       if (idx < 0) {
-        return lineBoundaryInPositioned(layoutTree.materializeAll(), position, boundary);
+        // A valid caret always has a line on its resolved page. `< 0` ⇒ a
+        // stale-caret programmer error: dev-throw to catch it; in prod return the
+        // input position unchanged (Home/End no-op). NEVER materialize the tree.
+        if (isDevMode()) {
+          throw new Error(
+            `moveToLineBoundary: position (block ${position.blockId}, offset ` +
+              `${position.offset}) has no line on page ${p} — stale caret?`,
+          );
+        }
+        return position;
       }
       return boundaryPositionOfLine(pageLines[idx], boundary);
     }

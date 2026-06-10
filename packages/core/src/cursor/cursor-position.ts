@@ -22,6 +22,7 @@ import {
 } from "./line-bidi";
 import { axisMapFor } from "../styles/writing-mode";
 import { markStart, markEnd } from "../perf/perf-trace";
+import { isDevMode } from "../layout/dev-mode";
 
 // Re-exported so existing importers of `cursor-position.ts` keep working; the
 // single declaration lives in `line-bidi.ts`.
@@ -168,9 +169,12 @@ export function resolvePixelPosition(
  * `getPage(N+1)` and return its first same-block line (Word/Docs convention —
  * the caret snaps to the visual next line). Bounded to one extra page.
  *
- * Falls back to a full materialize + search only when the plan cannot map the
- * block (a nested, non-top-level block — `pageIndexOfBlock` returns -1). That
- * is rare and off the flat-document hot path.
+ * When `pageIndexOfBlock` returns -1 (the block is not a top-level body child),
+ * the caret is resolved PER-PAGE via a secondary plan resolver: a header/footer
+ * slot body via `resolveTemplateBlockPage`, or a footnote body via
+ * `resolveFootnoteBlockPage` (`pageIndexOfFootnoteBlock`). A well-formed doc's
+ * caret always maps to one of these; reaching neither is a stale-caret error
+ * (dev-throw; prod returns `null`). NEVER `materializeAll()`.
  */
 function resolveInVirtualTree(
   tree: VirtualLayoutTree,
@@ -213,19 +217,39 @@ function resolveInVirtualTree(
         }
       }
       // Neither the resolved nor the default carrying page produced a result.
-      // Fall through to the bridge below.
+      // Fall through to the footnote / dev-throw degradation below.
     }
 
-    // Block not mapped by the plan AND not a resolvable template block. Fall
-    // back to the bridge: materialize the whole positioned tree and resolve
-    // there. Correct, and off the flat-document hot path the plan always maps.
-    const positioned = tree.materializeAll();
-    const ownLines = getLineIndex(positioned).byBlock.get(position.blockId) ?? [];
-    if (ownLines.length === 0) {
-      const baseline = findBlockBaseline(positioned, position.blockId);
-      return baseline ?? defaultPixelPosition();
+    // FOOTNOTE-body fast path: a footnote body lives in `embedContents`, so
+    // `pageIndexOfBlock` AND `pageIndexOfTemplateBlock` both miss it — but the
+    // plan's `pageIndexOfFootnoteBlock` maps it to the page its slot STARTS on.
+    // Resolve it per-page (the slot's lines are in `getLineIndex(getPage(p)).byBlock`),
+    // never materializing the whole document.
+    const footnotePage = resolveFootnoteBlockPage(state, tree, position);
+    if (footnotePage >= 0) {
+      const page = tree.getPage(footnotePage);
+      const fnLines = getLineIndex(page).byBlock.get(position.blockId) ?? [];
+      if (fnLines.length > 0) {
+        return resolvePositionInOwnLines(fnLines, position, measurer, caretAffinity);
+      }
+      const baseline = findBlockBaseline(page, position.blockId);
+      if (baseline !== null) return baseline;
     }
-    return resolvePositionInOwnLines(ownLines, position, measurer, caretAffinity);
+
+    // Block not mapped by the plan, not a resolvable template block, and not a
+    // resolvable footnote body. In a well-formed document EVERY caret resolves to
+    // a concrete page via one of the three plan resolvers above; reaching here
+    // means the caret's block has no page (a programmer error — a stale caret on a
+    // detached block). Dev-throw to catch it; in prod degrade safely to an
+    // unresolvable caret (`null`), which callers already tolerate (e.g. an
+    // off-page caret). NEVER materialize the whole tree.
+    if (isDevMode()) {
+      throw new Error(
+        `resolveInVirtualTree: block ${position.blockId} maps to no page ` +
+          `(not a top-level body, header/footer, or footnote block) — stale caret?`,
+      );
+    }
+    return null;
   }
 
   // The block's FIRST page floors the backward walk. `pageIndexOfBlock`
@@ -368,6 +392,80 @@ function resolveSlotOnPage(
   // the caret to its top-left baseline ON THIS PAGE. `findBlockBaseline` walks
   // the page's header/footer slots too, so a slot-root id resolves here.
   return findBlockBaseline(page, position.blockId);
+}
+
+/**
+ * Resolve which PAGE a FOOTNOTE-body caret's offset lives on, WITHOUT
+ * materializing the whole tree. A footnote body lives in the `embedContents`
+ * tree, so it is neither a top-level main child (`pageIndexOfBlock` → -1) nor a
+ * header/footer body (`pageIndexOfTemplateBlock` → -1); the plan's
+ * `pageIndexOfFootnoteBlock` maps the body ROOT to the page its slot STARTS on
+ * (the FRESH page). A body that splits distributes its child paragraphs (and a
+ * child's own wrapped continuation lines) across later pages' slots, and
+ * `byBlock` is keyed by the leaf child — so the caret block need NOT have lines
+ * on the fresh page. From the fresh page we walk FORWARD to the page that
+ * actually carries the caret block's lines and owns the offset, clamping to the
+ * block's last fragment page (or to the fresh page if its lines never appear — a
+ * safe degradation the caller turns into null / a dev-throw).
+ *
+ * Returns the resolved page index, or -1 when `position.blockId` is not a
+ * footnote body at all (no `pageIndexOfFootnoteBlock` entry). Reuses
+ * `getLineIndex(getPage(p)).byBlock`, which includes the page's footnote-slot
+ * lines (`collectLineBoxes` walks the `footnoteSlot`).
+ *
+ * The plan's footnote map is keyed by the body ROOT id (the anchor's
+ * `contentBlockId`), but the caret usually lives in the body's paragraph CHILD,
+ * so we first walk `position.blockId` to its selection-context root
+ * (`selectionContextOf`) — the footnote body root — then map THAT (mirroring the
+ * descendant walk in `resolveTemplateBlockPage`). The root itself is also tried
+ * first (the rare single-block-body case).
+ *
+ * Exported so line-navigation reuses the SAME per-page footnote resolution.
+ */
+export function resolveFootnoteBlockPage(
+  state: State,
+  tree: VirtualLayoutTree,
+  position: Position,
+): number {
+  // The body ROOT id: try the caret's block directly (single-block body), else
+  // its selection-context root (the body root for a caret in a body CHILD).
+  let startPage = tree.plan.pageIndexOfFootnoteBlock(position.blockId);
+  if (startPage < 0) {
+    const root = selectionContextOf(state, position.blockId);
+    if (root !== null && root !== state.rootId) {
+      startPage = tree.plan.pageIndexOfFootnoteBlock(root);
+    }
+  }
+  if (startPage < 0) return -1;
+
+  // Walk forward over the body's slot fragments. Per-page slot-lines for a body
+  // are monotonically increasing in offset (the body splits in document order),
+  // so the first page (going forward) whose last own-line covers the offset — or
+  // the last page that carries any own-lines — owns the caret. Bounded by the
+  // page count (a body's slot can't render past the document's last page).
+  // Walk forward for the page that actually CARRIES the caret block's lines. A
+  // multi-paragraph footnote body distributes its child paragraphs across the
+  // slot's fragment pages, and `byBlock` is keyed by the leaf child — so the
+  // caret's child does NOT in general have lines on the body's fresh page; it can
+  // first appear several pages later. Track the last page that carried the block
+  // so a caret PAST the final fragment clamps to it; if the block's lines never
+  // appear at all, fall back to the fresh page (a stale-caret degradation the
+  // caller turns into null / dev-throw). Bounded by the document page count.
+  let pageIndex = startPage;
+  const lastPage = tree.plan.entries.length - 1;
+  let lastFound = -1;
+  for (;;) {
+    const lines = getLineIndex(tree.getPage(pageIndex)).byBlock.get(position.blockId) ?? [];
+    if (lines.length > 0) {
+      lastFound = pageIndex;
+      const lastEnd = lines[lines.length - 1].line.inlineOffsetEnd;
+      // This page owns the offset (or it's the last page) → done.
+      if (position.offset <= lastEnd || pageIndex >= lastPage) return pageIndex;
+      // Offset is past this page's lines: a continuation fragment is on a later page.
+    }
+    if (pageIndex >= lastPage) return lastFound >= 0 ? lastFound : startPage;
+    pageIndex++;
+  }
 }
 
 /**
