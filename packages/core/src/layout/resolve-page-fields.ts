@@ -14,12 +14,18 @@ export interface ResolvedPageFields {
 }
 
 /**
- * Pure post-pagination pass. `page-count` resolves ONCE from `plan.entries.length`
- * (same value on every page); `page-number` resolves per-page at materialize (no
- * global entry here). For BOTH kinds the widest plausible value is
- * `formatCounter(totalPages, numberStyle)` — for page-count it is the value, for
- * page-number it is the last page's number (the largest digit count) — so that one
- * `formatCounter` call drives both the value and its width.
+ * Pure post-pagination pass producing each field's document-global value (page-count
+ * only) and the WIDEST value width it can show across the pages it appears on. The
+ * width is the §4.4 convergence loop's overflow signal, so it MUST be a true upper
+ * bound on every page's actual value width — never an under-estimate (a too-small
+ * width would let the loop converge on an under-sized slot reservation).
+ *
+ *  - `page-count` shows ONE value (`formatCounter(totalPages, numberStyle)`) on every
+ *    page, so its value and width are exact from that single `formatCounter`.
+ *  - `page-number` VARIES per page (`1..totalPages`). The widest is NOT always the
+ *    last page: non-decimal styles are non-monotonic in width (lower-roman "viii" at
+ *    page 8 is wider than "x" at page 10), and proportional fonts make even decimal
+ *    widths non-monotonic. So the max is taken over EVERY page's value.
  *
  * Reads only `plan.entries.length`; the structural param type keeps test fixtures
  * from having to stub full `PagePlanEntry` objects. Each spec carries its own
@@ -35,18 +41,26 @@ export function resolvePageFields(
   const maxValueWidthByKey = new Map<string, number>();
 
   for (const spec of fieldSpecs) {
-    // `formatCounter(totalPages, ...)` is the widest value for decimal/alpha
-    // (monotonic in digit count). For ROMAN numerals it can UNDER-estimate — e.g.
-    // "viii" (8) is wider than "ix" (9) or "x" (10) — so `maxValueWidthByKey` is a
-    // best-effort estimate, not a guaranteed maximum. The §4.4 convergence loop
-    // (a later slice) treats this as a lower bound and GROWS the reservation if the
-    // real value overflows, so an under-estimate here is corrected, not a bug.
-    const widest = formatCounter(totalPages, spec.numberStyle);
-    maxValueWidthByKey.set(spec.embedKey, measurer.measureWidth(widest, spec.computedStyle));
     if (spec.fieldKind === "page-count") {
-      globalFieldValues.set(spec.embedKey, widest); // same value on every page
+      // One value, the same on every page — exact value + width.
+      const value = formatCounter(totalPages, spec.numberStyle);
+      globalFieldValues.set(spec.embedKey, value);
+      maxValueWidthByKey.set(spec.embedKey, measurer.measureWidth(value, spec.computedStyle));
+    } else {
+      // page-number: the value varies 1..totalPages and width is non-monotonic
+      // (roman/proportional), so measure every page's value to get a TRUE upper
+      // bound — the last page alone would under-estimate. O(totalPages) per
+      // page-number template field per build; such fields are rare (0-1 per doc)
+      // and this is the same order as the measure pass — memoize by totalPages if a
+      // profile ever demands it. No global entry: `substitutePageFields` computes
+      // `pageIndex + 1` per page at materialize.
+      let maxWidth = 0;
+      for (let page = 1; page <= totalPages; page++) {
+        const w = measurer.measureWidth(formatCounter(page, spec.numberStyle), spec.computedStyle);
+        if (w > maxWidth) maxWidth = w;
+      }
+      maxValueWidthByKey.set(spec.embedKey, maxWidth);
     }
-    // page-number gets no global entry — substitutePageFields computes pageIndex+1 per page.
   }
 
   return { globalFieldValues, maxValueWidthByKey };

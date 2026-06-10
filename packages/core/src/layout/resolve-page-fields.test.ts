@@ -41,10 +41,23 @@ describe("resolvePageFields (F-1 resolution)", () => {
     expect(maxValueWidthByKey.get("h/inline/0")).toBe(measurer.measureWidth("42", cs)); // "42" → 16px
   });
 
-  it("page-number's widest value is the LAST page's number (largest digit count)", () => {
+  it("page-number's widest value is the LAST page's number for decimal (monotonic digit count)", () => {
     // 12 pages → widest page-number is "12" (2 digits = 16px), not "1".
     const { maxValueWidthByKey } = resolvePageFields(fakePlan(12), [spec("page-number")], measurer);
     expect(maxValueWidthByKey.get("h/inline/0")).toBe(measurer.measureWidth("12", cs));
+  });
+
+  it("page-number's widest value handles NON-monotonic styles (roman): a mid-sequence value can be widest", () => {
+    // 10 pages, lower-roman: page 8 = "viii" (4 glyphs) is WIDER than the last page 10 = "x" (1 glyph).
+    // The reservation must cover the widest of ALL pages, not just the last — `maxValueWidthByKey`
+    // IS the §4.4 convergence loop's overflow signal, so a last-page under-estimate would under-reserve
+    // the slot and let page 8's header overflow. Must report "viii"'s width (32px), not "x"'s (8px).
+    const { maxValueWidthByKey } = resolvePageFields(
+      fakePlan(10),
+      [spec("page-number", "h/inline/0", "lower-roman")],
+      measurer,
+    );
+    expect(maxValueWidthByKey.get("h/inline/0")).toBe(measurer.measureWidth("viii", cs));
   });
 
   it("honors a non-decimal numberStyle for the page-count value", () => {

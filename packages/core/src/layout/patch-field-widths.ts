@@ -1,5 +1,5 @@
 import type { ElementBox, RenderNode } from "../render/render-node";
-import type { BlockId } from "../state";
+import { PAGE_FIELD_EMBED_TYPE, type BlockId } from "../state";
 
 /**
  * F-3 §4.4 growth mechanism. Produce a PATCHED copy of the cascaded template bodies
@@ -33,8 +33,17 @@ function patchNode(node: RenderNode, grownWidths: ReadonlyMap<string, number>): 
   if (node.type !== "element") return node;
 
   const grown = grownWidths.get(node.key);
-  if (grown !== undefined && node.computedStyle !== undefined) {
-    // Override this atom's inlineSize; keep children (the "00" placeholder text) as-is.
+  // Gate on the page-field embed type (symmetric with `substitutePageFields`): grow
+  // ONLY a page-field atom, never some other node that happens to share the key — a
+  // non-page-field match would be silently mis-sized AND skip recursion into its
+  // descendants. `grownWidths` is only ever keyed by page-field embed keys, so this
+  // guard is defence-in-depth against a future/test caller, not a live path.
+  if (
+    grown !== undefined &&
+    node.computedStyle !== undefined &&
+    node.metadata?.embedType === PAGE_FIELD_EMBED_TYPE
+  ) {
+    // Override this atom's inlineSize; keep children (the placeholder text) as-is.
     // A page-field atom has no nested page-fields, so there is nothing deeper to patch.
     return Object.freeze({
       ...node,

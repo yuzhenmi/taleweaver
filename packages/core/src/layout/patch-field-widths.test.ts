@@ -96,6 +96,20 @@ describe("patchFieldWidths (F-3 §4.4 growth mechanism)", () => {
     expect(outA).not.toBe(bodyA);
   });
 
+  it("does NOT patch a NON-page-field node even if its key is in grownWidths (embed-type gated)", () => {
+    // A plain paragraph whose key collides with a grownWidths entry must NOT be patched
+    // (and must still be recursed into) — symmetric with substitutePageFields's type guard.
+    const para = createElementBox("collide/inline/0", { display: "block" }, [createTextBox("collide/inline/0/t", {}, "x")]);
+    const body = cascade([para]);
+    const origPara = findByKey(body, "collide/inline/0");
+    if (origPara === undefined) throw new Error("no para");
+    const templates = new Map<BlockId, ElementBox>([[HDR, body]]);
+    const out = patchFieldWidths(templates, new Map([["collide/inline/0", 99]]));
+    // The non-page-field paragraph keeps its original inlineSize (NOT 99) — same body ref,
+    // since nothing on a path to a real page-field changed.
+    expect(out.get(HDR)).toBe(body);
+  });
+
   it("leaves a body whose field key is NOT in grownWidths unchanged", () => {
     const body = cascade([createElementBox("hb", { display: "block" }, [pageFieldAtom("hb/inline/0")])]);
     const templates = new Map<BlockId, ElementBox>([[HDR, body]]);

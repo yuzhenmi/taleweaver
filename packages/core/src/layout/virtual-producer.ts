@@ -149,7 +149,14 @@ export function buildVirtualPaginatedTree(
   // layout (self-page page-number = pageIndex+1; global page-count = `globalFieldValues`).
   // Main-body page-fields are OUT of scope (spec §4.3) — `collectPageFields` still
   // emits harmless `host:"main"` specs (forward-compat for the page-ref/TOC downstream),
-  // which neither the convergence loop nor substitution consumes.
+  // which neither the convergence loop (it filters to `host:"template"`) nor
+  // substitution consumes. NOTE: `resolvePageFields` below builds `globalFieldValues`
+  // for ALL page-count specs — main-body ones too — and that map is passed to
+  // `substitutePageFields` on TEMPLATE bodies. That is SAFE because render keys are
+  // `${blockId}/inline/${i}` and Y.Doc block ids are globally unique across trees, so a
+  // main-tree key can never match a template-body node; the extra entries are silently
+  // ignored. (A future page-ref/TOC that substitutes into the main tree will find those
+  // entries already present — by design.)
   const measurer = adaptShaperToMeasurer(shaper);
   const fieldSpecs = collectPageFields(cascadedTemplateContents, rootChildren);
   // §4.4 convergence inputs: only TEMPLATE (header/footer) fields can grow a slot —
