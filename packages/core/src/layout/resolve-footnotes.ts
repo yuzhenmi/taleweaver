@@ -1402,8 +1402,16 @@ function canReuseFootnotePage(
  * convergence candidate set and to gather a 2-cycle's contested footnotes.
  */
 function unionIds(a: readonly BlockId[], b: readonly BlockId[]): BlockId[] {
+  // Set seeds membership from `a` (O(1) lookups); JS Sets preserve insertion
+  // order, so appending `b`'s novel ids keeps document order across the union.
   const out = [...a];
-  for (const id of b) if (!out.includes(id)) out.push(id);
+  const seen = new Set(a);
+  for (const id of b) {
+    if (!seen.has(id)) {
+      seen.add(id);
+      out.push(id);
+    }
+  }
   return out;
 }
 
@@ -1436,9 +1444,10 @@ function firstContestedAnchorIndex(
   childrenCount: number,
 ): number | undefined {
   const placedEnd = startIndex + childrenCount;
+  const candidateSet = new Set(candidateIds); // O(1) membership over the anchor scan
   let contested: number | undefined = undefined;
   for (const anchor of footnoteAnchors) {
-    if (!candidateIds.includes(anchor.contentBlockId)) continue;
+    if (!candidateSet.has(anchor.contentBlockId)) continue;
     const idx = blockToIndex.get(anchor.blockId);
     if (idx === undefined) continue;
     // The block is OUTSIDE the placed slice — its footnote was reserved but the
