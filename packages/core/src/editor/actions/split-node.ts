@@ -1,5 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { resolveBlock, productionAllocator, createPosition, createSpan, deleteRange, splitBlockAtPosition, splitWithSuggestion, splitWithSuggestionOverSelection, spanStart, spanEnd, inlineContentLength } from "../../state";
+import { resolveBlock, productionAllocator, createPosition, createSpan, deleteRange, splitBlockAtPosition, splitWithSuggestion, splitWithSuggestionOverSelection, replaceWithSuggestedFragment, spanStart, spanEnd, inlineContentLength } from "../../state";
 import type { BlockId } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
@@ -36,47 +36,87 @@ export function handleSplitNode(
     const sStart = spanStart(editor.state, selection);
     const replaceInput = replaceSuggestionInputForBlock(editor.state, sStart.blockId, config);
     if (replaceInput !== null) {
-      // Suggesting mode (4e-editor-composite): a non-collapsed Enter SOFT-DELETES
-      // the selection (text stays, struck) THEN inserts a suggested split AFTER it
-      // (post-strike offset), in ONE undoable transaction. SINGLE-BLOCK only — a
-      // cross-block Enter-over-selection needs multi-block-suggestion content (the
-      // paste-as-suggestion follow-up), so it is an interim NO-OP here.
+      // Suggesting mode (4e-editor-composite + PF-4): a non-collapsed Enter
+      // SOFT-DELETES the selection (text stays, struck) THEN inserts a suggested
+      // paragraph split, in ONE undoable transaction.
       const sEnd = spanEnd(editor.state, selection);
-      if (sStart.blockId !== sEnd.blockId) return editor; // cross-block → defer
       const splitBlock = resolveBlock(editor.state, sStart.blockId)?.block ?? null;
+      const endBlock = resolveBlock(editor.state, sEnd.blockId)?.block ?? null;
       if (
         splitBlock === null ||
         splitBlock.inlineContent === null ||
-        splitBlock.parentId === null
+        splitBlock.parentId === null ||
+        endBlock === null ||
+        endBlock.inlineContent === null
       ) {
         return editor;
       }
       // "Style for the following paragraph": the split lands at the selection END,
-      // so the follow-on (heading→paragraph) gate is END-only at sEnd.offset —
-      // mirror of the collapsed path's `atEnd` computation.
-      const atEnd = sEnd.offset === inlineContentLength(splitBlock.inlineContent);
+      // so the follow-on (heading→paragraph) gate is END-only — the new block is the
+      // empty suffix ONLY when the selection ends at the END of its block (else it
+      // carries that block's tail and must keep the merged type). Computed against the
+      // SELECTION-END block (E) so a cross-block span uses E's length, not B's.
+      const atEnd = sEnd.offset === inlineContentLength(endBlock.inlineContent);
       const def = config.componentRegistry.get(splitBlock.type);
       const followOnType =
         atEnd && def !== undefined && def.kind === "leaf" ? def.splitFollowOnType : undefined;
-      const newBlockInit =
-        followOnType !== undefined ? { type: followOnType, attrs: {} } : undefined;
 
-      const result = splitWithSuggestionOverSelection(
+      if (sStart.blockId === sEnd.blockId) {
+        // SINGLE-BLOCK: the dedicated soft-delete-then-split composite (struck text
+        // stays in block N BEFORE the break; caret → the clean suffix block N+1).
+        const newBlockInit =
+          followOnType !== undefined ? { type: followOnType, attrs: {} } : undefined;
+        const result = splitWithSuggestionOverSelection(
+          editor.state,
+          selection,
+          productionAllocator,
+          replaceInput,
+          newBlockInit,
+        );
+        if (result.state === editor.state) return editor;
+        // Caret → start of the new (suffix) block.
+        const updated = resolveBlock(result.state, sStart.blockId)?.block ?? null;
+        const newBlockId = updated?.nextSiblingId ?? null;
+        if (newBlockId === null) return editor;
+        const newCursor = createPosition(newBlockId, 0);
+        const newSelection = createSpan(newCursor, newCursor);
+        editor.history.commit(result, { before: selection, after: newSelection });
+        return rebuildTrees(
+          { ...editor, state: result.state, selection: newSelection },
+          editor,
+          config,
+          result.dirtyIds,
+        );
+      }
+
+      // CROSS-BLOCK (PF-4): "insert a paragraph break" over a multi-block selection.
+      // Model it as replacing the selection with an EMPTY two-line fragment via the
+      // fragment composite — the selection is soft-deleted (struck, with a block-join
+      // suggestion per crossed boundary) and a suggested split is inserted; accept
+      // removes the selection + leaves ONE break, reject restores the original blocks.
+      // The break's NEW block inherits the start block's type/attrs (matching the
+      // direct path's delete-then-split merge), overridden by `followOnType` (fresh
+      // attrs) when the selection ends at end-of-E (the new block is then empty).
+      const breakType = followOnType ?? splitBlock.type;
+      const breakAttrs = followOnType !== undefined ? {} : splitBlock.attrs;
+      const fragment = [
+        { type: splitBlock.type, attrs: splitBlock.attrs, inlineContent: { items: [] } },
+        { type: breakType, attrs: breakAttrs, inlineContent: { items: [] } },
+      ];
+      const result = replaceWithSuggestedFragment(
         editor.state,
         selection,
-        productionAllocator,
+        fragment,
         replaceInput,
-        newBlockInit,
+        productionAllocator,
       );
       if (result.state === editor.state) return editor;
-
-      // Caret → start of the new (suffix) block.
-      const updated = resolveBlock(result.state, sStart.blockId)?.block ?? null;
-      const newBlockId = updated?.nextSiblingId ?? null;
-      if (newBlockId === null) return editor;
-      const newCursor = createPosition(newBlockId, 0);
+      const newCursor = result.endPosition;
       const newSelection = createSpan(newCursor, newCursor);
-      editor.history.commit(result, { before: selection, after: newSelection });
+      editor.history.commit(
+        { state: result.state, dirtyIds: result.dirtyIds },
+        { before: selection, after: newSelection },
+      );
       return rebuildTrees(
         { ...editor, state: result.state, selection: newSelection },
         editor,

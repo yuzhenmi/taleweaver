@@ -863,10 +863,14 @@ on N at the POST-strike offset — robust to own-insertion removal shortening th
 both records (a `deletion` + an `insertion` sharing `createdAt`), in ONE undoable op; caret
 → newBlock:0, heading follow-on computed at the selection END. The cross-context guard +
 collapse-point run ONCE for both modes; the direct-mode path keeps its byte-identical
-`deleteRange`+collapse behavior. A CROSS-block non-collapsed Enter in suggesting mode stays
-an interim NO-OP (it needs the multi-block-suggestion machinery the paste-as-suggestion
-follow-up brings) — named alongside the `handlePaste`-not-suggesting-aware follow-up. Slice
-4e is now COMPLETE (create + resolve + editor + composite).
+`deleteRange`+collapse behavior. A CROSS-block non-collapsed Enter in suggesting mode is
+TRACKED (PF-4): it routes through `replaceWithSuggestedFragment` with an EMPTY two-line break
+fragment — soft-deleting the cross-block selection (struck + a `block-join-suggestion` per
+crossed boundary) and inserting the suggested split in ONE undoable op; accept removes the
+selection + leaves one break, reject restores the original blocks. The single-block path stays
+on `splitWithSuggestionOverSelection` (struck text rides BEFORE the break vs the fragment's
+AFTER — not interchangeable). Slice 4e + PF (paste/cross-block-Enter as suggestion) are COMPLETE
+(create + resolve + editor + composite + multi-block fragment).
 **Slice 4-followup → SUPERSEDED by MT-4 (Finding 3a closed both ways):** the interim
 main-body gate (which diverted body suggesting-mode edits to direct/untracked editing to
 avoid un-resolvable zombies while the resolve machinery was main-tree-only) is GONE. MT-2 +

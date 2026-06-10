@@ -8,12 +8,14 @@
  * `block-split-suggestion` embed appended to the END of block N + an `insertion`
  * SuggestionRecord — one undoable transaction.
  *
- * Scope of THIS slice: the COLLAPSED cases plus (slice 4e-editor-composite) the
- * SINGLE-BLOCK NON-collapsed case — Enter over a selection soft-deletes the
- * selection (text stays, struck) then inserts a suggested split AFTER it, in one
- * undoable transaction, via `splitWithSuggestionOverSelection`. A CROSS-block
- * non-collapsed Enter in suggesting mode stays an interim NO-OP (it needs the
- * multi-block-suggestion machinery the paste-as-suggestion follow-up brings).
+ * Scope of THIS file: the COLLAPSED cases; the SINGLE-BLOCK NON-collapsed case
+ * (slice 4e-editor-composite) — Enter over a selection soft-deletes the selection
+ * (text stays, struck) then inserts a suggested split AFTER it via
+ * `splitWithSuggestionOverSelection`; and the CROSS-BLOCK NON-collapsed case (PF-4)
+ * — Enter over a multi-block selection soft-deletes the selection (struck + a
+ * `block-join-suggestion` per crossed boundary) and inserts a suggested paragraph
+ * break via `replaceWithSuggestedFragment` (an empty two-line fragment). Accept
+ * leaves ONE break; reject restores the original blocks. All in one undoable op.
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -262,35 +264,58 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
     expect(getSuggestions(undone.state)).toHaveLength(0);
   });
 
-  it("CROSS-block non-collapsed Enter in suggesting mode is an interim NO-OP (deferred multi-block-suggestion case)", () => {
-    // Two paragraphs "abc" | "def" (built in direct mode), then a selection that
-    // crosses the boundary. A cross-block Enter-over-selection needs block-JOIN
-    // suggestions for the paragraph break — the paste-as-suggestion follow-up — so
-    // it stays a NO-OP here.
-    let editor = seed("abc");
-    const para1 = bodyParaId(editor);
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, directConfig); // "abc" | ""
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "def" }, directConfig);
-    const para2 = getBlock(editor.state, para1)?.nextSiblingId ?? null;
-    if (para2 === null) throw new Error("expected a second paragraph");
+  describe("CROSS-block non-collapsed Enter in suggesting mode (PF-4: tracked, no longer a NO-OP)", () => {
+    // Two paragraphs "abc" | "def" (built in direct mode); select para1[1..] .. para2[..2]
+    // ("bc" + break + "de") and press Enter in suggesting mode. The selection is
+    // soft-deleted (struck, with a block-join-suggestion for the crossed boundary) AND a
+    // suggested paragraph split is inserted — ONE undoable op. Accept removes the
+    // selection + leaves ONE break ("a" | "f"); reject restores both blocks. reduceEditor
+    // mutates the shared Y.Doc in place, so accept and reject each need a FRESH setup.
+    const blockSeq = (e: EditorState): BlockId[] => {
+      const out: BlockId[] = [];
+      let id = getBlock(e.state, e.state.rootId)?.firstChildId ?? null;
+      while (id) { out.push(id); id = getBlock(e.state, id)?.nextSiblingId ?? null; }
+      return out;
+    };
+    const mk = (): { editor: EditorState; para1: BlockId } => {
+      let editor = seed("abc");
+      const para1 = bodyParaId(editor);
+      editor = reduceEditor(editor, { type: "SPLIT_NODE" }, directConfig); // "abc" | ""
+      editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "def" }, directConfig);
+      const para2 = getBlock(editor.state, para1)?.nextSiblingId ?? null;
+      if (para2 === null) throw new Error("expected a second paragraph");
+      const crossed = reduceEditor(
+        editor,
+        { type: "SET_SELECTION", selection: createSpan(createPosition(para1, 1), createPosition(para2, 2)) },
+        suggestingConfig,
+      );
+      return { editor: reduceEditor(crossed, { type: "SPLIT_NODE" }, suggestingConfig), para1 };
+    };
 
-    // Select from para1 offset 1 through para2 offset 2 ("bc" + break + "de").
-    const crossed = reduceEditor(
-      editor,
-      {
-        type: "SET_SELECTION",
-        selection: createSpan(createPosition(para1, 1), createPosition(para2, 2)),
-      },
-      suggestingConfig,
-    );
+    it("tracks a deletion + insertion; the start block ends with a split embed", () => {
+      const { editor: next, para1 } = mk();
+      expect(getSuggestions(next.state).map((s) => s.kind).sort()).toEqual(["deletion", "insertion"]);
+      expect(endsWithSplitEmbed(next, para1)).toBe(true);
+      // Suggesting view has THREE blocks: B' (prefix + split embed) | the inserted
+      // break block (carries the struck B-tail + a join embed) | E (struck head +
+      // tail). Accept merges the latter two into the flow → two final blocks; reject
+      // merges B' back → the original two. The join/split are embeds, not merges yet.
+      expect(blockSeq(next).length).toBe(3);
+    });
 
-    const next = reduceEditor(crossed, { type: "SPLIT_NODE" }, suggestingConfig);
+    it("ACCEPT_ALL removes the selection and leaves ONE paragraph break (\"a\" | \"f\")", () => {
+      const accepted = reduceEditor(mk().editor, { type: "ACCEPT_ALL_SUGGESTIONS" }, suggestingConfig);
+      const seq = blockSeq(accepted);
+      expect(seq.map((id) => getTextOf(accepted.state, id))).toEqual(["a", "f"]);
+      expect(getSuggestions(accepted.state)).toHaveLength(0);
+    });
 
-    // NO-OP: editor reference unchanged, no soft-delete, no suggestion.
-    expect(next).toBe(crossed);
-    expect(getTextOf(next.state, para1)).toBe("abc");
-    expect(getTextOf(next.state, para2)).toBe("def");
-    expect(getSuggestions(next.state)).toHaveLength(0);
+    it("REJECT_ALL restores the original two blocks (\"abc\" | \"def\")", () => {
+      const rejected = reduceEditor(mk().editor, { type: "REJECT_ALL_SUGGESTIONS" }, suggestingConfig);
+      const seq = blockSeq(rejected);
+      expect(seq.map((id) => getTextOf(rejected.state, id))).toEqual(["abc", "def"]);
+      expect(getSuggestions(rejected.state)).toHaveLength(0);
+    });
   });
 
   it("direct mode (regression): non-collapsed Enter deletes the selection THEN splits", () => {
