@@ -297,6 +297,14 @@ export {
   CROSS_REFERENCE_EMBED_TYPE,
 } from "./ops/insert-cross-reference";
 export { insertTab, TAB_EMBED_TYPE } from "./ops/insert-tab";
+// Page-fields (layout-dependent reference fields: page-number / page-count). A
+// pointer-property inline embed with NO owned body — its value is resolved from
+// PAGINATED layout (the render-time placeholder is page-agnostic). Constants live
+// at the state root (`./page-field`) so Layer-1 `extract-text.ts` can import the
+// embed-type without reaching into `ops/`.
+export { insertPageField } from "./ops/insert-page-field";
+export { PAGE_FIELD_EMBED_TYPE, PAGE_FIELD_RESERVED_GLYPHS, isPageFieldKind } from "./page-field";
+export type { PageFieldKind, PageFieldProperties } from "./page-field";
 
 // Comments. Paired zero-width `comment-start`/`comment-end` marker embeds
 // delimit a comment range; the markers ARE the anchor (they move/clone with

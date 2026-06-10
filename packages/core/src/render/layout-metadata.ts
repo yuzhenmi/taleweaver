@@ -22,6 +22,9 @@
  * Putting it under `layout/` and importing it into `render-node.ts` would
  * invert the layering; a render-side leaf keeps the dependency one-directional.
  */
+import type { PageFieldKind } from "../state/page-field";
+import type { CounterStyle } from "../styles/format-counter";
+
 export interface LayoutBoxMetadata {
   readonly image?: { readonly src: string; readonly width: number; readonly height: number };
   readonly horizontalLine?: boolean;
@@ -54,4 +57,11 @@ export interface LayoutBoxMetadata {
   // can recognize an embed anchor without re-deriving it from state.
   readonly embedType?: string;
   readonly contentBlockId?: unknown;
+  // Page-field metadata (page-number / page-count). Stamped by the render pass's
+  // `page-field` branch from the embed's `properties`; read by the layout
+  // field-resolution pass (`collectPageFields`) to know each field's kind +
+  // number style without re-deriving from state. Strongly typed (unlike the raw
+  // `unknown` embed properties) because the render branch validates them.
+  readonly fieldKind?: PageFieldKind;
+  readonly numberStyle?: CounterStyle;
 }

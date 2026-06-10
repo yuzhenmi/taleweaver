@@ -18,6 +18,8 @@ import {
   asBlockId,
   FOOTNOTE_ANCHOR_EMBED_TYPE,
   CROSS_REFERENCE_EMBED_TYPE,
+  PAGE_FIELD_EMBED_TYPE,
+  PAGE_FIELD_RESERVED_GLYPHS,
   COMMENT_START_EMBED_TYPE,
   COMMENT_END_EMBED_TYPE,
   BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
@@ -42,6 +44,8 @@ import type {
 import { authorColorOf } from "../styles";
 import type { CounterValue } from "../numbering";
 import { resolveCrossReference, BROKEN_CROSS_REFERENCE_TEXT } from "./resolve-cross-reference";
+import { isPageFieldKind, type PageFieldKind } from "../state";
+import { isCounterStyle, type CounterStyle } from "../styles/format-counter";
 import type { Style, ComputedStyle } from "../styles";
 import { INITIAL_COMPUTED_STYLE } from "../styles/property-meta";
 import { composeComputed } from "../cascade/compose";
@@ -356,6 +360,37 @@ export function expandInlineItems(
           // The target lives in `properties.targetId`; downstream navigation
           // (a later slice) reads it from state, not from box metadata.
           { embedType: item.embedType },
+        ),
+      );
+    } else if (item.embedType === PAGE_FIELD_EMBED_TYPE) {
+      // A page-field (page-number / page-count) renders a PLACEHOLDER at render
+      // time — its real value depends on PAGINATED layout, which does not exist
+      // yet. The placeholder is N reserved sizing glyphs (PAGE_FIELD_RESERVED_GLYPHS);
+      // with `inlineSize: auto` (the default — not set here) the IFC shrink-to-fits
+      // the atom to those glyphs' natural width = the reserved width, so line/slot
+      // layout already accounts for the widest plausible value. The per-page value
+      // is bound LATE, at materialize (substitutePageFields, a later slice). Like
+      // the cross-reference embed, one inline-block atom = one IFC token = one
+      // cursor stop (#407); the `fieldKind`/`numberStyle` ride in metadata for the
+      // layout field-resolution pass to read (the render tree stays page-agnostic).
+      // Both narrowed from the embed's open-schema `unknown` properties via type
+      // guards (no cast); a malformed / future value falls back to the default.
+      const rawKind = item.properties.fieldKind;
+      const fieldKind: PageFieldKind = isPageFieldKind(rawKind) ? rawKind : "page-number";
+      const rawStyle = item.properties.numberStyle;
+      const numberStyle: CounterStyle = isCounterStyle(rawStyle) ? rawStyle : "decimal";
+      const placeholder = "0".repeat(PAGE_FIELD_RESERVED_GLYPHS);
+      out.push(
+        createElementBox(
+          key,
+          // `display: "inline-block"` spread LAST — the single-token atomicity is
+          // load-bearing for IFC offset accounting, not a stylistic default
+          // (mirrors the cross-reference branch).
+          { ...itemStyle, display: "inline-block" },
+          // Inner text gets `{}` (inherits font/etc. from the cascade — re-applying
+          // `itemStyle` would double-apply em-relative properties).
+          [createTextBox(`${key}/0`, {}, placeholder)],
+          { embedType: item.embedType, fieldKind, numberStyle },
         ),
       );
     } else if (

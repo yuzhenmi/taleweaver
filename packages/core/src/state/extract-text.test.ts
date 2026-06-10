@@ -165,6 +165,29 @@ describe("extractText", () => {
       expect(extractText(state, span, builtinEmbedSerializer)).toBe("a￼b");
     });
 
+    it("builtin serializer maps a page-field embed to \"\" (value is layout-dependent, not known here)", () => {
+      // A page-field's value depends on pagination (the page it lands on / the total
+      // count), which layout-independent text extraction cannot know — so it serializes
+      // to "" (1 Position offset, 0 chars), like a comment marker. Without this case it
+      // would fall through to U+FFFC and pollute extractText / getWordCount.
+      const state = buildState({
+        rootId: "doc",
+        blocks: [
+          buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+          buildBlock({
+            id: "p", type: "paragraph", parentId: "doc",
+            inlineContent: inlineContent([
+              text("a"),
+              embed("page-field", { fieldKind: "page-number", numberStyle: "decimal" }),
+              text("b"),
+            ]),
+          }),
+        ],
+      });
+      const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3));
+      expect(extractText(state, span, builtinEmbedSerializer)).toBe("ab");
+    });
+
     it("caller-provided custom serializer is used in place of default and builtin", () => {
       const state = buildState({
         rootId: "doc",

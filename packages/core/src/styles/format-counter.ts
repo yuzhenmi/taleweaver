@@ -31,6 +31,26 @@ export type CounterStyle =
   | "circle"
   | "square";
 
+const COUNTER_STYLES: ReadonlySet<string> = new Set<CounterStyle>([
+  "decimal",
+  "lower-alpha",
+  "upper-alpha",
+  "lower-roman",
+  "upper-roman",
+  "disc",
+  "circle",
+  "square",
+]);
+
+/**
+ * Runtime type guard for {@link CounterStyle}. Used to validate a value read from
+ * an open-schema source (embed `properties`, block `attrs`) before treating it as
+ * a `CounterStyle` — no unsafe cast.
+ */
+export function isCounterStyle(value: unknown): value is CounterStyle {
+  return typeof value === "string" && COUNTER_STYLES.has(value);
+}
+
 /**
  * Format `value` under `style`, BARE (no suffix).
  *

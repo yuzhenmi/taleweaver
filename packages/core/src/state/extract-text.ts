@@ -3,6 +3,7 @@ import type { Span } from "./block-position";
 import { iterateSpan } from "./span-iteration";
 import type { InlineItem, EmbedItem } from "./inline-content";
 import { COMMENT_START_EMBED_TYPE, COMMENT_END_EMBED_TYPE } from "./comments";
+import { PAGE_FIELD_EMBED_TYPE } from "./page-field";
 import {
   BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
   BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
@@ -54,6 +55,13 @@ export const builtinEmbedSerializer: EmbedSerializer = (item) => {
       // extractText / getWordCount / clipboard. They still occupy one Position
       // offset in the document model (handled by the cursor path), but
       // contribute no extracted text and no word count.
+      return "";
+    case PAGE_FIELD_EMBED_TYPE:
+      // A page-field's value depends on PAGINATED layout (the page it lands on /
+      // the total count), which layout-independent text extraction cannot know.
+      // Serialize to "" (1 Position offset, 0 chars) — same outcome as the
+      // zero-width markers above, but for a different reason (value-not-yet-known,
+      // not zero-width). A layout-aware text export is a separate concern.
       return "";
     default:
       return EMBED_CHAR;
