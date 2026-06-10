@@ -128,7 +128,7 @@ module imports its type vocabulary.
 
 **Components** — `ComponentDefinition`, `ComponentRegistry`, `createComponentRegistry`, `createDefaultComponentRegistry`. Built-in component definitions: `documentComponent`, `paragraphComponent`, `headingComponent`, `listItemComponent`, `imageComponent`, `horizontalLineComponent`, `tableComponent`, `tableRowComponent`, `tableCellComponent`. (There is NO `listComponent`: the flat Google-Docs list model has no `list` container — a list-item is a leaf carrying `listId` + `listLevel` attrs; see `1.1-state.md`.) (`text` and `span` are deleted — text is items inside `inlineContent`; spans are reconstructed by render from same-attr text-item groupings.)
 
-**Cursor** — `isCollapsed`. `moveByCharacter`, `moveByWord`, `expandSelection`, `selectWord`. `resolvePositionFromPixel`. `PixelPosition`, `resolvePixelPosition`. `SelectionRect`, `computeSelectionRects`. `getCommentRangeRects`. `moveToLine`, `moveToLineBoundary`.
+**Cursor** — `isCollapsed`. `moveByCharacter`, `moveByWord`, `expandSelection`, `selectWord`. `resolvePositionFromPixel`. `PixelPosition`, `resolvePixelPosition`. `SelectionRect`, `computeSelectionRects`. `getCommentRangeRects`, `getSuggestionRangeRects`. `moveToLine`, `moveToLineBoundary`.
 
 **Editor** — `EditorAction`, `EditorState`, `EditorConfig`. `createInitialEditorState`, `reduceEditor`. `findFirstContentBlock`, `findLastContentBlock`.
 

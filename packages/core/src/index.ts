@@ -326,6 +326,7 @@ export { resolvePixelPosition } from "./cursor/cursor-position";
 export type { SelectionRect } from "./cursor/selection-geometry";
 export { computeSelectionRects, computeSelectionRectsForPage } from "./cursor/selection-geometry";
 export { getCommentRangeRects } from "./cursor/comment-rects";
+export { getSuggestionRangeRects } from "./cursor/suggestion-rects";
 export { moveToLine, moveToLineBoundary } from "./cursor/line-navigation";
 export { isCollapsed } from "./cursor/selection";
 

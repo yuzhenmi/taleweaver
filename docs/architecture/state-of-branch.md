@@ -898,9 +898,14 @@ it through. `final` omits deletion text / keeps insertions; `original` omits ins
 non-`suggesting` views, renders a surviving break embed zero-width (no pilcrow), and in `final` applies a
 formatting `proposedAttrs` for real. `RenderOutput.suggestionView` records the view so the incremental
 dispatch FALLS BACK to the full path on a view switch (reused nodes carry the prior projection). Default
-`suggesting` = byte-identical legacy. Same TEXT-RUN scope — block MERGE is `5c-structural`). REMAINING:
-`5c-structural` (block-boundary projection, shared by extractText+render); 6 host query +
-overlay; 7 arch docs. (No text/HTML exporter exists yet — only the binary serializer, which round-trips the
+`suggesting` = byte-identical legacy. Same TEXT-RUN scope — block MERGE is `5c-structural`).
+**6a host range-rects query — SHIPPED** (`getSuggestionRangeRects(state, layoutTree, shaper, suggestionId)`
+in `cursor/suggestion-rects.ts`, barrel-exported — mirrors `getCommentRangeRects`: `resolveSuggestionRange`→
+`createSpan`→`computeSelectionRects`; `[]` for an id with no live tagged content. Pure core query; a
+suggestion tags runs in place so its rects are exactly the tagged glyphs). REMAINING:
+6b DOM-controller overlay (`setSuggestionHighlights`/`clearSuggestionHighlights` + paint, mirror
+`setCommentHighlights`/`paintCommentHighlights`); `5c-structural` (block-boundary projection, shared by
+extractText+render); 7 arch docs. (No text/HTML exporter exists yet — only the binary serializer, which round-trips the
 literal state; a view-projected text/HTML export lands if/when that exporter is built, NOT a change-tracking
 slice.) See `1.1-state.md` "The `suggestions` map" + `1.7-editor.md`.
 
