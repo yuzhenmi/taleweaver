@@ -14,7 +14,7 @@ import { createDefaultComponentRegistry } from "../components/component-registry
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
 import { buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
 import { asBlockId, insertPageField, PAGE_FIELD_EMBED_TYPE, createPosition } from "../state";
-import type { CounterStyle } from "../styles/format-counter";
+import type { PageFieldNumberStyle } from "../state";
 
 const reg = createDefaultComponentRegistry();
 const attrReg = createDefaultAttrRegistry();
@@ -32,7 +32,7 @@ function findPageField(root: RenderNode): ElementBox | null {
   return found;
 }
 
-function docWithField(fieldKind: "page-number" | "page-count", numberStyle?: CounterStyle) {
+function docWithField(fieldKind: "page-number" | "page-count", numberStyle?: PageFieldNumberStyle) {
   const state = buildState({
     rootId: asBlockId("doc"),
     blocks: [

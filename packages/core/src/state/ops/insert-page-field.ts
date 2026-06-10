@@ -12,8 +12,7 @@ import {
 } from "../inline-content";
 import { getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
 import { buildYInlineContent } from "../y-block";
-import type { CounterStyle } from "../../styles/format-counter";
-import { PAGE_FIELD_EMBED_TYPE, type PageFieldKind } from "../page-field";
+import { PAGE_FIELD_EMBED_TYPE, type PageFieldKind, type PageFieldNumberStyle } from "../page-field";
 
 // Re-export the root-level constants so consumers can import either location.
 export { PAGE_FIELD_EMBED_TYPE, PAGE_FIELD_RESERVED_GLYPHS, type PageFieldKind } from "../page-field";
@@ -51,7 +50,7 @@ export function insertPageField(
   state: State,
   position: Position,
   fieldKind: PageFieldKind,
-  numberStyle: CounterStyle = "decimal",
+  numberStyle: PageFieldNumberStyle = "decimal",
 ): OperationResult {
   const plan = planPageFieldInsert(state, position, fieldKind, numberStyle);
   return applyOperation(state, (doc) => {
@@ -68,7 +67,7 @@ function planPageFieldInsert(
   state: State,
   position: Position,
   fieldKind: PageFieldKind,
-  numberStyle: CounterStyle,
+  numberStyle: PageFieldNumberStyle,
 ): PageFieldInsertPlan {
   const resolved = resolveBlock(state, position.blockId);
   if (resolved === null) {

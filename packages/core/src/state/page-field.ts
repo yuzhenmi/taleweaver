@@ -30,13 +30,39 @@ export type PageFieldKind = "page-number" | "page-count";
  */
 export const PAGE_FIELD_RESERVED_GLYPHS = 2;
 
+/**
+ * The number formats valid for a page-field — {@link CounterStyle} minus the
+ * BULLET glyphs (`disc`/`circle`/`square`). A bullet is never a sensible page
+ * number ("page •" / "• of •"), so excluding it at the type level makes that
+ * invalid state unrepresentable rather than silently rendering a glyph as a count.
+ */
+export type PageFieldNumberStyle = Exclude<CounterStyle, "disc" | "circle" | "square">;
+
 /** A page-field's stored `properties` (mirrors the cross-reference `{ targetId, refMode }` shape). */
 export interface PageFieldProperties {
   readonly fieldKind: PageFieldKind;
-  readonly numberStyle: CounterStyle;
+  readonly numberStyle: PageFieldNumberStyle;
 }
 
 const PAGE_FIELD_KINDS: ReadonlySet<string> = new Set<PageFieldKind>(["page-number", "page-count"]);
+
+const PAGE_FIELD_NUMBER_STYLES: ReadonlySet<string> = new Set<PageFieldNumberStyle>([
+  "decimal",
+  "lower-alpha",
+  "upper-alpha",
+  "lower-roman",
+  "upper-roman",
+]);
+
+/**
+ * Runtime type guard for {@link PageFieldNumberStyle}. Validates a value read from
+ * an open-schema source (the embed's `unknown`-valued `properties`) before treating
+ * it as a page-field number style — rejects bullet glyphs and any non-style value.
+ * Mirrors `isCounterStyle`.
+ */
+export function isPageFieldNumberStyle(value: unknown): value is PageFieldNumberStyle {
+  return typeof value === "string" && PAGE_FIELD_NUMBER_STYLES.has(value);
+}
 
 /**
  * Runtime type guard for {@link PageFieldKind}. Validates a value read from an

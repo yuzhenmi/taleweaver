@@ -44,8 +44,12 @@ import type {
 import { authorColorOf } from "../styles";
 import type { CounterValue } from "../numbering";
 import { resolveCrossReference, BROKEN_CROSS_REFERENCE_TEXT } from "./resolve-cross-reference";
-import { isPageFieldKind, type PageFieldKind } from "../state";
-import { isCounterStyle, type CounterStyle } from "../styles/format-counter";
+import {
+  isPageFieldKind,
+  isPageFieldNumberStyle,
+  type PageFieldKind,
+  type PageFieldNumberStyle,
+} from "../state";
 import type { Style, ComputedStyle } from "../styles";
 import { INITIAL_COMPUTED_STYLE } from "../styles/property-meta";
 import { composeComputed } from "../cascade/compose";
@@ -378,7 +382,7 @@ export function expandInlineItems(
       const rawKind = item.properties.fieldKind;
       const fieldKind: PageFieldKind = isPageFieldKind(rawKind) ? rawKind : "page-number";
       const rawStyle = item.properties.numberStyle;
-      const numberStyle: CounterStyle = isCounterStyle(rawStyle) ? rawStyle : "decimal";
+      const numberStyle: PageFieldNumberStyle = isPageFieldNumberStyle(rawStyle) ? rawStyle : "decimal";
       const placeholder = "0".repeat(PAGE_FIELD_RESERVED_GLYPHS);
       out.push(
         createElementBox(
