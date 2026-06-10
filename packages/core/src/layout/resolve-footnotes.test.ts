@@ -456,10 +456,17 @@ describe("resolveFootnotes", () => {
     expect(rawPlan.entries[0].children.length).toBe(4);
 
     const anchors = [fnAnchor("b0", "fn0")];
+    __resetBodyLayoutCallCountForTest();
     const out = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
       cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
     );
+    // F5 perf lock: the page's single footnote body is laid out EXACTLY ONCE — the
+    // convergence loop's one iteration. The dev `footnoteSlotHeight` invariant does
+    // NOT re-lay-out the body on this converged page (it skips the redundant
+    // `slotLayoutFor` because `contentBlockIds` is unchanged since the slot was
+    // computed). A regression that re-ran it unconditionally would make this 2.
+    expect(__getBodyLayoutCallCountForTest()).toBe(1);
 
     expect(out).not.toBe(rawPlan);
     // Page 0 carries the footnote: slot = 1 line (16) + separator (13) = 29.

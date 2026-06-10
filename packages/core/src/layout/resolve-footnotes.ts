@@ -961,6 +961,12 @@ export function resolveFootnotes(
     // as the next page's inbound. Recomputed each iteration alongside the height.
     let slotResult: { slotHeight: number; slotContentBlockIds: BlockId[]; outboundContinuations: FootnoteContinuation[] } =
       { slotHeight: 0, slotContentBlockIds: [], outboundContinuations: [] };
+    // The `contentBlockIds` the current `slotResult` (hence `footnoteSlotHeight`)
+    // was computed from. Tracked so the dev invariant below can SKIP a redundant
+    // body re-layout when the final `contentBlockIds` is unchanged since the slot
+    // was computed (the converged path — `slotLayoutFor` is deterministic, so the
+    // height is correct by construction). Only the non-converged path re-runs.
+    let slotResultIds: readonly BlockId[] = contentBlockIds;
     // The effective stop cap = the section cap tightened by any footnote-driven
     // atomic cap discovered on a cycle. `undefined` ⇒ no cap beyond section.
     let footnoteCap: number | undefined = undefined;
@@ -979,6 +985,7 @@ export function resolveFootnotes(
         inboundContinuations, contentBlockIds, contentInlineSize, pageContentBlockSize,
       );
       footnoteSlotHeight = slotResult.slotHeight;
+      slotResultIds = contentBlockIds;
       const effCap = tightenCap(sectionCap, footnoteCap);
       fit = fitBody(pageContentBlockSize - footnoteSlotHeight, effCap);
       const recollected = collectForSlice(startIndex, fit.childrenCount);
@@ -1007,6 +1014,7 @@ export function resolveFootnotes(
             inboundContinuations, contentBlockIds, contentInlineSize, pageContentBlockSize,
           );
           footnoteSlotHeight = slotResult.slotHeight;
+          slotResultIds = contentBlockIds;
           fit = fitBody(pageContentBlockSize - footnoteSlotHeight, tightenCap(sectionCap, footnoteCap));
           contentBlockIds = collectForSlice(startIndex, fit.childrenCount);
         }
@@ -1022,10 +1030,16 @@ export function resolveFootnotes(
     // multi-cycle — unreachable with correct block structure per the monotonicity
     // note above), `footnoteSlotHeight` would be left over from an earlier
     // iteration's set and disagree with the bodies that actually get a slot. Catch
-    // that loudly in dev; prod stays graceful. (The final `slotResult` was already
-    // computed from the FINAL `contentBlockIds` in the loop's last iteration, so a
-    // fresh call here re-derives the same height — the cross-check is cheap.)
-    if (isDevMode()) {
+    // that loudly in dev; prod stays graceful.
+    //
+    // Perf (F5): on EVERY converged exit the loop's break condition guarantees
+    // `contentBlockIds` is UNCHANGED since the `slotResult` it was last computed
+    // from (`slotResultIds`), so `footnoteSlotHeight` is correct by determinism —
+    // re-running `slotLayoutFor` (which lays out the bodies again) is pure waste.
+    // Only re-derive + compare when the ids genuinely differ (the non-converged
+    // cap-exhaustion path the invariant exists to catch), avoiding a redundant
+    // per-page body layout in dev for footnote-heavy docs.
+    if (isDevMode() && !sameIds(contentBlockIds, slotResultIds)) {
       const expected = slotLayoutFor(
         inboundContinuations, contentBlockIds, contentInlineSize, pageContentBlockSize,
       );
