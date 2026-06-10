@@ -10,6 +10,7 @@ import { attrsEqual, mergeAttrs } from "../attrs";
 import {
   inlineContentLength,
   mergeAdjacentTextItems,
+  splitInlineContentAtOffset,
   type EmbedItem,
   type InlineItem,
   type TextItem,
@@ -26,8 +27,11 @@ import {
   type SuggestionId,
   type SuggestionKind,
   type SuggestionMintInput,
+  type SuggestionRecord,
 } from "../suggestions";
 import { iterateAllBlocksInDocumentOrder } from "../document-order";
+import { insertNewBlocksInTx, type NewBlockSpec } from "./insert-new-blocks";
+import type { SiblingBlockInit } from "./insert-blocks-after";
 import { STATE_INTERNAL } from "../state-internal";
 import { getSuggestionsMap, getYBlock, type BlockTreeKind } from "../yjs-doc";
 import { buildYInlineContent, buildYInlineItem } from "../y-block";
@@ -757,6 +761,244 @@ export function splitWithSuggestionOverSelection(
   });
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// Fragment replace (paste-as-suggestion / cross-block Enter). A multi-block
+// fragment inserted as ONE tracked insertion. PF-1: the COLLAPSED-span case
+// (no strike). The cross-block strike + join embeds are layered on in PF-2.
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * The pure structural plan for replacing `span` with a `fragment` as a tracked
+ * suggestion: per-existing-block full-replace inline writes, fresh fully-linked
+ * new blocks, the 0..2 suggestion records, and the post-op caret. Computed
+ * entirely from the pre-tx `state` (every new block id allocated up-front), then
+ * applied in ONE transaction by {@link replaceWithSuggestedFragment}.
+ */
+export interface ReplaceFragmentPlan {
+  readonly writes: readonly ResolveWrite[];
+  readonly newBlocks: readonly NewBlockSpec[];
+  readonly records: readonly SuggestionRecord[];
+  readonly endPosition: Position;
+}
+
+/** Stamp the insertion-provenance id on every TEXT run (embeds untouched). */
+function tagInsertionRuns(
+  items: ReadonlyArray<InlineItem>,
+  insId: SuggestionId,
+): InlineItem[] {
+  return items.map((it) =>
+    it.kind === "text"
+      ? { ...it, attrs: { ...it.attrs, [INSERTION_SUGGESTION_ATTR]: insId } }
+      : it,
+  );
+}
+
+/** The zero-width block-split-suggestion embed for a fragment's internal break. */
+function buildSplitSuggestionEmbed(insId: SuggestionId): EmbedItem {
+  return Object.freeze({
+    kind: "embed",
+    embedType: BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
+    attrs: Object.freeze({}),
+    properties: Object.freeze({ suggestionId: insId }),
+  });
+}
+
+function fragmentLineItems(line: SiblingBlockInit, insId: SuggestionId): InlineItem[] {
+  return tagInsertionRuns(line.inlineContent?.items ?? [], insId);
+}
+function fragmentLineLength(line: SiblingBlockInit): number {
+  return inlineContentLength({ items: line.inlineContent?.items ?? [] });
+}
+
+export function planReplaceWithSuggestedFragment(
+  state: State,
+  span: Span,
+  fragment: readonly SiblingBlockInit[],
+  input: ReplaceSuggestionInput,
+  allocator: IdAllocator,
+): ReplaceFragmentPlan {
+  const at = spanStart(state, span);
+  // PF-1 handles the COLLAPSED span only (PF-2 adds the cross-block strike).
+  const resolved = resolveBlock(state, at.blockId);
+  if (resolved === null || resolved.block.inlineContent === null) {
+    throw new Error(
+      `planReplaceWithSuggestedFragment: block "${at.blockId}" not found or not a leaf`,
+    );
+  }
+  const kind = resolved.kind;
+  const items = resolved.block.inlineContent.items;
+  const c = at.offset;
+  const n = fragment.length;
+
+  // Empty fragment on a COLLAPSED span = total no-op (nothing to insert, and PF-1
+  // has no strike). PF-2 routes a non-collapsed empty fragment to a pure suggested
+  // delete instead; here the span is collapsed, so return an empty plan.
+  if (n === 0) {
+    return { writes: [], newBlocks: [], records: [], endPosition: at };
+  }
+
+  // Insertion id (spec §3.4): n===1 coalesces into an adjacent same-author
+  // insertion; n>1 ALWAYS mints fresh — the whole paste is ONE accept/reject unit
+  // and its split embeds must NOT fold into a pre-existing insertion's id.
+  let insId: SuggestionId;
+  let record: SuggestionRecord | null;
+  if (n === 1) {
+    const decision = resolveCoalesce(
+      state,
+      createSpan(at, at),
+      input.insertionId,
+      INSERTION_SUGGESTION_ATTR,
+      (rec) => rec.kind === "insertion" && rec.author === input.author,
+    );
+    insId = decision.id;
+    record = decision.reusing
+      ? null
+      : { id: insId, kind: "insertion", author: input.author, createdAt: input.createdAt };
+  } else {
+    insId = input.insertionId;
+    record = { id: insId, kind: "insertion", author: input.author, createdAt: input.createdAt };
+  }
+  const records = record === null ? [] : [record];
+
+  const [prefix, suffix] = splitInlineContentAtOffset({ items }, c);
+
+  if (n === 1) {
+    const newItems = mergeAdjacentTextItems([
+      ...prefix,
+      ...fragmentLineItems(fragment[0], insId),
+      ...suffix,
+    ]);
+    return {
+      writes: [{ blockId: at.blockId, kind, items: newItems }],
+      newBlocks: [],
+      records,
+      endPosition: createPosition(at.blockId, c + fragmentLineLength(fragment[0])),
+    };
+  }
+
+  // n > 1: B keeps prefix + line0 + split-embed; the plain suffix rides into the
+  // LAST new block. NB_1..NB_{n-1} hold line_i (+ split-embed for i < n-1).
+  const parentId = resolved.block.parentId;
+  if (parentId === null) {
+    throw new Error(
+      `planReplaceWithSuggestedFragment: block "${at.blockId}" is a root (no parent)`,
+    );
+  }
+  const oldNext = resolved.block.nextSiblingId;
+  const nbIds: BlockId[] = [];
+  for (let i = 1; i < n; i++) nbIds.push(allocator.allocate());
+
+  const bItems = mergeAdjacentTextItems([
+    ...prefix,
+    ...fragmentLineItems(fragment[0], insId),
+    buildSplitSuggestionEmbed(insId),
+  ]);
+
+  const newBlocks: NewBlockSpec[] = [];
+  for (let i = 1; i < n; i++) {
+    const isLast = i === n - 1;
+    const lineItems = fragmentLineItems(fragment[i], insId);
+    const blockItems = mergeAdjacentTextItems(
+      isLast ? [...lineItems, ...suffix] : [...lineItems, buildSplitSuggestionEmbed(insId)],
+    );
+    newBlocks.push({
+      id: nbIds[i - 1],
+      kind,
+      type: fragment[i].type,
+      attrs: fragment[i].attrs ?? {},
+      items: blockItems,
+      parentId,
+      prevSiblingId: i === 1 ? at.blockId : nbIds[i - 2],
+      nextSiblingId: isLast ? oldNext : nbIds[i],
+    });
+  }
+
+  return {
+    writes: [{ blockId: at.blockId, kind, items: bItems }],
+    newBlocks,
+    records,
+    endPosition: createPosition(nbIds[n - 2], fragmentLineLength(fragment[n - 1])),
+  };
+}
+
+/**
+ * Replace `span` with a `fragment` as ONE tracked suggestion, applying the pure
+ * {@link planReplaceWithSuggestedFragment} in a single `applyOperation`: the
+ * per-block inline writes, the start-block / boundary sibling rewires (which the
+ * pure plan does NOT carry — `ResolveWrite` is inline-content only, and
+ * `insertNewBlocksInTx` writes only the new blocks), the new-block run, and the
+ * records. Returns the standard `OperationResult` plus the post-op `endPosition`.
+ */
+export function replaceWithSuggestedFragment(
+  state: State,
+  span: Span,
+  fragment: readonly SiblingBlockInit[],
+  input: ReplaceSuggestionInput,
+  allocator: IdAllocator,
+): OperationResult & { readonly endPosition: Position } {
+  const plan = planReplaceWithSuggestedFragment(state, span, fragment, input, allocator);
+  const result = applyOperation(state, (doc) => {
+    for (const w of plan.writes) {
+      writeBlockInlineContentInTx(doc, w.blockId, w.kind, w.items, "replaceWithSuggestedFragment");
+    }
+    if (plan.newBlocks.length > 0) {
+      const startBlockId = plan.writes[0].blockId;
+      const kind = plan.writes[0].kind;
+      const firstNew = plan.newBlocks[0];
+      const lastNew = plan.newBlocks[plan.newBlocks.length - 1];
+      // Rewire the start block → first new block, and the boundary past the run:
+      // the old next sibling's prevSibling (when present), else the parent's
+      // lastChildId (the run was appended at the parent's end).
+      getYBlock(doc, startBlockId, "replaceWithSuggestedFragment", kind).set(
+        "nextSiblingId",
+        firstNew.id,
+      );
+      if (lastNew.nextSiblingId !== null) {
+        getYBlock(doc, lastNew.nextSiblingId, "replaceWithSuggestedFragment", kind).set(
+          "prevSiblingId",
+          lastNew.id,
+        );
+      } else {
+        getYBlock(doc, firstNew.parentId, "replaceWithSuggestedFragment", kind).set(
+          "lastChildId",
+          lastNew.id,
+        );
+      }
+      insertNewBlocksInTx(doc, plan.newBlocks);
+    }
+    for (const rec of plan.records) writeSuggestionRecordInTx(doc, rec);
+  });
+  return { ...result, endPosition: plan.endPosition };
+}
+
+/**
+ * Insert a `fragment` (1..N lines) at a COLLAPSED position `at` as ONE tracked
+ * insertion. The collapsed special case of {@link replaceWithSuggestedFragment}
+ * (no strike). `deletionId` is unused on this path.
+ */
+export function insertFragmentAsSuggestion(
+  state: State,
+  at: Position,
+  fragment: readonly SiblingBlockInit[],
+  input: SuggestionMintInput,
+  allocator: IdAllocator,
+): OperationResult & { readonly endPosition: Position } {
+  return replaceWithSuggestedFragment(
+    state,
+    createSpan(at, at),
+    fragment,
+    {
+      deletionId: input.id,
+      insertionId: input.id,
+      author: input.author,
+      createdAt: input.createdAt,
+    },
+    allocator,
+  );
+}
+
+export type { NewBlockSpec } from "./insert-new-blocks";
+
 /**
  * ACCEPT one suggestion by id (Suggesting-mode resolution). Dispatches on the
  * record's {@link SuggestionKind}:
@@ -800,7 +1042,7 @@ export function rejectSuggestion(state: State, id: SuggestionId): OperationResul
 type ResolveAction = "strip" | "drop" | "applyStrip";
 
 /** A pre-computed per-owning-block rewrite for a resolve. */
-interface ResolveWrite {
+export interface ResolveWrite {
   readonly blockId: BlockId;
   readonly kind: BlockTreeKind;
   readonly items: ReadonlyArray<InlineItem>;
