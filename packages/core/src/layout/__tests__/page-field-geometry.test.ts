@@ -19,12 +19,16 @@ import { createMockShaper } from "../mock-shaper";
 import { cascadePass } from "../../cascade";
 import { createElementBox, createTextBox } from "../../render/render-node";
 import type { ElementBox } from "../../render/render-node";
-import type { BlockId } from "../../state";
+import { asBlockId, insertPageField, createPosition, type BlockId } from "../../state";
 import type { Style } from "../../styles";
 import type { PageConfig } from "../page-config";
 import type { LayoutBox } from "../layout-box";
 import type { PageBox } from "../page-box";
 import { buildVirtualPaginatedTree } from "../virtual-producer";
+import { render } from "../../render/render";
+import { createDefaultComponentRegistry } from "../../components/component-registry";
+import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
+import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
 
 function cascadeRoot(
   rootStyle: Style,
@@ -113,6 +117,63 @@ function headerText(page: PageBox): string {
 }
 
 const HDR = "hdr-root" as BlockId;
+
+const reg = createDefaultComponentRegistry();
+const attrReg = createDefaultAttrRegistry();
+
+/**
+ * Build a header body the REAL way: a state whose `templateContents` header (root id
+ * `HDR`) holds "Page " + a `page-field` inserted via the actual `insertPageField` op,
+ * then run it through the REAL `render` pass (NOT a hand-built atom) and cascade it.
+ * The other tests hand-build the page-field atom; this proves the render OUTPUT of a
+ * page-field embed flows through collect → resolve → substitute unchanged — the seam
+ * the user's in-browser smoke exercises (render → paginate → materialize).
+ */
+function renderedHeaderBody(fieldKind: "page-number" | "page-count"): ElementBox {
+  let state = buildState({
+    rootId: asBlockId("doc"),
+    blocks: [
+      buildBlock({ id: "doc", type: "document", firstChildId: "bp", lastChildId: "bp" }),
+      buildBlock({ id: "bp", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("body")]) }),
+    ],
+    templateContents: [
+      buildBlock({ id: "hdr-root", type: "document", parentId: null, firstChildId: "hp", lastChildId: "hp" }),
+      buildBlock({ id: "hp", type: "paragraph", parentId: "hdr-root", inlineContent: inlineContent([text("Page ")]) }),
+    ],
+  });
+  state = insertPageField(state, createPosition(asBlockId("hp"), 5), fieldKind).state; // after "Page "
+  const rendered = render(state, reg, attrReg);
+  const body = rendered.templateContents.get(asBlockId("hdr-root"));
+  if (body === undefined) throw new Error("no rendered header template body");
+  const cascaded = cascadePass(body);
+  if (cascaded.type !== "element") throw new Error("cascadePass returned non-element");
+  return cascaded;
+}
+
+describe("page-field END-TO-END (real render → cascade → paginate → materialize)", () => {
+  it("a page-number field rendered from a REAL state shows the per-page value across pages", () => {
+    const children = Array.from({ length: 6 }, (_, i) => fixedBlock(`b${i}`, 100));
+    const root = cascadeRoot({ display: "block" }, children, { headerBlockId: HDR });
+    const bodies = new Map<BlockId, ElementBox>([[HDR, renderedHeaderBody("page-number")]]);
+    const tree = build(root, pageConfig(300), bodies);
+
+    expect(tree.plan.entries.length).toBe(3);
+    expect(headerText(tree.getPage(0))).toContain("1");
+    expect(headerText(tree.getPage(0))).not.toContain("00"); // placeholder GONE: render output flowed through
+    expect(headerText(tree.getPage(1))).toContain("2");
+    expect(headerText(tree.getPage(2))).toContain("3");
+  });
+
+  it("a page-count field rendered from a REAL state shows the total on every page", () => {
+    const children = Array.from({ length: 6 }, (_, i) => fixedBlock(`b${i}`, 100));
+    const root = cascadeRoot({ display: "block" }, children, { headerBlockId: HDR });
+    const bodies = new Map<BlockId, ElementBox>([[HDR, renderedHeaderBody("page-count")]]);
+    const tree = build(root, pageConfig(300), bodies);
+
+    expect(tree.plan.entries.length).toBe(3);
+    for (let i = 0; i < 3; i++) expect(headerText(tree.getPage(i))).toContain("3");
+  });
+});
 
 describe("page-field geometry (F-2 late-binding proof)", () => {
   it("a header page-number field shows 1 on page 0, 2 on page 1, 3 on page 2", () => {
