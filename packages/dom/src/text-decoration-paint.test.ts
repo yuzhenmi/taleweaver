@@ -76,7 +76,7 @@ function makeRun(deco: { underline?: boolean; lineThrough?: boolean }): LayoutBo
 
 function paint(box: LayoutBox): SpyCtx {
   const ctx = createSpyCtx();
-  paintCanvas(ctx, box, [], [], [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
+  paintCanvas(ctx, box, [], [], [], [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
   return ctx;
 }
 

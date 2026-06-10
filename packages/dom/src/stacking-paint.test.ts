@@ -102,7 +102,7 @@ function makeBlock(opts: {
 }
 
 function paint(ctx: SpyCtx, root: LayoutBox): void {
-  paintCanvas(ctx, root, [], [], [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
+  paintCanvas(ctx, root, [], [], [], [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
 }
 
 /** Index of the first op matching a glyph text (foreground), or -1. */

@@ -121,7 +121,7 @@ function paint(ctx: SpyCtx, box: LayoutBox): void {
     box,
     [],
     [],
-    [], { x: 0, y: 0, height: 0 },
+    [], [], { x: 0, y: 0, height: 0 },
     "hidden",
     600,
     800,
@@ -202,7 +202,7 @@ describe("position: relative paint-time offset", () => {
     const cache = createPaintCache();
 
     // Incremental path (cache passed): first paint marks every box dirty.
-    paintCanvas(ctx, root, [], [], [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800, undefined, cache);
+    paintCanvas(ctx, root, [], [], [], [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800, undefined, cache);
 
     // The rel block's dirty rect must be at the SHIFTED origin (0+0+dx, 0+0+dy),
     // NOT the pre-offset (0, 0). w=100 disambiguates the block from its run.
@@ -275,7 +275,7 @@ describe("position: absolute paint", () => {
     });
     const cache = createPaintCache();
 
-    paintCanvas(ctx, root, [], [], [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800, undefined, cache);
+    paintCanvas(ctx, root, [], [], [], [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800, undefined, cache);
 
     // The abs block's dirty rect (w=40, h=16) lands at its resolved (50, 60) — proving
     // walkAndDetectChanges descended absoluteChildren. Without it, the abs region is

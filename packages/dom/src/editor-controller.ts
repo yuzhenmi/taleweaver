@@ -16,6 +16,7 @@ import {
   computeSelectionRects,
   computeSelectionRectsForPage,
   resolveCommentRange,
+  resolveSuggestionRange,
   spanStart,
   spanEnd,
   markStart,
@@ -25,6 +26,7 @@ import {
   type Position,
   type BlockId,
   type CommentId,
+  type SuggestionId,
   type TextShaper,
   type TextMeasurer,
   type EditorAction,
@@ -44,6 +46,7 @@ import {
   type CursorState,
   type MatchHighlightRect,
   type CommentHighlightRect,
+  type SuggestionHighlightRect,
 } from "./canvas-renderer";
 import { createPaintCache, type PaintCache } from "./paint-cache";
 import { ImageCache } from "./image-cache";
@@ -88,6 +91,39 @@ export interface CommentHighlight {
  */
 interface ResolvedCommentHighlight {
   commentId: CommentId;
+  active: boolean;
+  span: Span;
+  startPos: PixelPosition;
+  endPos: PixelPosition;
+  /** Boundary block(s) straddle a page break → a single page's rects can't see
+   * the other-page fragment; the spanning block's rects are unioned per-page via
+   * `selectionRectsAcrossPages` (per-page, never the whole tree). */
+  spanned: boolean;
+}
+
+/**
+ * A host-set suggestion highlight (change-tracking slice 6): which pending
+ * tracked-change is lit and whether it is the active (focused/selected in the
+ * suggestion sidebar) one. The exact analog of {@link CommentHighlight}. The
+ * controller RE-RESOLVES the suggestion's range from live state each `update()`,
+ * so the host re-calls `setSuggestionHighlights` only when the suggestion SET or
+ * active-flag changes — not on every keystroke. The controller never calls
+ * `getSuggestions`; the host owns WHICH suggestions are lit.
+ */
+export interface SuggestionHighlight {
+  suggestionId: SuggestionId;
+  active: boolean;
+}
+
+/**
+ * A suggestion highlight's boundary positions resolved against the current layout
+ * tree (change-tracking slice 6). The exact analog of {@link ResolvedCommentHighlight},
+ * plus the `suggestionId`/`active` carried from the host-set slot. Stage 1
+ * (`resolveSuggestionHighlights`) populates these; Stage 2 (paint) emits per-page
+ * rects from them without re-resolving. Internal to the controller.
+ */
+interface ResolvedSuggestionHighlight {
+  suggestionId: SuggestionId;
   active: boolean;
   span: Span;
   startPos: PixelPosition;
@@ -163,6 +199,19 @@ export interface EditorController {
   setCommentHighlights(highlights: readonly CommentHighlight[]): void;
   /** Hide the comment-highlight overlay and repaint (erases the band). */
   clearCommentHighlights(): void;
+  /**
+   * Show the suggestion-highlight overlay (change-tracking slice 6): paint each
+   * given pending tracked-change's range as a translucent teal band, with the
+   * suggestion(s) flagged `active` emphasized in a deeper teal. The controller
+   * RE-RESOLVES each suggestion's range from live state every `update()`, so the
+   * host only re-calls this when the suggestion SET or active-flag changes — NOT
+   * on every keystroke (a suggestion's tagged runs move with the text). A
+   * suggestion whose tagged content is all gone (range resolves null) emits no
+   * band. Triggers a repaint.
+   */
+  setSuggestionHighlights(highlights: readonly SuggestionHighlight[]): void;
+  /** Hide the suggestion-highlight overlay and repaint (erases the band). */
+  clearSuggestionHighlights(): void;
   /**
    * Start a find session (#433): run `findMatches(state, query, options)`,
    * highlight every match, pick the initial active match (the first at/after the
@@ -384,6 +433,23 @@ export function createEditorController(
   // blink). `paintPages`/`paintSingle` (Stage 2) emit per-page rects from these
   // without ever re-resolving (mirrors `resolvedMatches`).
   let resolvedCommentHighlights: ResolvedCommentHighlight[] = [];
+
+  // ── Suggestion highlight overlay (change-tracking slice 6) ───────────────
+  //
+  // Transient overlay (like selection/find/comment, never document attrs): the
+  // host drives `setSuggestionHighlights([{ suggestionId, active }])`. `null` = no
+  // suggestions lit. The controller stores `{ suggestionId, active }` (NOT raw
+  // Positions) and RE-RESOLVES each suggestion's range from live state every
+  // `update()`, so the band self-heals across edits (tagged runs move with the
+  // text); the host re-calls only when the suggestion SET or active-flag changes.
+  // The controller never reads `getSuggestions` — the host owns WHICH suggestions
+  // are lit. The exact analog of the comment highlight overlay above.
+  let suggestionHighlights: readonly SuggestionHighlight[] | null = null;
+  // Stage-1 resolved boundary positions, ONE per live lit suggestion, recomputed
+  // in `resolveSuggestionHighlights()` (on `update()`/set change — NOT on blink).
+  // `paintPages`/`paintSingle` (Stage 2) emit per-page rects from these without
+  // ever re-resolving (mirrors `resolvedCommentHighlights`).
+  let resolvedSuggestionHighlights: ResolvedSuggestionHighlight[] = [];
 
   // ── Page model (paginated mode) ──────────────────────────────────────────
   //
@@ -664,6 +730,94 @@ export function createEditorController(
     return out;
   }
 
+  // ── Suggestion-highlight Stage 1 (boundary-position resolution) ──────────
+  //
+  // For each host-lit suggestion, re-resolve its range from LIVE state
+  // (`resolveSuggestionRange`) and then its start/end PixelPosition (mirroring
+  // `resolveCommentHighlights`). Recomputed whenever the layout/suggestion-set
+  // changes (`update()` + `setSuggestionHighlights`), NOT on blink/scroll. A
+  // suggestion whose tagged content is all gone (`range === null`) is skipped —
+  // unlike comments there is no separate `orphaned` flag (the suggestion range
+  // index simply omits an id with no live tagged content). `paintPages`/
+  // `paintSingle` (Stage 2) emit per-page rects from these cached positions
+  // without re-resolving.
+  function resolveSuggestionHighlights(): void {
+    resolvedSuggestionHighlights = [];
+    const st = state;
+    if (!st || suggestionHighlights === null || layoutTree === null) return;
+    for (const { suggestionId, active } of suggestionHighlights) {
+      const range = resolveSuggestionRange(st.state, suggestionId);
+      if (range === null) continue;
+      const span = createSpan(range.start, range.end);
+      // A suggestion's range can be cross-block (the same id on text in two
+      // paragraphs). A non-spanned single block matches a comment's single-block
+      // case; for a multi-block suggestion, fall back to the bridge if EITHER
+      // endpoint block straddles a page break (per-page rects can't see the
+      // other-page fragment).
+      let spanned = false;
+      if (layoutTree.type === "virtual-root") {
+        spanned =
+          blockSpansPages(layoutTree.plan, range.start.blockId) ||
+          blockSpansPages(layoutTree.plan, range.end.blockId);
+      }
+      const startPos = resolvePixelPosition(
+        st.state, span.anchor, layoutTree, measurer, st.caretPageHint,
+      );
+      const endPos = resolvePixelPosition(
+        st.state, span.focus, layoutTree, measurer, st.caretPageHint,
+      );
+      if (startPos === null || endPos === null) continue;
+      resolvedSuggestionHighlights.push({ suggestionId, active, span, startPos, endPos, spanned });
+    }
+  }
+
+  // ── Suggestion-highlight Stage 2 (per-page rect emission) ────────────────
+  //
+  // Emit this page's `SuggestionHighlightRect[]` from the Stage-1 resolved
+  // positions. Reuses the selection's per-page routing
+  // (`computeSelectionRectsForPage`, or `selectionRectsAcrossPages`
+  // per-page-unioned for a `spanned` suggestion — never the whole tree) — the
+  // exact analog of `commentHighlightsForPage`. Each rect is tagged with the
+  // suggestion's `suggestionId` + `active`. `pageIndex` null (single-canvas /
+  // non-paginated path) still emits from the positioned tree.
+  function suggestionHighlightsForPage(pageBox: LayoutBox | null, pageIndex: number | null): SuggestionHighlightRect[] {
+    const st = state;
+    if (!st || suggestionHighlights === null || resolvedSuggestionHighlights.length === 0) return [];
+    const out: SuggestionHighlightRect[] = [];
+    for (const rsh of resolvedSuggestionHighlights) {
+      let rects: SelectionRect[];
+      if (pageBox !== null && pageIndex !== null && !rsh.spanned) {
+        // Page-range cull: a non-spanned suggestion only produces rects on pages
+        // within [startPos.pageIndex, endPos.pageIndex]. Skip the costly
+        // `computeSelectionRectsForPage` call for pages outside that range.
+        if (rsh.startPos.pageIndex > pageIndex || rsh.endPos.pageIndex < pageIndex) {
+          continue;
+        }
+        rects = computeSelectionRectsForPage(
+          st.state, rsh.span, pageBox, pageIndex, rsh.startPos, rsh.endPos, measurer,
+        );
+      } else if (pageIndex !== null && layoutTree !== null && layoutTree.type === "virtual-root") {
+        // Paginated spanned suggestion (a boundary block taller than a page):
+        // per-page concat over the virtual tree (never the whole tree),
+        // then keep only this page's rects.
+        rects = selectionRectsAcrossPages(st.state, rsh.span, layoutTree, measurer)
+          .filter((r) => r.pageIndex === pageIndex);
+      } else {
+        // Non-paginated single canvas (`pageIndex === null`): `layoutTree` is a
+        // positioned `LayoutBox` here, so compute rects directly over it.
+        const positioned = nonPaginatedTree();
+        rects = positioned
+          ? computeSelectionRects(st.state, rsh.span, positioned, measurer)
+          : [];
+        if (pageIndex !== null) {
+          rects = rects.filter((r) => r.pageIndex === pageIndex);
+        }
+      }
+      for (const r of rects) out.push({ ...r, suggestionId: rsh.suggestionId, active: rsh.active });
+    }
+    return out;
+  }
+
   function getCursorState(): CursorState {
     // Hide the caret over a non-collapsed selection. Use the flag, not
     // `selectionRects.length`: in paginated mode the rects are computed
@@ -719,6 +873,7 @@ export function createEditorController(
       selectionRects,
       matchHighlightsForPage(null, null),
       commentHighlightsForPage(null, null),
+      suggestionHighlightsForPage(null, null),
       cursorPos,
       getCursorState(),
       logicalWidth,
@@ -790,12 +945,15 @@ export function createEditorController(
       // Comment highlights for this page (Stage 2; empty when no comments lit).
       const pageCommentHighlights = commentHighlightsForPage(page, idx);
 
+      // Suggestion highlights for this page (Stage 2; empty when no suggestions lit).
+      const pageSuggestionHighlights = suggestionHighlightsForPage(page, idx);
+
       // Cursor on this page? (null if not)
       const pageCursor = cursorPos.pageIndex === idx
         ? { x: cursorPos.x, y: cursorPos.y, height: cursorPos.height }
         : null;
 
-      paintPage(ctx, page, pageSelRects, pageMatchHighlights, pageCommentHighlights, pageCursor, cs, imageCache, getOrCreatePageCache(idx));
+      paintPage(ctx, page, pageSelRects, pageMatchHighlights, pageCommentHighlights, pageSuggestionHighlights, pageCursor, cs, imageCache, getOrCreatePageCache(idx));
     }
   }
 
@@ -1586,6 +1744,11 @@ export function createEditorController(
     // the host doesn't re-call setCommentHighlights per keystroke).
     resolveCommentHighlights();
 
+    // Suggestion-highlight Stage 1: re-resolve each lit suggestion's range +
+    // boundary positions against the fresh state/layout (tagged runs self-heal
+    // across edits — the host doesn't re-call setSuggestionHighlights per keystroke).
+    resolveSuggestionHighlights();
+
     const tSync = markStart("ctrl.syncDom");
     syncDom();
     markEnd("ctrl.syncDom", tSync);
@@ -1653,6 +1816,32 @@ export function createEditorController(
     resolvedCommentHighlights = [];
     // A bare `paint()` suffices: `addCommentHighlightDirty` compares
     // `cache.getLastCommentHighlightRects()` vs the now-empty current set each
+    // paint, so it dirties the PRIOR rects' regions and the old band is erased.
+    paint();
+  }
+
+  // ── Suggestion highlight overlay (change-tracking slice 6) ───────────────
+
+  function setSuggestionHighlights(highlights: readonly SuggestionHighlight[]): void {
+    if (destroyed) return;
+    suggestionHighlights = highlights;
+    // Stage 1: resolve each lit suggestion's range + boundary positions against the
+    // current state/layout, then repaint. A bare `paint()` suffices: the renderer
+    // drives the suggestion-highlight dirty bookkeeping. Inside paintPage/paintCanvas,
+    // `addSuggestionHighlightDirty` compares `cache.getLastSuggestionHighlightRects()`
+    // vs the current rects each paint, so the incremental path doesn't
+    // short-circuit even though layout + cursor are unchanged.
+    resolveSuggestionHighlights();
+    paint();
+  }
+
+  function clearSuggestionHighlights(): void {
+    if (destroyed) return;
+    if (suggestionHighlights === null && resolvedSuggestionHighlights.length === 0) return;
+    suggestionHighlights = null;
+    resolvedSuggestionHighlights = [];
+    // A bare `paint()` suffices: `addSuggestionHighlightDirty` compares
+    // `cache.getLastSuggestionHighlightRects()` vs the now-empty current set each
     // paint, so it dirties the PRIOR rects' regions and the old band is erased.
     paint();
   }
@@ -1802,6 +1991,8 @@ export function createEditorController(
     findSession = null;
     commentHighlights = null;
     resolvedCommentHighlights = [];
+    suggestionHighlights = null;
+    resolvedSuggestionHighlights = [];
 
     // Remove event listeners
     container.removeEventListener("mousedown", handleMouseDown);
@@ -1856,6 +2047,8 @@ export function createEditorController(
     clearFindHighlights,
     setCommentHighlights,
     clearCommentHighlights,
+    setSuggestionHighlights,
+    clearSuggestionHighlights,
     findStart,
     findStatus,
     replaceActive,

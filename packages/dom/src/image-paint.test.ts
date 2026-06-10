@@ -107,15 +107,15 @@ function paint(ctx: SpyCtx, box: LayoutBox, imageCache: { get(src: string): HTML
     box,
     [],
     [],
-    [], { x: 0, y: 0, height: 0 },
+    [], [], { x: 0, y: 0, height: 0 },
     "hidden",
     600,
     800,
     0,
     800,
-    // 12th positional arg = imageCache; the renderer reads it via
+    // 13th positional arg = imageCache; the renderer reads it via
     // `state.imageCache.get(metadata.image.src)` in the block paint branch.
-    imageCache as unknown as Parameters<typeof paintCanvas>[11],
+    imageCache as unknown as Parameters<typeof paintCanvas>[12],
   );
 }
 

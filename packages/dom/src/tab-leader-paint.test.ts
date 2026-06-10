@@ -160,7 +160,7 @@ function paint(ctx: SpyCtx, box: LayoutBox): void {
     box,
     [],
     [],
-    [], { x: 0, y: 0, height: 0 },
+    [], [], { x: 0, y: 0, height: 0 },
     "hidden",
     600,
     800,

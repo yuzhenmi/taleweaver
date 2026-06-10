@@ -38,6 +38,18 @@ export interface CommentHighlightRectSnapshot extends Rect {
 }
 
 /**
+ * A suggestion-highlight rect snapshot for dirty-region tracking (change-tracking
+ * slice 6). Mirrors `CommentHighlightRectSnapshot` EXACTLY: the painted region
+ * (`x/y/w/h`) PLUS the `active` flag (the focused suggestion's emphasis), so an
+ * active-flag change — identical geometry, different fill — is detected as a diff
+ * and repaints. The `suggestionId` is deliberately ABSENT: it never affects
+ * pixels, so it plays no part in the dirty-track diff.
+ */
+export interface SuggestionHighlightRectSnapshot extends Rect {
+  active: boolean;
+}
+
+/**
  * A hash representing all paint-relevant inputs for a LayoutBox.
  * Two boxes with the same hash produce identical paint output.
  *
@@ -157,6 +169,10 @@ export interface PaintCache {
   getLastCommentHighlightRects(): readonly CommentHighlightRectSnapshot[] | null;
   /** Record this frame's comment-highlight rects. */
   setLastCommentHighlightRects(rects: readonly CommentHighlightRectSnapshot[] | null): void;
+  /** Last frame's suggestion-highlight rects (or null on first paint). */
+  getLastSuggestionHighlightRects(): readonly SuggestionHighlightRectSnapshot[] | null;
+  /** Record this frame's suggestion-highlight rects. */
+  setLastSuggestionHighlightRects(rects: readonly SuggestionHighlightRectSnapshot[] | null): void;
 }
 
 export function createPaintCache(): PaintCache {
@@ -166,6 +182,7 @@ export function createPaintCache(): PaintCache {
   let lastSelectionRects: readonly Rect[] | null = null;
   let lastMatchHighlightRects: readonly MatchHighlightRectSnapshot[] | null = null;
   let lastCommentHighlightRects: readonly CommentHighlightRectSnapshot[] | null = null;
+  let lastSuggestionHighlightRects: readonly SuggestionHighlightRectSnapshot[] | null = null;
   return {
     get(box) {
       return map.get(box);
@@ -185,6 +202,7 @@ export function createPaintCache(): PaintCache {
       lastSelectionRects = null;
       lastMatchHighlightRects = null;
       lastCommentHighlightRects = null;
+      lastSuggestionHighlightRects = null;
       // WeakMap entries auto-clear when keys are GC'd
     },
     getLastRoot() {
@@ -216,6 +234,12 @@ export function createPaintCache(): PaintCache {
     },
     setLastCommentHighlightRects(r) {
       lastCommentHighlightRects = r;
+    },
+    getLastSuggestionHighlightRects() {
+      return lastSuggestionHighlightRects;
+    },
+    setLastSuggestionHighlightRects(r) {
+      lastSuggestionHighlightRects = r;
     },
   };
 }

@@ -1,10 +1,10 @@
-import type { LayoutBox, SelectionRect, UsedStyle, BorderStyle, Color, ComputedStyle, LeaderStyle, CommentId } from "@taleweaver/core";
+import type { LayoutBox, SelectionRect, UsedStyle, BorderStyle, Color, ComputedStyle, LeaderStyle, CommentId, SuggestionId } from "@taleweaver/core";
 import { markStart, markEnd, resolveSpacingPx, clusterSpacing, assertNeverWritingMode, fromTransformFns, resolveTransformOrigin } from "@taleweaver/core";
 import { buildCssFontString } from "./font-config";
 import { segmentClusters } from "./text-clusters";
 import type { ImageCache } from "./image-cache";
 import { hashPaintInputs } from "./paint-cache";
-import type { PaintCache, Rect, MatchHighlightRectSnapshot, CommentHighlightRectSnapshot } from "./paint-cache";
+import type { PaintCache, Rect, MatchHighlightRectSnapshot, CommentHighlightRectSnapshot, SuggestionHighlightRectSnapshot } from "./paint-cache";
 import { createOffscreenSurface } from "./offscreen-surface";
 
 /**
@@ -40,6 +40,25 @@ export type CommentHighlightRect = SelectionRect & { commentId: CommentId; activ
 export const COMMENT_HIGHLIGHT_FILL = "rgba(255, 199, 110, 0.35)";
 /** Active comment highlight fill (deeper amber) — the hovered/selected comment. */
 export const ACTIVE_COMMENT_HIGHLIGHT_FILL = "rgba(255, 167, 38, 0.55)";
+
+/**
+ * A suggestion-highlight rect (change-tracking slice 6). The exact analog of
+ * `CommentHighlightRect`: a `SelectionRect` (reusing the selection-rect geometry
+ * machinery wholesale) tagged with whether it belongs to the ACTIVE suggestion
+ * (the focused/selected one in the suggestion sidebar, emphasized) plus the
+ * `suggestionId` it belongs to. `suggestionId` rides along for future
+ * hover/click-to-sidebar mapping; the PAINT and DIRTY-TRACKING use only geometry +
+ * `active` (suggestionId does not affect pixels). Painted in the overlay band
+ * BELOW the comment highlights, BELOW the find-match highlights, BELOW the
+ * selection tint, and BELOW text — a soft teal band the comment highlights, the
+ * find highlights, the blue selection, and the glyphs all composite over.
+ */
+export type SuggestionHighlightRect = SelectionRect & { suggestionId: SuggestionId; active: boolean };
+
+/** Inactive suggestion highlight fill (soft teal) — distinct from comment amber + find yellow. */
+export const SUGGESTION_HIGHLIGHT_FILL = "rgba(45, 178, 168, 0.30)";
+/** Active suggestion highlight fill (deeper teal) — the focused/selected suggestion. */
+export const ACTIVE_SUGGESTION_HIGHLIGHT_FILL = "rgba(20, 150, 140, 0.50)";
 
 const SELECTION_FILL = "rgba(59, 130, 246, 0.3)";
 
@@ -96,6 +115,37 @@ function paintCommentHighlights(
   // Active pass (over the inactive band, so active colour wins overlaps).
   ctx.fillStyle = ACTIVE_COMMENT_HIGHLIGHT_FILL;
   for (const rect of commentHighlights) {
+    if (!rect.active) continue;
+    if (rect.y + rect.height < visibleTop || rect.y > visibleBottom) continue;
+    ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+  }
+}
+
+/**
+ * Paint the suggestion-highlight band (change-tracking slice 6): inactive
+ * suggestions first, then active, so the active (focused/selected) colour wins any
+ * overlap. Exact mirror of `paintCommentHighlights` — same viewport cull. Painted
+ * IMMEDIATELY BEFORE `paintCommentHighlights` (so suggestion highlights sit BELOW
+ * the comment highlights, BELOW the find-match highlights, under selection, and
+ * under text — the bottommost overlay band).
+ */
+function paintSuggestionHighlights(
+  ctx: CanvasRenderingContext2D,
+  suggestionHighlights: readonly SuggestionHighlightRect[],
+  visibleTop: number,
+  visibleBottom: number,
+): void {
+  if (suggestionHighlights.length === 0) return;
+  // Inactive pass.
+  ctx.fillStyle = SUGGESTION_HIGHLIGHT_FILL;
+  for (const rect of suggestionHighlights) {
+    if (rect.active) continue;
+    if (rect.y + rect.height < visibleTop || rect.y > visibleBottom) continue;
+    ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+  }
+  // Active pass (over the inactive band, so active colour wins overlaps).
+  ctx.fillStyle = ACTIVE_SUGGESTION_HIGHLIGHT_FILL;
+  for (const rect of suggestionHighlights) {
     if (!rect.active) continue;
     if (rect.y + rect.height < visibleTop || rect.y > visibleBottom) continue;
     ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
@@ -240,6 +290,7 @@ export function paintCanvas(
   selectionRects: SelectionRect[],
   matchHighlights: readonly MatchHighlightRect[],
   commentHighlights: readonly CommentHighlightRect[],
+  suggestionHighlights: readonly SuggestionHighlightRect[],
   cursorPos: { x: number; y: number; height: number },
   cursorState: CursorState,
   canvasWidth: number,
@@ -264,6 +315,7 @@ export function paintCanvas(
     // click, selection rects on drag, cursor visibility on blink).
     addCursorDirty(dirty, cache, cursorPos, cursorState);
     addSelectionDirty(dirty, cache, selectionRects);
+    addSuggestionHighlightDirty(dirty, cache, suggestionHighlights);
     addCommentHighlightDirty(dirty, cache, commentHighlights);
     addMatchHighlightDirty(dirty, cache, matchHighlights);
 
@@ -272,17 +324,21 @@ export function paintCanvas(
         ctx.clearRect(r.x, r.y, r.w, r.h);
       }
 
-      // Two-phase paint (#397): background layer → COMMENT HIGHLIGHTS → MATCH
-      // HIGHLIGHTS → selection overlay → foreground (text) layer → cursor, so the
-      // translucent selection tint composites OVER content backgrounds and UNDER
-      // the glyphs, the find-match highlights sit UNDER selection/text, and the
-      // comment highlights sit UNDER the find-match highlights (bottommost band).
+      // Two-phase paint (#397): background layer → SUGGESTION HIGHLIGHTS → COMMENT
+      // HIGHLIGHTS → MATCH HIGHLIGHTS → selection overlay → foreground (text) layer
+      // → cursor, so the translucent selection tint composites OVER content
+      // backgrounds and UNDER the glyphs, the find-match highlights sit UNDER
+      // selection/text, the comment highlights sit UNDER the find-match highlights,
+      // and the suggestion highlights sit UNDER the comment highlights (bottommost).
       const state: PaintState = { lastFont: "", imageCache };
 
       // Background phase: content backgrounds, borders, images, highlights.
       paintBox(ctx, layoutTree, 0, 0, visibleTop, visibleBottom, state, "background");
 
-      // Comment highlights (bottommost overlay — under find highlights, selection, text)
+      // Suggestion highlights (bottommost overlay — under comment/find highlights, selection, text)
+      paintSuggestionHighlights(ctx, suggestionHighlights, visibleTop, visibleBottom);
+
+      // Comment highlights (under find highlights, selection, text)
       paintCommentHighlights(ctx, commentHighlights, visibleTop, visibleBottom);
 
       // Match highlights (under selection, under text)
@@ -316,16 +372,21 @@ export function paintCanvas(
   // Non-incremental path (cache = null / undefined): original behaviour.
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
-  // Two-phase paint (#397): background → COMMENT HIGHLIGHTS → MATCH HIGHLIGHTS →
-  // selection overlay → foreground (text) → cursor. The selection tint composites
-  // over content backgrounds, under text; the find-match highlights sit under
-  // both; the comment highlights sit under the find-match highlights (bottommost).
+  // Two-phase paint (#397): background → SUGGESTION HIGHLIGHTS → COMMENT
+  // HIGHLIGHTS → MATCH HIGHLIGHTS → selection overlay → foreground (text) →
+  // cursor. The selection tint composites over content backgrounds, under text;
+  // the find-match highlights sit under both; the comment highlights sit under the
+  // find-match highlights; the suggestion highlights sit under the comment
+  // highlights (bottommost band).
   const state: PaintState = { lastFont: "", imageCache };
 
   // Background phase
   paintBox(ctx, layoutTree, 0, 0, visibleTop, visibleBottom, state, "background");
 
-  // Comment highlights (bottommost overlay — under find highlights, selection, text)
+  // Suggestion highlights (bottommost overlay — under comment/find highlights, selection, text)
+  paintSuggestionHighlights(ctx, suggestionHighlights, visibleTop, visibleBottom);
+
+  // Comment highlights (under find highlights, selection, text)
   paintCommentHighlights(ctx, commentHighlights, visibleTop, visibleBottom);
 
   // Match highlights (under selection, under text)
@@ -375,6 +436,7 @@ export function paintPage(
   selectionRects: SelectionRect[],
   matchHighlights: readonly MatchHighlightRect[],
   commentHighlights: readonly CommentHighlightRect[],
+  suggestionHighlights: readonly SuggestionHighlightRect[],
   cursorPos: { x: number; y: number; height: number } | null,
   cursorState: CursorState,
   imageCache?: ImageCache,
@@ -402,6 +464,7 @@ export function paintPage(
       cursorPos === null ? "hidden" : cursorState,
     );
     addSelectionDirty(dirty, cache, selectionRects);
+    addSuggestionHighlightDirty(dirty, cache, suggestionHighlights);
     addCommentHighlightDirty(dirty, cache, commentHighlights);
     addMatchHighlightDirty(dirty, cache, matchHighlights);
 
@@ -417,8 +480,8 @@ export function paintPage(
       ctx.fillRect(0, 0, pageBox.width, pageBox.height);
 
       // Two-phase paint (#397): page white bg (above) → background phase →
-      // COMMENT HIGHLIGHTS → MATCH HIGHLIGHTS → selection overlay → foreground
-      // (text) phase → cursor.
+      // SUGGESTION HIGHLIGHTS → COMMENT HIGHLIGHTS → MATCH HIGHLIGHTS → selection
+      // overlay → foreground (text) phase → cursor.
       const state: PaintState = { lastFont: "", imageCache };
       // pageBox.x/y are document-relative (the page's offset within the wrapping
   // root BlockBox). The canvas paints in page-local coordinates (origin at the
@@ -431,9 +494,14 @@ export function paintPage(
       // Background phase: content backgrounds, borders, images, highlights.
       paintBox(ctx, pageBox, -pageBox.x, -pageBox.y, 0, pageBox.height, state, "background");
 
-      // Comment highlights (bottommost overlay — under find highlights, selection,
-      // text). Rects are already page-local (the controller emits them per-page
-      // from the per-page selection-rect machinery).
+      // Suggestion highlights (bottommost overlay — under comment/find highlights,
+      // selection, text). Rects are already page-local (the controller emits them
+      // per-page from the per-page selection-rect machinery).
+      paintSuggestionHighlights(ctx, suggestionHighlights, 0, pageBox.height);
+
+      // Comment highlights (under find highlights, selection, text). Rects are
+      // already page-local (the controller emits them per-page from the per-page
+      // selection-rect machinery).
       paintCommentHighlights(ctx, commentHighlights, 0, pageBox.height);
 
       // Match highlights (under selection, under text). Rects are already
@@ -474,8 +542,8 @@ export function paintPage(
   ctx.fillRect(0, 0, pageBox.width, pageBox.height);
 
   // Two-phase paint (#397): page white bg (above) → background phase →
-  // COMMENT HIGHLIGHTS → MATCH HIGHLIGHTS → selection overlay → foreground
-  // (text) phase → cursor.
+  // SUGGESTION HIGHLIGHTS → COMMENT HIGHLIGHTS → MATCH HIGHLIGHTS → selection
+  // overlay → foreground (text) phase → cursor.
   const state: PaintState = { lastFont: "", imageCache };
   // pageBox.x/y are document-relative (the page's offset within the wrapping
   // root BlockBox). The canvas paints in page-local coordinates (origin at the
@@ -488,8 +556,12 @@ export function paintPage(
   // Background phase: content backgrounds, borders, images, highlights.
   paintBox(ctx, pageBox, -pageBox.x, -pageBox.y, 0, pageBox.height, state, "background");
 
-  // Comment highlights (already page-relative; bottommost — under find
+  // Suggestion highlights (already page-relative; bottommost — under comment/find
   // highlights, selection, text)
+  paintSuggestionHighlights(ctx, suggestionHighlights, 0, pageBox.height);
+
+  // Comment highlights (already page-relative; under find highlights, selection,
+  // text)
   paintCommentHighlights(ctx, commentHighlights, 0, pageBox.height);
 
   // Match highlights (already page-relative; under selection, under text)
@@ -695,6 +767,57 @@ function addCommentHighlightDirty(
     }
     for (const r of current) dirty.push({ x: r.x, y: r.y, w: r.w, h: r.h });
     cache.setLastCommentHighlightRects(current);
+  }
+}
+
+/**
+ * If the suggestion-highlight rects changed since the last paint, push union(prior,
+ * curr) into `dirty` (change-tracking slice 6). Suggestion-highlight changes happen
+ * on a suggestion set/clear (recompute) and on focus/select (the active rect's
+ * colour flips even though the layout + cursor are reference-equal); without this
+ * dirty entry the layout-reference-equal short-circuit would skip painting and a
+ * focus would not visually move the active highlight. Clearing suggestion
+ * highlights (curr empty) still dirties the prior rects so the old band is erased.
+ *
+ * Exact mirror of `addCommentHighlightDirty`. The `active` flag is folded into the
+ * comparison so an active-flag change (same geometry, different colour) is
+ * detected; `suggestionId` is NOT compared (it never affects pixels).
+ */
+function addSuggestionHighlightDirty(
+  dirty: Rect[],
+  cache: PaintCache,
+  suggestionHighlights: readonly SuggestionHighlightRect[],
+): void {
+  const last = cache.getLastSuggestionHighlightRects();
+  const current: SuggestionHighlightRectSnapshot[] = suggestionHighlights.map((r) => ({
+    x: r.x,
+    y: r.y,
+    w: r.width,
+    h: r.height,
+    active: r.active,
+  }));
+  // Structural compare INCLUDING `active`: on focus/select the geometry is
+  // unchanged but the active suggestion's colour flips, so the active flag must be
+  // part of the diff or the incremental short-circuit would skip the repaint.
+  let same = last !== null && last.length === current.length;
+  if (same && last !== null) {
+    for (let i = 0; i < current.length; i++) {
+      const a = last[i];
+      const b = current[i];
+      if (a.x !== b.x || a.y !== b.y || a.w !== b.w || a.h !== b.h || a.active !== b.active) {
+        same = false;
+        break;
+      }
+    }
+  }
+  if (!same) {
+    // Dirty the prior rects' regions (erases old/cleared highlights) and the
+    // current rects' regions (paints the new band).
+    if (last !== null) {
+      for (const r of last) dirty.push({ x: r.x, y: r.y, w: r.w, h: r.h });
+    }
+    for (const r of current) dirty.push({ x: r.x, y: r.y, w: r.w, h: r.h });
+    cache.setLastSuggestionHighlightRects(current);
   }
 }
 

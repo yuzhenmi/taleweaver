@@ -116,7 +116,7 @@ describe("match-highlight overlay — paintCanvas (#433)", () => {
     const selection: SelectionRect[] = [
       { x: 0, y: 0, width: RUN_WIDTH, height: RUN_HEIGHT, pageIndex: 0 },
     ];
-    paintCanvas(ctx, makeRun(), selection, matches, [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
+    paintCanvas(ctx, makeRun(), selection, matches, [], [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
     const ops = ctx._ops;
     const match = ops.findIndex(isMatchInactive);
     const sel = ops.findIndex(isSelection);
@@ -137,7 +137,7 @@ describe("match-highlight overlay — paintCanvas (#433)", () => {
       { x: 40, y: 0, width: 24, height: RUN_HEIGHT, pageIndex: 0, active: false },
       { x: 80, y: 0, width: 16, height: RUN_HEIGHT, pageIndex: 0, active: false },
     ];
-    paintCanvas(ctx, makeRun(), [], matches, [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
+    paintCanvas(ctx, makeRun(), [], matches, [], [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
     const bands = ctx._ops.filter(isMatchInactive);
     expect(bands).toHaveLength(3);
     expect(ctx._ops.filter(isMatchActive)).toHaveLength(0);
@@ -149,7 +149,7 @@ describe("match-highlight overlay — paintCanvas (#433)", () => {
       { x: 0, y: 0, width: 24, height: RUN_HEIGHT, pageIndex: 0, active: false },
       { x: 40, y: 0, width: 24, height: RUN_HEIGHT, pageIndex: 0, active: true },
     ];
-    paintCanvas(ctx, makeRun(), [], matches, [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
+    paintCanvas(ctx, makeRun(), [], matches, [], [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
     const ops = ctx._ops;
     expect(ops.filter(isMatchInactive)).toHaveLength(1);
     expect(ops.filter(isMatchActive)).toHaveLength(1);
@@ -166,13 +166,13 @@ describe("match-highlight overlay — paintCanvas (#433)", () => {
       { x: 60, y: 0, width: 40, height: RUN_HEIGHT, pageIndex: 0, active: false },
       { x: 0, y: RUN_HEIGHT, width: 30, height: RUN_HEIGHT, pageIndex: 0, active: false },
     ];
-    paintCanvas(ctx, makeRun(), [], matches, [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
+    paintCanvas(ctx, makeRun(), [], matches, [], [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
     expect(ctx._ops.filter(isMatchInactive)).toHaveLength(2);
   });
 
   it("empty matches → no match-highlight fillRects (no regression to normal paint)", () => {
     const ctx = createSpyCtx();
-    paintCanvas(ctx, makeRun(), [], [], [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
+    paintCanvas(ctx, makeRun(), [], [], [], [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
     expect(ctx._ops.filter((o) => isMatchInactive(o) || isMatchActive(o))).toHaveLength(0);
     // Glyphs still painted.
     expect(ctx._ops.some(isGlyph)).toBe(true);
@@ -234,7 +234,7 @@ describe("match-highlight overlay — paintPage (#433)", () => {
     const selection: SelectionRect[] = [
       { x: 0, y: 0, width: RUN_WIDTH, height: RUN_HEIGHT, pageIndex: 0 },
     ];
-    paintPage(ctx, makePage(), selection, matches, [], null, "hidden");
+    paintPage(ctx, makePage(), selection, matches, [], [], null, "hidden");
     const ops = ctx._ops;
     const match = ops.findIndex(isMatchInactive);
     const sel = ops.findIndex(isSelection);
@@ -252,7 +252,7 @@ describe("match-highlight overlay — paintPage (#433)", () => {
       { x: 0, y: 0, width: 24, height: RUN_HEIGHT, pageIndex: 0, active: false },
       { x: 40, y: 0, width: 24, height: RUN_HEIGHT, pageIndex: 0, active: true },
     ];
-    paintPage(ctx, makePage(), [], matches, [], null, "hidden");
+    paintPage(ctx, makePage(), [], matches, [], [], null, "hidden");
     const ops = ctx._ops;
     expect(ops.filter(isMatchInactive)).toHaveLength(1);
     expect(ops.filter(isMatchActive)).toHaveLength(1);
@@ -288,7 +288,7 @@ describe("match-highlight overlay — incremental clear/erase (#433)", () => {
     ];
 
     // Frame 1: paint WITH a highlight so the PaintCache records its rect.
-    paintPage(ctx, page, [], matches, [], null, "hidden", undefined, cache);
+    paintPage(ctx, page, [], matches, [], [], null, "hidden", undefined, cache);
     expect(cache.getLastMatchHighlightRects()).not.toBeNull();
     expect(ctx._ops.filter(isMatchInactive)).toHaveLength(1);
 
@@ -296,7 +296,7 @@ describe("match-highlight overlay — incremental clear/erase (#433)", () => {
     // The only thing that changed is the highlight set → the repaint MUST be
     // driven purely by addMatchHighlightDirty dirtying the OLD rect.
     ctx._ops.length = 0;
-    const dirty = paintPage(ctx, page, [], [], [], null, "hidden", undefined, cache);
+    const dirty = paintPage(ctx, page, [], [], [], [], null, "hidden", undefined, cache);
 
     // The OLD highlight rect's region was dirtied (so it gets erased)...
     expect(

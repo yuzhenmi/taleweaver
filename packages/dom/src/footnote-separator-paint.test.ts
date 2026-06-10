@@ -100,13 +100,13 @@ const isRule = (r: FillRectCall) => r.h === 1 && r.w === 144;
 describe("footnote separator rule is NOT painted (removed by user directive)", () => {
   it("LTR: draws no short rule for a footnoteSeparator box", () => {
     const ctx = createSpyCtx();
-    paintPage(ctx, makePage(makeSeparator("ltr")), [], [], [], null, "hidden");
+    paintPage(ctx, makePage(makeSeparator("ltr")), [], [], [], [], null, "hidden");
     expect(ctx._fillRects.find(isRule)).toBeUndefined();
   });
 
   it("RTL: draws no short rule for a footnoteSeparator box", () => {
     const ctx = createSpyCtx();
-    paintPage(ctx, makePage(makeSeparator("rtl")), [], [], [], null, "hidden");
+    paintPage(ctx, makePage(makeSeparator("rtl")), [], [], [], [], null, "hidden");
     expect(ctx._fillRects.find(isRule)).toBeUndefined();
   });
 });

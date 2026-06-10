@@ -85,7 +85,7 @@ function box(type: string, x: number, y: number, width: number, height: number, 
 }
 
 function paint(ctx: SpyCtx, root: LayoutBox): void {
-  paintCanvas(ctx, root, [], [], [], { x: 0, y: 0, height: 0 }, "hidden", 800, 800, 0, 800);
+  paintCanvas(ctx, root, [], [], [], [], { x: 0, y: 0, height: 0 }, "hidden", 800, 800, 0, 800);
 }
 
 describe("merged table-cell paint (#P8.S4.T4)", () => {

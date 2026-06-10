@@ -372,7 +372,7 @@ describe("controller setCommentHighlights / clearCommentHighlights (comments sli
     const matches = [
       { x: 0, y: 0, width: 24, height: RUN_HEIGHT, pageIndex: 0, active: false },
     ];
-    paintCanvas(ctx, run, [], matches, comments, { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
+    paintCanvas(ctx, run, [], matches, comments, [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
 
     const comment = ctx._ops.findIndex(isCommentInactive);
     const match = ctx._ops.findIndex(isMatch);
@@ -480,7 +480,7 @@ describe("comment-highlight overlay — incremental clear/erase (slice 5)", () =
     ];
 
     // Frame 1: paint WITH a comment highlight so the PaintCache records its rect.
-    paintPage(ctx, page, [], [], comments, null, "hidden", undefined, cache);
+    paintPage(ctx, page, [], [], comments, [], null, "hidden", undefined, cache);
     expect(cache.getLastCommentHighlightRects()).not.toBeNull();
     expect(ctx._ops.filter(isCommentInactive)).toHaveLength(1);
 
@@ -488,7 +488,7 @@ describe("comment-highlight overlay — incremental clear/erase (slice 5)", () =
     // []. The only thing that changed is the highlight set → the repaint MUST be
     // driven purely by addCommentHighlightDirty dirtying the OLD rect.
     ctx._ops.length = 0;
-    const dirty = paintPage(ctx, page, [], [], [], null, "hidden", undefined, cache);
+    const dirty = paintPage(ctx, page, [], [], [], [], null, "hidden", undefined, cache);
 
     // The OLD comment-highlight rect's region was dirtied (so it gets erased)...
     expect(

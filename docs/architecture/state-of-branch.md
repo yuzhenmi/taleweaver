@@ -902,10 +902,16 @@ dispatch FALLS BACK to the full path on a view switch (reused nodes carry the pr
 **6a host range-rects query — SHIPPED** (`getSuggestionRangeRects(state, layoutTree, shaper, suggestionId)`
 in `cursor/suggestion-rects.ts`, barrel-exported — mirrors `getCommentRangeRects`: `resolveSuggestionRange`→
 `createSpan`→`computeSelectionRects`; `[]` for an id with no live tagged content. Pure core query; a
-suggestion tags runs in place so its rects are exactly the tagged glyphs). REMAINING:
-6b DOM-controller overlay (`setSuggestionHighlights`/`clearSuggestionHighlights` + paint, mirror
-`setCommentHighlights`/`paintCommentHighlights`); `5c-structural` (block-boundary projection, shared by
-extractText+render); 7 arch docs. (No text/HTML exporter exists yet — only the binary serializer, which round-trips the
+suggestion tags runs in place so its rects are exactly the tagged glyphs).
+**6b DOM-controller overlay — SHIPPED (slice 6 COMPLETE):** `setSuggestionHighlights(highlights)` /
+`clearSuggestionHighlights()` on the DOM controller (each `{suggestionId, active}`) — an EXACT mirror of the
+comment overlay: two-stage self-healing (`resolveSuggestionHighlights()` re-resolves each id's range via
+`resolveSuggestionRange` every `update()`; `suggestionHighlightsForPage()` emits per-page rects), painting a
+distinct TEAL band BELOW the comment band (full layering: bg→suggestion→comment→find→selection→text) via
+`paintSuggestionHighlights` + `SuggestionHighlightRect` + `addSuggestionHighlightDirty` incremental erase.
+No `orphaned` check (range null→skip). REMAINING:
+`5c-structural` (block-boundary projection, shared by extractText+render); 7 arch docs. (No text/HTML exporter
+exists yet — only the binary serializer, which round-trips the
 literal state; a view-projected text/HTML export lands if/when that exporter is built, NOT a change-tracking
 slice.) See `1.1-state.md` "The `suggestions` map" + `1.7-editor.md`.
 
