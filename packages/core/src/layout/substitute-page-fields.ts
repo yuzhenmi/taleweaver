@@ -1,0 +1,67 @@
+import type { ElementBox, RenderNode } from "../render/render-node";
+import { formatCounter } from "../styles/format-counter";
+import { PAGE_FIELD_EMBED_TYPE } from "../state/page-field";
+import { isDevMode } from "./dev-mode";
+
+/**
+ * Spine-clone `body` to each `page-field` leaf, replacing its placeholder text with
+ * the value for THIS page:
+ *   - `page-number` → `formatCounter(pageIndex + 1, numberStyle)` (1-based, self-page).
+ *   - `page-count` (and other document-global fields) → `globalFieldValues.get(embedKey)`.
+ *
+ * Everything not on a path to a page-field keeps its ORIGINAL ref (structural-sharing,
+ * identity-preserving), so the substituted body is cheap and only the field leaves
+ * differ. Returns the SAME `body` ref if it contains no page-fields (so callers can
+ * `===`-check to skip work). Mirrors the FN-6.2b late-binding precedent; NEVER mutates
+ * the frozen input.
+ *
+ * A `page-count` whose global value is ABSENT (e.g. a page-number-only materialize run
+ * that built no `globalFieldValues`) is left UNCHANGED — never fabricate a digit. The
+ * IFC token identity is preserved because the atom's render key is unchanged and only
+ * the inner text box's `text` is replaced (the offset↔box 1:1 invariant, #407, holds).
+ */
+export function substitutePageFields(
+  body: ElementBox,
+  pageIndex: number,
+  globalFieldValues: ReadonlyMap<string, string>,
+): ElementBox {
+  const next = substNode(body, pageIndex, globalFieldValues);
+  // substNode returns the same ElementBox ref when nothing changed.
+  return next as ElementBox;
+}
+
+function substNode(node: RenderNode, pageIndex: number, globals: ReadonlyMap<string, string>): RenderNode {
+  if (node.type !== "element") return node;
+
+  const md = node.metadata;
+  if (md?.embedType === PAGE_FIELD_EMBED_TYPE && md.fieldKind !== undefined) {
+    const value =
+      md.fieldKind === "page-number"
+        ? formatCounter(pageIndex + 1, md.numberStyle ?? "decimal")
+        : globals.get(node.key);
+    if (value === undefined) return node; // page-count with no global value → leave the placeholder
+    // A page-field atom has EXACTLY one child — the placeholder text box (the render
+    // branch always emits `[createTextBox(...)]`). Replace its text; clone nothing else.
+    const childText = node.children[0];
+    if (node.children.length !== 1 || childText === undefined || childText.type !== "text") {
+      if (isDevMode()) {
+        throw new Error(
+          `substitutePageFields: page-field atom "${node.key}" must have exactly one text child (got ${node.children.length})`,
+        );
+      }
+      return node; // prod: leave unchanged rather than silently mangle a malformed atom
+    }
+    const newChild = Object.freeze({ ...childText, text: value });
+    return Object.freeze({ ...node, children: Object.freeze([newChild]) });
+  }
+
+  // Recurse; clone only if a descendant changed (identity-preserving).
+  let changed = false;
+  const newChildren = node.children.map((child) => {
+    const next = substNode(child, pageIndex, globals);
+    if (next !== child) changed = true;
+    return next;
+  });
+  if (!changed) return node;
+  return Object.freeze({ ...node, children: Object.freeze(newChildren) });
+}

@@ -41,6 +41,9 @@ import { pageConfigsEqual } from "./section-plan";
 import { columnConfigsEqual, type ColumnConfig } from "./column-config";
 import { isDevMode } from "./dev-mode";
 import { FOOTNOTE_SEPARATOR_HEIGHT, FOOTNOTE_MARKER_GAP, footnoteMarkerGutter } from "./resolve-footnotes";
+import type { FieldSpec } from "./collect-page-fields";
+import { substitutePageFields } from "./substitute-page-fields";
+import { formatCounter } from "../styles/format-counter";
 
 /**
  * A virtualized layout result. Discriminated from the legacy positioned
@@ -226,6 +229,20 @@ interface PageFingerprint {
    * `undefined` for an id absent from `embedBodies`.
    */
   readonly footnoteContinuationBodies: readonly (ElementBox | undefined)[];
+  /**
+   * The per-page resolved PAGE-FIELD value strings this page's header/footer slots
+   * display (F-2). Computed in spec order over the TEMPLATE field specs: a
+   * `page-number` field's value is `formatCounter(pageIndex + 1, …)` (varies per
+   * page), a `page-count`/global field's is its `globalFieldValues` entry (same
+   * everywhere). MUST participate so a page whose field VALUE changed re-materializes
+   * even though the cascaded body REF (the structural signal `headerBody`/`footerBody`)
+   * is UNCHANGED: e.g. the doc grew a page so a later page's number shifted, or the
+   * total page-count changed. The body ref is kept as the structural signal (it never
+   * sees the substituted clone); this string array is the VALUE signal. Empty ⇒ no
+   * template page-fields ⇒ field-free pages stay byte-identical. Compared element-wise
+   * (string ===) via `childrenRefsEqual`.
+   */
+  readonly pageFieldValues: readonly string[];
 }
 
 /**
@@ -260,6 +277,9 @@ function childrenRefsEqual(a: readonly unknown[], b: readonly unknown[]): boolea
   return true;
 }
 
+/** Shared empty array for the field-free-doc fingerprint (stable ref, byte-identical). */
+const EMPTY_PAGE_FIELD_VALUES: readonly string[] = Object.freeze([]);
+
 function fingerprintsEqual(a: PageFingerprint, b: PageFingerprint): boolean {
   return (
     a.blockOffset === b.blockOffset &&
@@ -289,7 +309,10 @@ function fingerprintsEqual(a: PageFingerprint, b: PageFingerprint): boolean {
     ) &&
     childrenRefsEqual(a.children, b.children) &&
     breakTokensEqual(a.resumeInto, b.resumeInto) &&
-    breakTokensEqual(a.resumeOut, b.resumeOut)
+    breakTokensEqual(a.resumeOut, b.resumeOut) &&
+    // F-2: a page-field VALUE change (page-number shifted across pages, or
+    // page-count changed) busts the reuse even when the body refs are unchanged.
+    childrenRefsEqual(a.pageFieldValues, b.pageFieldValues)
   );
 }
 
@@ -335,6 +358,16 @@ export function makeVirtualLayoutTree(
   // (`footnoteAnchorPages`) for post-layout consumers. Defaults to an empty map
   // (footnote-free doc).
   footnoteAnchorPages: ReadonlyMap<BlockId, number> = new Map(),
+  // F-2 (layout-dependent fields): the page-field specs (from `collectPageFields`)
+  // + the resolved document-global values (from `resolvePageFields`). Captured in
+  // the closure so `materializePage` substitutes each header/footer page-field
+  // placeholder with its per-page value before slot layout (self-page page-number
+  // = pageIndex+1; global page-count = `globalFieldValues`), and `fingerprintOf`
+  // folds the per-page value strings so a value change busts the carry-forward
+  // even when the cascaded body ref is unchanged. Default empty ⇒ field-free docs
+  // are byte-identical.
+  fieldSpecs: readonly FieldSpec[] = [],
+  globalFieldValues: ReadonlyMap<string, string> = new Map(),
 ): VirtualLayoutTree {
   const margins = pageConfig.pageMargins;
   const pageContentBlockSize =
@@ -377,6 +410,36 @@ export function makeVirtualLayoutTree(
   // body refs as the slot's change signal. Empty for a footnote-free doc.
   const embedBodies = cascadedEmbedContents;
 
+  // F-2: the page-field specs + resolved global values, captured for
+  // `materializePage` (substitution) and `fingerprintOf` (value fold). Only
+  // TEMPLATE (header/footer) fields appear on EVERY page, so only they contribute
+  // to the per-page fingerprint value array; a `host:"main"` field appears on just
+  // its own page and is page-scoped in F-3 (none exist in F-2). `pageGlobalFieldValues`
+  // is passed whole to `substitutePageFields` (it reads the global value for a
+  // page-count and ignores the rest; page-number is computed from `pageIndex`).
+  const pageGlobalFieldValues = globalFieldValues;
+  const templateFieldSpecs = fieldSpecs.filter((s) => s.host === "template");
+
+  /**
+   * The per-page page-field value strings (F-2 fingerprint fold), in
+   * `templateFieldSpecs` order: page-number → `formatCounter(pageIndex+1, …)`;
+   * page-count/global → its `globalFieldValues` entry (or "" if unresolved). A
+   * stable, deterministic array per page; an empty result for a field-free doc.
+   */
+  function pageFieldValuesForFingerprint(pageIndex: number): readonly string[] {
+    if (templateFieldSpecs.length === 0) return EMPTY_PAGE_FIELD_VALUES;
+    return templateFieldSpecs.map((s) =>
+      s.fieldKind === "page-number"
+        ? formatCounter(pageIndex + 1, s.numberStyle)
+        // When a page-count global value is absent, `substitutePageFields` returns the
+        // node UNCHANGED (no-op, placeholder kept) — so two trees with the same absent
+        // field must produce the same fingerprint string to permit reuse. "" is the
+        // sentinel for that (never a real page-count value); the no-op-substitution and
+        // the ""-fold are the matching pair of that invariant.
+        : pageGlobalFieldValues.get(s.embedKey) ?? "",
+    );
+  }
+
   // C.2c (T4): the per-page fingerprint. MOVED into the closure (from top level)
   // so it can resolve a page's header/footer body REFERENCE off `templateBodies`
   // — the slot's change signal. The cross-tree compare in `getPage` works
@@ -415,6 +478,11 @@ export function makeVirtualLayoutTree(
       footnoteContinuationBodies: entry.footnoteContinuation.map((c) =>
         embedBodies.get(c.contentBlockId),
       ),
+      // F-2: the per-page page-field value strings (the VALUE signal; the body REF
+      // above is the STRUCTURAL signal). A value change (doc grew a page → a later
+      // page's number shifts, or page-count changed) busts the reuse even though the
+      // cascaded body ref is unchanged.
+      pageFieldValues: pageFieldValuesForFingerprint(entry.pageIndex),
     };
   }
 
@@ -710,8 +778,15 @@ export function makeVirtualLayoutTree(
       slotBlockStart: number,
     ): BlockBox | null => {
       if (blockId === undefined) return null;
-      const body = templateBodies.get(blockId);
-      if (body === undefined) return null;
+      const rawBody = templateBodies.get(blockId);
+      if (rawBody === undefined) return null;
+      // F-2: bind page-field values LATE — substitute each placeholder with its
+      // per-page value (page-number = pageIndex+1; page-count = global) on a
+      // spine-clone, BEFORE slot layout, so the slot's line geometry accounts for
+      // the real value's width. Identity-preserving (the SAME ref returns for a
+      // field-free body); the fingerprint reads the ORIGINAL `rawBody` ref as the
+      // structural signal, never this clone.
+      const body = substitutePageFields(rawBody, pageIndex, pageGlobalFieldValues);
       const { box: slotBox } = layoutBlock(
         body,
         effMargins.inlineStart,

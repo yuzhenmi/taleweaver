@@ -31,6 +31,8 @@ import { flattenContents } from "./group-children";
 import { layoutBlock } from "./bfc";
 import { adaptShaperToMeasurer } from "./text-measurer";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
+import { collectPageFields } from "./collect-page-fields";
+import { resolvePageFields } from "./resolve-page-fields";
 import { makeVirtualLayoutTree, type VirtualLayoutTree } from "./virtual-layout-tree";
 import {
   resolveFootnotes,
@@ -172,12 +174,34 @@ export function buildVirtualPaginatedTree(
           rawPlan,
           buildBlockToTopLevelIndex(rootChildren),
         );
+  // F-2 (layout-dependent fields): collect the page-field specs from the cascaded
+  // render trees and resolve their document-global values from the FINAL plan (the
+  // resolveFootnotes-adjusted page count). `materializePage` then substitutes each
+  // header/footer page-field placeholder with its per-page value before slot layout
+  // (self-page page-number = pageIndex+1; global page-count = `globalFieldValues`).
+  // Field-free docs short-circuit to empty (`collectPageFields` returns [], the
+  // substitution is a no-op identity).
+  //
+  // F-2 KNOWN GAPS (wired in F-3, not bugs):
+  //  - `collectPageFields` also walks `rootChildren` for `host:"main"` specs, but
+  //    F-2 only SUBSTITUTES header/footer (template) bodies (see `materializePage`'s
+  //    `layoutSlot`); a `host:"main"` page-field would render its placeholder ("00")
+  //    until F-3 adds main-body substitution. Collected-but-unconsumed is harmless.
+  //  - The §4.4 width-CONVERGENCE loop is NOT wired: `computeSlotInsets` (above) +
+  //    `measurePass` size the slot at the PLACEHOLDER (reserved) width. A real value
+  //    WIDER than the reservation (e.g. a 3-digit page count when 2 glyphs were
+  //    reserved) would under-size the slot. F-3 adds the grow-and-re-paginate loop;
+  //    `maxValueWidthByKey` (computed below, unused in F-2) feeds it. Single-/double-
+  //    digit values stay within the 2-glyph reservation, so F-2 is correct for them.
+  const fieldSpecs = collectPageFields(cascadedTemplateContents, rootChildren);
+  const { globalFieldValues } = resolvePageFields(plan, fieldSpecs, adaptShaperToMeasurer(shaper));
+
   // Pass the RESOLVED plan to materialize against, the cascaded footnote bodies
   // so `materializePage` renders the slot, and the RAW plan as `__rawPlan` for
   // the NEXT cycle's measurePass carry-forward (D6).
   return makeVirtualLayoutTree(
     plan, cascadedRoot, ctx, shaper, pageConfig, prevTree, cascadedTemplateContents,
-    cascadedEmbedContents, rawPlan, footnoteAnchorPages,
+    cascadedEmbedContents, rawPlan, footnoteAnchorPages, fieldSpecs, globalFieldValues,
   );
 }
 

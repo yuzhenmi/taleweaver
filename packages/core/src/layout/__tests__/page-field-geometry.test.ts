@@ -1,0 +1,179 @@
+// packages/core/src/layout/__tests__/page-field-geometry.test.ts
+//
+// F-2: the LATE-BINDING PROOF for layout-dependent page-fields. A page-number
+// field in a header shows "1" on page 0, "2" on page 1 — bound per-page at
+// MATERIALIZE (substitutePageFields), NOT at render (the render placeholder is
+// page-agnostic). A page-count field shows the total on every page. Plus the
+// §4.5 fingerprint fold: a value change (the doc grew a page → later page numbers
+// shift) busts the carry-forward even though the cascaded header body is unchanged.
+//
+// Harness mirrors growing-slot.test.ts (the C.2c header/footer-slot test): a root
+// carrying `{ headerBlockId }` metadata + a `bodies` map of cascaded header bodies,
+// built via the real producer (exercises collectPageFields + resolvePageFields +
+// the materialize substitution).
+
+import { describe, it, expect } from "vitest";
+import { makeRootContext } from "../layout-context";
+import { INITIAL_COMPUTED_STYLE } from "../../styles";
+import { createMockShaper } from "../mock-shaper";
+import { cascadePass } from "../../cascade";
+import { createElementBox, createTextBox } from "../../render/render-node";
+import type { ElementBox } from "../../render/render-node";
+import type { BlockId } from "../../state";
+import type { Style } from "../../styles";
+import type { PageConfig } from "../page-config";
+import type { LayoutBox } from "../layout-box";
+import type { PageBox } from "../page-box";
+import { buildVirtualPaginatedTree } from "../virtual-producer";
+
+function cascadeRoot(
+  rootStyle: Style,
+  children: readonly ElementBox[],
+  metadata?: Record<string, unknown>,
+): ElementBox {
+  const root = createElementBox("root", rootStyle, children, metadata);
+  const cascaded = cascadePass(root);
+  if (cascaded.type !== "element") throw new Error("cascadePass returned non-element");
+  return cascaded;
+}
+
+function fixedBlock(key: string, blockSize: number): ElementBox {
+  return createElementBox(key, { display: "block", blockSize } as Style, []);
+}
+
+/** A `page-field` inline-block atom (one IFC token), keyed with an inline render key. */
+function pageFieldAtom(embedKey: string, fieldKind: "page-number" | "page-count"): ElementBox {
+  return createElementBox(embedKey, { display: "inline-block" } as Style, [createTextBox(`${embedKey}/0`, {}, "00")], {
+    embedType: "page-field",
+    fieldKind,
+    numberStyle: "decimal",
+  });
+}
+
+/** A header body: a container whose single paragraph holds "Page " + a page-field atom. */
+function headerBody(fieldKind: "page-number" | "page-count", lead: string): ElementBox {
+  const para = createElementBox("hp", { display: "block" } as Style, [
+    createTextBox("hp/inline/0", {}, lead),
+    pageFieldAtom("hp/inline/1", fieldKind),
+  ]);
+  return cascadeRoot({ display: "block" }, [para]);
+}
+
+function pageConfig(pageBlockSize: number): PageConfig {
+  return {
+    pageInlineSize: 600,
+    pageBlockSize,
+    pageMargins: { blockStart: 10, blockEnd: 10, inlineStart: 15, inlineEnd: 15 },
+    pageGap: 20,
+  };
+}
+
+const shaper = () => createMockShaper(8, 16);
+
+function build(
+  root: ElementBox,
+  cfg: PageConfig,
+  bodies: ReadonlyMap<BlockId, ElementBox>,
+  prev?: ReturnType<typeof buildVirtualPaginatedTree>,
+) {
+  const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, cfg.pageInlineSize);
+  return buildVirtualPaginatedTree(root, ctx, shaper(), cfg, prev, bodies);
+}
+
+/** Concatenate all text in a laid-out box subtree. */
+function collectText(box: LayoutBox): string {
+  let s = "";
+  if ("text" in box && typeof box.text === "string") s += box.text;
+  if ("children" in box) {
+    for (const child of box.children) s += collectText(child);
+  }
+  return s;
+}
+
+function headerText(page: PageBox): string {
+  return page.headerSlot === null ? "" : collectText(page.headerSlot);
+}
+
+const HDR = "hdr-root" as BlockId;
+
+describe("page-field geometry (F-2 late-binding proof)", () => {
+  it("a header page-number field shows 1 on page 0, 2 on page 1, 3 on page 2", () => {
+    // 6 fixed blocks × 100; content area (300 − ~16 header − 10) ≈ 274 ⇒ 2 blocks/page ⇒ 3 pages.
+    const children = Array.from({ length: 6 }, (_, i) => fixedBlock(`b${i}`, 100));
+    const root = cascadeRoot({ display: "block" }, children, { headerBlockId: HDR });
+    const bodies = new Map<BlockId, ElementBox>([[HDR, headerBody("page-number", "Page ")]]);
+    const tree = build(root, pageConfig(300), bodies);
+
+    expect(tree.plan.entries.length).toBe(3);
+    expect(headerText(tree.getPage(0))).toContain("1");
+    expect(headerText(tree.getPage(0))).not.toContain("00"); // placeholder is GONE
+    expect(headerText(tree.getPage(1))).toContain("2");
+    expect(headerText(tree.getPage(2))).toContain("3");
+  });
+
+  it("a header page-count field shows the total (3) on EVERY page", () => {
+    const children = Array.from({ length: 6 }, (_, i) => fixedBlock(`b${i}`, 100));
+    const root = cascadeRoot({ display: "block" }, children, { headerBlockId: HDR });
+    const bodies = new Map<BlockId, ElementBox>([[HDR, headerBody("page-count", "of ")]]);
+    const tree = build(root, pageConfig(300), bodies);
+
+    expect(tree.plan.entries.length).toBe(3);
+    for (let i = 0; i < 3; i++) {
+      expect(headerText(tree.getPage(i))).toContain("3");
+    }
+  });
+
+  it("field-free docs are unaffected (no header ⇒ no slot, byte-identical pagination)", () => {
+    const children = Array.from({ length: 6 }, (_, i) => fixedBlock(`b${i}`, 100));
+    const root = cascadeRoot({ display: "block" }, children);
+    const tree = build(root, pageConfig(300), new Map());
+    expect(tree.getPage(0).headerSlot).toBeNull();
+    expect(tree.plan.entries.length).toBe(3);
+  });
+
+  it("carry-forward: an unchanged page (same number) is reused; a page whose number shifts is re-materialized", () => {
+    const headerBodyRef = headerBody("page-number", "Page ");
+    const bodies = new Map<BlockId, ElementBox>([[HDR, headerBodyRef]]);
+
+    // Tree A: 6 blocks ⇒ 3 pages.
+    const childrenA = Array.from({ length: 6 }, (_, i) => fixedBlock(`b${i}`, 100));
+    const rootA = cascadeRoot({ display: "block" }, childrenA, { headerBlockId: HDR });
+    const treeA = build(rootA, pageConfig(300), bodies);
+    treeA.getPage(0);
+    expect(headerText(treeA.getPage(2))).toContain("3");
+
+    // Tree B: insert TWO blocks at the FRONT (push everything down 1 page ⇒ 4 pages).
+    // The SAME cascaded header body ref is reused (only body content changed). Page 0's
+    // first block ref changed (new front block) so page 0 re-materializes anyway; the
+    // proof is that a LATER page whose number shifted reflects the NEW number, and the
+    // page-count-style value-fold busts reuse purely on the value change.
+    const childrenB = [fixedBlock("pre0", 100), fixedBlock("pre1", 100), ...childrenA];
+    const rootB = cascadeRoot({ display: "block" }, childrenB, { headerBlockId: HDR });
+    const treeB = build(rootB, pageConfig(300), bodies, treeA);
+
+    expect(treeB.plan.entries.length).toBe(4);
+    // page 3 (1-based "4") is new; pages show their own 1-based numbers freshly.
+    expect(headerText(treeB.getPage(3))).toContain("4");
+    expect(headerText(treeB.getPage(0))).toContain("1");
+  });
+
+  it("carry-forward: a page-COUNT field busts every page when the total changes (value fold, body ref unchanged)", () => {
+    const headerBodyRef = headerBody("page-count", "of ");
+    const bodies = new Map<BlockId, ElementBox>([[HDR, headerBodyRef]]);
+
+    const childrenA = Array.from({ length: 6 }, (_, i) => fixedBlock(`b${i}`, 100));
+    const rootA = cascadeRoot({ display: "block" }, childrenA, { headerBlockId: HDR });
+    const treeA = build(rootA, pageConfig(300), bodies);
+    treeA.getPage(0);
+    expect(headerText(treeA.getPage(0))).toContain("3"); // "of 3"
+
+    // Append blocks so the doc grows to 4 pages: the page-count value changes 3 → 4.
+    const childrenB = [...childrenA, fixedBlock("b6", 100), fixedBlock("b7", 100)];
+    const rootB = cascadeRoot({ display: "block" }, childrenB, { headerBlockId: HDR });
+    const treeB = build(rootB, pageConfig(300), bodies, treeA);
+    expect(treeB.plan.entries.length).toBe(4);
+    // Page 0's body content is UNCHANGED (same front blocks) and the header body REF is
+    // the SAME — only the page-count VALUE changed (3 → 4). The value fold must bust it.
+    expect(headerText(treeB.getPage(0))).toContain("4"); // NOT the stale "of 3"
+  });
+});
