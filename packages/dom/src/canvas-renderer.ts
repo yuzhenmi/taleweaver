@@ -965,7 +965,7 @@ function paintOpacityGroup(
 //   3. in-flow non-positioned BLOCK descendants (recursive, static only);
 //   4. floats;
 //   5. in-flow non-positioned INLINE content;
-//   6. all positioned descendants with z-index auto|0 (relative AND absolute/fixed
+//   6. all positioned descendants with z-index auto|0 (relative AND absolute
 //      together), in tree (document) order;
 //   7. positive-z stacking-context children (z>0, ascending).
 //
@@ -1002,7 +1002,7 @@ function isStackingContext(box: LayoutBox): boolean {
 
 /**
  * Whether a box is positioned (participates in stacking buckets 1/6/7). A box is
- * positioned when its computed `position` is relative / absolute / fixed. Treats
+ * positioned when its computed `position` is relative / absolute. Treats
  * an ABSENT `position` (`undefined`) as NOT positioned (static) — every box laid
  * out through the cascade carries `position: "static"` for the unpositioned case,
  * but defending against absence keeps the reorder gate from false-firing on a box
@@ -1011,13 +1011,13 @@ function isStackingContext(box: LayoutBox): boolean {
  */
 function isPositioned(box: LayoutBox): boolean {
   const p = box.computedStyle.position;
-  return p === "relative" || p === "absolute" || p === "fixed";
+  return p === "relative" || p === "absolute";
 }
 
 /**
  * True when ANY direct in-flow child OR `absoluteChild` participates in stacking
  * ordering — i.e. is itself a stacking context, or is positioned (relative /
- * absolute / fixed). When false, the box paints in plain document order (the
+ * absolute). When false, the box paints in plain document order (the
  * common path). `z-index` only applies to POSITIONED boxes, so a `z-index` on a
  * `position: static` box never trips this gate (it is also never a stacking
  * context via z-index — `computeStackingContextRole` gates on `position`).
@@ -1028,7 +1028,7 @@ function needsStackingReorder(box: LayoutBox): boolean {
     if (isStackingContext(c) || isPositioned(c)) return true;
   }
   if (box.absoluteChildren !== undefined) {
-    // Every abs/fixed child is positioned by definition → always a participant.
+    // Every absolute child is positioned by definition → always a participant.
     if (box.absoluteChildren.length > 0) return true;
   }
   return false;

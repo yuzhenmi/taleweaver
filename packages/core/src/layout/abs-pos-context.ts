@@ -2,7 +2,7 @@ import type { ComputedStyle, UsedStyle } from "../styles";
 import type { ElementBox } from "../render/render-node";
 
 /**
- * POSITIONING slice 3 — an absolutely-positioned (`position: absolute | fixed`)
+ * POSITIONING slice 3 — an absolutely-positioned (`position: absolute`)
  * child captured during the BFC subtree walk, deferred to the second pass at the
  * box that ESTABLISHES its absolute containing block (abc).
  *

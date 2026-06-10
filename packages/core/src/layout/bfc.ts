@@ -632,8 +632,8 @@ export function layoutBlock(
       continue;
     }
 
-    // ABS-POS BRANCH (POSITIONING slice 3): an absolutely- (or fixed-, treated
-    // as absolute) positioned child is OUT OF FLOW. Mirror the float branch: skip
+    // ABS-POS BRANCH (POSITIONING slice 3): an absolutely-positioned child is
+    // OUT OF FLOW. Mirror the float branch: skip
     // ALL in-flow placement (no `childBlockOffset` advance, no margin collapse, no
     // `prevMarginBlockEnd` update), capture its STATIC position (where the in-flow
     // algorithm WOULD place it — `childInlineStart` on the inline axis,
@@ -644,7 +644,7 @@ export function layoutBlock(
     // accumulated intervening offsets for a deeper in-flow descendant), so the
     // `auto`-inset fallback lands in the same frame the resolved insets produce.
     // `continue` exactly like the float branch.
-    if (childCs.position === "absolute" || childCs.position === "fixed") {
+    if (childCs.position === "absolute") {
       ctx.absoluteContainingBlock.pending.register({
         node: child,
         computedStyle: childCs,

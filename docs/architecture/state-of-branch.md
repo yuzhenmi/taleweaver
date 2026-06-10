@@ -196,11 +196,11 @@ Most of the layout pass is implemented and working:
   `position: relative` resolves a physical `relativeOffset` in the BFC and the
   painter shifts the box + descendants by it (block-level; inline-block-relative
   and caret-for-relative-content are named follow-ups). `position: absolute`
-  (and `fixed`, treated as absolute) is laid out OUT of flow via a two-pass
+  is laid out OUT of flow via a two-pass
   scheme: the in-flow loop registers the child's static position into the
   nearest absolute containing block (abc — `LayoutContext.absoluteContainingBlock`
   + `ownsAbsoluteContainingBlock` + `originFromAbc`; established by
-  `position ∈ {relative,absolute,fixed}` or `transform`), and the establishing
+  `position ∈ {relative,absolute}` or `transform`), and the establishing
   box DRAINS its pending list in a post-loop second pass, resolving each child's
   size/position from `cs.inset*` against the abc and attaching results to
   `box.absoluteChildren` (on `LayoutBoxBase`). Abs content is cursor-reachable

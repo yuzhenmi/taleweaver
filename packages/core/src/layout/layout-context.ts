@@ -13,7 +13,7 @@ import { createAbsPosEnvironment } from "./abs-pos-context";
 /**
  * POSITIONING slice 3 — the absolute containing block (abc) for the box currently
  * being laid out: the nearest positioned (or transformed) ancestor whose
- * coordinate frame an `position: absolute | fixed` descendant resolves its
+ * coordinate frame an `position: absolute` descendant resolves its
  * `inset*` against (CSS Positioned Layout 3 §3). The document root's abc is the
  * page/viewport content area.
  *
@@ -51,13 +51,13 @@ export interface AbsoluteContainingBlock {
 /**
  * POSITIONING slice 3 — a box establishes an absolute containing block (the
  * coordinate frame for `position: absolute` descendants) when it is positioned
- * (`relative` / `absolute` / `fixed`) OR has a non-empty `transform` (CSS
- * Transforms 1 §6 — a transformed box is a containing block for fixed AND
- * absolute descendants). `transform` defaults to `[]`, so the transform clause is
+ * (`relative` / `absolute`) OR has a non-empty `transform` (CSS
+ * Transforms 1 §6 — a transformed box is a containing block for absolute
+ * descendants). `transform` defaults to `[]`, so the transform clause is
  * inert until slice 5.
  */
 export function establishesAbsoluteContainingBlock(cs: ComputedStyle): boolean {
-  if (cs.position === "relative" || cs.position === "absolute" || cs.position === "fixed") {
+  if (cs.position === "relative" || cs.position === "absolute") {
     return true;
   }
   if (cs.transform.length > 0) return true;

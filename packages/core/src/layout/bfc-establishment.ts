@@ -11,7 +11,7 @@ import type { ComputedStyle } from "../styles";
  *   - cs.display === "inline-block"
  *   - cs.display === "table-cell"
  *   - cs.display === "flow-root"  (explicit BFC trigger)
- *   - cs.position ∈ {"absolute", "fixed"}  (out-of-flow box is its own BFC root —
+ *   - cs.position === "absolute"  (out-of-flow box is its own BFC root —
  *     POSITIONING slice 3; CSS 9.4.1)
  *   - (Future) cs.overflow !== "visible" (overflow not yet in schema)
  */
@@ -20,9 +20,9 @@ export function establishesNewBFC(cs: ComputedStyle): boolean {
   if (cs.display === "inline-block") return true;
   if (cs.display === "table-cell") return true;
   if (cs.display === "flow-root") return true;
-  // POSITIONING slice 3 — an absolutely-positioned (or fixed) box establishes a
+  // POSITIONING slice 3 — an absolutely-positioned box establishes a
   // new BFC: it is laid out as an independent formatting root at its resolved
   // position, so its floats/content do not interact with the in-flow ancestor.
-  if (cs.position === "absolute" || cs.position === "fixed") return true;
+  if (cs.position === "absolute") return true;
   return false;
 }

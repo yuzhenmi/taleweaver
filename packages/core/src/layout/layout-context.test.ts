@@ -56,11 +56,10 @@ describe("LayoutContext", () => {
 
 // POSITIONING slice 3 — absolute containing block (abc) plumbing.
 describe("LayoutContext — absolute containing block (slice 3)", () => {
-  it("establishesAbsoluteContainingBlock: relative/absolute/fixed/transform establish; static does not", () => {
+  it("establishesAbsoluteContainingBlock: relative/absolute/transform establish; static does not", () => {
     expect(establishesAbsoluteContainingBlock({ ...INITIAL_COMPUTED_STYLE, position: "static" })).toBe(false);
     expect(establishesAbsoluteContainingBlock({ ...INITIAL_COMPUTED_STYLE, position: "relative" })).toBe(true);
     expect(establishesAbsoluteContainingBlock({ ...INITIAL_COMPUTED_STYLE, position: "absolute" })).toBe(true);
-    expect(establishesAbsoluteContainingBlock({ ...INITIAL_COMPUTED_STYLE, position: "fixed" })).toBe(true);
     // transform is forward-compat (slice 5); a non-empty transform establishes an abc.
     expect(establishesAbsoluteContainingBlock({
       ...INITIAL_COMPUTED_STYLE,

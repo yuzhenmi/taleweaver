@@ -2,11 +2,13 @@ import type { Length } from "./length";
 import type { ComputedStyle } from "./computed-style";
 
 /**
- * CSS positioning scheme (CSS Positioned Layout 3 §2). `fixed` is kept in the
- * type for symmetry but is treated as `absolute` by layout (the engine paints
- * content-scrolling canvases, so there is no viewport to pin to).
+ * CSS positioning scheme (CSS Positioned Layout 3 §2). `fixed` is intentionally
+ * absent: viewport-anchored positioning is meaningless in a paginated document
+ * (the engine paints content-scrolling canvases, so there is no viewport to pin
+ * to). Per-page repeated content — running heads, watermarks — is the
+ * page-template system's job, not CSS `fixed`.
  */
-export type Position = "static" | "relative" | "absolute" | "fixed";
+export type Position = "static" | "relative" | "absolute";
 
 /**
  * A single 2D transform function (CSS Transforms 1 §3). The supported set is the

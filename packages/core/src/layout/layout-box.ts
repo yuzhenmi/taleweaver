@@ -56,7 +56,7 @@ interface LayoutBoxBase {
   // (an inline-block can also be `position: relative` — IFC path is a follow-up).
   readonly relativeOffset?: { readonly dx: number; readonly dy: number };
 
-  // POSITIONING slice 3 — `position: absolute | fixed` descendants whose absolute
+  // POSITIONING slice 3 — `position: absolute` descendants whose absolute
   // containing block is THIS box. Out-of-flow: they are NOT in `children` (they do
   // not advance the in-flow block offset and do not participate in margin
   // collapse). The BFC drains them in its post-loop second pass at the box that

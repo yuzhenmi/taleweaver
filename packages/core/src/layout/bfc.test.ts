@@ -1618,15 +1618,6 @@ describe("layoutBlock — position: absolute (slice 3)", () => {
     expect(abs.x).toBe(7); // px inline inset still applies
   });
 
-  it("fixed is treated as absolute by layout (same out-of-flow + inset resolution)", () => {
-    const out = absUnderRelativeRoot({ position: "fixed", insetInlineStart: 18, insetBlockStart: 9 });
-    expect(out.children.some((c) => c.key === "abs")).toBe(false);
-    const abs = out.absoluteChildren?.[0];
-    if (abs === undefined || abs.type !== "block") throw new Error("?");
-    expect(abs.x).toBe(18);
-    expect(abs.y).toBe(9);
-  });
-
   // F6 — a `transform` (with NO `position`) establishes the abc (CSS Transforms 1
   // §6 / Positioned Layout §2): the abs child resolves against the TRANSFORMED
   // ancestor's frame, not the root's. This is the `transform.length > 0` abc
