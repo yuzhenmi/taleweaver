@@ -9,3 +9,5 @@ CLAUDE.md
 # Machine / tooling cruft (recurring)
 .DS_Store
 .playwright-mcp/
+claude-code-conversation.txt
+docs.bak-pre-switch/
