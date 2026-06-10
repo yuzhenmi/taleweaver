@@ -1,9 +1,12 @@
 /**
- * Change-tracking slice 1.3 — the two break-suggestion embeds
- * (`block-join-suggestion` / `block-split-suggestion`) render as ZERO-WIDTH
- * inline-block atoms (one IFC token, 0px, no glyph), preserving the offset↔box
- * 1:1 invariant (#407). Mirror of `render-comment-markers.test.ts`. (The visible
- * struck/added pilcrow is slice 5; slice 1 only locks the offset invariant.)
+ * Change-tracking — the two break-suggestion embeds (`block-join-suggestion` /
+ * `block-split-suggestion`) render as VISIBLE pilcrow (¶) inline-block atoms
+ * (slice 5b): ONE IFC token wrapping a single ¶ glyph, preserving the offset↔box
+ * 1:1 invariant (#407). The per-author color + struck/added decoration of the
+ * glyph is covered by `render-suggestion-visuals.test.ts`; this file locks the
+ * render() INTEGRATION shape with surrounding text — exactly one atom, the ¶
+ * between the neighbours, no U+FFFC leak — plus the offset invariant and the
+ * extractText serialization (which still drops the embed to "").
  */
 import { describe, it, expect } from "vitest";
 import { render } from "./render";
@@ -61,12 +64,12 @@ function embedBoxesOf(root: RenderNode, embedType: string): ElementBox[] {
   return found;
 }
 
-describe("render — break-suggestion embeds are zero-width inline-block atoms", () => {
+describe("render — break-suggestion embeds are visible pilcrow inline-block atoms", () => {
   for (const embedType of [
     BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
     BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
   ]) {
-    it(`emits one zero-width inline-block atom for ${embedType} (no glyph, no U+FFFC)`, () => {
+    it(`emits one inline-block ¶ atom for ${embedType} between the surrounding text (no U+FFFC)`, () => {
       const state = buildState({
         rootId: asBlockId("doc"),
         blocks: [
@@ -88,12 +91,15 @@ describe("render — break-suggestion embeds are zero-width inline-block atoms",
       const boxes = embedBoxesOf(out.root, embedType);
       expect(boxes).toHaveLength(1);
       for (const box of boxes) {
+        // ONE inline-block atom (offset↔box 1:1) wrapping exactly the ¶ glyph.
         expect(box.style.display).toBe("inline-block");
-        expect(box.style.inlineSize).toBe(0);
-        expect(box.children).toHaveLength(0);
+        expect(box.children).toHaveLength(1);
+        const glyph = box.children[0];
+        expect(glyph.type).toBe("text");
+        expect((glyph as TextBox).text).toBe("¶");
       }
-      // No glyph leaks (no U+FFFC); visible text is exactly the surrounding text.
-      expect(allText(out.root)).toBe("hello world");
+      // The ¶ sits between the neighbours; no U+FFFC placeholder leaks.
+      expect(allText(out.root)).toBe("hello ¶world");
       expect(allText(out.root)).not.toContain("￼");
     });
   }

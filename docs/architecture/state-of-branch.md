@@ -872,8 +872,14 @@ REMAINING:
 **5a render text-run visuals — SHIPPED** (`expandInlineItems` → `resolveSuggestionStyle`:
 insertion=author-color+underline, deletion=author-color+lineThrough, formatting=`proposedAttrs`
 preview + author-color underline indicator, nested=all; deterministic `authorColorOf` palette;
-plain runs byte-identical via a fast path). REMAINING: 5b render pilcrow glyphs for the break
-embeds (split=inserted-flavored ¶, join=struck ¶ — they already render as zero-width atoms);
+plain runs byte-identical via a fast path).
+**5b render break-suggestion pilcrows — SHIPPED** (`expandInlineItems` peels the
+`block-split-suggestion` / `block-join-suggestion` embeds out of the zero-width comment-marker
+branch into a VISIBLE pilcrow ¶ wrapped in a single inline-block atom — split=author-color+underline
+(insertion-flavored), join=author-color+lineThrough (deletion-flavored), read via
+`properties.suggestionId`→`readSuggestionRecordFromState`→`authorColorOf`; absent record leaves
+color to the cascade but still marks the decoration; the one-token/one-offset #407 invariant is
+preserved like the cross-reference embed). REMAINING:
 5c preview-view `SuggestionView` filter (extractText/getWordCount/serialize/render); 6 host
 query + overlay; 7 arch docs. See `1.1-state.md` "The `suggestions` map" + `1.7-editor.md`.
 

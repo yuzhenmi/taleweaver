@@ -97,21 +97,23 @@ export const DELETION_SUGGESTION_ATTR = "deletionSuggestionId";
 export const FORMATTING_SUGGESTION_ATTR = "formattingSuggestionId";
 
 /**
- * The `embedType` discriminant of the zero-width embed that records a suggested
- * JOIN of two blocks (a suggested deletion of a paragraph break with no adjacent
- * text to carry a {@link DELETION_SUGGESTION_ATTR}). Like every other embed it
- * occupies one `Position` offset and emits exactly one zero-width IFC token (see
- * `render/render-core.ts`); it serializes to "" (see `state/extract-text.ts`).
- * Its `properties` carry the owning {@link SuggestionId}. (The visible struck
- * pilcrow is slice 5; slice 1 only preserves the offset invariant.)
+ * The `embedType` discriminant of the embed that records a suggested JOIN of two
+ * blocks (a suggested deletion of a paragraph break with no adjacent text to
+ * carry a {@link DELETION_SUGGESTION_ATTR}). Like every other embed it occupies
+ * one `Position` offset and emits exactly one IFC token (the one-token / one-offset
+ * #407 invariant); it serializes to "" (see `state/extract-text.ts`). Its
+ * `properties` carry the owning {@link SuggestionId}. It RENDERS as a visible
+ * struck pilcrow (¶) — a deletion-flavored inline-block atom tinted by the
+ * suggestion author's color (see `render/render-core.ts`).
  */
 export const BLOCK_JOIN_SUGGESTION_EMBED_TYPE = "block-join-suggestion";
 
 /**
- * The `embedType` discriminant of the zero-width embed that records a suggested
- * SPLIT (a suggested insertion of a paragraph break). Same zero-width
- * one-IFC-token / serialize-to-"" contract as
- * {@link BLOCK_JOIN_SUGGESTION_EMBED_TYPE}.
+ * The `embedType` discriminant of the embed that records a suggested SPLIT (a
+ * suggested insertion of a paragraph break). Same one-IFC-token / one-offset /
+ * serialize-to-"" contract as {@link BLOCK_JOIN_SUGGESTION_EMBED_TYPE}, but
+ * RENDERS as a visible UNDERLINED pilcrow (¶) — an insertion-flavored inline-block
+ * atom tinted by the suggestion author's color.
  */
 export const BLOCK_SPLIT_SUGGESTION_EMBED_TYPE = "block-split-suggestion";
 

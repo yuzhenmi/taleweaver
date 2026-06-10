@@ -25,11 +25,14 @@ import {
   buildBlock,
   inlineContent,
   text,
+  embed,
 } from "../test-utils/state-builders";
 import {
   INSERTION_SUGGESTION_ATTR,
   DELETION_SUGGESTION_ATTR,
   FORMATTING_SUGGESTION_ATTR,
+  BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
+  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
 } from "../state";
 import type { SuggestionId, SuggestionRecord, State } from "../state";
 import { applyOperation } from "../state";
@@ -166,5 +169,116 @@ describe("authorColorOf", () => {
 
   it("maps two distinct example authors to distinct colors", () => {
     expect(authorColorOf("alice")).not.toBe(authorColorOf("carol"));
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Slice 5b — break-suggestion pilcrow glyphs
+//
+// A suggested paragraph break (the `block-split-suggestion` / `block-join-
+// suggestion` embeds appended to the END of block N, carrying the owning id in
+// `properties.suggestionId`) renders as a VISIBLE pilcrow (¶) instead of the
+// zero-width comment-marker atom: a split is INSERTION-flavored (author color +
+// underline), a join is DELETION-flavored (author color + lineThrough). Like the
+// cross-reference embed, the glyph is wrapped in a SINGLE inline-block atom so it
+// still emits exactly ONE IFC token (one state-model offset) regardless of glyph
+// width — preserving the offset↔box 1:1 invariant the break embed relies on.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Find the first ElementBox whose metadata stamps `embedType === t`. */
+function embedBoxWith(root: RenderNode, t: string): ElementBox {
+  let found: ElementBox | null = null;
+  function walk(node: RenderNode): void {
+    if (found !== null) return;
+    if (node.type === "element") {
+      const el = node as ElementBox;
+      if (el.metadata?.embedType === t) {
+        found = el;
+        return;
+      }
+      for (const child of el.children) walk(child);
+    }
+  }
+  walk(root);
+  if (found === null) throw new Error(`no ElementBox with embedType "${t}"`);
+  return found;
+}
+
+/** The single ¶ glyph TextBox a break-suggestion embed box wraps. */
+function pilcrowChild(box: ElementBox): TextBox {
+  expect(box.children.length).toBe(1);
+  const child = box.children[0];
+  expect(child.type).toBe("text");
+  return child as TextBox;
+}
+
+/** doc > p( "abc" + the given break embed ), with one suggestion record seeded. */
+function buildBreakDoc(
+  embedType: string,
+  id: SuggestionId,
+  record: SuggestionRecord,
+): State {
+  return buildDoc(
+    inlineContent([
+      text("abc"),
+      embed(embedType, { suggestionId: id }),
+    ]),
+    [record],
+  );
+}
+
+describe("expandInlineItems — break-suggestion pilcrows (slice 5b)", () => {
+  it("split embed renders a ¶ pilcrow with author color + underline (insertion-flavored)", () => {
+    const id = "split" as SuggestionId;
+    const state = buildBreakDoc(BLOCK_SPLIT_SUGGESTION_EMBED_TYPE, id, {
+      id,
+      kind: "insertion",
+      author: AUTHOR,
+      createdAt: 0,
+    });
+    const box = embedBoxWith(render(state, reg, attrReg).root, BLOCK_SPLIT_SUGGESTION_EMBED_TYPE);
+    // One atomic inline-block (offset↔box 1:1 preserved), now VISIBLE.
+    expect(box.style.display).toBe("inline-block");
+    const glyph = pilcrowChild(box);
+    expect(glyph.text).toBe("¶");
+    expect(glyph.style.underline).toBe(true);
+    expect(glyph.style.lineThrough).toBeUndefined();
+    expect(glyph.style.color).toBe(authorColorOf(AUTHOR));
+  });
+
+  it("join embed renders a ¶ pilcrow with author color + lineThrough (deletion-flavored)", () => {
+    const id = "join" as SuggestionId;
+    const state = buildBreakDoc(BLOCK_JOIN_SUGGESTION_EMBED_TYPE, id, {
+      id,
+      kind: "deletion",
+      author: AUTHOR,
+      createdAt: 0,
+    });
+    const box = embedBoxWith(render(state, reg, attrReg).root, BLOCK_JOIN_SUGGESTION_EMBED_TYPE);
+    expect(box.style.display).toBe("inline-block");
+    const glyph = pilcrowChild(box);
+    expect(glyph.text).toBe("¶");
+    expect(glyph.style.lineThrough).toBe(true);
+    expect(glyph.style.underline).toBeUndefined();
+    expect(glyph.style.color).toBe(authorColorOf(AUTHOR));
+  });
+
+  it("break embed with no resolvable record still renders a struck/added ¶ but no author color", () => {
+    // A split embed whose owning record is absent (collab race / migration): the
+    // decoration still marks it (the embed TYPE alone determines split=underline)
+    // but the author tint falls through to the cascade (no override).
+    const id = "orphan" as SuggestionId;
+    const state = buildDoc(
+      inlineContent([
+        text("abc"),
+        embed(BLOCK_SPLIT_SUGGESTION_EMBED_TYPE, { suggestionId: id }),
+      ]),
+      [], // no record seeded
+    );
+    const box = embedBoxWith(render(state, reg, attrReg).root, BLOCK_SPLIT_SUGGESTION_EMBED_TYPE);
+    const glyph = pilcrowChild(box);
+    expect(glyph.text).toBe("¶");
+    expect(glyph.style.underline).toBe(true);
+    expect(glyph.style.color).toBeUndefined();
   });
 });

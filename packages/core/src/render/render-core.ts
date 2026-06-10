@@ -57,6 +57,12 @@ import { createTextBox, createElementBox } from "./render-node";
 import { buildFootnoteMarker } from "./footnote-marker";
 
 /**
+ * The pilcrow (U+00B6 ¶) glyph a change-tracking break-suggestion embed renders
+ * (slice 5b) — a split shows it underlined (insertion), a join struck (deletion).
+ */
+const PILCROW = "¶";
+
+/**
  * The shared per-block render body for both `renderBlock` (full) and
  * `renderBlockIncremental` (cache-aware). The two callers differ ONLY in
  * (a) the incremental variant's cache-lookup preamble (handled by its
@@ -326,17 +332,50 @@ export function expandInlineItems(
         ),
       );
     } else if (
-      item.embedType === COMMENT_START_EMBED_TYPE ||
-      item.embedType === COMMENT_END_EMBED_TYPE ||
       item.embedType === BLOCK_JOIN_SUGGESTION_EMBED_TYPE ||
       item.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE
     ) {
-      // The comment-range markers AND the change-tracking break-suggestion
-      // embeds (`block-join-suggestion` / `block-split-suggestion`) share this
-      // branch: each is a ZERO-WIDTH INLINE-BLOCK ATOM. (The visible struck/added
-      // pilcrow for the break embeds is slice 5; slice 1 only preserves the
-      // offset invariant.)
-      //
+      // Change-tracking slice 5b: a suggested paragraph break renders as a
+      // VISIBLE pilcrow (¶) carrying the suggestion's author color, mirroring the
+      // text-run visuals (slice 5a): a SPLIT is an INSERTION (author color +
+      // underline), a JOIN is a DELETION (author color + lineThrough). Like the
+      // cross-reference embed, the glyph is wrapped in a SINGLE inline-block ATOM
+      // so it emits exactly ONE IFC token (one state-model offset) regardless of
+      // the glyph's width — preserving the offset↔box 1:1 invariant the break
+      // embed relies on (#407). The owning record (read by `properties.suggestionId`)
+      // supplies the author color; an absent record (collab race / migration)
+      // leaves `color` to the cascade but still marks the decoration (the embed
+      // TYPE alone determines split=underline / join=lineThrough).
+      const isSplit = item.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE;
+      const rawId = item.properties.suggestionId;
+      const record =
+        typeof rawId === "string"
+          ? readSuggestionRecordFromState(state, rawId as SuggestionId)
+          : null;
+      const authorColor = record !== null ? authorColorOf(record.author) : null;
+      // The inner glyph carries ONLY the suggestion decoration overrides (color +
+      // underline/lineThrough); it inherits font/size from the container's cascade
+      // — re-applying `itemStyle` here would DOUBLE-apply em-relative properties
+      // (mirrors the cross-reference branch's empty-style inner child).
+      const glyphStyle: Partial<Style> = {
+        ...(authorColor !== null ? { color: authorColor } : {}),
+        ...(isSplit ? { underline: true } : { lineThrough: true }),
+      };
+      out.push(
+        createElementBox(
+          key,
+          // `display: "inline-block"` spread LAST so the single-token atomicity
+          // always wins over `itemStyle` (the IFC offset accounting is
+          // load-bearing) — matching the cross-reference branch's precedence.
+          { ...itemStyle, display: "inline-block" },
+          [createTextBox(`${key}/0`, glyphStyle, PILCROW)],
+          { embedType: item.embedType },
+        ),
+      );
+    } else if (
+      item.embedType === COMMENT_START_EMBED_TYPE ||
+      item.embedType === COMMENT_END_EMBED_TYPE
+    ) {
       // A comment-range marker is a ZERO-WIDTH INLINE-BLOCK ATOM: it occupies
       // exactly one state-model `Position` offset (atomic embed) and must emit
       // exactly ONE IFC token — like every other embed — so the IFC's per-line
