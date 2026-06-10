@@ -868,11 +868,14 @@ eight inline-format handlers (via `applyAttrsOrSuggest`), and SPLIT_NODE (collap
 A body edit still happens, just untracked, creating no un-resolvable suggestion. The full
 multi-tree resolution scan (actually tracking + resolving body suggestions) remains the named
 follow-up below.
-REMAINING (all browser/host-gated):
-5 render (pilcrows: split=inserted-flavored ¶, join=struck ¶ — the break embeds already
-render as zero-width atoms; insertion=color+underline, deletion=color+strikethrough,
-formatting=proposedAttrs); 6 host query + overlay; 7 arch docs. See `1.1-state.md` "The
-`suggestions` map" + `1.7-editor.md`.
+REMAINING:
+**5a render text-run visuals — SHIPPED** (`expandInlineItems` → `resolveSuggestionStyle`:
+insertion=author-color+underline, deletion=author-color+lineThrough, formatting=`proposedAttrs`
+preview + author-color underline indicator, nested=all; deterministic `authorColorOf` palette;
+plain runs byte-identical via a fast path). REMAINING: 5b render pilcrow glyphs for the break
+embeds (split=inserted-flavored ¶, join=struck ¶ — they already render as zero-width atoms);
+5c preview-view `SuggestionView` filter (extractText/getWordCount/serialize/render); 6 host
+query + overlay; 7 arch docs. See `1.1-state.md` "The `suggestions` map" + `1.7-editor.md`.
 
 ### `perf/` `[implemented]`
 

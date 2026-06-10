@@ -197,6 +197,22 @@ export function readSuggestionRecord(doc: Y.Doc, id: SuggestionId): SuggestionRe
   return Object.freeze(base);
 }
 
+/**
+ * `State`-level read of a single suggestion record, or `null` if absent. Thin
+ * wrapper over {@link readSuggestionRecord} that pulls the backing `Y.Doc` out
+ * of the opaque `State` so callers OUTSIDE the state module (the render pass
+ * resolves suggestion visuals in `expandInlineItems`) can read a record by id
+ * WITHOUT reaching into `STATE_INTERNAL` themselves. Mirror of how other
+ * cross-module reads (`resolveSuggestionRange`, `getSuggestions`) take `State`
+ * rather than a raw `Y.Doc`.
+ */
+export function readSuggestionRecordFromState(
+  state: State,
+  id: SuggestionId,
+): SuggestionRecord | null {
+  return readSuggestionRecord(state[STATE_INTERNAL].doc, id);
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Range index + read surface (slice 2)
 // ─────────────────────────────────────────────────────────────────────────

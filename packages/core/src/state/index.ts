@@ -365,6 +365,10 @@ export {
   buildSuggestionRangeIndex,
   resolveSuggestionRange,
   getSuggestions,
+  // `State`-level record read used by the render pass (expandInlineItems) to
+  // resolve suggestion visuals (author color + underline/lineThrough) without
+  // piercing STATE_INTERNAL.
+  readSuggestionRecordFromState,
   // The Layer-1 origin slice-3's accept/reject ops pass to make the resolve
   // txn non-undoable; intra-state (consumed by ops), barrel-exposed here.
   SUGGESTION_RESOLVE_ORIGIN,

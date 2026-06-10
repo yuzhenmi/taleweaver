@@ -22,8 +22,22 @@ import {
   COMMENT_END_EMBED_TYPE,
   BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
   BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
+  INSERTION_SUGGESTION_ATTR,
+  DELETION_SUGGESTION_ATTR,
+  FORMATTING_SUGGESTION_ATTR,
+  readSuggestionRecordFromState,
 } from "../state";
-import type { Block, BlockId, State, ReadonlyAttrs, InlineContent, CrossReferenceMode } from "../state";
+import type {
+  Block,
+  BlockId,
+  State,
+  ReadonlyAttrs,
+  InlineContent,
+  CrossReferenceMode,
+  SuggestionId,
+  SuggestionRecord,
+} from "../state";
+import { authorColorOf } from "../styles";
 import type { CounterValue } from "../numbering";
 import { resolveCrossReference, BROKEN_CROSS_REFERENCE_TEXT } from "./resolve-cross-reference";
 import type { Style, ComputedStyle } from "../styles";
@@ -236,7 +250,17 @@ export function expandInlineItems(
     const key = `${blockId}/inline/${i}`;
     if (item.kind === "text") {
       // InlineItem narrows to TextItem here via the discriminated union.
-      out.push(createTextBox(key, itemStyle, item.text));
+      // Change-tracking slice 5a: if the run carries any suggestion-id dimension,
+      // layer the suggestion visuals (author color + underline/lineThrough, plus
+      // the formatting proposal preview) ON TOP of the normal cascaded itemStyle.
+      const runStyle = resolveSuggestionStyle(
+        item.attrs,
+        itemStyle,
+        state,
+        attrRegistry,
+        blockSpecified,
+      );
+      out.push(createTextBox(key, runStyle, item.text));
     } else if (item.embedType === FOOTNOTE_ANCHOR_EMBED_TYPE) {
       // FN-2: a footnote-anchor embed renders as the superscript call marker
       // (a small, raised number) instead of the invisible zero-width embed
@@ -417,4 +441,121 @@ export function expandInlineItems(
   }
 
   return out;
+}
+
+/**
+ * Change-tracking slice 5a: resolve the suggestion VISUALS for a text run and
+ * return the final per-run style. When the run carries NO suggestion-id
+ * dimension this returns `baseStyle` UNCHANGED (same reference) — the no-op fast
+ * path keeps plain runs byte-identical to a no-suggestion render. Otherwise it
+ * layers the suggestion overrides ON TOP of the normal cascaded `baseStyle`
+ * (design §5):
+ *   - **insertion** → author color + `underline`.
+ *   - **deletion** → author color + `lineThrough` (still laid out, struck).
+ *   - **formatting** → the record's `proposedAttrs` composited over the base
+ *     (the proposal PREVIEW — shown but not yet applied for real) PLUS a subtle
+ *     author-color `underline` indicator.
+ *   - a run carrying MULTIPLE dimensions gets all of them (e.g. nested
+ *     insertion+deletion → color + underline + lineThrough).
+ *
+ * Author color comes from {@link authorColorOf} (stable per author). The record
+ * is read from the `suggestions` map by id ({@link readSuggestionRecordFromState});
+ * an id with no record (collab race / migration) contributes nothing.
+ *
+ * `proposedAttrs` are translated through the SAME `attrRegistry.applyAll` an
+ * inline run's own attrs go through (mirroring the established compose path —
+ * not an ad-hoc style translation), with the run's containing-block specified
+ * style as parent context, so the preview matches what `accept` will make real.
+ */
+function resolveSuggestionStyle(
+  attrs: ReadonlyAttrs,
+  baseStyle: Partial<Style>,
+  state: State,
+  attrRegistry: AttrRegistry,
+  blockSpecified: Partial<Style>,
+): Partial<Style> {
+  const insertionId = attrs[INSERTION_SUGGESTION_ATTR];
+  const deletionId = attrs[DELETION_SUGGESTION_ATTR];
+  const formattingId = attrs[FORMATTING_SUGGESTION_ATTR];
+  // Fast path: not a tracked run → no override, return the base unchanged so a
+  // plain run is identical to a no-suggestion render.
+  if (
+    typeof insertionId !== "string" &&
+    typeof deletionId !== "string" &&
+    typeof formattingId !== "string"
+  ) {
+    return baseStyle;
+  }
+
+  // Compose order: start from the base (the run's normal cascaded style), then
+  // the formatting PROPOSAL preview (so it can be visibly overridden by the
+  // author-color indicator below), then the author-color + decoration overrides
+  // LAST (they are the suggestion's defining visual, not overridable by the
+  // proposal).
+  let result: Partial<Style> = { ...baseStyle };
+
+  // Read the formatting record ONCE — it serves both the proposal preview AND (as
+  // the lowest-precedence fallback) the author tint, so the formatting dimension
+  // never triggers a second Y.Doc lookup on the per-keystroke render hot path.
+  const formattingRecord =
+    typeof formattingId === "string"
+      ? readSuggestionRecordFromState(state, formattingId as SuggestionId)
+      : null;
+
+  // Formatting proposal: composite the proposed attrs over the base as the
+  // preview, translated through the attr registry exactly like inline run attrs.
+  if (formattingRecord?.proposedAttrs !== undefined) {
+    const proposedStyle = attrRegistry.applyAll(formattingRecord.proposedAttrs, {
+      parentStyle: blockSpecified,
+    });
+    result = { ...result, ...proposedStyle };
+  }
+
+  // Author color is shared across the run's dimensions (a run is typically all
+  // one author per dimension; when both an insertion and a deletion id are
+  // present we prefer the insertion author for the single tint, falling back to
+  // deletion then formatting). The decoration flags accumulate across whichever
+  // dimensions are present. The suggestion overrides compose LAST so they are
+  // the run's defining visual (not overridable by the proposal preview).
+  const authorColor = resolveRunAuthorColor(state, insertionId, deletionId, formattingRecord);
+  // Insertion → underline; formatting → the same subtle author-color underline
+  // indicator. Deletion → lineThrough. A nested run accumulates all flags.
+  const wantUnderline = typeof insertionId === "string" || typeof formattingId === "string";
+  const wantLineThrough = typeof deletionId === "string";
+  result = {
+    ...result,
+    ...(authorColor !== null ? { color: authorColor } : {}),
+    ...(wantUnderline ? { underline: true } : {}),
+    ...(wantLineThrough ? { lineThrough: true } : {}),
+  };
+
+  return result;
+}
+
+/**
+ * Resolve the single author color to tint a tracked run, reading the owning
+ * record for whichever dimension is present. Prefers the insertion author, then
+ * deletion, then formatting (a run is normally a single author per dimension;
+ * the preference only matters for a nested insertion+deletion by two different
+ * authors, where one tint must be chosen). Returns `null` when no present id
+ * resolves to a record (collab race / migration), so the caller leaves `color`
+ * to the normal cascade.
+ */
+function resolveRunAuthorColor(
+  state: State,
+  insertionId: unknown,
+  deletionId: unknown,
+  formattingRecord: SuggestionRecord | null,
+): string | null {
+  // Preference insertion → deletion → formatting (matters only for a nested
+  // insertion+deletion by two authors, where one tint must be chosen). Insertion
+  // and deletion read their own records; formatting reuses the record the caller
+  // already read (no second Y.Doc lookup).
+  for (const id of [insertionId, deletionId]) {
+    if (typeof id !== "string") continue;
+    const record = readSuggestionRecordFromState(state, id as SuggestionId);
+    if (record !== null) return authorColorOf(record.author);
+  }
+  if (formattingRecord !== null) return authorColorOf(formattingRecord.author);
+  return null;
 }

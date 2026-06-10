@@ -4,6 +4,7 @@ export type {
   UsedLength, UsedLengthOrAuto,
 } from "./length";
 export type { Color } from "./color";
+export { authorColorOf } from "./author-color";
 export type {
   Style,
   Display, BorderStyle, FontWeight, FontStyle,
