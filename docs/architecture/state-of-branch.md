@@ -948,9 +948,20 @@ cascade. Built on the kind-aware `insertNewBlocksInTx` primitive (PF-0). Wired i
 the interim NO-OP) both route through it in suggesting mode; single-block Enter keeps
 `splitWithSuggestionOverSelection` (struck text rides BEFORE the break vs the fragment's AFTER).
 REMAINING:
-`5c-structural` RENDER surface (block-box merge in a projected view; the extractText/text surface SHIPPED — see
-the 5c-structural note above) + the `getWordCount` per-block projected-count gap; 7 arch docs. (No text/HTML exporter
-exists yet — only the binary serializer, which round-trips the
+**`5c-structural` RENDER surface — DEFERRED (decision 2026-06-10).** The text surface SHIPPED (see the
+5c-structural note above); the RENDER block-box merge (rendering two state blocks as ONE merged paragraph box in a
+projected view) is deferred, NOT built, for two evidenced reasons: (1) it is LARGER than a render post-pass — a
+merged node (one render `ElementBox` for two state blocks) breaks a layout invariant: `groupChildren`'s
+anonymous-block keys + the BFC child-iteration assume render-block-count == state-block-count, so a merge silently
+corrupts geometry / incremental-reuse keys. Completing it needs a LAYOUT-integration decision (thread a per-node
+state-blockId map into `groupChildren`; OR unfold merged nodes at the layout boundary; OR move the merge to
+paint-time). (2) The preview-render surface is UNWIRED — no host renders `final`/`original` to canvas yet — so the
+projection is latent. Per principle 1 (don't gold-plate a high-layer latent surface while deeper foundations
+remain) + principle 9 (the layout-integration design is better made WITH the consuming preview UI's real needs),
+build this WHEN a host wires a preview toggle, alongside that layout decision. The shipped `blockBoundaryMergesInView`
+predicate + the clean render hook point (`render-core.ts` container loop, where sibling block nodes are accumulated)
+are the foundation it will reuse. The `getWordCount` per-block projected-count gap is deliberate (per-block by
+design). 7 arch docs. (No text/HTML exporter exists yet — only the binary serializer, which round-trips the
 literal state; a view-projected text/HTML export lands if/when that exporter is built, NOT a change-tracking
 slice.) See `1.1-state.md` "The `suggestions` map" + `1.7-editor.md`.
 
