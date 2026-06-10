@@ -1,4 +1,4 @@
-import type { Selection, Position, BlockInit, TextMatch, BlockId, CrossReferenceMode, CommentId, SuggestionId } from "../state";
+import type { Selection, Position, BlockInit, TextMatch, BlockId, CrossReferenceMode, CommentId, SuggestionId, PageFieldNumberStyle } from "../state";
 import type { TextAlign, TextTransform } from "../styles/style";
 import type { TabStop } from "../styles/tab-stops";
 import type { CounterFormat, FootnoteNumberingPolicy } from "../footnotes";
@@ -53,6 +53,8 @@ export type EditorAction =
   | { type: "INSERT_FOOTER" }
   | { type: "INSERT_FOOTNOTE" }
   | { type: "INSERT_CROSS_REFERENCE"; targetId: BlockId; refMode: CrossReferenceMode }
+  | { type: "INSERT_PAGE_NUMBER"; numberStyle?: PageFieldNumberStyle }
+  | { type: "INSERT_PAGE_COUNT"; numberStyle?: PageFieldNumberStyle }
   | { type: "INSERT_TAB" }
   | { type: "SET_TAB_STOPS"; blockId: BlockId; tabStops: readonly TabStop[] }
   | { type: "INSERT_HORIZONTAL_LINE" }

@@ -65,6 +65,7 @@ import {
   handleSetImageSize,
   handleInsertFootnote,
   handleInsertCrossReference,
+  handleInsertPageField,
   handleInsertTab,
   handleSetTabStops,
   handleSetTextAlign,
@@ -491,6 +492,12 @@ export function reduceEditor(
       break;
     case "INSERT_CROSS_REFERENCE":
       result = handleInsertCrossReference(editor, action.targetId, action.refMode, config);
+      break;
+    case "INSERT_PAGE_NUMBER":
+      result = handleInsertPageField(editor, "page-number", action.numberStyle, config);
+      break;
+    case "INSERT_PAGE_COUNT":
+      result = handleInsertPageField(editor, "page-count", action.numberStyle, config);
       break;
     case "INSERT_TAB":
       result = handleInsertTab(editor, config);

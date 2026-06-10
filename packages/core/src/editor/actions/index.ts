@@ -42,6 +42,7 @@ export { handleInsertImage } from "./insert-image";
 export { handleSetImageSize } from "./set-image-size";
 export { handleInsertFootnote } from "./insert-footnote-action";
 export { handleInsertCrossReference } from "./insert-cross-reference-action";
+export { handleInsertPageField } from "./insert-page-field-action";
 export { handleInsertTab } from "./insert-tab-action";
 export { handleSetTabStops } from "./set-tab-stops";
 export { handleSetTextAlign } from "./set-text-align";

@@ -612,6 +612,37 @@ page-mode (layout-dependent), heading-number references (needs heading
 numbering), footnote-number references, bookmarks, captions. Browser smoke of
 the live insertion UX rides the user's in-browser pass.
 
+### Layout-dependent page-fields `[implemented]` (browser smoke pending)
+
+Header/footer **page-number** + document-global **page-count** fields that read
+PAGINATED layout results. A `page-field` inline-block embed renders a page-agnostic
+placeholder (`PAGE_FIELD_RESERVED_GLYPHS` reserved sizing glyphs at one offset / one
+IFC token, #407); the value is bound LATE at materialize (the FN-6.2b precedent),
+NOT at render. Built browser-independently F-0…F-4; the toolbar buttons + in-browser
+visual smoke ride the user's pass.
+
+- **State** (`1.1-state.md`): `insertPageField` op + the `page-field` embed type
+  (`PageFieldKind` = `"page-number" | "page-count"`; `PageFieldNumberStyle`); a
+  POINTER that owns no body (cascade scanners ignore it). Routes the write to the
+  caret's owning tree via `resolveBlock`, so it can land in a header/footer body.
+- **Render** (`1.2-render.md`): `expandInlineItems` emits the placeholder atom +
+  `metadata.{embedType, fieldKind, numberStyle}` (page-agnostic).
+- **Layout** (`1.5-pagination.md`): `collectPageFields` (cascaded render trees →
+  `FieldSpec[]` keyed by render key) → `resolvePageFields` (post-pagination;
+  page-count from `plan.entries.length`; per-field max widths) → `substitutePageFields`
+  at materialize (spine-clone leaf value substitution, identity-preserving; the §4.5
+  fingerprint fold busts a page on a value change) → the §4.4 bounded width-convergence
+  loop (`field-convergence.ts` + `patch-field-widths.ts`) that grows a template
+  field's reservation + re-runs the CHEAP measure passes when a wide value would wrap
+  the header (the value→wrap→slot-height→page-count→value fixpoint), 2-cycle-pinned.
+- **Editing** (`1.7-editor.md`): `INSERT_PAGE_NUMBER` / `INSERT_PAGE_COUNT` action +
+  handler, gated to a `templateContent` (header/footer) context — a no-op in the main
+  body and footnote bodies (main-body page-fields are out of scope; the editor entry
+  DIVERGES from the cross-reference handler's main-body-only gate). A "command" undo unit.
+
+Out of scope (named follow-ups): main-body / footnote-body page-fields (not creatable
+via the editor), page-number-mode cross-references, table of contents.
+
 ### Comments `[implemented]`
 
 Google-Docs anchored comments are shipped end-to-end for the v1 main-body entry

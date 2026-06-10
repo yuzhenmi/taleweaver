@@ -38,6 +38,8 @@ export function coalesceKeyOf(action: EditorAction): ActionClass {
     case "INSERT_FOOTER":
     case "INSERT_FOOTNOTE":
     case "INSERT_CROSS_REFERENCE":
+    case "INSERT_PAGE_NUMBER":
+    case "INSERT_PAGE_COUNT":
     case "INSERT_TAB":
     case "SET_TAB_STOPS":
     case "INSERT_HORIZONTAL_LINE":
