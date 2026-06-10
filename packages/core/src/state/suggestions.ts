@@ -4,7 +4,7 @@ import type { InlineItem } from "./inline-content";
 import type { State } from "./state";
 import type { Position } from "./block-position";
 import { createPosition } from "./block-position";
-import { iterateBlocksInDocumentOrder } from "./document-order";
+import { iterateAllBlocksInDocumentOrder } from "./document-order";
 import { buildYAttrs } from "./y-block";
 import { yMapAsObject } from "./y-utils";
 import { STATE_INTERNAL } from "./state-internal";
@@ -314,20 +314,25 @@ interface RangeAccumulator {
  * index. For every leaf block in document order, accumulate an offset cursor
  * over its inline items:
  *   - a `text` item advances the cursor by `text.length`. For each of the three
- *     suggestion attr keys present in its `attrs`, extend that id's range to
- *     `[min(start, itemStart), max(end, itemEnd)]`.
+ *     suggestion attr keys present in its `attrs`, extend that id's range via
+ *     {@link extend} (the first occurrence seeds `start`; each later one only
+ *     advances `end` — see that function's JSDoc + the monotonicity note below).
  *   - an `embed` item advances the cursor by 1. If its `embedType` is one of the
  *     break-suggestion embeds ({@link BLOCK_JOIN_SUGGESTION_EMBED_TYPE} /
  *     {@link BLOCK_SPLIT_SUGGESTION_EMBED_TYPE}), read `properties.suggestionId`
  *     and extend that id's range by the embed's 1-offset slot.
  *
  * A single id may appear on multiple contiguous items (a whole inserted run) and
- * across multiple blocks. Because the scan visits items in strictly-monotone
- * document order (`iterateBlocksInDocumentOrder` × per-block offset cursor), the
+ * across multiple blocks. The scan visits items in strictly-monotone document
+ * order (`iterateAllBlocksInDocumentOrder` × per-block offset cursor), so the
  * FIRST occurrence of an id seeds `start` and every later occurrence only needs
  * to advance `end` forward — the unconditional overwrite in {@link extend} is
  * correct precisely because the cursor never moves backward within or across
- * blocks (no `comparePositions` / min-max needed).
+ * blocks (no `comparePositions` / min-max needed). The walk covers ALL THREE
+ * block trees (main, then each `embedContents` body, then each `templateContents`
+ * body) so a suggestion tagged in a footnote / header / footer body resolves; a
+ * suggestion id is CONTEXT-LOCAL (every item it tags lives in one tree), so its
+ * occurrences stay contiguous and monotone within that tree's segment of the walk.
  *
  * Returns only ids with ≥1 tagged item. A record with no items is
  * orphaned-by-absence and surfaced as orphaned at the read side, which holds the
@@ -339,7 +344,7 @@ export function buildSuggestionRangeIndex(
 ): Map<SuggestionId, SuggestionRange> {
   const acc = new Map<SuggestionId, RangeAccumulator>();
 
-  for (const block of iterateBlocksInDocumentOrder(state)) {
+  for (const block of iterateAllBlocksInDocumentOrder(state)) {
     const content = block.inlineContent;
     if (content === null) continue;
     let offset = 0;
@@ -392,12 +397,13 @@ const SUGGESTION_ATTR_KEYS = [
 
 /**
  * Extend the accumulated range for `id` to enclose `[itemStart, itemEnd]`. The
- * scan visits items in document order, so the first call seeds `start`; later
- * calls only ever advance `end` forward — but a positional min/max keeps the
- * result correct regardless. Positions within the same block compare by offset
- * directly (cheap, no tree walk); the running cursor never moves backward within
- * a block and blocks are visited in document order, so a same-block offset
- * compare is the only case that arises.
+ * scan visits items in strictly-monotone document order, so the first call seeds
+ * `start` and every later call only advances `end` forward — `end` is therefore
+ * overwritten unconditionally, with NO min/max or `comparePositions` (the running
+ * cursor never moves backward within a block, blocks are visited in document
+ * order, and a suggestion id is CONTEXT-LOCAL so all its occurrences fall within
+ * one tree's contiguous segment of the {@link iterateAllBlocksInDocumentOrder}
+ * walk). See {@link buildSuggestionRangeIndex} for the full monotonicity argument.
  */
 function extend(
   acc: Map<SuggestionId, RangeAccumulator>,

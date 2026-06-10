@@ -705,12 +705,19 @@ with a dominance order — acceptAll: deletion-drop dominates; rejectAll: insert
 drop dominates; a both-insertion-and-deletion run is dropped under both). **With
 3d-ii, ALL of change-tracking slice 3 (the state ops) is COMPLETE: create
 (markFormatting/markDeletion/mintInsertion) + resolve (accept/reject single + all).**
-**KNOWN follow-up:** the resolve scan + `buildSuggestionRangeIndex` are MAIN-TREE-ONLY
-(footnote/header-body suggestions aren't surfaced/resolved — a pre-existing slice-2
-read-scope limit; multi-tree is a one-place scan enhancement). The editor now GATES
-suggesting mode to the main body so body edits fall back to direct (untracked) editing —
-closing the body-suggestion corruption path (slice-4-followup below); full multi-tree
-resolution remains the open enhancement. **Slice 4 (editor
+**Multi-tree resolution (MT) IN PROGRESS:** MT-1 shipped `iterateAllBlocksInDocumentOrder`
+(state/document-order.ts) — a 3-tree document-order walk (main `blocks`, then each
+`embedContents` body, then each `templateContents` body) over the per-root subtree
+resolver. MT-2 shipped — `buildSuggestionRangeIndex` (the range index feeding
+`resolveSuggestionRange` + the host overlay) now walks all three trees, so a suggestion
+tagged in a footnote/header/footer body resolves to its body span instead of returning
+null. STILL MAIN-TREE-ONLY: the accept/reject resolve scan (`resolveBlockScan` in
+suggestion-ops.ts — MT-3) and the editor's suggesting-mode gate
+(`suggestionInputForBlock`, main-body-gated — MT-4), so body edits still fall back to
+direct (untracked) editing until MT-4 relaxes the gate. The editor GATES suggesting mode
+to the main body so body edits fall back to direct (untracked) editing — closing the
+body-suggestion corruption path (slice-4-followup below); MT-3/MT-4 are the remaining
+steps to TRACK body edits. **Slice 4 (editor
 actions + suggesting mode) IN PROGRESS, sub-sliced 4a–4e:** 4a shipped — the 4
 NON-undoable accept/reject editor actions (`ACCEPT_SUGGESTION`/`REJECT_SUGGESTION`/
 `ACCEPT_ALL_SUGGESTIONS`/`REJECT_ALL_SUGGESTIONS`) via a new `"resolve"` ActionClass
@@ -853,10 +860,12 @@ an interim NO-OP (it needs the multi-block-suggestion machinery the paste-as-sug
 follow-up brings) — named alongside the `handlePaste`-not-suggesting-aware follow-up. Slice
 4e is now COMPLETE (create + resolve + editor + composite).
 **Slice 4-followup shipped (main-body gate — Finding 3a):** suggesting mode is now gated
-to the MAIN BODY at every mutating editor seam. Because the resolve scan +
-`buildSuggestionRangeIndex` are MAIN-TREE-ONLY, a suggesting-mode edit whose target block
+to the MAIN BODY at every mutating editor seam. When the gate landed, the resolve scan +
+`buildSuggestionRangeIndex` were MAIN-TREE-ONLY (MT-2 has since lifted
+`buildSuggestionRangeIndex` to all three trees; the accept/reject resolve scan — MT-3 — and
+this gate — MT-4 — still are), so a suggesting-mode edit whose target block
 lives OUTSIDE the main body (a footnote / header / footer / template body, in the
-embedContents / templateContents trees) previously created a body suggestion the scan could
+embedContents / templateContents trees) would create a body suggestion the scan could
 never reach — on accept/reject-all the record was deleted but the tagged runs / break embed
 were left as un-resolvable zombies (silent state corruption). The fix: every seam routes its
 create-input through the context-aware `suggestionInputForBlock` /

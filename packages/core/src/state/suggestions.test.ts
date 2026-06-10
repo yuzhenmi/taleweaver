@@ -350,6 +350,46 @@ describe("suggestions — range index + read (slice 2 piece A)", () => {
     expect(range?.end).toEqual(createPosition(asBlockId("p2"), 2));
   });
 
+  it("MT-2: resolves a suggestion tagged in an embed (footnote) body, main-tree unaffected", () => {
+    // The range index walks ALL THREE trees: a deletion suggestion tagged in a
+    // footnote-body block (`embedContents`) must resolve to that body block's
+    // span — pre-MT-2 the scan only visited the main tree and returned null.
+    // A main-tree suggestion in the SAME doc still resolves unchanged.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([
+            text("M", { [INSERTION_SUGGESTION_ATTR]: "s-main" }),
+          ]),
+        }),
+      ],
+      embedContents: [
+        buildBlock({ id: "fn", type: "body-container", firstChildId: "fnp", lastChildId: "fnp" }),
+        buildBlock({
+          id: "fnp",
+          type: "paragraph",
+          parentId: "fn",
+          inlineContent: inlineContent([
+            text("BODY", { [DELETION_SUGGESTION_ATTR]: "s-body" }),
+          ]),
+        }),
+      ],
+    });
+
+    const bodyRange = resolveSuggestionRange(state, "s-body" as SuggestionId);
+    expect(bodyRange?.start).toEqual(createPosition(asBlockId("fnp"), 0));
+    expect(bodyRange?.end).toEqual(createPosition(asBlockId("fnp"), 4));
+
+    const mainRange = resolveSuggestionRange(state, "s-main" as SuggestionId);
+    expect(mainRange?.start).toEqual(createPosition(asBlockId("p"), 0));
+    expect(mainRange?.end).toEqual(createPosition(asBlockId("p"), 1));
+  });
+
   it("getSuggestions joins records with their ranges and flags orphaned-by-absence", () => {
     const liveRecord: SuggestionRecord = {
       id: "s1" as SuggestionId,
