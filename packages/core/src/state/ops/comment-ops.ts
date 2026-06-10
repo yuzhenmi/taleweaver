@@ -1,6 +1,7 @@
 import * as Y from "yjs";
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
+import { iterateBlocksInDocumentOrder } from "../document-order";
 import { STATE_INTERNAL } from "../state-internal";
 import type { BlockId } from "../block-id";
 import type { Span } from "../block-position";
@@ -17,7 +18,6 @@ import {
 } from "../yjs-doc";
 import { buildYInlineContent } from "../y-block";
 import {
-  buildCommentRangeIndex,
   writeCommentRecordInTx,
   replyToY,
   COMMENT_START_EMBED_TYPE,
@@ -241,33 +241,42 @@ interface StripWrite {
  * write with those embeds removed (and the split text halves re-normalized via
  * `mergeAdjacentTextItems`, since removing the embed merge-barrier may make two
  * text runs adjacent). Blocks with no such marker produce no write. Computed
- * against the pre-transaction snapshot via the range index (one main-tree scan)
- * plus `resolveBlock` for each owning block.
+ * against the pre-transaction snapshot via ONE full-document block walk
+ * (`iterateBlocksInDocumentOrder`, the same scan the resolver uses) plus
+ * `resolveBlock` for each owning block — so every marker for `id` is stripped,
+ * not only the range index's two first-seen endpoint blocks (see below).
  */
 function planMarkerStrip(state: State, id: CommentId): StripWrite[] {
-  const range = buildCommentRangeIndex(state).get(id) ?? null;
-  if (range === null) return [];
-  const blockIds = new Set<BlockId>([range.start.blockId, range.end.blockId]);
+  // Scan EVERY block (the SAME full-document walk `buildCommentRangeIndex` uses)
+  // and strip markers for `id` wherever they appear — NOT only the range index's
+  // two first-seen endpoint blocks. The index records only the first start and
+  // first end position, so a malformed comment with a DUPLICATE marker in a third
+  // block (reachable via a collab merge or import, not single-user ops) would
+  // otherwise leave that stray marker orphaned in content forever. Every other
+  // consumer (`deriveRange`, the orphan logic) is duplicate-tolerant; this keeps
+  // the strip scope uniform with the resolver's scan. `deleteComment` is rare, so
+  // the O(N inline-items) walk is not a hot path.
   const writes: StripWrite[] = [];
-  for (const blockId of blockIds) {
-    const resolved = resolveBlock(state, blockId);
-    if (resolved === null || resolved.block.inlineContent === null) continue;
+  for (const block of iterateBlocksInDocumentOrder(state)) {
+    const content = block.inlineContent;
+    if (content === null) continue;
     const kept: InlineItem[] = [];
     let removed = false;
-    for (const item of resolved.block.inlineContent.items) {
+    for (const item of content.items) {
       if (isCommentMarkerFor(item, id)) {
         removed = true;
         continue;
       }
       kept.push(item);
     }
-    if (removed) {
-      writes.push({
-        blockId,
-        kind: resolved.kind,
-        items: mergeAdjacentTextItems(kept),
-      });
-    }
+    if (!removed) continue;
+    const resolved = resolveBlock(state, block.id);
+    if (resolved === null) continue; // unreachable: an iterated block resolves.
+    writes.push({
+      blockId: block.id,
+      kind: resolved.kind,
+      items: mergeAdjacentTextItems(kept),
+    });
   }
   return writes;
 }

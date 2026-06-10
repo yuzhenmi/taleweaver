@@ -17,7 +17,7 @@ import {
   deleteComment,
   addReply,
 } from "./comment-ops";
-import { getComments } from "../comments";
+import { getComments, COMMENT_START_EMBED_TYPE, COMMENT_END_EMBED_TYPE } from "../comments";
 import {
   buildCommentRangeIndex,
   type CommentId,
@@ -28,7 +28,7 @@ import { createHistory } from "../history";
 import { getBlock } from "../state";
 import { createPosition, createSpan } from "../block-position";
 import type { BlockId } from "../block-id";
-import { buildBlock, buildState, text, inlineContent } from "../../test-utils/state-builders";
+import { buildBlock, buildState, text, inlineContent, embed } from "../../test-utils/state-builders";
 import type { State } from "../state";
 
 const CID = "c1" as CommentId;
@@ -61,6 +61,17 @@ function worldSpan() {
 function pText(s: State): string {
   const items = getBlock(s, "p" as BlockId)?.inlineContent?.items ?? [];
   return items.map((it) => (it.kind === "text" ? it.text : "")).join("");
+}
+
+/** Count comment-start/-end markers carrying `cid` in a block's inline content. */
+function markerCount(s: State, blockId: string, cid: CommentId): number {
+  const items = getBlock(s, blockId as BlockId)?.inlineContent?.items ?? [];
+  return items.filter(
+    (it) =>
+      it.kind === "embed" &&
+      (it.embedType === COMMENT_START_EMBED_TYPE || it.embedType === COMMENT_END_EMBED_TYPE) &&
+      it.properties.commentId === cid,
+  ).length;
 }
 
 const ADD = { id: CID, author: "alice", body: "look here", createdAt: 1000 } as const;
@@ -254,6 +265,52 @@ describe("deleteComment", () => {
     expect(getComments(undone.state).length).toBe(1);
 
     history.destroy();
+  });
+
+  it("strips a DUPLICATE marker in a NON-endpoint block — strip scope matches the resolver's scan (audit comments I-1)", () => {
+    // A malformed state (only reachable via collab merge / import, not single-user
+    // ops): the comment's well-formed start+end pair lives in `p`, but a STRAY
+    // duplicate `comment-start` for CID also sits in a SECOND block `p2`. The range
+    // index records only the FIRST-seen start/end (both in `p`), so a strip that
+    // trusted those two indexed blocks would leave the `p2` marker orphaned in
+    // content forever. `deleteComment` must strip EVERY marker for CID — uniform
+    // with the resolver's full-document scan.
+    let s = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p2" }),
+        buildBlock({
+          id: "p", type: "paragraph", parentId: "doc", prevSiblingId: null, nextSiblingId: "p2",
+          inlineContent: inlineContent([text("hello world")]),
+        }),
+        buildBlock({
+          id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p", nextSiblingId: null,
+          inlineContent: inlineContent([
+            text("x"),
+            embed(COMMENT_START_EMBED_TYPE, { commentId: CID }),
+            text("y"),
+          ]),
+        }),
+      ],
+    });
+    // addComment over "world" in `p` → record CID + start/end markers in `p`. CID
+    // now has THREE markers: the pair in `p` plus the stray start in `p2`.
+    s = addComment(s, worldSpan(), ADD).state;
+    expect(markerCount(s, "p", CID)).toBe(2);
+    expect(markerCount(s, "p2", CID)).toBe(1);
+
+    s = deleteComment(s, CID).state;
+    expect(getComments(s).length).toBe(0);
+    // EVERY marker is gone, including the non-endpoint `p2` duplicate (was 1 before
+    // the strip scanned all blocks).
+    expect(markerCount(s, "p", CID)).toBe(0);
+    expect(markerCount(s, "p2", CID)).toBe(0);
+    // `p2`'s surrounding text is intact (only the zero-width marker was removed).
+    expect(
+      (getBlock(s, "p2" as BlockId)?.inlineContent?.items ?? [])
+        .map((it) => (it.kind === "text" ? it.text : ""))
+        .join(""),
+    ).toBe("xy");
   });
 });
 
