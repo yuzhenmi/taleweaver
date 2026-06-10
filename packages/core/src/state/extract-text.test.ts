@@ -184,3 +184,83 @@ describe("extractText", () => {
     });
   });
 });
+
+describe("extractText — SuggestionView projection (slice 5c-ii)", () => {
+  // doc > p( "keep" + <ins>"INS"</ins> + <del>"DEL"</del> + "tail" ) — offsets
+  // 0..4 keep, 4..7 ins, 7..10 del, 10..14 tail (literal length 14).
+  function build(): ReturnType<typeof buildState> {
+    return buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([
+            text("keep"),
+            text("INS", { insertionSuggestionId: "s-ins" }),
+            text("DEL", { deletionSuggestionId: "s-del" }),
+            text("tail"),
+          ]),
+        }),
+      ],
+    });
+  }
+  const fullSpan = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 14));
+
+  it('"suggesting" (default) extracts the literal text — both insertion and deletion shown', () => {
+    const state = build();
+    expect(extractText(state, fullSpan)).toBe("keepINSDELtail");
+    expect(extractText(state, fullSpan, builtinEmbedSerializer, "suggesting")).toBe("keepINSDELtail");
+  });
+
+  it('"final" (accept all) keeps the insertion, drops the deletion text', () => {
+    const state = build();
+    expect(extractText(state, fullSpan, builtinEmbedSerializer, "final")).toBe("keepINStail");
+  });
+
+  it('"original" (reject all) drops the insertion, keeps the deletion text', () => {
+    const state = build();
+    expect(extractText(state, fullSpan, builtinEmbedSerializer, "original")).toBe("keepDELtail");
+  });
+
+  it("filters a break embed by view even under the default (U+FFFC) serializer", () => {
+    // doc > p( "a" + <block-join>embed</block-join> + "b" ) — the join embed is
+    // visible (→ U+FFFC) in "suggesting" but dropped in "final" (accept-all
+    // deletes the join), exercising itemVisibleInView's EMBED branch through
+    // extractText independently of builtinEmbedSerializer's ""-mapping.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([
+            text("a"),
+            embed("block-join-suggestion", { suggestionId: "s" }),
+            text("b"),
+          ]),
+        }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3));
+    // Default serializer maps the embed to U+FFFC under the literal view…
+    expect(extractText(state, span)).toBe("a￼b");
+    // …but "final" drops the join embed entirely (no U+FFFC), offsets intact.
+    expect(extractText(state, span, undefined, "final")).toBe("ab");
+  });
+
+  it("a filtered-out run does not shift the offsets of later runs (span is literal-domain)", () => {
+    // Sub-span starting INSIDE the deletion run (offset 8) through tail: the
+    // deletion's literal offsets are still consumed, so "final" yields just the
+    // post-deletion tail (the deletion run contributes nothing).
+    const state = build();
+    const sub = createSpan(createPosition("p" as BlockId, 8), createPosition("p" as BlockId, 14));
+    expect(extractText(state, sub, builtinEmbedSerializer, "final")).toBe("tail");
+    // "suggesting" includes the "EL" tail of the deletion run + "tail".
+    expect(extractText(state, sub, builtinEmbedSerializer, "suggesting")).toBe("ELtail");
+  });
+});

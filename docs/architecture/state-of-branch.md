@@ -884,10 +884,19 @@ preserved like the cross-reference embed).
 "original"` type + pure `itemVisibleInView(item, view)` predicate in `suggestions.ts`, barrel-exported:
 `final`=accept-all drops deletion runs + block-join embeds; `original`=reject-all drops insertion runs +
 block-split embeds; both-ins-del run absent in both; formatting runs always visible (style-only). Greenfield,
-not yet wired to any surface). REMAINING: 5c-ii wire extractText/getWordCount to the view filter; 5c-iii
-wire render (filter + suppress suggestion visuals in non-suggesting views + apply formatting for real in
-`final`; OPEN: block-join-in-`final` structural merge); serialize text/HTML exporter folds into 5c-ii; 6 host
-query + overlay; 7 arch docs. See `1.1-state.md` "The `suggestions` map" + `1.7-editor.md`.
+not yet wired to any surface).
+**5c-ii text-surface projection — SHIPPED** (`extractText(state, span, embedSerializer?, view?)` filters each
+item by `itemVisibleInView` after advancing the literal-offset cursor — a filtered run consumes its offsets
+but contributes no text; `getWordCount({suggestionView})` + `getSelectionWordCount(state, sel, view?)` thread
+it through. `final` omits deletion text / keeps insertions; `original` omits insertion text / keeps deletions;
+`suggesting` default = byte-identical legacy. TEXT-RUN projection ONLY — the block-boundary structural merge
+(accepted-join / rejected-split suppressing the inter-block "\n" + word-boundary join) is the carved
+`5c-structural` sub-slice). REMAINING: 5c-iii wire render (filter + suppress suggestion visuals in non-
+suggesting views + apply formatting for real in `final`; OPEN: shares the `5c-structural` block-merge with
+extractText); `5c-structural` (block-boundary projection, shared by extractText+render); 6 host query +
+overlay; 7 arch docs. (No text/HTML exporter exists yet — only the binary serializer, which round-trips the
+literal state; a view-projected text/HTML export lands if/when that exporter is built, NOT a change-tracking
+slice.) See `1.1-state.md` "The `suggestions` map" + `1.7-editor.md`.
 
 ### `perf/` `[implemented]`
 

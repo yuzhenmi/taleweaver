@@ -6,7 +6,9 @@ import { COMMENT_START_EMBED_TYPE, COMMENT_END_EMBED_TYPE } from "./comments";
 import {
   BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
   BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
+  itemVisibleInView,
 } from "./suggestions";
+import type { SuggestionView } from "./suggestions";
 
 /** Object Replacement Character — represents an embed in extracted text. */
 const EMBED_CHAR = "￼";
@@ -71,12 +73,23 @@ export const builtinEmbedSerializer: EmbedSerializer = (item) => {
  *
  * Multi-block spans are joined with `\n` between blocks.
  *
+ * The optional `view` ({@link SuggestionView}, default `"suggesting"`) projects
+ * pending tracked changes: `"final"` extracts the text as if all suggestions
+ * were ACCEPTED (deletion runs omitted, insertions kept), `"original"` as if all
+ * were REJECTED (insertion runs omitted, deletions kept). A filtered-out item
+ * still occupies its literal offsets (the span is in literal-document offsets) —
+ * only its text contribution is dropped. NOTE (5c-ii scope): this is the
+ * text-RUN projection; the block-boundary STRUCTURAL projection (an accepted
+ * join / rejected split suppressing the inter-block "\n") is the separate
+ * `5c-structural` sub-slice — break embeds already serialize to "" here.
+ *
  * Used by clipboard, find/replace, accessibility.
  */
 export function extractText(
   state: State,
   span: Span,
   embedSerializer: EmbedSerializer = defaultEmbedSerializer,
+  view: SuggestionView = "suggesting",
 ): string {
   const parts: string[] = [];
   let isFirst = true;
@@ -85,7 +98,7 @@ export function extractText(
     isFirst = false;
     if (!block.inlineContent) continue;
     parts.push(
-      extractTextFromBlock(block.inlineContent.items, rangeStart, rangeEnd, embedSerializer),
+      extractTextFromBlock(block.inlineContent.items, rangeStart, rangeEnd, embedSerializer, view),
     );
   }
   return parts.join("");
@@ -96,6 +109,7 @@ function extractTextFromBlock(
   rangeStart: number,
   rangeEnd: number,
   embedSerializer: EmbedSerializer,
+  view: SuggestionView,
 ): string {
   if (rangeStart >= rangeEnd) return "";
   const out: string[] = [];
@@ -107,6 +121,10 @@ function extractTextFromBlock(
     const itemEnd = cursor + itemLen;
     cursor = itemEnd;
     if (itemEnd <= rangeStart) continue;
+    // Preview-view projection: a run/embed resolved AWAY in this view contributes
+    // no text, but its offsets were already counted into `cursor` above (the span
+    // is in literal-document offsets, so the projection never shifts them).
+    if (!itemVisibleInView(item, view)) continue;
     // Overlap: [max(itemStart, rangeStart), min(itemEnd, rangeEnd)] within this item.
     const subStart = Math.max(itemStart, rangeStart) - itemStart;
     const subEnd = Math.min(itemEnd, rangeEnd) - itemStart;

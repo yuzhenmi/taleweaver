@@ -266,3 +266,46 @@ describe("getSelectionWordCount", () => {
     });
   });
 });
+
+describe("getWordCount / getSelectionWordCount — SuggestionView projection (5c-ii)", () => {
+  // doc > p( "alpha " + <ins>"beta "</ins> + <del>"gamma"</del> ) — literal text
+  // "alpha beta gamma" = 3 words.
+  function build() {
+    return buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([
+            text("alpha "),
+            text("beta ", { insertionSuggestionId: "s-ins" }),
+            text("gamma", { deletionSuggestionId: "s-del" }),
+          ]),
+        }),
+      ],
+    });
+  }
+
+  it("getWordCount defaults to the literal document (3 words)", () => {
+    expect(getWordCount(build()).words).toBe(3);
+  });
+
+  it('getWordCount "final" excludes the deletion → "alpha beta " (2 words)', () => {
+    expect(getWordCount(build(), { suggestionView: "final" }).words).toBe(2);
+  });
+
+  it('getWordCount "original" excludes the insertion → "alpha gamma" (2 words)', () => {
+    expect(getWordCount(build(), { suggestionView: "original" }).words).toBe(2);
+  });
+
+  it("getSelectionWordCount honors the view over the selected span", () => {
+    const state = build();
+    const sel = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 16));
+    expect(getSelectionWordCount(state, sel).words).toBe(3);
+    expect(getSelectionWordCount(state, sel, "final").words).toBe(2);
+    expect(getSelectionWordCount(state, sel, "original").words).toBe(2);
+  });
+});

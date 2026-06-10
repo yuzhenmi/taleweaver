@@ -5,6 +5,7 @@ import type { Selection } from "./block-position";
 import { createPosition, createSpan } from "./block-position";
 import { inlineContentLength } from "./inline-content";
 import { extractText, builtinEmbedSerializer } from "./extract-text";
+import type { SuggestionView } from "./suggestions";
 import { firstLeafBlock, nextBlockInDocOrder } from "./block-traversal";
 
 /**
@@ -47,6 +48,16 @@ export interface WordCountOptions {
    * Default: every main-tree leaf block, in document order.
    */
   readonly blockIds?: Iterable<BlockId>;
+  /**
+   * Preview-view projection of pending tracked changes ({@link SuggestionView}),
+   * forwarded to {@link extractText} per block. `"final"` counts the document as
+   * if all suggestions were ACCEPTED (deletion text excluded), `"original"` as if
+   * all were REJECTED (insertion text excluded). Default `"suggesting"` counts the
+   * literal document (both shown). NOTE: this is the text-RUN projection; an
+   * accepted-join / rejected-split does not yet merge word boundaries across the
+   * block break (the `5c-structural` sub-slice).
+   */
+  readonly suggestionView?: SuggestionView;
 }
 
 const WHITESPACE_SPLIT = /\s+/;
@@ -118,7 +129,12 @@ export function getWordCount(state: State, options?: WordCountOptions): WordCoun
       createPosition(blockId, 0),
       createPosition(blockId, length),
     );
-    const blockText = extractText(state, span, builtinEmbedSerializer);
+    const blockText = extractText(
+      state,
+      span,
+      builtinEmbedSerializer,
+      options?.suggestionView ?? "suggesting",
+    );
 
     // Count this block in isolation and sum the three fields. Counting PER
     // BLOCK (rather than over a single concatenated string) is what makes
@@ -159,12 +175,17 @@ export function getWordCount(state: State, options?: WordCountOptions): WordCoun
  * A COLLAPSED selection (anchor === focus → empty span) extracts "" →
  * `{ words: 0, characters: 0, charactersExcludingSpaces: 0 }`.
  */
-export function getSelectionWordCount(state: State, selection: Selection): WordCount {
+export function getSelectionWordCount(
+  state: State,
+  selection: Selection,
+  suggestionView: SuggestionView = "suggesting",
+): WordCount {
   // `extractText` normalizes the span internally (it iterates via
   // `iterateSpan`, which calls `normalizeSpan`), so a backwards anchor→focus
   // selection yields the same text as the forward one. Passing the selection
-  // through directly avoids a redundant normalize here.
-  const selectedText = extractText(state, selection, builtinEmbedSerializer);
+  // through directly avoids a redundant normalize here. `suggestionView` projects
+  // pending tracked changes (default `"suggesting"` = the literal selection).
+  const selectedText = extractText(state, selection, builtinEmbedSerializer, suggestionView);
   return countText(selectedText);
 }
 
