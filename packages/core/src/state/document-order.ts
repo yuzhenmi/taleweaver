@@ -1,6 +1,19 @@
 import type { BlockId } from "./block-id";
 import type { Block } from "./block";
-import { getBlock, blockCount, type State } from "./state";
+import {
+  getBlock,
+  resolveBlock,
+  getEmbedContentIds,
+  getTemplateContentIds,
+  blockCount,
+  type State,
+} from "./state";
+
+/** A block resolver: main-tree-only (`getBlock`) or any-tree (`resolveBlock`). */
+type BlockResolver = (state: State, id: BlockId) => Block | null;
+
+/** Resolve from ANY of the three trees (main → embedContents → templateContents). */
+const resolveAnyTree: BlockResolver = (state, id) => resolveBlock(state, id)?.block ?? null;
 
 /**
  * Yield every BODY block in document order (depth-first: a block, then its
@@ -23,7 +36,34 @@ import { getBlock, blockCount, type State } from "./state";
 export function* iterateBlocksInDocumentOrder(state: State): Iterable<Block> {
   const root = getBlock(state, state.rootId);
   if (root === null) return;
-  yield* walk(state, state.rootId, new Set<BlockId>());
+  yield* walk(state, state.rootId, new Set<BlockId>(), getBlock);
+}
+
+/**
+ * Yield every BODY block across ALL THREE block trees in a stable document order:
+ * the main `blocks` tree first (identical to {@link iterateBlocksInDocumentOrder}),
+ * then each `embedContents` body subtree (footnote bodies), then each
+ * `templateContents` body subtree (header/footer template bodies). Each
+ * embed/template ROOT (from {@link getEmbedContentIds}/{@link getTemplateContentIds},
+ * which yield roots only — #313) heads a self-contained subtree resolved via
+ * `resolveBlock` (its blocks live in their own Y.Map, not the main one), with the
+ * same per-subtree active-path cycle guard + `blockCount`-bounded sibling loop the
+ * main walk uses (`blockCount` already sums all three trees).
+ *
+ * Used by change-tracking's range index + accept/reject resolve scan so a
+ * suggestion tagged in a footnote/header/footer body is found and resolved (not
+ * left as an un-resolvable zombie). A suggestion id is CONTEXT-LOCAL — every item
+ * it tags lives in one tree — so each id's tagged items are visited contiguously,
+ * in document order, within that tree's segment of this walk.
+ */
+export function* iterateAllBlocksInDocumentOrder(state: State): Iterable<Block> {
+  yield* iterateBlocksInDocumentOrder(state);
+  for (const rootId of getEmbedContentIds(state)) {
+    yield* walk(state, rootId, new Set<BlockId>(), resolveAnyTree);
+  }
+  for (const rootId of getTemplateContentIds(state)) {
+    yield* walk(state, rootId, new Set<BlockId>(), resolveAnyTree);
+  }
 }
 
 /**
@@ -46,13 +86,18 @@ export function docHasLists(state: State): boolean {
   return false;
 }
 
-function* walk(state: State, id: BlockId, visited: Set<BlockId>): Iterable<Block> {
+function* walk(
+  state: State,
+  id: BlockId,
+  visited: Set<BlockId>,
+  resolve: BlockResolver,
+): Iterable<Block> {
   if (visited.has(id)) {
     throw new Error(
       `iterateBlocksInDocumentOrder: cycle detected — block "${id}" is its own ancestor`,
     );
   }
-  const block = getBlock(state, id);
+  const block = resolve(state, id);
   if (block === null) return;
   visited.add(id);
   try {
@@ -64,11 +109,11 @@ function* walk(state: State, id: BlockId, visited: Set<BlockId>): Iterable<Block
     while (childId !== null) {
       if (++steps > maxSteps) {
         throw new Error(
-          `iterateBlocksInDocumentOrder: cycle detected in block tree (visited >${maxSteps} siblings of "${id}")`,
+          `iterateBlocksInDocumentOrder: cycle detected in block tree (visited >${maxSteps} children of "${id}")`,
         );
       }
-      yield* walk(state, childId, visited);
-      const child = getBlock(state, childId);
+      yield* walk(state, childId, visited, resolve);
+      const child = resolve(state, childId);
       childId = child === null ? null : child.nextSiblingId;
     }
   } finally {
