@@ -151,7 +151,8 @@ export interface EditorState {
    * `PageBox`es — produced by `layoutTreeIncremental` / `layoutTree`. In
    * unpaginated mode, or for documents using features the measure pass cannot
    * reproduce (float/`clear`), it is a fully-positioned `LayoutBox`. Consumers
-   * expecting a positioned tree bridge through `resolvePositionedTree`.
+   * read a `VirtualLayoutTree` per-page via `getPage(i)`; the whole document is
+   * never materialized.
    */
   readonly layoutTree: LayoutBox | VirtualLayoutTree;
   readonly containerWidth: number;

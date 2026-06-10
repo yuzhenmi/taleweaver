@@ -33,7 +33,7 @@ import { render } from "../render/render";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
 import { layoutTree } from "./dispatch";
-import { resolvePositionedTree } from "./positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import { createMockShaper } from "./mock-shaper";
 import { getLineIndex, collectLineLeaves } from "../cursor/line-flatten";
 import type { State, BlockId } from "../state";
@@ -83,7 +83,7 @@ function bidiDoc(wm: WritingMode, content: string): State {
 function pipeline(state: State): { layout: LayoutBox; shaper: TextShaper } {
   const root = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
   const shaper = createMockShaper(CHAR_W, LINE_CROSS);
-  const layout = resolvePositionedTree(layoutTree(root, widePage.pageInlineSize, shaper, widePage));
+  const layout = positionTreeForTest(layoutTree(root, widePage.pageInlineSize, shaper, widePage));
   return { layout, shaper };
 }
 

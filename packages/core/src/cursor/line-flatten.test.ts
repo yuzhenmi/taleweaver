@@ -3,7 +3,7 @@ import { createElementBox, createTextBox } from "../render/render-node";
 import { cascadePass } from "../cascade";
 import { layoutBlock } from "../layout/bfc";
 import { layoutTree } from "../layout/dispatch";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import { computeUsedStyle } from "../layout/used-style";
@@ -181,7 +181,7 @@ describe("collectLineBoxes", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     // Page large enough for ~1 paragraph (16px) plus margins.
-    const root = resolvePositionedTree(layoutTree(tree, 500, shaper, {
+    const root = positionTreeForTest(layoutTree(tree, 500, shaper, {
       pageInlineSize: 500,
       pageBlockSize: 40,
       pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },

@@ -14,7 +14,7 @@
 //
 // These tests build the fixture through the REAL footnote producer (render →
 // cascade root + cascade embed bodies → collectFootnoteAnchors →
-// buildVirtualPaginatedTree → resolvePositionedTree), mirroring the FN-4.3
+// buildVirtualPaginatedTree → assembled positioned tree), mirroring the FN-4.3
 // virtual-layout-tree.footnote-slot fixtures but driven from a real `State` so
 // `resolveBlock` / `selectionContextOf` line up with the line `ownerBlockId`s.
 
@@ -29,7 +29,7 @@ import { makeRootContext } from "../layout/layout-context";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import { createMockShaper } from "../layout/mock-shaper";
 import { buildVirtualPaginatedTree } from "../layout/virtual-producer";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import {
   __resetGetPageDriverCountForTest,
 } from "../layout/virtual-layout-tree";
@@ -197,13 +197,13 @@ function buildDoc(opts: { footnoteText: string; footerPara?: string }): Built {
     cascadedEmbedContents,
     footnoteAnchors,
   );
-  const positioned = resolvePositionedTree(virtual);
+  const positioned = positionTreeForTest(virtual);
   return { state, positioned, shaper };
 }
 
 /**
  * Read page 0's content-area edges (#332) and the footnote slot's page-local top.
- * `positioned` is the materializeAll BlockBox whose children are PageBoxes.
+ * `positioned` is the assembled BlockBox whose children are PageBoxes.
  */
 function page0Geometry(positioned: LayoutBox): {
   contentTop: number;

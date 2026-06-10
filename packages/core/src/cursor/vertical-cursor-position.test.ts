@@ -30,7 +30,7 @@ import { render } from "../render/render";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
 import { layoutTree } from "../layout/dispatch";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import { computeUsedStyle } from "../layout/used-style";
 import { createBlockBox, createLineBox } from "../layout/layout-box";
@@ -82,7 +82,7 @@ function verticalDoc(wm: WritingMode): State {
 function pipeline(state: State): { layout: LayoutBox; shaper: TextShaper } {
   const root = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
   const shaper = createMockShaper(CHAR_W, LINE_CROSS);
-  const layout = resolvePositionedTree(layoutTree(root, pageConfig.pageInlineSize, shaper, pageConfig));
+  const layout = positionTreeForTest(layoutTree(root, pageConfig.pageInlineSize, shaper, pageConfig));
   return { layout, shaper };
 }
 
@@ -277,7 +277,7 @@ describe("P3.7 vertical bidi caret — RTL run on the inline (physical-Y) axis",
   function bidiPipeline(state: State): { layout: LayoutBox; shaper: TextShaper } {
     const root = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
     const shaper = createMockShaper(CHAR_W, LINE_CROSS);
-    const layout = resolvePositionedTree(layoutTree(root, wideBidiPage.pageInlineSize, shaper, wideBidiPage));
+    const layout = positionTreeForTest(layoutTree(root, wideBidiPage.pageInlineSize, shaper, wideBidiPage));
     return { layout, shaper };
   }
 

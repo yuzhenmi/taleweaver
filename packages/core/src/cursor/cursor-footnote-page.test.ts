@@ -4,14 +4,14 @@
 // resolve its page WITHOUT materializing the whole document. A footnote body
 // lives in the `embedContents` tree, so `pageIndexOfBlock` AND
 // `pageIndexOfTemplateBlock` both miss it — before Slice 4 a footnote-body caret
-// fell to the `materializeAll()` bridge. Slice 4 adds
+// fell to a whole-tree-positioning bridge. Slice 4 adds
 // `PagePlan.pageIndexOfFootnoteBlock` + per-page resolution
 // (`resolveFootnoteBlockPage`) so `resolvePixelPosition` / `moveToLine` /
 // `moveToLineBoundary` resolve a footnote caret per-page.
 //
 // These tests build the fixture through the REAL footnote producer and keep the
-// VIRTUAL tree (NOT a materialized positioned tree). A spy on `materializeAll`
-// asserts it is NEVER called on the footnote-caret path.
+// VIRTUAL tree (NOT a fully-positioned tree), so they exercise the per-page
+// resolution path the footnote-caret code actually runs in production.
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "../render/render";
@@ -63,9 +63,6 @@ interface Built {
   state: State;
   tree: VirtualLayoutTree;
   shaper: TextShaper;
-  /** A wrapper around the tree whose `materializeAll` throws if ever called. */
-  guardedTree: VirtualLayoutTree;
-  materializeCalls: { count: number };
 }
 
 function buildDoc(footnoteText: string): Built {
@@ -141,22 +138,10 @@ function buildDoc(footnoteText: string): Built {
     footnoteAnchors,
   );
 
-  // A wrapper object (NOT a Proxy: `getPage`/`materializeAll` are non-configurable
-  // own data properties the Proxy may not re-target) whose `materializeAll`
-  // records + throws — so any path that reaches the bridge fails loudly.
-  const materializeCalls = { count: 0 };
-  const guardedTree: VirtualLayoutTree = {
-    ...tree,
-    materializeAll() {
-      materializeCalls.count++;
-      throw new Error("materializeAll() must not be called on the footnote-caret path");
-    },
-  };
-
-  return { state, tree, shaper, guardedTree, materializeCalls };
+  return { state, tree, shaper };
 }
 
-describe("footnote-body caret resolves per-page (no materializeAll)", () => {
+describe("footnote-body caret resolves per-page (no whole-tree materialization)", () => {
   it("the plan maps the footnote body to its carrying page", () => {
     const { tree } = buildDoc("note text");
     // The body's anchor is on the first (only) page, so the body's slot renders
@@ -171,24 +156,22 @@ describe("footnote-body caret resolves per-page (no materializeAll)", () => {
     expect(noFn.plan.pageIndexOfFootnoteBlock("nonexistent" as BlockId)).toBe(-1);
   });
 
-  it("resolvePixelPosition resolves a footnote-body caret without materializeAll", () => {
-    const { state, guardedTree, shaper, materializeCalls } = buildDoc("note text");
+  it("resolvePixelPosition resolves a footnote-body caret per-page", () => {
+    const { state, tree, shaper } = buildDoc("note text");
     // Caret at offset 2 inside the footnote body paragraph.
     const pos = createPosition(FN_BODY_P, 2);
-    const pixel = resolvePixelPosition(state, pos, guardedTree, shaper);
-    expect(materializeCalls.count).toBe(0);
+    const pixel = resolvePixelPosition(state, pos, tree, shaper);
     expect(pixel).not.toBeNull();
     // The caret resolves onto page 0 (the body's carrying page), inside the
     // footnote slot band (below the body content).
     expect(pixel?.pageIndex).toBe(0);
   });
 
-  it("moveToLineBoundary (Home/End) resolves a footnote-body caret without materializeAll", () => {
-    const { state, guardedTree, shaper, materializeCalls } = buildDoc("note text");
+  it("moveToLineBoundary (Home/End) resolves a footnote-body caret per-page", () => {
+    const { state, tree, shaper } = buildDoc("note text");
     const pos = createPosition(FN_BODY_P, 3);
-    const start = moveToLineBoundary(state, pos, guardedTree, shaper, "start");
-    const end = moveToLineBoundary(state, pos, guardedTree, shaper, "end");
-    expect(materializeCalls.count).toBe(0);
+    const start = moveToLineBoundary(state, pos, tree, shaper, "start");
+    const end = moveToLineBoundary(state, pos, tree, shaper, "end");
     expect(start).not.toBeNull();
     expect(end).not.toBeNull();
     expect(start?.blockId).toBe(FN_BODY_P);
@@ -198,15 +181,14 @@ describe("footnote-body caret resolves per-page (no materializeAll)", () => {
     expect(end?.offset).toBe("note text".length);
   });
 
-  it("moveToLine (Up/Down) within the isolated footnote context is a no-op, no materializeAll", () => {
-    const { state, guardedTree, shaper, materializeCalls } = buildDoc("note text");
+  it("moveToLine (Up/Down) within the isolated footnote context is a no-op, per-page", () => {
+    const { state, tree, shaper } = buildDoc("note text");
     const pos = createPosition(FN_BODY_P, 2);
     // A single-line footnote body is isolated (its own selection context), so
     // Up/Down stays put (returns null) — the #327 context filter. The point of
-    // this test is that it resolves the page per-page (no bridge).
-    const up = moveToLine(state, pos, guardedTree, shaper, "up", null);
-    const down = moveToLine(state, pos, guardedTree, shaper, "down", null);
-    expect(materializeCalls.count).toBe(0);
+    // this test is that it resolves the page per-page.
+    const up = moveToLine(state, pos, tree, shaper, "up", null);
+    const down = moveToLine(state, pos, tree, shaper, "down", null);
     expect(up).toBeNull();
     expect(down).toBeNull();
   });
@@ -214,7 +196,7 @@ describe("footnote-body caret resolves per-page (no materializeAll)", () => {
 
 /**
  * Wrap a tree so EVERY plan page-resolver returns -1 — simulating an UNMAPPED
- * (stale) caret that maps to no page. `materializeAll` throws if reached.
+ * (stale) caret that maps to no page.
  */
 function withUnmappedPlan(tree: VirtualLayoutTree): VirtualLayoutTree {
   const plan = {
@@ -227,9 +209,6 @@ function withUnmappedPlan(tree: VirtualLayoutTree): VirtualLayoutTree {
   return {
     ...tree,
     plan,
-    materializeAll() {
-      throw new Error("materializeAll() must not be called on the unmapped-caret path");
-    },
   };
 }
 
@@ -353,21 +332,12 @@ function buildSplitDoc(fnParaCount: number): SplitBuilt {
     footnoteAnchors,
   );
 
-  const materializeCalls = { count: 0 };
-  const guardedTree: VirtualLayoutTree = {
-    ...tree,
-    materializeAll() {
-      materializeCalls.count++;
-      throw new Error("materializeAll() must not be called on the footnote-caret path");
-    },
-  };
-
-  return { state, tree, shaper, guardedTree, materializeCalls, fnParaIds };
+  return { state, tree, shaper, fnParaIds };
 }
 
 /**
  * The set of pages that carry ANY line of `blockId` (per-page `byBlock`), via
- * `getPage` only — never `materializeAll`. Used to PROVE a footnote body's slot
+ * `getPage` only — never the whole document. Used to PROVE a footnote body's slot
  * actually splits (a child paragraph renders on a page > the body's first page).
  */
 function pagesCarryingBlock(tree: VirtualLayoutTree, blockId: BlockId): number[] {
@@ -379,7 +349,7 @@ function pagesCarryingBlock(tree: VirtualLayoutTree, blockId: BlockId): number[]
   return pages;
 }
 
-describe("footnote body that SPLITS across pages resolves on its continuation page (no materializeAll)", () => {
+describe("footnote body that SPLITS across pages resolves on its continuation page (per-page)", () => {
   // REGRESSION LOCK: `resolveFootnoteBlockPage` must WALK FORWARD past the body's
   // fresh page to the page actually carrying the caret block's lines. A footnote
   // body that splits distributes its child paragraphs across later pages' slots,
@@ -392,7 +362,7 @@ describe("footnote body that SPLITS across pages resolves on its continuation pa
   it("a caret in a footnote child paragraph rendered on a later page resolves to that page", () => {
     // 6 single-line footnote paragraphs on a 64px page ⇒ the body's slot can't
     // fit all 6 lines on page 0, so later paragraphs render on continuation slots.
-    const { state, tree, guardedTree, shaper, materializeCalls, fnParaIds } = buildSplitDoc(6);
+    const { state, tree, shaper, fnParaIds } = buildSplitDoc(6);
 
     // PRECONDITION: the footnote body genuinely SPLITS — its slot start page and a
     // LATER continuation page both carry footnote lines (both fragments non-empty).
@@ -423,10 +393,9 @@ describe("footnote body that SPLITS across pages resolves on its continuation pa
 
     // THE LOCK: a caret in the continuation paragraph resolves to its CONTINUATION
     // page (> startPage), proving `resolveFootnoteBlockPage`'s forward-walk found
-    // the later fragment — and NEVER materializes the whole tree.
+    // the later fragment — resolved per-page, never the whole tree.
     const pos = createPosition(contParaId, 1);
-    const pixel = resolvePixelPosition(state, pos, guardedTree, shaper);
-    expect(materializeCalls.count).toBe(0);
+    const pixel = resolvePixelPosition(state, pos, tree, shaper);
     expect(pixel).not.toBeNull();
     expect(pixel?.pageIndex).toBe(contPage);
     // Strictly greater than the body's first page — a regression that returned the
@@ -435,7 +404,7 @@ describe("footnote body that SPLITS across pages resolves on its continuation pa
   });
 });
 
-describe("unmapped (stale) caret: dev-throws, prod degrades safely (no materializeAll)", () => {
+describe("unmapped (stale) caret: dev-throws, prod degrades safely (per-page)", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
@@ -470,7 +439,7 @@ describe("unmapped (stale) caret: dev-throws, prod degrades safely (no materiali
     expect(() => moveToLineBoundary(state, pos, guarded, shaper, "end")).toThrow(/maps to no page/);
   });
 
-  it("PROD: resolvePixelPosition returns null (no throw, no materializeAll)", () => {
+  it("PROD: resolvePixelPosition returns null (no throw, per-page)", () => {
     const { state, tree, shaper } = buildDoc("note text");
     vi.stubEnv("NODE_ENV", "production");
     const guarded = withUnmappedPlan(tree);
@@ -478,7 +447,7 @@ describe("unmapped (stale) caret: dev-throws, prod degrades safely (no materiali
     expect(resolvePixelPosition(state, pos, guarded, shaper)).toBeNull();
   });
 
-  it("PROD: moveToLine returns null (caret stays put, no throw, no materializeAll)", () => {
+  it("PROD: moveToLine returns null (caret stays put, no throw, per-page)", () => {
     const { state, tree, shaper } = buildDoc("note text");
     vi.stubEnv("NODE_ENV", "production");
     const guarded = withUnmappedPlan(tree);

@@ -13,8 +13,8 @@
 // Oracle: a FRESH, non-incremental `layoutTree` of the editor's CURRENT state
 // (render → cascade → layoutTree, no prevTree → no carry-forward, no reuse) is
 // the independent ground truth. The editor's INCREMENTAL layout must agree with
-// it. (Comparing the virtual tree to its own `materializeAll` is NOT
-// independent — `materializeAll` calls the same `getPage`, so both go stale
+// it. (Comparing the virtual tree to its own assembled pages is NOT
+// independent — the assembly calls the same `getPage`, so both go stale
 // together; the earlier version of this test had that flaw.)
 import { describe, it, expect } from "vitest";
 import {

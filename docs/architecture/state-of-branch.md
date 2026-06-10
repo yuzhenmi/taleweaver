@@ -935,16 +935,15 @@ Two render modes. **Paginated** is the active primary path: the engine
 produces a virtualized page model (`layoutTree: LayoutBox |
 VirtualLayoutTree`), which drives a per-page canvas pool with per-page
 paint caches; paint, caret, mouse hit-test, and selection rects are
-resolved per page via `getPage(visible ∪ cursorPage)` without
-materializing the whole tree (the `materializeAll()` bridge is being removed via
-an in-progress per-page migration: for a spanning block — one taller than a page —
+resolved per page via `getPage(visible ∪ cursorPage)` — **no consumer ever
+positions the whole document**. For a spanning block (one taller than a page)
 both line navigation (`collectBlockLinesAcrossPages`) and selection/find/comment
 rects (`selectionRectsAcrossPages`) use per-page paths; the cursor/ defensive
-fallback guards now dev-throw / clamp-to-document-boundary / resolve-per-page
-(footnote bodies map via `pageIndexOfFootnoteBlock`) instead of materializing. No
-production code calls the bridge anymore — the only remaining callers are the
-bridge definition itself (`virtual-layout-tree.ts` / `positioned-tree.ts`) and the
-equivalence-oracle test files, both deleted/migrated in the final slice).
+fallback guards dev-throw / clamp-to-document-boundary / resolve-per-page
+(footnote bodies map via `pageIndexOfFootnoteBlock`). The
+`materializeAll()`/`resolvePositionedTree`/`getPositionedTree` whole-tree-positioning
+bridge has been **deleted**; `paginateRoot` survives only as (a) the float/`clear`
+legacy layout path and (b) a test-only equivalence oracle.
 **Non-paginated single-canvas** is the fallback — one canvas +
 a fully-positioned `LayoutBox`, used for identity sizing and the
 unsupported-feature path (float/`clear` documents fall back to the legacy

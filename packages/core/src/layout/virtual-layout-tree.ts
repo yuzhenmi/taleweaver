@@ -9,7 +9,7 @@
 // the property virtualization depends on: any page can be positioned in
 // isolation, identically to the sequential paginator.
 //
-// `getPage(i)` deep-equals `paginateRoot`'s page `i`; `materializeAll()`
+// `getPage(i)` deep-equals `paginateRoot`'s page `i`. The whole-tree-positioning
 // deep-equals `paginateRoot`'s whole tree. The equivalence suite
 // (`virtual-layout-tree.test.ts`) guards this against any drift — `paginateRoot`
 // is the oracle.
@@ -71,12 +71,6 @@ export interface VirtualLayoutTree {
   getPage(pageIndex: number): PageBox;
   /** `getPage(from..to)`, inclusive, clamped to `[0, lastPage]`. */
   getPages(from: number, to: number): PageBox[];
-  /**
-   * Build the legacy outer `BlockBox` whose children are `getPage(0..N-1)`,
-   * sized exactly as `paginateRoot`'s outer box. Lets Phase-2 consumers/tests
-   * that expect the positioned tree run unchanged.
-   */
-  materializeAll(): BlockBox;
 }
 
 // ---------------------------------------------------------------------------
@@ -1053,28 +1047,6 @@ export function makeVirtualLayoutTree(
     return pages;
   }
 
-  function materializeAll(): BlockBox {
-    // Mirror paginate.ts:295–305. The total document height is the plan's
-    // RUNNING SUM over per-page heights (C.2b-2) — pages are no longer
-    // uniform-height once a section overrides its geometry, so we use
-    // `plan.totalBlockSize` directly rather than a `pageCount × H + gaps`
-    // formula (which would be wrong for a mixed-height doc; for a no-override
-    // doc the running sum reduces to exactly that formula). The outer BlockBox
-    // keeps the doc-wide inline-size (the bridge contract; removed in a later
-    // phase).
-    const pageCount = plan.entries.length;
-    const pages: PageBox[] = [];
-    for (let i = 0; i < pageCount; i++) pages.push(getPage(i));
-    return createBlockBox(
-      cascadedRoot.key, 0, 0,
-      pageConfig.pageInlineSize, plan.totalBlockSize,
-      ctx.writingMode, ctx.direction,
-      rootComputed, rootUsedStyle,
-      pages,
-      pageConfig.pageInlineSize,
-    );
-  }
-
   // Non-materializing peek for the NEXT tree's carry-forward memo: returns this
   // page's PageBox iff it was already materialized; never triggers layout.
   function peekMaterializedPage(pageIndex: number): PageBox | undefined {
@@ -1106,7 +1078,6 @@ export function makeVirtualLayoutTree(
     footnoteAnchorPages,
     getPage,
     getPages,
-    materializeAll,
   } as VirtualLayoutTreeInternal;
   Object.defineProperty(tree, "__peekMaterializedPage", {
     value: peekMaterializedPage,

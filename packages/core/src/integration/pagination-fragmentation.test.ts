@@ -6,7 +6,7 @@ import type { RenderNode } from "../render/render-node";
 import type { LayoutBox, BlockBox } from "../layout/layout-box";
 import type { PageBox } from "../layout/page-box";
 import { layoutTreeIncremental } from "../layout/layout-incremental";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import { cascadePass } from "../cascade";
 import {
@@ -183,11 +183,11 @@ describe("pagination integration — layoutTreeIncremental + pageConfig", () => 
     const cascaded = cascadePass(root);
 
     // First pass: cold incremental (no oldRoot/oldLayout). In paginated mode
-    // this returns a VirtualLayoutTree; the test asserts over the materialized
-    // page tree (Phase 3 Task 1 — `materializeAll() ≡ paginateRoot`).
+    // this returns a VirtualLayoutTree; the test asserts over the page tree
+    // assembled by the test-only `positionTreeForTest` oracle.
     const r1 = layoutTreeIncremental(cascaded, null, null, PAGE.pageInlineSize, shaper, PAGE);
     expect(r1.type).toBe("virtual-root");
-    const r1Positioned = resolvePositionedTree(r1);
+    const r1Positioned = positionTreeForTest(r1);
     expect(r1Positioned.type).toBe("block");
     const r1Pages = (r1Positioned as BlockBox).children.filter((c): c is PageBox => c.type === "page");
     expect(r1Pages.length).toBeGreaterThan(1);
@@ -197,7 +197,7 @@ describe("pagination integration — layoutTreeIncremental + pageConfig", () => 
     // children were reference-equal to the cached version.
     const r2 = layoutTreeIncremental(cascaded, cascaded, r1, PAGE.pageInlineSize, shaper, PAGE);
     expect(r2.type).toBe("virtual-root");
-    const r2Positioned = resolvePositionedTree(r2);
+    const r2Positioned = positionTreeForTest(r2);
     expect(r2Positioned.type).toBe("block");
     const r2Pages = (r2Positioned as BlockBox).children.filter((c): c is PageBox => c.type === "page");
     // Same page count as r1 — fragmentation must not be short-circuited.
@@ -206,10 +206,10 @@ describe("pagination integration — layoutTreeIncremental + pageConfig", () => 
 });
 
 describe("virtualized layout — EditorState.layoutTree is virtual-root after a paginated edit", () => {
-  // Phase 3 Task 1: the reducer's paginated layout path now produces a
-  // VirtualLayoutTree (discriminated by `type: "virtual-root"`), not a
-  // positioned BlockBox. Behavior is unchanged because every consumer
-  // materializes via `resolvePositionedTree`'s `materializeAll()` bridge.
+  // The reducer's paginated layout path produces a VirtualLayoutTree
+  // (discriminated by `type: "virtual-root"`), not a positioned BlockBox.
+  // Production consumers read it per-page via `getPage`; this test assembles
+  // the whole page tree via the test-only `positionTreeForTest` oracle.
   function makePaginatedConfig(): EditorConfig {
     return {
       measurer: createMockShaper(8, 16),
@@ -243,7 +243,7 @@ describe("virtualized layout — EditorState.layoutTree is virtual-root after a 
     // A paginated edit (incremental path) still yields a virtual-root tree.
     expect(editor2.layoutTree.type).toBe("virtual-root");
     // And it materializes to the same shape a positioned tree would (the bridge).
-    const positioned = resolvePositionedTree(editor2.layoutTree);
+    const positioned = positionTreeForTest(editor2.layoutTree);
     expect(positioned.type).toBe("block");
   });
 });

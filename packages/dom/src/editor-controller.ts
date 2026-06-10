@@ -15,7 +15,6 @@ import {
   findMatches,
   computeSelectionRects,
   computeSelectionRectsForPage,
-  resolvePositionedTree,
   resolveCommentRange,
   spanStart,
   spanEnd,
@@ -63,7 +62,7 @@ interface ResolvedMatch {
   endPos: PixelPosition;
   /** Boundary block straddles a page break → a single page's rects can't see
    * the other-page fragment; the spanning block's rects are unioned per-page via
-   * `selectionRectsAcrossPages` (no materializeAll bridge). */
+   * `selectionRectsAcrossPages` (per-page, never the whole tree). */
   spanned: boolean;
 }
 
@@ -95,7 +94,7 @@ interface ResolvedCommentHighlight {
   endPos: PixelPosition;
   /** Boundary block(s) straddle a page break → a single page's rects can't see
    * the other-page fragment; the spanning block's rects are unioned per-page via
-   * `selectionRectsAcrossPages` (no materializeAll bridge). */
+   * `selectionRectsAcrossPages` (per-page, never the whole tree). */
   spanned: boolean;
 }
 
@@ -237,21 +236,18 @@ export function createEditorController(
   // the plan + `getPage(visible ∪ cursorPage)` directly and never materializes
   // every page (Phase 3 Tasks 2/3).
   let layoutTree: LayoutBox | VirtualLayoutTree | null = null;
-  // Lazy `materializeAll()` bridge. The common paginated paths (paint, caret,
-  // mouse hit-test, selection rects) are now per-page via `getPage` and NEVER
-  // touch this. It remains only for: (a) non-paginated identity sizing
-  // (`paintSingle`/spacer, where `layoutTree` is already a positioned
-  // `LayoutBox`), and (b) the rare spanning-block selection fallback (a single
-  // block taller than a page). Memoized per `update()`; resolved on first
-  // access so the hot path provably never triggers `materializeAll()`.
-  let positionedBridge: LayoutBox | null = null;
-  function getPositionedTree(): LayoutBox | null {
-    if (positionedBridge !== null) return positionedBridge;
-    if (layoutTree === null) return null;
-    positionedBridge = resolvePositionedTree(layoutTree);
-    return positionedBridge;
+  // The positioned `LayoutBox` for the NON-paginated paths only (single-canvas
+  // paint/sizing + the `pageIndex === null` selection/find/comment branches).
+  // In those branches `layoutTree` is already a fully-positioned `LayoutBox`
+  // (non-paginated / float-clear legacy fallback), never a `VirtualLayoutTree`
+  // (virtualization only happens in paginated mode). Returns null defensively
+  // if ever called in paginated mode — those callers union per-page instead and
+  // never reach here. The whole document is NEVER materialized.
+  function nonPaginatedTree(): LayoutBox | null {
+    if (layoutTree === null || layoutTree.type === "virtual-root") return null;
+    return layoutTree;
   }
-  // Hit-test against ONLY the clicked page (virtual) — never `materializeAll`.
+  // Hit-test against ONLY the clicked page (virtual) — never the whole tree.
   // `resolvePositionFromPixel` filters its line index by `pageIndex`, so a
   // single `PageBox` resolves correctly (mirrors the per-page line-nav
   // migration). Non-paginated mode has a positioned `LayoutBox` already.
@@ -268,7 +264,7 @@ export function createEditorController(
     const s = plan.pageSpanOfBlock(blockId);
     return s !== null && s.first !== s.last;
   }
-  // Spanning-block selection rects WITHOUT the materializeAll bridge: resolve the
+  // Spanning-block selection rects WITHOUT materializing the whole tree: resolve the
   // span's start/end pixel positions once against the virtual tree, then union
   // computeSelectionRectsForPage over the pages the span covers. Equivalent to
   // computeSelectionRects over the materialized tree for a spanning boundary
@@ -370,7 +366,7 @@ export function createEditorController(
   // `resolveFindHighlights()` (on `update()`/matches change — NOT on blink).
   // `paintPages`/`paintSingle` (Stage 2) emit per-page rects from these without
   // ever re-resolving (the two-stage split that keeps next/prev + paint off the
-  // `materializeAll` bridge — only a `spanned` match falls back to it).
+  // per-page union — only a `spanned` match unions across pages).
   let resolvedMatches: ResolvedMatch[] = [];
 
   // ── Comment highlight overlay (comments slice 5) ─────────────────────────
@@ -508,7 +504,7 @@ export function createEditorController(
   // whenever the layout/matches change (`update()` + `setFindHighlights`), NOT
   // on blink/scroll. `paintPages`/`paintSingle` (Stage 2) emit per-page rects
   // from these cached positions without re-resolving — the load-bearing split
-  // that keeps N matches off `materializeAll()` per paint.
+  // that keeps N matches off any whole-tree materialization per paint.
   function resolveFindHighlights(): void {
     resolvedMatches = [];
     const st = state;
@@ -538,7 +534,7 @@ export function createEditorController(
   // Emit this page's `MatchHighlightRect[]` from the Stage-1 resolved positions.
   // Reuses the selection's per-page routing (`computeSelectionRectsForPage`, or
   // `selectionRectsAcrossPages` per-page-unioned for a `spanned` match — no
-  // materializeAll bridge). The match at `activeIndex` is tagged `active: true`;
+  // per-page union). The match at `activeIndex` is tagged `active: true`;
   // all others `false`. `pageIndex` null (single-canvas / non-paginated path)
   // still emits from the positioned tree (Slice 5).
   function matchHighlightsForPage(pageBox: LayoutBox | null, pageIndex: number | null): MatchHighlightRect[] {
@@ -564,14 +560,14 @@ export function createEditorController(
         );
       } else if (pageIndex !== null && layoutTree !== null && layoutTree.type === "virtual-root") {
         // Paginated spanned match (boundary block taller than a page): per-page
-        // concat over the virtual tree (no materializeAll bridge), then keep
+        // concat over the virtual tree (per-page, never the whole tree), then keep
         // only this page's rects.
         rects = selectionRectsAcrossPages(st.state, rm.span, layoutTree, measurer)
           .filter((r) => r.pageIndex === pageIndex);
       } else {
-        // Non-paginated single canvas (`pageIndex === null`): positioned-tree
-        // identity (Slice 5 still on the bridge).
-        const positioned = getPositionedTree();
+        // Non-paginated single canvas (`pageIndex === null`): `layoutTree` is a
+        // positioned `LayoutBox` here, so compute rects directly over it.
+        const positioned = nonPaginatedTree();
         rects = positioned
           ? computeSelectionRects(st.state, rm.span, positioned, measurer)
           : [];
@@ -626,7 +622,7 @@ export function createEditorController(
   // Emit this page's `CommentHighlightRect[]` from the Stage-1 resolved
   // positions. Reuses the selection's per-page routing
   // (`computeSelectionRectsForPage`, or `selectionRectsAcrossPages`
-  // per-page-unioned for a `spanned` comment — no materializeAll bridge) — the
+  // per-page-unioned for a `spanned` comment — never the whole tree) — the
   // exact analog of `matchHighlightsForPage`. Each rect is tagged with the
   // comment's `commentId` + `active`. `pageIndex` null (single-canvas /
   // non-paginated path) still emits from the positioned tree (Slice 5).
@@ -648,14 +644,14 @@ export function createEditorController(
         );
       } else if (pageIndex !== null && layoutTree !== null && layoutTree.type === "virtual-root") {
         // Paginated spanned comment (a boundary block taller than a page):
-        // per-page concat over the virtual tree (no materializeAll bridge),
+        // per-page concat over the virtual tree (never the whole tree),
         // then keep only this page's rects.
         rects = selectionRectsAcrossPages(st.state, rch.span, layoutTree, measurer)
           .filter((r) => r.pageIndex === pageIndex);
       } else {
-        // Non-paginated single canvas (`pageIndex === null`): positioned-tree
-        // identity (Slice 5 still on the bridge).
-        const positioned = getPositionedTree();
+        // Non-paginated single canvas (`pageIndex === null`): `layoutTree` is a
+        // positioned `LayoutBox` here, so compute rects directly over it.
+        const positioned = nonPaginatedTree();
         rects = positioned
           ? computeSelectionRects(st.state, rch.span, positioned, measurer)
           : [];
@@ -682,9 +678,8 @@ export function createEditorController(
     if (!state) return;
     if (!singleCanvas) return;
     // Non-paginated mode: `layoutTree` is a positioned `LayoutBox` (never a
-    // virtual tree — virtualization only happens in paginated mode), so
-    // `getPositionedTree()` is a no-op identity here, not a materialize.
-    const tree = getPositionedTree();
+    // virtual tree — virtualization only happens in paginated mode).
+    const tree = nonPaginatedTree();
     if (!tree) return;
     if (!singleCtx) singleCtx = singleCanvas.getContext("2d");
     const ctx = singleCtx;
@@ -914,7 +909,7 @@ export function createEditorController(
     const tree = layoutTree;
 
     // Derive the page-SLOT geometry WITHOUT positioning any page. Virtual mode:
-    // read `plan.entries` (count + per-slot blockSize) — no `materializeAll`.
+    // read `plan.entries` (count + per-slot blockSize) — never the whole tree.
     // Positioned mode (unsupported-feature fallback): extract the already-
     // positioned `PageBox` children. Non-paginated: zero slots → single canvas.
     const newSlotGeoms: PageSlotGeom[] = [];
@@ -976,9 +971,8 @@ export function createEditorController(
       cleanupPageCanvases();
 
       // Ensure single canvas + spacer. Height comes from the positioned
-      // (non-paginated) tree directly — never a virtual tree here, so this is a
-      // no-op identity, not a materialize.
-      const positioned = getPositionedTree();
+      // (non-paginated) tree directly — never a virtual tree here.
+      const positioned = nonPaginatedTree();
       if (!spacerDiv) {
         spacerDiv = document.createElement("div");
         spacerDiv.style.pointerEvents = "none";
@@ -1486,15 +1480,13 @@ export function createEditorController(
     const tTotal = markStart("ctrl.update");
     state = editorState;
 
-    // Phase 3 Tasks 2/3: do NOT materialize all pages here. `layoutTree` is the
-    // raw (possibly virtual) tree; the `materializeAll()` bridge is now LAZY —
-    // `getPositionedTree()` resolves it only for the remaining non-paginated
-    // identity consumers (single-canvas paint/selection/find/comment; mouse
-    // hit-test). The paginated spanning-block selection/find/comment paths now
-    // union per-page via `selectionRectsAcrossPages` and never touch the bridge.
-    // Reset the per-update memo so a fresh tree isn't served a stale bridge.
+    // Do NOT materialize all pages here. `layoutTree` is the raw (possibly
+    // virtual) tree; paginated paths (paint, caret, hit-test, selection/find/
+    // comment rects) read it per-page via `getPage` and union per-page via
+    // `selectionRectsAcrossPages` — the whole document is never materialized.
+    // Only the non-paginated branches read it as a positioned `LayoutBox` (via
+    // `nonPaginatedTree()`).
     layoutTree = state.layoutTree;
-    positionedBridge = null;
 
     // Cursor position: resolved directly against the (virtual or positioned)
     // tree. In virtual mode `resolvePixelPosition` positions only the cursor's
@@ -1543,7 +1535,7 @@ export function createEditorController(
           blockSpansPages(layoutTree.plan, end.blockId);
         if (selSpanningFallback) {
           // Rare: a boundary block taller than a page. Per-page concat over the
-          // virtual tree (no materializeAll bridge).
+          // virtual tree (per-page, never the whole tree).
           selectionRects = selectionRectsAcrossPages(
             state.state, state.selection, layoutTree, measurer,
           );
@@ -1800,7 +1792,6 @@ export function createEditorController(
   function destroy() {
     destroyed = true;
     layoutTree = null;
-    positionedBridge = null;
     virtualTree = null;
     hasSelectionHighlight = false;
     selStart = null;

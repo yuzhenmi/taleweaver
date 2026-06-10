@@ -32,7 +32,7 @@ import { buildState, buildBlock, inlineContent, text } from "../../test-utils/st
 import { render } from "../../render/render";
 import { cascadePass } from "../../cascade";
 import { layoutTree } from "../../layout/dispatch";
-import { resolvePositionedTree } from "../../layout/positioned-tree";
+import { positionTreeForTest } from "../../test-utils/position-tree";
 import type { LayoutBox } from "../../layout/layout-box";
 
 describe("handleIndent — INDENT / OUTDENT actions", () => {
@@ -290,7 +290,7 @@ describe("handleIndent — INDENT / OUTDENT actions", () => {
       });
       const rendered = render(state, config.componentRegistry, config.attrRegistry);
       const cascadedRoot = cascadePass(rendered.root);
-      const layout = resolvePositionedTree(
+      const layout = positionTreeForTest(
         layoutTree(cascadedRoot, config.containerWidth, config.measurer, config.pageConfig),
       );
       const box = findBlockBox(layout, "li");

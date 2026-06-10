@@ -4,7 +4,7 @@ import { render } from "../render/render";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
 import { layoutTree } from "../layout/dispatch";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import type { TextShaper } from "../layout/text-shaper";
 import type { PageConfig } from "../layout/page-config";
@@ -31,7 +31,7 @@ function pipeline(
     createDefaultAttrRegistry(),
   ).root;
   const shaper = createMockShaper(8, 16);
-  const layout = resolvePositionedTree(layoutTree(root, containerInlineSize, shaper, pageConfig));
+  const layout = positionTreeForTest(layoutTree(root, containerInlineSize, shaper, pageConfig));
   return { layout, shaper };
 }
 
@@ -780,7 +780,7 @@ function verticalDoc(wm: "vertical-rl" | "vertical-lr"): State {
 function verticalPipeline(state: State): { layout: LayoutBox; shaper: TextShaper } {
   const root = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
   const shaper = createMockShaper(8, 16);
-  const layout = resolvePositionedTree(
+  const layout = positionTreeForTest(
     layoutTree(root, verticalPageConfig.pageInlineSize, shaper, verticalPageConfig),
   );
   return { layout, shaper };
@@ -951,7 +951,7 @@ describe("P3.7 vertical bidi SelectionRect — range crossing an LTR↔RTL bound
   function bidiPipeline(state: State): { layout: LayoutBox; shaper: TextShaper } {
     const root = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
     const shaper = createMockShaper(8, 16);
-    const layout = resolvePositionedTree(
+    const layout = positionTreeForTest(
       layoutTree(root, wideBidiPage.pageInlineSize, shaper, wideBidiPage),
     );
     return { layout, shaper };

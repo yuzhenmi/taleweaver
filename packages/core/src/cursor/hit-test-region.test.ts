@@ -16,7 +16,7 @@
 // These tests build the fixture through the VIRTUAL path (same builder shape as
 // line-navigation-context.test.ts): render → cascadePass → buildBlockFitMetas →
 // measurePass → planWithEntries stamping headerBlockId/footerBlockId on page 0 →
-// makeVirtualLayoutTree(..., cascadedTemplateContents) → resolvePositionedTree.
+// makeVirtualLayoutTree(..., cascadedTemplateContents) → assembled positioned tree.
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { resolveHitPosition as resolvePositionFromPixel } from "../test-utils/hit-position";
@@ -35,7 +35,7 @@ import {
   makeVirtualLayoutTree,
   __resetGetPageDriverCountForTest,
 } from "../layout/virtual-layout-tree";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import type { ElementBox, RenderNode } from "../render/render-node";
 import type { TextShaper } from "../layout/text-shaper";
 import type { PageConfig } from "../layout/page-config";
@@ -177,7 +177,7 @@ function buildDoc(opts: {
   const virtual = makeVirtualLayoutTree(
     plan, cascadedRoot, ctx, shaper, cfg, undefined, cascadedTemplateContents,
   );
-  const positioned = resolvePositionedTree(virtual);
+  const positioned = positionTreeForTest(virtual);
   return { state, positioned, shaper };
 }
 
@@ -224,7 +224,7 @@ function planWithEntries(
 
 /**
  * Locate page 0's PageBox in a positioned tree and read its content-area edges
- * (#332). `positioned` is the materializeAll BlockBox whose children are
+ * (#332). `positioned` is the assembled BlockBox whose children are
  * PageBoxes; scan for pageIndex 0. The body content area is page-local
  * [effectiveTopInset, blockSize − effectiveBottomInset]; the margins outside
  * that band are the header/footer zones.

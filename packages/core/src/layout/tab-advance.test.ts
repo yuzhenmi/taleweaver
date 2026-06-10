@@ -28,7 +28,7 @@ import { layoutTree } from "./dispatch";
 import { layoutBlock } from "./bfc";
 import { layoutInlineContent } from "./ifc";
 import { makeRootContext } from "./layout-context";
-import { resolvePositionedTree } from "./positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import { createMockShaper } from "./mock-shaper";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import type { Style, TabStop } from "../styles";
@@ -86,7 +86,7 @@ function layoutTabDoc(tabStops: readonly TabStop[] = [], trailing = "b"): Layout
   const state = tabDoc(tabStops, trailing);
   const renderOutput = render(state, componentRegistry, attrRegistry);
   const laid = layoutTree(renderOutput.root, pageConfig.pageInlineSize, shaper, pageConfig);
-  return resolvePositionedTree(laid);
+  return positionTreeForTest(laid);
 }
 
 /**

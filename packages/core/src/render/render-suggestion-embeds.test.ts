@@ -27,7 +27,7 @@ import { extractText } from "../state/extract-text";
 import { builtinEmbedSerializer } from "../state/extract-text";
 import { createPosition, createSpan } from "../state/block-position";
 import { layoutTree } from "../layout/dispatch";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import { getLineIndex } from "../cursor/line-flatten";
 
@@ -129,7 +129,7 @@ describe("render — break-suggestion embeds preserve the offset↔box 1:1 IFC i
 
     const root = render(state, reg, attrReg).root;
     const shaper = createMockShaper(CHAR_W, LINE_H);
-    const layout = resolvePositionedTree(
+    const layout = positionTreeForTest(
       layoutTree(root, widePage.pageInlineSize, shaper, widePage),
     );
     const lines = getLineIndex(layout).byBlock.get("p" as BlockId) ?? [];

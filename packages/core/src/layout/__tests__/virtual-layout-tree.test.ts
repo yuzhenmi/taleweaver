@@ -5,7 +5,7 @@
 // `measurePass` of the same root and assert that positioning each page
 // independently (`getPage(i)`, seeded from the plan's resume token — NOT from
 // the sequential previous-page break) deep-equals `paginateRoot`'s page `i`.
-// `materializeAll()` must deep-equal the whole `paginateRoot` tree.
+// `getPage(i)` must deep-equal `paginateRoot`'s page `i`.
 //
 // Carry-forward memo (Task 4): an unchanged page in a new tree returns the
 // prior tree's already-materialized PageBox BY REFERENCE; a changed page (or a
@@ -26,6 +26,7 @@ import type { ElementBox } from "../../render/render-node";
 import type { BlockId } from "../../state";
 import type { Style } from "../../styles";
 import type { PageConfig } from "../page-config";
+import type { PageBox } from "../page-box";
 import { buildBlockFitMetas } from "../build-fit-metas";
 import { measurePass } from "../measure-pass";
 import type { PagePlan, PagePlanEntry } from "../measure-pass";
@@ -250,12 +251,14 @@ describe("VirtualLayoutTree — getPage(i) deep-equals paginateRoot's page i", (
   for (const fx of fixtures()) {
     it(fx.name, () => {
       const paginated = runPaginate(fx.root, fx.pageConfig);
+      const paginatedPages = paginated.children.filter(
+        (c): c is PageBox => c.type === "page",
+      );
       const { tree } = buildPlanAndTree(fx.root, fx.pageConfig);
-      expect(tree.plan.entries.length).toBe(paginated.children.length);
-      for (let i = 0; i < paginated.children.length; i++) {
-        const oraclePage = paginated.children[i];
+      expect(tree.plan.entries.length).toBe(paginatedPages.length);
+      for (let i = 0; i < paginatedPages.length; i++) {
         const virtualPage = tree.getPage(i);
-        expect(virtualPage, `page ${i}`).toEqual(oraclePage);
+        expect(virtualPage, `page ${i}`).toEqual(paginatedPages[i]);
       }
     });
   }
@@ -311,18 +314,11 @@ describe("VirtualLayoutTree — getPage(i) deep-equals paginateRoot's page i", (
 });
 
 // ---------------------------------------------------------------------------
-// Task 3: materializeAll() ≡ paginateRoot's whole tree
+// NOTE: the deleted `materializeAll() ≡ paginateRoot` whole-tree-positioning
+// harness is subsumed by the `getPage(i) deep-equals paginateRoot's page i`
+// describe above (per-page equivalence vs the independent `paginateRoot`
+// oracle) plus the per-feature equivalence tests in `cursor/*`.
 // ---------------------------------------------------------------------------
-
-describe("VirtualLayoutTree — materializeAll() deep-equals paginateRoot", () => {
-  for (const fx of fixtures()) {
-    it(fx.name, () => {
-      const paginated = runPaginate(fx.root, fx.pageConfig);
-      const { tree } = buildPlanAndTree(fx.root, fx.pageConfig);
-      expect(tree.materializeAll()).toEqual(paginated);
-    });
-  }
-});
 
 // ---------------------------------------------------------------------------
 // Task 4: carry-forward memo
@@ -665,7 +661,7 @@ describe("VirtualLayoutTree — per-entry page geometry (C.2b-2)", () => {
     expect(p1.children[0]?.blockOffset).toBe(tallCfg.pageMargins.blockStart);
   });
 
-  it("tree.blockSize and materializeAll().blockSize equal the running-sum totalBlockSize (mixed heights)", () => {
+  it("tree.blockSize / tree.inlineSize equal the running-sum totalBlockSize + doc-wide inline (mixed heights)", () => {
     const docWide = noMarginPageConfig(300, 600, 20);
     const children = Array.from({ length: 6 }, (_, i) => fixedBlock(`b${i}`, 100));
     const root = cascadeRoot({ display: "block" }, children);
@@ -688,9 +684,8 @@ describe("VirtualLayoutTree — per-entry page geometry (C.2b-2)", () => {
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, docWide.pageInlineSize);
     const tree = makeVirtualLayoutTree(planB, root, ctx, createMockShaper(8, 16), docWide);
     expect(tree.blockSize).toBe(expectedTotal);
-    expect(tree.materializeAll().blockSize).toBe(expectedTotal);
-    // The outer BlockBox keeps the doc-wide inline-size (bridge contract).
-    expect(tree.materializeAll().inlineSize).toBe(docWide.pageInlineSize);
+    // The tree keeps the doc-wide inline-size.
+    expect(tree.inlineSize).toBe(docWide.pageInlineSize);
   });
 
   it("carry-forward refuses a page whose pageConfig changed; an unchanged page still reuses", () => {

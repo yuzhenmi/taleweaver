@@ -281,11 +281,10 @@ export { establishesNewBFC } from "./layout/bfc-establishment";
 export type { PageBox } from "./layout/page-box";
 export { createPageBox } from "./layout/page-box";
 // Virtualized layout: the `VirtualLayoutTree` is `EditorState.layoutTree` in
-// paginated mode; `resolvePositionedTree` is the bridge consumers ride to a
-// fully-positioned `LayoutBox` (via `materializeAll()`) until they migrate to
-// the plan / `getPage` API.
+// paginated mode. Every consumer reads it per-page via `getPage(i)`; the whole
+// document is never materialized (the whole-tree-positioning
+// bridge was removed — see the VL bridge-removal spec).
 export type { VirtualLayoutTree } from "./layout/virtual-layout-tree";
-export { resolvePositionedTree } from "./layout/positioned-tree";
 export { computeUsedStyle } from "./layout/used-style";
 export type { PageConfig, PageMargins } from "./layout/page-config";
 // CSS letter-/word-spacing rule — applied by the in-engine mock shapers and by

@@ -172,9 +172,9 @@ function makePaginatedEditorState(): core.EditorState {
 
 /**
  * A spy-instrumented fake `VirtualLayoutTree`: a real-enough `PagePlan` of
- * `pageCount` uniform pages plus `getPage` / `materializeAll` vitest spies. Used
- * to assert the controller hot path (collapsed selection) NEVER calls
- * `materializeAll` and that `getPage` is invoked only for visible slots.
+ * `pageCount` uniform pages plus a `getPage` vitest spy. Used to assert the
+ * controller hot path (collapsed selection) reads only the visible pages via
+ * `getPage` and never the whole document.
  */
 function makeSpyVirtualTree(pageCount: number, width: number, pageHeight: number, pageGap: number) {
   const cs = core.INITIAL_COMPUTED_STYLE;
@@ -215,11 +215,6 @@ function makeSpyVirtualTree(pageCount: number, width: number, pageHeight: number
       cs.writingMode, cs.direction, cs, us, [], i, width, null, null, null, 0, 0);
 
   const getPage = vi.fn((i: number) => makePage(i));
-  const materializeAll = vi.fn(() => {
-    const pages = entries.map((_, i) => makePage(i));
-    return core.createBlockBox("doc", 0, 0, width, totalBlockSize,
-      cs.writingMode, cs.direction, cs, us, pages, width);
-  });
 
   const tree = {
     type: "virtual-root" as const,
@@ -232,10 +227,9 @@ function makeSpyVirtualTree(pageCount: number, width: number, pageHeight: number
       for (let i = from; i <= to; i++) out.push(makePage(i));
       return out;
     }),
-    materializeAll,
   } as unknown as core.VirtualLayoutTree;
 
-  return { tree, getPage, materializeAll };
+  return { tree, getPage };
 }
 
 /**
@@ -310,12 +304,6 @@ function makeSpyVirtualTreeWithGeom(
   };
 
   const getPage = vi.fn((i: number) => makePage(i));
-  const materializeAll = vi.fn(() => {
-    const pages = entries.map((_, i) => makePage(i));
-    const us = core.computeUsedStyle(cs, pageWidths[0], "indefinite");
-    return core.createBlockBox("doc", 0, 0, pageWidths[0], totalBlockSize,
-      cs.writingMode, cs.direction, cs, us, pages, pageWidths[0]);
-  });
 
   const tree = {
     type: "virtual-root" as const,
@@ -328,10 +316,9 @@ function makeSpyVirtualTreeWithGeom(
       for (let i = from; i <= to; i++) out.push(makePage(i));
       return out;
     }),
-    materializeAll,
   } as unknown as core.VirtualLayoutTree;
 
-  return { tree, getPage, materializeAll, offsets, totalBlockSize };
+  return { tree, getPage, offsets, totalBlockSize };
 }
 
 const measurer: core.TextMeasurer = core.createMockMeasurer(8, 16);
@@ -743,10 +730,10 @@ describe("createEditorController", () => {
   });
 
   describe("painting (virtual tree) — lazy materialize", () => {
-    it("sizes page slots from the plan WITHOUT materializeAll on a collapsed-selection update", () => {
+    it("sizes page slots from the plan WITHOUT materializing the whole tree on a collapsed-selection update", () => {
       const container = document.createElement("div");
       const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
-      const { tree, materializeAll } = makeSpyVirtualTree(3, 600, 100, 24);
+      const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
 
       ctrl.update(makeFakeEditorState({ layoutTree: tree }));
 
@@ -755,51 +742,47 @@ describe("createEditorController", () => {
       expect(slots.length).toBe(3);
       expect((slots[0] as HTMLDivElement).style.width).toBe("600px");
       expect((slots[0] as HTMLDivElement).style.height).toBe("100px");
-      expect(materializeAll).not.toHaveBeenCalled();
 
       ctrl.destroy();
     });
 
-    it("paints visible pages via getPage(idx), never materializeAll, on the collapsed hot path", () => {
+    it("paints visible pages via getPage(idx) on the collapsed hot path", () => {
       const container = document.createElement("div");
       const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
-      const { tree, getPage, materializeAll } = makeSpyVirtualTree(3, 600, 100, 24);
+      const { tree, getPage } = makeSpyVirtualTree(3, 600, 100, 24);
 
       // fakeEditorBase's selection is collapsed (fresh empty doc), so this is
-      // the typing/Enter hot path: no computeSelectionRects, no bridge.
+      // the typing/Enter hot path: no computeSelectionRects.
       ctrl.update(makeFakeEditorState({ layoutTree: tree }));
 
       // The mock IntersectionObserver marks all slots visible → getPage per page.
       expect(getPage).toHaveBeenCalled();
       expect(canvasRenderer.paintPage).toHaveBeenCalled();
-      // THE WIN: the whole tree is never materialized on the collapsed path.
-      expect(materializeAll).not.toHaveBeenCalled();
 
       ctrl.destroy();
     });
 
-    it("scroll spacer / total height uses plan.totalBlockSize (no materialize)", () => {
+    it("scroll spacer / total height uses plan.totalBlockSize (no whole-tree materialize)", () => {
       const container = document.createElement("div");
       const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
-      const { tree, materializeAll } = makeSpyVirtualTree(4, 600, 100, 24);
+      const { tree } = makeSpyVirtualTree(4, 600, 100, 24);
 
       ctrl.update(makeFakeEditorState({ layoutTree: tree }));
-      // Paginated mode uses per-slot divs (no single spacer), but the key
-      // guarantee is no materialize on the collapsed update.
-      expect(materializeAll).not.toHaveBeenCalled();
+      // Paginated mode uses per-slot divs (no single spacer); the page slots are
+      // sized from the plan, not from a materialized whole-document box.
+      const slots = container.querySelectorAll("div[data-page-index]");
+      expect(slots.length).toBe(4);
 
       ctrl.destroy();
     });
 
-    it("non-collapsed selection (non-spanning blocks) computes rects per-page, never materializeAll", () => {
+    it("non-collapsed selection (non-spanning blocks) computes rects per-page", () => {
       const container = document.createElement("div");
       const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
-      const { tree, getPage, materializeAll } = makeSpyVirtualTree(3, 600, 100, 24);
+      const { tree, getPage } = makeSpyVirtualTree(3, 600, 100, 24);
 
       // A non-collapsed selection. The spy tree's `pageSpanOfBlock` returns null
-      // (non-spanning), so the per-page selection-rect path is taken — the
-      // bridge `materializeAll()` is NOT used (it would be only for a boundary
-      // block that straddles a page break).
+      // (non-spanning), so the per-page selection-rect path is taken.
       const anchor = core.createPosition("doc" as core.BlockId, 0);
       const focus = core.createPosition("doc" as core.BlockId, 1);
       ctrl.update(
@@ -809,7 +792,6 @@ describe("createEditorController", () => {
         }),
       );
 
-      expect(materializeAll).not.toHaveBeenCalled();
       expect(getPage).toHaveBeenCalled(); // per-page paint + rect computation
 
       ctrl.destroy();
@@ -837,10 +819,10 @@ describe("createEditorController", () => {
       ctrl.destroy();
     });
 
-    it("spanning-block selection boundary unions rects per-page, never materializeAll", () => {
+    it("spanning-block selection boundary unions rects per-page", () => {
       const container = document.createElement("div");
       const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
-      const { tree, getPage, materializeAll } = makeSpyVirtualTree(3, 600, 100, 24);
+      const { tree, getPage } = makeSpyVirtualTree(3, 600, 100, 24);
       // Force a boundary block to straddle a page break (pages 0..1).
       (tree.plan as { pageSpanOfBlock: (id: core.BlockId) => { first: number; last: number } | null })
         .pageSpanOfBlock = () => ({ first: 0, last: 1 });
@@ -852,16 +834,15 @@ describe("createEditorController", () => {
         makeFakeEditorState({ layoutTree: tree, selection: core.createSpan(anchor, focus) }),
       );
 
-      // Slice 3: the spanning boundary block is unioned per-page via
-      // `selectionRectsAcrossPages` (getPage per spanned page) — the
-      // materializeAll bridge NEVER fires.
-      expect(materializeAll).not.toHaveBeenCalled();
+      // The spanning boundary block is unioned per-page via
+      // `selectionRectsAcrossPages` (getPage per spanned page) — the whole tree
+      // is never materialized.
       expect(getPage).toHaveBeenCalled();
 
       ctrl.destroy();
     });
 
-    it("paginated mousedown hit-test resolves via getPage(clicked), never materializeAll", () => {
+    it("paginated mousedown hit-test resolves via getPage(clicked)", () => {
       const dispatch = vi.fn();
       const container = document.createElement("div");
       document.body.appendChild(container);
@@ -869,12 +850,11 @@ describe("createEditorController", () => {
         container,
         makeOptions({ dispatch, pageHeight: 100, pageGap: 24 }),
       );
-      const { tree, getPage, materializeAll } = makeSpyVirtualTree(3, 600, 100, 24);
+      const { tree, getPage } = makeSpyVirtualTree(3, 600, 100, 24);
       ctrl.update(makeFakeEditorState({ layoutTree: tree }));
 
       // Paint already called getPage for visible pages; isolate the mousedown.
       getPage.mockClear();
-      materializeAll.mockClear();
 
       container.getBoundingClientRect = vi.fn(() => ({
         left: 0, top: 0, right: 600, bottom: 372, width: 600, height: 372, x: 0, y: 0, toJSON: () => {},
@@ -885,7 +865,6 @@ describe("createEditorController", () => {
       );
 
       // The hit-test materializes ONLY the clicked page — never the whole tree.
-      expect(materializeAll).not.toHaveBeenCalled();
       expect(getPage).toHaveBeenCalledWith(1);
 
       ctrl.destroy();
@@ -989,7 +968,7 @@ describe("createEditorController", () => {
         new MouseEvent("mousedown", { clientX: 10, clientY: 500, detail: 1, bubbles: true }),
       );
 
-      // Hit-tested page 2 via getPage (never materializeAll).
+      // Hit-tested page 2 via getPage (never the whole tree).
       expect(getPage).toHaveBeenCalledWith(2);
 
       // resolvePositionFromPixel called with pageLocalY = 500 - 364 = 136,

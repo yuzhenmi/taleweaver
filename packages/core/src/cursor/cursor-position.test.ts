@@ -4,7 +4,7 @@ import { render } from "../render/render";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
 import { layoutTree } from "../layout/dispatch";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import type { TextShaper } from "../layout/text-shaper";
 import type { PageConfig } from "../layout/page-config";
@@ -32,7 +32,7 @@ function pipeline(
   const shaper = createMockShaper(8, 16); // 8px char width, 16px line height
   // Bridge the (possibly virtual) layout result to a positioned tree; the
   // cursor APIs operate on positioned boxes (Phase 3 Task 1).
-  const layout = resolvePositionedTree(layoutTree(root, containerInlineSize, shaper, pageConfig));
+  const layout = positionTreeForTest(layoutTree(root, containerInlineSize, shaper, pageConfig));
   return { layout, shaper };
 }
 

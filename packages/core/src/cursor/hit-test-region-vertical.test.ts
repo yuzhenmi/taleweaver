@@ -37,7 +37,7 @@ import {
   makeVirtualLayoutTree,
   __resetGetPageDriverCountForTest,
 } from "../layout/virtual-layout-tree";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import type { ElementBox, RenderNode } from "../render/render-node";
 import type { TextShaper } from "../layout/text-shaper";
 import type { PageConfig } from "../layout/page-config";
@@ -193,7 +193,7 @@ function buildDoc(opts: {
   const virtual = makeVirtualLayoutTree(
     plan, cascadedRoot, ctx, shaper, cfg, undefined, cascadedTemplateContents,
   );
-  const positioned = resolvePositionedTree(virtual);
+  const positioned = positionTreeForTest(virtual);
   return { state, positioned, shaper };
 }
 

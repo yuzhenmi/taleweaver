@@ -3,7 +3,7 @@ import { render } from "../render/render";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
 import { layoutTree } from "../layout/dispatch";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import type { TextShaper } from "../layout/text-shaper";
 import { adaptShaperToMeasurer } from "../layout/text-measurer";
@@ -45,7 +45,7 @@ function pipeline(state: State): { layout: LayoutBox; measurer: TextMeasurer } {
     createDefaultAttrRegistry(),
   ).root;
   const shaper: TextShaper = createMockShaper(CHAR_W, LINE_H);
-  const layout = resolvePositionedTree(layoutTree(root, 800, shaper));
+  const layout = positionTreeForTest(layoutTree(root, 800, shaper));
   return { layout, measurer: adaptShaperToMeasurer(shaper) };
 }
 
@@ -241,7 +241,7 @@ describe("buildLineBidiView", () => {
     ).root;
     const shaper: TextShaper = createMockShaper(CHAR_W, LINE_H);
     // Narrow container to force a wrap inside the word.
-    const layout = resolvePositionedTree(layoutTree(root, 40, shaper));
+    const layout = positionTreeForTest(layoutTree(root, 40, shaper));
     const lines = getLineIndex(layout).byBlock.get("p" as BlockId) ?? [];
     expect(lines.length).toBeGreaterThan(0);
     for (const alb of lines) {
@@ -385,7 +385,7 @@ describe("caretInlineCoordInLeaf / offsetInLeaf", () => {
       cascadedEmbedContents,
       footnoteAnchors,
     );
-    const positioned = resolvePositionedTree(virtual);
+    const positioned = positionTreeForTest(virtual);
     const measurer = adaptShaperToMeasurer(shaper);
 
     const lines = getLineIndex(positioned).byBlock.get("p" as BlockId) ?? [];

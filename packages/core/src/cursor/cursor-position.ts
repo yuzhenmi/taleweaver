@@ -92,11 +92,11 @@ function defaultPixelPosition(): PixelPosition {
  *      finds the block's `BlockBox` and returns its top-left.
  *
  * Accepts EITHER a fully-positioned `LayoutBox` (unpaginated /
- * legacy-fallback / the `materializeAll()` bridge) OR a
+ * legacy-fallback) OR a
  * `VirtualLayoutTree` (paginated mode). For a virtual tree the
  * cursor's page is resolved via the `PagePlan` and only that page (+
  * an adjacent page at the cross-page soft-wrap edge) is materialized
- * via `getPage` — never `materializeAll()`. This is what makes caret
+ * via `getPage` — never the whole document. This is what makes caret
  * resolution O(1 page) on the typing/Enter hot path (Phase 3 Task 3).
  */
 export function resolvePixelPosition(
@@ -174,7 +174,7 @@ export function resolvePixelPosition(
  * slot body via `resolveTemplateBlockPage`, or a footnote body via
  * `resolveFootnoteBlockPage` (`pageIndexOfFootnoteBlock`). A well-formed doc's
  * caret always maps to one of these; reaching neither is a stale-caret error
- * (dev-throw; prod returns `null`). NEVER `materializeAll()`.
+ * (dev-throw; prod returns `null`). NEVER positions the whole document.
  */
 function resolveInVirtualTree(
   tree: VirtualLayoutTree,
@@ -373,7 +373,7 @@ export function resolveTemplateBlockPage(
  * (either as own LineBoxes — the editable paragraph case — OR as a slot-box the
  * baseline walk finds — the container-root case), else `null` (the page doesn't
  * carry this body → caller applies the I1 fallback / bridge). Materializes only
- * `pageIndex` (one `getPage`), never `materializeAll`.
+ * `pageIndex` (one `getPage`), never the whole document.
  */
 function resolveSlotOnPage(
   tree: VirtualLayoutTree,
@@ -649,7 +649,7 @@ function findBlockBaseline(
     // Visit header/footer SLOTS too (C.2c T6) so the defensive baseline walk
     // reaches a slot-DESCENDANT block id (the rare multi-block-header case that
     // the `pageIndexOfTemplateBlock` fast path does not cover and which falls to
-    // the materializeAll bridge). Page-local origin, same pageIndex.
+    // positioning the whole document). Page-local origin, same pageIndex.
     if (box.headerSlot !== null) {
       const found = findBlockBaseline(box.headerSlot, blockId, 0, 0, box.pageIndex);
       if (found !== null) return found;

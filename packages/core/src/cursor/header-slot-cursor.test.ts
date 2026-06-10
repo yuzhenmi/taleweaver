@@ -37,7 +37,7 @@ import {
   __resetGetPageDriverCountForTest,
   type VirtualLayoutTree,
 } from "../layout/virtual-layout-tree";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import type { ElementBox, RenderNode } from "../render/render-node";
 import type { TextShaper } from "../layout/text-shaper";
 import type { PageConfig } from "../layout/page-config";
@@ -221,7 +221,7 @@ describe("C.2c T6 — hit-test into the header band", () => {
       bodyText: "body text here",
       headerText: "header",
     });
-    const positioned = resolvePositionedTree(virtual);
+    const positioned = positionTreeForTest(virtual);
 
     // Find the header line's geometry to click on it precisely.
     const hdrLines = getLineIndex(positioned).byBlock.get(HEADER_ROOT) ?? [];
@@ -251,7 +251,7 @@ describe("C.2c T6 — hit-test into the header band", () => {
       bodyText: "body text here",
       headerText: "header",
     });
-    const positioned = resolvePositionedTree(virtual);
+    const positioned = positionTreeForTest(virtual);
     const bodyLines = getLineIndex(positioned).byBlock.get("p" as BlockId) ?? [];
     expect(bodyLines.length).toBe(1);
     const bodyLine = bodyLines[0];
@@ -287,7 +287,7 @@ describe("C.2c T6 — caret (position→pixel) into the header slot", () => {
       bodyText: "body",
       headerText: "header",
     });
-    const positioned = resolvePositionedTree(virtual);
+    const positioned = positionTreeForTest(virtual);
     for (const offset of [0, 2, 6]) {
       const pos = createPosition(HEADER_ROOT, offset);
       const got = resolvePixelPosition(state, pos, virtual, shaper);
@@ -296,14 +296,13 @@ describe("C.2c T6 — caret (position→pixel) into the header slot", () => {
     }
   });
 
-  it("does NOT call materializeAll for a slot-root caret (fast path drives exactly one page)", () => {
+  it("drives exactly one page for a slot-root caret (fast path, never the whole doc)", () => {
     const { state, virtual, shaper } = buildDocWithHeader({
       bodyText: "body",
       headerText: "header",
     });
     // Fresh, unmaterialized tree: a slot caret must drive exactly ONE per-page
-    // layoutBlock call (page 0 via the fast path), NOT the whole-doc
-    // materializeAll bridge.
+    // layoutBlock call (page 0 via the fast path), NOT the whole document.
     __resetGetPageDriverCountForTest();
     const pos = createPosition(HEADER_ROOT, 2);
     const got = resolvePixelPosition(state, pos, virtual, shaper);
@@ -318,7 +317,7 @@ describe("C.2c T6 — selection-geometry into the header slot", () => {
       bodyText: "body",
       headerText: "header",
     });
-    const positioned = resolvePositionedTree(virtual);
+    const positioned = positionTreeForTest(virtual);
 
     // Select "head" (offset 0..4) within the header.
     const span = createSpan(

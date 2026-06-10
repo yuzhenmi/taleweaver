@@ -45,11 +45,11 @@ import { isDevMode } from "../layout/dev-mode";
  *   - Empty document or unresolvable position: return null.
  *
  * Accepts EITHER a fully-positioned `LayoutBox` (unpaginated /
- * legacy-fallback / the `materializeAll()` bridge) OR a
+ * legacy-fallback) OR a
  * `VirtualLayoutTree` (paginated mode). For a virtual tree the move is
  * resolved PER-PAGE: only the caret's page (+ at most one adjacent page
  * for a page-boundary crossing) is materialized via `getPage` — never
- * `materializeAll()`. This is what keeps the first arrow keypress after
+ * the whole document. This is what keeps the first arrow keypress after
  * an edit O(1 page) on a large doc instead of O(N_pages) (Phase 4).
  */
 export function moveToLine(
@@ -91,7 +91,7 @@ export function moveToLine(
  *   4. Resolve the preserved inline-axis goal onto the adjacent line's
  *      block-axis band via `resolveTargetLine` (which projects to a physical
  *      click through the target line's axis map).
- * Also the fallback the virtual path delegates to (over `materializeAll()`)
+ * Also the fallback the virtual path delegates to (over whole-tree positioning)
  * for blocks that span pages.
  */
 function moveToLineInPositioned(
@@ -147,7 +147,7 @@ function moveToLineInPositioned(
  * into one OFFSET-domain list via `collectBlockLinesAcrossPages` (the offset
  * domain dissolves the double-Up: both candidate lines at a fragment boundary
  * are adjacent in that list), then resolves the chosen target line's geometry
- * PER-PAGE via `getPage(target.pageIndex)` — never `materializeAll()`.
+ * PER-PAGE via `getPage(target.pageIndex)` — never the whole document.
  * Spanning blocks (a paragraph taller than a page) are the rare case, off the
  * flat-document hot path.
  */
@@ -167,7 +167,7 @@ function moveToLineVirtual(
   // #323: a header/footer SLOT (template) block isn't in `pageIndexOfBlock`
   // (it's never a top-level body child). Resolve it per-page on the HINTED page
   // (with the I1 empty-slot fallback) so a footer line-move stays O(1) on the
-  // page the user is editing instead of falling to `materializeAll`. The footer
+  // page the user is editing instead of positioning the whole document. The footer
   // is single-line within its isolated slot context, so Up/Down is a no-op (the
   // #327 context filter), but it must run on the right page.
   if (endPage < 0) {
@@ -367,7 +367,7 @@ function moveToLineOnPage(
  * applying the I1 empty-slot fallback (a hint at a page whose slot lacks this
  * body recomputes WITHOUT the hint). Returns the page that carries the block's
  * lines, or -1 if none does (the caller then tries the footnote resolver, else
- * degrades safely). Never calls `materializeAll` — only `getPage` of the
+ * degrades safely). Never positions the whole document — only `getPage` of the
  * candidate page(s).
  */
 function resolveTemplateBlockPageWithLines(
@@ -498,10 +498,10 @@ function endOfDocument(state: State, x: number): { position: Position; targetX: 
  * Accepts a positioned `LayoutBox` OR a `VirtualLayoutTree`. The virtual
  * path resolves the caret's page from the plan (no pixel measurement
  * needed) and reads only that page's lines via `getPage` — never
- * `materializeAll()`. A block that SPANS pages runs the SAME
+ * the whole document. A block that SPANS pages runs the SAME
  * find-line→boundary-offset logic over its stitched cross-page fragment list
  * (`collectBlockLinesAcrossPages`) instead of one page (rare; off the hot
- * path) — no pixel resolution, no `materializeAll()`.
+ * path) — no pixel resolution, no whole-document positioning.
  */
 export function moveToLineBoundary(
   state: State,
@@ -522,7 +522,7 @@ export function moveToLineBoundary(
         // SPANNING block: the caret's line fragment may live on any page in the
         // block's span. Run the SAME find-line→boundary-offset logic over the
         // block's STITCHED cross-page fragment list (offset domain) — no pixel
-        // resolution, no `materializeAll()`. (`p >= 0` ⇒ a main-body block, so
+        // resolution, no whole-document positioning. (`p >= 0` ⇒ a main-body block, so
         // the collector's per-page `byBlock` lookups are well-defined.)
         const lines = collectBlockLinesAcrossPages(layoutTree, position.blockId, span);
         const idx = findLineForPosition(lines, position);
@@ -534,7 +534,7 @@ export function moveToLineBoundary(
       if (p < 0) {
         // #323: a header/footer SLOT (template) block — resolve its page on the
         // HINTED page (with the I1 empty-slot fallback) instead of falling to
-        // materializeAll. Home/End stays inside the slot context (one LineBox).
+        // whole-document positioning. Home/End stays inside the slot context (one LineBox).
         p = resolveTemplateBlockPageWithLines(state, layoutTree, position.blockId, caretPageHint);
         if (p < 0) {
           // FOOTNOTE-body caret: resolve its slot page per-page (embedContents

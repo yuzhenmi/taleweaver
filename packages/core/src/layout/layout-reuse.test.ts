@@ -17,7 +17,7 @@ import type { BlockBox } from "./layout-box";
 import type { LayoutContext } from "./layout-context";
 import { layoutTree } from "./dispatch";
 import { layoutTreeIncremental } from "./layout-incremental";
-import { resolvePositionedTree } from "./positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import type { LayoutBox } from "./layout-box";
 
 const shaper = createMockShaper(8, 16);
@@ -377,7 +377,7 @@ describe("buildLayoutBoxCacheFromTree (paginated, L-PERF-A)", () => {
       pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
       pageGap: 0,
     };
-    const paginatedRoot = resolvePositionedTree(layoutTree(cascaded, 500, shaper, pageConfig));
+    const paginatedRoot = positionTreeForTest(layoutTree(cascaded, 500, shaper, pageConfig));
 
     const cache = buildLayoutBoxCacheFromTree(paginatedRoot, cascaded);
     // After the fix, every paragraph child of the doc has a cache entry —
@@ -412,7 +412,7 @@ describe("buildLayoutBoxCacheFromTree (paginated, L-PERF-A)", () => {
       pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
       pageGap: 0,
     };
-    const paginatedRoot = resolvePositionedTree(layoutTree(cascaded, 500, shaper, pageConfig));
+    const paginatedRoot = positionTreeForTest(layoutTree(cascaded, 500, shaper, pageConfig));
     if (!("children" in paginatedRoot)) throw new Error("expected positioned tree");
     const firstPage = paginatedRoot.children[0];
     expect(firstPage.type).toBe("page");
@@ -460,7 +460,7 @@ describe("paginated layout reuse across keystrokes", () => {
     // per-page memo BEFORE out2 is built, so out2's carry-forward memo can
     // reuse out1's unchanged PageBoxes by reference — the virtual-mode analog
     // of the L-PERF-A subtree reuse this test guards.
-    const out1Positioned = resolvePositionedTree(out1);
+    const out1Positioned = positionTreeForTest(out1);
 
     // Find each paragraph's layout box from the paginated output.
     function findParagraphBox(root: BlockBox, key: string): BlockBox | undefined {
@@ -510,14 +510,14 @@ describe("paginated layout reuse across keystrokes", () => {
       shaper,
       pageConfig,
     );
-    const out2Positioned = resolvePositionedTree(out2);
+    const out2Positioned = positionTreeForTest(out2);
     if (out2Positioned.type !== "block") throw new Error("expected BlockBox root");
 
     // CORRECTNESS: the incremental output is structurally identical to a fresh,
     // non-incremental layout of the edited doc. This is the guarantee the
     // removed intra-page cache violated (it left shifted blocks at stale y).
     const fresh = layoutTree(cascadedEdited, 500, shaper, pageConfig);
-    const freshPositioned = resolvePositionedTree(fresh);
+    const freshPositioned = positionTreeForTest(fresh);
     expect(out2Positioned).toEqual(freshPositioned);
 
     const p1Box2 = findParagraphBox(out2Positioned, "p1");

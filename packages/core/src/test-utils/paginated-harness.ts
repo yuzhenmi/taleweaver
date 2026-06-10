@@ -1,7 +1,7 @@
 // packages/core/src/test-utils/paginated-harness.ts
 import { cascadePass } from "../cascade";
 import { layoutTree } from "../layout/dispatch";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "./position-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import { createElementBox, createTextBox } from "../render/render-node";
 import type { ElementBox, RenderNode } from "../render/render-node";
@@ -31,9 +31,9 @@ export function paginatedHarness(
 ): PaginatedHarnessResult {
   const shaper = createMockShaper(8, 16);
   const cascaded = cascadePass(rootSpec);
-  // Bridge the (virtual, in paginated mode) layout result to the positioned
-  // page tree the harness asserts over (Phase 3 Task 1).
-  const result = resolvePositionedTree(
+  // Assemble the (virtual, in paginated mode) layout result into the positioned
+  // page tree the harness asserts over (test-only oracle).
+  const result = positionTreeForTest(
     layoutTree(cascaded, containerInlineSize, shaper, pageConfig),
   );
   if (result.type !== "block") {

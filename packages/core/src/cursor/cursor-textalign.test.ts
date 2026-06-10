@@ -27,7 +27,7 @@ import { render } from "../render/render";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
 import { layoutTree } from "../layout/dispatch";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import type { TextShaper } from "../layout/text-shaper";
 import {
@@ -51,7 +51,7 @@ function pipeline(state: State): { layout: LayoutBox; shaper: TextShaper } {
     createDefaultAttrRegistry(),
   ).root;
   const shaper = createMockShaper(CHAR_W, LINE_H);
-  const layout = resolvePositionedTree(layoutTree(root, CONTAINER_W, shaper));
+  const layout = positionTreeForTest(layoutTree(root, CONTAINER_W, shaper));
   return { layout, shaper };
 }
 

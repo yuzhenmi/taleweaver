@@ -117,11 +117,11 @@ export function layoutTreeIncremental(
       // legacy positioned `paginateRoot` path (design §"Out of scope for v1").
       if (!measurePassUnsupported(layoutRoot)) {
         // Virtual mode: build the page plan + a lazily-materializing
-        // `VirtualLayoutTree`. No page is positioned here (the win lands when
-        // consumers stop materializing in Tasks 2/3); in Task 1 every consumer
-        // rides `resolvePositionedTree`'s `materializeAll()` bridge. The prior
-        // VirtualLayoutTree (when there was one) threads through as the
-        // carry-forward memo so unchanged pages reuse their PageBox by ref.
+        // `VirtualLayoutTree`. No page is positioned here; consumers position
+        // only the pages they need via `getPage(i)` — the whole document is
+        // never materialized. The prior VirtualLayoutTree (when there was one)
+        // threads through as the carry-forward memo so unchanged pages reuse
+        // their PageBox by ref.
         result = buildVirtualPaginatedTree(layoutRoot, rootCtx, shaper, pageConfig, prevVirtual, cascadedTemplateContents, cascadedEmbedContents, footnoteAnchors);
       } else {
         // Unsupported-feature fallback: legacy positioned page tree.

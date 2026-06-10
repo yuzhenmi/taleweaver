@@ -28,7 +28,7 @@ import { createMockShaper } from "../layout/mock-shaper";
 import { buildBlockFitMetas } from "../layout/build-fit-metas";
 import { measurePass } from "../layout/measure-pass";
 import { makeVirtualLayoutTree } from "../layout/virtual-layout-tree";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import { getLineIndex } from "./line-flatten";
 import type { ElementBox } from "../render/render-node";
 import type { PageConfig } from "../layout/page-config";
@@ -121,7 +121,7 @@ function buildMulticolumnDoc(
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
   const virtual = makeVirtualLayoutTree(plan, root, ctx, createMockShaper(CHAR_W, LINE_H), pageConfig);
 
-  const layout = resolvePositionedTree(virtual);
+  const layout = positionTreeForTest(virtual);
   const page0 = virtual.getPage(0);
   return { state, layout, shaper, page0 };
 }

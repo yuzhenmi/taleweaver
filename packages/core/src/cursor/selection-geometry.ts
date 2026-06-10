@@ -135,7 +135,7 @@ export function computeSelectionRects(
  * this function's domain on its own (a per-page lookup can't see the boundary's
  * other-page fragment); the caller detects that case and routes it to the
  * controller's `selectionRectsAcrossPages`, which calls THIS function once per
- * spanned page and concatenates the results (no `materializeAll` bridge).
+ * spanned page and concatenates the results (per-page, never the whole tree).
  */
 export function computeSelectionRectsForPage(
   state: State,

@@ -6,7 +6,7 @@
 // pre-Slice-4 code materialized the whole tree there. Slice 4 clamps:
 //   - ArrowUp with an empty PREVIOUS page → start-of-document.
 //   - ArrowDown with an empty NEXT page → end-of-document.
-// No crash, no `materializeAll`.
+// No crash, never positions the whole document.
 //
 // We build a real 2-page document, then wrap `getPage` so the adjacent page
 // returns a PageBox with NO children (zero lines). The caret on the populated
@@ -84,17 +84,17 @@ function buildTwoPageDoc(): { state: State; tree: VirtualLayoutTree } {
   return { state, tree };
 }
 
-/** Wrap a tree so `getPage(emptyPage)` returns a PageBox with NO children, and
- *  `materializeAll` throws if ever reached. */
+/** Wrap a tree so `getPage(emptyPage)` returns a PageBox with NO children.
+ *  The clamp path reads per-page via `getPage` only — there is no whole-tree
+ *  materialization to guard against (the bridge is gone), so the wrapper only
+ *  needs to empty the target page. */
 function withEmptiedPage(
   tree: VirtualLayoutTree,
   emptyPage: number,
-): { guarded: VirtualLayoutTree; materializeCalls: { count: number } } {
-  const materializeCalls = { count: 0 };
-  // A wrapper object (NOT a Proxy: `getPage`/`materializeAll` are non-configurable
-  // own data properties on the tree, which a Proxy may not re-target). It mirrors
-  // the tree's fields, overriding `getPage` to empty `emptyPage` and
-  // `materializeAll` to throw.
+): { guarded: VirtualLayoutTree } {
+  // A wrapper object (NOT a Proxy: `getPage` is a non-configurable own data
+  // property on the tree, which a Proxy may not re-target). It mirrors the
+  // tree's fields, overriding `getPage` to empty `emptyPage`.
   const guarded: VirtualLayoutTree = {
     ...tree,
     getPage(i: number): PageBox {
@@ -104,15 +104,11 @@ function withEmptiedPage(
       }
       return page;
     },
-    materializeAll() {
-      materializeCalls.count++;
-      throw new Error("materializeAll() must not be called on the clamp path");
-    },
   };
-  return { guarded, materializeCalls };
+  return { guarded };
 }
 
-describe("empty-adjacent-page guard clamps to a document boundary (no materializeAll)", () => {
+describe("empty-adjacent-page guard clamps to a document boundary (per-page only)", () => {
   it("precondition: the doc paginates to ≥ 2 pages", () => {
     const { tree } = buildTwoPageDoc();
     expect(tree.plan.entries.length).toBeGreaterThanOrEqual(2);
@@ -123,7 +119,7 @@ describe("empty-adjacent-page guard clamps to a document boundary (no materializ
     const shaper = createMockShaper(SHAPER_CHAR_W, SHAPER_LINE_H);
     // Empty page 1; put the caret on the LAST body block of page 0 so ArrowDown
     // steps toward page 1.
-    const { guarded, materializeCalls } = withEmptiedPage(tree, 1);
+    const { guarded } = withEmptiedPage(tree, 1);
     // The last block whose whole-block progress is page 0.
     const page0LastBlock = ((): BlockId => {
       for (let i = 11; i >= 0; i--) {
@@ -134,7 +130,6 @@ describe("empty-adjacent-page guard clamps to a document boundary (no materializ
     })();
     const pos = createPosition(page0LastBlock, 0);
     const moved = moveToLine(state, pos, guarded, shaper, "down", null);
-    expect(materializeCalls.count).toBe(0);
     expect(moved).not.toBeNull();
     // Clamp = end-of-document (last leaf, its content length).
     const lastLeaf = lastLeafBlock(state, state.rootId);
@@ -146,7 +141,7 @@ describe("empty-adjacent-page guard clamps to a document boundary (no materializ
     const shaper = createMockShaper(SHAPER_CHAR_W, SHAPER_LINE_H);
     // Empty page 0; put the caret on the FIRST body block of page 1 so ArrowUp
     // steps toward page 0.
-    const { guarded, materializeCalls } = withEmptiedPage(tree, 0);
+    const { guarded } = withEmptiedPage(tree, 0);
     const page1FirstBlock = ((): BlockId => {
       for (let i = 0; i < 12; i++) {
         const id = `bp${i}` as BlockId;
@@ -156,7 +151,6 @@ describe("empty-adjacent-page guard clamps to a document boundary (no materializ
     })();
     const pos = createPosition(page1FirstBlock, 0);
     const moved = moveToLine(state, pos, guarded, shaper, "up", null);
-    expect(materializeCalls.count).toBe(0);
     expect(moved).not.toBeNull();
     // Clamp = start-of-document (first leaf, offset 0).
     const firstLeaf = firstLeafBlock(state, state.rootId);

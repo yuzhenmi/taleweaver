@@ -13,7 +13,7 @@ import { createPaintCache } from "./paint-cache";
 import {
   createInitialEditorState, reduceEditor,
   createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper,
-  getBlock, createPosition, createSpan, resolvePositionedTree,
+  getBlock, createPosition, createSpan,
   type EditorConfig, type PageConfig, type EditorState, type LayoutBox, type BlockId,
 } from "@taleweaver/core";
 
@@ -44,9 +44,9 @@ function makeConfig(): EditorConfig {
 function getPage0(editor: EditorState): LayoutBox {
   const lt = editor.layoutTree;
   if (lt.type === "virtual-root") return lt.getPage(0);
-  const pos = resolvePositionedTree(lt);
-  if (!("children" in pos)) throw new Error("expected positioned tree");
-  return pos.children[0];
+  // Non-paginated / legacy fallback: `lt` is already a positioned `LayoutBox`.
+  if (!("children" in lt)) throw new Error("expected positioned tree");
+  return lt.children[0];
 }
 
 function firstChildId(editor: EditorState): BlockId {

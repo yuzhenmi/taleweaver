@@ -2,7 +2,7 @@
 //
 // VL bridge removal, Slice 3 (Bucket A). The controller's three spanning-block
 // fallbacks — selection rects, find-match highlight, comment highlight — used to
-// route through the `materializeAll()` bridge (`computeSelectionRects` over the
+// route through a whole-tree-positioning bridge (`computeSelectionRects` over the
 // fully-positioned tree). They now union `computeSelectionRectsForPage` over the
 // pages a spanning block covers (`selectionRectsAcrossPages` in the controller).
 //
@@ -36,15 +36,18 @@ import {
   spanStart,
   spanEnd,
   resolvePixelPosition,
-  resolvePositionedTree,
   computeSelectionRects,
   computeSelectionRectsForPage,
+  createBlockBox,
+  computeUsedStyle,
+  INITIAL_COMPUTED_STYLE,
   getBlock,
   inlineContentLength,
   type EditorState,
   type EditorConfig,
   type State,
   type Span,
+  type LayoutBox,
   type VirtualLayoutTree,
   type SelectionRect,
   type TextShaper,
@@ -52,6 +55,33 @@ import {
   type BlockId,
   type PageConfig,
 } from "@taleweaver/core";
+
+/**
+ * TEST-ONLY oracle: assemble a `VirtualLayoutTree`'s pages into one positioned
+ * `LayoutBox` (the equivalence ground truth that replaced the deleted
+ * whole-tree-positioning bridge). Each `getPage(i)` is already positioned at its
+ * document-absolute `blockOffset`, so wrapping them in a minimal outer box
+ * reproduces the bridge's document-absolute line geometry. Production never
+ * materializes the whole tree (it reads per-page via `getPage`).
+ */
+function assembleAllPages(tree: VirtualLayoutTree): LayoutBox {
+  const pageCount = tree.plan.entries.length;
+  const pages = tree.getPages(0, pageCount - 1);
+  const usedStyle = computeUsedStyle(INITIAL_COMPUTED_STYLE, tree.inlineSize, "indefinite");
+  return createBlockBox(
+    "virtual-root",
+    0,
+    0,
+    tree.inlineSize,
+    tree.blockSize,
+    INITIAL_COMPUTED_STYLE.writingMode,
+    INITIAL_COMPUTED_STYLE.direction,
+    INITIAL_COMPUTED_STYLE,
+    usedStyle,
+    pages,
+    tree.inlineSize,
+  );
+}
 
 const CHAR_W = 8;
 const LINE_H = 16;
@@ -155,9 +185,9 @@ describe("spanning-block selection rects: per-page union (VL Slice 3)", () => {
   it("per-page union equals computeSelectionRects over the materialized tree (no behavior change)", () => {
     const { editor, measurer, blockId } = buildSpanningEditor();
     const virtual = asVirtual(editor.layoutTree);
-    // TODO(VL slice 5): migrate this oracle from resolvePositionedTree to
-    // paginateRoot when resolvePositionedTree is deleted (see VL bridge removal spec §testing).
-    const positioned = resolvePositionedTree(virtual);
+    // Oracle: assemble all pages into one positioned tree (replaces the deleted
+    // whole-tree-positioning bridge; see VL bridge removal spec §testing).
+    const positioned = assembleAllPages(virtual);
 
     const blk = getBlock(editor.state, blockId);
     const total = blk?.inlineContent ? inlineContentLength(blk.inlineContent) : 0;
@@ -213,9 +243,9 @@ describe("spanning-block selection rects: per-page union (VL Slice 3)", () => {
   it("a partial span ending mid-block on page 1 still emits page-0 + page-1 rects", () => {
     const { editor, measurer, blockId } = buildSpanningEditor();
     const virtual = asVirtual(editor.layoutTree);
-    // TODO(VL slice 5): migrate this oracle from resolvePositionedTree to
-    // paginateRoot when resolvePositionedTree is deleted (see VL bridge removal spec §testing).
-    const positioned = resolvePositionedTree(virtual);
+    // Oracle: assemble all pages into one positioned tree (replaces the deleted
+    // whole-tree-positioning bridge; see VL bridge removal spec §testing).
+    const positioned = assembleAllPages(virtual);
 
     const blk = getBlock(editor.state, blockId);
     const total = blk?.inlineContent ? inlineContentLength(blk.inlineContent) : 0;

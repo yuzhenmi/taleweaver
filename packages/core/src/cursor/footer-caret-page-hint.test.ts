@@ -6,7 +6,7 @@
 // EVERY page's slot, so a caret `Position {blockId, offset}` is page-ambiguous.
 // Cycle A threads a NON-undoable `caretPageHint?: number` (view state) into
 // caret-render so the caret resolves on the HINTED page (via getPage(hint),
-// O(1) memo-warm — NOT materializeAll), falling back to the template body's
+// O(1) memo-warm — NOT the whole document), falling back to the template body's
 // first carrying page when no/stale hint.
 //
 // All docs here are MULTI-PAGE with a shared footer (the #326 container body:
@@ -262,7 +262,7 @@ describe("#323 Cycle A — caretPageHint resolves the footer caret on the hinted
     expect(got.pageIndex).toBe(0);
   });
 
-  it("uses getPage (NOT materializeAll): the driver count stays small", () => {
+  it("uses getPage (NOT the whole document): the driver count stays small", () => {
     const { state, virtual, shaper } = buildMultiPageFooter({
       bodyParagraphs: 20,
       footerText: "Page footer",
@@ -272,7 +272,7 @@ describe("#323 Cycle A — caretPageHint resolves the footer caret on the hinted
     const got = resolvePixelPosition(state, pos, virtual, shaper, 1);
     expect(got).not.toBeNull();
     // A hinted footer caret must drive a SMALL number of per-page layout calls
-    // (just the hinted page, not every page in the doc). materializeAll would
+    // (just the hinted page, not every page in the doc). Positioning the whole doc would
     // drive one per page (>= 3 here).
     expect(__getGetPageDriverCountForTest()).toBeLessThanOrEqual(2);
     expect(__getGetPageDriverCountForTest()).toBeLessThan(virtual.plan.entries.length);
@@ -293,7 +293,7 @@ describe("#323 Cycle A — DESCENDANT footer-paragraph caret + hint", () => {
     expect(got.pageIndex).toBe(1);
     // x at 3 chars * 8px = 24 (footer paragraph has its own lines).
     expect(got.x).toBeCloseTo(24, 5);
-    // NOT materializeAll: small driver count.
+    // NOT the whole document: small driver count.
     expect(__getGetPageDriverCountForTest()).toBeLessThan(virtual.plan.entries.length);
   });
 
@@ -323,11 +323,11 @@ describe("#323 Cycle A — C1 line-navigation honors caretPageHint", () => {
     const result = moveToLine(state, pos, virtual, shaper, "down", null, 2);
     // Single-line footer: Down has no same-context line below ⇒ no-op (null).
     expect(result).toBeNull();
-    // It resolved on the hinted page, NOT via materializeAll over the whole doc.
+    // It resolved on the hinted page, NOT by positioning the whole doc.
     expect(__getGetPageDriverCountForTest()).toBeLessThan(virtual.plan.entries.length);
   });
 
-  it("moveToLine (Up) on a page-2 footer stays put (no-op) without materializeAll", () => {
+  it("moveToLine (Up) on a page-2 footer stays put (no-op) without positioning the whole doc", () => {
     const { state, virtual, shaper } = buildMultiPageFooter({
       bodyParagraphs: 10,
       footerText: "Page footer",

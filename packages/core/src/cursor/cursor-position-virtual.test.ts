@@ -3,7 +3,7 @@
 // Virtualized-layout Phase 3, Task 3. `resolvePixelPosition` must accept a
 // `VirtualLayoutTree` and resolve the caret by materializing only the cursor's
 // page (+ a neighbor at the cross-page soft-wrap edge) — never the whole
-// document. The materialized-tree path (`materializeAll()`) is the ORACLE: the
+// document. The assembled-positioned-tree path is the ORACLE: the
 // virtual path must return the SAME PixelPosition.
 //
 // Design: docs/superpowers/specs/2026-05-24-virtualized-layout-design.md
@@ -15,7 +15,7 @@ import { render } from "../render/render";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
 import { layoutTree } from "../layout/dispatch";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import { getLineIndex } from "./line-flatten";
 import { createMockShaper } from "../layout/mock-shaper";
 import type { TextShaper } from "../layout/text-shaper";
@@ -61,7 +61,7 @@ interface Built {
  * Build a flat document of `paragraphTexts.length` paragraphs under the doc
  * root and lay it out paginated. Returns the UNMATERIALIZED virtual tree (so
  * driver-count tests measure cold queries). Callers that want the oracle call
- * `resolvePositionedTree(built.virtual)` themselves.
+ * `positionTreeForTest(built.virtual)` themselves.
  */
 function buildDoc(paragraphTexts: readonly string[], cfg: PageConfig): Built {
   const blockIds = paragraphTexts.map((_, i) => `p${i}`);
@@ -128,7 +128,7 @@ describe("resolvePixelPosition (virtual tree) — oracle equivalence", () => {
     const texts = Array.from({ length: 20 }, (_, i) => `para ${i} hello`);
     const cfg = pageConfig();
     const { state, virtual, shaper } = buildDoc(texts, cfg);
-    const positioned = resolvePositionedTree(virtual);
+    const positioned = positionTreeForTest(virtual);
     expect(virtual.plan.entries.length).toBeGreaterThan(1);
 
     for (let i = 0; i < texts.length; i++) {
@@ -145,7 +145,7 @@ describe("resolvePixelPosition (virtual tree) — oracle equivalence", () => {
   it("spanning paragraph: caret at offsets across all pages matches the oracle", () => {
     const cfg = pageConfig();
     const { state, virtual, shaper } = buildSpanningParagraph(600, cfg);
-    const positioned = resolvePositionedTree(virtual);
+    const positioned = positionTreeForTest(virtual);
     expect(virtual.plan.entries.length).toBeGreaterThan(2);
 
     // The paragraph's total inline length (offsets are state-model offsets).
@@ -165,7 +165,7 @@ describe("resolvePixelPosition (virtual tree) — cross-page soft-wrap edge", ()
   it("offset at the soft-wrap end of a page's last line snaps to the next page's first line", () => {
     const cfg = pageConfig();
     const { state, virtual, shaper } = buildSpanningParagraph(600, cfg);
-    const positioned = resolvePositionedTree(virtual);
+    const positioned = positionTreeForTest(virtual);
 
     // Find a page boundary: the offset that is the inlineOffsetEnd of some
     // page's last own-line AND the inlineOffsetStart of the next page's first
@@ -213,7 +213,7 @@ describe("resolvePixelPosition (virtual tree) — materializes only the cursor p
     expect(got).not.toBeNull();
 
     // Exactly one per-page layoutBlock driver call — page `targetPage` only.
-    // NOT `totalPages` (which is what materializeAll() would drive).
+    // NOT `totalPages` (which positioning the whole document would drive).
     expect(__getGetPageDriverCountForTest()).toBe(1);
     expect(__getGetPageDriverCountForTest()).toBeLessThan(totalPages);
   });
@@ -234,11 +234,11 @@ describe("resolvePixelPosition (virtual tree) — materializes only the cursor p
     const lastOffset = texts[texts.length - 1].length;
 
     // (1) Oracle-equivalence: build a tree, materialize it for the oracle, and
-    // assert the virtual path deep-equals the materializeAll() oracle for BOTH
+    // assert the virtual path deep-equals the positioned-tree oracle for BOTH
     // offset 0 and an interior offset on the off-page-0 block.
     {
       const { state, virtual, shaper } = buildDoc(texts, cfg);
-      const positioned = resolvePositionedTree(virtual);
+      const positioned = positionTreeForTest(virtual);
       expect(virtual.plan.entries.length).toBeGreaterThan(1);
 
       // The block's whole-block-progress (last) page AND its first page are both
@@ -285,7 +285,7 @@ describe("resolvePixelPosition (virtual tree) — materializes only the cursor p
     // pageIndexOfBlock returns the block's LAST page; the back-walk stops at the
     // first page whose own-lines start at/before the offset. For a caret near
     // the block's END, that's the last page (or one before) — materializing far
-    // fewer pages than materializeAll() would. (A caret near the block's START
+    // fewer pages than positioning the whole document would. (A caret near the block's START
     // of a long paragraph materializes more, bounded by the block's page-span,
     // never the document — but that is off the typing/Enter hot path.)
     const cfg = pageConfig();

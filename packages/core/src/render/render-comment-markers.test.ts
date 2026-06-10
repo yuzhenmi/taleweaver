@@ -14,7 +14,7 @@ import { asBlockId } from "../state";
 import type { BlockId } from "../state";
 import { COMMENT_START_EMBED_TYPE, COMMENT_END_EMBED_TYPE } from "../state";
 import { layoutTree } from "../layout/dispatch";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import { getLineIndex } from "../cursor/line-flatten";
 
@@ -165,7 +165,7 @@ describe("render — comment markers preserve the offset↔box 1:1 IFC invariant
 
     const root = render(state, reg2, attrReg2).root;
     const shaper = createMockShaper(CHAR_W, LINE_H);
-    const layout = resolvePositionedTree(
+    const layout = positionTreeForTest(
       layoutTree(root, widePage.pageInlineSize, shaper, widePage),
     );
 

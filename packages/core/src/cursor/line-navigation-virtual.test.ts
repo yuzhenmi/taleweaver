@@ -1,7 +1,7 @@
 // Phase-4: moveToLine / moveToLineBoundary must resolve against a
 // VirtualLayoutTree PER-PAGE (caret page + at most one adjacent page), never
-// materializeAll(). Two guarantees:
-//   1. EQUIVALENCE: the per-page result equals the materializeAll() bridge
+// the assembled positioned tree (oracle). Two guarantees:
+//   1. EQUIVALENCE: the per-page result equals the positioned-tree oracle
 //      result (the current shipped behavior = ground truth) for every position
 //      and direction, including page-boundary crossings.
 //   2. PERF: one moveToLine on a large doc materializes O(1) pages, not O(N).
@@ -31,6 +31,7 @@ import { paginateRoot } from "../layout/paginate";
 import { makeRootContext } from "../layout/layout-context";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import { getLineIndex } from "./line-flatten";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import type { BlockBox } from "../layout/layout-box";
 
 // Small pages so a handful of one-line paragraphs span several pages.
@@ -123,12 +124,12 @@ function paginateOracle(
 }
 
 describe("line-navigation on a VirtualLayoutTree (Phase-4 per-page)", () => {
-  describe("moveToLine equivalence vs the materializeAll bridge", () => {
+  describe("moveToLine equivalence vs the positioned-tree oracle", () => {
     // 16 one-line paragraphs over 4-line pages ⇒ 4 pages.
     const config = makeConfig();
     const editor = buildPasted(config, 16);
     if (editor.layoutTree.type !== "virtual-root") throw new Error("expected virtual");
-    const bridge = editor.layoutTree.materializeAll();
+    const bridge = positionTreeForTest(editor.layoutTree);
 
     // Positions chosen to exercise: within-page, first line of a non-first
     // page, last line of a page, doc top, doc bottom.
@@ -152,11 +153,11 @@ describe("line-navigation on a VirtualLayoutTree (Phase-4 per-page)", () => {
     }
   });
 
-  describe("moveToLineBoundary equivalence vs the materializeAll bridge", () => {
+  describe("moveToLineBoundary equivalence vs the positioned-tree oracle", () => {
     const config = makeConfig();
     const editor = buildPasted(config, 16);
     if (editor.layoutTree.type !== "virtual-root") throw new Error("expected virtual");
-    const bridge = editor.layoutTree.materializeAll();
+    const bridge = positionTreeForTest(editor.layoutTree);
 
     for (const boundary of ["start", "end"] as const) {
       for (const blockIdx of [0, 5, 9, 15]) {
@@ -195,7 +196,7 @@ describe("line-navigation on a VirtualLayoutTree (Phase-4 per-page)", () => {
 // Slice 2 — spanning-block line navigation through the per-page collector.
 // A single paragraph taller than one page (its fragments on `span.first..last`)
 // is navigated by stitching its per-page line fragments into one offset-domain
-// list and resolving the target line's geometry per-page — NEVER materializeAll.
+// list and resolving the target line's geometry per-page — NEVER the whole tree.
 // Backstop: the virtual spanning result deep-equals nav over the `paginateRoot`
 // positioned oracle for every caret placement and direction.
 // ---------------------------------------------------------------------------

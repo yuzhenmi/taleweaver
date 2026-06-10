@@ -4,7 +4,7 @@ import { render } from "../render/render";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
 import { layoutTree } from "../layout/dispatch";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import type { TextShaper } from "../layout/text-shaper";
 import {
@@ -30,7 +30,7 @@ function pipeline(
     createDefaultAttrRegistry(),
   ).root;
   const shaper = createMockShaper(8, 16);
-  const layout = resolvePositionedTree(layoutTree(root, containerInlineSize, shaper, undefined));
+  const layout = positionTreeForTest(layoutTree(root, containerInlineSize, shaper, undefined));
   return { layout, shaper };
 }
 
@@ -513,7 +513,7 @@ function vDoc(wm: WritingMode): State {
 function vPipeline(state: State): { layout: LayoutBox; shaper: TextShaper } {
   const root = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
   const shaper = createMockShaper(V_CHAR_W, V_LINE_CROSS);
-  const layout = resolvePositionedTree(
+  const layout = positionTreeForTest(
     layoutTree(root, vPageConfig.pageInlineSize, shaper, vPageConfig),
   );
   return { layout, shaper };
@@ -666,7 +666,7 @@ describe("P3.6 vertical line-navigation — goal-coord memory across a short lin
   function goalPipeline(state: State): { layout: LayoutBox; shaper: TextShaper } {
     const root = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
     const shaper = createMockShaper(V_CHAR_W, V_LINE_CROSS);
-    const layout = resolvePositionedTree(
+    const layout = positionTreeForTest(
       layoutTree(root, goalPageConfig.pageInlineSize, shaper, goalPageConfig),
     );
     return { layout, shaper };

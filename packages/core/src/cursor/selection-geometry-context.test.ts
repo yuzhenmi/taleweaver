@@ -35,7 +35,7 @@ import {
   __resetGetPageDriverCountForTest,
   type VirtualLayoutTree,
 } from "../layout/virtual-layout-tree";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import { layoutTree as dispatchLayout } from "../layout/dispatch";
 import type { ElementBox, RenderNode } from "../render/render-node";
 import type { TextShaper } from "../layout/text-shaper";
@@ -170,7 +170,7 @@ function buildDoc(opts: {
   const virtual = makeVirtualLayoutTree(
     plan, cascadedRoot, ctx, shaper, cfg, undefined, cascadedTemplateContents,
   );
-  const positioned = resolvePositionedTree(virtual);
+  const positioned = positionTreeForTest(virtual);
   return { state, virtual, positioned, shaper };
 }
 
@@ -328,7 +328,7 @@ describe("selection-geometry — main-only doc unchanged (no context filter effe
     const root = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
     const shaper = createMockShaper(SHAPER_CHAR_W, SHAPER_LINE_H);
     // Non-paginated main-only layout (mirrors selection-geometry.test.ts pipeline).
-    const layout = resolvePositionedTree(dispatchLayout(root, 800, shaper));
+    const layout = positionTreeForTest(dispatchLayout(root, 800, shaper));
     const span = createSpan(createPosition("p" as BlockId, 1), createPosition("p" as BlockId, 4));
     const rects = computeSelectionRects(state, span, layout, shaper);
     expect(rects.length).toBe(1);

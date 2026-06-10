@@ -3,7 +3,7 @@ import { createElementBox, createTextBox } from "../render/render-node";
 import type { RenderNode, ElementBox } from "../render/render-node";
 import { cascadePass, cascadePassIncremental } from "../cascade";
 import { layoutTreeIncremental } from "../layout/layout-incremental";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import { layoutBlock } from "../layout/bfc";
 import { createMockShaper } from "../layout/mock-shaper";
 import { makeRootContext } from "../layout/layout-context";
@@ -126,8 +126,8 @@ describe("Incremental layout — subtree reuse via prevLayoutCache", () => {
 
     const out2 = layoutTreeIncremental(asElement(cascadedNew), cascaded, out1, 500, shaper);
 
-    const p2_1 = findBoxByKey(resolvePositionedTree(out1), "p2");
-    const p2_2 = findBoxByKey(resolvePositionedTree(out2), "p2");
+    const p2_1 = findBoxByKey(positionTreeForTest(out1), "p2");
+    const p2_2 = findBoxByKey(positionTreeForTest(out2), "p2");
     expect(p2_2).toBe(p2_1);  // Reference-equal via layoutTreeIncremental's cache.
   });
 });
