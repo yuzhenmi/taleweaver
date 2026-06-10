@@ -24,7 +24,7 @@ import {
   resolveBlock,
   docHasFootnotes,
 } from "../state";
-import type { Block, BlockId, State } from "../state";
+import type { Block, BlockId, State, SuggestionView } from "../state";
 import type { Style, ComputedStyle } from "../styles";
 import type { AttrRegistry } from "../cascade/attr-registry";
 import type { ComponentRegistry } from "../components/component-registry";
@@ -75,6 +75,12 @@ export function renderIncremental(
   prevState: State,
   dirtyIds: ReadonlySet<BlockId>,
   footnoteNumbersOverride?: ReadonlyMap<BlockId, FootnoteNumber>,
+  // Change-tracking preview view (slice 5c-iii). The incremental path assumes a
+  // STABLE view across cycles (live editing is always "suggesting"); a view
+  // SWITCH must go through the full `render()` path, since reused prev nodes were
+  // built under the prior view. Threaded to `makeRenderContext` so a consistent-
+  // view incremental render projects suggestions correctly.
+  suggestionView: SuggestionView = "suggesting",
 ): RenderOutput {
   // Empty-dirty short-circuit: nothing changed → return prev as-is.
   // This preserves reference equality on the top-level RenderOutput so
@@ -265,7 +271,7 @@ export function renderIncremental(
     }
   }
 
-  const context: RenderContext = makeRenderContext(state, fnNumbers, listCounters);
+  const context: RenderContext = makeRenderContext(state, fnNumbers, listCounters, suggestionView);
 
   const rootBlock = getBlock(state, state.rootId);
   if (rootBlock === null) {
@@ -357,6 +363,9 @@ export function renderIncremental(
     root,
     embedContents,
     templateContents,
+    // 5c-iii: the incremental path runs ONLY when the view is unchanged (the
+    // `render()` dispatch guard), so the output carries the same view as `prev`.
+    suggestionView,
     footnoteAnchors: fnAnchors,
     footnoteNumbers: fnNumbers,
     listCounters,

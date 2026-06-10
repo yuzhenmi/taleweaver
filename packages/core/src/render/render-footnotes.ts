@@ -18,7 +18,7 @@ import {
   docHasFootnotes,
   FOOTNOTE_ANCHOR_EMBED_TYPE,
 } from "../state";
-import type { Block, BlockId, State } from "../state";
+import type { Block, BlockId, State, SuggestionView } from "../state";
 import {
   documentFootnotePolicy,
   SECTION_BLOCK_TYPE,
@@ -81,11 +81,13 @@ export function makeRenderContext(
   state: State,
   fnNumbers: ReadonlyMap<BlockId, FootnoteNumber>,
   listCounters: ReadonlyMap<BlockId, CounterValue>,
+  suggestionView: SuggestionView = "suggesting",
 ): RenderContext {
   const format = documentFootnotePolicy(state).format;
   const suffix = format === "symbol" ? "" : ".";
   return {
     state,
+    suggestionView,
     footnoteNumber: (contentBlockId: BlockId): string | undefined => {
       const formatted = fnNumbers.get(contentBlockId)?.formatted;
       return formatted === undefined ? undefined : formatted + suffix;

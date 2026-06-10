@@ -1,5 +1,5 @@
 import { getBlock, getEmbedContent, getEmbedContentIds, getTemplateContent, getTemplateContentIds, docHasFootnotes, docHasLists, getListDefsForState } from "../state";
-import type { Block, BlockId, State } from "../state";
+import type { Block, BlockId, State, SuggestionView } from "../state";
 import type { Style, ComputedStyle } from "../styles";
 import type { AttrRegistry } from "../cascade/attr-registry";
 import type { ComponentRegistry } from "../components/component-registry";
@@ -70,6 +70,14 @@ export interface RenderOutput {
    * content is unchanged. Empty for a cross-reference-free document.
    */
   readonly crossReferenceIndex: ReadonlyMap<BlockId, ReadonlyArray<BlockId>>;
+  /**
+   * The change-tracking preview view this output was rendered under (slice
+   * 5c-iii). Cached so the incremental dispatch can DETECT a view switch: reused
+   * prev nodes carry the prior view's suggestion projection, so a render whose
+   * `suggestionView` differs from `prev.suggestionView` MUST take the full path
+   * rather than the incremental one. `"suggesting"` for a default render.
+   */
+  readonly suggestionView: SuggestionView;
 }
 
 /**
@@ -124,6 +132,14 @@ export interface RenderOptions {
    * `target-counter`. When absent, behavior is exactly as before FN-6.4.
    */
   readonly footnoteNumbersOverride?: ReadonlyMap<BlockId, FootnoteNumber>;
+  /**
+   * Change-tracking preview view (slice 5c-iii). `"suggesting"` (default) renders
+   * the literal document with the 5a/5b suggestion visuals; `"final"` renders as
+   * if all suggestions were ACCEPTED; `"original"` as if all were REJECTED. Pure
+   * derivation over inline content (no state mutation) — see
+   * {@link RenderContext.suggestionView}. Live editing always uses `"suggesting"`.
+   */
+  readonly suggestionView?: SuggestionView;
 }
 
 /**
@@ -164,7 +180,11 @@ export function render(
     options !== undefined &&
     options.prev !== undefined &&
     options.prevState !== undefined &&
-    options.dirtyIds !== undefined
+    options.dirtyIds !== undefined &&
+    // 5c-iii: a view SWITCH invalidates the prev cache (reused nodes carry the
+    // prior view's suggestion projection), so fall through to the full path when
+    // the requested view differs from the one `prev` was built under.
+    options.prev.suggestionView === (options.suggestionView ?? "suggesting")
   ) {
     return renderIncremental(
       state,
@@ -174,6 +194,7 @@ export function render(
       options.prevState,
       options.dirtyIds,
       options.footnoteNumbersOverride,
+      options.suggestionView ?? "suggesting",
     );
   }
 
@@ -209,7 +230,12 @@ export function render(
   // incremental cycle can reuse it (and expand its invalidation set). The full
   // path always walks every block anyway, so this adds no asymptotic cost.
   const crossReferenceIndex = buildCrossReferenceIndex(state);
-  const context: RenderContext = makeRenderContext(state, fnNumbers, listCounters);
+  const context: RenderContext = makeRenderContext(
+    state,
+    fnNumbers,
+    listCounters,
+    options?.suggestionView ?? "suggesting",
+  );
   const visited = new Set<BlockId>();
   const rootBlock = getBlock(state, state.rootId);
   if (rootBlock === null) {
@@ -285,6 +311,7 @@ export function render(
     root,
     embedContents,
     templateContents,
+    suggestionView: options?.suggestionView ?? "suggesting",
     footnoteAnchors: fnAnchors,
     footnoteNumbers: fnNumbers,
     listCounters,

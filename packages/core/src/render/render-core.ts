@@ -26,6 +26,7 @@ import {
   DELETION_SUGGESTION_ATTR,
   FORMATTING_SUGGESTION_ATTR,
   readSuggestionRecordFromState,
+  itemVisibleInView,
 } from "../state";
 import type {
   Block,
@@ -36,6 +37,7 @@ import type {
   CrossReferenceMode,
   SuggestionId,
   SuggestionRecord,
+  SuggestionView,
 } from "../state";
 import { authorColorOf } from "../styles";
 import type { CounterValue } from "../numbering";
@@ -182,7 +184,16 @@ export function renderBlockBody(
     // components can't accidentally consume the sentinel.
     const inlineRenderNodes: ReadonlyArray<RenderNode> = def.leafShape === "atomic"
       ? []
-      : expandInlineItems(block.id, inline, specified, attrRegistry, fnNumbers, state, numbering);
+      : expandInlineItems(
+          block.id,
+          inline,
+          specified,
+          attrRegistry,
+          fnNumbers,
+          state,
+          numbering,
+          context.suggestionView ?? "suggesting",
+        );
     return def.render(view, context, inlineRenderNodes);
   } finally {
     // A2: visited tracks the ACTIVE recursion path, not the cumulative
@@ -246,25 +257,41 @@ export function expandInlineItems(
   fnNumbers: ReadonlyMap<BlockId, FootnoteNumber>,
   state: State,
   numbering: ReadonlyMap<BlockId, CounterValue>,
+  view: SuggestionView = "suggesting",
 ): RenderNode[] {
+  // Change-tracking slice 5c-iii: in a non-`"suggesting"` preview view the
+  // suggestion VISUALS (5a/5b) are suppressed — the document is rendered as it
+  // would read once accepted (`"final"`) / rejected (`"original"`). Preview views
+  // are NON-editable, so dropping resolved-away items here does not affect the
+  // (suggesting-only) cursor/hit-test offset accounting.
+  const suppressVisuals = view !== "suggesting";
   const out: RenderNode[] = [];
   let i = 0;
   for (const item of content.items) {
+    // 5c-iii: drop items resolved AWAY in this view (final: deletions + joins;
+    // original: insertions + splits). `i` still advances so render keys stay
+    // stable across the literal item list.
+    if (!itemVisibleInView(item, view)) {
+      i++;
+      continue;
+    }
     const itemStyle: Partial<Style> = attrRegistry.applyAll(item.attrs, {
       parentStyle: blockSpecified,
     });
     const key = `${blockId}/inline/${i}`;
     if (item.kind === "text") {
       // InlineItem narrows to TextItem here via the discriminated union.
-      // Change-tracking slice 5a: if the run carries any suggestion-id dimension,
-      // layer the suggestion visuals (author color + underline/lineThrough, plus
-      // the formatting proposal preview) ON TOP of the normal cascaded itemStyle.
+      // Change-tracking slice 5a/5c-iii: in `"suggesting"` view, layer the
+      // suggestion visuals (author color + underline/lineThrough + formatting
+      // preview) on top of the cascaded itemStyle. In a preview view, suppress
+      // those visuals — but in `"final"` apply a formatting proposal FOR REAL.
       const runStyle = resolveSuggestionStyle(
         item.attrs,
         itemStyle,
         state,
         attrRegistry,
         blockSpecified,
+        view,
       );
       out.push(createTextBox(key, runStyle, item.text));
     } else if (item.embedType === FOOTNOTE_ANCHOR_EMBED_TYPE) {
@@ -346,32 +373,49 @@ export function expandInlineItems(
       // supplies the author color; an absent record (collab race / migration)
       // leaves `color` to the cascade but still marks the decoration (the embed
       // TYPE alone determines split=underline / join=lineThrough).
-      const isSplit = item.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE;
-      const rawId = item.properties.suggestionId;
-      const record =
-        typeof rawId === "string"
-          ? readSuggestionRecordFromState(state, rawId as SuggestionId)
-          : null;
-      const authorColor = record !== null ? authorColorOf(record.author) : null;
-      // The inner glyph carries ONLY the suggestion decoration overrides (color +
-      // underline/lineThrough); it inherits font/size from the container's cascade
-      // — re-applying `itemStyle` here would DOUBLE-apply em-relative properties
-      // (mirrors the cross-reference branch's empty-style inner child).
-      const glyphStyle: Partial<Style> = {
-        ...(authorColor !== null ? { color: authorColor } : {}),
-        ...(isSplit ? { underline: true } : { lineThrough: true }),
-      };
-      out.push(
-        createElementBox(
-          key,
-          // `display: "inline-block"` spread LAST so the single-token atomicity
-          // always wins over `itemStyle` (the IFC offset accounting is
-          // load-bearing) — matching the cross-reference branch's precedence.
-          { ...itemStyle, display: "inline-block" },
-          [createTextBox(`${key}/0`, glyphStyle, PILCROW)],
-          { embedType: item.embedType },
-        ),
-      );
+      // 5c-iii: in a preview view a SURVIVING break embed (a split accepted in
+      // `"final"`, a join rejected in `"original"`) is resolved INTO the document
+      // structure — its break is the block boundary itself, so it shows NO visible
+      // pilcrow. Render it as a zero-width inline-block atom (mirrors the
+      // comment-marker shape). (Structurally MERGING the two blocks for an
+      // accepted-join / rejected-split is the carved `5c-structural` sub-slice.)
+      if (suppressVisuals) {
+        out.push(
+          createElementBox(
+            key,
+            { ...itemStyle, inlineSize: 0, display: "inline-block" },
+            [],
+            { embedType: item.embedType },
+          ),
+        );
+      } else {
+        const isSplit = item.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE;
+        const rawId = item.properties.suggestionId;
+        const record =
+          typeof rawId === "string"
+            ? readSuggestionRecordFromState(state, rawId as SuggestionId)
+            : null;
+        const authorColor = record !== null ? authorColorOf(record.author) : null;
+        // The inner glyph carries ONLY the suggestion decoration overrides (color +
+        // underline/lineThrough); it inherits font/size from the container's cascade
+        // — re-applying `itemStyle` here would DOUBLE-apply em-relative properties
+        // (mirrors the cross-reference branch's empty-style inner child).
+        const glyphStyle: Partial<Style> = {
+          ...(authorColor !== null ? { color: authorColor } : {}),
+          ...(isSplit ? { underline: true } : { lineThrough: true }),
+        };
+        out.push(
+          createElementBox(
+            key,
+            // `display: "inline-block"` spread LAST so the single-token atomicity
+            // always wins over `itemStyle` (the IFC offset accounting is
+            // load-bearing) — matching the cross-reference branch's precedence.
+            { ...itemStyle, display: "inline-block" },
+            [createTextBox(`${key}/0`, glyphStyle, PILCROW)],
+            { embedType: item.embedType },
+          ),
+        );
+      }
     } else if (
       item.embedType === COMMENT_START_EMBED_TYPE ||
       item.embedType === COMMENT_END_EMBED_TYPE
@@ -512,6 +556,7 @@ function resolveSuggestionStyle(
   state: State,
   attrRegistry: AttrRegistry,
   blockSpecified: Partial<Style>,
+  view: SuggestionView,
 ): Partial<Style> {
   const insertionId = attrs[INSERTION_SUGGESTION_ATTR];
   const deletionId = attrs[DELETION_SUGGESTION_ATTR];
@@ -523,6 +568,27 @@ function resolveSuggestionStyle(
     typeof deletionId !== "string" &&
     typeof formattingId !== "string"
   ) {
+    return baseStyle;
+  }
+
+  // 5c-iii preview views: the run already SURVIVED `itemVisibleInView`, so it is
+  // rendered as it would read once resolved — with NO suggestion decoration
+  // (no author color / underline / lineThrough). A `"final"` view applies a
+  // formatting proposal FOR REAL (`proposedAttrs` composited over the base);
+  // `"original"` drops the proposal (keeps the live attrs already in `baseStyle`).
+  if (view !== "suggesting") {
+    if (view === "final") {
+      const fmtRecord =
+        typeof formattingId === "string"
+          ? readSuggestionRecordFromState(state, formattingId as SuggestionId)
+          : null;
+      if (fmtRecord?.proposedAttrs !== undefined) {
+        const proposedStyle = attrRegistry.applyAll(fmtRecord.proposedAttrs, {
+          parentStyle: blockSpecified,
+        });
+        return { ...baseStyle, ...proposedStyle };
+      }
+    }
     return baseStyle;
   }
 

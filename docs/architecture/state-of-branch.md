@@ -891,9 +891,15 @@ but contributes no text; `getWordCount({suggestionView})` + `getSelectionWordCou
 it through. `final` omits deletion text / keeps insertions; `original` omits insertion text / keeps deletions;
 `suggesting` default = byte-identical legacy. TEXT-RUN projection ONLY — the block-boundary structural merge
 (accepted-join / rejected-split suppressing the inter-block "\n" + word-boundary join) is the carved
-`5c-structural` sub-slice). REMAINING: 5c-iii wire render (filter + suppress suggestion visuals in non-
-suggesting views + apply formatting for real in `final`; OPEN: shares the `5c-structural` block-merge with
-extractText); `5c-structural` (block-boundary projection, shared by extractText+render); 6 host query +
+`5c-structural` sub-slice).
+**5c-iii render projection — SHIPPED** (`RenderOptions.suggestionView` threads through
+`render()`/`renderIncremental()`→`makeRenderContext`→`RenderContext.suggestionView`→`expandInlineItems`'s
+`view`: filters resolved-away items by `itemVisibleInView`, SUPPRESSES the 5a/5b suggestion visuals in
+non-`suggesting` views, renders a surviving break embed zero-width (no pilcrow), and in `final` applies a
+formatting `proposedAttrs` for real. `RenderOutput.suggestionView` records the view so the incremental
+dispatch FALLS BACK to the full path on a view switch (reused nodes carry the prior projection). Default
+`suggesting` = byte-identical legacy. Same TEXT-RUN scope — block MERGE is `5c-structural`). REMAINING:
+`5c-structural` (block-boundary projection, shared by extractText+render); 6 host query +
 overlay; 7 arch docs. (No text/HTML exporter exists yet — only the binary serializer, which round-trips the
 literal state; a view-projected text/HTML export lands if/when that exporter is built, NOT a change-tracking
 slice.) See `1.1-state.md` "The `suggestions` map" + `1.7-editor.md`.

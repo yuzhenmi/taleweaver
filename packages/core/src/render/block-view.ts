@@ -1,4 +1,4 @@
-import type { BlockId, ReadonlyAttrs, InlineContent, State } from "../state";
+import type { BlockId, ReadonlyAttrs, InlineContent, State, SuggestionView } from "../state";
 import type { ComputedStyle } from "../styles";
 import type { CounterValue } from "../numbering/types";
 
@@ -71,4 +71,16 @@ export interface RenderContext {
    * consumer; custom numbered components consume the same API.
    */
   counterValue?(scopeKey: string, blockId: BlockId): CounterValue | undefined;
+  /**
+   * The change-tracking preview view for this render cycle (slice 5c-iii). Drives
+   * `expandInlineItems`' projection of pending suggestions: `"suggesting"`
+   * (default) shows the literal document with the 5a/5b suggestion visuals;
+   * `"final"` renders as if all suggestions were ACCEPTED (deletion runs + join
+   * pilcrows dropped, formatting `proposedAttrs` applied for real, NO suggestion
+   * decoration); `"original"` as if all were REJECTED (insertion runs + split
+   * pilcrows dropped, formatting proposals dropped, no decoration). OPTIONAL so
+   * existing `RenderContext` stubs (which omit it) read as `"suggesting"`; the
+   * production factory `makeRenderContext` always supplies it.
+   */
+  suggestionView?: SuggestionView;
 }

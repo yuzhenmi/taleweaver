@@ -282,3 +282,154 @@ describe("expandInlineItems — break-suggestion pilcrows (slice 5b)", () => {
     expect(glyph.style.color).toBeUndefined();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Slice 5c-iii — render preview-view projection. `render(..., {suggestionView})`
+// filters resolved-away items AND suppresses the 5a/5b suggestion visuals:
+//   - "final" (accept all): deletion runs + join pilcrows GONE; insertion runs
+//     render as plain text; formatting proposals applied FOR REAL (no underline).
+//   - "original" (reject all): insertion runs + split pilcrows GONE; deletion
+//     runs render as plain text; formatting proposals dropped (live attrs only).
+// ─────────────────────────────────────────────────────────────────────────
+
+/** All TextBox.text strings in document order. */
+function allTexts(root: RenderNode): string[] {
+  const out: string[] = [];
+  function walk(node: RenderNode): void {
+    if (node.type === "text") {
+      out.push((node as TextBox).text);
+      return;
+    }
+    for (const child of (node as ElementBox).children) walk(child);
+  }
+  walk(root);
+  return out;
+}
+
+/** First TextBox with text `t`, or null if absent. */
+function maybeTextBox(root: RenderNode, t: string): TextBox | null {
+  let found: TextBox | null = null;
+  function walk(node: RenderNode): void {
+    if (found !== null) return;
+    if (node.type === "text") {
+      if ((node as TextBox).text === t) found = node as TextBox;
+      return;
+    }
+    for (const child of (node as ElementBox).children) walk(child);
+  }
+  walk(root);
+  return found;
+}
+
+describe("render — SuggestionView preview projection (slice 5c-iii)", () => {
+  it('"final" drops deletion text, renders insertion as plain (no decoration)', () => {
+    const insId = "ins" as SuggestionId;
+    const delId = "del" as SuggestionId;
+    const state = buildDoc(
+      inlineContent([
+        text("keep"),
+        text("INS", { [INSERTION_SUGGESTION_ATTR]: insId }),
+        text("DEL", { [DELETION_SUGGESTION_ATTR]: delId }),
+      ]),
+      [
+        { id: insId, kind: "insertion", author: AUTHOR, createdAt: 0 },
+        { id: delId, kind: "deletion", author: AUTHOR, createdAt: 0 },
+      ],
+    );
+    const root = render(state, reg, attrReg, { suggestionView: "final" }).root;
+    // Deletion text is gone; insertion + plain survive.
+    expect(maybeTextBox(root, "DEL")).toBeNull();
+    const ins = maybeTextBox(root, "INS");
+    expect(ins).not.toBeNull();
+    // Insertion renders as PLAIN accepted text — no suggestion decoration.
+    expect(ins?.style.underline).toBeUndefined();
+    expect(ins?.style.color).toBeUndefined();
+  });
+
+  it('"original" drops insertion text, renders deletion as plain (no strikethrough)', () => {
+    const insId = "ins" as SuggestionId;
+    const delId = "del" as SuggestionId;
+    const state = buildDoc(
+      inlineContent([
+        text("keep"),
+        text("INS", { [INSERTION_SUGGESTION_ATTR]: insId }),
+        text("DEL", { [DELETION_SUGGESTION_ATTR]: delId }),
+      ]),
+      [
+        { id: insId, kind: "insertion", author: AUTHOR, createdAt: 0 },
+        { id: delId, kind: "deletion", author: AUTHOR, createdAt: 0 },
+      ],
+    );
+    const root = render(state, reg, attrReg, { suggestionView: "original" }).root;
+    expect(maybeTextBox(root, "INS")).toBeNull();
+    const del = maybeTextBox(root, "DEL");
+    expect(del).not.toBeNull();
+    expect(del?.style.lineThrough).toBeUndefined();
+    expect(del?.style.color).toBeUndefined();
+  });
+
+  it('"final" applies a formatting proposal FOR REAL (bold), no underline indicator', () => {
+    const id = "fmt" as SuggestionId;
+    const state = buildDoc(
+      inlineContent([text("formatted", { italic: true, [FORMATTING_SUGGESTION_ATTR]: id })]),
+      [{ id, kind: "formatting", author: AUTHOR, createdAt: 0, proposedAttrs: { bold: true } }],
+    );
+    const box = textBoxWith(render(state, reg, attrReg, { suggestionView: "final" }).root, "formatted");
+    expect(box.style.fontWeight).toBe("bold"); // proposal applied for real
+    expect(box.style.fontStyle).toBe("italic"); // live attr kept
+    expect(box.style.underline).toBeUndefined(); // NO suggestion indicator
+    expect(box.style.color).toBeUndefined();
+  });
+
+  it('"original" drops a formatting proposal (live attrs only, no preview)', () => {
+    const id = "fmt" as SuggestionId;
+    const state = buildDoc(
+      inlineContent([text("formatted", { italic: true, [FORMATTING_SUGGESTION_ATTR]: id })]),
+      [{ id, kind: "formatting", author: AUTHOR, createdAt: 0, proposedAttrs: { bold: true } }],
+    );
+    const box = textBoxWith(render(state, reg, attrReg, { suggestionView: "original" }).root, "formatted");
+    expect(box.style.fontWeight).toBeUndefined(); // proposal NOT applied
+    expect(box.style.fontStyle).toBe("italic");
+    expect(box.style.underline).toBeUndefined();
+  });
+
+  it('break embeds: a SURVIVING break renders zero-width (no ¶) in preview views', () => {
+    // "final": a split SURVIVES (accepted) but shows no pilcrow — its break is the
+    // block boundary itself (the structural merge is the carved 5c-structural).
+    const splitId = "split" as SuggestionId;
+    const splitState = buildDoc(
+      inlineContent([text("a"), embed(BLOCK_SPLIT_SUGGESTION_EMBED_TYPE, { suggestionId: splitId }), text("b")]),
+      [{ id: splitId, kind: "insertion", author: AUTHOR, createdAt: 0 }],
+    );
+    const splitRoot = render(splitState, reg, attrReg, { suggestionView: "final" }).root;
+    expect(allTexts(splitRoot).join("")).toBe("ab");
+    expect(allTexts(splitRoot)).not.toContain("¶");
+    // The embed box is PRESENT (rendered zero-width), NOT dropped — locks the
+    // distinction the text-only assertions above can't (both pass if dropped).
+    const splitBox = embedBoxWith(splitRoot, BLOCK_SPLIT_SUGGESTION_EMBED_TYPE);
+    expect(splitBox.children).toHaveLength(0);
+    expect(splitBox.style.inlineSize).toBe(0);
+
+    // Symmetric: a join SURVIVES in "original" (rejected) → same zero-width atom.
+    const joinId = "join" as SuggestionId;
+    const joinState = buildDoc(
+      inlineContent([text("a"), embed(BLOCK_JOIN_SUGGESTION_EMBED_TYPE, { suggestionId: joinId }), text("b")]),
+      [{ id: joinId, kind: "deletion", author: AUTHOR, createdAt: 0 }],
+    );
+    const joinRoot = render(joinState, reg, attrReg, { suggestionView: "original" }).root;
+    expect(allTexts(joinRoot)).not.toContain("¶");
+    const joinBox = embedBoxWith(joinRoot, BLOCK_JOIN_SUGGESTION_EMBED_TYPE);
+    expect(joinBox.children).toHaveLength(0);
+  });
+
+  it("default (no option) renders the literal suggesting view with 5a visuals intact", () => {
+    const id = "ins" as SuggestionId;
+    const state = buildDoc(
+      inlineContent([text("inserted", { [INSERTION_SUGGESTION_ATTR]: id })]),
+      [{ id, kind: "insertion", author: AUTHOR, createdAt: 0 }],
+    );
+    const box = textBoxWith(render(state, reg, attrReg).root, "inserted");
+    expect(box.style.underline).toBe(true);
+    expect(box.style.color).toBe(authorColorOf(AUTHOR));
+  });
+});
