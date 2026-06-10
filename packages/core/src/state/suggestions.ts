@@ -1,5 +1,6 @@
 import * as Y from "yjs";
 import type { ReadonlyAttrs } from "./attrs";
+import type { InlineItem } from "./inline-content";
 import type { State } from "./state";
 import type { Position } from "./block-position";
 import { createPosition } from "./block-position";
@@ -116,6 +117,68 @@ export const BLOCK_JOIN_SUGGESTION_EMBED_TYPE = "block-join-suggestion";
  * atom tinted by the suggestion author's color.
  */
 export const BLOCK_SPLIT_SUGGESTION_EMBED_TYPE = "block-split-suggestion";
+
+/**
+ * The preview-view selector for the read/render projection (slice 5c) — a PURE
+ * derivation over inline content (never a state mutation) that selects what
+ * `extractText` / `getWordCount` / serialize / render see over a document with
+ * pending tracked changes:
+ *   - `"suggesting"` (default) → the LITERAL document: insertions, deletions, and
+ *     formatting proposals are all shown with their suggestion visuals. Live
+ *     editing always renders this view.
+ *   - `"final"` → the document as it would read if ALL suggestions were ACCEPTED:
+ *     insertions kept (as real text), deletions REMOVED, formatting proposals
+ *     applied for real.
+ *   - `"original"` → as if ALL were REJECTED: insertions REMOVED, deletions kept
+ *     (as real text), formatting proposals dropped.
+ */
+export type SuggestionView = "suggesting" | "final" | "original";
+
+/**
+ * Per-item VISIBILITY under a {@link SuggestionView} — the foundation predicate of
+ * the slice-5c projection. Returns whether `item` survives into the projected
+ * document for `view`:
+ *   - `"suggesting"` → everything is visible (the literal document).
+ *   - `"final"` (accept all) → a text run carrying a {@link DELETION_SUGGESTION_ATTR}
+ *     is absent (its deletion is accepted), and a {@link BLOCK_JOIN_SUGGESTION_EMBED_TYPE}
+ *     embed is absent (the suggested break-deletion happens). Insertions/splits stay.
+ *   - `"original"` (reject all) → a text run carrying an {@link INSERTION_SUGGESTION_ATTR}
+ *     is absent (its insertion is rejected), and a {@link BLOCK_SPLIT_SUGGESTION_EMBED_TYPE}
+ *     embed is absent (the suggested split is undone). Deletions/joins stay.
+ *
+ * A run that is BOTH an insertion AND a deletion (text inserted then struck in
+ * suggesting mode) is absent in BOTH non-literal views — accept removes it via the
+ * deletion, reject via the insertion — which the two branches yield without a
+ * special case. A formatting-marked run is ALWAYS visible (its `proposedAttrs`
+ * change only its STYLE, applied at the render surface, never its presence).
+ */
+export function itemVisibleInView(item: InlineItem, view: SuggestionView): boolean {
+  switch (view) {
+    case "suggesting":
+      // The literal document — every item is visible.
+      return true;
+    case "final":
+      // Accept all → the dimensions resolved AWAY are deletions (text runs) and
+      // joins (break embeds); everything else stays.
+      return item.kind === "text"
+        ? typeof item.attrs[DELETION_SUGGESTION_ATTR] !== "string"
+        : item.embedType !== BLOCK_JOIN_SUGGESTION_EMBED_TYPE;
+    case "original":
+      // Reject all → the symmetric mirror: insertions (text runs) and splits
+      // (break embeds) resolve away; everything else stays.
+      return item.kind === "text"
+        ? typeof item.attrs[INSERTION_SUGGESTION_ATTR] !== "string"
+        : item.embedType !== BLOCK_SPLIT_SUGGESTION_EMBED_TYPE;
+    default: {
+      // Exhaustiveness guard (mirrors `assertNeverWritingMode` / the editor's
+      // `action satisfies never`): adding a 4th `SuggestionView` member is a
+      // COMPILE error here, forcing its projection to be defined rather than
+      // silently mis-treated as one of the existing views.
+      const exhaustive: never = view;
+      throw new Error(`Unhandled SuggestionView: ${String(exhaustive)}`);
+    }
+  }
+}
 
 /**
  * The Y.Doc transaction `origin` slice-3's accept/reject ops pass so the resolve

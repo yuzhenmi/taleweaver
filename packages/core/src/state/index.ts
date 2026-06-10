@@ -354,6 +354,7 @@ export type {
   SuggestionRange,
   ResolvedSuggestion,
   SuggestionMintInput,
+  SuggestionView,
 } from "./suggestions";
 export {
   newSuggestionId,
@@ -362,6 +363,10 @@ export {
   FORMATTING_SUGGESTION_ATTR,
   BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
   BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
+  // The slice-5c preview-view projection foundation — per-item visibility under
+  // a `SuggestionView` ("suggesting"/"final"/"original"); consumed by the read
+  // surfaces (extractText/getWordCount) and the render pass.
+  itemVisibleInView,
   buildSuggestionRangeIndex,
   resolveSuggestionRange,
   getSuggestions,

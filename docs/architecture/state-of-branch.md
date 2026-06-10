@@ -879,8 +879,14 @@ branch into a VISIBLE pilcrow ¶ wrapped in a single inline-block atom — split
 (insertion-flavored), join=author-color+lineThrough (deletion-flavored), read via
 `properties.suggestionId`→`readSuggestionRecordFromState`→`authorColorOf`; absent record leaves
 color to the cascade but still marks the decoration; the one-token/one-offset #407 invariant is
-preserved like the cross-reference embed). REMAINING:
-5c preview-view `SuggestionView` filter (extractText/getWordCount/serialize/render); 6 host
+preserved like the cross-reference embed).
+**5c-i preview-view projection FOUNDATION — SHIPPED** (`SuggestionView = "suggesting" | "final" |
+"original"` type + pure `itemVisibleInView(item, view)` predicate in `suggestions.ts`, barrel-exported:
+`final`=accept-all drops deletion runs + block-join embeds; `original`=reject-all drops insertion runs +
+block-split embeds; both-ins-del run absent in both; formatting runs always visible (style-only). Greenfield,
+not yet wired to any surface). REMAINING: 5c-ii wire extractText/getWordCount to the view filter; 5c-iii
+wire render (filter + suppress suggestion visuals in non-suggesting views + apply formatting for real in
+`final`; OPEN: block-join-in-`final` structural merge); serialize text/HTML exporter folds into 5c-ii; 6 host
 query + overlay; 7 arch docs. See `1.1-state.md` "The `suggestions` map" + `1.7-editor.md`.
 
 ### `perf/` `[implemented]`
