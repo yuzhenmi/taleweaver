@@ -356,6 +356,45 @@ describe("handleDeleteComment — DELETE_COMMENT", () => {
       ) ?? 0;
     expect(deleted.selection.focus.offset).toBeLessThanOrEqual(para2Len);
   });
+
+  it("remaps the caret through the stripped markers when it sits IN the marked block (M-1)", () => {
+    // Caret physically inside the marker-bearing block (not the sidebar path).
+    // Para "abcdef"; comment over "bcd" inserts a start marker at offset 1 and an
+    // end marker at offset 5 ⇒ the block is 8 offsets wide. Caret at the block END
+    // (offset 8). Deleting the comment strips both zero-width markers, shrinking the
+    // block to 6 offsets — the pass-through selection (offset 8) would be PAST the
+    // new length. The handler must remap the caret through the removal: 8 − 2
+    // stripped-before = offset 6 (end of "abcdef"), which is valid AND the same
+    // visual position.
+    const { editor, paraId } = withText("abcdef");
+    const placed = selectRange(editor, paraId, 1, 4); // "bcd"
+    const added = reduceEditor(placed, addCommentAction(CID), config);
+    expect(markerCount(added, paraId, CID)).toBe(2);
+
+    // Collapsed caret at the END of the marked block (offset 8 = past "f" + 2 markers).
+    const caretInBlock = reduceEditor(
+      added,
+      {
+        type: "SET_SELECTION",
+        selection: createSpan(createPosition(paraId, 8), createPosition(paraId, 8)),
+      },
+      config,
+    );
+    const deleted = reduceEditor(caretInBlock, { type: "DELETE_COMMENT", id: CID }, config);
+
+    expect(getComments(deleted.state).length).toBe(0);
+    expect(markerCount(deleted, paraId, CID)).toBe(0);
+    // The caret is remapped to offset 6 (end of "abcdef") — valid and visually correct.
+    const paraLen =
+      getBlock(deleted.state, paraId)?.inlineContent?.items.reduce(
+        (n, it) => n + (it.kind === "text" ? it.text.length : 1),
+        0,
+      ) ?? 0;
+    expect(paraLen).toBe(6);
+    expect(deleted.selection.focus).toEqual(createPosition(paraId, 6));
+    expect(deleted.selection.anchor).toEqual(createPosition(paraId, 6));
+    expect(deleted.selection.focus.offset).toBeLessThanOrEqual(paraLen);
+  });
 });
 
 describe("handleAddReply — ADD_REPLY", () => {
