@@ -274,18 +274,16 @@ export function buildFootnotePageAssignment(
  * pageAssignment)` consumes for `restart-per-page` numbering (FN-6.1): a
  * `ReadonlyMap<contentBlockId, pageIndex>` keyed by the anchor's REFERENCE page.
  *
- * FN-6.4 slice 1 ONLY exposes this assignment to post-layout consumers; slices
- * 2-6 wire it into the render pipeline's `footnoteNumbers` call to compute the
- * per-page-reset numbers. This helper changes NO numbering behaviour.
- *
  * @param anchors ordered footnote anchors (document order, from
  *   `collectFootnoteAnchors`).
  * @param plan the page plan whose `pageSpanOfBlock` reports each anchor host
- *   block's page span. MUST be the SAME plan `resolveFootnotes` assigns against
- *   internally — the RAW (pre-`resolveFootnotes`) plan — so the exposed page
- *   matches the page the bodies were assigned to. (`resolveFootnotes` re-fits
- *   footnote pages; the anchor→reference-page mapping is established on the raw
- *   plan, before that re-fit.)
+ *   block's page span. MUST be the RESOLVED (post-`resolveFootnotes`) plan, so the
+ *   exposed page is the page the anchor's call marker actually RENDERS on. The
+ *   marker is inline content of the host block, positioned by the resolved plan;
+ *   footnote-slot reservation can evict the host block to a later page than the raw
+ *   plan placed it, and `restart-per-page` numbering restarts per the marker's
+ *   page — so the raw plan would assign a stale page (audit F2). The host-block
+ *   span always resolves, so a fully-deferred footnote body never desyncs this.
  * @param blockToIndex top-level child key → index (from
  *   `buildBlockToTopLevelIndex`); the nested-anchor skip guard.
  */

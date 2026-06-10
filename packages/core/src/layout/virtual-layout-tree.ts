@@ -353,10 +353,11 @@ export function makeVirtualLayoutTree(
   // any tree built before FN-4 also reads back its own `plan` via the fallback.
   rawPlan: PagePlan = plan,
   // FN-6.4 slice 1: each footnote body (`contentBlockId`) → the page index its
-  // anchor reference lands on (the `footnoteNumbers` `pageAssignment` shape).
-  // Computed by the producer from the RAW plan + anchors and stored on the tree
-  // (`footnoteAnchorPages`) for post-layout consumers. Defaults to an empty map
-  // (footnote-free doc).
+  // anchor reference marker RENDERS on (the `footnoteNumbers` `pageAssignment`
+  // shape). Computed by the producer from the RESOLVED plan + anchors (audit F2:
+  // footnote-slot eviction can move an anchor past its raw-plan page) and stored on
+  // the tree (`footnoteAnchorPages`) for post-layout consumers. Defaults to an empty
+  // map (footnote-free doc).
   footnoteAnchorPages: ReadonlyMap<BlockId, number> = new Map(),
   // F-2 (layout-dependent fields): the page-field specs (from `collectPageFields`)
   // + the resolved document-global values (from `resolvePageFields`). Captured in

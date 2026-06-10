@@ -232,16 +232,25 @@ export function buildVirtualPaginatedTree(
   }
 
   // FN-6.4 slice 1: each footnote body (`contentBlockId`) → the page index its
-  // anchor REFERENCE lands on, derived from the FINAL (converged) RAW plan + anchors
-  // (the SAME anchor→page source of truth `resolveFootnotes` assigns bodies against).
-  // Exposed on the tree for the post-layout rebuild pipeline's `restart-per-page`
-  // numbering (FN-6.1). Empty for a footnote-free doc (no anchors).
+  // anchor REFERENCE marker RENDERS on, derived from the RESOLVED `plan` (NOT the
+  // raw plan) + anchors. The marker is inline content of the anchor host block,
+  // which is positioned by the resolved plan; footnote-slot reservation can EVICT
+  // an anchor-bearing block to a later page than the raw plan placed it (a tall
+  // preceding footnote shrinks a page and spills its trailing anchor over). Keying
+  // on the host block's RESOLVED page span (`pageSpanOfBlock(...).first`) tracks
+  // that eviction; the raw plan would group an evicted anchor on its pre-eviction
+  // page, so `restart-per-page` numbering (FN-6.1) — which restarts per the
+  // marker's page — would keep its stale sequence number on the page it actually
+  // renders on (audit F2, spec 2026-06-10-f2-restart-per-page-resolved-anchor-page).
+  // The host-block span always resolves, so a fully-deferred footnote body (whose
+  // slot starts on a later page) does NOT desync the marker's page. Exposed on the
+  // tree for the post-layout rebuild pipeline. Empty for a footnote-free doc.
   const footnoteAnchorPages =
     footnoteAnchors.length === 0
       ? new Map<BlockId, number>()
       : footnoteAnchorPageAssignment(
           footnoteAnchors,
-          rawPlan,
+          plan,
           buildBlockToTopLevelIndex(rootChildren),
         );
 

@@ -1864,9 +1864,10 @@ function resolveAtLineHelper(entry: PagePlanEntry): number | null {
 
 // ===========================================================================
 // FN-6.4 slice 1 — VirtualLayoutTree.footnoteAnchorPages exposed via the REAL
-// producer (buildVirtualPaginatedTree). Each footnote body → the page index its
-// ANCHOR REFERENCE lands on (raw-plan source of truth). This slice only EXPOSES
-// the data; it changes NO numbering behaviour. Consumed by FN-6.4 slices 2-6.
+// producer (buildVirtualPaginatedTree). Each footnote body → the RESOLVED page
+// index its ANCHOR REFERENCE marker renders on (resolved-plan source of truth —
+// audit F2: footnote-slot eviction can move an anchor past its raw-plan page).
+// Consumed by FN-6.4 slices 2-6 (restart-per-page numbering).
 // ===========================================================================
 
 describe("VirtualLayoutTree.footnoteAnchorPages (FN-6.4 slice 1, producer path)", () => {
@@ -1878,16 +1879,18 @@ describe("VirtualLayoutTree.footnoteAnchorPages (FN-6.4 slice 1, producer path)"
     expect(tree.footnoteAnchorPages.size).toBe(0);
   });
 
-  it("two footnotes whose anchors land on DIFFERENT pages → each maps to its anchor's page", () => {
-    // 8 paras ⇒ raw plan is 2 pages (4 each: b0..b3 on page 0, b4..b7 on page 1).
-    // Footnote on b0 (raw page 0) and on b4 (raw page 1). footnoteAnchorPages is
-    // derived from the RAW plan, so fn0→0 and fn4→1 regardless of the slot re-fit.
+  it("two footnotes whose anchors land on DIFFERENT pages → each maps to its anchor's RESOLVED page", () => {
+    // 8 paras ⇒ raw plan is 2 pages (4 each: b0..b3 page 0, b4..b7 page 1).
+    // Footnote on b0 and on b4. footnoteAnchorPages keys on the RESOLVED page each
+    // anchor renders on: fn0 stays on page 0, but the footnote slots shrink the
+    // early pages enough that b4 spills past raw page 1 to resolved page 2 (audit
+    // F2). The map mirrors the resolved plan's `pageSpanOfBlock(...).first`.
     const render = fnDoc([
       fnPara("b0"), fnPara("b1"), fnPara("b2"), fnPara("b3"),
       fnPara("b4"), fnPara("b5"), fnPara("b6"), fnPara("b7"),
     ]);
     const cascaded = fnCascade(render);
-    // Sanity: the RAW measure plan really splits b0/b4 across pages 0/1.
+    // Sanity: the RAW measure plan splits b0/b4 across pages 0/1 (pre-slot).
     const rawInputs = inputsFrom(cascaded);
     expect(rawInputs.rawPlan.pageIndexOfBlock("b0")).toBe(0);
     expect(rawInputs.rawPlan.pageIndexOfBlock("b4")).toBe(1);
@@ -1902,8 +1905,12 @@ describe("VirtualLayoutTree.footnoteAnchorPages (FN-6.4 slice 1, producer path)"
       cascaded, fnCtx, FN_SHAPER, FN_PAGE, undefined, new Map(), embed, anchors,
     );
 
+    // Each maps to its host block's RESOLVED page (the plan is the source of truth).
+    expect(tree.footnoteAnchorPages.get("fn0" as BlockId)).toBe(tree.plan.pageSpanOfBlock("b0")?.first);
+    expect(tree.footnoteAnchorPages.get("fn4" as BlockId)).toBe(tree.plan.pageSpanOfBlock("b4")?.first);
+    // Resolved: fn0 on page 0, fn4 evicted to page 2 (still distinct pages).
     expect(tree.footnoteAnchorPages.get("fn0" as BlockId)).toBe(0);
-    expect(tree.footnoteAnchorPages.get("fn4" as BlockId)).toBe(1);
+    expect(tree.footnoteAnchorPages.get("fn4" as BlockId)).toBe(2);
     expect(tree.footnoteAnchorPages.size).toBe(2);
   });
 
@@ -1928,7 +1935,11 @@ describe("VirtualLayoutTree.footnoteAnchorPages (FN-6.4 slice 1, producer path)"
     expect(tree.footnoteAnchorPages.size).toBe(2);
   });
 
-  it("matches footnoteAnchorPageAssignment over the raw plan (same source of truth)", () => {
+  it("matches footnoteAnchorPageAssignment over the RESOLVED plan (same source of truth)", () => {
+    // The exposed map must equal `footnoteAnchorPageAssignment` over the tree's
+    // RESOLVED plan (NOT the raw plan): the marker renders on the resolved page, so
+    // the resolved plan is the numbering source of truth (audit F2). Over the raw
+    // plan the two would DIVERGE whenever a footnote slot evicts an anchor.
     const render = fnDoc([
       fnPara("b0"), fnPara("b1"), fnPara("b2"), fnPara("b3"),
       fnPara("b4"), fnPara("b5"), fnPara("b6"), fnPara("b7"),
@@ -1947,12 +1958,19 @@ describe("VirtualLayoutTree.footnoteAnchorPages (FN-6.4 slice 1, producer path)"
 
     const expected = footnoteAnchorPageAssignment(
       anchors,
-      rawInputs.rawPlan,
+      tree.plan, // RESOLVED plan
       buildBlockToTopLevelIndex(rawInputs.rootChildren),
     );
     expect(tree.footnoteAnchorPages.get("fn0" as BlockId)).toBe(expected.get("fn0" as BlockId));
     expect(tree.footnoteAnchorPages.get("fn4" as BlockId)).toBe(expected.get("fn4" as BlockId));
     expect(tree.footnoteAnchorPages.size).toBe(expected.size);
+    // And it genuinely DIFFERS from the raw-plan assignment (regression guard): the
+    // raw plan groups fn4 on page 1, the resolved plan on page 2.
+    const rawAssignment = footnoteAnchorPageAssignment(
+      anchors, rawInputs.rawPlan, buildBlockToTopLevelIndex(rawInputs.rootChildren),
+    );
+    expect(rawAssignment.get("fn4" as BlockId)).toBe(1);
+    expect(tree.footnoteAnchorPages.get("fn4" as BlockId)).toBe(2);
   });
 });
 
