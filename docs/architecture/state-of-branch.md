@@ -936,9 +936,14 @@ produces a virtualized page model (`layoutTree: LayoutBox |
 VirtualLayoutTree`), which drives a per-page canvas pool with per-page
 paint caches; paint, caret, mouse hit-test, and selection rects are
 resolved per page via `getPage(visible ∪ cursorPage)` without
-materializing the whole tree (the `materializeAll()` bridge survives only
-for the rare spanning-block selection fallback — a single block taller
-than a page). **Non-paginated single-canvas** is the fallback — one canvas +
+materializing the whole tree (the `materializeAll()` bridge is being removed
+via an in-progress per-page migration: spanning-block line navigation — a
+single block taller than a page — already stitches its per-page line fragments
+via `collectBlockLinesAcrossPages` rather than the bridge; the remaining bridge
+consumers — spanning-block selection/find/comment rects and a few defensive
+template/empty-adjacent-page fallback guards in `line-navigation.ts` — are
+migrated in subsequent slices, with full bridge deletion at the end).
+**Non-paginated single-canvas** is the fallback — one canvas +
 a fully-positioned `LayoutBox`, used for identity sizing and the
 unsupported-feature path (float/`clear` documents fall back to the legacy
 full positioned tree in v1, per the virtualized-layout decision). Input

@@ -14,6 +14,7 @@ import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
 import { resolvePixelPosition, resolveTemplateBlockPage } from "./cursor-position";
 import { resolvePositionFromPixel } from "./hit-test";
+import { collectBlockLinesAcrossPages } from "./block-line-collector";
 import {
   getLineIndex,
   findLineForPosition,
@@ -133,18 +134,21 @@ function moveToLineInPositioned(
  * Virtual-tree line move: resolve the caret's page from the plan and
  * navigate within it, fetching at most one adjacent page at a page edge.
  *
- * Spanning-block fallback (LOAD-BEARING): when the caret's block spans
- * pages (`pageSpanOfBlock.first !== last`) or the plan can't map it, the
- * whole query falls back to the positioned algorithm over
- * `materializeAll()`. This is NOT just an optimization guard — it is
- * required for correctness: `resolvePixelPosition` already resolves the
- * cross-page soft-wrap edge (a caret at a block's last line-end on page N
- * whose block continues to N+1 resolves to N+1), so a per-page lookup
- * there would put the caret at `idx 0` of N+1 and "up" would target the
- * last line of N — the same visual line (the double-Up regression). And
- * `findLineForPosition`'s soft-wrap look-ahead can't see a fragment on
- * the next page. Spanning blocks (a paragraph taller than a page) are the
- * rare case, off the flat-document hot path, so this is acceptable.
+ * Spanning-block path (LOAD-BEARING): when the caret's block spans pages
+ * (`pageSpanOfBlock.first !== last`), the per-page lookup alone is wrong —
+ * `resolvePixelPosition` resolves the cross-page soft-wrap edge (a caret at
+ * a block's last line-end on page N whose block continues to N+1 resolves to
+ * N+1), so a per-page `findLineForPosition` would put the caret at `idx 0` of
+ * N+1 and "up" would target the last line of N — the same visual line (the
+ * double-Up regression). And `findLineForPosition`'s soft-wrap look-ahead
+ * can't see a fragment on the next page. So spanning blocks route through
+ * `moveToLineInSpanningBlock`, which stitches the block's per-page fragments
+ * into one OFFSET-domain list via `collectBlockLinesAcrossPages` (the offset
+ * domain dissolves the double-Up: both candidate lines at a fragment boundary
+ * are adjacent in that list), then resolves the chosen target line's geometry
+ * PER-PAGE via `getPage(target.pageIndex)` — never `materializeAll()`.
+ * Spanning blocks (a paragraph taller than a page) are the rare case, off the
+ * flat-document hot path.
  */
 function moveToLineVirtual(
   state: State,
@@ -176,12 +180,83 @@ function moveToLineVirtual(
   }
 
   if (span !== null && span.first !== span.last) {
-    return moveToLineInPositioned(state, position, tree.materializeAll(), measurer, direction, targetX);
+    return moveToLineInSpanningBlock(state, position, tree, measurer, direction, targetX, span);
   }
 
   const currentPixel = resolvePixelPosition(state, position, tree, measurer);
   if (currentPixel === null) return null;
   return moveToLineOnPage(state, position, tree, measurer, direction, targetX, currentPixel.pageIndex);
+}
+
+/**
+ * Line move for a SPANNING block (one paragraph taller than a page, so its
+ * line fragments live on `span.first..span.last`). Stitches the block's
+ * per-page fragments into ONE offset-ordered list (`collectBlockLinesAcrossPages`)
+ * so the caret's current line and its previous/next line are adjacent entries —
+ * regardless of which page each fragment is on. This is what dissolves the
+ * double-Up bug: a single per-page `findLineForPosition` is blind to the
+ * fragment on the next page (and `resolvePixelPosition` already snaps the caret
+ * to the continuation page at a cross-page soft-wrap edge).
+ *
+ * The collector list is the OFFSET domain (cross-fragment ordering); geometry
+ * is resolved PER-PAGE on the chosen target line's own `PageBox`
+ * (`tree.getPage(target.pageIndex)` — its page-local coords are correct there).
+ * The goal-x is page-invariant (all pages share the inline content origin), so
+ * it threads across the page seam unchanged. Never materializes the whole tree.
+ *
+ * At the block's own first/last line, an Up/Down step leaves the block (the
+ * line above/below belongs to a different block, possibly on an adjacent page);
+ * that crossing is delegated to `moveToLineOnPage` on the boundary fragment's
+ * page, with the already-resolved goal-x passed as `targetX` so it is not
+ * re-measured (and the same #327 context-filter / document-boundary rules apply).
+ */
+function moveToLineInSpanningBlock(
+  state: State,
+  position: Position,
+  tree: VirtualLayoutTree,
+  measurer: TextMeasurer,
+  direction: "up" | "down",
+  targetX: number | null,
+  span: { readonly first: number; readonly last: number },
+): { position: Position; targetX: number } | null {
+  const blockLines = collectBlockLinesAcrossPages(tree, position.blockId, span);
+  const idx = findLineForPosition(blockLines, position);
+  if (idx < 0) {
+    // Defensive: the caret isn't on any of this block's lines (shouldn't happen
+    // for a spanning-block caret). Resolve the caret's page and fall back to the
+    // per-page walk there.
+    const currentPixel = resolvePixelPosition(state, position, tree, measurer);
+    if (currentPixel === null) return null;
+    return moveToLineOnPage(state, position, tree, measurer, direction, targetX, currentPixel.pageIndex);
+  }
+
+  // Resolve goal-x on the caret line's OWN page (page-invariant inline coord).
+  const caretPage = blockLines[idx].pageIndex;
+  const currentPixel = resolvePixelPosition(state, position, tree, measurer, caretPage);
+  if (currentPixel === null) return null;
+  const x = targetX ?? currentPixel.x;
+
+  if (direction === "up") {
+    if (idx > 0) {
+      // Within the block: the previous fragment line (geometry per its page).
+      const target = blockLines[idx - 1];
+      return resolveTargetLine(state, tree.getPage(target.pageIndex), measurer, x, target);
+    }
+    // The block's FIRST line — the line above is cross-block. Delegate to the
+    // per-page walk on the block's first page (passing the resolved goal-x so it
+    // isn't re-measured), which handles the cross-block / adjacent-page step and
+    // the document-top boundary.
+    return moveToLineOnPage(state, position, tree, measurer, "up", x, blockLines[0].pageIndex);
+  }
+
+  // direction === "down"
+  if (idx < blockLines.length - 1) {
+    const target = blockLines[idx + 1];
+    return resolveTargetLine(state, tree.getPage(target.pageIndex), measurer, x, target);
+  }
+  // The block's LAST line — the line below is cross-block. Delegate on the
+  // block's last page.
+  return moveToLineOnPage(state, position, tree, measurer, "down", x, blockLines[blockLines.length - 1].pageIndex);
 }
 
 /**
@@ -389,8 +464,10 @@ function endOfDocument(state: State, x: number): { position: Position; targetX: 
  * Accepts a positioned `LayoutBox` OR a `VirtualLayoutTree`. The virtual
  * path resolves the caret's page from the plan (no pixel measurement
  * needed) and reads only that page's lines via `getPage` — never
- * `materializeAll()`. Blocks that span pages fall back to the positioned
- * algorithm over `materializeAll()` (rare; off the hot path).
+ * `materializeAll()`. A block that SPANS pages runs the SAME
+ * find-line→boundary-offset logic over its stitched cross-page fragment list
+ * (`collectBlockLinesAcrossPages`) instead of one page (rare; off the hot
+ * path) — no pixel resolution, no `materializeAll()`.
  */
 export function moveToLineBoundary(
   state: State,
@@ -407,6 +484,19 @@ export function moveToLineBoundary(
       const plan = layoutTree.plan;
       let p = plan.pageIndexOfBlock(position.blockId);
       const span = plan.pageSpanOfBlock(position.blockId);
+      if (p >= 0 && span !== null && span.first !== span.last) {
+        // SPANNING block: the caret's line fragment may live on any page in the
+        // block's span. Run the SAME find-line→boundary-offset logic over the
+        // block's STITCHED cross-page fragment list (offset domain) — no pixel
+        // resolution, no `materializeAll()`. (`p >= 0` ⇒ a main-body block, so
+        // the collector's per-page `byBlock` lookups are well-defined.)
+        const lines = collectBlockLinesAcrossPages(layoutTree, position.blockId, span);
+        const idx = findLineForPosition(lines, position);
+        // `idx < 0` shouldn't happen for a spanning-block caret; return the input
+        // position unchanged (safe no-op) rather than materializing.
+        if (idx < 0) return position;
+        return boundaryPositionOfLine(lines[idx], boundary);
+      }
       if (p < 0) {
         // #323: a header/footer SLOT (template) block — resolve its page on the
         // HINTED page (with the I1 empty-slot fallback) instead of falling to
@@ -415,24 +505,35 @@ export function moveToLineBoundary(
         if (p < 0) {
           return lineBoundaryInPositioned(layoutTree.materializeAll(), position, boundary);
         }
-      } else if (span !== null && span.first !== span.last) {
-        return lineBoundaryInPositioned(layoutTree.materializeAll(), position, boundary);
       }
       const pageLines = getLineIndex(layoutTree.getPage(p)).all;
       const idx = findLineForPosition(pageLines, position);
       if (idx < 0) {
         return lineBoundaryInPositioned(layoutTree.materializeAll(), position, boundary);
       }
-      const line = pageLines[idx].line;
-      return createPosition(
-        line.ownerBlockId,
-        boundary === "start" ? line.inlineOffsetStart : line.inlineOffsetEnd,
-      );
+      return boundaryPositionOfLine(pageLines[idx], boundary);
     }
     return lineBoundaryInPositioned(layoutTree, position, boundary);
   } finally {
     markEnd("cursor.line-navigation.moveToLineBoundary", t);
   }
+}
+
+/**
+ * The Home/End position of a resolved line: its owning block plus the line's
+ * inline-offset start (Home) or end (End). Shared by every `moveToLineBoundary`
+ * path (positioned, per-page virtual, and spanning-block collector) so the
+ * boundary-offset rule lives in exactly one place.
+ */
+function boundaryPositionOfLine(
+  line: AbsoluteLineBox,
+  boundary: "start" | "end",
+): Position {
+  const l = line.line;
+  return createPosition(
+    l.ownerBlockId,
+    boundary === "start" ? l.inlineOffsetStart : l.inlineOffsetEnd,
+  );
 }
 
 function lineBoundaryInPositioned(
@@ -446,7 +547,5 @@ function lineBoundaryInPositioned(
   const currentLineIdx = findLineForPosition(lines, position);
   if (currentLineIdx < 0) return null;
 
-  const line = lines[currentLineIdx].line;
-  const offset = boundary === "start" ? line.inlineOffsetStart : line.inlineOffsetEnd;
-  return createPosition(line.ownerBlockId, offset);
+  return boundaryPositionOfLine(lines[currentLineIdx], boundary);
 }
