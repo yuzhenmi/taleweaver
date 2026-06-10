@@ -29,9 +29,10 @@ export function handleSplitNode(
     const start = expandedSpanCollapsePoint(editor.state, selection);
     if (start === null) return editor;
 
-    // Gate on the selection-start block's context: a split-over-selection inside a
-    // footnote/header/footer body falls back to the DIRECT delete-then-split path
-    // (untracked). `replaceSuggestionInputForBlock` returns null for a body block.
+    // Gate on the selection-start block's context: in suggesting mode a non-collapsed
+    // Enter SOFT-DELETES the selection then inserts a suggested split — in the main body
+    // OR any footnote/header/footer body (`replaceSuggestionInputForBlock` returns null
+    // only when not suggesting or the block resolves to no context).
     const sStart = spanStart(editor.state, selection);
     const replaceInput = replaceSuggestionInputForBlock(editor.state, sStart.blockId, config);
     if (replaceInput !== null) {
@@ -141,8 +142,10 @@ export function handleSplitNode(
   // `updatedOriginal.nextSiblingId`, `history.commit`, `rebuildTrees`) is
   // IDENTICAL to the direct path because the split is real; `newBlockInit` is
   // threaded through unchanged.
-  // Gate on the split block's context: a split inside a footnote/header/footer
-  // body falls back to the DIRECT `splitBlockAtPosition` path (untracked).
+  // Gate on the split block's context: a split in ANY editing context (main body
+  // OR a footnote/header/footer body) is TRACKED via `splitWithSuggestion`;
+  // `suggestionInputForBlock` returns null only when not suggesting or the block
+  // resolves to no context, → the direct `splitBlockAtPosition` path.
   const suggestInput = suggestionInputForBlock(current.state, pos.blockId, config);
   const splitResult =
     suggestInput === null

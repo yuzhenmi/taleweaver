@@ -705,7 +705,7 @@ with a dominance order — acceptAll: deletion-drop dominates; rejectAll: insert
 drop dominates; a both-insertion-and-deletion run is dropped under both). **With
 3d-ii, ALL of change-tracking slice 3 (the state ops) is COMPLETE: create
 (markFormatting/markDeletion/mintInsertion) + resolve (accept/reject single + all).**
-**Multi-tree resolution (MT) IN PROGRESS:** MT-1 shipped `iterateAllBlocksInDocumentOrder`
+**Multi-tree resolution (MT) — COMPLETE:** MT-1 shipped `iterateAllBlocksInDocumentOrder`
 (state/document-order.ts) — a 3-tree document-order walk (main `blocks`, then each
 `embedContents` body, then each `templateContents` body) over the per-root subtree
 resolver. MT-2 shipped — `buildSuggestionRangeIndex` (the range index feeding
@@ -715,12 +715,17 @@ null. MT-3 shipped — the accept/reject resolve scan (`resolveBlockScan` in
 suggestion-ops.ts) now walks all three trees too, and each per-block full-replace write
 already carries its owning block's tree `kind` (from `resolveBlock`), so a body suggestion
 is accepted/rejected in-place in its body tree instead of being left as an un-resolvable
-zombie. STILL MAIN-TREE-ONLY: the editor's suggesting-mode gate
-(`suggestionInputForBlock`, main-body-gated — MT-4), so body edits still fall back to
-direct (untracked) editing until MT-4 relaxes the gate. The editor GATES suggesting mode
-to the main body so body edits fall back to direct (untracked) editing — closing the
-body-suggestion corruption path (slice-4-followup below); MT-4 is the remaining step to
-TRACK body edits (the resolve machinery — MT-2/MT-3 — is now body-complete). **Slice 4 (editor
+zombie. MT-4 shipped — the editor's suggesting-mode gate
+(`suggestionInputForBlock`/`replaceSuggestionInputForBlock`/`isSuggestingInBlock` in
+`editor/actions/suggestion-mode.ts`) relaxed from `selectionContextOf(...) !== state.rootId`
+(main-body-only) to `=== null` (track in EVERY editing context; fall back only for a block
+that resolves to no context). All structural suggesting paths were verified tree-safe —
+SPLIT_NODE → `splitWithSuggestion`/`splitBlockAtPositionInTx` (`kind`-dispatched), the
+paragraph-boundary JOIN → `markBlockJoinSuggestion` (appends via `getYBlock(..., prev.kind)`),
+and accept-time merge → `mergeWithNextSiblingLiveInTx(d, owner.ownerId, owner.kind)`. So a
+suggesting-mode INSERT_TEXT/delete/format/SPLIT_NODE inside a footnote/header/footer/template
+body is now TRACKED and accept/reject-all resolves it cleanly (no zombie) — covered by
+`suggesting-body-tracked.test.ts`. The former main-body gate (slice-4-followup) is gone. **Slice 4 (editor
 actions + suggesting mode) IN PROGRESS, sub-sliced 4a–4e:** 4a shipped — the 4
 NON-undoable accept/reject editor actions (`ACCEPT_SUGGESTION`/`REJECT_SUGGESTION`/
 `ACCEPT_ALL_SUGGESTIONS`/`REJECT_ALL_SUGGESTIONS`) via a new `"resolve"` ActionClass
@@ -837,7 +842,7 @@ moved-boundary owner (defensive skip). Break resolution is now COMPLETE (single 
 
 **Slice 4e-editor shipped:** the break-suggestion EDITOR wiring (collapsed cases). On a
 COLLAPSED Enter, `handleSplitNode` routes through `splitWithSuggestion` when
-suggesting (`suggestionInputForBlock`, main-body-gated — see slice-4-followup) — a tracked INSERTION of a paragraph break (real
+suggesting (`suggestionInputForBlock`, all-context — see MT-4 above) — a tracked INSERTION of a paragraph break (real
 split + a `block-split-suggestion` embed on block N + an `insertion` record, one
 undoable op); the cursor / commit / rebuild path is byte-identical to the direct
 split, and the heading follow-on-type (`newBlockInit`) is threaded through. On the delete side, the blanket block-boundary suggesting
@@ -862,24 +867,19 @@ collapse-point run ONCE for both modes; the direct-mode path keeps its byte-iden
 an interim NO-OP (it needs the multi-block-suggestion machinery the paste-as-suggestion
 follow-up brings) — named alongside the `handlePaste`-not-suggesting-aware follow-up. Slice
 4e is now COMPLETE (create + resolve + editor + composite).
-**Slice 4-followup shipped (main-body gate — Finding 3a):** suggesting mode is now gated
-to the MAIN BODY at every mutating editor seam. When the gate landed, the resolve scan +
-`buildSuggestionRangeIndex` were MAIN-TREE-ONLY (MT-2 + MT-3 have since lifted BOTH
-`buildSuggestionRangeIndex` and the accept/reject resolve scan to all three trees; only
-this gate — MT-4 — still is), so a suggesting-mode edit whose target block
-lives OUTSIDE the main body (a footnote / header / footer / template body, in the
-embedContents / templateContents trees) would create a body suggestion the scan could
-never reach — on accept/reject-all the record was deleted but the tagged runs / break embed
-were left as un-resolvable zombies (silent state corruption). The fix: every seam routes its
-create-input through the context-aware `suggestionInputForBlock` /
-`replaceSuggestionInputForBlock` (`suggestion-mode.ts`), which return null — diverting to the
-existing DIRECT (untracked) branch — when `selectionContextOf(state, blockId) !==
-state.rootId`. This covers INSERT_TEXT (collapsed + type-over), all four delete handlers +
-the paragraph-boundary suggested-joins (via `deleteRangeOrSuggest` + the join sites), all
-eight inline-format handlers (via `applyAttrsOrSuggest`), and SPLIT_NODE (collapsed + composite).
-A body edit still happens, just untracked, creating no un-resolvable suggestion. The full
-multi-tree resolution scan (actually tracking + resolving body suggestions) remains the named
-follow-up below.
+**Slice 4-followup → SUPERSEDED by MT-4 (Finding 3a closed both ways):** the interim
+main-body gate (which diverted body suggesting-mode edits to direct/untracked editing to
+avoid un-resolvable zombies while the resolve machinery was main-tree-only) is GONE. MT-2 +
+MT-3 made `buildSuggestionRangeIndex` and the accept/reject resolve scan body-complete, so
+MT-4 relaxed the seam helpers (`suggestionInputForBlock` / `replaceSuggestionInputForBlock` /
+`isSuggestingInBlock`) from `selectionContextOf(...) !== state.rootId` to `=== null`: a
+suggesting-mode edit in ANY editing context (main body OR footnote/header/footer/template
+body) is now TRACKED. The seam coverage is unchanged — INSERT_TEXT (collapsed + type-over),
+all four delete handlers + the paragraph-boundary suggested-joins (via `deleteRangeOrSuggest`
++ the join sites), all eight inline-format handlers (via `applyAttrsOrSuggest`), and SPLIT_NODE
+(collapsed + composite) — but they now create a body suggestion that the all-tree resolve
+scan accepts/rejects cleanly instead of falling back to direct editing. Multi-tree resolution
+(tracking + resolving body suggestions end to end) is COMPLETE; see the MT-1..MT-4 block above.
 REMAINING:
 **5a render text-run visuals — SHIPPED** (`expandInlineItems` → `resolveSuggestionStyle`:
 insertion=author-color+underline, deletion=author-color+lineThrough, formatting=`proposedAttrs`

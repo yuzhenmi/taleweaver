@@ -31,7 +31,8 @@ export function handleDeleteWord(
     // re-targeting the already-struck text (markDeletion coalesces → no-op);
     // backward keeps the caret at the span START (= `start`). Direct mode always
     // collapses to `start` (content shrank). `suggesting` reflects the ACTUAL
-    // outcome — a body delete in suggesting mode falls back to a direct delete.
+    // outcome — a soft-delete tracks in ANY editing context (main body OR a
+    // footnote/header/footer body); only with no valid context is it a direct delete.
     const suggesting = isSuggestingInBlock(
       editor.state,
       spanStart(editor.state, selection).blockId,
@@ -75,8 +76,10 @@ export function handleDeleteWord(
   // before the caret = span start) in both modes. For FORWARD the far edge is the
   // span END (`target`, the word-boundary past the caret) so a repeated Delete
   // strikes the NEXT word; direct mode keeps the existing caret at `pos`.
-  // `suggesting` reflects the ACTUAL outcome — a body forward word-delete in
-  // suggesting mode falls back to a direct delete, so the caret stays at `pos`.
+  // `suggesting` reflects the ACTUAL outcome — a forward word soft-delete tracks
+  // in ANY editing context (main body OR a footnote/header/footer body), so the
+  // caret advances to `target`; only with no valid context is it a direct delete
+  // with the caret at `pos`.
   const suggesting = isSuggestingInBlock(
     editor.state,
     spanStart(editor.state, span).blockId,

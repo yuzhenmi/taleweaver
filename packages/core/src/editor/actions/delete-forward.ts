@@ -26,8 +26,10 @@ export function handleDeleteForward(
     // Forward soft-delete leaves the struck text in place, so the caret must
     // land PAST it (span END); a direct delete removes the text, so the caret
     // stays at the span start. (Backward soft-delete uses the span start.)
-    // `suggesting` reflects the ACTUAL outcome — a body delete in suggesting mode
-    // falls back to a direct delete (text removed), so the caret stays at start.
+    // `suggesting` reflects the ACTUAL outcome — a soft-delete in ANY editing
+    // context (main body OR a footnote/header/footer body) leaves the struck text,
+    // so the caret advances to span END; only when there is no valid context does
+    // it become a direct delete with the caret at span start.
     const suggesting = isSuggestingInBlock(
       editor.state,
       spanStart(editor.state, selection).blockId,
@@ -68,8 +70,10 @@ export function handleDeleteForward(
     // past it (to `next`, the span end) — else the next Delete would re-target
     // the already-struck char (markDeletion coalesces → no-op). A direct delete
     // removes the char, so the caret stays at `pos` (content shrank).
-    // `suggesting` reflects the ACTUAL outcome — a body delete in suggesting mode
-    // falls back to a direct delete, so the caret stays at `pos`.
+    // `suggesting` reflects the ACTUAL outcome — a soft-delete in ANY editing
+    // context (main body OR a footnote/header/footer body) leaves the struck char,
+    // so the caret advances to `next`; only with no valid context is it a direct
+    // delete with the caret at `pos`.
     const suggesting = isSuggestingInBlock(
       editor.state,
       spanStart(editor.state, span).blockId,
@@ -168,9 +172,10 @@ export function handleDeleteForward(
   // separate; the caret stays at currentBlock:currentLen (= pos; no merge). One
   // undoable op.
   // Gate on the join-target block's context: a paragraph-boundary forward-delete
-  // inside a footnote/header/footer body falls back to the DIRECT real-merge path
-  // below (untracked). A body IS a container of paragraphs, so para↔para joins
-  // are reachable there.
+  // in ANY editing context (main body OR a footnote/header/footer body) marks a
+  // tracked JOIN; `suggestionInputForBlock` returns null only when not suggesting
+  // or the block resolves to no context, → the DIRECT real-merge path below. A
+  // body IS a container of paragraphs, so para↔para joins are reachable there.
   const joinInput = suggestionInputForBlock(editor.state, nextBlock.id, config);
   if (joinInput !== null) {
     const result = markBlockJoinSuggestion(editor.state, nextBlock.id, joinInput);

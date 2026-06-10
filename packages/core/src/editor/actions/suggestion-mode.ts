@@ -48,53 +48,52 @@ export function newReplaceSuggestionInput(
 
 /**
  * The create-op `input` for a suggestion at `blockId`, or `null` when NOT
- * suggesting OR `blockId` is OUTSIDE the MAIN body.
+ * suggesting OR `blockId` does not resolve to any editing context.
  *
- * Change-tracking tracks suggestions in the MAIN body only (the resolve scan
- * walks the main block tree). Footnote / header / footer / template bodies live
- * in the embedContents / templateContents trees — `selectionContextOf` returns
- * THEIR body root, not `state.rootId`, for those blocks. Returning `null` there
- * routes the caller to its DIRECT (untracked) branch, so a body edit still
- * happens but creates no suggestion the main-tree resolve scan could never see
- * (which would otherwise be an un-resolvable zombie after accept/reject-all).
- * Full multi-tree change-tracking is a separately-tracked follow-up.
+ * Change-tracking tracks suggestions in EVERY editing context — the main body
+ * AND footnote / header / footer / template bodies (which live in the
+ * embedContents / templateContents trees). The full resolve machinery walks all
+ * three trees (`buildSuggestionRangeIndex` + `resolveBlockScan`), and the create
+ * ops are tree-`kind`-dispatched, so a body suggestion is tagged, surfaced, and
+ * accepted/rejected in-place in its own tree. `selectionContextOf` returns the
+ * block's context root (main `state.rootId` or a body root); it returns `null`
+ * ONLY for a block that exists in no tree — the one case where there is no valid
+ * context to attach a suggestion to, so the caller falls back to its direct branch.
  *
  * Prefer this over the bare `newSuggestionInput` at every suggesting-mode seam;
- * `newSuggestionInput` remains for the rare site where the block is already
- * known to be main-body.
+ * `newSuggestionInput` remains for the rare site where the context is already known.
  */
 export function suggestionInputForBlock(
   state: State,
   blockId: BlockId,
   config: EditorConfig,
 ): SuggestionMintInput | null {
-  if (selectionContextOf(state, blockId) !== state.rootId) return null;
+  if (selectionContextOf(state, blockId) === null) return null;
   return newSuggestionInput(config);
 }
 
 /**
  * The replace (two-id) create-op `input` for a type-over edit at `blockId`, or
- * `null` when NOT suggesting OR `blockId` is OUTSIDE the MAIN body (same v1 rule
- * as `suggestionInputForBlock` — a body type-over falls back to direct
- * `replaceRange`).
+ * `null` when NOT suggesting OR `blockId` resolves to no editing context (same
+ * rule as `suggestionInputForBlock`).
  */
 export function replaceSuggestionInputForBlock(
   state: State,
   blockId: BlockId,
   config: EditorConfig,
 ): ReplaceSuggestionInput | null {
-  if (selectionContextOf(state, blockId) !== state.rootId) return null;
+  if (selectionContextOf(state, blockId) === null) return null;
   return newReplaceSuggestionInput(config);
 }
 
-/** True iff an edit at `blockId` is BOTH in suggesting mode AND in the main body —
- *  i.e. it will be tracked as a suggestion rather than falling back to direct
- *  editing. Use this for caret-placement decisions that depend on whether a delete
- *  was a soft-delete (text kept, caret skips it) vs a direct delete (text removed).
- *  (See `suggestionInputForBlock` for the v1 main-body-only rule.) */
+/** True iff an edit at `blockId` is in suggesting mode AND resolves to a valid
+ *  editing context — i.e. it will be tracked as a suggestion. Use this for
+ *  caret-placement decisions that depend on whether a delete was a soft-delete
+ *  (text kept, caret skips it) vs a direct delete (text removed).
+ *  (See `suggestionInputForBlock` for the all-context tracking rule.) */
 export function isSuggestingInBlock(state: State, blockId: BlockId, config: EditorConfig): boolean {
   if ((config.suggestingAuthor ?? null) === null) return false;
-  return selectionContextOf(state, blockId) === state.rootId;
+  return selectionContextOf(state, blockId) !== null;
 }
 
 /**
@@ -105,8 +104,8 @@ export function isSuggestingInBlock(state: State, blockId: BlockId, config: Edit
  * cursor/commit/rebuild is identical (for BACKWARD deletes the caret = span
  * start, which is correct for a soft delete too). `markDeletion` is a normal
  * undoable op, so the caller `history.commit`s exactly as for `deleteRange`.
- * It also falls back to the direct `deleteRange` branch when the span's start
- * block is OUTSIDE the main body (see `suggestionInputForBlock`).
+ * It falls back to the direct `deleteRange` branch only when the span's start
+ * block resolves to no editing context (see `suggestionInputForBlock`).
  */
 export function deleteRangeOrSuggest(
   state: State,
@@ -136,8 +135,8 @@ export function deleteRangeOrSuggest(
  * when there is nothing to suggest (empty delta / collapsed span), matching
  * `markFormatting`'s own guards.
  *
- * It also falls back to the direct `applyAttrsToRange` branch when the span's
- * start block is OUTSIDE the main body (see `suggestionInputForBlock`).
+ * It falls back to the direct `applyAttrsToRange` branch only when the span's
+ * start block resolves to no editing context (see `suggestionInputForBlock`).
  */
 export function applyAttrsOrSuggest(
   state: State,

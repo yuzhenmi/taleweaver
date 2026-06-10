@@ -153,10 +153,11 @@ export function handleDeleteBackward(
   // `block-join-suggestion` embed to currentBlock's prev sibling = prevBlock (N).
   // Blocks stay separate; the caret stays at currentBlock:0 (= pos; no merge
   // happened, so the selection is unchanged). One undoable op.
-  // Gate on the join-target block's context: a paragraph-boundary backspace
-  // inside a footnote/header/footer body falls back to the DIRECT real-merge
-  // path below (untracked). A body IS a container of paragraphs, so para↔para
-  // joins are reachable there.
+  // Gate on the join-target block's context: a paragraph-boundary backspace in
+  // ANY editing context (main body OR a footnote/header/footer body) marks a
+  // tracked JOIN; `suggestionInputForBlock` returns null only when not suggesting
+  // or the block resolves to no context, → the DIRECT real-merge path below. A
+  // body IS a container of paragraphs, so para↔para joins are reachable there.
   const joinInput = suggestionInputForBlock(editor.state, currentBlock.id, config);
   if (joinInput !== null) {
     const result = markBlockJoinSuggestion(editor.state, currentBlock.id, joinInput);

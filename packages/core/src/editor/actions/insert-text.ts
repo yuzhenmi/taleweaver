@@ -38,8 +38,10 @@ export function handleInsertText(
     // the destructive replaceRange. The caret formula is identical for both: the new
     // text lands at `start`, so the cursor is `start.offset + text.length` (in
     // suggesting mode the struck old text follows the caret; in direct mode it's gone).
-    // Gate on the selection-start block's context: a body type-over (footnote/
-    // header/footer) falls back to direct `replaceRange` (untracked).
+    // Gate on the selection-start block's context: a type-over in ANY editing
+    // context (main body OR a footnote/header/footer body) is TRACKED;
+    // `replaceSuggestionInputForBlock` returns null only when not suggesting or
+    // the block resolves to no context, → direct `replaceRange`.
     const replaceInput = replaceSuggestionInputForBlock(editor.state, start.blockId, config);
     result =
       replaceInput === null
@@ -54,8 +56,10 @@ export function handleInsertText(
     // record) instead of plain text. mintInsertion advances `text.length`
     // offsets exactly as insertText, so the cursor lands identically; it is a
     // normal tracked/undoable op, so the commit + rebuild below are unchanged.
-    // Gate on the caret block's context: a body caret (footnote/header/footer)
-    // falls back to direct `insertText` (untracked).
+    // Gate on the caret block's context: a caret in ANY editing context (main
+    // body OR a footnote/header/footer body) is TRACKED; `suggestionInputForBlock`
+    // returns null only when not suggesting or the block resolves to no context,
+    // → direct `insertText`.
     const sugInput = suggestionInputForBlock(editor.state, focus.blockId, config);
     result =
       sugInput === null
