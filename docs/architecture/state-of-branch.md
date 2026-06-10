@@ -673,11 +673,16 @@ range is deleted.
   units; host-injected ids + timestamps). `ADD_COMMENT` no-ops on collapsed /
   cross-context / non-main-body selections, inserts end- then start-marker, and
   preserves the visible selection across the +2 marker offsets.
-- **Geometry + overlay**: `getCommentRangeRects` (`cursor/comment-rects.ts`) for
-  margin thread-anchor indicators; the DOM controller's `setCommentHighlights` /
-  `clearCommentHighlights` paint-overlay (`2.1-editor-controller.md` /
+- **Geometry + overlay**: `getCommentRangeRects` (`cursor/comment-rects.ts`) is the
+  STANDALONE (non-paginated / external-host) query — it takes a single positioned
+  `LayoutBox`. The bundled DOM host does NOT call it: under the virtualized layout
+  it has no whole-document `LayoutBox`, so its overlay resolves highlights PER PAGE
+  in the controller (`resolveCommentHighlights` / `commentHighlightsForPage` →
+  `resolveCommentRange` + `computeSelectionRectsForPage`), painted via
+  `setCommentHighlights` / `clearCommentHighlights` (`2.1-editor-controller.md` /
   `2.2-canvas-renderer.md`) — a host-driven amber band, two-stage resolve mirroring
-  find, re-resolved from live state each `update()` (self-healing).
+  find, re-resolved from live state each `update()` (self-healing). Both paths share
+  `resolveCommentRange` + the selection-geometry core, so they agree.
 - **Serialization** (`1.10-serialization.md`): the binary serializer round-trips
   comments + markers losslessly with no comment-specific code (verified by a
   `serialize-document.test.ts` case).

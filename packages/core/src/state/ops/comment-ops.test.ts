@@ -108,6 +108,22 @@ describe("addComment — insert markers + write record in ONE tracked op", () =>
     expect(Object.isFrozen(c.replies)).toBe(true);
     expect(Object.isFrozen(c.range)).toBe(true);
   });
+
+  it("re-adding an EXISTING id is an identity no-op — no duplicate marker pair (M-2)", () => {
+    // Host-minted ids are unique by contract; a same-id re-add is a programmer
+    // error. The op must short-circuit to the input state BEFORE planning/splicing
+    // a second marker pair — otherwise the duplicate markers are the exact
+    // precondition the I-1 deleteComment fix had to defend against.
+    const s1 = addComment(oneBlock(), worldSpan(), ADD).state;
+    expect(getComments(s1).length).toBe(1);
+    expect(markerCount(s1, "p", CID)).toBe(2);
+
+    const r2 = addComment(s1, worldSpan(), ADD);
+    expect(r2.state).toBe(s1); // identity (same reference)
+    expect(r2.dirtyIds.size).toBe(0);
+    expect(getComments(r2.state).length).toBe(1);
+    expect(markerCount(r2.state, "p", CID)).toBe(2); // NOT 4
+  });
 });
 
 describe("resolveComment / reopenComment", () => {

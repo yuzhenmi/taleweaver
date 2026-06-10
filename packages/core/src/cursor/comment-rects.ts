@@ -35,6 +35,14 @@ import { computeSelectionRects } from "./selection-geometry";
  * cadence: the host re-queries after each layout cycle rather than maintaining a
  * separate cached-rect invalidation path.
  *
+ * NOTE: this is the STANDALONE (non-paginated / external-host) query, taking a
+ * single positioned `LayoutBox`. The bundled DOM host does NOT call it — under
+ * the virtualized layout it has no whole-document `LayoutBox`, so its overlay
+ * resolves highlights PER PAGE in the controller (`resolveCommentHighlights` /
+ * `commentHighlightsForPage` → `resolveCommentRange` + `computeSelectionRectsForPage`).
+ * Both paths share `resolveCommentRange` + the selection-geometry core, so they
+ * agree; this helper serves a host that already has a flat positioned tree.
+ *
  * @param state      Current document state.
  * @param layoutTree The materialized layout tree to resolve positions against.
  * @param shaper     Text shaper for sub-leaf pixel measurement.

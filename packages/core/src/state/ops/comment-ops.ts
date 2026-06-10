@@ -75,6 +75,15 @@ export function addComment(
   span: Span,
   input: AddCommentInput,
 ): OperationResult {
+  // Identity no-op if a comment with this id already exists. Host-minted ids are
+  // unique by contract, so a same-id re-add is a programmer error; short-circuit
+  // to the input state BEFORE planning/splicing a SECOND marker pair (which would
+  // overwrite the record AND leave a duplicate-marker comment — the precondition
+  // the I-1 `deleteComment` full-scan defends against). Mirrors `setResolved`'s
+  // absent-guard short-circuit (the T7 identity-no-op contract).
+  if (getCommentsMap(state[STATE_INTERNAL].doc).get(input.id) !== undefined) {
+    return { state, dirtyIds: NO_DIRTY };
+  }
   const start = spanStart(state, span);
   const end = spanEnd(state, span);
   const writes = planCommentMarkers(state, start, end, input.id);
