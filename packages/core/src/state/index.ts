@@ -367,6 +367,7 @@ export {
   // a `SuggestionView` ("suggesting"/"final"/"original"); consumed by the read
   // surfaces (extractText/getWordCount) and the render pass.
   itemVisibleInView,
+  blockBoundaryMergesInView,
   buildSuggestionRangeIndex,
   resolveSuggestionRange,
   getSuggestions,

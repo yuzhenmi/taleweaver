@@ -181,6 +181,37 @@ export function itemVisibleInView(item: InlineItem, view: SuggestionView): boole
 }
 
 /**
+ * The slice-5c-structural projection: returns whether a block whose inline content
+ * is `items` MERGES with its NEXT sibling in `view` — i.e. its trailing
+ * break-suggestion embed (a `block-join-suggestion` / `block-split-suggestion`,
+ * always appended LAST by the create ops) is resolved AWAY in this view. A join
+ * accepted in `"final"` and a split rejected in `"original"` both merge the two
+ * blocks into one paragraph; the literal `"suggesting"` view never merges.
+ *
+ * The trailing embed's view-INVISIBILITY (per {@link itemVisibleInView}) IS the
+ * merge decision — the same `breakMerge = (insertion && reject) || (deletion &&
+ * accept)` predicate the `resolve` cascade uses, but read-only and derived from
+ * the embed alone (no record read). Consumers suppress the inter-block separator
+ * across a merging boundary: `extractText` / word count drop the "\n"; the render
+ * projection (the remaining 5c-structural surface) concatenates the block boxes.
+ * Always `false` when the block has no trailing break embed.
+ */
+export function blockBoundaryMergesInView(
+  items: ReadonlyArray<InlineItem>,
+  view: SuggestionView,
+): boolean {
+  if (view === "suggesting") return false;
+  const last = items[items.length - 1];
+  return (
+    last !== undefined &&
+    last.kind === "embed" &&
+    (last.embedType === BLOCK_JOIN_SUGGESTION_EMBED_TYPE ||
+      last.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE) &&
+    !itemVisibleInView(last, view)
+  );
+}
+
+/**
  * The Y.Doc transaction `origin` slice-3's accept/reject ops pass so the resolve
  * txn is NON-undoable. The `History` constructs its `Y.UndoManager` with
  * `trackedOrigins: new Set([null])` — only `null`-origin (default) transactions

@@ -10,6 +10,7 @@
 import { describe, it, expect } from "vitest";
 import {
   itemVisibleInView,
+  blockBoundaryMergesInView,
   INSERTION_SUGGESTION_ATTR,
   DELETION_SUGGESTION_ATTR,
   FORMATTING_SUGGESTION_ATTR,
@@ -79,5 +80,32 @@ describe("itemVisibleInView (slice 5c-i projection foundation)", () => {
         expect(itemVisibleInView(fn, view)).toBe(true);
       }
     });
+  });
+});
+
+describe("blockBoundaryMergesInView (slice 5c-structural merge predicate)", () => {
+  const JOIN = embed(BLOCK_JOIN_SUGGESTION_EMBED_TYPE, { suggestionId: ID });
+  const SPLIT = embed(BLOCK_SPLIT_SUGGESTION_EMBED_TYPE, { suggestionId: ID });
+
+  it('"suggesting" never merges (the literal document)', () => {
+    expect(blockBoundaryMergesInView([text("a"), JOIN], "suggesting")).toBe(false);
+    expect(blockBoundaryMergesInView([text("a"), SPLIT], "suggesting")).toBe(false);
+  });
+
+  it('a trailing JOIN embed merges in "final" (deletion accepted) but not "original"', () => {
+    expect(blockBoundaryMergesInView([text("a"), JOIN], "final")).toBe(true);
+    expect(blockBoundaryMergesInView([text("a"), JOIN], "original")).toBe(false);
+  });
+
+  it('a trailing SPLIT embed merges in "original" (insertion rejected) but not "final"', () => {
+    expect(blockBoundaryMergesInView([text("a"), SPLIT], "original")).toBe(true);
+    expect(blockBoundaryMergesInView([text("a"), SPLIT], "final")).toBe(false);
+  });
+
+  it("never merges without a TRAILING break embed (plain block, or break embed not last)", () => {
+    expect(blockBoundaryMergesInView([text("a")], "final")).toBe(false);
+    expect(blockBoundaryMergesInView([], "final")).toBe(false);
+    // a break embed that is NOT the last item does not denote a boundary merge.
+    expect(blockBoundaryMergesInView([JOIN, text("a")], "final")).toBe(false);
   });
 });

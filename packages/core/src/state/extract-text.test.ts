@@ -3,6 +3,10 @@ import { extractText, builtinEmbedSerializer, type EmbedSerializer } from "./ext
 import { buildBlock, buildState, text, embed, inlineContent } from "../test-utils/state-builders";
 import { createPosition, createSpan } from "./block-position";
 import type { BlockId } from "./block-id";
+import {
+  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
+  BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
+} from "./suggestions";
 
 describe("extractText", () => {
   it("extracts text from a single text item, full range", () => {
@@ -262,5 +266,65 @@ describe("extractText — SuggestionView projection (slice 5c-ii)", () => {
     expect(extractText(state, sub, builtinEmbedSerializer, "final")).toBe("tail");
     // "suggesting" includes the "EL" tail of the deletion run + "tail".
     expect(extractText(state, sub, builtinEmbedSerializer, "suggesting")).toBe("ELtail");
+  });
+});
+
+describe("extractText — 5c-structural block-boundary merge projection", () => {
+  // Two paragraphs whose boundary carries a break-suggestion embed at the END of
+  // the FIRST block. In the view where that embed is resolved AWAY the blocks MERGE,
+  // so the inter-block "\n" is suppressed (the text concatenates exactly as the real
+  // mergeAdjacentBlocksInTx would: no separator, no space).
+  function twoBlocks(boundaryEmbedType: string): ReturnType<typeof buildState> {
+    return buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({
+          id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2",
+          inlineContent: inlineContent([text("Hello"), embed(boundaryEmbedType, { suggestionId: "s1" })]),
+        }),
+        buildBlock({
+          id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1",
+          inlineContent: inlineContent([text("World")]),
+        }),
+      ],
+    });
+  }
+  // p1 length = "Hello"(5) + embed(1) = 6; p2 = "World"(5).
+  const wholeSpan = createSpan(createPosition("p1" as BlockId, 0), createPosition("p2" as BlockId, 5));
+
+  it("accepted JOIN (final view): merges — the inter-block \\n is suppressed", () => {
+    const state = twoBlocks(BLOCK_JOIN_SUGGESTION_EMBED_TYPE);
+    // final: the join embed is resolved away → blocks merge → "HelloWorld".
+    expect(extractText(state, wholeSpan, builtinEmbedSerializer, "final")).toBe("HelloWorld");
+    // original: the join is KEPT (deletion rejected) → blocks stay split.
+    expect(extractText(state, wholeSpan, builtinEmbedSerializer, "original")).toBe("Hello\nWorld");
+    // suggesting: literal — always split.
+    expect(extractText(state, wholeSpan, builtinEmbedSerializer, "suggesting")).toBe("Hello\nWorld");
+  });
+
+  it("rejected SPLIT (original view): merges — the inter-block \\n is suppressed", () => {
+    const state = twoBlocks(BLOCK_SPLIT_SUGGESTION_EMBED_TYPE);
+    // original: the split embed is resolved away → blocks merge → "HelloWorld".
+    expect(extractText(state, wholeSpan, builtinEmbedSerializer, "original")).toBe("HelloWorld");
+    // final: the split is KEPT (insertion accepted) → blocks stay split.
+    expect(extractText(state, wholeSpan, builtinEmbedSerializer, "final")).toBe("Hello\nWorld");
+    // suggesting: literal — always split.
+    expect(extractText(state, wholeSpan, builtinEmbedSerializer, "suggesting")).toBe("Hello\nWorld");
+  });
+
+  it("a plain (non-break) inter-block boundary keeps the \\n in every view", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("Hello")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text("World")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p2" as BlockId, 5));
+    for (const view of ["suggesting", "final", "original"] as const) {
+      expect(extractText(state, span, builtinEmbedSerializer, view)).toBe("Hello\nWorld");
+    }
   });
 });

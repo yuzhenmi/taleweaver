@@ -7,6 +7,7 @@ import {
   BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
   BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
   itemVisibleInView,
+  blockBoundaryMergesInView,
 } from "./suggestions";
 import type { SuggestionView } from "./suggestions";
 
@@ -78,10 +79,12 @@ export const builtinEmbedSerializer: EmbedSerializer = (item) => {
  * were ACCEPTED (deletion runs omitted, insertions kept), `"original"` as if all
  * were REJECTED (insertion runs omitted, deletions kept). A filtered-out item
  * still occupies its literal offsets (the span is in literal-document offsets) —
- * only its text contribution is dropped. NOTE (5c-ii scope): this is the
- * text-RUN projection; the block-boundary STRUCTURAL projection (an accepted
- * join / rejected split suppressing the inter-block "\n") is the separate
- * `5c-structural` sub-slice — break embeds already serialize to "" here.
+ * only its text contribution is dropped. The block-boundary STRUCTURAL projection
+ * (slice 5c-structural) is also applied: across a boundary that MERGES in `view`
+ * (an accepted join / rejected split — the prior block's trailing break embed is
+ * resolved away, per {@link blockBoundaryMergesInView}) the inter-block "\n" is
+ * SUPPRESSED, so the two blocks' text concatenates exactly as the real
+ * `mergeAdjacentBlocksInTx` would (no separator, no space).
  *
  * Used by clipboard, find/replace, accessibility.
  */
@@ -92,17 +95,25 @@ export function extractText(
   view: SuggestionView = "suggesting",
 ): string {
   const parts: string[] = [];
-  let isFirst = true;
+  let prevItems: ReadonlyArray<InlineItem> | null = null;
   for (const { block, rangeStart, rangeEnd } of iterateSpan(state, span)) {
-    if (!isFirst) parts.push("\n");
-    isFirst = false;
-    if (!block.inlineContent) continue;
-    parts.push(
-      extractTextFromBlock(block.inlineContent.items, rangeStart, rangeEnd, embedSerializer, view),
-    );
+    if (prevItems !== null) {
+      // 5c-structural: a merging boundary (accepted join / rejected split on the
+      // PRIOR block's trailing break embed) suppresses the inter-block "\n".
+      parts.push(blockBoundaryMergesInView(prevItems, view) ? "" : "\n");
+    }
+    const items = block.inlineContent?.items ?? EMPTY_ITEMS;
+    if (block.inlineContent) {
+      parts.push(extractTextFromBlock(items, rangeStart, rangeEnd, embedSerializer, view));
+    }
+    prevItems = items;
   }
   return parts.join("");
 }
+
+/** Shared empty item list — the boundary marker for a non-leaf/empty block (which
+ *  carries no trailing break embed, so its boundary never merges). */
+const EMPTY_ITEMS: ReadonlyArray<InlineItem> = Object.freeze([]);
 
 function extractTextFromBlock(
   items: ReadonlyArray<InlineItem>,

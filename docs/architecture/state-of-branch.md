@@ -905,9 +905,18 @@ not yet wired to any surface).
 item by `itemVisibleInView` after advancing the literal-offset cursor — a filtered run consumes its offsets
 but contributes no text; `getWordCount({suggestionView})` + `getSelectionWordCount(state, sel, view?)` thread
 it through. `final` omits deletion text / keeps insertions; `original` omits insertion text / keeps deletions;
-`suggesting` default = byte-identical legacy. TEXT-RUN projection ONLY — the block-boundary structural merge
-(accepted-join / rejected-split suppressing the inter-block "\n" + word-boundary join) is the carved
-`5c-structural` sub-slice).
+`suggesting` default = byte-identical legacy.
+**5c-structural (TEXT surface) — SHIPPED:** the block-boundary structural merge now applies in `extractText`
+(and so `getSelectionWordCount`, which extracts the whole span): across a boundary that MERGES in the view
+(an accepted-join / rejected-split — the prior block's trailing break embed is resolved away, per the shared
+`blockBoundaryMergesInView(items, view)` predicate, barrel-exported) the inter-block "\n" is SUPPRESSED, so the
+two blocks' text concatenates exactly as `mergeAdjacentBlocksInTx` would. The predicate derives the merge purely
+from the trailing embed's view-invisibility (the same `breakMerge` the resolve cascade uses), no record read.
+REMAINING on this surface: `getWordCount` (whole-doc) counts PER-BLOCK by deliberate design (words never straddle
+a paragraph break), so a projected-view whole-doc count is not reduced at a merged boundary — a narrow,
+documented gap. The RENDER-surface structural merge (concatenating the block boxes in a projected view, vs today's
+two-blocks-with-a-zero-width-barrier) is the remaining `5c-structural` slice — latent until a host wires a preview
+toggle; preview is read-only so a render-tree merge that diverges from the state block tree is safe there.
 **5c-iii render projection — SHIPPED** (`RenderOptions.suggestionView` threads through
 `render()`/`renderIncremental()`→`makeRenderContext`→`RenderContext.suggestionView`→`expandInlineItems`'s
 `view`: filters resolved-away items by `itemVisibleInView`, SUPPRESSES the 5a/5b suggestion visuals in
@@ -939,7 +948,8 @@ cascade. Built on the kind-aware `insertNewBlocksInTx` primitive (PF-0). Wired i
 the interim NO-OP) both route through it in suggesting mode; single-block Enter keeps
 `splitWithSuggestionOverSelection` (struck text rides BEFORE the break vs the fragment's AFTER).
 REMAINING:
-`5c-structural` (block-boundary projection, shared by extractText+render); 7 arch docs. (No text/HTML exporter
+`5c-structural` RENDER surface (block-box merge in a projected view; the extractText/text surface SHIPPED — see
+the 5c-structural note above) + the `getWordCount` per-block projected-count gap; 7 arch docs. (No text/HTML exporter
 exists yet — only the binary serializer, which round-trips the
 literal state; a view-projected text/HTML export lands if/when that exporter is built, NOT a change-tracking
 slice.) See `1.1-state.md` "The `suggestions` map" + `1.7-editor.md`.

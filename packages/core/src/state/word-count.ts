@@ -53,9 +53,13 @@ export interface WordCountOptions {
    * forwarded to {@link extractText} per block. `"final"` counts the document as
    * if all suggestions were ACCEPTED (deletion text excluded), `"original"` as if
    * all were REJECTED (insertion text excluded). Default `"suggesting"` counts the
-   * literal document (both shown). NOTE: this is the text-RUN projection; an
-   * accepted-join / rejected-split does not yet merge word boundaries across the
-   * block break (the `5c-structural` sub-slice).
+   * literal document (both shown). NOTE: `getWordCount` counts PER BLOCK by design
+   * (words never straddle a paragraph break — Google-Docs behavior), so a projected
+   * count at a MERGED boundary (an accepted-join / rejected-split, which
+   * `blockBoundaryMergesInView` collapses) is NOT reduced — each block is counted
+   * independently. That structural merge IS applied by the multi-block extractors
+   * (`extractText` / `getSelectionWordCount`); only this per-block whole-doc count
+   * is unaffected, and deliberately so.
    */
   readonly suggestionView?: SuggestionView;
 }
