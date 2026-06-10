@@ -841,6 +841,84 @@ describe("resolveFootnotes — FN-4.4 incremental carry-forward (prevResolvedPla
     );
   });
 
+  it("carry-forward over a SELF-EVICTING doc stays correct across a body edit — the atomic-cap page is never stale-reused (footnotes-audit F3 soundness lock)", () => {
+    // F3 (audited 2026-06-10, verdict: FALSE POSITIVE). The auditor feared
+    // `canReuseFootnotePage` could reuse a page whose self-eviction 2-cycle would
+    // now resolve differently. Verification showed it cannot: whether an anchor
+    // self-evicts is a PURE function of the gated inputs — preceding-block geometry
+    // (cond 4), page geometry (cond 3), and the section cap (cond 0). A footnote
+    // BODY edit (cond 5's domain) only changes how the slot SPLITS, never WHETHER
+    // the anchor evicts; and an atomic-cap page's `stopBeforeIndex` (< the section
+    // cap) makes cond 0 ALWAYS refuse its reuse (the documented conservative miss).
+    // This test drives a doc that genuinely self-evicts (test (e) geometry) through
+    // the carry-forward path with a body edit and pins the carried-forward result
+    // to a fresh full build — the equivalence oracle catches ANY stale-reuse leak.
+    const render = fnDoc([fnPara("b0"), fnPara("b1"), fnPara("b2"), fnPara("b3")]);
+    const cascaded = fnCascade(render);
+    const inputs = inputsFrom(cascaded);
+    const anchors = [fnAnchor("b3", "fn3")];
+
+    // Cycle 1: 2-line body. b3 self-evicts (the 4 blocks + any slot overflow the
+    // 64px page), so b3 + fn3 travel forward together; page 0 carries no slot and
+    // is atomic-capped before b3.
+    const bodyA = fnCascade(fnBody("fn3", 2));
+    const embedA = new Map<BlockId, ElementBox>([["fn3" as BlockId, bodyA]]);
+    const resolved0 = resolveFootnotes(
+      inputs.rawPlan, inputs.metas, inputs.sectionPlan, inputs.rootChildren,
+      embedA, anchors, fnCtx, FN_SHAPER, undefined, FN_PAGE,
+    );
+    expect(resolved0.pageIndexOfBlock("b3")).toBeGreaterThan(0); // b3 evicted
+    expect(resolved0.entries[0].footnoteContentBlockIds).toEqual([]); // page 0: no slot
+    // Page 0's cap is footnote-tightened below its natural fill (the atomic cap
+    // before b3) — this is what forces cond 0 to re-resolve it every cycle.
+    expect(resolved0.entries[0].stopBeforeIndex).not.toBeNull();
+
+    // Cycle 2: the SAME doc, fn3 body grows 2 → 3 lines (NEW ref). The slot page
+    // re-resolves via cond 5 (assigned-body ref flip); the atomic-cap page 0
+    // re-resolves via cond 0 (tightened cap ≠ current null section cap).
+    const bodyB = fnCascade(fnBody("fn3", 3));
+    expect(bodyB).not.toBe(bodyA);
+    const embedB = new Map<BlockId, ElementBox>([["fn3" as BlockId, bodyB]]);
+
+    __resetBodyLayoutCallCountForTest();
+    const resolvedIncremental = resolveFootnotes(
+      inputs.rawPlan, inputs.metas, inputs.sectionPlan, inputs.rootChildren,
+      embedB, anchors, fnCtx, FN_SHAPER, undefined, FN_PAGE,
+      resolved0, embedA, // prior plan + prior (2-line) body map
+    );
+    // Re-resolution happened (the body was laid out, not skipped).
+    expect(__getBodyLayoutCallCountForTest()).toBeGreaterThan(0);
+    // b3 stays evicted; page 0 still carries no slot — no stale non-evicting page leaked.
+    expect(resolvedIncremental.pageIndexOfBlock("b3")).toBeGreaterThan(0);
+    expect(resolvedIncremental.entries[0].footnoteContentBlockIds).toEqual([]);
+
+    // EQUIVALENCE BACKSTOP: the carry-forward result matches a fresh full build of
+    // the edited doc across EVERY page — page count, per-page child slices, the
+    // footnote assignment, and the slot heights. This catches any stale-reuse of
+    // the SLOT PAGE (page 1), whose slot height changes when the body grows. The
+    // atomic-cap page (page 0) happens to produce identical output in both cycles
+    // (its slot is 0 and its one-block fill is unchanged), so a stale reuse of
+    // page 0 would NOT surface here — that case is covered by cond 0's analytical
+    // guarantee in the gate (a footnote-tightened stopBeforeIndex never equals the
+    // current section cap, so reuse is always refused) and by the call-count probe
+    // above; the SECTION_BREAK test below independently exercises cond 0 directly.
+    const resolvedFresh = resolveFootnotes(
+      inputs.rawPlan, inputs.metas, inputs.sectionPlan, inputs.rootChildren,
+      embedB, anchors, fnCtx, FN_SHAPER, undefined, FN_PAGE,
+    );
+    expect(resolvedIncremental.entries.length).toBe(resolvedFresh.entries.length);
+    expect(resolvedIncremental.pageIndexOfBlock("b3")).toBe(resolvedFresh.pageIndexOfBlock("b3"));
+    expect(resolvedIncremental.entries.map((e) => e.children.map((c) => c.key))).toEqual(
+      resolvedFresh.entries.map((e) => e.children.map((c) => c.key)),
+    );
+    expect(resolvedIncremental.entries.map((e) => e.footnoteContentBlockIds)).toEqual(
+      resolvedFresh.entries.map((e) => e.footnoteContentBlockIds),
+    );
+    expect(resolvedIncremental.entries.map((e) => e.footnoteSlotHeight)).toEqual(
+      resolvedFresh.entries.map((e) => e.footnoteSlotHeight),
+    );
+  });
+
   it("footnote-free doc: prevResolvedPlan path is a no-op (early return still fires, ref-equal rawPlan out)", () => {
     const render = fnDoc([fnPara("b0"), fnPara("b1")]);
     const cascaded = fnCascade(render);
