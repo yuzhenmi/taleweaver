@@ -1,8 +1,10 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { getBlock, productionAllocator, createPosition, createSpan, spanStart, deleteRange, insertText, splitBlockAtPosition, insertBlocksAfter } from "../../state";
+import { getBlock, resolveBlock, productionAllocator, createPosition, createSpan, spanStart, deleteRange, insertText, splitBlockAtPosition, insertBlocksAfter, replaceWithSuggestedFragment } from "../../state";
 import type { State, BlockId, Position, SiblingBlockInit, InlineContent } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
+import { replaceSuggestionInputForBlock } from "./suggestion-mode";
+import { isCrossContextSelection } from "./selection-guards";
 
 /**
  * Build the inline content for one pasted line: a single empty-attrs text
@@ -25,10 +27,60 @@ export function handlePaste(
   // Normalize line endings: strip \r so \r\n becomes \n.
   const text = rawText.replace(/\r/g, "");
 
+  const { selection } = editor;
+
+  // A cross-CONTEXT span (anchor/focus in different trees) has no single-tree op, so
+  // refuse it (no-op) BEFORE any `spanStart` / normalization — which throws "no common
+  // ancestor" on such a span. This mirrors the INSERT_TEXT / SPLIT_NODE guard order
+  // (SET_SELECTION already rejects cross-context spans, so this is defense-in-depth)
+  // and is mode-independent: a cross-context span is equally a no-op on the direct path.
+  if (isCrossContextSelection(editor.state, selection)) return editor;
+
+  // Suggesting mode: insert the paste as ONE tracked suggestion instead of mutating
+  // destructively. The fragment is a tracked INSERTION (inter-line breaks are
+  // block-split-suggestion embeds); a paste OVER a selection ALSO soft-deletes it
+  // (cross-block: a block-join-suggestion per crossed boundary) — accept lands the
+  // paste, reject restores the document. Tracking is ALL-CONTEXT (main + footnote /
+  // header / footer bodies) via `replaceSuggestionInputForBlock`. When NOT suggesting
+  // / no editing context, `replaceInput` is null → fall through to the direct path.
+  const startBlockId = spanStart(editor.state, selection).blockId;
+  const replaceInput = replaceSuggestionInputForBlock(editor.state, startBlockId, config);
+  if (replaceInput !== null) {
+    // New blocks inherit the caret block's TYPE + ATTRS (resolveBlock → all-tree, so a
+    // footnote-body paste resolves too), matching the direct path's `sourceType` /
+    // `sourceAttrs` clone — so accepting a multi-line paste into a heading keeps the
+    // heading type AND level. (Only fragment[1..] are materialized as new blocks; the
+    // first line merges into the existing block, which keeps its own type/attrs.)
+    const sourceBlock = resolveBlock(editor.state, startBlockId)?.block ?? null;
+    const sourceType = sourceBlock?.type ?? "paragraph";
+    const sourceAttrs = sourceBlock?.attrs ?? {};
+    const fragment: SiblingBlockInit[] = text
+      .split("\n")
+      .map((line) => ({ type: sourceType, attrs: sourceAttrs, inlineContent: lineToInlineContent(line) }));
+    const result = replaceWithSuggestedFragment(
+      editor.state,
+      selection,
+      fragment,
+      replaceInput,
+      productionAllocator,
+    );
+    if (result.state === editor.state) return editor;
+    const newSelection = createSpan(result.endPosition, result.endPosition);
+    editor.history.commit(
+      { state: result.state, dirtyIds: result.dirtyIds },
+      { before: selection, after: newSelection },
+    );
+    return rebuildTrees(
+      { ...editor, state: result.state, selection: newSelection },
+      editor,
+      config,
+      result.dirtyIds,
+    );
+  }
+
   // Collapse selection (delete the existing range first).
   let state: State = editor.state;
   let pos: Position = editor.selection.focus;
-  const { selection } = editor;
 
   // Accumulate dirtyIds across every chained op so commit reflects the
   // full set of touched blocks for downstream consumers.

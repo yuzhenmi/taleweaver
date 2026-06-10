@@ -388,6 +388,7 @@ export {
   markDeletion,
   mintInsertion,
   replaceWithSuggestion,
+  replaceWithSuggestedFragment,
   splitWithSuggestionOverSelection,
   acceptSuggestion,
   rejectSuggestion,
