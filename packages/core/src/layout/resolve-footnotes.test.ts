@@ -9,6 +9,7 @@ import {
   buildPagePlan,
   type PagePlan,
   type PagePlanEntry,
+  type SlotInsets,
 } from "./measure-pass";
 import { buildBlockFitMetas } from "./build-fit-metas";
 import {
@@ -1025,6 +1026,80 @@ describe("resolveFootnotes — FN-4.4 incremental carry-forward (prevResolvedPla
     );
     expect(resolvedIncremental.entries[0].blockOffset).toBe(
       resolvedFresh.entries[0].blockOffset,
+    );
+  });
+
+  it("a grown header/footer SLOT INSET (the §4.4 page-field convergence signal) INVALIDATES reuse (cond 3) — the footnote page re-resolves against the new geometry", () => {
+    // This is the carry-forward gate's cond-3 (effective-inset geometry) lock, and
+    // the mechanism that keeps the §4.4 page-field width-convergence loop sound:
+    // `virtual-producer`'s `runIteration` passes the PRIOR KEYSTROKE's resolved
+    // plan as `prevResolvedPlan` on EVERY convergence iteration (never iteration
+    // N-1). That is correct precisely BECAUSE the gate is stateless across
+    // iterations and compares the CURRENT iteration's `slotInsets`-derived
+    // effTopInset/effBottomInset against the prior entry's — so when an iteration
+    // grows a header page-field's slot, the taller inset busts cond 3 and forces a
+    // correct re-resolve. (Footnotes-audit F1 verification: prevResolvedPlan being
+    // pinned to the previous keystroke is sound, not a staleness bug.)
+    //
+    // doc = [b0, b1, b2, b3]; fn0 on b0 (page 0). FN_PAGE is 64px, zero margins.
+    //   Cycle 1: no extra slot inset ⇒ 64px content ⇒ 29px footnote slot leaves
+    //   35px ⇒ page 0 = [b0, b1].
+    //   Cycle 2: a 16px TOP slot inset (a grown header) ⇒ 48px content ⇒ the same
+    //   29px slot leaves 19px ⇒ page 0 = [b0] only. Doc + body refs + section cap
+    //   are IDENTICAL across cycles — the inset is the ONLY change, so the gate's
+    //   two executable pre-checks (cond 0 section cap, cond 2 resumeInto) both pass
+    //   and it reaches cond 3, where it must refuse reuse.
+    const render = fnDoc([fnPara("b0"), fnPara("b1"), fnPara("b2"), fnPara("b3")]);
+    const cascaded = fnCascade(render);
+    const metas = buildBlockFitMetas(cascaded, FN_SHAPER, FN_CONTENT_INLINE);
+    const rootChildren = flattenContents(cascaded.children) as ElementBox[];
+    const fn0Body = fnCascade(fnBody("fn0", 1));
+    const embed = new Map<BlockId, ElementBox>([["fn0" as BlockId, fn0Body]]);
+    const anchors = [fnAnchor("b0", "fn0")];
+
+    // --- Cycle 1: no slot inset (effTopInset 0). Page 0 = [b0, b1].
+    const rawPlan1 = measurePass(metas, FN_PAGE, IMPLICIT_SECTION_PLAN, rootChildren);
+    const resolved1 = resolveFootnotes(
+      rawPlan1, metas, IMPLICIT_SECTION_PLAN, rootChildren,
+      embed, anchors, fnCtx, FN_SHAPER, undefined, FN_PAGE,
+    );
+    expect(resolved1.entries[0].effectiveTopInset).toBe(0);
+    expect(resolved1.entries[0].children.map((c) => c.key)).toEqual(["b0", "b1"]);
+    expect(resolved1.entries[0].footnoteContentBlockIds).toEqual(["fn0" as BlockId]);
+
+    // --- Cycle 2: a 16px top slot inset (a grown header from the §4.4 loop). Both
+    // measurePass AND resolveFootnotes see it, so page 0's content area shrinks.
+    const grownInsets: SlotInsets = new Map([[null, { top: 16, bottom: 0 }]]);
+    const rawPlan2 = measurePass(metas, FN_PAGE, IMPLICIT_SECTION_PLAN, rootChildren, undefined, grownInsets);
+
+    __resetBodyLayoutCallCountForTest();
+    const resolvedIncremental = resolveFootnotes(
+      rawPlan2, metas, IMPLICIT_SECTION_PLAN, rootChildren,
+      embed, anchors, fnCtx, FN_SHAPER, grownInsets, FN_PAGE,
+      resolved1, embed, // prior (cycle-1, inset-0) plan + same body refs
+    );
+    // CACHE MISS via cond 3: the effTopInset changed (0 → 16) ⇒ the footnote page
+    // was RE-RESOLVED (body re-laid-out), not reused. A gate that ignored the inset
+    // would have reused page 0's [b0, b1] slice against the now-smaller content area.
+    expect(__getBodyLayoutCallCountForTest()).toBeGreaterThan(0);
+    expect(resolvedIncremental.entries[0].effectiveTopInset).toBe(16);
+    expect(resolvedIncremental.entries[0].children.map((c) => c.key)).toEqual(["b0"]);
+    expect(resolvedIncremental.entries[0].footnoteContentBlockIds).toEqual(["fn0" as BlockId]);
+
+    // GEOMETRY CORRECTNESS: the inset-aware miss equals a fresh full build of the
+    // cycle-2 geometry — no stale wider-content slice leaked through the gate.
+    const resolvedFresh = resolveFootnotes(
+      rawPlan2, metas, IMPLICIT_SECTION_PLAN, rootChildren,
+      embed, anchors, fnCtx, FN_SHAPER, grownInsets, FN_PAGE,
+    );
+    expect(resolvedIncremental.entries[0].children.map((c) => c.key)).toEqual(
+      resolvedFresh.entries[0].children.map((c) => c.key),
+    );
+    expect(resolvedIncremental.entries[0].effectiveTopInset).toBe(
+      resolvedFresh.entries[0].effectiveTopInset,
+    );
+    expect(resolvedIncremental.entries[0].footnoteSlotHeight).toBe(
+      resolvedFresh.entries[0].footnoteSlotHeight,
     );
   });
 });
