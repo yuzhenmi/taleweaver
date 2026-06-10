@@ -837,13 +837,14 @@ describe("createEditorController", () => {
       ctrl.destroy();
     });
 
-    it("spanning-block selection boundary falls back to materializeAll (rare)", () => {
+    it("spanning-block selection boundary unions rects per-page, never materializeAll", () => {
       const container = document.createElement("div");
       const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
-      const { tree, materializeAll } = makeSpyVirtualTree(3, 600, 100, 24);
-      // Force a boundary block to straddle a page break.
+      const { tree, getPage, materializeAll } = makeSpyVirtualTree(3, 600, 100, 24);
+      // Force a boundary block to straddle a page break (pages 0..1).
       (tree.plan as { pageSpanOfBlock: (id: core.BlockId) => { first: number; last: number } | null })
         .pageSpanOfBlock = () => ({ first: 0, last: 1 });
+      getPage.mockClear();
 
       const anchor = core.createPosition("doc" as core.BlockId, 0);
       const focus = core.createPosition("doc" as core.BlockId, 1);
@@ -851,8 +852,11 @@ describe("createEditorController", () => {
         makeFakeEditorState({ layoutTree: tree, selection: core.createSpan(anchor, focus) }),
       );
 
-      // A spanning boundary block can't be resolved per-page → the bridge fires.
-      expect(materializeAll).toHaveBeenCalled();
+      // Slice 3: the spanning boundary block is unioned per-page via
+      // `selectionRectsAcrossPages` (getPage per spanned page) — the
+      // materializeAll bridge NEVER fires.
+      expect(materializeAll).not.toHaveBeenCalled();
+      expect(getPage).toHaveBeenCalled();
 
       ctrl.destroy();
     });

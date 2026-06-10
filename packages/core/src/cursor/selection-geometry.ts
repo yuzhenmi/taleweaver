@@ -132,9 +132,10 @@ export function computeSelectionRects(
  * (resolved ONCE by the caller, against the virtual tree). The union over all
  * pages equals `computeSelectionRects` over the materialized tree — for
  * NON-spanning boundary blocks. A boundary block that spans a page break is NOT
- * this function's domain (a per-page lookup can't see the boundary's other-page
- * fragment); the caller detects that case and routes it to `computeSelectionRects`
- * over the bridge instead. See the Phase-4 selection-rects plan.
+ * this function's domain on its own (a per-page lookup can't see the boundary's
+ * other-page fragment); the caller detects that case and routes it to the
+ * controller's `selectionRectsAcrossPages`, which calls THIS function once per
+ * spanned page and concatenates the results (no `materializeAll` bridge).
  */
 export function computeSelectionRectsForPage(
   state: State,
