@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import { findMatches } from "./find-matches";
 import { buildBlock, buildState, text, embed, inlineContent } from "../test-utils/state-builders";
 import type { BlockId } from "./block-id";
+import { COMMENT_START_EMBED_TYPE, COMMENT_END_EMBED_TYPE } from "./comments";
+import { BLOCK_JOIN_SUGGESTION_EMBED_TYPE } from "./suggestions";
 
 /**
  * Build a single-paragraph document with the given block text.
@@ -173,6 +175,97 @@ describe("findMatches", () => {
     // matchable and occupies exactly one offset slot.
     expect(findMatches(state, "\n")).toEqual([
       { blockId: "p" as BlockId, start: 3, end: 4 },
+    ]);
+  });
+
+  it("a ZERO-WIDTH comment marker counts as length 1 — match offsets stay 1:1 with the Position model (#407 / B1)", () => {
+    // Comment-start/-end markers serialize to "" (zero-width) in extractText, but
+    // STILL occupy ONE Position offset each (inlineContentLength counts them as 1).
+    // A match AFTER a marker must report its POSITION offset, NOT the marker-
+    // collapsed haystack index — else replaceRange splices at the wrong Position,
+    // corrupting the marker AND replacing the wrong text (data loss).
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p", type: "paragraph", parentId: "doc",
+          inlineContent: inlineContent([
+            text("hello "),
+            embed(COMMENT_START_EMBED_TYPE, { commentId: "c1" }),
+            text("world"),
+          ]),
+        }),
+      ],
+    });
+    // Position offsets: "hello "=[0,6), comment-start@6, "world"=[7,12).
+    // "world" begins at offset 7 — the marker occupies offset 6 — NOT 6.
+    expect(findMatches(state, "world")).toEqual([
+      { blockId: "p" as BlockId, start: 7, end: 12 },
+    ]);
+    // Text BEFORE the marker is unaffected.
+    expect(findMatches(state, "hello")).toEqual([
+      { blockId: "p" as BlockId, start: 0, end: 5 },
+    ]);
+    // A query SPANNING the invisible marker still matches (markers are transparent
+    // to matching — Google-Docs parity); its Position span [0,12) includes the
+    // marker offset, which replaceRange handles at the boundary.
+    expect(findMatches(state, "hello world")).toEqual([
+      { blockId: "p" as BlockId, start: 0, end: 12 },
+    ]);
+  });
+
+  it("a match wrapped EXACTLY by a comment excludes the trailing end-marker from the span (#463)", () => {
+    // Block: "see " + [comment-start] + "here" + [comment-end] + " now". The
+    // comment wraps exactly "here". A search for "here" must report the span of
+    // "here" ALONE — NOT extend past the comment-end marker. If `end` mapped to
+    // the next VISIBLE char's Position it would jump over the zero-width end-
+    // marker and replaceRange would delete it, corrupting the comment.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p", type: "paragraph", parentId: "doc",
+          inlineContent: inlineContent([
+            text("see "),
+            embed(COMMENT_START_EMBED_TYPE, { commentId: "c1" }),
+            text("here"),
+            embed(COMMENT_END_EMBED_TYPE, { commentId: "c1" }),
+            text(" now"),
+          ]),
+        }),
+      ],
+    });
+    // Position offsets: "see "=[0,4), start@4, "here"=[5,9), end@9, " now"=[10,14).
+    // "here" begins at 5; its span is [5,9) — the end-marker at offset 9 is
+    // OUTSIDE the match (end = last-matched-char Position + 1 = 8 + 1 = 9).
+    expect(findMatches(state, "here")).toEqual([
+      { blockId: "p" as BlockId, start: 5, end: 9 },
+    ]);
+  });
+
+  it("a ZERO-WIDTH change-tracking break-suggestion marker also counts as length 1 (B1)", () => {
+    // The same zero-width-marker class as comments: block-join/split suggestion
+    // embeds (change-tracking) serialize to "" yet occupy ONE Position offset.
+    // A match after one must report its Position offset, not the collapsed index.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p", type: "paragraph", parentId: "doc",
+          inlineContent: inlineContent([
+            text("foo "),
+            embed(BLOCK_JOIN_SUGGESTION_EMBED_TYPE, { suggestionId: "s1" }),
+            text("bar"),
+          ]),
+        }),
+      ],
+    });
+    // "foo "=[0,4), join-suggestion@4, "bar"=[5,8) — "bar" begins at 5, NOT 4.
+    expect(findMatches(state, "bar")).toEqual([
+      { blockId: "p" as BlockId, start: 5, end: 8 },
     ]);
   });
 });
