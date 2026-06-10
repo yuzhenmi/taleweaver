@@ -765,9 +765,9 @@ type-over-a-selection in suggesting mode through `replaceWithSuggestion` (via
 `newReplaceSuggestionInput` in `suggestion-mode.ts`) — soft-deletes the selection +
 inserts the text as a tracked insertion at the selection start in ONE undoable op;
 caret = `start.offset + text.length`. Direct mode keeps the destructive `replaceRange`.
-**KNOWN follow-up:** PASTE over a selection in suggesting mode is NOT yet tracked —
-`handlePaste` still does a destructive replace; suggesting-aware paste (needs
-multi-block suggestion content) is a later change-tracking slice.
+**PASTE-as-suggestion SHIPPED (PF-3):** `handlePaste` in suggesting mode routes the
+whole paste through `replaceWithSuggestedFragment` (the multi-block fragment composite
+— see the change-tracking REMAINING block below) instead of a destructive replace.
 **Slice 4d-format shipped:** all 8 inline-format handlers (`TOGGLE_STYLE`,
 `SET_TEXT_COLOR`, `SET_HIGHLIGHT`, `SET_FONT_SIZE`, `SET_FONT_FAMILY`, `SET_LINK`,
 `SET_TEXT_TRANSFORM`, `CLEAR_FORMATTING`) are now suggesting-aware via the shared
@@ -925,7 +925,20 @@ comment overlay: two-stage self-healing (`resolveSuggestionHighlights()` re-reso
 `resolveSuggestionRange` every `update()`; `suggestionHighlightsForPage()` emits per-page rects), painting a
 distinct TEAL band BELOW the comment band (full layering: bg→suggestion→comment→find→selection→text) via
 `paintSuggestionHighlights` + `SuggestionHighlightRect` + `addSuggestionHighlightDirty` incremental erase.
-No `orphaned` check (range null→skip). REMAINING:
+No `orphaned` check (range null→skip).
+**PF paste-as-suggestion + cross-block Enter — SHIPPED (PF-0..PF-4):** a possibly-multi-block
+selection is replaced by a possibly-multi-block tracked fragment via ONE pure structural plan
+`planReplaceWithSuggestedFragment` (allocate new block ids up-front, compute the full post-op
+layout as data, apply in ONE `applyOperation`) → `replaceWithSuggestedFragment`. The fragment
+is a tracked INSERTION (inter-line breaks are `block-split-suggestion` embeds sharing one id);
+a non-collapsed selection is SOFT-DELETED (struck) with a `block-join-suggestion` per crossed
+paragraph boundary — so accept re-flows the merged paragraph and reject restores the original
+split. One deletion id can own k+1 join embeds, resolved by the `resolve` reverse-order merge
+cascade. Built on the kind-aware `insertNewBlocksInTx` primitive (PF-0). Wired into the editor:
+`handlePaste` (PF-3) and cross-block Enter-over-selection in `handleSplitNode` (PF-4, replacing
+the interim NO-OP) both route through it in suggesting mode; single-block Enter keeps
+`splitWithSuggestionOverSelection` (struck text rides BEFORE the break vs the fragment's AFTER).
+REMAINING:
 `5c-structural` (block-boundary projection, shared by extractText+render); 7 arch docs. (No text/HTML exporter
 exists yet — only the binary serializer, which round-trips the
 literal state; a view-projected text/HTML export lands if/when that exporter is built, NOT a change-tracking
