@@ -33,6 +33,10 @@ import { adaptShaperToMeasurer } from "./text-measurer";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import { collectPageFields } from "./collect-page-fields";
 import { resolvePageFields } from "./resolve-page-fields";
+import { patchFieldWidths } from "./patch-field-widths";
+import { runFieldConvergence, WIDTH_EPSILON, type ConvergenceField } from "./field-convergence";
+import { PAGE_FIELD_RESERVED_GLYPHS } from "../state/page-field";
+import { isDevMode } from "./dev-mode";
 import { makeVirtualLayoutTree, type VirtualLayoutTree } from "./virtual-layout-tree";
 import {
   resolveFootnotes,
@@ -120,13 +124,11 @@ export function buildVirtualPaginatedTree(
   const minBodyPx = adaptShaperToMeasurer(shaper).measureHeight(
     cascadedRoot.computedStyle ?? INITIAL_COMPUTED_STYLE,
   );
-  const slotInsets = computeSlotInsets(
-    sectionPlan, pageConfig, ctx, shaper, cascadedTemplateContents, minBodyPx,
-  );
   // The flattened top-level children — sliced by both the measure pass (per-page
   // child fingerprints) AND `resolveFootnotes` (anchor→top-level-index mapping +
   // page child slices). Extracted ONCE and shared so the two passes index over
-  // the identical array.
+  // the identical array. Loop-invariant (page-field widths never change the body
+  // structure), so it lives outside the convergence loop below.
   const rootChildren = flattenContents(cascadedRoot.children);
   // D6: the measure pass's carry-forward source is the prior tree's RAW
   // (pre-`resolveFootnotes`) plan — `resolveFootnotes` re-fits the footnote
@@ -135,37 +137,98 @@ export function buildVirtualPaginatedTree(
   // raw and resolved plans are ref-equal anyway).
   const prevRawPlan =
     (prevTree as { __rawPlan?: PagePlan } | undefined)?.__rawPlan ?? prevTree?.plan;
-  const rawPlan = measurePass(
-    metas, pageConfig, sectionPlan, rootChildren, prevRawPlan, slotInsets,
-  );
-  // FN-4.3 (D6): the footnote layout pass. Lays each anchor's body into its
-  // page's bottom slot, reduces the body content area, and forward-sweeps the
-  // re-fit. Footnote-free docs (empty `footnoteAnchors`) ⇒ ref-equal no-op
-  // (`plan === rawPlan`), so a doc with no footnotes is byte-identical.
-  //
-  // FN-4.4 incremental carry-forward: pass the prior tree's RESOLVED plan
-  // (`prevTree?.plan` — `.plan` is the resolved one; `.__rawPlan` feeds
-  // measurePass above) + the prior tree's cascaded footnote bodies
-  // (`__cascadedEmbedContents`) so `resolveFootnotes` can REUSE an unchanged
-  // footnote page's body re-layout + re-fit. The prior body map is the reuse
-  // gate's change signal (ref-equal body ⇒ unchanged). Absent (no prior tree /
-  // pre-FN-4.4 tree) ⇒ inline-default empty map ⇒ every page takes the full path.
+  // FN-4.4 incremental carry-forward source (prior tree's resolved plan + cascaded
+  // footnote bodies); see the resolveFootnotes call below. Loop-invariant.
   const prevInternal = prevTree as
     | { __cascadedEmbedContents?: ReadonlyMap<BlockId, ElementBox> }
     | undefined;
-  const plan = resolveFootnotes(
-    rawPlan, metas, sectionPlan, rootChildren,
-    cascadedEmbedContents, footnoteAnchors, ctx, shaper, slotInsets, pageConfig,
-    prevTree?.plan, prevInternal?.__cascadedEmbedContents ?? new Map(),
-  );
+
+  // F-2/F-3 (layout-dependent fields): collect the page-field specs from the cascaded
+  // render trees ONCE (the walk is width-independent). `materializePage` substitutes
+  // each header/footer page-field placeholder with its per-page value before slot
+  // layout (self-page page-number = pageIndex+1; global page-count = `globalFieldValues`).
+  // Main-body page-fields are OUT of scope (spec §4.3) — `collectPageFields` still
+  // emits harmless `host:"main"` specs (forward-compat for the page-ref/TOC downstream),
+  // which neither the convergence loop nor substitution consumes.
+  const measurer = adaptShaperToMeasurer(shaper);
+  const fieldSpecs = collectPageFields(cascadedTemplateContents, rootChildren);
+  // §4.4 convergence inputs: only TEMPLATE (header/footer) fields can grow a slot —
+  // body `metas` carry no page-fields (main-body OUT), so a field width feeds ONLY
+  // `computeSlotInsets`. Each field's reservation is its placeholder's natural width
+  // (the rendered `PAGE_FIELD_RESERVED_GLYPHS` zeros at the cascaded atom's style).
+  const reservedGlyphs = "0".repeat(PAGE_FIELD_RESERVED_GLYPHS);
+  const convergenceFields: ConvergenceField[] = fieldSpecs
+    .filter((spec) => spec.host === "template")
+    .map((spec) => ({
+      embedKey: spec.embedKey,
+      reservedWidth: measurer.measureWidth(reservedGlyphs, spec.computedStyle),
+    }));
+
+  // One layout pass at a given set of grown field-width reservations: re-derive the
+  // slot insets (the ONLY place a page-field width matters), re-fit pages, resolve
+  // footnotes, and resolve the page-field values. `patchFieldWidths` overrides the
+  // placeholder inlineSize so `computeSlotInsets` sees the grown width; an empty
+  // `grownWidths` (the common case) returns the templates unchanged ⇒ byte-identical
+  // to a no-convergence build.
+  const runIteration = (grownWidths: ReadonlyMap<string, number>) => {
+    const patchedTemplates = patchFieldWidths(cascadedTemplateContents, grownWidths);
+    const slotInsets = computeSlotInsets(
+      sectionPlan, pageConfig, ctx, shaper, patchedTemplates, minBodyPx,
+    );
+    const rawPlan = measurePass(
+      metas, pageConfig, sectionPlan, rootChildren, prevRawPlan, slotInsets,
+    );
+    // FN-4.3 (D6): the footnote layout pass — lays each anchor's body into its page's
+    // bottom slot, reduces the body content area, forward-sweeps the re-fit. Footnote-
+    // free docs ⇒ ref-equal no-op (`plan === rawPlan`). FN-4.4 carry-forward reuses an
+    // unchanged footnote page's re-layout (prior resolved plan + cascaded bodies are
+    // the change signal). Runs inside the loop because a re-fit (more pages) changes
+    // the footnote→page assignment.
+    const plan = resolveFootnotes(
+      rawPlan, metas, sectionPlan, rootChildren,
+      cascadedEmbedContents, footnoteAnchors, ctx, shaper, slotInsets, pageConfig,
+      prevTree?.plan, prevInternal?.__cascadedEmbedContents ?? new Map(),
+    );
+    const resolved = resolvePageFields(plan, fieldSpecs, measurer);
+    return {
+      pageCount: plan.entries.length,
+      maxValueWidthByKey: resolved.maxValueWidthByKey,
+      rawPlan,
+      plan,
+      globalFieldValues: resolved.globalFieldValues,
+    };
+  };
+
+  // §4.4 bounded width-convergence. Grows any template field whose resolved value
+  // overflows its reservation and re-runs the CHEAP measure passes (never `getPage`).
+  // Common case (every value ≤ the 2-glyph reservation, < 100 pages): exactly one
+  // pass, then the convergence check breaks. The loop iterates only when a value
+  // crosses the reserved digit boundary.
+  const { result, grownWidths, converged } = runFieldConvergence(convergenceFields, runIteration);
+  const { rawPlan, plan, globalFieldValues } = result;
+  // Dev invariant (§4.4): every value's width fits its final reservation. This is the
+  // convergence condition itself, so on the converged path it holds by construction —
+  // it is a TRIPWIRE guarding against a future refactor of the driver/patch wiring that
+  // returns `converged: true` without the property actually holding. Uses the SAME
+  // `WIDTH_EPSILON` the driver applies, so the two agree to the pixel. The non-converged
+  // (bound/pin) case is the documented safe-over-reservation backstop, so it is skipped.
+  if (isDevMode() && converged) {
+    for (const field of convergenceFields) {
+      const reserved = grownWidths.get(field.embedKey) ?? field.reservedWidth;
+      const needed = result.maxValueWidthByKey.get(field.embedKey) ?? 0;
+      if (needed > reserved + WIDTH_EPSILON) {
+        throw new Error(
+          `page-field convergence reported converged but value width ${needed} exceeds reservation ${reserved} for "${field.embedKey}"`,
+        );
+      }
+    }
+  }
+
   // FN-6.4 slice 1: each footnote body (`contentBlockId`) → the page index its
-  // anchor REFERENCE lands on, derived from the RAW plan + anchors (the SAME
-  // anchor→page source of truth `resolveFootnotes` assigns bodies against —
-  // `buildFootnotePageAssignment` keys off `rawPlan`, so the inverse must too).
-  // Exposed on the tree (`footnoteAnchorPages`) for the post-layout rebuild
-  // pipeline, which feeds it to `footnoteNumbers` for `restart-per-page`
-  // numbering (FN-6.1). Empty for a footnote-free doc (no anchors). This changes
-  // NO numbering behaviour; slices 2-6 wire it into the render pipeline.
+  // anchor REFERENCE lands on, derived from the FINAL (converged) RAW plan + anchors
+  // (the SAME anchor→page source of truth `resolveFootnotes` assigns bodies against).
+  // Exposed on the tree for the post-layout rebuild pipeline's `restart-per-page`
+  // numbering (FN-6.1). Empty for a footnote-free doc (no anchors).
   const footnoteAnchorPages =
     footnoteAnchors.length === 0
       ? new Map<BlockId, number>()
@@ -174,27 +237,6 @@ export function buildVirtualPaginatedTree(
           rawPlan,
           buildBlockToTopLevelIndex(rootChildren),
         );
-  // F-2 (layout-dependent fields): collect the page-field specs from the cascaded
-  // render trees and resolve their document-global values from the FINAL plan (the
-  // resolveFootnotes-adjusted page count). `materializePage` then substitutes each
-  // header/footer page-field placeholder with its per-page value before slot layout
-  // (self-page page-number = pageIndex+1; global page-count = `globalFieldValues`).
-  // Field-free docs short-circuit to empty (`collectPageFields` returns [], the
-  // substitution is a no-op identity).
-  //
-  // F-2 KNOWN GAPS (wired in F-3, not bugs):
-  //  - `collectPageFields` also walks `rootChildren` for `host:"main"` specs, but
-  //    F-2 only SUBSTITUTES header/footer (template) bodies (see `materializePage`'s
-  //    `layoutSlot`); a `host:"main"` page-field would render its placeholder ("00")
-  //    until F-3 adds main-body substitution. Collected-but-unconsumed is harmless.
-  //  - The §4.4 width-CONVERGENCE loop is NOT wired: `computeSlotInsets` (above) +
-  //    `measurePass` size the slot at the PLACEHOLDER (reserved) width. A real value
-  //    WIDER than the reservation (e.g. a 3-digit page count when 2 glyphs were
-  //    reserved) would under-size the slot. F-3 adds the grow-and-re-paginate loop;
-  //    `maxValueWidthByKey` (computed below, unused in F-2) feeds it. Single-/double-
-  //    digit values stay within the 2-glyph reservation, so F-2 is correct for them.
-  const fieldSpecs = collectPageFields(cascadedTemplateContents, rootChildren);
-  const { globalFieldValues } = resolvePageFields(plan, fieldSpecs, adaptShaperToMeasurer(shaper));
 
   // Pass the RESOLVED plan to materialize against, the cascaded footnote bodies
   // so `materializePage` renders the slot, and the RAW plan as `__rawPlan` for

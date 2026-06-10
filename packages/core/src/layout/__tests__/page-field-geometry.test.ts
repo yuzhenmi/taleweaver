@@ -59,6 +59,24 @@ function headerBody(fieldKind: "page-number" | "page-count", lead: string): Elem
   return cascadeRoot({ display: "block" }, [para]);
 }
 
+/**
+ * A header whose page-count field uses a non-decimal `numberStyle` so a WIDE value
+ * (e.g. lower-roman "viii" = 4 glyphs) overflows the 2-glyph placeholder reservation
+ * — the input the §4.4 convergence loop must grow. `lead` is a long single word that
+ * sits just inside the line so the grown field wraps the header to a second line.
+ */
+function romanCountHeader(lead: string): ElementBox {
+  const para = createElementBox("hp", { display: "block" } as Style, [
+    createTextBox("hp/inline/0", {}, lead),
+    createElementBox("hp/inline/1", { display: "inline-block" } as Style, [createTextBox("hp/inline/1/0", {}, "00")], {
+      embedType: "page-field",
+      fieldKind: "page-count",
+      numberStyle: "lower-roman",
+    }),
+  ]);
+  return cascadeRoot({ display: "block" }, [para]);
+}
+
 function pageConfig(pageBlockSize: number): PageConfig {
   return {
     pageInlineSize: 600,
@@ -121,6 +139,28 @@ describe("page-field geometry (F-2 late-binding proof)", () => {
     for (let i = 0; i < 3; i++) {
       expect(headerText(tree.getPage(i))).toContain("3");
     }
+  });
+
+  it("§4.4 convergence: a wide page-count value that wraps the header grows the slot and re-paginates", () => {
+    // 24 fixed blocks × 90px. With the 2-glyph placeholder (16px field) the header is
+    // ONE line (lead 552px + 16 = 568 ≤ 570 content width) ⇒ body area 274 ⇒ 3 blocks/
+    // page ⇒ 8 pages. But the page-count at 8 pages is roman "viii" (4 glyphs = 32px),
+    // which OVERFLOWS the reservation. The convergence loop grows the field to 32px,
+    // re-runs computeSlotInsets — now lead 552 + 32 = 584 > 570 ⇒ the field wraps the
+    // header to TWO lines ⇒ body area 258 ⇒ 2 blocks/page ⇒ 12 pages. At 12 pages the
+    // value is "xii" (3 glyphs = 24px ≤ 32px reserved) ⇒ converged. WITHOUT the loop the
+    // header would stay 1 line and the doc would be 8 pages showing "viii" — so this
+    // asserts the feedback was resolved.
+    const lead = "L".repeat(69); // 552px — just inside the 570px content width at the reserved field width
+    const children = Array.from({ length: 24 }, (_, i) => fixedBlock(`b${i}`, 90));
+    const root = cascadeRoot({ display: "block" }, children, { headerBlockId: HDR });
+    const bodies = new Map<BlockId, ElementBox>([[HDR, romanCountHeader(lead)]]);
+    const tree = build(root, pageConfig(300), bodies);
+
+    expect(tree.plan.entries.length).toBe(12); // converged count (8 without the loop)
+    // self-consistent: a 12-page doc shows roman 12 ("xii"), not the pre-convergence "viii"
+    expect(headerText(tree.getPage(0))).toContain("xii");
+    expect(headerText(tree.getPage(0))).not.toContain("viii");
   });
 
   it("field-free docs are unaffected (no header ⇒ no slot, byte-identical pagination)", () => {
