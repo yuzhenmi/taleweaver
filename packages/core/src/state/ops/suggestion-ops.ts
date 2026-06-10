@@ -762,9 +762,12 @@ export function splitWithSuggestionOverSelection(
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Fragment replace (paste-as-suggestion / cross-block Enter). A multi-block
-// fragment inserted as ONE tracked insertion. PF-1: the COLLAPSED-span case
-// (no strike). The cross-block strike + join embeds are layered on in PF-2.
+// Fragment replace (paste-as-suggestion / cross-block Enter). A possibly-multi-
+// block selection is replaced by a possibly-multi-block fragment as ONE tracked
+// suggestion: the fragment is a suggested INSERTION (its inter-line breaks are
+// block-split-suggestion embeds), and any non-collapsed selection is SOFT-DELETED
+// (struck) with the crossed paragraph boundaries suggested as block-JOINs — so
+// accept re-flows the merged paragraph and reject restores the original split.
 // ───────────────────────────────────────────────────────────────────────────
 
 /**
@@ -803,6 +806,22 @@ function buildSplitSuggestionEmbed(insId: SuggestionId): EmbedItem {
   });
 }
 
+/**
+ * The zero-width block-JOIN-suggestion embed for a deletion-suggested paragraph
+ * break (a crossed boundary inside a struck cross-block selection). Carries the
+ * DELETION id: on accept the deletion DOES the join (the two blocks merge); on
+ * reject the break is KEPT (the soft-deleted blocks stay separate). The merge
+ * semantics live in {@link resolve}'s `breakMerge`.
+ */
+function buildJoinSuggestionEmbed(delId: SuggestionId): EmbedItem {
+  return Object.freeze({
+    kind: "embed",
+    embedType: BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
+    attrs: Object.freeze({}),
+    properties: Object.freeze({ suggestionId: delId }),
+  });
+}
+
 function fragmentLineItems(line: SiblingBlockInit, insId: SuggestionId): InlineItem[] {
   return tagInsertionRuns(line.inlineContent?.items ?? [], insId);
 }
@@ -818,7 +837,6 @@ export function planReplaceWithSuggestedFragment(
   allocator: IdAllocator,
 ): ReplaceFragmentPlan {
   const at = spanStart(state, span);
-  // PF-1 handles the COLLAPSED span only (PF-2 adds the cross-block strike).
   const resolved = resolveBlock(state, at.blockId);
   if (resolved === null || resolved.block.inlineContent === null) {
     throw new Error(
@@ -826,22 +844,84 @@ export function planReplaceWithSuggestedFragment(
     );
   }
   const kind = resolved.kind;
-  const items = resolved.block.inlineContent.items;
   const c = at.offset;
   const n = fragment.length;
 
-  // Empty fragment on a COLLAPSED span = total no-op (nothing to insert, and PF-1
-  // has no strike). PF-2 routes a non-collapsed empty fragment to a pure suggested
-  // delete instead; here the span is collapsed, so return an empty plan.
-  if (n === 0) {
-    return { writes: [], newBlocks: [], records: [], endPosition: at };
+  // Plan the strike (pure, pre-tx). `null` ⇒ no strike (collapsed span / nothing to
+  // strike) — the start block B keeps its plain content and the fragment is a pure
+  // suggested insertion at `at` (the PF-1 case). A non-null plan strikes B's tail +
+  // any intervening blocks + E's head and (cross-block) suggests JOINing the crossed
+  // boundaries so accept re-flows the merged paragraph and reject restores the split.
+  const delPlan = planMarkDeletion(state, span, {
+    id: input.deletionId,
+    author: input.author,
+    createdAt: input.createdAt,
+  });
+
+  // The start block B's prefix [0:c] (untouched by the strike), the bundle that rides
+  // into the LAST inserted block (B's struck tail + a cross-block join, or — no strike
+  // — B's plain suffix), the writes for OTHER struck blocks (intervening get a join;
+  // E does not), and the deletion record (when ≥1 run was tagged and not coalesced).
+  let prefix: ReadonlyArray<InlineItem>;
+  let tailBundle: ReadonlyArray<InlineItem>;
+  const extraWrites: ResolveWrite[] = [];
+  let delRecord: SuggestionRecord | null = null;
+  if (delPlan === null) {
+    const [pfx, sfx] = splitInlineContentAtOffset(
+      { items: resolved.block.inlineContent.items },
+      c,
+    );
+    prefix = pfx;
+    tailBundle = sfx;
+  } else {
+    const end = spanEnd(state, span);
+    const startBlockId = at.blockId;
+    const endBlockId = end.blockId;
+    const crossBlock = startBlockId !== endBlockId;
+    // B's POST-strike content (prefix [0:c] plain ++ struck tail). If the strike
+    // produced no write for B (the selection struck nothing in B itself — e.g. starts
+    // at end-of-B), B's live content is unchanged and `c` splits it the same way.
+    const bWrite = delPlan.writes.find((w) => w.blockId === startBlockId);
+    const bItems = bWrite ? bWrite.items : resolved.block.inlineContent.items;
+    const [pfx, afterPrefix] = splitInlineContentAtOffset({ items: bItems }, c);
+    prefix = pfx;
+    tailBundle = crossBlock
+      ? [...afterPrefix, buildJoinSuggestionEmbed(delPlan.id)]
+      : afterPrefix;
+    // Every OTHER struck block: E keeps its struck head + plain tail untouched; an
+    // intervening (fully-struck) block additionally carries a JOIN embed so the
+    // accept cascade merges it into the flow. One deletion id thus owns k+1 join
+    // embeds (k = intervening count) — resolved by `resolve`'s reverse-order merge.
+    for (const w of delPlan.writes) {
+      if (w.blockId === startBlockId) continue;
+      const items =
+        w.blockId === endBlockId
+          ? w.items
+          : mergeAdjacentTextItems([...w.items, buildJoinSuggestionEmbed(delPlan.id)]);
+      extraWrites.push({ blockId: w.blockId, kind: delPlan.kind, items });
+    }
+    if (delPlan.taggedAny && !delPlan.reusing) {
+      delRecord = { id: delPlan.id, kind: "deletion", author: input.author, createdAt: input.createdAt };
+    }
   }
 
-  // Insertion id (spec §3.4): n===1 coalesces into an adjacent same-author
-  // insertion; n>1 ALWAYS mints fresh — the whole paste is ONE accept/reject unit
-  // and its split embeds must NOT fold into a pre-existing insertion's id.
+  // Empty fragment: a pure suggested deletion (no insertion). B' = prefix ++ tailBundle
+  // (the strike writes, restored as one block); the strike record is the only one.
+  if (n === 0) {
+    const bItems = mergeAdjacentTextItems([...prefix, ...tailBundle]);
+    return {
+      writes: [{ blockId: at.blockId, kind, items: bItems }, ...extraWrites],
+      newBlocks: [],
+      records: delRecord === null ? [] : [delRecord],
+      endPosition: at,
+    };
+  }
+
+  // Insertion id (spec §3.4): n===1 coalesces into an adjacent same-author insertion;
+  // n>1 ALWAYS mints fresh — the whole paste is ONE accept/reject unit and its split
+  // embeds must NOT fold into a pre-existing insertion's id.
   let insId: SuggestionId;
-  let record: SuggestionRecord | null;
+  let insRecord: SuggestionRecord | null;
   if (n === 1) {
     const decision = resolveCoalesce(
       state,
@@ -851,33 +931,33 @@ export function planReplaceWithSuggestedFragment(
       (rec) => rec.kind === "insertion" && rec.author === input.author,
     );
     insId = decision.id;
-    record = decision.reusing
+    insRecord = decision.reusing
       ? null
       : { id: insId, kind: "insertion", author: input.author, createdAt: input.createdAt };
   } else {
     insId = input.insertionId;
-    record = { id: insId, kind: "insertion", author: input.author, createdAt: input.createdAt };
+    insRecord = { id: insId, kind: "insertion", author: input.author, createdAt: input.createdAt };
   }
-  const records = record === null ? [] : [record];
-
-  const [prefix, suffix] = splitInlineContentAtOffset({ items }, c);
+  const records: SuggestionRecord[] = [];
+  if (insRecord !== null) records.push(insRecord);
+  if (delRecord !== null) records.push(delRecord);
 
   if (n === 1) {
-    const newItems = mergeAdjacentTextItems([
+    const bItems = mergeAdjacentTextItems([
       ...prefix,
       ...fragmentLineItems(fragment[0], insId),
-      ...suffix,
+      ...tailBundle,
     ]);
     return {
-      writes: [{ blockId: at.blockId, kind, items: newItems }],
+      writes: [{ blockId: at.blockId, kind, items: bItems }, ...extraWrites],
       newBlocks: [],
       records,
       endPosition: createPosition(at.blockId, c + fragmentLineLength(fragment[0])),
     };
   }
 
-  // n > 1: B keeps prefix + line0 + split-embed; the plain suffix rides into the
-  // LAST new block. NB_1..NB_{n-1} hold line_i (+ split-embed for i < n-1).
+  // n > 1: B keeps prefix + line0 + split-embed; line_1..line_{n-1} become new blocks,
+  // and the tail bundle (struck B-tail + join, or plain suffix) rides into NB_{n-1}.
   const parentId = resolved.block.parentId;
   if (parentId === null) {
     throw new Error(
@@ -899,7 +979,7 @@ export function planReplaceWithSuggestedFragment(
     const isLast = i === n - 1;
     const lineItems = fragmentLineItems(fragment[i], insId);
     const blockItems = mergeAdjacentTextItems(
-      isLast ? [...lineItems, ...suffix] : [...lineItems, buildSplitSuggestionEmbed(insId)],
+      isLast ? [...lineItems, ...tailBundle] : [...lineItems, buildSplitSuggestionEmbed(insId)],
     );
     newBlocks.push({
       id: nbIds[i - 1],
@@ -914,7 +994,7 @@ export function planReplaceWithSuggestedFragment(
   }
 
   return {
-    writes: [{ blockId: at.blockId, kind, items: bItems }],
+    writes: [{ blockId: at.blockId, kind, items: bItems }, ...extraWrites],
     newBlocks,
     records,
     endPosition: createPosition(nbIds[n - 2], fragmentLineLength(fragment[n - 1])),
@@ -1157,9 +1237,12 @@ function resolveBlockScan(
  *      `suggestions` map is excluded from dirty-capture, so the record deletes must
  *      still advance state).
  *
- * Both resolvers feed it a per-item `classify`; the single-id resolver passes one id
- * (at most one break owner → the reverse loop is a no-op distinction), the bulk
- * resolver passes all ids.
+ * Both resolvers feed it a per-item `classify`; the single-id resolver passes one id,
+ * the bulk resolver passes all ids. The reverse-order walk of `mergeOwners` is
+ * load-bearing even for a SINGLE id: a cross-block suggested replace/delete tags k+1
+ * `block-join-suggestion` embeds with ONE deletion id (one per crossed boundary), so
+ * accepting that id cascades k+1 merges — reverse order keeps each merge's next
+ * sibling alive.
  */
 function runResolve(
   state: State,
@@ -1211,7 +1294,9 @@ function runResolve(
  * the split, join-accept DOES the join; split-accept / join-reject keep the split).
  * {@link runResolve} performs the conditional merge via the live
  * {@link mergeWithNextSiblingLiveInTx} helper, whose defensive skip subsumes the
- * boundary-validity check. A single-id resolve has at most ONE break owner.
+ * boundary-validity check. A single-id resolve can own MULTIPLE break embeds: a
+ * cross-block suggested replace/delete tags one `block-join-suggestion` per crossed
+ * boundary with the SAME deletion id, so accepting it merges them all (reverse order).
  *
  * NON-undoable + the absent-record identity no-op are documented on
  * {@link acceptSuggestion} / {@link rejectSuggestion} and {@link runResolve}.

@@ -6,16 +6,23 @@
  * removes the whole fragment (re-merges). Tree-`kind`-aware (works in any body).
  */
 import { describe, it, expect } from "vitest";
-import { insertFragmentAsSuggestion, acceptAll, rejectAll } from "./suggestion-ops";
+import {
+  insertFragmentAsSuggestion,
+  replaceWithSuggestedFragment,
+  replaceWithSuggestion,
+  acceptAll,
+  rejectAll,
+} from "./suggestion-ops";
 import {
   getSuggestions,
   INSERTION_SUGGESTION_ATTR,
   BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
+  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
   type SuggestionId,
 } from "../suggestions";
 import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
 import { resolveBlock, type State } from "../state";
-import { createPosition } from "../block-position";
+import { createPosition, createSpan } from "../block-position";
 import { asBlockId, createTestAllocator } from "../block-id";
 
 const INPUT = (id: string) => ({ id: id as SuggestionId, author: "alice", createdAt: 1 });
@@ -147,6 +154,75 @@ describe("insertFragmentAsSuggestion — collapsed-span tracked fragment insert 
     while (fnid) { fnSeq.push(fnid); fnid = resolveBlock(rejected, fnid)?.block.nextSiblingId ?? null; }
     expect(fnSeq).toEqual(["fnp"]); // the suggested split was removed → blocks re-merged
     expect(blockText(rejected, "fnp")).toBe("body");
+    expect(getSuggestions(rejected).length).toBe(0);
+  });
+});
+
+const REPL = (d: string, i: string) => ({
+  deletionId: d as SuggestionId, insertionId: i as SuggestionId, author: "alice", createdAt: 1,
+});
+function twoBlocks(a: string, b: string): State {
+  return buildState({ rootId: "doc", blocks: [
+    buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+    buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text(a)]) }),
+    buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text(b)]) }) ] });
+}
+const hasJoinEmbed = (st: State, id: string, sugId: string): boolean =>
+  (resolveBlock(st, asBlockId(id))?.block.inlineContent?.items ?? []).some(
+    (it) => it.kind === "embed" && it.embedType === BLOCK_JOIN_SUGGESTION_EMBED_TYPE
+      && it.properties.suggestionId === sugId);
+
+describe("replaceWithSuggestedFragment — strike + fragment (PF-2)", () => {
+  it("empty fragment over a single-block selection ≡ markDeletion (no new blocks)", () => {
+    const r = replaceWithSuggestedFragment(oneBlock("abcdef"),
+      createSpan(createPosition(asBlockId("p"), 1), createPosition(asBlockId("p"), 4)), [], REPL("d", "i"), createTestAllocator());
+    expect(blockText(r.state, "p")).toBe("abcdef"); // soft delete: text kept, tagged
+    expect(getSuggestions(r.state).map((x) => x.kind)).toEqual(["deletion"]);
+    expect(blockSeq(r.state).length).toBe(1); // no new blocks
+    expect(blockText(acceptAll(r.state).state, "p")).toBe("aef"); // bcd dropped on accept
+  });
+
+  it("single-block text fragment is byte-identical to replaceWithSuggestion", () => {
+    // Replace p[1..4] of "abcdef" with the text "XY" — once via the new fragment op
+    // (single-block, single-line fragment), once via the shipped replaceWithSuggestion.
+    const span = createSpan(createPosition(asBlockId("p"), 1), createPosition(asBlockId("p"), 4));
+    const viaFragment = replaceWithSuggestedFragment(oneBlock("abcdef"), span,
+      [{ type: "paragraph", inlineContent: inlineContent([text("XY")]) }], REPL("d", "i"), createTestAllocator());
+    const viaShipped = replaceWithSuggestion(oneBlock("abcdef"), span, "XY", {}, REPL("d", "i"));
+    expect(resolveBlock(viaFragment.state, asBlockId("p"))?.block.inlineContent?.items)
+      .toEqual(resolveBlock(viaShipped.state, asBlockId("p"))?.block.inlineContent?.items);
+  });
+
+  it("CROSS-block selection + 1-line fragment: strikes both blocks + a join embed; accept merges to one flow; reject restores", () => {
+    // p1="abcdef", p2="ghijkl"; select p1[2..] .. p2[..4]; paste "XYZ".
+    const mk = () => replaceWithSuggestedFragment(twoBlocks("abcdef", "ghijkl"),
+      createSpan(createPosition(asBlockId("p1"), 2), createPosition(asBlockId("p2"), 4)),
+      [{ type: "paragraph", inlineContent: inlineContent([text("XYZ")]) }], REPL("d", "i"), createTestAllocator());
+    const r = mk();
+    // p1 holds the deletion-flavored join embed (its boundary to p2). No new blocks (1-line).
+    expect(hasJoinEmbed(r.state, "p1", "d")).toBe(true);
+    expect(blockSeq(r.state).length).toBe(2);
+    expect(getSuggestions(r.state).map((x) => x.kind).sort()).toEqual(["deletion", "insertion"]);
+    // accept: "ab" + "XYZ" + "kl" merged into ONE block (struck cdef/ghij removed, break joined).
+    const accepted = acceptAll(mk().state).state;
+    expect(blockSeq(accepted).map((id) => blockText(accepted, id))).toEqual(["abXYZkl"]);
+    expect(getSuggestions(accepted).length).toBe(0);
+    // reject: original two blocks restored verbatim.
+    const rejected = rejectAll(mk().state).state;
+    expect(blockSeq(rejected).map((id) => blockText(rejected, id))).toEqual(["abcdef", "ghijkl"]);
+    expect(getSuggestions(rejected).length).toBe(0);
+  });
+
+  it("CROSS-block selection + 2-line fragment: accept yields ab+line0 | line1+kl across the merged flow; reject restores", () => {
+    const mk = () => replaceWithSuggestedFragment(twoBlocks("abcdef", "ghijkl"),
+      createSpan(createPosition(asBlockId("p1"), 2), createPosition(asBlockId("p2"), 4)),
+      [{ type: "paragraph", inlineContent: inlineContent([text("X")]) },
+       { type: "paragraph", inlineContent: inlineContent([text("Y")]) }], REPL("d", "i"), createTestAllocator());
+    const accepted = acceptAll(mk().state).state;
+    expect(blockSeq(accepted).map((id) => blockText(accepted, id))).toEqual(["abX", "Ykl"]);
+    expect(getSuggestions(accepted).length).toBe(0);
+    const rejected = rejectAll(mk().state).state;
+    expect(blockSeq(rejected).map((id) => blockText(rejected, id))).toEqual(["abcdef", "ghijkl"]);
     expect(getSuggestions(rejected).length).toBe(0);
   });
 });
