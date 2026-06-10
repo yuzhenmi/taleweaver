@@ -27,7 +27,7 @@ import {
   type SuggestionKind,
   type SuggestionMintInput,
 } from "../suggestions";
-import { iterateBlocksInDocumentOrder } from "../document-order";
+import { iterateAllBlocksInDocumentOrder } from "../document-order";
 import { STATE_INTERNAL } from "../state-internal";
 import { getSuggestionsMap, getYBlock, type BlockTreeKind } from "../yjs-doc";
 import { buildYInlineContent, buildYInlineItem } from "../y-block";
@@ -834,11 +834,16 @@ type ScanItemResult =
   | { readonly op: "breakDrop"; readonly merge: boolean };
 
 /**
- * Shared block-scan for {@link resolve} / {@link resolveAll}: walks MAIN-TREE blocks
- * in document order, applies `classify` to each item, and accumulates the
- * per-owning-block full-replace {@link ResolveWrite}s (a block is rewritten iff any
- * of its items was "touched") plus the break-embed merge owners. The single-id and
- * bulk resolvers differ ONLY in `classify`; this is their common spine.
+ * Shared block-scan for {@link resolve} / {@link resolveAll}: walks blocks across
+ * ALL THREE trees (main, then each `embedContents` body, then each
+ * `templateContents` body) in document order via {@link iterateAllBlocksInDocumentOrder},
+ * applies `classify` to each item, and accumulates the per-owning-block full-replace
+ * {@link ResolveWrite}s (a block is rewritten iff any of its items was "touched") plus
+ * the break-embed merge owners. Each write carries its owning block's tree `kind`
+ * (from `resolveBlock`), so a suggestion tagged in a footnote / header / footer body
+ * is accepted/rejected in-place in that body tree — not left as an un-resolvable
+ * zombie. The single-id and bulk resolvers differ ONLY in `classify`; this is their
+ * common spine.
  *
  * `mergeOwners` is built in DOCUMENT ORDER (the iteration order); phase-2 in
  * {@link runResolve} walks it in REVERSE so a cascade of consecutive merges never
@@ -853,7 +858,7 @@ function resolveBlockScan(
 } {
   const writes: ResolveWrite[] = [];
   const mergeOwners: { ownerId: BlockId; kind: BlockTreeKind }[] = [];
-  for (const block of iterateBlocksInDocumentOrder(state)) {
+  for (const block of iterateAllBlocksInDocumentOrder(state)) {
     const content = block.inlineContent;
     if (content === null) continue;
     let touched = false;
@@ -952,8 +957,8 @@ function runResolve(
  * Per-run {@link ResolveAction}: `strip` drops the provenance attr (the run stays
  * plain); `drop` omits the run (real delete); `applyStrip` also merges the record's
  * `proposedAttrs` into the run's live attrs (formatting accept). Block writes are
- * tree-map writes (dirty-captured); the ORPHANED case — record present but no
- * MAIN-TREE run carries its id — does no block write, so {@link runResolve} surfaces
+ * tree-map writes (dirty-captured); the ORPHANED case — record present but no run in
+ * ANY tree carries its id — does no block write, so {@link runResolve} surfaces
  * `state.rootId` for the record delete.
  *
  * BREAK suggestions (a suggested paragraph SPLIT or JOIN) carry their id on a
@@ -1173,12 +1178,13 @@ function rejectAllRun(item: TextItem): AllRewrite {
  * embed ({@link isBreakEmbed}) is always dropped and conditionally merges its owner
  * N with N+1 (`(insertion && reject) || (deletion && accept)`); other embeds +
  * untouched runs are kept. ALL records are then deleted. If the document has no
- * suggestions → identity no-op. If records exist but NO main-tree run carries any of
+ * suggestions → identity no-op. If records exist but NO run in any tree carries any of
  * their ids (all orphaned) → {@link runResolve} surfaces `state.rootId` so the record
  * deletes still advance state.
  *
- * MAIN-TREE-ONLY scan (same as {@link resolve} + `buildSuggestionRangeIndex`);
- * resolving suggestions inside embed/template bodies is a tracked follow-up.
+ * Walks all three trees via {@link resolveBlockScan} (same as {@link resolve} +
+ * `buildSuggestionRangeIndex`), so suggestions inside embed/template bodies resolve
+ * in-place in their body tree.
  */
 function resolveAll(state: State, mode: "accept" | "reject"): OperationResult {
   const doc = state[STATE_INTERNAL].doc;

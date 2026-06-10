@@ -36,7 +36,7 @@ import {
 } from "../suggestions";
 import { createHistory } from "../history";
 import { insertText } from "./insert-text";
-import { applyOperation, getBlock } from "../state";
+import { applyOperation, getBlock, resolveBlock } from "../state";
 import { createPosition, createSpan } from "../block-position";
 import type { Span } from "../block-position";
 import type { BlockId } from "../block-id";
@@ -1064,8 +1064,7 @@ describe("acceptSuggestion / rejectSuggestion — absent record no-op", () => {
 
   it("orphaned-by-presence (record exists but NO run carries its id) deletes the record + advances state", () => {
     // A record present in the map with NO inline run carrying its id — e.g. a
-    // collab peer stripped the tags first, or a footnote-body suggestion the
-    // main-tree scan can't reach. Distinct from the absent-record path (which
+    // collab peer stripped the tags first. Distinct from the absent-record path (which
     // returns early): here the block scan finds nothing, so the resolve must
     // surface state.rootId so the record-delete still advances state (not a stale
     // identity return that would leave a zombie record forever).
@@ -1119,6 +1118,71 @@ describe("acceptSuggestion / rejectSuggestion — multi-block deletion (write lo
       for (const it of itemsOf(s, id)) {
         if (it.kind === "text") expect(DELETION_SUGGESTION_ATTR in it.attrs).toBe(false);
       }
+    }
+    expect(getSuggestions(s).length).toBe(0);
+  });
+});
+
+describe("acceptSuggestion / rejectSuggestion — MT-3: resolves a suggestion in an embed (footnote) body", () => {
+  // doc>p("main") + embedContents fn(body-container)>fnp("abcdef") where "bcd"
+  // (offsets 1..4) carries DELETION_SUGGESTION_ATTR "s-body", plus its record.
+  // Pre-MT-3 the resolve scan visited only the main tree, so accept/reject
+  // deleted the record but left the body run tagged as an un-resolvable zombie.
+  function bodyDeletionState(): State {
+    const seed = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("main")]) }),
+      ],
+      embedContents: [
+        buildBlock({ id: "fn", type: "body-container", firstChildId: "fnp", lastChildId: "fnp" }),
+        buildBlock({
+          id: "fnp",
+          type: "paragraph",
+          parentId: "fn",
+          inlineContent: inlineContent([
+            text("a"),
+            text("bcd", { [DELETION_SUGGESTION_ATTR]: "s-body" }),
+            text("ef"),
+          ]),
+        }),
+      ],
+    });
+    return applyOperation(seed, (doc) => {
+      writeSuggestionRecordInTx(doc, {
+        id: "s-body" as SuggestionId,
+        kind: "deletion",
+        author: "alice",
+        createdAt: 1,
+      });
+    }).state;
+  }
+
+  /** Concatenated text of the embed-body block fnp (resolved off the main tree). */
+  function fnpText(s: State): string {
+    return (resolveBlock(s, "fnp" as BlockId)?.block.inlineContent?.items ?? [])
+      .map((it) => (it.kind === "text" ? it.text : ""))
+      .join("");
+  }
+
+  it("accept DROPS the soft-deleted run inside the footnote body for real", () => {
+    const seeded = bodyDeletionState();
+    expect(fnpText(seeded)).toBe("abcdef");
+    expect(getSuggestions(seeded).length).toBe(1);
+
+    const s = acceptSuggestion(seeded, "s-body" as SuggestionId).state;
+    expect(fnpText(s)).toBe("aef"); // "bcd" really removed in the BODY tree
+    expect(getSuggestions(s).length).toBe(0);
+  });
+
+  it("reject STRIPS the deletion id in the footnote body (text preserved)", () => {
+    const seeded = bodyDeletionState();
+
+    const s = rejectSuggestion(seeded, "s-body" as SuggestionId).state;
+    expect(fnpText(s)).toBe("abcdef");
+    for (const it of resolveBlock(s, "fnp" as BlockId)?.block.inlineContent?.items ?? []) {
+      if (it.kind === "text") expect(DELETION_SUGGESTION_ATTR in it.attrs).toBe(false);
     }
     expect(getSuggestions(s).length).toBe(0);
   });

@@ -711,13 +711,16 @@ drop dominates; a both-insertion-and-deletion run is dropped under both). **With
 resolver. MT-2 shipped — `buildSuggestionRangeIndex` (the range index feeding
 `resolveSuggestionRange` + the host overlay) now walks all three trees, so a suggestion
 tagged in a footnote/header/footer body resolves to its body span instead of returning
-null. STILL MAIN-TREE-ONLY: the accept/reject resolve scan (`resolveBlockScan` in
-suggestion-ops.ts — MT-3) and the editor's suggesting-mode gate
+null. MT-3 shipped — the accept/reject resolve scan (`resolveBlockScan` in
+suggestion-ops.ts) now walks all three trees too, and each per-block full-replace write
+already carries its owning block's tree `kind` (from `resolveBlock`), so a body suggestion
+is accepted/rejected in-place in its body tree instead of being left as an un-resolvable
+zombie. STILL MAIN-TREE-ONLY: the editor's suggesting-mode gate
 (`suggestionInputForBlock`, main-body-gated — MT-4), so body edits still fall back to
 direct (untracked) editing until MT-4 relaxes the gate. The editor GATES suggesting mode
 to the main body so body edits fall back to direct (untracked) editing — closing the
-body-suggestion corruption path (slice-4-followup below); MT-3/MT-4 are the remaining
-steps to TRACK body edits. **Slice 4 (editor
+body-suggestion corruption path (slice-4-followup below); MT-4 is the remaining step to
+TRACK body edits (the resolve machinery — MT-2/MT-3 — is now body-complete). **Slice 4 (editor
 actions + suggesting mode) IN PROGRESS, sub-sliced 4a–4e:** 4a shipped — the 4
 NON-undoable accept/reject editor actions (`ACCEPT_SUGGESTION`/`REJECT_SUGGESTION`/
 `ACCEPT_ALL_SUGGESTIONS`/`REJECT_ALL_SUGGESTIONS`) via a new `"resolve"` ActionClass
@@ -861,9 +864,9 @@ follow-up brings) — named alongside the `handlePaste`-not-suggesting-aware fol
 4e is now COMPLETE (create + resolve + editor + composite).
 **Slice 4-followup shipped (main-body gate — Finding 3a):** suggesting mode is now gated
 to the MAIN BODY at every mutating editor seam. When the gate landed, the resolve scan +
-`buildSuggestionRangeIndex` were MAIN-TREE-ONLY (MT-2 has since lifted
-`buildSuggestionRangeIndex` to all three trees; the accept/reject resolve scan — MT-3 — and
-this gate — MT-4 — still are), so a suggesting-mode edit whose target block
+`buildSuggestionRangeIndex` were MAIN-TREE-ONLY (MT-2 + MT-3 have since lifted BOTH
+`buildSuggestionRangeIndex` and the accept/reject resolve scan to all three trees; only
+this gate — MT-4 — still is), so a suggesting-mode edit whose target block
 lives OUTSIDE the main body (a footnote / header / footer / template body, in the
 embedContents / templateContents trees) would create a body suggestion the scan could
 never reach — on accept/reject-all the record was deleted but the tagged runs / break embed
