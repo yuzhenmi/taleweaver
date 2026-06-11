@@ -47,6 +47,7 @@ import { mergeWithNextSiblingLiveInTx } from "./merge-blocks";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
 import type { AttrRegistry } from "../../cascade/attr-registry";
 import type { ResolvedBlockKind } from "../state";
+import { isDevMode } from "../dev-mode";
 
 /** An empty dirtyIds set — the identity-no-op return per the T7 contract. */
 const NO_DIRTY: ReadonlySet<BlockId> = new Set<BlockId>();
@@ -212,6 +213,7 @@ export function markDeletion(
   state: State,
   span: Span,
   input: SuggestionMintInput,
+  registry?: AttrRegistry,
 ): OperationResult {
   const plan = planMarkDeletion(state, span, input);
   // Collapsed span / nothing to mark → identity no-op (the input State reference).
@@ -220,8 +222,31 @@ export function markDeletion(
   }
 
   return applyOperation(state, (d) => {
+    // Surgical, identity-preserving strike per block (#491): mutate only the
+    // changed runs in place (untouched runs keep their Y.Text CRDT identity),
+    // replacing the old full-replace seam.
+    let anyTagged = false;
     for (const write of plan.writes) {
-      writeBlockInlineContentInTx(d, write.blockId, plan.kind, write.items, "markDeletion");
+      const { tagged } = applyDeletionStrikeInTx(
+        d,
+        write.blockId,
+        plan.kind,
+        write.rangeStart,
+        write.rangeEnd,
+        plan.id,
+        input.author,
+        registry,
+        "markDeletion",
+      );
+      anyTagged ||= tagged;
+    }
+    // Dev cross-check: the applier's runtime `tagged` must agree with the plan's
+    // pre-tx `taggedAny` (both derive from the same classification over the same
+    // items, so they can never legitimately disagree).
+    if (isDevMode() && anyTagged !== plan.taggedAny) {
+      throw new Error(
+        `markDeletion strike drift: applied=${anyTagged} plan=${plan.taggedAny}`,
+      );
     }
     // Write the deletion record only when ≥1 run was actually tagged AND we are
     // not reusing an existing (coalesced) record. A whole-span-was-own-insertions
@@ -285,7 +310,12 @@ function planMarkDeletion(
   // own-insertions removed) PRE-transaction (pure) — mirror of `deleteComment`,
   // which plans writes pre-tx then applies them in the tx.
   const doc = state[STATE_INTERNAL].doc;
-  const writes: { blockId: BlockId; items: ReadonlyArray<InlineItem> }[] = [];
+  const writes: {
+    blockId: BlockId;
+    rangeStart: number;
+    rangeEnd: number;
+    items: ReadonlyArray<InlineItem>;
+  }[] = [];
   let taggedAny = false;
   for (const seg of plan.segments) {
     if (seg.rangeStart >= seg.rangeEnd) continue; // zero-width range in this block
@@ -300,7 +330,12 @@ function planMarkDeletion(
       doc,
     );
     if (result.tagged) taggedAny = true;
-    writes.push({ blockId: seg.block.id, items: mergeAdjacentTextItems(result.items) });
+    writes.push({
+      blockId: seg.block.id,
+      rangeStart: seg.rangeStart,
+      rangeEnd: seg.rangeEnd,
+      items: mergeAdjacentTextItems(result.items),
+    });
   }
 
   return { writes, taggedAny, id, reusing, kind: plan.kind };
@@ -308,8 +343,19 @@ function planMarkDeletion(
 
 /** The pure pre-transaction plan produced by {@link planMarkDeletion}. */
 interface MarkDeletionPlan {
-  /** The per-owning-block full-replace inlineContent rewrites (post-strike items). */
-  readonly writes: { blockId: BlockId; items: ReadonlyArray<InlineItem> }[];
+  /**
+   * The per-owning-block strike writes. `rangeStart`/`rangeEnd` (from the
+   * `iterateSpan` segment) drive the surgical {@link applyDeletionStrikeInTx};
+   * `items` (the post-strike content) is RETAINED because the composite
+   * {@link replaceWithSuggestion} reads `startWrite.items` to build its insert
+   * plan's offsets (byte-identical to the surgical strike's result).
+   */
+  readonly writes: {
+    readonly blockId: BlockId;
+    readonly rangeStart: number;
+    readonly rangeEnd: number;
+    readonly items: ReadonlyArray<InlineItem>;
+  }[];
   /** True iff ≥1 in-range run received the deletion attr (drives the record write). */
   readonly taggedAny: boolean;
   /** The resolved (possibly coalesced) deletion id to stamp / record. */
@@ -485,7 +531,7 @@ export function replaceWithSuggestion(
       id: input.deletionId,
       author: input.author,
       createdAt: input.createdAt,
-    });
+    }, registry);
   }
 
   // Degenerate: collapsed span → nothing to strike, a pure suggested insertion.

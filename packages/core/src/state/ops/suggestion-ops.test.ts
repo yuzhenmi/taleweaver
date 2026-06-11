@@ -36,10 +36,10 @@ import {
 } from "../suggestions";
 import { createHistory } from "../history";
 import { insertText } from "./insert-text";
-import { applyOperation, getBlock, resolveBlock } from "../state";
+import { applyOperation, createState, getBlock, resolveBlock } from "../state";
 import { getYBlock } from "../yjs-doc";
 import { STATE_INTERNAL } from "../state-internal";
-import type * as Y from "yjs";
+import * as Y from "yjs";
 import { createPosition, createSpan } from "../block-position";
 import type { Span } from "../block-position";
 import type { BlockId } from "../block-id";
@@ -679,6 +679,126 @@ describe("markDeletion — identity no-ops", () => {
     const r = markDeletion(s, span(2, 2), DEL_INPUT);
     expect(r.state).toBe(s);
     expect(r.dirtyIds.size).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// markDeletion — IDENTITY PRESERVATION (#491). The surgical strike
+// (applyDeletionStrikeInTx) mutates only the changed runs in place; runs the
+// strike never touches — and a whole-covered run that is merely tagged — keep
+// their Y.Text CRDT identity (the old full-replace seam rebuilt EVERY run,
+// discarding identity, which silently breaks single-user undo of a prior edit
+// in the same block AND a peer's concurrent insert into an untouched run).
+// ─────────────────────────────────────────────────────────────────────────
+
+/** The live Y.Array of block `id`'s inlineContent (raw-Y access for identity). */
+function yItemsOf(s: State, id: string): Y.Array<Y.Map<unknown>> {
+  const doc = s[STATE_INTERNAL].doc;
+  const yBlock = getYBlock(doc, id as BlockId, "test", "block");
+  const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
+  if (yItems === null) throw new Error(`block ${id} has no inlineContent`);
+  return yItems;
+}
+
+/** The Y.Text of the inline item at `index` (text items only). */
+function yTextAt(yItems: Y.Array<Y.Map<unknown>>, index: number): Y.Text {
+  return yItems.get(index).get("text") as Y.Text;
+}
+
+describe("markDeletion — identity-preserving strike (#491)", () => {
+  it("D1: a run wholly OUTSIDE the strike range keeps its Y.Text identity", () => {
+    // Three distinct-attr runs so nothing coalesces: aa[0,2) bb[2,4) cc[4,6).
+    // Strike the MIDDLE run bb[2,4) (whole-covered). aa (before) and cc (after)
+    // are untouched survivors and must keep their exact Y.Text objects.
+    const s0 = oneBlock(
+      inlineContent([
+        text("aa", { bold: true }),
+        text("bb", { italic: true }),
+        text("cc", { underline: true }),
+      ]),
+    );
+    const y0 = yItemsOf(s0, "p");
+    const aaText = yTextAt(y0, 0);
+    const ccText = yTextAt(y0, 2);
+
+    const s1 = markDeletion(s0, span(2, 4), DEL_INPUT).state;
+    const y1 = yItemsOf(s1, "p");
+
+    // Layout unchanged: aa[bb tagged]cc, three runs, all text present.
+    expect(y1.length).toBe(3);
+    expect(pText(s1)).toBe("aabbcc");
+    // The untouched survivors are the SAME Y.Text objects (identity preserved).
+    expect(yTextAt(y1, 0)).toBe(aaText);
+    expect(yTextAt(y1, 2)).toBe(ccText);
+  });
+
+  it("D3: a whole-covered tagged run keeps its Y.Text identity (only attrs change)", () => {
+    const s0 = oneBlock(
+      inlineContent([
+        text("aa", { bold: true }),
+        text("bb", { italic: true }),
+        text("cc", { underline: true }),
+      ]),
+    );
+    const y0 = yItemsOf(s0, "p");
+    const bbText = yTextAt(y0, 1);
+
+    const s1 = markDeletion(s0, span(2, 4), DEL_INPUT).state;
+    const y1 = yItemsOf(s1, "p");
+
+    // The tagged run is the SAME Y.Text object — only its attrs gained the
+    // deletion id (an in-place set, not a rebuild).
+    expect(yTextAt(y1, 1)).toBe(bbText);
+    const bbItem = pItems(s1).find((it) => it.kind === "text" && it.text === "bb");
+    if (bbItem?.kind !== "text") throw new Error("expected the bb run");
+    expect(bbItem.attrs[DELETION_SUGGESTION_ATTR]).toBe(DEL_SID);
+    expect(bbItem.attrs.italic).toBe(true); // live format untouched
+  });
+
+  it("D2: a peer's concurrent insert into an UNTOUCHED run survives merge after a markDeletion (collab — the load-bearing win)", () => {
+    // The load-bearing motivation (#491 §1.2): the state model is Yjs-backed for
+    // collaboration. A full-replace strike materializes FRESH Y.Text for every
+    // run, so a peer's concurrent insertion into an UNTOUCHED run of the same
+    // block is silently obliterated on sync (the rebuild has no merge semantics).
+    // The surgical strike leaves untouched runs' Y.Text intact, so the peer's
+    // edit merges. Three distinct-attr runs: aa[0,2) bb[2,4) cc[4,6).
+    const fixture = oneBlock(
+      inlineContent([
+        text("aa", { bold: true }),
+        text("bb", { italic: true }),
+        text("cc", { underline: true }),
+      ]),
+    );
+
+    // Peer B starts from a synced copy of the fixture doc (a clone via update
+    // bytes — the collab transport).
+    const docB = new Y.Doc();
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(fixture[STATE_INTERNAL].doc));
+    const stateB = createState({ rootId: fixture.rootId, doc: docB });
+
+    // Peer A: markDeletion over the MIDDLE run bb[2,4) (cc is untouched).
+    const stateA = markDeletion(fixture, span(2, 4), DEL_INPUT).state;
+
+    // Peer B (concurrently, on its own doc): insert "Z" into the UNTOUCHED cc
+    // run's live Y.Text at local offset 1 → "cZc". Direct Y.Text mutation models
+    // a peer typing into that run before sync.
+    const yccB = yTextAt(yItemsOf(stateB, "p"), 2);
+    docB.transact(() => {
+      yccB.insert(1, "Z");
+    });
+
+    // Sync the two peers (exchange update bytes, both directions).
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(stateA[STATE_INTERNAL].doc));
+    Y.applyUpdate(stateA[STATE_INTERNAL].doc, Y.encodeStateAsUpdate(docB));
+
+    // After merge, A sees BOTH changes: bb is tagged-deleted AND B's "Z" landed
+    // inside the untouched cc run ("cZc"). With the old full-replace, A's strike
+    // tombstoned cc's Y.Text, so B's insert would be lost (cc stays "cc").
+    const mergedA = createState({ rootId: fixture.rootId, doc: stateA[STATE_INTERNAL].doc });
+    expect(pText(mergedA)).toBe("aabbcZc");
+    const bbItem = pItems(mergedA).find((it) => it.kind === "text" && it.text === "bb");
+    if (bbItem?.kind !== "text") throw new Error("expected the tagged bb run");
+    expect(bbItem.attrs[DELETION_SUGGESTION_ATTR]).toBe(DEL_SID);
   });
 });
 
