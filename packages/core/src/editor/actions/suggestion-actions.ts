@@ -60,7 +60,7 @@ export function handleAcceptSuggestion(
   id: SuggestionId,
   config: EditorConfig,
 ): EditorState {
-  return commitResolve(editor, acceptSuggestion(editor.state, id), config);
+  return commitResolve(editor, acceptSuggestion(editor.state, id, config.attrRegistry), config);
 }
 
 /**
@@ -73,7 +73,7 @@ export function handleRejectSuggestion(
   id: SuggestionId,
   config: EditorConfig,
 ): EditorState {
-  return commitResolve(editor, rejectSuggestion(editor.state, id), config);
+  return commitResolve(editor, rejectSuggestion(editor.state, id, config.attrRegistry), config);
 }
 
 /**
@@ -85,7 +85,7 @@ export function handleAcceptAllSuggestions(
   editor: EditorState,
   config: EditorConfig,
 ): EditorState {
-  return commitResolve(editor, acceptAll(editor.state), config);
+  return commitResolve(editor, acceptAll(editor.state, config.attrRegistry), config);
 }
 
 /**
@@ -97,5 +97,5 @@ export function handleRejectAllSuggestions(
   editor: EditorState,
   config: EditorConfig,
 ): EditorState {
-  return commitResolve(editor, rejectAll(editor.state), config);
+  return commitResolve(editor, rejectAll(editor.state, config.attrRegistry), config);
 }

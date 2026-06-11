@@ -52,16 +52,20 @@ import type { ResolvedBlockKind } from "../state";
 const NO_DIRTY: ReadonlySet<BlockId> = new Set<BlockId>();
 
 /**
- * The SINGLE full-replace seam for the genuinely-rebuilding suggestion ops
- * (markDeletion, replaceWithSuggestion's strike-writes, resolve, resolveAll):
+ * The full-replace seam for the genuinely-rebuilding CREATE suggestion ops
+ * (markDeletion, the replaceWithSuggestion / splitWithSuggestion strike-writes,
+ * replaceWithSuggestedFragment):
  * `getYBlock(...).set("inlineContent", buildYInlineContent({ items }))`.
  *
- * These sites REBUILD a block's inline content (re-tagging / dropping runs), so a
- * full-replace is correct — but it materializes FRESH `Y.Text`/`Y.Map` per item,
- * discarding the block's per-character CRDT identity. Funneling them through one
- * function localizes that identity cost: a future minimal-diff optimization (apply
- * only the changed runs, preserving identity) changes ONLY this function. MUST run
- * inside an already-open transaction (the caller's `applyOperation` body).
+ * These sites REBUILD a block's inline content (re-tagging / inserting strike runs
+ * across a fragment), so a full-replace is correct — but it materializes FRESH
+ * `Y.Text`/`Y.Map` per item, discarding the block's per-character CRDT identity.
+ * The RESOLVE path (accept/reject) no longer routes through here: it uses the
+ * identity-preserving {@link applyResolveDecisionsInTx} (#484), which mutates only
+ * the changed runs in place. These create-op callers are the remaining (acceptable)
+ * identity-discarding sites — a future minimal-diff optimization for them would
+ * change ONLY this function. MUST run inside an already-open transaction (the
+ * caller's `applyOperation` body).
  *
  * The APPEND sites (split/join break-embed) do NOT route through this — they push a
  * single embed onto the live Y.Array, preserving identity already.
@@ -1099,8 +1103,12 @@ export type { NewBlockSpec } from "./insert-new-blocks";
  * Identity no-op (returns the SAME `state` reference + empty dirtyIds, per the
  * T7 contract) when no record exists for `id`.
  */
-export function acceptSuggestion(state: State, id: SuggestionId): OperationResult {
-  return resolve(state, id, "accept");
+export function acceptSuggestion(
+  state: State,
+  id: SuggestionId,
+  registry?: AttrRegistry,
+): OperationResult {
+  return resolve(state, id, "accept", registry);
 }
 
 /**
@@ -1115,8 +1123,12 @@ export function acceptSuggestion(state: State, id: SuggestionId): OperationResul
  * NON-undoable (same {@link SUGGESTION_RESOLVE_ORIGIN} txn tag as accept).
  * Identity no-op when no record exists for `id`.
  */
-export function rejectSuggestion(state: State, id: SuggestionId): OperationResult {
-  return resolve(state, id, "reject");
+export function rejectSuggestion(
+  state: State,
+  id: SuggestionId,
+  registry?: AttrRegistry,
+): OperationResult {
+  return resolve(state, id, "reject", registry);
 }
 
 /** What a resolve does to each TAGGED run of the resolved suggestion. */
@@ -1140,9 +1152,6 @@ interface ResolveDecisionWrite {
   readonly blockId: BlockId;
   readonly kind: BlockTreeKind;
   readonly decisions: readonly ScanItemResult[];
-  // TEMPORARY (#484 Task 1 bridge — removed in Task 3): the rebuilt items the old
-  // full-replace path consumes, built from snapshot items + decisions in the scan.
-  readonly bridgeItems?: InlineItem[];
 }
 
 /**
@@ -1238,10 +1247,9 @@ export function applyResolveDecisionsInTx(
  * `templateContents` body) in document order via {@link iterateAllBlocksInDocumentOrder},
  * applies `classify` to each item, and accumulates the per-owning-block
  * {@link ResolveDecisionWrite}s — one per-item decision list per touched block (a
- * block is touched iff any of its items was not "keep"). The Task-1-only
- * `bridgeItems` field carries the rebuilt full-replace items the temporary bridge
- * in {@link runResolve} consumes (removed in Task 3 when the surgical applier takes
- * over). Also accumulates the break-embed merge owners. Each write carries its owning block's tree `kind`
+ * block is touched iff any of its items was not "keep"). {@link runResolve} applies
+ * each decision list in place via the surgical {@link applyResolveDecisionsInTx}.
+ * Also accumulates the break-embed merge owners. Each write carries its owning block's tree `kind`
  * (from `resolveBlock`), so a suggestion tagged in a footnote / header / footer body
  * is accepted/rejected in-place in that body tree — not left as an un-resolvable
  * zombie. The single-id and bulk resolvers differ ONLY in `classify`; this is their
@@ -1283,7 +1291,6 @@ function resolveBlockScan(
         blockId: block.id,
         kind: resolveBlock(state, block.id)?.kind ?? "block",
         decisions,
-        bridgeItems: buildBridgeItems(content.items, decisions),
       });
     }
   }
@@ -1291,45 +1298,15 @@ function resolveBlockScan(
 }
 
 /**
- * TEMPORARY (#484 Task 1 bridge — removed in Task 3): rebuild a block's
- * post-resolve `InlineItem[]` from its pre-resolve snapshot `items` + the per-item
- * `decisions`, so {@link runResolve}'s write loop can still drive the old
- * full-replace path with byte-identical output. Runs the SAME
- * {@link mergeAdjacentTextItems} the old scan did. `rewrite` is attrs-only, so the
- * `kind`-narrowed spread preserves `text` (or `embedType`/`properties`) and
- * overrides only `attrs` — exactly the old scan's `rewrite → r.item`.
- */
-function buildBridgeItems(
-  items: ReadonlyArray<InlineItem>,
-  decisions: readonly ScanItemResult[],
-): InlineItem[] {
-  const out: InlineItem[] = [];
-  for (let i = 0; i < items.length; i++) {
-    const d = decisions[i];
-    const item = items[i];
-    if (d === undefined || item === undefined) continue;
-    if (d.op === "keep") {
-      out.push(item);
-    } else if (d.op === "rewrite") {
-      // Spread the original item and override only `attrs`. TypeScript distributes
-      // the spread over the `TextItem | EmbedItem` union, so the result is a valid
-      // `InlineItem` (text keeps text/kind; embed keeps embedType/properties/kind) —
-      // no `as` cast. Every resolve rewrite is attrs-only, so this matches the old
-      // scan's fully-rebuilt `r.item` exactly.
-      out.push({ ...item, attrs: d.attrs });
-    }
-    // drop / breakDrop → omit
-  }
-  return mergeAdjacentTextItems(out);
-}
-
-/**
  * Shared resolve engine for {@link resolve} / {@link resolveAll}: runs
  * {@link resolveBlockScan}, then in ONE {@link SUGGESTION_RESOLVE_ORIGIN}-tagged
  * (non-undoable) `applyOperation` transaction:
- *   1. writes the per-block rewrites via the TEMPORARY full-replace bridge
- *      ({@link writeBlockInlineContentInTx} fed from each write's `bridgeItems` —
- *      removed in Task 3 when the surgical in-place applier takes over);
+ *   1. applies each touched block's per-item decisions IN PLACE over the live
+ *      Y.Array via the surgical {@link applyResolveDecisionsInTx} (identity-
+ *      preserving: untouched survivor runs keep their Y.Text, so a prior undoable
+ *      `StackItem` stays valid across the resolve — #484). `registry` is threaded
+ *      to the applier's post-pass coalescer so custom per-key `equals`
+ *      interpreters apply (load-bearing for `comment`-bearing runs);
  *   2. runs the conditional break MERGES in REVERSE document order via the live
  *      {@link mergeWithNextSiblingLiveInTx} helper — which reads each owner's
  *      CURRENT next sibling off the Y.Doc (so a cascade reflects prior merges) and
@@ -1352,15 +1329,14 @@ function runResolve(
   state: State,
   idsToDelete: ReadonlyArray<SuggestionId>,
   classify: (item: InlineItem) => ScanItemResult,
+  registry: AttrRegistry | undefined,
 ): OperationResult {
   const { writes, mergeOwners } = resolveBlockScan(state, classify);
   return applyOperation(
     state,
     (d) => {
       for (const write of writes) {
-        writeBlockInlineContentInTx(
-          d, write.blockId, write.kind, write.bridgeItems ?? [], "resolveSuggestion",
-        );
+        applyResolveDecisionsInTx(d, write.blockId, write.kind, write.decisions, registry);
       }
       for (let i = mergeOwners.length - 1; i >= 0; i--) {
         const owner = mergeOwners[i];
@@ -1411,6 +1387,7 @@ function resolve(
   state: State,
   id: SuggestionId,
   mode: "accept" | "reject",
+  registry: AttrRegistry | undefined,
 ): OperationResult {
   const doc = state[STATE_INTERNAL].doc;
   const record = readSuggestionRecord(doc, id);
@@ -1462,7 +1439,7 @@ function resolve(
   // orphans (CT-audit BUG1): when DROPPING a run that nests another author's id
   // (insertion-by-A + deletion-by-B), the co-tenant loses its last tagged content
   // and would otherwise be left orphaned (record present, range null).
-  return runResolve(state, collectResolveRecordDeletes(state, id, classify), classify);
+  return runResolve(state, collectResolveRecordDeletes(state, id, classify), classify, registry);
 }
 
 /**
@@ -1608,8 +1585,8 @@ function resolveEmbedFormatting(
  * accept, exactly as {@link acceptSuggestion}. Identity no-op (same `state` ref +
  * empty dirtyIds) when the document has no suggestions.
  */
-export function acceptAll(state: State): OperationResult {
-  return resolveAll(state, "accept");
+export function acceptAll(state: State, registry?: AttrRegistry): OperationResult {
+  return resolveAll(state, "accept", registry);
 }
 
 /**
@@ -1621,8 +1598,8 @@ export function acceptAll(state: State): OperationResult {
  *
  * NON-undoable, same identity no-op contract as {@link acceptAll}.
  */
-export function rejectAll(state: State): OperationResult {
-  return resolveAll(state, "reject");
+export function rejectAll(state: State, registry?: AttrRegistry): OperationResult {
+  return resolveAll(state, "reject", registry);
 }
 
 /**
@@ -1721,7 +1698,11 @@ function rejectAllRun(item: TextItem): AllRewrite {
  * `buildSuggestionRangeIndex`), so suggestions inside embed/template bodies resolve
  * in-place in their body tree.
  */
-function resolveAll(state: State, mode: "accept" | "reject"): OperationResult {
+function resolveAll(
+  state: State,
+  mode: "accept" | "reject",
+  registry: AttrRegistry | undefined,
+): OperationResult {
   const doc = state[STATE_INTERNAL].doc;
   const ids: SuggestionId[] = [...getSuggestionsMap(doc).keys()].map(
     (key) => key as SuggestionId,
@@ -1760,7 +1741,7 @@ function resolveAll(state: State, mode: "accept" | "reject"): OperationResult {
     const resolvedEmbed = resolveEmbedFormatting(item, mode, doc);
     if (resolvedEmbed !== null) return { op: "rewrite", attrs: resolvedEmbed.attrs };
     return { op: "keep" };
-  });
+  }, registry);
 }
 
 /** Outcome of {@link rebuildBlockForDeletion}: the new items + whether any run was tagged. */

@@ -37,6 +37,9 @@ import {
 import { createHistory } from "../history";
 import { insertText } from "./insert-text";
 import { applyOperation, getBlock, resolveBlock } from "../state";
+import { getYBlock } from "../yjs-doc";
+import { STATE_INTERNAL } from "../state-internal";
+import type * as Y from "yjs";
 import { createPosition, createSpan } from "../block-position";
 import type { Span } from "../block-position";
 import type { BlockId } from "../block-id";
@@ -1678,5 +1681,261 @@ describe("acceptAll / rejectAll — empty-doc / no-suggestions identity no-op", 
     const r = rejectAll(s);
     expect(r.state).toBe(s);
     expect(r.dirtyIds.size).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// #484 — identity-preserving resolve: a resolve mutates ONLY the runs it
+// changes (in-place attrs swap + delete-by-index), preserving the CRDT
+// identity of every untouched run so a prior undoable edit's StackItem stays
+// valid across a resolve of a DIFFERENT suggestion in the SAME block.
+//
+// U1/U2 are behavior tests through the real state API (mint/edit → resolve →
+// undo). U3 is a white-box Y.Text `===` assertion on a structurally
+// non-coalescing survivor. All three FAIL under the full-replace bridge
+// (which tombstones every survivor's Y.Text) and pass once the surgical
+// applier takes over.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** The live Y.Array of block "p"'s inline content (raw Y access for U3). */
+function yItemsOfP(s: State): Y.Array<Y.Map<unknown>> {
+  const doc = s[STATE_INTERNAL].doc;
+  const yBlock = getYBlock(doc, "p" as BlockId, "test", "block");
+  return yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>>;
+}
+
+/** The index of the first item in `yItems` whose Y.Text equals `t` (-1 if none). */
+function indexOfText(yItems: Y.Array<Y.Map<unknown>>, t: string): number {
+  for (let i = 0; i < yItems.length; i++) {
+    const yText = yItems.get(i).get("text");
+    if (yText !== undefined && (yText as Y.Text).toString() === t) return i;
+  }
+  return -1;
+}
+
+describe("#484 — identity-preserving resolve keeps a prior same-block undoable edit valid", () => {
+  it("U1: undo of a prior tracked-insertion edit survives a resolve of a DIFFERENT suggestion in that block", () => {
+    // Two suggestions in ONE block "p": a SEEDED insertion ("INS" via s-pre, the
+    // suggestion we resolve) and then a TRACKED, committed insertion edit E1
+    // ("E1" via the History) that is the only undo entry. Resolving s-pre
+    // (rejecting it → drops "INS") must NOT tombstone E1's Y.Text, so undo() of
+    // E1 still REVERTS E1 (its content disappears). Under the full-replace bridge
+    // the resolve rebuilds the whole block, detaching E1's StackItem and making
+    // undo() a SILENT NO-OP (E1's text stays). The load-bearing claim is narrow:
+    // undo of E1 is a real revert, not a no-op (we assert E1's text is gone — the
+    // resolve's own non-undoability is a separate invariant, not under test here).
+    const sPre = "s-pre" as SuggestionId;
+
+    // Seed s-pre: mint an insertion "INS" at offset 0 → "INSabcdef" (before the
+    // History exists, so it is NOT an undo entry — just the suggestion we resolve).
+    const seeded = mintInsertion(oneBlock(), createPosition("p" as BlockId, 0), "INS", {}, {
+      id: sPre,
+      author: "alice",
+      createdAt: 1,
+    }).state;
+    expect(pText(seeded)).toBe("INSabcdef");
+
+    const history = createHistory(seeded);
+
+    // E1: a TRACKED, committed insertion edit elsewhere in "p" — the ONLY undo
+    // entry. Insert "E1" at the END ("INSabcdef".length = 9) → "INSabcdefE1".
+    history.beginEntry("command", 100);
+    const editedE1 = mintInsertion(seeded, createPosition("p" as BlockId, 9), "E1", {}, {
+      id: "e1" as SuggestionId,
+      author: "bob",
+      createdAt: 2,
+    });
+    history.commit(editedE1, { before: null, after: null });
+    const sE1 = editedE1.state;
+    expect(pText(sE1)).toBe("INSabcdefE1");
+
+    // Break the open undo group before the non-undoable resolve.
+    history.breakCoalescing();
+    // Resolve s-pre (REJECT → drops "INS"). Identity-preserving: only the "INS"
+    // run is removed; E1's run keeps its Y.Text. Reconcile cached state.
+    const resolved = rejectSuggestion(sE1, sPre);
+    history.advanceState(resolved.state);
+    expect(pText(resolved.state)).toBe("abcdefE1"); // INS dropped, E1 survives
+
+    // undo() reverts E1 cleanly — proving its StackItem survived the resolve.
+    // E1's inserted text is gone (a REAL revert, not a silent no-op).
+    const undone = history.undo();
+    if (undone === null) throw new Error("expected undo to return a result");
+    // The #484 win: undo of E1 is a REAL revert (E1's text gone), not the
+    // pre-#484 silent no-op (which left "abcdefE1"). Full content is "INSabcdef":
+    // undoing E1 also REVIVES the rejected "INS" — that revival is the SEPARATE
+    // #483 entanglement (a non-undoable resolve deletion overlapping a tracked
+    // StackItem's region), explicitly out of #484's scope. Pinning the exact
+    // result rules out over/under-revert; it still fails pre-#484 (was "abcdefE1").
+    expect(pText(undone.state)).toBe("INSabcdef");
+
+    history.destroy();
+  });
+
+  it("U2: undo of a prior NORMAL (non-tracked) edit survives a resolve in the same block", () => {
+    // E1 is a PLAIN insertText (a normal undoable edit), then we resolve a
+    // suggestion in the SAME block. The resolve must preserve E1's run identity
+    // so undo() of E1 still works (NOT a silent no-op). The run E1 edits MUST be
+    // structurally non-coalescing with the resolved run — else its Y.Text is
+    // legitimately merged away by the post-strip coalescer (U3's gotcha). So the
+    // base run carries a distinct {color} the stripped INS ({}) can never equal.
+    const sPre = "s-pre" as SuggestionId;
+    // Block: "INS"(insertion s-pre) + "abcdef"{color:"base"}. Stripping s-pre
+    // makes INS {} — still DISTINCT from the {color:"base"} run, so no coalesce,
+    // and E1's run (the colored one) keeps its Y.Text.
+    const seeded = applyOperation(
+      oneBlock(
+        inlineContent([
+          text("INS", { [INSERTION_SUGGESTION_ATTR]: sPre }),
+          text("abcdef", { color: "base" }),
+        ]),
+      ),
+      (doc) => {
+        writeSuggestionRecordInTx(doc, { id: sPre, kind: "insertion", author: "alice", createdAt: 1 });
+        return new Set<BlockId>([oneBlock().rootId]);
+      },
+    ).state;
+
+    const history = createHistory(seeded);
+
+    // E1: a normal plain insert into the colored run (offset 9, end) carrying the
+    // SAME {color:"base"} so it merges into that run's Y.Text → "INSabcdefE1".
+    history.beginEntry("command", 100);
+    const editedE1 = insertText(seeded, createPosition("p" as BlockId, 9), "E1", { color: "base" });
+    history.commit(editedE1, { before: null, after: null });
+    const sE1 = editedE1.state;
+    expect(pText(sE1)).toBe("INSabcdefE1");
+
+    history.breakCoalescing();
+    // Accept s-pre (STRIP → "INS" becomes plain {} text, stays distinct from the
+    // colored run). Then undo E1.
+    const resolved = acceptSuggestion(sE1, sPre);
+    history.advanceState(resolved.state);
+    expect(pText(resolved.state)).toBe("INSabcdefE1"); // INS now plain, E1 present
+
+    // undo() of the plain E1 edit is a REAL revert (E1's text gone), not a
+    // silent no-op — the resolve preserved E1's run identity.
+    const undone = history.undo();
+    if (undone === null) throw new Error("expected undo to return a result");
+    // The #484 win: undo of the plain E1 edit is a REAL revert (E1 gone), not the
+    // pre-#484 silent no-op (which left "INSabcdefE1"). Here the accept STRIPPED
+    // (not dropped) INS, so it stays — undo of E1 cleanly yields "INSabcdef".
+    // Pinning the exact content rules out over/under-revert; still fails pre-#484.
+    expect(pText(undone.state)).toBe("INSabcdef");
+
+    history.destroy();
+  });
+
+  it("U3: an untouched, structurally non-coalescing survivor keeps its Y.Text === across a resolve", () => {
+    // Fixture (plan §T3 Step 1): three runs
+    //   text("a", {insertionSuggestionId: s1}), text("b", {}), text("c", {bold:true}).
+    // Accept s1 → run0 strips to {} and coalesces with run1 ("ab"{}) — run0/1
+    // identity legitimately lost to the merge. Run2 ("c"{bold:true}) is
+    // NON-adjacent to the rewritten pair and DISTINCT-attrs, so it cannot
+    // coalesce: its Y.Text MUST be the SAME object (===) after the resolve.
+    const s1 = "s1" as SuggestionId;
+    let s = oneBlock(
+      inlineContent([
+        text("a", { [INSERTION_SUGGESTION_ATTR]: s1 }),
+        text("b", {}),
+        text("c", { bold: true }),
+      ]),
+    );
+    s = applyOperation(s, (doc) => {
+      writeSuggestionRecordInTx(doc, {
+        id: s1,
+        kind: "insertion",
+        author: "alice",
+        createdAt: 1,
+      });
+      return new Set<BlockId>([s.rootId]);
+    }).state;
+
+    // Capture the survivor "c" Y.Text BEFORE the resolve (at index 2).
+    const yBefore = yItemsOfP(s);
+    const cIndexBefore = indexOfText(yBefore, "c");
+    expect(cIndexBefore).toBe(2);
+    const survivorCText = yBefore.get(cIndexBefore).get("text") as Y.Text;
+
+    const resolved = acceptSuggestion(s, s1).state;
+
+    // After: "ab"{} coalesced (run0+run1) then "c"{bold}. Re-find "c" by content
+    // (it shifted to index 1 post-coalesce) and assert SAME Y.Text object.
+    const yAfter = yItemsOfP(resolved);
+    const cIndexAfter = indexOfText(yAfter, "c");
+    expect(cIndexAfter).toBe(1);
+    expect(yAfter.get(cIndexAfter).get("text")).toBe(survivorCText);
+  });
+});
+
+describe("#484 — resolve equivalence + index-arithmetic edge cases", () => {
+  it("mixed keep / rewrite / drop decisions in ONE block stay index-aligned", () => {
+    // p: "K" (plain, KEEP) + "INS"(insertion s1, accept → REWRITE-strip) + "DEL"
+    // (deletion s2, accept → DROP) + "T" (plain, KEEP). Distinct colors so the
+    // resolved runs don't spuriously coalesce, letting us assert each survives.
+    const s1 = "mix-ins" as SuggestionId;
+    const s2 = "mix-del" as SuggestionId;
+    let s = oneBlock(
+      inlineContent([
+        text("K", { color: "k" }),
+        text("INS", { color: "i", [INSERTION_SUGGESTION_ATTR]: s1 }),
+        text("DEL", { color: "d", [DELETION_SUGGESTION_ATTR]: s2 }),
+        text("T", { color: "t" }),
+      ]),
+    );
+    s = applyOperation(s, (doc) => {
+      writeSuggestionRecordInTx(doc, { id: s1, kind: "insertion", author: "a", createdAt: 1 });
+      writeSuggestionRecordInTx(doc, { id: s2, kind: "deletion", author: "a", createdAt: 2 });
+      return new Set<BlockId>([s.rootId]);
+    }).state;
+
+    // Accept s2 (DROP "DEL") — "INS" still tagged (KEEP), "K"/"T" KEEP.
+    const afterDel = acceptSuggestion(s, s2).state;
+    expect(pText(afterDel)).toBe("KINST");
+    // Then accept s1 (REWRITE-strip "INS" → plain).
+    const afterIns = acceptSuggestion(afterDel, s1).state;
+    expect(pText(afterIns)).toBe("KINST");
+    const ins = runWithText(afterIns, "INS");
+    expect(INSERTION_SUGGESTION_ATTR in ins.attrs).toBe(false);
+    expect(ins.attrs.color).toBe("i"); // live format preserved
+    expect(getSuggestions(afterIns).length).toBe(0);
+  });
+
+  it("coalesce-after-strip: a strip that makes a run attrs-equal to its neighbor merges into one run", () => {
+    // p: "a"{} + "b"{ins:s1} (accept → strip to {}) → "b" becomes {} === "a"{}
+    // and the two coalesce into a single plain "ab" run.
+    const s1 = "co-ins" as SuggestionId;
+    let s = oneBlock(
+      inlineContent([
+        text("a", {}),
+        text("b", { [INSERTION_SUGGESTION_ATTR]: s1 }),
+      ]),
+    );
+    s = applyOperation(s, (doc) => {
+      writeSuggestionRecordInTx(doc, { id: s1, kind: "insertion", author: "a", createdAt: 1 });
+      return new Set<BlockId>([s.rootId]);
+    }).state;
+
+    const resolved = acceptSuggestion(s, s1).state;
+    expect(pText(resolved)).toBe("ab");
+    // Single merged plain run (no adjacent same-attrs runs survive normalization).
+    const plainRuns = pItems(resolved).filter((it) => it.kind === "text");
+    expect(plainRuns.length).toBe(1);
+    expect(getSuggestions(resolved).length).toBe(0);
+  });
+
+  it("empty-block (all-drop): rejecting an insertion whose runs are the whole block leaves an empty leaf", () => {
+    // p is ENTIRELY one inserted run; reject (DROP) empties the block.
+    const s1 = "all-ins" as SuggestionId;
+    let s = oneBlock(inlineContent([text("INS", { [INSERTION_SUGGESTION_ATTR]: s1 })]));
+    s = applyOperation(s, (doc) => {
+      writeSuggestionRecordInTx(doc, { id: s1, kind: "insertion", author: "a", createdAt: 1 });
+      return new Set<BlockId>([s.rootId]);
+    }).state;
+
+    const resolved = rejectSuggestion(s, s1).state;
+    expect(pText(resolved)).toBe(""); // block is now an empty leaf
+    expect(pItems(resolved).length).toBe(0);
+    expect(getSuggestions(resolved).length).toBe(0);
   });
 });

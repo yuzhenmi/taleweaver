@@ -173,8 +173,8 @@ describe("resolve actions are NON-undoable", () => {
   });
 });
 
-describe("same-block resolve then undo is a graceful no-op (S1 — not a crash)", () => {
-  it("type-as-suggestion → accept → undo does not throw and keeps the accepted text", () => {
+describe("same-block resolve then undo (S1 — identity-preserving, #484)", () => {
+  it("type-as-suggestion → accept → undo reverts the typing (StackItem survives the resolve)", () => {
     const suggesting: EditorConfig = { ...config, suggestingAuthor: "alice" };
     const initial = createInitialEditorState(config);
     const paraId = bodyParaId(initial.state);
@@ -184,10 +184,10 @@ describe("same-block resolve then undo is a graceful no-op (S1 — not a crash)"
     const sugg = getSuggestions(typed.state);
     expect(sugg).toHaveLength(1);
 
-    // Accept it. The non-undoable resolve FULL-REPLACES this block's inline
-    // content (writeBlockInlineContentInTx discards the per-character CRDT
-    // identity the preceding mint's undo StackItem targeted), turning that
-    // StackItem into a no-op.
+    // Accept it. The non-undoable resolve now applies a SURGICAL in-place attrs
+    // strip (#484: applyResolveDecisionsInTx), preserving the run's Y.Text — and
+    // therefore the preceding mint's undo StackItem stays VALID (it is no longer
+    // detached by a full-replace rebuild).
     const accepted = reduceEditor(
       typed,
       { type: "ACCEPT_SUGGESTION", id: sugg[0].id },
@@ -196,15 +196,13 @@ describe("same-block resolve then undo is a graceful no-op (S1 — not a crash)"
     expect(getSuggestions(accepted.state)).toHaveLength(0);
     expect(getTextOf(accepted.state, paraId)).toBe("hi");
 
-    // UNDO must NOT throw. Yjs's undo() pops the now-no-op StackItem and returns
-    // null despite canUndo()===true; History treats that as a graceful no-op
-    // (nothing reversible) rather than crashing. The accepted text survives.
-    // (Restoring undoability of the typing across a same-block resolve needs the
-    // identity-preserving resolve — tracked separately, #484.)
+    // UNDO now REVERTS the typing for real (its StackItem survived the resolve) —
+    // pre-#484 this was a silent no-op that left "hi" behind. The accept itself
+    // contributed no undo step, so after this undo nothing reversible remains.
     const undone = reduceEditor(accepted, { type: "UNDO" }, suggesting);
-    expect(getTextOf(undone.state, paraId)).toBe("hi");
+    expect(getTextOf(undone.state, paraId)).toBe("");
     assertChainIntegrity(undone.state, "s1-regression");
-    // A second undo is also a safe no-op, regardless of Yjs pop semantics.
+    // A further undo is a safe no-op (nothing left) and must not throw.
     expect(() =>
       reduceEditor(undone, { type: "UNDO" }, suggesting),
     ).not.toThrow();
