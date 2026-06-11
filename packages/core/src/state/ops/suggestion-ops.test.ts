@@ -137,6 +137,24 @@ describe("markFormatting — stamp suggestion attr + write record in ONE tracked
     expect("italic" in marked.attrs).toBe(false);
     expect(marked.attrs[FORMATTING_SUGGESTION_ATTR]).toBe(SID);
   });
+
+  it("does NOT stamp the suggestion id onto a zero-width marker embed in range (#465 dangling-ref)", () => {
+    // [text("ab"), comment-start marker, text("cd")] — mark formatting over the
+    // whole span. The text runs carry the suggestion id; the marker must NOT —
+    // else, after the record is deleted on resolve, the marker keeps a dangling
+    // formattingSuggestionId forever.
+    const s = markFormatting(
+      oneBlock(inlineContent([text("ab"), embed("comment-start", { commentId: "c1" }), text("cd")])),
+      span(0, 5),
+      { bold: true },
+      INPUT,
+    ).state;
+    const marker = pItems(s).find((it) => it.kind === "embed" && it.embedType === "comment-start");
+    if (marker === undefined || marker.kind !== "embed") throw new Error("expected the marker");
+    expect(FORMATTING_SUGGESTION_ATTR in marker.attrs).toBe(false);
+    // The surrounding text still carries the proposal id (sanity: the op ran).
+    expect(markedRunAttr(s)).toBe(SID);
+  });
 });
 
 describe("markFormatting — undo atomicity (attr + record revert together)", () => {

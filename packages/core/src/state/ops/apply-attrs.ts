@@ -9,6 +9,7 @@ import { iterateSpan, type BlockRange } from "../span-iteration";
 import { getYBlock, requireInTransaction } from "../yjs-doc";
 import { buildYAttrs, buildYInlineItem } from "../y-block";
 import { yMapAsObject, mergeAdjacentSameAttrsTextItems, yItemLength } from "../y-utils";
+import { isStructuralMarkerEmbedType } from "../embed-markers";
 import type { ResolvedBlockKind } from "../state";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
 import type { AttrRegistry } from "../../cascade/attr-registry";
@@ -19,9 +20,14 @@ import type { AttrRegistry } from "../../cascade/attr-registry";
  * `attrs` is MERGED into each affected item's existing attrs. To remove
  * an attr, pass it with value `undefined` (e.g., `{ bold: undefined }`).
  *
- * For embed items intersecting the range, the merge applies to the embed's
- * `attrs` field (wrap attrs like link/comment-range — NOT `properties`,
- * which holds intrinsic embed data).
+ * For VISIBLE embed items intersecting the range (footnote-anchor,
+ * cross-reference, page-field, tab), the merge applies to the embed's `attrs`
+ * field (NOT `properties`, which holds intrinsic embed data) — so a field
+ * inherits surrounding run formatting like Google Docs/Word. Zero-width
+ * STRUCTURAL MARKER embeds (comment/suggestion markers — see
+ * {@link isStructuralMarkerEmbedType}) are SKIPPED: they carry no formattable
+ * content, and stamping a tracked-change provenance attr onto one would leave a
+ * dangling reference after the suggestion resolves (#465).
  *
  * Returns OperationResult with dirtyIds = every block id whose items
  * changed.
@@ -181,7 +187,8 @@ export function applyAttrsToRangeInTx(
  * Walk one block's Y items and apply attrs to the portion overlapping
  * [start, end). Mutates `yItems` in place:
  *   - Items entirely outside the range are skipped.
- *   - Embed items in range have their attrs Y.Map replaced.
+ *   - VISIBLE embed items in range have their attrs Y.Map replaced; zero-width
+ *     STRUCTURAL MARKER embeds are skipped entirely (#465).
  *   - Text items fully covered have their attrs Y.Map replaced (preserves
  *     Y.Text identity).
  *   - Text items partially covered are split into up to three replacement
@@ -219,7 +226,22 @@ function applyAttrsToBlockRange(
     const merged = mergeAttrs(existingAttrs, newAttrs);
 
     if (kind === "embed") {
-      // Embed is one cursor position; in-range → update attrs in place.
+      // Zero-width STRUCTURAL MARKER embeds (comment-start/end, block-join/
+      // split-suggestion) carry NO formattable content — their meaning lives in
+      // `properties`, not text-format `attrs`. Never stamp inline-format attrs
+      // onto them (#465): a `bold`/`color` is meaningless, and a tracked-change
+      // provenance attr (formattingSuggestionId, via markFormatting) would
+      // dangle after the suggestion record is deleted on resolve. Skip the write
+      // but still advance past the marker's one cursor position. VISIBLE field
+      // embeds (footnote-anchor, cross-reference, page-field, tab) fall through
+      // and DO inherit run formatting, like Google Docs/Word fields.
+      const embedType = yItem.get("embedType") as string;
+      if (isStructuralMarkerEmbedType(embedType)) {
+        cursor = itemEnd;
+        i++;
+        continue;
+      }
+      // Visible embed is one cursor position; in-range → update attrs in place.
       // No-op guard (#358): when `merged` equals the existing attrs (e.g.,
       // toggleBold over an already-bold range), the Y.Map write would still
       // fire a Yjs change event and dirty this block — cascading into

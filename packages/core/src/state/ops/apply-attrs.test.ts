@@ -257,6 +257,69 @@ describe("applyAttrsToRange — embed items in range", () => {
       attrs: { comment: "c1", link: "http://x" },
     });
   });
+
+  it("does NOT stamp inline-format attrs onto zero-width structural marker embeds (#465)", () => {
+    // [text("a"), comment-start marker, block-split-suggestion marker, text("b")]
+    // Apply { bold: true } over the whole range. Text items get bold; the two
+    // STRUCTURAL MARKER embeds keep attrs={} — markers carry no formattable
+    // content (contrast the visible `image` embed tests above, which DO merge).
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([
+            text("a"),
+            embed("comment-start", { commentId: "c1" }),
+            embed("block-split-suggestion", { suggestionId: "s1" }),
+            text("b"),
+          ]),
+        }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 4));
+    const result = applyAttrsToRange(state, span, { bold: true });
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    expect(items).toHaveLength(4);
+    expect(items?.[0]).toMatchObject({ kind: "text", text: "a", attrs: { bold: true } });
+    expect(items?.[1]).toMatchObject({ kind: "embed", embedType: "comment-start", properties: { commentId: "c1" } });
+    expect(items?.[2]).toMatchObject({ kind: "embed", embedType: "block-split-suggestion", properties: { suggestionId: "s1" } });
+    expect(items?.[3]).toMatchObject({ kind: "text", text: "b", attrs: { bold: true } });
+    // Strict: the markers' attrs must be EXACTLY {} (toMatchObject's {} is vacuous).
+    expect(items?.[1]?.attrs).toEqual({});
+    expect(items?.[2]?.attrs).toEqual({});
+  });
+
+  it("does NOT stamp a tracked-change provenance attr onto a marker embed (#465 dangling-ref root cause)", () => {
+    // The markFormatting path applies { formattingSuggestionId } over a range. A
+    // comment marker in that range must NOT receive it — else, after the
+    // suggestion record is deleted on resolve, the marker keeps a dangling
+    // reference to a since-deleted record forever.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([
+            text("a"),
+            embed("comment-end", { commentId: "c1" }),
+            text("b"),
+          ]),
+        }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3));
+    const result = applyAttrsToRange(state, span, { formattingSuggestionId: "fs1" });
+    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
+    expect(items?.[1]).toMatchObject({ kind: "embed", embedType: "comment-end" });
+    expect(items?.[1]?.attrs).toEqual({}); // no dangling formattingSuggestionId
+  });
 });
 
 describe("applyAttrsToRange — multi-block span", () => {
