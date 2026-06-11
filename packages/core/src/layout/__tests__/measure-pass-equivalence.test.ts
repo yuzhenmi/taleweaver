@@ -643,6 +643,30 @@ describe("measurePassUnsupported gate after #253/#254", () => {
     const root = cascadeRoot({ display: "block" }, [fixedBlock("b0", 40), cleared]);
     expect(measurePassUnsupported(root)).toBe(true);
   });
+
+  it("position:absolute document is UNSUPPORTED (true) — must fall back to legacy positioned layout", () => {
+    // An abs-pos child is removed from flow by the real BFC (drained into
+    // `absoluteChildren`), which the cheap measure pass does NOT model — its
+    // `buildBlockFitMetas` wrapper finds no placed child and throws. Flag it so
+    // the doc routes to `paginateRoot` (which handles abs-pos), mirroring float/
+    // clear. (positioning-audit F1.)
+    const absChild = createElementBox("a", { display: "block", position: "absolute" } as Style, [
+      createTextBox("at", {}, "x"),
+    ]);
+    const root = cascadeRoot({ display: "block" }, [fixedBlock("b0", 40), absChild]);
+    expect(measurePassUnsupported(root)).toBe(true);
+  });
+
+  it("position:relative document stays SUPPORTED (false) — relative keeps in-flow geometry", () => {
+    // Relative offset is a paint/caret shift only; the box stays in flow with the
+    // same block-axis advance, so the measure pass reproduces it. Only ABSOLUTE
+    // (out-of-flow) trips the gate.
+    const relChild = createElementBox("r", { display: "block", position: "relative" } as Style, [
+      createTextBox("rt", {}, "x"),
+    ]);
+    const root = cascadeRoot({ display: "block" }, [fixedBlock("b0", 40), relChild]);
+    expect(measurePassUnsupported(root)).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------

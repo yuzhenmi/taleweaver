@@ -1293,15 +1293,21 @@ function pageIndexAtBlockOffset(
  *   `float` / `clear` — break decisions become non-local (shared float
  *   environment); OUT OF SCOPE for v1 (design §"Out of scope for v1").
  *
+ *   `position: absolute` — removed from flow by the BFC (drained into a box's
+ *   `absoluteChildren`), which `buildBlockFitMetas` does not model; the doc
+ *   routes to `paginateRoot`, which lays abs-pos out correctly (paginated abs-pos
+ *   fragmentation is a documented v1 follow-up). `relative` stays in flow with the
+ *   same advance and is NOT flagged.
+ *
  * Mixed block+inline container content (handled: #253) and padded/bordered
  * containers (handled: #254) are now modeled by `buildBlockFitMetas` /
  * `fitOnePage` and oracle-proven equivalent to `paginateRoot`, so they are no
  * longer flagged.
  *
  * NOTE: this is an O(N) walk. The design calls for a cheap rolled-up cascade
- * flag on the hot path; that rollup is a separate task. This helper is the
- * correctness-complete detector used by tests and by the (not-yet-wired)
- * fallback branch — it is NOT wired into `layoutTreeIncremental` in Phase 1.
+ * flag on the hot path; that rollup is a separate task. This is the correctness-
+ * complete detector, wired into `layoutTreeIncremental` (the paginated branch
+ * gates the virtual vs legacy `paginateRoot` path on it).
  */
 export function measurePassUnsupported(cascadedRoot: RenderNode): boolean {
   if (cascadedRoot.type !== "element") return false;
@@ -1314,6 +1320,15 @@ function elementUnsupported(node: ElementBox): boolean {
     // float / clear: non-local break decisions, out of scope for v1.
     if (cs.float === "inline-start" || cs.float === "inline-end") return true;
     if (cs.clear !== "none") return true;
+    // position:absolute: the real BFC removes the box from flow (drains it into
+    // `absoluteChildren`), which the cheap measure pass does NOT model — the
+    // `buildBlockFitMetas` wrapper would find no in-flow placed child and throw,
+    // and even guarded would fold the out-of-flow height into the in-flow advance.
+    // Route abs-pos docs to the legacy `paginateRoot` path (which handles them),
+    // mirroring float/clear. `relative` stays in flow with the same advance, so it
+    // is NOT flagged (positioning-audit F1; paginated abs-pos fragmentation is the
+    // documented v1 follow-up). `fixed` is out of scope / absent from the union.
+    if (cs.position === "absolute") return true;
   }
 
   for (const child of node.children) {
