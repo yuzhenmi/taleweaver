@@ -35,7 +35,7 @@ import type { SiblingBlockInit } from "./insert-blocks-after";
 import { STATE_INTERNAL } from "../state-internal";
 import { getSuggestionsMap, getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
 import { buildYInlineContent, buildYInlineItem, buildYAttrs } from "../y-block";
-import { mergeAdjacentSameAttrsTextItems } from "../y-utils";
+import { mergeAdjacentSameAttrsTextItems, yItemLength, yMapAsObject } from "../y-utils";
 import { planApplyAttrsToRange, applyAttrsToRangeInTx } from "./apply-attrs";
 import { planInsertText, insertTextInTx, planInsertTextFullReplace } from "./insert-text";
 import {
@@ -1765,8 +1765,14 @@ interface DeletionRebuild {
  * `tagged` is true iff ≥1 in-range portion received the deletion attr (drives the
  * record write — a whole-range-own-insertions delete tags nothing). Caller runs
  * `mergeAdjacentTextItems` over the returned items.
+ *
+ * Survives the migration to {@link applyDeletionStrikeInTx} (#491): (a)
+ * `replaceWithSuggestedFragment` still uses it (its write path is deferred), and
+ * (b) it is the pure-function ORACLE the equivalence tests diff the surgical
+ * applier against. EXPORTED for the oracle-diff test
+ * (`deletion-strike-applier.test.ts`).
  */
-function rebuildBlockForDeletion(
+export function rebuildBlockForDeletion(
   items: ReadonlyArray<InlineItem>,
   rangeStart: number,
   rangeEnd: number,
@@ -1846,6 +1852,135 @@ function isOwnInsertionAttrs(
 function isOwnInsertion(item: InlineItem, author: string, doc: Y.Doc): boolean {
   if (item.kind !== "text") return false;
   return isOwnInsertionAttrs(item.attrs, author, doc);
+}
+
+/**
+ * Identity-preserving deletion strike over one block's live Y.Array on
+ * `[rangeStart, rangeEnd)`. Mirrors `applyAttrsToBlockRange`: runs wholly outside
+ * are skipped (Y.Text identity kept); a whole-covered text run is tagged in place
+ * (`yItem.set("attrs", …)`) OR deleted by index (the deleter's OWN pending
+ * insertion); a partial run is split before/middle/after (the straddler loses
+ * Y.Text identity — unavoidable, Yjs has no in-place Y.Text split), middle tagged
+ * or omitted; embeds in range are kept untagged. A post-pass
+ * `mergeAdjacentSameAttrsTextItems` restores the normalization invariants, so the
+ * final content is byte-identical to `rebuildBlockForDeletion` + full-replace —
+ * only the surviving runs' Y.Text identities differ (preserved here, discarded by
+ * the old full-replace). Returns whether any run was TAGGED (a redundant
+ * cross-check against the plan's pre-computed `taggedAny`). MUST run inside an open
+ * transaction.
+ */
+export function applyDeletionStrikeInTx(
+  doc: Y.Doc,
+  blockId: BlockId,
+  kind: BlockTreeKind,
+  rangeStart: number,
+  rangeEnd: number,
+  id: SuggestionId,
+  author: string,
+  registry: AttrRegistry | undefined,
+  opName: string,
+): { tagged: boolean } {
+  requireInTransaction(doc, opName);
+  const yBlock = getYBlock(doc, blockId, opName, kind);
+  const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
+  if (yItems === null) return { tagged: false };
+  const tagged = strikeBlockRange(yItems, rangeStart, rangeEnd, id, author, doc);
+  mergeAdjacentSameAttrsTextItems(yItems, registry);
+  return { tagged };
+}
+
+/**
+ * The live-Y.Array twin of {@link rebuildBlockForDeletion}, structured exactly
+ * like `applyAttrsToBlockRange`'s `while (i < yItems.length)` cursor walk. Tags or
+ * drops the in-range portion of each item; returns whether anything was tagged.
+ */
+function strikeBlockRange(
+  yItems: Y.Array<Y.Map<unknown>>,
+  start: number,
+  end: number,
+  id: SuggestionId,
+  author: string,
+  doc: Y.Doc,
+): boolean {
+  if (start === end) return false;
+  let tagged = false;
+  let cursor = 0;
+  let i = 0;
+  while (i < yItems.length) {
+    const yItem = yItems.get(i);
+    const itemLen = yItemLength(yItem);
+    const itemEnd = cursor + itemLen;
+    if (itemEnd <= start) {
+      // Item entirely before the range — advance.
+      cursor = itemEnd;
+      i++;
+      continue;
+    }
+    if (cursor >= end) break; // Item entirely after the range — done.
+    if (yItem.get("kind") !== "text") {
+      // Embed in range — kept untagged (out of scope, mirrors rebuildBlockForDeletion).
+      cursor = itemEnd;
+      i++;
+      continue;
+    }
+    const existing = yMapAsObject(yItem.get("attrs") as Y.Map<unknown>) as ReadonlyAttrs;
+    const ownIns = isOwnInsertionAttrs(existing, author, doc);
+    const localStart = Math.max(0, start - cursor);
+    const localEnd = Math.min(itemLen, end - cursor);
+
+    if (localStart === 0 && localEnd === itemLen) {
+      // Whole-covered text run.
+      if (ownIns) {
+        // The deleter's OWN pending insertion — remove it for real.
+        yItems.delete(i, 1);
+        // Advance the logical cursor past the deleted extent; do NOT advance `i`
+        // (the next item slides into slot `i`). rebuildBlockForDeletion advances
+        // its cursor for EVERY item — omitting this here mis-offsets all
+        // subsequent items.
+        cursor = itemEnd;
+      } else {
+        // No-op guard (mirrors applyAttrsToBlockRange #358): skip the write when
+        // the run already carries this exact deletion id, so a re-strike fires no
+        // Yjs event / block-dirty. The deletion attr is a scalar id — a plain
+        // `!==` compare suffices (no registry/attrsEqual needed).
+        if (existing[DELETION_SUGGESTION_ATTR] !== id) {
+          yItem.set("attrs", buildYAttrs({ ...existing, [DELETION_SUGGESTION_ATTR]: id }));
+        }
+        tagged = true;
+        cursor = itemEnd;
+        i++;
+      }
+      continue;
+    }
+
+    // Partial-covered: split before/middle/after via delete+insert (apply-attrs pattern).
+    const text = (yItem.get("text") as Y.Text).toString();
+    const before = text.slice(0, localStart);
+    const middle = text.slice(localStart, localEnd);
+    const after = text.slice(localEnd);
+    const repl: Y.Map<unknown>[] = [];
+    if (before.length > 0) {
+      repl.push(buildYInlineItem({ kind: "text", text: before, attrs: existing }));
+    }
+    if (!ownIns) {
+      repl.push(
+        buildYInlineItem({
+          kind: "text",
+          text: middle,
+          attrs: { ...existing, [DELETION_SUGGESTION_ATTR]: id },
+        }),
+      );
+      tagged = true;
+    }
+    if (after.length > 0) {
+      repl.push(buildYInlineItem({ kind: "text", text: after, attrs: existing }));
+    }
+    yItems.delete(i, 1);
+    yItems.insert(i, repl);
+    i += repl.length;
+    cursor = itemEnd;
+  }
+  return tagged;
 }
 
 /** Outcome of the pure coalesce computation: the effective id to stamp + whether it reuses an existing record. */
