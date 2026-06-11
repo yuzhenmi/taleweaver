@@ -973,6 +973,79 @@ describe("acceptSuggestion / rejectSuggestion — formatting", () => {
     }
     expect(markedRunAttr(s)).toBeUndefined();
   });
+
+  // #478: a VISIBLE field embed (here a `tab`) inside a formatting-suggestion
+  // range is stamped with the formatting id by markFormatting (markers are
+  // skipped — #465). Resolve MUST strip that provenance from the embed too —
+  // else it dangles after the record is deleted. Both single-id and bulk paths.
+  const withTabEmbed = () =>
+    oneBlock(inlineContent([text("ab"), embed("tab"), text("cd")]));
+  const tabEmbed = (s: State) => {
+    const e = pItems(s).find((it) => it.kind === "embed" && it.embedType === "tab");
+    if (e === undefined || e.kind !== "embed") throw new Error("expected the tab embed");
+    return e;
+  };
+
+  it("accept applies the proposal to a VISIBLE embed in range + strips its id (#478)", () => {
+    const marked = markFormatting(withTabEmbed(), span(0, 5), { bold: true }, INPUT).state;
+    expect(tabEmbed(marked).attrs[FORMATTING_SUGGESTION_ATTR]).toBe(SID); // stamped (visible embed)
+
+    const s = acceptSuggestion(marked, SID).state;
+    expect(FORMATTING_SUGGESTION_ATTR in tabEmbed(s).attrs).toBe(false);
+    expect(tabEmbed(s).attrs.bold).toBe(true);
+  });
+
+  it("reject strips a VISIBLE embed's formatting id without applying the proposal (#478)", () => {
+    const marked = markFormatting(withTabEmbed(), span(0, 5), { bold: true }, INPUT).state;
+    const s = rejectSuggestion(marked, SID).state;
+    expect(FORMATTING_SUGGESTION_ATTR in tabEmbed(s).attrs).toBe(false);
+    expect("bold" in tabEmbed(s).attrs).toBe(false);
+  });
+
+  // Fresh state per bulk resolve: acceptAll/rejectAll are NON-undoable and mutate
+  // the doc in place, so each must start from an independent markFormatting result.
+  it("acceptAll resolves a VISIBLE embed's provenance — applies + strips (#478)", () => {
+    const acc = acceptAll(markFormatting(withTabEmbed(), span(0, 5), { bold: true }, INPUT).state).state;
+    expect(FORMATTING_SUGGESTION_ATTR in tabEmbed(acc).attrs).toBe(false);
+    expect(tabEmbed(acc).attrs.bold).toBe(true);
+  });
+
+  it("rejectAll resolves a VISIBLE embed's provenance — strips, no proposal (#478)", () => {
+    const rej = rejectAll(markFormatting(withTabEmbed(), span(0, 5), { bold: true }, INPUT).state).state;
+    expect(FORMATTING_SUGGESTION_ATTR in tabEmbed(rej).attrs).toBe(false);
+    expect("bold" in tabEmbed(rej).attrs).toBe(false);
+  });
+
+  it("single-id resolve leaves an embed carrying a DIFFERENT suggestion's id untouched (onlyId filter, #478)", () => {
+    // [text("a"), tab(S1), text("b"), page-field(S2), text("c")]. Accept S1 only:
+    // the tab resolves; the page-field (a different suggestion) must be untouched.
+    const SID2 = "s2" as SuggestionId;
+    let s = markFormatting(
+      oneBlock(
+        inlineContent([
+          text("a"),
+          embed("tab"),
+          text("b"),
+          embed("page-field", { fieldType: "page-number" }),
+          text("c"),
+        ]),
+      ),
+      span(0, 2),
+      { bold: true },
+      INPUT,
+    ).state;
+    s = markFormatting(s, span(3, 4), { italic: true }, { id: SID2, author: "alice", createdAt: 2000 }).state;
+
+    const accepted = acceptSuggestion(s, SID).state;
+    const tab = pItems(accepted).find((it) => it.kind === "embed" && it.embedType === "tab");
+    if (tab === undefined || tab.kind !== "embed") throw new Error("expected the tab embed");
+    expect(FORMATTING_SUGGESTION_ATTR in tab.attrs).toBe(false); // S1 resolved
+    expect(tab.attrs.bold).toBe(true);
+
+    const pf = pItems(accepted).find((it) => it.kind === "embed" && it.embedType === "page-field");
+    if (pf === undefined || pf.kind !== "embed") throw new Error("expected the page-field embed");
+    expect(pf.attrs[FORMATTING_SUGGESTION_ATTR]).toBe(SID2); // the OTHER suggestion is untouched
+  });
 });
 
 describe("acceptSuggestion — NON-undoable (invisible to the UndoManager)", () => {

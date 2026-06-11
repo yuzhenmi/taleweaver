@@ -1148,8 +1148,10 @@ function isBreakEmbed(item: InlineItem): item is EmbedItem {
 type ScanItemResult =
   // keep item as-is (untouched).
   | { readonly op: "keep" }
-  // touched: replace this run with the rewritten one (kept).
-  | { readonly op: "rewrite"; readonly item: TextItem }
+  // touched: replace this item with the rewritten one (kept). Usually a TextItem
+  // (run rewrite), but also an EmbedItem when stripping/applying a formatting
+  // suggestion's provenance on a visible field embed (#478).
+  | { readonly op: "rewrite"; readonly item: InlineItem }
   // touched: omit this run (real delete).
   | { readonly op: "drop" }
   // touched: a break embed → drop it; `merge` ⇒ record this owner for phase-2.
@@ -1347,7 +1349,15 @@ function resolve(
           };
       }
     }
-    // Non-matching item (incl. every non-break embed) — keep as-is.
+    // A VISIBLE embed carrying THIS formatting id — resolve its provenance
+    // (#478): accept applies the proposal + strips the id, reject strips it.
+    // resolveEmbedFormatting returns null for break/marker embeds (no formatting
+    // attr) and for an embed carrying a DIFFERENT id (`onlyId` filter).
+    if (item.kind === "embed") {
+      const resolvedEmbed = resolveEmbedFormatting(item, mode, doc, id);
+      if (resolvedEmbed !== null) return { op: "rewrite", item: resolvedEmbed };
+    }
+    // Non-matching item (text without this id; any other embed) — keep as-is.
     return { op: "keep" };
   });
 }
@@ -1385,6 +1395,42 @@ function resolveAction(kind: SuggestionKind, mode: "accept" | "reject"): Resolve
 function attrsWithout(attrs: ReadonlyAttrs, key: string): ReadonlyAttrs {
   const { [key]: _omit, ...rest } = attrs;
   return rest;
+}
+
+/**
+ * Resolve a VISIBLE embed's formatting-suggestion provenance (#478). A visible
+ * field embed (footnote-anchor / cross-reference / page-field / tab) inside a
+ * formatting-suggestion range carries `formattingSuggestionId` —
+ * `markFormatting` stamps visible embeds via `applyAttrsToRange` (zero-width
+ * structural markers are skipped, #465). On resolve the id MUST be removed from
+ * the embed, else it dangles after the record is deleted (a reference to a
+ * since-deleted record, durable in the Y.Doc):
+ *   - `accept` → apply the record's `proposedAttrs` to the embed's live attrs AND
+ *     strip the id (the field inherits the now-permanent format);
+ *   - `reject` → strip the id only (the proposal is discarded).
+ *
+ * Only the FORMATTING provenance reaches embeds (insertion/deletion tag text
+ * only), so this handles just that attr. `onlyId`, when given, restricts the
+ * action to an embed carrying THAT specific id (the single-id {@link resolve}
+ * path); omitted, any formatting id is resolved (the bulk {@link resolveAll}
+ * path). Returns the rewritten embed, or `null` when the embed carries no
+ * matching formatting id (caller keeps it as-is).
+ */
+function resolveEmbedFormatting(
+  item: EmbedItem,
+  mode: "accept" | "reject",
+  doc: Y.Doc,
+  onlyId?: SuggestionId,
+): EmbedItem | null {
+  const fmtRaw = item.attrs[FORMATTING_SUGGESTION_ATTR];
+  if (typeof fmtRaw !== "string") return null;
+  if (onlyId !== undefined && fmtRaw !== onlyId) return null;
+  let attrs = attrsWithout(item.attrs, FORMATTING_SUGGESTION_ATTR);
+  if (mode === "accept") {
+    const record = readSuggestionRecord(doc, fmtRaw as SuggestionId);
+    attrs = mergeAttrs(attrs, record?.proposedAttrs ?? {});
+  }
+  return { kind: "embed", embedType: item.embedType, attrs, properties: item.properties };
 }
 
 /**
@@ -1546,7 +1592,11 @@ function resolveAll(state: State, mode: "accept" | "reject"): OperationResult {
         ? { op: "rewrite", item: rewrite.item }
         : { op: "drop" };
     }
-    // A non-break embed (footnote-anchor/tab/comment) — keep as-is.
+    // A non-break embed — resolve a formatting-suggestion provenance id if it
+    // carries one (#478; a VISIBLE field embed in a formatting range). Markers /
+    // unstamped embeds yield null → keep as-is.
+    const resolvedEmbed = resolveEmbedFormatting(item, mode, doc);
+    if (resolvedEmbed !== null) return { op: "rewrite", item: resolvedEmbed };
     return { op: "keep" };
   });
 }
