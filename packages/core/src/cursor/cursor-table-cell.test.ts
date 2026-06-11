@@ -56,10 +56,11 @@ interface Built {
   tree: VirtualLayoutTree;
   shaper: TextShaper;
   caretInto: Position;
+  tableId: BlockId;
 }
 
 /** doc > p("body"); then insert a `rows×cols` table at the start of `p`. */
-function buildDocWithTable(rows: number, cols: number): Built {
+function buildDocWithTable(rows: number, cols: number, cfg: PageConfig = pageConfig()): Built {
   const seed = buildState({
     rootId: "doc",
     blocks: [
@@ -73,7 +74,7 @@ function buildDocWithTable(rows: number, cols: number): Built {
     ],
   });
 
-  const { state, caretInto } = createTable(
+  const { state, caretInto, newTableId } = createTable(
     seed,
     createPosition("p" as BlockId, 0),
     rows,
@@ -95,7 +96,6 @@ function buildDocWithTable(rows: number, cols: number): Built {
     if (c.type === "element") cascadedEmbedContents.set(id, c);
   }
 
-  const cfg = pageConfig();
   const shaper = createMockShaper(SHAPER_CHAR_W, SHAPER_LINE_H);
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, cfg.pageInlineSize);
   const tree = buildVirtualPaginatedTree(
@@ -109,7 +109,7 @@ function buildDocWithTable(rows: number, cols: number): Built {
     collectFootnoteAnchors(state),
   );
 
-  return { state, tree, shaper, caretInto };
+  return { state, tree, shaper, caretInto, tableId: newTableId };
 }
 
 describe("table-cell caret resolves per-page (#495)", () => {
@@ -144,5 +144,38 @@ describe("table-cell caret resolves per-page (#495)", () => {
     expect(start?.offset).toBe(0);
     expect(end?.blockId).toBe(caretInto.blockId);
     expect(end?.offset).toBe(0);
+  });
+});
+
+describe("table-cell caret on a SPANNING table resolves the carrying page (#496)", () => {
+  // A small page so a many-row table fragments across pages. `pageIndexOfBlock`
+  // maps a top-level block to its WHOLE-BLOCK-PROGRESS (LAST) page; before #496
+  // the nested resolver returned that last page for EVERY cell, so a cell whose
+  // lines are on an EARLIER page missed `byBlock` + `findBlockBaseline` there and
+  // dev-threw. The fix forward-walks the table's page span to the carrying page.
+  function smallPageConfig(): PageConfig {
+    return {
+      pageInlineSize: 320,
+      pageBlockSize: 120,
+      pageMargins: { blockStart: 10, blockEnd: 10, inlineStart: 0, inlineEnd: 0 },
+      pageGap: 24,
+    };
+  }
+
+  it("the table actually spans >1 page (fixture sanity)", () => {
+    const { tree, tableId } = buildDocWithTable(12, 1, smallPageConfig());
+    const span = tree.plan.pageSpanOfBlock(tableId);
+    if (span === null) throw new Error("table has no page span");
+    expect(span.last).toBeGreaterThan(span.first);
+  });
+
+  it("cell (0,0) on the FIRST page resolves to page 0, not the table's last page", () => {
+    const { state, tree, shaper, caretInto } = buildDocWithTable(12, 1, smallPageConfig());
+    // caretInto is cell (0,0)'s paragraph — its lines are on page 0 (the top of
+    // the table). The table's last page is > 0, so the pre-#496 resolver pointed
+    // the caret at the wrong page and dev-threw.
+    const pixel = resolvePixelPosition(state, caretInto, tree, shaper);
+    expect(pixel).not.toBeNull();
+    expect(pixel?.pageIndex).toBe(0);
   });
 });

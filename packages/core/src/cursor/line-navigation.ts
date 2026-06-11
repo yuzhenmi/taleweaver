@@ -190,7 +190,7 @@ function moveToLineVirtual(
     // paragraph up to `state.rootId`, so the #327 context filter spans the full
     // main body and Up/Down navigates across cells + surrounding paragraphs (the
     // crash fix only ensures it resolves the right page, not table-aware nav).
-    const nestedPage = resolveNestedMainTreeBlockPage(state, plan, position.blockId);
+    const nestedPage = resolveNestedMainTreeBlockPage(state, tree, position);
     if (nestedPage >= 0) {
       return moveToLineOnPage(state, position, tree, measurer, direction, targetX, nestedPage);
     }
@@ -556,7 +556,7 @@ export function moveToLineBoundary(
             // TABLE-CELL (or any MAIN-tree block nested in a top-level container):
             // walk up parentId to the page-mapped containing top-level block (the
             // table) and run Home/End on its page (#495).
-            p = resolveNestedMainTreeBlockPage(state, plan, position.blockId);
+            p = resolveNestedMainTreeBlockPage(state, layoutTree, position);
           }
           if (p < 0) {
             // Not a top-level body, header/footer, footnote, or nested main-tree

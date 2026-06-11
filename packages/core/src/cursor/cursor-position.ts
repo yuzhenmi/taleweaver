@@ -243,7 +243,7 @@ function resolveInVirtualTree(
     // top-level block (the table) — which IS page-mapped — materialize ONLY its
     // page, and resolve against that page's `byBlock` lines (the table FC's IFC
     // stamped the cell paragraph's lines there during `getPage`).
-    const nestedPage = resolveNestedMainTreeBlockPage(state, plan, position.blockId);
+    const nestedPage = resolveNestedMainTreeBlockPage(state, tree, position);
     if (nestedPage >= 0) {
       const page = tree.getPage(nestedPage);
       const cellLines = getLineIndex(page).byBlock.get(position.blockId) ?? [];
@@ -504,7 +504,16 @@ export function resolveFootnoteBlockPage(
  * on (e.g. a paragraph inside a table cell: paragraph → table-cell → table-row →
  * table). `pageIndexOfBlock` only maps TOP-LEVEL body children, so a nested block
  * misses it; this walks up the `parentId` chain to the nearest ancestor that IS
- * page-mapped (the containing top-level block — the table) and returns that page.
+ * page-mapped (the containing top-level block — the table).
+ *
+ * The containing block (e.g. a table) may SPAN pages. `pageIndexOfBlock` returns
+ * its whole-block-progress (LAST) page, but the caret block's lines can be on an
+ * EARLIER fragment page — so after finding the ancestor, forward-walk its page
+ * SPAN to the page that actually carries `position.blockId`'s lines (clamping to
+ * the last page that carries them, or the ancestor's first page if none do — a
+ * safe degradation the caller turns into a baseline / null). This mirrors
+ * {@link resolveFootnoteBlockPage}'s per-page forward walk (#496); a single-page
+ * table just walks its one page.
  *
  * Returns -1 when no ancestor maps to a page (the block is not in the main tree,
  * or the plan has no mapping at all — a stale caret on a detached block).
@@ -517,23 +526,48 @@ export function resolveFootnoteBlockPage(
  */
 export function resolveNestedMainTreeBlockPage(
   state: State,
-  plan: PagePlan,
-  blockId: BlockId,
+  tree: VirtualLayoutTree,
+  position: Position,
 ): number {
-  // Bounded walk (cycle/depth guard — mirrors the block-traversal bounds used
-  // elsewhere in the state layer). The caller has already confirmed `blockId`
-  // itself is unmapped; the first iteration re-checks it harmlessly, then climbs.
-  let id: BlockId | null = blockId;
+  const plan = tree.plan;
+  // Walk up the `parentId` chain to the nearest page-mapped ancestor (the
+  // containing top-level block — e.g. the table). Bounded (cycle/depth guard,
+  // mirrors the block-traversal bounds used elsewhere in the state layer). The
+  // caller has already confirmed `position.blockId` itself is unmapped; the first
+  // iteration re-checks it harmlessly, then climbs.
+  let ancestorId: BlockId | null = null;
+  let id: BlockId | null = position.blockId;
   let steps = 0;
   while (id !== null && id !== state.rootId) {
     if (++steps > 1024) return -1;
-    const page = plan.pageIndexOfBlock(id);
-    if (page >= 0) return page;
+    if (plan.pageIndexOfBlock(id) >= 0) {
+      ancestorId = id;
+      break;
+    }
     const resolved = resolveBlock(state, id);
     if (resolved === null) return -1;
     id = resolved.block.parentId;
   }
-  return -1;
+  if (ancestorId === null) return -1;
+
+  // Forward-walk the ancestor's page span to the page carrying the caret block's
+  // lines. `byBlock` is keyed by the leaf (the cell paragraph), so a fragment of
+  // the table on an earlier page carries the cell's lines even though the
+  // ancestor's `pageIndexOfBlock` points at the LAST page.
+  const span = plan.pageSpanOfBlock(ancestorId);
+  const firstPage = span !== null ? span.first : plan.pageIndexOfBlock(ancestorId);
+  const lastPage = span !== null ? span.last : firstPage;
+  let lastFound = -1;
+  for (let p = firstPage; p <= lastPage; p++) {
+    const lines = getLineIndex(tree.getPage(p)).byBlock.get(position.blockId) ?? [];
+    if (lines.length > 0) {
+      lastFound = p;
+      const lastEnd = lines[lines.length - 1].line.inlineOffsetEnd;
+      // This page owns the offset (or it's the last span page) → done.
+      if (position.offset <= lastEnd || p >= lastPage) return p;
+    }
+  }
+  return lastFound >= 0 ? lastFound : firstPage;
 }
 
 /**
