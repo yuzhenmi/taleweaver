@@ -1585,7 +1585,12 @@ export function createEditorController(
   }
 
   function handlePaste(e: ClipboardEvent) {
+    // preventDefault UNCONDITIONALLY: if we returned before it on `state === null`,
+    // the browser's default paste would land in the hidden textarea and leak back
+    // in via `handleInput` as an INSERT_TEXT — defeating the guard. Block the
+    // native paste first, THEN no-op when there is no state to paste into.
     e.preventDefault();
+    if (!state) return;
     const text = e.clipboardData?.getData("text/plain");
     if (text) {
       dispatch({ type: "PASTE", text });
@@ -1603,6 +1608,17 @@ export function createEditorController(
 
   function handleBlur() {
     focused = false;
+    // If an IME composition was in flight when focus was lost, ABANDON it. There
+    // is no spec guarantee `compositionend` fires before/at blur (Chrome/Safari
+    // differ, and an interrupted composition may never fire it), so a stale
+    // `isComposing === true` would gate `handleKeyDown`/`handleInput` forever —
+    // the editor would silently accept no input after refocus (a dead editor).
+    // Clearing the flag + the textarea buffer recovers cleanly (the partial
+    // composed text is dropped, which is the acceptable trade for recoverability).
+    if (isComposing) {
+      isComposing = false;
+      textarea.value = "";
+    }
     stopBlink();
     paint();
   }

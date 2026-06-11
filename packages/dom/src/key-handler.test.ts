@@ -144,6 +144,20 @@ describe("mapKeyEvent", () => {
     ).toEqual({ type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 6 } });
   });
 
+  it("does NOT fire the block-type chord when AltGraph is active (AltGr+digit passes through)", () => {
+    // On Windows/EU layouts AltGr is reported as ctrlKey+altKey AND
+    // getModifierState("AltGraph") === true; e.g. Spanish AltGr+3 produces "#"
+    // (Digit3 is in the 0..6 heading range, so WITHOUT the guard this wrongly
+    // fires SET_BLOCK_TYPE heading 3 and the controller preventDefault-eats the
+    // "#"). The chord must NOT match — controller-audit #3.
+    const e = key({ key: "#", code: "Digit3", ctrlKey: true, altKey: true });
+    Object.defineProperty(e, "getModifierState", {
+      value: (m: string) => m === "AltGraph",
+      configurable: true,
+    });
+    expect(mapKeyEvent(e)).toBeNull();
+  });
+
   it("maps Ctrl/Cmd+Shift+7|8 (by event.code) to list shortcuts", () => {
     expect(
       mapKeyEvent(key({ key: "&", code: "Digit7", ctrlKey: true, shiftKey: true })),

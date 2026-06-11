@@ -132,7 +132,12 @@ export function mapKeyEvent(
   // NOT `event.key`: a digit under Shift/AltGr is layout-dependent (Shift+7 is
   // "&" on US; Ctrl+Alt is AltGr on Windows and emits symbols on many layouts),
   // so the physical key code is the only reliable signal.
-  if (mod && altKey && event.code.startsWith("Digit")) {
+  // Skip when AltGraph is active: on Windows/EU layouts AltGr is reported as
+  // ctrlKey+altKey, so `mod && altKey` would match AltGr+digit — which produces a
+  // CHARACTER on many layouts (German AltGr+8 = "[", AltGr+9 = "]") — and `preventDefault`
+  // in the controller would EAT that character while changing the block type instead.
+  // Treat AltGr as not-a-mod for this chord (Google Docs does the same).
+  if (mod && altKey && !event.getModifierState("AltGraph") && event.code.startsWith("Digit")) {
     const n = Number(event.code.slice(5));
     if (n === 0) return { type: "SET_BLOCK_TYPE", blockType: "paragraph" };
     if (n >= 1 && n <= 6)

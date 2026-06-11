@@ -2431,4 +2431,82 @@ describe("createEditorController", () => {
       document.body.removeChild(container);
     });
   });
+
+  describe("IME composition + clipboard guards (controller audit)", () => {
+    it("clears the composition flag on blur so input is not dead-locked (#1)", () => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const dispatch = vi.fn();
+      const ctrl = createEditorController(container, makeOptions({ dispatch }));
+      ctrl.update(makeFakeEditorState());
+      const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+
+      // Compose, then blur BEFORE compositionend (the OS commits-and-blurs, or the
+      // user clicks away mid-composition). Without the blur-clear, isComposing
+      // stays true and gates handleInput/handleKeyDown forever (dead editor).
+      textarea.dispatchEvent(new Event("compositionstart"));
+      textarea.dispatchEvent(new Event("blur"));
+
+      // Refocus + type: input must apply (not be silently swallowed).
+      textarea.dispatchEvent(new Event("focus"));
+      dispatch.mockClear();
+      textarea.value = "x";
+      textarea.dispatchEvent(new Event("input"));
+
+      expect(dispatch).toHaveBeenCalledWith({ type: "INSERT_TEXT", text: "x" });
+
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("commits exactly once when compositionend fires THEN blur (Chrome sync order)", () => {
+      // Chrome fires compositionend synchronously during blur: handleCompositionEnd
+      // commits the text and clears isComposing, so handleBlur's ABANDON branch is
+      // bypassed — the text must be dispatched exactly ONCE, never double-applied.
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const dispatch = vi.fn();
+      const ctrl = createEditorController(container, makeOptions({ dispatch }));
+      ctrl.update(makeFakeEditorState());
+      const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+
+      textarea.dispatchEvent(new Event("compositionstart"));
+      const end = new Event("compositionend") as CompositionEvent;
+      Object.defineProperty(end, "data", { value: "x", configurable: true });
+      textarea.dispatchEvent(end);
+      textarea.dispatchEvent(new Event("blur"));
+
+      const inserts = dispatch.mock.calls.filter(
+        ([a]) => a?.type === "INSERT_TEXT" && a?.text === "x",
+      );
+      expect(inserts).toHaveLength(1);
+
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("paste is a no-op before the first update() but STILL preventDefaults (#4)", () => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const dispatch = vi.fn();
+      const ctrl = createEditorController(container, makeOptions({ dispatch }));
+      const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+
+      // No `update()` yet ⇒ state === null. A paste must (a) NOT dispatch PASTE and
+      // (b) STILL preventDefault — otherwise the browser pastes into the hidden
+      // textarea and the text leaks back in via handleInput as INSERT_TEXT.
+      const e = new Event("paste", { cancelable: true }) as ClipboardEvent;
+      Object.defineProperty(e, "clipboardData", {
+        value: { getData: () => "hello" },
+        configurable: true,
+      });
+      textarea.dispatchEvent(e);
+
+      expect(dispatch).not.toHaveBeenCalledWith({ type: "PASTE", text: "hello" });
+      expect(e.defaultPrevented).toBe(true);
+
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+  });
 });
