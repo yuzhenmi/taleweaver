@@ -456,12 +456,31 @@ export class History {
       const dirtyIds = captureDirtyIds(doc, () => {
         poppedItem = this.undoManager.undo();
       });
-      // canUndo() was true, so undo() popped a real item.
+      // canUndo() was true yet undo() returned no item — a LEGITIMATE outcome,
+      // not a desync. A NON-undoable resolve (SUGGESTION_RESOLVE_ORIGIN) FULL-
+      // REPLACES a block's inline content (`writeBlockInlineContentInTx` rebuilds
+      // the Y.Array, discarding the prior per-character CRDT identity — see its
+      // docstring), which turns any preceding tracked StackItem that targeted
+      // that block into a no-op. Yjs's `popStackItem` pops such no-op items as it
+      // scans and returns null once nothing reversible remains. Treat it as a
+      // graceful no-op (the dead items are already off `undoStack`); the caller's
+      // `handleUndo` returns the editor unchanged. `currentState` is intentionally
+      // NOT advanced — the Y.Doc was not mutated, so the cached state stays valid.
+      // (Restoring undoability of edits a same-block resolve replaced needs the
+      // identity-preserving resolve tracked as a follow-up.)
       if (poppedItem === null) {
-        throw new Error(
-          `History.undo: Y.UndoManager.undo() returned no StackItem despite ` +
-            `canUndo()===true.`,
-        );
+        // DEV trip-wire: the "Y.Doc not mutated" claim above is the load-bearing
+        // reason `currentState` stays un-advanced. A no-op pop applies no
+        // reversal, so `dirtyIds` MUST be empty. If a future Yjs changes
+        // `popStackItem` to mutate while returning null, this surfaces it loudly
+        // instead of silently desyncing the cached state.
+        if (isDevMode() && dirtyIds.size > 0) {
+          throw new Error(
+            `History.undo: undo() returned null yet the Y.Doc was mutated ` +
+              `(dirtyIds=${dirtyIds.size}) — a no-op pop must not mutate.`,
+          );
+        }
+        return null;
       }
       const entry = readSelectionEntry(poppedItem);
       if (isDevMode() && entry === null) {
@@ -525,11 +544,22 @@ export class History {
       const dirtyIds = captureDirtyIds(doc, () => {
         poppedItem = this.undoManager.redo();
       });
+      // canRedo() was true yet redo() returned no item — graceful no-op, mirror
+      // of undo()'s handling. A non-undoable resolve (SUGGESTION_RESOLVE_ORIGIN)
+      // that full-replaced a block can leave a redo StackItem targeting now-
+      // discarded CRDT identity; Yjs's popStackItem pops it and returns null when
+      // nothing reapplies. The Y.Doc was not mutated, so `currentState` stays
+      // valid. See undo() for the full rationale.
       if (poppedItem === null) {
-        throw new Error(
-          `History.redo: Y.UndoManager.redo() returned no StackItem despite ` +
-            `canRedo()===true.`,
-        );
+        // DEV trip-wire: mirror of undo() — a no-op pop must not mutate, so
+        // `dirtyIds` must be empty (see undo() for the rationale).
+        if (isDevMode() && dirtyIds.size > 0) {
+          throw new Error(
+            `History.redo: redo() returned null yet the Y.Doc was mutated ` +
+              `(dirtyIds=${dirtyIds.size}) — a no-op pop must not mutate.`,
+          );
+        }
+        return null;
       }
       const entry = readSelectionEntry(poppedItem);
       if (isDevMode() && entry === null) {

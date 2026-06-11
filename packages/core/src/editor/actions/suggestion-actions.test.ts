@@ -10,9 +10,15 @@
  * accept/reject add NO undo step (Ctrl+Z cannot revert them).
  */
 import { describe, it, expect } from "vitest";
-import { config, reduceEditor, createInitialEditorState } from "./test-helpers";
+import {
+  config,
+  reduceEditor,
+  createInitialEditorState,
+  getTextOf,
+} from "./test-helpers";
 import {
   createEditorStateFromState,
+  type EditorConfig,
   type EditorState,
 } from "../editor-state";
 import {
@@ -27,6 +33,7 @@ import {
   type Selection,
   type SuggestionId,
 } from "../../state";
+import { assertChainIntegrity } from "../../state/chain-integrity";
 
 /** The first body paragraph id under the document root. */
 function bodyParaId(state: State): BlockId {
@@ -163,6 +170,44 @@ describe("resolve actions are NON-undoable", () => {
     // The accept contributed no undo entry — after reverting the lone typing
     // step, there is nothing left to undo.
     expect(undone.history.canUndo()).toBe(false);
+  });
+});
+
+describe("same-block resolve then undo is a graceful no-op (S1 — not a crash)", () => {
+  it("type-as-suggestion → accept → undo does not throw and keeps the accepted text", () => {
+    const suggesting: EditorConfig = { ...config, suggestingAuthor: "alice" };
+    const initial = createInitialEditorState(config);
+    const paraId = bodyParaId(initial.state);
+
+    // Type "hi" in suggesting mode → one insertion suggestion in THIS block.
+    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" }, suggesting);
+    const sugg = getSuggestions(typed.state);
+    expect(sugg).toHaveLength(1);
+
+    // Accept it. The non-undoable resolve FULL-REPLACES this block's inline
+    // content (writeBlockInlineContentInTx discards the per-character CRDT
+    // identity the preceding mint's undo StackItem targeted), turning that
+    // StackItem into a no-op.
+    const accepted = reduceEditor(
+      typed,
+      { type: "ACCEPT_SUGGESTION", id: sugg[0].id },
+      suggesting,
+    );
+    expect(getSuggestions(accepted.state)).toHaveLength(0);
+    expect(getTextOf(accepted.state, paraId)).toBe("hi");
+
+    // UNDO must NOT throw. Yjs's undo() pops the now-no-op StackItem and returns
+    // null despite canUndo()===true; History treats that as a graceful no-op
+    // (nothing reversible) rather than crashing. The accepted text survives.
+    // (Restoring undoability of the typing across a same-block resolve needs the
+    // identity-preserving resolve — tracked separately, #484.)
+    const undone = reduceEditor(accepted, { type: "UNDO" }, suggesting);
+    expect(getTextOf(undone.state, paraId)).toBe("hi");
+    assertChainIntegrity(undone.state, "s1-regression");
+    // A second undo is also a safe no-op, regardless of Yjs pop semantics.
+    expect(() =>
+      reduceEditor(undone, { type: "UNDO" }, suggesting),
+    ).not.toThrow();
   });
 });
 
