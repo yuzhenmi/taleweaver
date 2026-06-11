@@ -1958,8 +1958,31 @@ describe("createEditorController", () => {
       ctrl.update(makeFakeEditorState({ layoutTree: tree, caretPageHint: 1 }));
       // The caret (focus) resolve is the first resolvePixelPosition call.
       const caretCall = vi.mocked(core.resolvePixelPosition).mock.calls[0];
-      // Signature: (state, position, layoutTree, measurer, caretPageHint).
+      // Signature: (state, position, layoutTree, measurer, caretPageHint, caretAffinity).
       expect(caretCall[4]).toBe(1);
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("threads state.caretAffinity into the CARET resolvePixelPosition call (P4-C.2.2b read-side)", () => {
+      // Read-side companion to "single click ... carrying the hit-test
+      // caretAffinity seed": the WRITE side stores affinity on SET_SELECTION, and
+      // this asserts the controller forwards that stored affinity into the caret
+      // resolve so the bidi dual-caret renders on the seeded side. Without the
+      // 6th arg, resolvePixelPosition defaulted to "after" and the seed was inert.
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const ctrl = createEditorController(
+        container,
+        makeOptions({ pageHeight: 100, pageGap: 24 }),
+      );
+      const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
+      vi.mocked(core.resolvePixelPosition).mockClear();
+      ctrl.update(makeFakeEditorState({ layoutTree: tree, caretAffinity: "before" }));
+      // The caret (focus) resolve is the first resolvePixelPosition call; the 6th
+      // arg is caretAffinity.
+      const caretCall = vi.mocked(core.resolvePixelPosition).mock.calls[0];
+      expect(caretCall[5]).toBe("before");
       ctrl.destroy();
       document.body.removeChild(container);
     });

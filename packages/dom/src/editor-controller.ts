@@ -1660,6 +1660,11 @@ export function createEditorController(
       layoutTree,
       measurer,
       state.caretPageHint,
+      // P4-C.2.2b read-side: feed the stored bidi caret-affinity so a collapsed
+      // caret at an LTR↔RTL run boundary renders on the side the user clicked /
+      // last arrowed to (the dual-caret). The seed is written by hit-test + bidi
+      // move; without threading it here the render always defaulted to "after".
+      state.caretAffinity,
     );
     cursorPos = resolved ?? {
       x: 0,
