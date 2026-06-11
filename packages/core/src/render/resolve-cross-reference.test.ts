@@ -1,7 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { resolveCrossReference, BROKEN_CROSS_REFERENCE_TEXT } from "./resolve-cross-reference";
-import { buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
-import type { BlockId, State } from "../state";
+import { buildBlock, buildState, inlineContent, text, embed } from "../test-utils/state-builders";
+import {
+  type BlockId,
+  type State,
+  INSERTION_SUGGESTION_ATTR,
+  DELETION_SUGGESTION_ATTR,
+} from "../state";
 import type { CounterValue } from "../numbering";
 
 /** doc → [list-item "li" (a numbered item), heading "h" "Title", container "c" (no inlineContent)]. */
@@ -22,8 +27,14 @@ const numbering: ReadonlyMap<BlockId, CounterValue> = new Map([
 ]);
 
 describe("resolveCrossReference", () => {
-  it("number mode → the target's formatted counter from the numbering map", () => {
-    expect(resolveCrossReference(doc(), numbering, { targetId: "li" as BlockId, refMode: "number" })).toBe("3");
+  it("number mode → the target's formatted counter from the numbering map (view-independent)", () => {
+    const target = { targetId: "li" as BlockId, refMode: "number" as const };
+    expect(resolveCrossReference(doc(), numbering, target)).toBe("3");
+    // The counter comes from the per-render numbering map (already view-correct);
+    // number mode returns BEFORE the view param is consulted, so it is invariant
+    // across the suggestion views (unlike text mode — XR-1).
+    expect(resolveCrossReference(doc(), numbering, target, "final")).toBe("3");
+    expect(resolveCrossReference(doc(), numbering, target, "original")).toBe("3");
   });
 
   it("number mode, target absent from the numbering map (unnumbered / deleted) → broken-ref", () => {
@@ -53,5 +64,76 @@ describe("resolveCrossReference", () => {
       ],
     });
     expect(resolveCrossReference(state, numbering, { targetId: "p" as BlockId, refMode: "text" })).toBe("");
+  });
+
+  it("text mode → embeds in the target contribute CLEAN caption text, not U+FFFC / \\t / \\n (XR-2)", () => {
+    // A heading "Part" + hard-break + "One" + tab + "Two" + a footnote anchor.
+    // The clipboard serializer would yield "Part\nOne\tTwo￼"; the cross-ref
+    // display serializer collapses breaks/tabs to a space and drops embeds.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "h", lastChildId: "h" }),
+        buildBlock({
+          id: "h", type: "heading", parentId: "doc", attrs: { level: 1 },
+          inlineContent: inlineContent([
+            text("Part"),
+            embed("hard-break"),
+            text("One"),
+            embed("tab"),
+            text("Two"),
+            embed("footnote-anchor", { footnoteId: "f1" }),
+          ]),
+        }),
+      ],
+    });
+    expect(resolveCrossReference(state, numbering, { targetId: "h" as BlockId, refMode: "text" })).toBe(
+      "Part One Two",
+    );
+  });
+
+  it("text mode resolves under the render suggestionView — final/original preview (XR-1)", () => {
+    // Heading = "Keep " (live) + "Added" (a pending INSERTION). The cross-ref
+    // caption must match the previewed projection of the target:
+    //   suggesting (literal) / final (accept all) → "Keep Added"
+    //   original (reject all) → "Keep " (the insertion is removed)
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "h", lastChildId: "h" }),
+        buildBlock({
+          id: "h", type: "heading", parentId: "doc", attrs: { level: 1 },
+          inlineContent: inlineContent([
+            text("Keep "),
+            text("Added", { [INSERTION_SUGGESTION_ATTR]: "s1" }),
+          ]),
+        }),
+      ],
+    });
+    const target = { targetId: "h" as BlockId, refMode: "text" as const };
+    expect(resolveCrossReference(state, numbering, target)).toBe("Keep Added"); // default "suggesting"
+    expect(resolveCrossReference(state, numbering, target, "final")).toBe("Keep Added");
+    expect(resolveCrossReference(state, numbering, target, "original")).toBe("Keep ");
+  });
+
+  it("text mode under original view, a pending DELETION in the target is KEPT (XR-1 mirror)", () => {
+    // Heading = "Stay" + "Cut" (pending DELETION). final (accept) drops "Cut";
+    // original (reject) keeps it.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "h", lastChildId: "h" }),
+        buildBlock({
+          id: "h", type: "heading", parentId: "doc", attrs: { level: 1 },
+          inlineContent: inlineContent([
+            text("Stay"),
+            text("Cut", { [DELETION_SUGGESTION_ATTR]: "d1" }),
+          ]),
+        }),
+      ],
+    });
+    const target = { targetId: "h" as BlockId, refMode: "text" as const };
+    expect(resolveCrossReference(state, numbering, target, "final")).toBe("Stay");
+    expect(resolveCrossReference(state, numbering, target, "original")).toBe("StayCut");
   });
 });

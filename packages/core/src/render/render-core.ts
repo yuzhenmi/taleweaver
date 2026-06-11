@@ -338,10 +338,15 @@ export function expandInlineItems(
       const refMode = item.properties.refMode;
       const resolved =
         typeof targetId === "string" && (refMode === "number" || refMode === "text")
-          ? resolveCrossReference(state, numbering, {
-              targetId: asBlockId(targetId),
-              refMode: refMode as CrossReferenceMode,
-            })
+          ? resolveCrossReference(
+              state,
+              numbering,
+              {
+                targetId: asBlockId(targetId),
+                refMode: refMode as CrossReferenceMode,
+              },
+              view,
+            )
           : BROKEN_CROSS_REFERENCE_TEXT;
       out.push(
         createElementBox(
