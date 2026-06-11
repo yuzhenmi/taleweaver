@@ -741,8 +741,9 @@ RESOLVE ops, dispatching by record `kind` (spec §6: accept-insertion strip /
 reject-insertion drop / accept-deletion drop / reject-deletion strip /
 accept-formatting apply-proposed+strip / reject-formatting strip), each a
 **NON-undoable** `applyOperation(...,{origin:SUGGESTION_RESOLVE_ORIGIN})` that
-deletes the record (per-owning-block full-replace; the editor handler calls
-`History.advanceState` after). **Slice 3d-ii (`acceptAll`/`rejectAll`) shipped:**
+deletes the record (identity-preserving per-owning-block minimal diff via
+`applyResolveDecisionsInTx` — #484; the editor handler calls `History.advanceState`
+after). **Slice 3d-ii (`acceptAll`/`rejectAll`) shipped:**
 resolve EVERY suggestion in one non-undoable txn via a COMBINED per-block rewrite
 (a run can carry insertion+deletion+formatting at once, so each block is walked once
 with a dominance order — acceptAll: deletion-drop dominates; rejectAll: insertion-
@@ -756,8 +757,9 @@ resolver. MT-2 shipped — `buildSuggestionRangeIndex` (the range index feeding
 `resolveSuggestionRange` + the host overlay) now walks all three trees, so a suggestion
 tagged in a footnote/header/footer body resolves to its body span instead of returning
 null. MT-3 shipped — the accept/reject resolve scan (`resolveBlockScan` in
-suggestion-ops.ts) now walks all three trees too, and each per-block full-replace write
-already carries its owning block's tree `kind` (from `resolveBlock`), so a body suggestion
+suggestion-ops.ts) now walks all three trees too, and each per-block decision-list write
+(`ResolveDecisionWrite`, applied by the identity-preserving `applyResolveDecisionsInTx`)
+carries its owning block's tree `kind` (from `resolveBlock`), so a body suggestion
 is accepted/rejected in-place in its body tree instead of being left as an un-resolvable
 zombie. MT-4 shipped — the editor's suggesting-mode gate
 (`suggestionInputForBlock`/`replaceSuggestionInputForBlock`/`isSuggestingInBlock` in
