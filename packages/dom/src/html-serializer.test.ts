@@ -642,3 +642,56 @@ function setNodeEnv(value: string | undefined): void {
     g.process.env.NODE_ENV = value;
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// html-decode hardening (serialization audit F1/F2)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("html-decode hardening", () => {
+  // F1: a list-level JUMP (0 → 2) encodes to <ol><li>a<ol><ol><li>b… — the inner
+  // <ol> is a DIRECT child of the outer nested <ol> (no intervening <li>). decode
+  // must recurse a directly-nested list, else the deeper item is silently dropped.
+  it("round-trips a list-level jump (0 → 2) without dropping the deeper item (F1)", () => {
+    const s = build(
+      [listItem("L", 0, inline(text("a"))), listItem("L", 2, inline(text("b")))],
+      { L: decimalDef() },
+    );
+    const items = readLeaves(roundTrip(s)).filter((b) => b.type === "list-item");
+    expect(items.map((b) => b.attrs.listLevel)).toEqual([0, 2]);
+    expect(items.map((b) => b.inline[0]?.[0])).toEqual(["a", "b"]);
+  });
+
+  it("decode recovers items from a directly-nested <ul><ul> (no intervening <li>) (F1)", () => {
+    const ser = createHtmlDocumentSerializer({ allocator: createTestAllocator("nest") });
+    const decoded = ser.decode("<body><ul><li>a<ul><ul><li>b</li></ul></ul></li></ul></body>");
+    const items = readLeaves(decoded).filter((b) => b.type === "list-item");
+    expect(items.map((b) => b.inline[0]?.[0])).toEqual(["a", "b"]);
+    expect(items.map((b) => b.attrs.listLevel)).toEqual([0, 2]);
+  });
+
+  // F2: decode is the untrusted-input trust boundary; sanitize dangerous URL
+  // schemes symmetrically with the #466 export fix (isExportSafeLinkUrl).
+  it("decode drops a dangerous-scheme <a href> but keeps the link text (F2)", () => {
+    const ser = createHtmlDocumentSerializer({ allocator: createTestAllocator("xss-a") });
+    const decoded = ser.decode('<body><p><a href="javascript:alert(1)">x</a></p></body>');
+    const p = readLeaves(decoded).find((b) => b.type === "paragraph");
+    expect(p?.inline).toEqual([["x", []]]); // text survives, no `link` mark
+  });
+
+  it("decode drops a dangerous-scheme <img src> (F2)", () => {
+    const ser = createHtmlDocumentSerializer({ allocator: createTestAllocator("xss-i") });
+    const decoded = ser.decode('<body><img src="javascript:alert(1)"></body>');
+    const img = readLeaves(decoded).find((b) => b.type === "image");
+    expect(img?.attrs.src).toBe("");
+  });
+
+  it("decode KEEPS safe http(s) <a href> and <img src> (F2 precision)", () => {
+    const ser = createHtmlDocumentSerializer({ allocator: createTestAllocator("safe") });
+    const decoded = ser.decode(
+      '<body><p><a href="https://ok.test">x</a></p><img src="https://ok.test/i.png"></body>',
+    );
+    const leaves = readLeaves(decoded);
+    expect(leaves.find((b) => b.type === "paragraph")?.inline).toEqual([["x", ["link"]]]);
+    expect(leaves.find((b) => b.type === "image")?.attrs.src).toBe("https://ok.test/i.png");
+  });
+});

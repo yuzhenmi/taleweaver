@@ -21,6 +21,7 @@ import {
   type InlineItem,
   type ReadonlyAttrs,
 } from "@taleweaver/core";
+import { isExportSafeLinkUrl } from "./url-safety";
 
 /** Default ordered (decimal) / unordered (disc) list defs for a decoded list. */
 function decimalListDef(): ListDef {
@@ -78,7 +79,14 @@ function accumulateNode(
   }
   if (tag === "A") {
     const href = node.getAttribute("href");
-    const nextAttrs = href !== null ? { ...activeAttrs, link: href } : activeAttrs;
+    // Sanitize at the untrusted-input trust boundary, symmetric with the export
+    // side (#466 `isExportSafeLinkUrl`): a `javascript:`/`data:`/`vbscript:` href
+    // is dropped (the link text is still kept), so a decoded document never
+    // carries an executable-scheme `link` attr.
+    const nextAttrs =
+      href !== null && isExportSafeLinkUrl(href)
+        ? { ...activeAttrs, link: href }
+        : activeAttrs;
     accumulateInline(node, nextAttrs, out);
     return;
   }
@@ -133,7 +141,16 @@ function walkList(
   acc: DecodeAccumulator,
 ): void {
   for (const child of Array.from(listEl.children)) {
-    if (child.tagName.toUpperCase() !== "LI") continue;
+    const childTag = child.tagName.toUpperCase();
+    // A list nested DIRECTLY inside a list, with NO intervening `<li>` — the shape
+    // the encoder emits for a list-LEVEL JUMP (level 0 → 2 opens `<ol><ol>` where
+    // only the deepest gets an `<li>`), and a common Word/Google-Docs/web paste
+    // shape. Recurse one level deeper so its items are not silently dropped.
+    if (childTag === "UL" || childTag === "OL") {
+      walkList(child, listId, depth + 1, acc);
+      continue;
+    }
+    if (childTag !== "LI") continue;
     // The <li>'s own inline content (text + marks), excluding nested lists.
     const items: InlineItem[] = [];
     const nestedLists: Element[] = [];
@@ -185,7 +202,14 @@ function decodeBlockElement(el: Element, acc: DecodeAccumulator): void {
       acc.blocks.push({ type: "horizontal-line", inlineContent: { items: [] } });
       return;
     case "IMG": {
-      const attrs: Record<string, string | number> = { src: el.getAttribute("src") ?? "" };
+      // Sanitize `src` symmetrically with `<a href>` (above): a dangerous-scheme
+      // src (`javascript:`/`data:`/`vbscript:`) is dropped to "" so a decoded
+      // image never feeds an executable-scheme URL to the canvas image loader.
+      // (`data:image` paste support is a future rich-paste concern; the untrusted
+      // boundary stays allowlist-only per `url-safety.ts`.)
+      const rawSrc = el.getAttribute("src");
+      const src = rawSrc !== null && isExportSafeLinkUrl(rawSrc) ? rawSrc : "";
+      const attrs: Record<string, string | number> = { src };
       const width = el.getAttribute("width");
       const height = el.getAttribute("height");
       if (width !== null && width.trim() !== "" && !Number.isNaN(Number(width))) {
