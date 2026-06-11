@@ -13,7 +13,8 @@ import {
   type InlineItem,
 } from "../inline-content";
 import { getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
-import { buildYInlineContent } from "../y-block";
+import { buildYInlineContent, buildYInlineItem } from "../y-block";
+import { mergeAdjacentSameAttrsTextItems, yMapAsObject } from "../y-utils";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
 import type { AttrRegistry } from "../../cascade/attr-registry";
 
@@ -22,6 +23,14 @@ import type { AttrRegistry } from "../../cascade/attr-registry";
  * `mode`:
  *   - `in-place`: insert into an existing Y.Text run at `itemIndex` /
  *     `within`, preserving its per-character CRDT identity.
+ *   - `split-in-place`: insert a DIFFERENTLY-attributed run into the
+ *     block's LIVE Y.Array, preserving every OTHER run's Y.Text identity.
+ *     A boundary insert (`within === 0`, or end-of-content) splits nothing;
+ *     a mid-run insert splits ONLY the straddling run. Used by
+ *     `replaceWithSuggestion` to drop a suggested run against a block whose
+ *     live array is identity-preserved (e.g. surgically struck, not
+ *     full-replaced). Carries `attrs` (the new run's attrs) and an optional
+ *     `registry` (threaded to the post-insert coalesce normalizer).
  *   - `full-replace`: rebuild the block's Y.Array<inlineContent> from
  *     `items`. Used for cases where in-place mutation cannot reproduce
  *     the documented result shape (attrs split, embed-adjacent, empty
@@ -41,6 +50,14 @@ export type InsertTextPlan = {
       readonly itemIndex: number;
       readonly within: number;
       readonly text: string;
+    }
+  | {
+      readonly mode: "split-in-place";
+      readonly itemIndex: number;
+      readonly within: number;
+      readonly text: string;
+      readonly attrs: ReadonlyAttrs;
+      readonly registry?: AttrRegistry;
     }
   | {
       readonly mode: "full-replace";
@@ -127,6 +144,33 @@ export function insertTextInTx(doc: Y.Doc, plan: InsertTextPlan): void {
     const yItem = yItems.get(plan.itemIndex);
     const yText = yItem.get("text") as Y.Text;
     yText.insert(plan.within, plan.text);
+    return;
+  }
+
+  if (plan.mode === "split-in-place") {
+    const yBlock = getYBlock(doc, plan.blockId, "insertText", plan.kind);
+    const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>>;
+    const newRun = buildYInlineItem({ kind: "text", text: plan.text, attrs: plan.attrs });
+
+    if (plan.itemIndex >= yItems.length) {
+      // end-of-content → append
+      yItems.insert(yItems.length, [newRun]);
+    } else if (plan.within === 0) {
+      // run boundary → insert before the run at itemIndex (no run splits)
+      yItems.insert(plan.itemIndex, [newRun]);
+    } else {
+      // strictly inside a text run → split before/after, new run between.
+      // within>0 only resolves inside a TEXT item (embeds are length 1, boundaries
+      // are within===0), so the text read is safe.
+      const yItem = yItems.get(plan.itemIndex);
+      const full = (yItem.get("text") as Y.Text).toString();
+      const existing = yMapAsObject(yItem.get("attrs") as Y.Map<unknown>) as ReadonlyAttrs;
+      const before = buildYInlineItem({ kind: "text", text: full.slice(0, plan.within), attrs: existing });
+      const after = buildYInlineItem({ kind: "text", text: full.slice(plan.within), attrs: existing });
+      yItems.delete(plan.itemIndex, 1);
+      yItems.insert(plan.itemIndex, [before, newRun, after]);
+    }
+    mergeAdjacentSameAttrsTextItems(yItems, plan.registry);
     return;
   }
 
@@ -278,6 +322,29 @@ export function planInsertTextFullReplace(
     mode: "full-replace",
     items: merged,
   };
+}
+
+/**
+ * Plan a DIFFERENT-attrs insertion against a pre-computed `items` array that is KNOWN
+ * to be the live, identity-preserved Y.Array's content (e.g. a block's
+ * post-surgical-strike content). Produces a `split-in-place` plan: the new run is
+ * inserted at a run boundary (no identity loss) or splits the straddling run (only that
+ * run loses identity), preserving every other run's Y.Text. Use ONLY when the target
+ * block's live Y.Array matches `items` item-for-item AND retains identity (i.e. it was
+ * NOT full-replaced earlier in the same transaction). Caller guarantees
+ * `offset ∈ [0, sum(item.length)]`.
+ */
+export function planInsertTextSplitInPlace(
+  blockId: BlockId,
+  kind: BlockTreeKind,
+  items: ReadonlyArray<InlineItem>,
+  offset: number,
+  text: string,
+  attrs: ReadonlyAttrs,
+  registry?: AttrRegistry,
+): InsertTextPlan {
+  const { itemIndex, withinItem } = findItemAtOffset({ items }, offset);
+  return { blockId, kind, mode: "split-in-place", itemIndex, within: withinItem, text, attrs, registry };
 }
 
 /**
