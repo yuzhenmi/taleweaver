@@ -191,13 +191,16 @@ export function markFormatting(
  *
  * Unlike {@link markFormatting} this does NOT compose `applyAttrsToRangeInTx`:
  * that applier would tag embeds too AND cannot selectively DROP the own-insertion
- * runs. Instead it does a per-OWNING-BLOCK FULL-REPLACE rewrite (mirror of
- * `deleteComment`'s `planMarkerStrip`): the new `InlineItem[]` per block is
- * computed PRE-transaction (pure), then written via `getYBlock(...).set(
- * "inlineContent", buildYInlineContent(...))`. Block writes are tree-map writes
- * (dirty-captured), so — unlike the side-table-only comment flips — no
- * `state.rootId` surfacing is needed. The op + the optional record write share
- * ONE `applyOperation` transaction (one undo unit, one collab event).
+ * runs. Instead it plans the per-owning-block strike ranges PRE-transaction (pure
+ * {@link planMarkDeletion}), then applies them IN the transaction via the surgical
+ * {@link applyDeletionStrikeInTx} (#491): whole-covered runs get the deletion attr
+ * set in place — preserving their `Y.Text` CRDT identity — only a straddling run
+ * splits, and own-insertion runs are deleted by index. (This replaced the original
+ * per-block FULL-REPLACE rewrite, which tombstoned every run's `Y.Text`.) Block
+ * writes are tree-map writes (dirty-captured), so — unlike the side-table-only
+ * comment flips — no `state.rootId` surfacing is needed. The op + the optional
+ * record write share ONE `applyOperation` transaction (one undo unit, one collab
+ * event).
  *
  * Coalescing: a deletion coalesces into an IMMEDIATELY-adjacent (same-block) run
  * carrying a `deletionSuggestionId` whose record is a `deletion` by the SAME
@@ -266,14 +269,18 @@ export function markDeletion(
 
 /**
  * The pure pre-transaction plan for a suggested deletion: the per-owning-block
- * full-replace `writes`, whether ≥1 run was actually TAGGED (`taggedAny` — drives
+ * strike `writes` (each carrying the strike `rangeStart`/`rangeEnd` plus the
+ * post-strike `items`), whether ≥1 run was actually TAGGED (`taggedAny` — drives
  * the record write), the resolved/coalesced deletion `id` + whether it `reusing`s
  * an existing record, and the span's owning tree `kind`.
  *
  * Extracted from {@link markDeletion} so the composite {@link replaceWithSuggestion}
- * can reuse the strike plan: it inspects `writes` to build the insert plan against
- * the POST-strike items of the start block (the strike full-REPLACES that block's
- * Y.Array, so an in-place insert against the pre-strike `state` would be unsafe).
+ * can reuse the strike plan. The strike itself is surgical
+ * ({@link applyDeletionStrikeInTx}, driven by `rangeStart`/`rangeEnd`), preserving
+ * untouched runs' Y.Text identity. `replaceWithSuggestion` reads `startWrite.items`
+ * (the post-strike content of the start block — byte-identical to the surgical
+ * strike's result) to build its split-in-place insert plan's offsets: the insert
+ * must resolve against the POST-strike start block, not the pre-strike `state`.
  *
  * Returns `null` for the no-op cases (collapsed span, or `planApplyAttrsToRange`
  * yields nothing) so the caller short-circuits with the identity contract.
@@ -689,24 +696,24 @@ export function replaceWithSuggestion(
  * correct / non-corrupting on a same-block span; it does not attempt the multi-block
  * case.
  *
- * Post-strike-offset HAZARD (mirrors {@link replaceWithSuggestion}): the strike
- * FULL-REPLACES block B's Y.Array, and — critically — `markDeletion` REMOVES the
- * author's OWN pending insertions in-range, which SHORTENS the block. So the split
- * offset MUST be computed against the POST-strike length, not the pre-strike
- * `end.offset`. The unstruck tail `[end, preLen)` is never touched by the strike, so
+ * Post-strike-offset HAZARD (mirrors {@link replaceWithSuggestion}): the surgical
+ * strike ({@link applyDeletionStrikeInTx}) — critically — REMOVES the author's OWN
+ * pending insertions in-range, which SHORTENS the block. So the split offset MUST be
+ * computed against the POST-strike length, not the pre-strike `end.offset`. The
+ * unstruck tail `[end, preLen)` is never touched by the strike, so
  * `tailLen = preLen - end.offset` is invariant; the post-strike split offset is
  * `splitOffset = postLen - tailLen` (for the common case — striking another author's
  * text, tagged in place — `postLen === preLen` so `splitOffset === end.offset`). The
  * split materializes N+1 from B's post-strike LIVE content `[splitOffset, postLen)`
  * (the unstruck tail), leaving the struck selection in N.
  *
- * Append discipline (mirror of {@link splitWithSuggestion}): the strike
- * FULL-REPLACES B's Y.Array (a genuine rebuild — re-tagging the struck runs), so the
- * split reads B's POST-strike live content. `splitBlockAtPositionInTx` then sets B's
- * content to `[0, splitOffset)` IN PLACE (identity-preserving); this op then APPENDS
- * just the zero-width break embed to B's live `inlineContent` Y.Array — no second
- * full-replace of B, so B's surviving post-strike text-run CRDT identity is preserved.
- * N+1 + the sibling rewiring stay as the split left them.
+ * Append discipline: the surgical strike mutates B's Y.Array in place (tagging the
+ * struck runs, dropping own-insertions — untouched runs keep their `Y.Text`
+ * identity), so the split reads B's POST-strike live content.
+ * `splitBlockAtPositionInTx` then sets B's content to `[0, splitOffset)` IN PLACE
+ * (identity-preserving); this op then APPENDS just the zero-width break embed to B's
+ * live `inlineContent` Y.Array — so B's surviving post-strike text-run CRDT identity
+ * is preserved end-to-end. N+1 + the sibling rewiring stay as the split left them.
  *
  * The two records share `createdAt` as the render-layer "this was ONE replace"
  * grouping signal (like {@link replaceWithSuggestion}). The deletion record is written
@@ -1762,9 +1769,10 @@ function rejectAllRun(item: TextItem): AllRewrite {
 /**
  * The shared {@link acceptAll} / {@link rejectAll} implementation. Unlike the
  * single-id {@link resolve} (which classifies per ONE id), this resolves EVERY id
- * every run carries in one combined rewrite — looping the single-id resolve against
- * the same pre-tx snapshot would clobber blocks (each does a full-replace), and a
- * single run can carry insertion + deletion + formatting ids at once.
+ * every run carries in one combined rewrite — looping the single-id resolve would
+ * re-plan each pass against the same now-stale pre-tx snapshot while the live array
+ * mutates underneath it, and a single run can carry insertion + deletion +
+ * formatting ids at once (the per-id passes would fight over that run's attrs).
  *
  * Delegates the scan + transaction to the shared {@link runResolve} engine with an
  * all-ids `classify`: per text run {@link acceptAllRun} / {@link rejectAllRun}

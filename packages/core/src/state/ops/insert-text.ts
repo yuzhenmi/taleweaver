@@ -290,9 +290,17 @@ function planInsertTextOnItems(
 /**
  * Build a `full-replace` InsertTextPlan against a pre-computed `items`
  * array (e.g., the `mergedItems` of a `DeleteRangePlan`). Used by
- * `replaceRange` to compose insert AFTER delete in a single transaction:
- * the post-delete Y.Array doesn't exist yet (`deleteRangeInTx` will
- * create it), so we can't use the in-place strategy — full-replace it is.
+ * `replaceRange` (its SOLE caller) to compose insert AFTER delete in a single
+ * transaction: the post-delete Y.Array doesn't exist yet (`deleteRangeInTx` will
+ * create it via a full-replace), so we can't use the in-place strategy —
+ * full-replace it is.
+ *
+ * `replaceWithSuggestion`'s suggested-insert path NO LONGER uses this (#492): its
+ * deletion strike is now identity-preserving (`applyDeletionStrikeInTx`), so the
+ * start block's live Y.Array survives, and the insert runs through
+ * {@link planInsertTextSplitInPlace} instead — preserving untouched-run identity.
+ * (Converting `replaceRange`'s post-delete insert similarly awaits a surgical
+ * `deleteRange` — a separate workstream.)
  *
  * Caller must guarantee `offset ∈ [0, sum(item.length)]`. For
  * `replaceRange`, this is always true: the seam offset is

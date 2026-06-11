@@ -734,8 +734,8 @@ identity), with the delete-own-insertion (your own pending insertion → real re
 in-range only) + nesting (different-author insertion also gains the deletion id) +
 same-author coalescing rules; embeds in-span preserved untagged (named follow-up).
 (The replaceWithSuggestion / splitWithSuggestion strike-writes use the same surgical
-applier; only replaceWithSuggestion's start block and `replaceWithSuggestedFragment`
-still full-replace — see below.) **Slice 3c (`mintInsertion`) shipped:**
+applier — incl. replaceWithSuggestion's start block since #492; only
+`replaceWithSuggestedFragment` still full-replaces — see below.) **Slice 3c (`mintInsertion`) shipped:**
 the INSERT_TEXT/PASTE suggesting-mode op — inserts text carrying
 `insertionSuggestionId` (composing `planInsertText`/`insertTextInTx`) + writes an
 `insertion` record, with insertion-point coalescing (same-author adjacent insertion
@@ -807,9 +807,15 @@ the selection AND inserts new text at the selection start in ONE transaction,
 producing TWO records (an insertion + a deletion sharing `createdAt` as the render
 "replace" grouping signal). Built by extracting the strike's pure `planMarkDeletion`
 out of `markDeletion` (behavior-preserving) and composing it with
-`planInsertTextFullReplace` against the POST-strike start-block items (same
-full-replace hazard as `replaceRange`). Degenerate inputs delegate to
-`markDeletion` (empty text) / `mintInsertion` (collapsed span).
+`planInsertTextSplitInPlace`. **Now fully IDENTITY-PRESERVING (#492):** the in-tx body
+strikes every block — INCLUDING the start block — surgically via
+`applyDeletionStrikeInTx`, then inserts the suggested run via a `split-in-place` plan
+(built PRE-tx against the start block's post-strike `writes` items, byte-identical to
+the live array after the surgical strike). The three-step ordering (non-start strikes →
+start strike → split-in-place insert) is load-bearing. So a single-block replace
+preserves the `Y.Text` identity of every untouched run (collab peers' concurrent edits
+survive sync); `planInsertTextFullReplace` now serves only `replaceRange`. Degenerate
+inputs delegate to `markDeletion` (empty text) / `mintInsertion` (collapsed span).
 **Slice 4d-editor shipped:** `handleInsertText`'s expanded-selection branch routes
 type-over-a-selection in suggesting mode through `replaceWithSuggestion` (via
 `newReplaceSuggestionInput` in `suggestion-mode.ts`) — soft-deletes the selection +
@@ -865,7 +871,7 @@ editor wiring lands in slice 4e-editor (below).
 shared `resolve(state, id, mode)` (used by `acceptSuggestion`/`rejectSuggestion`) to
 handle the two break embeds additively. The scan drops a `block-split-suggestion` /
 `block-join-suggestion` embed carrying the resolved id (ALWAYS, all four cases) via the
-existing per-block full-replace, recording its owning block N as a merge owner; after the
+surgical in-place `breakDrop` delete (`applyResolveDecisionsInTx` — #484), recording its owning block N as a merge owner; after the
 writes, when `(insertion && reject) || (deletion && accept)` — split-reject UNDOES the
 split, join-accept DOES the join — it MERGES N with its next sibling N+1 via the live
 `mergeWithNextSiblingLiveInTx` primitive (the same one `resolveAll` uses), run in the SAME
