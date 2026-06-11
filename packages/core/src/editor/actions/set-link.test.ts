@@ -155,6 +155,36 @@ describe("handleSetLink", () => {
     expect(firstTextItem(editor)?.attrs.link).toBe(beforeLink);
   });
 
+  it("preserves selection DIRECTION (a backward selection stays backward — Google-Docs parity)", () => {
+    // Applying a link is an attr-only edit: it shifts no offsets, so the
+    // selection must be returned UNCHANGED — same endpoints AND same anchor/
+    // focus orientation. A backward (RTL-drag) selection must not flip to
+    // forward, else a following Shift+Arrow extends from the wrong end.
+    const config = makeConfig();
+    let editor = createInitialEditorState(config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "click here" }, config);
+    const pId = (() => {
+      const root = getBlock(editor.state, editor.state.rootId);
+      if (root === null || root.firstChildId === null) throw new Error("no para");
+      return root.firstChildId;
+    })();
+    // BACKWARD selection: anchor at the later offset (10), focus at the earlier (0).
+    editor = reduceEditor(
+      editor,
+      {
+        type: "SET_SELECTION",
+        selection: createSpan(createPosition(pId, 10), createPosition(pId, 0)),
+      },
+      config,
+    );
+    editor = reduceEditor(editor, { type: "SET_LINK", url: "https://example.com" }, config);
+    // Link applied...
+    expect(firstTextItem(editor)?.attrs.link).toBe("https://example.com");
+    // ...and the backward orientation survives (anchor still after focus).
+    expect(editor.selection.anchor.offset).toBe(10);
+    expect(editor.selection.focus.offset).toBe(0);
+  });
+
   it("undo restores the pre-link state", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);

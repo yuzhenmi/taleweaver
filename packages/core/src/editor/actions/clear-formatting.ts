@@ -1,5 +1,4 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { createPosition, createSpan, spanStart, spanEnd } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { INLINE_FORMAT_ATTR_KEYS } from "../inline-format-keys";
 import { applyAttrsOrSuggest } from "./suggestion-mode";
@@ -23,7 +22,7 @@ import { rebuildTrees } from "./helpers";
  * removal). Collapsed selection short-circuits to a no-op (nothing to clear at
  * a single cursor position); the T7 state-equality short-circuit also covers an
  * already-clean selection (no attrs removed → no state change → no history
- * entry). Selection is re-built from normalized start/end; dirtyIds threaded
+ * entry). The selection is preserved unchanged; dirtyIds threaded
  * through to the incremental render pipeline (per R-D.3).
  */
 export function handleClearFormatting(
@@ -46,22 +45,17 @@ export function handleClearFormatting(
   // (also short-circuits an already-clean selection, no history entry).
   if (result.state === editor.state) return editor;
 
-  // Selection invariant under attribute changes — preserve anchor/focus but
-  // rebuild span ordering from normalized start/end so consumers see
-  // consistent shape.
-  const start = spanStart(editor.state, selection);
-  const end = spanEnd(editor.state, selection);
-  const newSelection = createSpan(
-    createPosition(start.blockId, start.offset),
-    createPosition(end.blockId, end.offset),
-  );
-
+  // An attr-only edit shifts no offsets, so the selection is unchanged — it is
+  // committed and rebuilt AS-IS, preserving both endpoints and the anchor/focus
+  // DIRECTION (a backward drag-selection stays backward — Google-Docs parity).
+  // Normalizing via spanStart/spanEnd would silently flip a backward selection
+  // to forward, so a following Shift+Arrow would extend from the wrong end.
   editor.history.commit(result, {
     before: selection,
-    after: newSelection,
+    after: selection,
   });
   return rebuildTrees(
-    { ...editor, state: result.state, selection: newSelection },
+    { ...editor, state: result.state, selection },
     editor,
     config,
     result.dirtyIds,

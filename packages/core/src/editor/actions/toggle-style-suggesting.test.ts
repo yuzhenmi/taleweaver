@@ -85,7 +85,12 @@ function textItems(editor: EditorState, paraId: BlockId) {
 describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
   it("toggle bold over a selection: every run carries a formattingSuggestionId; ONE formatting record; LIVE bold unchanged; selection preserved", () => {
     const { editor, paraId } = seededSelection(suggestingConfig);
-    const next = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" }, suggestingConfig);
+    // Re-select BACKWARD (anchor at the later offset, focus at the earlier) so
+    // the assertion below verifies the suggesting-mode path preserves selection
+    // DIRECTION — not merely the endpoint set. An attr-only edit shifts no
+    // offsets, so the selection is returned UNCHANGED (direction included).
+    const backward = selectIn(editor, paraId, 6, 0, suggestingConfig);
+    const next = reduceEditor(backward, { type: "TOGGLE_STYLE", style: "bold" }, suggestingConfig);
 
     const runs = textItems(next, paraId);
     expect(runs.length).toBeGreaterThan(0);
@@ -104,13 +109,13 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
     // The runs' id matches the record's id.
     expect(runs[0].attrs.formattingSuggestionId).toBe(suggestions[0].id);
 
-    // Attr-only change → selection preserved over [0,6).
+    // Attr-only change → selection preserved UNCHANGED, backward DIRECTION
+    // included (anchor stays at 6, focus at 0). The old code normalized to a
+    // forward span (anchor 0, focus 6), so this pins the direction-preserving fix.
     expect(next.selection.anchor.blockId).toBe(paraId);
     expect(next.selection.focus.blockId).toBe(paraId);
-    const offsets = [next.selection.anchor.offset, next.selection.focus.offset].sort(
-      (a, b) => a - b,
-    );
-    expect(offsets).toEqual([0, 6]);
+    expect(next.selection.anchor.offset).toBe(6);
+    expect(next.selection.focus.offset).toBe(0);
   });
 
   it("accept: the proposal lands as live bold AND the formattingSuggestionId is stripped; the record is gone", () => {
