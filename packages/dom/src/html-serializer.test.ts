@@ -516,6 +516,29 @@ describe("createHtmlDocumentSerializer", () => {
     const after = readLeaves(roundTrip(state));
     expect(after.map((b) => b.type)).toEqual(["paragraph", "horizontal-line", "paragraph"]);
   });
+
+  // M2 — a dangerous URL scheme must NOT survive into the exported <a href>
+  // (where a downstream consumer could open it and run script). The wrapper is
+  // dropped; the link TEXT is preserved. Mirrors the Cmd/Ctrl-click allowlist.
+  it("drops the <a> wrapper for a javascript: link on encode (keeps the text)", () => {
+    const state = build([para(inline(text("click "), text("here", { link: "javascript:alert(1)" })))]);
+    const ser = createHtmlDocumentSerializer({ allocator: createTestAllocator("xss") });
+    const html = ser.encode(state);
+    expect(html).not.toContain("javascript:");
+    expect(html).not.toContain("<a ");
+    expect(html).toContain("here"); // the link text still renders
+  });
+
+  it("keeps the <a> wrapper for a safe https link AND a relative link on encode", () => {
+    const state = build([
+      para(inline(text("a", { link: "https://ok.test/x" }))),
+      para(inline(text("b", { link: "/relative/path" }))),
+    ]);
+    const ser = createHtmlDocumentSerializer({ allocator: createTestAllocator("safe") });
+    const html = ser.encode(state);
+    expect(html).toContain('<a href="https://ok.test/x">a</a>');
+    expect(html).toContain('<a href="/relative/path">b</a>');
+  });
 });
 
 // First leaf of the main tree (helper for link assertions).

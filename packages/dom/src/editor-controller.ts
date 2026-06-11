@@ -40,6 +40,7 @@ import {
 } from "@taleweaver/core";
 import { mapKeyEvent } from "./key-handler";
 import { FONT_CONFIG } from "./font-config";
+import { isOpenableLinkUrl } from "./url-safety";
 import {
   paintCanvas,
   paintPage,
@@ -1395,9 +1396,10 @@ export function createEditorController(
     if (e.metaKey || e.ctrlKey) {
       const url = linkUrlAtPosition(state.state, pos);
       if (url !== null) {
-        // Allowlist safe schemes (per hyperlinks spec risk table:
-        // reject javascript: / data: URLs).
-        if (/^(https?:|mailto:|tel:)/i.test(url)) {
+        // Allowlist safe schemes (per hyperlinks spec risk table: reject
+        // javascript: / data: / vbscript: and scheme-less URLs). Shared with the
+        // taleweaver-html export guard.
+        if (isOpenableLinkUrl(url)) {
           window.open(url, "_blank", "noopener,noreferrer");
         }
         return;

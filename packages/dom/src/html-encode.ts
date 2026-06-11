@@ -22,6 +22,7 @@ import {
   type ReadonlyAttrs,
 } from "@taleweaver/core";
 import { isDevMode } from "./dev-mode";
+import { isExportSafeLinkUrl } from "./url-safety";
 
 /** HTML-escape text content (& < > "). */
 function escapeHtml(s: string): string {
@@ -74,7 +75,13 @@ const MARK_SPECS: ReadonlyArray<MarkSpec> = [
     attrKey: "link",
     wrap: (inner, value) => {
       const url = strAttr(value);
-      return url !== undefined ? `<a href="${escapeHtml(url)}">${inner}</a>` : inner;
+      // Drop the <a> wrapper (keep the inner text) for a missing URL OR a URL
+      // with a dangerous executable scheme (javascript:/data:/…) — the exported
+      // HTML must never carry a link a downstream consumer could open to run
+      // script. Mirrors the Cmd/Ctrl-click allowlist (HL.3).
+      return url !== undefined && isExportSafeLinkUrl(url)
+        ? `<a href="${escapeHtml(url)}">${inner}</a>`
+        : inner;
     },
   },
 ];
