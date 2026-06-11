@@ -58,6 +58,7 @@ export type EditorAction =
   | { type: "INSERT_TAB" }
   | { type: "SET_TAB_STOPS"; blockId: BlockId; tabStops: readonly TabStop[] }
   | { type: "INSERT_HORIZONTAL_LINE" }
+  | { type: "INSERT_TABLE"; rows: number; cols: number }
   | { type: "INSERT_TABLE_ROW"; position: "above" | "below" }
   | { type: "INSERT_TABLE_COLUMN"; position: "left" | "right" }
   | { type: "DELETE_TABLE_ROW" }

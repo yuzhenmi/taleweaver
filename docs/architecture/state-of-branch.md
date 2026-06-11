@@ -127,7 +127,11 @@ Built-in component behavior:
   example-app Insert menu.
 - `tableComponent`, `tableRowComponent`, `tableCellComponent` render, and
   table layout (Table FC) is implemented. Table *editing* is `[implemented]`
-  end-to-end, both the uniform (P15a) and span-aware (P15b) surfaces:
+  end-to-end, both the uniform (P15a) and span-aware (P15b) surfaces.
+  `INSERT_TABLE` (the create-entry-point — `createTable` Layer-3 op + handler)
+  inserts a fresh `rows`×`cols` table at the caret's block boundary
+  (START→before / END→after / MID→split) and carets into cell (0,0); main-body
+  only, one undo step. The structural edits:
   `INSERT_TABLE_ROW`, `INSERT_TABLE_COLUMN`, `DELETE_TABLE_ROW`,
   `DELETE_TABLE_COLUMN` (insert above/below or left/right, remove the caret's
   row/column; `columnWidths` re-spliced/-removed atomically via
@@ -145,7 +149,8 @@ Built-in component behavior:
   occupancy-grid coordinates the Table FC lays out in (shared `table-grid-core`;
   see [`1.4.3-table-fc.md`](1-core/1.4-layout/1.4.3-table-fc.md)), so an edit
   preserves the rectangular-grid invariant layout depends on. Still `[missing]`:
-  browser-gated example-app Table menu wiring for the span-aware actions.
+  browser-gated example-app Table menu wiring (the `INSERT_TABLE` button + the
+  span-aware actions), and structural table copy/paste + HTML table export.
 
 ### `render/` `[implemented]`
 
