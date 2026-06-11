@@ -1545,6 +1545,16 @@ export function createEditorController(
 
   function handleInput() {
     if (isComposing) return;
+    // Ignore input while blurred. An `input` that fires when the editor is not
+    // focused (a programmatic textarea value-set, or a stray event arriving after
+    // a focus race) would apply text at a STALE caret — the engine's selection
+    // points elsewhere. Clear the buffer so the value can't leak into the next
+    // focused input. (Provenance of focused non-typing input — autofill /
+    // translation bulk-sets — is a separate hardening concern, tracked as #490.)
+    if (!focused) {
+      textarea.value = "";
+      return;
+    }
     const text = textarea.value;
     if (text) {
       dispatch({ type: "INSERT_TEXT", text });

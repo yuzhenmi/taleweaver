@@ -2485,6 +2485,28 @@ describe("createEditorController", () => {
       document.body.removeChild(container);
     });
 
+    it("ignores input fired while blurred (no stale-caret INSERT_TEXT) (#490)", () => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const dispatch = vi.fn();
+      const ctrl = createEditorController(container, makeOptions({ dispatch }));
+      ctrl.update(makeFakeEditorState());
+      const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+
+      textarea.dispatchEvent(new Event("blur"));
+      dispatch.mockClear();
+      // A value-set + input while blurred must NOT dispatch (the engine's caret
+      // points elsewhere) — and the buffer is cleared so it can't leak later.
+      textarea.value = "stale";
+      textarea.dispatchEvent(new Event("input"));
+
+      expect(dispatch).not.toHaveBeenCalledWith({ type: "INSERT_TEXT", text: "stale" });
+      expect(textarea.value).toBe("");
+
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
     it("paste is a no-op before the first update() but STILL preventDefaults (#4)", () => {
       const container = document.createElement("div");
       document.body.appendChild(container);
