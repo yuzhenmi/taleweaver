@@ -192,6 +192,30 @@ describe("resolvePixelPosition (virtual tree) — cross-page soft-wrap edge", ()
     // And it equals the oracle exactly.
     expect(got).toEqual(oracle);
   });
+
+  it("caretAffinity 'before' pins the caret to page N's last line (cross-page #474 B2)", () => {
+    const cfg = pageConfig();
+    const { state, virtual, shaper } = buildSpanningParagraph(600, cfg);
+
+    const page0 = virtual.getPage(0);
+    const page1 = virtual.getPage(1);
+    const p0Lines = getLineIndex(page0).byBlock.get("p0" as BlockId) ?? [];
+    const p1Lines = getLineIndex(page1).byBlock.get("p0" as BlockId) ?? [];
+    expect(p0Lines.length).toBeGreaterThan(0);
+    expect(p1Lines.length).toBeGreaterThan(0);
+    const boundaryOffset = p0Lines[p0Lines.length - 1].line.inlineOffsetEnd;
+    expect(p1Lines[0].line.inlineOffsetStart).toBe(boundaryOffset);
+
+    const pos = createPosition("p0" as BlockId, boundaryOffset);
+    // Default snaps to page 1 (above). "before" must stay on page 0's last line.
+    const before = resolvePixelPosition(state, pos, virtual, shaper, undefined, "before");
+    expect(before).not.toBeNull();
+    if (before === null) return;
+    expect(before.pageIndex).toBe(0);
+    // Pin it to page 0's LAST line specifically (not just "some line on page 0"):
+    // y equals the bottom-most own-line's absoluteY (page 0 → page-relative == absolute).
+    expect(before.y).toBe(p0Lines[p0Lines.length - 1].absoluteY);
+  });
 });
 
 describe("resolvePixelPosition (virtual tree) — materializes only the cursor page", () => {

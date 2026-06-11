@@ -221,6 +221,32 @@ describe("resolvePixelPosition (new)", () => {
     expect(result.x).toBeLessThanOrEqual(8); // start of line 2, possibly minor offset
   });
 
+  it("honors caretAffinity 'before' at a soft-wrap boundary — stays at line 1's end (#474 B2)", () => {
+    // Same 200-char / ~100-per-line fixture; offset 100 is the wrap boundary
+    // (line 1's end AND line 2's start). Without an affinity the caret jumps to
+    // line 2's start (default, above). With affinity "before" it must stay at
+    // line 1's END — otherwise the end-of-a-wrapped-line caret is unreachable.
+    let s = "";
+    for (let i = 0; i < 20; i++) s += "abcdefghi ";
+    const state = singleParagraph(s);
+    const { layout, shaper } = pipeline(state, 800);
+    const pos = createPosition("p" as BlockId, 100);
+
+    // "after" (and default) → line 2 start.
+    const after = resolvePixelPosition(state, pos, layout, shaper, undefined, "after");
+    expect(after).not.toBeNull();
+    if (after === null) return;
+    expect(after.y).toBe(16);
+    expect(after.x).toBeLessThanOrEqual(8);
+
+    // "before" → line 1's end: same y as line 1 (0), x far from the line start.
+    const before = resolvePixelPosition(state, pos, layout, shaper, undefined, "before");
+    expect(before).not.toBeNull();
+    if (before === null) return;
+    expect(before.y).toBe(0);
+    expect(before.x).toBeGreaterThan(8);
+  });
+
   it("returns y past first paragraph for offset 0 of a second paragraph", () => {
     const state = buildState({
       rootId: "doc",

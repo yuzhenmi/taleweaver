@@ -285,11 +285,20 @@ function resolveInVirtualTree(
       continue;
     }
     const firstStart = ownLines[0].line.inlineOffsetStart;
-    if (position.offset >= firstStart || pageIndex <= firstPage) {
+    // Settle on this page when the offset is at/after its first own-line —
+    // EXCEPT a "before" affinity landing EXACTLY on this page's first-line start
+    // (a cross-page soft-wrap boundary: the offset is also the PREVIOUS page's
+    // last-line end). There the caret must pin to the previous page's end, so we
+    // step back one page (#474 B2, cross-page mirror of the intra-page fix). The
+    // block's first-page floor always stops the walk.
+    const settleHere =
+      position.offset > firstStart ||
+      (position.offset === firstStart && caretAffinity !== "before");
+    if (settleHere || pageIndex <= firstPage) {
       break;
     }
-    // The offset precedes this page's own-lines: it lives on an earlier page
-    // within the block's span.
+    // The offset precedes this page's own-lines (or a "before" caret sits on the
+    // boundary): it lives on an earlier page within the block's span.
     pageIndex--;
   }
 
@@ -297,11 +306,15 @@ function resolveInVirtualTree(
   // with `offset === inlineOffsetEnd`, and the block continues onto the next
   // page (the next page has own-lines for this block). The within-page resolver
   // would pin the caret to the bottom of page N; instead snap to page N+1's
-  // first same-block line (matching the doc-wide soft-wrap preference).
+  // first same-block line (matching the doc-wide soft-wrap preference). An
+  // explicit `caretAffinity === "before"` opts OUT (the end-of-page-N-line
+  // position must stay reachable — the cross-page mirror of the #474 B2
+  // intra-page fix); it then falls through to the page-N resolve below.
   const lastOwn = ownLines[ownLines.length - 1];
   if (
     position.offset === lastOwn.line.inlineOffsetEnd &&
-    pageIndex + 1 < plan.entries.length
+    pageIndex + 1 < plan.entries.length &&
+    caretAffinity !== "before"
   ) {
     const nextPage = tree.getPage(pageIndex + 1);
     const nextOwn = getLineIndex(nextPage).byBlock.get(position.blockId) ?? [];
@@ -502,8 +515,13 @@ function resolvePositionInOwnLines(
     if (position.offset <= l.inlineOffsetEnd) {
       const isExactEnd = position.offset === l.inlineOffsetEnd;
       const next = ownLines[i + 1];
-      if (isExactEnd && next !== undefined) {
-        // Soft-wrap boundary: prefer the next line's start.
+      if (isExactEnd && next !== undefined && caretAffinity !== "before") {
+        // Soft-wrap boundary: by default prefer the NEXT line's start (the caret
+        // moves visually onto the new line — the natural place after typing up to
+        // the wrap). But an explicit `caretAffinity === "before"` (#474 B2 — set
+        // by a click at the wrapped line's end, or a left-arrow back across the
+        // boundary) pins the caret to THIS line's end instead, so the end-of-a-
+        // wrapped-line caret position is reachable.
         targetIdx = i + 1;
       } else {
         targetIdx = i;
