@@ -162,19 +162,30 @@ export function pageConfigsEqual(a: PageConfig, b: PageConfig): boolean {
  * Header/footer body ids (C.2c) are read RAW off the section box metadata and
  * coerced (string ⇒ BlockId, else `undefined`); they are independent of the
  * geometry-override gate — a section may carry a header without overriding its
- * page geometry. An `undefined` id key is simply absent on the boundary.
+ * page geometry. A section that declares NO own header/footer FALLS BACK to the
+ * doc-root ids (`docHeaderBlockId`/`docFooterBlockId`) — mirroring how
+ * `docDefaultColumns` is the column fallback. This is load-bearing: a section
+ * opening at flattened index 0 (the shape `applySectionBreak` produces — fresh
+ * sections carry `attrs: {}`) suppresses the implicit-leading boundary, so
+ * without this fallback a doc-root header/footer would silently vanish from every
+ * page after a section break (audit Finding 1). An `undefined` resolved id is
+ * simply absent on the boundary.
  */
 function makeSectionBoundary(
   startFlattenedIndex: number,
   sectionBox: ElementBox,
   docWide: PageConfig,
   docDefaultColumns: ColumnConfig,
+  docHeaderBlockId: BlockId | undefined,
+  docFooterBlockId: BlockId | undefined,
 ): SectionBoundary {
   const cfg = resolveSectionPageConfig(docWide, sectionBox.metadata);
   const colCfg = resolveColumnConfig(docDefaultColumns, sectionBox.metadata);
   const sectionId = sectionBox.key as BlockId;
-  const headerBlockId = coerceBlockId(sectionBox.metadata?.headerBlockId);
-  const footerBlockId = coerceBlockId(sectionBox.metadata?.footerBlockId);
+  const headerBlockId =
+    coerceBlockId(sectionBox.metadata?.headerBlockId) ?? docHeaderBlockId;
+  const footerBlockId =
+    coerceBlockId(sectionBox.metadata?.footerBlockId) ?? docFooterBlockId;
   return {
     startFlattenedIndex,
     sectionId,
@@ -248,6 +259,8 @@ export function buildSectionPlan(
         child,
         docWide,
         effectiveDefaultColumns,
+        docHeaderBlockId,
+        docFooterBlockId,
       );
       const last = boundaries[boundaries.length - 1];
       if (last !== undefined && last.startFlattenedIndex === startFlattenedIndex) {
