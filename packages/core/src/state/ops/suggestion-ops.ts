@@ -1826,20 +1826,26 @@ function rebuildBlockForDeletion(
 }
 
 /**
- * True iff `item` is a text run carrying an `insertionSuggestionId` whose record
- * is an `insertion` by `author` — i.e. the deleter's OWN pending insertion, which
- * a suggested deletion removes FOR REAL rather than tagging.
+ * True iff `attrs` carries an `insertionSuggestionId` whose record is an `insertion`
+ * by `author` — the deleter's OWN pending insertion, which a suggested deletion
+ * removes FOR REAL rather than tagging. Attrs-level core shared by the pure
+ * `rebuildBlockForDeletion` and the surgical `applyDeletionStrikeInTx`.
  */
-function isOwnInsertion(
-  item: InlineItem,
+function isOwnInsertionAttrs(
+  attrs: ReadonlyAttrs,
   author: string,
   doc: Y.Doc,
 ): boolean {
-  if (item.kind !== "text") return false;
-  const raw = item.attrs[INSERTION_SUGGESTION_ATTR];
+  const raw = attrs[INSERTION_SUGGESTION_ATTR];
   if (typeof raw !== "string") return false;
   const record = readSuggestionRecord(doc, raw as SuggestionId);
   return record !== null && record.kind === "insertion" && record.author === author;
+}
+
+/** {@link isOwnInsertionAttrs} for a whole `InlineItem` (text only; embeds → false). */
+function isOwnInsertion(item: InlineItem, author: string, doc: Y.Doc): boolean {
+  if (item.kind !== "text") return false;
+  return isOwnInsertionAttrs(item.attrs, author, doc);
 }
 
 /** Outcome of the pure coalesce computation: the effective id to stamp + whether it reuses an existing record. */
