@@ -33,8 +33,9 @@ import { iterateAllBlocksInDocumentOrder } from "../document-order";
 import { insertNewBlocksInTx, type NewBlockSpec } from "./insert-new-blocks";
 import type { SiblingBlockInit } from "./insert-blocks-after";
 import { STATE_INTERNAL } from "../state-internal";
-import { getSuggestionsMap, getYBlock, type BlockTreeKind } from "../yjs-doc";
-import { buildYInlineContent, buildYInlineItem } from "../y-block";
+import { getSuggestionsMap, getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
+import { buildYInlineContent, buildYInlineItem, buildYAttrs } from "../y-block";
+import { mergeAdjacentSameAttrsTextItems } from "../y-utils";
 import { planApplyAttrsToRange, applyAttrsToRangeInTx } from "./apply-attrs";
 import { planInsertText, insertTextInTx, planInsertTextFullReplace } from "./insert-text";
 import {
@@ -1181,6 +1182,55 @@ export type ScanItemResult =
   | { readonly op: "drop" }
   // touched: a break embed → drop it; `merge` ⇒ record this owner for phase-2.
   | { readonly op: "breakDrop"; readonly merge: boolean };
+
+/**
+ * Identity-preserving resolve applier (#484). Walks `decisions` (aligned to the
+ * pre-resolve snapshot item order) against the LIVE Y.Array, applying each in
+ * place:
+ *   - keep    → advance (no Y write).
+ *   - rewrite → `yItem.set("attrs", buildYAttrs(d.attrs))` in place. Preserves the
+ *               item's Y.Text (text) / embedType / properties — and therefore its
+ *               per-character CRDT identity. Works for text AND embed items (both
+ *               have an "attrs" Y.Map child).
+ *   - drop / breakDrop → `yItems.delete(index, 1)`; do NOT advance (next item
+ *               slides into the slot — mirrors applyAttrsToBlockRange).
+ * Then `mergeAdjacentSameAttrsTextItems` restores the (a)/(b) normalization
+ * invariants, sacrificing identity ONLY for value-converging neighbor pairs.
+ * MUST run inside an already-open transaction.
+ *
+ * No no-op guard on the rewrite write (cf. applyAttrsToBlockRange #358): classify
+ * only emits `rewrite` when attrs genuinely differ, so it is never a no-op.
+ */
+export function applyResolveDecisionsInTx(
+  doc: Y.Doc,
+  blockId: BlockId,
+  kind: BlockTreeKind,
+  decisions: readonly ScanItemResult[],
+  registry: AttrRegistry | undefined,
+): void {
+  requireInTransaction(doc, "resolveSuggestion");
+  const yBlock = getYBlock(doc, blockId, "resolveSuggestion", kind);
+  const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
+  if (yItems === null) return; // defensive — scan only yields leaves
+
+  let liveIndex = 0;
+  for (const d of decisions) {
+    switch (d.op) {
+      case "keep":
+        liveIndex++;
+        break;
+      case "rewrite":
+        yItems.get(liveIndex).set("attrs", buildYAttrs(d.attrs));
+        liveIndex++;
+        break;
+      case "drop":
+      case "breakDrop":
+        yItems.delete(liveIndex, 1);
+        break;
+    }
+  }
+  mergeAdjacentSameAttrsTextItems(yItems, registry);
+}
 
 /**
  * Shared block-scan for {@link resolve} / {@link resolveAll}: walks blocks across
