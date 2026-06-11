@@ -375,7 +375,18 @@ export function layoutTable(
   const grid = assignTableGrid(gridInput);
   const placementByKey = new Map<string, AssignedCell>();
   for (const ac of grid.cells) placementByKey.set(ac.cellId, ac);
-  const gridInfo = { occupancy: grid.occupancy, columnCount: grid.columnCount };
+  // Grid info for the rows ACTUALLY emitted on this fragment, `[startBodyRow,
+  // toRow)`. `occupancy` is sliced to that window so every slot resolves against
+  // this fragment's `cellBoxById` (which holds only placed-row cells + clamped
+  // rowSpan continuations) — a fragment must never reference a cell box that lives
+  // on another page (tables-audit F1). A non-fragmented / first-fragment table
+  // (startBodyRow 0, all rows) keeps the whole-table occupancy unchanged.
+  const gridInfoFor = (
+    toRow: number,
+  ): { occupancy: readonly (readonly (BlockId | null)[])[]; columnCount: number } => ({
+    occupancy: grid.occupancy.slice(startBodyRow, toRow),
+    columnCount: grid.columnCount,
+  });
 
   /** Sum of column px-widths over `[from, to)` (P8: a cell's inline-offset is
    *  `sumCols(0, gridCol)`; its inline-size is `sumCols(gridCol, gridCol+colSpan)`). */
@@ -747,7 +758,7 @@ export function layoutTable(
           node.key, inlineOffset, blockOffset, tableInlineSize, partialBlockSize,
           writingMode, direction,
           cs, tableUsedStyle,
-          placedRows, columnPxWidths, gridInfo,
+          placedRows, columnPxWidths, gridInfoFor(breakRow),
           /* containingInlineSize */ availableInlineSize,
         ),
         breakToken,
@@ -763,7 +774,7 @@ export function layoutTable(
     node.key, inlineOffset, blockOffset, tableInlineSize, tableBlockSize,
     writingMode, direction,
     cs, tableUsedStyle,
-    rowBoxes, columnPxWidths, gridInfo,
+    rowBoxes, columnPxWidths, gridInfoFor(rows.length),
     /* containingInlineSize */ availableInlineSize,
   ), breakToken: null };
   } finally {

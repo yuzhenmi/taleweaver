@@ -86,6 +86,15 @@ describe("Table FC fragmentation — resume from TableBreakToken", () => {
     // Verify body rows 4..7 placed (4 rows × 30 = 120 total).
     expect(r2.box!.children.length).toBe(4);
     expect(r2.box!.blockSize).toBe(120);
+    // tables-audit F1: the resumed fragment's `occupancy` describes ONLY the rows
+    // on THIS fragment (4, not the whole 8-row grid), and every slot resolves in
+    // this fragment's `cellBoxById` — never a cell box that lives on page 1.
+    expect(r2.box!.occupancy.length).toBe(4);
+    for (const row of r2.box!.occupancy) {
+      for (const cellId of row) {
+        if (cellId !== null) expect(r2.box!.cellBoxById.has(cellId)).toBe(true);
+      }
+    }
   });
 
   it("throws when given a non-Table top-level resumeFrom token", () => {
@@ -181,6 +190,15 @@ describe("Table FC fragmentation — rowSpan cell crossing the break (S5)", () =
     // A's placed box is trimmed to the placed portion (one row tall = 16), NOT
     // the full merged 32 that would overflow the page.
     if (box === null) throw new Error("expected a table box");
+    // tables-audit F1: the page-1 partial fragment's occupancy describes ONLY the
+    // placed row (1, not the whole 2-row grid); every slot resolves in cellBoxById
+    // (row-1's own cell C is trimmed away and must NOT be referenced here).
+    expect(box.occupancy.length).toBe(1);
+    for (const row of box.occupancy) {
+      for (const cellId of row) {
+        if (cellId !== null) expect(box.cellBoxById.has(cellId)).toBe(true);
+      }
+    }
     const placedRow0 = box.children[0];
     if (placedRow0.type !== "table-row") throw new Error("expected a table-row");
     const placedA = placedRow0.children.find((c) => c.key === "cellA");
