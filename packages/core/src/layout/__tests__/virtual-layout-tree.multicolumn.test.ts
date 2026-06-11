@@ -20,7 +20,7 @@ import { makeRootContext } from "../layout-context";
 import { INITIAL_COMPUTED_STYLE } from "../../styles";
 import { createMockShaper } from "../mock-shaper";
 import { cascadePass } from "../../cascade";
-import { createElementBox } from "../../render/render-node";
+import { createElementBox, createTextBox } from "../../render/render-node";
 import type { ElementBox } from "../../render/render-node";
 import type { Style } from "../../styles";
 import type { PageConfig } from "../page-config";
@@ -61,6 +61,19 @@ function fixedBlock(key: string, blockSize: number): ElementBox {
   return createElementBox(key, { display: "block", blockSize } as Style, []);
 }
 
+/**
+ * A text-bearing paragraph whose laid-out HEIGHT depends on line wrapping —
+ * UNLIKE `fixedBlock`, which is width-immune. With `createMockShaper(8, 16)`
+ * (8px/char, 16px/line), the text occupies fewer lines at the full content
+ * inline width than at the narrow column-track width, so this block exercises
+ * the measure-vs-materialize width drift (#494) that fixed-height blocks hide.
+ */
+function textBlock(key: string, text: string): ElementBox {
+  return createElementBox(key, { display: "block" } as Style, [
+    createTextBox(`${key}-t`, {}, text),
+  ]);
+}
+
 /** A `SectionPlan` declaring an N-column doc-wide default (no per-section override). */
 function columnSectionPlan(columnConfig: ColumnConfig): SectionPlan {
   return {
@@ -75,7 +88,13 @@ function buildTree(root: ElementBox, pageConfig: PageConfig, sectionPlan: Sectio
     pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
   const shaper = createMockShaper(8, 16);
   const metas = buildBlockFitMetas(root, shaper, pageContentInlineSize);
-  const plan = measurePass(metas, pageConfig, sectionPlan, root.children);
+  // Mirror `buildVirtualPaginatedTree` (virtual-producer.ts): pass the
+  // track-width meta-builder closure so the multicol branch fits at the column
+  // TRACK width, matching `materializePage`'s narrow-track layout (#494). The
+  // closure is harmless for fixed-height / single-column content.
+  const plan = measurePass(metas, pageConfig, sectionPlan, root.children, undefined, undefined, (w) =>
+    buildBlockFitMetas(root, shaper, w),
+  );
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
   const tree = makeVirtualLayoutTree(plan, root, ctx, createMockShaper(8, 16), pageConfig);
   return { plan, tree };
@@ -203,5 +222,53 @@ describe("materializePage — multi-column body", () => {
     const block = body as BlockBox;
     // The whole-page-width single column body (byte-identical to today).
     expect(block.inlineSize).toBe(600);
+  });
+
+  it("text-bearing blocks: measure fits at the column TRACK width, not full content width (#494)", () => {
+    // REGRESSION (#494): the measure pass formerly built its fit metas at the
+    // FULL page-content inline width while materialize laid each column at the
+    // narrow TRACK width. For text whose line-count depends on width, the two
+    // disagreed → `materializePage`'s dev-only break-token assertion threw
+    // ("measure-vs-materialize drift"). The fix builds the multicol metas at the
+    // track width so the planned ColumnFit matches the narrow-track layout.
+    //
+    // Geometry (mock shaper: 8px/char, 16px/line):
+    //   • 600px content, 2 cols, 40px gap → track = (600−40)/2 = 280px → 35 chars/line.
+    //   • Each paragraph is 55 chars → 1 line (16px) at full 600px width
+    //     (75 chars/line), but 2 lines (32px) at the 280px track (35 chars/line).
+    //     The two widths genuinely diverge, so a full-width measure would
+    //     mis-plan the per-column distribution.
+    const columnGap = 40;
+    const pageConfig = noMarginPageConfig(200, 600);
+    const paraText = "The quick brown fox jumps over the lazy sleeping doggo.";
+    // Sanity-pin the wrapping math: 1 line at 600px, 2 lines at the 280px track.
+    expect(paraText.length).toBeGreaterThan(35);
+    expect(paraText.length).toBeLessThanOrEqual(75);
+    const root = cascadeRoot(
+      { display: "block" },
+      Array.from({ length: 8 }, (_, i) => textBlock(`p${i}`, paraText)),
+    );
+
+    const { plan, tree } = buildTree(
+      root,
+      pageConfig,
+      columnSectionPlan({ columnCount: 2, columnGap, columnRule: null }),
+    );
+    expect(plan.entries[0].columnConfig.columnCount).toBe(2);
+
+    // The crash: `getPage(0)` materializes the multicol body and asserts each
+    // column's break token equals the measure pass's planned ColumnFit. Before
+    // the fix this threw the "measure-vs-materialize drift" error.
+    const page = tree.getPage(0);
+    const body = bodyBoxOf(page);
+    expect(body.type).toBe("multicolumn");
+    const mc = body as MultiColumnBox;
+    expect(mc.columns.length).toBe(2);
+
+    // GEOMETRY: each laid-out paragraph reflects the NARROW-track (2-line, 32px)
+    // height, NOT the full-width (1-line, 16px) height — i.e. the column content
+    // was wrapped at the track width, the correct geometry.
+    const para = mc.columns[0].children[0] as BlockBox;
+    expect(para.blockSize).toBe(32);
   });
 });

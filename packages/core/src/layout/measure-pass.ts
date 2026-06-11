@@ -388,6 +388,14 @@ export function measurePass(
   // Per-section effective slot insets (#328). Absent/missing for a section ⇒
   // fall back to the section's raw effective page margins ⇒ byte-identical.
   slotInsets?: SlotInsets,
+  // Builds the per-child fit metas at an arbitrary inline width (closure over the
+  // cascaded root + shaper, memoized by `buildBlockFitMetas`'s own cache).
+  // REQUIRED for correct multicol pagination — the multicol branch rebuilds metas
+  // at the column TRACK width so the planned ColumnFit matches `materializePage`'s
+  // narrow-track layout. Absent ⇒ multicol falls back to the full-width `metas`
+  // (the legacy, drift-prone behavior; only safe for width-independent
+  // fixed-height content, e.g. some unit tests).
+  buildMetasAtWidth?: (inlineSize: number) => readonly BlockFitMeta[],
 ): PagePlan {
   const margins = pageConfig.pageMargins;
   const pageContentBlockSize =
@@ -758,12 +766,28 @@ export function measurePass(
       // A prior multicol page threaded its `ColumnBreakToken` into `resumeInto`;
       // `fitColumnsOnPage` wants the INNER BFC token, so unwrap it.
       const innerResume = innerBfcToken(resumeInto);
+      // #494: build the fit metas at the column TRACK width — the SAME narrow
+      // width `materializePage` lays each column at — so the planned ColumnFit
+      // matches materialize's actual per-column break tokens. The `trackInlineSize`
+      // arithmetic below MUST be bit-identical to `virtual-layout-tree.ts`'s
+      // `materializeMultiColumnBody` (same `effCfg`/`effColCfg`, same float ops);
+      // that lockstep is the fix. `colMetas` has the SAME length + global child
+      // indexing as `metas` (same children, different measured width), so
+      // `startIndex` stays valid. Absent builder ⇒ fall back to the full-width
+      // `metas` (drift-prone; only safe for width-independent fixed-height
+      // content).
+      const effContentInlineSize =
+        effCfg.pageInlineSize - effCfg.pageMargins.inlineStart - effCfg.pageMargins.inlineEnd;
+      const trackInlineSize =
+        (effContentInlineSize - (effColCfg.columnCount - 1) * effColCfg.columnGap) /
+        effColCfg.columnCount;
+      const colMetas = buildMetasAtWidth ? buildMetasAtWidth(trackInlineSize) : metas;
       // M-1: `fitColumnsOnPage`'s internal `fitOnePage` calls are NOT counted by
       // `_fitOnePageCallCount` (which instruments the single-column branch only,
       // preserving `__getFitOnePageCallCountForTest`'s meaning). A multicol
       // call-count instrument, if ever wanted, gets its own counter.
       columnFit = fitColumnsOnPage(
-        metas,
+        colMetas,
         startIndex,
         innerResume,
         effContentBlockSize,
@@ -786,7 +810,7 @@ export function measurePass(
       if (
         resumeOut === null &&
         st.nextBoundaryIndex !== null &&
-        startIndex + columnFit.totalChildrenCount < metas.length
+        startIndex + columnFit.totalChildrenCount < colMetas.length
       ) {
         resumeOut = {
           type: "block",
@@ -803,13 +827,17 @@ export function measurePass(
       // `pageResumeOut`, NOT the F-1-synthesized `resumeOut`: a section-capped final
       // page synthesizes a forced-break token above, but it IS still its section's
       // final page and must balance.)
-      const sectionEnd = st.nextBoundaryIndex ?? metas.length;
+      const sectionEnd = st.nextBoundaryIndex ?? colMetas.length;
       const isFinalMulticolPage =
         columnFit.pageResumeOut === null &&
         startIndex + columnFit.totalChildrenCount >= sectionEnd;
       if (isFinalMulticolPage) {
+        // Balance redistributes the SAME track-width content, so it MUST run on
+        // `colMetas` (the track-width metas) — both `balanceColumnHeight` and the
+        // re-fit — or the balanced height / resume tokens would disagree with the
+        // narrow-track layout `materializePage` builds (#494).
         balancedColumnHeight = balanceColumnHeight(
-          metas,
+          colMetas,
           startIndex,
           innerResume,
           effColCfg.columnCount,
@@ -818,7 +846,7 @@ export function measurePass(
           st.nextBoundaryIndex ?? undefined,
         );
         const balanced = fitColumnsOnPage(
-          metas,
+          colMetas,
           startIndex,
           innerResume,
           balancedColumnHeight,

@@ -184,6 +184,12 @@ export function buildVirtualPaginatedTree(
     );
     const rawPlan = measurePass(
       metas, pageConfig, sectionPlan, rootChildren, prevRawPlan, slotInsets,
+      // #494: the multicol branch rebuilds metas at each column's TRACK width so
+      // the planned ColumnFit matches `materializePage`'s narrow-track layout.
+      // `buildBlockFitMetas` is cached by `(elementBoxRef, width, shaperRef)`, so
+      // repeated calls for the same width are O(1). The full-width `metas` (line
+      // above) stays the primary arg for single-column pages.
+      (inlineSize) => buildBlockFitMetas(cascadedRoot, shaper, inlineSize),
     );
     // FN-4.3 (D6): the footnote layout pass — lays each anchor's body into its page's
     // bottom slot, reduces the body content area, forward-sweeps the re-fit. Footnote-
