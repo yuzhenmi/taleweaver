@@ -53,20 +53,22 @@ import { isDevMode } from "../dev-mode";
 const NO_DIRTY: ReadonlySet<BlockId> = new Set<BlockId>();
 
 /**
- * The full-replace seam for the genuinely-rebuilding CREATE suggestion ops
- * (markDeletion, the replaceWithSuggestion / splitWithSuggestion strike-writes,
- * replaceWithSuggestedFragment):
- * `getYBlock(...).set("inlineContent", buildYInlineContent({ items }))`.
+ * The full-replace seam, now used by a SINGLE caller: {@link replaceWithSuggestedFragment}
+ * (the cross-block fragment-interleave write —
+ * `getYBlock(...).set("inlineContent", buildYInlineContent({ items }))`).
  *
- * These sites REBUILD a block's inline content (re-tagging / inserting strike runs
- * across a fragment), so a full-replace is correct — but it materializes FRESH
+ * It REBUILDS a block's inline content (interleaving a strike with new fragment lines
+ * + break embeds), so a full-replace is correct here — but it materializes FRESH
  * `Y.Text`/`Y.Map` per item, discarding the block's per-character CRDT identity.
- * The RESOLVE path (accept/reject) no longer routes through here: it uses the
- * identity-preserving {@link applyResolveDecisionsInTx} (#484), which mutates only
- * the changed runs in place. These create-op callers are the remaining (acceptable)
- * identity-discarding sites — a future minimal-diff optimization for them would
- * change ONLY this function. MUST run inside an already-open transaction (the
- * caller's `applyOperation` body).
+ *
+ * The DELETION STRIKE (markDeletion, the replaceWithSuggestion / splitWithSuggestion
+ * strike-writes) no longer routes through here: it uses the identity-preserving
+ * {@link applyDeletionStrikeInTx} (#491), which mutates only the struck runs in place.
+ * The RESOLVE path (accept/reject) uses {@link applyResolveDecisionsInTx} (#484).
+ * `replaceWithSuggestedFragment` is the remaining (acceptable) identity-discarding site
+ * — its fragment-interleave is genuine structural rearrangement, a separate follow-up;
+ * converting it would change essentially ONLY this caller. MUST run inside an
+ * already-open transaction (the caller's `applyOperation` body).
  *
  * The APPEND sites (split/join break-embed) do NOT route through this — they push a
  * single embed onto the live Y.Array, preserving identity already.

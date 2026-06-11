@@ -727,11 +727,15 @@ BOTH `applyOperation` and `runTransaction` (→ `doc.transact(fn, origin)`) +
 writes a `formatting` record with `proposedAttrs` in one tracked `applyOperation`
 (one undo unit; live attrs untouched; same-author/same-proposal adjacency
 coalesces by id reuse). **Slice 3b (`markDeletion`) shipped:** soft-delete a span's
-text (stamp `deletionSuggestionId`, text stays visible) via a per-owning-block
-full-replace rewrite (NOT `applyAttrsToRangeInTx`), with the delete-own-insertion
-(your own pending insertion → real remove, in-range only) + nesting (different-
-author insertion also gains the deletion id) + same-author coalescing rules; embeds
-in-span preserved untagged (named follow-up). **Slice 3c (`mintInsertion`) shipped:**
+text (stamp `deletionSuggestionId`, text stays visible) via an IDENTITY-PRESERVING
+per-owning-block surgical strike (`applyDeletionStrikeInTx` — #491, mirroring
+`applyAttrsToBlockRange` + an own-insertion drop branch; only boundary straddlers lose
+identity), with the delete-own-insertion (your own pending insertion → real remove,
+in-range only) + nesting (different-author insertion also gains the deletion id) +
+same-author coalescing rules; embeds in-span preserved untagged (named follow-up).
+(The replaceWithSuggestion / splitWithSuggestion strike-writes use the same surgical
+applier; only replaceWithSuggestion's start block and `replaceWithSuggestedFragment`
+still full-replace — see below.) **Slice 3c (`mintInsertion`) shipped:**
 the INSERT_TEXT/PASTE suggesting-mode op — inserts text carrying
 `insertionSuggestionId` (composing `planInsertText`/`insertTextInTx`) + writes an
 `insertion` record, with insertion-point coalescing (same-author adjacent insertion
@@ -831,10 +835,11 @@ halves immediately real/laid-out/navigable) AND appends a zero-width
 `block-split-suggestion` embed at the END of the first block carrying the owning
 `suggestionId` in its `properties`, plus an `insertion` `SuggestionRecord` — ALL in
 ONE transaction (one undo entry). Composes `planSplitBlockAtPosition` +
-`splitBlockAtPositionInTx` (for the structural split + canonical validation) with a
-full-replace of block N's content (`[0, offset)` + the break embed, the embed staying
-the LAST item via the merge-barrier rule); the full-replace supersedes the split's
-in-place write to N, leaving N+1 + sibling rewiring untouched. No coalescing (each
+`splitBlockAtPositionInTx` (for the structural split + canonical validation) which
+writes block N's content `[0, offset)` IN PLACE (identity-preserving), then APPENDS
+just the break embed to N's live `inlineContent` Y.Array (the embed staying the LAST
+item via the merge-barrier rule) — no full-replace, no double-write of N — leaving
+N+1 + sibling rewiring untouched. No coalescing (each
 Enter is a discrete suggestion). The break embed occupies exactly ONE offset and
 serializes to `""`. RESOLUTION (accept removes embed / reject re-merges) is a later
 slice. This begins the break-suggestion CREATE side; the block-JOIN (break-delete)
