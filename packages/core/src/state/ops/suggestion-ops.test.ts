@@ -939,6 +939,54 @@ describe("acceptSuggestion / rejectSuggestion — deletion", () => {
   });
 });
 
+describe("acceptSuggestion / rejectSuggestion — multi-author nested run cleanup (CT-audit BUG1)", () => {
+  // p: "AA" + bob-insertion "BB" (ins1), then alice soft-deletes "BB" (del1) →
+  // the "BB" run carries BOTH ids; both records live. Resolving EITHER id such
+  // that the run is DROPPED must also clean up the co-tenant record — else it is
+  // left orphaned (present, range null).
+  function nestedRun(): State {
+    let s = oneBlock(
+      inlineContent([text("AA"), text("BB", { [INSERTION_SUGGESTION_ATTR]: "ins1" }), text("CC")]),
+    );
+    s = seedInsertionRecord(s, "ins1", "bob");
+    s = markDeletion(s, span(2, 4), DEL_INPUT).state; // alice deletes bob's "BB" → nest
+    return s;
+  }
+
+  it("reject the insertion DROPS the run AND deletes the now-orphaned co-tenant deletion record", () => {
+    const s = nestedRun();
+    expect(getSuggestions(s).length).toBe(2); // ins1 + del1 both live
+    const r = rejectSuggestion(s, "ins1" as SuggestionId).state;
+    expect(pText(r)).toBe("AACC"); // "BB" dropped (reject-insertion never lands)
+    // del1 tagged ONLY "BB" → its content is gone → record must be gone, not orphaned.
+    expect(getSuggestions(r).length).toBe(0);
+  });
+
+  it("accept the deletion DROPS the run AND deletes the now-orphaned co-tenant insertion record", () => {
+    const s = nestedRun();
+    const r = acceptSuggestion(s, DEL_SID).state;
+    expect(pText(r)).toBe("AACC"); // "BB" removed for real (accept-deletion)
+    expect(getSuggestions(r).length).toBe(0); // ins1 (bob) co-tenant cleaned up
+  });
+
+  it("does NOT over-delete a co-tenant that still tags surviving content", () => {
+    // del1 tags BOTH the nested "BB" (with ins1) AND a plain "CC".
+    let s = oneBlock(
+      inlineContent([text("AA"), text("BB", { [INSERTION_SUGGESTION_ATTR]: "ins1" }), text("CC")]),
+    );
+    s = seedInsertionRecord(s, "ins1", "bob");
+    s = markDeletion(s, span(2, 6), DEL_INPUT).state; // delete "BBCC": "BB" nests, "CC" plain-tagged
+    expect(getSuggestions(s).length).toBe(2);
+
+    const r = rejectSuggestion(s, "ins1" as SuggestionId).state;
+    expect(pText(r)).toBe("AACC"); // "BB" dropped; "CC" survives (carries del1, not ins1)
+    const after = getSuggestions(r);
+    expect(after.length).toBe(1);
+    expect(after[0].id).toBe(DEL_SID);
+    expect(after[0].orphaned).toBe(false); // del1 still live on "CC"
+  });
+});
+
 describe("acceptSuggestion / rejectSuggestion — formatting", () => {
   it("accept APPLIES proposedAttrs LIVE and strips the formatting id", () => {
     // markFormatting over "bcd" (1..4) proposing bold:true on a non-bold run.

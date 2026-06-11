@@ -1324,7 +1324,7 @@ function resolve(
     (record.kind === "insertion" && mode === "reject") ||
     (record.kind === "deletion" && mode === "accept");
 
-  return runResolve(state, [id], (item) => {
+  const classify = (item: InlineItem): ScanItemResult => {
     // BREAK embed carrying this id — DROP it (always); conditionally merge.
     if (isBreakEmbed(item) && item.properties.suggestionId === id) {
       return { op: "breakDrop", merge: breakMerge };
@@ -1359,7 +1359,72 @@ function resolve(
     }
     // Non-matching item (text without this id; any other embed) — keep as-is.
     return { op: "keep" };
-  });
+  };
+
+  // Delete the resolved record PLUS any co-tenant record this resolve fully
+  // orphans (CT-audit BUG1): when DROPPING a run that nests another author's id
+  // (insertion-by-A + deletion-by-B), the co-tenant loses its last tagged content
+  // and would otherwise be left orphaned (record present, range null).
+  return runResolve(state, collectResolveRecordDeletes(state, id, classify), classify);
+}
+
+/**
+ * The suggestion ids a single inline item carries: a text run via its three
+ * provenance attrs ({@link INSERTION_SUGGESTION_ATTR} / `DELETION` / `FORMATTING`),
+ * a break-suggestion embed via `properties.suggestionId`. Other embeds carry none.
+ */
+function suggestionIdsOnItem(item: InlineItem): SuggestionId[] {
+  const out: SuggestionId[] = [];
+  if (item.kind === "text") {
+    for (const key of [
+      INSERTION_SUGGESTION_ATTR,
+      DELETION_SUGGESTION_ATTR,
+      FORMATTING_SUGGESTION_ATTR,
+    ]) {
+      const v = item.attrs[key];
+      if (typeof v === "string") out.push(v as SuggestionId);
+    }
+  } else if (isBreakEmbed(item)) {
+    const sid = item.properties.suggestionId;
+    if (typeof sid === "string") out.push(sid as SuggestionId);
+  }
+  return out;
+}
+
+/**
+ * The record ids a single-id {@link resolve} must DELETE: the resolved `id`, plus
+ * every CO-TENANT id this resolve fully orphans. A co-tenant is a DIFFERENT id
+ * sharing a run with `id` (Google-Docs nesting — insertion-by-A + deletion-by-B on
+ * one run). When the resolve DROPS that run (reject-insertion / accept-deletion),
+ * the co-tenant loses its last tagged content; if NO surviving item still carries
+ * it, its record is now orphaned (present, range null) and must be deleted too. A
+ * co-tenant that still tags any surviving item is left untouched. `classify` is the
+ * SAME callback {@link runResolve} uses, so drop-vs-survive agrees exactly.
+ */
+function collectResolveRecordDeletes(
+  state: State,
+  id: SuggestionId,
+  classify: (item: InlineItem) => ScanItemResult,
+): SuggestionId[] {
+  const droppedCoTenants = new Set<SuggestionId>();
+  const survivors = new Set<SuggestionId>();
+  for (const block of iterateAllBlocksInDocumentOrder(state)) {
+    const content = block.inlineContent;
+    if (content === null) continue;
+    for (const item of content.items) {
+      const op = classify(item).op;
+      const dropped = op === "drop" || op === "breakDrop";
+      for (const sid of suggestionIdsOnItem(item)) {
+        if (sid === id) continue; // the resolved id is always deleted
+        (dropped ? droppedCoTenants : survivors).add(sid);
+      }
+    }
+  }
+  const out: SuggestionId[] = [id];
+  for (const c of droppedCoTenants) {
+    if (!survivors.has(c)) out.push(c);
+  }
+  return out;
 }
 
 /** The provenance attr key carrying a suggestion id for each {@link SuggestionKind}. */
