@@ -30,6 +30,7 @@ import type { SectionPlan } from "../section-plan";
 import { IMPLICIT_SECTION_PLAN } from "../section-plan";
 import type { ColumnConfig } from "../column-config";
 import { makeVirtualLayoutTree } from "../virtual-layout-tree";
+import { getLineIndex } from "../../cursor/line-flatten";
 import type { LayoutBox, MultiColumnBox, BlockBox } from "../layout-box";
 
 function noMarginPageConfig(pageBlockSize: number, pageInlineSize = 600, pageGap = 20): PageConfig {
@@ -154,12 +155,14 @@ describe("materializePage — multi-column body", () => {
     // Equal track widths.
     expect(col0.inlineSize).toBe(trackInlineSize);
     expect(col1.inlineSize).toBe(trackInlineSize);
-    // Side-by-side inline offsets.
-    expect(col0.inlineOffset).toBe(bodyContentInlineStart);
-    expect(col1.inlineOffset).toBe(bodyContentInlineStart + trackInlineSize + columnGap);
-    // Both columns share the body block-offset (the page's effective top inset = 0).
-    expect(col0.blockOffset).toBe(mc.blockOffset);
-    expect(col1.blockOffset).toBe(mc.blockOffset);
+    // Column offsets are RELATIVE to the MC box frame (#497): col 0 at 0, col 1 at
+    // one (track + gap). (With this zero-margin page these also equal the absolute
+    // values, but the contract is relative — see the margined test below.)
+    expect(col0.inlineOffset).toBe(0);
+    expect(col1.inlineOffset).toBe(trackInlineSize + columnGap);
+    // Columns start at the MC box's top (block-offset 0 in the MC frame).
+    expect(col0.blockOffset).toBe(0);
+    expect(col1.blockOffset).toBe(0);
 
     // Content genuinely split across BOTH columns (neither empty).
     expect(col0.children.length).toBeGreaterThan(0);
@@ -193,16 +196,53 @@ describe("materializePage — multi-column body", () => {
 
     // No rule configured on this section ⇒ the box carries `columnRule: null`.
     expect(mc.columnRule).toBeNull();
+    // The MultiColumnBox itself sits at the page content origin (margin start).
     expect(mc.inlineOffset).toBe(inlineStart);
     expect(mc.inlineSize).toBe(bodyInlineSize);
+    expect(mc.blockOffset).toBe(plan.entries[0].effectiveTopInset);
+    // #497: the columns are positioned in the MultiColumnBox's OWN frame — the
+    // paint renderer + line collector descend each column from the MC box's
+    // absolute origin and ADD `col.inlineOffset`/`col.blockOffset`. So the columns
+    // must store offsets RELATIVE to the MC box (col 0 at 0), NOT absolute page
+    // coords — storing absolute here double-counted the page margin (the first
+    // column rendered at 2× the inline margin + 2× the top inset).
     const [col0, col1] = mc.columns;
-    expect(col0.inlineOffset).toBe(inlineStart);
-    expect(col1.inlineOffset).toBe(inlineStart + trackInlineSize + columnGap);
+    expect(col0.inlineOffset).toBe(0);
+    expect(col1.inlineOffset).toBe(trackInlineSize + columnGap);
     expect(col0.inlineSize).toBe(trackInlineSize);
     expect(col1.inlineSize).toBe(trackInlineSize);
-    // Body block-offset is the effective top inset (the page margin blockStart).
-    expect(mc.blockOffset).toBe(plan.entries[0].effectiveTopInset);
-    expect(col0.blockOffset).toBe(mc.blockOffset);
+    expect(col0.blockOffset).toBe(0);
+    expect(col1.blockOffset).toBe(0);
+    // The ABSOLUTE content edge is then mc.inlineOffset + col.inlineOffset.
+    expect(mc.inlineOffset + col0.inlineOffset).toBe(inlineStart);
+  });
+
+  it("#497 behavior: a column-0 line's ABSOLUTE x is the page content edge (margined, not 2×)", () => {
+    // End-to-end through the line collector (the consumer that feeds cursor /
+    // hit-test / selection): with a NON-ZERO inline margin, column 0's lines must
+    // land at the page content left edge (`inlineStart`), NOT double-counted at
+    // `2 * inlineStart`. Uses TEXT blocks so real LineBoxes exist to collect.
+    const columnGap = 30;
+    const pageConfig = marginedPageConfig(400, 600); // margins {is:15, ...}
+    const inlineStart = pageConfig.pageMargins.inlineStart; // 15
+    const root = cascadeRoot(
+      { display: "block" },
+      Array.from({ length: 6 }, (_, i) => textBlock(`p${i}`, "alpha beta gamma delta epsilon")),
+    );
+    const { tree } = buildTree(
+      root,
+      pageConfig,
+      columnSectionPlan({ columnCount: 2, columnGap, columnRule: null }),
+    );
+
+    const page = tree.getPage(0);
+    const col0Lines = getLineIndex(page).all.filter((l) => l.columnIndex === 0);
+    expect(col0Lines.length).toBeGreaterThan(0);
+    // Every column-0 line starts at the page content left edge — exactly the inline
+    // margin, not twice it (the #497 double-count would have put it at 2×15 = 30).
+    for (const line of col0Lines) {
+      expect(line.absoluteX).toBe(inlineStart);
+    }
   });
 
   it("a single-column page keeps a plain body BlockBox (NOT a MultiColumnBox)", () => {

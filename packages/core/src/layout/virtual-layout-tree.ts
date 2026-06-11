@@ -631,15 +631,20 @@ export function makeVirtualLayoutTree(
       const columnBoxes: BlockBox[] = [];
       for (let k = 0; k < N; k++) {
         const fit = columnFit.columns[k];
-        // Column inline-offset: the content inline-start plus k tracks + gaps.
-        // The column box is positioned at this offset (passed as `inlineStart` to
-        // `layoutBlock`), so its children are already in page-content coordinates.
-        const columnInlineStart = effMargins.inlineStart + k * (trackInlineSize + gap);
+        // Column offsets are RELATIVE to the MultiColumnBox's OWN frame (#497):
+        // the paint renderer + line collector descend each column from the MC box's
+        // absolute origin (which already carries `effMargins.inlineStart` /
+        // `effTopInset`) and ADD the column's `inlineOffset`/`blockOffset`. So the
+        // column's inline-offset is just `k` tracks + gaps from the MC frame origin
+        // (column 0 at 0), and its block-offset is 0 (columns start at the MC box
+        // top). Storing absolute page coords here double-counted the page margin —
+        // the first column rendered at 2× the inline margin + 2× the top inset.
+        const columnInlineStart = k * (trackInlineSize + gap);
         _getPageDriverCount++;
         const { box: rawColBox, breakToken: colBreakToken } = layoutBlock(
           cascadedRoot,
           columnInlineStart,
-          effTopInset,
+          0,
           // Override ONLY the inline size to the track width (mirrors the per-page
           // inline override at the `effContentCtx` computation above — there is no
           // `makeChildContext` helper in this scope).
@@ -673,13 +678,14 @@ export function makeVirtualLayoutTree(
         }
         // An empty (content-exhausted) column yields a `null` box — produce an
         // EMPTY column `BlockBox` (zero children, `blockSize: 0`) at the column's
-        // inline/block origin so geometry + paint stay uniform across all N columns.
+        // MC-frame-relative inline/block origin (block = 0, #497) so geometry +
+        // paint stay uniform across all N columns.
         const colBox =
           rawColBox ??
           createBlockBox(
             `${cascadedRoot.key}-mc-p${pageIndex}-col${k}`,
             columnInlineStart,
-            effTopInset,
+            0,
             trackInlineSize,
             0,
             ctx.writingMode,
