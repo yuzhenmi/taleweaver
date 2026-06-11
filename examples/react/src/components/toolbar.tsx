@@ -17,6 +17,7 @@ import {
   PanelTop,
   PanelBottom,
   Superscript,
+  Table,
   AlignLeft,
   AlignCenter,
   AlignRight,
@@ -649,6 +650,17 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
         label="Insert footnote"
         icon={Superscript}
         onAction={() => dispatch({ type: "INSERT_FOOTNOTE" })}
+      />
+
+      {/* Insert a 3×3 table at the cursor's block boundary (Google Docs Insert ▸
+          Table; the demo uses a fixed default size). Splits the paragraph when
+          the caret is mid-block, and moves the caret into the first cell so you
+          can type immediately. Main-body only (no-op in a header/footer/footnote
+          body). */}
+      <ToolbarButton
+        label="Insert table (3×3)"
+        icon={Table}
+        onAction={() => dispatch({ type: "INSERT_TABLE", rows: 3, cols: 3 })}
       />
 
       {/* Footnote numbering reset policy (document-wide). Dispatches
