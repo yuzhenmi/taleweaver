@@ -1129,6 +1129,22 @@ export interface ResolveWrite {
 }
 
 /**
+ * A per-owning-block decision list for the identity-preserving resolve path
+ * (#484). Distinct from {@link ResolveWrite} (which carries rebuilt `items` and
+ * remains in use by the fragment-replace create-op path): a resolve no longer
+ * rebuilds a block's content — it applies per-item decisions in place over the
+ * live Y.Array. `decisions[k]` corresponds to the pre-resolve snapshot item k.
+ */
+interface ResolveDecisionWrite {
+  readonly blockId: BlockId;
+  readonly kind: BlockTreeKind;
+  readonly decisions: readonly ScanItemResult[];
+  // TEMPORARY (#484 Task 1 bridge — removed in Task 3): the rebuilt items the old
+  // full-replace path consumes, built from snapshot items + decisions in the scan.
+  readonly bridgeItems?: InlineItem[];
+}
+
+/**
  * True iff `item` is one of the two break-suggestion embeds (a zero-width
  * {@link BLOCK_SPLIT_SUGGESTION_EMBED_TYPE} / {@link BLOCK_JOIN_SUGGESTION_EMBED_TYPE}
  * appended to the END of an owning block, carrying its id on
@@ -1144,14 +1160,23 @@ function isBreakEmbed(item: InlineItem): item is EmbedItem {
   );
 }
 
-/** Per-item decision for the shared resolve scan ({@link resolveBlockScan}). */
-type ScanItemResult =
+/**
+ * Per-item decision for the shared resolve scan ({@link resolveBlockScan}).
+ *
+ * EXPORTED: Task 2's `applyResolveDecisionsInTx` is exported (its sibling test
+ * calls it directly) and takes `decisions: readonly ScanItemResult[]`. Because the
+ * core package's tsconfig has `"declaration": true`, an exported function
+ * referencing a non-exported type fails the build with TS4023; exporting the type
+ * mirrors the `apply-attrs.ts` precedent (exported `applyAttrsToRangeInTx` over the
+ * exported `ApplyAttrsToRangePlan`).
+ */
+export type ScanItemResult =
   // keep item as-is (untouched).
   | { readonly op: "keep" }
-  // touched: replace this item with the rewritten one (kept). Usually a TextItem
-  // (run rewrite), but also an EmbedItem when stripping/applying a formatting
-  // suggestion's provenance on a visible field embed (#478).
-  | { readonly op: "rewrite"; readonly item: InlineItem }
+  // touched: replace ONLY this item's attrs (text/embedType/properties unchanged
+  // — every resolve rewrite is attrs-only, so the applier does an in-place
+  // identity-preserving `yItem.set("attrs", …)`).
+  | { readonly op: "rewrite"; readonly attrs: ReadonlyAttrs }
   // touched: omit this run (real delete).
   | { readonly op: "drop" }
   // touched: a break embed → drop it; `merge` ⇒ record this owner for phase-2.
@@ -1161,9 +1186,12 @@ type ScanItemResult =
  * Shared block-scan for {@link resolve} / {@link resolveAll}: walks blocks across
  * ALL THREE trees (main, then each `embedContents` body, then each
  * `templateContents` body) in document order via {@link iterateAllBlocksInDocumentOrder},
- * applies `classify` to each item, and accumulates the per-owning-block full-replace
- * {@link ResolveWrite}s (a block is rewritten iff any of its items was "touched") plus
- * the break-embed merge owners. Each write carries its owning block's tree `kind`
+ * applies `classify` to each item, and accumulates the per-owning-block
+ * {@link ResolveDecisionWrite}s — one per-item decision list per touched block (a
+ * block is touched iff any of its items was not "keep"). The Task-1-only
+ * `bridgeItems` field carries the rebuilt full-replace items the temporary bridge
+ * in {@link runResolve} consumes (removed in Task 3 when the surgical applier takes
+ * over). Also accumulates the break-embed merge owners. Each write carries its owning block's tree `kind`
  * (from `resolveBlock`), so a suggestion tagged in a footnote / header / footer body
  * is accepted/rejected in-place in that body tree — not left as an un-resolvable
  * zombie. The single-id and bulk resolvers differ ONLY in `classify`; this is their
@@ -1177,45 +1205,35 @@ function resolveBlockScan(
   state: State,
   classify: (item: InlineItem) => ScanItemResult,
 ): {
-  writes: ResolveWrite[];
+  writes: ResolveDecisionWrite[];
   mergeOwners: { ownerId: BlockId; kind: BlockTreeKind }[];
 } {
-  const writes: ResolveWrite[] = [];
+  const writes: ResolveDecisionWrite[] = [];
   const mergeOwners: { ownerId: BlockId; kind: BlockTreeKind }[] = [];
   for (const block of iterateAllBlocksInDocumentOrder(state)) {
     const content = block.inlineContent;
     if (content === null) continue;
     let touched = false;
-    const newItems: InlineItem[] = [];
+    const decisions: ScanItemResult[] = [];
     for (const item of content.items) {
       const r = classify(item);
-      switch (r.op) {
-        case "keep":
-          newItems.push(item);
-          break;
-        case "rewrite":
-          touched = true;
-          newItems.push(r.item);
-          break;
-        case "drop":
-          touched = true;
-          break;
-        case "breakDrop":
-          touched = true;
-          if (r.merge) {
-            mergeOwners.push({
-              ownerId: block.id,
-              kind: resolveBlock(state, block.id)?.kind ?? "block",
-            });
-          }
-          break;
+      if (r.op !== "keep") {
+        touched = true;
+        if (r.op === "breakDrop" && r.merge) {
+          mergeOwners.push({
+            ownerId: block.id,
+            kind: resolveBlock(state, block.id)?.kind ?? "block",
+          });
+        }
       }
+      decisions.push(r);
     }
     if (touched) {
       writes.push({
         blockId: block.id,
         kind: resolveBlock(state, block.id)?.kind ?? "block",
-        items: mergeAdjacentTextItems(newItems),
+        decisions,
+        bridgeItems: buildBridgeItems(content.items, decisions),
       });
     }
   }
@@ -1223,11 +1241,45 @@ function resolveBlockScan(
 }
 
 /**
+ * TEMPORARY (#484 Task 1 bridge — removed in Task 3): rebuild a block's
+ * post-resolve `InlineItem[]` from its pre-resolve snapshot `items` + the per-item
+ * `decisions`, so {@link runResolve}'s write loop can still drive the old
+ * full-replace path with byte-identical output. Runs the SAME
+ * {@link mergeAdjacentTextItems} the old scan did. `rewrite` is attrs-only, so the
+ * `kind`-narrowed spread preserves `text` (or `embedType`/`properties`) and
+ * overrides only `attrs` — exactly the old scan's `rewrite → r.item`.
+ */
+function buildBridgeItems(
+  items: ReadonlyArray<InlineItem>,
+  decisions: readonly ScanItemResult[],
+): InlineItem[] {
+  const out: InlineItem[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const d = decisions[i];
+    const item = items[i];
+    if (d === undefined || item === undefined) continue;
+    if (d.op === "keep") {
+      out.push(item);
+    } else if (d.op === "rewrite") {
+      // Spread the original item and override only `attrs`. TypeScript distributes
+      // the spread over the `TextItem | EmbedItem` union, so the result is a valid
+      // `InlineItem` (text keeps text/kind; embed keeps embedType/properties/kind) —
+      // no `as` cast. Every resolve rewrite is attrs-only, so this matches the old
+      // scan's fully-rebuilt `r.item` exactly.
+      out.push({ ...item, attrs: d.attrs });
+    }
+    // drop / breakDrop → omit
+  }
+  return mergeAdjacentTextItems(out);
+}
+
+/**
  * Shared resolve engine for {@link resolve} / {@link resolveAll}: runs
  * {@link resolveBlockScan}, then in ONE {@link SUGGESTION_RESOLVE_ORIGIN}-tagged
  * (non-undoable) `applyOperation` transaction:
- *   1. writes the per-block rewrites (the full-replace seam,
- *      {@link writeBlockInlineContentInTx});
+ *   1. writes the per-block rewrites via the TEMPORARY full-replace bridge
+ *      ({@link writeBlockInlineContentInTx} fed from each write's `bridgeItems` —
+ *      removed in Task 3 when the surgical in-place applier takes over);
  *   2. runs the conditional break MERGES in REVERSE document order via the live
  *      {@link mergeWithNextSiblingLiveInTx} helper — which reads each owner's
  *      CURRENT next sibling off the Y.Doc (so a cascade reflects prior merges) and
@@ -1256,7 +1308,9 @@ function runResolve(
     state,
     (d) => {
       for (const write of writes) {
-        writeBlockInlineContentInTx(d, write.blockId, write.kind, write.items, "resolveSuggestion");
+        writeBlockInlineContentInTx(
+          d, write.blockId, write.kind, write.bridgeItems ?? [], "resolveSuggestion",
+        );
       }
       for (let i = mergeOwners.length - 1; i >= 0; i--) {
         const owner = mergeOwners[i];
@@ -1332,20 +1386,13 @@ function resolve(
     if (item.kind === "text" && item.attrs[attrKey] === id) {
       switch (action) {
         case "strip":
-          return {
-            op: "rewrite",
-            item: { kind: "text", text: item.text, attrs: attrsWithout(item.attrs, attrKey) },
-          };
+          return { op: "rewrite", attrs: attrsWithout(item.attrs, attrKey) };
         case "drop":
           return { op: "drop" };
         case "applyStrip":
           return {
             op: "rewrite",
-            item: {
-              kind: "text",
-              text: item.text,
-              attrs: mergeAttrs(attrsWithout(item.attrs, attrKey), proposedAttrs),
-            },
+            attrs: mergeAttrs(attrsWithout(item.attrs, attrKey), proposedAttrs),
           };
       }
     }
@@ -1355,7 +1402,7 @@ function resolve(
     // attr) and for an embed carrying a DIFFERENT id (`onlyId` filter).
     if (item.kind === "embed") {
       const resolvedEmbed = resolveEmbedFormatting(item, mode, doc, id);
-      if (resolvedEmbed !== null) return { op: "rewrite", item: resolvedEmbed };
+      if (resolvedEmbed !== null) return { op: "rewrite", attrs: resolvedEmbed.attrs };
     }
     // Non-matching item (text without this id; any other embed) — keep as-is.
     return { op: "keep" };
@@ -1654,14 +1701,14 @@ function resolveAll(state: State, mode: "accept" | "reject"): OperationResult {
       const rewrite = mode === "accept" ? acceptAllRun(item, doc) : rejectAllRun(item);
       if (!rewrite.touched) return { op: "keep" };
       return rewrite.keep && rewrite.item !== undefined
-        ? { op: "rewrite", item: rewrite.item }
+        ? { op: "rewrite", attrs: rewrite.item.attrs }
         : { op: "drop" };
     }
     // A non-break embed — resolve a formatting-suggestion provenance id if it
     // carries one (#478; a VISIBLE field embed in a formatting range). Markers /
     // unstamped embeds yield null → keep as-is.
     const resolvedEmbed = resolveEmbedFormatting(item, mode, doc);
-    if (resolvedEmbed !== null) return { op: "rewrite", item: resolvedEmbed };
+    if (resolvedEmbed !== null) return { op: "rewrite", attrs: resolvedEmbed.attrs };
     return { op: "keep" };
   });
 }
