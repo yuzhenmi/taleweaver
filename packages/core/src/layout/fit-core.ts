@@ -607,7 +607,15 @@ function fitOnePageRecursive(
       if (fit.placedRowCount === 0) {
         // Table couldn't place a row (bfc.ts:573–588). §C.6 overflow if first.
         if (!fragmentHasContent) {
-          runningOffset += meta.totalBlockSize;
+          // Overflow-consume the SUFFIX rows actually on this fragment
+          // (`rowSizes[startRow..]`), NOT `meta.totalBlockSize` (the WHOLE table).
+          // On a RESUMED table (startRow > 0) rows `0..startRow-1` were already
+          // consumed on earlier pages, so totalBlockSize double-counts them and a
+          // sibling after the table on this overflow page would be positioned too
+          // low. Mirrors the partial-fit branch's `placedRowsUsed` suffix sum below.
+          let suffixRowsUsed = 0;
+          for (let ri = startRow; ri < rowSizes.length; ri++) suffixRowsUsed += rowSizes[ri];
+          runningOffset += suffixRowsUsed;
           prevMarginBlockEnd = meta.marginBlockEnd;
           childrenCount++;
           const afterBreak = checkBreakAfter(meta, i, metas.length, childrenCount, listCounter);

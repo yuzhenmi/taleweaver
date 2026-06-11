@@ -37,6 +37,21 @@ function ifcMeta(lineCount: number, lineHeight: number, extra?: Partial<BlockFit
   };
 }
 
+/** A table-leaf meta with the given body row block-sizes. */
+function tableMeta(rowBlockSizes: readonly number[], extra?: Partial<BlockFitMeta>): BlockFitMeta {
+  return {
+    kind: "table",
+    marginBlockStart: 0,
+    marginBlockEnd: 0,
+    breakBefore: "auto",
+    breakAfter: "auto",
+    breakInsideAvoid: false,
+    totalBlockSize: rowBlockSizes.reduce((a, b) => a + b, 0),
+    rowBlockSizes,
+    ...extra,
+  };
+}
+
 // Port of ifc.ts D.1–D.5 decision logic (ifc.ts:868–1013) as direct assertions
 // on the pure `fitLinesInIFC`. `placedLineCount` is the number of suffix lines
 // placed on this fragment (from `startLine`); `resumeAtLine` is the absolute
@@ -307,6 +322,35 @@ describe("fitOnePage (fit-core, block packing)", () => {
       resumeOut: null,
       listCounterAtEnd: 0,
     });
+  });
+
+  it("oversized resumed-table row overflow-consumes ONLY the suffix rows, not the whole table (tables-audit F2)", () => {
+    // Rows [100,100,300]; rows 0,1 were placed on page 1, so this fresh page
+    // resumes at row 2. Row 2 (300) is taller than the page (200) and is
+    // first-on-fragment ⇒ §C.6 overflow-consume. `consumedBlockSize` must be the
+    // SUFFIX height actually on THIS page (row 2 = 300), NOT the whole table
+    // (500 = totalBlockSize, which double-counts rows 0,1 already consumed on
+    // page 1 and would push any sibling below the table too far down).
+    const metas = [tableMeta([100, 100, 300])];
+    const resumeInto = {
+      type: "block" as const,
+      resumeChildIndex: 0,
+      resumeChildToken: { type: "table" as const, resumeAtRow: 2 },
+    };
+    const result = fitOnePage(metas, 0, resumeInto, 200, 0);
+    expect(result).toMatchObject({ childrenCount: 1, resumeOut: null, listCounterAtEnd: 0 });
+    expect(result.consumedBlockSize).toBe(300);
+  });
+
+  it("oversized fresh-table row (startRow=0) overflow-consumes the whole table (§C.6, suffix == total)", () => {
+    // A fresh (never-resumed) table whose only row [300] is taller than the empty
+    // page (200); first-on-fragment ⇒ overflow-consume. For startRow=0 the suffix
+    // sum equals totalBlockSize, so consumedBlockSize is the whole table (300) — the
+    // fix preserves this case while fixing the resumed (startRow>0) double-count.
+    const metas = [tableMeta([300])];
+    const result = fitOnePage(metas, 0, null, 200, 0);
+    expect(result).toMatchObject({ childrenCount: 1, resumeOut: null });
+    expect(result.consumedBlockSize).toBe(300);
   });
 
   it("accumulates the list-item counter through consumed blocks", () => {
