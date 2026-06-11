@@ -1,0 +1,148 @@
+// packages/core/src/cursor/cursor-table-cell.test.ts
+//
+// #495 regression: a caret INSIDE a table cell must resolve to a page WITHOUT
+// crashing. A table-cell paragraph lives in the MAIN `blocks` tree but is NOT a
+// top-level body child (paragraph → table-cell → table-row → table), so
+// `pageIndexOfBlock` (a top-level-body-only map) can't map it, and the
+// template/footnote fallbacks miss it too. Before the fix this dev-threw
+// "resolveInVirtualTree: block <id> maps to no page". The fix adds a
+// nested-main-tree resolver that walks up `parentId` to the containing top-level
+// block (the table) and resolves the caret on that block's page.
+//
+// Builds the fixture through the REAL `createTable` op and keeps the VIRTUAL
+// tree (NOT a fully-positioned tree), exercising the production per-page path.
+
+import { describe, it, expect } from "vitest";
+import { render } from "../render/render";
+import { cascadePass } from "../cascade";
+import { createDefaultComponentRegistry } from "../components/component-registry";
+import { createDefaultAttrRegistry } from "../cascade/attr-registry";
+import { makeRootContext } from "../layout/layout-context";
+import { INITIAL_COMPUTED_STYLE } from "../styles";
+import { createMockShaper } from "../layout/mock-shaper";
+import { buildVirtualPaginatedTree } from "../layout/virtual-producer";
+import type { ElementBox, RenderNode } from "../render/render-node";
+import type { TextShaper } from "../layout/text-shaper";
+import type { PageConfig } from "../layout/page-config";
+import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
+import {
+  buildState,
+  buildBlock,
+  inlineContent,
+  text,
+} from "../test-utils/state-builders";
+import { createTable } from "../state/ops/create-table";
+import { createTestAllocator } from "../state/block-id";
+import { createPosition } from "../state";
+import { collectFootnoteAnchors } from "../footnotes";
+import type { State, BlockId, Position } from "../state";
+import { resolvePixelPosition } from "./cursor-position";
+import { moveToLine, moveToLineBoundary } from "./line-navigation";
+
+const SHAPER_CHAR_W = 8;
+const SHAPER_LINE_H = 16;
+
+function pageConfig(): PageConfig {
+  return {
+    pageInlineSize: 320,
+    pageBlockSize: 400,
+    pageMargins: { blockStart: 60, blockEnd: 60, inlineStart: 0, inlineEnd: 0 },
+    pageGap: 24,
+  };
+}
+
+interface Built {
+  state: State;
+  tree: VirtualLayoutTree;
+  shaper: TextShaper;
+  caretInto: Position;
+}
+
+/** doc > p("body"); then insert a `rows×cols` table at the start of `p`. */
+function buildDocWithTable(rows: number, cols: number): Built {
+  const seed = buildState({
+    rootId: "doc",
+    blocks: [
+      buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+      buildBlock({
+        id: "p",
+        type: "paragraph",
+        parentId: "doc",
+        inlineContent: inlineContent([text("body")]),
+      }),
+    ],
+  });
+
+  const { state, caretInto } = createTable(
+    seed,
+    createPosition("p" as BlockId, 0),
+    rows,
+    cols,
+    createTestAllocator("t"),
+  );
+
+  const out = render(
+    state,
+    createDefaultComponentRegistry(),
+    createDefaultAttrRegistry(),
+  );
+  const cascadedRoot = cascadePass(out.root);
+  if (cascadedRoot.type !== "element") throw new Error("root cascade not element");
+
+  const cascadedEmbedContents = new Map<BlockId, ElementBox>();
+  for (const [id, node] of out.embedContents) {
+    const c = cascadePass(node as RenderNode);
+    if (c.type === "element") cascadedEmbedContents.set(id, c);
+  }
+
+  const cfg = pageConfig();
+  const shaper = createMockShaper(SHAPER_CHAR_W, SHAPER_LINE_H);
+  const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, cfg.pageInlineSize);
+  const tree = buildVirtualPaginatedTree(
+    cascadedRoot,
+    ctx,
+    shaper,
+    cfg,
+    undefined,
+    undefined,
+    cascadedEmbedContents,
+    collectFootnoteAnchors(state),
+  );
+
+  return { state, tree, shaper, caretInto };
+}
+
+describe("table-cell caret resolves per-page (#495)", () => {
+  it("resolvePixelPosition resolves a freshly-inserted table cell caret without throwing", () => {
+    const { state, tree, shaper, caretInto } = buildDocWithTable(2, 2);
+    // `caretInto` is cell (0,0)'s paragraph at offset 0 — a main-tree block
+    // nested under the table, which `pageIndexOfBlock` cannot map directly.
+    const pixel = resolvePixelPosition(state, caretInto, tree, shaper);
+    expect(pixel).not.toBeNull();
+    // The table is on page 0 (the only page), so the cell caret resolves there.
+    expect(pixel?.pageIndex).toBe(0);
+  });
+
+  it("moveToLine (Up/Down) resolves a table-cell caret without throwing", () => {
+    const { state, tree, shaper, caretInto } = buildDocWithTable(2, 2);
+    // Up/Down from a cell caret must resolve the cell's page (the crash branch in
+    // moveToLineVirtual) rather than dev-throwing. The result may be null (no line
+    // in the goal direction within reach) or a moved position; the contract under
+    // test is "does not throw".
+    expect(() => moveToLine(state, caretInto, tree, shaper, "up", null)).not.toThrow();
+    expect(() => moveToLine(state, caretInto, tree, shaper, "down", null)).not.toThrow();
+  });
+
+  it("moveToLineBoundary resolves a table-cell caret without throwing", () => {
+    const { state, tree, shaper, caretInto } = buildDocWithTable(2, 2);
+    const start = moveToLineBoundary(state, caretInto, tree, shaper, "start");
+    const end = moveToLineBoundary(state, caretInto, tree, shaper, "end");
+    expect(start).not.toBeNull();
+    expect(end).not.toBeNull();
+    // An empty cell paragraph: Home/End both pin to offset 0 in the same block.
+    expect(start?.blockId).toBe(caretInto.blockId);
+    expect(start?.offset).toBe(0);
+    expect(end?.blockId).toBe(caretInto.blockId);
+    expect(end?.offset).toBe(0);
+  });
+});

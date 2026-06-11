@@ -236,17 +236,35 @@ function resolveInVirtualTree(
       if (baseline !== null) return baseline;
     }
 
-    // Block not mapped by the plan, not a resolvable template block, and not a
-    // resolvable footnote body. In a well-formed document EVERY caret resolves to
-    // a concrete page via one of the three plan resolvers above; reaching here
-    // means the caret's block has no page (a programmer error — a stale caret on a
-    // detached block). Dev-throw to catch it; in prod degrade safely to an
-    // unresolvable caret (`null`), which callers already tolerate (e.g. an
-    // off-page caret). NEVER materialize the whole tree.
+    // TABLE-CELL (or any MAIN-tree block nested inside a top-level container): the
+    // caret's block lives in the main `blocks` tree but is NOT a top-level body
+    // child (paragraph → table-cell → table-row → table), so `pageIndexOfBlock`
+    // (a top-level-body-only map) misses it. Walk up `parentId` to the containing
+    // top-level block (the table) — which IS page-mapped — materialize ONLY its
+    // page, and resolve against that page's `byBlock` lines (the table FC's IFC
+    // stamped the cell paragraph's lines there during `getPage`).
+    const nestedPage = resolveNestedMainTreeBlockPage(state, plan, position.blockId);
+    if (nestedPage >= 0) {
+      const page = tree.getPage(nestedPage);
+      const cellLines = getLineIndex(page).byBlock.get(position.blockId) ?? [];
+      if (cellLines.length > 0) {
+        return resolvePositionInOwnLines(cellLines, position, measurer, caretAffinity);
+      }
+      const baseline = findBlockBaseline(page, position.blockId);
+      if (baseline !== null) return baseline;
+    }
+
+    // Block not mapped by the plan, not a resolvable template block, not a
+    // resolvable footnote body, and not a nested main-tree block. In a well-formed
+    // document EVERY caret resolves to a concrete page via one of the resolvers
+    // above; reaching here means the caret's block has no page (a programmer error
+    // — a stale caret on a detached block). Dev-throw to catch it; in prod degrade
+    // safely to an unresolvable caret (`null`), which callers already tolerate
+    // (e.g. an off-page caret). NEVER materialize the whole tree.
     if (isDevMode()) {
       throw new Error(
         `resolveInVirtualTree: block ${position.blockId} maps to no page ` +
-          `(not a top-level body, header/footer, or footnote block) — stale caret?`,
+          `(not a top-level body, header/footer, footnote, or nested main-tree block) — stale caret?`,
       );
     }
     return null;
@@ -479,6 +497,43 @@ export function resolveFootnoteBlockPage(
     if (pageIndex >= lastPage) return lastFound >= 0 ? lastFound : startPage;
     pageIndex++;
   }
+}
+
+/**
+ * Resolve which PAGE a MAIN-tree block NESTED inside a top-level container lives
+ * on (e.g. a paragraph inside a table cell: paragraph → table-cell → table-row →
+ * table). `pageIndexOfBlock` only maps TOP-LEVEL body children, so a nested block
+ * misses it; this walks up the `parentId` chain to the nearest ancestor that IS
+ * page-mapped (the containing top-level block — the table) and returns that page.
+ *
+ * Returns -1 when no ancestor maps to a page (the block is not in the main tree,
+ * or the plan has no mapping at all — a stale caret on a detached block).
+ *
+ * The main-tree counterpart to the side-tree descendant walks in
+ * {@link resolveTemplateBlockPage} (templateContents) and
+ * {@link resolveFootnoteBlockPage} (embedContents): here the container (table) IS
+ * a top-level body child, so its OWN id is what `pageIndexOfBlock` maps. Exported
+ * so line-navigation reuses the SAME resolution.
+ */
+export function resolveNestedMainTreeBlockPage(
+  state: State,
+  plan: PagePlan,
+  blockId: BlockId,
+): number {
+  // Bounded walk (cycle/depth guard — mirrors the block-traversal bounds used
+  // elsewhere in the state layer). The caller has already confirmed `blockId`
+  // itself is unmapped; the first iteration re-checks it harmlessly, then climbs.
+  let id: BlockId | null = blockId;
+  let steps = 0;
+  while (id !== null && id !== state.rootId) {
+    if (++steps > 1024) return -1;
+    const page = plan.pageIndexOfBlock(id);
+    if (page >= 0) return page;
+    const resolved = resolveBlock(state, id);
+    if (resolved === null) return -1;
+    id = resolved.block.parentId;
+  }
+  return -1;
 }
 
 /**

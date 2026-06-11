@@ -12,7 +12,7 @@ import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
 import type { TextShaper } from "../layout/text-shaper";
 import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
-import { resolvePixelPosition, resolveTemplateBlockPage, resolveFootnoteBlockPage } from "./cursor-position";
+import { resolvePixelPosition, resolveTemplateBlockPage, resolveFootnoteBlockPage, resolveNestedMainTreeBlockPage } from "./cursor-position";
 import { resolvePositionFromPixel } from "./hit-test";
 import { collectBlockLinesAcrossPages } from "./block-line-collector";
 import {
@@ -183,14 +183,26 @@ function moveToLineVirtual(
     if (footnotePage >= 0) {
       return moveToLineOnPage(state, position, tree, measurer, direction, targetX, footnotePage);
     }
-    // Not a top-level body, header/footer, or footnote block. In a well-formed
-    // doc every caret maps to a page; reaching here is a stale-caret programmer
-    // error. Dev-throw to catch it; in prod no-op (the caret stays put —
-    // `moveToLine`'s contract allows null). NEVER materialize the whole tree.
+    // TABLE-CELL (or any MAIN-tree block nested inside a top-level container):
+    // walk up parentId to the page-mapped containing top-level block (the table)
+    // and move within its page (#495). Unlike the footnote/footer cases above, a
+    // table cell is NOT an isolated context — `selectionContextOf` walks a cell
+    // paragraph up to `state.rootId`, so the #327 context filter spans the full
+    // main body and Up/Down navigates across cells + surrounding paragraphs (the
+    // crash fix only ensures it resolves the right page, not table-aware nav).
+    const nestedPage = resolveNestedMainTreeBlockPage(state, plan, position.blockId);
+    if (nestedPage >= 0) {
+      return moveToLineOnPage(state, position, tree, measurer, direction, targetX, nestedPage);
+    }
+    // Not a top-level body, header/footer, footnote, or nested main-tree block.
+    // In a well-formed doc every caret maps to a page; reaching here is a
+    // stale-caret programmer error. Dev-throw to catch it; in prod no-op (the
+    // caret stays put — `moveToLine`'s contract allows null). NEVER materialize
+    // the whole tree.
     if (isDevMode()) {
       throw new Error(
         `moveToLineVirtual: block ${position.blockId} maps to no page ` +
-          `(not a top-level body, header/footer, or footnote block) — stale caret?`,
+          `(not a top-level body, header/footer, footnote, or nested main-tree block) — stale caret?`,
       );
     }
     return null;
@@ -541,13 +553,20 @@ export function moveToLineBoundary(
           // body — neither pageIndexOfBlock nor the template resolver maps it).
           p = resolveFootnoteBlockPage(state, layoutTree, position);
           if (p < 0) {
-            // Not a top-level body, header/footer, or footnote block. Stale-caret
-            // programmer error: dev-throw to catch it; in prod no-op (return the
-            // input position unchanged — Home/End does nothing). NEVER materialize.
+            // TABLE-CELL (or any MAIN-tree block nested in a top-level container):
+            // walk up parentId to the page-mapped containing top-level block (the
+            // table) and run Home/End on its page (#495).
+            p = resolveNestedMainTreeBlockPage(state, plan, position.blockId);
+          }
+          if (p < 0) {
+            // Not a top-level body, header/footer, footnote, or nested main-tree
+            // block. Stale-caret programmer error: dev-throw to catch it; in prod
+            // no-op (return the input position unchanged — Home/End does nothing).
+            // NEVER materialize.
             if (isDevMode()) {
               throw new Error(
                 `moveToLineBoundary: block ${position.blockId} maps to no page ` +
-                  `(not a top-level body, header/footer, or footnote block) — stale caret?`,
+                  `(not a top-level body, header/footer, footnote, or nested main-tree block) — stale caret?`,
               );
             }
             return position;
