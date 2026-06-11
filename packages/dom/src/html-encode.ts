@@ -231,39 +231,110 @@ function encodeListRun(
   return out;
 }
 
-/**
- * Encode the document State to an HTML string. Walks the main tree's top-level
- * blocks in document order; groups consecutive same-listId list-items into one
- * `<ul>`/`<ol>`; emits other blocks via `encodeLeaf`.
- */
-export function encodeHtml(state: State): string {
-  const warnDrop = makeDropWarner();
-  const root = getBlock(state, state.rootId);
-  if (root === null) return "<body></body>";
+type ListDefMap = ReturnType<typeof getListDefsForState>;
 
-  // Flatten the top-level block sequence (the document root's direct children).
-  const topLevel: Block[] = [];
-  let childId: BlockId | null = root.firstChildId;
+/**
+ * Encode a `table` block to `<table>`: an optional `<colgroup>` carrying the
+ * per-column widths (from the `columnWidths` fractions → percentages, for
+ * Google Docs / Word fidelity), then each `table-row` → `<tr>` and each
+ * `table-cell` → `<td>`. A cell's `rowSpan` / `colSpan` attr (omitted = 1) emits
+ * a `rowspan` / `colspan` attribute only when > 1; the cell's content is encoded
+ * RECURSIVELY via {@link encodeBlockSequence} (so nested lists / tables in a
+ * cell serialize too). A ragged / malformed table still encodes whatever rows
+ * and cells it has — export never throws.
+ */
+function encodeTable(
+  state: State,
+  table: Block,
+  listDefs: ListDefMap,
+  warnDrop: (embedType: string) => void,
+): string {
+  let out = "<table>";
+
+  const widths = table.attrs.columnWidths;
+  if (Array.isArray(widths) && widths.length > 0) {
+    out += "<colgroup>";
+    for (const w of widths) {
+      out +=
+        typeof w === "number"
+          ? `<col style="width:${+(w * 100).toFixed(4)}%">`
+          : "<col>";
+    }
+    out += "</colgroup>";
+  }
+
+  let rowId = table.firstChildId;
+  while (rowId !== null) {
+    const row = getBlock(state, rowId);
+    if (row === null) break;
+    if (row.type === "table-row") {
+      out += "<tr>";
+      let cellId = row.firstChildId;
+      while (cellId !== null) {
+        const cellBlock = getBlock(state, cellId);
+        if (cellBlock === null) break;
+        if (cellBlock.type === "table-cell") {
+          out += encodeCell(state, cellBlock, listDefs, warnDrop);
+        }
+        cellId = cellBlock.nextSiblingId;
+      }
+      out += "</tr>";
+    }
+    rowId = row.nextSiblingId;
+  }
+
+  return out + "</table>";
+}
+
+/** Encode one `table-cell` → `<td>` with optional span attrs + recursive content. */
+function encodeCell(
+  state: State,
+  cell: Block,
+  listDefs: ListDefMap,
+  warnDrop: (embedType: string) => void,
+): string {
+  const rowSpan = numAttr(cell.attrs.rowSpan);
+  const colSpan = numAttr(cell.attrs.colSpan);
+  let attrsStr = "";
+  if (rowSpan !== undefined && rowSpan > 1) attrsStr += ` rowspan="${rowSpan}"`;
+  if (colSpan !== undefined && colSpan > 1) attrsStr += ` colspan="${colSpan}"`;
+  const inner = encodeBlockSequence(state, cell.firstChildId, listDefs, warnDrop);
+  return `<td${attrsStr}>${inner}</td>`;
+}
+
+/**
+ * Encode a sequence of sibling blocks starting at `firstChildId` (the document
+ * root's children, or a table cell's children) in document order: consecutive
+ * same-listId list-items group into one `<ul>`/`<ol>`; a `table` → `<table>`
+ * (see {@link encodeTable}); every other block → {@link encodeLeaf}. Recursive
+ * via `encodeTable` → `encodeCell`, so nested structures serialize.
+ */
+function encodeBlockSequence(
+  state: State,
+  firstChildId: BlockId | null,
+  listDefs: ListDefMap,
+  warnDrop: (embedType: string) => void,
+): string {
+  const blocks: Block[] = [];
+  let childId = firstChildId;
   while (childId !== null) {
     const block = getBlock(state, childId);
     if (block === null) break;
-    topLevel.push(block);
+    blocks.push(block);
     childId = block.nextSiblingId;
   }
 
-  const listDefs = getListDefsForState(state);
-  let body = "";
-
+  let out = "";
   let i = 0;
-  while (i < topLevel.length) {
-    const block = topLevel[i];
+  while (i < blocks.length) {
+    const block = blocks[i];
     if (block.type === "list-item") {
       const listId = strAttr(block.attrs.listId) ?? "";
       // Gather the maximal consecutive run sharing this listId.
       const runItems: { level: number; inner: string }[] = [];
       let j = i;
-      while (j < topLevel.length && topLevel[j].type === "list-item") {
-        const itemBlock = topLevel[j];
+      while (j < blocks.length && blocks[j].type === "list-item") {
+        const itemBlock = blocks[j];
         const itemListId = strAttr(itemBlock.attrs.listId) ?? "";
         if (itemListId !== listId) break;
         const level = numAttr(itemBlock.attrs.listLevel) ?? 0;
@@ -275,13 +346,31 @@ export function encodeHtml(state: State): string {
       }
       const def = listDefs.get(listId);
       const tag = def !== undefined && classifyListDef(def) === "unordered" ? "ul" : "ol";
-      body += encodeListRun(runItems, tag);
+      out += encodeListRun(runItems, tag);
       i = j;
+    } else if (block.type === "table") {
+      out += encodeTable(state, block, listDefs, warnDrop);
+      i++;
     } else {
-      body += encodeLeaf(block, warnDrop);
+      out += encodeLeaf(block, warnDrop);
       i++;
     }
   }
+  return out;
+}
 
+/**
+ * Encode the document State to an HTML string. Walks the main tree's top-level
+ * blocks in document order via {@link encodeBlockSequence}.
+ */
+export function encodeHtml(state: State): string {
+  const root = getBlock(state, state.rootId);
+  if (root === null) return "<body></body>";
+  const body = encodeBlockSequence(
+    state,
+    root.firstChildId,
+    getListDefsForState(state),
+    makeDropWarner(),
+  );
   return `<body>${body}</body>`;
 }

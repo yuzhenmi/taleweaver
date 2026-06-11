@@ -60,6 +60,15 @@ function decimalDef(): ListDef {
 function discDef(): ListDef {
   return { levels: [{ style: "disc", start: 1, restart: "always" }] };
 }
+function cell(children: BlockNode[], attrs: ReadonlyAttrs = {}): ContainerBlockNode {
+  return { type: "table-cell", attrs, children };
+}
+function tableRow(cells: ContainerBlockNode[]): ContainerBlockNode {
+  return { type: "table-row", children: cells };
+}
+function table(rows: ContainerBlockNode[], attrs: ReadonlyAttrs = {}): ContainerBlockNode {
+  return { type: "table", attrs, children: rows };
+}
 
 function build(
   children: BlockNode[],
@@ -538,6 +547,73 @@ describe("createHtmlDocumentSerializer", () => {
     const html = ser.encode(state);
     expect(html).toContain('<a href="https://ok.test/x">a</a>');
     expect(html).toContain('<a href="/relative/path">b</a>');
+  });
+
+  // #470: tables were silently dropped on encode (a container block hit
+  // encodeLeaf's default → ""). They now serialize to <table>/<tr>/<td>.
+  it("encodes a table (was silently dropped) — <table>/<tr>/<td> with cell text", () => {
+    const state = build([
+      table([
+        tableRow([cell([para(inline(text("A")))]), cell([para(inline(text("B")))])]),
+        tableRow([cell([para(inline(text("C")))]), cell([para(inline(text("D")))])]),
+      ]),
+    ]);
+    const html = createHtmlDocumentSerializer({ allocator: createTestAllocator("t") }).encode(state);
+    expect(html).toContain("<table>");
+    expect(html).toContain("</table>");
+    expect(html).toContain("<tr><td><p>A</p></td><td><p>B</p></td></tr>");
+    expect(html).toContain("<tr><td><p>C</p></td><td><p>D</p></td></tr>");
+  });
+
+  it("emits a <colgroup> with per-column widths from columnWidths", () => {
+    const state = build([
+      table(
+        [tableRow([cell([para(inline(text("X")))]), cell([para(inline(text("Y")))])])],
+        { columnWidths: [0.25, 0.75] },
+      ),
+    ]);
+    const html = createHtmlDocumentSerializer({ allocator: createTestAllocator("cw") }).encode(state);
+    expect(html).toContain("<colgroup>");
+    expect(html).toContain('<col style="width:25%">');
+    expect(html).toContain('<col style="width:75%">');
+  });
+
+  it("emits rowspan/colspan only for a cell whose span attr is > 1", () => {
+    const state = build([
+      table([
+        tableRow([
+          cell([para(inline(text("S")))], { rowSpan: 2, colSpan: 3 }),
+          cell([para(inline(text("T")))]),
+        ]),
+      ]),
+    ]);
+    const html = createHtmlDocumentSerializer({ allocator: createTestAllocator("sp") }).encode(state);
+    expect(html).toContain('<td rowspan="2" colspan="3"><p>S</p></td>');
+    expect(html).toContain("<td><p>T</p></td>"); // omitted span → no attrs
+  });
+
+  it("encodes an empty cell as <td></td> (common in pasted tables)", () => {
+    const state = build([
+      table([tableRow([cell([para(inline())]), cell([para(inline(text("Z")))])])]),
+    ]);
+    const html = createHtmlDocumentSerializer({ allocator: createTestAllocator("ec") }).encode(state);
+    expect(html).toContain("<td><p></p></td><td><p>Z</p></td>");
+  });
+
+  it("recursively encodes block content inside a cell (a nested list)", () => {
+    const lid = "L1";
+    const state = build(
+      [
+        table([
+          tableRow([
+            cell([listItem(lid, 0, inline(text("one"))), listItem(lid, 0, inline(text("two")))]),
+          ]),
+        ]),
+      ],
+      { [lid]: discDef() },
+    );
+    const html = createHtmlDocumentSerializer({ allocator: createTestAllocator("nl") }).encode(state);
+    expect(html).toContain("<td><ul><li>one</li><li>two</li></ul></td>");
   });
 });
 

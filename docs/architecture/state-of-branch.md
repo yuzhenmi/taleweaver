@@ -148,9 +148,12 @@ Built-in component behavior:
   table to the byte-identical P15a op. The span-aware ops reason in the SAME
   occupancy-grid coordinates the Table FC lays out in (shared `table-grid-core`;
   see [`1.4.3-table-fc.md`](1-core/1.4-layout/1.4.3-table-fc.md)), so an edit
-  preserves the rectangular-grid invariant layout depends on. Still `[missing]`:
+  preserves the rectangular-grid invariant layout depends on. HTML table ENCODE
+  (`<table>`/`<tr>`/`<td>`, see [`2.5-html-serializer.md`](2-dom/2.5-html-serializer.md))
+  now ships — tables are no longer lost on export. Still `[missing]`:
   browser-gated example-app Table menu wiring (the `INSERT_TABLE` button + the
-  span-aware actions), and structural table copy/paste + HTML table export.
+  span-aware actions), structural table copy/paste, and HTML table DECODE
+  (paste-in).
 
 ### `render/` `[implemented]`
 
