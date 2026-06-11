@@ -37,7 +37,7 @@ import { getSuggestionsMap, getYBlock, requireInTransaction, type BlockTreeKind 
 import { buildYInlineContent, buildYInlineItem, buildYAttrs } from "../y-block";
 import { mergeAdjacentSameAttrsTextItems, yItemLength, yMapAsObject } from "../y-utils";
 import { planApplyAttrsToRange, applyAttrsToRangeInTx } from "./apply-attrs";
-import { planInsertText, insertTextInTx, planInsertTextFullReplace } from "./insert-text";
+import { planInsertText, insertTextInTx, planInsertTextSplitInPlace } from "./insert-text";
 import {
   planSplitBlockAtPosition,
   splitBlockAtPositionInTx,
@@ -475,15 +475,18 @@ export interface ReplaceSuggestionInput {
  * atomically). The strike + the insert + BOTH records (an `insertion` and a
  * `deletion`) land as ONE undo entry and one collab event.
  *
- * Composes {@link planMarkDeletion} (the strike plan) with
- * {@link planInsertTextFullReplace} (the insert). The KEY hazard — identical to
- * `replaceRange` — is that the strike FULL-REPLACES the start block's Y.Array
- * (each owning block is rewritten via `getYBlock(...).set("inlineContent", …)`),
- * so the insert plan MUST be built against the POST-strike items (the start
- * block's `writes` entry), NOT against the pre-strike `state` (whose snapshot is
- * still un-struck and whose Y.Text identity the strike blows away). The insert
- * therefore always uses `planInsertTextFullReplace` (mode = full-replace) when the
- * start block was struck.
+ * Composes {@link planMarkDeletion} (the strike plan) with an identity-preserving
+ * {@link planInsertTextSplitInPlace} insert (#492). The start block is struck
+ * SURGICALLY in-tx (via {@link applyDeletionStrikeInTx}) — leaving every untouched
+ * run's Y.Text CRDT identity intact — so its live Y.Array, after the strike, is
+ * byte-identical to the start block's `writes` entry (`startWrite.items`). The
+ * suggested run is then inserted split-in-place against that identity-preserved
+ * array: it drops in at the selection-start run boundary (the strike pre-splits
+ * there, so `within === 0` → no run loses identity). `startWrite.items` is read for
+ * the insert OFFSET (it describes the live post-strike content), NOT as full-replace
+ * content. The load-bearing ordering: the start block's strike MUST run BEFORE the
+ * insert (else the split-in-place plan resolves against post-strike items but mutates
+ * a still-pre-strike live array → document corruption).
  *
  * The new run lands at `start.offset` — BEFORE the struck selection text — and
  * carries `insertionSuggestionId`. `attrs` is its INTENDED live format (the
@@ -496,12 +499,13 @@ export interface ReplaceSuggestionInput {
  * strike never touches the run before `start`); the deletion coalesces per
  * {@link planMarkDeletion}. A coalesced half writes no new record.
  *
- * Block-write discipline: the start block is written EXACTLY ONCE — by the
- * `insertTextInTx` full-replace (its `items` already include the struck-tail of
- * the start block, since the insert plan was built against the post-strike
- * `startWrite.items`); the loop writes every OTHER struck block. Writing the start
- * block in both the loop and the insert would double-write (the loop's struck-only
- * items, missing the inserted run, would land last and lose the insert).
+ * Block-write discipline (3-step in-tx order): (1) the loop surgically strikes
+ * every NON-start struck block; (2) the START block is struck surgically too (a
+ * separate `applyDeletionStrikeInTx`, skipped by the loop) — making its live Y.Array
+ * the identity-preserved post-strike content; (3) the suggested run is inserted
+ * split-in-place into that live array. The start block is thus struck once and
+ * inserted-into once, never full-replaced — preserving the CRDT identity of every
+ * run the edit doesn't touch.
  *
  * Degenerate delegation (the editor caller is always the expanded non-empty
  * branch, but these keep the op total):
@@ -581,14 +585,19 @@ export function replaceWithSuggestion(
   const insertAttrs: ReadonlyAttrs = { ...attrs, [INSERTION_SUGGESTION_ATTR]: insId };
 
   // Build the insert plan against the POST-strike items of the start block (its
-  // `writes` entry) — NOT `state` (still pre-strike; its Y.Text identity is blown
-  // away by the strike full-replace). If the start block has no struck write (it
-  // contributed no in-range text — e.g. the span starts exactly at end-of-block),
-  // the start block is untouched by the strike, so an in-place plan against the
-  // live `state` is safe.
+  // `writes` entry). `startWrite.items` describes the start block's LIVE Y.Array
+  // AFTER its surgical strike (applied in step 2 of the in-tx body below) — which is
+  // byte-identical to `startWrite.items`, so `planInsertTextSplitInPlace` resolves
+  // the insert OFFSET against it and drops the suggested run identity-preservingly
+  // (the strike pre-splits at `start.offset`, so the insert lands at a run boundary
+  // — zero identity loss). The plan is built pre-tx but only resolves itemIndex/
+  // within from `startWrite.items`; the in-tx strike makes the live array match.
+  // If the start block has no struck write (it contributed no in-range text — e.g.
+  // the span starts exactly at end-of-block), it's untouched by the strike, so a
+  // normal in-place plan against the live `state` is safe.
   const startWrite = delPlan.writes.find((w) => w.blockId === start.blockId);
   const insertPlan = startWrite
-    ? planInsertTextFullReplace(
+    ? planInsertTextSplitInPlace(
         start.blockId,
         delPlan.kind,
         startWrite.items,
@@ -600,11 +609,11 @@ export function replaceWithSuggestion(
     : planInsertText(state, start, text, insertAttrs, registry);
 
   return applyOperation(state, (d) => {
-    // Write every struck block EXCEPT the start block: the start block is written
-    // once by `insertTextInTx` below (whose full-replace items already carry the
-    // struck start-block tail). The branch where `startWrite` is undefined writes
-    // ALL struck blocks here (the start block was never struck) and the insert is
-    // an in-place mutation into the live (untouched) start block.
+    // 3-step in-tx order (LOAD-BEARING). Step 1: surgically strike every NON-start
+    // struck block (the start block is skipped here and struck in step 2). The
+    // `startWrite === undefined` branch strikes ALL blocks here (the start block was
+    // never struck) and the insert is a normal in-place mutation into the live start
+    // block.
     for (const write of delPlan.writes) {
       if (startWrite !== undefined && write.blockId === start.blockId) continue;
       applyDeletionStrikeInTx(
@@ -619,6 +628,24 @@ export function replaceWithSuggestion(
         "replaceWithSuggestion",
       );
     }
+    // Step 2: strike the START block surgically too — so its live Y.Array becomes the
+    // identity-preserved post-strike content (byte-identical to `startWrite.items`)
+    // that the split-in-place insert resolves against. MUST run BEFORE the insert.
+    if (startWrite !== undefined) {
+      applyDeletionStrikeInTx(
+        d,
+        startWrite.blockId,
+        delPlan.kind,
+        startWrite.rangeStart,
+        startWrite.rangeEnd,
+        delPlan.id,
+        input.author,
+        registry,
+        "replaceWithSuggestion",
+      );
+    }
+    // Step 3: insert the suggested run (split-in-place into the now-struck live array,
+    // or a normal in-place insert when the start block was never struck).
     insertTextInTx(d, insertPlan);
     // Write the deletion record (≥1 run tagged AND not coalesced).
     if (delPlan.taggedAny && !delPlan.reusing) {
