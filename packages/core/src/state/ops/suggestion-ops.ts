@@ -605,11 +605,15 @@ export function replaceWithSuggestion(
     // an in-place mutation into the live (untouched) start block.
     for (const write of delPlan.writes) {
       if (startWrite !== undefined && write.blockId === start.blockId) continue;
-      writeBlockInlineContentInTx(
+      applyDeletionStrikeInTx(
         d,
         write.blockId,
         delPlan.kind,
-        write.items,
+        write.rangeStart,
+        write.rangeEnd,
+        delPlan.id,
+        input.author,
+        registry,
         "replaceWithSuggestion",
       );
     }
@@ -688,8 +692,8 @@ export function replaceWithSuggestion(
  *
  * `newBlockInit` overrides N+1's `type` / `attrs` (the heading→paragraph follow-on
  * hook), threaded through to {@link planSplitBlockAtPosition} unchanged. `registry`
- * is accepted for signature parity with the other composites; the strike + split do
- * not consult a custom run-merge, so it is currently unused.
+ * is threaded into the strike's {@link applyDeletionStrikeInTx} so its
+ * `mergeAdjacentSameAttrsTextItems` post-pass honors a custom per-key `equals`.
  */
 export function splitWithSuggestionOverSelection(
   state: State,
@@ -699,8 +703,6 @@ export function splitWithSuggestionOverSelection(
   newBlockInit?: { readonly type?: string; readonly attrs?: ReadonlyAttrs },
   registry?: AttrRegistry,
 ): OperationResult {
-  void registry; // accepted for parity; the strike + split don't consult it.
-
   const start = spanStart(state, span);
   const end = spanEnd(state, span);
   const blockB = start.blockId; // === end.blockId for a single-block span.
@@ -770,14 +772,19 @@ export function splitWithSuggestionOverSelection(
 
   return applyOperation(state, (doc) => {
     // 1. Apply the strike writes (B written BEFORE the split so the split reads
-    //    B's post-strike content). For a single-block span this is just B. These
-    //    GENUINELY rebuild the struck blocks → the full-replace seam.
+    //    B's post-strike content). For a single-block span this is just B. The
+    //    surgical applier mutates the struck runs IN PLACE over the live Y.Array
+    //    (identity-preserving), byte-identical to the old full-replace.
     for (const w of delPlan.writes) {
-      writeBlockInlineContentInTx(
+      applyDeletionStrikeInTx(
         doc,
         w.blockId,
         delPlan.kind,
-        w.items,
+        w.rangeStart,
+        w.rangeEnd,
+        delPlan.id,
+        input.author,
+        registry,
         "splitWithSuggestionOverSelection",
       );
     }

@@ -15,12 +15,15 @@
  * markDeletion / mintInsertion ops.
  */
 import { describe, it, expect } from "vitest";
+import * as Y from "yjs";
 import {
   replaceWithSuggestion,
   markDeletion,
   acceptSuggestion,
   rejectSuggestion,
 } from "./suggestion-ops";
+import { getYBlock } from "../yjs-doc";
+import { STATE_INTERNAL } from "../state-internal";
 import {
   getSuggestions,
   writeSuggestionRecordInTx,
@@ -227,6 +230,82 @@ describe("replaceWithSuggestion — multi-block type-over", () => {
     const suggestions = getSuggestions(s);
     expect(suggestions.filter((x) => x.kind === "insertion").length).toBe(1);
     expect(suggestions.filter((x) => x.kind === "deletion").length).toBe(1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Identity-preserving strike (#491). The NON-start struck blocks of a
+// multi-block replace are now mutated IN PLACE via applyDeletionStrikeInTx, so
+// runs the strike never touches keep their exact Y.Text CRDT object (a peer's
+// concurrent edit into them merges instead of being obliterated on sync). The
+// START block still loses identity — it is full-replaced downstream by the
+// replacement-text insert (planInsertTextFullReplace), a documented limitation
+// (spec §8) that a successor ticket flips.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** The Y.Text of the inline item at `index` of block `id` (raw-Y, text items only). */
+function yTextAt(s: State, id: string, index: number): Y.Text {
+  const doc = s[STATE_INTERNAL].doc;
+  const yBlock = getYBlock(doc, id as BlockId, "test", "block");
+  const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
+  if (yItems === null) throw new Error(`block ${id} has no inlineContent`);
+  return yItems.get(index).get("text") as Y.Text;
+}
+
+describe("replaceWithSuggestion — identity-preserving strike (#491)", () => {
+  it("a run wholly OUTSIDE the strike range in a NON-start struck block keeps its Y.Text identity", () => {
+    // p1="hello"; p2 = struck-head "wo" + untouched survivor "rld" (distinct
+    // attrs → non-coalescing). Select p1[3) ("lo") through p2[2) ("wo"), type
+    // "X". p2's "rld" run is wholly after the strike → its Y.Text must survive.
+    const s0 = twoBlocks(
+      inlineContent([text("hello")]),
+      inlineContent([text("wo"), text("rld", { italic: true })]),
+    );
+    const rldText = yTextAt(s0, "p2", 1);
+
+    const s1 = replaceWithSuggestion(
+      s0,
+      createSpan(createPosition("p1" as BlockId, 3), createPosition("p2" as BlockId, 2)),
+      "X",
+      {},
+      INPUT,
+    ).state;
+
+    // Output unchanged: p2 = struck "wo" + untouched "rld".
+    expect(textOf(s1, "p2")).toBe("world");
+    const p2struck = itemsOf(s1, "p2").find((it) => it.kind === "text" && it.text === "wo");
+    if (p2struck?.kind !== "text") throw new Error("expected the struck wo run in p2");
+    expect(p2struck.attrs[DELETION_SUGGESTION_ATTR]).toBe(DEL_ID);
+    const p2rld = itemsOf(s1, "p2").find((it) => it.kind === "text" && it.text === "rld");
+    if (p2rld?.kind !== "text") throw new Error("expected the surviving rld run in p2");
+    expect(DELETION_SUGGESTION_ATTR in p2rld.attrs).toBe(false);
+    expect(p2rld.attrs.italic).toBe(true);
+
+    // The untouched survivor is the SAME Y.Text object — surgical in-place strike.
+    expect(yTextAt(s1, "p2", 1)).toBe(rldText);
+  });
+
+  it("documents the start-block limitation: the start block's runs DO lose identity (full-replaced by the insert)", () => {
+    // The start block (p1) is full-replaced downstream by the replacement-text
+    // insert, so even its untouched prefix loses Y.Text identity. Pinned so a
+    // future fix (spec §8) flips this to `toBe`.
+    const s0 = twoBlocks(
+      inlineContent([text("hel", { bold: true }), text("lo")]),
+      inlineContent([text("world")]),
+    );
+    const helText = yTextAt(s0, "p1", 0);
+
+    const s1 = replaceWithSuggestion(
+      s0,
+      createSpan(createPosition("p1" as BlockId, 3), createPosition("p2" as BlockId, 2)),
+      "X",
+      {},
+      INPUT,
+    ).state;
+
+    // The "hel" prefix content survives (output unchanged) but as a FRESH Y.Text.
+    expect(textOf(s1, "p1")).toBe("helXlo");
+    expect(yTextAt(s1, "p1", 0)).not.toBe(helText);
   });
 });
 
