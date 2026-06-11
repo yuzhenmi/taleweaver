@@ -171,7 +171,7 @@ export { getListDefsForState, classifyListDef } from "./list-defs";
 
 // Flatten a span to plain text (clipboard, find/replace, a11y).
 export type { EmbedSerializer } from "./extract-text";
-export { extractText, builtinEmbedSerializer } from "./extract-text";
+export { extractText, builtinEmbedSerializer, captionEmbedSerializer } from "./extract-text";
 
 // Find: non-overlapping text search over main-tree leaf blocks (Find & Replace
 // foundation — read-only query, returns block-relative match offsets).

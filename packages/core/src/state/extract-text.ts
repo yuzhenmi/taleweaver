@@ -69,6 +69,27 @@ export const builtinEmbedSerializer: EmbedSerializer = (item) => {
 };
 
 /**
+ * Embed serializer for human-readable CAPTION / DISPLAY text — a block's inline
+ * content shown as clean, single-line text (a cross-reference field's resolved
+ * caption, a document-outline entry's heading text). Unlike
+ * {@link builtinEmbedSerializer} (clipboard / find-replace, which preserves
+ * `\n` / `\t` and emits U+FFFC for content-bearing embeds), this collapses a
+ * structural break (hard-break / tab) to a single space and drops EVERY embed
+ * (zero-width markers, footnote anchors, nested cross-references, images, page
+ * fields) to `""`, so the caption never leaks `\n` / `\t` / U+FFFC into the
+ * place it is displayed inline.
+ */
+export const captionEmbedSerializer: EmbedSerializer = (item) => {
+  switch (item.embedType) {
+    case "hard-break":
+    case "tab":
+      return " ";
+    default:
+      return "";
+  }
+};
+
+/**
  * Extract plain text from a span.
  *
  * Each leaf block contributes a substring of its inline-content items

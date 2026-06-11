@@ -1,33 +1,14 @@
-import type { BlockId, State, EmbedSerializer, SuggestionView } from "../state";
+import type { BlockId, State, SuggestionView } from "../state";
 import {
   getBlock,
   createPosition,
   createSpan,
   inlineContentLength,
   extractText,
+  captionEmbedSerializer,
   type CrossReferenceMode,
 } from "../state";
 import type { CounterValue } from "../numbering";
-
-/**
- * Embed serializer for cross-reference DISPLAY text. A text-mode cross-reference
- * shows the target block's caption INLINE (a single atom), so it must be clean
- * readable text: a structural break (hard-break / tab) collapses to a single
- * space, and every embed (zero-width markers, footnote anchors, NESTED
- * cross-references, images, page fields) contributes nothing. This differs from
- * the clipboard {@link builtinEmbedSerializer}, which preserves `\n`/`\t` and
- * emits U+FFFC for content-bearing embeds — characters that would leak into the
- * caption (e.g. "Chapter 1￼" for a heading with a footnote).
- */
-const crossReferenceDisplaySerializer: EmbedSerializer = (item) => {
-  switch (item.embedType) {
-    case "hard-break":
-    case "tab":
-      return " ";
-    default:
-      return "";
-  }
-};
 
 /**
  * The text rendered when a cross-reference cannot resolve its target — the target
@@ -49,9 +30,9 @@ export const BROKEN_CROSS_REFERENCE_TEXT = "Error! Reference source not found.";
  *    A target that is not a numbered list-item (or was deleted) is absent from the
  *    map → broken-ref.
  *  - `"text"` → the target block's full text (`extractText` over its whole inline
- *    content, under {@link crossReferenceDisplaySerializer} so embeds don't leak
- *    into the caption). A missing or non-inline-bearing target → broken-ref. An
- *    EMPTY target resolves to `""` (the target exists — not broken).
+ *    content, under {@link captionEmbedSerializer} so embeds don't leak into the
+ *    caption). A missing or non-inline-bearing target → broken-ref. An EMPTY
+ *    target resolves to `""` (the target exists — not broken).
  *
  * `view` ({@link SuggestionView}) projects pending tracked changes for `"text"`
  * mode: a `"final"`/`"original"` preview must resolve the caption against the
@@ -84,5 +65,5 @@ export function resolveCrossReference(
   // so this never depends on extractText's zero-length-span behaviour.
   if (length === 0) return "";
   const span = createSpan(createPosition(targetId, 0), createPosition(targetId, length));
-  return extractText(state, span, crossReferenceDisplaySerializer, view);
+  return extractText(state, span, captionEmbedSerializer, view);
 }
