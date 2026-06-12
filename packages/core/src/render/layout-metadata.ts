@@ -28,6 +28,13 @@ export interface LayoutBoxMetadata {
   readonly image?: { readonly src: string; readonly width: number; readonly height: number };
   readonly horizontalLine?: boolean;
   readonly columnWidths?: readonly number[];
+  // Table header-row repetition (#487). The number of leading contiguous rows
+  // (`[0, headerRowCount)`) that repeat at the top of every page/column fragment
+  // the table spans. Stamped RAW from the table block's open-schema
+  // `attrs.headerRowCount` by the `table` component (the same path as
+  // `columnWidths`; NO cascade interpreter is involved); read by the measure +
+  // materialize passes. Absent ⇒ 0 (no repeated header).
+  readonly headerRowCount?: number;
   // Table-cell spanning (P8). Structural grid facts (HTML rowspan/colspan model,
   // NOT cascaded style): stamped by the `table-cell` component from the cell's
   // open-schema `attrs`, read raw by the Table FC + intrinsic pass via

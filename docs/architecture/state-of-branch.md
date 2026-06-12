@@ -151,12 +151,14 @@ Built-in component behavior:
   preserves the rectangular-grid invariant layout depends on. HTML table ENCODE
   (`<table>`/`<tr>`/`<td>`, see [`2.5-html-serializer.md`](2-dom/2.5-html-serializer.md))
   now ships — tables are no longer lost on export. **Header-row repetition (#487)
-  STATE LAYER `[implemented]` (S1)**: the per-table `headerRowCount` attr +
+  STATE + RENDER `[implemented]` (S1+S2)**: the per-table `headerRowCount` attr +
   `setTableHeaderRows` op (clamped by the clean-cut invariant via
   `largestCleanHeaderCount`) + the `adjustHeaderRowCount` fix-up wired into all four
-  row insert/delete ops keep the count valid; the LAYOUT side (repeating the header
-  rows at the top of each page/column fragment) is `[partial]` — measure/materialize
-  reservation + render stamp are S2–S6, in flight. Still `[missing]`:
+  row insert/delete ops keep the count valid (S1); the `table` component reads it raw
+  from `view.attrs` and stamps it onto the table box `LayoutBoxMetadata.headerRowCount`
+  (S2). The LAYOUT side that CONSUMES it (repeating the header rows at the top of each
+  page/column fragment — measure reserves `headerBlockSize`, materialize re-lays the
+  header rows) is `[partial]` — S3–S6, in flight. Still `[missing]`:
   browser-gated example-app Table menu wiring (the `INSERT_TABLE` button + the
   span-aware actions + a header-row toggle), structural table copy/paste, and HTML
   table DECODE (paste-in).
