@@ -312,6 +312,7 @@ export {
   listItemComponent,
   imageComponent,
   horizontalLineComponent,
+  tableOfContentsComponent,
   tableComponent,
   tableRowComponent,
   tableCellComponent,

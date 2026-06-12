@@ -12,6 +12,7 @@ import { tableRowComponent } from "./table-row";
 import { tableCellComponent } from "./table-cell";
 import { imageComponent } from "./image";
 import { horizontalLineComponent } from "./horizontal-line";
+import { tableOfContentsComponent } from "./table-of-contents";
 
 /**
  * Component registry for the new render pipeline. Constructor-injectable
@@ -88,5 +89,6 @@ export function createDefaultComponentRegistry(): ComponentRegistry {
   reg.register(listItemComponent);
   reg.register(imageComponent);
   reg.register(horizontalLineComponent);
+  reg.register(tableOfContentsComponent);
   return reg;
 }

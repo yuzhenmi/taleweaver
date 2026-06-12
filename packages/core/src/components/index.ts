@@ -19,3 +19,4 @@ export { tableRowComponent } from "./table-row";
 export { tableCellComponent } from "./table-cell";
 export { imageComponent } from "./image";
 export { horizontalLineComponent } from "./horizontal-line";
+export { tableOfContentsComponent } from "./table-of-contents";

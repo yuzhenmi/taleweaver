@@ -27,6 +27,10 @@ import type { PageFieldKind, PageFieldNumberStyle } from "../state/page-field";
 export interface LayoutBoxMetadata {
   readonly image?: { readonly src: string; readonly width: number; readonly height: number };
   readonly horizontalLine?: boolean;
+  // Table-of-contents anchor marker. Stamped by the `table-of-contents`
+  // component onto its placeholder box so the render-core TOC branch (a later
+  // slice) can recognize the anchor and synthesize the entry subtree.
+  readonly tableOfContents?: true;
   readonly columnWidths?: readonly number[];
   // Table header-row repetition (#487). The number of leading contiguous rows
   // (`[0, headerRowCount)`) that repeat at the top of every page/column fragment
