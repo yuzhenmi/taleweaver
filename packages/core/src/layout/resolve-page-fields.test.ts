@@ -12,6 +12,7 @@ import { adaptShaperToMeasurer } from "./text-measurer";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import { asBlockId } from "../state";
 import { BROKEN_CROSS_REFERENCE_TEXT } from "../render/resolve-cross-reference";
+import { formatCounter } from "../styles/format-counter";
 
 // charWidth 8, lineHeight 16 (the mock-shaper convention from text-measurer.test.ts → "ab" = 16).
 const measurer = adaptShaperToMeasurer(createMockShaper(8, 16));
@@ -109,6 +110,23 @@ describe("resolvePageFields (F-1 resolution)", () => {
     const { globalFieldValues, maxValueWidthByKey } = resolvePageFields(fakePlan(10), [crossRefSpec()], measurer);
     expect(globalFieldValues.get("blk/inline/0")).toBe("");
     expect(maxValueWidthByKey.get("blk/inline/0")).toBe(measurer.measureWidth(BROKEN_CROSS_REFERENCE_TEXT, cs));
+  });
+
+  it("a cross-ref-page whose target IS its own host block resolves to the host's own page (self-ref, no special-casing)", () => {
+    // LDF-3 (self-ref): a page-ref targeting its OWN host block is a legal, deterministic
+    // value — it resolves via `pageSpanOfBlock(hostId)` to the page the ref renders on. No
+    // recursion, no infinite loop, no special case: it's a plain plan lookup. Host "blk"
+    // sits on page span { first: 3 } ⇒ the field shows "4" (1-based).
+    const selfRefSpec: FieldSpec = {
+      embedKey: "blk/inline/0", host: "main", hostBlockId: asBlockId("blk"),
+      fieldType: "cross-ref-page", targetId: asBlockId("blk"), numberStyle: "decimal", computedStyle: cs,
+    };
+    const { globalFieldValues } = resolvePageFields(
+      fakePlan(10, { blk: { first: 3, last: 3 } }),
+      [selfRefSpec],
+      measurer,
+    );
+    expect(globalFieldValues.get("blk/inline/0")).toBe(formatCounter(4, "decimal")); // span.first 3 → page 4
   });
 
   it("empty field set → empty maps", () => {

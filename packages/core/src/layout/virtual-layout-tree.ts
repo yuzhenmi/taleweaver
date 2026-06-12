@@ -487,6 +487,16 @@ export function makeVirtualLayoutTree(
     // value in for those pages so the host page re-materializes when the target's resolved
     // page (the value) changes. A target moving pages thus busts the carry-forward for the
     // page that displays the ref.
+    //
+    // Cross-tree-stability contract (why the element-wise fold is sound):
+    //   - `mainBodyFieldSpecs` is a `filter` over the deterministic `fieldSpecs` tree walk,
+    //     so the PREV and CURRENT tree's closures iterate it in IDENTICAL order — the
+    //     per-page value array lines up element-for-element across trees.
+    //   - the `span.first <= pageIndex <= span.last` guard includes the value on EVERY host
+    //     page of a multi-page block, so both trees fold the same specs on the same pages.
+    //   - therefore the cross-tree `childrenRefsEqual` fingerprint compare in `getPage` is a
+    //     valid element-wise compare; and a target moving pages changes the value STRING →
+    //     the fingerprint differs → the host page re-materializes (no stale value reuse).
     const mainValues: string[] = [];
     for (const spec of mainBodyFieldSpecs) {
       const span = plan.pageSpanOfBlock(spec.hostBlockId);

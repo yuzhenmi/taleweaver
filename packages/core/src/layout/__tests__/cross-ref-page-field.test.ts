@@ -28,8 +28,10 @@ import type { PageConfig } from "../page-config";
 import type { LayoutBox } from "../layout-box";
 import type { PageBox } from "../page-box";
 import { buildVirtualPaginatedTree } from "../virtual-producer";
+import { cascadePassIncremental } from "../../cascade";
 import { CROSS_REFERENCE_EMBED_TYPE } from "../../state";
 import { PAGE_FIELD_RESERVED_GLYPHS } from "../../state/page-field";
+import { BROKEN_CROSS_REFERENCE_TEXT } from "../../render/resolve-cross-reference";
 
 const shaper = () => createMockShaper(8, 16);
 const RESERVED = "0".repeat(PAGE_FIELD_RESERVED_GLYPHS); // "00"
@@ -200,6 +202,86 @@ describe("main-body page-mode cross-reference (S6b end-to-end)", () => {
     // The grown 3-glyph value, resolved + substituted + materialized on the host page.
     expect(crossRefTextOnPage(tree.getPage(0), HOST_REF_KEY)).toBe("101");
     expect(crossRefTextOnPage(tree.getPage(0), HOST_REF_KEY)).not.toBe(RESERVED);
+  });
+
+  it("LDF-3: a body cross-ref to a DELETED / unresolvable target materializes BROKEN_CROSS_REFERENCE_TEXT", () => {
+    // The broken-ref path through MATERIALIZE: when `plan.pageSpanOfBlock(targetId)` is null
+    // (target block id does not exist), `resolvePageFields` stores the `""` sentinel value;
+    // `substituteLayoutFields` then maps `"" → BROKEN_CROSS_REFERENCE_TEXT` (the same constant
+    // render-time number/text broken refs use). Host "p" targets a NON-EXISTENT block; the
+    // resolved atom on the host page reads the broken-ref text, not a page number.
+    const children = [
+      hostParagraph("p", "DOES_NOT_EXIST"),
+      fixedBlock("f0", 100),
+    ];
+    const root = cascadeRoot({ display: "block" }, children);
+    const tree = build(root, pageConfig(300));
+
+    expect(tree.plan.pageSpanOfBlock("DOES_NOT_EXIST")).toBeNull(); // target genuinely absent
+    expect(crossRefTextOnPage(tree.getPage(0), HOST_REF_KEY)).toBe(BROKEN_CROSS_REFERENCE_TEXT);
+    expect(crossRefTextOnPage(tree.getPage(0), HOST_REF_KEY)).not.toBe(RESERVED); // placeholder gone
+  });
+
+  it("LDF-3: when the target MOVES to a later page, the host page re-materializes with the NEW page number (§4.9 fingerprint fold busts reuse)", () => {
+    // The highest-value test: prove the §4.9 per-page fingerprint fold (a main-body field's
+    // value on its host page) busts the carry-forward memo when the target's resolved page
+    // changes — so the host page does NOT reuse a stale page number.
+    //
+    // Faithful incremental rebuild: build 1's RAW child boxes are REUSED by reference in
+    // build 2 (only a filler is INSERTED before the target), and build 2 cascades via the REAL
+    // `cascadePassIncremental` path, which short-circuits unchanged children (p, f0) to their
+    // build-1 cascaded refs. So page 0 ([p, f0]) is structurally IDENTICAL across both trees —
+    // its `children` fingerprint refs match — and the ONLY fingerprint difference on page 0 is
+    // the folded main-body value string ("2" → "3"). Build 2 carries build 1 as `prevTree`, so
+    // the carry-forward memo is genuinely eligible to reuse page 0; it is correctly rejected by
+    // the value fold alone. This exercises exactly the §4.9 re-materialize the audit credits.
+    //
+    // pageConfig(300) ⇒ content 280 ⇒ a single 280px filler fills a page. The host paragraph
+    // "p" (~one line) sits ALONE on page 0 (p + a 280px filler overflows 280), so page 0 is
+    // structurally `[p]` in BOTH builds — its `children` fingerprint refs are identical and the
+    // ONLY page-0 fingerprint difference is the §4.9 main-body value fold. Each filler past f0
+    // owns its own page, so inserting one filler before the target shifts the target one page
+    // later WITHOUT touching page 0's child set.
+    const cfg = pageConfig(300);
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, cfg.pageInlineSize);
+
+    // RAW build-1 children (kept so build 2 can reuse the unchanged ones by reference).
+    const p = hostParagraph("p", "B");
+    const f0 = fixedBlock("f0", 280);
+    const f1 = fixedBlock("f1", 280);
+    const B = fixedBlock("B", 280);
+    const root1Raw = createElementBox("root", { display: "block" } as Style, [p, f0, f1, B]);
+    const root1 = cascadePass(root1Raw);
+    if (root1.type !== "element") throw new Error("cascadePass returned non-element");
+    const tree1 = buildVirtualPaginatedTree(root1, ctx, shaper(), cfg);
+
+    // Build 1: page0 [p], page1 [f0], page2 [f1], page3 [B] ⇒ B on page index 3 ⇒ host shows "4".
+    expect(tree1.plan.entries.length).toBe(4);
+    expect(tree1.plan.pageSpanOfBlock("p")?.first).toBe(0); // host alone on page 0
+    expect(tree1.plan.pageSpanOfBlock("B")?.first).toBe(3);
+    // Materialize the host page so build 2's memo has a PageBox to (try to) reuse.
+    expect(crossRefTextOnPage(tree1.getPage(0), HOST_REF_KEY)).toBe("4");
+
+    // Build 2: INSERT a 280px filler between f0 and f1 — REUSING p, f0, f1, B by reference so
+    // the incremental cascade preserves their cascaded refs. The insertion is strictly AFTER
+    // page 0, so page 0 stays `[p]` structurally (same child refs); only B's page moves.
+    const fNew = fixedBlock("fNew", 280);
+    const root2Raw = createElementBox("root", { display: "block" } as Style, [p, f0, fNew, f1, B]);
+    const root2Cascaded = cascadePassIncremental(root2Raw, root1Raw, root1);
+    if (root2Cascaded.type !== "element") throw new Error("cascadePassIncremental returned non-element");
+    const tree2 = buildVirtualPaginatedTree(root2Cascaded, ctx, shaper(), cfg, tree1);
+
+    // Build 2: page0 [p], page1 [f0], page2 [fNew], page3 [f1], page4 [B] ⇒ B on page index 4 ⇒ "5".
+    expect(tree2.plan.entries.length).toBe(5);
+    expect(tree2.plan.pageSpanOfBlock("p")?.first).toBe(0); // host STILL alone on page 0 (unchanged)
+    expect(tree2.plan.pageSpanOfBlock("B")?.first).toBe(4);
+
+    // THE LOCK: the host page (page 0) re-materializes with the NEW value "5", NOT the stale
+    // reused "4". Page 0's structural fingerprint (its `[p]` child ref) is UNCHANGED across the
+    // two trees, so the carry-forward memo is genuinely eligible to reuse build 1's PageBox; it
+    // is correctly rejected ONLY by the §4.9 value fold ("4" → "5"). Without that fold the host
+    // page would reuse the stale "4".
+    expect(crossRefTextOnPage(tree2.getPage(0), HOST_REF_KEY)).toBe("5");
   });
 
   it("R-F6: a 2-COLUMN body cross-ref to a SUB-reservation page value materializes the atom at the RESERVATION width (no measure↔materialize drift)", () => {

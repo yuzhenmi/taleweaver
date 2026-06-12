@@ -214,13 +214,25 @@ export function buildVirtualPaginatedTree(
     const patchedTemplates = patchFieldWidths(cascadedTemplateContents, grownWidths);
     // §4.8: when the MAIN body hosts a layout-dependent field, patch the body root's
     // field widths and rebuild `metas` from the patched root so the IFC line-wraps the
-    // host block against the grown inline-block width. `patchRootFieldWidths` returns
-    // `cascadedRoot` unchanged on empty `grownWidths` (pass 1), and `buildBlockFitMetas`
-    // is cached by `(ref, width, shaper)` — so an unchanged root re-hits the cache. For
-    // a field-free body, `patchedRoot === cascadedRoot` and `effectiveMetas === metas`.
+    // host block against the grown inline-block width. For a field-free body,
+    // `patchedRoot === cascadedRoot` and `effectiveMetas === metas`.
     // The two track-width meta builder callbacks (below) ALSO size off `patchedRoot` so
     // every meta source (full-width primary, narrow-track multicol, footnote re-fit)
     // sizes the body cross-ref atom identically — measure↔materialize consistency.
+    //
+    // R-F6 caching note: `mergeBodyWidths` feeds the RESERVED (2-glyph) widths — a
+    // NON-empty map — whenever the doc has any main-body field, even on pass 1 where
+    // `grownWidths` is empty. So `patchRootFieldWidths` always spine-clones a fresh root
+    // ref for a body-field doc, and `buildBlockFitMetas` (cached by `(ref, width, shaper)`)
+    // MISSES the cache → a full body meta rebuild every build. This is deliberate: feeding
+    // the reserved-or-grown widths (never empty when main-body fields exist) is exactly
+    // what keeps measure↔materialize byte-identical (R-F6) — materialize patches the body
+    // root with the SAME merged widths. The cost is correctness-neutral and bounded: one
+    // body meta rebuild per build, ONLY for field-bearing docs (the field-free common path
+    // hits the `cascadedRoot`/`metas` branch below and is untouched). Tracked perf
+    // follow-up: memoize `buildBlockFitMetas` by width-map CONTENT (not patched-root ref)
+    // so a re-derived-but-equal reserved-width patch re-hits — tied to the
+    // substitute-driven-measure redesign that would also yield tight (non-reserved) widths.
     // R-F6: patch with the MERGED body widths (each main-body field's grown-or-RESERVED width),
     // so the measure pass sizes every body cross-ref atom at an EXPLICIT width byte-identical to
     // the one materialize will use (`mergeBodyWidths(grownWidths)` is threaded to
