@@ -4,6 +4,7 @@ import type { EditorState, EditorConfig } from "../editor-state";
 import { render, type RenderOutput } from "../../render/render";
 import { cascadePass, cascadePassIncremental } from "../../cascade";
 import { layoutTreeIncremental } from "../../layout/layout-incremental";
+import { makeBlockParentLookup } from "../block-parent-lookup";
 import type { ElementBox, RenderNode } from "../../render/render-node";
 import type { LayoutBox } from "../../layout/layout-box";
 import type { VirtualLayoutTree } from "../../layout/virtual-layout-tree";
@@ -175,6 +176,11 @@ function renderCascadeLayout(
   // footnote-bearing-but-unchanged cases.
   const footnoteAnchors = rendered.footnoteAnchors;
 
+  // Task 2.5: build the layout parent-lookup so a `cross-ref-page` field to a NESTED
+  // target (e.g. a table-cell paragraph the page plan doesn't index directly) resolves
+  // via its top-level ancestor's page on every incremental render cycle (`rebuildTrees`).
+  const parentOf = makeBlockParentLookup(state);
+
   const layout = layoutTreeIncremental(
     cascadedRoot,
     incremental ? prev.prevCascaded : null,
@@ -185,6 +191,7 @@ function renderCascadeLayout(
     cascadedTemplateContents,
     cascadedEmbedContents,
     footnoteAnchors,
+    parentOf,
   );
 
   return { rendered, cascadedRoot, cascadedTemplateContents, cascadedEmbedContents, layout };

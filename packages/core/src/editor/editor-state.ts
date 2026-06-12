@@ -15,6 +15,7 @@ import type { AttrRegistry } from "../cascade/attr-registry";
 import type { EditorAction } from "./editor-action";
 import type { CaretAffinity } from "../cursor/line-bidi";
 import { coalesceKeyOf } from "./coalesce-key";
+import { makeBlockParentLookup } from "./block-parent-lookup";
 import {
   handleInsertText,
   handleDeleteBackward,
@@ -273,6 +274,11 @@ export function createEditorStateFromState(
   // document). Subsequent incremental cycles (`rebuildTrees`) read the same
   // field, which is reused across cycles when no anchor changed.
   const footnoteAnchors = rendered.footnoteAnchors;
+  // Task 2.5: build the layout layer's parent-lookup so a `cross-ref-page` field to a
+  // NESTED target (e.g. a paragraph inside a table cell — not a top-level root child the
+  // page plan indexes) resolves via its nearest indexed ancestor. Without threading this,
+  // `parentOf` would be `undefined` and any nested-target page-field would show broken-ref.
+  const parentOf = makeBlockParentLookup(state);
   const layout = layoutTree(
     cascadedRoot,
     config.containerWidth,
@@ -285,6 +291,7 @@ export function createEditorStateFromState(
     // footnote layout pass. Unused for layout output today.
     cascadedEmbedContents,
     footnoteAnchors,
+    parentOf,
   );
 
   return {
