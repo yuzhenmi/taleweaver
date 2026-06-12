@@ -531,4 +531,111 @@ describe("Table FC fragmentation — repeating header rows (#487)", () => {
     expect(p1.box.blockSize).toBe(90);
     expect(p1.breakToken).toEqual({ type: "table", resumeAtRow: 3 });
   });
+
+  // S6.2 HEADER-CAP (#487 §6): the header alone exceeds the continuation
+  // fragment. The header is placed and OVERFLOWS (clipped by the page like any
+  // oversized block — its box still emits); the body still force-places ≥1 row
+  // below it; pagination terminates (no hang). Per spec §6, HEADER-CAP fires only
+  // on CONTINUATIONS (startBodyRow > 0). CONFIRMING: the S3+S4 force-place-1 path
+  // (table-fc.ts E.1: header rows are always emitted; bodyAvailable goes negative;
+  // PROGRESS forces one body row) already handles it.
+  it("HEADER-CAP: header taller than the continuation fragment still emits the header + forces ≥1 body row", () => {
+    // 5 rows × 60 (tall header), headerRowCount 1. Continuation resumes at body
+    // row 2 with availableBlockSize 50 < the 60-tall header → the header alone
+    // overflows. bodyAvailable = 50 − 60 = −10 < every body row ⇒ zero fit ⇒
+    // PROGRESS force-places exactly ONE body row. resumeAtRow advances 2 → 3.
+    const table = buildHeaderTable(5, 1, 60);
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+
+    const p = layoutTable(table, 0, 0, ctx, shaper, {
+      availableBlockSize: 50, pageIndex: 1,
+      resumeFrom: { type: "table", resumeAtRow: 2 },
+    });
+    // Header (row-0) is emitted at the top despite overflowing; the forced body
+    // row-2 follows. resumeAtRow strictly advances to 3 (terminates, no hang).
+    expect(p.breakToken).toEqual({ type: "table", resumeAtRow: 3 });
+    if (p.box === null) throw new Error("header-cap box");
+    expect(p.box.children.map((r) => r.key)).toEqual(["row-0", "row-2"]);
+    const headerRow = p.box.children[0];
+    if (headerRow.type !== "table-row") throw new Error("expected header row");
+    expect(headerRow.blockOffset).toBe(0);
+    expect(headerRow.blockSize).toBe(60); // the full header height (not clamped to 50)
+    // The forced body row starts below the header reservation (block-offset 60).
+    expect(p.box.children[1]?.blockOffset).toBe(60);
+    // header 60 + forced body 60 = 120 (overflows the 50 page — accepted, clipped).
+    expect(p.box.blockSize).toBe(120);
+  });
+
+  // S6.4 span-from-header composition (#487 §3 clean-cut): a LEGAL (non-straddling)
+  // header containing a WITHIN-header row-span re-lays correctly across a fragment.
+  // CONFIRMING: the clean-cut invariant (S1) keeps the header band span-free of the
+  // boundary, so the re-laid header sub-grid carries its internal span intact.
+  it("re-lays a header containing a WITHIN-header row-span on a continuation fragment", () => {
+    // 2 header rows (headerRowCount 2): col-0 cell H spans BOTH header rows
+    // (rowSpan 2, fully inside [0,2) — clean, does not straddle the body); col-1
+    // has a per-row cell. Then 4 body rows. The header band is an independent
+    // sub-grid that must re-lay with H spanning both repeated header rows.
+    const cellH = createElementBox(
+      "cellH", { display: "table-cell" }, [blockLine("h0"), blockLine("h1")], { rowSpan: 2 },
+    );
+    const hb0 = createElementBox("hb0", { display: "table-cell" }, [blockLine("hb0c")]);
+    const hb1 = createElementBox("hb1", { display: "table-cell" }, [blockLine("hb1c")]);
+    const headerRow0 = createElementBox("row-0", { display: "table-row" }, [cellH, hb0]);
+    const headerRow1 = createElementBox("row-1", { display: "table-row" }, [hb1]);
+    const bodyRows = Array.from({ length: 4 }, (_, i) =>
+      createElementBox(`row-${i + 2}`, { display: "table-row" }, [
+        createElementBox(`bcellA-${i}`, { display: "table-cell" }, [blockLine(`ba${i}`)]),
+        createElementBox(`bcellB-${i}`, { display: "table-cell" }, [blockLine(`bb${i}`)]),
+      ]),
+    );
+    const table = createElementBox(
+      "table", { display: "table" }, [headerRow0, headerRow1, ...bodyRows],
+      { headerRowCount: 2, columnWidths: [0.5, 0.5] },
+    );
+    const cascaded = cascadePass(table);
+    if (cascaded.type !== "element") throw new Error("cascade");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+
+    // Each row is 16 tall (single block line). Header band = rows 0,1 = 32 tall.
+    // Continuation resumes at body row 4 with availableBlockSize 80: header(32)
+    // reserved ⇒ body budget 48 ⇒ rows 4,5 (32) fit; the table ends (no row 6).
+    const p = layoutTable(cascaded, 0, 0, ctx, shaper, {
+      availableBlockSize: 80, pageIndex: 1,
+      resumeFrom: { type: "table", resumeAtRow: 4 },
+    });
+    expect(p.breakToken).toBeNull(); // rows 4,5 are the last body rows
+    if (p.box === null) throw new Error("span-from-header box");
+    // The continuation re-emits BOTH header rows (the span band) then resumes the
+    // body rows 4,5 — no duplication of rows 2,3 (those stayed on the prior page).
+    expect(p.box.children.map((r) => r.key)).toEqual([
+      "row-0", "row-1", "row-4", "row-5",
+    ]);
+
+    // The within-header span cell H is re-laid spanning BOTH repeated header rows:
+    // it lives in the re-laid header band's row 0 with rowSpan 2.
+    const reHeaderRow0 = p.box.children[0];
+    if (reHeaderRow0.type !== "table-row") throw new Error("expected header row");
+    const reH = reHeaderRow0.children.find((c) => c.key === "cellH");
+    if (reH === undefined || reH.type !== "table-cell") throw new Error("re-laid H not found");
+    expect(reH.rowSpan).toBe(2);
+    expect(reH.blockOffset).toBe(0);
+    // H covers both 16-tall header rows ⇒ its merged box is 32 tall.
+    expect(reH.blockSize).toBe(32);
+
+    // Fragment-local occupancy describes exactly the 4 emitted rows; H's span
+    // occupies BOTH header-band slots in column 0 and every slot resolves in THIS
+    // fragment's cellBoxById (the re-laid header sub-grid is self-contained).
+    expect(p.box.occupancy.length).toBe(4);
+    expect(p.box.occupancy[0]?.[0]).toBe("cellH");
+    expect(p.box.occupancy[1]?.[0]).toBe("cellH"); // span continues into header row 1
+    for (const row of p.box.occupancy) {
+      for (const cellId of row) {
+        if (cellId !== null) expect(p.box.cellBoxById.has(cellId)).toBe(true);
+      }
+    }
+    // The re-laid header cell box is a fresh instance registered in THIS fragment.
+    expect(p.box.cellBoxById.get(asBlockId("cellH"))).toBe(reH);
+  });
 });

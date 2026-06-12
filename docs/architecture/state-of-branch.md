@@ -151,7 +151,7 @@ Built-in component behavior:
   preserves the rectangular-grid invariant layout depends on. HTML table ENCODE
   (`<table>`/`<tr>`/`<td>`, see [`2.5-html-serializer.md`](2-dom/2.5-html-serializer.md))
   now ships — tables are no longer lost on export. **Header-row repetition (#487)
-  STATE + RENDER + LAYOUT `[implemented]` (S1–S4)**: the per-table `headerRowCount`
+  `[implemented]` end-to-end (S1–S6)**: the per-table `headerRowCount`
   attr + `setTableHeaderRows` op (clamped by the clean-cut invariant via
   `largestCleanHeaderCount`) + the `adjustHeaderRowCount` fix-up wired into all four
   row insert/delete ops keep the count valid (S1); the `table` component reads it raw
@@ -163,11 +163,15 @@ Built-in component behavior:
   The incremental reuse gates (`canReusePage` + `PageFingerprint`) correctly re-fit /
   re-materialize continuations after a header-cell edit — confirmed by regression tests
   (S5; the existing cascade-RenderNode-ref keying already covers it, no new gate needed).
-  REMAINING `[partial]`: hard-case hardening (HEADER-CAP, multicolumn, span-from-header
-  — S6, mostly proving cases already handled by S3+S4). Still `[missing]`:
-  browser-gated example-app Table menu wiring (the `INSERT_TABLE` button + the
-  span-aware actions + a header-row toggle), structural table copy/paste, and HTML
-  table DECODE (paste-in).
+  The hard cases are proven by behavior/geometry tests (S6): PROGRESS forces ≥1 body
+  row per continuation (anti-hang, exact page-count pinned); HEADER-CAP overflows a
+  too-tall header without dropping it; a multicolumn-nested table repeats its header
+  per column-portion with `headerBlockSize` computed at the column TRACK width (the
+  drift-prevention width recursion); and the clean-cut invariant makes a
+  header-straddling merged cell unrepresentable (within-header spans re-lay correctly).
+  Still `[missing]`: browser-gated example-app Table menu wiring (the `INSERT_TABLE`
+  button + the span-aware actions + a header-row toggle), structural table copy/paste,
+  and HTML table DECODE (paste-in).
 
 ### `render/` `[implemented]`
 
@@ -295,9 +299,10 @@ Known gaps:
   + row-edit fix-up), S2 (render: metadata stamp), S3+S4 (measure reserves
   `headerBlockSize`, materialize re-lays the header rows at each continuation
   fragment's top — byte-identical, gated by the equivalence harness + a direct
-  `getPage` test). REMAINING: reuse-gate sensitivity to header-cell edits (S5) +
-  hard-case hardening (S6). `<tfoot>` bottom-footer repetition remains a separate
-  future feature. `resumeAtRow` indexes absolute rows (header rows re-emit but do not
+  `getPage` test), S5 (reuse-gate sensitivity to header-cell edits — confirmed), and
+  S6 (hard cases: PROGRESS anti-hang, HEADER-CAP overflow, multicolumn per-track-width
+  header, clean-cut spans — all proven). `<tfoot>` bottom-footer repetition remains a
+  separate future feature. `resumeAtRow` indexes absolute rows (header rows re-emit but do not
   advance it).
 
 ### Pagination `[partial]`

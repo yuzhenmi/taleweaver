@@ -442,6 +442,77 @@ describe("VirtualLayoutTree — #487 header repetition (Gate B: measure↔materi
     // feature must not ship.
     expect(table.blockSize).toBe(90);
   });
+
+  // S6.1 PROGRESS (#487 §6) — full pipeline. A continuation where the header +
+  // the next single body row exceed the fragment (`headerBlockSize +
+  // rowBlockSizes[startRow] > availableBlockSize`) must still place the header +
+  // exactly ONE overflowing body row; `resumeAtRow` strictly increases each
+  // fragment; pagination TERMINATES (finite, sane page count). CONFIRMING: the
+  // S3+S4 force-place-1 PROGRESS floor handles it; this locks measure (plan) AND
+  // materialize (getPage) agreement on the forced row through the real producer.
+  it("PROGRESS: header + one over-tall body row forces exactly ONE row per continuation; resumeAtRow strictly increases; pagination terminates", () => {
+    // Header row 20 tall; four BODY rows each 90 tall. Page content 100.
+    // Page 0 (first fragment, no reservation): header(20) fits, +body row 1 (90) =
+    // 110 > 100 ⇒ only the header row fits; break at row 1. Every CONTINUATION
+    // reserves header(20) ⇒ body budget 80 < 90 ⇒ zero body rows fit ⇒ PROGRESS
+    // forces exactly ONE 90-tall body row, advancing resumeAtRow by 1 each page.
+    // The table terminates after the last body row (no hang).
+    const root = cascadeRoot({ display: "block" }, [
+      tableWithHeaderRowHeights([20, 90, 90, 90, 90], 1),
+    ]);
+    const pageConfig = noMarginPageConfig(100);
+    const { plan, tree } = buildPlanAndTree(root, pageConfig);
+
+    // Pagination terminates with the EXACT page count: page 0 places the header
+    // row only (header 20 + body row 90 = 110 > 100), then each of the 4 body rows
+    // is force-placed one-per-continuation ⇒ exactly 5 pages. Pinning the exact
+    // count (not a loose >=2 range) is what actually proves PROGRESS terminated
+    // sanely: a broken §C.6 fallback that dumped all 4 body rows on one overflowing
+    // continuation would yield only 2 pages and fail HERE, not just at materialize.
+    expect(plan.entries.length).toBe(5);
+
+    // resumeAtRow STRICTLY increases across every continuation entry (the anti-hang
+    // guarantee — each fragment advances past exactly 1 body row). There are exactly
+    // 4 continuation resumes (rows 1,2,3,4); pinning the count makes the
+    // strictly-increases loop non-vacuous (a 1-element sequence would pass trivially).
+    const resumes = plan.entries
+      .map((e) => tableResumeAtRow(e))
+      .filter((r): r is number => r !== null);
+    expect(resumes).toEqual([1, 2, 3, 4]);
+    for (let i = 1; i < resumes.length; i++) {
+      expect(resumes[i]).toBeGreaterThan(resumes[i - 1]);
+    }
+
+    // Measure↔materialize agreement on the forced row: take a continuation page
+    // (one whose own `resumeInto` carries a table row), materialize it, and assert
+    // it emits the re-laid header + exactly ONE forced body row (the absolute row
+    // its plan resumed at), and that its block-size equals the measure reservation
+    // (header 20 + the 90-tall forced row).
+    const contIndex = plan.entries.findIndex(
+      (e, i) => i > 0 && tableResumeAtRow(e) !== null,
+    );
+    expect(contIndex).toBeGreaterThanOrEqual(1);
+    const startRow = tableResumeAtRow(plan.entries[contIndex]);
+    if (startRow === null) throw new Error("expected a table resume into the continuation page");
+
+    const contPage = tree.getPage(contIndex);
+    let contTable: LayoutBox | null = null;
+    for (const child of contPage.children) {
+      contTable = findTableBox(child);
+      if (contTable !== null) break;
+    }
+    if (contTable === null || contTable.type !== "table") {
+      throw new Error("no table box on the PROGRESS continuation page");
+    }
+    // Re-laid header (row-0) + exactly ONE forced body row (the absolute resume row).
+    expect(contTable.children.map((r) => r.key)).toEqual(["row-0", `row-${startRow}`]);
+    expect(contTable.children[0]?.blockOffset).toBe(0);
+    expect(contTable.children[0]?.blockSize).toBe(20); // header reservation
+    expect(contTable.children[1]?.blockOffset).toBe(20); // body starts below header
+    // Total = header 20 + forced 90-tall body row = 110 (overflows the 100 page —
+    // the accepted PROGRESS floor; matches the measure reservation, no drift).
+    expect(contTable.blockSize).toBe(110);
+  });
 });
 
 // ---------------------------------------------------------------------------

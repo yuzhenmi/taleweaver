@@ -84,6 +84,35 @@ function textBlock(key: string, text: string): ElementBox {
   ]);
 }
 
+/**
+ * A single table with `headerRowCount` repeating header rows (#487), each body
+ * cell carrying distinct text so a re-laid header row is identifiable by content.
+ * Stamped onto the table box metadata exactly as the `table` component does in
+ * production. Fixed row heights keep the column-split geometry deterministic.
+ */
+function headerTable(numRows: number, headerRowCount: number, rowHeight: number): ElementBox {
+  const rows = Array.from({ length: numRows }, (_, i) =>
+    createElementBox(`row-${i}`, { display: "table-row", blockSize: rowHeight } as Style, [
+      createElementBox(`cell-${i}`, { display: "table-cell" } as Style, [
+        createTextBox(`ct-${i}`, {}, `r${i}`),
+      ]),
+    ]),
+  );
+  return createElementBox("tbl", { display: "table" } as Style, rows, { headerRowCount });
+}
+
+/** Recursively find the first `table` LayoutBox in a positioned subtree. */
+function findTableBox(box: LayoutBox): LayoutBox | null {
+  if (box.type === "table") return box;
+  if ("children" in box) {
+    for (const child of box.children) {
+      const found = findTableBox(child);
+      if (found !== null) return found;
+    }
+  }
+  return null;
+}
+
 /** A `SectionPlan` declaring an N-column doc-wide default (no per-section override). */
 function columnSectionPlan(columnConfig: ColumnConfig): SectionPlan {
   return {
@@ -386,6 +415,76 @@ describe("materializePage — multi-column body", () => {
     // The remainder lands in column 0; column 1 is the empty (zero-children) box.
     expect(mc.columns[0].children.length).toBeGreaterThan(0);
     expect(mc.columns[1].children.length).toBe(0);
+  });
+
+  // S6.3 (#487 §7.4) — a header-repeating table that fragments across COLUMNS
+  // repeats its header at the top of each column-portion, and the header is
+  // computed at the COLUMN's (narrow track) inline-size, not the full page width.
+  // CONFIRMING: the buildTree harness passes the track-width `buildMetasAtWidth`
+  // closure (the §4/§7.4 `classifyChild`/`contentInlineSizeOf` width recursion),
+  // so measure plans at the track width and materialize lays the columns at the
+  // track width — they agree, and the re-laid header repeats per column-portion.
+  it("repeats the header at the top of each COLUMN-portion, computed at the column track width", () => {
+    // ONE table, headerRowCount 1, rows 30 tall, inside a 2-column section. Page
+    // body 100 ⇒ each column track is 100 tall. Column 0 (no header reservation —
+    // first fragment): header(30) + body 1,2 = 90 (row 3 → 120 > 100) ⇒ break at
+    // row 3. Column 1 (continuation) reserves header(30) ⇒ body budget 70 ⇒ rows
+    // 3,4 fit ⇒ the header REPEATS at the top of column 1 before body rows 3,4.
+    const columnGap = 40;
+    const pageConfig = noMarginPageConfig(100, 600);
+    const root = cascadeRoot({ display: "block" }, [headerTable(8, 1, 30)]);
+    const { plan, tree } = buildTree(
+      root,
+      pageConfig,
+      columnSectionPlan({ columnCount: 2, columnGap, columnRule: null }),
+    );
+
+    expect(plan.entries[0].columnConfig.columnCount).toBe(2);
+    const bodyInlineSize =
+      pageConfig.pageInlineSize -
+      pageConfig.pageMargins.inlineStart -
+      pageConfig.pageMargins.inlineEnd; // 600
+    const trackInlineSize = (bodyInlineSize - columnGap) / 2; // (600−40)/2 = 280
+
+    const page = tree.getPage(0);
+    const body = bodyBoxOf(page);
+    expect(body.type).toBe("multicolumn");
+    const mc = body as MultiColumnBox;
+    expect(mc.columns.length).toBe(2);
+
+    // (a) Each column-portion's FIRST table row is a header row. Column 0's is the
+    // ordinary leading header (first fragment); column 1's is the RE-LAID repeated
+    // header (continuation) — both are row-0 (the header), and column 1 does NOT
+    // duplicate body rows 1,2 (those stay in column 0).
+    const col0Table = findTableBox(mc.columns[0]);
+    const col1Table = findTableBox(mc.columns[1]);
+    if (col0Table === null || col0Table.type !== "table") throw new Error("no table in column 0");
+    if (col1Table === null || col1Table.type !== "table") throw new Error("no table in column 1");
+    expect(col0Table.children.map((r) => r.key)).toEqual(["row-0", "row-1", "row-2"]);
+    // Column 1 re-emits the header (row-0) then resumes body rows 3,4.
+    expect(col1Table.children.map((r) => r.key)).toEqual(["row-0", "row-3", "row-4"]);
+    // The re-laid header sits at the column-portion's top; the resumed body row
+    // starts below the header reservation (block-offset 30).
+    expect(col1Table.children[0]?.blockOffset).toBe(0);
+    expect(col1Table.children[1]?.blockOffset).toBe(30);
+
+    // (b) WIDTH RECURSION — the load-bearing §4/§7.4 assertion: the header (and the
+    // whole table) was laid at the COLUMN track width (280), NOT the full page
+    // content width (600). Both the column-0 header and the re-laid column-1 header
+    // carry the track width — proving `buildBlockFitMetas`/`classifyChild` recursed
+    // to the narrow column inline-size for BOTH measure and materialize (no drift).
+    expect(col0Table.inlineSize).toBe(trackInlineSize);
+    expect(col1Table.inlineSize).toBe(trackInlineSize);
+    expect(col1Table.inlineSize).not.toBe(bodyInlineSize);
+    const col1Header = col1Table.children[0];
+    if (col1Header === undefined || col1Header.type !== "table-row") {
+      throw new Error("expected re-laid header row in column 1");
+    }
+    expect(col1Header.inlineSize).toBe(trackInlineSize);
+
+    // (c) NO DRIFT — the column-1 portion's body rows consume exactly the measure
+    // reservation: header(30) + Σ placed body rows (3,4 = 60) = 90.
+    expect(col1Table.blockSize).toBe(90);
   });
 });
 
