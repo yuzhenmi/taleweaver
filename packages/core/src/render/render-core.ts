@@ -15,6 +15,7 @@
  */
 import {
   resolveBlock,
+  getOutline,
   asBlockId,
   FOOTNOTE_ANCHOR_EMBED_TYPE,
   CROSS_REFERENCE_EMBED_TYPE,
@@ -62,9 +63,17 @@ import type {
   LeafBlockView,
   RenderContext,
 } from "./block-view";
-import type { RenderNode } from "./render-node";
+import type { ElementBox, RenderNode } from "./render-node";
 import { createTextBox, createElementBox } from "./render-node";
 import { buildFootnoteMarker } from "./footnote-marker";
+import { buildTocEntrySubtree } from "./toc-entry-subtree";
+import type { TocAttrs } from "../components/table-of-contents-attrs";
+import {
+  tocLevelsFromAttrs,
+  tocLeaderFromAttrs,
+  tocShowPageNumbersFromAttrs,
+  tocIndentStepFromAttrs,
+} from "../components/table-of-contents-attrs";
 
 /**
  * The pilcrow (U+00B6 ¶) glyph a change-tracking break-suggestion embed renders
@@ -143,6 +152,20 @@ export function renderBlockBody(
       throw new Error(`render: no component registered for block type "${block.type}"`);
     }
 
+    // A live Table of Contents synthesizes its entry lines from the document
+    // outline at render time (derive-not-store), BEFORE the generic component
+    // dispatch — the `table-of-contents` component would otherwise return its
+    // zero-height stub placeholder. The entry subtree is page-agnostic; each
+    // entry's page-number atom is a `"page"`-mode cross-ref bound late at
+    // materialize (the shipped `collectPageFields` seam, keyed `${tocId}/toc/${i}`).
+    // NOTE: `renderBlockIncremental` reuses a stale TOC node when a heading
+    // changes but the TOC block is not itself dirty; that incremental
+    // outline-staleness is handled by the forthcoming `outlineSignature`
+    // invalidation (NOT this slice).
+    if (block.type === "table-of-contents") {
+      return renderTocBlock(block, state, context.suggestionView ?? "suggesting");
+    }
+
     if (def.kind === "container") {
       const view: ContainerBlockView = Object.freeze({
         id: block.id,
@@ -211,6 +234,27 @@ export function renderBlockBody(
     // active path when we re-encounter it.
     visited.delete(block.id);
   }
+}
+
+/**
+ * Render a live Table of Contents block: read the TOC options off the block's
+ * attrs (via the same validators the component uses), derive the document
+ * outline, and synthesize one entry-line box per qualifying heading. The TOC
+ * box is a `display: block` container whose children are the synthesized entry
+ * lines (which inherit body font/etc. from the parent through this minimal
+ * style). The `tableOfContents` metadata keeps the box recognizable to the DOM
+ * controller's TOC hit-test (mirroring the stub the component used to emit).
+ */
+function renderTocBlock(block: Block, state: State, suggestionView: SuggestionView): ElementBox {
+  const attrs: TocAttrs = {
+    levels: tocLevelsFromAttrs(block.attrs.levels),
+    leader: tocLeaderFromAttrs(block.attrs.leader),
+    showPageNumbers: tocShowPageNumbersFromAttrs(block.attrs.showPageNumbers),
+    indentStep: tocIndentStepFromAttrs(block.attrs.indentStep),
+  };
+  const outline = getOutline(state, { suggestionView });
+  const entries = buildTocEntrySubtree(outline, attrs, block.id);
+  return createElementBox(block.id, { display: "block" }, entries, { tableOfContents: true });
 }
 
 /**

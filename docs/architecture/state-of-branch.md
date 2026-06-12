@@ -738,10 +738,12 @@ number rides the existing `cross-ref-page` field pipeline (no new field kind); t
 `content-edge` `TabAlignment` (a right tab to the line content edge — the flush-right page
 number); `navTarget`/`tocEntry` `LayoutBoxMetadata` for click-nav; and the pure
 `buildTocEntrySubtree` render helper (heading text + leadered content-edge tab + page atom per
-outline entry). **Still missing:** wiring the helper into the render walk (the
-`table-of-contents` branch in `renderBlockBody`) + `outlineSignature` invalidation, layout/
-fragmentation integration, and the DOM click-to-navigate hit-test. Example-app Insert-menu
-entry + in-browser smoke are browser-gated.
+outline entry); and the `renderBlockBody` `table-of-contents` branch that synthesizes the entry
+subtree at render time (reads the options off the block's attrs, calls `getOutline`, returns the
+entries as the TOC box's children — derive-not-store, bypassing the zero-height stub). **Still
+missing:** `outlineSignature` incremental invalidation (so a heading edit re-derives a TOC that
+is not itself dirty), layout/fragmentation integration, and the DOM click-to-navigate hit-test.
+Example-app Insert-menu entry + in-browser smoke are browser-gated.
 
 ### Comments `[implemented]`
 
