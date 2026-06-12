@@ -109,6 +109,31 @@ describe("collectPageFields (F-1 extraction)", () => {
     expect(specs[0].computedStyle).toBe(INITIAL_COMPUTED_STYLE);
   });
 
+  it("emits a cross-ref-page spec for a TOC-entry atom keyed with /toc/, host = the TOC block", () => {
+    // A synthesized TOC entry page-number atom: a page-mode cross-ref whose render
+    // key is `${tocId}/toc/${i}` (NOT an /inline/ key). hostBlockId must derive
+    // from the part before "/toc/" = the real (plan-indexed) TOC block.
+    const rawAtom = createElementBox("toc1/toc/0", { display: "inline-block" }, [createTextBox("toc1/toc/0/0", {}, "00")], {
+      embedType: "cross-reference",
+      refMode: "page",
+      targetId: "heading1",
+      numberStyle: "decimal",
+    });
+    const atom = Object.freeze({ ...rawAtom, computedStyle: INITIAL_COMPUTED_STYLE });
+    const rawBody = createElementBox("toc1", {}, [atom], { tableOfContents: true });
+    const body = Object.freeze({ ...rawBody, computedStyle: INITIAL_COMPUTED_STYLE });
+    const specs = collectPageFields(new Map(), [body]);
+    expect(specs).toHaveLength(1);
+    expect(specs[0]).toMatchObject({
+      fieldType: "cross-ref-page",
+      embedKey: "toc1/toc/0",
+      host: "main",
+      hostBlockId: "toc1",
+      targetId: "heading1",
+      numberStyle: "decimal",
+    });
+  });
+
   it("skips a cross-ref-page atom whose target id is missing/non-string (no spec)", () => {
     const rawAtom = createElementBox("blk/inline/0", { display: "inline-block" }, [createTextBox("blk/inline/0/0", {}, "00")], {
       embedType: "cross-reference",
@@ -145,8 +170,9 @@ describe("collectPageFields (F-1 extraction)", () => {
     expect(() => collectPageFields(new Map(), [body])).toThrow();
   });
 
-  it("throws if a cross-ref-page atom's key is not an inline render key", () => {
-    // Key lacks the "/inline/" separator → cannot derive hostBlockId → guard throws.
+  it("throws if a cross-ref-page atom's key is neither an inline nor a toc render key", () => {
+    // Key lacks both the "/inline/" and "/toc/" separators → fieldHostBlockId
+    // returns null → cannot derive hostBlockId → guard throws.
     const rawAtom = createElementBox("blk", { display: "inline-block" }, [createTextBox("blk/0", {}, "00")], {
       embedType: "cross-reference",
       refMode: "page",

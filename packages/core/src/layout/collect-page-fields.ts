@@ -4,6 +4,22 @@ import { asBlockId, CROSS_REFERENCE_EMBED_TYPE, type BlockId } from "../state";
 import { PAGE_FIELD_EMBED_TYPE, isPageFieldNumberStyle, type PageFieldNumberStyle } from "../state/page-field";
 
 const INLINE_KEY_SEPARATOR = "/inline/";
+const TOC_KEY_SEPARATOR = "/toc/";
+
+/**
+ * Derive a field atom's host block id from its render key. A real inline field
+ * atom is keyed `${blockId}/inline/${i}`; a synthesized TOC-entry page atom is
+ * keyed `${tocBlockId}/toc/${i}` (its host is the plan-indexed TOC block, which
+ * the fingerprint fold needs so its page numbers stay live). Returns null when
+ * the key carries neither segment (caller throws).
+ */
+function fieldHostBlockId(key: string): BlockId | null {
+  const inlineIdx = key.indexOf(INLINE_KEY_SEPARATOR);
+  if (inlineIdx >= 0) return asBlockId(key.slice(0, inlineIdx));
+  const tocIdx = key.indexOf(TOC_KEY_SEPARATOR);
+  if (tocIdx >= 0) return asBlockId(key.slice(0, tocIdx));
+  return null;
+}
 
 /**
  * Identifies one layout-field instance in the document, keyed by the stable RENDER
@@ -99,10 +115,10 @@ function walk(node: RenderNode, host: "template" | "main", out: FieldSpec[]): vo
         `collectPageFields: cross-ref-page atom "${node.key}" has no computedStyle (walk must run on cascaded trees)`,
       );
     }
-    const sepIndex = node.key.indexOf(INLINE_KEY_SEPARATOR);
-    if (sepIndex < 0) {
+    const hostBlockId = fieldHostBlockId(node.key);
+    if (hostBlockId === null) {
       throw new Error(
-        `collectPageFields: cross-ref-page atom key "${node.key}" is not an inline render key (expected "\${blockId}${INLINE_KEY_SEPARATOR}\${i}")`,
+        `collectPageFields: cross-ref-page atom key "${node.key}" is not an inline or toc render key (expected "\${blockId}${INLINE_KEY_SEPARATOR}\${i}" or "\${tocBlockId}${TOC_KEY_SEPARATOR}\${i}")`,
       );
     }
     const rawTargetId = md.targetId;
@@ -112,7 +128,7 @@ function walk(node: RenderNode, host: "template" | "main", out: FieldSpec[]): vo
         fieldType: "cross-ref-page",
         embedKey: node.key,
         host,
-        hostBlockId: asBlockId(node.key.slice(0, sepIndex)),
+        hostBlockId,
         targetId: asBlockId(rawTargetId),
         numberStyle: isPageFieldNumberStyle(md.numberStyle) ? md.numberStyle : "decimal",
         computedStyle: node.computedStyle,

@@ -22,6 +22,7 @@
  * Putting it under `layout/` and importing it into `render-node.ts` would
  * invert the layering; a render-side leaf keeps the dependency one-directional.
  */
+import type { BlockId } from "../state";
 import type { PageFieldKind, PageFieldNumberStyle } from "../state/page-field";
 
 export interface LayoutBoxMetadata {
@@ -31,6 +32,13 @@ export interface LayoutBoxMetadata {
   // component onto its placeholder box so the render-core TOC branch (a later
   // slice) can recognize the anchor and synthesize the entry subtree.
   readonly tableOfContents?: true;
+  // TOC-entry click-nav markers. Stamped by the render-core TOC branch (a later
+  // slice) onto each synthesized entry box so the DOM controller's TOC hit-test
+  // can navigate to the heading. `navTarget` is the heading block to scroll the
+  // caret to; `tocEntry` marks the box as a clickable entry. NOT a field-kind
+  // discriminant (the entry's page number is a normal cross-ref-page field).
+  readonly navTarget?: BlockId;
+  readonly tocEntry?: true;
   readonly columnWidths?: readonly number[];
   // Table header-row repetition (#487). The number of leading contiguous rows
   // (`[0, headerRowCount)`) that repeat at the top of every page/column fragment

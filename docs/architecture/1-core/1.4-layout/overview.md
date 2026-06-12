@@ -327,6 +327,9 @@ interface LayoutBoxMetadata {
   // unchecked `as {...}` casts at the read sites).
   readonly image?: { readonly src: string; readonly width: number; readonly height: number };
   readonly horizontalLine?: boolean;
+  readonly tableOfContents?: true;    // table-of-contents anchor marker (render-core TOC branch)
+  readonly navTarget?: BlockId;       // TOC-entry click-nav target (the heading to scroll to)
+  readonly tocEntry?: true;           // marks a synthesized TOC entry box as clickable
   readonly columnWidths?: readonly number[];
   readonly blockType?: "section";
   readonly embedType?: string;        // EmbedItem kind on an embed-anchor marker box
