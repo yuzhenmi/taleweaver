@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { moveToLine, moveToLineBoundary } from "./line-navigation";
+import { resolvePixelPosition } from "./cursor-position";
 import { render } from "../render/render";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
@@ -81,6 +82,41 @@ describe("moveToLine (new)", () => {
     if (result === null) return;
     expect(result.position.blockId).toBe("p");
     expect(result.position.offset).toBeLessThan(105);
+  });
+
+  it("ArrowUp landing on a soft-wrap line-END offset threads 'before' affinity so the caret renders on the PRIOR line (#500)", () => {
+    // Single-column generalization of #500. The line-0↔line-1 soft-wrap boundary
+    // offset is SHARED (line0.end === line1.start). When an ArrowUp lands ON that
+    // offset (goal-x at line 0's right edge), only the affinity disambiguates which
+    // visual line the caret renders on: the move must thread `caretAffinity:
+    // "before"` so `resolvePixelPosition` resolves it onto LINE 0 (the line stepped
+    // onto), not line 1. Without the threading the default ("after") prefers line
+    // 1's start (`resolvePositionInOwnLines` soft-wrap rule) — the boundary caret
+    // would render a row too low, the single-column face of the multicol no-op bug.
+    const state = softWrappingState();
+    const { layout, shaper } = pipeline(state, 800);
+    const lines = getLineIndex(layout).byBlock.get("p" as BlockId) ?? [];
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    const line0 = lines[0];
+    const line1 = lines[1];
+    expect(line1.line.inlineOffsetStart).toBe(line0.line.inlineOffsetEnd);
+    // ArrowUp from a MIDDLE line-1 offset, goal-x past line 0's right edge so it
+    // clamps to line 0's END — the shared boundary offset.
+    const pos = createPosition("p" as BlockId, line1.line.inlineOffsetStart + 3);
+    const farRightGoalX = 100_000;
+    const result = moveToLine(state, pos, layout, shaper, "up", farRightGoalX);
+    expect(result).not.toBeNull();
+    if (result === null) return;
+    // Landed on the shared boundary offset (line0.end), threaded affinity "before"
+    // → resolves onto LINE 0's y-band, not line 1's. (The bug → affinity unset →
+    // "after" → line 1.)
+    expect(result.position.offset).toBe(line0.line.inlineOffsetEnd);
+    expect(result.caretAffinity).toBe("before");
+    const pixel = resolvePixelPosition(state, result.position, layout, shaper, undefined, result.caretAffinity);
+    expect(pixel).not.toBeNull();
+    if (pixel === null) return;
+    expect(pixel.y).toBe(line0.absoluteY);
+    expect(pixel.y).toBeLessThan(line1.absoluteY);
   });
 
   it("moves down across a paragraph break", () => {

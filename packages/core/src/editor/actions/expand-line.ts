@@ -22,5 +22,9 @@ export function handleExpandLine(
     ...editor,
     selection: createSpan(editor.selection.anchor, result.position),
     targetX: result.targetX,
+    // #500: thread the focus's resolved affinity (same as MOVE_LINE) so a
+    // Shift+ArrowUp focus landing on a soft-wrap / column-boundary offset renders
+    // on the line the move stepped onto, not the later line at the shared offset.
+    caretAffinity: result.caretAffinity,
   };
 }

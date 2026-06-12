@@ -29,6 +29,7 @@
 
 import { describe, it, expect } from "vitest";
 import { moveToLine } from "./line-navigation";
+import { resolvePixelPosition } from "./cursor-position";
 import { render } from "../render/render";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
@@ -129,7 +130,22 @@ function buildMulticolumnDoc(
     pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
   const shaper = createMockShaper(CHAR_W, LINE_H);
   const metas = buildBlockFitMetas(root, shaper, pageContentInlineSize);
-  const plan = measurePass(metas, pageConfig, columnSectionPlan(columnConfig), root.children);
+  // `buildMetasAtWidth` is REQUIRED for correct multicol pagination: the measure
+  // pass's multicol branch rebuilds metas at each column's TRACK width so the
+  // planned ColumnFit matches `materializePage`'s narrow-track layout. For the
+  // single-line fixtures it is a no-op (each paragraph fits on one line at any
+  // width), but the within-block spanning fixture below has a paragraph that
+  // WRAPS DIFFERENTLY at track vs page width — without the closure that drives a
+  // measure-vs-materialize ColumnFit drift throw. Mirrors `virtual-producer.ts`.
+  const plan = measurePass(
+    metas,
+    pageConfig,
+    columnSectionPlan(columnConfig),
+    root.children,
+    undefined,
+    undefined,
+    (inlineSize) => buildBlockFitMetas(root, shaper, inlineSize),
+  );
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
   const virtual = makeVirtualLayoutTree(plan, root, ctx, createMockShaper(CHAR_W, LINE_H), pageConfig);
 
@@ -268,5 +284,116 @@ describe("line-navigation — multi-column column-aware ArrowUp/Down (slice 3b)"
     // Back into column 0 (the original column) — preserved goal X re-clamps to
     // a column-0 line.
     expect(col0Set.has(up.position.blockId as BlockId)).toBe(true);
+  });
+});
+
+describe("line-navigation — multi-column WITHIN-BLOCK column boundary (same block id in both columns)", () => {
+  // ONE tall paragraph fragments across the column boundary, so the SAME block
+  // id ("p0") owns lines in BOTH columns (column 0 = lines 0..K-1, column 1 =
+  // lines K..end). The cross-BLOCK ArrowDown/Up case above is masked because the
+  // landed block id differs per column; here block id alone does NOT
+  // disambiguate the column, so a column-blind line-nav bug would surface as
+  // ArrowDown/Up resolving back into the wrong column at the SAME block.
+  const columnGap = 40;
+  const pageConfig = noMarginPageConfig(64, 600);
+  const columnConfig: ColumnConfig = { columnCount: 2, columnGap, columnRule: null };
+  const tallParagraph = "word ".repeat(40).trim();
+
+  function geometry() {
+    const built = buildMulticolumnDoc([tallParagraph], pageConfig, columnConfig);
+    const allLines = getLineIndex(built.layout).all;
+    const col0Lines = allLines.filter((l) => l.columnIndex === 0);
+    const col1Lines = allLines.filter((l) => l.columnIndex === 1);
+    return { ...built, col0Lines, col1Lines };
+  }
+
+  it("precondition: one paragraph 'p0' spans BOTH columns (same block id in each)", () => {
+    const { col0Lines, col1Lines } = geometry();
+    expect(col0Lines.length).toBeGreaterThan(0);
+    expect(col1Lines.length).toBeGreaterThan(0);
+    expect(col0Lines.every((l) => l.line.ownerBlockId === "p0")).toBe(true);
+    expect(col1Lines.every((l) => l.line.ownerBlockId === "p0")).toBe(true);
+  });
+
+  it("ArrowDown from the LAST line of column 0 lands on the FIRST line of column 1 (same block, next visual line, larger offset)", () => {
+    const { state, layout, shaper, col0Lines, col1Lines } = geometry();
+
+    const lastCol0 = col0Lines[col0Lines.length - 1];
+    const firstCol1 = col1Lines[0];
+    const caret = createPosition(lastCol0.line.ownerBlockId, lastCol0.line.inlineOffsetStart);
+    // Goal X inside column 0 (the SOURCE column).
+    const goalX = lastCol0.absoluteX + 1;
+
+    const result = moveToLine(state, caret, layout, shaper, "down", goalX);
+    expect(result).not.toBeNull();
+    if (result === null) return;
+
+    // Same block (it spans), but the landed offset must be on the column-1
+    // continuation — i.e. >= column 1's first line start (a LARGER offset than
+    // where column 0 ended), NOT a column-0 offset.
+    expect(result.position.blockId).toBe("p0");
+    expect(result.position.offset).toBeGreaterThanOrEqual(firstCol1.line.inlineOffsetStart);
+    expect(result.position.offset).toBeLessThanOrEqual(firstCol1.line.inlineOffsetEnd);
+    // And strictly past where column 0 stopped (the within-block visual advance).
+    expect(result.position.offset).toBeGreaterThan(lastCol0.line.inlineOffsetEnd - 1);
+  });
+
+  // FOUND BUG (within-block multicol ArrowUp): ArrowUp from the FIRST line of
+  // column 1 (top of the right track) should move the caret VISUALLY UP onto the
+  // last line of column 0 (bottom of the left track). For a SPANNING block the
+  // column boundary is a SOFT-WRAP, so col0's last-line END offset EQUALS col1's
+  // first-line START offset (here both 105). `moveToLine` returns the boundary
+  // offset (105) WITHOUT a `caretAffinity`, and `handleMoveLine` (move-line.ts)
+  // does NOT seed one — so the caret renders with the DEFAULT ("after") affinity,
+  // which `resolvePixelPosition` pins to COLUMN 1's first line (the start side of
+  // the boundary). Net effect: ArrowUp at the top of column 1 leaves the caret
+  // visually in column 1 — it does NOT step up into column 0.
+  //
+  // The down-direction analog (test above) works because ArrowDown lands at a
+  // strictly-larger offset that is unambiguously in column 1; only the UP
+  // direction hits the boundary-offset/affinity ambiguity. The cross-BLOCK
+  // ArrowUp (slice-3b test) is masked because there the landed offset belongs to
+  // a DIFFERENT block whose sole line is in column 0 — no affinity ambiguity.
+  //
+  // This test asserts the CORRECT behavior (caret resolves into column 0) and is
+  // RED until the move-up across a within-block column boundary seeds the
+  // "before" affinity (or otherwise lands a column-0-disambiguated position).
+  it("ArrowUp from the FIRST line of column 1 lands back in COLUMN 0 (same block) — FOUND BUG: caret stays in column 1", () => {
+    const { state, layout, shaper, col0Lines, col1Lines } = geometry();
+
+    const firstCol1 = col1Lines[0];
+    const lastCol0 = col0Lines[col0Lines.length - 1];
+    const caret = createPosition(firstCol1.line.ownerBlockId, firstCol1.line.inlineOffsetStart);
+    // Goal X inside column 1 (the SOURCE column).
+    const goalX = firstCol1.absoluteX + 1;
+
+    const result = moveToLine(state, caret, layout, shaper, "up", goalX);
+    expect(result).not.toBeNull();
+    if (result === null) return;
+
+    // Same spanning block; the landed offset is within column 0's last line
+    // [start, end] (offset alone can't separate the columns at this soft-wrap
+    // boundary — `lastCol0.end === firstCol1.start`).
+    expect(result.position.blockId).toBe("p0");
+    expect(result.position.offset).toBeLessThanOrEqual(lastCol0.line.inlineOffsetEnd);
+    expect(result.position.offset).toBeGreaterThanOrEqual(lastCol0.line.inlineOffsetStart);
+
+    // The load-bearing column check: resolved with the affinity the move THREADED
+    // OUT (#500 — `handleMoveLine` seeds `EditorState.caretAffinity` from this, and
+    // `resolvePixelPosition` reads that field), the landed caret must sit in
+    // COLUMN 0's x-range (left of the inter-column gap). The shared boundary offset
+    // (`lastCol0.end === firstCol1.start`) is ambiguous WITHOUT the affinity — so
+    // the move must return `"before"` to pin the caret to column 0's last line.
+    expect(result.caretAffinity).toBe("before");
+    // The caret resolved with the threaded affinity must sit in COLUMN 0 — i.e.
+    // strictly LEFT of column 1's track origin. (The caret lands at column 0's
+    // last-line END x = the column-0 content right edge; that edge can exceed the
+    // mid-gap point, so the column-membership check is "left of column 1's left
+    // edge", NOT "left of the gap center".)
+    const col1MinX = Math.min(...col1Lines.map((l) => l.absoluteX));
+    const pixel = resolvePixelPosition(state, result.position, layout, shaper, undefined, result.caretAffinity);
+    expect(pixel).not.toBeNull();
+    if (pixel === null) return;
+    expect(pixel.x).toBeLessThan(col1MinX);
   });
 });

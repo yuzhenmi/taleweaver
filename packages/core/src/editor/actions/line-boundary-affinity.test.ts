@@ -233,3 +233,39 @@ describe("EXPAND_LINE_BOUNDARY — Shift+Home/End (focus to boundary, anchor fix
     expect(editor.caretAffinity).toBeUndefined();
   });
 });
+
+describe("MOVE_LINE / EXPAND_LINE — vertical-nav threads the move-resolved affinity (#500)", () => {
+  // ArrowUp/Down (MOVE_LINE) and Shift+ArrowUp/Down (EXPAND_LINE) now seed
+  // `caretAffinity` from the hit-test the line-move resolved at the target line,
+  // so a caret landing on an offset shared across a soft-wrap / column boundary
+  // renders on the line the move stepped onto. The wiring is two parts: the
+  // handler threads `result.caretAffinity`, AND the action is in
+  // `actionManagesCaretAffinity` so it survives the central reset. Pre-#500 the
+  // affinity was discarded (focus reset to `undefined`).
+  function twoParagraphs(config: EditorConfig): EditorState {
+    let editor = type(createInitialEditorState(config), "abc", config);
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config); // Enter → 2nd paragraph
+    return type(editor, "def", config); // caret at end of para 1
+  }
+
+  it("MOVE_LINE (ArrowUp) seeds a defined affinity that survives the reset and clears on edit", () => {
+    const config = makeConfig();
+    let editor = twoParagraphs(config);
+    editor = reduceEditor(editor, { type: "MOVE_LINE", direction: "up" }, config);
+    // Threaded + managed → a concrete affinity survives (was `undefined` pre-#500).
+    expect(editor.caretAffinity).toBeDefined();
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" }, config);
+    expect(editor.caretAffinity).toBeUndefined();
+  });
+
+  it("EXPAND_LINE (Shift+ArrowUp) seeds a defined focus affinity that survives the reset (symmetric twin)", () => {
+    const config = makeConfig();
+    let editor = twoParagraphs(config);
+    const anchor = editor.selection.anchor;
+    editor = reduceEditor(editor, { type: "EXPAND_LINE", direction: "up" }, config);
+    expect(editor.selection.anchor).toEqual(anchor); // anchor fixed (it's a selection-extend)
+    expect(editor.caretAffinity).toBeDefined();
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" }, config);
+    expect(editor.caretAffinity).toBeUndefined();
+  });
+});

@@ -32,5 +32,13 @@ export function handleMoveLine(
     ...editor,
     selection: createSpan(result.position, result.position),
     targetX: result.targetX,
+    // #500: seed the affinity the line-move resolved (from the hit-test at the
+    // target line). At a soft-wrap / column boundary the landed offset is shared
+    // between two visual lines, and only this affinity pins the caret to the line
+    // the move stepped onto — without it the caret renders with the default
+    // ("after") and an ArrowUp at the top of a column appears to do nothing.
+    // MOVE_LINE is exempted from the central caret-affinity reset via
+    // `actionManagesCaretAffinity` so this survives to the next render.
+    caretAffinity: result.caretAffinity,
   };
 }

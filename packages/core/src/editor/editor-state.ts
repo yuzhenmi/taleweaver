@@ -659,6 +659,14 @@ export function reduceEditor(
  *   - `EXPAND_SELECTION` (P4-C.2.4) — visual-order Shift+ArrowLeft/Right extends
  *     the FOCUS via the same `moveVisually`, carrying the focus's boundary
  *     affinity (or clearing it to `undefined` on an exit / logical fallback).
+ *   - `MOVE_LINE` (#500) — ArrowUp/Down seeds the affinity the line-move resolved
+ *     from the hit-test at the target line, so a caret landing on an offset shared
+ *     across a soft-wrap / column boundary renders on the line the move stepped
+ *     onto (without it, the default "after" pins to the later line and an ArrowUp
+ *     at the top of a column appears to do nothing).
+ *   - `EXPAND_LINE` (#500) — Shift+ArrowUp/Down moves the FOCUS to the adjacent
+ *     line and seeds the focus affinity the same way (the symmetric twin of
+ *     `MOVE_LINE`).
  *   - `MOVE_LINE_BOUNDARY` (P4-C.2.6 §G) — Home/End set a direction-independent
  *     affinity (Home→"after", End→"before") so the LOGICAL line boundary renders
  *     at the correct visual edge of an RTL line. (Inert on uniform LTR lines.)
@@ -670,6 +678,8 @@ function actionManagesCaretAffinity(action: EditorAction): boolean {
     action.type === "SET_SELECTION" ||
     action.type === "MOVE_CURSOR" ||
     action.type === "EXPAND_SELECTION" ||
+    action.type === "MOVE_LINE" ||
+    action.type === "EXPAND_LINE" ||
     action.type === "MOVE_LINE_BOUNDARY" ||
     action.type === "EXPAND_LINE_BOUNDARY"
   );

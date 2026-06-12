@@ -14,6 +14,7 @@ import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
 import { resolvePixelPosition, resolveTemplateBlockPage, resolveFootnoteBlockPage, resolveNestedMainTreeBlockPage } from "./cursor-position";
 import { resolvePositionFromPixel } from "./hit-test";
+import type { CaretAffinity } from "./line-bidi";
 import { collectBlockLinesAcrossPages } from "./block-line-collector";
 import {
   getLineIndex,
@@ -28,14 +29,45 @@ import { markStart, markEnd } from "../perf/perf-trace";
 import { isDevMode } from "../layout/dev-mode";
 
 /**
+ * Result of a vertical line move: the new caret `position`, the preserved
+ * inline-axis goal (`targetX`) threaded into the next move, AND the
+ * `caretAffinity` the move resolved for that position.
+ *
+ * `caretAffinity` is LOAD-BEARING at a soft-wrap / column boundary, where the
+ * landed offset is SHARED between two visual lines (the previous line's END
+ * offset equals the next line's START offset). Only the affinity disambiguates
+ * which line the caret renders on. The hit-test at the target line's own
+ * coordinates already computed the correct side (it picked the target line at
+ * the target's block-axis band), so the move THREADS it out to seed
+ * `EditorState.caretAffinity` — without it, an offset-shared caret renders with
+ * the default ("after"), which pins to the LATER line, so an ArrowUp across a
+ * column/soft-wrap boundary would appear to do nothing (#500). For the common
+ * NON-boundary offset the affinity is the same value the caret would have anyway
+ * (the offset is unambiguously on one line), so threading it is inert there.
+ *
+ * Document-boundary fallbacks (`startOfDocument`/`endOfDocument`) have no
+ * hit-test; they seed a direction-consistent default ("after" at the document
+ * start = the offset-0 caret sticks to the first line; "before" at the document
+ * end = an offset at a wrapped last-line end sticks to that line rather than
+ * jumping forward).
+ */
+type LineMoveResult = {
+  position: Position;
+  targetX: number;
+  caretAffinity: CaretAffinity;
+};
+
+/**
  * Move cursor to the line above or below `position`, preserving the
  * inline-axis goal coordinate (the visual column; physical-X in
  * horizontal-tb, physical-Y in vertical modes).
  *
- * Returns `{ position, targetX }` for the new caret location.
+ * Returns `{ position, targetX, caretAffinity }` for the new caret location.
  * `targetX` is the value to thread into the next vertical move (pass
  * it back as the `targetX` arg) so the caret remembers its column
- * across multiple up/down keystrokes.
+ * across multiple up/down keystrokes. `caretAffinity` seeds
+ * `EditorState.caretAffinity` so an offset shared across a soft-wrap / column
+ * boundary renders on the line the move landed on (#500) — see `LineMoveResult`.
  *
  * Edge cases:
  *   - At the topmost line moving up: return start-of-document
@@ -64,7 +96,7 @@ export function moveToLine(
   // line-move stays on the page the user is editing (instead of jumping to the
   // body's first carrying page). `undefined` for a body caret / single-page.
   caretPageHint?: number,
-): { position: Position; targetX: number } | null {
+): LineMoveResult | null {
   const t = markStart("cursor.line-navigation.moveToLine");
   try {
     const measurer: TextMeasurer = isTextShaper(shaperOrMeasurer)
@@ -101,7 +133,7 @@ function moveToLineInPositioned(
   measurer: TextMeasurer,
   direction: "up" | "down",
   targetX: number | null,
-): { position: Position; targetX: number } | null {
+): LineMoveResult | null {
   const currentPixel = resolvePixelPosition(state, position, layoutTree, measurer);
   if (currentPixel === null) return null;
   const x = targetX ?? currentPixel.x;
@@ -159,7 +191,7 @@ function moveToLineVirtual(
   direction: "up" | "down",
   targetX: number | null,
   caretPageHint?: number,
-): { position: Position; targetX: number } | null {
+): LineMoveResult | null {
   const plan = tree.plan;
   const endPage = plan.pageIndexOfBlock(position.blockId);
   const span = plan.pageSpanOfBlock(position.blockId);
@@ -247,7 +279,7 @@ function moveToLineInSpanningBlock(
   direction: "up" | "down",
   targetX: number | null,
   span: { readonly first: number; readonly last: number },
-): { position: Position; targetX: number } | null {
+): LineMoveResult | null {
   const blockLines = collectBlockLinesAcrossPages(tree, position.blockId, span);
   const idx = findLineForPosition(blockLines, position);
   if (idx < 0) {
@@ -305,7 +337,7 @@ function moveToLineOnPage(
   direction: "up" | "down",
   targetX: number | null,
   p: number,
-): { position: Position; targetX: number } | null {
+): LineMoveResult | null {
   const plan = tree.plan;
   const currentPixel = resolvePixelPosition(state, position, tree, measurer, p);
   if (currentPixel === null) return null;
@@ -444,7 +476,7 @@ function resolveTargetLine(
   measurer: TextMeasurer,
   x: number,
   target: AbsoluteLineBox,
-): { position: Position; targetX: number } | null {
+): LineMoveResult | null {
   const am = axisMapFor(target.line.writingMode, target.line.computedStyle.direction);
   // Multi-column slice 3b: clamp the preserved inline goal to the TARGET line's
   // inline extent so the hit-test below lands on THIS line's column (after slice
@@ -471,30 +503,46 @@ function resolveTargetLine(
     : lineCoordOf(target, am.block);
   const clickX = am.inline === "x" ? inlineGoal : targetBlockCoord;
   const clickY = am.inline === "y" ? inlineGoal : targetBlockCoord;
-  // Up/down navigation does NOT reseed caret affinity (it preserves the existing
-  // caret's affinity); this wrapper only needs the resolved position. Destructure
-  // `.position` from the hit-test result and discard the affinity seed.
+  // #500: THREAD the hit-test's caretAffinity out instead of discarding it. The
+  // hit-test picked the TARGET line at the target's block-axis band, so the
+  // affinity it returns pins the caret to THAT line — load-bearing when the
+  // landed offset is SHARED across a soft-wrap / column boundary (the previous
+  // line's end offset equals the next line's start offset; only the affinity
+  // separates them). Without this, an offset-shared up-move would render with the
+  // default ("after"), pinning to the LATER line, so ArrowUp at the top of a
+  // column/wrap would appear to do nothing. For a non-boundary offset the
+  // hit-test returns the same affinity the caret would have anyway, so threading
+  // it is inert. `targetX` stays the ORIGINAL unclamped goal-x (preserve column).
   const hit = resolvePositionFromPixel(
     state, pageBoxOrRoot, measurer, clickX, clickY, target.pageIndex,
   );
   if (hit === null) return null;
-  return { position: hit.position, targetX: x };
+  return { position: hit.position, targetX: x, caretAffinity: hit.caretAffinity };
 }
 
-function startOfDocument(state: State, x: number): { position: Position; targetX: number } | null {
+function startOfDocument(state: State, x: number): LineMoveResult | null {
   const firstLeaf = firstLeafBlock(state, state.rootId);
   if (firstLeaf === null) return null;
-  return { position: createPosition(firstLeaf, 0), targetX: x };
+  // No hit-test here (the up-move fell off the top). The offset-0 caret can only
+  // sit on the first line's START, so "after" is correct (and matches the prior
+  // implicit default — the central reset left affinity undefined, which
+  // `resolvePixelPosition` treats as "after").
+  return { position: createPosition(firstLeaf, 0), targetX: x, caretAffinity: "after" };
 }
 
-function endOfDocument(state: State, x: number): { position: Position; targetX: number } | null {
+function endOfDocument(state: State, x: number): LineMoveResult | null {
   const lastLeaf = lastLeafBlock(state, state.rootId);
   if (lastLeaf === null) return null;
   const lastBlock = getBlock(state, lastLeaf);
   if (lastBlock === null) return null;
   const endOffset =
     lastBlock.inlineContent === null ? 0 : inlineContentLength(lastBlock.inlineContent);
-  return { position: createPosition(lastLeaf, endOffset), targetX: x };
+  // No hit-test here (the down-move fell off the bottom). The end offset of the
+  // last block is the END of its last line; "before" pins the caret to that line
+  // (rather than letting a soft-wrap boundary push it forward — there is no later
+  // line to push to, but "before" is the semantically-correct end-of-line side
+  // and is inert for a hard block end).
+  return { position: createPosition(lastLeaf, endOffset), targetX: x, caretAffinity: "before" };
 }
 
 /**
