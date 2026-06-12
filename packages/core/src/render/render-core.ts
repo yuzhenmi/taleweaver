@@ -419,7 +419,7 @@ export function expandInlineItems(
       // with `inlineSize: auto` (the default — not set here) the IFC shrink-to-fits
       // the atom to those glyphs' natural width = the reserved width, so line/slot
       // layout already accounts for the widest plausible value. The per-page value
-      // is bound LATE, at materialize (substitutePageFields, a later slice). Like
+      // is bound LATE, at materialize (substituteLayoutFields). Like
       // the cross-reference embed, one inline-block atom = one IFC token = one
       // cursor stop (#407); the `fieldKind`/`numberStyle` ride in metadata for the
       // layout field-resolution pass to read (the render tree stays page-agnostic).

@@ -14,7 +14,7 @@ export interface ResolvedPageFields {
   /**
    * Widest resolved display width per field (px) — for page-count the single
    * value's width; for page-number the largest page index's width. Compared
-   * against the reserved placeholder width by the convergence rule (a later slice).
+   * against the reserved placeholder width by the §4.4 convergence rule.
    */
   readonly maxValueWidthByKey: ReadonlyMap<string, number>;
 }
@@ -90,7 +90,7 @@ export function resolvePageFields(
       // bound — the last page alone would under-estimate. O(totalPages) per
       // page-number template field per build; such fields are rare (0-1 per doc)
       // and this is the same order as the measure pass — memoize by totalPages if a
-      // profile ever demands it. No global entry: `substitutePageFields` computes
+      // profile ever demands it. No global entry: `substituteLayoutFields` computes
       // `pageIndex + 1` per page at materialize.
       let maxWidth = 0;
       for (let page = 1; page <= totalPages; page++) {

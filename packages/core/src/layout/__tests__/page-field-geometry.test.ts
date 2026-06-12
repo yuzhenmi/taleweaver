@@ -2,7 +2,7 @@
 //
 // F-2: the LATE-BINDING PROOF for layout-dependent page-fields. A page-number
 // field in a header shows "1" on page 0, "2" on page 1 — bound per-page at
-// MATERIALIZE (substitutePageFields), NOT at render (the render placeholder is
+// MATERIALIZE (substituteLayoutFields), NOT at render (the render placeholder is
 // page-agnostic). A page-count field shows the total on every page. Plus the
 // §4.5 fingerprint fold: a value change (the doc grew a page → later page numbers
 // shift) busts the carry-forward even though the cascaded header body is unchanged.

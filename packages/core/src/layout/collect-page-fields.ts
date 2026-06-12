@@ -8,15 +8,15 @@ const INLINE_KEY_SEPARATOR = "/inline/";
 /**
  * Identifies one layout-field instance in the document, keyed by the stable RENDER
  * KEY (`${blockId}/inline/${i}`) the render pass assigns each inline item — the same
- * key `resolvePageFields` keys its values by and `substitutePageFields` (a later
- * slice) matches on. Carries the cascaded atom's `computedStyle` so width
+ * key `resolvePageFields` keys its values by and `substituteLayoutFields` matches
+ * on. Carries the cascaded atom's `computedStyle` so width
  * measurement (resolution + convergence) needs no separate per-key style lookup.
  *
  * A discriminated union over `fieldType`:
  *   - {@link PageFieldSpec} — a `page-field` placeholder (page-number / page-count).
  *   - {@link CrossRefPageSpec} — a `"page"`-mode cross-reference placeholder, whose
- *     displayed value is the target block's 1-based page number (resolved in a later
- *     slice; it additionally carries the `targetId` the resolve pass looks up).
+ *     displayed value is the target block's 1-based page number (`resolvePageFields`
+ *     looks up the `targetId` it additionally carries).
  */
 export type FieldSpec = PageFieldSpec | CrossRefPageSpec;
 

@@ -15,7 +15,7 @@ import { PAGE_FIELD_EMBED_TYPE, type BlockId } from "../state";
  * so within a single `computeSlotInsets` call its body-ref-keyed height memo still
  * coalesces a body that appears in multiple section boundaries (the memo is per-call,
  * not cross-iteration). NEVER mutates the frozen input. Mirrors the
- * `substitutePageFields` spine-clone primitive, overriding width instead of text.
+ * `substituteLayoutFields` spine-clone primitive, overriding width instead of text.
  */
 export function patchFieldWidths(
   templates: ReadonlyMap<BlockId, ElementBox>,
@@ -33,7 +33,7 @@ function patchNode(node: RenderNode, grownWidths: ReadonlyMap<string, number>): 
   if (node.type !== "element") return node;
 
   const grown = grownWidths.get(node.key);
-  // Gate on the page-field embed type (symmetric with `substitutePageFields`): grow
+  // Gate on the page-field embed type (symmetric with `substituteLayoutFields`): grow
   // ONLY a page-field atom, never some other node that happens to share the key — a
   // non-page-field match would be silently mis-sized AND skip recursion into its
   // descendants. `grownWidths` is only ever keyed by page-field embed keys, so this

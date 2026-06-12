@@ -2,7 +2,7 @@
 // cascaded template body, overriding the `inlineSize` of every page-field atom whose
 // render key is in `grownWidths` so the IFC lays it at the grown (worst-case value)
 // width. Everything not on a path to a grown field keeps its ORIGINAL ref
-// (identity-preserving). Mirrors substitutePageFields, but overrides width instead
+// (identity-preserving). Mirrors substituteLayoutFields, but overrides width instead
 // of substituting text.
 
 import { describe, it, expect } from "vitest";
@@ -98,7 +98,7 @@ describe("patchFieldWidths (F-3 §4.4 growth mechanism)", () => {
 
   it("does NOT patch a NON-page-field node even if its key is in grownWidths (embed-type gated)", () => {
     // A plain paragraph whose key collides with a grownWidths entry must NOT be patched
-    // (and must still be recursed into) — symmetric with substitutePageFields's type guard.
+    // (and must still be recursed into) — symmetric with substituteLayoutFields's type guard.
     const para = createElementBox("collide/inline/0", { display: "block" }, [createTextBox("collide/inline/0/t", {}, "x")]);
     const body = cascade([para]);
     const origPara = findByKey(body, "collide/inline/0");

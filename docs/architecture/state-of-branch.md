@@ -645,7 +645,7 @@ visual smoke ride the user's pass.
   `metadata.{embedType, fieldKind, numberStyle}` (page-agnostic).
 - **Layout** (`1.5-pagination.md`): `collectPageFields` (cascaded render trees →
   `FieldSpec[]` keyed by render key) → `resolvePageFields` (post-pagination;
-  page-count from `plan.entries.length`; per-field max widths) → `substitutePageFields`
+  page-count from `plan.entries.length`; per-field max widths) → `substituteLayoutFields`
   at materialize (spine-clone leaf value substitution, identity-preserving; the §4.5
   fingerprint fold busts a page on a value change) → the §4.4 bounded width-convergence
   loop (`field-convergence.ts` + `patch-field-widths.ts`) that grows a template
@@ -673,9 +673,12 @@ and render placeholder have shipped; layout resolution + the editor surface rema
   sentinel with the width reserved for the broken-ref text. (v1 limitation: only top-level
   blocks are indexed by `pageSpanOfBlock`; a nested target shows broken-ref — same as
   footnote anchors.)
-- **Remaining:** `substituteLayoutFields` (rename + cross-ref branch — stamps the resolved
-  value / broken-ref text into the placeholder), the convergence/fingerprint wiring for
-  main-body fields, and the `INSERT_CROSS_REFERENCE` editor surface for page mode.
+- **Layout — substitute** (`1.5-pagination.md`): `substituteLayoutFields` (renamed from the
+  page-field-specific `substitutePageFields`) stamps the resolved page number into the placeholder
+  at materialize; the `""` broken-ref sentinel renders as `BROKEN_CROSS_REFERENCE_TEXT`.
+- **Remaining:** the convergence/fingerprint wiring for main-body fields (so a wide page-ref
+  re-paginates and re-materializes the page it sits on), and the `INSERT_CROSS_REFERENCE` editor
+  surface for page mode.
 
 Out of scope (named follow-ups): main-body / footnote-body page-fields (not creatable
 via the editor), table of contents.

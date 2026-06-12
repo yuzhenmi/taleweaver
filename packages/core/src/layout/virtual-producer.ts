@@ -152,7 +152,7 @@ export function buildVirtualPaginatedTree(
   // which neither the convergence loop (it filters to `host:"template"`) nor
   // substitution consumes. NOTE: `resolvePageFields` below builds `globalFieldValues`
   // for ALL page-count specs — main-body ones too — and that map is passed to
-  // `substitutePageFields` on TEMPLATE bodies. That is SAFE because render keys are
+  // `substituteLayoutFields` on TEMPLATE bodies. That is SAFE because render keys are
   // `${blockId}/inline/${i}` and Y.Doc block ids are globally unique across trees, so a
   // main-tree key can never match a template-body node; the extra entries are silently
   // ignored. (A future page-ref/TOC that substitutes into the main tree will find those

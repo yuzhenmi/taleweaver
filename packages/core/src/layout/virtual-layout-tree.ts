@@ -42,7 +42,7 @@ import { columnConfigsEqual, type ColumnConfig } from "./column-config";
 import { isDevMode } from "./dev-mode";
 import { FOOTNOTE_SEPARATOR_HEIGHT, FOOTNOTE_MARKER_GAP, footnoteMarkerGutter } from "./resolve-footnotes";
 import type { FieldSpec } from "./collect-page-fields";
-import { substitutePageFields } from "./substitute-page-fields";
+import { substituteLayoutFields } from "./substitute-layout-fields";
 import { formatCounter } from "../styles/format-counter";
 
 /**
@@ -416,7 +416,7 @@ export function makeVirtualLayoutTree(
   // TEMPLATE (header/footer) fields appear on EVERY page, so only they contribute
   // to the per-page fingerprint value array; a `host:"main"` field appears on just
   // its own page and is page-scoped in F-3 (none exist in F-2). `pageGlobalFieldValues`
-  // is passed whole to `substitutePageFields` (it reads the global value for a
+  // is passed whole to `substituteLayoutFields` (it reads the global value for a
   // page-count and ignores the rest; page-number is computed from `pageIndex`).
   const pageGlobalFieldValues = globalFieldValues;
   const templateFieldSpecs = fieldSpecs.filter((s) => s.host === "template");
@@ -432,7 +432,7 @@ export function makeVirtualLayoutTree(
     return templateFieldSpecs.map((s) =>
       s.fieldType === "page-number"
         ? formatCounter(pageIndex + 1, s.numberStyle)
-        // When a page-count global value is absent, `substitutePageFields` returns the
+        // When a page-count global value is absent, `substituteLayoutFields` returns the
         // node UNCHANGED (no-op, placeholder kept) — so two trees with the same absent
         // field must produce the same fingerprint string to permit reuse. "" is the
         // sentinel for that (never a real page-count value); the no-op-substitution and
@@ -793,7 +793,7 @@ export function makeVirtualLayoutTree(
       // the real value's width. Identity-preserving (the SAME ref returns for a
       // field-free body); the fingerprint reads the ORIGINAL `rawBody` ref as the
       // structural signal, never this clone.
-      const body = substitutePageFields(rawBody, pageIndex, pageGlobalFieldValues);
+      const body = substituteLayoutFields(rawBody, pageIndex, pageGlobalFieldValues);
       const { box: slotBox } = layoutBlock(
         body,
         effMargins.inlineStart,
