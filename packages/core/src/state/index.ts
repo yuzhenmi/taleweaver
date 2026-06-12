@@ -304,6 +304,11 @@ export {
   CROSS_REFERENCE_EMBED_TYPE,
 } from "./ops/insert-cross-reference";
 export { insertTab, TAB_EMBED_TYPE } from "./ops/insert-tab";
+// Hard line break (`<br>`). Produced ONLY by HTML decode (no editor action / op),
+// so the embed-type constant lives at the state root (`./hard-break`) — like
+// `./page-field` and `./comments` — so Layer-1 `extract-text.ts` can import it
+// without reaching into `ops/`.
+export { HARD_BREAK_EMBED_TYPE } from "./hard-break";
 // Page-fields (layout-dependent reference fields: page-number / page-count). A
 // pointer-property inline embed with NO owned body — its value is resolved from
 // PAGINATED layout (the render-time placeholder is page-agnostic). Constants live

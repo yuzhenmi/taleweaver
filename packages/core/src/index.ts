@@ -137,6 +137,10 @@ export { getListDefsForState, classifyListDef, newListId } from "./state";
 // embeds on export (the binary serializer is the lossless path).
 export { FOOTNOTE_ANCHOR_EMBED_TYPE, CROSS_REFERENCE_EMBED_TYPE } from "./state";
 
+// Hard line break (`<br>`) embed type — surfaced so the HTML decoder
+// (`@taleweaver/dom`) can stamp the embed without hardcoding the literal.
+export { HARD_BREAK_EMBED_TYPE } from "./state";
+
 // Comments. Paired zero-width `comment-start`/`comment-end` marker embeds
 // delimit a comment range and ARE the anchor; `insertCommentMarkers` inserts the
 // pair, and `buildCommentRangeIndex` / `resolveCommentRange` resolve it (with a

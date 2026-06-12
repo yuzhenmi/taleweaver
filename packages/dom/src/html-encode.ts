@@ -15,6 +15,7 @@ import {
   classifyListDef,
   FOOTNOTE_ANCHOR_EMBED_TYPE,
   CROSS_REFERENCE_EMBED_TYPE,
+  HARD_BREAK_EMBED_TYPE,
   type State,
   type Block,
   type BlockId,
@@ -130,7 +131,7 @@ function encodeInline(
   for (const item of content.items) {
     if (item.kind === "text") {
       out += wrapMarks(escapeHtml(item.text), item.attrs);
-    } else if (item.embedType === "hard-break") {
+    } else if (item.embedType === HARD_BREAK_EMBED_TYPE) {
       out += "<br>";
     } else {
       // Unsupported embed: dropped (dev-warns for content-bearing types).

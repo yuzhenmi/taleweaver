@@ -20,6 +20,7 @@ import {
   type ContainerBlockNode,
   type InlineItem,
   type ReadonlyAttrs,
+  HARD_BREAK_EMBED_TYPE,
 } from "@taleweaver/core";
 import { isExportSafeLinkUrl } from "./url-safety";
 
@@ -69,7 +70,7 @@ function accumulateNode(
 
   const tag = node.tagName.toUpperCase();
   if (tag === "BR") {
-    out.push({ kind: "embed", embedType: "hard-break", attrs: {}, properties: {} });
+    out.push({ kind: "embed", embedType: HARD_BREAK_EMBED_TYPE, attrs: {}, properties: {} });
     return;
   }
   const markKey = BOOLEAN_MARK_TAGS[tag];

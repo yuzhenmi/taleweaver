@@ -4,6 +4,7 @@ import { iterateSpan } from "./span-iteration";
 import type { InlineItem, EmbedItem } from "./inline-content";
 import { COMMENT_START_EMBED_TYPE, COMMENT_END_EMBED_TYPE } from "./comments";
 import { PAGE_FIELD_EMBED_TYPE } from "./page-field";
+import { HARD_BREAK_EMBED_TYPE } from "./hard-break";
 import {
   BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
   BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
@@ -42,7 +43,7 @@ const defaultEmbedSerializer: EmbedSerializer = () => EMBED_CHAR;
  */
 export const builtinEmbedSerializer: EmbedSerializer = (item) => {
   switch (item.embedType) {
-    case "hard-break":
+    case HARD_BREAK_EMBED_TYPE:
       return "\n";
     case "tab":
       return "\t";
@@ -81,7 +82,7 @@ export const builtinEmbedSerializer: EmbedSerializer = (item) => {
  */
 export const captionEmbedSerializer: EmbedSerializer = (item) => {
   switch (item.embedType) {
-    case "hard-break":
+    case HARD_BREAK_EMBED_TYPE:
     case "tab":
       return " ";
     default:
