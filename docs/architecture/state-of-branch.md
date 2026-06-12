@@ -697,11 +697,17 @@ auto-updating as the target moves pages. Shipped end-to-end through every layer:
   a discriminated union (`PageFieldSpec | CrossRefPageSpec`, discriminant `fieldType`);
   `collectPageFields` emits a `CrossRefPageSpec` (carrying the cross-ref `targetId`) for
   each page-mode placeholder atom. `resolvePageFields` resolves a `cross-ref-page` to the
-  target block's 1-based FIRST page via `plan.pageSpanOfBlock(targetId)` (`span.first + 1`);
-  a target not in the plan (deeply nested, or deleted) resolves to the `""` broken-ref
-  sentinel with the width reserved for the broken-ref text. (v1 limitation: only top-level
-  blocks are indexed by `pageSpanOfBlock`; a nested target shows broken-ref — same as
-  footnote anchors.)
+  target's 1-based page via `pageOfFieldTarget(plan, targetId, parentOf)` (`page + 1`): a
+  top-level target → its own first page (`pageSpanOfBlock(targetId).first`); a **nested**
+  target (not directly indexed) → the page where its nearest top-level-indexed ancestor
+  BEGINS, via the injected `parentOf` capability (`makeBlockParentLookup(state)`, built in
+  the editor layer + threaded through `layoutTree`/`layoutTreeIncremental`/`buildVirtualPaginatedTree`
+  so layout stays State-decoupled). Exact for a single-page container; "container-start" for a
+  page-spanning one (exact-intra-fragment OUT per the feature-selection test). A deleted/orphan
+  target or absent `parentOf` → `-1` → the `""` broken-ref sentinel (width reserved for the
+  broken-ref text). `[implemented]` — the prior top-level-only broken-ref limitation is removed;
+  `pageOfFieldTarget` is the shared resolver the planned TOC reuses. (Footnote anchors remain
+  top-level-only — independent, unchanged.)
 - **Layout — substitute** (`1.5-pagination.md`): `substituteLayoutFields` (renamed from the
   page-field-specific `substitutePageFields`) stamps the resolved page number into the placeholder
   at materialize; the `""` broken-ref sentinel renders as `BROKEN_CROSS_REFERENCE_TEXT`.
