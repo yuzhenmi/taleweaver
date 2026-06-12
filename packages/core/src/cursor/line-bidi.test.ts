@@ -24,6 +24,7 @@ import type { AbsoluteLineBox } from "./line-flatten";
 import {
   buildLineBidiView,
   caretInlineCoordInLeaf,
+  findLeafOwner,
   offsetInLeaf,
   moveVisually,
   selectionRectsForLineRange,
@@ -256,6 +257,58 @@ describe("buildLineBidiView", () => {
         expect(isSynthetic).toBe(false);
       }
     }
+  });
+});
+
+describe("findLeafOwner", () => {
+  // "abc אבג" tokenizes into >=2 logical leaves (Latin segment + Hebrew
+  // segment, possibly a separate space run). We derive the interior boundary
+  // from the actual leaves rather than hardcoding offsets, so the assertions
+  // stay robust to tokenization details — what matters is the dual-caret
+  // ownership rule at the shared boundary `leafA.logEnd === leafB.logStart`.
+  function mixedLeaves() {
+    const state = para("abc אבג");
+    const { layout } = pipeline(state);
+    const view = buildLineBidiView(bodyLine(layout));
+    expect(view.logicalLeaves.length).toBeGreaterThanOrEqual(2);
+    return view.logicalLeaves;
+  }
+
+  it("'before' at an interior leaf boundary returns the leaf ENDING there", () => {
+    const leaves = mixedLeaves();
+    const ending = leaves[0];
+    const next = leaves[1];
+    const boundary = ending.logEnd;
+    expect(boundary).toBe(next.logStart); // contiguous, shared boundary
+    expect(findLeafOwner(leaves, boundary, "before")).toBe(ending);
+  });
+
+  it("'after' (and undefined) at the same boundary returns the leaf STARTING there", () => {
+    const leaves = mixedLeaves();
+    const next = leaves[1];
+    const boundary = leaves[0].logEnd;
+    expect(findLeafOwner(leaves, boundary, "after")).toBe(next);
+    expect(findLeafOwner(leaves, boundary, undefined)).toBe(next);
+  });
+
+  it("an interior (non-boundary) offset returns the single owning leaf unambiguously", () => {
+    const leaves = mixedLeaves();
+    const first = leaves[0];
+    // A strictly-interior offset only exists when the first leaf spans >1
+    // state unit; the Latin "abc " segment does. Affinity is irrelevant here.
+    expect(first.logEnd - first.logStart).toBeGreaterThan(1);
+    const interior = first.logStart + 1;
+    expect(findLeafOwner(leaves, interior, "before")).toBe(first);
+    expect(findLeafOwner(leaves, interior, "after")).toBe(first);
+    expect(findLeafOwner(leaves, interior, undefined)).toBe(first);
+  });
+
+  it("at the very last offset (no next leaf) returns the last leaf regardless of affinity", () => {
+    const leaves = mixedLeaves();
+    const last = leaves[leaves.length - 1];
+    expect(findLeafOwner(leaves, last.logEnd, "before")).toBe(last);
+    expect(findLeafOwner(leaves, last.logEnd, "after")).toBe(last);
+    expect(findLeafOwner(leaves, last.logEnd, undefined)).toBe(last);
   });
 });
 

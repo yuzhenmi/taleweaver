@@ -315,6 +315,49 @@ function clamp(value: number, lo: number, hi: number): number {
 }
 
 /**
+ * Find the `BidiViewLeaf` whose STATE span owns `stateOffset`, walking
+ * `logicalLeaves` (LOGICAL/state order, contiguous spans). At a leaf boundary
+ * (`stateOffset === leaf.logEnd === nextLeaf.logStart`) the caret has two visual
+ * positions (the bidi dual caret); `affinity` disambiguates which leaf owns it:
+ *   - `"before"` → the leaf ENDING at the offset (its `logEnd`).
+ *   - `"after"` / undefined → the leaf STARTING at it (its `logStart`).
+ *
+ * Lives in `line-bidi.ts` because `BidiViewLeaf` is defined here and the
+ * dual-caret boundary rule is bidi-domain knowledge; both `cursor-position.ts`
+ * (caret placement) and `selection-geometry.ts` (selection-extent endpoints)
+ * depend on the SAME ownership rule, so it is shared from here.
+ *
+ * `logicalLeaves` is non-empty (the empty-line case is handled by callers).
+ */
+export function findLeafOwner(
+  logicalLeaves: readonly BidiViewLeaf[],
+  stateOffset: number,
+  affinity?: CaretAffinity,
+): BidiViewLeaf {
+  for (let i = 0; i < logicalLeaves.length; i++) {
+    const leaf = logicalLeaves[i];
+    if (stateOffset < leaf.logEnd) {
+      // Strictly inside this leaf's span (or at its logStart): it owns the
+      // offset. (Offsets before the first leaf's logStart can't occur — callers
+      // clamp to `line.inlineOffsetStart === logicalLeaves[0].logStart`.)
+      return leaf;
+    }
+    if (stateOffset === leaf.logEnd) {
+      // Boundary. Default ("after") prefers the NEXT leaf (the one STARTING
+      // here) when it exists; "before" keeps THIS leaf (the one ENDING here).
+      const next = logicalLeaves[i + 1];
+      if (affinity === "before" || next === undefined) return leaf;
+      return next;
+    }
+    // Offset past this leaf's span — continue to the next leaf.
+  }
+  // Past the last leaf's logEnd (defensive — callers clamp to
+  // `line.inlineOffsetEnd === last.logEnd`, so this is unreachable). Return the
+  // last leaf so the caret pins to its trailing edge.
+  return logicalLeaves[logicalLeaves.length - 1];
+}
+
+/**
  * One VISUAL highlight interval `[xLo, xHi]` (xLo <= xHi) for a selection
  * segment, paired with the embedding `level` of the run that produced it (used
  * by `selectionRectsForLineRange` to coalesce ONLY physically-adjacent

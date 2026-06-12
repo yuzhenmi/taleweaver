@@ -17,7 +17,7 @@ import {
 import {
   buildLineBidiView,
   caretInlineCoordInLeaf,
-  type BidiViewLeaf,
+  findLeafOwner,
   type CaretAffinity,
 } from "./line-bidi";
 import { axisMapFor } from "../styles/writing-mode";
@@ -658,7 +658,7 @@ function resolvePositionInOwnLines(
     Math.min(position.offset, line.inlineOffsetEnd),
   );
 
-  const owner = findLeafForOffset(view.logicalLeaves, stateOffset, caretAffinity);
+  const owner = findLeafOwner(view.logicalLeaves, stateOffset, caretAffinity);
   const rawX = caretInlineCoordInLeaf(owner, stateOffset, measurer, am);
 
   // #338 P2 (I2) — pin the caret to the OWNING leaf's own INLINE-axis box edges.
@@ -674,44 +674,6 @@ function resolvePositionInOwnLines(
   const leafHi = leafLo + sizeAlong(owner.leaf, am.inline);
   const x = Math.max(leafLo, Math.min(rawX, leafHi));
   return pixelPositionForLine(target, x, am);
-}
-
-/**
- * Find the `BidiViewLeaf` whose STATE span owns `stateOffset`, walking
- * `logicalLeaves` (LOGICAL/state order, contiguous spans). At a leaf boundary
- * (`stateOffset === leaf.logEnd === nextLeaf.logStart`) the caret has two visual
- * positions (the bidi dual caret); `caretAffinity` disambiguates:
- *   - `"before"` → the leaf ENDING at the offset (its `logEnd`).
- *   - `"after"` / undefined → the leaf STARTING at it (its `logStart`).
- *
- * `logicalLeaves` is non-empty (the empty-line case is handled by the caller).
- */
-function findLeafForOffset(
-  logicalLeaves: readonly BidiViewLeaf[],
-  stateOffset: number,
-  caretAffinity?: CaretAffinity,
-): BidiViewLeaf {
-  for (let i = 0; i < logicalLeaves.length; i++) {
-    const leaf = logicalLeaves[i];
-    if (stateOffset < leaf.logEnd) {
-      // Strictly inside this leaf's span (or at its logStart): it owns the
-      // offset. (Offsets before the first leaf's logStart can't occur — the
-      // caller clamps to `line.inlineOffsetStart === logicalLeaves[0].logStart`.)
-      return leaf;
-    }
-    if (stateOffset === leaf.logEnd) {
-      // Boundary. Default ("after") prefers the NEXT leaf (the one STARTING
-      // here) when it exists; "before" keeps THIS leaf (the one ENDING here).
-      const next = logicalLeaves[i + 1];
-      if (caretAffinity === "before" || next === undefined) return leaf;
-      return next;
-    }
-    // Offset past this leaf's span — continue to the next leaf.
-  }
-  // Past the last leaf's logEnd (defensive — the caller clamps to
-  // `line.inlineOffsetEnd === last.logEnd`, so this is unreachable). Return the
-  // last leaf so the caret pins to its trailing edge.
-  return logicalLeaves[logicalLeaves.length - 1];
 }
 
 function pixelPositionForLine(
