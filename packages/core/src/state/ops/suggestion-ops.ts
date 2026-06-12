@@ -38,6 +38,7 @@ import { buildYInlineContent, buildYInlineItem, buildYAttrs } from "../y-block";
 import { mergeAdjacentSameAttrsTextItems, yItemLength, yMapAsObject } from "../y-utils";
 import { planApplyAttrsToRange, applyAttrsToRangeInTx } from "./apply-attrs";
 import { planInsertText, insertTextInTx, planInsertTextSplitInPlace } from "./insert-text";
+import type { InsertItemsPlan } from "./insert-items";
 import {
   planSplitBlockAtPosition,
   splitBlockAtPositionInTx,
@@ -876,6 +877,17 @@ export interface ReplaceFragmentPlan {
   readonly newBlocks: readonly NewBlockSpec[];
   readonly records: readonly SuggestionRecord[];
   readonly endPosition: Position;
+  /**
+   * The start block B's pre-tx insert/replace-tail plan (S3/S4 populate it). `null`
+   * this slice (S2) on EVERY return — B's `n>0` writes still ride the old
+   * full-replace path; the `n===0` branch never inserts into B at all.
+   */
+  readonly bInsertPlan: InsertItemsPlan | null;
+  /**
+   * The fragment's line count `n`. The applier dispatches the START block on it:
+   * `n===0` ⇒ surgical strike only; `n>0` ⇒ old full-replace (until S3/S4).
+   */
+  readonly fragmentLength: number;
 }
 
 /** Stamp the insertion-provenance id on every TEXT run (embeds untouched). */
@@ -960,6 +972,15 @@ export function planReplaceWithSuggestedFragment(
   let tailBundle: ReadonlyArray<InlineItem>;
   const extraWrites: ResolveWrite[] = [];
   let delRecord: SuggestionRecord | null = null;
+  // The start block B's surgical-strike coords + whether B's END gets a cross-block
+  // JOIN embed appended (used only by the n===0 applier; B's n>0 writes still ride the
+  // old full-replace). `bRangeStart < bRangeEnd` ⇒ B has a strike (false in the
+  // collapsed / nothing-struck-in-B case). `bDeletionId` is the id for BOTH B's strike
+  // AND its cross-block join append (so it is non-null whenever `bAppendJoinEmbed`).
+  let bDeletionId: SuggestionId | null = null;
+  let bRangeStart = 0;
+  let bRangeEnd = 0;
+  let bAppendJoinEmbed = false;
   if (delPlan === null) {
     const [pfx, sfx] = splitInlineContentAtOffset(
       { items: resolved.block.inlineContent.items },
@@ -976,6 +997,13 @@ export function planReplaceWithSuggestedFragment(
     // produced no write for B (the selection struck nothing in B itself — e.g. starts
     // at end-of-B), B's live content is unchanged and `c` splits it the same way.
     const bWrite = delPlan.writes.find((w) => w.blockId === startBlockId);
+    if (bWrite) {
+      bRangeStart = bWrite.rangeStart;
+      bRangeEnd = bWrite.rangeEnd;
+    }
+    bAppendJoinEmbed = crossBlock;
+    // The id is needed when B is struck OR when its cross-block join is appended.
+    bDeletionId = bWrite || crossBlock ? delPlan.id : null;
     const bItems = bWrite ? bWrite.items : resolved.block.inlineContent.items;
     const [pfx, afterPrefix] = splitInlineContentAtOffset({ items: bItems }, c);
     prefix = pfx;
@@ -988,26 +1016,49 @@ export function planReplaceWithSuggestedFragment(
     // embeds (k = intervening count) — resolved by `resolve`'s reverse-order merge.
     for (const w of delPlan.writes) {
       if (w.blockId === startBlockId) continue;
-      const items =
-        w.blockId === endBlockId
-          ? w.items
-          : mergeAdjacentTextItems([...w.items, buildJoinSuggestionEmbed(delPlan.id)]);
-      extraWrites.push({ blockId: w.blockId, kind: delPlan.kind, items });
+      const appendJoinEmbed = w.blockId !== endBlockId;
+      const items = appendJoinEmbed
+        ? mergeAdjacentTextItems([...w.items, buildJoinSuggestionEmbed(delPlan.id)])
+        : w.items;
+      extraWrites.push({
+        blockId: w.blockId,
+        kind: delPlan.kind,
+        items,
+        rangeStart: w.rangeStart,
+        rangeEnd: w.rangeEnd,
+        deletionId: delPlan.id,
+        appendJoinEmbed,
+      });
     }
     if (delPlan.taggedAny && !delPlan.reusing) {
       delRecord = { id: delPlan.id, kind: "deletion", author: input.author, createdAt: input.createdAt };
     }
   }
 
+  // The start block B's write entry (its strike coords + the old full-replace `items`).
+  // `appendJoinEmbed` (= cross-block) is consumed ONLY by the n===0 surgical applier
+  // (B's n>0 writes ride the old full-replace path, which ignores these strike fields).
+  const bWriteEntry = (items: ReadonlyArray<InlineItem>): ResolveWrite => ({
+    blockId: at.blockId,
+    kind,
+    items,
+    rangeStart: bRangeStart,
+    rangeEnd: bRangeEnd,
+    deletionId: bDeletionId,
+    appendJoinEmbed: bAppendJoinEmbed,
+  });
+
   // Empty fragment: a pure suggested deletion (no insertion). B' = prefix ++ tailBundle
   // (the strike writes, restored as one block); the strike record is the only one.
   if (n === 0) {
     const bItems = mergeAdjacentTextItems([...prefix, ...tailBundle]);
     return {
-      writes: [{ blockId: at.blockId, kind, items: bItems }, ...extraWrites],
+      writes: [bWriteEntry(bItems), ...extraWrites],
       newBlocks: [],
       records: delRecord === null ? [] : [delRecord],
       endPosition: at,
+      bInsertPlan: null,
+      fragmentLength: n,
     };
   }
 
@@ -1043,10 +1094,12 @@ export function planReplaceWithSuggestedFragment(
       ...tailBundle,
     ]);
     return {
-      writes: [{ blockId: at.blockId, kind, items: bItems }, ...extraWrites],
+      writes: [bWriteEntry(bItems), ...extraWrites],
       newBlocks: [],
       records,
       endPosition: createPosition(at.blockId, c + fragmentLineLength(fragment[0])),
+      bInsertPlan: null,
+      fragmentLength: n,
     };
   }
 
@@ -1088,10 +1141,12 @@ export function planReplaceWithSuggestedFragment(
   }
 
   return {
-    writes: [{ blockId: at.blockId, kind, items: bItems }, ...extraWrites],
+    writes: [bWriteEntry(bItems), ...extraWrites],
     newBlocks,
     records,
     endPosition: createPosition(nbIds[n - 2], fragmentLineLength(fragment[n - 1])),
+    bInsertPlan: null,
+    fragmentLength: n,
   };
 }
 
@@ -1109,11 +1164,25 @@ export function replaceWithSuggestedFragment(
   fragment: readonly SiblingBlockInit[],
   input: ReplaceSuggestionInput,
   allocator: IdAllocator,
+  registry?: AttrRegistry,
 ): OperationResult & { readonly endPosition: Position } {
   const plan = planReplaceWithSuggestedFragment(state, span, fragment, input, allocator);
   const result = applyOperation(state, (doc) => {
+    // Per-block roles. The START block is `plan.writes[0]`; every OTHER write is an
+    // intervening block or E. NON-start writes are ALWAYS surgical (#493 S2): strike
+    // in place (preserving untouched runs' Y.Text identity) + append the cross-block
+    // JOIN embed for interveners. The START block is surgical too in the `n===0` case
+    // (pure strike); its `n>0` writes still ride the old full-replace path (S3/S4).
+    const startBlockId = plan.writes[0].blockId;
     for (const w of plan.writes) {
-      writeBlockInlineContentInTx(doc, w.blockId, w.kind, w.items, "replaceWithSuggestedFragment");
+      const isStart = w.blockId === startBlockId;
+      if (isStart && plan.fragmentLength > 0) {
+        // B's n>0 writes: old full-replace (S3/S4 migrate these to surgical).
+        writeBlockInlineContentInTx(doc, w.blockId, w.kind, w.items, "replaceWithSuggestedFragment");
+        continue;
+      }
+      // Surgical: NON-start writes (always) + the START block in the n===0 case.
+      applySurgicalFragmentWrite(doc, w, input.author, registry);
     }
     if (plan.newBlocks.length > 0) {
       const startBlockId = plan.writes[0].blockId;
@@ -1156,6 +1225,7 @@ export function insertFragmentAsSuggestion(
   fragment: readonly SiblingBlockInit[],
   input: SuggestionMintInput,
   allocator: IdAllocator,
+  registry?: AttrRegistry,
 ): OperationResult & { readonly endPosition: Position } {
   return replaceWithSuggestedFragment(
     state,
@@ -1168,7 +1238,43 @@ export function insertFragmentAsSuggestion(
       createdAt: input.createdAt,
     },
     allocator,
+    registry,
   );
+}
+
+/**
+ * Apply ONE surgical fragment write (#493 S2): strike `[w.rangeStart, w.rangeEnd)`
+ * in place via {@link applyDeletionStrikeInTx} (preserving the Y.Text identity of
+ * every UNTOUCHED run), then — for an intervening block, OR the cross-block start
+ * block in the `n===0` case — append the trailing block-JOIN-suggestion embed.
+ * `deletionId === null` (collapsed / nothing-struck-in-B) ⇒ no strike, no append.
+ */
+function applySurgicalFragmentWrite(
+  doc: Y.Doc,
+  w: ResolveWrite,
+  author: string,
+  registry: AttrRegistry | undefined,
+): void {
+  if (w.deletionId === null) return;
+  if (w.rangeStart < w.rangeEnd) {
+    applyDeletionStrikeInTx(
+      doc,
+      w.blockId,
+      w.kind,
+      w.rangeStart,
+      w.rangeEnd,
+      w.deletionId,
+      author,
+      registry,
+      "replaceWithSuggestedFragment",
+    );
+  }
+  if (w.appendJoinEmbed) {
+    const yItems = getYBlock(doc, w.blockId, "replaceWithSuggestedFragment", w.kind).get(
+      "inlineContent",
+    ) as Y.Array<Y.Map<unknown>>;
+    yItems.insert(yItems.length, [buildYInlineItem(buildJoinSuggestionEmbed(w.deletionId))]);
+  }
 }
 
 export type { NewBlockSpec } from "./insert-new-blocks";
@@ -1223,11 +1329,25 @@ export function rejectSuggestion(
 /** What a resolve does to each TAGGED run of the resolved suggestion. */
 type ResolveAction = "strip" | "drop" | "applyStrip";
 
-/** A pre-computed per-owning-block rewrite for a resolve. */
+/**
+ * A pre-computed per-owning-block rewrite for the fragment-replace path. Carries
+ * BOTH the rebuilt `items` (the old full-replace content — still read by the start
+ * block's `n>0` writes and by the equivalence oracle) AND the surgical-strike
+ * coordinates so the applier can drive {@link applyDeletionStrikeInTx} directly
+ * (the applier holds only the {@link ReplaceFragmentPlan}, not the planner-local
+ * `delPlan`). When `deletionId === null` the write contributes no strike (the
+ * collapsed / nothing-struck PF-1 case) and `rangeStart`/`rangeEnd` are 0.
+ * `appendJoinEmbed` is true only for an INTERVENING (fully-struck) block, whose
+ * struck content gets a trailing block-JOIN-suggestion embed after the strike.
+ */
 export interface ResolveWrite {
   readonly blockId: BlockId;
   readonly kind: BlockTreeKind;
   readonly items: ReadonlyArray<InlineItem>;
+  readonly rangeStart: number;
+  readonly rangeEnd: number;
+  readonly deletionId: SuggestionId | null;
+  readonly appendJoinEmbed: boolean;
 }
 
 /**
