@@ -33,7 +33,7 @@ import { adaptShaperToMeasurer } from "./text-measurer";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import { collectPageFields } from "./collect-page-fields";
 import { resolvePageFields } from "./resolve-page-fields";
-import { patchFieldWidths } from "./patch-field-widths";
+import { patchFieldWidths, patchRootFieldWidths } from "./patch-field-widths";
 import { runFieldConvergence, WIDTH_EPSILON, type ConvergenceField } from "./field-convergence";
 import { PAGE_FIELD_RESERVED_GLYPHS } from "../state/page-field";
 import { isDevMode } from "./dev-mode";
@@ -43,6 +43,13 @@ import {
   buildBlockToTopLevelIndex,
   footnoteAnchorPageAssignment,
 } from "./resolve-footnotes";
+
+// R-F6: the shared empty body-width sentinel — returned by `mergeBodyWidths` for a
+// field-free doc so the common (no-main-body-field) path allocates ZERO per iteration
+// and hands `makeVirtualLayoutTree` a ref-stable empty map (⇒ `patchRootFieldWidths`
+// is a ref-equal no-op ⇒ `substitutedRoot === cascadedRoot`, byte-identical to the
+// pre-feature path).
+const EMPTY_FIELD_WIDTHS: ReadonlyMap<string, number> = new Map();
 
 /**
  * Build a `VirtualLayoutTree` for a paginated `display: block` document root.
@@ -159,17 +166,43 @@ export function buildVirtualPaginatedTree(
   // entries already present — by design.)
   const measurer = adaptShaperToMeasurer(shaper);
   const fieldSpecs = collectPageFields(cascadedTemplateContents, rootChildren);
-  // §4.4 convergence inputs: only TEMPLATE (header/footer) fields can grow a slot —
-  // body `metas` carry no page-fields (main-body OUT), so a field width feeds ONLY
-  // `computeSlotInsets`. Each field's reservation is its placeholder's natural width
-  // (the rendered `PAGE_FIELD_RESERVED_GLYPHS` zeros at the cascaded atom's style).
+  // §4.8: main-body layout-dependent fields (page-mode cross-references) affect the
+  // BODY's line-wrapping (unlike template fields, which only grow a header/footer slot),
+  // so when any exist the convergence loop must rebuild the body `metas` from the
+  // width-patched root each iteration. Absent (the common case) ⇒ `metas` are loop-
+  // invariant ⇒ byte-identical to the pre-feature path.
+  const hasMainBodyFields = fieldSpecs.some((s) => s.host === "main");
+  // §4.4 convergence inputs: ALL fields participate in grow-and-retry. A TEMPLATE
+  // (header/footer) field grows a slot (feeds `computeSlotInsets`); a MAIN-BODY field
+  // (page-mode cross-reference) grows the host block's inline-block atom and re-wraps
+  // the body (feeds `patchRootFieldWidths` → rebuilt `metas`). The driver is host-
+  // agnostic: each field's reservation is its placeholder's natural width (the rendered
+  // `PAGE_FIELD_RESERVED_GLYPHS` zeros at the cascaded atom's style).
   const reservedGlyphs = "0".repeat(PAGE_FIELD_RESERVED_GLYPHS);
-  const convergenceFields: ConvergenceField[] = fieldSpecs
-    .filter((spec) => spec.host === "template")
-    .map((spec) => ({
-      embedKey: spec.embedKey,
-      reservedWidth: measurer.measureWidth(reservedGlyphs, spec.computedStyle),
-    }));
+  const convergenceFields: ConvergenceField[] = fieldSpecs.map((spec) => ({
+    embedKey: spec.embedKey,
+    reservedWidth: measurer.measureWidth(reservedGlyphs, spec.computedStyle),
+  }));
+
+  // R-F6: the reserved (2-glyph "00") width of each MAIN-BODY layout field, by render key.
+  // Used to size the body cross-ref atom IDENTICALLY in the measure pass (patched root) and at
+  // materialize (substituted root) — measure↔materialize agreement (else a narrower-than-reservation
+  // value lets a page/column fit more than planned → cross-boundary content duplication).
+  const mainBodyReservedWidths = new Map<string, number>();
+  for (const spec of fieldSpecs) {
+    if (spec.host === "main") {
+      mainBodyReservedWidths.set(spec.embedKey, measurer.measureWidth(reservedGlyphs, spec.computedStyle));
+    }
+  }
+  // Merge a per-iteration `grownWidths` with the base reserved widths → each main-body field's
+  // CURRENT effective width (grown if the convergence loop grew it, else the 2-glyph reservation).
+  // A field-free doc returns the ref-stable EMPTY sentinel (zero allocation per iteration).
+  const mergeBodyWidths = (grownWidths: ReadonlyMap<string, number>): ReadonlyMap<string, number> => {
+    if (mainBodyReservedWidths.size === 0) return EMPTY_FIELD_WIDTHS;
+    const out = new Map<string, number>();
+    for (const [key, reserved] of mainBodyReservedWidths) out.set(key, grownWidths.get(key) ?? reserved);
+    return out;
+  };
 
   // One layout pass at a given set of grown field-width reservations: re-derive the
   // slot insets (the ONLY place a page-field width matters), re-fit pages, resolve
@@ -179,17 +212,39 @@ export function buildVirtualPaginatedTree(
   // to a no-convergence build.
   const runIteration = (grownWidths: ReadonlyMap<string, number>) => {
     const patchedTemplates = patchFieldWidths(cascadedTemplateContents, grownWidths);
+    // §4.8: when the MAIN body hosts a layout-dependent field, patch the body root's
+    // field widths and rebuild `metas` from the patched root so the IFC line-wraps the
+    // host block against the grown inline-block width. `patchRootFieldWidths` returns
+    // `cascadedRoot` unchanged on empty `grownWidths` (pass 1), and `buildBlockFitMetas`
+    // is cached by `(ref, width, shaper)` — so an unchanged root re-hits the cache. For
+    // a field-free body, `patchedRoot === cascadedRoot` and `effectiveMetas === metas`.
+    // The two track-width meta builder callbacks (below) ALSO size off `patchedRoot` so
+    // every meta source (full-width primary, narrow-track multicol, footnote re-fit)
+    // sizes the body cross-ref atom identically — measure↔materialize consistency.
+    // R-F6: patch with the MERGED body widths (each main-body field's grown-or-RESERVED width),
+    // so the measure pass sizes every body cross-ref atom at an EXPLICIT width byte-identical to
+    // the one materialize will use (`mergeBodyWidths(grownWidths)` is threaded to
+    // `makeVirtualLayoutTree` below). This eliminates the auto-`"00"`-vs-explicit sub-pixel risk:
+    // a value narrower than its 2-glyph reservation no longer lets materialize fit more children
+    // than measure planned (cross-page/column content duplication). Field-free ⇒ empty merged map
+    // ⇒ `patchRootFieldWidths` returns `cascadedRoot` ref-equal ⇒ `effectiveMetas === metas`.
+    const patchedRoot = hasMainBodyFields
+      ? patchRootFieldWidths(cascadedRoot, mergeBodyWidths(grownWidths))
+      : cascadedRoot;
+    const effectiveMetas = hasMainBodyFields
+      ? buildBlockFitMetas(patchedRoot, shaper, pageContentInlineSize)
+      : metas;
     const slotInsets = computeSlotInsets(
       sectionPlan, pageConfig, ctx, shaper, patchedTemplates, minBodyPx,
     );
     const rawPlan = measurePass(
-      metas, pageConfig, sectionPlan, rootChildren, prevRawPlan, slotInsets,
+      effectiveMetas, pageConfig, sectionPlan, rootChildren, prevRawPlan, slotInsets,
       // #494: the multicol branch rebuilds metas at each column's TRACK width so
       // the planned ColumnFit matches `materializePage`'s narrow-track layout.
       // `buildBlockFitMetas` is cached by `(elementBoxRef, width, shaperRef)`, so
-      // repeated calls for the same width are O(1). The full-width `metas` (line
-      // above) stays the primary arg for single-column pages.
-      (inlineSize) => buildBlockFitMetas(cascadedRoot, shaper, inlineSize),
+      // repeated calls for the same width are O(1). The full-width `effectiveMetas`
+      // (line above) stays the primary arg for single-column pages.
+      (inlineSize) => buildBlockFitMetas(patchedRoot, shaper, inlineSize),
     );
     // FN-4.3 (D6): the footnote layout pass — lays each anchor's body into its page's
     // bottom slot, reduces the body content area, forward-sweeps the re-fit. Footnote-
@@ -198,7 +253,7 @@ export function buildVirtualPaginatedTree(
     // the change signal). Runs inside the loop because a re-fit (more pages) changes
     // the footnote→page assignment.
     const plan = resolveFootnotes(
-      rawPlan, metas, sectionPlan, rootChildren,
+      rawPlan, effectiveMetas, sectionPlan, rootChildren,
       cascadedEmbedContents, footnoteAnchors, ctx, shaper, slotInsets, pageConfig,
       prevTree?.plan, prevInternal?.__cascadedEmbedContents ?? new Map(),
       // #499: the track-width meta builder so a footnote anchored in a multi-column
@@ -206,7 +261,7 @@ export function buildVirtualPaginatedTree(
       // `materializePage`'s narrow-track layout (identical to the arg passed to
       // `measurePass` above). Without it the footnote pass plans at full width and
       // drifts (the #494 drift class, here in the footnote re-fit).
-      (inlineSize) => buildBlockFitMetas(cascadedRoot, shaper, inlineSize),
+      (inlineSize) => buildBlockFitMetas(patchedRoot, shaper, inlineSize),
     );
     const resolved = resolvePageFields(plan, fieldSpecs, measurer);
     return {
@@ -225,6 +280,12 @@ export function buildVirtualPaginatedTree(
   // crosses the reserved digit boundary.
   const { result, grownWidths, converged } = runFieldConvergence(convergenceFields, runIteration);
   const { rawPlan, plan, globalFieldValues } = result;
+  // R-F6: the FINAL per-main-body-field effective widths (grown-or-reserved) the converged
+  // measure pass used. Threaded to `makeVirtualLayoutTree` so materialize width-patches each
+  // body cross-ref atom to the SAME width before substituting the real text — measure and
+  // materialize size the atom byte-identically (no narrower-value cross-boundary drift). Empty
+  // sentinel for a field-free doc ⇒ materialize is a ref-equal no-op.
+  const mainBodyFieldWidths = mergeBodyWidths(grownWidths);
   // Dev invariant (§4.4): every value's width fits its final reservation. This is the
   // convergence condition itself, so on the converged path it holds by construction —
   // it is a TRIPWIRE guarding against a future refactor of the driver/patch wiring that
@@ -272,6 +333,7 @@ export function buildVirtualPaginatedTree(
   return makeVirtualLayoutTree(
     plan, cascadedRoot, ctx, shaper, pageConfig, prevTree, cascadedTemplateContents,
     cascadedEmbedContents, rawPlan, footnoteAnchorPages, fieldSpecs, globalFieldValues,
+    mainBodyFieldWidths,
   );
 }
 

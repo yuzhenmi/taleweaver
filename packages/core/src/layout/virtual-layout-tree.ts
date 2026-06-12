@@ -43,6 +43,7 @@ import { isDevMode } from "./dev-mode";
 import { FOOTNOTE_SEPARATOR_HEIGHT, FOOTNOTE_MARKER_GAP, footnoteMarkerGutter } from "./resolve-footnotes";
 import type { FieldSpec } from "./collect-page-fields";
 import { substituteLayoutFields } from "./substitute-layout-fields";
+import { patchRootFieldWidths } from "./patch-field-widths";
 import { formatCounter } from "../styles/format-counter";
 
 /**
@@ -369,6 +370,14 @@ export function makeVirtualLayoutTree(
   // are byte-identical.
   fieldSpecs: readonly FieldSpec[] = [],
   globalFieldValues: ReadonlyMap<string, string> = new Map(),
+  // R-F6: each MAIN-BODY layout field's final effective width (grown-or-reserved), by render
+  // key — the IDENTICAL widths the converged measure pass sized the body cross-ref atoms at.
+  // Used to width-patch the body root BEFORE substituting the real text, so materialize and
+  // measure size each atom byte-identically (no narrower-than-reservation value lets a
+  // page/column fit more children than the plan assigned ⇒ no cross-boundary duplication).
+  // Defaulted empty so existing callers/tests stay byte-identical (the patch is a ref-equal
+  // no-op for an empty map).
+  mainBodyFieldWidths: ReadonlyMap<string, number> = new Map(),
 ): VirtualLayoutTree {
   const margins = pageConfig.pageMargins;
   const pageContentBlockSize =
@@ -420,6 +429,42 @@ export function makeVirtualLayoutTree(
   // page-count and ignores the rest; page-number is computed from `pageIndex`).
   const pageGlobalFieldValues = globalFieldValues;
   const templateFieldSpecs = fieldSpecs.filter((s) => s.host === "template");
+  const mainBodyFieldSpecs = fieldSpecs.filter((s) => s.host === "main");
+
+  // §4.10 + R-F6: prepare the main-body root for per-page layout ONCE — width-patch each body
+  // cross-ref atom to its final reservation, THEN substitute the GLOBAL field values.
+  //
+  // R-F6 (width-patch FIRST): `mainBodyFieldWidths` carries each body field's grown-or-reserved
+  // width — IDENTICAL to what the converged measure pass used (virtual-producer.ts threads the
+  // SAME merged map into both the measure-pass `patchRootFieldWidths` and here). Sizing the atom
+  // to the reservation (not shrink-to-fit the real value) makes materialize and measure size it
+  // byte-identically: a value NARROWER than its 2-glyph reservation (the common single-digit
+  // page-ref) can no longer let a page/column fit more children at materialize than the plan
+  // assigned (cross-boundary content duplication). `patchRootFieldWidths` returns `cascadedRoot`
+  // unchanged for an empty map (field-free doc) ⇒ `substitutedRoot === cascadedRoot` ⇒
+  // byte-identical to the pre-feature path.
+  //
+  // §4.10 (substitute SECOND): cross-ref-page values don't vary per page — the target's page is
+  // global — so substitute once here, not per page. `pageIndex` is 0 but only used by per-page
+  // page-number substitution, which (per the R-F5 invariant below) cannot occur in the main body.
+  // R-F5 invariant: the ONLY main-body layout field is cross-ref-page (a GLOBAL value).
+  // page-number/page-count are gated to template bodies by INSERT_PAGE_NUMBER/COUNT, so a
+  // main-body page-number — which the pageIndex-0 substitution would wrongly stamp "1" —
+  // cannot occur; assert it in dev.
+  if (isDevMode()) {
+    for (const s of mainBodyFieldSpecs) {
+      if (s.fieldType !== "cross-ref-page") {
+        throw new Error(
+          `makeVirtualLayoutTree: unexpected main-body field type "${s.fieldType}" — only the global cross-ref-page field may appear in the main body (page-number/page-count are template-only)`,
+        );
+      }
+    }
+  }
+  const substitutedRoot = substituteLayoutFields(
+    patchRootFieldWidths(cascadedRoot, mainBodyFieldWidths),
+    0,
+    pageGlobalFieldValues,
+  );
 
   /**
    * The per-page page-field value strings (F-2 fingerprint fold), in
@@ -428,8 +473,7 @@ export function makeVirtualLayoutTree(
    * stable, deterministic array per page; an empty result for a field-free doc.
    */
   function pageFieldValuesForFingerprint(pageIndex: number): readonly string[] {
-    if (templateFieldSpecs.length === 0) return EMPTY_PAGE_FIELD_VALUES;
-    return templateFieldSpecs.map((s) =>
+    const templateValues = templateFieldSpecs.map((s) =>
       s.fieldType === "page-number"
         ? formatCounter(pageIndex + 1, s.numberStyle)
         // When a page-count global value is absent, `substituteLayoutFields` returns the
@@ -439,6 +483,19 @@ export function makeVirtualLayoutTree(
         // the ""-fold are the matching pair of that invariant.
         : pageGlobalFieldValues.get(s.embedKey) ?? "",
     );
+    // §4.9: main-body fields appear on only the page(s) hosting their block — fold their
+    // value in for those pages so the host page re-materializes when the target's resolved
+    // page (the value) changes. A target moving pages thus busts the carry-forward for the
+    // page that displays the ref.
+    const mainValues: string[] = [];
+    for (const spec of mainBodyFieldSpecs) {
+      const span = plan.pageSpanOfBlock(spec.hostBlockId);
+      if (span !== null && span.first <= pageIndex && pageIndex <= span.last) {
+        mainValues.push(pageGlobalFieldValues.get(spec.embedKey) ?? "");
+      }
+    }
+    if (templateValues.length === 0 && mainValues.length === 0) return EMPTY_PAGE_FIELD_VALUES;
+    return Object.freeze([...templateValues, ...mainValues]);
   }
 
   // C.2c (T4): the per-page fingerprint. MOVED into the closure (from top level)
@@ -642,7 +699,9 @@ export function makeVirtualLayoutTree(
         const columnInlineStart = k * (trackInlineSize + gap);
         _getPageDriverCount++;
         const { box: rawColBox, breakToken: colBreakToken } = layoutBlock(
-          cascadedRoot,
+          // §4.10: lay the GLOBAL-value-substituted body root so a body cross-ref
+          // renders its resolved page number (== cascadedRoot for a field-free body).
+          substitutedRoot,
           columnInlineStart,
           0,
           // Override ONLY the inline size to the track width (mirrors the per-page
@@ -733,7 +792,9 @@ export function makeVirtualLayoutTree(
     } else {
       _getPageDriverCount++;
       box = layoutBlock(
-        cascadedRoot,
+        // §4.10: lay the GLOBAL-value-substituted body root so a body cross-ref
+        // renders its resolved page number (== cascadedRoot for a field-free body).
+        substitutedRoot,
         effMargins.inlineStart,
         // Body origin (#328): the EFFECTIVE top inset, not the raw margin — a tall
         // header has grown `effectiveTopInset` past `blockStart`, pushing the body

@@ -676,9 +676,13 @@ and render placeholder have shipped; layout resolution + the editor surface rema
 - **Layout — substitute** (`1.5-pagination.md`): `substituteLayoutFields` (renamed from the
   page-field-specific `substitutePageFields`) stamps the resolved page number into the placeholder
   at materialize; the `""` broken-ref sentinel renders as `BROKEN_CROSS_REFERENCE_TEXT`.
-- **Remaining:** the convergence/fingerprint wiring for main-body fields (so a wide page-ref
-  re-paginates and re-materializes the page it sits on), and the `INSERT_CROSS_REFERENCE` editor
-  surface for page mode.
+- **Layout — convergence + fingerprint** (`1.5-pagination.md`): a main-body page-ref participates in
+  the §4.4 width-convergence loop (a wide value grows its reservation and re-paginates); the body
+  root is width-patched (`patchRootFieldWidths`) at BOTH the measure pass and at materialize so the
+  atom is sized identically on both sides (no cross-boundary content drift), then the real value is
+  substituted; the per-page fingerprint folds the value into the page(s) hosting the ref so the host
+  page re-materializes when the target moves. Field-free docs are byte-identical to the pre-feature path.
+- **Remaining:** the `INSERT_CROSS_REFERENCE` editor surface for page mode.
 
 Out of scope (named follow-ups): main-body / footnote-body page-fields (not creatable
 via the editor), table of contents.
