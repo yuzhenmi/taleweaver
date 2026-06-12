@@ -176,6 +176,29 @@ function tableWithHeader(numRows: number, headerRowCount: number, rowHeight: num
   return createElementBox("tbl", { display: "table" } as Style, rows, { headerRowCount });
 }
 
+/**
+ * A `headerRowCount`-header table whose ROW HEIGHTS are given explicitly (#487
+ * S5): `rowHeights[i]` is the `blockSize` of row `i`. Lets a test simulate a
+ * header-CELL edit by re-building the same table with a TALLER header row,
+ * changing `headerBlockSize = Σ rowBlockSizes[0, headerRowCount)`. The cell key
+ * is suffixed so a re-laid header cell with edited content is a distinct render
+ * node (mirrors what the incremental cascade emits for an edited cell).
+ */
+function tableWithHeaderRowHeights(
+  rowHeights: readonly number[],
+  headerRowCount: number,
+  cellTextById?: (i: number) => string,
+): ElementBox {
+  const rows = rowHeights.map((rowHeight, i) =>
+    createElementBox(`row-${i}`, { display: "table-row", blockSize: rowHeight } as Style, [
+      createElementBox(`cell-${i}`, { display: "table-cell" } as Style, [
+        createTextBox(`ct-${i}`, {}, cellTextById ? cellTextById(i) : "x"),
+      ]),
+    ]),
+  );
+  return createElementBox("tbl", { display: "table" } as Style, rows, { headerRowCount });
+}
+
 // ---------------------------------------------------------------------------
 // Shared build helpers.
 // ---------------------------------------------------------------------------
@@ -418,6 +441,163 @@ describe("VirtualLayoutTree — #487 header repetition (Gate B: measure↔materi
     // A drift between this and the measure reservation is the exact bug class this
     // feature must not ship.
     expect(table.blockSize).toBe(90);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Slice S5: reuse-gate height sensitivity (#487 §5). A HEADER-cell edit changes
+// `headerBlockSize` ⇒ every continuation fragment's body-row budget changes, so
+// neither reuse gate (measure-pass `canReusePage` keyed on cascaded RenderNode
+// refs; virtual-layout `PageFingerprint` keyed on the same refs) may serve a
+// stale continuation. These tests PROVE the causal mechanism (the edit produces
+// a NEW cascaded table-node ref — the load-bearing §5/F9 propagation assumption)
+// AND the outcome (the continuation re-fits / re-materializes, no stale reuse).
+// ---------------------------------------------------------------------------
+
+/**
+ * Pull the table resume token's ABSOLUTE `resumeAtRow` off a continuation page's
+ * `resumeInto` (a top-level `block` token wrapping the table token), or null if
+ * the entry has no table continuation. Lets a test assert the body-row budget a
+ * continuation fragment actually resumes at, which is what `headerBlockSize`
+ * shifts when a header cell grows.
+ */
+function tableResumeAtRow(entry: PagePlanEntry | undefined): number | null {
+  const resumeInto = entry?.resumeInto;
+  if (resumeInto?.type !== "block") return null;
+  const inner = resumeInto.resumeChildToken;
+  if (inner?.type !== "table") return null;
+  return inner.resumeAtRow;
+}
+
+describe("VirtualLayoutTree — #487 S5 reuse-gate height sensitivity", () => {
+  // Build root A: a 5-row table, headerRowCount 1, header row 20 tall + body
+  // rows 30 tall. Page content 100 ⇒ page 0 holds rows 0(20),1(30),2(30) = 80
+  // (row 3 would be 110 > 100), so the table resumes at absolute row 3; page 1
+  // reserves the 20px header ⇒ body budget 80 ⇒ fits rows 3,4.
+  function buildShortHeaderRoot(): ElementBox {
+    return cascadeRoot({ display: "block" }, [tableWithHeaderRowHeights([20, 30, 30, 30, 30], 1)]);
+  }
+
+  // Root B simulates a HEADER-CELL edit that grows the header row to 50 tall
+  // (more content), leaving the body rows at 30. It re-builds the table with
+  // the taller, edited header so the table node is a FRESH cascaded ref —
+  // exactly what the incremental cascade emits when a header cell's content
+  // changes. Page 0 now holds rows 0(50),1(30) = 80 (row 2 would be 110 > 100),
+  // so the table resumes at absolute row 2 — a DIFFERENT boundary.
+  function buildTallHeaderRoot(): ElementBox {
+    return cascadeRoot({ display: "block" }, [
+      tableWithHeaderRowHeights([50, 30, 30, 30, 30], 1, (i) => (i === 0 ? "TALLER HEADER" : "x")),
+    ]);
+  }
+
+  it("S5.1 — header-cell edit produces a NEW table-node ref AND re-fits the continuation (measure-pass gate)", () => {
+    const pageConfig = noMarginPageConfig(100);
+
+    const rootA = buildShortHeaderRoot();
+    const { plan: planA, tree: treeA } = buildPlanAndTree(rootA, pageConfig);
+    expect(planA.entries.length).toBeGreaterThanOrEqual(2);
+
+    // Causal mechanism (1): the table node is the doc-root's first cascaded
+    // child. Capture its reference BEFORE the edit.
+    const tableNodeBefore = rootA.children[0];
+    expect(tableNodeBefore).toBeDefined();
+
+    // Edit a HEADER cell → re-cascade. Build tree B reusing treeA as the prior
+    // tree so the carry-forward memo is exercised exactly as production does.
+    const rootB = buildTallHeaderRoot();
+    const tableNodeAfter = rootB.children[0];
+
+    // (1) CAUSAL MECHANISM — the load-bearing §5/F9 assumption: a header-cell
+    // edit propagates up to a DIFFERENT cascaded table-node ref. `canReusePage`
+    // compares cascaded RenderNode refs (`rootChildren[i] !== reusable.children[i]`),
+    // so this inequality is WHY the gate refuses to reuse the stale continuation.
+    // A passing outcome with EQUAL refs would pass for the wrong reason.
+    expect(tableNodeAfter).not.toBe(tableNodeBefore);
+
+    const pcis =
+      pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
+    const metasB = buildBlockFitMetas(rootB, createMockShaper(8, 16), pcis);
+    // CRITICAL: pass `planA` as `prevPlan` so the `canReusePage` reuse path is
+    // ACTUALLY exercised. Without a reuse candidate, measurePass re-fits every page
+    // from scratch and the test would pass even if `canReusePage` were broken (it
+    // would only prove two different inputs give two different outputs). With planA
+    // as the candidate, a broken gate would stale-reuse planA's row-3 boundary and
+    // `resumeAfter` would wrongly be 3 — so the `=== 2` assertion genuinely tests
+    // that the gate REFUSED the stale page (because the table node ref changed).
+    const planB = measurePass(metasB, pageConfig, IMPLICIT_SECTION_PLAN, rootB.children, planA);
+
+    // (2) OUTCOME — the continuation RE-FITS against the new (larger)
+    // headerBlockSize. Page 0 now holds rows 0,1 only (header 50 + row 30 = 80 ≤
+    // 100; a third row would overflow), so the table resumes at absolute row 2 —
+    // NOT the row-3 boundary the short-header plan computed. The body-row budget
+    // (and therefore the page boundary) changed because the taller header eats
+    // more of every continuation fragment.
+    const resumeBefore = tableResumeAtRow(planA.entries[1]);
+    const resumeAfter = tableResumeAtRow(planB.entries[1]);
+    expect(resumeBefore).toBe(3); // short header: page 0 = rows 0,1,2
+    expect(resumeAfter).toBe(2); // tall header: page 0 = rows 0,1
+    expect(resumeAfter).not.toBe(resumeBefore);
+
+    // The whole-plan boundary count grew too (a taller header ⇒ fewer body rows
+    // per fragment ⇒ more pages) — a stale-reuse would have kept planA's shape.
+    expect(planB.entries.length).toBeGreaterThan(planA.entries.length);
+
+    // Sanity: treeA's continuation page exists for the materialize-gate test.
+    expect(treeA.getPage(1)).toBeDefined();
+  });
+
+  it("S5.2 — header-cell edit re-materializes the continuation (PageFingerprint gate, no stale paint)", () => {
+    const pageConfig = noMarginPageConfig(100);
+
+    const rootA = buildShortHeaderRoot();
+    const { tree: treeA } = buildPlanAndTree(rootA, pageConfig);
+    // Materialize every page so the carry-forward memo has candidates to reuse.
+    for (let i = 0; i < treeA.plan.entries.length; i++) treeA.getPage(i);
+
+    // The continuation page's re-laid header row is 20 tall before the edit.
+    const page1A = treeA.getPage(1);
+    let tableA: LayoutBox | null = null;
+    for (const child of page1A.children) {
+      tableA = findTableBox(child);
+      if (tableA !== null) break;
+    }
+    if (tableA === null || tableA.type !== "table") throw new Error("no table on continuation page A");
+    expect(tableA.children[0]?.key).toBe("row-0"); // re-laid header
+    expect(tableA.children[0]?.blockSize).toBe(20);
+
+    // Edit a header cell → re-cascade → build tree B with treeA as the prior
+    // tree (the carry-forward memo path). The table node's ref changed, so the
+    // PageFingerprint's `children` (cascaded child refs, reference identity)
+    // differs on every page that emits the table — including the continuation,
+    // whose re-laid header is emitted from the SAME (now-changed) cascaded table
+    // node. The fingerprint MUST flip so the stale 20px-header PageBox is not
+    // reused.
+    const rootB = buildTallHeaderRoot();
+    const pcis =
+      pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
+    const metasB = buildBlockFitMetas(rootB, createMockShaper(8, 16), pcis);
+    const planB = measurePass(metasB, pageConfig, IMPLICIT_SECTION_PLAN, rootB.children);
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
+    const treeB = makeVirtualLayoutTree(planB, rootB, ctx, createMockShaper(8, 16), pageConfig, treeA);
+
+    // The continuation is NOT reused by reference (fingerprint flipped).
+    expect(treeB.getPage(1)).not.toBe(treeA.getPage(1));
+
+    // And it RE-MATERIALIZES with the edited (taller) header — no stale paint.
+    const page1B = treeB.getPage(1);
+    let tableB: LayoutBox | null = null;
+    for (const child of page1B.children) {
+      tableB = findTableBox(child);
+      if (tableB !== null) break;
+    }
+    if (tableB === null || tableB.type !== "table") throw new Error("no table on continuation page B");
+    // Re-laid header at the top reflects the edit: 50 tall now (not the stale 20).
+    expect(tableB.children[0]?.key).toBe("row-0");
+    expect(tableB.children[0]?.blockOffset).toBe(0);
+    expect(tableB.children[0]?.blockSize).toBe(50);
+    // Body rows now start at the new headerBlockSize (50), proving the
+    // continuation was re-fit + re-materialized, not stale-reused.
+    expect(tableB.children[1]?.blockOffset).toBe(50);
   });
 });
 

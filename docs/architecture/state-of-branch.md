@@ -160,9 +160,11 @@ Built-in component behavior:
   and the materialize pass (`layoutTable`) re-lays the header rows at each continuation
   fragment's top from the SAME single source — measure↔materialize agree byte-for-byte,
   gated by the equivalence harness + a direct `getPage` test (S3+S4, one atomic commit).
-  REMAINING `[partial]`: the incremental reuse-gate sensitivity (a header-cell edit
-  must re-fit/re-materialize continuations — S5) and hard-case hardening (HEADER-CAP,
-  multicolumn, span-from-header — S6). Still `[missing]`:
+  The incremental reuse gates (`canReusePage` + `PageFingerprint`) correctly re-fit /
+  re-materialize continuations after a header-cell edit — confirmed by regression tests
+  (S5; the existing cascade-RenderNode-ref keying already covers it, no new gate needed).
+  REMAINING `[partial]`: hard-case hardening (HEADER-CAP, multicolumn, span-from-header
+  — S6, mostly proving cases already handled by S3+S4). Still `[missing]`:
   browser-gated example-app Table menu wiring (the `INSERT_TABLE` button + the
   span-aware actions + a header-row toggle), structural table copy/paste, and HTML
   table DECODE (paste-in).
