@@ -199,6 +199,99 @@ describe("EXPAND_SELECTION — coherence with MOVE_CURSOR (C.2.3)", () => {
   });
 });
 
+describe("EditorState.anchorAffinity lifecycle (#503 slice 3)", () => {
+  // Slice 3 is pure state plumbing: nothing READS anchorAffinity yet, so the
+  // lifecycle is tested directly — set anchorAffinity on a state, dispatch an
+  // action, and assert reduceEditor clears or preserves it per the predicate.
+  function withAnchorAffinity(editor: EditorState): EditorState {
+    return { ...editor, anchorAffinity: "after" };
+  }
+
+  it("a non-managing action (INSERT_TEXT) clears anchorAffinity (central reset)", () => {
+    const config = makeConfig();
+    let editor = type(createInitialEditorState(config), "abc", config);
+    const pid = paragraphId(editor);
+    editor = caretAt(editor, pid, 1, config);
+    editor = withAnchorAffinity(editor);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" }, config);
+    expect(editor.anchorAffinity).toBeUndefined();
+  });
+
+  it("SET_SELECTION clears anchorAffinity (a new anchor has no bidi context)", () => {
+    const config = makeConfig();
+    let editor = type(createInitialEditorState(config), "abc", config);
+    const pid = paragraphId(editor);
+    editor = withAnchorAffinity(editor);
+    const pos = createPosition(pid, 1);
+    editor = reduceEditor(
+      editor,
+      { type: "SET_SELECTION", selection: createSpan(pos, pos) },
+      config,
+    );
+    expect(editor.anchorAffinity).toBeUndefined();
+  });
+
+  it("MOVE_CURSOR explicitly clears anchorAffinity (not carried by the ...editor spread)", () => {
+    // MOVE_CURSOR is in the predicate (central reset skipped) AND collapses the
+    // selection, so without an explicit clear the spread would carry the stale
+    // anchorAffinity forward — this asserts it is cleared.
+    const config = makeConfig();
+    let editor = type(createInitialEditorState(config), "abc", config);
+    const pid = paragraphId(editor);
+    editor = caretAt(editor, pid, 1, config);
+    editor = withAnchorAffinity(editor);
+    editor = moveRight(editor, config);
+    expect(editor.anchorAffinity).toBeUndefined();
+  });
+
+  it("MOVE_LINE_BOUNDARY explicitly clears anchorAffinity", () => {
+    const config = makeConfig();
+    let editor = type(createInitialEditorState(config), "abc", config);
+    const pid = paragraphId(editor);
+    editor = caretAt(editor, pid, 1, config);
+    editor = withAnchorAffinity(editor);
+    editor = reduceEditor(
+      editor,
+      { type: "MOVE_LINE_BOUNDARY", boundary: "start" },
+      config,
+    );
+    expect(editor.anchorAffinity).toBeUndefined();
+  });
+
+  it("MOVE_LINE explicitly clears anchorAffinity (collapses → anchor has no bidi context)", () => {
+    // MOVE_LINE (ArrowUp/Down) is in the predicate (central reset skipped) AND
+    // collapses the selection — same R5 hazard as MOVE_CURSOR. It must clear
+    // anchorAffinity explicitly (uniform invariant: every collapsing action clears).
+    const config = makeConfig();
+    let editor = type(createInitialEditorState(config), "abc\ndef", config);
+    const pid = paragraphId(editor);
+    editor = caretAt(editor, pid, 1, config);
+    editor = withAnchorAffinity(editor);
+    const before = editor.selection.focus;
+    editor = reduceEditor(editor, { type: "MOVE_LINE", direction: "down" }, config);
+    // MOVE_LINE actually moved (not a no-op early return) and cleared the stale seed.
+    expect(editor.selection.focus).not.toEqual(before);
+    expect(editor.anchorAffinity).toBeUndefined();
+  });
+
+  it("a predicate action that spreads ...editor (EXPAND_LINE) PRESERVES anchorAffinity", () => {
+    // EXPAND_LINE is in actionManagesAnchorAffinity and carries the field via its
+    // {...editor} spread → the central reset must NOT clobber it. (EXPAND_SELECTION's
+    // seeding logic is slice 4; here we only confirm the spread-persistence path.)
+    const config = makeConfig();
+    let editor = type(createInitialEditorState(config), "abc\ndef", config);
+    const pid = paragraphId(editor);
+    editor = caretAt(editor, pid, 1, config);
+    editor = withAnchorAffinity(editor);
+    const before = editor.selection.focus;
+    editor = reduceEditor(editor, { type: "EXPAND_LINE", direction: "down" }, config);
+    // EXPAND_LINE moved the focus (so it was not a no-op early return) and kept
+    // the anchorAffinity seed.
+    expect(editor.selection.focus).not.toEqual(before);
+    expect(editor.anchorAffinity).toBe("after");
+  });
+});
+
 describe("EXPAND_SELECTION — affinity lifecycle", () => {
   it("sets the focus caretAffinity at a bidi boundary (survives the central reset)", () => {
     const config = makeConfig();

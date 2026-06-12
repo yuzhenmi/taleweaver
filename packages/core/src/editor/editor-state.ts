@@ -194,6 +194,16 @@ export interface EditorState {
    * default are the shared primitive.
    */
   readonly caretAffinity?: CaretAffinity;
+  /**
+   * NON-undoable view state (#503): the ANCHOR's caret-boundary association at a
+   * bidi direction boundary — the symmetric twin of `caretAffinity` (the FOCUS's
+   * boundary side). On the collapse→extend transition `EXPAND_SELECTION` seeds
+   * this from `caretAffinity`; thereafter it persists through continued
+   * extension. Clears on any action not in `actionManagesAnchorAffinity` (the
+   * same central-reset model as `caretAffinity`). It is VIEW state — never stored
+   * in `History`, never part of `Position` / `Selection` / `Span`.
+   */
+  readonly anchorAffinity?: CaretAffinity;
 }
 
 export interface EditorConfig {
@@ -290,6 +300,7 @@ export function createEditorStateFromState(
     targetX: null,
     caretPageHint: undefined,
     caretAffinity: undefined,
+    anchorAffinity: undefined,
   };
 }
 
@@ -642,6 +653,18 @@ export function reduceEditor(
     result = { ...result, caretAffinity: undefined };
   }
 
+  // Central anchor-affinity reset (#503), the symmetric twin of the caretAffinity
+  // reset above. `anchorAffinity` records the ANCHOR's bidi-boundary side; it must
+  // persist ONLY across the actions that explicitly manage it (the same set as
+  // `caretAffinity`) and reset to `undefined` after any other action so it never
+  // goes stale. Note (R5): MOVE_CURSOR / MOVE_LINE_BOUNDARY are in the predicate
+  // (so this reset skips them) AND collapse the selection — they explicitly set
+  // `anchorAffinity: undefined` in their own returns so a stale value is not
+  // carried forward by their `{ ...editor }` spread.
+  if (!actionManagesAnchorAffinity(action) && result.anchorAffinity !== undefined) {
+    result = { ...result, anchorAffinity: undefined };
+  }
+
   return result;
 }
 
@@ -674,6 +697,33 @@ export function reduceEditor(
  *     logical boundary and seed the focus affinity the same way.
  */
 function actionManagesCaretAffinity(action: EditorAction): boolean {
+  return (
+    action.type === "SET_SELECTION" ||
+    action.type === "MOVE_CURSOR" ||
+    action.type === "EXPAND_SELECTION" ||
+    action.type === "MOVE_LINE" ||
+    action.type === "EXPAND_LINE" ||
+    action.type === "MOVE_LINE_BOUNDARY" ||
+    action.type === "EXPAND_LINE_BOUNDARY"
+  );
+}
+
+/**
+ * Does this action explicitly MANAGE `EditorState.anchorAffinity` (#503),
+ * exempting it from the central reset above? The set is IDENTICAL to
+ * `actionManagesCaretAffinity` (the anchor side is the symmetric twin of the
+ * focus side). Two categories, both exempted from the central reset:
+ *  - COLLAPSE actions (`MOVE_CURSOR`, `MOVE_LINE`, `MOVE_LINE_BOUNDARY`) and
+ *    `SET_SELECTION` clear `anchorAffinity` EXPLICITLY in their returns (a
+ *    collapsed selection / new anchor has no bidi-boundary context; the
+ *    `{ ...editor }` spread would otherwise carry a stale value).
+ *  - The FOCUS-ONLY movers (`EXPAND_LINE` / `EXPAND_LINE_BOUNDARY`) keep the
+ *    anchor fixed, so they intentionally PERSIST `anchorAffinity` via the
+ *    `{ ...editor }` spread; `EXPAND_SELECTION` seeds it on the collapse→extend
+ *    transition (slice 4) and persists it thereafter.
+ * Keep in lockstep with `actionManagesCaretAffinity`.
+ */
+function actionManagesAnchorAffinity(action: EditorAction): boolean {
   return (
     action.type === "SET_SELECTION" ||
     action.type === "MOVE_CURSOR" ||

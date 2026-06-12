@@ -52,7 +52,15 @@ export function handleMoveCursor(
       direction === "forward"
         ? spanEnd(editor.state, selection)
         : spanStart(editor.state, selection);
-    return { ...editor, selection: createSpan(pos, pos), caretAffinity: undefined };
+    return {
+      ...editor,
+      selection: createSpan(pos, pos),
+      caretAffinity: undefined,
+      // R5 (#503): MOVE_CURSOR is in `actionManagesAnchorAffinity` (the central
+      // reset skips it) AND collapses the selection, so the `...editor` spread
+      // would carry a stale `anchorAffinity` forward — clear it explicitly.
+      anchorAffinity: undefined,
+    };
   }
 
   const measurer: TextMeasurer = isTextShaper(config.measurer)
@@ -69,7 +77,12 @@ export function handleMoveCursor(
   if (line === null) {
     // No resolvable line (defensive). Fall back to the logical motion.
     const newFocus = moveByCharacter(editor.state, selection.focus, direction);
-    return { ...editor, selection: createSpan(newFocus, newFocus), caretAffinity: undefined };
+    return {
+      ...editor,
+      selection: createSpan(newFocus, newFocus),
+      caretAffinity: undefined,
+      anchorAffinity: undefined,
+    };
   }
 
   const view = buildLineBidiView(line);
@@ -90,7 +103,12 @@ export function handleMoveCursor(
     // from this line's, its visual edge may not coincide with the logical-motion
     // target; confirm cross-line bidi motion against Google Docs.
     const newFocus = moveByCharacter(editor.state, selection.focus, result.exitLogicalDir);
-    return { ...editor, selection: createSpan(newFocus, newFocus), caretAffinity: undefined };
+    return {
+      ...editor,
+      selection: createSpan(newFocus, newFocus),
+      caretAffinity: undefined,
+      anchorAffinity: undefined,
+    };
   }
 
   const newFocus: Position = { blockId: selection.focus.blockId, offset: result.offset };
@@ -98,5 +116,6 @@ export function handleMoveCursor(
     ...editor,
     selection: createSpan(newFocus, newFocus),
     caretAffinity: result.caretAffinity,
+    anchorAffinity: undefined,
   };
 }

@@ -40,5 +40,12 @@ export function handleMoveLine(
     // MOVE_LINE is exempted from the central caret-affinity reset via
     // `actionManagesCaretAffinity` so this survives to the next render.
     caretAffinity: result.caretAffinity,
+    // #503: MOVE_LINE COLLAPSES the selection (anchor === focus), so the
+    // ANCHOR has no bidi-boundary context. It is exempted from the central
+    // `anchorAffinity` reset (it's in `actionManagesAnchorAffinity`), so clear
+    // explicitly — otherwise the `...editor` spread would carry a stale value
+    // (mirrors move-cursor / move-line-boundary). Uniform invariant: every
+    // collapsing action clears `anchorAffinity`.
+    anchorAffinity: undefined,
   };
 }

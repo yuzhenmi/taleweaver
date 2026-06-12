@@ -19,6 +19,11 @@ import type { CaretAffinity } from "../../cursor/line-bidi";
  * across the actions that set it — `SET_SELECTION` is one). The DOM click seeds
  * the hit side; a programmatic `SET_SELECTION` with no affinity passes
  * `undefined`, which clears it (correct — no boundary context to preserve).
+ *
+ * `anchorAffinity` (#503) is the symmetric ANCHOR-side seed. A `SET_SELECTION`
+ * establishes a brand-new anchor with no bidi-boundary context, so it is cleared
+ * to `undefined` here (it is later seeded from `caretAffinity` only on the
+ * collapse→extend transition in `EXPAND_SELECTION`).
  */
 export function handleSetSelection(
   editor: EditorState,
@@ -26,5 +31,5 @@ export function handleSetSelection(
   caretPageHint?: number,
   caretAffinity?: CaretAffinity,
 ): EditorState {
-  return { ...editor, selection, caretPageHint, caretAffinity };
+  return { ...editor, selection, caretPageHint, caretAffinity, anchorAffinity: undefined };
 }

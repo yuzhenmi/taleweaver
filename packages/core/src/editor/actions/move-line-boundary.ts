@@ -33,5 +33,8 @@ export function handleMoveLineBoundary(
   // but the exact Google-Docs RTL Home/End behavior is the same browser-divergent
   // class as C.2.3's visual-motion flags; confirm in the browser smoke.
   const caretAffinity = boundary === "start" ? "after" : "before";
-  return { ...editor, selection: createSpan(pos, pos), caretAffinity };
+  // R5 (#503): MOVE_LINE_BOUNDARY is in `actionManagesAnchorAffinity` (the central
+  // reset skips it) AND collapses the selection, so the `...editor` spread would
+  // carry a stale `anchorAffinity` forward — clear it explicitly.
+  return { ...editor, selection: createSpan(pos, pos), caretAffinity, anchorAffinity: undefined };
 }
