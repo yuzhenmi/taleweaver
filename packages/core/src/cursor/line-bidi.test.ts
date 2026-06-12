@@ -25,6 +25,7 @@ import {
   buildLineBidiView,
   caretInlineCoordInLeaf,
   findLeafOwner,
+  inlineCoordForOffset,
   offsetInLeaf,
   moveVisually,
   selectionRectsForLineRange,
@@ -309,6 +310,60 @@ describe("findLeafOwner", () => {
     expect(findLeafOwner(leaves, last.logEnd, "before")).toBe(last);
     expect(findLeafOwner(leaves, last.logEnd, "after")).toBe(last);
     expect(findLeafOwner(leaves, last.logEnd, undefined)).toBe(last);
+  });
+});
+
+describe("inlineCoordForOffset", () => {
+  // The #503 selection visual-extent fixture: "ab זאב cd" (8px/glyph mock
+  // shaper). Logical: a0 b1 sp2 ז3 א4 ב5 sp6 c7 d8. Hebrew run [3,6) is RTL.
+  // Confirmed leaf geometry (from the real bidi view):
+  //   "ab"  [0,2) LTR absX=0  w=16
+  //   " "   [2,3) LTR absX=16 w=8   → right edge x=24
+  //   "זאב" [3,6) RTL absX=24 w=24  → logStart(off3)=48, logEnd(off6)=24
+  //   " "   [6,7) LTR absX=48 w=8
+  //   "cd"  [7,9) LTR absX=56 w=16
+  // Visual L→R: a[0] b[8] sp[16] ב[24] א[32] ז[40] sp[48] c[56] d[64].
+  function fixture() {
+    const state = para("ab זאב cd");
+    const { layout, measurer } = pipeline(state);
+    const view = buildLineBidiView(bodyLine(layout));
+    return { view, measurer };
+  }
+
+  it("offset 3 'after' resolves to the Hebrew run's right visual edge (48)", () => {
+    const { view, measurer } = fixture();
+    expect(inlineCoordForOffset(view, 3, "after", measurer)).toBe(48);
+  });
+
+  it("offset 3 'before' resolves to the Latin space's right edge (24)", () => {
+    const { view, measurer } = fixture();
+    expect(inlineCoordForOffset(view, 3, "before", measurer)).toBe(24);
+  });
+
+  it("offset 4 'before' is one glyph into the Hebrew run from the visual right (40)", () => {
+    const { view, measurer } = fixture();
+    // off4 is interior to the Hebrew leaf [3,6); affinity is inert there.
+    expect(inlineCoordForOffset(view, 4, "before", measurer)).toBe(40);
+    expect(inlineCoordForOffset(view, 4, "after", measurer)).toBe(40);
+  });
+
+  it("pure-LTR offset equals caretInlineCoordInLeaf computed directly (clamp adds nothing)", () => {
+    // offset 1 lands inside the "ab" LTR leaf [0,2). The function only adds the
+    // leaf-edge clamp on top of caretInlineCoordInLeaf, so for an interior
+    // pure-LTR offset (already within its leaf box) the two must agree exactly.
+    const { view, measurer } = fixture();
+    const owner = findLeafOwner(view.logicalLeaves, 1, "after");
+    const direct = caretInlineCoordInLeaf(owner, 1, measurer, view.axisMap);
+    expect(inlineCoordForOffset(view, 1, "after", measurer)).toBe(direct);
+    expect(direct).toBe(8); // a[0] b[8]: caret after "a" sits at x=8
+  });
+
+  it("empty (strut-only) line returns the defensive 0", () => {
+    const empty = para("");
+    const { layout, measurer } = pipeline(empty);
+    const view = buildLineBidiView(bodyLine(layout));
+    expect(view.isEmpty).toBe(true);
+    expect(inlineCoordForOffset(view, 0, undefined, measurer)).toBe(0);
   });
 });
 

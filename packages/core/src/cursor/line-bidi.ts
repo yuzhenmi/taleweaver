@@ -358,6 +358,52 @@ export function findLeafOwner(
 }
 
 /**
+ * Resolve a `(offset, affinity)` to its VISUAL INLINE-AXIS coordinate on a line
+ * — the visual position the caret/selection endpoint draws at, accounting for
+ * bidi reordering. Used by the #503 selection visual-extent path: the highlight
+ * is the contiguous inline interval between the anchor's and focus's resolved
+ * visual coords, so each Shift+Arrow press grows it monotonically (instead of the
+ * logical-range path's transient-empty collapse at a direction boundary).
+ *
+ * Steps:
+ *   1. `findLeafOwner(view.logicalLeaves, offset, affinity)` picks the leaf that
+ *      owns the offset (at a bidi boundary `offset === leafA.logEnd ===
+ *      leafB.logStart` the affinity disambiguates: `"before"` → the leaf ENDING
+ *      here, `"after"`/undefined → the leaf STARTING here).
+ *   2. `caretInlineCoordInLeaf` computes the raw inline coord within that leaf
+ *      (even-level → `base + w`, odd-level → `base + size − w`).
+ *   3. Clamp to the owner leaf's own inline-axis box edges (`[leafLo, leafHi]`),
+ *      the same #338-P2 clamp `selectionRectsForLineRange` applies: a CLAMPED
+ *      hung trailing-space run has IFC width 0 at the content edge, but the
+ *      prefix measurement still adds ~one glyph advance — clamping pins the
+ *      coord to the (clamped) box edge so selection geometry and caret coord
+ *      agree.
+ *
+ * Returns the INLINE-axis PHYSICAL coord (x for horizontal-tb, y for vertical
+ * writing modes — this falls out of `caretInlineCoordInLeaf` projecting through
+ * `view.axisMap.inline`, so it is never hardcoded to x).
+ *
+ * `view.isEmpty` (strut-only line) → returns 0 defensively; the selection-extent
+ * caller's own `isEmpty` fast-path runs first, so this branch is unreachable in
+ * practice (the guard keeps the return non-optional without indexing an empty
+ * `logicalLeaves`).
+ */
+export function inlineCoordForOffset(
+  view: LineBidiView,
+  offset: number,
+  affinity: CaretAffinity | undefined,
+  measurer: TextMeasurer,
+): number {
+  if (view.isEmpty) return 0;
+  const am = view.axisMap;
+  const owner = findLeafOwner(view.logicalLeaves, offset, affinity);
+  const raw = caretInlineCoordInLeaf(owner, offset, measurer, am);
+  const leafLo = coordOf(owner.leaf, am.inline);
+  const leafHi = leafLo + sizeAlong(owner.leaf, am.inline);
+  return clamp(raw, leafLo, leafHi);
+}
+
+/**
  * One VISUAL highlight interval `[xLo, xHi]` (xLo <= xHi) for a selection
  * segment, paired with the embedding `level` of the run that produced it (used
  * by `selectionRectsForLineRange` to coalesce ONLY physically-adjacent
