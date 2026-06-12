@@ -201,6 +201,12 @@ export function buildVirtualPaginatedTree(
       rawPlan, metas, sectionPlan, rootChildren,
       cascadedEmbedContents, footnoteAnchors, ctx, shaper, slotInsets, pageConfig,
       prevTree?.plan, prevInternal?.__cascadedEmbedContents ?? new Map(),
+      // #499: the track-width meta builder so a footnote anchored in a multi-column
+      // section re-fits its columns at the narrow TRACK width — matching
+      // `materializePage`'s narrow-track layout (identical to the arg passed to
+      // `measurePass` above). Without it the footnote pass plans at full width and
+      // drifts (the #494 drift class, here in the footnote re-fit).
+      (inlineSize) => buildBlockFitMetas(cascadedRoot, shaper, inlineSize),
     );
     const resolved = resolvePageFields(plan, fieldSpecs, measurer);
     return {

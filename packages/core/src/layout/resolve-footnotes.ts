@@ -556,6 +556,15 @@ export function resolveFootnotes(
   // map so a `prevResolvedPlan` without a paired prior map never spuriously
   // reuses (an absent prior body ref refuses reuse — see `canReuseFootnotePage`).
   prevCascadedEmbedContents: ReadonlyMap<BlockId, ElementBox> = new Map(),
+  // #499: builds fit metas at a given inline width — the column TRACK width —
+  // cached by `buildBlockFitMetas`'s `(elementBoxRef, width, shaperRef)` key. The
+  // multicol re-fit branches (`fitBody` + final-page balance) lay each column at
+  // the narrow track width that `materializeMultiColumnBody` uses; building the
+  // fit metas at that SAME width keeps the planned `ColumnFit` in lockstep with
+  // materialize's per-column break tokens (the exact #494 fix, here in the
+  // footnote pass). Absent ⇒ fall back to the full-width `metas` — the drift-prone
+  // path that is only safe for width-independent fixed-height content.
+  buildMetasAtWidth?: (inlineSize: number) => readonly BlockFitMeta[],
 ): PagePlan {
   // (1) Footnote-free doc ⇒ ref-equal no-op (zero cost). The `prevResolvedPlan`
   // path never runs for a footnote-free doc — the early return fires first.
@@ -899,6 +908,27 @@ export function resolveFootnotes(
     // inner BFC token before every re-fit. Identity for single-column pages
     // (mirrors measure-pass's `innerBfcToken(resumeInto)`).
     const innerResumeInto = innerBfcToken(resumeInto);
+    // #499: build the fit metas at the column TRACK width for this page's multicol
+    // re-fit — the SAME narrow width `materializeMultiColumnBody` lays each column
+    // at — so the re-fit's planned `ColumnFit` matches materialize's per-column
+    // break tokens (mirrors measure-pass's #494 fix). The arithmetic MUST be
+    // bit-identical to measure-pass's `(effContentInlineSize − (N−1)*gap)/N` and
+    // to `virtual-layout-tree.ts`'s `materializeMultiColumnBody` (same operand
+    // order, same `effColCfg.columnGap`/`columnCount`). `colMetas` has the SAME
+    // length + global child indexing as `metas` (same children, different measured
+    // width), so `startIndex` stays valid. Computed ONLY on multicol pages —
+    // single-column pages keep using `metas` (byte-identical to today). Absent
+    // builder ⇒ fall back to the full-width `metas` (drift-prone; only safe for
+    // width-independent fixed-height content).
+    const colMetas =
+      effColCfg.columnCount > 1
+        ? buildMetasAtWidth
+          ? buildMetasAtWidth(
+              (contentInlineSize - (effColCfg.columnCount - 1) * effColCfg.columnGap) /
+                effColCfg.columnCount,
+            )
+          : metas
+        : metas;
     // 3.5b: re-fit the page body at `columnHeight` honoring `cap`. A multicol page
     // distributes its body across N columns via `fitColumnsOnPage` (Google Docs:
     // footnotes span the full page width below the body, so the columns shrink
@@ -914,7 +944,7 @@ export function resolveFootnotes(
     const fitBody = (columnHeight: number, cap: number | undefined): BodyFit => {
       if (effColCfg.columnCount > 1) {
         const cf = fitColumnsOnPage(
-          metas, startIndex, innerResumeInto, columnHeight,
+          colMetas, startIndex, innerResumeInto, columnHeight,
           effColCfg.columnCount, listCounterAtStart, cap,
         );
         // F-1 (mirror measure-pass T3): `fitColumnsOnPage` returns
@@ -927,7 +957,9 @@ export function resolveFootnotes(
         // real column overflow `pageResumeOut` is a non-null column token, so this
         // branch is skipped and the column token threads.)
         let resumeOut: BreakToken | null = cf.pageResumeOut;
-        if (resumeOut === null && startIndex + cf.totalChildrenCount < metas.length) {
+        // `colMetas.length === metas.length` (same children, different width;
+        // mirror measure-pass's line ~813 which uses `colMetas.length`).
+        if (resumeOut === null && startIndex + cf.totalChildrenCount < colMetas.length) {
           resumeOut = {
             type: "block",
             resumeChildIndex: startIndex + cf.totalChildrenCount,
@@ -1091,17 +1123,21 @@ export function resolveFootnotes(
     // balanced `columnFit`/`balancedColumnHeight`, so it needs no balance here.
     if (effColCfg.columnCount > 1 && fit.columnFit !== undefined) {
       const cf = fit.columnFit;
-      const sectionEnd = sectionCap ?? metas.length;
+      // `colMetas.length === metas.length` (mirror measure-pass's `sectionEnd`).
+      const sectionEnd = sectionCap ?? colMetas.length;
       const isFinalMulticolPage =
         cf.pageResumeOut === null && startIndex + cf.totalChildrenCount >= sectionEnd;
       if (isFinalMulticolPage) {
         const effCap = tightenCap(sectionCap, footnoteCap);
+        // #499: balance + re-fit on the track-width `colMetas` (NOT full-width
+        // `metas`), matching `materializeMultiColumnBody`'s narrow-track layout —
+        // mirrors measure-pass's final-page balance block.
         const balancedHeight = balanceColumnHeight(
-          metas, startIndex, innerResumeInto, effColCfg.columnCount,
+          colMetas, startIndex, innerResumeInto, effColCfg.columnCount,
           listCounterAtStart, reducedBodyHeight, effCap,
         );
         const balanced = fitColumnsOnPage(
-          metas, startIndex, innerResumeInto, balancedHeight,
+          colMetas, startIndex, innerResumeInto, balancedHeight,
           effColCfg.columnCount, listCounterAtStart, effCap,
         );
         // Balance must not change WHICH/how-many children are placed (it only evens

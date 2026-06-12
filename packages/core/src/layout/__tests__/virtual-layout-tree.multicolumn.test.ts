@@ -23,6 +23,8 @@ import { cascadePass } from "../../cascade";
 import { createElementBox, createTextBox } from "../../render/render-node";
 import type { ElementBox } from "../../render/render-node";
 import type { Style } from "../../styles";
+import type { BlockId } from "../../state";
+import type { FootnoteAnchorRef } from "../../footnotes";
 import type { PageConfig } from "../page-config";
 import { buildBlockFitMetas } from "../build-fit-metas";
 import { measurePass } from "../measure-pass";
@@ -30,6 +32,13 @@ import type { SectionPlan } from "../section-plan";
 import { IMPLICIT_SECTION_PLAN } from "../section-plan";
 import type { ColumnConfig } from "../column-config";
 import { makeVirtualLayoutTree } from "../virtual-layout-tree";
+import {
+  resolveFootnotes,
+  buildBlockToTopLevelIndex,
+  footnoteAnchorPageAssignment,
+  FOOTNOTE_SEPARATOR_HEIGHT,
+} from "../resolve-footnotes";
+import { flattenContents } from "../group-children";
 import { getLineIndex } from "../../cursor/line-flatten";
 import type { LayoutBox, MultiColumnBox, BlockBox } from "../layout-box";
 
@@ -369,5 +378,198 @@ describe("materializePage — multi-column body", () => {
     // The remainder lands in column 0; column 1 is the empty (zero-children) box.
     expect(mc.columns[0].children.length).toBeGreaterThan(0);
     expect(mc.columns[1].children.length).toBe(0);
+  });
+});
+
+// ===========================================================================
+// #499 — a footnote anchored in a MULTI-COLUMN section. The footnote-resolution
+// pass (`resolveFootnotes`) re-fits the page's columns; before the fix it built
+// its fit metas at the FULL page-content width while `materializePage` lays each
+// column at the narrow TRACK width → the planned `ColumnFit.resumeOut`
+// disagreed with materialize's per-column break token → the dev-mode
+// "measure-vs-materialize drift" throw (silent content corruption in prod).
+// This is the #494 drift class, but in the footnote pass — which never received
+// the track-width `buildMetasAtWidth` builder. The test drives the FULL
+// measure → resolveFootnotes → makeVirtualLayoutTree → getPage path in dev mode.
+// ===========================================================================
+
+const FN_MOCK_SHAPER = createMockShaper(8, 16); // 8px/char, 16px/line.
+
+/** A footnote body: a container holding `lines` single-line paragraphs. */
+function fnBody(key: string, lines: number): ElementBox {
+  return createElementBox(
+    key,
+    { display: "block" } as Style,
+    Array.from({ length: lines }, (_, i) => textBlock(`${key}-p${i}`, "x")),
+  );
+}
+
+/**
+ * Build a `VirtualLayoutTree` through the FULL footnote pipeline: measure pass
+ * (track-width metas) → `resolveFootnotes` (the pass under test) →
+ * `makeVirtualLayoutTree`. Mirrors `buildVirtualPaginatedTree`'s wiring (the
+ * production producer) but lets the test supply a 2-column `SectionPlan` and
+ * footnote anchors directly.
+ */
+function buildTreeWithFootnotes(
+  root: ElementBox,
+  pageConfig: PageConfig,
+  sectionPlan: SectionPlan,
+  bodies: ReadonlyMap<string, ElementBox>,
+  anchors: readonly FootnoteAnchorRef[],
+) {
+  const pageContentInlineSize =
+    pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
+  const shaper = FN_MOCK_SHAPER;
+  // Mirror the producer wiring (virtual-producer.ts): flatten `display: contents`
+  // wrappers before handing rootChildren to measurePass / resolveFootnotes.
+  const rootChildren = flattenContents(root.children);
+  const metas = buildBlockFitMetas(root, shaper, pageContentInlineSize);
+  const buildMetasAtWidth = (w: number) => buildBlockFitMetas(root, shaper, w);
+  const rawPlan = measurePass(
+    metas, pageConfig, sectionPlan, rootChildren, undefined, undefined, buildMetasAtWidth,
+  );
+
+  const cascadedEmbedContents = new Map<BlockId, ElementBox>();
+  for (const [id, body] of bodies) {
+    const c = cascadePass(body);
+    if (c.type !== "element") throw new Error("cascadePass returned non-element");
+    cascadedEmbedContents.set(id as BlockId, c);
+  }
+
+  const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
+  // The pass under test: re-fit footnote pages. The LAST arg is the #499 fix —
+  // the track-width meta builder so multicol footnote pages plan at the narrow
+  // width `materializePage` lays each column at.
+  const plan = resolveFootnotes(
+    rawPlan, metas, sectionPlan, rootChildren,
+    cascadedEmbedContents, anchors, ctx, shaper, undefined, pageConfig,
+    undefined, new Map(), buildMetasAtWidth,
+  );
+
+  // Per-anchor page assignment (footnoteAnchorPages), as the producer computes it.
+  const blockToIndex = buildBlockToTopLevelIndex(rootChildren);
+  const footnoteAnchorPages = footnoteAnchorPageAssignment(anchors, plan, blockToIndex);
+
+  const tree = makeVirtualLayoutTree(
+    plan, root, ctx, shaper, pageConfig, undefined, new Map(),
+    cascadedEmbedContents, rawPlan, footnoteAnchorPages,
+  );
+  return { rawPlan, plan, tree };
+}
+
+describe("#499 — footnote anchored in a multi-column section", () => {
+  it("materializes the multicol footnote page without measure-vs-materialize drift", () => {
+    // 2-column section; a TEXT-bearing paragraph tall enough to distribute across
+    // BOTH columns, with ONE footnote anchored in it. The footnote slot reduces
+    // the body height, so `resolveFootnotes` RE-FITS the columns — at the narrow
+    // TRACK width (#499 fix), matching `materializePage`'s narrow-track layout.
+    //
+    // Geometry (mock shaper 8px/char, 16px/line):
+    //   • 600px content, 2 cols, 40px gap → track = (600−40)/2 = 280px → 35 chars/line.
+    //   • Each paragraph is 55 chars → 1 line (16px) at full 600px width,
+    //     but 2 lines (32px) at the 280px track. A full-width measure would
+    //     MIS-PLAN the per-column distribution and drift on materialize.
+    const columnGap = 40;
+    const pageConfig = noMarginPageConfig(200, 600);
+    const paraText = "The quick brown fox jumps over the lazy sleeping doggo.";
+    expect(paraText.length).toBeGreaterThan(35);
+    expect(paraText.length).toBeLessThanOrEqual(75);
+    // 6 paragraphs so the body genuinely distributes across both columns.
+    const root = cascadeRoot(
+      { display: "block" },
+      Array.from({ length: 6 }, (_, i) => textBlock(`p${i}`, paraText)),
+    );
+
+    const bodies = new Map<string, ElementBox>([["fn0", fnBody("fn0", 1)]]);
+    // Anchor in the FIRST paragraph (top-level child key "p0").
+    const anchors: FootnoteAnchorRef[] = [
+      { blockId: "p0" as BlockId, contentBlockId: "fn0" as BlockId, sectionId: null },
+    ];
+
+    const { plan, tree } = buildTreeWithFootnotes(
+      root,
+      pageConfig,
+      columnSectionPlan({ columnCount: 2, columnGap, columnRule: null }),
+      bodies,
+      anchors,
+    );
+
+    // The footnote landed on page 0 and reserved a slot there.
+    expect(plan.entries[0].columnConfig.columnCount).toBe(2);
+    expect(plan.entries[0].footnoteContentBlockIds).toEqual(["fn0" as BlockId]);
+    expect(plan.entries[0].footnoteSlotHeight).toBe(16 + FOOTNOTE_SEPARATOR_HEIGHT);
+
+    // THE CRASH: materializing the multicol footnote page asserts each column's
+    // break token equals the measure pass's planned ColumnFit. Before the #499
+    // fix this threw the "measure-vs-materialize drift" error on a column.
+    const page = tree.getPage(0);
+    const body = bodyBoxOf(page);
+    expect(body.type).toBe("multicolumn");
+    const mc = body as MultiColumnBox;
+    expect(mc.columns.length).toBe(2);
+    // The body genuinely distributed across BOTH columns (neither empty).
+    expect(mc.columns[0].children.length).toBeGreaterThan(0);
+    expect(mc.columns[1].children.length).toBeGreaterThan(0);
+    // GEOMETRY: each laid-out paragraph reflects the NARROW-track (2-line, 32px)
+    // height — the column content was wrapped at the track width, not full width.
+    const para = mc.columns[0].children[0] as BlockBox;
+    expect(para.blockSize).toBe(32);
+
+    // The footnote slot is present on page 0.
+    expect(page.footnoteSlot).not.toBeNull();
+  });
+
+  it("materializes a NON-FINAL multicol footnote page (fitBody re-fit path) without drift", () => {
+    // Exercises the `fitBody` multicol branch directly (NOT the final-page balance
+    // block): a 2-column section spanning ≥2 pages whose FIRST page carries the
+    // footnote. A non-final page's columns are NOT balanced — its materialized
+    // `ColumnFit` comes straight from `resolveFootnotes`'s `fitBody`, so the
+    // track-width `colMetas` substitution there is what keeps it drift-free.
+    //
+    // Geometry (mock shaper 8px/char, 16px/line):
+    //   • 600px content, 2 cols, 40px gap → track = (600−40)/2 = 280px → 35 chars/line.
+    //   • body = 64px = 4 lines per column. Each 55-char paragraph wraps to 2 lines
+    //     at the 280px track, so paragraphs distribute + SPLIT across the columns.
+    //   • Many paragraphs ⇒ a multi-page section; the footnote on p0 lands on the
+    //     FIRST (non-final, overflowing) page.
+    const columnGap = 40;
+    const pageConfig = noMarginPageConfig(64, 600);
+    const paraText = "The quick brown fox jumps over the lazy sleeping doggo.";
+    const root = cascadeRoot(
+      { display: "block" },
+      Array.from({ length: 12 }, (_, i) => textBlock(`q${i}`, paraText)),
+    );
+
+    const bodies = new Map<string, ElementBox>([["fnA", fnBody("fnA", 1)]]);
+    const anchors: FootnoteAnchorRef[] = [
+      { blockId: "q0" as BlockId, contentBlockId: "fnA" as BlockId, sectionId: null },
+    ];
+
+    const { plan, tree } = buildTreeWithFootnotes(
+      root,
+      pageConfig,
+      columnSectionPlan({ columnCount: 2, columnGap, columnRule: null }),
+      bodies,
+      anchors,
+    );
+
+    // Multi-page multicol section; the footnote is on the FIRST page, which is NOT
+    // the section's final page (so it takes the `fitBody` path, not balance).
+    expect(plan.entries.length).toBeGreaterThanOrEqual(2);
+    expect(plan.entries[0].columnConfig.columnCount).toBe(2);
+    expect(plan.entries[0].footnoteContentBlockIds).toEqual(["fnA" as BlockId]);
+    // First page overflows (resumes into the next) — a non-final, non-balanced page.
+    expect(plan.entries[0].resumeOut).not.toBeNull();
+
+    // THE CRASH path (fitBody): materialize page 0. Drift here would throw.
+    const page = tree.getPage(0);
+    const body = bodyBoxOf(page);
+    expect(body.type).toBe("multicolumn");
+    const mc = body as MultiColumnBox;
+    expect(mc.columns.length).toBe(2);
+    expect(mc.columns[0].children.length).toBeGreaterThan(0);
+    expect(mc.columns[1].children.length).toBeGreaterThan(0);
+    expect(page.footnoteSlot).not.toBeNull();
   });
 });

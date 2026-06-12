@@ -362,6 +362,14 @@ the moment a footnote lands on it. A footnote-cap-tightened page is not final (i
 content ends at `footnoteCap < sectionEnd`), so it is correctly skipped; balance only
 redistributes already-placed children, so the converged slot is unchanged. The reuse
 path carries the prior entry's already-balanced `columnFit`/`balancedColumnHeight`.
+**Track-width lockstep (#494/#499):** every multicol `fitColumnsOnPage`/
+`balanceColumnHeight` in `resolveFootnotes` — BOTH the per-page `fitBody` (non-final
+pages) AND the final-page balance block — re-fits on `colMetas` built at the column
+TRACK width (`buildMetasAtWidth(trackInlineSize)`), NOT the full-width `metas`, so the
+planned `ColumnFit.resumeOut` matches what `materializePage` actually lays each column
+at (the narrow track) — otherwise a footnote on a multicol page drifts and trips the
+dev-throw. `virtual-producer` threads the SAME `(inlineSize) => buildBlockFitMetas(...)`
+closure to `measurePass` and `resolveFootnotes`, so both passes plan at identical widths.
 
 Wiring has begun: `PagePlanEntry.columnConfig` (the measure pass's per-page
 effective `ColumnConfig`, resolved from `sectionStateAt(...).columnConfig ??
