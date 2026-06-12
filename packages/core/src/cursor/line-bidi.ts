@@ -36,10 +36,17 @@ export type GraphemeStepper = (
  * Result of `moveVisually`: either a new in-line caret `{ offset, affinity }`,
  * or an `{ exit }` signal that the motion ran off the line's visual edge (the
  * caller moves to the visual start/end of the adjacent line).
+ *
+ * `exit` is the visual edge crossed; `exitLogicalDir` is the STATE-space
+ * direction that continues past that edge. The two are NOT always aligned: at
+ * the visual-`exit` edge the run there may be LTR or RTL, and for an RTL run the
+ * logical direction is flipped (visual-left of an RTL run = logical-FORWARD).
+ * The caller steps `moveByCharacter` in `exitLogicalDir` so a pure-RTL run (even
+ * one embedded in an LTR paragraph) does not warp back into itself.
  */
 export type MoveVisuallyResult =
   | { readonly offset: number; readonly caretAffinity: CaretAffinity }
-  | { readonly exit: VisualDirection };
+  | { readonly exit: VisualDirection; readonly exitLogicalDir: "forward" | "backward" };
 
 /**
  * One non-synthetic leaf of a line, paired with its LOGICAL state span and
@@ -458,7 +465,12 @@ export function moveVisually(
   step: GraphemeStepper,
 ): MoveVisuallyResult {
   if (view.isEmpty || view.visualLeaves.length === 0) {
-    return { exit: visualDir };
+    // Strut-only line: no runs, so visual order == logical order along the
+    // line's base direction. The logical direction continuing past the visual-
+    // `visualDir` edge is the physical mapping for an LTR base, flipped for RTL.
+    const baseLtr = view.paragraphDirection === "ltr";
+    const exitLogicalDir = (visualDir === "right") === baseLtr ? "forward" : "backward";
+    return { exit: visualDir, exitLogicalDir };
   }
 
   const visualIndex = findOwningVisualIndex(view.visualLeaves, offset, caretAffinity);
@@ -479,18 +491,31 @@ export function moveVisually(
     const clamped = forward
       ? Math.min(next, run.logEnd)
       : Math.max(next, run.logStart);
-    // Affinity hugs THIS run on the side facing back into it: at the run's
-    // forward (visual-`visualDir`) edge an LTR run wants `"before"` (caret on
-    // its trailing edge) and an RTL run wants `"after"`. Interior offsets are
-    // owned by a single leaf, so the value is inert there.
-    const inRunAffinity: CaretAffinity = ltr ? "before" : "after";
+    // Affinity must keep the caret on THIS run at the (possibly boundary)
+    // offset it lands on, per the boundary convention (`"before"` → the run
+    // ENDING here, `"after"` → the run STARTING here). A FORWARD step heads
+    // toward THIS run's `logEnd`, so to own that boundary the caret needs
+    // `"before"`; a BACKWARD step heads toward `logStart`, needing `"after"`.
+    // This depends on the STEP direction, not the run's LTR/RTL parity: for an
+    // RTL run, visual-left is a forward step toward `logEnd` (its visual-left
+    // edge), where `"before"` (not the old parity-based `"after"`) keeps the
+    // caret on the RTL run rather than warping onto the next run. Interior
+    // offsets are owned by a single leaf, so the value is inert there.
+    const inRunAffinity: CaretAffinity = forward ? "before" : "after";
     return { offset: clamped, caretAffinity: inRunAffinity };
   }
 
   // At the run's visual-`visualDir` edge — cross to the visually-adjacent run.
   const nextVisualIndex = visualDir === "right" ? visualIndex + 1 : visualIndex - 1;
   if (nextVisualIndex < 0 || nextVisualIndex >= view.visualLeaves.length) {
-    return { exit: visualDir };
+    // No run on that visual side: leave the line. `forward` is the STATE-space
+    // direction that continues past THIS run's visual-`visualDir` edge (it heads
+    // toward logEnd when forward). That is exactly the logical direction the
+    // caller must step to move past the line on its visual-`visualDir` side —
+    // and for an RTL edge run it is the FLIP of the physical arrow, so a
+    // pure-RTL run (even inside an LTR paragraph, where the paragraph base would
+    // mislead) exits correctly instead of warping back into itself.
+    return { exit: visualDir, exitLogicalDir: forward ? "forward" : "backward" };
   }
   const entered = view.visualLeaves[nextVisualIndex];
   const enteredLtr = entered.level % 2 === 0;

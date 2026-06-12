@@ -548,7 +548,11 @@ describe("moveVisually", () => {
       if (!("exit" in r)) expect(r.offset).toBe(off + 1);
     }
     // At the visual-right edge (logEnd) ArrowRight exits the line to the right.
-    expect(moveVisually(view, 3, undefined, "right", step)).toEqual({ exit: "right" });
+    // On an LTR run the exit logical direction equals the physical direction.
+    expect(moveVisually(view, 3, undefined, "right", step)).toEqual({
+      exit: "right",
+      exitLogicalDir: "forward",
+    });
   });
 
   it("pure-LTR ArrowLeft = logical-backward (byte-identical to offset−1)", () => {
@@ -562,7 +566,10 @@ describe("moveVisually", () => {
       expect("exit" in r).toBe(false);
       if (!("exit" in r)) expect(r.offset).toBe(off - 1);
     }
-    expect(moveVisually(view, 0, undefined, "left", step)).toEqual({ exit: "left" });
+    expect(moveVisually(view, 0, undefined, "left", step)).toEqual({
+      exit: "left",
+      exitLogicalDir: "backward",
+    });
   });
 
   it("uniform-RTL ArrowRight moves toward logical START (offset−1); exits at offset 0", () => {
@@ -601,7 +608,13 @@ describe("moveVisually", () => {
       if ("exit" in r) break;
       off = r.offset;
     }
-    expect(seq).toEqual(["1/after", "2/after", "3/after", "exit:left"]);
+    // ArrowLeft in an RTL run is a FORWARD state step (toward logEnd), so the
+    // in-run affinity is "before" — it keeps the caret on THIS RTL run at the
+    // boundary it lands on (the run ENDING there), rather than flipping onto a
+    // would-be next run. (#502: the prior parity-based "after" warped at the
+    // visual-left edge.) Interior offsets are single-owner, so "before" is inert
+    // there; it is load-bearing only at the run's logEnd boundary.
+    expect(seq).toEqual(["1/before", "2/before", "3/before", "exit:left"]);
   });
 
   it("mixed LTR+RTL ArrowRight: full visual sequence incl. the dual-caret flip", () => {
@@ -674,14 +687,23 @@ describe("moveVisually", () => {
     //   (3,after)  hebrew visual-RIGHT edge (rightmost) → ArrowLeft = logical-fwd
     //              in RTL → 4,after
     const r1 = moveVisually(view, 3, "after", "left", step);
-    expect(fmt(r1)).toBe("4/after"); // within hebrew, visual-left = logical-forward
+    // ArrowLeft in the RTL run is a FORWARD state step (toward logEnd), so the
+    // in-run affinity is "before" (#502 fix; inert here at the interior offset 4).
+    expect(fmt(r1)).toBe("4/before"); // within hebrew, visual-left = logical-forward
 
-    // Within latin, ArrowLeft = logical-backward (LTR).
+    // Within latin, ArrowLeft = logical-backward (LTR). A BACKWARD step heads
+    // toward logStart, so the in-run affinity is "after" — it keeps the caret on
+    // THIS LTR run (the run STARTING at the boundary it lands on) rather than
+    // flipping onto a would-be previous run. (#502; inert here at interior off 1.)
     const r2 = moveVisually(view, 2, "before", "left", step);
-    expect(fmt(r2)).toBe("1/before");
+    expect(fmt(r2)).toBe("1/after");
 
-    // At latin's visual-LEFT edge (logStart 0) ArrowLeft exits left.
-    expect(moveVisually(view, 0, "after", "left", step)).toEqual({ exit: "left" });
+    // At latin's visual-LEFT edge (logStart 0) ArrowLeft exits left. The edge run
+    // is LTR, so the exit logical direction is backward (== the physical arrow).
+    expect(moveVisually(view, 0, "after", "left", step)).toEqual({
+      exit: "left",
+      exitLogicalDir: "backward",
+    });
 
     // Boundary FLIP going visual-left: from the hebrew run's visual-LEFT edge
     // (offset 6) ArrowLeft crosses left into latin. TODO(C.2.7 browser-confirm):
@@ -732,7 +754,14 @@ describe("moveVisually", () => {
     const view = buildLineBidiView(bodyLine(layout));
     expect(view.isEmpty).toBe(true);
     const step = stepperFor("");
-    expect(moveVisually(view, 0, undefined, "right", step)).toEqual({ exit: "right" });
-    expect(moveVisually(view, 0, undefined, "left", step)).toEqual({ exit: "left" });
+    // LTR-base strut line: exit logical direction equals the physical direction.
+    expect(moveVisually(view, 0, undefined, "right", step)).toEqual({
+      exit: "right",
+      exitLogicalDir: "forward",
+    });
+    expect(moveVisually(view, 0, undefined, "left", step)).toEqual({
+      exit: "left",
+      exitLogicalDir: "backward",
+    });
   });
 });

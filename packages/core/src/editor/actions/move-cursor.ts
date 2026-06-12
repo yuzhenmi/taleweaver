@@ -79,13 +79,17 @@ export function handleMoveCursor(
   if ("exit" in result) {
     // Ran off the line's visual edge. Resolve the adjacent caret via the logical
     // motion (handles soft-wrap to the next line, cross-block, and document
-    // boundary identically to the pre-bidi behavior). The new caret has no
-    // boundary affinity (it lands at a line/block edge, not a within-line bidi
-    // boundary).
-    // TODO(C.2.7 browser-confirm): for a line whose CONTENT direction differs
-    // from the paragraph base, the adjacent-line VISUAL edge may differ from the
-    // logical-motion target; confirm cross-line bidi motion against Google Docs.
-    const newFocus = moveByCharacter(editor.state, selection.focus, direction);
+    // boundary). `moveVisually` reports `exitLogicalDir` — the STATE-space
+    // direction that continues past the crossed visual edge, accounting for the
+    // bidi level of the run AT that edge (visual-left of an RTL run is
+    // logical-FORWARD). Using it instead of the physical `direction` stops a
+    // pure-RTL run (even one embedded in an LTR paragraph) from warping back
+    // into itself. The new caret has no boundary affinity (it lands at a
+    // line/block edge, not a within-line bidi boundary).
+    // TODO(C.2.7 browser-confirm): when the ADJACENT line's direction differs
+    // from this line's, its visual edge may not coincide with the logical-motion
+    // target; confirm cross-line bidi motion against Google Docs.
+    const newFocus = moveByCharacter(editor.state, selection.focus, result.exitLogicalDir);
     return { ...editor, selection: createSpan(newFocus, newFocus), caretAffinity: undefined };
   }
 

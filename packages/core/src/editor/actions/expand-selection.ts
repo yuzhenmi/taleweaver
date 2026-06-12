@@ -70,13 +70,16 @@ export function handleExpandSelection(
   if ("exit" in result) {
     // Focus ran off the line's visual edge. Resolve the adjacent focus via the
     // logical extension (handles soft-wrap to the next line, cross-block, and
-    // document boundary identically to the pre-bidi behavior). The new focus has
-    // no boundary affinity (it lands at a line/block edge, not a within-line bidi
-    // boundary).
-    // TODO(C.2.7 browser-confirm): for a line whose CONTENT direction differs
-    // from the paragraph base, the adjacent-line VISUAL edge may differ from the
-    // logical-motion target; confirm cross-line bidi motion against Google Docs.
-    return logicalExtend(editor, direction);
+    // document boundary). `moveVisually` reports `exitLogicalDir` — the
+    // STATE-space direction continuing past the crossed visual edge per the bidi
+    // level of the run AT that edge (visual-left of an RTL run = logical-FORWARD)
+    // — so a pure-RTL run doesn't warp the focus back into itself. The new focus
+    // has no boundary affinity (it lands at a line/block edge, not a within-line
+    // bidi boundary).
+    // TODO(C.2.7 browser-confirm): when the ADJACENT line's direction differs
+    // from this line's, its visual edge may not coincide with the logical-motion
+    // target; confirm cross-line bidi motion against Google Docs.
+    return logicalExtend(editor, result.exitLogicalDir);
   }
 
   const newFocus: Position = { blockId: selection.focus.blockId, offset: result.offset };
