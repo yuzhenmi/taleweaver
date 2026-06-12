@@ -63,4 +63,17 @@ export interface LayoutBoxMetadata {
   // `unknown` embed properties) because the render branch validates them.
   readonly fieldKind?: PageFieldKind;
   readonly numberStyle?: PageFieldNumberStyle;
+  // Cross-reference page-mode metadata. A `"page"`-mode cross-ref is a
+  // LAYOUT-dependent field (the target's page is only known after pagination), so
+  // it renders a PLACEHOLDER atom (mirroring the page-field branch) carrying
+  // `refMode: "page"` + the target id + number style. The later layout
+  // field-resolution passes (`collectPageFields` / `patchFieldWidths` /
+  // `substituteLayoutFields`) discriminate this branch on
+  // `embedType === "cross-reference" && refMode === "page"` and bind the real
+  // page number late. The `"number"`/`"text"` modes resolve at render time and
+  // carry only `embedType` (no `refMode`/`targetId` in metadata). `targetId`
+  // rides the validated string from the embed's `properties` (the broken-ref
+  // case stamps `null`).
+  readonly refMode?: "page";
+  readonly targetId?: string | null;
 }

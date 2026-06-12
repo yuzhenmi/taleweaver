@@ -7,7 +7,7 @@ import { buildState } from "../test-utils/state-builders";
 import { buildStateWithListDefs } from "../state/build-state-from-blocks";
 import { buildBlock, inlineContent, text, embed } from "../test-utils/state-builders";
 import { asBlockId, insertText, removeBlock, createPosition, type ListDef } from "../state";
-import { CROSS_REFERENCE_EMBED_TYPE } from "../state";
+import { CROSS_REFERENCE_EMBED_TYPE, PAGE_FIELD_RESERVED_GLYPHS } from "../state";
 import { BROKEN_CROSS_REFERENCE_TEXT } from "./resolve-cross-reference";
 
 const reg = createDefaultComponentRegistry();
@@ -199,6 +199,53 @@ describe("render — cross-reference field wiring", () => {
     // Append to the target; a fresh full render must show the new text.
     const { state: next } = insertText(state, createPosition(asBlockId("h"), 5), "duction", {});
     expect(crossRefText(findCrossRef(render(next, reg, attrReg).root) as ElementBox)).toBe("Introduction");
+  });
+
+  it("renders a page-mode reference as a placeholder atom carrying refMode/targetId/numberStyle metadata", () => {
+    // A "page" cross-ref is a LAYOUT-dependent field: the target's page is not
+    // known at render time, so it renders a PLACEHOLDER atom (like a page-field),
+    // carrying the metadata the later layout field-resolution pass discriminates
+    // on. The number/text branches still resolve at render time (unchanged).
+    const state = buildState({
+      rootId: asBlockId("doc"),
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "h", lastChildId: "p" }),
+        buildBlock({
+          id: "h",
+          type: "paragraph",
+          parentId: "doc",
+          nextSiblingId: "p",
+          inlineContent: inlineContent([text("Introduction")]),
+        }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          prevSiblingId: "h",
+          inlineContent: inlineContent([
+            text("see page "),
+            embed(CROSS_REFERENCE_EMBED_TYPE, {
+              targetId: "h",
+              refMode: "page",
+              numberStyle: "decimal",
+            }),
+          ]),
+        }),
+      ],
+    });
+    const out = render(state, reg, attrReg);
+    const el = findCrossRef(out.root);
+    expect(el).not.toBeNull();
+    // One inline-block atom = one IFC token = one cursor stop (#407).
+    expect(el?.style.display).toBe("inline-block");
+    // The metadata MUST carry refMode + targetId + numberStyle (R-F2) so the
+    // later collect/resolve/substitute passes can discriminate the page branch.
+    expect(el?.metadata?.refMode).toBe("page");
+    expect(el?.metadata?.targetId).toBe("h");
+    expect(el?.metadata?.numberStyle).toBe("decimal");
+    // The lone text child is the reserved-glyph placeholder ("00"), NOT a resolved
+    // value — the real page number is bound late at materialize.
+    expect(crossRefText(el as ElementBox)).toBe("0".repeat(PAGE_FIELD_RESERVED_GLYPHS));
   });
 
   it("renders the atom on the incremental path when the ref host is invalidated", () => {

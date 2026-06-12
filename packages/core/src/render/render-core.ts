@@ -336,41 +336,82 @@ export function expandInlineItems(
       // atomic-for-editing, matching Google Docs fields.
       const targetId = item.properties.targetId;
       const refMode = item.properties.refMode;
-      const resolved =
-        typeof targetId === "string" && (refMode === "number" || refMode === "text")
-          ? resolveCrossReference(
-              state,
-              numbering,
-              {
-                targetId: asBlockId(targetId),
-                refMode: refMode as CrossReferenceMode,
-              },
-              view,
-            )
-          : BROKEN_CROSS_REFERENCE_TEXT;
-      out.push(
-        createElementBox(
-          key,
-          // `display: "inline-block"` is spread LAST so it ALWAYS wins over
-          // `itemStyle`: the single-token atomicity is load-bearing for the IFC
-          // offset accounting (one EmbedItem = one cursor stop), not a stylistic
-          // default. This deliberately differs from the footnote marker, whose
-          // defaults-first order lets `itemStyle` override `display` — here the
-          // invariant must not be overridable. The embed's own attrs (font, etc.)
-          // still apply via `itemStyle`.
-          { ...itemStyle, display: "inline-block" },
-          // Inner text gets `{}` (not `itemStyle`): it inherits font/etc. from the
-          // container's cascade. Re-applying `itemStyle` here would DOUBLE-apply
-          // em-relative properties (e.g. a `1.5em` fontSize compounds to 2.25×).
-          // Mirrors `buildFootnoteMarker`'s empty-style inner text child.
-          [createTextBox(`${key}/0`, {}, resolved)],
-          // Only `embedType` — a cross-reference is a POINTER with no owned body,
-          // so (unlike the footnote anchor) there is no `contentBlockId` to stamp.
-          // The target lives in `properties.targetId`; downstream navigation
-          // (a later slice) reads it from state, not from box metadata.
-          { embedType: item.embedType },
-        ),
-      );
+      if (refMode === "page") {
+        // A `"page"`-mode cross-reference is a LAYOUT-dependent field: the target's
+        // page number is unknown at render time (it depends on PAGINATION, which
+        // does not exist yet). Like a page-field, it renders a PLACEHOLDER of N
+        // reserved sizing glyphs (PAGE_FIELD_RESERVED_GLYPHS); the real value is
+        // bound LATE at materialize (the layout collect→resolve→substitute seam),
+        // which discriminates this branch on `embedType === "cross-reference"
+        // && refMode === "page"` and reads `targetId` + `numberStyle` from the box
+        // metadata. The `"number"`/`"text"` branches below still resolve at render
+        // time (no layout dependency). One inline-block atom = one IFC token = one
+        // cursor stop (#407), exactly as the resolved branch.
+        const rawStyle = item.properties.numberStyle;
+        const numberStyle: PageFieldNumberStyle = isPageFieldNumberStyle(rawStyle)
+          ? rawStyle
+          : "decimal";
+        const placeholder = "0".repeat(PAGE_FIELD_RESERVED_GLYPHS);
+        out.push(
+          createElementBox(
+            key,
+            // `display: "inline-block"` spread LAST — the single-token atomicity is
+            // load-bearing for IFC offset accounting, not a stylistic default
+            // (mirrors the resolved cross-ref + page-field branches).
+            { ...itemStyle, display: "inline-block" },
+            // Inner text gets `{}` (inherits font/etc. from the cascade — re-applying
+            // `itemStyle` would double-apply em-relative properties).
+            [createTextBox(`${key}/0`, {}, placeholder)],
+            // R-F2: the metadata MUST carry `refMode` (not just targetId/numberStyle)
+            // so the later collect/patch passes' `refMode === "page"` dispatch guard
+            // actually fires. `targetId` rides the validated string from the embed's
+            // `properties` (a malformed non-string → `null`, mapped to broken-ref at
+            // substitution).
+            {
+              embedType: item.embedType,
+              refMode: "page",
+              targetId: typeof targetId === "string" ? targetId : null,
+              numberStyle,
+            },
+          ),
+        );
+      } else {
+        const resolved =
+          typeof targetId === "string" && (refMode === "number" || refMode === "text")
+            ? resolveCrossReference(
+                state,
+                numbering,
+                {
+                  targetId: asBlockId(targetId),
+                  refMode: refMode as CrossReferenceMode,
+                },
+                view,
+              )
+            : BROKEN_CROSS_REFERENCE_TEXT;
+        out.push(
+          createElementBox(
+            key,
+            // `display: "inline-block"` is spread LAST so it ALWAYS wins over
+            // `itemStyle`: the single-token atomicity is load-bearing for the IFC
+            // offset accounting (one EmbedItem = one cursor stop), not a stylistic
+            // default. This deliberately differs from the footnote marker, whose
+            // defaults-first order lets `itemStyle` override `display` — here the
+            // invariant must not be overridable. The embed's own attrs (font, etc.)
+            // still apply via `itemStyle`.
+            { ...itemStyle, display: "inline-block" },
+            // Inner text gets `{}` (not `itemStyle`): it inherits font/etc. from the
+            // container's cascade. Re-applying `itemStyle` here would DOUBLE-apply
+            // em-relative properties (e.g. a `1.5em` fontSize compounds to 2.25×).
+            // Mirrors `buildFootnoteMarker`'s empty-style inner text child.
+            [createTextBox(`${key}/0`, {}, resolved)],
+            // Only `embedType` — a cross-reference is a POINTER with no owned body,
+            // so (unlike the footnote anchor) there is no `contentBlockId` to stamp.
+            // The target lives in `properties.targetId`; downstream navigation
+            // (a later slice) reads it from state, not from box metadata.
+            { embedType: item.embedType },
+          ),
+        );
+      }
     } else if (item.embedType === PAGE_FIELD_EMBED_TYPE) {
       // A page-field (page-number / page-count) renders a PLACEHOLDER at render
       // time — its real value depends on PAGINATED layout, which does not exist

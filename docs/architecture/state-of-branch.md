@@ -656,8 +656,20 @@ visual smoke ride the user's pass.
   body and footnote bodies (main-body page-fields are out of scope; the editor entry
   DIVERGES from the cross-reference handler's main-body-only gate). A "command" undo unit.
 
+**Page-number-mode cross-references `[partial]` (in flight).** The state vocabulary
+and render placeholder have shipped; layout resolution + the editor surface remain:
+- **State** (`1.1-state.md`): `CrossReferenceMode` extended to `"number" | "text" |
+  "page"`; `insertCrossReference` carries a `numberStyle` for the `"page"` variant.
+- **Render** (`1.2-render.md`): the `"page"` branch emits a reserved-glyph placeholder
+  atom (one cursor stop) carrying `metadata.{embedType, refMode: "page", targetId,
+  numberStyle}`, bound late at materialize through the page-field convergence seam —
+  exactly like `INSERT_PAGE_NUMBER`.
+- **Remaining:** `collectPageFields` / `resolvePageFields` / `substituteLayoutFields`
+  generalization to a 2nd field type, the page-ref resolve branch, and the
+  `INSERT_CROSS_REFERENCE` editor surface for page mode.
+
 Out of scope (named follow-ups): main-body / footnote-body page-fields (not creatable
-via the editor), page-number-mode cross-references, table of contents.
+via the editor), table of contents.
 
 ### Comments `[implemented]`
 
