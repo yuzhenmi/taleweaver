@@ -42,6 +42,20 @@ export interface SelectionRect {
 const INDICATOR_EPSILON = 1e-6;
 
 /**
+ * Do two endpoint affinities make a same-offset span VISUALLY non-empty? At a
+ * bidi direction boundary one logical offset has two visual positions, so a
+ * logically-collapsed span (equal positions) is the visual dual-caret case when
+ * BOTH affinities are defined AND differ (#503). Returns `false` whenever either
+ * is `undefined` (every affinity-less caller) → the byte-identical early return.
+ */
+function affinitiesDiffer(
+  a: CaretAffinity | undefined,
+  b: CaretAffinity | undefined,
+): boolean {
+  return a !== undefined && b !== undefined && a !== b;
+}
+
+/**
  * Compute visual highlight rectangles for a selection span.
  *
  * Zero-width rects are filtered out. Collapsed spans (anchor === focus)
@@ -83,11 +97,9 @@ export function computeSelectionRects(
     // an RTL run). Only short-circuit when the span is BOTH logically AND
     // visually collapsed (equal positions and no differing affinity). Every 4-arg
     // caller passes no affinity → `affinitiesDiffer` is false → byte-identical.
-    const affinitiesDiffer =
-      anchorAffinity !== undefined &&
-      focusAffinity !== undefined &&
-      anchorAffinity !== focusAffinity;
-    if (positionsEqual(span.anchor, span.focus) && !affinitiesDiffer) return [];
+    if (positionsEqual(span.anchor, span.focus) && !affinitiesDiffer(anchorAffinity, focusAffinity)) {
+      return [];
+    }
 
     const measurer: TextMeasurer = isTextShaper(shaperOrMeasurer)
       ? adaptShaperToMeasurer(shaperOrMeasurer)
@@ -179,11 +191,9 @@ export function computeSelectionRectsForPage(
     // non-empty at a bidi boundary when the affinities differ (the dual-caret
     // case). Only short-circuit when BOTH logically and visually collapsed. Every
     // affinity-less caller keeps the byte-identical early return.
-    const affinitiesDiffer =
-      anchorAffinity !== undefined &&
-      focusAffinity !== undefined &&
-      anchorAffinity !== focusAffinity;
-    if (positionsEqual(span.anchor, span.focus) && !affinitiesDiffer) return [];
+    if (positionsEqual(span.anchor, span.focus) && !affinitiesDiffer(anchorAffinity, focusAffinity)) {
+      return [];
+    }
     const startPage = startPos.pageIndex;
     const endPage = endPos.pageIndex;
     if (pageIndex < startPage || pageIndex > endPage) return [];

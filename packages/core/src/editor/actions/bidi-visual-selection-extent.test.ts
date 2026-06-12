@@ -35,6 +35,8 @@ import {
   type BlockId,
 } from "../../index";
 import { positionTreeForTest } from "../../test-utils/position-tree";
+import { getLineIndex } from "../../cursor/line-flatten";
+import { buildLineBidiView, inlineCoordForOffset } from "../../cursor/line-bidi";
 import type { SelectionRect } from "../../cursor/selection-geometry";
 
 function makeConfig(): EditorConfig {
@@ -201,5 +203,99 @@ describe("EXPAND_SELECTION — visual-extent through an RTL run in LTR text (#50
     expect(logical.length).toBe(1);
     expect(logical[0].x).toBe(0);
     expect(logical[0].width).toBe(16); // "ab" → 16px
+  });
+});
+
+describe("computeSelectionRects — multi-line bidi visual-extent first-of-multi branch (F1)", () => {
+  // F1 (audit 2026-06-12): the emitLineRect `first-of-multi` partial branch
+  // (`isGlobalFirst && !isGlobalLast && startAffinity !== undefined`) had no
+  // end-to-end coverage. Build a MULTI-LINE selection whose FIRST line crosses a
+  // bidi boundary with a defined anchorAffinity, and assert that line's rect
+  // starts at the anchor's VISUAL-EXTENT coord — NOT the line's full inline-start.
+  //
+  // Fixture "ab זאב cd ef" at a narrow page width wraps to two lines:
+  //   line 0 = state offsets [0,10] ("ab זאב cd "), line 1 = [10,12] ("ef").
+  // The RTL Hebrew run is [3,6) on line 0. Visual order on line 0 (8px/glyph):
+  //   a[0] b[8] sp[16] ב[24] א[32] ז[40] sp[48] c[56] d[64] sp[72].
+  // The Hebrew run's visual extent is [24,48]; offset 3 (its logStart) with
+  // affinity "after" is the run's visual RIGHT edge (x=48).
+
+  const narrowPage = {
+    pageInlineSize: 88,
+    pageBlockSize: 2000,
+    pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
+    pageGap: 0,
+  };
+
+  function narrowConfig(): EditorConfig {
+    return {
+      measurer: createMockShaper(8, 16),
+      componentRegistry: createDefaultComponentRegistry(),
+      attrRegistry: createDefaultAttrRegistry(),
+      containerWidth: 800,
+      pageConfig: narrowPage,
+    };
+  }
+
+  it("first line of a down-extended selection starts at the anchor's visual coord at a bidi boundary, not the line inline-start", () => {
+    const config = narrowConfig();
+    let editor = type(createInitialEditorState(config), "ab זאב cd ef", config);
+    const pid = paragraphId(editor);
+
+    // Confirm the fixture wrapped to >= 2 lines with the bidi boundary on line 0.
+    const positioned = positionTreeForTest(editor.layoutTree);
+    const lines = getLineIndex(positioned).byBlock.get(pid) ?? [];
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    const line0 = lines[0];
+    // The anchor offset (3, the LTR→RTL boundary) must sit on line 0.
+    expect(line0.line.inlineOffsetStart).toBeLessThanOrEqual(3);
+    expect(line0.line.inlineOffsetEnd).toBeGreaterThan(3);
+
+    // Caret at offset 3 (the boundary, start of the Hebrew run) with "after"
+    // affinity → the caret hugs the RTL run.
+    editor = caretAt(editor, pid, 3, config);
+    editor = { ...editor, caretAffinity: "after" };
+
+    // EXPAND_SELECTION forward once: seeds anchorAffinity from caretAffinity
+    // ("after") on the collapse→extend transition; the anchor stays at offset 3.
+    editor = expandFwd(editor, config);
+    expect(editor.anchorAffinity).toBe("after");
+
+    // EXPAND_LINE down: move the FOCUS to line 1; anchorAffinity persists via the
+    // `{ ...editor }` spread (EXPAND_LINE manages the anchor-affinity field).
+    editor = reduceEditor(editor, { type: "EXPAND_LINE", direction: "down" }, config);
+    expect(editor.anchorAffinity).toBe("after");
+    // Anchor unchanged on line 0 at the boundary; focus advanced to line 1.
+    expect(editor.selection.anchor.offset).toBe(3);
+    expect(editor.selection.focus.offset).toBeGreaterThanOrEqual(line0.line.inlineOffsetEnd);
+
+    // The anchor's resolved VISUAL coord on line 0 at (offset 3, "after") — the
+    // value the first-of-multi branch must use for the rect's inline-start.
+    const view = buildLineBidiView(line0);
+    const anchorVisualX = inlineCoordForOffset(view, 3, "after", sharedMeasurer);
+    // Sanity: the boundary coord is the Hebrew run's visual RIGHT edge, well past
+    // the line inline-start — so "uses the anchor coord" ≠ "uses 0".
+    expect(anchorVisualX).toBeGreaterThan(40);
+
+    const rects = computeSelectionRects(
+      editor.state,
+      editor.selection,
+      positioned,
+      sharedMeasurer,
+      editor.anchorAffinity,
+      editor.caretAffinity,
+    );
+
+    // The line-0 rect is the one on the first line's block band (smallest y).
+    const minY = Math.min(...rects.map((r) => r.y));
+    const line0Rects = rects.filter((r) => r.y === minY);
+    expect(line0Rects.length).toBeGreaterThan(0);
+    const line0Lo = Math.min(...line0Rects.map((r) => r.x));
+
+    // THE ASSERTION: line 0 (isGlobalFirst, not last) starts at the anchor's
+    // visual-extent coord — NOT the line's full inline-start (0). Without the
+    // first-of-multi visual-extent branch this would be the line inline-lo.
+    expect(line0Lo).toBeCloseTo(anchorVisualX, 6);
+    expect(line0Lo).toBeGreaterThan(0);
   });
 });

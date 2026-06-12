@@ -670,10 +670,45 @@ export function reduceEditor(
 
 /**
  * Does this action explicitly MANAGE `EditorState.caretAffinity` (set or
- * deliberately clear it), exempting it from the central reset above?
+ * deliberately clear it), exempting it from the central reset above? Delegates
+ * to `actionManagesAffinity` (the single source of truth, which documents why
+ * each action qualifies).
+ */
+function actionManagesCaretAffinity(action: EditorAction): boolean {
+  return actionManagesAffinity(action);
+}
+
+/**
+ * Does this action explicitly MANAGE `EditorState.anchorAffinity` (#503),
+ * exempting it from the central reset above? Two categories, both exempted from
+ * the central reset:
+ *  - COLLAPSE actions (`MOVE_CURSOR`, `MOVE_LINE`, `MOVE_LINE_BOUNDARY`) and
+ *    `SET_SELECTION` clear `anchorAffinity` EXPLICITLY in their returns (a
+ *    collapsed selection / new anchor has no bidi-boundary context; the
+ *    `{ ...editor }` spread would otherwise carry a stale value).
+ *  - The FOCUS-ONLY movers (`EXPAND_LINE` / `EXPAND_LINE_BOUNDARY`) keep the
+ *    anchor fixed, so they intentionally PERSIST `anchorAffinity` via the
+ *    `{ ...editor }` spread; `EXPAND_SELECTION` seeds it on the collapse→extend
+ *    transition (slice 4) and persists it thereafter.
  *
- * Qualifying actions (each SETS `caretAffinity` on its result, so the central
- * reset must NOT clobber it):
+ * The anchor side is the symmetric twin of the focus side, so both predicates
+ * delegate to the same `actionManagesAffinity` set (see there).
+ */
+function actionManagesAnchorAffinity(action: EditorAction): boolean {
+  return actionManagesAffinity(action);
+}
+
+/**
+ * The single source of truth for the action set that MANAGES bidi caret/anchor
+ * affinity (sets or deliberately clears it), exempting the action from the
+ * central affinity reset. Both `actionManagesCaretAffinity` and
+ * `actionManagesAnchorAffinity` delegate here: the anchor and focus sides are
+ * symmetric twins, so the set is identical and the lockstep is AUTOMATIC (no
+ * comment needed). Should the two sides ever need to diverge, re-inline one
+ * predicate's set rather than splitting this helper.
+ *
+ * Each action SETS the affinity on its result (so the central reset must NOT
+ * clobber it):
  *   - `SET_SELECTION` — the DOM click seeds the hit side; a programmatic
  *     selection with no affinity passes `undefined` to clear it.
  *   - `MOVE_CURSOR` (P4-C.2.3) — visual-order ArrowLeft/Right sets the boundary
@@ -696,34 +731,7 @@ export function reduceEditor(
  *   - `EXPAND_LINE_BOUNDARY` (P4-C.2.6 §G) — Shift+Home/End move the FOCUS to a
  *     logical boundary and seed the focus affinity the same way.
  */
-function actionManagesCaretAffinity(action: EditorAction): boolean {
-  return (
-    action.type === "SET_SELECTION" ||
-    action.type === "MOVE_CURSOR" ||
-    action.type === "EXPAND_SELECTION" ||
-    action.type === "MOVE_LINE" ||
-    action.type === "EXPAND_LINE" ||
-    action.type === "MOVE_LINE_BOUNDARY" ||
-    action.type === "EXPAND_LINE_BOUNDARY"
-  );
-}
-
-/**
- * Does this action explicitly MANAGE `EditorState.anchorAffinity` (#503),
- * exempting it from the central reset above? The set is IDENTICAL to
- * `actionManagesCaretAffinity` (the anchor side is the symmetric twin of the
- * focus side). Two categories, both exempted from the central reset:
- *  - COLLAPSE actions (`MOVE_CURSOR`, `MOVE_LINE`, `MOVE_LINE_BOUNDARY`) and
- *    `SET_SELECTION` clear `anchorAffinity` EXPLICITLY in their returns (a
- *    collapsed selection / new anchor has no bidi-boundary context; the
- *    `{ ...editor }` spread would otherwise carry a stale value).
- *  - The FOCUS-ONLY movers (`EXPAND_LINE` / `EXPAND_LINE_BOUNDARY`) keep the
- *    anchor fixed, so they intentionally PERSIST `anchorAffinity` via the
- *    `{ ...editor }` spread; `EXPAND_SELECTION` seeds it on the collapse→extend
- *    transition (slice 4) and persists it thereafter.
- * Keep in lockstep with `actionManagesCaretAffinity`.
- */
-function actionManagesAnchorAffinity(action: EditorAction): boolean {
+function actionManagesAffinity(action: EditorAction): boolean {
   return (
     action.type === "SET_SELECTION" ||
     action.type === "MOVE_CURSOR" ||
