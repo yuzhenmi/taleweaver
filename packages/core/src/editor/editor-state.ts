@@ -1,4 +1,4 @@
-import { createEmptyDocument, History, createHistory, selectionContextOf } from "../state";
+import { createEmptyDocument, History, createHistory, selectionContextOf, positionsEqual } from "../state";
 import { isDevMode } from "../state/dev-mode";
 import type { State, Selection, BlockId } from "../state";
 import { render, type RenderOutput } from "../render/render";
@@ -197,9 +197,10 @@ export interface EditorState {
   /**
    * NON-undoable view state (#503): the ANCHOR's caret-boundary association at a
    * bidi direction boundary — the symmetric twin of `caretAffinity` (the FOCUS's
-   * boundary side). On the collapse→extend transition `EXPAND_SELECTION` seeds
-   * this from `caretAffinity`; thereafter it persists through continued
-   * extension. Clears on any action not in `actionManagesAnchorAffinity` (the
+   * boundary side). On the collapse→extend transition the focus-only extenders
+   * (`EXPAND_SELECTION`, `EXPAND_LINE`, `EXPAND_LINE_BOUNDARY`) seed this from
+   * `caretAffinity` via the shared `seedAnchorAffinity`; thereafter it persists
+   * through continued extension. Clears on any action not in `actionManagesAnchorAffinity` (the
    * same central-reset model as `caretAffinity`). It is VIEW state — never stored
    * in `History`, never part of `Position` / `Selection` / `Span`.
    */
@@ -747,4 +748,34 @@ function actionManagesAffinity(action: EditorAction): boolean {
     action.type === "MOVE_LINE_BOUNDARY" ||
     action.type === "EXPAND_LINE_BOUNDARY"
   );
+}
+
+/**
+ * The shared `anchorAffinity` seed/persist rule (#503) for the three focus-only
+ * selection extenders — `EXPAND_SELECTION` (Shift+ArrowLeft/Right), `EXPAND_LINE`
+ * (Shift+ArrowUp/Down), `EXPAND_LINE_BOUNDARY` (Shift+Home/End). They all keep
+ * the ANCHOR fixed and move only the FOCUS, so the anchor's bidi-boundary side
+ * must be captured ONCE — on the genuine collapse→extend transition — and then
+ * PERSIST through continued extension (the central reset exempts them all via
+ * `actionManagesAnchorAffinity`).
+ *
+ * Contract:
+ *   - On the collapse→extend transition (`isCollapsed && anchorAffinity ===
+ *     undefined`) SEED from the caret's boundary side (`editor.caretAffinity`),
+ *     so a selection STARTED by ANY of the three extenders renders the anchor
+ *     edge on the correct visual side of a bidi boundary on the first line.
+ *   - Otherwise PERSIST the existing `editor.anchorAffinity` (continued
+ *     extension; a non-collapsed span; an already-seeded anchor).
+ *
+ * The two guards are load-bearing (see `handleExpandSelection`'s longer note):
+ * `isCollapsed` gates the LTR inert-affinity latching case, and `anchorAffinity
+ * === undefined` gates the bidi transient-collapse re-seed case. A fresh caret
+ * always has `anchorAffinity === undefined`, so a NEW selection seeds correctly.
+ * Living here keeps the rule in ONE place across the three extenders.
+ */
+export function seedAnchorAffinity(editor: EditorState): CaretAffinity | undefined {
+  const isCollapsed = positionsEqual(editor.selection.anchor, editor.selection.focus);
+  return isCollapsed && editor.anchorAffinity === undefined
+    ? editor.caretAffinity // seed from the caret's boundary side on first extend
+    : editor.anchorAffinity; // persist on continued extension
 }

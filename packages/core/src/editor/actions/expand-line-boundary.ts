@@ -1,4 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
+import { seedAnchorAffinity } from "../editor-state";
 import { createSpan } from "../../state";
 import { moveToLineBoundary } from "../../cursor/line-navigation";
 
@@ -7,6 +8,11 @@ export function handleExpandLineBoundary(
   boundary: "start" | "end",
   config: EditorConfig,
 ): EditorState {
+  // #503: seed/persist `anchorAffinity` BEFORE mutating the selection (the seed
+  // reads the still-collapsed span). A selection STARTED with Shift+Home/End now
+  // captures the anchor's bidi-boundary side, matching `handleExpandSelection`;
+  // the central reset exempts EXPAND_LINE_BOUNDARY via `actionManagesAnchorAffinity`.
+  const newAnchorAffinity = seedAnchorAffinity(editor);
   const pos = moveToLineBoundary(
     editor.state,
     editor.selection.focus,
@@ -33,5 +39,6 @@ export function handleExpandLineBoundary(
     ...editor,
     selection: createSpan(editor.selection.anchor, pos),
     caretAffinity,
+    anchorAffinity: newAnchorAffinity,
   };
 }

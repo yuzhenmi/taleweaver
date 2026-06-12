@@ -52,20 +52,6 @@ export interface AbsoluteLineBox {
    * selection-geometry / relative-caret follow-ups will reuse.
    */
   readonly inverseTransform?: Mat2D | "singular";
-
-  /**
-   * Multi-column slice 2 — the index of the `MultiColumnBox` COLUMN box that
-   * encloses this line (column 0's lines → 0, column 1's → 1, …). STAMPED during
-   * `collectLineBoxes` from the enclosing column-box ancestry as it descends a
-   * `MultiColumnBox`'s `columns` left-to-right. `undefined` for any line NOT under
-   * a `MultiColumnBox` (the overwhelmingly common single-column case).
-   *
-   * INERT in this slice: the column-aware hit-test (pick column by click-X) and
-   * line-nav (remap `targetX` to the new column track at a column crossing) read
-   * it in a later slice. It is stamped HERE, with the column descent, because the
-   * column-box ancestry is only known during this walk.
-   */
-  readonly columnIndex?: number;
 }
 
 /**
@@ -107,12 +93,6 @@ export function collectLineBoxes(
   // zero overhead). Composed onto when descending into a transform-bearing box;
   // each emitted line bakes `invert(cumulative)` as its `inverseTransform`.
   cumulativeTransform?: Mat2D,
-  // Multi-column slice 2 — the index of the enclosing `MultiColumnBox` column box,
-  // STAMPED onto every emitted line. `undefined` outside a `MultiColumnBox` (the
-  // common single-column case). Threaded unchanged through nested descents so a
-  // line deep inside a column (e.g. an inline-block's internal line) inherits its
-  // column's index.
-  columnIndex?: number,
 ): void {
   if (box.type === "text-run" || box.type === "marker") return;
   if (box.type === "page") {
@@ -158,19 +138,20 @@ export function collectLineBoxes(
     // A MultiColumnBox is a CONTAINER whose `columns` (BlockBoxes) are descended
     // LEFT-TO-RIGHT. Because each column holds a CONTIGUOUS doc-order run, this
     // depth-first concatenation `[col-0 lines …][col-1 lines …]` IS visual reading
-    // order (the VISUAL-ORDER GUARANTEE) — no reorder needed. Each column's lines
-    // are stamped with that column's index (column 0 → 0, …) so hit-test / line-nav
-    // can read `AbsoluteLineBox.columnIndex` (inert this slice). The column box is
-    // positioned in THIS box's frame, so it descends with origin `(absX, absY)`.
-    box.columns.forEach((col, colIdx) => {
-      collectLineBoxes(col, absX, absY, out, pageIndex, childCumulative, colIdx);
-    });
-    collectAbsoluteLineBoxes(box, absX, absY, out, pageIndex, childCumulative, columnIndex);
+    // order (the VISUAL-ORDER GUARANTEE) — no reorder needed. Each column box is
+    // positioned in THIS box's frame, so it descends with origin `(absX, absY)`;
+    // the column a line belongs to is recoverable geometrically (the line's
+    // `absoluteX` falls within that column box's inline range), which is exactly
+    // how the column-aware hit-test (`locateColumnAtPoint`) picks a column.
+    for (const col of box.columns) {
+      collectLineBoxes(col, absX, absY, out, pageIndex, childCumulative);
+    }
+    collectAbsoluteLineBoxes(box, absX, absY, out, pageIndex, childCumulative);
     return;
   }
 
   if (box.type === "line") {
-    out.push(makeAbsoluteLineBox(box, absX, absY, pageIndex, childCumulative, columnIndex));
+    out.push(makeAbsoluteLineBox(box, absX, absY, pageIndex, childCumulative));
     // LineBox children: most are text-runs (skipped by the text-run
     // branch). When an inline-block lives on this line, its own BFC
     // produced nested LineBoxes inside its children — descend so
@@ -179,13 +160,13 @@ export function collectLineBoxes(
     // char-precision; the descent here is purely for the cross-
     // boundary case of inline-block-internal lines.
     for (const child of box.children) {
-      collectLineBoxes(child, absX, absY, out, pageIndex, childCumulative, columnIndex);
+      collectLineBoxes(child, absX, absY, out, pageIndex, childCumulative);
     }
-    collectAbsoluteLineBoxes(box, absX, absY, out, pageIndex, childCumulative, columnIndex);
+    collectAbsoluteLineBoxes(box, absX, absY, out, pageIndex, childCumulative);
     return;
   }
   for (const child of box.children) {
-    collectLineBoxes(child, absX, absY, out, pageIndex, childCumulative, columnIndex);
+    collectLineBoxes(child, absX, absY, out, pageIndex, childCumulative);
   }
   // POSITIONING slice 3 (LOAD-BEARING) — descend `box.absoluteChildren` too. Abs-pos
   // content is reachable ONLY via `absoluteChildren` (it is OUT of `children`); if
@@ -196,7 +177,7 @@ export function collectLineBoxes(
   // with the SAME parent origin `(absX, absY)` as `children`, and inherit THIS box's
   // cumulative transform (a transform on the abc-establishing box transforms its
   // abs-pos descendants too — CSS Transforms 1).
-  collectAbsoluteLineBoxes(box, absX, absY, out, pageIndex, childCumulative, columnIndex);
+  collectAbsoluteLineBoxes(box, absX, absY, out, pageIndex, childCumulative);
 }
 
 /**
@@ -246,14 +227,9 @@ function makeAbsoluteLineBox(
   absoluteY: number,
   pageIndex: number,
   cumulative: Mat2D | undefined,
-  // Multi-column slice 2 — the enclosing column-box index (undefined outside a
-  // MultiColumnBox). Spread only when present so a single-column line's entry is
-  // byte-identical to before this field existed.
-  columnIndex?: number,
 ): AbsoluteLineBox {
-  const colField = columnIndex !== undefined ? { columnIndex } : {};
   if (cumulative === undefined) {
-    return { line, absoluteX, absoluteY, pageIndex, ...colField };
+    return { line, absoluteX, absoluteY, pageIndex };
   }
   const inv = invert(cumulative);
   return {
@@ -262,7 +238,6 @@ function makeAbsoluteLineBox(
     absoluteY,
     pageIndex,
     inverseTransform: inv === null ? "singular" : inv,
-    ...colField,
   };
 }
 
@@ -280,13 +255,10 @@ function collectAbsoluteLineBoxes(
   out: AbsoluteLineBox[],
   pageIndex: number,
   cumulative: Mat2D | undefined,
-  // Multi-column slice 2 — the enclosing column index of `box`, inherited by its
-  // abs-pos descendants (an abs-pos box inside a column carries that column's index).
-  columnIndex?: number,
 ): void {
   if (box.absoluteChildren === undefined) return;
   for (const absChild of box.absoluteChildren) {
-    collectLineBoxes(absChild, absX, absY, out, pageIndex, cumulative, columnIndex);
+    collectLineBoxes(absChild, absX, absY, out, pageIndex, cumulative);
   }
 }
 

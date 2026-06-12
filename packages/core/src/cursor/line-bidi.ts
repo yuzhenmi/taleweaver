@@ -315,6 +315,30 @@ function clamp(value: number, lo: number, hi: number): number {
 }
 
 /**
+ * The dual-caret boundary tiebreak (load-bearing — site of #500/#502/#503
+ * fixes). At a bidi/run boundary an offset can be owned by the candidate ENDING
+ * at it (`endingIdx`) or the candidate STARTING at it (`startingIdx`); the
+ * `affinity` picks the side:
+ *   - `"before"` → the ENDING candidate (the run/leaf whose `logEnd` is here).
+ *   - `"after"` / undefined → the STARTING candidate (whose `logStart` is here).
+ * When the preferred side is absent the other is used; a missing candidate is
+ * signalled by `-1`, and `-1` is returned only when BOTH are absent (callers
+ * guard that case). Shared by `findLeafOwner` (logical-order walk → leaf for
+ * coord placement) and `findOwningVisualIndex` (visual-order walk → index for
+ * `moveVisually` crossing) so the rule lives in exactly one place.
+ */
+function pickDualCaretSide(
+  affinity: CaretAffinity | undefined,
+  endingIdx: number,
+  startingIdx: number,
+): number {
+  if (affinity === "before") {
+    return endingIdx >= 0 ? endingIdx : startingIdx;
+  }
+  return startingIdx >= 0 ? startingIdx : endingIdx;
+}
+
+/**
  * Find the `BidiViewLeaf` whose STATE span owns `stateOffset`, walking
  * `logicalLeaves` (LOGICAL/state order, contiguous spans). At a leaf boundary
  * (`stateOffset === leaf.logEnd === nextLeaf.logStart`) the caret has two visual
@@ -343,11 +367,12 @@ export function findLeafOwner(
       return leaf;
     }
     if (stateOffset === leaf.logEnd) {
-      // Boundary. Default ("after") prefers the NEXT leaf (the one STARTING
-      // here) when it exists; "before" keeps THIS leaf (the one ENDING here).
-      const next = logicalLeaves[i + 1];
-      if (affinity === "before" || next === undefined) return leaf;
-      return next;
+      // Boundary. THIS leaf ends here; the NEXT leaf (if any) starts here. The
+      // shared tiebreak picks the side from `affinity` ("before" → this/ending
+      // leaf, "after"/undefined → the next/starting leaf when present).
+      const startingIdx = i + 1 < logicalLeaves.length ? i + 1 : -1;
+      const chosen = pickDualCaretSide(affinity, i, startingIdx);
+      return logicalLeaves[chosen];
     }
     // Offset past this leaf's span — continue to the next leaf.
   }
@@ -681,13 +706,10 @@ function findOwningVisualIndex(
     if (offset === v.logEnd) endingHere = i;
     if (offset === v.logStart) startingHere = i;
   }
-  if (caretAffinity === "before") {
-    if (endingHere >= 0) return endingHere;
-    if (startingHere >= 0) return startingHere;
-  } else {
-    if (startingHere >= 0) return startingHere;
-    if (endingHere >= 0) return endingHere;
-  }
+  // Shared dual-caret tiebreak: `affinity` picks the ENDING vs STARTING run; a
+  // `-1` result means BOTH were absent (offset out of range), handled below.
+  const chosen = pickDualCaretSide(caretAffinity, endingHere, startingHere);
+  if (chosen >= 0) return chosen;
   // Out-of-range (defensive): clamp to the nearest run by state span.
   return offset <= visualLeaves[0].logStart ? leftmostByState(visualLeaves) : rightmostByState(visualLeaves);
 }

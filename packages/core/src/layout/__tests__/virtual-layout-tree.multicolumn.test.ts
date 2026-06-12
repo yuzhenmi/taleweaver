@@ -245,7 +245,15 @@ describe("materializePage — multi-column body", () => {
     );
 
     const page = tree.getPage(0);
-    const col0Lines = getLineIndex(page).all.filter((l) => l.columnIndex === 0);
+    // Partition lines into the LEFT column GEOMETRICALLY by absoluteX within the
+    // column-0 box's inline range (col1's track sits a full (track + gap) further
+    // along), exactly how the column-aware hit-test picks a column.
+    const body = bodyBoxOf(page);
+    if (body.type !== "multicolumn") throw new Error("expected a MultiColumnBox body");
+    const col0 = body.columns[0];
+    const col0Lines = getLineIndex(page).all.filter(
+      (l) => l.absoluteX >= col0.x && l.absoluteX < col0.x + col0.width,
+    );
     expect(col0Lines.length).toBeGreaterThan(0);
     // Every column-0 line starts at the page content left edge — exactly the inline
     // margin, not twice it (the #497 double-count would have put it at 2×15 = 30).

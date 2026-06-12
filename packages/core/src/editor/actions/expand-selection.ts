@@ -1,7 +1,7 @@
 import type { EditorState, EditorConfig } from "../editor-state";
+import { seedAnchorAffinity } from "../editor-state";
 import {
   createSpan,
-  positionsEqual,
   type Position,
 } from "../../state";
 import { expandSelection } from "../../cursor/cursor-ops";
@@ -48,30 +48,15 @@ export function handleExpandSelection(
   const { selection } = editor;
   const visualDir = direction === "forward" ? "right" : "left";
 
-  // Anchor-affinity seed/persist (#503): on the collapse→extend transition the
-  // anchor inherits the caret's bidi-boundary side; on continued extension it
-  // PERSISTS. The seed fires ONLY on the genuine first extend out of a fresh caret
-  // — `isCollapsed && anchorAffinity === undefined`:
-  //   - `isCollapsed` (logically collapsed span) gates against the LTR latching
-  //     bug: on a uniform line `moveVisually` stamps an inert focus affinity each
-  //     press; once the span is non-collapsed (press 2+) the `!isCollapsed` branch
-  //     persists `anchorAffinity` (still undefined for LTR) instead of re-reading
-  //     the focus's inert side.
-  //   - `anchorAffinity === undefined` gates against the bidi re-seed bug: visually
-  //     extending through an RTL run TRANSIENTLY returns the focus to the anchor's
-  //     logical offset (the dual-caret press-4 case → a logical, NOT visual,
-  //     collapse). Without this guard the next press would treat that as a fresh
-  //     caret and overwrite the anchor's original side ("after"→"before"), shrinking
-  //     the highlight. With it, an anchor affinity once seeded persists.
-  // A fresh caret always has `anchorAffinity === undefined` (cleared by the central
-  // reset / SET_SELECTION), so a NEW selection still seeds correctly. Computed
-  // BEFORE the null-line check (in-line + visual-exit paths thread it; the defensive
-  // null-line fallback passes `undefined`).
-  const isCollapsed = positionsEqual(selection.anchor, selection.focus);
-  const seedAnchorAffinity = isCollapsed && editor.anchorAffinity === undefined;
-  const newAnchorAffinity: CaretAffinity | undefined = seedAnchorAffinity
-    ? editor.caretAffinity // seed from the caret's boundary side on first extend
-    : editor.anchorAffinity; // persist on continued extension
+  // Anchor-affinity seed/persist (#503), via the shared `seedAnchorAffinity` rule
+  // (the SAME rule `handleExpandLine` / `handleExpandLineBoundary` use, so the
+  // three focus-only extenders are symmetric): on the collapse→extend transition
+  // the anchor inherits the caret's bidi-boundary side; on continued extension it
+  // PERSISTS. See `seedAnchorAffinity`'s docstring for why the two guards
+  // (`isCollapsed`, `anchorAffinity === undefined`) are load-bearing. Computed
+  // BEFORE the null-line check (in-line + visual-exit paths thread it; the
+  // defensive null-line fallback passes `undefined`).
+  const newAnchorAffinity: CaretAffinity | undefined = seedAnchorAffinity(editor);
 
   const measurer: TextMeasurer = isTextShaper(config.measurer)
     ? adaptShaperToMeasurer(config.measurer)

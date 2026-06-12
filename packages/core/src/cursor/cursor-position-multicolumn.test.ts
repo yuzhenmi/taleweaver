@@ -160,9 +160,19 @@ describe("cursor-position / selection-geometry — multi-column SPANNING block (
 
   function geometry() {
     const built = buildMulticolumnDoc([tallParagraph], pageConfig, columnConfig);
+    // Partition lines into columns GEOMETRICALLY by each line's absoluteX falling
+    // within the column box's inline range — exactly how the column-aware hit-test
+    // picks a column. (The SAME block id spans both columns, so only the
+    // x-position disambiguates — which is the whole point of this fixture.)
+    if (built.page0.type !== "page") throw new Error("expected page box");
+    const body = built.page0.children[0];
+    if (body.type !== "multicolumn") throw new Error("expected a MultiColumnBox body");
+    const [col0, col1] = body.columns;
     const allLines = getLineIndex(built.layout).all;
-    const col0Lines = allLines.filter((l) => l.columnIndex === 0);
-    const col1Lines = allLines.filter((l) => l.columnIndex === 1);
+    const inColumn = (l: AbsoluteLineBox, col: { x: number; width: number }): boolean =>
+      l.absoluteX >= col.x && l.absoluteX < col.x + col.width;
+    const col0Lines = allLines.filter((l) => inColumn(l, col0));
+    const col1Lines = allLines.filter((l) => inColumn(l, col1));
 
     // Each column's x-range, read straight off its lines' absoluteX (no need to
     // reach into MultiColumnBox geometry). Column 0 clusters at track 0; column

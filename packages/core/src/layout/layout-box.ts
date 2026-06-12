@@ -316,8 +316,9 @@ export interface TableCellBox extends LayoutBoxBase, TableCellGrid {
  * VISUAL-ORDER GUARANTEE: because each column holds a contiguous doc-order run,
  * a depth-first walk descending `columns` LEFT-TO-RIGHT emits lines in visual
  * reading order (column-0's lines, then column-1's, …). So `collectLineBoxes`
- * needs NO reorder — it just descends `columns` in order, stamping each line's
- * enclosing column index onto its `AbsoluteLineBox.columnIndex`.
+ * needs NO reorder — it just descends `columns` in order. Which column a line
+ * belongs to is recoverable geometrically (its `absoluteX` falls within the
+ * column box's inline range), exactly as the column-aware hit-test picks one.
  *
  * The field is named `columns` (NOT `children`) so the type makes the per-column
  * grouping explicit; every generic box-walking concern descends `columns` exactly

@@ -30,11 +30,12 @@ import { measurePass } from "../layout/measure-pass";
 import { makeVirtualLayoutTree } from "../layout/virtual-layout-tree";
 import { positionTreeForTest } from "../test-utils/position-tree";
 import { getLineIndex } from "./line-flatten";
+import type { AbsoluteLineBox } from "./line-flatten";
 import type { ElementBox } from "../render/render-node";
 import type { PageConfig } from "../layout/page-config";
 import type { SectionPlan } from "../layout/section-plan";
 import type { ColumnConfig } from "../layout/column-config";
-import type { LayoutBox, MultiColumnBox } from "../layout/layout-box";
+import type { LayoutBox, MultiColumnBox, BlockBox } from "../layout/layout-box";
 import type { TextShaper } from "../layout/text-shaper";
 import {
   buildState,
@@ -156,14 +157,17 @@ describe("hit-test — multi-column column-X filter (slice 3a)", () => {
   it("a click in column 1 (right) at a shared Y resolves to a column-1 block, not column 0", () => {
     const { state, layout, shaper, mc, col0, col1 } = geometry();
 
-    // The set of blockIds laid out in each column (read off the lines stamped
-    // with each column's index, via the flattened line index).
+    // The set of blockIds laid out in each column, partitioned GEOMETRICALLY by
+    // each line's absoluteX falling within the column box's inline range — exactly
+    // how the column-aware hit-test picks a column.
     const allLines = getLineIndex(layout).all;
+    const inColumn = (l: AbsoluteLineBox, col: BlockBox): boolean =>
+      l.absoluteX >= col.x && l.absoluteX < col.x + col.width;
     const col0Blocks = new Set(
-      allLines.filter((l) => l.columnIndex === 0).map((l) => l.line.ownerBlockId),
+      allLines.filter((l) => inColumn(l, col0)).map((l) => l.line.ownerBlockId),
     );
     const col1Blocks = new Set(
-      allLines.filter((l) => l.columnIndex === 1).map((l) => l.line.ownerBlockId),
+      allLines.filter((l) => inColumn(l, col1)).map((l) => l.line.ownerBlockId),
     );
     expect(col0Blocks.size).toBeGreaterThan(0);
     expect(col1Blocks.size).toBeGreaterThan(0);

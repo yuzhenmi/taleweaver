@@ -42,9 +42,6 @@ describe("collectLineBoxes", () => {
     expect(out[0].pageIndex).toBe(0);
     expect(out[0].absoluteX).toBeGreaterThanOrEqual(0);
     expect(out[0].absoluteY).toBeGreaterThanOrEqual(0);
-    // A line NOT under a MultiColumnBox carries no columnIndex (the field is
-    // spread only when present — no stale-undefined leak in single-column docs).
-    expect(out[0].columnIndex).toBeUndefined();
   });
 
   it("collects lines from multiple sibling blocks in document order", () => {
@@ -124,12 +121,13 @@ describe("collectLineBoxes", () => {
     }
   });
 
-  it("multicolumn: emits lines in column order (col0 then col1) and stamps columnIndex", () => {
+  it("multicolumn: emits lines in column order (col0 then col1)", () => {
     // Multi-column slice 2 — the VISUAL-ORDER GUARANTEE. Hand-build a
     // MultiColumnBox nested under a body block. col0 holds two paragraph blocks
     // (each one line); col1 holds one. A depth-first walk descending `columns`
     // left-to-right must emit col0's two lines BEFORE col1's one — visual reading
-    // order — and stamp each line's enclosing columnIndex (0, 0, then 1).
+    // order. Which column each line belongs to is recoverable geometrically (its
+    // absoluteX within the column box's inline range), as asserted below.
     const mcCs = INITIAL_COMPUTED_STYLE;
     const mcUs = computeUsedStyle(mcCs, 240, "indefinite");
     const blockId = "b" as BlockId;
@@ -163,8 +161,11 @@ describe("collectLineBoxes", () => {
 
     // Three lines total, in column order: col0's two, then col1's one.
     expect(out.map((e) => e.line.key)).toEqual(["c0p0-line", "c0p1-line", "c1p0-line"]);
-    // columnIndex stamped per the enclosing column box (0, 0, then 1).
-    expect(out.map((e) => e.columnIndex)).toEqual([0, 0, 1]);
+    // Column membership is recoverable geometrically: col0's two lines sit at the
+    // col0 track origin (x=0) and col1's line at the col1 track origin (x=260).
+    expect(out[0].absoluteX).toBe(0);
+    expect(out[1].absoluteX).toBe(0);
+    expect(out[2].absoluteX).toBe(260);
     // col1 sits to the RIGHT of col0 (visual side-by-side), even though it comes
     // LATER in the flat (reading) order — the visual-order proof's premise.
     expect(out[2].absoluteX).toBeGreaterThan(out[0].absoluteX);

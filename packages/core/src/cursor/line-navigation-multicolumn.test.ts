@@ -42,6 +42,7 @@ import { measurePass } from "../layout/measure-pass";
 import { makeVirtualLayoutTree } from "../layout/virtual-layout-tree";
 import { positionTreeForTest } from "../test-utils/position-tree";
 import { getLineIndex } from "./line-flatten";
+import type { AbsoluteLineBox } from "./line-flatten";
 import { createPosition } from "../state";
 import type { ElementBox } from "../render/render-node";
 import type { PageConfig } from "../layout/page-config";
@@ -173,10 +174,14 @@ describe("line-navigation — multi-column column-aware ArrowUp/Down (slice 3b)"
     const [col0, col1] = mc.columns;
 
     // Column membership: blockIds laid out in each column, in TOP→BOTTOM order
-    // (the flat line index is doc-order = column-flow order).
+    // (the flat line index is doc-order = column-flow order). Partitioned
+    // GEOMETRICALLY by each line's absoluteX within the column box's inline range
+    // — exactly how the column-aware hit-test picks a column.
     const allLines = getLineIndex(built.layout).all;
-    const col0Lines = allLines.filter((l) => l.columnIndex === 0);
-    const col1Lines = allLines.filter((l) => l.columnIndex === 1);
+    const inColumn = (l: AbsoluteLineBox, col: { x: number; width: number }): boolean =>
+      l.absoluteX >= col.x && l.absoluteX < col.x + col.width;
+    const col0Lines = allLines.filter((l) => inColumn(l, col0));
+    const col1Lines = allLines.filter((l) => inColumn(l, col1));
     const col0Blocks = col0Lines.map((l) => l.line.ownerBlockId);
     const col1Blocks = col1Lines.map((l) => l.line.ownerBlockId);
     const col0Set = new Set(col0Blocks);
@@ -301,9 +306,18 @@ describe("line-navigation — multi-column WITHIN-BLOCK column boundary (same bl
 
   function geometry() {
     const built = buildMulticolumnDoc([tallParagraph], pageConfig, columnConfig);
+    // Partition lines into columns GEOMETRICALLY by each line's absoluteX within
+    // the column box's inline range (the SAME block id spans both columns, so only
+    // the x-position disambiguates) — exactly how the column-aware hit-test picks.
+    if (built.page0.type !== "page") throw new Error("expected page box");
+    const body = built.page0.children[0];
+    if (body.type !== "multicolumn") throw new Error("expected a MultiColumnBox body");
+    const [col0, col1] = body.columns;
     const allLines = getLineIndex(built.layout).all;
-    const col0Lines = allLines.filter((l) => l.columnIndex === 0);
-    const col1Lines = allLines.filter((l) => l.columnIndex === 1);
+    const inColumn = (l: AbsoluteLineBox, col: { x: number; width: number }): boolean =>
+      l.absoluteX >= col.x && l.absoluteX < col.x + col.width;
+    const col0Lines = allLines.filter((l) => inColumn(l, col0));
+    const col1Lines = allLines.filter((l) => inColumn(l, col1));
     return { ...built, col0Lines, col1Lines };
   }
 

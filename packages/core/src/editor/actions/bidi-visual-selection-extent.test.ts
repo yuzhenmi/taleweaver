@@ -298,4 +298,57 @@ describe("computeSelectionRects — multi-line bidi visual-extent first-of-multi
     expect(line0Lo).toBeCloseTo(anchorVisualX, 6);
     expect(line0Lo).toBeGreaterThan(0);
   });
+
+  // CUR-2 (audit 2026-06-12): EXPAND_LINE / EXPAND_LINE_BOUNDARY must SEED
+  // `anchorAffinity` from `caretAffinity` on the collapse→extend transition (the
+  // shared `seedAnchorAffinity` rule), not merely PERSIST it. The F1 test above
+  // masks this gap because it starts the selection with EXPAND_SELECTION FIRST
+  // (which already seeded the anchor) and only then presses EXPAND_LINE. These
+  // tests start the selection with EXPAND_LINE / EXPAND_LINE_BOUNDARY FIRST, so
+  // the seed has to fire on THAT action.
+  //
+  // The engine-level contract is "the affinity is SEEDED"; the RTL-visual
+  // end-to-end rendering it feeds is browser-gated (#474 B2 / #503, the user's
+  // domain) — these tests assert the affinity, which is what the engine owns.
+
+  it("EXPAND_LINE down seeds anchorAffinity from caretAffinity on the collapse→extend transition", () => {
+    const config = narrowConfig();
+    let editor = type(createInitialEditorState(config), "ab זאב cd ef", config);
+    const pid = paragraphId(editor);
+
+    // Collapsed caret at the LTR→RTL boundary (offset 3) on line 0, with a
+    // DEFINED caretAffinity ("after" — the caret hugs the RTL run). No prior
+    // EXPAND_SELECTION, so `anchorAffinity` is undefined going in.
+    editor = caretAt(editor, pid, 3, config);
+    editor = { ...editor, caretAffinity: "after" };
+    expect(editor.anchorAffinity).toBeUndefined();
+
+    // START the selection with EXPAND_LINE down (the EXPAND_LINE-first ordering
+    // the F1 test masks). The seed must fire HERE.
+    editor = reduceEditor(editor, { type: "EXPAND_LINE", direction: "down" }, config);
+
+    // SEEDED — equals the prior caretAffinity, NOT undefined (the pre-fix value).
+    expect(editor.anchorAffinity).toBe("after");
+    // The anchor stayed at the boundary; the focus moved down a line.
+    expect(editor.selection.anchor.offset).toBe(3);
+  });
+
+  it("EXPAND_LINE_BOUNDARY (Shift+End) seeds anchorAffinity from caretAffinity on the collapse→extend transition", () => {
+    const config = narrowConfig();
+    let editor = type(createInitialEditorState(config), "ab זאב cd ef", config);
+    const pid = paragraphId(editor);
+
+    // Collapsed caret at the boundary (offset 3) with a defined caretAffinity.
+    editor = caretAt(editor, pid, 3, config);
+    editor = { ...editor, caretAffinity: "after" };
+    expect(editor.anchorAffinity).toBeUndefined();
+
+    // START the selection with Shift+End (EXPAND_LINE_BOUNDARY) — the seed fires
+    // here, then the handler overwrites caretAffinity to "before" (End's edge).
+    editor = reduceEditor(editor, { type: "EXPAND_LINE_BOUNDARY", boundary: "end" }, config);
+
+    // SEEDED from the caret's pre-action side ("after"), NOT undefined.
+    expect(editor.anchorAffinity).toBe("after");
+    expect(editor.selection.anchor.offset).toBe(3);
+  });
 });

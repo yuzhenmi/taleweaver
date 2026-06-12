@@ -325,11 +325,12 @@ The `MultiColumnBox` `LayoutBox` variant has landed too: a new
 side-by-side column boxes, each a contiguous doc-order run), `createMultiColumnBox`
 factory, and a `"multicolumn"` arm at every generic box-walking site that descends
 `columns` as a container — `rebuildBoxWithOffsets`, `collectLineBoxes` /
-`collectLeavesRec` (which also STAMP `AbsoluteLineBox.columnIndex` per column —
-read later by hit-test/line-nav), `cursor-position`, `table-cell-at-point`,
+`collectLeavesRec`, `cursor-position`, `table-cell-at-point`,
 `physicalize-vertical`, the canvas painter (`paintBox` + `walkAndDetectChanges`),
 and `paint-cache`. `collectLineBoxes` descending columns left-to-right gives the
-visual-reading-order guarantee for free. `materializePage` constructs a
+visual-reading-order guarantee for free; which column a line belongs to is
+recoverable geometrically (its `absoluteX` within the column box's inline range),
+exactly as the column-aware hit-test picks one. `materializePage` constructs a
 `MultiColumnBox` for every multicol page (see the wiring paragraph below).
 
 The pure FILL core has also landed: `fitColumnsOnPage` (`layout/column-fit.ts`)
