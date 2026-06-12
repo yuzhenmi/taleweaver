@@ -16,10 +16,11 @@ describe("table-of-contents attrs validators", () => {
     expect(tocShowPageNumbersFromAttrs(false)).toBe(false);
     expect(tocShowPageNumbersFromAttrs(undefined)).toBe(true);
   });
-  it("indentStep: positive number → {unit:'px',value}; else default 18", () => {
-    expect(tocIndentStepFromAttrs(24)).toEqual({ unit: "px", value: 24 });
-    expect(tocIndentStepFromAttrs(-5)).toEqual({ unit: "px", value: 18 });
-    expect(tocIndentStepFromAttrs(Infinity)).toEqual({ unit: "px", value: 18 }); // rejects non-finite
+  it("indentStep: positive number → that number; else default 18", () => {
+    expect(tocIndentStepFromAttrs(24)).toBe(24);
+    expect(tocIndentStepFromAttrs(-5)).toBe(18);
+    expect(tocIndentStepFromAttrs(0)).toBe(18); // zero is not a valid step (> 0 required)
+    expect(tocIndentStepFromAttrs(Infinity)).toBe(18); // rejects non-finite
   });
   it("DEFAULT_TOC_ATTRS is the all-levels / dot / show / 18px default", () => {
     expect(DEFAULT_TOC_ATTRS).toEqual({ levels: [1, 2, 3, 4, 5, 6], leader: "dot", showPageNumbers: true, indentStep: 18 });

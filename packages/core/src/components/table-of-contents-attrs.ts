@@ -30,8 +30,6 @@ export function tocShowPageNumbersFromAttrs(value: unknown): boolean {
   return typeof value === "boolean" ? value : true;
 }
 
-export function tocIndentStepFromAttrs(value: unknown): { unit: "px"; value: number } {
-  return typeof value === "number" && Number.isFinite(value) && value > 0
-    ? { unit: "px", value }
-    : { unit: "px", value: 18 };
+export function tocIndentStepFromAttrs(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 18;
 }

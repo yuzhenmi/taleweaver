@@ -726,7 +726,22 @@ auto-updating as the target moves pages. Shipped end-to-end through every layer:
   toolbar surfacing is a browser-gated UI follow-up.
 
 Out of scope (named follow-ups): main-body / footnote-body page-fields (not creatable
-via the editor), table of contents.
+via the editor).
+
+### Table of contents `[partial]`
+
+A live, field-backed Table of Contents (derive-not-store) is **in progress**. Shipped: the
+`table-of-contents` atomic-leaf component + `INSERT_TABLE_OF_CONTENTS` action (insertable
+anchor block carrying levels/leader/showPageNumbers/indentStep options); `collectPageFields`
+recognizes a TOC entry's page atom by its `/toc/` render-key segment so each entry's page
+number rides the existing `cross-ref-page` field pipeline (no new field kind); the
+`content-edge` `TabAlignment` (a right tab to the line content edge — the flush-right page
+number); `navTarget`/`tocEntry` `LayoutBoxMetadata` for click-nav; and the pure
+`buildTocEntrySubtree` render helper (heading text + leadered content-edge tab + page atom per
+outline entry). **Still missing:** wiring the helper into the render walk (the
+`table-of-contents` branch in `renderBlockBody`) + `outlineSignature` invalidation, layout/
+fragmentation integration, and the DOM click-to-navigate hit-test. Example-app Insert-menu
+entry + in-browser smoke are browser-gated.
 
 ### Comments `[implemented]`
 
