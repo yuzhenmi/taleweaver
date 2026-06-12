@@ -98,6 +98,11 @@ describe("fitColumnsOnPage", () => {
     expect(r.columns[0].childrenCount).toBe(2);
     expect(r.columns[1]).toMatchObject({ childrenCount: 0, resumeOut: null, consumedBlockSize: 0 });
     expect(r.columns[2]).toMatchObject({ childrenCount: 0, resumeOut: null, consumedBlockSize: 0 });
+    // An empty trailing column's `resumeInto` is a block token at the EXHAUSTED index
+    // (here 2), NOT `null` (#498) — materialize seeds `layoutBlock` from it, and `null`
+    // would mean "start from child 0" → re-lay the whole doc into the empty column.
+    expect(r.columns[1].resumeInto).toEqual({ type: "block", resumeChildIndex: 2, resumeChildToken: null });
+    expect(r.columns[2].resumeInto).toEqual({ type: "block", resumeChildIndex: 2, resumeChildToken: null });
     expect(r.totalChildrenCount).toBe(2);
     expect(r.pageResumeOut).toBeNull();
   });
@@ -112,6 +117,9 @@ describe("fitColumnsOnPage", () => {
     expect(r.columns[0].childrenCount).toBe(2);
     expect(r.columns[1].childrenCount).toBe(0);
     expect(r.columns[2].childrenCount).toBe(0);
+    // Empty columns past the cap resume at the cap index (2), not 0 (#498).
+    expect(r.columns[1].resumeInto).toEqual({ type: "block", resumeChildIndex: 2, resumeChildToken: null });
+    expect(r.columns[2].resumeInto).toEqual({ type: "block", resumeChildIndex: 2, resumeChildToken: null });
     expect(r.totalChildrenCount).toBe(2);
     expect(r.pageResumeOut).toBeNull();
   });

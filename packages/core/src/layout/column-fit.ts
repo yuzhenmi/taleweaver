@@ -59,10 +59,33 @@ export interface ColumnsFitResult {
   readonly totalChildrenCount: number;
 }
 
-/** An empty (content-exhausted) trailing column at `index` — it starts and
- *  consumes nothing, so its `resumeInto` is `null`. */
+/**
+ * An empty (content-exhausted) trailing column at `index` — it starts and
+ * consumes nothing.
+ *
+ * `resumeInto` is a block token AT `index`, NOT `null` (#498). Materialize seeds
+ * each column's `layoutBlock` SOLELY from `resumeInto` (`virtual-layout-tree.ts`
+ * `materializeMultiColumnBody`), and there `null` means "start fresh from child
+ * index 0" — the column-0-of-a-fresh-page contract. An empty trailing column
+ * does NOT start at index 0; it starts at the EXHAUSTED `index` (where the
+ * preceding column stopped). Seeding it `null` made materialize re-lay the WHOLE
+ * document from index 0 at the (short, balanced) column height, producing a
+ * non-null overflow break token that disagreed with the planned empty `resumeOut:
+ * null` — the measure-vs-materialize drift dev-throw. A block token at `index`
+ * makes `layoutBlock` start past the consumed content (loop body never runs) and
+ * return a `null` break token, matching the plan. On a FRESH page where the
+ * content fit before the trailing column (`index === 0` is impossible here since
+ * a non-empty column 0 precedes it) this is identical in effect to the old `null`
+ * for the only case that worked by accident.
+ */
 function emptyColumn(index: number): ColumnFit {
-  return { startIndex: index, resumeInto: null, childrenCount: 0, resumeOut: null, consumedBlockSize: 0 };
+  return {
+    startIndex: index,
+    resumeInto: { type: "block", resumeChildIndex: index, resumeChildToken: null },
+    childrenCount: 0,
+    resumeOut: null,
+    consumedBlockSize: 0,
+  };
 }
 
 /**

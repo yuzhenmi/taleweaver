@@ -311,4 +311,63 @@ describe("materializePage — multi-column body", () => {
     const para = mc.columns[0].children[0] as BlockBox;
     expect(para.blockSize).toBe(32);
   });
+
+  it("#498: a 2-col section's BALANCED final page with an EMPTY trailing column materializes without drift", () => {
+    // REGRESSION (#498): a 2-column section spanning ≥3 pages whose FINAL page is a
+    // CONTINUATION page (column 0 resumes from a partial IFC fragment carried off
+    // the prior page) AND balances so short that all the remaining content fits in
+    // ONE column — leaving column 1 EMPTY (`childrenCount: 0`).
+    //
+    // The crash: an empty trailing column's planned `resumeInto` was `null`, but
+    // materialize seeds each column's `layoutBlock` SOLELY from `resumeInto`, where
+    // `null` means "start fresh from child index 0". So materialize re-laid the
+    // WHOLE document from index 0 at the short balanced height, producing a non-null
+    // overflow break token that disagreed with the planned empty `resumeOut: null`
+    // → `getPage`'s dev-only break-token assertion threw "measure-vs-materialize
+    // drift" on COLUMN 1. (The bug only surfaced on a CONTINUATION page: on a fresh
+    // page the empty column's start index IS 0, so `null` happened to be correct.)
+    //
+    // Geometry (mock shaper 8px/char, 16px/line):
+    //   • 600px content, 2 cols, 40px gap → track = (600−40)/2 = 280px → 35 chars/line.
+    //   • body = 64px = 4 lines per column. Each paragraph wraps to several lines at
+    //     the 280px track, so paragraphs SPLIT across page/column boundaries.
+    //   • 5 paragraphs span 3 pages; the final page (startIndex=4) balances to ~48px,
+    //     fitting the remainder in column 0 alone → column 1 is empty.
+    const columnGap = 40;
+    const pageConfig = noMarginPageConfig(64, 600);
+    const paraText =
+      "The quick brown fox jumps over the lazy sleeping doggo and then keeps on running.";
+    const root = cascadeRoot(
+      { display: "block" },
+      Array.from({ length: 5 }, (_, i) => textBlock(`p${i}`, paraText)),
+    );
+
+    const { plan, tree } = buildTree(
+      root,
+      pageConfig,
+      columnSectionPlan({ columnCount: 2, columnGap, columnRule: null }),
+    );
+
+    // Sanity-pin the reproducing geometry: a ≥3-page multicol plan whose LAST page
+    // is a balanced continuation (startIndex > 0, balancedColumnHeight < body) with
+    // an EMPTY trailing column — exactly the crash's shape.
+    expect(plan.entries.length).toBeGreaterThanOrEqual(3);
+    const lastEntry = plan.entries[plan.entries.length - 1];
+    expect(lastEntry.columnConfig.columnCount).toBe(2);
+    expect(lastEntry.startIndex).toBeGreaterThan(0);
+    expect(lastEntry.balancedColumnHeight).toBeLessThan(64);
+    expect(lastEntry.columnFit?.columns[1].childrenCount).toBe(0); // column 1 EMPTY
+
+    // The crash: materializing the balanced CONTINUATION page. Before the fix this
+    // threw "measure-vs-materialize drift" on the empty column 1.
+    const lastPageIndex = plan.entries.length - 1;
+    const lastPage = tree.getPage(lastPageIndex);
+    const lastBody = bodyBoxOf(lastPage);
+    expect(lastBody.type).toBe("multicolumn");
+    const mc = lastBody as MultiColumnBox;
+    expect(mc.columns.length).toBe(2);
+    // The remainder lands in column 0; column 1 is the empty (zero-children) box.
+    expect(mc.columns[0].children.length).toBeGreaterThan(0);
+    expect(mc.columns[1].children.length).toBe(0);
+  });
 });
