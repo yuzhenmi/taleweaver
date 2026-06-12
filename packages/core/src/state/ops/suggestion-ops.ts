@@ -38,7 +38,11 @@ import { buildYInlineContent, buildYInlineItem, buildYAttrs } from "../y-block";
 import { mergeAdjacentSameAttrsTextItems, yItemLength, yMapAsObject } from "../y-utils";
 import { planApplyAttrsToRange, applyAttrsToRangeInTx } from "./apply-attrs";
 import { planInsertText, insertTextInTx, planInsertTextSplitInPlace } from "./insert-text";
-import type { InsertItemsPlan } from "./insert-items";
+import {
+  planInsertItemsSplitInPlace,
+  insertItemsInTx,
+  type InsertItemsPlan,
+} from "./insert-items";
 import {
   planSplitBlockAtPosition,
   splitBlockAtPositionInTx,
@@ -878,14 +882,16 @@ export interface ReplaceFragmentPlan {
   readonly records: readonly SuggestionRecord[];
   readonly endPosition: Position;
   /**
-   * The start block B's pre-tx insert/replace-tail plan (S3/S4 populate it). `null`
-   * this slice (S2) on EVERY return — B's `n>0` writes still ride the old
-   * full-replace path; the `n===0` branch never inserts into B at all.
+   * The start block B's pre-tx insert plan. Non-null ONLY for the `n===1` start block
+   * (S3): a `split-in-place` insert of line0 at offset `c`, resolved against B's
+   * POST-strike content. `null` for `n===0` (no insertion into B) and — until S4 —
+   * `n>1` (B still rides the old full-replace path).
    */
   readonly bInsertPlan: InsertItemsPlan | null;
   /**
    * The fragment's line count `n`. The applier dispatches the START block on it:
-   * `n===0` ⇒ surgical strike only; `n>0` ⇒ old full-replace (until S3/S4).
+   * `n<=1` ⇒ surgical (strike, then — for `n===1` — split-insert line0 via
+   * `bInsertPlan`); `n>1` ⇒ old full-replace (until S4).
    */
   readonly fragmentLength: number;
 }
@@ -941,6 +947,7 @@ export function planReplaceWithSuggestedFragment(
   fragment: readonly SiblingBlockInit[],
   input: ReplaceSuggestionInput,
   allocator: IdAllocator,
+  registry?: AttrRegistry,
 ): ReplaceFragmentPlan {
   const at = spanStart(state, span);
   const resolved = resolveBlock(state, at.blockId);
@@ -970,6 +977,11 @@ export function planReplaceWithSuggestedFragment(
   // E does not), and the deletion record (when ≥1 run was tagged and not coalesced).
   let prefix: ReadonlyArray<InlineItem>;
   let tailBundle: ReadonlyArray<InlineItem>;
+  // B's POST-strike content (== B's live Y.Array after the surgical strike, before
+  // the fragment insert). The `bInsertPlan`'s offset `c` is resolved against THIS so
+  // its split indices line up with B's live array post-strike. Equals the original
+  // items when nothing is struck in B (PF-1 / start-at-end-of-B).
+  let bStrikeItems: ReadonlyArray<InlineItem>;
   const extraWrites: ResolveWrite[] = [];
   let delRecord: SuggestionRecord | null = null;
   // The start block B's surgical-strike coords + whether B's END gets a cross-block
@@ -988,6 +1000,7 @@ export function planReplaceWithSuggestedFragment(
     );
     prefix = pfx;
     tailBundle = sfx;
+    bStrikeItems = resolved.block.inlineContent.items;
   } else {
     const end = spanEnd(state, span);
     const startBlockId = at.blockId;
@@ -1005,6 +1018,7 @@ export function planReplaceWithSuggestedFragment(
     // The id is needed when B is struck OR when its cross-block join is appended.
     bDeletionId = bWrite || crossBlock ? delPlan.id : null;
     const bItems = bWrite ? bWrite.items : resolved.block.inlineContent.items;
+    bStrikeItems = bItems;
     const [pfx, afterPrefix] = splitInlineContentAtOffset({ items: bItems }, c);
     prefix = pfx;
     tailBundle = crossBlock
@@ -1036,8 +1050,9 @@ export function planReplaceWithSuggestedFragment(
   }
 
   // The start block B's write entry (its strike coords + the old full-replace `items`).
-  // `appendJoinEmbed` (= cross-block) is consumed ONLY by the n===0 surgical applier
-  // (B's n>0 writes ride the old full-replace path, which ignores these strike fields).
+  // `appendJoinEmbed` (= cross-block) is consumed by both the n===0 (strike-only) and
+  // n===1 (strike + split-insert) surgical appliers; B's n>1 writes still ride the old
+  // full-replace path and ignore these strike fields (until S4).
   const bWriteEntry = (items: ReadonlyArray<InlineItem>): ResolveWrite => ({
     blockId: at.blockId,
     kind,
@@ -1088,6 +1103,17 @@ export function planReplaceWithSuggestedFragment(
   if (delRecord !== null) records.push(delRecord);
 
   if (n === 1) {
+    // Surgical (#492 lockstep): after the applier strikes B in place (live array ==
+    // `bStrikeItems`), split-insert line0 at offset `c` resolved against `bStrikeItems`.
+    const bInsertPlan = planInsertItemsSplitInPlace(
+      at.blockId,
+      kind,
+      bStrikeItems,
+      c,
+      fragmentLineItems(fragment[0], insId),
+      registry,
+    );
+    // The full-replace `writes[0].items` (still read by the test oracle; S5 removes it).
     const bItems = mergeAdjacentTextItems([
       ...prefix,
       ...fragmentLineItems(fragment[0], insId),
@@ -1098,7 +1124,7 @@ export function planReplaceWithSuggestedFragment(
       newBlocks: [],
       records,
       endPosition: createPosition(at.blockId, c + fragmentLineLength(fragment[0])),
-      bInsertPlan: null,
+      bInsertPlan,
       fragmentLength: n,
     };
   }
@@ -1166,23 +1192,27 @@ export function replaceWithSuggestedFragment(
   allocator: IdAllocator,
   registry?: AttrRegistry,
 ): OperationResult & { readonly endPosition: Position } {
-  const plan = planReplaceWithSuggestedFragment(state, span, fragment, input, allocator);
+  const plan = planReplaceWithSuggestedFragment(state, span, fragment, input, allocator, registry);
   const result = applyOperation(state, (doc) => {
     // Per-block roles. The START block is `plan.writes[0]`; every OTHER write is an
     // intervening block or E. NON-start writes are ALWAYS surgical (#493 S2): strike
     // in place (preserving untouched runs' Y.Text identity) + append the cross-block
-    // JOIN embed for interveners. The START block is surgical too in the `n===0` case
-    // (pure strike); its `n>0` writes still ride the old full-replace path (S3/S4).
+    // JOIN embed for interveners. The START block is surgical for `n<=1` (n===0 strike-
+    // only; n===1 strike + split-insert line0 via `bInsertPlan`); its `n>1` writes
+    // still ride the old full-replace path (S4).
     const startBlockId = plan.writes[0].blockId;
     for (const w of plan.writes) {
       const isStart = w.blockId === startBlockId;
-      if (isStart && plan.fragmentLength > 0) {
-        // B's n>0 writes: old full-replace (S3/S4 migrate these to surgical).
+      if (isStart && plan.fragmentLength > 1) {
+        // B's n>1 writes: old full-replace (S4 migrates these to surgical).
         writeBlockInlineContentInTx(doc, w.blockId, w.kind, w.items, "replaceWithSuggestedFragment");
         continue;
       }
-      // Surgical: NON-start writes (always) + the START block in the n===0 case.
-      applySurgicalFragmentWrite(doc, w, input.author, registry);
+      // Surgical: NON-start writes (always); the START block for n===0 (strike only)
+      // and n===1 (strike + insert line0 at c). `bInsertPlan` is non-null only for the
+      // n===1 start; it is `null` for n===0's start and for every NON-start write.
+      const insertPlan = isStart ? plan.bInsertPlan : null;
+      applySurgicalFragmentWrite(doc, w, input.author, registry, insertPlan);
     }
     if (plan.newBlocks.length > 0) {
       const startBlockId = plan.writes[0].blockId;
@@ -1243,20 +1273,28 @@ export function insertFragmentAsSuggestion(
 }
 
 /**
- * Apply ONE surgical fragment write (#493 S2): strike `[w.rangeStart, w.rangeEnd)`
- * in place via {@link applyDeletionStrikeInTx} (preserving the Y.Text identity of
- * every UNTOUCHED run), then — for an intervening block, OR the cross-block start
- * block in the `n===0` case — append the trailing block-JOIN-suggestion embed.
- * `deletionId === null` (collapsed / nothing-struck-in-B) ⇒ no strike, no append.
+ * Apply ONE surgical fragment write (#493 S2/S3), in three identity-preserving steps:
+ *   1. STRIKE `[w.rangeStart, w.rangeEnd)` in place via {@link applyDeletionStrikeInTx}
+ *      when planned (`w.deletionId !== null` with a non-empty range) — preserving the
+ *      `Y.Text` identity of every UNTOUCHED run.
+ *   2. INSERT `insertPlan` (the start block B's `n===1` line0 split-insert at offset
+ *      `c`, resolved against B's POST-strike content) via {@link insertItemsInTx}.
+ *      `null` for n===0's start, every NON-start write, and (until S4) n>1's start.
+ *   3. APPEND the trailing block-JOIN-suggestion embed (interveners + the cross-block
+ *      start block) when `w.appendJoinEmbed`.
+ *
+ * PF-1 (collapsed span, no strike) reaches here with `w.deletionId === null` but a
+ * non-null `insertPlan` — the strike is skipped, the insert still runs.
  */
 function applySurgicalFragmentWrite(
   doc: Y.Doc,
   w: ResolveWrite,
   author: string,
   registry: AttrRegistry | undefined,
+  insertPlan: InsertItemsPlan | null,
 ): void {
-  if (w.deletionId === null) return;
-  if (w.rangeStart < w.rangeEnd) {
+  // 1. Strike B's [rangeStart, rangeEnd) in place (#492 lockstep) when planned.
+  if (w.deletionId !== null && w.rangeStart < w.rangeEnd) {
     applyDeletionStrikeInTx(
       doc,
       w.blockId,
@@ -1269,7 +1307,15 @@ function applySurgicalFragmentWrite(
       "replaceWithSuggestedFragment",
     );
   }
+  // 2. Insert the fragment's first line at the split offset (n===1 start block).
+  if (insertPlan !== null) {
+    insertItemsInTx(doc, insertPlan);
+  }
+  // 3. Append the cross-block JOIN embed at the block's end (interveners + cross-block B).
   if (w.appendJoinEmbed) {
+    if (w.deletionId === null) {
+      throw new Error("applySurgicalFragmentWrite: appendJoinEmbed requires a deletionId");
+    }
     const yItems = getYBlock(doc, w.blockId, "replaceWithSuggestedFragment", w.kind).get(
       "inlineContent",
     ) as Y.Array<Y.Map<unknown>>;

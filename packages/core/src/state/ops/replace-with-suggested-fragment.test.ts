@@ -163,6 +163,120 @@ describe("replaceWithSuggestedFragment — S2 surgical interveners + E + n===0 B
   });
 });
 
+// ────────────────────────────────────────────────────────────────────────────
+// S3: START block B surgical for n===1 (single fragment line). The applier strikes
+// B's [rangeStart,rangeEnd) in place, then split-inserts line0 at offset c, then
+// appends the cross-block JOIN embed — preserving every UNTOUCHED run's Y.Text.
+// ────────────────────────────────────────────────────────────────────────────
+
+/** doc > [ P ] — a single paragraph block, for within-block n===1 cases. */
+function oneBlock(p: InlineContent): State {
+  return buildState({
+    rootId: "doc",
+    blocks: [
+      buildBlock({ id: "doc", type: "document", firstChildId: "B", lastChildId: "B" }),
+      buildBlock({ id: "B", type: "paragraph", parentId: "doc", inlineContent: p }),
+    ],
+  });
+}
+
+/**
+ * Re-plan `replaceWithSuggestedFragment` on a FRESH copy of `mkState()` and serialize
+ * the matching block write's full-replace `items` — the identity-independent oracle
+ * for an arbitrary fixture (generalizes {@link oracleBlock}).
+ */
+function oracleForState(
+  mkState: () => State,
+  span: ReturnType<typeof createSpan>,
+  fragment: readonly SiblingBlockInit[],
+  blockId: string,
+): unknown {
+  const plan = planReplaceWithSuggestedFragment(
+    mkState(),
+    span,
+    fragment,
+    REPL("d", "i"),
+    createTestAllocator(),
+  );
+  const write = plan.writes.find((w) => w.blockId === asBlockId(blockId));
+  if (write === undefined) throw new Error(`oracleForState: no write for "${blockId}"`);
+  return serializeItems(write.items);
+}
+
+/** Find the Y.Text of the run whose text === `s` in block `id`'s LIVE Y.Array. */
+function findYTextByString(st: State, id: string, s: string): Y.Text | null {
+  const yItems = getYBlock(st[STATE_INTERNAL].doc, id as BlockId, "test", "block").get(
+    "inlineContent",
+  ) as Y.Array<Y.Map<unknown>>;
+  for (let k = 0; k < yItems.length; k++) {
+    const yItem = yItems.get(k);
+    if (yItem.get("kind") !== "text") continue; // embeds carry no Y.Text
+    const t = yItem.get("text") as Y.Text;
+    if (t.toString() === s) return t;
+  }
+  return null;
+}
+
+describe("replaceWithSuggestedFragment — S3 surgical START block for n===1", () => {
+  it("single-block n===1 with a strike (type-over within B): content === oracle AND B's untouched prefix run keeps Y.Text identity", () => {
+    // B = "a"{x} | "bcd"{y}. Span strikes "bc" (offset 1..3, inside "bcd").
+    const mk = () => oneBlock(inlineContent([text("a", { x: 1 }), text("bcd", { y: 1 })]));
+    const span = createSpan(createPosition(asBlockId("B"), 1), createPosition(asBlockId("B"), 3));
+    const fragment: SiblingBlockInit[] = [
+      { type: "paragraph", inlineContent: inlineContent([text("Z")]) },
+    ];
+
+    const state = mk();
+    const bPrefixBefore = yTextAt(state, "B", 0); // the "a"{x} run, untouched (whole)
+
+    const r = replaceWithSuggestedFragment(state, span, fragment, REPL("d", "i"), createTestAllocator());
+
+    expect(serializeBlock(r.state, "B")).toEqual(oracleForState(mk, span, fragment, "B"));
+    // The "a"{x} prefix run is whole + untouched (offset 1 = a|bcd boundary) → kept ===.
+    expect(findYTextByString(r.state, "B", "a")).toBe(bPrefixBefore);
+  });
+
+  it("PF-1 (collapsed span, no strike, pure insert at run boundary): content === oracle AND BOTH adjacent runs keep Y.Text identity", () => {
+    // B = "a"{x} | "bb"{y}. Collapsed span at the a|bb boundary (offset 1) → no strike.
+    const mk = () => oneBlock(inlineContent([text("a", { x: 1 }), text("bb", { y: 1 })]));
+    const span = createSpan(createPosition(asBlockId("B"), 1), createPosition(asBlockId("B"), 1));
+    const fragment: SiblingBlockInit[] = [
+      { type: "paragraph", inlineContent: inlineContent([text("Z")]) },
+    ];
+
+    const state = mk();
+    const aBefore = yTextAt(state, "B", 0); // "a"{x}
+    const bbBefore = yTextAt(state, "B", 1); // "bb"{y}
+
+    const r = replaceWithSuggestedFragment(state, span, fragment, REPL("d", "i"), createTestAllocator());
+
+    expect(serializeBlock(r.state, "B")).toEqual(oracleForState(mk, span, fragment, "B"));
+    // c=1 is a run boundary → neither run splits → both Y.Text preserved.
+    expect(findYTextByString(r.state, "B", "a")).toBe(aBefore);
+    expect(findYTextByString(r.state, "B", "bb")).toBe(bbBefore);
+  });
+
+  it("cross-block n===1: per-block content === oracle AND B's prefix run + E's tail run keep Y.Text identity", () => {
+    const fragment: SiblingBlockInit[] = [
+      { type: "paragraph", inlineContent: inlineContent([text("Z")]) },
+    ];
+
+    const state = fourBlocks(B(), I1(), I2(), E());
+    const bPrefixBefore = yTextAt(state, "B", 0); // "a"{x} — B's untouched prefix
+    const eTailBefore = yTextAt(state, "E", 1); // "hi"{h} — E's untouched plain tail
+
+    const r = replaceWithSuggestedFragment(state, span(), fragment, REPL("d", "i"), createTestAllocator());
+
+    for (const id of ["B", "I1", "I2", "E"]) {
+      expect(serializeBlock(r.state, id)).toEqual(oracleBlock(span(), fragment, id));
+    }
+    // The load-bearing regression: B is now surgical for cross-block n===1, so B's
+    // "a"{x} prefix survives (previously full-replace minted a fresh Y.Text).
+    expect(findYTextByString(r.state, "B", "a")).toBe(bPrefixBefore);
+    expect(findYTextByString(r.state, "E", "hi")).toBe(eTailBefore);
+  });
+});
+
 /** Serialize a raw `InlineItem[]` (the pre-S2 full-replace content for a block). */
 function serializeItems(items: ReadonlyArray<InlineItem>): unknown {
   return items.map((it) =>
