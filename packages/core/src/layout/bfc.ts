@@ -738,7 +738,20 @@ export function layoutBlock(
     // a split list-item's continuation has no marker. The baked `markerText` is
     // identical on every fragment (it is position-derived once, at render time),
     // so suppressing the marker BOX on the continuation is all that is needed.
-    const isResumeFragment = i === startIndex && firstChildResumeToken !== null;
+    //
+    // #501 — degenerate-resume EXCEPTION: a resume from the very START (the prior
+    // page placed ZERO content for this item — `resumeAtLine === 0`, an inner
+    // token classified degenerate by `isResumeFromDegenerate`) means THIS page is
+    // where the item actually starts, so it MUST show its marker. Only a
+    // GENUINELY mid-content continuation (`resumeAtLine > 0`) suppresses it.
+    // Without this carve-out, an item that landed at the prior page's bottom with
+    // no room for even its first line would have its marker orphaned on the prior
+    // page (the deferred-push fix below prevents the orphan) AND suppressed here —
+    // leaving the item with no marker at all.
+    const isResumeFragment =
+      i === startIndex &&
+      firstChildResumeToken !== null &&
+      !isResumeFromDegenerate(firstChildResumeToken);
     // Auto-widen state (#426). When an `outside` marker is wider than the item's
     // OWN paddingInlineStart (its marker gutter), the item's effective
     // paddingInlineStart is widened so the marker fills the widened gutter
@@ -747,6 +760,15 @@ export function layoutBlock(
     // to match. Defaults to the authored padding (no widening) so non-marker /
     // fits-case children are byte-identical.
     let effectivePaddingInlineStart = childUsedStyle.paddingInlineStart;
+    // #501 — DEFERRED marker box. Built here (so the auto-widen math runs), but
+    // NOT pushed onto `layoutChildren` yet: a marker pushed before the child's
+    // content is laid out would (a) make `layoutChildren.length` non-zero, hiding
+    // an empty fragment from the C.6 overflow checks (so a first-child list-item
+    // that overflows would break instead of being placed), and (b) orphan onto a
+    // fragment where the item ends up placing ZERO content. Instead it is pushed
+    // FIRST (before the content box) at EVERY site that places the item's content
+    // on THIS fragment — and never on a fragment where the content didn't land.
+    let markerBox: LayoutBox | null = null;
     if (markerText !== null) {
       // Use a measurer adapter for the simple width/height calls needed for marker boxes.
       const measurer = adaptShaperToMeasurer(shaper);
@@ -794,13 +816,15 @@ export function layoutBlock(
       // #431: still compute the auto-widen above on the resume fragment so the
       // split item's CONTINUATION content keeps the same content edge as the
       // origin fragment (the wrapped tail must align with the head). Only the
-      // marker BOX is suppressed — the resume fragment emits NO marker.
+      // marker BOX is suppressed — a mid-content continuation emits NO marker
+      // (a degenerate-resume / from-the-start fragment IS the item's start, so
+      // `isResumeFragment` is false there and the marker is built — #501).
       if (!isResumeFragment) {
         const effectiveContentEdge = childInlineStart + effectivePaddingInlineStart;
         const markerInlineOffset = childCs.listStylePosition === "inside"
           ? effectiveContentEdge
           : effectiveContentEdge - markerInlineSize - markerGap;
-        const markerBox = createMarkerBox(
+        markerBox = createMarkerBox(
           `${child.key}-marker`,
           markerInlineOffset, childBlockOffset,
           markerInlineSize, markerBlockSize,
@@ -809,7 +833,7 @@ export function layoutBlock(
           markerText,
           /* containingInlineSize */ contentInlineSize,
         );
-        layoutChildren.push(markerBox);
+        // NOT pushed here (#501 deferral) — see every content-push site below.
       }
     }
 
@@ -899,12 +923,14 @@ export function layoutBlock(
         // C.6 overflow rule: if fragment is empty, place it anyway (overflow).
         if (fragmentation !== undefined && layoutChildren.length === 0) {
           const overflowBox = applyOverflowRule();
+          if (markerBox !== null) layoutChildren.push(markerBox);
           layoutChildren.push(overflowBox);
           childBlockOffset += overflowBox.blockSize;
           prevMarginBlockEnd = childUsedStyle.marginBlockEnd;
           continue;
         }
-        // Propagate as a break.
+        // Propagate as a break (#501: marker NOT pushed — the item placed nothing
+        // on this fragment, so it must not be orphaned here).
         return buildPartialResult(layoutChildren, {
           type: "block",
           resumeChildIndex: i,
@@ -920,12 +946,15 @@ export function layoutBlock(
         // C.6 overflow rule: if fragment is empty, place it anyway (overflow).
         if (fragmentation !== undefined && layoutChildren.length === 0) {
           const overflowBox = applyOverflowRule();
+          if (markerBox !== null) layoutChildren.push(markerBox);
           layoutChildren.push(overflowBox);
           childBlockOffset += overflowBox.blockSize;
           prevMarginBlockEnd = childUsedStyle.marginBlockEnd;
           continue;
         }
-        // Propagate as a break.
+        // Propagate as a break (#501: marker NOT pushed — the item placed nothing
+        // on this fragment. When it resumes on the next fragment from a degenerate
+        // (line-0) token, that fragment is its real START and emits the marker).
         return buildPartialResult(layoutChildren, {
           type: "block",
           resumeChildIndex: i,
@@ -961,11 +990,14 @@ export function layoutBlock(
       if (placedChild.blockSize > remaining) {
         // C.6 overflow rule: if fragment is empty, place it anyway (overflow).
         if (layoutChildren.length === 0) {
+          if (markerBox !== null) layoutChildren.push(markerBox);
           layoutChildren.push(placedChild);
           childBlockOffset += placedChild.blockSize;
           prevMarginBlockEnd = childUsedStyle.marginBlockEnd;
           continue;
         }
+        // #501: marker NOT pushed — the whole block doesn't fit and is pushed to
+        // the next fragment (which becomes its start and emits the marker).
         return buildPartialResult(layoutChildren, {
           type: "block",
           resumeChildIndex: i,
@@ -985,11 +1017,15 @@ export function layoutBlock(
           // and place the whole child, accepting the overflow.
           if (layoutChildren.length === 0) {
             const overflowBox = applyOverflowRule();
+            if (markerBox !== null) layoutChildren.push(markerBox);
             layoutChildren.push(overflowBox);
             childBlockOffset += overflowBox.blockSize;
             prevMarginBlockEnd = childUsedStyle.marginBlockEnd;
             continue;
           }
+          // #501: break-inside:avoid pushes the whole child to the next fragment;
+          // marker NOT pushed here (it emits on the fragment that actually starts
+          // the child).
           return buildPartialResult(layoutChildren, {
             type: "block",
             resumeChildIndex: i,
@@ -997,6 +1033,9 @@ export function layoutBlock(
           });
         }
       }
+      // Partial-content break: the child placed ≥1 line on THIS fragment, so the
+      // marker DID land here — push it before the partial content box (#501).
+      if (markerBox !== null) layoutChildren.push(markerBox);
       layoutChildren.push(placedChild);
       childBlockOffset += placedChild.blockSize;
       return buildPartialResult(layoutChildren, {
@@ -1016,6 +1055,13 @@ export function layoutBlock(
                  && childPaddingV === 0
                  && childBorderV === 0
                  && childLayout.blockSize === 0;
+
+    // #501: this is the NORMAL (non-break) placement — the child's content lands
+    // on THIS fragment, so its deferred marker is pushed FIRST (matching the
+    // marker-before-content order the old inline push produced). Both the
+    // empty-block and the non-empty branch place the content here, so the marker
+    // precedes whichever runs.
+    if (markerBox !== null) layoutChildren.push(markerBox);
 
     if (isEmpty) {
       // Undo the marginBlockStart advance; the combined margin is held for the next sibling collapse

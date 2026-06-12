@@ -21,6 +21,19 @@ function placed<T extends LayoutBox>(box: T | null): T {
   return box;
 }
 
+/** Collect all MarkerBox keys descending from a LayoutBox (markers are direct siblings). */
+function collectMarkerKeys(box: LayoutBox): string[] {
+  const out: string[] = [];
+  function walk(b: LayoutBox) {
+    if (b.type === "marker") out.push(b.key);
+    if ("children" in b && b.children) {
+      for (const c of b.children) walk(c);
+    }
+  }
+  walk(box);
+  return out;
+}
+
 /** Build a root ElementBox with N block children, each of fixed block-size. */
 function buildBlockChildren(count: number, childBlockSize: number): ElementBox {
   const children = Array.from({ length: count }, (_, i) =>
@@ -203,18 +216,6 @@ describe("BFC fragmentation — break-before", () => {
   // lands. These tests pin the fix: the marker (and `listCounter++`) only happen
   // once the block is placed on a page.
 
-  /** Collect all MarkerBox descendants of a LayoutBox (markers are direct siblings). */
-  function collectMarkerKeys(box: import("../layout-box").LayoutBox): string[] {
-    const out: string[] = [];
-    function walk(b: import("../layout-box").LayoutBox) {
-      if (b.type === "marker") out.push(b.key);
-      if ("children" in b && b.children) {
-        for (const c of b.children) walk(c);
-      }
-    }
-    walk(box);
-    return out;
-  }
 
   it("does NOT orphan an explicit-markerText child's marker onto the pre-break page (FN-6.2a)", () => {
     // child-0: normal block places content on the fragment.
@@ -273,6 +274,139 @@ function buildNestedBlockChildren(
   if (cascaded.type !== "element") throw new Error("cascadePass returned non-element");
   return cascaded;
 }
+
+describe("BFC fragmentation — list-item marker degenerate-resume (#501)", () => {
+  /** Collect all MarkerBox keys descending from a LayoutBox (markers are direct siblings). */
+  function collectMarkerKeys(box: LayoutBox): string[] {
+    const out: string[] = [];
+    function walk(b: LayoutBox) {
+      if (b.type === "marker") out.push(b.key);
+      if ("children" in b && b.children) {
+        for (const c of b.children) walk(c as LayoutBox);
+      }
+    }
+    walk(box);
+    return out;
+  }
+
+  /**
+   * Build a root with:
+   *  - `filler`: a plain block of `fillerSize` px that consumes the fragment's
+   *    available space, leaving < one line-height for the next child.
+   *  - `item`: a list-item carrying `markerText` and `numLines` lines of inline
+   *    text (whiteSpace: "pre", one LineBox per line). It lands at the page-1
+   *    bottom where ZERO content lines fit.
+   */
+  function buildFillerThenListItem(fillerSize: number, markerText: string, numLines: number): ElementBox {
+    const filler = createElementBox("filler", { display: "block", blockSize: fillerSize } as Style, []);
+    const lines = Array.from({ length: numLines }, () => "x").join("\n");
+    const itemText = createTextBox("item-t", { whiteSpace: "pre" } as Style, lines);
+    const item = createElementBox(
+      "item",
+      { display: "block", whiteSpace: "pre", markerText } as Style,
+      [itemText],
+    );
+    const root = createElementBox("root", { display: "block" } as Style, [filler, item]);
+    const cascaded = cascadePass(root);
+    if (cascaded.type !== "element") throw new Error("cascadePass returned non-element");
+    return cascaded;
+  }
+
+  it("does NOT orphan the marker on page 1 when the list-item places ZERO content there; emits it on the degenerate-resume page where the item actually starts", () => {
+    // mockShaper: 16px line-height. availableBlockSize = 90; filler = 80 → 10px
+    // remaining for `item`, which is < one 16px line → ZERO of the item's lines
+    // fit on page 1. The fragment is NOT empty (filler already placed), so the
+    // C.6 overflow rule does NOT fire — `item` breaks, resuming from line 0
+    // (a DEGENERATE resume: nothing was placed on page 1).
+    //
+    // BEFORE the fix: the marker was pushed onto page 1 (orphan) BEFORE the
+    // item's content was laid out; on page 2 the resume fragment suppressed it
+    // (non-null token). Net: marker on page 1, content on page 2 — separated.
+    const root = buildFillerThenListItem(80, "3.", 4);
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+
+    // Page 1: filler placed; item breaks (zero lines fit) → degenerate resume.
+    const r1 = layoutBlock(root, 0, 0, ctx, shaper, {
+      availableBlockSize: 90, pageIndex: 0, resumeFrom: null,
+    });
+    expect(r1.box).not.toBeNull();
+    // The item's marker must NOT be orphaned onto page 1 (the item placed nothing here).
+    expect(collectMarkerKeys(placed(r1.box))).not.toContain("item-marker");
+    // The break resumes at the item (child index 1) from a degenerate inner token
+    // (the item never placed any content on page 1).
+    expect(r1.breakToken).not.toBeNull();
+    const bt1 = r1.breakToken as { type: "block"; resumeChildIndex: number; resumeChildToken: unknown };
+    expect(bt1.type).toBe("block");
+    expect(bt1.resumeChildIndex).toBe(1);
+
+    // Page 2 (resume): the item starts here — its marker MUST be present and
+    // co-located with the item's first content line.
+    const r2 = layoutBlock(root, 0, 0, ctx, shaper, {
+      availableBlockSize: 200, pageIndex: 1, resumeFrom: r1.breakToken,
+    });
+    expect(r2.box).not.toBeNull();
+    const page2 = placed(r2.box);
+    const page2MarkerKeys = collectMarkerKeys(page2).filter((k) => k === "item-marker");
+    expect(page2MarkerKeys).toEqual(["item-marker"]); // marker present exactly once
+    expect(r2.breakToken).toBeNull(); // all 4 lines placed on page 2
+
+    // Marker is co-located (same block band) with the item's first content line.
+    function findByType(b: LayoutBox, type: string): LayoutBox | null {
+      if (b.type === type) return b;
+      if ("children" in b && b.children) {
+        for (const c of b.children) {
+          const hit = findByType(c as LayoutBox, type);
+          if (hit !== null) return hit;
+        }
+      }
+      return null;
+    }
+    function findMarker(b: LayoutBox): LayoutBox | null {
+      if (b.type === "marker" && b.key === "item-marker") return b;
+      if ("children" in b && b.children) {
+        for (const c of b.children) {
+          const hit = findMarker(c as LayoutBox);
+          if (hit !== null) return hit;
+        }
+      }
+      return null;
+    }
+    const marker = findMarker(page2);
+    const firstLine = findByType(page2, "line");
+    expect(marker).not.toBeNull();
+    expect(firstLine).not.toBeNull();
+    if (marker !== null && firstLine !== null) {
+      // Marker shares the item's first line's block band on page 2.
+      expect(Math.abs(marker.y - firstLine.y)).toBeLessThan(16);
+    }
+  });
+
+  it("preserves #431: a list-item that places ≥1 line on page 1 shows its marker on page 1 and suppresses it on the mid-content continuation", () => {
+    // filler = 30 → 60px remaining for `item` on page 1 (availableBlockSize 90).
+    // 60px / 16px = 3 lines fit on page 1; the item has 6 lines → lines 3..5 spill
+    // to page 2 as a MID-CONTENT continuation (resumeAtLine = 3 > 0, NON-degenerate).
+    const root = buildFillerThenListItem(30, "3.", 6);
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+
+    // Page 1: filler + first 3 lines of the item (with its marker) placed.
+    const r1 = layoutBlock(root, 0, 0, ctx, shaper, {
+      availableBlockSize: 90, pageIndex: 0, resumeFrom: null,
+    });
+    expect(r1.box).not.toBeNull();
+    expect(collectMarkerKeys(placed(r1.box))).toContain("item-marker"); // marker on the start page
+    expect(r1.breakToken).not.toBeNull();
+
+    // Page 2 (mid-content continuation): the tail lines — marker SUPPRESSED.
+    const r2 = layoutBlock(root, 0, 0, ctx, shaper, {
+      availableBlockSize: 200, pageIndex: 1, resumeFrom: r1.breakToken,
+    });
+    expect(r2.box).not.toBeNull();
+    expect(collectMarkerKeys(placed(r2.box))).not.toContain("item-marker"); // no marker on the continuation
+    expect(r2.breakToken).toBeNull();
+  });
+});
 
 describe("BFC fragmentation — break-inside: avoid", () => {
   it("overflow rule (C.6): places break-inside:avoid child anyway when alone on empty fragment", () => {
