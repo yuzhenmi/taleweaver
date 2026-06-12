@@ -430,7 +430,7 @@ export function makeVirtualLayoutTree(
   function pageFieldValuesForFingerprint(pageIndex: number): readonly string[] {
     if (templateFieldSpecs.length === 0) return EMPTY_PAGE_FIELD_VALUES;
     return templateFieldSpecs.map((s) =>
-      s.fieldKind === "page-number"
+      s.fieldType === "page-number"
         ? formatCounter(pageIndex + 1, s.numberStyle)
         // When a page-count global value is absent, `substitutePageFields` returns the
         // node UNCHANGED (no-op, placeholder kept) — so two trees with the same absent

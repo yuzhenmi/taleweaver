@@ -34,7 +34,7 @@ describe("collectPageFields (F-1 extraction)", () => {
       embedKey: headerKey,
       host: "template",
       hostBlockId: "hdr1",
-      fieldKind: "page-count",
+      fieldType: "page-count",
       numberStyle: "decimal",
     });
     expect(specs[0].computedStyle).toBe(INITIAL_COMPUTED_STYLE);
@@ -86,6 +86,42 @@ describe("collectPageFields (F-1 extraction)", () => {
     expect(collectPageFields(new Map(), [body])).toEqual([]);
   });
 
+  it("emits a cross-ref-page spec for a page-mode cross-reference placeholder atom", () => {
+    const rawAtom = createElementBox("blk/inline/0", { display: "inline-block" }, [createTextBox("blk/inline/0/0", {}, "00")], {
+      embedType: "cross-reference",
+      refMode: "page",
+      targetId: "tgt",
+      numberStyle: "decimal",
+    });
+    const atom = Object.freeze({ ...rawAtom, computedStyle: INITIAL_COMPUTED_STYLE });
+    const rawBody = createElementBox("blk", {}, [atom], {});
+    const body = Object.freeze({ ...rawBody, computedStyle: INITIAL_COMPUTED_STYLE });
+    const specs = collectPageFields(new Map(), [body]);
+    expect(specs).toHaveLength(1);
+    expect(specs[0]).toMatchObject({
+      fieldType: "cross-ref-page",
+      embedKey: "blk/inline/0",
+      host: "main",
+      hostBlockId: "blk",
+      targetId: "tgt",
+      numberStyle: "decimal",
+    });
+    expect(specs[0].computedStyle).toBe(INITIAL_COMPUTED_STYLE);
+  });
+
+  it("skips a cross-ref-page atom whose target id is missing/non-string (no spec)", () => {
+    const rawAtom = createElementBox("blk/inline/0", { display: "inline-block" }, [createTextBox("blk/inline/0/0", {}, "00")], {
+      embedType: "cross-reference",
+      refMode: "page",
+      targetId: null,
+      numberStyle: "decimal",
+    });
+    const atom = Object.freeze({ ...rawAtom, computedStyle: INITIAL_COMPUTED_STYLE });
+    const rawBody = createElementBox("blk", {}, [atom], {});
+    const body = Object.freeze({ ...rawBody, computedStyle: INITIAL_COMPUTED_STYLE });
+    expect(collectPageFields(new Map(), [body])).toEqual([]);
+  });
+
   it("throws if a page-field atom has no computedStyle (walk must run on cascaded trees)", () => {
     // A PRE-cascade atom (no computedStyle) — a programming error this guard catches.
     const atom = createElementBox("blk/inline/0", { display: "inline-block" }, [createTextBox("blk/inline/0/0", {}, "00")], {
@@ -94,6 +130,32 @@ describe("collectPageFields (F-1 extraction)", () => {
       numberStyle: "decimal",
     });
     const body = createElementBox("blk", {}, [atom], {});
+    expect(() => collectPageFields(new Map(), [body])).toThrow();
+  });
+
+  it("throws if a cross-ref-page atom has no computedStyle (walk must run on cascaded trees)", () => {
+    // Parallel to the page-field guard: a PRE-cascade cross-ref-page atom.
+    const atom = createElementBox("blk/inline/0", { display: "inline-block" }, [createTextBox("blk/inline/0/0", {}, "00")], {
+      embedType: "cross-reference",
+      refMode: "page",
+      targetId: "tgt",
+      numberStyle: "decimal",
+    });
+    const body = createElementBox("blk", {}, [atom], {});
+    expect(() => collectPageFields(new Map(), [body])).toThrow();
+  });
+
+  it("throws if a cross-ref-page atom's key is not an inline render key", () => {
+    // Key lacks the "/inline/" separator → cannot derive hostBlockId → guard throws.
+    const rawAtom = createElementBox("blk", { display: "inline-block" }, [createTextBox("blk/0", {}, "00")], {
+      embedType: "cross-reference",
+      refMode: "page",
+      targetId: "tgt",
+      numberStyle: "decimal",
+    });
+    const atom = Object.freeze({ ...rawAtom, computedStyle: INITIAL_COMPUTED_STYLE });
+    const rawBody = createElementBox("root", {}, [atom], {});
+    const body = Object.freeze({ ...rawBody, computedStyle: INITIAL_COMPUTED_STYLE });
     expect(() => collectPageFields(new Map(), [body])).toThrow();
   });
 });

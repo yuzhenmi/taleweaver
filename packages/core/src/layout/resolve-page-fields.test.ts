@@ -21,8 +21,12 @@ function fakePlan(pageCount: number): { entries: { length: number } } {
   return { entries: { length: pageCount } };
 }
 
-function spec(fieldKind: "page-number" | "page-count", embedKey = "h/inline/0", numberStyle: "decimal" | "lower-roman" = "decimal"): FieldSpec {
-  return { embedKey, host: "template", hostBlockId: asBlockId("h"), fieldKind, numberStyle, computedStyle: cs };
+function spec(fieldType: "page-number" | "page-count", embedKey = "h/inline/0", numberStyle: "decimal" | "lower-roman" = "decimal"): FieldSpec {
+  return { embedKey, host: "template", hostBlockId: asBlockId("h"), fieldType, numberStyle, computedStyle: cs };
+}
+
+function crossRefSpec(embedKey = "blk/inline/0"): FieldSpec {
+  return { embedKey, host: "main", hostBlockId: asBlockId("blk"), fieldType: "cross-ref-page", targetId: asBlockId("tgt"), numberStyle: "decimal", computedStyle: cs };
 }
 
 describe("resolvePageFields (F-1 resolution)", () => {
@@ -74,6 +78,17 @@ describe("resolvePageFields (F-1 resolution)", () => {
     expect(globalFieldValues.get("a/inline/0")).toBe("7");
     expect(globalFieldValues.get("b/inline/0")).toBe("7");
     expect(maxValueWidthByKey.size).toBe(2);
+  });
+
+  it("cross-ref-page spec is an interim no-op: no global value and no width entry (kept out of convergence)", () => {
+    // S3 interim: the real target-page resolution lands in S4. Until then the
+    // cross-ref-page branch must emit NEITHER a global value NOR a width entry —
+    // the absence of a width entry is what keeps the field out of width-convergence
+    // and the dev-mode `needed <= reserved` invariant. A regression that fabricated
+    // a width here (e.g. by falling into the page-number path) would fail this.
+    const { globalFieldValues, maxValueWidthByKey } = resolvePageFields(fakePlan(5), [crossRefSpec()], measurer);
+    expect(globalFieldValues.has("blk/inline/0")).toBe(false);
+    expect(maxValueWidthByKey.has("blk/inline/0")).toBe(false);
   });
 
   it("empty field set → empty maps", () => {

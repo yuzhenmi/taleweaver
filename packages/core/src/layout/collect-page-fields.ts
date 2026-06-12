@@ -1,22 +1,40 @@
 import type { ElementBox, RenderNode } from "../render/render-node";
 import type { ComputedStyle } from "../styles";
-import { asBlockId, type BlockId } from "../state";
-import { PAGE_FIELD_EMBED_TYPE, type PageFieldKind, type PageFieldNumberStyle } from "../state/page-field";
+import { asBlockId, CROSS_REFERENCE_EMBED_TYPE, type BlockId } from "../state";
+import { PAGE_FIELD_EMBED_TYPE, isPageFieldNumberStyle, type PageFieldNumberStyle } from "../state/page-field";
 
 const INLINE_KEY_SEPARATOR = "/inline/";
 
 /**
- * Identifies one page-field instance in the document. Keyed by the stable RENDER
- * KEY (`${blockId}/inline/${i}`) the render pass assigns each inline item — the
- * same key `resolvePageFields` keys its values by and `substitutePageFields` (a
- * later slice) matches on. Carries the cascaded atom's `computedStyle` so width
+ * Identifies one layout-field instance in the document, keyed by the stable RENDER
+ * KEY (`${blockId}/inline/${i}`) the render pass assigns each inline item — the same
+ * key `resolvePageFields` keys its values by and `substitutePageFields` (a later
+ * slice) matches on. Carries the cascaded atom's `computedStyle` so width
  * measurement (resolution + convergence) needs no separate per-key style lookup.
+ *
+ * A discriminated union over `fieldType`:
+ *   - {@link PageFieldSpec} — a `page-field` placeholder (page-number / page-count).
+ *   - {@link CrossRefPageSpec} — a `"page"`-mode cross-reference placeholder, whose
+ *     displayed value is the target block's 1-based page number (resolved in a later
+ *     slice; it additionally carries the `targetId` the resolve pass looks up).
  */
-export interface FieldSpec {
+export type FieldSpec = PageFieldSpec | CrossRefPageSpec;
+
+export interface PageFieldSpec {
+  readonly fieldType: "page-number" | "page-count";
   readonly embedKey: string;
   readonly host: "template" | "main";
   readonly hostBlockId: BlockId;
-  readonly fieldKind: PageFieldKind;
+  readonly numberStyle: PageFieldNumberStyle;
+  readonly computedStyle: ComputedStyle;
+}
+
+export interface CrossRefPageSpec {
+  readonly fieldType: "cross-ref-page";
+  readonly embedKey: string;
+  readonly host: "template" | "main";
+  readonly hostBlockId: BlockId;
+  readonly targetId: BlockId; // the cross-ref's target block
   readonly numberStyle: PageFieldNumberStyle;
   readonly computedStyle: ComputedStyle;
 }
@@ -66,15 +84,41 @@ function walk(node: RenderNode, host: "template" | "main", out: FieldSpec[]): vo
     }
     out.push(
       Object.freeze({
+        fieldType: md.fieldKind,
         embedKey: node.key,
         host,
         hostBlockId: asBlockId(node.key.slice(0, sepIndex)),
-        fieldKind: md.fieldKind,
-        numberStyle: md.numberStyle ?? "decimal",
+        numberStyle: isPageFieldNumberStyle(md.numberStyle) ? md.numberStyle : "decimal",
         computedStyle: node.computedStyle,
       }),
     );
     return; // a page-field atom has no nested page-fields
+  } else if (md?.embedType === CROSS_REFERENCE_EMBED_TYPE && md.refMode === "page") {
+    if (node.computedStyle === undefined) {
+      throw new Error(
+        `collectPageFields: cross-ref-page atom "${node.key}" has no computedStyle (walk must run on cascaded trees)`,
+      );
+    }
+    const sepIndex = node.key.indexOf(INLINE_KEY_SEPARATOR);
+    if (sepIndex < 0) {
+      throw new Error(
+        `collectPageFields: cross-ref-page atom key "${node.key}" is not an inline render key (expected "\${blockId}${INLINE_KEY_SEPARATOR}\${i}")`,
+      );
+    }
+    const rawTargetId = md.targetId;
+    if (typeof rawTargetId !== "string") return; // malformed/broken target → skip (no spec)
+    out.push(
+      Object.freeze({
+        fieldType: "cross-ref-page",
+        embedKey: node.key,
+        host,
+        hostBlockId: asBlockId(node.key.slice(0, sepIndex)),
+        targetId: asBlockId(rawTargetId),
+        numberStyle: isPageFieldNumberStyle(md.numberStyle) ? md.numberStyle : "decimal",
+        computedStyle: node.computedStyle,
+      }),
+    );
+    return; // a cross-ref atom has no nested fields
   }
   for (const child of node.children) walk(child, host, out);
 }

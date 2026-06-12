@@ -41,11 +41,18 @@ export function resolvePageFields(
   const maxValueWidthByKey = new Map<string, number>();
 
   for (const spec of fieldSpecs) {
-    if (spec.fieldKind === "page-count") {
+    if (spec.fieldType === "page-count") {
       // One value, the same on every page — exact value + width.
       const value = formatCounter(totalPages, spec.numberStyle);
       globalFieldValues.set(spec.embedKey, value);
       maxValueWidthByKey.set(spec.embedKey, measurer.measureWidth(value, spec.computedStyle));
+    } else if (spec.fieldType === "cross-ref-page") {
+      // Interim (S3): target-page resolution lands in the resolve slice (S4). Until
+      // then we emit NO global value and NO width entry — the placeholder is left
+      // intact at substitute, and the absence of a `maxValueWidthByKey` entry keeps
+      // the field out of the width-convergence grow-and-retry (and out of the
+      // dev-mode `needed <= reserved` invariant). Falling into the page-number path
+      // here would fabricate a 1..N width that could spuriously trip that invariant.
     } else {
       // page-number: the value varies 1..totalPages and width is non-monotonic
       // (roman/proportional), so measure every page's value to get a TRUE upper
