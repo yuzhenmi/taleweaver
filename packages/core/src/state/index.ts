@@ -187,8 +187,13 @@ export { getWordCount, getSelectionWordCount, countText } from "./word-count";
 
 // Document outline: read-only flat list of heading blocks over main-tree leaf
 // blocks (Google Docs View ▸ Show outline — blockId / level / text per heading).
-export type { OutlineEntry, OutlineOptions } from "./outline";
-export { getOutline } from "./outline";
+export type { OutlineEntry, OutlineOptions, OutlineSigEntry, OutlineSignature } from "./outline";
+export {
+  getOutline,
+  computeOutlineSignature,
+  outlineSignaturesEqual,
+  EMPTY_OUTLINE_SIGNATURE,
+} from "./outline";
 
 // Active formatting: read-side counterpart to the SET_*/TOGGLE_STYLE actions —
 // the inline + block formatting active at a selection (value / "mixed" / unset),

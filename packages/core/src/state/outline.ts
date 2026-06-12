@@ -91,6 +91,91 @@ export function getOutline(state: State, options?: OutlineOptions): OutlineEntry
 }
 
 /**
+ * One heading entry in an {@link OutlineSignature}'s ordered `signature` list —
+ * the exact inputs a TOC's entry lines derive from (heading id, level, display
+ * text).
+ */
+export interface OutlineSigEntry {
+  readonly blockId: BlockId;
+  readonly level: number;
+  readonly text: string;
+}
+
+/**
+ * A cache key for "has the document outline (+ which blocks are TOC anchors)
+ * changed?" `signature` is the ordered heading list (id, level, display text) —
+ * the exact inputs a TOC's entry lines derive from (the heading id set is the
+ * `signature`'s `blockId`s, so it is not stored separately); `tocAnchorIds` is
+ * every main-tree `table-of-contents` block. Cached on RenderOutput so the
+ * incremental render can (a) reuse it O(1) when no heading changed and (b)
+ * force-rebuild TOC anchors when it did.
+ */
+export interface OutlineSignature {
+  readonly tocAnchorIds: ReadonlySet<BlockId>;
+  readonly signature: readonly OutlineSigEntry[];
+}
+
+/**
+ * The empty outline signature (no headings, no TOC anchors) — a frozen default
+ * for any `RenderOutput` literal that needs one before a real signature is
+ * computed (mirrors `EMPTY_FOOTNOTE_ANCHORS` / `EMPTY_LIST_COUNTERS`).
+ */
+export const EMPTY_OUTLINE_SIGNATURE: OutlineSignature = Object.freeze({
+  tocAnchorIds: Object.freeze(new Set<BlockId>()),
+  signature: Object.freeze([] as OutlineSigEntry[]),
+});
+
+/**
+ * Compute the {@link OutlineSignature} for `state` under `suggestionView`.
+ *
+ * Reuses {@link getOutline} for the heading entries so the signature text is
+ * EXACTLY the text a TOC renders (same `extractText` + `suggestionView`
+ * projection) — this guarantees "signature unchanged" ⟺ "TOC entry text
+ * unchanged". A second light walk over the SAME main-tree leaf traversal
+ * collects the `table-of-contents` anchor ids (getOutline skips them — they
+ * carry no inlineContent).
+ */
+export function computeOutlineSignature(
+  state: State,
+  suggestionView: SuggestionView,
+): OutlineSignature {
+  const entries = getOutline(state, { suggestionView });
+  const signature: OutlineSigEntry[] = entries.map((e) => ({
+    blockId: e.blockId,
+    level: e.level,
+    text: e.text,
+  }));
+  const tocAnchorIds = new Set<BlockId>();
+  let cursor = firstLeafBlock(state, state.rootId);
+  while (cursor !== null) {
+    const block = getBlock(state, cursor);
+    if (block?.type === "table-of-contents") tocAnchorIds.add(cursor);
+    cursor = nextBlockInDocOrder(state, cursor);
+  }
+  return Object.freeze({
+    tocAnchorIds,
+    signature: Object.freeze(signature),
+  });
+}
+
+/**
+ * Whether two outline signatures describe the SAME outline (same headings, in
+ * the same order, with the same levels + display text). `tocAnchorIds` is NOT
+ * compared — a TOC added/removed is in `dirtyIds` and invalidated directly; this
+ * answers "did the OUTLINE change", driving whether to re-derive existing TOCs.
+ */
+export function outlineSignaturesEqual(a: OutlineSignature, b: OutlineSignature): boolean {
+  if (a === b) return true;
+  if (a.signature.length !== b.signature.length) return false;
+  for (let i = 0; i < a.signature.length; i++) {
+    const x = a.signature[i];
+    const y = b.signature[i];
+    if (x.blockId !== y.blockId || x.level !== y.level || x.text !== y.text) return false;
+  }
+  return true;
+}
+
+/**
  * Validate a heading `level` attr exactly as the heading component's
  * `levelFromAttrs` does: 1–6 is taken as-is, anything else defaults to 1.
  */

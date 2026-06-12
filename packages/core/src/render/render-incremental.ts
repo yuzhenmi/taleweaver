@@ -23,6 +23,8 @@ import {
   getTemplateContentIds,
   resolveBlock,
   docHasFootnotes,
+  computeOutlineSignature,
+  outlineSignaturesEqual,
 } from "../state";
 import type { Block, BlockId, State, SuggestionView } from "../state";
 import type { Style, ComputedStyle } from "../styles";
@@ -271,6 +273,29 @@ export function renderIncremental(
     }
   }
 
+  // TOC outline invalidation (mirrors the cross-reference target→hosts
+  // expansion): a TOC derives its entries from the document outline, which it
+  // does not own, so when a heading changed this cycle the cached TOC RenderNode
+  // is stale even though the TOC block is not in dirtyIds. Reuse the cached
+  // signature unless a dirty block is/was a heading; if it changed, force every
+  // TOC anchor into `invalidated` so its render-core branch re-derives. Common
+  // case (no heading edit) reuses the signature AND the TOC node by ref — O(1).
+  const outlineChanged = outlineMightHaveChanged(state, prevState, dirtyIds);
+  const outlineSignature = outlineChanged
+    ? computeOutlineSignature(state, suggestionView)
+    : prev.outlineSignature;
+  if (
+    outlineChanged &&
+    outlineSignature.tocAnchorIds.size > 0 &&
+    !outlineSignaturesEqual(outlineSignature, prev.outlineSignature)
+  ) {
+    for (const tocId of outlineSignature.tocAnchorIds) {
+      if (invalidated.has(tocId)) continue;
+      invalidated.add(tocId);
+      addAncestorsToInvalidated(state, prevState, tocId, invalidated);
+    }
+  }
+
   const context: RenderContext = makeRenderContext(state, fnNumbers, listCounters, suggestionView);
 
   const rootBlock = getBlock(state, state.rootId);
@@ -370,7 +395,31 @@ export function renderIncremental(
     footnoteNumbers: fnNumbers,
     listCounters,
     crossReferenceIndex,
+    outlineSignature,
   });
+}
+
+/**
+ * Whether a dirty block could have changed the document OUTLINE this cycle (a
+ * heading was edited/inserted/deleted/re-leveled/re-typed/moved — every such op
+ * dirties the heading block, or for a deletion captures its id). When false, no
+ * heading changed, so the cached outline signature is reused and no TOC needs
+ * re-derivation. Mirrors `crossReferenceIndexUnchanged`.
+ */
+function outlineMightHaveChanged(
+  state: State,
+  prevState: State,
+  dirtyIds: ReadonlySet<BlockId>,
+): boolean {
+  for (const id of dirtyIds) {
+    if (
+      getBlock(state, id)?.type === "heading" ||
+      getBlock(prevState, id)?.type === "heading"
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**

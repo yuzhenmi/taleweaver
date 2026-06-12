@@ -740,9 +740,12 @@ number); `navTarget`/`tocEntry` `LayoutBoxMetadata` for click-nav; and the pure
 `buildTocEntrySubtree` render helper (heading text + leadered content-edge tab + page atom per
 outline entry); and the `renderBlockBody` `table-of-contents` branch that synthesizes the entry
 subtree at render time (reads the options off the block's attrs, calls `getOutline`, returns the
-entries as the TOC box's children — derive-not-store, bypassing the zero-height stub). **Still
-missing:** `outlineSignature` incremental invalidation (so a heading edit re-derives a TOC that
-is not itself dirty), layout/fragmentation integration, and the DOM click-to-navigate hit-test.
+entries as the TOC box's children — derive-not-store, bypassing the zero-height stub); and the
+`RenderOutput.outlineSignature` cache + incremental invalidation-expansion (a heading edit
+re-derives every TOC even though the TOC blocks are not in `dirtyIds`; a non-heading edit reuses
+the TOC RenderNode by ref — O(1); see `1.2-render.md` "Cross-cutting invalidation expansions").
+**Still missing:** layout/fragmentation integration (confirm the synthesized multi-child TOC
+block fragments across pages + multi-TOC field fold), and the DOM click-to-navigate hit-test.
 Example-app Insert-menu entry + in-browser smoke are browser-gated.
 
 ### Comments `[implemented]`

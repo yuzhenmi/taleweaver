@@ -1,5 +1,6 @@
 import { getBlock, getEmbedContent, getEmbedContentIds, getTemplateContent, getTemplateContentIds, docHasFootnotes, docHasLists, getListDefsForState } from "../state";
-import type { Block, BlockId, State, SuggestionView } from "../state";
+import type { Block, BlockId, State, SuggestionView, OutlineSignature } from "../state";
+import { computeOutlineSignature } from "../state";
 import type { Style, ComputedStyle } from "../styles";
 import type { AttrRegistry } from "../cascade/attr-registry";
 import type { ComponentRegistry } from "../components/component-registry";
@@ -70,6 +71,17 @@ export interface RenderOutput {
    * content is unchanged. Empty for a cross-reference-free document.
    */
   readonly crossReferenceIndex: ReadonlyMap<BlockId, ReadonlyArray<BlockId>>;
+  /**
+   * The document outline signature for THIS cycle — the ordered heading list (id,
+   * level, display text) a `table-of-contents` block derives its entries from,
+   * plus the set of TOC anchor blocks. Cached so the NEXT incremental cycle can
+   * (a) REUSE it O(1) when no dirty block was a heading (no outline change) and
+   * (b) expand its invalidation set: when a heading changed this cycle, every TOC
+   * anchor is force-rebuilt even though its own block is not in dirtyIds (a TOC
+   * derives entries it does not own). Empty for a heading-free / TOC-free
+   * document. Mirrors `crossReferenceIndex`.
+   */
+  readonly outlineSignature: OutlineSignature;
   /**
    * The change-tracking preview view this output was rendered under (slice
    * 5c-iii). Cached so the incremental dispatch can DETECT a view switch: reused
@@ -230,6 +242,12 @@ export function render(
   // incremental cycle can reuse it (and expand its invalidation set). The full
   // path always walks every block anyway, so this adds no asymptotic cost.
   const crossReferenceIndex = buildCrossReferenceIndex(state);
+  // The document outline signature for THIS cycle, cached so the next incremental
+  // cycle can reuse it (and expand its invalidation set when a heading changes).
+  // The full path always walks every block anyway, so this adds no asymptotic
+  // cost. Uses the same `suggestionView` the headings render under, so the cached
+  // signature text matches exactly what a TOC entry shows.
+  const outlineSignature = computeOutlineSignature(state, options?.suggestionView ?? "suggesting");
   const context: RenderContext = makeRenderContext(
     state,
     fnNumbers,
@@ -316,6 +334,7 @@ export function render(
     footnoteNumbers: fnNumbers,
     listCounters,
     crossReferenceIndex,
+    outlineSignature,
   });
 }
 
