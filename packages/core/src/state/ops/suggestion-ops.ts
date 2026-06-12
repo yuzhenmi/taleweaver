@@ -34,12 +34,13 @@ import { insertNewBlocksInTx, type NewBlockSpec } from "./insert-new-blocks";
 import type { SiblingBlockInit } from "./insert-blocks-after";
 import { STATE_INTERNAL } from "../state-internal";
 import { getSuggestionsMap, getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
-import { buildYInlineContent, buildYInlineItem, buildYAttrs } from "../y-block";
+import { buildYInlineItem, buildYAttrs } from "../y-block";
 import { mergeAdjacentSameAttrsTextItems, yItemLength, yMapAsObject } from "../y-utils";
 import { planApplyAttrsToRange, applyAttrsToRangeInTx } from "./apply-attrs";
 import { planInsertText, insertTextInTx, planInsertTextSplitInPlace } from "./insert-text";
 import {
   planInsertItemsSplitInPlace,
+  planReplaceBlockTailInPlace,
   insertItemsInTx,
   type InsertItemsPlan,
 } from "./insert-items";
@@ -56,40 +57,6 @@ import { isDevMode } from "../dev-mode";
 
 /** An empty dirtyIds set — the identity-no-op return per the T7 contract. */
 const NO_DIRTY: ReadonlySet<BlockId> = new Set<BlockId>();
-
-/**
- * The full-replace seam, now used by a SINGLE caller: {@link replaceWithSuggestedFragment}
- * (the cross-block fragment-interleave write —
- * `getYBlock(...).set("inlineContent", buildYInlineContent({ items }))`).
- *
- * It REBUILDS a block's inline content (interleaving a strike with new fragment lines
- * + break embeds), so a full-replace is correct here — but it materializes FRESH
- * `Y.Text`/`Y.Map` per item, discarding the block's per-character CRDT identity.
- *
- * The DELETION STRIKE (markDeletion, the replaceWithSuggestion / splitWithSuggestion
- * strike-writes) no longer routes through here: it uses the identity-preserving
- * {@link applyDeletionStrikeInTx} (#491), which mutates only the struck runs in place.
- * The RESOLVE path (accept/reject) uses {@link applyResolveDecisionsInTx} (#484).
- * `replaceWithSuggestedFragment` is the remaining (acceptable) identity-discarding site
- * — its fragment-interleave is genuine structural rearrangement, a separate follow-up;
- * converting it would change essentially ONLY this caller. MUST run inside an
- * already-open transaction (the caller's `applyOperation` body).
- *
- * The APPEND sites (split/join break-embed) do NOT route through this — they push a
- * single embed onto the live Y.Array, preserving identity already.
- */
-function writeBlockInlineContentInTx(
-  doc: Y.Doc,
-  blockId: BlockId,
-  kind: BlockTreeKind,
-  items: ReadonlyArray<InlineItem>,
-  opName: string,
-): void {
-  getYBlock(doc, blockId, opName, kind).set(
-    "inlineContent",
-    buildYInlineContent({ items }),
-  );
-}
 
 /**
  * Mark `span` with a formatting SUGGESTION: stamp a `formattingSuggestionId`
@@ -882,16 +849,19 @@ export interface ReplaceFragmentPlan {
   readonly records: readonly SuggestionRecord[];
   readonly endPosition: Position;
   /**
-   * The start block B's pre-tx insert plan. Non-null ONLY for the `n===1` start block
-   * (S3): a `split-in-place` insert of line0 at offset `c`, resolved against B's
-   * POST-strike content. `null` for `n===0` (no insertion into B) and — until S4 —
-   * `n>1` (B still rides the old full-replace path).
+   * The start block B's pre-tx insert plan. Non-null for the start block whenever a line
+   * is inserted into B: `n===1` (S3) is a `split-in-place` insert of line0 at offset `c`
+   * resolved against B's POST-strike content; `n>1` (S4) is a `replace-tail` against B's
+   * ORIGINAL pre-strike items that keeps [0:c], drops the rest, and appends line0 +
+   * split-embed (B's struck tail relocates by value into the last new block — B is NOT
+   * struck in place). `null` ONLY for `n===0` (no insertion into B).
    */
   readonly bInsertPlan: InsertItemsPlan | null;
   /**
-   * The fragment's line count `n`. The applier dispatches the START block on it:
-   * `n<=1` ⇒ surgical (strike, then — for `n===1` — split-insert line0 via
-   * `bInsertPlan`); `n>1` ⇒ old full-replace (until S4).
+   * The fragment's line count `n`. The applier dispatches the START block on it — B is
+   * surgical for ALL n: `n===0` ⇒ strike only; `n===1` ⇒ strike + split-insert line0 via
+   * `bInsertPlan`; `n>1` ⇒ `replace-tail` truncation via `bInsertPlan` (no strike, no
+   * join — both relocate into the last new block).
    */
   readonly fragmentLength: number;
 }
@@ -1049,10 +1019,11 @@ export function planReplaceWithSuggestedFragment(
     }
   }
 
-  // The start block B's write entry (its strike coords + the old full-replace `items`).
-  // `appendJoinEmbed` (= cross-block) is consumed by both the n===0 (strike-only) and
-  // n===1 (strike + split-insert) surgical appliers; B's n>1 writes still ride the old
-  // full-replace path and ignore these strike fields (until S4).
+  // The start block B's write entry (its strike coords + the full-replace `items`, now
+  // read ONLY by the test equivalence oracle). `appendJoinEmbed` (= cross-block) is consumed by
+  // the n===0 (strike-only) and n===1 (strike + split-insert) surgical appliers. B is
+  // surgical for ALL n now; the n>1 applier truncates B via `bInsertPlan` (replace-tail)
+  // and ignores these strike fields (B's struck tail relocates into the last new block).
   const bWriteEntry = (items: ReadonlyArray<InlineItem>): ResolveWrite => ({
     blockId: at.blockId,
     kind,
@@ -1113,7 +1084,8 @@ export function planReplaceWithSuggestedFragment(
       fragmentLineItems(fragment[0], insId),
       registry,
     );
-    // The full-replace `writes[0].items` (still read by the test oracle; S5 removes it).
+    // The full-replace `writes[0].items` — retained ONLY for the test equivalence oracle
+    // (the live applier no longer reads it for B; the surgical `bInsertPlan` drives B).
     const bItems = mergeAdjacentTextItems([
       ...prefix,
       ...fragmentLineItems(fragment[0], insId),
@@ -1141,6 +1113,25 @@ export function planReplaceWithSuggestedFragment(
   const nbIds: BlockId[] = [];
   for (let i = 1; i < n; i++) nbIds.push(allocator.allocate());
 
+  // Surgical (S4): TRUNCATE B via a `replace-tail` against B's ORIGINAL pre-strike
+  // items — keep B's live [0:c] (identity-preserved; only a run straddling c splits),
+  // drop [c:], append line0 + split-embed. B is NOT struck in place (Q1): its struck
+  // tail + cross-block join RELOCATE BY VALUE into the LAST new block (baked into
+  // `tailBundle`), so a `replace-tail` that deletes [c:] wholesale is sufficient and
+  // correct. Striking B first would desync these indices (resolved vs ORIGINAL items).
+  // B's [0:c] is strike-untouched, so the kept prefix == `prefix` and final B is
+  // byte-identical to the old full-replace `bItems` below.
+  const bInsertPlan = planReplaceBlockTailInPlace(
+    at.blockId,
+    kind,
+    resolved.block.inlineContent.items,
+    c,
+    [...fragmentLineItems(fragment[0], insId), buildSplitSuggestionEmbed(insId)],
+    registry,
+  );
+
+  // The full-replace `writes[0].items` — retained ONLY for the test equivalence oracle
+  // (the live applier drives B via `bInsertPlan` replace-tail; the new blocks use their own items).
   const bItems = mergeAdjacentTextItems([
     ...prefix,
     ...fragmentLineItems(fragment[0], insId),
@@ -1171,7 +1162,7 @@ export function planReplaceWithSuggestedFragment(
     newBlocks,
     records,
     endPosition: createPosition(nbIds[n - 2], fragmentLineLength(fragment[n - 1])),
-    bInsertPlan: null,
+    bInsertPlan,
     fragmentLength: n,
   };
 }
@@ -1197,15 +1188,23 @@ export function replaceWithSuggestedFragment(
     // Per-block roles. The START block is `plan.writes[0]`; every OTHER write is an
     // intervening block or E. NON-start writes are ALWAYS surgical (#493 S2): strike
     // in place (preserving untouched runs' Y.Text identity) + append the cross-block
-    // JOIN embed for interveners. The START block is surgical for `n<=1` (n===0 strike-
-    // only; n===1 strike + split-insert line0 via `bInsertPlan`); its `n>1` writes
-    // still ride the old full-replace path (S4).
+    // JOIN embed for interveners. The START block is surgical for ALL n: n===0 strike-
+    // only; n===1 strike + split-insert line0 via `bInsertPlan`; n>1 replace-tail
+    // truncation via `bInsertPlan` (no strike — B's struck tail relocates into the last
+    // new block). The full-replace seam (`writeBlockInlineContentInTx`) is now GONE:
+    // every write in this op preserves untouched runs' Y.Text CRDT identity (#493).
     const startBlockId = plan.writes[0].blockId;
     for (const w of plan.writes) {
       const isStart = w.blockId === startBlockId;
       if (isStart && plan.fragmentLength > 1) {
-        // B's n>1 writes: old full-replace (S4 migrates these to surgical).
-        writeBlockInlineContentInTx(doc, w.blockId, w.kind, w.items, "replaceWithSuggestedFragment");
+        // n>1: B is TRUNCATED via replace-tail (keep [0:c], drop the rest, append
+        // line0 + split-embed). B's struck tail + cross-block join were relocated BY
+        // VALUE into the last new block (tailBundle); B itself is NOT struck in place
+        // (Q1 — striking would desync the replace-tail indices computed vs the original).
+        if (plan.bInsertPlan === null) {
+          throw new Error("replaceWithSuggestedFragment: n>1 start block requires bInsertPlan");
+        }
+        insertItemsInTx(doc, plan.bInsertPlan);
         continue;
       }
       // Surgical: NON-start writes (always); the START block for n===0 (strike only)
@@ -1279,7 +1278,9 @@ export function insertFragmentAsSuggestion(
  *      `Y.Text` identity of every UNTOUCHED run.
  *   2. INSERT `insertPlan` (the start block B's `n===1` line0 split-insert at offset
  *      `c`, resolved against B's POST-strike content) via {@link insertItemsInTx}.
- *      `null` for n===0's start, every NON-start write, and (until S4) n>1's start.
+ *      `null` for n===0's start and every NON-start write. NOTE the n>1 start does NOT
+ *      reach here — its `replace-tail` `bInsertPlan` is applied by a dedicated branch in
+ *      the loop above (no strike), so this helper only ever sees split-in-place plans.
  *   3. APPEND the trailing block-JOIN-suggestion embed (interveners + the cross-block
  *      start block) when `w.appendJoinEmbed`.
  *
@@ -1377,9 +1378,9 @@ type ResolveAction = "strip" | "drop" | "applyStrip";
 
 /**
  * A pre-computed per-owning-block rewrite for the fragment-replace path. Carries
- * BOTH the rebuilt `items` (the old full-replace content — still read by the start
- * block's `n>0` writes and by the equivalence oracle) AND the surgical-strike
- * coordinates so the applier can drive {@link applyDeletionStrikeInTx} directly
+ * BOTH the rebuilt `items` (the old full-replace content — now read ONLY by the test
+ * equivalence oracle; the live applier drives every block surgically) AND the
+ * surgical-strike coordinates so the applier can drive {@link applyDeletionStrikeInTx} directly
  * (the applier holds only the {@link ReplaceFragmentPlan}, not the planner-local
  * `delPlan`). When `deletionId === null` the write contributes no strike (the
  * collapsed / nothing-struck PF-1 case) and `rangeStart`/`rangeEnd` are 0.

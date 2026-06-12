@@ -277,6 +277,143 @@ describe("replaceWithSuggestedFragment — S3 surgical START block for n===1", (
   });
 });
 
+// ────────────────────────────────────────────────────────────────────────────
+// S4: START block B surgical for n>1 (multi-line fragment). B is TRUNCATED via a
+// `replace-tail` (keep [0:c], drop the rest, append line0 + split-embed); B's struck
+// tail + cross-block join RELOCATE BY VALUE into the LAST new block. B is NOT struck
+// in place (Q1 — striking would desync the replace-tail indices computed vs the
+// ORIGINAL items). This was the SOLE remaining full-replace caller; after S4 B is
+// surgical for ALL n and `writeBlockInlineContentInTx` has zero callers.
+// ────────────────────────────────────────────────────────────────────────────
+
+/** doc > [ B | T ] — B then a trailing sibling, so n>1 relocation has a place. */
+function twoBlocks(b: InlineContent, t: InlineContent): State {
+  return buildState({
+    rootId: "doc",
+    blocks: [
+      buildBlock({ id: "doc", type: "document", firstChildId: "B", lastChildId: "T" }),
+      buildBlock({ id: "B", type: "paragraph", parentId: "doc", nextSiblingId: "T", inlineContent: b }),
+      buildBlock({ id: "T", type: "paragraph", parentId: "doc", prevSiblingId: "B", inlineContent: t }),
+    ],
+  });
+}
+
+/**
+ * Re-plan on a FRESH copy of `mkState()` and serialize the matching `plan.newBlocks`
+ * entry's `items` — the full-replace oracle for a NEW (inserted) block. New blocks are
+ * in `plan.newBlocks`, NOT `plan.writes`; their content is byte-identical to the old
+ * full-replace and unchanged by S4 (`insertNewBlocksInTx` still builds them from the
+ * relocated `tailBundle`). The id match is deterministic because `createTestAllocator()`
+ * allocates the SAME ids on the re-plan as on the live op.
+ */
+function oracleNewBlockForState(
+  mkState: () => State,
+  span: ReturnType<typeof createSpan>,
+  fragment: readonly SiblingBlockInit[],
+  blockId: string,
+): unknown {
+  const plan = planReplaceWithSuggestedFragment(
+    mkState(),
+    span,
+    fragment,
+    REPL("d", "i"),
+    createTestAllocator(),
+  );
+  const nb = plan.newBlocks.find((b) => b.id === asBlockId(blockId));
+  if (nb === undefined) throw new Error(`oracleNewBlockForState: no new block "${blockId}"`);
+  return serializeItems(nb.items);
+}
+
+describe("replaceWithSuggestedFragment — S4 surgical START block for n>1", () => {
+  it("single-block n>1, collapsed span (pure multi-line insert mid-B): B + new blocks content === oracle AND B's prefix run keeps Y.Text identity", () => {
+    // B = "a"{x} | "bcd"{y}. Collapsed span at the a|bcd boundary (offset 1) → no
+    // strike; pure multi-line insert. n=2 (X / Y) → B truncates to [a]+X+split-embed;
+    // the LAST new block carries Y + B's PLAIN suffix "bcd"{y} (the relocated tail).
+    const mk = () => twoBlocks(
+      inlineContent([text("a", { x: 1 }), text("bcd", { y: 1 })]),
+      inlineContent([text("t", { z: 1 })]),
+    );
+    const span = createSpan(createPosition(asBlockId("B"), 1), createPosition(asBlockId("B"), 1));
+    const fragment: SiblingBlockInit[] = [
+      { type: "paragraph", inlineContent: inlineContent([text("X")]) },
+      { type: "paragraph", inlineContent: inlineContent([text("Y")]) },
+    ];
+
+    const state = mk();
+    const bPrefixBefore = yTextAt(state, "B", 0); // the "a"{x} run — whole, untouched
+
+    const r = replaceWithSuggestedFragment(state, span, fragment, REPL("d", "i"), createTestAllocator());
+
+    // B itself: truncated to [a] + X{ins} + split-embed.
+    expect(serializeBlock(r.state, "B")).toEqual(oracleForState(mk, span, fragment, "B"));
+    // The one NEW block (n-1 = 1) follows B in the sequence; assert its relocated content.
+    const seq = blockSeq(r.state);
+    expect(seq).toEqual(["B", seq[1], "T"]);
+    const newId = seq[1];
+    expect(serializeBlock(r.state, newId)).toEqual(oracleNewBlockForState(mk, span, fragment, newId));
+    // The load-bearing regression: B's "a"{x} prefix survives (previously full-replace
+    // minted a fresh Y.Text). Offset 1 = a|bcd boundary → "a" is whole + untouched.
+    expect(findYTextByString(r.state, "B", "a")).toBe(bPrefixBefore);
+  });
+
+  it("single-block n>1 with a within-B strike (type-over, multi-line): B + new blocks content === oracle AND B's prefix run keeps Y.Text identity", () => {
+    // B = "a"{x} | "bcd"{y}. Span strikes "bc" (offset 1..3). n=2 → B truncates to
+    // [a] + X{ins} + split-embed; the LAST new block carries Y + B's STRUCK tail "bc"{y,del}.
+    const mk = () => twoBlocks(
+      inlineContent([text("a", { x: 1 }), text("bcd", { y: 1 })]),
+      inlineContent([text("t", { z: 1 })]),
+    );
+    const span = createSpan(createPosition(asBlockId("B"), 1), createPosition(asBlockId("B"), 3));
+    const fragment: SiblingBlockInit[] = [
+      { type: "paragraph", inlineContent: inlineContent([text("X")]) },
+      { type: "paragraph", inlineContent: inlineContent([text("Y")]) },
+    ];
+
+    const state = mk();
+    const bPrefixBefore = yTextAt(state, "B", 0); // "a"{x} — whole, untouched (offset 1)
+
+    const r = replaceWithSuggestedFragment(state, span, fragment, REPL("d", "i"), createTestAllocator());
+
+    expect(serializeBlock(r.state, "B")).toEqual(oracleForState(mk, span, fragment, "B"));
+    const seq = blockSeq(r.state);
+    expect(seq).toEqual(["B", seq[1], "T"]);
+    const newId = seq[1];
+    // The last (only) new block carries B's relocated STRUCK tail (the deletion-id path).
+    expect(serializeBlock(r.state, newId)).toEqual(oracleNewBlockForState(mk, span, fragment, newId));
+    expect(findYTextByString(r.state, "B", "a")).toBe(bPrefixBefore);
+  });
+
+  it("cross-block n>1 with interveners: per-block content === oracle (incl. relocated tail in last new block) AND B's prefix + E's tail keep Y.Text identity", () => {
+    const fragment: SiblingBlockInit[] = [
+      { type: "paragraph", inlineContent: inlineContent([text("X")]) },
+      { type: "paragraph", inlineContent: inlineContent([text("Y")]) },
+    ];
+
+    const state = fourBlocks(B(), I1(), I2(), E());
+    const bPrefixBefore = yTextAt(state, "B", 0); // "a"{x} — B's untouched prefix
+    const eTailBefore = yTextAt(state, "E", 1); // "hi"{h} — E's untouched plain tail
+
+    const r = replaceWithSuggestedFragment(state, span(), fragment, REPL("d", "i"), createTestAllocator());
+
+    // Existing struck blocks: content === full-replace oracle.
+    for (const id of ["B", "I1", "I2", "E"]) {
+      expect(serializeBlock(r.state, id)).toEqual(oracleBlock(span(), fragment, id));
+    }
+    // The single new block (n-1 = 1) sits between B and I1; it carries B's RELOCATED
+    // struck tail "bc"{y,del} + the cross-block JOIN embed after line Y.
+    const seq = blockSeq(r.state);
+    expect(seq).toEqual(["B", seq[1], "I1", "I2", "E"]);
+    const newId = seq[1];
+    expect(serializeBlock(r.state, newId)).toEqual(
+      oracleNewBlockForState(() => fourBlocks(B(), I1(), I2(), E()), span(), fragment, newId),
+    );
+    // The load-bearing regression: B's "a"{x} prefix + E's "hi"{h} tail survive (===);
+    // previously B's n>1 full-replace minted a fresh Y.Text for the prefix.
+    expect(findYTextByString(r.state, "B", "a")).toBe(bPrefixBefore);
+    expect(findYTextByString(r.state, "E", "hi")).toBe(eTailBefore);
+  });
+});
+
 /** Serialize a raw `InlineItem[]` (the pre-S2 full-replace content for a block). */
 function serializeItems(items: ReadonlyArray<InlineItem>): unknown {
   return items.map((it) =>

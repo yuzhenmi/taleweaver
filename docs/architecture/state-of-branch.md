@@ -734,8 +734,8 @@ identity), with the delete-own-insertion (your own pending insertion → real re
 in-range only) + nesting (different-author insertion also gains the deletion id) +
 same-author coalescing rules; embeds in-span preserved untagged (named follow-up).
 (The replaceWithSuggestion / splitWithSuggestion strike-writes use the same surgical
-applier — incl. replaceWithSuggestion's start block since #492; only
-`replaceWithSuggestedFragment` still full-replaces — see below.) **Slice 3c (`mintInsertion`) shipped:**
+applier — incl. replaceWithSuggestion's start block since #492 and
+`replaceWithSuggestedFragment` since #493; the full-replace seam is GONE — see below.) **Slice 3c (`mintInsertion`) shipped:**
 the INSERT_TEXT/PASTE suggesting-mode op — inserts text carrying
 `insertionSuggestionId` (composing `planInsertText`/`insertTextInTx`) + writes an
 `insertion` record, with insertion-point coalescing (same-author adjacent insertion
