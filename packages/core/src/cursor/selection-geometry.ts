@@ -1,4 +1,4 @@
-import { positionsEqual, spanStart, spanEnd, selectionContextOf } from "../state";
+import { positionsEqual, spanStart, spanEnd, selectionContextOf, comparePositions } from "../state";
 import type { State, Span } from "../state";
 import type { LayoutBox } from "../layout/layout-node";
 import type { TextShaper } from "../layout/text-shaper";
@@ -17,7 +17,8 @@ import {
   makeContextFilter,
   type AbsoluteLineBox,
 } from "./line-flatten";
-import { buildLineBidiView, selectionRectsForLineRange } from "./line-bidi";
+import { buildLineBidiView, selectionRectsForLineRange, inlineCoordForOffset } from "./line-bidi";
+import type { CaretAffinity } from "./line-bidi";
 import { axisMapFor, type AxisMap } from "../styles/writing-mode";
 import { markStart, markEnd } from "../perf/perf-trace";
 
@@ -70,10 +71,23 @@ export function computeSelectionRects(
   span: Span,
   layoutTree: LayoutBox,
   shaperOrMeasurer: TextShaper | TextMeasurer,
+  anchorAffinity?: CaretAffinity,
+  focusAffinity?: CaretAffinity,
 ): SelectionRect[] {
   const t = markStart("cursor.selection-geometry");
   try {
-    if (positionsEqual(span.anchor, span.focus)) return [];
+    // #503: a logically-collapsed span (same offset) is VISUALLY non-empty when
+    // the anchor and focus sit on OPPOSITE sides of a bidi direction boundary —
+    // same offset, but DIFFERENT affinities (the dual-caret case). There the
+    // highlight spans the two visual coords (e.g. press 4 of Shift+Arrow through
+    // an RTL run). Only short-circuit when the span is BOTH logically AND
+    // visually collapsed (equal positions and no differing affinity). Every 4-arg
+    // caller passes no affinity → `affinitiesDiffer` is false → byte-identical.
+    const affinitiesDiffer =
+      anchorAffinity !== undefined &&
+      focusAffinity !== undefined &&
+      anchorAffinity !== focusAffinity;
+    if (positionsEqual(span.anchor, span.focus) && !affinitiesDiffer) return [];
 
     const measurer: TextMeasurer = isTextShaper(shaperOrMeasurer)
       ? adaptShaperToMeasurer(shaperOrMeasurer)
@@ -81,6 +95,15 @@ export function computeSelectionRects(
 
     const start = spanStart(state, span);
     const end = spanEnd(state, span);
+
+    // #503 visual-extent: map anchor/focus affinities to DOCUMENT order. The
+    // start is the document-earlier endpoint; if the anchor is at-or-before the
+    // focus it owns the start side (`<=0` → collapsed/same-offset returns 0 →
+    // anchorIsStart = true). A `comparePositions` boolean (not `===` reference
+    // identity) is robust against a caller passing a reconstructed Span.
+    const anchorIsStart = comparePositions(state, span.anchor, span.focus) <= 0;
+    const startAffinity = anchorIsStart ? anchorAffinity : focusAffinity;
+    const endAffinity = anchorIsStart ? focusAffinity : anchorAffinity;
 
     const startPos = resolvePixelPosition(state, start, layoutTree, measurer);
     const endPos = resolvePixelPosition(state, end, layoutTree, measurer);
@@ -116,6 +139,8 @@ export function computeSelectionRects(
         start.offset,
         end.offset,
         measurer,
+        startAffinity,
+        endAffinity,
       );
       for (const r of lineRects) rects.push(r);
     }
@@ -145,10 +170,20 @@ export function computeSelectionRectsForPage(
   startPos: PixelPosition,
   endPos: PixelPosition,
   shaperOrMeasurer: TextShaper | TextMeasurer,
+  anchorAffinity?: CaretAffinity,
+  focusAffinity?: CaretAffinity,
 ): SelectionRect[] {
   const t = markStart("cursor.selection-geometry");
   try {
-    if (positionsEqual(span.anchor, span.focus)) return [];
+    // #503 (see `computeSelectionRects`): a logically-collapsed span is VISUALLY
+    // non-empty at a bidi boundary when the affinities differ (the dual-caret
+    // case). Only short-circuit when BOTH logically and visually collapsed. Every
+    // affinity-less caller keeps the byte-identical early return.
+    const affinitiesDiffer =
+      anchorAffinity !== undefined &&
+      focusAffinity !== undefined &&
+      anchorAffinity !== focusAffinity;
+    if (positionsEqual(span.anchor, span.focus) && !affinitiesDiffer) return [];
     const startPage = startPos.pageIndex;
     const endPage = endPos.pageIndex;
     if (pageIndex < startPage || pageIndex > endPage) return [];
@@ -159,6 +194,12 @@ export function computeSelectionRectsForPage(
 
     const start = spanStart(state, span);
     const end = spanEnd(state, span);
+
+    // #503 visual-extent: map anchor/focus affinities to DOCUMENT order (see
+    // `computeSelectionRects` for the rationale on the `comparePositions` boolean).
+    const anchorIsStart = comparePositions(state, span.anchor, span.focus) <= 0;
+    const startAffinity = anchorIsStart ? anchorAffinity : focusAffinity;
+    const endAffinity = anchorIsStart ? focusAffinity : anchorAffinity;
 
     // Context isolation (#327 companion): on a page carrying both body and
     // header/footer slot lines, the per-page index interleaves them ([header,
@@ -185,6 +226,8 @@ export function computeSelectionRectsForPage(
         start.offset,
         end.offset,
         measurer,
+        startAffinity,
+        endAffinity,
       );
       for (const r of lineRects) rects.push(r);
     }
@@ -254,6 +297,8 @@ function emitLineRect(
   selectionStartOffset: number,
   selectionEndOffset: number,
   measurer: TextMeasurer,
+  startAffinity?: CaretAffinity,
+  endAffinity?: CaretAffinity,
 ): SelectionRect[] {
   const line = al.line;
   const am = axisMapFor(line.writingMode, line.computedStyle.direction);
@@ -309,6 +354,40 @@ function emitLineRect(
     } else {
       push(lineInlineLo, lineInlineHi);
     }
+    return out;
+  }
+
+  // #503 VISUAL-EXTENT path. When the keyboard supplied a bidi-boundary affinity
+  // for this line's active endpoint(s), draw the SINGLE contiguous inline interval
+  // between the anchor's and focus's RESOLVED VISUAL coords — so each Shift+Arrow
+  // press grows the highlight monotonically instead of the logical-range path's
+  // transient-empty collapse at a direction boundary. Per-branch guards (NOT a
+  // single both-defined guard): a multi-line selection that crossed a line via
+  // `logicalExtend` clears the FOCUS-side affinity while the ANCHOR-side persists,
+  // so the partial first/last lines each need only their own endpoint's affinity.
+  // `rangeStart`/`rangeEnd` are this line's already-clipped endpoints (so a coord
+  // is never computed for an offset off this line). When no per-branch guard fires
+  // (no relevant affinity for this line's active endpoint), fall through to the
+  // existing logical path below (mouse-drag, EXPAND_WORD, comment/find consumers,
+  // the focus line at a clean line-start after a cross, middle full lines).
+  if (isGlobalFirst && isGlobalLast && startAffinity !== undefined && endAffinity !== undefined) {
+    // Same-line selection: both endpoints land on this line. No paragraph-break
+    // indicator (same-line is the global-last line — matches the logical path).
+    const sx = inlineCoordForOffset(view, rangeStart, startAffinity, measurer);
+    const ex = inlineCoordForOffset(view, rangeEnd, endAffinity, measurer);
+    push(Math.min(sx, ex), Math.max(sx, ex));
+    return out;
+  }
+  if (isGlobalFirst && !isGlobalLast && startAffinity !== undefined) {
+    // First line of a multi-line selection: from the anchor's resolved visual
+    // coord to the line's inline end (+ the paragraph-break indicator).
+    push(inlineCoordForOffset(view, rangeStart, startAffinity, measurer), lineInlineHi + indicatorW);
+    return out;
+  }
+  if (isGlobalLast && !isGlobalFirst && endAffinity !== undefined) {
+    // Last line of a multi-line selection: from the line's inline start to the
+    // focus's resolved visual coord. No trailing indicator (this is the last line).
+    push(lineInlineLo, inlineCoordForOffset(view, rangeEnd, endAffinity, measurer));
     return out;
   }
 
