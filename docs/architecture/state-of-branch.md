@@ -497,13 +497,16 @@ Known gaps:
   exists, not a degraded build.
 - **Tab stops** are `[implemented]` end-to-end, modeled the Google-Docs way (a
   paragraph stop list, NOT CSS `tab-size` — the former `tabSize` reservation was
-  REMOVED). A `tabStops` block-attr (`{position, alignment: left|center|right|decimal,
+  REMOVED). A `tabStops` block-attr (`{position, alignment: left|center|right|decimal|content-edge,
   leader: none|dot|dash|line}`) + a scalar `defaultTabStop` (px, default 48 = 0.5in,
   inherits) cascade onto `ComputedStyle`/`UsedStyle`. A tab is the `"tab"` inline
   EMBED (atomic, one offset), so caret/click/selection/bidi reuse the inline-block
   leaf path with no tab-specific cursor code. The IFC resolves each tab's
-  position-dependent advance at the wrap-loop overflow-check seam (`nextStop`;
-  left/default-grid + bounded look-ahead for right/center/decimal) and freezes it
+  position-dependent advance at the wrap-loop overflow-check seam (`nextStop`, a
+  nearest-ahead min-scan over each stop's effective position; left/default-grid +
+  bounded look-ahead for right/center/decimal/content-edge — `content-edge`
+  right-aligns to the line content edge `lineInlineSize`, used by the generated TOC
+  entry page number) and freezes it
   onto a fixed-width inline-block box carrying `inlineMeta = {embedType:"tab"; leader}`;
   the `IFCState` cache gates on `tabStops`/`defaultTabStop` and a `hasTab` flag bypasses
   the incremental fast path. Pressing **Tab** inserts the embed (`INSERT_TAB`, discrete

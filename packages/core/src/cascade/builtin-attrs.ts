@@ -280,7 +280,7 @@ export const wordSpacingInterpreter: AttrInterpreter =
   makeLengthOrNormalInterpreter("wordSpacing");
 
 const TAB_ALIGNMENTS: ReadonlySet<TabAlignment> = new Set<TabAlignment>([
-  "left", "center", "right", "decimal",
+  "left", "center", "right", "decimal", "content-edge",
 ]);
 const LEADER_STYLES: ReadonlySet<LeaderStyle> = new Set<LeaderStyle>([
   "none", "dot", "dash", "line",
@@ -303,9 +303,11 @@ function coerceLeaderStyle(value: unknown): LeaderStyle {
  * is coerced into a closed `TabStop`: `position` clamped to `>= 0` (negative
  * stops are meaningless; CSS Text 4 disallows them), `alignment` defaulting to
  * `"left"` and `leader` to `"none"` when absent/invalid. The returned array is a
- * NEW array sorted ascending by `position` (the IFC tab-resolution pass and the
- * cache-hit gate rely on a canonical order). Non-array / non-object inputs
- * contribute nothing.
+ * NEW array sorted ascending by `position` — the cache-hit gate (`tabStopsEqual`)
+ * relies on this canonical order for its per-index comparison; the IFC advance pass
+ * uses a nearest-ahead min-scan (`nextStop`), so sort order is NOT load-bearing for
+ * advance correctness (and a `content-edge` stop's effective position diverges from
+ * its stored `position` anyway). Non-array / non-object inputs contribute nothing.
  */
 export const tabStopsInterpreter: AttrInterpreter = {
   attrKey: "tabStops",

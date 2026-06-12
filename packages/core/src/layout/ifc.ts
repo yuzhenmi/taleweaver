@@ -79,21 +79,33 @@ function tabStopsEqual(a: readonly TabStop[], b: readonly TabStop[]): boolean {
  * the stop's `leader`.
  *
  * Algorithm (Google-Docs / word-processor convergent model, spec §"The model"):
- *  - the explicit stop with the smallest `position > x`, if any; otherwise
+ *  - the explicit stop with the smallest EFFECTIVE position `> x`, if any;
+ *    otherwise
  *  - the next default-grid position `(floor(x / D) + 1) * D` — the smallest
  *    multiple of `D` strictly greater than `x`.
  *
- * `tabStops` is assumed sorted ascending (the cascade interpreter sorts on
- * write), so the first stop with `position > x` is the nearest.
+ * A stop's EFFECTIVE position is its `position`, except a `content-edge` stop —
+ * whose destination is the line's content edge (`contentEdge`), not its stored
+ * `position` (which is `0` so the synthesized stop sorts first). Because a
+ * content-edge stop's effective position diverges from its array order, this no
+ * longer relies on the sorted-array "first match wins" assumption: it does a
+ * NEAREST-AHEAD min-scan (smallest effective position `> x`). For all-regular
+ * sorted stops this is behavior-identical to first-in-sorted-order.
  */
 function nextStop(
   x: number,
   tabStops: readonly TabStop[],
   defaultTabStop: number,
+  contentEdge: number,
 ): { position: number; stop: TabStop | null } {
+  let best: { position: number; stop: TabStop } | null = null;
   for (const stop of tabStops) {
-    if (stop.position > x) return { position: stop.position, stop };
+    const effective = stop.alignment === "content-edge" ? contentEdge : stop.position;
+    if (effective > x && (best === null || effective < best.position)) {
+      best = { position: effective, stop };
+    }
   }
+  if (best !== null) return best;
   // No explicit stop right of the pen → next default-grid multiple. Guard a
   // non-positive `D` (defensive — the cascade default is 48) so we always make
   // forward progress.
@@ -2245,12 +2257,18 @@ export function layoutInlineContent(
         currentWidth,
         parentCs.tabStops,
         parentCs.defaultTabStop,
+        lineInlineSize,
       );
       const remaining = lineInlineSize - currentWidth;
       const alignment = stop?.alignment ?? "left";
 
       let rawAdvance: number;
-      if (alignment === "right" || alignment === "center" || alignment === "decimal") {
+      if (
+        alignment === "right" ||
+        alignment === "center" ||
+        alignment === "decimal" ||
+        alignment === "content-edge"
+      ) {
         // Bounded look-ahead: walk the units AFTER the tab (unitQueue[uqi..]),
         // stopping at the next tab unit (exclusive), the end of the queue, or
         // when the running sum would exceed the line's remaining budget (so a
@@ -2302,7 +2320,10 @@ export function layoutInlineContent(
         // the full segment width; center → half the segment width. Decimal with
         // no on-line `.` falls back to right (`dOff = segmentWidth`).
         let offset: number;
-        if (alignment === "right") {
+        if (alignment === "right" || alignment === "content-edge") {
+          // content-edge behaves like right (segment END at the destination),
+          // but `stopX` is the line content edge (`lineInlineSize`), not a stored
+          // px stop — so the segment's right edge lands at the content edge.
           offset = segmentWidth;
         } else if (alignment === "center") {
           offset = segmentWidth / 2;

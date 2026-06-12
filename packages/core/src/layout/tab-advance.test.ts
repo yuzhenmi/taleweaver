@@ -273,6 +273,65 @@ describe("tab-stops S6 — decimal alignment (first '.' on the stop; right fallb
   });
 });
 
+describe("tab-stops — content-edge alignment (right-aligns the segment to the line's content edge)", () => {
+  // A content-edge tab is the TOC primitive: "Heading"<tab>"12" places "12"
+  // flush to the line's content edge (the right margin). The stop is synthesized
+  // with `position: 0` (so it sorts first in the ascending tabStops array), but
+  // its EFFECTIVE destination is the line's content width.
+  //
+  // Mock shaper CHAR_W = 8. pageInlineSize = 500 (zero margins) → content edge
+  // W = 500. Layout: "Heading"(7 chars → 56) + tab(content-edge) + "12"(16).
+  // The post-tab segment ("12") right edge must land at W=500 → "12" runs
+  // 484..500. The tab's destination is the content edge regardless of stored
+  // position, and the synthesized dot leader rides through.
+  const stops: readonly TabStop[] = [
+    { position: 0, alignment: "content-edge", leader: "dot" },
+  ];
+
+  function contentEdgeDoc(): { state: State; layout: LayoutBox } {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({
+          id: "doc",
+          type: "document",
+          firstChildId: "p",
+          lastChildId: "p",
+        }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          attrs: { tabStops: stops },
+          inlineContent: inlineContent([text("Heading"), embed("tab"), text("12")]),
+        }),
+      ],
+    });
+    const renderOutput = render(state, componentRegistry, attrRegistry);
+    const laid = layoutTree(renderOutput.root, pageConfig.pageInlineSize, shaper, pageConfig);
+    return { state, layout: positionTreeForTest(laid) };
+  }
+
+  it("places the post-tab segment ('12') flush to the line's content edge", () => {
+    const { state, layout } = contentEdgeDoc();
+    // "Heading" = offset 0..7, tab = offset 7..8, "12" = offset 8..10.
+    // The caret just before "12" (offset 8) sits at the segment start; the caret
+    // after "12" (offset 10) sits at the content edge W=500.
+    // "12" width = 16 → starts at 500 − 16 = 484.
+    expect(caretX(state, "p", 8, layout)).toBe(484); // "12" starts at 484
+    expect(caretX(state, "p", 10, layout)).toBe(500); // "12" ends at the content edge
+  });
+
+  it("stamps the content-edge stop's leader ('dot') onto the resolved tab box", () => {
+    const { layout } = contentEdgeDoc();
+    const tabBox = collectByType(layout, "inline-block")
+      .filter((b): b is InlineBlockBox => b.type === "inline-block")
+      .find((b) => b.inlineMeta?.embedType === "tab");
+    expect(tabBox).toBeDefined();
+    expect(tabBox?.inlineMeta?.leader).toBe("dot");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // S8 — justify suppression + RTL logical-inline advance
 // ---------------------------------------------------------------------------
