@@ -16,6 +16,7 @@ import { measurePassUnsupported } from "./measure-pass";
 import { buildVirtualPaginatedTree } from "./virtual-producer";
 import type { VirtualLayoutTree } from "./virtual-layout-tree";
 import { EMPTY_FOOTNOTE_ANCHORS, type FootnoteAnchorRef } from "../footnotes";
+import type { BlockParentLookup } from "./page-of-field-target";
 
 /** Empty cascaded-template-body map default (no header/footer bodies). */
 const EMPTY_TEMPLATE_CONTENTS: ReadonlyMap<BlockId, ElementBox> = new Map();
@@ -49,6 +50,7 @@ export function layoutTree(
   // caller (tests, resize) byte-identical.
   cascadedEmbedContents: ReadonlyMap<BlockId, ElementBox> = EMPTY_EMBED_CONTENTS,
   footnoteAnchors: readonly FootnoteAnchorRef[] = EMPTY_FOOTNOTE_ANCHORS,
+  parentOf?: BlockParentLookup,
 ): LayoutBox | VirtualLayoutTree {
   const t = markStart("layoutTree");
   try {
@@ -86,6 +88,7 @@ export function layoutTree(
           : buildVirtualPaginatedTree(
               layoutRoot, ctx, shaper, pageConfig, undefined,
               cascadedTemplateContents, cascadedEmbedContents, footnoteAnchors,
+              parentOf,
             );
       } else {
         // Non-block root with pagination: layout without pagination for now.

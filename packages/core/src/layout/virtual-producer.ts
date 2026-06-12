@@ -22,6 +22,7 @@ import type { ElementBox } from "../render/render-node";
 import type { BlockId } from "../state";
 import type { FootnoteAnchorRef } from "../footnotes";
 import type { LayoutContext } from "./layout-context";
+import type { BlockParentLookup } from "./page-of-field-target";
 import type { TextShaper } from "./text-shaper";
 import type { PageConfig } from "./page-config";
 import { buildBlockFitMetas } from "./build-fit-metas";
@@ -79,6 +80,9 @@ const EMPTY_FIELD_WIDTHS: ReadonlyMap<string, number> = new Map();
  *   (`collectFootnoteAnchors`), consumed by `resolveFootnotes` (FN-4.3) to assign
  *   each footnote body to its page. Empty ⇒ `resolveFootnotes` is a ref-equal
  *   no-op (zero cost). Defaults to an empty array (no footnotes).
+ * @param parentOf optional nested-cross-ref-target lookup threaded into
+ *   `resolvePageFields` (block → parent block); absent ⇒ nested cross-ref
+ *   targets resolve as broken-ref, unchanged from today.
  */
 export function buildVirtualPaginatedTree(
   cascadedRoot: ElementBox,
@@ -89,6 +93,7 @@ export function buildVirtualPaginatedTree(
   cascadedTemplateContents: ReadonlyMap<BlockId, ElementBox> = new Map(),
   cascadedEmbedContents: ReadonlyMap<BlockId, ElementBox> = new Map(),
   footnoteAnchors: readonly FootnoteAnchorRef[] = [],
+  parentOf?: BlockParentLookup,
 ): VirtualLayoutTree {
   const margins = pageConfig.pageMargins;
   const pageContentInlineSize =
@@ -275,7 +280,7 @@ export function buildVirtualPaginatedTree(
       // drifts (the #494 drift class, here in the footnote re-fit).
       (inlineSize) => buildBlockFitMetas(patchedRoot, shaper, inlineSize),
     );
-    const resolved = resolvePageFields(plan, fieldSpecs, measurer);
+    const resolved = resolvePageFields(plan, fieldSpecs, measurer, parentOf);
     return {
       pageCount: plan.entries.length,
       maxValueWidthByKey: resolved.maxValueWidthByKey,

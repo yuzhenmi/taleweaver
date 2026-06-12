@@ -18,6 +18,7 @@ import { buildVirtualPaginatedTree } from "./virtual-producer";
 import type { VirtualLayoutTree } from "./virtual-layout-tree";
 import type { BlockId } from "../state";
 import { EMPTY_FOOTNOTE_ANCHORS, type FootnoteAnchorRef } from "../footnotes";
+import type { BlockParentLookup } from "./page-of-field-target";
 
 /** Empty cascaded-template-body map default (no header/footer bodies). */
 const EMPTY_TEMPLATE_CONTENTS: ReadonlyMap<BlockId, ElementBox> = new Map();
@@ -55,6 +56,7 @@ export function layoutTreeIncremental(
   // Defaults keep the many non-editor callers byte-identical.
   cascadedEmbedContents: ReadonlyMap<BlockId, ElementBox> = EMPTY_EMBED_CONTENTS,
   footnoteAnchors: readonly FootnoteAnchorRef[] = EMPTY_FOOTNOTE_ANCHORS,
+  parentOf?: BlockParentLookup,
 ): LayoutBox | VirtualLayoutTree {
   const t = markStart("layoutTreeIncremental");
   try {
@@ -122,7 +124,7 @@ export function layoutTreeIncremental(
         // never materialized. The prior VirtualLayoutTree (when there was one)
         // threads through as the carry-forward memo so unchanged pages reuse
         // their PageBox by ref.
-        result = buildVirtualPaginatedTree(layoutRoot, rootCtx, shaper, pageConfig, prevVirtual, cascadedTemplateContents, cascadedEmbedContents, footnoteAnchors);
+        result = buildVirtualPaginatedTree(layoutRoot, rootCtx, shaper, pageConfig, prevVirtual, cascadedTemplateContents, cascadedEmbedContents, footnoteAnchors, parentOf);
       } else {
         // Unsupported-feature fallback: legacy positioned page tree.
         // paginateRoot drives layoutBlock per page; pass rootCtx so the
