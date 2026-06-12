@@ -247,7 +247,7 @@ Known gaps:
   done: the canvas renderer reverses a run's cluster placement when
   `bidiLevel` is odd, so an RTL run's own glyphs read right-to-left. **RTL
   cursor / hit-test / selection / navigation** (P4-C.2) is done: the cursor
-  layer (`cursor/line-bidi.ts` `LineBidiView` + `caretXInLeaf` /
+  layer (`cursor/line-bidi.ts` `LineBidiView` + `caretInlineCoordInLeaf` /
   `offsetInLeaf` / `moveVisually` / `selectionRectsForLineRange`,
   `cursor/visual-motion.ts`, and `EditorState.caretAffinity` managed by
   `actionManagesCaretAffinity`) makes caret X, click→offset, boundary-
