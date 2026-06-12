@@ -664,15 +664,18 @@ and render placeholder have shipped; layout resolution + the editor surface rema
   atom (one cursor stop) carrying `metadata.{embedType, refMode: "page", targetId,
   numberStyle}`, bound late at materialize through the page-field convergence seam —
   exactly like `INSERT_PAGE_NUMBER`.
-- **Layout — field collection** (`1.5-pagination.md`): the layout-field `FieldSpec` is
+- **Layout — collect + resolve** (`1.5-pagination.md`): the layout-field `FieldSpec` is
   a discriminated union (`PageFieldSpec | CrossRefPageSpec`, discriminant `fieldType`);
   `collectPageFields` emits a `CrossRefPageSpec` (carrying the cross-ref `targetId`) for
-  each page-mode placeholder atom. `resolvePageFields` carries an interim `cross-ref-page`
-  no-op branch (no global value, no width entry — kept out of width-convergence) pending
-  the real target-page resolution.
-- **Remaining:** `resolvePageFields` target-page resolution (via `pageSpanOfBlock`),
-  `substituteLayoutFields` (rename + cross-ref branch), the convergence/fingerprint wiring
-  for main-body fields, and the `INSERT_CROSS_REFERENCE` editor surface for page mode.
+  each page-mode placeholder atom. `resolvePageFields` resolves a `cross-ref-page` to the
+  target block's 1-based FIRST page via `plan.pageSpanOfBlock(targetId)` (`span.first + 1`);
+  a target not in the plan (deeply nested, or deleted) resolves to the `""` broken-ref
+  sentinel with the width reserved for the broken-ref text. (v1 limitation: only top-level
+  blocks are indexed by `pageSpanOfBlock`; a nested target shows broken-ref — same as
+  footnote anchors.)
+- **Remaining:** `substituteLayoutFields` (rename + cross-ref branch — stamps the resolved
+  value / broken-ref text into the placeholder), the convergence/fingerprint wiring for
+  main-body fields, and the `INSERT_CROSS_REFERENCE` editor surface for page mode.
 
 Out of scope (named follow-ups): main-body / footnote-body page-fields (not creatable
 via the editor), table of contents.

@@ -1,9 +1,15 @@
 import type { TextMeasurer } from "./text-measurer";
 import type { FieldSpec } from "./collect-page-fields";
 import { formatCounter } from "../styles/format-counter";
+import { BROKEN_CROSS_REFERENCE_TEXT } from "../render/resolve-cross-reference";
 
 export interface ResolvedPageFields {
-  /** page-count (and later page-ref / TOC) → one value each, keyed by embedKey. */
+  /**
+   * One value each, keyed by embedKey: `page-count` (the total-pages value) and
+   * `cross-ref-page` (the target block's resolved page number, or `""` sentinel
+   * when the target is not in the plan → broken-ref at substitute). `page-number`
+   * carries NO entry here (it resolves per-page at materialize).
+   */
   readonly globalFieldValues: ReadonlyMap<string, string>;
   /**
    * Widest resolved display width per field (px) — for page-count the single
@@ -26,13 +32,23 @@ export interface ResolvedPageFields {
  *    last page: non-decimal styles are non-monotonic in width (lower-roman "viii" at
  *    page 8 is wider than "x" at page 10), and proportional fonts make even decimal
  *    widths non-monotonic. So the max is taken over EVERY page's value.
+ *  - `cross-ref-page` resolves to the target block's 1-based FIRST page number via
+ *    `plan.pageSpanOfBlock(targetId)` (`span.first + 1`). When the target is not in
+ *    the plan (`span === null` — e.g. a deeply nested block the top-level page index
+ *    doesn't cover), the value is the `""` broken-ref sentinel and the width covers
+ *    {@link BROKEN_CROSS_REFERENCE_TEXT} (what actually renders), so convergence
+ *    reserves enough room for the error text rather than under-reserving.
  *
- * Reads only `plan.entries.length`; the structural param type keeps test fixtures
- * from having to stub full `PagePlanEntry` objects. Each spec carries its own
- * `computedStyle`, so width measurement needs only a {@link TextMeasurer}.
+ * Reads `plan.entries.length` and (for `cross-ref-page` specs) `plan.pageSpanOfBlock`;
+ * the structural param type keeps test fixtures from having to stub full
+ * `PagePlanEntry` objects. Each spec carries its own `computedStyle`, so width
+ * measurement needs only a {@link TextMeasurer}.
  */
 export function resolvePageFields(
-  plan: { readonly entries: { readonly length: number } },
+  plan: {
+    readonly entries: { readonly length: number };
+    pageSpanOfBlock(blockKey: string): { readonly first: number; readonly last: number } | null;
+  },
   fieldSpecs: readonly FieldSpec[],
   measurer: TextMeasurer,
 ): ResolvedPageFields {
@@ -47,12 +63,27 @@ export function resolvePageFields(
       globalFieldValues.set(spec.embedKey, value);
       maxValueWidthByKey.set(spec.embedKey, measurer.measureWidth(value, spec.computedStyle));
     } else if (spec.fieldType === "cross-ref-page") {
-      // Interim (S3): target-page resolution lands in the resolve slice (S4). Until
-      // then we emit NO global value and NO width entry — the placeholder is left
-      // intact at substitute, and the absence of a `maxValueWidthByKey` entry keeps
-      // the field out of the width-convergence grow-and-retry (and out of the
-      // dev-mode `needed <= reserved` invariant). Falling into the page-number path
-      // here would fabricate a 1..N width that could spuriously trip that invariant.
+      // Resolve the cross-ref's value to the target block's 1-based FIRST page number.
+      // pageSpanOfBlock indexes only TOP-LEVEL root children (the measure pass's
+      // blockToSpan); a target that is a deeply nested block (inside a table cell or
+      // container) is not directly indexed → span === null → broken-ref. This is the
+      // documented v1 limitation (same as footnoteAnchorPageAssignment); a follow-up
+      // can walk the ancestor chain to the nearest indexed top-level block.
+      const span = plan.pageSpanOfBlock(spec.targetId);
+      if (span === null) {
+        // Target not found: store "" as the sentinel (substituteLayoutFields maps
+        // "" → BROKEN_CROSS_REFERENCE_TEXT, S5). The width must cover the broken-ref
+        // text since that is what actually renders — else convergence under-reserves.
+        globalFieldValues.set(spec.embedKey, "");
+        maxValueWidthByKey.set(
+          spec.embedKey,
+          measurer.measureWidth(BROKEN_CROSS_REFERENCE_TEXT, spec.computedStyle),
+        );
+      } else {
+        const value = formatCounter(span.first + 1, spec.numberStyle); // 1-based
+        globalFieldValues.set(spec.embedKey, value);
+        maxValueWidthByKey.set(spec.embedKey, measurer.measureWidth(value, spec.computedStyle));
+      }
     } else {
       // page-number: the value varies 1..totalPages and width is non-monotonic
       // (roman/proportional), so measure every page's value to get a TRUE upper

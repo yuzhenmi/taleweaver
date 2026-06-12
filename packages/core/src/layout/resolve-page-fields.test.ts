@@ -11,14 +11,19 @@ import { createMockShaper } from "./mock-shaper";
 import { adaptShaperToMeasurer } from "./text-measurer";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import { asBlockId } from "../state";
+import { BROKEN_CROSS_REFERENCE_TEXT } from "../render/resolve-cross-reference";
 
 // charWidth 8, lineHeight 16 (the mock-shaper convention from text-measurer.test.ts → "ab" = 16).
 const measurer = adaptShaperToMeasurer(createMockShaper(8, 16));
 const cs = INITIAL_COMPUTED_STYLE;
 
-// resolvePageFields reads only `plan.entries.length`, so a `{ length }` stub is type-correct.
-function fakePlan(pageCount: number): { entries: { length: number } } {
-  return { entries: { length: pageCount } };
+// resolvePageFields reads `plan.entries.length` and (for cross-ref-page) `plan.pageSpanOfBlock`,
+// so the stub provides both — `spans` lets a test inject a target block's page span.
+function fakePlan(
+  pageCount: number,
+  spans: Record<string, { first: number; last: number }> = {},
+): { entries: { length: number }; pageSpanOfBlock(key: string): { first: number; last: number } | null } {
+  return { entries: { length: pageCount }, pageSpanOfBlock: (key) => spans[key] ?? null };
 }
 
 function spec(fieldType: "page-number" | "page-count", embedKey = "h/inline/0", numberStyle: "decimal" | "lower-roman" = "decimal"): FieldSpec {
@@ -80,15 +85,30 @@ describe("resolvePageFields (F-1 resolution)", () => {
     expect(maxValueWidthByKey.size).toBe(2);
   });
 
-  it("cross-ref-page spec is an interim no-op: no global value and no width entry (kept out of convergence)", () => {
-    // S3 interim: the real target-page resolution lands in S4. Until then the
-    // cross-ref-page branch must emit NEITHER a global value NOR a width entry —
-    // the absence of a width entry is what keeps the field out of width-convergence
-    // and the dev-mode `needed <= reserved` invariant. A regression that fabricated
-    // a width here (e.g. by falling into the page-number path) would fail this.
-    const { globalFieldValues, maxValueWidthByKey } = resolvePageFields(fakePlan(5), [crossRefSpec()], measurer);
-    expect(globalFieldValues.has("blk/inline/0")).toBe(false);
-    expect(maxValueWidthByKey.has("blk/inline/0")).toBe(false);
+  it("resolves a cross-ref-page to the target's 1-based FIRST page number", () => {
+    const { globalFieldValues, maxValueWidthByKey } = resolvePageFields(
+      fakePlan(10, { tgt: { first: 4, last: 4 } }),
+      [crossRefSpec()],
+      measurer,
+    );
+    expect(globalFieldValues.get("blk/inline/0")).toBe("5"); // span.first 4 → page 5
+    expect(maxValueWidthByKey.get("blk/inline/0")).toBe(measurer.measureWidth("5", cs));
+  });
+
+  it("resolves a cross-ref-page with a non-decimal numberStyle", () => {
+    // crossRefSpec hardcodes numberStyle "decimal"; build a lower-roman variant inline.
+    const spec: FieldSpec = {
+      embedKey: "blk/inline/0", host: "main", hostBlockId: asBlockId("blk"),
+      fieldType: "cross-ref-page", targetId: asBlockId("tgt"), numberStyle: "lower-roman", computedStyle: cs,
+    };
+    const { globalFieldValues } = resolvePageFields(fakePlan(10, { tgt: { first: 4, last: 4 } }), [spec], measurer);
+    expect(globalFieldValues.get("blk/inline/0")).toBe("v"); // formatCounter(5, "lower-roman")
+  });
+
+  it("a cross-ref-page whose target is NOT in the plan resolves to broken-ref ('' global + broken-ref width)", () => {
+    const { globalFieldValues, maxValueWidthByKey } = resolvePageFields(fakePlan(10), [crossRefSpec()], measurer);
+    expect(globalFieldValues.get("blk/inline/0")).toBe("");
+    expect(maxValueWidthByKey.get("blk/inline/0")).toBe(measurer.measureWidth(BROKEN_CROSS_REFERENCE_TEXT, cs));
   });
 
   it("empty field set → empty maps", () => {
