@@ -37,6 +37,7 @@ export { handleToggleSectionLandscape } from "./toggle-section-landscape";
 export { handleSetSectionColumns } from "./set-section-columns";
 export { handleInsertHeaderFooter } from "./insert-header-footer";
 export { handleInsertHorizontalLine } from "./insert-horizontal-line";
+export { handleInsertTableOfContents } from "./insert-table-of-contents";
 export { handleInsertTable } from "./insert-table";
 export { handleInsertTableRow, handleInsertTableColumn, handleDeleteTableRow, handleDeleteTableColumn, handleDeleteTable, handleSplitCell, handleMergeCells } from "./table-edits";
 export { handleInsertImage } from "./insert-image";
