@@ -656,8 +656,9 @@ visual smoke ride the user's pass.
   body and footnote bodies (main-body page-fields are out of scope; the editor entry
   DIVERGES from the cross-reference handler's main-body-only gate). A "command" undo unit.
 
-**Page-number-mode cross-references `[partial]` (in flight).** The state vocabulary
-and render placeholder have shipped; layout resolution + the editor surface remain:
+**Page-number-mode cross-references `[implemented]`.** A `"page"`-mode cross-reference
+displays the target block's page number, resolved late from paginated layout and
+auto-updating as the target moves pages. Shipped end-to-end through every layer:
 - **State** (`1.1-state.md`): `CrossReferenceMode` extended to `"number" | "text" |
   "page"`; `insertCrossReference` carries a `numberStyle` for the `"page"` variant.
 - **Render** (`1.2-render.md`): the `"page"` branch emits a reserved-glyph placeholder
@@ -682,7 +683,10 @@ and render placeholder have shipped; layout resolution + the editor surface rema
   atom is sized identically on both sides (no cross-boundary content drift), then the real value is
   substituted; the per-page fingerprint folds the value into the page(s) hosting the ref so the host
   page re-materializes when the target moves. Field-free docs are byte-identical to the pre-feature path.
-- **Remaining:** the `INSERT_CROSS_REFERENCE` editor surface for page mode.
+- **Editing** (`1.7-editor.md`): `INSERT_CROSS_REFERENCE` with `refMode: "page"` (+ optional
+  `numberStyle`, default `"decimal"`) splices the page-ref at a main-body caret; the target must be
+  inline-bearing (a container has no single page — rejected, like `"text"` mode). The example-app
+  toolbar surfacing is a browser-gated UI follow-up.
 
 Out of scope (named follow-ups): main-body / footnote-body page-fields (not creatable
 via the editor), table of contents.

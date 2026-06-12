@@ -9,15 +9,17 @@ import {
   createSpan,
   type BlockId,
   type CrossReferenceMode,
+  type PageFieldNumberStyle,
 } from "../../state";
 import { rebuildTrees } from "./helpers";
 import { prepareEmbedInsertPoint } from "./selection-guards";
 
 /**
  * `INSERT_CROSS_REFERENCE` handler — splices a `cross-reference` EmbedItem at the
- * caret that displays the target's number (`refMode: "number"`) or text
- * (`refMode: "text"`), auto-updating when the target changes (XR.S4 wires the
- * incremental propagation).
+ * caret that displays the target's number (`refMode: "number"`), text
+ * (`refMode: "text"`), or PAGE number (`refMode: "page"`), auto-updating when the
+ * target changes (XR.S4 wires the number/text incremental propagation; page mode
+ * is resolved late from paginated layout — see `1.5-pagination.md`).
  *
  * **The S1 op TRUSTS its `targetId`** (validation deliberately lives here, not in
  * the Layer-3 op, mirroring how editor handlers gate structural preconditions).
@@ -35,8 +37,13 @@ import { prepareEmbedInsertPoint } from "./selection-guards";
  *  - the target is the WRONG KIND for the mode: `"number"` requires an ORDERED
  *    `list-item` (an unordered/bulleted item has no number — it would resolve to
  *    a bullet glyph, not a reference number, so it is rejected here rather than
- *    silently producing "•"); `"text"` requires an inline-bearing block (a
- *    container has no text to extract).
+ *    silently producing "•"); `"text"` and `"page"` require an inline-bearing
+ *    block (a container has no text to extract, and no single meaningful page —
+ *    its content spans pages). Any inline-bearing block has a deterministic page.
+ *
+ * `numberStyle` is honored for `"page"` mode (the displayed page number's format,
+ * default `"decimal"`); it is ignored by `"number"`/`"text"` (the S1 op stores it
+ * only for the `"page"` variant).
  *
  * A rejected insert is a silent no-op (the host app validates target choice in
  * its picker UI; this is the engine-level backstop).
@@ -54,6 +61,7 @@ export function handleInsertCrossReference(
   targetId: BlockId,
   refMode: CrossReferenceMode,
   config: EditorConfig,
+  numberStyle?: PageFieldNumberStyle,
 ): EditorState {
   const focus = editor.selection.focus;
 
@@ -78,7 +86,12 @@ export function handleInsertCrossReference(
         : undefined;
     if (def === undefined || classifyListDef(def) !== "ordered") return editor;
   }
-  if (refMode === "text" && target.inlineContent === null) return editor;
+  // "text" and "page" both require an inline-bearing target: "text" extracts the
+  // target's text, "page" needs a content block with a deterministic page (a
+  // container's content spans pages). Number-mode is gated above.
+  if ((refMode === "text" || refMode === "page") && target.inlineContent === null) {
+    return editor;
+  }
 
   // Delete a non-collapsed selection first (Google Docs replaces the selection),
   // then splice the field at the collapse point. A cross-context / cross-parent
@@ -91,7 +104,15 @@ export function handleInsertCrossReference(
   const prep = prepareEmbedInsertPoint(editor.state, editor.selection);
   if (!prep.ok) return editor;
 
-  const result = insertCrossReference(prep.state, prep.position, targetId, refMode);
+  const result = insertCrossReference(
+    prep.state,
+    prep.position,
+    targetId,
+    refMode,
+    // page mode stores numberStyle (default decimal); number/text ignore it (the op
+    // only persists numberStyle for the "page" variant).
+    refMode === "page" ? (numberStyle ?? "decimal") : "decimal",
+  );
   // Identity invariant: nothing changed (no delete AND a no-op insert) → return
   // the editor unchanged so the "no change → same reference" contract holds.
   if (result.state === prep.state && prep.dirtyIds.size === 0) return editor;

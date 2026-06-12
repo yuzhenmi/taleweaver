@@ -203,6 +203,69 @@ describe("handleInsertCrossReference — INSERT_CROSS_REFERENCE", () => {
     expect(crossRefsOf(out, hostId)).toHaveLength(0);
   });
 
+  it("inserts a page-mode reference (default decimal numberStyle) and places the caret after it", () => {
+    const doc = stateWithTwoParagraphs();
+    const targetId = firstChildId(doc.state); // an inline-bearing paragraph
+    if (targetId === null) throw new Error("no target paragraph");
+    const hostId = doc.selection.focus.blockId;
+    const offsetBefore = doc.selection.focus.offset;
+
+    const out = reduceEditor(
+      doc,
+      { type: "INSERT_CROSS_REFERENCE", targetId, refMode: "page" },
+      config,
+    );
+
+    // The embed carries refMode "page" and the default "decimal" numberStyle.
+    const items = getBlock(out.state, hostId)?.inlineContent?.items ?? [];
+    const embed = items.find(
+      (it) => it.kind === "embed" && it.embedType === CROSS_REFERENCE_EMBED_TYPE,
+    );
+    expect(embed?.kind).toBe("embed");
+    if (embed?.kind !== "embed") throw new Error("no cross-ref embed");
+    expect(embed.properties.refMode).toBe("page");
+    expect(embed.properties.targetId).toBe(targetId);
+    expect(embed.properties.numberStyle).toBe("decimal");
+    // Caret one unit past the one-offset-unit field.
+    expect(out.selection.focus.offset).toBe(offsetBefore + 1);
+    expect(out.selection.anchor).toEqual(out.selection.focus);
+  });
+
+  it("stores a non-default numberStyle for a page-mode reference", () => {
+    const doc = stateWithTwoParagraphs();
+    const targetId = firstChildId(doc.state);
+    if (targetId === null) throw new Error("no target paragraph");
+    const hostId = doc.selection.focus.blockId;
+
+    const out = reduceEditor(
+      doc,
+      { type: "INSERT_CROSS_REFERENCE", targetId, refMode: "page", numberStyle: "upper-roman" },
+      config,
+    );
+
+    const items = getBlock(out.state, hostId)?.inlineContent?.items ?? [];
+    const embed = items.find(
+      (it) => it.kind === "embed" && it.embedType === CROSS_REFERENCE_EMBED_TYPE,
+    );
+    if (embed?.kind !== "embed") throw new Error("no cross-ref embed");
+    expect(embed.properties.numberStyle).toBe("upper-roman");
+  });
+
+  it("rejects a page-mode reference to a container target (no inline content → no-op)", () => {
+    // The root block is a main-tree container (holds blocks, not inline items), so
+    // `inlineContent === null` — page mode (like text mode) requires an inline-bearing
+    // target with a deterministic page, and rejects a container.
+    const doc = stateWithTwoParagraphs();
+    const hostId = doc.selection.focus.blockId;
+
+    const out = reduceEditor(
+      doc,
+      { type: "INSERT_CROSS_REFERENCE", targetId: doc.state.rootId, refMode: "page" },
+      config,
+    );
+    expect(crossRefsOf(out, hostId)).toHaveLength(0); // nothing inserted
+  });
+
   it("rejects a reference attempted inside a footnote body (body-text only)", () => {
     // Insert a footnote — the caret lands in the footnote body paragraph.
     let doc = createInitialEditorState(config);

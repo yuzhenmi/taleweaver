@@ -503,7 +503,13 @@ export function reduceEditor(
       result = handleInsertFootnote(editor, config);
       break;
     case "INSERT_CROSS_REFERENCE":
-      result = handleInsertCrossReference(editor, action.targetId, action.refMode, config);
+      result = handleInsertCrossReference(
+        editor,
+        action.targetId,
+        action.refMode,
+        config,
+        action.numberStyle,
+      );
       break;
     case "INSERT_PAGE_NUMBER":
       result = handleInsertPageField(editor, "page-number", action.numberStyle, config);
