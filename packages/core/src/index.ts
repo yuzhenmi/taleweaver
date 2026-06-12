@@ -328,6 +328,7 @@ export { resolvePositionFromPixel } from "./cursor/hit-test";
 export type { PixelPosition } from "./cursor/cursor-position";
 export { resolvePixelPosition } from "./cursor/cursor-position";
 export type { SelectionRect } from "./cursor/selection-geometry";
+export type { CaretAffinity } from "./cursor/line-bidi";
 export { computeSelectionRects, computeSelectionRectsForPage } from "./cursor/selection-geometry";
 export { getCommentRangeRects } from "./cursor/comment-rects";
 export { getSuggestionRangeRects } from "./cursor/suggestion-rects";

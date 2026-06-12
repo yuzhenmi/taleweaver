@@ -37,6 +37,7 @@ import {
   type TextMatch,
   type FindMatchesOptions,
   type Span,
+  type CaretAffinity,
 } from "@taleweaver/core";
 import { mapKeyEvent } from "./key-handler";
 import { FONT_CONFIG } from "./font-config";
@@ -325,6 +326,8 @@ export function createEditorController(
     span: Span,
     tree: VirtualLayoutTree,
     m: TextShaper | TextMeasurer,
+    anchorAffinity?: CaretAffinity,
+    focusAffinity?: CaretAffinity,
   ): SelectionRect[] {
     const start = spanStart(st, span);
     const end = spanEnd(st, span);
@@ -338,7 +341,9 @@ export function createEditorController(
     // union equals computeSelectionRects over the fully-materialized tree.
     for (let p = startPos.pageIndex; p <= endPos.pageIndex; p++) {
       rects.push(
-        ...computeSelectionRectsForPage(st, span, tree.getPage(p), p, startPos, endPos, m),
+        ...computeSelectionRectsForPage(
+          st, span, tree.getPage(p), p, startPos, endPos, m, anchorAffinity, focusAffinity,
+        ),
       );
     }
     return rects;
@@ -937,6 +942,7 @@ export function createEditorController(
       const pageSelRects = (perPageSel && pgStart !== null && pgEnd !== null)
         ? computeSelectionRectsForPage(
             st.state, st.selection, page, idx, pgStart, pgEnd, measurer,
+            st.anchorAffinity, st.caretAffinity,
           )
         : selectionRects.filter((r) => r.pageIndex === idx);
 
@@ -1729,6 +1735,7 @@ export function createEditorController(
           // virtual tree (per-page, never the whole tree).
           selectionRects = selectionRectsAcrossPages(
             state.state, state.selection, layoutTree, measurer,
+            state.anchorAffinity, state.caretAffinity,
           );
         } else {
           selStart = resolvePixelPosition(state.state, start, layoutTree, measurer, state.caretPageHint);
@@ -1736,7 +1743,10 @@ export function createEditorController(
           // rects computed per-page in paintPages from selStart/selEnd
         }
       } else {
-        selectionRects = computeSelectionRects(state.state, state.selection, layoutTree, measurer);
+        selectionRects = computeSelectionRects(
+          state.state, state.selection, layoutTree, measurer,
+          state.anchorAffinity, state.caretAffinity,
+        );
       }
     }
     markEnd("ctrl.selectionRects", tSel);
