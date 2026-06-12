@@ -3,6 +3,7 @@ import type { ElementBox } from "../render/render-node";
 import type { ComputedStyle, WhiteSpace, TabStop, LeaderStyle } from "../styles";
 import type { LayoutBox, LineBox, InlineBox, BlockBox } from "./layout-box";
 import type { BlockId } from "../state";
+import { HARD_BREAK_EMBED_TYPE } from "../state";
 import { createInlineBox, createInlineBlockBox, createLineBox, createTextRunBox, withInlineOffset, withBlockOffset, assertLayoutBoxConsistent, createBlockBox } from "./layout-box";
 import type { FragmentationContext, LayoutResult } from "./fragmentation";
 import type { TextShaper } from "./text-shaper";
@@ -128,7 +129,9 @@ export function preservesWhitespace(ws: WhiteSpace): boolean {
 interface Token {
   /** Stable identifier for this token. Format: "{sourceKey}:{offset}" for text tokens
    * (where offset is the character index within the source text node where the token starts);
-   * "{sourceKey}" for atomic tokens (inline-blocks); "{sourceKey}:lb" for hard-break tokens. */
+   * "{sourceKey}:lb" for text `\n` LINE_BREAK tokens; "{sourceKey}" for atomic
+   * inline-block tokens AND embed-derived isLineBreak tokens (hard-break, where the
+   * key is the hard-break embed ElementBox key). */
   id: string;
   /** Key of the source TextBox (render node) — used for layout key tracing. */
   sourceKey: string;
@@ -952,6 +955,33 @@ function collectInlineTokens(
       const ibBase = asm.source.length;
       asm.source += OBJECT_REPLACEMENT;
       asm.runs.push({ start: ibBase, end: ibBase + OBJECT_REPLACEMENT.length, whiteSpace: cs.whiteSpace });
+      // A `<br>` / hard-break embed is a FORCED line break (CSS `<br>`; Google
+      // Docs Shift+Enter). render-core emits it as a zero-width, child-less
+      // inline-block atom; the IFC recognizes it via `metadata.embedType`
+      // (the same hook the `tab` embed uses below) and emits a forced-break
+      // unit — structurally identical to the `\n` LINE_BREAK token: width 0,
+      // sourceLength 1 (one cursor unit), no `inlineBlock` payload. The wrap
+      // loop already flushes the line on `isLineBreak` units. Emitted AFTER the
+      // OBJECT REPLACEMENT char is appended to `asm.source` (so UAX #14
+      // break-opportunity accounting on adjacent text is unaffected) but BEFORE
+      // `layoutBlock` (the zero-child embed's BFC layout is wasted work).
+      if (child.metadata?.embedType === HARD_BREAK_EMBED_TYPE) {
+        out.push({
+          id: child.key,
+          sourceKey: child.key,
+          text: "",
+          sourceLength: 1,
+          absoluteSourceBase: ibBase,
+          width: 0,
+          style: cs,
+          isSpace: false,
+          isLineBreak: true,
+          inlineAncestors: ancestors,
+          inlineAncestorStyles: ancestorStyles,
+        });
+        asm.tokenBases.push(ibBase);
+        continue; // skip the inline-block layoutBlock + atomic-token push
+      }
       // Resolve inlineSize using intrinsic sizes for auto (shrink-to-fit, CSS Sizing 3 §10.3.5).
       // cs.inlineSize: ComputedLengthOrAuto | IntrinsicSizingKeyword =
       //   number | { unit: "percent"; value } | "auto" | "min-content" | "max-content" | "fit-content".
@@ -1561,6 +1591,23 @@ export function layoutInlineContent(
   // collapsed run.
   let cursorOffset = 0;
   let currentLineStartOffset = -1;
+  // Tracks whether the most-recently-consumed unit was a forced line break
+  // (`\n` LINE_BREAK or a hard-break embed) with no content unit after it.
+  // A forced break that TERMINATES the inline content must still leave an
+  // empty trailing line (CSS `<br>`/Google-Docs Shift+Enter: a trailing
+  // forced break opens a new, empty line the caret can land on). Two cases
+  // drive this differently:
+  //  - `pre`/`pre-wrap` "A\n": the tokenizer supplies a trailing empty text
+  //    token (`["A", LINE_BREAK, ""]`) which flushes that line itself, so
+  //    `lastUnitWasForcedBreak` is false there (the empty token cleared it
+  //    via `pushUnit`) — the post-loop flag flush does NOT fire (no double
+  //    emit).
+  //  - `pre-line` "A\n" AND a terminal hard-break embed: NO trailing empty
+  //    token is produced (`pre-line` tokenizes to `["A", LINE_BREAK]`, the
+  //    embed has no text node at all), so `lastUnitWasForcedBreak` stays true
+  //    and the post-loop flag flush below IS the mechanism that emits the
+  //    trailing empty line.
+  let lastUnitWasForcedBreak = false;
 
   /**
    * Try to split `unit` at a hyphen break opportunity so that the prefix
@@ -2062,6 +2109,7 @@ export function layoutInlineContent(
     cursorOffset += unitOffsetContribution(unit);
     currentUnits.push(unit);
     currentWidth += unit.totalWidth;
+    lastUnitWasForcedBreak = false;
   }
 
   // Strut line (CSS line-box semantics): an inline-bearing block with no
@@ -2160,6 +2208,7 @@ export function layoutInlineContent(
       cursorOffset += unitOffsetContribution(unit);
       // Hard-break-terminated line is NOT justified (P3, CSS Text 3 §7.3).
       flushLine(lineInlineCursor, lineInlineSize, pendingHyphen, /* noJustify */ true);
+      lastUnitWasForcedBreak = true;
       continue;
     }
 
@@ -2430,6 +2479,16 @@ export function layoutInlineContent(
   if (currentUnits.length > 0) {
     const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0);
     // Final flush — the last/only line of the paragraph is NOT justified (P3).
+    flushLine(lineInlineCursor, lineInlineSize, pendingHyphen, /* noJustify */ true);
+  } else if (lastUnitWasForcedBreak) {
+    // The inline content ENDED on a forced break (hard-break embed) with no
+    // content after it. Emit the empty trailing line the break opens, so the
+    // caret-after-the-break has a line box to attach to (CSS `<br>` /
+    // Google-Docs Shift+Enter; mirrors the `\n`-text path, where the
+    // tokenizer's trailing empty token produces this line). `flushLine`
+    // handles the empty case — `currentUnits` is empty, so it anchors the
+    // line at `cursorOffset` (start === end, zero source chars).
+    const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0);
     flushLine(lineInlineCursor, lineInlineSize, pendingHyphen, /* noJustify */ true);
   }
 

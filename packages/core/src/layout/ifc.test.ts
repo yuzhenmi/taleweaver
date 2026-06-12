@@ -11,6 +11,7 @@ import type { ComputedStyle } from "../styles";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import type { Direction } from "../styles/writing-mode";
 import { makeRootContext } from "./layout-context";
+import { HARD_BREAK_EMBED_TYPE } from "../state";
 
 const shaper = createMockShaper(8, 16);
 
@@ -2299,7 +2300,10 @@ describe("Token IDs — stability", () => {
     expect(tokens[0].inlineBlock).toBeDefined();
   });
 
-  it("hard-break token gets id = sourceKey:lb", () => {
+  it("text \\n LINE_BREAK token gets id = sourceKey:lb (pre mode)", () => {
+    // NOTE: this is the TEXT `\n` line-break path — its token id is `{sourceKey}:lb`.
+    // An embed-derived hard-break (`<br>`) token uses `id = {embed key}` (no `:lb`
+    // suffix) — see the "IFC — hard-break embed forced line break" describe block.
     const tree = cascadePass(
       createElementBox("p", { display: "block", whiteSpace: "pre" }, [
         createTextBox("t", {}, "line one\nline two"),
@@ -3364,5 +3368,109 @@ describe("IFC — overflow-wrap: break-word (OW.S2)", () => {
       expect(Number.isFinite(l.inlineOffsetStart)).toBe(true);
       expect(Number.isFinite(l.inlineOffsetEnd)).toBe(true);
     }
+  });
+});
+
+describe("IFC — hard-break embed forced line break", () => {
+  // A `<br>` decodes to a hard-break embed, which render-core emits as a
+  // zero-width, child-less inline-block ElementBox carrying
+  // `metadata.embedType === HARD_BREAK_EMBED_TYPE`. The IFC must turn that into
+  // a FORCED line break (isLineBreak unit) — mirroring the `\n` LINE_BREAK and
+  // the `tab` embed metadata recognition — NOT an ordinary atomic token.
+
+  // Build an inline-block hard-break embed exactly the way render-core does:
+  // display:inline-block, inlineSize 0, no children, embedType metadata.
+  function hardBreak(key: string) {
+    return createElementBox(
+      key,
+      { display: "inline-block", inlineSize: 0 },
+      [],
+      { embedType: HARD_BREAK_EMBED_TYPE },
+    );
+  }
+
+  function lineText(line: import("./layout-box").LineBox): string {
+    const out: { x: number; text: string }[] = [];
+    const walk = (boxes: readonly import("./layout-box").LayoutBox[]) => {
+      for (const b of boxes) {
+        if (b.type === "text-run") out.push({ x: b.x, text: b.text });
+        else if (b.type === "inline") walk(b.children);
+      }
+    };
+    walk(line.children);
+    out.sort((a, b) => a.x - b.x);
+    return out.map((l) => l.text).join("");
+  }
+
+  function linesOfChildren(children: readonly import("../render/render-node").RenderNode[]) {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, children),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    return out.children.filter((c): c is import("./layout-box").LineBox => c.type === "line");
+  }
+
+  it("A<br>B lays out as TWO lines: A on line 0, B on line 1", () => {
+    const lines = linesOfChildren([
+      createTextBox("ta", {}, "A"),
+      hardBreak("br"),
+      createTextBox("tb", {}, "B"),
+    ]);
+    expect(lines).toHaveLength(2);
+    const l0 = lineText(lines[0]);
+    const l1 = lineText(lines[1]);
+    expect(l0).toContain("A");
+    expect(l0).not.toContain("B");
+    expect(l1).toContain("B");
+  });
+
+  it("A<br><br>B lays out as THREE lines (A, empty, B) with offset continuity", () => {
+    const lines = linesOfChildren([
+      createTextBox("ta", {}, "A"),
+      hardBreak("br1"),
+      hardBreak("br2"),
+      createTextBox("tb", {}, "B"),
+    ]);
+    expect(lines).toHaveLength(3);
+    // Offset continuity across all lines (each line resumes where the last ended).
+    for (let i = 1; i < lines.length; i++) {
+      expect(lines[i].inlineOffsetStart).toBe(lines[i - 1].inlineOffsetEnd);
+    }
+    // Total source length: A=1, br=1, br=1, B=1 ⇒ 4.
+    expect(lines[0].inlineOffsetStart).toBe(0);
+    expect(lines[lines.length - 1].inlineOffsetEnd).toBe(4);
+  });
+
+  it("a lone hard-break embed still forces a second line (2 line boxes)", () => {
+    const lines = linesOfChildren([hardBreak("br")]);
+    expect(lines).toHaveLength(2);
+  });
+
+  it("pre-line 'A\\n' (text LINE_BREAK, no trailing empty token) also opens a trailing empty line", () => {
+    // The trailing-empty-line flag mechanism that the hard-break embed relies on
+    // ALSO drives the `pre-line` text path: `tokenize("A\n", "pre-line")` yields
+    // ["A", LINE_BREAK] with NO trailing "" segment, so the post-loop flag flush
+    // is what opens the empty second line (the caret-after-the-break needs it).
+    // (`pre`/`pre-wrap` get this from the tokenizer's trailing "" token instead.)
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", whiteSpace: "pre-line" }, [
+        createTextBox("t", {}, "A\n"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    if (r.box === null || r.box.type !== "block") throw new Error("?");
+    const lines = r.box.children.filter(
+      (c): c is import("./layout-box").LineBox => c.type === "line",
+    );
+    expect(lines).toHaveLength(2);
+    expect(lineText(lines[0])).toContain("A");
+    // The trailing empty line carries no glyphs and resumes at the prior end.
+    expect(lineText(lines[1])).toBe("");
+    expect(lines[1].inlineOffsetStart).toBe(lines[0].inlineOffsetEnd);
   });
 });
