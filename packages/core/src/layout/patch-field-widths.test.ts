@@ -6,7 +6,7 @@
 // of substituting text.
 
 import { describe, it, expect } from "vitest";
-import { patchFieldWidths } from "./patch-field-widths";
+import { patchFieldWidths, patchRootFieldWidths } from "./patch-field-widths";
 import { cascadePass } from "../cascade";
 import { createElementBox, createTextBox } from "../render/render-node";
 import type { ElementBox } from "../render/render-node";
@@ -17,6 +17,16 @@ function pageFieldAtom(embedKey: string): ElementBox {
   return createElementBox(embedKey, { display: "inline-block" }, [createTextBox(`${embedKey}/0`, {}, "00")], {
     embedType: "page-field",
     fieldKind: "page-count",
+    numberStyle: "decimal",
+  });
+}
+
+/** A cascaded page-mode cross-reference placeholder atom (carries computedStyle after cascade). */
+function crossRefPageAtom(embedKey: string): ElementBox {
+  return createElementBox(embedKey, { display: "inline-block" }, [createTextBox(`${embedKey}/0`, {}, "00")], {
+    embedType: "cross-reference",
+    refMode: "page",
+    targetId: "tgt",
     numberStyle: "decimal",
   });
 }
@@ -116,5 +126,59 @@ describe("patchFieldWidths (F-3 §4.4 growth mechanism)", () => {
     // grow a DIFFERENT key
     const out = patchFieldWidths(templates, new Map([["other/inline/9", 99]]));
     expect(out.get(HDR)).toBe(body); // nothing matched ⇒ same body ref
+  });
+
+  it("overrides the inlineSize of a page-mode cross-reference placeholder atom", () => {
+    const para = createElementBox("xp", { display: "block" }, [
+      createTextBox("xp/inline/0", {}, "see page "),
+      crossRefPageAtom("xp/inline/1"),
+    ]);
+    const body = cascade([para]);
+    const origAtom = findByKey(body, "xp/inline/1");
+    if (origAtom === undefined) throw new Error("no atom");
+    const origInlineSize = origAtom.computedStyle?.inlineSize;
+    const templates = new Map<BlockId, ElementBox>([[HDR, body]]);
+
+    const out = patchFieldWidths(templates, new Map([["xp/inline/1", 18]]));
+    const outBody = out.get(HDR);
+    if (outBody === undefined) throw new Error("no body");
+    const outAtom = findByKey(outBody, "xp/inline/1");
+    if (outAtom === undefined) throw new Error("no out atom");
+    expect(outAtom.computedStyle?.inlineSize).toBe(18);
+    // the original atom is untouched (frozen input, no mutation)
+    expect(origAtom.computedStyle?.inlineSize).toBe(origInlineSize);
+    expect(origInlineSize).not.toBe(18);
+  });
+});
+
+describe("patchRootFieldWidths (R-F1 main-body analogue)", () => {
+  it("returns the SAME root ref when grownWidths is empty (no work)", () => {
+    const root = cascade([crossRefPageAtom("body/inline/0")]);
+    expect(patchRootFieldWidths(root, new Map())).toBe(root);
+  });
+
+  it("patches a nested main-body cross-ref-page atom and identity-preserves siblings", () => {
+    const hostPara = createElementBox("host", { display: "block" }, [
+      createTextBox("host/inline/0", {}, "see page "),
+      crossRefPageAtom("host/inline/1"),
+    ]);
+    const siblingPara = createElementBox("sib", { display: "block" }, [createTextBox("sib/inline/0", {}, "plain")]);
+    const root = cascade([siblingPara, hostPara]);
+    const origAtom = findByKey(root, "host/inline/1");
+    const origSibling = findByKey(root, "sib");
+    if (origAtom === undefined || origSibling === undefined) throw new Error("no node");
+    const origInlineSize = origAtom.computedStyle?.inlineSize;
+
+    const out = patchRootFieldWidths(root, new Map([["host/inline/1", 22]]));
+    // a descendant changed ⇒ the root is a fresh clone
+    expect(out).not.toBe(root);
+    const outAtom = findByKey(out, "host/inline/1");
+    if (outAtom === undefined) throw new Error("no out atom");
+    expect(outAtom.computedStyle?.inlineSize).toBe(22);
+    // the untouched sibling subtree keeps its identity (structural sharing)
+    expect(findByKey(out, "sib")).toBe(origSibling);
+    // the original atom is untouched (frozen input, no mutation)
+    expect(origAtom.computedStyle?.inlineSize).toBe(origInlineSize);
+    expect(origInlineSize).not.toBe(22);
   });
 });
