@@ -1,6 +1,7 @@
 import type { EditorState, EditorConfig } from "../editor-state";
 import {
   createSpan,
+  positionsEqual,
   type Position,
 } from "../../state";
 import { expandSelection } from "../../cursor/cursor-ops";
@@ -9,7 +10,7 @@ import {
   adaptShaperToMeasurer,
   type TextMeasurer,
 } from "../../layout/text-measurer";
-import { buildLineBidiView, moveVisually } from "../../cursor/line-bidi";
+import { buildLineBidiView, moveVisually, type CaretAffinity } from "../../cursor/line-bidi";
 import {
   resolveLineForPosition,
   buildBlockGraphemeStepper,
@@ -47,6 +48,18 @@ export function handleExpandSelection(
   const { selection } = editor;
   const visualDir = direction === "forward" ? "right" : "left";
 
+  // Anchor-affinity seed/persist (#503): on the collapse→extend transition the
+  // anchor inherits the caret's bidi-boundary side; on continued extension it
+  // persists. Depends only on `selection` + `editor`, so it is computed BEFORE the
+  // null-line check (the in-line and visual-exit paths thread this value; the
+  // defensive null-line fallback passes `undefined` — there's no resolvable line,
+  // so no meaningful anchor affinity). Slice 5 reads it for geometry; slice 4 only
+  // makes the seed value correct, so behavior is unchanged.
+  const isCollapsed = positionsEqual(selection.anchor, selection.focus);
+  const newAnchorAffinity: CaretAffinity | undefined = isCollapsed
+    ? editor.caretAffinity // seed from the caret's boundary side on first extend
+    : editor.anchorAffinity; // persist on continued extension
+
   const measurer: TextMeasurer = isTextShaper(config.measurer)
     ? adaptShaperToMeasurer(config.measurer)
     : config.measurer;
@@ -59,8 +72,9 @@ export function handleExpandSelection(
     editor.caretPageHint,
   );
   if (line === null) {
-    // No resolvable line (defensive). Fall back to the logical focus-extension.
-    return logicalExtend(editor, direction);
+    // No resolvable line (defensive). Fall back to the logical focus-extension;
+    // clear anchorAffinity (no resolvable line → no meaningful anchor affinity).
+    return logicalExtend(editor, direction, undefined);
   }
 
   const view = buildLineBidiView(line);
@@ -79,7 +93,7 @@ export function handleExpandSelection(
     // TODO(C.2.7 browser-confirm): when the ADJACENT line's direction differs
     // from this line's, its visual edge may not coincide with the logical-motion
     // target; confirm cross-line bidi motion against Google Docs.
-    return logicalExtend(editor, result.exitLogicalDir);
+    return logicalExtend(editor, result.exitLogicalDir, newAnchorAffinity);
   }
 
   const newFocus: Position = { blockId: selection.focus.blockId, offset: result.offset };
@@ -87,18 +101,28 @@ export function handleExpandSelection(
     ...editor,
     selection: createSpan(selection.anchor, newFocus),
     caretAffinity: result.caretAffinity,
+    anchorAffinity: newAnchorAffinity,
   };
 }
 
 /**
  * Extend the focus via the existing LOGICAL `expandSelection` (anchor fixed),
- * clearing affinity (a logical extension crosses line/block edges, not a
- * within-line bidi boundary).
+ * clearing the FOCUS affinity (a logical extension crosses line/block edges, not a
+ * within-line bidi boundary). The ANCHOR affinity (#503) is threaded by the
+ * caller: the visual-exit path persists the seeded/persisted `newAnchorAffinity`
+ * (the anchor is unchanged), while the defensive null-line path passes `undefined`
+ * (no resolvable line → no meaningful anchor affinity).
  */
 function logicalExtend(
   editor: EditorState,
   direction: "forward" | "backward",
+  newAnchorAffinity: CaretAffinity | undefined,
 ): EditorState {
   const newSelection = expandSelection(editor.state, editor.selection, direction);
-  return { ...editor, selection: newSelection, caretAffinity: undefined };
+  return {
+    ...editor,
+    selection: newSelection,
+    caretAffinity: undefined,
+    anchorAffinity: newAnchorAffinity,
+  };
 }

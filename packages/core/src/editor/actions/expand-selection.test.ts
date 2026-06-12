@@ -292,6 +292,105 @@ describe("EditorState.anchorAffinity lifecycle (#503 slice 3)", () => {
   });
 });
 
+describe("EditorState.anchorAffinity seeding (#503 slice 4)", () => {
+  // Slice 4: handleExpandSelection SEEDS anchorAffinity on the collapse→extend
+  // transition (anchor inherits the caret's affinity) and PERSISTS it on continued
+  // extension. Nothing reads it for geometry yet (slice 5), so assert the seeded
+  // value directly on the resulting EditorState.
+
+  /** A collapsed caret at a bidi boundary with a known caretAffinity. */
+  function collapsedWithCaretAffinity(
+    editor: EditorState,
+    blockId: BlockId,
+    offset: number,
+    affinity: "before" | "after",
+    config: EditorConfig,
+  ): EditorState {
+    const seated = caretAt(editor, blockId, offset, config);
+    return { ...seated, caretAffinity: affinity };
+  }
+
+  it("seeds anchorAffinity from caretAffinity on the collapse→extend transition", () => {
+    // "abcאבג": a bidi boundary exists at offset 3. Start collapsed at offset 3
+    // with caretAffinity:"after"; the first EXPAND_SELECTION (isCollapsed) seeds
+    // anchorAffinity from the caret's boundary side.
+    const config = makeConfig();
+    let editor = type(createInitialEditorState(config), "abcאבג", config);
+    const pid = paragraphId(editor);
+    editor = collapsedWithCaretAffinity(editor, pid, 3, "after", config);
+    // sanity: still collapsed (the seed branch is gated on isCollapsed)
+    expect(editor.selection.anchor).toEqual(editor.selection.focus);
+    expect(editor.caretAffinity).toBe("after");
+
+    editor = expandLeft(editor, config);
+    expect(editor.anchorAffinity).toBe("after"); // seeded from the caret's "after"
+  });
+
+  it("persists the seeded anchorAffinity on a second (continued) extension", () => {
+    const config = makeConfig();
+    let editor = type(createInitialEditorState(config), "abcאבג", config);
+    const pid = paragraphId(editor);
+    editor = collapsedWithCaretAffinity(editor, pid, 3, "after", config);
+
+    editor = expandLeft(editor, config); // collapse→extend: seed "after"
+    expect(editor.anchorAffinity).toBe("after");
+    editor = expandLeft(editor, config); // continued extension: persist
+    expect(editor.anchorAffinity).toBe("after"); // unchanged (persist branch)
+  });
+
+  it("persists anchorAffinity on continued extension of an already-expanded selection", () => {
+    // Already-extended (isCollapsed = false), anchorAffinity:"before" preset →
+    // EXPAND_SELECTION takes the persist branch and leaves it untouched.
+    const config = makeConfig();
+    let editor = type(createInitialEditorState(config), "abcdef", config);
+    const pid = paragraphId(editor);
+    const sel = createSpan(createPosition(pid, 1), createPosition(pid, 3));
+    editor = reduceEditor(editor, { type: "SET_SELECTION", selection: sel }, config);
+    editor = { ...editor, anchorAffinity: "before" };
+
+    editor = expandRight(editor, config);
+    expect(editor.anchorAffinity).toBe("before"); // persisted (not re-seeded)
+  });
+
+  it("logicalExtend (visual-exit) persists anchorAffinity", () => {
+    // Drive the focus to the line's visual edge so the NEXT EXPAND_SELECTION exits
+    // the line and takes the logicalExtend path. On the mixed line "abcאבג" the
+    // 7-step sequence (mixed-LTR+RTL describe above) lands the focus at the Hebrew
+    // right edge (3/after); the 8th press exits the line → logicalExtend. We preset
+    // anchorAffinity:"after" via the collapse→extend seed and assert it survives the
+    // logicalExtend hop.
+    const config = makeConfig();
+    let editor = type(createInitialEditorState(config), "abcאבג", config);
+    const pid = paragraphId(editor);
+    editor = collapsedWithCaretAffinity(editor, pid, 0, "after", config);
+
+    // First expand seeds anchorAffinity from caretAffinity ("after").
+    editor = expandRight(editor, config);
+    expect(editor.anchorAffinity).toBe("after");
+    // Walk to the line's visual edge, then one more to exit (logicalExtend path).
+    for (let i = 0; i < 6; i++) editor = expandRight(editor, config);
+    editor = expandRight(editor, config); // exits the line → logicalExtend
+    // caretAffinity cleared by the logical fallback; anchorAffinity persisted.
+    expect(editor.caretAffinity).toBeUndefined();
+    expect(editor.anchorAffinity).toBe("after");
+  });
+
+  it("pure-LTR collapse→extend seeds anchorAffinity = undefined (path stays dormant)", () => {
+    // A collapsed caret in pure-LTR text has caretAffinity === undefined, so the
+    // seed copies undefined → anchorAffinity stays undefined. This is the
+    // transparency guarantee: slice 5's visual-extent path is gated on a defined
+    // affinity, so it never fires for pure-LTR selections.
+    const config = makeConfig();
+    let editor = type(createInitialEditorState(config), "abc", config);
+    const pid = paragraphId(editor);
+    editor = caretAt(editor, pid, 0, config); // caretAffinity undefined
+    expect(editor.caretAffinity).toBeUndefined();
+
+    editor = expandRight(editor, config);
+    expect(editor.anchorAffinity).toBeUndefined();
+  });
+});
+
 describe("EXPAND_SELECTION — affinity lifecycle", () => {
   it("sets the focus caretAffinity at a bidi boundary (survives the central reset)", () => {
     const config = makeConfig();
