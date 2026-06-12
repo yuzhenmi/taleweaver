@@ -3450,6 +3450,79 @@ describe("IFC — hard-break embed forced line break", () => {
     expect(lines).toHaveLength(2);
   });
 
+  // #504: real dialogue authored with `<br>` between call-and-response lines used
+  // to glue into long runs that broke mid-word under `overflow-wrap: break-word`
+  // in narrow (2-column) tracks. With the hard-break honored, each segment is
+  // short and wraps only at spaces — no emergency mid-word break.
+  function linesOfChildrenNarrow(
+    children: readonly import("../render/render-node").RenderNode[],
+    width: number,
+  ) {
+    const tree = cascadePass(
+      // overflowWrap is inherited, so setting it on the paragraph root cascades
+      // to the text children (mirrors the example seed inheriting it from the
+      // document root).
+      createElementBox("p", { display: "block", overflowWrap: "break-word" }, children),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    return out.children.filter((c): c is import("./layout-box").LineBox => c.type === "line");
+  }
+
+  it("real <br>-separated dialogue never breaks mid-word in a narrow break-word track (#504)", () => {
+    // The actual Little-Red-Riding-Hood call-and-response from the seed, modeled
+    // as text runs SEPARATED BY hard-break embeds (NOT glued plain text).
+    const lines = linesOfChildrenNarrow(
+      [
+        createTextBox("t0", {}, '"Oh, grandmother, what big ears you have!"'),
+        hardBreak("br0"),
+        createTextBox("t1", {}, '"All the better to hear you with, my child."'),
+        hardBreak("br1"),
+        createTextBox("t2", {}, '"But, grandmother, what big eyes you have!"'),
+        hardBreak("br2"),
+        createTextBox("t3", {}, '"All the better to see you with."'),
+        hardBreak("br3"),
+        createTextBox("t4", {}, '"But, grandmother, what big teeth you have!"'),
+        hardBreak("br4"),
+        createTextBox("t5", {}, '"All the better to eat you with!"'),
+      ],
+      // ~180px column track: at 8px/char each segment wraps over a couple of
+      // lines at spaces, but no single word (longest "grandmother," = 12 chars
+      // = 96px) ever needs an emergency mid-word break.
+      184,
+    );
+
+    // The breaks fired AND the segments wrapped: 6 segments forced onto their own
+    // line-groups, each wrapping over >1 line ⇒ well more than 6 lines. Guards
+    // against a vacuously-green single-line layout.
+    expect(lines.length).toBeGreaterThan(6);
+
+    // A line is split mid-word when its raw (UN-trimmed) text does not end in
+    // whitespace, ends in a letter, AND the next line starts with a letter — a
+    // word cut between two letters. The hard-break fix means this never happens.
+    const raw = lines.map((l) => lineText(l));
+    const midWordSplit = (texts: readonly string[]): boolean => {
+      for (let i = 0; i < texts.length - 1; i++) {
+        const cur = texts[i];
+        const next = texts[i + 1];
+        if (cur.length === 0 || next.length === 0) continue;
+        const endsInWhitespace = /\s$/.test(cur);
+        const endsInLetter = /[A-Za-z]$/.test(cur);
+        const nextStartsLetter = /^[A-Za-z]/.test(next);
+        if (!endsInWhitespace && endsInLetter && nextStartsLetter) return true;
+      }
+      return false;
+    };
+    expect(midWordSplit(raw)).toBe(false);
+
+    // Positive: a segment's opening quote stays attached to its first word at the
+    // start of that segment's first line (never split off) — '"But,' survives.
+    expect(raw.some((t) => t.startsWith('"But,'))).toBe(true);
+  });
+
   it("pre-line 'A\\n' (text LINE_BREAK, no trailing empty token) also opens a trailing empty line", () => {
     // The trailing-empty-line flag mechanism that the hard-break embed relies on
     // ALSO drives the `pre-line` text path: `tokenize("A\n", "pre-line")` yields

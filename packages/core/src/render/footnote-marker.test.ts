@@ -195,7 +195,7 @@ describe("render — footnote-anchor superscript marker", () => {
     expect(firstText(m2)).toBe(numbers.get("fn-b" as BlockId)?.formatted);
   });
 
-  it("a non-footnote embed (image/hard-break) is unaffected — still a zero-width, child-less inline-block", () => {
+  it("a non-footnote embed (image) is unaffected — still a zero-width, child-less inline-block", () => {
     const state = buildState({
       rootId: "doc",
       blocks: [
