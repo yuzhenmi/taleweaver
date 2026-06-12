@@ -355,6 +355,17 @@ export function createEditorController(
   let scrollAnimId = 0;
   let isDragging = false;
   let dragAnchor: Position | null = null;
+  // TOC click-to-navigate (live `table-of-contents` entry lines). A plain
+  // single click on an entry line navigates the caret to its heading; a DRAG
+  // past a small epsilon abandons nav and text-selects instead (Google Docs).
+  // The entry boxes are SYNTHESIZED (not state-backed), so they carry the target
+  // on `metadata.navTarget` and are detected by `pickTocEntryAt` (a page-box
+  // walk), NOT by `resolvePositionFromPixel`. `pendingTocNav` holds the deferred
+  // target between mousedown and mouseup; the down-point seeds the drag-abandon
+  // epsilon check.
+  let pendingTocNav: BlockId | null = null;
+  let tocNavDownX = 0;
+  let tocNavDownY = 0;
   let isComposing = false;
   let destroyed = false;
 
@@ -1365,13 +1376,99 @@ export function createEditorController(
     return { x: e.clientX - rect.left, y: e.clientY - rect.top, pageIndex: 0 };
   }
 
+  /**
+   * Hit-test the SYNTHESIZED TOC entry lines on the clicked page. The entry
+   * boxes are not state-backed (the `table-of-contents` render branch
+   * synthesizes them), so `resolvePositionFromPixel` cannot see them — this walks
+   * the materialized page-box tree directly, accumulating PHYSICAL parent offsets
+   * exactly as the painter does (page-local origin starts at `-pageBox.x/.y` so
+   * the page itself sits at (0,0); descendants add their own physical `x`/`y` plus
+   * any `relativeOffset`). The DEEPEST containing box may be an inner leaf (a glyph
+   * run / the page-number atom), so the walk tracks the nearest ANCESTOR tagged
+   * `metadata.tocEntry === true` and returns ITS `navTarget` — the whole entry
+   * line is the click target (Google Docs). Returns the heading `BlockId`, or null
+   * when the point is not inside any TOC entry line.
+   */
+  function pickTocEntryAt(coords: { x: number; y: number; pageIndex: number }): BlockId | null {
+    const pageBox = getPageBox(coords.pageIndex);
+    if (pageBox === null) return null;
+    const { x, y } = coords;
+    // The most recent enclosing tagged entry's navTarget, threaded down the walk.
+    function walk(
+      box: LayoutBox,
+      parentX: number,
+      parentY: number,
+      enclosingNavTarget: BlockId | null,
+    ): BlockId | null {
+      const rel = box.relativeOffset;
+      const absX = parentX + box.x + (rel !== undefined ? rel.dx : 0);
+      const absY = parentY + box.y + (rel !== undefined ? rel.dy : 0);
+      // Outside this box's rect → it (and its descendants) cannot contain the point.
+      if (x < absX || x >= absX + box.width || y < absY || y >= absY + box.height) {
+        return null;
+      }
+      const meta = "metadata" in box ? box.metadata : undefined;
+      const nav: BlockId | null =
+        meta?.tocEntry === true && typeof meta.navTarget === "string"
+          ? meta.navTarget
+          : enclosingNavTarget;
+      // Descend into children / column tracks (the painter's two child carriers).
+      if ("children" in box) {
+        for (const child of box.children) {
+          const found = walk(child, absX, absY, nav);
+          if (found !== null) return found;
+        }
+      }
+      if ("columns" in box) {
+        for (const col of box.columns) {
+          const found = walk(col, absX, absY, nav);
+          if (found !== null) return found;
+        }
+      }
+      // No deeper tagged hit; this box contains the point, so the nearest
+      // enclosing entry (if any) is the answer.
+      return nav;
+    }
+    return walk(pageBox, -pageBox.x, -pageBox.y, null);
+  }
+
   function handleMouseDown(e: MouseEvent) {
     if (destroyed || !state || !layoutTree) return;
     e.preventDefault();
     textarea.focus();
 
+    // Clear any TOC nav left pending by a prior mousedown that never reached a
+    // mouseup (e.g. a second press without releasing) — BEFORE the coords
+    // early-return below, so even a press that doesn't resolve to layout coords
+    // still clears stale nav. Every fresh mousedown starts with no pending nav;
+    // the TOC-defer branch below re-sets it only when the press lands on a TOC
+    // entry. Without this reset, a stale `pendingTocNav` would fire a spurious
+    // navigation on the next mouseup.
+    pendingTocNav = null;
+
     const coords = resolveMouseToLayout(e);
     if (!coords) return;
+
+    // TOC click-to-navigate: a PLAIN single click (no modifiers, not a
+    // multi-click) on a synthesized TOC entry line defers a caret jump to its
+    // heading until mouseup — a drag past the epsilon abandons it and text-selects
+    // instead. Seed `dragAnchor` from the entry's resolved hit position FIRST so a
+    // drag-from-an-entry still builds a valid selection span when nav is abandoned.
+    if (e.detail === 1 && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+      const navTarget = pickTocEntryAt(coords);
+      if (navTarget !== null) {
+        pendingTocNav = navTarget;
+        tocNavDownX = e.clientX;
+        tocNavDownY = e.clientY;
+        isDragging = true;
+        const tocHitTree = treeForPageHitTest(coords.pageIndex);
+        const tocHit = tocHitTree
+          ? resolvePositionFromPixel(state.state, tocHitTree, measurer, coords.x, coords.y, coords.pageIndex)
+          : null;
+        dragAnchor = tocHit ? tocHit.position : null;
+        return; // suppress the immediate caret dispatch
+      }
+    }
 
     // Hit-test against ONLY the clicked page (virtual tree) — never
     // materialize the whole document (Phase 4).
@@ -1477,7 +1574,22 @@ export function createEditorController(
   }
 
   function handleMouseMove(e: MouseEvent) {
-    if (!isDragging || !dragAnchor || !state || !layoutTree) return;
+    if (!isDragging || !state || !layoutTree) return;
+
+    // TOC click-to-navigate: a pending nav survives tiny pointer jitter but is
+    // ABANDONED by a real drag (past the epsilon) — which then falls through to
+    // the normal text-selection drag below (dragAnchor was seeded at mousedown).
+    if (pendingTocNav !== null) {
+      const dx = e.clientX - tocNavDownX;
+      const dy = e.clientY - tocNavDownY;
+      const EPS = 4; // px jitter tolerance
+      if (dx * dx + dy * dy < EPS * EPS) return; // tiny jitter: keep deferring nav
+      pendingTocNav = null; // real drag: abandon nav, text-select
+    }
+
+    // No drag anchor (e.g. a TOC entry whose hit position didn't resolve) → nothing
+    // to extend a selection from.
+    if (!dragAnchor) return;
 
     const coords = resolveMouseToLayout(e);
     if (!coords) return;
@@ -1527,6 +1639,22 @@ export function createEditorController(
   }
 
   function handleMouseUp() {
+    // TOC click-to-navigate: a pending nav that survived to mouseup (no drag past
+    // the epsilon) is a CLICK → jump the caret to the heading's start. A drag would
+    // have cleared `pendingTocNav` in handleMouseMove. The heading is scrolled into
+    // view by the post-dispatch `update()` cycle (which recomputes `cursorPos` then
+    // calls `scrollCursorIntoView`) — calling it here would scroll to the STALE
+    // pre-dispatch caret, so it is intentionally NOT called (matching the other
+    // selection-changing gestures, none of which scroll inline).
+    if (pendingTocNav !== null) {
+      const target = pendingTocNav;
+      pendingTocNav = null;
+      isDragging = false;
+      dragAnchor = null;
+      const caret = createPosition(target, 0);
+      dispatch({ type: "SET_SELECTION", selection: createSpan(caret, caret) });
+      return;
+    }
     isDragging = false;
   }
 

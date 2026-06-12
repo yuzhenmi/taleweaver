@@ -354,10 +354,18 @@ export type {
 } from "./editor/editor-state";
 export {
   createInitialEditorState,
+  // Build an `EditorState` from an arbitrary seed `State` + initial `Selection`
+  // (the full render → cascade → layout build). The public seam for hosts/tests
+  // that need a non-default seed document (e.g. a TOC + headings doc) without an
+  // editor-from-state injection.
+  createEditorStateFromState,
   reduceEditor,
   findFirstContentBlock,
   findLastContentBlock,
 } from "./editor/editor-state";
+// Derive the default collapsed caret for a freshly-loaded `State` (first
+// content block, offset 0). Pairs with `createEditorStateFromState`.
+export { initialSelectionForState } from "./editor/actions";
 export { exportDocument, loadDocument } from "./editor/document-io";
 
 // Public input shape for the INSERT_NODE action payload.
