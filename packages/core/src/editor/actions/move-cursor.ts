@@ -73,6 +73,7 @@ export function handleMoveCursor(
     editor.layoutTree,
     measurer,
     editor.caretPageHint,
+    editor.caretAffinity,
   );
   if (line === null) {
     // No resolvable line (defensive). Fall back to the logical motion.

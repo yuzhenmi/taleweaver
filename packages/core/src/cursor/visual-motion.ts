@@ -5,11 +5,11 @@ import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
 import type { TextMeasurer } from "../layout/text-measurer";
 import {
   getLineIndex,
-  findLineForPosition,
+  pickSoftWrapLine,
   type AbsoluteLineBox,
 } from "./line-flatten";
 import { resolvePixelPosition } from "./cursor-position";
-import type { GraphemeStepper } from "./line-bidi";
+import type { GraphemeStepper, CaretAffinity } from "./line-bidi";
 import {
   nextGraphemeBoundary,
   prevGraphemeBoundary,
@@ -27,6 +27,13 @@ const EMBED_CHAR = "￼";
  * Shared by the visual-motion editor handlers (`handleMoveCursor`,
  * `handleExpandSelection`, and `MOVE_LINE_BOUNDARY`) — the position is the moving
  * head (the collapsed caret, or the selection focus) in each case.
+ *
+ * `caretAffinity` (CUR-1): at a soft-wrap boundary the picked line must MATCH the
+ * line `cursor-position` renders the caret on for the same affinity — otherwise
+ * `moveVisually` builds its `LineBidiView` from the wrong line (a bidi warp at the
+ * line seam, the #502 class at the wrap edge). Threaded down to the shared
+ * {@link pickSoftWrapLine} so the picker honors the `"before"` stay-on-current-line
+ * opt-out exactly as the cursor-position pickers do.
  */
 export function resolveLineForPosition(
   state: State,
@@ -34,6 +41,7 @@ export function resolveLineForPosition(
   layoutTree: LayoutBox | VirtualLayoutTree,
   measurer: TextMeasurer,
   caretPageHint: number | undefined,
+  caretAffinity: CaretAffinity | undefined,
 ): AbsoluteLineBox | null {
   if (layoutTree.type === "virtual-root") {
     const pixel = resolvePixelPosition(
@@ -42,38 +50,35 @@ export function resolveLineForPosition(
       layoutTree,
       measurer,
       caretPageHint,
+      caretAffinity,
     );
     if (pixel === null) return null;
     const page = layoutTree.getPage(pixel.pageIndex);
     const ownLines = getLineIndex(page).byBlock.get(position.blockId) ?? [];
-    return pickLine(ownLines, position);
+    return pickLine(ownLines, position, caretAffinity);
   }
 
   const ownLines = getLineIndex(layoutTree).byBlock.get(position.blockId) ?? [];
-  return pickLine(ownLines, position);
+  return pickLine(ownLines, position, caretAffinity);
 }
 
 /**
  * Pick the line owning `position` from the block's own lines (in document
- * order). At an exact line-end boundary prefer the next same-block line (the
- * caret has wrapped onto it) — mirrors `resolvePositionInOwnLines`'s soft-wrap
- * preference so `moveVisually` operates on the line the caret renders on.
+ * order), honoring `caretAffinity` at a soft-wrap boundary. Delegates to the
+ * shared {@link pickSoftWrapLine} (CUR-3) so this matches the line
+ * `resolvePositionInOwnLines` renders the caret on — `moveVisually` then operates
+ * on the same line the caret is drawn on (CUR-1).
  */
 function pickLine(
   ownLines: readonly AbsoluteLineBox[],
   position: Position,
+  caretAffinity: CaretAffinity | undefined,
 ): AbsoluteLineBox | null {
   if (ownLines.length === 0) return null;
-  const idx = findLineForPosition(ownLines, position);
-  if (idx >= 0) {
-    const l = ownLines[idx].line;
-    if (position.offset === l.inlineOffsetEnd && ownLines[idx + 1] !== undefined) {
-      return ownLines[idx + 1];
-    }
-    return ownLines[idx];
-  }
-  // Defensive: clamp to the first/last line.
-  return ownLines[0];
+  const idx = pickSoftWrapLine(ownLines, position, caretAffinity);
+  // Defensive: clamp to the first line when no own-line matched (shouldn't
+  // happen — `ownLines` is non-empty and block-filtered).
+  return idx >= 0 ? ownLines[idx] : ownLines[0];
 }
 
 /**

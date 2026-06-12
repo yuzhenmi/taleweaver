@@ -3,6 +3,10 @@ import type { ComputedStyle } from "../styles";
 import { axisMapFor } from "../styles/writing-mode";
 import type { Position, BlockId, State } from "../state";
 import { selectionContextOf } from "../state";
+// Type-only import (no runtime cycle): `line-bidi.ts` imports VALUES from this
+// file, so this file must not import values from it. `CaretAffinity` is a type,
+// erased at compile time, so a type-only import is cycle-free.
+import type { CaretAffinity } from "./line-bidi";
 import type { Mat2D } from "../layout/mat2d";
 import { compose, invert, fromTransformFns, resolveTransformOrigin } from "../layout/mat2d";
 
@@ -520,18 +524,40 @@ export function collectLineLeaves(line: LineBox, lineAbsX: number, lineAbsY: num
 }
 
 /**
- * Find the index of the `AbsoluteLineBox` that contains `position`.
- * Returns -1 if no line owns the position's block (e.g. block has
- * no LineBoxes — container block with null inlineContent).
+ * THE single soft-wrap line picker (CUR-3). Returns the index of the
+ * `AbsoluteLineBox` that owns `position`, applying the doc-wide soft-wrap rule
+ * uniformly:
  *
- * Soft-wrap preference: at `position.offset === current.inlineOffsetEnd`
- * with a next line for the same block, prefer the next line's start.
- * This matches Word / Google Docs caret behavior at visual wrap edges.
+ *   - Walk the FLAT list in document order; only `position.blockId`'s own lines
+ *     are candidates (foreign-block lines — the interleaved inline-block-internal
+ *     lines that `collectLineBoxes` emits BETWEEN a wrapped outer paragraph's own
+ *     lines — are skipped). The last own-line is returned for a past-block-end
+ *     offset.
+ *   - Soft-wrap preference: at an EXACT line-end boundary
+ *     (`position.offset === l.inlineOffsetEnd`) with a NEXT same-block line, the
+ *     caret has wrapped onto that next line, so prefer its start (Word / Google
+ *     Docs convention — typing up to the wrap lands the caret on the new line).
+ *   - Affinity opt-out (#474 B2): an explicit `caretAffinity === "before"` pins
+ *     the caret to THIS line's END instead of jumping to the next line's start,
+ *     so the end-of-a-wrapped-line caret position stays reachable (set by a click
+ *     at the wrapped line's visual end, or a left-arrow back across the boundary).
+ *     `undefined`/`"after"` take the default next-line preference.
  *
- * Consumed by `cursor-position` and `selection-geometry` to anchor
- * Position → line lookups.
+ * Returns -1 when no line owns `position.blockId` (e.g. a container block with
+ * null inlineContent → no LineBoxes).
+ *
+ * This is the ONE implementation of the rule. Three callers used to re-derive it
+ * with diverging affinity / foreign-line handling (`findLineForPosition`,
+ * `resolvePositionInOwnLines`, and visual-motion's `pickLine`); they now all
+ * delegate here so the rule can't drift. The foreign-line skip is a no-op for
+ * block-FILTERED callers (their list contains only same-block lines), so they get
+ * identical results to a flat-list caller.
  */
-export function findLineForPosition(lines: readonly AbsoluteLineBox[], position: Position): number {
+export function pickSoftWrapLine(
+  lines: readonly AbsoluteLineBox[],
+  position: Position,
+  caretAffinity?: CaretAffinity,
+): number {
   // Walk the full list (don't early-exit on foreign-block entries):
   // `collectLineBoxes` interleaves inline-block-internal lines into
   // the flat array, so a wrapped outer paragraph containing an
@@ -548,10 +574,11 @@ export function findLineForPosition(lines: readonly AbsoluteLineBox[], position:
     }
     if (position.offset <= l.inlineOffsetEnd) {
       const isExactEnd = position.offset === l.inlineOffsetEnd;
-      // Look ahead for the NEXT same-block line (skipping any
-      // intervening foreign-block lines from interleaved inline-
-      // block descendants).
-      if (isExactEnd) {
+      // At the soft-wrap boundary, prefer the NEXT same-block line's start —
+      // UNLESS `caretAffinity === "before"` pins the caret to THIS line's end.
+      // Look ahead for the next same-block line (skipping any intervening
+      // foreign-block lines from interleaved inline-block descendants).
+      if (isExactEnd && caretAffinity !== "before") {
         for (let j = i + 1; j < lines.length; j++) {
           if (lines[j].line.ownerBlockId === position.blockId) {
             return j;
@@ -562,6 +589,28 @@ export function findLineForPosition(lines: readonly AbsoluteLineBox[], position:
     }
   }
   return candidate;
+}
+
+/**
+ * Find the index of the `AbsoluteLineBox` that contains `position`.
+ * Returns -1 if no line owns the position's block (e.g. block has
+ * no LineBoxes — container block with null inlineContent).
+ *
+ * Soft-wrap preference: at `position.offset === current.inlineOffsetEnd`
+ * with a next line for the same block, prefer the next line's start.
+ * This matches Word / Google Docs caret behavior at visual wrap edges.
+ *
+ * Affinity-blind (passes no `caretAffinity`): the existing
+ * `selection-geometry` / `line-navigation` callers resolve the line for
+ * the caret/selection ENDS without an affinity, so this preserves their
+ * behavior exactly. Delegates to {@link pickSoftWrapLine} (CUR-3) so the
+ * soft-wrap rule lives in ONE place.
+ *
+ * Consumed by `cursor-position` and `selection-geometry` to anchor
+ * Position → line lookups.
+ */
+export function findLineForPosition(lines: readonly AbsoluteLineBox[], position: Position): number {
+  return pickSoftWrapLine(lines, position, undefined);
 }
 
 function collectLeavesRec(box: LayoutBox, parentX: number, parentY: number, out: LineLeaf[]): void {

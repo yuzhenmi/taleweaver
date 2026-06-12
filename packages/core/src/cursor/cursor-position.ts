@@ -8,6 +8,7 @@ import type { TextMeasurer } from "../layout/text-measurer";
 import { isTextShaper, adaptShaperToMeasurer } from "../layout/text-measurer";
 import {
   getLineIndex,
+  pickSoftWrapLine,
   coordOf,
   sizeAlong,
   lineCoordOf,
@@ -586,42 +587,16 @@ function resolvePositionInOwnLines(
   measurer: TextMeasurer,
   caretAffinity?: CaretAffinity,
 ): PixelPosition {
-  // Pick the target line. Walk in order; the line whose [start, end] contains
-  // the offset wins. At the soft-wrap edge (offset === current.end AND next is
-  // same block) prefer next's start (caret moves visually onto the new line).
-  //
-  // `ownLines` is block-filtered, so `ownLines[i + 1]` is guaranteed to belong
-  // to the same block when it exists — no extra ownerBlockId check needed.
-  let targetIdx = 0;
-  for (let i = 0; i < ownLines.length; i++) {
-    const l = ownLines[i].line;
-    if (position.offset < l.inlineOffsetStart) {
-      // Past-start case shouldn't normally happen (lines cover
-      // [0, total] contiguously); clamp to this line's start.
-      targetIdx = i;
-      break;
-    }
-    if (position.offset <= l.inlineOffsetEnd) {
-      const isExactEnd = position.offset === l.inlineOffsetEnd;
-      const next = ownLines[i + 1];
-      if (isExactEnd && next !== undefined && caretAffinity !== "before") {
-        // Soft-wrap boundary: by default prefer the NEXT line's start (the caret
-        // moves visually onto the new line — the natural place after typing up to
-        // the wrap). But an explicit `caretAffinity === "before"` (#474 B2 — set
-        // by a click at the wrapped line's end, or a left-arrow back across the
-        // boundary) pins the caret to THIS line's end instead, so the end-of-a-
-        // wrapped-line caret position is reachable.
-        targetIdx = i + 1;
-      } else {
-        targetIdx = i;
-      }
-      break;
-    }
-    // Otherwise the offset is past this line; continue to next. If we exhaust
-    // the loop without finding a containing line, `targetIdx` ends up at
-    // `ownLines.length - 1` (the last line) — correct clamp.
-    targetIdx = i;
-  }
+  // Pick the target line via the shared soft-wrap picker (CUR-3): the line whose
+  // [start, end] contains the offset wins; at the soft-wrap edge (offset ===
+  // current.end AND next is same block) it prefers the next line's start UNLESS
+  // `caretAffinity === "before"` pins the caret to this line's end (#474 B2).
+  // `ownLines` is block-filtered (every entry belongs to `position.blockId`), so
+  // the picker's foreign-line skip is a no-op here. `-1` (no own-line matched —
+  // shouldn't happen for non-empty block-filtered `ownLines`) clamps to the first
+  // line, matching the prior loop's default.
+  const pickedIdx = pickSoftWrapLine(ownLines, position, caretAffinity);
+  const targetIdx = pickedIdx >= 0 ? pickedIdx : 0;
   const target = ownLines[targetIdx];
   const line = target.line;
 
