@@ -2,6 +2,7 @@ import type { TextMeasurer } from "./text-measurer";
 import type { FieldSpec } from "./collect-page-fields";
 import { formatCounter } from "../styles/format-counter";
 import { BROKEN_CROSS_REFERENCE_TEXT } from "../render/resolve-cross-reference";
+import { pageOfFieldTarget, type BlockParentLookup } from "./page-of-field-target";
 
 export interface ResolvedPageFields {
   /**
@@ -32,12 +33,15 @@ export interface ResolvedPageFields {
  *    last page: non-decimal styles are non-monotonic in width (lower-roman "viii" at
  *    page 8 is wider than "x" at page 10), and proportional fonts make even decimal
  *    widths non-monotonic. So the max is taken over EVERY page's value.
- *  - `cross-ref-page` resolves to the target block's 1-based FIRST page number via
- *    `plan.pageSpanOfBlock(targetId)` (`span.first + 1`). When the target is not in
- *    the plan (`span === null` — e.g. a deeply nested block the top-level page index
- *    doesn't cover), the value is the `""` broken-ref sentinel and the width covers
- *    {@link BROKEN_CROSS_REFERENCE_TEXT} (what actually renders), so convergence
- *    reserves enough room for the error text rather than under-reserving.
+ *  - `cross-ref-page` resolves the target's page via {@link pageOfFieldTarget}
+ *    (`page + 1`, 1-based): a top-level target → its own first page; a nested target
+ *    → its nearest top-level-indexed ancestor's first page (exact for a single-page
+ *    container, container-start for a page-spanning one), walked via the optional
+ *    `parentOf` lookup; `-1` → broken-ref. Absent `parentOf`, a nested target stays
+ *    broken-ref (the top-level-only behavior). On broken-ref the value is the `""`
+ *    sentinel and the width covers {@link BROKEN_CROSS_REFERENCE_TEXT} (what actually
+ *    renders), so convergence reserves enough room for the error text rather than
+ *    under-reserving.
  *
  * Reads `plan.entries.length` and (for `cross-ref-page` specs) `plan.pageSpanOfBlock`;
  * the structural param type keeps test fixtures from having to stub full
@@ -51,6 +55,7 @@ export function resolvePageFields(
   },
   fieldSpecs: readonly FieldSpec[],
   measurer: TextMeasurer,
+  parentOf?: BlockParentLookup,
 ): ResolvedPageFields {
   const totalPages = plan.entries.length;
   const globalFieldValues = new Map<string, string>();
@@ -63,24 +68,20 @@ export function resolvePageFields(
       globalFieldValues.set(spec.embedKey, value);
       maxValueWidthByKey.set(spec.embedKey, measurer.measureWidth(value, spec.computedStyle));
     } else if (spec.fieldType === "cross-ref-page") {
-      // Resolve the cross-ref's value to the target block's 1-based FIRST page number.
-      // pageSpanOfBlock indexes only TOP-LEVEL root children (the measure pass's
-      // blockToSpan); a target that is a deeply nested block (inside a table cell or
-      // container) is not directly indexed → span === null → broken-ref. This is the
-      // documented v1 limitation (same as footnoteAnchorPageAssignment); a follow-up
-      // can walk the ancestor chain to the nearest indexed top-level block.
-      const span = plan.pageSpanOfBlock(spec.targetId);
-      if (span === null) {
-        // Target not found: store "" as the sentinel (substituteLayoutFields maps
-        // "" → BROKEN_CROSS_REFERENCE_TEXT, S5). The width must cover the broken-ref
-        // text since that is what actually renders — else convergence under-reserves.
+      // Resolve the cross-ref's value to the target's 1-based page. pageOfFieldTarget
+      // returns the target's own first page (top-level), the nearest indexed
+      // ancestor's first page (nested, via parentOf), or -1 (no indexed ancestor /
+      // no parentOf) → broken-ref. (Was: top-level-only pageSpanOfBlock → broken-ref
+      // for any nested target; see 2026-06-12 nested-block-page-resolution spec.)
+      const page = pageOfFieldTarget(plan, spec.targetId, parentOf);
+      if (page < 0) {
         globalFieldValues.set(spec.embedKey, "");
         maxValueWidthByKey.set(
           spec.embedKey,
           measurer.measureWidth(BROKEN_CROSS_REFERENCE_TEXT, spec.computedStyle),
         );
       } else {
-        const value = formatCounter(span.first + 1, spec.numberStyle); // 1-based
+        const value = formatCounter(page + 1, spec.numberStyle); // 1-based
         globalFieldValues.set(spec.embedKey, value);
         maxValueWidthByKey.set(spec.embedKey, measurer.measureWidth(value, spec.computedStyle));
       }

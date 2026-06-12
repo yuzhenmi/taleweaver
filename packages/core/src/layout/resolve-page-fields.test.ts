@@ -6,6 +6,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { resolvePageFields } from "./resolve-page-fields";
+import type { BlockParentLookup } from "./page-of-field-target";
 import type { FieldSpec } from "./collect-page-fields";
 import { createMockShaper } from "./mock-shaper";
 import { adaptShaperToMeasurer } from "./text-measurer";
@@ -127,6 +128,33 @@ describe("resolvePageFields (F-1 resolution)", () => {
       measurer,
     );
     expect(globalFieldValues.get("blk/inline/0")).toBe(formatCounter(4, "decimal")); // span.first 3 → page 4
+  });
+
+  it("cross-ref-page: nested target resolves to its indexed ancestor's page when parentOf is supplied", () => {
+    // The plan indexes ONLY the ancestor 'tbl' (page span first:5); the cross-ref
+    // target 'tgt' is nested under it and is NOT indexed (pageSpanOfBlock → null).
+    // parentOf walks tgt -> tbl. Resolution must follow the ancestor chain to 'tbl'
+    // and report its 1-based page (5 + 1 = "6").
+    const parentOf: BlockParentLookup = (id) =>
+      id === asBlockId("tgt") ? asBlockId("tbl") : null;
+    const { globalFieldValues } = resolvePageFields(
+      fakePlan(10, { tbl: { first: 5, last: 5 } }),
+      [crossRefSpec()],
+      measurer,
+      parentOf,
+    );
+    expect(globalFieldValues.get("blk/inline/0")).toBe(formatCounter(6, "decimal")); // ancestor first 5 → page 6
+  });
+
+  it("cross-ref-page: nested target WITHOUT parentOf stays broken-ref (unchanged)", () => {
+    // Same plan + nested target, but no parentOf arg: the resolver cannot walk to the
+    // ancestor, so the target stays unresolved → broken-ref sentinel "" (today's behavior).
+    const { globalFieldValues } = resolvePageFields(
+      fakePlan(10, { tbl: { first: 5, last: 5 } }),
+      [crossRefSpec()],
+      measurer,
+    );
+    expect(globalFieldValues.get("blk/inline/0")).toBe("");
   });
 
   it("empty field set → empty maps", () => {
