@@ -10,6 +10,7 @@ import { setBlockAttrsInTx } from "./set-block-attrs";
 import { buildTableGrid } from "../table-context";
 import type { TableContext } from "../table-context";
 import type { RowPosition } from "./insert-table-row";
+import { headerRowAttrsAfterRowEdit } from "./table-header-rows";
 
 /**
  * Pre-computed mutation plan for `insertTableRowSpanAwareInTx`. Everything is read
@@ -27,6 +28,9 @@ export interface InsertTableRowSpanAwarePlan {
   /** Cells whose vertical span crosses the insertion boundary — their `rowSpan`
    *  grows by 1 to cover the new row. `newAttrs` is the full REPLACE bag. */
   readonly crossingBumps: readonly { readonly cellId: BlockId; readonly newAttrs: ReadonlyAttrs }[];
+  /** The table's new attrs bag when the insert shifts `headerRowCount` (#487), or
+   *  `null` when unchanged. Written in the SAME tx as the row splice. */
+  readonly headerAttrs: ReadonlyAttrs | null;
 }
 
 /**
@@ -105,6 +109,10 @@ export function planInsertTableRowSpanAware(
   const prevRowId = gr - 1 >= 0 ? (ctx.rowIds[gr - 1] ?? null) : null;
   const nextRowId = gr < rowCount ? (ctx.rowIds[gr] ?? null) : null;
 
+  // #487: the new row's destination grid-row index is `gr` (the insertion
+  // boundary). Keep `headerRowCount` naming the leading block.
+  const headerAttrs = headerRowAttrsAfterRowEdit(state, ctx.tableId, "insert", gr);
+
   return {
     tableId: ctx.tableId,
     newRowId: allocator.allocate(),
@@ -112,6 +120,7 @@ export function planInsertTableRowSpanAware(
     nextRowId,
     newCells,
     crossingBumps,
+    headerAttrs,
   };
 }
 
@@ -190,5 +199,11 @@ export function insertTableRowSpanAwareInTx(doc: Y.Doc, plan: InsertTableRowSpan
     const yTable = getYBlock(doc, plan.tableId, "insertTableRowSpanAware");
     if (plan.prevRowId === null) yTable.set("firstChildId", plan.newRowId);
     if (plan.nextRowId === null) yTable.set("lastChildId", plan.newRowId);
+  }
+
+  // #487: re-write the table's `headerRowCount` (same tx) when the insert
+  // shifted it. `null` when unchanged.
+  if (plan.headerAttrs !== null) {
+    setBlockAttrsInTx(doc, plan.tableId, plan.headerAttrs, "insertTableRowSpanAware");
   }
 }

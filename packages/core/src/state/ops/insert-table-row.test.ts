@@ -111,6 +111,40 @@ describe("insertTableRow", () => {
     }
   });
 
+  it("keeps headerRowCount naming the leading block across an insert (#487)", () => {
+    // 4-row single-column table with headerRowCount=2 (rows 0–1 pinned).
+    const fourRowHeaderTable = (): State =>
+      buildState({
+        rootId: "doc",
+        blocks: [
+          buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
+          buildBlock({ id: "table", type: "table", parentId: "doc", attrs: { columnWidths: [1], headerRowCount: 2 }, firstChildId: "r0", lastChildId: "r3" }),
+          buildBlock({ id: "r0", type: "table-row", parentId: "table", nextSiblingId: "r1", firstChildId: "c0", lastChildId: "c0" }),
+          buildBlock({ id: "r1", type: "table-row", parentId: "table", prevSiblingId: "r0", nextSiblingId: "r2", firstChildId: "c1", lastChildId: "c1" }),
+          buildBlock({ id: "r2", type: "table-row", parentId: "table", prevSiblingId: "r1", nextSiblingId: "r3", firstChildId: "c2", lastChildId: "c2" }),
+          buildBlock({ id: "r3", type: "table-row", parentId: "table", prevSiblingId: "r2", firstChildId: "c3", lastChildId: "c3" }),
+          buildBlock({ id: "c0", type: "table-cell", parentId: "r0", firstChildId: "p0", lastChildId: "p0" }),
+          buildBlock({ id: "c1", type: "table-cell", parentId: "r1", firstChildId: "p1", lastChildId: "p1" }),
+          buildBlock({ id: "c2", type: "table-cell", parentId: "r2", firstChildId: "p2", lastChildId: "p2" }),
+          buildBlock({ id: "c3", type: "table-cell", parentId: "r3", firstChildId: "p3", lastChildId: "p3" }),
+          buildBlock({ id: "p0", type: "paragraph", parentId: "c0", inlineContent: inlineContent([]) }),
+          buildBlock({ id: "p1", type: "paragraph", parentId: "c1", inlineContent: inlineContent([]) }),
+          buildBlock({ id: "p2", type: "paragraph", parentId: "c2", inlineContent: inlineContent([]) }),
+          buildBlock({ id: "p3", type: "paragraph", parentId: "c3", inlineContent: inlineContent([]) }),
+        ],
+      });
+    const hrc = (s: State) => getBlock(s, "table" as BlockId)?.attrs.headerRowCount;
+    // Insert INSIDE the header (above row 1 → destination index 1 < 2) → 3.
+    const inside = insertTableRow(fourRowHeaderTable(), ctxAt(fourRowHeaderTable(), "p1"), "above", createTestAllocator("n"));
+    expect(hrc(inside.state)).toBe(3);
+    // Insert AT the boundary (below row 1 → destination index 2 === count) → 2 (body row).
+    const atBoundary = insertTableRow(fourRowHeaderTable(), ctxAt(fourRowHeaderTable(), "p1"), "below", createTestAllocator("n"));
+    expect(hrc(atBoundary.state)).toBe(2);
+    // Insert PAST the boundary (below row 2 → destination index 3 > count) → 2.
+    const past = insertTableRow(fourRowHeaderTable(), ctxAt(fourRowHeaderTable(), "p2"), "below", createTestAllocator("n"));
+    expect(hrc(past.state)).toBe(2);
+  });
+
   it("handles a 1-column table (single cell row; firstChild === lastChild)", () => {
     const state = buildState({
       rootId: "doc",

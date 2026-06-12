@@ -258,9 +258,13 @@ export { mergeCells } from "./ops/merge-cells";
 export { insertTableRowSpanAware } from "./ops/insert-table-row-span-aware";
 export { insertTableColumnSpanAware } from "./ops/insert-table-column-span-aware";
 export { deleteTableRowSpanAware } from "./ops/delete-table-row-span-aware";
+export { deleteTableRow } from "./ops/delete-table-row";
 export { deleteTableColumn } from "./ops/delete-table-column";
 export { deleteTableColumnSpanAware } from "./ops/delete-table-column-span-aware";
 export { createTable, buildTableSubtreePlan } from "./ops/create-table";
+export { setTableHeaderRows } from "./ops/set-table-header-rows";
+export { largestCleanHeaderCount, adjustHeaderRowCount } from "./ops/table-header-rows";
+export type { RowEditOp } from "./ops/table-header-rows";
 export type {
   CreateTablePlan,
   TableSubtreePlan,

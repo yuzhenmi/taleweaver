@@ -7,6 +7,7 @@ import {
   insertTableColumn,
   insertTableColumnSpanAware,
   deleteTableColumn,
+  deleteTableRow,
   deleteTableRowSpanAware,
   deleteTableColumnSpanAware,
   splitCell,
@@ -14,7 +15,6 @@ import {
   resolveCellRange,
   buildTableGrid,
   deleteTableWithReplacement,
-  removeBlock,
   getBlock,
   createPosition,
   createSpan,
@@ -151,8 +151,8 @@ export function handleDeleteTable(editor: EditorState, config: EditorConfig): Ed
  * remaining row, deleting it would empty the table, so this collapses to deleting
  * the whole table (Google Docs) via `deleteWholeTable`. Otherwise a WELL-FORMED
  * SPANNED table routes to `deleteTableRowSpanAware` (P15b — covering spans shrink,
- * an originating span re-homes one row down), a plain no-span table to the
- * byte-identical P15a `removeBlock(ctx.rowId)`.
+ * an originating span re-homes one row down), a plain no-span table to
+ * `deleteTableRow` (removes the row + re-derives `headerRowCount` in one tx, #487).
  *
  * Caret-after (`rowCount > 1`): the cell in the caret's column that takes the
  * deleted row's place — the next row, or the previous row when the deleted row was
@@ -201,7 +201,9 @@ export function handleDeleteTableRow(editor: EditorState, config: EditorConfig):
   const targetRow = ctx.cellIdsByRow[ctx.rowIndex + 1] ?? ctx.cellIdsByRow[ctx.rowIndex - 1];
   const targetCellId = targetRow?.[ctx.colIndex] ?? null;
 
-  const result = removeBlock(editor.state, ctx.rowId);
+  // #487: the plain delete composes `removeBlock` + a `headerRowCount` re-derive in
+  // ONE transaction, so deleting a header row keeps the count valid (one undo entry).
+  const result = deleteTableRow(editor.state, ctx);
   if (result.state === editor.state) return editor;
 
   // Read the target cell's first paragraph from the POST-op state (I4).

@@ -162,6 +162,38 @@ describe("deleteTableRowSpanAware", () => {
     expect(grid.occupancy).toEqual([["X", "A", "Y"]]);
   });
 
+  it("keeps headerRowCount naming the leading block across a row delete (#487)", () => {
+    // 4-row, 2-col spanned table; the span lives in the BODY (E rowSpan 2 over
+    // rows 2–3) so headerRowCount=2 (rows 0–1) is clean-cut valid.
+    // row0=[A,B] row1=[C,D] row2=[E(rowSpan2),F] row3=[G]. occupancy:
+    // [[A,B],[C,D],[E,F],[E,G]].
+    const fourRowBodySpan = (headerRowCount: number): State => {
+      const blocks: Block[] = [
+        buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
+        buildBlock({ id: "table", type: "table", parentId: "doc", attrs: { headerRowCount }, firstChildId: "r0", lastChildId: "r3" }),
+        buildBlock({ id: "r0", type: "table-row", parentId: "table", nextSiblingId: "r1", firstChildId: "A", lastChildId: "B" }),
+        buildBlock({ id: "r1", type: "table-row", parentId: "table", prevSiblingId: "r0", nextSiblingId: "r2", firstChildId: "C", lastChildId: "D" }),
+        buildBlock({ id: "r2", type: "table-row", parentId: "table", prevSiblingId: "r1", nextSiblingId: "r3", firstChildId: "E", lastChildId: "F" }),
+        buildBlock({ id: "r3", type: "table-row", parentId: "table", prevSiblingId: "r2", firstChildId: "G", lastChildId: "G" }),
+        ...cell("A", "r0", undefined, null, "B"),
+        ...cell("B", "r0", undefined, "A", null),
+        ...cell("C", "r1", undefined, null, "D"),
+        ...cell("D", "r1", undefined, "C", null),
+        ...cell("E", "r2", { rowSpan: 2 }, null, "F"),
+        ...cell("F", "r2", undefined, "E", null),
+        ...cell("G", "r3", undefined, null, null),
+      ];
+      return buildState({ rootId: "doc", blocks });
+    };
+    const hrc = (s: State) => getBlock(s, "table" as BlockId)?.attrs.headerRowCount;
+    // Delete a header row (row 0, r < count=2) → 1.
+    expect(hrc(run(fourRowBodySpan(2), "Ap").state)).toBe(1);
+    // Delete a BODY row (row 2, r ≥ count=2) → header unchanged (2).
+    expect(hrc(run(fourRowBodySpan(2), "Ep").state)).toBe(2);
+    // Delete the LAST header row (row 0, count=1) → header turns OFF (attr dropped).
+    expect(hrc(run(fourRowBodySpan(1), "Ap").state)).toBeUndefined();
+  });
+
   it("no-ops (same state ref) on a single-row table (the last-row collapse is the handler's job)", () => {
     const blocks: Block[] = [
       buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),

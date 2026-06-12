@@ -8,6 +8,7 @@ import { setBlockAttrsInTx } from "./set-block-attrs";
 import { planRemoveBlock } from "./remove-block";
 import { buildTableGrid } from "../table-context";
 import type { TableContext } from "../table-context";
+import { headerRowAttrsAfterRowEdit } from "./table-header-rows";
 
 /**
  * Pre-computed mutation plan for `deleteTableRowSpanAwareInTx`. Everything is read
@@ -33,6 +34,9 @@ export interface DeleteTableRowSpanAwarePlan {
   /** The next row's final cell chain after the re-homed cells join it (grid-column
    *  order), or null when nothing re-homes. */
   readonly reHomeRow: { readonly rowId: BlockId; readonly cellIds: readonly BlockId[] } | null;
+  /** The table's new attrs bag when the delete shifts `headerRowCount` (#487), or
+   *  `null` when unchanged. Written in the SAME tx as the row removal. */
+  readonly headerAttrs: ReadonlyAttrs | null;
 }
 
 /**
@@ -109,6 +113,9 @@ export function planDeleteTableRowSpanAware(state: State, ctx: TableContext): De
   }
 
   const table = getBlock(state, ctx.tableId);
+  // #487: the deleted grid row is `gr`. Keep `headerRowCount` naming the leading
+  // block (delete at r < count → count-1; deleting the last header row → 0).
+  const headerAttrs = headerRowAttrsAfterRowEdit(state, ctx.tableId, "delete", gr);
   return {
     tableId: ctx.tableId,
     deletedRowId,
@@ -121,6 +128,7 @@ export function planDeleteTableRowSpanAware(state: State, ctx: TableContext): De
     coveringBumps,
     rehomed,
     reHomeRow,
+    headerAttrs,
   };
 }
 
@@ -180,6 +188,12 @@ export function deleteTableRowSpanAwareInTx(doc: Y.Doc, plan: DeleteTableRowSpan
     const yTable = getYBlock(doc, plan.tableId, "deleteTableRowSpanAware");
     if (plan.removingFirstRow) yTable.set("firstChildId", plan.nextRowId);
     if (plan.removingLastRow) yTable.set("lastChildId", plan.prevRowId);
+  }
+
+  // #487: re-write the table's `headerRowCount` (same tx) when the delete shifted
+  // it. The table block survives the delete; write before the deletion loop.
+  if (plan.headerAttrs !== null) {
+    setBlockAttrsInTx(doc, plan.tableId, plan.headerAttrs, "deleteTableRowSpanAware");
   }
 
   // Delete embed bodies first, then the row block + removed cells' subtrees.

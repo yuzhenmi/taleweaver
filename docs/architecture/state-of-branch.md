@@ -150,10 +150,16 @@ Built-in component behavior:
   see [`1.4.3-table-fc.md`](1-core/1.4-layout/1.4.3-table-fc.md)), so an edit
   preserves the rectangular-grid invariant layout depends on. HTML table ENCODE
   (`<table>`/`<tr>`/`<td>`, see [`2.5-html-serializer.md`](2-dom/2.5-html-serializer.md))
-  now ships — tables are no longer lost on export. Still `[missing]`:
+  now ships — tables are no longer lost on export. **Header-row repetition (#487)
+  STATE LAYER `[implemented]` (S1)**: the per-table `headerRowCount` attr +
+  `setTableHeaderRows` op (clamped by the clean-cut invariant via
+  `largestCleanHeaderCount`) + the `adjustHeaderRowCount` fix-up wired into all four
+  row insert/delete ops keep the count valid; the LAYOUT side (repeating the header
+  rows at the top of each page/column fragment) is `[partial]` — measure/materialize
+  reservation + render stamp are S2–S6, in flight. Still `[missing]`:
   browser-gated example-app Table menu wiring (the `INSERT_TABLE` button + the
-  span-aware actions), structural table copy/paste, and HTML table DECODE
-  (paste-in).
+  span-aware actions + a header-row toggle), structural table copy/paste, and HTML
+  table DECODE (paste-in).
 
 ### `render/` `[implemented]`
 
@@ -274,9 +280,14 @@ Known gaps:
   naively would ship a degraded, incorrect partial-reuse.
 - **Table `border-collapse: collapse`** — every cell draws its own
   borders; the heaviest-wins collapse resolution is not implemented.
-- **Repeating `<thead>`/`<tfoot>` across page fragments** — needs a
-  `table-header-group` schema addition; `resumeAtRow` already indexes the
-  body.
+- **Repeating header rows across page fragments (#487)** — modeled NOT as a CSS
+  `table-header-group` display value (rejected by the feature-selection test) but as
+  a per-table `headerRowCount` count attr (Google-Docs "pin header rows"). STATE
+  LAYER shipped (S1: attr + `setTableHeaderRows` + clean-cut clamp + row-edit
+  fix-up); the LAYOUT side (measure reserves `headerBlockSize`, materialize re-lays
+  the header rows at each continuation fragment's top) is in flight (S2–S6). `<tfoot>`
+  bottom-footer repetition remains a separate future feature. `resumeAtRow` indexes
+  absolute rows (header rows re-emit but do not advance it).
 
 ### Pagination `[partial]`
 
@@ -294,7 +305,7 @@ Still missing (deferred to P1.C and later):
 - All P1.C sub-pieces (headers/footers/footnotes/templates).
 - Bottom-side margin truncation across breaks for the edge case where the parent has bottom padding/border on a partial fragment (top side already shipped in P1.B).
 - Cross-page floats (P1.D-or-P12; current float environment is single-fragment-aware).
-- Cross-page table header row (`<thead>`) repetition (requires `Display: "table-header-group"` schema addition).
+- Cross-page table header-row repetition LAYOUT side (#487; modeled as the per-table `headerRowCount` count attr, NOT `table-header-group` — state layer S1 shipped, measure/materialize S2–S6 in flight).
 
 ### Multi-column (Format ▸ Columns) `[partial]`
 

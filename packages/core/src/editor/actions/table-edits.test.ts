@@ -362,6 +362,67 @@ describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
     const undone = reduceEditor(deleted, { type: "UNDO" }, config);
     expect(getChildIds(undone.state, tableId).length).toBe(2);
   });
+
+  it("keeps headerRowCount naming the leading block across a plain row delete (#487)", () => {
+    // 3-row single-column PLAIN (no-span) table with headerRowCount=2 (rows 0–1 pinned).
+    const hrc = (s: State): unknown => getBlock(s, "table" as BlockId)?.attrs.headerRowCount;
+    const plainTable3 = (): State =>
+      buildState({
+        rootId: "doc",
+        blocks: [
+          buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
+          buildBlock({ id: "table", type: "table", parentId: "doc", attrs: { columnWidths: [1], headerRowCount: 2 }, firstChildId: "r0", lastChildId: "r2" }),
+          buildBlock({ id: "r0", type: "table-row", parentId: "table", nextSiblingId: "r1", firstChildId: "c0", lastChildId: "c0" }),
+          buildBlock({ id: "c0", type: "table-cell", parentId: "r0", firstChildId: "p0", lastChildId: "p0" }),
+          buildBlock({ id: "p0", type: "paragraph", parentId: "c0", inlineContent: inlineContent([]) }),
+          buildBlock({ id: "r1", type: "table-row", parentId: "table", prevSiblingId: "r0", nextSiblingId: "r2", firstChildId: "c1", lastChildId: "c1" }),
+          buildBlock({ id: "c1", type: "table-cell", parentId: "r1", firstChildId: "p1", lastChildId: "p1" }),
+          buildBlock({ id: "p1", type: "paragraph", parentId: "c1", inlineContent: inlineContent([]) }),
+          buildBlock({ id: "r2", type: "table-row", parentId: "table", prevSiblingId: "r1", firstChildId: "c2", lastChildId: "c2" }),
+          buildBlock({ id: "c2", type: "table-cell", parentId: "r2", firstChildId: "p2", lastChildId: "p2" }),
+          buildBlock({ id: "p2", type: "paragraph", parentId: "c2", inlineContent: inlineContent([]) }),
+        ],
+      });
+
+    // Delete row 0 (a header row) → headerRowCount 2 → 1.
+    {
+      const caret = createPosition("p0" as BlockId, 0);
+      const editor = createEditorStateFromState(plainTable3(), createSpan(caret, caret), config);
+      const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" }, config);
+      expect(getChildIds(next.state, "table" as BlockId).length).toBe(2);
+      expect(hrc(next.state)).toBe(1);
+    }
+
+    // Delete a BODY row (row 2) → headerRowCount unchanged at 2.
+    {
+      const caret = createPosition("p2" as BlockId, 0);
+      const editor = createEditorStateFromState(plainTable3(), createSpan(caret, caret), config);
+      const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" }, config);
+      expect(hrc(next.state)).toBe(2);
+    }
+  });
+
+  it("deleting the last header row of a headerRowCount=1 plain table turns the header off (#487)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
+        buildBlock({ id: "table", type: "table", parentId: "doc", attrs: { columnWidths: [1], headerRowCount: 1 }, firstChildId: "r0", lastChildId: "r1" }),
+        buildBlock({ id: "r0", type: "table-row", parentId: "table", nextSiblingId: "r1", firstChildId: "c0", lastChildId: "c0" }),
+        buildBlock({ id: "c0", type: "table-cell", parentId: "r0", firstChildId: "p0", lastChildId: "p0" }),
+        buildBlock({ id: "p0", type: "paragraph", parentId: "c0", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "r1", type: "table-row", parentId: "table", prevSiblingId: "r0", firstChildId: "c1", lastChildId: "c1" }),
+        buildBlock({ id: "c1", type: "table-cell", parentId: "r1", firstChildId: "p1", lastChildId: "p1" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "c1", inlineContent: inlineContent([]) }),
+      ],
+    });
+    const caret = createPosition("p0" as BlockId, 0);
+    const editor = createEditorStateFromState(state, createSpan(caret, caret), config);
+
+    const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" }, config);
+    // The last header row removed → header turns OFF (attr dropped, reads as 0/undefined).
+    expect(getBlock(next.state, "table" as BlockId)?.attrs.headerRowCount).toBeUndefined();
+  });
 });
 
 describe("handleInsertTableColumn — INSERT_TABLE_COLUMN (P15a.S5)", () => {
