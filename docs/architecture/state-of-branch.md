@@ -709,7 +709,7 @@ auto-updating as the target moves pages. Shipped end-to-end through every layer:
   page-spanning one (exact-intra-fragment OUT per the feature-selection test). A deleted/orphan
   target or absent `parentOf` → `-1` → the `""` broken-ref sentinel (width reserved for the
   broken-ref text). `[implemented]` — the prior top-level-only broken-ref limitation is removed;
-  `pageOfFieldTarget` is the shared resolver the planned TOC reuses. (Footnote anchors remain
+  `pageOfFieldTarget` is the shared resolver the TOC reuses. (Footnote anchors remain
   top-level-only — independent, unchanged.)
 - **Layout — substitute** (`1.5-pagination.md`): `substituteLayoutFields` (renamed from the
   page-field-specific `substitutePageFields`) stamps the resolved page number into the placeholder
@@ -728,9 +728,9 @@ auto-updating as the target moves pages. Shipped end-to-end through every layer:
 Out of scope (named follow-ups): main-body / footnote-body page-fields (not creatable
 via the editor).
 
-### Table of contents `[partial]`
+### Table of contents `[implemented]`
 
-A live, field-backed Table of Contents (derive-not-store) is **in progress**. Shipped: the
+A live, field-backed Table of Contents (derive-not-store) is **implemented** (engine side). Shipped: the
 `table-of-contents` atomic-leaf component + `INSERT_TABLE_OF_CONTENTS` action (insertable
 anchor block carrying levels/leader/showPageNumbers/indentStep options); `collectPageFields`
 recognizes a TOC entry's page atom by its `/toc/` render-key segment so each entry's page
@@ -744,9 +744,14 @@ entries as the TOC box's children — derive-not-store, bypassing the zero-heigh
 `RenderOutput.outlineSignature` cache + incremental invalidation-expansion (a heading edit
 re-derives every TOC even though the TOC blocks are not in `dirtyIds`; a non-heading edit reuses
 the TOC RenderNode by ref — O(1); see `1.2-render.md` "Cross-cutting invalidation expansions").
-**Still missing:** layout/fragmentation integration (confirm the synthesized multi-child TOC
-block fragments across pages + multi-TOC field fold), and the DOM click-to-navigate hit-test.
-Example-app Insert-menu entry + in-browser smoke are browser-gated.
+The synthesized multi-child TOC block paginates + FRAGMENTS across page breaks and resolves each
+entry's page number end-to-end through the real producer path (verified by
+`layout/__tests__/toc-pagination.test.ts`: per-page materialization, cross-page entry split,
+multi-TOC independent fold). Click-to-navigate is wired in the DOM controller (`pickTocEntryAt` +
+a mousedown-defer gesture; a plain click on an entry jumps the caret to its heading, a drag
+abandons nav — `2-dom/2.1-editor-controller.md`). **Browser-gated (downstream / USER's domain):**
+the example-app Insert-menu entry and the in-browser click + live-update smoke; dot-leader paint
+is shared with all tab stops (`canvas-renderer.ts`) and already exists.
 
 ### Comments `[implemented]`
 
