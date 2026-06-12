@@ -100,4 +100,43 @@ describe("insertCrossReference", () => {
     const state = docWithTarget();
     expect(() => insertCrossReference(state, createPosition("p" as BlockId, 99), "h" as BlockId, "text")).toThrow();
   });
+
+  it('stores numberStyle for "page" mode (layout-dependent page-number reference)', () => {
+    const state = docWithTarget();
+    const result = insertCrossReference(
+      state,
+      createPosition("p" as BlockId, 5),
+      "h" as BlockId,
+      "page",
+      "lower-roman",
+    );
+    const items = itemsOf(result.state, "p");
+    const embed = items[1] as EmbedItem;
+    expect(embed.embedType).toBe(CROSS_REFERENCE_EMBED_TYPE);
+    expect(embed.properties).toEqual({ targetId: "h", refMode: "page", numberStyle: "lower-roman" });
+  });
+
+  it('defaults numberStyle to "decimal" for "page" mode when omitted', () => {
+    const state = docWithTarget();
+    const result = insertCrossReference(state, createPosition("p" as BlockId, 5), "h" as BlockId, "page");
+    const embed = itemsOf(result.state, "p")[1] as EmbedItem;
+    expect(embed.properties).toEqual({ targetId: "h", refMode: "page", numberStyle: "decimal" });
+  });
+
+  it('does NOT add numberStyle for "number" / "text" modes (properties byte-identical to before)', () => {
+    const state = docWithTarget();
+    const numberEmbed = itemsOf(
+      insertCrossReference(state, createPosition("p" as BlockId, 5), "h" as BlockId, "number").state,
+      "p",
+    )[1] as EmbedItem;
+    expect(numberEmbed.properties).toEqual({ targetId: "h", refMode: "number" });
+    expect("numberStyle" in numberEmbed.properties).toBe(false);
+
+    const textEmbed = itemsOf(
+      insertCrossReference(state, createPosition("p" as BlockId, 5), "h" as BlockId, "text").state,
+      "p",
+    )[1] as EmbedItem;
+    expect(textEmbed.properties).toEqual({ targetId: "h", refMode: "text" });
+    expect("numberStyle" in textEmbed.properties).toBe(false);
+  });
 });

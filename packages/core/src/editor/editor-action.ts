@@ -52,7 +52,14 @@ export type EditorAction =
   | { type: "INSERT_HEADER" }
   | { type: "INSERT_FOOTER" }
   | { type: "INSERT_FOOTNOTE" }
-  | { type: "INSERT_CROSS_REFERENCE"; targetId: BlockId; refMode: CrossReferenceMode }
+  | {
+      type: "INSERT_CROSS_REFERENCE";
+      targetId: BlockId;
+      refMode: CrossReferenceMode;
+      // Number format for `refMode: "page"` page-number references (default "decimal");
+      // ignored by "number"/"text" modes. Read by the INSERT_CROSS_REFERENCE handler (S7).
+      numberStyle?: PageFieldNumberStyle;
+    }
   | { type: "INSERT_PAGE_NUMBER"; numberStyle?: PageFieldNumberStyle }
   | { type: "INSERT_PAGE_COUNT"; numberStyle?: PageFieldNumberStyle }
   | { type: "INSERT_TAB" }

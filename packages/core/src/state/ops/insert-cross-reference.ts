@@ -12,6 +12,7 @@ import {
 } from "../inline-content";
 import { getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
 import { buildYInlineContent } from "../y-block";
+import type { PageFieldNumberStyle } from "../page-field";
 
 /** The `embedType` discriminant for a cross-reference field. */
 export const CROSS_REFERENCE_EMBED_TYPE = "cross-reference";
@@ -20,10 +21,12 @@ export const CROSS_REFERENCE_EMBED_TYPE = "cross-reference";
  * What a cross-reference DISPLAYS about its target. v1 modes resolve at RENDER
  * time (no layout dependency): `"number"` → the target's counter (a numbered
  * `list-item`); `"text"` → the target's text (a heading / paragraph / list-item).
- * `"page"` / heading-number / footnote-number / bookmark targets are deferred to
- * separate whole-feature follow-ups.
+ * `"page"` → the 1-based page number the target block lands on (a LAYOUT-dependent
+ * value resolved after pagination, NOT at render time — it carries a
+ * {@link PageFieldNumberStyle} for formatting, like a page-field). Heading-number /
+ * footnote-number / bookmark targets are deferred to separate whole-feature follow-ups.
  */
-export type CrossReferenceMode = "number" | "text";
+export type CrossReferenceMode = "number" | "text" | "page";
 
 /**
  * Pre-computed plan for `insertCrossReference`: the host leaf's tree provenance
@@ -41,7 +44,8 @@ interface CrossReferenceInsertPlan {
  * Insert a cross-reference field at `position`, atomically (ONE `applyOperation`
  * transaction → one undo entry, one collab event). Splices a `cross-reference`
  * `EmbedItem` carrying `properties: { targetId, refMode }` into the cursor leaf's
- * `inlineContent`.
+ * `inlineContent`. For `refMode === "page"` the properties additionally carry a
+ * `numberStyle` (defaulting to `"decimal"`); other modes store no `numberStyle`.
  *
  * Unlike `insertFootnote`, a cross-reference OWNS NOTHING — `targetId` is a POINTER
  * to an existing block, not an owned embed body. So:
@@ -71,8 +75,9 @@ export function insertCrossReference(
   position: Position,
   targetId: BlockId,
   refMode: CrossReferenceMode,
+  numberStyle: PageFieldNumberStyle = "decimal",
 ): OperationResult {
-  const plan = planCrossReferenceInsert(state, position, targetId, refMode);
+  const plan = planCrossReferenceInsert(state, position, targetId, refMode, numberStyle);
   return applyOperation(state, (doc) => {
     insertCrossReferenceInTx(doc, plan);
   });
@@ -88,6 +93,7 @@ function planCrossReferenceInsert(
   position: Position,
   targetId: BlockId,
   refMode: CrossReferenceMode,
+  numberStyle: PageFieldNumberStyle,
 ): CrossReferenceInsertPlan {
   const resolved = resolveBlock(state, position.blockId);
   if (resolved === null) {
@@ -107,11 +113,18 @@ function planCrossReferenceInsert(
     );
   }
 
+  // `"page"` is a layout-dependent reference (resolved after pagination) and carries a
+  // formatting `numberStyle`, like a page-field. `"number"`/`"text"` resolve at render
+  // time with no number style — their `properties` stay byte-identical to before.
+  const properties =
+    refMode === "page"
+      ? Object.freeze({ targetId, refMode, numberStyle })
+      : Object.freeze({ targetId, refMode });
   const reference: EmbedItem = Object.freeze({
     kind: "embed",
     embedType: CROSS_REFERENCE_EMBED_TYPE,
     attrs: Object.freeze({}),
-    properties: Object.freeze({ targetId, refMode }),
+    properties,
   });
 
   const [left, right] = splitInlineContentAtOffset(block.inlineContent, position.offset);
