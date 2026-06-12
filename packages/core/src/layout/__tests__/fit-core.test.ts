@@ -182,6 +182,58 @@ describe("fitRowsInTable (fit-core, table E.1)", () => {
       resumeAtRow: 2,
     });
   });
+
+  // #487 header-repetition reservation + PROGRESS floor (§7.3 / §6).
+  it("forceProgress=false (default) is byte-identical: header args of 0/false subtract −0", () => {
+    // Passing the new args at their defaults must reproduce the no-arg result.
+    expect(fitRowsInTable([30, 30, 30], 70, 0, 0, false)).toEqual(
+      fitRowsInTable([30, 30, 30], 70, 0),
+    );
+  });
+
+  it("a resumed continuation fits fewer body rows by exactly headerBlockSize", () => {
+    // rows [40, 30, 30, 30]; row 0 is a 40px header. Resume at body row 1 with
+    // remaining 100 and a 40px header reservation ⇒ body fits into 100−40=60 ⇒
+    // rows 1,2 (30+30=60) fit, row 3 doesn't ⇒ resume at row 3. WITHOUT the
+    // reservation, 100 would fit all three body rows — proving the header ate 40.
+    expect(fitRowsInTable([40, 30, 30, 30], 100, 1, 40, true)).toEqual({
+      placedRowCount: 2,
+      resumeAtRow: 3,
+    });
+    // Sanity: same remaining, no reservation ⇒ all three body rows fit.
+    expect(fitRowsInTable([40, 30, 30, 30], 100, 1, 0, false)).toEqual({
+      placedRowCount: 3,
+      resumeAtRow: null,
+    });
+  });
+
+  it("PROGRESS forces ≥1 body row when header + next row overflow the fragment", () => {
+    // rows [40, 50, 50]; resume at body row 1 with remaining 60 and header 40 ⇒
+    // body budget 20 < row-1 (50) ⇒ zero rows fit ⇒ forceProgress places exactly
+    // ONE (overflowing) and advances resumeAtRow to 2.
+    expect(fitRowsInTable([40, 50, 50], 60, 1, 40, true)).toEqual({
+      placedRowCount: 1,
+      resumeAtRow: 2,
+    });
+  });
+
+  it("PROGRESS forces the LAST body row and resumes null (table ends)", () => {
+    // rows [40, 50]; resume at body row 1, header 40, remaining 60 ⇒ body budget
+    // 20 < 50 ⇒ force the single remaining body row; no more rows ⇒ resumeAtRow null.
+    expect(fitRowsInTable([40, 50], 60, 1, 40, true)).toEqual({
+      placedRowCount: 1,
+      resumeAtRow: null,
+    });
+  });
+
+  it("forceProgress=false with zero body fit still pushes whole (no force)", () => {
+    // First-fragment-style call (startRow 0 ⇒ forceProgress false): zero rows fit
+    // ⇒ the default push-whole result, NOT a forced row.
+    expect(fitRowsInTable([80, 80], 50, 0, 0, false)).toEqual({
+      placedRowCount: 0,
+      resumeAtRow: 0,
+    });
+  });
 });
 
 // Direct fitOnePage contract assertions. These pin the block-packing decisions
@@ -351,6 +403,87 @@ describe("fitOnePage (fit-core, block packing)", () => {
     const result = fitOnePage(metas, 0, null, 200, 0);
     expect(result).toMatchObject({ childrenCount: 1, resumeOut: null });
     expect(result.consumedBlockSize).toBe(300);
+  });
+
+  it("#487 continuation table reserves headerBlockSize: a following sibling sits below header + placed rows", () => {
+    // Table rows [40(header), 30, 30, 30, 30], headerRowCount 1 ⇒ headerBlockSize
+    // 40. Resume at body row 3 on a fresh page (rows 0..2 placed earlier — row 0
+    // header + body 1,2). Page content 130: the header (40) is reserved, leaving
+    // 90 for body ⇒ rows 3,4 fit (30+30=60). They are the LAST rows ⇒ resumeOut
+    // null, the table is consumed whole on this fragment. consumedBlockSize must be
+    // headerBlockSize 40 + placed 60 = 100 (NOT 60) so a sibling after the table is
+    // positioned below the repeated header too.
+    const metas = [
+      tableMeta([40, 30, 30, 30, 30], { headerRowCount: 1, headerBlockSize: 40 }),
+      blockMeta(20),
+    ];
+    const resumeInto = {
+      type: "block" as const,
+      resumeChildIndex: 0,
+      resumeChildToken: { type: "table" as const, resumeAtRow: 3 },
+    };
+    const result = fitOnePage(metas, 0, resumeInto, 130, 0);
+    // Table fully consumed (rows 3,4) + the 20px sibling block both fit on the page.
+    expect(result.childrenCount).toBe(2);
+    expect(result.resumeOut).toBeNull();
+    // consumedBlockSize = header 40 + body rows 3,4 (60) + sibling 20 = 120.
+    expect(result.consumedBlockSize).toBe(120);
+  });
+
+  it("#487 continuation table PARTIAL fit advances runningOffset by header + placed body rows", () => {
+    // Same table, resume at body row 1. Page content 130, header 40 reserved ⇒
+    // body budget 90 ⇒ rows 1,2,3 fit (90), row 4 doesn't ⇒ partial, resume at row
+    // 4. The table is the last block on the page; consumedBlockSize = header 40 +
+    // placed 90 = 130 (the full page). resumeOut points at body row 4 (absolute),
+    // header NOT advancing the index.
+    const metas = [tableMeta([40, 30, 30, 30, 30], { headerRowCount: 1, headerBlockSize: 40 })];
+    const resumeInto = {
+      type: "block" as const,
+      resumeChildIndex: 0,
+      resumeChildToken: { type: "table" as const, resumeAtRow: 1 },
+    };
+    const result = fitOnePage(metas, 0, resumeInto, 130, 0);
+    expect(result.childrenCount).toBe(0); // table still fragmenting
+    expect(result.consumedBlockSize).toBe(130);
+    expect(result.resumeOut).toEqual({
+      type: "block",
+      resumeChildIndex: 0,
+      resumeChildToken: { type: "table", resumeAtRow: 4 },
+    });
+  });
+
+  it("#487 PROGRESS: header + next body row overflow still places exactly one body row", () => {
+    // Table rows [40(header), 100, 100], headerRowCount 1. Resume at body row 1.
+    // Page content 120, header 40 reserved ⇒ body budget 80 < row-1 (100) ⇒ zero
+    // fit ⇒ PROGRESS forces ONE body row (overflowing) and resumes at row 2 — never
+    // a hang, never the whole-suffix §C.6 dump.
+    const metas = [tableMeta([40, 100, 100], { headerRowCount: 1, headerBlockSize: 40 })];
+    const resumeInto = {
+      type: "block" as const,
+      resumeChildIndex: 0,
+      resumeChildToken: { type: "table" as const, resumeAtRow: 1 },
+    };
+    const result = fitOnePage(metas, 0, resumeInto, 120, 0);
+    expect(result.resumeOut).toEqual({
+      type: "block",
+      resumeChildIndex: 0,
+      resumeChildToken: { type: "table", resumeAtRow: 2 },
+    });
+    // header 40 + the one forced (overflowing) body row 100 = 140 consumed.
+    expect(result.consumedBlockSize).toBe(140);
+  });
+
+  it("#487 headerRowCount===0 (no header) is byte-identical to a plain fragmenting table", () => {
+    const noHeader = [tableMeta([40, 30, 30, 30, 30])];
+    const withZero = [tableMeta([40, 30, 30, 30, 30], { headerRowCount: 0, headerBlockSize: 0 })];
+    const resumeInto = {
+      type: "block" as const,
+      resumeChildIndex: 0,
+      resumeChildToken: { type: "table" as const, resumeAtRow: 1 },
+    };
+    expect(fitOnePage(withZero, 0, resumeInto, 130, 0)).toEqual(
+      fitOnePage(noHeader, 0, resumeInto, 130, 0),
+    );
   });
 
   it("accumulates the list-item counter through consumed blocks", () => {

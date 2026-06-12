@@ -8,6 +8,7 @@ import { createMockShaper } from "../mock-shaper";
 import { cascadePass } from "../../cascade";
 import { createElementBox, createTextBox } from "../../render/render-node";
 import type { ElementBox } from "../../render/render-node";
+import { asBlockId } from "../../state";
 
 /** Build a simple table with N body rows, fixed row height via blockSize style. */
 function buildSimpleTable(numBodyRows: number, rowHeight: number = 30): ElementBox {
@@ -367,5 +368,167 @@ describe("Table FC fragmentation — resume of a rowSpan cell (S5.T4)", () => {
     expect(p3A.children.length).toBe(1); // the final block a2
     expect(p3A.inlineOffset).toBe(0);
     expect(p3D.inlineOffset).toBe(300);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #487 — repeating header rows across page fragments (S4 materialize side)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a single-column table with `numRows` rows of fixed height, each cell
+ * carrying distinct text "rN" (so a re-laid header row is identifiable by its
+ * content), and stamp `headerRowCount` onto the table box metadata (the path
+ * the `table` component uses in production).
+ */
+function buildHeaderTable(numRows: number, headerRowCount: number, rowHeight = 30): ElementBox {
+  const rows = Array.from({ length: numRows }, (_, i) =>
+    createElementBox(`row-${i}`, { display: "table-row", blockSize: rowHeight }, [
+      createElementBox(`cell-${i}-0`, { display: "table-cell" }, [
+        createTextBox(`t-${i}`, {}, `r${i}`),
+      ]),
+    ]),
+  );
+  const table = createElementBox("table", { display: "table" }, rows, { headerRowCount });
+  const cascaded = cascadePass(table);
+  if (cascaded.type !== "element") throw new Error("cascadePass returned non-element");
+  return cascaded;
+}
+
+describe("Table FC fragmentation — repeating header rows (#487)", () => {
+  it("re-lays the header row at the top of a continuation fragment + correct body rows", () => {
+    // 6 rows × 30, headerRowCount 1. Page 1 fits header(0)+body 1,2 (90). Page 2
+    // resumes at body row 3: it MUST re-emit header row 0 at the top, then body
+    // rows 3,4,5.
+    const table = buildHeaderTable(6, 1, 30);
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+
+    const p1 = layoutTable(table, 0, 0, ctx, shaper, {
+      availableBlockSize: 90, pageIndex: 0, resumeFrom: null,
+    });
+    // Page 1 places header(0) + body 1,2 = 3 rows; break at body row 3.
+    expect(p1.breakToken).toEqual({ type: "table", resumeAtRow: 3 });
+    if (p1.box === null) throw new Error("p1 box");
+    expect(p1.box.children.map((r) => r.key)).toEqual(["row-0", "row-1", "row-2"]);
+
+    // Page 2: resume at body row 3 with a header reservation.
+    const p2 = layoutTable(table, 0, 0, ctx, shaper, {
+      availableBlockSize: 200, pageIndex: 1, resumeFrom: p1.breakToken,
+    });
+    expect(p2.breakToken).toBeNull(); // all remaining rows fit
+    if (p2.box === null) throw new Error("p2 box");
+    // The emitted rows on the continuation: re-laid header row-0 FIRST, then the
+    // resumed body rows 3,4,5 (rows 1,2 stay on page 1 — NOT re-emitted).
+    expect(p2.box.children.map((r) => r.key)).toEqual([
+      "row-0", "row-3", "row-4", "row-5",
+    ]);
+
+    // The re-laid header sits at block-offset 0; the first body row starts at
+    // headerBlockSize (30).
+    const headerRow = p2.box.children[0];
+    const firstBodyRow = p2.box.children[1];
+    if (headerRow.type !== "table-row" || firstBodyRow.type !== "table-row") {
+      throw new Error("expected table rows");
+    }
+    expect(headerRow.blockOffset).toBe(0);
+    expect(headerRow.blockSize).toBe(30);
+    expect(firstBodyRow.blockOffset).toBe(30);
+
+    // The re-laid header cell carries the HEADER row's content ("r0"), proving it
+    // is a fresh copy of row 0 (not a body row) — a distinct box instance at this
+    // fragment's offset.
+    const headerCell = headerRow.children.find((c) => c.key === "cell-0-0");
+    if (headerCell === undefined || headerCell.type !== "table-cell") {
+      throw new Error("re-laid header cell not found");
+    }
+
+    // GATE B (measure↔materialize): the continuation fragment's TOTAL block-size
+    // equals headerBlockSize (30) + Σ placed body rows (3 rows × 30 = 90) = 120 —
+    // exactly what the measure pass reserves (headerBlockSize + placed). No drift.
+    expect(p2.box.blockSize).toBe(120);
+
+    // Fragment-local occupancy describes exactly the 4 emitted rows; every slot
+    // resolves in THIS fragment's cellBoxById (tables-audit F1).
+    expect(p2.box.occupancy.length).toBe(4);
+    for (const row of p2.box.occupancy) {
+      for (const cellId of row) {
+        if (cellId !== null) expect(p2.box.cellBoxById.has(cellId)).toBe(true);
+      }
+    }
+    // The re-laid header cell box (a fresh box instance on THIS fragment) is the
+    // one registered in the fragment's cellBoxById — so selection/paint/caret over
+    // the repeated header resolve to it, not to page 1's header box.
+    expect(p2.box.cellBoxById.get(asBlockId("cell-0-0"))).toBe(headerCell);
+  });
+
+  it("a continuation that itself fragments re-emits the header on EACH page", () => {
+    // 7 rows × 30, headerRowCount 1. Page 2 (resume at row 3) with availableBlockSize
+    // 90: header(30) reserved ⇒ body budget 60 ⇒ rows 3,4 fit, break at row 5. The
+    // header is re-emitted again; body rows admitted = exactly the measure reservation.
+    const table = buildHeaderTable(7, 1, 30);
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+
+    const p2 = layoutTable(table, 0, 0, ctx, shaper, {
+      availableBlockSize: 90, pageIndex: 1,
+      resumeFrom: { type: "table", resumeAtRow: 3 },
+    });
+    expect(p2.breakToken).toEqual({ type: "table", resumeAtRow: 5 });
+    if (p2.box === null) throw new Error("p2 box");
+    expect(p2.box.children.map((r) => r.key)).toEqual(["row-0", "row-3", "row-4"]);
+    // header 30 + body rows 3,4 (60) = 90 — fills the page exactly, matching the
+    // measure reservation (headerBlockSize + Σ placed).
+    expect(p2.box.blockSize).toBe(90);
+  });
+
+  it("PROGRESS: header + next body row overflow still places exactly one body row", () => {
+    // 3 rows: header 30 + two 100-tall body rows. Resume at body row 1 with
+    // availableBlockSize 110: header(30) reserved ⇒ body budget 80 < 100 ⇒ zero fit
+    // ⇒ PROGRESS forces ONE body row (overflowing). resumeAtRow strictly advances
+    // to 2 — no hang. The materialize side mirrors the measure-side force-place.
+    const rows = [
+      createElementBox("row-0", { display: "table-row", blockSize: 30 }, [
+        createElementBox("cell-0-0", { display: "table-cell" }, [createTextBox("t0", {}, "h")]),
+      ]),
+      createElementBox("row-1", { display: "table-row", blockSize: 100 }, [
+        createElementBox("cell-1-0", { display: "table-cell" }, [createTextBox("t1", {}, "a")]),
+      ]),
+      createElementBox("row-2", { display: "table-row", blockSize: 100 }, [
+        createElementBox("cell-2-0", { display: "table-cell" }, [createTextBox("t2", {}, "b")]),
+      ]),
+    ];
+    const tableEl = createElementBox("table", { display: "table" }, rows, { headerRowCount: 1 });
+    const cascaded = cascadePass(tableEl);
+    if (cascaded.type !== "element") throw new Error("cascade");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+
+    const p = layoutTable(cascaded, 0, 0, ctx, shaper, {
+      availableBlockSize: 110, pageIndex: 1,
+      resumeFrom: { type: "table", resumeAtRow: 1 },
+    });
+    expect(p.breakToken).toEqual({ type: "table", resumeAtRow: 2 });
+    if (p.box === null) throw new Error("progress box");
+    // header row-0 + forced body row-1.
+    expect(p.box.children.map((r) => r.key)).toEqual(["row-0", "row-1"]);
+    // header 30 + forced row 100 = 130 (overflows the 110 page — accepted).
+    expect(p.box.blockSize).toBe(130);
+  });
+
+  it("first fragment (startBodyRow 0) does NOT repeat the header — byte-identical to no-header", () => {
+    // On the FIRST fragment, header rows are ordinary leading rows: no reservation,
+    // no duplication. A 6-row headerRowCount=1 table on page 1 places rows 0,1,2
+    // exactly like a plain table.
+    const withHeader = buildHeaderTable(6, 1, 30);
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
+    const shaper = createMockShaper(8, 16);
+    const p1 = layoutTable(withHeader, 0, 0, ctx, shaper, {
+      availableBlockSize: 90, pageIndex: 0, resumeFrom: null,
+    });
+    if (p1.box === null) throw new Error("p1 box");
+    expect(p1.box.children.map((r) => r.key)).toEqual(["row-0", "row-1", "row-2"]);
+    expect(p1.box.blockSize).toBe(90);
+    expect(p1.breakToken).toEqual({ type: "table", resumeAtRow: 3 });
   });
 });

@@ -151,14 +151,18 @@ Built-in component behavior:
   preserves the rectangular-grid invariant layout depends on. HTML table ENCODE
   (`<table>`/`<tr>`/`<td>`, see [`2.5-html-serializer.md`](2-dom/2.5-html-serializer.md))
   now ships — tables are no longer lost on export. **Header-row repetition (#487)
-  STATE + RENDER `[implemented]` (S1+S2)**: the per-table `headerRowCount` attr +
-  `setTableHeaderRows` op (clamped by the clean-cut invariant via
+  STATE + RENDER + LAYOUT `[implemented]` (S1–S4)**: the per-table `headerRowCount`
+  attr + `setTableHeaderRows` op (clamped by the clean-cut invariant via
   `largestCleanHeaderCount`) + the `adjustHeaderRowCount` fix-up wired into all four
   row insert/delete ops keep the count valid (S1); the `table` component reads it raw
   from `view.attrs` and stamps it onto the table box `LayoutBoxMetadata.headerRowCount`
-  (S2). The LAYOUT side that CONSUMES it (repeating the header rows at the top of each
-  page/column fragment — measure reserves `headerBlockSize`, materialize re-lays the
-  header rows) is `[partial]` — S3–S6, in flight. Still `[missing]`:
+  (S2); the measure pass reserves `headerBlockSize = Σ rowBlockSizes[0, headerRowCount)`
+  and the materialize pass (`layoutTable`) re-lays the header rows at each continuation
+  fragment's top from the SAME single source — measure↔materialize agree byte-for-byte,
+  gated by the equivalence harness + a direct `getPage` test (S3+S4, one atomic commit).
+  REMAINING `[partial]`: the incremental reuse-gate sensitivity (a header-cell edit
+  must re-fit/re-materialize continuations — S5) and hard-case hardening (HEADER-CAP,
+  multicolumn, span-from-header — S6). Still `[missing]`:
   browser-gated example-app Table menu wiring (the `INSERT_TABLE` button + the
   span-aware actions + a header-row toggle), structural table copy/paste, and HTML
   table DECODE (paste-in).
@@ -282,14 +286,17 @@ Known gaps:
   naively would ship a degraded, incorrect partial-reuse.
 - **Table `border-collapse: collapse`** — every cell draws its own
   borders; the heaviest-wins collapse resolution is not implemented.
-- **Repeating header rows across page fragments (#487)** — modeled NOT as a CSS
-  `table-header-group` display value (rejected by the feature-selection test) but as
-  a per-table `headerRowCount` count attr (Google-Docs "pin header rows"). STATE
-  LAYER shipped (S1: attr + `setTableHeaderRows` + clean-cut clamp + row-edit
-  fix-up); the LAYOUT side (measure reserves `headerBlockSize`, materialize re-lays
-  the header rows at each continuation fragment's top) is in flight (S2–S6). `<tfoot>`
-  bottom-footer repetition remains a separate future feature. `resumeAtRow` indexes
-  absolute rows (header rows re-emit but do not advance it).
+- **Repeating header rows across page fragments (#487)** `[implemented]` for the
+  core flow — modeled NOT as a CSS `table-header-group` display value (rejected by the
+  feature-selection test) but as a per-table `headerRowCount` count attr (Google-Docs
+  "pin header rows"). Shipped S1 (state: attr + `setTableHeaderRows` + clean-cut clamp
+  + row-edit fix-up), S2 (render: metadata stamp), S3+S4 (measure reserves
+  `headerBlockSize`, materialize re-lays the header rows at each continuation
+  fragment's top — byte-identical, gated by the equivalence harness + a direct
+  `getPage` test). REMAINING: reuse-gate sensitivity to header-cell edits (S5) +
+  hard-case hardening (S6). `<tfoot>` bottom-footer repetition remains a separate
+  future feature. `resumeAtRow` indexes absolute rows (header rows re-emit but do not
+  advance it).
 
 ### Pagination `[partial]`
 
@@ -307,7 +314,7 @@ Still missing (deferred to P1.C and later):
 - All P1.C sub-pieces (headers/footers/footnotes/templates).
 - Bottom-side margin truncation across breaks for the edge case where the parent has bottom padding/border on a partial fragment (top side already shipped in P1.B).
 - Cross-page floats (P1.D-or-P12; current float environment is single-fragment-aware).
-- Cross-page table header-row repetition LAYOUT side (#487; modeled as the per-table `headerRowCount` count attr, NOT `table-header-group` — state layer S1 shipped, measure/materialize S2–S6 in flight).
+- Cross-page table `<tfoot>` bottom-footer repetition (a separate future feature; the header-row case #487 shipped S1–S4 — see the Tables section + `1.4.3-table-fc.md`).
 
 ### Multi-column (Format ▸ Columns) `[partial]`
 

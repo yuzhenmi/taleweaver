@@ -59,8 +59,10 @@ export interface SpanningCellContinuation {
 
 export interface TableBreakToken {
   readonly type: "table";
-  /** 0-based row index in the table BODY (excluding thead) at which to resume.
-   * thead rows always repeat at the top of each fragment. */
+  /** 0-based ABSOLUTE row index (counting all rows from 0) at which to resume;
+   * header rows `[0, headerRowCount)` are re-emitted on each continuation but do
+   * NOT advance this index. (`headerRowCount === 0` ⇒ no header repetition ⇒ this
+   * is just the next body row, byte-identical to the pre-header behavior.) */
   readonly resumeAtRow: number;
   /**
    * Cells with `rowSpan > 1` whose rectangle straddles this break (origin before

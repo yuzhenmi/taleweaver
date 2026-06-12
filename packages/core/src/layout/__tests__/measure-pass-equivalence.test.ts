@@ -21,6 +21,7 @@ import { createElementBox, createTextBox } from "../../render/render-node";
 import type { ElementBox } from "../../render/render-node";
 import type { Style } from "../../styles";
 import type { BreakToken, FragmentationContext } from "../fragmentation";
+import { breakTokensEqual } from "../fragmentation";
 import type { PageConfig } from "../page-config";
 import { buildBlockFitMetas } from "../build-fit-metas";
 import { measurePass, measurePassUnsupported } from "../measure-pass";
@@ -111,19 +112,6 @@ function runOracle(
   return { pages, totalBlockSize };
 }
 
-/** Structural break-token equality (references differ across layout cycles). */
-function tokensEqual(a: BreakToken | null, b: BreakToken | null): boolean {
-  if (a === b) return true;
-  if (a === null || b === null) return false;
-  if (a.type !== b.type) return false;
-  if (a.type === "block" && b.type === "block") {
-    return a.resumeChildIndex === b.resumeChildIndex && tokensEqual(a.resumeChildToken, b.resumeChildToken);
-  }
-  if (a.type === "ifc" && b.type === "ifc") return a.resumeAtLine === b.resumeAtLine;
-  if (a.type === "table" && b.type === "table") return a.resumeAtRow === b.resumeAtRow;
-  return false;
-}
-
 /**
  * Run the full equivalence assertion for a cascaded root: oracle vs measurePass.
  * Also exercises `paginateRoot` to confirm the page count matches the page-by-
@@ -161,8 +149,8 @@ function assertEquivalent(root: ElementBox, pageConfig: PageConfig): void {
     expect(p.blockOffset, `page ${i} blockOffset`).toBe(o.blockOffset);
     expect(p.startIndex, `page ${i} startIndex`).toBe(o.startIndex);
     expect(p.children.length, `page ${i} childrenCount`).toBe(o.childrenCount);
-    expect(tokensEqual(p.resumeInto, o.resumeInto), `page ${i} resumeInto`).toBe(true);
-    expect(tokensEqual(p.resumeOut, o.resumeOut), `page ${i} resumeOut`).toBe(true);
+    expect(breakTokensEqual(p.resumeInto, o.resumeInto), `page ${i} resumeInto`).toBe(true);
+    expect(breakTokensEqual(p.resumeOut, o.resumeOut), `page ${i} resumeOut`).toBe(true);
   }
 }
 
@@ -380,6 +368,42 @@ describe("measure-pass equivalence — (c) table leaf", () => {
 
   it("block then table spanning pages", () => {
     const root = cascadeRoot({ display: "block" }, [fixedBlock("b0", 40), tableOf(8, 30)]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  // #487 — a table with a repeating header row, fragmenting across pages. Gate A:
+  // the measure plan (which reserves headerBlockSize per continuation) must agree
+  // EXACTLY with the real `layoutTable` oracle (which re-lays the header on each
+  // continuation). A drift here is the #494/#498/#499 class.
+  function tableWithHeader(numRows: number, headerRowCount: number, rowHeight: number): ElementBox {
+    const rows = Array.from({ length: numRows }, (_, i) =>
+      createElementBox(`row-${i}`, { display: "table-row", blockSize: rowHeight } as Style, [
+        createElementBox(`cell-${i}`, { display: "table-cell" } as Style, [
+          createTextBox(`ct-${i}`, {}, "x"),
+        ]),
+      ]),
+    );
+    return createElementBox("tbl", { display: "table" } as Style, rows, { headerRowCount });
+  }
+
+  it("table with a 1-row repeating header spanning pages (header reservation)", () => {
+    // 8 rows × 30 = 240, headerRowCount 1; page content 100. Continuation fragments
+    // reserve 30 for the re-laid header ⇒ fewer body rows fit per page than a plain
+    // table. Oracle (real layoutTable) ↔ measurePass must agree exactly.
+    const root = cascadeRoot({ display: "block" }, [tableWithHeader(8, 1, 30)]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("table with a 2-row repeating header spanning pages", () => {
+    const root = cascadeRoot({ display: "block" }, [tableWithHeader(10, 2, 25)]);
+    assertEquivalent(root, noMarginPageConfig(120));
+  });
+
+  it("block then table with a repeating header, table starts mid-page", () => {
+    const root = cascadeRoot({ display: "block" }, [
+      fixedBlock("b0", 40),
+      tableWithHeader(8, 1, 30),
+    ]);
     assertEquivalent(root, noMarginPageConfig(100));
   });
 });

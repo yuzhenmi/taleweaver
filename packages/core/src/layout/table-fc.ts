@@ -359,6 +359,31 @@ export function layoutTable(
 
   const rows = groupTableRows(node);
 
+  // #487 header-repetition: the first `headerRowCount` rows repeat at the top of
+  // every CONTINUATION fragment (Google-Docs "pin header rows"). On the first
+  // fragment (startBodyRow === 0) the header rows are ordinary leading rows — no
+  // repetition. On a continuation, `repeatHeader` makes Pass A–D ALSO lay rows
+  // `[0, headerRowCount)` at the top, before the resumed body rows. The clean-cut
+  // invariant (S1) guarantees no cell straddles the `[0, headerRowCount)`
+  // boundary, so the header band is an independent sub-grid. `headerRowCount === 0`
+  // (the default) ⇒ `repeatHeader` false ⇒ byte-identical to the pre-header path.
+  const rawHeaderRowCount = node.metadata?.headerRowCount ?? 0;
+  const headerRowCount = Math.max(0, Math.min(rawHeaderRowCount, rows.length));
+  const repeatHeader = startBodyRow > 0 && headerRowCount > 0;
+
+  // The ORDERED list of GLOBAL row indices this fragment emits: the repeated
+  // header `[0, headerRowCount)` (continuation only) followed by the resumed body
+  // rows `[startBodyRow, rows.length)`. The two bands are non-contiguous in the
+  // global grid (rows `[headerRowCount, startBodyRow)` live on earlier fragments);
+  // every Pass that iterates emitted rows walks THIS list, and the fragment-local
+  // grid maps local row `k → emittedRows[k]`. Without the header it is the plain
+  // contiguous `[startBodyRow, rows.length)` — the pre-header behavior.
+  const emittedRows: number[] = [];
+  if (repeatHeader) {
+    for (let r = 0; r < headerRowCount; r++) emittedRows.push(r);
+  }
+  for (let r = startBodyRow; r < rows.length; r++) emittedRows.push(r);
+
   // P8 grid model: assign every cell its (gridRow, gridCol) + span over the WHOLE
   // table (independent of fragmentation trimming), and build the occupancy map.
   // For 1×1 cells each cell's gridCol === its per-row index, so S1 geometry is
@@ -375,16 +400,22 @@ export function layoutTable(
   const grid = assignTableGrid(gridInput);
   const placementByKey = new Map<string, AssignedCell>();
   for (const ac of grid.cells) placementByKey.set(ac.cellId, ac);
-  // Grid info for the rows ACTUALLY emitted on this fragment, `[startBodyRow,
-  // toRow)`. `occupancy` is sliced to that window so every slot resolves against
-  // this fragment's `cellBoxById` (which holds only placed-row cells + clamped
+  // Grid info for the rows ACTUALLY emitted on this fragment, given an ordered
+  // list of GLOBAL row indices (`emittedRows` — the repeated header band followed
+  // by the resumed body band, possibly truncated at the break row). Fragment-local
+  // row `k` maps to `grid.occupancy[globalRows[k]]`, so every slot resolves
+  // against this fragment's `cellBoxById` (which holds only the cells actually
+  // emitted on this fragment — re-laid header cells + placed body cells + clamped
   // rowSpan continuations) — a fragment must never reference a cell box that lives
-  // on another page (tables-audit F1). A non-fragmented / first-fragment table
-  // (startBodyRow 0, all rows) keeps the whole-table occupancy unchanged.
+  // on another page (tables-audit F1). The clean-cut invariant (#487 §3) keeps the
+  // header and body bands independent sub-grids, so the re-index never points at an
+  // absent gap row. A non-fragmented / first-fragment table (no header repeat,
+  // contiguous `[startBodyRow, rows.length)`) keeps the whole-window occupancy
+  // unchanged — byte-identical to the pre-header slice.
   const gridInfoFor = (
-    toRow: number,
+    globalRows: readonly number[],
   ): { occupancy: readonly (readonly (BlockId | null)[])[]; columnCount: number } => ({
-    occupancy: grid.occupancy.slice(startBodyRow, toRow),
+    occupancy: globalRows.map((r) => grid.occupancy[r] ?? []),
     columnCount: grid.columnCount,
   });
 
@@ -403,7 +434,10 @@ export function layoutTable(
   // ---------------------------------------------------------------------------
   const laidByRow: LaidCell[][] = rows.map(() => []);
 
-  for (let rowIdx = startBodyRow; rowIdx < rows.length; rowIdx++) {
+  // Walk the emitted rows (repeated header band + resumed body band) rather than
+  // a single contiguous `[startBodyRow, rows.length)` slice, so a continuation
+  // re-lays its header rows `[0, headerRowCount)` fresh at the same column widths.
+  for (const rowIdx of emittedRows) {
     const row = rows[rowIdx];
     const cellGroups = groupRowCells(row);
     for (let ci = 0; ci < cellGroups.length; ci++) {
@@ -531,7 +565,7 @@ export function layoutTable(
   // those cells, honoring an explicit row block-size).
   // ---------------------------------------------------------------------------
   const rowHeights: number[] = [];
-  for (let r = startBodyRow; r < rows.length; r++) {
+  for (const r of emittedRows) {
     const rowCs = rows[r].cs;
     // typeof narrows the stable binding (an indexed `rows[r].cs.blockSize` re-access
     // would NOT narrow); explicit block-size is the row's floor height.
@@ -591,7 +625,7 @@ export function layoutTable(
   // is the SUM of the rows it spans (rowSpan=1 ⇒ just its own row, byte-identical
   // to the pre-P8 stretch-to-row-height behavior).
   // ---------------------------------------------------------------------------
-  for (let r = startBodyRow; r < rows.length; r++) {
+  for (const r of emittedRows) {
     const row = rows[r];
     const rowUsedStyle = computeUsedStyle(row.cs, tableInlineSize, "indefinite");
     const rowBlockSize = rowHeights[r] ?? 0;
@@ -629,27 +663,63 @@ export function layoutTable(
   // E.1: Row-level fit-check.  When fragmenting, trim rowBoxes to those that
   // fit within availableBlockSize and return a TableBreakToken pointing to the
   // first row that didn't fit.
+  //
+  // #487 header-repetition: on a continuation (`repeatHeader`), `rowBoxes` starts
+  // with the `headerRowCount` repeated-header rows (forced, always emitted), then
+  // the resumed body rows. Those header rows are reserved at the top, so the body
+  // rows fit into `availableBlockSize − headerBlockSize` — IDENTICAL to the measure
+  // pass's `fitRowsInTable(remaining, …, headerBlockSize, forceProgress)` so the
+  // page admits exactly the rows the measure pass reserved (the load-bearing §4
+  // contract). PROGRESS (§6): if zero body rows fit, force exactly ONE so the table
+  // always advances. When there is no header (`headerCount === 0`) this is
+  // byte-identical to the pre-header fit.
   if (fragmentation !== undefined) {
-    let used = 0;
-    let placedRowCount = 0;
-    for (const rb of rowBoxes) {
-      if (used + rb.blockSize > fragmentation.availableBlockSize) break;
-      used += rb.blockSize;
-      placedRowCount++;
+    const headerCount = repeatHeader ? headerRowCount : 0;
+    // The header rows are forced; sum their heights (the reservation the body fits
+    // around). `rowBoxes[0..headerCount)` are exactly the emitted header rows.
+    let headerUsed = 0;
+    for (let i = 0; i < headerCount; i++) headerUsed += rowBoxes[i]?.blockSize ?? 0;
+
+    // Greedily pack BODY rows (`rowBoxes[headerCount..]`) into the space remaining
+    // after the header reservation.
+    const bodyAvailable = fragmentation.availableBlockSize - headerUsed;
+    let bodyUsed = 0;
+    let placedBodyCount = 0;
+    for (let i = headerCount; i < rowBoxes.length; i++) {
+      const rb = rowBoxes[i];
+      if (rb === undefined) break;
+      if (bodyUsed + rb.blockSize > bodyAvailable) break;
+      bodyUsed += rb.blockSize;
+      placedBodyCount++;
     }
 
-    if (placedRowCount === 0) {
-      // Even the first row doesn't fit — signal the parent to push to next page.
-      return {
-        box: null,
-        breakToken: { type: "table", resumeAtRow: startBodyRow },
-      };
+    const bodyRowTotal = rowBoxes.length - headerCount;
+
+    if (placedBodyCount === 0) {
+      // No body row fits. On a continuation with a header, PROGRESS forces exactly
+      // ONE body row (overflowing) so the table always advances — mirroring the
+      // measure pass's `forceProgress` floor. Without a header (first fragment),
+      // preserve the pre-header behavior: signal the parent to push the table whole.
+      if (repeatHeader && bodyRowTotal > 0) {
+        placedBodyCount = 1;
+        bodyUsed = rowBoxes[headerCount]?.blockSize ?? 0;
+      } else {
+        return {
+          box: null,
+          breakToken: { type: "table", resumeAtRow: startBodyRow },
+        };
+      }
     }
 
-    if (placedRowCount < rowBoxes.length) {
-      // Partial fit — emit placed rows only.
-      const breakRow = startBodyRow + placedRowCount;
-      const partialBlockSize = used;
+    const placedRowCount = headerCount + placedBodyCount;
+
+    if (placedBodyCount < bodyRowTotal) {
+      // Partial fit — emit the forced header rows + placed body rows only.
+      const breakRow = startBodyRow + placedBodyCount;
+      const partialBlockSize = headerUsed + bodyUsed;
+      // The global row indices actually emitted on this fragment: the header band
+      // `[0, headerCount)` (continuation only) followed by the placed body rows.
+      const emittedGlobalRows = emittedRows.slice(0, placedRowCount);
 
       // P8.S5.T3 — fragment any rowSpan>1 cell that ORIGINATES in the placed rows
       // but whose merged rectangle reaches past the break. Its interior is re-laid
@@ -732,8 +802,12 @@ export function layoutTable(
       if (trimmedByRow.size > 0) {
         placedRows = placedRows.map((rb, i) => {
           // trimmedByRow is keyed by absolute grid row (lc.placement.gridRow);
-          // placedRows[i] corresponds to grid row startBodyRow + i.
-          const trims = trimmedByRow.get(startBodyRow + i);
+          // placedRows[i] corresponds to the i-th emitted global row. With a
+          // repeated header that is the header band then the body band, so map via
+          // `emittedGlobalRows[i]` rather than `startBodyRow + i` (only the body
+          // rows can straddle the break — the clean-cut invariant keeps the header
+          // band span-free, so no header entry appears in `trimmedByRow`).
+          const trims = trimmedByRow.get(emittedGlobalRows[i] ?? -1);
           if (trims === undefined) return rb;
           const newCells = rb.children.map((cellBox) =>
             cellBox.type === "table-cell" ? trims.get(cellBox.key) ?? cellBox : cellBox,
@@ -758,7 +832,7 @@ export function layoutTable(
           node.key, inlineOffset, blockOffset, tableInlineSize, partialBlockSize,
           writingMode, direction,
           cs, tableUsedStyle,
-          placedRows, columnPxWidths, gridInfoFor(breakRow),
+          placedRows, columnPxWidths, gridInfoFor(emittedGlobalRows),
           /* containingInlineSize */ availableInlineSize,
         ),
         breakToken,
@@ -774,7 +848,7 @@ export function layoutTable(
     node.key, inlineOffset, blockOffset, tableInlineSize, tableBlockSize,
     writingMode, direction,
     cs, tableUsedStyle,
-    rowBoxes, columnPxWidths, gridInfoFor(rows.length),
+    rowBoxes, columnPxWidths, gridInfoFor(emittedRows),
     /* containingInlineSize */ availableInlineSize,
   ), breakToken: null };
   } finally {

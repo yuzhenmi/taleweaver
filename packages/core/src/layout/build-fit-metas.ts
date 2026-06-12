@@ -343,11 +343,25 @@ function buildChildMeta(
             .filter((c): c is LayoutBox => c.type === "table-row")
             .map((row) => row.blockSize)
         : [];
+    // #487 header-repetition: the first `headerRowCount` rows repeat at the top of
+    // every continuation fragment. Read the count off the table box metadata (S2
+    // stamped `metadata.headerRowCount` from the `table` component), clamp it to
+    // the actual row count (defense — the S1 op already clamps), and reserve
+    // `headerBlockSize = Σ rowBlockSizes[0, headerRowCount)` — the prefix sum the
+    // measure AND materialize passes both read (the single source of truth, §4).
+    // `rowBlockSizes` already covers ALL rows because `layoutChildInWrapper` lays
+    // the table unfragmented from row 0 (the N3 invariant). Absent / 0 ⇒
+    // headerBlockSize 0 ⇒ byte-identical to the pre-header behavior.
+    const rawHeaderRowCount = child.metadata?.headerRowCount ?? 0;
+    const headerRowCount = Math.max(0, Math.min(rawHeaderRowCount, rowBlockSizes.length));
+    let headerBlockSize = 0;
+    for (let r = 0; r < headerRowCount; r++) headerBlockSize += rowBlockSizes[r] ?? 0;
     return {
       kind: "table",
       ...common,
       totalBlockSize: placed.blockSize,
       rowBlockSizes,
+      ...(headerRowCount > 0 ? { headerRowCount, headerBlockSize } : {}),
     };
   }
 

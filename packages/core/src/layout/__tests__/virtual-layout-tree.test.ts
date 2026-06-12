@@ -27,6 +27,7 @@ import type { BlockId } from "../../state";
 import type { Style } from "../../styles";
 import type { PageConfig } from "../page-config";
 import type { PageBox } from "../page-box";
+import type { LayoutBox } from "../layout-box";
 import { buildBlockFitMetas } from "../build-fit-metas";
 import { measurePass } from "../measure-pass";
 import type { PagePlan, PagePlanEntry } from "../measure-pass";
@@ -162,6 +163,19 @@ function tableOf(numRows: number, rowHeight: number): ElementBox {
   return createElementBox("tbl", { display: "table" } as Style, rows);
 }
 
+/** A table with `headerRowCount` repeating header rows (#487), stamped onto the
+ *  table box metadata exactly as the `table` component does in production. */
+function tableWithHeader(numRows: number, headerRowCount: number, rowHeight: number): ElementBox {
+  const rows = Array.from({ length: numRows }, (_, i) =>
+    createElementBox(`row-${i}`, { display: "table-row", blockSize: rowHeight } as Style, [
+      createElementBox(`cell-${i}`, { display: "table-cell" } as Style, [
+        createTextBox(`ct-${i}`, {}, "x"),
+      ]),
+    ]),
+  );
+  return createElementBox("tbl", { display: "table" } as Style, rows, { headerRowCount });
+}
+
 // ---------------------------------------------------------------------------
 // Shared build helpers.
 // ---------------------------------------------------------------------------
@@ -214,6 +228,16 @@ function fixtures(): readonly Fixture[] {
       name: "table spanning pages",
       root: cascadeRoot({ display: "block" }, [tableOf(8, 30)]),
       pageConfig: noMarginPageConfig(100),
+    },
+    {
+      name: "table with a 1-row repeating header spanning pages (#487)",
+      root: cascadeRoot({ display: "block" }, [tableWithHeader(8, 1, 30)]),
+      pageConfig: noMarginPageConfig(100),
+    },
+    {
+      name: "table with a 2-row repeating header spanning pages (#487)",
+      root: cascadeRoot({ display: "block" }, [tableWithHeader(10, 2, 25)]),
+      pageConfig: noMarginPageConfig(120),
     },
     {
       name: "nested container (blockquote) spanning pages",
@@ -319,6 +343,83 @@ describe("VirtualLayoutTree — getPage(i) deep-equals paginateRoot's page i", (
 // describe above (per-page equivalence vs the independent `paginateRoot`
 // oracle) plus the per-feature equivalence tests in `cursor/*`.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// #487 GATE B — the REAL measure↔materialize proof. The measure pass reserves
+// `headerBlockSize` on every continuation fragment; `getPage(i)` re-lays the
+// header rows. This walks `VirtualLayoutTree.getPage(continuationPage)` and
+// asserts the materialized fragment's emitted header + body rows together consume
+// EXACTLY the measure reservation (header block + Σ placed body rows), AND the
+// continuation body rows are exactly the rows the plan resumed at — no
+// duplication, no skip across the boundary (the #494/#498/#499 drift class).
+// ---------------------------------------------------------------------------
+
+/** Recursively find the first `table` LayoutBox in a positioned subtree. */
+function findTableBox(box: LayoutBox): LayoutBox | null {
+  if (box.type === "table") return box;
+  if ("children" in box) {
+    for (const child of box.children) {
+      const found = findTableBox(child);
+      if (found !== null) return found;
+    }
+  }
+  return null;
+}
+
+describe("VirtualLayoutTree — #487 header repetition (Gate B: measure↔materialize)", () => {
+  it("continuation fragment re-lays the header at top; body rows + header consume the measure reservation", () => {
+    // 8 rows × 30, headerRowCount 1; page content 100. Page 0: rows 0,1,2 (header
+    // is an ordinary leading row, 3 rows × 30 = 90 ≤ 100). Page 1: re-laid header
+    // row-0 + body rows 3,4 (header 30 reserved ⇒ body budget 70 ⇒ 2 rows fit,
+    // break at row 5).
+    const root = cascadeRoot({ display: "block" }, [tableWithHeader(8, 1, 30)]);
+    const pageConfig = noMarginPageConfig(100);
+    const { plan, tree } = buildPlanAndTree(root, pageConfig);
+    expect(plan.entries.length).toBeGreaterThanOrEqual(2);
+
+    // Plan-side assertion (the MEASURE half of the contract): page 1 resumes the
+    // table at ABSOLUTE row 3 (header re-emits but does NOT advance resumeAtRow).
+    // Asserting the plan directly means a measure-only regression (wrong page
+    // boundary) fails HERE, not just as a downstream materialize symptom — the
+    // #494/#498/#499 drift class is measure↔materialize DISAGREEMENT, so both
+    // halves must be pinned.
+    const resumeInto = plan.entries[1]?.resumeInto;
+    expect(resumeInto?.type).toBe("block");
+    if (resumeInto?.type === "block") {
+      expect(resumeInto.resumeChildToken?.type).toBe("table");
+      if (resumeInto.resumeChildToken?.type === "table") {
+        expect(resumeInto.resumeChildToken.resumeAtRow).toBe(3);
+      }
+    }
+
+    const page1 = tree.getPage(1);
+    let table: LayoutBox | null = null;
+    for (const child of page1.children) {
+      table = findTableBox(child);
+      if (table !== null) break;
+    }
+    if (table === null || table.type !== "table") {
+      throw new Error("no table box on the continuation page");
+    }
+
+    // (1) The continuation fragment's FIRST table row is the re-laid header (row-0).
+    expect(table.children[0]?.key).toBe("row-0");
+    expect(table.children[0]?.blockOffset).toBe(0);
+    expect(table.children[0]?.blockSize).toBe(30);
+
+    // (2) The body rows are the correct continuation rows (no duplication, no
+    // skip): row-0 (header) then row-3, row-4. Rows 1,2 stay on page 0.
+    expect(table.children.map((r) => r.key)).toEqual(["row-0", "row-3", "row-4"]);
+    // The first body row starts at headerBlockSize (30).
+    expect(table.children[1]?.blockOffset).toBe(30);
+
+    // (3) The materialized fragment's TOTAL block-size equals the measure pass's
+    // reservation: headerBlockSize (30) + Σ placed body rows (2 × 30 = 60) = 90.
+    // A drift between this and the measure reservation is the exact bug class this
+    // feature must not ship.
+    expect(table.blockSize).toBe(90);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Task 4: carry-forward memo
