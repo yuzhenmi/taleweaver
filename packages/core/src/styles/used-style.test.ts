@@ -49,6 +49,7 @@ describe("UsedStyle", () => {
       tabStops: [],
       defaultTabStop: 48,
       language: "",
+      hyphenateLimitChars: [5, 2, 2],
 
       float: "none", clear: "none",
 

@@ -65,6 +65,7 @@ export interface UsedStyle {
   textWrap:            "wrap" | "nowrap" | "balance" | "pretty" | "stable";
   hyphens:             "none" | "manual" | "auto";
   language:            string;
+  hyphenateLimitChars: readonly [number, number, number];
   overflowWrap:        "normal" | "break-word" | "anywhere";
   letterSpacing:       UsedLength | "normal";
   wordSpacing:         UsedLength | "normal";

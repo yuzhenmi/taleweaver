@@ -117,6 +117,9 @@ export interface Style {
   // Content language (BCP-47 tag, e.g. "en-US"). Selects the language for
   // auto-hyphenation. `""` = no language. Inherits.
   readonly language?:            string;
+  // Auto-hyphenation limits (CSS Text 4 `hyphenate-limit-chars`):
+  // [min-word, min-before, min-after]. Default [5, 2, 2]. Inherits.
+  readonly hyphenateLimitChars?: readonly [number, number, number];
   readonly overflowWrap?:        "normal" | "break-word" | "anywhere";
   readonly letterSpacing?:       Length | "normal";
   readonly wordSpacing?:         Length | "normal";

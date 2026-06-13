@@ -69,6 +69,27 @@ describe("cascadePass", () => {
     expect(noLang.computedStyle?.language).toBe("");
   });
 
+  it("inherits `hyphenateLimitChars` from an ancestor; defaults to [5, 2, 2] at the root", () => {
+    const tree = createElementBox("root", { hyphenateLimitChars: [4, 3, 3] }, [
+      createElementBox("p", {}, [
+        createTextBox("t", {}, "hello"),
+      ]),
+    ]);
+
+    const cascaded = cascadePass(tree);
+    if (cascaded.type !== "element") throw new Error("?");
+    const p = cascaded.children[0];
+    if (p.type !== "element") throw new Error("?");
+    const t = p.children[0];
+    if (t.type !== "text") throw new Error("?");
+
+    expect(cascaded.computedStyle?.hyphenateLimitChars).toEqual([4, 3, 3]);
+    expect(t.computedStyle?.hyphenateLimitChars).toEqual([4, 3, 3]);
+
+    const noLimit = cascadePass(createElementBox("root", { display: "block" }, []));
+    expect(noLimit.computedStyle?.hyphenateLimitChars).toEqual([5, 2, 2]);
+  });
+
   it("overflowWrap: defaults to `normal` and inherits (overflow-wrap break-word v1)", () => {
     // Default: a node with no `overflowWrap` gets the CSS initial `normal`.
     const def = cascadePass(createElementBox("root", { display: "block" }, []));

@@ -133,6 +133,7 @@ export function computeUsedStyle(
     textWrap: cs.textWrap,
     hyphens: cs.hyphens,
     language: cs.language,
+    hyphenateLimitChars: cs.hyphenateLimitChars,
     overflowWrap: cs.overflowWrap,
     letterSpacing: resolveUsedLengthOrNormal(cs.letterSpacing, containingInlineSize),
     wordSpacing: resolveUsedLengthOrNormal(cs.wordSpacing, containingInlineSize),

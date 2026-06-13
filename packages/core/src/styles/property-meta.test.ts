@@ -14,6 +14,7 @@ describe("PROPERTY_META", () => {
     expect(PROPERTY_META.fontSize.inherits).toBe(true);
     expect(PROPERTY_META.color.inherits).toBe(true);
     expect(PROPERTY_META.language.inherits).toBe(true);
+    expect(PROPERTY_META.hyphenateLimitChars.inherits).toBe(true);
   });
 
   it("marks writing-mode and direction as inheriting", () => {
@@ -37,6 +38,11 @@ describe("INITIAL_COMPUTED_STYLE", () => {
 
   it("has no marker text by default (markerText absent)", () => {
     expect(INITIAL_COMPUTED_STYLE.markerText).toBeUndefined();
+  });
+
+  it("has the auto-hyphenation defaults (empty language, [5,2,2] limit-chars)", () => {
+    expect(INITIAL_COMPUTED_STYLE.language).toBe("");
+    expect(INITIAL_COMPUTED_STYLE.hyphenateLimitChars).toEqual([5, 2, 2]);
   });
 });
 
