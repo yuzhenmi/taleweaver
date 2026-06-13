@@ -22,6 +22,14 @@ export function coerceBlockId(value: unknown): BlockId | undefined {
 }
 
 /**
+ * Brand a string already known (via a `typeof` guard) to be a BlockId; keeps
+ * the no-bare-cast rule literal at validated boundaries.
+ */
+export function asBlockId(value: string): BlockId {
+  return value as BlockId;
+}
+
+/**
  * Allocates BlockIds. Production uses crypto.randomUUID(); tests inject
  * a deterministic counter-based allocator via createTestAllocator.
  */
@@ -32,6 +40,17 @@ export interface IdAllocator {
 export const productionAllocator: IdAllocator = {
   allocate: () => crypto.randomUUID() as BlockId,
 };
+
+/**
+ * Mint a fresh list id. List ids are a plain-string namespace, DISTINCT from
+ * block ids (a `listId` groups a run of `list-item` blocks; it is not itself a
+ * block). Minting here co-locates id generation with the block-id allocator and
+ * reuses the same ambient `crypto`, while keeping the two namespaces typed apart
+ * (this returns `string`, not the branded `BlockId`).
+ */
+export function newListId(): string {
+  return crypto.randomUUID();
+}
 
 /**
  * Creates a deterministic allocator for tests.

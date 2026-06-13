@@ -4,13 +4,20 @@ import { applyOperation, resolveBlock } from "../state";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import type { Position } from "../block-position";
-import { inlineContentLength } from "../inline-content";
+import {
+  inlineContentLength,
+  type EmbedItem,
+} from "../inline-content";
 import { getTreeMap, getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
 import { buildYBlock, buildYInlineItem } from "../y-block";
-import { yMapAsObject, cloneInlineItem } from "../y-utils";
+import { yMapAsObject, cloneInlineItem, yItemLength } from "../y-utils";
 import { assertNoIdCollision } from "../id-collision-check";
 import { assertSameTree } from "../assert-same-tree";
-import { STATE_INTERNAL } from "../state-internal";
+import {
+  BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
+  writeSuggestionRecordInTx,
+  type SuggestionMintInput,
+} from "../suggestions";
 
 /**
  * Pre-computed mutation plan for `splitBlockAtPositionInTx`. Captures the
@@ -95,8 +102,8 @@ export function splitBlockAtPosition(
   newBlockInit?: { readonly type?: string; readonly attrs?: ReadonlyAttrs },
 ): OperationResult {
   const plan = planSplitBlockAtPosition(state, position, allocator, newBlockInit);
-  return applyOperation(state, () => {
-    splitBlockAtPositionInTx(state[STATE_INTERNAL].doc, plan);
+  return applyOperation(state, (doc) => {
+    splitBlockAtPositionInTx(doc, plan);
   });
 }
 
@@ -271,8 +278,7 @@ function splitInlineContent(yOriginal: Y.Map<unknown>, offset: number): Y.Map<un
   let i = 0;
   while (i < yItems.length) {
     const yItem = yItems.get(i);
-    const kind = yItem.get("kind") as "text" | "embed";
-    const itemLen = kind === "text" ? (yItem.get("text") as Y.Text).length : 1;
+    const itemLen = yItemLength(yItem);
     const itemEnd = cursor + itemLen;
 
     if (itemEnd <= offset) {
@@ -301,4 +307,95 @@ function splitInlineContent(yOriginal: Y.Map<unknown>, offset: number): Y.Map<un
     i++;
   }
   return suffix;
+}
+
+/**
+ * The Enter / paragraph-SPLIT op in Suggesting mode: perform a REAL block split AND
+ * mark the new boundary as a tracked suggestion, in ONE tracked `applyOperation`
+ * transaction — so the split + the boundary embed + the record land as ONE undo
+ * entry and one collab event.
+ *
+ * A suggested split is modeled as: both paragraphs are REAL separate blocks (a
+ * normal {@link splitBlockAtPosition}) PLUS a zero-width
+ * {@link BLOCK_SPLIT_SUGGESTION_EMBED_TYPE} embed appended at the END of the FIRST
+ * block (block N) carrying the owning `suggestionId` in its `properties`, PLUS an
+ * `insertion` {@link SuggestionRecord}. The embed occupies exactly ONE `Position`
+ * offset (every embed does) and serializes to "" — it is the marker the range scan
+ * ({@link buildSuggestionRangeIndex}) reads to surface the suggestion's range.
+ *
+ * Why a REAL split (not a deferred one): the suggested-inserted break must lay out,
+ * paginate, and navigate as two paragraphs immediately (Google Docs shows the split
+ * the moment you press Enter in Suggesting mode), while remaining a single tracked
+ * change that can be accepted or rejected later.
+ *
+ * Resolution (a LATER slice, NOT here): on ACCEPT the embed is removed (the split
+ * stays — the break becomes permanent); on REJECT the two blocks re-merge (the
+ * break is discarded). This op only CREATES the suggestion.
+ *
+ * `newBlockInit` overrides the NEW block's (N+1's) `type` / `attrs` — same
+ * "style for the following paragraph" hook as {@link splitBlockAtPosition} (e.g.
+ * Enter at the end of a heading → a `paragraph` follow-on). The embed always lands
+ * on block N (the first half), regardless of `newBlockInit`.
+ *
+ * Composition discipline: the structural split is performed by
+ * {@link splitBlockAtPositionInTx}, which writes block N's content as `[0, offset)`
+ * IN PLACE (shortening N's live Y.Array — identity-preserving). This op then APPENDS
+ * just the zero-width break embed to N's live `inlineContent` Y.Array. Appending —
+ * rather than full-replacing N — preserves the per-character CRDT identity of N's
+ * surviving text runs (the foundation the Yjs-backed state model exists to protect
+ * for collab), and avoids the double-write the old full-replace incurred (it
+ * discarded the split's in-place result). Block N+1 + the sibling rewiring the split
+ * performed are UNTOUCHED. The embed is built as plain data PRE-transaction (pure)
+ * so the tx body only mutates the live array.
+ *
+ * Validation (block missing / non-leaf / root / offset out of range) is delegated to
+ * {@link planSplitBlockAtPosition}, which throws with its canonical messages.
+ *
+ * Unlike the in-place suggestion CREATE ops ({@link mintInsertion} et al.) there is
+ * NO coalescing: a paragraph break is a discrete structural change — each Enter is
+ * its own suggestion (mirror of the undo-coalescing model, where each structural
+ * keystroke is its own entry).
+ */
+export function splitWithSuggestion(
+  state: State,
+  position: Position,
+  allocator: IdAllocator,
+  input: SuggestionMintInput,
+  newBlockInit?: { readonly type?: string; readonly attrs?: ReadonlyAttrs },
+): OperationResult {
+  // Validate + plan FIRST so the canonical split errors (block missing / non-leaf /
+  // root / offset out of range) win over any read below.
+  const plan = planSplitBlockAtPosition(state, position, allocator, newBlockInit);
+
+  // The zero-width break embed carrying the owning suggestion id, built as plain
+  // data PRE-transaction. It is a merge BARRIER (never folded into a neighbor), so
+  // it stays the LAST item of block N after the append.
+  const embed: EmbedItem = Object.freeze({
+    kind: "embed",
+    embedType: BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
+    attrs: Object.freeze({}),
+    properties: Object.freeze({ suggestionId: input.id }),
+  });
+
+  return applyOperation(state, (doc) => {
+    // 1. Perform the REAL structural split (block N+1 materialized, siblings rewired,
+    //    block N's content set to [0, offset) IN PLACE — identity-preserving).
+    splitBlockAtPositionInTx(doc, plan);
+    // 2. APPEND just the break embed to block N's LIVE inlineContent Y.Array. The
+    //    in-place split already left N's content normalized as [0, offset); appending
+    //    the barrier embed keeps it normalized and preserves N's text-run CRDT
+    //    identity (no full-replace). N+1 + the sibling rewiring stay as the split
+    //    left them.
+    const yN = getYBlock(doc, plan.blockId, "splitWithSuggestion", plan.kind);
+    const yItems = yN.get("inlineContent") as Y.Array<Y.Map<unknown>>;
+    yItems.push([buildYInlineItem(embed)]);
+    // 3. Write the `insertion` record (a suggested split IS a tracked insertion of a
+    //    paragraph break).
+    writeSuggestionRecordInTx(doc, {
+      id: input.id,
+      kind: "insertion",
+      author: input.author,
+      createdAt: input.createdAt,
+    });
+  });
 }

@@ -7,6 +7,7 @@ import type {
   BreakOpportunity,
   FontMetrics,
 } from "@taleweaver/core";
+import { resolveSpacingPx, clusterSpacing, toBreakOpportunities } from "@taleweaver/core";
 import { buildCssFontString } from "./font-config";
 import { segmentClusters } from "./text-clusters";
 
@@ -14,9 +15,12 @@ import { segmentClusters } from "./text-clusters";
  * Canvas-based TextShaper. Default backend bundled with `@taleweaver/dom`.
  *
  * Limitations vs a HarfBuzz backend:
- *   - Each codepoint is one cluster (no ligature detection).
- *   - Break opportunities use a simple whitespace + hard-break heuristic
- *     (full UAX-14 deferred).
+ *   - Each UAX #29 grapheme cluster is one cluster (combining marks, surrogate
+ *     pairs, ZWJ sequences, regional-indicator flags each form one cluster) with
+ *     per-cluster `measureText` metrics — no HarfBuzz shaping / ligature detection.
+ *   - Break opportunities come from the conformant UAX #14 line-break
+ *     classifier (soft/hard kinds); the `hyphen` kind stays reserved for a
+ *     future hyphenation backend.
  *   - Bidi level is uniform per shaped run (0 or 1 based on baseDirection).
  *     Mixed-direction text is not bidi-resolved at the cluster level.
  *
@@ -70,12 +74,23 @@ export function createCanvasShaper(
     const clusters: Cluster[] = [];
     let max = 0;
     let total = 0;
+    // CSS letter-/word-spacing: resolve once, then add per-cluster extra advance
+    // (letter-spacing on every cluster + word-spacing on word separators). The
+    // `normal`-identity contract means default styles add 0 (see text-spacing.ts).
+    const letterPx = resolveSpacingPx(style.letterSpacing);
+    const wordPx = resolveSpacingPx(style.wordSpacing);
     // Segment via the shared helper so the renderer (which paints each cluster
     // at the matching cumulative advance, #330) can never diverge from how the
     // shaper measured. v1 clusters are single code units.
     let start = 0;
     for (const c of segmentClusters(text)) {
-      const w = ctx.measureText(c).width;
+      // U+00AD SOFT HYPHEN is a zero-advance format char (Cf): it renders nothing
+      // and adds no width unless it is the chosen line-end break (where the IFC
+      // shapes a "-" glyph separately). `ctx.measureText("­")` is browser/
+      // font-dependent (often the width of a rendered hyphen), so we force 0 here
+      // to match real shapers (HarfBuzz zero-advances default-ignorable Cf chars)
+      // and keep word widths invariant to embedded soft hyphens (hyphenation).
+      const w = c === "­" ? 0 : ctx.measureText(c).width + clusterSpacing(c, letterPx, wordPx);
       clusters.push({
         start,
         end: start + c.length,
@@ -88,16 +103,9 @@ export function createCanvasShaper(
       start += c.length;
     }
 
-    const breakOpportunities: BreakOpportunity[] = [];
-    for (let i = 0; i < text.length; i++) {
-      const c = text[i];
-      if (c === "\n" || c === "\r") {
-        breakOpportunities.push({ clusterIndex: i, kind: "hard" });
-      } else if (i > 0 && /\s/.test(c)) {
-        breakOpportunities.push({ clusterIndex: i, kind: "soft" });
-      }
-    }
-    breakOpportunities.sort((a, b) => a.clusterIndex - b.clusterIndex);
+    // UAX #14 line-break opportunities (default CSS `line-break: normal`),
+    // via the single-sourced `toBreakOpportunities` adapter in core.
+    const breakOpportunities: BreakOpportunity[] = toBreakOpportunities(text);
 
     const fm = measureFontMetricsImpl(style);
 
@@ -108,7 +116,7 @@ export function createCanvasShaper(
       ascent: fm.ascent,
       descent: fm.descent,
       lineGap: fm.lineGap,
-      minClusterInlineSize: max,
+      minClusterInlineSize: text.length === 0 ? 0 : max,
       unbreakableRunInlineSize: total,
       breakOpportunities,
       bidiLevel: baseDirection === "rtl" ? 1 : 0,

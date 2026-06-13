@@ -15,6 +15,7 @@ import {
 } from "../measure-pass";
 import type { BlockFitMeta } from "../fit-core";
 import type { PageConfig } from "../page-config";
+import { DEFAULT_COLUMN_CONFIG } from "../column-config";
 import { cascadePass, cascadePassIncremental } from "../../cascade";
 import { createElementBox, createTextBox } from "../../render/render-node";
 import type { ElementBox, RenderNode } from "../../render/render-node";
@@ -49,6 +50,226 @@ const PAGE: PageConfig = {
   pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
   pageGap: 20,
 };
+
+describe("measurePass — per-page columnConfig (multi-column wiring T1)", () => {
+  it("stamps the doc-wide effective columnConfig (single-column default) on every entry", () => {
+    const metas = [blockMeta(100), blockMeta(100), blockMeta(100), blockMeta(100)];
+    const plan = measurePass(metas, PAGE, IMPLICIT_SECTION_PLAN);
+    expect(plan.entries.length).toBeGreaterThan(0);
+    for (const e of plan.entries) {
+      expect(e.columnConfig).toEqual(DEFAULT_COLUMN_CONFIG);
+    }
+  });
+
+  it("stamps a doc-wide 2-column default (effectiveDefaultColumns) onto every entry", () => {
+    const metas = [blockMeta(100), blockMeta(100), blockMeta(100), blockMeta(100)];
+    const twoCol: SectionPlan = {
+      boundaries: [{ startFlattenedIndex: 0, sectionId: null }],
+      effectiveDefaultColumns: { columnCount: 2, columnGap: 48, columnRule: null },
+    };
+    const plan = measurePass(metas, PAGE, twoCol);
+    for (const e of plan.entries) {
+      expect(e.columnConfig.columnCount).toBe(2);
+      expect(e.columnConfig.columnGap).toBe(48);
+    }
+    // T3: the effective column config now drives the page fit (`fitColumnsOnPage`),
+    // so a 2-column plan packs more content per page than the single-column plan.
+    // (4 size-100 blocks at 300-px page body: single-column = 2 pages of 3+1;
+    // 2-column = 1 page, all 4 in two columns.) The per-page columnFit detail is
+    // asserted in the "multicol FILL fit" describe block above.
+    const single = measurePass(metas, PAGE, IMPLICIT_SECTION_PLAN);
+    expect(plan.entries.length).toBeLessThan(single.entries.length);
+    expect(plan.entries[0].columnFit).toBeDefined();
+  });
+});
+
+describe("measurePass — multicol FILL fit (multi-column wiring T3)", () => {
+  // PAGE body block-size = 300 (no margins). With size-100 blocks, one column
+  // holds floor(300/100) = 3 blocks; a 2-column page holds 6. 8 blocks ⇒ page 0
+  // fills 6 (3+3), page 1 holds the trailing 2.
+  const twoCol: SectionPlan = {
+    boundaries: [{ startFlattenedIndex: 0, sectionId: null }],
+    effectiveDefaultColumns: { columnCount: 2, columnGap: 48, columnRule: null },
+  };
+
+  it("page 0 fills 2 columns, overflows into page 1 with a column resume token", () => {
+    const metas = Array.from({ length: 8 }, () => blockMeta(100));
+    const plan = measurePass(metas, PAGE, twoCol);
+    expect(plan.entries.length).toBe(2);
+
+    const p0 = plan.entries[0];
+    // columnFit set on the multicol branch.
+    expect(p0.columnFit).toBeDefined();
+    const fit0 = p0.columnFit;
+    if (fit0 === undefined) throw new Error("expected columnFit on multicol page 0");
+    expect(fit0.columns.length).toBe(2);
+    // Two non-empty columns: 3 blocks each.
+    expect(fit0.columns[0].childrenCount).toBe(3);
+    expect(fit0.columns[1].childrenCount).toBe(3);
+    expect(fit0.totalChildrenCount).toBe(6);
+    // The page overflows ⇒ a ColumnBreakToken, and the entry stores THAT token.
+    expect(fit0.pageResumeOut?.type).toBe("column");
+    expect(p0.resumeOut).toBe(fit0.pageResumeOut);
+    expect(p0.startIndex).toBe(0);
+
+    // Per-column FILL height: each non-empty column consumed <= the page body
+    // block-size (FILL fills to the page height).
+    for (const c of fit0.columns) {
+      if (c.childrenCount > 0) expect(c.consumedBlockSize).toBeLessThanOrEqual(300);
+    }
+
+    // Page 1 resumes where page 0's column token left off.
+    const p1 = plan.entries[1];
+    expect(p1.startIndex).toBe(p0.startIndex + fit0.totalChildrenCount); // 6
+    // The loop threads page 0's column token into page 1's resumeInto.
+    expect(p1.resumeInto).toBe(fit0.pageResumeOut);
+    expect(p1.columnFit).toBeDefined();
+    const fit1 = p1.columnFit;
+    if (fit1 === undefined) throw new Error("expected columnFit on multicol page 1");
+    expect(fit1.totalChildrenCount).toBe(2);
+    // Content exhausts on page 1 ⇒ no further column overflow.
+    expect(fit1.pageResumeOut).toBeNull();
+    expect(p1.resumeOut).toBeNull();
+  });
+
+  it("inner-token block index agrees with nextStartIndex (threading invariant)", () => {
+    // Verify the CRITICAL threading: innerBfcToken(columnFit.pageResumeOut) is a
+    // block token at index startIndex + totalChildrenCount, so the next page's
+    // startIndex (computed via the inner token's block branch) matches.
+    const metas = Array.from({ length: 8 }, () => blockMeta(100));
+    const plan = measurePass(metas, PAGE, twoCol);
+    const p0 = plan.entries[0];
+    const fit0 = p0.columnFit;
+    if (fit0 === undefined) throw new Error("expected columnFit");
+    const inner = fit0.pageResumeOut?.resumeChildToken;
+    expect(inner?.type).toBe("block");
+    if (inner !== undefined && inner !== null && inner.type === "block") {
+      expect(inner.resumeChildIndex).toBe(p0.startIndex + fit0.totalChildrenCount);
+      expect(plan.entries[1].startIndex).toBe(inner.resumeChildIndex);
+    }
+  });
+
+  it("single-column pages have columnFit === undefined (byte-identical plan)", () => {
+    const metas = Array.from({ length: 8 }, () => blockMeta(100));
+    const single = measurePass(metas, PAGE, IMPLICIT_SECTION_PLAN);
+    for (const e of single.entries) {
+      expect(e.columnFit).toBeUndefined();
+    }
+    // The single-column plan is unchanged from the pre-T3 boundaries: 3 blocks
+    // per page (300/100), 8 blocks ⇒ 3 pages.
+    expect(single.entries.length).toBe(3);
+    expect(single.entries.map((e) => e.startIndex)).toEqual([0, 3, 6]);
+  });
+
+  it("F-1: a multicol section whose content fits in one page does NOT drop the next section", () => {
+    // Two sections: s1 = indices 0-1 (multicol), s2 = indices 2-3. s1's 2 blocks
+    // (200px) fit within page 0's first column (≤300), so `fitColumnsOnPage`
+    // exhausts at the section cap and returns `pageResumeOut === null`. Without
+    // the F-1 forced-break synthesis the measure loop would treat page 0 as the
+    // document end and SILENTLY DROP section 2; with it, section 2 lands on page 1.
+    const sectioned: SectionPlan = {
+      boundaries: [
+        { startFlattenedIndex: 0, sectionId: "s1" as BlockId },
+        { startFlattenedIndex: 2, sectionId: "s2" as BlockId },
+      ],
+      effectiveDefaultColumns: { columnCount: 2, columnGap: 0, columnRule: null },
+    };
+    const metas = Array.from({ length: 4 }, () => blockMeta(100));
+    const plan = measurePass(metas, PAGE, sectioned);
+
+    // The bug manifests as a 1-page plan; the fix yields 2 pages.
+    expect(plan.entries.length).toBe(2);
+
+    const p0 = plan.entries[0];
+    expect(p0.startIndex).toBe(0);
+    expect(p0.activeSectionId).toBe("s1");
+    expect(p0.columnFit).toBeDefined();
+    // Section 1's content (indices 0-1) is capped at the boundary; the page
+    // resumes (a synthesized forced-break block token) into the next section.
+    expect(p0.columnFit?.totalChildrenCount).toBe(2);
+    expect(p0.resumeOut).toEqual({ type: "block", resumeChildIndex: 2, resumeChildToken: null });
+    // T4 finality detection: page 0 is the SECTION-capped final multicol page —
+    // its content exhausts at the section boundary (index 2), so it BALANCES. This
+    // guards the `sectionEnd = st.nextBoundaryIndex ?? metas.length` clause: if
+    // finality used `metas.length` (4) instead of the section boundary (2), this
+    // page would read as non-final and keep `balancedColumnHeight === pageBlockSize`.
+    expect(p0.balancedColumnHeight).toBeLessThan(PAGE.pageBlockSize);
+
+    // Section 2 is NOT dropped — it begins a fresh page at its boundary index.
+    const p1 = plan.entries[1];
+    expect(p1.startIndex).toBe(2);
+    expect(p1.activeSectionId).toBe("s2");
+    expect(p1.columnFit).toBeDefined();
+    expect(p1.columnFit?.totalChildrenCount).toBe(2);
+    expect(p1.resumeOut).toBeNull();
+  });
+});
+
+describe("measurePass — final-page BALANCE (multi-column wiring T4)", () => {
+  // PAGE body block-size = 300, blocks of size 100, 2 columns. At FILL one column
+  // holds floor(300/100) = 3 blocks. The page body block-size (effContentBlockSize)
+  // is 300 for these no-margin pages.
+  const twoCol: SectionPlan = {
+    boundaries: [{ startFlattenedIndex: 0, sectionId: null }],
+    effectiveDefaultColumns: { columnCount: 2, columnGap: 48, columnRule: null },
+  };
+
+  it("a SHORT multicol section (fits one page) BALANCES — column 1 non-empty, balancedColumnHeight < page body", () => {
+    // 3 blocks of 100 → at FILL all 3 land in column 0 (300), column 1 empty.
+    // Balance evens them: minimal equal height ~200 spreads 2 into column 0 and 1
+    // into column 1 — so column 1 becomes non-empty. The section's single page is
+    // its FINAL page (content exhausts, no overflow).
+    const metas = Array.from({ length: 3 }, () => blockMeta(100));
+    const plan = measurePass(metas, PAGE, twoCol);
+    expect(plan.entries.length).toBe(1);
+
+    const p0 = plan.entries[0];
+    // This page is the section's final page (content exhausts here).
+    expect(p0.resumeOut).toBeNull();
+    // The page body block-size for these no-margin pages is 300.
+    const pageBodyBlockSize = PAGE.pageBlockSize; // 300, no margins
+    // Balance reduced the per-column height below the full page body height.
+    expect(p0.balancedColumnHeight).toBeLessThan(pageBodyBlockSize);
+    // Content now spreads across BOTH columns (NOT all in column 0).
+    const fit = p0.columnFit;
+    if (fit === undefined) throw new Error("expected columnFit on multicol page 0");
+    expect(fit.columns.length).toBe(2);
+    expect(fit.columns[1].childrenCount).toBeGreaterThan(0);
+    // The balanced re-fit still places all 3 children (balance only redistributes).
+    expect(fit.totalChildrenCount).toBe(3);
+  });
+
+  it("a multi-page multicol section: overflow page FILLs (balancedColumnHeight === page body, NOT final); the last page BALANCES", () => {
+    // 8 blocks of 100, 2 columns: page 0 fills 6 (3+3) and OVERFLOWS (not final);
+    // page 1 holds the trailing 2 (short) and is the section's FINAL page → balances.
+    const metas = Array.from({ length: 8 }, () => blockMeta(100));
+    const plan = measurePass(metas, PAGE, twoCol);
+    expect(plan.entries.length).toBe(2);
+    const pageBodyBlockSize = PAGE.pageBlockSize; // 300
+
+    // Overflow page 0: FILL, NOT the final page.
+    const p0 = plan.entries[0];
+    expect(p0.resumeOut).not.toBeNull();
+    expect(p0.balancedColumnHeight).toBe(pageBodyBlockSize);
+
+    // Final page 1: short (2 blocks) → balances below the page body height.
+    const p1 = plan.entries[1];
+    expect(p1.resumeOut).toBeNull();
+    expect(p1.balancedColumnHeight).toBeLessThan(pageBodyBlockSize);
+  });
+
+  it("single-column pages: balancedColumnHeight === page body block-size for every entry", () => {
+    const metas = Array.from({ length: 8 }, () => blockMeta(100));
+    const single = measurePass(metas, PAGE, IMPLICIT_SECTION_PLAN);
+    const pageBodyBlockSize = PAGE.pageBlockSize; // 300, no margins
+    for (const e of single.entries) {
+      expect(e.balancedColumnHeight).toBe(pageBodyBlockSize);
+    }
+    // Plan boundaries unchanged from pre-T4 (equivalence): 3 blocks/page, 3 pages.
+    expect(single.entries.length).toBe(3);
+    expect(single.entries.map((e) => e.startIndex)).toEqual([0, 3, 6]);
+  });
+});
 
 describe("measurePass", () => {
   it("single page when all blocks fit", () => {
@@ -535,7 +756,7 @@ function sectionPlanFrom(
   sectionPlan: SectionPlan;
 } {
   const cascaded = sCascade(renderRoot);
-  const metas = buildBlockFitMetas(cascaded, SECTION_SHAPER, SECTION_CONTENT_INLINE);
+  const metas = buildBlockFitMetas(cascaded, SECTION_SHAPER, undefined, SECTION_CONTENT_INLINE);
   const sectionPlan = buildSectionPlan(cascaded, pageConfig);
   // `metas` are built over the FLATTENED child list (sections are display:contents
   // and splice out), so `rootChildren` must be flattened too — matching
@@ -602,7 +823,7 @@ describe("measurePass — section page breaks", () => {
     // plan is byte-identical to one built with IMPLICIT_SECTION_PLAN explicitly.
     const render = sDoc(Array.from({ length: 7 }, (_, i) => sPara(`p${i}`)));
     const cascaded = sCascade(render);
-    const metas = buildBlockFitMetas(cascaded, SECTION_SHAPER, SECTION_CONTENT_INLINE);
+    const metas = buildBlockFitMetas(cascaded, SECTION_SHAPER, undefined, SECTION_CONTENT_INLINE);
 
     const builtPlan = buildSectionPlan(cascaded, SECTION_PAGE);
     expect(builtPlan.boundaries).toEqual([{ startFlattenedIndex: 0, sectionId: null }]);
@@ -819,7 +1040,7 @@ describe("measurePass — per-section header/footer ids", () => {
       sSection("s2", [b0, b1, b2, sPara("b3")], { footerBlockId: "ftr2" }),
     ]);
     const cascaded0 = sCascade(render0);
-    const metas0 = buildBlockFitMetas(cascaded0, SECTION_SHAPER, SECTION_CONTENT_INLINE);
+    const metas0 = buildBlockFitMetas(cascaded0, SECTION_SHAPER, undefined, SECTION_CONTENT_INLINE);
     const sectionPlan0 = buildSectionPlan(cascaded0, SECTION_PAGE);
     const plan1 = measurePass(
       metas0, SECTION_PAGE, sectionPlan0, flattenContents(cascaded0.children),
@@ -838,7 +1059,7 @@ describe("measurePass — per-section header/footer ids", () => {
       sSection("s2", [b0, b1, b2, sPara("b3", "EDITED")], { footerBlockId: "ftr2" }),
     ]);
     const cascaded1 = cascadePassIncremental(render1, render0, cascaded0) as ElementBox;
-    const metas1 = buildBlockFitMetas(cascaded1, SECTION_SHAPER, SECTION_CONTENT_INLINE);
+    const metas1 = buildBlockFitMetas(cascaded1, SECTION_SHAPER, undefined, SECTION_CONTENT_INLINE);
     const sectionPlan1 = buildSectionPlan(cascaded1, SECTION_PAGE);
 
     __resetFitOnePageCallCountForTest();
@@ -888,7 +1109,7 @@ describe("measurePass — section incremental reuse gate", () => {
     const b2 = sPara("b2");
     const render0 = sDoc([s1Node, sSection("s2", [b0, b1, b2, sPara("b3")])]);
     const cascaded0 = sCascade(render0);
-    const metas0 = buildBlockFitMetas(cascaded0, SECTION_SHAPER, SECTION_CONTENT_INLINE);
+    const metas0 = buildBlockFitMetas(cascaded0, SECTION_SHAPER, undefined, SECTION_CONTENT_INLINE);
     const sectionPlan = buildSectionPlan(cascaded0, SECTION_PAGE);
     const plan1 = measurePass(
       metas0, SECTION_PAGE, sectionPlan, flattenContents(cascaded0.children),
@@ -900,7 +1121,7 @@ describe("measurePass — section incremental reuse gate", () => {
     // Mutate ONLY b3; reuse s1Node + b0/b1/b2 by reference.
     const render1 = sDoc([s1Node, sSection("s2", [b0, b1, b2, sPara("b3", "EDITED")])]);
     const cascaded1 = cascadePassIncremental(render1, render0, cascaded0) as ElementBox;
-    const metas1 = buildBlockFitMetas(cascaded1, SECTION_SHAPER, SECTION_CONTENT_INLINE);
+    const metas1 = buildBlockFitMetas(cascaded1, SECTION_SHAPER, undefined, SECTION_CONTENT_INLINE);
     const sectionPlan1 = buildSectionPlan(cascaded1, SECTION_PAGE);
 
     __resetFitOnePageCallCountForTest();
@@ -939,7 +1160,7 @@ describe("measurePass — section incremental reuse gate", () => {
       sSection("s3", paras("c")),
     ]);
     const cascaded = sCascade(render);
-    const metas = buildBlockFitMetas(cascaded, SECTION_SHAPER, SECTION_CONTENT_INLINE);
+    const metas = buildBlockFitMetas(cascaded, SECTION_SHAPER, undefined, SECTION_CONTENT_INLINE);
 
     const flatChildren = flattenContents(cascaded.children);
     const sectionPlanA = buildSectionPlan(cascaded, SECTION_PAGE);
@@ -952,6 +1173,7 @@ describe("measurePass — section incremental reuse gate", () => {
     // start, but s1's status at startIndex 0 (activeSectionId s1, nextBoundaryIndex
     // 3) is UNCHANGED. So page 0 (s1) reuses; the pages from s2 onward refit.
     const sectionPlanB: SectionPlan = {
+      effectiveDefaultColumns: DEFAULT_COLUMN_CONFIG,
       boundaries: [
         { startFlattenedIndex: 0, sectionId: "s1" as BlockId },
         { startFlattenedIndex: 3, sectionId: "s2" as BlockId },
@@ -1005,6 +1227,7 @@ describe("measurePass — per-section page geometry", () => {
     // back to pageIndex*(H+gap) — identical to the IMPLICIT_SECTION_PLAN run.
     const metas = Array.from({ length: 10 }, () => blockMeta(100));
     const uniformPlan: SectionPlan = {
+      effectiveDefaultColumns: DEFAULT_COLUMN_CONFIG,
       boundaries: [{ startFlattenedIndex: 0, sectionId: null }],
     };
     const plan = measurePass(metas, DOC_WIDE_PAGE, uniformPlan);
@@ -1038,6 +1261,7 @@ describe("measurePass — per-section page geometry", () => {
       metas,
       DOC_WIDE_PAGE,
       {
+        effectiveDefaultColumns: DEFAULT_COLUMN_CONFIG,
         boundaries: [
           { startFlattenedIndex: 0, sectionId: null },
           { startFlattenedIndex: 3, sectionId: "s2" as BlockId, pageConfig: TALL_PAGE },
@@ -1070,6 +1294,7 @@ describe("measurePass — per-section page geometry", () => {
       metas,
       DOC_WIDE_PAGE,
       {
+        effectiveDefaultColumns: DEFAULT_COLUMN_CONFIG,
         boundaries: [
           { startFlattenedIndex: 0, sectionId: null },
           { startFlattenedIndex: 3, sectionId: "s2" as BlockId, pageConfig: TALL_PAGE },
@@ -1105,6 +1330,7 @@ describe("measurePass — per-section page geometry", () => {
     };
     const metas = Array.from({ length: 6 }, () => blockMeta(100));
     const shortSectionPlan: SectionPlan = {
+      effectiveDefaultColumns: DEFAULT_COLUMN_CONFIG,
       boundaries: [
         { startFlattenedIndex: 0, sectionId: null },
         { startFlattenedIndex: 3, sectionId: "s2" as BlockId, pageConfig: SHORT_PAGE },
@@ -1163,6 +1389,7 @@ describe("measurePass — per-section geometry incremental reuse gate", () => {
     const metas = Array.from({ length: 6 }, () => blockMeta(100));
     const children = fakeChildren(6);
     const sectionPlan: SectionPlan = {
+      effectiveDefaultColumns: DEFAULT_COLUMN_CONFIG,
       boundaries: [
         { startFlattenedIndex: 0, sectionId: null },
         { startFlattenedIndex: 3, sectionId: "s2" as BlockId, pageConfig: TALL_PAGE },
@@ -1191,6 +1418,7 @@ describe("measurePass — per-section geometry incremental reuse gate", () => {
     const metas = Array.from({ length: 6 }, () => blockMeta(100));
     const children = fakeChildren(6);
     const planUniform: SectionPlan = {
+      effectiveDefaultColumns: DEFAULT_COLUMN_CONFIG,
       boundaries: [
         { startFlattenedIndex: 0, sectionId: null },
         { startFlattenedIndex: 3, sectionId: "s2" as BlockId },
@@ -1203,6 +1431,7 @@ describe("measurePass — per-section geometry incremental reuse gate", () => {
     // New plan: section 2 GAINS a taller geometry. Section 1's page (0) effCfg
     // is unchanged (doc-wide) ⇒ reuses; section 2's page effCfg changed ⇒ refits.
     const planOverridden: SectionPlan = {
+      effectiveDefaultColumns: DEFAULT_COLUMN_CONFIG,
       boundaries: [
         { startFlattenedIndex: 0, sectionId: null },
         { startFlattenedIndex: 3, sectionId: "s2" as BlockId, pageConfig: TALL_PAGE },
@@ -1231,6 +1460,7 @@ describe("measurePass — per-section geometry incremental reuse gate", () => {
     const metas = Array.from({ length: 6 }, () => blockMeta(100));
     const children = fakeChildren(6);
     const planUniform: SectionPlan = {
+      effectiveDefaultColumns: DEFAULT_COLUMN_CONFIG,
       boundaries: [
         { startFlattenedIndex: 0, sectionId: null },
         { startFlattenedIndex: 3, sectionId: "s2" as BlockId },
@@ -1246,6 +1476,7 @@ describe("measurePass — per-section geometry incremental reuse gate", () => {
     // its OFFSET must shift DOWN by the running-sum delta from section 1's
     // taller page; it must NOT keep plan1's offset of 320.
     const planSection1Tall: SectionPlan = {
+      effectiveDefaultColumns: DEFAULT_COLUMN_CONFIG,
       boundaries: [
         { startFlattenedIndex: 0, sectionId: null, pageConfig: TALL_PAGE },
         { startFlattenedIndex: 3, sectionId: "s2" as BlockId },

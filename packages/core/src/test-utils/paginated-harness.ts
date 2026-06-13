@@ -1,12 +1,22 @@
 // packages/core/src/test-utils/paginated-harness.ts
 import { cascadePass } from "../cascade";
 import { layoutTree } from "../layout/dispatch";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "./position-tree";
 import { createMockShaper } from "../layout/mock-shaper";
-import type { RenderNode } from "../render/render-node";
+import { createElementBox, createTextBox } from "../render/render-node";
+import type { ElementBox, RenderNode } from "../render/render-node";
 import type { PageConfig } from "../layout/page-config";
 import type { BlockBox, LayoutBox } from "../layout/layout-box";
 import type { PageBox } from "../layout/page-box";
+import type { BlockId } from "../state";
+import type { Style } from "../styles";
+import { INITIAL_COMPUTED_STYLE } from "../styles";
+import { makeRootContext } from "../layout/layout-context";
+import { buildBlockFitMetas } from "../layout/build-fit-metas";
+import { measurePass } from "../layout/measure-pass";
+import { IMPLICIT_SECTION_PLAN } from "../layout/section-plan";
+import { makeVirtualLayoutTree } from "../layout/virtual-layout-tree";
+import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
 
 export interface PaginatedHarnessResult {
   readonly root: BlockBox;
@@ -21,9 +31,9 @@ export function paginatedHarness(
 ): PaginatedHarnessResult {
   const shaper = createMockShaper(8, 16);
   const cascaded = cascadePass(rootSpec);
-  // Bridge the (virtual, in paginated mode) layout result to the positioned
-  // page tree the harness asserts over (Phase 3 Task 1).
-  const result = resolvePositionedTree(
+  // Assemble the (virtual, in paginated mode) layout result into the positioned
+  // page tree the harness asserts over (test-only oracle).
+  const result = positionTreeForTest(
     layoutTree(cascaded, containerInlineSize, shaper, pageConfig),
   );
   if (result.type !== "block") {
@@ -84,4 +94,62 @@ export function assertLineOnPage(
   throw new Error(
     `Line ${lineIndex} not found in any page (only ${cumulative} lines total)`,
   );
+}
+
+/** Result of `buildSpanningTree`: a virtual tree + the spanning paragraph's id. */
+export interface SpanningTreeResult {
+  readonly tree: VirtualLayoutTree;
+  readonly blockId: BlockId;
+}
+
+/**
+ * Build a `VirtualLayoutTree` over a document whose SOLE top-level child is one
+ * paragraph tall enough to span `pages` pages, plus the paragraph's `blockId`.
+ *
+ * Mirrors the canonical virtual-layout setup (cascade the seeded doc →
+ * `buildBlockFitMetas` → `measurePass` → `makeVirtualLayoutTree`, NOT
+ * `paginateRoot`). The page geometry is a small no-margin config whose content
+ * area holds a fixed integer number of lines (`linesPerPage`), so a paragraph of
+ * `pages * linesPerPage` `\n`-separated lines distributes across exactly `pages`
+ * pages with non-empty fragments on each.
+ *
+ * The mock shaper uses a 16px line-height; an 80px content area ⇒ 5 lines/page.
+ * The paragraph carries `whiteSpace: "pre"` so each `\n` forces its own line.
+ */
+export function buildSpanningTree({ pages }: { pages: number }): SpanningTreeResult {
+  const linesPerPage = 5;
+  const lineHeight = 16;
+  const pageBlockSize = linesPerPage * lineHeight; // 80px content area (no margins).
+  const pageInlineSize = 600;
+  const pageConfig: PageConfig = {
+    pageInlineSize,
+    pageBlockSize,
+    pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
+    pageGap: 20,
+  };
+
+  const blockId = "spanning-p" as BlockId;
+  const numLines = pages * linesPerPage;
+  const text = Array.from({ length: numLines }, () => "x").join("\n");
+  const textNode = createTextBox(`${blockId}-t`, { whiteSpace: "pre" }, text);
+  const paragraph = createElementBox(
+    blockId,
+    { display: "block", whiteSpace: "pre" } as Style,
+    [textNode],
+  );
+  const rootSpec = createElementBox("root", { display: "block" } as Style, [paragraph]);
+  const cascaded = cascadePass(rootSpec);
+  if (cascaded.type !== "element") {
+    throw new Error("buildSpanningTree: cascadePass returned a non-element root");
+  }
+  const root: ElementBox = cascaded;
+
+  const pageContentInlineSize =
+    pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
+  const shaper = createMockShaper(8, lineHeight);
+  const metas = buildBlockFitMetas(root, shaper, undefined, pageContentInlineSize);
+  const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children);
+  const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
+  const tree = makeVirtualLayoutTree(plan, root, ctx, createMockShaper(8, lineHeight), pageConfig);
+  return { tree, blockId };
 }

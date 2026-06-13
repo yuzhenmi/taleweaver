@@ -2,15 +2,18 @@
 import type { ElementBox, RenderNode } from "../render/render-node";
 import type { LayoutContext } from "./layout-context";
 import type { TextShaper } from "./text-shaper";
+import type { Hyphenator } from "./hyphenator";
 import type { PageConfig } from "./page-config";
 import type { BlockBox, LayoutBox } from "./layout-box";
 import { createBlockBox } from "./layout-box";
+import { physicalizeVertical } from "./physicalize-vertical";
 import type { PageBox } from "./page-box";
 import { createPageBox } from "./page-box";
 import { layoutBlock } from "./bfc";
 import { flattenContents } from "./group-children";
 import { computeUsedStyle } from "./used-style";
 import type { BreakToken, FragmentationContext } from "./fragmentation";
+import { breakTokensEqual } from "./fragmentation";
 
 /**
  * Per-page reuse fingerprint (L-PERF-C).
@@ -57,30 +60,6 @@ const _paginationCache: WeakMap<BlockBox, PaginationCache> = new WeakMap();
 function getPaginationCache(root: LayoutBox | null): PaginationCache | null {
   if (root === null || root.type !== "block") return null;
   return _paginationCache.get(root) ?? null;
-}
-
-/**
- * Structural equality for BreakToken chains. References differ across
- * cycles even when the chain is identical (a fresh layoutBlock builds
- * fresh tokens), so the page cache compares resumeFrom by structure
- * to decide reuse. Conservative on any future unknown types —
- * defaults to false to avoid false-positive cache hits.
- */
-function breakTokensEqual(a: BreakToken | null, b: BreakToken | null): boolean {
-  if (a === b) return true;
-  if (a === null || b === null) return false;
-  if (a.type !== b.type) return false;
-  if (a.type === "block" && b.type === "block") {
-    if (a.resumeChildIndex !== b.resumeChildIndex) return false;
-    return breakTokensEqual(a.resumeChildToken, b.resumeChildToken);
-  }
-  if (a.type === "ifc" && b.type === "ifc") {
-    return a.resumeAtLine === b.resumeAtLine;
-  }
-  if (a.type === "table" && b.type === "table") {
-    return a.resumeAtRow === b.resumeAtRow;
-  }
-  return false;
 }
 
 /**
@@ -134,6 +113,11 @@ export function paginateRoot(
   root: ElementBox,
   ctx: LayoutContext,
   shaper: TextShaper,
+  // Auto-hyphenation (slice 2): threaded ALONGSIDE `shaper` to the per-page
+  // `layoutBlock`. `undefined` ⇒ none. Carried but UNUSED in this slice. (This
+  // is the legacy float/`clear` fallback path; the virtual path threads it via
+  // `buildVirtualPaginatedTree`.)
+  hyphenator: Hyphenator | undefined,
   pageConfig: PageConfig,
   prevRoot?: LayoutBox | null,
 ): BlockBox {
@@ -225,14 +209,36 @@ export function paginateRoot(
       margins.blockStart,
       contentCtx,
       shaper,
+      hyphenator,
       fragmentation,
     );
+    // P3.1: bake the vertical-rl block-axis mirror now that the BFC box's
+    // container block sizes are all resolved. No-op (same reference) for
+    // horizontal-tb / vertical-lr, so this is byte-identical for all existing
+    // content. The mirror is against the page's FULL block-size — the BFC body
+    // box carries a PAGE-RELATIVE blockOffset (it sits at `margins.blockStart`
+    // from the page's block-start edge), so the coordinate-system parent is the
+    // whole page, NOT the content area. This is distinct from the CSS
+    // containing-block available-size (`pageContentBlockSize`) used for child
+    // layout above.
+    let physBox: BlockBox | null = null;
+    if (box !== null) {
+      const phys = physicalizeVertical(box, pageConfig.pageBlockSize);
+      // Input is a BlockBox; physicalizeVertical preserves the box type (it
+      // rebuilds via the matching factory for v-rl, or returns the same box).
+      if (phys.type !== "block") {
+        throw new Error(
+          `paginateRoot: physicalizeVertical changed the BFC box type to ${phys.type}`,
+        );
+      }
+      physBox = phys;
+    }
     // Wrap the BFC's BlockBox as a single page child so its (margins.inlineStart,
     // margins.blockStart) offset is preserved in the descendant coordinate
     // system. PageBox.children are walked with parent (0, 0) per P1.A.14's
     // PageBox-as-frame convention; nesting the BFC under PageBox lets the
     // margin offset propagate naturally to paint and editor utilities.
-    const placedChildren: readonly LayoutBox[] = box ? [box] : [];
+    const placedChildren: readonly LayoutBox[] = physBox ? [physBox] : [];
     const pageBlockOffset = pageIndex * (pageConfig.pageBlockSize + pageConfig.pageGap);
     const page = createPageBox(
       `page-${pageIndex}`,

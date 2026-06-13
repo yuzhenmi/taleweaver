@@ -17,7 +17,7 @@ import type { BlockBox } from "./layout-box";
 import type { LayoutContext } from "./layout-context";
 import { layoutTree } from "./dispatch";
 import { layoutTreeIncremental } from "./layout-incremental";
-import { resolvePositionedTree } from "./positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import type { LayoutBox } from "./layout-box";
 
 const shaper = createMockShaper(8, 16);
@@ -165,7 +165,7 @@ describe("buildLayoutBoxCacheFromTree", () => {
     const cascaded = cascadePass(parent);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const rootResult = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const rootResult = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
     if (rootResult.box === null) throw new Error("layoutBlock returned null box");
     const rootBox = rootResult.box;
     const cache = buildLayoutBoxCacheFromTree(rootBox, cascaded);
@@ -198,7 +198,7 @@ describe("buildLayoutBoxCacheFromTree", () => {
     const cascaded = cascadePass(parent);
     if (cascaded.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const rootResult = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const rootResult = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
     if (rootResult.box === null) throw new Error("layoutBlock returned null box");
     const cache = buildLayoutBoxCacheFromTree(rootResult.box, cascaded);
     // The flattened grandchildren are indexed (reachable for reuse).
@@ -224,7 +224,7 @@ describe("layoutBlock subtree reuse (incremental)", () => {
     if (cascaded.type !== "element") throw new Error("?");
 
     const ctx1 = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r1 = layoutBlock(cascaded, 0, 0, ctx1, shaper);
+    const r1 = layoutBlock(cascaded, 0, 0, ctx1, shaper, undefined);
     if (r1.box === null) throw new Error("layoutBlock returned null box");
     if (r1.box.type !== "block") throw new Error("layoutBlock returned non-block box");
     const out1 = r1.box;
@@ -253,7 +253,7 @@ describe("layoutBlock subtree reuse (incremental)", () => {
       prevLayoutCache: prevCache,
       prevFloatEnv: null,
     };
-    const r2 = layoutBlock(cascadedEdited, 0, 0, ctx2, shaper);
+    const r2 = layoutBlock(cascadedEdited, 0, 0, ctx2, shaper, undefined);
     if (r2.box === null) throw new Error("layoutBlock returned null box");
     if (r2.box.type !== "block") throw new Error("layoutBlock returned non-block box");
     const out2 = r2.box;
@@ -276,7 +276,7 @@ describe("layoutBlock subtree reuse (incremental)", () => {
     if (cascaded.type !== "element") throw new Error("?");
 
     const ctx1 = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r3 = layoutBlock(cascaded, 0, 0, ctx1, shaper);
+    const r3 = layoutBlock(cascaded, 0, 0, ctx1, shaper, undefined);
     if (r3.box === null) throw new Error("layoutBlock returned null box");
     if (r3.box.type !== "block") throw new Error("layoutBlock returned non-block box");
     const out1 = r3.box;
@@ -290,7 +290,7 @@ describe("layoutBlock subtree reuse (incremental)", () => {
       prevLayoutCache: prevCache,
       prevFloatEnv: null,
     };
-    const r4 = layoutBlock(cascaded, 0, 0, ctx2, shaper);
+    const r4 = layoutBlock(cascaded, 0, 0, ctx2, shaper, undefined);
     if (r4.box === null) throw new Error("layoutBlock returned null box");
     if (r4.box.type !== "block") throw new Error("layoutBlock returned non-block box");
     const out2 = r4.box;
@@ -305,7 +305,7 @@ describe("layoutBlock subtree reuse (incremental)", () => {
     if (cascaded.type !== "element") throw new Error("?");
 
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r5 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const r5 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
     if (r5.box === null) throw new Error("layoutBlock returned null box");
     const out = r5.box;
     expect(out.type).toBe("block");
@@ -326,7 +326,7 @@ describe("layoutBlock subtree reuse (incremental)", () => {
     if (cascadedA.type !== "element") throw new Error("?");
 
     const ctx1 = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r6 = layoutBlock(cascadedA, 0, 0, ctx1, shaper);
+    const r6 = layoutBlock(cascadedA, 0, 0, ctx1, shaper, undefined);
     if (r6.box === null) throw new Error("layoutBlock returned null box");
     const out1 = r6.box;
     const docBox1 = out1;
@@ -349,7 +349,7 @@ describe("layoutBlock subtree reuse (incremental)", () => {
       prevLayoutCache: prevCache,
       prevFloatEnv: null,
     };
-    const r7 = layoutBlock(cascadedB, 0, 0, ctx2, shaper);
+    const r7 = layoutBlock(cascadedB, 0, 0, ctx2, shaper, undefined);
     if (r7.box === null) throw new Error("layoutBlock returned null box");
     const out2 = r7.box;
 
@@ -377,7 +377,7 @@ describe("buildLayoutBoxCacheFromTree (paginated, L-PERF-A)", () => {
       pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
       pageGap: 0,
     };
-    const paginatedRoot = resolvePositionedTree(layoutTree(cascaded, 500, shaper, pageConfig));
+    const paginatedRoot = positionTreeForTest(layoutTree(cascaded, 500, shaper, pageConfig));
 
     const cache = buildLayoutBoxCacheFromTree(paginatedRoot, cascaded);
     // After the fix, every paragraph child of the doc has a cache entry —
@@ -412,7 +412,7 @@ describe("buildLayoutBoxCacheFromTree (paginated, L-PERF-A)", () => {
       pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
       pageGap: 0,
     };
-    const paginatedRoot = resolvePositionedTree(layoutTree(cascaded, 500, shaper, pageConfig));
+    const paginatedRoot = positionTreeForTest(layoutTree(cascaded, 500, shaper, pageConfig));
     if (!("children" in paginatedRoot)) throw new Error("expected positioned tree");
     const firstPage = paginatedRoot.children[0];
     expect(firstPage.type).toBe("page");
@@ -460,7 +460,7 @@ describe("paginated layout reuse across keystrokes", () => {
     // per-page memo BEFORE out2 is built, so out2's carry-forward memo can
     // reuse out1's unchanged PageBoxes by reference — the virtual-mode analog
     // of the L-PERF-A subtree reuse this test guards.
-    const out1Positioned = resolvePositionedTree(out1);
+    const out1Positioned = positionTreeForTest(out1);
 
     // Find each paragraph's layout box from the paginated output.
     function findParagraphBox(root: BlockBox, key: string): BlockBox | undefined {
@@ -510,14 +510,14 @@ describe("paginated layout reuse across keystrokes", () => {
       shaper,
       pageConfig,
     );
-    const out2Positioned = resolvePositionedTree(out2);
+    const out2Positioned = positionTreeForTest(out2);
     if (out2Positioned.type !== "block") throw new Error("expected BlockBox root");
 
     // CORRECTNESS: the incremental output is structurally identical to a fresh,
     // non-incremental layout of the edited doc. This is the guarantee the
     // removed intra-page cache violated (it left shifted blocks at stale y).
     const fresh = layoutTree(cascadedEdited, 500, shaper, pageConfig);
-    const freshPositioned = resolvePositionedTree(fresh);
+    const freshPositioned = positionTreeForTest(fresh);
     expect(out2Positioned).toEqual(freshPositioned);
 
     const p1Box2 = findParagraphBox(out2Positioned, "p1");

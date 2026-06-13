@@ -32,6 +32,8 @@ import { buildState, buildBlock, inlineContent, text } from "../../test-utils/st
 import { render } from "../../render/render";
 import { cascadePass } from "../../cascade";
 import { layoutTree } from "../../layout/dispatch";
+import { positionTreeForTest } from "../../test-utils/position-tree";
+import type { LayoutBox } from "../../layout/layout-box";
 
 describe("handleIndent — INDENT / OUTDENT actions", () => {
   it("INDENT on a fresh block: sets marginInlineStart to one step", () => {
@@ -108,10 +110,12 @@ describe("handleIndent — INDENT / OUTDENT actions", () => {
     expect(next).toBe(editor);
   });
 
-  it("multi-block selection with DIFFERENT current indents: each +1 step independently", () => {
-    // p0 starts un-indented; p2's list-item starts at 48. After INDENT over the
-    // whole span, each LEAF advances by exactly one step from ITS OWN current
-    // indent — proving the read-modify-write is per-block, not a shared set.
+  it("multi-block selection: paragraphs each +1 step; list-items are SKIPPED (I5)", () => {
+    // p0 starts un-indented; the section's list-item `li` starts at 48. After
+    // INDENT over the whole span, each PARAGRAPH leaf advances one step from its
+    // own start (per-block read-modify-write), while the list-item is left
+    // untouched — INDENT/OUTDENT skip list-items (their nesting is the listLevel
+    // attr, edited by Tab→LIST_INDENT, not marginInlineStart).
     const initialState = buildState({
       rootId: "doc",
       blocks: [
@@ -129,22 +133,14 @@ describe("handleIndent — INDENT / OUTDENT actions", () => {
           parentId: "doc",
           prevSiblingId: "p0",
           nextSiblingId: "p2",
-          firstChildId: "list",
-          lastChildId: "list",
-        }),
-        buildBlock({
-          id: "list",
-          type: "list",
-          parentId: "sec",
           firstChildId: "li",
           lastChildId: "li",
-          attrs: { listType: "unordered" },
         }),
         buildBlock({
           id: "li",
           type: "list-item",
-          parentId: "list",
-          attrs: { listType: "unordered", marginInlineStart: 48 },
+          parentId: "sec",
+          attrs: { listId: "L1", listLevel: 0, marginInlineStart: 48 },
           inlineContent: inlineContent([text("li")]),
         }),
         buildBlock({
@@ -178,14 +174,56 @@ describe("handleIndent — INDENT / OUTDENT actions", () => {
 
     const next = reduceEditor(editor, { type: "INDENT" }, config);
 
-    // p0: 0 → 48; li: 48 → 96. Each leaf stepped from its own start.
+    // p0: 0 → 48; p2: 0 → 48 (each paragraph steps from its own start).
     expect(getBlock(next.state, "p0" as BlockId)?.attrs.marginInlineStart).toBe(48);
-    expect(getBlock(next.state, "li" as BlockId)?.attrs.marginInlineStart).toBe(96);
     expect(getBlock(next.state, "p2" as BlockId)?.attrs.marginInlineStart).toBe(48);
+
+    // The list-item is SKIPPED (I5) — its marginInlineStart stays at 48.
+    expect(getBlock(next.state, "li" as BlockId)?.attrs.marginInlineStart).toBe(48);
 
     // Containers are NOT indented.
     expect(getBlock(next.state, "sec" as BlockId)?.attrs.marginInlineStart).toBeUndefined();
-    expect(getBlock(next.state, "list" as BlockId)?.attrs.marginInlineStart).toBeUndefined();
+  });
+
+  it("INDENT on a collapsed caret IN a list-item is a no-op (list-items are skipped)", () => {
+    const initialState = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "li", lastChildId: "li" }),
+        buildBlock({
+          id: "li",
+          type: "list-item",
+          parentId: "doc",
+          attrs: { listId: "L1" },
+          inlineContent: inlineContent([text("item")]),
+        }),
+      ],
+    });
+    const rendered = render(initialState, config.componentRegistry, config.attrRegistry);
+    const cascadedRoot = cascadePass(rendered.root);
+    const layout = layoutTree(cascadedRoot, config.containerWidth, config.measurer, config.pageConfig);
+    const editor: EditorState = {
+      state: initialState,
+      selection: {
+        anchor: createPosition("li" as BlockId, 0),
+        focus: createPosition("li" as BlockId, 0),
+      },
+      history: createHistory(initialState),
+      renderTree: rendered.root,
+      renderOutput: rendered,
+      cascadedRoot,
+      cascadedTemplateContents: new Map(),
+      cascadedEmbedContents: new Map(),
+      layoutTree: layout,
+      containerWidth: config.containerWidth,
+      targetX: null,
+    };
+
+    const next = reduceEditor(editor, { type: "INDENT" }, config);
+
+    // Skipped → no marginInlineStart written, same editor reference (T7 identity).
+    expect(next).toBe(editor);
+    expect(getBlock(next.state, "li" as BlockId)?.attrs.marginInlineStart).toBeUndefined();
   });
 
   it("preserves the selection (indent does not move the caret)", () => {
@@ -217,5 +255,62 @@ describe("handleIndent — INDENT / OUTDENT actions", () => {
 
     const undone = reduceEditor(indented, { type: "UNDO" }, config);
     expect(getBlock(undone.state, paraId)?.attrs.marginInlineStart).toBe(48);
+  });
+
+  it("a list-item composes its level padding with a user marginInlineStart in layout", () => {
+    // The indent BUTTON skips list-items, but a list-item CAN carry a user
+    // marginInlineStart from another path. The BFC composes the two
+    // (childInlineStart = parent.paddingInlineStart + child.marginInlineStart),
+    // and the item's OWN paddingInlineStart (the level indent) still insets its
+    // content — so the box shifts by the margin while the level padding stays.
+    function findBlockBox(box: LayoutBox, key: string): LayoutBox | null {
+      if (box.key === key) return box;
+      if ("children" in box) {
+        for (const child of box.children) {
+          const found = findBlockBox(child, key);
+          if (found !== null) return found;
+        }
+      }
+      return null;
+    }
+
+    function listItemBox(margin: number | undefined): LayoutBox {
+      const state = buildState({
+        rootId: "doc",
+        blocks: [
+          buildBlock({ id: "doc", type: "document", firstChildId: "li", lastChildId: "li" }),
+          buildBlock({
+            id: "li",
+            type: "list-item",
+            parentId: "doc",
+            attrs: { listId: "L1", listLevel: 1, marginInlineStart: margin },
+            inlineContent: inlineContent([text("x")]),
+          }),
+        ],
+      });
+      const rendered = render(state, config.componentRegistry, config.attrRegistry);
+      const cascadedRoot = cascadePass(rendered.root);
+      const layout = positionTreeForTest(
+        layoutTree(cascadedRoot, config.containerWidth, config.measurer, config.pageConfig),
+      );
+      const box = findBlockBox(layout, "li");
+      if (box === null) throw new Error("no list-item box");
+      return box;
+    }
+
+    const base = listItemBox(undefined); // level padding, no user margin
+    const indented = listItemBox(48); // level padding + user margin
+
+    // The level padding (the item's own paddingInlineStart) is present and is
+    // INDEPENDENT of the user margin.
+    expect(base.usedStyle.paddingInlineStart).toBeGreaterThan(0);
+    expect(indented.usedStyle.paddingInlineStart).toBe(base.usedStyle.paddingInlineStart);
+
+    // The user margin shifts the box inline by exactly 48, composing on top of
+    // the level padding (which keeps insetting the content within the box).
+    // `box.x` is parent-relative; the list-item is a direct child of the doc
+    // root (no parent padding), so here it equals the absolute inline offset.
+    expect(base.x).toBe(0);
+    expect(indented.x).toBe(48);
   });
 });

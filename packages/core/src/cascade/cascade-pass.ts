@@ -138,40 +138,54 @@ function cascadeNodeIncremental(
 export const COMPUTED_STYLE_KEYS: readonly (keyof ComputedStyle)[] =
   Object.keys(PROPERTY_META) as (keyof ComputedStyle)[];
 
-/** Shallow structural equality for ComputedStyle (all values are primitives or simple objects). */
+/**
+ * Recursive structural equality for a single ComputedStyle value. ComputedStyle
+ * values are JSON-like: primitives, plain objects (`Length` `{unit,value}`,
+ * `TransformOrigin` `{x,y}`, `listStyleType` `{content}`), and arrays of those
+ * (`transform: TransformFn[]`, `fontFeatureSettings`). This compares them by
+ * value to whatever depth they nest (Length is 1 level, TransformOrigin 2,
+ * `transform` an array of 1-level structs — all finite, no cycles).
+ *
+ * Returning `true` only for genuinely-equal values is load-bearing: a false
+ * positive lets incremental layout's reuse cache serve stale boxes after a
+ * style change (see `computedStylesEqual`). A false negative only costs a
+ * spurious re-cascade. This is exact, so neither happens for structural values.
+ */
+function styleValueEqual(av: unknown, bv: unknown): boolean {
+  if (av === bv) return true;
+  if (typeof av !== "object" || av === null || typeof bv !== "object" || bv === null) {
+    // Distinct primitives (or object-vs-primitive) — unequal.
+    return false;
+  }
+  const aIsArray = Array.isArray(av);
+  const bIsArray = Array.isArray(bv);
+  if (aIsArray !== bIsArray) return false;
+  if (aIsArray && bIsArray) {
+    if (av.length !== bv.length) return false;
+    for (let i = 0; i < av.length; i++) {
+      if (!styleValueEqual(av[i], bv[i])) return false;
+    }
+    return true;
+  }
+  // Plain objects: same key set, each value structurally equal. `Object.entries`
+  // narrows without a cast (the lib types the element value as `any`, which flows
+  // into `styleValueEqual`'s `unknown` param — no explicit assertion needed).
+  const aEntries = Object.entries(av);
+  const bEntries = Object.entries(bv);
+  if (aEntries.length !== bEntries.length) return false;
+  const bMap = new Map(bEntries);
+  for (const [key, aChild] of aEntries) {
+    if (!bMap.has(key)) return false;
+    if (!styleValueEqual(aChild, bMap.get(key))) return false;
+  }
+  return true;
+}
+
+/** Structural equality for ComputedStyle, by value to full depth (see `styleValueEqual`). */
 export function computedStylesEqual(a: ComputedStyle, b: ComputedStyle): boolean {
   if (a === b) return true;
   for (const k of COMPUTED_STYLE_KEYS) {
-    const av = a[k];
-    const bv = b[k];
-    if (av === bv) continue;
-
-    // For complex values, compare structurally.
-    if (
-      typeof av === "object" && av !== null &&
-      typeof bv === "object" && bv !== null
-    ) {
-      // Length objects: { unit, value } — compare both fields.
-      if (
-        "unit" in av && "value" in av &&
-        "unit" in bv && "value" in bv &&
-        (av as { unit: string; value: number }).unit === (bv as { unit: string; value: number }).unit &&
-        (av as { unit: string; value: number }).value === (bv as { unit: string; value: number }).value
-      ) {
-        continue;
-      }
-      // Arrays (e.g., fontFeatureSettings): compare shallowly.
-      if (Array.isArray(av) && Array.isArray(bv)) {
-        if (av.length !== bv.length) return false;
-        let arrEqual = true;
-        for (let i = 0; i < av.length; i++) {
-          if (av[i] !== bv[i]) { arrEqual = false; break; }
-        }
-        if (arrEqual) continue;
-      }
-      return false;
-    }
-    return false;
+    if (!styleValueEqual(a[k], b[k])) return false;
   }
   return true;
 }

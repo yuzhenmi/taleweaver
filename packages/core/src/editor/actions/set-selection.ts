@@ -1,5 +1,6 @@
 import type { Selection } from "../../state";
 import type { EditorState } from "../editor-state";
+import type { CaretAffinity } from "../../cursor/line-bidi";
 
 /**
  * `SET_SELECTION` handler. Sets the new selection and the (#323) non-undoable
@@ -11,11 +12,24 @@ import type { EditorState } from "../editor-state";
  *
  * Because the value is set here (not centrally cleared in `reduceEditor` the way
  * `targetX` is), passing `undefined` is the explicit clear.
+ *
+ * `caretAffinity` (P4-C.2.2b §D) is the caret ASSOCIATION seed at a bidi
+ * direction boundary. UNLIKE `caretPageHint`, this field IS centrally reset in
+ * `reduceEditor` (the `actionManagesCaretAffinity` predicate keeps it ONLY
+ * across the actions that set it — `SET_SELECTION` is one). The DOM click seeds
+ * the hit side; a programmatic `SET_SELECTION` with no affinity passes
+ * `undefined`, which clears it (correct — no boundary context to preserve).
+ *
+ * `anchorAffinity` (#503) is the symmetric ANCHOR-side seed. A `SET_SELECTION`
+ * establishes a brand-new anchor with no bidi-boundary context, so it is cleared
+ * to `undefined` here (it is later seeded from `caretAffinity` only on the
+ * collapse→extend transition in `EXPAND_SELECTION`).
  */
 export function handleSetSelection(
   editor: EditorState,
   selection: Selection,
   caretPageHint?: number,
+  caretAffinity?: CaretAffinity,
 ): EditorState {
-  return { ...editor, selection, caretPageHint };
+  return { ...editor, selection, caretPageHint, caretAffinity, anchorAffinity: undefined };
 }

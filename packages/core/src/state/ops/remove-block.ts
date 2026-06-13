@@ -4,7 +4,6 @@ import { applyOperation, getBlock } from "../state";
 import type { BlockId } from "../block-id";
 import { getBlocksMap, getEmbedContentsMap, getYBlock, requireInTransaction } from "../yjs-doc";
 import { collectEmbedContentSubtreeFromInlineContent } from "../embed-content-cascade";
-import { STATE_INTERNAL } from "../state-internal";
 
 /**
  * Pre-computed mutation plan for `removeBlockInTx`. Captures the
@@ -97,8 +96,8 @@ export interface RemoveBlockPlan {
  */
 export function removeBlock(state: State, blockId: BlockId): OperationResult {
   const plan = planRemoveBlock(state, blockId);
-  return applyOperation(state, () => {
-    removeBlockInTx(state[STATE_INTERNAL].doc, plan);
+  return applyOperation(state, (doc) => {
+    removeBlockInTx(doc, plan);
   });
 }
 

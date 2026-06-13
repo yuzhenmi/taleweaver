@@ -79,6 +79,12 @@ export function cloneInlineItem(src: Y.Map<unknown>): Y.Map<unknown> {
   });
 }
 
+/** Cursor length of one inline item: text → its Y.Text length, embed → 1. */
+export function yItemLength(yItem: Y.Map<unknown>): number {
+  const kind = yItem.get("kind") as "text" | "embed";
+  return kind === "text" ? (yItem.get("text") as Y.Text).length : 1;
+}
+
 /**
  * Walk `yItems` and merge any adjacent same-attrs text-item pairs, and
  * drop any zero-length text items. Items whose neighbors don't converge

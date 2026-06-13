@@ -21,6 +21,7 @@ function makeToken(
     sourceKey: "src",
     text: id,
     sourceLength: id.length,
+    absoluteSourceBase: 0,
     width: 10,
     style: defaultStyle,
     isSpace: false,
@@ -126,6 +127,28 @@ describe("findChangePoint", () => {
     const b = { ...makeToken("t:0"), style: style2 };
     expect(findChangePoint([a], [b])).toBe(0);
   });
+
+  it("tokens differing only in softBreaks are NOT equal (cache key includes derived breaks)", () => {
+    const base = makeToken("k:0");
+    const a = { ...base, softBreaks: [1] as readonly number[] };
+    const b = { ...base, softBreaks: [2] as readonly number[] };
+    expect(findChangePoint([a], [b])).toBe(0);
+  });
+
+  it("tokens differing only in breakableBefore are NOT equal", () => {
+    const base = makeToken("k:0");
+    expect(
+      findChangePoint(
+        [{ ...base, breakableBefore: true }],
+        [{ ...base, breakableBefore: false }],
+      ),
+    ).toBe(0);
+  });
+
+  it("identical softBreaks/breakableBefore stay equal (reuse preserved)", () => {
+    const t = makeToken("k:0", { softBreaks: [1], breakableBefore: false });
+    expect(findChangePoint([t], [{ ...t }])).toBe(-1);
+  });
 });
 
 describe("findLineForToken", () => {
@@ -217,6 +240,9 @@ describe("rewrapIncremental", () => {
       lines: [prevLine],
       availableInlineSize: 100,
       textIndent: 0,
+      tabStops: [],
+      defaultTabStop: 48,
+      hasTab: false,
     };
     const wrapOneLine = vi.fn();
     const lines = rewrapIncremental(prev, tokens, 100, wrapOneLine, meta);
@@ -236,6 +262,9 @@ describe("rewrapIncremental", () => {
       lines: [prevLine],
       availableInlineSize: 100,
       textIndent: 0,
+      tabStops: [],
+      defaultTabStop: 48,
+      hasTab: false,
     };
     const newLine = makeLine();
     const wrapOneLine = vi.fn(() => ({
@@ -273,6 +302,9 @@ describe("rewrapIncremental", () => {
       lines: [prevLine],
       availableInlineSize: 100,
       textIndent: 0,
+      tabStops: [],
+      defaultTabStop: 48,
+      hasTab: false,
     };
     const newLine = makeLine();
     // Change point is 2 → findLineForToken(2) returns lines.length (1), so no head reuse
@@ -317,6 +349,9 @@ describe("rewrapIncremental", () => {
       lines: [line0, line1],
       availableInlineSize: 100,
       textIndent: 0,
+      tabStops: [],
+      defaultTabStop: 48,
+      hasTab: false,
     };
     const newLine1 = makeLine();
     const wrapOneLine = vi.fn((_toks: readonly Token[], start: number) => ({
@@ -369,6 +404,9 @@ describe("rewrapIncremental", () => {
       lines: [line0, line1, line2],
       availableInlineSize: 100,
       textIndent: 0,
+      tabStops: [],
+      defaultTabStop: 48,
+      hasTab: false,
     };
     const newLine0 = makeLine();
     // wrapOneLine produces a line covering tokens 0..1, same width → convergence at token 2

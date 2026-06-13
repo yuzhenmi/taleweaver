@@ -21,6 +21,12 @@ import type { BlockId } from "../state";
 import type { PageConfig } from "./page-config";
 import { flattenContents } from "./group-children";
 import { resolveSectionPageConfig } from "./section-page-config";
+import { resolveColumnConfig } from "./section-column-config";
+import {
+  type ColumnConfig,
+  DEFAULT_COLUMN_CONFIG,
+  columnConfigsEqual,
+} from "./column-config";
 
 /** One section boundary: the section starts at flattened-child index `startFlattenedIndex`. */
 export interface SectionBoundary {
@@ -46,11 +52,38 @@ export interface SectionBoundary {
   readonly headerBlockId?: BlockId;
   /** The footer-slot body id; symmetric to `headerBlockId` (C.2c). */
   readonly footerBlockId?: BlockId;
+  /**
+   * The section's effective column config, if it OVERRIDES the doc default
+   * (multi-column slice 1). `undefined` for the implicit leading boundary and
+   * for any section whose attrs resolve equal to the doc default (incl.
+   * single-column `columnCount === 1`) — keeping the no-override path inert.
+   * INERT in slice 1: no layout pass consumes this yet; slice 2's
+   * `MultiColumnBox` + column fragmentation do.
+   */
+  readonly columnConfig?: ColumnConfig;
 }
 
 export interface SectionPlan {
   /** Ordered by startFlattenedIndex ascending; boundaries[0].startFlattenedIndex === 0 always. */
   readonly boundaries: readonly SectionBoundary[];
+  /**
+   * The effective doc-wide column default — `docDefaultColumns` resolved over the
+   * doc-root's own column metadata (multi-column slice 1). Slice 2's measure/layout
+   * pass reads THIS as the column layout for any boundary carrying no `columnConfig`
+   * override (i.e. `sectionStateAt(...).columnConfig === undefined`). It differs
+   * from the raw `docDefaultColumns` argument whenever the doc root itself carries
+   * a `columnCount` / `columnGap` / `columnRule` override, so the raw argument is
+   * NOT a safe fallback.
+   *
+   * REQUIRED (not optional): this is the authoritative resolved doc-wide default
+   * value — the column analog of the measure pass's required `docWide: PageConfig`
+   * argument, NOT a per-boundary override-presence flag like `pageConfig?`. Making
+   * it optional would let a hand-built plan with a non-trivial doc-root column
+   * context silently fall through to the engine default in slice 2, a wrong value
+   * the type system could not catch. Every plan (incl. `IMPLICIT_SECTION_PLAN`)
+   * states it explicitly. INERT in slice 1 (no consumer yet).
+   */
+  readonly effectiveDefaultColumns: ColumnConfig;
 }
 
 /** The active section + the next boundary at/after a flattened-child index. */
@@ -72,6 +105,12 @@ export interface SectionStateAt {
   readonly headerBlockId?: BlockId;
   /** The active boundary's footer-slot body id; symmetric (C.2c). */
   readonly footerBlockId?: BlockId;
+  /**
+   * The active boundary's column-config override (multi-column slice 1), or
+   * `undefined` when it carries none. Carried inert in slice 1 (no consumer);
+   * slice 2's measure/layout passes consume it.
+   */
+  readonly columnConfig?: ColumnConfig;
 }
 
 /**
@@ -82,6 +121,7 @@ export interface SectionStateAt {
  */
 export const IMPLICIT_SECTION_PLAN: SectionPlan = {
   boundaries: [{ startFlattenedIndex: 0, sectionId: null }],
+  effectiveDefaultColumns: DEFAULT_COLUMN_CONFIG,
 };
 
 /**
@@ -122,23 +162,39 @@ export function pageConfigsEqual(a: PageConfig, b: PageConfig): boolean {
  * Header/footer body ids (C.2c) are read RAW off the section box metadata and
  * coerced (string ⇒ BlockId, else `undefined`); they are independent of the
  * geometry-override gate — a section may carry a header without overriding its
- * page geometry. An `undefined` id key is simply absent on the boundary.
+ * page geometry. A section that declares NO own header/footer FALLS BACK to the
+ * doc-root ids (`docHeaderBlockId`/`docFooterBlockId`) — mirroring how
+ * `docDefaultColumns` is the column fallback. This is load-bearing: a section
+ * opening at flattened index 0 (the shape `applySectionBreak` produces — fresh
+ * sections carry `attrs: {}`) suppresses the implicit-leading boundary, so
+ * without this fallback a doc-root header/footer would silently vanish from every
+ * page after a section break (audit Finding 1). An `undefined` resolved id is
+ * simply absent on the boundary.
  */
 function makeSectionBoundary(
   startFlattenedIndex: number,
   sectionBox: ElementBox,
   docWide: PageConfig,
+  docDefaultColumns: ColumnConfig,
+  docHeaderBlockId: BlockId | undefined,
+  docFooterBlockId: BlockId | undefined,
 ): SectionBoundary {
   const cfg = resolveSectionPageConfig(docWide, sectionBox.metadata);
+  const colCfg = resolveColumnConfig(docDefaultColumns, sectionBox.metadata);
   const sectionId = sectionBox.key as BlockId;
-  const headerBlockId = coerceBlockId(sectionBox.metadata?.headerBlockId);
-  const footerBlockId = coerceBlockId(sectionBox.metadata?.footerBlockId);
+  const headerBlockId =
+    coerceBlockId(sectionBox.metadata?.headerBlockId) ?? docHeaderBlockId;
+  const footerBlockId =
+    coerceBlockId(sectionBox.metadata?.footerBlockId) ?? docFooterBlockId;
   return {
     startFlattenedIndex,
     sectionId,
     // Stamp `pageConfig` only when the override differs from docWide (the
     // no-override path stays inert); the spread keeps the field absent otherwise.
     ...(pageConfigsEqual(cfg, docWide) ? {} : { pageConfig: cfg }),
+    // Stamp `columnConfig` only when it differs from the doc default — the
+    // single-column / no-override path stays inert (mirrors pageConfig).
+    ...(columnConfigsEqual(colCfg, docDefaultColumns) ? {} : { columnConfig: colCfg }),
     ...(headerBlockId !== undefined ? { headerBlockId } : {}),
     ...(footerBlockId !== undefined ? { footerBlockId } : {}),
   };
@@ -171,6 +227,7 @@ function makeSectionBoundary(
 export function buildSectionPlan(
   cascadedRoot: ElementBox,
   docWide: PageConfig,
+  docDefaultColumns: ColumnConfig = DEFAULT_COLUMN_CONFIG,
 ): SectionPlan {
   // Doc-root header/footer body ids (C.2c, I1): the implicit/leading section's
   // default, read RAW off the doc-root box metadata and coerced. The doc-root
@@ -179,6 +236,15 @@ export function buildSectionPlan(
   // doc has any real sections.
   const docHeaderBlockId = coerceBlockId(cascadedRoot.metadata?.headerBlockId);
   const docFooterBlockId = coerceBlockId(cascadedRoot.metadata?.footerBlockId);
+  // The EFFECTIVE doc-default columns: the doc root itself may carry column
+  // attrs (a doc-wide column count), so a section's override is gated against
+  // this resolved default — a section echoing the doc-wide count stays inert,
+  // a section differing (incl. back to single-column) stamps. Mirrors the
+  // doc-root header/footer default above.
+  const effectiveDefaultColumns = resolveColumnConfig(
+    docDefaultColumns,
+    cascadedRoot.metadata,
+  );
 
   // Mutable accumulator; the de-dup needs to overwrite the last-pushed boundary
   // when a coincident index recurs, so we build with a plain array.
@@ -188,7 +254,14 @@ export function buildSectionPlan(
   for (const child of cascadedRoot.children) {
     if (isSectionBox(child)) {
       const startFlattenedIndex = flattenedCount;
-      const boundary = makeSectionBoundary(startFlattenedIndex, child, docWide);
+      const boundary = makeSectionBoundary(
+        startFlattenedIndex,
+        child,
+        docWide,
+        effectiveDefaultColumns,
+        docHeaderBlockId,
+        docFooterBlockId,
+      );
       const last = boundaries[boundaries.length - 1];
       if (last !== undefined && last.startFlattenedIndex === startFlattenedIndex) {
         // De-dup: a coincident boundary (preceding empty section). Keep the LAST
@@ -216,7 +289,7 @@ export function buildSectionPlan(
     });
   }
 
-  return { boundaries };
+  return { boundaries, effectiveDefaultColumns };
 }
 
 /**
@@ -255,5 +328,8 @@ export function sectionStateAt(plan: SectionPlan, index: number): SectionStateAt
     // onto each page so a later task lays the body into the slot.
     headerBlockId: active.headerBlockId,
     footerBlockId: active.footerBlockId,
+    // Surface the active boundary's column override (multi-column slice 1);
+    // `undefined` when it carries none. Carried inert — slice 2 consumes it.
+    columnConfig: active.columnConfig,
   };
 }

@@ -5,6 +5,7 @@ import type { BlockId, IdAllocator } from "./block-id";
 import type { InlineContent, InlineItem } from "./inline-content";
 import { assertNoIdCollision } from "./id-collision-check";
 import { STATE_INTERNAL } from "./state-internal";
+import { COMMENT_START_EMBED_TYPE, COMMENT_END_EMBED_TYPE } from "./comments";
 
 /**
  * The product of cloning a subtree from a source state. Self-contained
@@ -305,8 +306,19 @@ function rewriteInlineContent(
   content: InlineContent,
   idMap: Map<BlockId, BlockId>,
 ): InlineContent {
-  const newItems: InlineItem[] = content.items.map((item) => {
+  const newItems: InlineItem[] = content.items.flatMap((item) => {
     if (item.kind === "embed") {
+      // Strip comment-range markers: pasting commented text must NOT duplicate
+      // the comment / its commentId (Google-Docs-faithful — a paste of a
+      // commented range drops the markers, leaving the copied text uncommented).
+      // The markers carry `properties.commentId` and own no body, so they pass
+      // the contentBlockId/targetId rebinds below verbatim if not dropped here.
+      if (
+        item.embedType === COMMENT_START_EMBED_TYPE ||
+        item.embedType === COMMENT_END_EMBED_TYPE
+      ) {
+        return [];
+      }
       const cbId = item.properties.contentBlockId;
       if (typeof cbId === "string") {
         const newCbId = idMap.get(cbId as BlockId);
@@ -322,6 +334,27 @@ function rewriteInlineContent(
           properties: Object.freeze({ ...item.properties, contentBlockId: newCbId }),
         });
         return rewritten;
+      }
+      // A POINTER embed (a cross-reference: `properties.targetId`) points at a block
+      // it does NOT own — unlike `contentBlockId`, which the walkers follow + clone.
+      // The walkers never follow `targetId` (they key on `contentBlockId`), so the
+      // target is in `idMap` ONLY when it was independently part of the copied
+      // subtree. Rebind in that case (you copied the reference AND its target → the
+      // clone references the cloned target, matching Google Docs); otherwise leave it
+      // pointing at the ORIGINAL target (the target is outside the paste). NEVER throw
+      // on a missing id — a pointer to an outside block is a legal state.
+      const targetId = item.properties.targetId;
+      if (typeof targetId === "string") {
+        const newTargetId = idMap.get(targetId as BlockId);
+        if (newTargetId !== undefined) {
+          const rewritten: InlineItem = Object.freeze({
+            kind: "embed",
+            embedType: item.embedType,
+            attrs: item.attrs,
+            properties: Object.freeze({ ...item.properties, targetId: newTargetId }),
+          });
+          return rewritten;
+        }
       }
     }
     return item;

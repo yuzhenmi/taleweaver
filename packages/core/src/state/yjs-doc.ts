@@ -1,10 +1,14 @@
 import * as Y from "yjs";
 import type { BlockId } from "./block-id";
+import { asBlockId } from "./block-id";
 import { isDevMode } from "./dev-mode";
 
 const BLOCKS_KEY = "blocks";
 const EMBED_CONTENTS_KEY = "embedContents";
 const TEMPLATE_CONTENTS_KEY = "templateContents";
+const LIST_DEFS_KEY = "listDefs";
+const COMMENTS_KEY = "comments";
+const SUGGESTIONS_KEY = "suggestions";
 const META_KEY = "meta";
 
 export function createYDoc(args?: { rootId?: BlockId }): Y.Doc {
@@ -12,6 +16,9 @@ export function createYDoc(args?: { rootId?: BlockId }): Y.Doc {
   doc.getMap(BLOCKS_KEY);
   doc.getMap(EMBED_CONTENTS_KEY);
   doc.getMap(TEMPLATE_CONTENTS_KEY);
+  doc.getMap(LIST_DEFS_KEY);
+  doc.getMap(COMMENTS_KEY);
+  doc.getMap(SUGGESTIONS_KEY);
   const meta = doc.getMap(META_KEY);
   if (args?.rootId !== undefined) {
     meta.set("rootId", args.rootId);
@@ -29,6 +36,56 @@ export function getEmbedContentsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
 
 export function getTemplateContentsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
   return doc.getMap(TEMPLATE_CONTENTS_KEY) as Y.Map<Y.Map<unknown>>;
+}
+
+/**
+ * The top-level `listDefs` config side-table: listId → per-list numbering
+ * config (Y.Map). NOT a block tree (keys are listId strings, not BlockIds), so
+ * it is intentionally excluded from TREE_MAP_GETTERS / dirty-capture / the
+ * snapshot cache. Tracked by the UndoManager (history.ts) as a 4th scope.
+ */
+export function getListDefsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
+  return doc.getMap(LIST_DEFS_KEY) as Y.Map<Y.Map<unknown>>;
+}
+
+/**
+ * The top-level `comments` side-table: commentId → comment thread record
+ * (Y.Map of author/body/createdAt/resolved scalars + a replies Y.Array). NOT a
+ * block tree (keys are commentId strings, not BlockIds), so — like `listDefs` —
+ * it is intentionally excluded from TREE_MAP_GETTERS / dirty-capture / the
+ * snapshot cache. The comment RANGE is NOT stored here: paired zero-width
+ * `comment-start`/`comment-end` marker embeds in inline content ARE the anchor
+ * (see `state/comments.ts`). The map IS undo-tracked: `history.ts` adds it as a
+ * Y.UndoManager scope, so a comment thread reverts atomically with its markers
+ * (per-transaction tracking means a pure text edit, which never touches this
+ * map, leaves comments untouched). It is excluded from dirty-capture, so a
+ * comments-only write surfaces `state.rootId` as its dirtyId (the `setListType`
+ * precedent) to advance state and land a committable, undoable entry.
+ */
+export function getCommentsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
+  return doc.getMap(COMMENTS_KEY) as Y.Map<Y.Map<unknown>>;
+}
+
+/**
+ * The top-level `suggestions` side-table (change-tracking / Suggesting mode):
+ * suggestionId → suggestion record (Y.Map of kind/author/createdAt scalars +
+ * an optional nested `proposedAttrs` Y.Map for the formatting variant). NOT a
+ * block tree (keys are suggestionId strings, not BlockIds), so — like
+ * `listDefs` and `comments` — it is intentionally excluded from
+ * TREE_MAP_GETTERS / dirty-capture / the snapshot cache. The suggestion RANGE
+ * is NOT stored here: it is DERIVED by a content scan over the three
+ * `insertion/deletion/formattingSuggestionId` inline attrs (and the two
+ * block-join/split break embeds) that carry the id (see `state/suggestions.ts`)
+ * — exactly as comments derive their range from in-content markers. The map IS
+ * undo-tracked: `history.ts` adds it as a Y.UndoManager scope, so a suggestion
+ * record reverts atomically with the tagged items / break embeds (per-transaction
+ * tracking means a pure text edit, which never touches this map, leaves
+ * suggestions untouched). It is excluded from dirty-capture, so a
+ * suggestions-only write surfaces `state.rootId` as its dirtyId (the `setListType`
+ * precedent) to advance state and land a committable, undoable entry.
+ */
+export function getSuggestionsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
+  return doc.getMap(SUGGESTIONS_KEY) as Y.Map<Y.Map<unknown>>;
 }
 
 /**
@@ -100,10 +157,19 @@ export function allTreeBlockCount(doc: Y.Doc): number {
  * Returns the doc's meta Y.Map. Currently holds only `rootId`, which is
  * set once in `createYDoc` and never reassigned during a session.
  *
+ * **doc-meta holds ONLY the immutable `rootId`.** Mutable, user-observable
+ * state belongs in the Layer-3 block-tree Y.Maps (blocks / embedContents /
+ * templateContents), NOT here — doc-meta is outside the History
+ * UndoManager's tracked scopes, so a doc-meta write silently lapses out of
+ * undo/redo and loses state across a session. The `A14` whitelist test
+ * (`encapsulation.test.ts`) fails the moment a non-`rootId` key appears.
+ *
  * **Not tracked by the History UndoManager.** The `History` class
  * (`history.ts`) constructs its `Y.UndoManager` with the blocks map,
- * the embedContents map, and the templateContents map as tracked scopes —
- * writes to this meta map are intentionally outside the undo/redo stack.
+ * the embedContents map, the templateContents map, the listDefs config
+ * side-table, the comments side-table, and the suggestions side-table as
+ * tracked scopes — writes to this
+ * meta map are intentionally outside the undo/redo stack.
  * The current design relies on the meta map holding only immutable
  * session-level fields (rootId today; possibly format version, doc id,
  * etc. in the future).
@@ -128,6 +194,19 @@ export function allTreeBlockCount(doc: Y.Doc): number {
  */
 export function getMetaMap(doc: Y.Doc): Y.Map<unknown> {
   return doc.getMap(META_KEY);
+}
+
+/**
+ * Read the immutable document `rootId` out of the meta map of a raw Y.Doc.
+ * Returns undefined when the meta map carries no (valid) rootId — e.g. a
+ * freshly-decoded update that never seeded one. The `typeof === "string"` guard
+ * + `asBlockId` is the codebase's validated branded-string construction (BlockId
+ * is a branded string), NOT a forbidden narrowing cast. Used by the binary
+ * document serializer's decode to reconstruct State from a decoded Y.Doc.
+ */
+export function getMetaRootId(doc: Y.Doc): BlockId | undefined {
+  const v = getMetaMap(doc).get("rootId");
+  return typeof v === "string" ? asBlockId(v) : undefined;
 }
 
 /**
@@ -263,10 +342,19 @@ export function requireInTransaction(doc: Y.Doc, opName: string): void {
  * instead, mutate raw Y types directly and let the outer caller's
  * `runTransaction` capture dirty ids. Layer 3 ops are the only intended
  * call site.
+ *
+ * **`origin`** (optional) is forwarded to `doc.transact(fn, origin)`. It tags
+ * the transaction so `History`'s `Y.UndoManager` (constructed with
+ * `trackedOrigins: new Set([null])`) can decide whether to track it: the default
+ * (`undefined` → Yjs's `null`) IS tracked (undoable); a non-`null` tag (e.g.
+ * `SUGGESTION_RESOLVE_ORIGIN` from the suggestion accept/reject ops) is NOT, so
+ * the change is non-undoable. `undefined` is byte-identical to the pre-origin
+ * call.
  */
 export function runTransaction(
   doc: Y.Doc,
   fn: () => void,
+  origin?: unknown,
 ): TransactionResult {
   // Reentrancy guard (dev-mode). A nested `runTransaction` silently returns an
   // empty dirtyIds set — Yjs merges the inner `doc.transact` into the outer
@@ -282,7 +370,12 @@ export function runTransaction(
         "directly and let the outer caller's runTransaction capture dirtyIds.",
     );
   }
-  const dirtyIds = captureDirtyIds(doc, () => doc.transact(fn));
+  // Forward `origin` to Yjs (`doc.transact(fn, origin?)`). `undefined` (the
+  // default) is byte-identical to a no-origin call — Yjs treats it as the
+  // default `null` origin, which `History`'s UndoManager tracks. A non-undoable
+  // caller (the slice-3 suggestion accept/reject ops) passes
+  // SUGGESTION_RESOLVE_ORIGIN here so the txn fires no UndoManager StackItem.
+  const dirtyIds = captureDirtyIds(doc, () => doc.transact(fn, origin));
   return { dirtyIds };
 }
 

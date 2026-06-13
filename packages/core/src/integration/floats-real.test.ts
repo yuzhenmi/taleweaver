@@ -66,7 +66,7 @@ describe("Real CSS 9.5 floats — end-to-end", () => {
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       200,
     );
-    const outResult1 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const outResult1 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
     if (outResult1.box === null) throw new Error("layoutBlock returned null box");
     const out = outResult1.box;
     const f2Box = findBoxByKey(out, "f2");
@@ -91,7 +91,7 @@ describe("Real CSS 9.5 floats — end-to-end", () => {
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       200,
     );
-    const outResult2 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const outResult2 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
     if (outResult2.box === null) throw new Error("layoutBlock returned null box");
     const out = outResult2.box;
     const fsBox = findBoxByKey(out, "fs");
@@ -116,7 +116,7 @@ describe("Real CSS 9.5 floats — end-to-end", () => {
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       200,
     );
-    const outResult3 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const outResult3 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
     if (outResult3.box === null) throw new Error("layoutBlock returned null box");
     if (outResult3.box.type !== "block") throw new Error("layoutBlock returned non-block box");
     const out = outResult3.box;
@@ -142,7 +142,7 @@ describe("Real CSS 9.5 floats — end-to-end", () => {
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       300,
     );
-    const outResult4 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const outResult4 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
     if (outResult4.box === null) throw new Error("layoutBlock returned null box");
     const out = outResult4.box;
     const clrBox = findBoxByKey(out, "clr");
@@ -163,7 +163,7 @@ describe("Real CSS 9.5 floats — end-to-end", () => {
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       500,
     );
-    const outResult5 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const outResult5 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
     if (outResult5.box === null) throw new Error("layoutBlock returned null box");
     if (outResult5.box.type !== "block") throw new Error("layoutBlock returned non-block box");
     const out = outResult5.box;
@@ -198,7 +198,7 @@ describe("Real CSS 9.5 floats — edge cases (Plan 3.J Task 3)", () => {
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       500,
     );
-    const outResult6 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const outResult6 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
     if (outResult6.box === null) throw new Error("layoutBlock returned null box");
     const out = outResult6.box;
     const fRightBox = findBoxByKey(out, "ec-f-right");
@@ -236,7 +236,7 @@ describe("Real CSS 9.5 floats — edge cases (Plan 3.J Task 3)", () => {
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       500,
     );
-    const outResult7 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const outResult7 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
     if (outResult7.box === null) throw new Error("layoutBlock returned null box");
     const out = outResult7.box;
     const clearedBox = findBoxByKey(out, "clr-block");
@@ -270,7 +270,7 @@ describe("Real CSS 9.5 floats — edge cases (Plan 3.J Task 3)", () => {
       cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE,
       300,
     );
-    const outResult8 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const outResult8 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
     if (outResult8.box === null) throw new Error("layoutBlock returned null box");
     const out = outResult8.box;
     const line = findFirstLine(out);

@@ -21,7 +21,7 @@ import { config, reduceEditor } from "./actions/test-helpers";
 import type { EditorState } from "./editor-state";
 import { getBlock, firstLeafBlock, createHistory } from "../state";
 import type { State, BlockId } from "../state";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import type { LayoutBox } from "../layout/layout-node";
 import {
   buildState,
@@ -111,7 +111,7 @@ function makeEditor(cursorBlock: BlockId): EditorState {
 
 /** Materialize the editor's layout tree to a fully-positioned `LayoutBox`. */
 function materialize(editor: EditorState): LayoutBox {
-  return resolvePositionedTree(editor.layoutTree);
+  return positionTreeForTest(editor.layoutTree);
 }
 
 interface AbsBox {

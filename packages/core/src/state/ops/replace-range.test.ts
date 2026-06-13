@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { replaceRange } from "./replace-range";
+import { replaceRange, replaceRangeInTx, planReplaceRange } from "./replace-range";
 import { getBlock, getEmbedContent } from "../state";
 import { buildBlock, buildState, text, embed, inlineContent } from "../../test-utils/state-builders";
 import { createPosition, createSpan } from "../block-position";
@@ -571,5 +571,28 @@ describe("replaceRange — atomicity (T12)", () => {
     }
 
     expect(transactionCount).toBe(1);
+  });
+});
+
+describe("replaceRangeInTx — transaction guard", () => {
+  it("throws when called outside any Y.Doc transaction", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([text("hello world")]),
+        }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 3), createPosition("p" as BlockId, 7));
+    const plan = planReplaceRange(state, span, "FOO", {});
+    if (plan === null) throw new Error("expected a non-null plan for a non-collapsed replace");
+    expect(() => replaceRangeInTx(state[STATE_INTERNAL].doc, plan)).toThrow(
+      /replaceRange: must be called inside Y\.Doc\.transact/,
+    );
   });
 });

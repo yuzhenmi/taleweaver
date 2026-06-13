@@ -1,9 +1,11 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { resolveBlock, createPosition, createSpan, deleteRange, mergeAdjacentBlocks, mergeSectionWithPrevious, inlineContentLength } from "../../state";
+import { resolveBlock, createPosition, createSpan, spanStart, spanEnd, mergeAdjacentBlocks, markBlockJoinSuggestion, mergeSectionWithPrevious, inlineContentLength } from "../../state";
 import { moveByCharacter } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
+import { deleteAdjacentAtomicLeaf } from "./atomic-edits";
+import { deleteRangeOrSuggest, suggestionInputForBlock, isSuggestingInBlock } from "./suggestion-mode";
 
 export function handleDeleteForward(
   editor: EditorState,
@@ -19,9 +21,22 @@ export function handleDeleteForward(
     // refuses an unresolvable or cross-parent span.
     const start = expandedSpanCollapsePoint(editor.state, selection);
     if (start === null) return editor;
-    const result = deleteRange(editor.state, selection);
+    const result = deleteRangeOrSuggest(editor.state, selection, config);
     if (result.state === editor.state) return editor;
-    const newCursor = createPosition(start.blockId, start.offset);
+    // Forward soft-delete leaves the struck text in place, so the caret must
+    // land PAST it (span END); a direct delete removes the text, so the caret
+    // stays at the span start. (Backward soft-delete uses the span start.)
+    // `suggesting` reflects the ACTUAL outcome — a soft-delete in ANY editing
+    // context (main body OR a footnote/header/footer body) leaves the struck text,
+    // so the caret advances to span END; only when there is no valid context does
+    // it become a direct delete with the caret at span start.
+    const suggesting = isSuggestingInBlock(
+      editor.state,
+      spanStart(editor.state, selection).blockId,
+      config,
+    );
+    const collapseTo = suggesting ? spanEnd(editor.state, selection) : start;
+    const newCursor = createPosition(collapseTo.blockId, collapseTo.offset);
     const newSelection = createSpan(newCursor, newCursor);
     editor.history.commit(result, {
       before: selection,
@@ -49,9 +64,24 @@ export function handleDeleteForward(
     if (next.blockId !== pos.blockId) return editor;
     if (next.offset === pos.offset) return editor;
     const span = createSpan(pos, next);
-    const result = deleteRange(editor.state, span);
+    const result = deleteRangeOrSuggest(editor.state, span, config);
     if (result.state === editor.state) return editor;
-    const newCursor = createPosition(pos.blockId, pos.offset);
+    // Forward soft-delete strikes the char in place, so the caret must ADVANCE
+    // past it (to `next`, the span end) — else the next Delete would re-target
+    // the already-struck char (markDeletion coalesces → no-op). A direct delete
+    // removes the char, so the caret stays at `pos` (content shrank).
+    // `suggesting` reflects the ACTUAL outcome — a soft-delete in ANY editing
+    // context (main body OR a footnote/header/footer body) leaves the struck char,
+    // so the caret advances to `next`; only with no valid context is it a direct
+    // delete with the caret at `pos`.
+    const suggesting = isSuggestingInBlock(
+      editor.state,
+      spanStart(editor.state, span).blockId,
+      config,
+    );
+    const newCursor = suggesting
+      ? createPosition(next.blockId, next.offset)
+      : createPosition(pos.blockId, pos.offset);
     const newSelection = createSpan(newCursor, newCursor);
     editor.history.commit(result, {
       before: selection,
@@ -64,6 +94,19 @@ export function handleDeleteForward(
       result.dirtyIds,
     );
   }
+
+  // Delete at the end of a block whose immediately-following sibling is an
+  // atomic-leaf (image / horizontal-line): delete that atomic object as a unit
+  // (Google Docs). moveByCharacter skips atomic blocks (no inlineContent), so
+  // without this the merge path no-ops and the object can't be removed.
+  const atomicDeleted = deleteAdjacentAtomicLeaf(
+    editor,
+    config,
+    currentBlock,
+    "forward",
+    pos,
+  );
+  if (atomicDeleted !== null) return atomicDeleted;
 
   // pos.offset === end of block: cross-block forward delete (merge next into current).
   const nextPos = moveByCharacter(editor.state, pos, "forward");
@@ -120,6 +163,32 @@ export function handleDeleteForward(
     nextBlock.prevSiblingId !== currentBlock.id
   ) {
     return editor;
+  }
+
+  // Suggesting mode: mark the paragraph break AFTER currentBlock (before
+  // nextBlock) for deletion (a suggested JOIN) instead of really merging.
+  // `markBlockJoinSuggestion`'s `secondBlockId` = nextBlock.id → the embed lands
+  // at currentBlock's end (nextBlock's prev sibling = currentBlock). Blocks stay
+  // separate; the caret stays at currentBlock:currentLen (= pos; no merge). One
+  // undoable op.
+  // Gate on the join-target block's context: a paragraph-boundary forward-delete
+  // in ANY editing context (main body OR a footnote/header/footer body) marks a
+  // tracked JOIN; `suggestionInputForBlock` returns null only when not suggesting
+  // or the block resolves to no context, → the DIRECT real-merge path below. A
+  // body IS a container of paragraphs, so para↔para joins are reachable there.
+  const joinInput = suggestionInputForBlock(editor.state, nextBlock.id, config);
+  if (joinInput !== null) {
+    const result = markBlockJoinSuggestion(editor.state, nextBlock.id, joinInput);
+    if (result.state === editor.state) return editor;
+    const newCursor = createPosition(currentBlock.id, currentLen);
+    const newSelection = createSpan(newCursor, newCursor);
+    editor.history.commit(result, { before: selection, after: newSelection });
+    return rebuildTrees(
+      { ...editor, state: result.state, selection: newSelection },
+      editor,
+      config,
+      result.dirtyIds,
+    );
   }
 
   const result = mergeAdjacentBlocks(

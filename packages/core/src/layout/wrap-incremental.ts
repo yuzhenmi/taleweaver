@@ -26,7 +26,8 @@ export type WrapOneLineFn = (
  * Compare two tokens for full content equality.
  * Compares: id, text, width, isSpace, isLineBreak, style (by reference),
  * inlineBlock (by reference), inlineAncestors (shallow array equality),
- * and inlineAncestorStyles (shallow array equality).
+ * inlineAncestorStyles (shallow array equality), softBreaks (shallow array
+ * equality, absent ≡ empty), and breakableBefore (absent ≡ true).
  */
 function tokensEqual(a: Token, b: Token): boolean {
   if (a === b) return true;
@@ -39,8 +40,16 @@ function tokensEqual(a: Token, b: Token): boolean {
   if (a.inlineBlock !== b.inlineBlock) return false;
   if (!arraysShallowEqual(a.inlineAncestors, b.inlineAncestors)) return false;
   if (!arraysShallowEqual(a.inlineAncestorStyles, b.inlineAncestorStyles)) return false;
+  // softBreaks / breakableBefore are pure derivations of the IFC source text, so
+  // including them in the cache key never weakens it — it tracks the
+  // already-implied source change.
+  if (!arraysShallowEqual(a.softBreaks ?? EMPTY_NUM, b.softBreaks ?? EMPTY_NUM)) return false;
+  if ((a.breakableBefore ?? true) !== (b.breakableBefore ?? true)) return false;
   return true;
 }
+
+/** Module-scope empty array to avoid per-call allocation in the softBreaks default. */
+const EMPTY_NUM: readonly number[] = [];
 
 /**
  * Check if two arrays are equal by shallow reference comparison.
@@ -115,6 +124,40 @@ export function findLineByStartToken(
  *
  * @returns the new array of LineBoxes; some entries may be reference-equal to
  *   `prev?.lines` entries.
+ *
+ * NOT YET WIRED into the IFC's main wrap loop (P18 — "Cascade + layout
+ * incremental polish"; gated on P9 generated-content reference-equality). The
+ * IFC today does all-or-nothing reuse via `findChangePoint` (identical tokens →
+ * reuse the whole paragraph; any change → full re-wrap), which already delivers
+ * the dominant win (every UN-edited paragraph is reused every keystroke; the
+ * paragraph cache covers the large majority of the benefit). This function adds
+ * PARTIAL reuse within the single edited paragraph — only material for very long
+ * paragraphs. It is foundation-built-ahead (the convergence algorithm), not a
+ * drop-in: wiring it CORRECTLY requires solving four integration hazards this
+ * module does not yet address (doing it without them would ship a degraded,
+ * incorrect partial-reuse — forbidden by the no-degraded-feature directive):
+ *
+ *   1. Tail vertical-repositioning. Reused tail `LineBox`es are returned BY
+ *      REFERENCE, including their baked-in `y`. An edit that adds or removes a
+ *      head line shifts every tail line vertically; the convergence detector
+ *      matches on token boundaries, not `y`, so the reused tail would keep a
+ *      stale block-offset. A correct wire-in must re-stamp the tail's `y`
+ *      (and any block-offset-derived geometry) after a head line-count change.
+ *   2. Float-environment gate. Convergence checks only `availableInlineSize`
+ *      equality, not the float intrusion profile at the tail's NEW block offset
+ *      (`effectiveLineDims` varies the line box by vertical position). A reused
+ *      tail line could carry the wrong width under floats. The virtualized-
+ *      layout design already makes float/`clear` docs fall back to the legacy
+ *      full path for the same reason.
+ *   3. Bidi-context gate. The IFC's reorder pass runs per line but depends on
+ *      paragraph-level base direction / bidi runs; partial reuse must confirm
+ *      the surrounding bidi context is unchanged before reusing a line.
+ *   4. Fragmentation interaction. The IFC bypasses the wrap cache entirely when
+ *      fragmentation is active (a cached box holds ALL lines, not a partial
+ *      fragment); partial reuse must respect `IFCBreakToken` boundaries.
+ *
+ * Additionally, hyphenated splitting complicates the contiguous-token-range
+ * invariant the convergence detector relies on.
  */
 export function rewrapIncremental(
   prev: IFCState | null,

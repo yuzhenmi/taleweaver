@@ -1,5 +1,7 @@
 import type { ContainerComponentDefinition } from "./component-definition";
+import type { Style } from "../styles";
 import { createElementBox } from "../render/render-node";
+import { writingModeFromAttrs } from "./leaf-style-attrs";
 
 /**
  * Document: the root container block. Holds child blocks (paragraphs,
@@ -24,14 +26,33 @@ import { createElementBox } from "../render/render-node";
  * root cascades to all body text; the global CSS *initial* value stays
  * `normal`. Per-component overrides (e.g. a future code block that wants `pre`)
  * set their own `whiteSpace`.
+ *
+ * An authored `writingMode` attr on the document root is forwarded onto the
+ * ElementBox `style` (component-set convention, see `leaf-style-attrs.ts`).
+ * `writingMode` is an inherited property (`property-meta.ts`), so a document-
+ * level `vertical-rl`/`vertical-lr` cascades to every body block AND sets the
+ * page frame's writing mode (the paginator reads the cascaded root's
+ * `writingMode` into the root layout context). Per-block overrides set their
+ * own `writingMode` on the leaf.
  */
 export const documentComponent: ContainerComponentDefinition = {
   type: "document",
   kind: "container",
-  render: (view, _ctx, childRenderNodes) =>
-    createElementBox(
+  render: (view, _ctx, childRenderNodes) => {
+    const writingMode = writingModeFromAttrs(view.attrs.writingMode);
+    const style: Style = {
+      display: "block",
+      whiteSpace: "break-spaces",
+      // Google-Docs body default: a long unbreakable string (URL, hash, "aaaa…")
+      // breaks to fit the page rather than running off it. Mirrors the
+      // `whiteSpace: "break-spaces"` decision — principle 7 (Google Docs) over the
+      // CSS `overflow-wrap: normal` initial. See overflow-wrap design spec.
+      overflowWrap: "break-word",
+      ...(writingMode !== undefined ? { writingMode } : {}),
+    };
+    return createElementBox(
       view.id,
-      { display: "block", whiteSpace: "break-spaces" },
+      style,
       childRenderNodes,
       // The implicit-section default header/footer body ids (C.2c). A
       // section-less document (or the leading section-less run) takes its
@@ -43,6 +64,16 @@ export const documentComponent: ContainerComponentDefinition = {
       {
         headerBlockId: view.attrs.headerBlockId,
         footerBlockId: view.attrs.footerBlockId,
+        // Whole-doc multi-column default (Format ▸ Columns applied with no
+        // section break). `buildSectionPlan` reads these off `cascadedRoot.metadata`
+        // (the doc-root box IS the cascaded root) via `resolveColumnConfig` into
+        // `effectiveDefaultColumns`, mirroring how the per-section component stamps
+        // its own overrides and how `headerBlockId`/`footerBlockId` flow doc-wide.
+        // Stamped RAW (no AttrRegistry interpreter); the plan validates them.
+        columnCount: view.attrs.columnCount,
+        columnGap: view.attrs.columnGap,
+        columnRule: view.attrs.columnRule,
       },
-    ),
+    );
+  },
 };

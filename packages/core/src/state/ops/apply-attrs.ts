@@ -5,11 +5,12 @@ import type { BlockId } from "../block-id";
 import type { Span } from "../block-position";
 import type { ReadonlyAttrs } from "../attrs";
 import { mergeAttrs, attrsEqual } from "../attrs";
-import { iterateSpan } from "../span-iteration";
-import { getYBlock } from "../yjs-doc";
+import { iterateSpan, type BlockRange } from "../span-iteration";
+import { getYBlock, requireInTransaction } from "../yjs-doc";
 import { buildYAttrs, buildYInlineItem } from "../y-block";
-import { yMapAsObject, mergeAdjacentSameAttrsTextItems } from "../y-utils";
-import { STATE_INTERNAL } from "../state-internal";
+import { yMapAsObject, mergeAdjacentSameAttrsTextItems, yItemLength } from "../y-utils";
+import { isStructuralMarkerEmbedType } from "../embed-markers";
+import type { ResolvedBlockKind } from "../state";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
 import type { AttrRegistry } from "../../cascade/attr-registry";
 
@@ -19,9 +20,14 @@ import type { AttrRegistry } from "../../cascade/attr-registry";
  * `attrs` is MERGED into each affected item's existing attrs. To remove
  * an attr, pass it with value `undefined` (e.g., `{ bold: undefined }`).
  *
- * For embed items intersecting the range, the merge applies to the embed's
- * `attrs` field (wrap attrs like link/comment-range — NOT `properties`,
- * which holds intrinsic embed data).
+ * For VISIBLE embed items intersecting the range (footnote-anchor,
+ * cross-reference, page-field, tab), the merge applies to the embed's `attrs`
+ * field (NOT `properties`, which holds intrinsic embed data) — so a field
+ * inherits surrounding run formatting like Google Docs/Word. Zero-width
+ * STRUCTURAL MARKER embeds (comment/suggestion markers — see
+ * {@link isStructuralMarkerEmbedType}) are SKIPPED: they carry no formattable
+ * content, and stamping a tracked-change provenance attr onto one would leave a
+ * dangling reference after the suggestion resolves (#465).
  *
  * Returns OperationResult with dirtyIds = every block id whose items
  * changed.
@@ -56,6 +62,13 @@ import type { AttrRegistry } from "../../cascade/attr-registry";
  * custom per-key `equals` (e.g. a `comment` interpreter that ignores
  * `timestamp`) opt into custom adjacent-item compare semantics during
  * the post-apply merge pass. Omitted → deep-value compare.
+ *
+ * Composition: see `applyAttrsToRangeInTx` for the in-transaction primitive
+ * (resolved via `planApplyAttrsToRange`) used to compose attr application
+ * with other span/structural ops in a single Y.Doc transaction (one undo
+ * entry / one collab event). Note its narrower composition scope: the
+ * applier reads live Y items, so it is correct only when prior in-tx ops do
+ * NOT shift this span's offsets.
  */
 export function applyAttrsToRange(
   state: State,
@@ -80,43 +93,102 @@ export function applyAttrsToRange(
     return { state, dirtyIds: new Set<BlockId>() };
   }
 
-  // iterateSpan owns precondition validation (existence, leaf-block,
-  // same-selection-context) AND normalization. We resolve the segments
-  // up-front (outside the transaction) so its precondition errors throw
-  // with their original messages, before any Y.Doc mutation happens.
-  const segments = Array.from(iterateSpan(state, span));
+  // Resolve the segments + owning tree BEFORE opening the transaction; the
+  // public op then composes plan → applyOperation(InTx). iterateSpan's
+  // precondition errors throw here (pre-tx) with their original messages.
+  const plan = planApplyAttrsToRange(state, span);
+  if (plan === null) {
+    return { state, dirtyIds: new Set<BlockId>() };
+  }
 
-  // C.2c T7b: resolve the OWNING tree so a span inside a header/footer body
-  // (templateContents) mutates the right Y.Map. A span is confined to a single
-  // selection context (cross-context spans are refused by iterateSpan), so all
-  // segments share one kind — resolve it ONCE, here, from the first segment.
-  // Resolving BEFORE opening the transaction keeps the applier read-free,
-  // matching the plan/apply pattern the rest of Layer 3 uses (deleteRange,
-  // reparentChildren). `?? "block"` is a defensive fallback (segments were just
-  // yielded by iterateSpan, so resolveBlock cannot return null in correct code)
-  // that keeps the main-tree default.
-  const kind =
-    segments.length > 0
-      ? resolveBlock(state, segments[0].block.id)?.kind ?? "block"
-      : "block";
-
-  return applyOperation(state, () => {
-    for (const seg of segments) {
-      if (seg.rangeStart >= seg.rangeEnd) continue; // zero-width range in this block
-      const yBlock = getYBlock(state[STATE_INTERNAL].doc, seg.block.id, "applyAttrsToRange", kind);
-      const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
-      if (yItems === null) continue; // defensive — iterateSpan only yields leaves
-      applyAttrsToBlockRange(yItems, seg.rangeStart, seg.rangeEnd, attrs, registry);
-      mergeAdjacentSameAttrsTextItems(yItems, registry);
-    }
+  return applyOperation(state, (doc) => {
+    applyAttrsToRangeInTx(doc, plan, attrs, registry);
   });
+}
+
+/**
+ * Pre-computed plan for `applyAttrsToRangeInTx`. `segments` is the list of
+ * per-leaf-block ranges yielded by `iterateSpan` (resolved against the
+ * pre-mutation snapshot); `kind` is the span's single owning tree.
+ */
+export interface ApplyAttrsToRangePlan {
+  readonly segments: readonly BlockRange[];
+  readonly kind: ResolvedBlockKind;
+}
+
+/**
+ * Validate `span` against `state` and produce an `ApplyAttrsToRangePlan`.
+ *
+ * All validation + snapshot reads happen here, BEFORE the surrounding
+ * `applyOperation` is opened. `iterateSpan` owns precondition validation
+ * (existence, leaf-block, same-selection-context) AND normalization, so its
+ * precondition errors throw pre-tx with their original messages.
+ *
+ * Returns `null` when there is nothing to do (empty segment list — e.g. an
+ * all-zero-width span). The two public-op no-ops (empty attrs; collapsed
+ * span) are handled by the caller BEFORE planning, to preserve the
+ * identity contract; they are not re-checked here.
+ *
+ * C.2c T7b: a span is confined to a single selection context (cross-context
+ * spans are refused by `iterateSpan`), so all segments share one owning tree
+ * — resolved ONCE from the first segment. `?? "block"` is a defensive
+ * fallback (segments were just yielded by `iterateSpan`, so `resolveBlock`
+ * cannot return null in correct code) that keeps the main-tree default.
+ */
+export function planApplyAttrsToRange(
+  state: State,
+  span: Span,
+): ApplyAttrsToRangePlan | null {
+  const segments = Array.from(iterateSpan(state, span));
+  if (segments.length === 0) {
+    return null;
+  }
+  const kind = resolveBlock(state, segments[0].block.id)?.kind ?? "block";
+  return { segments, kind };
+}
+
+/**
+ * Pure Y.Doc-mutation primitive: applies a pre-computed
+ * `ApplyAttrsToRangePlan` to `doc`. Caller is responsible for all
+ * validation (via `planApplyAttrsToRange`) and for opening the surrounding
+ * `applyOperation` / `runTransaction` (this MUST run inside an already-open
+ * transaction; it does NOT open one itself).
+ *
+ * Unlike the read-free structural-write primitives (e.g. `insertBlockInTx`),
+ * this applier READS live Y items by necessity: it walks the live Y.Array to
+ * locate item boundaries and split partially-covered text, performing in-place
+ * identity-preserving attr writes (`yItem.set("attrs", …)`) so a fully-covered
+ * item keeps its Y.Text — and therefore its per-character CRDT — identity.
+ *
+ * Composition scope: correct for the standalone op AND for composition with
+ * prior in-tx ops that do NOT shift this span's offsets. Composing it
+ * atomically AFTER an offset-changing op (delete/insert) requires re-resolving
+ * the span against the mid-transaction live Y state — out of scope for this
+ * primitive; that re-resolution lands with the consuming feature.
+ */
+export function applyAttrsToRangeInTx(
+  doc: Y.Doc,
+  plan: ApplyAttrsToRangePlan,
+  attrs: ReadonlyAttrs,
+  registry: AttrRegistry | undefined,
+): void {
+  requireInTransaction(doc, "applyAttrsToRange");
+  for (const seg of plan.segments) {
+    if (seg.rangeStart >= seg.rangeEnd) continue; // zero-width range in this block
+    const yBlock = getYBlock(doc, seg.block.id, "applyAttrsToRange", plan.kind);
+    const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
+    if (yItems === null) continue; // defensive — iterateSpan only yields leaves
+    applyAttrsToBlockRange(yItems, seg.rangeStart, seg.rangeEnd, attrs, registry);
+    mergeAdjacentSameAttrsTextItems(yItems, registry);
+  }
 }
 
 /**
  * Walk one block's Y items and apply attrs to the portion overlapping
  * [start, end). Mutates `yItems` in place:
  *   - Items entirely outside the range are skipped.
- *   - Embed items in range have their attrs Y.Map replaced.
+ *   - VISIBLE embed items in range have their attrs Y.Map replaced; zero-width
+ *     STRUCTURAL MARKER embeds are skipped entirely (#465).
  *   - Text items fully covered have their attrs Y.Map replaced (preserves
  *     Y.Text identity).
  *   - Text items partially covered are split into up to three replacement
@@ -138,7 +210,7 @@ function applyAttrsToBlockRange(
   while (i < yItems.length) {
     const yItem = yItems.get(i);
     const kind = yItem.get("kind") as "text" | "embed";
-    const itemLen = kind === "text" ? (yItem.get("text") as Y.Text).length : 1;
+    const itemLen = yItemLength(yItem);
     const itemEnd = cursor + itemLen;
 
     // Item entirely before the range — advance.
@@ -154,7 +226,22 @@ function applyAttrsToBlockRange(
     const merged = mergeAttrs(existingAttrs, newAttrs);
 
     if (kind === "embed") {
-      // Embed is one cursor position; in-range → update attrs in place.
+      // Zero-width STRUCTURAL MARKER embeds (comment-start/end, block-join/
+      // split-suggestion) carry NO formattable content — their meaning lives in
+      // `properties`, not text-format `attrs`. Never stamp inline-format attrs
+      // onto them (#465): a `bold`/`color` is meaningless, and a tracked-change
+      // provenance attr (formattingSuggestionId, via markFormatting) would
+      // dangle after the suggestion record is deleted on resolve. Skip the write
+      // but still advance past the marker's one cursor position. VISIBLE field
+      // embeds (footnote-anchor, cross-reference, page-field, tab) fall through
+      // and DO inherit run formatting, like Google Docs/Word fields.
+      const embedType = yItem.get("embedType") as string;
+      if (isStructuralMarkerEmbedType(embedType)) {
+        cursor = itemEnd;
+        i++;
+        continue;
+      }
+      // Visible embed is one cursor position; in-range → update attrs in place.
       // No-op guard (#358): when `merged` equals the existing attrs (e.g.,
       // toggleBold over an already-bold range), the Y.Map write would still
       // fire a Yjs change event and dirty this block — cascading into

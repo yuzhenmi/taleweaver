@@ -1,13 +1,20 @@
+import type * as Y from "yjs";
 import type { State, OperationResult } from "../state";
 import { applyOperation, getBlock } from "../state";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { Position } from "../block-position";
-import { getBlocksMap, getYBlock, allTreeBlockCount } from "../yjs-doc";
+import {
+  getBlocksMap,
+  getYBlock,
+  requireInTransaction,
+  allTreeBlockCount,
+} from "../yjs-doc";
 import { buildYBlock } from "../y-block";
 import {
   computeReparentWrites,
   reparentChildrenInTx,
   type ReparentPlan,
+  type BlockFieldWrite,
 } from "./reparent-children";
 import { ancestorChain, firstLeafBlock } from "../block-traversal";
 import { STATE_INTERNAL } from "../state-internal";
@@ -19,6 +26,44 @@ import { STATE_INTERNAL } from "../state-internal";
  */
 export interface SectionBreakResult extends OperationResult {
   readonly newCursorBlockId: BlockId;
+}
+
+/**
+ * Pre-computed, fully-resolved mutation plan for `applySectionBreakInTx`.
+ * Built (with all validation + snapshot reads + id allocation) by
+ * `buildSectionBreakPlan` BEFORE any transaction opens, so the applier reads
+ * nothing from `state` or the live Y.Doc.
+ *
+ * Both kinds share the SAME three applier ingredients, so a single applier
+ * handles them without branching:
+ *   - `sectionIds` — the fresh `section` Y.Maps to create (parented at
+ *     `rootId`, attrs `{}`, all chain pointers null — the explicit pointer
+ *     writes below set the real links). Implicit: `[A, B]`. Explicit: `[S']`.
+ *   - `reparentPlans` — `ReparentPlan`s (resolved against the pre-mutation
+ *     snapshot via `computeReparentWrites`) moving block runs into the fresh
+ *     sections. Implicit: `before→A`, `atAfter→B`. Explicit: `atAfter→S'`
+ *     (the leading run stays in the source section — the reparent's
+ *     source-parent detach already cuts the source's tail).
+ *   - `pointerWrites` — the sibling/parent relink writes that thread the new
+ *     section(s) into the doc-root chain (root first/last pointers + the
+ *     section sibling links). Reuses `reparent-children`'s `BlockFieldWrite`
+ *     shape so the applier loops one write-list type.
+ *
+ * `kind` is carried for callers/tests that assert which case fired; the
+ * applier does not branch on it. `boundary` is the boundary block id — its
+ * id + subtree are unchanged by the break (only its parent moves), so the
+ * public op resolves the post-op cursor from it.
+ *
+ * TREE SCOPE: operates on the MAIN `blocks` tree only — sections are flat
+ * doc-root children (Decision 6). The plan carries no `kind`-tree field.
+ */
+export interface SectionBreakPlan {
+  readonly kind: "implicit" | "explicit";
+  readonly boundary: BlockId;
+  readonly rootId: BlockId;
+  readonly sectionIds: readonly BlockId[];
+  readonly reparentPlans: readonly ReparentPlan[];
+  readonly pointerWrites: readonly BlockFieldWrite[];
 }
 
 /**
@@ -42,17 +87,66 @@ export interface SectionBreakResult extends OperationResult {
  * breaking would create an empty leading section. `applySectionBreak` returns
  * the input `state` reference UNCHANGED (T7 identity), with empty `dirtyIds`
  * and `newCursorBlockId === cursor.blockId`. This is the ONLY no-op path; every
- * other valid break mutates.
+ * other valid break mutates. `buildSectionBreakPlan` returns `null` for it.
  *
  * Atomicity: all section creation + body reparenting + section-chain relink
  * happen inside a single `applyOperation` (one transaction, one `dirtyIds`
- * set), mirroring `replaceRange`.
+ * set), mirroring `replaceRange`. Validation + id allocation happen in
+ * `buildSectionBreakPlan` (pre-transaction); `applySectionBreakInTx` is the
+ * single pure applier.
  */
 export function applySectionBreak(
   state: State,
   cursor: Position,
   allocator: IdAllocator,
 ): SectionBreakResult {
+  const plan = buildSectionBreakPlan(state, cursor, allocator);
+
+  // No-op (Decision 5): boundary is the container's first child. Return the
+  // SAME state ref WITHOUT opening a transaction (T7 identity).
+  if (plan === null) {
+    return {
+      state,
+      dirtyIds: new Set<BlockId>(),
+      newCursorBlockId: cursor.blockId,
+    };
+  }
+
+  const result = applyOperation(state, (doc) => {
+    applySectionBreakInTx(doc, plan);
+  });
+
+  // The boundary block keeps its id + subtree (only its parent moved), so
+  // `firstLeafBlock` resolves; `?? boundary` is a defensive fallback for an
+  // empty subtree.
+  const newCursorBlockId =
+    firstLeafBlock(result.state, plan.boundary) ?? plan.boundary;
+  return {
+    state: result.state,
+    dirtyIds: result.dirtyIds,
+    newCursorBlockId,
+  };
+}
+
+/**
+ * Validate `cursor` against the pre-mutation `state` snapshot and produce a
+ * fully-resolved `SectionBreakPlan` (all reads + id allocation done here,
+ * before any transaction). Returns `null` for the Decision-5 no-op (boundary
+ * is the container's first child → the public op maps that to the T7 identity
+ * return without opening a transaction, mirroring `planInsertBlocksAfter`).
+ *
+ * Throws if the cursor block is not under the document root, or if a captured
+ * pointer is corrupt (the same error contract the inline op had).
+ *
+ * Allocates the fresh section id(s) via `allocator` (once each, outside any
+ * tx) so the allocator is bumped exactly once even if the transaction body
+ * re-runs.
+ */
+export function buildSectionBreakPlan(
+  state: State,
+  cursor: Position,
+  allocator: IdAllocator,
+): SectionBreakPlan | null {
   // --- Step A: resolve container + boundary (pre-tx, one pass) ---
   const chain = ancestorChain(state, cursor.blockId);
   if (!chain.includes(state.rootId)) {
@@ -93,11 +187,7 @@ export function applySectionBreak(
   }
   if (container.firstChildId === boundary) {
     // Break at the container's first child → empty leading section; no-op.
-    return {
-      state,
-      dirtyIds: new Set<BlockId>(),
-      newCursorBlockId: cursor.blockId,
-    };
+    return null;
   }
 
   // --- Step C: collect the run + capture pre-tx pointers ---
@@ -159,17 +249,7 @@ export function applySectionBreak(
   // last `before` element); used as `movedPrevSiblingId` for the `atAfter` run.
   const beforeBoundarySibling = beforeLast;
 
-  // Explicit case: capture S's pre-tx nextSibling now (needed to relink S').
-  let sOldNext: BlockId | null = null;
-  if (S !== null) {
-    const sBlock = getBlock(state, S);
-    if (sBlock === null) {
-      throw new Error(`applySectionBreak: enclosing section "${S}" not found`);
-    }
-    sOldNext = sBlock.nextSiblingId;
-  }
-
-  // --- Step D: mutate (one applyOperation) ---
+  // --- Step D: build the discriminated plan (no mutation) ---
   if (!isExplicit) {
     // Implicit: create A and B; move `before → A`, `atAfter → B`.
     const aId = allocator.allocate();
@@ -206,34 +286,37 @@ export function applySectionBreak(
       }),
     };
 
-    const result = applyOperation(state, () => {
-      const doc = state[STATE_INTERNAL].doc;
-      const yBlocks = getBlocksMap(doc);
-      // C.2: copy source-section attrs here (none in C.1b — implicit root has no section).
-      yBlocks.set(aId, buildSectionYBlock(state.rootId));
-      yBlocks.set(bId, buildSectionYBlock(state.rootId));
+    // Section sibling chain + root pointers, as resolved writes.
+    const pointerWrites: BlockFieldWrite[] = [
+      { blockId: state.rootId, field: "firstChildId", value: aId },
+      { blockId: state.rootId, field: "lastChildId", value: bId },
+      { blockId: aId, field: "prevSiblingId", value: null },
+      { blockId: aId, field: "nextSiblingId", value: bId },
+      { blockId: bId, field: "prevSiblingId", value: aId },
+      { blockId: bId, field: "nextSiblingId", value: null },
+    ];
 
-      reparentChildrenInTx(doc, beforePlan);
-      reparentChildrenInTx(doc, atAfterPlan);
-
-      // Section sibling chain + root pointers.
-      const yRoot = getYBlock(doc, state.rootId, "applySectionBreak");
-      yRoot.set("firstChildId", aId);
-      yRoot.set("lastChildId", bId);
-      const yA = getYBlock(doc, aId, "applySectionBreak");
-      yA.set("prevSiblingId", null);
-      yA.set("nextSiblingId", bId);
-      const yB = getYBlock(doc, bId, "applySectionBreak");
-      yB.set("prevSiblingId", aId);
-      yB.set("nextSiblingId", null);
-    });
-
-    return finalize(result, boundary);
+    return {
+      kind: "implicit",
+      boundary,
+      rootId: state.rootId,
+      sectionIds: [aId, bId],
+      reparentPlans: [beforePlan, atAfterPlan],
+      pointerWrites,
+    };
   }
 
   // Explicit: create S'; `before` stays in S; move `atAfter → S'`; thread S'
   // as a flat doc-root sibling immediately after S.
   const sPrimeId = allocator.allocate();
+
+  // Capture S's pre-tx nextSibling now (needed to relink S').
+  const sBlock = getBlock(state, containerId);
+  if (sBlock === null) {
+    throw new Error(`applySectionBreak: enclosing section "${containerId}" not found`);
+  }
+  const sOldNext = sBlock.nextSiblingId;
+
   const atAfterPlan: ReparentPlan = {
     writes: computeReparentWrites({
       moved: atAfter,
@@ -249,36 +332,65 @@ export function applySectionBreak(
     }),
   };
 
-  const result = applyOperation(state, () => {
-    const doc = state[STATE_INTERNAL].doc;
-    const yBlocks = getBlocksMap(doc);
-    // C.2: copy source-section (S) attrs here (none in C.1b).
-    yBlocks.set(sPrimeId, buildSectionYBlock(state.rootId));
+  // `before` stays in S. Cutting S's tail to before[last] is ALREADY done by
+  // atAfterPlan: computeReparentWrites's source-parent detach sets
+  // S.lastChildId = movedPrevSiblingId (= beforeLast) and
+  // beforeLast.nextSiblingId = movedNextSiblingId (= null). No explicit cut
+  // needed here.
+  //
+  // Thread S' immediately after S in the doc-root sibling chain.
+  const pointerWrites: BlockFieldWrite[] = [
+    { blockId: sPrimeId, field: "prevSiblingId", value: containerId },
+    { blockId: sPrimeId, field: "nextSiblingId", value: sOldNext },
+    { blockId: containerId, field: "nextSiblingId", value: sPrimeId },
+  ];
+  if (sOldNext !== null) {
+    pointerWrites.push({ blockId: sOldNext, field: "prevSiblingId", value: sPrimeId });
+  } else {
+    pointerWrites.push({ blockId: state.rootId, field: "lastChildId", value: sPrimeId });
+  }
 
-    reparentChildrenInTx(doc, atAfterPlan);
+  return {
+    kind: "explicit",
+    boundary,
+    rootId: state.rootId,
+    sectionIds: [sPrimeId],
+    reparentPlans: [atAfterPlan],
+    pointerWrites,
+  };
+}
 
-    // `before` stays in S. Cutting S's tail to before[last] is ALREADY done by
-    // atAfterPlan: computeReparentWrites's source-parent detach sets
-    // S.lastChildId = movedPrevSiblingId (= beforeLast) and
-    // beforeLast.nextSiblingId = movedNextSiblingId (= null). No explicit cut
-    // needed here (a manual rewrite would only fire redundant change events).
+/**
+ * Pure Y.Doc-mutation primitive: applies a pre-computed `SectionBreakPlan`
+ * to `doc`. Caller is responsible for all validation and for opening the
+ * surrounding `applyOperation` / `runTransaction` (this function MUST run
+ * inside an already-open transaction; it does NOT open one itself).
+ *
+ * Handles BOTH plan kinds with ONE branch-free body: create the fresh
+ * section(s), apply every reparent plan, then apply every section-chain
+ * pointer write. The implicit/explicit difference is fully encoded in the
+ * plan's `sectionIds` / `reparentPlans` / `pointerWrites` data.
+ *
+ * Used by `applySectionBreak` (the thin public wrapper that validates + plans
+ * + wraps in `applyOperation`).
+ */
+export function applySectionBreakInTx(doc: Y.Doc, plan: SectionBreakPlan): void {
+  requireInTransaction(doc, "applySectionBreak");
 
-    // Thread S' immediately after S in the doc-root sibling chain.
-    const yS = getYBlock(doc, containerId, "applySectionBreak");
-    const ySPrime = getYBlock(doc, sPrimeId, "applySectionBreak");
-    ySPrime.set("prevSiblingId", containerId);
-    ySPrime.set("nextSiblingId", sOldNext);
-    yS.set("nextSiblingId", sPrimeId);
-    if (sOldNext !== null) {
-      const ySOldNext = getYBlock(doc, sOldNext, "applySectionBreak");
-      ySOldNext.set("prevSiblingId", sPrimeId);
-    } else {
-      const yRoot = getYBlock(doc, state.rootId, "applySectionBreak");
-      yRoot.set("lastChildId", sPrimeId);
-    }
-  });
+  const yBlocks = getBlocksMap(doc);
+  // C.2: a section's `attrs` are always `{}` in C.1b (Decision 2). No source-
+  // section attrs are copied (implicit root has none; explicit S carries none).
+  for (const sectionId of plan.sectionIds) {
+    yBlocks.set(sectionId, buildSectionYBlock(plan.rootId));
+  }
 
-  return finalize(result, boundary);
+  for (const reparentPlan of plan.reparentPlans) {
+    reparentChildrenInTx(doc, reparentPlan);
+  }
+
+  for (const w of plan.pointerWrites) {
+    getYBlock(doc, w.blockId, "applySectionBreak").set(w.field, w.value);
+  }
 }
 
 /**
@@ -297,27 +409,4 @@ function buildSectionYBlock(rootId: BlockId) {
     lastChildId: null,
     inlineContent: null,
   });
-}
-
-/**
- * Step F: resolve the cursor target on the post-op state. The boundary block
- * keeps its id + subtree (only its parent moved), so `firstLeafBlock` resolves;
- * `?? boundary` is a defensive fallback for an empty subtree.
- *
- * (Decision 6's "sections never nest" invariant needs no runtime assert here:
- * it is structural — `buildSectionYBlock` hardcodes `parentId: rootId` for every
- * created section, and Step A only ever selects an enclosing section whose
- * `parentId === rootId`. There is no code path that could nest a section, so a
- * dev-assert would be unreachable dead code.)
- */
-function finalize(
-  result: OperationResult,
-  boundary: BlockId,
-): SectionBreakResult {
-  const newCursorBlockId = firstLeafBlock(result.state, boundary) ?? boundary;
-  return {
-    state: result.state,
-    dirtyIds: result.dirtyIds,
-    newCursorBlockId,
-  };
 }

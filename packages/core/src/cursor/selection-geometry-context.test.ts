@@ -35,7 +35,7 @@ import {
   __resetGetPageDriverCountForTest,
   type VirtualLayoutTree,
 } from "../layout/virtual-layout-tree";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import { layoutTree as dispatchLayout } from "../layout/dispatch";
 import type { ElementBox, RenderNode } from "../render/render-node";
 import type { TextShaper } from "../layout/text-shaper";
@@ -155,7 +155,7 @@ function buildDoc(opts: {
   const cfg = pageConfig();
   const shaper = createMockShaper(SHAPER_CHAR_W, SHAPER_LINE_H);
   const pcis = cfg.pageInlineSize - cfg.pageMargins.inlineStart - cfg.pageMargins.inlineEnd;
-  const metas = buildBlockFitMetas(cascadedRoot, shaper, pcis);
+  const metas = buildBlockFitMetas(cascadedRoot, shaper, undefined, pcis);
   const basePlan = measurePass(metas, cfg, IMPLICIT_SECTION_PLAN, cascadedRoot.children);
   // Tag EVERY page entry with the header/footer ids so the slot is materialized
   // on each page (the multi-page case is where a body span would otherwise bleed
@@ -170,7 +170,7 @@ function buildDoc(opts: {
   const virtual = makeVirtualLayoutTree(
     plan, cascadedRoot, ctx, shaper, cfg, undefined, cascadedTemplateContents,
   );
-  const positioned = resolvePositionedTree(virtual);
+  const positioned = positionTreeForTest(virtual);
   return { state, virtual, positioned, shaper };
 }
 
@@ -210,6 +210,7 @@ function planWithEntries(
     pageIndexOfBlock: base.pageIndexOfBlock.bind(base),
     pageSpanOfBlock: base.pageSpanOfBlock.bind(base),
     pageIndexOfTemplateBlock: (blockId) => templateBlockToPage.get(blockId) ?? -1,
+    pageIndexOfFootnoteBlock: () => -1,
   };
 }
 
@@ -327,7 +328,7 @@ describe("selection-geometry — main-only doc unchanged (no context filter effe
     const root = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
     const shaper = createMockShaper(SHAPER_CHAR_W, SHAPER_LINE_H);
     // Non-paginated main-only layout (mirrors selection-geometry.test.ts pipeline).
-    const layout = resolvePositionedTree(dispatchLayout(root, 800, shaper));
+    const layout = positionTreeForTest(dispatchLayout(root, 800, shaper));
     const span = createSpan(createPosition("p" as BlockId, 1), createPosition("p" as BlockId, 4));
     const rects = computeSelectionRects(state, span, layout, shaper);
     expect(rects.length).toBe(1);

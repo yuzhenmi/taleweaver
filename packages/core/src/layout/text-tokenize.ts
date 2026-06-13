@@ -4,6 +4,20 @@ import type { WhiteSpace } from "../styles";
 export const LINE_BREAK = " ";
 
 /**
+ * UAX #14 MANDATORY line-break characters (LB4 + LB5). The set is a superset
+ * of `\n` (LF): it also forces a break at VERTICAL TABULATION (U+000B), FORM
+ * FEED (U+000C), CARRIAGE RETURN (U+000D), NEXT LINE (U+0085), LINE SEPARATOR
+ * (U+2028), and PARAGRAPH SEPARATOR (U+2029). A CRLF pair (U+000D U+000A) is a
+ * single break per LB5; the alternation matches `\r\n` first so it collapses
+ * to one break rather than two. The `pre`/`pre-wrap`/`pre-line` branches split
+ * on this set (each match becomes one LINE_BREAK sentinel) instead of bare
+ * `\n`. Used only with `String.prototype.split` (which is stateless and
+ * ignores any flags), so no `g` flag is needed — and omitting it avoids a
+ * stateful-`lastIndex` footgun if this regex is ever reused with `.test()`.
+ */
+const MANDATORY_BREAK_RE = /\r\n|[\n\u000B\u000C\r\u0085\u2028\u2029]/;
+
+/**
  * Split a string into tokens (words and inter-word spaces) according to white-space mode.
  * Plan 1 supports only "normal". Plans 2+ add nowrap, pre, pre-wrap, pre-line,
  * and break-spaces (which reuses the pre-wrap tokenization).
@@ -74,7 +88,7 @@ export function tokenize(text: string, whiteSpace: WhiteSpace): string[] {
     }
     case "pre": {
       // Preserve all whitespace. Split on \n, emit LINE_BREAK between segments.
-      const segments = text.split("\n");
+      const segments = text.split(MANDATORY_BREAK_RE);
       const out: string[] = [];
       for (let i = 0; i < segments.length; i++) {
         out.push(segments[i]);
@@ -103,7 +117,7 @@ export function tokenize(text: string, whiteSpace: WhiteSpace): string[] {
       // does NOT collapse runs of interior whitespace (each char becomes its
       // own " " token, e.g. " a" → [" ","a"] vs normal ["a"]). (Tab/NBSP
       // width fidelity is out of scope for Phase 1.)
-      const segments = text.split("\n");
+      const segments = text.split(MANDATORY_BREAK_RE);
       const out: string[] = [];
       for (let i = 0; i < segments.length; i++) {
         const segment = segments[i];
@@ -127,7 +141,7 @@ export function tokenize(text: string, whiteSpace: WhiteSpace): string[] {
     }
     case "pre-line": {
       // Per-line: collapse whitespace within each line, separate lines by LINE_BREAK.
-      const lines = text.split("\n");
+      const lines = text.split(MANDATORY_BREAK_RE);
       const out: string[] = [];
       for (let li = 0; li < lines.length; li++) {
         const line = lines[li];

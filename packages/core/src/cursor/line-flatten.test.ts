@@ -3,15 +3,17 @@ import { createElementBox, createTextBox } from "../render/render-node";
 import { cascadePass } from "../cascade";
 import { layoutBlock } from "../layout/bfc";
 import { layoutTree } from "../layout/dispatch";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import { computeUsedStyle } from "../layout/used-style";
-import { createLineBox, createTextRunBox } from "../layout/layout-box";
+import { createLineBox, createTextRunBox, createBlockBox, createMultiColumnBox } from "../layout/layout-box";
 import { makeRootContext } from "../layout/layout-context";
 import { createPosition } from "../state";
 import type { BlockId } from "../state";
 import { collectLineBoxes, collectLineLeaves, findLineForPosition, getLineIndex, type AbsoluteLineBox } from "./line-flatten";
+import { resolvePositionFromPixel } from "./hit-test";
+import { buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
 
 const shaper = createMockShaper(8, 16);
 
@@ -26,7 +28,7 @@ describe("collectLineBoxes", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
 
     const out: AbsoluteLineBox[] = [];
@@ -52,7 +54,7 @@ describe("collectLineBoxes", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
 
     const out: AbsoluteLineBox[] = [];
@@ -78,7 +80,7 @@ describe("collectLineBoxes", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 30);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
 
     const out: AbsoluteLineBox[] = [];
@@ -104,7 +106,7 @@ describe("collectLineBoxes", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
 
     const out1: AbsoluteLineBox[] = [];
@@ -119,6 +121,56 @@ describe("collectLineBoxes", () => {
     }
   });
 
+  it("multicolumn: emits lines in column order (col0 then col1)", () => {
+    // Multi-column slice 2 — the VISUAL-ORDER GUARANTEE. Hand-build a
+    // MultiColumnBox nested under a body block. col0 holds two paragraph blocks
+    // (each one line); col1 holds one. A depth-first walk descending `columns`
+    // left-to-right must emit col0's two lines BEFORE col1's one — visual reading
+    // order. Which column each line belongs to is recoverable geometrically (its
+    // absoluteX within the column box's inline range), as asserted below.
+    const mcCs = INITIAL_COMPUTED_STYLE;
+    const mcUs = computeUsedStyle(mcCs, 240, "indefinite");
+    const blockId = "b" as BlockId;
+    // A single-line paragraph block at the given block-offset inside a 240px column.
+    const para = (key: string, blockOffset: number): ReturnType<typeof createBlockBox> => {
+      const run = createTextRunBox(
+        `${key}-run`, 0, 0, 40, 16, "horizontal-tb", "ltr", mcCs, mcUs, "x", 1, 240,
+      );
+      const line = createLineBox(
+        `${key}-line`, 0, 0, 240, 16, "horizontal-tb", "ltr", mcCs, mcUs, [run],
+        16, 240, blockId, 0, 1, true,
+      );
+      return createBlockBox(key, 0, blockOffset, 240, 16, "horizontal-tb", "ltr", mcCs, mcUs, [line], 240);
+    };
+    // col0: two stacked paragraphs; col1: one. Columns sit side by side.
+    const col0 = createBlockBox(
+      "col0", 0, 0, 240, 400, "horizontal-tb", "ltr", mcCs, mcUs,
+      [para("c0p0", 0), para("c0p1", 20)], 500,
+    );
+    const col1 = createBlockBox(
+      "col1", 260, 0, 240, 400, "horizontal-tb", "ltr", mcCs, mcUs,
+      [para("c1p0", 0)], 500,
+    );
+    const mc = createMultiColumnBox(
+      "mc", 0, 0, 500, 400, "horizontal-tb", "ltr", mcCs, mcUs, [col0, col1], null, 500,
+    );
+    const body = createBlockBox("body", 0, 0, 500, 400, "horizontal-tb", "ltr", mcCs, mcUs, [mc], 500);
+
+    const out: AbsoluteLineBox[] = [];
+    collectLineBoxes(body, 0, 0, out);
+
+    // Three lines total, in column order: col0's two, then col1's one.
+    expect(out.map((e) => e.line.key)).toEqual(["c0p0-line", "c0p1-line", "c1p0-line"]);
+    // Column membership is recoverable geometrically: col0's two lines sit at the
+    // col0 track origin (x=0) and col1's line at the col1 track origin (x=260).
+    expect(out[0].absoluteX).toBe(0);
+    expect(out[1].absoluteX).toBe(0);
+    expect(out[2].absoluteX).toBe(260);
+    // col1 sits to the RIGHT of col0 (visual side-by-side), even though it comes
+    // LATER in the flat (reading) order — the visual-order proof's premise.
+    expect(out[2].absoluteX).toBeGreaterThan(out[0].absoluteX);
+  });
+
   it("handles paginated trees: pageIndex propagates to children, coordinates page-relative", () => {
     // Stack of paragraphs that need pagination at a small page height.
     const tree = cascadePass(
@@ -130,7 +182,7 @@ describe("collectLineBoxes", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     // Page large enough for ~1 paragraph (16px) plus margins.
-    const root = resolvePositionedTree(layoutTree(tree, 500, shaper, {
+    const root = positionTreeForTest(layoutTree(tree, 500, shaper, {
       pageInlineSize: 500,
       pageBlockSize: 40,
       pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
@@ -158,7 +210,7 @@ describe("collectLineBoxes", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
 
     const out: AbsoluteLineBox[] = [];
@@ -188,7 +240,7 @@ describe("collectLineBoxes", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
 
     const out: AbsoluteLineBox[] = [];
@@ -207,6 +259,72 @@ describe("collectLineBoxes", () => {
   });
 });
 
+// POSITIONING slice 3 (LOAD-BEARING, design-review C3) — `collectLineBoxes` MUST
+// descend `absoluteChildren`. Abs-pos content is reachable ONLY via that field; if
+// the walk skipped it, lines inside an abs-pos subtree would be ABSENT from
+// `getLineIndex().all` → invisible to hit-test / cursor / selection / line-nav. These
+// tests prove the abs paragraph's line enters the flat index AND that a click inside
+// it resolves to the correct caret offset.
+describe("collectLineBoxes — descends absoluteChildren (slice 3)", () => {
+  // A relative root with one normal paragraph + one abs paragraph (offset down so
+  // its line sits at a known y). `position`/`inset*` are real Style fields (slice 1),
+  // so cascadePass composes them — no attr interpreter needed. The abs paragraph's
+  // text is DIRECT inline content so the IFC stamps `ownerBlockId === "pabs"` (the
+  // source block), matching the State below for the hit-test.
+  function relativeRootWithAbs() {
+    const tree = cascadePass(
+      createElementBox("doc", { display: "block", position: "relative" }, [
+        createElementBox("pnorm", { display: "block" }, [createTextBox("tn", {}, "normal text")]),
+        createElementBox("pabs", { display: "block", position: "absolute", insetInlineStart: 30, insetBlockStart: 100 }, [
+          createTextBox("ta", {}, "absolute text"),
+        ]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
+    if (r.box === null) throw new Error("?");
+    return r.box;
+  }
+
+  it("the abs paragraph's line IS present in getLineIndex().all at its resolved abs coords", () => {
+    const root = relativeRootWithAbs();
+    const all = getLineIndex(root).all;
+    // Both the normal line and the abs line are present (2 lines).
+    const absLine = all.find((al) => al.line.ownerBlockId === "pabs");
+    expect(absLine).toBeDefined();
+    if (absLine === undefined) throw new Error("abs line missing from LineIndex");
+    // The abs line sits at the resolved inset position: inset-inline-start 30 → x≈30,
+    // inset-block-start 100 → y≈100. (Exact x may include the line's own inset; assert
+    // the resolved offset is reflected, proving the absoluteChildren walk carried the
+    // establishing box's origin.)
+    expect(absLine.absoluteX).toBe(30);
+    expect(absLine.absoluteY).toBe(100);
+  });
+
+  it("a click inside the abs paragraph resolves to the correct caret offset (reachability)", () => {
+    const root = relativeRootWithAbs();
+    // State whose `pabs` block carries the same text, so the picked line's
+    // ownerBlockId resolves to a real block and the within-line offset maps to a
+    // Position. (Mirror of the layout: a document root + two paragraphs.)
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "pnorm", lastChildId: "pabs" }),
+        buildBlock({ id: "pnorm", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("normal text")]) }),
+        buildBlock({ id: "pabs", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("absolute text")]) }),
+      ],
+    });
+    // Click ~3 chars into the abs line (each glyph 8px; line baseline at y≈100..116).
+    // x = 30 (line start) + 3*8 + 1 = 55 lands in the 4th char's cell → offset 3.
+    const hit = resolvePositionFromPixel(state, root, shaper, 55, 108);
+    expect(hit).not.toBeNull();
+    if (hit === null) throw new Error("hit-test returned null inside abs paragraph");
+    expect(hit.position.blockId).toBe("pabs" as BlockId);
+    expect(hit.position.offset).toBe(3);
+  });
+});
+
 describe("getLineIndex (L-PERF-D)", () => {
   function buildLayoutTree(): import("../layout/layout-node").LayoutBox {
     const tree = cascadePass(
@@ -217,7 +335,7 @@ describe("getLineIndex (L-PERF-D)", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
     return r.box;
   }
@@ -297,7 +415,7 @@ describe("getLineIndex (L-PERF-D)", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
     const index = getLineIndex(r.box);
     // Every line in every bucket is owned by that bucket's key.
@@ -324,7 +442,7 @@ describe("findLineForPosition", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
     const out: AbsoluteLineBox[] = [];
     collectLineBoxes(r.box, 0, 0, out);
@@ -339,7 +457,7 @@ describe("findLineForPosition", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 30);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
     const out: AbsoluteLineBox[] = [];
     collectLineBoxes(r.box, 0, 0, out);
@@ -396,7 +514,7 @@ describe("findLineForPosition", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 40);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
     const lines: AbsoluteLineBox[] = [];
     collectLineBoxes(r.box, 0, 0, lines);
@@ -428,13 +546,13 @@ describe("collectLineLeaves — offsetContribution = state span (collapsed white
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 800);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
     const lines: AbsoluteLineBox[] = [];
     collectLineBoxes(r.box, 0, 0, lines);
     expect(lines.length).toBe(1);
 
-    const leaves = collectLineLeaves(lines[0].line, lines[0].absoluteX);
+    const leaves = collectLineLeaves(lines[0].line, lines[0].absoluteX, lines[0].absoluteY);
     const textLeaves = leaves.filter(l => l.kind === "text-run");
     // The "idoajs " run: rendered text length 7, offsetContribution 8.
     const idoajs = textLeaves.find(l => l.kind === "text-run" && l.box.text === "idoajs ");
@@ -489,7 +607,7 @@ describe("collectLineLeaves — no double-count of the line's own x (alignment o
     ]);
     expect(line.x).toBe(50); // physical x === alignment offset
 
-    const leaves = collectLineLeaves(line, 50);
+    const leaves = collectLineLeaves(line, 50, 0);
     expect(leaves).toHaveLength(2);
     // First child: lineAbsX + relX = 50 + 0 = 50. BUG returned 100 (50 + 50 + 0).
     expect(leaves[0].absoluteX).toBe(50);
@@ -506,7 +624,7 @@ describe("collectLineLeaves — no double-count of the line's own x (alignment o
     ]);
     expect(line.x).toBe(0);
 
-    const leaves = collectLineLeaves(line, 0);
+    const leaves = collectLineLeaves(line, 0, 0);
     expect(leaves).toHaveLength(2);
     expect(leaves[0].absoluteX).toBe(0);
     expect(leaves[1].absoluteX).toBe(40);
@@ -524,7 +642,7 @@ describe("collectLineLeaves — no double-count of the line's own x (alignment o
     expect(line.x).toBe(30);
 
     const lineAbsX = 130; // block at doc x 100, line.x 30
-    const leaves = collectLineLeaves(line, lineAbsX);
+    const leaves = collectLineLeaves(line, lineAbsX, 0);
     expect(leaves[0].absoluteX).toBe(130);
     expect(leaves[1].absoluteX).toBe(170);
   });

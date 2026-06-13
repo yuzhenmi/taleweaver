@@ -1,13 +1,25 @@
 import * as Y from "yjs";
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
-import type { BlockId } from "../block-id";
+import { asBlockId, type BlockId } from "../block-id";
 import { getTreeMap, getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
 import { cloneInlineItem, mergeAdjacentSameAttrsTextItems } from "../y-utils";
+import { type EmbedItem } from "../inline-content";
+import { buildYInlineItem } from "../y-block";
 import { assertSameTree } from "../assert-same-tree";
-import { STATE_INTERNAL } from "../state-internal";
+import {
+  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
+  writeSuggestionRecordInTx,
+  type SuggestionMintInput,
+} from "../suggestions";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
 import type { AttrRegistry } from "../../cascade/attr-registry";
+
+// Shared empty dirty-set for identity no-op returns (mirror suggestion-ops.ts's
+// NO_DIRTY): a degenerate `markBlockJoinSuggestion` returns the input `state`
+// reference + this shared empty set so callers can short-circuit on
+// `result.state === state`.
+const NO_DIRTY: ReadonlySet<BlockId> = new Set<BlockId>();
 
 /**
  * Pre-computed mutation plan for `mergeAdjacentBlocksInTx`. Captures the
@@ -88,8 +100,8 @@ export function mergeAdjacentBlocks(
   registry?: AttrRegistry,
 ): OperationResult {
   const plan = planMergeAdjacentBlocks(state, leftId, rightId);
-  return applyOperation(state, () => {
-    mergeAdjacentBlocksInTx(state[STATE_INTERNAL].doc, plan, registry);
+  return applyOperation(state, (doc) => {
+    mergeAdjacentBlocksInTx(doc, plan, registry);
   });
 }
 
@@ -247,4 +259,155 @@ export function mergeAdjacentBlocksInTx(
 
   // Delete right last (after reads of yRight are done) from the owning tree.
   yTree.delete(plan.rightId);
+}
+
+/**
+ * Merge `leftId` with its CURRENT next sibling, reading both blocks' sibling ids
+ * + content LIVE from `doc` inside the open transaction (NOT a pre-tx plan). Use
+ * when chaining multiple merges in one tx where an earlier merge invalidates a
+ * later block's pre-computed nextSiblingId (the `resolveAll` break cascade: a run
+ * of consecutive owners each merge with their next sibling, REVERSE document
+ * order, so by the time `leftId` is processed its next sibling may have absorbed
+ * a block that came after it). No-op (returns without merging) when there is no
+ * next sibling, or the pair is not a valid same-parent adjacent LEAF pair
+ * (defensive — the boundary may have moved). MUST run inside an already-open
+ * transaction.
+ *
+ * Unlike {@link mergeAdjacentBlocksInTx} (which trusts a pre-validated
+ * {@link MergeBlocksPlan}), this builds the plan from LIVE Y.Doc reads so it
+ * reflects prior merges in the same transaction — `rightId` and `rightNextId`
+ * are read off the live blocks, never a stale snapshot.
+ */
+export function mergeWithNextSiblingLiveInTx(
+  doc: Y.Doc,
+  leftId: BlockId,
+  kind: BlockTreeKind,
+  registry?: AttrRegistry,
+): void {
+  requireInTransaction(doc, "mergeWithNextSiblingLive");
+
+  const yLeft = getYBlock(doc, leftId, "mergeWithNextSiblingLive", kind);
+  // No next sibling (last child, or already merged away) — nothing to merge.
+  const rightRaw = yLeft.get("nextSiblingId");
+  if (typeof rightRaw !== "string") return;
+  const rightId = asBlockId(rightRaw);
+  const yRight = getYBlock(doc, rightId, "mergeWithNextSiblingLive", kind);
+
+  // Same-parent adjacent LEAF-pair validity, read LIVE. The root has a null
+  // parent (can't merge); a cross-parent boundary or a container is not a valid
+  // merge. A leaf has a NON-null `inlineContent` Y.Array and a null `firstChildId`
+  // (mutually exclusive). Check BOTH — a true superset of what
+  // `mergeAdjacentBlocksInTx` requires (which reads both blocks' `inlineContent`
+  // arrays unconditionally), matching `planMergeAdjacentBlocks`'s leaf guard so a
+  // degenerate block can never reach the unconditional Y.Array read.
+  const parentRaw = yLeft.get("parentId");
+  if (typeof parentRaw !== "string") return;
+  if (yRight.get("parentId") !== parentRaw) return;
+  if (yLeft.get("firstChildId") !== null || yRight.get("firstChildId") !== null) return;
+  if (yLeft.get("inlineContent") == null || yRight.get("inlineContent") == null) return;
+
+  // Right's old next sibling — threaded into the plan as the post-merge linkage.
+  const rightNextRaw = yRight.get("nextSiblingId");
+  const rightNextId = typeof rightNextRaw === "string" ? asBlockId(rightNextRaw) : null;
+
+  const plan: MergeBlocksPlan = {
+    leftId,
+    rightId,
+    kind,
+    parentId: asBlockId(parentRaw),
+    rightNextId,
+  };
+  mergeAdjacentBlocksInTx(doc, plan, registry);
+}
+
+/**
+ * The Backspace-at-block-start / Delete-at-block-end JOIN op in Suggesting mode:
+ * mark the paragraph break BEFORE `secondBlockId` (the boundary between
+ * `secondBlockId` and its previous sibling, block N) as a tracked suggested
+ * DELETION — WITHOUT merging the two blocks. The merge is deferred to resolution
+ * (a LATER slice): on ACCEPT the blocks merge (the break is removed); on REJECT
+ * the embed is removed (the break stays). This op only CREATES the suggestion.
+ *
+ * Symmetric mirror of {@link splitWithSuggestion} (the suggested-SPLIT create op),
+ * but simpler: there is no structural change. A suggested join is modeled as a
+ * single zero-width {@link BLOCK_JOIN_SUGGESTION_EMBED_TYPE} embed APPENDED to block
+ * N's live `inlineContent` Y.Array (the prev sibling of `secondBlockId`) carrying the
+ * owning `suggestionId` in its `properties`, PLUS a `deletion` {@link SuggestionRecord}
+ * — both in ONE tracked `applyOperation` transaction (one undo entry / one collab
+ * event). Appending — rather than full-replacing N — preserves the per-character CRDT
+ * identity of N's surviving text runs (the foundation the Yjs-backed state model
+ * exists to protect for collab). The embed occupies exactly ONE `Position` offset
+ * (every embed does) and serializes to "" — it is the marker the range scan
+ * ({@link buildSuggestionRangeIndex}) reads to surface the suggestion's range.
+ *
+ * Why NOT merge now: Google Docs shows both paragraphs intact while the deletion
+ * is pending — the author can still see and edit the break-to-be-removed. The
+ * blocks stay two REAL separate blocks until the suggestion is accepted.
+ *
+ * Identity no-op (returns the input `state` reference + an empty dirtyIds set,
+ * mirroring {@link markDeletion}/{@link mintInsertion}'s degenerate-input returns)
+ * when there is no boundary to mark:
+ *   - `secondBlockId` does not resolve (block missing).
+ *   - `secondBlockId` is a FIRST child (`prevSiblingId === null`): there is no
+ *     preceding break before a first child, so there is nothing to suggest-delete.
+ *   - the prev sibling (block N) does not resolve, or is a CONTAINER
+ *     (`inlineContent === null`): a container can't hold an inline break embed.
+ *
+ * Unlike the in-place suggestion CREATE ops ({@link mintInsertion} et al.) there is
+ * NO coalescing: a paragraph break is a discrete structural change — each removed
+ * break is its own suggestion (mirror of {@link splitWithSuggestion} and the
+ * undo-coalescing model, where each structural keystroke is its own entry).
+ */
+export function markBlockJoinSuggestion(
+  state: State,
+  secondBlockId: BlockId,
+  input: SuggestionMintInput,
+): OperationResult {
+  // Resolve the SECOND block (the one whose preceding break is being marked). A
+  // missing block is a no-op — return identity (mirror markDeletion's null guard).
+  const second = resolveBlock(state, secondBlockId);
+  if (second === null) {
+    return { state, dirtyIds: NO_DIRTY };
+  }
+
+  // A first child has no preceding boundary to mark — identity no-op.
+  const prevId = second.block.prevSiblingId;
+  if (prevId === null) {
+    return { state, dirtyIds: NO_DIRTY };
+  }
+
+  // Block N (the first block / the prev sibling) hosts the break embed. It must
+  // be a leaf (non-null inlineContent) — a container can't hold an inline embed.
+  const prev = resolveBlock(state, prevId);
+  if (prev === null || prev.block.inlineContent === null) {
+    return { state, dirtyIds: NO_DIRTY };
+  }
+
+  // The zero-width join-break embed (carrying the owning deletion id), built as
+  // plain data PRE-transaction. It is a merge BARRIER (never folded into a
+  // neighbor), so it stays the LAST item of block N after the append.
+  const embed: EmbedItem = Object.freeze({
+    kind: "embed",
+    embedType: BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
+    attrs: Object.freeze({}),
+    properties: Object.freeze({ suggestionId: input.id }),
+  });
+
+  return applyOperation(state, (doc) => {
+    // 1. APPEND the break embed to block N's LIVE inlineContent Y.Array (single block
+    //    write — no structural change). Appending preserves N's text-run CRDT identity
+    //    (no full-replace); N's existing content is already normalized and the barrier
+    //    embed stays last.
+    const yN = getYBlock(doc, prevId, "markBlockJoinSuggestion", prev.kind);
+    const yItems = yN.get("inlineContent") as Y.Array<Y.Map<unknown>>;
+    yItems.push([buildYInlineItem(embed)]);
+    // 2. Write the `deletion` record (a suggested join IS a tracked deletion of a
+    //    paragraph break).
+    writeSuggestionRecordInTx(doc, {
+      id: input.id,
+      kind: "deletion",
+      author: input.author,
+      createdAt: input.createdAt,
+    });
+  });
 }

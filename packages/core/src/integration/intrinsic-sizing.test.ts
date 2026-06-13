@@ -58,7 +58,7 @@ describe("Intrinsic sizing — end-to-end", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("expected element");
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
-    const r1 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const r1 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
     if (r1.box === null) throw new Error("layoutBlock returned null box");
     const out = r1.box;
     // The inline-block key is composite: "<para-key>-l<n>-ib<n>-ib"
@@ -81,7 +81,7 @@ describe("Intrinsic sizing — end-to-end", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("expected element");
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 200);
-    const r2 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const r2 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
     if (r2.box === null) throw new Error("layoutBlock returned null box");
     const out = r2.box;
     const flBox = findBoxByKey(out, "fl");
@@ -101,7 +101,7 @@ describe("Intrinsic sizing — end-to-end", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("expected element");
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
-    const r3 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const r3 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
     if (r3.box === null) throw new Error("layoutBlock returned null box");
     const out = r3.box;
     const innerBox = findBoxByKey(out, "b");
@@ -109,8 +109,9 @@ describe("Intrinsic sizing — end-to-end", () => {
     expect(innerBox?.inlineSize).toBe(50); // 5 chars × 10px
   });
 
-  it("block with inline-size: min-content sizes to minContent (widest cluster)", () => {
-    // "abc" — each cluster is 10px; minContent = minClusterInlineSize = 10px
+  it("block with inline-size: min-content sizes to minContent (widest unbreakable word)", () => {
+    // "abc" — each cluster is 10px; "abc" is one unbreakable word (no internal
+    // break opportunity), so minContent = the whole word = 30px.
     const block = createElementBox(
       "b",
       { display: "block", inlineSize: "min-content" },
@@ -120,12 +121,12 @@ describe("Intrinsic sizing — end-to-end", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("expected element");
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
-    const r4 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const r4 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
     if (r4.box === null) throw new Error("layoutBlock returned null box");
     const out = r4.box;
     const innerBox = findBoxByKey(out, "b");
     expect(innerBox).not.toBeNull();
-    expect(innerBox?.inlineSize).toBe(10); // minClusterInlineSize = charWidth = 10
+    expect(innerBox?.inlineSize).toBe(30); // widest unbreakable word "abc" = 3 × 10
   });
 
   it("auto-table: column widths from per-cell intrinsics (sumMax fits)", () => {
@@ -146,7 +147,7 @@ describe("Intrinsic sizing — end-to-end", () => {
     const cascaded = cascadePass(table);
     if (cascaded.type !== "element") throw new Error("expected element");
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 200);
-    const tableResult = layoutTable(cascaded, 0, 0, ctx, shaper);
+    const tableResult = layoutTable(cascaded, 0, 0, ctx, shaper, undefined);
     if (tableResult.box === null) throw new Error("layoutTable returned null box; should be unreachable in B.3 (fragmentation not yet wired)");
     const out = tableResult.box;
     expect(out.columnPxWidths).toEqual([30, 50]); // sumMax=80 ≤ available=200
@@ -167,7 +168,7 @@ describe("Intrinsic sizing — end-to-end", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("expected element");
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 200);
-    const r5 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const r5 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
     if (r5.box === null) throw new Error("layoutBlock returned null box");
     const out = r5.box;
     const flBox = findBoxByKey(out, "fl");
@@ -193,7 +194,7 @@ describe("Inline-block intrinsic sizing — edge cases", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("expected element");
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
-    const r6 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const r6 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
     if (r6.box === null) throw new Error("layoutBlock returned null box");
     const out = r6.box;
     const ibBox = findBoxByKeyFragment(out, "ib");
@@ -202,13 +203,14 @@ describe("Inline-block intrinsic sizing — edge cases", () => {
     expect(ibBox?.inlineSize).toBe(200);
   });
 
-  it("inline-block with auto inlineSize shrinks-to-fit: clamps to available when below maxContent (CSS Sizing 3 §10.3.5)", () => {
+  it("inline-block with auto inlineSize floors at min-content when one unbreakable word exceeds available (CSS Sizing 3 §10.3.5)", () => {
     // 80 chars × 10px = 800px maxContent. Container is only 500px wide.
-    // The mock shaper reports a single-char min-cluster (10px), so min-content
-    // is 10px (well below the 500px available).
+    // "aaaa…" is one unbreakable word (no internal break opportunity), so its
+    // min-content = the whole word = 800px (> the 500px available).
     // Shrink-to-fit = min(maxContent, max(minContent, available))
-    //               = min(800, max(10, 500)) = min(800, 500) = 500.
-    // The inline-block clamps DOWN to the available 500px container width.
+    //               = min(800, max(800, 500)) = min(800, 800) = 800.
+    // The box CANNOT clamp below its min-content: it floors at 800px (overflows
+    // the container) — an unbreakable word can't be made narrower than itself.
     const ib = createElementBox(
       "ib",
       { display: "inline-block", inlineSize: "auto" },
@@ -218,13 +220,14 @@ describe("Inline-block intrinsic sizing — edge cases", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("expected element");
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
-    const r7 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const r7 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
     if (r7.box === null) throw new Error("layoutBlock returned null box");
     const out = r7.box;
     const ibBox = findBoxByKeyFragment(out, "ib");
     expect(ibBox).not.toBeNull();
-    // 500px — clamped to the available container width (shrink-to-fit).
-    expect(ibBox?.inlineSize).toBe(500);
+    // 800px — floored at min-content (the unbreakable word), overflowing the
+    // 500px container per CSS Sizing 3 §10.3.5.
+    expect(ibBox?.inlineSize).toBe(800);
   });
 
   it("nested inline-block: outer and inner both shrink to their content maxContent", () => {
@@ -244,7 +247,7 @@ describe("Inline-block intrinsic sizing — edge cases", () => {
     const cascaded = cascadePass(para);
     if (cascaded.type !== "element") throw new Error("expected element");
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
-    const r8 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const r8 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
     if (r8.box === null) throw new Error("layoutBlock returned null box");
     const out = r8.box;
 

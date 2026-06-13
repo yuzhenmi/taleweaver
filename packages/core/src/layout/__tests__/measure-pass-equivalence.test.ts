@@ -21,6 +21,7 @@ import { createElementBox, createTextBox } from "../../render/render-node";
 import type { ElementBox } from "../../render/render-node";
 import type { Style } from "../../styles";
 import type { BreakToken, FragmentationContext } from "../fragmentation";
+import { breakTokensEqual } from "../fragmentation";
 import type { PageConfig } from "../page-config";
 import { buildBlockFitMetas } from "../build-fit-metas";
 import { measurePass, measurePassUnsupported } from "../measure-pass";
@@ -78,8 +79,7 @@ function runOracle(
       margins.inlineStart,
       margins.blockStart,
       contentCtx,
-      shaper,
-      fragmentation,
+      shaper, undefined, fragmentation,
     );
     const blockOffset = pageIndex * (pageConfig.pageBlockSize + pageConfig.pageGap);
     const nextStartIndex =
@@ -111,19 +111,6 @@ function runOracle(
   return { pages, totalBlockSize };
 }
 
-/** Structural break-token equality (references differ across layout cycles). */
-function tokensEqual(a: BreakToken | null, b: BreakToken | null): boolean {
-  if (a === b) return true;
-  if (a === null || b === null) return false;
-  if (a.type !== b.type) return false;
-  if (a.type === "block" && b.type === "block") {
-    return a.resumeChildIndex === b.resumeChildIndex && tokensEqual(a.resumeChildToken, b.resumeChildToken);
-  }
-  if (a.type === "ifc" && b.type === "ifc") return a.resumeAtLine === b.resumeAtLine;
-  if (a.type === "table" && b.type === "table") return a.resumeAtRow === b.resumeAtRow;
-  return false;
-}
-
 /**
  * Run the full equivalence assertion for a cascaded root: oracle vs measurePass.
  * Also exercises `paginateRoot` to confirm the page count matches the page-by-
@@ -138,14 +125,13 @@ function assertEquivalent(root: ElementBox, pageConfig: PageConfig): void {
   const paginated = paginateRoot(
     root,
     makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize),
-    createMockShaper(8, 16),
-    pageConfig,
+    createMockShaper(8, 16), undefined, pageConfig,
   );
   expect(paginated.children.length).toBe(oracle.pages.length);
 
   const pageContentInlineSize =
     pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
-  const metas = buildBlockFitMetas(root, createMockShaper(8, 16), pageContentInlineSize);
+  const metas = buildBlockFitMetas(root, createMockShaper(8, 16), undefined, pageContentInlineSize);
   const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children);
 
   // Page count.
@@ -161,8 +147,8 @@ function assertEquivalent(root: ElementBox, pageConfig: PageConfig): void {
     expect(p.blockOffset, `page ${i} blockOffset`).toBe(o.blockOffset);
     expect(p.startIndex, `page ${i} startIndex`).toBe(o.startIndex);
     expect(p.children.length, `page ${i} childrenCount`).toBe(o.childrenCount);
-    expect(tokensEqual(p.resumeInto, o.resumeInto), `page ${i} resumeInto`).toBe(true);
-    expect(tokensEqual(p.resumeOut, o.resumeOut), `page ${i} resumeOut`).toBe(true);
+    expect(breakTokensEqual(p.resumeInto, o.resumeInto), `page ${i} resumeInto`).toBe(true);
+    expect(breakTokensEqual(p.resumeOut, o.resumeOut), `page ${i} resumeOut`).toBe(true);
   }
 }
 
@@ -299,7 +285,7 @@ describe("measure-pass equivalence — (a) leaf blocks", () => {
     // against the real oracle; here we re-state the page-0 facts to make the
     // truncation explicit and guard against a regression that re-introduces a
     // 40px lead-in (which would shift the page-0 boundary).
-    const metas = buildBlockFitMetas(root, createMockShaper(8, 16), 600);
+    const metas = buildBlockFitMetas(root, createMockShaper(8, 16), undefined, 600);
     const plan = measurePass(metas, noMarginPageConfig(300), IMPLICIT_SECTION_PLAN, root.children);
     expect(plan.entries[0].blockOffset).toBe(0);
     expect(plan.entries[0].startIndex).toBe(0);
@@ -380,6 +366,42 @@ describe("measure-pass equivalence — (c) table leaf", () => {
 
   it("block then table spanning pages", () => {
     const root = cascadeRoot({ display: "block" }, [fixedBlock("b0", 40), tableOf(8, 30)]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  // #487 — a table with a repeating header row, fragmenting across pages. Gate A:
+  // the measure plan (which reserves headerBlockSize per continuation) must agree
+  // EXACTLY with the real `layoutTable` oracle (which re-lays the header on each
+  // continuation). A drift here is the #494/#498/#499 class.
+  function tableWithHeader(numRows: number, headerRowCount: number, rowHeight: number): ElementBox {
+    const rows = Array.from({ length: numRows }, (_, i) =>
+      createElementBox(`row-${i}`, { display: "table-row", blockSize: rowHeight } as Style, [
+        createElementBox(`cell-${i}`, { display: "table-cell" } as Style, [
+          createTextBox(`ct-${i}`, {}, "x"),
+        ]),
+      ]),
+    );
+    return createElementBox("tbl", { display: "table" } as Style, rows, { headerRowCount });
+  }
+
+  it("table with a 1-row repeating header spanning pages (header reservation)", () => {
+    // 8 rows × 30 = 240, headerRowCount 1; page content 100. Continuation fragments
+    // reserve 30 for the re-laid header ⇒ fewer body rows fit per page than a plain
+    // table. Oracle (real layoutTable) ↔ measurePass must agree exactly.
+    const root = cascadeRoot({ display: "block" }, [tableWithHeader(8, 1, 30)]);
+    assertEquivalent(root, noMarginPageConfig(100));
+  });
+
+  it("table with a 2-row repeating header spanning pages", () => {
+    const root = cascadeRoot({ display: "block" }, [tableWithHeader(10, 2, 25)]);
+    assertEquivalent(root, noMarginPageConfig(120));
+  });
+
+  it("block then table with a repeating header, table starts mid-page", () => {
+    const root = cascadeRoot({ display: "block" }, [
+      fixedBlock("b0", 40),
+      tableWithHeader(8, 1, 30),
+    ]);
     assertEquivalent(root, noMarginPageConfig(100));
   });
 });
@@ -642,6 +664,30 @@ describe("measurePassUnsupported gate after #253/#254", () => {
     ]);
     const root = cascadeRoot({ display: "block" }, [fixedBlock("b0", 40), cleared]);
     expect(measurePassUnsupported(root)).toBe(true);
+  });
+
+  it("position:absolute document is UNSUPPORTED (true) — must fall back to legacy positioned layout", () => {
+    // An abs-pos child is removed from flow by the real BFC (drained into
+    // `absoluteChildren`), which the cheap measure pass does NOT model — its
+    // `buildBlockFitMetas` wrapper finds no placed child and throws. Flag it so
+    // the doc routes to `paginateRoot` (which handles abs-pos), mirroring float/
+    // clear. (positioning-audit F1.)
+    const absChild = createElementBox("a", { display: "block", position: "absolute" } as Style, [
+      createTextBox("at", {}, "x"),
+    ]);
+    const root = cascadeRoot({ display: "block" }, [fixedBlock("b0", 40), absChild]);
+    expect(measurePassUnsupported(root)).toBe(true);
+  });
+
+  it("position:relative document stays SUPPORTED (false) — relative keeps in-flow geometry", () => {
+    // Relative offset is a paint/caret shift only; the box stays in flow with the
+    // same block-axis advance, so the measure pass reproduces it. Only ABSOLUTE
+    // (out-of-flow) trips the gate.
+    const relChild = createElementBox("r", { display: "block", position: "relative" } as Style, [
+      createTextBox("rt", {}, "x"),
+    ]);
+    const root = cascadeRoot({ display: "block" }, [fixedBlock("b0", 40), relChild]);
+    expect(measurePassUnsupported(root)).toBe(false);
   });
 });
 

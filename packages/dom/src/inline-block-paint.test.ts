@@ -55,7 +55,8 @@ const BASE_CS = {
   fontSize: 16,
   fontWeight: "normal",
   fontStyle: "normal",
-  textDecoration: "none",
+  underline: false,
+  lineThrough: false,
   direction: "ltr",
 };
 
@@ -70,6 +71,7 @@ const BASE_US = {
   borderInlineStartColor: "black", borderInlineEndColor: "black",
   direction: "ltr",
   lineHeight: 20,
+  writingMode: "horizontal-tb",
 };
 
 function makeTextRun(opts: { text: string; x: number; y: number; width?: number; height?: number }): LayoutBox {
@@ -142,7 +144,8 @@ function paint(ctx: SpyCtx, box: LayoutBox): void {
     ctx,
     box,
     [],
-    { x: 0, y: 0, height: 0 },
+    [],
+    [], [], { x: 0, y: 0, height: 0 },
     "hidden",
     600,
     800,

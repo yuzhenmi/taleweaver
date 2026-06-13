@@ -11,9 +11,12 @@ import {
   resolvePixelPosition,
   resolvePositionFromPixel,
   selectionContextOf,
+  comparePositions,
+  findMatches,
   computeSelectionRects,
   computeSelectionRectsForPage,
-  resolvePositionedTree,
+  resolveCommentRange,
+  resolveSuggestionRange,
   spanStart,
   spanEnd,
   markStart,
@@ -22,21 +25,116 @@ import {
   type VirtualLayoutTree,
   type Position,
   type BlockId,
+  type CommentId,
+  type SuggestionId,
   type TextShaper,
   type TextMeasurer,
   type EditorAction,
   type EditorState,
+  type State,
   type SelectionRect,
   type PixelPosition,
+  type TextMatch,
+  type FindMatchesOptions,
+  type Span,
+  type CaretAffinity,
 } from "@taleweaver/core";
 import { mapKeyEvent } from "./key-handler";
 import { FONT_CONFIG } from "./font-config";
-import { paintCanvas, paintPage, type CursorState } from "./canvas-renderer";
+import { isOpenableLinkUrl } from "./url-safety";
+import {
+  paintCanvas,
+  paintPage,
+  type CursorState,
+  type MatchHighlightRect,
+  type CommentHighlightRect,
+  type SuggestionHighlightRect,
+} from "./canvas-renderer";
 import { createPaintCache, type PaintCache } from "./paint-cache";
 import { ImageCache } from "./image-cache";
 
 const DEFAULT_PAGE_GAP = 24;
 const SCROLL_DURATION = 250;
+
+/**
+ * A find-match's boundary positions resolved against the current layout tree.
+ * Stage 1 (`resolveFindHighlights`) populates these; Stage 2 (paint) emits
+ * per-page rects from them without re-resolving. Internal to the controller.
+ */
+interface ResolvedMatch {
+  span: Span;
+  startPos: PixelPosition;
+  endPos: PixelPosition;
+  /** Boundary block straddles a page break → a single page's rects can't see
+   * the other-page fragment; the spanning block's rects are unioned per-page via
+   * `selectionRectsAcrossPages` (per-page, never the whole tree). */
+  spanned: boolean;
+}
+
+/**
+ * A host-set comment highlight (comments slice 5): which comment is lit and
+ * whether it is the active (hovered/selected) one. The controller RE-RESOLVES
+ * the comment's range from live state each `update()`, so the host re-calls
+ * `setCommentHighlights` only when the comment SET or active-flag changes — not
+ * on every keystroke. The controller never calls `getComments`; the host owns
+ * WHICH comments are lit.
+ */
+export interface CommentHighlight {
+  commentId: CommentId;
+  active: boolean;
+}
+
+/**
+ * A comment highlight's boundary positions resolved against the current layout
+ * tree (comments slice 5). The exact analog of `ResolvedMatch`, plus the
+ * `commentId`/`active` carried from the host-set slot. Stage 1
+ * (`resolveCommentHighlights`) populates these; Stage 2 (paint) emits per-page
+ * rects from them without re-resolving. Internal to the controller.
+ */
+interface ResolvedCommentHighlight {
+  commentId: CommentId;
+  active: boolean;
+  span: Span;
+  startPos: PixelPosition;
+  endPos: PixelPosition;
+  /** Boundary block(s) straddle a page break → a single page's rects can't see
+   * the other-page fragment; the spanning block's rects are unioned per-page via
+   * `selectionRectsAcrossPages` (per-page, never the whole tree). */
+  spanned: boolean;
+}
+
+/**
+ * A host-set suggestion highlight (change-tracking slice 6): which pending
+ * tracked-change is lit and whether it is the active (focused/selected in the
+ * suggestion sidebar) one. The exact analog of {@link CommentHighlight}. The
+ * controller RE-RESOLVES the suggestion's range from live state each `update()`,
+ * so the host re-calls `setSuggestionHighlights` only when the suggestion SET or
+ * active-flag changes — not on every keystroke. The controller never calls
+ * `getSuggestions`; the host owns WHICH suggestions are lit.
+ */
+export interface SuggestionHighlight {
+  suggestionId: SuggestionId;
+  active: boolean;
+}
+
+/**
+ * A suggestion highlight's boundary positions resolved against the current layout
+ * tree (change-tracking slice 6). The exact analog of {@link ResolvedCommentHighlight},
+ * plus the `suggestionId`/`active` carried from the host-set slot. Stage 1
+ * (`resolveSuggestionHighlights`) populates these; Stage 2 (paint) emits per-page
+ * rects from them without re-resolving. Internal to the controller.
+ */
+interface ResolvedSuggestionHighlight {
+  suggestionId: SuggestionId;
+  active: boolean;
+  span: Span;
+  startPos: PixelPosition;
+  endPos: PixelPosition;
+  /** Boundary block(s) straddle a page break → a single page's rects can't see
+   * the other-page fragment; the spanning block's rects are unioned per-page via
+   * `selectionRectsAcrossPages` (per-page, never the whole tree). */
+  spanned: boolean;
+}
 
 /**
  * Get the link URL at a Position, or null if the position isn't on
@@ -62,10 +160,113 @@ export interface EditorControllerOptions {
   pageGap?: number;
 }
 
+/**
+ * The state of an active find session, surfaced to the find-bar UI (#433):
+ * `total` matches found and the `activeIndex` of the currently-emphasized one
+ * (the find bar shows "activeIndex+1 of total"). `total === 0` ⇒ no matches,
+ * with `activeIndex === -1`.
+ *
+ * `activeIndex === -1` means "no match is currently emphasized" and can occur
+ * even when `total > 0` — e.g. a direct `setFindHighlights(matches, -1)` call
+ * highlights the matches without emphasizing any. A consumer (the find bar)
+ * must render this as "– of N" / "0 of N", NOT "-1 of N".
+ */
+export interface FindStatus {
+  readonly total: number;
+  readonly activeIndex: number;
+}
+
 export interface EditorController {
   update(editorState: EditorState): void;
   focus(): void;
   destroy(): void;
+  /**
+   * Show the find-match highlight overlay (#433): paint `matches` as a
+   * translucent yellow band, with the match at `activeIndex` emphasized in
+   * orange. `activeIndex` out of range (< 0 or >= matches.length) → no match
+   * emphasized (all inactive). Triggers a repaint. The find session drives this.
+   */
+  setFindHighlights(matches: readonly TextMatch[], activeIndex: number): void;
+  /** Hide the find-match highlight overlay and repaint (erases the band). */
+  clearFindHighlights(): void;
+  /**
+   * Show the comment-highlight overlay (comments slice 5): paint each given
+   * comment's anchored range as a translucent amber band, with the comment(s)
+   * flagged `active` emphasized in a deeper amber. The controller RE-RESOLVES
+   * each comment's range from live state every `update()`, so the host only
+   * re-calls this when the comment SET or active-flag changes — NOT on every
+   * keystroke (markers self-heal: they move with the text). Comments resolving
+   * orphaned (a marker deleted) emit no band. Triggers a repaint.
+   */
+  setCommentHighlights(highlights: readonly CommentHighlight[]): void;
+  /** Hide the comment-highlight overlay and repaint (erases the band). */
+  clearCommentHighlights(): void;
+  /**
+   * Show the suggestion-highlight overlay (change-tracking slice 6): paint each
+   * given pending tracked-change's range as a translucent teal band, with the
+   * suggestion(s) flagged `active` emphasized in a deeper teal. The controller
+   * RE-RESOLVES each suggestion's range from live state every `update()`, so the
+   * host only re-calls this when the suggestion SET or active-flag changes — NOT
+   * on every keystroke (a suggestion's tagged runs move with the text). A
+   * suggestion whose tagged content is all gone (range resolves null) emits no
+   * band. Triggers a repaint.
+   */
+  setSuggestionHighlights(highlights: readonly SuggestionHighlight[]): void;
+  /** Hide the suggestion-highlight overlay and repaint (erases the band). */
+  clearSuggestionHighlights(): void;
+  /**
+   * Start a find session (#433): run `findMatches(state, query, options)`,
+   * highlight every match, pick the initial active match (the first at/after the
+   * document cursor — Google Docs "find from here"), and scroll it into view.
+   * Stores the session so a doc edit live-recomputes the matches (in `update()`).
+   * Calling it again overwrites the session and re-queries. `options` defaults to
+   * `{ caseSensitive: false, wholeWord: false }`. Returns the find status.
+   */
+  findStart(query: string, options?: FindMatchesOptions): FindStatus;
+  /**
+   * The current find status — `{ total, activeIndex }` for the active session
+   * (`total 0` / `activeIndex -1` when there's no session or no matches). The
+   * find bar polls this each render for the authoritative "n of N" count, since
+   * `replaceActive`/`replaceAll` dispatch asynchronously (the post-replace count
+   * only lands after the React reducer feeds the new state back via `update()`).
+   */
+  findStatus(): FindStatus;
+  /**
+   * Replace the ACTIVE find match with `replacement` (#433). When a session is
+   * active and there's an active match, dispatches `REPLACE_MATCH` with that
+   * match (`findHighlights.matches[activeIndex]`). Does NOT manually advance the
+   * active index — the live-recompute clamp in `update()` (after the dispatched
+   * edit refreshes state) advances it (the replaced match is gone, so the same
+   * index now points at the following match, clamped). Returns the CURRENT
+   * (pre-refresh) status; the find bar polls `findStatus()` after the update for
+   * the authoritative count. No-op (returns the current status, no dispatch) when
+   * there's no session / no active match.
+   */
+  replaceActive(replacement: string): FindStatus;
+  /**
+   * Replace EVERY match in the active session with `replacement` (#433) in one
+   * undo step — dispatches `REPLACE_ALL` with the session's matches
+   * (`findHighlights.matches`). Returns the current (pre-refresh) status. No-op
+   * (no dispatch) when there's no session / no matches.
+   */
+  replaceAll(replacement: string): FindStatus;
+  /**
+   * Advance to the next match (wrapping last → first), re-emphasize, and scroll
+   * it into view. No-op (returns the current status, no scroll) when there are no
+   * matches. Does NOT move the document cursor.
+   */
+  findNext(): FindStatus;
+  /**
+   * Retreat to the previous match (wrapping first → last), re-emphasize, and
+   * scroll it into view. No-op when there are no matches. Does NOT move the
+   * document cursor.
+   */
+  findPrev(): FindStatus;
+  /**
+   * End the find session: clear the highlights and forget the session. Does NOT
+   * move the document selection (Google Docs keeps the caret where it was).
+   */
+  findClose(): void;
 }
 
 export function createEditorController(
@@ -86,21 +287,18 @@ export function createEditorController(
   // the plan + `getPage(visible ∪ cursorPage)` directly and never materializes
   // every page (Phase 3 Tasks 2/3).
   let layoutTree: LayoutBox | VirtualLayoutTree | null = null;
-  // Lazy `materializeAll()` bridge. The common paginated paths (paint, caret,
-  // mouse hit-test, selection rects) are now per-page via `getPage` and NEVER
-  // touch this. It remains only for: (a) non-paginated identity sizing
-  // (`paintSingle`/spacer, where `layoutTree` is already a positioned
-  // `LayoutBox`), and (b) the rare spanning-block selection fallback (a single
-  // block taller than a page). Memoized per `update()`; resolved on first
-  // access so the hot path provably never triggers `materializeAll()`.
-  let positionedBridge: LayoutBox | null = null;
-  function getPositionedTree(): LayoutBox | null {
-    if (positionedBridge !== null) return positionedBridge;
-    if (layoutTree === null) return null;
-    positionedBridge = resolvePositionedTree(layoutTree);
-    return positionedBridge;
+  // The positioned `LayoutBox` for the NON-paginated paths only (single-canvas
+  // paint/sizing + the `pageIndex === null` selection/find/comment branches).
+  // In those branches `layoutTree` is already a fully-positioned `LayoutBox`
+  // (non-paginated / float-clear legacy fallback), never a `VirtualLayoutTree`
+  // (virtualization only happens in paginated mode). Returns null defensively
+  // if ever called in paginated mode — those callers union per-page instead and
+  // never reach here. The whole document is NEVER materialized.
+  function nonPaginatedTree(): LayoutBox | null {
+    if (layoutTree === null || layoutTree.type === "virtual-root") return null;
+    return layoutTree;
   }
-  // Hit-test against ONLY the clicked page (virtual) — never `materializeAll`.
+  // Hit-test against ONLY the clicked page (virtual) — never the whole tree.
   // `resolvePositionFromPixel` filters its line index by `pageIndex`, so a
   // single `PageBox` resolves correctly (mirrors the per-page line-nav
   // migration). Non-paginated mode has a positioned `LayoutBox` already.
@@ -117,6 +315,39 @@ export function createEditorController(
     const s = plan.pageSpanOfBlock(blockId);
     return s !== null && s.first !== s.last;
   }
+  // Spanning-block selection rects WITHOUT materializing the whole tree: resolve the
+  // span's start/end pixel positions once against the virtual tree, then union
+  // computeSelectionRectsForPage over the pages the span covers. Equivalent to
+  // computeSelectionRects over the materialized tree for a spanning boundary
+  // block (computeSelectionRectsForPage self-culls pages outside the range), but
+  // materializes only the spanned pages instead of every page.
+  function selectionRectsAcrossPages(
+    st: State,
+    span: Span,
+    tree: VirtualLayoutTree,
+    m: TextShaper | TextMeasurer,
+    anchorAffinity?: CaretAffinity,
+    focusAffinity?: CaretAffinity,
+  ): SelectionRect[] {
+    const start = spanStart(st, span);
+    const end = spanEnd(st, span);
+    const startPos = resolvePixelPosition(st, start, tree, m);
+    const endPos = resolvePixelPosition(st, end, tree, m);
+    if (startPos === null || endPos === null) return [];
+    const rects: SelectionRect[] = [];
+    // `startPos`/`endPos` were resolved against `tree`, so every index in
+    // [startPos.pageIndex, endPos.pageIndex] is a valid page (getPage throws
+    // only on out-of-range). computeSelectionRectsForPage self-culls, so this
+    // union equals computeSelectionRects over the fully-materialized tree.
+    for (let p = startPos.pageIndex; p <= endPos.pageIndex; p++) {
+      rects.push(
+        ...computeSelectionRectsForPage(
+          st, span, tree.getPage(p), p, startPos, endPos, m, anchorAffinity, focusAffinity,
+        ),
+      );
+    }
+    return rects;
+  }
   let focused = true;
   let cursorVisible = true;
   let blinkIntervalId: ReturnType<typeof setInterval> | null = null;
@@ -124,6 +355,17 @@ export function createEditorController(
   let scrollAnimId = 0;
   let isDragging = false;
   let dragAnchor: Position | null = null;
+  // TOC click-to-navigate (live `table-of-contents` entry lines). A plain
+  // single click on an entry line navigates the caret to its heading; a DRAG
+  // past a small epsilon abandons nav and text-selects instead (Google Docs).
+  // The entry boxes are SYNTHESIZED (not state-backed), so they carry the target
+  // on `metadata.navTarget` and are detected by `pickTocEntryAt` (a page-box
+  // walk), NOT by `resolvePositionFromPixel`. `pendingTocNav` holds the deferred
+  // target between mousedown and mouseup; the down-point seeds the drag-abandon
+  // epsilon check.
+  let pendingTocNav: BlockId | null = null;
+  let tocNavDownX = 0;
+  let tocNavDownY = 0;
   let isComposing = false;
   let destroyed = false;
 
@@ -170,6 +412,61 @@ export function createEditorController(
   let selStart: PixelPosition | null = null;
   let selEnd: PixelPosition | null = null;
   let selSpanningFallback = false;
+
+  // ── Find-match highlight overlay (#433) ──────────────────────────────────
+  //
+  // Transient overlay (like selection, never document attrs): the find session
+  // drives `setFindHighlights(matches, activeIndex)`. `null` = find inactive.
+  // `activeIndex` out of range (< 0 or >= matches.length) → no match emphasized.
+  let findHighlights:
+    | { matches: readonly TextMatch[]; activeIndex: number }
+    | null = null;
+  // The active find SESSION (#433): the query + options that drive the matches.
+  // `null` = no session. Distinct from `findHighlights` (the resolved matches +
+  // activeIndex for rendering): the session is what makes a doc edit
+  // live-recompute the matches in `update()`. `findStart` sets it; `findClose`
+  // and `destroy` null it. `findNext`/`findPrev` only move the activeIndex held
+  // in `findHighlights` — the session (query/options) is unchanged.
+  let findSession: { query: string; options: FindMatchesOptions } | null = null;
+  // Stage-1 resolved boundary positions, ONE per match, recomputed in
+  // `resolveFindHighlights()` (on `update()`/matches change — NOT on blink).
+  // `paintPages`/`paintSingle` (Stage 2) emit per-page rects from these without
+  // ever re-resolving (the two-stage split that keeps next/prev + paint off the
+  // per-page union — only a `spanned` match unions across pages).
+  let resolvedMatches: ResolvedMatch[] = [];
+
+  // ── Comment highlight overlay (comments slice 5) ─────────────────────────
+  //
+  // Transient overlay (like selection/find, never document attrs): the host
+  // drives `setCommentHighlights([{ commentId, active }])`. `null` = no comments
+  // lit. The controller stores `{ commentId, active }` (NOT raw Positions) and
+  // RE-RESOLVES each comment's range from live state every `update()`, so the
+  // band self-heals across edits (markers move with the text); the host re-calls
+  // only when the comment SET or active-flag changes. The controller never reads
+  // `getComments` — the host owns WHICH comments are lit.
+  let commentHighlights: readonly CommentHighlight[] | null = null;
+  // Stage-1 resolved boundary positions, ONE per non-orphaned lit comment,
+  // recomputed in `resolveCommentHighlights()` (on `update()`/set change — NOT on
+  // blink). `paintPages`/`paintSingle` (Stage 2) emit per-page rects from these
+  // without ever re-resolving (mirrors `resolvedMatches`).
+  let resolvedCommentHighlights: ResolvedCommentHighlight[] = [];
+
+  // ── Suggestion highlight overlay (change-tracking slice 6) ───────────────
+  //
+  // Transient overlay (like selection/find/comment, never document attrs): the
+  // host drives `setSuggestionHighlights([{ suggestionId, active }])`. `null` = no
+  // suggestions lit. The controller stores `{ suggestionId, active }` (NOT raw
+  // Positions) and RE-RESOLVES each suggestion's range from live state every
+  // `update()`, so the band self-heals across edits (tagged runs move with the
+  // text); the host re-calls only when the suggestion SET or active-flag changes.
+  // The controller never reads `getSuggestions` — the host owns WHICH suggestions
+  // are lit. The exact analog of the comment highlight overlay above.
+  let suggestionHighlights: readonly SuggestionHighlight[] | null = null;
+  // Stage-1 resolved boundary positions, ONE per live lit suggestion, recomputed
+  // in `resolveSuggestionHighlights()` (on `update()`/set change — NOT on blink).
+  // `paintPages`/`paintSingle` (Stage 2) emit per-page rects from these without
+  // ever re-resolving (mirrors `resolvedCommentHighlights`).
+  let resolvedSuggestionHighlights: ResolvedSuggestionHighlight[] = [];
 
   // ── Page model (paginated mode) ──────────────────────────────────────────
   //
@@ -283,6 +580,261 @@ export function createEditorController(
 
   // ── Paint ──────────────────────────────────────────────────────────────
 
+  // ── Find-highlight Stage 1 (boundary-position resolution) ────────────────
+  //
+  // For each match, resolve its start/end PixelPosition ONCE (mirroring the
+  // selection's `selStart`/`selEnd` + `blockSpansPages` detection). Recomputed
+  // whenever the layout/matches change (`update()` + `setFindHighlights`), NOT
+  // on blink/scroll. `paintPages`/`paintSingle` (Stage 2) emit per-page rects
+  // from these cached positions without re-resolving — the load-bearing split
+  // that keeps N matches off any whole-tree materialization per paint.
+  function resolveFindHighlights(): void {
+    resolvedMatches = [];
+    const st = state;
+    if (!st || findHighlights === null || layoutTree === null) return;
+    for (const m of findHighlights.matches) {
+      const span = createSpan(
+        createPosition(m.blockId, m.start),
+        createPosition(m.blockId, m.end),
+      );
+      let spanned = false;
+      if (layoutTree.type === "virtual-root") {
+        spanned = blockSpansPages(layoutTree.plan, m.blockId);
+      }
+      const startPos = resolvePixelPosition(
+        st.state, span.anchor, layoutTree, measurer, st.caretPageHint,
+      );
+      const endPos = resolvePixelPosition(
+        st.state, span.focus, layoutTree, measurer, st.caretPageHint,
+      );
+      if (startPos === null || endPos === null) continue;
+      resolvedMatches.push({ span, startPos, endPos, spanned });
+    }
+  }
+
+  // ── Find-highlight Stage 2 (per-page rect emission) ──────────────────────
+  //
+  // Emit this page's `MatchHighlightRect[]` from the Stage-1 resolved positions.
+  // Reuses the selection's per-page routing (`computeSelectionRectsForPage`, or
+  // `selectionRectsAcrossPages` per-page-unioned for a `spanned` match — no
+  // per-page union). The match at `activeIndex` is tagged `active: true`;
+  // all others `false`. `pageIndex` null (single-canvas / non-paginated path)
+  // still emits from the positioned tree (Slice 5).
+  function matchHighlightsForPage(pageBox: LayoutBox | null, pageIndex: number | null): MatchHighlightRect[] {
+    const st = state;
+    if (!st || findHighlights === null || resolvedMatches.length === 0) return [];
+    const activeIndex = findHighlights.activeIndex;
+    const out: MatchHighlightRect[] = [];
+    for (let i = 0; i < resolvedMatches.length; i++) {
+      const rm = resolvedMatches[i];
+      const active = i === activeIndex;
+      let rects: SelectionRect[];
+      if (pageBox !== null && pageIndex !== null && !rm.spanned) {
+        // Page-range cull: a non-spanned match only produces rects on pages
+        // within [startPos.pageIndex, endPos.pageIndex]. Skip the costly
+        // `computeSelectionRectsForPage` call for pages outside that range —
+        // otherwise every match would be probed for every visible page
+        // (O(N×P) per paint). Spanned matches keep the bridge fallback below.
+        if (rm.startPos.pageIndex > pageIndex || rm.endPos.pageIndex < pageIndex) {
+          continue;
+        }
+        rects = computeSelectionRectsForPage(
+          st.state, rm.span, pageBox, pageIndex, rm.startPos, rm.endPos, measurer,
+        );
+      } else if (pageIndex !== null && layoutTree !== null && layoutTree.type === "virtual-root") {
+        // Paginated spanned match (boundary block taller than a page): per-page
+        // concat over the virtual tree (per-page, never the whole tree), then keep
+        // only this page's rects.
+        rects = selectionRectsAcrossPages(st.state, rm.span, layoutTree, measurer)
+          .filter((r) => r.pageIndex === pageIndex);
+      } else {
+        // Non-paginated single canvas (`pageIndex === null`): `layoutTree` is a
+        // positioned `LayoutBox` here, so compute rects directly over it.
+        const positioned = nonPaginatedTree();
+        rects = positioned
+          ? computeSelectionRects(st.state, rm.span, positioned, measurer)
+          : [];
+        if (pageIndex !== null) {
+          rects = rects.filter((r) => r.pageIndex === pageIndex);
+        }
+      }
+      for (const r of rects) out.push({ ...r, active });
+    }
+    return out;
+  }
+
+  // ── Comment-highlight Stage 1 (boundary-position resolution) ─────────────
+  //
+  // For each host-lit comment, re-resolve its range from LIVE state
+  // (`resolveCommentRange`) and then its start/end PixelPosition (mirroring
+  // `resolveFindHighlights`). Recomputed whenever the layout/comment-set changes
+  // (`update()` + `setCommentHighlights`), NOT on blink/scroll. Orphaned comments
+  // (a marker deleted) are skipped. `paintPages`/`paintSingle` (Stage 2) emit
+  // per-page rects from these cached positions without re-resolving.
+  function resolveCommentHighlights(): void {
+    resolvedCommentHighlights = [];
+    const st = state;
+    if (!st || commentHighlights === null || layoutTree === null) return;
+    for (const { commentId, active } of commentHighlights) {
+      const range = resolveCommentRange(st.state, commentId);
+      if (range === null || range.orphaned) continue;
+      const span = createSpan(range.start, range.end);
+      // A comment's range can be cross-block. A non-spanned single block matches
+      // a find-match's single-blockId case; for a multi-block comment, fall back
+      // to the bridge if EITHER endpoint block straddles a page break (per-page
+      // rects can't see the other-page fragment).
+      let spanned = false;
+      if (layoutTree.type === "virtual-root") {
+        spanned =
+          blockSpansPages(layoutTree.plan, range.start.blockId) ||
+          blockSpansPages(layoutTree.plan, range.end.blockId);
+      }
+      const startPos = resolvePixelPosition(
+        st.state, span.anchor, layoutTree, measurer, st.caretPageHint,
+      );
+      const endPos = resolvePixelPosition(
+        st.state, span.focus, layoutTree, measurer, st.caretPageHint,
+      );
+      if (startPos === null || endPos === null) continue;
+      resolvedCommentHighlights.push({ commentId, active, span, startPos, endPos, spanned });
+    }
+  }
+
+  // ── Comment-highlight Stage 2 (per-page rect emission) ───────────────────
+  //
+  // Emit this page's `CommentHighlightRect[]` from the Stage-1 resolved
+  // positions. Reuses the selection's per-page routing
+  // (`computeSelectionRectsForPage`, or `selectionRectsAcrossPages`
+  // per-page-unioned for a `spanned` comment — never the whole tree) — the
+  // exact analog of `matchHighlightsForPage`. Each rect is tagged with the
+  // comment's `commentId` + `active`. `pageIndex` null (single-canvas /
+  // non-paginated path) still emits from the positioned tree (Slice 5).
+  function commentHighlightsForPage(pageBox: LayoutBox | null, pageIndex: number | null): CommentHighlightRect[] {
+    const st = state;
+    if (!st || commentHighlights === null || resolvedCommentHighlights.length === 0) return [];
+    const out: CommentHighlightRect[] = [];
+    for (const rch of resolvedCommentHighlights) {
+      let rects: SelectionRect[];
+      if (pageBox !== null && pageIndex !== null && !rch.spanned) {
+        // Page-range cull: a non-spanned comment only produces rects on pages
+        // within [startPos.pageIndex, endPos.pageIndex]. Skip the costly
+        // `computeSelectionRectsForPage` call for pages outside that range.
+        if (rch.startPos.pageIndex > pageIndex || rch.endPos.pageIndex < pageIndex) {
+          continue;
+        }
+        rects = computeSelectionRectsForPage(
+          st.state, rch.span, pageBox, pageIndex, rch.startPos, rch.endPos, measurer,
+        );
+      } else if (pageIndex !== null && layoutTree !== null && layoutTree.type === "virtual-root") {
+        // Paginated spanned comment (a boundary block taller than a page):
+        // per-page concat over the virtual tree (never the whole tree),
+        // then keep only this page's rects.
+        rects = selectionRectsAcrossPages(st.state, rch.span, layoutTree, measurer)
+          .filter((r) => r.pageIndex === pageIndex);
+      } else {
+        // Non-paginated single canvas (`pageIndex === null`): `layoutTree` is a
+        // positioned `LayoutBox` here, so compute rects directly over it.
+        const positioned = nonPaginatedTree();
+        rects = positioned
+          ? computeSelectionRects(st.state, rch.span, positioned, measurer)
+          : [];
+        if (pageIndex !== null) {
+          rects = rects.filter((r) => r.pageIndex === pageIndex);
+        }
+      }
+      for (const r of rects) out.push({ ...r, commentId: rch.commentId, active: rch.active });
+    }
+    return out;
+  }
+
+  // ── Suggestion-highlight Stage 1 (boundary-position resolution) ──────────
+  //
+  // For each host-lit suggestion, re-resolve its range from LIVE state
+  // (`resolveSuggestionRange`) and then its start/end PixelPosition (mirroring
+  // `resolveCommentHighlights`). Recomputed whenever the layout/suggestion-set
+  // changes (`update()` + `setSuggestionHighlights`), NOT on blink/scroll. A
+  // suggestion whose tagged content is all gone (`range === null`) is skipped —
+  // unlike comments there is no separate `orphaned` flag (the suggestion range
+  // index simply omits an id with no live tagged content). `paintPages`/
+  // `paintSingle` (Stage 2) emit per-page rects from these cached positions
+  // without re-resolving.
+  function resolveSuggestionHighlights(): void {
+    resolvedSuggestionHighlights = [];
+    const st = state;
+    if (!st || suggestionHighlights === null || layoutTree === null) return;
+    for (const { suggestionId, active } of suggestionHighlights) {
+      const range = resolveSuggestionRange(st.state, suggestionId);
+      if (range === null) continue;
+      const span = createSpan(range.start, range.end);
+      // A suggestion's range can be cross-block (the same id on text in two
+      // paragraphs). A non-spanned single block matches a comment's single-block
+      // case; for a multi-block suggestion, fall back to the bridge if EITHER
+      // endpoint block straddles a page break (per-page rects can't see the
+      // other-page fragment).
+      let spanned = false;
+      if (layoutTree.type === "virtual-root") {
+        spanned =
+          blockSpansPages(layoutTree.plan, range.start.blockId) ||
+          blockSpansPages(layoutTree.plan, range.end.blockId);
+      }
+      const startPos = resolvePixelPosition(
+        st.state, span.anchor, layoutTree, measurer, st.caretPageHint,
+      );
+      const endPos = resolvePixelPosition(
+        st.state, span.focus, layoutTree, measurer, st.caretPageHint,
+      );
+      if (startPos === null || endPos === null) continue;
+      resolvedSuggestionHighlights.push({ suggestionId, active, span, startPos, endPos, spanned });
+    }
+  }
+
+  // ── Suggestion-highlight Stage 2 (per-page rect emission) ────────────────
+  //
+  // Emit this page's `SuggestionHighlightRect[]` from the Stage-1 resolved
+  // positions. Reuses the selection's per-page routing
+  // (`computeSelectionRectsForPage`, or `selectionRectsAcrossPages`
+  // per-page-unioned for a `spanned` suggestion — never the whole tree) — the
+  // exact analog of `commentHighlightsForPage`. Each rect is tagged with the
+  // suggestion's `suggestionId` + `active`. `pageIndex` null (single-canvas /
+  // non-paginated path) still emits from the positioned tree.
+  function suggestionHighlightsForPage(pageBox: LayoutBox | null, pageIndex: number | null): SuggestionHighlightRect[] {
+    const st = state;
+    if (!st || suggestionHighlights === null || resolvedSuggestionHighlights.length === 0) return [];
+    const out: SuggestionHighlightRect[] = [];
+    for (const rsh of resolvedSuggestionHighlights) {
+      let rects: SelectionRect[];
+      if (pageBox !== null && pageIndex !== null && !rsh.spanned) {
+        // Page-range cull: a non-spanned suggestion only produces rects on pages
+        // within [startPos.pageIndex, endPos.pageIndex]. Skip the costly
+        // `computeSelectionRectsForPage` call for pages outside that range.
+        if (rsh.startPos.pageIndex > pageIndex || rsh.endPos.pageIndex < pageIndex) {
+          continue;
+        }
+        rects = computeSelectionRectsForPage(
+          st.state, rsh.span, pageBox, pageIndex, rsh.startPos, rsh.endPos, measurer,
+        );
+      } else if (pageIndex !== null && layoutTree !== null && layoutTree.type === "virtual-root") {
+        // Paginated spanned suggestion (a boundary block taller than a page):
+        // per-page concat over the virtual tree (never the whole tree),
+        // then keep only this page's rects.
+        rects = selectionRectsAcrossPages(st.state, rsh.span, layoutTree, measurer)
+          .filter((r) => r.pageIndex === pageIndex);
+      } else {
+        // Non-paginated single canvas (`pageIndex === null`): `layoutTree` is a
+        // positioned `LayoutBox` here, so compute rects directly over it.
+        const positioned = nonPaginatedTree();
+        rects = positioned
+          ? computeSelectionRects(st.state, rsh.span, positioned, measurer)
+          : [];
+        if (pageIndex !== null) {
+          rects = rects.filter((r) => r.pageIndex === pageIndex);
+        }
+      }
+      for (const r of rects) out.push({ ...r, suggestionId: rsh.suggestionId, active: rsh.active });
+    }
+    return out;
+  }
+
   function getCursorState(): CursorState {
     // Hide the caret over a non-collapsed selection. Use the flag, not
     // `selectionRects.length`: in paginated mode the rects are computed
@@ -297,9 +849,8 @@ export function createEditorController(
     if (!state) return;
     if (!singleCanvas) return;
     // Non-paginated mode: `layoutTree` is a positioned `LayoutBox` (never a
-    // virtual tree — virtualization only happens in paginated mode), so
-    // `getPositionedTree()` is a no-op identity here, not a materialize.
-    const tree = getPositionedTree();
+    // virtual tree — virtualization only happens in paginated mode).
+    const tree = nonPaginatedTree();
     if (!tree) return;
     if (!singleCtx) singleCtx = singleCanvas.getContext("2d");
     const ctx = singleCtx;
@@ -337,6 +888,9 @@ export function createEditorController(
       ctx,
       tree,
       selectionRects,
+      matchHighlightsForPage(null, null),
+      commentHighlightsForPage(null, null),
+      suggestionHighlightsForPage(null, null),
       cursorPos,
       getCursorState(),
       logicalWidth,
@@ -399,15 +953,25 @@ export function createEditorController(
       const pageSelRects = (perPageSel && pgStart !== null && pgEnd !== null)
         ? computeSelectionRectsForPage(
             st.state, st.selection, page, idx, pgStart, pgEnd, measurer,
+            st.anchorAffinity, st.caretAffinity,
           )
         : selectionRects.filter((r) => r.pageIndex === idx);
+
+      // Find-match highlights for this page (Stage 2; empty when find inactive).
+      const pageMatchHighlights = matchHighlightsForPage(page, idx);
+
+      // Comment highlights for this page (Stage 2; empty when no comments lit).
+      const pageCommentHighlights = commentHighlightsForPage(page, idx);
+
+      // Suggestion highlights for this page (Stage 2; empty when no suggestions lit).
+      const pageSuggestionHighlights = suggestionHighlightsForPage(page, idx);
 
       // Cursor on this page? (null if not)
       const pageCursor = cursorPos.pageIndex === idx
         ? { x: cursorPos.x, y: cursorPos.y, height: cursorPos.height }
         : null;
 
-      paintPage(ctx, page, pageSelRects, pageCursor, cs, imageCache, getOrCreatePageCache(idx));
+      paintPage(ctx, page, pageSelRects, pageMatchHighlights, pageCommentHighlights, pageSuggestionHighlights, pageCursor, cs, imageCache, getOrCreatePageCache(idx));
     }
   }
 
@@ -465,37 +1029,50 @@ export function createEditorController(
 
   function scrollCursorIntoView() {
     if (!focused || !state) return;
+    scrollVisualIntoView(cursorPos);
+  }
+
+  /**
+   * Scroll a visual position into view (smooth). Takes a `{pageIndex, y,
+   * height}` — the cursor path passes `cursorPos`; the find-session path passes
+   * an active match's start `PixelPosition`. Unlike `scrollCursorIntoView`, this
+   * has NO `!focused`/`!state` guard: it reads only `pos` + the closure-local
+   * `pageSlotGeoms`/`container`/`scrollParent`, all valid after ≥1 `update()`.
+   * Find callers (the find bar holds focus, not the canvas) scroll regardless of
+   * the editor's focus, by calling this directly with the match position.
+   */
+  function scrollVisualIntoView(pos: { pageIndex: number; y: number; height: number }) {
     const sp = scrollParent;
 
-    // Compute visual Y from the cursor's page slot. Per-page geometry (C.2b-2):
+    // Compute visual Y from the target's page slot. Per-page geometry (C.2b-2):
     // the page's document-y is its slot `top` (running-sum offset), NOT a
     // uniform `pageIndex * (pageHeight + pageGap)`. Paginated-vs-not is keyed on
     // slot presence (an empty `pageSlotGeoms` ⇒ non-paginated single canvas).
-    const cursorSlot = pageSlotGeoms[cursorPos.pageIndex];
-    const cursorVisualY =
-      pageCount() > 0 && cursorSlot ? cursorSlot.top + cursorPos.y : cursorPos.y;
-    const cursorH = cursorPos.height;
+    const targetSlot = pageSlotGeoms[pos.pageIndex];
+    const targetVisualY =
+      pageCount() > 0 && targetSlot ? targetSlot.top + pos.y : pos.y;
+    const targetH = pos.height;
     const scrollPadding = 64;
 
     const containerRect = container.getBoundingClientRect();
 
     if (sp instanceof Window) {
-      const cursorScreenTop = containerRect.top + cursorVisualY;
-      const cursorScreenBottom = cursorScreenTop + cursorH + scrollPadding;
-      if (cursorScreenBottom > sp.innerHeight) {
-        smoothScrollTo(sp, sp.scrollY + cursorScreenBottom - sp.innerHeight, SCROLL_DURATION);
-      } else if (cursorScreenTop < 0) {
-        smoothScrollTo(sp, sp.scrollY + cursorScreenTop - scrollPadding, SCROLL_DURATION);
+      const targetScreenTop = containerRect.top + targetVisualY;
+      const targetScreenBottom = targetScreenTop + targetH + scrollPadding;
+      if (targetScreenBottom > sp.innerHeight) {
+        smoothScrollTo(sp, sp.scrollY + targetScreenBottom - sp.innerHeight, SCROLL_DURATION);
+      } else if (targetScreenTop < 0) {
+        smoothScrollTo(sp, sp.scrollY + targetScreenTop - scrollPadding, SCROLL_DURATION);
       }
     } else if (typeof sp.getBoundingClientRect === "function") {
       const spRect = sp.getBoundingClientRect();
-      const cursorInSp = containerRect.top - spRect.top + sp.scrollTop + cursorVisualY;
+      const targetInSp = containerRect.top - spRect.top + sp.scrollTop + targetVisualY;
       const visTop = sp.scrollTop;
       const visBottom = sp.scrollTop + sp.clientHeight;
-      if (cursorInSp + cursorH + scrollPadding > visBottom) {
-        smoothScrollTo(sp, cursorInSp + cursorH + scrollPadding - sp.clientHeight, SCROLL_DURATION);
-      } else if (cursorInSp < visTop + scrollPadding) {
-        smoothScrollTo(sp, Math.max(0, cursorInSp - scrollPadding), SCROLL_DURATION);
+      if (targetInSp + targetH + scrollPadding > visBottom) {
+        smoothScrollTo(sp, targetInSp + targetH + scrollPadding - sp.clientHeight, SCROLL_DURATION);
+      } else if (targetInSp < visTop + scrollPadding) {
+        smoothScrollTo(sp, Math.max(0, targetInSp - scrollPadding), SCROLL_DURATION);
       }
     }
   }
@@ -508,7 +1085,7 @@ export function createEditorController(
     const tree = layoutTree;
 
     // Derive the page-SLOT geometry WITHOUT positioning any page. Virtual mode:
-    // read `plan.entries` (count + per-slot blockSize) — no `materializeAll`.
+    // read `plan.entries` (count + per-slot blockSize) — never the whole tree.
     // Positioned mode (unsupported-feature fallback): extract the already-
     // positioned `PageBox` children. Non-paginated: zero slots → single canvas.
     const newSlotGeoms: PageSlotGeom[] = [];
@@ -570,9 +1147,8 @@ export function createEditorController(
       cleanupPageCanvases();
 
       // Ensure single canvas + spacer. Height comes from the positioned
-      // (non-paginated) tree directly — never a virtual tree here, so this is a
-      // no-op identity, not a materialize.
-      const positioned = getPositionedTree();
+      // (non-paginated) tree directly — never a virtual tree here.
+      const positioned = nonPaginatedTree();
       if (!spacerDiv) {
         spacerDiv = document.createElement("div");
         spacerDiv.style.pointerEvents = "none";
@@ -709,7 +1285,14 @@ export function createEditorController(
         }
         if (changed) paint();
       },
-      { rootMargin: "200px" },
+      {
+        // IntersectionObserver wants Element | Document | null, never Window.
+        // A non-window scroll parent (editor embedded in a scrollable <div>)
+        // becomes the observer root; the window fallback maps to null (the
+        // viewport).
+        root: scrollParent instanceof HTMLElement ? scrollParent : null,
+        rootMargin: "200px",
+      },
     );
 
     for (const slot of pageSlots) {
@@ -793,19 +1376,105 @@ export function createEditorController(
     return { x: e.clientX - rect.left, y: e.clientY - rect.top, pageIndex: 0 };
   }
 
+  /**
+   * Hit-test the SYNTHESIZED TOC entry lines on the clicked page. The entry
+   * boxes are not state-backed (the `table-of-contents` render branch
+   * synthesizes them), so `resolvePositionFromPixel` cannot see them — this walks
+   * the materialized page-box tree directly, accumulating PHYSICAL parent offsets
+   * exactly as the painter does (page-local origin starts at `-pageBox.x/.y` so
+   * the page itself sits at (0,0); descendants add their own physical `x`/`y` plus
+   * any `relativeOffset`). The DEEPEST containing box may be an inner leaf (a glyph
+   * run / the page-number atom), so the walk tracks the nearest ANCESTOR tagged
+   * `metadata.tocEntry === true` and returns ITS `navTarget` — the whole entry
+   * line is the click target (Google Docs). Returns the heading `BlockId`, or null
+   * when the point is not inside any TOC entry line.
+   */
+  function pickTocEntryAt(coords: { x: number; y: number; pageIndex: number }): BlockId | null {
+    const pageBox = getPageBox(coords.pageIndex);
+    if (pageBox === null) return null;
+    const { x, y } = coords;
+    // The most recent enclosing tagged entry's navTarget, threaded down the walk.
+    function walk(
+      box: LayoutBox,
+      parentX: number,
+      parentY: number,
+      enclosingNavTarget: BlockId | null,
+    ): BlockId | null {
+      const rel = box.relativeOffset;
+      const absX = parentX + box.x + (rel !== undefined ? rel.dx : 0);
+      const absY = parentY + box.y + (rel !== undefined ? rel.dy : 0);
+      // Outside this box's rect → it (and its descendants) cannot contain the point.
+      if (x < absX || x >= absX + box.width || y < absY || y >= absY + box.height) {
+        return null;
+      }
+      const meta = "metadata" in box ? box.metadata : undefined;
+      const nav: BlockId | null =
+        meta?.tocEntry === true && typeof meta.navTarget === "string"
+          ? meta.navTarget
+          : enclosingNavTarget;
+      // Descend into children / column tracks (the painter's two child carriers).
+      if ("children" in box) {
+        for (const child of box.children) {
+          const found = walk(child, absX, absY, nav);
+          if (found !== null) return found;
+        }
+      }
+      if ("columns" in box) {
+        for (const col of box.columns) {
+          const found = walk(col, absX, absY, nav);
+          if (found !== null) return found;
+        }
+      }
+      // No deeper tagged hit; this box contains the point, so the nearest
+      // enclosing entry (if any) is the answer.
+      return nav;
+    }
+    return walk(pageBox, -pageBox.x, -pageBox.y, null);
+  }
+
   function handleMouseDown(e: MouseEvent) {
     if (destroyed || !state || !layoutTree) return;
     e.preventDefault();
     textarea.focus();
 
+    // Clear any TOC nav left pending by a prior mousedown that never reached a
+    // mouseup (e.g. a second press without releasing) — BEFORE the coords
+    // early-return below, so even a press that doesn't resolve to layout coords
+    // still clears stale nav. Every fresh mousedown starts with no pending nav;
+    // the TOC-defer branch below re-sets it only when the press lands on a TOC
+    // entry. Without this reset, a stale `pendingTocNav` would fire a spurious
+    // navigation on the next mouseup.
+    pendingTocNav = null;
+
     const coords = resolveMouseToLayout(e);
     if (!coords) return;
+
+    // TOC click-to-navigate: a PLAIN single click (no modifiers, not a
+    // multi-click) on a synthesized TOC entry line defers a caret jump to its
+    // heading until mouseup — a drag past the epsilon abandons it and text-selects
+    // instead. Seed `dragAnchor` from the entry's resolved hit position FIRST so a
+    // drag-from-an-entry still builds a valid selection span when nav is abandoned.
+    if (e.detail === 1 && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+      const navTarget = pickTocEntryAt(coords);
+      if (navTarget !== null) {
+        pendingTocNav = navTarget;
+        tocNavDownX = e.clientX;
+        tocNavDownY = e.clientY;
+        isDragging = true;
+        const tocHitTree = treeForPageHitTest(coords.pageIndex);
+        const tocHit = tocHitTree
+          ? resolvePositionFromPixel(state.state, tocHitTree, measurer, coords.x, coords.y, coords.pageIndex)
+          : null;
+        dragAnchor = tocHit ? tocHit.position : null;
+        return; // suppress the immediate caret dispatch
+      }
+    }
 
     // Hit-test against ONLY the clicked page (virtual tree) — never
     // materialize the whole document (Phase 4).
     const hitTree = treeForPageHitTest(coords.pageIndex);
     if (!hitTree) return;
-    const pos = resolvePositionFromPixel(
+    const hit = resolvePositionFromPixel(
       state.state,
       hitTree,
       measurer,
@@ -813,10 +1482,16 @@ export function createEditorController(
       coords.y,
       coords.pageIndex,
     );
-    if (!pos) {
+    if (!hit) {
       dispatch({ type: "MOVE_DOCUMENT_BOUNDARY", boundary: "end" });
       return;
     }
+    // P4-C.2.2b §D: carry the hit-side caret-affinity seed through to the click's
+    // SET_SELECTION so a collapsed caret at a bidi direction boundary renders on
+    // the clicked side. Multi-click / shift-extend selections are non-collapsed
+    // (affinity is inert there) — they pass no seed, which clears any stale value.
+    const pos = hit.position;
+    const caretAffinity = hit.caretAffinity;
 
     // HL.3: Cmd/Ctrl+Click on a hyperlink opens the URL in a new
     // tab instead of placing the cursor. Plain click still positions
@@ -824,9 +1499,10 @@ export function createEditorController(
     if (e.metaKey || e.ctrlKey) {
       const url = linkUrlAtPosition(state.state, pos);
       if (url !== null) {
-        // Allowlist safe schemes (per hyperlinks spec risk table:
-        // reject javascript: / data: URLs).
-        if (/^(https?:|mailto:|tel:)/i.test(url)) {
+        // Allowlist safe schemes (per hyperlinks spec risk table: reject
+        // javascript: / data: / vbscript: and scheme-less URLs). Shared with the
+        // taleweaver-html export guard.
+        if (isOpenableLinkUrl(url)) {
           window.open(url, "_blank", "noopener,noreferrer");
         }
         return;
@@ -884,18 +1560,36 @@ export function createEditorController(
       return;
     }
 
-    // Single click: position cursor + start drag
+    // Single click: position cursor + start drag. Seed the caret affinity from
+    // the hit side so a collapsed caret at a bidi direction boundary renders
+    // there (P4-C.2.2b §D).
     isDragging = true;
     dragAnchor = pos;
     dispatch({
       type: "SET_SELECTION",
       selection: createSpan(pos, pos),
       caretPageHint: coords.pageIndex,
+      caretAffinity,
     });
   }
 
   function handleMouseMove(e: MouseEvent) {
-    if (!isDragging || !dragAnchor || !state || !layoutTree) return;
+    if (!isDragging || !state || !layoutTree) return;
+
+    // TOC click-to-navigate: a pending nav survives tiny pointer jitter but is
+    // ABANDONED by a real drag (past the epsilon) — which then falls through to
+    // the normal text-selection drag below (dragAnchor was seeded at mousedown).
+    if (pendingTocNav !== null) {
+      const dx = e.clientX - tocNavDownX;
+      const dy = e.clientY - tocNavDownY;
+      const EPS = 4; // px jitter tolerance
+      if (dx * dx + dy * dy < EPS * EPS) return; // tiny jitter: keep deferring nav
+      pendingTocNav = null; // real drag: abandon nav, text-select
+    }
+
+    // No drag anchor (e.g. a TOC entry whose hit position didn't resolve) → nothing
+    // to extend a selection from.
+    if (!dragAnchor) return;
 
     const coords = resolveMouseToLayout(e);
     if (!coords) return;
@@ -904,7 +1598,7 @@ export function createEditorController(
     // handleMouseDown) — never materialize the whole document.
     const hitTree = treeForPageHitTest(coords.pageIndex);
     if (!hitTree) return;
-    const pos = resolvePositionFromPixel(
+    const hit = resolvePositionFromPixel(
       state.state,
       hitTree,
       measurer,
@@ -912,7 +1606,13 @@ export function createEditorController(
       coords.y,
       coords.pageIndex,
     );
-    if (pos) {
+    if (hit) {
+      // P4-C.2.2b §D: a drag builds a (usually non-collapsed) span — caret
+      // affinity is inert across a range, so the drag's SET_SELECTION carries the
+      // hit-side seed only so a drag that collapses back onto a boundary still
+      // renders on the pointer side.
+      const pos = hit.position;
+      const caretAffinity = hit.caretAffinity;
       // A drag selection is CONFINED to the selection context it began in
       // (Google Docs): once the pointer crosses from the body into a footnote
       // slot (a different selection context), the drag does NOT extend into it.
@@ -933,11 +1633,28 @@ export function createEditorController(
         type: "SET_SELECTION",
         selection: createSpan(dragAnchor, pos),
         caretPageHint: coords.pageIndex,
+        caretAffinity,
       });
     }
   }
 
   function handleMouseUp() {
+    // TOC click-to-navigate: a pending nav that survived to mouseup (no drag past
+    // the epsilon) is a CLICK → jump the caret to the heading's start. A drag would
+    // have cleared `pendingTocNav` in handleMouseMove. The heading is scrolled into
+    // view by the post-dispatch `update()` cycle (which recomputes `cursorPos` then
+    // calls `scrollCursorIntoView`) — calling it here would scroll to the STALE
+    // pre-dispatch caret, so it is intentionally NOT called (matching the other
+    // selection-changing gestures, none of which scroll inline).
+    if (pendingTocNav !== null) {
+      const target = pendingTocNav;
+      pendingTocNav = null;
+      isDragging = false;
+      dragAnchor = null;
+      const caret = createPosition(target, 0);
+      dispatch({ type: "SET_SELECTION", selection: createSpan(caret, caret) });
+      return;
+    }
     isDragging = false;
   }
 
@@ -945,7 +1662,15 @@ export function createEditorController(
 
   function handleKeyDown(e: KeyboardEvent) {
     if (isComposing || e.isComposing) return;
-    const action = mapKeyEvent(e);
+    // Tab / Shift+Tab routing is context-sensitive: pass whether the caret's
+    // focus block is a list-item so the keymap can map Tab → list nesting.
+    const focusBlock =
+      state !== null
+        ? getBlock(state.state, state.selection.focus.blockId)
+        : null;
+    const action = mapKeyEvent(e, {
+      inListItem: focusBlock?.type === "list-item",
+    });
     if (action) {
       e.preventDefault();
       dispatch(action);
@@ -954,6 +1679,16 @@ export function createEditorController(
 
   function handleInput() {
     if (isComposing) return;
+    // Ignore input while blurred. An `input` that fires when the editor is not
+    // focused (a programmatic textarea value-set, or a stray event arriving after
+    // a focus race) would apply text at a STALE caret — the engine's selection
+    // points elsewhere. Clear the buffer so the value can't leak into the next
+    // focused input. (Provenance of focused non-typing input — autofill /
+    // translation bulk-sets — is a separate hardening concern, tracked as #490.)
+    if (!focused) {
+      textarea.value = "";
+      return;
+    }
     const text = textarea.value;
     if (text) {
       dispatch({ type: "INSERT_TEXT", text });
@@ -994,7 +1729,12 @@ export function createEditorController(
   }
 
   function handlePaste(e: ClipboardEvent) {
+    // preventDefault UNCONDITIONALLY: if we returned before it on `state === null`,
+    // the browser's default paste would land in the hidden textarea and leak back
+    // in via `handleInput` as an INSERT_TEXT — defeating the guard. Block the
+    // native paste first, THEN no-op when there is no state to paste into.
     e.preventDefault();
+    if (!state) return;
     const text = e.clipboardData?.getData("text/plain");
     if (text) {
       dispatch({ type: "PASTE", text });
@@ -1012,6 +1752,17 @@ export function createEditorController(
 
   function handleBlur() {
     focused = false;
+    // If an IME composition was in flight when focus was lost, ABANDON it. There
+    // is no spec guarantee `compositionend` fires before/at blur (Chrome/Safari
+    // differ, and an interrupted composition may never fire it), so a stale
+    // `isComposing === true` would gate `handleKeyDown`/`handleInput` forever —
+    // the editor would silently accept no input after refocus (a dead editor).
+    // Clearing the flag + the textarea buffer recovers cleanly (the partial
+    // composed text is dropped, which is the acceptable trade for recoverability).
+    if (isComposing) {
+      isComposing = false;
+      textarea.value = "";
+    }
     stopBlink();
     paint();
   }
@@ -1049,13 +1800,13 @@ export function createEditorController(
     const tTotal = markStart("ctrl.update");
     state = editorState;
 
-    // Phase 3 Tasks 2/3: do NOT materialize all pages here. `layoutTree` is the
-    // raw (possibly virtual) tree; the `materializeAll()` bridge is now LAZY —
-    // `getPositionedTree()` resolves it only when a still-on-bridge consumer
-    // (non-collapsed `computeSelectionRects`; mouse hit-test) actually runs.
-    // Reset the per-update memo so a fresh tree isn't served a stale bridge.
+    // Do NOT materialize all pages here. `layoutTree` is the raw (possibly
+    // virtual) tree; paginated paths (paint, caret, hit-test, selection/find/
+    // comment rects) read it per-page via `getPage` and union per-page via
+    // `selectionRectsAcrossPages` — the whole document is never materialized.
+    // Only the non-paginated branches read it as a positioned `LayoutBox` (via
+    // `nonPaginatedTree()`).
     layoutTree = state.layoutTree;
-    positionedBridge = null;
 
     // Cursor position: resolved directly against the (virtual or positioned)
     // tree. In virtual mode `resolvePixelPosition` positions only the cursor's
@@ -1069,6 +1820,11 @@ export function createEditorController(
       layoutTree,
       measurer,
       state.caretPageHint,
+      // P4-C.2.2b read-side: feed the stored bidi caret-affinity so a collapsed
+      // caret at an LTR↔RTL run boundary renders on the side the user clicked /
+      // last arrowed to (the dual-caret). The seed is written by hit-test + bidi
+      // move; without threading it here the render always defaulted to "after".
+      state.caretAffinity,
     );
     cursorPos = resolved ?? {
       x: 0,
@@ -1103,20 +1859,66 @@ export function createEditorController(
           blockSpansPages(layoutTree.plan, start.blockId) ||
           blockSpansPages(layoutTree.plan, end.blockId);
         if (selSpanningFallback) {
-          const positioned = getPositionedTree(); // rare fallback (block taller than a page)
-          selectionRects = positioned
-            ? computeSelectionRects(state.state, state.selection, positioned, measurer)
-            : [];
+          // Rare: a boundary block taller than a page. Per-page concat over the
+          // virtual tree (per-page, never the whole tree).
+          selectionRects = selectionRectsAcrossPages(
+            state.state, state.selection, layoutTree, measurer,
+            state.anchorAffinity, state.caretAffinity,
+          );
         } else {
           selStart = resolvePixelPosition(state.state, start, layoutTree, measurer, state.caretPageHint);
           selEnd = resolvePixelPosition(state.state, end, layoutTree, measurer, state.caretPageHint);
           // rects computed per-page in paintPages from selStart/selEnd
         }
       } else {
-        selectionRects = computeSelectionRects(state.state, state.selection, layoutTree, measurer);
+        selectionRects = computeSelectionRects(
+          state.state, state.selection, layoutTree, measurer,
+          state.anchorAffinity, state.caretAffinity,
+        );
       }
     }
     markEnd("ctrl.selectionRects", tSel);
+
+    // Find live-recompute (D9): while a session is active, re-run findMatches
+    // against the fresh state after every doc change. Preserve the user's place
+    // by clamping the activeIndex into the new range (if the prior active match
+    // was deleted the clamp lands on a surviving neighbor — accepted v1 behavior,
+    // no identity remap). Does NOT scroll (only findStart/Next/Prev scroll) — a
+    // recompute mid-typing must not yank the viewport. `total === 0` keeps the
+    // session alive with an empty (no-match) highlight set.
+    if (findSession !== null) {
+      const matches = findMatches(state.state, findSession.query, findSession.options);
+      // `-1` (the no-active-match sentinel) is the safe default. The `?.` is
+      // correct, not defensive padding: `setFindHighlights` is public and can
+      // set `findHighlights` directly (without a session), so the
+      // findSession-implies-findHighlights pairing isn't enforced — findHighlights
+      // may legitimately be null here. Using `-1` (not `0`) means a null
+      // findHighlights can't silently land the user on index 0 —
+      // `Math.max(prior, 0)` still clamps to 0 when total > 0.
+      const prior = findHighlights?.activeIndex ?? -1;
+      const activeIndex =
+        matches.length === 0 ? -1 : Math.min(Math.max(prior, 0), matches.length - 1);
+      // Direct assignment (not `setFindHighlights(...)`): that helper calls
+      // `paint()`, which is redundant here because `update()` calls `paint()`
+      // unconditionally below. We still invoke `resolveFindHighlights()` (just
+      // past this block) to refresh the match geometry. A future maintainer
+      // adding bookkeeping to `setFindHighlights` must mirror it here.
+      findHighlights = { matches, activeIndex };
+    }
+
+    // Find-highlight Stage 1: re-resolve each match's boundary positions against
+    // the fresh layout tree (matches geometry can shift when the doc changes).
+    resolveFindHighlights();
+
+    // Comment-highlight Stage 1: re-resolve each lit comment's range + boundary
+    // positions against the fresh state/layout (markers self-heal across edits —
+    // the host doesn't re-call setCommentHighlights per keystroke).
+    resolveCommentHighlights();
+
+    // Suggestion-highlight Stage 1: re-resolve each lit suggestion's range +
+    // boundary positions against the fresh state/layout (tagged runs self-heal
+    // across edits — the host doesn't re-call setSuggestionHighlights per keystroke).
+    resolveSuggestionHighlights();
 
     const tSync = markStart("ctrl.syncDom");
     syncDom();
@@ -1137,15 +1939,231 @@ export function createEditorController(
     markEnd("ctrl.update", tTotal);
   }
 
+  function setFindHighlights(matches: readonly TextMatch[], activeIndex: number): void {
+    if (destroyed) return;
+    findHighlights = { matches, activeIndex };
+    // Stage 1: resolve boundary positions against the current layout, then
+    // repaint. A bare `paint()` suffices: the renderer drives the match-highlight
+    // dirty bookkeeping. Inside paintPage/paintCanvas, `addMatchHighlightDirty`
+    // (in canvas-renderer.ts) compares `cache.getLastMatchHighlightRects()` vs
+    // the current rects each paint, so the incremental path doesn't short-circuit
+    // even though layout + cursor are unchanged.
+    resolveFindHighlights();
+    paint();
+  }
+
+  function clearFindHighlights(): void {
+    if (destroyed) return;
+    if (findHighlights === null && resolvedMatches.length === 0) return;
+    findHighlights = null;
+    resolvedMatches = [];
+    // A bare `paint()` suffices: the dirty-region bookkeeping happens inside the
+    // renderer. `addMatchHighlightDirty` (in canvas-renderer.ts) compares
+    // `cache.getLastMatchHighlightRects()` vs the now-empty current set each
+    // paint, so it dirties the PRIOR rects' regions and the old highlight band
+    // is erased.
+    paint();
+  }
+
+  // ── Comment highlight overlay (comments slice 5) ─────────────────────────
+
+  function setCommentHighlights(highlights: readonly CommentHighlight[]): void {
+    if (destroyed) return;
+    commentHighlights = highlights;
+    // Stage 1: resolve each lit comment's range + boundary positions against the
+    // current state/layout, then repaint. A bare `paint()` suffices: the renderer
+    // drives the comment-highlight dirty bookkeeping. Inside paintPage/paintCanvas,
+    // `addCommentHighlightDirty` compares `cache.getLastCommentHighlightRects()`
+    // vs the current rects each paint, so the incremental path doesn't
+    // short-circuit even though layout + cursor are unchanged.
+    resolveCommentHighlights();
+    paint();
+  }
+
+  function clearCommentHighlights(): void {
+    if (destroyed) return;
+    if (commentHighlights === null && resolvedCommentHighlights.length === 0) return;
+    commentHighlights = null;
+    resolvedCommentHighlights = [];
+    // A bare `paint()` suffices: `addCommentHighlightDirty` compares
+    // `cache.getLastCommentHighlightRects()` vs the now-empty current set each
+    // paint, so it dirties the PRIOR rects' regions and the old band is erased.
+    paint();
+  }
+
+  // ── Suggestion highlight overlay (change-tracking slice 6) ───────────────
+
+  function setSuggestionHighlights(highlights: readonly SuggestionHighlight[]): void {
+    if (destroyed) return;
+    suggestionHighlights = highlights;
+    // Stage 1: resolve each lit suggestion's range + boundary positions against the
+    // current state/layout, then repaint. A bare `paint()` suffices: the renderer
+    // drives the suggestion-highlight dirty bookkeeping. Inside paintPage/paintCanvas,
+    // `addSuggestionHighlightDirty` compares `cache.getLastSuggestionHighlightRects()`
+    // vs the current rects each paint, so the incremental path doesn't
+    // short-circuit even though layout + cursor are unchanged.
+    resolveSuggestionHighlights();
+    paint();
+  }
+
+  function clearSuggestionHighlights(): void {
+    if (destroyed) return;
+    if (suggestionHighlights === null && resolvedSuggestionHighlights.length === 0) return;
+    suggestionHighlights = null;
+    resolvedSuggestionHighlights = [];
+    // A bare `paint()` suffices: `addSuggestionHighlightDirty` compares
+    // `cache.getLastSuggestionHighlightRects()` vs the now-empty current set each
+    // paint, so it dirties the PRIOR rects' regions and the old band is erased.
+    paint();
+  }
+
+  // ── Find session + navigation (#433) ─────────────────────────────────────
+
+  /** The current find status from `findHighlights` (total + activeIndex). */
+  function findStatus(): FindStatus {
+    if (findHighlights === null || findHighlights.matches.length === 0) {
+      return { total: 0, activeIndex: -1 };
+    }
+    return { total: findHighlights.matches.length, activeIndex: findHighlights.activeIndex };
+  }
+
+  function replaceActive(replacement: string): FindStatus {
+    if (destroyed || findHighlights === null) return findStatus();
+    const { matches, activeIndex } = findHighlights;
+    // No active match (out of range / empty set) → no-op.
+    if (activeIndex < 0 || activeIndex >= matches.length) return findStatus();
+    // Dispatch the engine action; the React reducer produces the new state and
+    // EditorView's effect calls `update()`, whose live recompute refreshes the
+    // highlights AND clamps the activeIndex onto the following match (the
+    // replaced one is gone). We do NOT advance the index here (that would
+    // double-advance / skip). Return the CURRENT (pre-refresh) status — the find
+    // bar polls `findStatus()` after the update for the authoritative count.
+    dispatch({ type: "REPLACE_MATCH", match: matches[activeIndex], replacement });
+    return findStatus();
+  }
+
+  function replaceAll(replacement: string): FindStatus {
+    if (destroyed || findHighlights === null) return findStatus();
+    const { matches } = findHighlights;
+    if (matches.length === 0) return findStatus();
+    // One undo step (guaranteed by the REPLACE_ALL action). The live recompute
+    // in the subsequent `update()` refreshes the highlights (typically empty for
+    // the replaced query). Return the current (pre-refresh) status.
+    dispatch({ type: "REPLACE_ALL", matches: [...matches], replacement });
+    return findStatus();
+  }
+
+  /**
+   * Scroll the active match into view via the active match's START
+   * `PixelPosition` (Stage-1 `resolvedMatches[activeIndex].startPos`). NEVER
+   * moves the document cursor. No-op when there is no active match or its
+   * position hasn't resolved (off-layout block). Scrolls regardless of editor
+   * focus (the find bar holds focus) — `scrollVisualIntoView` has no focus guard.
+   */
+  function scrollActiveMatchIntoView(): void {
+    if (findHighlights === null) return;
+    const { activeIndex } = findHighlights;
+    const rm = resolvedMatches[activeIndex];
+    if (rm === undefined) return;
+    scrollVisualIntoView(rm.startPos);
+  }
+
+  /**
+   * The initial active index for `findStart`: the first match whose start is
+   * at-or-after the document cursor (Google Docs "find from here"), wrapping to 0
+   * if none follow. 0 when there's no resolvable cursor, or when the cursor and
+   * the matches live in different selection contexts (`comparePositions` throws
+   * "no common ancestor" — guarded here).
+   */
+  function initialActiveIndex(matches: readonly TextMatch[]): number {
+    const st = state;
+    if (st === null || matches.length === 0) return 0;
+    const cursorPosn = st.selection.focus;
+    // Cross-context guard: a cursor in a footnote/header body and main-tree
+    // matches have no common ancestor → comparePositions throws. Fall back to 0.
+    if (selectionContextOf(st.state, cursorPosn.blockId) !==
+        selectionContextOf(st.state, matches[0].blockId)) {
+      return 0;
+    }
+    for (let i = 0; i < matches.length; i++) {
+      const m = matches[i];
+      const matchStart = createPosition(m.blockId, m.start);
+      try {
+        if (comparePositions(st.state, matchStart, cursorPosn) >= 0) return i;
+      } catch {
+        /* cross-context (e.g. caller passed cross-context `blockIds`): this match
+           lives in a different selection context than the cursor, so
+           comparePositions throws "no common ancestor". The pre-check above only
+           compares the cursor to matches[0]; with caller-supplied blockIds later
+           matches can still span contexts. Treat this match as not-after-cursor
+           and fall through — eventually wrapping to the first match (return 0). */
+      }
+    }
+    // No match at/after the cursor → wrap to the first match.
+    return 0;
+  }
+
+  function findStart(query: string, options?: FindMatchesOptions): FindStatus {
+    if (destroyed || state === null) return { total: 0, activeIndex: -1 };
+    const opts: FindMatchesOptions = options ?? { caseSensitive: false, wholeWord: false };
+    findSession = { query, options: opts };
+    const matches = findMatches(state.state, query, opts);
+    if (matches.length === 0) {
+      // Keep the session active (so a later edit live-recomputes), but no match.
+      setFindHighlights(matches, -1);
+      // `findStatus()` is the single source of truth (matches findNext/findPrev):
+      // after `setFindHighlights(matches, -1)` with empty matches it returns
+      // `{ total: 0, activeIndex: -1 }`.
+      return findStatus();
+    }
+    const activeIndex = initialActiveIndex(matches);
+    setFindHighlights(matches, activeIndex);
+    scrollActiveMatchIntoView();
+    return { total: matches.length, activeIndex };
+  }
+
+  function findNext(): FindStatus {
+    if (destroyed || findHighlights === null) return findStatus();
+    const total = findHighlights.matches.length;
+    if (total === 0) return findStatus();
+    const activeIndex = (findHighlights.activeIndex + 1) % total;
+    setFindHighlights(findHighlights.matches, activeIndex);
+    scrollActiveMatchIntoView();
+    return { total, activeIndex };
+  }
+
+  function findPrev(): FindStatus {
+    if (destroyed || findHighlights === null) return findStatus();
+    const total = findHighlights.matches.length;
+    if (total === 0) return findStatus();
+    const activeIndex = (findHighlights.activeIndex - 1 + total) % total;
+    setFindHighlights(findHighlights.matches, activeIndex);
+    scrollActiveMatchIntoView();
+    return { total, activeIndex };
+  }
+
+  function findClose(): void {
+    if (destroyed) return;
+    findSession = null;
+    // Does NOT move the document selection — the caret stays where it was.
+    clearFindHighlights();
+  }
+
   function destroy() {
     destroyed = true;
     layoutTree = null;
-    positionedBridge = null;
     virtualTree = null;
     hasSelectionHighlight = false;
     selStart = null;
     selEnd = null;
     selSpanningFallback = false;
+    findHighlights = null;
+    resolvedMatches = [];
+    findSession = null;
+    commentHighlights = null;
+    resolvedCommentHighlights = [];
+    suggestionHighlights = null;
+    resolvedSuggestionHighlights = [];
 
     // Remove event listeners
     container.removeEventListener("mousedown", handleMouseDown);
@@ -1192,5 +2210,22 @@ export function createEditorController(
     textarea.focus();
   }
 
-  return { update, focus, destroy };
+  return {
+    update,
+    focus,
+    destroy,
+    setFindHighlights,
+    clearFindHighlights,
+    setCommentHighlights,
+    clearCommentHighlights,
+    setSuggestionHighlights,
+    clearSuggestionHighlights,
+    findStart,
+    findStatus,
+    replaceActive,
+    replaceAll,
+    findNext,
+    findPrev,
+    findClose,
+  };
 }

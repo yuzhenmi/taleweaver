@@ -7,7 +7,7 @@ import { describe, it, expect } from "vitest";
 import { createElementBox, createTextBox } from "../render/render-node";
 import { cascadePass } from "../cascade";
 import { layoutTree } from "./dispatch";
-import { resolvePositionedTree } from "./positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import { createMockShaper } from "./mock-shaper";
 import type { LayoutBox } from "./layout-node";
 import type { Style } from "../styles";
@@ -163,7 +163,7 @@ describe("display: contents box suppression (P1.C.1a)", () => {
     // Page plan (boundaries / entry offsets) identical.
     expect(wrap.plan.entries.length).toBe(hoist.plan.entries.length);
     // Materialized positioned trees deep-equal (the contents wrapper is invisible).
-    expect(resolvePositionedTree(wrap)).toEqual(resolvePositionedTree(hoist));
+    expect(positionTreeForTest(wrap)).toEqual(positionTreeForTest(hoist));
     // The slice-dependent path: pageIndexOfBlock for the contents element's
     // children must match the hoisted doc. (The measure pass indexes
     // PagePlanEntry.children over the FLATTENED child list; a root-level contents

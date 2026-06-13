@@ -18,7 +18,6 @@ import {
 } from "../yjs-doc";
 import { buildYBlock, buildYInlineContent } from "../y-block";
 import { assertNoIdCollision } from "../id-collision-check";
-import { STATE_INTERNAL } from "../state-internal";
 
 /** The `embedType` discriminant for a footnote call marker. */
 export const FOOTNOTE_ANCHOR_EMBED_TYPE = "footnote-anchor";
@@ -108,8 +107,7 @@ export function insertFootnote(
   // BEFORE the transaction opens — mirroring `planInsertText`).
   const anchorPlan = planAnchorInsert(state, position, bodyRootId);
 
-  const result = applyOperation(state, () => {
-    const doc = state[STATE_INTERNAL].doc;
+  const result = applyOperation(state, (doc) => {
     // Dev-mode defense against allocator id collision (counter-based test
     // allocators can collide with seeded state). Checks all three trees.
     assertNoIdCollision(doc, bodyRootId, "insertFootnote");

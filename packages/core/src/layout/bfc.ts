@@ -6,16 +6,104 @@ import { normalizeBreakValue } from "./fragmentation";
 import { layoutInlineContent } from "./ifc";
 import { layoutTable } from "./table-fc";
 import type { TextShaper } from "./text-shaper";
+import type { Hyphenator } from "./hyphenator";
 import { adaptShaperToMeasurer } from "./text-measurer";
 import type { ComputedStyle } from "../styles";
-import { formatCounter } from "./list-counter";
+import type { WritingMode, Direction } from "../styles/writing-mode";
+import { logicalToPhysical } from "../styles/writing-mode";
 import { computeUsedStyle, resolveUsedLength } from "./used-style";
 import type { LayoutContext } from "./layout-context";
 import { makeChildContext } from "./layout-context";
+import type { PendingAbsChild } from "./abs-pos-context";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import { groupChildren, anonymousBlockKey } from "./group-children";
 import { isLayoutBoxReusable, renderNodesLayoutEquivalent } from "./layout-reuse";
 import { markStart, markEnd } from "../perf/perf-trace";
+
+/**
+ * Resolve a `ComputedLength | "auto"` inset against a containing-block axis size.
+ * `"auto"` → 0 (no contribution). A `number` is px. A `{unit:"percent"}` resolves
+ * against `axisSize` UNLESS `axisSize` is `"indefinite"` (the containing block has
+ * no definite size on this axis), in which case the percent resolves to 0 — CSS
+ * Positioned Layout §5: a percentage block-inset against an indefinite-height
+ * containing block computes to `auto`. (A px inset still applies; only the percent
+ * form is suppressed.)
+ */
+function resolveInset(
+  value: ComputedStyle["insetInlineStart"],
+  axisSize: number | "indefinite",
+): number {
+  if (value === "auto") return 0;
+  if (typeof value === "number") return value;
+  // percent
+  if (axisSize === "indefinite") return 0;
+  return resolveUsedLength(value, axisSize, 0);
+}
+
+/**
+ * POSITIONING slice 2 — resolve the physical `position: relative` paint-time
+ * offset for a box from its logical `inset*`, against its containing block.
+ *
+ * The relative box keeps its in-flow geometry; this is a SEPARATE physical
+ * `(dx, dy)` delta the painter adds to the box's accumulated origin (shifting the
+ * box and its descendants together). Resolved HERE, in layout, because percent
+ * insets need both axis bases of the containing block (CSS resolves
+ * `inset-inline-*` against inline size, `inset-block-*` against block size — two
+ * distinct bases), which paint does not have.
+ *
+ * Logical→physical: the (inlineDelta, blockDelta) logical pair is mapped through
+ * the SAME `logicalToPhysical` machinery the box uses for its physical x/y, so the
+ * offset is writing-mode- and direction-correct (including the vertical-rl block-
+ * axis reversal). Because a translation is constant-free, the mapping is computed
+ * as the difference of the origin and the shifted point — the containing-block
+ * sizes used for any mirror cancel, so a `0` is safe when block-size is indefinite.
+ *
+ * Returns `undefined` when `position !== "relative"` OR both deltas resolve to 0,
+ * keeping the un-positioned fast path allocation-free.
+ */
+function resolveRelativeOffset(
+  cs: ComputedStyle,
+  writingMode: WritingMode,
+  direction: Direction,
+  containingInlineSize: number,
+  containingBlockSize: number | "indefinite",
+): { readonly dx: number; readonly dy: number } | undefined {
+  if (cs.position !== "relative") return undefined;
+
+  // Inline axis: inset-inline-start wins over inset-inline-end (CSS). A non-auto
+  // start adds +start; else a non-auto end adds −end; else 0.
+  let inlineDelta = 0;
+  if (cs.insetInlineStart !== "auto") {
+    inlineDelta = resolveInset(cs.insetInlineStart, containingInlineSize);
+  } else if (cs.insetInlineEnd !== "auto") {
+    inlineDelta = -resolveInset(cs.insetInlineEnd, containingInlineSize);
+  }
+
+  // Block axis: symmetric, against the containing-block BLOCK size.
+  let blockDelta = 0;
+  if (cs.insetBlockStart !== "auto") {
+    blockDelta = resolveInset(cs.insetBlockStart, containingBlockSize);
+  } else if (cs.insetBlockEnd !== "auto") {
+    blockDelta = -resolveInset(cs.insetBlockEnd, containingBlockSize);
+  }
+
+  if (inlineDelta === 0 && blockDelta === 0) return undefined;
+
+  // Map the logical (inlineDelta, blockDelta) to a physical (dx, dy) by taking the
+  // difference of the shifted point and the origin under the box's own
+  // logicalToPhysical mapping. A concrete containing-block size for the vertical-rl
+  // mirror is irrelevant (it cancels in the difference) — pass 0 when indefinite.
+  const cbSizeForMirror = containingBlockSize === "indefinite" ? 0 : containingBlockSize;
+  const origin = logicalToPhysical(
+    { inlineOffset: 0, blockOffset: 0, inlineSize: 0, blockSize: 0 },
+    writingMode, direction, containingInlineSize, cbSizeForMirror,
+  );
+  const shifted = logicalToPhysical(
+    { inlineOffset: inlineDelta, blockOffset: blockDelta, inlineSize: 0, blockSize: 0 },
+    writingMode, direction, containingInlineSize, cbSizeForMirror,
+  );
+  return { dx: shifted.x - origin.x, dy: shifted.y - origin.y };
+}
 
 /**
  * Lay out a block-level element in a Block Formatting Context.
@@ -97,6 +185,10 @@ export function layoutBlock(
   blockOffset: number,
   ctx: LayoutContext,
   shaper: TextShaper,
+  // Auto-hyphenation (slice 2): threaded ALONGSIDE `shaper` to every site that
+  // tokenizes text, so the (slice 4) producer can read it at `collectInlineTokens`.
+  // `undefined` ⇒ no hyphenation. Carried but UNUSED in this slice.
+  hyphenator: Hyphenator | undefined,
   fragmentation?: FragmentationContext,
 ): LayoutResult<BlockBox> {
   const t = markStart("bfc.layoutBlock");
@@ -106,6 +198,18 @@ export function layoutBlock(
   const direction = ctx.direction;
   if (!node.computedStyle) throw new Error("cascade required");
   const cs = node.computedStyle;
+
+  // POSITIONING slice 2 — `position: relative` paint-time offset. Resolved here
+  // (in layout), where this box's containing-block inline + block sizes are in
+  // hand (the two distinct percent bases for inset-inline-* vs inset-block-*).
+  // `undefined` for the un-positioned common case (zero-cost). The box geometry
+  // stays pre-offset; the painter adds this physical delta. NOTE the cache-reuse
+  // fast paths below preserve `entry.box.relativeOffset` rather than recomputing
+  // it: a cached box was laid out with the same cs/containing sizes, so its stored
+  // offset is still correct, and the reposition-clone re-attaches it verbatim.
+  const relativeOffset = resolveRelativeOffset(
+    cs, writingMode, direction, availableInlineSize, ctx.containingBlockSize,
+  );
 
   // Subtree reuse: if a previous layout exists, check whether this block's
   // output is still valid. Conservative — only reuse when all inputs match.
@@ -202,6 +306,17 @@ export function layoutBlock(
             entry.box.children,
             /* containingInlineSize */ availableInlineSize,
             entry.box.metadata,
+            /* containingBlockSize */ undefined,
+            // Preserve the `position: relative` paint-time offset across the
+            // reposition clone (slice 2): the offset is a physical delta added
+            // at paint, independent of the outer (inlineOffset, blockOffset)
+            // reposition, so it carries through verbatim.
+            entry.box.relativeOffset,
+            // Preserve abs-pos children across the reposition clone (slice 3):
+            // they are positioned in this box's own frame, independent of the
+            // outer reposition, so they carry through verbatim. A dropped clone
+            // here would silently lose the abs subtree on cache reuse.
+            entry.box.absoluteChildren,
           ),
           breakToken: null,
         };
@@ -237,7 +352,6 @@ export function layoutBlock(
   const isOwnBFC = ctx.isBFCRoot;
 
   let prevMarginBlockEnd = 0;
-  let listCounter = 0;
 
   const groups = groupChildren(node);
 
@@ -262,20 +376,11 @@ export function layoutBlock(
     }
   }
 
-  // When resuming at startIndex > 0, seed listCounter from preceding list-item
-  // children so ordered-list numbering continues correctly across page breaks.
-  // Without this, list items on page 2+ would restart from 1.
-  if (startIndex > 0) {
-    for (let i = 0; i < startIndex; i++) {
-      const g = groups[i];
-      if (g.kind === "block") {
-        const c = g.child;
-        if (c.type === "element" && c.computedStyle?.display === "list-item") {
-          listCounter++;
-        }
-      }
-    }
-  }
+  // (List numbering is no longer counted in the BFC. The list-item marker is a
+  // render-baked `markerText` on the cascaded ComputedStyle — produced by the
+  // render-time numbering service (`numbering/`) and emitted by the list-item
+  // component — so it is identical on every fragment and needs no seed/replay
+  // across page boundaries. The BFC only READS `childCs.markerText` below.)
 
   /**
    * Build a partial LayoutResult<BlockBox> from the children placed so far
@@ -310,6 +415,17 @@ export function layoutBlock(
         writingMode, direction, cs, usedStyle, placedChildren,
         /* containingInlineSize */ availableInlineSize,
         node.metadata,
+        /* containingBlockSize */ undefined,
+        relativeOffset,
+        // TODO (positioning v1 edge): abs-pos children registered into this box's
+        // own abc BEFORE this fragmentation break are NOT drained onto the partial
+        // box — the abs-pos second pass (which builds `absoluteChildren`) only runs
+        // on the FULL, non-fragmented return below, never on a partial result. They
+        // remain in `ctx.absoluteContainingBlock.pending` and are abandoned.
+        // Correct behavior would drain the abs children whose static position falls
+        // in this placed fragment onto this box (and carry the rest to the resumed
+        // fragment). Tracked as a named v1 follow-up (spec §6, slice 3). No
+        // `absoluteChildren` arg here, hence the omission is deliberate.
       ),
       breakToken,
     };
@@ -353,11 +469,20 @@ export function layoutBlock(
     if (group.kind === "inline-run") {
       // Synthesize an anonymous ElementBox for this inline-run group and lay it out via IFC.
       const anonKey = anonymousBlockKey(node.key, group.positionalIndex);
+      // #432: CSS2 §16.1 — `text-indent` indents the first line of an anonymous
+      // block box ONLY when that anon block is its parent's first child (the
+      // block's first formatted line). The LEADING inline run is the first group
+      // (`i === 0`); a run at `i > 0` is always preceded by a block group
+      // (`groupChildren` coalesces consecutive inline children into one group),
+      // so it is NOT the first child and must NOT be indented. Suppress the
+      // indent on non-leading runs by zeroing `textIndent` on their anon style.
+      const anonCs: ComputedStyle =
+        i === 0 ? cs : Object.freeze({ ...cs, textIndent: 0 });
       const anonElement: ElementBox = Object.freeze({
         type: "element" as const,
         key: anonKey,
         style: node.style,
-        computedStyle: cs,
+        computedStyle: anonCs,
         children: Object.freeze([...group.children]),
       });
 
@@ -385,7 +510,7 @@ export function layoutBlock(
               resumeFrom: ifcResumeFrom,
             };
 
-      const ifcResult = layoutInlineContent(anonElement, paddingInlineStart, childBlockOffset, ifcCtx, shaper, ifcFragmentation);
+      const ifcResult = layoutInlineContent(anonElement, paddingInlineStart, childBlockOffset, ifcCtx, shaper, hyphenator, ifcFragmentation);
       if (ifcResult.box === null) {
         // IFC couldn't fit anything — propagate as a partial result.
         // If nothing was placed yet (empty fragment), return null so parent can apply overflow rule.
@@ -397,7 +522,7 @@ export function layoutBlock(
       }
       const ifcBox = ifcResult.box;
 
-      const anonBlockSize = ifcBox.height;
+      const anonBlockSize = ifcBox.blockSize;
 
       // Append lines directly to layoutChildren (anonymous boxes are layout-time-only).
       for (const line of ifcBox.children) layoutChildren.push(line);
@@ -478,14 +603,14 @@ export function layoutBlock(
       // Float establishes its own BFC (cs.float !== "none"); pass childCs so
       // makeChildContext detects this and gives the float a fresh float env.
       const floatCtxChild = makeChildContext(ctx, childCs, floatInlineSizeForCtx, "indefinite");
-      const floatResult = layoutBlock(child, 0, 0, floatCtxChild, shaper);
+      const floatResult = layoutBlock(child, 0, 0, floatCtxChild, shaper, hyphenator);
       if (floatResult.box === null) {
         throw new Error("layoutBlock without fragmentation returned null box; should be unreachable (no FragmentationContext passed)");
       }
       const floatLayout = floatResult.box;
       const floatExplicitBlockSize = resolveExplicitBlockSize(childCs.blockSize, contentInlineSize);
-      const floatInlineSize = floatLayout.width;
-      const floatBlockSize = floatExplicitBlockSize > 0 ? floatExplicitBlockSize : floatLayout.height;
+      const floatInlineSize = floatLayout.inlineSize;
+      const floatBlockSize = floatExplicitBlockSize > 0 ? floatExplicitBlockSize : floatLayout.blockSize;
       const result = floatEnv.placeFloat(
         childCs.float === "inline-start" ? "inline-start" : "inline-end",
         childBlockOffset,
@@ -509,6 +634,29 @@ export function layoutBlock(
       assertLayoutBoxConsistent(positioned, contentInlineSize);
       layoutChildren.push(positioned);
       // Float is out of normal flow — do NOT advance childBlockOffset or update prevMarginBlockEnd.
+      continue;
+    }
+
+    // ABS-POS BRANCH (POSITIONING slice 3): an absolutely-positioned child is
+    // OUT OF FLOW. Mirror the float branch: skip
+    // ALL in-flow placement (no `childBlockOffset` advance, no margin collapse, no
+    // `prevMarginBlockEnd` update), capture its STATIC position (where the in-flow
+    // algorithm WOULD place it — `childInlineStart` on the inline axis,
+    // `childBlockOffset` on the block axis, both pre-advance), and register it into
+    // the current abc's pending-list for the second pass to drain. The static
+    // position is expressed in the abc's coordinate frame by adding
+    // `ctx.originFromAbc` (zero for a direct child of the establishing box; the
+    // accumulated intervening offsets for a deeper in-flow descendant), so the
+    // `auto`-inset fallback lands in the same frame the resolved insets produce.
+    // `continue` exactly like the float branch.
+    if (childCs.position === "absolute") {
+      ctx.absoluteContainingBlock.pending.register({
+        node: child,
+        computedStyle: childCs,
+        usedStyle: childUsedStyle,
+        staticInlineOffset: ctx.originFromAbc.inlineOffset + childInlineStart,
+        staticBlockOffset:  ctx.originFromAbc.blockOffset  + childBlockOffset,
+      });
       continue;
     }
 
@@ -559,9 +707,10 @@ export function layoutBlock(
     // (a) `fragmentHasContent` would be spuriously true for the FIRST child (its
     // own marker counts as "preceding content"), and (b) on a real forced break
     // the marker would be orphaned into the partial result AND regenerated when
-    // the block resumes on the next page — a double marker, and a double
-    // list-counter increment. Deciding the break first means the marker (and the
-    // `listCounter++`) only happen once the block is actually placed on this page.
+    // the block resumes on the next page — a double marker. Deciding the break
+    // first means the marker is emitted only once the block is actually placed on
+    // this page. (List numbering itself is computed in the render pass now — the
+    // BFC only consumes the baked `markerText`; it no longer counts.)
     if (fragmentation !== undefined) {
       const breakBefore = normalizeBreakValue(childCs.breakBefore ?? "auto");
       const fragmentHasContent = layoutChildren.length > 0;
@@ -574,21 +723,57 @@ export function layoutBlock(
       }
     }
 
-    // Marker generation. Two sources, mutually exclusive:
-    //   1. Explicit `markerText` (a `::marker`-content-like presentation string)
-    //      — takes precedence, works on ANY display, and does NOT advance the
-    //      list-item auto-counter.
-    //   2. `display: list-item` auto-counter (resolveMarkerText from
-    //      `list-style-type`) — only when no explicit markerText is set.
-    // Either way the marker is a GENERATED sibling box, never an offset-bearing
-    // inline item, so it adds zero cursor stops.
+    // Marker generation. The marker is the render-baked `markerText` on the
+    // cascaded ComputedStyle (produced by the render-time numbering service +
+    // the list-item component — numbering, restart, and the #425 consecutive-run
+    // rule all live there now, not in the BFC). It is a GENERATED sibling box,
+    // never an offset-bearing inline item, so it adds zero cursor stops. Empty/
+    // absent markerText → no marker (a non-list block, or a list-item the
+    // numbering pass didn't number).
     let markerText: string | null = null;
     if (childCs.markerText !== undefined && childCs.markerText !== "") {
       markerText = childCs.markerText;
-    } else if (childCs.display === "list-item") {
-      listCounter++;
-      markerText = resolveMarkerText(childCs, listCounter);
     }
+    // #431: a list-item whose content STRADDLES a page break must emit its
+    // marker only on the page where it STARTS — NOT on both the origin-page tail
+    // and the resume-page head. The resuming fragment is the FIRST child of the
+    // resumed BFC (`i === startIndex`) carrying a non-null resume token (a
+    // MID-CONTENT continuation; a null token at startIndex means a clean child
+    // boundary where the fresh child SHOULD show its marker). Google-Docs parity:
+    // a split list-item's continuation has no marker. The baked `markerText` is
+    // identical on every fragment (it is position-derived once, at render time),
+    // so suppressing the marker BOX on the continuation is all that is needed.
+    //
+    // #501 — degenerate-resume EXCEPTION: a resume from the very START (the prior
+    // page placed ZERO content for this item — `resumeAtLine === 0`, an inner
+    // token classified degenerate by `isResumeFromDegenerate`) means THIS page is
+    // where the item actually starts, so it MUST show its marker. Only a
+    // GENUINELY mid-content continuation (`resumeAtLine > 0`) suppresses it.
+    // Without this carve-out, an item that landed at the prior page's bottom with
+    // no room for even its first line would have its marker orphaned on the prior
+    // page (the deferred-push fix below prevents the orphan) AND suppressed here —
+    // leaving the item with no marker at all.
+    const isResumeFragment =
+      i === startIndex &&
+      firstChildResumeToken !== null &&
+      !isResumeFromDegenerate(firstChildResumeToken);
+    // Auto-widen state (#426). When an `outside` marker is wider than the item's
+    // OWN paddingInlineStart (its marker gutter), the item's effective
+    // paddingInlineStart is widened so the marker fills the widened gutter
+    // instead of hanging LEFT of the item's border edge. Computed in the marker
+    // block below and read by the child-layout call so the content shifts right
+    // to match. Defaults to the authored padding (no widening) so non-marker /
+    // fits-case children are byte-identical.
+    let effectivePaddingInlineStart = childUsedStyle.paddingInlineStart;
+    // #501 — DEFERRED marker box. Built here (so the auto-widen math runs), but
+    // NOT pushed onto `layoutChildren` yet: a marker pushed before the child's
+    // content is laid out would (a) make `layoutChildren.length` non-zero, hiding
+    // an empty fragment from the C.6 overflow checks (so a first-child list-item
+    // that overflows would break instead of being placed), and (b) orphan onto a
+    // fragment where the item ends up placing ZERO content. Instead it is pushed
+    // FIRST (before the content box) at EVERY site that places the item's content
+    // on THIS fragment — and never on a fragment where the content didn't land.
+    let markerBox: LayoutBox | null = null;
     if (markerText !== null) {
       // Use a measurer adapter for the simple width/height calls needed for marker boxes.
       const measurer = adaptShaperToMeasurer(shaper);
@@ -611,28 +796,89 @@ export function layoutBlock(
       // For the legacy container-wrapped shape (padding on the parent `list`,
       // none on the item) `childUsedStyle.paddingInlineStart === 0`, so this is
       // byte-identical to the pre-leaf marker position.
-      const markerContentEdge = childInlineStart + childUsedStyle.paddingInlineStart;
-      const markerInlineOffset = childCs.listStylePosition === "inside"
-        ? markerContentEdge
-        : markerContentEdge - markerInlineSize - markerGap;
-      const markerBox = createMarkerBox(
-        `${child.key}-marker`,
-        markerInlineOffset, childBlockOffset,
-        markerInlineSize, markerBlockSize,
-        cs.writingMode, cs.direction,
-        childCs, childUsedStyle,
-        markerText,
-        /* containingInlineSize */ contentInlineSize,
-      );
-      layoutChildren.push(markerBox);
+      //
+      // AUTO-WIDEN (#426, Google Docs parity): when the marker + gap is WIDER
+      // than the item's OWN paddingInlineStart — i.e.
+      // `markerInlineSize + markerGap > childUsedStyle.paddingInlineStart` — the
+      // `outside` marker would hang LEFT of `childInlineStart` (the item's border
+      // edge), overlapping sibling content / running off the inline-start. The
+      // `childInlineStart` term cancels: marker-left
+      // `= childInlineStart + padding − markerW − gap ≥ childInlineStart` iff
+      // `markerW + gap ≤ padding`. So the gate is on the item's OWN padding, NOT
+      // on `childInlineStart + padding` — gating on the latter under-fires for an
+      // INDENTED leaf (`marginInlineStart > 0`, so `childInlineStart > 0`), where
+      // a marker with `padding < markerW+gap ≤ childInlineStart+padding` would
+      // STILL hang left of the border. When it fires, widen the effective
+      // paddingInlineStart to exactly `markerInlineSize + markerGap`: the marker
+      // lands flush at `childInlineStart` and the content shifts right to match.
+      // `inside` markers sit AT the content edge and never hang, so they never
+      // widen.
+      effectivePaddingInlineStart =
+        childCs.listStylePosition !== "inside" &&
+        markerInlineSize + markerGap > childUsedStyle.paddingInlineStart
+          ? markerInlineSize + markerGap
+          : childUsedStyle.paddingInlineStart;
+      // #431: still compute the auto-widen above on the resume fragment so the
+      // split item's CONTINUATION content keeps the same content edge as the
+      // origin fragment (the wrapped tail must align with the head). Only the
+      // marker BOX is suppressed — a mid-content continuation emits NO marker
+      // (a degenerate-resume / from-the-start fragment IS the item's start, so
+      // `isResumeFragment` is false there and the marker is built — #501).
+      if (!isResumeFragment) {
+        const effectiveContentEdge = childInlineStart + effectivePaddingInlineStart;
+        const markerInlineOffset = childCs.listStylePosition === "inside"
+          ? effectiveContentEdge
+          : effectiveContentEdge - markerInlineSize - markerGap;
+        markerBox = createMarkerBox(
+          `${child.key}-marker`,
+          markerInlineOffset, childBlockOffset,
+          markerInlineSize, markerBlockSize,
+          cs.writingMode, cs.direction,
+          childCs, childUsedStyle,
+          markerText,
+          /* containingInlineSize */ contentInlineSize,
+        );
+        // NOT pushed here (#501 deferral) — see every content-push site below.
+      }
     }
 
-    // Pass childCs (child's own computed style) so makeChildContext can detect
-    // whether the child establishes a new BFC and create a fresh float env.
-    // The child's containing inline size is its OWN content box, narrowed by
-    // its inline margins (`childContentInlineSize`); the parent re-mirrors the
-    // resulting box against the parent content box via `positionChildInline`.
-    const childCtx = makeChildContext(ctx, childCs, childContentInlineSize, "indefinite");
+    // When the marker auto-widened the gutter (#426), lay the child's content
+    // out against the WIDENED padding so the content edge matches the marker's
+    // new flush position. We clone the child element with a paddingInlineStart-
+    // overridden ComputedStyle — ONLY when widened, so the common (fits) case
+    // uses the original `child`/`childCs` unchanged and stays byte-identical
+    // (including layout-cache reuse, which keys on `child.key` — preserved by
+    // the clone). The cloned childCs is used for BOTH the child layout call and
+    // `makeChildContext` (padding does not affect BFC detection, but keeping a
+    // single childCs identity avoids any drift).
+    const widened = effectivePaddingInlineStart > childUsedStyle.paddingInlineStart;
+    const layoutChild: ElementBox = widened
+      ? Object.freeze({
+          ...child,
+          computedStyle: Object.freeze({
+            ...childCs,
+            paddingInlineStart: effectivePaddingInlineStart,
+          }),
+        })
+      : child;
+    const layoutChildCs = layoutChild.computedStyle ?? childCs;
+
+    // Pass layoutChildCs (child's own computed style) so makeChildContext can
+    // detect whether the child establishes a new BFC and create a fresh float
+    // env. The child's containing inline size is its OWN content box, narrowed
+    // by its inline margins (`childContentInlineSize`); the parent re-mirrors
+    // the resulting box against the parent content box via `positionChildInline`.
+    //
+    // POSITIONING slice 3: pass the child's in-flow frame origin
+    // `(childInlineStart, childBlockOffset)` as `contentOrigin` so that a NESTED
+    // abs-pos descendant of this (non-establishing) child captures its static
+    // position in the abc's frame (`makeChildContext` accumulates it onto
+    // `originFromAbc`). When THIS child establishes an abc, `makeChildContext`
+    // resets the accumulator to `{0, 0}`, so the origin is harmlessly ignored.
+    const childCtx = makeChildContext(ctx, layoutChildCs, childContentInlineSize, "indefinite", {
+      inlineOffset: childInlineStart,
+      blockOffset: childBlockOffset,
+    });
 
     // Derive a FragmentationContext for the child with reduced availableBlockSize.
     // C.7: thread firstChildResumeToken into the FIRST iteration (the resumed child);
@@ -657,13 +903,14 @@ export function layoutBlock(
      * result. The next sibling will then be pushed to a new fragment via the
      * standard fit-check.
      */
-    // Capture the narrowed ElementBox reference so the closure below can use it
-    // without losing the type-narrowing established by `child.type !== "element"`.
-    const childElement: ElementBox = child;
+    // Use the (possibly auto-widened, #426) child element so the closure below
+    // lays out the content against the same padding the marker positioned
+    // against. `layoutChild` is a properly-narrowed `ElementBox` (the original
+    // `child` when not widened) — no separate narrowing capture needed.
     function applyOverflowRule(): LayoutBox {
       const fullResult = childCs.display === "table"
-        ? layoutTable(childElement, paddingInlineStart, childBlockOffset, childCtx, shaper, undefined)
-        : layoutBlock(childElement, paddingInlineStart, childBlockOffset, childCtx, shaper, undefined);
+        ? layoutTable(layoutChild, paddingInlineStart, childBlockOffset, childCtx, shaper, hyphenator, undefined)
+        : layoutBlock(layoutChild, paddingInlineStart, childBlockOffset, childCtx, shaper, hyphenator, undefined);
       if (fullResult.box === null) {
         throw new Error("layout without fragmentation returned null box; unreachable");
       }
@@ -675,18 +922,20 @@ export function layoutBlock(
     let childLayout: LayoutBox;
     let childResultBreakToken: BreakToken | null = null;
     if (childCs.display === "table") {
-      const tableResult = layoutTable(child, paddingInlineStart, childBlockOffset, childCtx, shaper, childFragmentation);
+      const tableResult = layoutTable(layoutChild, paddingInlineStart, childBlockOffset, childCtx, shaper, hyphenator, childFragmentation);
       if (tableResult.box === null) {
         // Table couldn't fit anything on this fragment.
         // C.6 overflow rule: if fragment is empty, place it anyway (overflow).
         if (fragmentation !== undefined && layoutChildren.length === 0) {
           const overflowBox = applyOverflowRule();
+          if (markerBox !== null) layoutChildren.push(markerBox);
           layoutChildren.push(overflowBox);
-          childBlockOffset += overflowBox.height;
+          childBlockOffset += overflowBox.blockSize;
           prevMarginBlockEnd = childUsedStyle.marginBlockEnd;
           continue;
         }
-        // Propagate as a break.
+        // Propagate as a break (#501: marker NOT pushed — the item placed nothing
+        // on this fragment, so it must not be orphaned here).
         return buildPartialResult(layoutChildren, {
           type: "block",
           resumeChildIndex: i,
@@ -696,18 +945,21 @@ export function layoutBlock(
       childLayout = positionChildInline(tableResult.box);
       childResultBreakToken = tableResult.breakToken;
     } else {
-      const childResult = layoutBlock(child, paddingInlineStart, childBlockOffset, childCtx, shaper, childFragmentation);
+      const childResult = layoutBlock(layoutChild, paddingInlineStart, childBlockOffset, childCtx, shaper, hyphenator, childFragmentation);
       if (childResult.box === null) {
         // Child couldn't fit anything on this fragment.
         // C.6 overflow rule: if fragment is empty, place it anyway (overflow).
         if (fragmentation !== undefined && layoutChildren.length === 0) {
           const overflowBox = applyOverflowRule();
+          if (markerBox !== null) layoutChildren.push(markerBox);
           layoutChildren.push(overflowBox);
-          childBlockOffset += overflowBox.height;
+          childBlockOffset += overflowBox.blockSize;
           prevMarginBlockEnd = childUsedStyle.marginBlockEnd;
           continue;
         }
-        // Propagate as a break.
+        // Propagate as a break (#501: marker NOT pushed — the item placed nothing
+        // on this fragment. When it resumes on the next fragment from a degenerate
+        // (line-0) token, that fragment is its real START and emits the marker).
         return buildPartialResult(layoutChildren, {
           type: "block",
           resumeChildIndex: i,
@@ -719,11 +971,20 @@ export function layoutBlock(
     }
 
     const explicitBlockSize = resolveExplicitBlockSize(childCs.blockSize, contentInlineSize);
-    const finalBlockSize = explicitBlockSize > 0 ? explicitBlockSize : childLayout.height;
+    const finalBlockSize = explicitBlockSize > 0 ? explicitBlockSize : childLayout.blockSize;
     const placedChild = explicitBlockSize > 0
       ? createBlockBox(child.key, childInlineStart, childBlockOffset, childContentInlineSize, finalBlockSize, cs.writingMode, cs.direction, childCs, childUsedStyle, [],
           /* containingInlineSize */ contentInlineSize,
           child.metadata,
+          /* containingBlockSize */ undefined,
+          // Preserve the child's `position: relative` paint-time offset across the
+          // explicit-block-size box re-creation (it would otherwise be dropped).
+          childLayout.relativeOffset,
+          // Preserve the child's abs-pos descendants across the explicit-block-size
+          // box re-creation (slice 3): a child that established an abc resolves them
+          // in its OWN frame, independent of this re-creation, so they carry through
+          // verbatim — a dropped clone here would silently lose the abs subtree.
+          childLayout.absoluteChildren,
         )
       : childLayout;
 
@@ -731,14 +992,17 @@ export function layoutBlock(
     // This check uses the final placed size (after explicit block-size override).
     if (fragmentation !== undefined) {
       const remaining = fragmentation.availableBlockSize - childBlockOffset;
-      if (placedChild.height > remaining) {
+      if (placedChild.blockSize > remaining) {
         // C.6 overflow rule: if fragment is empty, place it anyway (overflow).
         if (layoutChildren.length === 0) {
+          if (markerBox !== null) layoutChildren.push(markerBox);
           layoutChildren.push(placedChild);
-          childBlockOffset += placedChild.height;
+          childBlockOffset += placedChild.blockSize;
           prevMarginBlockEnd = childUsedStyle.marginBlockEnd;
           continue;
         }
+        // #501: marker NOT pushed — the whole block doesn't fit and is pushed to
+        // the next fragment (which becomes its start and emits the marker).
         return buildPartialResult(layoutChildren, {
           type: "block",
           resumeChildIndex: i,
@@ -758,11 +1022,15 @@ export function layoutBlock(
           // and place the whole child, accepting the overflow.
           if (layoutChildren.length === 0) {
             const overflowBox = applyOverflowRule();
+            if (markerBox !== null) layoutChildren.push(markerBox);
             layoutChildren.push(overflowBox);
-            childBlockOffset += overflowBox.height;
+            childBlockOffset += overflowBox.blockSize;
             prevMarginBlockEnd = childUsedStyle.marginBlockEnd;
             continue;
           }
+          // #501: break-inside:avoid pushes the whole child to the next fragment;
+          // marker NOT pushed here (it emits on the fragment that actually starts
+          // the child).
           return buildPartialResult(layoutChildren, {
             type: "block",
             resumeChildIndex: i,
@@ -770,8 +1038,11 @@ export function layoutBlock(
           });
         }
       }
+      // Partial-content break: the child placed ≥1 line on THIS fragment, so the
+      // marker DID land here — push it before the partial content box (#501).
+      if (markerBox !== null) layoutChildren.push(markerBox);
       layoutChildren.push(placedChild);
-      childBlockOffset += placedChild.height;
+      childBlockOffset += placedChild.blockSize;
       return buildPartialResult(layoutChildren, {
         type: "block",
         resumeChildIndex: i,
@@ -788,7 +1059,14 @@ export function layoutBlock(
     const isEmpty = (childExplicitBlockSize === null || childExplicitBlockSize === 0)
                  && childPaddingV === 0
                  && childBorderV === 0
-                 && childLayout.height === 0;
+                 && childLayout.blockSize === 0;
+
+    // #501: this is the NORMAL (non-break) placement — the child's content lands
+    // on THIS fragment, so its deferred marker is pushed FIRST (matching the
+    // marker-before-content order the old inline push produced). Both the
+    // empty-block and the non-empty branch place the content here, so the marker
+    // precedes whichever runs.
+    if (markerBox !== null) layoutChildren.push(markerBox);
 
     if (isEmpty) {
       // Undo the marginBlockStart advance; the combined margin is held for the next sibling collapse
@@ -806,11 +1084,20 @@ export function layoutBlock(
         createBlockBox(child.key, childInlineStart, preAdvanceBlockOffset, placedChild.inlineSize, 0, cs.writingMode, cs.direction, childCs, childUsedStyle, [],
           /* containingInlineSize */ contentInlineSize,
           child.metadata,
+          /* containingBlockSize */ undefined,
+          // Preserve the child's `position: relative` paint-time offset across the
+          // empty-block re-creation.
+          placedChild.relativeOffset,
+          // Preserve the child's abs-pos descendants across the empty-block
+          // re-creation (slice 3): resolved in the child's OWN frame, independent of
+          // this re-creation, so they carry through verbatim — a dropped clone here
+          // would silently lose the abs subtree.
+          placedChild.absoluteChildren,
         ),
       );
     } else {
       layoutChildren.push(placedChild);
-      childBlockOffset += placedChild.height;
+      childBlockOffset += placedChild.blockSize;
       prevMarginBlockEnd = childMarginBlockEnd;
     }
 
@@ -844,10 +1131,51 @@ export function layoutBlock(
     totalBlockSize = inFlowBlockSize;
   }
 
+  // ABS-POS SECOND PASS (POSITIONING slice 3): if THIS box owns its absolute
+  // containing block (it established a fresh pending-list — the root always, or
+  // an `establishesAbsoluteContainingBlock(cs)` box), drain the pending list and
+  // lay out each abs-pos child against the now-resolved abc frame. Mirrors the
+  // float second pass (`floatEnv.lowestFloatBlockEdge()` above): the in-flow walk
+  // is done, the box's size is known, so the deferred out-of-flow children are
+  // resolved here. The abc frame is built from THIS box's RESOLVED locals — the
+  // authoritative content origin/sizes — not the placeholder carried in context.
+  // A non-fragmented full layout only (paginated abs-pos splitting is a v1 edge —
+  // see the `buildPartialResult` note: a partial/fragmented return never reaches
+  // this second pass, so abs children registered before a fragmentation break are
+  // left undrained in the pending list); the pending list is empty for the
+  // overwhelmingly common un-positioned document, so this whole block is a cheap
+  // no-op there.
+  let absoluteChildren: readonly LayoutBox[] | undefined;
+  if (ctx.ownsAbsoluteContainingBlock) {
+    const pendingAbs = ctx.absoluteContainingBlock.pending.drain();
+    if (pendingAbs.length > 0) {
+      const contentBlockResolved = Math.max(0, totalBlockSize - paddingBlockStart - paddingBlockEnd);
+      // The percent-resolution base for block-axis insets: CSS §10.5 — a
+      // percentage resolves against the abc's block size only when that size is
+      // DEFINITE (an explicit `block-size`); against an auto-height abc the
+      // percentage computes to `auto`. `resolveExplicitBlockSizeOrNull` returns
+      // null for `auto`/intrinsic → "indefinite".
+      const explicitBlock = resolveExplicitBlockSizeOrNull(cs.blockSize, availableInlineSize);
+      const abcBlockPercentBase: number | "indefinite" =
+        explicitBlock !== null && explicitBlock > 0 ? contentBlockResolved : "indefinite";
+      const abc: ResolvedAbc = {
+        originInline: paddingInlineStart,
+        originBlock:  paddingBlockStart,
+        inlineSize:   contentInlineSize,
+        contentBlockResolved,
+        blockPercentBase: abcBlockPercentBase,
+      };
+      absoluteChildren = layoutAbsoluteChildren(pendingAbs, abc, ctx, shaper, hyphenator);
+    }
+  }
+
   return { box: createBlockBox(
     node.key, inlineOffset, blockOffset, finalInlineSize, totalBlockSize, writingMode, direction, cs, usedStyle, layoutChildren,
     /* containingInlineSize */ availableInlineSize,
     node.metadata,
+    /* containingBlockSize */ undefined,
+    relativeOffset,
+    absoluteChildren,
   ), breakToken: null };
   } finally {
     markEnd("bfc.layoutBlock", t);
@@ -935,26 +1263,161 @@ function resolveExplicitBlockSizeOrNull(
   return resolveUsedLength(blockSize, containingInlineSize, 0);
 }
 
-function resolveMarkerText(cs: ComputedStyle, counter: number): string | null {
-  const lst = cs.listStyleType;
-  if (lst === "none") return null;
-  if (typeof lst === "object") return lst.content;
-  switch (lst) {
-    case "disc":   return "•";
-    case "circle": return "○";
-    case "square": return "▪";
-    case "decimal":
-    case "lower-alpha":
-    case "upper-alpha":
-    case "lower-roman":
-    case "upper-roman":
-      return formatCounter(counter, lst);
-    default: {
-      // Exhaustiveness check: if a new ListStyleType literal is added, this
-      // forces TS to flag the missing case here instead of silently returning
-      // null. Closes Plan 1 F7.x preexisting unreachable-code diagnostic.
-      const _exhaustive: never = lst;
-      return _exhaustive;
-    }
-  }
+/**
+ * POSITIONING slice 3 — the RESOLVED absolute containing block frame, built by
+ * the establishing box's second pass from its own resolved locals. All values are
+ * in the establishing box's OWN coordinate frame (the frame `absoluteChildren`
+ * are pushed into), so an abs child's resolved offsets are parent-relative there.
+ */
+interface ResolvedAbc {
+  /** The abc content-box inline-start, in the establishing box's frame (= paddingInlineStart). */
+  readonly originInline: number;
+  /** The abc content-box block-start, in the establishing box's frame (= paddingBlockStart). */
+  readonly originBlock: number;
+  /** The abc content-area inline-size (definite). */
+  readonly inlineSize: number;
+  /** The abc content-area block-size, resolved at drain time (definite). Used for px end-anchoring / fill. */
+  readonly contentBlockResolved: number;
+  /**
+   * The base a block-axis PERCENT inset resolves against: a definite number when
+   * the abc has an explicit block-size, else `"indefinite"` (CSS §10.5 — a percent
+   * against an auto-height abc computes to `auto`).
+   */
+  readonly blockPercentBase: number | "indefinite";
 }
+
+/**
+ * POSITIONING slice 3 — lay out the abs-pos children whose abc is the box that
+ * just finished its in-flow layout. For each pending child:
+ *   1. resolve inline + block insets against the abc (inline-axis against
+ *      `abc.inlineSize`; block-axis against `abc.blockPercentBase` for percents,
+ *      `abc.contentBlockResolved` for px end-anchoring/fill);
+ *   2. resolve the used inline/block size (`auto` → fill-from-both-insets, else
+ *      shrink-to-content via the BFC's intrinsic sizing);
+ *   3. resolve the position (inset-start wins; else inset-end anchors the
+ *      end-edge; else the captured static position);
+ *   4. recursively lay the child out as its own BFC root at the resolved position
+ *      and push the result.
+ * Returns the laid-out abs children (document order), or `undefined` if none.
+ */
+function layoutAbsoluteChildren(
+  pending: readonly PendingAbsChild[],
+  abc: ResolvedAbc,
+  ctx: LayoutContext,
+  shaper: TextShaper,
+  hyphenator: Hyphenator | undefined,
+): readonly LayoutBox[] | undefined {
+  const out: LayoutBox[] = [];
+  for (const p of pending) {
+    const childCs = p.computedStyle;
+
+    // ── Inline axis ──────────────────────────────────────────────────────────
+    // Insets resolve against the abc inline-size (concrete). Logical inset-inline-*
+    // are mapped to the abc frame: start anchors the inline-start edge, end anchors
+    // the inline-end edge.
+    const insetInlineStart = childCs.insetInlineStart === "auto"
+      ? null : resolveInset(childCs.insetInlineStart, abc.inlineSize);
+    const insetInlineEnd = childCs.insetInlineEnd === "auto"
+      ? null : resolveInset(childCs.insetInlineEnd, abc.inlineSize);
+
+    // Used inline-size. `auto` with BOTH inline insets set → fill the gap
+    // (abc.inlineSize − start − end). Otherwise shrink-to-fit via the existing BFC
+    // intrinsic-size resolution (same path floats/inline-blocks use).
+    let usedInlineSize: number;
+    if (childCs.inlineSize === "auto" && insetInlineStart !== null && insetInlineEnd !== null) {
+      usedInlineSize = Math.max(0, abc.inlineSize - insetInlineStart - insetInlineEnd);
+    } else {
+      usedInlineSize = resolveBoxInlineSize(childCs, abc.inlineSize, /* isShrinkToFit */ true, p.node, shaper, ctx);
+    }
+
+    // Inline position (in the abc content frame): inset-inline-start wins; else
+    // inset-inline-end anchors the inline-end edge (start = size − end − used);
+    // else the captured static inline offset (already abc-frame-relative).
+    let inlineOffsetInAbcContent: number;
+    if (insetInlineStart !== null) {
+      inlineOffsetInAbcContent = insetInlineStart;
+    } else if (insetInlineEnd !== null) {
+      inlineOffsetInAbcContent = abc.inlineSize - insetInlineEnd - usedInlineSize;
+    } else {
+      // Static fallback: the captured static is in the establishing box's FRAME;
+      // subtract the abc content origin to express it in the abc CONTENT frame
+      // (the layout below re-adds the origin).
+      inlineOffsetInAbcContent = p.staticInlineOffset - abc.originInline;
+    }
+
+    // ── Block axis ───────────────────────────────────────────────────────────
+    // Percent block insets resolve against `abc.blockPercentBase` — `"indefinite"`
+    // collapses them to `auto` (resolveInset returns 0 for an indefinite percent).
+    const insetBlockStart = resolveBlockInset(childCs.insetBlockStart, abc.blockPercentBase);
+    const insetBlockEnd = resolveBlockInset(childCs.insetBlockEnd, abc.blockPercentBase);
+
+    // ── Lay the child out as its own BFC root at a provisional (0,0). The child
+    // establishes a new BFC (position:absolute → establishesNewBFC), so its
+    // context is fresh; pass the resolved inline-size as its containing inline
+    // size. We lay out first to learn its auto block-size, then resolve the block
+    // position, then reposition. ──────────────────────────────────────────────
+    const childCtx = makeChildContext(ctx, childCs, usedInlineSize, "indefinite");
+    const provisional = layoutBlock(p.node, 0, 0, childCtx, shaper, hyphenator);
+    if (provisional.box === null) {
+      throw new Error("layoutAbsoluteChildren: abs child layout returned null (no fragmentation passed)");
+    }
+    const provisionalBox = provisional.box;
+
+    // Used block-size. `auto` with BOTH block insets definite → fill
+    // (contentBlockResolved − start − end). Else use the content-measured block
+    // size from the provisional layout (or an explicit block-size if set).
+    const explicitChildBlock = resolveExplicitBlockSizeOrNull(childCs.blockSize, abc.inlineSize);
+    let usedBlockSize: number;
+    if (childCs.blockSize === "auto" && insetBlockStart !== null && insetBlockEnd !== null) {
+      usedBlockSize = Math.max(0, abc.contentBlockResolved - insetBlockStart - insetBlockEnd);
+    } else if (explicitChildBlock !== null && explicitChildBlock > 0) {
+      usedBlockSize = explicitChildBlock;
+    } else {
+      usedBlockSize = provisionalBox.blockSize;
+    }
+
+    // Block position (in the abc content frame): inset-block-start wins; else
+    // inset-block-end anchors the block-end edge; else the captured static block
+    // offset (abc-frame → abc-content-frame).
+    let blockOffsetInAbcContent: number;
+    if (insetBlockStart !== null) {
+      blockOffsetInAbcContent = insetBlockStart;
+    } else if (insetBlockEnd !== null) {
+      blockOffsetInAbcContent = abc.contentBlockResolved - insetBlockEnd - usedBlockSize;
+    } else {
+      blockOffsetInAbcContent = p.staticBlockOffset - abc.originBlock;
+    }
+
+    // Translate the abc-content-frame offsets into the establishing box's frame
+    // by adding the abc content origin, then lay the child out FINALLY at that
+    // position (re-running so the box's own offsets/physical coords bake in).
+    const finalInlineOffset = abc.originInline + inlineOffsetInAbcContent;
+    const finalBlockOffset = abc.originBlock + blockOffsetInAbcContent;
+    const finalCtx = makeChildContext(ctx, childCs, usedInlineSize, "indefinite");
+    const finalResult = layoutBlock(p.node, finalInlineOffset, finalBlockOffset, finalCtx, shaper, hyphenator);
+    if (finalResult.box === null) {
+      throw new Error("layoutAbsoluteChildren: abs child final layout returned null");
+    }
+    out.push(finalResult.box);
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+/**
+ * POSITIONING slice 3 — resolve a block-axis inset against the abc's block
+ * percent-base. Mirrors `resolveInset` but returns `null` for `auto` (so the
+ * caller can distinguish "no inset" from "inset 0") and collapses a PERCENT
+ * against an `"indefinite"` base to `null` (= `auto`, CSS §10.5). A px inset
+ * always applies.
+ */
+function resolveBlockInset(
+  value: ComputedStyle["insetBlockStart"],
+  percentBase: number | "indefinite",
+): number | null {
+  if (value === "auto") return null;
+  if (typeof value === "number") return value;
+  // percent
+  if (percentBase === "indefinite") return null;
+  return resolveUsedLength(value, percentBase, 0);
+}
+

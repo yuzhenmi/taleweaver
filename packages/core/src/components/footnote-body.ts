@@ -52,6 +52,9 @@ export const footnoteBodyComponent: ContainerComponentDefinition = {
     const style: Style = {
       display: "block",
       whiteSpace: "break-spaces",
+      // Google-Docs body default — break a long unbreakable string to fit (see
+      // document.ts + the overflow-wrap design spec).
+      overflowWrap: "break-word",
       orphans: 1,
       widows: 1,
     };

@@ -264,6 +264,122 @@ describe("snapshot", () => {
     });
   });
 
+  // A11: inline-item field guards. buildInlineContentSnapshot reads each
+  // inline item's fields via `yItem.get(key)`; a malformed item (a collab
+  // peer / bad migration that wrote an item missing a required key) would
+  // silently coerce `undefined` into the snapshot. Mirror buildBlockSnapshot's
+  // requireField named-throw so the failure names the missing field + index.
+  describe("buildInlineContentSnapshot field guards (A11)", () => {
+    // Seed a block with a single inline item whose fields are taken from
+    // `entries`, omitting any key in `omit`, then snapshot the block.
+    function seedBlockWithRawInlineItem(
+      doc: Y.Doc,
+      id: string,
+      entries: Array<[string, unknown]>,
+      omit: string,
+    ): void {
+      runTransaction(doc, () => {
+        const yBlock = new Y.Map<unknown>();
+        yBlock.set("type", "paragraph");
+        yBlock.set("attrs", new Y.Map<unknown>());
+        yBlock.set("parentId", null);
+        yBlock.set("prevSiblingId", null);
+        yBlock.set("nextSiblingId", null);
+        yBlock.set("firstChildId", null);
+        yBlock.set("lastChildId", null);
+        const items = new Y.Array<Y.Map<unknown>>();
+        const yItem = new Y.Map<unknown>();
+        for (const [key, value] of entries) {
+          if (key !== omit) yItem.set(key, value);
+        }
+        items.push([yItem]);
+        yBlock.set("inlineContent", items);
+        getBlocksMap(doc).set(id, yBlock);
+      });
+    }
+
+    function textItemEntries(): Array<[string, unknown]> {
+      const yText = new Y.Text();
+      yText.insert(0, "hi");
+      return [
+        ["kind", "text"],
+        ["text", yText],
+        ["attrs", new Y.Map<unknown>()],
+      ];
+    }
+
+    function embedItemEntries(): Array<[string, unknown]> {
+      return [
+        ["kind", "embed"],
+        ["embedType", "image"],
+        ["attrs", new Y.Map<unknown>()],
+        ["properties", new Y.Map<unknown>()],
+      ];
+    }
+
+    it("throws when an inline item is missing kind", () => {
+      const doc = createYDoc();
+      seedBlockWithRawInlineItem(doc, "p1", textItemEntries(), "kind");
+      const cache = createSnapshotCache();
+      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
+        /inline item at index 0 missing required "kind" field/,
+      );
+    });
+
+    it("throws when a text inline item is missing text", () => {
+      const doc = createYDoc();
+      seedBlockWithRawInlineItem(doc, "p1", textItemEntries(), "text");
+      const cache = createSnapshotCache();
+      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
+        /inline item at index 0 missing required "text" field/,
+      );
+    });
+
+    it("throws when a text inline item is missing attrs", () => {
+      const doc = createYDoc();
+      seedBlockWithRawInlineItem(doc, "p1", textItemEntries(), "attrs");
+      const cache = createSnapshotCache();
+      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
+        /inline item at index 0 missing required "attrs" field/,
+      );
+    });
+
+    it("throws when an embed inline item is missing embedType", () => {
+      const doc = createYDoc();
+      seedBlockWithRawInlineItem(doc, "p1", embedItemEntries(), "embedType");
+      const cache = createSnapshotCache();
+      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
+        /inline item at index 0 missing required "embedType" field/,
+      );
+    });
+
+    it("throws when an embed inline item is missing attrs", () => {
+      const doc = createYDoc();
+      seedBlockWithRawInlineItem(doc, "p1", embedItemEntries(), "attrs");
+      const cache = createSnapshotCache();
+      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
+        /inline item at index 0 missing required "attrs" field/,
+      );
+    });
+
+    it("throws when an embed inline item is missing properties", () => {
+      const doc = createYDoc();
+      seedBlockWithRawInlineItem(doc, "p1", embedItemEntries(), "properties");
+      const cache = createSnapshotCache();
+      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
+        /inline item at index 0 missing required "properties" field/,
+      );
+    });
+
+    it("accepts a well-formed text + embed inline content", () => {
+      const doc = createYDoc();
+      // A valid block snapshots without throwing (guards add no false positives).
+      seedParagraphBlock(doc, "p1", "hello");
+      const cache = createSnapshotCache();
+      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).not.toThrow();
+    });
+  });
+
   describe("overlay cache (S-A2)", () => {
     it("reads fall through from overlay to base", () => {
       const doc = createYDoc();

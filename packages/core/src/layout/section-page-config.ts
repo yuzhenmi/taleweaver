@@ -17,6 +17,7 @@
  * the page), it falls back to docWide entirely rather than emit an unusable
  * config — mirroring `measurePass`'s existing content-size guard.
  */
+import type { LayoutBoxMetadata } from "../render/layout-metadata";
 import type { PageConfig, PageMargins } from "./page-config";
 
 /** A finite, strictly-positive number (page size dimensions). */
@@ -48,7 +49,7 @@ const MARGIN_KEYS = ["blockStart", "blockEnd", "inlineStart", "inlineEnd"] as co
  */
 export function resolveSectionPageConfig(
   docWide: PageConfig,
-  sectionMetadata: Readonly<Record<string, unknown>> | undefined,
+  sectionMetadata: Readonly<LayoutBoxMetadata> | undefined,
 ): PageConfig {
   if (sectionMetadata === undefined) {
     return docWide;

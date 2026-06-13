@@ -7,6 +7,8 @@ import {
   marginInlineStartFromAttrs,
   marginBlockStartFromAttrs,
   marginBlockEndFromAttrs,
+  writingModeFromAttrs,
+  tabStopsFromAttrs,
 } from "./leaf-style-attrs";
 
 /**
@@ -40,19 +42,23 @@ export const headingComponent: LeafComponentDefinition = {
   splitFollowOnType: "paragraph",
   render: (view, _ctx, inlineRenderNodes) => {
     const level = levelFromAttrs(view.attrs.level);
+    const writingMode = writingModeFromAttrs(view.attrs.writingMode);
     const textAlign = textAlignFromAttrs(view.attrs.textAlign);
     const lineHeight = lineHeightFromAttrs(view.attrs.lineHeight);
     const marginInlineStart = marginInlineStartFromAttrs(view.attrs.marginInlineStart);
     const marginBlockStart = marginBlockStartFromAttrs(view.attrs.marginBlockStart);
     const marginBlockEnd = marginBlockEndFromAttrs(view.attrs.marginBlockEnd);
+    const tabStops = tabStopsFromAttrs(view.attrs.tabStops);
     const style: Style = {
       display: "block",
       fontWeight: "bold",
       fontSize: HEADING_FONT_SIZES[level],
       marginBlockStart: { unit: "em", value: 0.67 },
       marginBlockEnd: { unit: "em", value: 0.67 },
+      ...(writingMode !== undefined ? { writingMode } : {}),
       ...(textAlign !== undefined ? { textAlign } : {}),
       ...(lineHeight !== undefined ? { lineHeight } : {}),
+      ...(tabStops !== undefined ? { tabStops } : {}),
       ...(marginInlineStart !== undefined ? { marginInlineStart } : {}),
       // Paragraph-spacing attrs WIN over the heading's default 0.67em block
       // margins above (spread last). Absent attr → default unchanged.

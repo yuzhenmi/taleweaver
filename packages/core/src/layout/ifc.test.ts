@@ -2,7 +2,9 @@ import { describe, it, expect } from "vitest";
 import { createElementBox, createTextBox } from "../render/render-node";
 import { cascadePass } from "../cascade";
 import { createMockShaper } from "./mock-shaper";
-import { layoutInlineContent, collectTokens, SUPERSCRIPT_RAISE_FRACTION, SUBSCRIPT_LOWER_FRACTION } from "./ifc";
+import { createMockHyphenator } from "./mock-hyphenator";
+import { layoutInlineContent, collectTokens, splitSuffixSourceBase, deriveLineSourceRangeU16, SUPERSCRIPT_RAISE_FRACTION, SUBSCRIPT_LOWER_FRACTION } from "./ifc";
+import type { LineRangeUnit } from "./ifc";
 import { layoutBlock } from "./bfc";
 import { computeIntrinsicSizes } from "./intrinsic-sizes-pass";
 import type { TextShaper, ShapedRun, BreakOpportunity, FontMetrics, Cluster } from "./text-shaper";
@@ -10,8 +12,40 @@ import type { ComputedStyle } from "../styles";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import type { Direction } from "../styles/writing-mode";
 import { makeRootContext } from "./layout-context";
+import { HARD_BREAK_EMBED_TYPE } from "../state";
 
 const shaper = createMockShaper(8, 16);
+
+/**
+ * Shared hyphen-test shaper: each char is one 10px cluster; a "hyphen"-kind
+ * break opportunity is reported after cluster index 5 (prefix [0,5)) for any
+ * text ≥ 6 chars. Used by the P4-C.1 split test (the `IFC — hyphen break`
+ * describe block defines its own local copy of the same shaper).
+ */
+function makeHyphenShaper(): TextShaper {
+  const fontMetrics: FontMetrics = { ascent: 12, descent: 4, lineGap: 0, capHeight: 11, xHeight: 7 };
+  function shape(text: string, style: Readonly<ComputedStyle>, baseDirection: Direction): ShapedRun {
+    const clusters: Cluster[] = [];
+    for (let i = 0; i < text.length; i++) {
+      clusters.push({ start: i, end: i + 1, inlineAdvance: 10, isLigature: false, glyphs: [text.charCodeAt(i)] });
+    }
+    const breakOpportunities: BreakOpportunity[] = [];
+    if (text.length >= 6) breakOpportunities.push({ clusterIndex: 5, kind: "hyphen" });
+    return {
+      text,
+      computedStyle: style,
+      clusters,
+      ascent: fontMetrics.ascent,
+      descent: fontMetrics.descent,
+      lineGap: fontMetrics.lineGap,
+      minClusterInlineSize: text.length === 0 ? 0 : 10,
+      unbreakableRunInlineSize: text.length * 10,
+      breakOpportunities,
+      bidiLevel: baseDirection === "rtl" ? 1 : 0,
+    };
+  }
+  return { shape, measureFontMetrics: () => fontMetrics };
+}
 
 function ifcOf(text: string, width: number) {
   const tree = cascadePass(
@@ -21,7 +55,7 @@ function ifcOf(text: string, width: number) {
   );
   if (tree.type !== "element") throw new Error("?");
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, width);
-  const result = layoutInlineContent(tree, 0, 0, ctx, shaper);
+  const result = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined);
   if (result.box === null) throw new Error("layoutInlineContent returned null box");
   return result.box.children;
 }
@@ -66,7 +100,7 @@ describe("layoutInlineContent — empty inline content (strut line)", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const result = layoutInlineContent(tree, 0, 0, ctx, shaper);
+    const result = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined);
     if (result.box === null) throw new Error("layoutInlineContent returned null box");
     const block = result.box;
     expect(block.children).toHaveLength(1);
@@ -93,7 +127,7 @@ describe("layoutInlineContent — empty inline content (strut line)", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const result = layoutInlineContent(tree, 0, 0, ctx, shaper);
+    const result = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined);
     if (result.box === null) throw new Error("layoutInlineContent returned null box");
     const line = result.box.children[0];
     if (line.type !== "line") throw new Error("expected line box");
@@ -113,7 +147,7 @@ describe("layoutInlineContent — empty inline content (strut line)", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -134,7 +168,7 @@ describe("layoutInlineContent — empty inline content (strut line)", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -154,7 +188,7 @@ describe("layoutInlineContent — empty inline content (strut line)", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -175,7 +209,7 @@ describe("IFC whiteSpace handling", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r1 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 50), shaper);
+    const r1 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 50), shaper, undefined);
     if (r1.box === null) throw new Error("layoutBlock returned null box");
     const out = r1.box;
     if (out.type !== "block") throw new Error("?");
@@ -191,7 +225,7 @@ describe("IFC whiteSpace handling", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r2 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
+    const r2 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, undefined);
     if (r2.box === null) throw new Error("layoutBlock returned null box");
     const out = r2.box;
     if (out.type !== "block") throw new Error("?");
@@ -206,7 +240,7 @@ describe("IFC whiteSpace handling", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r3 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 30), shaper);
+    const r3 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 30), shaper, undefined);
     if (r3.box === null) throw new Error("layoutBlock returned null box");
     const out = r3.box;
     if (out.type !== "block") throw new Error("?");
@@ -229,7 +263,7 @@ describe("IFC whiteSpace handling", () => {
         ]),
       );
       if (tree.type !== "element") throw new Error("?");
-      const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper);
+      const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, undefined);
       if (r.box === null) throw new Error("layoutBlock returned null box");
       const out = r.box;
       if (out.type !== "block") throw new Error("?");
@@ -266,7 +300,7 @@ describe("IFC — leading/orphan spaces under preserving white-space (#308)", ()
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -303,7 +337,7 @@ describe("IFC — leading/orphan spaces under preserving white-space (#308)", ()
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -331,7 +365,7 @@ describe("IFC — leading/orphan spaces under preserving white-space (#308)", ()
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -370,7 +404,7 @@ describe("IFC — leading/orphan spaces under preserving white-space (#308)", ()
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -412,7 +446,7 @@ describe("IFC — leading/orphan spaces under preserving white-space (#308)", ()
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("?");
     if (r.box.type !== "block") throw new Error("?");
     const lines = r.box.children.filter((c): c is import("./layout-box").LineBox => c.type === "line");
@@ -435,7 +469,7 @@ describe("IFC — leading/orphan spaces under preserving white-space (#308)", ()
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -501,7 +535,7 @@ describe("IFC — break-spaces (#314, Google-Docs trailing-space wrap)", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper);
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -622,7 +656,7 @@ describe("IFC — trailing-space HANG (#338 P1: a space unit never triggers its 
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper);
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -721,7 +755,7 @@ describe("IFC — hung-space CLAMP (#338 P2: clamp hung-space box geometry to th
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper);
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -821,7 +855,7 @@ describe("IFC — hung-space CLAMP (#338 P2: clamp hung-space box geometry to th
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, W), shaper);
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, W), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -884,7 +918,7 @@ describe("IFC — hung-space CLAMP inside an INLINE element (#340: clamp the PHY
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper);
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -991,7 +1025,7 @@ describe("IFC — default pipeline now break-spaces (#314)", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -1022,7 +1056,7 @@ describe("IFC — first-class inline boxes", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r4 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r4 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r4.box === null) throw new Error("layoutBlock returned null box");
     const out = r4.box;
     if (out.type !== "block") throw new Error("?");
@@ -1046,7 +1080,7 @@ describe("IFC — first-class inline boxes", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r5 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r5 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r5.box === null) throw new Error("layoutBlock returned null box");
     const out = r5.box;
     if (out.type !== "block") throw new Error("?");
@@ -1074,7 +1108,7 @@ describe("IFC — inline-block atomic placement", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r6 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r6 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r6.box === null) throw new Error("layoutBlock returned null box");
     const out = r6.box;
     if (out.type !== "block") throw new Error("?");
@@ -1094,12 +1128,151 @@ describe("IFC — inline-block atomic placement", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r7 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 60), shaper);
+    const r7 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 60), shaper, undefined);
     if (r7.box === null) throw new Error("layoutBlock returned null box");
     const out = r7.box;
     if (out.type !== "block") throw new Error("?");
     const lines = out.children.filter(c => c.type === "line");
     expect(lines.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("C-1: same-mode (vertical-lr) inline-block projects child PHYSICAL box onto the PARENT's axes (not raw bfc.width/height)", () => {
+    // C-1 regression: the inline-block sizing site fed the PARENT IFC the child's
+    // RAW physical bfc.width/bfc.height. For a vertical PARENT that transposes the
+    // inline-advance and block-extent. The fix projects the child's physical box
+    // onto the parent's inline/block axes via axisMapFor(parentWritingMode, ...).
+    //
+    // Setup: a vertical-lr paragraph (parent IFC) with an inline-block child that
+    // inherits vertical-lr (same-mode). The child uses auto inlineSize + auto
+    // blockSize so BOTH final sizes flow from the child's laid-out box — exercising
+    // the projection on both axes. Its content "abc" makes the child's physical
+    // width (block extent = line-height) differ from its physical height (inline
+    // extent = content advance), so a transposition is observable.
+    const vlrCs = { ...INITIAL_COMPUTED_STYLE, writingMode: "vertical-lr" as const };
+
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", writingMode: "vertical-lr" }, [
+        createElementBox("ib", { display: "inline-block" }, [
+          createTextBox("ibt", {}, "abc"),
+        ]),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+
+    // Lay out the inline content in a vertical-lr PARENT context (production path).
+    const ctx = makeRootContext(vlrCs, 500);
+    const res = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined);
+    if (res.box === null || res.box.type !== "block") throw new Error("?");
+    const line = res.box.children.find(c => c.type === "line");
+    if (line === undefined || line.type !== "line") throw new Error("?");
+    const ib = line.children.find(c => c.type === "inline-block");
+    expect(ib).toBeDefined();
+    if (ib?.type !== "inline-block") throw new Error("?");
+
+    // The inline-block child laid out in its OWN (vertical-lr) mode has PHYSICAL
+    // extents: width === its block extent (one line-height: mock 16px), height ===
+    // its inline extent (content advance: mock 8px × "abc" = 24px). These are the
+    // raw bfc.width (16) / bfc.height (24) the buggy code fed straight to the parent.
+    const EXPECTED_CONTENT_ADVANCE = 24; // child's own inlineSize  → child physical HEIGHT (bfc.height)
+    const EXPECTED_LINE_HEIGHT = 16;     // child's own blockSize   → child physical WIDTH  (bfc.width)
+    expect(EXPECTED_CONTENT_ADVANCE).not.toBe(EXPECTED_LINE_HEIGHT); // transposition is observable
+
+    // The inline-block box's LOGICAL inlineSize is the parent inline advance
+    // (finalInlineSize); its LOGICAL blockSize is the parent block extent
+    // (finalBlockSize). For a vertical-lr PARENT, axisMapFor maps inline→y and
+    // block→x, so the CORRECT projection is:
+    //   parent inline advance (inlineSize) = child physical HEIGHT = content advance (24)
+    //   parent block extent   (blockSize)  = child physical WIDTH  = line-height   (16)
+    // The raw bfc.width/bfc.height code transposed these (inlineSize=16, blockSize=24),
+    // which this asserts AGAINST.
+    expect(ib.inlineSize).toBe(EXPECTED_CONTENT_ADVANCE);
+    expect(ib.blockSize).toBe(EXPECTED_LINE_HEIGHT);
+    // Explicitly lock the NOT-transposed contract (would have been swapped by the bug).
+    expect(ib.inlineSize).not.toBe(EXPECTED_LINE_HEIGHT);
+    expect(ib.blockSize).not.toBe(EXPECTED_CONTENT_ADVANCE);
+  });
+});
+
+describe("IFC — line TextRunBox carries sourceStart + clusterWidths (P4-C bidi-split inputs)", () => {
+  // Collect text-run leaves of a line (recursing into inline boxes).
+  function textRunLeaves(line: import("./layout-box").LayoutBox): import("./layout-box").TextRunBox[] {
+    const out: import("./layout-box").TextRunBox[] = [];
+    const walk = (b: import("./layout-box").LayoutBox): void => {
+      if (b.type === "text-run") { out.push(b); return; }
+      if (b.type === "inline" || b.type === "inline-block") b.children.forEach(walk);
+    };
+    if (line.type === "line") line.children.forEach(walk);
+    return out;
+  }
+
+  it("a single-line run starting at source offset 0 has sourceStart 0 and clusterWidths.length === text.length", () => {
+    const lines = ifcOf("hello", 500);
+    expect(lines).toHaveLength(1);
+    const runs = textRunLeaves(lines[0]).filter(r => r.text.length > 0);
+    expect(runs.length).toBeGreaterThanOrEqual(1);
+    const run = runs[0];
+    expect(run.sourceStart).toBe(0);
+    expect(run.clusterWidths).toBeDefined();
+    if (run.clusterWidths === undefined) throw new Error("?");
+    expect(run.clusterWidths.length).toBe(run.text.length);
+    // Each non-grapheme-interior cluster carries the full advance; sum equals the run's inline advance.
+    const sum = run.clusterWidths.reduce((s, w) => s + w, 0);
+    expect(sum).toBeCloseTo(run.inlineSize, 5);
+  });
+
+  it("a later word's run has sourceStart equal to its absolute source offset", () => {
+    // "ab cd": the second word begins at source offset 3.
+    const lines = ifcOf("ab cd", 500);
+    expect(lines).toHaveLength(1);
+    const runs = textRunLeaves(lines[0]);
+    // Find the run whose text starts with the second word.
+    const second = runs.find(r => r.text.startsWith("cd"));
+    expect(second).toBeDefined();
+    if (second === undefined) throw new Error("?");
+    expect(second.sourceStart).toBe(3);
+    if (second.clusterWidths === undefined) throw new Error("?");
+    expect(second.clusterWidths.length).toBe(second.text.length);
+  });
+
+  it("a run that absorbs a TRAILING SPACE token synthesizes a clusterWidth for the whitespace (length === text.length)", () => {
+    // A merged word+trailing-space run: the wrap unit packs the word and its
+    // following space token together, exercising the whitespace-synthesis path
+    // (space tokens carry no token-level clusterWidths).
+    const lines = ifcOf("foo bar", 500);
+    expect(lines).toHaveLength(1);
+    const runs = textRunLeaves(lines[0]);
+    // The first wrap unit is "foo " (word + trailing space) — find a run whose
+    // text contains a space.
+    const spaced = runs.find(r => /\s/.test(r.text));
+    expect(spaced).toBeDefined();
+    if (spaced === undefined) throw new Error("?");
+    expect(spaced.clusterWidths).toBeDefined();
+    if (spaced.clusterWidths === undefined) throw new Error("?");
+    // Invariant: one entry per DISPLAY code unit of the box text.
+    expect(spaced.clusterWidths.length).toBe(spaced.text.length);
+    // Sum of synthesized + real cluster widths ≈ the run's inline advance.
+    const sum = spaced.clusterWidths.reduce((s, w) => s + w, 0);
+    expect(sum).toBeCloseTo(spaced.inlineSize, 5);
+  });
+
+  it("an InlineBlockBox carries sourceStart = its OBJECT_REPLACEMENT source offset", () => {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t1", {}, "ab "),
+        createElementBox("ib", { display: "inline-block", inlineSize: 50, blockSize: 30 }, []),
+        createTextBox("t2", {}, " cd"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    if (r.box === null || r.box.type !== "block") throw new Error("?");
+    const line = r.box.children.find(c => c.type === "line");
+    if (line === undefined || line.type !== "line") throw new Error("?");
+    const ib = line.children.find(c => c.type === "inline-block");
+    expect(ib).toBeDefined();
+    if (ib?.type !== "inline-block") throw new Error("?");
+    // "ab " is source offsets 0..2 (3 chars); the OBJECT_REPLACEMENT char is at offset 3.
+    expect(ib.sourceStart).toBe(3);
   });
 });
 
@@ -1113,7 +1286,7 @@ describe("IFC — fragmentEdge across lines", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r8 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 60), shaper);
+    const r8 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 60), shaper, undefined);
     if (r8.box === null) throw new Error("layoutBlock returned null box");
     const out = r8.box;
     if (out.type !== "block") throw new Error("?");
@@ -1149,7 +1322,7 @@ describe("IFC — fragmentEdge across lines", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r9 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r9 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r9.box === null) throw new Error("layoutBlock returned null box");
     const out = r9.box;
     if (out.type !== "block") throw new Error("?");
@@ -1183,7 +1356,7 @@ describe("IFC — fragmentEdge across lines", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 60), shaper);
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 60), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -1218,7 +1391,7 @@ describe("IFC — verticalAlign", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r10 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r10 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r10.box === null) throw new Error("layoutBlock returned null box");
     const out = r10.box;
     if (out.type !== "block") throw new Error("?");
@@ -1237,7 +1410,7 @@ describe("IFC — verticalAlign", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r11 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r11 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r11.box === null) throw new Error("layoutBlock returned null box");
     const out = r11.box;
     if (out.type !== "block") throw new Error("?");
@@ -1258,7 +1431,7 @@ describe("IFC — verticalAlign", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r12 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r12 = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r12.box === null) throw new Error("layoutBlock returned null box");
     const out = r12.box;
     if (out.type !== "block") throw new Error("?");
@@ -1282,7 +1455,7 @@ describe("IFC — verticalAlign", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -1307,7 +1480,7 @@ describe("IFC — verticalAlign", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -1342,7 +1515,7 @@ describe("IFC — verticalAlign super / sub (true superscript / subscript)", () 
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     const out = r.box;
     if (out.type !== "block") throw new Error("?");
@@ -1434,7 +1607,7 @@ describe("IFC — text wraps around floats", () => {
     );
     if (tree.type !== "element") throw new Error("?");
 
-    const ifcResult = layoutInlineContent(tree, 0, 0, ctx, shaper);
+    const ifcResult = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined);
     if (ifcResult.box === null) throw new Error("layoutInlineContent returned null box");
     const lines = ifcResult.box.children;
 
@@ -1457,7 +1630,7 @@ describe("IFC — text wraps around floats", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const ifcResult2 = layoutInlineContent(tree, 0, 0, ctx, shaper);
+    const ifcResult2 = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined);
     if (ifcResult2.box === null) throw new Error("layoutInlineContent returned null box");
     const lines2 = ifcResult2.box.children;
 
@@ -1483,7 +1656,7 @@ describe("IFC — text wraps around floats", () => {
     );
     if (tree.type !== "element") throw new Error("?");
 
-    const ifcResult3 = layoutInlineContent(tree, 0, 0, ctx, shaper);
+    const ifcResult3 = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined);
     if (ifcResult3.box === null) throw new Error("layoutInlineContent returned null box");
     const lines3 = ifcResult3.box.children;
 
@@ -1497,13 +1670,16 @@ describe("IFC — text wraps around floats", () => {
 });
 
 describe("IFC — RTL bidi reordering", () => {
-  it("reorders clusters for RTL paragraph: logical-second child has smaller inlineOffset than logical-first", () => {
+  it("RTL paragraph: Latin runs stay in logical order but the content block hugs the RIGHT edge (PHYSICAL x)", () => {
     // mockShaper(8, 16): each char is 8px wide.
-    // "abc" = 3 chars = 24px wide; "def" = 3 chars = 24px wide.
-    // Line available = 200px — both fit on one line.
-    // Logical order: text1("abc") then text2("def").
-    // After RTL reorder: text2 appears visually first (smaller inlineOffset),
-    // text1 appears visually second (larger inlineOffset).
+    // "abc" = 3 chars = 24px; "def" = 3 chars = 24px. Line = 200px.
+    // Two LATIN runs in an RTL paragraph resolve to bidi LEVEL 2 (LTR embedded
+    // in RTL) — UAX #9 L2 does NOT swap equal-level runs, so logical order
+    // [t1, t2] is preserved. The whole content block (48px) then hugs the RIGHT
+    // edge of the 200px line. Asserting PHYSICAL x per the P4-C coordinate
+    // contract: reordered boxes are ltr-positioned so `x === inlineOffset`.
+    //   contentWidth = 48; physicalStart (rtl, start-align) = 200 - 0 - 48 = 152.
+    //   t1.x = 152 (left of the block); t2.x = 152 + 24 = 176 (right edge at 200).
     const rtlShaper = createMockShaper(8, 16);
     const tree = cascadePass(
       createElementBox("p", { display: "block", direction: "rtl" }, [
@@ -1516,7 +1692,7 @@ describe("IFC — RTL bidi reordering", () => {
       tree,
       0, 0,
       makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 200),
-      rtlShaper,
+      rtlShaper, undefined
     );
     if (ifcResultRtl.box === null) throw new Error("layoutInlineContent returned null box");
     const linesRtl = ifcResultRtl.box.children;
@@ -1533,16 +1709,54 @@ describe("IFC — RTL bidi reordering", () => {
     expect(t2Box).toBeDefined();
     if (!t1Box || !t2Box) throw new Error("?");
 
-    // After RTL reorder, the logical-second child (t2) should appear visually
-    // before the logical-first child (t1): t2.inlineOffset < t1.inlineOffset.
-    expect(t2Box.inlineOffset).toBeLessThan(t1Box.inlineOffset);
+    // PHYSICAL x: reordered boxes are identity-positioned (x === inlineOffset).
+    expect(t1Box.x).toBe(t1Box.inlineOffset);
+    expect(t2Box.x).toBe(t2Box.inlineOffset);
+    // Logical order preserved (Latin level-2 runs don't swap): t1 left of t2.
+    expect(t1Box.x).toBe(152);
+    expect(t2Box.x).toBe(176);
+    // The content block hugs the RIGHT edge: rightmost box's right edge == line size.
+    expect(t2Box.x + t2Box.inlineSize).toBe(200);
+    // Leftmost box sits at lineInlineSize − contentWidth.
+    expect(t1Box.x).toBe(200 - (t1Box.inlineSize + t2Box.inlineSize));
+  });
 
-    // Also verify the rightmost child (t1, logical-first) sits at the right edge.
-    // For a 200px line with t1=24px at the visual end:
-    //   t1.inlineOffset = 200 - 0 - 24 = 176 (it was originally at offset 0, size 24)
-    // Wait: logical order places t1 at offset 0, size 24.
-    // Reorder: newInlineOffset = 200 - 0 - 24 = 176.
-    expect(t1Box.inlineOffset).toBe(200 - t1Box.inlineSize);
+  it("RTL paragraph with two HEBREW runs: logical-first is RIGHTMOST (level-1 runs swap, PHYSICAL x)", () => {
+    // Two real-RTL (Hebrew) runs in an RTL paragraph → both bidi LEVEL 1.
+    // UAX #9 L2 reverses equal odd-level runs, so visual order is [t2, t1]:
+    // the logically-FIRST run (t1) ends up RIGHTMOST. 8px/char, 3 chars each.
+    //   visual pack: t2@0 (24px), t1@24 (24px); contentWidth 48.
+    //   physicalStart (rtl) = 200 - 0 - 48 = 152.
+    //   t2.x = 152 (left); t1.x = 176 (right edge 200).
+    const rtlShaper = createMockShaper(8, 16);
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", direction: "rtl" }, [
+        createTextBox("t1", {}, "אבג"),
+        createTextBox("t2", {}, "דהו"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ifcResultRtl = layoutInlineContent(
+      tree,
+      0, 0,
+      makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 200),
+      rtlShaper, undefined
+    );
+    if (ifcResultRtl.box === null) throw new Error("layoutInlineContent returned null box");
+    const line = ifcResultRtl.box.children[0];
+    if (line.type !== "line") throw new Error("expected line box");
+
+    const t1Box = line.children.find(c => c.key.startsWith("t1"));
+    const t2Box = line.children.find(c => c.key.startsWith("t2"));
+    if (!t1Box || !t2Box) throw new Error("?");
+
+    // PHYSICAL identity.
+    expect(t1Box.x).toBe(t1Box.inlineOffset);
+    expect(t2Box.x).toBe(t2Box.inlineOffset);
+    // Level-1 runs SWAP: logical-first (t1) is rightmost.
+    expect(t2Box.x).toBe(152);
+    expect(t1Box.x).toBe(176);
+    expect(t1Box.x + t1Box.inlineSize).toBe(200); // hugs the right edge
   });
 
   it("LTR paragraph children are not reordered (identity pass)", () => {
@@ -1554,7 +1768,7 @@ describe("IFC — RTL bidi reordering", () => {
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const ifcResultLtr = layoutInlineContent(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), ltrShaper);
+    const ifcResultLtr = layoutInlineContent(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), ltrShaper, undefined);
     if (ifcResultLtr.box === null) throw new Error("layoutInlineContent returned null box");
     const linesLtr = ifcResultLtr.box.children;
 
@@ -1570,6 +1784,249 @@ describe("IFC — RTL bidi reordering", () => {
 
     // LTR: t1 comes before t2 in visual order (smaller inlineOffset).
     expect(t1Box.inlineOffset).toBeLessThan(t2Box.inlineOffset);
+  });
+
+  it("mixed LTR-base (Latin + embedded Hebrew): Hebrew run sits AFTER Latin, both at left, PHYSICAL x", () => {
+    // LTR paragraph; child t1 = Latin "abc" (level 0), child t2 = Hebrew "אבג"
+    // (level 1, a single embedded run). L2 does not move a single embedded run
+    // relative to the surrounding level-0 text, so visual order is [Latin,
+    // Hebrew]. LTR start-align → physicalStart 0 → content sits at the LEFT.
+    //   t1.x = 0 (24px); t2.x = 24 (24px). Hebrew glyphs paint RTL via bidiLevel
+    //   (T7); geometry here is the run placement only.
+    const rtlShaper = createMockShaper(8, 16);
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t1", {}, "abc"),
+        createTextBox("t2", {}, "אבג"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const result = layoutInlineContent(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), rtlShaper, undefined);
+    if (result.box === null) throw new Error("null box");
+    const line = result.box.children[0];
+    if (line.type !== "line") throw new Error("expected line");
+    const t1 = line.children.find(c => c.key.startsWith("t1"));
+    const t2 = line.children.find(c => c.key.startsWith("t2"));
+    if (!t1 || !t2) throw new Error("?");
+
+    expect(t1.x).toBe(t1.inlineOffset);
+    expect(t2.x).toBe(t2.inlineOffset);
+    expect(t1.x).toBe(0);    // Latin at the left
+    expect(t2.x).toBe(24);   // Hebrew right after Latin
+    // The run stamped bidiLevel: Latin 0, Hebrew 1 (used by the T7 glyph paint).
+    if (t1.type !== "text-run" || t2.type !== "text-run") throw new Error("?");
+    expect(t1.bidiLevel).toBe(0);
+    expect(t2.bidiLevel).toBe(1);
+  });
+
+  it("mixed RTL-base (Hebrew + embedded Latin): the Latin run reorders to the LEFT, content hugs right, PHYSICAL x", () => {
+    // RTL paragraph; child t1 = Hebrew "אבג" (level 1), child t2 = Latin "abc"
+    // (level 2). UAX #9 L2 over [1,2] reverses the level-2 run then the level-1
+    // span → visual order is [Latin, Hebrew] (the Latin embedded run lands to the
+    // LEFT of the Hebrew). The 48px block hugs the RIGHT edge.
+    //   physicalStart (rtl) = 200 - 0 - 48 = 152.
+    //   Latin (t2).x = 152; Hebrew (t1).x = 176 (right edge 200).
+    const rtlShaper = createMockShaper(8, 16);
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", direction: "rtl" }, [
+        createTextBox("t1", {}, "אבג"),
+        createTextBox("t2", {}, "abc"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const result = layoutInlineContent(
+      tree, 0, 0,
+      makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 200),
+      rtlShaper, undefined
+    );
+    if (result.box === null) throw new Error("null box");
+    const line = result.box.children[0];
+    if (line.type !== "line") throw new Error("expected line");
+    const t1 = line.children.find(c => c.key.startsWith("t1"));
+    const t2 = line.children.find(c => c.key.startsWith("t2"));
+    if (!t1 || !t2) throw new Error("?");
+
+    expect(t1.x).toBe(t1.inlineOffset);
+    expect(t2.x).toBe(t2.inlineOffset);
+    // Latin (t2) reorders to the LEFT of Hebrew (t1).
+    expect(t2.x).toBe(152);
+    expect(t1.x).toBe(176);
+    expect(t1.x + t1.inlineSize).toBe(200); // content hugs the right edge
+    if (t1.type !== "text-run" || t2.type !== "text-run") throw new Error("?");
+    expect(t1.bidiLevel).toBe(1); // Hebrew
+    expect(t2.bidiLevel).toBe(2); // Latin embedded in RTL
+  });
+
+  it("centered RTL line: alignment is applied PHYSICALLY (physicalStart === gap/2), not zeroed nor double-shifted", () => {
+    // Centered (text-align:center) RTL paragraph with two Hebrew runs (level 1).
+    // contentWidth = 48; gap = 200 - 48 = 152; center alignmentOffset = gap/2 = 76.
+    // For center, physicalStart === gap/2 in EITHER direction (the contract's
+    // worked example). The first VISUAL box therefore starts at x = 76.
+    //   level-1 runs swap → visual [t2, t1]: t2.x = 76, t1.x = 100.
+    const rtlShaper = createMockShaper(8, 16);
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", direction: "rtl", textAlign: "center" }, [
+        createTextBox("t1", {}, "אבג"),
+        createTextBox("t2", {}, "דהו"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const result = layoutInlineContent(
+      tree, 0, 0,
+      makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl", textAlign: "center" }, 200),
+      rtlShaper, undefined
+    );
+    if (result.box === null) throw new Error("null box");
+    const line = result.box.children[0];
+    if (line.type !== "line") throw new Error("expected line");
+    const t1 = line.children.find(c => c.key.startsWith("t1"));
+    const t2 = line.children.find(c => c.key.startsWith("t2"));
+    if (!t1 || !t2) throw new Error("?");
+
+    expect(t1.x).toBe(t1.inlineOffset);
+    expect(t2.x).toBe(t2.inlineOffset);
+    // The leftmost (visual-first) box starts at gap/2 = 76 — alignment is
+    // physical, not zeroed (would be 0) and not double-shifted.
+    const leftmost = Math.min(t1.x, t2.x);
+    expect(leftmost).toBe(76);
+    // level-1 swap: t2 visual-first (left), t1 right.
+    expect(t2.x).toBe(76);
+    expect(t1.x).toBe(100);
+    // The content is centered: equal gap on both sides (76 left, 76 right).
+    expect(t1.x + t1.inlineSize).toBe(124);
+    expect(200 - (t1.x + t1.inlineSize)).toBe(76);
+  });
+});
+
+describe("deriveLineSourceRangeU16 (P4-C.1 T3: line's half-open U16 source span)", () => {
+  // Build a minimal wrap-unit-shaped object: the helper reads only
+  // tokens[].absoluteSourceBase and tokens[].text (the LineRangeUnit shape).
+  function unit(...tokens: { absoluteSourceBase: number; text: string }[]): LineRangeUnit {
+    return { tokens };
+  }
+
+  it("multi-unit line: start = first token base, end = last token base + display length (EXCLUSIVE)", () => {
+    // Two units: ["ab"]@0 then ["cd"]@3 → covers [0, 5): one-past the last char.
+    const range = deriveLineSourceRangeU16([
+      unit({ absoluteSourceBase: 0, text: "ab" }),
+      unit({ absoluteSourceBase: 3, text: "cd" }),
+    ]);
+    expect(range).not.toBeNull();
+    expect(range?.startU16).toBe(0);
+    // Exclusive end: 3 (last token base) + 2 ("cd".length) = 5, NOT 4 (the last
+    // char's index). This is the half-open [start, end) contract.
+    expect(range?.endU16).toBe(5);
+  });
+
+  it("trailing whitespace extends the EXCLUSIVE end by the space's DISPLAY extent", () => {
+    // Source "ab cd " (length 6) — the trailing space is its own unit under a
+    // preserving mode. Units: ["ab"]@0, [" "]@2, ["cd"]@3, [" "]@5. The end must
+    // include the trailing space's display extent → 5 + 1 = 6 = source.length.
+    const range = deriveLineSourceRangeU16([
+      unit({ absoluteSourceBase: 0, text: "ab" }),
+      unit({ absoluteSourceBase: 2, text: " " }),
+      unit({ absoluteSourceBase: 3, text: "cd" }),
+      unit({ absoluteSourceBase: 5, text: " " }),
+    ]);
+    expect(range?.startU16).toBe(0);
+    // EXCLUSIVE end includes the trailing whitespace by display extent → for a
+    // single-line paragraph this equals source.length ("ab cd ".length === 6).
+    expect(range?.endU16).toBe(6);
+    expect("ab cd ".length).toBe(6);
+  });
+
+  it("empty / strut-only line (no units, or empty-tokens unit) → null", () => {
+    expect(deriveLineSourceRangeU16([])).toBeNull();
+    // A degenerate empty-tokens unit contributes no real token → still null.
+    expect(deriveLineSourceRangeU16([{ tokens: [] }])).toBeNull();
+  });
+
+  it("single-line LTR paragraph: end equals the assembled source length (integration)", () => {
+    // Lay out a real LTR paragraph WITH a trailing space under break-spaces
+    // (preserves the trailing space as its own unit) and assert the derived
+    // range spans the whole source. mockShaper(8,16): 8px/char, 500px width →
+    // one line. Source "ab cd " has length 6.
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", whiteSpace: "break-spaces" }, [
+        createTextBox("t", {}, "ab cd "),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const tokens = collectTokens(tree, shaper, "ltr", makeRootContext(INITIAL_COMPUTED_STYLE, 500).intrinsicCache);
+    // Build one "line" worth of units from the flat tokens (every token on the
+    // single line). The derived end must be the source length (6).
+    const range = deriveLineSourceRangeU16(tokens.map(t => ({ tokens: [t] })));
+    expect(range?.startU16).toBe(0);
+    expect(range?.endU16).toBe(6);
+  });
+});
+
+describe("IFC — P4-C.1 T3 paragraphBidi plumbing (fast path + no behavior change)", () => {
+  it("pure-LTR paragraph lays out identically (fast path → identity reorder)", () => {
+    // The fast path (LTR paragraph, no RTL codepoint in the line) returns the
+    // children unchanged — same geometry as before P4-C plumbing landed.
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t1", {}, "abc"),
+        createTextBox("t2", {}, "def"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const result = layoutInlineContent(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, undefined);
+    if (result.box === null) throw new Error("null box");
+    const line = result.box.children[0];
+    if (line.type !== "line") throw new Error("expected line");
+    const t1 = line.children.find(c => c.key.startsWith("t1"));
+    const t2 = line.children.find(c => c.key.startsWith("t2"));
+    if (!t1 || !t2) throw new Error("?");
+    // LTR visual order preserved (identity): t1 before t2.
+    expect(t1.inlineOffset).toBeLessThan(t2.inlineOffset);
+    // t1 sits at the line start (offset 0) — not mirrored.
+    expect(t1.inlineOffset).toBe(0);
+  });
+
+  it("RTL (Hebrew) paragraph skips the fast path (odd paragraphLevel) and reorders via the real UAX #9 pass", () => {
+    // Hebrew text (real RTL codepoints) under an RTL paragraph base. The
+    // paragraphLevel is odd (1) so the LTR fast path is skipped and the real
+    // reorder runs. Proves resolveParagraphBidi integration produces PHYSICAL
+    // (identity-positioned) geometry: the level-1 runs swap, content hugs right.
+    const rtlShaper = createMockShaper(8, 16);
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", direction: "rtl" }, [
+        createTextBox("t1", {}, "אבג"), // אבג
+        createTextBox("t2", {}, "דהו"), // דהו
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const result = layoutInlineContent(
+      tree, 0, 0,
+      makeRootContext({ ...INITIAL_COMPUTED_STYLE, direction: "rtl" }, 200),
+      rtlShaper, undefined
+    );
+    if (result.box === null) throw new Error("null box");
+    const line = result.box.children[0];
+    if (line.type !== "line") throw new Error("expected line");
+    const t1 = line.children.find(c => c.key.startsWith("t1"));
+    const t2 = line.children.find(c => c.key.startsWith("t2"));
+    if (!t1 || !t2) throw new Error("?");
+    // PHYSICAL identity (reordered boxes are ltr-positioned).
+    expect(t1.x).toBe(t1.inlineOffset);
+    expect(t2.x).toBe(t2.inlineOffset);
+    // Level-1 runs swap: logical-second (t2) is visually first (left); the
+    // logically-first (t1) is rightmost, its right edge at the line size.
+    expect(t2.x).toBe(152);
+    expect(t1.x).toBe(176);
+    expect(t1.x + t1.inlineSize).toBe(200);
+  });
+
+  it("empty paragraph (no source) lays out a strut without crash (paragraphBidi === null)", () => {
+    const tree = cascadePass(createElementBox("p", { display: "block" }, []));
+    if (tree.type !== "element") throw new Error("?");
+    const result = layoutInlineContent(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 200), shaper, undefined);
+    if (result.box === null) throw new Error("null box");
+    // One strut line, no crash.
+    expect(result.box.children.length).toBe(1);
+    expect(result.box.children[0].type).toBe("line");
   });
 });
 
@@ -1640,7 +2097,7 @@ describe("IFC — hyphen break (kind:hyphen interface reservation)", () => {
     const ifcResultH1 = layoutInlineContent(
       tree, 0, 0,
       makeRootContext(INITIAL_COMPUTED_STYLE, 60),
-      shaperWithHyphen(),
+      shaperWithHyphen(), undefined
     );
     if (ifcResultH1.box === null) throw new Error("layoutInlineContent returned null box");
     const linesH1 = ifcResultH1.box.children;
@@ -1669,7 +2126,7 @@ describe("IFC — hyphen break (kind:hyphen interface reservation)", () => {
     const ifcResultH2 = layoutInlineContent(
       tree, 0, 0,
       makeRootContext(INITIAL_COMPUTED_STYLE, 60),
-      shaperWithHyphen(),
+      shaperWithHyphen(), undefined
     );
     if (ifcResultH2.box === null) throw new Error("layoutInlineContent returned null box");
     const linesH2 = ifcResultH2.box.children;
@@ -1710,7 +2167,7 @@ describe("IFC — hyphen break (kind:hyphen interface reservation)", () => {
     const result = layoutInlineContent(
       tree, 0, 0,
       makeRootContext(INITIAL_COMPUTED_STYLE, 60),
-      shaperWithHyphen(),
+      shaperWithHyphen(), undefined
     );
     if (result.box === null) throw new Error("layoutInlineContent returned null box");
     const lines = result.box.children.filter(
@@ -1844,7 +2301,10 @@ describe("Token IDs — stability", () => {
     expect(tokens[0].inlineBlock).toBeDefined();
   });
 
-  it("hard-break token gets id = sourceKey:lb", () => {
+  it("text \\n LINE_BREAK token gets id = sourceKey:lb (pre mode)", () => {
+    // NOTE: this is the TEXT `\n` line-break path — its token id is `{sourceKey}:lb`.
+    // An embed-derived hard-break (`<br>`) token uses `id = {embed key}` (no `:lb`
+    // suffix) — see the "IFC — hard-break embed forced line break" describe block.
     const tree = cascadePass(
       createElementBox("p", { display: "block", whiteSpace: "pre" }, [
         createTextBox("t", {}, "line one\nline two"),
@@ -1912,7 +2372,7 @@ describe("layoutInlineContent — LineBox-canonical fields (E-E.1)", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const result = layoutInlineContent(tree, 0, 0, ctx, shaper);
+    const result = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined);
     if (result.box === null) throw new Error("layoutInlineContent returned null box");
     const line = result.box.children[0];
     if (line.type !== "line") throw new Error("expected line");
@@ -1932,8 +2392,8 @@ describe("layoutInlineContent — LineBox-canonical fields (E-E.1)", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 200);
-    const r1 = layoutInlineContent(tree, 0, 0, ctx, shaper);
-    const r2 = layoutInlineContent(tree, 0, 0, ctx, shaper);
+    const r1 = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined);
+    const r2 = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined);
     if (r1.box === null || r2.box === null) throw new Error("?");
     const l1 = r1.box.children[0];
     const l2 = r2.box.children[0];
@@ -1959,7 +2419,7 @@ describe("layoutInlineContent — LineBox-canonical fields (E-E.1)", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const result = layoutInlineContent(tree, 0, 0, ctx, shaper);
+    const result = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined);
     if (result.box === null) throw new Error("layoutInlineContent returned null box");
     const line = result.box.children[0];
     if (line.type !== "line") throw new Error("expected line");
@@ -1980,7 +2440,7 @@ describe("layoutInlineContent — LineBox-canonical fields (E-E.1)", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const result = layoutInlineContent(tree, 0, 0, ctx, shaper);
+    const result = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined);
     if (result.box === null) throw new Error("layoutInlineContent returned null box");
     const line = result.box.children[0];
     if (line.type !== "line") throw new Error("expected line");
@@ -2007,7 +2467,7 @@ describe("layoutInlineContent — LineBox-canonical fields (E-E.1)", () => {
 
     // First fragment: limit block size to fit ~2 lines (line height 16
     // → 32 px fits exactly 2 lines).
-    const r1 = layoutInlineContent(tree, 0, 0, ctx, shaper, {
+    const r1 = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: 32,
       resumeFrom: null,
       pageIndex: 0,
@@ -2019,7 +2479,7 @@ describe("layoutInlineContent — LineBox-canonical fields (E-E.1)", () => {
 
     // Resume from the break token. Big availableBlockSize so it
     // finishes.
-    const r2 = layoutInlineContent(tree, 0, 0, ctx, shaper, {
+    const r2 = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: 10_000,
       resumeFrom: r1.breakToken,
       pageIndex: 1,
@@ -2221,6 +2681,97 @@ describe("collectTokens — sourceLength (collapsed-whitespace offset accounting
   });
 });
 
+describe("collectTokens — absoluteSourceBase (P4-C.1: token's absolute UTF-16 offset into asm.source)", () => {
+  it("two adjacent text nodes: each token's absoluteSourceBase = its running UTF-16 offset into the concatenated source", () => {
+    // Source assembled as "abc" + "def ghi" = "abcdef ghi". The second node's
+    // tokens must be offset by "abc".length (= 3). Expected token shape under
+    // white-space:normal: ["abc"]@0, ["def"]@3, [" "]@6, ["ghi"]@7.
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("t1", {}, "abc"),
+        createTextBox("t2", {}, "def ghi"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const tokens = collectTokens(tree, shaper, "ltr", ctx.intrinsicCache);
+
+    expect(tokens.map(t => t.text)).toEqual(["abc", "def", " ", "ghi"]);
+    expect(tokens.map(t => t.absoluteSourceBase)).toEqual([0, 3, 6, 7]);
+    // The base of each text token equals the source offset embedded in its id
+    // ("{sourceKey}:{offset}" is RELATIVE to the node; base is ABSOLUTE).
+    expect(tokens[0].absoluteSourceBase).toBe(0); // t1 "abc" at node-offset 0, childBase 0
+    expect(tokens[1].absoluteSourceBase).toBe(3); // t2 "def" at node-offset 0, childBase 3
+  });
+
+  it("absoluteSourceBase mirrors the parallel asm.tokenBases for every token", () => {
+    // The field must equal what the parallel array records — across a mix of
+    // text, collapsed whitespace, a hard break, and an inline-block.
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", whiteSpace: "pre" }, [
+        createTextBox("t1", {}, "ab\ncd"),
+        createElementBox("ib", { display: "inline-block", inlineSize: 40, blockSize: 20 }, []),
+        createTextBox("t2", {}, "ef"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const tokens = collectTokens(tree, shaper, "ltr", ctx.intrinsicCache);
+
+    // Re-derive the expected absolute bases by walking the assembled source:
+    // "ab" @0, "\n" (LINE_BREAK) @2, "cd" @3, OBJECT_REPLACEMENT (ib) @5,
+    // "ef" @6. (whitespace:pre — no collapse.)
+    const expectedBases = [0, 2, 3, 5, 6];
+    expect(tokens.map(t => t.absoluteSourceBase)).toEqual(expectedBases);
+  });
+
+  it("wrap-time split: suffix absoluteSourceBase = prefix base + prefix DISPLAY length (single-sourced rule)", () => {
+    // The production split helpers (`trySoftSplit` / `tryHyphenSplit`) both route
+    // the suffix's source-offset derivation through the exported, single-sourced
+    // `splitSuffixSourceBase`. We assert that rule against a token whose base is
+    // NON-ZERO (a second text node), proving the suffix base reflects BOTH the
+    // node offset AND the intra-token split index — not a node-relative reset.
+    //
+    // Node "pad" = "xy" (childBase 0), node "t" = "abcdefgh" (childBase 2).
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, [
+        createTextBox("pad", {}, "xy"),
+        createTextBox("t", {}, "abcdefgh"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    const tokens = collectTokens(tree, makeHyphenShaper(), "ltr", ctx.intrinsicCache);
+    const word = tokens.find(t => t.text === "abcdefgh");
+    if (word === undefined) throw new Error("expected the word token");
+    // The word starts at absolute base 2 ("xy" precedes it).
+    expect(word.absoluteSourceBase).toBe(2);
+
+    // shaperWithHyphen breaks "abcdefgh" at DISPLAY index 5 (prefix "abcde").
+    // The single-sourced rule: suffix base = word base + prefix display length.
+    const prefixDisplayLen = 5;
+    expect(splitSuffixSourceBase(word.absoluteSourceBase, prefixDisplayLen)).toBe(7);
+
+    // And the REAL wrap path actually splits the word at that break (geometry
+    // proof the rule is exercised end-to-end): line 1 ends with "abcde" + "-",
+    // line 2 starts with the suffix "fgh".
+    const result = layoutInlineContent(
+      tree, 0, 0,
+      // Width that fits "xy" + "abcde-" but not the whole word, forcing a split.
+      makeRootContext(INITIAL_COMPUTED_STYLE, 80),
+      makeHyphenShaper(), undefined
+    );
+    if (result.box === null) throw new Error("layoutInlineContent returned null box");
+    const lines = result.box.children.filter((c): c is import("./layout-box").LineBox => c.type === "line");
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    const lastLine = lines[lines.length - 1];
+    const firstChildOfLast = lastLine.children[0];
+    expect(firstChildOfLast.type).toBe("text-run");
+    if (firstChildOfLast.type !== "text-run") throw new Error();
+    expect(firstChildOfLast.text).toBe("fgh");
+  });
+});
+
 describe("layoutInlineContent — offsetLength (state-correct line offsets across collapse)", () => {
   it("single space 'a b': inlineOffsetEnd === text.length (no regression)", () => {
     const lines = ifcOf("a b", 200);
@@ -2324,10 +2875,15 @@ describe("IFC — inline-block auto shrink-to-fit clamp (CSS Sizing 3 §10.3.5)"
     };
   }
 
-  // Phrase "aaaa bb cc": longest word "aaaa" = 4*8 = 32 (min-content);
-  // full phrase "aaaa bb cc" = 10*8 = 80 (max-content). So minContent=32 < 80.
+  // Phrase "aaaa bb cc": min-content is the widest UNBREAKABLE SEGMENT — the
+  // widest run of clusters between two UAX #14 break opportunities. Breaks fall
+  // AFTER each space (before the next word), so the first segment is "aaaa "
+  // (the word PLUS its trailing space) = 5*8 = 40. (`minClusterInlineSize` is
+  // overridden to the longest bare word, 32, but the segment-aware floor 40
+  // dominates via `max(minClusterInlineSize, widestSegment)`.) full phrase
+  // "aaaa bb cc" = 10*8 = 80 (max-content). So minContent=40 < 80.
   const PHRASE = "aaaa bb cc";
-  const MIN_CONTENT = 4 * CW;          // 32 — longest word "aaaa"
+  const MIN_CONTENT = 5 * CW;          // 40 — widest segment "aaaa " (word + trailing space)
   const MAX_CONTENT = PHRASE.length * CW; // 80 — full phrase incl. spaces
 
   function resolvedInlineBlockWidth(
@@ -2350,7 +2906,7 @@ describe("IFC — inline-block auto shrink-to-fit clamp (CSS Sizing 3 §10.3.5)"
     if (tree.type !== "element") throw new Error("?");
     // layoutBlock → layoutInlineContent provides a non-null parentCtx to
     // collectInlineTokens (the production path that applies the clamp).
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, containingInlineSize), shp);
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, containingInlineSize), shp, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     if (r.box.type !== "block") throw new Error("?");
     const line = r.box.children.find(c => c.type === "line");
@@ -2361,7 +2917,7 @@ describe("IFC — inline-block auto shrink-to-fit clamp (CSS Sizing 3 §10.3.5)"
   }
 
   // Sanity: confirm the fixture's intrinsic min/max are what we think.
-  it("fixture: min-content (longest word) < max-content (full phrase)", () => {
+  it("fixture: min-content (widest unbreakable segment) < max-content (full phrase)", () => {
     const shp = wordAwareShaper();
     const tree = cascadePass(
       createElementBox("p", { display: "block" }, [
@@ -2380,7 +2936,7 @@ describe("IFC — inline-block auto shrink-to-fit clamp (CSS Sizing 3 §10.3.5)"
   });
 
   it("1. clamps to available when maxContent > available (the fix)", () => {
-    // available between min (32) and max (80) → clamp down to available.
+    // available between min (40) and max (80) → clamp down to available.
     const available = 56; // MIN_CONTENT < 56 < MAX_CONTENT
     const w = resolvedInlineBlockWidth(available);
     expect(w).toBe(available);            // clamped to available
@@ -2397,7 +2953,7 @@ describe("IFC — inline-block auto shrink-to-fit clamp (CSS Sizing 3 §10.3.5)"
   it("3. floors at min-content when minContent > available (overflow, CSS-correct)", () => {
     // available narrower than min-content → max(minContent, available) = minContent,
     // and min(maxContent, minContent) = minContent. It overflows the IFC; correct.
-    const available = MIN_CONTENT - 16; // 16 < MIN_CONTENT (32)
+    const available = MIN_CONTENT - 16; // 24 < MIN_CONTENT (40)
     const w = resolvedInlineBlockWidth(available);
     expect(w).toBe(MIN_CONTENT);   // floored at min-content, NOT clamped to available
     expect(w).toBeGreaterThan(available);
@@ -2415,7 +2971,7 @@ describe("IFC — inline-block auto shrink-to-fit clamp (CSS Sizing 3 §10.3.5)"
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 30), shp);
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 30), shp, undefined);
     if (r.box === null || r.box.type !== "block") throw new Error("?");
     const line = r.box.children.find(c => c.type === "line");
     if (line?.type !== "line") throw new Error("no line");
@@ -2448,7 +3004,7 @@ describe("IFC — inline-block auto shrink-to-fit clamp (CSS Sizing 3 §10.3.5)"
   // to min-content unconditionally; "max-content" to max-content uncond.
 
   it('6. inlineSize: "max-content" keeps max-content even when available < maxContent (NOT clamped)', () => {
-    // available between min (32) and max (80) — the auto/fit-content arm would
+    // available between min (40) and max (80) — the auto/fit-content arm would
     // clamp to available; max-content must ignore available entirely.
     const available = 56; // MIN_CONTENT < 56 < MAX_CONTENT
     const w = resolvedInlineBlockWidth(available, "max-content");
@@ -2456,7 +3012,7 @@ describe("IFC — inline-block auto shrink-to-fit clamp (CSS Sizing 3 §10.3.5)"
   });
 
   it('6b. inlineSize: "max-content" keeps max-content when available is far below max', () => {
-    const available = MIN_CONTENT - 8; // 24 < MIN_CONTENT (32) < MAX_CONTENT
+    const available = MIN_CONTENT - 8; // 32 < MIN_CONTENT (40) < MAX_CONTENT
     const w = resolvedInlineBlockWidth(available, "max-content");
     expect(w).toBe(MAX_CONTENT);
   });
@@ -2486,12 +3042,632 @@ describe("IFC — inline-block auto shrink-to-fit clamp (CSS Sizing 3 §10.3.5)"
 
   it('9. inlineSize: 50% resolves to a DEFINITE 0.5 * available (NOT shrink-to-fit, NOT clamped to maxContent)', () => {
     const available = 56; // 0.5*56 = 28: differs from maxContent (80) AND the
-                          // auto/fit-content clamp result (min(80,max(32,56))=56).
+                          // auto/fit-content clamp result (min(80,max(40,56))=56).
     const w = resolvedInlineBlockWidth(available, { unit: "percent", value: 50 });
     expect(w).toBe(28);                 // definite: 0.5 * available
     expect(w).not.toBe(MAX_CONTENT);    // NOT clamped to max-content
     expect(w).not.toBe(available);      // NOT the shrink-to-fit clamp result
-    // 28 < MIN_CONTENT (32): a definite percent size is NOT floored at min-content.
+    // 28 < MIN_CONTENT (40): a definite percent size is NOT floored at min-content.
     expect(w).toBeLessThan(MIN_CONTENT);
+  });
+});
+
+describe("IFC — UAX #14 token annotation (S2.4) + S2.3/S2.4-scaffold negative test", () => {
+  function tokensOf(text: string, whiteSpace?: ComputedStyle["whiteSpace"]) {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", ...(whiteSpace ? { whiteSpace } : {}) }, [
+        createTextBox("t", {}, text),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    return collectTokens(tree, shaper, "ltr", ctx.intrinsicCache);
+  }
+
+  it("CJK paragraph WRAPS across lines (the S2.4 win)", () => {
+    // 10 ideographs (10×8 = 80px) in a 40px IFC. UAX #14 allows a break between
+    // every ideograph (class ID via LB31), so `trySoftSplit` wraps the single
+    // run: 5 ideographs (40px) per line → 2 lines. (Before S2.4 wired the wrap
+    // loop, this stayed on ONE overflowing line — see git history of this test.)
+    const lines = ifcOf("一二三四五六七八九十", 40);
+    expect(lines.length).toBe(2);
+    for (const ln of lines) {
+      if (ln.type !== "line") throw new Error("?");
+      expect(ln.width).toBeLessThanOrEqual(40);
+    }
+  });
+
+  it("NBSP (U+00A0, GL) keeps its neighbours on ONE line even when narrow", () => {
+    // "aaaa bbbb" at width 40: a REGULAR space lets "bbbb" wrap → 2 lines.
+    expect(ifcOf("aaaa bbbb", 40).length).toBe(2);
+    // With a NON-BREAKING space (U+00A0), `breakableBefore:false` on "bbbb"
+    // suppresses the flush → both words stay on one (overflowing) line. This is
+    // the NBSP fix: the old `/\s/` tokenizer wrongly broke here.
+    expect(ifcOf("aaaa\u00A0bbbb", 40).length).toBe(1);
+  });
+
+  it("NBSP pins only the BOUNDARY \u2014 an NBSP-joined run still wraps at its INTERIOR breaks", () => {
+    // "a\u00A0\u4E00\u4E8C\u4E09\u56DB\u4E94\u516D\u4E03\u516B\u4E5D\u5341": an NBSP glues "a" to a 10-ideograph CJK run.
+    // `breakableBefore:false` on the CJK run forbids a break AT the NBSP, but the
+    // inter-ideograph soft breaks INSIDE the run are independent UAX #14
+    // opportunities, so the run must still wrap across lines (it far exceeds the
+    // 40px line). Regression guard: an earlier revision gated the ENTIRE
+    // overflow/empty-line wrap branch on `breakableBefore`, which wrongly
+    // suppressed `trySoftSplit` too and force-placed the whole run on one
+    // overflowing line (length 1). `breakableBefore` must gate ONLY the
+    // break-before-the-unit flush, never the interior split.
+    const lines = ifcOf("a\u00A0\u4E00\u4E8C\u4E09\u56DB\u4E94\u516D\u4E03\u516B\u4E5D\u5341", 40);
+    expect(lines.length).toBeGreaterThan(1);
+    for (const ln of lines) {
+      if (ln.type !== "line") throw new Error("?");
+      // Every line except the one carrying the un-splittable "a\u00A0\u4E00" prefix
+      // fits; assert no line runs away unboundedly (the whole 88px run is NOT on
+      // one line).
+      expect(ln.width).toBeLessThanOrEqual(48);
+    }
+  });
+
+  it("CJK run: token carries softBreaks at the inter-ideograph offsets", () => {
+    // "一二" → one word token (no whitespace). UAX #14 (cjBreakable:true) allows
+    // a break between adjacent ideographs → soft offset 1, strictly inside the
+    // token's display span (0,2) → token-relative softBreaks [1].
+    const tokens = tokensOf("一二");
+    expect(tokens.map(t => t.text)).toEqual(["一二"]);
+    expect(tokens[0].softBreaks).toEqual([1]);
+    // A longer run carries every interior inter-ideograph offset.
+    const five = tokensOf("一二三四五");
+    expect(five[0].softBreaks).toEqual([1, 2, 3, 4]);
+  });
+
+  it("NBSP (U+00A0, GL): the spanning space token has NO softBreaks and breakableBefore false", () => {
+    // "a b" tokenizes (white-space:normal) to ["a", " ", "b"]; the middle
+    // " " token is the NBSP-origin synthetic space. UAX #14 puts NO break
+    // opportunity around a GL non-breaking space (LB12/12a), so:
+    //  - the space token (whitespace → never carries softBreaks) is breakableBefore:false
+    //    (keyed at gapEnd = base + sourceLength, the boundary AFTER the gap — NOT
+    //    its base; LB7 forbids breaks before any space, so base would be false for
+    //    both NBSP and a regular space — gapEnd is the bit that distinguishes them);
+    //  - the trailing "b" token is breakableBefore:false too (no opportunity before it).
+    const tokens = tokensOf("a b");
+    expect(tokens.map(t => t.text)).toEqual(["a", " ", "b"]);
+    const space = tokens[1];
+    expect(space.isSpace).toBe(true);
+    expect(space.softBreaks).toBeUndefined();
+    expect(space.breakableBefore).toBe(false);
+    // "b" at base 2: no opportunity before it across the NBSP.
+    expect(tokens[2].breakableBefore).toBe(false);
+  });
+
+  it("regular space: the spanning space token IS breakableBefore (Latin unchanged)", () => {
+    // "a b" with an ordinary space (SP) — UAX #14 allows a break before the SP
+    // (after "a") AND before "b" (after the SP). The synthetic " " space token's
+    // breakableBefore is true (regular space), distinguishing it from the NBSP case.
+    const tokens = tokensOf("a b");
+    expect(tokens.map(t => t.text)).toEqual(["a", " ", "b"]);
+    // breakableBefore is OMITTED when true (default-absent === true) — so the
+    // regular-space token has no explicit `false`, unlike the NBSP case above.
+    expect(tokens[1].breakableBefore).not.toBe(false);
+    expect(tokens[2].breakableBefore).not.toBe(false);
+  });
+
+  it("plain ASCII word: no softBreaks, breakableBefore omitted (byte-identical common case)", () => {
+    // "hello" — no interior UAX #14 opportunities, no leading break → softBreaks
+    // and breakableBefore are both omitted, keeping the token byte-identical to
+    // the pre-S2.4 shape (cache key default-equal).
+    const tokens = tokensOf("hello");
+    expect(tokens[0].softBreaks).toBeUndefined();
+    expect(tokens[0].breakableBefore).toBeUndefined();
+  });
+});
+
+describe("IFC — hyphens: soft-hyphen break handling (HYPH.S2/S3)", () => {
+  const SHY = "­";
+  type LineBox = import("./layout-box").LineBox;
+  type TextRunBox = import("./layout-box").TextRunBox;
+  // SHY is UAX #14 class BA (break-after), so `lineBreakOpportunities` emits a
+  // soft break at the index immediately AFTER it. Under ALL three `hyphens`
+  // values the glyph-less soft break at a U+00AD is suppressed: `none` removes
+  // it entirely (the word stays unbroken — CSS Text 4); `manual`/`auto` MOVE it
+  // to a hyphen break that renders a "-" glyph at the line end. Real-space
+  // breaks elsewhere are never affected.
+  function styledTree(text: string, hyphens?: ComputedStyle["hyphens"]) {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", ...(hyphens ? { hyphens } : {}) }, [
+        createTextBox("t", {}, text),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    return tree;
+  }
+  function tokensOf(text: string, hyphens?: ComputedStyle["hyphens"]) {
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    return collectTokens(styledTree(text, hyphens), shaper, "ltr", ctx.intrinsicCache);
+  }
+  function linesOf(text: string, width: number, hyphens?: ComputedStyle["hyphens"]): LineBox[] {
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, width);
+    const result = layoutInlineContent(styledTree(text, hyphens), 0, 0, ctx, shaper, undefined);
+    if (result.box === null) throw new Error("layoutInlineContent returned null box");
+    return result.box.children.filter((c): c is LineBox => c.type === "line");
+  }
+
+  // --- S3: manual producer (soft → hyphen) ---
+
+  it("manual (default): the break MOVES from soft to hyphen on the token", () => {
+    // "hy<SHY>phen": SHY at token-relative index 2 → the suffix begins at the
+    // char AFTER it, so the hyphen break is at index 3 (prefix = slice(0,3) =
+    // "hy<SHY>", keeping the soft hyphen on the prefix where it renders as "-").
+    // The glyph-less soft break is REMOVED (moved, not duplicated).
+    const tok = tokensOf("hy" + SHY + "phen")[0];
+    expect(tok.hyphenBreaks).toEqual([3]);
+    expect(tok.softBreaks).toBeUndefined();
+  });
+
+  it("auto ≡ manual: same hyphenBreaks (auto falls back to manual until a dictionary)", () => {
+    expect(tokensOf("hy" + SHY + "phen", "auto")[0].hyphenBreaks).toEqual([3]);
+  });
+
+  it("multiple soft hyphens → a hyphenBreaks entry at each i+1, none for a trailing SHY", () => {
+    // "a<SHY>b<SHY>c<SHY>": SHY at indices 1, 3, 5. The first two yield interior
+    // hyphen breaks at 2 and 4; the TRAILING SHY (index 5, last char) has no
+    // suffix to break to → no entry.
+    expect(tokensOf("a" + SHY + "b" + SHY + "c" + SHY)[0].hyphenBreaks).toEqual([2, 4]);
+  });
+
+  it("none: NO hyphenBreaks are produced (the word is unbreakable at the soft hyphen)", () => {
+    const tok = tokensOf("hy" + SHY + "phen", "none")[0];
+    expect(tok.hyphenBreaks).toBeUndefined();
+    expect(tok.softBreaks).toBeUndefined();
+  });
+
+  it("manual: a soft-hyphenated overflow line ends with a hyphen glyph at the LTR inline-end (HYPH.S4 RTL baseline)", () => {
+    // "hy<SHY>phen" = 6 visible letters × 8px = 48px (SHY zero-advance) in a 40px
+    // line → wraps at the soft hyphen. Line 1 ends with the synthetic "-" glyph
+    // and carries endsWithHyphenContinuation; line 2 is the "phen" suffix.
+    const lines = linesOf("hy" + SHY + "phen", 40, "manual");
+    expect(lines.length).toBe(2);
+    expect(lines[0].endsWithHyphenContinuation).toBe(true);
+    const runs = lines[0].children.filter((c): c is TextRunBox => c.type === "text-run");
+    const hyphen = runs.find((r) => r.text === "-");
+    expect(hyphen).toBeDefined();
+    // LTR baseline for the named RTL-hyphen-placement follow-up (spec "Out of
+    // scope"): the synthetic hyphen sits at the inline-END of the prefix — after
+    // "hy<SHY>" (h=8 + y=8 + SHY=0 = 16). On an RTL line the follow-up must move it
+    // to the inline-START; this assertion pins the correct LTR position so that
+    // work has a baseline.
+    expect(hyphen?.inlineOffset).toBe(16);
+    // The suffix line carries no hyphen continuation.
+    expect(lines[1].endsWithHyphenContinuation).not.toBe(true);
+  });
+
+  it("manual: a soft-hyphenated paragraph survives the live incremental wrap cache (correct geometry reused)", () => {
+    // The live IFC incremental path is a full-reuse-or-full-rewrap cache keyed on
+    // `findChangePoint` (the partial-rewrap `rewrapIncremental` is P18-deferred and
+    // NOT on the live path — so hyphenation can never yield wrong incremental
+    // geometry here; the fallback is always a correct full re-wrap). Re-laying the
+    // SAME soft-hyphenated paragraph through the SAME ctx hits the cache and reuses
+    // the hyphen-split lines verbatim — proving the hyphenated geometry round-trips
+    // the cache. Object-IDENTITY of the LineBoxes proves the cache path was taken
+    // (a re-wrap would allocate fresh LineBoxes).
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 40);
+    const tree = styledTree("hy" + SHY + "phen", "manual");
+    const r1 = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined);
+    const r2 = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined); // same ctx → cache hit
+    if (r1.box === null || r2.box === null) throw new Error("null box");
+    expect(r2.box.children.length).toBe(2);
+    expect(r2.box.children[0]).toBe(r1.box.children[0]); // same LineBox ref → cache reuse
+    expect(r2.box.children[1]).toBe(r1.box.children[1]);
+    const line0 = r2.box.children[0];
+    if (line0.type !== "line") throw new Error("expected line");
+    expect(line0.endsWithHyphenContinuation).toBe(true);
+    expect(
+      line0.children.filter((c): c is TextRunBox => c.type === "text-run").map((r) => r.text),
+    ).toContain("-");
+  });
+
+  // --- S2: none suppression (still holds) ---
+
+  it("none: a soft-hyphenated word that overflows does NOT break at the soft hyphen", () => {
+    // Under `manual` it wraps at the soft hyphen (→ 2 lines); under `none` it
+    // stays on ONE overflowing line.
+    expect(linesOf("hy" + SHY + "phen", 40, "manual").length).toBe(2);
+    expect(linesOf("hy" + SHY + "phen", 40, "none").length).toBe(1);
+  });
+
+  it("none: a real-space break is still honored (only the soft-hyphen break is removed)", () => {
+    // "hy<SHY>phen aaaa" under `none` at width 40: the in-word soft-hyphen break
+    // is gone, but the SPACE break before "aaaa" remains → still wraps to 2 lines.
+    expect(linesOf("hy" + SHY + "phen aaaa", 40, "none").length).toBe(2);
+  });
+});
+
+describe("IFC — hyphens: auto producer (HYPH.S4)", () => {
+  // The auto producer asks an injected `Hyphenator` for algorithmic in-word break
+  // points under `hyphens: auto` + a resolved content language, filters them by
+  // `hyphenate-limit-chars` ([minWord, minBefore, minAfter]), and merges them with
+  // soft-hyphen + shaper breaks. With no hyphenator / no language it contributes
+  // nothing (auto falls back to manual — the correct CSS UA fallback).
+  function styledTree(
+    text: string,
+    style?: Partial<{
+      hyphens: ComputedStyle["hyphens"];
+      language: string;
+      hyphenateLimitChars: readonly [number, number, number];
+      textTransform: ComputedStyle["textTransform"];
+    }>,
+  ) {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", ...(style ?? {}) }, [
+        createTextBox("t", {}, text),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    return tree;
+  }
+  function tokensOf(
+    text: string,
+    style?: Partial<{
+      hyphens: ComputedStyle["hyphens"];
+      language: string;
+      hyphenateLimitChars: readonly [number, number, number];
+      textTransform: ComputedStyle["textTransform"];
+    }>,
+    hyphenator?: ReturnType<typeof createMockHyphenator>,
+  ) {
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    return collectTokens(styledTree(text, style), shaper, "ltr", ctx.intrinsicCache, hyphenator);
+  }
+
+  // (a) auto + language + mock → the mock's points filtered by the default [5,2,2].
+  it("auto + language + hyphenator → mock points filtered by hyphenate-limit-chars [5,2,2]", () => {
+    // "hyphenation" len 11. Mock (every=3) → raw points {3, 6, 9}. Default limits
+    // [5,2,2]: minWord 5 (11 ≥ 5 ✓), minBefore 2 (all ≥ 2), minAfter 2 (11-p ≥ 2
+    // ⇒ p ≤ 9, so 9 survives). → {3, 6, 9}.
+    const tok = tokensOf("hyphenation", { hyphens: "auto", language: "en" }, createMockHyphenator({ every: 3 }))[0];
+    expect(tok.hyphenBreaks).toEqual([3, 6, 9]);
+  });
+
+  // (b) hyphens:none → no auto breaks (the producer never runs).
+  it("none → NO auto breaks even with a hyphenator + language", () => {
+    const tok = tokensOf("hyphenation", { hyphens: "none", language: "en" }, createMockHyphenator({ every: 3 }))[0];
+    expect(tok.hyphenBreaks).toBeUndefined();
+  });
+
+  // (b') hyphens:manual → NO auto breaks even with a hyphenator + language. The
+  // auto arm is gated on `=== "auto"`; `manual` honors ONLY authored soft hyphens
+  // (none here), so the plain word stays unbroken.
+  it("manual → NO auto breaks even with a hyphenator + language", () => {
+    const tok = tokensOf("hyphenation", { hyphens: "manual", language: "en" }, createMockHyphenator({ every: 3 }))[0];
+    expect(tok.hyphenBreaks).toBeUndefined();
+  });
+
+  // (c) empty language → no auto breaks (no language to hyphenate against).
+  it("empty language → NO auto breaks", () => {
+    const tok = tokensOf("hyphenation", { hyphens: "auto", language: "" }, createMockHyphenator({ every: 3 }))[0];
+    expect(tok.hyphenBreaks).toBeUndefined();
+  });
+
+  // (d) no hyphenator → no auto breaks (auto falls back to manual; no soft hyphen here).
+  it("no hyphenator (undefined) → NO auto breaks", () => {
+    const tok = tokensOf("hyphenation", { hyphens: "auto", language: "en" }, undefined)[0];
+    expect(tok.hyphenBreaks).toBeUndefined();
+  });
+
+  // (e) word shorter than minWord → no auto breaks.
+  it("word shorter than minWord → NO auto breaks", () => {
+    // "hello" len 5; minWord default 5 ⇒ 5 ≥ 5 so the producer runs. Use a shorter
+    // word to land below minWord: "hi" len 2 < 5.
+    const tok = tokensOf("hi", { hyphens: "auto", language: "en" }, createMockHyphenator({ every: 1, floor: 1 }))[0];
+    expect(tok.hyphenBreaks).toBeUndefined();
+  });
+
+  // (f) only points with p>=minBefore && len-p>=minAfter survive (custom limits).
+  it("custom hyphenate-limit-chars filters by minBefore / minAfter", () => {
+    // "abcdefghij" len 10. Mock every=1 → raw interior points {1..9}. Limits
+    // [4, 3, 3]: minWord 4 (10 ≥ 4 ✓), minBefore 3 ⇒ p ≥ 3, minAfter 3 ⇒
+    // 10-p ≥ 3 ⇒ p ≤ 7. Survivors: {3, 4, 5, 6, 7}.
+    const tok = tokensOf(
+      "abcdefghij",
+      { hyphens: "auto", language: "en", hyphenateLimitChars: [4, 3, 3] },
+      createMockHyphenator({ every: 1, floor: 1 }),
+    )[0];
+    expect(tok.hyphenBreaks).toEqual([3, 4, 5, 6, 7]);
+  });
+
+  // (g) author soft-hyphen U+00AD AND auto both present → UNION, deduped, sorted.
+  it("soft hyphen + auto both present → union, deduped, sorted", () => {
+    const SHY = "­";
+    // "ab<SHY>cdefgh" — display word "abcdefgh" len 8. The SHY is at source index
+    // 2; it yields a synthesized soft-hyphen break at token index 3 (after the SHY,
+    // which is index 2; the suffix starts at the char after → 3). The auto mock
+    // (every=3) over the 9-code-unit `part` "ab­cdefgh" → raw {3, 6}; default
+    // limits [5,2,2] keep both (len 9, p≥2, 9-p≥2 ⇒ p≤7). Union {3, 6} ∪ {3} =
+    // {3, 6}, deduped + sorted.
+    const tok = tokensOf("ab" + SHY + "cdefgh", { hyphens: "auto", language: "en" }, createMockHyphenator({ every: 3 }))[0];
+    expect(tok.hyphenBreaks).toEqual([3, 6]);
+  });
+
+  // (h) text-transform GROW token (display ≠ source) → hyphenBreaks cleared.
+  it("text-transform grow token (display ≠ source) → hyphenBreaks cleared", () => {
+    // "straße" len 6; uppercase → "STRASSE" len 7 (ß→SS grows). The grow path
+    // clears hyphenBreaks (source-relative indices become invalid). So even though
+    // the auto producer ran on the DISPLAY word, the clear at the text-transform
+    // branch nulls it.
+    const tok = tokensOf(
+      "straße",
+      { hyphens: "auto", language: "en", textTransform: "uppercase" },
+      createMockHyphenator({ every: 2, floor: 1 }),
+    )[0];
+    // Sanity: the grow happened (the test would be vacuous on a 1:1 transform).
+    expect(tok.sourceDisplayLengths).toBeDefined();
+    expect(tok.hyphenBreaks).toBeUndefined();
+  });
+});
+
+describe("IFC — overflow-wrap: break-word (OW.S2)", () => {
+  // The last-resort within-word break: a word with NO real break opportunity that
+  // exceeds the line is broken at a grapheme-cluster boundary under `break-word`
+  // (CSS Text 3 §5.1); under `normal` (the initial) it overflows. Ordering is
+  // soft → hyphen → emergency, so a real break (space/soft-hyphen) always wins.
+  type LineBox = import("./layout-box").LineBox;
+  type TextRunBox = import("./layout-box").TextRunBox;
+  function styledTree(text: string, overflowWrap?: ComputedStyle["overflowWrap"], hyphens?: ComputedStyle["hyphens"]) {
+    const tree = cascadePass(
+      createElementBox("p", {
+        display: "block",
+        ...(overflowWrap ? { overflowWrap } : {}),
+        ...(hyphens ? { hyphens } : {}),
+      }, [createTextBox("t", {}, text)]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    return tree;
+  }
+  function linesOf(text: string, width: number, overflowWrap?: ComputedStyle["overflowWrap"], hyphens?: ComputedStyle["hyphens"]): LineBox[] {
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, width);
+    const result = layoutInlineContent(styledTree(text, overflowWrap, hyphens), 0, 0, ctx, shaper, undefined);
+    if (result.box === null) throw new Error("null box");
+    return result.box.children.filter((c): c is LineBox => c.type === "line");
+  }
+
+  it("break-word breaks a long unbreakable word; normal overflows on one line", () => {
+    // "aaaaaaaa" = 8 × 8px = 64px in a 40px column. Under break-word it breaks at
+    // the widest fitting grapheme boundary ("aaaaa" = 40px) → 2 lines; the first
+    // line fits the column. Under `normal` the word overflows on ONE line.
+    const bw = linesOf("aaaaaaaa", 40, "break-word");
+    expect(bw.length).toBe(2);
+    expect(bw[0].width).toBeLessThanOrEqual(40);
+    expect(linesOf("aaaaaaaa", 40, "normal").length).toBe(1);
+    // Default (no overflowWrap → `normal` initial) also overflows.
+    expect(linesOf("aaaaaaaa", 40).length).toBe(1);
+    // `anywhere`'s USED-layout break is IDENTICAL to break-word (CSS Text 3 §5.1):
+    // it emergency-breaks the same way — only its intrinsic min-content differs
+    // (covered in intrinsic-sizes-pass.test.ts). Same word, same column ⇒ same lines.
+    const any = linesOf("aaaaaaaa", 40, "anywhere");
+    expect(any.length).toBe(2);
+    expect(any[0].width).toBeLessThanOrEqual(40);
+  });
+
+  it("≥1-grapheme progress guarantee: a grapheme wider than the line still places one (no infinite loop)", () => {
+    // "abc" with each glyph 8px in a 4px column: no grapheme fits, but break-word
+    // must place at least one grapheme per line (CSS §5.1) — "a" | "b" | "c", each
+    // overflowing. 3 lines proves progress + termination (the single-grapheme tail
+    // "c" cannot split, so it force-places).
+    const lines = linesOf("abc", 4, "break-word");
+    expect(lines.length).toBe(3);
+  });
+
+  it("real breaks win first: a soft hyphen is used before an emergency break", () => {
+    // "aa<SHY>aaaa" (6 visible × 8 = 48px) in a 40px column under break-word +
+    // default `manual` hyphens. The soft hyphen gives a hyphen break at index 3
+    // (prefix "aa<SHY>" + "-" = 24px ≤ 40) — tried BEFORE the emergency break, so
+    // line 0 ends with the "-" glyph rather than chopping mid-run at "aaaaa".
+    const lines = linesOf("aa" + "­" + "aaaa", 40, "break-word", "manual");
+    expect(lines[0].endsWithHyphenContinuation).toBe(true);
+    expect(
+      lines[0].children.filter((c): c is TextRunBox => c.type === "text-run").map((r) => r.text),
+    ).toContain("-");
+  });
+
+  it("break-word breaks an NBSP-glued overflowing word on a shared line (the breakableBefore===false else-branch)", () => {
+    // "word longword": the NBSP (U+00A0) glues "longword" to "word"
+    // (breakableBefore===false → it can't move to a fresh line). In an 80px column
+    // the run overflows (word 32 + NBSP 8 + longword 64 = 104). Without break-word
+    // the glued word force-places + overflows; UNDER break-word it must split in
+    // place on the shared line. This is the only path through the shared-line
+    // `else` branch (every other OW.S2 test goes via the alone-on-line site).
+    const lines = linesOf("word longword", 80, "break-word");
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    expect(lines[0].width).toBeLessThanOrEqual(80); // broken, not force-placed past the column
+    // Sanity: under `normal` the glued word force-places on ONE overflowing line.
+    expect(linesOf("word longword", 80, "normal").length).toBe(1);
+  });
+
+  it("break-word prefix/suffix re-sum to the original word (no dropped chars / NaN)", () => {
+    const lines = linesOf("aaaaaaaa", 40, "break-word");
+    const text = lines
+      .flatMap((l) => l.children.filter((c): c is TextRunBox => c.type === "text-run"))
+      .map((r) => r.text)
+      .join("");
+    expect(text).toBe("aaaaaaaa");
+    for (const l of lines) {
+      expect(Number.isFinite(l.inlineOffsetStart)).toBe(true);
+      expect(Number.isFinite(l.inlineOffsetEnd)).toBe(true);
+    }
+  });
+});
+
+describe("IFC — hard-break embed forced line break", () => {
+  // A `<br>` decodes to a hard-break embed, which render-core emits as a
+  // zero-width, child-less inline-block ElementBox carrying
+  // `metadata.embedType === HARD_BREAK_EMBED_TYPE`. The IFC must turn that into
+  // a FORCED line break (isLineBreak unit) — mirroring the `\n` LINE_BREAK and
+  // the `tab` embed metadata recognition — NOT an ordinary atomic token.
+
+  // Build an inline-block hard-break embed exactly the way render-core does:
+  // display:inline-block, inlineSize 0, no children, embedType metadata.
+  function hardBreak(key: string) {
+    return createElementBox(
+      key,
+      { display: "inline-block", inlineSize: 0 },
+      [],
+      { embedType: HARD_BREAK_EMBED_TYPE },
+    );
+  }
+
+  function lineText(line: import("./layout-box").LineBox): string {
+    const out: { x: number; text: string }[] = [];
+    const walk = (boxes: readonly import("./layout-box").LayoutBox[]) => {
+      for (const b of boxes) {
+        if (b.type === "text-run") out.push({ x: b.x, text: b.text });
+        else if (b.type === "inline") walk(b.children);
+      }
+    };
+    walk(line.children);
+    out.sort((a, b) => a.x - b.x);
+    return out.map((l) => l.text).join("");
+  }
+
+  function linesOfChildren(children: readonly import("../render/render-node").RenderNode[]) {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block" }, children),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    return out.children.filter((c): c is import("./layout-box").LineBox => c.type === "line");
+  }
+
+  it("A<br>B lays out as TWO lines: A on line 0, B on line 1", () => {
+    const lines = linesOfChildren([
+      createTextBox("ta", {}, "A"),
+      hardBreak("br"),
+      createTextBox("tb", {}, "B"),
+    ]);
+    expect(lines).toHaveLength(2);
+    const l0 = lineText(lines[0]);
+    const l1 = lineText(lines[1]);
+    expect(l0).toContain("A");
+    expect(l0).not.toContain("B");
+    expect(l1).toContain("B");
+  });
+
+  it("A<br><br>B lays out as THREE lines (A, empty, B) with offset continuity", () => {
+    const lines = linesOfChildren([
+      createTextBox("ta", {}, "A"),
+      hardBreak("br1"),
+      hardBreak("br2"),
+      createTextBox("tb", {}, "B"),
+    ]);
+    expect(lines).toHaveLength(3);
+    // Offset continuity across all lines (each line resumes where the last ended).
+    for (let i = 1; i < lines.length; i++) {
+      expect(lines[i].inlineOffsetStart).toBe(lines[i - 1].inlineOffsetEnd);
+    }
+    // Total source length: A=1, br=1, br=1, B=1 ⇒ 4.
+    expect(lines[0].inlineOffsetStart).toBe(0);
+    expect(lines[lines.length - 1].inlineOffsetEnd).toBe(4);
+  });
+
+  it("a lone hard-break embed still forces a second line (2 line boxes)", () => {
+    const lines = linesOfChildren([hardBreak("br")]);
+    expect(lines).toHaveLength(2);
+  });
+
+  // #504: real dialogue authored with `<br>` between call-and-response lines used
+  // to glue into long runs that broke mid-word under `overflow-wrap: break-word`
+  // in narrow (2-column) tracks. With the hard-break honored, each segment is
+  // short and wraps only at spaces — no emergency mid-word break.
+  function linesOfChildrenNarrow(
+    children: readonly import("../render/render-node").RenderNode[],
+    width: number,
+  ) {
+    const tree = cascadePass(
+      // overflowWrap is inherited, so setting it on the paragraph root cascades
+      // to the text children (mirrors the example seed inheriting it from the
+      // document root).
+      createElementBox("p", { display: "block", overflowWrap: "break-word" }, children),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper, undefined);
+    if (r.box === null) throw new Error("layoutBlock returned null box");
+    const out = r.box;
+    if (out.type !== "block") throw new Error("?");
+    return out.children.filter((c): c is import("./layout-box").LineBox => c.type === "line");
+  }
+
+  it("real <br>-separated dialogue never breaks mid-word in a narrow break-word track (#504)", () => {
+    // The actual Little-Red-Riding-Hood call-and-response from the seed, modeled
+    // as text runs SEPARATED BY hard-break embeds (NOT glued plain text).
+    const lines = linesOfChildrenNarrow(
+      [
+        createTextBox("t0", {}, '"Oh, grandmother, what big ears you have!"'),
+        hardBreak("br0"),
+        createTextBox("t1", {}, '"All the better to hear you with, my child."'),
+        hardBreak("br1"),
+        createTextBox("t2", {}, '"But, grandmother, what big eyes you have!"'),
+        hardBreak("br2"),
+        createTextBox("t3", {}, '"All the better to see you with."'),
+        hardBreak("br3"),
+        createTextBox("t4", {}, '"But, grandmother, what big teeth you have!"'),
+        hardBreak("br4"),
+        createTextBox("t5", {}, '"All the better to eat you with!"'),
+      ],
+      // ~180px column track: at 8px/char each segment wraps over a couple of
+      // lines at spaces, but no single word (longest "grandmother," = 12 chars
+      // = 96px) ever needs an emergency mid-word break.
+      184,
+    );
+
+    // The breaks fired AND the segments wrapped: 6 segments forced onto their own
+    // line-groups, each wrapping over >1 line ⇒ well more than 6 lines. Guards
+    // against a vacuously-green single-line layout.
+    expect(lines.length).toBeGreaterThan(6);
+
+    // A line is split mid-word when its raw (UN-trimmed) text does not end in
+    // whitespace, ends in a letter, AND the next line starts with a letter — a
+    // word cut between two letters. The hard-break fix means this never happens.
+    const raw = lines.map((l) => lineText(l));
+    const midWordSplit = (texts: readonly string[]): boolean => {
+      for (let i = 0; i < texts.length - 1; i++) {
+        const cur = texts[i];
+        const next = texts[i + 1];
+        if (cur.length === 0 || next.length === 0) continue;
+        const endsInWhitespace = /\s$/.test(cur);
+        const endsInLetter = /[A-Za-z]$/.test(cur);
+        const nextStartsLetter = /^[A-Za-z]/.test(next);
+        if (!endsInWhitespace && endsInLetter && nextStartsLetter) return true;
+      }
+      return false;
+    };
+    expect(midWordSplit(raw)).toBe(false);
+
+    // Positive: a segment's opening quote stays attached to its first word at the
+    // start of that segment's first line (never split off) — '"But,' survives.
+    expect(raw.some((t) => t.startsWith('"But,'))).toBe(true);
+  });
+
+  it("pre-line 'A\\n' (text LINE_BREAK, no trailing empty token) also opens a trailing empty line", () => {
+    // The trailing-empty-line flag mechanism that the hard-break embed relies on
+    // ALSO drives the `pre-line` text path: `tokenize("A\n", "pre-line")` yields
+    // ["A", LINE_BREAK] with NO trailing "" segment, so the post-loop flag flush
+    // is what opens the empty second line (the caret-after-the-break needs it).
+    // (`pre`/`pre-wrap` get this from the tokenizer's trailing "" token instead.)
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", whiteSpace: "pre-line" }, [
+        createTextBox("t", {}, "A\n"),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
+    if (r.box === null || r.box.type !== "block") throw new Error("?");
+    const lines = r.box.children.filter(
+      (c): c is import("./layout-box").LineBox => c.type === "line",
+    );
+    expect(lines).toHaveLength(2);
+    expect(lineText(lines[0])).toContain("A");
+    // The trailing empty line carries no glyphs and resumes at the prior end.
+    expect(lineText(lines[1])).toBe("");
+    expect(lines[1].inlineOffsetStart).toBe(lines[0].inlineOffsetEnd);
   });
 });

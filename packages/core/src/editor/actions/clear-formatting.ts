@@ -1,7 +1,7 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { createPosition, createSpan, spanStart, spanEnd, applyAttrsToRange } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { INLINE_FORMAT_ATTR_KEYS } from "../inline-format-keys";
+import { applyAttrsOrSuggest } from "./suggestion-mode";
 import { rebuildTrees } from "./helpers";
 
 /**
@@ -22,7 +22,7 @@ import { rebuildTrees } from "./helpers";
  * removal). Collapsed selection short-circuits to a no-op (nothing to clear at
  * a single cursor position); the T7 state-equality short-circuit also covers an
  * already-clean selection (no attrs removed → no state change → no history
- * entry). Selection is re-built from normalized start/end; dirtyIds threaded
+ * entry). The selection is preserved unchanged; dirtyIds threaded
  * through to the incremental render pipeline (per R-D.3).
  */
 export function handleClearFormatting(
@@ -33,32 +33,29 @@ export function handleClearFormatting(
   if (isCollapsed(selection)) return editor;
 
   // One object mapping every inline-format key to `undefined` — a single
-  // applyAttrsToRange call removes them all atomically (one undo step).
+  // applyAttrsOrSuggest call removes them all atomically (one undo step) in
+  // direct mode, or suggests their removal as ONE formatting record (the
+  // clear-all delta is a valid `proposedAttrs`) in suggesting mode.
   const incoming: Record<string, undefined> = {};
   for (const key of INLINE_FORMAT_ATTR_KEYS) {
     incoming[key] = undefined;
   }
-  const result = applyAttrsToRange(editor.state, selection, incoming);
+  const result = applyAttrsOrSuggest(editor.state, selection, incoming, config);
   // No attr was actually present to remove → no state change → no-op
   // (also short-circuits an already-clean selection, no history entry).
   if (result.state === editor.state) return editor;
 
-  // Selection invariant under attribute changes — preserve anchor/focus but
-  // rebuild span ordering from normalized start/end so consumers see
-  // consistent shape.
-  const start = spanStart(editor.state, selection);
-  const end = spanEnd(editor.state, selection);
-  const newSelection = createSpan(
-    createPosition(start.blockId, start.offset),
-    createPosition(end.blockId, end.offset),
-  );
-
+  // An attr-only edit shifts no offsets, so the selection is unchanged — it is
+  // committed and rebuilt AS-IS, preserving both endpoints and the anchor/focus
+  // DIRECTION (a backward drag-selection stays backward — Google-Docs parity).
+  // Normalizing via spanStart/spanEnd would silently flip a backward selection
+  // to forward, so a following Shift+Arrow would extend from the wrong end.
   editor.history.commit(result, {
     before: selection,
-    after: newSelection,
+    after: selection,
   });
   return rebuildTrees(
-    { ...editor, state: result.state, selection: newSelection },
+    { ...editor, state: result.state, selection },
     editor,
     config,
     result.dirtyIds,

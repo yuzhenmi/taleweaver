@@ -1,7 +1,19 @@
 import { describe, it, expect } from "vitest";
 import { getOutline } from "./outline";
-import { buildBlock, buildState, text, inlineContent } from "../test-utils/state-builders";
+import { buildBlock, buildState, text, embed, inlineContent } from "../test-utils/state-builders";
 import type { BlockId } from "./block-id";
+import { INSERTION_SUGGESTION_ATTR, DELETION_SUGGESTION_ATTR } from "./suggestions";
+
+/** A single-heading doc whose heading carries the given inline items. */
+function headingDoc(items: Parameters<typeof inlineContent>[0]) {
+  return buildState({
+    rootId: "doc",
+    blocks: [
+      buildBlock({ id: "doc", type: "document", firstChildId: "h", lastChildId: "h" }),
+      buildBlock({ id: "h", type: "heading", parentId: "doc", attrs: { level: 1 }, inlineContent: inlineContent(items) }),
+    ],
+  });
+}
 
 /**
  * Build a document whose children are the given blocks in order, each linked
@@ -131,5 +143,41 @@ describe("getOutline", () => {
     expect(getOutline(state, { blockIds: ids })).toEqual([
       { blockId: "h", level: 1, text: "One" },
     ]);
+  });
+
+  it("embeds in a heading become CLEAN caption text, not U+FFFC / \\t / \\n", () => {
+    // "Part" + hard-break + "One" + tab + "Two" + a footnote anchor. The
+    // clipboard serializer would yield "Part\nOne\tTwo￼"; the outline is DISPLAY
+    // text so the caption serializer collapses breaks/tabs to a space + drops embeds.
+    const state = headingDoc([
+      text("Part"),
+      embed("hard-break"),
+      text("One"),
+      embed("tab"),
+      text("Two"),
+      embed("footnote-anchor", { footnoteId: "f1" }),
+    ]);
+    expect(getOutline(state)).toEqual([{ blockId: "h" as BlockId, level: 1, text: "Part One Two" }]);
+  });
+
+  it("heading text resolves under the suggestionView option (XR-1 parallel)", () => {
+    // "Keep " (live) + "Added" (pending INSERTION). suggesting/final → "Keep Added";
+    // original (reject) → "Keep " (the insertion is removed from the previewed doc).
+    const state = headingDoc([
+      text("Keep "),
+      text("Added", { [INSERTION_SUGGESTION_ATTR]: "s1" }),
+    ]);
+    expect(getOutline(state)[0].text).toBe("Keep Added"); // default "suggesting"
+    expect(getOutline(state, { suggestionView: "final" })[0].text).toBe("Keep Added");
+    expect(getOutline(state, { suggestionView: "original" })[0].text).toBe("Keep ");
+  });
+
+  it("a pending DELETION in a heading is kept under original, dropped under final (XR-1 mirror)", () => {
+    const state = headingDoc([
+      text("Stay"),
+      text("Cut", { [DELETION_SUGGESTION_ATTR]: "d1" }),
+    ]);
+    expect(getOutline(state, { suggestionView: "final" })[0].text).toBe("Stay");
+    expect(getOutline(state, { suggestionView: "original" })[0].text).toBe("StayCut");
   });
 });

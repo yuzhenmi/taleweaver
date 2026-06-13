@@ -9,6 +9,7 @@ import {
   getTemplateContentsMap,
 } from "./yjs-doc";
 import { buildYBlock } from "./y-block";
+import { writeListDefInTx, type ListDef } from "./list-defs";
 
 export interface BuildStateFromBlocksArgs {
   readonly rootId: BlockId;
@@ -82,6 +83,34 @@ export function buildStateFromBlocks(args: BuildStateFromBlocksArgs): State {
           }),
         );
       }
+    }
+  });
+  return state;
+}
+
+export interface BuildStateWithListDefsArgs {
+  readonly rootId: BlockId;
+  readonly blocks: ReadonlyArray<Block>;
+  readonly listDefs: Record<string, ListDef>;
+}
+
+/**
+ * Like `buildStateFromBlocks`, but additionally seeds the `listDefs` Y.Map with
+ * per-list numbering configuration. For test-fixture construction of numbered
+ * lists where the render/numbering pass needs the list definitions to resolve a
+ * marker. State-module-internal (writes the Y.Doc directly).
+ */
+export function buildStateWithListDefs(
+  args: BuildStateWithListDefsArgs,
+): State {
+  const state = buildStateFromBlocks({
+    rootId: args.rootId,
+    blocks: args.blocks,
+  });
+  const doc = state[STATE_INTERNAL].doc;
+  runTransaction(doc, () => {
+    for (const [listId, def] of Object.entries(args.listDefs)) {
+      writeListDefInTx(doc, listId, def);
     }
   });
   return state;

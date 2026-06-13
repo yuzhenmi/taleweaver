@@ -46,15 +46,15 @@ describe("component-registry (new)", () => {
     expect(reg.get("p")).toBe(b);
   });
 
-  it("createDefaultComponentRegistry registers all 10 built-in components", () => {
+  it("createDefaultComponentRegistry registers the built-in components", () => {
     const reg = createDefaultComponentRegistry();
-    // Containers (5)
+    // Containers — note: no `list` container in the FLAT list model
+    // (list-items carry listId/listLevel attrs; there is no wrapping block).
     expect(reg.has("document")).toBe(true);
-    expect(reg.has("list")).toBe(true);
     expect(reg.has("table")).toBe(true);
     expect(reg.has("table-row")).toBe(true);
     expect(reg.has("table-cell")).toBe(true);
-    // Leaves (5)
+    // Leaves
     expect(reg.has("paragraph")).toBe(true);
     expect(reg.has("heading")).toBe(true);
     expect(reg.has("list-item")).toBe(true);
@@ -71,7 +71,6 @@ describe("component-registry (new)", () => {
   it("registered definitions have the correct kind discriminant", () => {
     const reg = createDefaultComponentRegistry();
     expect(reg.get("document")?.kind).toBe("container");
-    expect(reg.get("list")?.kind).toBe("container");
     expect(reg.get("table")?.kind).toBe("container");
     expect(reg.get("table-row")?.kind).toBe("container");
     expect(reg.get("table-cell")?.kind).toBe("container");
@@ -93,7 +92,6 @@ describe("component-registry — BlockKindResolver (getBlockKind)", () => {
   it("returns 'container' for container components", () => {
     const reg = createDefaultComponentRegistry();
     expect(reg.getBlockKind("document")).toBe("container");
-    expect(reg.getBlockKind("list")).toBe("container");
     expect(reg.getBlockKind("table")).toBe("container");
     expect(reg.getBlockKind("table-row")).toBe("container");
     expect(reg.getBlockKind("table-cell")).toBe("container");

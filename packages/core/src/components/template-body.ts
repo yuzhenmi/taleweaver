@@ -30,7 +30,9 @@ export const templateBodyComponent: ContainerComponentDefinition = {
   render: (view, _ctx, childRenderNodes) =>
     createElementBox(
       view.id,
-      { display: "block", whiteSpace: "break-spaces" },
+      // `overflowWrap: "break-word"` — Google-Docs body default (break a long
+      // unbreakable string to fit; mirrors document.ts + the overflow-wrap spec).
+      { display: "block", whiteSpace: "break-spaces", overflowWrap: "break-word" },
       childRenderNodes,
     ),
 };

@@ -5,12 +5,25 @@ export { FONT_CONFIG, buildCssFontString, getEffectiveStyles } from "./font-conf
 export { createCanvasMeasurer } from "./canvas-measurer";
 export { createCanvasShaper } from "./canvas-shaper";
 export { mapKeyEvent } from "./key-handler";
-export type { CursorState } from "./canvas-renderer";
-export { paintCanvas, paintPage } from "./canvas-renderer";
+export type { CursorState, MatchHighlightRect, CommentHighlightRect, SuggestionHighlightRect } from "./canvas-renderer";
+export {
+  paintCanvas,
+  paintPage,
+  MATCH_HIGHLIGHT_FILL,
+  ACTIVE_MATCH_HIGHLIGHT_FILL,
+  COMMENT_HIGHLIGHT_FILL,
+  ACTIVE_COMMENT_HIGHLIGHT_FILL,
+  SUGGESTION_HIGHLIGHT_FILL,
+  ACTIVE_SUGGESTION_HIGHLIGHT_FILL,
+} from "./canvas-renderer";
+// Human-friendly HTML serializer (taleweaver-html) — DOMParser-backed, so it
+// lives in dom. The host composes it into a core SerializerRegistry manually.
+export { HTML_FORMAT, createHtmlDocumentSerializer } from "./html-serializer";
 export { createEditorController } from "./editor-controller";
-export type { EditorController, EditorControllerOptions } from "./editor-controller";
+export type { EditorController, EditorControllerOptions, FindStatus, CommentHighlight, SuggestionHighlight } from "./editor-controller";
 export { ImageCache } from "./image-cache";
 export type { PaintInputHash, PaintCache } from "./paint-cache";
+export type { Rect, CursorSnapshot, MatchHighlightRectSnapshot, CommentHighlightRectSnapshot, SuggestionHighlightRectSnapshot } from "./paint-cache";
 export { hashPaintInputs, createPaintCache } from "./paint-cache";
 
 // Re-exports from core (backward compatibility)
@@ -24,3 +37,6 @@ export { collectLineBoxes, collectLineLeaves, findLineForPosition } from "@talew
 export { createInitialEditorState, reduceEditor } from "@taleweaver/core";
 export type { CounterFormat, FootnoteNumberingPolicy } from "@taleweaver/core";
 export { documentFootnotePolicy } from "@taleweaver/core";
+// Find & Replace (#433): re-export the find primitives the find-bar UI needs.
+export { findMatches } from "@taleweaver/core";
+export type { TextMatch, FindMatchesOptions } from "@taleweaver/core";

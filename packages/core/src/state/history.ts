@@ -6,7 +6,10 @@ import { freshState } from "./state";
 import {
   captureDirtyIds,
   getBlocksMap,
+  getCommentsMap,
   getEmbedContentsMap,
+  getListDefsMap,
+  getSuggestionsMap,
   getTemplateContentsMap,
 } from "./yjs-doc";
 import { STATE_INTERNAL } from "./state-internal";
@@ -91,9 +94,21 @@ function readSelectionEntry(item: YStackItem): SelectionEntry | null {
  * opposite stack's new item — see `SelectionEntry`.)
  *
  * **Meta-map exclusion (intentional).** The Y.UndoManager is constructed
- * with the blocks map, the embedContents map, and the templateContents map
- * as tracked scopes. Writes to the doc's meta Y.Map (see `getMetaMap` in
- * `yjs-doc.ts`) are deliberately NOT undoable. Today the meta map holds only `rootId`,
+ * with the blocks map, the embedContents map, the templateContents map, the
+ * listDefs config side-table, the comments side-table, and the suggestions
+ * side-table as tracked scopes.
+ * Tracking the comments map makes a comment thread record revert ATOMICALLY
+ * with its in-content `comment-start`/`comment-end` markers (undoable-as-
+ * content; the markers live in the tracked block trees) — a comment is one undo
+ * unit. Tracking the suggestions map makes a tracked-change record revert
+ * atomically with the inline `insertion/deletion/formattingSuggestionId` attrs
+ * (and the block-join/split break embeds) that carry its id — a suggestion is
+ * one undo unit, same as a comment. Per-TRANSACTION tracking (Yjs reverts the
+ * types a transaction changed,
+ * not a whole map) means a pure text edit, which never touches the comments
+ * or suggestions map, is undone WITHOUT affecting any comment or suggestion.
+ * Writes to the doc's meta
+ * Y.Map (see `getMetaMap` in `yjs-doc.ts`) are deliberately NOT undoable. Today the meta map holds only `rootId`,
  * which is immutable for the lifetime of a session (created once in
  * `createYDoc`, never reassigned). Because that single field never
  * changes after document construction, there is nothing to undo and no
@@ -160,10 +175,31 @@ function readSelectionEntry(item: YStackItem): SelectionEntry | null {
  */
 const DEFAULT_MAX_UNDO_DEPTH = 1000;
 
+/**
+ * Pause window (ms) for typing coalescing (#420). Consecutive same-kind text
+ * edits whose gap is `< UNDO_COALESCE_PAUSE_MS` merge into one undo unit; a
+ * longer gap starts a fresh unit. Time is supplied by the caller (the reducer's
+ * injected clock), so this is deterministic in tests. ~500ms matches the
+ * ProseMirror default and a Google-Docs-ish feel; tunable in-browser.
+ */
+export const UNDO_COALESCE_PAUSE_MS = 500;
+
+/** The coalescing classes `beginEntry` accepts (selection/inert are filtered upstream). */
+export type BeginKey = "insert" | "delete" | "command";
+
 export class History {
   private readonly undoManager: Y.UndoManager;
   private readonly maxDepth: number;
   private currentState: State;
+
+  // Typing-coalescing state (#420). `coalesceKey` is the open group's kind, or
+  // null when no coalescible group is open. `lastEditTime` is the injected-clock
+  // time of the last edit in the open group. `didCoalesce` records whether the
+  // most recent `beginEntry` merged into the open group (read by `commit` to
+  // decide selection-meta handling).
+  private coalesceKey: BeginKey | null = null;
+  private lastEditTime = 0;
+  private didCoalesce = false;
 
   constructor(state: State, maxDepth: number = DEFAULT_MAX_UNDO_DEPTH) {
     if (maxDepth < 1) {
@@ -176,6 +212,9 @@ export class History {
         getBlocksMap(state[STATE_INTERNAL].doc),
         getEmbedContentsMap(state[STATE_INTERNAL].doc),
         getTemplateContentsMap(state[STATE_INTERNAL].doc),
+        getListDefsMap(state[STATE_INTERNAL].doc),
+        getCommentsMap(state[STATE_INTERNAL].doc),
+        getSuggestionsMap(state[STATE_INTERNAL].doc),
       ],
       {
         // captureTimeout: Number.MAX_SAFE_INTEGER means "never auto-close
@@ -199,9 +238,61 @@ export class History {
   }
 
   /**
-   * Record an undo entry. Updates the wrapper's notion of current state,
-   * closes the current Y.UndoManager capture group, and welds the
-   * before/after selection pair onto the just-closed StackItem's `.meta`.
+   * Open the undo group for an about-to-be-applied committing action (#420).
+   * MUST be called BEFORE the action's `applyOperation` (with `captureTimeout:
+   * MAX`, a transaction merges into the currently-open StackItem unless
+   * `stopCapturing` was already called — so the break decision has to precede
+   * the transaction).
+   *
+   * Coalesces with the open group iff: the key is coalescible (`insert`/
+   * `delete`), matches the open group's key, and the gap since the last edit is
+   * `< UNDO_COALESCE_PAUSE_MS`. Otherwise it closes the open group
+   * (`stopCapturing`) so this action starts a fresh undo entry. Commands never
+   * coalesce (their `coalesceKey` is set to null, so the next action also
+   * breaks).
+   */
+  beginEntry(key: BeginKey, now: number): void {
+    const coalescible = key === "insert" || key === "delete";
+    const canCoalesce =
+      coalescible &&
+      key === this.coalesceKey &&
+      now - this.lastEditTime < UNDO_COALESCE_PAUSE_MS;
+    if (!canCoalesce) {
+      // Close the previous group so this action's transaction starts a new item.
+      this.undoManager.stopCapturing();
+    }
+    this.didCoalesce = canCoalesce;
+    this.coalesceKey = coalescible ? key : null;
+    this.lastEditTime = now;
+  }
+
+  /**
+   * Close the open undo group without recording an entry (#420). Called on
+   * selection jumps (caret move / click) and on undo/redo, so the next edit
+   * starts a fresh undo unit. Idempotent and cheap.
+   */
+  breakCoalescing(): void {
+    this.undoManager.stopCapturing();
+    this.coalesceKey = null;
+  }
+
+  /**
+   * Record an undo entry. Updates the wrapper's notion of current state and
+   * welds the before/after selection pair onto the action's StackItem `.meta`.
+   *
+   * Undo-group BOUNDARIES are no longer owned here (#420): `beginEntry` (called
+   * before each committing action) and `breakCoalescing` (on selection jumps /
+   * undo/redo) decide whether the action opens a fresh group or merges into the
+   * open one via `stopCapturing`. `commit` only writes selection meta. The
+   * action's transaction has already pushed/merged its StackItem onto
+   * `undoStack` (Yjs does this in `afterTransaction`, before `commit` runs), so
+   * the top item is locatable without any `stopCapturing` call here.
+   *
+   * **Coalesced merges preserve the group's original `before` selection.** When
+   * `beginEntry` merged this action into the open group (`didCoalesce`), the top
+   * item is the SAME StackItem the previous edit committed to and already
+   * carries this group's `SelectionEntry`; `commit` keeps its `before` and
+   * advances only `after`. On a fresh group it writes the full pair.
    *
    * Yjs clears its own redo stack on any new tracked edit (in its
    * `afterTransaction` handler, BEFORE this `commit` runs), so there is
@@ -228,9 +319,9 @@ export class History {
     if (opResult.dirtyIds.size === 0) {
       return;
     }
-    // Close the current capture group. After this, the top of `undoStack` is
-    // the merged StackItem produced by this action's transaction(s).
-    this.undoManager.stopCapturing();
+    // The action's transaction has already pushed/merged its StackItem onto
+    // `undoStack` (Yjs does this in `afterTransaction`); the group boundary was
+    // decided by `beginEntry`/`breakCoalescing` before the transaction ran.
     // Locate that item BEFORE advancing `currentState`, so a mid-commit throw
     // (the "impossible" no-item case) never leaves the wrapper half-updated.
     const top =
@@ -240,8 +331,8 @@ export class History {
       // undo StackItem — should be impossible. Surface loudly rather than
       // silently dropping the selection. `currentState` is NOT yet advanced.
       throw new Error(
-        `History.commit: no undo StackItem to attach selection to after ` +
-          `stopCapturing (dirtyIds=${opResult.dirtyIds.size}). ` +
+        `History.commit: no undo StackItem to attach selection to ` +
+          `(dirtyIds=${opResult.dirtyIds.size}). ` +
           `A tracked mutation should always produce a StackItem.`,
       );
     }
@@ -249,7 +340,22 @@ export class History {
     // the live undo item and can never desync from the Yjs stack. (`undo` /
     // `redo` re-weld it onto the opposite stack's new item as the action
     // flips direction — Yjs does not copy `.meta` across undo↔redo.)
-    top.meta.set(SEL_KEY, selections);
+    //
+    // #420: on a coalesced merge the top item is the SAME StackItem the previous
+    // edit committed to (it already carries this group's SelectionEntry). Keep
+    // the group's original `before` and advance only `after`. On a fresh group
+    // write the full pair (the pre-#420 behavior). The `.meta.get` cast follows
+    // the existing localized-Yjs-cast pattern used by `readSelectionEntry`
+    // (Y.Map.meta is typed loosely by Yjs) — not new type-unsafety.
+    if (this.didCoalesce) {
+      const existing = top.meta.get(SEL_KEY) as SelectionEntry | undefined;
+      top.meta.set(SEL_KEY, {
+        before: existing !== undefined ? existing.before : selections.before,
+        after: selections.after,
+      });
+    } else {
+      top.meta.set(SEL_KEY, selections);
+    }
     // All bookkeeping succeeded — now advance the wrapper's current state.
     this.currentState = opResult.state;
     // #234: cap undo depth. Y.UndoManager has no maxDepth, so once the stack
@@ -262,6 +368,24 @@ export class History {
     if (excess > 0) {
       this.undoManager.undoStack.splice(0, excess);
     }
+  }
+
+  /**
+   * Advance `currentState` after a NON-undoable change (an accept/reject
+   * suggestion-resolve txn that skipped `commit`). It sets `this.currentState =
+   * newState` ONLY — it does NOT touch the undo/redo stacks, the coalescing
+   * state, or the UndoManager.
+   *
+   * Without this, `currentState` stays pinned at the pre-resolve snapshot, and
+   * the next `undo`/`redo` — which builds via `freshState(this.currentState,
+   * dirtyIds)` — serves any block the resolve changed but the undo did NOT
+   * re-dirty from a STALE snapshot (silently wrong render). It deliberately does
+   * NOT call `commit` (a non-`null`-origin txn fires no UndoManager StackItem
+   * event, so the stacks stay correct; `advanceState` only reconciles the cached
+   * `currentState`).
+   */
+  advanceState(newState: State): void {
+    this.currentState = newState;
   }
 
   canUndo(): boolean {
@@ -332,12 +456,31 @@ export class History {
       const dirtyIds = captureDirtyIds(doc, () => {
         poppedItem = this.undoManager.undo();
       });
-      // canUndo() was true, so undo() popped a real item.
+      // canUndo() was true yet undo() returned no item — a LEGITIMATE outcome,
+      // not a desync. A NON-undoable resolve (SUGGESTION_RESOLVE_ORIGIN) surgically
+      // rewrites a block's inline content (`applyResolveDecisionsInTx`, #484 —
+      // in-place attr swaps + delete-by-index of the dropped runs), which can turn a
+      // preceding tracked StackItem that targeted the DELETED runs into a no-op.
+      // Yjs's `popStackItem` pops such no-op items as it scans and returns null once
+      // nothing reversible remains. Treat it as a graceful no-op (the dead items are
+      // already off `undoStack`); the caller's `handleUndo` returns the editor
+      // unchanged. `currentState` is intentionally NOT advanced — the Y.Doc was not
+      // mutated, so the cached state stays valid. (#484's identity-preserving resolve
+      // RESTORED undo-after-resolve for the in-place case; this null-pop path remains
+      // only when the resolve deleted the very runs a prior StackItem tracked.)
       if (poppedItem === null) {
-        throw new Error(
-          `History.undo: Y.UndoManager.undo() returned no StackItem despite ` +
-            `canUndo()===true.`,
-        );
+        // DEV trip-wire: the "Y.Doc not mutated" claim above is the load-bearing
+        // reason `currentState` stays un-advanced. A no-op pop applies no
+        // reversal, so `dirtyIds` MUST be empty. If a future Yjs changes
+        // `popStackItem` to mutate while returning null, this surfaces it loudly
+        // instead of silently desyncing the cached state.
+        if (isDevMode() && dirtyIds.size > 0) {
+          throw new Error(
+            `History.undo: undo() returned null yet the Y.Doc was mutated ` +
+              `(dirtyIds=${dirtyIds.size}) — a no-op pop must not mutate.`,
+          );
+        }
+        return null;
       }
       const entry = readSelectionEntry(poppedItem);
       if (isDevMode() && entry === null) {
@@ -401,11 +544,22 @@ export class History {
       const dirtyIds = captureDirtyIds(doc, () => {
         poppedItem = this.undoManager.redo();
       });
+      // canRedo() was true yet redo() returned no item — graceful no-op, mirror
+      // of undo()'s handling. A non-undoable resolve (SUGGESTION_RESOLVE_ORIGIN)
+      // that DELETED the very runs a redo StackItem tracked can leave that item a
+      // no-op; Yjs's popStackItem pops it and returns null when nothing reapplies.
+      // The Y.Doc was not mutated, so `currentState` stays valid. See undo() for
+      // the full rationale.
       if (poppedItem === null) {
-        throw new Error(
-          `History.redo: Y.UndoManager.redo() returned no StackItem despite ` +
-            `canRedo()===true.`,
-        );
+        // DEV trip-wire: mirror of undo() — a no-op pop must not mutate, so
+        // `dirtyIds` must be empty (see undo() for the rationale).
+        if (isDevMode() && dirtyIds.size > 0) {
+          throw new Error(
+            `History.redo: redo() returned null yet the Y.Doc was mutated ` +
+              `(dirtyIds=${dirtyIds.size}) — a no-op pop must not mutate.`,
+          );
+        }
+        return null;
       }
       const entry = readSelectionEntry(poppedItem);
       if (isDevMode() && entry === null) {

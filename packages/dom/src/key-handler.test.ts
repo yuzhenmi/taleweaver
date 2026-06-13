@@ -144,6 +144,20 @@ describe("mapKeyEvent", () => {
     ).toEqual({ type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 6 } });
   });
 
+  it("does NOT fire the block-type chord when AltGraph is active (AltGr+digit passes through)", () => {
+    // On Windows/EU layouts AltGr is reported as ctrlKey+altKey AND
+    // getModifierState("AltGraph") === true; e.g. Spanish AltGr+3 produces "#"
+    // (Digit3 is in the 0..6 heading range, so WITHOUT the guard this wrongly
+    // fires SET_BLOCK_TYPE heading 3 and the controller preventDefault-eats the
+    // "#"). The chord must NOT match — controller-audit #3.
+    const e = key({ key: "#", code: "Digit3", ctrlKey: true, altKey: true });
+    Object.defineProperty(e, "getModifierState", {
+      value: (m: string) => m === "AltGraph",
+      configurable: true,
+    });
+    expect(mapKeyEvent(e)).toBeNull();
+  });
+
   it("maps Ctrl/Cmd+Shift+7|8 (by event.code) to list shortcuts", () => {
     expect(
       mapKeyEvent(key({ key: "&", code: "Digit7", ctrlKey: true, shiftKey: true })),
@@ -178,7 +192,6 @@ describe("mapKeyEvent", () => {
   it("returns null for unrecognized keys", () => {
     expect(mapKeyEvent(key({ key: "F1" }))).toBeNull();
     expect(mapKeyEvent(key({ key: "Escape" }))).toBeNull();
-    expect(mapKeyEvent(key({ key: "Tab" }))).toBeNull();
   });
 
   // --- Delete forward ---
@@ -509,5 +522,31 @@ describe("mapKeyEvent", () => {
     expect(mapKeyEvent(key({ key: "Backspace", metaKey: true }))).toEqual({
       type: "DELETE_LINE",
     });
+  });
+
+  // --- Tab / Shift+Tab list nesting (context-sensitive, #L16) ---
+
+  it("maps Tab in a list-item to LIST_INDENT", () => {
+    expect(mapKeyEvent(key({ key: "Tab" }), { inListItem: true })).toEqual({
+      type: "LIST_INDENT",
+    });
+  });
+
+  it("maps Shift+Tab in a list-item to LIST_OUTDENT", () => {
+    expect(
+      mapKeyEvent(key({ key: "Tab", shiftKey: true }), { inListItem: true }),
+    ).toEqual({ type: "LIST_OUTDENT" });
+  });
+
+  it("maps Tab outside a list-item to INSERT_TAB", () => {
+    expect(mapKeyEvent(key({ key: "Tab" }), { inListItem: false })).toEqual({
+      type: "INSERT_TAB",
+    });
+    expect(mapKeyEvent(key({ key: "Tab" }))).toEqual({ type: "INSERT_TAB" });
+  });
+
+  it("leaves Shift+Tab unmapped outside a list-item (no reverse-tab/outdent)", () => {
+    expect(mapKeyEvent(key({ key: "Tab", shiftKey: true }), { inListItem: false })).toBeNull();
+    expect(mapKeyEvent(key({ key: "Tab", shiftKey: true }))).toBeNull();
   });
 });

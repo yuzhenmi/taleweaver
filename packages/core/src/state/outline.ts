@@ -3,8 +3,9 @@ import { getBlock } from "./state";
 import type { BlockId } from "./block-id";
 import { createPosition, createSpan } from "./block-position";
 import { inlineContentLength } from "./inline-content";
-import { extractText, builtinEmbedSerializer } from "./extract-text";
-import { firstLeafBlock, nextBlockInDocOrder } from "./block-traversal";
+import { extractText, captionEmbedSerializer } from "./extract-text";
+import type { SuggestionView } from "./suggestions";
+import { iterateLeafBlocksInDocumentOrder } from "./document-order";
 
 /**
  * One heading in the document outline — the result rows of {@link getOutline}.
@@ -31,6 +32,14 @@ export interface OutlineOptions {
    * skipped silently. Default: every main-tree leaf block, in document order.
    */
   readonly blockIds?: Iterable<BlockId>;
+  /**
+   * Preview-view projection of pending tracked changes ({@link SuggestionView}),
+   * forwarded to {@link extractText} per heading. `"final"` reads each heading as
+   * if all suggestions were accepted, `"original"` as if rejected, so the outline
+   * panel matches the previewed document. Default `"suggesting"` (the literal
+   * document). Mirrors `getWordCount`'s `suggestionView` option.
+   */
+  readonly suggestionView?: SuggestionView;
 }
 
 /**
@@ -44,9 +53,12 @@ export interface OutlineOptions {
  * For each heading block (`type === "heading"`) the level is read with the
  * SAME rule as the heading component's `levelFromAttrs` (value 1–6 → that;
  * otherwise → 1) and the text via {@link extractText} with
- * {@link builtinEmbedSerializer} (consistent with the sibling queries —
- * headings rarely carry embeds, but the serializer keeps behavior uniform).
- * Non-heading blocks (paragraph, list-item, …) are skipped.
+ * {@link captionEmbedSerializer} — the outline is DISPLAY text, so a structural
+ * break collapses to a space and any embed (a footnote anchor / cross-reference
+ * in a heading) contributes nothing, rather than leaking `\n` / `\t` / U+FFFC
+ * into the panel (unlike the clipboard `builtinEmbedSerializer` the
+ * counting-oriented sibling `getWordCount` uses). Non-heading blocks (paragraph,
+ * list-item, …) are skipped.
  *
  * The list is FLAT and in document order: nesting (an outline tree built from
  * the `level` field) is a consumer concern. An empty document, or one with no
@@ -68,13 +80,96 @@ export function getOutline(state: State, options?: OutlineOptions): OutlineEntry
         : extractText(
             state,
             createSpan(createPosition(blockId, 0), createPosition(blockId, length)),
-            builtinEmbedSerializer,
+            captionEmbedSerializer,
+            options?.suggestionView ?? "suggesting",
           );
 
     entries.push({ blockId, level: levelOf(block.attrs.level), text });
   }
 
   return entries;
+}
+
+/**
+ * One heading entry in an {@link OutlineSignature}'s ordered `signature` list —
+ * the exact inputs a TOC's entry lines derive from (heading id, level, display
+ * text).
+ */
+export interface OutlineSigEntry {
+  readonly blockId: BlockId;
+  readonly level: number;
+  readonly text: string;
+}
+
+/**
+ * A cache key for "has the document outline (+ which blocks are TOC anchors)
+ * changed?" `signature` is the ordered heading list (id, level, display text) —
+ * the exact inputs a TOC's entry lines derive from (the heading id set is the
+ * `signature`'s `blockId`s, so it is not stored separately); `tocAnchorIds` is
+ * every main-tree `table-of-contents` block. Cached on RenderOutput so the
+ * incremental render can (a) reuse it O(1) when no heading changed and (b)
+ * force-rebuild TOC anchors when it did.
+ */
+export interface OutlineSignature {
+  readonly tocAnchorIds: ReadonlySet<BlockId>;
+  readonly signature: readonly OutlineSigEntry[];
+}
+
+/**
+ * The empty outline signature (no headings, no TOC anchors) — a frozen default
+ * for any `RenderOutput` literal that needs one before a real signature is
+ * computed (mirrors `EMPTY_FOOTNOTE_ANCHORS` / `EMPTY_LIST_COUNTERS`).
+ */
+export const EMPTY_OUTLINE_SIGNATURE: OutlineSignature = Object.freeze({
+  tocAnchorIds: Object.freeze(new Set<BlockId>()),
+  signature: Object.freeze([] as OutlineSigEntry[]),
+});
+
+/**
+ * Compute the {@link OutlineSignature} for `state` under `suggestionView`.
+ *
+ * Reuses {@link getOutline} for the heading entries so the signature text is
+ * EXACTLY the text a TOC renders (same `extractText` + `suggestionView`
+ * projection) — this guarantees "signature unchanged" ⟺ "TOC entry text
+ * unchanged". A second light walk over the SAME main-tree leaf traversal
+ * collects the `table-of-contents` anchor ids (getOutline skips them — they
+ * carry no inlineContent).
+ */
+export function computeOutlineSignature(
+  state: State,
+  suggestionView: SuggestionView,
+): OutlineSignature {
+  const entries = getOutline(state, { suggestionView });
+  const signature: OutlineSigEntry[] = entries.map((e) => ({
+    blockId: e.blockId,
+    level: e.level,
+    text: e.text,
+  }));
+  const tocAnchorIds = new Set<BlockId>();
+  for (const block of iterateLeafBlocksInDocumentOrder(state)) {
+    if (block.type === "table-of-contents") tocAnchorIds.add(block.id);
+  }
+  return Object.freeze({
+    tocAnchorIds,
+    signature: Object.freeze(signature),
+  });
+}
+
+/**
+ * Whether two outline signatures describe the SAME outline (same headings, in
+ * the same order, with the same levels + display text). `tocAnchorIds` is NOT
+ * compared — a TOC added/removed is in `dirtyIds` and invalidated directly; this
+ * answers "did the OUTLINE change", driving whether to re-derive existing TOCs.
+ */
+export function outlineSignaturesEqual(a: OutlineSignature, b: OutlineSignature): boolean {
+  if (a === b) return true;
+  if (a.signature.length !== b.signature.length) return false;
+  for (let i = 0; i < a.signature.length; i++) {
+    const x = a.signature[i];
+    const y = b.signature[i];
+    if (x.blockId !== y.blockId || x.level !== y.level || x.text !== y.text) return false;
+  }
+  return true;
 }
 
 /**
@@ -104,9 +199,7 @@ function* iterateTargetBlocks(
     yield* blockIds;
     return;
   }
-  let cursor = firstLeafBlock(state, state.rootId);
-  while (cursor !== null) {
-    yield cursor;
-    cursor = nextBlockInDocOrder(state, cursor);
+  for (const block of iterateLeafBlocksInDocumentOrder(state)) {
+    yield block.id;
   }
 }

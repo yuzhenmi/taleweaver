@@ -45,8 +45,8 @@ export interface FormatState {
 // These are the INLINE ATTR keys `handleToggleStyle` writes (STYLE_KEYS in
 // toggle-style.ts), NOT ComputedStyle keys — the pressed-state reads
 // `item.attrs[attrKey]`. (Previously bold/italic/underline pointed at
-// fontWeight/fontStyle/textDecoration, which are never set as inline attrs, so
-// those buttons' highlight was dead.)
+// ComputedStyle keys like fontWeight/fontStyle/underline, which are never set
+// as inline attrs, so those buttons' highlight was dead.)
 const ATTR_KEYS = {
   bold: "bold",
   italic: "italic",

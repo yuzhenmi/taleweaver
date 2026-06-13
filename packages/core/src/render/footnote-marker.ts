@@ -22,11 +22,12 @@
  *
  * Cursor semantics: the marker is ONE inline-block ElementBox = exactly one
  * state-model cursor stop (one offset unit), identical to every other embed
- * (see `expandInlineItems` in `render.ts`). Giving it visible text content
+ * (see `expandInlineItems` in `render-core.ts`). Giving it visible text content
  * does NOT change its offset contribution — the IFC emits one atomic token per
  * inline-block regardless of its children.
  */
 import type { Length, Style } from "../styles";
+import type { LayoutBoxMetadata } from "./layout-metadata";
 import { createElementBox, createTextBox, type RenderNode } from "./render-node";
 
 /**
@@ -70,7 +71,7 @@ export function buildFootnoteMarker(
   key: string,
   itemStyle: Partial<Style>,
   formatted: string | undefined,
-  metadata?: Record<string, unknown>,
+  metadata?: Readonly<LayoutBoxMetadata>,
 ): RenderNode {
   const text = formatted ?? FOOTNOTE_MARKER_MISSING_TEXT;
   // Marker container: inline-block (one atomic IFC token = one cursor stop),

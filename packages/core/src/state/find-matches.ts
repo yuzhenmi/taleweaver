@@ -1,35 +1,94 @@
 import type { State } from "./state";
 import { getBlock } from "./state";
 import type { BlockId } from "./block-id";
-import { createPosition, createSpan } from "./block-position";
+import type { InlineItem } from "./inline-content";
 import { inlineContentLength } from "./inline-content";
-import { extractText, builtinEmbedSerializer } from "./extract-text";
-import { firstLeafBlock, nextBlockInDocOrder } from "./block-traversal";
+import { builtinEmbedSerializer } from "./extract-text";
+import { iterateLeafBlocksInDocumentOrder } from "./document-order";
 
 /**
  * A single occurrence of the search query inside one block.
  *
- * `start`/`end` are offsets into the block's EXTRACTED TEXT
- * (see {@link extractText}). The extraction used here serializes each embed
- * to exactly one character (via {@link builtinEmbedSerializer} — hard-break →
- * "\n", tab → "\t", other embeds → U+FFFC), so every embed contributes a
- * length of 1 to the extracted text, identically to how it contributes a
- * length of 1 to the Position-model offset (see `inlineContentLength`, which
- * counts each embed as 1). Consequently these offsets correspond 1:1 to
- * `{ blockId, offset }` Position offsets: a `TextMatch` can be turned into a
- * pair of `Position`s directly via
- * `createPosition(blockId, start)` / `createPosition(blockId, end)`. (This 1:1
- * correspondence holds ONLY because the serializer is length-preserving; the
- * default `extractText` serializer is also 1-char-per-embed, so either would
- * preserve the mapping. We use the builtin one so that `\n`/`\t` text is
- * matchable.)
+ * `start`/`end` are POSITION offsets — they index the block exactly as a
+ * `{ blockId, offset }` Position does, so a `TextMatch` can be turned into a
+ * pair of `Position`s directly via `createPosition(blockId, start)` /
+ * `createPosition(blockId, end)` and handed to `replaceRange` / selection /
+ * highlight code without any remapping.
+ *
+ * This is NOT the same as an offset into the block's extracted text. An embed
+ * contributes exactly ONE Position offset (see `inlineContentLength`, which
+ * counts each embed as 1) but its EXTRACTED text length varies: a hard-break
+ * serializes to "\n" (1 char), a tab to "\t" (1 char), but a zero-width
+ * comment/suggestion/page-field marker serializes to "" (0 chars). Matching on
+ * raw extracted text would therefore drift left by one Position for every
+ * zero-width marker before the match (B1 / #463 — a data-loss bug, since a
+ * left-shifted offset splices `replaceRange` at the wrong place). To stay exact,
+ * the search walks the inline items building a VISIBLE haystack (markers emit no
+ * char, so a query still matches transparently across an invisible marker —
+ * Google-Docs parity) alongside a `posByIdx` map from each haystack index to its
+ * Position offset. See {@link buildBlockHaystack}.
  */
 export interface TextMatch {
   readonly blockId: BlockId;
-  /** Offset in the block's extracted text (inclusive). */
+  /** Position offset of the match start (inclusive). */
   readonly start: number;
-  /** Offset in the block's extracted text (exclusive); `end - start === query.length`. */
+  /** Position offset of the match end (exclusive). NOTE: across a zero-width
+   * marker, `end - start` exceeds `query.length` by the marker count. */
   readonly end: number;
+}
+
+/**
+ * Walk a block's inline items, building the VISIBLE search haystack and a
+ * parallel `posByIdx` map of length `haystack.length`: `posByIdx[h]` is the
+ * Position offset of haystack char `h`. A match at haystack `[idx, end)` maps to
+ * the Position span `[posByIdx[idx], posByIdx[end - 1] + 1)` — start = the first
+ * matched char's Position; end = the LAST matched char's Position + 1 (i.e. the
+ * Position immediately AFTER the last matched char).
+ *
+ * Using `posByIdx[end - 1] + 1` rather than `posByIdx[end]` is load-bearing: if
+ * the match is immediately followed by one or more zero-width markers (e.g. a
+ * comment that wraps exactly the matched word, `[start]word[end]`),
+ * `posByIdx[end]` would be the NEXT VISIBLE char's Position — past those markers
+ * — and absorb them into the match span, so `replaceRange` would delete the
+ * marker and corrupt the comment. "Last matched char + 1" stops exactly at the
+ * content edge, leaving trailing markers intact.
+ *
+ * - A text item contributes each of its characters to the haystack, each mapped
+ *   to a running Position offset incremented by 1 per code unit.
+ * - An embed contributes its `builtinEmbedSerializer` string to the haystack
+ *   (hard-break → "\n", tab → "\t", zero-width markers → ""), but ALWAYS
+ *   advances the Position offset by exactly 1 (an embed is one cursor position).
+ *   A zero-width embed therefore adds nothing to the haystack yet still consumes
+ *   one Position offset — which is exactly why a separate `posByIdx` map is
+ *   needed rather than treating the haystack index as the Position offset.
+ */
+function buildBlockHaystack(items: readonly InlineItem[]): {
+  haystackOriginal: string;
+  posByIdx: number[];
+} {
+  let pos = 0;
+  let haystackOriginal = "";
+  const posByIdx: number[] = [];
+  for (const item of items) {
+    if (item.kind === "text") {
+      for (let i = 0; i < item.text.length; i++) {
+        haystackOriginal += item.text[i];
+        posByIdx.push(pos);
+        pos += 1;
+      }
+    } else {
+      const serialized = builtinEmbedSerializer(item);
+      for (let i = 0; i < serialized.length; i++) {
+        // A multi-char embed serialization would map every char to the embed's
+        // single Position offset; the builtin serializer is 0- or 1-char, so in
+        // practice this loops 0 or 1 time.
+        haystackOriginal += serialized[i];
+        posByIdx.push(pos);
+      }
+      pos += 1;
+    }
+  }
+  return { haystackOriginal, posByIdx };
 }
 
 export interface FindMatchesOptions {
@@ -101,14 +160,16 @@ export function findMatches(
     const length = inlineContentLength(block.inlineContent);
     if (length < queryLen) continue;
 
-    // Extract the whole block's text. The builtin embed serializer keeps each
-    // embed at length 1 (see TextMatch docstring), preserving the 1:1
-    // offset↔Position mapping.
-    const span = createSpan(
-      createPosition(blockId, 0),
-      createPosition(blockId, length),
-    );
-    const haystackOriginal = extractText(state, span, builtinEmbedSerializer);
+    // Build the search haystack AND a haystack-index → Position-offset map. The
+    // haystack is the VISIBLE text (a zero-width comment/suggestion marker emits
+    // NO char, so a query still matches ACROSS an invisible marker — Google-Docs
+    // parity), while `posByIdx[h]` is the Position offset of haystack char `h`.
+    // Every embed occupies exactly ONE Position offset (`inlineContentLength`
+    // counts it as 1) regardless of its serialized length, so a match after a
+    // zero-width marker maps to the correct Position — NOT the marker-collapsed
+    // haystack index (B1: the builtin serializer is length-0 for those markers, so
+    // raw haystack indices are NOT Position offsets).
+    const { haystackOriginal, posByIdx } = buildBlockHaystack(block.inlineContent.items);
     const haystack = caseSensitive ? haystackOriginal : haystackOriginal.toLowerCase();
 
     let from = 0;
@@ -117,7 +178,14 @@ export function findMatches(
       if (idx === -1) break;
       const end = idx + queryLen;
       if (!wholeWord || isWholeWordMatch(haystackOriginal, idx, end)) {
-        matches.push({ blockId, start: idx, end });
+        // Position span = first matched char's Position .. last matched char's
+        // Position + 1. The `end - 1 + 1` form (NOT `posByIdx[end]`) stops at the
+        // content edge so trailing zero-width markers stay outside the match.
+        matches.push({
+          blockId,
+          start: posByIdx[idx],
+          end: posByIdx[end - 1] + 1,
+        });
       }
       // Non-overlapping: skip past the whole match. (When a whole-word check
       // rejects a candidate we still advance by the full match length — the
@@ -154,13 +222,13 @@ function* iterateTargetBlocks(
     yield* blockIds;
     return;
   }
-  // Document-order leaf walk: start at the leftmost leaf of the root subtree
-  // and follow `nextBlockInDocOrder`. This visits every block (containers and
-  // leaves alike) in document order; `findMatches` skips the containers. The
-  // walk is the same primitive cursor/render use for doc-order traversal.
-  let cursor = firstLeafBlock(state, state.rootId);
-  while (cursor !== null) {
-    yield cursor;
-    cursor = nextBlockInDocOrder(state, cursor);
+  // Cycle-safe document-order leaf walk. The previous `firstLeafBlock` +
+  // `while (cursor = nextBlockInDocOrder(...))` sweep was unbounded at the call
+  // site and could spin forever on a malformed two-parents topology; routing
+  // through `iterateLeafBlocksInDocumentOrder` inherits the recursive walker's
+  // active-path cycle guard. `findMatches` only matches inline content, so
+  // yielding leaves only is identical to the old leaf walk here.
+  for (const block of iterateLeafBlocksInDocumentOrder(state)) {
+    yield block.id;
   }
 }

@@ -4,6 +4,6 @@
  * superscript/subscript). */
 export const INLINE_FORMAT_ATTR_KEYS = [
   "bold", "italic", "underline", "strikethrough",
-  "color", "backgroundColor", "fontSize", "fontFamily", "link",
+  "color", "backgroundColor", "fontSize", "fontFamily", "link", "textTransform",
 ] as const;
 export type InlineFormatAttrKey = (typeof INLINE_FORMAT_ATTR_KEYS)[number];

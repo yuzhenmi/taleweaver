@@ -118,9 +118,25 @@ export interface BlockFitMeta {
    */
   readonly lineEndsWithHyphen?: readonly boolean[];
 
-  /** `table` leaf: body row block-sizes, in order. (No thead/header-repeat
-   *  feature exists in the engine — do not model one.) */
+  /** `table` leaf: per-row block-sizes, in order, covering ALL rows
+   *  `[0, rowCount)` — header rows INCLUDED (the from-row-0 unfragmented layout in
+   *  `buildBlockFitMetas` populates every row). The header-repeat feature reserves
+   *  the first `headerRowCount` rows on every continuation fragment; see
+   *  `headerRowCount` / `headerBlockSize` below. */
   readonly rowBlockSizes?: readonly number[];
+
+  /** `table` leaf: number of leading rows `[0, headerRowCount)` that repeat at the
+   *  top of every page/column continuation fragment (Google-Docs "pin header
+   *  rows"). Absent / 0 ⇒ no header repetition (byte-identical to the pre-header
+   *  behavior on every path). */
+  readonly headerRowCount?: number;
+
+  /** `table` leaf: the reserved block-size of the repeating header — the prefix
+   *  sum `Σ rowBlockSizes[0, headerRowCount)`. Both the measure pass and the
+   *  materialize pass read THIS value (the single source of truth, §4 of the
+   *  header-repetition design) so a continuation fragment reserves and emits the
+   *  identical header height. Absent / 0 when `headerRowCount` is absent / 0. */
+  readonly headerBlockSize?: number;
 
   /** True when this block is `display: list-item` (ordered-list counter
    *  contribution). `fitOnePage` recurses, so nested list items are seeded
@@ -245,28 +261,61 @@ export function fitLinesInIFC(
 
 /**
  * Decide how many body rows of a table leaf fit in `remainingBlockSize`. Pure
- * port of table-fc's row fit loop. No header-repeat (the engine has none).
+ * port of table-fc's row fit loop, extended with the repeating-header
+ * reservation (#487, header-repetition design §7.3).
+ *
+ * The header reservation is owned by the CALLEE (this function), NOT
+ * pre-subtracted by the caller: it fits the suffix rows `[startRow, rowCount)`
+ * into `remainingBlockSize − headerBlockSize` (the repeated header eats the top
+ * of every continuation fragment). The callee owns the subtraction precisely so
+ * the PROGRESS floor can distinguish "zero rows fit because the header ate the
+ * space" from a default-path zero — only here, where `headerBlockSize` and
+ * `forceProgress` are known, can that call be made.
+ *
+ * `forceProgress` is `headerRowCount > 0 && startRow > 0` (a header-reserved
+ * continuation). When it is true and the reduced remaining admits ZERO body
+ * rows, exactly ONE body row is force-placed (overflowing the fragment) so
+ * `resumeAtRow` strictly advances every fragment — the §6 PROGRESS anti-hang
+ * floor that overrides the §C.6 whole-suffix dump.
+ *
+ * When `forceProgress` is false (`startRow === 0` OR `headerBlockSize === 0`)
+ * the function is byte-identical to the pre-header behavior: subtract −0 and
+ * never force. "Nothing fits" ⇒ `{ placedRowCount: 0, resumeAtRow: startRow }`.
  */
 export function fitRowsInTable(
   rowBlockSizes: readonly number[],
   remainingBlockSize: number,
   startRow: number,
+  headerBlockSize = 0,
+  forceProgress = false,
 ): FitRowsResult {
-  // Faithful port of table-fc.ts:374–408 E.1 row fit-check, on the suffix
-  // rows[startRow..]. No orphans/widows/header. "Nothing fits" ⇒
-  // { placedRowCount: 0, resumeAtRow: startRow }.
+  // The repeated header reserves the top of the fragment; body rows fit into
+  // what remains. `headerBlockSize === 0` ⇒ reducedRemaining === remaining ⇒
+  // byte-identical to the pre-header behavior.
+  const reducedRemaining = remainingBlockSize - headerBlockSize;
   const suffixLength = Math.max(0, rowBlockSizes.length - startRow);
 
   let used = 0;
   let placedRowCount = 0;
   for (let ri = 0; ri < suffixLength; ri++) {
     const rowHeight = rowBlockSizes[startRow + ri];
-    if (used + rowHeight > remainingBlockSize) break;
+    if (used + rowHeight > reducedRemaining) break;
     used += rowHeight;
     placedRowCount++;
   }
 
-  if (placedRowCount === 0) return { placedRowCount: 0, resumeAtRow: startRow };
+  if (placedRowCount === 0) {
+    // §6 PROGRESS floor: on a header-reserved continuation, force exactly one
+    // body row so the resume index strictly advances (no whole-suffix §C.6 dump,
+    // no hang). The forced row overflows the fragment; that is accepted.
+    if (forceProgress && suffixLength > 0) {
+      return {
+        placedRowCount: 1,
+        resumeAtRow: suffixLength > 1 ? startRow + 1 : null,
+      };
+    }
+    return { placedRowCount: 0, resumeAtRow: startRow };
+  }
 
   return {
     placedRowCount,
@@ -594,11 +643,51 @@ function fitOnePageRecursive(
         leafResumeToken !== null && leafResumeToken.type === "table"
           ? leafResumeToken.resumeAtRow
           : 0;
-      const fit = fitRowsInTable(rowSizes, remaining, startRow);
+      // P8.S5.T2: a rowSpan cell straddling THIS table's incoming break is carried
+      // on the leaf resume token's `spanningCells`. The measure pass works only off
+      // `rowBlockSizes` (no cell interiors), so it cannot recompute the list — it
+      // THREADS the incoming continuation through unchanged so the page plan doesn't
+      // drop it; the FC refines the exact interiorBreakToken at getPage time (S5.T3).
+      const inheritedSpanningCells =
+        leafResumeToken !== null && leafResumeToken.type === "table"
+          ? leafResumeToken.spanningCells
+          : undefined;
+      // #487 header-repetition: a continuation fragment (startRow > 0) of a table
+      // with header rows reserves `headerBlockSize` at the top for the re-emitted
+      // header. `forceProgress` guarantees ≥1 placed body row in that case (the §6
+      // PROGRESS floor), so the §C.6 placedRowCount===0 overflow-consume path below
+      // is never reached when the header is reserved. On the FIRST fragment
+      // (startRow === 0) the header rows are ordinary leading rows: no reservation,
+      // byte-identical to today (headerBlockSize subtracts −0, no force).
+      const headerRowCount = meta.headerRowCount ?? 0;
+      const headerBlockSize =
+        startRow > 0 && headerRowCount > 0 ? meta.headerBlockSize ?? 0 : 0;
+      const forceProgress = startRow > 0 && headerRowCount > 0;
+      const fit = fitRowsInTable(rowSizes, remaining, startRow, headerBlockSize, forceProgress);
       if (fit.placedRowCount === 0) {
         // Table couldn't place a row (bfc.ts:573–588). §C.6 overflow if first.
         if (!fragmentHasContent) {
-          runningOffset += meta.totalBlockSize;
+          // Overflow-consume the SUFFIX rows actually on this fragment
+          // (`rowSizes[startRow..]`), NOT `meta.totalBlockSize` (the WHOLE table).
+          // On a RESUMED table (startRow > 0) rows `0..startRow-1` were already
+          // consumed on earlier pages, so totalBlockSize double-counts them and a
+          // sibling after the table on this overflow page would be positioned too
+          // low. Mirrors the partial-fit branch's `placedRowsUsed` suffix sum below.
+          //
+          // #487: `headerBlockSize` is INTENTIONALLY NOT added here (unlike the
+          // partial-fit and all-fit advancing paths). Under PROGRESS (§6),
+          // `forceProgress` guarantees `fitRowsInTable` returns `placedRowCount >= 1`
+          // whenever `suffixLength > 0`, so this `placedRowCount === 0` path is only
+          // reached for the header-reserved case when `suffixLength === 0` (no body
+          // rows remain) — in which case `suffixRowsUsed === 0` and the table
+          // terminates here. Adding `headerBlockSize` would account for a repeated
+          // header on a fragment the materializer cannot emit (it would produce a
+          // header-only "continuation" with no body rows). So spec §7.3's "all three
+          // advancing paths add headerBlockSize" holds for the two REACHABLE header
+          // paths; this path is structurally excluded for the header case.
+          let suffixRowsUsed = 0;
+          for (let ri = startRow; ri < rowSizes.length; ri++) suffixRowsUsed += rowSizes[ri];
+          runningOffset += suffixRowsUsed;
           prevMarginBlockEnd = meta.marginBlockEnd;
           childrenCount++;
           const afterBreak = checkBreakAfter(meta, i, metas.length, childrenCount, listCounter);
@@ -607,26 +696,32 @@ function fitOnePageRecursive(
         }
         return finish({
           childrenCount,
-          resumeOut: { type: "block", resumeChildIndex: i, resumeChildToken: { type: "table", resumeAtRow: startRow } },
+          resumeOut: { type: "block", resumeChildIndex: i, resumeChildToken: { type: "table", resumeAtRow: startRow, ...(inheritedSpanningCells ? { spanningCells: inheritedSpanningCells } : {}) } },
           listCounterAtEnd: meta.listItem ? listCounter - 1 : listCounter,
         });
       }
       if (fit.resumeAtRow !== null) {
-        // Advance `runningOffset` by the PLACED rows' heights so a parent
-        // container's `consumedBlockSize` is exact (mirrors the partial-IFC case
-        // above). The fragmenting table carries no trailing margin.
+        // Advance `runningOffset` by the repeated-header reservation PLUS the
+        // PLACED rows' heights so a parent container's `consumedBlockSize` — and a
+        // sibling positioned after the table on this fragment — is exact (mirrors
+        // the partial-IFC case above). `headerBlockSize` is 0 on the first fragment
+        // and when the table has no header (#487 §7.3). The fragmenting table
+        // carries no trailing margin.
         let placedRowsUsed = 0;
         for (let ri = startRow; ri < startRow + fit.placedRowCount; ri++) placedRowsUsed += rowSizes[ri];
-        runningOffset += placedRowsUsed;
+        runningOffset += headerBlockSize + placedRowsUsed;
         return finish({
           childrenCount,
-          resumeOut: { type: "block", resumeChildIndex: i, resumeChildToken: { type: "table", resumeAtRow: fit.resumeAtRow } },
+          resumeOut: { type: "block", resumeChildIndex: i, resumeChildToken: { type: "table", resumeAtRow: fit.resumeAtRow, ...(inheritedSpanningCells ? { spanningCells: inheritedSpanningCells } : {}) } },
           listCounterAtEnd: listCounter,
         });
       }
+      // All remaining rows fit on this fragment. A continuation fragment still
+      // re-emits the repeated header above the body rows, so its consumed height
+      // includes `headerBlockSize` (0 on the first fragment / no-header case).
       let used = 0;
       for (let ri = startRow; ri < startRow + fit.placedRowCount; ri++) used += rowSizes[ri];
-      runningOffset += used;
+      runningOffset += headerBlockSize + used;
       prevMarginBlockEnd = meta.marginBlockEnd;
       childrenCount++;
       const afterBreak = checkBreakAfter(meta, i, metas.length, childrenCount, listCounter);

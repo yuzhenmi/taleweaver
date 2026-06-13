@@ -234,3 +234,42 @@ describe("handlePaste — multi-line plain-text paste (characterization + migrat
     expect(getTextOf(next.state, blocks[1])).toBe("b");
   });
 });
+
+describe("handlePaste — paste-then-select-all preserves content (regression)", () => {
+  /**
+   * Regression guard for the long-standing "paste-then-select-all reverts
+   * content" report (`state-of-branch.md`, editor `[partial]`). This pins the
+   * actual reported sequence — RAPID (sequential) paste immediately followed
+   * by SELECT_ALL — and proves no pasted content is lost.
+   *
+   * SELECT_ALL is purely read-only (it sets `selection`, never mutating the
+   * block tree); PASTE commits atomically in a single transaction; sequential
+   * pastes each reduce against the prior result (the React `useReducer`
+   * contract), so neither clobbers the other. The reducer path is therefore
+   * provably content-preserving. (Any residual symptom would live only in the
+   * browser event / hidden-textarea sync layer, covered by the user's
+   * in-browser smoke — not reproducible at the reducer level, where this test
+   * proves the core is safe.)
+   */
+  it("rapid sequential pastes then SELECT_ALL keeps all content + spans the whole doc", () => {
+    const initial = createInitialEditorState(config);
+
+    // first paste: "one" / "two" (cursor ends at "two"|). second paste at that
+    // caret: "two" becomes "twothree", then a new "four" block. → 3 blocks,
+    // content from BOTH pastes intact.
+    const first = paste(initial, "one\ntwo");
+    const second = paste(first, "three\nfour");
+    const after = reduceEditor(second, { type: "SELECT_ALL" }, config);
+
+    const blocks = rootChildren(after);
+    expect(blocks.map((id) => getTextOf(after.state, id))).toEqual([
+      "one",
+      "twothree",
+      "four",
+    ]);
+    // SELECT_ALL spans first-content-block start → last-content-block end
+    // ("four", length 4) — and must not have touched the block tree.
+    expect(after.selection.anchor).toEqual({ blockId: blocks[0], offset: 0 });
+    expect(after.selection.focus).toEqual({ blockId: blocks[2], offset: 4 });
+  });
+});

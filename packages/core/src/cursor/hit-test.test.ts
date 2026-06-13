@@ -1,15 +1,18 @@
 import { describe, it, expect } from "vitest";
-import { resolvePositionFromPixel } from "./hit-test";
+import { resolvePositionFromPixel as resolveHitRaw } from "./hit-test";
+import { resolveHitPosition as resolvePositionFromPixel } from "../test-utils/hit-position";
 import { selectWord } from "./cursor-ops";
 import { render } from "../render/render";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
 import { layoutTree } from "../layout/dispatch";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import { getLineIndex, collectLineLeaves } from "./line-flatten";
+import { resolvePixelPosition } from "./cursor-position";
 import type { TextShaper } from "../layout/text-shaper";
 import type { PageConfig } from "../layout/page-config";
+import type { WritingMode } from "../styles/writing-mode";
 import {
   buildState,
   buildBlock,
@@ -17,6 +20,7 @@ import {
   text,
   embed,
 } from "../test-utils/state-builders";
+import { createPosition } from "../state";
 import type { State, BlockId } from "../state";
 import type { LayoutBox } from "../layout/layout-node";
 
@@ -31,7 +35,7 @@ function pipeline(
     createDefaultAttrRegistry(),
   ).root;
   const shaper = createMockShaper(8, 16);
-  const layout = resolvePositionedTree(layoutTree(root, containerInlineSize, shaper, pageConfig));
+  const layout = positionTreeForTest(layoutTree(root, containerInlineSize, shaper, pageConfig));
   return { layout, shaper };
 }
 
@@ -442,6 +446,203 @@ describe("resolvePositionFromPixel (new)", () => {
   });
 });
 
+describe("P4-C.2.2a — RTL-aware hit-test OFFSET (click → correct logical offset)", () => {
+  // The mock shaper is 8px/char. The paragraph base stays LTR (no `direction`
+  // attr), but Hebrew CONTENT resolves to level-1 (RTL) runs by UAX #9 — exactly
+  // the leaf-level the §C intra-leaf RTL math keys off. Geometry mirrors
+  // cursor-position.test.ts's P4-C.2.1 fixtures (this is the INVERSE direction):
+  //   "אבג"     → Hebrew run (lvl1) x[0,24]; offset 0 at right edge 24, offset 3
+  //               at left edge 0.
+  //   "abcאבג"  → Latin "abc" (lvl0) x[0,24], Hebrew "אבג" (lvl1) x[24,48].
+  //   "abc אבג" → "abc" x[0,24], " " x[24,32], "אבג" x[32,56].
+
+  it("round-trip with C.2.1 (uniform RTL 'אבג'): click at caret X of offset k returns offset k", () => {
+    // caretInlineCoordInLeaf places offset k of the RTL run at x = 24 − 8k (from
+    // cursor-position.test.ts): offset 0→24, 1→16, 2→8, 3→0. Clicking those
+    // exact Xs must invert back to k. The clamps below (+2 / −2) nudge off the
+    // exact glyph boundary so the nearest-char midpoint rule resolves
+    // deterministically (a click ON a midpoint is ambiguous).
+    const state = singleParagraph("אבג");
+    const { layout, shaper } = pipeline(state, 800);
+    // offset 0 at right edge (24) — click just inside (x=23) → offset 0.
+    const k0 = resolvePositionFromPixel(state, layout, shaper, 23, 0);
+    expect(k0?.blockId).toBe("p");
+    expect(k0?.offset).toBe(0);
+    // offset 1 at x=16 — click at x=15 (left of midpoint between glyph 0 and 1).
+    const k1 = resolvePositionFromPixel(state, layout, shaper, 15, 0);
+    expect(k1?.offset).toBe(1);
+    // offset 2 at x=8 — click at x=7.
+    const k2 = resolvePositionFromPixel(state, layout, shaper, 7, 0);
+    expect(k2?.offset).toBe(2);
+    // offset 3 at left edge (0) — click at x=1 → offset 3 (the logical END).
+    const k3 = resolvePositionFromPixel(state, layout, shaper, 1, 0);
+    expect(k3?.offset).toBe(3);
+  });
+
+  it("uniform RTL 'אבג': click near visual-LEFT edge → logical-LAST offset (3); near visual-RIGHT → offset 0 (OPPOSITE of LTR)", () => {
+    // The decisive direction test. Under the OLD LTR-only `findCharOffset(text,
+    // localX)` a click at the visual LEFT (x≈0) returned offset 0 (the logically
+    // FIRST char) — wrong, because that glyph is visually RIGHTMOST in an RTL run.
+    // RTL-aware: visual-left → logical-LAST (3), visual-right → logical-FIRST (0).
+    const state = singleParagraph("אבג");
+    const { layout, shaper } = pipeline(state, 800);
+
+    const nearLeft = resolvePositionFromPixel(state, layout, shaper, 1, 0);
+    expect(nearLeft?.blockId).toBe("p");
+    expect(nearLeft?.offset).toBe(3); // logical LAST — was 0 under the LTR bug
+
+    const nearRight = resolvePositionFromPixel(state, layout, shaper, 23, 0);
+    expect(nearRight?.blockId).toBe("p");
+    expect(nearRight?.offset).toBe(0); // logical FIRST — was 3 under the LTR bug
+  });
+
+  it("mixed 'abcאבג': click in the Latin run → a Latin offset; click in the Hebrew run → a Hebrew offset (visual→logical leaf mapping)", () => {
+    // Latin "abc" lvl0 x[0,24] owns state [0,3]; Hebrew "אבג" lvl1 x[24,48] owns
+    // state [3,6]. The OLD visual `withinLineOffset` accumulation summed leaves
+    // in VISUAL order then added as a LOGICAL offset — here visual order ==
+    // logical order so it happened to work, BUT the WITHIN-leaf direction was
+    // still wrong for the Hebrew run. Assert both the right leaf AND the right
+    // intra-run direction.
+    const state = singleParagraph("abcאבג");
+    const { layout, shaper } = pipeline(state, 800);
+
+    // Click mid-"b" (x=10, glyph "b" spans [8,16)) → Latin offset 1.
+    const inLatin = resolvePositionFromPixel(state, layout, shaper, 10, 0);
+    expect(inLatin?.blockId).toBe("p");
+    expect(inLatin?.offset).toBe(1);
+
+    // Hebrew run x[24,48] is RTL: by C.2.1's geometry offset 3 (logical FIRST,
+    // == boundary) sits at the RIGHT edge 48, offset 6 (logical LAST) at the LEFT
+    // edge 24. So clicking near the visual-RIGHT edge (x=47) → logical-FIRST
+    // Hebrew offset 3; near the visual-LEFT edge (x=25) → logical-LAST offset 6.
+    // Under the OLD LTR-only within-leaf math these would be SWAPPED.
+    const hebRight = resolvePositionFromPixel(state, layout, shaper, 47, 0);
+    expect(hebRight?.blockId).toBe("p");
+    expect(hebRight?.offset).toBe(3);
+
+    const hebLeft = resolvePositionFromPixel(state, layout, shaper, 25, 0);
+    expect(hebLeft?.blockId).toBe("p");
+    expect(hebLeft?.offset).toBe(6);
+  });
+
+  it("mixed 'abc אבג' (with space): a click in each run resolves to that run's logical offset", () => {
+    // "abc" x[0,24] state [0,3]; " " x[24,32] state [3,4]; "אבג" x[32,56] state
+    // [4,7]. Round-trips C.2.1's xAt values (offset 5→48, 6→40, 7→32).
+    const state = singleParagraph("abc אבג");
+    const { layout, shaper } = pipeline(state, 800);
+
+    // Click mid-"a" (x=2) → Latin offset 0.
+    const inLatin = resolvePositionFromPixel(state, layout, shaper, 2, 0);
+    expect(inLatin?.offset).toBe(0);
+
+    // Hebrew run [32,56]: offset 4 at right edge 56, offset 7 at left edge 32.
+    // Click at x=33 (near visual-left) → logical-LAST Hebrew offset 7.
+    const hebLeft = resolvePositionFromPixel(state, layout, shaper, 33, 0);
+    expect(hebLeft?.offset).toBe(7);
+    // Click at x=55 (near visual-right) → logical-FIRST Hebrew offset 4.
+    const hebRight = resolvePositionFromPixel(state, layout, shaper, 55, 0);
+    expect(hebRight?.offset).toBe(4);
+    // Click mid Hebrew (x=47, caret X of offset 5 is 48) → offset 5.
+    const hebMid = resolvePositionFromPixel(state, layout, shaper, 47, 0);
+    expect(hebMid?.offset).toBe(5);
+  });
+});
+
+describe("P4-C.2.2b — caret-affinity SEED (hit-leaf-owner rule)", () => {
+  // `resolveHitRaw` is the raw `resolvePositionFromPixel` returning
+  // `{ position, caretAffinity }` (P4-C.2.2b §D). The HIT leaf owns the offset:
+  // a click landing on a leaf's TRAILING edge sticks to that (preceding) leaf →
+  // "before"; everything else → "after" (mid-leaf / leading edge / empty line).
+  // Geometry reuses the C.2.2a fixtures: "abcאבג" → Latin "abc" lvl0 x[0,24]
+  // owns state [0,3]; Hebrew "אבג" lvl1 x[24,48] owns state [3,6].
+
+  it("returns the { position, caretAffinity } shape", () => {
+    const state = singleParagraph("hello");
+    const { layout, shaper } = pipeline(state);
+    const hit = resolveHitRaw(state, layout, shaper, 0, 0);
+    expect(hit).not.toBeNull();
+    expect(hit?.position.blockId).toBe("p");
+    expect(hit?.position.offset).toBe(0);
+    expect(hit?.caretAffinity).toBe("after");
+  });
+
+  it("clicking the LATIN side of the boundary seeds 'before' (offset 3 == Latin leaf's trailing edge)", () => {
+    // Latin run x[0,24]: a click near its visual-RIGHT edge (x=23) resolves to
+    // offset 3 — the Latin leaf's logEnd (its trailing edge) — so the caret
+    // sticks to the Latin (preceding) leaf → "before".
+    const state = singleParagraph("abcאבג");
+    const { layout, shaper } = pipeline(state);
+    const hit = resolveHitRaw(state, layout, shaper, 23, 0);
+    expect(hit?.position.offset).toBe(3);
+    expect(hit?.caretAffinity).toBe("before");
+  });
+
+  it("clicking the HEBREW side of the boundary seeds 'after' (offset 3 is the Hebrew leaf's LEADING edge)", () => {
+    // Hebrew run x[24,48] is RTL: offset 3 (its logStart, the boundary) sits at
+    // the run's RIGHT edge (x=48). A click near x=47 lands in the HEBREW leaf and
+    // resolves to offset 3 = that leaf's logStart (leading edge), NOT its trailing
+    // edge → "after". Same logical offset 3 as the Latin-side click, OPPOSITE
+    // affinity — exactly the dual-caret boundary the seed disambiguates.
+    const state = singleParagraph("abcאבג");
+    const { layout, shaper } = pipeline(state);
+    const hit = resolveHitRaw(state, layout, shaper, 47, 0);
+    expect(hit?.position.offset).toBe(3);
+    expect(hit?.caretAffinity).toBe("after");
+  });
+
+  it("a mid-run click seeds 'after' (interior offset is inert)", () => {
+    // Click mid-"b" (x=10) → offset 1, interior to the Latin leaf [0,3]. An
+    // interior offset is neither leaf's trailing edge → "after".
+    const state = singleParagraph("abcאבג");
+    const { layout, shaper } = pipeline(state);
+    const hit = resolveHitRaw(state, layout, shaper, 10, 0);
+    expect(hit?.position.offset).toBe(1);
+    expect(hit?.caretAffinity).toBe("after");
+  });
+
+  it("pure-LTR click at line END seeds 'before' (end-of-run is the only run's trailing edge) — still inert at render", () => {
+    // "hello" single LTR leaf [0,5]. A click past the end (x=1000) resolves to
+    // offset 5 = the leaf's logEnd → "before". On a uniform LTR line both sides
+    // give the same X, so this is inert at render; it just confirms the
+    // hit-leaf-owner rule fires symmetrically (not RTL-only).
+    const state = singleParagraph("hello");
+    const { layout, shaper } = pipeline(state);
+    const hit = resolveHitRaw(state, layout, shaper, 1000, 0);
+    expect(hit?.position.offset).toBe(5);
+    expect(hit?.caretAffinity).toBe("before");
+  });
+
+  it("empty line seeds 'after'", () => {
+    const state = singleParagraph("");
+    const { layout, shaper } = pipeline(state);
+    const hit = resolveHitRaw(state, layout, shaper, 0, 0);
+    expect(hit?.position.offset).toBe(0);
+    expect(hit?.caretAffinity).toBe("after");
+  });
+
+  it("synthetic-glyph regression (C.2.2a): a click past EVERY line's end returns that line's inlineOffsetEnd, NEVER inlineOffsetEnd + 1", () => {
+    // The C.2.2a bug: a synthetic trailing glyph (the hyphenation hyphen, the
+    // soft-wrap break) owns no state offsets but the pre-C.2.2a hit-test
+    // accumulator could COUNT it as a caret target, returning inlineOffsetEnd +
+    // 1. `buildLineBidiView` now excludes synthetic runs, so a click past the
+    // line content clamps to the line's real inlineOffsetEnd. This wraps a word
+    // across lines so the non-final wrapped lines carry a synthetic line-break
+    // glyph at their visual edge — the exact place the +1 could have leaked.
+    const state = singleParagraph("aaaa bbbb cccc dddd", "normal");
+    const { layout, shaper } = pipeline(state, 40); // narrow ⇒ multiple wrapped lines
+    const lines = getLineIndex(layout).byBlock.get("p" as BlockId) ?? [];
+    expect(lines.length).toBeGreaterThan(1); // it wrapped
+    for (const al of lines) {
+      // Click far past the line's content edge — onto the trailing synthetic
+      // glyph / past line end. The resolved offset is the line's real
+      // inlineOffsetEnd, never one past it.
+      const hit = resolveHitRaw(state, layout, shaper, 1000, al.absoluteY);
+      expect(hit?.position.offset).toBe(al.line.inlineOffsetEnd);
+      expect(hit?.position.offset).not.toBe(al.line.inlineOffsetEnd + 1);
+    }
+  });
+});
+
 describe("editor default white-space: break-spaces (multiple spaces render)", () => {
   // Under the editor's default white-space (now `break-spaces`, set on the
   // document root and inherited), a paragraph that contains two interior
@@ -466,7 +667,7 @@ describe("editor default white-space: break-spaces (multiple spaces render)", ()
     // Rendered content width: "a"(8) + " "(8) + " "(8) + "b"(8) = 32px.
     // Under collapse it would be 24px (one space dropped). Sum the rendered
     // widths of the line's leaves (text-runs).
-    const leaves = collectLineLeaves(al.line, al.absoluteX);
+    const leaves = collectLineLeaves(al.line, al.absoluteX, al.absoluteY);
     const width = leaves.reduce((sum, leaf) => sum + leaf.width, 0);
     expect(width).toBe(32);
   });
@@ -488,6 +689,92 @@ describe("editor default white-space: break-spaces (multiple spaces render)", ()
     expect(span.focus.blockId).toBe("p");
     expect(span.anchor.offset).toBe(3);
     expect(span.focus.offset).toBe(4);
+  });
+});
+
+describe("text-transform hit-test: display→state reverse remap (ß→SS)", () => {
+  // A length-changing text-transform (uppercase ß→SS) renders DISPLAY text "ASS"
+  // while state offsets stay pristine ("aß" = 2 code units). The leaf carries
+  // `sourceDisplayLengths` [1, 2]. `findCharOffset` returns a DISPLAY offset into
+  // the leaf's display text; hit-test must reverse-map it to a STATE offset so a
+  // click inside the "SS" resolves to the source boundary before/after the ß
+  // (offset 1 or 2), NEVER an interior offset that splits the ß.
+  function transformedParagraph(textContent: string, textTransform: string): State {
+    return buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({
+          id: "doc",
+          type: "document",
+          firstChildId: "p",
+          lastChildId: "p",
+        }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([text(textContent, { textTransform })]),
+        }),
+      ],
+    });
+  }
+
+  it("'aß' uppercase: click in 'a' → state offset 0; mid-'SS' → nearest source boundary (1 or 2); past end → 2", () => {
+    // Display "ASS" (8px/char); leaf spans x ∈ [0, 24). sourceDisplayLengths [1,2].
+    const state = transformedParagraph("aß", "uppercase");
+    const { layout, shaper } = pipeline(state, 800);
+
+    // Click in 'A' (x = 2, clearly left of the char midpoint at 4) → display
+    // offset 0 → state offset 0.
+    const inA = resolvePositionFromPixel(state, layout, shaper, 2, 0);
+    expect(inA).not.toBeNull();
+    if (inA === null) return;
+    expect(inA.blockId).toBe("p");
+    expect(inA.offset).toBe(0);
+
+    // Click in the right half of the SECOND "S" (x = 22, char S2 spans [16, 24),
+    // right of its midpoint 20) → DISPLAY offset 3. This is the interior of the
+    // ß (state code unit 1 spans display [1, 3)). The raw display offset 3 must
+    // be reverse-mapped to the nearest SOURCE boundary — state offset 2 (the
+    // position AFTER the ß), NEVER the raw display 3 (which would be an offset
+    // PAST the 2-code-unit source). It must be 1 OR 2, never an interior/3.
+    const midSS = resolvePositionFromPixel(state, layout, shaper, 22, 0);
+    expect(midSS).not.toBeNull();
+    if (midSS === null) return;
+    expect(midSS.blockId).toBe("p");
+    expect([1, 2]).toContain(midSS.offset);
+
+    // Click past the end (x = 30) → display offset 3 → state offset 2 (NOT the
+    // raw display offset 3, which would split/overrun the 2-code-unit source).
+    const pastEnd = resolvePositionFromPixel(state, layout, shaper, 30, 0);
+    expect(pastEnd).not.toBeNull();
+    if (pastEnd === null) return;
+    expect(pastEnd.blockId).toBe("p");
+    expect(pastEnd.offset).toBe(2);
+  });
+
+  it("'ab' uppercase (1:1, sourceDisplayLengths undefined): click in 'b' resolves normally to state offset 1", () => {
+    // Display "AB" 1:1 — no sourceDisplayLengths, state offset === display offset.
+    const state = transformedParagraph("ab", "uppercase");
+    const { layout, shaper } = pipeline(state, 800);
+    // Click in 'B' (x = 10, char "B" spans [8, 16), left of its midpoint 12) → 1.
+    const inB = resolvePositionFromPixel(state, layout, shaper, 10, 0);
+    expect(inB).not.toBeNull();
+    if (inB === null) return;
+    expect(inB.blockId).toBe("p");
+    expect(inB.offset).toBe(1);
+  });
+
+  it("'aß' none (untransformed): click resolves normally, state offset === index", () => {
+    const state = transformedParagraph("aß", "none");
+    const { layout, shaper } = pipeline(state, 800);
+    // "aß" renders as-is (2 code units). Click in 'ß' (x = 10, spans [8, 16),
+    // left of its midpoint 12) → 1.
+    const inSecond = resolvePositionFromPixel(state, layout, shaper, 10, 0);
+    expect(inSecond).not.toBeNull();
+    if (inSecond === null) return;
+    expect(inSecond.blockId).toBe("p");
+    expect(inSecond.offset).toBe(1);
   });
 });
 
@@ -620,5 +907,328 @@ describe("#308 — click at x=0 of a line with leading collapsed whitespace land
     if (r0 === null) return;
     expect(r0.offset).toBeGreaterThanOrEqual(0);
     expect(r0.offset).toBeLessThanOrEqual(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P3.5b — vertical-mode BODY hit-test (click → offset)
+// ---------------------------------------------------------------------------
+//
+// The BODY line/leaf pick in `resolvePositionFromPixel` is generalized to the
+// active line's axis map (P3.5b): the LINE is picked by the click's BLOCK-axis
+// component (physical X for the vertical modes — blocks stack across the page),
+// the LEAF by the click's INLINE-axis component (physical Y — inline runs DOWN
+// the page). For `vertical-rl` blocks stack right→left (the block-axis mirror),
+// so document order is DESCENDING physical-X; for `vertical-lr` ascending.
+//
+// Geometry mirrors `vertical-cursor-position.test.ts` (and `layout/
+// vertical-geometry.test.ts`): an 8px-char mock shaper, a 20px-inline narrow
+// page so "aa bb cc" wraps into three lines, page block-size 1000 (so the v-rl
+// block-axis mirror lands line 0 at the far/right physical X). Probed concrete
+// coords:
+//   vertical-rl: line0 absX=984, line1 absX=968, line2 absX=952 (absY=0 each).
+//   vertical-lr: line0 absX=0,  line1 absX=16,  line2 absX=32  (absY=0 each).
+//   each line inlineSize=20, blockSize=16; leaves "aa"/"bb"/"cc" w=16 h=16.
+// State offsets ("aa bb cc"): line0 owns "aa" [0,2] (end 3 incl. the space),
+// line1 owns "bb" [3,5] (end 6), line2 owns "cc" [6,8].
+//
+// These click coordinates are RED against the OLD h-tb-path code, which picked
+// the LINE by a physical-Y band (`y < absoluteY + blockSize`) and the LEAF by a
+// physical-X coord (`x < leaf.absoluteX`). With every line at absY=0 the old
+// line-pick ALWAYS chose line 0 (y < 16) regardless of the click's X, and the
+// old leaf-pick measured `x − leaf.absoluteX` against the wrong axis — so the
+// resolved offset landed in the wrong line at the wrong character.
+
+const VCHAR_W = 8;
+const VLINE_CROSS = 16;
+
+const verticalPageConfig: PageConfig = {
+  pageInlineSize: 20,
+  pageBlockSize: 1000,
+  pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
+  pageGap: 20,
+};
+
+function verticalDoc(wm: WritingMode): State {
+  return buildState({
+    rootId: "doc",
+    blocks: [
+      buildBlock({
+        id: "doc",
+        type: "document",
+        attrs: { writingMode: wm },
+        firstChildId: "p",
+        lastChildId: "p",
+      }),
+      buildBlock({
+        id: "p",
+        type: "paragraph",
+        parentId: "doc",
+        attrs: { writingMode: wm },
+        inlineContent: inlineContent([text("aa bb cc")]),
+      }),
+    ],
+  });
+}
+
+function verticalPipeline(state: State): { layout: LayoutBox; shaper: TextShaper } {
+  const root = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
+  const shaper = createMockShaper(VCHAR_W, VLINE_CROSS);
+  const layout = positionTreeForTest(
+    layoutTree(root, verticalPageConfig.pageInlineSize, shaper, verticalPageConfig),
+  );
+  return { layout, shaper };
+}
+
+function vLines(layout: LayoutBox): ReturnType<typeof getLineIndex>["all"] {
+  return getLineIndex(layout).byBlock.get("p" as BlockId) ?? [];
+}
+
+describe("P3.5b vertical hit-test — vertical-rl (blocks stack right→left)", () => {
+  const state = verticalDoc("vertical-rl");
+  const { layout, shaper } = verticalPipeline(state);
+  const lines = vLines(layout);
+
+  it("layout sanity: three lines, descending physical X, absY=0", () => {
+    expect(lines.length).toBe(3);
+    expect(lines[0].absoluteX).toBeGreaterThan(lines[1].absoluteX);
+    expect(lines[1].absoluteX).toBeGreaterThan(lines[2].absoluteX);
+    expect(lines[0].absoluteY).toBe(0);
+  });
+
+  it("click in line 1's block band, mid-'b' → offset 4 (RED: old code → line 0 / offset 0)", () => {
+    // line1 block-X band [968, 984]; click X=975 falls inside it. Inline Y=4 is
+    // inside "bb"'s glyph 0 vs 1 boundary → display offset 1 → state offset
+    // 3 ("bb" logStart) + 1 = 4 ("b|b"). Old code: line-pick by Y picked line0
+    // (4 < 16); leaf-pick by X measured 975 − 984 = −9 → offset 0 in line0.
+    const r = resolvePositionFromPixel(state, layout, shaper, 975, 4);
+    expect(r).not.toBeNull();
+    if (r === null) return;
+    expect(r.blockId).toBe("p");
+    expect(r.offset).toBe(4);
+  });
+
+  it("click in line 2's block band, line-start inline → offset 6 (start of 'cc')", () => {
+    // line2 block-X band [952, 968]; click X=958. Inline Y=1 → display offset 0
+    // ("c"'s glyph midpoint is 4) → state offset 6 ("cc" logStart). Old code →
+    // line0 / offset 0.
+    const r = resolvePositionFromPixel(state, layout, shaper, 958, 1);
+    expect(r).not.toBeNull();
+    if (r === null) return;
+    expect(r.blockId).toBe("p");
+    expect(r.offset).toBe(6);
+
+    // Sub-pixel boundary snap (mode-aware facing-edge). The line1/line2 shared
+    // boundary is at block-X 968 (line1 band [968,984], line2 band [952,968]).
+    // A click at X=968.2 lands just INSIDE line1 but within 0.5px of the
+    // boundary → it must snap FORWARD to line2 (offset 6, start of "cc"). RED
+    // against pre-fix code, which compared to line2's LOW edge (952) — 16.2px
+    // away, so the snap never fired and it resolved to line1 (offset 3, "bb").
+    const snap = resolvePositionFromPixel(state, layout, shaper, 968.2, 1);
+    expect(snap?.blockId).toBe("p");
+    expect(snap?.offset).toBe(6);
+  });
+
+  it("pixel→offset→pixel round-trips offset 7 (mid 'cc') against resolvePixelPosition", () => {
+    const pos = createPosition("p" as BlockId, 7);
+    const px = resolvePixelPosition(state, pos, layout, shaper);
+    expect(px).not.toBeNull();
+    if (px === null) return;
+    // px.x = caret INLINE coord (physical Y) = 8; px.y = BLOCK coord = line2 X.
+    expect(px.x).toBe(8);
+    expect(px.y).toBe(lines[2].absoluteX);
+    // Click that pixel back: block component = physical X = px.y, inline = px.x.
+    const r = resolvePositionFromPixel(state, layout, shaper, px.y, px.x);
+    expect(r).not.toBeNull();
+    if (r === null) return;
+    expect(r.blockId).toBe("p");
+    expect(r.offset).toBe(7);
+  });
+
+  it("edge: click before the first line (block-X past content start) → line 0 start (offset 0)", () => {
+    // X=5000 is beyond line0's far edge in flow; clamps to the document-first
+    // (visual-first) line. Inline Y=0 → offset 0.
+    const r = resolvePositionFromPixel(state, layout, shaper, 5000, 0);
+    expect(r).not.toBeNull();
+    if (r === null) return;
+    expect(r.blockId).toBe("p");
+    expect(r.offset).toBe(0);
+  });
+
+  it("edge: click after the last line (block-X past content end) → last line (offset 6 start of 'cc')", () => {
+    // X=0 is past line2's near edge in flow; clamps to the document-last line2.
+    // Inline Y=1 → offset 6.
+    const r = resolvePositionFromPixel(state, layout, shaper, 0, 1);
+    expect(r).not.toBeNull();
+    if (r === null) return;
+    expect(r.blockId).toBe("p");
+    expect(r.offset).toBe(6);
+  });
+
+  it("edge: before-first-leaf (inline-Y < 0) → line start; after-last-leaf (inline-Y past end) → line end", () => {
+    // Click in line0's block band (X=990) at inline Y below the leaf → offset 0
+    // (line0 inlineOffsetStart); at inline Y past the leaf → line0's
+    // inlineOffsetEnd (the trailing-space-inclusive content end, 3).
+    const before = resolvePositionFromPixel(state, layout, shaper, 990, -5);
+    expect(before?.blockId).toBe("p");
+    expect(before?.offset).toBe(lines[0].line.inlineOffsetStart);
+    expect(before?.offset).toBe(0);
+    const after = resolvePositionFromPixel(state, layout, shaper, 990, 1000);
+    expect(after?.blockId).toBe("p");
+    expect(after?.offset).toBe(lines[0].line.inlineOffsetEnd);
+  });
+});
+
+describe("P3.5b vertical hit-test — vertical-lr (blocks stack left→right)", () => {
+  const state = verticalDoc("vertical-lr");
+  const { layout, shaper } = verticalPipeline(state);
+  const lines = vLines(layout);
+
+  it("layout sanity: three lines, ascending physical X, absY=0", () => {
+    expect(lines.length).toBe(3);
+    expect(lines[0].absoluteX).toBeLessThan(lines[1].absoluteX);
+    expect(lines[1].absoluteX).toBeLessThan(lines[2].absoluteX);
+    expect(lines[0].absoluteY).toBe(0);
+  });
+
+  it("click in line 1's block band, mid-'b' → offset 4 (RED: old code → line 0 / offset 2)", () => {
+    // line1 block-X band [16, 32]; click X=20. Inline Y=4 → state offset 4.
+    // Old code: line-pick by Y → line0 (4 < 16); leaf-pick by X measured the
+    // line0 leaf "aa" at 20 − 0 = 20 ≥ lastMidpoint → offset 2 in line0.
+    const r = resolvePositionFromPixel(state, layout, shaper, 20, 4);
+    expect(r).not.toBeNull();
+    if (r === null) return;
+    expect(r.blockId).toBe("p");
+    expect(r.offset).toBe(4);
+  });
+
+  it("pixel→offset→pixel round-trips offset 7 (mid 'cc') against resolvePixelPosition", () => {
+    const pos = createPosition("p" as BlockId, 7);
+    const px = resolvePixelPosition(state, pos, layout, shaper);
+    expect(px).not.toBeNull();
+    if (px === null) return;
+    expect(px.x).toBe(8);
+    expect(px.y).toBe(lines[2].absoluteX); // = 32
+    const r = resolvePositionFromPixel(state, layout, shaper, px.y, px.x);
+    expect(r).not.toBeNull();
+    if (r === null) return;
+    expect(r.blockId).toBe("p");
+    expect(r.offset).toBe(7);
+  });
+
+  it("edge: click after the last line (block-X past content end) → last line", () => {
+    // X=5000 is past line2's far edge; clamps to the document-last line2.
+    const r = resolvePositionFromPixel(state, layout, shaper, 5000, 1);
+    expect(r).not.toBeNull();
+    if (r === null) return;
+    expect(r.blockId).toBe("p");
+    expect(r.offset).toBe(6);
+  });
+
+  it("edge: click before the first line (block-X negative) → first line start (offset 0)", () => {
+    const r = resolvePositionFromPixel(state, layout, shaper, -5, 0);
+    expect(r).not.toBeNull();
+    if (r === null) return;
+    expect(r.blockId).toBe("p");
+    expect(r.offset).toBe(0);
+  });
+});
+
+describe("P3.7 vertical bidi hit-test — RTL run on the inline (physical-Y) axis", () => {
+  // "abאב": Latin "ab" (lvl0, state [0,2], inline-Y [0,16]) + Hebrew "אב"
+  // (lvl1, state [2,4], inline-Y [16,32]). Paragraph base LTR; Hebrew CONTENT
+  // gives the level-1 run. WIDE page → one line. A click's BLOCK component is
+  // physical X (the line band), its INLINE component is physical Y.
+  //
+  // By-hand click→offset: in the RTL Hebrew run [16,32] the visual-NEAR (low-Y)
+  // edge is the logical-LAST char and the visual-FAR (high-Y) edge is the
+  // logical-FIRST — the exact INVERSE of an LTR run. So:
+  //   inline-Y 1  → off 0 (start of "ab")
+  //   inline-Y 9  → off 1 (mid "ab")
+  //   inline-Y 17 → off 4 (just inside Hebrew at its near edge → logical LAST)
+  //   inline-Y 25 → off 3 (mid Hebrew)
+  //   inline-Y 31 → off 2 (Hebrew far edge → logical FIRST)
+  // An LTR-only within-leaf assumption would SWAP 17↔31 (give 2 and 4). The
+  // inline axis is physical-Y for BOTH vertical modes, so the offsets are
+  // identical across them — only the block band (physical X) differs.
+  const wideBidiPage: PageConfig = {
+    pageInlineSize: 800,
+    pageBlockSize: 1000,
+    pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
+    pageGap: 20,
+  };
+
+  function bidiDoc(wm: WritingMode): State {
+    return buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", attrs: { writingMode: wm }, firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", attrs: { writingMode: wm }, inlineContent: inlineContent([text("abאב")]) }),
+      ],
+    });
+  }
+
+  function bidiPipeline(state: State): { layout: LayoutBox; shaper: TextShaper } {
+    const root = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry()).root;
+    const shaper = createMockShaper(VCHAR_W, VLINE_CROSS);
+    const layout = positionTreeForTest(
+      layoutTree(root, wideBidiPage.pageInlineSize, shaper, wideBidiPage),
+    );
+    return { layout, shaper };
+  }
+
+  for (const wm of ["vertical-lr", "vertical-rl"] as const) {
+    it(`${wm}: click→offset inverts correctly inside the RTL run on inline-Y`, () => {
+      const state = bidiDoc(wm);
+      const { layout, shaper } = bidiPipeline(state);
+      const lines = vLines(layout);
+      expect(lines.length).toBe(1);
+      const blockX = lines[0].absoluteX + 1; // inside the line's block band.
+
+      const off = (inlineY: number): number | undefined =>
+        resolvePositionFromPixel(state, layout, shaper, blockX, inlineY)?.offset;
+
+      expect(off(1)).toBe(0);
+      expect(off(9)).toBe(1);
+      // RTL inversion on the inline-Y axis (the discriminating pair):
+      expect(off(17)).toBe(4); // near edge → logical LAST
+      expect(off(25)).toBe(3);
+      expect(off(31)).toBe(2); // far edge → logical FIRST
+    });
+  }
+});
+
+describe("resolvePositionFromPixel — table cell awareness (#P8.S4b)", () => {
+  // doc > table[cols 0.5/0.5] > row > (cellA > pA"AAAA") (cellB > pB"BBBB")
+  function tableState(): State {
+    return buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "tbl", lastChildId: "tbl" }),
+        buildBlock({ id: "tbl", type: "table", parentId: "doc", attrs: { columnWidths: [0.5, 0.5] }, firstChildId: "row", lastChildId: "row" }),
+        buildBlock({ id: "row", type: "table-row", parentId: "tbl", firstChildId: "cA", lastChildId: "cB" }),
+        buildBlock({ id: "cA", type: "table-cell", parentId: "row", nextSiblingId: "cB", firstChildId: "pA", lastChildId: "pA" }),
+        buildBlock({ id: "cB", type: "table-cell", parentId: "row", prevSiblingId: "cA", firstChildId: "pB", lastChildId: "pB" }),
+        buildBlock({ id: "pA", type: "paragraph", parentId: "cA", inlineContent: inlineContent([text("AAAA")]) }),
+        buildBlock({ id: "pB", type: "paragraph", parentId: "cB", inlineContent: inlineContent([text("BBBB")]) }),
+      ],
+    });
+  }
+
+  it("a click in column B resolves into column B (was: column A — flat band-pick is column-unaware)", () => {
+    const state = tableState();
+    const { layout, shaper } = pipeline(state, 400); // cols [200, 200]
+    // Sanity: a click in column A lands in pA.
+    const inA = resolvePositionFromPixel(state, layout, shaper, 8, 4);
+    expect(inA?.blockId).toBe("pA");
+    // The fix: a click in column B's region lands in pB (NOT pA, NOT end-of-A).
+    const inB = resolvePositionFromPixel(state, layout, shaper, 230, 4);
+    expect(inB?.blockId).toBe("pB");
+    // ...and the offset is measured WITHIN cell B: a click past "BBBB" clamps to
+    // the END of pB (offset 4). On the old column-unaware pick this resolved into
+    // pA (the click's x fell past cell A's content → clamped to end of pA).
+    const inBEnd = resolvePositionFromPixel(state, layout, shaper, 398, 4);
+    expect(inBEnd?.blockId).toBe("pB");
+    expect(inBEnd?.offset).toBe(4);
   });
 });

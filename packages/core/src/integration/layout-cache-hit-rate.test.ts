@@ -177,7 +177,10 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
     // should drop to ~5: 1 per-page root for page 0, 1 dirty paragraph,
     // a handful of root-level invocations for the all-pages outer.
     expect(stats.fullLayoutInvocations).toBeLessThan(15);
-  }, 30_000);
+    // #428: generous timeout — heavy 500-paragraph diagnostic asserting a
+    // cache-hit COUNT (not wall-clock). ~16s in isolation but observed >70s
+    // under full-suite parallel CPU contention; 120s keeps the suite green.
+  }, 120_000);
 
   it("DIAGNOSTIC: SPLIT_NODE at top of N-paragraph doc — pure-model cost", () => {
     // No assertion — just print the model-layer cost of pressing Enter
@@ -284,5 +287,8 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
     // (it is the same ~1 as the 50-paragraph case above). This is the property
     // virtualization delivers: per-keystroke work is O(dirty), not O(N_blocks).
     expect(metaBuildCount).toBeLessThanOrEqual(3);
-  }, 30_000);
+    // #428: generous timeout — same heavy 500-paragraph diagnostic class as
+    // above; asserts a scaling COUNT, not wall-clock. 120s absorbs full-suite
+    // CPU contention so it doesn't flake on its 30s budget.
+  }, 120_000);
 });

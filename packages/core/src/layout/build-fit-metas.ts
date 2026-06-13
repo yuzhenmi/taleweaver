@@ -16,6 +16,7 @@ import type { ElementBox } from "../render/render-node";
 import type { LayoutBox, LineBox } from "./layout-box";
 import type { BlockFitMeta } from "./fit-core";
 import type { TextShaper } from "./text-shaper";
+import type { Hyphenator } from "./hyphenator";
 import { groupChildren, anonymousBlockKey } from "./group-children";
 import type { ChildGroup } from "./group-children";
 import { layoutBlock } from "./bfc";
@@ -76,6 +77,14 @@ interface MetaCacheEntry {
    * rebuild even for the same `ElementBox` ref + width.
    */
   readonly shaperRef: TextShaper;
+  /**
+   * The `Hyphenator` instance this meta was built with (hyphenator guard). The
+   * slice-4 auto producer makes line-wrapping depend on the hyphenator's break
+   * points, so a different `Hyphenator` (different breaks ⇒ different line
+   * counts ⇒ different pagination) must miss the cache and rebuild even for the
+   * same `ElementBox` ref + width + shaper. `undefined` ⇒ no hyphenation.
+   */
+  readonly hyphenatorRef: Hyphenator | undefined;
   readonly meta: BlockFitMeta;
 }
 
@@ -115,6 +124,14 @@ export function __resetMetaBuildCountForTest(): void {
 export function buildBlockFitMetas(
   cascadedRoot: ElementBox,
   shaper: TextShaper,
+  // Auto-hyphenation: threaded ALONGSIDE `shaper` down to the IFC tokenization
+  // site so the measure pass and the positioned tree share the same hyphenation
+  // inputs. `undefined` ⇒ none. CONSUMED by the auto producer arm in
+  // `collectInlineTokens`, and it PARTICIPATES in `_metaCache`'s key
+  // (`MetaCacheEntry.hyphenatorRef` + the `classifyChild` guard) — swapping the
+  // hyphenator invalidates cached metas, since different breaks ⇒ different line
+  // counts ⇒ different pagination.
+  hyphenator: Hyphenator | undefined,
   pageContentInlineSize: number,
 ): readonly BlockFitMeta[] {
   const rootCs = cascadedRoot.computedStyle;
@@ -130,7 +147,7 @@ export function buildBlockFitMetas(
   // recursion, and `ifcLeafMetaFromInlineRun` consumes the already-reduced width
   // DIRECTLY without re-subtracting.
   const rootContentInlineSize = contentInlineSizeOf(rootCs, pageContentInlineSize);
-  return buildMetasForChildren(cascadedRoot, shaper, rootContentInlineSize);
+  return buildMetasForChildren(cascadedRoot, shaper, hyphenator, rootContentInlineSize);
 }
 
 /**
@@ -155,6 +172,7 @@ export function buildBlockFitMetas(
 function buildMetasForChildren(
   parent: ElementBox,
   shaper: TextShaper,
+  hyphenator: Hyphenator | undefined,
   parentContentInlineSize: number,
 ): readonly BlockFitMeta[] {
   const parentCs = parent.computedStyle;
@@ -171,11 +189,11 @@ function buildMetasForChildren(
   const metas: BlockFitMeta[] = [];
   for (const group of groupChildren(parent)) {
     if (group.kind === "inline-run") {
-      metas.push(ifcLeafMetaFromInlineRun(parent, parentCs, group, shaper, parentContentInlineSize));
+      metas.push(ifcLeafMetaFromInlineRun(parent, parentCs, group, shaper, hyphenator, parentContentInlineSize));
     } else {
       const child = group.child;
       if (child.type !== "element") continue;
-      metas.push(classifyChild(child, shaper, parentContentInlineSize));
+      metas.push(classifyChild(child, shaper, hyphenator, parentContentInlineSize));
     }
   }
   return metas;
@@ -209,6 +227,7 @@ function ifcLeafMetaFromInlineRun(
   parentCs: ComputedStyle,
   group: Extract<ChildGroup, { kind: "inline-run" }>,
   shaper: TextShaper,
+  hyphenator: Hyphenator | undefined,
   parentContentInlineSize: number,
 ): BlockFitMeta {
   const anonKey = anonymousBlockKey(parent.key, group.positionalIndex);
@@ -226,7 +245,7 @@ function ifcLeafMetaFromInlineRun(
   const parentCtx = makeRootContext(parentCs, parentContentInlineSize);
   const ifcCtx = makeChildContext(parentCtx, parentCs, parentContentInlineSize, "indefinite");
   // Unfragmented IFC layout (no FragmentationContext): produces every line.
-  const result = layoutInlineContent(anonElement, 0, 0, ifcCtx, shaper, undefined);
+  const result = layoutInlineContent(anonElement, 0, 0, ifcCtx, shaper, hyphenator, undefined);
   if (result.box === null) {
     throw new Error("buildBlockFitMetas: unfragmented inline-run layout returned null box");
   }
@@ -273,15 +292,26 @@ function ifcLeafMetaFromInlineRun(
 function classifyChild(
   child: ElementBox,
   shaper: TextShaper,
+  hyphenator: Hyphenator | undefined,
   pageContentInlineSize: number,
 ): BlockFitMeta {
+  // The slice-4 auto producer makes line-wrapping hyphenation-dependent, so the
+  // built meta depends on the `Hyphenator` instance — it is part of the cache key
+  // (alongside `child` ref + `shaper` + `width`). A swapped hyphenator yields
+  // different breaks ⇒ different line counts ⇒ different pagination, so it must
+  // miss and rebuild.
   const cached = _metaCache.get(child);
-  if (cached !== undefined && cached.shaperRef === shaper && cached.width === pageContentInlineSize) {
+  if (
+    cached !== undefined &&
+    cached.shaperRef === shaper &&
+    cached.width === pageContentInlineSize &&
+    cached.hyphenatorRef === hyphenator
+  ) {
     return cached.meta;
   }
-  const meta = buildChildMeta(child, shaper, pageContentInlineSize);
+  const meta = buildChildMeta(child, shaper, hyphenator, pageContentInlineSize);
   _metaBuildCount++;
-  _metaCache.set(child, { width: pageContentInlineSize, shaperRef: shaper, meta });
+  _metaCache.set(child, { width: pageContentInlineSize, shaperRef: shaper, hyphenatorRef: hyphenator, meta });
   return meta;
 }
 
@@ -293,6 +323,7 @@ function classifyChild(
 function buildChildMeta(
   child: ElementBox,
   shaper: TextShaper,
+  hyphenator: Hyphenator | undefined,
   pageContentInlineSize: number,
 ): BlockFitMeta {
   const childCs = child.computedStyle;
@@ -333,7 +364,7 @@ function buildChildMeta(
   // the empty-block rule (bfc.ts:676–709). Laying the child out directly via
   // `layoutBlock(child, …)` would skip those parent-applied rules and report a
   // 0-height box for an explicit-block-size empty spacer.
-  const placed = layoutChildInWrapper(child, shaper, pageContentInlineSize);
+  const placed = layoutChildInWrapper(child, shaper, hyphenator, pageContentInlineSize);
 
   // --- Table leaf. ---
   if (childCs.display === "table") {
@@ -343,11 +374,25 @@ function buildChildMeta(
             .filter((c): c is LayoutBox => c.type === "table-row")
             .map((row) => row.blockSize)
         : [];
+    // #487 header-repetition: the first `headerRowCount` rows repeat at the top of
+    // every continuation fragment. Read the count off the table box metadata (S2
+    // stamped `metadata.headerRowCount` from the `table` component), clamp it to
+    // the actual row count (defense — the S1 op already clamps), and reserve
+    // `headerBlockSize = Σ rowBlockSizes[0, headerRowCount)` — the prefix sum the
+    // measure AND materialize passes both read (the single source of truth, §4).
+    // `rowBlockSizes` already covers ALL rows because `layoutChildInWrapper` lays
+    // the table unfragmented from row 0 (the N3 invariant). Absent / 0 ⇒
+    // headerBlockSize 0 ⇒ byte-identical to the pre-header behavior.
+    const rawHeaderRowCount = child.metadata?.headerRowCount ?? 0;
+    const headerRowCount = Math.max(0, Math.min(rawHeaderRowCount, rowBlockSizes.length));
+    let headerBlockSize = 0;
+    for (let r = 0; r < headerRowCount; r++) headerBlockSize += rowBlockSizes[r] ?? 0;
     return {
       kind: "table",
       ...common,
       totalBlockSize: placed.blockSize,
       rowBlockSizes,
+      ...(headerRowCount > 0 ? { headerRowCount, headerBlockSize } : {}),
     };
   }
 
@@ -383,7 +428,7 @@ function buildChildMeta(
   }
 
   // Container block: recurse into its block children.
-  const children = buildMetasForChildren(child, shaper, contentInlineSizeOf(childCs, pageContentInlineSize));
+  const children = buildMetasForChildren(child, shaper, hyphenator, contentInlineSizeOf(childCs, pageContentInlineSize));
   // Block-axis padding insets the children's fragmentation space by
   // `paddingBlockStart` (bfc.ts:229/350/540). `paddingBlockEnd` is added to the
   // container height after children are placed (bfc.ts:728) — already folded
@@ -419,6 +464,7 @@ function buildChildMeta(
 function layoutChildInWrapper(
   child: ElementBox,
   shaper: TextShaper,
+  hyphenator: Hyphenator | undefined,
   pageContentInlineSize: number,
 ): LayoutBox {
   const wrapper: ElementBox = {
@@ -429,7 +475,7 @@ function layoutChildInWrapper(
     children: Object.freeze([child]),
   };
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageContentInlineSize);
-  const result = layoutBlock(wrapper, 0, 0, ctx, shaper, undefined);
+  const result = layoutBlock(wrapper, 0, 0, ctx, shaper, hyphenator, undefined);
   if (result.box === null) {
     throw new Error("buildBlockFitMetas: unfragmented wrapper layout returned null box");
   }

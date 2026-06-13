@@ -24,7 +24,9 @@ import { buildVirtualPaginatedTree } from "../virtual-producer";
 import { buildBlockFitMetas } from "../build-fit-metas";
 import { measurePass, type SlotInsets } from "../measure-pass";
 import type { SectionPlan } from "../section-plan";
+import { DEFAULT_COLUMN_CONFIG } from "../column-config";
 import { flattenContents } from "../group-children";
+import { collectLineBoxes, type AbsoluteLineBox } from "../../cursor/line-flatten";
 import {
   resolveFootnotes,
   FOOTNOTE_SEPARATOR_HEIGHT,
@@ -215,8 +217,21 @@ describe("FN-4.3 — PageBox.footnoteSlot rendered via buildVirtualPaginatedTree
     // The slot wrapper sits at the page content inline-start (0 here, no margins).
     expect(slot.inlineOffset).toBe(PAGE.pageMargins.inlineStart);
 
-    // The slot is ALSO appended to page children (paint/line-collection see it).
-    expect(page0.children).toContain(slot);
+    // DA3: the footnote slot is a PURE NAMED field — NOT in `page.children`
+    // (exactly like `headerSlot` / `footerSlot`). The three DOM walkers reach it
+    // BY NAME, so it must NOT also appear in children (that would double-process
+    // it: double-paint, double-collect). The named field is the single source.
+    expect(page0.children).not.toContain(slot);
+
+    // …and `collectLineBoxes` (the line-collection walker) reaches the slot's
+    // body line BY NAME and emits it EXACTLY ONCE. The footnote body's owner
+    // block id is `${fnRootId}-p0` (the fnBody's single paragraph). It is a
+    // distinct context from the page body, so it must appear once — not zero
+    // (dropped because no longer in children) and not twice (double-walked).
+    const lines: AbsoluteLineBox[] = [];
+    collectLineBoxes(page0, 0, 0, lines);
+    const slotLines = lines.filter((l) => l.line.ownerBlockId === "fn0-p0");
+    expect(slotLines.length).toBe(1);
 
     // Page 1 (eviction target) carries NO footnote slot.
     const page1 = tree.getPage(1);
@@ -431,13 +446,14 @@ describe("FN-4.3 D9 — multi-section footnote geometry derives from sectionStat
     // Hand-built section plan: section 1 (implicit, null) for indices 0..3,
     // section 2 (sec2, with its own geometry) from index 4.
     const sectionPlan: SectionPlan = {
+      effectiveDefaultColumns: DEFAULT_COLUMN_CONFIG,
       boundaries: [
         { startFlattenedIndex: 0, sectionId: null },
         { startFlattenedIndex: 4, sectionId: SECTION2_ID, pageConfig: section2Cfg },
       ],
     };
 
-    const metas = buildBlockFitMetas(root, SHAPER, docWide.pageInlineSize);
+    const metas = buildBlockFitMetas(root, SHAPER, undefined, docWide.pageInlineSize);
     // Raw plan over the section plan: section 1 = 4 paras/page (b0..b3 on page
     // 0), section 2 forced to a new page (b4,b5) at its 56px body area ⇒
     // 3 paras would fit but only 2 exist ⇒ b4,b5 on page 1.
@@ -459,7 +475,7 @@ describe("FN-4.3 D9 — multi-section footnote geometry derives from sectionStat
 
     const out = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      embed, [anchor("b3", "fn3")], ctx, SHAPER, slotInsets, docWide,
+      embed, [anchor("b3", "fn3")], ctx, SHAPER, undefined, slotInsets, docWide,
     );
 
     // Find the page that begins section 2 (startIndex 4 ⇒ b4).

@@ -106,7 +106,8 @@ export function computeUsedStyle(
     fontSize: cs.fontSize,
     fontWeight: cs.fontWeight,
     fontStyle: cs.fontStyle,
-    textDecoration: cs.textDecoration,
+    underline: cs.underline,
+    lineThrough: cs.lineThrough,
     // C-B (#166): line-height resolution per CSS Inline Layout.
     //   - unitless number → ratio × own fontSize (the most common author form).
     //   - percent ComputedLength → resolve against OWN fontSize, NOT the
@@ -131,11 +132,15 @@ export function computeUsedStyle(
     textIndent: resolveUsedLength(cs.textIndent, containingInlineSize, 0),
     textWrap: cs.textWrap,
     hyphens: cs.hyphens,
+    language: cs.language,
+    hyphenateLimitChars: cs.hyphenateLimitChars,
+    overflowWrap: cs.overflowWrap,
     letterSpacing: resolveUsedLengthOrNormal(cs.letterSpacing, containingInlineSize),
     wordSpacing: resolveUsedLengthOrNormal(cs.wordSpacing, containingInlineSize),
     textTransform: cs.textTransform,
     fontFeatureSettings: cs.fontFeatureSettings,
-    tabSize: cs.tabSize,
+    tabStops: cs.tabStops,
+    defaultTabStop: cs.defaultTabStop,
 
     float: cs.float,
     clear: cs.clear,

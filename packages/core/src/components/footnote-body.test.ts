@@ -115,6 +115,9 @@ describe("footnoteBodyComponent — orphans/widows = 1 (single-line splitting, F
     if (rendered.type !== "element") throw new Error("render returned non-element");
     expect(rendered.style.orphans).toBe(1);
     expect(rendered.style.widows).toBe(1);
+    // Google-Docs body default — long unbreakable strings break to fit (mirrors
+    // the document/template body defaults).
+    expect(rendered.style.overflowWrap).toBe("break-word");
   });
 
   it("splits a 2-line body at a single line: 1 line placed + non-null breakToken (NOT box: null)", () => {
@@ -122,7 +125,7 @@ describe("footnoteBodyComponent — orphans/widows = 1 (single-line splitting, F
     const ctx = bodyLayoutContext(200);
     const shaper = createMockShaper(8, LINE_HEIGHT);
 
-    const { box, breakToken } = layoutBlock(body, 0, 0, ctx, shaper, {
+    const { box, breakToken } = layoutBlock(body, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: ONE_LINE_BOUND,
       pageIndex: 0,
       resumeFrom: null,
@@ -166,7 +169,7 @@ describe("footnoteBodyComponent — orphans/widows = 1 (single-line splitting, F
     const ctx = bodyLayoutContext(200);
     const shaper = createMockShaper(8, LINE_HEIGHT);
 
-    const { box, breakToken } = layoutBlock(cascaded, 0, 0, ctx, shaper, {
+    const { box, breakToken } = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: ONE_LINE_BOUND,
       pageIndex: 0,
       resumeFrom: null,
@@ -202,7 +205,7 @@ describe("footnoteBodyComponent — leading number marker (FN-6.2b)", () => {
     if (rendered.type !== "element") throw new Error("render returned non-element");
     // The component appends NOTHING — it sets markerText to exactly what
     // `ctx.footnoteNumber` returns. In production the bottom-slot "." suffix is
-    // added UPSTREAM by `makeRenderContext` (render.ts), so the real body marker
+    // added UPSTREAM by `makeRenderContext` (render-footnotes.ts), so the real body marker
     // reads "2." while the superscript call marker reads "2". Here the stub
     // returns the bare "2", so the component echoes "2".
     expect(rendered.style.markerText).toBe("2");

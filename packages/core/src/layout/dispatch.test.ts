@@ -3,7 +3,7 @@ import { createElementBox, createTextBox } from "../render/render-node";
 import { cascadePass } from "../cascade";
 import { createMockShaper } from "./mock-shaper";
 import { layoutTree } from "./dispatch";
-import { resolvePositionedTree } from "./positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 
 const measurer = createMockShaper(8, 16);
 
@@ -12,7 +12,7 @@ describe("layoutTree", () => {
     const tree = cascadePass(
       createElementBox("root", { display: "block" }, []),
     );
-    const result = resolvePositionedTree(layoutTree(tree, 600, measurer));
+    const result = positionTreeForTest(layoutTree(tree, 600, measurer));
     expect(result.type).toBe("block");
     expect(result.width).toBe(600);
   });

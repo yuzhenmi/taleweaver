@@ -53,7 +53,6 @@ declare global {
 import {
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
-  createInitialEditorState,
   reduceEditor,
   setPerfTraceEnabled,
   resetPerfTrace,
@@ -64,7 +63,9 @@ import {
   type PageConfig,
 } from "@taleweaver/core";
 import { createCanvasShaper } from "@taleweaver/dom";
+import { createLiangHyphenator } from "@taleweaver/hyphenation";
 import { tryLoadPerfFixtureFromUrl } from "./perf-fixture";
+import { loadFairytale } from "./fairytale-seed";
 
 const DEFAULT_WIDTH = 600;
 
@@ -92,6 +93,10 @@ function createConfig(): EditorConfig {
     attrRegistry: createDefaultAttrRegistry(),
     containerWidth: DEFAULT_WIDTH,
     pageConfig: PAGE_CONFIG,
+    // Concrete Liang `en-us` hyphenator (auto-hyphenation Slice 5). The demo
+    // document authors `lang="en"` + `hyphens="auto"` on justified prose, so
+    // `hyphens: auto` discovers in-word break points algorithmically.
+    hyphenator: createLiangHyphenator(),
   };
 }
 
@@ -135,7 +140,7 @@ export function usePerfEditor(): UsePerfEditorResult {
       reduceEditor(state, action, config),
     initialArg,
     ({ config: cfg, fixture }) =>
-      fixture !== null ? fixture : createInitialEditorState(cfg),
+      fixture !== null ? fixture : loadFairytale(cfg),
   );
 
   const containerRef = useRef<HTMLDivElement>(null);

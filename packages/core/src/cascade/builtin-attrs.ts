@@ -1,5 +1,5 @@
 import type { AttrInterpreter } from "./attr-registry";
-import type { Length, Style } from "../styles";
+import type { Length, Style, TextTransform, TabStop, TabAlignment, LeaderStyle } from "../styles";
 
 /**
  * Built-in attribute interpreters for the standard text styles.
@@ -117,12 +117,12 @@ export const italicInterpreter: AttrInterpreter = {
 
 export const underlineInterpreter: AttrInterpreter = {
   attrKey: "underline",
-  toStyle: (value) => (value ? { textDecoration: "underline" } : {}),
+  toStyle: (value) => (value ? { underline: true } : {}),
 };
 
 export const strikethroughInterpreter: AttrInterpreter = {
   attrKey: "strikethrough",
-  toStyle: (value) => (value ? { textDecoration: "line-through" } : {}),
+  toStyle: (value) => (value ? { lineThrough: true } : {}),
 };
 
 /**
@@ -131,10 +131,10 @@ export const strikethroughInterpreter: AttrInterpreter = {
  * an underline. Setting the value to anything non-string (or absent) is a
  * no-op (no link styling).
  *
- * Underline color matches text color (a single string in `TextDecoration`
- * today). Google-Docs-exact rendering with a separately-colored
- * underline would require widening `TextDecoration` to a structured
- * shape — deferred per the spec.
+ * Writes the `underline` flag (disjoint from `strikethrough`'s `lineThrough`),
+ * so a struck-through link keeps BOTH decorations. Underline color matches
+ * text color today; a separately-colored underline (CSS
+ * text-decoration-color) would extend the flag set later.
  *
  * Click handling (Cmd/Ctrl-click to open URL, hover tooltip, etc.) is
  * the DOM editor controller's responsibility, not the cascade's.
@@ -143,13 +143,39 @@ export const linkInterpreter: AttrInterpreter = {
   attrKey: "link",
   toStyle: (value) =>
     typeof value === "string"
-      ? { color: "#1a73e8", textDecoration: "underline" }
+      ? { color: "#1a73e8", underline: true }
       : {},
 };
 
 export const fontFamilyInterpreter: AttrInterpreter = {
   attrKey: "fontFamily",
   toStyle: (value) => (typeof value === "string" ? { fontFamily: value } : {}),
+};
+
+/**
+ * `lang` attr → `language` cascaded property (selects the content language for
+ * auto-hyphenation). The value (a BCP-47 tag, e.g. "en-US") passes through
+ * verbatim — BCP-47 normalization is the hyphenator's job, not the cascade's.
+ */
+export const langInterpreter: AttrInterpreter = {
+  attrKey: "lang",
+  toStyle: (value) => (typeof value === "string" ? { language: value } : {}),
+};
+
+/**
+ * `hyphens` attr → `hyphens` cascaded property (`none | manual | auto`). The
+ * declarative setter for hyphenation behavior — `auto` opts a block (and its
+ * inheriting descendants) into automatic dictionary hyphenation when a
+ * `Hyphenator` + content `language` are present. Parallels `langInterpreter`;
+ * only the three CSS Text 4 keywords are accepted, anything else contributes
+ * nothing (so an unknown attr value falls back to the inherited / initial value).
+ */
+export const hyphensInterpreter: AttrInterpreter = {
+  attrKey: "hyphens",
+  toStyle: (value) =>
+    value === "none" || value === "manual" || value === "auto"
+      ? { hyphens: value }
+      : {},
 };
 
 /**
@@ -204,6 +230,36 @@ export const textAlignInterpreter: AttrInterpreter = {
   toStyle: (value) => (isTextAlign(value) ? { textAlign: value } : {}),
 };
 
+const VALID_TEXT_TRANSFORMS = [
+  "none",
+  "capitalize",
+  "uppercase",
+  "lowercase",
+] as const;
+
+/**
+ * Type guard for the CSS `text-transform` keywords (`"none" | "capitalize" |
+ * "uppercase" | "lowercase"`). The canonical `TextTransform` type lives in
+ * `styles/style.ts`; the layout pass consumes it to map glyphs to display case.
+ */
+function isTextTransform(value: unknown): value is TextTransform {
+  return (
+    typeof value === "string" &&
+    (VALID_TEXT_TRANSFORMS as readonly string[]).includes(value)
+  );
+}
+
+/**
+ * textTransform accepts only the CSS keywords declared on
+ * `Style.textTransform`: `"none" | "capitalize" | "uppercase" | "lowercase"`.
+ * Any other value contributes nothing.
+ */
+export const textTransformInterpreter: AttrInterpreter = {
+  attrKey: "textTransform",
+  toStyle: (value) =>
+    isTextTransform(value) ? { textTransform: value } : {},
+};
+
 /**
  * lineHeight accepts:
  *   - `number` → unitless ratio (preferred; inherits as a ratio so children
@@ -249,6 +305,72 @@ export const letterSpacingInterpreter: AttrInterpreter =
 export const wordSpacingInterpreter: AttrInterpreter =
   makeLengthOrNormalInterpreter("wordSpacing");
 
+const TAB_ALIGNMENTS: ReadonlySet<TabAlignment> = new Set<TabAlignment>([
+  "left", "center", "right", "decimal", "content-edge",
+]);
+const LEADER_STYLES: ReadonlySet<LeaderStyle> = new Set<LeaderStyle>([
+  "none", "dot", "dash", "line",
+]);
+
+function coerceTabAlignment(value: unknown): TabAlignment {
+  return typeof value === "string" && TAB_ALIGNMENTS.has(value as TabAlignment)
+    ? (value as TabAlignment)
+    : "left";
+}
+
+function coerceLeaderStyle(value: unknown): LeaderStyle {
+  return typeof value === "string" && LEADER_STYLES.has(value as LeaderStyle)
+    ? (value as LeaderStyle)
+    : "none";
+}
+
+/**
+ * `tabStops` accepts an array of per-paragraph tab-stop descriptors. Each entry
+ * is coerced into a closed `TabStop`: `position` clamped to `>= 0` (negative
+ * stops are meaningless; CSS Text 4 disallows them), `alignment` defaulting to
+ * `"left"` and `leader` to `"none"` when absent/invalid. The returned array is a
+ * NEW array sorted ascending by `position` — the cache-hit gate (`tabStopsEqual`)
+ * relies on this canonical order for its per-index comparison; the IFC advance pass
+ * uses a nearest-ahead min-scan (`nextStop`), so sort order is NOT load-bearing for
+ * advance correctness (and a `content-edge` stop's effective position diverges from
+ * its stored `position` anyway). Non-array / non-object inputs contribute nothing.
+ */
+export const tabStopsInterpreter: AttrInterpreter = {
+  attrKey: "tabStops",
+  toStyle: (value) => {
+    const stops = normalizeTabStops(value);
+    return stops !== null ? { tabStops: stops } : {};
+  },
+};
+
+/**
+ * Shared `tabStops` attr → closed `TabStop[]` normalizer. Coerces each entry
+ * (clamp `position >= 0`, default `alignment`/`leader`) and returns a NEW array
+ * sorted ascending by position, or `null` for a non-array input (so a caller can
+ * leave the property unset). Reused by BOTH the `tabStopsInterpreter` (the
+ * generic cascade path) AND the leaf component's `tabStopsFromAttrs` (the
+ * block-level component-synthesis path that threads the stops onto the
+ * ElementBox `style` so they reach the layout cascade — see
+ * `components/leaf-style-attrs.ts`).
+ */
+export function normalizeTabStops(value: unknown): readonly TabStop[] | null {
+  if (!Array.isArray(value)) return null;
+  const stops: TabStop[] = [];
+  for (const raw of value) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const entry = raw as Record<string, unknown>;
+    const pos = entry.position;
+    const position = typeof pos === "number" && Number.isFinite(pos) ? Math.max(0, pos) : 0;
+    stops.push({
+      position,
+      alignment: coerceTabAlignment(entry.alignment),
+      leader: coerceLeaderStyle(entry.leader),
+    });
+  }
+  stops.sort((a, b) => a.position - b.position);
+  return stops;
+}
+
 import type { AttrRegistry } from "./attr-registry";
 
 /**
@@ -266,14 +388,18 @@ export function registerBuiltinAttrs(registry: AttrRegistry): void {
   registry.register(strikethroughInterpreter);
   registry.register(linkInterpreter);
   registry.register(fontFamilyInterpreter);
+  registry.register(langInterpreter);
+  registry.register(hyphensInterpreter);
   registry.register(fontSizeInterpreter);
   registry.register(colorInterpreter);
   registry.register(backgroundColorInterpreter);
   // C-C: typography interpreters for inheritable text properties that
   // no component synthesizes.
   registry.register(textAlignInterpreter);
+  registry.register(textTransformInterpreter);
   registry.register(lineHeightInterpreter);
   registry.register(textIndentInterpreter);
   registry.register(letterSpacingInterpreter);
   registry.register(wordSpacingInterpreter);
+  registry.register(tabStopsInterpreter);
 }

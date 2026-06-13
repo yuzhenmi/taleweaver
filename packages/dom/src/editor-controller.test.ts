@@ -29,15 +29,26 @@ const MOCK_PIXEL_POSITION: core.PixelPosition = {
   pageIndex: 0,
 };
 
+// P4-C.2.2b: `resolvePositionFromPixel` returns `{ position, caretAffinity }`.
+// `hit(pos)` wraps a bare `Position` into that shape for the mock returns below
+// (affinity "after" is the inert default — these tests assert dispatch / page
+// behavior, not the boundary affinity itself).
+function hit(
+  position: core.Position,
+): { position: core.Position; caretAffinity: "before" | "after" } {
+  return { position, caretAffinity: "after" };
+}
+
 vi.mock("@taleweaver/core", async () => {
   const actual = await vi.importActual<typeof core>("@taleweaver/core");
   return {
     ...actual,
     resolvePixelPosition: vi.fn(() => MOCK_PIXEL_POSITION),
     computeSelectionRects: vi.fn(() => []),
-    resolvePositionFromPixel: vi.fn(() =>
-      actual.createPosition("mock-block" as core.BlockId, 0),
-    ),
+    resolvePositionFromPixel: vi.fn(() => ({
+      position: actual.createPosition("mock-block" as core.BlockId, 0),
+      caretAffinity: "after" as const,
+    })),
     selectWord: vi.fn(() =>
       actual.createSpan(
         actual.createPosition("mock-block" as core.BlockId, 0),
@@ -161,9 +172,9 @@ function makePaginatedEditorState(): core.EditorState {
 
 /**
  * A spy-instrumented fake `VirtualLayoutTree`: a real-enough `PagePlan` of
- * `pageCount` uniform pages plus `getPage` / `materializeAll` vitest spies. Used
- * to assert the controller hot path (collapsed selection) NEVER calls
- * `materializeAll` and that `getPage` is invoked only for visible slots.
+ * `pageCount` uniform pages plus a `getPage` vitest spy. Used to assert the
+ * controller hot path (collapsed selection) reads only the visible pages via
+ * `getPage` and never the whole document.
  */
 function makeSpyVirtualTree(pageCount: number, width: number, pageHeight: number, pageGap: number) {
   const cs = core.INITIAL_COMPUTED_STYLE;
@@ -204,11 +215,6 @@ function makeSpyVirtualTree(pageCount: number, width: number, pageHeight: number
       cs.writingMode, cs.direction, cs, us, [], i, width, null, null, null, 0, 0);
 
   const getPage = vi.fn((i: number) => makePage(i));
-  const materializeAll = vi.fn(() => {
-    const pages = entries.map((_, i) => makePage(i));
-    return core.createBlockBox("doc", 0, 0, width, totalBlockSize,
-      cs.writingMode, cs.direction, cs, us, pages, width);
-  });
 
   const tree = {
     type: "virtual-root" as const,
@@ -221,10 +227,9 @@ function makeSpyVirtualTree(pageCount: number, width: number, pageHeight: number
       for (let i = from; i <= to; i++) out.push(makePage(i));
       return out;
     }),
-    materializeAll,
   } as unknown as core.VirtualLayoutTree;
 
-  return { tree, getPage, materializeAll };
+  return { tree, getPage };
 }
 
 /**
@@ -299,12 +304,6 @@ function makeSpyVirtualTreeWithGeom(
   };
 
   const getPage = vi.fn((i: number) => makePage(i));
-  const materializeAll = vi.fn(() => {
-    const pages = entries.map((_, i) => makePage(i));
-    const us = core.computeUsedStyle(cs, pageWidths[0], "indefinite");
-    return core.createBlockBox("doc", 0, 0, pageWidths[0], totalBlockSize,
-      cs.writingMode, cs.direction, cs, us, pages, pageWidths[0]);
-  });
 
   const tree = {
     type: "virtual-root" as const,
@@ -317,10 +316,9 @@ function makeSpyVirtualTreeWithGeom(
       for (let i = from; i <= to; i++) out.push(makePage(i));
       return out;
     }),
-    materializeAll,
   } as unknown as core.VirtualLayoutTree;
 
-  return { tree, getPage, materializeAll, offsets, totalBlockSize };
+  return { tree, getPage, offsets, totalBlockSize };
 }
 
 const measurer: core.TextMeasurer = core.createMockMeasurer(8, 16);
@@ -657,6 +655,60 @@ describe("createEditorController", () => {
       ctrl.destroy();
     });
 
+    it("constructs the IntersectionObserver with the scrollable ancestor as root", () => {
+      // Editor embedded in a scrollable <div> (overflow:auto). The
+      // IntersectionObserver must observe relative to that container, not the
+      // viewport, or pages acquire/release against the wrong scroll region.
+      const scroller = document.createElement("div");
+      scroller.style.overflowY = "auto";
+      scroller.style.height = "200px";
+      const container = document.createElement("div");
+      scroller.appendChild(container);
+      document.body.appendChild(scroller);
+
+      const ioMock = vi.mocked(globalThis.IntersectionObserver);
+      ioMock.mockClear();
+
+      const ctrl = createEditorController(
+        container,
+        makeOptions({ pageHeight: 100 }),
+      );
+      ctrl.update(makePaginatedEditorState());
+
+      // The last IntersectionObserver constructed should target the scroller.
+      expect(ioMock).toHaveBeenCalled();
+      const lastCall = ioMock.mock.calls[ioMock.mock.calls.length - 1];
+      const options = lastCall[1] as IntersectionObserverInit | undefined;
+      expect(options?.root).toBe(scroller);
+
+      ctrl.destroy();
+      scroller.remove();
+    });
+
+    it("constructs the IntersectionObserver with root null when scrolled by the window", () => {
+      // No scrollable ancestor → falls back to window scrolling, which maps to
+      // a null IntersectionObserver root (the viewport).
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+
+      const ioMock = vi.mocked(globalThis.IntersectionObserver);
+      ioMock.mockClear();
+
+      const ctrl = createEditorController(
+        container,
+        makeOptions({ pageHeight: 100 }),
+      );
+      ctrl.update(makePaginatedEditorState());
+
+      expect(ioMock).toHaveBeenCalled();
+      const lastCall = ioMock.mock.calls[ioMock.mock.calls.length - 1];
+      const options = lastCall[1] as IntersectionObserverInit | undefined;
+      expect(options?.root ?? null).toBeNull();
+
+      ctrl.destroy();
+      container.remove();
+    });
+
     it("falls back to single canvas when no pages in paginated mode", () => {
       const container = document.createElement("div");
       const ctrl = createEditorController(
@@ -678,10 +730,10 @@ describe("createEditorController", () => {
   });
 
   describe("painting (virtual tree) — lazy materialize", () => {
-    it("sizes page slots from the plan WITHOUT materializeAll on a collapsed-selection update", () => {
+    it("sizes page slots from the plan WITHOUT materializing the whole tree on a collapsed-selection update", () => {
       const container = document.createElement("div");
       const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
-      const { tree, materializeAll } = makeSpyVirtualTree(3, 600, 100, 24);
+      const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
 
       ctrl.update(makeFakeEditorState({ layoutTree: tree }));
 
@@ -690,51 +742,47 @@ describe("createEditorController", () => {
       expect(slots.length).toBe(3);
       expect((slots[0] as HTMLDivElement).style.width).toBe("600px");
       expect((slots[0] as HTMLDivElement).style.height).toBe("100px");
-      expect(materializeAll).not.toHaveBeenCalled();
 
       ctrl.destroy();
     });
 
-    it("paints visible pages via getPage(idx), never materializeAll, on the collapsed hot path", () => {
+    it("paints visible pages via getPage(idx) on the collapsed hot path", () => {
       const container = document.createElement("div");
       const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
-      const { tree, getPage, materializeAll } = makeSpyVirtualTree(3, 600, 100, 24);
+      const { tree, getPage } = makeSpyVirtualTree(3, 600, 100, 24);
 
       // fakeEditorBase's selection is collapsed (fresh empty doc), so this is
-      // the typing/Enter hot path: no computeSelectionRects, no bridge.
+      // the typing/Enter hot path: no computeSelectionRects.
       ctrl.update(makeFakeEditorState({ layoutTree: tree }));
 
       // The mock IntersectionObserver marks all slots visible → getPage per page.
       expect(getPage).toHaveBeenCalled();
       expect(canvasRenderer.paintPage).toHaveBeenCalled();
-      // THE WIN: the whole tree is never materialized on the collapsed path.
-      expect(materializeAll).not.toHaveBeenCalled();
 
       ctrl.destroy();
     });
 
-    it("scroll spacer / total height uses plan.totalBlockSize (no materialize)", () => {
+    it("scroll spacer / total height uses plan.totalBlockSize (no whole-tree materialize)", () => {
       const container = document.createElement("div");
       const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
-      const { tree, materializeAll } = makeSpyVirtualTree(4, 600, 100, 24);
+      const { tree } = makeSpyVirtualTree(4, 600, 100, 24);
 
       ctrl.update(makeFakeEditorState({ layoutTree: tree }));
-      // Paginated mode uses per-slot divs (no single spacer), but the key
-      // guarantee is no materialize on the collapsed update.
-      expect(materializeAll).not.toHaveBeenCalled();
+      // Paginated mode uses per-slot divs (no single spacer); the page slots are
+      // sized from the plan, not from a materialized whole-document box.
+      const slots = container.querySelectorAll("div[data-page-index]");
+      expect(slots.length).toBe(4);
 
       ctrl.destroy();
     });
 
-    it("non-collapsed selection (non-spanning blocks) computes rects per-page, never materializeAll", () => {
+    it("non-collapsed selection (non-spanning blocks) computes rects per-page", () => {
       const container = document.createElement("div");
       const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
-      const { tree, getPage, materializeAll } = makeSpyVirtualTree(3, 600, 100, 24);
+      const { tree, getPage } = makeSpyVirtualTree(3, 600, 100, 24);
 
       // A non-collapsed selection. The spy tree's `pageSpanOfBlock` returns null
-      // (non-spanning), so the per-page selection-rect path is taken — the
-      // bridge `materializeAll()` is NOT used (it would be only for a boundary
-      // block that straddles a page break).
+      // (non-spanning), so the per-page selection-rect path is taken.
       const anchor = core.createPosition("doc" as core.BlockId, 0);
       const focus = core.createPosition("doc" as core.BlockId, 1);
       ctrl.update(
@@ -744,7 +792,6 @@ describe("createEditorController", () => {
         }),
       );
 
-      expect(materializeAll).not.toHaveBeenCalled();
       expect(getPage).toHaveBeenCalled(); // per-page paint + rect computation
 
       ctrl.destroy();
@@ -763,21 +810,24 @@ describe("createEditorController", () => {
 
       // In paginated mode `selectionRects` is empty (rects are per-page), so the
       // caret-hide MUST come from the `hasSelectionHighlight` flag: every
-      // paintPage call's cursorState (arg index 4) is "hidden".
+      // paintPage call's cursorState (arg index 7, after the matchHighlights
+      // param #433, the commentHighlights param comments-slice-5, and the
+      // suggestionHighlights param change-tracking-slice-6) is "hidden".
       const calls = vi.mocked(canvasRenderer.paintPage).mock.calls;
       expect(calls.length).toBeGreaterThan(0);
-      for (const call of calls) expect(call[4]).toBe("hidden");
+      for (const call of calls) expect(call[7]).toBe("hidden");
 
       ctrl.destroy();
     });
 
-    it("spanning-block selection boundary falls back to materializeAll (rare)", () => {
+    it("spanning-block selection boundary unions rects per-page", () => {
       const container = document.createElement("div");
       const ctrl = createEditorController(container, makeOptions({ pageHeight: 100, pageGap: 24 }));
-      const { tree, materializeAll } = makeSpyVirtualTree(3, 600, 100, 24);
-      // Force a boundary block to straddle a page break.
+      const { tree, getPage } = makeSpyVirtualTree(3, 600, 100, 24);
+      // Force a boundary block to straddle a page break (pages 0..1).
       (tree.plan as { pageSpanOfBlock: (id: core.BlockId) => { first: number; last: number } | null })
         .pageSpanOfBlock = () => ({ first: 0, last: 1 });
+      getPage.mockClear();
 
       const anchor = core.createPosition("doc" as core.BlockId, 0);
       const focus = core.createPosition("doc" as core.BlockId, 1);
@@ -785,13 +835,15 @@ describe("createEditorController", () => {
         makeFakeEditorState({ layoutTree: tree, selection: core.createSpan(anchor, focus) }),
       );
 
-      // A spanning boundary block can't be resolved per-page → the bridge fires.
-      expect(materializeAll).toHaveBeenCalled();
+      // The spanning boundary block is unioned per-page via
+      // `selectionRectsAcrossPages` (getPage per spanned page) — the whole tree
+      // is never materialized.
+      expect(getPage).toHaveBeenCalled();
 
       ctrl.destroy();
     });
 
-    it("paginated mousedown hit-test resolves via getPage(clicked), never materializeAll", () => {
+    it("paginated mousedown hit-test resolves via getPage(clicked)", () => {
       const dispatch = vi.fn();
       const container = document.createElement("div");
       document.body.appendChild(container);
@@ -799,12 +851,11 @@ describe("createEditorController", () => {
         container,
         makeOptions({ dispatch, pageHeight: 100, pageGap: 24 }),
       );
-      const { tree, getPage, materializeAll } = makeSpyVirtualTree(3, 600, 100, 24);
+      const { tree, getPage } = makeSpyVirtualTree(3, 600, 100, 24);
       ctrl.update(makeFakeEditorState({ layoutTree: tree }));
 
       // Paint already called getPage for visible pages; isolate the mousedown.
       getPage.mockClear();
-      materializeAll.mockClear();
 
       container.getBoundingClientRect = vi.fn(() => ({
         left: 0, top: 0, right: 600, bottom: 372, width: 600, height: 372, x: 0, y: 0, toJSON: () => {},
@@ -815,7 +866,6 @@ describe("createEditorController", () => {
       );
 
       // The hit-test materializes ONLY the clicked page — never the whole tree.
-      expect(materializeAll).not.toHaveBeenCalled();
       expect(getPage).toHaveBeenCalledWith(1);
 
       ctrl.destroy();
@@ -919,7 +969,7 @@ describe("createEditorController", () => {
         new MouseEvent("mousedown", { clientX: 10, clientY: 500, detail: 1, bubbles: true }),
       );
 
-      // Hit-tested page 2 via getPage (never materializeAll).
+      // Hit-tested page 2 via getPage (never the whole tree).
       expect(getPage).toHaveBeenCalledWith(2);
 
       // resolvePositionFromPixel called with pageLocalY = 500 - 364 = 136,
@@ -932,7 +982,7 @@ describe("createEditorController", () => {
       ctrl.destroy();
       document.body.removeChild(container);
       vi.mocked(core.resolvePositionFromPixel).mockReturnValue(
-        core.createPosition("mock-block" as core.BlockId, 0),
+        hit(core.createPosition("mock-block" as core.BlockId, 0)),
       );
     });
 
@@ -966,7 +1016,7 @@ describe("createEditorController", () => {
       ctrl.destroy();
       document.body.removeChild(container);
       vi.mocked(core.resolvePositionFromPixel).mockReturnValue(
-        core.createPosition("mock-block" as core.BlockId, 0),
+        hit(core.createPosition("mock-block" as core.BlockId, 0)),
       );
     });
   });
@@ -1030,7 +1080,7 @@ describe("createEditorController", () => {
       );
 
       const lastCall = vi.mocked(canvasRenderer.paintCanvas).mock.calls.at(-1)!;
-      expect(lastCall[4]).toBe("hidden");
+      expect(lastCall[7]).toBe("hidden");
 
       ctrl.destroy();
       document.body.removeChild(container);
@@ -1075,7 +1125,7 @@ describe("createEditorController", () => {
 
       // The paint from update() should show the cursor as "active", not "hidden"
       const lastCall = vi.mocked(canvasRenderer.paintCanvas).mock.calls.at(-1)!;
-      expect(lastCall[4]).toBe("active");
+      expect(lastCall[7]).toBe("active");
 
       ctrl.destroy();
       document.body.removeChild(container);
@@ -1097,7 +1147,7 @@ describe("createEditorController", () => {
       expect(canvasRenderer.paintCanvas).toHaveBeenCalled();
       // The cursorState arg should be "inactive"
       const lastCall = vi.mocked(canvasRenderer.paintCanvas).mock.calls.at(-1)!;
-      expect(lastCall[4]).toBe("inactive");
+      expect(lastCall[7]).toBe("inactive");
 
       ctrl.destroy();
       document.body.removeChild(container);
@@ -1118,7 +1168,7 @@ describe("createEditorController", () => {
       // Should repaint with active cursor
       expect(canvasRenderer.paintCanvas).toHaveBeenCalled();
       const lastCall = vi.mocked(canvasRenderer.paintCanvas).mock.calls.at(-1)!;
-      expect(lastCall[4]).toBe("active");
+      expect(lastCall[7]).toBe("active");
 
       // Blink resumes
       vi.mocked(canvasRenderer.paintCanvas).mockClear();
@@ -1155,7 +1205,7 @@ describe("createEditorController", () => {
       expect(canvasRenderer.paintCanvas).toHaveBeenCalled();
       // Cursor should be hidden (not inactive) because there's a selection
       const lastCall = vi.mocked(canvasRenderer.paintCanvas).mock.calls.at(-1)!;
-      expect(lastCall[4]).toBe("hidden");
+      expect(lastCall[7]).toBe("hidden");
 
       ctrl.destroy();
       document.body.removeChild(container);
@@ -1329,7 +1379,7 @@ describe("createEditorController", () => {
       // return the real paragraph's blockId.
       const realParagraphId = fakeEditorBase.selection.focus.blockId;
       vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(
-        core.createPosition(realParagraphId, 0),
+        hit(core.createPosition(realParagraphId, 0)),
       );
 
       ctrl.update(makeFakeEditorState());
@@ -1404,7 +1454,7 @@ describe("createEditorController", () => {
       // pin this resolve to the real anchor block.
       const anchorBlockId = fakeEditorBase.selection.anchor.blockId;
       vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(
-        core.createPosition(anchorBlockId, 0),
+        hit(core.createPosition(anchorBlockId, 0)),
       );
       container.dispatchEvent(
         new MouseEvent("mousedown", {
@@ -1455,8 +1505,8 @@ describe("createEditorController", () => {
         0,
       );
       vi.mocked(core.resolvePositionFromPixel)
-        .mockReturnValueOnce(realDragPos)
-        .mockReturnValueOnce(realDragPos);
+        .mockReturnValueOnce(hit(realDragPos))
+        .mockReturnValueOnce(hit(realDragPos));
 
       // Mousedown starts drag
       container.dispatchEvent(
@@ -1602,7 +1652,7 @@ describe("createEditorController", () => {
       ctrl.update(editorState);
 
       // mousedown resolves into the BODY (context A) → drag anchor in body.
-      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(bodyPos);
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(hit(bodyPos));
       container.dispatchEvent(
         new MouseEvent("mousedown", { clientX: 10, clientY: 20, detail: 1, bubbles: true }),
       );
@@ -1610,7 +1660,7 @@ describe("createEditorController", () => {
 
       // mousemove resolves into the FOOTNOTE body (context B). A 1px pointer
       // drift during a double-click fires this same path.
-      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(footnotePos);
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(hit(footnotePos));
       document.dispatchEvent(
         new MouseEvent("mousemove", { clientX: 12, clientY: 20, bubbles: true }),
       );
@@ -1642,7 +1692,7 @@ describe("createEditorController", () => {
       });
 
       // shift-click resolves into the FOOTNOTE body (context B).
-      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(footnotePos);
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(hit(footnotePos));
       container.dispatchEvent(
         new MouseEvent("mousedown", {
           clientX: 50, clientY: 20, detail: 1, shiftKey: true, bubbles: true,
@@ -1662,13 +1712,13 @@ describe("createEditorController", () => {
       ctrl.update(editorState);
 
       // mousedown AND mousemove both resolve into the footnote body (context B).
-      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(footnotePos);
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(hit(footnotePos));
       container.dispatchEvent(
         new MouseEvent("mousedown", { clientX: 10, clientY: 20, detail: 1, bubbles: true }),
       );
       dispatch.mockClear();
 
-      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(footnotePos);
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(hit(footnotePos));
       document.dispatchEvent(
         new MouseEvent("mousemove", { clientX: 30, clientY: 20, bubbles: true }),
       );
@@ -1701,7 +1751,7 @@ describe("createEditorController", () => {
       const ghostId = core.createTestAllocator().allocate();
       expect(core.selectionContextOf(editorState.state, ghostId)).toBeNull();
       vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(
-        core.createPosition(ghostId, 0),
+        hit(core.createPosition(ghostId, 0)),
       );
       container.dispatchEvent(
         new MouseEvent("mousedown", {
@@ -1791,7 +1841,7 @@ describe("createEditorController", () => {
       // resolvePositionFromPixel mock's "mock-block" id is not in state).
       const realParagraphId = fakeEditorBase.selection.focus.blockId;
       vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(
-        core.createPosition(realParagraphId, 0),
+        hit(core.createPosition(realParagraphId, 0)),
       );
       ctrl.update(makeFakeEditorState({ layoutTree: tree }));
       container.getBoundingClientRect = vi.fn(() => ({
@@ -1831,7 +1881,7 @@ describe("createEditorController", () => {
       // extension stays IN-CONTEXT (the default "mock-block" mock is not in
       // state, so the cross-context guard would correctly skip it).
       vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce(
-        core.createPosition(realParagraphId, 0),
+        hit(core.createPosition(realParagraphId, 0)),
       );
       container.dispatchEvent(
         new MouseEvent("mousedown", { clientX: 10, clientY: 150, detail: 1, shiftKey: true, bubbles: true }),
@@ -1854,8 +1904,8 @@ describe("createEditorController", () => {
         0,
       );
       vi.mocked(core.resolvePositionFromPixel)
-        .mockReturnValueOnce(realDragPos)
-        .mockReturnValueOnce(realDragPos);
+        .mockReturnValueOnce(hit(realDragPos))
+        .mockReturnValueOnce(hit(realDragPos));
       // Mousedown on page 0 starts the drag.
       container.dispatchEvent(
         new MouseEvent("mousedown", { clientX: 10, clientY: 10, detail: 1, bubbles: true }),
@@ -1873,6 +1923,29 @@ describe("createEditorController", () => {
       document.body.removeChild(container);
     });
 
+    it("single click dispatches SET_SELECTION carrying the hit-test caretAffinity seed (P4-C.2.2b)", () => {
+      const { container, ctrl, dispatch } = makePaginatedContainer();
+      const realParagraphId = fakeEditorBase.selection.focus.blockId;
+      const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
+      ctrl.update(makeFakeEditorState({ layoutTree: tree }));
+      dispatch.mockClear();
+      // The hit-test resolves to a boundary offset on the clicked side → "before".
+      // The click handler must forward that seed onto SET_SELECTION so the
+      // dual-caret renders on the clicked side.
+      vi.mocked(core.resolvePositionFromPixel).mockReturnValueOnce({
+        position: core.createPosition(realParagraphId, 3),
+        caretAffinity: "before",
+      });
+      container.dispatchEvent(
+        new MouseEvent("mousedown", { clientX: 10, clientY: 10, detail: 1, bubbles: true }),
+      );
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "SET_SELECTION", caretAffinity: "before" }),
+      );
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
     it("threads state.caretPageHint into the CARET resolvePixelPosition call", () => {
       const container = document.createElement("div");
       document.body.appendChild(container);
@@ -1885,8 +1958,31 @@ describe("createEditorController", () => {
       ctrl.update(makeFakeEditorState({ layoutTree: tree, caretPageHint: 1 }));
       // The caret (focus) resolve is the first resolvePixelPosition call.
       const caretCall = vi.mocked(core.resolvePixelPosition).mock.calls[0];
-      // Signature: (state, position, layoutTree, measurer, caretPageHint).
+      // Signature: (state, position, layoutTree, measurer, caretPageHint, caretAffinity).
       expect(caretCall[4]).toBe(1);
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("threads state.caretAffinity into the CARET resolvePixelPosition call (P4-C.2.2b read-side)", () => {
+      // Read-side companion to "single click ... carrying the hit-test
+      // caretAffinity seed": the WRITE side stores affinity on SET_SELECTION, and
+      // this asserts the controller forwards that stored affinity into the caret
+      // resolve so the bidi dual-caret renders on the seeded side. Without the
+      // 6th arg, resolvePixelPosition defaulted to "after" and the seed was inert.
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const ctrl = createEditorController(
+        container,
+        makeOptions({ pageHeight: 100, pageGap: 24 }),
+      );
+      const { tree } = makeSpyVirtualTree(3, 600, 100, 24);
+      vi.mocked(core.resolvePixelPosition).mockClear();
+      ctrl.update(makeFakeEditorState({ layoutTree: tree, caretAffinity: "before" }));
+      // The caret (focus) resolve is the first resolvePixelPosition call; the 6th
+      // arg is caretAffinity.
+      const caretCall = vi.mocked(core.resolvePixelPosition).mock.calls[0];
+      expect(caretCall[5]).toBe("before");
       ctrl.destroy();
       document.body.removeChild(container);
     });
@@ -2332,6 +2428,106 @@ describe("createEditorController", () => {
       );
       expect(dispatch).not.toHaveBeenCalled();
 
+      document.body.removeChild(container);
+    });
+  });
+
+  describe("IME composition + clipboard guards (controller audit)", () => {
+    it("clears the composition flag on blur so input is not dead-locked (#1)", () => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const dispatch = vi.fn();
+      const ctrl = createEditorController(container, makeOptions({ dispatch }));
+      ctrl.update(makeFakeEditorState());
+      const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+
+      // Compose, then blur BEFORE compositionend (the OS commits-and-blurs, or the
+      // user clicks away mid-composition). Without the blur-clear, isComposing
+      // stays true and gates handleInput/handleKeyDown forever (dead editor).
+      textarea.dispatchEvent(new Event("compositionstart"));
+      textarea.dispatchEvent(new Event("blur"));
+
+      // Refocus + type: input must apply (not be silently swallowed).
+      textarea.dispatchEvent(new Event("focus"));
+      dispatch.mockClear();
+      textarea.value = "x";
+      textarea.dispatchEvent(new Event("input"));
+
+      expect(dispatch).toHaveBeenCalledWith({ type: "INSERT_TEXT", text: "x" });
+
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("commits exactly once when compositionend fires THEN blur (Chrome sync order)", () => {
+      // Chrome fires compositionend synchronously during blur: handleCompositionEnd
+      // commits the text and clears isComposing, so handleBlur's ABANDON branch is
+      // bypassed — the text must be dispatched exactly ONCE, never double-applied.
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const dispatch = vi.fn();
+      const ctrl = createEditorController(container, makeOptions({ dispatch }));
+      ctrl.update(makeFakeEditorState());
+      const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+
+      textarea.dispatchEvent(new Event("compositionstart"));
+      const end = new Event("compositionend") as CompositionEvent;
+      Object.defineProperty(end, "data", { value: "x", configurable: true });
+      textarea.dispatchEvent(end);
+      textarea.dispatchEvent(new Event("blur"));
+
+      const inserts = dispatch.mock.calls.filter(
+        ([a]) => a?.type === "INSERT_TEXT" && a?.text === "x",
+      );
+      expect(inserts).toHaveLength(1);
+
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("ignores input fired while blurred (no stale-caret INSERT_TEXT) (#490)", () => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const dispatch = vi.fn();
+      const ctrl = createEditorController(container, makeOptions({ dispatch }));
+      ctrl.update(makeFakeEditorState());
+      const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+
+      textarea.dispatchEvent(new Event("blur"));
+      dispatch.mockClear();
+      // A value-set + input while blurred must NOT dispatch (the engine's caret
+      // points elsewhere) — and the buffer is cleared so it can't leak later.
+      textarea.value = "stale";
+      textarea.dispatchEvent(new Event("input"));
+
+      expect(dispatch).not.toHaveBeenCalledWith({ type: "INSERT_TEXT", text: "stale" });
+      expect(textarea.value).toBe("");
+
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("paste is a no-op before the first update() but STILL preventDefaults (#4)", () => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const dispatch = vi.fn();
+      const ctrl = createEditorController(container, makeOptions({ dispatch }));
+      const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+
+      // No `update()` yet ⇒ state === null. A paste must (a) NOT dispatch PASTE and
+      // (b) STILL preventDefault — otherwise the browser pastes into the hidden
+      // textarea and the text leaks back in via handleInput as INSERT_TEXT.
+      const e = new Event("paste", { cancelable: true }) as ClipboardEvent;
+      Object.defineProperty(e, "clipboardData", {
+        value: { getData: () => "hello" },
+        configurable: true,
+      });
+      textarea.dispatchEvent(e);
+
+      expect(dispatch).not.toHaveBeenCalledWith({ type: "PASTE", text: "hello" });
+      expect(e.defaultPrevented).toBe(true);
+
+      ctrl.destroy();
       document.body.removeChild(container);
     });
   });

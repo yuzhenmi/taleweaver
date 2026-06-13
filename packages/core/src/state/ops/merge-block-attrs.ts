@@ -5,7 +5,6 @@ import type { ReadonlyAttrs } from "../attrs";
 import { attrsEqual, mergeAttrs } from "../attrs";
 import { getYBlock } from "../yjs-doc";
 import { buildYAttrs } from "../y-block";
-import { STATE_INTERNAL } from "../state-internal";
 import type { AttrRegistry } from "../../cascade/attr-registry";
 
 /**
@@ -43,11 +42,11 @@ export function mergeBlockAttrs(
   }
   const { block, kind } = resolved;
   const merged = mergeAttrs(block.attrs, incoming);
-  return applyOperation(state, () => {
+  return applyOperation(state, (doc) => {
     if (attrsEqual(block.attrs, merged, registry)) {
       return;
     }
-    const yBlock = getYBlock(state[STATE_INTERNAL].doc, blockId, "mergeBlockAttrs", kind);
+    const yBlock = getYBlock(doc, blockId, "mergeBlockAttrs", kind);
     yBlock.set("attrs", buildYAttrs(merged));
   });
 }

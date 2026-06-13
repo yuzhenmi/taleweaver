@@ -56,7 +56,7 @@ describe("createCanvasShaper", () => {
 
   const cs = INITIAL_COMPUTED_STYLE;
 
-  it("produces one cluster per codepoint", () => {
+  it("produces one cluster per grapheme (single-code-unit chars unchanged)", () => {
     const shaper = createCanvasShaper(canvas);
     const run = shaper.shape("abc", cs, "ltr");
     expect(run.clusters).toHaveLength(3);
@@ -69,14 +69,37 @@ describe("createCanvasShaper", () => {
     const shaper = createCanvasShaper(canvas);
     const run = shaper.shape("a b c", cs, "ltr");
     const softs = run.breakOpportunities.filter((b) => b.kind === "soft");
-    expect(softs.map((b) => b.clusterIndex)).toEqual([1, 3]);
+    // UAX #14 places the break AFTER the space (before the next word), not AT
+    // the space. For "a b c" (spaces at 1, 3) the opportunities are at 2 and 4.
+    expect(softs.map((b) => b.clusterIndex)).toEqual([2, 4]);
   });
 
   it("emits hard breaks at newlines", () => {
     const shaper = createCanvasShaper(canvas);
     const run = shaper.shape("a\nb\rc", cs, "ltr");
     const hards = run.breakOpportunities.filter((b) => b.kind === "hard");
-    expect(hards.map((b) => b.clusterIndex)).toEqual([1, 3]);
+    // UAX #14 LB5: the mandatory break is AFTER the newline (before the next
+    // char). For "a\nb\rc" (\n at 1, \r at 3) the breaks are at 2 and 4.
+    expect(hards.map((b) => b.clusterIndex)).toEqual([2, 4]);
+  });
+
+  it("CJK: soft break between every ideograph (UAX #14)", () => {
+    const shaper = createCanvasShaper(canvas);
+    const run = shaper.shape("一二三四", cs, "ltr");
+    const softs = run.breakOpportunities
+      .filter((b) => b.kind === "soft")
+      .map((b) => b.clusterIndex);
+    expect(softs).toEqual([1, 2, 3]);
+  });
+
+  it("NBSP (U+00A0, GL): NO soft break around the non-breaking space", () => {
+    const shaper = createCanvasShaper(canvas);
+    const run = shaper.shape("a\u00A0b", cs, "ltr"); // a + NBSP (U+00A0) + b
+    const softs = run.breakOpportunities
+      .filter((b) => b.kind === "soft")
+      .map((b) => b.clusterIndex);
+    expect(softs).not.toContain(1);
+    expect(softs).not.toContain(2);
   });
 
   it("RTL baseDirection sets bidiLevel to 1", () => {
@@ -104,5 +127,60 @@ describe("createCanvasShaper", () => {
     expect(run.clusters).toHaveLength(0);
     expect(run.unbreakableRunInlineSize).toBe(0);
     expect(run.minClusterInlineSize).toBe(0);
+  });
+
+  it("adds letterSpacing to each cluster advance vs the normal baseline", () => {
+    const shaper = createCanvasShaper(canvas);
+    const base = shaper.shape("ab", { ...INITIAL_COMPUTED_STYLE }, "ltr");
+    const spaced = shaper.shape(
+      "ab",
+      { ...INITIAL_COMPUTED_STYLE, letterSpacing: 5 },
+      "ltr",
+    );
+    for (let i = 0; i < base.clusters.length; i++) {
+      expect(spaced.clusters[i].inlineAdvance).toBeCloseTo(
+        base.clusters[i].inlineAdvance + 5,
+        5,
+      );
+    }
+    expect(spaced.unbreakableRunInlineSize).toBeCloseTo(
+      base.unbreakableRunInlineSize + 10,
+      5,
+    );
+    // The intrinsic-sizing aggregate grows too: letterSpacing adds to EVERY
+    // cluster, so the widest spaced cluster is the widest base cluster + 5.
+    expect(spaced.minClusterInlineSize).toBeCloseTo(
+      base.minClusterInlineSize + 5,
+      5,
+    );
+  });
+
+  it("wordSpacing adds only to the space cluster", () => {
+    const shaper = createCanvasShaper(canvas);
+    const base = shaper.shape("a b", { ...INITIAL_COMPUTED_STYLE }, "ltr");
+    const spaced = shaper.shape(
+      "a b",
+      { ...INITIAL_COMPUTED_STYLE, wordSpacing: 7 },
+      "ltr",
+    );
+    // only the middle cluster (the space) grows by 7; 'a' and 'b' unchanged
+    expect(spaced.clusters[0].inlineAdvance).toBeCloseTo(
+      base.clusters[0].inlineAdvance,
+      5,
+    );
+    expect(spaced.clusters[1].inlineAdvance).toBeCloseTo(
+      base.clusters[1].inlineAdvance + 7,
+      5,
+    );
+    expect(spaced.clusters[2].inlineAdvance).toBeCloseTo(
+      base.clusters[2].inlineAdvance,
+      5,
+    );
+    // The run sum grows by exactly the one space's word-spacing (7) — robust
+    // regardless of which cluster is widest, unlike minClusterInlineSize.
+    expect(spaced.unbreakableRunInlineSize).toBeCloseTo(
+      base.unbreakableRunInlineSize + 7,
+      5,
+    );
   });
 });

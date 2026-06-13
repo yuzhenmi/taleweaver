@@ -1,4 +1,5 @@
 import type { ComputedStyle, Direction } from "../styles";
+import { lineBreakOpportunities, type LineBreakOptions } from "./uax14";
 
 export type GlyphId = number;
 
@@ -21,14 +22,17 @@ export interface Cluster {
 
 /**
  * A break opportunity in a shaped run. The IFC consults these when
- * choosing line-wrap points. UAX-14 line-break-opportunity-spec is the
- * source of truth for canonical implementations.
- *
- * Plan 3.C reserves the `"hyphen"` kind; the canvas backend does not
- * produce them until a hyphenation backend is wired in (Plan 4 or later).
+ * choosing line-wrap points. The `"soft"` and `"hard"` kinds are produced by
+ * the conformant UAX #14 line-break classifier (both the mock and canvas
+ * backends call it). The `"hyphen"` kind remains reserved for a future
+ * hyphenation backend — no backend produces it yet.
  */
 export interface BreakOpportunity {
-  /** Cluster index where the break can occur (break is BEFORE this cluster). */
+  /**
+   * UTF-16 code-unit offset where the break can occur (break is BEFORE this
+   * offset). This is a code-unit offset into the source text — aligned with the
+   * state address space and `Cluster.start`/`end` — NOT a grapheme-ordinal index.
+   */
   readonly clusterIndex: number;
   /**
    * The kind of break:
@@ -37,6 +41,29 @@ export interface BreakOpportunity {
    *  - "hyphen": hyphenation point — IFC inserts hyphen glyph at line end
    */
   readonly kind: "hard" | "soft" | "hyphen";
+}
+
+/**
+ * Canonical adapter from the UAX #14 classifier's `LineBreakPoint[]` to the
+ * shaper's `BreakOpportunity[]`. Single-sources the conversion so every shaper
+ * backend (mock, canvas, and the legacy measurer adapter) produces identical
+ * break kinds: the classifier's mandatory breaks become `"hard"`, the rest
+ * `"soft"`. `clusterIndex` is the UTF-16 code-unit offset (break is BEFORE it).
+ * The `"hyphen"` kind is never produced here — it comes from a hyphenation
+ * backend, which is not yet wired.
+ *
+ * Defaults to `cjBreakable: true` (CSS `line-break: normal` — the editor
+ * default, CJ small-kana breakable). Pass `options` to select a different
+ * `line-break` mode.
+ */
+export function toBreakOpportunities(
+  text: string,
+  options: LineBreakOptions = { cjBreakable: true },
+): BreakOpportunity[] {
+  return lineBreakOpportunities(text, options).map((p): BreakOpportunity => ({
+    clusterIndex: p.index,
+    kind: p.mandatory ? "hard" : "soft",
+  }));
 }
 
 export interface FontMetrics {

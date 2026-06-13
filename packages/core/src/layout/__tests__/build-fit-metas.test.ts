@@ -12,6 +12,7 @@ import {
   __resetMetaBuildCountForTest,
 } from "../build-fit-metas";
 import { createMockShaper } from "../mock-shaper";
+import { createMockHyphenator } from "../mock-hyphenator";
 import { cascadePass } from "../../cascade";
 import { createElementBox, createTextBox } from "../../render/render-node";
 import type { ElementBox, RenderNode } from "../../render/render-node";
@@ -46,7 +47,7 @@ describe("buildBlockFitMetas", () => {
   it("classifies a paragraph (inline content) as an ifc leaf with line block-sizes", () => {
     const text = createTextBox("p-t", { whiteSpace: "pre" }, "x\nx\nx");
     const p = createElementBox("p", { display: "block", whiteSpace: "pre" } as Style, [text]);
-    const metas = buildBlockFitMetas(cascade([p]), shaper(), 600);
+    const metas = buildBlockFitMetas(cascade([p]), shaper(), undefined, 600);
     expect(metas).toHaveLength(1);
     expect(metas[0].kind).toBe("ifc");
     expect(metas[0].lineBlockSizes).toEqual([16, 16, 16]);
@@ -58,7 +59,7 @@ describe("buildBlockFitMetas", () => {
 
   it("classifies an explicit-height empty block as a container with no children", () => {
     const spacer = createElementBox("s", { display: "block", blockSize: 80 } as Style, []);
-    const metas = buildBlockFitMetas(cascade([spacer]), shaper(), 600);
+    const metas = buildBlockFitMetas(cascade([spacer]), shaper(), undefined, 600);
     expect(metas[0].kind).toBe("block");
     expect(metas[0].children).toEqual([]);
     expect(metas[0].totalBlockSize).toBe(80);
@@ -71,7 +72,7 @@ describe("buildBlockFitMetas", () => {
       ]),
     );
     const table = createElementBox("tbl", { display: "table" } as Style, rows);
-    const metas = buildBlockFitMetas(cascade([table]), shaper(), 600);
+    const metas = buildBlockFitMetas(cascade([table]), shaper(), undefined, 600);
     expect(metas[0].kind).toBe("table");
     expect(metas[0].rowBlockSizes).toEqual([30, 30, 30]);
     expect(metas[0].totalBlockSize).toBe(90);
@@ -82,7 +83,7 @@ describe("buildBlockFitMetas", () => {
       createElementBox("q0", { display: "block", whiteSpace: "pre" } as Style, [createTextBox("q0t", { whiteSpace: "pre" }, "x\nx")]),
       createElementBox("q1", { display: "block", whiteSpace: "pre" } as Style, [createTextBox("q1t", { whiteSpace: "pre" }, "x")]),
     ]);
-    const metas = buildBlockFitMetas(cascade([quote]), shaper(), 600);
+    const metas = buildBlockFitMetas(cascade([quote]), shaper(), undefined, 600);
     expect(metas[0].kind).toBe("block");
     expect(metas[0].children).toHaveLength(2);
     expect(metas[0].children?.[0].kind).toBe("ifc");
@@ -101,7 +102,7 @@ describe("buildBlockFitMetas", () => {
       breakAfter: "page",
       breakInside: "avoid",
     } as Style, []);
-    const metas = buildBlockFitMetas(cascade([b]), shaper(), 600);
+    const metas = buildBlockFitMetas(cascade([b]), shaper(), undefined, 600);
     expect(metas[0].marginBlockStart).toBe(10);
     expect(metas[0].marginBlockEnd).toBe(20);
     expect(metas[0].breakBefore).toBe("page");
@@ -111,7 +112,7 @@ describe("buildBlockFitMetas", () => {
 
   it("flags display:list-item with listItem: true", () => {
     const li = createElementBox("li", { display: "list-item", whiteSpace: "pre" } as Style, [createTextBox("lit", { whiteSpace: "pre" }, "x")]);
-    const metas = buildBlockFitMetas(cascade([li]), shaper(), 600);
+    const metas = buildBlockFitMetas(cascade([li]), shaper(), undefined, 600);
     expect(metas[0].listItem).toBe(true);
   });
 });
@@ -138,8 +139,8 @@ describe("buildBlockFitMetas — incremental cache", () => {
     const children = Array.from({ length: 10 }, (_, i) => paragraph(`p${i}`, (i % 3) + 1));
     const root = cascade(children);
 
-    const cold = buildBlockFitMetas(root, shaper(), 600);
-    const warm = buildBlockFitMetas(root, shaper(), 600);
+    const cold = buildBlockFitMetas(root, shaper(), undefined, 600);
+    const warm = buildBlockFitMetas(root, shaper(), undefined, 600);
 
     // Deep-equal: the cached (warm) metas must be identical to the fresh (cold)
     // ones — the cache must not perturb a single field.
@@ -154,9 +155,9 @@ describe("buildBlockFitMetas — incremental cache", () => {
     // shaper per session). A cache hit requires the same ref + width + shaper;
     // varying the shaper is exercised separately in test (d).
     const s = shaper();
-    buildBlockFitMetas(root, s, 600); // warm the cache
+    buildBlockFitMetas(root, s, undefined, 600); // warm the cache
     __resetMetaBuildCountForTest();
-    buildBlockFitMetas(root, s, 600); // second pass on the SAME refs + shaper
+    buildBlockFitMetas(root, s, undefined, 600); // second pass on the SAME refs + shaper
     expect(__getMetaBuildCountForTest()).toBe(0);
   });
 
@@ -175,7 +176,7 @@ describe("buildBlockFitMetas — incremental cache", () => {
 
     // Cold build: builds all 30 block metas.
     __resetMetaBuildCountForTest();
-    buildBlockFitMetas(firstRoot, s, 600);
+    buildBlockFitMetas(firstRoot, s, undefined, 600);
     expect(__getMetaBuildCountForTest()).toBe(N);
 
     // Simulate a single dirty block: reuse all of the FIRST root's cascaded
@@ -188,7 +189,7 @@ describe("buildBlockFitMetas — incremental cache", () => {
     const secondRoot = rootFromCascadedChildren(secondChildren);
 
     __resetMetaBuildCountForTest();
-    buildBlockFitMetas(secondRoot, s, 600);
+    buildBlockFitMetas(secondRoot, s, undefined, 600);
     // Only the one changed block rebuilds; the other 29 ref-hit the cache.
     expect(__getMetaBuildCountForTest()).toBe(1);
   });
@@ -198,16 +199,16 @@ describe("buildBlockFitMetas — incremental cache", () => {
     const firstChildren = Array.from({ length: N }, (_, i) => paragraph(`p${i}`, 2));
     const firstRoot = cascade(firstChildren);
     if (firstRoot.type !== "element") throw new Error("non-element");
-    buildBlockFitMetas(firstRoot, shaper(), 600); // warm
+    buildBlockFitMetas(firstRoot, shaper(), undefined, 600); // warm
 
     const dirtyChild = cascade([paragraph("p7", 5)]).children[0];
     const secondChildren = firstRoot.children.map((c, i) => (i === 7 ? dirtyChild : c));
     const secondRoot = rootFromCascadedChildren(secondChildren);
 
-    const incremental = buildBlockFitMetas(secondRoot, shaper(), 600);
+    const incremental = buildBlockFitMetas(secondRoot, shaper(), undefined, 600);
     // A reference cold build of the SAME final tree (built fresh, no cache reuse
     // of the dirty block) — the metas must be deep-equal to the incremental ones.
-    const reference = buildBlockFitMetas(rootFromCascadedChildren(secondChildren), shaper(), 600);
+    const reference = buildBlockFitMetas(rootFromCascadedChildren(secondChildren), shaper(), undefined, 600);
     expect(incremental).toEqual(reference);
     expect(incremental[7].totalBlockSize).toBe(80); // 5 lines × 16
   });
@@ -221,10 +222,10 @@ describe("buildBlockFitMetas — incremental cache", () => {
     // Hold the shaper constant so ONLY the width changes between passes — this
     // isolates the width guard (the shaper guard is exercised in test (d)).
     const s = shaper();
-    buildBlockFitMetas(root, s, 600); // warm at width 600
+    buildBlockFitMetas(root, s, undefined, 600); // warm at width 600
 
     __resetMetaBuildCountForTest();
-    buildBlockFitMetas(root, s, 400); // resize → different width
+    buildBlockFitMetas(root, s, undefined, 400); // resize → different width
     // Wrapping is width-dependent, so every block misses the width guard and
     // rebuilds — even though every ElementBox reference is unchanged.
     expect(__getMetaBuildCountForTest()).toBe(N);
@@ -239,7 +240,7 @@ describe("buildBlockFitMetas — incremental cache", () => {
     // Warm the cache with shaper A (line height 16). Two lines per paragraph
     // ⇒ each totalBlockSize is 2 × 16 = 32.
     const shaperA = createMockShaper(8, 16);
-    const metasA = buildBlockFitMetas(root, shaperA, 600);
+    const metasA = buildBlockFitMetas(root, shaperA, undefined, 600);
     expect(metasA[0].lineBlockSizes).toEqual([16, 16]);
     expect(metasA[0].totalBlockSize).toBe(32);
 
@@ -247,7 +248,7 @@ describe("buildBlockFitMetas — incremental cache", () => {
     // DIFFERENT metrics (line height 24). The shaper guard must force a rebuild.
     __resetMetaBuildCountForTest();
     const shaperB = createMockShaper(10, 24);
-    const metasB = buildBlockFitMetas(root, shaperB, 600);
+    const metasB = buildBlockFitMetas(root, shaperB, undefined, 600);
     // Every block misses the shaper guard and rebuilds — though every
     // ElementBox reference and the width are unchanged.
     expect(__getMetaBuildCountForTest()).toBe(N);
@@ -255,5 +256,32 @@ describe("buildBlockFitMetas — incremental cache", () => {
     // cached 16-px values from shaper A.
     expect(metasB[0].lineBlockSizes).toEqual([24, 24]);
     expect(metasB[0].totalBlockSize).toBe(48);
+  });
+
+  // ---- (e) hyphenator guard: a swapped Hyphenator rebuilds (HYPH.S4) -------
+  it("(e) a different Hyphenator instance misses the cache; the same instance hits", () => {
+    // The slice-4 auto producer makes line-wrapping depend on the hyphenator's
+    // break points, so a swapped Hyphenator (different breaks ⇒ different line
+    // counts ⇒ different pagination) must miss the cache and rebuild — even for
+    // the same ElementBox ref + width + shaper.
+    const N = 5;
+    const children = Array.from({ length: N }, (_, i) => paragraph(`p${i}`, 2));
+    const root = cascade(children);
+    const s = shaper();
+    const hyphA = createMockHyphenator({ every: 3 });
+    const hyphB = createMockHyphenator({ every: 4 });
+
+    buildBlockFitMetas(root, s, hyphA, 600); // warm with hyphenator A
+
+    // Rebuild SAME tree + width + shaper, but a DIFFERENT hyphenator instance →
+    // every block misses the hyphenator guard and rebuilds.
+    __resetMetaBuildCountForTest();
+    buildBlockFitMetas(root, s, hyphB, 600);
+    expect(__getMetaBuildCountForTest()).toBe(N);
+
+    // Rebuild with the SAME hyphenator B → all blocks ref-hit (count unchanged).
+    __resetMetaBuildCountForTest();
+    buildBlockFitMetas(root, s, hyphB, 600);
+    expect(__getMetaBuildCountForTest()).toBe(0);
   });
 });

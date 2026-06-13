@@ -1,9 +1,10 @@
-import { getBlock, firstLeafBlock, lastLeafBlock, nextBlockInDocOrder, prevBlockInDocOrder } from "../../state";
-import type { State, BlockId } from "../../state";
+import { createPosition, createSpan, iterateLeafBlocksInDocumentOrder } from "../../state";
+import type { State, BlockId, Selection } from "../../state";
 import type { EditorState, EditorConfig } from "../editor-state";
 import { render, type RenderOutput } from "../../render/render";
 import { cascadePass, cascadePassIncremental } from "../../cascade";
 import { layoutTreeIncremental } from "../../layout/layout-incremental";
+import { makeBlockParentLookup } from "../block-parent-lookup";
 import type { ElementBox, RenderNode } from "../../render/render-node";
 import type { LayoutBox } from "../../layout/layout-box";
 import type { VirtualLayoutTree } from "../../layout/virtual-layout-tree";
@@ -175,6 +176,11 @@ function renderCascadeLayout(
   // footnote-bearing-but-unchanged cases.
   const footnoteAnchors = rendered.footnoteAnchors;
 
+  // Task 2.5: build the layout parent-lookup so a `cross-ref-page` field to a NESTED
+  // target (e.g. a table-cell paragraph the page plan doesn't index directly) resolves
+  // via its top-level ancestor's page on every incremental render cycle (`rebuildTrees`).
+  const parentOf = makeBlockParentLookup(state);
+
   const layout = layoutTreeIncremental(
     cascadedRoot,
     incremental ? prev.prevCascaded : null,
@@ -185,6 +191,10 @@ function renderCascadeLayout(
     cascadedTemplateContents,
     cascadedEmbedContents,
     footnoteAnchors,
+    parentOf,
+    // Auto-hyphenation (slice 2): thread the injected hyphenator through the
+    // incremental rebuild so per-keystroke layout shares the host's inputs.
+    config.hyphenator,
   );
 
   return { rendered, cascadedRoot, cascadedTemplateContents, cascadedEmbedContents, layout };
@@ -454,31 +464,46 @@ export { cascadeTemplateContents, cascadeEmbedContents };
  * factory, which always seeds one paragraph).
  */
 export function findFirstContentBlock(state: State): BlockId | null {
-  const firstLeaf = firstLeafBlock(state, state.rootId);
-  if (firstLeaf === null) return null;
-  let cursor: BlockId | null = firstLeaf;
-  while (cursor !== null) {
-    const block = getBlock(state, cursor);
-    if (block === null) return null;
-    if (block.inlineContent !== null) return cursor;
-    cursor = nextBlockInDocOrder(state, cursor);
+  // Cycle-safe leaf walk (a block with `inlineContent !== null` is always a
+  // leaf, so filtering to leaves first finds the identical first hit). Replaces
+  // an unbounded `firstLeafBlock` + `while (cursor = nextBlockInDocOrder(...))`
+  // sweep that could spin forever on a malformed two-parents topology — the
+  // same #510 footgun fixed in the render-pass doc-order queries.
+  for (const block of iterateLeafBlocksInDocumentOrder(state)) {
+    if (block.inlineContent !== null) return block.id;
   }
   return null;
 }
 
 /**
+ * Derive the initial collapsed `Selection` for a freshly-built or freshly-loaded
+ * document: a caret at offset 0 of the first content-bearing leaf block
+ * (`findFirstContentBlock`). Falls back to the root block id when the document
+ * has no content leaf (a degenerate container-only doc) so the caller always
+ * gets a well-formed Selection. Shared by `createInitialEditorState` (the empty
+ * document) and `loadDocument` (an arbitrary deserialized document) so both
+ * derive the caret the same robust way (the empty-document factory seeds a
+ * paragraph, so this matches the prior `firstChildId` result there, but it also
+ * handles a loaded doc whose first child is a container, e.g. a section).
+ */
+export function initialSelectionForState(state: State): Selection {
+  const firstContent = findFirstContentBlock(state) ?? state.rootId;
+  const caret = createPosition(firstContent, 0);
+  return createSpan(caret, caret);
+}
+
+/**
  * Find the last content-bearing leaf block in the document. Symmetric to
- * `findFirstContentBlock` — walks backward via `prevBlockInDocOrder`.
+ * `findFirstContentBlock`: the cycle-safe leaf walk yields content leaves in
+ * document order, so the LAST one it yields is the answer. (A full forward walk
+ * rather than a backward early-exit, but this runs only on Select-All /
+ * boundary-expand / document-load, never per-keystroke, and trades a negligible
+ * walk for immunity to the #510 malformed-topology hang.)
  */
 export function findLastContentBlock(state: State): BlockId | null {
-  const lastLeaf = lastLeafBlock(state, state.rootId);
-  if (lastLeaf === null) return null;
-  let cursor: BlockId | null = lastLeaf;
-  while (cursor !== null) {
-    const block = getBlock(state, cursor);
-    if (block === null) return null;
-    if (block.inlineContent !== null) return cursor;
-    cursor = prevBlockInDocOrder(state, cursor);
+  let last: BlockId | null = null;
+  for (const block of iterateLeafBlocksInDocumentOrder(state)) {
+    if (block.inlineContent !== null) last = block.id;
   }
-  return null;
+  return last;
 }

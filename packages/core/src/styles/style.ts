@@ -1,6 +1,8 @@
 import type { Length, LengthOrAuto, IntrinsicSizingKeyword } from "./length";
 import type { Color } from "./color";
 import type { WritingMode, Direction } from "./writing-mode";
+import type { TabStop } from "./tab-stops";
+import type { Position, TransformFn, TransformOrigin } from "./position";
 
 export type Display =
   | "block" | "inline" | "inline-block" | "list-item"
@@ -20,13 +22,12 @@ export type FontWeight =
 
 export type FontStyle = "normal" | "italic" | "oblique";
 
-export type TextDecoration = "none" | "underline" | "line-through";
-
 export type WhiteSpace = "normal" | "nowrap" | "pre" | "pre-wrap" | "pre-line" | "break-spaces";
 
 export type VerticalAlign = "baseline" | "sub" | "super" | "top" | "middle" | "bottom";
 
 export type TextAlign = "start" | "end" | "center" | "justify";
+export type TextTransform = "none" | "capitalize" | "uppercase" | "lowercase";
 
 export type Float = "none" | "inline-start" | "inline-end";
 export type Clear = "none" | "inline-start" | "inline-end" | "both";
@@ -97,7 +98,10 @@ export interface Style {
   readonly fontSize?:       Length;
   readonly fontWeight?:     FontWeight;
   readonly fontStyle?:      FontStyle;
-  readonly textDecoration?: TextDecoration;
+  // Text decorations — an independent-flag SET (CSS text-decoration-line).
+  // A run can carry both at once; each composes via a disjoint Style key.
+  readonly underline?:      boolean;  // text-decoration-line ∋ underline
+  readonly lineThrough?:    boolean;  // text-decoration-line ∋ line-through
   readonly lineHeight?:     number | Length;
   readonly color?:          Color;
 
@@ -110,11 +114,21 @@ export interface Style {
   readonly textIndent?:          Length;
   readonly textWrap?:            "wrap" | "nowrap" | "balance" | "pretty" | "stable";
   readonly hyphens?:             "none" | "manual" | "auto";
+  // Content language (BCP-47 tag, e.g. "en-US"). Selects the language for
+  // auto-hyphenation. `""` = no language. Inherits.
+  readonly language?:            string;
+  // Auto-hyphenation limits (CSS Text 4 `hyphenate-limit-chars`):
+  // [min-word, min-before, min-after]. Default [5, 2, 2]. Inherits.
+  readonly hyphenateLimitChars?: readonly [number, number, number];
+  readonly overflowWrap?:        "normal" | "break-word" | "anywhere";
   readonly letterSpacing?:       Length | "normal";
   readonly wordSpacing?:         Length | "normal";
-  readonly textTransform?:       "none" | "capitalize" | "uppercase" | "lowercase";
+  readonly textTransform?:       TextTransform;
   readonly fontFeatureSettings?: readonly string[];
-  readonly tabSize?:             number;
+  // Tab stops — per-paragraph stop list + default interval (paragraph style).
+  // A tab itself is the `"tab"` inline embed; these style its placement.
+  readonly tabStops?:            readonly TabStop[];
+  readonly defaultTabStop?:      number;
 
   // Float / clear (sides are logical now)
   readonly float?: Float;
@@ -139,4 +153,20 @@ export interface Style {
   // marker". Non-inheriting. The marker is a generated layout sibling, NOT an
   // editable/offset-bearing inline item.
   readonly markerText?: string;
+
+  // Positioning (CSS Positioned Layout 3 / Transforms 1) — all non-inheriting.
+  // Layout/paint consumers land in later positioning slices; the vocabulary is
+  // inert until then.
+  readonly position?: Position;
+  // Logical insets. `insetInlineStart` wins over `insetInlineEnd` when both are
+  // set (and the block pair symmetrically); resolved against the containing
+  // block at the use-site (NOT in UsedStyle).
+  readonly insetBlockStart?:  LengthOrAuto;
+  readonly insetBlockEnd?:    LengthOrAuto;
+  readonly insetInlineStart?: LengthOrAuto;
+  readonly insetInlineEnd?:   LengthOrAuto;
+  readonly zIndex?:          number | "auto";
+  readonly transform?:       readonly TransformFn[];
+  readonly transformOrigin?: TransformOrigin;
+  readonly opacity?:         number;
 }

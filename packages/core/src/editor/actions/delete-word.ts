@@ -1,8 +1,10 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { getBlock, createPosition, createSpan, spanStart, deleteRange } from "../../state";
+import { createPosition, createSpan, spanStart, spanEnd } from "../../state";
 import { moveByWord } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
+import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
+import { deleteRangeOrSuggest, isSuggestingInBlock } from "./suggestion-mode";
 
 export function handleDeleteWord(
   editor: EditorState,
@@ -12,19 +14,35 @@ export function handleDeleteWord(
   const { selection } = editor;
 
   if (!isCollapsed(selection)) {
-    const anchorBlock = getBlock(editor.state, selection.anchor.blockId);
-    const focusBlock = getBlock(editor.state, selection.focus.blockId);
-    if (anchorBlock === null || focusBlock === null) return editor;
-    if (
-      selection.anchor.blockId !== selection.focus.blockId &&
-      anchorBlock.parentId !== focusBlock.parentId
-    ) {
-      return editor;
-    }
-    const start = spanStart(editor.state, selection);
-    const result = deleteRange(editor.state, selection);
+    // A non-collapsed selection delete just removes the selection (the
+    // word-extension below only applies to a collapsed caret). Mirror the
+    // canonical delete-backward path so a range inside a footnote/header/footer
+    // body (embedContents / templateContents) is actually deleted: the
+    // cross-CONTEXT refusal + the tree-aware (resolveBlock) deletable-span
+    // guard. Using getBlock here (main-tree only) would early-return a no-op for
+    // a body-context range (#430).
+    if (isCrossContextSelection(editor.state, selection)) return editor;
+    const start = expandedSpanCollapsePoint(editor.state, selection);
+    if (start === null) return editor;
+    const result = deleteRangeOrSuggest(editor.state, selection, config);
     if (result.state === editor.state) return editor;
-    const newCursor = createPosition(start.blockId, start.offset);
+    // In suggesting mode a forward word-delete must leave the caret PAST the
+    // struck span (its END) so a repeated Delete strikes the NEXT span rather than
+    // re-targeting the already-struck text (markDeletion coalesces → no-op);
+    // backward keeps the caret at the span START (= `start`). Direct mode always
+    // collapses to `start` (content shrank). `suggesting` reflects the ACTUAL
+    // outcome — a soft-delete tracks in ANY editing context (main body OR a
+    // footnote/header/footer body); only with no valid context is it a direct delete.
+    const suggesting = isSuggestingInBlock(
+      editor.state,
+      spanStart(editor.state, selection).blockId,
+      config,
+    );
+    const collapseTo =
+      suggesting && direction === "forward"
+        ? spanEnd(editor.state, selection)
+        : start;
+    const newCursor = createPosition(collapseTo.blockId, collapseTo.offset);
     const newSelection = createSpan(newCursor, newCursor);
     editor.history.commit(result, {
       before: selection,
@@ -51,9 +69,23 @@ export function handleDeleteWord(
     direction === "backward"
       ? createSpan(target, pos)
       : createSpan(pos, target);
-  const result = deleteRange(editor.state, span);
+  const result = deleteRangeOrSuggest(editor.state, span, config);
   if (result.state === editor.state) return editor;
-  const newCursor = direction === "backward" ? target : pos;
+  // Soft-delete leaves the caret on the FAR edge of the struck span in the
+  // deletion direction. For BACKWARD that far edge IS `target` (the word-boundary
+  // before the caret = span start) in both modes. For FORWARD the far edge is the
+  // span END (`target`, the word-boundary past the caret) so a repeated Delete
+  // strikes the NEXT word; direct mode keeps the existing caret at `pos`.
+  // `suggesting` reflects the ACTUAL outcome — a forward word soft-delete tracks
+  // in ANY editing context (main body OR a footnote/header/footer body), so the
+  // caret advances to `target`; only with no valid context is it a direct delete
+  // with the caret at `pos`.
+  const suggesting = isSuggestingInBlock(
+    editor.state,
+    spanStart(editor.state, span).blockId,
+    config,
+  );
+  const newCursor = direction === "backward" ? target : suggesting ? target : pos;
   const newSelection = createSpan(newCursor, newCursor);
   editor.history.commit(result, {
     before: selection,

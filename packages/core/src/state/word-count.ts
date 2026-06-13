@@ -5,7 +5,8 @@ import type { Selection } from "./block-position";
 import { createPosition, createSpan } from "./block-position";
 import { inlineContentLength } from "./inline-content";
 import { extractText, builtinEmbedSerializer } from "./extract-text";
-import { firstLeafBlock, nextBlockInDocOrder } from "./block-traversal";
+import type { SuggestionView } from "./suggestions";
+import { iterateLeafBlocksInDocumentOrder } from "./document-order";
 
 /**
  * Document statistics — the result of {@link getWordCount}. Mirrors the
@@ -47,6 +48,20 @@ export interface WordCountOptions {
    * Default: every main-tree leaf block, in document order.
    */
   readonly blockIds?: Iterable<BlockId>;
+  /**
+   * Preview-view projection of pending tracked changes ({@link SuggestionView}),
+   * forwarded to {@link extractText} per block. `"final"` counts the document as
+   * if all suggestions were ACCEPTED (deletion text excluded), `"original"` as if
+   * all were REJECTED (insertion text excluded). Default `"suggesting"` counts the
+   * literal document (both shown). NOTE: `getWordCount` counts PER BLOCK by design
+   * (words never straddle a paragraph break — Google-Docs behavior), so a projected
+   * count at a MERGED boundary (an accepted-join / rejected-split, which
+   * `blockBoundaryMergesInView` collapses) is NOT reduced — each block is counted
+   * independently. That structural merge IS applied by the multi-block extractors
+   * (`extractText` / `getSelectionWordCount`); only this per-block whole-doc count
+   * is unaffected, and deliberately so.
+   */
+  readonly suggestionView?: SuggestionView;
 }
 
 const WHITESPACE_SPLIT = /\s+/;
@@ -118,7 +133,12 @@ export function getWordCount(state: State, options?: WordCountOptions): WordCoun
       createPosition(blockId, 0),
       createPosition(blockId, length),
     );
-    const blockText = extractText(state, span, builtinEmbedSerializer);
+    const blockText = extractText(
+      state,
+      span,
+      builtinEmbedSerializer,
+      options?.suggestionView ?? "suggesting",
+    );
 
     // Count this block in isolation and sum the three fields. Counting PER
     // BLOCK (rather than over a single concatenated string) is what makes
@@ -159,22 +179,27 @@ export function getWordCount(state: State, options?: WordCountOptions): WordCoun
  * A COLLAPSED selection (anchor === focus → empty span) extracts "" →
  * `{ words: 0, characters: 0, charactersExcludingSpaces: 0 }`.
  */
-export function getSelectionWordCount(state: State, selection: Selection): WordCount {
+export function getSelectionWordCount(
+  state: State,
+  selection: Selection,
+  suggestionView: SuggestionView = "suggesting",
+): WordCount {
   // `extractText` normalizes the span internally (it iterates via
   // `iterateSpan`, which calls `normalizeSpan`), so a backwards anchor→focus
   // selection yields the same text as the forward one. Passing the selection
-  // through directly avoids a redundant normalize here.
-  const selectedText = extractText(state, selection, builtinEmbedSerializer);
+  // through directly avoids a redundant normalize here. `suggestionView` projects
+  // pending tracked changes (default `"suggesting"` = the literal selection).
+  const selectedText = extractText(state, selection, builtinEmbedSerializer, suggestionView);
   return countText(selectedText);
 }
 
 /**
  * Yield the target blocks: the caller-supplied `blockIds` (in the given order)
- * when present, otherwise every main-tree leaf block in document order. Mirrors
- * `findMatches`' traversal exactly (a parallel small walk — `findMatches` does
- * not expose this as a shared helper, and refactoring it to do so is out of
- * scope for a pure-query addition). Containers are NOT filtered here;
- * `getWordCount` skips blocks without inline content.
+ * when present, otherwise every main-tree leaf block in document order via the
+ * cycle-safe {@link iterateLeafBlocksInDocumentOrder} (see its docstring for why
+ * the old `firstLeafBlock` + `nextBlockInDocOrder` cursor sweep could hang on a
+ * malformed two-parents topology). `getWordCount` skips blocks without inline
+ * content, so yielding leaves only is identical to the old behavior here.
  */
 function* iterateTargetBlocks(
   state: State,
@@ -184,9 +209,7 @@ function* iterateTargetBlocks(
     yield* blockIds;
     return;
   }
-  let cursor = firstLeafBlock(state, state.rootId);
-  while (cursor !== null) {
-    yield cursor;
-    cursor = nextBlockInDocOrder(state, cursor);
+  for (const block of iterateLeafBlocksInDocumentOrder(state)) {
+    yield block.id;
   }
 }

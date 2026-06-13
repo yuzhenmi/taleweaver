@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { insertBlocksAfter } from "./insert-blocks-after";
-import { getBlock } from "../state";
+import {
+  insertBlocksAfter,
+  planInsertBlocksAfter,
+  insertBlocksAfterInTx,
+} from "./insert-blocks-after";
+import { getBlock, applyOperation } from "../state";
+import { STATE_INTERNAL } from "../state-internal";
 import { buildBlock, buildState, inlineContent, text } from "../../test-utils/state-builders";
 import { createTestAllocator } from "../block-id";
 import type { BlockId } from "../block-id";
@@ -200,6 +205,100 @@ describe("insertBlocksAfter — inlineContent passthrough", () => {
     );
     // No inlineContent provided → null, NOT { items: [] }.
     expect(getBlock(result.state, "new-0" as BlockId)?.inlineContent).toBeNull();
+  });
+});
+
+describe("planInsertBlocksAfter / insertBlocksAfterInTx — composition primitive", () => {
+  it("(i) drives the run through an open transaction: ids, ordering, boundary relink", () => {
+    const state = fixture();
+    const allocator = createTestAllocator("new");
+    const plan = planInsertBlocksAfter(
+      state,
+      "p1" as BlockId,
+      [
+        { type: "paragraph", inlineContent: inlineContent([]) },
+        { type: "paragraph", inlineContent: inlineContent([]) },
+      ],
+      allocator,
+    );
+    expect(plan).not.toBeNull();
+    if (plan === null) return;
+
+    // Plan captured the pre-mutation boundary.
+    expect(plan.parentId).toBe("doc");
+    expect(plan.afterBlockId).toBe("p1");
+    expect(plan.oldNextId).toBe("p2");
+    expect(plan.entries.map((e) => e.id)).toEqual(["new-0", "new-1"]);
+
+    // Drive the InTx primitive directly through applyOperation (which opens
+    // the surrounding transaction and yields a fresh State snapshot to read
+    // back from) — the same harness the public op uses internally.
+    const { state: next } = applyOperation(state, () => {
+      insertBlocksAfterInTx(state[STATE_INTERNAL].doc, plan);
+    });
+
+    const [n0, n1] = plan.entries.map((e) => e.id);
+
+    // afterBlock.next → run head; oldNext.prev → run tail.
+    expect(getBlock(next, "p1" as BlockId)?.nextSiblingId).toBe(n0);
+    expect(getBlock(next, "p2" as BlockId)?.prevSiblingId).toBe(n1);
+
+    // Run chain + boundaries.
+    expect(getBlock(next, n0)?.prevSiblingId).toBe("p1");
+    expect(getBlock(next, n0)?.nextSiblingId).toBe(n1);
+    expect(getBlock(next, n1)?.prevSiblingId).toBe(n0);
+    expect(getBlock(next, n1)?.nextSiblingId).toBe("p2");
+    expect(getBlock(next, n0)?.parentId).toBe("doc");
+    expect(getBlock(next, n1)?.parentId).toBe("doc");
+
+    // Middle insert: parent boundaries unchanged.
+    expect(getBlock(next, "doc" as BlockId)?.firstChildId).toBe("p1");
+    expect(getBlock(next, "doc" as BlockId)?.lastChildId).toBe("p3");
+  });
+
+  it("(i2) appended run rewires parent.lastChildId to the run tail", () => {
+    const state = fixture();
+    const allocator = createTestAllocator("new");
+    const plan = planInsertBlocksAfter(
+      state,
+      "p3" as BlockId,
+      [{ type: "paragraph", inlineContent: inlineContent([]) }],
+      allocator,
+    );
+    expect(plan).not.toBeNull();
+    if (plan === null) return;
+    expect(plan.oldNextId).toBeNull();
+
+    const { state: next } = applyOperation(state, () => {
+      insertBlocksAfterInTx(state[STATE_INTERNAL].doc, plan);
+    });
+
+    const tail = plan.entries[plan.entries.length - 1].id;
+    expect(getBlock(next, "p3" as BlockId)?.nextSiblingId).toBe(tail);
+    expect(getBlock(next, tail)?.nextSiblingId).toBeNull();
+    expect(getBlock(next, "doc" as BlockId)?.lastChildId).toBe(tail);
+  });
+
+  it("(i3) planInsertBlocksAfter returns null for empty inits", () => {
+    const state = fixture();
+    const allocator = createTestAllocator("new");
+    expect(planInsertBlocksAfter(state, "p1" as BlockId, [], allocator)).toBeNull();
+  });
+
+  it("(i4) insertBlocksAfterInTx throws when called outside any Y.Doc transaction", () => {
+    const state = fixture();
+    const allocator = createTestAllocator("new");
+    const plan = planInsertBlocksAfter(
+      state,
+      "p1" as BlockId,
+      [{ type: "paragraph", inlineContent: inlineContent([]) }],
+      allocator,
+    );
+    expect(plan).not.toBeNull();
+    if (plan === null) return;
+    expect(() => insertBlocksAfterInTx(state[STATE_INTERNAL].doc, plan)).toThrow(
+      /insertBlocksAfter: must be called inside Y\.Doc\.transact/,
+    );
   });
 });
 

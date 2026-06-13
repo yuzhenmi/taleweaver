@@ -126,6 +126,8 @@ describe("state/index barrel — encapsulation", () => {
       "getBlocksMap",
       "getEmbedContentsMap",
       "runTransaction",
+      "getMetaMap",
+      "getMetaRootId",
       "buildYBlock",
       "buildBlockSnapshot",
       "isDevMode",

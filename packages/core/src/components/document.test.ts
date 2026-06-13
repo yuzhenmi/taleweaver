@@ -36,6 +36,10 @@ describe("documentComponent (new)", () => {
     const el = node as ElementBox;
     expect(el.key).toBe(view.id);
     expect(el.style.display).toBe("block");
+    // Google-Docs body defaults: spaces preserved + wrapped, and long unbreakable
+    // strings break to fit the page (overflow-wrap: break-word over CSS `normal`).
+    expect(el.style.whiteSpace).toBe("break-spaces");
+    expect(el.style.overflowWrap).toBe("break-word");
   });
 
   it("passes childRenderNodes through unchanged", () => {

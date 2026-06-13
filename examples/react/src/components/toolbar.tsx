@@ -11,9 +11,13 @@ import {
   ChevronDown,
   SeparatorHorizontal,
   RectangleHorizontal,
+  Square,
+  Columns2,
+  Columns3,
   PanelTop,
   PanelBottom,
   Superscript,
+  Table,
   AlignLeft,
   AlignCenter,
   AlignRight,
@@ -600,6 +604,27 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
         onAction={() => dispatch({ type: "TOGGLE_SECTION_LANDSCAPE" })}
       />
 
+      {/* Multi-column layout (Format ▸ Columns) for the SECTION at the cursor,
+          or doc-wide when there is no section break. 1 = single column; 2 / 3
+          flow the content through that many equal-width columns. We omit
+          `columnGap` so the engine's Google-Docs-parity default
+          (`DEFAULT_COLUMN_GAP`, 0.5in / 48px) applies. */}
+      <ToolbarButton
+        label="One column"
+        icon={Square}
+        onAction={() => dispatch({ type: "SET_SECTION_COLUMNS", columnCount: 1 })}
+      />
+      <ToolbarButton
+        label="Two columns"
+        icon={Columns2}
+        onAction={() => dispatch({ type: "SET_SECTION_COLUMNS", columnCount: 2 })}
+      />
+      <ToolbarButton
+        label="Three columns"
+        icon={Columns3}
+        onAction={() => dispatch({ type: "SET_SECTION_COLUMNS", columnCount: 3 })}
+      />
+
       <Separator orientation="vertical" className="mx-1 h-5 bg-[#c4c7c5]" />
 
       {/* Insert a header / footer (one per document). Creates a one-paragraph
@@ -625,6 +650,17 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
         label="Insert footnote"
         icon={Superscript}
         onAction={() => dispatch({ type: "INSERT_FOOTNOTE" })}
+      />
+
+      {/* Insert a 3×3 table at the cursor's block boundary (Google Docs Insert ▸
+          Table; the demo uses a fixed default size). Splits the paragraph when
+          the caret is mid-block, and moves the caret into the first cell so you
+          can type immediately. Main-body only (no-op in a header/footer/footnote
+          body). */}
+      <ToolbarButton
+        label="Insert table (3×3)"
+        icon={Table}
+        onAction={() => dispatch({ type: "INSERT_TABLE", rows: 3, cols: 3 })}
       />
 
       {/* Footnote numbering reset policy (document-wide). Dispatches

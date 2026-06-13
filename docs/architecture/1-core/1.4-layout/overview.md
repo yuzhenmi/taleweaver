@@ -95,8 +95,13 @@ each box's `display` value.
 
 - **`intrinsic-sizes`** + **`intrinsic-sizes-pass`** — computes
   min-content and max-content per render node. `IntrinsicSizes` holds
-  the values; `IntrinsicSizesCache` memoizes them per render-node
-  reference. The BFC consults intrinsic sizes for shrink-to-fit
+  the public `{minContent, maxContent}`; the pass threads an extended
+  `IntrinsicContribution` (adds `firstCluster`/`restMin`) so it can apply
+  `text-indent` to a block's first formatted line (CSS Text §8 + CSS
+  Sizing §5). `IntrinsicSizesCache` memoizes the `IntrinsicContribution`
+  per render-node reference (a warm entry short-circuits the whole
+  subtree); `computeIntrinsicSizes` derives the `IntrinsicSizes` view at
+  its boundary. The BFC consults intrinsic sizes for shrink-to-fit
   inline-blocks and floats; the Table FC uses them for auto-layout
   column widths.
 
@@ -113,9 +118,12 @@ each box's `display` value.
   `IFCStateCache` (paragraph-level identity cache). Lets a paragraph
   whose tokens haven't changed reuse its cached line layout wholesale.
 
-- **`wrap-incremental`** — convergence-detection algorithm for
-  within-paragraph incremental wrap (algorithm only; not yet wired into
-  the IFC's main wrap loop).
+- **`wrap-incremental`** — `findChangePoint` (live: powers the IFC's
+  all-or-nothing paragraph reuse) plus `rewrapIncremental`, the
+  convergence-detection algorithm for within-paragraph incremental wrap
+  (algorithm only; not yet wired into the IFC's main wrap loop — scoped
+  to P18, blocked on four integration hazards detailed in
+  `1.4.2-ifc.md` "Convergence (incremental wrap)").
 
 ### Tokenization and text-measurement
 
@@ -136,15 +144,20 @@ each box's `display` value.
 
 ### Layout-box types and helpers
 
-- **`layout-node`** — re-exports from `layout-box-v2` for downstream
+- **`layout-node`** — re-exports from `layout-box` for downstream
   consumers.
 
-- **`layout-box-v2`** — defines the `LayoutBox` discriminated union
+- **`layout-box`** — defines the `LayoutBox` discriminated union
   (`BlockBox`, `LineBox`, `TextRunBox`, `InlineBox`, `MarkerBox`,
   `TableBox`, `TableRowBox`, `TableCellBox`) and the per-type frozen
   factories. Each factory takes logical-axis args, applies `writingMode`
-  + `direction`, and emits both logical and physical fields. Also
-  defines `withInlineOffset` for IFC bidi reorder.
+  + `direction` via `logicalToPhysical`, and emits both logical and
+  physical fields. Also defines `withInlineOffset` for IFC bidi reorder.
+
+- **`physicalize-vertical`** — `physicalizeVertical(box,
+  containerBlockSize)` runs the `vertical-rl` post-layout block-axis mirror
+  (see [Logical-axis discipline](#logical-axis-discipline-and-the-vertical-rl-physicalize-pass)
+  below).
 
 - **`used-style`** — `computeUsedStyle(computedStyle,
   containingInlineSize, containingBlockSize)` resolves
@@ -152,8 +165,14 @@ each box's `display` value.
   containing block. Called by every formatting context as it lays out
   each box.
 
-- **`list-counter`** — `formatCounter(value, style)` for ordered-list
-  marker text generation. Used by the BFC when emitting marker boxes.
+  (Note: the layout pass no longer COUNTS list markers — the old
+  `layout/list-counter.ts` was deleted. Marker text is computed at render
+  time by the numbering service and baked onto the list-item's
+  `markerText` style; the BFC reads it and paints it. The shared marker
+  formatter is `formatCounter(value, style)` in `styles/format-counter.ts`,
+  consumed by the render-time numbering service, not by layout. See
+  [`1.2-render.md`](../1.2-render.md) "Numbering (list markers)" and
+  [`1.4.1-bfc.md`](1.4.1-bfc.md) "List markers".)
 
 ## How the modules connect
 
@@ -185,6 +204,39 @@ widths) calls into it without recomputing.
 The IFC-state cache sits per-paragraph; an unchanged paragraph short-
 circuits its entire wrap.
 
+## Logical-axis discipline and the vertical-rl physicalize pass
+
+The formatting contexts compute geometry on the **logical** axes, never on
+the physical `width`/`height`/`x`/`y`. BFC block-advancement and the final
+block-size accumulate the child's `blockSize`; IFC line packing and content
+extents use `inlineSize`; inline-block sizing projects the child's physical
+box onto the parent IFC's inline/block axes via `axisMapFor`; the bidi
+reorder packs visual order into the logical `inlineOffset` so that
+`logicalToPhysical` maps it onto the active physical inline axis (x for
+`horizontal-tb`, y for the vertical modes). Each box's physical fields are
+derived from its logical fields by its factory's `logicalToPhysical` call.
+This keeps a single layout algorithm correct across all three writing modes
+— the FC code reads no physical coordinate, so the writing mode lives
+entirely in the logical→physical mapping.
+
+The one mapping a factory cannot complete eagerly is the `vertical-rl`
+block-axis mirror (`x = containingBlockSize − blockOffset − blockSize`): an
+auto-size block's block-size is the OUTPUT of laying out its children, so at
+factory time the containing block-size is `"indefinite"` and the factory
+stores the un-mirrored pending x. `physicalizeVertical(box,
+containerBlockSize)` runs after layout (and pagination) finishes, when every
+container's `blockSize` is resolved, and recursively bakes the mirror into a
+fully-physical tree. It runs at both layout seams — the non-virtual
+`paginateRoot` and the virtual `materializePage` — and recurses into a
+`PageBox`'s named `headerSlot` / `footerSlot` / `footnoteSlot` as well as its
+`children`; the page FRAME itself is not mirrored, only the page CONTENT.
+For `horizontal-tb` and `vertical-lr` (no block-axis mirror) it returns the
+input box by reference — zero cost, byte-identical for all non-`vertical-rl`
+content. After this pass `box.x` / `box.y` are authoritative for every
+downstream consumer (paint, hit-test, caret, selection). See
+[`1.0-styles.md`](../1.0-styles.md#logicaltophysical--full-mapping-for-all-writing-modes)
+for the per-mode mapping table.
+
 ## Reading order
 
 1. [`1.4.1-bfc.md`](1.4.1-bfc.md) — BFC algorithm: margin collapsing, floats, list markers, fragmentation entry.
@@ -205,7 +257,9 @@ type LayoutBox =
   | MarkerBox       // type: "marker"
   | TableBox        // type: "table"
   | TableRowBox     // type: "table-row"
-  | TableCellBox;   // type: "table-cell"
+  | TableCellBox    // type: "table-cell"
+  | MultiColumnBox  // type: "multicolumn" — N side-by-side column tracks (a multicol page body)
+  | PageBox;        // type: "page"
 ```
 
 All variants extend a common base:
@@ -231,6 +285,11 @@ interface LayoutBoxBase {
 
   readonly computedStyle: Readonly<ComputedStyle>;
   readonly usedStyle:     Readonly<UsedStyle>;
+
+  // Positioning (optional; see 1.9-positioning.md). Omitted on the common path
+  // so the un-positioned fast paths stay read-free.
+  readonly relativeOffset?:   { readonly dx: number; readonly dy: number };  // position: relative paint-time delta
+  readonly absoluteChildren?: readonly LayoutBox[];                          // position: absolute out-of-flow descendants whose abc is this box
 }
 ```
 
@@ -238,7 +297,7 @@ Per-variant additions:
 
 | Type | Adds |
 |---|---|
-| `block` | `children: readonly LayoutBox[]`; optional `metadata: Record<string, unknown>` (e.g., image src). |
+| `block` | `children: readonly LayoutBox[]`; optional `metadata: LayoutBoxMetadata` (typed struct — see below). |
 | `line` | `children: readonly LayoutBox[]`; `baseline: number` (offset from top of line). |
 | `text-run` | `text: string`. |
 | `inline` | `children: readonly LayoutBox[]`; `fragmentEdge: "first" \| "middle" \| "last" \| "only"` (which side has padding/border). |
@@ -247,10 +306,84 @@ Per-variant additions:
 | `table` | `children: readonly LayoutBox[]`; `columnPxWidths: readonly number[]`. |
 | `table-row` | `children: readonly LayoutBox[]`. |
 | `table-cell` | `children: readonly LayoutBox[]`. |
+| `multicolumn` | `columns: readonly BlockBox[]` (N side-by-side column boxes, each holding a contiguous doc-order run). A container variant like `table` — its own type so it can carry distinct paint (column-rule), hit-test (column-X filter), and fragmentation (column distribution) semantics. The generic box-walkers descend `columns` (not `children`); a depth-first walk left-to-right emits lines in visual reading order. Multi-column (Format ▸ Columns); `materializePage` emits one as a multicol page's body box (each column laid into its `ColumnFit` slice at the balanced height). |
 
 Positions are **parent-relative**. Painters/hit-testers walk the tree accumulating offsets cumulatively.
 
-Factories: one per variant (`createBlockBox`, etc.). Each takes logical-axis args plus `containingInlineSize` and runs `logicalToPhysical` to fill `x` / `y` / `width` / `height`. All output is `Object.freeze`d.
+Factories: one per variant (`createBlockBox`, etc.). Each takes logical-axis args plus `containingInlineSize` (and, for `vertical-rl`, an optional `containingBlockSize` — absent at factory time, supplied later by the `physicalizeVertical` pass) and runs `logicalToPhysical` to fill `x` / `y` / `width` / `height`. All output is `Object.freeze`d.
+
+### `LayoutBoxMetadata`
+
+The optional `metadata` carried by `BlockBox` (layout) and `ElementBox`
+(render) is a **typed struct of optional fields** — `LayoutBoxMetadata` —
+not an untyped `Record<string, unknown>` bag and not a discriminated union.
+It is a struct rather than a union because a `section` box carries
+`blockType` alongside optional page-geometry and header/footer keys, so no
+single field discriminates the shape; every field is optional.
+
+```ts
+interface LayoutBoxMetadata {
+  // Known-shape keys — strongly typed (these are what removed the prior
+  // unchecked `as {...}` casts at the read sites).
+  readonly image?: { readonly src: string; readonly width: number; readonly height: number };
+  readonly horizontalLine?: boolean;
+  readonly tableOfContents?: true;    // table-of-contents anchor marker (render-core TOC branch)
+  readonly navTarget?: BlockId;       // TOC-entry click-nav target (the heading to scroll to)
+  readonly tocEntry?: true;           // marks a synthesized TOC entry box as clickable
+  readonly columnWidths?: readonly number[];
+  readonly blockType?: "section";
+  readonly embedType?: string;        // EmbedItem kind on an embed-anchor marker box
+
+  // Attrs-/properties-derived values — kept `unknown`, validated/coerced
+  // at their read boundaries (resolveSectionPageConfig, coerceBlockId, the
+  // footnote-numbering lookup). They ride RAW from open-schema `attrs` /
+  // embed `properties` (themselves `unknown`); typing them honestly as
+  // `unknown` keeps the validation at the read site instead of pushing it
+  // around.
+  readonly pageInlineSize?: unknown;
+  readonly pageBlockSize?: unknown;
+  readonly pageMargins?: unknown;
+  readonly pageGap?: unknown;
+  readonly headerBlockId?: unknown;
+  readonly footerBlockId?: unknown;
+  // Per-section multi-column overrides (Format ▸ Columns) — validated/coerced
+  // by `resolveColumnConfig` (`section-column-config.ts`).
+  readonly columnCount?: unknown;
+  readonly columnGap?: unknown;
+  readonly columnRule?: unknown;
+  readonly contentBlockId?: unknown;  // embed-content root id (from embed `properties`)
+}
+```
+
+Producers stamp these keys: the `image` / `horizontalLine` components
+(read by the canvas renderer), the table layout (`columnWidths`, read by
+the Table FC), and `section` / `document` (`blockType` + page-geometry +
+header/footer ids + multi-column overrides, read by `section-plan`); embed
+anchors stamp `embedType` + `contentBlockId`.
+
+**Multi-column (Format ▸ Columns) — section-scoped, the Google-Docs model.**
+A `section` may declare `columnCount` / `columnGap` / `columnRule` in its
+attrs; `section-column-config.resolveColumnConfig` validates them over a
+doc-default `ColumnConfig` (`column-config.ts`), and `section-plan` threads
+the resolved config onto each `SectionBoundary.columnConfig` — stamped ONLY
+when it differs from the doc default (the no-override path stays inert),
+exactly mirroring the per-section `PageConfig` machinery. The measure pass
+distributes a multicol section's content across N columns per page
+(`column-fit.ts` — FILL each page, BALANCE the section's final page) and
+records the per-page `columnFit` + `balancedColumnHeight` on the
+`PagePlanEntry`; `materializePage` consumes those to build the page's
+`MultiColumnBox` (each column laid into its `ColumnFit` slice at the balanced
+height, side by side at `trackInlineSize = (bodyInlineSize − (N−1)·gap)/N`).
+A single-column section is byte-identical to the pre-multicol body. The
+column-aware cursor has shipped (hit-test column-X filter via
+`column-at-point.ts`; line-nav clamps the goal-X to the target line's column at a
+column crossing). STILL PENDING: the column-rule paint (line-between). [partial]
+
+The type **lives in the render layer** (`render/layout-metadata.ts`)
+because both `ElementBox` (render) and `BlockBox` (layout) need it and the
+established dependency direction is layout → render — layout imports from
+render, never the reverse. A render-side leaf module keeps the dependency
+one-directional; placing it under `layout/` would invert the layering.
 
 ### `UsedStyle`
 
@@ -271,16 +404,22 @@ interface LayoutContext {
   readonly floatEnv:   FloatEnvironment;
   readonly isBFCRoot:  boolean;
 
+  // Absolute-positioning containing block (see 1.9-positioning.md).
+  readonly absoluteContainingBlock:    AbsoluteContainingBlock;
+  readonly ownsAbsoluteContainingBlock: boolean;
+  readonly originFromAbc: { readonly inlineOffset: number; readonly blockOffset: number };
+
   readonly prevLayoutCache: LayoutBoxCache | null;
   readonly prevFloatEnv:    FloatEnvironment | null;
 }
 
 function makeRootContext(rootCs: ComputedStyle, containerInlineSize: number): LayoutContext;
 function makeChildContext(parent: LayoutContext, parentCs: ComputedStyle,
-                          contentInlineSize: number, contentBlockSize: number | "indefinite"): LayoutContext;
+                          contentInlineSize: number, contentBlockSize: number | "indefinite",
+                          contentOrigin?: { readonly inlineOffset: number; readonly blockOffset: number }): LayoutContext;
 ```
 
-`makeChildContext` decides whether the child establishes its own BFC by calling `establishesNewBFC(parentCs)` — which returns `true` for `display: flow-root | inline-block | table-cell`, for any `float != "none"`, for `overflow != "visible"` (when present), and for the document root via the explicit `isBFCRoot` flag passed by `makeRootContext`. When a new BFC is established, the child gets a fresh `FloatEnvironment`; otherwise it shares the parent's so floats rise to the nearest ancestor BFC.
+`makeChildContext` decides whether the child establishes its own BFC by calling `establishesNewBFC(parentCs)` — which returns `true` for `display: flow-root | inline-block | table-cell`, for any `float != "none"`, for `position: absolute`, for `overflow != "visible"` (when present), and for the document root via the explicit `isBFCRoot` flag passed by `makeRootContext`. When a new BFC is established, the child gets a fresh `FloatEnvironment`; otherwise it shares the parent's so floats rise to the nearest ancestor BFC. Independently, `makeChildContext` resets `absoluteContainingBlock` (a fresh `AbsPosEnvironment` + the box's content frame) when the child establishes one per `establishesAbsoluteContainingBlock(cs)` (`position ∈ {relative,absolute}` or `transform.length > 0`); otherwise it inherits the parent's abc and accumulates `originFromAbc` so a descendant's static position is captured in the abc's frame. See [1.9-positioning.md](../1.9-positioning.md).
 
 ### Display → formatting-context dispatch
 

@@ -124,9 +124,7 @@ export function mergeSectionWithPrevious(
 
   // --- Step E: mutate (one applyOperation) ---
   const captured = plan;
-  return applyOperation(state, () => {
-    const doc = state[STATE_INTERNAL].doc;
-
+  return applyOperation(state, (doc) => {
     if (captured !== null) {
       reparentChildrenInTx(doc, captured);
     }

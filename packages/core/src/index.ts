@@ -9,13 +9,17 @@
 // Styles
 export type {
   Style, ComputedStyle, UsedStyle, Length, LengthOrAuto, Color,
-  Display, BorderStyle, FontWeight, FontStyle, TextDecoration,
-  WhiteSpace, VerticalAlign, Float, Clear,
+  Display, BorderStyle, FontWeight, FontStyle,
+  WhiteSpace, VerticalAlign, TextTransform, Float, Clear,
   BreakBefore, BreakAfter, BreakInside,
   ListStyleType, ListStylePosition, BoxSizing,
-  Direction, WritingMode,
+  Direction, WritingMode, LeaderStyle,
+  // CSS positioning vocabulary (the styles `Position` is NOT re-exported here to
+  // avoid colliding with the state/cursor `Position` already on this barrel).
+  TransformFn, TransformOrigin,
 } from "./styles";
 export { PROPERTY_META, INITIAL_COMPUTED_STYLE } from "./styles";
+export { assertNeverWritingMode } from "./styles";
 
 // State (Y.Doc-backed) — re-exported through the `state/` barrel
 // (`./state/index.ts`), the intra-core API contract for the document model.
@@ -35,6 +39,12 @@ export {
   resolveBlock,
 } from "./state";
 export { createEmptyDocument } from "./state";
+// Declarative construction: lower a nested `BlockNode` tree → `State` (mints
+// ids, derives all structural links). The safe public counterpart to the
+// internal bulk constructor; the foundation importers (e.g. the HTML
+// serializer) target.
+export { buildDocumentFromTree } from "./state";
+export type { BlockNode, ContainerBlockNode, LeafBlockNode } from "./state";
 export type { Block } from "./state";
 export type { BlockId, IdAllocator } from "./state";
 export {
@@ -90,6 +100,8 @@ export { normalizeSpan, iterateSpan, iterateBlocksInSpan } from "./state";
 export { insertText } from "./state";
 export { deleteRange } from "./state";
 export { replaceRange } from "./state";
+export { planReplaceMatches, replaceAllMatches, applyReplaceAllPlan } from "./state";
+export type { ReplaceAllPlan, BlockWrite } from "./state";
 export { splitBlockAtPosition } from "./state";
 export { insertBlock } from "./state";
 export type { InsertBlockArgs } from "./state";
@@ -115,12 +127,90 @@ export type {
 export { getActiveFormatting } from "./state";
 export type { ActiveFormatting } from "./state";
 
+// List numbering definitions — surfaced for human-friendly serializers that
+// classify a list as ordered/unordered and mint fresh list ids on decode.
+export type { ListDef } from "./state";
+export { getListDefsForState, classifyListDef, newListId } from "./state";
+
+// Content-bearing inline-embed type ids — surfaced so a lossy human serializer
+// can detect (and dev-warn about) dropped footnote-anchor / cross-reference
+// embeds on export (the binary serializer is the lossless path).
+export { FOOTNOTE_ANCHOR_EMBED_TYPE, CROSS_REFERENCE_EMBED_TYPE } from "./state";
+
+// Hard line break (`<br>`) embed type — surfaced so the HTML decoder
+// (`@taleweaver/dom`) can stamp the embed without hardcoding the literal.
+export { HARD_BREAK_EMBED_TYPE } from "./state";
+
+// Comments. Paired zero-width `comment-start`/`comment-end` marker embeds
+// delimit a comment range and ARE the anchor; `insertCommentMarkers` inserts the
+// pair, and `buildCommentRangeIndex` / `resolveCommentRange` resolve it (with a
+// derived `orphaned` flag) by content scan. The thread-record CRUD ops
+// (`addComment`/`resolveComment`/`reopenComment`/`deleteComment`/`addReply`) are
+// NORMAL tracked content ops (a comment reverts atomically with its markers);
+// `getComments` is the read surface (record + scanned range).
+export { insertCommentMarkers } from "./state";
+export {
+  addComment,
+  resolveComment,
+  reopenComment,
+  deleteComment,
+  addReply,
+  COMMENT_START_EMBED_TYPE,
+  COMMENT_END_EMBED_TYPE,
+  buildCommentRangeIndex,
+  resolveCommentRange,
+  getComments,
+} from "./state";
+export type {
+  AddCommentInput,
+  AddReplyInput,
+  CommentId,
+  CommentReply,
+  CommentRecord,
+  CommentRange,
+  ResolvedComment,
+} from "./state";
+
+// Change-tracking / Suggesting mode (slice 1 — INERT state vocabulary): the
+// three suggestion-attr-key consts, the two break-embed-type consts, and the
+// record types. The side-table IO helpers stay intra-state (mirror comments).
+export {
+  INSERTION_SUGGESTION_ATTR,
+  DELETION_SUGGESTION_ATTR,
+  FORMATTING_SUGGESTION_ATTR,
+  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
+  BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
+  buildSuggestionRangeIndex,
+  resolveSuggestionRange,
+  getSuggestions,
+} from "./state";
+export type {
+  SuggestionId,
+  SuggestionKind,
+  SuggestionRecord,
+  SuggestionRange,
+  ResolvedSuggestion,
+} from "./state";
+
 // History (Y.UndoManager-backed)
 export {
   History,
   createHistory,
   type SelectionEntry,
   type UndoRedoResult,
+} from "./state";
+
+// Document serialization (pluggable serializer + registry + Yjs-binary v1).
+export type { SerializedDocument, DocumentSerializer, SerializerRegistry } from "./state";
+export {
+  createSerializerRegistry,
+  createDefaultSerializerRegistry,
+  serializeDocument,
+  deserializeDocument,
+  createBinaryDocumentSerializer,
+  BINARY_FORMAT,
+  UnknownSerializerFormatError,
+  MalformedDocumentError,
 } from "./state";
 
 // Cascade
@@ -155,11 +245,38 @@ export {
 } from "./layout/layout-node";
 export type { TextMeasurer } from "./layout/text-measurer";
 export { createMockMeasurer, adaptShaperToMeasurer } from "./layout/text-measurer";
+// POSITIONING slice 5 — the zero-dep 2×3 affine matrix. The painter
+// (`fromTransformFns` + `resolveTransformOrigin`) and the hit-test inverse
+// (`line-flatten`) share the IDENTICAL math so paint and hit-test never diverge.
+export type { Mat2D } from "./layout/mat2d";
+export {
+  fromTransformFns, resolveTransformOrigin, identity, compose, translate,
+  rotate, scale, invert, apply,
+} from "./layout/mat2d";
 export { createMockShaper } from "./layout/mock-shaper";
+export { createMockHyphenator } from "./layout/mock-hyphenator";
+export type { Hyphenator } from "./layout/hyphenator";
 export type {
   TextShaper, ShapedRun, Cluster, BreakOpportunity, FontMetrics, GlyphId,
 } from "./layout/text-shaper";
-export type { IntrinsicSizes, IntrinsicSizesCache } from "./layout/intrinsic-sizes";
+export { toBreakOpportunities } from "./layout/text-shaper";
+// Layout — UAX #14 line-break segmentation (text core)
+export {
+  lineBreakClass,
+  lineBreakOpportunities,
+  UAX14_UNICODE_VERSION,
+} from "./layout/uax14";
+export type { LineBreakClass, LineBreakPoint, LineBreakOptions } from "./layout/uax14";
+// Layout — UAX #9 bidirectional text (text core)
+export {
+  resolveBidiLevels,
+  reorderVisual,
+  bidiMirror,
+  bidiClass,
+  UAX9_UNICODE_VERSION,
+} from "./layout/uax9";
+export type { BidiClass, BaseDirection, BidiResult } from "./layout/uax9";
+export type { IntrinsicSizes, IntrinsicContribution, IntrinsicSizesCache } from "./layout/intrinsic-sizes";
 export { createIntrinsicSizesCache } from "./layout/intrinsic-sizes";
 export { computeIntrinsicSizes } from "./layout/intrinsic-sizes-pass";
 export type { IFCState, IFCStateCache } from "./layout/ifc-state";
@@ -170,13 +287,18 @@ export { establishesNewBFC } from "./layout/bfc-establishment";
 export type { PageBox } from "./layout/page-box";
 export { createPageBox } from "./layout/page-box";
 // Virtualized layout: the `VirtualLayoutTree` is `EditorState.layoutTree` in
-// paginated mode; `resolvePositionedTree` is the bridge consumers ride to a
-// fully-positioned `LayoutBox` (via `materializeAll()`) until they migrate to
-// the plan / `getPage` API.
+// paginated mode. Every consumer reads it per-page via `getPage(i)`; the whole
+// document is never materialized (the whole-tree-positioning
+// bridge was removed — see the VL bridge-removal spec).
 export type { VirtualLayoutTree } from "./layout/virtual-layout-tree";
-export { resolvePositionedTree } from "./layout/positioned-tree";
 export { computeUsedStyle } from "./layout/used-style";
 export type { PageConfig, PageMargins } from "./layout/page-config";
+// CSS letter-/word-spacing rule — applied by the in-engine mock shapers and by
+// the @taleweaver/dom canvas shaper (re-exported here so dom can share the rule).
+// Only the two functions called across the package boundary are surfaced;
+// `isWordSeparatorCluster` is an internal detail of `clusterSpacing`.
+export { resolveSpacingPx, clusterSpacing } from "./layout/text-spacing";
+export { graphemeClusters } from "./layout/graphemes";
 
 // Components (new pipeline)
 export type {
@@ -189,10 +311,10 @@ export {
   documentComponent,
   paragraphComponent,
   headingComponent,
-  listComponent,
   listItemComponent,
   imageComponent,
   horizontalLineComponent,
+  tableOfContentsComponent,
   tableComponent,
   tableRowComponent,
   tableCellComponent,
@@ -209,7 +331,10 @@ export { resolvePositionFromPixel } from "./cursor/hit-test";
 export type { PixelPosition } from "./cursor/cursor-position";
 export { resolvePixelPosition } from "./cursor/cursor-position";
 export type { SelectionRect } from "./cursor/selection-geometry";
+export type { CaretAffinity } from "./cursor/line-bidi";
 export { computeSelectionRects, computeSelectionRectsForPage } from "./cursor/selection-geometry";
+export { getCommentRangeRects } from "./cursor/comment-rects";
+export { getSuggestionRangeRects } from "./cursor/suggestion-rects";
 export { moveToLine, moveToLineBoundary } from "./cursor/line-navigation";
 export { isCollapsed } from "./cursor/selection";
 
@@ -231,10 +356,19 @@ export type {
 } from "./editor/editor-state";
 export {
   createInitialEditorState,
+  // Build an `EditorState` from an arbitrary seed `State` + initial `Selection`
+  // (the full render → cascade → layout build). The public seam for hosts/tests
+  // that need a non-default seed document (e.g. a TOC + headings doc) without an
+  // editor-from-state injection.
+  createEditorStateFromState,
   reduceEditor,
   findFirstContentBlock,
   findLastContentBlock,
 } from "./editor/editor-state";
+// Derive the default collapsed caret for a freshly-loaded `State` (first
+// content block, offset 0). Pairs with `createEditorStateFromState`.
+export { initialSelectionForState } from "./editor/actions";
+export { exportDocument, loadDocument } from "./editor/document-io";
 
 // Public input shape for the INSERT_NODE action payload.
 export type { BlockInit } from "./state";

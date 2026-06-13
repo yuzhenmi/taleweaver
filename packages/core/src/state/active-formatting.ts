@@ -5,6 +5,7 @@ import { positionsEqual } from "./block-position";
 import type { Block } from "./block";
 import type { TextItem } from "./inline-content";
 import { iterateSpan, iterateBlocksInSpan } from "./span-iteration";
+import type { TextTransform } from "../styles";
 
 /**
  * The active inline + block formatting at a selection — the read-side
@@ -43,6 +44,8 @@ export interface ActiveFormatting {
   fontSize: number | null | "mixed";
   /** Font family inline value — `null` when unset. */
   fontFamily: string | null | "mixed";
+  /** Text-transform inline value (CSS keyword) — `null` when unset. */
+  textTransform: TextTransform | null | "mixed";
   /**
    * The block `type` common across the selection's leaf blocks (e.g.
    * `"paragraph"`, `"heading"`), or `"mixed"`. Falls back to the focus block's
@@ -124,6 +127,7 @@ export function getActiveFormatting(state: State, selection: Selection): ActiveF
   const backgroundColor = asStringOrNull(inlineValueOf(inlineItems, "backgroundColor"));
   const fontSize = asNumberOrNull(inlineValueOf(inlineItems, "fontSize"));
   const fontFamily = asStringOrNull(inlineValueOf(inlineItems, "fontFamily"));
+  const textTransform = asTextTransformOrNull(inlineValueOf(inlineItems, "textTransform"));
 
   // ── Block: gather the leaf blocks the selection reads. ──────────────────
   const leafBlocks = collapsed
@@ -149,6 +153,7 @@ export function getActiveFormatting(state: State, selection: Selection): ActiveF
     backgroundColor,
     fontSize,
     fontFamily,
+    textTransform,
     blockType,
     headingLevel,
     textAlign,
@@ -313,6 +318,20 @@ function asNumberOrNull(value: unknown | "mixed"): number | null | "mixed" {
 function asStringOrNull(value: unknown | "mixed"): string | null | "mixed" {
   if (value === "mixed") return "mixed";
   return typeof value === "string" ? value : null;
+}
+
+/** Pass `"mixed"` through; narrow a valid text-transform keyword, else `null`. */
+function asTextTransformOrNull(value: unknown | "mixed"): TextTransform | null | "mixed" {
+  if (value === "mixed") return "mixed";
+  if (
+    value === "none" ||
+    value === "capitalize" ||
+    value === "uppercase" ||
+    value === "lowercase"
+  ) {
+    return value;
+  }
+  return null;
 }
 
 /** Pass `"mixed"` through; narrow a valid alignment keyword, else `null`. */

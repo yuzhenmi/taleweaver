@@ -5,7 +5,7 @@
 // `measurePass` of the same root and assert that positioning each page
 // independently (`getPage(i)`, seeded from the plan's resume token — NOT from
 // the sequential previous-page break) deep-equals `paginateRoot`'s page `i`.
-// `materializeAll()` must deep-equal the whole `paginateRoot` tree.
+// `getPage(i)` must deep-equal `paginateRoot`'s page `i`.
 //
 // Carry-forward memo (Task 4): an unchanged page in a new tree returns the
 // prior tree's already-materialized PageBox BY REFERENCE; a changed page (or a
@@ -26,10 +26,14 @@ import type { ElementBox } from "../../render/render-node";
 import type { BlockId } from "../../state";
 import type { Style } from "../../styles";
 import type { PageConfig } from "../page-config";
+import type { PageBox } from "../page-box";
+import type { LayoutBox } from "../layout-box";
 import { buildBlockFitMetas } from "../build-fit-metas";
 import { measurePass } from "../measure-pass";
 import type { PagePlan, PagePlanEntry } from "../measure-pass";
 import { IMPLICIT_SECTION_PLAN } from "../section-plan";
+import { DEFAULT_COLUMN_CONFIG } from "../column-config";
+import { balanceColumnHeight, fitColumnsOnPage } from "../column-fit";
 import {
   makeVirtualLayoutTree,
   __getGetPageDriverCountForTest,
@@ -96,6 +100,7 @@ function planWithEntries(
     pageIndexOfBlock: base.pageIndexOfBlock.bind(base),
     pageSpanOfBlock: base.pageSpanOfBlock.bind(base),
     pageIndexOfTemplateBlock: base.pageIndexOfTemplateBlock.bind(base),
+    pageIndexOfFootnoteBlock: base.pageIndexOfFootnoteBlock.bind(base),
   };
 }
 
@@ -158,6 +163,42 @@ function tableOf(numRows: number, rowHeight: number): ElementBox {
   return createElementBox("tbl", { display: "table" } as Style, rows);
 }
 
+/** A table with `headerRowCount` repeating header rows (#487), stamped onto the
+ *  table box metadata exactly as the `table` component does in production. */
+function tableWithHeader(numRows: number, headerRowCount: number, rowHeight: number): ElementBox {
+  const rows = Array.from({ length: numRows }, (_, i) =>
+    createElementBox(`row-${i}`, { display: "table-row", blockSize: rowHeight } as Style, [
+      createElementBox(`cell-${i}`, { display: "table-cell" } as Style, [
+        createTextBox(`ct-${i}`, {}, "x"),
+      ]),
+    ]),
+  );
+  return createElementBox("tbl", { display: "table" } as Style, rows, { headerRowCount });
+}
+
+/**
+ * A `headerRowCount`-header table whose ROW HEIGHTS are given explicitly (#487
+ * S5): `rowHeights[i]` is the `blockSize` of row `i`. Lets a test simulate a
+ * header-CELL edit by re-building the same table with a TALLER header row,
+ * changing `headerBlockSize = Σ rowBlockSizes[0, headerRowCount)`. The cell key
+ * is suffixed so a re-laid header cell with edited content is a distinct render
+ * node (mirrors what the incremental cascade emits for an edited cell).
+ */
+function tableWithHeaderRowHeights(
+  rowHeights: readonly number[],
+  headerRowCount: number,
+  cellTextById?: (i: number) => string,
+): ElementBox {
+  const rows = rowHeights.map((rowHeight, i) =>
+    createElementBox(`row-${i}`, { display: "table-row", blockSize: rowHeight } as Style, [
+      createElementBox(`cell-${i}`, { display: "table-cell" } as Style, [
+        createTextBox(`ct-${i}`, {}, cellTextById ? cellTextById(i) : "x"),
+      ]),
+    ]),
+  );
+  return createElementBox("tbl", { display: "table" } as Style, rows, { headerRowCount });
+}
+
 // ---------------------------------------------------------------------------
 // Shared build helpers.
 // ---------------------------------------------------------------------------
@@ -166,7 +207,7 @@ function buildPlanAndTree(root: ElementBox, pageConfig: PageConfig) {
   const pageContentInlineSize =
     pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
   const shaper = createMockShaper(8, 16);
-  const metas = buildBlockFitMetas(root, shaper, pageContentInlineSize);
+  const metas = buildBlockFitMetas(root, shaper, undefined, pageContentInlineSize);
   const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children);
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
   const tree = makeVirtualLayoutTree(plan, root, ctx, createMockShaper(8, 16), pageConfig);
@@ -175,7 +216,7 @@ function buildPlanAndTree(root: ElementBox, pageConfig: PageConfig) {
 
 function runPaginate(root: ElementBox, pageConfig: PageConfig) {
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
-  return paginateRoot(root, ctx, createMockShaper(8, 16), pageConfig);
+  return paginateRoot(root, ctx, createMockShaper(8, 16), undefined, pageConfig);
 }
 
 interface Fixture {
@@ -210,6 +251,16 @@ function fixtures(): readonly Fixture[] {
       name: "table spanning pages",
       root: cascadeRoot({ display: "block" }, [tableOf(8, 30)]),
       pageConfig: noMarginPageConfig(100),
+    },
+    {
+      name: "table with a 1-row repeating header spanning pages (#487)",
+      root: cascadeRoot({ display: "block" }, [tableWithHeader(8, 1, 30)]),
+      pageConfig: noMarginPageConfig(100),
+    },
+    {
+      name: "table with a 2-row repeating header spanning pages (#487)",
+      root: cascadeRoot({ display: "block" }, [tableWithHeader(10, 2, 25)]),
+      pageConfig: noMarginPageConfig(120),
     },
     {
       name: "nested container (blockquote) spanning pages",
@@ -247,12 +298,14 @@ describe("VirtualLayoutTree — getPage(i) deep-equals paginateRoot's page i", (
   for (const fx of fixtures()) {
     it(fx.name, () => {
       const paginated = runPaginate(fx.root, fx.pageConfig);
+      const paginatedPages = paginated.children.filter(
+        (c): c is PageBox => c.type === "page",
+      );
       const { tree } = buildPlanAndTree(fx.root, fx.pageConfig);
-      expect(tree.plan.entries.length).toBe(paginated.children.length);
-      for (let i = 0; i < paginated.children.length; i++) {
-        const oraclePage = paginated.children[i];
+      expect(tree.plan.entries.length).toBe(paginatedPages.length);
+      for (let i = 0; i < paginatedPages.length; i++) {
         const virtualPage = tree.getPage(i);
-        expect(virtualPage, `page ${i}`).toEqual(oraclePage);
+        expect(virtualPage, `page ${i}`).toEqual(paginatedPages[i]);
       }
     });
   }
@@ -308,17 +361,315 @@ describe("VirtualLayoutTree — getPage(i) deep-equals paginateRoot's page i", (
 });
 
 // ---------------------------------------------------------------------------
-// Task 3: materializeAll() ≡ paginateRoot's whole tree
+// NOTE: the deleted `materializeAll() ≡ paginateRoot` whole-tree-positioning
+// harness is subsumed by the `getPage(i) deep-equals paginateRoot's page i`
+// describe above (per-page equivalence vs the independent `paginateRoot`
+// oracle) plus the per-feature equivalence tests in `cursor/*`.
 // ---------------------------------------------------------------------------
 
-describe("VirtualLayoutTree — materializeAll() deep-equals paginateRoot", () => {
-  for (const fx of fixtures()) {
-    it(fx.name, () => {
-      const paginated = runPaginate(fx.root, fx.pageConfig);
-      const { tree } = buildPlanAndTree(fx.root, fx.pageConfig);
-      expect(tree.materializeAll()).toEqual(paginated);
-    });
+// ---------------------------------------------------------------------------
+// #487 GATE B — the REAL measure↔materialize proof. The measure pass reserves
+// `headerBlockSize` on every continuation fragment; `getPage(i)` re-lays the
+// header rows. This walks `VirtualLayoutTree.getPage(continuationPage)` and
+// asserts the materialized fragment's emitted header + body rows together consume
+// EXACTLY the measure reservation (header block + Σ placed body rows), AND the
+// continuation body rows are exactly the rows the plan resumed at — no
+// duplication, no skip across the boundary (the #494/#498/#499 drift class).
+// ---------------------------------------------------------------------------
+
+/** Recursively find the first `table` LayoutBox in a positioned subtree. */
+function findTableBox(box: LayoutBox): LayoutBox | null {
+  if (box.type === "table") return box;
+  if ("children" in box) {
+    for (const child of box.children) {
+      const found = findTableBox(child);
+      if (found !== null) return found;
+    }
   }
+  return null;
+}
+
+describe("VirtualLayoutTree — #487 header repetition (Gate B: measure↔materialize)", () => {
+  it("continuation fragment re-lays the header at top; body rows + header consume the measure reservation", () => {
+    // 8 rows × 30, headerRowCount 1; page content 100. Page 0: rows 0,1,2 (header
+    // is an ordinary leading row, 3 rows × 30 = 90 ≤ 100). Page 1: re-laid header
+    // row-0 + body rows 3,4 (header 30 reserved ⇒ body budget 70 ⇒ 2 rows fit,
+    // break at row 5).
+    const root = cascadeRoot({ display: "block" }, [tableWithHeader(8, 1, 30)]);
+    const pageConfig = noMarginPageConfig(100);
+    const { plan, tree } = buildPlanAndTree(root, pageConfig);
+    expect(plan.entries.length).toBeGreaterThanOrEqual(2);
+
+    // Plan-side assertion (the MEASURE half of the contract): page 1 resumes the
+    // table at ABSOLUTE row 3 (header re-emits but does NOT advance resumeAtRow).
+    // Asserting the plan directly means a measure-only regression (wrong page
+    // boundary) fails HERE, not just as a downstream materialize symptom — the
+    // #494/#498/#499 drift class is measure↔materialize DISAGREEMENT, so both
+    // halves must be pinned.
+    const resumeInto = plan.entries[1]?.resumeInto;
+    expect(resumeInto?.type).toBe("block");
+    if (resumeInto?.type === "block") {
+      expect(resumeInto.resumeChildToken?.type).toBe("table");
+      if (resumeInto.resumeChildToken?.type === "table") {
+        expect(resumeInto.resumeChildToken.resumeAtRow).toBe(3);
+      }
+    }
+
+    const page1 = tree.getPage(1);
+    let table: LayoutBox | null = null;
+    for (const child of page1.children) {
+      table = findTableBox(child);
+      if (table !== null) break;
+    }
+    if (table === null || table.type !== "table") {
+      throw new Error("no table box on the continuation page");
+    }
+
+    // (1) The continuation fragment's FIRST table row is the re-laid header (row-0).
+    expect(table.children[0]?.key).toBe("row-0");
+    expect(table.children[0]?.blockOffset).toBe(0);
+    expect(table.children[0]?.blockSize).toBe(30);
+
+    // (2) The body rows are the correct continuation rows (no duplication, no
+    // skip): row-0 (header) then row-3, row-4. Rows 1,2 stay on page 0.
+    expect(table.children.map((r) => r.key)).toEqual(["row-0", "row-3", "row-4"]);
+    // The first body row starts at headerBlockSize (30).
+    expect(table.children[1]?.blockOffset).toBe(30);
+
+    // (3) The materialized fragment's TOTAL block-size equals the measure pass's
+    // reservation: headerBlockSize (30) + Σ placed body rows (2 × 30 = 60) = 90.
+    // A drift between this and the measure reservation is the exact bug class this
+    // feature must not ship.
+    expect(table.blockSize).toBe(90);
+  });
+
+  // S6.1 PROGRESS (#487 §6) — full pipeline. A continuation where the header +
+  // the next single body row exceed the fragment (`headerBlockSize +
+  // rowBlockSizes[startRow] > availableBlockSize`) must still place the header +
+  // exactly ONE overflowing body row; `resumeAtRow` strictly increases each
+  // fragment; pagination TERMINATES (finite, sane page count). CONFIRMING: the
+  // S3+S4 force-place-1 PROGRESS floor handles it; this locks measure (plan) AND
+  // materialize (getPage) agreement on the forced row through the real producer.
+  it("PROGRESS: header + one over-tall body row forces exactly ONE row per continuation; resumeAtRow strictly increases; pagination terminates", () => {
+    // Header row 20 tall; four BODY rows each 90 tall. Page content 100.
+    // Page 0 (first fragment, no reservation): header(20) fits, +body row 1 (90) =
+    // 110 > 100 ⇒ only the header row fits; break at row 1. Every CONTINUATION
+    // reserves header(20) ⇒ body budget 80 < 90 ⇒ zero body rows fit ⇒ PROGRESS
+    // forces exactly ONE 90-tall body row, advancing resumeAtRow by 1 each page.
+    // The table terminates after the last body row (no hang).
+    const root = cascadeRoot({ display: "block" }, [
+      tableWithHeaderRowHeights([20, 90, 90, 90, 90], 1),
+    ]);
+    const pageConfig = noMarginPageConfig(100);
+    const { plan, tree } = buildPlanAndTree(root, pageConfig);
+
+    // Pagination terminates with the EXACT page count: page 0 places the header
+    // row only (header 20 + body row 90 = 110 > 100), then each of the 4 body rows
+    // is force-placed one-per-continuation ⇒ exactly 5 pages. Pinning the exact
+    // count (not a loose >=2 range) is what actually proves PROGRESS terminated
+    // sanely: a broken §C.6 fallback that dumped all 4 body rows on one overflowing
+    // continuation would yield only 2 pages and fail HERE, not just at materialize.
+    expect(plan.entries.length).toBe(5);
+
+    // resumeAtRow STRICTLY increases across every continuation entry (the anti-hang
+    // guarantee — each fragment advances past exactly 1 body row). There are exactly
+    // 4 continuation resumes (rows 1,2,3,4); pinning the count makes the
+    // strictly-increases loop non-vacuous (a 1-element sequence would pass trivially).
+    const resumes = plan.entries
+      .map((e) => tableResumeAtRow(e))
+      .filter((r): r is number => r !== null);
+    expect(resumes).toEqual([1, 2, 3, 4]);
+    for (let i = 1; i < resumes.length; i++) {
+      expect(resumes[i]).toBeGreaterThan(resumes[i - 1]);
+    }
+
+    // Measure↔materialize agreement on the forced row: take a continuation page
+    // (one whose own `resumeInto` carries a table row), materialize it, and assert
+    // it emits the re-laid header + exactly ONE forced body row (the absolute row
+    // its plan resumed at), and that its block-size equals the measure reservation
+    // (header 20 + the 90-tall forced row).
+    const contIndex = plan.entries.findIndex(
+      (e, i) => i > 0 && tableResumeAtRow(e) !== null,
+    );
+    expect(contIndex).toBeGreaterThanOrEqual(1);
+    const startRow = tableResumeAtRow(plan.entries[contIndex]);
+    if (startRow === null) throw new Error("expected a table resume into the continuation page");
+
+    const contPage = tree.getPage(contIndex);
+    let contTable: LayoutBox | null = null;
+    for (const child of contPage.children) {
+      contTable = findTableBox(child);
+      if (contTable !== null) break;
+    }
+    if (contTable === null || contTable.type !== "table") {
+      throw new Error("no table box on the PROGRESS continuation page");
+    }
+    // Re-laid header (row-0) + exactly ONE forced body row (the absolute resume row).
+    expect(contTable.children.map((r) => r.key)).toEqual(["row-0", `row-${startRow}`]);
+    expect(contTable.children[0]?.blockOffset).toBe(0);
+    expect(contTable.children[0]?.blockSize).toBe(20); // header reservation
+    expect(contTable.children[1]?.blockOffset).toBe(20); // body starts below header
+    // Total = header 20 + forced 90-tall body row = 110 (overflows the 100 page —
+    // the accepted PROGRESS floor; matches the measure reservation, no drift).
+    expect(contTable.blockSize).toBe(110);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Slice S5: reuse-gate height sensitivity (#487 §5). A HEADER-cell edit changes
+// `headerBlockSize` ⇒ every continuation fragment's body-row budget changes, so
+// neither reuse gate (measure-pass `canReusePage` keyed on cascaded RenderNode
+// refs; virtual-layout `PageFingerprint` keyed on the same refs) may serve a
+// stale continuation. These tests PROVE the causal mechanism (the edit produces
+// a NEW cascaded table-node ref — the load-bearing §5/F9 propagation assumption)
+// AND the outcome (the continuation re-fits / re-materializes, no stale reuse).
+// ---------------------------------------------------------------------------
+
+/**
+ * Pull the table resume token's ABSOLUTE `resumeAtRow` off a continuation page's
+ * `resumeInto` (a top-level `block` token wrapping the table token), or null if
+ * the entry has no table continuation. Lets a test assert the body-row budget a
+ * continuation fragment actually resumes at, which is what `headerBlockSize`
+ * shifts when a header cell grows.
+ */
+function tableResumeAtRow(entry: PagePlanEntry | undefined): number | null {
+  const resumeInto = entry?.resumeInto;
+  if (resumeInto?.type !== "block") return null;
+  const inner = resumeInto.resumeChildToken;
+  if (inner?.type !== "table") return null;
+  return inner.resumeAtRow;
+}
+
+describe("VirtualLayoutTree — #487 S5 reuse-gate height sensitivity", () => {
+  // Build root A: a 5-row table, headerRowCount 1, header row 20 tall + body
+  // rows 30 tall. Page content 100 ⇒ page 0 holds rows 0(20),1(30),2(30) = 80
+  // (row 3 would be 110 > 100), so the table resumes at absolute row 3; page 1
+  // reserves the 20px header ⇒ body budget 80 ⇒ fits rows 3,4.
+  function buildShortHeaderRoot(): ElementBox {
+    return cascadeRoot({ display: "block" }, [tableWithHeaderRowHeights([20, 30, 30, 30, 30], 1)]);
+  }
+
+  // Root B simulates a HEADER-CELL edit that grows the header row to 50 tall
+  // (more content), leaving the body rows at 30. It re-builds the table with
+  // the taller, edited header so the table node is a FRESH cascaded ref —
+  // exactly what the incremental cascade emits when a header cell's content
+  // changes. Page 0 now holds rows 0(50),1(30) = 80 (row 2 would be 110 > 100),
+  // so the table resumes at absolute row 2 — a DIFFERENT boundary.
+  function buildTallHeaderRoot(): ElementBox {
+    return cascadeRoot({ display: "block" }, [
+      tableWithHeaderRowHeights([50, 30, 30, 30, 30], 1, (i) => (i === 0 ? "TALLER HEADER" : "x")),
+    ]);
+  }
+
+  it("S5.1 — header-cell edit produces a NEW table-node ref AND re-fits the continuation (measure-pass gate)", () => {
+    const pageConfig = noMarginPageConfig(100);
+
+    const rootA = buildShortHeaderRoot();
+    const { plan: planA, tree: treeA } = buildPlanAndTree(rootA, pageConfig);
+    expect(planA.entries.length).toBeGreaterThanOrEqual(2);
+
+    // Causal mechanism (1): the table node is the doc-root's first cascaded
+    // child. Capture its reference BEFORE the edit.
+    const tableNodeBefore = rootA.children[0];
+    expect(tableNodeBefore).toBeDefined();
+
+    // Edit a HEADER cell → re-cascade. Build tree B reusing treeA as the prior
+    // tree so the carry-forward memo is exercised exactly as production does.
+    const rootB = buildTallHeaderRoot();
+    const tableNodeAfter = rootB.children[0];
+
+    // (1) CAUSAL MECHANISM — the load-bearing §5/F9 assumption: a header-cell
+    // edit propagates up to a DIFFERENT cascaded table-node ref. `canReusePage`
+    // compares cascaded RenderNode refs (`rootChildren[i] !== reusable.children[i]`),
+    // so this inequality is WHY the gate refuses to reuse the stale continuation.
+    // A passing outcome with EQUAL refs would pass for the wrong reason.
+    expect(tableNodeAfter).not.toBe(tableNodeBefore);
+
+    const pcis =
+      pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
+    const metasB = buildBlockFitMetas(rootB, createMockShaper(8, 16), undefined, pcis);
+    // CRITICAL: pass `planA` as `prevPlan` so the `canReusePage` reuse path is
+    // ACTUALLY exercised. Without a reuse candidate, measurePass re-fits every page
+    // from scratch and the test would pass even if `canReusePage` were broken (it
+    // would only prove two different inputs give two different outputs). With planA
+    // as the candidate, a broken gate would stale-reuse planA's row-3 boundary and
+    // `resumeAfter` would wrongly be 3 — so the `=== 2` assertion genuinely tests
+    // that the gate REFUSED the stale page (because the table node ref changed).
+    const planB = measurePass(metasB, pageConfig, IMPLICIT_SECTION_PLAN, rootB.children, planA);
+
+    // (2) OUTCOME — the continuation RE-FITS against the new (larger)
+    // headerBlockSize. Page 0 now holds rows 0,1 only (header 50 + row 30 = 80 ≤
+    // 100; a third row would overflow), so the table resumes at absolute row 2 —
+    // NOT the row-3 boundary the short-header plan computed. The body-row budget
+    // (and therefore the page boundary) changed because the taller header eats
+    // more of every continuation fragment.
+    const resumeBefore = tableResumeAtRow(planA.entries[1]);
+    const resumeAfter = tableResumeAtRow(planB.entries[1]);
+    expect(resumeBefore).toBe(3); // short header: page 0 = rows 0,1,2
+    expect(resumeAfter).toBe(2); // tall header: page 0 = rows 0,1
+    expect(resumeAfter).not.toBe(resumeBefore);
+
+    // The whole-plan boundary count grew too (a taller header ⇒ fewer body rows
+    // per fragment ⇒ more pages) — a stale-reuse would have kept planA's shape.
+    expect(planB.entries.length).toBeGreaterThan(planA.entries.length);
+
+    // Sanity: treeA's continuation page exists for the materialize-gate test.
+    expect(treeA.getPage(1)).toBeDefined();
+  });
+
+  it("S5.2 — header-cell edit re-materializes the continuation (PageFingerprint gate, no stale paint)", () => {
+    const pageConfig = noMarginPageConfig(100);
+
+    const rootA = buildShortHeaderRoot();
+    const { tree: treeA } = buildPlanAndTree(rootA, pageConfig);
+    // Materialize every page so the carry-forward memo has candidates to reuse.
+    for (let i = 0; i < treeA.plan.entries.length; i++) treeA.getPage(i);
+
+    // The continuation page's re-laid header row is 20 tall before the edit.
+    const page1A = treeA.getPage(1);
+    let tableA: LayoutBox | null = null;
+    for (const child of page1A.children) {
+      tableA = findTableBox(child);
+      if (tableA !== null) break;
+    }
+    if (tableA === null || tableA.type !== "table") throw new Error("no table on continuation page A");
+    expect(tableA.children[0]?.key).toBe("row-0"); // re-laid header
+    expect(tableA.children[0]?.blockSize).toBe(20);
+
+    // Edit a header cell → re-cascade → build tree B with treeA as the prior
+    // tree (the carry-forward memo path). The table node's ref changed, so the
+    // PageFingerprint's `children` (cascaded child refs, reference identity)
+    // differs on every page that emits the table — including the continuation,
+    // whose re-laid header is emitted from the SAME (now-changed) cascaded table
+    // node. The fingerprint MUST flip so the stale 20px-header PageBox is not
+    // reused.
+    const rootB = buildTallHeaderRoot();
+    const pcis =
+      pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
+    const metasB = buildBlockFitMetas(rootB, createMockShaper(8, 16), undefined, pcis);
+    const planB = measurePass(metasB, pageConfig, IMPLICIT_SECTION_PLAN, rootB.children);
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
+    const treeB = makeVirtualLayoutTree(planB, rootB, ctx, createMockShaper(8, 16), pageConfig, treeA);
+
+    // The continuation is NOT reused by reference (fingerprint flipped).
+    expect(treeB.getPage(1)).not.toBe(treeA.getPage(1));
+
+    // And it RE-MATERIALIZES with the edited (taller) header — no stale paint.
+    const page1B = treeB.getPage(1);
+    let tableB: LayoutBox | null = null;
+    for (const child of page1B.children) {
+      tableB = findTableBox(child);
+      if (tableB !== null) break;
+    }
+    if (tableB === null || tableB.type !== "table") throw new Error("no table on continuation page B");
+    // Re-laid header at the top reflects the edit: 50 tall now (not the stale 20).
+    expect(tableB.children[0]?.key).toBe("row-0");
+    expect(tableB.children[0]?.blockOffset).toBe(0);
+    expect(tableB.children[0]?.blockSize).toBe(50);
+    // Body rows now start at the new headerBlockSize (50), proving the
+    // continuation was re-fit + re-materialized, not stale-reused.
+    expect(tableB.children[1]?.blockOffset).toBe(50);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -353,7 +704,7 @@ describe("VirtualLayoutTree — carry-forward memo", () => {
       children: Object.freeze(sharedChildren),
     };
     const pcis = pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
-    const metasB = buildBlockFitMetas(rootBShared, createMockShaper(8, 16), pcis);
+    const metasB = buildBlockFitMetas(rootBShared, createMockShaper(8, 16), undefined, pcis);
     const planB = measurePass(metasB, pageConfig, IMPLICIT_SECTION_PLAN, rootBShared.children);
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
     const treeB = makeVirtualLayoutTree(planB, rootBShared, ctx, createMockShaper(8, 16), pageConfig, treeA);
@@ -384,7 +735,7 @@ describe("VirtualLayoutTree — carry-forward memo", () => {
       children: rootA.children,
     };
     const pcis = cfgB.pageInlineSize - cfgB.pageMargins.inlineStart - cfgB.pageMargins.inlineEnd;
-    const metasB = buildBlockFitMetas(rootBShared, createMockShaper(8, 16), pcis);
+    const metasB = buildBlockFitMetas(rootBShared, createMockShaper(8, 16), undefined, pcis);
     const planB = measurePass(metasB, cfgB, IMPLICIT_SECTION_PLAN, rootBShared.children);
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, cfgB.pageInlineSize);
     const treeB = makeVirtualLayoutTree(planB, rootBShared, ctx, createMockShaper(8, 16), cfgB, treeA);
@@ -431,6 +782,7 @@ describe("VirtualLayoutTree — carry-forward memo", () => {
       pageIndexOfBlock: planA.pageIndexOfBlock.bind(planA),
       pageSpanOfBlock: planA.pageSpanOfBlock.bind(planA),
       pageIndexOfTemplateBlock: planA.pageIndexOfTemplateBlock.bind(planA),
+      pageIndexOfFootnoteBlock: planA.pageIndexOfFootnoteBlock.bind(planA),
     };
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
     const treeB = makeVirtualLayoutTree(planB, rootA, ctx, createMockShaper(8, 16), pageConfig, treeA);
@@ -476,6 +828,7 @@ describe("VirtualLayoutTree — carry-forward memo", () => {
       pageIndexOfBlock: planA.pageIndexOfBlock.bind(planA),
       pageSpanOfBlock: planA.pageSpanOfBlock.bind(planA),
       pageIndexOfTemplateBlock: planA.pageIndexOfTemplateBlock.bind(planA),
+      pageIndexOfFootnoteBlock: planA.pageIndexOfFootnoteBlock.bind(planA),
     };
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
     const treeB = makeVirtualLayoutTree(planB, rootA, ctx, createMockShaper(8, 16), pageConfig, treeA);
@@ -483,6 +836,66 @@ describe("VirtualLayoutTree — carry-forward memo", () => {
     // Page 0's cap changed ⇒ NOT reused (re-materialized with the cap).
     expect(treeB.getPage(0)).not.toBe(treeA.getPage(0));
     // A later page with an unchanged (still-null) cap ⇒ still reused by ref.
+    const laterUnchanged = planA.entries.length - 1;
+    expect(treeB.getPage(laterUnchanged)).toBe(treeA.getPage(laterUnchanged));
+  });
+
+  it("a page whose columnConfig changed is NOT reused (multi-column wiring T2 fingerprint)", () => {
+    // The effective multi-column config is applied at POSITIONING time (once
+    // T3+ land, materializePage builds a MultiColumnBox), so two entries with
+    // identical children/resume tokens but different `columnConfig` produce
+    // DIFFERENT PageBoxes. A SET_SECTION_COLUMNS (slice 5) flips a section's
+    // column count while leaving its body refs unchanged — without
+    // `columnConfig` in the fingerprint the memo would reuse the prior box and
+    // never re-distribute the columns. This proves the fingerprint guard fires.
+    const pageConfig = noMarginPageConfig(300, 600);
+    const childrenA = Array.from({ length: 6 }, (_, i) => fixedBlock(`b${i}`, 100));
+    const rootA = cascadeRoot({ display: "block" }, childrenA);
+    const { plan: planA, tree: treeA } = buildPlanAndTree(rootA, pageConfig);
+    expect(planA.entries.length).toBeGreaterThanOrEqual(2);
+    // Baseline (IMPLICIT_SECTION_PLAN) ⇒ every page is single-column.
+    expect(planA.entries.every((e) => e.columnConfig === DEFAULT_COLUMN_CONFIG)).toBe(true);
+    for (let i = 0; i < planA.entries.length; i++) treeA.getPage(i);
+
+    // Tree B's plan = tree A's plan with page 0's columnConfig flipped 1 → 2
+    // columns; every other field — children refs, resume tokens, offsets,
+    // dimensions, list seed, cap — byte-for-byte identical, built against the
+    // SAME rootA. The ONLY fingerprint delta is page 0's column config. T5
+    // materializes the MultiColumnBox, so the flipped entry must carry the same
+    // `columnFit` + `balancedColumnHeight` the measure pass would stamp for a real
+    // 2-column page-0 (otherwise materialization has no per-column distribution).
+    const metasA = buildBlockFitMetas(rootA, createMockShaper(8, 16), undefined, pageConfig.pageInlineSize);
+    const page0Height = planA.entries[0].pageConfig.pageBlockSize; // no margins
+    const balancedHeight = balanceColumnHeight(metasA, 0, planA.entries[0].resumeInto, 2, 1, page0Height);
+    const page0ColumnFit = fitColumnsOnPage(metasA, 0, planA.entries[0].resumeInto, balancedHeight, 2, 1);
+    const entriesB: PagePlanEntry[] = planA.entries.map((e) =>
+      e.pageIndex === 0
+        ? {
+            ...e,
+            columnConfig: { columnCount: 2, columnGap: 48, columnRule: null },
+            columnFit: page0ColumnFit,
+            balancedColumnHeight: balancedHeight,
+          }
+        : e,
+    );
+    const planB: PagePlan = {
+      entries: entriesB,
+      sectionPlan: planA.sectionPlan,
+      totalBlockSize: planA.totalBlockSize,
+      pageInlineSize: planA.pageInlineSize,
+      pageContentBlockSize: planA.pageContentBlockSize,
+      pageIndexAtBlockOffset: planA.pageIndexAtBlockOffset.bind(planA),
+      pageIndexOfBlock: planA.pageIndexOfBlock.bind(planA),
+      pageSpanOfBlock: planA.pageSpanOfBlock.bind(planA),
+      pageIndexOfTemplateBlock: planA.pageIndexOfTemplateBlock.bind(planA),
+      pageIndexOfFootnoteBlock: planA.pageIndexOfFootnoteBlock.bind(planA),
+    };
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
+    const treeB = makeVirtualLayoutTree(planB, rootA, ctx, createMockShaper(8, 16), pageConfig, treeA);
+
+    // Page 0's column config changed ⇒ NOT reused.
+    expect(treeB.getPage(0)).not.toBe(treeA.getPage(0));
+    // A later page with unchanged (still single-column) config ⇒ still reused.
     const laterUnchanged = planA.entries.length - 1;
     expect(treeB.getPage(laterUnchanged)).toBe(treeA.getPage(laterUnchanged));
   });
@@ -505,7 +918,7 @@ describe("VirtualLayoutTree — carry-forward memo", () => {
       children: rootA.children,
     };
     const pcis = pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
-    const metasB = buildBlockFitMetas(rootBShared, createMockShaper(8, 16), pcis);
+    const metasB = buildBlockFitMetas(rootBShared, createMockShaper(8, 16), undefined, pcis);
     const planB = measurePass(metasB, pageConfig, IMPLICIT_SECTION_PLAN, rootBShared.children);
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
     const treeB = makeVirtualLayoutTree(planB, rootBShared, ctx, createMockShaper(8, 16), pageConfig, treeA);
@@ -600,7 +1013,7 @@ describe("VirtualLayoutTree — per-entry page geometry (C.2b-2)", () => {
     expect(p1.children[0]?.blockOffset).toBe(tallCfg.pageMargins.blockStart);
   });
 
-  it("tree.blockSize and materializeAll().blockSize equal the running-sum totalBlockSize (mixed heights)", () => {
+  it("tree.blockSize / tree.inlineSize equal the running-sum totalBlockSize + doc-wide inline (mixed heights)", () => {
     const docWide = noMarginPageConfig(300, 600, 20);
     const children = Array.from({ length: 6 }, (_, i) => fixedBlock(`b${i}`, 100));
     const root = cascadeRoot({ display: "block" }, children);
@@ -623,9 +1036,8 @@ describe("VirtualLayoutTree — per-entry page geometry (C.2b-2)", () => {
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, docWide.pageInlineSize);
     const tree = makeVirtualLayoutTree(planB, root, ctx, createMockShaper(8, 16), docWide);
     expect(tree.blockSize).toBe(expectedTotal);
-    expect(tree.materializeAll().blockSize).toBe(expectedTotal);
-    // The outer BlockBox keeps the doc-wide inline-size (bridge contract).
-    expect(tree.materializeAll().inlineSize).toBe(docWide.pageInlineSize);
+    // The tree keeps the doc-wide inline-size.
+    expect(tree.inlineSize).toBe(docWide.pageInlineSize);
   });
 
   it("carry-forward refuses a page whose pageConfig changed; an unchanged page still reuses", () => {
@@ -705,7 +1117,7 @@ describe("VirtualLayoutTree — cascaded template-body map threading (C.2c T3)",
     const children = Array.from({ length: 6 }, (_, i) => fixedBlock(`b${i}`, 100));
     const root = cascadeRoot({ display: "block" }, children);
     const pageContentInlineSize = pageConfig.pageInlineSize;
-    const metas = buildBlockFitMetas(root, createMockShaper(8, 16), pageContentInlineSize);
+    const metas = buildBlockFitMetas(root, createMockShaper(8, 16), undefined, pageContentInlineSize);
     const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children);
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
 
@@ -734,7 +1146,7 @@ describe("VirtualLayoutTree — cascaded template-body map threading (C.2c T3)",
     const root = cascadeRoot({ display: "block" }, children);
     const pageContentInlineSize =
       pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
-    const metas = buildBlockFitMetas(root, createMockShaper(8, 16), pageContentInlineSize);
+    const metas = buildBlockFitMetas(root, createMockShaper(8, 16), undefined, pageContentInlineSize);
     const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children);
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
 
@@ -770,7 +1182,7 @@ describe("VirtualLayoutTree — header/footer slot layout (C.2c T4)", () => {
     const children = Array.from({ length: 6 }, (_, i) => fixedBlock(`b${i}`, 100));
     const root = cascadeRoot({ display: "block" }, children);
     const pcis = cfg.pageInlineSize - cfg.pageMargins.inlineStart - cfg.pageMargins.inlineEnd;
-    const metas = buildBlockFitMetas(root, createMockShaper(8, 16), pcis);
+    const metas = buildBlockFitMetas(root, createMockShaper(8, 16), undefined, pcis);
     const plan = measurePass(metas, cfg, IMPLICIT_SECTION_PLAN, root.children);
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, cfg.pageInlineSize);
     return { root, plan, ctx };

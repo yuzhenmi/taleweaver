@@ -9,7 +9,7 @@
 // the property virtualization depends on: any page can be positioned in
 // isolation, identically to the sequential paginator.
 //
-// `getPage(i)` deep-equals `paginateRoot`'s page `i`; `materializeAll()`
+// `getPage(i)` deep-equals `paginateRoot`'s page `i`. The whole-tree-positioning
 // deep-equals `paginateRoot`'s whole tree. The equivalence suite
 // (`virtual-layout-tree.test.ts`) guards this against any drift — `paginateRoot`
 // is the oracle.
@@ -24,9 +24,11 @@ import type { ElementBox } from "../render/render-node";
 import type { BlockId } from "../state";
 import type { LayoutContext } from "./layout-context";
 import type { TextShaper } from "./text-shaper";
+import type { Hyphenator } from "./hyphenator";
 import type { PageConfig } from "./page-config";
-import type { BlockBox, LayoutBox } from "./layout-box";
-import { createBlockBox, createMarkerBox } from "./layout-box";
+import type { BlockBox, LayoutBox, MultiColumnBox } from "./layout-box";
+import { createBlockBox, createMarkerBox, createMultiColumnBox } from "./layout-box";
+import { physicalizeVertical } from "./physicalize-vertical";
 import { adaptShaperToMeasurer } from "./text-measurer";
 import type { PageBox } from "./page-box";
 import { createPageBox } from "./page-box";
@@ -35,9 +37,15 @@ import { computeUsedStyle } from "./used-style";
 import type { ComputedStyle, UsedStyle } from "../styles";
 import type { PagePlan, PagePlanEntry, FootnoteContinuation } from "./measure-pass";
 import type { BreakToken } from "./fragmentation";
+import { breakTokensEqual } from "./fragmentation";
 import { pageConfigsEqual } from "./section-plan";
+import { columnConfigsEqual, type ColumnConfig } from "./column-config";
 import { isDevMode } from "./dev-mode";
 import { FOOTNOTE_SEPARATOR_HEIGHT, FOOTNOTE_MARKER_GAP, footnoteMarkerGutter } from "./resolve-footnotes";
+import type { FieldSpec } from "./collect-page-fields";
+import { substituteLayoutFields } from "./substitute-layout-fields";
+import { patchRootFieldWidths } from "./patch-field-widths";
+import { formatCounter } from "../styles/format-counter";
 
 /**
  * A virtualized layout result. Discriminated from the legacy positioned
@@ -68,23 +76,18 @@ export interface VirtualLayoutTree {
   getPage(pageIndex: number): PageBox;
   /** `getPage(from..to)`, inclusive, clamped to `[0, lastPage]`. */
   getPages(from: number, to: number): PageBox[];
-  /**
-   * Build the legacy outer `BlockBox` whose children are `getPage(0..N-1)`,
-   * sized exactly as `paginateRoot`'s outer box. Lets Phase-2 consumers/tests
-   * that expect the positioned tree run unchanged.
-   */
-  materializeAll(): BlockBox;
 }
 
 // ---------------------------------------------------------------------------
 // Test-only instrumentation: count per-page `layoutBlock` DRIVER invocations.
 //
-// `getPage` invokes `layoutBlock(root, …)` exactly once per page it positions
-// (the top-level per-page driver call — recursion into children is internal).
+// `getPage` invokes `layoutBlock(root, …)` once per SINGLE-COLUMN page it
+// positions (the top-level per-page driver call — recursion into children is
+// internal). A MULTICOL page (Task 5) drives it N times — once per column track.
 // The Phase-2 guard test asserts that calling only `getPage(19)` on a 20-page
-// tree drives layout ONCE, not 20 times — i.e. positioning page 19 does NOT
-// position pages 0–18. Production code pays one integer increment per page it
-// actually materializes.
+// SINGLE-COLUMN tree drives layout ONCE, not 20 times — i.e. positioning page 19
+// does NOT position pages 0–18. Production code pays one integer increment per
+// per-page body driver call it actually materializes (N for a multicol page).
 // ---------------------------------------------------------------------------
 
 let _getPageDriverCount = 0;
@@ -126,6 +129,25 @@ interface PageFingerprint {
    * earlier sections (unchanged config) still carry forward.
    */
   readonly pageConfig: PageConfig;
+  /**
+   * The effective multi-column config this page was POSITIONED with (see
+   * `PagePlanEntry.columnConfig`). MUST participate in the fingerprint: a
+   * column-count / gap / rule change re-materializes the `MultiColumnBox` (and,
+   * once T3+ land, changes the page's column distribution). Compared via
+   * `columnConfigsEqual` (deep — `columnConfigsEqual` covers count/gap/rule).
+   * INERT until T3 makes a multicol page lay out differently; until then it is
+   * always the resolved default and never flips, so it adds no reuse misses.
+   */
+  readonly columnConfig: ColumnConfig;
+  /**
+   * The actual per-column rendered height this page was POSITIONED with (see
+   * `PagePlanEntry.balancedColumnHeight`). MUST participate in the fingerprint:
+   * `materializePage` lays each column into this height, so a final-page balance
+   * change (FILL height → balanced height) produces a DIFFERENT MultiColumnBox even
+   * when the children/resume tokens / columnConfig are unchanged. Compared by `===`
+   * (a plain number).
+   */
+  readonly balancedColumnHeight: number;
   /**
    * The section page-break cap this page was POSITIONED with (see
    * `PagePlanEntry.stopBeforeIndex`). MUST participate in the fingerprint:
@@ -209,6 +231,20 @@ interface PageFingerprint {
    * `undefined` for an id absent from `embedBodies`.
    */
   readonly footnoteContinuationBodies: readonly (ElementBox | undefined)[];
+  /**
+   * The per-page resolved PAGE-FIELD value strings this page's header/footer slots
+   * display (F-2). Computed in spec order over the TEMPLATE field specs: a
+   * `page-number` field's value is `formatCounter(pageIndex + 1, …)` (varies per
+   * page), a `page-count`/global field's is its `globalFieldValues` entry (same
+   * everywhere). MUST participate so a page whose field VALUE changed re-materializes
+   * even though the cascaded body REF (the structural signal `headerBody`/`footerBody`)
+   * is UNCHANGED: e.g. the doc grew a page so a later page's number shifted, or the
+   * total page-count changed. The body ref is kept as the structural signal (it never
+   * sees the substituted clone); this string array is the VALUE signal. Empty ⇒ no
+   * template page-fields ⇒ field-free pages stay byte-identical. Compared element-wise
+   * (string ===) via `childrenRefsEqual`.
+   */
+  readonly pageFieldValues: readonly string[];
 }
 
 /**
@@ -235,18 +271,6 @@ function footnoteContinuationsEqual(
 }
 
 /** Structural break-token equality (references differ across measure cycles). */
-function breakTokensEqual(a: BreakToken | null, b: BreakToken | null): boolean {
-  if (a === b) return true;
-  if (a === null || b === null) return false;
-  if (a.type !== b.type) return false;
-  if (a.type === "block" && b.type === "block") {
-    return a.resumeChildIndex === b.resumeChildIndex && breakTokensEqual(a.resumeChildToken, b.resumeChildToken);
-  }
-  if (a.type === "ifc" && b.type === "ifc") return a.resumeAtLine === b.resumeAtLine;
-  if (a.type === "table" && b.type === "table") return a.resumeAtRow === b.resumeAtRow;
-  return false;
-}
-
 function childrenRefsEqual(a: readonly unknown[], b: readonly unknown[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
@@ -255,11 +279,16 @@ function childrenRefsEqual(a: readonly unknown[], b: readonly unknown[]): boolea
   return true;
 }
 
+/** Shared empty array for the field-free-doc fingerprint (stable ref, byte-identical). */
+const EMPTY_PAGE_FIELD_VALUES: readonly string[] = Object.freeze([]);
+
 function fingerprintsEqual(a: PageFingerprint, b: PageFingerprint): boolean {
   return (
     a.blockOffset === b.blockOffset &&
     a.listCounterAtStart === b.listCounterAtStart &&
     pageConfigsEqual(a.pageConfig, b.pageConfig) &&
+    columnConfigsEqual(a.columnConfig, b.columnConfig) &&
+    a.balancedColumnHeight === b.balancedColumnHeight &&
     a.stopBeforeIndex === b.stopBeforeIndex &&
     a.headerBlockId === b.headerBlockId &&
     a.footerBlockId === b.footerBlockId &&
@@ -282,7 +311,10 @@ function fingerprintsEqual(a: PageFingerprint, b: PageFingerprint): boolean {
     ) &&
     childrenRefsEqual(a.children, b.children) &&
     breakTokensEqual(a.resumeInto, b.resumeInto) &&
-    breakTokensEqual(a.resumeOut, b.resumeOut)
+    breakTokensEqual(a.resumeOut, b.resumeOut) &&
+    // F-2: a page-field VALUE change (page-number shifted across pages, or
+    // page-count changed) busts the reuse even when the body refs are unchanged.
+    childrenRefsEqual(a.pageFieldValues, b.pageFieldValues)
   );
 }
 
@@ -323,11 +355,36 @@ export function makeVirtualLayoutTree(
   // any tree built before FN-4 also reads back its own `plan` via the fallback.
   rawPlan: PagePlan = plan,
   // FN-6.4 slice 1: each footnote body (`contentBlockId`) → the page index its
-  // anchor reference lands on (the `footnoteNumbers` `pageAssignment` shape).
-  // Computed by the producer from the RAW plan + anchors and stored on the tree
-  // (`footnoteAnchorPages`) for post-layout consumers. Defaults to an empty map
-  // (footnote-free doc).
+  // anchor reference marker RENDERS on (the `footnoteNumbers` `pageAssignment`
+  // shape). Computed by the producer from the RESOLVED plan + anchors (audit F2:
+  // footnote-slot eviction can move an anchor past its raw-plan page) and stored on
+  // the tree (`footnoteAnchorPages`) for post-layout consumers. Defaults to an empty
+  // map (footnote-free doc).
   footnoteAnchorPages: ReadonlyMap<BlockId, number> = new Map(),
+  // F-2 (layout-dependent fields): the page-field specs (from `collectPageFields`)
+  // + the resolved document-global values (from `resolvePageFields`). Captured in
+  // the closure so `materializePage` substitutes each header/footer page-field
+  // placeholder with its per-page value before slot layout (self-page page-number
+  // = pageIndex+1; global page-count = `globalFieldValues`), and `fingerprintOf`
+  // folds the per-page value strings so a value change busts the carry-forward
+  // even when the cascaded body ref is unchanged. Default empty ⇒ field-free docs
+  // are byte-identical.
+  fieldSpecs: readonly FieldSpec[] = [],
+  globalFieldValues: ReadonlyMap<string, string> = new Map(),
+  // R-F6: each MAIN-BODY layout field's final effective width (grown-or-reserved), by render
+  // key — the IDENTICAL widths the converged measure pass sized the body cross-ref atoms at.
+  // Used to width-patch the body root BEFORE substituting the real text, so materialize and
+  // measure size each atom byte-identically (no narrower-than-reservation value lets a
+  // page/column fit more children than the plan assigned ⇒ no cross-boundary duplication).
+  // Defaulted empty so existing callers/tests stay byte-identical (the patch is a ref-equal
+  // no-op for an empty map).
+  mainBodyFieldWidths: ReadonlyMap<string, number> = new Map(),
+  // Auto-hyphenation (slice 2): threaded ALONGSIDE `shaper` and captured in the
+  // closure so each per-page `getPage` `layoutBlock` (body + header/footer +
+  // footnote slot) lays out with the same hyphenation inputs the measure pass
+  // used. Trailing + optional so existing callers/tests stay valid. `undefined`
+  // ⇒ none. Carried but UNUSED in this slice.
+  hyphenator?: Hyphenator,
 ): VirtualLayoutTree {
   const margins = pageConfig.pageMargins;
   const pageContentBlockSize =
@@ -370,6 +427,94 @@ export function makeVirtualLayoutTree(
   // body refs as the slot's change signal. Empty for a footnote-free doc.
   const embedBodies = cascadedEmbedContents;
 
+  // F-2: the page-field specs + resolved global values, captured for
+  // `materializePage` (substitution) and `fingerprintOf` (value fold). Only
+  // TEMPLATE (header/footer) fields appear on EVERY page, so only they contribute
+  // to the per-page fingerprint value array; a `host:"main"` field appears on just
+  // its own page and is page-scoped in F-3 (none exist in F-2). `pageGlobalFieldValues`
+  // is passed whole to `substituteLayoutFields` (it reads the global value for a
+  // page-count and ignores the rest; page-number is computed from `pageIndex`).
+  const pageGlobalFieldValues = globalFieldValues;
+  const templateFieldSpecs = fieldSpecs.filter((s) => s.host === "template");
+  const mainBodyFieldSpecs = fieldSpecs.filter((s) => s.host === "main");
+
+  // §4.10 + R-F6: prepare the main-body root for per-page layout ONCE — width-patch each body
+  // cross-ref atom to its final reservation, THEN substitute the GLOBAL field values.
+  //
+  // R-F6 (width-patch FIRST): `mainBodyFieldWidths` carries each body field's grown-or-reserved
+  // width — IDENTICAL to what the converged measure pass used (virtual-producer.ts threads the
+  // SAME merged map into both the measure-pass `patchRootFieldWidths` and here). Sizing the atom
+  // to the reservation (not shrink-to-fit the real value) makes materialize and measure size it
+  // byte-identically: a value NARROWER than its 2-glyph reservation (the common single-digit
+  // page-ref) can no longer let a page/column fit more children at materialize than the plan
+  // assigned (cross-boundary content duplication). `patchRootFieldWidths` returns `cascadedRoot`
+  // unchanged for an empty map (field-free doc) ⇒ `substitutedRoot === cascadedRoot` ⇒
+  // byte-identical to the pre-feature path.
+  //
+  // §4.10 (substitute SECOND): cross-ref-page values don't vary per page — the target's page is
+  // global — so substitute once here, not per page. `pageIndex` is 0 but only used by per-page
+  // page-number substitution, which (per the R-F5 invariant below) cannot occur in the main body.
+  // R-F5 invariant: the ONLY main-body layout field is cross-ref-page (a GLOBAL value).
+  // page-number/page-count are gated to template bodies by INSERT_PAGE_NUMBER/COUNT, so a
+  // main-body page-number — which the pageIndex-0 substitution would wrongly stamp "1" —
+  // cannot occur; assert it in dev.
+  if (isDevMode()) {
+    for (const s of mainBodyFieldSpecs) {
+      if (s.fieldType !== "cross-ref-page") {
+        throw new Error(
+          `makeVirtualLayoutTree: unexpected main-body field type "${s.fieldType}" — only the global cross-ref-page field may appear in the main body (page-number/page-count are template-only)`,
+        );
+      }
+    }
+  }
+  const substitutedRoot = substituteLayoutFields(
+    patchRootFieldWidths(cascadedRoot, mainBodyFieldWidths),
+    0,
+    pageGlobalFieldValues,
+  );
+
+  /**
+   * The per-page page-field value strings (F-2 fingerprint fold), in
+   * `templateFieldSpecs` order: page-number → `formatCounter(pageIndex+1, …)`;
+   * page-count/global → its `globalFieldValues` entry (or "" if unresolved). A
+   * stable, deterministic array per page; an empty result for a field-free doc.
+   */
+  function pageFieldValuesForFingerprint(pageIndex: number): readonly string[] {
+    const templateValues = templateFieldSpecs.map((s) =>
+      s.fieldType === "page-number"
+        ? formatCounter(pageIndex + 1, s.numberStyle)
+        // When a page-count global value is absent, `substituteLayoutFields` returns the
+        // node UNCHANGED (no-op, placeholder kept) — so two trees with the same absent
+        // field must produce the same fingerprint string to permit reuse. "" is the
+        // sentinel for that (never a real page-count value); the no-op-substitution and
+        // the ""-fold are the matching pair of that invariant.
+        : pageGlobalFieldValues.get(s.embedKey) ?? "",
+    );
+    // §4.9: main-body fields appear on only the page(s) hosting their block — fold their
+    // value in for those pages so the host page re-materializes when the target's resolved
+    // page (the value) changes. A target moving pages thus busts the carry-forward for the
+    // page that displays the ref.
+    //
+    // Cross-tree-stability contract (why the element-wise fold is sound):
+    //   - `mainBodyFieldSpecs` is a `filter` over the deterministic `fieldSpecs` tree walk,
+    //     so the PREV and CURRENT tree's closures iterate it in IDENTICAL order — the
+    //     per-page value array lines up element-for-element across trees.
+    //   - the `span.first <= pageIndex <= span.last` guard includes the value on EVERY host
+    //     page of a multi-page block, so both trees fold the same specs on the same pages.
+    //   - therefore the cross-tree `childrenRefsEqual` fingerprint compare in `getPage` is a
+    //     valid element-wise compare; and a target moving pages changes the value STRING →
+    //     the fingerprint differs → the host page re-materializes (no stale value reuse).
+    const mainValues: string[] = [];
+    for (const spec of mainBodyFieldSpecs) {
+      const span = plan.pageSpanOfBlock(spec.hostBlockId);
+      if (span !== null && span.first <= pageIndex && pageIndex <= span.last) {
+        mainValues.push(pageGlobalFieldValues.get(spec.embedKey) ?? "");
+      }
+    }
+    if (templateValues.length === 0 && mainValues.length === 0) return EMPTY_PAGE_FIELD_VALUES;
+    return Object.freeze([...templateValues, ...mainValues]);
+  }
+
   // C.2c (T4): the per-page fingerprint. MOVED into the closure (from top level)
   // so it can resolve a page's header/footer body REFERENCE off `templateBodies`
   // — the slot's change signal. The cross-tree compare in `getPage` works
@@ -388,6 +533,8 @@ export function makeVirtualLayoutTree(
       blockOffset: entry.blockOffset,
       listCounterAtStart: entry.listCounterAtStart,
       pageConfig: entry.pageConfig,
+      columnConfig: entry.columnConfig,
+      balancedColumnHeight: entry.balancedColumnHeight,
       stopBeforeIndex: entry.stopBeforeIndex,
       headerBlockId,
       footerBlockId,
@@ -406,6 +553,11 @@ export function makeVirtualLayoutTree(
       footnoteContinuationBodies: entry.footnoteContinuation.map((c) =>
         embedBodies.get(c.contentBlockId),
       ),
+      // F-2: the per-page page-field value strings (the VALUE signal; the body REF
+      // above is the STRUCTURAL signal). A value change (doc grew a page → a later
+      // page's number shifts, or page-count changed) busts the reuse even though the
+      // cascaded body ref is unchanged.
+      pageFieldValues: pageFieldValuesForFingerprint(entry.pageIndex),
     };
   }
 
@@ -520,36 +672,174 @@ export function makeVirtualLayoutTree(
     // correctness comes first. `getPage` runs the SAME per-page driver call
     // paginateRoot runs (paginate.ts:213–220), seeded from the PLAN's
     // resumeInto — NOT a sequential previous-page break.
-    _getPageDriverCount++;
-    const { box } = layoutBlock(
-      cascadedRoot,
-      effMargins.inlineStart,
-      // Body origin (#328): the EFFECTIVE top inset, not the raw margin — a tall
-      // header has grown `effectiveTopInset` past `blockStart`, pushing the body
-      // down. For a no-slot page this equals `effMargins.blockStart`.
-      effTopInset,
-      effContentCtx,
-      shaper,
-      {
-        availableBlockSize: effContentBlockSize,
-        pageIndex,
-        resumeFrom: entry.resumeInto,
-        // Section cap (C.2b-1): honor the SAME `stopBeforeIndex` the plan's
-        // `fitOnePage` applied to this page, so positioning stops before the
-        // next section's leading block instead of greedily filling the leftover
-        // room with it. `null` (no next boundary) ⇒ `undefined` ⇒ no cap.
-        stopBeforeIndex: entry.stopBeforeIndex ?? undefined,
-      },
-    );
+    // Multi-column body construction (T5). Build the page's `MultiColumnBox` by
+    // laying the SAME cascaded root into N side-by-side column tracks, each at the
+    // per-column slice the measure pass (`fitColumnsOnPage`) computed. The result
+    // flows downstream EXACTLY like the single-column body box: it becomes
+    // `bodyChildren`, the page's content child, and every box-walker (paint,
+    // `collectLineBoxes`, `physicalizeVertical`, dirty-detect) already has a
+    // "multicolumn" arm descending `columns` (slice 2b).
+    const materializeMultiColumnBody = (
+      mcEntry: PagePlanEntry,
+      cap: number | undefined,
+    ): MultiColumnBox => {
+      // `columnFit` is REQUIRED for a multicol entry (the measure pass stamps it
+      // whenever `columnConfig.columnCount > 1`); its absence is a producer bug.
+      const columnFit = mcEntry.columnFit;
+      if (columnFit === undefined) {
+        throw new Error(
+          `materializePage: multicol page ${pageIndex} (columnCount=` +
+            `${mcEntry.columnConfig.columnCount}) is missing columnFit — the measure ` +
+            `pass must stamp per-column distribution for every multicol page.`,
+        );
+      }
+      const N = mcEntry.columnConfig.columnCount;
+      const gap = mcEntry.columnConfig.columnGap;
+      // Equal track width: the content area minus the (N−1) inter-column gaps,
+      // split N ways (the Google-Docs uniform-column model).
+      const trackInlineSize = (effContentInlineSize - (N - 1) * gap) / N;
+      // Each column is laid into `balancedColumnHeight` (FILL pages: the full body
+      // block-size; the section's final page: the balanced height) — the SAME
+      // per-column height the measure pass distributed against.
+      const columnHeight = mcEntry.balancedColumnHeight;
+      const columnBoxes: BlockBox[] = [];
+      for (let k = 0; k < N; k++) {
+        const fit = columnFit.columns[k];
+        // Column offsets are RELATIVE to the MultiColumnBox's OWN frame (#497):
+        // the paint renderer + line collector descend each column from the MC box's
+        // absolute origin (which already carries `effMargins.inlineStart` /
+        // `effTopInset`) and ADD the column's `inlineOffset`/`blockOffset`. So the
+        // column's inline-offset is just `k` tracks + gaps from the MC frame origin
+        // (column 0 at 0), and its block-offset is 0 (columns start at the MC box
+        // top). Storing absolute page coords here double-counted the page margin —
+        // the first column rendered at 2× the inline margin + 2× the top inset.
+        const columnInlineStart = k * (trackInlineSize + gap);
+        _getPageDriverCount++;
+        const { box: rawColBox, breakToken: colBreakToken } = layoutBlock(
+          // §4.10: lay the GLOBAL-value-substituted body root so a body cross-ref
+          // renders its resolved page number (== cascadedRoot for a field-free body).
+          substitutedRoot,
+          columnInlineStart,
+          0,
+          // Override ONLY the inline size to the track width (mirrors the per-page
+          // inline override at the `effContentCtx` computation above — there is no
+          // `makeChildContext` helper in this scope).
+          { ...effContentCtx, containingInlineSize: trackInlineSize },
+          shaper,
+          hyphenator,
+          {
+            availableBlockSize: columnHeight,
+            pageIndex,
+            // Each column resumes from the inner BFC token the measure pass seeded
+            // it with (column 0's is the page's `resumeInto` unwrapped, set inside
+            // `fitColumnsOnPage`; NEVER a column token).
+            resumeFrom: fit.resumeInto,
+            stopBeforeIndex: cap,
+          },
+        );
+        // Measure↔materialize agreement (the classic virtualized-layout hazard): a
+        // column must materialize EXACTLY the slice the measure pass planned. The
+        // resume-out token is the precise, partial-fragment-aware signal of "where
+        // this column stopped" — comparing it to the planned `ColumnFit.resumeOut`
+        // catches any drift (wrong start index, wrong height, wrong cap) that a raw
+        // child-COUNT compare would miss (`childrenCount` counts only WHOLE consumed
+        // children, so a leading/trailing partial fragment makes the box's
+        // `children.length` ambiguous). Dev-only throw; prod never pays.
+        if (isDevMode() && !breakTokensEqual(colBreakToken, fit.resumeOut)) {
+          throw new Error(
+            `materializePage: multicol page ${pageIndex} column ${k} materialized a ` +
+              `resume token that disagrees with the measure pass's planned ColumnFit ` +
+              `(measure-vs-materialize drift) — startIndex=${fit.startIndex}, ` +
+              `columnHeight=${columnHeight}.`,
+          );
+        }
+        // An empty (content-exhausted) column yields a `null` box — produce an
+        // EMPTY column `BlockBox` (zero children, `blockSize: 0`) at the column's
+        // MC-frame-relative inline/block origin (block = 0, #497) so geometry +
+        // paint stay uniform across all N columns.
+        const colBox =
+          rawColBox ??
+          createBlockBox(
+            `${cascadedRoot.key}-mc-p${pageIndex}-col${k}`,
+            columnInlineStart,
+            0,
+            trackInlineSize,
+            0,
+            ctx.writingMode,
+            ctx.direction,
+            rootComputed,
+            effRootUsedStyle,
+            [],
+            trackInlineSize,
+          );
+        columnBoxes.push(colBox);
+      }
+      // The MultiColumnBox spans the FULL content inline width at the content
+      // origin; its block-size is the ACTUAL rendered column height
+      // (`balancedColumnHeight`), NOT `effContentBlockSize` — they differ for a
+      // short FILL/balanced page (M-2).
+      return createMultiColumnBox(
+        `${cascadedRoot.key}-mc-p${pageIndex}`,
+        effMargins.inlineStart,
+        effTopInset,
+        effContentInlineSize,
+        columnHeight,
+        ctx.writingMode,
+        ctx.direction,
+        rootComputed,
+        effRootUsedStyle,
+        columnBoxes,
+        entry.columnConfig.columnRule,
+        effContentInlineSize,
+      );
+    };
+
+    // Section cap (C.2b-1): honor the SAME `stopBeforeIndex` the plan's
+    // `fitOnePage` / `fitColumnsOnPage` applied to this page, so positioning stops
+    // before the next section's leading block instead of greedily filling the
+    // leftover room with it. `null` (no next boundary) ⇒ `undefined` ⇒ no cap.
+    // A BLOCK-level cap shared by ALL columns of a multicol section's page.
+    const stopBeforeIndex = entry.stopBeforeIndex ?? undefined;
+    // The body box — a plain `BlockBox` for a single-column page (BYTE-IDENTICAL
+    // to the pre-multicol path: same `layoutBlock` call, same args), or a
+    // `MultiColumnBox` for a multicol section's page (T5). `null` when nothing fit
+    // (guarded downstream identically to the single-column null body).
+    let box: LayoutBox | null;
+    if (entry.columnConfig.columnCount > 1) {
+      box = materializeMultiColumnBody(entry, stopBeforeIndex);
+    } else {
+      _getPageDriverCount++;
+      box = layoutBlock(
+        // §4.10: lay the GLOBAL-value-substituted body root so a body cross-ref
+        // renders its resolved page number (== cascadedRoot for a field-free body).
+        substitutedRoot,
+        effMargins.inlineStart,
+        // Body origin (#328): the EFFECTIVE top inset, not the raw margin — a tall
+        // header has grown `effectiveTopInset` past `blockStart`, pushing the body
+        // down. For a no-slot page this equals `effMargins.blockStart`.
+        effTopInset,
+        effContentCtx,
+        shaper,
+        hyphenator,
+        {
+          availableBlockSize: effContentBlockSize,
+          pageIndex,
+          resumeFrom: entry.resumeInto,
+          stopBeforeIndex,
+        },
+      ).box;
+    }
     // Wrap exactly as paginate.ts:226–237. The BFC BlockBox can be null
     // (no content fit) — guard it. blockOffset is the plan's RUNNING SUM over
     // the per-page heights before this one (no longer pageIndex*(H+gap), since
     // a section may override its geometry). The PageBox block-size is the
     // SECTION's effective page block-size, not the content size.
     // The body BFC box (guarded — can be null when nothing fit). The FN-4
-    // footnote slot, when present, is appended to `children` below so existing
-    // paint / line-collection walks pick it up (it is ALSO exposed as the named
-    // `PageBox.footnoteSlot` for consumers that want it distinctly).
+    // footnote slot is NOT in `children`: it is a PURE NAMED field
+    // (`PageBox.footnoteSlot`), exactly like `headerSlot` / `footerSlot`. The
+    // paint / dirty-detect / line-collection / cursor-baseline walkers reach it
+    // BY NAME (DA3); keeping it out of `children` is what guarantees it is
+    // painted / collected EXACTLY ONCE (no double-processing).
     const bodyChildren: LayoutBox[] = box ? [box] : [];
 
     // C.2c (T4) + #328 (growing slot): lay the page's header/footer template
@@ -575,14 +865,22 @@ export function makeVirtualLayoutTree(
       slotBlockStart: number,
     ): BlockBox | null => {
       if (blockId === undefined) return null;
-      const body = templateBodies.get(blockId);
-      if (body === undefined) return null;
+      const rawBody = templateBodies.get(blockId);
+      if (rawBody === undefined) return null;
+      // F-2: bind page-field values LATE — substitute each placeholder with its
+      // per-page value (page-number = pageIndex+1; page-count = global) on a
+      // spine-clone, BEFORE slot layout, so the slot's line geometry accounts for
+      // the real value's width. Identity-preserving (the SAME ref returns for a
+      // field-free body); the fingerprint reads the ORIGINAL `rawBody` ref as the
+      // structural signal, never this clone.
+      const body = substituteLayoutFields(rawBody, pageIndex, pageGlobalFieldValues);
       const { box: slotBox } = layoutBlock(
         body,
         effMargins.inlineStart,
         slotBlockStart,
         effContentCtx,
         shaper,
+        hyphenator,
         { availableBlockSize: Number.MAX_SAFE_INTEGER, pageIndex, resumeFrom: null },
       );
       return slotBox;
@@ -741,6 +1039,7 @@ export function makeVirtualLayoutTree(
                 cursor,
                 bodyCtx,
                 shaper,
+                hyphenator,
                 { availableBlockSize: remaining, pageIndex, resumeFrom: resumeToken },
               );
               // Stack the body ONLY if it actually fits the remaining slot area.
@@ -860,17 +1159,16 @@ export function makeVirtualLayoutTree(
               effRootUsedStyle,
               slotChildren,
               effContentInlineSize,
-              { footnoteSlot: true },
             );
           })();
 
-    // Page children = the body BFC box + (when present) the footnote slot. The
-    // slot is page-relative (its `blockOffset` is the page-local slot top), so it
-    // stacks correctly alongside the body box.
-    const children: readonly LayoutBox[] =
-      footnoteSlot !== null ? [...bodyChildren, footnoteSlot] : bodyChildren;
+    // Page children = the body BFC box ONLY. The footnote slot is the named
+    // `PageBox.footnoteSlot` field (passed below), NOT a child — see the
+    // `bodyChildren` comment above (DA3: pure named slot, walked by name, so it
+    // is processed exactly once).
+    const children: readonly LayoutBox[] = bodyChildren;
 
-    return createPageBox(
+    const page = createPageBox(
       `page-${pageIndex}`,
       0, entry.blockOffset,
       effCfg.pageInlineSize, effCfg.pageBlockSize,
@@ -886,6 +1184,22 @@ export function makeVirtualLayoutTree(
       // raw margins; on a plain page they equal the page's content margins.
       effTopInset, effBottomInset,
     );
+    // P3.1: bake the vertical-rl block-axis mirror into the assembled page's
+    // CONTENT + named slots (the page FRAME is NOT mirrored). No-op (same
+    // reference) for horizontal-tb / vertical-lr, so this is byte-identical for
+    // all existing content. Mirror against the page's FULL block-size — the body
+    // box and named slots carry PAGE-RELATIVE blockOffsets (body at
+    // `effTopInset`, slots at their page-relative offsets), so the
+    // coordinate-system parent is the whole page, NOT the content area. This is
+    // distinct from `effContentBlockSize`, the CSS containing-block
+    // available-size used for body child layout.
+    const physPage = physicalizeVertical(page, effCfg.pageBlockSize);
+    if (physPage.type !== "page") {
+      throw new Error(
+        `materializePage: physicalizeVertical changed the page box type to ${physPage.type}`,
+      );
+    }
+    return physPage;
   }
 
   function getPages(from: number, to: number): PageBox[] {
@@ -895,28 +1209,6 @@ export function makeVirtualLayoutTree(
     const pages: PageBox[] = [];
     for (let i = lo; i <= hi; i++) pages.push(getPage(i));
     return pages;
-  }
-
-  function materializeAll(): BlockBox {
-    // Mirror paginate.ts:295–305. The total document height is the plan's
-    // RUNNING SUM over per-page heights (C.2b-2) — pages are no longer
-    // uniform-height once a section overrides its geometry, so we use
-    // `plan.totalBlockSize` directly rather than a `pageCount × H + gaps`
-    // formula (which would be wrong for a mixed-height doc; for a no-override
-    // doc the running sum reduces to exactly that formula). The outer BlockBox
-    // keeps the doc-wide inline-size (the bridge contract; removed in a later
-    // phase).
-    const pageCount = plan.entries.length;
-    const pages: PageBox[] = [];
-    for (let i = 0; i < pageCount; i++) pages.push(getPage(i));
-    return createBlockBox(
-      cascadedRoot.key, 0, 0,
-      pageConfig.pageInlineSize, plan.totalBlockSize,
-      ctx.writingMode, ctx.direction,
-      rootComputed, rootUsedStyle,
-      pages,
-      pageConfig.pageInlineSize,
-    );
   }
 
   // Non-materializing peek for the NEXT tree's carry-forward memo: returns this
@@ -950,7 +1242,6 @@ export function makeVirtualLayoutTree(
     footnoteAnchorPages,
     getPage,
     getPages,
-    materializeAll,
   } as VirtualLayoutTreeInternal;
   Object.defineProperty(tree, "__peekMaterializedPage", {
     value: peekMaterializedPage,

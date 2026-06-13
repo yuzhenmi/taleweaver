@@ -58,8 +58,8 @@ function callMarkerText(root: RenderNode, contentBlockId: BlockId): string | und
   const walk = (node: RenderNode): void => {
     if (node.type === "element") {
       if (
-        node.metadata?.["embedType"] === FOOTNOTE_ANCHOR_EMBED_TYPE &&
-        node.metadata?.["contentBlockId"] === contentBlockId
+        node.metadata?.embedType === FOOTNOTE_ANCHOR_EMBED_TYPE &&
+        node.metadata?.contentBlockId === contentBlockId
       ) {
         // The marker's only inline child is the number TextBox.
         for (const child of node.children) {

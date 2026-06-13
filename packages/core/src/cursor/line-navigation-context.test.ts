@@ -35,7 +35,7 @@ import {
   __resetGetPageDriverCountForTest,
   type VirtualLayoutTree,
 } from "../layout/virtual-layout-tree";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import type { ElementBox, RenderNode } from "../render/render-node";
 import type { TextShaper } from "../layout/text-shaper";
 import type { PageConfig } from "../layout/page-config";
@@ -167,7 +167,7 @@ function buildDoc(opts: {
   const cfg = pageConfig();
   const shaper = createMockShaper(SHAPER_CHAR_W, SHAPER_LINE_H);
   const pcis = cfg.pageInlineSize - cfg.pageMargins.inlineStart - cfg.pageMargins.inlineEnd;
-  const metas = buildBlockFitMetas(cascadedRoot, shaper, pcis);
+  const metas = buildBlockFitMetas(cascadedRoot, shaper, undefined, pcis);
   const basePlan = measurePass(metas, cfg, IMPLICIT_SECTION_PLAN, cascadedRoot.children);
   const plan = planWithEntries(basePlan, (e) =>
     e.pageIndex === 0
@@ -183,7 +183,7 @@ function buildDoc(opts: {
   const virtual = makeVirtualLayoutTree(
     plan, cascadedRoot, ctx, shaper, cfg, undefined, cascadedTemplateContents,
   );
-  const positioned = resolvePositionedTree(virtual);
+  const positioned = positionTreeForTest(virtual);
   return { state, virtual, positioned, shaper };
 }
 
@@ -224,6 +224,7 @@ function planWithEntries(
     pageIndexOfBlock: base.pageIndexOfBlock.bind(base),
     pageSpanOfBlock: base.pageSpanOfBlock.bind(base),
     pageIndexOfTemplateBlock: (blockId) => templateBlockToPage.get(blockId) ?? -1,
+    pageIndexOfFootnoteBlock: () => -1,
   };
 }
 

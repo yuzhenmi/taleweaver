@@ -57,6 +57,10 @@ describe("sectionComponent", () => {
         pageBlockSize: 900,
         pageGap: 40,
         pageMargins: { blockStart: 50, blockEnd: 50, inlineStart: 80, inlineEnd: 80 },
+        // Multi-column overrides (slice 1) ride through metadata the same way.
+        columnCount: 3,
+        columnGap: 24,
+        columnRule: { width: 1, style: "solid", color: "#ff0000" },
       }),
       makeContext(),
       [],
@@ -71,6 +75,10 @@ describe("sectionComponent", () => {
       inlineStart: 80,
       inlineEnd: 80,
     });
+    // Multi-column attrs are stamped RAW (resolved later by resolveColumnConfig).
+    expect(node.metadata?.columnCount).toBe(3);
+    expect(node.metadata?.columnGap).toBe(24);
+    expect(node.metadata?.columnRule).toEqual({ width: 1, style: "solid", color: "#ff0000" });
     // The section marker still rides alongside the geometry attrs.
     expect(node.metadata?.blockType).toBe("section");
   });
@@ -85,5 +93,9 @@ describe("sectionComponent", () => {
     expect(node.metadata?.pageBlockSize).toBeUndefined();
     expect(node.metadata?.pageGap).toBeUndefined();
     expect(node.metadata?.pageMargins).toBeUndefined();
+    // Column overrides absent too ⇒ resolveColumnConfig keeps the doc default.
+    expect(node.metadata?.columnCount).toBeUndefined();
+    expect(node.metadata?.columnGap).toBeUndefined();
+    expect(node.metadata?.columnRule).toBeUndefined();
   });
 });

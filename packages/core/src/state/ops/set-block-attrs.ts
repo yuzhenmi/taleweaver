@@ -1,11 +1,11 @@
+import type * as Y from "yjs";
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import { attrsEqual } from "../attrs";
-import { getYBlock } from "../yjs-doc";
+import { getYBlock, requireInTransaction } from "../yjs-doc";
 import { buildYAttrs } from "../y-block";
-import { STATE_INTERNAL } from "../state-internal";
 import type { AttrRegistry } from "../../cascade/attr-registry";
 
 /**
@@ -38,11 +38,33 @@ export function setBlockAttrs(
     throw new Error(`setBlockAttrs: block "${blockId}" not found`);
   }
   const { block, kind } = resolved;
-  return applyOperation(state, () => {
+  return applyOperation(state, (doc) => {
     if (attrsEqual(block.attrs, attrs, registry)) {
       return;
     }
-    const yBlock = getYBlock(state[STATE_INTERNAL].doc, blockId, "setBlockAttrs", kind);
+    const yBlock = getYBlock(doc, blockId, "setBlockAttrs", kind);
     yBlock.set("attrs", buildYAttrs(attrs));
   });
+}
+
+/**
+ * In-transaction block-attr REPLACE primitive: write a main-tree block's attrs
+ * bag inside an ALREADY-OPEN transaction. The in-tx counterpart of
+ * `setBlockAttrs`, for composing an attr write into another op's single
+ * transaction (one undo entry) WITHOUT reentering `applyOperation` — which would
+ * trip the reentrancy dev-assert, or split the op into two undo entries.
+ *
+ * Used by the table column ops (`insertTableColumn` / `deleteTableColumn`) to
+ * rewrite the table's `columnWidths` attr in the same tx as the cell mutations.
+ * Main-tree only (the default `"block"` kind). No no-op short-circuit — callers
+ * write only when the value actually changes (e.g. `columnWidths` present).
+ */
+export function setBlockAttrsInTx(
+  doc: Y.Doc,
+  blockId: BlockId,
+  attrs: ReadonlyAttrs,
+  opName: string,
+): void {
+  requireInTransaction(doc, opName);
+  getYBlock(doc, blockId, opName).set("attrs", buildYAttrs(attrs));
 }

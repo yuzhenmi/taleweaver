@@ -194,21 +194,21 @@ describe("deleteRange — cross-block (same-parent)", () => {
   });
 
   it("refuses a cross-block span whose intervening sibling is a CONTAINER (S-E6)", () => {
-    // doc > [p1, list(container with a child), p2]. A span p1→p2 crosses
-    // `list`; flat-deleting it would orphan `li`. deleteRange must refuse.
+    // doc > [p1, tbl(container with a child), p2]. A span p1→p2 crosses
+    // `tbl`; flat-deleting it would orphan `li`. deleteRange must refuse.
     const state = buildState({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "list", inlineContent: inlineContent([text("hello")]) }),
-        buildBlock({ id: "list", type: "list", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p2", firstChildId: "li", lastChildId: "li" }),
-        buildBlock({ id: "li", type: "list-item", parentId: "list", inlineContent: inlineContent([text("item")]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "list", inlineContent: inlineContent([text("world")]) }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "tbl", inlineContent: inlineContent([text("hello")]) }),
+        buildBlock({ id: "tbl", type: "table", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p2", firstChildId: "li", lastChildId: "li" }),
+        buildBlock({ id: "li", type: "list-item", parentId: "tbl", inlineContent: inlineContent([text("item")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "tbl", inlineContent: inlineContent([text("world")]) }),
       ],
     });
     const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 3));
     expect(() => deleteRange(state, span)).toThrow(
-      /intervening sibling "list" is a container/,
+      /intervening sibling "tbl" is a container/,
     );
     // The doc is untouched (the throw happens during planning, pre-mutation).
     expect(getBlock(state, "li" as BlockId)?.type).toBe("list-item");

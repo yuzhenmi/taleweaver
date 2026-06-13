@@ -1,6 +1,6 @@
 // Phase-4: computeSelectionRectsForPage emits a single page's selection rects
 // from that page's PageBox. The per-page union (over all pages) must equal the
-// full-tree computeSelectionRects over materializeAll() (the bridge = ground
+// full-tree computeSelectionRects over the assembled positioned tree (the oracle = ground
 // truth) for NON-spanning-block selections (the per-page path's domain;
 // spanning boundary blocks are routed to the bridge by the controller).
 import { describe, it, expect } from "vitest";
@@ -23,6 +23,7 @@ import {
   type EditorState,
   type BlockId,
 } from "../index";
+import { positionTreeForTest } from "../test-utils/position-tree";
 
 function makeConfig(): EditorConfig {
   const pageConfig: PageConfig = {
@@ -56,12 +57,12 @@ function nthBlockId(editor: EditorState, n: number): BlockId {
   return id;
 }
 
-describe("computeSelectionRectsForPage equivalence vs the materializeAll bridge", () => {
+describe("computeSelectionRectsForPage equivalence vs the positioned-tree oracle", () => {
   const config = makeConfig();
   const editor = buildPasted(config, 16); // 16 one-line paras over 4-line pages ⇒ 4 pages
   if (editor.layoutTree.type !== "virtual-root") throw new Error("expected virtual");
   const tree = editor.layoutTree;
-  const bridge = tree.materializeAll();
+  const bridge = positionTreeForTest(tree);
   const pageCount = tree.plan.entries.length;
 
   const cases: { name: string; a: [number, number]; f: [number, number] }[] = [

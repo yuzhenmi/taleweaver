@@ -38,11 +38,11 @@ describe("Incremental wrap — reference equality", () => {
     // Use the SAME ctx.ifcStateCache for two layouts so the second sees the cache.
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
 
-    const r1 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const r1 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
     if (r1.box === null) throw new Error("layoutBlock returned null box");
     if (r1.box.type !== "block") throw new Error("layoutBlock returned non-block box");
     const out1 = r1.box;
-    const r2 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const r2 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
     if (r2.box === null) throw new Error("layoutBlock returned null box");
     if (r2.box.type !== "block") throw new Error("layoutBlock returned non-block box");
     const out2 = r2.box;
@@ -65,11 +65,11 @@ describe("Incremental wrap — reference equality", () => {
     const ctx1 = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
     const ctx2 = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 200);
 
-    const r3 = layoutBlock(cascaded, 0, 0, ctx1, shaper);
+    const r3 = layoutBlock(cascaded, 0, 0, ctx1, shaper, undefined);
     if (r3.box === null) throw new Error("layoutBlock returned null box");
     if (r3.box.type !== "block") throw new Error("layoutBlock returned non-block box");
     const out1 = r3.box;
-    const r4 = layoutBlock(cascaded, 0, 0, ctx2, shaper);
+    const r4 = layoutBlock(cascaded, 0, 0, ctx2, shaper, undefined);
     if (r4.box === null) throw new Error("layoutBlock returned null box");
     if (r4.box.type !== "block") throw new Error("layoutBlock returned non-block box");
     const out2 = r4.box;
@@ -91,7 +91,7 @@ describe("Incremental wrap — reference equality", () => {
     const cascaded = cascadePass(doc) as ElementBox;
     const ctx = makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, 500);
 
-    const r5 = layoutBlock(cascaded, 0, 0, ctx, shaper);
+    const r5 = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined);
     if (r5.box === null) throw new Error("layoutBlock returned null box");
     const out1 = r5.box;
 
@@ -105,7 +105,7 @@ describe("Incremental wrap — reference equality", () => {
     // This is needed for the cache to work correctly with stricter token equality.
     const cascadedEdited = cascadePassIncremental(docEdited, doc, cascaded) as ElementBox;
 
-    const r6 = layoutBlock(cascadedEdited, 0, 0, ctx, shaper);
+    const r6 = layoutBlock(cascadedEdited, 0, 0, ctx, shaper, undefined);
     if (r6.box === null) throw new Error("layoutBlock returned null box");
     const out2 = r6.box;
 

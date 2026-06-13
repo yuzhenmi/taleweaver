@@ -1,12 +1,13 @@
 import type {
-  Display, BorderStyle, FontWeight, FontStyle, TextDecoration,
-  WhiteSpace, VerticalAlign, TextAlign, Float, Clear,
+  Display, BorderStyle, FontWeight, FontStyle,
+  WhiteSpace, VerticalAlign, TextAlign, TextTransform, Float, Clear,
   BreakBefore, BreakAfter, BreakInside,
   ListStyleType, ListStylePosition, BoxSizing,
 } from "./style";
 import type { Color } from "./color";
 import type { UsedLength } from "./length";
 import type { WritingMode, Direction } from "./writing-mode";
+import type { TabStop } from "./tab-stops";
 
 /**
  * Used style — fully numeric. Produced by the layout pass per LayoutBox.
@@ -51,7 +52,8 @@ export interface UsedStyle {
   fontSize:       number;
   fontWeight:     FontWeight;
   fontStyle:      FontStyle;
-  textDecoration: TextDecoration;
+  underline:      boolean;  // text-decoration-line ∋ underline
+  lineThrough:    boolean;  // text-decoration-line ∋ line-through
   lineHeight:     number;
   color:          Color;
 
@@ -62,11 +64,15 @@ export interface UsedStyle {
   textIndent:          UsedLength;
   textWrap:            "wrap" | "nowrap" | "balance" | "pretty" | "stable";
   hyphens:             "none" | "manual" | "auto";
+  language:            string;
+  hyphenateLimitChars: readonly [number, number, number];
+  overflowWrap:        "normal" | "break-word" | "anywhere";
   letterSpacing:       UsedLength | "normal";
   wordSpacing:         UsedLength | "normal";
-  textTransform:       "none" | "capitalize" | "uppercase" | "lowercase";
+  textTransform:       TextTransform;
   fontFeatureSettings: readonly string[];
-  tabSize:             number;
+  tabStops:            readonly TabStop[];
+  defaultTabStop:      number;
 
   float: Float;
   clear: Clear;

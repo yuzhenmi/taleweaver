@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { createElementBox, createTextBox } from "../render/render-node";
-import { PROPERTY_META } from "../styles";
-import { cascadePass, cascadePassIncremental, COMPUTED_STYLE_KEYS } from "./cascade-pass";
+import { PROPERTY_META, INITIAL_COMPUTED_STYLE } from "../styles";
+import type { ComputedStyle } from "../styles";
+import { cascadePass, cascadePassIncremental, COMPUTED_STYLE_KEYS, computedStylesEqual } from "./cascade-pass";
 
 describe("cascadePass", () => {
   it("produces a tree where every node carries computedStyle", () => {
@@ -45,6 +46,67 @@ describe("cascadePass", () => {
 
     expect(t.computedStyle?.color).toBe("red");
     expect(t.computedStyle?.fontSize).toBe(24);
+  });
+
+  it("inherits `language` from an ancestor; defaults to empty string at the root", () => {
+    const tree = createElementBox("root", { language: "en-US" }, [
+      createElementBox("p", {}, [
+        createTextBox("t", {}, "hello"),
+      ]),
+    ]);
+
+    const cascaded = cascadePass(tree);
+    if (cascaded.type !== "element") throw new Error("?");
+    const p = cascaded.children[0];
+    if (p.type !== "element") throw new Error("?");
+    const t = p.children[0];
+    if (t.type !== "text") throw new Error("?");
+
+    expect(cascaded.computedStyle?.language).toBe("en-US");
+    expect(t.computedStyle?.language).toBe("en-US");
+
+    const noLang = cascadePass(createElementBox("root", { display: "block" }, []));
+    expect(noLang.computedStyle?.language).toBe("");
+  });
+
+  it("inherits `hyphenateLimitChars` from an ancestor; defaults to [5, 2, 2] at the root", () => {
+    const tree = createElementBox("root", { hyphenateLimitChars: [4, 3, 3] }, [
+      createElementBox("p", {}, [
+        createTextBox("t", {}, "hello"),
+      ]),
+    ]);
+
+    const cascaded = cascadePass(tree);
+    if (cascaded.type !== "element") throw new Error("?");
+    const p = cascaded.children[0];
+    if (p.type !== "element") throw new Error("?");
+    const t = p.children[0];
+    if (t.type !== "text") throw new Error("?");
+
+    expect(cascaded.computedStyle?.hyphenateLimitChars).toEqual([4, 3, 3]);
+    expect(t.computedStyle?.hyphenateLimitChars).toEqual([4, 3, 3]);
+
+    const noLimit = cascadePass(createElementBox("root", { display: "block" }, []));
+    expect(noLimit.computedStyle?.hyphenateLimitChars).toEqual([5, 2, 2]);
+  });
+
+  it("overflowWrap: defaults to `normal` and inherits (overflow-wrap break-word v1)", () => {
+    // Default: a node with no `overflowWrap` gets the CSS initial `normal`.
+    const def = cascadePass(createElementBox("root", { display: "block" }, []));
+    if (def.type !== "element") throw new Error("?");
+    expect(def.computedStyle?.overflowWrap).toBe("normal");
+    // Inherits (CSS Text 3 — overflow-wrap is inherited): a text leaf inherits the
+    // root's `break-word` through an intervening element with no own value.
+    const tree = createElementBox("root", { overflowWrap: "break-word" }, [
+      createElementBox("p", {}, [createTextBox("t", {}, "hello")]),
+    ]);
+    const cascaded = cascadePass(tree);
+    if (cascaded.type !== "element") throw new Error("?");
+    const p = cascaded.children[0];
+    if (p.type !== "element") throw new Error("?");
+    const t = p.children[0];
+    if (t.type !== "text") throw new Error("?");
+    expect(t.computedStyle?.overflowWrap).toBe("break-word");
   });
 
   it("does NOT propagate non-inheritable properties", () => {
@@ -98,6 +160,44 @@ describe("cascadePassIncremental", () => {
     if (cascadedA.children[0].type !== "element" || cascadedB.children[0].type !== "element") throw new Error("?");
     expect(cascadedA.children[0].computedStyle?.color).toBe("red");
     expect(cascadedB.children[0].computedStyle?.color).toBe("blue");
+  });
+});
+
+describe("computedStylesEqual structural comparison", () => {
+  // Regression: the equality walk must compare nested object/array values
+  // (TransformOrigin {x,y}, transform: TransformFn[], listStyleType {content})
+  // by VALUE, not reference. A reference-distinct-but-equal value returning
+  // `false` causes a spurious re-cascade/re-layout in the incremental path.
+  it("treats reference-distinct but structurally-equal transformOrigin as equal", () => {
+    const a: ComputedStyle = { ...INITIAL_COMPUTED_STYLE, transformOrigin: { x: { unit: "percent", value: 25 }, y: { unit: "percent", value: 75 } } };
+    const b: ComputedStyle = { ...INITIAL_COMPUTED_STYLE, transformOrigin: { x: { unit: "percent", value: 25 }, y: { unit: "percent", value: 75 } } };
+    expect(computedStylesEqual(a, b)).toBe(true);
+  });
+
+  it("treats differing transformOrigin as unequal", () => {
+    const a: ComputedStyle = { ...INITIAL_COMPUTED_STYLE, transformOrigin: { x: { unit: "percent", value: 25 }, y: { unit: "percent", value: 75 } } };
+    const b: ComputedStyle = { ...INITIAL_COMPUTED_STYLE, transformOrigin: { x: { unit: "percent", value: 50 }, y: { unit: "percent", value: 75 } } };
+    expect(computedStylesEqual(a, b)).toBe(false);
+  });
+
+  it("treats reference-distinct but structurally-equal transform arrays as equal", () => {
+    const a: ComputedStyle = { ...INITIAL_COMPUTED_STYLE, transform: [{ fn: "rotate", angleRad: 1.5 }, { fn: "scale", sx: 2, sy: 3 }] };
+    const b: ComputedStyle = { ...INITIAL_COMPUTED_STYLE, transform: [{ fn: "rotate", angleRad: 1.5 }, { fn: "scale", sx: 2, sy: 3 }] };
+    expect(computedStylesEqual(a, b)).toBe(true);
+  });
+
+  it("treats transform arrays differing in a struct field or length as unequal", () => {
+    const a: ComputedStyle = { ...INITIAL_COMPUTED_STYLE, transform: [{ fn: "rotate", angleRad: 1.5 }] };
+    const b: ComputedStyle = { ...INITIAL_COMPUTED_STYLE, transform: [{ fn: "rotate", angleRad: 2.0 }] };
+    const c: ComputedStyle = { ...INITIAL_COMPUTED_STYLE, transform: [{ fn: "rotate", angleRad: 1.5 }, { fn: "scale", sx: 1, sy: 1 }] };
+    expect(computedStylesEqual(a, b)).toBe(false);
+    expect(computedStylesEqual(a, c)).toBe(false);
+  });
+
+  it("the default shared-frozen transform/transformOrigin compare equal (reference + structural)", () => {
+    const a: ComputedStyle = { ...INITIAL_COMPUTED_STYLE };
+    const b: ComputedStyle = { ...INITIAL_COMPUTED_STYLE };
+    expect(computedStylesEqual(a, b)).toBe(true);
   });
 });
 

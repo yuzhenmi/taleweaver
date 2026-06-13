@@ -1,9 +1,13 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { resolveBlock, createPosition, createSpan, deleteRange, mergeAdjacentBlocks, mergeSectionWithPrevious, inlineContentLength } from "../../state";
+import { resolveBlock, createPosition, createSpan, mergeAdjacentBlocks, markBlockJoinSuggestion, mergeSectionWithPrevious, inlineContentLength } from "../../state";
 import { moveByCharacter } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
+import { handleListIndent } from "./list-indent";
+import { listLevelOf, unlistBlock } from "./list-edits";
+import { deleteAdjacentAtomicLeaf } from "./atomic-edits";
+import { deleteRangeOrSuggest, suggestionInputForBlock } from "./suggestion-mode";
 
 export function handleDeleteBackward(
   editor: EditorState,
@@ -19,7 +23,7 @@ export function handleDeleteBackward(
     // refuses an unresolvable or cross-parent span.
     const start = expandedSpanCollapsePoint(editor.state, selection);
     if (start === null) return editor;
-    const result = deleteRange(editor.state, selection);
+    const result = deleteRangeOrSuggest(editor.state, selection, config);
     if (result.state === editor.state) return editor;
     const newCursor = createPosition(start.blockId, start.offset);
     const newSelection = createSpan(newCursor, newCursor);
@@ -43,7 +47,7 @@ export function handleDeleteBackward(
     if (prev.blockId !== pos.blockId) return editor;
     if (prev.offset === pos.offset) return editor;
     const span = createSpan(prev, pos);
-    const result = deleteRange(editor.state, span);
+    const result = deleteRangeOrSuggest(editor.state, span, config);
     if (result.state === editor.state) return editor;
     const newCursor = createPosition(prev.blockId, prev.offset);
     const newSelection = createSpan(newCursor, newCursor);
@@ -62,6 +66,29 @@ export function handleDeleteBackward(
   // pos.offset === 0: cross-block backspace.
   const currentBlock = resolveBlock(editor.state, pos.blockId)?.block ?? null;
   if (currentBlock === null) return editor;
+
+  // Backspace at the START of a list-item (Google Docs): a nested item (level>0)
+  // outdents one level; a top-level item (level 0) drops its list formatting and
+  // becomes a plain paragraph — rather than merging into the previous block.
+  if (currentBlock.type === "list-item") {
+    return listLevelOf(currentBlock) > 0
+      ? handleListIndent(editor, -1, config)
+      : unlistBlock(editor, currentBlock, config);
+  }
+
+  // Backspace at the start of a block whose immediately-preceding sibling is an
+  // atomic-leaf (image / horizontal-line): delete that atomic object as a unit
+  // (Google Docs). moveByCharacter skips atomic blocks (no inlineContent), so
+  // without this the merge path no-ops and the object can't be removed.
+  const atomicDeleted = deleteAdjacentAtomicLeaf(
+    editor,
+    config,
+    currentBlock,
+    "backward",
+    pos,
+  );
+  if (atomicDeleted !== null) return atomicDeleted;
+
   const prevPos = moveByCharacter(editor.state, pos, "backward");
   if (prevPos.blockId === pos.blockId) {
     // moveByCharacter returned same position (at start of doc, or no
@@ -118,6 +145,30 @@ export function handleDeleteBackward(
     currentBlock.prevSiblingId !== prevBlock.id
   ) {
     return editor;
+  }
+
+  // Suggesting mode: mark the paragraph break BEFORE currentBlock for deletion
+  // (a suggested JOIN) instead of really merging. `markBlockJoinSuggestion`'s
+  // `secondBlockId` = currentBlock.id (N+1); it appends the zero-width
+  // `block-join-suggestion` embed to currentBlock's prev sibling = prevBlock (N).
+  // Blocks stay separate; the caret stays at currentBlock:0 (= pos; no merge
+  // happened, so the selection is unchanged). One undoable op.
+  // Gate on the join-target block's context: a paragraph-boundary backspace in
+  // ANY editing context (main body OR a footnote/header/footer body) marks a
+  // tracked JOIN; `suggestionInputForBlock` returns null only when not suggesting
+  // or the block resolves to no context, → the DIRECT real-merge path below. A
+  // body IS a container of paragraphs, so para↔para joins are reachable there.
+  const joinInput = suggestionInputForBlock(editor.state, currentBlock.id, config);
+  if (joinInput !== null) {
+    const result = markBlockJoinSuggestion(editor.state, currentBlock.id, joinInput);
+    if (result.state === editor.state) return editor;
+    editor.history.commit(result, { before: selection, after: selection });
+    return rebuildTrees(
+      { ...editor, state: result.state, selection },
+      editor,
+      config,
+      result.dirtyIds,
+    );
   }
 
   const prevEndOffset =

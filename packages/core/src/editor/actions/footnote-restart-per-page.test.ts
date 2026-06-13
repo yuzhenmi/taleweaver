@@ -211,11 +211,15 @@ describe("FN-6.4 — rebuildTrees restart-per-page second pass", () => {
     });
     const editor = buildEditorFull(state, config);
 
-    // Sanity: the two anchors really land on different pages.
+    // Sanity: the two anchors land on different RESOLVED pages. fn0 is on page 0;
+    // fn0's footnote slot shrinks the early pages enough that p5 (fn1's anchor)
+    // resolves to page 2 — page 1 carries body content but no footnote (an empty
+    // footnote page in between). footnoteAnchorPages keys on the RESOLVED page the
+    // marker renders on (audit F2), so fn1 → 2, not the raw plan's page 1.
     const out = rebuildTrees(editor, editor, config);
     const pages = ANCHOR_PAGES(out.layoutTree);
     expect(pages.get("fn0" as BlockId)).toBe(0);
-    expect(pages.get("fn1" as BlockId)).toBe(1);
+    expect(pages.get("fn1" as BlockId)).toBe(2);
 
     // After the second pass, the numbering map restarts per page: both → 1.
     expect(out.renderOutput.footnoteNumbers.get("fn0" as BlockId)?.formatted).toBe("1");
@@ -267,8 +271,11 @@ describe("FN-6.4 — rebuildTrees restart-per-page second pass", () => {
   });
 
   it("restart-per-page with both footnotes on ONE page: numbers equal continuous (converges immediately)", () => {
-    const config = makeConfig(PAGE_CONFIG);
-    // Two anchors on p0/p1, both on page 0 (2 lines fit in 32px).
+    // A tall page so p0+p1 AND both 1-line footnote slots fit together on page 0
+    // (32px content + ~45px slot ≪ 160px) — keeping both anchors genuinely on one
+    // RESOLVED page. (On the 80px PAGE_CONFIG the combined slots evict p1 to page
+    // 1; that split case is the audit-F2 regression test below.)
+    const config = makeConfig({ ...PAGE_CONFIG, pageBlockSize: 160 });
     const state = buildState({
       rootId: "doc",
       blocks: buildDocBlocks({ footnoteNumberingReset: "restart-per-page" }, [
@@ -290,6 +297,45 @@ describe("FN-6.4 — rebuildTrees restart-per-page second pass", () => {
     // Same page ⇒ per-page == continuous: 1, 2.
     expect(out.renderOutput.footnoteNumbers.get("fn0" as BlockId)?.formatted).toBe("1");
     expect(out.renderOutput.footnoteNumbers.get("fn1" as BlockId)?.formatted).toBe("2");
+  });
+
+  it("restart-per-page (audit F2): two anchors on the SAME raw page but SPLIT across resolved pages by footnote slots each restart to 1", () => {
+    // The F2 regression. On the 80px page, p0(fn0) + p1(fn1) both sit on raw page
+    // 0, but reserving BOTH 1-line footnote slots evicts p1 to resolved page 1 —
+    // fn1's call marker therefore renders on page 1. Under restart-per-page fn1 is
+    // the FIRST footnote on its resolved page and must read "1", NOT the continuous
+    // "2". Before the fix, footnoteAnchorPages keyed on the RAW plan (grouping fn1
+    // with fn0 on page 0) ⇒ fn1 wrongly showed "2" on the page-1 marker.
+    const config = makeConfig(PAGE_CONFIG);
+    const state = buildState({
+      rootId: "doc",
+      blocks: buildDocBlocks({ footnoteNumberingReset: "restart-per-page" }, [
+        { id: "p0", anchor: "fn0" },
+        { id: "p1", anchor: "fn1" },
+      ]),
+      embedContents: [
+        ...footnoteBody("fn0", "fn0-p", "first"),
+        ...footnoteBody("fn1", "fn1-p", "second"),
+      ],
+    });
+    const editor = buildEditorFull(state, config);
+    const out = rebuildTrees(editor, editor, config);
+
+    // The split happened: fn1's anchor resolves to page 1, not page 0.
+    const pages = ANCHOR_PAGES(out.layoutTree);
+    expect(pages.get("fn0" as BlockId)).toBe(0);
+    expect(pages.get("fn1" as BlockId)).toBe(1);
+
+    // Each restarts to 1 on its own resolved page; no marker reads the continuous 2.
+    expect(out.renderOutput.footnoteNumbers.get("fn0" as BlockId)?.formatted).toBe("1");
+    expect(out.renderOutput.footnoteNumbers.get("fn1" as BlockId)?.formatted).toBe("1");
+    const digits: string[] = [];
+    for (const page of pagesOf(out.layoutTree)) {
+      const texts: string[] = [];
+      for (const child of page.children) collectRunTexts(child, texts);
+      for (const t of texts) if (/^\d+$/.test(t)) digits.push(t);
+    }
+    expect(digits).not.toContain("2");
   });
 
   it("restart-per-page on a NON-virtual layout (no pageConfig) skips the second pass (continuous fallback)", () => {

@@ -1,5 +1,20 @@
 import type { Style } from "./style";
 import type { ComputedStyle } from "./computed-style";
+import type { TransformFn, TransformOrigin } from "./position";
+import type { Length } from "./length";
+
+/**
+ * Shared frozen defaults for the object/array-valued positioning properties, so
+ * every default ComputedStyle references the same instance (mirrors how
+ * `fontFeatureSettings`/`tabStops` reuse a constant rather than allocating a new
+ * literal per cascade).
+ */
+const EMPTY_TRANSFORM: readonly TransformFn[] = Object.freeze([]);
+const CENTER_LENGTH: Length = Object.freeze({ unit: "percent", value: 50 });
+const CENTER_TRANSFORM_ORIGIN: TransformOrigin = Object.freeze({
+  x: CENTER_LENGTH,
+  y: CENTER_LENGTH,
+});
 
 export const PROPERTY_META: Record<keyof Style, { inherits: boolean }> = {
   display:         { inherits: false },
@@ -49,8 +64,11 @@ export const PROPERTY_META: Record<keyof Style, { inherits: boolean }> = {
   // paint-time concern (ancestor box paints the decoration across its
   // line area, visually covering descendants), not a cascade concern.
   // Inheriting at cascade would make `{ underline: false }` on a child
-  // span ineffective — the parent's underline would inherit back.
-  textDecoration: { inherits: false },
+  // span ineffective — the parent's underline would inherit back. Modelled
+  // as two independent flags (CSS text-decoration-line is a SET), so a run
+  // can carry underline + line-through at once.
+  underline:   { inherits: false },
+  lineThrough: { inherits: false },
   lineHeight:     { inherits: true },
   color:          { inherits: true },
 
@@ -61,11 +79,17 @@ export const PROPERTY_META: Record<keyof Style, { inherits: boolean }> = {
   textIndent:          { inherits: true },
   textWrap:            { inherits: true },
   hyphens:             { inherits: true },
+  language:            { inherits: true },
+  hyphenateLimitChars: { inherits: true },
+  overflowWrap:        { inherits: true },
   letterSpacing:       { inherits: true },
   wordSpacing:         { inherits: true },
   textTransform:       { inherits: true },
   fontFeatureSettings: { inherits: true },
-  tabSize:             { inherits: true },
+  // Per CSS Text 4, `tab-size` (the default interval) inherits; the explicit
+  // stop LIST is a paragraph property and does NOT inherit.
+  tabStops:            { inherits: false },
+  defaultTabStop:      { inherits: true },
 
   float: { inherits: false },
   clear: { inherits: false },
@@ -81,6 +105,17 @@ export const PROPERTY_META: Record<keyof Style, { inherits: boolean }> = {
   listStylePosition: { inherits: true },
 
   markerText:        { inherits: false },
+
+  // Positioning — all non-inheriting (CSS Positioned Layout 3 / Transforms 1).
+  position:         { inherits: false },
+  insetBlockStart:  { inherits: false },
+  insetBlockEnd:    { inherits: false },
+  insetInlineStart: { inherits: false },
+  insetInlineEnd:   { inherits: false },
+  zIndex:           { inherits: false },
+  transform:        { inherits: false },
+  transformOrigin:  { inherits: false },
+  opacity:          { inherits: false },
 };
 
 export const INITIAL_COMPUTED_STYLE: ComputedStyle = {
@@ -126,7 +161,8 @@ export const INITIAL_COMPUTED_STYLE: ComputedStyle = {
   fontSize:       16,
   fontWeight:     "normal",
   fontStyle:      "normal",
-  textDecoration: "none",
+  underline:      false,
+  lineThrough:    false,
   lineHeight:     1.2,
   color:          "#000",
 
@@ -137,11 +173,15 @@ export const INITIAL_COMPUTED_STYLE: ComputedStyle = {
   textIndent:          0,
   textWrap:            "wrap",
   hyphens:             "manual",
+  language:            "",
+  hyphenateLimitChars: [5, 2, 2],
+  overflowWrap:        "normal",
   letterSpacing:       "normal",
   wordSpacing:         "normal",
   textTransform:       "none",
   fontFeatureSettings: [],
-  tabSize:             4,
+  tabStops:            [],
+  defaultTabStop:      48,
 
   float: "none",
   clear: "none",
@@ -157,4 +197,14 @@ export const INITIAL_COMPUTED_STYLE: ComputedStyle = {
   listStylePosition: "outside",
 
   markerText: undefined,
+
+  position:         "static",
+  insetBlockStart:  "auto",
+  insetBlockEnd:    "auto",
+  insetInlineStart: "auto",
+  insetInlineEnd:   "auto",
+  zIndex:           "auto",
+  transform:        EMPTY_TRANSFORM,
+  transformOrigin:  CENTER_TRANSFORM_ORIGIN,
+  opacity:          1,
 };

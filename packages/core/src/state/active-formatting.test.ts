@@ -70,6 +70,16 @@ describe("getActiveFormatting — inline toggles", () => {
     const state = doc([["abcd"]]);
     expect(getActiveFormatting(state, range("p", 0, 4)).bold).toBe(false);
   });
+
+  it("#393: a run carrying BOTH underline + strikethrough reports both active", () => {
+    // The read path reads the two inline attrs independently, so a multi-
+    // decorated run surfaces both toggles as active at once (Google Docs
+    // parity — toolbar lights up underline AND strikethrough together).
+    const state = doc([["abc", { underline: true, strikethrough: true }]]);
+    const fmt = getActiveFormatting(state, range("p", 0, 3));
+    expect(fmt.underline).toBe(true);
+    expect(fmt.strikethrough).toBe(true);
+  });
 });
 
 describe("getActiveFormatting — inline values", () => {
@@ -96,6 +106,27 @@ describe("getActiveFormatting — inline values", () => {
   it("collapsed cursor reads link from the left-of-cursor item", () => {
     const state = doc([["link", { link: "https://x.test" }]]);
     expect(getActiveFormatting(state, caret("p", 4)).link).toBe("https://x.test");
+  });
+
+  it("textTransform uniform across the span → that value", () => {
+    const state = doc([
+      ["ab", { textTransform: "uppercase" }],
+      ["cd", { textTransform: "uppercase" }],
+    ]);
+    expect(getActiveFormatting(state, range("p", 0, 4)).textTransform).toBe("uppercase");
+  });
+
+  it("textTransform differing across the span → mixed", () => {
+    const state = doc([
+      ["ab", { textTransform: "uppercase" }],
+      ["cd", { textTransform: "lowercase" }],
+    ]);
+    expect(getActiveFormatting(state, range("p", 0, 4)).textTransform).toBe("mixed");
+  });
+
+  it("range with no textTransform attr → null", () => {
+    const state = doc([["abcd"]]);
+    expect(getActiveFormatting(state, range("p", 0, 4)).textTransform).toBeNull();
   });
 });
 
@@ -179,6 +210,7 @@ describe("getActiveFormatting — empty block", () => {
     expect(fmt.color).toBeNull();
     expect(fmt.backgroundColor).toBeNull();
     expect(fmt.link).toBeNull();
+    expect(fmt.textTransform).toBeNull();
     expect(fmt.blockType).toBe("paragraph");
     expect(fmt.headingLevel).toBeNull();
     expect(fmt.textAlign).toBeNull();

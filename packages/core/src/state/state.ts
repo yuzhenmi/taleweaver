@@ -69,6 +69,13 @@ export interface State {
 export function createState(args: { rootId: BlockId; doc?: Y.Doc }): State {
   const doc = args.doc ?? createYDoc({ rootId: args.rootId });
   // Ensure meta.rootId is set (in case caller passed an externally-built doc).
+  //
+  // `rootId` is the ONLY field doc-meta may hold: it is immutable for the
+  // document's lifetime. doc-meta is outside the History UndoManager's
+  // tracked scopes, so any MUTABLE field written here would silently lapse
+  // out of undo/redo — mutable, user-observable state must live in the
+  // Layer-3 Y.Maps (blocks / embedContents / templateContents) instead.
+  // See `getMetaMap` (yjs-doc.ts) and the A14 whitelist test.
   const meta = getMetaMap(doc);
   if (meta.get("rootId") === undefined) {
     doc.transact(() => meta.set("rootId", args.rootId));
@@ -335,7 +342,17 @@ export function freshStateFromDoc(state: State): State {
 
 /**
  * Run a mutating `fn` inside a Y.Doc transaction and produce an
- * OperationResult. The returned State has a fresh SnapshotCache built
+ * OperationResult.
+ *
+ * **`options.origin`** (optional) tags the underlying `doc.transact` so the
+ * `History`'s `Y.UndoManager` can decide whether to track the change. Omitting
+ * `options` (the common case) is byte-identical to the pre-origin signature —
+ * Yjs's default `null` origin, which History tracks (undoable). The suggestion
+ * accept/reject ops (slice 3) pass `{ origin: SUGGESTION_RESOLVE_ORIGIN }` so the
+ * resolve is NON-undoable; that caller then reconciles History's cached
+ * `currentState` via `History.advanceState` (the txn skipped `History.commit`).
+ *
+ * The returned State has a fresh SnapshotCache built
  * as an overlay on top of the input state's cache, giving three
  * properties at once:
  *   - **O(dirtyIds.size) per-mutation bookkeeping**: the new cache
@@ -367,9 +384,35 @@ export function freshStateFromDoc(state: State): State {
  * pass entirely. The overlay allocation only runs on the non-no-op
  * branch.
  */
-export function applyOperation(state: State, fn: () => void): OperationResult {
+export function applyOperation(
+  state: State,
+  fn: (doc: Y.Doc) => void | ReadonlySet<BlockId>,
+  options?: { readonly origin?: unknown },
+): OperationResult {
   const internal = state[STATE_INTERNAL];
-  const { dirtyIds } = runTransaction(internal.doc, fn);
+  const doc = internal.doc;
+  let extra: ReadonlySet<BlockId> | undefined;
+  // `options?.origin` (default `undefined`) tags the transaction so the History's
+  // Y.UndoManager can opt the change OUT of undo tracking (the suggestion
+  // accept/reject ops pass SUGGESTION_RESOLVE_ORIGIN). `undefined` is
+  // byte-identical to the pre-origin call (Yjs's default `null` origin, tracked).
+  const { dirtyIds: captured } = runTransaction(
+    doc,
+    () => {
+      extra = fn(doc) ?? undefined;
+    },
+    options?.origin,
+  );
+  // Union op-contributed ids (e.g. a listDef-only write → affected-block-ids)
+  // with the transaction-captured ids — BEFORE the size===0 short-circuit and
+  // BEFORE cache invalidation, so a config-only write that touches no block in
+  // the tree (and therefore captures nothing) still invalidates the blocks it
+  // affects. When fn returns nothing (the common case), `captured` is reused as
+  // a reference so existing void-returning ops allocate nothing extra.
+  const dirtyIds: ReadonlySet<BlockId> =
+    extra === undefined || extra.size === 0
+      ? captured
+      : new Set<BlockId>([...captured, ...extra]);
   if (dirtyIds.size === 0) {
     // No-op transaction: return the input state reference unchanged.
     // Preserves identity so callers can short-circuit on

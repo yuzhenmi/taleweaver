@@ -41,7 +41,8 @@ const BASE_CS = {
   fontSize: 16,
   fontWeight: "normal",
   fontStyle: "normal",
-  textDecoration: "none",
+  underline: false,
+  lineThrough: false,
   direction: "ltr",
 };
 const BASE_US = {
@@ -49,7 +50,7 @@ const BASE_US = {
   borderBlockStartWidth: 0, borderBlockEndWidth: 0, borderInlineStartWidth: 0, borderInlineEndWidth: 0,
   borderBlockStartStyle: "none", borderBlockEndStyle: "none", borderInlineStartStyle: "none", borderInlineEndStyle: "none",
   borderBlockStartColor: "black", borderBlockEndColor: "black", borderInlineStartColor: "black", borderInlineEndColor: "black",
-  direction: "ltr", lineHeight: 20,
+  direction: "ltr", lineHeight: 20, writingMode: "horizontal-tb",
 };
 
 function makeRun(backgroundColor: string): LayoutBox {
@@ -68,7 +69,7 @@ function makeRun(backgroundColor: string): LayoutBox {
 
 function paint(box: LayoutBox): SpyCtx {
   const ctx = createSpyCtx();
-  paintCanvas(ctx, box, [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
+  paintCanvas(ctx, box, [], [], [], [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
   return ctx;
 }
 

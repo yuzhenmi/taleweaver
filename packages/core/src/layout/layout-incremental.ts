@@ -1,6 +1,7 @@
 import type { RenderNode, ElementBox } from "../render/render-node";
 import type { LayoutBox } from "./layout-box";
 import type { TextShaper } from "./text-shaper";
+import type { Hyphenator } from "./hyphenator";
 import type { TextMeasurer } from "./text-measurer";
 import type { PageConfig } from "./page-config";
 import { isTextShaper, measurerToShaper } from "./text-measurer";
@@ -18,6 +19,7 @@ import { buildVirtualPaginatedTree } from "./virtual-producer";
 import type { VirtualLayoutTree } from "./virtual-layout-tree";
 import type { BlockId } from "../state";
 import { EMPTY_FOOTNOTE_ANCHORS, type FootnoteAnchorRef } from "../footnotes";
+import type { BlockParentLookup } from "./page-of-field-target";
 
 /** Empty cascaded-template-body map default (no header/footer bodies). */
 const EMPTY_TEMPLATE_CONTENTS: ReadonlyMap<BlockId, ElementBox> = new Map();
@@ -55,6 +57,13 @@ export function layoutTreeIncremental(
   // Defaults keep the many non-editor callers byte-identical.
   cascadedEmbedContents: ReadonlyMap<BlockId, ElementBox> = EMPTY_EMBED_CONTENTS,
   footnoteAnchors: readonly FootnoteAnchorRef[] = EMPTY_FOOTNOTE_ANCHORS,
+  parentOf?: BlockParentLookup,
+  // Auto-hyphenation (slice 2): injected `Hyphenator`, threaded ALONGSIDE the
+  // shaper to every layout site. Optional trailing so non-editor callers stay
+  // valid; the editor incremental-rebuild path (`rebuildTrees`) passes
+  // `config.hyphenator`. `undefined` ⇒ no hyphenation. Carried but UNUSED in this
+  // slice (the producer is slice 4).
+  hyphenator?: Hyphenator,
 ): LayoutBox | VirtualLayoutTree {
   const t = markStart("layoutTreeIncremental");
   try {
@@ -117,24 +126,24 @@ export function layoutTreeIncremental(
       // legacy positioned `paginateRoot` path (design §"Out of scope for v1").
       if (!measurePassUnsupported(layoutRoot)) {
         // Virtual mode: build the page plan + a lazily-materializing
-        // `VirtualLayoutTree`. No page is positioned here (the win lands when
-        // consumers stop materializing in Tasks 2/3); in Task 1 every consumer
-        // rides `resolvePositionedTree`'s `materializeAll()` bridge. The prior
-        // VirtualLayoutTree (when there was one) threads through as the
-        // carry-forward memo so unchanged pages reuse their PageBox by ref.
-        result = buildVirtualPaginatedTree(layoutRoot, rootCtx, shaper, pageConfig, prevVirtual, cascadedTemplateContents, cascadedEmbedContents, footnoteAnchors);
+        // `VirtualLayoutTree`. No page is positioned here; consumers position
+        // only the pages they need via `getPage(i)` — the whole document is
+        // never materialized. The prior VirtualLayoutTree (when there was one)
+        // threads through as the carry-forward memo so unchanged pages reuse
+        // their PageBox by ref.
+        result = buildVirtualPaginatedTree(layoutRoot, rootCtx, shaper, pageConfig, prevVirtual, cascadedTemplateContents, cascadedEmbedContents, footnoteAnchors, parentOf, hyphenator);
       } else {
         // Unsupported-feature fallback: legacy positioned page tree.
         // paginateRoot drives layoutBlock per page; pass rootCtx so the
         // subtree-reuse cache flows through, and the prior POSITIONED layout so
         // paginate's per-page cache (L-PERF-C) can short-circuit unchanged
         // pages without invoking layoutBlock at all.
-        result = paginateRoot(layoutRoot, rootCtx, shaper, pageConfig, prevPositioned);
+        result = paginateRoot(layoutRoot, rootCtx, shaper, hyphenator, pageConfig, prevPositioned);
       }
     } else {
       switch (cs.display) {
         case "block": {
-          const blockResult = layoutBlock(layoutRoot, 0, 0, rootCtx, shaper);
+          const blockResult = layoutBlock(layoutRoot, 0, 0, rootCtx, shaper, hyphenator);
           if (blockResult.box === null) {
             throw new Error("layoutBlock at dispatch returned null box; should be unreachable in unpaginated path");
           }
@@ -142,7 +151,7 @@ export function layoutTreeIncremental(
           break;
         }
         case "table": {
-          const tableResult = layoutTable(layoutRoot, 0, 0, rootCtx, shaper);
+          const tableResult = layoutTable(layoutRoot, 0, 0, rootCtx, shaper, hyphenator);
           if (tableResult.box === null) {
             throw new Error("layoutTable without fragmentation returned null box; should be unreachable (no FragmentationContext passed)");
           }
@@ -151,6 +160,10 @@ export function layoutTreeIncremental(
         }
         default:
           // Fall back to full layout for unsupported display values.
+          // Auto-hyphenation (slice 2): this internal fallback intentionally passes
+          // NOTHING for `hyphenator` (it gets `undefined`). This is an unsupported-
+          // display escape hatch with no real document content to hyphenate; the
+          // editor-driven paths (block/table/paginated) above thread it correctly.
           result = layoutTree(newRoot, containerWidth, shaperOrMeasurer, pageConfig);
           break;
       }

@@ -3,7 +3,6 @@ import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
 import { getYBlock } from "../yjs-doc";
 import type { BlockKindResolver } from "../block-kinds";
-import { STATE_INTERNAL } from "../state-internal";
 
 /**
  * Change a block's type. Returns the new state and a dirtyIds set
@@ -76,8 +75,8 @@ export function setBlockType(
     // missing/unregistered/shape-invalid block still throws.
     return { state, dirtyIds: new Set() };
   }
-  return applyOperation(state, () => {
-    const yBlock = getYBlock(state[STATE_INTERNAL].doc, blockId, "setBlockType", kind);
+  return applyOperation(state, (doc) => {
+    const yBlock = getYBlock(doc, blockId, "setBlockType", kind);
     yBlock.set("type", type);
   });
 }

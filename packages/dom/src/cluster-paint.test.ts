@@ -115,7 +115,8 @@ const BASE_CS = {
   fontSize: 16,
   fontWeight: "normal",
   fontStyle: "normal",
-  textDecoration: "none",
+  underline: false,
+  lineThrough: false,
   direction: "ltr",
 };
 
@@ -130,9 +131,18 @@ const BASE_US = {
   borderInlineStartColor: "black", borderInlineEndColor: "black",
   direction: "ltr",
   lineHeight: 20,
+  writingMode: "horizontal-tb",
 };
 
-function makeTextRun(opts: { text: string; x?: number; width?: number; height?: number }): LayoutBox {
+function makeTextRun(opts: {
+  text: string;
+  x?: number;
+  width?: number;
+  height?: number;
+  letterSpacing?: number | "normal";
+  wordSpacing?: number | "normal";
+  bidiLevel?: number;
+}): LayoutBox {
   const h = opts.height ?? 16;
   return {
     type: "text-run",
@@ -143,8 +153,13 @@ function makeTextRun(opts: { text: string; x?: number; width?: number; height?: 
     width: opts.width ?? 100, height: h,
     writingMode: "horizontal-tb", direction: "ltr",
     text: opts.text,
+    bidiLevel: opts.bidiLevel,
     computedStyle: { ...BASE_CS },
-    usedStyle: { ...BASE_US },
+    usedStyle: {
+      ...BASE_US,
+      letterSpacing: opts.letterSpacing ?? "normal",
+      wordSpacing: opts.wordSpacing ?? "normal",
+    },
   } as unknown as LayoutBox;
 }
 
@@ -153,7 +168,8 @@ function paint(ctx: KernedCtx, box: LayoutBox): void {
     ctx,
     box,
     [],
-    { x: 0, y: 0, height: 0 },
+    [],
+    [], [], { x: 0, y: 0, height: 0 },
     "hidden",
     600,
     800,
@@ -243,5 +259,116 @@ describe("#330 cluster-positioned painting", () => {
     expect(ctx._fills[0].x).toBeCloseTo(0, 6);
     expect(ctx._fills[1].x).toBeCloseTo(8, 6);
     expect(ctx._fills[2].x).toBeCloseTo(13, 6);
+  });
+
+  it("paint advances include letter-spacing (no glyph/caret drift)", () => {
+    // CSS Text 3 §8: letter-spacing adds extra advance after EVERY cluster, so
+    // the painted origin of cluster i+1 must include the per-cluster spacing the
+    // LAYOUT/shaper added — otherwise glyphs drift from the caret/layout. Here
+    // letterSpacing = 5 (numeric px, as in UsedStyle).
+    const box = makeTextRun({ text: "ab", x: 0, letterSpacing: 5 });
+    paint(ctx, box);
+
+    expect(ctx._fills.map((f) => f.text)).toEqual(["a", "b"]);
+    // a@0; b@ measureText("a").width (8) + letterSpacing (5) = 13.
+    expect(ctx._fills[0].x).toBeCloseTo(0, 6);
+    expect(ctx._fills[1].x).toBeCloseTo(ctx.measureText("a").width + 5, 6);
+  });
+
+  it("paint advances include word-spacing on word separators", () => {
+    // word-spacing adds extra advance only on word-separator clusters (U+0020).
+    // letterSpacing also applies to every cluster. "a b": a@0, space@(8+2)=10,
+    // b@(10 + 5[space width] + 2[letter] + 3[word]) = 20.
+    const box = makeTextRun({ text: "a b", x: 0, letterSpacing: 2, wordSpacing: 3 });
+    paint(ctx, box);
+
+    expect(ctx._fills.map((f) => f.text)).toEqual(["a", " ", "b"]);
+    expect(ctx._fills[0].x).toBeCloseTo(0, 6);
+    // after "a": width 8 + letter 2 = 10
+    expect(ctx._fills[1].x).toBeCloseTo(10, 6);
+    // after " ": prev 10 + width 5 + letter 2 + word 3 = 20
+    expect(ctx._fills[2].x).toBeCloseTo(20, 6);
+  });
+});
+
+// ── P4-C.1 Task 7: intra-run RTL glyph paint (driven by bidiLevel) ───────────
+// An odd resolved UAX #9 level paints clusters RIGHT-to-LEFT WITHIN the box.
+// The box's physical x/width are already correct from the reorder; this only
+// reverses cluster PLACEMENT inside it. The decision signal is `box.bidiLevel`
+// (odd ⇒ RTL), NOT `cs.direction` (which stays "ltr" under the physical-
+// coordinate contract). Even/undefined ⇒ LTR, byte-identical to the #330 path.
+describe("P4-C.1 RTL intra-run cluster paint", () => {
+  let ctx: KernedCtx;
+
+  beforeEach(() => {
+    ctx = createKernedCtx();
+  });
+
+  it("paints an odd-bidiLevel run's clusters RIGHT-to-LEFT (logical-first cluster rightmost)", () => {
+    // 4 single-unit clusters, each 8px wide, no kerning between (these are the
+    // per-cluster advances; the run width is the per-cluster sum = 32).
+    const text = "abcd";
+    const absX = 7;
+    const width = perClusterSum(text); // 32
+    const box = makeTextRun({ text, x: absX, width, bidiLevel: 1 });
+
+    paint(ctx, box);
+
+    // One draw call per cluster, in LOGICAL order (segmentClusters order).
+    expect(ctx._fills.length).toBe(text.length);
+    expect(ctx._fills.map((f) => f.text)).toEqual(["a", "b", "c", "d"]);
+
+    // RTL placement: logically-first cluster sits at the RIGHT edge; cluster i's
+    // LEFT edge = rightEdge − Σadvances(0..=i). With 8px clusters, rightEdge =
+    // absX + 32 = 39:  a@(39−8)=31, b@(39−16)=23, c@(39−24)=15, d@(39−32)=7.
+    const rightEdge = absX + width;
+    const advances = [8, 8, 8, 8];
+    let cum = 0;
+    for (let k = 0; k < text.length; k++) {
+      cum += advances[k];
+      expect(ctx._fills[k].x).toBeCloseTo(rightEdge - cum, 6);
+    }
+
+    // Reversed vs LTR: logically-first cluster is RIGHTMOST, last is LEFTMOST.
+    const firstX = ctx._fills[0].x;
+    const lastX = ctx._fills[text.length - 1].x;
+    expect(firstX).toBeGreaterThan(lastX);
+
+    // The run still spans exactly [absX, absX + width]: leftmost glyph's left
+    // edge == absX, and the rightmost glyph's right edge == absX + width.
+    expect(lastX).toBeCloseTo(absX, 6);
+    expect(firstX + ctx.measureText("a").width).toBeCloseTo(absX + width, 6);
+  });
+
+  it("LTR (bidiLevel undefined) is byte-identical to the #330 left-to-right path", () => {
+    const text = "abcd";
+    const absX = 7;
+    const width = perClusterSum(text);
+    const ltrBox = makeTextRun({ text, x: absX, width, bidiLevel: undefined });
+
+    paint(ctx, ltrBox);
+
+    // Left-to-right cumulative advances, exactly as the LTR path produces.
+    expect(ctx._fills.map((f) => f.text)).toEqual(["a", "b", "c", "d"]);
+    let cum = 0;
+    for (let k = 0; k < text.length; k++) {
+      expect(ctx._fills[k].x).toBeCloseTo(absX + cum, 6);
+      cum += CLUSTER_WIDTH(text[k]);
+    }
+  });
+
+  it("an EVEN bidiLevel (e.g. 2) is treated as LTR (not reversed)", () => {
+    const text = "abcd";
+    const absX = 7;
+    const width = perClusterSum(text);
+    const box = makeTextRun({ text, x: absX, width, bidiLevel: 2 });
+
+    paint(ctx, box);
+
+    let cum = 0;
+    for (let k = 0; k < text.length; k++) {
+      expect(ctx._fills[k].x).toBeCloseTo(absX + cum, 6);
+      cum += CLUSTER_WIDTH(text[k]);
+    }
   });
 });

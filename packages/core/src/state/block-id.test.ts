@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { productionAllocator, createTestAllocator, type BlockId } from "./block-id";
+import { productionAllocator, createTestAllocator, asBlockId, type BlockId } from "./block-id";
 
 describe("productionAllocator", () => {
   it("produces unique ids on repeated calls", () => {
@@ -34,5 +34,13 @@ describe("createTestAllocator", () => {
     a.allocate();
     a.allocate();
     expect(b.allocate()).toBe("blk-0");
+  });
+});
+
+describe("asBlockId", () => {
+  it("returns the value, typed as a BlockId, at a validated boundary", () => {
+    const raw = "abc";
+    const id: BlockId = asBlockId(raw);
+    expect(id).toBe("abc");
   });
 });

@@ -1,0 +1,24 @@
+{
+  "name": "@taleweaver/hyphenation",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "clean": "rm -rf dist",
+    "prebuild": "rm -rf dist",
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@taleweaver/core": "0.0.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

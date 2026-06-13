@@ -1,4 +1,4 @@
-import type { ComputedStyle, UsedStyle } from "../styles";
+import type { ComputedStyle, UsedStyle, StackingContextRole } from "../styles";
 import type { WritingMode, Direction } from "../styles/writing-mode";
 import { logicalToPhysical } from "../styles/writing-mode";
 import type { LayoutBox, BlockBox } from "./layout-box";
@@ -32,6 +32,32 @@ export interface PageBox {
 
   readonly computedStyle: Readonly<ComputedStyle>;
   readonly usedStyle:     Readonly<UsedStyle>;
+
+  /**
+   * POSITIONING — `position: relative` paint-time physical offset, mirrored from
+   * `LayoutBoxBase` so the union member carries it and the painter can read it
+   * uniformly. A page frame is never relatively positioned, so this is always
+   * absent on a PageBox; it exists only to keep the `LayoutBox` union coherent.
+   */
+  readonly relativeOffset?: { readonly dx: number; readonly dy: number };
+
+  /**
+   * POSITIONING — `position: absolute` children whose abc is this box, mirrored
+   * from `LayoutBoxBase` to keep the `LayoutBox` union coherent (painter /
+   * line-flatten read it uniformly). A page FRAME is never an abc-establishing
+   * box (positioning establishment happens on the body block boxes inside it), so
+   * this is always absent on a PageBox; it exists only for union coherence.
+   */
+  readonly absoluteChildren?: readonly LayoutBox[];
+
+  /**
+   * POSITIONING slice 4 — stacking-context role, mirrored from `LayoutBoxBase`
+   * so the `LayoutBox` union carries it and the painter reads it uniformly. A
+   * page FRAME is never a stacking context (it is not positioned, opaque, and
+   * untransformed — `createPageBox` never sets it), so this is ALWAYS absent on a
+   * PageBox; it exists only to keep the union coherent.
+   */
+  readonly stackingContextRole?: StackingContextRole;
 
   /** Direct children that fit on this page (page-relative blockOffsets). */
   readonly children: readonly LayoutBox[];

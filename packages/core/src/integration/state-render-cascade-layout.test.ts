@@ -28,7 +28,7 @@ import { buildBlock, buildState, inlineContent, text } from "../test-utils/state
 import { render } from "../render/render";
 import { cascadePass } from "../cascade";
 import { layoutTree } from "../layout/dispatch";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
@@ -71,38 +71,35 @@ function buildRealisticDoc() {
         type: "heading",
         parentId: "doc",
         prevSiblingId: "p1",
-        nextSiblingId: "list",
+        nextSiblingId: "li1",
         attrs: { headingLevel: 1 },
         inlineContent: inlineContent([text("title")]),
       }),
-      buildBlock({
-        id: "list",
-        type: "list",
-        parentId: "doc",
-        prevSiblingId: "h",
-        nextSiblingId: "img",
-        firstChildId: "li1",
-        lastChildId: "li2",
-      }),
+      // Flat list model: list-items are direct children of the document,
+      // carrying listId/listLevel attrs — no wrapping `list` container.
       buildBlock({
         id: "li1",
         type: "list-item",
-        parentId: "list",
+        parentId: "doc",
+        prevSiblingId: "h",
         nextSiblingId: "li2",
+        attrs: { listId: "L1", listLevel: 0 },
         inlineContent: inlineContent([text("first")]),
       }),
       buildBlock({
         id: "li2",
         type: "list-item",
-        parentId: "list",
+        parentId: "doc",
         prevSiblingId: "li1",
+        nextSiblingId: "img",
+        attrs: { listId: "L1", listLevel: 0 },
         inlineContent: inlineContent([text("second")]),
       }),
       buildBlock({
         id: "img",
         type: "image",
         parentId: "doc",
-        prevSiblingId: "list",
+        prevSiblingId: "li2",
         nextSiblingId: "p2",
         attrs: { src: "/x.png" },
       }),
@@ -126,6 +123,32 @@ function collectText(box: LayoutBox): string {
 }
 
 describe("Integration: state → render → cascade → layout (R-C)", () => {
+  it("editor body default `overflow-wrap: break-word`: a long unbreakable word breaks to fit (OW.S3)", () => {
+    // Google-Docs parity: a long unbreakable string in the BODY (no explicit
+    // overflowWrap) breaks to fit the page rather than running off it. The
+    // `document` component sets `overflowWrap: "break-word"` (slice 3); it cascades
+    // to the paragraph's text (slice 1) and the IFC breaks it (slice 2). This
+    // exercises the WHOLE pipeline end-to-end with NO per-block override.
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc",
+          inlineContent: inlineContent([text("aaaaaaaaaa")]) }), // 10 × 8px = 80px
+      ],
+    });
+    const renderOutput = render(state, componentRegistry, attrRegistry);
+    // In a 40px column the 80px word must break (→ ≥2 lines). Without the body
+    // default it would overflow on a single line.
+    const layout = positionTreeForTest(layoutTree(renderOutput.root, 40, shaper));
+    function countLines(box: LayoutBox): number {
+      let n = box.type === "line" ? 1 : 0;
+      if ("children" in box) for (const c of box.children) n += countLines(c);
+      return n;
+    }
+    expect(countLines(layout)).toBeGreaterThanOrEqual(2);
+  });
+
   it("pipes a realistic doc through render() → cascadePass → layoutTree without throwing", () => {
     const state = buildRealisticDoc();
     expect(() => {
@@ -138,7 +161,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
   it("layout output preserves the inline text content from state", () => {
     const state = buildRealisticDoc();
     const renderOutput = render(state, componentRegistry, attrRegistry);
-    const layout = resolvePositionedTree(layoutTree(renderOutput.root, 800, shaper));
+    const layout = positionTreeForTest(layoutTree(renderOutput.root, 800, shaper));
     const collected = collectText(layout);
     // Each leaf block's inline text must reach the layout tree as TextRunBoxes.
     expect(collected).toContain("hello world");
@@ -186,7 +209,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     // a leaked strut sentinel.
     const state = buildRealisticDoc();
     const renderOutput = render(state, componentRegistry, attrRegistry);
-    const layout = resolvePositionedTree(layoutTree(renderOutput.root, 800, shaper));
+    const layout = positionTreeForTest(layoutTree(renderOutput.root, 800, shaper));
 
     function findEmptyStrutTextRuns(box: LayoutBox, fromImg: boolean): number {
       if (box.type === "text-run" && fromImg && box.text === "") return 1;
@@ -208,7 +231,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     // the layout tree (so the cursor has a vertical slot to sit on).
     const state = buildRealisticDoc();
     const renderOutput = render(state, componentRegistry, attrRegistry);
-    const layout = resolvePositionedTree(layoutTree(renderOutput.root, 800, shaper));
+    const layout = positionTreeForTest(layoutTree(renderOutput.root, 800, shaper));
 
     function findBlock(box: LayoutBox, key: string): LayoutBox | null {
       if (box.key === key) return box;
@@ -366,7 +389,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     }
 
     function paragraphHeight(state: typeof editor.state): number {
-      const layout = resolvePositionedTree(
+      const layout = positionTreeForTest(
         layoutTree(render(state, componentRegistry, attrRegistry).root, 800, scalingShaper),
       );
       const p = findBlock(layout, pId);
@@ -469,7 +492,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     }
 
     function paragraphHeight(state: typeof editor.state): number {
-      const layout = resolvePositionedTree(
+      const layout = positionTreeForTest(
         layoutTree(render(state, componentRegistry, attrRegistry).root, 800, spacingShaper),
       );
       const p = findBlock(layout, pId);
@@ -542,7 +565,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     }
 
     function paragraphBox(state: typeof editor.state): LayoutBox {
-      const layout = resolvePositionedTree(
+      const layout = positionTreeForTest(
         layoutTree(render(state, componentRegistry, attrRegistry).root, 800, shaper),
       );
       const p = findBlockBox(layout, pId);
@@ -615,7 +638,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     }
 
     function paraBox(state: typeof editor.state, key: string): LayoutBox {
-      const layout = resolvePositionedTree(
+      const layout = positionTreeForTest(
         layoutTree(render(state, componentRegistry, attrRegistry).root, 800, shaper),
       );
       const box = findBlockBox(layout, key);

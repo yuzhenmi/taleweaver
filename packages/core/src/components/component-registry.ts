@@ -6,13 +6,13 @@ import { templateBodyComponent } from "./template-body";
 import { footnoteBodyComponent } from "./footnote-body";
 import { paragraphComponent } from "./paragraph";
 import { headingComponent } from "./heading";
-import { listComponent } from "./list";
 import { listItemComponent } from "./list-item";
 import { tableComponent } from "./table";
 import { tableRowComponent } from "./table-row";
 import { tableCellComponent } from "./table-cell";
 import { imageComponent } from "./image";
 import { horizontalLineComponent } from "./horizontal-line";
+import { tableOfContentsComponent } from "./table-of-contents";
 
 /**
  * Component registry for the new render pipeline. Constructor-injectable
@@ -80,7 +80,6 @@ export function createDefaultComponentRegistry(): ComponentRegistry {
   reg.register(sectionComponent);
   reg.register(templateBodyComponent);
   reg.register(footnoteBodyComponent);
-  reg.register(listComponent);
   reg.register(tableComponent);
   reg.register(tableRowComponent);
   reg.register(tableCellComponent);
@@ -90,5 +89,6 @@ export function createDefaultComponentRegistry(): ComponentRegistry {
   reg.register(listItemComponent);
   reg.register(imageComponent);
   reg.register(horizontalLineComponent);
+  reg.register(tableOfContentsComponent);
   return reg;
 }

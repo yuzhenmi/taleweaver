@@ -87,6 +87,22 @@ export function findItemAtOffset(
 }
 
 /**
+ * The attrs of the run containing the char at `offset` (the FOLLOWING run at a
+ * run boundary — `findItemAtOffset`'s boundary semantics). Used to resolve the
+ * formatting a replacement should inherit: the attrs of the run the match's
+ * first char sits in (Google Docs behavior).
+ *
+ * Falls back to `{}` when `offset` lands at end-of-content (no item there) — and
+ * by extension when `content.items` is empty. (An embed item's `attrs` are
+ * returned as-is; a real `findMatches` match never starts on an embed, but the
+ * helper stays total.)
+ */
+export function attrsAtOffset(content: InlineContent, offset: number): ReadonlyAttrs {
+  const { itemIndex } = findItemAtOffset(content, offset);
+  return content.items[itemIndex]?.attrs ?? {};
+}
+
+/**
  * Merge adjacent text items with equal attrs into a single item, and drop
  * zero-length text items. Embed items act as barriers and are not merged
  * with their neighbors, even if neighboring text items have identical attrs.

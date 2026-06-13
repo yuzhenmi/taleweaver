@@ -38,4 +38,31 @@ describe("tableComponent (new)", () => {
     const node = tableComponent.render(containerView({}), stubCtx(), []);
     expect((node as ElementBox).metadata).toBeUndefined();
   });
+
+  it("passes headerRowCount attr into metadata when a non-negative integer", () => {
+    const node = tableComponent.render(containerView({ headerRowCount: 2 }), stubCtx(), []);
+    expect((node as ElementBox).metadata).toEqual({ headerRowCount: 2 });
+  });
+
+  it.each([-1, 1.5, "x", null, true, NaN, Infinity])(
+    "omits headerRowCount from metadata when invalid (%p)",
+    (bad) => {
+      const node = tableComponent.render(containerView({ headerRowCount: bad }), stubCtx(), []);
+      expect((node as ElementBox).metadata).toBeUndefined();
+    },
+  );
+
+  it("stamps BOTH columnWidths and headerRowCount when both present", () => {
+    const node = tableComponent.render(
+      containerView({ columnWidths: [0.5, 0.5], headerRowCount: 1 }),
+      stubCtx(),
+      [],
+    );
+    expect((node as ElementBox).metadata).toEqual({ columnWidths: [0.5, 0.5], headerRowCount: 1 });
+  });
+
+  it("still stamps columnWidths when headerRowCount is absent", () => {
+    const node = tableComponent.render(containerView({ columnWidths: [1] }), stubCtx(), []);
+    expect((node as ElementBox).metadata).toEqual({ columnWidths: [1] });
+  });
 });

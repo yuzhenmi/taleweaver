@@ -28,7 +28,8 @@ import type { ElementBox, RenderNode } from "../../render/render-node";
 import type { Style } from "../../styles";
 import type { PageConfig } from "../page-config";
 import { createMockShaper } from "../mock-shaper";
-import { IMPLICIT_SECTION_PLAN } from "../section-plan";
+import { IMPLICIT_SECTION_PLAN, type SectionPlan } from "../section-plan";
+import { DEFAULT_COLUMN_CONFIG } from "../column-config";
 
 // ---------------------------------------------------------------------------
 // Fixtures + helpers
@@ -93,7 +94,7 @@ function cascadeRoot(root: ElementBox): ElementBox {
 
 /** Build a `PagePlan` from a cascaded root (optionally with a prior plan). */
 function planFrom(cascaded: ElementBox, pageConfig: PageConfig, prevPlan?: PagePlan): PagePlan {
-  const metas = buildBlockFitMetas(cascaded, SHAPER, CONTENT_INLINE);
+  const metas = buildBlockFitMetas(cascaded, SHAPER, undefined, CONTENT_INLINE);
   return measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, cascaded.children, prevPlan);
 }
 
@@ -323,7 +324,7 @@ describe("measurePass incremental — (B) reuse engages / does not over-fire", (
 
     const render1 = docRoot([...render0.children, paragraphNode("p180", "para 180")]);
     const cascaded1 = cascadePassIncremental(render1, render0, cascaded0) as ElementBox;
-    const metas1 = buildBlockFitMetas(cascaded1, SHAPER, CONTENT_INLINE);
+    const metas1 = buildBlockFitMetas(cascaded1, SHAPER, undefined, CONTENT_INLINE);
 
     __resetFitOnePageCallCountForTest();
     measurePass(metas1, PAGE, IMPLICIT_SECTION_PLAN, cascaded1.children, planA);
@@ -336,7 +337,7 @@ describe("measurePass incremental — (B) reuse engages / does not over-fire", (
 
   it("a from-scratch build (no prevPlan) re-fits every page (~60)", () => {
     const cascaded = cascadeRoot(bigRender());
-    const metas = buildBlockFitMetas(cascaded, SHAPER, CONTENT_INLINE);
+    const metas = buildBlockFitMetas(cascaded, SHAPER, undefined, CONTENT_INLINE);
 
     __resetFitOnePageCallCountForTest();
     measurePass(metas, PAGE, IMPLICIT_SECTION_PLAN, cascaded.children);
@@ -353,7 +354,7 @@ describe("measurePass incremental — (B) reuse engages / does not over-fire", (
 
     const render1 = docRoot([paragraphNode("pTop", "top"), ...render0.children]);
     const cascaded1 = cascadePassIncremental(render1, render0, cascaded0) as ElementBox;
-    const metas1 = buildBlockFitMetas(cascaded1, SHAPER, CONTENT_INLINE);
+    const metas1 = buildBlockFitMetas(cascaded1, SHAPER, undefined, CONTENT_INLINE);
 
     __resetFitOnePageCallCountForTest();
     const planB = measurePass(metas1, PAGE, IMPLICIT_SECTION_PLAN, cascaded1.children, planA);
@@ -377,11 +378,85 @@ describe("measurePass incremental — (B) reuse engages / does not over-fire", (
       render0.children.map((c, i) => (i === 1 ? paragraphNode("p1", "EDITED") : c)),
     );
     const cascaded1 = cascadePassIncremental(render1, render0, cascaded0) as ElementBox;
-    const metas1 = buildBlockFitMetas(cascaded1, SHAPER, CONTENT_INLINE);
+    const metas1 = buildBlockFitMetas(cascaded1, SHAPER, undefined, CONTENT_INLINE);
 
     __resetFitOnePageCallCountForTest();
     measurePass(metas1, PAGE, IMPLICIT_SECTION_PLAN, cascaded1.children, planA);
     expect(__getFitOnePageCallCountForTest()).toBeLessThanOrEqual(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// (D) COLUMN-CONFIG REUSE GATE (multi-column wiring T2/T3) — a change in the
+// effective `ColumnConfig` between two measure cycles MUST refuse per-page reuse
+// and re-fit every affected page, exactly as a `pageConfig` change does. Since
+// T3 the column config DRIVES the fit (`fitColumnsOnPage` on multicol pages), so
+// flipping to 2 columns both re-fits AND re-packs the content (a 2-column page
+// holds twice the single-column content ⇒ ~half the page count). The unchanged-
+// config case still reuses (the column gate is equal so it adds no misses).
+//
+// NOTE on the fit-call counter: `_fitOnePageCallCount` instruments the SINGLE-
+// COLUMN branch only — `fitColumnsOnPage`'s internal `fitOnePage` calls are NOT
+// counted (T3 M-1). So a 2-column re-fit drives the counter to 0; the observable
+// that the column change actually re-fit (not spurious-reuse) is that the page
+// COUNT changed and every page carries a `columnFit`.
+// ---------------------------------------------------------------------------
+
+describe("measurePass incremental — (D) column-config change refuses reuse", () => {
+  function bigRender(): ElementBox {
+    return docRoot(Array.from({ length: 180 }, (_, i) => paragraphNode(`p${i}`, `para ${i}`)));
+  }
+  const PAGE = noMarginPageConfig(48); // 3 lines/page (single-column) ⇒ 60 pages.
+
+  const twoColumnPlan: SectionPlan = {
+    boundaries: [{ startFlattenedIndex: 0, sectionId: null }],
+    effectiveDefaultColumns: { columnCount: 2, columnGap: 48, columnRule: null },
+  };
+
+  it("a doc-wide column-count change between cycles re-fits + re-packs every page (no spurious reuse)", () => {
+    const cascaded = cascadeRoot(bigRender());
+    const metas = buildBlockFitMetas(cascaded, SHAPER, undefined, CONTENT_INLINE);
+
+    // Cycle 1: single-column (DEFAULT_COLUMN_CONFIG) ⇒ 60 pages, no columnFit.
+    const planA = measurePass(metas, PAGE, IMPLICIT_SECTION_PLAN, cascaded.children);
+    expect(planA.entries.length).toBe(60);
+    expect(planA.entries[0].columnConfig).toEqual(DEFAULT_COLUMN_CONFIG);
+    expect(planA.entries[0].columnFit).toBeUndefined();
+
+    // Cycle 2: SAME content/metas, but the effective default flips to 2 columns.
+    // The per-page reuse gate must refuse (no spurious reuse), AND since T3 the
+    // column fit packs 2 columns/page ⇒ the page count halves to 30 and every
+    // page carries a `columnFit`. (The single-column instrument stays 0 — the
+    // multicol fit's internal calls are uncounted, T3 M-1.)
+    __resetFitOnePageCallCountForTest();
+    const planB = measurePass(metas, PAGE, twoColumnPlan, cascaded.children, planA);
+    expect(__getFitOnePageCallCountForTest()).toBe(0);
+    expect(planB.entries.length).toBe(30);
+    for (const e of planB.entries) {
+      expect(e.columnConfig.columnCount).toBe(2);
+      expect(e.columnFit).toBeDefined();
+    }
+  });
+
+  it("an unchanged column-config between cycles still reuses (gate does not over-fire)", () => {
+    const cascaded = cascadeRoot(bigRender());
+    const metas = buildBlockFitMetas(cascaded, SHAPER, undefined, CONTENT_INLINE);
+
+    // Both cycles use the SAME 2-column plan + identical content ⇒ every page is
+    // reusable; the column gate is equal so it adds no misses. The single-column
+    // instrument stays 0 either way (multicol pages use the uncounted fit), so
+    // the meaningful reuse signal is that the SECOND cycle copies the prior
+    // entries (it returns the same 30-page plan with their columnFit carried).
+    const planA = measurePass(metas, PAGE, twoColumnPlan, cascaded.children);
+    expect(planA.entries.length).toBe(30);
+    __resetFitOnePageCallCountForTest();
+    const planB = measurePass(metas, PAGE, twoColumnPlan, cascaded.children, planA);
+    expect(__getFitOnePageCallCountForTest()).toBe(0);
+    expect(planB.entries.length).toBe(30);
+    // The carried column distributions are the prior cycle's (reuse engaged).
+    for (let i = 0; i < planB.entries.length; i++) {
+      expect(planB.entries[i].columnFit).toBe(planA.entries[i].columnFit);
+    }
   });
 });
 
@@ -426,7 +501,7 @@ describe("measurePass incremental — (C) fitOnePage work no longer scales with 
     let render0 = docRoot([paragraphNode("p0", "para 0")]);
     let cascaded = cascadeRoot(render0);
     let plan = measurePass(
-      buildBlockFitMetas(cascaded, SHAPER, CONTENT_INLINE),
+      buildBlockFitMetas(cascaded, SHAPER, undefined, CONTENT_INLINE),
       PAGE,
       IMPLICIT_SECTION_PLAN,
       cascaded.children,
@@ -438,7 +513,7 @@ describe("measurePass incremental — (C) fitOnePage work no longer scales with 
       const render1 = docRoot([...render0.children, paragraphNode(`p${i}`, `para ${i}`)]);
       const cascaded1 = cascadePassIncremental(render1, render0, cascaded) as ElementBox;
       const start = performance.now();
-      const metas1 = buildBlockFitMetas(cascaded1, SHAPER, CONTENT_INLINE);
+      const metas1 = buildBlockFitMetas(cascaded1, SHAPER, undefined, CONTENT_INLINE);
       plan = measurePass(metas1, PAGE, IMPLICIT_SECTION_PLAN, cascaded1.children, incremental ? plan : undefined);
       ms += performance.now() - start;
       render0 = render1;

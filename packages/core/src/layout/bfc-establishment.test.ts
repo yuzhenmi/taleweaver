@@ -24,6 +24,14 @@ describe("establishesNewBFC", () => {
     expect(establishesNewBFC({ ...INITIAL_COMPUTED_STYLE, display: "flow-root" })).toBe(true);
   });
 
+  it("returns true for position: absolute (POSITIONING slice 3 — abs box is its own BFC root)", () => {
+    expect(establishesNewBFC({ ...INITIAL_COMPUTED_STYLE, position: "absolute" })).toBe(true);
+  });
+
+  it("returns false for position: relative (in-flow — NOT a BFC trigger)", () => {
+    expect(establishesNewBFC({ ...INITIAL_COMPUTED_STYLE, position: "relative" })).toBe(false);
+  });
+
   it("returns false for inline", () => {
     expect(establishesNewBFC({ ...INITIAL_COMPUTED_STYLE, display: "inline" })).toBe(false);
   });

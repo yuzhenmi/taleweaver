@@ -5,6 +5,8 @@ import {
   getBlocksMap,
   getEmbedContentsMap,
   getTemplateContentsMap,
+  getListDefsMap,
+  getCommentsMap,
   getMetaMap,
   getTreeMap,
   allTreeBlockCount,
@@ -18,11 +20,13 @@ import type { BlockId } from "./block-id";
 
 describe("yjs-doc", () => {
   describe("createYDoc", () => {
-    it("creates a Y.Doc with the four top-level maps", () => {
+    it("creates a Y.Doc with the five data maps (blocks, embedContents, templateContents, listDefs, comments) + meta", () => {
       const doc = createYDoc();
       expect(getBlocksMap(doc)).toBeInstanceOf(Y.Map);
       expect(getEmbedContentsMap(doc)).toBeInstanceOf(Y.Map);
       expect(getTemplateContentsMap(doc)).toBeInstanceOf(Y.Map);
+      expect(getListDefsMap(doc)).toBeInstanceOf(Y.Map);
+      expect(getCommentsMap(doc)).toBeInstanceOf(Y.Map);
       expect(getMetaMap(doc)).toBeInstanceOf(Y.Map);
     });
 
@@ -34,6 +38,22 @@ describe("yjs-doc", () => {
     it("leaves meta.rootId unset when not provided", () => {
       const doc = createYDoc();
       expect(getMetaMap(doc).get("rootId")).toBeUndefined();
+    });
+
+    it("seeds the comments side-table map (empty)", () => {
+      const doc = createYDoc();
+      const comments = getCommentsMap(doc);
+      expect(comments).toBeInstanceOf(Y.Map);
+      expect(comments.size).toBe(0);
+    });
+
+    it("does NOT include the comments map in the block-tree maps (allTreeBlockCount unchanged)", () => {
+      // The comments map is a side-table keyed by commentId, like listDefs —
+      // NOT a block tree. Writing to it must not affect allTreeBlockCount.
+      const doc = createYDoc();
+      getCommentsMap(doc).set("c1", new Y.Map());
+      getListDefsMap(doc).set("l1", new Y.Map());
+      expect(allTreeBlockCount(doc)).toBe(0);
     });
   });
 

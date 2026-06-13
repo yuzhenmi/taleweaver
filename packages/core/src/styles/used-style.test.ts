@@ -29,7 +29,8 @@ describe("UsedStyle", () => {
       fontSize: 16,
       fontWeight: "normal",
       fontStyle: "normal",
-      textDecoration: "none",
+      underline: false,
+      lineThrough: false,
       lineHeight: 19.2,
       color: "#000",
 
@@ -40,11 +41,15 @@ describe("UsedStyle", () => {
       textIndent: 0,
       textWrap: "wrap",
       hyphens: "manual",
+      overflowWrap: "normal",
       letterSpacing: "normal",
       wordSpacing: "normal",
       textTransform: "none",
       fontFeatureSettings: [],
-      tabSize: 4,
+      tabStops: [],
+      defaultTabStop: 48,
+      language: "",
+      hyphenateLimitChars: [5, 2, 2],
 
       float: "none", clear: "none",
 

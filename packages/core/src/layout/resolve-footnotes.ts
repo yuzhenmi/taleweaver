@@ -37,6 +37,7 @@ import type { BlockFitMeta } from "./fit-core";
 import { fitOnePage } from "./fit-core";
 import type { LayoutContext } from "./layout-context";
 import type { TextShaper } from "./text-shaper";
+import type { Hyphenator } from "./hyphenator";
 import type { PageConfig } from "./page-config";
 import { layoutBlock } from "./bfc";
 import type { BlockBox } from "./layout-box";
@@ -51,6 +52,8 @@ import {
 } from "./measure-pass";
 import { pageConfigsEqual, sectionStateAt, type SectionPlan } from "./section-plan";
 import type { BreakToken } from "./fragmentation";
+import { breakTokensEqual, innerBfcToken } from "./fragmentation";
+import { fitColumnsOnPage, balanceColumnHeight, type ColumnsFitResult } from "./column-fit";
 import { isDevMode } from "./dev-mode";
 
 // ---------------------------------------------------------------------------
@@ -272,18 +275,16 @@ export function buildFootnotePageAssignment(
  * pageAssignment)` consumes for `restart-per-page` numbering (FN-6.1): a
  * `ReadonlyMap<contentBlockId, pageIndex>` keyed by the anchor's REFERENCE page.
  *
- * FN-6.4 slice 1 ONLY exposes this assignment to post-layout consumers; slices
- * 2-6 wire it into the render pipeline's `footnoteNumbers` call to compute the
- * per-page-reset numbers. This helper changes NO numbering behaviour.
- *
  * @param anchors ordered footnote anchors (document order, from
  *   `collectFootnoteAnchors`).
  * @param plan the page plan whose `pageSpanOfBlock` reports each anchor host
- *   block's page span. MUST be the SAME plan `resolveFootnotes` assigns against
- *   internally — the RAW (pre-`resolveFootnotes`) plan — so the exposed page
- *   matches the page the bodies were assigned to. (`resolveFootnotes` re-fits
- *   footnote pages; the anchor→reference-page mapping is established on the raw
- *   plan, before that re-fit.)
+ *   block's page span. MUST be the RESOLVED (post-`resolveFootnotes`) plan, so the
+ *   exposed page is the page the anchor's call marker actually RENDERS on. The
+ *   marker is inline content of the host block, positioned by the resolved plan;
+ *   footnote-slot reservation can evict the host block to a later page than the raw
+ *   plan placed it, and `restart-per-page` numbering restarts per the marker's
+ *   page — so the raw plan would assign a stale page (audit F2). The host-block
+ *   span always resolves, so a fully-deferred footnote body never desyncs this.
  * @param blockToIndex top-level child key → index (from
  *   `buildBlockToTopLevelIndex`); the nested-anchor skip guard.
  */
@@ -352,6 +353,9 @@ export function computeSlotLayout(
   contentInlineSize: number,
   ctx: LayoutContext,
   shaper: TextShaper,
+  // Auto-hyphenation (slice 2): threaded ALONGSIDE `shaper` to the footnote-body
+  // `layoutBlock`. `undefined` ⇒ none. Carried but UNUSED in this slice.
+  hyphenator: Hyphenator | undefined,
 ): { slotHeight: number; slotContentBlockIds: BlockId[]; outboundContinuations: FootnoteContinuation[] } {
   // ONE ordered work-list: inbound carries (in order) then fresh bodies. Tag
   // each entry `isFresh` so only fresh-and-started ids land in
@@ -425,7 +429,7 @@ export function computeSlotLayout(
         : { ...ctx, containingInlineSize: Math.max(0, contentInlineSize - gutter) };
 
     _bodyLayoutCallCount++;
-    const { box, breakToken } = layoutBlock(body, 0, 0, bodyLayoutCtx, shaper, {
+    const { box, breakToken } = layoutBlock(body, 0, 0, bodyLayoutCtx, shaper, hyphenator, {
       availableBlockSize: remaining,
       pageIndex: 0,
       resumeFrom: item.resumeToken,
@@ -544,6 +548,10 @@ export function resolveFootnotes(
   footnoteAnchors: readonly FootnoteAnchorRef[],
   ctx: LayoutContext,
   shaper: TextShaper,
+  // Auto-hyphenation (slice 2): threaded ALONGSIDE `shaper` to the footnote-body
+  // layout (`computeSlotLayout` + direct `layoutBlock`). `undefined` ⇒ none.
+  // Carried but UNUSED in this slice.
+  hyphenator: Hyphenator | undefined,
   slotInsets: SlotInsets | undefined,
   docWidePageConfig: PageConfig,
   // FN-4.4: the PRIOR cycle's RESOLVED plan, for the incremental carry-forward
@@ -556,6 +564,15 @@ export function resolveFootnotes(
   // map so a `prevResolvedPlan` without a paired prior map never spuriously
   // reuses (an absent prior body ref refuses reuse — see `canReuseFootnotePage`).
   prevCascadedEmbedContents: ReadonlyMap<BlockId, ElementBox> = new Map(),
+  // #499: builds fit metas at a given inline width — the column TRACK width —
+  // cached by `buildBlockFitMetas`'s `(elementBoxRef, width, shaperRef)` key. The
+  // multicol re-fit branches (`fitBody` + final-page balance) lay each column at
+  // the narrow track width that `materializeMultiColumnBody` uses; building the
+  // fit metas at that SAME width keeps the planned `ColumnFit` in lockstep with
+  // materialize's per-column break tokens (the exact #494 fix, here in the
+  // footnote pass). Absent ⇒ fall back to the full-width `metas` — the drift-prone
+  // path that is only safe for width-independent fixed-height content.
+  buildMetasAtWidth?: (inlineSize: number) => readonly BlockFitMeta[],
 ): PagePlan {
   // (1) Footnote-free doc ⇒ ref-equal no-op (zero cost). The `prevResolvedPlan`
   // path never runs for a footnote-free doc — the early return fires first.
@@ -626,6 +643,7 @@ export function resolveFootnotes(
       contentInlineSize,
       ctx,
       shaper,
+      hyphenator,
     );
 
   // Re-collect a page's assigned footnotes by filtering anchors whose top-level
@@ -654,9 +672,14 @@ export function resolveFootnotes(
   for (let p = 0; p < firstFootnotePage; p++) {
     const e = rawPlan.entries[p];
     newEntries.push(e);
+    // `recordBlockMaps` reasons about the block-axis index range, so it takes the
+    // INNER BFC tokens — a multicol page's `resumeInto`/`resumeOut` is a
+    // `ColumnBreakToken` that would otherwise fall to the `else` branch and
+    // mis-map all remaining blocks. `innerBfcToken` is the identity for
+    // single-column pages (mirrors measure-pass's `recordBlockMaps` call).
     recordBlockMaps(
       e.children, rootChildren, metas, e.startIndex, e.pageIndex,
-      e.resumeInto, e.resumeOut, blockToPage, blockToSpan,
+      innerBfcToken(e.resumeInto), innerBfcToken(e.resumeOut), blockToPage, blockToSpan,
     );
   }
 
@@ -728,7 +751,7 @@ export function resolveFootnotes(
         ...ctx,
         containingInlineSize: Math.max(0, boundInlineSize - gutter),
       };
-      const { box } = layoutBlock(body, 0, 0, heightCtx, shaper, {
+      const { box } = layoutBlock(body, 0, 0, heightCtx, shaper, hyphenator, {
         availableBlockSize: Number.MAX_SAFE_INTEGER,
         pageIndex: 0,
         resumeFrom: null,
@@ -764,6 +787,10 @@ export function resolveFootnotes(
     // `pageBlockSize − topInset − bottomInset`; the footnote slot reduces it
     // further by `footnoteSlotHeight` (D1 — the insets themselves are UNCHANGED).
     const effCfg = st.pageConfig ?? docWidePageConfig;
+    // Effective multi-column config for THIS page (multi-column wiring T1) —
+    // mirrors `effCfg`; the rebuilt entry carries the same value measurePass did
+    // (the reuse gate proved this page's section state equals the prior entry's).
+    const effColCfg = st.columnConfig ?? sectionPlan.effectiveDefaultColumns;
     const sectionInsets = slotInsets?.get(st.activeSectionId ?? null);
     const effTopInset = sectionInsets?.top ?? effCfg.pageMargins.blockStart;
     const effBottomInset = sectionInsets?.bottom ?? effCfg.pageMargins.blockEnd;
@@ -793,6 +820,22 @@ export function resolveFootnotes(
     let resolvedListCounterAtEnd = listCounterAtStart;
     // Whole-block-progress child count placed on this page (slice length basis).
     let resolvedChildrenCount = 0;
+    // The multi-column distribution (multi-column wiring T3) this page carries.
+    // Carried from the prior measure-pass entry on the REUSE path (a footnote-free
+    // multicol page keeps its `fitColumnsOnPage` result); set from the MISS path's
+    // `fitBody` (3.5b: the footnote re-fit runs `fitColumnsOnPage` at the
+    // slot-reduced height for a multicol page, so it keeps its columns). `undefined`
+    // only for single-column pages. Without it, Task 5's `materializePage` would
+    // silently fall to single-column for every multicol page rewritten by this sweep.
+    let resolvedColumnFit: ColumnsFitResult | undefined = undefined;
+    // The actual per-column rendered height (multi-column wiring T4) this page
+    // carries — what Task 5's `materializePage` lays each column into. ALWAYS
+    // present (REQUIRED `PagePlanEntry` field). Carried from the prior entry on the
+    // REUSE path; on the MISS path it is the slot-reduced FILL height (the height
+    // the footnote page's columns actually fill into). Initialized to the full body
+    // content size so it is definitely-assigned for single-column / footnote-free
+    // pages too.
+    let resolvedBalancedColumnHeight = pageContentBlockSize;
     let reused = false;
 
     if (prevResolvedIndexByStartIndex !== null && prevResolvedPlan !== undefined) {
@@ -828,6 +871,12 @@ export function resolveFootnotes(
         resolvedStopBeforeIndex = tightenCap(sectionCap, undefined);
         resolvedResumeOut = prevEntry.resumeOut;
         resolvedChildrenCount = prevEntry.children.length;
+        // Carry the prior measure-pass entry's column distribution (T3). The reuse
+        // gate proved this page's fit is unchanged, so its `columnFit` is still valid.
+        resolvedColumnFit = prevEntry.columnFit;
+        // Carry the prior entry's rendered per-column height (T4); the reuse gate
+        // proved this page's fit/geometry are unchanged, so it is still valid.
+        resolvedBalancedColumnHeight = prevEntry.balancedColumnHeight;
         // The page's list-counter INCREMENT is a pure function of its (proved
         // identical) content; reading it off the prior plan as
         // `prevNext.listCounterAtStart − prevEntry.listCounterAtStart` reproduces
@@ -863,11 +912,85 @@ export function resolveFootnotes(
       // Reuse path: every resolved output was copied from the prior entry above.
       // Nothing further to compute — fall through to the entry emission below.
     } else {
-    const seedNoSlotFit = fitOnePage(
-      metas, startIndex, resumeInto,
-      pageContentBlockSize, listCounterAtStart,
-      sectionCap ?? undefined,
-    );
+    // `fitOnePage` / `fitColumnsOnPage` do not understand a `ColumnBreakToken`. A
+    // multicol page's threaded `resumeInto` is a column token, so unwrap it to the
+    // inner BFC token before every re-fit. Identity for single-column pages
+    // (mirrors measure-pass's `innerBfcToken(resumeInto)`).
+    const innerResumeInto = innerBfcToken(resumeInto);
+    // #499: build the fit metas at the column TRACK width for this page's multicol
+    // re-fit — the SAME narrow width `materializeMultiColumnBody` lays each column
+    // at — so the re-fit's planned `ColumnFit` matches materialize's per-column
+    // break tokens (mirrors measure-pass's #494 fix). The arithmetic MUST be
+    // bit-identical to measure-pass's `(effContentInlineSize − (N−1)*gap)/N` and
+    // to `virtual-layout-tree.ts`'s `materializeMultiColumnBody` (same operand
+    // order, same `effColCfg.columnGap`/`columnCount`). `colMetas` has the SAME
+    // length + global child indexing as `metas` (same children, different measured
+    // width), so `startIndex` stays valid. Computed ONLY on multicol pages —
+    // single-column pages keep using `metas` (byte-identical to today). Absent
+    // builder ⇒ fall back to the full-width `metas` (drift-prone; only safe for
+    // width-independent fixed-height content).
+    const colMetas =
+      effColCfg.columnCount > 1
+        ? buildMetasAtWidth
+          ? buildMetasAtWidth(
+              (contentInlineSize - (effColCfg.columnCount - 1) * effColCfg.columnGap) /
+                effColCfg.columnCount,
+            )
+          : metas
+        : metas;
+    // 3.5b: re-fit the page body at `columnHeight` honoring `cap`. A multicol page
+    // distributes its body across N columns via `fitColumnsOnPage` (Google Docs:
+    // footnotes span the full page width below the body, so the columns shrink
+    // uniformly into the slot-reduced height); a single-column page uses the
+    // unchanged `fitOnePage`. The normalized `BodyFit` lets the convergence loop +
+    // publish read one shape regardless of column count.
+    interface BodyFit {
+      readonly childrenCount: number;
+      readonly resumeOut: BreakToken | null;
+      readonly listCounterAtEnd: number;
+      readonly columnFit: ColumnsFitResult | undefined;
+    }
+    const fitBody = (columnHeight: number, cap: number | undefined): BodyFit => {
+      if (effColCfg.columnCount > 1) {
+        const cf = fitColumnsOnPage(
+          colMetas, startIndex, innerResumeInto, columnHeight,
+          effColCfg.columnCount, listCounterAtStart, cap,
+        );
+        // F-1 (mirror measure-pass T3): `fitColumnsOnPage` returns
+        // `pageResumeOut === null` when content exhausts AT a cap (section cap OR a
+        // footnote atomic cap) even though more document remains. Single-column
+        // `fitOnePage` emits a forced-break token there; the column fit does not, so
+        // synthesize the same token so the threading/sweep continue and the next
+        // page picks up the remaining content. (At true document end,
+        // `startIndex + totalChildrenCount === metas.length`, so no synthesis. On a
+        // real column overflow `pageResumeOut` is a non-null column token, so this
+        // branch is skipped and the column token threads.)
+        let resumeOut: BreakToken | null = cf.pageResumeOut;
+        // `colMetas.length === metas.length` (same children, different width;
+        // mirror measure-pass's line ~813 which uses `colMetas.length`).
+        if (resumeOut === null && startIndex + cf.totalChildrenCount < colMetas.length) {
+          resumeOut = {
+            type: "block",
+            resumeChildIndex: startIndex + cf.totalChildrenCount,
+            resumeChildToken: null,
+          };
+        }
+        return {
+          childrenCount: cf.totalChildrenCount,
+          resumeOut,
+          listCounterAtEnd: cf.listCounterAtEnd,
+          columnFit: cf,
+        };
+      }
+      const r = fitOnePage(metas, startIndex, innerResumeInto, columnHeight, listCounterAtStart, cap);
+      return {
+        childrenCount: r.childrenCount,
+        resumeOut: r.resumeOut,
+        listCounterAtEnd: r.listCounterAtEnd,
+        columnFit: undefined,
+      };
+    };
+    const seedNoSlotFit = fitBody(pageContentBlockSize, sectionCap ?? undefined);
     let contentBlockIds = unionIds(
       anchorsByPage.get(pageIndex) ?? [],
       collectForSlice(startIndex, seedNoSlotFit.childrenCount),
@@ -879,10 +1002,16 @@ export function resolveFootnotes(
     // as the next page's inbound. Recomputed each iteration alongside the height.
     let slotResult: { slotHeight: number; slotContentBlockIds: BlockId[]; outboundContinuations: FootnoteContinuation[] } =
       { slotHeight: 0, slotContentBlockIds: [], outboundContinuations: [] };
+    // The `contentBlockIds` the current `slotResult` (hence `footnoteSlotHeight`)
+    // was computed from. Tracked so the dev invariant below can SKIP a redundant
+    // body re-layout when the final `contentBlockIds` is unchanged since the slot
+    // was computed (the converged path — `slotLayoutFor` is deterministic, so the
+    // height is correct by construction). Only the non-converged path re-runs.
+    let slotResultIds: readonly BlockId[] = contentBlockIds;
     // The effective stop cap = the section cap tightened by any footnote-driven
     // atomic cap discovered on a cycle. `undefined` ⇒ no cap beyond section.
     let footnoteCap: number | undefined = undefined;
-    let fit = seedNoSlotFit;
+    let fit: BodyFit = seedNoSlotFit;
     const seen: string[] = [];
     // The `MAX_CONVERGENCE_ITERATIONS` cap is a DEFENSIVE bound, not an expected
     // operating point. The slot ⇄ blocks relationship is monotone/contracting
@@ -897,12 +1026,9 @@ export function resolveFootnotes(
         inboundContinuations, contentBlockIds, contentInlineSize, pageContentBlockSize,
       );
       footnoteSlotHeight = slotResult.slotHeight;
+      slotResultIds = contentBlockIds;
       const effCap = tightenCap(sectionCap, footnoteCap);
-      fit = fitOnePage(
-        metas, startIndex, resumeInto,
-        pageContentBlockSize - footnoteSlotHeight, listCounterAtStart,
-        effCap,
-      );
+      fit = fitBody(pageContentBlockSize - footnoteSlotHeight, effCap);
       const recollected = collectForSlice(startIndex, fit.childrenCount);
       if (sameIds(recollected, contentBlockIds)) break;
 
@@ -929,11 +1055,8 @@ export function resolveFootnotes(
             inboundContinuations, contentBlockIds, contentInlineSize, pageContentBlockSize,
           );
           footnoteSlotHeight = slotResult.slotHeight;
-          fit = fitOnePage(
-            metas, startIndex, resumeInto,
-            pageContentBlockSize - footnoteSlotHeight, listCounterAtStart,
-            tightenCap(sectionCap, footnoteCap),
-          );
+          slotResultIds = contentBlockIds;
+          fit = fitBody(pageContentBlockSize - footnoteSlotHeight, tightenCap(sectionCap, footnoteCap));
           contentBlockIds = collectForSlice(startIndex, fit.childrenCount);
         }
         break;
@@ -948,10 +1071,16 @@ export function resolveFootnotes(
     // multi-cycle — unreachable with correct block structure per the monotonicity
     // note above), `footnoteSlotHeight` would be left over from an earlier
     // iteration's set and disagree with the bodies that actually get a slot. Catch
-    // that loudly in dev; prod stays graceful. (The final `slotResult` was already
-    // computed from the FINAL `contentBlockIds` in the loop's last iteration, so a
-    // fresh call here re-derives the same height — the cross-check is cheap.)
-    if (isDevMode()) {
+    // that loudly in dev; prod stays graceful.
+    //
+    // Perf (F5): on EVERY converged exit the loop's break condition guarantees
+    // `contentBlockIds` is UNCHANGED since the `slotResult` it was last computed
+    // from (`slotResultIds`), so `footnoteSlotHeight` is correct by determinism —
+    // re-running `slotLayoutFor` (which lays out the bodies again) is pure waste.
+    // Only re-derive + compare when the ids genuinely differ (the non-converged
+    // cap-exhaustion path the invariant exists to catch), avoiding a redundant
+    // per-page body layout in dev for footnote-heavy docs.
+    if (isDevMode() && !sameIds(contentBlockIds, slotResultIds)) {
       const expected = slotLayoutFor(
         inboundContinuations, contentBlockIds, contentInlineSize, pageContentBlockSize,
       );
@@ -978,11 +1107,73 @@ export function resolveFootnotes(
     resolvedResumeOut = fit.resumeOut;
     resolvedChildrenCount = fit.childrenCount;
     resolvedListCounterAtEnd = fit.listCounterAtEnd;
+    // 3.5b: the multicol distribution from the final `fitBody` (a `ColumnsFitResult`
+    // for a multicol page; `undefined` for single-column). Threads to Task 5's
+    // `materializePage` so a footnote-bearing multicol page builds a MultiColumnBox.
+    resolvedColumnFit = fit.columnFit;
+    // T4: the rendered per-column height — the slot-reduced body height the page's
+    // columns FILL into (the final `fitBody` ran at `pageContentBlockSize −
+    // footnoteSlotHeight`). Task 5's `materializePage` lays each column into this.
+    const reducedBodyHeight = pageContentBlockSize - footnoteSlotHeight;
+    resolvedBalancedColumnHeight = reducedBodyHeight;
+    // T4b: a footnote-bearing FINAL multicol page BALANCES its columns at the
+    // slot-reduced height (Google Docs / Word `column-fill: balance`), mirroring
+    // measurePass's footnote-FREE final-page balance — without this a page would
+    // lose its balance the moment a footnote landed on it. Finality is EXPLICIT
+    // (matches measurePass's I-1 form): the columns took all the section's
+    // remaining content (`fit.columnFit.pageResumeOut === null`, read PRE-F-1-synth
+    // so a section-capped final page still balances) AND content is exhausted at or
+    // past the section boundary/end. A footnote-CAP-tightened page is NOT final —
+    // its content ends at `footnoteCap < sectionEnd`, so `>= sectionEnd` is false and
+    // this is skipped (the contested block + footnote moved to the next page).
+    // Balance only REDISTRIBUTES the already-placed body more evenly, so the placed
+    // anchor blocks — and thus the converged footnote slot — are unchanged; it is a
+    // pure post-convergence step. The reuse path carries the prior entry's already-
+    // balanced `columnFit`/`balancedColumnHeight`, so it needs no balance here.
+    if (effColCfg.columnCount > 1 && fit.columnFit !== undefined) {
+      const cf = fit.columnFit;
+      // `colMetas.length === metas.length` (mirror measure-pass's `sectionEnd`).
+      const sectionEnd = sectionCap ?? colMetas.length;
+      const isFinalMulticolPage =
+        cf.pageResumeOut === null && startIndex + cf.totalChildrenCount >= sectionEnd;
+      if (isFinalMulticolPage) {
+        const effCap = tightenCap(sectionCap, footnoteCap);
+        // #499: balance + re-fit on the track-width `colMetas` (NOT full-width
+        // `metas`), matching `materializeMultiColumnBody`'s narrow-track layout —
+        // mirrors measure-pass's final-page balance block.
+        const balancedHeight = balanceColumnHeight(
+          colMetas, startIndex, innerResumeInto, effColCfg.columnCount,
+          listCounterAtStart, reducedBodyHeight, effCap,
+        );
+        const balanced = fitColumnsOnPage(
+          colMetas, startIndex, innerResumeInto, balancedHeight,
+          effColCfg.columnCount, listCounterAtStart, effCap,
+        );
+        // Balance must not change WHICH/how-many children are placed (it only evens
+        // the per-column height); assert in dev to catch any drift, then adopt it.
+        if (isDevMode() && balanced.totalChildrenCount !== cf.totalChildrenCount) {
+          throw new Error(
+            `resolveFootnotes: balanced re-fit placed ${balanced.totalChildrenCount} ` +
+              `children but FILL placed ${cf.totalChildrenCount} on final multicol ` +
+              `footnote page ${pageIndex}`,
+          );
+        }
+        resolvedColumnFit = balanced;
+        resolvedBalancedColumnHeight = balancedHeight;
+      }
+    }
     } // end miss path
 
+    // Block-axis bookkeeping reasons about the INNER BFC token: a multicol page's
+    // `resolvedResumeOut` is a `ColumnBreakToken` wrapping the last column's block
+    // token, and a raw column token would fall to the `else` branch and compute a
+    // wrong `nextStartIndex`. `innerBfcToken` is the identity for single-column
+    // pages. (For an overflowing multicol page the inner token is a block token at
+    // index `startIndex + totalChildrenCount`, so this stays correct.)
+    const innerResolvedResumeOut = innerBfcToken(resolvedResumeOut);
     const nextStartIndex =
-      resolvedResumeOut !== null && resolvedResumeOut.type === "block"
-        ? resolvedResumeOut.resumeChildIndex
+      innerResolvedResumeOut !== null && innerResolvedResumeOut.type === "block"
+        ? innerResolvedResumeOut.resumeChildIndex
         : startIndex + resolvedChildrenCount;
     const sliceEnd = resolvedResumeOut === null ? metas.length : nextStartIndex;
     const children: readonly RenderNode[] = rootChildren.slice(startIndex, sliceEnd);
@@ -992,6 +1183,9 @@ export function resolveFootnotes(
       blockOffset,
       blockSize: effCfg.pageBlockSize,
       pageConfig: effCfg,
+      columnConfig: effColCfg,
+      columnFit: resolvedColumnFit,
+      balancedColumnHeight: resolvedBalancedColumnHeight,
       children,
       startIndex,
       resumeInto,
@@ -1022,9 +1216,13 @@ export function resolveFootnotes(
       footnoteContinuation: inboundContinuations,
     });
 
+    // `recordBlockMaps` reasons about the block-axis index range, so it takes the
+    // INNER BFC tokens (a multicol page's column wrapper would fall to its `else`
+    // branch and mis-map all remaining blocks). `innerBfcToken` is the identity
+    // for single-column pages. Mirrors measure-pass's `recordBlockMaps` call.
     recordBlockMaps(
       children, rootChildren, metas, startIndex, pageIndex,
-      resumeInto, resolvedResumeOut, blockToPage, blockToSpan,
+      innerBfcToken(resumeInto), innerResolvedResumeOut, blockToPage, blockToSpan,
     );
 
     // Advance the running-sum document-y by THIS page's height + gap (C.2b-2).
@@ -1098,21 +1296,6 @@ function sameIds(a: readonly BlockId[], b: readonly BlockId[]): boolean {
  * gate; FN-4.4's `canReuseFootnotePage` compares the prior resolved entry's
  * `resumeInto` to the current loop's `resumeInto` with it.
  */
-function breakTokensEqual(a: BreakToken | null, b: BreakToken | null): boolean {
-  if (a === b) return true;
-  if (a === null || b === null) return false;
-  if (a.type !== b.type) return false;
-  if (a.type === "block" && b.type === "block") {
-    return (
-      a.resumeChildIndex === b.resumeChildIndex &&
-      breakTokensEqual(a.resumeChildToken, b.resumeChildToken)
-    );
-  }
-  if (a.type === "ifc" && b.type === "ifc") return a.resumeAtLine === b.resumeAtLine;
-  if (a.type === "table" && b.type === "table") return a.resumeAtRow === b.resumeAtRow;
-  return false;
-}
-
 /**
  * FN-4.4 incremental carry-forward reuse gate: decide whether a swept page's
  * PRIOR resolution (`prevEntry`, from the prior cycle's resolved plan) may be
@@ -1211,14 +1394,19 @@ function canReuseFootnotePage(
   for (let i = 0; i < sliceLen; i++) {
     if (rootChildren[startIndex + i] !== prevEntry.children[i]) return false;
   }
-  if (prevEntry.resumeOut === null) {
+  // The block-axis index a multicol page reached is carried by the INNER BFC
+  // token its `ColumnBreakToken` wraps; for a single-column page this is the
+  // identity. The reuse proof reasons about that block index, so unwrap first
+  // (mirrors measure-pass's `canReusePage`).
+  const innerPrevResumeOut = innerBfcToken(prevEntry.resumeOut);
+  if (innerPrevResumeOut === null) {
     // Prior page ended the document: reusable only if it still does (no append).
     if (startIndex + sliceLen !== metasLength) return false;
-  } else if (prevEntry.resumeOut.type === "block") {
+  } else if (innerPrevResumeOut.type === "block") {
     // A child resuming onto the NEXT page placed content on THIS page that shaped
     // `resumeOut`. It sits at the slice end and is omitted from `children`, so
     // verify it via the prior NEXT entry's first child (the prior node at K).
-    const k = prevEntry.resumeOut.resumeChildIndex;
+    const k = innerPrevResumeOut.resumeChildIndex;
     if (k < 0 || k >= rootChildren.length) return false;
     if (prevNext === undefined || prevNext.children.length === 0) return false;
     if (prevNext.startIndex !== k) return false;
@@ -1271,8 +1459,16 @@ function canReuseFootnotePage(
  * convergence candidate set and to gather a 2-cycle's contested footnotes.
  */
 function unionIds(a: readonly BlockId[], b: readonly BlockId[]): BlockId[] {
+  // Set seeds membership from `a` (O(1) lookups); JS Sets preserve insertion
+  // order, so appending `b`'s novel ids keeps document order across the union.
   const out = [...a];
-  for (const id of b) if (!out.includes(id)) out.push(id);
+  const seen = new Set(a);
+  for (const id of b) {
+    if (!seen.has(id)) {
+      seen.add(id);
+      out.push(id);
+    }
+  }
   return out;
 }
 
@@ -1305,9 +1501,10 @@ function firstContestedAnchorIndex(
   childrenCount: number,
 ): number | undefined {
   const placedEnd = startIndex + childrenCount;
+  const candidateSet = new Set(candidateIds); // O(1) membership over the anchor scan
   let contested: number | undefined = undefined;
   for (const anchor of footnoteAnchors) {
-    if (!candidateIds.includes(anchor.contentBlockId)) continue;
+    if (!candidateSet.has(anchor.contentBlockId)) continue;
     const idx = blockToIndex.get(anchor.blockId);
     if (idx === undefined) continue;
     // The block is OUTSIDE the placed slice — its footnote was reserved but the

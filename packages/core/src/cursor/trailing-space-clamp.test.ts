@@ -18,13 +18,13 @@
 import { describe, it, expect } from "vitest";
 import { resolvePixelPosition } from "./cursor-position";
 import { computeSelectionRects } from "./selection-geometry";
-import { resolvePositionFromPixel } from "./hit-test";
+import { resolveHitPosition as resolvePositionFromPixel } from "../test-utils/hit-position";
 import { getLineIndex } from "./line-flatten";
 import { render } from "../render/render";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
 import { layoutTree } from "../layout/dispatch";
-import { resolvePositionedTree } from "../layout/positioned-tree";
+import { positionTreeForTest } from "../test-utils/position-tree";
 import { createMockShaper } from "../layout/mock-shaper";
 import { createElementBox, createTextBox } from "../render/render-node";
 import { cascadePass } from "../cascade";
@@ -58,7 +58,7 @@ function pipeline(state: State, containerW: number): { layout: LayoutBox; shaper
     createDefaultAttrRegistry(),
   ).root;
   const shaper = createMockShaper(CHAR_W, LINE_H);
-  const layout = resolvePositionedTree(layoutTree(root, containerW, shaper));
+  const layout = positionTreeForTest(layoutTree(root, containerW, shaper));
   return { layout, shaper };
 }
 
@@ -233,9 +233,9 @@ describe("#340 — caret on-page for trailing spaces INSIDE an inline element", 
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, CONTENT_W), shaper);
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, CONTENT_W), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
-    return { layout: resolvePositionedTree(r.box), shaper };
+    return { layout: positionTreeForTest(r.box), shaper };
   }
 
   // Minimal matching State: a paragraph "p" so `resolveBlock(state, "p")` passes.

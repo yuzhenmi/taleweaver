@@ -1,5 +1,6 @@
 import type { ComputedStyle } from "../styles";
 import type { TextShaper, ShapedRun, FontMetrics } from "./text-shaper";
+import { toBreakOpportunities } from "./text-shaper";
 import { createMockShaper } from "./mock-shaper";
 
 /**
@@ -38,7 +39,7 @@ export function isTextShaper(value: TextShaper | TextMeasurer): value is TextSha
  * Adapt a `TextMeasurer` to the `TextShaper` interface.
  * Clusters are per-character (each codepoint is its own cluster) with width
  * derived from the measurer's total width divided by character count.
- * Break opportunities are emitted at whitespace (soft) only.
+ * Break opportunities come from the UAX #14 line-break classifier (soft/hard).
  * This adapter is used for backward-compat when callers pass a `TextMeasurer`
  * to APIs that now require a `TextShaper`.
  */
@@ -56,12 +57,9 @@ export function measurerToShaper(measurer: TextMeasurer): TextShaper {
         glyphs: [text.charCodeAt(i)],
       }));
 
-      const breakOpportunities = [];
-      for (let i = 1; i < text.length; i++) {
-        if (/\s/.test(text[i])) {
-          breakOpportunities.push({ clusterIndex: i, kind: "soft" as const });
-        }
-      }
+      // UAX #14 line-break opportunities (default CSS `line-break: normal`),
+      // via the single-sourced `toBreakOpportunities` adapter.
+      const breakOpportunities = toBreakOpportunities(text);
 
       const totalHeight = measurer.measureHeight(style);
       const ascent  = totalHeight * 0.8;

@@ -1,9 +1,11 @@
-import { createEmptyDocument, History, createHistory, getBlock, createPosition, createSpan } from "../state";
+import { createEmptyDocument, History, createHistory, selectionContextOf, positionsEqual } from "../state";
+import { isDevMode } from "../state/dev-mode";
 import type { State, Selection, BlockId } from "../state";
 import { render, type RenderOutput } from "../render/render";
 import { cascadePass } from "../cascade";
 import { layoutTree } from "../layout/dispatch";
 import type { TextShaper } from "../layout/text-shaper";
+import type { Hyphenator } from "../layout/hyphenator";
 import type { TextMeasurer } from "../layout/text-measurer";
 import type { RenderNode, ElementBox } from "../render/render-node";
 import type { LayoutBox } from "../layout/layout-node";
@@ -12,6 +14,9 @@ import type { PageConfig } from "../layout/page-config";
 import type { ComponentRegistry } from "../components/component-registry";
 import type { AttrRegistry } from "../cascade/attr-registry";
 import type { EditorAction } from "./editor-action";
+import type { CaretAffinity } from "../cursor/line-bidi";
+import { coalesceKeyOf } from "./coalesce-key";
+import { makeBlockParentLookup } from "./block-parent-lookup";
 import {
   handleInsertText,
   handleDeleteBackward,
@@ -37,6 +42,7 @@ import {
   handleToggleStyle,
   handleSetLink,
   handleSetTextColor,
+  handleSetTextTransform,
   handleSetHighlight,
   handleSetFontSize,
   handleSetFontFamily,
@@ -47,17 +53,49 @@ import {
   handleInsertNode,
   handleSectionBreak,
   handleToggleSectionLandscape,
+  handleSetSectionColumns,
   handleInsertHeaderFooter,
+  handleInsertHorizontalLine,
+  handleInsertTableOfContents,
+  handleInsertTable,
+  handleInsertTableRow,
+  handleInsertTableColumn,
+  handleDeleteTableRow,
+  handleDeleteTableColumn,
+  handleDeleteTable,
+  handleSplitCell,
+  handleMergeCells,
+  handleInsertImage,
+  handleSetImageSize,
   handleInsertFootnote,
+  handleInsertCrossReference,
+  handleInsertPageField,
+  handleInsertTab,
+  handleSetTabStops,
   handleSetTextAlign,
   handleSetLineSpacing,
   handleIndent,
   INDENT_STEP,
+  handleListIndent,
+  handleSetListType,
+  handleSetListRestart,
   handleSetParagraphSpacing,
   handleSetFootnotePolicy,
+  handleReplaceMatch,
+  handleReplaceAll,
+  handleAddComment,
+  handleResolveComment,
+  handleReopenComment,
+  handleDeleteComment,
+  handleAddReply,
+  handleAcceptSuggestion,
+  handleRejectSuggestion,
+  handleAcceptAllSuggestions,
+  handleRejectAllSuggestions,
 } from "./actions";
 
 import { cascadeTemplateContents, cascadeEmbedContents } from "./actions/helpers";
+import { initialSelectionForState } from "./actions";
 
 // Re-export helpers that are part of the public API.
 export { findFirstContentBlock, findLastContentBlock } from "./actions";
@@ -118,7 +156,8 @@ export interface EditorState {
    * `PageBox`es — produced by `layoutTreeIncremental` / `layoutTree`. In
    * unpaginated mode, or for documents using features the measure pass cannot
    * reproduce (float/`clear`), it is a fully-positioned `LayoutBox`. Consumers
-   * expecting a positioned tree bridge through `resolvePositionedTree`.
+   * read a `VirtualLayoutTree` per-page via `getPage(i)`; the whole document is
+   * never materialized.
    */
   readonly layoutTree: LayoutBox | VirtualLayoutTree;
   readonly containerWidth: number;
@@ -140,6 +179,35 @@ export interface EditorState {
    * in `History`, never part of `Position` / `Selection`.
    */
   readonly caretPageHint?: number;
+  /**
+   * NON-undoable view state (P4-C.2 §D): the caret ASSOCIATION (which logical
+   * side a collapsed caret sticks to) at a bidi direction boundary. One logical
+   * `offset` has TWO visual positions at an LTR↔RTL boundary; `"before"` draws
+   * the caret at the trailing edge of the leaf ENDING at the offset, `"after"`
+   * at the leading edge of the leaf STARTING at it. `undefined` / `"after"` is
+   * today's LTR behavior (both sides give the same X on a uniform line, so the
+   * field is inert there).
+   *
+   * Lifecycle (the same OPPOSITE-of-`targetX` model as `caretPageHint`): SET by
+   * mouse hit-test (from the hit side) and by visual-order arrow motion at a
+   * boundary flip; RESET to `undefined` by edits and non-arrow selection changes
+   * so it never goes stale. It is VIEW state — never stored in `History`, never
+   * part of `Position` / `Selection` / `Span`. The handler wiring (the central
+   * reset + the hit-test / arrow writes) lands in P4-C.2.1+; this field + its
+   * default are the shared primitive.
+   */
+  readonly caretAffinity?: CaretAffinity;
+  /**
+   * NON-undoable view state (#503): the ANCHOR's caret-boundary association at a
+   * bidi direction boundary — the symmetric twin of `caretAffinity` (the FOCUS's
+   * boundary side). On the collapse→extend transition the focus-only extenders
+   * (`EXPAND_SELECTION`, `EXPAND_LINE`, `EXPAND_LINE_BOUNDARY`) seed this from
+   * `caretAffinity` via the shared `seedAnchorAffinity`; thereafter it persists
+   * through continued extension. Clears on any action not in `actionManagesAnchorAffinity` (the
+   * same central-reset model as `caretAffinity`). It is VIEW state — never stored
+   * in `History`, never part of `Position` / `Selection` / `Span`.
+   */
+  readonly anchorAffinity?: CaretAffinity;
 }
 
 export interface EditorConfig {
@@ -148,23 +216,50 @@ export interface EditorConfig {
   readonly attrRegistry: AttrRegistry;
   readonly containerWidth: number;
   readonly pageConfig?: PageConfig;
+  /**
+   * Injected clock for undo-coalescing timing (#420). Defaults to `Date.now`.
+   * Tests pass a controllable counter so the pause window is deterministic.
+   */
+  readonly now?: () => number;
+  /**
+   * Suggesting mode (change-tracking, spec §3): when a non-null author string, every
+   * mutating edit becomes a tracked SUGGESTION attributed to that author (timestamped
+   * via `now`), instead of a direct edit. `null`/undefined = direct editing. The HOST
+   * owns "who is suggesting" (this is configuration, not session state).
+   */
+  readonly suggestingAuthor?: string | null;
+  /**
+   * Injected auto-hyphenation capability (slice 2). When present, the layout pass
+   * threads it to every text-tokenization site so a `hyphens: auto` run gets
+   * candidate hyphenation break-points (the producer is slice 4; this slice only
+   * plumbs the value through). Absent ⇒ no hyphenation.
+   *
+   * IMMUTABLE ONCE CONFIGURED: swapping the hyphenator at runtime does NOT
+   * invalidate the wrap caches, so a host that wants to swap hyphenators (or
+   * language packs) must trigger a full rebuild. v1 ships no language-switcher.
+   * See the auto-hyphenation design §5.
+   */
+  readonly hyphenator?: Hyphenator;
 }
 
 export function createInitialEditorState(config: EditorConfig): EditorState {
   const state = createEmptyDocument();
-  const docBlock = getBlock(state, state.rootId);
-  if (docBlock === null) {
-    throw new Error("createInitialEditorState: root block not found");
-  }
-  const firstParagraphId = docBlock.firstChildId;
-  if (firstParagraphId === null) {
-    throw new Error(
-      "createInitialEditorState: empty document has no paragraph child",
-    );
-  }
-  const cursor = createPosition(firstParagraphId, 0);
-  const selection = createSpan(cursor, cursor);
+  const selection = initialSelectionForState(state);
+  return createEditorStateFromState(state, selection, config);
+}
 
+/**
+ * Build a fresh `EditorState` from an arbitrary `State` + initial `Selection`
+ * (a fresh `History` bound to that state, plus the full render → cascade →
+ * layout build). `createInitialEditorState` delegates here with the empty
+ * document. Primarily for tests that need a non-default seed document (e.g. a
+ * table-only body) without an editor-from-state injection seam.
+ */
+export function createEditorStateFromState(
+  state: State,
+  selection: Selection,
+  config: EditorConfig,
+): EditorState {
   const rendered = render(state, config.componentRegistry, config.attrRegistry);
   // Cascade explicitly so we can store the cascaded tree on
   // EditorState for the next cycle's `cascadePassIncremental`.
@@ -193,6 +288,11 @@ export function createInitialEditorState(config: EditorConfig): EditorState {
   // document). Subsequent incremental cycles (`rebuildTrees`) read the same
   // field, which is reused across cycles when no anchor changed.
   const footnoteAnchors = rendered.footnoteAnchors;
+  // Task 2.5: build the layout layer's parent-lookup so a `cross-ref-page` field to a
+  // NESTED target (e.g. a paragraph inside a table cell — not a top-level root child the
+  // page plan indexes) resolves via its nearest indexed ancestor. Without threading this,
+  // `parentOf` would be `undefined` and any nested-target page-field would show broken-ref.
+  const parentOf = makeBlockParentLookup(state);
   const layout = layoutTree(
     cascadedRoot,
     config.containerWidth,
@@ -205,6 +305,10 @@ export function createInitialEditorState(config: EditorConfig): EditorState {
     // footnote layout pass. Unused for layout output today.
     cascadedEmbedContents,
     footnoteAnchors,
+    parentOf,
+    // Auto-hyphenation (slice 2): thread the injected hyphenator into the full
+    // build so the measure + render passes share the host's hyphenation inputs.
+    config.hyphenator,
   );
 
   return {
@@ -220,6 +324,8 @@ export function createInitialEditorState(config: EditorConfig): EditorState {
     containerWidth: config.containerWidth,
     targetX: null,
     caretPageHint: undefined,
+    caretAffinity: undefined,
+    anchorAffinity: undefined,
   };
 }
 
@@ -229,6 +335,38 @@ export function reduceEditor(
   action: EditorAction,
   config: EditorConfig,
 ): EditorState {
+  // #420: undo-group coalescing. Decide the undo boundary BEFORE the operation
+  // runs (with `captureTimeout: MAX`, a transaction merges into the open group
+  // unless we `stopCapturing` first). Committing actions open/continue a group;
+  // selection jumps and undo/redo close it; inert actions (container resize) do
+  // neither. This runs before the per-action handler's no-op short-circuit (the
+  // "Accepted edge" in the design): a no-op committing action still advances the
+  // boundary, which is intentional — keeping the policy in one place.
+  const coalesceClass = coalesceKeyOf(action);
+  switch (coalesceClass) {
+    case "insert":
+    case "delete":
+    case "command":
+      editor.history.beginEntry(coalesceClass, (config.now ?? Date.now)());
+      break;
+    case "resolve":
+      // Non-undoable suggestion accept/reject: BREAK the open group (so any
+      // preceding typing commits as its own unit) WITHOUT opening a tracked one —
+      // the resolve op's `SUGGESTION_RESOLVE_ORIGIN` txn fires no StackItem, so
+      // `beginEntry` (the committing arm) would open a group that never fills.
+      editor.history.breakCoalescing();
+      break;
+    case "selection-break":
+      editor.history.breakCoalescing();
+      break;
+    case "inert":
+      break;
+    default: {
+      coalesceClass satisfies never;
+      break;
+    }
+  }
+
   // Vertical actions preserve targetX; all others clear it.
   const isVertical = action.type === "MOVE_LINE" || action.type === "EXPAND_LINE";
 
@@ -247,7 +385,7 @@ export function reduceEditor(
       result = handleSplitNode(editor, config);
       break;
     case "MOVE_CURSOR":
-      result = handleMoveCursor(editor, action.direction);
+      result = handleMoveCursor(editor, action.direction, config);
       break;
     case "MOVE_WORD":
       result = handleMoveWord(editor, action.direction);
@@ -261,11 +399,44 @@ export function reduceEditor(
     case "SET_CONTAINER_WIDTH":
       result = handleSetContainerWidth(editor, action.width, config);
       break;
-    case "SET_SELECTION":
-      result = handleSetSelection(editor, action.selection, action.caretPageHint);
+    case "SET_SELECTION": {
+      // Engine backstop (#424): a Span must keep BOTH endpoints in the SAME
+      // selection context (the main document tree, OR one footnote/embed body,
+      // OR one header/footer/template body). Cross-context spans are unsupported
+      // by the data model — `iterateSpan` throws on them — so storing one here is
+      // a latent crash deferred to the first consumer. `SET_SELECTION` is the only
+      // reducer arm that accepts an arbitrary externally-supplied span (MOVE_*/
+      // EXPAND_*/SELECT_ALL are context-confined by construction), so it is the
+      // chokepoint. The DOM controller already guards pointer-drag at the UX
+      // layer; this is the caller-agnostic engine guard. Dev-throw (fail fast on
+      // the programmer error) + production no-op (keep the prior in-context
+      // selection rather than corrupt state), matching the codebase invariant
+      // pattern (assertChainIntegrity / requireInTransaction). Root ids are
+      // globally unique, so same-context ⇔ equal non-null `selectionContextOf`.
+      const anchorCtx = selectionContextOf(editor.state, action.selection.anchor.blockId);
+      const focusCtx = selectionContextOf(editor.state, action.selection.focus.blockId);
+      if (anchorCtx === null || focusCtx === null || anchorCtx !== focusCtx) {
+        if (isDevMode()) {
+          throw new Error(
+            `reduceEditor SET_SELECTION: cross-context selection rejected — anchor ` +
+              `block "${action.selection.anchor.blockId}" (context "${anchorCtx}") and focus ` +
+              `block "${action.selection.focus.blockId}" (context "${focusCtx}") are in ` +
+              `different selection contexts; a span must stay within one context.`,
+          );
+        }
+        result = editor; // production backstop: no-op, keep the prior in-context selection
+      } else {
+        result = handleSetSelection(
+          editor,
+          action.selection,
+          action.caretPageHint,
+          action.caretAffinity,
+        );
+      }
       break;
+    }
     case "EXPAND_SELECTION":
-      result = handleExpandSelection(editor, action.direction);
+      result = handleExpandSelection(editor, action.direction, config);
       break;
     case "EXPAND_WORD":
       result = handleExpandWord(editor, action.direction);
@@ -284,6 +455,9 @@ export function reduceEditor(
       break;
     case "SET_TEXT_COLOR":
       result = handleSetTextColor(editor, action.color, config);
+      break;
+    case "SET_TEXT_TRANSFORM":
+      result = handleSetTextTransform(editor, action.value, config);
       break;
     case "SET_HIGHLIGHT":
       result = handleSetHighlight(editor, action.color, config);
@@ -341,6 +515,9 @@ export function reduceEditor(
     case "TOGGLE_SECTION_LANDSCAPE":
       result = handleToggleSectionLandscape(editor, config);
       break;
+    case "SET_SECTION_COLUMNS":
+      result = handleSetSectionColumns(editor, action, config);
+      break;
     case "INSERT_HEADER":
       result = handleInsertHeaderFooter(editor, "header", config);
       break;
@@ -349,6 +526,63 @@ export function reduceEditor(
       break;
     case "INSERT_FOOTNOTE":
       result = handleInsertFootnote(editor, config);
+      break;
+    case "INSERT_CROSS_REFERENCE":
+      result = handleInsertCrossReference(
+        editor,
+        action.targetId,
+        action.refMode,
+        config,
+        action.numberStyle,
+      );
+      break;
+    case "INSERT_PAGE_NUMBER":
+      result = handleInsertPageField(editor, "page-number", action.numberStyle, config);
+      break;
+    case "INSERT_PAGE_COUNT":
+      result = handleInsertPageField(editor, "page-count", action.numberStyle, config);
+      break;
+    case "INSERT_TAB":
+      result = handleInsertTab(editor, config);
+      break;
+    case "SET_TAB_STOPS":
+      result = handleSetTabStops(editor, action.blockId, action.tabStops, config);
+      break;
+    case "INSERT_HORIZONTAL_LINE":
+      result = handleInsertHorizontalLine(editor, config);
+      break;
+    case "INSERT_TABLE_OF_CONTENTS":
+      result = handleInsertTableOfContents(editor, config);
+      break;
+    case "INSERT_TABLE":
+      result = handleInsertTable(editor, action.rows, action.cols, config);
+      break;
+    case "INSERT_TABLE_ROW":
+      result = handleInsertTableRow(editor, action.position, config);
+      break;
+    case "INSERT_TABLE_COLUMN":
+      result = handleInsertTableColumn(editor, action.position, config);
+      break;
+    case "DELETE_TABLE_ROW":
+      result = handleDeleteTableRow(editor, config);
+      break;
+    case "DELETE_TABLE_COLUMN":
+      result = handleDeleteTableColumn(editor, config);
+      break;
+    case "DELETE_TABLE":
+      result = handleDeleteTable(editor, config);
+      break;
+    case "SPLIT_CELL":
+      result = handleSplitCell(editor, config);
+      break;
+    case "MERGE_CELLS":
+      result = handleMergeCells(editor, config);
+      break;
+    case "INSERT_IMAGE":
+      result = handleInsertImage(editor, action.src, action.width, action.height, config);
+      break;
+    case "SET_IMAGE_SIZE":
+      result = handleSetImageSize(editor, action.blockId, action.width, action.height, config);
       break;
     case "SET_TEXT_ALIGN":
       result = handleSetTextAlign(editor, action.align, config);
@@ -362,6 +596,18 @@ export function reduceEditor(
     case "OUTDENT":
       result = handleIndent(editor, -INDENT_STEP, config);
       break;
+    case "LIST_INDENT":
+      result = handleListIndent(editor, 1, config);
+      break;
+    case "LIST_OUTDENT":
+      result = handleListIndent(editor, -1, config);
+      break;
+    case "SET_LIST_TYPE":
+      result = handleSetListType(editor, action.listType, config);
+      break;
+    case "SET_LIST_RESTART":
+      result = handleSetListRestart(editor, action.value, config);
+      break;
     case "SET_PARAGRAPH_SPACING":
       result = handleSetParagraphSpacing(editor, action.edge, action.value, config);
       break;
@@ -371,6 +617,54 @@ export function reduceEditor(
         { reset: action.reset, format: action.format },
         config,
       );
+      break;
+    case "REPLACE_MATCH":
+      result = handleReplaceMatch(editor, action.match, action.replacement, config);
+      break;
+    case "REPLACE_ALL":
+      result = handleReplaceAll(editor, action.matches, action.replacement, config);
+      break;
+    case "ADD_COMMENT":
+      result = handleAddComment(
+        editor,
+        action.id,
+        action.author,
+        action.body,
+        action.createdAt,
+        config,
+      );
+      break;
+    case "RESOLVE_COMMENT":
+      result = handleResolveComment(editor, action.id, config);
+      break;
+    case "REOPEN_COMMENT":
+      result = handleReopenComment(editor, action.id, config);
+      break;
+    case "DELETE_COMMENT":
+      result = handleDeleteComment(editor, action.id, config);
+      break;
+    case "ADD_REPLY":
+      result = handleAddReply(
+        editor,
+        action.commentId,
+        action.replyId,
+        action.author,
+        action.body,
+        action.createdAt,
+        config,
+      );
+      break;
+    case "ACCEPT_SUGGESTION":
+      result = handleAcceptSuggestion(editor, action.id, config);
+      break;
+    case "REJECT_SUGGESTION":
+      result = handleRejectSuggestion(editor, action.id, config);
+      break;
+    case "ACCEPT_ALL_SUGGESTIONS":
+      result = handleAcceptAllSuggestions(editor, config);
+      break;
+    case "REJECT_ALL_SUGGESTIONS":
+      result = handleRejectAllSuggestions(editor, config);
       break;
     default: {
       action satisfies never;
@@ -383,5 +677,132 @@ export function reduceEditor(
     result = { ...result, targetX: null };
   }
 
+  // Central caret-affinity reset (P4-C.2.2b §C, mirrors the `targetX` clear
+  // above). `caretAffinity` is a bidi-boundary VIEW seed; it must persist ONLY
+  // across the actions that explicitly manage it, and reset to `undefined` after
+  // any other action (every edit / non-managing selection change) so it never
+  // goes stale. `actionManagesCaretAffinity` is the single extension point —
+  // C.2.3/C.2.6 add the visual-arrow / Home-End / expand actions there.
+  if (!actionManagesCaretAffinity(action) && result.caretAffinity !== undefined) {
+    result = { ...result, caretAffinity: undefined };
+  }
+
+  // Central anchor-affinity reset (#503), the symmetric twin of the caretAffinity
+  // reset above. `anchorAffinity` records the ANCHOR's bidi-boundary side; it must
+  // persist ONLY across the actions that explicitly manage it (the same set as
+  // `caretAffinity`) and reset to `undefined` after any other action so it never
+  // goes stale. Note (R5): MOVE_CURSOR / MOVE_LINE_BOUNDARY are in the predicate
+  // (so this reset skips them) AND collapse the selection — they explicitly set
+  // `anchorAffinity: undefined` in their own returns so a stale value is not
+  // carried forward by their `{ ...editor }` spread.
+  if (!actionManagesAnchorAffinity(action) && result.anchorAffinity !== undefined) {
+    result = { ...result, anchorAffinity: undefined };
+  }
+
   return result;
+}
+
+/**
+ * Does this action explicitly MANAGE `EditorState.caretAffinity` (set or
+ * deliberately clear it), exempting it from the central reset above? Delegates
+ * to `actionManagesAffinity` (the single source of truth, which documents why
+ * each action qualifies).
+ */
+function actionManagesCaretAffinity(action: EditorAction): boolean {
+  return actionManagesAffinity(action);
+}
+
+/**
+ * Does this action explicitly MANAGE `EditorState.anchorAffinity` (#503),
+ * exempting it from the central reset above? Two categories, both exempted from
+ * the central reset:
+ *  - COLLAPSE actions (`MOVE_CURSOR`, `MOVE_LINE`, `MOVE_LINE_BOUNDARY`) and
+ *    `SET_SELECTION` clear `anchorAffinity` EXPLICITLY in their returns (a
+ *    collapsed selection / new anchor has no bidi-boundary context; the
+ *    `{ ...editor }` spread would otherwise carry a stale value).
+ *  - The FOCUS-ONLY movers (`EXPAND_LINE` / `EXPAND_LINE_BOUNDARY`) keep the
+ *    anchor fixed, so they intentionally PERSIST `anchorAffinity` via the
+ *    `{ ...editor }` spread; `EXPAND_SELECTION` seeds it on the collapse→extend
+ *    transition (slice 4) and persists it thereafter.
+ *
+ * The anchor side is the symmetric twin of the focus side, so both predicates
+ * delegate to the same `actionManagesAffinity` set (see there).
+ */
+function actionManagesAnchorAffinity(action: EditorAction): boolean {
+  return actionManagesAffinity(action);
+}
+
+/**
+ * The single source of truth for the action set that MANAGES bidi caret/anchor
+ * affinity (sets or deliberately clears it), exempting the action from the
+ * central affinity reset. Both `actionManagesCaretAffinity` and
+ * `actionManagesAnchorAffinity` delegate here: the anchor and focus sides are
+ * symmetric twins, so the set is identical and the lockstep is AUTOMATIC (no
+ * comment needed). Should the two sides ever need to diverge, re-inline one
+ * predicate's set rather than splitting this helper.
+ *
+ * Each action SETS the affinity on its result (so the central reset must NOT
+ * clobber it):
+ *   - `SET_SELECTION` — the DOM click seeds the hit side; a programmatic
+ *     selection with no affinity passes `undefined` to clear it.
+ *   - `MOVE_CURSOR` (P4-C.2.3) — visual-order ArrowLeft/Right sets the boundary
+ *     affinity from `moveVisually` (the dual-caret flip side), or clears it to
+ *     `undefined` on an exit / collapse.
+ *   - `EXPAND_SELECTION` (P4-C.2.4) — visual-order Shift+ArrowLeft/Right extends
+ *     the FOCUS via the same `moveVisually`, carrying the focus's boundary
+ *     affinity (or clearing it to `undefined` on an exit / logical fallback).
+ *   - `MOVE_LINE` (#500) — ArrowUp/Down seeds the affinity the line-move resolved
+ *     from the hit-test at the target line, so a caret landing on an offset shared
+ *     across a soft-wrap / column boundary renders on the line the move stepped
+ *     onto (without it, the default "after" pins to the later line and an ArrowUp
+ *     at the top of a column appears to do nothing).
+ *   - `EXPAND_LINE` (#500) — Shift+ArrowUp/Down moves the FOCUS to the adjacent
+ *     line and seeds the focus affinity the same way (the symmetric twin of
+ *     `MOVE_LINE`).
+ *   - `MOVE_LINE_BOUNDARY` (P4-C.2.6 §G) — Home/End set a direction-independent
+ *     affinity (Home→"after", End→"before") so the LOGICAL line boundary renders
+ *     at the correct visual edge of an RTL line. (Inert on uniform LTR lines.)
+ *   - `EXPAND_LINE_BOUNDARY` (P4-C.2.6 §G) — Shift+Home/End move the FOCUS to a
+ *     logical boundary and seed the focus affinity the same way.
+ */
+function actionManagesAffinity(action: EditorAction): boolean {
+  return (
+    action.type === "SET_SELECTION" ||
+    action.type === "MOVE_CURSOR" ||
+    action.type === "EXPAND_SELECTION" ||
+    action.type === "MOVE_LINE" ||
+    action.type === "EXPAND_LINE" ||
+    action.type === "MOVE_LINE_BOUNDARY" ||
+    action.type === "EXPAND_LINE_BOUNDARY"
+  );
+}
+
+/**
+ * The shared `anchorAffinity` seed/persist rule (#503) for the three focus-only
+ * selection extenders — `EXPAND_SELECTION` (Shift+ArrowLeft/Right), `EXPAND_LINE`
+ * (Shift+ArrowUp/Down), `EXPAND_LINE_BOUNDARY` (Shift+Home/End). They all keep
+ * the ANCHOR fixed and move only the FOCUS, so the anchor's bidi-boundary side
+ * must be captured ONCE — on the genuine collapse→extend transition — and then
+ * PERSIST through continued extension (the central reset exempts them all via
+ * `actionManagesAnchorAffinity`).
+ *
+ * Contract:
+ *   - On the collapse→extend transition (`isCollapsed && anchorAffinity ===
+ *     undefined`) SEED from the caret's boundary side (`editor.caretAffinity`),
+ *     so a selection STARTED by ANY of the three extenders renders the anchor
+ *     edge on the correct visual side of a bidi boundary on the first line.
+ *   - Otherwise PERSIST the existing `editor.anchorAffinity` (continued
+ *     extension; a non-collapsed span; an already-seeded anchor).
+ *
+ * The two guards are load-bearing (see `handleExpandSelection`'s longer note):
+ * `isCollapsed` gates the LTR inert-affinity latching case, and `anchorAffinity
+ * === undefined` gates the bidi transient-collapse re-seed case. A fresh caret
+ * always has `anchorAffinity === undefined`, so a NEW selection seeds correctly.
+ * Living here keeps the rule in ONE place across the three extenders.
+ */
+export function seedAnchorAffinity(editor: EditorState): CaretAffinity | undefined {
+  const isCollapsed = positionsEqual(editor.selection.anchor, editor.selection.focus);
+  return isCollapsed && editor.anchorAffinity === undefined
+    ? editor.caretAffinity // seed from the caret's boundary side on first extend
+    : editor.anchorAffinity; // persist on continued extension
 }

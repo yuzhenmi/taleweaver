@@ -349,7 +349,7 @@ describe("growing-slot — (M2) landscape section header uses the section's own 
     const narrowCtx = makeRootContext(INITIAL_COMPUTED_STYLE, docWide.pageInlineSize);
     const narrowContent = docWide.pageInlineSize - 15 - 15; // 170
     const narrowSlotCtx: LayoutContext = { ...narrowCtx, containingInlineSize: narrowContent };
-    const { box: narrowBox } = layoutBlock(hdrBody, 0, 0, narrowSlotCtx, shaper(), {
+    const { box: narrowBox } = layoutBlock(hdrBody, 0, 0, narrowSlotCtx, shaper(), undefined, {
       availableBlockSize: Number.MAX_SAFE_INTEGER,
       pageIndex: 0,
       resumeFrom: null,

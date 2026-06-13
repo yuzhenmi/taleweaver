@@ -1,7 +1,23 @@
 import type { EditorAction } from "@taleweaver/core";
 
+/**
+ * Document context the keymap needs for context-sensitive chords. Optional so
+ * callers that don't supply it get the non-list behavior (Tab unmapped).
+ */
+export interface KeyContext {
+  /**
+   * True when the caret's focus block is a `list-item`. Enables Tab / Shift+Tab
+   * to nest / un-nest the list (LIST_INDENT / LIST_OUTDENT); outside a list-item
+   * Tab is left unmapped (its current behavior).
+   */
+  readonly inListItem?: boolean;
+}
+
 /** Map a KeyboardEvent to an EditorAction, or null if unrecognized. */
-export function mapKeyEvent(event: KeyboardEvent): EditorAction | null {
+export function mapKeyEvent(
+  event: KeyboardEvent,
+  context: KeyContext = {},
+): EditorAction | null {
   const { key: rawKey, ctrlKey, metaKey, altKey, shiftKey } = event;
   // Normalize single printable chars to lowercase: `KeyboardEvent.key` returns
   // the SHIFTED value, so a chord like Ctrl+Shift+X reports `key === "X"`
@@ -81,6 +97,17 @@ export function mapKeyEvent(event: KeyboardEvent): EditorAction | null {
 
   if (key === "Enter") return { type: "SPLIT_NODE" };
 
+  // Tab / Shift+Tab — context-sensitive (Google Docs):
+  //  - In a list-item: nest / un-nest (LIST_INDENT / LIST_OUTDENT). `handleIndent`
+  //    deliberately skips list-items, so list nesting routes through
+  //    LIST_INDENT/LIST_OUTDENT here rather than INDENT/OUTDENT.
+  //  - Outside a list-item: Tab inserts a tab (INSERT_TAB); Shift+Tab is a no-op
+  //    (Google Docs has no reverse-tab/outdent for body text).
+  if (key === "Tab") {
+    if (!context.inListItem) return shiftKey ? null : { type: "INSERT_TAB" };
+    return shiftKey ? { type: "LIST_OUTDENT" } : { type: "LIST_INDENT" };
+  }
+
   // Text styling shortcuts
   if (mod && key === "b") return { type: "TOGGLE_STYLE", style: "bold" };
   if (mod && key === "i") return { type: "TOGGLE_STYLE", style: "italic" };
@@ -105,7 +132,12 @@ export function mapKeyEvent(event: KeyboardEvent): EditorAction | null {
   // NOT `event.key`: a digit under Shift/AltGr is layout-dependent (Shift+7 is
   // "&" on US; Ctrl+Alt is AltGr on Windows and emits symbols on many layouts),
   // so the physical key code is the only reliable signal.
-  if (mod && altKey && event.code.startsWith("Digit")) {
+  // Skip when AltGraph is active: on Windows/EU layouts AltGr is reported as
+  // ctrlKey+altKey, so `mod && altKey` would match AltGr+digit — which produces a
+  // CHARACTER on many layouts (German AltGr+8 = "[", AltGr+9 = "]") — and `preventDefault`
+  // in the controller would EAT that character while changing the block type instead.
+  // Treat AltGr as not-a-mod for this chord (Google Docs does the same).
+  if (mod && altKey && !event.getModifierState("AltGraph") && event.code.startsWith("Digit")) {
     const n = Number(event.code.slice(5));
     if (n === 0) return { type: "SET_BLOCK_TYPE", blockType: "paragraph" };
     if (n >= 1 && n <= 6)

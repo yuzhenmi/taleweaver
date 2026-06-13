@@ -38,7 +38,8 @@ const BASE_CS = {
   fontSize: 16,
   fontWeight: "normal",
   fontStyle: "normal",
-  textDecoration: "none",
+  underline: false,
+  lineThrough: false,
   borderBlockStartStyle: "none",
   borderBlockEndStyle: "none",
   borderInlineStartStyle: "none",
@@ -54,7 +55,7 @@ const BASE_US = {
   borderBlockStartWidth: 0, borderBlockEndWidth: 0, borderInlineStartWidth: 0, borderInlineEndWidth: 0,
   borderBlockStartStyle: "none", borderBlockEndStyle: "none", borderInlineStartStyle: "none", borderInlineEndStyle: "none",
   borderBlockStartColor: "black", borderBlockEndColor: "black", borderInlineStartColor: "black", borderInlineEndColor: "black",
-  direction: "ltr", lineHeight: 20,
+  direction: "ltr", lineHeight: 20, writingMode: "horizontal-tb",
 };
 
 const SEP_HEIGHT = 13; // FOOTNOTE_SEPARATOR_HEIGHT
@@ -88,6 +89,7 @@ function makePage(child: LayoutBox): LayoutBox {
     pageIndex: 0,
     headerSlot: null,
     footerSlot: null,
+    footnoteSlot: null,
   } as unknown as LayoutBox;
 }
 
@@ -98,13 +100,13 @@ const isRule = (r: FillRectCall) => r.h === 1 && r.w === 144;
 describe("footnote separator rule is NOT painted (removed by user directive)", () => {
   it("LTR: draws no short rule for a footnoteSeparator box", () => {
     const ctx = createSpyCtx();
-    paintPage(ctx, makePage(makeSeparator("ltr")), [], null, "hidden");
+    paintPage(ctx, makePage(makeSeparator("ltr")), [], [], [], [], null, "hidden");
     expect(ctx._fillRects.find(isRule)).toBeUndefined();
   });
 
   it("RTL: draws no short rule for a footnoteSeparator box", () => {
     const ctx = createSpyCtx();
-    paintPage(ctx, makePage(makeSeparator("rtl")), [], null, "hidden");
+    paintPage(ctx, makePage(makeSeparator("rtl")), [], [], [], [], null, "hidden");
     expect(ctx._fillRects.find(isRule)).toBeUndefined();
   });
 });
