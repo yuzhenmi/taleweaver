@@ -1,6 +1,7 @@
 import type { RenderNode, ElementBox } from "../render/render-node";
 import type { LayoutBox } from "./layout-box";
 import type { TextShaper } from "./text-shaper";
+import type { Hyphenator } from "./hyphenator";
 import type { TextMeasurer } from "./text-measurer";
 import type { PageConfig } from "./page-config";
 import type { BlockId } from "../state";
@@ -51,6 +52,12 @@ export function layoutTree(
   cascadedEmbedContents: ReadonlyMap<BlockId, ElementBox> = EMPTY_EMBED_CONTENTS,
   footnoteAnchors: readonly FootnoteAnchorRef[] = EMPTY_FOOTNOTE_ANCHORS,
   parentOf?: BlockParentLookup,
+  // Auto-hyphenation (slice 2): injected `Hyphenator`, threaded ALONGSIDE the
+  // shaper to every layout site. Optional trailing so the many non-editor callers
+  // (tests, table roots) stay valid; the editor full-build / resize callers pass
+  // `config.hyphenator`. `undefined` ⇒ no hyphenation. Carried but UNUSED in this
+  // slice (the producer is slice 4).
+  hyphenator?: Hyphenator,
 ): LayoutBox | VirtualLayoutTree {
   const t = markStart("layoutTree");
   try {
@@ -84,16 +91,16 @@ export function layoutTree(
         // legacy positioned page tree. This is the full (non-incremental)
         // build — e.g. the resize path — so there is no carry-forward memo.
         result = measurePassUnsupported(layoutRoot)
-          ? paginateRoot(layoutRoot, ctx, shaper, pageConfig)
+          ? paginateRoot(layoutRoot, ctx, shaper, hyphenator, pageConfig)
           : buildVirtualPaginatedTree(
               layoutRoot, ctx, shaper, pageConfig, undefined,
               cascadedTemplateContents, cascadedEmbedContents, footnoteAnchors,
-              parentOf,
+              parentOf, hyphenator,
             );
       } else {
         // Non-block root with pagination: layout without pagination for now.
         if (cs.display === "table") {
-          const tableResult = layoutTable(layoutRoot, 0, 0, ctx, shaper);
+          const tableResult = layoutTable(layoutRoot, 0, 0, ctx, shaper, hyphenator);
           if (tableResult.box === null) {
             throw new Error("layoutTable at dispatch returned null box; should be unreachable in unpaginated path");
           }
@@ -105,7 +112,7 @@ export function layoutTree(
     } else {
       switch (cs.display) {
         case "block": {
-          const blockResult = layoutBlock(layoutRoot, 0, 0, ctx, shaper);
+          const blockResult = layoutBlock(layoutRoot, 0, 0, ctx, shaper, hyphenator);
           if (blockResult.box === null) {
             throw new Error("layoutBlock at dispatch returned null box; should be unreachable in unpaginated path");
           }
@@ -113,7 +120,7 @@ export function layoutTree(
           break;
         }
         case "table": {
-          const tableResult = layoutTable(layoutRoot, 0, 0, ctx, shaper);
+          const tableResult = layoutTable(layoutRoot, 0, 0, ctx, shaper, hyphenator);
           if (tableResult.box === null) {
             throw new Error("layoutTable at dispatch returned null box; should be unreachable in unpaginated path");
           }

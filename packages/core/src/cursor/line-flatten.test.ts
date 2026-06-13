@@ -28,7 +28,7 @@ describe("collectLineBoxes", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
 
     const out: AbsoluteLineBox[] = [];
@@ -54,7 +54,7 @@ describe("collectLineBoxes", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
 
     const out: AbsoluteLineBox[] = [];
@@ -80,7 +80,7 @@ describe("collectLineBoxes", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 30);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
 
     const out: AbsoluteLineBox[] = [];
@@ -106,7 +106,7 @@ describe("collectLineBoxes", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
 
     const out1: AbsoluteLineBox[] = [];
@@ -210,7 +210,7 @@ describe("collectLineBoxes", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
 
     const out: AbsoluteLineBox[] = [];
@@ -240,7 +240,7 @@ describe("collectLineBoxes", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
 
     const out: AbsoluteLineBox[] = [];
@@ -282,7 +282,7 @@ describe("collectLineBoxes — descends absoluteChildren (slice 3)", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
     return r.box;
   }
@@ -335,7 +335,7 @@ describe("getLineIndex (L-PERF-D)", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
     return r.box;
   }
@@ -415,7 +415,7 @@ describe("getLineIndex (L-PERF-D)", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
     const index = getLineIndex(r.box);
     // Every line in every bucket is owned by that bucket's key.
@@ -442,7 +442,7 @@ describe("findLineForPosition", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
     const out: AbsoluteLineBox[] = [];
     collectLineBoxes(r.box, 0, 0, out);
@@ -457,7 +457,7 @@ describe("findLineForPosition", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 30);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
     const out: AbsoluteLineBox[] = [];
     collectLineBoxes(r.box, 0, 0, out);
@@ -514,7 +514,7 @@ describe("findLineForPosition", () => {
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 40);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
     const lines: AbsoluteLineBox[] = [];
     collectLineBoxes(r.box, 0, 0, lines);
@@ -546,7 +546,7 @@ describe("collectLineLeaves — offsetContribution = state span (collapsed white
     );
     if (tree.type !== "element") throw new Error("?");
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 800);
-    const r = layoutBlock(tree, 0, 0, ctx, shaper);
+    const r = layoutBlock(tree, 0, 0, ctx, shaper, undefined);
     if (r.box === null) throw new Error("?");
     const lines: AbsoluteLineBox[] = [];
     collectLineBoxes(r.box, 0, 0, lines);

@@ -125,7 +125,7 @@ describe("footnoteBodyComponent — orphans/widows = 1 (single-line splitting, F
     const ctx = bodyLayoutContext(200);
     const shaper = createMockShaper(8, LINE_HEIGHT);
 
-    const { box, breakToken } = layoutBlock(body, 0, 0, ctx, shaper, {
+    const { box, breakToken } = layoutBlock(body, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: ONE_LINE_BOUND,
       pageIndex: 0,
       resumeFrom: null,
@@ -169,7 +169,7 @@ describe("footnoteBodyComponent — orphans/widows = 1 (single-line splitting, F
     const ctx = bodyLayoutContext(200);
     const shaper = createMockShaper(8, LINE_HEIGHT);
 
-    const { box, breakToken } = layoutBlock(cascaded, 0, 0, ctx, shaper, {
+    const { box, breakToken } = layoutBlock(cascaded, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: ONE_LINE_BOUND,
       pageIndex: 0,
       resumeFrom: null,

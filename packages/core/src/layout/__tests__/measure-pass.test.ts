@@ -756,7 +756,7 @@ function sectionPlanFrom(
   sectionPlan: SectionPlan;
 } {
   const cascaded = sCascade(renderRoot);
-  const metas = buildBlockFitMetas(cascaded, SECTION_SHAPER, SECTION_CONTENT_INLINE);
+  const metas = buildBlockFitMetas(cascaded, SECTION_SHAPER, undefined, SECTION_CONTENT_INLINE);
   const sectionPlan = buildSectionPlan(cascaded, pageConfig);
   // `metas` are built over the FLATTENED child list (sections are display:contents
   // and splice out), so `rootChildren` must be flattened too — matching
@@ -823,7 +823,7 @@ describe("measurePass — section page breaks", () => {
     // plan is byte-identical to one built with IMPLICIT_SECTION_PLAN explicitly.
     const render = sDoc(Array.from({ length: 7 }, (_, i) => sPara(`p${i}`)));
     const cascaded = sCascade(render);
-    const metas = buildBlockFitMetas(cascaded, SECTION_SHAPER, SECTION_CONTENT_INLINE);
+    const metas = buildBlockFitMetas(cascaded, SECTION_SHAPER, undefined, SECTION_CONTENT_INLINE);
 
     const builtPlan = buildSectionPlan(cascaded, SECTION_PAGE);
     expect(builtPlan.boundaries).toEqual([{ startFlattenedIndex: 0, sectionId: null }]);
@@ -1040,7 +1040,7 @@ describe("measurePass — per-section header/footer ids", () => {
       sSection("s2", [b0, b1, b2, sPara("b3")], { footerBlockId: "ftr2" }),
     ]);
     const cascaded0 = sCascade(render0);
-    const metas0 = buildBlockFitMetas(cascaded0, SECTION_SHAPER, SECTION_CONTENT_INLINE);
+    const metas0 = buildBlockFitMetas(cascaded0, SECTION_SHAPER, undefined, SECTION_CONTENT_INLINE);
     const sectionPlan0 = buildSectionPlan(cascaded0, SECTION_PAGE);
     const plan1 = measurePass(
       metas0, SECTION_PAGE, sectionPlan0, flattenContents(cascaded0.children),
@@ -1059,7 +1059,7 @@ describe("measurePass — per-section header/footer ids", () => {
       sSection("s2", [b0, b1, b2, sPara("b3", "EDITED")], { footerBlockId: "ftr2" }),
     ]);
     const cascaded1 = cascadePassIncremental(render1, render0, cascaded0) as ElementBox;
-    const metas1 = buildBlockFitMetas(cascaded1, SECTION_SHAPER, SECTION_CONTENT_INLINE);
+    const metas1 = buildBlockFitMetas(cascaded1, SECTION_SHAPER, undefined, SECTION_CONTENT_INLINE);
     const sectionPlan1 = buildSectionPlan(cascaded1, SECTION_PAGE);
 
     __resetFitOnePageCallCountForTest();
@@ -1109,7 +1109,7 @@ describe("measurePass — section incremental reuse gate", () => {
     const b2 = sPara("b2");
     const render0 = sDoc([s1Node, sSection("s2", [b0, b1, b2, sPara("b3")])]);
     const cascaded0 = sCascade(render0);
-    const metas0 = buildBlockFitMetas(cascaded0, SECTION_SHAPER, SECTION_CONTENT_INLINE);
+    const metas0 = buildBlockFitMetas(cascaded0, SECTION_SHAPER, undefined, SECTION_CONTENT_INLINE);
     const sectionPlan = buildSectionPlan(cascaded0, SECTION_PAGE);
     const plan1 = measurePass(
       metas0, SECTION_PAGE, sectionPlan, flattenContents(cascaded0.children),
@@ -1121,7 +1121,7 @@ describe("measurePass — section incremental reuse gate", () => {
     // Mutate ONLY b3; reuse s1Node + b0/b1/b2 by reference.
     const render1 = sDoc([s1Node, sSection("s2", [b0, b1, b2, sPara("b3", "EDITED")])]);
     const cascaded1 = cascadePassIncremental(render1, render0, cascaded0) as ElementBox;
-    const metas1 = buildBlockFitMetas(cascaded1, SECTION_SHAPER, SECTION_CONTENT_INLINE);
+    const metas1 = buildBlockFitMetas(cascaded1, SECTION_SHAPER, undefined, SECTION_CONTENT_INLINE);
     const sectionPlan1 = buildSectionPlan(cascaded1, SECTION_PAGE);
 
     __resetFitOnePageCallCountForTest();
@@ -1160,7 +1160,7 @@ describe("measurePass — section incremental reuse gate", () => {
       sSection("s3", paras("c")),
     ]);
     const cascaded = sCascade(render);
-    const metas = buildBlockFitMetas(cascaded, SECTION_SHAPER, SECTION_CONTENT_INLINE);
+    const metas = buildBlockFitMetas(cascaded, SECTION_SHAPER, undefined, SECTION_CONTENT_INLINE);
 
     const flatChildren = flattenContents(cascaded.children);
     const sectionPlanA = buildSectionPlan(cascaded, SECTION_PAGE);

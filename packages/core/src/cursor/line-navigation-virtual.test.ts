@@ -120,7 +120,7 @@ function paginateOracle(
   }
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
   // The mock shaper matches `makeConfig`'s measurer (8px/char, 16px line-height).
-  return paginateRoot(cascaded, ctx, createMockShaper(8, 16), pageConfig);
+  return paginateRoot(cascaded, ctx, createMockShaper(8, 16), undefined, pageConfig);
 }
 
 describe("line-navigation on a VirtualLayoutTree (Phase-4 per-page)", () => {

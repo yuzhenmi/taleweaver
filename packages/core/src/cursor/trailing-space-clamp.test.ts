@@ -233,7 +233,7 @@ describe("#340 — caret on-page for trailing spaces INSIDE an inline element", 
       ]),
     );
     if (tree.type !== "element") throw new Error("?");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, CONTENT_W), shaper);
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, CONTENT_W), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     return { layout: positionTreeForTest(r.box), shaper };
   }

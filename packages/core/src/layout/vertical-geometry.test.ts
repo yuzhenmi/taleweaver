@@ -102,7 +102,7 @@ function paginatePage(root: ElementBox): PageBox {
     root.computedStyle ?? INITIAL_COMPUTED_STYLE,
     pageConfig.pageInlineSize,
   );
-  const result = paginateRoot(root, ctx, createMockShaper(CHAR_W, LINE_CROSS), pageConfig);
+  const result = paginateRoot(root, ctx, createMockShaper(CHAR_W, LINE_CROSS), undefined, pageConfig);
   const page = result.children[0];
   if (page.type !== "page") throw new Error("expected page");
   return page;
@@ -115,7 +115,7 @@ function virtualPage(root: ElementBox): PageBox {
     pageConfig.pageMargins.inlineStart -
     pageConfig.pageMargins.inlineEnd;
   const shaper = createMockShaper(CHAR_W, LINE_CROSS);
-  const metas = buildBlockFitMetas(root, shaper, contentInline);
+  const metas = buildBlockFitMetas(root, shaper, undefined, contentInline);
   const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children);
   const ctx = makeRootContext(
     root.computedStyle ?? INITIAL_COMPUTED_STYLE,

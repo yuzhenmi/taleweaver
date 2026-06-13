@@ -202,7 +202,7 @@ describe("tab-stops S3 — IFC left/default-grid advance", () => {
       const state = tabDoc(stops);
       const root = cascadePass(render(state, componentRegistry, attrRegistry).root);
       if (root.type !== "element") throw new Error("expected element root");
-      const result = layoutBlock(root, 0, 0, ctx, shaper);
+      const result = layoutBlock(root, 0, 0, ctx, shaper, undefined);
       if (result.box === null) throw new Error("layoutBlock returned null");
       return { state, layout: result.box };
     };
@@ -373,7 +373,7 @@ function layoutParaWithChildren(
   // The IFC reads the inline base direction from `ctx.direction`; override for
   // the RTL case (makeRootContext derives it from the root computed style).
   const ctx = direction === baseCtx.direction ? baseCtx : { ...baseCtx, direction };
-  const result = layoutInlineContent(tree, 0, 0, ctx, shaper);
+  const result = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined);
   if (result.box === null) throw new Error("layoutInlineContent returned null box");
   return result.box.children.filter((c): c is LineBox => c.type === "line");
 }

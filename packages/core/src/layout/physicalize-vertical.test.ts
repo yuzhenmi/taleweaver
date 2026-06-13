@@ -241,7 +241,7 @@ describe("physicalizeVertical — both layout seams mirror a real vertical-rl do
   it("non-virtual paginateRoot mirrors the BFC body box (and its children)", () => {
     const root = vrlRoot();
     const ctx = makeRootContext(root.computedStyle ?? INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
-    const result = paginateRoot(root, ctx, createMockShaper(8, 16), pageConfig);
+    const result = paginateRoot(root, ctx, createMockShaper(8, 16), undefined, pageConfig);
     const page = result.children[0];
     if (page.type !== "page") throw new Error("expected page");
     expect(page.writingMode).toBe("vertical-rl");
@@ -261,7 +261,7 @@ describe("physicalizeVertical — both layout seams mirror a real vertical-rl do
     const root = vrlRoot();
     const pageContentInlineSize =
       pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
-    const metas = buildBlockFitMetas(root, createMockShaper(8, 16), pageContentInlineSize);
+    const metas = buildBlockFitMetas(root, createMockShaper(8, 16), undefined, pageContentInlineSize);
     const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children);
     const ctx = makeRootContext(root.computedStyle ?? INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
     const tree = makeVirtualLayoutTree(plan, root, ctx, createMockShaper(8, 16), pageConfig);
@@ -322,7 +322,7 @@ describe("physicalizeVertical — both seams mirror against the FULL page block-
   it("non-virtual paginateRoot: body box mirrors against the FULL page block-size", () => {
     const root = vrlRoot();
     const ctx = makeRootContext(root.computedStyle ?? INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
-    const result = paginateRoot(root, ctx, createMockShaper(8, 16), pageConfig);
+    const result = paginateRoot(root, ctx, createMockShaper(8, 16), undefined, pageConfig);
     const page = result.children[0];
     if (page.type !== "page") throw new Error("expected page");
     const body = bfcBodyOf(page);
@@ -341,7 +341,7 @@ describe("physicalizeVertical — both seams mirror against the FULL page block-
     const root = vrlRoot();
     const pageContentInlineSize =
       pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
-    const metas = buildBlockFitMetas(root, createMockShaper(8, 16), pageContentInlineSize);
+    const metas = buildBlockFitMetas(root, createMockShaper(8, 16), undefined, pageContentInlineSize);
     const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children);
     const ctx = makeRootContext(root.computedStyle ?? INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
     const tree = makeVirtualLayoutTree(plan, root, ctx, createMockShaper(8, 16), pageConfig);

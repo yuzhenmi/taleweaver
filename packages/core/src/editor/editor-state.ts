@@ -5,6 +5,7 @@ import { render, type RenderOutput } from "../render/render";
 import { cascadePass } from "../cascade";
 import { layoutTree } from "../layout/dispatch";
 import type { TextShaper } from "../layout/text-shaper";
+import type { Hyphenator } from "../layout/hyphenator";
 import type { TextMeasurer } from "../layout/text-measurer";
 import type { RenderNode, ElementBox } from "../render/render-node";
 import type { LayoutBox } from "../layout/layout-node";
@@ -227,6 +228,18 @@ export interface EditorConfig {
    * owns "who is suggesting" (this is configuration, not session state).
    */
   readonly suggestingAuthor?: string | null;
+  /**
+   * Injected auto-hyphenation capability (slice 2). When present, the layout pass
+   * threads it to every text-tokenization site so a `hyphens: auto` run gets
+   * candidate hyphenation break-points (the producer is slice 4; this slice only
+   * plumbs the value through). Absent ⇒ no hyphenation.
+   *
+   * IMMUTABLE ONCE CONFIGURED: swapping the hyphenator at runtime does NOT
+   * invalidate the wrap caches, so a host that wants to swap hyphenators (or
+   * language packs) must trigger a full rebuild. v1 ships no language-switcher.
+   * See the auto-hyphenation design §5.
+   */
+  readonly hyphenator?: Hyphenator;
 }
 
 export function createInitialEditorState(config: EditorConfig): EditorState {
@@ -293,6 +306,9 @@ export function createEditorStateFromState(
     cascadedEmbedContents,
     footnoteAnchors,
     parentOf,
+    // Auto-hyphenation (slice 2): thread the injected hyphenator into the full
+    // build so the measure + render passes share the host's hyphenation inputs.
+    config.hyphenator,
   );
 
   return {

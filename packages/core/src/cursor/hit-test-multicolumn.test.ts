@@ -117,7 +117,7 @@ function buildMulticolumnDoc(
   const pageContentInlineSize =
     pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
   const shaper = createMockShaper(CHAR_W, LINE_H);
-  const metas = buildBlockFitMetas(root, shaper, pageContentInlineSize);
+  const metas = buildBlockFitMetas(root, shaper, undefined, pageContentInlineSize);
   const plan = measurePass(metas, pageConfig, columnSectionPlan(columnConfig), root.children);
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
   const virtual = makeVirtualLayoutTree(plan, root, ctx, createMockShaper(CHAR_W, LINE_H), pageConfig);

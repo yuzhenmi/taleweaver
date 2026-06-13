@@ -22,7 +22,7 @@ function layoutPara(text: string, width: number, style: Style): readonly LineBox
     ]),
   );
   if (tree.type !== "element") throw new Error("expected element tree");
-  const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper);
+  const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper, undefined);
   if (r.box === null) throw new Error("layoutBlock returned null box");
   if (r.box.type !== "block") throw new Error("expected block box");
   return r.box.children.filter((c): c is LineBox => c.type === "line");
@@ -177,7 +177,7 @@ describe("IFC — trailing letter-spacing trim inside an INLINE element (#434)",
       ]),
     );
     if (tree.type !== "element") throw new Error("expected element tree");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper);
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, width), shaper, undefined);
     if (r.box === null) throw new Error("layoutBlock returned null box");
     if (r.box.type !== "block") throw new Error("expected block box");
     const lines = r.box.children.filter((c): c is LineBox => c.type === "line");
@@ -278,7 +278,7 @@ describe("IFC — trailing letter-spacing trim inside an INLINE element (#434)",
       ),
     );
     if (tree.type !== "element") throw new Error("expected element tree");
-    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper);
+    const r = layoutBlock(tree, 0, 0, makeRootContext(INITIAL_COMPUTED_STYLE, 500), shaper, undefined);
     if (r.box === null || r.box.type !== "block") throw new Error("expected block box");
     const lines = r.box.children.filter((c): c is LineBox => c.type === "line");
     expect(lines).toHaveLength(1);

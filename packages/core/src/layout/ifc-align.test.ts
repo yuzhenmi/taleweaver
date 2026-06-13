@@ -41,7 +41,7 @@ function layoutPara(
   // The IFC reads the inline base direction from `ctx.direction`; override for
   // the RTL cases (makeRootContext derives it from the root computed style).
   const ctx = direction === baseCtx.direction ? baseCtx : { ...baseCtx, direction };
-  const result = layoutInlineContent(tree, 0, 0, ctx, shaper);
+  const result = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined);
   if (result.box === null) throw new Error("layoutInlineContent returned null box");
   return result.box.children.filter((c): c is LineBox => c.type === "line");
 }
@@ -366,7 +366,7 @@ describe("IFC alignment — wrap-cache invalidation on textAlign change (I-4)", 
       ]),
     );
     if (startTree.type !== "element") throw new Error("expected element");
-    const r1 = layoutInlineContent(startTree, 0, 0, ctx, shaper);
+    const r1 = layoutInlineContent(startTree, 0, 0, ctx, shaper, undefined);
     if (r1.box === null) throw new Error("null box");
     const l1 = r1.box.children.filter((c): c is LineBox => c.type === "line");
     expect(l1[0].x).toBe(0);
@@ -381,7 +381,7 @@ describe("IFC alignment — wrap-cache invalidation on textAlign change (I-4)", 
       ]),
     );
     if (centerTree.type !== "element") throw new Error("expected element");
-    const r2 = layoutInlineContent(centerTree, 0, 0, ctx, shaper);
+    const r2 = layoutInlineContent(centerTree, 0, 0, ctx, shaper, undefined);
     if (r2.box === null) throw new Error("null box");
     const l2 = r2.box.children.filter((c): c is LineBox => c.type === "line");
     // RE-ALIGNED, not stale: under the #333 full-width model the line still
@@ -706,7 +706,7 @@ describe("IFC text-indent (CSS Text §8 first-line indent)", () => {
       createElementBox("p", { display: "block" }, [createTextBox("t", {}, "hello")]),
     );
     if (noIndentTree.type !== "element") throw new Error("expected element");
-    const r1 = layoutInlineContent(noIndentTree, 0, 0, ctx, shaper);
+    const r1 = layoutInlineContent(noIndentTree, 0, 0, ctx, shaper, undefined);
     if (r1.box === null) throw new Error("null box");
     const l1 = r1.box.children.filter((c): c is LineBox => c.type === "line");
     expect(l1[0].x).toBe(0); // un-indented, populates cache for "p"
@@ -719,7 +719,7 @@ describe("IFC text-indent (CSS Text §8 first-line indent)", () => {
       ]),
     );
     if (indentTree.type !== "element") throw new Error("expected element");
-    const r2 = layoutInlineContent(indentTree, 0, 0, ctx, shaper);
+    const r2 = layoutInlineContent(indentTree, 0, 0, ctx, shaper, undefined);
     if (r2.box === null) throw new Error("null box");
     const l2 = r2.box.children.filter((c): c is LineBox => c.type === "line");
     expect(l2[0].x).toBe(32); // RE-LAID with the indent, not the stale x=0

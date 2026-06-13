@@ -7,6 +7,7 @@ import { HARD_BREAK_EMBED_TYPE } from "../state";
 import { createInlineBox, createInlineBlockBox, createLineBox, createTextRunBox, withInlineOffset, withBlockOffset, assertLayoutBoxConsistent, createBlockBox } from "./layout-box";
 import type { FragmentationContext, LayoutResult } from "./fragmentation";
 import type { TextShaper } from "./text-shaper";
+import type { Hyphenator } from "./hyphenator";
 import type { TextMeasurer } from "./text-measurer";
 import { adaptShaperToMeasurer } from "./text-measurer";
 import { tokenize, LINE_BREAK } from "./text-tokenize";
@@ -673,6 +674,10 @@ function collectInlineTokens(
   ancestors: readonly string[],
   ancestorStyles: readonly ComputedStyle[],
   shaper: TextShaper,
+  // Auto-hyphenation (slice 2): threaded ALONGSIDE `shaper` to the tokenization
+  // site. The (slice 4) producer reads it HERE to insert candidate hyphen
+  // break-points; this slice carries it without reading it. `undefined` ⇒ none.
+  hyphenator: Hyphenator | undefined,
   // The PARENT IFC's writing-mode + direction (the mode the IFC lays everything
   // out in). Threaded together because both are needed to project an
   // inline-block child's PHYSICAL box onto the parent's inline/block axes (see
@@ -959,7 +964,7 @@ function collectInlineTokens(
     } else if (child.type === "element" && cs.display === "inline") {
       const newAncestors = [...ancestors, child.key];
       const newStyles = [...ancestorStyles, cs];
-      collectInlineTokens(child.children, newAncestors, newStyles, shaper, writingMode, direction, out, asm, intrinsicCache, parentCtx);
+      collectInlineTokens(child.children, newAncestors, newStyles, shaper, hyphenator, writingMode, direction, out, asm, intrinsicCache, parentCtx);
     } else if (child.type === "element" && cs.display === "inline-block") {
       // S2.4: an inline atomic occupies one OBJECT REPLACEMENT char (class CB)
       // in the source string — breakable around (LB20), the correct
@@ -1045,7 +1050,7 @@ function collectInlineTokens(
       const ibCtx = parentCtx !== null
         ? makeChildContext(parentCtx, cs, ibResolvedInlineSize, "indefinite")
         : makeRootContext(cs, ibResolvedInlineSize);
-      const bfcResult = layoutBlock(child, 0, 0, ibCtx, shaper);
+      const bfcResult = layoutBlock(child, 0, 0, ibCtx, shaper, hyphenator);
       if (bfcResult.box === null) {
         throw new Error("layoutBlock without fragmentation returned null box; should be unreachable (no FragmentationContext passed)");
       }
@@ -1256,6 +1261,10 @@ export function collectTokens(
   shaper: TextShaper,
   direction: Direction,
   intrinsicCache: IntrinsicSizesCache,
+  // Auto-hyphenation (slice 2): OPTIONAL trailing so the dozens of existing
+  // 4-arg test/rewrap callers stay valid; forwarded into `collectInlineTokens`.
+  // `undefined` ⇒ no hyphenation. Carried but UNUSED in this slice.
+  hyphenator?: Hyphenator,
 ): Token[] {
   if (!parent.computedStyle) throw new Error("cascade required");
   const tokens: Token[] = [];
@@ -1267,7 +1276,7 @@ export function collectTokens(
   // External path (rewrap-incremental + tests): no parent context
   // available. Inline-block sub-layout falls back to makeRootContext —
   // the production path uses makeChildContext (see layoutInlineContent).
-  collectInlineTokens(parent.children, emptyAncestors, emptyAncestorStyles, shaper, writingMode, direction, tokens, asm, intrinsicCache, null);
+  collectInlineTokens(parent.children, emptyAncestors, emptyAncestorStyles, shaper, hyphenator, writingMode, direction, tokens, asm, intrinsicCache, null);
   annotateLineBreaks(tokens, asm);
   return tokens;
 }
@@ -1282,6 +1291,9 @@ export function layoutInlineContent(
   blockOffset: number,
   ctx: LayoutContext,
   shaper: TextShaper,
+  // Auto-hyphenation (slice 2): threaded ALONGSIDE `shaper`, forwarded into
+  // `collectInlineTokens`. `undefined` ⇒ none. Carried but UNUSED in this slice.
+  hyphenator: Hyphenator | undefined,
   fragmentation?: FragmentationContext,
 ): LayoutResult<BlockBox> {
   const tLayout = markStart("ifc.layout");
@@ -1348,7 +1360,7 @@ export function layoutInlineContent(
   // Collect tokens from all inline children recursively
   const tokens: Token[] = [];
   const asm = newIfcSourceAssembly();
-  collectInlineTokens(parent.children, emptyAncestors, emptyAncestorStyles, shaper, writingMode, direction, tokens, asm, ctx.intrinsicCache, ctx);
+  collectInlineTokens(parent.children, emptyAncestors, emptyAncestorStyles, shaper, hyphenator, writingMode, direction, tokens, asm, ctx.intrinsicCache, ctx);
   // Derive UAX #14 softBreaks/breakableBefore over the assembled IFC source;
   // the wrap loop consults them via trySoftSplit + the breakableBefore gate.
   annotateLineBreaks(tokens, asm);

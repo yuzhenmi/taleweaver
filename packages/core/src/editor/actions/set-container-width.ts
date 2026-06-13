@@ -33,6 +33,11 @@ export function handleSetContainerWidth(
     editor.cascadedEmbedContents,
     EMPTY_FOOTNOTE_ANCHORS,
     parentOf,
+    // Auto-hyphenation (slice 2): the resize re-layout must thread the stored
+    // hyphenator too (this is the EXPLICIT full-argument-list site that a prior
+    // positional-misbind bug flagged — `hyphenator` binds to its OWN trailing
+    // slot, after `parentOf`).
+    config.hyphenator,
   );
   return { ...editor, containerWidth: width, layoutTree: layout };
 }

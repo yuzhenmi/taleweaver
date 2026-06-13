@@ -149,7 +149,7 @@ function buildMultiPageFooter(opts: {
   const cfg = pageConfig();
   const shaper = createMockShaper(SHAPER_CHAR_W, SHAPER_LINE_H);
   const pcis = cfg.pageInlineSize - cfg.pageMargins.inlineStart - cfg.pageMargins.inlineEnd;
-  const metas = buildBlockFitMetas(cascadedRoot, shaper, pcis);
+  const metas = buildBlockFitMetas(cascadedRoot, shaper, undefined, pcis);
   const basePlan = measurePass(metas, cfg, IMPLICIT_SECTION_PLAN, cascadedRoot.children);
 
   // Tag the footer id onto every entry at or after `footerCarriesFrom`.

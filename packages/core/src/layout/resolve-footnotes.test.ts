@@ -391,7 +391,7 @@ function setup(
   pageConfig: PageConfig;
 } {
   const cascaded = fnCascade(renderRoot);
-  const metas = buildBlockFitMetas(cascaded, FN_SHAPER, FN_CONTENT_INLINE);
+  const metas = buildBlockFitMetas(cascaded, FN_SHAPER, undefined, FN_CONTENT_INLINE);
   const sectionPlan = buildSectionPlan(cascaded, pageConfig);
   const rootChildren = flattenContents(cascaded.children) as ElementBox[];
   const rawPlan = measurePass(metas, pageConfig, sectionPlan, rootChildren);
@@ -413,7 +413,7 @@ describe("resolveFootnotes", () => {
 
     const out = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      cascadedEmbedContents, [], ctx, FN_SHAPER, undefined, pageConfig,
+      cascadedEmbedContents, [], ctx, FN_SHAPER, undefined, undefined, pageConfig,
     );
 
     expect(out).toBe(rawPlan); // ref-equal no-op
@@ -435,7 +435,7 @@ describe("resolveFootnotes", () => {
     try {
       const out = resolveFootnotes(
         rawPlan, metas, sectionPlan, rootChildren,
-        cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
+        cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, undefined, pageConfig,
       );
       expect(out).toBe(rawPlan);
     } finally {
@@ -459,7 +459,7 @@ describe("resolveFootnotes", () => {
     __resetBodyLayoutCallCountForTest();
     const out = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, undefined, pageConfig,
     );
     // F5 perf lock: the page's single footnote body is laid out EXACTLY ONCE — the
     // convergence loop's one iteration. The dev `footnoteSlotHeight` invariant does
@@ -500,7 +500,7 @@ describe("resolveFootnotes", () => {
     const anchors = [fnAnchor("b0", "fnA"), fnAnchor("b1", "fnB")];
     const out = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, undefined, pageConfig,
     );
 
     // Two 1-line bodies (16 each) + ONE separator (13) = 45.
@@ -533,7 +533,7 @@ describe("resolveFootnotes", () => {
     const anchors = [fnAnchor("b3", "fn3")];
     const out = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, undefined, pageConfig,
     );
 
     // After convergence: b3 ended up on a later page; the footnote slot is on
@@ -562,7 +562,7 @@ describe("resolveFootnotes", () => {
     const anchors = [fnAnchor("b0", "fnBig")];
     const out = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, undefined, pageConfig,
     );
 
     // Slot = 2 placed blocks (32) + separator (13) = 45 (NOT the FN-4 clamp of
@@ -596,7 +596,7 @@ describe("resolveFootnotes", () => {
     const anchors = [fnAnchor("b4", "fn4")];
     const out = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, undefined, pageConfig,
     );
 
     // Page 0 (before the footnote page) is the SAME object — copied through.
@@ -632,7 +632,7 @@ describe("resolveFootnotes", () => {
     const anchors = [fnAnchor("b0", "fn0")];
     const out = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, undefined, pageConfig,
     );
 
     expect(out.entries.length).toBe(1);
@@ -644,7 +644,7 @@ describe("resolveFootnotes", () => {
     // Sanity: a section-less doc threaded with IMPLICIT_SECTION_PLAN behaves.
     const render = fnDoc([fnPara("b0"), fnPara("b1"), fnPara("b2"), fnPara("b3")]);
     const cascaded = fnCascade(render);
-    const metas = buildBlockFitMetas(cascaded, FN_SHAPER, FN_CONTENT_INLINE);
+    const metas = buildBlockFitMetas(cascaded, FN_SHAPER, undefined, FN_CONTENT_INLINE);
     const rootChildren = flattenContents(cascaded.children) as ElementBox[];
     const rawPlan = measurePass(metas, FN_PAGE, IMPLICIT_SECTION_PLAN, rootChildren);
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, FN_CONTENT_INLINE);
@@ -654,7 +654,7 @@ describe("resolveFootnotes", () => {
 
     const out = resolveFootnotes(
       rawPlan, metas, IMPLICIT_SECTION_PLAN, rootChildren,
-      bodies, [fnAnchor("b0", "fn0")], ctx, FN_SHAPER, undefined, FN_PAGE,
+      bodies, [fnAnchor("b0", "fn0")], ctx, FN_SHAPER, undefined, undefined, FN_PAGE,
     );
 
     expect(out.entries[0].footnoteSlotHeight).toBe(16 + FOOTNOTE_SEPARATOR_HEIGHT);
@@ -693,7 +693,7 @@ function inputsFrom(cascaded: ElementBox): {
   sectionPlan: ReturnType<typeof buildSectionPlan>;
   rootChildren: ElementBox[];
 } {
-  const metas = buildBlockFitMetas(cascaded, FN_SHAPER, FN_CONTENT_INLINE);
+  const metas = buildBlockFitMetas(cascaded, FN_SHAPER, undefined, FN_CONTENT_INLINE);
   const sectionPlan = buildSectionPlan(cascaded, FN_PAGE);
   const rootChildren = flattenContents(cascaded.children) as ElementBox[];
   const rawPlan = measurePass(metas, FN_PAGE, sectionPlan, rootChildren);
@@ -723,7 +723,7 @@ describe("resolveFootnotes — FN-4.4 incremental carry-forward (prevResolvedPla
     __resetBodyLayoutCallCountForTest();
     const resolved0 = resolveFootnotes(
       inputs0.rawPlan, inputs0.metas, inputs0.sectionPlan, inputs0.rootChildren,
-      embed, anchors, fnCtx, FN_SHAPER, undefined, FN_PAGE,
+      embed, anchors, fnCtx, FN_SHAPER, undefined, undefined, FN_PAGE,
     );
     const cycle1BodyLayouts = __getBodyLayoutCallCountForTest();
     expect(cycle1BodyLayouts).toBeGreaterThan(0); // fn0 body was laid out
@@ -744,7 +744,7 @@ describe("resolveFootnotes — FN-4.4 incremental carry-forward (prevResolvedPla
     __resetBodyLayoutCallCountForTest();
     const resolvedIncremental = resolveFootnotes(
       inputs1.rawPlan, inputs1.metas, inputs1.sectionPlan, inputs1.rootChildren,
-      embed, anchors, fnCtx, FN_SHAPER, undefined, FN_PAGE,
+      embed, anchors, fnCtx, FN_SHAPER, undefined, undefined, FN_PAGE,
       // prevResolvedPlan + prior embed map (same map ref ⇒ fn0 body unchanged).
       resolved0, embed,
     );
@@ -759,7 +759,7 @@ describe("resolveFootnotes — FN-4.4 incremental carry-forward (prevResolvedPla
     // the skip left no stale/misplaced slot.
     const resolvedFresh = resolveFootnotes(
       inputs1.rawPlan, inputs1.metas, inputs1.sectionPlan, inputs1.rootChildren,
-      embed, anchors, fnCtx, FN_SHAPER, undefined, FN_PAGE,
+      embed, anchors, fnCtx, FN_SHAPER, undefined, undefined, FN_PAGE,
     );
     expect(resolvedIncremental.entries[0].footnoteSlotHeight).toBe(
       resolvedFresh.entries[0].footnoteSlotHeight,
@@ -818,7 +818,7 @@ describe("resolveFootnotes — FN-4.4 incremental carry-forward (prevResolvedPla
 
     const resolved0 = resolveFootnotes(
       inputs0.rawPlan, inputs0.metas, inputs0.sectionPlan, inputs0.rootChildren,
-      embedA, anchors, fnCtx, FN_SHAPER, undefined, FN_PAGE,
+      embedA, anchors, fnCtx, FN_SHAPER, undefined, undefined, FN_PAGE,
     );
     expect(resolved0.entries[0].footnoteSlotHeight).toBe(16 + FOOTNOTE_SEPARATOR_HEIGHT); // 29
 
@@ -831,7 +831,7 @@ describe("resolveFootnotes — FN-4.4 incremental carry-forward (prevResolvedPla
     __resetBodyLayoutCallCountForTest();
     const resolvedIncremental = resolveFootnotes(
       inputs0.rawPlan, inputs0.metas, inputs0.sectionPlan, inputs0.rootChildren,
-      embedB, anchors, fnCtx, FN_SHAPER, undefined, FN_PAGE,
+      embedB, anchors, fnCtx, FN_SHAPER, undefined, undefined, FN_PAGE,
       resolved0, embedA, // prior plan + prior (1-line) body map
     );
     // MISS: the body ref differs ⇒ page 0 re-resolves ⇒ the body IS laid out.
@@ -842,7 +842,7 @@ describe("resolveFootnotes — FN-4.4 incremental carry-forward (prevResolvedPla
     // Equals a fresh full build of the edited-body doc.
     const resolvedFresh = resolveFootnotes(
       inputs0.rawPlan, inputs0.metas, inputs0.sectionPlan, inputs0.rootChildren,
-      embedB, anchors, fnCtx, FN_SHAPER, undefined, FN_PAGE,
+      embedB, anchors, fnCtx, FN_SHAPER, undefined, undefined, FN_PAGE,
     );
     expect(resolvedIncremental.entries[0].footnoteSlotHeight).toBe(
       resolvedFresh.entries[0].footnoteSlotHeight,
@@ -873,7 +873,7 @@ describe("resolveFootnotes — FN-4.4 incremental carry-forward (prevResolvedPla
     const embedA = new Map<BlockId, ElementBox>([["fn3" as BlockId, bodyA]]);
     const resolved0 = resolveFootnotes(
       inputs.rawPlan, inputs.metas, inputs.sectionPlan, inputs.rootChildren,
-      embedA, anchors, fnCtx, FN_SHAPER, undefined, FN_PAGE,
+      embedA, anchors, fnCtx, FN_SHAPER, undefined, undefined, FN_PAGE,
     );
     expect(resolved0.pageIndexOfBlock("b3")).toBeGreaterThan(0); // b3 evicted
     expect(resolved0.entries[0].footnoteContentBlockIds).toEqual([]); // page 0: no slot
@@ -891,7 +891,7 @@ describe("resolveFootnotes — FN-4.4 incremental carry-forward (prevResolvedPla
     __resetBodyLayoutCallCountForTest();
     const resolvedIncremental = resolveFootnotes(
       inputs.rawPlan, inputs.metas, inputs.sectionPlan, inputs.rootChildren,
-      embedB, anchors, fnCtx, FN_SHAPER, undefined, FN_PAGE,
+      embedB, anchors, fnCtx, FN_SHAPER, undefined, undefined, FN_PAGE,
       resolved0, embedA, // prior plan + prior (2-line) body map
     );
     // Re-resolution happened (the body was laid out, not skipped).
@@ -912,7 +912,7 @@ describe("resolveFootnotes — FN-4.4 incremental carry-forward (prevResolvedPla
     // above; the SECTION_BREAK test below independently exercises cond 0 directly.
     const resolvedFresh = resolveFootnotes(
       inputs.rawPlan, inputs.metas, inputs.sectionPlan, inputs.rootChildren,
-      embedB, anchors, fnCtx, FN_SHAPER, undefined, FN_PAGE,
+      embedB, anchors, fnCtx, FN_SHAPER, undefined, undefined, FN_PAGE,
     );
     expect(resolvedIncremental.entries.length).toBe(resolvedFresh.entries.length);
     expect(resolvedIncremental.pageIndexOfBlock("b3")).toBe(resolvedFresh.pageIndexOfBlock("b3"));
@@ -936,7 +936,7 @@ describe("resolveFootnotes — FN-4.4 incremental carry-forward (prevResolvedPla
     // fires first, returning the rawPlan by reference.
     const out = resolveFootnotes(
       inputs.rawPlan, inputs.metas, inputs.sectionPlan, inputs.rootChildren,
-      new Map(), [], fnCtx, FN_SHAPER, undefined, FN_PAGE,
+      new Map(), [], fnCtx, FN_SHAPER, undefined, undefined, FN_PAGE,
       inputs.rawPlan, new Map(),
     );
     expect(out).toBe(inputs.rawPlan);
@@ -960,7 +960,7 @@ describe("resolveFootnotes — FN-4.4 incremental carry-forward (prevResolvedPla
     const cascaded = fnCascade(render);
     // Doc is UNCHANGED across cycles — only the sectionPlan differs — so the same
     // cascaded root / rootChildren / metas (hence ref-equal children + bodies).
-    const metas = buildBlockFitMetas(cascaded, FN_SHAPER, FN_CONTENT_INLINE);
+    const metas = buildBlockFitMetas(cascaded, FN_SHAPER, undefined, FN_CONTENT_INLINE);
     const rootChildren = flattenContents(cascaded.children) as ElementBox[];
     const fn0Body = fnCascade(fnBody("fn0", 1));
     const embed = new Map<BlockId, ElementBox>([["fn0" as BlockId, fn0Body]]);
@@ -970,7 +970,7 @@ describe("resolveFootnotes — FN-4.4 incremental carry-forward (prevResolvedPla
     const rawPlan1 = measurePass(metas, FN_PAGE, IMPLICIT_SECTION_PLAN, rootChildren);
     const resolved1 = resolveFootnotes(
       rawPlan1, metas, IMPLICIT_SECTION_PLAN, rootChildren,
-      embed, anchors, fnCtx, FN_SHAPER, undefined, FN_PAGE,
+      embed, anchors, fnCtx, FN_SHAPER, undefined, undefined, FN_PAGE,
     );
     expect(resolved1.entries[0].footnoteContentBlockIds).toEqual(["fn0" as BlockId]);
     expect(resolved1.entries[0].stopBeforeIndex).toBeNull(); // no cap in cycle 1
@@ -999,7 +999,7 @@ describe("resolveFootnotes — FN-4.4 incremental carry-forward (prevResolvedPla
     __resetBodyLayoutCallCountForTest();
     const resolvedIncremental = resolveFootnotes(
       rawPlan2, metas, plan2, rootChildren,
-      embed, anchors, fnCtx, FN_SHAPER, undefined, FN_PAGE,
+      embed, anchors, fnCtx, FN_SHAPER, undefined, undefined, FN_PAGE,
       resolved1, embed, // prior plan + prior body map (same refs)
     );
 
@@ -1020,7 +1020,7 @@ describe("resolveFootnotes — FN-4.4 incremental carry-forward (prevResolvedPla
     // no stale slot/boundary.
     const resolvedFresh = resolveFootnotes(
       rawPlan2, metas, plan2, rootChildren,
-      embed, anchors, fnCtx, FN_SHAPER, undefined, FN_PAGE,
+      embed, anchors, fnCtx, FN_SHAPER, undefined, undefined, FN_PAGE,
     );
     expect(resolvedIncremental.entries[0].stopBeforeIndex).toBe(
       resolvedFresh.entries[0].stopBeforeIndex,
@@ -1058,7 +1058,7 @@ describe("resolveFootnotes — FN-4.4 incremental carry-forward (prevResolvedPla
     //   and it reaches cond 3, where it must refuse reuse.
     const render = fnDoc([fnPara("b0"), fnPara("b1"), fnPara("b2"), fnPara("b3")]);
     const cascaded = fnCascade(render);
-    const metas = buildBlockFitMetas(cascaded, FN_SHAPER, FN_CONTENT_INLINE);
+    const metas = buildBlockFitMetas(cascaded, FN_SHAPER, undefined, FN_CONTENT_INLINE);
     const rootChildren = flattenContents(cascaded.children) as ElementBox[];
     const fn0Body = fnCascade(fnBody("fn0", 1));
     const embed = new Map<BlockId, ElementBox>([["fn0" as BlockId, fn0Body]]);
@@ -1068,7 +1068,7 @@ describe("resolveFootnotes — FN-4.4 incremental carry-forward (prevResolvedPla
     const rawPlan1 = measurePass(metas, FN_PAGE, IMPLICIT_SECTION_PLAN, rootChildren);
     const resolved1 = resolveFootnotes(
       rawPlan1, metas, IMPLICIT_SECTION_PLAN, rootChildren,
-      embed, anchors, fnCtx, FN_SHAPER, undefined, FN_PAGE,
+      embed, anchors, fnCtx, FN_SHAPER, undefined, undefined, FN_PAGE,
     );
     expect(resolved1.entries[0].effectiveTopInset).toBe(0);
     expect(resolved1.entries[0].children.map((c) => c.key)).toEqual(["b0", "b1"]);
@@ -1082,7 +1082,7 @@ describe("resolveFootnotes — FN-4.4 incremental carry-forward (prevResolvedPla
     __resetBodyLayoutCallCountForTest();
     const resolvedIncremental = resolveFootnotes(
       rawPlan2, metas, IMPLICIT_SECTION_PLAN, rootChildren,
-      embed, anchors, fnCtx, FN_SHAPER, grownInsets, FN_PAGE,
+      embed, anchors, fnCtx, FN_SHAPER, undefined, grownInsets, FN_PAGE,
       resolved1, embed, // prior (cycle-1, inset-0) plan + same body refs
     );
     // CACHE MISS via cond 3: the effTopInset changed (0 → 16) ⇒ the footnote page
@@ -1097,7 +1097,7 @@ describe("resolveFootnotes — FN-4.4 incremental carry-forward (prevResolvedPla
     // cycle-2 geometry — no stale wider-content slice leaked through the gate.
     const resolvedFresh = resolveFootnotes(
       rawPlan2, metas, IMPLICIT_SECTION_PLAN, rootChildren,
-      embed, anchors, fnCtx, FN_SHAPER, grownInsets, FN_PAGE,
+      embed, anchors, fnCtx, FN_SHAPER, undefined, grownInsets, FN_PAGE,
     );
     expect(resolvedIncremental.entries[0].children.map((c) => c.key)).toEqual(
       resolvedFresh.entries[0].children.map((c) => c.key),
@@ -1166,7 +1166,7 @@ function partialToken(body: ElementBox, available: number): BreakToken {
     ...slotCtx(),
     containingInlineSize: SLOT_INLINE,
   };
-  const { breakToken } = layoutBlock(body, 0, 0, ctx, FN_SHAPER, {
+  const { breakToken } = layoutBlock(body, 0, 0, ctx, FN_SHAPER, undefined, {
     availableBlockSize: available,
     pageIndex: 0,
     resumeFrom: null,
@@ -1194,7 +1194,7 @@ describe("computeSlotLayout (FN-5.3)", () => {
       77,
       SLOT_INLINE,
       slotCtx(),
-      FN_SHAPER,
+      FN_SHAPER, undefined
     );
     expect(r.slotHeight).toBe(FOOTNOTE_SEPARATOR_HEIGHT + 16 + 2 * SLOT_LINE); // 13+16+32 = 61
     expect(r.slotContentBlockIds).toEqual(["A", "B"]); // both STARTED here
@@ -1220,7 +1220,7 @@ describe("computeSlotLayout (FN-5.3)", () => {
       77,
       SLOT_INLINE,
       slotCtx(),
-      FN_SHAPER,
+      FN_SHAPER, undefined
     );
     expect(r.slotHeight).toBe(FOOTNOTE_SEPARATOR_HEIGHT + 16 + 2 * SLOT_LINE); // 61
     expect(r.slotContentBlockIds).toEqual(["A", "B"]); // C did NOT start here
@@ -1255,7 +1255,7 @@ describe("computeSlotLayout (FN-5.3)", () => {
       200,
       SLOT_INLINE,
       slotCtx(),
-      FN_SHAPER,
+      FN_SHAPER, undefined
     );
     // sep + B-remainder(16) + C(16) + D(16) = 13 + 48 = 61.
     expect(r.slotHeight).toBe(FOOTNOTE_SEPARATOR_HEIGHT + 3 * SLOT_LINE);
@@ -1287,7 +1287,7 @@ describe("computeSlotLayout (FN-5.3)", () => {
       61,
       SLOT_INLINE,
       slotCtx(),
-      FN_SHAPER,
+      FN_SHAPER, undefined
     );
     expect(r.slotHeight).toBe(FOOTNOTE_SEPARATOR_HEIGHT + 2 * SLOT_LINE); // 13+32 = 45
     expect(r.slotContentBlockIds).toEqual([]); // no FRESH body started
@@ -1315,7 +1315,7 @@ describe("computeSlotLayout (FN-5.3)", () => {
       37,
       SLOT_INLINE,
       slotCtx(),
-      FN_SHAPER,
+      FN_SHAPER, undefined
     );
     expect(r.slotHeight).toBe(0); // NO separator when nothing placed
     expect(r.slotContentBlockIds).toEqual([]);
@@ -1341,7 +1341,7 @@ describe("computeSlotLayout (FN-5.3)", () => {
       61,
       SLOT_INLINE,
       slotCtx(),
-      FN_SHAPER,
+      FN_SHAPER, undefined
     );
     expect(r.slotHeight).toBe(FOOTNOTE_SEPARATOR_HEIGHT + 2 * SLOT_LINE); // 45
     expect(r.slotContentBlockIds).toEqual(["A"]); // STARTED here
@@ -1362,7 +1362,7 @@ describe("computeSlotLayout (FN-5.3)", () => {
       pageContentBlockSize,
       SLOT_INLINE,
       slotCtx(),
-      FN_SHAPER,
+      FN_SHAPER, undefined
     );
     expect(r.slotHeight).toBe(FOOTNOTE_SEPARATOR_HEIGHT + 10 * SLOT_LINE); // 173
     // Blocker-2: the page body keeps at least MIN_BODY_BLOCK_SIZE below the slot.
@@ -1428,7 +1428,7 @@ function setupSplit(
   pageConfig: PageConfig;
 } {
   const cascaded = fnCascade(renderRoot);
-  const metas = buildBlockFitMetas(cascaded, FN_SHAPER, FN_CONTENT_INLINE);
+  const metas = buildBlockFitMetas(cascaded, FN_SHAPER, undefined, FN_CONTENT_INLINE);
   const sectionPlan = buildSectionPlan(cascaded, pageConfig);
   const rootChildren = flattenContents(cascaded.children) as ElementBox[];
   const rawPlan = measurePass(metas, pageConfig, sectionPlan, rootChildren);
@@ -1454,7 +1454,7 @@ describe("resolveFootnotes — FN-5.4 forward-sweep continuation threading", () 
     const anchors = [fnAnchor("b0", "fn0")];
     const out = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, undefined, pageConfig,
     );
 
     expect(out.entries.length).toBe(1);
@@ -1476,7 +1476,7 @@ describe("resolveFootnotes — FN-5.4 forward-sweep continuation threading", () 
     const anchors = [fnAnchor("b0", "fnBig")];
     const out = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, undefined, pageConfig,
     );
 
     // Page 0: inbound EMPTY (this page STARTS the body). It places 2 lines and
@@ -1547,7 +1547,7 @@ describe("resolveFootnotes — FN-5.4 forward-sweep continuation threading", () 
     // The headline assertion: this MUST NOT throw (the old render-node bound did).
     const out = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, undefined, pageConfig,
     );
 
     // maxSlot per page = 64 − 16 − 13 = 35 ⇒ 2 lines (32px) per page ⇒ 40 lines
@@ -1608,7 +1608,7 @@ describe("resolveFootnotes — FN-5.4 forward-sweep continuation threading", () 
     const anchors = [fnAnchor("b0", "A"), fnAnchor("b0", "B"), fnAnchor("b0", "C")];
     const out = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, undefined, pageConfig,
     );
 
     // Page 0: inbound empty; A and B STARTED here (C did NOT) ⇒ only A,B in
@@ -1642,7 +1642,7 @@ describe("resolveFootnotes — FN-5.4 forward-sweep continuation threading", () 
       fnPara("b4"), fnPara("b5"),
     ]);
     const cascaded0 = fnCascade(render0);
-    const metas0 = buildBlockFitMetas(cascaded0, FN_SHAPER, FN_CONTENT_INLINE);
+    const metas0 = buildBlockFitMetas(cascaded0, FN_SHAPER, undefined, FN_CONTENT_INLINE);
     const sectionPlan0 = buildSectionPlan(cascaded0, FN_PAGE);
     const rootChildren0 = flattenContents(cascaded0.children) as ElementBox[];
     const rawPlan0 = measurePass(metas0, FN_PAGE, sectionPlan0, rootChildren0);
@@ -1656,7 +1656,7 @@ describe("resolveFootnotes — FN-5.4 forward-sweep continuation threading", () 
 
     const resolved0 = resolveFootnotes(
       rawPlan0, metas0, sectionPlan0, rootChildren0,
-      embedA, anchors, fnCtxLocal, FN_SHAPER, undefined, FN_PAGE,
+      embedA, anchors, fnCtxLocal, FN_SHAPER, undefined, undefined, FN_PAGE,
     );
     // Page 1 carries fnBig's remainder inbound at resumeAtLine 2.
     expect(resolved0.entries[1].footnoteContinuation).toHaveLength(1);
@@ -1682,7 +1682,7 @@ describe("resolveFootnotes — FN-5.4 forward-sweep continuation threading", () 
     __resetBodyLayoutCallCountForTest();
     const resolvedIncremental = resolveFootnotes(
       rawPlan0, metas0, sectionPlan0, rootChildren0,
-      embedB, anchors, fnCtxLocal, FN_SHAPER, undefined, FN_PAGE,
+      embedB, anchors, fnCtxLocal, FN_SHAPER, undefined, undefined, FN_PAGE,
       resolved0, embedA,
     );
     // The body changed ⇒ page 0 misses (cond 5). Page 1's inbound continuation
@@ -1692,7 +1692,7 @@ describe("resolveFootnotes — FN-5.4 forward-sweep continuation threading", () 
     // The re-resolved plan equals a fresh full build (no stale inbound).
     const resolvedFresh = resolveFootnotes(
       rawPlan0, metas0, sectionPlan0, rootChildren0,
-      embedB, anchors, fnCtxLocal, FN_SHAPER, undefined, FN_PAGE,
+      embedB, anchors, fnCtxLocal, FN_SHAPER, undefined, undefined, FN_PAGE,
     );
     expect(resolvedIncremental.entries.map((e) => e.footnoteSlotHeight)).toEqual(
       resolvedFresh.entries.map((e) => e.footnoteSlotHeight),
@@ -1718,7 +1718,7 @@ describe("resolveFootnotes — FN-5.4 forward-sweep continuation threading", () 
     // split.
     const render = fnDoc([fnPara("b0"), fnPara("b1"), fnPara("b2"), fnPara("b3")]);
     const cascaded = fnCascade(render);
-    const metas = buildBlockFitMetas(cascaded, FN_SHAPER, FN_CONTENT_INLINE);
+    const metas = buildBlockFitMetas(cascaded, FN_SHAPER, undefined, FN_CONTENT_INLINE);
     const sectionPlan = buildSectionPlan(cascaded, FN_PAGE);
     const rootChildren = flattenContents(cascaded.children) as ElementBox[];
     const rawPlan = measurePass(metas, FN_PAGE, sectionPlan, rootChildren);
@@ -1729,19 +1729,19 @@ describe("resolveFootnotes — FN-5.4 forward-sweep continuation threading", () 
     const embedA = new Map<BlockId, ElementBox>([["fnBig" as BlockId, bodyA]]);
     const resolvedA = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      embedA, anchors, fnCtxLocal, FN_SHAPER, undefined, FN_PAGE,
+      embedA, anchors, fnCtxLocal, FN_SHAPER, undefined, undefined, FN_PAGE,
     );
 
     const bodyB = splitBody("fnBig", 3); // shorter ⇒ finishes on page 1 (no page 2)
     const embedB = new Map<BlockId, ElementBox>([["fnBig" as BlockId, bodyB]]);
     const resolvedIncremental = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      embedB, anchors, fnCtxLocal, FN_SHAPER, undefined, FN_PAGE,
+      embedB, anchors, fnCtxLocal, FN_SHAPER, undefined, undefined, FN_PAGE,
       resolvedA, embedA,
     );
     const resolvedFresh = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      embedB, anchors, fnCtxLocal, FN_SHAPER, undefined, FN_PAGE,
+      embedB, anchors, fnCtxLocal, FN_SHAPER, undefined, undefined, FN_PAGE,
     );
 
     // The incremental result's continuation lists match the FRESH build (no stale
@@ -1777,7 +1777,7 @@ describe("resolveFootnotes — FN-5.4 forward-sweep continuation threading", () 
     // cond 6 as the sole cause of the page-1 re-resolution.
     const render = fnDoc([fnPara("b0"), fnPara("b1"), fnPara("b2"), fnPara("b3")]);
     const cascaded = fnCascade(render);
-    const metas = buildBlockFitMetas(cascaded, FN_SHAPER, FN_CONTENT_INLINE);
+    const metas = buildBlockFitMetas(cascaded, FN_SHAPER, undefined, FN_CONTENT_INLINE);
     const sectionPlan = buildSectionPlan(cascaded, FN_PAGE);
     const rootChildren = flattenContents(cascaded.children) as ElementBox[];
     const rawPlan = measurePass(metas, FN_PAGE, sectionPlan, rootChildren);
@@ -1792,7 +1792,7 @@ describe("resolveFootnotes — FN-5.4 forward-sweep continuation threading", () 
     // The REAL resolved plan (no prior). Page 1's inbound = [{fnBig, token@line2}].
     const real = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      embed, anchors, fnCtxLocal, FN_SHAPER, undefined, FN_PAGE,
+      embed, anchors, fnCtxLocal, FN_SHAPER, undefined, undefined, FN_PAGE,
     );
     expect(resolveAtLineHelper(real.entries[1])).toBe(2); // sanity: real split @ line 2
 
@@ -1832,7 +1832,7 @@ describe("resolveFootnotes — FN-5.4 forward-sweep continuation threading", () 
     __resetBodyLayoutCallCountForTest();
     resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      embed, anchors, fnCtxLocal, FN_SHAPER, undefined, FN_PAGE,
+      embed, anchors, fnCtxLocal, FN_SHAPER, undefined, undefined, FN_PAGE,
       prevControl, embed, // prior cascaded = SAME body ref ⇒ cond 5 passes
     );
     const controlBodyLayouts = __getBodyLayoutCallCountForTest();
@@ -1852,7 +1852,7 @@ describe("resolveFootnotes — FN-5.4 forward-sweep continuation threading", () 
     __resetBodyLayoutCallCountForTest();
     resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      embed, anchors, fnCtxLocal, FN_SHAPER, undefined, FN_PAGE,
+      embed, anchors, fnCtxLocal, FN_SHAPER, undefined, undefined, FN_PAGE,
       prevTest, embed,
     );
     const testBodyLayouts = __getBodyLayoutCallCountForTest();
@@ -2000,7 +2000,7 @@ describe("resolveFootnotes — multicol ColumnBreakToken threading (3.5a)", () =
     pageConfig: PageConfig = FN_PAGE,
   ) {
     const cascaded = fnCascade(renderRoot);
-    const metas = buildBlockFitMetas(cascaded, FN_SHAPER, FN_CONTENT_INLINE);
+    const metas = buildBlockFitMetas(cascaded, FN_SHAPER, undefined, FN_CONTENT_INLINE);
     const rootChildren = flattenContents(cascaded.children) as ElementBox[];
     const rawPlan = measurePass(metas, pageConfig, sectionPlan, rootChildren);
     const cascadedEmbedContents = new Map<BlockId, ElementBox>();
@@ -2039,7 +2039,7 @@ describe("resolveFootnotes — multicol ColumnBreakToken threading (3.5a)", () =
     const anchors = [fnAnchor("b8", "fn8")];
     const out = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, undefined, pageConfig,
     );
 
     // Page 0 (footnote-free multicol) is carried through with its boundaries +
@@ -2082,7 +2082,7 @@ describe("resolveFootnotes — multicol ColumnBreakToken threading (3.5a)", () =
     const anchors = [fnAnchor("b0", "fn0")];
     const out = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, undefined, pageConfig,
     );
 
     // The footnote slot for fn0 is reserved page-wide on the page carrying b0 (page 0).
@@ -2142,7 +2142,7 @@ describe("resolveFootnotes — multicol ColumnBreakToken threading (3.5a)", () =
     const anchors = [fnAnchor("b0", "fn0")];
     const out = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, undefined, pageConfig,
     );
 
     // Page 0 (section 1, re-fit by the footnote sweep) carries the synthesized
@@ -2184,7 +2184,7 @@ describe("resolveFootnotes — multicol ColumnBreakToken threading (3.5a)", () =
     const anchors = [fnAnchor("b0", "fn0")];
     const out = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, pageConfig,
+      cascadedEmbedContents, anchors, ctx, FN_SHAPER, undefined, undefined, pageConfig,
     );
 
     // The section fits on ONE page (its final page), and it carries fn0's slot.

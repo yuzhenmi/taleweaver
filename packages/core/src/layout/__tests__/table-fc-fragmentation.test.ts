@@ -33,7 +33,7 @@ describe("Table FC fragmentation — row-level split", () => {
     const fragmentation: FragmentationContext = {
       availableBlockSize: 200, pageIndex: 0, resumeFrom: null,
     };
-    const { box, breakToken } = layoutTable(table, 0, 0, ctx, shaper, fragmentation);
+    const { box, breakToken } = layoutTable(table, 0, 0, ctx, shaper, undefined, fragmentation);
     expect(box).not.toBeNull();
     expect(breakToken).toBeNull();
     // Verify some rows present:
@@ -48,7 +48,7 @@ describe("Table FC fragmentation — row-level split", () => {
       availableBlockSize: 90, // fits 3 rows (3 × 30 = 90)
       pageIndex: 0, resumeFrom: null,
     };
-    const { box, breakToken } = layoutTable(table, 0, 0, ctx, shaper, fragmentation);
+    const { box, breakToken } = layoutTable(table, 0, 0, ctx, shaper, undefined, fragmentation);
     expect(box).not.toBeNull();
     expect(breakToken).toEqual({ type: "table", resumeAtRow: 3 });
   });
@@ -60,7 +60,7 @@ describe("Table FC fragmentation — row-level split", () => {
     const fragmentation: FragmentationContext = {
       availableBlockSize: 50, pageIndex: 0, resumeFrom: null,
     };
-    const { box, breakToken } = layoutTable(table, 0, 0, ctx, shaper, fragmentation);
+    const { box, breakToken } = layoutTable(table, 0, 0, ctx, shaper, undefined, fragmentation);
     expect(box).toBeNull();
     expect(breakToken).toEqual({ type: "table", resumeAtRow: 0 });
   });
@@ -75,11 +75,11 @@ describe("Table FC fragmentation — resume from TableBreakToken", () => {
     const table = buildSimpleTable(8, 30);
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
     const shaper = createMockShaper(8, 16);
-    const r1 = layoutTable(table, 0, 0, ctx, shaper, {
+    const r1 = layoutTable(table, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: 120, pageIndex: 0, resumeFrom: null,
     });
     expect(r1.breakToken).toEqual({ type: "table", resumeAtRow: 4 });
-    const r2 = layoutTable(table, 0, 0, ctx, shaper, {
+    const r2 = layoutTable(table, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: 200, pageIndex: 1, resumeFrom: r1.breakToken,
     });
     expect(r2.box).not.toBeNull();
@@ -103,7 +103,7 @@ describe("Table FC fragmentation — resume from TableBreakToken", () => {
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
     const shaper = createMockShaper(8, 16);
     expect(() =>
-      layoutTable(table, 0, 0, ctx, shaper, {
+      layoutTable(table, 0, 0, ctx, shaper, undefined, {
         availableBlockSize: 100, pageIndex: 0,
         resumeFrom: { type: "ifc", resumeAtLine: 0 },
       }),
@@ -164,7 +164,7 @@ describe("Table FC fragmentation — rowSpan cell crossing the break (S5)", () =
     // rowHeights = [16, 16] (B and C are single-line; A's 32-tall interior is
     // covered by the two 16 rows so §17.5.3 adds no deficit). availableBlockSize
     // 20 fits row0 (16) but not row0+row1 (32) → break after row0, INSIDE A's span.
-    const { box, breakToken } = layoutTable(table, 0, 0, ctx, shaper, {
+    const { box, breakToken } = layoutTable(table, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: 20, pageIndex: 0, resumeFrom: null,
     });
 
@@ -222,7 +222,7 @@ describe("Table FC fragmentation — rowSpan cell crossing the break (S5)", () =
     const shaper = createMockShaper(8, 16);
     // rowHeights = [16, 32]; availableBlockSize 20 fits row0 (16) but not
     // row0+row1 (48) → break after row0, inside A's span.
-    const { box, breakToken } = layoutTable(table, 0, 0, ctx, shaper, {
+    const { box, breakToken } = layoutTable(table, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: 20, pageIndex: 0, resumeFrom: null,
     });
 
@@ -285,7 +285,7 @@ describe("Table FC fragmentation — resume of a rowSpan cell (S5.T4)", () => {
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
     const shaper = createMockShaper(8, 16);
 
-    const p1 = layoutTable(table, 0, 0, ctx, shaper, {
+    const p1 = layoutTable(table, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: 20, pageIndex: 0, resumeFrom: null,
     });
     if (p1.breakToken === null || p1.breakToken.type !== "table") {
@@ -293,7 +293,7 @@ describe("Table FC fragmentation — resume of a rowSpan cell (S5.T4)", () => {
     }
     expect(p1.breakToken.resumeAtRow).toBe(1);
 
-    const p2 = layoutTable(table, 0, 0, ctx, shaper, {
+    const p2 = layoutTable(table, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: 200, pageIndex: 1, resumeFrom: p1.breakToken,
     });
     expect(p2.breakToken).toBeNull();
@@ -322,7 +322,7 @@ describe("Table FC fragmentation — resume of a rowSpan cell (S5.T4)", () => {
     const shaper = createMockShaper(8, 16);
 
     // Page 1: fits row 0 only → A (rowSpan 3) straddles.
-    const p1 = layoutTable(table, 0, 0, ctx, shaper, {
+    const p1 = layoutTable(table, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: 20, pageIndex: 0, resumeFrom: null,
     });
     if (p1.breakToken === null || p1.breakToken.type !== "table") throw new Error("p1 token");
@@ -330,7 +330,7 @@ describe("Table FC fragmentation — resume of a rowSpan cell (S5.T4)", () => {
     expect((p1.breakToken.spanningCells ?? []).length).toBe(1);
 
     // Page 2: resume, fits row 1 only → A still straddles (re-break), resumes at row 2.
-    const p2 = layoutTable(table, 0, 0, ctx, shaper, {
+    const p2 = layoutTable(table, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: 20, pageIndex: 1, resumeFrom: p1.breakToken,
     });
     if (p2.breakToken === null || p2.breakToken.type !== "table") throw new Error("p2 token");
@@ -354,7 +354,7 @@ describe("Table FC fragmentation — resume of a rowSpan cell (S5.T4)", () => {
     expect(p2A.children.length).toBe(1);
 
     // Page 3: resume, fits the rest → A's last block lands, no further break.
-    const p3 = layoutTable(table, 0, 0, ctx, shaper, {
+    const p3 = layoutTable(table, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: 200, pageIndex: 2, resumeFrom: p2.breakToken,
     });
     expect(p3.breakToken).toBeNull();
@@ -404,7 +404,7 @@ describe("Table FC fragmentation — repeating header rows (#487)", () => {
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
     const shaper = createMockShaper(8, 16);
 
-    const p1 = layoutTable(table, 0, 0, ctx, shaper, {
+    const p1 = layoutTable(table, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: 90, pageIndex: 0, resumeFrom: null,
     });
     // Page 1 places header(0) + body 1,2 = 3 rows; break at body row 3.
@@ -413,7 +413,7 @@ describe("Table FC fragmentation — repeating header rows (#487)", () => {
     expect(p1.box.children.map((r) => r.key)).toEqual(["row-0", "row-1", "row-2"]);
 
     // Page 2: resume at body row 3 with a header reservation.
-    const p2 = layoutTable(table, 0, 0, ctx, shaper, {
+    const p2 = layoutTable(table, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: 200, pageIndex: 1, resumeFrom: p1.breakToken,
     });
     expect(p2.breakToken).toBeNull(); // all remaining rows fit
@@ -470,7 +470,7 @@ describe("Table FC fragmentation — repeating header rows (#487)", () => {
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
     const shaper = createMockShaper(8, 16);
 
-    const p2 = layoutTable(table, 0, 0, ctx, shaper, {
+    const p2 = layoutTable(table, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: 90, pageIndex: 1,
       resumeFrom: { type: "table", resumeAtRow: 3 },
     });
@@ -504,7 +504,7 @@ describe("Table FC fragmentation — repeating header rows (#487)", () => {
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
     const shaper = createMockShaper(8, 16);
 
-    const p = layoutTable(cascaded, 0, 0, ctx, shaper, {
+    const p = layoutTable(cascaded, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: 110, pageIndex: 1,
       resumeFrom: { type: "table", resumeAtRow: 1 },
     });
@@ -523,7 +523,7 @@ describe("Table FC fragmentation — repeating header rows (#487)", () => {
     const withHeader = buildHeaderTable(6, 1, 30);
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
     const shaper = createMockShaper(8, 16);
-    const p1 = layoutTable(withHeader, 0, 0, ctx, shaper, {
+    const p1 = layoutTable(withHeader, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: 90, pageIndex: 0, resumeFrom: null,
     });
     if (p1.box === null) throw new Error("p1 box");
@@ -548,7 +548,7 @@ describe("Table FC fragmentation — repeating header rows (#487)", () => {
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 600);
     const shaper = createMockShaper(8, 16);
 
-    const p = layoutTable(table, 0, 0, ctx, shaper, {
+    const p = layoutTable(table, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: 50, pageIndex: 1,
       resumeFrom: { type: "table", resumeAtRow: 2 },
     });
@@ -601,7 +601,7 @@ describe("Table FC fragmentation — repeating header rows (#487)", () => {
     // Each row is 16 tall (single block line). Header band = rows 0,1 = 32 tall.
     // Continuation resumes at body row 4 with availableBlockSize 80: header(32)
     // reserved ⇒ body budget 48 ⇒ rows 4,5 (32) fit; the table ends (no row 6).
-    const p = layoutTable(cascaded, 0, 0, ctx, shaper, {
+    const p = layoutTable(cascaded, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: 80, pageIndex: 1,
       resumeFrom: { type: "table", resumeAtRow: 4 },
     });

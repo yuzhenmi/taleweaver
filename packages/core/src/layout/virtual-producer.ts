@@ -24,6 +24,7 @@ import type { FootnoteAnchorRef } from "../footnotes";
 import type { LayoutContext } from "./layout-context";
 import type { BlockParentLookup } from "./page-of-field-target";
 import type { TextShaper } from "./text-shaper";
+import type { Hyphenator } from "./hyphenator";
 import type { PageConfig } from "./page-config";
 import { buildBlockFitMetas } from "./build-fit-metas";
 import { measurePass, type SlotInsets, type PagePlan } from "./measure-pass";
@@ -94,12 +95,19 @@ export function buildVirtualPaginatedTree(
   cascadedEmbedContents: ReadonlyMap<BlockId, ElementBox> = new Map(),
   footnoteAnchors: readonly FootnoteAnchorRef[] = [],
   parentOf?: BlockParentLookup,
+  // Auto-hyphenation (slice 2): threaded ALONGSIDE `shaper` to EVERY downstream
+  // layout site — body `buildBlockFitMetas`, `computeSlotInsets`,
+  // `resolveFootnotes`, and the per-page `makeVirtualLayoutTree` closure — so the
+  // measure pass and the materialized pages share identical hyphenation inputs.
+  // Trailing + optional so existing callers/tests stay valid. `undefined` ⇒ none.
+  // Carried but UNUSED in this slice.
+  hyphenator?: Hyphenator,
 ): VirtualLayoutTree {
   const margins = pageConfig.pageMargins;
   const pageContentInlineSize =
     pageConfig.pageInlineSize - margins.inlineStart - margins.inlineEnd;
 
-  const metas = buildBlockFitMetas(cascadedRoot, shaper, pageContentInlineSize);
+  const metas = buildBlockFitMetas(cascadedRoot, shaper, hyphenator, pageContentInlineSize);
   // Thread the prior plan into the measure pass for the incremental
   // carry-forward (reuses unchanged page entries, skipping `fitOnePage`). The
   // `prevTree` carry-forward of the prior tree itself is already wired by
@@ -249,10 +257,10 @@ export function buildVirtualPaginatedTree(
       ? patchRootFieldWidths(cascadedRoot, mergeBodyWidths(grownWidths))
       : cascadedRoot;
     const effectiveMetas = hasMainBodyFields
-      ? buildBlockFitMetas(patchedRoot, shaper, pageContentInlineSize)
+      ? buildBlockFitMetas(patchedRoot, shaper, hyphenator, pageContentInlineSize)
       : metas;
     const slotInsets = computeSlotInsets(
-      sectionPlan, pageConfig, ctx, shaper, patchedTemplates, minBodyPx,
+      sectionPlan, pageConfig, ctx, shaper, hyphenator, patchedTemplates, minBodyPx,
     );
     const rawPlan = measurePass(
       effectiveMetas, pageConfig, sectionPlan, rootChildren, prevRawPlan, slotInsets,
@@ -261,7 +269,7 @@ export function buildVirtualPaginatedTree(
       // `buildBlockFitMetas` is cached by `(elementBoxRef, width, shaperRef)`, so
       // repeated calls for the same width are O(1). The full-width `effectiveMetas`
       // (line above) stays the primary arg for single-column pages.
-      (inlineSize) => buildBlockFitMetas(patchedRoot, shaper, inlineSize),
+      (inlineSize) => buildBlockFitMetas(patchedRoot, shaper, hyphenator, inlineSize),
     );
     // FN-4.3 (D6): the footnote layout pass — lays each anchor's body into its page's
     // bottom slot, reduces the body content area, forward-sweeps the re-fit. Footnote-
@@ -271,14 +279,14 @@ export function buildVirtualPaginatedTree(
     // the footnote→page assignment.
     const plan = resolveFootnotes(
       rawPlan, effectiveMetas, sectionPlan, rootChildren,
-      cascadedEmbedContents, footnoteAnchors, ctx, shaper, slotInsets, pageConfig,
+      cascadedEmbedContents, footnoteAnchors, ctx, shaper, hyphenator, slotInsets, pageConfig,
       prevTree?.plan, prevInternal?.__cascadedEmbedContents ?? new Map(),
       // #499: the track-width meta builder so a footnote anchored in a multi-column
       // section re-fits its columns at the narrow TRACK width — matching
       // `materializePage`'s narrow-track layout (identical to the arg passed to
       // `measurePass` above). Without it the footnote pass plans at full width and
       // drifts (the #494 drift class, here in the footnote re-fit).
-      (inlineSize) => buildBlockFitMetas(patchedRoot, shaper, inlineSize),
+      (inlineSize) => buildBlockFitMetas(patchedRoot, shaper, hyphenator, inlineSize),
     );
     const resolved = resolvePageFields(plan, fieldSpecs, measurer, parentOf);
     return {
@@ -350,7 +358,7 @@ export function buildVirtualPaginatedTree(
   return makeVirtualLayoutTree(
     plan, cascadedRoot, ctx, shaper, pageConfig, prevTree, cascadedTemplateContents,
     cascadedEmbedContents, rawPlan, footnoteAnchorPages, fieldSpecs, globalFieldValues,
-    mainBodyFieldWidths,
+    mainBodyFieldWidths, hyphenator,
   );
 }
 
@@ -398,6 +406,9 @@ function computeSlotInsets(
   docWide: PageConfig,
   ctx: LayoutContext,
   shaper: TextShaper,
+  // Auto-hyphenation (slice 2): threaded ALONGSIDE `shaper` to the header/footer
+  // body `layoutBlock`. `undefined` ⇒ none. Carried but UNUSED in this slice.
+  hyphenator: Hyphenator | undefined,
   cascadedTemplateContents: ReadonlyMap<BlockId, ElementBox>,
   minBodyPx: number,
 ): SlotInsets {
@@ -419,7 +430,7 @@ function computeSlotInsets(
     // does (containingInlineSize = the content area). Lay the body at its
     // natural height (no clip, no page-break).
     const sectionContentCtx: LayoutContext = { ...ctx, containingInlineSize: effContentInlineSize };
-    const { box } = layoutBlock(body, 0, 0, sectionContentCtx, shaper, {
+    const { box } = layoutBlock(body, 0, 0, sectionContentCtx, shaper, hyphenator, {
       availableBlockSize: Number.MAX_SAFE_INTEGER,
       pageIndex: 0,
       resumeFrom: null,

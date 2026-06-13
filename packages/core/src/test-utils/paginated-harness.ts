@@ -147,7 +147,7 @@ export function buildSpanningTree({ pages }: { pages: number }): SpanningTreeRes
   const pageContentInlineSize =
     pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
   const shaper = createMockShaper(8, lineHeight);
-  const metas = buildBlockFitMetas(root, shaper, pageContentInlineSize);
+  const metas = buildBlockFitMetas(root, shaper, undefined, pageContentInlineSize);
   const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children);
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
   const tree = makeVirtualLayoutTree(plan, root, ctx, createMockShaper(8, lineHeight), pageConfig);

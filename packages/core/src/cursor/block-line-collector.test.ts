@@ -60,7 +60,7 @@ function spanningDoc(pages: number): { root: ElementBox; pageConfig: PageConfig 
 function paginateSpanning(pages: number) {
   const { root, pageConfig } = spanningDoc(pages);
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
-  return paginateRoot(root, ctx, createMockShaper(8, 16), pageConfig);
+  return paginateRoot(root, ctx, createMockShaper(8, 16), undefined, pageConfig);
 }
 
 describe("collectBlockLinesAcrossPages", () => {

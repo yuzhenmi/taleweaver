@@ -136,7 +136,7 @@ function buildDocWithHeader(opts: {
   const cfg = pageConfig();
   const shaper = createMockShaper(SHAPER_CHAR_W, SHAPER_LINE_H);
   const pcis = cfg.pageInlineSize - cfg.pageMargins.inlineStart - cfg.pageMargins.inlineEnd;
-  const metas = buildBlockFitMetas(cascadedRoot, shaper, pcis);
+  const metas = buildBlockFitMetas(cascadedRoot, shaper, undefined, pcis);
   const basePlan = measurePass(metas, cfg, IMPLICIT_SECTION_PLAN, cascadedRoot.children);
   // Tag page 0 with header/footer ids (this is what the section plan does in
   // production; here we set it directly so the slot is materialized).

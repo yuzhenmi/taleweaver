@@ -192,6 +192,9 @@ function renderCascadeLayout(
     cascadedEmbedContents,
     footnoteAnchors,
     parentOf,
+    // Auto-hyphenation (slice 2): thread the injected hyphenator through the
+    // incremental rebuild so per-keystroke layout shares the host's inputs.
+    config.hyphenator,
   );
 
   return { rendered, cascadedRoot, cascadedTemplateContents, cascadedEmbedContents, layout };

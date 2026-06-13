@@ -155,7 +155,7 @@ function buildDoc(opts: {
   const cfg = pageConfig();
   const shaper = createMockShaper(SHAPER_CHAR_W, SHAPER_LINE_H);
   const pcis = cfg.pageInlineSize - cfg.pageMargins.inlineStart - cfg.pageMargins.inlineEnd;
-  const metas = buildBlockFitMetas(cascadedRoot, shaper, pcis);
+  const metas = buildBlockFitMetas(cascadedRoot, shaper, undefined, pcis);
   const basePlan = measurePass(metas, cfg, IMPLICIT_SECTION_PLAN, cascadedRoot.children);
   // Tag EVERY page entry with the header/footer ids so the slot is materialized
   // on each page (the multi-page case is where a body span would otherwise bleed

@@ -126,13 +126,13 @@ function buildTree(root: ElementBox, pageConfig: PageConfig, sectionPlan: Sectio
   const pageContentInlineSize =
     pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
   const shaper = createMockShaper(8, 16);
-  const metas = buildBlockFitMetas(root, shaper, pageContentInlineSize);
+  const metas = buildBlockFitMetas(root, shaper, undefined, pageContentInlineSize);
   // Mirror `buildVirtualPaginatedTree` (virtual-producer.ts): pass the
   // track-width meta-builder closure so the multicol branch fits at the column
   // TRACK width, matching `materializePage`'s narrow-track layout (#494). The
   // closure is harmless for fixed-height / single-column content.
   const plan = measurePass(metas, pageConfig, sectionPlan, root.children, undefined, undefined, (w) =>
-    buildBlockFitMetas(root, shaper, w),
+    buildBlockFitMetas(root, shaper, undefined, w),
   );
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
   const tree = makeVirtualLayoutTree(plan, root, ctx, createMockShaper(8, 16), pageConfig);
@@ -531,8 +531,8 @@ function buildTreeWithFootnotes(
   // Mirror the producer wiring (virtual-producer.ts): flatten `display: contents`
   // wrappers before handing rootChildren to measurePass / resolveFootnotes.
   const rootChildren = flattenContents(root.children);
-  const metas = buildBlockFitMetas(root, shaper, pageContentInlineSize);
-  const buildMetasAtWidth = (w: number) => buildBlockFitMetas(root, shaper, w);
+  const metas = buildBlockFitMetas(root, shaper, undefined, pageContentInlineSize);
+  const buildMetasAtWidth = (w: number) => buildBlockFitMetas(root, shaper, undefined, w);
   const rawPlan = measurePass(
     metas, pageConfig, sectionPlan, rootChildren, undefined, undefined, buildMetasAtWidth,
   );
@@ -550,7 +550,7 @@ function buildTreeWithFootnotes(
   // width `materializePage` lays each column at.
   const plan = resolveFootnotes(
     rawPlan, metas, sectionPlan, rootChildren,
-    cascadedEmbedContents, anchors, ctx, shaper, undefined, pageConfig,
+    cascadedEmbedContents, anchors, ctx, shaper, undefined, undefined, pageConfig,
     undefined, new Map(), buildMetasAtWidth,
   );
 

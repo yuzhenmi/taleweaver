@@ -56,7 +56,7 @@ describe("IFC fragmentation — line-level split", () => {
       pageIndex: 0,
       resumeFrom: null,
     };
-    const { box, breakToken } = layoutInlineContent(paragraph, 0, 0, ctx, shaper, fragmentation);
+    const { box, breakToken } = layoutInlineContent(paragraph, 0, 0, ctx, shaper, undefined, fragmentation);
     expect(box).not.toBeNull();
     expect(breakToken).toBeNull();
     // All 5 lines are present
@@ -72,7 +72,7 @@ describe("IFC fragmentation — line-level split", () => {
       pageIndex: 0,
       resumeFrom: null,
     };
-    const { box, breakToken } = layoutInlineContent(paragraph, 0, 0, ctx, shaper, fragmentation);
+    const { box, breakToken } = layoutInlineContent(paragraph, 0, 0, ctx, shaper, undefined, fragmentation);
     expect(box).not.toBeNull();
     expect(breakToken).not.toBeNull();
     const ifc = breakToken as IFCBreakToken;
@@ -92,7 +92,7 @@ describe("IFC fragmentation — line-level split", () => {
       pageIndex: 0,
       resumeFrom: null,
     };
-    const { box, breakToken } = layoutInlineContent(paragraph, 0, 0, ctx, shaper, fragmentation);
+    const { box, breakToken } = layoutInlineContent(paragraph, 0, 0, ctx, shaper, undefined, fragmentation);
     expect(box).toBeNull();
     expect(breakToken).toEqual({ type: "ifc", resumeAtLine: 0 });
   });
@@ -109,7 +109,7 @@ describe("IFC fragmentation — orphans", () => {
       pageIndex: 0,
       resumeFrom: null,
     };
-    const { box, breakToken } = layoutInlineContent(paragraph, 0, 0, ctx, shaper, fragmentation);
+    const { box, breakToken } = layoutInlineContent(paragraph, 0, 0, ctx, shaper, undefined, fragmentation);
     expect(box).toBeNull();
     expect(breakToken).toEqual({ type: "ifc", resumeAtLine: 0 });
   });
@@ -123,7 +123,7 @@ describe("IFC fragmentation — orphans", () => {
       pageIndex: 0,
       resumeFrom: null,
     };
-    const { box, breakToken } = layoutInlineContent(paragraph, 0, 0, ctx, shaper, fragmentation);
+    const { box, breakToken } = layoutInlineContent(paragraph, 0, 0, ctx, shaper, undefined, fragmentation);
     expect(box).not.toBeNull();
     expect(breakToken).toEqual({ type: "ifc", resumeAtLine: 5 });
   });
@@ -140,7 +140,7 @@ describe("IFC fragmentation — widows", () => {
       pageIndex: 0,
       resumeFrom: null,
     };
-    const { box, breakToken } = layoutInlineContent(paragraph, 0, 0, ctx, shaper, fragmentation);
+    const { box, breakToken } = layoutInlineContent(paragraph, 0, 0, ctx, shaper, undefined, fragmentation);
     expect(box).not.toBeNull();
     expect(breakToken).toEqual({ type: "ifc", resumeAtLine: 4 });
   });
@@ -157,7 +157,7 @@ describe("IFC fragmentation — widows", () => {
       pageIndex: 0,
       resumeFrom: null,
     };
-    const { box, breakToken } = layoutInlineContent(paragraph, 0, 0, ctx, shaper, fragmentation2);
+    const { box, breakToken } = layoutInlineContent(paragraph, 0, 0, ctx, shaper, undefined, fragmentation2);
     expect(box).toBeNull();
     expect(breakToken).toEqual({ type: "ifc", resumeAtLine: 0 });
   });
@@ -193,7 +193,7 @@ describe("IFC fragmentation — hyphen-pair constraint", () => {
     // Line 1 carries endsWithHyphenContinuation (it is the first half of the split
     // word). First confirm the setup via a non-fragmented full layout.
     const full = buildWrapPara("aaaa bbb" + SHY + "bbb", 40);
-    const fullBox = layoutInlineContent(full.paragraph, 0, 0, full.ctx, shaper).box;
+    const fullBox = layoutInlineContent(full.paragraph, 0, 0, full.ctx, shaper, undefined).box;
     expect(fullBox).not.toBeNull();
     if (fullBox === null) return;
     expect(fullBox.children.length).toBe(3);
@@ -208,7 +208,7 @@ describe("IFC fragmentation — hyphen-pair constraint", () => {
     // before line 1 instead: only line 0 is placed; the whole "bbb<SHY>bbb" word
     // (lines 1-2) carries to the next fragment.
     const frag = buildWrapPara("aaaa bbb" + SHY + "bbb", 40, { orphans: 1, widows: 1 });
-    const { box, breakToken } = layoutInlineContent(frag.paragraph, 0, 0, frag.ctx, shaper, {
+    const { box, breakToken } = layoutInlineContent(frag.paragraph, 0, 0, frag.ctx, shaper, undefined, {
       availableBlockSize: 32,
       pageIndex: 0,
       resumeFrom: null,
@@ -228,13 +228,13 @@ describe("IFC fragmentation — resume from IFCBreakToken", () => {
     const shaper = createMockShaper(8, 16);
 
     // First fragment: availableBlockSize=64 (4×16). All constraints satisfied → split at 4.
-    const r1 = layoutInlineContent(paragraph, 0, 0, ctx, shaper, {
+    const r1 = layoutInlineContent(paragraph, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: 64, pageIndex: 0, resumeFrom: null,
     });
     expect(r1.breakToken).toEqual({ type: "ifc", resumeAtLine: 4 });
 
     // Second fragment: resume from line 4, fits all 6 remaining (6×16=96 needed, 200 available).
-    const r2 = layoutInlineContent(paragraph, 0, 0, ctx, shaper, {
+    const r2 = layoutInlineContent(paragraph, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: 200, pageIndex: 1, resumeFrom: r1.breakToken,
     });
     expect(r2.box).not.toBeNull();
@@ -248,10 +248,10 @@ describe("IFC fragmentation — resume from IFCBreakToken", () => {
     // 5 placed; 1 remaining. widows=2 → 1 < 2 → back off to 4 placed; 2 remaining.
     const { paragraph, ctx } = buildParagraph(10);
     const shaper = createMockShaper(8, 16);
-    const r1 = layoutInlineContent(paragraph, 0, 0, ctx, shaper, {
+    const r1 = layoutInlineContent(paragraph, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: 64, pageIndex: 0, resumeFrom: null,
     });
-    const r2 = layoutInlineContent(paragraph, 0, 0, ctx, shaper, {
+    const r2 = layoutInlineContent(paragraph, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: 80, pageIndex: 1, resumeFrom: r1.breakToken,
     });
     expect(r2.box).not.toBeNull();
@@ -262,11 +262,11 @@ describe("IFC fragmentation — resume from IFCBreakToken", () => {
   it("returns box: null when no suffix lines fit on the resumed fragment", () => {
     const { paragraph, ctx } = buildParagraph(10);
     const shaper = createMockShaper(8, 16);
-    const r1 = layoutInlineContent(paragraph, 0, 0, ctx, shaper, {
+    const r1 = layoutInlineContent(paragraph, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: 64, pageIndex: 0, resumeFrom: null,
     });
     // Second fragment: availableBlockSize=10 (smaller than one line=16) → first suffix line doesn't fit.
-    const r2 = layoutInlineContent(paragraph, 0, 0, ctx, shaper, {
+    const r2 = layoutInlineContent(paragraph, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: 10, pageIndex: 1, resumeFrom: r1.breakToken,
     });
     expect(r2.box).toBeNull();
@@ -283,7 +283,7 @@ describe("IFC fragmentation — resume from IFCBreakToken", () => {
     // renders them past the BlockBox's bottom and they appear to be missing.
     const { paragraph, ctx } = buildParagraph(10);
     const shaper = createMockShaper(8, 16);
-    const r1 = layoutInlineContent(paragraph, 0, 0, ctx, shaper, {
+    const r1 = layoutInlineContent(paragraph, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: 80, pageIndex: 0, resumeFrom: null,
     });
     expect(r1.box).not.toBeNull();
@@ -292,7 +292,7 @@ describe("IFC fragmentation — resume from IFCBreakToken", () => {
     expect(r1.box!.children[0].blockOffset).toBe(0);
     expect(r1.box!.children[4].blockOffset).toBe(64);
 
-    const r2 = layoutInlineContent(paragraph, 0, 0, ctx, shaper, {
+    const r2 = layoutInlineContent(paragraph, 0, 0, ctx, shaper, undefined, {
       availableBlockSize: 200, pageIndex: 1, resumeFrom: r1.breakToken,
     });
     expect(r2.box).not.toBeNull();
@@ -309,7 +309,7 @@ describe("IFC fragmentation — resume from IFCBreakToken", () => {
     const { paragraph, ctx } = buildParagraph(3);
     const shaper = createMockShaper(8, 16);
     expect(() =>
-      layoutInlineContent(paragraph, 0, 0, ctx, shaper, {
+      layoutInlineContent(paragraph, 0, 0, ctx, shaper, undefined, {
         availableBlockSize: 100, pageIndex: 0,
         resumeFrom: { type: "block", resumeChildIndex: 0, resumeChildToken: null },
       }),

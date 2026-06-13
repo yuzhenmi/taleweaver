@@ -254,6 +254,8 @@ export {
   rotate, scale, invert, apply,
 } from "./layout/mat2d";
 export { createMockShaper } from "./layout/mock-shaper";
+export { createMockHyphenator } from "./layout/mock-hyphenator";
+export type { Hyphenator } from "./layout/hyphenator";
 export type {
   TextShaper, ShapedRun, Cluster, BreakOpportunity, FontMetrics, GlyphId,
 } from "./layout/text-shaper";

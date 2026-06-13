@@ -2,6 +2,7 @@
 import type { ElementBox, RenderNode } from "../render/render-node";
 import type { LayoutContext } from "./layout-context";
 import type { TextShaper } from "./text-shaper";
+import type { Hyphenator } from "./hyphenator";
 import type { PageConfig } from "./page-config";
 import type { BlockBox, LayoutBox } from "./layout-box";
 import { createBlockBox } from "./layout-box";
@@ -112,6 +113,11 @@ export function paginateRoot(
   root: ElementBox,
   ctx: LayoutContext,
   shaper: TextShaper,
+  // Auto-hyphenation (slice 2): threaded ALONGSIDE `shaper` to the per-page
+  // `layoutBlock`. `undefined` ⇒ none. Carried but UNUSED in this slice. (This
+  // is the legacy float/`clear` fallback path; the virtual path threads it via
+  // `buildVirtualPaginatedTree`.)
+  hyphenator: Hyphenator | undefined,
   pageConfig: PageConfig,
   prevRoot?: LayoutBox | null,
 ): BlockBox {
@@ -203,6 +209,7 @@ export function paginateRoot(
       margins.blockStart,
       contentCtx,
       shaper,
+      hyphenator,
       fragmentation,
     );
     // P3.1: bake the vertical-rl block-axis mirror now that the BFC box's

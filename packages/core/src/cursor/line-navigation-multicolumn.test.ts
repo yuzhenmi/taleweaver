@@ -130,7 +130,7 @@ function buildMulticolumnDoc(
   const pageContentInlineSize =
     pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
   const shaper = createMockShaper(CHAR_W, LINE_H);
-  const metas = buildBlockFitMetas(root, shaper, pageContentInlineSize);
+  const metas = buildBlockFitMetas(root, shaper, undefined, pageContentInlineSize);
   // `buildMetasAtWidth` is REQUIRED for correct multicol pagination: the measure
   // pass's multicol branch rebuilds metas at each column's TRACK width so the
   // planned ColumnFit matches `materializePage`'s narrow-track layout. For the
@@ -145,7 +145,7 @@ function buildMulticolumnDoc(
     root.children,
     undefined,
     undefined,
-    (inlineSize) => buildBlockFitMetas(root, shaper, inlineSize),
+    (inlineSize) => buildBlockFitMetas(root, shaper, undefined, inlineSize),
   );
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
   const virtual = makeVirtualLayoutTree(plan, root, ctx, createMockShaper(CHAR_W, LINE_H), pageConfig);

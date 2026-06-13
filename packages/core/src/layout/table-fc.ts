@@ -10,6 +10,7 @@ import { distributeColumnIntrinsics } from "./table-column-sizing";
 import type { SpannedCellIntrinsic } from "./table-column-sizing";
 import { isDevMode } from "./dev-mode";
 import type { TextShaper } from "./text-shaper";
+import type { Hyphenator } from "./hyphenator";
 import { layoutBlock } from "./bfc";
 import { computeUsedStyle } from "./used-style";
 import type { LayoutContext } from "./layout-context";
@@ -292,6 +293,11 @@ export function layoutTable(
   blockOffset: number,
   ctx: LayoutContext,
   shaper: TextShaper,
+  // Auto-hyphenation (slice 2): threaded ALONGSIDE `shaper` to the per-cell
+  // `layoutBlock` calls. `undefined` ⇒ none. Carried but UNUSED in this slice.
+  // (Cell intrinsic sizing — `collectIntrinsicSizes` — is hyphenation-independent,
+  // like intrinsic-sizes-pass.ts, so it is NOT threaded the hyphenator.)
+  hyphenator: Hyphenator | undefined,
   fragmentation?: FragmentationContext,
 ): LayoutResult<TableBox> {
   const t = markStart("table.layout");
@@ -462,7 +468,7 @@ export function layoutTable(
 
       // Lay out cell interior as BFC at cellInlineSize.
       const cellCtx = makeChildContext(ctx, cs, cellInlineSize, "indefinite");
-      const interiorResult = layoutBlock(cellEl, 0, 0, cellCtx, shaper);
+      const interiorResult = layoutBlock(cellEl, 0, 0, cellCtx, shaper, hyphenator);
       if (interiorResult.box === null) {
         throw new Error("layoutBlock without fragmentation returned null box; should be unreachable (no FragmentationContext passed)");
       }
@@ -527,7 +533,7 @@ export function layoutTable(
       let interiorHeight = 0;
       if (cont.interiorBreakToken !== null) {
         const cellCtx = makeChildContext(ctx, cs, inlineSize, "indefinite");
-        const r = layoutBlock(cellEl, 0, 0, cellCtx, shaper, {
+        const r = layoutBlock(cellEl, 0, 0, cellCtx, shaper, hyphenator, {
           availableBlockSize: Number.MAX_SAFE_INTEGER,
           pageIndex: fragmentation.pageIndex,
           resumeFrom: cont.interiorBreakToken,
@@ -753,7 +759,7 @@ export function layoutTable(
           // token, so a rowSpan≥3 cell re-breaks from where it left off (the
           // continuation chain across >2 pages).
           const cellCtx = makeChildContext(ctx, cs, lc.inlineSize, "indefinite");
-          const frag = layoutBlock(lc.cellEl, 0, 0, cellCtx, shaper, {
+          const frag = layoutBlock(lc.cellEl, 0, 0, cellCtx, shaper, hyphenator, {
             availableBlockSize: placedHeight,
             pageIndex: fragmentation.pageIndex,
             resumeFrom: lc.resumeInteriorToken ?? null,

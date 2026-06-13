@@ -24,6 +24,7 @@ import type { ElementBox } from "../render/render-node";
 import type { BlockId } from "../state";
 import type { LayoutContext } from "./layout-context";
 import type { TextShaper } from "./text-shaper";
+import type { Hyphenator } from "./hyphenator";
 import type { PageConfig } from "./page-config";
 import type { BlockBox, LayoutBox, MultiColumnBox } from "./layout-box";
 import { createBlockBox, createMarkerBox, createMultiColumnBox } from "./layout-box";
@@ -378,6 +379,12 @@ export function makeVirtualLayoutTree(
   // Defaulted empty so existing callers/tests stay byte-identical (the patch is a ref-equal
   // no-op for an empty map).
   mainBodyFieldWidths: ReadonlyMap<string, number> = new Map(),
+  // Auto-hyphenation (slice 2): threaded ALONGSIDE `shaper` and captured in the
+  // closure so each per-page `getPage` `layoutBlock` (body + header/footer +
+  // footnote slot) lays out with the same hyphenation inputs the measure pass
+  // used. Trailing + optional so existing callers/tests stay valid. `undefined`
+  // ⇒ none. Carried but UNUSED in this slice.
+  hyphenator?: Hyphenator,
 ): VirtualLayoutTree {
   const margins = pageConfig.pageMargins;
   const pageContentBlockSize =
@@ -719,6 +726,7 @@ export function makeVirtualLayoutTree(
           // `makeChildContext` helper in this scope).
           { ...effContentCtx, containingInlineSize: trackInlineSize },
           shaper,
+          hyphenator,
           {
             availableBlockSize: columnHeight,
             pageIndex,
@@ -812,6 +820,7 @@ export function makeVirtualLayoutTree(
         effTopInset,
         effContentCtx,
         shaper,
+        hyphenator,
         {
           availableBlockSize: effContentBlockSize,
           pageIndex,
@@ -871,6 +880,7 @@ export function makeVirtualLayoutTree(
         slotBlockStart,
         effContentCtx,
         shaper,
+        hyphenator,
         { availableBlockSize: Number.MAX_SAFE_INTEGER, pageIndex, resumeFrom: null },
       );
       return slotBox;
@@ -1029,6 +1039,7 @@ export function makeVirtualLayoutTree(
                 cursor,
                 bodyCtx,
                 shaper,
+                hyphenator,
                 { availableBlockSize: remaining, pageIndex, resumeFrom: resumeToken },
               );
               // Stack the body ONLY if it actually fits the remaining slot area.

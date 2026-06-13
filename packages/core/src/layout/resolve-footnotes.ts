@@ -37,6 +37,7 @@ import type { BlockFitMeta } from "./fit-core";
 import { fitOnePage } from "./fit-core";
 import type { LayoutContext } from "./layout-context";
 import type { TextShaper } from "./text-shaper";
+import type { Hyphenator } from "./hyphenator";
 import type { PageConfig } from "./page-config";
 import { layoutBlock } from "./bfc";
 import type { BlockBox } from "./layout-box";
@@ -352,6 +353,9 @@ export function computeSlotLayout(
   contentInlineSize: number,
   ctx: LayoutContext,
   shaper: TextShaper,
+  // Auto-hyphenation (slice 2): threaded ALONGSIDE `shaper` to the footnote-body
+  // `layoutBlock`. `undefined` ⇒ none. Carried but UNUSED in this slice.
+  hyphenator: Hyphenator | undefined,
 ): { slotHeight: number; slotContentBlockIds: BlockId[]; outboundContinuations: FootnoteContinuation[] } {
   // ONE ordered work-list: inbound carries (in order) then fresh bodies. Tag
   // each entry `isFresh` so only fresh-and-started ids land in
@@ -425,7 +429,7 @@ export function computeSlotLayout(
         : { ...ctx, containingInlineSize: Math.max(0, contentInlineSize - gutter) };
 
     _bodyLayoutCallCount++;
-    const { box, breakToken } = layoutBlock(body, 0, 0, bodyLayoutCtx, shaper, {
+    const { box, breakToken } = layoutBlock(body, 0, 0, bodyLayoutCtx, shaper, hyphenator, {
       availableBlockSize: remaining,
       pageIndex: 0,
       resumeFrom: item.resumeToken,
@@ -544,6 +548,10 @@ export function resolveFootnotes(
   footnoteAnchors: readonly FootnoteAnchorRef[],
   ctx: LayoutContext,
   shaper: TextShaper,
+  // Auto-hyphenation (slice 2): threaded ALONGSIDE `shaper` to the footnote-body
+  // layout (`computeSlotLayout` + direct `layoutBlock`). `undefined` ⇒ none.
+  // Carried but UNUSED in this slice.
+  hyphenator: Hyphenator | undefined,
   slotInsets: SlotInsets | undefined,
   docWidePageConfig: PageConfig,
   // FN-4.4: the PRIOR cycle's RESOLVED plan, for the incremental carry-forward
@@ -635,6 +643,7 @@ export function resolveFootnotes(
       contentInlineSize,
       ctx,
       shaper,
+      hyphenator,
     );
 
   // Re-collect a page's assigned footnotes by filtering anchors whose top-level
@@ -742,7 +751,7 @@ export function resolveFootnotes(
         ...ctx,
         containingInlineSize: Math.max(0, boundInlineSize - gutter),
       };
-      const { box } = layoutBlock(body, 0, 0, heightCtx, shaper, {
+      const { box } = layoutBlock(body, 0, 0, heightCtx, shaper, hyphenator, {
         availableBlockSize: Number.MAX_SAFE_INTEGER,
         pageIndex: 0,
         resumeFrom: null,

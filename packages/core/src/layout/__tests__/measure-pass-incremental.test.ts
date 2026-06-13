@@ -94,7 +94,7 @@ function cascadeRoot(root: ElementBox): ElementBox {
 
 /** Build a `PagePlan` from a cascaded root (optionally with a prior plan). */
 function planFrom(cascaded: ElementBox, pageConfig: PageConfig, prevPlan?: PagePlan): PagePlan {
-  const metas = buildBlockFitMetas(cascaded, SHAPER, CONTENT_INLINE);
+  const metas = buildBlockFitMetas(cascaded, SHAPER, undefined, CONTENT_INLINE);
   return measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, cascaded.children, prevPlan);
 }
 
@@ -324,7 +324,7 @@ describe("measurePass incremental — (B) reuse engages / does not over-fire", (
 
     const render1 = docRoot([...render0.children, paragraphNode("p180", "para 180")]);
     const cascaded1 = cascadePassIncremental(render1, render0, cascaded0) as ElementBox;
-    const metas1 = buildBlockFitMetas(cascaded1, SHAPER, CONTENT_INLINE);
+    const metas1 = buildBlockFitMetas(cascaded1, SHAPER, undefined, CONTENT_INLINE);
 
     __resetFitOnePageCallCountForTest();
     measurePass(metas1, PAGE, IMPLICIT_SECTION_PLAN, cascaded1.children, planA);
@@ -337,7 +337,7 @@ describe("measurePass incremental — (B) reuse engages / does not over-fire", (
 
   it("a from-scratch build (no prevPlan) re-fits every page (~60)", () => {
     const cascaded = cascadeRoot(bigRender());
-    const metas = buildBlockFitMetas(cascaded, SHAPER, CONTENT_INLINE);
+    const metas = buildBlockFitMetas(cascaded, SHAPER, undefined, CONTENT_INLINE);
 
     __resetFitOnePageCallCountForTest();
     measurePass(metas, PAGE, IMPLICIT_SECTION_PLAN, cascaded.children);
@@ -354,7 +354,7 @@ describe("measurePass incremental — (B) reuse engages / does not over-fire", (
 
     const render1 = docRoot([paragraphNode("pTop", "top"), ...render0.children]);
     const cascaded1 = cascadePassIncremental(render1, render0, cascaded0) as ElementBox;
-    const metas1 = buildBlockFitMetas(cascaded1, SHAPER, CONTENT_INLINE);
+    const metas1 = buildBlockFitMetas(cascaded1, SHAPER, undefined, CONTENT_INLINE);
 
     __resetFitOnePageCallCountForTest();
     const planB = measurePass(metas1, PAGE, IMPLICIT_SECTION_PLAN, cascaded1.children, planA);
@@ -378,7 +378,7 @@ describe("measurePass incremental — (B) reuse engages / does not over-fire", (
       render0.children.map((c, i) => (i === 1 ? paragraphNode("p1", "EDITED") : c)),
     );
     const cascaded1 = cascadePassIncremental(render1, render0, cascaded0) as ElementBox;
-    const metas1 = buildBlockFitMetas(cascaded1, SHAPER, CONTENT_INLINE);
+    const metas1 = buildBlockFitMetas(cascaded1, SHAPER, undefined, CONTENT_INLINE);
 
     __resetFitOnePageCallCountForTest();
     measurePass(metas1, PAGE, IMPLICIT_SECTION_PLAN, cascaded1.children, planA);
@@ -415,7 +415,7 @@ describe("measurePass incremental — (D) column-config change refuses reuse", (
 
   it("a doc-wide column-count change between cycles re-fits + re-packs every page (no spurious reuse)", () => {
     const cascaded = cascadeRoot(bigRender());
-    const metas = buildBlockFitMetas(cascaded, SHAPER, CONTENT_INLINE);
+    const metas = buildBlockFitMetas(cascaded, SHAPER, undefined, CONTENT_INLINE);
 
     // Cycle 1: single-column (DEFAULT_COLUMN_CONFIG) ⇒ 60 pages, no columnFit.
     const planA = measurePass(metas, PAGE, IMPLICIT_SECTION_PLAN, cascaded.children);
@@ -440,7 +440,7 @@ describe("measurePass incremental — (D) column-config change refuses reuse", (
 
   it("an unchanged column-config between cycles still reuses (gate does not over-fire)", () => {
     const cascaded = cascadeRoot(bigRender());
-    const metas = buildBlockFitMetas(cascaded, SHAPER, CONTENT_INLINE);
+    const metas = buildBlockFitMetas(cascaded, SHAPER, undefined, CONTENT_INLINE);
 
     // Both cycles use the SAME 2-column plan + identical content ⇒ every page is
     // reusable; the column gate is equal so it adds no misses. The single-column
@@ -501,7 +501,7 @@ describe("measurePass incremental — (C) fitOnePage work no longer scales with 
     let render0 = docRoot([paragraphNode("p0", "para 0")]);
     let cascaded = cascadeRoot(render0);
     let plan = measurePass(
-      buildBlockFitMetas(cascaded, SHAPER, CONTENT_INLINE),
+      buildBlockFitMetas(cascaded, SHAPER, undefined, CONTENT_INLINE),
       PAGE,
       IMPLICIT_SECTION_PLAN,
       cascaded.children,
@@ -513,7 +513,7 @@ describe("measurePass incremental — (C) fitOnePage work no longer scales with 
       const render1 = docRoot([...render0.children, paragraphNode(`p${i}`, `para ${i}`)]);
       const cascaded1 = cascadePassIncremental(render1, render0, cascaded) as ElementBox;
       const start = performance.now();
-      const metas1 = buildBlockFitMetas(cascaded1, SHAPER, CONTENT_INLINE);
+      const metas1 = buildBlockFitMetas(cascaded1, SHAPER, undefined, CONTENT_INLINE);
       plan = measurePass(metas1, PAGE, IMPLICIT_SECTION_PLAN, cascaded1.children, incremental ? plan : undefined);
       ms += performance.now() - start;
       render0 = render1;

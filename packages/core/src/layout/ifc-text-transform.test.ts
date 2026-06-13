@@ -27,7 +27,7 @@ function textRunLeavesOf(
   );
   if (tree.type !== "element") throw new Error("expected element tree");
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, width);
-  const result = layoutInlineContent(tree, 0, 0, ctx, shaper);
+  const result = layoutInlineContent(tree, 0, 0, ctx, shaper, undefined);
   if (result.box === null) throw new Error("layoutInlineContent returned null box");
 
   const leaves: TextRunBox[] = [];

@@ -77,7 +77,7 @@ function buildTwoPageDoc(): { state: State; tree: VirtualLayoutTree } {
   const cfg = pageConfig();
   const shaper = createMockShaper(SHAPER_CHAR_W, SHAPER_LINE_H);
   const pcis = cfg.pageInlineSize - cfg.pageMargins.inlineStart - cfg.pageMargins.inlineEnd;
-  const metas = buildBlockFitMetas(cascadedRoot, shaper, pcis);
+  const metas = buildBlockFitMetas(cascadedRoot, shaper, undefined, pcis);
   const plan = measurePass(metas, cfg, IMPLICIT_SECTION_PLAN, cascadedRoot.children);
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, cfg.pageInlineSize);
   const tree = makeVirtualLayoutTree(plan, cascadedRoot, ctx, shaper, cfg, undefined, undefined);

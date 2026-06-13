@@ -6,6 +6,7 @@ import { normalizeBreakValue } from "./fragmentation";
 import { layoutInlineContent } from "./ifc";
 import { layoutTable } from "./table-fc";
 import type { TextShaper } from "./text-shaper";
+import type { Hyphenator } from "./hyphenator";
 import { adaptShaperToMeasurer } from "./text-measurer";
 import type { ComputedStyle } from "../styles";
 import type { WritingMode, Direction } from "../styles/writing-mode";
@@ -184,6 +185,10 @@ export function layoutBlock(
   blockOffset: number,
   ctx: LayoutContext,
   shaper: TextShaper,
+  // Auto-hyphenation (slice 2): threaded ALONGSIDE `shaper` to every site that
+  // tokenizes text, so the (slice 4) producer can read it at `collectInlineTokens`.
+  // `undefined` ⇒ no hyphenation. Carried but UNUSED in this slice.
+  hyphenator: Hyphenator | undefined,
   fragmentation?: FragmentationContext,
 ): LayoutResult<BlockBox> {
   const t = markStart("bfc.layoutBlock");
@@ -505,7 +510,7 @@ export function layoutBlock(
               resumeFrom: ifcResumeFrom,
             };
 
-      const ifcResult = layoutInlineContent(anonElement, paddingInlineStart, childBlockOffset, ifcCtx, shaper, ifcFragmentation);
+      const ifcResult = layoutInlineContent(anonElement, paddingInlineStart, childBlockOffset, ifcCtx, shaper, hyphenator, ifcFragmentation);
       if (ifcResult.box === null) {
         // IFC couldn't fit anything — propagate as a partial result.
         // If nothing was placed yet (empty fragment), return null so parent can apply overflow rule.
@@ -598,7 +603,7 @@ export function layoutBlock(
       // Float establishes its own BFC (cs.float !== "none"); pass childCs so
       // makeChildContext detects this and gives the float a fresh float env.
       const floatCtxChild = makeChildContext(ctx, childCs, floatInlineSizeForCtx, "indefinite");
-      const floatResult = layoutBlock(child, 0, 0, floatCtxChild, shaper);
+      const floatResult = layoutBlock(child, 0, 0, floatCtxChild, shaper, hyphenator);
       if (floatResult.box === null) {
         throw new Error("layoutBlock without fragmentation returned null box; should be unreachable (no FragmentationContext passed)");
       }
@@ -904,8 +909,8 @@ export function layoutBlock(
     // `child` when not widened) — no separate narrowing capture needed.
     function applyOverflowRule(): LayoutBox {
       const fullResult = childCs.display === "table"
-        ? layoutTable(layoutChild, paddingInlineStart, childBlockOffset, childCtx, shaper, undefined)
-        : layoutBlock(layoutChild, paddingInlineStart, childBlockOffset, childCtx, shaper, undefined);
+        ? layoutTable(layoutChild, paddingInlineStart, childBlockOffset, childCtx, shaper, hyphenator, undefined)
+        : layoutBlock(layoutChild, paddingInlineStart, childBlockOffset, childCtx, shaper, hyphenator, undefined);
       if (fullResult.box === null) {
         throw new Error("layout without fragmentation returned null box; unreachable");
       }
@@ -917,7 +922,7 @@ export function layoutBlock(
     let childLayout: LayoutBox;
     let childResultBreakToken: BreakToken | null = null;
     if (childCs.display === "table") {
-      const tableResult = layoutTable(layoutChild, paddingInlineStart, childBlockOffset, childCtx, shaper, childFragmentation);
+      const tableResult = layoutTable(layoutChild, paddingInlineStart, childBlockOffset, childCtx, shaper, hyphenator, childFragmentation);
       if (tableResult.box === null) {
         // Table couldn't fit anything on this fragment.
         // C.6 overflow rule: if fragment is empty, place it anyway (overflow).
@@ -940,7 +945,7 @@ export function layoutBlock(
       childLayout = positionChildInline(tableResult.box);
       childResultBreakToken = tableResult.breakToken;
     } else {
-      const childResult = layoutBlock(layoutChild, paddingInlineStart, childBlockOffset, childCtx, shaper, childFragmentation);
+      const childResult = layoutBlock(layoutChild, paddingInlineStart, childBlockOffset, childCtx, shaper, hyphenator, childFragmentation);
       if (childResult.box === null) {
         // Child couldn't fit anything on this fragment.
         // C.6 overflow rule: if fragment is empty, place it anyway (overflow).
@@ -1160,7 +1165,7 @@ export function layoutBlock(
         contentBlockResolved,
         blockPercentBase: abcBlockPercentBase,
       };
-      absoluteChildren = layoutAbsoluteChildren(pendingAbs, abc, ctx, shaper);
+      absoluteChildren = layoutAbsoluteChildren(pendingAbs, abc, ctx, shaper, hyphenator);
     }
   }
 
@@ -1300,6 +1305,7 @@ function layoutAbsoluteChildren(
   abc: ResolvedAbc,
   ctx: LayoutContext,
   shaper: TextShaper,
+  hyphenator: Hyphenator | undefined,
 ): readonly LayoutBox[] | undefined {
   const out: LayoutBox[] = [];
   for (const p of pending) {
@@ -1351,7 +1357,7 @@ function layoutAbsoluteChildren(
     // size. We lay out first to learn its auto block-size, then resolve the block
     // position, then reposition. ──────────────────────────────────────────────
     const childCtx = makeChildContext(ctx, childCs, usedInlineSize, "indefinite");
-    const provisional = layoutBlock(p.node, 0, 0, childCtx, shaper);
+    const provisional = layoutBlock(p.node, 0, 0, childCtx, shaper, hyphenator);
     if (provisional.box === null) {
       throw new Error("layoutAbsoluteChildren: abs child layout returned null (no fragmentation passed)");
     }
@@ -1388,7 +1394,7 @@ function layoutAbsoluteChildren(
     const finalInlineOffset = abc.originInline + inlineOffsetInAbcContent;
     const finalBlockOffset = abc.originBlock + blockOffsetInAbcContent;
     const finalCtx = makeChildContext(ctx, childCs, usedInlineSize, "indefinite");
-    const finalResult = layoutBlock(p.node, finalInlineOffset, finalBlockOffset, finalCtx, shaper);
+    const finalResult = layoutBlock(p.node, finalInlineOffset, finalBlockOffset, finalCtx, shaper, hyphenator);
     if (finalResult.box === null) {
       throw new Error("layoutAbsoluteChildren: abs child final layout returned null");
     }

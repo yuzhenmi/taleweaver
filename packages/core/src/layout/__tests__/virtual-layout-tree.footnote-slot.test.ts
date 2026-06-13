@@ -453,7 +453,7 @@ describe("FN-4.3 D9 — multi-section footnote geometry derives from sectionStat
       ],
     };
 
-    const metas = buildBlockFitMetas(root, SHAPER, docWide.pageInlineSize);
+    const metas = buildBlockFitMetas(root, SHAPER, undefined, docWide.pageInlineSize);
     // Raw plan over the section plan: section 1 = 4 paras/page (b0..b3 on page
     // 0), section 2 forced to a new page (b4,b5) at its 56px body area ⇒
     // 3 paras would fit but only 2 exist ⇒ b4,b5 on page 1.
@@ -475,7 +475,7 @@ describe("FN-4.3 D9 — multi-section footnote geometry derives from sectionStat
 
     const out = resolveFootnotes(
       rawPlan, metas, sectionPlan, rootChildren,
-      embed, [anchor("b3", "fn3")], ctx, SHAPER, slotInsets, docWide,
+      embed, [anchor("b3", "fn3")], ctx, SHAPER, undefined, slotInsets, docWide,
     );
 
     // Find the page that begins section 2 (startIndex 4 ⇒ b4).

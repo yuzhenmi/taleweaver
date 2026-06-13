@@ -14,7 +14,7 @@ const shaper = createMockShaper(8, 16);
 function layoutTableBox(node: ReturnType<typeof createElementBox>, width: number): TableBox {
   const cascaded = cascadePass(node);
   if (cascaded.type !== "element") throw new Error("?");
-  const result = layoutTable(cascaded, 0, 0, makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, width), shaper);
+  const result = layoutTable(cascaded, 0, 0, makeRootContext(cascaded.computedStyle ?? INITIAL_COMPUTED_STYLE, width), shaper, undefined);
   if (result.box === null) throw new Error("null");
   return result.box;
 }
