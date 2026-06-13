@@ -1,4 +1,4 @@
-import { getBlock, firstLeafBlock, lastLeafBlock, nextBlockInDocOrder, prevBlockInDocOrder, createPosition, createSpan } from "../../state";
+import { createPosition, createSpan, iterateLeafBlocksInDocumentOrder } from "../../state";
 import type { State, BlockId, Selection } from "../../state";
 import type { EditorState, EditorConfig } from "../editor-state";
 import { render, type RenderOutput } from "../../render/render";
@@ -464,14 +464,13 @@ export { cascadeTemplateContents, cascadeEmbedContents };
  * factory, which always seeds one paragraph).
  */
 export function findFirstContentBlock(state: State): BlockId | null {
-  const firstLeaf = firstLeafBlock(state, state.rootId);
-  if (firstLeaf === null) return null;
-  let cursor: BlockId | null = firstLeaf;
-  while (cursor !== null) {
-    const block = getBlock(state, cursor);
-    if (block === null) return null;
-    if (block.inlineContent !== null) return cursor;
-    cursor = nextBlockInDocOrder(state, cursor);
+  // Cycle-safe leaf walk (a block with `inlineContent !== null` is always a
+  // leaf, so filtering to leaves first finds the identical first hit). Replaces
+  // an unbounded `firstLeafBlock` + `while (cursor = nextBlockInDocOrder(...))`
+  // sweep that could spin forever on a malformed two-parents topology — the
+  // same #510 footgun fixed in the render-pass doc-order queries.
+  for (const block of iterateLeafBlocksInDocumentOrder(state)) {
+    if (block.inlineContent !== null) return block.id;
   }
   return null;
 }
@@ -495,17 +494,16 @@ export function initialSelectionForState(state: State): Selection {
 
 /**
  * Find the last content-bearing leaf block in the document. Symmetric to
- * `findFirstContentBlock` — walks backward via `prevBlockInDocOrder`.
+ * `findFirstContentBlock`: the cycle-safe leaf walk yields content leaves in
+ * document order, so the LAST one it yields is the answer. (A full forward walk
+ * rather than a backward early-exit, but this runs only on Select-All /
+ * boundary-expand / document-load, never per-keystroke, and trades a negligible
+ * walk for immunity to the #510 malformed-topology hang.)
  */
 export function findLastContentBlock(state: State): BlockId | null {
-  const lastLeaf = lastLeafBlock(state, state.rootId);
-  if (lastLeaf === null) return null;
-  let cursor: BlockId | null = lastLeaf;
-  while (cursor !== null) {
-    const block = getBlock(state, cursor);
-    if (block === null) return null;
-    if (block.inlineContent !== null) return cursor;
-    cursor = prevBlockInDocOrder(state, cursor);
+  let last: BlockId | null = null;
+  for (const block of iterateLeafBlocksInDocumentOrder(state)) {
+    if (block.inlineContent !== null) last = block.id;
   }
-  return null;
+  return last;
 }
