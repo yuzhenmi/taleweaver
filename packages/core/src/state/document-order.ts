@@ -40,6 +40,36 @@ export function* iterateBlocksInDocumentOrder(state: State): Iterable<Block> {
 }
 
 /**
+ * Yield every LEAF BODY block (no `firstChildId`) of the MAIN tree in document
+ * order — a cycle-safe replacement for the `firstLeafBlock` + `while (cursor =
+ * nextBlockInDocOrder(...))` cursor sweep that several pure queries (`getOutline`,
+ * `getWordCount`, `findMatches`, `computeOutlineSignature`) used to run.
+ *
+ * Those cursor sweeps were UNBOUNDED at the call site: `nextBlockInDocOrder`'s own
+ * `blockCount`-bound only guards its single up-walk, not the caller's repeated
+ * stepping, so a malformed topology where one block is the `firstChildId` of two
+ * parents (its single `parentId` points at only one of them) makes the cursor
+ * oscillate forever — a CPU-bound infinite loop that hangs the process (and, since
+ * it blocks the event loop, defeats vitest's `--test-timeout`). Routing through
+ * {@link iterateBlocksInDocumentOrder} inherits that walk's active-path drain +
+ * `blockCount`-bounded sibling loop, so the same malformed input TERMINATES
+ * (visiting the shared block twice, no live-ancestor cycle) instead of hanging.
+ *
+ * Behavior on well-formed documents is identical to the old sweep for every
+ * consumer above: each filters by block type (`getOutline` keeps headings,
+ * `computeOutlineSignature` keeps `table-of-contents`) or by inline content
+ * (`getWordCount` / `findMatches` skip blocks without `inlineContent`), and the
+ * blocks they act on are all leaves — so yielding leaves in document order yields
+ * exactly the consumed set. (The old sweep additionally surfaced some
+ * sibling-reached containers, which every consumer already filtered out.)
+ */
+export function* iterateLeafBlocksInDocumentOrder(state: State): Iterable<Block> {
+  for (const block of iterateBlocksInDocumentOrder(state)) {
+    if (block.firstChildId === null) yield block;
+  }
+}
+
+/**
  * Yield every BODY block across ALL THREE block trees in a stable document order:
  * the main `blocks` tree first (identical to {@link iterateBlocksInDocumentOrder}),
  * then each `embedContents` body subtree (footnote bodies), then each

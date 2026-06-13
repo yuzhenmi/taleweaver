@@ -161,7 +161,7 @@ export { normalizeSpan, iterateSpan, iterateBlocksInSpan } from "./span-iteratio
 
 // Whole-document depth-first block walk + the list-presence predicate the
 // render pass uses to short-circuit list-event collection on list-free docs.
-export { iterateBlocksInDocumentOrder, docHasLists } from "./document-order";
+export { iterateBlocksInDocumentOrder, iterateLeafBlocksInDocumentOrder, docHasLists } from "./document-order";
 
 // List numbering definitions (per-list level configuration). `getListDefsForState`
 // is the render-pass entry point — it resolves all defs as a plain Map for the

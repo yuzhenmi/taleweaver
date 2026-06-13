@@ -4,7 +4,7 @@ import type { BlockId } from "./block-id";
 import type { InlineItem } from "./inline-content";
 import { inlineContentLength } from "./inline-content";
 import { builtinEmbedSerializer } from "./extract-text";
-import { firstLeafBlock, nextBlockInDocOrder } from "./block-traversal";
+import { iterateLeafBlocksInDocumentOrder } from "./document-order";
 
 /**
  * A single occurrence of the search query inside one block.
@@ -222,13 +222,13 @@ function* iterateTargetBlocks(
     yield* blockIds;
     return;
   }
-  // Document-order leaf walk: start at the leftmost leaf of the root subtree
-  // and follow `nextBlockInDocOrder`. This visits every block (containers and
-  // leaves alike) in document order; `findMatches` skips the containers. The
-  // walk is the same primitive cursor/render use for doc-order traversal.
-  let cursor = firstLeafBlock(state, state.rootId);
-  while (cursor !== null) {
-    yield cursor;
-    cursor = nextBlockInDocOrder(state, cursor);
+  // Cycle-safe document-order leaf walk. The previous `firstLeafBlock` +
+  // `while (cursor = nextBlockInDocOrder(...))` sweep was unbounded at the call
+  // site and could spin forever on a malformed two-parents topology; routing
+  // through `iterateLeafBlocksInDocumentOrder` inherits the recursive walker's
+  // active-path cycle guard. `findMatches` only matches inline content, so
+  // yielding leaves only is identical to the old leaf walk here.
+  for (const block of iterateLeafBlocksInDocumentOrder(state)) {
+    yield block.id;
   }
 }

@@ -6,7 +6,7 @@ import { createPosition, createSpan } from "./block-position";
 import { inlineContentLength } from "./inline-content";
 import { extractText, builtinEmbedSerializer } from "./extract-text";
 import type { SuggestionView } from "./suggestions";
-import { firstLeafBlock, nextBlockInDocOrder } from "./block-traversal";
+import { iterateLeafBlocksInDocumentOrder } from "./document-order";
 
 /**
  * Document statistics — the result of {@link getWordCount}. Mirrors the
@@ -195,11 +195,11 @@ export function getSelectionWordCount(
 
 /**
  * Yield the target blocks: the caller-supplied `blockIds` (in the given order)
- * when present, otherwise every main-tree leaf block in document order. Mirrors
- * `findMatches`' traversal exactly (a parallel small walk — `findMatches` does
- * not expose this as a shared helper, and refactoring it to do so is out of
- * scope for a pure-query addition). Containers are NOT filtered here;
- * `getWordCount` skips blocks without inline content.
+ * when present, otherwise every main-tree leaf block in document order via the
+ * cycle-safe {@link iterateLeafBlocksInDocumentOrder} (see its docstring for why
+ * the old `firstLeafBlock` + `nextBlockInDocOrder` cursor sweep could hang on a
+ * malformed two-parents topology). `getWordCount` skips blocks without inline
+ * content, so yielding leaves only is identical to the old behavior here.
  */
 function* iterateTargetBlocks(
   state: State,
@@ -209,9 +209,7 @@ function* iterateTargetBlocks(
     yield* blockIds;
     return;
   }
-  let cursor = firstLeafBlock(state, state.rootId);
-  while (cursor !== null) {
-    yield cursor;
-    cursor = nextBlockInDocOrder(state, cursor);
+  for (const block of iterateLeafBlocksInDocumentOrder(state)) {
+    yield block.id;
   }
 }

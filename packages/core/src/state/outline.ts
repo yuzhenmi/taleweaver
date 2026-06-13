@@ -5,7 +5,7 @@ import { createPosition, createSpan } from "./block-position";
 import { inlineContentLength } from "./inline-content";
 import { extractText, captionEmbedSerializer } from "./extract-text";
 import type { SuggestionView } from "./suggestions";
-import { firstLeafBlock, nextBlockInDocOrder } from "./block-traversal";
+import { iterateLeafBlocksInDocumentOrder } from "./document-order";
 
 /**
  * One heading in the document outline — the result rows of {@link getOutline}.
@@ -146,11 +146,8 @@ export function computeOutlineSignature(
     text: e.text,
   }));
   const tocAnchorIds = new Set<BlockId>();
-  let cursor = firstLeafBlock(state, state.rootId);
-  while (cursor !== null) {
-    const block = getBlock(state, cursor);
-    if (block?.type === "table-of-contents") tocAnchorIds.add(cursor);
-    cursor = nextBlockInDocOrder(state, cursor);
+  for (const block of iterateLeafBlocksInDocumentOrder(state)) {
+    if (block.type === "table-of-contents") tocAnchorIds.add(block.id);
   }
   return Object.freeze({
     tocAnchorIds,
@@ -202,9 +199,7 @@ function* iterateTargetBlocks(
     yield* blockIds;
     return;
   }
-  let cursor = firstLeafBlock(state, state.rootId);
-  while (cursor !== null) {
-    yield cursor;
-    cursor = nextBlockInDocOrder(state, cursor);
+  for (const block of iterateLeafBlocksInDocumentOrder(state)) {
+    yield block.id;
   }
 }
