@@ -24,9 +24,7 @@ imports from here.
 
 Schema reservations (present in `Style` and `ComputedStyle` but not yet consumed by any code path):
 - `widows`, `orphans` — required by pagination.
-- `language` — content-language BCP-47 tag (in `Style`/`ComputedStyle`/`UsedStyle`, inherits, default `""`); the `lang` attr interpreter is registered. Cascade foundation for `hyphens: auto` (the producer that reads `cs.language` lands with the auto-hyphenation backend). See `1.6-text.md` Hyphenation.
-- `hyphenateLimitChars` — `readonly [number, number, number]` (`min-word min-before min-after`; in `Style`/`ComputedStyle`/`UsedStyle`, inherits, default `[5, 2, 2]`). Cascade foundation for `hyphens: auto` (the producer that applies it lands with the auto-hyphenation backend). Companion to the injected `EditorConfig.hyphenator` capability (`layout/hyphenator.ts`, interface + mock in core; concrete Liang impl ships in a future `packages/hyphenation`). See `1.6-text.md` Hyphenation.
-- `fontFeatureSettings` — required by typography phase 1 (P5); resolved into `UsedStyle` but not yet read by any tokenizer/layout/paint consumer. (`textAlign` incl. justify, `textWrap`/`whiteSpace`, `textIndent`, `letterSpacing`/`wordSpacing`, `textTransform`, and `hyphens` are NOW consumed — `letterSpacing`/`wordSpacing` via `layout/text-spacing.ts` (applied in the shapers + IFC trailing-trim + renderer); `textTransform` via the `textTransformInterpreter` cascade interpreter + the IFC's per-token display transform (`layout/text-transform.ts`) + the `SET_TEXT_TRANSFORM` editor action + toolbar; `hyphens` via the manual soft-hyphen producer in the IFC + `tryHyphenSplit` (see `1.6-text.md` Hyphenation, `auto` dictionary still future); `overflowWrap` (net-new, never schema-only) via the IFC `tryEmergencyBreak` last-resort grapheme split + the editor body default (`break-word`; `anywhere` ALSO shipped — same used-layout break, plus the min-content collapse in `intrinsic-sizes-pass.ts`); `tabStops`/`defaultTabStop` (net-new; the former CSS `tabSize` reservation was REMOVED) via the `"tab"` embed + the IFC resolve-at-overflow-check advance (`nextStop`; left/center/right/decimal alignments + default-grid fallback) + `INSERT_TAB`/`SET_TAB_STOPS` editor actions + the Tab key + leader paint (see `1.6-text.md` Tab stops) — so they are no longer schema-only.)
+- `fontFeatureSettings` — required by typography phase 1 (P5); resolved into `UsedStyle` but not yet read by any tokenizer/layout/paint consumer. (`textAlign` incl. justify, `textWrap`/`whiteSpace`, `textIndent`, `letterSpacing`/`wordSpacing`, `textTransform`, `hyphens`, `language`, and `hyphenateLimitChars` are NOW consumed — `letterSpacing`/`wordSpacing` via `layout/text-spacing.ts` (applied in the shapers + IFC trailing-trim + renderer); `textTransform` via the `textTransformInterpreter` cascade interpreter + the IFC's per-token display transform (`layout/text-transform.ts`) + the `SET_TEXT_TRANSFORM` editor action + toolbar; `hyphens`/`language`/`hyphenateLimitChars` via the IFC hyphenation producer + `tryHyphenSplit` — the MANUAL soft-hyphen producer AND the AUTO producer arm (`hyphens:auto` gated on `cs.language` + an injected `EditorConfig.hyphenator`, applying `cs.hyphenateLimitChars`) are both shipped; only the concrete Liang hyphenator + `en-us` patterns (a future `packages/hyphenation`) remain, so a default build's `auto` still falls back to `manual` (see `1.6-text.md` Hyphenation); `overflowWrap` (net-new, never schema-only) via the IFC `tryEmergencyBreak` last-resort grapheme split + the editor body default (`break-word`; `anywhere` ALSO shipped — same used-layout break, plus the min-content collapse in `intrinsic-sizes-pass.ts`); `tabStops`/`defaultTabStop` (net-new; the former CSS `tabSize` reservation was REMOVED) via the `"tab"` embed + the IFC resolve-at-overflow-check advance (`nextStop`; left/center/right/decimal alignments + default-grid fallback) + `INSERT_TAB`/`SET_TAB_STOPS` editor actions + the Tab key + leader paint (see `1.6-text.md` Tab stops) — so they are no longer schema-only.)
 Positioning vocabulary present and consumed (slice 1): `position`, the four
 logical `inset*`, `zIndex`, `transform`, `transformOrigin`, `opacity` live in
 `styles/position.ts` + `ComputedStyle`, all `inherits: false`. `position:
@@ -493,9 +491,17 @@ Known gaps:
   U+00AD SOFT HYPHENs) is `[implemented]` end-to-end: zero-advance soft hyphen,
   the IFC producer that synthesizes `hyphenBreaks`, `none`-suppression, the
   `tryHyphenSplit` "-" glyph, and the D.4 hyphen-pair page-break back-off (see
-  `1.6-text.md` Hyphenation). **Dictionary `auto` hyphenation** is not loaded;
-  `hyphens: auto` falls back to `manual` (honor soft hyphens, no automatic breaks)
-  regardless of language — the correct CSS-UA behavior when no hyphenation resource
+  `1.6-text.md` Hyphenation). **Dictionary `auto` hyphenation** is `[partial]`:
+  the engine infrastructure is shipped — the `language` + `hyphenateLimitChars`
+  cascade properties, the injected `Hyphenator` capability (`EditorConfig.hyphenator`,
+  interface + mock in `layout/hyphenator.ts`, threaded to every tokenization site),
+  the AUTO producer arm in the IFC (gated on `cs.hyphens==="auto"` + `cs.language` +
+  an injected hyphenator, applying `cs.hyphenateLimitChars`), and the measure-pass
+  `_metaCache` hyphenator guard. A host that injects a `Hyphenator` gets full
+  algorithmic hyphenation today. Only the concrete Liang hyphenator + `en-us`
+  patterns (a future `packages/hyphenation`, S5) remain — so a DEFAULT build (no
+  hyphenator configured) still falls back to `manual` (honor soft hyphens, no
+  automatic breaks), the correct CSS-UA behavior when no hyphenation resource
   exists, not a degraded build.
 - **Tab stops** are `[implemented]` end-to-end, modeled the Google-Docs way (a
   paragraph stop list, NOT CSS `tab-size` — the former `tabSize` reservation was
@@ -548,8 +554,10 @@ Known gaps:
   ALSO ships: identical used-layout break to `break-word`, plus it collapses
   min-content to the widest single grapheme (`intrinsic-sizes-pass.ts`) so a
   shrink-to-fit / inline-block box can narrow to one cluster. Remaining gaps:
-  dictionary `auto` hyphenation and `word-break: break-all/keep-all` are future
-  features. (The
+  the concrete Liang hyphenator + `en-us` patterns (`packages/hyphenation`, S5 — the
+  `auto`-hyphenation engine infrastructure is shipped, see Manual/Dictionary
+  hyphenation above) is a future feature; `word-break: break-all/keep-all` is
+  deliberately OUT of scope (no serious word processor exposes it). (The
   mock/canvas shapers classify U+00AD as `kind:"soft"`; the IFC synthesizes the
   `hyphen`-kind opportunity, so the manual path does not depend on the shaper
   emitting `kind:"hyphen"`.)

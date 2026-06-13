@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createElementBox, createTextBox } from "../render/render-node";
 import { cascadePass } from "../cascade";
 import { createMockShaper } from "./mock-shaper";
+import { createMockHyphenator } from "./mock-hyphenator";
 import { layoutInlineContent, collectTokens, splitSuffixSourceBase, deriveLineSourceRangeU16, SUPERSCRIPT_RAISE_FRACTION, SUBSCRIPT_LOWER_FRACTION } from "./ifc";
 import type { LineRangeUnit } from "./ifc";
 import { layoutBlock } from "./bfc";
@@ -3276,6 +3277,129 @@ describe("IFC — hyphens: soft-hyphen break handling (HYPH.S2/S3)", () => {
     // "hy<SHY>phen aaaa" under `none` at width 40: the in-word soft-hyphen break
     // is gone, but the SPACE break before "aaaa" remains → still wraps to 2 lines.
     expect(linesOf("hy" + SHY + "phen aaaa", 40, "none").length).toBe(2);
+  });
+});
+
+describe("IFC — hyphens: auto producer (HYPH.S4)", () => {
+  // The auto producer asks an injected `Hyphenator` for algorithmic in-word break
+  // points under `hyphens: auto` + a resolved content language, filters them by
+  // `hyphenate-limit-chars` ([minWord, minBefore, minAfter]), and merges them with
+  // soft-hyphen + shaper breaks. With no hyphenator / no language it contributes
+  // nothing (auto falls back to manual — the correct CSS UA fallback).
+  function styledTree(
+    text: string,
+    style?: Partial<{
+      hyphens: ComputedStyle["hyphens"];
+      language: string;
+      hyphenateLimitChars: readonly [number, number, number];
+      textTransform: ComputedStyle["textTransform"];
+    }>,
+  ) {
+    const tree = cascadePass(
+      createElementBox("p", { display: "block", ...(style ?? {}) }, [
+        createTextBox("t", {}, text),
+      ]),
+    );
+    if (tree.type !== "element") throw new Error("?");
+    return tree;
+  }
+  function tokensOf(
+    text: string,
+    style?: Partial<{
+      hyphens: ComputedStyle["hyphens"];
+      language: string;
+      hyphenateLimitChars: readonly [number, number, number];
+      textTransform: ComputedStyle["textTransform"];
+    }>,
+    hyphenator?: ReturnType<typeof createMockHyphenator>,
+  ) {
+    const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, 500);
+    return collectTokens(styledTree(text, style), shaper, "ltr", ctx.intrinsicCache, hyphenator);
+  }
+
+  // (a) auto + language + mock → the mock's points filtered by the default [5,2,2].
+  it("auto + language + hyphenator → mock points filtered by hyphenate-limit-chars [5,2,2]", () => {
+    // "hyphenation" len 11. Mock (every=3) → raw points {3, 6, 9}. Default limits
+    // [5,2,2]: minWord 5 (11 ≥ 5 ✓), minBefore 2 (all ≥ 2), minAfter 2 (11-p ≥ 2
+    // ⇒ p ≤ 9, so 9 survives). → {3, 6, 9}.
+    const tok = tokensOf("hyphenation", { hyphens: "auto", language: "en" }, createMockHyphenator({ every: 3 }))[0];
+    expect(tok.hyphenBreaks).toEqual([3, 6, 9]);
+  });
+
+  // (b) hyphens:none → no auto breaks (the producer never runs).
+  it("none → NO auto breaks even with a hyphenator + language", () => {
+    const tok = tokensOf("hyphenation", { hyphens: "none", language: "en" }, createMockHyphenator({ every: 3 }))[0];
+    expect(tok.hyphenBreaks).toBeUndefined();
+  });
+
+  // (b') hyphens:manual → NO auto breaks even with a hyphenator + language. The
+  // auto arm is gated on `=== "auto"`; `manual` honors ONLY authored soft hyphens
+  // (none here), so the plain word stays unbroken.
+  it("manual → NO auto breaks even with a hyphenator + language", () => {
+    const tok = tokensOf("hyphenation", { hyphens: "manual", language: "en" }, createMockHyphenator({ every: 3 }))[0];
+    expect(tok.hyphenBreaks).toBeUndefined();
+  });
+
+  // (c) empty language → no auto breaks (no language to hyphenate against).
+  it("empty language → NO auto breaks", () => {
+    const tok = tokensOf("hyphenation", { hyphens: "auto", language: "" }, createMockHyphenator({ every: 3 }))[0];
+    expect(tok.hyphenBreaks).toBeUndefined();
+  });
+
+  // (d) no hyphenator → no auto breaks (auto falls back to manual; no soft hyphen here).
+  it("no hyphenator (undefined) → NO auto breaks", () => {
+    const tok = tokensOf("hyphenation", { hyphens: "auto", language: "en" }, undefined)[0];
+    expect(tok.hyphenBreaks).toBeUndefined();
+  });
+
+  // (e) word shorter than minWord → no auto breaks.
+  it("word shorter than minWord → NO auto breaks", () => {
+    // "hello" len 5; minWord default 5 ⇒ 5 ≥ 5 so the producer runs. Use a shorter
+    // word to land below minWord: "hi" len 2 < 5.
+    const tok = tokensOf("hi", { hyphens: "auto", language: "en" }, createMockHyphenator({ every: 1, floor: 1 }))[0];
+    expect(tok.hyphenBreaks).toBeUndefined();
+  });
+
+  // (f) only points with p>=minBefore && len-p>=minAfter survive (custom limits).
+  it("custom hyphenate-limit-chars filters by minBefore / minAfter", () => {
+    // "abcdefghij" len 10. Mock every=1 → raw interior points {1..9}. Limits
+    // [4, 3, 3]: minWord 4 (10 ≥ 4 ✓), minBefore 3 ⇒ p ≥ 3, minAfter 3 ⇒
+    // 10-p ≥ 3 ⇒ p ≤ 7. Survivors: {3, 4, 5, 6, 7}.
+    const tok = tokensOf(
+      "abcdefghij",
+      { hyphens: "auto", language: "en", hyphenateLimitChars: [4, 3, 3] },
+      createMockHyphenator({ every: 1, floor: 1 }),
+    )[0];
+    expect(tok.hyphenBreaks).toEqual([3, 4, 5, 6, 7]);
+  });
+
+  // (g) author soft-hyphen U+00AD AND auto both present → UNION, deduped, sorted.
+  it("soft hyphen + auto both present → union, deduped, sorted", () => {
+    const SHY = "­";
+    // "ab<SHY>cdefgh" — display word "abcdefgh" len 8. The SHY is at source index
+    // 2; it yields a synthesized soft-hyphen break at token index 3 (after the SHY,
+    // which is index 2; the suffix starts at the char after → 3). The auto mock
+    // (every=3) over the 9-code-unit `part` "ab­cdefgh" → raw {3, 6}; default
+    // limits [5,2,2] keep both (len 9, p≥2, 9-p≥2 ⇒ p≤7). Union {3, 6} ∪ {3} =
+    // {3, 6}, deduped + sorted.
+    const tok = tokensOf("ab" + SHY + "cdefgh", { hyphens: "auto", language: "en" }, createMockHyphenator({ every: 3 }))[0];
+    expect(tok.hyphenBreaks).toEqual([3, 6]);
+  });
+
+  // (h) text-transform GROW token (display ≠ source) → hyphenBreaks cleared.
+  it("text-transform grow token (display ≠ source) → hyphenBreaks cleared", () => {
+    // "straße" len 6; uppercase → "STRASSE" len 7 (ß→SS grows). The grow path
+    // clears hyphenBreaks (source-relative indices become invalid). So even though
+    // the auto producer ran on the DISPLAY word, the clear at the text-transform
+    // branch nulls it.
+    const tok = tokensOf(
+      "straße",
+      { hyphens: "auto", language: "en", textTransform: "uppercase" },
+      createMockHyphenator({ every: 2, floor: 1 }),
+    )[0];
+    // Sanity: the grow happened (the test would be vacuous on a 1:1 transform).
+    expect(tok.sourceDisplayLengths).toBeDefined();
+    expect(tok.hyphenBreaks).toBeUndefined();
   });
 });
 

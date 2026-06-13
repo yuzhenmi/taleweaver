@@ -77,6 +77,14 @@ interface MetaCacheEntry {
    * rebuild even for the same `ElementBox` ref + width.
    */
   readonly shaperRef: TextShaper;
+  /**
+   * The `Hyphenator` instance this meta was built with (hyphenator guard). The
+   * slice-4 auto producer makes line-wrapping depend on the hyphenator's break
+   * points, so a different `Hyphenator` (different breaks ⇒ different line
+   * counts ⇒ different pagination) must miss the cache and rebuild even for the
+   * same `ElementBox` ref + width + shaper. `undefined` ⇒ no hyphenation.
+   */
+  readonly hyphenatorRef: Hyphenator | undefined;
   readonly meta: BlockFitMeta;
 }
 
@@ -116,10 +124,13 @@ export function __resetMetaBuildCountForTest(): void {
 export function buildBlockFitMetas(
   cascadedRoot: ElementBox,
   shaper: TextShaper,
-  // Auto-hyphenation (slice 2): threaded ALONGSIDE `shaper` down to the IFC
-  // tokenization site so the measure pass and the positioned tree share the same
-  // hyphenation inputs. `undefined` ⇒ none. Carried but UNUSED in this slice (the
-  // producer is slice 4), so it does NOT participate in `_metaCache`'s key yet.
+  // Auto-hyphenation: threaded ALONGSIDE `shaper` down to the IFC tokenization
+  // site so the measure pass and the positioned tree share the same hyphenation
+  // inputs. `undefined` ⇒ none. CONSUMED by the auto producer arm in
+  // `collectInlineTokens`, and it PARTICIPATES in `_metaCache`'s key
+  // (`MetaCacheEntry.hyphenatorRef` + the `classifyChild` guard) — swapping the
+  // hyphenator invalidates cached metas, since different breaks ⇒ different line
+  // counts ⇒ different pagination.
   hyphenator: Hyphenator | undefined,
   pageContentInlineSize: number,
 ): readonly BlockFitMeta[] {
@@ -284,17 +295,23 @@ function classifyChild(
   hyphenator: Hyphenator | undefined,
   pageContentInlineSize: number,
 ): BlockFitMeta {
-  // NOTE (slice 2): `hyphenator` is carried but NOT yet read by the producer, so
-  // the built meta does not depend on it ⇒ it is intentionally NOT part of this
-  // cache's key (only `child` ref + `shaper` + `width`). When the slice-4 producer
-  // makes line-wrapping hyphenation-dependent, add it to the key.
+  // The slice-4 auto producer makes line-wrapping hyphenation-dependent, so the
+  // built meta depends on the `Hyphenator` instance — it is part of the cache key
+  // (alongside `child` ref + `shaper` + `width`). A swapped hyphenator yields
+  // different breaks ⇒ different line counts ⇒ different pagination, so it must
+  // miss and rebuild.
   const cached = _metaCache.get(child);
-  if (cached !== undefined && cached.shaperRef === shaper && cached.width === pageContentInlineSize) {
+  if (
+    cached !== undefined &&
+    cached.shaperRef === shaper &&
+    cached.width === pageContentInlineSize &&
+    cached.hyphenatorRef === hyphenator
+  ) {
     return cached.meta;
   }
   const meta = buildChildMeta(child, shaper, hyphenator, pageContentInlineSize);
   _metaBuildCount++;
-  _metaCache.set(child, { width: pageContentInlineSize, shaperRef: shaper, meta });
+  _metaCache.set(child, { width: pageContentInlineSize, shaperRef: shaper, hyphenatorRef: hyphenator, meta });
   return meta;
 }
 

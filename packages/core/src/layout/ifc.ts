@@ -674,9 +674,10 @@ function collectInlineTokens(
   ancestors: readonly string[],
   ancestorStyles: readonly ComputedStyle[],
   shaper: TextShaper,
-  // Auto-hyphenation (slice 2): threaded ALONGSIDE `shaper` to the tokenization
-  // site. The (slice 4) producer reads it HERE to insert candidate hyphen
-  // break-points; this slice carries it without reading it. `undefined` ⇒ none.
+  // Auto-hyphenation: threaded ALONGSIDE `shaper` to the tokenization site. The
+  // auto producer arm below READS it under `cs.hyphens === "auto"` + `cs.language`
+  // to insert candidate hyphen break-points into the token's `hyphenBreaks`.
+  // `undefined` ⇒ no auto hyphenation (falls back to manual).
   hyphenator: Hyphenator | undefined,
   // The PARENT IFC's writing-mode + direction (the mode the IFC lays everything
   // out in). Threaded together because both are needed to project an
@@ -867,8 +868,26 @@ function collectInlineTokens(
               if (part.charCodeAt(ci) === 0x00ad) synthesizedHyphenBreaks.push(ci + 1);
             }
           }
-          const allHyphenBreaks = synthesizedHyphenBreaks.length > 0
-            ? [...new Set([...tokenHyphenBreaks, ...synthesizedHyphenBreaks])].sort((a, b) => a - b)
+          // HYPH.S4 — auto producer. Under `hyphens: auto` with a resolved content
+          // language and an injected hyphenator, ask it for algorithmic in-word break
+          // points (suffix-start indices over the DISPLAY word `part`) and keep only those
+          // passing `hyphenate-limit-chars` (minWord/minBefore/minAfter). Merged with the
+          // soft-hyphen + shaper breaks below; cleared for text-transform grow/shrink
+          // tokens by the SAME guard as soft-hyphen breaks (source-relative indices). When
+          // no hyphenator / no language, this contributes nothing → `auto` falls back to
+          // `manual` (the correct CSS UA fallback).
+          const autoHyphenBreaks: number[] = [];
+          if (cs.hyphens === "auto" && cs.language !== "" && hyphenator !== undefined) {
+            const [minWord, minBefore, minAfter] = cs.hyphenateLimitChars;
+            if (part.length >= minWord) {
+              for (const p of hyphenator.hyphenate(part, cs.language)) {
+                if (p >= minBefore && part.length - p >= minAfter) autoHyphenBreaks.push(p);
+              }
+            }
+          }
+          const extraHyphenBreaks = synthesizedHyphenBreaks.length > 0 || autoHyphenBreaks.length > 0;
+          const allHyphenBreaks = extraHyphenBreaks
+            ? [...new Set([...tokenHyphenBreaks, ...synthesizedHyphenBreaks, ...autoHyphenBreaks])].sort((a, b) => a - b)
             : tokenHyphenBreaks;
           if (allHyphenBreaks.length > 0) hyphenBreaks = allHyphenBreaks;
         }
@@ -1261,9 +1280,9 @@ export function collectTokens(
   shaper: TextShaper,
   direction: Direction,
   intrinsicCache: IntrinsicSizesCache,
-  // Auto-hyphenation (slice 2): OPTIONAL trailing so the dozens of existing
-  // 4-arg test/rewrap callers stay valid; forwarded into `collectInlineTokens`.
-  // `undefined` ⇒ no hyphenation. Carried but UNUSED in this slice.
+  // Auto-hyphenation: OPTIONAL trailing so the dozens of existing 4-arg
+  // test/rewrap callers stay valid; forwarded into `collectInlineTokens`, where
+  // the auto producer arm reads it. `undefined` ⇒ no auto hyphenation.
   hyphenator?: Hyphenator,
 ): Token[] {
   if (!parent.computedStyle) throw new Error("cascade required");
@@ -1291,8 +1310,9 @@ export function layoutInlineContent(
   blockOffset: number,
   ctx: LayoutContext,
   shaper: TextShaper,
-  // Auto-hyphenation (slice 2): threaded ALONGSIDE `shaper`, forwarded into
-  // `collectInlineTokens`. `undefined` ⇒ none. Carried but UNUSED in this slice.
+  // Auto-hyphenation: threaded ALONGSIDE `shaper`, forwarded into
+  // `collectInlineTokens` where the auto producer arm reads it. `undefined` ⇒
+  // no auto hyphenation.
   hyphenator: Hyphenator | undefined,
   fragmentation?: FragmentationContext,
 ): LayoutResult<BlockBox> {

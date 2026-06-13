@@ -12,6 +12,7 @@ import {
   __resetMetaBuildCountForTest,
 } from "../build-fit-metas";
 import { createMockShaper } from "../mock-shaper";
+import { createMockHyphenator } from "../mock-hyphenator";
 import { cascadePass } from "../../cascade";
 import { createElementBox, createTextBox } from "../../render/render-node";
 import type { ElementBox, RenderNode } from "../../render/render-node";
@@ -255,5 +256,32 @@ describe("buildBlockFitMetas — incremental cache", () => {
     // cached 16-px values from shaper A.
     expect(metasB[0].lineBlockSizes).toEqual([24, 24]);
     expect(metasB[0].totalBlockSize).toBe(48);
+  });
+
+  // ---- (e) hyphenator guard: a swapped Hyphenator rebuilds (HYPH.S4) -------
+  it("(e) a different Hyphenator instance misses the cache; the same instance hits", () => {
+    // The slice-4 auto producer makes line-wrapping depend on the hyphenator's
+    // break points, so a swapped Hyphenator (different breaks ⇒ different line
+    // counts ⇒ different pagination) must miss the cache and rebuild — even for
+    // the same ElementBox ref + width + shaper.
+    const N = 5;
+    const children = Array.from({ length: N }, (_, i) => paragraph(`p${i}`, 2));
+    const root = cascade(children);
+    const s = shaper();
+    const hyphA = createMockHyphenator({ every: 3 });
+    const hyphB = createMockHyphenator({ every: 4 });
+
+    buildBlockFitMetas(root, s, hyphA, 600); // warm with hyphenator A
+
+    // Rebuild SAME tree + width + shaper, but a DIFFERENT hyphenator instance →
+    // every block misses the hyphenator guard and rebuilds.
+    __resetMetaBuildCountForTest();
+    buildBlockFitMetas(root, s, hyphB, 600);
+    expect(__getMetaBuildCountForTest()).toBe(N);
+
+    // Rebuild with the SAME hyphenator B → all blocks ref-hit (count unchanged).
+    __resetMetaBuildCountForTest();
+    buildBlockFitMetas(root, s, hyphB, 600);
+    expect(__getMetaBuildCountForTest()).toBe(0);
   });
 });
