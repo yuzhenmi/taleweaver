@@ -153,6 +153,16 @@ export const fontFamilyInterpreter: AttrInterpreter = {
 };
 
 /**
+ * `lang` attr → `language` cascaded property (selects the content language for
+ * auto-hyphenation). The value (a BCP-47 tag, e.g. "en-US") passes through
+ * verbatim — BCP-47 normalization is the hyphenator's job, not the cascade's.
+ */
+export const langInterpreter: AttrInterpreter = {
+  attrKey: "lang",
+  toStyle: (value) => (typeof value === "string" ? { language: value } : {}),
+};
+
+/**
  * fontSize accepts:
  *   - number → px shorthand (Length accepts bare numbers as px)
  *   - { unit: "px" | "em" | "percent", value: number } → structured Length
@@ -362,6 +372,7 @@ export function registerBuiltinAttrs(registry: AttrRegistry): void {
   registry.register(strikethroughInterpreter);
   registry.register(linkInterpreter);
   registry.register(fontFamilyInterpreter);
+  registry.register(langInterpreter);
   registry.register(fontSizeInterpreter);
   registry.register(colorInterpreter);
   registry.register(backgroundColorInterpreter);

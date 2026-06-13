@@ -122,7 +122,7 @@ describe("text-decoration set composition (#393)", () => {
   });
 });
 
-import { fontFamilyInterpreter, fontSizeInterpreter } from "./builtin-attrs";
+import { fontFamilyInterpreter, fontSizeInterpreter, langInterpreter } from "./builtin-attrs";
 
 describe("fontFamilyInterpreter", () => {
   it("contributes fontFamily: <value> when value is a string", () => {
@@ -135,6 +135,20 @@ describe("fontFamilyInterpreter", () => {
     expect(fontFamilyInterpreter.toStyle(42)).toEqual({});
     expect(fontFamilyInterpreter.toStyle(undefined)).toEqual({});
     expect(fontFamilyInterpreter.toStyle(null)).toEqual({});
+  });
+});
+
+describe("langInterpreter", () => {
+  it("contributes language: <value> verbatim when value is a string (no BCP-47 normalization)", () => {
+    expect(langInterpreter.attrKey).toBe("lang");
+    expect(langInterpreter.toStyle("en-US")).toEqual({ language: "en-US" });
+    expect(langInterpreter.toStyle("de")).toEqual({ language: "de" });
+  });
+
+  it("contributes nothing for non-string values", () => {
+    expect(langInterpreter.toStyle(42)).toEqual({});
+    expect(langInterpreter.toStyle(undefined)).toEqual({});
+    expect(langInterpreter.toStyle(null)).toEqual({});
   });
 });
 
@@ -390,6 +404,7 @@ describe("registerBuiltinAttrs", () => {
     expect(r.has("fontSize")).toBe(true);
     expect(r.has("color")).toBe(true);
     expect(r.has("backgroundColor")).toBe(true);
+    expect(r.has("lang")).toBe(true);
   });
 
   it("registers the C-C typography interpreters", () => {

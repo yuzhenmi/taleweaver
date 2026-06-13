@@ -114,6 +114,9 @@ export interface Style {
   readonly textIndent?:          Length;
   readonly textWrap?:            "wrap" | "nowrap" | "balance" | "pretty" | "stable";
   readonly hyphens?:             "none" | "manual" | "auto";
+  // Content language (BCP-47 tag, e.g. "en-US"). Selects the language for
+  // auto-hyphenation. `""` = no language. Inherits.
+  readonly language?:            string;
   readonly overflowWrap?:        "normal" | "break-word" | "anywhere";
   readonly letterSpacing?:       Length | "normal";
   readonly wordSpacing?:         Length | "normal";

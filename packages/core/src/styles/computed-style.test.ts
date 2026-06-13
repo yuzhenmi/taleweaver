@@ -36,6 +36,7 @@ describe("ComputedStyle", () => {
       fontFeatureSettings: [],
       tabStops: [],
       defaultTabStop: 48,
+      language: "",
       float: "none",
       clear: "none",
       breakBefore: "auto", breakAfter: "auto", breakInside: "auto",

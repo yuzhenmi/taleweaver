@@ -48,6 +48,7 @@ describe("UsedStyle", () => {
       fontFeatureSettings: [],
       tabStops: [],
       defaultTabStop: 48,
+      language: "",
 
       float: "none", clear: "none",
 

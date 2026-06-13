@@ -13,6 +13,7 @@ describe("PROPERTY_META", () => {
     expect(PROPERTY_META.fontFamily.inherits).toBe(true);
     expect(PROPERTY_META.fontSize.inherits).toBe(true);
     expect(PROPERTY_META.color.inherits).toBe(true);
+    expect(PROPERTY_META.language.inherits).toBe(true);
   });
 
   it("marks writing-mode and direction as inheriting", () => {

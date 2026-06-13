@@ -48,6 +48,27 @@ describe("cascadePass", () => {
     expect(t.computedStyle?.fontSize).toBe(24);
   });
 
+  it("inherits `language` from an ancestor; defaults to empty string at the root", () => {
+    const tree = createElementBox("root", { language: "en-US" }, [
+      createElementBox("p", {}, [
+        createTextBox("t", {}, "hello"),
+      ]),
+    ]);
+
+    const cascaded = cascadePass(tree);
+    if (cascaded.type !== "element") throw new Error("?");
+    const p = cascaded.children[0];
+    if (p.type !== "element") throw new Error("?");
+    const t = p.children[0];
+    if (t.type !== "text") throw new Error("?");
+
+    expect(cascaded.computedStyle?.language).toBe("en-US");
+    expect(t.computedStyle?.language).toBe("en-US");
+
+    const noLang = cascadePass(createElementBox("root", { display: "block" }, []));
+    expect(noLang.computedStyle?.language).toBe("");
+  });
+
   it("overflowWrap: defaults to `normal` and inherits (overflow-wrap break-word v1)", () => {
     // Default: a node with no `overflowWrap` gets the CSS initial `normal`.
     const def = cascadePass(createElementBox("root", { display: "block" }, []));
