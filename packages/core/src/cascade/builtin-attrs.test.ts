@@ -122,7 +122,7 @@ describe("text-decoration set composition (#393)", () => {
   });
 });
 
-import { fontFamilyInterpreter, fontSizeInterpreter, langInterpreter } from "./builtin-attrs";
+import { fontFamilyInterpreter, fontSizeInterpreter, langInterpreter, hyphensInterpreter } from "./builtin-attrs";
 
 describe("fontFamilyInterpreter", () => {
   it("contributes fontFamily: <value> when value is a string", () => {
@@ -149,6 +149,22 @@ describe("langInterpreter", () => {
     expect(langInterpreter.toStyle(42)).toEqual({});
     expect(langInterpreter.toStyle(undefined)).toEqual({});
     expect(langInterpreter.toStyle(null)).toEqual({});
+  });
+});
+
+describe("hyphensInterpreter", () => {
+  it("contributes hyphens: <keyword> for the three valid keywords", () => {
+    expect(hyphensInterpreter.attrKey).toBe("hyphens");
+    expect(hyphensInterpreter.toStyle("none")).toEqual({ hyphens: "none" });
+    expect(hyphensInterpreter.toStyle("manual")).toEqual({ hyphens: "manual" });
+    expect(hyphensInterpreter.toStyle("auto")).toEqual({ hyphens: "auto" });
+  });
+
+  it("contributes nothing for invalid keywords or non-string values", () => {
+    expect(hyphensInterpreter.toStyle("sometimes")).toEqual({});
+    expect(hyphensInterpreter.toStyle(42)).toEqual({});
+    expect(hyphensInterpreter.toStyle(undefined)).toEqual({});
+    expect(hyphensInterpreter.toStyle(null)).toEqual({});
   });
 });
 

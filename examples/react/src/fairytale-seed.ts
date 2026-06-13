@@ -22,7 +22,15 @@ import { createHtmlDocumentSerializer, HTML_FORMAT } from "@taleweaver/dom";
  *  headings, paragraphs, bold/italic/link marks, an ordered + unordered list,
  *  hard breaks (the famous call-and-response), and an embedded RTL phrase (the
  *  engine's UAX-9 bidi reorders it from the text alone). */
-export const FAIRYTALE_HTML = `<h1>Little Red Riding Hood</h1>
+/* The whole document is wrapped in a `<div lang="en" hyphens="auto"
+ * style="text-align: justify">`. The wrapper's `lang` + `hyphens` cascade to
+ * every block (paragraphs, headings, list items), so the engine's `hyphens:auto`
+ * path discovers in-word break points via the injected `createLiangHyphenator()`
+ * (`en-us` Liang patterns) — most visible in the justified body text, where
+ * hyphenation tightens the inter-word spacing. Headings are single-line, so the
+ * inherited `justify` is a no-op on them. */
+export const FAIRYTALE_HTML = `<div lang="en" hyphens="auto" style="text-align: justify">
+<h1>Little Red Riding Hood</h1>
 <p>Once upon a time there was a dear little girl who was loved by everyone who looked at her, but most of all by her grandmother. Once she gave her a little cap of red velvet, which suited her so well that she would never wear anything else; and so she was always called <strong>Little Red Riding Hood</strong>.</p>
 <p>One day her mother said to her: "Come, Little Red Riding Hood, here is a piece of cake and a bottle of wine. Take them to your grandmother, who is ill and weak. Set out before it grows hot, and walk <em>nicely and quietly</em> &mdash; do not run off the path, or you may fall and break the bottle."</p>
 <h2>Into the Wood</h2>
@@ -43,7 +51,8 @@ export const FAIRYTALE_HTML = `<h1>Little Red Riding Hood</h1>
 <li>never stop to talk with a stranger, however kind his voice;</li>
 <li>and trust the quiet voice inside that whispers when something is wrong.</li>
 </ol>
-<p>So Little Red Riding Hood went home, and no one ever did her any harm again. You can read this tale and a hundred more, they say, in the old book of household stories. <a href="https://www.gutenberg.org/ebooks/2591">Grimms' Fairy Tales</a> waits for anyone patient enough to turn the pages.</p>`;
+<p>So Little Red Riding Hood went home, and no one ever did her any harm again. You can read this tale and a hundred more, they say, in the old book of household stories. <a href="https://www.gutenberg.org/ebooks/2591">Grimms' Fairy Tales</a> waits for anyone patient enough to turn the pages.</p>
+</div>`;
 
 /** Build the initial EditorState for the example from FAIRYTALE_HTML, using the
  *  hook's own config (so the measurer/registries match the live editor). */

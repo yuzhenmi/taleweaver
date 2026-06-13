@@ -129,6 +129,82 @@ interface DecodeAccumulator {
 }
 
 /**
+ * Block-level cascade attributes that authored HTML can declare and that INHERIT
+ * to descendant blocks (mirroring the engine cascade): `lang` → the content
+ * language, `hyphens` → the hyphenation mode, `textAlign` → paragraph alignment.
+ * Read off an element and threaded down so a wrapping `<div lang="en"
+ * hyphens="auto" style="text-align: justify">` applies to every paragraph inside
+ * it without repeating the attributes on each. A child element's own value
+ * overrides the inherited one.
+ */
+type InheritedBlockAttrs = Readonly<Record<string, string>>;
+
+const HYPHENS_KEYWORDS = new Set(["none", "manual", "auto"]);
+const TEXT_ALIGN_KEYWORDS = new Set(["start", "end", "center", "justify", "left", "right"]);
+
+/** Map the physical CSS `text-align` keywords to the engine's logical keywords. */
+function logicalTextAlign(value: string): string | undefined {
+  switch (value) {
+    case "left":
+    case "start":
+      return "start";
+    case "right":
+    case "end":
+      return "end";
+    case "center":
+      return "center";
+    case "justify":
+      return "justify";
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Merge an element's own inheritable block attributes over the inherited set.
+ * `lang`/`hyphens` come from attributes; `text-align` from the inline `style`.
+ * Unknown / invalid values are ignored (the inherited value survives).
+ */
+function resolveInheritedAttrs(
+  el: Element,
+  inherited: InheritedBlockAttrs,
+): InheritedBlockAttrs {
+  let next: Record<string, string> | undefined;
+  const set = (key: string, value: string): void => {
+    next = next ?? { ...inherited };
+    next[key] = value;
+  };
+
+  const lang = el.getAttribute("lang");
+  if (lang !== null && lang.trim() !== "") set("lang", lang.trim());
+
+  const hyphens = el.getAttribute("hyphens");
+  if (hyphens !== null && HYPHENS_KEYWORDS.has(hyphens.trim())) set("hyphens", hyphens.trim());
+
+  // `style` is only present on HTMLElement (not the base Element). SVG / generic
+  // elements have no inline text-align to read.
+  if (el instanceof HTMLElement) {
+    const align = el.style.textAlign;
+    if (align !== "" && TEXT_ALIGN_KEYWORDS.has(align)) {
+      const logical = logicalTextAlign(align);
+      if (logical !== undefined) set("textAlign", logical);
+    }
+  }
+
+  return next ?? inherited;
+}
+
+/** Merge inherited block attrs into a block's own attrs (own attrs win). */
+function withInheritedAttrs(
+  inherited: InheritedBlockAttrs,
+  own?: ReadonlyAttrs,
+): ReadonlyAttrs | undefined {
+  const keys = Object.keys(inherited);
+  if (keys.length === 0) return own;
+  return { ...inherited, ...(own ?? {}) };
+}
+
+/**
  * Walk a `<ul>`/`<ol>` list element, emitting a FLAT list-item BlockNode per
  * `<li>` (the Google-Docs flat list model). `listId` + `depth` are threaded
  * down: a nested list inside an `<li>` KEEPS the listId and increments depth
@@ -140,6 +216,7 @@ function walkList(
   listId: string,
   depth: number,
   acc: DecodeAccumulator,
+  inherited: InheritedBlockAttrs,
 ): void {
   for (const child of Array.from(listEl.children)) {
     const childTag = child.tagName.toUpperCase();
@@ -148,10 +225,11 @@ function walkList(
     // only the deepest gets an `<li>`), and a common Word/Google-Docs/web paste
     // shape. Recurse one level deeper so its items are not silently dropped.
     if (childTag === "UL" || childTag === "OL") {
-      walkList(child, listId, depth + 1, acc);
+      walkList(child, listId, depth + 1, acc, resolveInheritedAttrs(child, inherited));
       continue;
     }
     if (childTag !== "LI") continue;
+    const liInherited = resolveInheritedAttrs(child, inherited);
     // The <li>'s own inline content (text + marks), excluding nested lists.
     const items: InlineItem[] = [];
     const nestedLists: Element[] = [];
@@ -170,22 +248,31 @@ function walkList(
     }
     acc.blocks.push({
       type: "list-item",
-      attrs: { listId, listLevel: depth },
+      attrs: { ...liInherited, listId, listLevel: depth },
       inlineContent: { items },
     });
     // Recurse nested lists, keeping the same listId, deeper level.
     for (const nested of nestedLists) {
-      walkList(nested, listId, depth + 1, acc);
+      walkList(nested, listId, depth + 1, acc, liInherited);
     }
   }
 }
 
 /** Map a single top-level body element to BlockNode(s) appended to `acc`. */
-function decodeBlockElement(el: Element, acc: DecodeAccumulator): void {
+function decodeBlockElement(
+  el: Element,
+  acc: DecodeAccumulator,
+  parentInherited: InheritedBlockAttrs,
+): void {
   const tag = el.tagName.toUpperCase();
+  const inherited = resolveInheritedAttrs(el, parentInherited);
   switch (tag) {
     case "P":
-      acc.blocks.push({ type: "paragraph", inlineContent: inlineContentOf(el) });
+      acc.blocks.push({
+        type: "paragraph",
+        attrs: withInheritedAttrs(inherited),
+        inlineContent: inlineContentOf(el),
+      });
       return;
     case "H1":
     case "H2":
@@ -195,7 +282,7 @@ function decodeBlockElement(el: Element, acc: DecodeAccumulator): void {
     case "H6":
       acc.blocks.push({
         type: "heading",
-        attrs: { level: headingLevelFromTag(tag) },
+        attrs: withInheritedAttrs(inherited, { level: headingLevelFromTag(tag) }),
         inlineContent: inlineContentOf(el),
       });
       return;
@@ -226,14 +313,16 @@ function decodeBlockElement(el: Element, acc: DecodeAccumulator): void {
     case "OL": {
       const listId = newListId();
       acc.listDefs[listId] = tag === "OL" ? decimalListDef() : discListDef();
-      walkList(el, listId, 0, acc);
+      walkList(el, listId, 0, acc, inherited);
       return;
     }
     default:
       // Unknown block element: ignored, but recurse so a wrapper's supported
-      // children (e.g. a <div> containing <p>s) still surface.
+      // children (e.g. a <div> containing <p>s) still surface. The wrapper's own
+      // inheritable block attrs (lang/hyphens/text-align) cascade to those
+      // children via `inherited`.
       for (const child of Array.from(el.children)) {
-        decodeBlockElement(child, acc);
+        decodeBlockElement(child, acc, inherited);
       }
       return;
   }
@@ -244,8 +333,12 @@ export function decodeHtml(html: string, allocator: IdAllocator): State {
   const doc = new DOMParser().parseFromString(html, "text/html");
   const acc: DecodeAccumulator = { blocks: [], listDefs: {} };
 
+  // The document <body> may itself carry inheritable block attrs (lang/hyphens/
+  // text-align) — read them as the root inherited set so a `<body lang="en">`
+  // wrapper applies to every block.
+  const rootInherited = resolveInheritedAttrs(doc.body, {});
   for (const child of Array.from(doc.body.children)) {
-    decodeBlockElement(child, acc);
+    decodeBlockElement(child, acc, rootInherited);
   }
 
   // Empty / all-unsupported body → a single empty paragraph (a valid minimal doc).

@@ -694,4 +694,44 @@ describe("html-decode hardening", () => {
     expect(leaves.find((b) => b.type === "paragraph")?.inline).toEqual([["x", ["link"]]]);
     expect(leaves.find((b) => b.type === "image")?.attrs.src).toBe("https://ok.test/i.png");
   });
+
+  // Inheritable block attrs (lang / hyphens / text-align) — a wrapper's lang/
+  // hyphens cascade to descendant blocks so authored HTML can opt a whole region
+  // into auto-hyphenation without repeating attrs on every paragraph. (Auto-
+  // hyphenation Slice 5: the example app authors `<div lang="en" hyphens="auto">`.)
+  it("decode inherits lang/hyphens/text-align from a wrapping element to descendant blocks", () => {
+    const ser = createHtmlDocumentSerializer({ allocator: createTestAllocator("inh") });
+    const decoded = ser.decode(
+      '<body><div lang="en" hyphens="auto" style="text-align: justify">' +
+        "<p>first</p><h2>head</h2><ul><li>item</li></ul></div></body>",
+    );
+    const leaves = readLeaves(decoded);
+    const p = leaves.find((b) => b.type === "paragraph");
+    expect(p?.attrs.language ?? p?.attrs.lang).toBe("en");
+    expect(p?.attrs.hyphens).toBe("auto");
+    expect(p?.attrs.textAlign).toBe("justify");
+    // Heading keeps its own `level` AND inherits the wrapper attrs.
+    const h = leaves.find((b) => b.type === "heading");
+    expect(h?.attrs.level).toBe(2);
+    expect(h?.attrs.hyphens).toBe("auto");
+    // List item inherits too (alongside listId/listLevel).
+    const li = leaves.find((b) => b.type === "list-item");
+    expect(li?.attrs.lang).toBe("en");
+    expect(li?.attrs.hyphens).toBe("auto");
+  });
+
+  it("decode lets a child element's own lang override the inherited one; invalid hyphens is ignored", () => {
+    const ser = createHtmlDocumentSerializer({ allocator: createTestAllocator("ovr") });
+    const decoded = ser.decode(
+      '<body><div lang="en" hyphens="auto">' +
+        '<p lang="de" hyphens="sometimes">x</p><p>y</p></div></body>',
+    );
+    const ps = readLeaves(decoded).filter((b) => b.type === "paragraph");
+    // First paragraph: own lang wins; invalid `hyphens` keyword ignored → inherited "auto".
+    expect(ps[0]?.attrs.lang).toBe("de");
+    expect(ps[0]?.attrs.hyphens).toBe("auto");
+    // Second paragraph: pure inheritance.
+    expect(ps[1]?.attrs.lang).toBe("en");
+    expect(ps[1]?.attrs.hyphens).toBe("auto");
+  });
 });

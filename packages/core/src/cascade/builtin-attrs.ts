@@ -163,6 +163,22 @@ export const langInterpreter: AttrInterpreter = {
 };
 
 /**
+ * `hyphens` attr → `hyphens` cascaded property (`none | manual | auto`). The
+ * declarative setter for hyphenation behavior — `auto` opts a block (and its
+ * inheriting descendants) into automatic dictionary hyphenation when a
+ * `Hyphenator` + content `language` are present. Parallels `langInterpreter`;
+ * only the three CSS Text 4 keywords are accepted, anything else contributes
+ * nothing (so an unknown attr value falls back to the inherited / initial value).
+ */
+export const hyphensInterpreter: AttrInterpreter = {
+  attrKey: "hyphens",
+  toStyle: (value) =>
+    value === "none" || value === "manual" || value === "auto"
+      ? { hyphens: value }
+      : {},
+};
+
+/**
  * fontSize accepts:
  *   - number → px shorthand (Length accepts bare numbers as px)
  *   - { unit: "px" | "em" | "percent", value: number } → structured Length
@@ -373,6 +389,7 @@ export function registerBuiltinAttrs(registry: AttrRegistry): void {
   registry.register(linkInterpreter);
   registry.register(fontFamilyInterpreter);
   registry.register(langInterpreter);
+  registry.register(hyphensInterpreter);
   registry.register(fontSizeInterpreter);
   registry.register(colorInterpreter);
   registry.register(backgroundColorInterpreter);

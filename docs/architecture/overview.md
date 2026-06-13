@@ -8,9 +8,11 @@ tooling.
 
 ## Packages
 
-The engine ships as three packages with a strict one-way dependency:
+The engine ships as three host-chain packages with a strict one-way dependency,
+plus one optional injected-capability package:
 
     @taleweaver/react ─► @taleweaver/dom ─► @taleweaver/core
+                         @taleweaver/hyphenation ─► @taleweaver/core (type-only)
 
 - **`@taleweaver/core`** — the pure engine. Owns the document model, the
   multi-stage rendering pipeline, the editor reducer, and platform-agnostic
@@ -25,6 +27,13 @@ The engine ships as three packages with a strict one-way dependency:
   in a hook and a component so a React application can drop the engine
   into its tree without touching the DOM controller directly. Imports
   both `core` and `dom`.
+
+- **`@taleweaver/hyphenation`** — the concrete Liang hyphenator for
+  `hyphens: auto`. A pure Knuth-Liang trie + per-language pattern data
+  (`en-us` in v1); the host injects `createLiangHyphenator()` via
+  `EditorConfig.hyphenator`. Kept separate so heavy per-language pattern data
+  stays out of `core`'s hot path and the algorithm is reusable by non-DOM hosts
+  (server-side render, print). Depends on `core` for the `Hyphenator` type only.
 
 Examples (`examples/react/`, `examples/dom/`) are reference applications
 that demonstrate wiring; they are not part of the engine.
@@ -77,7 +86,7 @@ The repository is an npm workspaces monorepo.
 Consequences for the architecture:
 
 - **Unicode algorithms (UAX #9 / #14 / #29).** The shaper segments text into **grapheme clusters** (UAX #29) via `Intl.Segmenter` (a built-in browser/Node API, not a dependency) — each cluster is one shaper cluster, and cursor/selection/delete snap to cluster boundaries. **UAX #14 line-break is implemented** — a hand-rolled, conformant rule engine (`layout/uax14/`, passing the full `LineBreakTest.txt` conformance suite) with a vendored, committed Unicode break-property table; it feeds the shapers' break opportunities and drives the IFC wrap loop (CJK ideographs wrap, NBSP/`GL` glue holds, hyphens break). **UAX #9 bidi is implemented** (P4, in-browser smoke pending) — a hand-rolled, conformant algorithm (`layout/uax9/`, 100% on `BidiTest.txt` + `BidiCharacterTest.txt`) wired per paragraph (`resolveParagraphBidi`), reordered per line into physical/visual geometry (`reorderLineForBidi`), painted right-to-left for odd-level runs, and read by the cursor layer for RTL caret/hit-test/selection/navigation (see `1-core/1.7-editor.md` "Bidi cursor").
-- **Hyphenation.** Hyphenation patterns (multi-megabyte language dictionaries) are provided by the host through an optional callback on the canvas shaper. Dictionaries are not bundled in either package. Consumers who want real hyphenation supply patterns from their own loader.
+- **Hyphenation.** `hyphens: auto` uses an injected `Hyphenator` capability (`EditorConfig.hyphenator`) — NOT a shaper callback. Core defines the interface + a mock; the concrete Knuth-Liang algorithm + per-language pattern data ship in the separate `@taleweaver/hyphenation` package (`createLiangHyphenator()`, `en-us` in v1). Heavy per-language dictionaries are not bundled into `core`/`dom`; a host opts in by wiring `createLiangHyphenator()` (or its own `Hyphenator`). With none configured, `auto` falls back to `manual` (the correct CSS UA behavior).
 - **Heavier text shapers (e.g., HarfBuzz).** Layered as separate packages (`@taleweaver/shaper-harfbuzz`) that the consumer optionally installs. Such packages can have their own runtime dependencies; they implement the `TextShaper` interface and the consumer wires them in via `EditorConfig.measurer`.
 - **Embedded media, charts, equations.** Same pattern — separate optional packages plug in via custom render-fn `ComponentDefinition`s.
 

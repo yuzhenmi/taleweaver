@@ -63,6 +63,7 @@ import {
   type PageConfig,
 } from "@taleweaver/core";
 import { createCanvasShaper } from "@taleweaver/dom";
+import { createLiangHyphenator } from "@taleweaver/hyphenation";
 import { tryLoadPerfFixtureFromUrl } from "./perf-fixture";
 import { loadFairytale } from "./fairytale-seed";
 
@@ -92,6 +93,10 @@ function createConfig(): EditorConfig {
     attrRegistry: createDefaultAttrRegistry(),
     containerWidth: DEFAULT_WIDTH,
     pageConfig: PAGE_CONFIG,
+    // Concrete Liang `en-us` hyphenator (auto-hyphenation Slice 5). The demo
+    // document authors `lang="en"` + `hyphens="auto"` on justified prose, so
+    // `hyphens: auto` discovers in-word break points algorithmically.
+    hyphenator: createLiangHyphenator(),
   };
 }
 
