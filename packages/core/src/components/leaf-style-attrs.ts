@@ -1,6 +1,6 @@
 import type { TextAlign } from "../cascade/builtin-attrs";
 import { isTextAlign, normalizeTabStops } from "../cascade/builtin-attrs";
-import type { WritingMode, TabStop } from "../styles";
+import type { WritingMode, TabStop, Float, Direction } from "../styles";
 
 const VALID_WRITING_MODES: ReadonlySet<WritingMode> = new Set<WritingMode>([
   "horizontal-tb",
@@ -37,6 +37,36 @@ export function isWritingMode(value: unknown): value is WritingMode {
  */
 export function writingModeFromAttrs(value: unknown): WritingMode | undefined {
   return isWritingMode(value) ? value : undefined;
+}
+
+/**
+ * Read a block-level `lang` attr override for a block component
+ * (document / paragraph / heading / list-item) and synthesize it onto the
+ * ElementBox `style` as the `language` property.
+ *
+ * Per the components/builtin-attrs "component-set" convention (see
+ * `writingModeFromAttrs` above), block-level style that must reach layout is
+ * synthesized by the component onto its ElementBox `style`: the layout cascade
+ * re-derives `computedStyle` from `node.style`, and the render-time attrs-derived
+ * `view.computedStyle` is not threaded onto the ElementBox style, so the
+ * `langInterpreter` (a generic cascade interpreter) alone never reaches layout.
+ * `language` is an inherited property (`property-meta.ts`), so declaring it once
+ * on the document root cascades to every descendant block — which is what feeds
+ * the PDF `/Lang` catalog entry (the controller's `firstBodyLanguage` walk reads
+ * `text-run.computedStyle.language`) and per-block auto-hyphenation (`ifc.ts`
+ * reads `cs.language`).
+ *
+ * The value is taken verbatim (no BCP-47 normalization — matching the
+ * `langInterpreter`). An EMPTY string returns `undefined` (NOT `""`): leaving
+ * the property unset lets the layout cascade fall back to inheritance / the
+ * initial `""`, whereas synthesizing `language: ""` on a child would CLOBBER an
+ * inherited document language. This mirrors how every other `*FromAttrs` helper
+ * drops invalid/empty input to preserve inheritance.
+ *
+ * Returns the validated tag, or `undefined` to leave the property unset.
+ */
+export function langFromAttrs(value: unknown): string | undefined {
+  return typeof value === "string" && value !== "" ? value : undefined;
 }
 
 /**
@@ -171,4 +201,28 @@ export function marginBlockEndFromAttrs(value: unknown): number | undefined {
 export function tabStopsFromAttrs(value: unknown): readonly TabStop[] | undefined {
   const stops = normalizeTabStops(value);
   return stops !== null ? stops : undefined;
+}
+
+/**
+ * Map the Google-Docs PHYSICAL image-wrap enum (`"left" | "right" | "break"`) to
+ * the engine's LOGICAL `Float`, resolved against the image block's writing
+ * `direction`. Google Docs' "wrap left" means PHYSICAL left; the engine's
+ * `float` is logical (`inline-start`/`inline-end`, mapped to a physical side by
+ * `float-context.ts` against the container direction). So under RTL "left" must
+ * resolve to `inline-end` (and "right" to `inline-start`) to stay physically
+ * placed where the user asked. `"break"` / unknown → `undefined`: leave `float`
+ * unset so the image keeps its full-width `display:block` default (the current,
+ * unchanged behavior). Mirrors the component-set convention of `textAlignFromAttrs`.
+ *
+ * Physical-side trace (sign-correctness, verified against `float-context.ts` +
+ * `writing-mode.ts` `logicalToPhysical`): under RTL, `inline-end` resolves to
+ * physical `x=0` (left) — `inlineOffset = containingInlineSize − inlineSize`, then
+ * `logicalToPhysical` RTL mirror `x = containingInlineSize − inlineOffset −
+ * inlineSize = 0`. So `wrap:"left"` → `inline-end` (RTL) → physically left, as
+ * intended. The inversion direction is correct (no sign error).
+ */
+export function imageWrapFloat(wrap: unknown, direction: Direction): Float | undefined {
+  if (wrap === "left") return direction === "rtl" ? "inline-end" : "inline-start";
+  if (wrap === "right") return direction === "rtl" ? "inline-start" : "inline-end";
+  return undefined; // "break" + any unrecognized value
 }

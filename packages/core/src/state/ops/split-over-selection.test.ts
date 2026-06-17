@@ -43,6 +43,12 @@ import {
 } from "../../test-utils/state-builders";
 import type { InlineContent } from "../inline-content";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 const DEL_ID = "del1" as SuggestionId;
 const INS_ID = "ins1" as SuggestionId;
 const CREATED_AT = 9000;
@@ -295,7 +301,7 @@ describe("splitWithSuggestionOverSelection — collapsed-after-normalization fal
     // Exactly ONE record: the insertion. No deletion.
     const suggestions = getSuggestions(s);
     expect(suggestions.length).toBe(1);
-    expect(suggestions[0].kind).toBe("insertion");
-    expect(suggestions[0].id).toBe(INS_ID);
+    expect(nth(suggestions, 0, "suggestion").kind).toBe("insertion");
+    expect(nth(suggestions, 0, "suggestion").id).toBe(INS_ID);
   });
 });

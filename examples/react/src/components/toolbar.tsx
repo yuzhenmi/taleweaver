@@ -43,8 +43,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { EditorAction, EditorState, FootnoteNumberingPolicy } from "@taleweaver/dom";
-import { documentFootnotePolicy } from "@taleweaver/dom";
+import type { EditorAction, EditorState, FootnoteNumberingPolicy } from "@taleweaver/print";
+import { documentFootnotePolicy } from "@taleweaver/print";
 import { getFormatState } from "./toolbar-utils";
 
 interface ToolbarProps {

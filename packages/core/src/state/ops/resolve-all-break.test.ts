@@ -45,6 +45,12 @@ import { createTestAllocator, type BlockId } from "../block-id";
 
 const ALICE = "alice";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 /** doc > [ p("ABCD") ] — one text run, the base for the consecutive-split cascade. */
 function oneBlock(): State {
   return buildState({
@@ -211,8 +217,8 @@ describe("resolveAll break — acceptAll over 3 consecutive splits → keeps all
     for (let i = 0; i < body.length; i++) {
       const expectedNext = i + 1 < body.length ? body[i + 1] : null;
       const expectedPrev = i > 0 ? body[i - 1] : null;
-      expect(getBlock(s, body[i])?.nextSiblingId ?? null).toBe(expectedNext);
-      expect(getBlock(s, body[i])?.prevSiblingId ?? null).toBe(expectedPrev);
+      expect(getBlock(s, nth(body, i, "block"))?.nextSiblingId ?? null).toBe(expectedNext);
+      expect(getBlock(s, nth(body, i, "block"))?.prevSiblingId ?? null).toBe(expectedPrev);
     }
     expect(getBlock(s, "doc" as BlockId)?.firstChildId).toBe(body[0]);
     expect(getBlock(s, "doc" as BlockId)?.lastChildId).toBe(body[body.length - 1]);
@@ -227,7 +233,7 @@ describe("resolveAll break — JOIN mark", () => {
       createdAt: 400,
     }).state;
     expect(hasBreakEmbed(seeded, "p1")).toBe(true);
-    expect(getSuggestions(seeded)[0].kind).toBe("deletion");
+    expect(nth(getSuggestions(seeded), 0, "suggestion").kind).toBe("deletion");
 
     const s = acceptAll(seeded).state;
 

@@ -41,6 +41,12 @@ import type { SiblingBlockInit } from "./insert-blocks-after";
 import type { BlockId } from "../block-id";
 import type { InlineContent, InlineItem } from "../inline-content";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 const REPL = (d: string, i: string): ReplaceSuggestionInput => ({
   deletionId: d as SuggestionId,
   insertionId: i as SuggestionId,
@@ -349,7 +355,7 @@ describe("replaceWithSuggestedFragment — S4 surgical START block for n>1", () 
     // The one NEW block (n-1 = 1) follows B in the sequence; assert its relocated content.
     const seq = blockSeq(r.state);
     expect(seq).toEqual(["B", seq[1], "T"]);
-    const newId = seq[1];
+    const newId = nth(seq, 1, "new block");
     expect(serializeBlock(r.state, newId)).toEqual(oracleNewBlockForState(mk, span, fragment, newId));
     // The load-bearing regression: B's "a"{x} prefix survives (previously full-replace
     // minted a fresh Y.Text). Offset 1 = a|bcd boundary → "a" is whole + untouched.
@@ -377,7 +383,7 @@ describe("replaceWithSuggestedFragment — S4 surgical START block for n>1", () 
     expect(serializeBlock(r.state, "B")).toEqual(oracleForState(mk, span, fragment, "B"));
     const seq = blockSeq(r.state);
     expect(seq).toEqual(["B", seq[1], "T"]);
-    const newId = seq[1];
+    const newId = nth(seq, 1, "new block");
     // The last (only) new block carries B's relocated STRUCK tail (the deletion-id path).
     expect(serializeBlock(r.state, newId)).toEqual(oracleNewBlockForState(mk, span, fragment, newId));
     expect(findYTextByString(r.state, "B", "a")).toBe(bPrefixBefore);
@@ -403,7 +409,7 @@ describe("replaceWithSuggestedFragment — S4 surgical START block for n>1", () 
     // struck tail "bc"{y,del} + the cross-block JOIN embed after line Y.
     const seq = blockSeq(r.state);
     expect(seq).toEqual(["B", seq[1], "I1", "I2", "E"]);
-    const newId = seq[1];
+    const newId = nth(seq, 1, "new block");
     expect(serializeBlock(r.state, newId)).toEqual(
       oracleNewBlockForState(() => fourBlocks(B(), I1(), I2(), E()), span(), fragment, newId),
     );

@@ -98,7 +98,15 @@ export function buildDocumentFromTree(
     // Container: pre-mint child ids so each child knows its prev/next, then recurse.
     const childIds = node.children.map(() => allocator.allocate());
     node.children.forEach((child, i) => {
-      build(child, childIds[i], id, childIds[i - 1] ?? null, childIds[i + 1] ?? null);
+      const childId = childIds[i];
+      if (childId === undefined) {
+        // Unreachable: childIds is built 1:1 from node.children via map, so the
+        // same-index lookup is always in bounds.
+        throw new Error(`buildDocumentFromTree: childIds index ${i} out of range`);
+      }
+      // childIds[i - 1] / childIds[i + 1] are intentionally undefined at the
+      // ends (first child has no prev, last has no next) → `?? null`.
+      build(child, childId, id, childIds[i - 1] ?? null, childIds[i + 1] ?? null);
     });
     blocks.push({
       id,

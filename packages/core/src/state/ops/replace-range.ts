@@ -16,6 +16,7 @@ import {
   insertTextInTx,
   planInsertText,
   planInsertTextFullReplace,
+  planInsertTextSplitInPlace,
   type InsertTextPlan,
 } from "./insert-text";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
@@ -41,12 +42,20 @@ import type { AttrRegistry } from "../../cascade/attr-registry";
  * delete-plan-null-with-empty-text no-op short-circuit BEFORE producing a
  * plan: `planReplaceRange` returns `null`, signalling the caller to no-op.
  *
- * Critically, `insertPlan` is always a `full-replace` InsertTextPlan when
- * it follows a `deletePlan` — the post-delete Y.Array doesn't exist yet
- * (deleteRangeInTx creates it), so an in-place plan would be unsafe. When
- * `deletePlan` is null (the pure-insert cases), `insertPlan` is the regular
- * `planInsertText` result (in-place or full-replace — both are safe, as no
- * prior write blew away the Y.Text identity in the same transaction).
+ * The insert plan that FOLLOWS a `deletePlan` is computed against
+ * `deletePlan.mergedItems` (the known post-delete items), NOT against `state`'s
+ * stale PRE-delete snapshot — and its STRATEGY depends on what `deleteRangeInTx`
+ * did to the anchor block:
+ *   - after a SAME-BLOCK delete (surgical, in place — the live Y.Array survives
+ *     identity-preserved, equal to `mergedItems`), `insertPlan` is `split-in-place`
+ *     (`planInsertTextSplitInPlace`): a boundary/interior insert that keeps every
+ *     NON-straddled run's `Y.Text` CRDT identity.
+ *   - after a CROSS-BLOCK delete (still full-replaces the anchor block's Y.Array →
+ *     its identity is gone), `insertPlan` is `full-replace` (`planInsertTextFullReplace`)
+ *     — an in-place insert against the destroyed array would be unsafe.
+ * When `deletePlan` is null (the pure-insert cases), `insertPlan` is the regular
+ * `planInsertText` result (in-place or full-replace — both safe, as no prior write
+ * blew away the Y.Text identity in the same transaction).
  */
 export interface ReplaceRangePlan {
   readonly deletePlan: DeleteRangePlan | null;
@@ -245,31 +254,47 @@ export function planReplaceRange(
     };
   }
 
-  // Full replace path: delete + insert, ONE transaction (T12).
+  // Delete + insert, ONE transaction (T12). The insertion plan is built against
+  // `deletePlan.mergedItems` — the anchor block's POST-DELETE inlineContent — NOT
+  // against `state` (whose snapshot of the anchor block is still pre-delete).
   //
-  // The insertion plan is built against `deletePlan.mergedItems` — the
-  // anchor block's POST-DELETE inlineContent — and NOT against `state`
-  // (whose snapshot of the anchor block is still pre-delete).
-  // `deleteRangeInTx` will create a fresh Y.Array for the anchor block's
-  // inlineContent inside the transaction; `insertTextInTx` will then
-  // full-replace it again with the post-insert items. We use
-  // `planInsertTextFullReplace` which forces mode=full-replace.
+  // The insert STRATEGY depends on what `deleteRangeInTx` did to the anchor block:
+  //   - SAME-BLOCK delete is SURGICAL (slice 1): it leaves the live Y.Array intact
+  //     and identity-preserved, equal to `mergedItems` item-for-item. So the insert
+  //     can use `planInsertTextSplitInPlace` — a boundary/interior insert that keeps
+  //     every NON-straddled run's `Y.Text` CRDT identity (the win: a RelativePosition
+  //     in a surviving run survives the replace). Read-back stays byte-identical: the
+  //     `split-in-place` applier runs `mergeAdjacentSameAttrsTextItemsInPlace`, mirroring the
+  //     full-replace path's `mergeAdjacentTextItems`.
+  //   - CROSS-BLOCK delete still FULL-REPLACES the anchor block's Y.Array, so the live
+  //     array's identity is already gone → `split-in-place`'s precondition is violated.
+  //     Keep `planInsertTextFullReplace` until cross-block delete goes surgical too.
   const cursorOffset = normalized.anchor.offset;
   const anchorBlockId =
     deletePlan.mode === "same-block" ? deletePlan.blockId : deletePlan.anchorId;
-  // Thread the span's owning tree (`deletePlan.kind`, resolved by
-  // `planDeleteRange` via `resolveBlock`) into the insert plan so the
-  // composed `insertTextInTx` full-replace writes into the correct Y.Map.
-  // Both phases share the same anchor block, hence the same `kind`.
-  const insertPlan = planInsertTextFullReplace(
-    anchorBlockId,
-    deletePlan.kind,
-    deletePlan.mergedItems,
-    cursorOffset,
-    text,
-    attrs,
-    registry,
-  );
+  // Thread the span's owning tree (`deletePlan.kind`, resolved by `planDeleteRange`
+  // via `resolveBlock`) into the insert plan so the composed `insertTextInTx` writes
+  // into the correct Y.Map. Both phases share the same anchor block, hence the same `kind`.
+  const insertPlan =
+    deletePlan.mode === "same-block"
+      ? planInsertTextSplitInPlace(
+          anchorBlockId,
+          deletePlan.kind,
+          deletePlan.mergedItems,
+          cursorOffset,
+          text,
+          attrs,
+          registry,
+        )
+      : planInsertTextFullReplace(
+          anchorBlockId,
+          deletePlan.kind,
+          deletePlan.mergedItems,
+          cursorOffset,
+          text,
+          attrs,
+          registry,
+        );
 
   return { deletePlan, insertPlan };
 }

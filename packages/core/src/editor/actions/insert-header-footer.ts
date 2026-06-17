@@ -9,21 +9,24 @@ import {
 } from "../../state";
 import type { BlockId, TemplateRegion } from "../../state";
 import { rebuildTrees } from "./helpers";
+import { resolveActiveSection } from "./active-section";
 
 /**
  * `INSERT_HEADER` / `INSERT_FOOTER` handler — the C.2c browser-verify vehicle.
  *
  * Creates a header/footer template body (a `template-body` CONTAINER holding
- * one empty paragraph), links the CONTAINER on the DOCUMENT ROOT (the implicit
- * section, `state.rootId`), and places a collapsed caret at the start of the
- * body's PARAGRAPH child so the user can immediately type. Once the caret is in
- * the paragraph, the (map-agnostic, T7) edit ops mutate templateContents — type
- * "Hi" and it repeats on every page; press Enter and a new sibling paragraph is
- * added UNDER the container (the slot renders both lines, #326).
+ * one empty paragraph), links the CONTAINER on the cursor's ACTIVE SECTION (the
+ * `section` block enclosing the focus, via `resolveActiveSection`; or the
+ * document root when the cursor is in leading / section-less content), and
+ * places a collapsed caret at the start of the body's PARAGRAPH child so the
+ * user can immediately type. Once the caret is in the paragraph, the
+ * (map-agnostic, T7) edit ops mutate templateContents — type "Hi" and it
+ * repeats on every page; press Enter and a new sibling paragraph is added
+ * UNDER the container (the slot renders both lines, #326).
  *
- * **Idempotency (Google Docs: one header / one footer per document).** If the
- * doc-root already links an EXISTING template body for this region, we do NOT
- * create a duplicate: we move the caret into the existing body's FIRST
+ * **Idempotency (Google Docs: one header / one footer per section).** If the
+ * active section already links an EXISTING template body for this region, we do
+ * NOT create a duplicate: we move the caret into the existing body's FIRST
  * paragraph child (offset 0) and return, never calling `history.commit` (no
  * state change). A dangling link (attr set but the body absent — shouldn't
  * happen) is treated as "no existing body" and a fresh one is created. A body
@@ -38,10 +41,17 @@ export function handleInsertHeaderFooter(
   region: TemplateRegion,
   config: EditorConfig,
 ): EditorState {
-  const sectionBlockId = editor.state.rootId;
+  // The header/footer links onto the cursor's ACTIVE SECTION — the `section`
+  // block enclosing the focus — so section 2 gets its own header (mirrors
+  // `TOGGLE_SECTION_LANDSCAPE` / `SET_SECTION_COLUMNS`). When the cursor is in
+  // leading / section-less content (`resolveActiveSection` → null), it falls
+  // back to the document root (the implicit section).
+  const sectionBlockId =
+    resolveActiveSection(editor, editor.selection.focus.blockId) ??
+    editor.state.rootId;
   const attrKey = region === "header" ? "headerBlockId" : "footerBlockId";
 
-  // Idempotency: if the doc-root already links an existing body for this
+  // Idempotency: if the active section already links an existing body for this
   // region, place the caret in its FIRST paragraph child (the editable line)
   // and return. The link points at the CONTAINER root; resolve its
   // `firstChildId` to find the editable paragraph.

@@ -74,6 +74,9 @@ export function planInsertTableColumn(
 
   const rows = ctx.rowIds.map((rowId, r) => {
     const cells = ctx.cellIdsByRow[r];
+    if (cells === undefined) {
+      throw new Error(`insertTableColumn: row ${r} cells missing (unreachable)`);
+    }
     // Non-ragged (hasSpans === false) → every row has the same column count, so
     // targetCol ∈ [0, colCount] indexes consistently across rows.
     const prevCellId = targetCol === 0 ? null : (cells[targetCol - 1] ?? null);

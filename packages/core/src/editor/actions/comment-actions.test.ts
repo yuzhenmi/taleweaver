@@ -25,6 +25,12 @@ import {
   type CommentId,
 } from "../../state";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 const CID = "c1" as CommentId;
 
 /** The first body paragraph id under the document root. */
@@ -90,9 +96,10 @@ describe("handleAddComment — ADD_COMMENT", () => {
     expect(next.state).not.toBe(placed.state);
     const comments = getComments(next.state);
     expect(comments.length).toBe(1);
-    expect(comments[0].id).toBe(CID);
-    expect(comments[0].resolved).toBe(false);
-    expect(comments[0].range.orphaned).toBe(false); // live (well-formed pair)
+    const comment0 = nth(comments, 0, "comment");
+    expect(comment0.id).toBe(CID);
+    expect(comment0.resolved).toBe(false);
+    expect(comment0.range.orphaned).toBe(false); // live (well-formed pair)
     // Both markers (start + end) present in the paragraph.
     expect(markerCount(next, paraId, CID)).toBe(2);
   });
@@ -205,7 +212,8 @@ describe("handleAddComment — ADD_COMMENT", () => {
     };
     const next = reduceEditor(crossEditor, addCommentAction(CID), config);
 
-    expect(next).toBe(crossEditor);
+    // Same state reference (no-op; reducer entry-clears lastDirtyIds).
+    expect(next.state).toBe(crossEditor.state);
     expect(getComments(next.state).length).toBe(0);
   });
 
@@ -249,27 +257,28 @@ describe("handleResolveComment / handleReopenComment", () => {
 
   it("RESOLVE flips resolved → true; REOPEN flips it back; both undoable", () => {
     const added = withComment();
-    expect(getComments(added.state)[0].resolved).toBe(false);
+    expect(nth(getComments(added.state), 0, "comment").resolved).toBe(false);
 
     const resolved = reduceEditor(added, { type: "RESOLVE_COMMENT", id: CID }, config);
-    expect(getComments(resolved.state)[0].resolved).toBe(true);
+    expect(nth(getComments(resolved.state), 0, "comment").resolved).toBe(true);
 
     const reopened = reduceEditor(resolved, { type: "REOPEN_COMMENT", id: CID }, config);
-    expect(getComments(reopened.state)[0].resolved).toBe(false);
+    expect(nth(getComments(reopened.state), 0, "comment").resolved).toBe(false);
 
     // Undo the reopen → back to resolved.
     const undoReopen = reduceEditor(reopened, { type: "UNDO" }, config);
-    expect(getComments(undoReopen.state)[0].resolved).toBe(true);
+    expect(nth(getComments(undoReopen.state), 0, "comment").resolved).toBe(true);
     // Undo the resolve → back to open.
     const undoResolve = reduceEditor(undoReopen, { type: "UNDO" }, config);
-    expect(getComments(undoResolve.state)[0].resolved).toBe(false);
+    expect(nth(getComments(undoResolve.state), 0, "comment").resolved).toBe(false);
   });
 
-  it("RESOLVE on an already-resolved comment is an identity no-op (same editor ref)", () => {
+  it("RESOLVE on an already-resolved comment is an identity no-op (same state ref)", () => {
     const added = withComment();
     const resolved = reduceEditor(added, { type: "RESOLVE_COMMENT", id: CID }, config);
     const again = reduceEditor(resolved, { type: "RESOLVE_COMMENT", id: CID }, config);
-    expect(again).toBe(resolved);
+    // Same state reference (no-op; reducer entry-clears lastDirtyIds).
+    expect(again.state).toBe(resolved.state);
   });
 
   it("RESOLVE on an absent comment is an identity no-op (same editor ref)", () => {
@@ -279,10 +288,11 @@ describe("handleResolveComment / handleReopenComment", () => {
     expect(next).toBe(placed);
   });
 
-  it("REOPEN on an already-open comment is an identity no-op (same editor ref)", () => {
+  it("REOPEN on an already-open comment is an identity no-op (same state ref)", () => {
     const added = withComment(); // open by default
     const next = reduceEditor(added, { type: "REOPEN_COMMENT", id: CID }, config);
-    expect(next).toBe(added);
+    // Same state reference (no-op; reducer entry-clears lastDirtyIds).
+    expect(next.state).toBe(added.state);
   });
 });
 
@@ -402,7 +412,7 @@ describe("handleAddReply — ADD_REPLY", () => {
     const { editor, paraId } = withText("abcdef");
     const placed = selectRange(editor, paraId, 1, 4);
     const added = reduceEditor(placed, addCommentAction(CID), config);
-    expect(getComments(added.state)[0].replies.length).toBe(0);
+    expect(nth(getComments(added.state), 0, "comment").replies.length).toBe(0);
 
     const replied = reduceEditor(
       added,
@@ -416,12 +426,13 @@ describe("handleAddReply — ADD_REPLY", () => {
       },
       config,
     );
-    const replies = getComments(replied.state)[0].replies;
+    const replies = nth(getComments(replied.state), 0, "comment").replies;
     expect(replies.length).toBe(1);
-    expect(replies[0].id).toBe("r1");
-    expect(replies[0].author).toBe("bob");
-    expect(replies[0].body).toBe("agreed");
-    expect(replies[0].createdAt).toBe(2000);
+    const reply0 = nth(replies, 0, "reply");
+    expect(reply0.id).toBe("r1");
+    expect(reply0.author).toBe("bob");
+    expect(reply0.body).toBe("agreed");
+    expect(reply0.createdAt).toBe(2000);
   });
 
   it("no-ops when the comment is absent (same editor reference)", () => {
@@ -458,13 +469,13 @@ describe("handleAddReply — ADD_REPLY", () => {
       },
       config,
     );
-    expect(getComments(replied.state)[0].replies.length).toBe(1);
+    expect(nth(getComments(replied.state), 0, "comment").replies.length).toBe(1);
 
     const undone = reduceEditor(replied, { type: "UNDO" }, config);
     // The reply is its own "command" undo unit: one UNDO drops the reply but
     // the comment record + markers survive (a separate prior entry).
     const comments = getComments(undone.state);
     expect(comments.length).toBe(1);
-    expect(comments[0].replies.length).toBe(0);
+    expect(nth(comments, 0, "comment").replies.length).toBe(0);
   });
 });

@@ -161,6 +161,24 @@ describe("expandInlineItems — suggestion visuals (slice 5a)", () => {
   });
 });
 
+describe("expandInlineItems — link passthrough (#521)", () => {
+  it("carries item.attrs.link onto the render TextBox", () => {
+    const state = buildDoc(
+      inlineContent([text("click", { link: "https://x.com" })]),
+      [],
+    );
+    const box = textBoxWith(render(state, reg, attrReg).root, "click");
+    expect(box.type).toBe("text");
+    expect(box.link).toBe("https://x.com");
+  });
+
+  it("leaves link undefined on a TextBox built from an unlinked item", () => {
+    const state = buildDoc(inlineContent([text("plain")]), []);
+    const box = textBoxWith(render(state, reg, attrReg).root, "plain");
+    expect(box.link).toBeUndefined();
+  });
+});
+
 describe("authorColorOf", () => {
   it("is deterministic per author", () => {
     expect(authorColorOf("alice")).toBe(authorColorOf("alice"));
@@ -208,6 +226,7 @@ function embedBoxWith(root: RenderNode, t: string): ElementBox {
 function pilcrowChild(box: ElementBox): TextBox {
   expect(box.children.length).toBe(1);
   const child = box.children[0];
+  if (child === undefined) throw new Error("expected one pilcrow child");
   expect(child.type).toBe("text");
   return child as TextBox;
 }

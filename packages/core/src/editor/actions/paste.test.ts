@@ -23,6 +23,12 @@ import {
 import { getBlock } from "../../state";
 import type { BlockId } from "../../state";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 /** Ordered list of the document root's direct children. */
 function rootChildren(editor: EditorState): BlockId[] {
   const root = getBlock(editor.state, editor.state.rootId);
@@ -65,9 +71,9 @@ describe("handlePaste — multi-line plain-text paste (characterization + migrat
 
     const blocks = rootChildren(next);
     expect(blocks).toHaveLength(3);
-    expect(getTextOf(next.state, blocks[0])).toBe("a");
-    expect(getTextOf(next.state, blocks[1])).toBe("b");
-    expect(getTextOf(next.state, blocks[2])).toBe("c");
+    expect(getTextOf(next.state, nth(blocks, 0, "block"))).toBe("a");
+    expect(getTextOf(next.state, nth(blocks, 1, "block"))).toBe("b");
+    expect(getTextOf(next.state, nth(blocks, 2, "block"))).toBe("c");
     // Cursor collapsed at end of the last pasted line ("c", length 1).
     expect(next.selection.focus).toEqual({ blockId: blocks[2], offset: 1 });
     expect(next.selection.anchor).toEqual({ blockId: blocks[2], offset: 1 });
@@ -86,9 +92,9 @@ describe("handlePaste — multi-line plain-text paste (characterization + migrat
     const blocks = rootChildren(next);
     expect(blocks).toHaveLength(2);
     // First block: prefix "hello" + L0 "X".
-    expect(getTextOf(next.state, blocks[0])).toBe("helloX");
+    expect(getTextOf(next.state, nth(blocks, 0, "block"))).toBe("helloX");
     // Second block: L1 "Y" + suffix "world".
-    expect(getTextOf(next.state, blocks[1])).toBe("Yworld");
+    expect(getTextOf(next.state, nth(blocks, 1, "block"))).toBe("Yworld");
     // Cursor at end of last pasted line "Y" (length 1) in the new block.
     expect(next.selection.focus).toEqual({ blockId: blocks[1], offset: 1 });
     expect(next.selection.anchor).toEqual({ blockId: blocks[1], offset: 1 });
@@ -101,8 +107,8 @@ describe("handlePaste — multi-line plain-text paste (characterization + migrat
 
     const blocks = rootChildren(next);
     expect(blocks).toHaveLength(2);
-    expect(getTextOf(next.state, blocks[0])).toBe("a");
-    expect(getTextOf(next.state, blocks[1])).toBe("");
+    expect(getTextOf(next.state, nth(blocks, 0, "block"))).toBe("a");
+    expect(getTextOf(next.state, nth(blocks, 1, "block"))).toBe("");
     // Last pasted line is "" (length 0): cursor at offset 0 of the empty para.
     expect(next.selection.focus).toEqual({ blockId: blocks[1], offset: 0 });
     expect(next.selection.anchor).toEqual({ blockId: blocks[1], offset: 0 });
@@ -115,9 +121,9 @@ describe("handlePaste — multi-line plain-text paste (characterization + migrat
 
     const blocks = rootChildren(next);
     expect(blocks).toHaveLength(3);
-    expect(getTextOf(next.state, blocks[0])).toBe("a");
-    expect(getTextOf(next.state, blocks[1])).toBe("");
-    expect(getTextOf(next.state, blocks[2])).toBe("b");
+    expect(getTextOf(next.state, nth(blocks, 0, "block"))).toBe("a");
+    expect(getTextOf(next.state, nth(blocks, 1, "block"))).toBe("");
+    expect(getTextOf(next.state, nth(blocks, 2, "block"))).toBe("b");
     expect(next.selection.focus).toEqual({ blockId: blocks[2], offset: 1 });
     expect(next.selection.anchor).toEqual({ blockId: blocks[2], offset: 1 });
   });
@@ -141,8 +147,8 @@ describe("handlePaste — multi-line plain-text paste (characterization + migrat
     // prepends to N_last.
     const blocks = rootChildren(next);
     expect(blocks).toHaveLength(2);
-    expect(getTextOf(next.state, blocks[0])).toBe("");
-    expect(getTextOf(next.state, blocks[1])).toBe("Yworld");
+    expect(getTextOf(next.state, nth(blocks, 0, "block"))).toBe("");
+    expect(getTextOf(next.state, nth(blocks, 1, "block"))).toBe("Yworld");
     expect(next.selection.focus).toEqual({ blockId: blocks[1], offset: 1 });
     expect(next.selection.anchor).toEqual({ blockId: blocks[1], offset: 1 });
   });
@@ -163,8 +169,8 @@ describe("handlePaste — multi-line plain-text paste (characterization + migrat
     const blocks = rootChildren(next);
     expect(blocks).toHaveLength(2);
     // "world" deleted → prefix "hello", then "X" appended; new block "Y".
-    expect(getTextOf(next.state, blocks[0])).toBe("helloX");
-    expect(getTextOf(next.state, blocks[1])).toBe("Y");
+    expect(getTextOf(next.state, nth(blocks, 0, "block"))).toBe("helloX");
+    expect(getTextOf(next.state, nth(blocks, 1, "block"))).toBe("Y");
     expect(next.selection.focus).toEqual({ blockId: blocks[1], offset: 1 });
     expect(next.selection.anchor).toEqual({ blockId: blocks[1], offset: 1 });
   });
@@ -187,7 +193,7 @@ describe("handlePaste — multi-line plain-text paste (characterization + migrat
       expect(getBlock(next.state, id)?.type).toBe("heading");
     }
     // New blocks also inherit the source attrs (level: 1).
-    expect(getBlock(next.state, blocks[1])?.attrs).toEqual({ level: 1 });
+    expect(getBlock(next.state, nth(blocks, 1, "block"))?.attrs).toEqual({ level: 1 });
   });
 
   it("(8) k=4 lines into the middle of a non-empty block: content + cursor match, no throw", () => {
@@ -207,11 +213,11 @@ describe("handlePaste — multi-line plain-text paste (characterization + migrat
     const blocks = rootChildren(next);
     expect(blocks).toHaveLength(4);
     // B keeps prefix "PRE" + L0 "L0".
-    expect(getTextOf(next.state, blocks[0])).toBe("PREL0");
-    expect(getTextOf(next.state, blocks[1])).toBe("L1");
-    expect(getTextOf(next.state, blocks[2])).toBe("L2");
+    expect(getTextOf(next.state, nth(blocks, 0, "block"))).toBe("PREL0");
+    expect(getTextOf(next.state, nth(blocks, 1, "block"))).toBe("L1");
+    expect(getTextOf(next.state, nth(blocks, 2, "block"))).toBe("L2");
     // Last block: L3 + suffix "suf".
-    expect(getTextOf(next.state, blocks[3])).toBe("L3suf");
+    expect(getTextOf(next.state, nth(blocks, 3, "block"))).toBe("L3suf");
     // Cursor at end of last pasted line "L3" (length 2) in the last block.
     expect(next.selection.focus).toEqual({ blockId: blocks[3], offset: 2 });
     expect(next.selection.anchor).toEqual({ blockId: blocks[3], offset: 2 });
@@ -230,8 +236,8 @@ describe("handlePaste — multi-line plain-text paste (characterization + migrat
 
     const blocks = rootChildren(next);
     expect(blocks).toHaveLength(2);
-    expect(getTextOf(next.state, blocks[0])).toBe("a");
-    expect(getTextOf(next.state, blocks[1])).toBe("b");
+    expect(getTextOf(next.state, nth(blocks, 0, "block"))).toBe("a");
+    expect(getTextOf(next.state, nth(blocks, 1, "block"))).toBe("b");
   });
 });
 

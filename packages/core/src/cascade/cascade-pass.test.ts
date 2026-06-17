@@ -4,6 +4,12 @@ import { PROPERTY_META, INITIAL_COMPUTED_STYLE } from "../styles";
 import type { ComputedStyle } from "../styles";
 import { cascadePass, cascadePassIncremental, COMPUTED_STYLE_KEYS, computedStylesEqual } from "./cascade-pass";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 describe("cascadePass", () => {
   it("produces a tree where every node carries computedStyle", () => {
     const tree = createElementBox("root", { display: "block" }, [
@@ -20,12 +26,12 @@ describe("cascadePass", () => {
     expect(cascaded.computedStyle?.display).toBe("block");
 
     // Inner element (no display specified → initial 'inline')
-    const p = cascaded.children[0];
+    const p = nth(cascaded.children, 0, "p element");
     if (p.type !== "element") throw new Error("expected element");
     expect(p.computedStyle?.display).toBe("inline");
 
     // Text leaf
-    const t = p.children[0];
+    const t = nth(p.children, 0, "t text");
     if (t.type !== "text") throw new Error("expected text");
     expect(t.computedStyle).toBeDefined();
   });
@@ -39,9 +45,9 @@ describe("cascadePass", () => {
 
     const cascaded = cascadePass(tree);
     if (cascaded.type !== "element") throw new Error("?");
-    const p = cascaded.children[0];
+    const p = nth(cascaded.children, 0, "p element");
     if (p.type !== "element") throw new Error("?");
-    const t = p.children[0];
+    const t = nth(p.children, 0, "t text");
     if (t.type !== "text") throw new Error("?");
 
     expect(t.computedStyle?.color).toBe("red");
@@ -57,9 +63,9 @@ describe("cascadePass", () => {
 
     const cascaded = cascadePass(tree);
     if (cascaded.type !== "element") throw new Error("?");
-    const p = cascaded.children[0];
+    const p = nth(cascaded.children, 0, "p element");
     if (p.type !== "element") throw new Error("?");
-    const t = p.children[0];
+    const t = nth(p.children, 0, "t text");
     if (t.type !== "text") throw new Error("?");
 
     expect(cascaded.computedStyle?.language).toBe("en-US");
@@ -78,9 +84,9 @@ describe("cascadePass", () => {
 
     const cascaded = cascadePass(tree);
     if (cascaded.type !== "element") throw new Error("?");
-    const p = cascaded.children[0];
+    const p = nth(cascaded.children, 0, "p element");
     if (p.type !== "element") throw new Error("?");
-    const t = p.children[0];
+    const t = nth(p.children, 0, "t text");
     if (t.type !== "text") throw new Error("?");
 
     expect(cascaded.computedStyle?.hyphenateLimitChars).toEqual([4, 3, 3]);
@@ -102,9 +108,9 @@ describe("cascadePass", () => {
     ]);
     const cascaded = cascadePass(tree);
     if (cascaded.type !== "element") throw new Error("?");
-    const p = cascaded.children[0];
+    const p = nth(cascaded.children, 0, "p element");
     if (p.type !== "element") throw new Error("?");
-    const t = p.children[0];
+    const t = nth(p.children, 0, "t text");
     if (t.type !== "text") throw new Error("?");
     expect(t.computedStyle?.overflowWrap).toBe("break-word");
   });
@@ -116,7 +122,7 @@ describe("cascadePass", () => {
 
     const cascaded = cascadePass(tree);
     if (cascaded.type !== "element") throw new Error("?");
-    const p = cascaded.children[0];
+    const p = nth(cascaded.children, 0, "p element");
     if (p.type !== "element") throw new Error("?");
     expect(p.computedStyle?.marginBlockStart).toBe(0);  // initial, not inherited
   });
@@ -157,9 +163,11 @@ describe("cascadePassIncremental", () => {
     const cascadedB = cascadePassIncremental(treeB, treeA, cascadedA);
 
     if (cascadedA.type !== "element" || cascadedB.type !== "element") throw new Error("?");
-    if (cascadedA.children[0].type !== "element" || cascadedB.children[0].type !== "element") throw new Error("?");
-    expect(cascadedA.children[0].computedStyle?.color).toBe("red");
-    expect(cascadedB.children[0].computedStyle?.color).toBe("blue");
+    const childA = nth(cascadedA.children, 0, "child A");
+    const childB = nth(cascadedB.children, 0, "child B");
+    if (childA.type !== "element" || childB.type !== "element") throw new Error("?");
+    expect(childA.computedStyle?.color).toBe("red");
+    expect(childB.computedStyle?.color).toBe("blue");
   });
 });
 

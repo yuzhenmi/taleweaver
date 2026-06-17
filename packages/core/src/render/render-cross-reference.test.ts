@@ -39,6 +39,7 @@ function findCrossRef(root: RenderNode): ElementBox | null {
 function crossRefText(el: ElementBox): string {
   expect(el.children).toHaveLength(1);
   const child = el.children[0];
+  if (child === undefined) throw new Error("expected one cross-ref child");
   expect(child.type).toBe("text");
   return (child as TextBox).text;
 }
@@ -76,6 +77,9 @@ describe("render — cross-reference field wiring", () => {
     // tokenize the resolved string into N tokens and drift the offset accumulator.
     expect(el?.style.display).toBe("inline-block");
     expect(crossRefText(el as ElementBox)).toBe("Introduction");
+    // The atom MUST carry `targetId` in EVERY ref mode so the PDF exporter can
+    // emit an internal /GoTo link to the target block (#522). text-mode included.
+    expect(el?.metadata?.targetId).toBe("h");
   });
 
   it("renders a number-mode reference as the target list-item's counter", () => {
@@ -119,6 +123,9 @@ describe("render — cross-reference field wiring", () => {
     // the bare number (Word's paragraph-number field); the trailing "." in the
     // list MARKER is the level suffix, not part of the counter value.
     expect(crossRefText(el as ElementBox)).toBe("2");
+    // The atom MUST carry `targetId` in EVERY ref mode for the PDF /GoTo link
+    // (#522). number-mode included.
+    expect(el?.metadata?.targetId).toBe("i2");
   });
 
   it("renders the broken-reference text for a dangling target", () => {

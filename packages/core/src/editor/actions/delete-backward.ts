@@ -7,6 +7,8 @@ import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-
 import { handleListIndent } from "./list-indent";
 import { listLevelOf, unlistBlock } from "./list-edits";
 import { deleteAdjacentAtomicLeaf } from "./atomic-edits";
+import { deleteObjectSelection } from "./object-edits";
+import { isObjectSelection } from "../../cursor/object-selection";
 import { deleteRangeOrSuggest, suggestionInputForBlock } from "./suggestion-mode";
 
 export function handleDeleteBackward(
@@ -14,6 +16,14 @@ export function handleDeleteBackward(
   config: EditorConfig,
 ): EditorState {
   const { selection } = editor;
+
+  // Object selection: remove the selected image as a unit — a hard `removeBlock`
+  // in BOTH direct and suggesting mode (matching deleteAdjacentAtomicLeaf, which
+  // has no suggesting branch — whole-block deletion-as-suggestion does not exist
+  // for any atomic block; a pre-existing change-tracking gap, NOT this slice's
+  // concern).
+  const objId = isObjectSelection(editor.state, selection, config.componentRegistry);
+  if (objId !== null) return deleteObjectSelection(editor, config, objId);
 
   // Non-collapsed: delete range. Cursor goes to spanStart.
   if (!isCollapsed(selection)) {

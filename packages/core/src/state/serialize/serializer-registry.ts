@@ -34,9 +34,16 @@ export function createSerializerRegistry(): SerializerRegistry {
 }
 
 /**
- * A registry pre-populated with the built-in serializers. Currently the v1
- * Yjs-binary serializer (`createBinaryDocumentSerializer`); a human-friendly
- * text serializer is a named future addition.
+ * A registry pre-populated with the built-in serializers. Contains ONLY the v1
+ * Yjs-binary serializer (`createBinaryDocumentSerializer`) — the one serializer
+ * with no host-supplied dependencies. It stays arg-free.
+ *
+ * The human-friendly serializers (`createJsonDocumentSerializer`, and the HTML
+ * serializer) are NOT default-registered: they need host-supplied dependencies
+ * (a `blockKindResolver` — the component registry — and an `IdAllocator`).
+ * Default-registering them would invert the `components → state` layering, so
+ * they are HOST-registered (the host constructs them with its registry and
+ * `register`s them onto this registry).
  */
 export function createDefaultSerializerRegistry(): SerializerRegistry {
   const reg = createSerializerRegistry();

@@ -89,10 +89,19 @@ export function handleToggleList(
       );
     }
   } else {
+    // `targets.length === 0` is guarded at the top of the handler, so the first
+    // and last targets always exist.
+    const firstTarget = targets[0];
+    const lastTarget = targets[targets.length - 1];
+    if (firstTarget === undefined || lastTarget === undefined) {
+      throw new Error(
+        "handleToggleList: empty targets reached the turning-on branch (invariant violation)",
+      );
+    }
     const joinId = adjacentSameTypeListId(
       editor.state,
-      targets[0],
-      targets[targets.length - 1],
+      firstTarget,
+      lastTarget,
       listType,
       typeOfList,
     );

@@ -29,6 +29,12 @@ import {
 import type { BlockId } from "../../state";
 import { collectFootnoteAnchors, footnoteNumbers } from "../../footnotes";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 /** Concatenate the text-item runs of an inlineContent items list. */
 function joinText(
   items: ReadonlyArray<{ kind: string; text?: string }> | undefined,
@@ -114,7 +120,7 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
     // The leaf gained exactly one footnote-anchor embed.
     const anchors = anchorEmbedsOf(next, paraId);
     expect(anchors.length).toBe(1);
-    const bodyRootId = anchors[0].contentBlockId;
+    const bodyRootId = nth(anchors, 0, "anchor").contentBlockId;
 
     // The body root + its paragraph child exist in embedContents.
     const bodyRoot = getEmbedContent(next.state, bodyRootId);
@@ -161,7 +167,7 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
 
     const anchors = anchorEmbedsOf(next, paraId);
     expect(anchors.length).toBe(1);
-    const bodyRootId = anchors[0].contentBlockId;
+    const bodyRootId = nth(anchors, 0, "anchor").contentBlockId;
     expect(getEmbedContent(next.state, bodyRootId)).not.toBeNull();
 
     const undone = reduceEditor(next, { type: "UNDO" }, config);
@@ -218,11 +224,11 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
       reset: "continuous",
       format: "decimal",
     });
-    expect(numbers.get(ordered[0].contentBlockId)?.formatted).toBe("1");
-    expect(numbers.get(ordered[1].contentBlockId)?.formatted).toBe("2");
+    expect(numbers.get(nth(ordered, 0, "anchor").contentBlockId)?.formatted).toBe("1");
+    expect(numbers.get(nth(ordered, 1, "anchor").contentBlockId)?.formatted).toBe("2");
     // The earlier-in-document anchor's body is the one inserted last (at 0).
-    expect(numbers.get(anchors[0].contentBlockId)?.value).toBe(1);
-    expect(numbers.get(anchors[1].contentBlockId)?.value).toBe(2);
+    expect(numbers.get(nth(anchors, 0, "anchor").contentBlockId)?.value).toBe(1);
+    expect(numbers.get(nth(anchors, 1, "anchor").contentBlockId)?.value).toBe(2);
   });
 
   it("a SECOND INSERT_FOOTNOTE with the caret JUST AFTER the first marker inserts cleanly (no crash); markers renumber 1,2", () => {
@@ -283,8 +289,8 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
       reset: "continuous",
       format: "decimal",
     });
-    expect(numbers.get(ordered[0].contentBlockId)?.formatted).toBe("1");
-    expect(numbers.get(ordered[1].contentBlockId)?.formatted).toBe("2");
+    expect(numbers.get(nth(ordered, 0, "anchor").contentBlockId)?.formatted).toBe("1");
+    expect(numbers.get(nth(ordered, 1, "anchor").contentBlockId)?.formatted).toBe("2");
   });
 
   it("refuses a nested footnote: with the caret already in a footnote body, INSERT_FOOTNOTE returns the editor unchanged", () => {
@@ -296,8 +302,10 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
     const before = withFn;
     const after = reduceEditor(before, { type: "INSERT_FOOTNOTE" }, config);
 
-    // No-op: same editor reference (the guard returns `editor` unchanged).
-    expect(after).toBe(before);
+    // No-op: same STATE reference (the guard returns the editor with its state
+    // unchanged). Phase 0b's reduceEditor entry-clear of `lastDirtyIds` rewraps
+    // the editor object, so the no-op contract is state-identity, not editor-
+    // object identity (mirrors the #141 `result.state === editor.state` rule).
     expect(after.state).toBe(before.state);
     // No second anchor on the main body leaf.
     const paraId = bodyParaId(typed);
@@ -310,7 +318,8 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
     // The caret is now inside the header body (a templateContents non-main context).
     const after = reduceEditor(withHeader, { type: "INSERT_FOOTNOTE" }, config);
 
-    expect(after).toBe(withHeader);
+    // State-identity no-op (Phase 0b entry-clear rewraps the editor object —
+    // see the nested-footnote refuse test above).
     expect(after.state).toBe(withHeader.state);
     // No footnote anchors anywhere in the main document.
     expect(collectFootnoteAnchors(after.state).length).toBe(0);
@@ -338,7 +347,7 @@ describe("handleInsertFootnote — INSERT_FOOTNOTE", () => {
 
     const anchors = anchorEmbedsOf(withFn, paraId);
     expect(anchors.length).toBe(1);
-    const bodyRootId = anchors[0].contentBlockId;
+    const bodyRootId = nth(anchors, 0, "anchor").contentBlockId;
     expect(getEmbedContent(withFn.state, bodyRootId)).not.toBeNull();
 
     // Move the caret to just AFTER the anchor in the main body (offset 4 = 3
@@ -424,26 +433,10 @@ describe("nav + selection across an inline-block footnote marker (Bug-A siblings
     return { editor, paraId };
   }
 
-  // (1) MOVE_CURSOR right from BEFORE the marker (offset 3) steps OVER it as a
-  // single stop, landing AFTER it (offset 4) — never into its inner body text.
-  it("MOVE_CURSOR forward from offset 3 (before marker) lands at offset 4 (after marker), one step", () => {
-    const { editor, paraId } = markerFixture(3);
-    const moved = reduceEditor(editor, { type: "MOVE_CURSOR", direction: "forward" }, config);
-    expect(moved.selection.focus.blockId).toBe(paraId);
-    expect(moved.selection.focus.offset).toBe(4);
-    // Collapsed (a move, not a selection).
-    expect(moved.selection.anchor.offset).toBe(4);
-  });
-
-  // (2) MOVE_CURSOR left from AFTER the marker (offset 4) lands BEFORE it
-  // (offset 3) in one step — the symmetric ArrowLeft case.
-  it("MOVE_CURSOR backward from offset 4 (after marker) lands at offset 3 (before marker), one step", () => {
-    const { editor, paraId } = markerFixture(4);
-    const moved = reduceEditor(editor, { type: "MOVE_CURSOR", direction: "backward" }, config);
-    expect(moved.selection.focus.blockId).toBe(paraId);
-    expect(moved.selection.focus.offset).toBe(3);
-    expect(moved.selection.anchor.offset).toBe(3);
-  });
+  // NB: MOVE_CURSOR / EXPAND_SELECTION / MOVE_LINE_BOUNDARY across the marker
+  // moved to the print backend's nav suite (Phase 0b — geometric nav left core's
+  // reducer): packages/print/src/nav/insert-footnote-nav.test.ts. The geometry-free
+  // MOVE_WORD / DELETE_BACKWARD sibling cases stay here.
 
   // (3) MOVE_WORD across the marker treats it as a 1-unit barrier: forward from
   // before "abc" stops at the marker boundary (offset 3 = end of the word, before
@@ -467,25 +460,6 @@ describe("nav + selection across an inline-block footnote marker (Bug-A siblings
     expect(back.selection.focus.offset).toBe(3);
   });
 
-  // (4) EXPAND_SELECTION (Shift+Arrow) selects the 1-unit marker as a unit.
-  it("EXPAND_SELECTION forward from offset 3 selects the marker (anchor 3, focus 4)", () => {
-    const { editor, paraId } = markerFixture(3);
-    const sel = reduceEditor(editor, { type: "EXPAND_SELECTION", direction: "forward" }, config);
-    expect(sel.selection.anchor.blockId).toBe(paraId);
-    expect(sel.selection.anchor.offset).toBe(3);
-    expect(sel.selection.focus.blockId).toBe(paraId);
-    expect(sel.selection.focus.offset).toBe(4);
-  });
-
-  it("EXPAND_SELECTION backward from offset 4 selects the marker (anchor 4, focus 3)", () => {
-    const { editor, paraId } = markerFixture(4);
-    const sel = reduceEditor(editor, { type: "EXPAND_SELECTION", direction: "backward" }, config);
-    expect(sel.selection.anchor.blockId).toBe(paraId);
-    expect(sel.selection.anchor.offset).toBe(4);
-    expect(sel.selection.focus.blockId).toBe(paraId);
-    expect(sel.selection.focus.offset).toBe(3);
-  });
-
   // (5) DELETE_BACKWARD from offset 4 (caret just AFTER the marker) deletes the
   // marker AND cascade-deletes its body — confirmed here in the nav context
   // (the offset-4 = after-the-1-unit-embed accounting is the same that ArrowLeft
@@ -494,7 +468,7 @@ describe("nav + selection across an inline-block footnote marker (Bug-A siblings
     const { editor, paraId } = markerFixture(4);
     const anchors = anchorEmbedsOf(editor, paraId);
     expect(anchors.length).toBe(1);
-    const bodyRootId = anchors[0].contentBlockId;
+    const bodyRootId = nth(anchors, 0, "anchor").contentBlockId;
     expect(getEmbedContent(editor.state, bodyRootId)).not.toBeNull();
 
     const deleted = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
@@ -505,18 +479,5 @@ describe("nav + selection across an inline-block footnote marker (Bug-A siblings
     // Caret collapses to where the marker was (offset 3, the end of "abc").
     expect(deleted.selection.focus.blockId).toBe(paraId);
     expect(deleted.selection.focus.offset).toBe(3);
-  });
-
-  // (6) MOVE_LINE_BOUNDARY (Home/End) on the line carrying the marker: End lands
-  // AFTER the marker (offset 4 = the line's true end, the 1-unit embed counted in
-  // `inlineOffsetEnd`); Home lands at line start (offset 0).
-  it("MOVE_LINE_BOUNDARY end lands AFTER the marker (offset 4); start at line start (offset 0)", () => {
-    const { editor, paraId } = markerFixture(3);
-    const end = reduceEditor(editor, { type: "MOVE_LINE_BOUNDARY", boundary: "end" }, config);
-    expect(end.selection.focus.blockId).toBe(paraId);
-    expect(end.selection.focus.offset).toBe(4);
-    const home = reduceEditor(end, { type: "MOVE_LINE_BOUNDARY", boundary: "start" }, config);
-    expect(home.selection.focus.blockId).toBe(paraId);
-    expect(home.selection.focus.offset).toBe(0);
   });
 });

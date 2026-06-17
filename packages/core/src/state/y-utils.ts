@@ -92,6 +92,14 @@ export function yItemLength(yItem: Y.Map<unknown>): number {
  * identity (the merged result is a fresh Y.Text holding the concatenated
  * content).
  *
+ * This is the GENERAL normalizer: it is safe on a not-yet-integrated (detached)
+ * `Y.Array` because it never mutates a `Y.Text` in place (it rebuilds the pair
+ * via `buildYInlineItem`). Live-array post-edit APPLIERS instead use the
+ * identity-preserving twin {@link mergeAdjacentSameAttrsTextItemsInPlace} (the
+ * receiver keeps its `Y.Text`). This function is retained for detached-array
+ * normalization and as the Y-side oracle of the JS↔Y drift property test
+ * (`normalization-drift.test.ts`); the twins produce byte-identical read-back.
+ *
  * Zero-length text items are dropped in-place. The drop must happen WITHIN
  * the merge loop (not as a separate pre-pass) so that an empty bridge
  * between two same-attrs neighbors does not block their merge: when an
@@ -153,4 +161,110 @@ export function mergeAdjacentSameAttrsTextItems(
       yItems.delete(0, 1);
     }
   }
+}
+
+/**
+ * Identity-PRESERVING twin of `mergeAdjacentSameAttrsTextItems`: same normalized
+ * result (no adjacent same-attrs text items; no zero-length text items; same
+ * registry-aware equality) but it merges a converging pair by APPENDING the
+ * donor's text into the RECEIVER's existing `Y.Text` in place (`yText.insert`) and
+ * deleting the donor item — rather than replacing both with a fresh `Y.Text`. The
+ * receiver keeps its CRDT identity (a `RelativePosition` into it survives); the
+ * donor's migrated chars are fresh (the Class-2 limit — Yjs has no identity-
+ * preserving cross-`Y.Text` move). Used by the surgical inline-mutation ops.
+ */
+export function mergeAdjacentSameAttrsTextItemsInPlace(
+  yItems: Y.Array<Y.Map<unknown>>,
+  registry?: AttrRegistry,
+): void {
+  let i = 0;
+  while (i + 1 < yItems.length) {
+    const a = yItems.get(i);
+    const b = yItems.get(i + 1);
+    if (a.get("kind") === "text" && (a.get("text") as Y.Text).length === 0) {
+      yItems.delete(i, 1);
+      if (i > 0) i--;
+      continue;
+    }
+    if (b.get("kind") === "text" && (b.get("text") as Y.Text).length === 0) {
+      yItems.delete(i + 1, 1);
+      continue;
+    }
+    if (a.get("kind") !== "text" || b.get("kind") !== "text") {
+      i++;
+      continue;
+    }
+    const aAttrs = yMapAsObject(a.get("attrs") as Y.Map<unknown>) as ReadonlyAttrs;
+    const bAttrs = yMapAsObject(b.get("attrs") as Y.Map<unknown>) as ReadonlyAttrs;
+    if (!attrsEqual(aAttrs, bAttrs, registry)) {
+      i++;
+      continue;
+    }
+    // Append donor (b) into receiver (a) in place; a keeps identity, b is dropped.
+    // Don't advance — the grown `a` may now merge with the following item.
+    const aText = a.get("text") as Y.Text;
+    const bText = b.get("text") as Y.Text;
+    aText.insert(aText.length, bText.toString());
+    yItems.delete(i + 1, 1);
+  }
+  if (yItems.length === 1) {
+    const only = yItems.get(0);
+    if (only.get("kind") === "text" && (only.get("text") as Y.Text).length === 0) {
+      yItems.delete(0, 1);
+    }
+  }
+}
+
+/**
+ * Delete the flattened inline range `[start, end)` from a block's live
+ * `inlineContent` `Y.Array` IN PLACE — the surgical, identity-preserving
+ * alternative to rebuilding via `buildYInlineContent`. Runs of text OUTSIDE the
+ * deleted range (and the surviving portion of a straddled run) keep their `Y.Text`
+ * CRDT identity, so a `RelativePosition` anchored there survives. Caller must run
+ * inside an open transaction.
+ *
+ * Read-back is byte-identical to `buildYInlineContent(mergeAdjacentTextItems(...))`:
+ *   - text item fully inside the range → removed;
+ *   - text item partially inside → trimmed via a SINGLE `yText.delete` (one call
+ *     covers straddle-start, straddle-end, or both-endpoints-in-this-item);
+ *   - embed item (atomic, width 1) intersecting the range → removed;
+ *   - then the seam is normalized in place (drop empties + merge adjacent
+ *     same-attrs runs, receiver keeps identity) via
+ *     `mergeAdjacentSameAttrsTextItemsInPlace`.
+ */
+export function surgicallyDeleteInlineRangeInTx(
+  yItems: Y.Array<Y.Map<unknown>>,
+  start: number,
+  end: number,
+  registry?: AttrRegistry,
+): void {
+  // Phase A — plan per-item mutations against the LIVE items at their pre-delete
+  // flattened offsets. Trims capture the live `Y.Text` handle (index-shift-immune);
+  // full-item removals are collected and applied high→low after.
+  const trims: { yText: Y.Text; at: number; count: number }[] = [];
+  const removeIndices: number[] = [];
+  let itemStart = 0;
+  for (let i = 0; i < yItems.length; i++) {
+    const item = yItems.get(i);
+    const len = yItemLength(item);
+    const itemEnd = itemStart + len;
+    const lo = Math.max(start, itemStart);
+    const hi = Math.min(end, itemEnd);
+    if (lo < hi) {
+      if (item.get("kind") === "text" && !(lo === itemStart && hi === itemEnd)) {
+        // Partial trim — ONE delete covers straddle-start / straddle-end / both.
+        trims.push({ yText: item.get("text") as Y.Text, at: lo - itemStart, count: hi - lo });
+      } else {
+        // Text fully inside, or an embed intersecting (atomic) → remove the item.
+        removeIndices.push(i);
+      }
+    }
+    itemStart = itemEnd;
+  }
+  // Phase B — apply trims (live handles, order-independent), then removals high→low.
+  for (const t of trims) t.yText.delete(t.at, t.count);
+  removeIndices.sort((a, b) => b - a);
+  for (const idx of removeIndices) yItems.delete(idx, 1);
+  // Phase C — normalize the seam in place (receiver keeps identity).
+  mergeAdjacentSameAttrsTextItemsInPlace(yItems, registry);
 }

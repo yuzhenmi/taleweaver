@@ -127,9 +127,10 @@ describe("REPLACE_ALL", () => {
     expect(afterReplace.selection.anchor).toEqual(afterReplace.selection.focus);
   });
 
-  it("empty matches → no-op (same editor reference)", () => {
+  it("empty matches → no-op (same state reference)", () => {
     const editor = withText("hello");
     const result = reduceEditor(editor, { type: "REPLACE_ALL", matches: [], replacement: "x" }, config);
-    expect(result).toBe(editor);
+    // Same state reference (no-op; reducer entry-clears lastDirtyIds).
+    expect(result.state).toBe(editor.state);
   });
 });

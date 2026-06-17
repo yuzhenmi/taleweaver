@@ -1,7 +1,7 @@
 import type { State } from "../state/state";
 import { resolveBlock } from "../state/state";
 import type { BlockId } from "../state/block-id";
-import type { BlockParentLookup } from "../layout/page-of-field-target";
+import type { BlockParentLookup } from "../state/block-parent-lookup-type";
 
 /**
  * Build the layout layer's parent-lookup capability from editor `State`. Unknown

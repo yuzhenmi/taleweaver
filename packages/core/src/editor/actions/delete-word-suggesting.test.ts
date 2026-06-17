@@ -29,6 +29,13 @@ import {
   type EditorConfig,
   type EditorState,
 } from "./test-helpers";
+
+/** Throwing indexed access for tests: stronger than the old undefined-deref TypeError. */
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
 import { getBlock, getSuggestions, type BlockId } from "../../state";
 
 /** The first body paragraph id under the document root. */
@@ -118,10 +125,10 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
     expect(getTextOf(next.state, paraId)).toBe("hello world");
     const suggestions = getSuggestions(next.state);
     expect(suggestions).toHaveLength(1);
-    expect(suggestions[0].kind).toBe("deletion");
-    expect(suggestions[0].author).toBe("alice");
-    expect(deletionIdAt(next, paraId, 6)).toBe(suggestions[0].id);
-    expect(deletionIdAt(next, paraId, 10)).toBe(suggestions[0].id);
+    expect(nth(suggestions, 0, "suggestion").kind).toBe("deletion");
+    expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
+    expect(deletionIdAt(next, paraId, 6)).toBe(nth(suggestions, 0, "suggestion").id);
+    expect(deletionIdAt(next, paraId, 10)).toBe(nth(suggestions, 0, "suggestion").id);
     // "hello " (indices 0..5) untouched.
     expect(deletionIdAt(next, paraId, 5)).toBeUndefined();
     // Caret collapses to the word START (offset 6 = `target`).
@@ -165,7 +172,7 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
     expect(deletionIdAt(twice, paraId, 6)).toBe(deletionIdAt(twice, paraId, 0));
     const suggestions = getSuggestions(twice.state);
     expect(suggestions).toHaveLength(1);
-    expect(suggestions[0].kind).toBe("deletion");
+    expect(nth(suggestions, 0, "suggestion").kind).toBe("deletion");
     // Caret advanced to the end of "world" (offset 11).
     expect(twice.selection.focus.offset).toBe(11);
   });
@@ -248,9 +255,9 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
       expect(getTextOf(next.state, paraId)).toBe("abcdef");
       const suggestions = getSuggestions(next.state);
       expect(suggestions).toHaveLength(1);
-      expect(suggestions[0].kind).toBe("deletion");
-      expect(deletionIdAt(next, paraId, 1)).toBe(suggestions[0].id);
-      expect(deletionIdAt(next, paraId, 3)).toBe(suggestions[0].id);
+      expect(nth(suggestions, 0, "suggestion").kind).toBe("deletion");
+      expect(deletionIdAt(next, paraId, 1)).toBe(nth(suggestions, 0, "suggestion").id);
+      expect(deletionIdAt(next, paraId, 3)).toBe(nth(suggestions, 0, "suggestion").id);
       expect(deletionIdAt(next, paraId, 0)).toBeUndefined();
       expect(deletionIdAt(next, paraId, 4)).toBeUndefined();
       // Caret at the selection END (offset 4 = span END).

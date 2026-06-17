@@ -122,6 +122,7 @@ export function planReplaceMatches(
     for (let i = 1; i < blockMatches.length; i++) {
       const prev = blockMatches[i - 1];
       const curr = blockMatches[i];
+      if (prev === undefined || curr === undefined) continue;
       if (curr.start < prev.end) {
         throw new Error(
           `planReplaceMatches: matches in block "${blockId}" must be ascending and ` +
@@ -136,6 +137,9 @@ export function planReplaceMatches(
     // later match's splice. We iterate the (ascending) array in reverse.
     for (let i = blockMatches.length - 1; i >= 0; i--) {
       const m = blockMatches[i];
+      if (m === undefined) {
+        throw new Error(`planReplaceMatches: match ${i} missing (unreachable)`);
+      }
       // Collect embed-content subtree ids referenced by the slice being removed
       // (items[m.start .. m.end)). Split twice to isolate that exact slice.
       const afterStart = splitInlineContentAtOffset({ items }, m.start)[1];

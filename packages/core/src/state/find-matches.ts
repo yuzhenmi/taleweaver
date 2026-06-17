@@ -181,10 +181,20 @@ export function findMatches(
         // Position span = first matched char's Position .. last matched char's
         // Position + 1. The `end - 1 + 1` form (NOT `posByIdx[end]`) stops at the
         // content edge so trailing zero-width markers stay outside the match.
+        const startPos = posByIdx[idx];
+        const lastCharPos = posByIdx[end - 1];
+        if (startPos === undefined || lastCharPos === undefined) {
+          // Unreachable: posByIdx is dense over [0, haystack.length) and the
+          // match span [idx, end) lies within the haystack, so both indices
+          // (idx and end - 1) are in bounds.
+          throw new Error(
+            `findMatches: posByIdx lookup out of range (idx=${idx}, end=${end}, len=${posByIdx.length})`,
+          );
+        }
         matches.push({
           blockId,
-          start: posByIdx[idx],
-          end: posByIdx[end - 1] + 1,
+          start: startPos,
+          end: lastCharPos + 1,
         });
       }
       // Non-overlapping: skip past the whole match. (When a whole-word check

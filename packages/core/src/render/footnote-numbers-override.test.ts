@@ -28,6 +28,12 @@ import { collectFootnoteAnchors, type FootnoteNumber } from "../footnotes";
 import { FOOTNOTE_ANCHOR_EMBED_TYPE } from "../state";
 import type { State, BlockId } from "../state";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 /** Build a one-paragraph doc carrying a single footnote; return its ids. */
 function docWithOneFootnote(): {
   state: State;
@@ -43,8 +49,8 @@ function docWithOneFootnote(): {
   }
   return {
     state: editor.state,
-    contentBlockId: anchors[0].contentBlockId,
-    hostBlockId: anchors[0].blockId,
+    contentBlockId: nth(anchors, 0, "anchor").contentBlockId,
+    hostBlockId: nth(anchors, 0, "anchor").blockId,
   };
 }
 

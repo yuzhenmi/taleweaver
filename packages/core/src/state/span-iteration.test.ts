@@ -4,6 +4,12 @@ import { buildBlock, buildState, text, inlineContent } from "../test-utils/state
 import { createPosition, createSpan } from "./block-position";
 import type { BlockId } from "./block-id";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 describe("normalizeSpan", () => {
   const fixture = () =>
     buildState({
@@ -83,9 +89,9 @@ describe("iterateSpan", () => {
     const span = createSpan(createPosition("p1" as BlockId, 1), createPosition("p1" as BlockId, 4));
     const ranges = [...iterateSpan(state, span)];
     expect(ranges).toHaveLength(1);
-    expect(ranges[0].block.id).toBe("p1");
-    expect(ranges[0].rangeStart).toBe(1);
-    expect(ranges[0].rangeEnd).toBe(4);
+    expect(nth(ranges, 0, "range").block.id).toBe("p1");
+    expect(nth(ranges, 0, "range").rangeStart).toBe(1);
+    expect(nth(ranges, 0, "range").rangeEnd).toBe(4);
   });
 
   it("yields anchor block from anchor.offset to end, then focus block from 0 to focus.offset (two-block span)", () => {
@@ -97,12 +103,12 @@ describe("iterateSpan", () => {
       rangeStart: 2,
       rangeEnd: 5,  // p1's "hello" length is 5
     }));
-    expect(ranges[0].block.id).toBe("p1");
+    expect(nth(ranges, 0, "range").block.id).toBe("p1");
     expect(ranges[1]).toEqual(expect.objectContaining({
       rangeStart: 0,
       rangeEnd: 3,
     }));
-    expect(ranges[1].block.id).toBe("p2");
+    expect(nth(ranges, 1, "range").block.id).toBe("p2");
   });
 
   it("yields anchor, all middle full ranges, then focus (three-block span)", () => {
@@ -110,17 +116,17 @@ describe("iterateSpan", () => {
     const span = createSpan(createPosition("p1" as BlockId, 1), createPosition("p3" as BlockId, 1));
     const ranges = [...iterateSpan(state, span)];
     expect(ranges).toHaveLength(3);
-    expect(ranges[0].block.id).toBe("p1");
-    expect(ranges[0].rangeStart).toBe(1);
-    expect(ranges[0].rangeEnd).toBe(5); // p1 full content length
+    expect(nth(ranges, 0, "range").block.id).toBe("p1");
+    expect(nth(ranges, 0, "range").rangeStart).toBe(1);
+    expect(nth(ranges, 0, "range").rangeEnd).toBe(5); // p1 full content length
 
-    expect(ranges[1].block.id).toBe("p2");
-    expect(ranges[1].rangeStart).toBe(0);
-    expect(ranges[1].rangeEnd).toBe(5); // p2 full content length
+    expect(nth(ranges, 1, "range").block.id).toBe("p2");
+    expect(nth(ranges, 1, "range").rangeStart).toBe(0);
+    expect(nth(ranges, 1, "range").rangeEnd).toBe(5); // p2 full content length
 
-    expect(ranges[2].block.id).toBe("p3");
-    expect(ranges[2].rangeStart).toBe(0);
-    expect(ranges[2].rangeEnd).toBe(1);
+    expect(nth(ranges, 2, "range").block.id).toBe("p3");
+    expect(nth(ranges, 2, "range").rangeStart).toBe(0);
+    expect(nth(ranges, 2, "range").rangeEnd).toBe(1);
   });
 
   it("normalizes the span before iterating (anchor after focus)", () => {
@@ -129,8 +135,8 @@ describe("iterateSpan", () => {
     const ranges = [...iterateSpan(state, span)];
     // After normalization: anchor=p1@2, focus=p2@3. Same as the two-block test above.
     expect(ranges).toHaveLength(2);
-    expect(ranges[0].block.id).toBe("p1");
-    expect(ranges[1].block.id).toBe("p2");
+    expect(nth(ranges, 0, "range").block.id).toBe("p1");
+    expect(nth(ranges, 1, "range").block.id).toBe("p2");
   });
 
   it("yields a single zero-width range for a collapsed span (anchor === focus)", () => {
@@ -139,8 +145,8 @@ describe("iterateSpan", () => {
     const span = createSpan(pos, pos);
     const ranges = [...iterateSpan(state, span)];
     expect(ranges).toHaveLength(1);
-    expect(ranges[0].rangeStart).toBe(3);
-    expect(ranges[0].rangeEnd).toBe(3);
+    expect(nth(ranges, 0, "range").rangeStart).toBe(3);
+    expect(nth(ranges, 0, "range").rangeEnd).toBe(3);
   });
 
   it("throws when anchor or focus is on a container block (not a leaf)", () => {

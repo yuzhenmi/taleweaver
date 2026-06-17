@@ -73,6 +73,12 @@ declare const console: { log(...args: unknown[]): void };
 const { readFileSync } = require("fs");
 const { join } = require("path");
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 const here = __dirname; // packages/core/src/layout/uax9
 const charTestFile = join(here, "data/BidiCharacterTest.txt");
 const bidiTestFile = join(here, "data/BidiTest.txt");
@@ -110,7 +116,7 @@ function applyL1Levels(
 ): Uint8Array {
   const n = levels.length;
   const out = Uint8Array.from(levels);
-  const isResetWhitespace = (c: number): boolean =>
+  const isResetWhitespace = (c: number | undefined): boolean =>
     c === CC.WS || c === CC.LRI || c === CC.RLI || c === CC.FSI || c === CC.PDI;
   let inResetRun = true; // start true → handles the end-of-line tail (rule iv)
   for (let i = n - 1; i >= 0; i--) {
@@ -184,7 +190,7 @@ function compareRow(
   // compacted single-line sequence before the per-position comparison.
   const compactL1Levels = applyL1Levels(compactLevels, compactTypes, paragraphLevel);
   for (let k = 0; k < keep.length; k++) {
-    const orig = keep[k];
+    const orig = nth(keep, k, "kept index");
     const want = oracleLevels[orig];
     if (want !== null && want !== undefined && compactL1Levels[k] !== want) {
       return {
@@ -208,7 +214,7 @@ function compareRow(
     0,
     keep.length,
   );
-  const visualOriginalNonRemoved = compactVisual.map((rank) => keep[rank]);
+  const visualOriginalNonRemoved = compactVisual.map((rank) => nth(keep, rank, "kept index"));
   return { ok: true, detail: "", visualOriginalNonRemoved };
 }
 
@@ -232,19 +238,24 @@ function parseCharRow(line: string, lineNo: number): CharRow | null {
   if (trimmed === "" || trimmed.startsWith("#")) return null;
   const fields = trimmed.split(";");
   if (fields.length < 5) return null;
-  const codePoints = fields[0]
+  const field0 = nth(fields, 0, "codepoints field");
+  const field1 = nth(fields, 1, "direction field");
+  const field2 = nth(fields, 2, "paragraph-level field");
+  const field3 = nth(fields, 3, "levels field");
+  const field4 = nth(fields, 4, "reorder field");
+  const codePoints = field0
     .trim()
     .split(/\s+/)
     .map((h) => parseInt(h, 16));
-  const base = baseFromDirection(parseInt(fields[1].trim(), 10));
-  const paragraphLevel = parseInt(fields[2].trim(), 10);
-  const levelToks = fields[3].trim() === "" ? [] : fields[3].trim().split(/\s+/);
+  const base = baseFromDirection(parseInt(field1.trim(), 10));
+  const paragraphLevel = parseInt(field2.trim(), 10);
+  const levelToks = field3.trim() === "" ? [] : field3.trim().split(/\s+/);
   const levels: (number | null)[] = levelToks.map((t) =>
     t === "x" ? null : parseInt(t, 10),
   );
   const removed = levelToks.map((t) => t === "x");
   const reorder =
-    fields[4].trim() === "" ? [] : fields[4].trim().split(/\s+/).map((t) => parseInt(t, 10));
+    field4.trim() === "" ? [] : field4.trim().split(/\s+/).map((t) => parseInt(t, 10));
   return { lineNo, raw: trimmed, codePoints, base, paragraphLevel, levels, removed, reorder };
 }
 
@@ -252,7 +263,7 @@ describe("UAX #9 conformance — BidiCharacterTest.txt (Unicode 16.0.0)", () => 
   const lines = readFileSync(charTestFile, "utf8").split("\n");
   const rows: CharRow[] = [];
   for (let i = 0; i < lines.length; i++) {
-    const r = parseCharRow(lines[i], i + 1);
+    const r = parseCharRow(nth(lines, i, "line"), i + 1);
     if (r !== null) rows.push(r);
   }
 
@@ -340,8 +351,8 @@ describe("UAX #9 conformance — BidiTest.txt (Unicode 16.0.0)", () => {
     const failures: string[] = [];
 
     for (let li = 0; li < lines.length; li++) {
-      const rawLine = lines[li];
-      const noComment = rawLine.split("#")[0];
+      const rawLine = nth(lines, li, "line");
+      const noComment = rawLine.split("#")[0] ?? "";
       const body = noComment.trim();
       if (body === "") continue;
 

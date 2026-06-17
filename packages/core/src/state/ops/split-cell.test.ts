@@ -48,6 +48,7 @@ describe("splitCell", () => {
     expect(r0[0]).toBe("A");
     expect(r0[2]).toBe("B");
     const newId = r0[1];
+    if (newId === undefined) throw new Error("expected new cell id at index 1");
     expect(newId).not.toBe("A");
     expect(newId).not.toBe("B");
     expect(getBlock(result.state, newId)?.type).toBe("table-cell");

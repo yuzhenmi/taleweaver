@@ -28,11 +28,11 @@ describe("setListType", () => {
   it("writes a bullet-style ListDef for unordered and a numbered ListDef for ordered", () => {
     const unordered = setListType(twoItemList(), "L1", "unordered");
     const ud = getListDef(unordered.state[STATE_INTERNAL].doc, "L1");
-    expect(ud?.levels[0].style).toBe("disc");
+    expect(ud?.levels[0]?.style).toBe("disc");
 
     const ordered = setListType(twoItemList(), "L1", "ordered");
     const od = getListDef(ordered.state[STATE_INTERNAL].doc, "L1");
-    expect(od?.levels[0].style).toBe("decimal");
+    expect(od?.levels[0]?.style).toBe("decimal");
   });
 
   it("only dirties items of the MATCHING listId", () => {

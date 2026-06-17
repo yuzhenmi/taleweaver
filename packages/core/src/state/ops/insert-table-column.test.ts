@@ -8,6 +8,12 @@ import type { BlockId } from "../block-id";
 import type { State } from "../state";
 import type { Block } from "../block";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 /**
  * A 2×2 table (doc > table > 2 rows > 2 cells each > paragraph). `columnWidths`
  * is supplied via `tableAttrs` so tests can exercise the present/absent paths.
@@ -50,7 +56,7 @@ describe("insertTableColumn", () => {
       expect(cells[1]).toBe(`${r}c0`);
       expect(cells[2]).toBe(`${r}c1`);
       // new cell: parent = row, holds one empty paragraph
-      const newCell = getBlock(next, cells[0]);
+      const newCell = getBlock(next, nth(cells, 0, "cell"));
       expect(newCell?.type).toBe("table-cell");
       expect(newCell?.parentId).toBe(r);
       expect(newCell?.prevSiblingId).toBeNull();
@@ -71,8 +77,8 @@ describe("insertTableColumn", () => {
       expect(cells[0]).toBe(`${r}c0`);
       expect(cells[1]).toBe(`${r}c1`);
       // new cell appended last
-      expect(getBlock(next, cells[2])?.type).toBe("table-cell");
-      expect(getBlock(next, cells[2])?.nextSiblingId).toBeNull();
+      expect(getBlock(next, nth(cells, 2, "cell"))?.type).toBe("table-cell");
+      expect(getBlock(next, nth(cells, 2, "cell"))?.nextSiblingId).toBeNull();
       expect(getBlock(next, r as BlockId)?.lastChildId).toBe(cells[2]);
     }
   });

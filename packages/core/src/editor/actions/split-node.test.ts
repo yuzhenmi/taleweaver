@@ -13,7 +13,6 @@ import {
   reduceEditor,
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
-  createMockShaper,
   getBlock,
   createPosition,
   createSpan,
@@ -24,7 +23,6 @@ import {
 
 function makeConfig(): EditorConfig {
   return {
-    measurer: createMockShaper(8, 16),
     componentRegistry: createDefaultComponentRegistry(),
     attrRegistry: createDefaultAttrRegistry(),
     containerWidth: 800,

@@ -229,6 +229,12 @@ function fullScanForChainIntegrity(
   bound: number,
 ): void {
   const [mainMap, embedMap, templateMap] = getTreeMaps(state[STATE_INTERNAL].doc);
+  if (mainMap === undefined || embedMap === undefined || templateMap === undefined) {
+    throw new Error(
+      "chain-integrity: getTreeMaps returned fewer than the three doc trees " +
+        "(blocks/embedContents/templateContents) — doc not initialized",
+    );
+  }
   scanMap(state, mainMap, "block", opName, bound);
   scanMap(state, embedMap, "embedContent", opName, bound);
   scanMap(state, templateMap, "templateContent", opName, bound);

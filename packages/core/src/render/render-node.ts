@@ -18,6 +18,7 @@ export interface TextBox {
   readonly style: Readonly<Style>;
   readonly computedStyle?: Readonly<ComputedStyle>;
   readonly text: string;
+  readonly link?: string;
 }
 
 export function createElementBox(
@@ -41,11 +42,13 @@ export function createTextBox(
   key: string,
   style: Style,
   text: string,
+  link?: string,
 ): TextBox {
   return Object.freeze({
     type: "text" as const,
     key,
     style: Object.freeze({ ...style }),
     text,
+    ...(link !== undefined ? { link } : {}),
   });
 }

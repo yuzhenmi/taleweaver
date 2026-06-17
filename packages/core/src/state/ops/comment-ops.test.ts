@@ -31,6 +31,12 @@ import type { BlockId } from "../block-id";
 import { buildBlock, buildState, text, inlineContent, embed } from "../../test-utils/state-builders";
 import type { State } from "../state";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 const CID = "c1" as CommentId;
 
 /** doc > [ p("hello world") ] */
@@ -82,7 +88,7 @@ describe("addComment — insert markers + write record in ONE tracked op", () =>
 
     const comments = getComments(s);
     expect(comments.length).toBe(1);
-    const c = comments[0];
+    const c = nth(comments, 0, "comment");
     expect(c.id).toBe("c1");
     expect(c.author).toBe("alice");
     expect(c.body).toBe("look here");
@@ -103,7 +109,7 @@ describe("addComment — insert markers + write record in ONE tracked op", () =>
 
   it("output is frozen", () => {
     const s = addComment(oneBlock(), worldSpan(), ADD).state;
-    const c = getComments(s)[0];
+    const c = nth(getComments(s), 0, "comment");
     expect(Object.isFrozen(c)).toBe(true);
     expect(Object.isFrozen(c.replies)).toBe(true);
     expect(Object.isFrozen(c.range)).toBe(true);
@@ -130,9 +136,9 @@ describe("resolveComment / reopenComment", () => {
   it("resolveComment flips resolved=true; reopenComment flips it back", () => {
     let s = addComment(oneBlock(), worldSpan(), ADD).state;
     s = resolveComment(s, CID).state;
-    expect(getComments(s)[0].resolved).toBe(true);
+    expect(nth(getComments(s), 0, "comment").resolved).toBe(true);
     s = reopenComment(s, CID).state;
-    expect(getComments(s)[0].resolved).toBe(false);
+    expect(nth(getComments(s), 0, "comment").resolved).toBe(false);
   });
 
   it("resolving an already-resolved comment is an identity no-op (same State ref)", () => {
@@ -164,7 +170,7 @@ describe("addReply", () => {
       body: "agreed",
       createdAt: 2000,
     }).state;
-    const c = getComments(s)[0];
+    const c = nth(getComments(s), 0, "comment");
     expect(c.replies).toEqual([
       { id: "r1", author: "bob", body: "agreed", createdAt: 2000 },
     ]);
@@ -174,7 +180,7 @@ describe("addReply", () => {
     let s = addComment(oneBlock(), worldSpan(), ADD).state;
     s = addReply(s, CID, { replyId: "r1", author: "bob", body: "one", createdAt: 2000 }).state;
     s = addReply(s, CID, { replyId: "r2", author: "cat", body: "two", createdAt: 3000 }).state;
-    expect(getComments(s)[0].replies.map((r) => r.id)).toEqual(["r1", "r2"]);
+    expect(nth(getComments(s), 0, "comment").replies.map((r) => r.id)).toEqual(["r1", "r2"]);
   });
 
   it("replying to an absent comment is an identity no-op", () => {
@@ -384,7 +390,7 @@ describe("undo atomicity (§2 — undoable-as-content)", () => {
     const s3 = undone.state;
     expect(pText(s3)).toBe("hello world");
     expect(getComments(s3).length).toBe(1);
-    expect(getComments(s3)[0].range.orphaned).toBe(false);
+    expect(nth(getComments(s3), 0, "comment").range.orphaned).toBe(false);
 
     history.destroy();
   });

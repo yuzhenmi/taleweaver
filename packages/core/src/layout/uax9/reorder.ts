@@ -96,7 +96,11 @@ export function applyL1(
   // Private mutable copy of the slice's levels — L1 must not touch `levels`.
   const lineLevels = new Uint8Array(n);
   for (let i = 0; i < n; i++) {
-    lineLevels[i] = levels[lineStart + i];
+    const lvl = levels[lineStart + i];
+    if (lvl === undefined) {
+      throw new Error(`applyL1: levels[${lineStart + i}] missing (unreachable)`);
+    }
+    lineLevels[i] = lvl;
   }
 
   const isResetWhitespace = (code: number): boolean =>
@@ -116,6 +120,9 @@ export function applyL1(
   let inResetRun = true; // start true → handles the end-of-line tail (rule iv)
   for (let i = n - 1; i >= 0; i--) {
     const code = types[lineStart + i];
+    if (code === undefined) {
+      throw new Error(`applyL1: types[${lineStart + i}] missing (unreachable)`);
+    }
     if (code === CC.S || code === CC.B) {
       lineLevels[i] = paragraphLevel;
       // Whitespace preceding this S/B is resettable (rule iii).
@@ -153,6 +160,9 @@ export function reorderRunsByLevel(runLevels: readonly number[]): number[] {
   let minOdd = Number.MAX_SAFE_INTEGER;
   for (let i = 0; i < n; i++) {
     const lvl = runLevels[i];
+    if (lvl === undefined) {
+      throw new Error(`reorderRunsByLevel: runLevels[${i}] missing (unreachable)`);
+    }
     if (lvl > maxLevel) maxLevel = lvl;
     if (lvl % 2 === 1 && lvl < minOdd) minOdd = lvl;
   }
@@ -166,20 +176,32 @@ export function reorderRunsByLevel(runLevels: readonly number[]): number[] {
   for (let level = maxLevel; level >= minOdd; level--) {
     let i = 0;
     while (i < n) {
-      if (runLevels[i] < level) {
+      const lvlI = runLevels[i];
+      if (lvlI === undefined) {
+        throw new Error(`reorderRunsByLevel: runLevels[${i}] missing (unreachable)`);
+      }
+      if (lvlI < level) {
         i++;
         continue;
       }
       // [start, i) is a maximal run with level >= `level`.
       const start = i;
-      while (i < n && runLevels[i] >= level) i++;
+      let lvlNext = runLevels[i];
+      while (i < n && lvlNext !== undefined && lvlNext >= level) {
+        i++;
+        lvlNext = runLevels[i];
+      }
       // Reverse perm[start, i) in place.
       let lo = start;
       let hi = i - 1;
       while (lo < hi) {
-        const tmp = perm[lo];
-        perm[lo] = perm[hi];
-        perm[hi] = tmp;
+        const tmpLo = perm[lo];
+        const tmpHi = perm[hi];
+        if (tmpLo === undefined || tmpHi === undefined) {
+          throw new Error(`reorderRunsByLevel: perm swap index out of range (unreachable)`);
+        }
+        perm[lo] = tmpHi;
+        perm[hi] = tmpLo;
         lo++;
         hi--;
       }

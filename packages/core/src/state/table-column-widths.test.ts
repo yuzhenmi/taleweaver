@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { spliceColumnWidth, removeColumnWidth } from "./table-column-widths";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 const sum = (a: readonly number[]) => a.reduce((s, w) => s + w, 0);
 
 describe("spliceColumnWidth", () => {
@@ -9,8 +15,8 @@ describe("spliceColumnWidth", () => {
     expect(out).toHaveLength(3);
     expect(sum(out)).toBeCloseTo(1, 10);
     // new column = 1/3; the two originals stay equal to each other.
-    expect(out[1]).toBeCloseTo(1 / 3, 10);
-    expect(out[0]).toBeCloseTo(out[2], 10);
+    expect(nth(out, 1, "column width")).toBeCloseTo(1 / 3, 10);
+    expect(nth(out, 0, "column width")).toBeCloseTo(nth(out, 2, "column width"), 10);
   });
 
   it("inserts at the ends (0 and n) and clamps out-of-range", () => {
@@ -21,7 +27,7 @@ describe("spliceColumnWidth", () => {
 
   it("preserves unequal proportions (a 2:1 table stays 2:1 between the originals)", () => {
     const out = spliceColumnWidth([2 / 3, 1 / 3], 2); // append
-    expect(out[0] / out[1]).toBeCloseTo(2, 10);
+    expect(nth(out, 0, "column width") / nth(out, 1, "column width")).toBeCloseTo(2, 10);
   });
 
   it("empty input yields a single full-width column", () => {

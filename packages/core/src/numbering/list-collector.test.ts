@@ -4,6 +4,12 @@ import { buildState, buildBlock } from "../test-utils/state-builders";
 import type { BlockId } from "../state";
 import type { CounterValue } from "./types";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 function flatDoc(children: Array<{ id: string; type: string; attrs?: Record<string, unknown> }>) {
   const blocks = [
     buildBlock({
@@ -20,8 +26,8 @@ function flatDoc(children: Array<{ id: string; type: string; attrs?: Record<stri
         type: c.type,
         attrs: c.attrs,
         parentId: "root",
-        prevSiblingId: i > 0 ? children[i - 1].id : null,
-        nextSiblingId: i < children.length - 1 ? children[i + 1].id : null,
+        prevSiblingId: i > 0 ? nth(children, i - 1, "prev child").id : null,
+        nextSiblingId: i < children.length - 1 ? nth(children, i + 1, "next child").id : null,
         inlineContent: { items: [] },
       }),
     );
@@ -37,10 +43,10 @@ describe("collectListEvents", () => {
     ]);
     const events = collectListEvents(state);
     expect(events.map((e) => e.blockId)).toEqual(["i1", "i2"]);
-    expect(events[0].scopeKey).toBe("L1");
-    expect(events[0].level).toBe(0);
-    expect(events[0].breakBefore).toBe(true);
-    expect(events[1].breakBefore).toBe(false);
+    expect(nth(events, 0, "event").scopeKey).toBe("L1");
+    expect(nth(events, 0, "event").level).toBe(0);
+    expect(nth(events, 0, "event").breakBefore).toBe(true);
+    expect(nth(events, 1, "event").breakBefore).toBe(false);
   });
 
   it("sets breakBefore when a non-list block intervenes", () => {
@@ -51,7 +57,7 @@ describe("collectListEvents", () => {
     ]);
     const events = collectListEvents(state);
     expect(events.map((e) => e.blockId)).toEqual(["i1", "i2"]);
-    expect(events[1].breakBefore).toBe(true);
+    expect(nth(events, 1, "event").breakBefore).toBe(true);
   });
 
   it("sets breakBefore when the listId changes between adjacent items", () => {
@@ -59,14 +65,14 @@ describe("collectListEvents", () => {
       { id: "i1", type: "list-item", attrs: { listId: "L1", listLevel: 0 } },
       { id: "i2", type: "list-item", attrs: { listId: "L2", listLevel: 0 } },
     ]);
-    expect(collectListEvents(state)[1].breakBefore).toBe(true);
+    expect(nth(collectListEvents(state), 1, "event").breakBefore).toBe(true);
   });
 
   it("carries an override from listCounterOverride attr", () => {
     const state = flatDoc([
       { id: "i1", type: "list-item", attrs: { listId: "L1", listLevel: 0, listCounterOverride: 7 } },
     ]);
-    expect(collectListEvents(state)[0].override).toBe(7);
+    expect(nth(collectListEvents(state), 0, "event").override).toBe(7);
   });
 });
 

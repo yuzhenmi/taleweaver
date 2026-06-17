@@ -10,7 +10,7 @@ import {
 import { createComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
 import { cascadePass } from "../cascade";
-import { collectTokens } from "../layout/ifc";
+import { collectTokens } from "@taleweaver/print";
 import { createIntrinsicSizesCache } from "../layout/intrinsic-sizes";
 import { createMockShaper } from "../layout/mock-shaper";
 import type {
@@ -30,6 +30,12 @@ import { createPosition } from "../state/block-position";
 import { createTestAllocator } from "../state/block-id";
 import { buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
 import { footnoteBodyComponent } from "../components/footnote-body";
+
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
 
 const documentComponent: ContainerComponentDefinition = {
   type: "document",
@@ -189,8 +195,8 @@ describe("render — footnote-anchor superscript marker", () => {
       reset: "continuous",
       format: "decimal",
     });
-    const m1 = ((out.root as ElementBox).children[0] as ElementBox).children[0];
-    const m2 = ((out.root as ElementBox).children[1] as ElementBox).children[0];
+    const m1 = nth(((out.root as ElementBox).children[0] as ElementBox).children, 0, "marker 1");
+    const m2 = nth(((out.root as ElementBox).children[1] as ElementBox).children, 0, "marker 2");
     expect(firstText(m1)).toBe(numbers.get("fn-a" as BlockId)?.formatted);
     expect(firstText(m2)).toBe(numbers.get("fn-b" as BlockId)?.formatted);
   });
@@ -247,7 +253,7 @@ describe("render — footnote marker is exactly one cursor stop (IFC offset)", (
     // state-model offset cursor — identical to a plain embed.
     const atomicTokens = tokens.filter((t) => t.inlineBlock !== undefined);
     expect(atomicTokens).toHaveLength(1);
-    expect(atomicTokens[0].sourceLength).toBe(1);
+    expect(nth(atomicTokens, 0, "atomic token").sourceLength).toBe(1);
   });
 });
 

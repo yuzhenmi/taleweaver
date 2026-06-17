@@ -153,13 +153,22 @@ describe("undo coalescing through the reducer (#420)", () => {
     expect(n).toBe(3);
   });
 
-  it("selection jump breaks: type / MOVE_CURSOR / type → two entries", () => {
+  it("selection jump breaks: type / SET_SELECTION / type → two entries", () => {
+    // Phase 0b: the geometric MOVE_CURSOR intent now lives in the backend
+    // NavIntent resolver, which dispatches a geometry-free SET_SELECTION. Drive
+    // that SET_SELECTION directly — it carries the same `selection-break`
+    // coalesce key, so it breaks the run the same way MOVE_CURSOR did.
     const clock = makeClock();
     const config: EditorConfig = { ...baseConfig, now: clock.now };
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" }, config);
     clock.advance(5);
-    editor = reduceEditor(editor, { type: "MOVE_CURSOR", direction: "backward" }, config);
+    const caretStart = createPosition(editor.selection.focus.blockId, 0);
+    editor = reduceEditor(
+      editor,
+      { type: "SET_SELECTION", selection: createSpan(caretStart, caretStart) },
+      config,
+    );
     clock.advance(5);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" }, config);
     expect(textOf(editor)).toBe("ba");

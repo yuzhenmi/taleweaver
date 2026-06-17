@@ -29,10 +29,10 @@ import {
 import { extractText } from "../state/extract-text";
 import { builtinEmbedSerializer } from "../state/extract-text";
 import { createPosition, createSpan } from "../state/block-position";
-import { layoutTree } from "../layout/dispatch";
-import { positionTreeForTest } from "../test-utils/position-tree";
+import { layoutTree } from "@taleweaver/print";
+import { positionTreeForTest } from "@taleweaver/print";
 import { createMockShaper } from "../layout/mock-shaper";
-import { getLineIndex } from "../cursor/line-flatten";
+import { getLineIndex } from "@taleweaver/print";
 
 const reg = createDefaultComponentRegistry();
 const attrReg = createDefaultAttrRegistry();
@@ -95,6 +95,7 @@ describe("render — break-suggestion embeds are visible pilcrow inline-block at
         expect(box.style.display).toBe("inline-block");
         expect(box.children).toHaveLength(1);
         const glyph = box.children[0];
+        if (glyph === undefined) throw new Error("expected one glyph child");
         expect(glyph.type).toBe("text");
         expect((glyph as TextBox).text).toBe("¶");
       }
@@ -140,7 +141,9 @@ describe("render — break-suggestion embeds preserve the offset↔box 1:1 IFC i
     );
     const lines = getLineIndex(layout).byBlock.get("p" as BlockId) ?? [];
     expect(lines).toHaveLength(1);
-    const line = lines[0].line;
+    const lineEntry = lines[0];
+    if (lineEntry === undefined) throw new Error("expected one line for block p");
+    const line = lineEntry.line;
 
     // State-model length: "hello " (6) + break embed (1) + "world" (5) = 12. If
     // the embed skipped emission, this would be 11 (short by 1) → cursor/hit-test

@@ -28,29 +28,15 @@ import type { BlockId, State } from "../../state";
 import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
 import { collectListEvents } from "../../numbering/list-collector";
 import { computeCounters } from "../../numbering/compute-counters";
-import { render } from "../../render/render";
-import { cascadePass } from "../../cascade";
-import { layoutTree } from "../../layout/dispatch";
 
+// Phase 0b: core's `EditorState` is geometry-free — these state-level action
+// tests build only the geometry-free fields (the handler reads no layout).
 function makeEditor(state: State, selection: EditorState["selection"]): EditorState {
-  const rendered = render(state, config.componentRegistry, config.attrRegistry);
-  const cascadedRoot = cascadePass(rendered.root);
-  const layout = layoutTree(
-    cascadedRoot,
-    config.containerWidth,
-    config.measurer,
-    config.pageConfig,
-  );
   return {
     state,
     selection,
     history: createHistory(state),
-    renderTree: rendered.root,
-    renderOutput: rendered,
-    cascadedRoot,
-    cascadedTemplateContents: new Map(),
-    cascadedEmbedContents: new Map(),
-    layoutTree: layout,
+    lastDirtyIds: null,
     containerWidth: config.containerWidth,
     targetX: null,
   };

@@ -56,6 +56,12 @@ import type { InlineContent } from "../inline-content";
 
 const SID = "s1" as SuggestionId;
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 /** doc > [ p("abcdef") ] (one text run unless overridden). */
 function oneBlock(
   items = inlineContent([text("abcdef")]),
@@ -105,7 +111,7 @@ describe("markFormatting — stamp suggestion attr + write record in ONE tracked
 
     const suggestions = getSuggestions(s);
     expect(suggestions.length).toBe(1);
-    const sug = suggestions[0];
+    const sug = nth(suggestions, 0, "suggestion");
     expect(sug.id).toBe(SID);
     expect(sug.kind).toBe("formatting");
     expect(sug.author).toBe("alice");
@@ -205,7 +211,7 @@ describe("markFormatting — coalesce with an adjacent same-author/same-proposal
     const suggestions = getSuggestions(s);
     // Coalesced into ONE record (the second reused the first's id).
     expect(suggestions.length).toBe(1);
-    const sug = suggestions[0];
+    const sug = nth(suggestions, 0, "suggestion");
     expect(sug.id).toBe("first");
     // Range now spans both marks.
     expect(sug.range?.start).toEqual(createPosition("p" as BlockId, 0));
@@ -260,9 +266,9 @@ describe("markFormatting — coalesce with an adjacent same-author/same-proposal
 
     const suggestions = getSuggestions(s);
     expect(suggestions.length).toBe(1);
-    expect(suggestions[0].id).toBe("first");
-    expect(suggestions[0].range?.start).toEqual(createPosition("p" as BlockId, 0));
-    expect(suggestions[0].range?.end).toEqual(createPosition("p" as BlockId, 6));
+    expect(nth(suggestions, 0, "suggestion").id).toBe("first");
+    expect(nth(suggestions, 0, "suggestion").range?.start).toEqual(createPosition("p" as BlockId, 0));
+    expect(nth(suggestions, 0, "suggestion").range?.end).toEqual(createPosition("p" as BlockId, 6));
   });
 
   it("prefers the BEFORE neighbor when BOTH neighbors are coalescing candidates", () => {
@@ -375,7 +381,7 @@ describe("markDeletion — soft-delete plain text (tag, do NOT remove)", () => {
 
     const suggestions = getSuggestions(s);
     expect(suggestions.length).toBe(1);
-    const sug = suggestions[0];
+    const sug = nth(suggestions, 0, "suggestion");
     expect(sug.id).toBe(DEL_SID);
     expect(sug.kind).toBe("deletion");
     expect(sug.author).toBe("alice");
@@ -430,9 +436,9 @@ describe("markDeletion — own pending insertion is REMOVED for real", () => {
     // Sanity: the insertion record is visible before the delete.
     const before = getSuggestions(s);
     expect(before.length).toBe(1);
-    expect(before[0].id).toBe("ins1");
-    expect(before[0].kind).toBe("insertion");
-    expect(before[0].orphaned).toBe(false);
+    expect(nth(before, 0, "suggestion").id).toBe("ins1");
+    expect(nth(before, 0, "suggestion").kind).toBe("insertion");
+    expect(nth(before, 0, "suggestion").orphaned).toBe(false);
 
     // alice soft-deletes "BB" (offsets 2..4).
     s = markDeletion(s, span(2, 4), DEL_INPUT).state;
@@ -572,9 +578,9 @@ describe("markDeletion — coalesce with an adjacent same-author deletion", () =
 
     const suggestions = getSuggestions(s);
     expect(suggestions.length).toBe(1);
-    expect(suggestions[0].id).toBe("first");
-    expect(suggestions[0].range?.start).toEqual(createPosition("p" as BlockId, 0));
-    expect(suggestions[0].range?.end).toEqual(createPosition("p" as BlockId, 6));
+    expect(nth(suggestions, 0, "suggestion").id).toBe("first");
+    expect(nth(suggestions, 0, "suggestion").range?.start).toEqual(createPosition("p" as BlockId, 0));
+    expect(nth(suggestions, 0, "suggestion").range?.end).toEqual(createPosition("p" as BlockId, 6));
   });
 
   it("does NOT coalesce across a DIFFERENT author (two records)", () => {
@@ -638,9 +644,9 @@ describe("markDeletion — cross-block span tags text in BOTH blocks with ONE id
     // Exactly ONE deletion record, range spanning p1→p2.
     const dels = getSuggestions(s).filter((x) => x.kind === "deletion");
     expect(dels.length).toBe(1);
-    expect(dels[0].id).toBe(DEL_SID);
-    expect(dels[0].range?.start).toEqual(createPosition("p1" as BlockId, 3));
-    expect(dels[0].range?.end).toEqual(createPosition("p2" as BlockId, 2));
+    expect(nth(dels, 0, "deletion").id).toBe(DEL_SID);
+    expect(nth(dels, 0, "deletion").range?.start).toEqual(createPosition("p1" as BlockId, 3));
+    expect(nth(dels, 0, "deletion").range?.end).toEqual(createPosition("p2" as BlockId, 2));
   });
 });
 
@@ -833,7 +839,7 @@ describe("mintInsertion — insert text carrying an insertion id + write record 
 
     const suggestions = getSuggestions(s);
     expect(suggestions.length).toBe(1);
-    const sug = suggestions[0];
+    const sug = nth(suggestions, 0, "suggestion");
     expect(sug.id).toBe(INS_SID);
     expect(sug.kind).toBe("insertion");
     expect(sug.author).toBe("alice");
@@ -918,11 +924,11 @@ describe("mintInsertion — coalesce a continuous typing run into ONE suggestion
     const suggestions = getSuggestions(s);
     // Coalesced into ONE record (the second reused the first's id).
     expect(suggestions.length).toBe(1);
-    expect(suggestions[0].id).toBe("first");
-    expect(suggestions[0].kind).toBe("insertion");
+    expect(nth(suggestions, 0, "suggestion").id).toBe("first");
+    expect(nth(suggestions, 0, "suggestion").kind).toBe("insertion");
     // Range widened to cover BOTH inserts (offsets 3..7).
-    expect(suggestions[0].range?.start).toEqual(createPosition("p" as BlockId, 3));
-    expect(suggestions[0].range?.end).toEqual(createPosition("p" as BlockId, 7));
+    expect(nth(suggestions, 0, "suggestion").range?.start).toEqual(createPosition("p" as BlockId, 3));
+    expect(nth(suggestions, 0, "suggestion").range?.end).toEqual(createPosition("p" as BlockId, 7));
 
     // The combined inserted text is contiguous and carries ONE id (the format
     // matches the neighbor, so planInsertText merged it into one physical run).
@@ -930,8 +936,9 @@ describe("mintInsertion — coalesce a continuous typing run into ONE suggestion
       (it) => it.kind === "text" && it.attrs[INSERTION_SUGGESTION_ATTR] === "first",
     );
     expect(inserted.length).toBe(1);
-    if (inserted[0].kind === "text") {
-      expect(inserted[0].text).toBe("XXYY");
+    const insertedRun = nth(inserted, 0, "inserted run");
+    if (insertedRun.kind === "text") {
+      expect(insertedRun.text).toBe("XXYY");
     }
   });
 
@@ -955,9 +962,9 @@ describe("mintInsertion — coalesce a continuous typing run into ONE suggestion
     expect(pText(s)).toBe("YYXXabcdef");
     const suggestions = getSuggestions(s);
     expect(suggestions.length).toBe(1);
-    expect(suggestions[0].id).toBe("first"); // reused from the after-neighbor
-    expect(suggestions[0].range?.start).toEqual(createPosition("p" as BlockId, 0));
-    expect(suggestions[0].range?.end).toEqual(createPosition("p" as BlockId, 4));
+    expect(nth(suggestions, 0, "suggestion").id).toBe("first"); // reused from the after-neighbor
+    expect(nth(suggestions, 0, "suggestion").range?.start).toEqual(createPosition("p" as BlockId, 0));
+    expect(nth(suggestions, 0, "suggestion").range?.end).toEqual(createPosition("p" as BlockId, 4));
   });
 
   it("does NOT coalesce across a DIFFERENT author (two records)", () => {
@@ -980,7 +987,7 @@ describe("mintInsertion — coalesce a continuous typing run into ONE suggestion
     const s = mintInsertion(oneBlock(), createPosition("p" as BlockId, 3), "XY", {}, INS_INPUT).state;
     const suggestions = getSuggestions(s);
     expect(suggestions.length).toBe(1);
-    expect(suggestions[0].id).toBe(INS_SID);
+    expect(nth(suggestions, 0, "suggestion").id).toBe(INS_SID);
   });
 });
 
@@ -1092,6 +1099,44 @@ describe("acceptSuggestion / rejectSuggestion — multi-author nested run cleanu
     expect(getSuggestions(r).length).toBe(0); // ins1 (bob) co-tenant cleaned up
   });
 
+  it("does NOT delete a formatting co-tenant still carried by a SURVIVING visible embed (#482 second path)", () => {
+    // [text("AA"), text("BB", {ins1=bob}), page-field embed]. markFormatting over
+    // [2,5) stamps fmt1 on BOTH the "BB" run AND the visible page-field embed
+    // (markFormatting stamps visible embeds — #478). "BB" thus carries ins1 + fmt1;
+    // the embed carries fmt1 ONLY. Reject ins1 → the "BB" run is DROPPED, but the
+    // embed survives and STILL references fmt1. The fmt1 record must NOT be deleted
+    // (it is still live on the embed). Pre-fix `suggestionIdsOnItem` ignored embed
+    // FORMATTING attrs, so the embed never entered `survivors` → fmt1 wrongly deleted.
+    const FMT1 = "fmt1" as SuggestionId;
+    let s = oneBlock(
+      inlineContent([
+        text("AA"),
+        text("BB", { [INSERTION_SUGGESTION_ATTR]: "ins1" }),
+        embed("page-field", { fieldType: "page-number" }),
+      ]),
+    );
+    s = seedInsertionRecord(s, "ins1", "bob");
+    s = markFormatting(s, span(2, 5), { bold: true }, {
+      id: FMT1,
+      author: "carol",
+      createdAt: 7000,
+    }).state;
+    // Precondition: the embed carries fmt1; no SURVIVING text run carries fmt1.
+    const embedBefore = pItems(s).find((it) => it.kind === "embed" && it.embedType === "page-field");
+    if (embedBefore === undefined || embedBefore.kind !== "embed") throw new Error("expected page-field embed");
+    expect(embedBefore.attrs[FORMATTING_SUGGESTION_ATTR]).toBe(FMT1);
+    expect(getSuggestions(s).length).toBe(2); // ins1 + fmt1 both live
+
+    const r = rejectSuggestion(s, "ins1" as SuggestionId).state;
+    expect(pText(r)).toBe("AA"); // "BB" dropped (reject-insertion never lands)
+    // fmt1 is still referenced by the surviving embed → record must survive.
+    const after = getSuggestions(r);
+    expect(after.find((x) => x.id === FMT1)).toBeDefined();
+    const embedAfter = pItems(r).find((it) => it.kind === "embed" && it.embedType === "page-field");
+    if (embedAfter === undefined || embedAfter.kind !== "embed") throw new Error("expected surviving page-field embed");
+    expect(embedAfter.attrs[FORMATTING_SUGGESTION_ATTR]).toBe(FMT1);
+  });
+
   it("does NOT over-delete a co-tenant that still tags surviving content", () => {
     // del1 tags BOTH the nested "BB" (with ins1) AND a plain "CC".
     let s = oneBlock(
@@ -1105,8 +1150,8 @@ describe("acceptSuggestion / rejectSuggestion — multi-author nested run cleanu
     expect(pText(r)).toBe("AACC"); // "BB" dropped; "CC" survives (carries del1, not ins1)
     const after = getSuggestions(r);
     expect(after.length).toBe(1);
-    expect(after[0].id).toBe(DEL_SID);
-    expect(after[0].orphaned).toBe(false); // del1 still live on "CC"
+    expect(nth(after, 0, "suggestion").id).toBe(DEL_SID);
+    expect(nth(after, 0, "suggestion").orphaned).toBe(false); // del1 still live on "CC"
   });
 });
 

@@ -97,7 +97,15 @@ export function handleReplaceAll(
   // first-seen block order from the document-ordered `matches`). The first
   // match in that block has the smallest start (matches are ascending), so the
   // seam is its `start`.
-  const firstBlockId = plan.blockWrites[0].blockId;
+  // `matches.length > 0` (guarded above) and a non-no-op result mean the plan
+  // wrote to at least one block, so the first block-write is always present.
+  const firstWrite = plan.blockWrites[0];
+  if (firstWrite === undefined) {
+    throw new Error(
+      "handleReplaceAll: applyReplaceAllPlan mutated state but produced no block-writes (invariant violation)",
+    );
+  }
+  const firstBlockId = firstWrite.blockId;
   const firstMatchStart = matches.find((m) => m.blockId === firstBlockId)?.start ?? 0;
   const newCursor = createPosition(firstBlockId, firstMatchStart);
   const newSelection = createSpan(newCursor, newCursor);

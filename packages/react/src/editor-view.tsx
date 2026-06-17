@@ -12,6 +12,9 @@ import {
   type EditorAction,
   type EditorState,
   type FindMatchesOptions,
+  type PageConfig,
+  type Hyphenator,
+  type Position,
   markStart,
   markEnd,
   recordSample,
@@ -21,7 +24,8 @@ import {
   createEditorController,
   type EditorController,
   type FindStatus,
-} from "@taleweaver/dom";
+  type CaretViewportRect,
+} from "@taleweaver/print";
 
 export interface EditorViewProps {
   editorState: EditorState;
@@ -30,6 +34,14 @@ export interface EditorViewProps {
   measurer: TextShaper | TextMeasurer;
   pageHeight?: number;
   pageGap?: number;
+  /**
+   * Phase 0b: page setup + auto-hyphenation moved out of core's `EditorConfig`
+   * into the controller. The host (e.g. the perf example) threads them through
+   * here so the layout-driver paginates / hyphenates. `undefined` ⇒ unpaginated
+   * / no hyphenation (the common-path host default).
+   */
+  pageConfig?: PageConfig;
+  hyphenator?: Hyphenator;
 }
 
 /**
@@ -48,6 +60,13 @@ export interface EditorViewHandle {
   replaceActive(replacement: string): FindStatus;
   replaceAll(replacement: string): FindStatus;
   findStatus(): FindStatus;
+  /**
+   * Resolve a document `Position` to its caret's viewport-relative pixel rect
+   * (CSS `position: fixed` space), or `null` before mount / when unresolvable.
+   * Delegates to the controller's `getCaretRect`; used to overlay
+   * position-anchored UI such as a collaborator's remote cursor.
+   */
+  getCaretRect(position: Position): CaretViewportRect | null;
 }
 
 const EMPTY_FIND_STATUS: FindStatus = { total: 0, activeIndex: -1 };
@@ -59,7 +78,7 @@ const handleProfile: ProfilerOnRenderCallback = (id, _phase, actualDuration) => 
 
 export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
   function EditorView(
-    { editorState, dispatch, containerRef, measurer, pageHeight, pageGap },
+    { editorState, dispatch, containerRef, measurer, pageHeight, pageGap, pageConfig, hyphenator },
     ref,
   ) {
   const controllerRef = useRef<EditorController | null>(null);
@@ -84,6 +103,7 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
       replaceAll: (replacement) =>
         controllerRef.current?.replaceAll(replacement) ?? EMPTY_FIND_STATUS,
       findStatus: () => controllerRef.current?.findStatus() ?? EMPTY_FIND_STATUS,
+      getCaretRect: (position) => controllerRef.current?.getCaretRect(position) ?? null,
     }),
     [],
   );
@@ -96,6 +116,8 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
       dispatch,
       pageHeight,
       pageGap,
+      pageConfig,
+      hyphenator,
     });
     controllerRef.current = ctrl;
     ctrl.update(editorState);

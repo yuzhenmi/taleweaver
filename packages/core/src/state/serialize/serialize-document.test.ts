@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { asBlockId, type BlockId } from "../block-id";
 import type { Block } from "../block";
+
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
 import {
   buildStateFromBlocks,
   buildStateWithListDefs,
@@ -28,6 +34,7 @@ import { applyOperation } from "../state";
 import { STATE_INTERNAL } from "../state-internal";
 import { createPosition, createSpan } from "../block-position";
 import type { InlineItem } from "../inline-content";
+import { INLINE_IMAGE_EMBED_TYPE } from "../inline-content";
 import type { DocumentSerializer } from "./document-serializer";
 import {
   MalformedDocumentError,
@@ -66,6 +73,15 @@ function buildRichFixture(): State {
       embedType: "image",
       attrs: { link: "https://example.com" },
       properties: { src: "img.png", width: 42, alt: "an image" },
+    },
+    // #529: an inline-image embed (image that flows IN LINE with text). The
+    // `embedType` is an open string discriminant, so survival is purely a
+    // serializer concern: embedType + properties must round-trip intact.
+    {
+      kind: "embed",
+      embedType: INLINE_IMAGE_EMBED_TYPE,
+      attrs: {},
+      properties: { src: "x.png", width: 40, height: 30, alt: "a" },
     },
   ];
   const plainItems: InlineItem[] = [
@@ -230,6 +246,22 @@ describe("serialize-document", () => {
       expectBlockEqual(getBlock(state2, rootId), origRoot);
       expectBlockEqual(getBlock(state2, p1), origP1);
       expectBlockEqual(getBlock(state2, p2), origP2);
+
+      // #529: the inline-image embed survives binary round-trip — embedType +
+      // properties intact. (expectBlockEqual above already deep-compares
+      // inlineContent; this pins the inline-image case explicitly.)
+      const p1After = requireBlock(getBlock(state2, p1));
+      const inlineImage = p1After.inlineContent?.items.find(
+        (item): item is Extract<InlineItem, { kind: "embed" }> =>
+          item.kind === "embed" && item.embedType === INLINE_IMAGE_EMBED_TYPE,
+      );
+      expect(inlineImage).toBeDefined();
+      expect(inlineImage?.properties).toEqual({
+        src: "x.png",
+        width: 40,
+        height: 30,
+        alt: "a",
+      });
       expectBlockEqual(getEmbedContent(state2, embedRoot), origEmbedRoot);
       expectBlockEqual(getEmbedContent(state2, embedPara), origEmbedPara);
       expectBlockEqual(getTemplateContent(state2, tmplRoot), origTmplRoot);
@@ -331,15 +363,15 @@ describe("serialize-document", () => {
       // The record survives (author/body/createdAt/resolved + empty replies).
       const newComments = getComments(state2);
       expect(newComments.length).toBe(1);
-      expect(newComments[0].author).toBe("alice");
-      expect(newComments[0].body).toBe("note");
-      expect(newComments[0].createdAt).toBe(42);
-      expect(newComments[0].resolved).toBe(false);
-      expect(newComments[0].replies).toEqual([]);
+      expect(nth(newComments, 0, "comment").author).toBe("alice");
+      expect(nth(newComments, 0, "comment").body).toBe("note");
+      expect(nth(newComments, 0, "comment").createdAt).toBe(42);
+      expect(nth(newComments, 0, "comment").resolved).toBe(false);
+      expect(nth(newComments, 0, "comment").replies).toEqual([]);
       // The in-content markers survive: the range resolves live (not orphaned),
       // proving both `comment-start`/`comment-end` embeds round-tripped.
-      expect(newComments[0].range.orphaned).toBe(false);
-      expect(newComments[0].range).toEqual(origComments[0].range);
+      expect(nth(newComments, 0, "comment").range.orphaned).toBe(false);
+      expect(nth(newComments, 0, "comment").range).toEqual(nth(origComments, 0, "comment").range);
       expect(buildCommentRangeIndex(state2).get("cm-1" as CommentId)?.orphaned).toBe(false);
     });
 

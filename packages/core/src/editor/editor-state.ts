@@ -1,38 +1,22 @@
 import { createEmptyDocument, History, createHistory, selectionContextOf, positionsEqual } from "../state";
 import { isDevMode } from "../state/dev-mode";
-import type { State, Selection, BlockId } from "../state";
-import { render, type RenderOutput } from "../render/render";
-import { cascadePass } from "../cascade";
-import { layoutTree } from "../layout/dispatch";
-import type { TextShaper } from "../layout/text-shaper";
-import type { Hyphenator } from "../layout/hyphenator";
-import type { TextMeasurer } from "../layout/text-measurer";
-import type { RenderNode, ElementBox } from "../render/render-node";
-import type { LayoutBox } from "../layout/layout-node";
-import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
-import type { PageConfig } from "../layout/page-config";
+import type { State, Selection, BlockId, PageConfig } from "../state";
 import type { ComponentRegistry } from "../components/component-registry";
 import type { AttrRegistry } from "../cascade/attr-registry";
 import type { EditorAction } from "./editor-action";
-import type { CaretAffinity } from "../cursor/line-bidi";
+import type { CaretAffinity } from "../cursor/selection";
 import { coalesceKeyOf } from "./coalesce-key";
-import { makeBlockParentLookup } from "./block-parent-lookup";
 import {
   handleInsertText,
   handleDeleteBackward,
   handleDeleteForward,
   handleDeleteWord,
-  handleDeleteLine,
+  handleDeleteRange,
   handleSplitNode,
-  handleMoveCursor,
   handleMoveWord,
-  handleMoveLine,
-  handleMoveLineBoundary,
   handleMoveDocumentBoundary,
-  handleExpandSelection,
+  handleEscape,
   handleExpandWord,
-  handleExpandLine,
-  handleExpandLineBoundary,
   handleExpandDocumentBoundary,
   handleSelectAll,
   handleSetSelection,
@@ -66,7 +50,10 @@ import {
   handleSplitCell,
   handleMergeCells,
   handleInsertImage,
+  handleInsertInlineImage,
   handleSetImageSize,
+  handleSetImageWrap,
+  handleSetImageAlt,
   handleInsertFootnote,
   handleInsertCrossReference,
   handleInsertPageField,
@@ -94,7 +81,6 @@ import {
   handleRejectAllSuggestions,
 } from "./actions";
 
-import { cascadeTemplateContents, cascadeEmbedContents } from "./actions/helpers";
 import { initialSelectionForState } from "./actions";
 
 // Re-export helpers that are part of the public API.
@@ -107,59 +93,26 @@ export interface EditorState {
   readonly selection: Selection;
   readonly history: History;
   /**
-   * Convenience alias for `renderOutput.root`. Pre-R-D field; many
-   * downstream consumers (paint, react integration) read `renderTree`
-   * directly. New code should prefer `renderOutput` for full access
-   * including `embedContents`.
+   * What this dispatch changed (Phase 0b): the set of block ids whose own
+   * attrs/content changed in the action that produced THIS state — the
+   * geometry-free hand-off to the print backend's layout-driver, which consumes
+   * it to rebuild the render→cascade→layout tree INCREMENTALLY (reusing unchanged
+   * subtrees by reference). Core's reducer is geometry-free; it records WHAT
+   * changed but never runs layout.
+   *
+   * `null` means "no incremental hint" — a FULL rebuild: a selection-only /
+   * inert action (no document mutation), the initial build, or a container-width
+   * resize. Within the reducer dispatch cycle a non-null (possibly empty) set is
+   * written ONLY by `rebuildTrees`, so a mutating action's dirty ids never leak
+   * forward onto a later selection-only action's state (the reducer's entry-clear
+   * enforces this). The ONE writer OUTSIDE the reducer is
+   * `reconcileForeignChange` (a collab peer's edit): it sets a non-null set
+   * directly, which is sound because it produces a whole new `EditorState` the
+   * host swaps in atomically (no in-flight dispatch can observe a stale value).
+   * NON-undoable, transient view/hand-off state — never in `History`, never part
+   * of `Position` / `Selection`.
    */
-  readonly renderTree: RenderNode;
-  /**
-   * Full render output (root + embedContents + templateContents) — needed
-   * as the `prev` input to the next `renderIncremental` call so unchanged
-   * RenderNodes flow through by reference.
-   */
-  readonly renderOutput: RenderOutput;
-  /**
-   * Post-cascade render tree (every node has `computedStyle`). Stored
-   * to feed `cascadePassIncremental` on the next reducer cycle —
-   * reusing it preserves the ref-equality chain that the incremental
-   * render set up.
-   */
-  readonly cascadedRoot: RenderNode;
-  /**
-   * Cascaded header/footer template bodies (C.2c), keyed by the template
-   * body's root BlockId — one entry per `renderOutput.templateContents`
-   * entry. Each value is the body root after `cascadePass` (so it carries
-   * a populated `computedStyle`, ready for slot layout). Empty for docs with
-   * no header/footer bodies. Stored so the next reducer cycle can reuse an
-   * unchanged body's cascaded tree by reference (the incremental path keys
-   * reuse off `dirtyIds`), and threaded into the layout pass so
-   * `materializePage` can lay the bodies into each page's header/footer slot
-   * (T4 consumes it; T3 only makes it available).
-   */
-  readonly cascadedTemplateContents: ReadonlyMap<BlockId, ElementBox>;
-  /**
-   * Cascaded footnote-body bodies (FN-1), keyed by the embed-content body's
-   * root BlockId — one entry per `renderOutput.embedContents` entry. Each value
-   * is the body root after `cascadePass` (so it carries a populated
-   * `computedStyle`, ready for the `resolveFootnotes` slot layout). Empty for
-   * docs with no footnotes. The exact parallel to `cascadedTemplateContents`
-   * (headers/footers): stored so the next reducer cycle can reuse an unchanged
-   * body's cascaded tree by reference (the incremental path keys reuse off
-   * `dirtyIds`). FN-1 only makes it available; the footnote layout pass
-   * (`resolveFootnotes`, FN-4) consumes it.
-   */
-  readonly cascadedEmbedContents: ReadonlyMap<BlockId, ElementBox>;
-  /**
-   * The layout result. In paginated mode (the common word-processor case) this
-   * is a `VirtualLayoutTree` — a `PagePlan` plus lazily-materialized
-   * `PageBox`es — produced by `layoutTreeIncremental` / `layoutTree`. In
-   * unpaginated mode, or for documents using features the measure pass cannot
-   * reproduce (float/`clear`), it is a fully-positioned `LayoutBox`. Consumers
-   * read a `VirtualLayoutTree` per-page via `getPage(i)`; the whole document is
-   * never materialized.
-   */
-  readonly layoutTree: LayoutBox | VirtualLayoutTree;
+  readonly lastDirtyIds: ReadonlySet<BlockId> | null;
   readonly containerWidth: number;
   readonly targetX: number | null;
   /**
@@ -200,21 +153,32 @@ export interface EditorState {
   /**
    * NON-undoable view state (#503): the ANCHOR's caret-boundary association at a
    * bidi direction boundary — the symmetric twin of `caretAffinity` (the FOCUS's
-   * boundary side). On the collapse→extend transition the focus-only extenders
-   * (`EXPAND_SELECTION`, `EXPAND_LINE`, `EXPAND_LINE_BOUNDARY`) seed this from
-   * `caretAffinity` via the shared `seedAnchorAffinity`; thereafter it persists
-   * through continued extension. Clears on any action not in `actionManagesAnchorAffinity` (the
-   * same central-reset model as `caretAffinity`). It is VIEW state — never stored
-   * in `History`, never part of `Position` / `Selection` / `Span`.
+   * boundary side). Post-Phase-0b the print backend's NavIntent resolver seeds it
+   * (on the collapse→extend transition, via the barrel-exported `seedAnchorAffinity`)
+   * and threads it through the `SET_SELECTION` it dispatches; thereafter it persists
+   * through continued extension. Clears on any action but `SET_SELECTION` (the same
+   * central-reset model as `caretAffinity`). It is VIEW state — never stored in
+   * `History`, never part of `Position` / `Selection` / `Span`.
    */
   readonly anchorAffinity?: CaretAffinity;
 }
 
 export interface EditorConfig {
-  readonly measurer: TextShaper | TextMeasurer;
   readonly componentRegistry: ComponentRegistry;
   readonly attrRegistry: AttrRegistry;
   readonly containerWidth: number;
+  /**
+   * Document page-setup data (size, orientation, margins, gap). DOCUMENT data,
+   * NOT layout geometry (Phase 0b Resolution B): page setup round-trips with the
+   * document (Google Docs File ▸ Page setup; Word per-section; .docx). The
+   * geometry-free reducer reads it in `toggle-section-landscape` (the landscape
+   * dimension swap consults the document's default page dimensions). The print
+   * backend's `LayoutConfig` ALSO carries the SAME instance for pagination; the
+   * host supplies it to both. `undefined` = an unpaginated/single-page harness.
+   * (`measurer`/`hyphenator` — the genuine print-mechanics fields — left core's
+   * `EditorConfig` for the backend `LayoutConfig` in this phase; `pageConfig`
+   * stays because it is document data.)
+   */
   readonly pageConfig?: PageConfig;
   /**
    * Injected clock for undo-coalescing timing (#420). Defaults to `Date.now`.
@@ -228,18 +192,6 @@ export interface EditorConfig {
    * owns "who is suggesting" (this is configuration, not session state).
    */
   readonly suggestingAuthor?: string | null;
-  /**
-   * Injected auto-hyphenation capability (slice 2). When present, the layout pass
-   * threads it to every text-tokenization site so a `hyphens: auto` run gets
-   * candidate hyphenation break-points (the producer is slice 4; this slice only
-   * plumbs the value through). Absent ⇒ no hyphenation.
-   *
-   * IMMUTABLE ONCE CONFIGURED: swapping the hyphenator at runtime does NOT
-   * invalidate the wrap caches, so a host that wants to swap hyphenators (or
-   * language packs) must trigger a full rebuild. v1 ships no language-switcher.
-   * See the auto-hyphenation design §5.
-   */
-  readonly hyphenator?: Hyphenator;
 }
 
 export function createInitialEditorState(config: EditorConfig): EditorState {
@@ -250,77 +202,32 @@ export function createInitialEditorState(config: EditorConfig): EditorState {
 
 /**
  * Build a fresh `EditorState` from an arbitrary `State` + initial `Selection`
- * (a fresh `History` bound to that state, plus the full render → cascade →
- * layout build). `createInitialEditorState` delegates here with the empty
- * document. Primarily for tests that need a non-default seed document (e.g. a
- * table-only body) without an editor-from-state injection seam.
+ * (a fresh `History` bound to that state). `createInitialEditorState` delegates
+ * here with the empty document. Primarily for tests that need a non-default seed
+ * document (e.g. a table-only body) without an editor-from-state injection seam.
+ *
+ * Phase 0b: core is geometry-free. This builds NO render/cascade/layout trees —
+ * the print backend's layout-driver owns that pipeline and rebuilds it from
+ * `state` after each dispatch. `lastDirtyIds: null` signals the driver to do a
+ * FULL initial build.
+ *
+ * `historyOrigin` is the transaction origin the editor's `History` tracks for
+ * undo (default `null` = the single-editor origin). A collaborating peer passes
+ * its own origin token so its `UndoManager` tracks ONLY its own edits (undo
+ * isolation, E4b) — building the right History up front instead of replacing a
+ * default one (which would leak the default's UndoManager listener).
  */
 export function createEditorStateFromState(
   state: State,
   selection: Selection,
   config: EditorConfig,
+  historyOrigin: unknown = null,
 ): EditorState {
-  const rendered = render(state, config.componentRegistry, config.attrRegistry);
-  // Cascade explicitly so we can store the cascaded tree on
-  // EditorState for the next cycle's `cascadePassIncremental`.
-  const cascadedRoot = cascadePass(rendered.root);
-  // C.2c: full-cascade every header/footer template body (no prev → full
-  // cascade each). Empty for the standard empty document (no template bodies).
-  const cascadedTemplateContents = cascadeTemplateContents(
-    rendered,
-    null,
-    null,
-    undefined,
-  );
-  // FN-1: full-cascade every footnote body (no prev → full cascade each).
-  // Empty for the standard empty document (no footnotes).
-  const cascadedEmbedContents = cascadeEmbedContents(
-    rendered,
-    null,
-    null,
-    undefined,
-  );
-  // FN-4.0: ordered footnote anchors over the main document, threaded into the
-  // initial full build for the footnote layout pass (FN-4.2 `resolveFootnotes`).
-  // FN-8: read the anchors `render` already collected (and cached on the
-  // RenderOutput) — no separate walk. The full-render path collects them once
-  // (skipping the walk entirely for a footnote-free doc, the standard empty
-  // document). Subsequent incremental cycles (`rebuildTrees`) read the same
-  // field, which is reused across cycles when no anchor changed.
-  const footnoteAnchors = rendered.footnoteAnchors;
-  // Task 2.5: build the layout layer's parent-lookup so a `cross-ref-page` field to a
-  // NESTED target (e.g. a paragraph inside a table cell — not a top-level root child the
-  // page plan indexes) resolves via its nearest indexed ancestor. Without threading this,
-  // `parentOf` would be `undefined` and any nested-target page-field would show broken-ref.
-  const parentOf = makeBlockParentLookup(state);
-  const layout = layoutTree(
-    cascadedRoot,
-    config.containerWidth,
-    config.measurer,
-    config.pageConfig,
-    // #328 (C1): thread the cascaded header/footer bodies through the initial
-    // full build so a seeded tall-header doc paginates with the GROWN insets.
-    cascadedTemplateContents,
-    // FN-4.0: cascaded footnote bodies + anchors, threaded for the (later)
-    // footnote layout pass. Unused for layout output today.
-    cascadedEmbedContents,
-    footnoteAnchors,
-    parentOf,
-    // Auto-hyphenation (slice 2): thread the injected hyphenator into the full
-    // build so the measure + render passes share the host's hyphenation inputs.
-    config.hyphenator,
-  );
-
   return {
     state,
     selection,
-    history: createHistory(state),
-    renderTree: rendered.root,
-    renderOutput: rendered,
-    cascadedRoot,
-    cascadedTemplateContents,
-    cascadedEmbedContents,
-    layoutTree: layout,
+    history: createHistory(state, undefined, historyOrigin),
+    lastDirtyIds: null,
     containerWidth: config.containerWidth,
     targetX: null,
     caretPageHint: undefined,
@@ -331,10 +238,19 @@ export function createEditorStateFromState(
 
 /** Pure reducer: applies an action to EditorState and returns new state. */
 export function reduceEditor(
-  editor: EditorState,
+  rawEditor: EditorState,
   action: EditorAction,
   config: EditorConfig,
 ): EditorState {
+  // Phase 0b ENTRY-CLEAR: `lastDirtyIds` is the layout-driver's per-dispatch
+  // incremental hint, written ONLY by a mutating action's `rebuildTrees`. Clear
+  // it at the entry of every dispatch so a prior mutating action's dirty ids
+  // never leak forward onto a later selection-only / inert action (which would
+  // make the driver wrongly rebuild only those blocks). A mutating handler's
+  // `rebuildTrees` re-sets a fresh non-null set; everything else leaves it null.
+  const editor =
+    rawEditor.lastDirtyIds === null ? rawEditor : { ...rawEditor, lastDirtyIds: null };
+
   // #420: undo-group coalescing. Decide the undo boundary BEFORE the operation
   // runs (with `captureTimeout: MAX`, a transaction merges into the open group
   // unless we `stopCapturing` first). Committing actions open/continue a group;
@@ -367,9 +283,6 @@ export function reduceEditor(
     }
   }
 
-  // Vertical actions preserve targetX; all others clear it.
-  const isVertical = action.type === "MOVE_LINE" || action.type === "EXPAND_LINE";
-
   let result: EditorState;
   switch (action.type) {
     case "INSERT_TEXT":
@@ -384,11 +297,8 @@ export function reduceEditor(
     case "SPLIT_NODE":
       result = handleSplitNode(editor, config);
       break;
-    case "MOVE_CURSOR":
-      result = handleMoveCursor(editor, action.direction, config);
-      break;
     case "MOVE_WORD":
-      result = handleMoveWord(editor, action.direction);
+      result = handleMoveWord(editor, action.direction, config);
       break;
     case "UNDO":
       result = handleUndo(editor, config);
@@ -431,21 +341,14 @@ export function reduceEditor(
           action.selection,
           action.caretPageHint,
           action.caretAffinity,
+          action.anchorAffinity,
+          action.targetX,
         );
       }
       break;
     }
-    case "EXPAND_SELECTION":
-      result = handleExpandSelection(editor, action.direction, config);
-      break;
     case "EXPAND_WORD":
       result = handleExpandWord(editor, action.direction);
-      break;
-    case "MOVE_LINE":
-      result = handleMoveLine(editor, action.direction, config);
-      break;
-    case "EXPAND_LINE":
-      result = handleExpandLine(editor, action.direction, config);
       break;
     case "TOGGLE_STYLE":
       result = handleToggleStyle(editor, action.style, config);
@@ -485,17 +388,18 @@ export function reduceEditor(
     case "TOGGLE_LIST":
       result = handleToggleList(editor, action.listType, config);
       break;
-    case "MOVE_LINE_BOUNDARY":
-      result = handleMoveLineBoundary(editor, action.boundary, config);
-      break;
-    case "EXPAND_LINE_BOUNDARY":
-      result = handleExpandLineBoundary(editor, action.boundary, config);
-      break;
     case "MOVE_DOCUMENT_BOUNDARY":
       result = handleMoveDocumentBoundary(editor, action.boundary);
       break;
     case "EXPAND_DOCUMENT_BOUNDARY":
       result = handleExpandDocumentBoundary(editor, action.boundary);
+      break;
+    case "ESCAPE":
+      // #525: pure selection move (no commit) — collapse an object selection to
+      // just after the object. Not a line/vertical action and does not manage
+      // bidi affinity, so it joins no targetX / caretAffinity / anchorAffinity
+      // exemption list.
+      result = handleEscape(editor, config);
       break;
     case "SELECT_ALL":
       result = handleSelectAll(editor);
@@ -503,8 +407,8 @@ export function reduceEditor(
     case "DELETE_WORD":
       result = handleDeleteWord(editor, action.direction, config);
       break;
-    case "DELETE_LINE":
-      result = handleDeleteLine(editor, config);
+    case "DELETE_RANGE":
+      result = handleDeleteRange(editor, action.span, config);
       break;
     case "INSERT_NODE":
       result = handleInsertNode(editor, action.node, action.position, config);
@@ -581,8 +485,24 @@ export function reduceEditor(
     case "INSERT_IMAGE":
       result = handleInsertImage(editor, action.src, action.width, action.height, config);
       break;
+    case "INSERT_INLINE_IMAGE":
+      result = handleInsertInlineImage(
+        editor,
+        action.src,
+        action.width,
+        action.height,
+        action.alt,
+        config,
+      );
+      break;
     case "SET_IMAGE_SIZE":
       result = handleSetImageSize(editor, action.blockId, action.width, action.height, config);
+      break;
+    case "SET_IMAGE_WRAP":
+      result = handleSetImageWrap(editor, action.blockId, action.wrap, config);
+      break;
+    case "SET_IMAGE_ALT":
+      result = handleSetImageAlt(editor, action.blockId, action.alt, config);
       break;
     case "SET_TEXT_ALIGN":
       result = handleSetTextAlign(editor, action.align, config);
@@ -673,118 +593,63 @@ export function reduceEditor(
     }
   }
 
-  if (!isVertical && result.targetX !== null) {
-    result = { ...result, targetX: null };
-  }
-
-  // Central caret-affinity reset (P4-C.2.2b §C, mirrors the `targetX` clear
-  // above). `caretAffinity` is a bidi-boundary VIEW seed; it must persist ONLY
-  // across the actions that explicitly manage it, and reset to `undefined` after
-  // any other action (every edit / non-managing selection change) so it never
-  // goes stale. `actionManagesCaretAffinity` is the single extension point —
-  // C.2.3/C.2.6 add the visual-arrow / Home-End / expand actions there.
-  if (!actionManagesCaretAffinity(action) && result.caretAffinity !== undefined) {
-    result = { ...result, caretAffinity: undefined };
-  }
-
-  // Central anchor-affinity reset (#503), the symmetric twin of the caretAffinity
-  // reset above. `anchorAffinity` records the ANCHOR's bidi-boundary side; it must
-  // persist ONLY across the actions that explicitly manage it (the same set as
-  // `caretAffinity`) and reset to `undefined` after any other action so it never
-  // goes stale. Note (R5): MOVE_CURSOR / MOVE_LINE_BOUNDARY are in the predicate
-  // (so this reset skips them) AND collapse the selection — they explicitly set
-  // `anchorAffinity: undefined` in their own returns so a stale value is not
-  // carried forward by their `{ ...editor }` spread.
-  if (!actionManagesAnchorAffinity(action) && result.anchorAffinity !== undefined) {
-    result = { ...result, anchorAffinity: undefined };
+  // Central transient-view-state clear: `targetX` (line-nav sticky goal column)
+  // and the bidi-boundary affinities are all resolved against a SPECIFIC
+  // document/layout shape, so any action other than the one that MANAGES them
+  // must reset them (else they go stale). Post-Phase-0b that managing action is
+  // `SET_SELECTION` alone — the print backend's NavIntent resolver originates a
+  // line-move's `targetX` + caret/anchor affinity and threads ALL THREE through
+  // the `SET_SELECTION` it dispatches (a programmatic / body `SET_SELECTION`
+  // passes `null`/`undefined`, deliberately clearing them). The six lifted
+  // geometric-nav handlers that used to manage these no longer run in core. So
+  // every non-`SET_SELECTION` action routes through `clearTransientViewState`
+  // (the single home for "what's stale-on-mutation", also used by
+  // `reconcileForeignChange`); the helper is allocation-guarded.
+  if (action.type !== "SET_SELECTION") {
+    result = clearTransientViewState(result);
   }
 
   return result;
 }
 
 /**
- * Does this action explicitly MANAGE `EditorState.caretAffinity` (set or
- * deliberately clear it), exempting it from the central reset above? Delegates
- * to `actionManagesAffinity` (the single source of truth, which documents why
- * each action qualifies).
- */
-function actionManagesCaretAffinity(action: EditorAction): boolean {
-  return actionManagesAffinity(action);
-}
-
-/**
- * Does this action explicitly MANAGE `EditorState.anchorAffinity` (#503),
- * exempting it from the central reset above? Two categories, both exempted from
- * the central reset:
- *  - COLLAPSE actions (`MOVE_CURSOR`, `MOVE_LINE`, `MOVE_LINE_BOUNDARY`) and
- *    `SET_SELECTION` clear `anchorAffinity` EXPLICITLY in their returns (a
- *    collapsed selection / new anchor has no bidi-boundary context; the
- *    `{ ...editor }` spread would otherwise carry a stale value).
- *  - The FOCUS-ONLY movers (`EXPAND_LINE` / `EXPAND_LINE_BOUNDARY`) keep the
- *    anchor fixed, so they intentionally PERSIST `anchorAffinity` via the
- *    `{ ...editor }` spread; `EXPAND_SELECTION` seeds it on the collapse→extend
- *    transition (slice 4) and persists it thereafter.
+ * Reset the transient VIEW fields that go stale on any document mutation:
+ * `targetX` (line-nav sticky goal column) and `caretAffinity` / `anchorAffinity`
+ * (bidi-boundary seeds). Each is resolved against a specific document/layout
+ * shape, so any edit invalidates it. Allocation-guarded — returns `editor`
+ * unchanged when all three are already cleared.
  *
- * The anchor side is the symmetric twin of the focus side, so both predicates
- * delegate to the same `actionManagesAffinity` set (see there).
+ * The SINGLE home for "what counts as stale-on-mutation view state". Every
+ * producer of a post-mutation `EditorState` routes through here — the reducer
+ * (after every non-`SET_SELECTION` action) and `reconcileForeignChange` (after a
+ * peer's foreign edit) — so a new producer can't silently forget a field.
  */
-function actionManagesAnchorAffinity(action: EditorAction): boolean {
-  return actionManagesAffinity(action);
-}
-
-/**
- * The single source of truth for the action set that MANAGES bidi caret/anchor
- * affinity (sets or deliberately clears it), exempting the action from the
- * central affinity reset. Both `actionManagesCaretAffinity` and
- * `actionManagesAnchorAffinity` delegate here: the anchor and focus sides are
- * symmetric twins, so the set is identical and the lockstep is AUTOMATIC (no
- * comment needed). Should the two sides ever need to diverge, re-inline one
- * predicate's set rather than splitting this helper.
- *
- * Each action SETS the affinity on its result (so the central reset must NOT
- * clobber it):
- *   - `SET_SELECTION` — the DOM click seeds the hit side; a programmatic
- *     selection with no affinity passes `undefined` to clear it.
- *   - `MOVE_CURSOR` (P4-C.2.3) — visual-order ArrowLeft/Right sets the boundary
- *     affinity from `moveVisually` (the dual-caret flip side), or clears it to
- *     `undefined` on an exit / collapse.
- *   - `EXPAND_SELECTION` (P4-C.2.4) — visual-order Shift+ArrowLeft/Right extends
- *     the FOCUS via the same `moveVisually`, carrying the focus's boundary
- *     affinity (or clearing it to `undefined` on an exit / logical fallback).
- *   - `MOVE_LINE` (#500) — ArrowUp/Down seeds the affinity the line-move resolved
- *     from the hit-test at the target line, so a caret landing on an offset shared
- *     across a soft-wrap / column boundary renders on the line the move stepped
- *     onto (without it, the default "after" pins to the later line and an ArrowUp
- *     at the top of a column appears to do nothing).
- *   - `EXPAND_LINE` (#500) — Shift+ArrowUp/Down moves the FOCUS to the adjacent
- *     line and seeds the focus affinity the same way (the symmetric twin of
- *     `MOVE_LINE`).
- *   - `MOVE_LINE_BOUNDARY` (P4-C.2.6 §G) — Home/End set a direction-independent
- *     affinity (Home→"after", End→"before") so the LOGICAL line boundary renders
- *     at the correct visual edge of an RTL line. (Inert on uniform LTR lines.)
- *   - `EXPAND_LINE_BOUNDARY` (P4-C.2.6 §G) — Shift+Home/End move the FOCUS to a
- *     logical boundary and seed the focus affinity the same way.
- */
-function actionManagesAffinity(action: EditorAction): boolean {
-  return (
-    action.type === "SET_SELECTION" ||
-    action.type === "MOVE_CURSOR" ||
-    action.type === "EXPAND_SELECTION" ||
-    action.type === "MOVE_LINE" ||
-    action.type === "EXPAND_LINE" ||
-    action.type === "MOVE_LINE_BOUNDARY" ||
-    action.type === "EXPAND_LINE_BOUNDARY"
-  );
+export function clearTransientViewState(editor: EditorState): EditorState {
+  if (
+    editor.targetX === null &&
+    editor.caretAffinity === undefined &&
+    editor.anchorAffinity === undefined
+  ) {
+    return editor;
+  }
+  return {
+    ...editor,
+    targetX: null,
+    caretAffinity: undefined,
+    anchorAffinity: undefined,
+  };
 }
 
 /**
  * The shared `anchorAffinity` seed/persist rule (#503) for the three focus-only
  * selection extenders — `EXPAND_SELECTION` (Shift+ArrowLeft/Right), `EXPAND_LINE`
- * (Shift+ArrowUp/Down), `EXPAND_LINE_BOUNDARY` (Shift+Home/End). They all keep
- * the ANCHOR fixed and move only the FOCUS, so the anchor's bidi-boundary side
- * must be captured ONCE — on the genuine collapse→extend transition — and then
- * PERSIST through continued extension (the central reset exempts them all via
- * `actionManagesAnchorAffinity`).
+ * (Shift+ArrowUp/Down), `EXPAND_LINE_BOUNDARY` (Shift+Home/End). Post-Phase-0b
+ * these extenders live in the print backend's NavIntent resolver, which imports
+ * this barrel-exported helper to compute the `anchorAffinity` it threads into the
+ * `SET_SELECTION` it dispatches. They all keep the ANCHOR fixed and move only the
+ * FOCUS, so the anchor's bidi-boundary side must be captured ONCE — on the
+ * genuine collapse→extend transition — and then PERSIST through continued
+ * extension (the central reset exempts `SET_SELECTION`, the action they dispatch).
  *
  * Contract:
  *   - On the collapse→extend transition (`isCollapsed && anchorAffinity ===

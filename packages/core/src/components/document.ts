@@ -1,7 +1,7 @@
 import type { ContainerComponentDefinition } from "./component-definition";
 import type { Style } from "../styles";
 import { createElementBox } from "../render/render-node";
-import { writingModeFromAttrs } from "./leaf-style-attrs";
+import { writingModeFromAttrs, langFromAttrs } from "./leaf-style-attrs";
 
 /**
  * Document: the root container block. Holds child blocks (paragraphs,
@@ -40,6 +40,7 @@ export const documentComponent: ContainerComponentDefinition = {
   kind: "container",
   render: (view, _ctx, childRenderNodes) => {
     const writingMode = writingModeFromAttrs(view.attrs.writingMode);
+    const language = langFromAttrs(view.attrs.lang);
     const style: Style = {
       display: "block",
       whiteSpace: "break-spaces",
@@ -49,6 +50,9 @@ export const documentComponent: ContainerComponentDefinition = {
       // CSS `overflow-wrap: normal` initial. See overflow-wrap design spec.
       overflowWrap: "break-word",
       ...(writingMode !== undefined ? { writingMode } : {}),
+      // A document-level `lang` cascades (language inherits) to every body block,
+      // feeding PDF `/Lang` and per-block auto-hyphenation. See leaf-style-attrs.ts.
+      ...(language !== undefined ? { language } : {}),
     };
     return createElementBox(
       view.id,

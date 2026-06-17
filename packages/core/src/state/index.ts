@@ -65,12 +65,17 @@ export {
   docHasFootnotes,
 } from "./state";
 
+export { subscribeForeignChanges } from "./collab";
+export { runWithTransactionOrigin } from "./yjs-doc";
+
 // Block snapshot type and the insert-time partial-block shape.
 export type { Block } from "./block";
 export type { BlockInit } from "./block-init";
 
 // Block identity and allocation.
 export type { BlockId, IdAllocator } from "./block-id";
+export type { BlockParentLookup } from "./block-parent-lookup-type";
+export type { PageConfig, PageMargins } from "./page-config";
 export {
   asBlockId,
   coerceBlockId,
@@ -101,6 +106,7 @@ export {
   attrsAtOffset,
   mergeAdjacentTextItems,
   splitInlineContentAtOffset,
+  INLINE_IMAGE_EMBED_TYPE,
 } from "./inline-content";
 
 // Open-schema attribute values + equality / merge helpers.
@@ -250,6 +256,13 @@ export { insertBlock } from "./ops/insert-block";
 export type { SiblingBlockInit } from "./ops/insert-blocks-after";
 export { insertBlocksAfter } from "./ops/insert-blocks-after";
 export { removeBlock } from "./ops/remove-block";
+// `replaceBlockWithText` removes a whole block AND inserts text into a surviving
+// sibling in ONE transaction (one undo entry) — image OBJECT-SELECTION, #525.
+// Composes `removeBlockInTx` + `insertTextInTx` (both stay op-internal), mirroring
+// `replaceRange`'s atomic delete+insert. The sole-child "seed a fresh paragraph"
+// case (delete leaving an empty body) is handled by `deleteTableWithReplacement`
+// (a generic remove-block-with-replacement primitive; see its docstring).
+export { replaceBlockWithText } from "./ops/replace-block-with-text";
 // Table editing (P15a). `planInsertTableRow` / `insertTableRowInTx` are
 // intentionally NOT re-exported (the in-tx primitives stay op-internal, matching
 // planInsertBlock / insertBlockInTx).
@@ -313,6 +326,14 @@ export {
   CROSS_REFERENCE_EMBED_TYPE,
 } from "./ops/insert-cross-reference";
 export { insertTab, TAB_EMBED_TYPE } from "./ops/insert-tab";
+// Inline image (Google Docs "In line" positioning). A primitive-property inline
+// embed with NO owned body — its image data (`src`/`width`/`height`/`alt`) lives
+// inline in `properties`; render lays it out as a single inline-block replaced
+// atom. The `INLINE_IMAGE_EMBED_TYPE` discriminant lives in `./inline-content`
+// (re-exported from this barrel) so Layer-1 consumers import it without reaching
+// into `ops/`.
+export { insertInlineImage } from "./ops/insert-inline-image";
+export type { InlineImageProperties } from "./ops/insert-inline-image";
 // Hard line break (`<br>`). Produced ONLY by HTML decode (no editor action / op),
 // so the embed-type constant lives at the state root (`./hard-break`) — like
 // `./page-field` and `./comments` — so Layer-1 `extract-text.ts` can import it
@@ -456,6 +477,7 @@ export { buildDocumentFromTree } from "./build-document-from-tree";
 // here. `getMetaRootId` (yjs-doc) stays state-private and is NOT re-exported.
 // ───────────────────────────────────────────────────────────────────────────
 export type { SerializedDocument, DocumentSerializer, SerializerRegistry } from "./serialize";
+export type { HtmlNode, HtmlParser } from "./serialize";
 export {
   createSerializerRegistry,
   createDefaultSerializerRegistry,
@@ -463,8 +485,14 @@ export {
   deserializeDocument,
   createBinaryDocumentSerializer,
   BINARY_FORMAT,
+  createJsonDocumentSerializer,
+  JSON_FORMAT,
   UnknownSerializerFormatError,
   MalformedDocumentError,
+  encodeHtml,
+  decodeHtml,
+  createHtmlDocumentSerializer,
+  HTML_FORMAT,
 } from "./serialize";
 
 // NOTE: the reparent write-list machinery (`computeReparentWrites`,

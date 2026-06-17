@@ -31,6 +31,13 @@ import {
   type EditorConfig,
   type EditorState,
 } from "./test-helpers";
+
+/** Throwing indexed access for tests: stronger than the old undefined-deref TypeError. */
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
 import {
   getBlock,
   getSuggestions,
@@ -141,7 +148,7 @@ describe("suggesting mode in a footnote BODY now TRACKS (MT-4)", () => {
     expect(textOfResolved(next, bodyParaId)).toBe("abcZ");
     const suggestions = getSuggestions(next.state);
     expect(suggestions).toHaveLength(1);
-    expect(suggestions[0].kind).toBe("insertion");
+    expect(nth(suggestions, 0, "suggestion").kind).toBe("insertion");
     expect(anyRunHasAttr(next, bodyParaId, "insertionSuggestionId")).toBe(true);
   });
 
@@ -154,7 +161,7 @@ describe("suggesting mode in a footnote BODY now TRACKS (MT-4)", () => {
     expect(textOfResolved(next, bodyParaId)).toBe("abc");
     const suggestions = getSuggestions(next.state);
     expect(suggestions).toHaveLength(1);
-    expect(suggestions[0].kind).toBe("deletion");
+    expect(nth(suggestions, 0, "suggestion").kind).toBe("deletion");
     expect(anyRunHasAttr(next, bodyParaId, "deletionSuggestionId")).toBe(true);
   });
 
@@ -172,7 +179,7 @@ describe("suggesting mode in a footnote BODY now TRACKS (MT-4)", () => {
     }
     const suggestions = getSuggestions(next.state);
     expect(suggestions).toHaveLength(1);
-    expect(suggestions[0].kind).toBe("formatting");
+    expect(nth(suggestions, 0, "suggestion").kind).toBe("formatting");
     expect(anyRunHasAttr(next, bodyParaId, "formattingSuggestionId")).toBe(true);
   });
 
@@ -191,7 +198,7 @@ describe("suggesting mode in a footnote BODY now TRACKS (MT-4)", () => {
     // It's TRACKED: an insertion record + the split embed on the body block.
     const suggestions = getSuggestions(next.state);
     expect(suggestions).toHaveLength(1);
-    expect(suggestions[0].kind).toBe("insertion");
+    expect(nth(suggestions, 0, "suggestion").kind).toBe("insertion");
     expect(endsWithSplitEmbed(next, bodyParaId)).toBe(true);
   });
 
@@ -294,7 +301,7 @@ describe("regression: the SAME actions in the MAIN body still create suggestions
     expect(getTextOf(next.state, para)).toBe("Z");
     const suggestions = getSuggestions(next.state);
     expect(suggestions).toHaveLength(1);
-    expect(suggestions[0].kind).toBe("insertion");
+    expect(nth(suggestions, 0, "suggestion").kind).toBe("insertion");
     expect(anyRunHasAttr(next, para, "insertionSuggestionId")).toBe(true);
   });
 
@@ -310,7 +317,7 @@ describe("regression: the SAME actions in the MAIN body still create suggestions
 
     const suggestions = getSuggestions(next.state);
     expect(suggestions).toHaveLength(1);
-    expect(suggestions[0].kind).toBe("deletion");
+    expect(nth(suggestions, 0, "suggestion").kind).toBe("deletion");
     expect(anyRunHasAttr(next, para, "deletionSuggestionId")).toBe(true);
   });
 
@@ -326,7 +333,7 @@ describe("regression: the SAME actions in the MAIN body still create suggestions
 
     const suggestions = getSuggestions(next.state);
     expect(suggestions).toHaveLength(1);
-    expect(suggestions[0].kind).toBe("formatting");
+    expect(nth(suggestions, 0, "suggestion").kind).toBe("formatting");
     expect(anyRunHasAttr(next, para, "formattingSuggestionId")).toBe(true);
   });
 });

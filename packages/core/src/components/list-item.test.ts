@@ -159,6 +159,40 @@ describe("listItemComponent (flat Google-Docs model)", () => {
     expect(el.style.markerText).toBeUndefined();
   });
 
+  // --- P-5: typed list nesting metadata for the read-only DOM viewer ---
+  it("stamps list metadata (level/listId/ordered) for a bullet item (P-5)", () => {
+    const el = listItemComponent.render(
+      leafView({ listId: "L1", listLevel: 0 }),
+      stubCtx({ value: 1, formatted: "•" }),
+      [],
+    ) as ElementBox;
+    // A bullet carries NO ordinal (it has no displayed number).
+    expect(el.metadata?.list).toEqual({ level: 0, listId: "L1", ordered: false });
+  });
+
+  it("stamps ordered:true (no numeric ordinal) for a numbered item (P-5)", () => {
+    // The list metadata carries only level/listId/ordered — the displayed number lives in
+    // `markerText` ("3."). The raw ordinal is NOT surfaced: no consumer reads it (digital groups
+    // <ul>/<ol> from `ordered`; the HTML serializer resolves ordinals via the numbering engine;
+    // the a11y dom-mirror numbers native <ol> elements). #553.
+    const el = listItemComponent.render(
+      leafView({ listId: "L2", listLevel: 2 }),
+      stubCtx({ value: 3, formatted: "3" }),
+      [],
+    ) as ElementBox;
+    expect(el.metadata?.list).toEqual({ level: 2, listId: "L2", ordered: true });
+    expect("value" in (el.metadata?.list ?? {})).toBe(false);
+  });
+
+  it("omits list metadata when the marker is unresolved (P-5)", () => {
+    const el = listItemComponent.render(
+      leafView({ listId: "L3", listLevel: 0 }),
+      stubCtx(),
+      [],
+    ) as ElementBox;
+    expect(el.metadata?.list).toBeUndefined();
+  });
+
   // #418 — DELIBERATE inter-item spacing difference (property-lock, GREEN).
   // A list-item intentionally has ZERO default block margins (tight, cohesive
   // list packing — the Google-Docs / word-processor convention), UNLIKE the

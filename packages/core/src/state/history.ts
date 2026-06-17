@@ -201,7 +201,11 @@ export class History {
   private lastEditTime = 0;
   private didCoalesce = false;
 
-  constructor(state: State, maxDepth: number = DEFAULT_MAX_UNDO_DEPTH) {
+  constructor(
+    state: State,
+    maxDepth: number = DEFAULT_MAX_UNDO_DEPTH,
+    trackedOrigin: unknown = null,
+  ) {
     if (maxDepth < 1) {
       throw new Error(`History: maxDepth must be >= 1, got ${maxDepth}`);
     }
@@ -229,10 +233,14 @@ export class History {
         // `doc.transact` into its own undo entry, breaking action-level
         // grouping (each `applyOperation` would become its own undo step).
         captureTimeout: Number.MAX_SAFE_INTEGER,
-        // Only track transactions with our default origin (null). Future
-        // non-undoable mutations (e.g., remote collab edits) can opt OUT
-        // of undo tracking by using a tagged origin.
-        trackedOrigins: new Set([null]),
+        // Track ONLY transactions tagged with this editor's `trackedOrigin`
+        // (default `null` — the single-editor case, Yjs's default origin). A
+        // collab host passes its distinct peer origin here AND tags all its edits
+        // with the same origin (via `runWithTransactionOrigin`): its own edits stay
+        // undoable, while a REMOTE peer's edits (a different origin) and the
+        // non-undoable suggestion-resolve ops (SUGGESTION_RESOLVE_ORIGIN) are
+        // excluded — so undo isolation across collaborators falls out for free.
+        trackedOrigins: new Set([trackedOrigin]),
       },
     );
   }
@@ -625,10 +633,15 @@ export class History {
 /**
  * Convenience factory for constructing a `History` instance. `maxDepth` caps
  * the undo-stack depth (default `DEFAULT_MAX_UNDO_DEPTH`); pass a smaller value
- * to bound memory more aggressively or for tests.
+ * to bound memory more aggressively or for tests. `trackedOrigin` (default `null`,
+ * the single-editor case) is the transaction origin this History's UndoManager
+ * tracks — a collab host passes its peer origin so its undo stack holds only its
+ * own edits (see the `History` constructor for the collab-isolation rationale).
  */
-export function createHistory(state: State, maxDepth?: number): History {
-  return maxDepth === undefined
-    ? new History(state)
-    : new History(state, maxDepth);
+export function createHistory(
+  state: State,
+  maxDepth?: number,
+  trackedOrigin: unknown = null,
+): History {
+  return new History(state, maxDepth ?? DEFAULT_MAX_UNDO_DEPTH, trackedOrigin);
 }

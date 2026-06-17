@@ -20,3 +20,11 @@ export type { UsedStyle } from "./used-style";
 export { PROPERTY_META, INITIAL_COMPUTED_STYLE } from "./property-meta";
 export type { WritingMode, Direction, LogicalRect, PhysicalRect } from "./writing-mode";
 export { logicalToPhysical, assertNeverWritingMode } from "./writing-mode";
+export type { PhysicalBorderSides, LogicalSideContext } from "./physical-sides";
+export { physicalBorderSides, resolveLogicalSides } from "./physical-sides";
+export type { ColumnRule, ColumnConfig } from "./column-config";
+export {
+  DEFAULT_COLUMN_CONFIG,
+  DEFAULT_COLUMN_GAP,
+  columnConfigsEqual,
+} from "./column-config";

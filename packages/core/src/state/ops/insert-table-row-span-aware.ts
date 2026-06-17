@@ -145,16 +145,18 @@ export function insertTableRowSpanAwareInTx(doc: Y.Doc, plan: InsertTableRowSpan
 
   const cells = plan.newCells;
   const lastCell = cells.length - 1;
-  for (let i = 0; i < cells.length; i++) {
-    const { cellId, paragraphId } = cells[i];
+  for (const [i, cell] of cells.entries()) {
+    const { cellId, paragraphId } = cell;
+    const prevCell = cells[i - 1];
+    const nextCell = cells[i + 1];
     blocksMap.set(
       cellId,
       buildYBlock({
         type: "table-cell",
         attrs: {},
         parentId: plan.newRowId,
-        prevSiblingId: i === 0 ? null : cells[i - 1].cellId,
-        nextSiblingId: i === lastCell ? null : cells[i + 1].cellId,
+        prevSiblingId: i === 0 ? null : (prevCell?.cellId ?? null),
+        nextSiblingId: i === lastCell ? null : (nextCell?.cellId ?? null),
         firstChildId: paragraphId,
         lastChildId: paragraphId,
         inlineContent: null,
@@ -183,8 +185,8 @@ export function insertTableRowSpanAwareInTx(doc: Y.Doc, plan: InsertTableRowSpan
       parentId: plan.tableId,
       prevSiblingId: plan.prevRowId,
       nextSiblingId: plan.nextRowId,
-      firstChildId: cells.length > 0 ? cells[0].cellId : null,
-      lastChildId: cells.length > 0 ? cells[lastCell].cellId : null,
+      firstChildId: cells[0]?.cellId ?? null,
+      lastChildId: cells[lastCell]?.cellId ?? null,
       inlineContent: null,
     }),
   );

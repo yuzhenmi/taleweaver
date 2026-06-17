@@ -54,6 +54,8 @@ import {
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
   reduceEditor,
+  createEditorStateFromState,
+  initialSelectionForState,
   setPerfTraceEnabled,
   resetPerfTrace,
   report as perfReport,
@@ -61,9 +63,12 @@ import {
   type EditorState,
   type EditorConfig,
   type PageConfig,
+  type State,
+  type TextShaper,
+  type Hyphenator,
 } from "@taleweaver/core";
-import { createCanvasShaper } from "@taleweaver/dom";
-import { createLiangHyphenator } from "@taleweaver/hyphenation";
+import { createCanvasShaper, createLiangHyphenator } from "@taleweaver/print";
+import { EN_US_PATTERN_SET } from "@taleweaver/hyphenation-en-us";
 import { tryLoadPerfFixtureFromUrl } from "./perf-fixture";
 import { loadFairytale } from "./fairytale-seed";
 
@@ -77,26 +82,34 @@ const PAGE_CONFIG: PageConfig = {
 };
 
 function createConfig(): EditorConfig {
-  const canvas = document.createElement("canvas");
-  // Pass the shaper directly (NOT createCanvasMeasurer). The measurer adapter
-  // chain (adaptShaperToMeasurer → measurerToShaper) distributes a string's
-  // total width uniformly across its characters — every cluster gets
-  // `total / length` — losing the per-character widths the canvas shaper
-  // actually produced. Symptom: words rendered too close together (the
-  // sum-of-per-char advance for a wide word like "Welcome" exceeds the
-  // uniform-distribution estimate, but the renderer paints at the layout
-  // position that assumed the uniform estimate — so "Welcome " ends where
-  // "Welco" would have ended visually, and the next word starts there).
+  // Phase 0b: core's `EditorConfig` no longer carries the print mechanics
+  // `measurer`/`hyphenator` (they moved to the backend `LayoutConfig`). `pageConfig`
+  // STAYS available on `EditorConfig` (document page-setup data, read by
+  // toggle-section-landscape) but is OPTIONAL — this demo doesn't toggle section
+  // landscape, so it omits it here and instead passes the shaper, hyphenator, AND
+  // `pageConfig` to the CONTROLLER (see `usePerfEditor`'s returned values), which
+  // owns the render→cascade→layout pipeline via the layout-driver.
   return {
-    measurer: createCanvasShaper(canvas),
     componentRegistry: createDefaultComponentRegistry(),
     attrRegistry: createDefaultAttrRegistry(),
     containerWidth: DEFAULT_WIDTH,
-    pageConfig: PAGE_CONFIG,
-    // Concrete Liang `en-us` hyphenator (auto-hyphenation Slice 5). The demo
-    // document authors `lang="en"` + `hyphens="auto"` on justified prose, so
-    // `hyphens: auto` discovers in-word break points algorithmically.
-    hyphenator: createLiangHyphenator(),
+  };
+}
+
+/**
+ * Build the print-geometry capabilities the controller needs (Phase 0b): the
+ * canvas text-shaper and the Liang auto-hyphenator. Pass the shaper directly
+ * (NOT createCanvasMeasurer). The measurer adapter chain (adaptShaperToMeasurer
+ * → measurerToShaper) distributes a string's total width uniformly across its
+ * characters — every cluster gets `total / length` — losing the per-character
+ * widths the canvas shaper actually produced. Symptom: words rendered too close
+ * together.
+ */
+function createGeometry(): { measurer: TextShaper; hyphenator: Hyphenator } {
+  const canvas = document.createElement("canvas");
+  return {
+    measurer: createCanvasShaper(canvas),
+    hyphenator: createLiangHyphenator({ en: EN_US_PATTERN_SET }),
   };
 }
 
@@ -104,10 +117,14 @@ export interface UsePerfEditorResult {
   editorState: EditorState;
   dispatch: React.Dispatch<EditorAction>;
   containerRef: React.RefObject<HTMLDivElement | null>;
-  measurer: EditorConfig["measurer"];
+  measurer: TextShaper;
+  hyphenator: Hyphenator;
+  pageConfig: PageConfig;
   focus: () => void;
   isPerfFixture: boolean;
   config: EditorConfig;
+  /** The live core `State` — read at a tab-bar switch to hand off the document. */
+  getState: () => State;
 }
 
 /**
@@ -115,12 +132,20 @@ export interface UsePerfEditorResult {
  * `?perfFixture=N` in the URL on mount and, if present, replaces the empty
  * initial state with the N-paragraph synthetic fixture.
  */
-export function usePerfEditor(): UsePerfEditorResult {
+export function usePerfEditor(initialState?: State): UsePerfEditorResult {
   const configRef = useRef<EditorConfig | null>(null);
   if (configRef.current === null) {
     configRef.current = createConfig();
   }
   const config = configRef.current;
+
+  // Print-geometry capabilities (Phase 0b): built once, passed to the controller
+  // (via the EditorView spread), NOT to core's geometry-free `EditorConfig`.
+  const geometryRef = useRef<{ measurer: TextShaper; hyphenator: Hyphenator } | null>(null);
+  if (geometryRef.current === null) {
+    geometryRef.current = createGeometry();
+  }
+  const geometry = geometryRef.current;
 
   // Check URL once (outside render — it's synchronous and stable).
   const fixtureRef = useRef<EditorState | null | undefined>(undefined);
@@ -130,17 +155,21 @@ export function usePerfEditor(): UsePerfEditorResult {
   const fixtureState = fixtureRef.current;
 
   // Use the lazy-initializer form of useReducer so the initial state is only
-  // computed once. When a perf fixture is available we return it directly;
-  // otherwise we call the standard createInitialEditorState.
-  const initialArg: { config: EditorConfig; fixture: EditorState | null } =
-    useRef({ config, fixture: fixtureState }).current;
+  // computed once. Priority: an explicit hand-off `seed` (tab-bar switch carries
+  // the live document over) → a perf fixture (`?perfFixture=N`) → the fairytale.
+  const initialArg: { config: EditorConfig; fixture: EditorState | null; seed: State | null } =
+    useRef({ config, fixture: fixtureState, seed: initialState ?? null }).current;
 
   const [editorState, dispatch] = useReducer(
     (state: EditorState, action: EditorAction) =>
       reduceEditor(state, action, config),
     initialArg,
-    ({ config: cfg, fixture }) =>
-      fixture !== null ? fixture : loadFairytale(cfg),
+    ({ config: cfg, fixture, seed }) =>
+      seed !== null
+        ? createEditorStateFromState(seed, initialSelectionForState(seed), cfg)
+        : fixture !== null
+          ? fixture
+          : loadFairytale(cfg),
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -261,13 +290,24 @@ export function usePerfEditor(): UsePerfEditorResult {
           );
           samples.push(performance.now() - t0);
         }
+        // No samples → no meaningful median/avg/max (avoids NaN avg and
+        // undefined median/max from indexing an empty sorted array).
+        if (count <= 0) {
+          return { totalMs: 0, avgMs: 0, medianMs: 0, maxMs: 0, samples: [] };
+        }
         const sorted = [...samples].sort((a, b) => a - b);
         const total = samples.reduce((s, v) => s + v, 0);
+        // count >= 1, so sorted has `count` elements: both indices are in range.
+        const median = sorted[Math.floor(count / 2)];
+        const max = sorted[count - 1];
+        if (median === undefined || max === undefined) {
+          throw new Error("use-perf-editor: sorted samples unexpectedly empty for count > 0");
+        }
         return {
           totalMs: total,
           avgMs: total / count,
-          medianMs: sorted[Math.floor(count / 2)],
-          maxMs: sorted[count - 1],
+          medianMs: median,
+          maxMs: max,
           samples: sorted,
         };
       },
@@ -277,13 +317,20 @@ export function usePerfEditor(): UsePerfEditorResult {
     };
   }, [config]);
 
+  // Reads the live state via the always-current `latestState` ref so a tab-bar
+  // switch hands off the latest document, not a render-time snapshot.
+  const getState = useCallback(() => latestState.current.state, []);
+
   return {
     editorState,
     dispatch,
     containerRef,
-    measurer: config.measurer,
+    measurer: geometry.measurer,
+    hyphenator: geometry.hyphenator,
+    pageConfig: PAGE_CONFIG,
     focus,
     isPerfFixture: fixtureState !== null,
     config,
+    getState,
   };
 }

@@ -8,7 +8,7 @@ import {
   type EditorState,
   type EditorConfig,
 } from "@taleweaver/core";
-import { createCanvasShaper } from "@taleweaver/dom";
+import { createCanvasShaper } from "@taleweaver/print";
 
 const DEFAULT_WIDTH = 600;
 
@@ -26,10 +26,10 @@ function createConfig(_options?: UseEditorOptions): EditorConfig {
   // font this is visibly wrong: cursor position drift, hit-test
   // misalignment, line-wrap at the wrong characters. Using the shaper
   // directly delivers true per-glyph advances and cluster boundaries.
-  const canvas = document.createElement("canvas");
-  const shaper = createCanvasShaper(canvas);
   return {
-    measurer: shaper,
+    // Phase 0b: `measurer` left core's `EditorConfig` (geometry-only) for the
+    // print backend's controller. The shaper is created + returned separately
+    // (see `useEditor`'s `shaperRef`).
     componentRegistry: createDefaultComponentRegistry(),
     attrRegistry: createDefaultAttrRegistry(),
     containerWidth: DEFAULT_WIDTH,
@@ -42,6 +42,14 @@ export function useEditor(options?: UseEditorOptions) {
     configRef.current = createConfig(options);
   }
   const config = configRef.current;
+
+  // The print text-shaper (geometry-only, Phase 0b). Built once and passed to
+  // the controller / returned to consumers; no longer part of `EditorConfig`.
+  const shaperRef = useRef<ReturnType<typeof createCanvasShaper> | null>(null);
+  if (shaperRef.current === null) {
+    shaperRef.current = createCanvasShaper(document.createElement("canvas"));
+  }
+  const shaper = shaperRef.current;
 
   const [editorState, dispatch] = useReducer(
     (state: EditorState, action: EditorAction) =>
@@ -78,7 +86,7 @@ export function useEditor(options?: UseEditorOptions) {
     editorState,
     dispatch,
     containerRef,
-    shaper: config.measurer,
+    shaper,
     focus,
   };
 }

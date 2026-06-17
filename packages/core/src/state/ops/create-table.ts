@@ -199,7 +199,15 @@ export function planCreateTable(
   }
 
   const subtree = buildTableSubtreePlan(rows, cols, allocator);
-  const caretInto = createPosition(subtree.rows[0].cells[0].paragraphId, 0);
+  const firstRow = subtree.rows[0];
+  if (firstRow === undefined) {
+    throw new Error("createTable: subtree has no rows (unreachable)");
+  }
+  const firstCell = firstRow.cells[0];
+  if (firstCell === undefined) {
+    throw new Error("createTable: first row has no cells (unreachable)");
+  }
+  const caretInto = createPosition(firstCell.paragraphId, 0);
 
   return { subtree, parentId: block.parentId, afterId, beforeId, split, caretInto };
 }
@@ -237,19 +245,20 @@ export function createTableInTx(doc: Y.Doc, plan: CreateTablePlan): void {
 
   // 2. Materialize the subtree (cells + paragraphs + rows), then the table.
   const lastRow = rows.length - 1;
-  for (let r = 0; r < rows.length; r++) {
-    const row = rows[r];
+  for (const [r, row] of rows.entries()) {
     const lastCell = row.cells.length - 1;
-    for (let c = 0; c < row.cells.length; c++) {
-      const { cellId, paragraphId } = row.cells[c];
+    for (const [c, cell] of row.cells.entries()) {
+      const { cellId, paragraphId } = cell;
+      const prevCell = row.cells[c - 1];
+      const nextCell = row.cells[c + 1];
       blocksMap.set(
         cellId,
         buildYBlock({
           type: "table-cell",
           attrs: {},
           parentId: row.rowId,
-          prevSiblingId: c === 0 ? null : row.cells[c - 1].cellId,
-          nextSiblingId: c === lastCell ? null : row.cells[c + 1].cellId,
+          prevSiblingId: c === 0 ? null : (prevCell?.cellId ?? null),
+          nextSiblingId: c === lastCell ? null : (nextCell?.cellId ?? null),
           firstChildId: paragraphId,
           lastChildId: paragraphId,
           inlineContent: null,
@@ -269,19 +278,31 @@ export function createTableInTx(doc: Y.Doc, plan: CreateTablePlan): void {
         }),
       );
     }
+    const prevRow = rows[r - 1];
+    const nextRow = rows[r + 1];
+    const rowFirstCell = row.cells[0];
+    const rowLastCell = row.cells[lastCell];
+    if (rowFirstCell === undefined || rowLastCell === undefined) {
+      throw new Error(`createTable: row ${r} has no cells (unreachable)`);
+    }
     blocksMap.set(
       row.rowId,
       buildYBlock({
         type: "table-row",
         attrs: {},
         parentId: tableId,
-        prevSiblingId: r === 0 ? null : rows[r - 1].rowId,
-        nextSiblingId: r === lastRow ? null : rows[r + 1].rowId,
-        firstChildId: row.cells[0].cellId,
-        lastChildId: row.cells[lastCell].cellId,
+        prevSiblingId: r === 0 ? null : (prevRow?.rowId ?? null),
+        nextSiblingId: r === lastRow ? null : (nextRow?.rowId ?? null),
+        firstChildId: rowFirstCell.cellId,
+        lastChildId: rowLastCell.cellId,
         inlineContent: null,
       }),
     );
+  }
+  const tableFirstRow = rows[0];
+  const tableLastRow = rows[lastRow];
+  if (tableFirstRow === undefined || tableLastRow === undefined) {
+    throw new Error("createTable: table has no rows (unreachable)");
   }
   blocksMap.set(
     tableId,
@@ -291,8 +312,8 @@ export function createTableInTx(doc: Y.Doc, plan: CreateTablePlan): void {
       parentId: plan.parentId,
       prevSiblingId: plan.afterId,
       nextSiblingId: plan.beforeId,
-      firstChildId: rows[0].rowId,
-      lastChildId: rows[lastRow].rowId,
+      firstChildId: tableFirstRow.rowId,
+      lastChildId: tableLastRow.rowId,
       inlineContent: null,
     }),
   );

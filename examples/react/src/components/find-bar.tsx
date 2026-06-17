@@ -14,7 +14,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { EditorViewHandle } from "@taleweaver/react";
-import type { EditorState, FindMatchesOptions } from "@taleweaver/dom";
+import type { EditorState, FindMatchesOptions } from "@taleweaver/print";
 
 /**
  * The Google-Docs-style floating find/replace bar (#433 slice 6, sub-slice B).

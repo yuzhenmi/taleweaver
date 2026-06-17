@@ -1,15 +1,15 @@
-import type { Selection, Position, BlockInit, TextMatch, BlockId, CrossReferenceMode, CommentId, SuggestionId, PageFieldNumberStyle } from "../state";
+import type { Selection, Position, Span, BlockInit, TextMatch, BlockId, CrossReferenceMode, CommentId, SuggestionId, PageFieldNumberStyle } from "../state";
 import type { TextAlign, TextTransform } from "../styles/style";
 import type { TabStop } from "../styles/tab-stops";
 import type { CounterFormat, FootnoteNumberingPolicy } from "../footnotes";
-import type { CaretAffinity } from "../cursor/line-bidi";
-import type { ColumnRule } from "../layout/column-config";
+import type { CaretAffinity } from "../cursor/selection";
+import type { ColumnRule } from "../styles/column-config";
+import type { ImageWrap } from "./actions/set-image-wrap";
 
 export type EditorAction =
   | { type: "INSERT_TEXT"; text: string }
   | { type: "DELETE_BACKWARD" }
   | { type: "SPLIT_NODE" }
-  | { type: "MOVE_CURSOR"; direction: "forward" | "backward" }
   | { type: "MOVE_WORD"; direction: "forward" | "backward" }
   | { type: "UNDO" }
   | { type: "REDO" }
@@ -19,12 +19,21 @@ export type EditorAction =
       selection: Selection;
       caretPageHint?: number;
       caretAffinity?: CaretAffinity;
+      // #503: the ANCHOR's bidi-boundary side. Post-Phase-0b, the backend
+      // NavIntent resolver originates affinity (the lifted line/expand handlers
+      // moved out of core), threading BOTH `caretAffinity` and `anchorAffinity`
+      // here so affinity that once survived via the central-reset exemption now
+      // survives via this carried payload. `handleSetSelection` STORES it.
+      anchorAffinity?: CaretAffinity;
+      // The line-navigation sticky goal-column (`targetX`). The backend computes
+      // a line-move's `targetX` and threads it here so consecutive backend
+      // ArrowUp/Down keep the column; `null` clears it (every non-line nav). The
+      // central `targetX` clear in `reduceEditor` exempts `SET_SELECTION` so this
+      // survives.
+      targetX?: number | null;
     }
-  | { type: "EXPAND_SELECTION"; direction: "forward" | "backward" }
   | { type: "EXPAND_WORD"; direction: "forward" | "backward" }
   | { type: "DELETE_FORWARD" }
-  | { type: "MOVE_LINE"; direction: "up" | "down" }
-  | { type: "EXPAND_LINE"; direction: "up" | "down" }
   | { type: "TOGGLE_STYLE"; style: "bold" | "italic" | "underline" | "strikethrough" }
   | { type: "SET_LINK"; url: string | null }
   | { type: "SET_TEXT_COLOR"; color: string | null }
@@ -38,13 +47,19 @@ export type EditorAction =
   | { type: "TOGGLE_LIST"; listType: "ordered" | "unordered" }
   | { type: "SET_LIST_TYPE"; listType: "ordered" | "unordered" }
   | { type: "SET_LIST_RESTART"; value: number | null }
-  | { type: "MOVE_LINE_BOUNDARY"; boundary: "start" | "end" }
-  | { type: "EXPAND_LINE_BOUNDARY"; boundary: "start" | "end" }
   | { type: "MOVE_DOCUMENT_BOUNDARY"; boundary: "start" | "end" }
   | { type: "EXPAND_DOCUMENT_BOUNDARY"; boundary: "start" | "end" }
+  // ESCAPE (#525): deselect an object selection — collapse the caret to just
+  // AFTER the atomic-leaf object (Google Docs). A no-op for a text caret.
+  | { type: "ESCAPE" }
   | { type: "SELECT_ALL" }
   | { type: "DELETE_WORD"; direction: "forward" | "backward" }
-  | { type: "DELETE_LINE" }
+  // DELETE_RANGE (Phase 0b): delete a geometry-free `Span` in ONE history commit,
+  // collapsing the caret to the document-order START (normalized, backward-span
+  // safe). The print backend computes the span for line-deletion (Cmd+Backspace)
+  // — the geometry lives in the backend NavIntent — and dispatches this; core
+  // owns the deletion. Also the public arbitrary-span delete (Phase 2).
+  | { type: "DELETE_RANGE"; span: Span }
   | { type: "INSERT_NODE"; node: BlockInit; position?: Position }
   | { type: "SECTION_BREAK" }
   | { type: "TOGGLE_SECTION_LANDSCAPE" }
@@ -75,7 +90,10 @@ export type EditorAction =
   | { type: "SPLIT_CELL" }
   | { type: "MERGE_CELLS" }
   | { type: "INSERT_IMAGE"; src: string; width?: number; height?: number }
+  | { type: "INSERT_INLINE_IMAGE"; src: string; width: number; height: number; alt: string }
   | { type: "SET_IMAGE_SIZE"; blockId: BlockId; width: number; height: number }
+  | { type: "SET_IMAGE_WRAP"; blockId: BlockId; wrap: ImageWrap }
+  | { type: "SET_IMAGE_ALT"; blockId: BlockId; alt: string | null }
   | { type: "SET_TEXT_ALIGN"; align: TextAlign }
   | { type: "SET_LINE_SPACING"; spacing: number }
   | { type: "INDENT" }

@@ -32,6 +32,12 @@ import { buildBlock, buildState, inlineContent, text } from "../test-utils/state
 import type { BlockId } from "./block-id";
 import type { State } from "./state";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 const HDR_C1 = "hdr-c1" as BlockId;
 const HDR_C2 = "hdr-c2" as BlockId;
 const BODY_P = "p" as BlockId;
@@ -187,7 +193,7 @@ describe("C.2c T7b — applyAttrsToRange over a templateContents header range", 
     const items = getTemplateContent(result.state, HDR_C1)?.inlineContent?.items ?? [];
     // Expect three text runs: "a" {}, "lph" {bold}, "a" {}.
     expect(items.map((i) => (i.kind === "text" ? i.text : ""))).toEqual(["a", "lph", "a"]);
-    const middle = items[1];
+    const middle = nth(items, 1, "inline item");
     expect(middle.kind === "text" ? middle.attrs : null).toEqual({ bold: true });
     expect(getBlock(result.state, HDR_C1)).toBeNull();
     expect(result.dirtyIds.has(HDR_C1)).toBe(true);

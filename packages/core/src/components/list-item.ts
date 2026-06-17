@@ -9,6 +9,7 @@ import {
   marginBlockStartFromAttrs,
   marginBlockEndFromAttrs,
   writingModeFromAttrs,
+  langFromAttrs,
   tabStopsFromAttrs,
 } from "./leaf-style-attrs";
 
@@ -93,13 +94,15 @@ export const listItemComponent: LeafComponentDefinition = {
 
     const counter = ctx.counterValue?.(listId, view.id);
     let markerText: string | undefined;
+    let ordered: boolean | undefined;
     if (counter !== undefined) {
-      markerText = BULLET_GLYPHS.has(counter.formatted)
-        ? counter.formatted
-        : `${counter.formatted}.`;
+      const isBullet = BULLET_GLYPHS.has(counter.formatted);
+      markerText = isBullet ? counter.formatted : `${counter.formatted}.`;
+      ordered = !isBullet;
     }
 
     const writingMode = writingModeFromAttrs(view.attrs.writingMode);
+    const language = langFromAttrs(view.attrs.lang);
     const textAlign = textAlignFromAttrs(view.attrs.textAlign);
     const lineHeight = lineHeightFromAttrs(view.attrs.lineHeight);
     const marginInlineStart = marginInlineStartFromAttrs(view.attrs.marginInlineStart);
@@ -117,6 +120,7 @@ export const listItemComponent: LeafComponentDefinition = {
       // numbering service did not resolve a value for this item.
       ...(markerText !== undefined ? { markerText } : {}),
       ...(writingMode !== undefined ? { writingMode } : {}),
+      ...(language !== undefined ? { language } : {}),
       ...(textAlign !== undefined ? { textAlign } : {}),
       ...(lineHeight !== undefined ? { lineHeight } : {}),
       ...(tabStops !== undefined ? { tabStops } : {}),
@@ -127,6 +131,11 @@ export const listItemComponent: LeafComponentDefinition = {
       ...(marginBlockStart !== undefined ? { marginBlockStart } : {}),
       ...(marginBlockEnd !== undefined ? { marginBlockEnd } : {}),
     };
-    return createElementBox(view.id, style, inlineRenderNodes);
+    return createElementBox(
+      view.id,
+      style,
+      inlineRenderNodes,
+      ordered !== undefined ? { list: { level, listId, ordered } } : undefined,
+    );
   },
 };

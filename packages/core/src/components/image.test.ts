@@ -5,12 +5,15 @@ import type { ElementBox } from "../render/render-node";
 import type { BlockId, State, ReadonlyAttrs } from "../state";
 import type { ComputedStyle } from "../styles";
 
-function leafView(attrs: ReadonlyAttrs = {}): LeafBlockView {
+function leafView(attrs: ReadonlyAttrs = {}, direction?: "ltr" | "rtl"): LeafBlockView {
   return {
     id: "img1" as BlockId,
     type: "image",
     attrs: Object.freeze(attrs),
-    computedStyle: {} as ComputedStyle,
+    // The base render tests pass no `direction`, mirroring the production
+    // `{} as ComputedStyle` stub (direction reads `undefined` → component's
+    // `?? "ltr"` guard). The wrap→float tests pass an explicit direction.
+    computedStyle: (direction !== undefined ? { direction } : {}) as ComputedStyle,
     kind: "leaf",
     inlineContent: { items: [] },
   };
@@ -38,7 +41,20 @@ describe("imageComponent (new)", () => {
   it("attaches image metadata", () => {
     const node = imageComponent.render(leafView({ src: "/a.png", width: 300, height: 200 }), stubCtx(), []);
     const el = node as ElementBox;
-    expect(el.metadata).toEqual({ image: { src: "/a.png", width: 300, height: 200 } });
+    expect(el.metadata).toEqual({ image: { src: "/a.png", width: 300, height: 200, alt: "" } });
+  });
+
+  it("threads alt onto image metadata (P-3)", () => {
+    const node = imageComponent.render(
+      leafView({ src: "/a.png", width: 10, height: 10, alt: "a cat" }), stubCtx(), []);
+    const el = node as ElementBox;
+    expect(el.metadata?.image?.alt).toBe("a cat");
+  });
+
+  it("defaults alt to empty string when absent (P-3)", () => {
+    const node = imageComponent.render(leafView({ src: "/a.png", width: 10, height: 10 }), stubCtx(), []);
+    const el = node as ElementBox;
+    expect(el.metadata?.image?.alt).toBe("");
   });
 
   it("ignores any inlineRenderNodes the renderer might pass", () => {
@@ -83,5 +99,40 @@ describe("imageComponent (new)", () => {
     const el = node as ElementBox;
     expect(el.style.inlineSize).toBe(0);
     expect(el.style.blockSize).toBe(0);
+  });
+
+  // Image text-wrapping: the component synthesizes a LOGICAL `float` onto its
+  // box style from the Google-Docs physical `wrap` attr, resolved against the
+  // cascaded writing `direction` (the component-set seam — a cascade
+  // interpreter would no-op here; see leaf-style-attrs.imageWrapFloat).
+  it("synthesizes float:inline-start for wrap:'left' in an LTR context", () => {
+    const node = imageComponent.render(
+      leafView({ src: "/a.png", width: 100, height: 50, wrap: "left" }, "ltr"),
+      stubCtx(),
+      [],
+    );
+    const el = node as ElementBox;
+    expect(el.style.float).toBe("inline-start");
+    expect(el.style.display).toBe("block");
+  });
+
+  it("synthesizes float:inline-end for wrap:'left' in an RTL context (stays physically left)", () => {
+    const node = imageComponent.render(
+      leafView({ src: "/a.png", width: 100, height: 50, wrap: "left" }, "rtl"),
+      stubCtx(),
+      [],
+    );
+    expect((node as ElementBox).style.float).toBe("inline-end");
+  });
+
+  it("leaves float unset for wrap:'break' / missing wrap (unchanged block default)", () => {
+    const node = imageComponent.render(
+      leafView({ src: "/a.png", width: 100, height: 50 }, "ltr"),
+      stubCtx(),
+      [],
+    );
+    const el = node as ElementBox;
+    expect(el.style.float).toBeUndefined();
+    expect(el.style.display).toBe("block");
   });
 });

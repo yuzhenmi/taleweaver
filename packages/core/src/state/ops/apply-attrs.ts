@@ -8,7 +8,7 @@ import { mergeAttrs, attrsEqual } from "../attrs";
 import { iterateSpan, type BlockRange } from "../span-iteration";
 import { getYBlock, requireInTransaction } from "../yjs-doc";
 import { buildYAttrs, buildYInlineItem } from "../y-block";
-import { yMapAsObject, mergeAdjacentSameAttrsTextItems, yItemLength } from "../y-utils";
+import { yMapAsObject, mergeAdjacentSameAttrsTextItemsInPlace, yItemLength } from "../y-utils";
 import { isStructuralMarkerEmbedType } from "../embed-markers";
 import type { ResolvedBlockKind } from "../state";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
@@ -51,14 +51,17 @@ import type { AttrRegistry } from "../../cascade/attr-registry";
  * delete+insert because Yjs has no in-place split primitive on a single
  * Y.Text; the prefix and suffix are reissued as fresh items.
  *
- * After the per-item updates a same-attrs merge pass runs over the
- * touched block to uphold the "no adjacent same-attrs text items"
- * invariant (per `inline-content.ts` mergeAdjacentTextItems contract).
- * The merge only deletes items when neighbors converge to value-equal
- * attrs — items that stay distinct keep their Y.Text identity intact.
+ * After the per-item updates an IN-PLACE same-attrs merge pass
+ * (`mergeAdjacentSameAttrsTextItemsInPlace`) runs over the touched block to
+ * uphold the "no adjacent same-attrs text items" invariant (per
+ * `inline-content.ts` mergeAdjacentTextItems contract). The merge only deletes
+ * items when neighbors converge to value-equal attrs — items that stay distinct
+ * keep their Y.Text identity, AND when a converging pair merges the RECEIVER
+ * (lower-index run) keeps its Y.Text too (only the donor's migrated chars are
+ * fresh — the Class-2 limit).
  *
  * `registry` (optional): an `AttrRegistry`; threaded to the run-merge
- * normalizer (`mergeAdjacentSameAttrsTextItems`) so interpreters with a
+ * normalizer (`mergeAdjacentSameAttrsTextItemsInPlace`) so interpreters with a
  * custom per-key `equals` (e.g. a `comment` interpreter that ignores
  * `timestamp`) opt into custom adjacent-item compare semantics during
  * the post-apply merge pass. Omitted → deep-value compare.
@@ -140,10 +143,11 @@ export function planApplyAttrsToRange(
   span: Span,
 ): ApplyAttrsToRangePlan | null {
   const segments = Array.from(iterateSpan(state, span));
-  if (segments.length === 0) {
+  const firstSegment = segments[0];
+  if (firstSegment === undefined) {
     return null;
   }
-  const kind = resolveBlock(state, segments[0].block.id)?.kind ?? "block";
+  const kind = resolveBlock(state, firstSegment.block.id)?.kind ?? "block";
   return { segments, kind };
 }
 
@@ -179,7 +183,7 @@ export function applyAttrsToRangeInTx(
     const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
     if (yItems === null) continue; // defensive — iterateSpan only yields leaves
     applyAttrsToBlockRange(yItems, seg.rangeStart, seg.rangeEnd, attrs, registry);
-    mergeAdjacentSameAttrsTextItems(yItems, registry);
+    mergeAdjacentSameAttrsTextItemsInPlace(yItems, registry);
   }
 }
 

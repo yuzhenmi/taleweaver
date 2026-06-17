@@ -7,7 +7,7 @@ import { createDefaultComponentRegistry } from "../components/component-registry
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
 import { createMockShaper } from "../layout/mock-shaper";
 import type { RenderNode } from "../render/render-node";
-import type { LayoutBox, TextRunBox } from "../layout/layout-node";
+import type { LayoutBox, TextRunBox } from "@taleweaver/print";
 
 export const registry = createDefaultComponentRegistry();
 export const attrRegistry = createDefaultAttrRegistry();

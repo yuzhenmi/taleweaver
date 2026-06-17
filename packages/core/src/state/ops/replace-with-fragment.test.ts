@@ -25,6 +25,12 @@ import { resolveBlock, type State } from "../state";
 import { createPosition, createSpan } from "../block-position";
 import { asBlockId, createTestAllocator } from "../block-id";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 const INPUT = (id: string) => ({ id: id as SuggestionId, author: "alice", createdAt: 1 });
 function oneBlock(s = "abcdef"): State {
   return buildState({ rootId: "doc", blocks: [
@@ -58,9 +64,9 @@ describe("insertFragmentAsSuggestion — collapsed-span tracked fragment insert 
        { type: "paragraph", inlineContent: inlineContent([text("Y")]) }], INPUT("s1"), createTestAllocator());
     const seq = blockSeq(r.state);
     expect(seq.length).toBe(2);
-    expect(blockText(r.state, seq[0])).toBe("abcX");
-    expect(blockText(r.state, seq[1])).toBe("Ydef");
-    const p0 = resolveBlock(r.state, asBlockId(seq[0]))?.block.inlineContent?.items ?? [];
+    expect(blockText(r.state, nth(seq, 0, "block"))).toBe("abcX");
+    expect(blockText(r.state, nth(seq, 1, "block"))).toBe("Ydef");
+    const p0 = resolveBlock(r.state, asBlockId(nth(seq, 0, "block")))?.block.inlineContent?.items ?? [];
     const emb = p0.find((i) => i.kind === "embed" && i.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE);
     expect(emb && emb.kind === "embed" && emb.properties.suggestionId).toBe("s1");
     expect(getSuggestions(r.state).map((x) => x.kind)).toEqual(["insertion"]);
@@ -83,7 +89,7 @@ describe("insertFragmentAsSuggestion — collapsed-span tracked fragment insert 
     const rejected = rejectAll(r.state).state;
     const seq = blockSeq(rejected);
     expect(seq.length).toBe(1);
-    expect(blockText(rejected, seq[0])).toBe("abcdef");
+    expect(blockText(rejected, nth(seq, 0, "block"))).toBe("abcdef");
     expect(getSuggestions(rejected).length).toBe(0);
   });
 
@@ -102,9 +108,9 @@ describe("insertFragmentAsSuggestion — collapsed-span tracked fragment insert 
         .find((i) => i.kind === "embed" && i.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE);
       return emb && emb.kind === "embed" ? String(emb.properties.suggestionId) : null;
     };
-    expect(splitEmbedSuggestionId(seq[0])).toBe("s1");
-    expect(splitEmbedSuggestionId(seq[1])).toBe("s1");
-    expect(splitEmbedSuggestionId(seq[2])).toBeNull(); // last new block has the plain suffix, no embed
+    expect(splitEmbedSuggestionId(nth(seq, 0, "block"))).toBe("s1");
+    expect(splitEmbedSuggestionId(nth(seq, 1, "block"))).toBe("s1");
+    expect(splitEmbedSuggestionId(nth(seq, 2, "block"))).toBeNull(); // last new block has the plain suffix, no embed
     expect(getSuggestions(r.state).map((x) => x.kind)).toEqual(["insertion"]);
     // accept keeps all three splits for real; reject (fresh state) re-merges to one.
     const accepted = acceptAll(mk().state).state;
@@ -113,7 +119,7 @@ describe("insertFragmentAsSuggestion — collapsed-span tracked fragment insert 
     const rejected = rejectAll(mk().state).state;
     const rseq = blockSeq(rejected);
     expect(rseq.length).toBe(1);
-    expect(blockText(rejected, rseq[0])).toBe("abcdef");
+    expect(blockText(rejected, nth(rseq, 0, "block"))).toBe("abcdef");
     expect(getSuggestions(rejected).length).toBe(0);
   });
 
@@ -132,8 +138,8 @@ describe("insertFragmentAsSuggestion — collapsed-span tracked fragment insert 
     let fnidA = resolveBlock(accepted, asBlockId("fn"))?.block.firstChildId ?? null;
     while (fnidA) { fnSeqA.push(fnidA); fnidA = resolveBlock(accepted, fnidA)?.block.nextSiblingId ?? null; }
     expect(fnSeqA.length).toBe(2);
-    expect(blockText(accepted, fnSeqA[0])).toBe("bodyP");
-    expect(blockText(accepted, fnSeqA[1])).toBe("Q"); // second block survives accept with correct content
+    expect(blockText(accepted, nth(fnSeqA, 0, "block"))).toBe("bodyP");
+    expect(blockText(accepted, nth(fnSeqA, 1, "block"))).toBe("Q"); // second block survives accept with correct content
     expect(getSuggestions(accepted).length).toBe(0);
   });
 

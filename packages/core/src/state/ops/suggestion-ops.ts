@@ -35,7 +35,7 @@ import type { SiblingBlockInit } from "./insert-blocks-after";
 import { STATE_INTERNAL } from "../state-internal";
 import { getSuggestionsMap, getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
 import { buildYInlineItem, buildYAttrs } from "../y-block";
-import { mergeAdjacentSameAttrsTextItems, yItemLength, yMapAsObject } from "../y-utils";
+import { mergeAdjacentSameAttrsTextItemsInPlace, yItemLength, yMapAsObject } from "../y-utils";
 import { planApplyAttrsToRange, applyAttrsToRangeInTx } from "./apply-attrs";
 import { planInsertText, insertTextInTx, planInsertTextSplitInPlace } from "./insert-text";
 import {
@@ -701,7 +701,7 @@ export function replaceWithSuggestion(
  * `newBlockInit` overrides N+1's `type` / `attrs` (the heading→paragraph follow-on
  * hook), threaded through to {@link planSplitBlockAtPosition} unchanged. `registry`
  * is threaded into the strike's {@link applyDeletionStrikeInTx} so its
- * `mergeAdjacentSameAttrsTextItems` post-pass honors a custom per-key `equals`.
+ * `mergeAdjacentSameAttrsTextItemsInPlace` post-pass honors a custom per-key `equals`.
  */
 export function splitWithSuggestionOverSelection(
   state: State,
@@ -1074,6 +1074,10 @@ export function planReplaceWithSuggestedFragment(
   if (delRecord !== null) records.push(delRecord);
 
   if (n === 1) {
+    const line0 = fragment[0];
+    if (line0 === undefined) {
+      throw new Error("planReplaceWithSuggestedFragment: n===1 but fragment[0] missing (unreachable)");
+    }
     // Surgical (#492 lockstep): after the applier strikes B in place (live array ==
     // `bStrikeItems`), split-insert line0 at offset `c` resolved against `bStrikeItems`.
     const bInsertPlan = planInsertItemsSplitInPlace(
@@ -1081,21 +1085,21 @@ export function planReplaceWithSuggestedFragment(
       kind,
       bStrikeItems,
       c,
-      fragmentLineItems(fragment[0], insId),
+      fragmentLineItems(line0, insId),
       registry,
     );
     // The full-replace `writes[0].items` — retained ONLY for the test equivalence oracle
     // (the live applier no longer reads it for B; the surgical `bInsertPlan` drives B).
     const bItems = mergeAdjacentTextItems([
       ...prefix,
-      ...fragmentLineItems(fragment[0], insId),
+      ...fragmentLineItems(line0, insId),
       ...tailBundle,
     ]);
     return {
       writes: [bWriteEntry(bItems), ...extraWrites],
       newBlocks: [],
       records,
-      endPosition: createPosition(at.blockId, c + fragmentLineLength(fragment[0])),
+      endPosition: createPosition(at.blockId, c + fragmentLineLength(line0)),
       bInsertPlan,
       fragmentLength: n,
     };
@@ -1110,6 +1114,10 @@ export function planReplaceWithSuggestedFragment(
     );
   }
   const oldNext = resolved.block.nextSiblingId;
+  const line0 = fragment[0];
+  if (line0 === undefined) {
+    throw new Error("planReplaceWithSuggestedFragment: n>1 but fragment[0] missing (unreachable)");
+  }
   const nbIds: BlockId[] = [];
   for (let i = 1; i < n; i++) nbIds.push(allocator.allocate());
 
@@ -1126,7 +1134,7 @@ export function planReplaceWithSuggestedFragment(
     kind,
     resolved.block.inlineContent.items,
     c,
-    [...fragmentLineItems(fragment[0], insId), buildSplitSuggestionEmbed(insId)],
+    [...fragmentLineItems(line0, insId), buildSplitSuggestionEmbed(insId)],
     registry,
   );
 
@@ -1134,34 +1142,49 @@ export function planReplaceWithSuggestedFragment(
   // (the live applier drives B via `bInsertPlan` replace-tail; the new blocks use their own items).
   const bItems = mergeAdjacentTextItems([
     ...prefix,
-    ...fragmentLineItems(fragment[0], insId),
+    ...fragmentLineItems(line0, insId),
     buildSplitSuggestionEmbed(insId),
   ]);
 
   const newBlocks: NewBlockSpec[] = [];
   for (let i = 1; i < n; i++) {
     const isLast = i === n - 1;
-    const lineItems = fragmentLineItems(fragment[i], insId);
+    const fragLine = fragment[i];
+    const nbId = nbIds[i - 1];
+    if (fragLine === undefined || nbId === undefined) {
+      throw new Error(`planReplaceWithSuggestedFragment: fragment/new-block index ${i} missing (unreachable)`);
+    }
+    const prevSiblingId = i === 1 ? at.blockId : nbIds[i - 2];
+    const nextSiblingId = isLast ? oldNext : nbIds[i];
+    if (prevSiblingId === undefined || (!isLast && nextSiblingId === undefined)) {
+      throw new Error(`planReplaceWithSuggestedFragment: new-block sibling at index ${i} missing (unreachable)`);
+    }
+    const lineItems = fragmentLineItems(fragLine, insId);
     const blockItems = mergeAdjacentTextItems(
       isLast ? [...lineItems, ...tailBundle] : [...lineItems, buildSplitSuggestionEmbed(insId)],
     );
     newBlocks.push({
-      id: nbIds[i - 1],
+      id: nbId,
       kind,
-      type: fragment[i].type,
-      attrs: fragment[i].attrs ?? {},
+      type: fragLine.type,
+      attrs: fragLine.attrs ?? {},
       items: blockItems,
       parentId,
-      prevSiblingId: i === 1 ? at.blockId : nbIds[i - 2],
-      nextSiblingId: isLast ? oldNext : nbIds[i],
+      prevSiblingId,
+      nextSiblingId: nextSiblingId ?? null,
     });
   }
 
+  const lastNbId = nbIds[n - 2];
+  const lastFragLine = fragment[n - 1];
+  if (lastNbId === undefined || lastFragLine === undefined) {
+    throw new Error("planReplaceWithSuggestedFragment: last new-block/fragment missing (unreachable)");
+  }
   return {
     writes: [bWriteEntry(bItems), ...extraWrites],
     newBlocks,
     records,
-    endPosition: createPosition(nbIds[n - 2], fragmentLineLength(fragment[n - 1])),
+    endPosition: createPosition(lastNbId, fragmentLineLength(lastFragLine)),
     bInsertPlan,
     fragmentLength: n,
   };
@@ -1193,7 +1216,11 @@ export function replaceWithSuggestedFragment(
     // truncation via `bInsertPlan` (no strike — B's struck tail relocates into the last
     // new block). The full-replace seam (`writeBlockInlineContentInTx`) is now GONE:
     // every write in this op preserves untouched runs' Y.Text CRDT identity (#493).
-    const startBlockId = plan.writes[0].blockId;
+    const firstWrite = plan.writes[0];
+    if (firstWrite === undefined) {
+      throw new Error("replaceWithSuggestedFragment: plan has no writes (unreachable)");
+    }
+    const startBlockId = firstWrite.blockId;
     for (const w of plan.writes) {
       const isStart = w.blockId === startBlockId;
       if (isStart && plan.fragmentLength > 1) {
@@ -1213,11 +1240,11 @@ export function replaceWithSuggestedFragment(
       const insertPlan = isStart ? plan.bInsertPlan : null;
       applySurgicalFragmentWrite(doc, w, input.author, registry, insertPlan);
     }
-    if (plan.newBlocks.length > 0) {
-      const startBlockId = plan.writes[0].blockId;
-      const kind = plan.writes[0].kind;
-      const firstNew = plan.newBlocks[0];
-      const lastNew = plan.newBlocks[plan.newBlocks.length - 1];
+    const firstNew = plan.newBlocks[0];
+    const lastNew = plan.newBlocks[plan.newBlocks.length - 1];
+    if (firstNew !== undefined && lastNew !== undefined) {
+      const startBlockId = firstWrite.blockId;
+      const kind = firstWrite.kind;
       // Rewire the start block → first new block, and the boundary past the run:
       // the old next sibling's prevSibling (when present), else the parent's
       // lastChildId (the run was appended at the parent's end).
@@ -1459,9 +1486,10 @@ export type ScanItemResult =
  *               have an "attrs" Y.Map child).
  *   - drop / breakDrop → `yItems.delete(index, 1)`; do NOT advance (next item
  *               slides into the slot — mirrors applyAttrsToBlockRange).
- * Then `mergeAdjacentSameAttrsTextItems` restores the (a)/(b) normalization
- * invariants, sacrificing identity ONLY for value-converging neighbor pairs.
- * MUST run inside an already-open transaction.
+ * Then `mergeAdjacentSameAttrsTextItemsInPlace` restores the (a)/(b) normalization
+ * invariants; a value-converging neighbor pair keeps the RECEIVER run's Y.Text
+ * identity (only the donor's migrated chars are fresh). MUST run inside an
+ * already-open transaction.
  *
  * No no-op guard on the rewrite write (cf. applyAttrsToBlockRange #358): classify
  * only emits `rewrite` when attrs genuinely differ, so it is never a no-op.
@@ -1494,7 +1522,7 @@ export function applyResolveDecisionsInTx(
         break;
     }
   }
-  mergeAdjacentSameAttrsTextItems(yItems, registry);
+  mergeAdjacentSameAttrsTextItemsInPlace(yItems, registry);
 }
 
 /**
@@ -1701,7 +1729,10 @@ function resolve(
 /**
  * The suggestion ids a single inline item carries: a text run via its three
  * provenance attrs ({@link INSERTION_SUGGESTION_ATTR} / `DELETION` / `FORMATTING`),
- * a break-suggestion embed via `properties.suggestionId`. Other embeds carry none.
+ * a break-suggestion embed via `properties.suggestionId`, a VISIBLE field embed
+ * (footnote-anchor / cross-reference / page-field / tab) via its
+ * {@link FORMATTING_SUGGESTION_ATTR} (the only provenance that reaches embeds —
+ * #478; `markFormatting` stamps it, {@link resolveEmbedFormatting} reads+strips it).
  */
 function suggestionIdsOnItem(item: InlineItem): SuggestionId[] {
   const out: SuggestionId[] = [];
@@ -1714,9 +1745,24 @@ function suggestionIdsOnItem(item: InlineItem): SuggestionId[] {
       const v = item.attrs[key];
       if (typeof v === "string") out.push(v as SuggestionId);
     }
-  } else if (isBreakEmbed(item)) {
+    return out;
+  }
+  // item.kind === "embed" — branch on embedType WITHOUT the isBreakEmbed type-guard,
+  // whose `item is EmbedItem` predicate would narrow the else-branch to `never`.
+  if (
+    item.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE ||
+    item.embedType === BLOCK_JOIN_SUGGESTION_EMBED_TYPE
+  ) {
+    // break-suggestion embed (block-split / block-join) — provenance lives in
+    // `properties.suggestionId`, not in attrs.
     const sid = item.properties.suggestionId;
     if (typeof sid === "string") out.push(sid as SuggestionId);
+  } else {
+    // visible field embed (footnote-anchor / cross-reference / page-field / tab) —
+    // can carry FORMATTING_SUGGESTION_ATTR (#478); must be reported so
+    // collectResolveRecordDeletes counts it as a co-tenant survivor.
+    const v = item.attrs[FORMATTING_SUGGESTION_ATTR];
+    if (typeof v === "string") out.push(v as SuggestionId);
   }
   return out;
 }
@@ -2119,7 +2165,7 @@ function isOwnInsertion(item: InlineItem, author: string, doc: Y.Doc): boolean {
  * insertion); a partial run is split before/middle/after (the straddler loses
  * Y.Text identity — unavoidable, Yjs has no in-place Y.Text split), middle tagged
  * or omitted; embeds in range are kept untagged. A post-pass
- * `mergeAdjacentSameAttrsTextItems` restores the normalization invariants, so the
+ * `mergeAdjacentSameAttrsTextItemsInPlace` restores the normalization invariants, so the
  * final content is byte-identical to `rebuildBlockForDeletion` + full-replace —
  * only the surviving runs' Y.Text identities differ (preserved here, discarded by
  * the old full-replace). Returns whether any run was TAGGED (a redundant
@@ -2142,7 +2188,7 @@ export function applyDeletionStrikeInTx(
   const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
   if (yItems === null) return { tagged: false };
   const tagged = strikeBlockRange(yItems, rangeStart, rangeEnd, id, author, doc);
-  mergeAdjacentSameAttrsTextItems(yItems, registry);
+  mergeAdjacentSameAttrsTextItemsInPlace(yItems, registry);
   return { tagged };
 }
 

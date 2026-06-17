@@ -37,6 +37,12 @@ import {
 } from "../../test-utils/state-builders";
 import type { BlockId } from "../block-id";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 const SID = "join-1" as SuggestionId;
 const INPUT = { id: SID, author: "alice", createdAt: 2000 } as const;
 
@@ -99,7 +105,7 @@ describe("markBlockJoinSuggestion — basic join mark: no merge + break embed + 
     // Block N (p1): text "abc" + a trailing block-join-suggestion embed carrying the id.
     expect(textOf(s, "p1")).toBe("abc");
     const nItems = itemsOf(s, "p1");
-    const lastN = nItems[nItems.length - 1];
+    const lastN = nth(nItems, nItems.length - 1, "last item");
     expect(lastN.kind).toBe("embed");
     if (lastN.kind !== "embed") throw new Error("expected the break embed as last item of N");
     expect(lastN.embedType).toBe(BLOCK_JOIN_SUGGESTION_EMBED_TYPE);
@@ -116,7 +122,7 @@ describe("markBlockJoinSuggestion — basic join mark: no merge + break embed + 
     // Exactly ONE deletion record, with the right id/author/createdAt.
     const suggestions = getSuggestions(s);
     expect(suggestions.length).toBe(1);
-    const sug = suggestions[0];
+    const sug = nth(suggestions, 0, "suggestion");
     expect(sug.id).toBe(SID);
     expect(sug.kind).toBe("deletion");
     expect(sug.author).toBe("alice");
@@ -144,7 +150,7 @@ describe("markBlockJoinSuggestion — offset invariant: the break embed occupies
 
     const items = nContent.items;
     // The break embed is the LAST item; there is exactly one such embed.
-    const last = items[items.length - 1];
+    const last = nth(items, items.length - 1, "last item");
     expect(last.kind).toBe("embed");
     expect(
       items.filter(
@@ -272,7 +278,7 @@ describe("markBlockJoinSuggestion — no-op on a first-child (no preceding break
     const items = itemsOf(result.state, "p1");
     // "ab"(text) + tab embed + join embed = 3 items; the LAST is the join embed.
     expect(items.length).toBe(3);
-    const last = items[items.length - 1];
+    const last = nth(items, items.length - 1, "last item");
     expect(last.kind).toBe("embed");
     expect(last.kind === "embed" ? last.properties.suggestionId : null).toBe(SID);
     // The pre-existing tab embed survives, distinct from the join embed.
@@ -316,7 +322,7 @@ describe("markBlockJoinSuggestion — multi-block: mark the join before the THIR
 
     // The embed lands on p2 (p3's prev sibling), NOT p1 or p3.
     const p2Items = itemsOf(s, "p2");
-    const lastP2 = p2Items[p2Items.length - 1];
+    const lastP2 = nth(p2Items, p2Items.length - 1, "last item");
     expect(lastP2.kind).toBe("embed");
     if (lastP2.kind !== "embed") throw new Error("expected break embed on p2");
     expect(lastP2.embedType).toBe(BLOCK_JOIN_SUGGESTION_EMBED_TYPE);
@@ -334,7 +340,7 @@ describe("markBlockJoinSuggestion — multi-block: mark the join before the THIR
     // One deletion record.
     const suggestions = getSuggestions(s);
     expect(suggestions.length).toBe(1);
-    expect(suggestions[0].kind).toBe("deletion");
-    expect(suggestions[0].id).toBe(SID);
+    expect(nth(suggestions, 0, "suggestion").kind).toBe("deletion");
+    expect(nth(suggestions, 0, "suggestion").id).toBe(SID);
   });
 });

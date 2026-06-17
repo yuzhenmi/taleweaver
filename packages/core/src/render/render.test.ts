@@ -13,6 +13,12 @@ import { createEmptyDocument } from "../state";
 import type { BlockId } from "../state";
 import { buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 const documentComponent: ContainerComponentDefinition = {
   type: "document",
   kind: "container",
@@ -362,7 +368,7 @@ describe("render — template-content zones", () => {
     // …and the fresh node reflects the edited content.
     expect(outA?.type).toBe("element");
     if (outA?.type === "element") {
-      const textChild = outA.children[0];
+      const textChild = nth(outA.children, 0, "text child");
       expect(textChild.type).toBe("text");
       expect((textChild as { text: string }).text).toBe("ALPHA-edited");
     }
@@ -393,7 +399,7 @@ describe("render — A1: inline RenderNodes carry no pre-cascade computedStyle",
     });
     const out = render(state, basicRegistry(), createDefaultAttrRegistry());
     const p = ((out.root as ElementBox).children[0]) as ElementBox;
-    const textNode = p.children[0];
+    const textNode = nth(p.children, 0, "text node");
     expect(textNode.type).toBe("text");
     expect(textNode.computedStyle).toBeUndefined();
   });
@@ -427,7 +433,7 @@ describe("render — A1: inline RenderNodes carry no pre-cascade computedStyle",
     reg.register(fnAnchor);
     const out = render(state, reg, createDefaultAttrRegistry());
     const p = ((out.root as ElementBox).children[0]) as ElementBox;
-    const embedNode = p.children[0];
+    const embedNode = nth(p.children, 0, "embed node");
     expect(embedNode.type).toBe("element");
     expect(embedNode.computedStyle).toBeUndefined();
     // E-E.1 follow-up: embed elements render as `display: inline-block`
@@ -455,7 +461,7 @@ describe("render — A1: inline RenderNodes carry no pre-cascade computedStyle",
     const p = ((out.root as ElementBox).children[0]) as ElementBox;
     // Strut sentinel must still be emitted (one TextBox child).
     expect(p.children).toHaveLength(1);
-    const strut = p.children[0];
+    const strut = nth(p.children, 0, "strut sentinel");
     expect(strut.type).toBe("text");
     expect((strut as { text: string }).text).toBe("");
     expect(strut.computedStyle).toBeUndefined();

@@ -1,0 +1,18 @@
+{
+  // Guards core's HEADLESS invariant: production source must use NO DOM global
+  // (`document` / `window` / `HTMLElement` / canvas types / …) and NO sibling
+  // package. The regular build (`tsconfig.json`) enables the `DOM` lib only for a
+  // TESTS-ONLY type edge — core's test scaffolding (`*.test.ts`, `integration/`,
+  // `test-utils/`) imports `@taleweaver/print`, whose barrel transitively
+  // references DOM-typed canvas/paint modules. This config DROPS the `DOM` lib and
+  // EXCLUDES that tests-only edge, so any DOM global creeping into PRODUCTION
+  // source fails to typecheck (its global type no longer resolves). Sibling-import
+  // creep is caught separately by `.dependency-cruiser.cjs` (`lint:boundaries`).
+  // Run via `npm run typecheck:headless`.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "noEmit": true
+  },
+  "exclude": ["src/**/*.test.ts", "src/test-utils", "src/integration"]
+}

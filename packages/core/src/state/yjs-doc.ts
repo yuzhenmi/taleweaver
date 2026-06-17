@@ -351,6 +351,41 @@ export function requireInTransaction(doc: Y.Doc, opName: string): void {
  * the change is non-undoable. `undefined` is byte-identical to the pre-origin
  * call.
  */
+/**
+ * The AMBIENT transaction origin — the collab seam's "current dispatch belongs to
+ * peer X" context. `null` (Yjs's default origin) outside any
+ * `runWithTransactionOrigin` scope, so single-editor behavior is byte-identical.
+ *
+ * Why ambient (vs. threading an `origin` param through every Layer-3 op): the
+ * editor has no single op-chokepoint — `reduceEditor` dispatches to ~30 handlers
+ * that each call their own Layer-3 ops, which each open their own transaction via
+ * `applyOperation`. A collab controller needs ALL of one dispatch's transactions
+ * tagged with its peer origin (so its own foreign-change observer can skip them
+ * and its UndoManager can track only its own edits). A synchronous, try/finally-
+ * scoped ambient value set ONCE around the dispatch achieves that without touching
+ * any op signature — analogous to React's "current dispatcher". The editor reducer
+ * is fully synchronous, so the scope can't leak across dispatches.
+ */
+let ambientTransactionOrigin: unknown = null;
+
+/**
+ * Run `fn` with the ambient transaction origin set to `origin` for the (synchronous)
+ * duration of the call — every `runTransaction` inside `fn` that doesn't pass an
+ * EXPLICIT origin adopts it. Restores the prior origin in `finally` (supports
+ * nesting). A collab host wraps its `dispatch(action)` in this so all of that
+ * dispatch's edits carry its peer origin. No-op-equivalent for non-collab callers
+ * (they never call it → origin stays `null`).
+ */
+export function runWithTransactionOrigin<T>(origin: unknown, fn: () => T): T {
+  const prev = ambientTransactionOrigin;
+  ambientTransactionOrigin = origin;
+  try {
+    return fn();
+  } finally {
+    ambientTransactionOrigin = prev;
+  }
+}
+
 export function runTransaction(
   doc: Y.Doc,
   fn: () => void,
@@ -370,12 +405,14 @@ export function runTransaction(
         "directly and let the outer caller's runTransaction capture dirtyIds.",
     );
   }
-  // Forward `origin` to Yjs (`doc.transact(fn, origin?)`). `undefined` (the
-  // default) is byte-identical to a no-origin call — Yjs treats it as the
-  // default `null` origin, which `History`'s UndoManager tracks. A non-undoable
-  // caller (the slice-3 suggestion accept/reject ops) passes
-  // SUGGESTION_RESOLVE_ORIGIN here so the txn fires no UndoManager StackItem.
-  const dirtyIds = captureDirtyIds(doc, () => doc.transact(fn, origin));
+  // Origin precedence: an EXPLICIT `origin` arg (e.g. the slice-3 suggestion
+  // accept/reject ops passing SUGGESTION_RESOLVE_ORIGIN) wins; otherwise adopt the
+  // AMBIENT origin (a collab host's per-dispatch peer tag, or `null` — Yjs's
+  // default — outside any `runWithTransactionOrigin` scope). `undefined` explicit
+  // arg falls through to ambient, so non-collab callers stay byte-identical (`null`,
+  // which `History`'s UndoManager tracks).
+  const effectiveOrigin = origin ?? ambientTransactionOrigin;
+  const dirtyIds = captureDirtyIds(doc, () => doc.transact(fn, effectiveOrigin));
   return { dirtyIds };
 }
 
@@ -397,39 +434,53 @@ export function captureDirtyIds(
   fn: () => void,
 ): ReadonlySet<BlockId> {
   const dirtyIds = new Set<BlockId>();
-  const treeMaps = getTreeMaps(doc);
-  // Membership set of the tree maps (as the YEvent-keyed type) for the
-  // owning-block parent-chain test.
-  const treeMapSet = new Set<AnyYType>(
-    treeMaps.map((m) => m as unknown as AnyYType),
-  );
-
   const captureDirty = (tx: Y.Transaction) => {
-    // A direct add/remove/replace of a tree key marks that id dirty.
-    for (const map of treeMaps) {
-      const event = tx.changed.get(map as unknown as AnyYType);
-      if (event === undefined) continue;
-      for (const key of event) {
-        if (key !== null) dirtyIds.add(key as BlockId);
-      }
-    }
-    // Memo lifetime is exactly this captureDirty call. Sharing across
-    // transactions is unsafe because Yjs may garbage-collect / re-layout
-    // internal items between transactions.
-    const memo = new Map<AnyYType, BlockId | null>();
-    for (const [type] of tx.changedParentTypes) {
-      const owningBlockId = findOwningBlockIdMemoized(type, treeMapSet, memo);
-      if (owningBlockId !== null) {
-        dirtyIds.add(owningBlockId);
-      }
-    }
+    for (const id of dirtyIdsFromTransaction(doc, tx)) dirtyIds.add(id);
   };
-
   doc.on("afterTransaction", captureDirty);
   try {
     fn();
   } finally {
     doc.off("afterTransaction", captureDirty);
+  }
+  return dirtyIds;
+}
+
+/**
+ * The per-transaction half of `captureDirtyIds`: every `BlockId` whose subtree
+ * was mutated by ONE `Y.Transaction`. Pulled out of `captureDirtyIds`' inner
+ * closure so the SAME derivation feeds two consumers from a single home:
+ *   - `captureDirtyIds` (local edits — aggregates across the transactions a `fn`
+ *     runs), and
+ *   - `subscribeForeignChanges` (collab — a standing observer that reacts to a
+ *     REMOTE peer's transaction on a shared doc; see `state/collab.ts`).
+ *
+ * A direct add/remove/replace of a tree key marks that id dirty; a deeper change
+ * (a block's inline content / attrs) surfaces via `changedParentTypes` walked to
+ * its owning block. The `memo` lifetime is exactly this call — sharing across
+ * transactions is unsafe (Yjs may GC/re-layout internal items between them).
+ *
+ * The `as unknown as AnyYType` / `as BlockId` bridges are the Yjs↔domain type
+ * seam (Yjs keys its event maps by an internal abstract-type identity and its
+ * change-set keys as raw strings); they were previously duplicated inline in
+ * `captureDirtyIds` and are now centralized here.
+ */
+export function dirtyIdsFromTransaction(doc: Y.Doc, tx: Y.Transaction): Set<BlockId> {
+  const dirtyIds = new Set<BlockId>();
+  const treeMaps = getTreeMaps(doc);
+  const treeMapSet = new Set<AnyYType>(treeMaps.map((m) => m as unknown as AnyYType));
+
+  for (const map of treeMaps) {
+    const event = tx.changed.get(map as unknown as AnyYType);
+    if (event === undefined) continue;
+    for (const key of event) {
+      if (key !== null) dirtyIds.add(key as BlockId);
+    }
+  }
+  const memo = new Map<AnyYType, BlockId | null>();
+  for (const [type] of tx.changedParentTypes) {
+    const owningBlockId = findOwningBlockIdMemoized(type, treeMapSet, memo);
+    if (owningBlockId !== null) dirtyIds.add(owningBlockId);
   }
   return dirtyIds;
 }

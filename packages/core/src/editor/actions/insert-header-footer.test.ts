@@ -2,9 +2,10 @@
  * C.2c T8: `INSERT_HEADER` / `INSERT_FOOTER` editor action + handler.
  *
  * The browser-verify vehicle (capstone of C.2c): dispatching INSERT_HEADER
- * creates a one-paragraph header template body, links it on the doc-root
- * (implicit section) via `attrs.headerBlockId`, and places a collapsed caret
- * in the new body. INSERT_FOOTER is symmetric (`footerBlockId`). The
+ * creates a one-paragraph header template body, links it on the cursor's
+ * ACTIVE SECTION (or the doc root when the cursor is in section-less content;
+ * #485) via `attrs.headerBlockId`, and places a collapsed caret in the new
+ * body. INSERT_FOOTER is symmetric (`footerBlockId`). The
  * create→caret→type chain is what makes the whole slice exercisable: type in
  * the new header → it repeats on every page (browser smoke, owed to the user).
  *
@@ -16,6 +17,7 @@ import {
   config,
   reduceEditor,
   createInitialEditorState,
+  createPosition,
   type EditorState,
 } from "./test-helpers";
 import {
@@ -24,9 +26,82 @@ import {
   getTemplateContentIds,
 } from "../../state";
 import type { BlockId } from "../../state";
+import { resolveActiveSection } from "./active-section";
 
 function templateRootCount(editor: EditorState): number {
   return [...getTemplateContentIds(editor.state)].length;
+}
+
+/** The document root's direct children, in order. */
+function rootChildIds(editor: EditorState): BlockId[] {
+  const root = getBlock(editor.state, editor.state.rootId);
+  if (root === null || root.firstChildId === null) return [];
+  const ids: BlockId[] = [];
+  let id: BlockId | null = root.firstChildId;
+  while (id !== null) {
+    ids.push(id);
+    id = getBlock(editor.state, id)?.nextSiblingId ?? null;
+  }
+  return ids;
+}
+
+/**
+ * Build a two-section editor (section A = [p0], section B = [p1, p2, ...])
+ * with the cursor collapsed inside section B's first paragraph. Mirrors the
+ * `twoSectionEditor` helper in `toggle-section-landscape.test.ts`: PASTE n
+ * paragraphs, SET_SELECTION to the 2nd block, dispatch SECTION_BREAK, then
+ * move the caret into section B's first paragraph.
+ */
+function twoSectionEditor(n = 3): {
+  editor: EditorState;
+  sectionA: BlockId;
+  sectionB: BlockId;
+} {
+  const text = Array.from({ length: n }, (_, i) => `para ${i}`).join("\n");
+  let editor = reduceEditor(
+    createInitialEditorState(config),
+    { type: "PASTE", text },
+    config,
+  );
+  // The boundary block = the 2nd top-level paragraph (so section A keeps p0).
+  const topLevel = rootChildIds(editor);
+  const boundary = topLevel[1];
+  if (boundary === undefined) throw new Error(`expected ≥2 paragraphs, got ${topLevel.length}`);
+  editor = reduceEditor(
+    editor,
+    {
+      type: "SET_SELECTION",
+      selection: { anchor: createPosition(boundary, 0), focus: createPosition(boundary, 0) },
+    },
+    config,
+  );
+  editor = reduceEditor(editor, { type: "SECTION_BREAK" }, config);
+
+  const sectionIds = rootChildIds(editor);
+  if (sectionIds.length !== 2) {
+    throw new Error(`expected 2 sections, got ${sectionIds.length}`);
+  }
+  const sectionA = sectionIds[0];
+  const sectionB = sectionIds[1];
+  if (sectionA === undefined || sectionB === undefined) {
+    throw new Error("section A/B not resolved");
+  }
+  const firstParaOfB = getBlock(editor.state, sectionB)?.firstChildId;
+  if (firstParaOfB === undefined || firstParaOfB === null) {
+    throw new Error("section B has no first child");
+  }
+  editor = reduceEditor(
+    editor,
+    {
+      type: "SET_SELECTION",
+      selection: {
+        anchor: createPosition(firstParaOfB, 0),
+        focus: createPosition(firstParaOfB, 0),
+      },
+    },
+    config,
+  );
+  return { editor, sectionA, sectionB };
 }
 
 function joinText(
@@ -226,5 +301,116 @@ describe("handleInsertHeaderFooter — INSERT_HEADER", () => {
     expect(getTemplateContent(undone.state, headerId)).toBeNull();
     expect(templateRootCount(undone)).toBe(0);
     expect(getBlock(undone.state, undone.state.rootId)?.attrs.headerBlockId).toBeUndefined();
+  });
+});
+
+describe("handleInsertHeaderFooter — per-section (#485)", () => {
+  it("attaches the header to the cursor's ACTIVE SECTION, not the doc root", () => {
+    const { editor, sectionA, sectionB } = twoSectionEditor();
+
+    // Precondition: the caret resolves to section B (not the doc root).
+    expect(resolveActiveSection(editor, editor.selection.focus.blockId)).toBe(sectionB);
+
+    const next = reduceEditor(editor, { type: "INSERT_HEADER" }, config);
+
+    // The SECTION B block carries the header link...
+    const secB = getBlock(next.state, sectionB);
+    const headerId = secB?.attrs.headerBlockId as BlockId | undefined;
+    expect(typeof headerId).toBe("string");
+    if (headerId === undefined) return;
+
+    // ...and the DOC ROOT does NOT (the defect attached it to root).
+    expect(getBlock(next.state, next.state.rootId)?.attrs.headerBlockId).toBeUndefined();
+    // ...nor does the OTHER section.
+    expect(getBlock(next.state, sectionA)?.attrs.headerBlockId).toBeUndefined();
+
+    // A real template body exists: a `template-body` CONTAINER + a paragraph child.
+    const body = getTemplateContent(next.state, headerId);
+    expect(body?.type).toBe("template-body");
+    const paraId = firstChildOf(next, headerId);
+    expect(getTemplateContent(next.state, paraId)?.type).toBe("paragraph");
+    expect(templateRootCount(next)).toBe(1);
+
+    // The caret landed in the new body's first paragraph.
+    expect(next.selection.focus.blockId).toBe(paraId);
+    expect(next.selection.focus.offset).toBe(0);
+  });
+
+  it("routes to the DOC ROOT when the cursor is in section-less content (resolveActiveSection → null)", () => {
+    // A bare doc with NO section break: the caret is under the doc root, and
+    // `resolveActiveSection` returns null → the handler falls back to rootId.
+    const initial = createInitialEditorState(config);
+    expect(resolveActiveSection(initial, initial.selection.focus.blockId)).toBeNull();
+
+    const next = reduceEditor(initial, { type: "INSERT_HEADER" }, config);
+
+    // The DOC ROOT carries the header link (unchanged behavior).
+    const headerId = getBlock(next.state, next.state.rootId)?.attrs
+      .headerBlockId as BlockId | undefined;
+    expect(typeof headerId).toBe("string");
+  });
+
+  it("is per-section idempotent: a 2nd INSERT_HEADER in section B creates no duplicate, carets into the existing section-B body", () => {
+    const { editor, sectionA, sectionB } = twoSectionEditor();
+
+    const once = reduceEditor(editor, { type: "INSERT_HEADER" }, config);
+    const headerId = getBlock(once.state, sectionB)?.attrs.headerBlockId as
+      | BlockId
+      | undefined;
+    expect(headerId).toBeDefined();
+    if (headerId === undefined) return;
+    expect(templateRootCount(once)).toBe(1);
+    const paraId = firstChildOf(once, headerId);
+
+    // Move the caret OUT of the header (back into section B's body) before re-inserting.
+    const firstParaOfB = getBlock(once.state, sectionB)?.firstChildId;
+    expect(firstParaOfB).toBeDefined();
+    if (firstParaOfB === undefined || firstParaOfB === null) return;
+    const moved = reduceEditor(
+      once,
+      {
+        type: "SET_SELECTION",
+        selection: {
+          anchor: createPosition(firstParaOfB, 0),
+          focus: createPosition(firstParaOfB, 0),
+        },
+      },
+      config,
+    );
+
+    const twice = reduceEditor(moved, { type: "INSERT_HEADER" }, config);
+
+    // No duplicate body created (template-content root count unchanged).
+    expect(templateRootCount(twice)).toBe(1);
+    // Section B's link still points at the SAME container, and no second header.
+    expect(getBlock(twice.state, sectionB)?.attrs.headerBlockId).toBe(headerId);
+    // Section A and the doc root remain header-less.
+    expect(getBlock(twice.state, sectionA)?.attrs.headerBlockId).toBeUndefined();
+    expect(getBlock(twice.state, twice.state.rootId)?.attrs.headerBlockId).toBeUndefined();
+    // The caret moved into the EXISTING section-B body's first paragraph.
+    expect(twice.selection.focus.blockId).toBe(paraId);
+    expect(twice.selection.focus.offset).toBe(0);
+  });
+
+  it("INSERT_FOOTER attaches the footer to the active section's footerBlockId, not the doc root", () => {
+    const { editor, sectionA, sectionB } = twoSectionEditor();
+
+    const next = reduceEditor(editor, { type: "INSERT_FOOTER" }, config);
+
+    const footerId = getBlock(next.state, sectionB)?.attrs.footerBlockId as
+      | BlockId
+      | undefined;
+    expect(typeof footerId).toBe("string");
+    if (footerId === undefined) return;
+
+    // The doc root + section A carry no footer.
+    expect(getBlock(next.state, next.state.rootId)?.attrs.footerBlockId).toBeUndefined();
+    expect(getBlock(next.state, sectionA)?.attrs.footerBlockId).toBeUndefined();
+
+    expect(getTemplateContent(next.state, footerId)?.type).toBe("template-body");
+    const paraId = firstChildOf(next, footerId);
+    expect(getTemplateContent(next.state, paraId)?.type).toBe("paragraph");
+    expect(next.selection.focus.blockId).toBe(paraId);
+    expect(next.selection.focus.offset).toBe(0);
   });
 });

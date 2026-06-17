@@ -15,7 +15,7 @@ describe("coalesceKeyOf", () => {
     expect(coalesceKeyOf({ type: "DELETE_BACKWARD" })).toBe("delete");
     expect(coalesceKeyOf({ type: "DELETE_FORWARD" })).toBe("delete");
     expect(coalesceKeyOf({ type: "DELETE_WORD", direction: "backward" })).toBe("delete");
-    expect(coalesceKeyOf({ type: "DELETE_LINE" })).toBe("delete");
+    expect(coalesceKeyOf({ type: "DELETE_RANGE", span: SAMPLE_SPAN })).toBe("delete");
   });
 
   it("classifies discrete commands", () => {
@@ -48,16 +48,13 @@ describe("coalesceKeyOf", () => {
   });
 
   it("classifies selection-break actions", () => {
-    expect(coalesceKeyOf({ type: "MOVE_CURSOR", direction: "forward" })).toBe("selection-break");
+    // Phase 0b: the geometric MOVE_CURSOR/MOVE_LINE/EXPAND_* nav actions moved to
+    // the backend NavIntent resolver, which dispatches SET_SELECTION — so the
+    // remaining geometry-free selection-break actions are what core classifies.
     expect(coalesceKeyOf({ type: "MOVE_WORD", direction: "backward" })).toBe("selection-break");
-    expect(coalesceKeyOf({ type: "MOVE_LINE", direction: "up" })).toBe("selection-break");
-    expect(coalesceKeyOf({ type: "MOVE_LINE_BOUNDARY", boundary: "start" })).toBe("selection-break");
     expect(coalesceKeyOf({ type: "MOVE_DOCUMENT_BOUNDARY", boundary: "end" })).toBe("selection-break");
     expect(coalesceKeyOf({ type: "SET_SELECTION", selection: SAMPLE_SPAN })).toBe("selection-break");
-    expect(coalesceKeyOf({ type: "EXPAND_SELECTION", direction: "forward" })).toBe("selection-break");
     expect(coalesceKeyOf({ type: "EXPAND_WORD", direction: "backward" })).toBe("selection-break");
-    expect(coalesceKeyOf({ type: "EXPAND_LINE", direction: "down" })).toBe("selection-break");
-    expect(coalesceKeyOf({ type: "EXPAND_LINE_BOUNDARY", boundary: "end" })).toBe("selection-break");
     expect(coalesceKeyOf({ type: "EXPAND_DOCUMENT_BOUNDARY", boundary: "start" })).toBe("selection-break");
     expect(coalesceKeyOf({ type: "SELECT_ALL" })).toBe("selection-break");
     expect(coalesceKeyOf({ type: "UNDO" })).toBe("selection-break");

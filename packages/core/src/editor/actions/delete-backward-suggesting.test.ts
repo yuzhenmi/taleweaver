@@ -29,6 +29,13 @@ import {
   type EditorConfig,
   type EditorState,
 } from "./test-helpers";
+
+/** Throwing indexed access for tests: stronger than the old undefined-deref TypeError. */
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
 import {
   getBlock,
   getSuggestions,
@@ -150,9 +157,9 @@ describe("handleDeleteBackward — suggesting mode (slice 4c-i)", () => {
     // The char before the caret ("c", index 2) carries the deletion id.
     const suggestions = getSuggestions(next.state);
     expect(suggestions).toHaveLength(1);
-    expect(suggestions[0].kind).toBe("deletion");
-    expect(suggestions[0].author).toBe("alice");
-    expect(deletionIdAt(next, paraId, 2)).toBe(suggestions[0].id);
+    expect(nth(suggestions, 0, "suggestion").kind).toBe("deletion");
+    expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
+    expect(deletionIdAt(next, paraId, 2)).toBe(nth(suggestions, 0, "suggestion").id);
     // "a"/"b" (indices 0/1) are untouched.
     expect(deletionIdAt(next, paraId, 0)).toBeUndefined();
     // The caret collapses to the position BEFORE the struck char (offset 2).
@@ -186,11 +193,11 @@ describe("handleDeleteBackward — suggesting mode (slice 4c-i)", () => {
     expect(getTextOf(next.state, paraId)).toBe("abcdef");
     const suggestions = getSuggestions(next.state);
     expect(suggestions).toHaveLength(1);
-    expect(suggestions[0].kind).toBe("deletion");
-    expect(suggestions[0].author).toBe("alice");
-    expect(deletionIdAt(next, paraId, 1)).toBe(suggestions[0].id);
-    expect(deletionIdAt(next, paraId, 2)).toBe(suggestions[0].id);
-    expect(deletionIdAt(next, paraId, 3)).toBe(suggestions[0].id);
+    expect(nth(suggestions, 0, "suggestion").kind).toBe("deletion");
+    expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
+    expect(deletionIdAt(next, paraId, 1)).toBe(nth(suggestions, 0, "suggestion").id);
+    expect(deletionIdAt(next, paraId, 2)).toBe(nth(suggestions, 0, "suggestion").id);
+    expect(deletionIdAt(next, paraId, 3)).toBe(nth(suggestions, 0, "suggestion").id);
     expect(deletionIdAt(next, paraId, 0)).toBeUndefined();
     expect(deletionIdAt(next, paraId, 4)).toBeUndefined();
     // Caret collapses to the selection START (offset 1).
@@ -236,8 +243,8 @@ describe("handleDeleteBackward — suggesting mode (slice 4c-i)", () => {
     // A `deletion` SuggestionRecord exists (attributed to alice).
     const suggestions = getSuggestions(next.state);
     expect(suggestions).toHaveLength(1);
-    expect(suggestions[0].kind).toBe("deletion");
-    expect(suggestions[0].author).toBe("alice");
+    expect(nth(suggestions, 0, "suggestion").kind).toBe("deletion");
+    expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
 
     // The caret stays at currentBlock:0 (no merge happened).
     expect(next.selection.anchor).toEqual(next.selection.focus);
@@ -271,6 +278,36 @@ describe("handleDeleteBackward — suggesting mode (slice 4c-i)", () => {
     // Caret lands at the merge seam (prevBlock:3).
     expect(next.selection.focus).toEqual(createPosition(firstId, 3));
     expect(getSuggestions(next.state)).toHaveLength(0);
+  });
+
+  it("backspacing over one's OWN suggested-insertion REMOVES it for real (no deletion record; the spent insertion record orphans)", () => {
+    // Type "abc" in SUGGESTING mode → one insertion record covering "abc".
+    let s = createInitialEditorState(suggestingConfig);
+    s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" }, suggestingConfig);
+    const paraId = bodyParaId(s);
+    const inserted = getSuggestions(s.state);
+    expect(inserted).toHaveLength(1);
+    expect(nth(inserted, 0, "suggestion").kind).toBe("insertion");
+    expect(nth(inserted, 0, "suggestion").author).toBe("alice");
+    const insId = nth(inserted, 0, "suggestion").id;
+
+    // Backspace 3× — each char is THIS author's own un-accepted insertion, so it
+    // is removed for REAL (not soft-deleted): deleting your own pending insertion
+    // un-does it rather than stacking a contradictory deletion-on-insertion.
+    s = reduceEditor(s, { type: "DELETE_BACKWARD" }, suggestingConfig);
+    s = reduceEditor(s, { type: "DELETE_BACKWARD" }, suggestingConfig);
+    s = reduceEditor(s, { type: "DELETE_BACKWARD" }, suggestingConfig);
+
+    // Text is gone (real removal, NOT a struck-through soft delete).
+    expect(getTextOf(s.state, paraId)).toBe("");
+    // No deletion record was ever written (own-insertion removal short-circuits it).
+    const after = getSuggestions(s.state);
+    expect(after.filter((sg) => sg.kind === "deletion")).toHaveLength(0);
+    // The spent insertion record survives in the map but tags no item → orphaned.
+    const spent = after.find((sg) => sg.id === insId);
+    expect(spent?.kind).toBe("insertion");
+    expect(spent?.orphaned).toBe(true);
+    expect(spent?.range).toBeNull();
   });
 
   it("block-start backspace in a LIST-ITEM still OUTDENTS/UNLISTS in suggesting mode (not a join — proves the gate reorder)", () => {

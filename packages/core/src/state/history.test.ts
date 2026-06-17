@@ -6,7 +6,7 @@ import { setBlockAttrs, setBlockAttrsInTx } from "./ops/set-block-attrs";
 import { insertText } from "./ops/insert-text";
 import { deleteRange } from "./ops/delete-range";
 import { applyOperation, getBlock } from "./state";
-import { getMetaMap, getTemplateContentsMap, getYBlock } from "./yjs-doc";
+import { getMetaMap, getTemplateContentsMap, getYBlock, runWithTransactionOrigin } from "./yjs-doc";
 import { getListDef, writeListDefInTx, type ListDef } from "./list-defs";
 import { createPosition, createSpan } from "./block-position";
 import { inlineContentLength } from "./inline-content";
@@ -1129,5 +1129,26 @@ describe("History.advanceState — C1 stale-snapshot hazard (slice 2 piece C)", 
     // though the live Y.Doc holds the resolve. advanceState reconciles
     // currentState to the post-resolve cache so the overlay serves the fresh B.
     // (This is the exact silent-stale-render C1 hazard the design review caught.)
+  });
+
+  // E4b (collab undo isolation): a History created with a peer `trackedOrigin`
+  // captures ONLY that peer's own edits. A remote peer's edit (a DIFFERENT origin,
+  // here applied via the ambient `runWithTransactionOrigin`) lands on the shared
+  // doc but must NOT enter this editor's undo stack.
+  it("a collab History tracks only its own peer origin's edits (foreign edits are not undoable)", () => {
+    const s0 = twoBlockDoc();
+    const history = createHistory(s0, undefined, "peerA"); // this editor IS peerA
+
+    // A FOREIGN peer's edit (origin "peerB") on the shared doc — not tracked.
+    runWithTransactionOrigin("peerB", () => {
+      insertText(s0, createPosition(BLOCK_B, 0), "Z", {});
+    });
+    expect(history.canUndo()).toBe(false);
+
+    // peerA's OWN edit (origin "peerA") — tracked, so undoable.
+    runWithTransactionOrigin("peerA", () => {
+      insertText(s0, createPosition(BLOCK_A, 0), "X", {});
+    });
+    expect(history.canUndo()).toBe(true);
   });
 });

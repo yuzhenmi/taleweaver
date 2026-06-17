@@ -105,7 +105,7 @@ describe("createTable", () => {
 
     // caret lands in cell (0,0)'s paragraph at offset 0.
     const firstRow = rows[0];
-    if (firstRow === null) throw new Error("row0 missing");
+    if (firstRow === null || firstRow === undefined) throw new Error("row0 missing");
     const firstCell = getBlock(next, firstRow.firstChildId as BlockId);
     expect(caretInto).toEqual(createPosition(firstCell?.firstChildId as BlockId, 0));
     assertChainIntegrity(next, "test");

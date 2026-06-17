@@ -33,6 +33,12 @@ import { buildBlock, buildState, inlineContent, text } from "../test-utils/state
 import type { BlockId } from "./block-id";
 import type { State } from "./state";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 // A header template body: a ROOT container (parentId === null, in
 // templateContents) with two child paragraphs. The main document is a single
 // body paragraph. This is the canonical multi-block templateContents body the
@@ -175,7 +181,7 @@ describe("C.2c T7a — iterateSpan / iterateBlocksInSpan are map-agnostic", () =
     const ranges = Array.from(iterateSpan(state, span));
     expect(ranges.length).toBe(1);
     expect(ranges[0]).toMatchObject({ rangeStart: 1, rangeEnd: 4 });
-    expect(ranges[0].block.id).toBe(HDR_C1);
+    expect(nth(ranges, 0, "range").block.id).toBe(HDR_C1);
   });
 
   it("iterateBlocksInSpan walks the header body leaves in order", () => {

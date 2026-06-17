@@ -184,10 +184,11 @@ export function insertBlocksAfterInTx(doc: Y.Doc, plan: InsertBlocksAfterPlan): 
 
   const blocksMap = getBlocksMap(doc);
   const lastIndex = plan.entries.length - 1;
-  for (let i = 0; i < plan.entries.length; i++) {
-    const entry = plan.entries[i];
-    const prevSiblingId = i === 0 ? plan.afterBlockId : plan.entries[i - 1].id;
-    const nextSiblingId = i === lastIndex ? plan.oldNextId : plan.entries[i + 1].id;
+  for (const [i, entry] of plan.entries.entries()) {
+    const prevEntry = plan.entries[i - 1];
+    const nextEntry = plan.entries[i + 1];
+    const prevSiblingId = i === 0 ? plan.afterBlockId : (prevEntry?.id ?? null);
+    const nextSiblingId = i === lastIndex ? plan.oldNextId : (nextEntry?.id ?? null);
     blocksMap.set(
       entry.id,
       buildYBlock({
@@ -207,12 +208,17 @@ export function insertBlocksAfterInTx(doc: Y.Doc, plan: InsertBlocksAfterPlan): 
   // captured from the pre-mutation snapshot in `planInsertBlocksAfter` — so
   // overwriting afterBlock's nextSiblingId here does not lose the old next
   // sibling (the run tail above still points at it).
+  const firstEntry = plan.entries[0];
+  const lastEntry = plan.entries[lastIndex];
+  if (firstEntry === undefined || lastEntry === undefined) {
+    throw new Error("insertBlocksAfter: plan has no entries (unreachable)");
+  }
   getYBlock(doc, plan.afterBlockId, "insertBlocksAfter").set(
     "nextSiblingId",
-    plan.entries[0].id,
+    firstEntry.id,
   );
 
-  const runTail = plan.entries[lastIndex].id;
+  const runTail = lastEntry.id;
   if (plan.oldNextId !== null) {
     // The block past the run gets its prevSiblingId rewired to the tail.
     getYBlock(doc, plan.oldNextId, "insertBlocksAfter").set("prevSiblingId", runTail);

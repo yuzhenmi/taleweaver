@@ -114,7 +114,11 @@ export function planSplitCell(
     for (let col = startCol; col <= lastCol; col++) {
       newCells.push({ cellId: allocator.allocate(), paragraphId: allocator.allocate() });
     }
-    rows.push({ rowId: ctx.rowIds[r], prevCellId, nextCellId, newCells });
+    const rowId = ctx.rowIds[r];
+    if (rowId === undefined) {
+      throw new Error(`splitCell: row id at grid row ${r} missing (unreachable)`);
+    }
+    rows.push({ rowId, prevCellId, nextCellId, newCells });
   }
 
   return { cellId: ctx.cellId, survivorAttrs, rows };
@@ -151,28 +155,30 @@ export function splitCellInTx(doc: Y.Doc, plan: SplitCellPlan): void {
 
   for (const row of plan.rows) {
     const seq = row.newCells;
-    for (let i = 0; i < seq.length; i++) {
-      const prev = i === 0 ? row.prevCellId : seq[i - 1].cellId;
-      const next = i === seq.length - 1 ? row.nextCellId : seq[i + 1].cellId;
+    for (const [i, nc] of seq.entries()) {
+      const prevCell = seq[i - 1];
+      const nextCell = seq[i + 1];
+      const prev = i === 0 ? row.prevCellId : (prevCell?.cellId ?? null);
+      const next = i === seq.length - 1 ? row.nextCellId : (nextCell?.cellId ?? null);
       blocksMap.set(
-        seq[i].cellId,
+        nc.cellId,
         buildYBlock({
           type: "table-cell",
           attrs: {},
           parentId: row.rowId,
           prevSiblingId: prev,
           nextSiblingId: next,
-          firstChildId: seq[i].paragraphId,
-          lastChildId: seq[i].paragraphId,
+          firstChildId: nc.paragraphId,
+          lastChildId: nc.paragraphId,
           inlineContent: null,
         }),
       );
       blocksMap.set(
-        seq[i].paragraphId,
+        nc.paragraphId,
         buildYBlock({
           type: "paragraph",
           attrs: {},
-          parentId: seq[i].cellId,
+          parentId: nc.cellId,
           prevSiblingId: null,
           nextSiblingId: null,
           firstChildId: null,
@@ -184,8 +190,13 @@ export function splitCellInTx(doc: Y.Doc, plan: SplitCellPlan): void {
 
     // Re-link the surrounding existing siblings to the ends of the new run
     // (insertBlock boundary discipline: write row first/lastChildId only at a head/tail).
-    const first = seq[0].cellId;
-    const last = seq[seq.length - 1].cellId;
+    const firstCell = seq[0];
+    const lastCell = seq[seq.length - 1];
+    if (firstCell === undefined || lastCell === undefined) {
+      throw new Error("splitCell: row has no new cells (unreachable)");
+    }
+    const first = firstCell.cellId;
+    const last = lastCell.cellId;
     if (row.prevCellId !== null) {
       getYBlock(doc, row.prevCellId, "splitCell").set("nextSiblingId", first);
     }

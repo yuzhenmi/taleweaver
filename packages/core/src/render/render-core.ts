@@ -20,6 +20,7 @@ import {
   FOOTNOTE_ANCHOR_EMBED_TYPE,
   CROSS_REFERENCE_EMBED_TYPE,
   PAGE_FIELD_EMBED_TYPE,
+  INLINE_IMAGE_EMBED_TYPE,
   PAGE_FIELD_RESERVED_GLYPHS,
   COMMENT_START_EMBED_TYPE,
   COMMENT_END_EMBED_TYPE,
@@ -45,6 +46,7 @@ import type {
 import { authorColorOf } from "../styles";
 import type { CounterValue } from "../numbering";
 import { resolveCrossReference, BROKEN_CROSS_REFERENCE_TEXT } from "./resolve-cross-reference";
+import { inlineRenderKey } from "./inline-render-key";
 import {
   isPageFieldKind,
   isPageFieldNumberStyle,
@@ -330,7 +332,7 @@ export function expandInlineItems(
     const itemStyle: Partial<Style> = attrRegistry.applyAll(item.attrs, {
       parentStyle: blockSpecified,
     });
-    const key = `${blockId}/inline/${i}`;
+    const key = inlineRenderKey(blockId, i);
     if (item.kind === "text") {
       // InlineItem narrows to TextItem here via the discriminated union.
       // Change-tracking slice 5a/5c-iii: in `"suggesting"` view, layer the
@@ -345,7 +347,15 @@ export function expandInlineItems(
         blockSpecified,
         view,
       );
-      out.push(createTextBox(key, runStyle, item.text));
+      const linkAttr = item.attrs.link;
+      out.push(
+        createTextBox(
+          key,
+          runStyle,
+          item.text,
+          typeof linkAttr === "string" ? linkAttr : undefined,
+        ),
+      );
     } else if (item.embedType === FOOTNOTE_ANCHOR_EMBED_TYPE) {
       // FN-2: a footnote-anchor embed renders as the superscript call marker
       // (a small, raised number) instead of the invisible zero-width embed
@@ -448,11 +458,13 @@ export function expandInlineItems(
             // em-relative properties (e.g. a `1.5em` fontSize compounds to 2.25×).
             // Mirrors `buildFootnoteMarker`'s empty-style inner text child.
             [createTextBox(`${key}/0`, {}, resolved)],
-            // Only `embedType` — a cross-reference is a POINTER with no owned body,
-            // so (unlike the footnote anchor) there is no `contentBlockId` to stamp.
-            // The target lives in `properties.targetId`; downstream navigation
-            // (a later slice) reads it from state, not from box metadata.
-            { embedType: item.embedType },
+            // `embedType` plus `targetId`: a cross-reference is a POINTER with no
+            // owned body, so (unlike the footnote anchor) there is no
+            // `contentBlockId` to stamp. `targetId` is threaded onto the atom in
+            // EVERY ref mode (number/text — the page branch above stamps it too) so
+            // the PDF exporter can emit an internal /GoTo link to the target block
+            // (#522). A malformed non-string target maps to `null` (broken ref).
+            { embedType: item.embedType, targetId: typeof targetId === "string" ? targetId : null },
           ),
         );
       }
@@ -582,6 +594,47 @@ export function expandInlineItems(
           { embedType: item.embedType },
         ),
       );
+    } else if (item.embedType === INLINE_IMAGE_EMBED_TYPE) {
+      // An inline image (Google Docs "In line" positioning) renders as ONE
+      // inline-block ATOM (one IFC token = the state model's 1-unit EmbedItem
+      // offset, #407) — exactly like the other visible embeds. Option B layers
+      // it as an OUTER `display:inline-block` ElementBox carrying
+      // `metadata.replacedInline: true` (so the T2 replaced-baseline rule fires:
+      // the box's BOTTOM edge sits on the text baseline, CSS2 §10.8.1) wrapping
+      // ONE INNER `display:block` ElementBox that carries the SAME
+      // `metadata.image { src, width, height }` + explicit `blockSize`/`inlineSize`
+      // a BLOCK image stamps (see `components/image.ts`). Reusing the block-image
+      // box means the existing block-image paint runs for free via
+      // `paintContainerChildren` recursion — canvas AND PDF paint with zero new
+      // paint code. The same string/numeric guards block images use coerce the
+      // open `properties` bag (`src` defaults `""`, missing/garbage dims default
+      // `0`, matching the block-image metadata default).
+      const src = typeof item.properties.src === "string" ? item.properties.src : "";
+      const width = typeof item.properties.width === "number" ? item.properties.width : 0;
+      const height = typeof item.properties.height === "number" ? item.properties.height : 0;
+      const alt = typeof item.properties.alt === "string" ? item.properties.alt : "";
+      const inner = createElementBox(
+        // Mirror the sibling embeds' inner-child key derivation (`${key}/0`).
+        `${key}/0`,
+        { display: "block", blockSize: height, inlineSize: width },
+        [],
+        { image: { src, width, height, alt } },
+      );
+      out.push(
+        createElementBox(
+          key,
+          // `display: "inline-block"` spread LAST — the single-token atomicity is
+          // load-bearing for IFC offset accounting, not a stylistic default
+          // (mirrors the cross-reference/page-field branches). The embed's own
+          // attrs (link, comment-range, etc.) still apply via `itemStyle`.
+          { ...itemStyle, display: "inline-block" },
+          [inner],
+          // `replacedInline` makes the IFC use the bottom-edge replaced baseline
+          // (T2) instead of the *0.8 content baseline used by text-bearing
+          // inline-blocks (footnote markers, cross-refs).
+          { embedType: item.embedType, replacedInline: true },
+        ),
+      );
     } else {
       // InlineItem narrows to EmbedItem here.
       //
@@ -649,7 +702,7 @@ export function expandInlineItems(
   // horizontal-line) bypass this function entirely (see renderBlock's
   // leafShape === "atomic" branch), so they never see the sentinel.
   if (out.length === 0) {
-    out.push(createTextBox(`${blockId}/inline/0`, {}, ""));
+    out.push(createTextBox(inlineRenderKey(blockId, 0), {}, ""));
   }
 
   return out;

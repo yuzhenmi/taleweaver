@@ -22,22 +22,11 @@
  * resolved display text is collected from the laid-out subtree.
  */
 import { describe, it, expect } from "vitest";
-import {
-  createInitialEditorState,
-  reduceEditor,
-  createDefaultComponentRegistry,
-  createDefaultAttrRegistry,
-  createMockShaper,
-  getBlock,
-  createPosition,
-  createSpan,
-  type EditorConfig,
-  type PageConfig,
-  type EditorState,
-  type BlockId,
-} from "../../index";
-import type { LayoutBox } from "../../layout/layout-box";
-import type { PageBox } from "../../layout/page-box";
+import { createInitialEditorState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, getBlock, createPosition, createSpan, render, cascadePass, makeBlockParentLookup, type EditorConfig, type PageConfig, type EditorState, type BlockId } from "../../index";
+import { layoutTree } from "@taleweaver/print";
+import type { LayoutBox } from "@taleweaver/print";
+import type { PageBox } from "@taleweaver/print";
+import type { VirtualLayoutTree } from "@taleweaver/print";
 import { BROKEN_CROSS_REFERENCE_TEXT } from "../../render/resolve-cross-reference";
 
 // Mock shaper: line height 16, char width 8. A short page (block-size 64, no margins)
@@ -51,12 +40,38 @@ function makeConfig(): EditorConfig {
     pageGap: 24,
   };
   return {
-    measurer: createMockShaper(8, 16),
     componentRegistry: createDefaultComponentRegistry(),
     attrRegistry: createDefaultAttrRegistry(),
     containerWidth: 800,
     pageConfig,
   };
+}
+
+// Phase 0b: `measurer` left core's `EditorConfig` for the backend's layout
+// driver. Tests build the layout tree directly via core's pipeline (what the
+// driver does) to assert the resolved cross-ref page geometry.
+const measurer = createMockShaper(8, 16);
+
+/**
+ * Build the layout tree the backend driver would (render → cascade → layout),
+ * threading the `parentOf` block-parent lookup (`makeBlockParentLookup`) exactly
+ * as the driver does — REQUIRED for nested cross-ref-page resolution, which walks
+ * a nested target's ancestor chain to its indexed top-level block.
+ */
+function layoutOf(editor: EditorState, config: EditorConfig): LayoutBox | VirtualLayoutTree {
+  const rendered = render(editor.state, config.componentRegistry, config.attrRegistry);
+  const cascaded = cascadePass(rendered.root);
+  const parentOf = makeBlockParentLookup(editor.state);
+  return layoutTree(
+    cascaded,
+    config.containerWidth,
+    measurer,
+    config.pageConfig,
+    undefined, // cascadedTemplateContents (no header/footer in this fixture)
+    undefined, // cascadedEmbedContents
+    undefined, // footnoteAnchors
+    parentOf,
+  );
 }
 
 /** The document root's direct children, in order. */
@@ -116,15 +131,15 @@ function findCrossRefAtom(box: LayoutBox, hostId: BlockId, embedIndex: number): 
 }
 
 /** The materialized layout tree as a VirtualLayoutTree (paginated mode). */
-function virtualTree(editor: EditorState) {
-  const tree = editor.layoutTree;
+function virtualTree(editor: EditorState, config: EditorConfig): VirtualLayoutTree {
+  const tree = layoutOf(editor, config);
   if (tree.type !== "virtual-root") throw new Error("expected a paginated VirtualLayoutTree");
   return tree;
 }
 
 /** Find which 0-based page a top-level block id is on (via the plan span). */
-function pageOf(editor: EditorState, blockId: BlockId): number {
-  const span = virtualTree(editor).plan.pageSpanOfBlock(blockId);
+function pageOf(editor: EditorState, blockId: BlockId, config: EditorConfig): number {
+  const span = virtualTree(editor, config).plan.pageSpanOfBlock(blockId);
   if (span === null) throw new Error(`block ${blockId} has no page span`);
   return span.first;
 }
@@ -170,14 +185,14 @@ describe("cross-ref-page to a NESTED (table-cell) target resolves end-to-end (Ta
     const targetParent = getBlock(editor.state, nestedTargetId)?.parentId;
     expect(targetParent).not.toBeNull();
     expect(getBlock(editor.state, targetParent as BlockId)?.type).toBe("table-cell");
-    expect(virtualTree(editor).plan.pageSpanOfBlock(nestedTargetId)).toBeNull();
+    expect(virtualTree(editor, config).plan.pageSpanOfBlock(nestedTargetId)).toBeNull();
 
     // The top-level TABLE ancestor IS indexed and lands on a later page.
     const tableId = rootChildIds(editor).find(
       (id) => getBlock(editor.state, id)?.type === "table",
     );
     if (tableId === undefined) throw new Error("no table at top level");
-    const tablePage = pageOf(editor, tableId);
+    const tablePage = pageOf(editor, tableId, config);
     expect(tablePage).toBeGreaterThanOrEqual(1); // not page 0 → a meaningful, non-"1" value
 
     // Put the caret back at the end of the host paragraph (page 0) and insert a page-mode
@@ -195,9 +210,9 @@ describe("cross-ref-page to a NESTED (table-cell) target resolves end-to-end (Ta
     // Resolve: read the cross-ref atom's display text on the HOST's page. It must be the
     // TABLE's 1-based page number — proving the nested target resolved via the parentOf
     // ancestor walk threaded by the wired entry points — NOT the broken-ref sentinel.
-    const hostPage = pageOf(editor, hostId);
+    const hostPage = pageOf(editor, hostId, config);
     const embedIndex = 1; // host inline content: text "see " (i=0), the cross-ref (i=1)
-    const value = findCrossRefTextOnPage(virtualTree(editor).getPage(hostPage), hostId, embedIndex);
+    const value = findCrossRefTextOnPage(virtualTree(editor, config).getPage(hostPage), hostId, embedIndex);
 
     expect(value).not.toBe(BROKEN_CROSS_REFERENCE_TEXT); // the pre-wiring failure mode
     expect(value).toBe(String(tablePage + 1)); // 0-based plan page → 1-based display

@@ -9,6 +9,12 @@ import type { ElementBox, TextBox } from "./render-node";
 
 const TOC_ID = "toc1" as BlockId;
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 function entry(id: string, level: number, text: string): OutlineEntry {
   return { blockId: id as BlockId, level, text };
 }
@@ -35,10 +41,10 @@ describe("buildTocEntrySubtree", () => {
 
     expect(boxes).toHaveLength(2);
     // dense indices: 0 (h1), 1 (h3) — the dropped h2 does not consume an index.
-    expect(boxes[0].key).toBe(`${TOC_ID}/entry/0`);
-    expect(boxes[1].key).toBe(`${TOC_ID}/entry/1`);
+    expect(nth(boxes, 0, "entry box").key).toBe(`${TOC_ID}/entry/0`);
+    expect(nth(boxes, 1, "entry box").key).toBe(`${TOC_ID}/entry/1`);
     // second surviving entry is the level-2 heading "Body" / id "h3".
-    expect(boxes[1].metadata?.navTarget).toBe("h3" as BlockId);
+    expect(nth(boxes, 1, "entry box").metadata?.navTarget).toBe("h3" as BlockId);
   });
 
   it("entry-line block: block display, margin per level, content-edge tab stop, nav metadata", () => {
@@ -49,7 +55,7 @@ describe("buildTocEntrySubtree", () => {
     const attrs: TocAttrs = { ...DEFAULT_TOC_ATTRS, levels: [1, 2, 3], indentStep: 18, leader: "dot" };
     const boxes = buildTocEntrySubtree(outline, attrs, TOC_ID);
 
-    const first = boxes[0];
+    const first = nth(boxes, 0, "entry box");
     expect(first.style.display).toBe("block");
     expect(first.style.marginInlineStart).toBe(0); // level 1 → 0
     expect(first.style.tabStops).toEqual([
@@ -57,7 +63,7 @@ describe("buildTocEntrySubtree", () => {
     ]);
     expect(first.metadata).toEqual({ tocEntry: true, navTarget: "hA" as BlockId });
 
-    const second = boxes[1];
+    const second = nth(boxes, 1, "entry box");
     expect(second.style.marginInlineStart).toBe(2 * 18); // level 3 → 2*indentStep
     expect(second.metadata).toEqual({ tocEntry: true, navTarget: "hB" as BlockId });
   });
@@ -67,10 +73,12 @@ describe("buildTocEntrySubtree", () => {
     const attrs: TocAttrs = { ...DEFAULT_TOC_ATTRS };
     const boxes = buildTocEntrySubtree(outline, attrs, TOC_ID);
 
-    const block = boxes[0];
+    const block = nth(boxes, 0, "entry box");
     expect(block.children).toHaveLength(3);
 
-    const [textRunNode, tabNode, pageNode] = block.children;
+    const textRunNode = nth(block.children, 0, "text run node");
+    const tabNode = nth(block.children, 1, "tab node");
+    const pageNode = nth(block.children, 2, "page node");
     const textRun = asText(textRunNode);
     expect(textRun.key).toBe(`${TOC_ID}/entry/0/text`);
     expect(textRun.text).toBe("Chapter");
@@ -92,7 +100,7 @@ describe("buildTocEntrySubtree", () => {
     });
     // exactly ONE placeholder text child, key `${tocId}/toc/0/0`, reserved glyphs.
     expect(pageAtom.children).toHaveLength(1);
-    const placeholder = asText(pageAtom.children[0]);
+    const placeholder = asText(nth(pageAtom.children, 0, "placeholder text"));
     expect(placeholder.key).toBe(`${TOC_ID}/toc/0/0`);
     expect(placeholder.text).toBe("0".repeat(PAGE_FIELD_RESERVED_GLYPHS));
   });
@@ -102,9 +110,9 @@ describe("buildTocEntrySubtree", () => {
     const attrs: TocAttrs = { ...DEFAULT_TOC_ATTRS, showPageNumbers: false };
     const boxes = buildTocEntrySubtree(outline, attrs, TOC_ID);
 
-    const block = boxes[0];
+    const block = nth(boxes, 0, "entry box");
     expect(block.children).toHaveLength(1);
-    expect(asText(block.children[0]).text).toBe("Solo");
+    expect(asText(nth(block.children, 0, "text run")).text).toBe("Solo");
     expect(block.style.tabStops).toBeUndefined();
     expect(block.metadata).toEqual({ tocEntry: true, navTarget: "hA" as BlockId });
   });

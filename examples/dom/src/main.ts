@@ -10,7 +10,7 @@ import {
 import {
   createCanvasShaper,
   createEditorController,
-} from "@taleweaver/dom";
+} from "@taleweaver/print";
 
 const PAGE_HEIGHT = 1056; // US Letter height at 96 DPI
 const PAGE_GAP = 24;
@@ -31,8 +31,9 @@ async function init() {
   // adapter (equal per-character widths, no cluster info).
   const shaper = createCanvasShaper(canvas);
 
+  // Phase 0b: `measurer` LEFT core's geometry-free `EditorConfig`; the shaper is
+  // built here and passed to the controller (print mechanics), not the config.
   const config: EditorConfig = {
-    measurer: shaper,
     componentRegistry: createDefaultComponentRegistry(),
     attrRegistry: createDefaultAttrRegistry(),
     containerWidth: PAGE_WIDTH,

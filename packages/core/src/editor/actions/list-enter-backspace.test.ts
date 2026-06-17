@@ -18,30 +18,16 @@ import type { EditorState } from "../editor-state";
 import { getBlock, createHistory, setListType } from "../../state";
 import type { BlockId, State } from "../../state";
 import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
-import { render } from "../../render/render";
-import { cascadePass } from "../../cascade";
-import { layoutTree } from "../../layout/dispatch";
 
+// Phase 0b: core's `EditorState` is geometry-free — these list-editing handlers
+// read no layout, so build only the geometry-free fields.
 function makeEditor(state: State, focusId: string, offset: number): EditorState {
-  const rendered = render(state, config.componentRegistry, config.attrRegistry);
-  const cascadedRoot = cascadePass(rendered.root);
-  const layout = layoutTree(
-    cascadedRoot,
-    config.containerWidth,
-    config.measurer,
-    config.pageConfig,
-  );
   const caret = createPosition(focusId as BlockId, offset);
   return {
     state,
     selection: { anchor: caret, focus: caret },
     history: createHistory(state),
-    renderTree: rendered.root,
-    renderOutput: rendered,
-    cascadedRoot,
-    cascadedTemplateContents: new Map(),
-    cascadedEmbedContents: new Map(),
-    layoutTree: layout,
+    lastDirtyIds: null,
     containerWidth: config.containerWidth,
     targetX: null,
   };

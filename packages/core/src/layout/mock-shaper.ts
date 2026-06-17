@@ -125,7 +125,11 @@ export function createVariableMockShaper(
       // g[0] is its first code unit (a lone high surrogate for astral graphemes) and
       // falls to defaultWidth — the map cannot encode grapheme-string keys (S1 ok).
       // U+00AD SOFT HYPHEN is a zero-advance format char (see createMockShaper).
-      const adv = g === "­" ? 0 : widthOf(g[0]) + clusterSpacing(g, letterPx, wordPx);
+      // `graphemeClusters` only yields nonempty clusters, so `g[0]` is always a
+      // defined code unit; `?? ""` is an unreachable, behavior-preserving
+      // default (`widthOf("")` → `widthByChar[""] ?? defaultWidth` = defaultWidth,
+      // matching the lone-surrogate/unknown-key path the cluster would already hit).
+      const adv = g === "­" ? 0 : widthOf(g[0] ?? "") + clusterSpacing(g, letterPx, wordPx);
       clusters.push({
         start,
         end:   start + g.length,

@@ -18,6 +18,12 @@ import { createPosition, createSpan } from "../block-position";
 import { createTestAllocator, type BlockId } from "../block-id";
 import { buildBlock, buildState, inlineContent, text } from "../../test-utils/state-builders";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 /**
  * `insertFootnote` — the Layer-3 op behind INSERT_FOOTNOTE (FN-7). In ONE
  * transaction it (a) allocates a `footnote-body` CONTAINER body ROOT plus one
@@ -76,8 +82,8 @@ describe("insertFootnote", () => {
     // The anchor sits at offset 5: "hello" | anchor | " world".
     expect(items.length).toBe(3);
     expect(items[0]).toMatchObject({ kind: "text", text: "hello" });
-    expect(items[1].kind).toBe("embed");
-    const anchor = items[1];
+    const anchor = nth(items, 1, "anchor");
+    expect(anchor.kind).toBe("embed");
     if (anchor.kind !== "embed") throw new Error("expected embed");
     expect(anchor.embedType).toBe("footnote-anchor");
     expect(anchor.properties.contentBlockId).toBe(result.bodyRootId);
@@ -91,7 +97,7 @@ describe("insertFootnote", () => {
     const alloc = createTestAllocator("fn");
     const atStart = insertFootnote(fixture(), createPosition("p" as BlockId, 0), alloc);
     const startItems = getBlock(atStart.state, "p" as BlockId)?.inlineContent?.items ?? [];
-    expect(startItems[0].kind).toBe("embed");
+    expect(nth(startItems, 0, "item").kind).toBe("embed");
     expect(startItems[1]).toMatchObject({ kind: "text", text: "hello world" });
 
     const atEnd = insertFootnote(
@@ -100,7 +106,7 @@ describe("insertFootnote", () => {
       createTestAllocator("fn2"),
     );
     const endItems = getBlock(atEnd.state, "p" as BlockId)?.inlineContent?.items ?? [];
-    expect(endItems[endItems.length - 1].kind).toBe("embed");
+    expect(nth(endItems, endItems.length - 1, "item").kind).toBe("embed");
     expect(endItems[0]).toMatchObject({ kind: "text", text: "hello world" });
   });
 

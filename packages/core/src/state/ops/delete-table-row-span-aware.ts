@@ -167,14 +167,14 @@ export function deleteTableRowSpanAwareInTx(doc: Y.Doc, plan: DeleteTableRowSpan
   }
   if (plan.reHomeRow !== null) {
     const { rowId, cellIds } = plan.reHomeRow;
-    for (let i = 0; i < cellIds.length; i++) {
-      const yCell = getYBlock(doc, cellIds[i], "deleteTableRowSpanAware");
-      yCell.set("prevSiblingId", i === 0 ? null : cellIds[i - 1]);
-      yCell.set("nextSiblingId", i === cellIds.length - 1 ? null : cellIds[i + 1]);
+    for (const [i, cellId] of cellIds.entries()) {
+      const yCell = getYBlock(doc, cellId, "deleteTableRowSpanAware");
+      yCell.set("prevSiblingId", i === 0 ? null : (cellIds[i - 1] ?? null));
+      yCell.set("nextSiblingId", i === cellIds.length - 1 ? null : (cellIds[i + 1] ?? null));
     }
     const yRow = getYBlock(doc, rowId, "deleteTableRowSpanAware");
-    yRow.set("firstChildId", cellIds.length > 0 ? cellIds[0] : null);
-    yRow.set("lastChildId", cellIds.length > 0 ? cellIds[cellIds.length - 1] : null);
+    yRow.set("firstChildId", cellIds[0] ?? null);
+    yRow.set("lastChildId", cellIds[cellIds.length - 1] ?? null);
   }
 
   // Splice the deleted row out of the table's row chain.

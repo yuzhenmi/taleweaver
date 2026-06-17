@@ -24,3 +24,15 @@ export interface Hyphenator {
    */
   hyphenate(word: string, language: string): readonly number[];
 }
+
+/**
+ * A compiled Liang pattern set: the raw whitespace-separated TeX pattern strings
+ * (e.g. `"hy3ph"`, `".comp"`) plus an exceptions table whose values are the
+ * hyphenated spelling using `-` (e.g. `"as-so-ciate"`).
+ */
+export interface PatternSet {
+  /** Whitespace-separated Knuth-Liang patterns (digits embedded between letters). */
+  readonly patterns: string;
+  /** Irregular words → explicit hyphenation using `-` separators (TeX `\hyphenation`). */
+  readonly exceptions: Readonly<Record<string, string>>;
+}

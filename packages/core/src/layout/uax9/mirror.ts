@@ -15,9 +15,13 @@ function lookupPair(table: readonly number[], key: number): number | null {
     const mid = (lo + hi) >> 1;
     const base = mid * 2;
     const k = table[base];
+    const v = table[base + 1];
+    if (k === undefined || v === undefined) {
+      throw new Error(`lookupPair: table entry ${base} missing (unreachable)`);
+    }
     if (key < k) hi = mid - 1;
     else if (key > k) lo = mid + 1;
-    else return table[base + 1];
+    else return v;
   }
   return null;
 }
@@ -34,6 +38,9 @@ function findBracket(cp: number): number {
     const mid = (lo + hi) >> 1;
     const base = mid * 3;
     const k = table[base];
+    if (k === undefined) {
+      throw new Error(`findBracket: bracket table entry ${base} missing (unreachable)`);
+    }
     if (cp < k) hi = mid - 1;
     else if (cp > k) lo = mid + 1;
     else return base;
@@ -66,6 +73,9 @@ export function bracketPair(
   if (base === -1) return null;
   const paired = BIDI_BRACKET_TRIPLES[base + 1];
   const kindId = BIDI_BRACKET_TRIPLES[base + 2];
+  if (paired === undefined || kindId === undefined) {
+    throw new Error(`bracketPair: bracket triple at ${base} missing (unreachable)`);
+  }
   return { paired, kind: kindId === BIDI_BRACKET_OPEN ? "open" : "close" };
 }
 

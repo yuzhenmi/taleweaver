@@ -156,6 +156,12 @@ export function assertNoOrphanedEmbedContent(
 function fullScanForOrphans(state: State, opName: string): void {
   const doc = state[STATE_INTERNAL].doc;
   const [mainMap, embedMap, templateMap] = getTreeMaps(doc);
+  if (mainMap === undefined || embedMap === undefined || templateMap === undefined) {
+    throw new Error(
+      "embed-content-cascade: getTreeMaps returned fewer than the three doc trees " +
+        "(blocks/embedContents/templateContents) — doc not initialized",
+    );
+  }
   iterateMapForOrphans(state, mainMap, (id) => getBlock(state, id), opName);
   iterateMapForOrphans(state, embedMap, (id) => getEmbedContent(state, id), opName);
   iterateMapForOrphans(
@@ -323,6 +329,12 @@ function inlineContentHasEmbedRef(content: InlineContent): boolean {
 function fullScanForSharing(state: State, opName: string): void {
   const doc = state[STATE_INTERNAL].doc;
   const [mainMap, embedMap, templateMap] = getTreeMaps(doc);
+  if (mainMap === undefined || embedMap === undefined || templateMap === undefined) {
+    throw new Error(
+      "embed-content-cascade: getTreeMaps returned fewer than the three doc trees " +
+        "(blocks/embedContents/templateContents) — doc not initialized",
+    );
+  }
   const seenRefs = new Map<BlockId, BlockId>();
   iterateMapForSharing(mainMap, (id) => getBlock(state, id), seenRefs, opName);
   iterateMapForSharing(

@@ -19,6 +19,13 @@ import {
   type EditorConfig,
   type EditorState,
 } from "./test-helpers";
+
+/** Throwing indexed access for tests: stronger than the old undefined-deref TypeError. */
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
 import {
   getBlock,
   getSuggestions,
@@ -103,11 +110,11 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
     // Exactly one formatting record, by "alice", proposing bold:true.
     const suggestions = getSuggestions(next.state);
     expect(suggestions).toHaveLength(1);
-    expect(suggestions[0].kind).toBe("formatting");
-    expect(suggestions[0].author).toBe("alice");
-    expect(suggestions[0].proposedAttrs).toEqual({ bold: true });
+    expect(nth(suggestions, 0, "suggestion").kind).toBe("formatting");
+    expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
+    expect(nth(suggestions, 0, "suggestion").proposedAttrs).toEqual({ bold: true });
     // The runs' id matches the record's id.
-    expect(runs[0].attrs.formattingSuggestionId).toBe(suggestions[0].id);
+    expect(nth(runs, 0, "run").attrs.formattingSuggestionId).toBe(nth(suggestions, 0, "suggestion").id);
 
     // Attr-only change → selection preserved UNCHANGED, backward DIRECTION
     // included (anchor stays at 6, focus at 0). The old code normalized to a
@@ -121,7 +128,7 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
   it("accept: the proposal lands as live bold AND the formattingSuggestionId is stripped; the record is gone", () => {
     const { editor, paraId } = seededSelection(suggestingConfig);
     const suggested = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" }, suggestingConfig);
-    const id = getSuggestions(suggested.state)[0].id;
+    const id = nth(getSuggestions(suggested.state), 0, "suggestion").id;
 
     const accepted = acceptSuggestion(suggested.state, id);
 
@@ -139,7 +146,7 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
   it("reject: the formattingSuggestionId is stripped, NO live bold lands; the record is gone", () => {
     const { editor, paraId } = seededSelection(suggestingConfig);
     const suggested = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" }, suggestingConfig);
-    const id = getSuggestions(suggested.state)[0].id;
+    const id = nth(getSuggestions(suggested.state), 0, "suggestion").id;
 
     const rejected = rejectSuggestion(suggested.state, id);
 
@@ -171,18 +178,18 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
     })();
 
     // Sanity: live bold present (direct mode).
-    expect(textItems(bolded.editor, bolded.paraId)[0].attrs.bold).toBe(true);
+    expect(nth(textItems(bolded.editor, bolded.paraId), 0, "run").attrs.bold).toBe(true);
 
     const selected = selectIn(bolded.editor, bolded.paraId, 0, 6, suggestingConfig);
     const next = reduceEditor(selected, { type: "TOGGLE_STYLE", style: "bold" }, suggestingConfig);
 
     const suggestions = getSuggestions(next.state);
     expect(suggestions).toHaveLength(1);
-    expect(suggestions[0].kind).toBe("formatting");
+    expect(nth(suggestions, 0, "suggestion").kind).toBe("formatting");
     // The proposal is to REMOVE bold — `{ bold: undefined }` is a valid delta.
     // `toEqual` treats `{ bold: undefined }` as `{}`, so assert the key is
     // actually PRESENT — a dropped-key Yjs round-trip would otherwise pass.
-    const proposed = suggestions[0].proposedAttrs ?? {};
+    const proposed = nth(suggestions, 0, "suggestion").proposedAttrs ?? {};
     expect(Object.prototype.hasOwnProperty.call(proposed, "bold")).toBe(true);
     expect(proposed.bold).toBeUndefined();
 
@@ -195,7 +202,7 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
     // Accept the removal proposal → live bold is actually REMOVED. This locks the
     // full removal round-trip: the undefined-valued `proposedAttrs` survives Yjs
     // AND `acceptSuggestion` applies it (strips the live attr), not just records it.
-    const accepted = acceptSuggestion(next.state, suggestions[0].id);
+    const accepted = acceptSuggestion(next.state, nth(suggestions, 0, "suggestion").id);
     const acceptedRuns = (getBlock(accepted.state, bolded.paraId)?.inlineContent?.items ?? []).filter(
       (it): it is Extract<typeof it, { kind: "text" }> => it.kind === "text",
     );

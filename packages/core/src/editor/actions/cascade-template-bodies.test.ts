@@ -1,26 +1,22 @@
 import { describe, it, expect } from "vitest";
-import { rebuildTrees } from "./helpers";
-import type { EditorState, EditorConfig } from "../editor-state";
-import { createMockShaper } from "../../layout/mock-shaper";
+import { cascadeTemplateContents } from "./helpers";
 import { createDefaultComponentRegistry } from "../../components/component-registry";
 import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
-import { createHistory, createPosition, createSpan } from "../../state";
 import type { State, BlockId } from "../../state";
-import { render } from "../../render/render";
-import { cascadePass } from "../../cascade";
-import { layoutTree } from "../../layout/dispatch";
+import { render, type RenderOutput } from "../../render/render";
 import type { ElementBox, RenderNode } from "../../render/render-node";
 import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
 
-const measurer = createMockShaper(8, 16);
 const componentRegistry = createDefaultComponentRegistry();
 const attrRegistry = createDefaultAttrRegistry();
-const config: EditorConfig = {
-  measurer,
-  componentRegistry,
-  attrRegistry,
-  containerWidth: 600,
-};
+
+/**
+ * Phase 0b: `cascadeTemplateContents` is core's pure header/footer-body cascade
+ * pass (barrel-exported; the print backend's layout-driver calls it). Core's
+ * editor reducer no longer cascades template bodies into `EditorState`, so these
+ * tests exercise the function DIRECTLY over a `RenderOutput` — the same call the
+ * driver makes — asserting the full + incremental (reuse-by-reference) contract.
+ */
 
 /**
  * A single-paragraph main document. The `paragraph` cursor anchor.
@@ -54,35 +50,14 @@ function headerBody(rootId: string, leafId: string, leafText: string) {
   ];
 }
 
-/**
- * Build a complete EditorState from a State using the FULL pipeline
- * (render → cascadePass → layoutTree), populating every field T3 expects.
- * `cascadedTemplateContents` is populated via the same full-cascade path the
- * initial-state construction uses, so this serves as a valid `oldEditor` for
- * both the full and incremental rebuildTrees paths.
- */
-function buildEditorFull(state: State): EditorState {
+/** Render `state` and cascade its template bodies (full path). */
+function cascadeFull(state: State): {
+  rendered: RenderOutput;
+  cascaded: ReadonlyMap<BlockId, ElementBox>;
+} {
   const rendered = render(state, componentRegistry, attrRegistry);
-  const cascadedRoot = cascadePass(rendered.root);
-  const layout = layoutTree(cascadedRoot, config.containerWidth, measurer);
-  const cascadedTemplateContents = new Map<BlockId, ElementBox>();
-  for (const [id, body] of rendered.templateContents) {
-    cascadedTemplateContents.set(id, cascadePass(body) as ElementBox);
-  }
-  const cursor = createPosition("p" as BlockId, 0);
-  return {
-    state,
-    selection: createSpan(cursor, cursor),
-    history: createHistory(state),
-    renderTree: rendered.root,
-    renderOutput: rendered,
-    cascadedRoot,
-    cascadedTemplateContents,
-    cascadedEmbedContents: new Map(),
-    layoutTree: layout,
-    containerWidth: config.containerWidth,
-    targetX: null,
-  };
+  const cascaded = cascadeTemplateContents(rendered, null, null);
+  return { rendered, cascaded };
 }
 
 /** Find a cascaded RenderNode by key in a subtree. */
@@ -97,37 +72,17 @@ function findByKey(node: RenderNode, key: string): RenderNode | undefined {
   return undefined;
 }
 
-describe("rebuildTrees: cascade templateContents bodies (C.2c T3)", () => {
+describe("cascadeTemplateContents: cascade templateContents bodies (C.2c T3)", () => {
   it("full path: a templateContents body is cascaded — body root has non-null computedStyle and cascaded children", () => {
     const state = buildState({
       rootId: "doc",
       blocks: mainDoc(),
       templateContents: headerBody("hdr-root", "hdr-p", "header text"),
     });
-    // Start from a bare editor whose cascadedTemplateContents is empty (mimics
-    // the pre-T3 world where bodies were never cascaded), then full-rebuild.
-    const rendered = render(state, componentRegistry, attrRegistry);
-    const cascadedRoot = cascadePass(rendered.root);
-    const layout = layoutTree(cascadedRoot, config.containerWidth, measurer);
-    const cursor = createPosition("p" as BlockId, 0);
-    const bare: EditorState = {
-      state,
-      selection: createSpan(cursor, cursor),
-      history: createHistory(state),
-      renderTree: rendered.root,
-      renderOutput: rendered,
-      cascadedRoot,
-      cascadedTemplateContents: new Map(),
-      cascadedEmbedContents: new Map(),
-      layoutTree: layout,
-      containerWidth: config.containerWidth,
-      targetX: null,
-    };
 
-    // Full rebuild (no dirtyIds).
-    const out = rebuildTrees(bare, bare, config);
+    const { cascaded } = cascadeFull(state);
 
-    const body = out.cascadedTemplateContents.get("hdr-root" as BlockId);
+    const body = cascaded.get("hdr-root" as BlockId);
     expect(body).toBeDefined();
     // The body root must be cascaded: non-null computedStyle.
     expect(body?.computedStyle).toBeDefined();
@@ -147,7 +102,7 @@ describe("rebuildTrees: cascade templateContents bodies (C.2c T3)", () => {
         ...headerBody("hdr-b-root", "hdr-b-p", "B unchanged"),
       ],
     });
-    const old = buildEditorFull(state1);
+    const { rendered: rendered1, cascaded: cascaded1 } = cascadeFull(state1);
 
     // Edit the leaf inside body A only.
     const state2 = buildState({
@@ -158,14 +113,18 @@ describe("rebuildTrees: cascade templateContents bodies (C.2c T3)", () => {
         ...headerBody("hdr-b-root", "hdr-b-p", "B unchanged"),
       ],
     });
-    const next: EditorState = { ...old, state: state2 };
+    const dirty = new Set(["hdr-a-p" as BlockId]);
+    const rendered2 = render(state2, componentRegistry, attrRegistry, {
+      prev: rendered1,
+      prevState: state1,
+      dirtyIds: dirty,
+    });
+    const cascaded2 = cascadeTemplateContents(rendered2, rendered1, cascaded1, dirty);
 
-    const out = rebuildTrees(next, old, config, new Set(["hdr-a-p" as BlockId]));
-
-    const oldA = old.cascadedTemplateContents.get("hdr-a-root" as BlockId);
-    const newA = out.cascadedTemplateContents.get("hdr-a-root" as BlockId);
-    const oldB = old.cascadedTemplateContents.get("hdr-b-root" as BlockId);
-    const newB = out.cascadedTemplateContents.get("hdr-b-root" as BlockId);
+    const oldA = cascaded1.get("hdr-a-root" as BlockId);
+    const newA = cascaded2.get("hdr-a-root" as BlockId);
+    const oldB = cascaded1.get("hdr-b-root" as BlockId);
+    const newB = cascaded2.get("hdr-b-root" as BlockId);
 
     // Body A re-cascaded (its leaf changed) → fresh ref, and the new text shows.
     expect(newA).not.toBe(oldA);
@@ -184,7 +143,7 @@ describe("rebuildTrees: cascade templateContents bodies (C.2c T3)", () => {
       blocks: mainDoc(),
       templateContents: headerBody("hdr-root", "hdr-p", "header"),
     });
-    const old = buildEditorFull(state1);
+    const { rendered: rendered1, cascaded: cascaded1 } = cascadeFull(state1);
 
     // Edit a main-document block; the template body is untouched.
     const state2 = buildState({
@@ -200,22 +159,23 @@ describe("rebuildTrees: cascade templateContents bodies (C.2c T3)", () => {
       ],
       templateContents: headerBody("hdr-root", "hdr-p", "header"),
     });
-    const next: EditorState = { ...old, state: state2 };
+    const dirty = new Set(["p" as BlockId]);
+    const rendered2 = render(state2, componentRegistry, attrRegistry, {
+      prev: rendered1,
+      prevState: state1,
+      dirtyIds: dirty,
+    });
+    const cascaded2 = cascadeTemplateContents(rendered2, rendered1, cascaded1, dirty);
 
-    const out = rebuildTrees(next, old, config, new Set(["p" as BlockId]));
-
-    expect(out.cascadedTemplateContents.get("hdr-root" as BlockId)).toBe(
-      old.cascadedTemplateContents.get("hdr-root" as BlockId),
-    );
+    expect(cascaded2.get("hdr-root" as BlockId)).toBe(cascaded1.get("hdr-root" as BlockId));
   });
 
-  it("no-regression: a doc WITHOUT template bodies → cascadedTemplateContents is empty", () => {
+  it("no-regression: a doc WITHOUT template bodies → cascaded template map is empty", () => {
     const state = buildState({ rootId: "doc", blocks: mainDoc() });
-    const old = buildEditorFull(state);
+    const { rendered: rendered1, cascaded: cascaded1 } = cascadeFull(state);
 
     // Full path.
-    const outFull = rebuildTrees(old, old, config);
-    expect(outFull.cascadedTemplateContents.size).toBe(0);
+    expect(cascaded1.size).toBe(0);
 
     // Incremental path (a doc edit).
     const state2 = buildState({
@@ -230,8 +190,13 @@ describe("rebuildTrees: cascade templateContents bodies (C.2c T3)", () => {
         }),
       ],
     });
-    const next: EditorState = { ...old, state: state2 };
-    const outInc = rebuildTrees(next, old, config, new Set(["p" as BlockId]));
-    expect(outInc.cascadedTemplateContents.size).toBe(0);
+    const dirty = new Set(["p" as BlockId]);
+    const rendered2 = render(state2, componentRegistry, attrRegistry, {
+      prev: rendered1,
+      prevState: state,
+      dirtyIds: dirty,
+    });
+    const cascaded2 = cascadeTemplateContents(rendered2, rendered1, cascaded1, dirty);
+    expect(cascaded2.size).toBe(0);
   });
 });

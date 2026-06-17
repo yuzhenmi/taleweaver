@@ -8,6 +8,7 @@ import {
   marginBlockStartFromAttrs,
   marginBlockEndFromAttrs,
   writingModeFromAttrs,
+  langFromAttrs,
   tabStopsFromAttrs,
 } from "./leaf-style-attrs";
 
@@ -43,6 +44,7 @@ export const headingComponent: LeafComponentDefinition = {
   render: (view, _ctx, inlineRenderNodes) => {
     const level = levelFromAttrs(view.attrs.level);
     const writingMode = writingModeFromAttrs(view.attrs.writingMode);
+    const language = langFromAttrs(view.attrs.lang);
     const textAlign = textAlignFromAttrs(view.attrs.textAlign);
     const lineHeight = lineHeightFromAttrs(view.attrs.lineHeight);
     const marginInlineStart = marginInlineStartFromAttrs(view.attrs.marginInlineStart);
@@ -56,6 +58,7 @@ export const headingComponent: LeafComponentDefinition = {
       marginBlockStart: { unit: "em", value: 0.67 },
       marginBlockEnd: { unit: "em", value: 0.67 },
       ...(writingMode !== undefined ? { writingMode } : {}),
+      ...(language !== undefined ? { language } : {}),
       ...(textAlign !== undefined ? { textAlign } : {}),
       ...(lineHeight !== undefined ? { lineHeight } : {}),
       ...(tabStops !== undefined ? { tabStops } : {}),
@@ -65,6 +68,6 @@ export const headingComponent: LeafComponentDefinition = {
       ...(marginBlockStart !== undefined ? { marginBlockStart } : {}),
       ...(marginBlockEnd !== undefined ? { marginBlockEnd } : {}),
     };
-    return createElementBox(view.id, style, inlineRenderNodes);
+    return createElementBox(view.id, style, inlineRenderNodes, { headingLevel: level });
   },
 };

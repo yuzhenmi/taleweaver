@@ -21,24 +21,21 @@ import {
   createInitialEditorState,
 } from "./test-helpers";
 import { documentFootnotePolicy } from "../../footnotes";
-import type { EditorConfig, EditorState } from "../editor-state";
-import { createMockShaper } from "../../layout/mock-shaper";
-import { createDefaultComponentRegistry } from "../../components/component-registry";
-import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
+import type { EditorState } from "../editor-state";
 import { render } from "../../render/render";
-import { cascadePass } from "../../cascade";
-import { layoutTree } from "../../layout/dispatch";
-import { createHistory, createPosition, createSpan } from "../../state";
 import type { State, BlockId } from "../../state";
-import type { PageConfig } from "../../layout/page-config";
-import type { ElementBox } from "../../render/render-node";
-import {
-  buildState,
-  buildBlock,
-  inlineContent,
-  text,
-  embed,
-} from "../../test-utils/state-builders";
+
+// Phase 0b: core's `EditorState` carries NO render output. The policy WRITE is a
+// geometry-free core action (it stamps `footnoteNumberingReset`/`Format` on the
+// document root, read back by `documentFootnotePolicy`). The displayed NUMBERS
+// are a render-pass product — so these tests run `render(state, ...)` directly
+// (what the backend driver does) to assert the numbering map the policy drives.
+// The layout-dependent restart-per-page DISPLAY (FN-6.4's second pass) lives in
+// the print backend; its end-to-end action→display coverage is the dom
+// `footnote-restart-per-page.test.ts`.
+function footnoteNumbersOf(state: State): ReadonlyMap<BlockId, { value: number; formatted: string }> {
+  return render(state, config.componentRegistry, config.attrRegistry).footnoteNumbers;
+}
 
 /**
  * Build a two-section document (non-paginated config), each section's paragraph
@@ -67,16 +64,16 @@ function twoSectionDocWithFootnotes(): EditorState {
   return editor;
 }
 
-/** The sorted footnote VALUES from a rendered editor's numbering map. */
+/** The sorted footnote VALUES from an editor's render-derived numbering map. */
 function numberValues(editor: EditorState): number[] {
-  return [...editor.renderOutput.footnoteNumbers.values()]
+  return [...footnoteNumbersOf(editor.state).values()]
     .map((n) => n.value)
     .sort((x, y) => x - y);
 }
 
-/** The sorted footnote FORMATTED strings from a rendered editor. */
+/** The sorted footnote FORMATTED strings from an editor's render-derived map. */
 function numberFormats(editor: EditorState): string[] {
-  return [...editor.renderOutput.footnoteNumbers.values()]
+  return [...footnoteNumbersOf(editor.state).values()]
     .map((n) => n.formatted)
     .sort();
 }
@@ -162,8 +159,11 @@ describe("handleSetFootnotePolicy — SET_FOOTNOTE_POLICY", () => {
       },
       config,
     );
-    // No valid field → no-op: same editor reference, policy unchanged.
-    expect(next).toBe(editor);
+    // No valid field → no-op: the document `state` is untouched (same reference,
+    // no history commit). The editor WRAPPER may differ only by the reducer's
+    // Phase 0b entry-clear of `lastDirtyIds` — so assert on `state` identity, the
+    // real "nothing was written" signal, not the wrapper reference.
+    expect(next.state).toBe(editor.state);
     expect(documentFootnotePolicy(next.state).reset).toBe("continuous");
   });
 
@@ -179,8 +179,9 @@ describe("handleSetFootnotePolicy — SET_FOOTNOTE_POLICY", () => {
       { type: "SET_FOOTNOTE_POLICY", reset: "restart-per-section" },
       config,
     );
-    // mergeBlockAttrs is a no-op → handler returns the input editor unchanged.
-    expect(again).toBe(withReset);
+    // mergeBlockAttrs is a no-op → no document mutation, no history commit. The
+    // `state` reference is preserved; the editor wrapper may differ only by the
+    // reducer's Phase 0b entry-clear of `lastDirtyIds`.
     expect(again.state).toBe(withReset.state);
   });
 
@@ -196,149 +197,5 @@ describe("handleSetFootnotePolicy — SET_FOOTNOTE_POLICY", () => {
     expect(next.selection.anchor.offset).toBe(before.anchor.offset);
     expect(next.selection.focus.blockId).toBe(before.focus.blockId);
     expect(next.selection.focus.offset).toBe(before.focus.offset);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Restart-per-page end-to-end: the ACTION → FN-6.4 second pass → display.
-// Needs a paginated editor (a pageConfig small enough to push two footnotes
-// onto two pages). Built straight from a multi-page footnote State, then the
-// policy is flipped through `reduceEditor`.
-// ---------------------------------------------------------------------------
-
-const measurer = createMockShaper(8, 16);
-
-// 80px content/page ⇒ 5 single-line (16px) paragraphs per page (no margins).
-const PAGE_CONFIG: PageConfig = {
-  pageInlineSize: 600,
-  pageBlockSize: 80,
-  pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 },
-  pageGap: 20,
-};
-
-function paginatedConfig(): EditorConfig {
-  return {
-    measurer,
-    componentRegistry: createDefaultComponentRegistry(),
-    attrRegistry: createDefaultAttrRegistry(),
-    containerWidth: 600,
-    pageConfig: PAGE_CONFIG,
-  };
-}
-
-/** A footnote body (container root + paragraph leaf). */
-function footnoteBody(rootId: string, leafId: string, leafText: string) {
-  return [
-    buildBlock({
-      id: rootId,
-      type: "footnote-body",
-      firstChildId: leafId,
-      lastChildId: leafId,
-    }),
-    buildBlock({
-      id: leafId,
-      type: "paragraph",
-      parentId: rootId,
-      inlineContent: inlineContent([text(leafText)]),
-    }),
-  ];
-}
-
-/**
- * Build a multi-page main-document State: paragraphs p0..p6 under a `document`
- * root, p0 carrying footnote fn0 and p5 carrying fn1 (so the two anchors land
- * on distinct pages). No policy attr → continuous by default.
- */
-function twoFootnotesTwoPages(): State {
-  const ids = ["p0", "p1", "p2", "p3", "p4", "p5", "p6"];
-  const anchors: Record<string, string> = { p0: "fn0", p5: "fn1" };
-  const blocks = [
-    buildBlock({
-      id: "doc",
-      type: "document",
-      firstChildId: ids[0],
-      lastChildId: ids[ids.length - 1],
-    }),
-  ];
-  ids.forEach((id, i) => {
-    const items =
-      anchors[id] !== undefined
-        ? [text("x"), embed("footnote-anchor", { contentBlockId: anchors[id] })]
-        : [text("x")];
-    blocks.push(
-      buildBlock({
-        id,
-        type: "paragraph",
-        parentId: "doc",
-        prevSiblingId: i > 0 ? ids[i - 1] : null,
-        nextSiblingId: i < ids.length - 1 ? ids[i + 1] : null,
-        inlineContent: inlineContent(items),
-      }),
-    );
-  });
-  return buildState({
-    rootId: "doc",
-    blocks,
-    embedContents: [
-      ...footnoteBody("fn0", "fn0-p", "first"),
-      ...footnoteBody("fn1", "fn1-p", "second"),
-    ],
-  });
-}
-
-/** Build a full paginated EditorState from a State. */
-function buildEditorFull(state: State, cfg: EditorConfig): EditorState {
-  const rendered = render(state, cfg.componentRegistry, cfg.attrRegistry);
-  const cascadedRoot = cascadePass(rendered.root);
-  const cascadedEmbedContents = new Map<BlockId, ElementBox>();
-  for (const [id, body] of rendered.embedContents) {
-    const cascaded = cascadePass(body);
-    if (cascaded.type !== "element") {
-      throw new Error(`buildEditorFull: footnote body "${id}" is not an element`);
-    }
-    cascadedEmbedContents.set(id, cascaded);
-  }
-  const layout = layoutTree(
-    cascadedRoot,
-    cfg.containerWidth,
-    measurer,
-    cfg.pageConfig,
-  );
-  const cursor = createPosition("p0" as BlockId, 0);
-  return {
-    state,
-    selection: createSpan(cursor, cursor),
-    history: createHistory(state),
-    renderTree: rendered.root,
-    renderOutput: rendered,
-    cascadedRoot,
-    cascadedTemplateContents: new Map(),
-    cascadedEmbedContents,
-    layoutTree: layout,
-    containerWidth: cfg.containerWidth,
-    targetX: null,
-  };
-}
-
-describe("handleSetFootnotePolicy — restart-per-page end-to-end (action → FN-6.4 → display)", () => {
-  it("restart-per-page: the page-2 footnote renders 1 (NOT its continuous number 2)", () => {
-    const cfg = paginatedConfig();
-    const editor = buildEditorFull(twoFootnotesTwoPages(), cfg);
-
-    // Baseline continuous: fn0 → 1, fn1 → 2.
-    expect(editor.renderOutput.footnoteNumbers.get("fn0" as BlockId)?.formatted).toBe("1");
-    expect(editor.renderOutput.footnoteNumbers.get("fn1" as BlockId)?.formatted).toBe("2");
-
-    const next = reduceEditor(
-      editor,
-      { type: "SET_FOOTNOTE_POLICY", reset: "restart-per-page" },
-      cfg,
-    );
-
-    // The policy is written, and FN-6.4's per-page second pass restarts the
-    // page-2 footnote to "1".
-    expect(documentFootnotePolicy(next.state).reset).toBe("restart-per-page");
-    expect(next.renderOutput.footnoteNumbers.get("fn0" as BlockId)?.formatted).toBe("1");
-    expect(next.renderOutput.footnoteNumbers.get("fn1" as BlockId)?.formatted).toBe("1");
   });
 });

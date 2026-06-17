@@ -4,7 +4,6 @@ import {
   reduceEditor,
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
-  createMockShaper,
   getBlock,
   createPosition,
   createSpan,
@@ -14,7 +13,6 @@ import type { TextItem } from "../../state";
 
 function makeConfig(): EditorConfig {
   return {
-    measurer: createMockShaper(8, 16),
     componentRegistry: createDefaultComponentRegistry(),
     attrRegistry: createDefaultAttrRegistry(),
     containerWidth: 800,
@@ -62,8 +60,8 @@ describe("handleSetFontSize", () => {
     const before = editor;
     // Collapsed at end.
     editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 32 }, config);
-    // Returned state object unchanged (no-op short-circuit returns editor).
-    expect(editor).toBe(before);
+    // Same state reference (no-op; reducer entry-clears lastDirtyIds).
+    expect(editor.state).toBe(before.state);
   });
 
   it("sets fontSize attr on every text item in the selection", () => {

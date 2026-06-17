@@ -105,14 +105,20 @@ export function handlePaste(
 
   const lines = text.split("\n");
   const k = lines.length;
+  // `String.prototype.split` always returns a non-empty array, so the first line
+  // is always present (k >= 1).
+  const firstLine = lines[0];
+  if (firstLine === undefined) {
+    throw new Error("handlePaste: text.split produced an empty array (invariant violation)");
+  }
 
   // Insert the first line as text at the current position. (If L0 is empty,
   // skip; pos stays put — matching the legacy path.)
-  if (lines[0].length > 0) {
-    const r = insertText(state, pos, lines[0], {});
+  if (firstLine.length > 0) {
+    const r = insertText(state, pos, firstLine, {});
     state = r.state;
     for (const id of r.dirtyIds) accumulatedDirtyIds.add(id);
-    pos = createPosition(pos.blockId, pos.offset + lines[0].length);
+    pos = createPosition(pos.blockId, pos.offset + firstLine.length);
   }
 
   // Multi-line paste: split the boundary block ONCE, prepend the last line
@@ -152,7 +158,13 @@ export function handlePaste(
           `handlePaste: split of "${sourceId}" produced no next sibling (invariant violation)`,
         );
       }
+      // k > 1 here, so index k-1 is in [1, length-1] and the last line exists.
       const lastLine = lines[k - 1];
+      if (lastLine === undefined) {
+        throw new Error(
+          `handlePaste: last line index ${k - 1} out of range (length ${lines.length})`,
+        );
+      }
 
       // (b) Prepend the last line to N_last (offset 0).
       if (lastLine.length > 0) {
@@ -171,10 +183,17 @@ export function handlePaste(
       if (k > 2) {
         const middleInits: SiblingBlockInit[] = [];
         for (let i = 1; i < k - 1; i++) {
+          // i ranges over [1, k-2], all valid indices of `lines` (length k).
+          const middleLine = lines[i];
+          if (middleLine === undefined) {
+            throw new Error(
+              `handlePaste: middle line index ${i} out of range (length ${lines.length})`,
+            );
+          }
           middleInits.push({
             type: sourceType,
             attrs: sourceAttrs,
-            inlineContent: lineToInlineContent(lines[i]),
+            inlineContent: lineToInlineContent(middleLine),
           });
         }
         const bulkResult = insertBlocksAfter(

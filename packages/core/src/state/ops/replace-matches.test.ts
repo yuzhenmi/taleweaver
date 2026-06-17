@@ -7,6 +7,12 @@ import type { TextMatch } from "../find-matches";
 
 const bid = (s: string) => s as BlockId;
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 /** doc > [p(...)] single-paragraph fixture. */
 function oneParagraph(items: Parameters<typeof inlineContent>[0]) {
   return buildState({
@@ -30,9 +36,9 @@ describe("planReplaceMatches — pure planner", () => {
     const plan = planReplaceMatches(state, matches, "earth");
 
     expect(plan.blockWrites).toHaveLength(1);
-    expect(plan.blockWrites[0].blockId).toBe(bid("p"));
-    expect(plan.blockWrites[0].kind).toBe("block");
-    expect(plan.blockWrites[0].items).toEqual([
+    expect(nth(plan.blockWrites, 0, "write").blockId).toBe(bid("p"));
+    expect(nth(plan.blockWrites, 0, "write").kind).toBe("block");
+    expect(nth(plan.blockWrites, 0, "write").items).toEqual([
       { kind: "text", text: "hello earth", attrs: {} },
     ]);
     expect(plan.embedContentIdsToDelete.size).toBe(0);
@@ -52,7 +58,7 @@ describe("planReplaceMatches — pure planner", () => {
 
     expect(plan.blockWrites).toHaveLength(1);
     // Both occurrences replaced: "XYZW cd XYZW".
-    expect(plan.blockWrites[0].items).toEqual([
+    expect(nth(plan.blockWrites, 0, "write").items).toEqual([
       { kind: "text", text: "XYZW cd XYZW", attrs: {} },
     ]);
   });
@@ -84,7 +90,7 @@ describe("planReplaceMatches — pure planner", () => {
     const matches: TextMatch[] = [{ blockId: bid("p"), start: 5, end: 11 }]; // " world"
     const plan = planReplaceMatches(state, matches, "");
 
-    expect(plan.blockWrites[0].items).toEqual([{ kind: "text", text: "hello", attrs: {} }]);
+    expect(nth(plan.blockWrites, 0, "write").items).toEqual([{ kind: "text", text: "hello", attrs: {} }]);
   });
 
   it("replacement inherits the formatting of the run containing match.start", () => {
@@ -95,7 +101,7 @@ describe("planReplaceMatches — pure planner", () => {
     const matches: TextMatch[] = [{ blockId: bid("p"), start: 4, end: 7 }];
     const plan = planReplaceMatches(state, matches, "qux");
 
-    expect(plan.blockWrites[0].items).toEqual([
+    expect(nth(plan.blockWrites, 0, "write").items).toEqual([
       { kind: "text", text: "foo ", attrs: { bold: true } },
       { kind: "text", text: "qux", attrs: { italic: true } },
     ]);
@@ -113,7 +119,7 @@ describe("planReplaceMatches — pure planner", () => {
     const matches: TextMatch[] = [{ blockId: bid("p"), start: 1, end: 3 }];
     const plan = planReplaceMatches(state, matches, "XY");
 
-    expect(plan.blockWrites[0].items).toEqual([
+    expect(nth(plan.blockWrites, 0, "write").items).toEqual([
       { kind: "text", text: "aXY", attrs: { bold: true } },
       { kind: "text", text: "d", attrs: { italic: true } },
     ]);
@@ -124,7 +130,7 @@ describe("planReplaceMatches — pure planner", () => {
     const state = oneParagraph([text("aXa")]);
     const matches: TextMatch[] = [{ blockId: bid("p"), start: 1, end: 2 }];
     const plan = planReplaceMatches(state, matches, "");
-    expect(plan.blockWrites[0].items).toEqual([{ kind: "text", text: "aa", attrs: {} }]);
+    expect(nth(plan.blockWrites, 0, "write").items).toEqual([{ kind: "text", text: "aa", attrs: {} }]);
   });
 
   it("collects embed-content subtree ids when a removed slice drops a contentBlockId embed", () => {
@@ -154,7 +160,7 @@ describe("planReplaceMatches — pure planner", () => {
 
     expect(plan.embedContentIdsToDelete.has(bid("fnBody"))).toBe(true);
     // Surviving inline content: "a" + "cd" → merged "acd".
-    expect(plan.blockWrites[0].items).toEqual([{ kind: "text", text: "acd", attrs: {} }]);
+    expect(nth(plan.blockWrites, 0, "write").items).toEqual([{ kind: "text", text: "acd", attrs: {} }]);
   });
 
   it("attrs fall back to {} when the match starts exactly on an embed item", () => {
@@ -186,7 +192,7 @@ describe("planReplaceMatches — pure planner", () => {
     const plan = planReplaceMatches(state, matches, "Z");
 
     // The replacement text item carries {} (NOT the bold/italic neighbours).
-    const replacementItem = plan.blockWrites[0].items.find(
+    const replacementItem = nth(plan.blockWrites, 0, "write").items.find(
       (it) => it.kind === "text" && it.text === "Z",
     );
     expect(replacementItem?.attrs).toEqual({});
@@ -230,7 +236,7 @@ describe("planReplaceMatches — pure planner", () => {
     // running first.
     expect(plan.embedContentIdsToDelete.has(bid("fnBody"))).toBe(true);
     // Surviving content: "a" + "cd " (the embed + "b" gone, "ef" gone) → "acd ".
-    expect(plan.blockWrites[0].items).toEqual([{ kind: "text", text: "acd ", attrs: {} }]);
+    expect(nth(plan.blockWrites, 0, "write").items).toEqual([{ kind: "text", text: "acd ", attrs: {} }]);
   });
 
   it("asserts matches within a block are ascending and non-overlapping", () => {

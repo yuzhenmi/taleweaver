@@ -4,6 +4,12 @@ import { buildBlock, buildState, text, embed, inlineContent } from "../test-util
 import type { BlockId } from "./block-id";
 import { INSERTION_SUGGESTION_ATTR, DELETION_SUGGESTION_ATTR } from "./suggestions";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 /** A single-heading doc whose heading carries the given inline items. */
 function headingDoc(items: Parameters<typeof inlineContent>[0]) {
   return buildState({
@@ -41,8 +47,8 @@ function buildDoc(
         id: child.id,
         type: child.type,
         parentId: "doc",
-        prevSiblingId: i > 0 ? children[i - 1].id : undefined,
-        nextSiblingId: i < children.length - 1 ? children[i + 1].id : undefined,
+        prevSiblingId: i > 0 ? nth(children, i - 1, "child").id : undefined,
+        nextSiblingId: i < children.length - 1 ? nth(children, i + 1, "child").id : undefined,
         attrs: child.attrs,
         inlineContent: inlineContent(child.text ? [text(child.text)] : []),
       }),
@@ -167,9 +173,9 @@ describe("getOutline", () => {
       text("Keep "),
       text("Added", { [INSERTION_SUGGESTION_ATTR]: "s1" }),
     ]);
-    expect(getOutline(state)[0].text).toBe("Keep Added"); // default "suggesting"
-    expect(getOutline(state, { suggestionView: "final" })[0].text).toBe("Keep Added");
-    expect(getOutline(state, { suggestionView: "original" })[0].text).toBe("Keep ");
+    expect(nth(getOutline(state), 0, "outline entry").text).toBe("Keep Added"); // default "suggesting"
+    expect(nth(getOutline(state, { suggestionView: "final" }), 0, "outline entry").text).toBe("Keep Added");
+    expect(nth(getOutline(state, { suggestionView: "original" }), 0, "outline entry").text).toBe("Keep ");
   });
 
   it("a pending DELETION in a heading is kept under original, dropped under final (XR-1 mirror)", () => {
@@ -177,7 +183,7 @@ describe("getOutline", () => {
       text("Stay"),
       text("Cut", { [DELETION_SUGGESTION_ATTR]: "d1" }),
     ]);
-    expect(getOutline(state, { suggestionView: "final" })[0].text).toBe("Stay");
-    expect(getOutline(state, { suggestionView: "original" })[0].text).toBe("StayCut");
+    expect(nth(getOutline(state, { suggestionView: "final" }), 0, "outline entry").text).toBe("Stay");
+    expect(nth(getOutline(state, { suggestionView: "original" }), 0, "outline entry").text).toBe("StayCut");
   });
 });

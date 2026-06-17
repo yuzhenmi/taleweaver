@@ -16,6 +16,13 @@ import {
   createInitialEditorState,
   getTextOf,
 } from "./test-helpers";
+
+/** Throwing indexed access for tests: stronger than the old undefined-deref TypeError. */
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
 import {
   createEditorStateFromState,
   type EditorConfig,
@@ -190,7 +197,7 @@ describe("same-block resolve then undo (S1 — identity-preserving, #484)", () =
     // detached by a full-replace rebuild).
     const accepted = reduceEditor(
       typed,
-      { type: "ACCEPT_SUGGESTION", id: sugg[0].id },
+      { type: "ACCEPT_SUGGESTION", id: nth(sugg, 0, "suggestion").id },
       suggesting,
     );
     expect(getSuggestions(accepted.state)).toHaveLength(0);

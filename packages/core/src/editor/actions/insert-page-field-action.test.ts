@@ -13,7 +13,6 @@
 
 import { describe, it, expect } from "vitest";
 import { reduceEditor, type EditorState, type EditorConfig } from "../editor-state";
-import { createMockShaper } from "../../layout/mock-shaper";
 import { createDefaultComponentRegistry } from "../../components/component-registry";
 import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
 import {
@@ -25,16 +24,11 @@ import {
   PAGE_FIELD_EMBED_TYPE,
 } from "../../state";
 import type { State, BlockId, InlineItem } from "../../state";
-import { render } from "../../render/render";
-import { cascadePass } from "../../cascade";
-import { layoutTree } from "../../layout/dispatch";
-import type { ElementBox } from "../../render/render-node";
 import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
 
-const measurer = createMockShaper(8, 16);
 const componentRegistry = createDefaultComponentRegistry();
 const attrRegistry = createDefaultAttrRegistry();
-const config: EditorConfig = { measurer, componentRegistry, attrRegistry, containerWidth: 600 };
+const config: EditorConfig = { componentRegistry, attrRegistry, containerWidth: 600 };
 
 const HDR_P1 = "hdr-c1" as BlockId;
 const BODY_P = "p" as BlockId;
@@ -65,26 +59,18 @@ function buildStateWithHeaderBody(): State {
   });
 }
 
-/** Build a complete EditorState (full pipeline) with the caret at `caret`. */
+/**
+ * Build a geometry-free EditorState with the caret at `caret`. Phase 0b: the
+ * `INSERT_PAGE_*` handlers are context-driven (caret block/context only) and
+ * read no layout — the synthetic state needs only the geometry-free fields.
+ */
 function buildEditor(state: State, caret: { blockId: BlockId; offset: number }): EditorState {
-  const rendered = render(state, componentRegistry, attrRegistry);
-  const cascadedRoot = cascadePass(rendered.root);
-  const layout = layoutTree(cascadedRoot, config.containerWidth, measurer);
-  const cascadedTemplateContents = new Map<BlockId, ElementBox>();
-  for (const [id, body] of rendered.templateContents) {
-    cascadedTemplateContents.set(id, cascadePass(body) as ElementBox);
-  }
   const cursor = createPosition(caret.blockId, caret.offset);
   return {
     state,
     selection: createSpan(cursor, cursor),
     history: createHistory(state),
-    renderTree: rendered.root,
-    renderOutput: rendered,
-    cascadedRoot,
-    cascadedTemplateContents,
-    cascadedEmbedContents: new Map(),
-    layoutTree: layout,
+    lastDirtyIds: null,
     containerWidth: config.containerWidth,
     targetX: null,
   };

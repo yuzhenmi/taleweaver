@@ -69,7 +69,11 @@ export function planInsertTableRow(
   position: RowPosition,
   allocator: IdAllocator,
 ): InsertTableRowPlan {
-  const colCount = ctx.cellIdsByRow[ctx.rowIndex].length;
+  const caretRowCells = ctx.cellIdsByRow[ctx.rowIndex];
+  if (caretRowCells === undefined) {
+    throw new Error(`insertTableRow: caret row ${ctx.rowIndex} missing (unreachable)`);
+  }
+  const colCount = caretRowCells.length;
   // resolveTableContext only returns a context with colIndex >= 0 (≥ 1 cell), so
   // this is unreachable in practice — guard anyway since the op indexes cells[0].
   if (colCount === 0) {
@@ -115,16 +119,18 @@ export function insertTableRowInTx(doc: Y.Doc, plan: InsertTableRowPlan): void {
   }
 
   const lastCell = plan.cells.length - 1;
-  for (let i = 0; i < plan.cells.length; i++) {
-    const { cellId, paragraphId } = plan.cells[i];
+  for (const [i, cell] of plan.cells.entries()) {
+    const { cellId, paragraphId } = cell;
+    const prevCell = plan.cells[i - 1];
+    const nextCell = plan.cells[i + 1];
     blocksMap.set(
       cellId,
       buildYBlock({
         type: "table-cell",
         attrs: {},
         parentId: plan.rowId,
-        prevSiblingId: i === 0 ? null : plan.cells[i - 1].cellId,
-        nextSiblingId: i === lastCell ? null : plan.cells[i + 1].cellId,
+        prevSiblingId: i === 0 ? null : (prevCell?.cellId ?? null),
+        nextSiblingId: i === lastCell ? null : (nextCell?.cellId ?? null),
         firstChildId: paragraphId,
         lastChildId: paragraphId,
         inlineContent: null,
@@ -145,6 +151,11 @@ export function insertTableRowInTx(doc: Y.Doc, plan: InsertTableRowPlan): void {
     );
   }
 
+  const firstCell = plan.cells[0];
+  const lastCellEntry = plan.cells[lastCell];
+  if (firstCell === undefined || lastCellEntry === undefined) {
+    throw new Error("insertTableRow: row has no cells (unreachable)");
+  }
   blocksMap.set(
     plan.rowId,
     buildYBlock({
@@ -153,8 +164,8 @@ export function insertTableRowInTx(doc: Y.Doc, plan: InsertTableRowPlan): void {
       parentId: plan.tableId,
       prevSiblingId: plan.prevRowId,
       nextSiblingId: plan.nextRowId,
-      firstChildId: plan.cells[0].cellId,
-      lastChildId: plan.cells[lastCell].cellId,
+      firstChildId: firstCell.cellId,
+      lastChildId: lastCellEntry.cellId,
       inlineContent: null,
     }),
   );

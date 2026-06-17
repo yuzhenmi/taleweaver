@@ -44,6 +44,12 @@ import {
 import { createPosition } from "../block-position";
 import { createTestAllocator, type BlockId } from "../block-id";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 const SPLIT_ID = "split-1" as SuggestionId;
 const SPLIT_INPUT = { id: SPLIT_ID, author: "alice", createdAt: 1000 } as const;
 const JOIN_ID = "join-1" as SuggestionId;
@@ -138,7 +144,7 @@ describe("resolve break — SPLIT ACCEPT (keep split)", () => {
     // Sanity: the seed produced N="abc"+embed, N+1="def", one insertion record.
     expect(hasBreakEmbed(seeded, "p")).toBe(true);
     expect(getSuggestions(seeded).length).toBe(1);
-    expect(getSuggestions(seeded)[0].kind).toBe("insertion");
+    expect(nth(getSuggestions(seeded), 0, "suggestion").kind).toBe("insertion");
 
     const s = acceptSuggestion(seeded, SPLIT_ID).state;
 
@@ -187,7 +193,7 @@ describe("resolve break — JOIN ACCEPT (do the join / merge)", () => {
     // Sanity: p1 ends with a join embed; one deletion record; still two blocks.
     expect(hasBreakEmbed(seeded, "p1")).toBe(true);
     expect(getSuggestions(seeded).length).toBe(1);
-    expect(getSuggestions(seeded)[0].kind).toBe("deletion");
+    expect(nth(getSuggestions(seeded), 0, "suggestion").kind).toBe("deletion");
     expect(bodyBlockCount(seeded)).toBe(2);
 
     const s = acceptSuggestion(seeded, JOIN_ID).state;

@@ -28,6 +28,13 @@ import {
   type EditorConfig,
   type EditorState,
 } from "./test-helpers";
+
+/** Throwing indexed access for tests: stronger than the old undefined-deref TypeError. */
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
 import {
   getBlock,
   getSuggestions,
@@ -127,8 +134,8 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
     // An `insertion` SuggestionRecord exists (attributed to alice).
     const suggestions = getSuggestions(next.state);
     expect(suggestions).toHaveLength(1);
-    expect(suggestions[0].kind).toBe("insertion");
-    expect(suggestions[0].author).toBe("alice");
+    expect(nth(suggestions, 0, "suggestion").kind).toBe("insertion");
+    expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
 
     // Caret lands at the start of the new block (identical to direct split).
     expect(next.selection.anchor).toEqual(next.selection.focus);
@@ -163,7 +170,7 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
     expect(endsWithSplitEmbed(next, paraId)).toBe(true);
     const suggestions = getSuggestions(next.state);
     expect(suggestions).toHaveLength(1);
-    expect(suggestions[0].kind).toBe("insertion");
+    expect(nth(suggestions, 0, "suggestion").kind).toBe("insertion");
 
     // Caret at the start of the new (content-carrying) block.
     expect(next.selection.focus).toEqual(createPosition(newId, 0));
@@ -204,7 +211,7 @@ describe("handleSplitNode — suggesting mode (slice 4e-editor)", () => {
     expect(endsWithSplitEmbed(next, headingId)).toBe(true);
     const suggestions = getSuggestions(next.state);
     expect(suggestions).toHaveLength(1);
-    expect(suggestions[0].kind).toBe("insertion");
+    expect(nth(suggestions, 0, "suggestion").kind).toBe("insertion");
   });
 
   it("direct mode (regression): collapsed Enter does a plain untracked split (no embed, no record)", () => {

@@ -69,5 +69,12 @@ function toSymbol(n: number): string {
   const zeroBased = n - 1;
   const index = zeroBased % SYMBOL_CYCLE.length;
   const repeats = Math.floor(zeroBased / SYMBOL_CYCLE.length) + 1;
-  return SYMBOL_CYCLE[index].repeat(repeats);
+  // `index` is a non-negative modulo of the cycle length, always in range.
+  const glyph = SYMBOL_CYCLE[index];
+  if (glyph === undefined) {
+    throw new Error(
+      `format-counter: symbol index ${index} out of range (cycle length ${SYMBOL_CYCLE.length})`,
+    );
+  }
+  return glyph.repeat(repeats);
 }

@@ -125,6 +125,8 @@ export function lineBreakOpportunities(text: string, options: LineBreakOptions =
     const isCM = c.cls === "CM" || c.cls === "ZWJ";
     if (isCM && eff.length > 0) {
       const prev = eff[eff.length - 1];
+      // eff.length > 0 guarantees this index is in-bounds; a miss is impossible.
+      if (prev === undefined) throw new Error("uax14: eff back-element missing (unreachable)");
       const prevCls = prev.cls;
       if (prevCls !== "BK" && prevCls !== "CR" && prevCls !== "LF" && prevCls !== "NL" &&
           prevCls !== "SP" && prevCls !== "ZW") {
@@ -171,31 +173,52 @@ export function lineBreakOpportunities(text: string, options: LineBreakOptions =
   // class. (LB18 fires on the direct predecessor `a === "SP"`, not prevNonSpace,
   // so it is unrelated to this seeding.) Keep this invariant when editing the
   // loop: prevNonSpace must only ever gate rules whose governing class is non-SP.
-  let prevNonSpace: WClass = eff[0].cls;
+  // cps.length !== 0 and decode/pre-pass emit one eff entry per cp, so eff[0] exists.
+  const eff0 = eff[0];
+  if (eff0 === undefined) throw new Error("uax14: empty eff array (unreachable — cps non-empty)");
+  let prevNonSpace: WClass = eff0.cls;
   let prevNonSpaceIdx = 0; // eff index of prevNonSpace (look-around for LB15a)
 
   for (let i = 1; i < eff.length; i++) {
-    const a = eff[i - 1].cls;
-    const b = eff[i].cls;
+    // i in [1, eff.length): both i and i-1 are in-bounds. A miss is impossible.
+    const effPrev = eff[i - 1];
+    const effCur = eff[i];
+    if (effPrev === undefined || effCur === undefined) {
+      throw new Error(`uax14: eff index ${i} out of range (unreachable)`);
+    }
+    const a = effPrev.cls;
+    const b = effCur.cls;
     if (a !== "SP") { prevNonSpace = a; prevNonSpaceIdx = i - 1; } // update BEFORE deciding boundary i
 
     // LB30a counts consecutive REAL Regional_Indicator characters. An
     // LB9-attached combining mark inherits class RI but is part of its base's
     // grapheme — it must not advance the RI parity (nor reset it).
-    if (eff[i - 1].lb9Attached) {
+    if (effPrev.lb9Attached) {
       // carry: leave riCount unchanged
     } else if (a === "RI") riCount++;
     else riCount = 0;
 
     const decision = decide(a, b, prevNonSpace, prevNonSpaceIdx, riCount, eff, i);
-    if (decision === "!") out.push({ index: eff[i].index, mandatory: true });
-    else if (decision === "÷") out.push({ index: eff[i].index, mandatory: false });
+    if (decision === "!") out.push({ index: effCur.index, mandatory: true });
+    else if (decision === "÷") out.push({ index: effCur.index, mandatory: false });
     // "×" → no break, emit nothing.
   }
   return out;
 }
 
 type Decision = "!" | "÷" | "×";
+
+/**
+ * Bounded eff accessor for the rule engine. Every call site has already
+ * established the index is in range (loop invariant `0 <= idx < eff.length`,
+ * or a preceding `< eff.length` / `>= 0` guard), so a miss is an algorithm
+ * invariant violation — throw loudly rather than silently mis-decide a break.
+ */
+function effAt(eff: Eff[], idx: number): Eff {
+  const e = eff[idx];
+  if (e === undefined) throw new Error(`uax14: eff[${idx}] out of range (unreachable, length ${eff.length})`);
+  return e;
+}
 
 /**
  * LB25 — "do not break numbers" (UAX #14, Unicode 16.0.0). The rule is a set of
@@ -220,9 +243,10 @@ function lb25NoBreak(a: WClass, b: WClass, eff: Eff[], i: number): boolean {
     // ( SY | IS )* run or the NU itself. For × NU, `a` must be NU/SY/IS (no
     // CL/CP tail — LB13 already forbids breaks before CL/CP so they cannot lead
     // into an NU here, and the spec's NU-run form has no CL/CP before NU).
-    if (b !== "NU" && (eff[j].cls === "CL" || eff[j].cls === "CP")) j--;
-    while (j >= 0 && (eff[j].cls === "SY" || eff[j].cls === "IS")) j--;
-    if (j >= 0 && eff[j].cls === "NU") return true;
+    // j = i-1 >= 0 here (i >= 1), so effAt is in-bounds.
+    if (b !== "NU" && (effAt(eff, j).cls === "CL" || effAt(eff, j).cls === "CP")) j--;
+    while (j >= 0 && (effAt(eff, j).cls === "SY" || effAt(eff, j).cls === "IS")) j--;
+    if (j >= 0 && effAt(eff, j).cls === "NU") return true;
   }
   // ( PO | PR ) × NU and ( PO | PR ) × OP ( IS )? NU.
   if (a === "PO" || a === "PR") {
@@ -230,8 +254,8 @@ function lb25NoBreak(a: WClass, b: WClass, eff: Eff[], i: number): boolean {
     if (b === "OP") {
       // OP ( IS )? NU ahead.
       let k = i + 1;
-      if (k < eff.length && eff[k].cls === "IS") k++;
-      if (k < eff.length && eff[k].cls === "NU") return true;
+      if (k < eff.length && effAt(eff, k).cls === "IS") k++;
+      if (k < eff.length && effAt(eff, k).cls === "NU") return true;
     }
   }
   // HY × NU ;  IS × NU.
@@ -250,7 +274,8 @@ function decide(
   a: WClass, b: WClass, prevNonSpace: WClass, prevNonSpaceIdx: number,
   riCount: number, eff: Eff[], i: number,
 ): Decision {
-  const prevZWJ = eff[i - 1].origZWJ;
+  // i in [1, eff.length): eff[i] and eff[i-1] are always in-bounds.
+  const prevZWJ = effAt(eff, i - 1).origZWJ;
   // LB4/LB5: mandatory breaks.
   if (a === "BK") return "!";
   if (a === "CR") return b === "LF" ? "×" : "!";
@@ -265,7 +290,7 @@ function decide(
   if (prevZWJ) return "×";
   // LB9: × between a base and its combining mark / ZWJ (the eff[i] entry attached
   // via the pre-pass). No break before an LB9-attached combiner.
-  if (eff[i].lb9Attached) return "×";
+  if (effAt(eff, i).lb9Attached) return "×";
   // LB11: × around WJ.
   if (a === "WJ" || b === "WJ") return "×";
   // LB12: × after GL.
@@ -281,8 +306,8 @@ function decide(
   //   initial: ( sot | BK | CR | LF | NL | OP | QU | GL | SP | ZW ) [\p{Pi}&QU]
   //   SP* ×.  Look through SP* via prevNonSpace; the QU's own predecessor must
   //   be one of the initial contexts.
-  if (prevNonSpace === "QU" && eff[prevNonSpaceIdx].pi) {
-    const beforeQU = prevNonSpaceIdx > 0 ? eff[prevNonSpaceIdx - 1].cls : undefined;
+  if (prevNonSpace === "QU" && effAt(eff, prevNonSpaceIdx).pi) {
+    const beforeQU = prevNonSpaceIdx > 0 ? effAt(eff, prevNonSpaceIdx - 1).cls : undefined;
     if (beforeQU === undefined || beforeQU === "BK" || beforeQU === "CR" ||
         beforeQU === "LF" || beforeQU === "NL" || beforeQU === "OP" ||
         beforeQU === "QU" || beforeQU === "GL" || beforeQU === "SP" ||
@@ -293,8 +318,8 @@ function decide(
   // LB15b: × before a final-quote QU (Pf) that is itself sentence/clause final:
   //   × [\p{Pf}&QU] ( SP | GL | WJ | CL | QU | CP | EX | IS | SY | BK | CR | LF |
   //   NL | ZW | eot ).
-  if (b === "QU" && eff[i].pf) {
-    const after = i + 1 < eff.length ? eff[i + 1].cls : undefined;
+  if (b === "QU" && effAt(eff, i).pf) {
+    const after = i + 1 < eff.length ? effAt(eff, i + 1).cls : undefined;
     if (after === undefined || after === "SP" || after === "GL" || after === "WJ" ||
         after === "CL" || after === "QU" || after === "CP" || after === "EX" ||
         after === "IS" || after === "SY" || after === "BK" || after === "CR" ||
@@ -304,7 +329,7 @@ function decide(
   }
   // LB15c: SP ÷ IS NU — break before a decimal mark that follows a space and is
   // followed by a number (e.g. "subtract .5"). Must precede LB15d.
-  if (a === "SP" && b === "IS" && i + 1 < eff.length && eff[i + 1].cls === "NU") return "÷";
+  if (a === "SP" && b === "IS" && i + 1 < eff.length && effAt(eff, i + 1).cls === "NU") return "÷";
   // LB15d: × IS — otherwise do not break before ';', ',', or '.', even after
   // spaces. (IS was removed from LB13 in Unicode 16 and handled here instead.)
   if (b === "IS") return "×";
@@ -318,20 +343,20 @@ function decide(
   // after a non-final unresolved QU.
   //   × [ QU - \p{Pi} ]      (break-suppress before a QU that is NOT Pi)
   //   [ QU - \p{Pf} ] ×      (break-suppress after a QU that is NOT Pf)
-  if (b === "QU" && !eff[i].pi) return "×";
-  if (a === "QU" && !eff[i - 1].pf) return "×";
+  if (b === "QU" && !effAt(eff, i).pi) return "×";
+  if (a === "QU" && !effAt(eff, i - 1).pf) return "×";
   // LB19a (Unicode 16): unless surrounded by East Asian characters, do not break
   // either side of any unresolved QU.
   //   [^EastAsian] × QU ; × QU ( [^EastAsian] | eot ) ;
   //   QU × [^EastAsian] ; ( sot | [^EastAsian] ) QU ×.
   if (b === "QU") {
-    const aEA = eff[i - 1].ea;
-    const afterEA = i + 1 < eff.length ? eff[i + 1].ea : false; // eot counts as non-EA
+    const aEA = effAt(eff, i - 1).ea;
+    const afterEA = i + 1 < eff.length ? effAt(eff, i + 1).ea : false; // eot counts as non-EA
     if (!aEA || !afterEA) return "×";
   }
   if (a === "QU") {
-    const bEA = eff[i].ea;
-    const beforeEA = i - 2 >= 0 ? eff[i - 2].ea : false; // sot counts as non-EA
+    const bEA = effAt(eff, i).ea;
+    const beforeEA = i - 2 >= 0 ? effAt(eff, i - 2).ea : false; // sot counts as non-EA
     if (!bEA || !beforeEA) return "×";
   }
   // LB20: ÷ before and after CB.
@@ -340,13 +365,13 @@ function decide(
   //   [‐] ) AL — no break after a word-initial hyphen. The hyphen is class HY OR
   //   the specific code point U+2010 (whose Line_Break is BA, not HY), tracked
   //   via the `dash2010` flag.
-  if ((a === "HY" || eff[i - 1].dash2010) && b === "AL") {
+  if ((a === "HY" || effAt(eff, i - 1).dash2010) && b === "AL") {
     // The hyphen may carry LB9-attached combining marks as extra eff entries; the
     // rule's predecessor context is the element BEFORE the hyphen base, so skip
     // back over those marks to the base, then look one further back.
     let baseIdx = i - 1;
-    while (baseIdx > 0 && eff[baseIdx].lb9Attached) baseIdx--;
-    const before = baseIdx - 1 >= 0 ? eff[baseIdx - 1].cls : undefined;
+    while (baseIdx > 0 && effAt(eff, baseIdx).lb9Attached) baseIdx--;
+    const before = baseIdx - 1 >= 0 ? effAt(eff, baseIdx - 1).cls : undefined;
     if (before === undefined || before === "BK" || before === "CR" ||
         before === "LF" || before === "NL" || before === "SP" ||
         before === "ZW" || before === "CB" || before === "GL") {
@@ -357,7 +382,7 @@ function decide(
   if (b === "BA" || b === "HY" || b === "NS") return "×";
   if (a === "BB") return "×";
   // LB21a: HL (HY|BA) × — no break after a hyphen/break-after that follows HL.
-  if (i >= 2 && eff[i - 2].cls === "HL" && (a === "HY" || a === "BA") && b !== "HL") return "×";
+  if (i >= 2 && effAt(eff, i - 2).cls === "HL" && (a === "HY" || a === "BA") && b !== "HL") return "×";
   // LB21b: × SY before HL.
   if (a === "SY" && b === "HL") return "×";
   // LB22: × before IN.
@@ -391,8 +416,8 @@ function decide(
   // ONLY that one code point — NOT any AL character). We track it via the
   // per-element `dottedCircle` flag, not the AL class, so ordinary AL/CM-attached
   // bases (e.g. U+23E9) do NOT spuriously join a Brahmic cluster.
-  const aDotted = eff[i - 1].dottedCircle;
-  const bDotted = eff[i].dottedCircle;
+  const aDotted = effAt(eff, i - 1).dottedCircle;
+  const bDotted = effAt(eff, i).dottedCircle;
   // AK | ◌ | AS  (left operand a / right operand b).
   const aAkAsDot = a === "AK" || a === "AS" || aDotted;
   const bAkAsDot = b === "AK" || b === "AS" || bDotted;
@@ -403,25 +428,25 @@ function decide(
   // back over any attached marks on `a` to the VI base, then one more.
   if (a === "VI" && (b === "AK" || bDotted)) {
     let viBase = i - 1;
-    while (viBase > 0 && eff[viBase].lb9Attached) viBase--;
+    while (viBase > 0 && effAt(eff, viBase).lb9Attached) viBase--;
     const beforeVi = viBase - 1;
     if (beforeVi >= 0 &&
-        (eff[beforeVi].cls === "AK" || eff[beforeVi].cls === "AS" || eff[beforeVi].dottedCircle)) {
+        (effAt(eff, beforeVi).cls === "AK" || effAt(eff, beforeVi).cls === "AS" || effAt(eff, beforeVi).dottedCircle)) {
       return "×";
     }
   }
   if (aAkAsDot && bAkAsDot &&
-      i + 1 < eff.length && eff[i + 1].cls === "VF") return "×";
+      i + 1 < eff.length && effAt(eff, i + 1).cls === "VF") return "×";
   // LB29: × IS (AL|HL).
   if (a === "IS" && (b === "AL" || b === "HL")) return "×";
   // LB30: × (AL|HL|NU) OP and × CP (AL|HL|NU) — EXCLUDING East-Asian-wide OP/CP.
-  if ((a === "AL" || a === "HL" || a === "NU") && b === "OP" && !eff[i].ea) return "×";
-  if (a === "CP" && !eff[i - 1].ea && (b === "AL" || b === "HL" || b === "NU")) return "×";
+  if ((a === "AL" || a === "HL" || a === "NU") && b === "OP" && !effAt(eff, i).ea) return "×";
+  if (a === "CP" && !effAt(eff, i - 1).ea && (b === "AL" || b === "HL" || b === "NU")) return "×";
   // LB30a: × RI RI only on an odd→even pair (break BETWEEN flag pairs).
   if (a === "RI" && b === "RI" && riCount % 2 === 1) return "×";
   // LB30b: × EB EM ; × [\p{Extended_Pictographic} & \p{gc=Cn}] EM.
   if (a === "EB" && b === "EM") return "×";
-  if (b === "EM" && eff[i - 1].extPictCn) return "×";
+  if (b === "EM" && effAt(eff, i - 1).extPictCn) return "×";
   // LB31: ÷ everywhere else.
   return "÷";
 }

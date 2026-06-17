@@ -2,6 +2,7 @@ import type { EditorState, EditorConfig } from "../editor-state";
 import { resolveBlock, productionAllocator, createPosition, createSpan, deleteRange, splitBlockAtPosition, splitWithSuggestion, splitWithSuggestionOverSelection, replaceWithSuggestedFragment, spanStart, spanEnd, inlineContentLength } from "../../state";
 import type { BlockId } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
+import { isObjectSelection } from "../../cursor/object-selection";
 import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
 import { handleListIndent } from "./list-indent";
@@ -12,6 +13,12 @@ export function handleSplitNode(
   editor: EditorState,
   config: EditorConfig,
 ): EditorState {
+  // Object selection (#525): Enter on a selected atomic-leaf (image) does
+  // nothing — an atomic block has no text content to split. No-op (Google Docs).
+  if (isObjectSelection(editor.state, editor.selection, config.componentRegistry) !== null) {
+    return editor;
+  }
+
   let current = editor;
   const { selection } = editor;
 

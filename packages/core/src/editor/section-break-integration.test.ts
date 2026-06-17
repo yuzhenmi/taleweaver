@@ -17,12 +17,12 @@
  *      start).
  */
 import { describe, it, expect } from "vitest";
-import { config, reduceEditor } from "./actions/test-helpers";
+import { config, measurer, reduceEditor } from "./actions/test-helpers";
 import type { EditorState } from "./editor-state";
 import { getBlock, firstLeafBlock, createHistory } from "../state";
 import type { State, BlockId } from "../state";
-import { positionTreeForTest } from "../test-utils/position-tree";
-import type { LayoutBox } from "../layout/layout-node";
+import { positionTreeForTest } from "@taleweaver/print";
+import type { LayoutBox } from "@taleweaver/print";
 import {
   buildState,
   buildBlock,
@@ -31,7 +31,13 @@ import {
 } from "../test-utils/state-builders";
 import { render } from "../render/render";
 import { cascadePass } from "../cascade";
-import { layoutTree } from "../layout/dispatch";
+import { layoutTree } from "@taleweaver/print";
+
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
 
 /**
  * Build a multi-paragraph editor `document → [p1, p2, p3, p4]` with the
@@ -81,37 +87,40 @@ function makeEditor(cursorBlock: BlockId): EditorState {
       }),
     ],
   });
-  const rendered = render(
-    initialState,
-    config.componentRegistry,
-    config.attrRegistry,
-  );
-  const cascadedRoot = cascadePass(rendered.root);
-  const layout = layoutTree(
-    cascadedRoot,
-    config.containerWidth,
-    config.measurer,
-    config.pageConfig,
-  );
   const cursor = { blockId: cursorBlock, offset: 0 };
   return {
     state: initialState,
     selection: { anchor: cursor, focus: cursor },
     history: createHistory(initialState),
-    renderTree: rendered.root,
-    renderOutput: rendered,
-    cascadedRoot,
-    cascadedTemplateContents: new Map(),
-    cascadedEmbedContents: new Map(),
-    layoutTree: layout,
+    lastDirtyIds: null,
     containerWidth: config.containerWidth,
     targetX: null,
+    caretPageHint: undefined,
+    caretAffinity: undefined,
+    anchorAffinity: undefined,
   };
 }
 
-/** Materialize the editor's layout tree to a fully-positioned `LayoutBox`. */
+/**
+ * Materialize the editor's layout tree to a fully-positioned `LayoutBox`.
+ * Phase 0b: core is geometry-free, so the test builds the layout tree itself
+ * (render → cascade → layout, exactly what the backend driver does) from the
+ * editor's `state` rather than reading a now-absent `editor.layoutTree`.
+ */
 function materialize(editor: EditorState): LayoutBox {
-  return positionTreeForTest(editor.layoutTree);
+  const rendered = render(
+    editor.state,
+    config.componentRegistry,
+    config.attrRegistry,
+  );
+  const cascadedRoot = cascadePass(rendered.root);
+  const tree = layoutTree(
+    cascadedRoot,
+    config.containerWidth,
+    measurer,
+    config.pageConfig,
+  );
+  return positionTreeForTest(tree);
 }
 
 interface AbsBox {
@@ -201,7 +210,7 @@ describe("SECTION_BREAK — editor-level transparency + undo/redo integration", 
     // not `!`.)
     const p1Geom = beforeGeom["p1"];
     const p4Geom = beforeGeom["p4"];
-    if (p1Geom === null || p4Geom === null) {
+    if (p1Geom == null || p4Geom == null) {
       throw new Error("section-break integration: degenerate pre-break geometry");
     }
     expect(p4Geom.y).toBeGreaterThan(p1Geom.y);
@@ -218,7 +227,8 @@ describe("SECTION_BREAK — editor-level transparency + undo/redo integration", 
     for (const id of sectionIds) {
       expect(getBlock(after.state, id)?.type).toBe("section");
     }
-    const [secA, secB] = sectionIds;
+    const secA = nth(sectionIds, 0, "section");
+    const secB = nth(sectionIds, 1, "section");
 
     // ----- TRANSPARENCY: paragraph geometry identical before vs after -----
     const afterLayout = materialize(after);

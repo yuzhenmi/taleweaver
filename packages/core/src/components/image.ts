@@ -1,5 +1,6 @@
 import type { LeafComponentDefinition } from "./component-definition";
 import { createElementBox } from "../render/render-node";
+import { imageWrapFloat } from "./leaf-style-attrs";
 
 function numAttr(value: unknown, fallback: number): number {
   return typeof value === "number" ? value : fallback;
@@ -28,6 +29,7 @@ export const imageComponent: LeafComponentDefinition = {
   leafShape: "atomic",
   render: (view, _ctx, _inlineRenderNodes) => {
     const src = strAttr(view.attrs.src, "");
+    const alt = strAttr(view.attrs.alt, "");
     const widthAttr = view.attrs.width;
     const heightAttr = view.attrs.height;
     const inlineSize = widthAttr !== undefined ? numAttr(widthAttr, 0) : "auto";
@@ -38,11 +40,25 @@ export const imageComponent: LeafComponentDefinition = {
     // is what makes a fresh-insert image size intrinsically.
     const width = numAttr(widthAttr, 0);
     const height = numAttr(heightAttr, 0);
+    // Component-set seam: synthesize the LOGICAL `float` from the Google-Docs
+    // physical `wrap` attr against the cascaded writing `direction`. A generic
+    // cascade interpreter would no-op here (computedStyle is re-derived from
+    // node.style at layout; the render-time view.computedStyle isn't threaded
+    // onto the box style), so the component bakes `float` on directly. The
+    // `?? "ltr"` guards the test stub's bare `{} as ComputedStyle` — on a real
+    // cascaded view `direction` is always present (ComputedStyle required field).
+    const direction = view.computedStyle.direction ?? "ltr";
+    const float = imageWrapFloat(view.attrs.wrap, direction);
     return createElementBox(
       view.id,
-      { display: "block", inlineSize, blockSize },
+      // Spread `float` only when defined so a non-wrapped image's style stays
+      // byte-identical to before (no `float` key) — break/missing keeps the
+      // full-width `display:block` default.
+      float !== undefined
+        ? { display: "block", inlineSize, blockSize, float }
+        : { display: "block", inlineSize, blockSize },
       [],
-      { image: { src, width, height } },
+      { image: { src, width, height, alt } },
     );
   },
 };

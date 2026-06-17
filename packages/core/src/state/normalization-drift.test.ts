@@ -1,11 +1,15 @@
 /**
- * T19 — Property-based drift test for the two parallel normalization
+ * T19 — Property-based drift test for the THREE parallel normalization
  * codepaths:
  *   - `mergeAdjacentTextItems` (JS-side; rebuilds a fresh array)
- *   - `mergeAdjacentSameAttrsTextItems` (Y-side; mutates a Y.Array in place
- *      and preserves Y.Text identity for non-converging items)
+ *   - `mergeAdjacentSameAttrsTextItems` (Y-side rebuild; mutates a Y.Array in
+ *      place, preserving Y.Text identity for non-converging items, but rebuilds
+ *      a converging pair into a fresh Y.Text)
+ *   - `mergeAdjacentSameAttrsTextItemsInPlace` (Y-side identity-preserving twin
+ *      used by the live-array appliers — a converging pair keeps the receiver's
+ *      Y.Text; runs on its own integrated doc inside a transaction)
  *
- * Both must uphold the same two normalization invariants on a block's
+ * All three must uphold the same two normalization invariants on a block's
  * `items[]`:
  *   (a) no two adjacent text items with equal attrs;
  *   (b) no zero-length text items.
@@ -26,9 +30,19 @@
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
 import { mergeAdjacentTextItems, type InlineItem } from "./inline-content";
-import { mergeAdjacentSameAttrsTextItems, yMapAsObject } from "./y-utils";
+import {
+  mergeAdjacentSameAttrsTextItems,
+  mergeAdjacentSameAttrsTextItemsInPlace,
+  yMapAsObject,
+} from "./y-utils";
 import { buildYInlineItem } from "./y-block";
 import { AttrRegistry } from "../cascade/attr-registry";
+
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
 
 // Deterministic seeded PRNG (mulberry32). Same seed → same sequence → no
 // flaky CI. Avoids a `fast-check` dependency for one test.
@@ -71,14 +85,14 @@ function randomItem(rng: () => number): InlineItem {
   if (isText) {
     return {
       kind: "text",
-      text: TEXT_POOL[pickIndex(rng, TEXT_POOL.length)],
-      attrs: ATTR_POOL[pickIndex(rng, ATTR_POOL.length)],
+      text: nth(TEXT_POOL, pickIndex(rng, TEXT_POOL.length), "text fragment"),
+      attrs: nth(ATTR_POOL, pickIndex(rng, ATTR_POOL.length), "attr bag"),
     };
   }
   return {
     kind: "embed",
-    embedType: EMBED_POOL[pickIndex(rng, EMBED_POOL.length)],
-    attrs: ATTR_POOL[pickIndex(rng, ATTR_POOL.length)],
+    embedType: nth(EMBED_POOL, pickIndex(rng, EMBED_POOL.length), "embed type"),
+    attrs: nth(ATTR_POOL, pickIndex(rng, ATTR_POOL.length), "attr bag"),
     properties: {},
   };
 }
@@ -164,10 +178,10 @@ function runDriftIterations(opts: {
     const input = opts.generate(rng, length);
 
     for (let i = 0; i < input.length; i++) {
-      const a = input[i];
+      const a = nth(input, i, "input item");
       if (a.kind === "text" && a.text.length === 0) sawEmptyTextInput = true;
       if (i + 1 < input.length) {
-        const b = input[i + 1];
+        const b = nth(input, i + 1, "input item");
         if (a.kind === "text" && b.kind === "text" && opts.attrsEqualForCoverage(a.attrs, b.attrs)) {
           sawAdjacentSameAttrsRun = true;
         }
@@ -186,21 +200,40 @@ function runDriftIterations(opts: {
     });
     const yResult = yArrayToJS(yArr);
 
+    // Third arm: the identity-preserving in-place twin must produce the SAME
+    // normalized read-back as the JS-side AND the Y-side rebuild (the byte-identity
+    // lock the live-array appliers rely on — slice 5). It mutates a live Y.Text in
+    // place (`aText.insert`), so it runs on its own integrated doc inside a tx.
+    const docInPlace = new Y.Doc();
+    const yArrInPlace = docInPlace.getArray<Y.Map<unknown>>("test");
+    docInPlace.transact(() => {
+      for (const item of input) yArrInPlace.push([buildYInlineItem(item)]);
+    });
+    docInPlace.transact(() => {
+      mergeAdjacentSameAttrsTextItemsInPlace(yArrInPlace, opts.registry);
+    });
+    const yInPlaceResult = yArrayToJS(yArrInPlace);
+
     if (jsResult.length < input.length) sawMergeOccurred = true;
 
     const jsShapes = jsResult.map(shapeOf);
     const yShapes = yResult.map(shapeOf);
+    const yInPlaceShapes = yInPlaceResult.map(shapeOf);
 
     expect(yShapes, `iteration ${iter}: input=${JSON.stringify(input)}`).toEqual(jsShapes);
+    expect(
+      yInPlaceShapes,
+      `iteration ${iter}: in-place twin drifted from JS-side; input=${JSON.stringify(input)}`,
+    ).toEqual(jsShapes);
 
     // Invariant cross-checks per the equality function actually used.
     for (let i = 0; i < jsResult.length; i++) {
-      const cur = jsResult[i];
+      const cur = nth(jsResult, i, "result item");
       if (cur.kind === "text") {
         expect(cur.text.length, `iteration ${iter}: empty text survived JS-side`).toBeGreaterThan(0);
       }
       if (i + 1 < jsResult.length) {
-        const next = jsResult[i + 1];
+        const next = nth(jsResult, i + 1, "result item");
         if (cur.kind === "text" && next.kind === "text") {
           expect(
             opts.attrsEqualForCoverage(cur.attrs, next.attrs),
@@ -272,8 +305,8 @@ describe("normalization drift (T19)", () => {
       return Array.from({ length }, () => {
         const isText = rng() < 0.7;
         if (isText) {
-          const text = TEXT_POOL[Math.floor(rng() * TEXT_POOL.length)];
-          const commentId = COMMENT_IDS[Math.floor(rng() * COMMENT_IDS.length)];
+          const text = nth(TEXT_POOL, Math.floor(rng() * TEXT_POOL.length), "text fragment");
+          const commentId = nth(COMMENT_IDS, Math.floor(rng() * COMMENT_IDS.length), "comment id");
           const attrs: ReadonlyAttrsRecord = {
             comment: { id: commentId, timestamp: timestampCounter++ },
           };
@@ -281,7 +314,7 @@ describe("normalization drift (T19)", () => {
         }
         return {
           kind: "embed",
-          embedType: EMBED_POOL[Math.floor(rng() * EMBED_POOL.length)],
+          embedType: nth(EMBED_POOL, Math.floor(rng() * EMBED_POOL.length), "embed type"),
           attrs: {},
           properties: {},
         };
