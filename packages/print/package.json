@@ -19,6 +19,6 @@
   "devDependencies": {
     "@taleweaver/hyphenation-en-us": "0.0.1",
     "typescript": "^5.7",
-    "vitest": "^3"
+    "vitest": "^3.2.6"
   }
 }
