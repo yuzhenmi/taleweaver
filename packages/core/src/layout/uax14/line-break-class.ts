@@ -39,8 +39,16 @@ function findRange(ranges: readonly number[], stride: number, cp: number): numbe
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
     const base = mid * stride;
-    if (cp < ranges[base]) hi = mid - 1;
-    else if (cp > ranges[base + 1]) lo = mid + 1;
+    // base and base+1 are in-bounds: mid <= hi <= length/stride - 1, so
+    // base+1 <= (length/stride - 1)*stride + 1 <= length - stride + 1 <= length - 1
+    // (stride >= 2). A miss means a malformed/truncated range table.
+    const rangeLo = ranges[base];
+    const rangeHi = ranges[base + 1];
+    if (rangeLo === undefined || rangeHi === undefined) {
+      throw new Error(`uax14: range table truncated at base ${base} (stride ${stride}, length ${ranges.length})`);
+    }
+    if (cp < rangeLo) hi = mid - 1;
+    else if (cp > rangeHi) lo = mid + 1;
     else return base;
   }
   return -1;
@@ -55,11 +63,16 @@ export function lineBreakClass(codePoint: number): LineBreakClass {
   if (codePoint < 0 || codePoint > 0x10ffff) return "XX";
   const base = findRange(LINE_BREAK_RANGES, 3, codePoint);
   if (base === -1) return "XX";
-  const name = LINE_BREAK_CLASS_NAMES[LINE_BREAK_RANGES[base + 2]];
+  // base+2 is in-bounds for a well-formed stride-3 table (see findRange bounds
+  // note). classId / name fall through to "XX" below if the table is malformed,
+  // which matches the pre-existing runtime default (a missing name was caught by
+  // the KNOWN_CLASSES guard and mapped to "XX").
+  const classId = LINE_BREAK_RANGES[base + 2];
+  const name = classId === undefined ? undefined : LINE_BREAK_CLASS_NAMES[classId];
   // Defensive: if a future Unicode upgrade emits a class not in the union, the
   // table-regeneration test will still pass but this guard surfaces the gap as a
   // dev error rather than silently mis-typing. (Never throws in production.)
-  if (!KNOWN_CLASSES.has(name)) return "XX";
+  if (name === undefined || !KNOWN_CLASSES.has(name)) return "XX";
   return name as LineBreakClass;
 }
 

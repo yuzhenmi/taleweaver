@@ -41,7 +41,7 @@ interface ConformanceCase {
  * end-of-text).
  */
 function parseCase(line: string): ConformanceCase | null {
-  const body = line.split("#")[0].trim();
+  const body = (line.split("#")[0] ?? "").trim();
   if (body === "") return null;
   const toks = body.split(/\s+/);
   let text = "";
@@ -49,6 +49,7 @@ function parseCase(line: string): ConformanceCase | null {
   // toks alternate: <marker> <hex> <marker> <hex> ... <marker>
   for (let t = 0; t < toks.length; t++) {
     const tok = toks[t];
+    if (tok === undefined) throw new Error(`malformed LineBreakTest line: missing token at ${t}`);
     if (tok === "÷" || tok === "×") {
       if (t > 0 && tok === "÷") breaks.add(text.length); // break BEFORE next cp
       continue;

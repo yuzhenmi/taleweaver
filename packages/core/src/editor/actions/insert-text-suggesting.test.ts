@@ -29,6 +29,13 @@ import {
   type EditorConfig,
   type EditorState,
 } from "./test-helpers";
+
+/** Throwing indexed access for tests: stronger than the old undefined-deref TypeError. */
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
 import { getBlock, getSuggestions, type BlockId } from "../../state";
 
 /** The first body paragraph id under the document root. */
@@ -68,16 +75,16 @@ describe("handleInsertText — suggesting mode (slice 4b)", () => {
     // Exactly one insertion suggestion, by "alice", covering the inserted run.
     const suggestions = getSuggestions(next.state);
     expect(suggestions).toHaveLength(1);
-    expect(suggestions[0].kind).toBe("insertion");
-    expect(suggestions[0].author).toBe("alice");
-    expect(suggestions[0].orphaned).toBe(false);
+    expect(nth(suggestions, 0, "suggestion").kind).toBe("insertion");
+    expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
+    expect(nth(suggestions, 0, "suggestion").orphaned).toBe(false);
 
     // The run carries the insertion-suggestion provenance attr = the record id.
     const items = getBlock(next.state, paraId)?.inlineContent?.items ?? [];
     const textItem = items.find((it) => it.kind === "text");
     expect(textItem?.kind).toBe("text");
     if (textItem?.kind === "text") {
-      expect(textItem.attrs.insertionSuggestionId).toBe(suggestions[0].id);
+      expect(textItem.attrs.insertionSuggestionId).toBe(nth(suggestions, 0, "suggestion").id);
     }
   });
 
@@ -103,8 +110,8 @@ describe("handleInsertText — suggesting mode (slice 4b)", () => {
     expect(getTextOf(ab.state, paraId)).toBe("ab");
     const suggestions = getSuggestions(ab.state);
     expect(suggestions).toHaveLength(1);
-    expect(suggestions[0].kind).toBe("insertion");
-    expect(suggestions[0].author).toBe("alice");
+    expect(nth(suggestions, 0, "suggestion").kind).toBe("insertion");
+    expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
   });
 
   it("direct mode (suggestingAuthor unset): plain text, NO suggestion", () => {
@@ -129,7 +136,7 @@ describe("handleInsertText — suggesting mode (slice 4b)", () => {
     expect(getTextOf(next.state, paraId)).toBe("abcZdef");
     const suggestions = getSuggestions(next.state);
     expect(suggestions).toHaveLength(1);
-    expect(suggestions[0].author).toBe("alice");
+    expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
   });
 });
 

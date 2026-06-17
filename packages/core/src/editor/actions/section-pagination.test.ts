@@ -17,21 +17,23 @@
  * `SECTION_BREAK` so section 2 lands on page 2 with section 1 NOT filling page 1.
  */
 import { describe, it, expect } from "vitest";
-import {
-  createInitialEditorState,
-  reduceEditor,
-  createDefaultComponentRegistry,
-  createDefaultAttrRegistry,
-  createMockShaper,
-  getBlock,
-  createPosition,
-  type EditorConfig,
-  type PageConfig,
-  type EditorState,
-  type BlockId,
-} from "../../index";
-import type { PageBox } from "../../layout/page-box";
-import type { LayoutBox } from "../../layout/layout-box";
+import { createInitialEditorState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, getBlock, createPosition, render, cascadePass, type EditorConfig, type PageConfig, type EditorState, type BlockId } from "../../index";
+import { layoutTree } from "@taleweaver/print";
+import type { PageBox } from "@taleweaver/print";
+import type { LayoutBox } from "@taleweaver/print";
+import type { VirtualLayoutTree } from "@taleweaver/print";
+
+// Phase 0b: `measurer` left core's `EditorConfig` for the backend's layout
+// driver. Tests build the layout tree directly via core's pipeline (what the
+// driver does) to assert the resolved per-page pagination geometry.
+const measurer = createMockShaper(8, 16);
+
+/** Build the layout tree the backend driver would (render → cascade → layout). */
+function layoutOf(editor: EditorState, config: EditorConfig): LayoutBox | VirtualLayoutTree {
+  const rendered = render(editor.state, config.componentRegistry, config.attrRegistry);
+  const cascaded = cascadePass(rendered.root);
+  return layoutTree(cascaded, config.containerWidth, measurer, config.pageConfig);
+}
 
 // Mock shaper: line height 16, char width 8. Page block-size 64, 0 margins ⇒
 // 4 one-line paragraphs fit per page. A 2-paragraph leading section thus leaves
@@ -45,7 +47,6 @@ function makeConfig(pageBlockSize = 64): EditorConfig {
     pageGap: 24,
   };
   return {
-    measurer: createMockShaper(8, 16),
     componentRegistry: createDefaultComponentRegistry(),
     attrRegistry: createDefaultAttrRegistry(),
     containerWidth: 800,
@@ -78,6 +79,12 @@ function nthBlockId(editor: EditorState, n: number): BlockId {
   const id = ids[n];
   if (id === undefined) throw new Error(`no block ${n}`);
   return id;
+}
+
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
 }
 
 /**
@@ -128,7 +135,7 @@ describe("section pagination — positioning honors the section page-break cap (
     // describes — split section A's only paragraph mid-text. This re-runs the
     // whole pipeline; the leak (if present) survives the re-layout. Section A is
     // still only ~2 short lines afterward, so page 0 retains ample leftover room.
-    const secA = sectionIds[0];
+    const secA = nth(sectionIds, 0, "section");
     const firstParaOfA = getBlock(editor.state, secA)?.firstChildId;
     if (firstParaOfA == null) throw new Error("section A has no first child");
     editor = reduceEditor(
@@ -139,7 +146,7 @@ describe("section pagination — positioning honors the section page-break cap (
     editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
 
     // The layout must be virtual (paginated mode).
-    const tree = editor.layoutTree;
+    const tree = layoutOf(editor, config);
     if (tree.type !== "virtual-root") throw new Error("expected a VirtualLayoutTree");
 
     // INVARIANT 1: each page's materialized top-level block keys == its plan
@@ -148,7 +155,7 @@ describe("section pagination — positioning honors the section page-break cap (
     const keysByPage: string[][] = [];
     for (let i = 0; i < tree.plan.entries.length; i++) {
       const page = tree.getPage(i);
-      const planKeys = tree.plan.entries[i].children.map((c) => c.key);
+      const planKeys = nth(tree.plan.entries, i, "plan entry").children.map((c) => c.key);
       const materializedKeys = topLevelKeysOnPage(page);
       expect(materializedKeys).toEqual(planKeys);
       keysByPage.push(materializedKeys);
@@ -158,7 +165,7 @@ describe("section pagination — positioning honors the section page-break cap (
     // duplication across the section boundary).
     const pageOfKey = new Map<string, number>();
     for (let i = 0; i < keysByPage.length; i++) {
-      for (const k of keysByPage[i]) {
+      for (const k of nth(keysByPage, i, "page keys")) {
         const prior = pageOfKey.get(k);
         expect(prior).toBeUndefined();
         pageOfKey.set(k, i);

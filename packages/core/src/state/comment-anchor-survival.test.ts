@@ -8,17 +8,21 @@
  * that. The measured survival matrix (asserted below, so it's a durable record +
  * a guard that flips if the ops ever change to preserve Y identity):
  *   - insert-before (same block):  SURVIVES  (insertText mutates the Y.Text in place)
- *   - delete-elsewhere (same block): ORPHANS  (deleteRange rebuilds the Y.Text)
+ *   - delete-elsewhere (same block): SURVIVES  (surgical deleteRange trims the Y.Text in place;
+ *                                              see surgical-inline-ops Phase 1 — was ORPHANS
+ *                                              under the old full-rebuild deleteRange)
  *   - split, anchor in LEFT half:  SURVIVES  (left Y.Text kept)
  *   - split, anchor in RIGHT half: ORPHANS   (right half is a fresh Y.Text)
  *   - merge, anchor in right block: ORPHANS  (merge clones the right block's items)
  *
- * A comment anchor MUST survive deletes, splits, and merges — RelativePosition
- * fails 3 of 5 — so it is not viable here. (Preserving Y identity across every op
- * would mean rewriting deleteRange/split/merge — far larger + riskier than the
- * marker-embed fallback, which reuses the proven footnote-anchor `EmbedItem`
- * machinery: markers ARE inline content, so they move/clone with surrounding text
- * for free.) See the comments design spec §1 "SPIKE PRECONDITION".
+ * A comment anchor MUST survive deletes, splits, and merges. Same-block delete now
+ * preserves identity (surgical Phase 1), but cross-block split/merge still orphan
+ * (Class-3 structural limit: Yjs forbids reparenting a Y.Text, so moved content is
+ * a fresh type) — so RelativePosition is still not viable as the SOLE anchor here.
+ * The comments feature uses paired MARKER-EMBED anchors, which reuse the proven
+ * footnote-anchor `EmbedItem` machinery: markers ARE inline content, so they
+ * move/clone with surrounding text for free. See the comments design spec §1
+ * "SPIKE PRECONDITION" and the surgical-inline-ops Phase 1 spec.
  *
  * Each case anchors at a known char, runs an op, then resolves the RelativePosition
  * and reports whether it still addresses the SAME surviving character.
@@ -109,14 +113,17 @@ describe("comments slice-0 spike — RelativePosition survival across structural
     expect(survives(docOf(after), rel, after, "w")).toBe(true);
   });
 
-  it("delete-elsewhere (same block) ORPHANS — deleteRange rebuilds the Y.Text", () => {
+  it("delete-elsewhere (same block) SURVIVES — surgical deleteRange trims the Y.Text in place", () => {
+    // Post surgical-inline-ops Phase 1: a same-block delete mutates the existing Y.Text
+    // in place (was a full rebuild that orphaned every anchor). A RelativePosition into
+    // a surviving run now keeps resolving.
     const s = oneBlock();
     const rel = Y.createRelativePositionFromTypeIndex(firstItemText(s, "p"), 6); // "w"
     const after = deleteRange(
       s,
       createSpan(createPosition("p" as BlockId, 10), createPosition("p" as BlockId, 11)),
     ).state;
-    expect(survives(docOf(after), rel, after, "w")).toBe(false);
+    expect(survives(docOf(after), rel, after, "w")).toBe(true);
   });
 
   it("split — anchor in the LEFT half SURVIVES, in the RIGHT half ORPHANS", () => {

@@ -26,7 +26,6 @@
 
 import { describe, it, expect } from "vitest";
 import { reduceEditor, type EditorState, type EditorConfig } from "../editor-state";
-import { createMockShaper } from "../../layout/mock-shaper";
 import { createDefaultComponentRegistry } from "../../components/component-registry";
 import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
 import {
@@ -37,17 +36,11 @@ import {
   getTemplateContent,
 } from "../../state";
 import type { State, BlockId } from "../../state";
-import { render } from "../../render/render";
-import { cascadePass } from "../../cascade";
-import { layoutTree } from "../../layout/dispatch";
-import type { ElementBox } from "../../render/render-node";
 import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
 
-const measurer = createMockShaper(8, 16);
 const componentRegistry = createDefaultComponentRegistry();
 const attrRegistry = createDefaultAttrRegistry();
 const config: EditorConfig = {
-  measurer,
   componentRegistry,
   attrRegistry,
   containerWidth: 600,
@@ -107,29 +100,18 @@ function buildStateWithHeaderBody(): State {
 }
 
 /**
- * Build a complete EditorState (full pipeline) from a State with the caret at
- * `caret`. Mirrors cascade-template-bodies.test.ts's `buildEditorFull`, populating
- * every EditorState field the handlers + rebuildTrees expect.
+ * Build a geometry-free EditorState from a State with the caret at `caret`.
+ * Phase 0b: the structural caret-edit handlers (split/merge inside a header
+ * body) read only caret/selection/context state — no layout — so the synthetic
+ * state needs only the geometry-free fields.
  */
 function buildEditor(state: State, caret: { blockId: BlockId; offset: number }): EditorState {
-  const rendered = render(state, componentRegistry, attrRegistry);
-  const cascadedRoot = cascadePass(rendered.root);
-  const layout = layoutTree(cascadedRoot, config.containerWidth, measurer);
-  const cascadedTemplateContents = new Map<BlockId, ElementBox>();
-  for (const [id, body] of rendered.templateContents) {
-    cascadedTemplateContents.set(id, cascadePass(body) as ElementBox);
-  }
   const cursor = createPosition(caret.blockId, caret.offset);
   return {
     state,
     selection: createSpan(cursor, cursor),
     history: createHistory(state),
-    renderTree: rendered.root,
-    renderOutput: rendered,
-    cascadedRoot,
-    cascadedTemplateContents,
-    cascadedEmbedContents: new Map(),
-    layoutTree: layout,
+    lastDirtyIds: null,
     containerWidth: config.containerWidth,
     targetX: null,
   };

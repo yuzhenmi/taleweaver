@@ -7,6 +7,12 @@ import { BLOCK_FIELDS } from "./block-schema";
 import type { Block } from "./block";
 import type { BlockId } from "./block-id";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 /**
  * T16 roundtrip test: every keyof Block (except `id`, which is the outer
  * Y.Map key, not a field on the inner map) must be carried through both
@@ -67,13 +73,13 @@ describe("block-schema BLOCK_FIELDS roundtrip", () => {
     expect(b.lastChildId).toBe(init.lastChildId);
     if (b.inlineContent === null) throw new Error("expected inlineContent");
     expect(b.inlineContent.items.length).toBe(3);
-    const first = b.inlineContent.items[0];
+    const first = nth(b.inlineContent.items, 0, "inline item");
     expect(first.kind).toBe("text");
     if (first.kind === "text") {
       expect(first.text).toBe("hello ");
       expect(first.attrs).toEqual({ bold: true });
     }
-    const second = b.inlineContent.items[1];
+    const second = nth(b.inlineContent.items, 1, "inline item");
     expect(second.kind).toBe("embed");
     if (second.kind === "embed") {
       expect(second.embedType).toBe("image");

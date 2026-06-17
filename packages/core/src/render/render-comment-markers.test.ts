@@ -13,13 +13,19 @@ import {
 import { asBlockId } from "../state";
 import type { BlockId } from "../state";
 import { COMMENT_START_EMBED_TYPE, COMMENT_END_EMBED_TYPE } from "../state";
-import { layoutTree } from "../layout/dispatch";
-import { positionTreeForTest } from "../test-utils/position-tree";
+import { layoutTree } from "@taleweaver/print";
+import { positionTreeForTest } from "@taleweaver/print";
 import { createMockShaper } from "../layout/mock-shaper";
-import { getLineIndex } from "../cursor/line-flatten";
+import { getLineIndex } from "@taleweaver/print";
 
 const reg = createDefaultComponentRegistry();
 const attrReg = createDefaultAttrRegistry();
+
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
 
 /** Collect every render-node's text content (TextBoxes) into one string. */
 function allText(root: RenderNode): string {
@@ -171,7 +177,7 @@ describe("render — comment markers preserve the offset↔box 1:1 IFC invariant
 
     const lines = getLineIndex(layout).byBlock.get("p" as BlockId) ?? [];
     expect(lines).toHaveLength(1);
-    const line = lines[0].line;
+    const line = nth(lines, 0, "line").line;
 
     // State-model length: "hello " (6) + comment-start (1) + "world" (5) +
     // comment-end (1) = 13. The line's offsets must span [0, 13] — the markers

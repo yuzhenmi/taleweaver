@@ -15,6 +15,7 @@
 import { describe, it, expect } from "vitest";
 import {
   config,
+  measurer,
   createInitialEditorState,
   reduceEditor,
   firstChildId,
@@ -22,23 +23,37 @@ import {
 } from "./test-helpers";
 import type { EditorState } from "../editor-state";
 import { getBlock, createHistory } from "../../state";
-import type { BlockId } from "../../state";
+import type { State, BlockId } from "../../state";
 import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
 import { render } from "../../render/render";
 import { cascadePass } from "../../cascade";
-import { layoutTree } from "../../layout/dispatch";
-import { getLineIndex } from "../../cursor/line-flatten";
+import { layoutTree } from "@taleweaver/print";
+import type { LayoutBox } from "@taleweaver/print";
+import { getLineIndex } from "@taleweaver/print";
+
+/**
+ * Phase 0b: core's `EditorState` is geometry-free — the layout tree lives in the
+ * backend driver, not on the state. These editor-action tests assert the
+ * alignment GEOMETRY by running core's `render → cascadePass → layoutTree`
+ * pipeline directly over `editor.state` (all barrel-exported from core), exactly
+ * what the backend driver does. The state/selection assertions stay on `editor`.
+ */
+function layoutOf(state: State): LayoutBox {
+  const rendered = render(state, config.componentRegistry, config.attrRegistry);
+  const cascaded = cascadePass(rendered.root);
+  const tree = layoutTree(cascaded, config.containerWidth, measurer, config.pageConfig);
+  if (tree.type === "virtual-root") {
+    throw new Error("expected a non-paginated LayoutBox tree");
+  }
+  return tree;
+}
 
 /**
  * The absolute X of the FIRST line owned by `blockId` in the editor's
  * (non-paginated) layout tree. Used to prove the alignment offset actually
  * fired through render→cascade→IFC reflow, not just the attr write.
  */
-function firstLineX(editor: EditorState, blockId: BlockId): number {
-  const tree = editor.layoutTree;
-  // The unpaginated test `config` (no pageConfig) produces a plain LayoutBox
-  // tree, not a VirtualLayoutTree — narrow so getLineIndex accepts it.
-  if (tree.type === "virtual-root") throw new Error("expected a non-paginated LayoutBox tree");
+function firstLineX(tree: LayoutBox, blockId: BlockId): number {
   const index = getLineIndex(tree);
   const lines = index.byBlock.get(blockId);
   if (lines === undefined || lines.length === 0) {
@@ -48,8 +63,10 @@ function firstLineX(editor: EditorState, blockId: BlockId): number {
   // and the alignment offset rides on the first child's `inlineOffset`. Return
   // the CONTENT's absolute x — the visible left edge of the laid-out content —
   // which is the value every alignment-geometry assertion below pins against.
-  const first = lines[0].line.children[0];
-  return first === undefined ? lines[0].absoluteX : lines[0].absoluteX + first.x;
+  const line0 = lines[0];
+  if (line0 === undefined) throw new Error(`no first line for block ${blockId}`);
+  const first = line0.line.children[0];
+  return first === undefined ? line0.absoluteX : line0.absoluteX + first.x;
 }
 
 describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
@@ -60,7 +77,7 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
 
     // Baseline: default alignment (start) → line begins at x === 0.
     expect(getBlock(editor.state, paraId)?.attrs.textAlign).toBeUndefined();
-    const startX = firstLineX(editor, paraId);
+    const startX = firstLineX(layoutOf(editor.state), paraId);
     expect(startX).toBe(0);
 
     const next = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" }, config);
@@ -72,7 +89,7 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
 
     // GEOMETRY: the line is now centered — its absolute X moved RIGHT of 0.
     // "hi" = 2 chars × 8px = 16px content; containerWidth 200 ⇒ x = (200-16)/2 = 92.
-    const centeredX = firstLineX(next, paraId);
+    const centeredX = firstLineX(layoutOf(next.state), paraId);
     expect(centeredX).toBeGreaterThan(startX);
     expect(centeredX).toBe((200 - 16) / 2);
   });
@@ -127,9 +144,6 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
         }),
       ],
     });
-    const rendered = render(initialState, config.componentRegistry, config.attrRegistry);
-    const cascadedRoot = cascadePass(rendered.root);
-    const layout = layoutTree(cascadedRoot, config.containerWidth, config.measurer, config.pageConfig);
     const editor: EditorState = {
       state: initialState,
       selection: {
@@ -137,12 +151,7 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
         focus: createPosition("p2" as BlockId, 2),
       },
       history: createHistory(initialState),
-      renderTree: rendered.root,
-      renderOutput: rendered,
-      cascadedRoot,
-      cascadedTemplateContents: new Map(),
-      cascadedEmbedContents: new Map(),
-      layoutTree: layout,
+      lastDirtyIds: null,
       containerWidth: config.containerWidth,
       targetX: null,
     };
@@ -188,8 +197,13 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
 
     const again = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" }, config);
 
-    // Same editor reference — no commit, no state change (T7 identity contract).
-    expect(again).toBe(editor);
+    // No commit, no state change (T7 identity contract): the `state` is the SAME
+    // reference. Phase 0b: the reducer entry-clears `lastDirtyIds` to null at the
+    // start of every dispatch, so a no-op AFTER a mutating action returns a new
+    // top-level object (lastDirtyIds null) — but the underlying `state` is
+    // untouched, which is the actual no-op contract the driver keys off.
+    expect(again.state).toBe(editor.state);
+    expect(again.lastDirtyIds).toBeNull();
   });
 
   it("no-op in dev mode: dispatching a no-op SET_TEXT_ALIGN does not throw (relaxed commit contract)", () => {

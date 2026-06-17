@@ -24,6 +24,13 @@ import {
   type EditorConfig,
   type EditorState,
 } from "./test-helpers";
+
+/** Throwing indexed access for tests: stronger than the old undefined-deref TypeError. */
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
 import {
   getBlock,
   getSuggestions,
@@ -103,11 +110,11 @@ describe("handlePaste — suggesting mode (PF-3)", () => {
     expect(getTextOf(sug.state, p1)).toBe("abcX");
     const suggestions = getSuggestions(sug.state);
     expect(suggestions).toHaveLength(1);
-    expect(suggestions[0].kind).toBe("insertion");
-    expect(suggestions[0].author).toBe("alice");
+    expect(nth(suggestions, 0, "suggestion").kind).toBe("insertion");
+    expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
     const items = getBlock(sug.state, p1)?.inlineContent?.items ?? [];
     const x = items.find((it) => it.kind === "text" && it.text === "X");
-    expect(x?.kind === "text" && x.attrs.insertionSuggestionId).toBe(suggestions[0].id);
+    expect(x?.kind === "text" && x.attrs.insertionSuggestionId).toBe(nth(suggestions, 0, "suggestion").id);
     expect(sug.selection.focus).toEqual(createPosition(p1, 4)); // caret after the pasted "X"
 
     // Direct mode (FRESH doc): same paste produces the text with NO suggestions.
@@ -125,9 +132,9 @@ describe("handlePaste — suggesting mode (PF-3)", () => {
   it("collapsed caret, two-line paste: ONE insertion + a split embed + two blocks; accept keeps split, reject removes paste", () => {
     const { editor: sug } = freshCollapsedPaste("X\nY");
     const seq = blockSeq(sug);
-    expect(getTextOf(sug.state, seq[0])).toBe("abcX");
-    expect(hasSplitEmbed(sug, seq[0])).toBe(true);
-    expect(getTextOf(sug.state, seq[1])).toBe("Y");
+    expect(getTextOf(sug.state, nth(seq, 0, "block id"))).toBe("abcX");
+    expect(hasSplitEmbed(sug, nth(seq, 0, "block id"))).toBe(true);
+    expect(getTextOf(sug.state, nth(seq, 1, "block id"))).toBe("Y");
     expect(getSuggestions(sug.state).map((s) => s.kind)).toEqual(["insertion"]);
     // caret lands after the last pasted line ("Y") in the new block, before any suffix.
     expect(sug.selection.focus.blockId).toBe(seq[1]);
@@ -145,7 +152,7 @@ describe("handlePaste — suggesting mode (PF-3)", () => {
   it("paste over a SINGLE-block selection: strikes selection + tracks insert; accept removes struck + keeps text; reject restores", () => {
     expect(getSuggestions(freshSingleBlockPaste().editor.state).map((s) => s.kind).sort()).toEqual(["deletion", "insertion"]);
     const accepted = reduceEditor(freshSingleBlockPaste().editor, { type: "ACCEPT_ALL_SUGGESTIONS" }, suggestingConfig);
-    expect(getTextOf(accepted.state, blockSeq(accepted)[0])).toBe("aXc"); // b struck-removed, X kept
+    expect(getTextOf(accepted.state, nth(blockSeq(accepted), 0, "block id"))).toBe("aXc"); // b struck-removed, X kept
     expect(getSuggestions(accepted.state)).toHaveLength(0);
     const rejected = reduceEditor(freshSingleBlockPaste().editor, { type: "REJECT_ALL_SUGGESTIONS" }, suggestingConfig);
     expect(blockSeq(rejected).map((id) => getTextOf(rejected.state, id))).toEqual(["abc", "def"]);
@@ -179,9 +186,9 @@ describe("handlePaste — suggesting mode (PF-3)", () => {
     expect(seq.length).toBe(2);
     // The new "Y" block inherits the source HEADING type + level (would be a plain
     // "paragraph" if the fragment hardcoded the type).
-    expect(getBlock(accepted.state, seq[0])?.type).toBe("heading");
-    expect(getBlock(accepted.state, seq[1])?.type).toBe("heading");
-    expect(getBlock(accepted.state, seq[1])?.attrs.level).toBe(1);
+    expect(getBlock(accepted.state, nth(seq, 0, "block id"))?.type).toBe("heading");
+    expect(getBlock(accepted.state, nth(seq, 1, "block id"))?.type).toBe("heading");
+    expect(getBlock(accepted.state, nth(seq, 1, "block id"))?.attrs.level).toBe(1);
   });
 
   it("footnote-body collapsed two-line paste tracks + resolves in the body tree (MT round-trip)", () => {

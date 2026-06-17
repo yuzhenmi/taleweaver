@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    // The pattern data itself is DOM-free, but `@taleweaver/core` is resolved to
+    // its TypeScript source (its `exports` points at `src/index.ts`), so building
+    // this package transitively typechecks core — which references the DOM
+    // `performance` global. Mirror `packages/print`'s lib so that transitive
+    // check passes.
+    "lib": ["ES2022", "DOM"],
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"]
+}

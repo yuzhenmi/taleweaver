@@ -8,6 +8,12 @@ import {
 import { text, embed, inlineContent } from "../test-utils/state-builders";
 import { AttrRegistry } from "../cascade/attr-registry";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 describe("inlineContentLength", () => {
   it("returns 0 for empty content", () => {
     expect(inlineContentLength(inlineContent([]))).toBe(0);
@@ -259,7 +265,7 @@ describe("mergeAdjacentTextItems", () => {
       expect(result[0]).toMatchObject({ kind: "text", text: "hello" });
       // Merged result keeps the FIRST run's attrs (the pending item) —
       // that's the existing mergeAdjacentTextItems contract.
-      const merged = result[0];
+      const merged = nth(result, 0, "merged item");
       if (merged.kind !== "text") throw new Error("expected text item");
       const attrs = merged.attrs.comment;
       if (!isCommentAttr(attrs)) throw new Error("expected comment attr");

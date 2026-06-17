@@ -12,10 +12,10 @@
  * and returns the original editor.
  */
 import { describe, it, expect } from "vitest";
-import { config, reduceEditor } from "./test-helpers";
+import { config, measurer, reduceEditor } from "./test-helpers";
 import type { EditorState } from "../editor-state";
 import { getBlock, createHistory } from "../../state";
-import type { BlockId } from "../../state";
+import type { BlockId, State } from "../../state";
 import {
   buildState,
   buildBlock,
@@ -24,13 +24,24 @@ import {
 } from "../../test-utils/state-builders";
 import { render } from "../../render/render";
 import { cascadePass } from "../../cascade";
-import { layoutTree } from "../../layout/dispatch";
+import { layoutTree } from "@taleweaver/print";
+
+/**
+ * Phase 0b: core's `EditorState` is geometry-free — the layout tree lives in the
+ * backend driver. This runs core's `render → cascadePass → layoutTree` pipeline
+ * directly (what the driver does) so a test can prove the post-break document
+ * still lays out without error.
+ */
+function layoutOf(state: State): unknown {
+  const rendered = render(state, config.componentRegistry, config.attrRegistry);
+  const cascaded = cascadePass(rendered.root);
+  return layoutTree(cascaded, config.containerWidth, measurer, config.pageConfig);
+}
 
 /**
  * Build a multi-paragraph editor `document → [p1, p2, p3, p4]` with the
- * cursor collapsed at the start of `cursorBlock`. Mirrors the up-front
- * render/cascade/layout the real `createInitialEditorState` performs so the
- * EditorState fields are properly typed and populated.
+ * cursor collapsed at the start of `cursorBlock`. Phase 0b: the EditorState is
+ * geometry-free (no render/cascade/layout fields).
  */
 function makeEditor(cursorBlock: BlockId): EditorState {
   const initialState = buildState({
@@ -74,29 +85,12 @@ function makeEditor(cursorBlock: BlockId): EditorState {
       }),
     ],
   });
-  const rendered = render(
-    initialState,
-    config.componentRegistry,
-    config.attrRegistry,
-  );
-  const cascadedRoot = cascadePass(rendered.root);
-  const layout = layoutTree(
-    cascadedRoot,
-    config.containerWidth,
-    config.measurer,
-    config.pageConfig,
-  );
   const cursor = { blockId: cursorBlock, offset: 0 };
   return {
     state: initialState,
     selection: { anchor: cursor, focus: cursor },
     history: createHistory(initialState),
-    renderTree: rendered.root,
-    renderOutput: rendered,
-    cascadedRoot,
-    cascadedTemplateContents: new Map(),
-    cascadedEmbedContents: new Map(),
-    layoutTree: layout,
+    lastDirtyIds: null,
     containerWidth: config.containerWidth,
     targetX: null,
   };
@@ -144,10 +138,8 @@ describe("handleSectionBreak — SECTION_BREAK action", () => {
     expect(next.selection.focus).toEqual({ blockId: "p3" as BlockId, offset: 0 });
     expect(next.selection.anchor).toEqual({ blockId: "p3" as BlockId, offset: 0 });
 
-    // Pipeline rebuilt without error.
-    expect(next.layoutTree).toBeDefined();
-    expect(next.renderTree).toBeDefined();
-    expect(next.cascadedRoot).toBeDefined();
+    // The post-break document lays out without error (driver-equivalent pipeline).
+    expect(layoutOf(next.state)).toBeDefined();
   });
 
   it("is a no-op when the cursor is in the first child (would create an empty leading section)", () => {

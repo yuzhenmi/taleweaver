@@ -113,8 +113,12 @@ export function planInsertTableColumnSpanAware(
     for (const c of originating) {
       if (c.gridCol >= gc) { nextCellId = c.cellId; break; }
     }
+    const rowId = ctx.rowIds[r];
+    if (rowId === undefined) {
+      throw new Error(`insertTableColumnSpanAware: row id at grid row ${r} missing (unreachable)`);
+    }
     return {
-      rowId: ctx.rowIds[r],
+      rowId,
       cellId: allocator.allocate(),
       paragraphId: allocator.allocate(),
       prevCellId,

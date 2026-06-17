@@ -7,19 +7,22 @@ import { assertNoIdCollision } from "../id-collision-check";
 import { planRemoveBlock, removeBlockInTx } from "./remove-block";
 
 /**
- * Delete a whole table. When the table is its parent's SOLE child, a fresh
- * empty-leaf paragraph is inserted in its place — in the SAME transaction — so
- * the body is never left empty (Google Docs / Word / Pages never allow an empty
- * body). When the table has a sibling, this is a plain subtree removal (no
- * replacement). One undo entry either way.
+ * Remove a whole block (and its subtree). When the block is its parent's SOLE
+ * child, a fresh empty-leaf paragraph is inserted in its place — in the SAME
+ * transaction — so the body is never left empty (Google Docs / Word / Pages
+ * never allow an empty body). When the block has a sibling, this is a plain
+ * subtree removal (no replacement). One undo entry either way.
  *
- * This is the single whole-table-delete primitive that `DELETE_TABLE` and the
- * (later) last-row / last-column collapse route through.
+ * A GENERIC remove-block-with-replacement primitive (the name reflects its first
+ * caller). `DELETE_TABLE` + the (later) last-row / last-column collapse route a
+ * table through it; image OBJECT-SELECTION delete (#525) routes the image block
+ * through it the same way — the body is block-type-agnostic (it only validates
+ * the target is a non-root block via `planRemoveBlock`).
  *
  * Returns the new paragraph id when a replacement was created (sole-child case),
- * else null — the handler uses it for caret placement.
+ * else null — the caller uses it for caret placement.
  *
- * Span-agnostic: removing the entire table is always safe regardless of
+ * Span-agnostic: removing the entire subtree is always safe regardless of
  * `rowSpan`/`colSpan` (unlike the row/column insert/delete ops). MAIN-TREE ONLY
  * (mirrors `removeBlock`).
  */

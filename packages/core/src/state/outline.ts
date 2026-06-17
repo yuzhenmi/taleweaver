@@ -167,6 +167,11 @@ export function outlineSignaturesEqual(a: OutlineSignature, b: OutlineSignature)
   for (let i = 0; i < a.signature.length; i++) {
     const x = a.signature[i];
     const y = b.signature[i];
+    if (x === undefined || y === undefined) {
+      // Unreachable: both signatures have equal length (checked above) and i is
+      // bounded by that length, so both lookups are in range.
+      throw new Error(`outlineSignaturesEqual: signature index ${i} out of range`);
+    }
     if (x.blockId !== y.blockId || x.level !== y.level || x.text !== y.text) return false;
   }
   return true;

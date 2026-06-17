@@ -22,7 +22,7 @@ export function coalesceKeyOf(action: EditorAction): ActionClass {
     case "DELETE_BACKWARD":
     case "DELETE_FORWARD":
     case "DELETE_WORD":
-    case "DELETE_LINE":
+    case "DELETE_RANGE":
       return "delete";
     case "SPLIT_NODE":
     case "PASTE":
@@ -53,7 +53,10 @@ export function coalesceKeyOf(action: EditorAction): ActionClass {
     case "SPLIT_CELL":
     case "MERGE_CELLS":
     case "INSERT_IMAGE":
+    case "INSERT_INLINE_IMAGE":
     case "SET_IMAGE_SIZE":
+    case "SET_IMAGE_WRAP":
+    case "SET_IMAGE_ALT":
     case "SET_FOOTNOTE_POLICY":
     case "TOGGLE_STYLE":
     case "SET_LINK":
@@ -88,18 +91,15 @@ export function coalesceKeyOf(action: EditorAction): ActionClass {
       // `"resolve"` only BREAKS the open group (so preceding typing commits as its
       // own unit) without opening one.
       return "resolve";
-    case "MOVE_CURSOR":
     case "MOVE_WORD":
-    case "MOVE_LINE":
-    case "MOVE_LINE_BOUNDARY":
     case "MOVE_DOCUMENT_BOUNDARY":
-    case "EXPAND_SELECTION":
     case "EXPAND_WORD":
-    case "EXPAND_LINE":
-    case "EXPAND_LINE_BOUNDARY":
     case "EXPAND_DOCUMENT_BOUNDARY":
     case "SELECT_ALL":
     case "SET_SELECTION":
+    // #525: ESCAPE is a pure selection move (deselect an object → caret beside
+    // it), so it breaks the open undo group like any other caret move.
+    case "ESCAPE":
     case "UNDO":
     case "REDO":
       return "selection-break";

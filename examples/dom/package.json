@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@taleweaver/core": "^0.0.1",
-    "@taleweaver/dom": "^0.0.1"
+    "@taleweaver/print": "^0.0.1"
   },
   "devDependencies": {
     "typescript": "^5.7",

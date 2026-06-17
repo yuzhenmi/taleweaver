@@ -3,7 +3,7 @@ import { createRef } from "react";
 import { render, act } from "@testing-library/react";
 import { EditorView, type EditorViewHandle } from "./editor-view";
 import { useEditor } from "./use-editor";
-import { createEditorController } from "@taleweaver/dom";
+import { createEditorController } from "@taleweaver/print";
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -27,9 +27,9 @@ const mockReplaceActive = vi.fn(() => ({ total: 2, activeIndex: 0 }));
 const mockReplaceAll = vi.fn(() => ({ total: 0, activeIndex: -1 }));
 const mockFindStatus = vi.fn(() => ({ total: 3, activeIndex: 0 }));
 
-vi.mock("@taleweaver/dom", async () => {
-  const actual = await vi.importActual<typeof import("@taleweaver/dom")>(
-    "@taleweaver/dom",
+vi.mock("@taleweaver/print", async () => {
+  const actual = await vi.importActual<typeof import("@taleweaver/print")>(
+    "@taleweaver/print",
   );
   return {
     ...actual,

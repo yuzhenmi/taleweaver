@@ -1,26 +1,22 @@
 import { describe, it, expect } from "vitest";
-import { rebuildTrees } from "./helpers";
-import type { EditorState, EditorConfig } from "../editor-state";
-import { createMockShaper } from "../../layout/mock-shaper";
+import { cascadeEmbedContents } from "./helpers";
 import { createDefaultComponentRegistry } from "../../components/component-registry";
 import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
-import { createHistory, createPosition, createSpan } from "../../state";
 import type { State, BlockId } from "../../state";
-import { render } from "../../render/render";
-import { cascadePass } from "../../cascade";
-import { layoutTree } from "../../layout/dispatch";
+import { render, type RenderOutput } from "../../render/render";
 import type { ElementBox, RenderNode } from "../../render/render-node";
 import { buildState, buildBlock, inlineContent, text, embed } from "../../test-utils/state-builders";
 
-const measurer = createMockShaper(8, 16);
 const componentRegistry = createDefaultComponentRegistry();
 const attrRegistry = createDefaultAttrRegistry();
-const config: EditorConfig = {
-  measurer,
-  componentRegistry,
-  attrRegistry,
-  containerWidth: 600,
-};
+
+/**
+ * Phase 0b: `cascadeEmbedContents` is core's pure footnote-body cascade pass
+ * (barrel-exported; the print backend's layout-driver calls it). Core's editor
+ * reducer no longer cascades embed bodies into `EditorState`, so these tests
+ * exercise the function DIRECTLY over a `RenderOutput` — the same call the
+ * driver makes — asserting the full + incremental (reuse-by-reference) contract.
+ */
 
 /**
  * A single-paragraph main document whose paragraph carries a footnote anchor
@@ -57,33 +53,14 @@ function footnoteBody(rootId: string, leafId: string, leafText: string) {
   ];
 }
 
-/** Build a complete EditorState from a State using the FULL pipeline. */
-function buildEditorFull(state: State): EditorState {
+/** Render `state` and cascade its footnote bodies (full path). */
+function cascadeFull(state: State): {
+  rendered: RenderOutput;
+  cascaded: ReadonlyMap<BlockId, ElementBox>;
+} {
   const rendered = render(state, componentRegistry, attrRegistry);
-  const cascadedRoot = cascadePass(rendered.root);
-  const layout = layoutTree(cascadedRoot, config.containerWidth, measurer);
-  const cascadedTemplateContents = new Map<BlockId, ElementBox>();
-  for (const [id, body] of rendered.templateContents) {
-    cascadedTemplateContents.set(id, cascadePass(body) as ElementBox);
-  }
-  const cascadedEmbedContents = new Map<BlockId, ElementBox>();
-  for (const [id, body] of rendered.embedContents) {
-    cascadedEmbedContents.set(id, cascadePass(body) as ElementBox);
-  }
-  const cursor = createPosition("p" as BlockId, 0);
-  return {
-    state,
-    selection: createSpan(cursor, cursor),
-    history: createHistory(state),
-    renderTree: rendered.root,
-    renderOutput: rendered,
-    cascadedRoot,
-    cascadedTemplateContents,
-    cascadedEmbedContents,
-    layoutTree: layout,
-    containerWidth: config.containerWidth,
-    targetX: null,
-  };
+  const cascaded = cascadeEmbedContents(rendered, null, null);
+  return { rendered, cascaded };
 }
 
 /** Find a cascaded RenderNode by key in a subtree. */
@@ -98,34 +75,17 @@ function findByKey(node: RenderNode, key: string): RenderNode | undefined {
   return undefined;
 }
 
-describe("rebuildTrees: cascade embedContents bodies (FN-1)", () => {
+describe("cascadeEmbedContents: cascade embedContents bodies (FN-1)", () => {
   it("full path: a footnote body is cascaded — body root has non-null computedStyle and cascaded children", () => {
     const state = buildState({
       rootId: "doc",
       blocks: mainDocWithAnchor("fn-root"),
       embedContents: footnoteBody("fn-root", "fn-p", "footnote text"),
     });
-    const rendered = render(state, componentRegistry, attrRegistry);
-    const cascadedRoot = cascadePass(rendered.root);
-    const layout = layoutTree(cascadedRoot, config.containerWidth, measurer);
-    const cursor = createPosition("p" as BlockId, 0);
-    const bare: EditorState = {
-      state,
-      selection: createSpan(cursor, cursor),
-      history: createHistory(state),
-      renderTree: rendered.root,
-      renderOutput: rendered,
-      cascadedRoot,
-      cascadedTemplateContents: new Map(),
-      cascadedEmbedContents: new Map(),
-      layoutTree: layout,
-      containerWidth: config.containerWidth,
-      targetX: null,
-    };
 
-    const out = rebuildTrees(bare, bare, config);
+    const { cascaded } = cascadeFull(state);
 
-    const body = out.cascadedEmbedContents.get("fn-root" as BlockId);
+    const body = cascaded.get("fn-root" as BlockId);
     expect(body).toBeDefined();
     expect(body?.computedStyle).toBeDefined();
     expect(body?.type).toBe("element");
@@ -155,7 +115,7 @@ describe("rebuildTrees: cascade embedContents bodies (FN-1)", () => {
         ...footnoteBody("fn-b-root", "fn-b-p", "B unchanged"),
       ],
     });
-    const old = buildEditorFull(state1);
+    const { rendered: rendered1, cascaded: cascaded1 } = cascadeFull(state1);
 
     const state2 = buildState({
       rootId: "doc",
@@ -177,14 +137,18 @@ describe("rebuildTrees: cascade embedContents bodies (FN-1)", () => {
         ...footnoteBody("fn-b-root", "fn-b-p", "B unchanged"),
       ],
     });
-    const next: EditorState = { ...old, state: state2 };
+    const dirty = new Set(["fn-a-p" as BlockId]);
+    const rendered2 = render(state2, componentRegistry, attrRegistry, {
+      prev: rendered1,
+      prevState: state1,
+      dirtyIds: dirty,
+    });
+    const cascaded2 = cascadeEmbedContents(rendered2, rendered1, cascaded1, dirty);
 
-    const out = rebuildTrees(next, old, config, new Set(["fn-a-p" as BlockId]));
-
-    const oldA = old.cascadedEmbedContents.get("fn-a-root" as BlockId);
-    const newA = out.cascadedEmbedContents.get("fn-a-root" as BlockId);
-    const oldB = old.cascadedEmbedContents.get("fn-b-root" as BlockId);
-    const newB = out.cascadedEmbedContents.get("fn-b-root" as BlockId);
+    const oldA = cascaded1.get("fn-a-root" as BlockId);
+    const newA = cascaded2.get("fn-a-root" as BlockId);
+    const oldB = cascaded1.get("fn-b-root" as BlockId);
+    const newB = cascaded2.get("fn-b-root" as BlockId);
 
     // Body A re-cascaded → fresh ref, new text shows.
     expect(newA).not.toBe(oldA);
@@ -203,7 +167,7 @@ describe("rebuildTrees: cascade embedContents bodies (FN-1)", () => {
       blocks: mainDocWithAnchor("fn-root"),
       embedContents: footnoteBody("fn-root", "fn-p", "footnote"),
     });
-    const old = buildEditorFull(state1);
+    const { rendered: rendered1, cascaded: cascaded1 } = cascadeFull(state1);
 
     const state2 = buildState({
       rootId: "doc",
@@ -221,16 +185,18 @@ describe("rebuildTrees: cascade embedContents bodies (FN-1)", () => {
       ],
       embedContents: footnoteBody("fn-root", "fn-p", "footnote"),
     });
-    const next: EditorState = { ...old, state: state2 };
+    const dirty = new Set(["p" as BlockId]);
+    const rendered2 = render(state2, componentRegistry, attrRegistry, {
+      prev: rendered1,
+      prevState: state1,
+      dirtyIds: dirty,
+    });
+    const cascaded2 = cascadeEmbedContents(rendered2, rendered1, cascaded1, dirty);
 
-    const out = rebuildTrees(next, old, config, new Set(["p" as BlockId]));
-
-    expect(out.cascadedEmbedContents.get("fn-root" as BlockId)).toBe(
-      old.cascadedEmbedContents.get("fn-root" as BlockId),
-    );
+    expect(cascaded2.get("fn-root" as BlockId)).toBe(cascaded1.get("fn-root" as BlockId));
   });
 
-  it("no-regression: a doc WITHOUT footnote bodies → cascadedEmbedContents is empty", () => {
+  it("no-regression: a doc WITHOUT footnote bodies → cascaded embed map is empty", () => {
     const state = buildState({
       rootId: "doc",
       blocks: [
@@ -243,9 +209,8 @@ describe("rebuildTrees: cascade embedContents bodies (FN-1)", () => {
         }),
       ],
     });
-    const old = buildEditorFull(state);
 
-    const outFull = rebuildTrees(old, old, config);
-    expect(outFull.cascadedEmbedContents.size).toBe(0);
+    const { cascaded } = cascadeFull(state);
+    expect(cascaded.size).toBe(0);
   });
 });

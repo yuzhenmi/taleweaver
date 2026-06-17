@@ -146,8 +146,9 @@ function withSpan(attrs: ReadonlyAttrs, rowSpan: number, colSpan: number): Reado
  * is conservatively NOT empty — its content migrates, never silently dropped.
  */
 function isSingleEmptyParagraph(state: State, childIds: readonly BlockId[]): boolean {
-  if (childIds.length !== 1) return false;
-  const only = getBlock(state, childIds[0]);
+  const onlyChildId = childIds[0];
+  if (childIds.length !== 1 || onlyChildId === undefined) return false;
+  const only = getBlock(state, onlyChildId);
   if (only === null || only.inlineContent === null) return false;
   return only.inlineContent.items.length === 0;
 }
@@ -167,33 +168,35 @@ export function mergeCellsInTx(doc: Y.Doc, plan: MergeCellsPlan): void {
 
   // 2. Append migrated children onto the survivor's tail, re-chaining them linearly.
   const migrated = plan.migratedChildIds;
-  for (let i = 0; i < migrated.length; i++) {
-    const yChild = getYBlock(doc, migrated[i], "mergeCells");
+  for (const [i, childId] of migrated.entries()) {
+    const yChild = getYBlock(doc, childId, "mergeCells");
     yChild.set("parentId", plan.survivorId);
-    yChild.set("prevSiblingId", i === 0 ? plan.survivorOrigLastChildId : migrated[i - 1]);
-    yChild.set("nextSiblingId", i === migrated.length - 1 ? null : migrated[i + 1]);
+    yChild.set("prevSiblingId", i === 0 ? plan.survivorOrigLastChildId : (migrated[i - 1] ?? null));
+    yChild.set("nextSiblingId", i === migrated.length - 1 ? null : (migrated[i + 1] ?? null));
   }
-  if (migrated.length > 0) {
+  const firstMigrated = migrated[0];
+  const lastMigrated = migrated[migrated.length - 1];
+  if (firstMigrated !== undefined && lastMigrated !== undefined) {
     const ySurvivor = getYBlock(doc, plan.survivorId, "mergeCells");
     if (plan.survivorOrigLastChildId !== null) {
-      getYBlock(doc, plan.survivorOrigLastChildId, "mergeCells").set("nextSiblingId", migrated[0]);
+      getYBlock(doc, plan.survivorOrigLastChildId, "mergeCells").set("nextSiblingId", firstMigrated);
     } else {
-      ySurvivor.set("firstChildId", migrated[0]); // defensive: survivor had no children
+      ySurvivor.set("firstChildId", firstMigrated); // defensive: survivor had no children
     }
-    ySurvivor.set("lastChildId", migrated[migrated.length - 1]);
+    ySurvivor.set("lastChildId", lastMigrated);
   }
 
   // 3. Re-chain each affected row's surviving cells (donors excluded). An empty
   //    chain → a row fully covered by the survivor's rowSpan.
   for (const { rowId, cellIds } of plan.rowChains) {
     const yRow = getYBlock(doc, rowId, "mergeCells");
-    for (let i = 0; i < cellIds.length; i++) {
-      const yCell = getYBlock(doc, cellIds[i], "mergeCells");
-      yCell.set("prevSiblingId", i === 0 ? null : cellIds[i - 1]);
-      yCell.set("nextSiblingId", i === cellIds.length - 1 ? null : cellIds[i + 1]);
+    for (const [i, cellId] of cellIds.entries()) {
+      const yCell = getYBlock(doc, cellId, "mergeCells");
+      yCell.set("prevSiblingId", i === 0 ? null : (cellIds[i - 1] ?? null));
+      yCell.set("nextSiblingId", i === cellIds.length - 1 ? null : (cellIds[i + 1] ?? null));
     }
-    yRow.set("firstChildId", cellIds.length > 0 ? cellIds[0] : null);
-    yRow.set("lastChildId", cellIds.length > 0 ? cellIds[cellIds.length - 1] : null);
+    yRow.set("firstChildId", cellIds[0] ?? null);
+    yRow.set("lastChildId", cellIds[cellIds.length - 1] ?? null);
   }
 
   // 4. Delete donor cells (children already migrated) + empty donors' paragraphs.

@@ -37,6 +37,12 @@ import {
 import { createPosition } from "../block-position";
 import { createTestAllocator, type BlockId } from "../block-id";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 const SID = "split-1" as SuggestionId;
 const INPUT = { id: SID, author: "alice", createdAt: 1000 } as const;
 
@@ -84,7 +90,7 @@ describe("splitWithSuggestion — mid split: real split + break embed + insertio
     // Block N: text "abc" + a trailing block-split-suggestion embed carrying the id.
     const nItems = itemsOf(s, "p");
     expect(textOf(s, "p")).toBe("abc");
-    const lastN = nItems[nItems.length - 1];
+    const lastN = nth(nItems, nItems.length - 1, "last item");
     expect(lastN.kind).toBe("embed");
     if (lastN.kind !== "embed") throw new Error("expected the break embed as last item of N");
     expect(lastN.embedType).toBe(BLOCK_SPLIT_SUGGESTION_EMBED_TYPE);
@@ -109,7 +115,7 @@ describe("splitWithSuggestion — mid split: real split + break embed + insertio
     // Exactly ONE insertion record, with the right id/author/createdAt.
     const suggestions = getSuggestions(s);
     expect(suggestions.length).toBe(1);
-    const sug = suggestions[0];
+    const sug = nth(suggestions, 0, "suggestion");
     expect(sug.id).toBe(SID);
     expect(sug.kind).toBe("insertion");
     expect(sug.author).toBe("alice");
@@ -143,7 +149,7 @@ describe("splitWithSuggestion — offset invariant: the break embed occupies exa
 
     const items = nContent.items;
     // The break embed is the LAST item; there is exactly one such embed.
-    const last = items[items.length - 1];
+    const last = nth(items, items.length - 1, "last item");
     expect(last.kind).toBe("embed");
     expect(
       items.filter(
@@ -167,7 +173,7 @@ describe("splitWithSuggestion — split at END (offset = length), with newBlockI
     // N: "abcdef" + break embed.
     expect(textOf(s, "p")).toBe("abcdef");
     const nItems = itemsOf(s, "p");
-    expect(nItems[nItems.length - 1].kind).toBe("embed");
+    expect(nth(nItems, nItems.length - 1, "last item").kind).toBe("embed");
 
     // N+1: empty, type forced to paragraph by newBlockInit.
     expect(textOf(s, "p2-0")).toBe("");
@@ -176,7 +182,7 @@ describe("splitWithSuggestion — split at END (offset = length), with newBlockI
 
     // The insertion record is still written.
     expect(getSuggestions(s).length).toBe(1);
-    expect(getSuggestions(s)[0].kind).toBe("insertion");
+    expect(nth(getSuggestions(s), 0, "suggestion").kind).toBe("insertion");
   });
 });
 
@@ -194,9 +200,10 @@ describe("splitWithSuggestion — split at START (offset 0)", () => {
     expect(textOf(s, "p")).toBe("");
     const nItems = itemsOf(s, "p");
     expect(nItems.length).toBe(1);
-    expect(nItems[0].kind).toBe("embed");
-    if (nItems[0].kind !== "embed") throw new Error("expected break embed");
-    expect(nItems[0].embedType).toBe(BLOCK_SPLIT_SUGGESTION_EMBED_TYPE);
+    const firstItem = nth(nItems, 0, "item");
+    expect(firstItem.kind).toBe("embed");
+    if (firstItem.kind !== "embed") throw new Error("expected break embed");
+    expect(firstItem.embedType).toBe(BLOCK_SPLIT_SUGGESTION_EMBED_TYPE);
 
     // N+1: all the original text.
     expect(textOf(s, "p2-0")).toBe("abcdef");
@@ -280,7 +287,7 @@ describe("splitWithSuggestion — non-first block", () => {
     // p2 → "wo" + break embed; new block "rld".
     expect(textOf(s, "p2")).toBe("wo");
     const p2Items = itemsOf(s, "p2");
-    expect(p2Items[p2Items.length - 1].kind).toBe("embed");
+    expect(nth(p2Items, p2Items.length - 1, "last item").kind).toBe("embed");
     expect(textOf(s, "p3-0")).toBe("rld");
 
     // Siblings: p1 → p2 → p3-0 (new) chain; p1 untouched.
@@ -296,8 +303,8 @@ describe("splitWithSuggestion — non-first block", () => {
     // One insertion record.
     const suggestions = getSuggestions(s);
     expect(suggestions.length).toBe(1);
-    expect(suggestions[0].kind).toBe("insertion");
-    expect(suggestions[0].id).toBe(SID);
+    expect(nth(suggestions, 0, "suggestion").kind).toBe("insertion");
+    expect(nth(suggestions, 0, "suggestion").id).toBe(SID);
   });
 });
 
@@ -344,7 +351,7 @@ describe("splitWithSuggestion — CRDT identity: block N's surviving text-run Y.
     // Behavioral guards still hold: N = "abc" + the break embed last; N+1 = "def".
     const nItems = itemsOf(s, "p");
     expect(textOf(s, "p")).toBe("abc");
-    expect(nItems[nItems.length - 1].kind).toBe("embed");
+    expect(nth(nItems, nItems.length - 1, "last item").kind).toBe("embed");
     expect(textOf(s, "p2-0")).toBe("def");
     // ...and the insertion record is written.
     expect(getSuggestions(s).length).toBe(1);

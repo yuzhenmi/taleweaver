@@ -48,6 +48,12 @@ import {
 import type { State } from "../state";
 import type { InlineContent } from "../inline-content";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 const DEL_ID = "del1" as SuggestionId;
 const INS_ID = "ins1" as SuggestionId;
 const CREATED_AT = 9000;
@@ -617,8 +623,8 @@ describe("replaceWithSuggestion — degenerate delegation", () => {
     // Exactly one record: the deletion. No insertion.
     const suggestions = getSuggestions(s);
     expect(suggestions.length).toBe(1);
-    expect(suggestions[0].kind).toBe("deletion");
-    expect(suggestions[0].id).toBe(DEL_ID);
+    expect(nth(suggestions, 0, "suggestion").kind).toBe("deletion");
+    expect(nth(suggestions, 0, "suggestion").id).toBe(DEL_ID);
 
     // Equivalence with a direct markDeletion (same observable result).
     const direct = markDeletion(oneBlock(), span(1, 4), {
@@ -639,7 +645,7 @@ describe("replaceWithSuggestion — degenerate delegation", () => {
     // Exactly one record: the insertion. No deletion.
     const suggestions = getSuggestions(s);
     expect(suggestions.length).toBe(1);
-    expect(suggestions[0].kind).toBe("insertion");
-    expect(suggestions[0].id).toBe(INS_ID);
+    expect(nth(suggestions, 0, "suggestion").kind).toBe("insertion");
+    expect(nth(suggestions, 0, "suggestion").id).toBe(INS_ID);
   });
 });

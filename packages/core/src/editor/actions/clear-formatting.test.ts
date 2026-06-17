@@ -4,7 +4,6 @@ import {
   reduceEditor,
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
-  createMockShaper,
   getBlock,
   createPosition,
   createSpan,
@@ -15,7 +14,6 @@ import type { TextItem } from "../../state";
 
 function makeConfig(): EditorConfig {
   return {
-    measurer: createMockShaper(8, 16),
     componentRegistry: createDefaultComponentRegistry(),
     attrRegistry: createDefaultAttrRegistry(),
     containerWidth: 800,
@@ -98,14 +96,15 @@ describe("handleClearFormatting", () => {
     expect(editor).toBe(before);
   });
 
-  it("no-ops on a collapsed selection (referential identity)", () => {
+  it("no-ops on a collapsed selection (same state reference)", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "hello" }, config);
     const before = editor;
     // Collapsed at end of insert.
     editor = reduceEditor(editor, { type: "CLEAR_FORMATTING" }, config);
-    expect(editor).toBe(before);
+    // Same state reference (no-op; reducer entry-clears lastDirtyIds).
+    expect(editor.state).toBe(before.state);
   });
 
   it("undo restores all the cleared formatting in one step", () => {

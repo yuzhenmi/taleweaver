@@ -51,7 +51,11 @@ export function deleteTableColumn(state: State, ctx: TableContext): OperationRes
  *  the re-removed `columnWidths` attrs bag when present. */
 export function planDeleteTableColumn(state: State, ctx: TableContext): DeleteTableColumnPlan {
   const colIndex = ctx.colIndex;
-  const colCount = ctx.cellIdsByRow[ctx.rowIndex].length;
+  const caretRowCells = ctx.cellIdsByRow[ctx.rowIndex];
+  if (caretRowCells === undefined) {
+    throw new Error(`deleteTableColumn: caret row ${ctx.rowIndex} missing (unreachable)`);
+  }
+  const colCount = caretRowCells.length;
   // The single-column case collapses the whole table; the caller routes it to
   // deleteTableWithReplacement and must never reach this op.
   if (colCount <= 1) {
@@ -61,7 +65,11 @@ export function planDeleteTableColumn(state: State, ctx: TableContext): DeleteTa
   const cellPlans = ctx.rowIds.map((_rowId, r) => {
     // Non-ragged (hasSpans === false) → every row has the same column count, so
     // colIndex indexes a valid cell in every row.
-    const cellId = ctx.cellIdsByRow[r][colIndex];
+    const rowCells = ctx.cellIdsByRow[r];
+    const cellId = rowCells?.[colIndex];
+    if (cellId === undefined) {
+      throw new Error(`deleteTableColumn: cell at row ${r}, col ${colIndex} missing (unreachable)`);
+    }
     return planRemoveBlock(state, cellId);
   });
 

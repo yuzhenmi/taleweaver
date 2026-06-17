@@ -1,6 +1,14 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
+    // Core's PRODUCTION source is headless (it imports no DOM API and no sibling
+    // package — enforced by .dependency-cruiser.cjs). The DOM lib is needed only
+    // because core's TEST scaffolding (integration/setup.ts + the test-utils
+    // consumers) now imports geometric types from the relocated `@taleweaver/print`
+    // package (dual-mode Phase 3 sub-phase 3), whose barrel transitively references
+    // DOM-typed canvas/paint modules. This is a tests-only type edge; the shipped
+    // core runtime depends on no sibling package and no DOM global.
+    "lib": ["ES2022", "DOM"],
     "outDir": "dist",
     "rootDir": "src"
   },

@@ -2,15 +2,23 @@ import type { EditorState, EditorConfig } from "../editor-state";
 import { createPosition, createSpan, spanStart, spanEnd } from "../../state";
 import { moveByWord } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
+import { isObjectSelection } from "../../cursor/object-selection";
 import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
 import { deleteRangeOrSuggest, isSuggestingInBlock } from "./suggestion-mode";
+import { deleteObjectSelection } from "./object-edits";
 
 export function handleDeleteWord(
   editor: EditorState,
   direction: "forward" | "backward",
   config: EditorConfig,
 ): EditorState {
+  // Object selection (#525): Ctrl+Delete on a selected atomic-leaf (image)
+  // removes the object as a unit. Routes BEFORE the collapsed word-delete path,
+  // whose cross-block guard would otherwise silently no-op on the atomic block.
+  const objId = isObjectSelection(editor.state, editor.selection, config.componentRegistry);
+  if (objId !== null) return deleteObjectSelection(editor, config, objId);
+
   const { selection } = editor;
 
   if (!isCollapsed(selection)) {

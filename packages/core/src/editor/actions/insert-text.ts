@@ -10,15 +10,24 @@ import {
 } from "../../state";
 import type { OperationResult } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
+import { isObjectSelection } from "../../cursor/object-selection";
 import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection } from "./selection-guards";
 import { suggestionInputForBlock, replaceSuggestionInputForBlock } from "./suggestion-mode";
+import { replaceObjectWithText } from "./object-edits";
 
 export function handleInsertText(
   editor: EditorState,
   text: string,
   config: EditorConfig,
 ): EditorState {
+  // Object selection (#525): typing over a selected atomic-leaf (image) replaces
+  // the object with the typed text (Google Docs). Routes BEFORE the collapsed
+  // path, which would otherwise throw — `insertText` rejects an atomic block
+  // (`inlineContent === null`).
+  const objId = isObjectSelection(editor.state, editor.selection, config.componentRegistry);
+  if (objId !== null) return replaceObjectWithText(editor, config, objId, text);
+
   const selectionBefore = editor.selection;
 
   let result: OperationResult;

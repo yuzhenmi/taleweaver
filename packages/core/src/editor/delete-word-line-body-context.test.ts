@@ -1,18 +1,24 @@
 /**
- * #430 — DELETE_WORD / DELETE_LINE with a NON-COLLAPSED selection inside a
- * footnote (embedContents) / header-footer (templateContents) body must
- * actually delete the selected range.
+ * #430 — DELETE_WORD with a NON-COLLAPSED selection inside a footnote
+ * (embedContents) / header-footer (templateContents) body must actually delete
+ * the selected range.
  *
- * Root cause (pre-fix): the selection-delete branch of `handleDeleteWord` /
- * `handleDeleteLine` validated the span's blocks with `getBlock` (MAIN-TREE
- * ONLY). For a body-context range `getBlock` returns null → the handler
- * early-returned a no-op, so Ctrl/Alt+Backspace (delete-word) and delete-line
- * with a selection inside a footnote/header/footer did nothing — a
- * Google-Docs-parity editing bug. The fix mirrors the canonical
- * delete-backward path: `isCrossContextSelection` + `expandedSpanCollapsePoint`
- * (tree-aware `resolveBlock`) → `deleteRange` (tree-aware).
+ * Root cause (pre-fix): the selection-delete branch of `handleDeleteWord`
+ * validated the span's blocks with `getBlock` (MAIN-TREE ONLY). For a
+ * body-context range `getBlock` returns null → the handler early-returned a
+ * no-op, so Ctrl/Alt+Backspace (delete-word) with a selection inside a
+ * footnote/header/footer did nothing — a Google-Docs-parity editing bug. The fix
+ * mirrors the canonical delete-backward path: `isCrossContextSelection` +
+ * `expandedSpanCollapsePoint` (tree-aware `resolveBlock`) → `deleteRange`
+ * (tree-aware).
  *
  * MAIN-TREE selection-delete behavior must stay UNCHANGED (covered below).
+ *
+ * NOTE: the parallel DELETE_LINE cases for the SAME #430 fix moved to
+ * `packages/print/src/nav/delete-word-line-body-context.test.ts` in Phase 0b —
+ * DELETE_LINE left core's reducer for the print backend's NavIntent resolver
+ * (which needs the driver-built layout to find the line span). DELETE_WORD stays
+ * a pure-core action and is covered here.
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -83,7 +89,7 @@ function selectInBlock(
   );
 }
 
-describe("#430 — DELETE_WORD/DELETE_LINE delete a non-collapsed range inside a footnote body", () => {
+describe("#430 — DELETE_WORD deletes a non-collapsed range inside a footnote body", () => {
   it("DELETE_WORD with a selection inside the footnote body deletes the selected text", () => {
     let { editor, bodyId, bodyLength } = withFootnoteBodyText("hello world");
     expect(bodyTextOf(editor.state, bodyId)).toBe("hello world");
@@ -109,22 +115,9 @@ describe("#430 — DELETE_WORD/DELETE_LINE delete a non-collapsed range inside a
     }
     expect(inlineContentLength(block.inlineContent)).toBe(bodyLength - 6);
   });
-
-  it("DELETE_LINE with a selection inside the footnote body deletes the selected text", () => {
-    let { editor, bodyId } = withFootnoteBodyText("hello world");
-    expect(bodyTextOf(editor.state, bodyId)).toBe("hello world");
-
-    // Select "world" (offsets 6..11).
-    editor = selectInBlock(editor, bodyId, 6, 11);
-    editor = reduceEditor(editor, { type: "DELETE_LINE" }, config);
-
-    expect(bodyTextOf(editor.state, bodyId)).toBe("hello ");
-    expect(editor.selection.anchor).toEqual(editor.selection.focus);
-    expect(editor.selection.focus).toEqual({ blockId: bodyId, offset: 6 });
-  });
 });
 
-describe("#430 — main-tree DELETE_WORD/DELETE_LINE selection delete unchanged", () => {
+describe("#430 — main-tree DELETE_WORD selection delete unchanged", () => {
   it("DELETE_WORD with a selection in the MAIN tree deletes the selection", () => {
     const initial = createInitialEditorState(config);
     const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "hello world" }, config);
@@ -138,16 +131,5 @@ describe("#430 — main-tree DELETE_WORD/DELETE_LINE selection delete unchanged"
     expect(bodyTextOf(after.state, blockId)).toBe("world");
     expect(after.selection.anchor).toEqual(after.selection.focus);
     expect(after.selection.focus).toEqual({ blockId, offset: 0 });
-  });
-
-  it("DELETE_LINE with a selection in the MAIN tree deletes the selection", () => {
-    const initial = createInitialEditorState(config);
-    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "hello world" }, config);
-    const blockId = typed.selection.focus.blockId;
-    const selected = selectInBlock(typed, blockId, 6, 11);
-    const after = reduceEditor(selected, { type: "DELETE_LINE" }, config);
-    expect(bodyTextOf(after.state, blockId)).toBe("hello ");
-    expect(after.selection.anchor).toEqual(after.selection.focus);
-    expect(after.selection.focus).toEqual({ blockId, offset: 6 });
   });
 });

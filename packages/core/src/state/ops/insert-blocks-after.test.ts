@@ -10,6 +10,12 @@ import { buildBlock, buildState, inlineContent, text } from "../../test-utils/st
 import { createTestAllocator } from "../block-id";
 import type { BlockId } from "../block-id";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 // doc > [p1, p2, p3]
 const fixture = () =>
   buildState({
@@ -69,7 +75,9 @@ describe("insertBlocksAfter — append after last child (three blocks)", () => {
       allocator,
     );
     expect(result.newBlockIds).toEqual(["new-0", "new-1", "new-2"]);
-    const [n0, n1, n2] = result.newBlockIds;
+    const n0 = nth(result.newBlockIds, 0, "new block");
+    const n1 = nth(result.newBlockIds, 1, "new block");
+    const n2 = nth(result.newBlockIds, 2, "new block");
 
     // afterBlock.next → first new.
     expect(getBlock(result.state, "p3" as BlockId)?.nextSiblingId).toBe(n0);
@@ -108,12 +116,12 @@ describe("insertBlocksAfter — order preserved", () => {
     );
     const ids = result.newBlockIds;
     for (let i = 0; i < ids.length - 1; i++) {
-      expect(getBlock(result.state, ids[i])?.nextSiblingId).toBe(ids[i + 1]);
-      expect(getBlock(result.state, ids[i + 1])?.prevSiblingId).toBe(ids[i]);
+      expect(getBlock(result.state, nth(ids, i, "id"))?.nextSiblingId).toBe(ids[i + 1]);
+      expect(getBlock(result.state, nth(ids, i + 1, "id"))?.prevSiblingId).toBe(ids[i]);
     }
     // run boundaries.
-    expect(getBlock(result.state, ids[0])?.prevSiblingId).toBe("p1");
-    expect(getBlock(result.state, ids[ids.length - 1])?.nextSiblingId).toBe("p2");
+    expect(getBlock(result.state, nth(ids, 0, "id"))?.prevSiblingId).toBe("p1");
+    expect(getBlock(result.state, nth(ids, ids.length - 1, "id"))?.nextSiblingId).toBe("p2");
   });
 });
 
@@ -237,7 +245,9 @@ describe("planInsertBlocksAfter / insertBlocksAfterInTx — composition primitiv
       insertBlocksAfterInTx(state[STATE_INTERNAL].doc, plan);
     });
 
-    const [n0, n1] = plan.entries.map((e) => e.id);
+    const entryIds = plan.entries.map((e) => e.id);
+    const n0 = nth(entryIds, 0, "entry id");
+    const n1 = nth(entryIds, 1, "entry id");
 
     // afterBlock.next → run head; oldNext.prev → run tail.
     expect(getBlock(next, "p1" as BlockId)?.nextSiblingId).toBe(n0);
@@ -273,7 +283,7 @@ describe("planInsertBlocksAfter / insertBlocksAfterInTx — composition primitiv
       insertBlocksAfterInTx(state[STATE_INTERNAL].doc, plan);
     });
 
-    const tail = plan.entries[plan.entries.length - 1].id;
+    const tail = nth(plan.entries, plan.entries.length - 1, "entry").id;
     expect(getBlock(next, "p3" as BlockId)?.nextSiblingId).toBe(tail);
     expect(getBlock(next, tail)?.nextSiblingId).toBeNull();
     expect(getBlock(next, "doc" as BlockId)?.lastChildId).toBe(tail);
@@ -323,7 +333,8 @@ describe("insertBlocksAfter — insert after the ONLY child of a parent", () => 
       ],
       allocator,
     );
-    const [n0, n1] = result.newBlockIds;
+    const n0 = nth(result.newBlockIds, 0, "new block");
+    const n1 = nth(result.newBlockIds, 1, "new block");
     // only-child is both first and last; appending leaves firstChildId, moves lastChildId.
     expect(getBlock(result.state, "sec" as BlockId)?.firstChildId).toBe("only");
     expect(getBlock(result.state, "sec" as BlockId)?.lastChildId).toBe(n1);

@@ -12,7 +12,7 @@ import {
   MenubarSubTrigger,
   MenubarTrigger,
 } from "@/components/ui/menubar";
-import type { EditorAction, EditorState } from "@taleweaver/dom";
+import type { EditorAction, EditorState } from "@taleweaver/print";
 import type { BlockInit, TextTransform } from "@taleweaver/core";
 import { getActiveFormatting } from "@taleweaver/core";
 

@@ -51,12 +51,13 @@ export function computeCounters(
     }
 
     let value: number;
+    const prev = counters[event.level];
     if (event.override !== undefined) {
       value = event.override;
-    } else if (counters[event.level] === undefined) {
+    } else if (prev === undefined) {
       value = cfg.start;
     } else {
-      value = counters[event.level] + 1;
+      value = prev + 1;
     }
 
     counters[event.level] = value;

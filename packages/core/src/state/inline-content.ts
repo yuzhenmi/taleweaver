@@ -36,6 +36,16 @@ export interface EmbedItem {
 }
 
 /**
+ * Embed-type discriminant for an inline image — an image that flows IN LINE with
+ * text (Google Docs "In line" positioning), counting as a single cursor
+ * position like any other embed. Its `properties` carry the image data
+ * (e.g. `src`, `width`, `height`, `alt`). `embedType` is an open string
+ * discriminant, so no central registration is needed — this constant exists so
+ * call sites stamp/match the type without hardcoding the literal.
+ */
+export const INLINE_IMAGE_EMBED_TYPE = "inline-image" as const;
+
+/**
  * Total length of inline content, in Position.offset units.
  * Each text item contributes text.length (UTF-16 code units).
  * Each embed item contributes 1 (single cursor position).
@@ -77,6 +87,10 @@ export function findItemAtOffset(
   let cursor = 0;
   for (let i = 0; i < content.items.length; i++) {
     const item = content.items[i];
+    if (item === undefined) {
+      // Unreachable: i is bounded by content.items.length, so the lookup is in range.
+      throw new Error(`findItemAtOffset: items index ${i} out of range`);
+    }
     const itemLen = item.kind === "text" ? item.text.length : 1;
     if (offset < cursor + itemLen) {
       return { itemIndex: i, withinItem: offset - cursor };
@@ -187,6 +201,14 @@ export function splitInlineContentAtOffset(
   }
 
   const straddle = items[itemIndex];
+  if (straddle === undefined) {
+    // Unreachable: withinItem !== 0 means findItemAtOffset returned an INTERIOR
+    // position (not the end-of-content sentinel itemIndex === items.length, which
+    // always yields withinItem 0), so itemIndex is a valid in-bounds item index.
+    throw new Error(
+      `splitInlineContentAtOffset: items index ${itemIndex} out of range`,
+    );
+  }
   if (straddle.kind !== "text") {
     throw new Error(
       `splitInlineContentAtOffset: offset falls inside non-text item at index ${itemIndex} (kind="${straddle.kind}")`,

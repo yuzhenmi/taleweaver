@@ -551,7 +551,7 @@ describe("applyAttrsToRange — same-attrs no-op (#358)", () => {
     // skipped the no-op write on "hello".
     expect(result.dirtyIds.has("p" as BlockId)).toBe(true);
     const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
-    // mergeAdjacentSameAttrsTextItems collapses the two text items now
+    // mergeAdjacentSameAttrsTextItemsInPlace collapses the two text items now
     // that both carry `{ bold: true }`.
     expect(items).toHaveLength(1);
     expect(items?.[0]).toMatchObject({ text: "hello world", attrs: { bold: true } });

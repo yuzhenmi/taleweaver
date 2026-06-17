@@ -25,8 +25,13 @@ function findRange(ranges: readonly number[], cp: number): number {
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
     const base = mid * 3;
-    if (cp < ranges[base]) hi = mid - 1;
-    else if (cp > ranges[base + 1]) lo = mid + 1;
+    const rangeLo = ranges[base];
+    const rangeHi = ranges[base + 1];
+    if (rangeLo === undefined || rangeHi === undefined) {
+      throw new Error(`bidiClass: range table entry ${base} missing (unreachable)`);
+    }
+    if (cp < rangeLo) hi = mid - 1;
+    else if (cp > rangeHi) lo = mid + 1;
     else return base;
   }
   return -1;
@@ -43,7 +48,14 @@ export function bidiClass(codePoint: number): BidiClass {
   if (codePoint < 0 || codePoint > 0x10ffff) return "L";
   const base = findRange(BIDI_CLASS_RANGES, codePoint);
   if (base === -1) return "L";
-  const name = BIDI_CLASS_NAMES[BIDI_CLASS_RANGES[base + 2]];
+  const classId = BIDI_CLASS_RANGES[base + 2];
+  if (classId === undefined) {
+    throw new Error(`bidiClass: range table classId at ${base + 2} missing (unreachable)`);
+  }
+  const name = BIDI_CLASS_NAMES[classId];
+  if (name === undefined) {
+    throw new Error(`bidiClass: class name for id ${classId} missing (unreachable)`);
+  }
   // Defensive: if a future Unicode upgrade emits a class not in the union, the
   // table-regeneration test will still pass but this guard surfaces the gap as a
   // dev error rather than silently mis-typing. (Never throws in production.)

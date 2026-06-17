@@ -29,8 +29,9 @@ import {
   type EditorState,
   type BlockId,
 } from "../../index";
-import type { PageBox } from "../../layout/page-box";
-import type { LayoutBox } from "../../layout/layout-box";
+import type { PageBox } from "@taleweaver/print";
+import type { LayoutBox } from "@taleweaver/print";
+import type { VirtualLayoutTree } from "@taleweaver/print";
 import {
   buildState,
   buildBlock,
@@ -40,7 +41,25 @@ import {
 import { createHistory } from "../../state";
 import { render } from "../../render/render";
 import { cascadePass } from "../../cascade";
-import { layoutTree } from "../../layout/dispatch";
+import { layoutTree } from "@taleweaver/print";
+
+// Phase 0b: `measurer` left core's `EditorConfig` for the backend's layout
+// driver. Tests build the layout tree directly via core's pipeline (what the
+// driver does) to assert the resolved per-page pagination geometry.
+const measurer = createMockShaper(8, 16);
+
+/** Build the layout tree the backend driver would (render → cascade → layout). */
+function layoutOf(editor: EditorState, config: EditorConfig): LayoutBox | VirtualLayoutTree {
+  const rendered = render(editor.state, config.componentRegistry, config.attrRegistry);
+  const cascaded = cascadePass(rendered.root);
+  return layoutTree(cascaded, config.containerWidth, measurer, config.pageConfig);
+}
+
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
 
 /**
  * Doc-wide page geometry: PORTRAIT-ish (inline 480, block 800), 0 margins ⇒ a
@@ -55,7 +74,6 @@ function makeConfig(): EditorConfig {
     pageGap: 24,
   };
   return {
-    measurer: createMockShaper(8, 16),
     componentRegistry: createDefaultComponentRegistry(),
     attrRegistry: createDefaultAttrRegistry(),
     containerWidth: 480,
@@ -66,7 +84,6 @@ function makeConfig(): EditorConfig {
 /** A config with NO pageConfig (unpaginated harness). */
 function makeUnpaginatedConfig(): EditorConfig {
   return {
-    measurer: createMockShaper(8, 16),
     componentRegistry: createDefaultComponentRegistry(),
     attrRegistry: createDefaultAttrRegistry(),
     containerWidth: 480,
@@ -135,8 +152,8 @@ function twoSectionEditor(config: EditorConfig, n = 4): {
   editor = reduceEditor(editor, { type: "SECTION_BREAK" }, config);
   const sectionIds = rootChildIds(editor);
   if (sectionIds.length !== 2) throw new Error(`expected 2 sections, got ${sectionIds.length}`);
-  const sectionA = sectionIds[0];
-  const sectionB = sectionIds[1];
+  const sectionA = nth(sectionIds, 0, "section");
+  const sectionB = nth(sectionIds, 1, "section");
   // Place the cursor inside section B's first paragraph.
   const firstParaOfB = getBlock(editor.state, sectionB)?.firstChildId;
   if (firstParaOfB == null) throw new Error("section B has no first child");
@@ -155,9 +172,10 @@ function twoSectionEditor(config: EditorConfig, n = 4): {
  */
 function sectionPageGeometry(
   editor: EditorState,
+  config: EditorConfig,
   sectionId: BlockId,
 ): { inlineSize: number; blockSize: number } {
-  const tree = editor.layoutTree;
+  const tree = layoutOf(editor, config);
   if (tree.type !== "virtual-root") throw new Error("expected a VirtualLayoutTree");
   const section = getBlock(editor.state, sectionId);
   if (section === null) throw new Error("section not found");
@@ -193,8 +211,8 @@ describe("handleToggleSectionLandscape — TOGGLE_SECTION_LANDSCAPE action", () 
 
     // Baseline geometry: both sections are doc-wide (portrait).
     const docWide = { inlineSize: config.pageConfig.pageInlineSize, blockSize: config.pageConfig.pageBlockSize };
-    expect(sectionPageGeometry(initial, sectionA)).toEqual(docWide);
-    expect(sectionPageGeometry(initial, sectionB)).toEqual(docWide);
+    expect(sectionPageGeometry(initial, config, sectionA)).toEqual(docWide);
+    expect(sectionPageGeometry(initial, config, sectionB)).toEqual(docWide);
 
     const next = reduceEditor(initial, { type: "TOGGLE_SECTION_LANDSCAPE" }, config);
 
@@ -214,8 +232,8 @@ describe("handleToggleSectionLandscape — TOGGLE_SECTION_LANDSCAPE action", () 
     // GEOMETRY: section B's pages are WIDER (larger inlineSize) + SHORTER
     // (smaller blockSize) than section A's. This proves the render→layout
     // reflow fired on the section-attrs change.
-    const geomA = sectionPageGeometry(next, sectionA);
-    const geomB = sectionPageGeometry(next, sectionB);
+    const geomA = sectionPageGeometry(next, config, sectionA);
+    const geomB = sectionPageGeometry(next, config, sectionB);
     expect(geomA).toEqual(docWide);
     expect(geomB.inlineSize).toBeGreaterThan(geomA.inlineSize);
     expect(geomB.blockSize).toBeLessThan(geomA.blockSize);
@@ -240,8 +258,8 @@ describe("handleToggleSectionLandscape — TOGGLE_SECTION_LANDSCAPE action", () 
     expect(secBBlock?.attrs.pageBlockSize).toBeUndefined();
 
     // Geometry back to doc-wide for both sections.
-    expect(sectionPageGeometry(restored, sectionA)).toEqual(docWide);
-    expect(sectionPageGeometry(restored, sectionB)).toEqual(docWide);
+    expect(sectionPageGeometry(restored, config, sectionA)).toEqual(docWide);
+    expect(sectionPageGeometry(restored, config, sectionB)).toEqual(docWide);
   });
 
   it("resolves the section when the cursor is in a block nested DEEPER than a direct child (section → table → row → cell → paragraph)", () => {
@@ -270,22 +288,17 @@ describe("handleToggleSectionLandscape — TOGGLE_SECTION_LANDSCAPE action", () 
         }),
       ],
     });
-    const rendered = render(initialState, config.componentRegistry, config.attrRegistry);
-    const cascadedRoot = cascadePass(rendered.root);
-    const layout = layoutTree(cascadedRoot, config.containerWidth, config.measurer, config.pageConfig);
     const cursor = createPosition("li" as BlockId, 0);
     const editor: EditorState = {
       state: initialState,
       selection: { anchor: cursor, focus: cursor },
       history: createHistory(initialState),
-      renderTree: rendered.root,
-      renderOutput: rendered,
-      cascadedRoot,
-      cascadedTemplateContents: new Map(),
-      cascadedEmbedContents: new Map(),
-      layoutTree: layout,
+      lastDirtyIds: null,
       containerWidth: config.containerWidth,
       targetX: null,
+      caretPageHint: undefined,
+      caretAffinity: undefined,
+      anchorAffinity: undefined,
     };
 
     // Sanity: the cursor's block is NOT a direct child of the section.
@@ -295,7 +308,7 @@ describe("handleToggleSectionLandscape — TOGGLE_SECTION_LANDSCAPE action", () 
     const docWide = { inlineSize: config.pageConfig.pageInlineSize, blockSize: config.pageConfig.pageBlockSize };
 
     // Baseline: before the toggle the nested section is doc-wide (portrait).
-    expect(sectionPageGeometry(editor, "sec" as BlockId)).toEqual(docWide);
+    expect(sectionPageGeometry(editor, config, "sec" as BlockId)).toEqual(docWide);
 
     const next = reduceEditor(editor, { type: "TOGGLE_SECTION_LANDSCAPE" }, config);
 
@@ -308,7 +321,7 @@ describe("handleToggleSectionLandscape — TOGGLE_SECTION_LANDSCAPE action", () 
     // SHORTER (landscape) than doc-wide. This proves the multi-hop walk
     // produces a dirty set that actually flows through rebuildTrees→reflow —
     // the attrs write alone would not move the page box dims.
-    const geom = sectionPageGeometry(next, "sec" as BlockId);
+    const geom = sectionPageGeometry(next, config, "sec" as BlockId);
     expect(geom.inlineSize).toBeGreaterThan(docWide.inlineSize);
     expect(geom.blockSize).toBeLessThan(docWide.blockSize);
     expect(geom).toEqual({
@@ -331,7 +344,7 @@ describe("handleToggleSectionLandscape — TOGGLE_SECTION_LANDSCAPE action", () 
     // Attrs cleared by undo.
     expect(getBlock(undone.state, sectionB)?.attrs.pageInlineSize).toBeUndefined();
     // Geometry restored to doc-wide.
-    expect(sectionPageGeometry(undone, sectionB)).toEqual(docWide);
+    expect(sectionPageGeometry(undone, config, sectionB)).toEqual(docWide);
   });
 
   it("is a no-op in a section-less doc (no SECTION_BREAK made)", () => {
@@ -340,8 +353,8 @@ describe("handleToggleSectionLandscape — TOGGLE_SECTION_LANDSCAPE action", () 
 
     const next = reduceEditor(editor, { type: "TOGGLE_SECTION_LANDSCAPE" }, config);
 
-    // Same editor reference — no commit, no state change.
-    expect(next).toBe(editor);
+    // Same state reference (no-op; reducer entry-clears lastDirtyIds).
+    expect(next.state).toBe(editor.state);
   });
 
   it("is a no-op when config.pageConfig is absent (unpaginated harness)", () => {

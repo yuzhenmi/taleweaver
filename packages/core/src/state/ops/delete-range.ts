@@ -17,6 +17,7 @@ import {
   type BlockTreeKind,
 } from "../yjs-doc";
 import { buildYInlineContent } from "../y-block";
+import { surgicallyDeleteInlineRangeInTx } from "../y-utils";
 import { normalizeSpan } from "../span-iteration";
 import { collectEmbedContentSubtreeFromInlineContent } from "../embed-content-cascade";
 import { assertSameTree } from "../assert-same-tree";
@@ -50,6 +51,18 @@ export type DeleteRangePlan =
       readonly mode: "same-block";
       readonly kind: BlockTreeKind;
       readonly blockId: BlockId;
+      /** Normalized deletion range, flattened offsets — drives the surgical applier. */
+      readonly anchorOffset: number;
+      readonly focusOffset: number;
+      /** Threaded to the in-place seam-merge normalizer (registry-aware attrs equality). */
+      readonly registry: AttrRegistry | undefined;
+      /**
+       * Post-delete normalized items. The surgical same-block applier does NOT read
+       * this (it derives the in-place mutation from `anchorOffset`/`focusOffset` +
+       * the live items) — but `replaceRange` DOES consume it to build the composed
+       * insert plan (`planInsertTextFullReplace(..., deletePlan.mergedItems, ...)`),
+       * and tests use it as the read-back oracle. Do NOT remove it.
+       */
       readonly mergedItems: ReadonlyArray<InlineItem>;
       readonly embedContentIds: ReadonlySet<BlockId>;
     }
@@ -94,10 +107,17 @@ export type DeleteRangePlan =
  *     call which throws on no-common-ancestor),
  *   - any offset is outside [0, inlineContentLength].
  *
- * Y.Doc note: the anchor block's `inlineContent` Y.Array is fully replaced
- * via `buildYInlineContent` — preserving the merged-content result shape
- * takes priority over per-character Y.Text identity for the touched
- * block (same trade-off as insertText's full-replace fallback).
+ * Y.Doc note: the SAME-BLOCK path mutates the anchor block's
+ * `inlineContent` Y.Array IN PLACE (surgical `surgicallyDeleteInlineRangeInTx`):
+ * runs OUTSIDE the deleted range — and the surviving portion of a straddled
+ * run — keep their `Y.Text` CRDT identity, so a `RelativePosition` anchored
+ * there survives (the foundation for within-block selection rebasing). The
+ * one exception is the seam: when the prefix-end and suffix-start runs are
+ * same-attrs and merge, the receiver keeps identity but the donor's migrated
+ * chars are fresh (Class-2 limit — Yjs has no identity-preserving cross-`Y.Text`
+ * move). Read-back is byte-identical to the old `buildYInlineContent` rebuild.
+ * The CROSS-BLOCK path still fully replaces the anchor block's `inlineContent`
+ * via `buildYInlineContent` (a later surgical-ops slice migrates it).
  *
  * Cascade-deletes embed-content references for the DELETED inline portion:
  * walks dropped `EmbedItem.properties.contentBlockId` references and
@@ -173,7 +193,12 @@ export function deleteRangeInTx(doc: Y.Doc, plan: DeleteRangePlan): void {
   requireInTransaction(doc, "deleteRange");
   if (plan.mode === "same-block") {
     const yBlock = getYBlock(doc, plan.blockId, "deleteRange", plan.kind);
-    yBlock.set("inlineContent", buildYInlineContent({ items: plan.mergedItems }));
+    // Surgical, identity-preserving in-place delete (replaces the old full-replace
+    // via buildYInlineContent): runs outside the deleted range keep their Y.Text
+    // CRDT identity → a RelativePosition there survives. Read-back byte-identical
+    // to the old merged-items rebuild (proven by the delete-range suite).
+    const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>>;
+    surgicallyDeleteInlineRangeInTx(yItems, plan.anchorOffset, plan.focusOffset, plan.registry);
     if (plan.embedContentIds.size > 0) {
       // Embed bodies always live in the embedContents map, independent of the
       // edited block's own tree (`plan.kind`) — do NOT route these by kind.
@@ -374,6 +399,9 @@ export function planDeleteRange(
       mode: "same-block",
       kind,
       blockId: block.id,
+      anchorOffset: normalized.anchor.offset,
+      focusOffset: normalized.focus.offset,
+      registry,
       mergedItems: merged,
       embedContentIds,
     };

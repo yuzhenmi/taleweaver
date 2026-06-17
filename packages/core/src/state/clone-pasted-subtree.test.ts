@@ -5,6 +5,12 @@ import { createTestAllocator, type BlockId } from "./block-id";
 import { getBlock } from "./state";
 import type { Block } from "./block";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 describe("clonePastedSubtree — basic single-leaf clone", () => {
   // Source: doc > [p("hello world")]. Clone the paragraph alone.
   // Expected: cloned root has new id from allocator; type/attrs/content preserved;
@@ -267,8 +273,8 @@ describe("clonePastedSubtree — embed-content cloning", () => {
     expect(items).toHaveLength(4);
     if (!items) throw new Error("missing items");
 
-    const embedA = items[1];
-    const embedB = items[3];
+    const embedA = nth(items, 1, "inline item");
+    const embedB = nth(items, 3, "inline item");
     if (embedA.kind !== "embed" || embedB.kind !== "embed") throw new Error("expected embeds");
     const newCbA = embedA.properties.contentBlockId as BlockId;
     const newCbB = embedB.properties.contentBlockId as BlockId;

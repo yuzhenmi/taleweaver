@@ -4,6 +4,12 @@ import { buildBlock, buildState, inlineContent } from "../test-utils/state-build
 import type { BlockId } from "./block-id";
 import type { Block } from "./block";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 /**
  * doc
  *  └ table [columnWidths 0.5/0.5]
@@ -197,7 +203,7 @@ describe("buildTableGrid", () => {
     if (grid === null) throw new Error("expected a grid");
     // spanValue(2.9) → undefined → 1×1 (NOT clampSpan(2.9)=2). Byte-identical to layout.
     expect(grid.columnCount).toBe(2);
-    expect(grid.cells[0].colSpan).toBe(1);
+    expect(nth(grid.cells, 0, "grid cell").colSpan).toBe(1);
   });
 
   it("reads rowSpan via spanValue: a rowSpan-2 cell reserves its column into the next row", () => {

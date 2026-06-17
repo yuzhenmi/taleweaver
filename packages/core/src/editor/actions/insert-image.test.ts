@@ -75,7 +75,8 @@ describe("handleInsertImage — INSERT_IMAGE (#P11.2)", () => {
     expect(getBlock(editor.state, editor.selection.focus.blockId)).toBeNull(); // caret outside main tree
 
     const next = reduceEditor(editor, { type: "INSERT_IMAGE", src: "a.png" }, config);
-    expect(next).toBe(editor);
+    // Same state reference (no-op; reducer entry-clears lastDirtyIds).
+    expect(next.state).toBe(editor.state);
   });
 
   it("splices the image + paragraph BETWEEN the focus block and its existing next sibling", () => {

@@ -96,7 +96,8 @@ describe("handleInsertHorizontalLine — INSERT_HORIZONTAL_LINE (#L11.1)", () =>
     expect(inHeaderBody).toBe(true); // precondition: caret is outside the main tree
 
     const next = reduceEditor(editor, { type: "INSERT_HORIZONTAL_LINE" }, config);
-    expect(next).toBe(editor);
+    // Same state reference (no-op; reducer entry-clears lastDirtyIds).
+    expect(next.state).toBe(editor.state);
   });
 
   it("undo removes the rule and the trailing paragraph", () => {

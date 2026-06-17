@@ -20,9 +20,6 @@ import type { EditorState } from "../editor-state";
 import { getBlock, createHistory } from "../../state";
 import type { BlockId } from "../../state";
 import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
-import { render } from "../../render/render";
-import { cascadePass } from "../../cascade";
-import { layoutTree } from "../../layout/dispatch";
 
 describe("handleSetBlockType — same-kind transitions succeed (regression #155)", () => {
   it("converts paragraph → heading without throwing", () => {
@@ -72,27 +69,13 @@ describe("handleSetBlockType — same-kind transitions succeed (regression #155)
         buildBlock({ id: "li", type: "list-item", parentId: "doc", attrs: { listId: "L1", listLevel: 0, listType: "unordered" }, inlineContent: inlineContent([text("hello")]) }),
       ],
     });
-    // Render + layout up-front (mirrors createInitialEditorState) so the
-    // EditorState's renderTree / layoutTree are properly typed and
-    // populated — no `null as never` escape hatch.
-    const rendered = render(initialState, config.componentRegistry, config.attrRegistry);
-    const cascadedRoot = cascadePass(rendered.root);
-    const layout = layoutTree(
-      cascadedRoot,
-      config.containerWidth,
-      config.measurer,
-      config.pageConfig,
-    );
+    // Phase 0b: core's `EditorState` is geometry-free — build only the
+    // geometry-free fields (the handler reads no layout).
     const initial: EditorState = {
       state: initialState,
       selection: { anchor: { blockId: "li" as BlockId, offset: 0 }, focus: { blockId: "li" as BlockId, offset: 0 } },
       history: createHistory(initialState),
-      renderTree: rendered.root,
-      renderOutput: rendered,
-      cascadedRoot,
-      cascadedTemplateContents: new Map(),
-      cascadedEmbedContents: new Map(),
-      layoutTree: layout,
+      lastDirtyIds: null,
       containerWidth: config.containerWidth,
       targetX: null,
     };

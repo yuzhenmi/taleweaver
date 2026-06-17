@@ -13,7 +13,7 @@
  *   - text run partially covered → split before/middle/after; middle tagged OR
  *     omitted (own-insertion); the straddler loses Y.Text identity (unavoidable);
  *   - embed in range → kept untagged.
- * A post-pass `mergeAdjacentSameAttrsTextItems` restores the normalization
+ * A post-pass `mergeAdjacentSameAttrsTextItemsInPlace` restores the normalization
  * invariants, so the live content is BYTE-IDENTICAL to the pure
  * `rebuildBlockForDeletion` + `mergeAdjacentTextItems` oracle.
  *
@@ -45,6 +45,12 @@ import type { State } from "../state";
 import type { ReadonlyAttrs } from "../attrs";
 import type { InlineContent, InlineItem } from "../inline-content";
 import type { BlockId } from "../block-id";
+
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
 
 const DEL_ID = "del-1" as SuggestionId;
 const AUTHOR = "alice";
@@ -254,7 +260,7 @@ describe("applyDeletionStrikeInTx", () => {
     // The embed survives untagged at its position; surrounding text is tagged.
     const embedIdx = liveItems(yItems).findIndex((it) => it.kind === "embed");
     expect(embedIdx).toBeGreaterThanOrEqual(0);
-    expect(liveItems(yItems)[embedIdx].attrs).toEqual({});
+    expect(nth(liveItems(yItems), embedIdx, "embed item").attrs).toEqual({});
   });
 
   it("coalesces a newly-tagged run into a same-id neighbor (post-pass)", () => {
@@ -397,8 +403,8 @@ describe("applyDeletionStrikeInTx", () => {
 
         expect(live.length).toBe(oracle.length);
         for (let i = 0; i < oracle.length; i++) {
-          const expectedItem = oracle[i];
-          const actualItem = live[i];
+          const expectedItem = nth(oracle, i, "oracle item");
+          const actualItem = nth(live, i, "live item");
           expect(actualItem.kind).toBe(expectedItem.kind);
           expect(actualItem.attrs).toEqual(expectedItem.attrs);
           if (expectedItem.kind === "text" && actualItem.kind === "text") {

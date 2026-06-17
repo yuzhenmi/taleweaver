@@ -82,7 +82,7 @@ describe("State encapsulation (runtime)", () => {
 // snapshot cache (the production undo/redo path uses `freshState(state,
 // dirtyIds)` instead). Its docstring declares it test-fixture-only. This
 // meta-test enforces that docstring as CI: it walks the source of
-// `packages/core/src` and `packages/dom/src`, and asserts no NON-test,
+// `packages/core/src` and `packages/print/src`, and asserts no NON-test,
 // non-sanctioned `.ts` file imports the identifier.
 //
 // Sanctioned files: the definition (`state.ts`) and the barrel that
@@ -95,7 +95,7 @@ const ESCAPE_HATCH_IDENTIFIER = "freshStateFromDoc";
 const STATE_DIR = resolve(__dirname); // packages/core/src/state
 const CORE_SRC_DIR = resolve(STATE_DIR, ".."); // packages/core/src
 const PACKAGES_DIR = resolve(CORE_SRC_DIR, "..", ".."); // packages
-const DOM_SRC_DIR = resolve(PACKAGES_DIR, "dom", "src"); // packages/dom/src
+const PRINT_SRC_DIR = resolve(PACKAGES_DIR, "print", "src"); // packages/print/src
 
 // Files that LEGITIMATELY define / re-export the identifier.
 const SANCTIONED_FILES = new Set<string>([
@@ -158,10 +158,10 @@ function usesIdentifierViaMemberAccess(
 }
 
 describe(`A13: ${ESCAPE_HATCH_IDENTIFIER} escape hatch has no production callers`, () => {
-  it("is not imported by any non-test production file in core/ or dom/", () => {
+  it("is not imported by any non-test production file in core/ or print/", () => {
     const files = [
       ...collectTsFiles(CORE_SRC_DIR),
-      ...collectTsFiles(DOM_SRC_DIR),
+      ...collectTsFiles(PRINT_SRC_DIR),
     ];
 
     const offenders: string[] = [];

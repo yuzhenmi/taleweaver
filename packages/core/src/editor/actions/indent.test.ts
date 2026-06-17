@@ -18,6 +18,7 @@
 import { describe, it, expect } from "vitest";
 import {
   config,
+  measurer,
   createInitialEditorState,
   reduceEditor,
   firstChildId,
@@ -27,13 +28,28 @@ import {
 import { INDENT_STEP, MIN_INDENT_CONTENT_WIDTH } from "./indent";
 import type { EditorState } from "../editor-state";
 import { getBlock, createHistory } from "../../state";
-import type { BlockId } from "../../state";
+import type { BlockId, State, Selection } from "../../state";
 import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
 import { render } from "../../render/render";
 import { cascadePass } from "../../cascade";
-import { layoutTree } from "../../layout/dispatch";
-import { positionTreeForTest } from "../../test-utils/position-tree";
-import type { LayoutBox } from "../../layout/layout-box";
+import { layoutTree } from "@taleweaver/print";
+import { positionTreeForTest } from "@taleweaver/print";
+import type { LayoutBox } from "@taleweaver/print";
+
+// Phase 0b: core's `EditorState` is geometry-free — the INDENT/OUTDENT handler
+// reads no layout, so build only the geometry-free fields. The genuine
+// indent-clamp GEOMETRY is asserted via `render → cascadePass → layoutTree`
+// directly (the `listItemBox` helper below), exactly what the backend driver does.
+function makeEditor(state: State, selection: Selection): EditorState {
+  return {
+    state,
+    selection,
+    history: createHistory(state),
+    lastDirtyIds: null,
+    containerWidth: config.containerWidth,
+    targetX: null,
+  };
+}
 
 describe("handleIndent — INDENT / OUTDENT actions", () => {
   it("INDENT on a fresh block: sets marginInlineStart to one step", () => {
@@ -106,8 +122,11 @@ describe("handleIndent — INDENT / OUTDENT actions", () => {
 
     const next = reduceEditor(editor, { type: "OUTDENT" }, config);
 
-    // Already at 0 → clamped → nothing changed → same editor reference.
-    expect(next).toBe(editor);
+    // Already at 0 → clamped → nothing changed. Phase 0b: the no-op identity is
+    // `state` reference equality — the editor OBJECT differs because the dispatch
+    // entry-clear strips the prior mutating INSERT_TEXT's stale `lastDirtyIds` hint.
+    expect(next.state).toBe(editor.state);
+    expect(next.lastDirtyIds).toBeNull();
   });
 
   it("multi-block selection: paragraphs each +1 step; list-items are SKIPPED (I5)", () => {
@@ -152,25 +171,10 @@ describe("handleIndent — INDENT / OUTDENT actions", () => {
         }),
       ],
     });
-    const rendered = render(initialState, config.componentRegistry, config.attrRegistry);
-    const cascadedRoot = cascadePass(rendered.root);
-    const layout = layoutTree(cascadedRoot, config.containerWidth, config.measurer, config.pageConfig);
-    const editor: EditorState = {
-      state: initialState,
-      selection: {
-        anchor: createPosition("p0" as BlockId, 0),
-        focus: createPosition("p2" as BlockId, 2),
-      },
-      history: createHistory(initialState),
-      renderTree: rendered.root,
-      renderOutput: rendered,
-      cascadedRoot,
-      cascadedTemplateContents: new Map(),
-      cascadedEmbedContents: new Map(),
-      layoutTree: layout,
-      containerWidth: config.containerWidth,
-      targetX: null,
-    };
+    const editor = makeEditor(initialState, {
+      anchor: createPosition("p0" as BlockId, 0),
+      focus: createPosition("p2" as BlockId, 2),
+    });
 
     const next = reduceEditor(editor, { type: "INDENT" }, config);
 
@@ -199,25 +203,10 @@ describe("handleIndent — INDENT / OUTDENT actions", () => {
         }),
       ],
     });
-    const rendered = render(initialState, config.componentRegistry, config.attrRegistry);
-    const cascadedRoot = cascadePass(rendered.root);
-    const layout = layoutTree(cascadedRoot, config.containerWidth, config.measurer, config.pageConfig);
-    const editor: EditorState = {
-      state: initialState,
-      selection: {
-        anchor: createPosition("li" as BlockId, 0),
-        focus: createPosition("li" as BlockId, 0),
-      },
-      history: createHistory(initialState),
-      renderTree: rendered.root,
-      renderOutput: rendered,
-      cascadedRoot,
-      cascadedTemplateContents: new Map(),
-      cascadedEmbedContents: new Map(),
-      layoutTree: layout,
-      containerWidth: config.containerWidth,
-      targetX: null,
-    };
+    const editor = makeEditor(initialState, {
+      anchor: createPosition("li" as BlockId, 0),
+      focus: createPosition("li" as BlockId, 0),
+    });
 
     const next = reduceEditor(editor, { type: "INDENT" }, config);
 
@@ -291,7 +280,7 @@ describe("handleIndent — INDENT / OUTDENT actions", () => {
       const rendered = render(state, config.componentRegistry, config.attrRegistry);
       const cascadedRoot = cascadePass(rendered.root);
       const layout = positionTreeForTest(
-        layoutTree(cascadedRoot, config.containerWidth, config.measurer, config.pageConfig),
+        layoutTree(cascadedRoot, config.containerWidth, measurer, config.pageConfig),
       );
       const box = findBlockBox(layout, "li");
       if (box === null) throw new Error("no list-item box");

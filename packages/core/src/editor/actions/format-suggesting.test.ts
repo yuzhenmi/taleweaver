@@ -23,6 +23,13 @@ import {
   type EditorConfig,
   type EditorState,
 } from "./test-helpers";
+
+/** Throwing indexed access for tests: stronger than the old undefined-deref TypeError. */
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
 import {
   getBlock,
   getSuggestions,
@@ -163,16 +170,16 @@ describe("inline-format handlers — suggesting mode (slice 4d-format)", () => {
       // (b) one formatting record, by "alice", proposing the action's delta.
       const suggestions = getSuggestions(next.state);
       expect(suggestions).toHaveLength(1);
-      expect(suggestions[0].kind).toBe("formatting");
-      expect(suggestions[0].author).toBe("alice");
-      expect(suggestions[0].proposedAttrs).toEqual(c.proposed);
+      expect(nth(suggestions, 0, "suggestion").kind).toBe("formatting");
+      expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
+      expect(nth(suggestions, 0, "suggestion").proposedAttrs).toEqual(c.proposed);
       // Non-vacuous key check: `toEqual` treats undefined-valued keys as absent,
       // so the all-undefined CLEAR_FORMATTING delta would pass even if every key
       // were dropped on the Yjs round-trip. Assert the proposed key SET survives.
-      expect(Object.keys(suggestions[0].proposedAttrs ?? {}).sort()).toEqual(
+      expect(Object.keys(nth(suggestions, 0, "suggestion").proposedAttrs ?? {}).sort()).toEqual(
         Object.keys(c.proposed).sort(),
       );
-      expect(runs[0].attrs.formattingSuggestionId).toBe(suggestions[0].id);
+      expect(nth(runs, 0, "run").attrs.formattingSuggestionId).toBe(nth(suggestions, 0, "suggestion").id);
     });
 
     it(`${c.name}: direct mode applies the delta live with NO suggestion`, () => {
@@ -185,6 +192,7 @@ describe("inline-format handlers — suggesting mode (slice 4d-format)", () => {
       // clear), so we only check it produced no suggestion above.
       if (c.name !== "CLEAR_FORMATTING") {
         const proposedEntry = Object.entries(c.proposed)[0];
+        if (proposedEntry === undefined) throw new Error("expected a proposed attr entry");
         for (const run of textItems(next, paraId)) {
           expect(run.attrs[proposedEntry[0]]).toEqual(proposedEntry[1]);
           expect(run.attrs.formattingSuggestionId).toBeUndefined();
@@ -199,7 +207,7 @@ describe("inline-format handlers — suggesting mode (slice 4d-format)", () => {
     // direct-mode CLEAR_FORMATTING over the same selection.
     const { editor, paraId } = seededSelection(suggestingConfig);
     const suggested = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" }, suggestingConfig);
-    const provenanceId = textItems(suggested, paraId)[0].attrs.formattingSuggestionId;
+    const provenanceId = nth(textItems(suggested, paraId), 0, "run").attrs.formattingSuggestionId;
     expect(provenanceId).toBeDefined();
 
     const cleared = reduceEditor(
@@ -225,7 +233,7 @@ describe("inline-format handlers — suggesting mode (slice 4d-format)", () => {
       directConfig,
     );
 
-    const id = getSuggestions(cleared.state)[0].id;
+    const id = nth(getSuggestions(cleared.state), 0, "suggestion").id;
     const accepted = acceptSuggestion(cleared.state, id);
     const runs = (getBlock(accepted.state, paraId)?.inlineContent?.items ?? []).filter(
       (it): it is Extract<typeof it, { kind: "text" }> => it.kind === "text",

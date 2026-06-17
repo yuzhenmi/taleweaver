@@ -279,7 +279,14 @@ export function handleDeleteTableColumn(editor: EditorState, config: EditorConfi
 
   // P15a path (no-span table). Caret target: same row, next column's cell, else the
   // previous (pre-op ctx).
+  // ctx.rowIndex is the validated caret row from resolveTableContext, so the row
+  // is always present in the per-row cell grid.
   const row = ctx.cellIdsByRow[ctx.rowIndex];
+  if (row === undefined) {
+    throw new Error(
+      `handleDeleteTableColumn: caret row ${ctx.rowIndex} out of range (rows ${ctx.cellIdsByRow.length})`,
+    );
+  }
   const targetCellId = row[ctx.colIndex + 1] ?? row[ctx.colIndex - 1] ?? null;
 
   const result = deleteTableColumn(editor.state, ctx);

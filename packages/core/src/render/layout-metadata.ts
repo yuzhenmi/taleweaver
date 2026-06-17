@@ -26,7 +26,7 @@ import type { BlockId } from "../state";
 import type { PageFieldKind, PageFieldNumberStyle } from "../state/page-field";
 
 export interface LayoutBoxMetadata {
-  readonly image?: { readonly src: string; readonly width: number; readonly height: number };
+  readonly image?: { readonly src: string; readonly width: number; readonly height: number; readonly alt?: string };
   readonly horizontalLine?: boolean;
   // Table-of-contents anchor marker. Stamped by the `table-of-contents`
   // component onto its placeholder box so the render-core TOC branch (a later
@@ -54,6 +54,24 @@ export interface LayoutBoxMetadata {
   readonly rowSpan?: number;
   readonly colSpan?: number;
   readonly blockType?: "section";
+  // Heading level (P-1). Stamped by `components/heading.ts` from
+  // `view.attrs.level`. The read-only DOM viewer maps it to `<h1>`…`<h6>`
+  // (the render tree's `blockType` only discriminates `"section"`, so the
+  // heading level needs its own carrier — mirrors the canvas painter's
+  // reliance on typed metadata rather than re-deriving from attrs).
+  readonly headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
+  // List nesting facts (P-5). Stamped by `components/list-item.ts` ONLY when the
+  // numbering service resolves a marker (mirrors the `markerText` gate). The flat
+  // Google-Docs list model stores list membership per-paragraph (`listId` +
+  // `listLevel`); the render tree otherwise exposes only `markerText` + the
+  // derived `paddingInlineStart`, so the digital DOM viewer needs these facts to
+  // reconstruct semantic `<ul>/<ol>` nesting (a NEW list opens when `listId`
+  // changes or `level` increases). `ordered` distinguishes `<ol>` (numbered) from
+  // `<ul>` (bullet). The DISPLAYED ordinal lives in `markerText` (e.g. "5."), so no
+  // raw integer is carried here: the HTML serializer resolves ordinals via the
+  // numbering engine and the a11y dom-mirror numbers native `<ol>` elements.
+  // Absent ⇒ render as a plain styled block.
+  readonly list?: { readonly level: number; readonly listId: string; readonly ordered: boolean };
   readonly pageInlineSize?: unknown;
   readonly pageBlockSize?: unknown;
   readonly pageMargins?: unknown;
@@ -89,10 +107,20 @@ export interface LayoutBoxMetadata {
   // field-resolution passes (`collectPageFields` / `patchFieldWidths` /
   // `substituteLayoutFields`) discriminate this branch on
   // `embedType === "cross-reference" && refMode === "page"` and bind the real
-  // page number late. The `"number"`/`"text"` modes resolve at render time and
-  // carry only `embedType` (no `refMode`/`targetId` in metadata). `targetId`
-  // rides the validated string from the embed's `properties` (the broken-ref
-  // case stamps `null`).
+  // page number late. The `"number"`/`"text"` modes resolve their TEXT at render
+  // time and carry `embedType` + `targetId` but NO `refMode` (only `"page"` mode
+  // is layout-dependent). `targetId` is stamped in ALL three modes — threaded
+  // onto the laid-out atom (`InlineBlockBox.targetId`) so the PDF exporter can
+  // emit an internal /GoTo link to the target (#522). `targetId` rides the
+  // validated string from the embed's `properties` (the broken-ref case stamps
+  // `null`).
   readonly refMode?: "page";
   readonly targetId?: string | null;
+  // Marks a REPLACED inline-block (e.g. an inline image — an atomic box with no
+  // in-flow text/line boxes). A replaced inline-block aligns its BOTTOM margin
+  // edge with the parent's baseline (CSS2 §10.8.1), unlike a text-bearing
+  // inline-block which uses the content-baseline (`*0.8`) rule. Threaded onto
+  // `InlineBlockBox.isReplaced` so `applyVerticalAlign` picks the bottom-edge
+  // baseline. `undefined` for a non-replaced inline-block.
+  readonly replacedInline?: boolean;
 }

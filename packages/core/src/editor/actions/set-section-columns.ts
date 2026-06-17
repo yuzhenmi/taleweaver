@@ -1,6 +1,6 @@
 import type { EditorState, EditorConfig } from "../editor-state";
 import { getBlock, mergeBlockAttrs } from "../../state";
-import type { ColumnRule } from "../../layout/column-config";
+import type { ColumnRule } from "../../styles/column-config";
 import { rebuildTrees } from "./helpers";
 import { resolveActiveSection } from "./active-section";
 

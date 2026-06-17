@@ -4,7 +4,7 @@ import type { ReadonlyAttrs } from "../attrs";
 import { findItemAtOffset, type InlineItem } from "../inline-content";
 import { getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
 import { buildYInlineItem } from "../y-block";
-import { mergeAdjacentSameAttrsTextItems, yMapAsObject } from "../y-utils";
+import { mergeAdjacentSameAttrsTextItemsInPlace, yMapAsObject } from "../y-utils";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
 import type { AttrRegistry } from "../../cascade/attr-registry";
 
@@ -24,7 +24,7 @@ import type { AttrRegistry } from "../../cascade/attr-registry";
  *     runs' identity.
  *
  * Carries an optional `registry` threaded to the post-insert coalesce normalizer
- * (`mergeAdjacentSameAttrsTextItems`), so interpreters with a custom per-key
+ * (`mergeAdjacentSameAttrsTextItemsInPlace`), so interpreters with a custom per-key
  * `equals` opt into custom adjacent-item compare semantics. `kind` is the tree
  * (main / embedContents / templateContents) the block lives in, resolved once during
  * planning and threaded to `getYBlock` so a caret inside a header/footer body mutates
@@ -89,8 +89,9 @@ export function planReplaceBlockTailInPlace(
  *   - `replace-tail`: the kept prefix runs are untouched; only the straddling run at
  *     `keepOffset` (if any) is split, and the dropped tail is deleted.
  *
- * After the structural edit, `mergeAdjacentSameAttrsTextItems` restores the
- * normalization invariant (with the plan's optional `registry` threaded).
+ * After the structural edit, `mergeAdjacentSameAttrsTextItemsInPlace` restores the
+ * normalization invariant (with the plan's optional `registry` threaded) — a
+ * converging seam keeps the receiver run's Y.Text identity.
  */
 export function insertItemsInTx(doc: Y.Doc, plan: InsertItemsPlan): void {
   requireInTransaction(doc, "insertItems");
@@ -134,5 +135,5 @@ export function insertItemsInTx(doc: Y.Doc, plan: InsertItemsPlan): void {
       yItems.insert(yItems.length, [before, ...newRuns]);
     }
   }
-  mergeAdjacentSameAttrsTextItems(yItems, plan.registry);
+  mergeAdjacentSameAttrsTextItemsInPlace(yItems, plan.registry);
 }

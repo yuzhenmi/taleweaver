@@ -24,3 +24,20 @@ export {
 export { serializeDocument, deserializeDocument } from "./serialize-document";
 
 export { createBinaryDocumentSerializer, BINARY_FORMAT } from "./binary-serializer";
+
+export type {
+  JsonNode,
+  JsonInlineItem,
+  JsonTextItem,
+  JsonEmbedItem,
+  JsonDocument,
+} from "./json-serializer";
+export { createJsonDocumentSerializer, JSON_FORMAT } from "./json-serializer";
+
+export type { HtmlNode, HtmlParser } from "./html-node";
+export { encodeHtml } from "./html-encode";
+export { decodeHtml } from "./html-decode";
+export {
+  createHtmlDocumentSerializer,
+  HTML_FORMAT,
+} from "./html-serializer";

@@ -6,7 +6,7 @@
  * dropping it at a run boundary (zero identity loss — no run is split) or, when
  * the offset lands strictly inside a text run, splitting only that straddling run
  * (its two halves become fresh Y.Text; every OTHER run keeps its Y.Text `===`
- * identity). After the structural edit, `mergeAdjacentSameAttrsTextItems` restores
+ * identity). After the structural edit, `mergeAdjacentSameAttrsTextItemsInPlace` restores
  * the normalization invariants (with the plan's optional `registry` threaded for
  * custom per-key `equals`).
  *
@@ -261,8 +261,8 @@ describe("planInsertTextSplitInPlace + split-in-place applier", () => {
     // Registry threaded → custom-equals coalesce fires → single merged run.
     expect(after.length).toBe(1);
     expect(yTextAt(after, 0).toString()).toBe("ab");
-    // The merge keeps the FIRST (existing) run's attrs (mergeAdjacentSameAttrsTextItems
-    // builds the merged run from `aAttrs`).
+    // The merge keeps the FIRST (existing) run's attrs (mergeAdjacentSameAttrsTextItemsInPlace
+    // appends the donor into the receiver, which carries `aAttrs`).
     expect(attrsAt(after, 0)).toEqual({ comment: { id: "c1", ts: 1 } });
   });
 

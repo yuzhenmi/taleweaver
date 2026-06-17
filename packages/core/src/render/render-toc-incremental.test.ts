@@ -23,6 +23,12 @@ import { asBlockId, insertText, createPosition, mergeBlockAttrs } from "../state
 const reg = createDefaultComponentRegistry();
 const attrReg = createDefaultAttrRegistry();
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 const H1 = "h1";
 const H2 = "h2";
 const P = "p";
@@ -163,7 +169,7 @@ describe("render — TOC incremental outline-signature perf contract", () => {
     const state = docWithToc();
     const prev = render(state, reg, attrReg);
     const prevToc = findToc(prev.root);
-    expect(firstTextOf(prevToc.children[0])).toBe("Introduction");
+    expect(firstTextOf(nth(prevToc.children, 0, "entry 0"))).toBe("Introduction");
 
     // Edit the first heading's text. The host TOC block is NOT in dirtyIds, but
     // the outline changed, so the expansion must force the TOC to re-derive.
@@ -177,7 +183,7 @@ describe("render — TOC incremental outline-signature perf contract", () => {
     const out = render(next, reg, attrReg, { prev, prevState: state, dirtyIds });
     const nextToc = findToc(out.root);
     expect(nextToc).not.toBe(prevToc);
-    expect(firstTextOf(nextToc.children[0])).toBe("Introduction!");
+    expect(firstTextOf(nth(nextToc.children, 0, "entry 0"))).toBe("Introduction!");
   });
 
   it("REUSES the TOC when a heading edit does NOT change the outline (format-only change)", () => {
@@ -213,7 +219,7 @@ describe("render — TOC incremental outline-signature perf contract", () => {
     );
     const out = render(next, reg, attrReg, { prev, prevState: state, dirtyIds });
     // Valid output: the edited heading reflects the new text, signature updated.
-    expect(out.outlineSignature.signature[0].text).toBe("Introduction!");
+    expect(nth(out.outlineSignature.signature, 0, "signature entry").text).toBe("Introduction!");
     expect(out.outlineSignature.tocAnchorIds.size).toBe(0);
   });
 });

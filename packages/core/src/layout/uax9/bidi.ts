@@ -62,6 +62,34 @@ export function classCode(codePoint: number): number {
 }
 
 /**
+ * Read element `i` of a typed/numeric array, throwing if it is out of range.
+ * Used at the many UAX #9 sites where an algorithm-derived index (a level-run
+ * slice bound, an isolate-pairing target, an `idx`/`positions` permutation) is
+ * provably in range by construction but TS cannot see it. Fail-loud: a silent
+ * default here would corrupt bidi ordering/levels. `label`/`i` name the site.
+ */
+function tat(
+  arr: Uint8Array | Int32Array | Uint32Array | readonly number[],
+  i: number,
+  label: string,
+): number {
+  const v = arr[i];
+  if (v === undefined) {
+    throw new Error(`bidi: ${label}[${i}] out of range (unreachable)`);
+  }
+  return v;
+}
+
+/** Read element `i` of a level-run array, throwing if out of range. */
+function tatRun<T>(arr: readonly T[], i: number): T {
+  const v = arr[i];
+  if (v === undefined) {
+    throw new Error(`bidi: runs[${i}] out of range (unreachable)`);
+  }
+  return v;
+}
+
+/**
  * Named numeric constants for every bidi class, keyed by class code. The
  * algorithm passes branch on these instead of comparing strings.
  */
@@ -303,7 +331,7 @@ export function applyExplicit(
       case CC.FSI: {
         // X5c: resolve direction from the enclosed text (P2/P3 over the
         // isolate's contents), then behave as RLI (dir 1) or LRI (dir 0).
-        const dir = computeParagraphLevel(codes, i + 1, matchingPDI[i]);
+        const dir = computeParagraphLevel(codes, i + 1, tat(matchingPDI, i, "matchingPDI"));
         pushIsolate(i, dir === 1);
         break;
       }
@@ -423,9 +451,13 @@ export function computeIsolatingRunSequences(
   // Each run is stored as a slice [start, end) into `positions`.
   const runs: { start: number; end: number }[] = [];
   for (let k = 0; k < positions.length; ) {
-    const runLevel = levels[positions[k]];
+    const runLevel = tat(levels, tat(positions, k, "positions"), "levels");
     let j = k + 1;
-    while (j < positions.length && levels[positions[j]] === runLevel) j++;
+    while (
+      j < positions.length &&
+      tat(levels, tat(positions, j, "positions"), "levels") === runLevel
+    )
+      j++;
     runs.push({ start: k, end: j });
     k = j;
   }
@@ -433,33 +465,37 @@ export function computeIsolatingRunSequences(
   // Map an absolute index → the run that contains it (only PDIs are looked up).
   const runStartingAt = new Map<number, number>(); // absolute first-index → run idx
   for (let r = 0; r < runs.length; r++) {
-    runStartingAt.set(positions[runs[r].start], r);
+    const run = tatRun(runs, r);
+    runStartingAt.set(tat(positions, run.start, "positions"), r);
   }
 
   const sequences: IsolatingRunSequence[] = [];
 
   for (let r = 0; r < runs.length; r++) {
-    const firstAbs = positions[runs[r].start];
+    const firstAbs = tat(positions, tatRun(runs, r).start, "positions");
     // BD13: a sequence starts here unless this run begins with a PDI that
     // matches an isolate initiator (such a run is appended to another sequence).
-    if (workingTypes[firstAbs] === CC.PDI && matchingIsolate[firstAbs] !== -1) {
+    if (
+      tat(workingTypes, firstAbs, "workingTypes") === CC.PDI &&
+      tat(matchingIsolate, firstAbs, "matchingIsolate") !== -1
+    ) {
       continue;
     }
 
     const indices: number[] = [];
     let curRun = r;
     for (;;) {
-      const run = runs[curRun];
-      for (let k = run.start; k < run.end; k++) indices.push(positions[k]);
-      const lastAbs = positions[run.end - 1];
-      const lt = workingTypes[lastAbs];
+      const run = tatRun(runs, curRun);
+      for (let k = run.start; k < run.end; k++) indices.push(tat(positions, k, "positions"));
+      const lastAbs = tat(positions, run.end - 1, "positions");
+      const lt = tat(workingTypes, lastAbs, "workingTypes");
       // If the run ends in an isolate initiator WITH a matching PDI, continue
       // the sequence at the run that starts at that PDI.
       if (
         (lt === CC.LRI || lt === CC.RLI || lt === CC.FSI) &&
-        matchingPDI[lastAbs] < n
+        tat(matchingPDI, lastAbs, "matchingPDI") < n
       ) {
-        const nextRun = runStartingAt.get(matchingPDI[lastAbs]);
+        const nextRun = runStartingAt.get(tat(matchingPDI, lastAbs, "matchingPDI"));
         if (nextRun === undefined) break;
         curRun = nextRun;
         continue;
@@ -468,15 +504,15 @@ export function computeIsolatingRunSequences(
     }
 
     // X10 sos/eos.
-    const seqLevel = levels[indices[0]];
-    const firstIdx = indices[0];
-    const lastIdx = indices[indices.length - 1];
+    const firstIdx = tat(indices, 0, "indices");
+    const lastIdx = tat(indices, indices.length - 1, "indices");
+    const seqLevel = tat(levels, firstIdx, "levels");
 
     // sos: nearest preceding non-BN level (else paragraph level).
     let prevLevel = paragraphLevel;
     for (let p = firstIdx - 1; p >= 0; p--) {
-      if (workingTypes[p] !== CC.BN) {
-        prevLevel = levels[p];
+      if (tat(workingTypes, p, "workingTypes") !== CC.BN) {
+        prevLevel = tat(levels, p, "levels");
         break;
       }
     }
@@ -485,15 +521,15 @@ export function computeIsolatingRunSequences(
     // eos: nearest following non-BN level (else paragraph level). If the
     // sequence ends in an isolate initiator with NO matching PDI, use the
     // paragraph level (X10).
-    const lastType = workingTypes[lastIdx];
+    const lastType = tat(workingTypes, lastIdx, "workingTypes");
     const endsInUnmatchedIsolate =
       (lastType === CC.LRI || lastType === CC.RLI || lastType === CC.FSI) &&
-      matchingPDI[lastIdx] >= n;
+      tat(matchingPDI, lastIdx, "matchingPDI") >= n;
     let nextLevel = paragraphLevel;
     if (!endsInUnmatchedIsolate) {
       for (let p = lastIdx + 1; p < n; p++) {
-        if (workingTypes[p] !== CC.BN) {
-          nextLevel = levels[p];
+        if (tat(workingTypes, p, "workingTypes") !== CC.BN) {
+          nextLevel = tat(levels, p, "levels");
           break;
         }
       }
@@ -549,15 +585,16 @@ export function applyWeak(seq: IsolatingRunSequence, types: Uint8Array): void {
 
   // W1 — non-spacing marks.
   for (let k = 0; k < n; k++) {
-    if (types[idx[k]] !== CC.NSM) continue;
+    const a = tat(idx, k, "idx");
+    if (types[a] !== CC.NSM) continue;
     if (k === 0) {
-      types[idx[k]] = sosType;
+      types[a] = sosType;
     } else {
-      const prev = types[idx[k - 1]];
+      const prev = tat(types, tat(idx, k - 1, "idx"), "types");
       if (prev === CC.LRI || prev === CC.RLI || prev === CC.FSI || prev === CC.PDI) {
-        types[idx[k]] = CC.ON;
+        types[a] = CC.ON;
       } else {
-        types[idx[k]] = prev;
+        types[a] = prev;
       }
     }
   }
@@ -567,32 +604,35 @@ export function applyWeak(seq: IsolatingRunSequence, types: Uint8Array): void {
   {
     let lastStrong = sosType; // L or R from sos; updated to L/R/AL inline.
     for (let k = 0; k < n; k++) {
-      const t = types[idx[k]];
+      const a = tat(idx, k, "idx");
+      const t = types[a];
       if (t === CC.L || t === CC.R || t === CC.AL) {
         lastStrong = t;
       } else if (t === CC.EN && lastStrong === CC.AL) {
-        types[idx[k]] = CC.AN;
+        types[a] = CC.AN;
       }
     }
   }
 
   // W3 — AL becomes R.
   for (let k = 0; k < n; k++) {
-    if (types[idx[k]] === CC.AL) types[idx[k]] = CC.R;
+    const a = tat(idx, k, "idx");
+    if (types[a] === CC.AL) types[a] = CC.R;
   }
 
   // W4 — a single separator between two numbers of the matching type. ES only
   // bridges EN; CS bridges EN…EN and AN…AN. "Single" = the neighbours are the
   // immediately-adjacent sequence positions (k-1, k+1).
   for (let k = 1; k < n - 1; k++) {
-    const t = types[idx[k]];
-    const prev = types[idx[k - 1]];
-    const next = types[idx[k + 1]];
+    const a = tat(idx, k, "idx");
+    const t = types[a];
+    const prev = tat(types, tat(idx, k - 1, "idx"), "types");
+    const next = tat(types, tat(idx, k + 1, "idx"), "types");
     if (t === CC.ES) {
-      if (prev === CC.EN && next === CC.EN) types[idx[k]] = CC.EN;
+      if (prev === CC.EN && next === CC.EN) types[a] = CC.EN;
     } else if (t === CC.CS) {
-      if (prev === CC.EN && next === CC.EN) types[idx[k]] = CC.EN;
-      else if (prev === CC.AN && next === CC.AN) types[idx[k]] = CC.AN;
+      if (prev === CC.EN && next === CC.EN) types[a] = CC.EN;
+      else if (prev === CC.AN && next === CC.AN) types[a] = CC.AN;
     }
   }
 
@@ -600,25 +640,26 @@ export function applyWeak(seq: IsolatingRunSequence, types: Uint8Array): void {
   // ET runs and convert the whole run if either neighbour (or, for an edge run,
   // not applicable — sos/eos are never EN) is EN.
   for (let k = 0; k < n; ) {
-    if (types[idx[k]] !== CC.ET) {
+    if (tat(types, tat(idx, k, "idx"), "types") !== CC.ET) {
       k++;
       continue;
     }
     let j = k;
-    while (j < n && types[idx[j]] === CC.ET) j++;
+    while (j < n && tat(types, tat(idx, j, "idx"), "types") === CC.ET) j++;
     // [k, j) is a maximal ET run; check the chars immediately before/after.
-    const beforeIsEN = k > 0 && types[idx[k - 1]] === CC.EN;
-    const afterIsEN = j < n && types[idx[j]] === CC.EN;
+    const beforeIsEN = k > 0 && tat(types, tat(idx, k - 1, "idx"), "types") === CC.EN;
+    const afterIsEN = j < n && tat(types, tat(idx, j, "idx"), "types") === CC.EN;
     if (beforeIsEN || afterIsEN) {
-      for (let m = k; m < j; m++) types[idx[m]] = CC.EN;
+      for (let m = k; m < j; m++) types[tat(idx, m, "idx")] = CC.EN;
     }
     k = j;
   }
 
   // W6 — any remaining ES/ET/CS becomes ON.
   for (let k = 0; k < n; k++) {
-    const t = types[idx[k]];
-    if (t === CC.ES || t === CC.ET || t === CC.CS) types[idx[k]] = CC.ON;
+    const a = tat(idx, k, "idx");
+    const t = types[a];
+    if (t === CC.ES || t === CC.ET || t === CC.CS) types[a] = CC.ON;
   }
 
   // W7 — EN after L becomes L. Track the most recent strong type (L or R;
@@ -626,11 +667,12 @@ export function applyWeak(seq: IsolatingRunSequence, types: Uint8Array): void {
   {
     let lastStrong = sosType;
     for (let k = 0; k < n; k++) {
-      const t = types[idx[k]];
+      const a = tat(idx, k, "idx");
+      const t = types[a];
       if (t === CC.L || t === CC.R) {
         lastStrong = t;
       } else if (t === CC.EN && lastStrong === CC.L) {
-        types[idx[k]] = CC.L;
+        types[a] = CC.L;
       }
     }
   }
@@ -723,9 +765,9 @@ export function applyNeutral(
   const pairClose: number[] = [];
 
   identify: for (let k = 0; k < n; k++) {
-    const abs = idx[k];
+    const abs = tat(idx, k, "idx");
     if (types[abs] !== CC.ON) continue;
-    const bp = bracketPair(codePoints[abs]);
+    const bp = bracketPair(tat(codePoints, abs, "codePoints"));
     if (bp === null) continue;
     if (bp.kind === "open") {
       if (stackSize >= BD16_STACK_CAPACITY) {
@@ -738,10 +780,10 @@ export function applyNeutral(
       stackSize++;
     } else {
       // Closing bracket: search from the TOP down for a matching opener.
-      const closeKey = canonicalBracketEquiv(codePoints[abs]);
+      const closeKey = canonicalBracketEquiv(tat(codePoints, abs, "codePoints"));
       for (let s = stackSize - 1; s >= 0; s--) {
-        if (stackKey[s] === closeKey) {
-          pairOpen.push(stackOpenPos[s]);
+        if (tat(stackKey, s, "stackKey") === closeKey) {
+          pairOpen.push(tat(stackOpenPos, s, "stackOpenPos"));
           pairClose.push(k);
           // Pop the matched entry AND everything above it.
           stackSize = s;
@@ -754,23 +796,23 @@ export function applyNeutral(
   // Sort pairs by opening position (ascending). Build an index permutation so
   // the two parallel arrays stay aligned.
   const order = pairOpen.map((_, i) => i);
-  order.sort((a, b) => pairOpen[a] - pairOpen[b]);
+  order.sort((a, b) => tat(pairOpen, a, "pairOpen") - tat(pairOpen, b, "pairOpen"));
 
   for (const oi of order) {
-    const openPos = pairOpen[oi];
-    const closePos = pairClose[oi];
-    const openAbs = idx[openPos];
-    const closeAbs = idx[closePos];
+    const openPos = tat(pairOpen, oi, "pairOpen");
+    const closePos = tat(pairClose, oi, "pairClose");
+    const openAbs = tat(idx, openPos, "idx");
+    const closeAbs = tat(idx, closePos, "idx");
 
     // Embedding direction of the pair (EN/AN treated as R within N0 already
     // folds into strongDir for the enclosed scan).
-    const e: Dir = (levels[openAbs] & 1) === 0 ? 0 : 1;
+    const e: Dir = (tat(levels, openAbs, "levels") & 1) === 0 ? 0 : 1;
 
     // Inspect the strong types strictly BETWEEN the brackets (sequence order).
     let sawEmbedding = false;
     let sawOpposite = false;
     for (let k = openPos + 1; k < closePos; k++) {
-      const d = strongDir(types[idx[k]]);
+      const d = strongDir(tat(types, tat(idx, k, "idx"), "types"));
       if (d === -1) continue;
       if (d === e) {
         sawEmbedding = true;
@@ -791,7 +833,7 @@ export function applyNeutral(
       const opposite: Dir = e === 0 ? 1 : 0;
       let context: Dir = seq.sos;
       for (let k = openPos - 1; k >= 0; k--) {
-        const d = strongDir(types[idx[k]]);
+        const d = strongDir(tat(types, tat(idx, k, "idx"), "types"));
         if (d !== -1) {
           context = d;
           break;
@@ -816,21 +858,23 @@ export function applyNeutral(
   // both sides (sos/eos at the sequence ends; EN/AN count as R).
   // -----------------------------------------------------------------------
   for (let k = 0; k < n; ) {
-    if (!isNI(types[idx[k]])) {
+    if (!isNI(tat(types, tat(idx, k, "idx"), "types"))) {
       k++;
       continue;
     }
     // [k, j) is a maximal NI run.
     let j = k;
-    while (j < n && isNI(types[idx[j]])) j++;
+    while (j < n && isNI(tat(types, tat(idx, j, "idx"), "types"))) j++;
     // Boundary directions: the strong text on each side, or sos/eos at the ends.
     // The chars at k-1 / j are non-NI by construction, so strongDir is never -1
     // there; the `?? seq.s*s` fallbacks cover only the sequence-edge cases.
-    const left: Dir = k > 0 ? boundOrFallback(strongDir(types[idx[k - 1]]), seq.sos) : seq.sos;
-    const right: Dir = j < n ? boundOrFallback(strongDir(types[idx[j]]), seq.eos) : seq.eos;
+    const left: Dir =
+      k > 0 ? boundOrFallback(strongDir(tat(types, tat(idx, k - 1, "idx"), "types")), seq.sos) : seq.sos;
+    const right: Dir =
+      j < n ? boundOrFallback(strongDir(tat(types, tat(idx, j, "idx"), "types")), seq.eos) : seq.eos;
     if (left === right) {
       const t = left === 0 ? CC.L : CC.R;
-      for (let m = k; m < j; m++) types[idx[m]] = t;
+      for (let m = k; m < j; m++) types[tat(idx, m, "idx")] = t;
     }
     k = j;
   }
@@ -839,9 +883,9 @@ export function applyNeutral(
   // N2 — any NI still unresolved takes the embedding direction (level parity).
   // -----------------------------------------------------------------------
   for (let k = 0; k < n; k++) {
-    const abs = idx[k];
-    if (isNI(types[abs])) {
-      types[abs] = (levels[abs] & 1) === 0 ? CC.L : CC.R;
+    const abs = tat(idx, k, "idx");
+    if (isNI(tat(types, abs, "types"))) {
+      types[abs] = (tat(levels, abs, "levels") & 1) === 0 ? CC.L : CC.R;
     }
   }
 }
@@ -860,9 +904,10 @@ function applyNsmFollowOn(
 ): void {
   const t = dir === 0 ? CC.L : CC.R;
   for (let k = bracketPos + 1; k < idx.length; k++) {
-    const cp = codePoints[idx[k]];
+    const a = tat(idx, k, "idx");
+    const cp = codePoints[a];
     if (cp === undefined || classCode(cp) !== CC.NSM) break;
-    types[idx[k]] = t;
+    types[a] = t;
   }
 }
 
@@ -897,15 +942,16 @@ export function applyImplicit(
 ): void {
   const idx = seq.indices;
   for (let k = 0; k < idx.length; k++) {
-    const abs = idx[k];
+    const abs = tat(idx, k, "idx");
     const t = types[abs];
-    if ((levels[abs] & 1) === 0) {
+    const lvl = tat(levels, abs, "levels");
+    if ((lvl & 1) === 0) {
       // I1 — even (LTR) level.
-      if (t === CC.R) levels[abs] += 1;
-      else if (t === CC.EN || t === CC.AN) levels[abs] += 2;
+      if (t === CC.R) levels[abs] = lvl + 1;
+      else if (t === CC.EN || t === CC.AN) levels[abs] = lvl + 2;
     } else {
       // I2 — odd (RTL) level.
-      if (t === CC.L || t === CC.EN || t === CC.AN) levels[abs] += 1;
+      if (t === CC.L || t === CC.EN || t === CC.AN) levels[abs] = lvl + 1;
     }
   }
 }

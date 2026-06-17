@@ -14,6 +14,12 @@ import {
 import { buildBlock, buildState, text, inlineContent } from "../test-utils/state-builders";
 import { asBlockId, insertText, createPosition } from "../state";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 const H1 = "h1";
 const H2 = "h2";
 const TOC = "toc";
@@ -98,7 +104,7 @@ describe("outlineSignaturesEqual", () => {
     );
     const after = computeOutlineSignature(next, "suggesting");
     expect(outlineSignaturesEqual(before, after)).toBe(false);
-    expect(after.signature[0].text).toBe("Introduction!");
+    expect(nth(after.signature, 0, "signature entry").text).toBe("Introduction!");
   });
 
   it("is TRUE after a NON-heading change (editing a paragraph)", () => {

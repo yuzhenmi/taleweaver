@@ -1,90 +1,52 @@
-import { useEffect, useRef, useState } from "react";
-import { EditorView, type EditorViewHandle } from "@taleweaver/react";
+import { useCallback, useRef, useState } from "react";
+import type { State } from "@taleweaver/core";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Header } from "@/components/header";
-import { DocMenuBar } from "@/components/menu-bar";
-import { Toolbar } from "@/components/toolbar";
-import { FindBar } from "@/components/find-bar";
-import { usePerfEditor } from "./use-perf-editor";
-import { setPerfTraceEnabled, report, resetPerfTrace } from "@taleweaver/core";
+import { ModeTabs, type EditorMode } from "@/components/mode-tabs";
+import { PrintSurface } from "@/components/print-surface";
+import { DigitalSurface } from "@/components/digital-surface";
+import { CollabSurface } from "@/components/collab-surface";
 import "./app.css";
 
-const PAGE_HEIGHT = 1056;            // US Letter at 96 DPI
-const PAGE_GAP = 24;
-
 export function App() {
-  // usePerfEditor mirrors useEditor but also checks ?perfFixture=N on mount
-  // and initializes the editor with a synthetic N-paragraph document when set.
-  const editor = usePerfEditor();
+  // The print/digital fork is DOWNSTREAM of the core `State`: both backends drive
+  // the same document, render the same styled tree, and reduce the same
+  // `EditorAction`s — they differ only in how they realize the view (print computes
+  // pixel geometry → canvas; digital hands the styled tree to the browser to flow).
+  // Switching tabs swaps the backend and HANDS THE LIVE DOCUMENT OFF: the active
+  // surface's current `State` seeds the incoming one (keyed remount).
+  const [mode, setMode] = useState<EditorMode>("print");
+  const [handoff, setHandoff] = useState<State | null>(null);
 
-  // Imperative handle into the EditorView's controller (#433): the find-bar
-  // drives find/replace through it without reaching into the controller.
-  const viewRef = useRef<EditorViewHandle>(null);
-  // null when the find-bar is hidden; otherwise its mode (Ctrl+F vs Ctrl+H).
-  const [findMode, setFindMode] = useState<null | "find" | "replace">(null);
-
-  // Ctrl/Cmd+F → find; Ctrl/Cmd+H → replace. preventDefault overrides the
-  // browser's native find/replace so our in-document bar takes over. Escape is
-  // handled inside the bar (it has the focus while open).
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      const mod = e.ctrlKey || e.metaKey;
-      if (!mod || e.altKey) return;
-      const key = e.key.toLowerCase();
-      if (key === "f") {
-        e.preventDefault();
-        setFindMode("find");
-      } else if (key === "h") {
-        e.preventDefault();
-        setFindMode("replace");
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+  // The currently-mounted surface registers its live-state getter here on mount;
+  // read it at switch time to capture the outgoing document.
+  const getStateRef = useRef<(() => State) | null>(null);
+  const registerGetState = useCallback((getState: () => State) => {
+    getStateRef.current = getState;
   }, []);
 
-  // When a perf fixture is active: enable tracing and expose dev console hooks.
-  useEffect(() => {
-    if (!editor.isPerfFixture) return;
-    setPerfTraceEnabled(true);
-    (window as unknown as { __perfReport: () => unknown; __perfReset: () => void }).__perfReport = () => {
-      const r = report();
-      console.table(r.entries);
-      return r;
-    };
-    (window as unknown as { __perfReset: () => void }).__perfReset = () => {
-      resetPerfTrace();
-      console.log("Perf trace reset");
-    };
-  }, [editor.isPerfFixture]);
+  const switchMode = useCallback(
+    (next: EditorMode) => {
+      if (next === mode) return;
+      const live = getStateRef.current?.();
+      if (live !== undefined) setHandoff(live);
+      setMode(next);
+    },
+    [mode],
+  );
 
   return (
     <TooltipProvider>
       <div className="flex flex-col h-screen bg-white">
         <Header />
-        <DocMenuBar dispatch={editor.dispatch} editorState={editor.editorState} focus={editor.focus} />
-        <Toolbar dispatch={editor.dispatch} editorState={editor.editorState} />
-        <div className="relative flex-1 overflow-y-auto bg-[#f9fbfd]">
-          {findMode && viewRef.current && (
-            <FindBar
-              handle={viewRef.current}
-              mode={findMode}
-              editorState={editor.editorState}
-              onClose={() => {
-                setFindMode(null);
-                editor.focus();
-              }}
-            />
-          )}
-          <div className="mx-auto mt-4 mb-12" style={{ width: 816 }}>
-            <EditorView
-              {...editor}
-              ref={viewRef}
-              pageHeight={PAGE_HEIGHT}
-              pageGap={PAGE_GAP}
-            />
-          </div>
-        </div>
+        <ModeTabs mode={mode} onChange={switchMode} />
+        {mode === "print" ? (
+          <PrintSurface key="print" seed={handoff} registerGetState={registerGetState} />
+        ) : mode === "digital" ? (
+          <DigitalSurface key="digital" seed={handoff} registerGetState={registerGetState} />
+        ) : (
+          <CollabSurface key="collab" seed={handoff} registerGetState={registerGetState} />
+        )}
       </div>
     </TooltipProvider>
   );

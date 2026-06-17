@@ -52,6 +52,7 @@ describe("render — page-field placeholder wiring", () => {
     expect(atom.style.display).toBe("inline-block");
     expect(atom.children).toHaveLength(1);
     const child = atom.children[0];
+    if (child === undefined) throw new Error("expected one page-field child");
     expect(child.type).toBe("text");
     expect((child as TextBox).text).toBe("00"); // PAGE_FIELD_RESERVED_GLYPHS = 2
     expect(atom.metadata?.embedType).toBe(PAGE_FIELD_EMBED_TYPE);

@@ -3,7 +3,7 @@ import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import { asBlockId, type BlockId } from "../block-id";
 import { getTreeMap, getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
-import { cloneInlineItem, mergeAdjacentSameAttrsTextItems } from "../y-utils";
+import { cloneInlineItem, mergeAdjacentSameAttrsTextItemsInPlace } from "../y-utils";
 import { type EmbedItem } from "../inline-content";
 import { buildYInlineItem } from "../y-block";
 import { assertSameTree } from "../assert-same-tree";
@@ -78,13 +78,15 @@ export interface MergeBlocksPlan {
  *
  * Y.Doc identity: right's items are deep-cloned onto left's inlineContent
  * Y.Array (Yjs forbids re-parenting a Y type). Left's existing items retain
- * their Y.Text identity EXCEPT when the seam converges (last-of-left and
- * first-of-right have value-equal attrs): the same-attrs merge pass replaces
- * both seam items with a single fresh Y.Text holding the concatenated
- * content. Items away from the seam are never touched.
+ * their Y.Text identity, INCLUDING the left-side seam run when the seam
+ * converges (last-of-left and first-of-right have value-equal attrs): the
+ * in-place seam-merge appends the right run's chars into the left (receiver)
+ * run's `Y.Text` and drops the cloned donor — so the left run keeps identity
+ * (only the donor's migrated chars are fresh, which they already were as a
+ * clone). Items away from the seam are never touched.
  *
  * `registry` (optional): an `AttrRegistry`; threaded to the seam-merge
- * normalizer (`mergeAdjacentSameAttrsTextItems`) so interpreters with a
+ * normalizer (`mergeAdjacentSameAttrsTextItemsInPlace`) so interpreters with a
  * custom per-key `equals` (e.g. a `comment` interpreter that ignores
  * `timestamp`) opt into custom adjacent-item compare semantics across
  * the block seam. Omitted → deep-value compare.
@@ -236,8 +238,9 @@ export function mergeAdjacentBlocksInTx(
   if (cloned.length > 0) {
     yLeftItems.push(cloned);
     // Same-attrs merge pass to uphold the normalized inline-content invariant.
-    // Only needed when we actually appended items.
-    mergeAdjacentSameAttrsTextItems(yLeftItems, registry);
+    // Only needed when we actually appended items. In-place: the left-side seam
+    // run (receiver) keeps its Y.Text identity (the donor was a fresh clone anyway).
+    mergeAdjacentSameAttrsTextItemsInPlace(yLeftItems, registry);
   }
 
   // Rewire siblings around right (right.next becomes left.next).

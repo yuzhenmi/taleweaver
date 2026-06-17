@@ -5,6 +5,12 @@ import {
   recordSample,
 } from "./perf-trace";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 describe("PerfTrace", () => {
   beforeEach(() => {
     setPerfTraceEnabled(false);
@@ -24,9 +30,9 @@ describe("PerfTrace", () => {
     markEnd("foo", t);
     const r = report();
     expect(r.entries.length).toBe(1);
-    expect(r.entries[0].label).toBe("foo");
-    expect(r.entries[0].count).toBe(1);
-    expect(r.entries[0].totalMs).toBeGreaterThanOrEqual(0);
+    expect(nth(r.entries, 0, "entry").label).toBe("foo");
+    expect(nth(r.entries, 0, "entry").count).toBe(1);
+    expect(nth(r.entries, 0, "entry").totalMs).toBeGreaterThanOrEqual(0);
   });
 
   it("sorts report by descending totalMs", () => {
@@ -42,7 +48,7 @@ describe("PerfTrace", () => {
     markEnd("slow", t);
 
     const r = report();
-    expect(r.entries[0].label).toBe("slow");
+    expect(nth(r.entries, 0, "entry").label).toBe("slow");
   });
 
   it("resets cleanly", () => {
@@ -58,10 +64,10 @@ describe("PerfTrace", () => {
     recordSample("foo", 5);
     recordSample("foo", 7);
     const r = report();
-    expect(r.entries[0].label).toBe("foo");
-    expect(r.entries[0].count).toBe(2);
-    expect(r.entries[0].totalMs).toBe(12);
-    expect(r.entries[0].avgMs).toBe(6);
+    expect(nth(r.entries, 0, "entry").label).toBe("foo");
+    expect(nth(r.entries, 0, "entry").count).toBe(2);
+    expect(nth(r.entries, 0, "entry").totalMs).toBe(12);
+    expect(nth(r.entries, 0, "entry").avgMs).toBe(6);
   });
 
   it("recordSample is a no-op when disabled", () => {

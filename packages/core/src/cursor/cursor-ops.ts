@@ -61,7 +61,7 @@ export function moveByCharacter(
  * aren't valid cursor destinations; only blocks with non-null
  * `inlineContent` are.
  */
-function findNextContentBlock(state: State, blockId: BlockId): BlockId | null {
+export function findNextContentBlock(state: State, blockId: BlockId): BlockId | null {
   let cursor = nextBlockInDocOrder(state, blockId);
   while (cursor !== null) {
     const block = resolveBlock(state, cursor)?.block ?? null;
@@ -76,7 +76,7 @@ function findNextContentBlock(state: State, blockId: BlockId): BlockId | null {
  * Symmetric to `findNextContentBlock` — walks `prevBlockInDocOrder` past
  * container blocks.
  */
-function findPrevContentBlock(state: State, blockId: BlockId): BlockId | null {
+export function findPrevContentBlock(state: State, blockId: BlockId): BlockId | null {
   let cursor = prevBlockInDocOrder(state, blockId);
   while (cursor !== null) {
     const block = resolveBlock(state, cursor)?.block ?? null;
@@ -184,7 +184,11 @@ export function moveByWord(
       const item = prevContent.items[i];
       if (item === undefined || item.kind !== "text") continue;
       const boundary = prevWordBoundary(item.text, item.text.length);
-      return createPosition(prev, cumulativeStart[i] + boundary);
+      const start = cumulativeStart[i];
+      if (start === undefined) {
+        throw new Error(`cursor-ops: cumulativeStart[${i}] missing (unreachable)`);
+      }
+      return createPosition(prev, start + boundary);
     }
     // No text items in prev block — land at its end (block boundary).
     return createPosition(prev, prevTotal);

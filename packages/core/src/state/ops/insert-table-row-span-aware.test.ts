@@ -9,6 +9,12 @@ import type { State } from "../state";
 import type { Block } from "../block";
 import type { RowPosition } from "./insert-table-row";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 function cell(id: string, rowId: string, attrs: Record<string, unknown> | undefined, prev: string | null, next: string | null): Block[] {
   return [
     buildBlock({ id, type: "table-cell", parentId: rowId, attrs, prevSiblingId: prev, nextSiblingId: next, firstChildId: `${id}p`, lastChildId: `${id}p` }),
@@ -52,7 +58,7 @@ describe("insertTableRowSpanAware", () => {
     expect(rows.length).toBe(3); // r0, NEW, r1
     expect(rows[0]).toBe("r0");
     expect(rows[2]).toBe("r1");
-    const newRow = rows[1];
+    const newRow = nth(rows, 1, "row");
     const newCells = getChildIds(result.state, newRow);
     expect(newCells.length).toBe(1); // only the non-covered column
 
@@ -71,7 +77,7 @@ describe("insertTableRowSpanAware", () => {
     const rows = getChildIds(result.state, "table" as BlockId);
     expect(rows.length).toBe(3);
     expect(rows[1]).toBe("r0"); // new row is at the head
-    const newCells = getChildIds(result.state, rows[0]);
+    const newCells = getChildIds(result.state, nth(rows, 0, "row"));
     expect(newCells.length).toBe(2);
     const grid = buildTableGrid(result.state, "table" as BlockId);
     if (grid === null) throw new Error("expected grid");
@@ -88,7 +94,7 @@ describe("insertTableRowSpanAware", () => {
     const rows = getChildIds(result.state, "table" as BlockId);
     expect(rows.length).toBe(3);
     expect(rows[2]).not.toBe("r1"); // new row is at the tail
-    const newCells = getChildIds(result.state, rows[2]);
+    const newCells = getChildIds(result.state, nth(rows, 2, "row"));
     expect(newCells.length).toBe(2);
     const grid = buildTableGrid(result.state, "table" as BlockId);
     if (grid === null) throw new Error("expected grid");
@@ -119,7 +125,7 @@ describe("insertTableRowSpanAware", () => {
     expect(rows.length).toBe(4); // r0, NEW, r1, r2
     expect(rows[0]).toBe("r0");
     expect(rows[2]).toBe("r1");
-    const newCells = getChildIds(result.state, rows[1]);
+    const newCells = getChildIds(result.state, nth(rows, 1, "row"));
     expect(newCells.length).toBe(1); // only column 1 uncovered
     const grid = buildTableGrid(result.state, "table" as BlockId);
     if (grid === null) throw new Error("expected grid");
@@ -173,7 +179,7 @@ describe("insertTableRowSpanAware", () => {
     expect(a?.attrs.rowSpan).toBe(3); // bumped once despite covering two columns
     expect(a?.attrs.colSpan).toBe(2); // preserved
     const rows = getChildIds(result.state, "table" as BlockId);
-    const newRow = rows[1];
+    const newRow = nth(rows, 1, "row");
     const newCells = getChildIds(result.state, newRow);
     expect(newCells.length).toBe(1); // only column 2 is uncovered
     const grid = buildTableGrid(result.state, "table" as BlockId);

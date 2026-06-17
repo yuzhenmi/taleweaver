@@ -57,6 +57,11 @@ export function compareBlocksInDocOrder(state: State, idA: BlockId, idB: BlockId
   // chainA[i] and chainB[j] are different children of the LCA (which is chainA[i+1] === chainB[j+1]).
   // Walk the LCA's child linked list to see which child comes first.
   const lcaId = chainA[i + 1];
+  if (lcaId === undefined) {
+    // Unreachable: the roots matched, so the while-loop decremented at least
+    // once, leaving i <= chainA.length - 2 and i+1 a valid in-bounds index.
+    throw new Error(`compareBlocksInDocOrder: LCA index ${i + 1} out of range in chainA`);
+  }
   const lca = resolveBlock(state, lcaId)?.block ?? null;
   if (lca === null) throw new Error(`compareBlocksInDocOrder: LCA "${lcaId}" not found`);
 

@@ -15,6 +15,12 @@ import {
 } from "./snapshot";
 import type { BlockId } from "./block-id";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 function buildParagraphYBlock(text: string): Y.Map<unknown> {
   const yBlock = new Y.Map<unknown>();
   yBlock.set("type", "paragraph");
@@ -106,7 +112,7 @@ describe("snapshot", () => {
       const snap = getBlockSnapshot(doc, "p1" as BlockId, cache)!;
       expect(snap.inlineContent).not.toBeNull();
       expect(snap.inlineContent!.items.length).toBe(1);
-      const item = snap.inlineContent!.items[0];
+      const item = nth(snap.inlineContent!.items, 0, "inline item");
       expect(item.kind).toBe("text");
       if (item.kind === "text") {
         expect(item.text).toBe("hello");

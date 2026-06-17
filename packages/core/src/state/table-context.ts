@@ -113,8 +113,11 @@ export function resolveTableContext(state: State, blockId: BlockId): TableContex
   );
 
   const rowIndex = rowIds.indexOf(rowId);
-  const colIndex = rowIndex >= 0 ? cellIdsByRow[rowIndex].indexOf(cellId) : -1;
-  if (rowIndex < 0 || colIndex < 0) return null;
+  // cellIdsByRow is built 1:1 from rowIds via map, so a valid rowIndex (>= 0,
+  // < rowIds.length) always indexes a present row.
+  const caretRowCells = rowIndex >= 0 ? cellIdsByRow[rowIndex] : undefined;
+  const colIndex = caretRowCells !== undefined ? caretRowCells.indexOf(cellId) : -1;
+  if (rowIndex < 0 || colIndex < 0 || caretRowCells === undefined) return null;
 
   const spanned = cellIdsByRow.some((cells) =>
     cells.some((cid) => {
@@ -134,7 +137,9 @@ export function resolveTableContext(state: State, blockId: BlockId): TableContex
   const grid = buildTableGrid(state, tableId);
   const ragged =
     grid === null
-      ? cellIdsByRow.some((cells) => cells.length !== cellIdsByRow[rowIndex].length)
+      ? // `caretRowCells` is non-undefined here: the `colIndex < 0` guard above
+        // already returned null for an absent caret row.
+        cellIdsByRow.some((cells) => cells.length !== caretRowCells.length)
       : grid.occupancy.some((row) => row.some((slot) => slot === null));
 
   return {

@@ -8,6 +8,7 @@ import {
   marginBlockStartFromAttrs,
   marginBlockEndFromAttrs,
   writingModeFromAttrs,
+  langFromAttrs,
   tabStopsFromAttrs,
 } from "./leaf-style-attrs";
 
@@ -59,6 +60,7 @@ export const paragraphComponent: LeafComponentDefinition = {
   render: (view, _ctx, inlineRenderNodes) => {
     const whiteSpace = whiteSpaceFromAttrs(view.attrs.whiteSpace);
     const writingMode = writingModeFromAttrs(view.attrs.writingMode);
+    const language = langFromAttrs(view.attrs.lang);
     const textAlign = textAlignFromAttrs(view.attrs.textAlign);
     const lineHeight = lineHeightFromAttrs(view.attrs.lineHeight);
     const marginInlineStart = marginInlineStartFromAttrs(view.attrs.marginInlineStart);
@@ -70,6 +72,7 @@ export const paragraphComponent: LeafComponentDefinition = {
       marginBlockEnd: { unit: "em", value: 0.5 },
       ...(whiteSpace !== undefined ? { whiteSpace } : {}),
       ...(writingMode !== undefined ? { writingMode } : {}),
+      ...(language !== undefined ? { language } : {}),
       ...(textAlign !== undefined ? { textAlign } : {}),
       ...(lineHeight !== undefined ? { lineHeight } : {}),
       ...(tabStops !== undefined ? { tabStops } : {}),

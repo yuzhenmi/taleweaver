@@ -45,6 +45,16 @@ describe("headingComponent (new)", () => {
     expect(el.style.fontSize).toBe(HEADING_FONT_SIZES[1]);
   });
 
+  it("stamps headingLevel metadata from attrs.level (P-1)", () => {
+    const el = headingComponent.render(leafView({ level: 3 }), stubCtx(), []) as ElementBox;
+    expect(el.metadata?.headingLevel).toBe(3);
+  });
+
+  it("defaults headingLevel to 1 when attrs.level is missing (P-1)", () => {
+    const el = headingComponent.render(leafView({}), stubCtx(), []) as ElementBox;
+    expect(el.metadata?.headingLevel).toBe(1);
+  });
+
   it("forwards a valid textAlign attr onto the ElementBox style", () => {
     const view = leafView({ level: 1, textAlign: "end" });
     const el = headingComponent.render(view, stubCtx(), []) as ElementBox;

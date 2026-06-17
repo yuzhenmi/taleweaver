@@ -20,8 +20,11 @@ import {
 export const measurer = createMockShaper(8, 16);
 export const componentRegistry = createDefaultComponentRegistry();
 export const attrRegistry = createDefaultAttrRegistry();
+// Phase 0b: `measurer` left core's `EditorConfig` (geometry-only) for the print
+// backend's `LayoutConfig`. It is still EXPORTED here because some tests build a
+// layoutTree directly via core's `layoutTree(...)`/`render`+`cascadePass` to
+// assert geometry. The reducer config no longer carries it.
 export const config: EditorConfig = {
-  measurer,
   componentRegistry,
   attrRegistry,
   containerWidth: 200,

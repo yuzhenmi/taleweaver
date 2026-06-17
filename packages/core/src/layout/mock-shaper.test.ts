@@ -3,6 +3,12 @@ import { createMockShaper, createVariableMockShaper } from "./mock-shaper";
 import { INITIAL_COMPUTED_STYLE } from "../styles";
 import type { ComputedStyle } from "../styles";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 describe("createMockShaper", () => {
   const cs = INITIAL_COMPUTED_STYLE;
 
@@ -10,7 +16,7 @@ describe("createMockShaper", () => {
     const shaper = createMockShaper(8, 16);
     const run = shaper.shape("abc", cs, "ltr");
     expect(run.clusters).toHaveLength(3);
-    expect(run.clusters[0].inlineAdvance).toBe(8);
+    expect(nth(run.clusters, 0, "cluster").inlineAdvance).toBe(8);
     expect(run.unbreakableRunInlineSize).toBe(24);
     expect(run.minClusterInlineSize).toBe(8);
   });
@@ -76,12 +82,14 @@ describe("createMockShaper grapheme clustering (P6-S1)", () => {
     expect(text.length).toBe(2); // guard: fails loudly if re-normalized to precomposed U+00E9
     const run = shaper.shape(text, cs, cs.direction);
     expect(run.clusters).toHaveLength(1);
-    expect([run.clusters[0].start, run.clusters[0].end, run.clusters[0].inlineAdvance]).toEqual([0, 2, 8]);
+    const c0 = nth(run.clusters, 0, "cluster");
+    expect([c0.start, c0.end, c0.inlineAdvance]).toEqual([0, 2, 8]);
   });
   it("surrogate-pair emoji is ONE cluster spanning 2 code units", () => {
     const run = shaper.shape("\u{1F600}", cs, cs.direction);
     expect(run.clusters).toHaveLength(1);
-    expect([run.clusters[0].start, run.clusters[0].end]).toEqual([0, 2]);
+    const c0 = nth(run.clusters, 0, "cluster");
+    expect([c0.start, c0.end]).toEqual([0, 2]);
   });
 });
 

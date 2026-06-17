@@ -25,9 +25,6 @@ import type { EditorState } from "../editor-state";
 import { getBlock, createHistory } from "../../state";
 import type { BlockId } from "../../state";
 import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
-import { render } from "../../render/render";
-import { cascadePass } from "../../cascade";
-import { layoutTree } from "../../layout/dispatch";
 
 describe("handleSetLineSpacing — SET_LINE_SPACING action", () => {
   it("collapsed selection: sets lineHeight on the focus block", () => {
@@ -95,9 +92,6 @@ describe("handleSetLineSpacing — SET_LINE_SPACING action", () => {
         }),
       ],
     });
-    const rendered = render(initialState, config.componentRegistry, config.attrRegistry);
-    const cascadedRoot = cascadePass(rendered.root);
-    const layout = layoutTree(cascadedRoot, config.containerWidth, config.measurer, config.pageConfig);
     const editor: EditorState = {
       state: initialState,
       selection: {
@@ -105,12 +99,7 @@ describe("handleSetLineSpacing — SET_LINE_SPACING action", () => {
         focus: createPosition("p2" as BlockId, 2),
       },
       history: createHistory(initialState),
-      renderTree: rendered.root,
-      renderOutput: rendered,
-      cascadedRoot,
-      cascadedTemplateContents: new Map(),
-      cascadedEmbedContents: new Map(),
-      layoutTree: layout,
+      lastDirtyIds: null,
       containerWidth: config.containerWidth,
       targetX: null,
     };
@@ -155,7 +144,11 @@ describe("handleSetLineSpacing — SET_LINE_SPACING action", () => {
 
     const again = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 2 }, config);
 
-    // Same editor reference — no commit, no state change (T7 identity contract).
-    expect(again).toBe(editor);
+    // No commit, no state change (T7 identity contract). Phase 0b: the no-op
+    // identity is `state` reference equality — the editor OBJECT differs because
+    // the dispatch entry-clear strips the prior mutating action's stale
+    // `lastDirtyIds` hint (the SET_LINE_SPACING above set a non-null set).
+    expect(again.state).toBe(editor.state);
+    expect(again.lastDirtyIds).toBeNull();
   });
 });

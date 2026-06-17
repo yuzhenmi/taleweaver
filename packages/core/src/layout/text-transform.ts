@@ -18,7 +18,11 @@ export function transformRun(
   let display = "";
   let atWordStart = true; // capitalize: run start is a word boundary
   for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
+    // `i < text.length` guarantees `text[i]` is present; the `?? ""` is a
+    // provably-unreachable default that preserves the prior (non-undefined)
+    // single-code-unit read exactly. (Surrogate pairs were already iterated
+    // per UTF-16 code unit before this migration — behavior unchanged.)
+    const ch = text[i] ?? "";
     let out: string;
     if (mode === "uppercase") out = ch.toUpperCase();
     else if (mode === "lowercase") out = ch.toLowerCase();

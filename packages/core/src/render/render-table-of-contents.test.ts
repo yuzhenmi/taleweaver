@@ -16,11 +16,17 @@ import { createDefaultAttrRegistry } from "../cascade/attr-registry";
 import { buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
 import { asBlockId, CROSS_REFERENCE_EMBED_TYPE } from "../state";
 import { cascadePass } from "../cascade/cascade-pass";
-import { collectPageFields } from "../layout/collect-page-fields";
+import { collectPageFields } from "@taleweaver/print";
 import { DEFAULT_TOC_ATTRS } from "../components/table-of-contents-attrs";
 
 const reg = createDefaultComponentRegistry();
 const attrReg = createDefaultAttrRegistry();
+
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
 
 // DEFAULT_TOC_ATTRS as a plain block-attrs record. A spread of the `TocAttrs`
 // interface (`{ ...DEFAULT_TOC_ATTRS }`) is typed as `TocAttrs`, which a named
@@ -134,12 +140,12 @@ describe("render — table-of-contents entry-subtree wiring", () => {
     expect(toc.children).toHaveLength(2);
 
     // Entry text runs read the headings in document order.
-    expect(firstTextOf(toc.children[0])).toBe("Introduction");
-    expect(firstTextOf(toc.children[1])).toBe("Details");
+    expect(firstTextOf(nth(toc.children, 0, "entry 0"))).toBe("Introduction");
+    expect(firstTextOf(nth(toc.children, 1, "entry 1"))).toBe("Details");
 
     // Entry 0's page atom is a `"page"`-mode cross-ref keyed `${tocId}/toc/0`,
     // targeting the Introduction heading — the shape `collectPageFields` needs.
-    const atom = findPageAtom(toc.children[0] as ElementBox, TOC_ID, 0);
+    const atom = findPageAtom(nth(toc.children, 0, "entry 0") as ElementBox, TOC_ID, 0);
     if (atom === null) throw new Error("no page atom for entry 0");
     expect(atom.key).toBe(`${TOC_ID}/toc/0`);
     expect(atom.metadata?.embedType).toBe(CROSS_REFERENCE_EMBED_TYPE);
@@ -148,8 +154,9 @@ describe("render — table-of-contents entry-subtree wiring", () => {
 
     // The lone child of the page atom is the reserved-glyph placeholder text.
     expect(atom.children).toHaveLength(1);
-    expect(atom.children[0].type).toBe("text");
-    expect((atom.children[0] as TextBox).text.length).toBeGreaterThan(0);
+    const placeholder = nth(atom.children, 0, "placeholder");
+    expect(placeholder.type).toBe("text");
+    expect((placeholder as TextBox).text.length).toBeGreaterThan(0);
   });
 
   it("feeds the shipped field pipeline: collectPageFields emits a cross-ref-page spec per entry, host = TOC block", () => {
@@ -180,7 +187,7 @@ describe("render — table-of-contents entry-subtree wiring", () => {
     // Default levels include both 1 and 2 → both headings show.
     expect(toc.children).toHaveLength(2);
     // Default showPageNumbers === true → each entry carries a page atom.
-    expect(findPageAtom(toc.children[0] as ElementBox, TOC_ID, 0)).not.toBeNull();
+    expect(findPageAtom(nth(toc.children, 0, "entry 0") as ElementBox, TOC_ID, 0)).not.toBeNull();
   });
 
   it("filters by `levels`: a level-[1] TOC emits only the level-1 heading", () => {
@@ -188,7 +195,7 @@ describe("render — table-of-contents entry-subtree wiring", () => {
     const toc = findToc(out.root);
     if (toc === null) throw new Error("no TOC box");
     expect(toc.children).toHaveLength(1);
-    expect(firstTextOf(toc.children[0])).toBe("Introduction");
+    expect(firstTextOf(nth(toc.children, 0, "entry 0"))).toBe("Introduction");
   });
 
   it("emits a zero-children TOC box when the document has no headings (not the stub)", () => {

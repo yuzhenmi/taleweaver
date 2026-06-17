@@ -14,7 +14,7 @@ import {
 } from "../inline-content";
 import { getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
 import { buildYInlineContent, buildYInlineItem } from "../y-block";
-import { mergeAdjacentSameAttrsTextItems, yMapAsObject } from "../y-utils";
+import { mergeAdjacentSameAttrsTextItemsInPlace, yMapAsObject } from "../y-utils";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
 import type { AttrRegistry } from "../../cascade/attr-registry";
 
@@ -170,7 +170,7 @@ export function insertTextInTx(doc: Y.Doc, plan: InsertTextPlan): void {
       yItems.delete(plan.itemIndex, 1);
       yItems.insert(plan.itemIndex, [before, newRun, after]);
     }
-    mergeAdjacentSameAttrsTextItems(yItems, plan.registry);
+    mergeAdjacentSameAttrsTextItemsInPlace(yItems, plan.registry);
     return;
   }
 
@@ -230,11 +230,14 @@ export function planInsertText(
  * is `block.inlineContent.items`, a snapshot of the CURRENT Y.Array, so
  * in-place targeting is safe (it points at the live Y.Text).
  *
- * NOTE: this helper is unsafe for the post-delete composition path
- * (`replaceRange`), because by then the anchor block's Y.Array has been
- * fully replaced by `deleteRangeInTx` via `buildYInlineContent` — the
- * old Y.Text identity is gone. Use `planInsertTextFullReplace` instead
- * from that path.
+ * NOTE: this helper is unsafe for the CROSS-BLOCK `replaceRange` post-delete
+ * path, because there `deleteRangeInTx` full-replaces the anchor block's Y.Array
+ * via `buildYInlineContent` — the old Y.Text identity is gone, so in-place
+ * targeting against the (stale) snapshot would point at a dead Y.Text; that path
+ * uses `planInsertTextFullReplace`. The SAME-BLOCK `replaceRange` path is fine
+ * to mutate in place (its delete is surgical, leaving the live Y.Array intact),
+ * but it uses `planInsertTextSplitInPlace` (driven by the known post-delete
+ * `mergedItems`), not this helper, which reads from a live `State` snapshot.
  *
  * Caller must guarantee `items` is normalized in the sense that
  * `offset ∈ [0, sum(item.length)]`.
@@ -289,18 +292,18 @@ function planInsertTextOnItems(
 
 /**
  * Build a `full-replace` InsertTextPlan against a pre-computed `items`
- * array (e.g., the `mergedItems` of a `DeleteRangePlan`). Used by
- * `replaceRange` (its SOLE caller) to compose insert AFTER delete in a single
- * transaction: the post-delete Y.Array doesn't exist yet (`deleteRangeInTx` will
- * create it via a full-replace), so we can't use the in-place strategy —
- * full-replace it is.
+ * array (e.g., the `mergedItems` of a `DeleteRangePlan`). Used by the
+ * CROSS-BLOCK `replaceRange` post-delete composition: the cross-block
+ * `deleteRangeInTx` full-replaces the anchor block's Y.Array via
+ * `buildYInlineContent`, destroying its Y.Text identity, so an in-place
+ * insert against it would be unsafe — full-replace it is.
  *
- * `replaceWithSuggestion`'s suggested-insert path NO LONGER uses this (#492): its
- * deletion strike is now identity-preserving (`applyDeletionStrikeInTx`), so the
- * start block's live Y.Array survives, and the insert runs through
- * {@link planInsertTextSplitInPlace} instead — preserving untouched-run identity.
- * (Converting `replaceRange`'s post-delete insert similarly awaits a surgical
- * `deleteRange` — a separate workstream.)
+ * The SAME-BLOCK `replaceRange` post-delete insert NO LONGER uses this: its
+ * delete is surgical (in place, identity-preserved), so the live Y.Array
+ * survives and the insert runs through {@link planInsertTextSplitInPlace}
+ * (preserving untouched-run identity). `replaceWithSuggestion`'s suggested-insert
+ * path likewise uses split-in-place (#492). This full-replace planner now serves
+ * only the cross-block `replaceRange` path (until cross-block delete is surgical).
  *
  * Caller must guarantee `offset ∈ [0, sum(item.length)]`. For
  * `replaceRange`, this is always true: the seam offset is
@@ -385,6 +388,7 @@ function hasAdjacentSameAttrsTextPair(
   for (let i = 1; i < items.length; i++) {
     const prev = items[i - 1];
     const curr = items[i];
+    if (prev === undefined || curr === undefined) continue;
     if (prev.kind === "text" && curr.kind === "text" && attrsEqual(prev.attrs, curr.attrs, registry)) {
       return true;
     }
@@ -404,8 +408,8 @@ function pickCandidate(
   // If the last item is text with matching attrs, append to it.
   if (itemIndex === items.length) {
     const last = items.length - 1;
-    if (last >= 0) {
-      const lastItem = items[last];
+    const lastItem = items[last];
+    if (last >= 0 && lastItem !== undefined) {
       if (lastItem.kind === "text" && attrsEqual(lastItem.attrs, attrs, registry)) {
         return { itemIndex: last, within: lastItem.text.length };
       }
@@ -414,6 +418,7 @@ function pickCandidate(
   }
 
   const here = items[itemIndex];
+  if (here === undefined) return null;
 
   // Case: offset strictly inside a text item.
   if (withinItem > 0) {
@@ -428,7 +433,7 @@ function pickCandidate(
   // text item (trailing-edge preference).
   if (itemIndex > 0) {
     const prev = items[itemIndex - 1];
-    if (prev.kind === "text" && attrsEqual(prev.attrs, attrs, registry)) {
+    if (prev !== undefined && prev.kind === "text" && attrsEqual(prev.attrs, attrs, registry)) {
       return { itemIndex: itemIndex - 1, within: prev.text.length };
     }
   }

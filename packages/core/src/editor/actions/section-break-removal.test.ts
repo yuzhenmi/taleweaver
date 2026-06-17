@@ -23,9 +23,12 @@ import {
   inlineContent,
   text,
 } from "../../test-utils/state-builders";
-import { render } from "../../render/render";
-import { cascadePass } from "../../cascade";
-import { layoutTree } from "../../layout/dispatch";
+
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
 
 /**
  * Build a multi-paragraph editor `document → [p1, p2, p3, p4]` with the
@@ -77,31 +80,17 @@ function makeEditor(
       }),
     ],
   });
-  const rendered = render(
-    initialState,
-    config.componentRegistry,
-    config.attrRegistry,
-  );
-  const cascadedRoot = cascadePass(rendered.root);
-  const layout = layoutTree(
-    cascadedRoot,
-    config.containerWidth,
-    config.measurer,
-    config.pageConfig,
-  );
   const cursor = { blockId: cursorBlock, offset: cursorOffset };
   return {
     state: initialState,
     selection: { anchor: cursor, focus: cursor },
     history: createHistory(initialState),
-    renderTree: rendered.root,
-    renderOutput: rendered,
-    cascadedRoot,
-    cascadedTemplateContents: new Map(),
-    cascadedEmbedContents: new Map(),
-    layoutTree: layout,
+    lastDirtyIds: null,
     containerWidth: config.containerWidth,
     targetX: null,
+    caretPageHint: undefined,
+    caretAffinity: undefined,
+    anchorAffinity: undefined,
   };
 }
 
@@ -172,7 +161,8 @@ function brokenEditor(): {
       `brokenEditor fixture: expected 2 sections after SECTION_BREAK, got ${children.length}`,
     );
   }
-  const [secA, secB] = children;
+  const secA = nth(children, 0, "section");
+  const secB = nth(children, 1, "section");
   return { editor, secA, secB };
 }
 
@@ -415,9 +405,6 @@ describe("section-break removal — defensive: next sibling is NOT a section", (
         buildBlock({ id: "s1", type: "paragraph", parentId: "secA", inlineContent: inlineContent([text("alpha")]) }),
       ],
     });
-    const rendered = render(initialState, config.componentRegistry, config.attrRegistry);
-    const cascadedRoot = cascadePass(rendered.root);
-    const layout = layoutTree(cascadedRoot, config.containerWidth, config.measurer, config.pageConfig);
     const s1Len = inlineContentLength(
       getBlock(initialState, "s1" as BlockId)?.inlineContent ?? { items: [] },
     );
@@ -426,14 +413,12 @@ describe("section-break removal — defensive: next sibling is NOT a section", (
       state: initialState,
       selection: { anchor: cursor, focus: cursor },
       history: createHistory(initialState),
-      renderTree: rendered.root,
-      renderOutput: rendered,
-      cascadedRoot,
-      cascadedTemplateContents: new Map(),
-      cascadedEmbedContents: new Map(),
-      layoutTree: layout,
+      lastDirtyIds: null,
       containerWidth: config.containerWidth,
       targetX: null,
+      caretPageHint: undefined,
+      caretAffinity: undefined,
+      anchorAffinity: undefined,
     };
 
     const next = reduceEditor(editor, { type: "DELETE_FORWARD" }, config);

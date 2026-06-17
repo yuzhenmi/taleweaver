@@ -29,30 +29,15 @@ import {
 } from "../../state";
 import type { BlockId, State } from "../../state";
 import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
-import { render } from "../../render/render";
-import { cascadePass } from "../../cascade";
-import { layoutTree } from "../../layout/dispatch";
 
-/** Build an EditorState from a raw State with a given selection. */
+// Phase 0b: core's `EditorState` is geometry-free — these state-level action
+// tests build only the geometry-free fields (the handler reads no layout).
 function makeEditor(state: State, selection: EditorState["selection"]): EditorState {
-  const rendered = render(state, config.componentRegistry, config.attrRegistry);
-  const cascadedRoot = cascadePass(rendered.root);
-  const layout = layoutTree(
-    cascadedRoot,
-    config.containerWidth,
-    config.measurer,
-    config.pageConfig,
-  );
   return {
     state,
     selection,
     history: createHistory(state),
-    renderTree: rendered.root,
-    renderOutput: rendered,
-    cascadedRoot,
-    cascadedTemplateContents: new Map(),
-    cascadedEmbedContents: new Map(),
-    layoutTree: layout,
+    lastDirtyIds: null,
     containerWidth: config.containerWidth,
     targetX: null,
   };
@@ -61,8 +46,9 @@ function makeEditor(state: State, selection: EditorState["selection"]): EditorSt
 /** Classify a listId's def via the level-0 marker style (test mirror of the handler). */
 function listKindOf(state: State, listId: string): "ordered" | "unordered" | undefined {
   const def = getListDefsForState(state).get(listId);
-  if (def === undefined || def.levels.length === 0) return undefined;
-  const style = def.levels[0].style;
+  const level0 = def?.levels[0];
+  if (level0 === undefined) return undefined;
+  const style = level0.style;
   return style === "disc" || style === "circle" || style === "square"
     ? "unordered"
     : "ordered";

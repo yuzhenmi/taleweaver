@@ -72,7 +72,8 @@ describe("handleSetImageSize — SET_IMAGE_SIZE (#P11.4)", () => {
       config,
     );
 
-    expect(next).toBe(editor);
+    // Same state reference (no-op; reducer entry-clears lastDirtyIds).
+    expect(next.state).toBe(editor.state);
   });
 
   it("is a no-op when the target block does not exist", () => {
@@ -84,7 +85,8 @@ describe("handleSetImageSize — SET_IMAGE_SIZE (#P11.4)", () => {
       config,
     );
 
-    expect(next).toBe(editor);
+    // Same state reference (no-op; reducer entry-clears lastDirtyIds).
+    expect(next.state).toBe(editor.state);
   });
 
   it("is a no-op when width/height are unchanged", () => {
@@ -96,39 +98,41 @@ describe("handleSetImageSize — SET_IMAGE_SIZE (#P11.4)", () => {
       config,
     );
 
-    expect(next).toBe(editor);
+    // Same state reference (no-op; reducer entry-clears lastDirtyIds).
+    expect(next.state).toBe(editor.state);
   });
 
   it("rejects non-positive / non-finite dimensions (no-op)", () => {
     const { editor, imageId } = docWithImage();
 
+    // Same state reference (no-op; reducer entry-clears lastDirtyIds).
     expect(
-      reduceEditor(editor, { type: "SET_IMAGE_SIZE", blockId: imageId, width: 0, height: 100 }, config),
-    ).toBe(editor);
+      reduceEditor(editor, { type: "SET_IMAGE_SIZE", blockId: imageId, width: 0, height: 100 }, config).state,
+    ).toBe(editor.state);
     expect(
-      reduceEditor(editor, { type: "SET_IMAGE_SIZE", blockId: imageId, width: 200, height: -5 }, config),
-    ).toBe(editor);
+      reduceEditor(editor, { type: "SET_IMAGE_SIZE", blockId: imageId, width: 200, height: -5 }, config).state,
+    ).toBe(editor.state);
     expect(
       reduceEditor(
         editor,
         { type: "SET_IMAGE_SIZE", blockId: imageId, width: Number.NaN, height: 100 },
         config,
-      ),
-    ).toBe(editor);
+      ).state,
+    ).toBe(editor.state);
     expect(
       reduceEditor(
         editor,
         { type: "SET_IMAGE_SIZE", blockId: imageId, width: Number.POSITIVE_INFINITY, height: 100 },
         config,
-      ),
-    ).toBe(editor);
+      ).state,
+    ).toBe(editor.state);
     expect(
       reduceEditor(
         editor,
         { type: "SET_IMAGE_SIZE", blockId: imageId, width: 200, height: Number.NEGATIVE_INFINITY },
         config,
-      ),
-    ).toBe(editor);
+      ).state,
+    ).toBe(editor.state);
   });
 
   it("undo restores the previous size in one step", () => {

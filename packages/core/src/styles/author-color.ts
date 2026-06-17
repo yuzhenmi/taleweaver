@@ -41,5 +41,13 @@ export function authorColorOf(author: string): Color {
     hash = (((hash << 5) + hash) + author.charCodeAt(i)) >>> 0;
   }
   const index = hash % AUTHOR_COLOR_PALETTE.length;
-  return AUTHOR_COLOR_PALETTE[index];
+  // `hash >>> 0` is a non-negative integer and the palette is a fixed, non-empty
+  // constant, so `index` is always a valid palette index.
+  const color = AUTHOR_COLOR_PALETTE[index];
+  if (color === undefined) {
+    throw new Error(
+      `author-color: palette index ${index} out of range (palette length ${AUTHOR_COLOR_PALETTE.length})`,
+    );
+  }
+  return color;
 }

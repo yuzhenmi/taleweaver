@@ -7,7 +7,7 @@
  * place: `keep` advances, `rewrite` swaps the item's attrs Y.Map (preserving its
  * Y.Text / embedType / properties — and therefore the per-character CRDT
  * identity), `drop`/`breakDrop` delete-by-index (don't-advance discipline), then
- * `mergeAdjacentSameAttrsTextItems` restores the normalization invariants.
+ * `mergeAdjacentSameAttrsTextItemsInPlace` restores the normalization invariants.
  *
  * The load-bearing properties exercised here: (a) an UNTOUCHED survivor keeps
  * its Y.Text `===` identity; (b) a `rewrite` swaps attrs in place keeping that

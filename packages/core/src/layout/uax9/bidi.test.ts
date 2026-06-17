@@ -12,6 +12,12 @@ import {
   resolveBidiLevels,
 } from "./bidi";
 
+function nth<T>(arr: readonly T[], i: number, what = "element"): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
+  return v;
+}
+
 // Explicit-formatting code points used by the X-pass tests.
 const RLE = "‫";
 const PDF = "‬";
@@ -247,9 +253,9 @@ describe("computeIsolatingRunSequences (X10 / BD13)", () => {
     // After the X pass (no implicit I yet) every char is level 0.
     const seqs = runSeqs("aאb", 0);
     expect(seqs.length).toBe(1);
-    expect(seqs[0].indices).toEqual([0, 1, 2]);
-    expect(seqs[0].sos).toBe(0); // L
-    expect(seqs[0].eos).toBe(0); // L
+    expect(nth(seqs, 0, "sequence").indices).toEqual([0, 1, 2]);
+    expect(nth(seqs, 0, "sequence").sos).toBe(0); // L
+    expect(nth(seqs, 0, "sequence").eos).toBe(0); // L
   });
 
   it("joins an isolate initiator run to its matching-PDI run (a RLI b PDI c)", () => {
@@ -258,12 +264,12 @@ describe("computeIsolatingRunSequences (X10 / BD13)", () => {
     // Sequence 2 (level 1): [2].
     const seqs = runSeqs(`a${RLI}b${PDI}c`, 0);
     const byLen = [...seqs].sort((x, y) => y.indices.length - x.indices.length);
-    expect(byLen[0].indices).toEqual([0, 1, 3, 4]);
-    expect(byLen[0].sos).toBe(0); // level 0 vs para 0 → L
-    expect(byLen[0].eos).toBe(0); // ends at c, after = para 0 → L
-    expect(byLen[1].indices).toEqual([2]);
-    expect(byLen[1].sos).toBe(1); // level 1 vs before(level 0) → max 1 → R
-    expect(byLen[1].eos).toBe(1); // level 1 vs after PDI(level 0) → max 1 → R
+    expect(nth(byLen, 0, "sequence").indices).toEqual([0, 1, 3, 4]);
+    expect(nth(byLen, 0, "sequence").sos).toBe(0); // level 0 vs para 0 → L
+    expect(nth(byLen, 0, "sequence").eos).toBe(0); // ends at c, after = para 0 → L
+    expect(nth(byLen, 1, "sequence").indices).toEqual([2]);
+    expect(nth(byLen, 1, "sequence").sos).toBe(1); // level 1 vs before(level 0) → max 1 → R
+    expect(nth(byLen, 1, "sequence").eos).toBe(1); // level 1 vs after PDI(level 0) → max 1 → R
   });
 
   it("eos for a sequence ending in an unmatched isolate initiator uses the paragraph level", () => {
