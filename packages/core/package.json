@@ -23,6 +23,6 @@
     "@taleweaver/print": "0.0.1",
     "dependency-cruiser": "^17.4.3",
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
+    "vitest": "^3.2.6"
   }
 }
