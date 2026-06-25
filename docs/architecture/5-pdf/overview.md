@@ -171,12 +171,14 @@ feature:
   `/ParentTree` correlating each `(page, mcid)` to its owning `StructElem` (via per-page
   `/StructParents`). The controller maps the core accessibility projection to the
   pdf-package structure model (`mapAccessibilityTree(buildAccessibilityTree(state))`)
-  and passes it as `EmitPdfInput.structureTree` (+ `lang` → catalog `/Lang`); `emit-pdf`
-  derives the tagged-leaf block-id set, threads it to the page-emitter (activating the
-  `/Span`/`/Artifact` tagging), collects per-page `structRefs`, and assembles the
-  `StructElem` graph + `/MarkInfo << /Marked true >>`. Header/footer/HR/decorative-image
-  content is an `/Artifact` (excluded from the tree). Absent `structureTree` ⇒ the output
-  is byte-identical to the untagged baseline. See the *Tagged-PDF structure* sections in
+  and passes it as `EmitPdfInput.structureTree`; `emit-pdf` derives the tagged-leaf
+  block-id set, threads it to the page-emitter (activating the `/Span`/`/Artifact`
+  tagging), collects per-page `structRefs`, and assembles the `StructElem` graph +
+  `/MarkInfo << /Marked true >>`. Header/footer/HR/decorative-image content is an
+  `/Artifact` (excluded from the tree). Absent `structureTree` ⇒ the output is
+  byte-identical to the untagged baseline. `EmitPdfInput.lang` (a BCP-47 tag, e.g.
+  `"en-US"`) writes a catalog `/Lang` entry when `structureTree` is present; absent
+  or empty ⇒ no `/Lang` is emitted. See the *Tagged-PDF structure* sections in
   `pdf-structure.ts`, `page-emitter.ts`, and `emit-pdf.ts`.
 
 ## Module map

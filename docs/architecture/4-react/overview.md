@@ -8,10 +8,10 @@ state and no rendering of its own — it bridges React's lifecycle to
 ## Top-level modules
 
 - **`use-editor`** (file: `use-editor.ts`) — the React hook. Returns a
-  `{ editorState, dispatch, containerRef, measurer, focus }` bag. Owns
+  `{ editorState, dispatch, containerRef, shaper, focus }` bag. Owns
   the editor's `EditorState` via `useReducer`. Constructs an
-  `EditorConfig` (component registry, default canvas shaper) on mount
-  and reuses it across renders.
+  `EditorConfig` (component registry, container width) on mount and a
+  separate `TextShaper` (canvas-based) — both reused across renders.
 
 - **`editor-view`** (file: `editor-view.tsx`) — the React component.
   Mounts a single HTML container; on mount, instantiates a `print`
@@ -70,8 +70,9 @@ actions flow up (`dispatch` callback).
               ▼
           rendered editor
 
-`react` re-exports a curated subset of `core`'s public types
-(`EditorAction`, `EditorState`, etc.) for consumer convenience.
+Consumers that need `core` types (`EditorAction`, `EditorState`, etc.) import
+them directly from `@taleweaver/core`; `@taleweaver/react` re-exports only its
+own surface (`EditorView`, `EditorViewProps`, `EditorViewHandle`, `useEditor`).
 
 ## Reading order
 

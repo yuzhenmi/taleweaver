@@ -51,8 +51,9 @@ specialized helpers it composes.
   the print backend's geometry pipeline. `createLayoutDriver(layoutConfig)`
   returns a `LayoutDriver` whose `rebuild(state, containerWidth, lastDirtyIds)`
   runs render → cascade (main + template + embed bodies) → layout and returns
-  the `LayoutBox | VirtualLayoutTree`. It RETAINS the prior cycle's six trees
-  (render output, main/template/embed cascaded trees, layout tree) as closure
+  the `LayoutBox | VirtualLayoutTree`. It RETAINS the prior cycle's five trees
+  (render output, main/template/embed cascaded trees, layout tree) plus the prior
+  `State` (`prevState`) as closure
   state, so a non-null `lastDirtyIds` drives an INCREMENTAL rebuild that reuses
   unchanged subtrees by reference (`null` = full rebuild: initial / resize). It
   also runs the FN-6.4 restart-per-page footnote-numbering second pass (re-render
@@ -224,10 +225,12 @@ The read-only DOM viewer (`renderDocumentToDom`) is documented under
 
 **Helpers** — `mapKeyEvent` (DOM keyboard event → `KeyResult = EditorAction | NavIntent`). `ImageCache`. `FONT_CONFIG`, `buildCssFontString`, `getEffectiveStyles` (font defaults).
 
-The `layout-driver` (`createLayoutDriver`, `LayoutConfig`) and the `nav`
-resolver (`resolveNavIntent`, `NavIntent`, `isNavIntent`, `KeyResult`) are
-INTERNAL to the controller — composed during construction, not on the package
-barrel (like the paint cache). See [`2.1-layout-driver.md`](./2.1-layout-driver.md).
+The `layout-driver` (`createLayoutDriver`, `LayoutDriver`, `LayoutConfig`) is
+exported on the package barrel — a host can build a layout tree from a core
+`State` directly without constructing an `EditorController`. The `nav` resolver
+(`resolveNavIntent`, `NavIntent`, `isNavIntent`, `KeyResult`) is INTERNAL to the
+controller — composed during construction, not on the barrel. See
+[`2.1-layout-driver.md`](./2.1-layout-driver.md).
 
 **Geometric layout + cursor surface** (OWNED by `print`; consumers import them
 from `@taleweaver/print`) —

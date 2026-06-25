@@ -467,15 +467,38 @@ Per-page paint coordinates: `paintPage` and `walkAndDetectChanges` translate by
 its own canvas. `acquireCanvas` resets canvas dimensions and the per-page
 `PaintCache` when a slot's canvas is freshly created or recycled from the pool.
 
-Page templates designed (not yet implemented): state-tree-backed editable
-headers/footers scoped to `section` nodes; footnotes as inline state-tree nodes with
-section-level numbering policy; six margin regions; first/odd/even page variants;
-iterative footnote-slot convergence; two-pass page-count resolution; cursor-scope
-extension for editing header/footer/footnote subtrees. Decomposes into sub-pieces
-(headers/footers/footnotes/templates).
+Page templates `[implemented]` — headers, footers, and footnotes are all built
+end-to-end:
+- **State model:** `template-body` containers (header/footer bodies) and `footnote-body`
+  containers as state-tree nodes; `section` blocks carry `headerBlockId`/`footerBlockId`
+  (`insert-template-body.ts`, `section-plan.ts`).
+- **Editor actions:** `INSERT_HEADER`/`INSERT_FOOTER` (`handleInsertHeaderFooter`, with a
+  one-per-section idempotency guard and active-section resolution), `INSERT_FOOTNOTE`
+  (`handleInsertFootnote`), `SET_FOOTNOTE_POLICY`; cursor scope extends into the
+  header/footer/footnote subtrees.
+- **Numbering:** `continuous`, `restart-per-section`, and `restart-per-page` footnote
+  numbering (`footnotes/numbering.ts`); the render pass uses a `continuous` substitute
+  for `restart-per-page` until the layout pass supplies `pageAssignment`
+  (`render-footnotes.ts` `effectiveRenderPolicy`).
+- **Layout:** `resolveFootnotes` lays footnote bodies into a per-page `footnoteSlot` with
+  greedy fill, line-boundary splitting of footnote bodies ACROSS pages (FN-5
+  continuations), and a D8 self-eviction convergence fixpoint; growing header/footer
+  slots (`computeSlotInsets`, #328/#329) push the content area when a header/footer
+  exceeds its margin; two-pass page-count convergence (`runFieldConvergence`). Paint and
+  cursor/hit-test descend all three slots.
+- **Deliberate deviation:** no footnote separator rule line is drawn
+  (`FOOTNOTE_SEPARATOR_HEIGHT` is retained as a gap-only reservation; the Google-Docs
+  horizontal line was removed per user directive).
 
-Still missing:
-- All template sub-pieces (headers/footers/footnotes).
+Still missing / partial:
+- First / left / right (odd/even) page template variants (cover page, mirrored book
+  spreads) — absent.
+- Per-section "link to previous" header/footer cascade: currently falls back to the
+  doc-root `headerBlockId`/`footerBlockId` only, not the nearest prior explicit section;
+  copy-on-unlink seeding not yet built. `[partial]`
+- Footnote rendering in the legacy `paginateRoot` path: a float doc that ALSO has
+  footnotes (or is multi-column) routes to `paginateRoot`, which builds `PageBox`es with
+  all slots `null`, so footnote bodies are not rendered in that path.
 - Bottom-side margin truncation across breaks for the edge case where the parent has
   bottom padding/border on a partial fragment (top side already shipped).
 - Cross-page floats for the legacy `paginateRoot` path (float + multi-column /

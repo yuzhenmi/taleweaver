@@ -405,7 +405,11 @@ height, side by side at `trackInlineSize = (bodyInlineSize − (N−1)·gap)/N`)
 A single-column section is byte-identical to the pre-multicol body. The
 column-aware cursor has shipped (hit-test column-X filter via
 `column-at-point.ts`; line-nav clamps the goal-X to the target line's column at a
-column crossing). STILL PENDING: the column-rule paint (line-between). [partial]
+column crossing). The column-rule paint (CSS `column-rule`) is [implemented]:
+`canvas-renderer.ts` fills a solid rect in each inter-column gap in the background
+phase (a vertical rule — a tall, narrow `fillRect` — for `horizontal-tb`; a
+horizontal rule — a wide, short `fillRect` — for vertical writing modes; the gate
+short-circuits when `columnRule` is null or `style === "none"`).
 
 The type **lives in the render layer** (`render/layout-metadata.ts`)
 because both `ElementBox` (render) and `BlockBox` (layout) need it and the
@@ -447,7 +451,7 @@ function makeChildContext(parent: LayoutContext, parentCs: ComputedStyle,
                           contentOrigin?: { readonly inlineOffset: number; readonly blockOffset: number }): LayoutContext;
 ```
 
-`makeChildContext` decides whether the child establishes its own BFC by calling `establishesNewBFC(parentCs)` — which returns `true` for `display: flow-root | inline-block | table-cell`, for any `float != "none"`, for `position: absolute`, for `overflow != "visible"` (when present), and for the document root via the explicit `isBFCRoot` flag passed by `makeRootContext`. When a new BFC is established, the child gets a fresh `FloatEnvironment`; otherwise it shares the parent's so floats rise to the nearest ancestor BFC. Independently, `makeChildContext` resets `absoluteContainingBlock` (a fresh `AbsPosEnvironment` + the box's content frame) when the child establishes one per `establishesAbsoluteContainingBlock(cs)` (`position ∈ {relative,absolute}` or `transform.length > 0`); otherwise it inherits the parent's abc and accumulates `originFromAbc` so a descendant's static position is captured in the abc's frame. See [2.4-positioning.md](../2.4-positioning.md).
+`makeChildContext` decides whether the child establishes its own BFC by calling `establishesNewBFC(parentCs)` — which returns `true` for `display: flow-root | inline-block | table-cell`, for any `float != "none"`, for `position: absolute`, and for the document root via the explicit `isBFCRoot` flag passed by `makeRootContext`. Note: `overflow != "visible"` is marked `// (Future)` in `bfc-establishment.ts` — `overflow` is not yet in the style schema, so this trigger is not yet active. When a new BFC is established, the child gets a fresh `FloatEnvironment`; otherwise it shares the parent's so floats rise to the nearest ancestor BFC. Independently, `makeChildContext` resets `absoluteContainingBlock` (a fresh `AbsPosEnvironment` + the box's content frame) when the child establishes one per `establishesAbsoluteContainingBlock(cs)` (`position ∈ {relative,absolute}` or `transform.length > 0`); otherwise it inherits the parent's abc and accumulates `originFromAbc` so a descendant's static position is captured in the abc's frame. See [2.4-positioning.md](../2.4-positioning.md).
 
 ### Display → formatting-context dispatch
 
