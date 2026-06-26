@@ -464,6 +464,17 @@ export { History, createHistory, UNDO_COALESCE_PAUSE_MS } from "./history";
 export { extractFragment } from "./ops/extract-fragment";
 
 // ─────────────────────────────────────────────────────────────────────────
+// Fragment insertion (T5a — paste-side sink, leaf-only direct mode)
+// ─────────────────────────────────────────────────────────────────────────
+
+// `insertFragment(state, selection, fragment, allocator)` inserts a fragment
+// `State` into `state` at `selection` in DIRECT (non-suggesting) mode.
+// T5a handles fragments whose top-level blocks are ALL LEAVES.
+// Container top-level blocks throw the T5b stub error until T5b is built.
+export type { InsertFragmentResult } from "./ops/insert-fragment";
+export { insertFragment } from "./ops/insert-fragment";
+
+// ─────────────────────────────────────────────────────────────────────────
 // Fragment-clip lossless codec + MIME constant (T4)
 // ─────────────────────────────────────────────────────────────────────────
 
