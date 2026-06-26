@@ -4,6 +4,10 @@ import {
   reduceEditor,
   extractText,
   builtinEmbedSerializer,
+  extractFragment,
+  encodeHtml,
+  encodeFragmentClip,
+  TALEWEAVER_CLIP_MIME,
   selectionsEqual,
   initialSelectionForState,
   getBlock,
@@ -15,6 +19,7 @@ import {
   type PageConfig,
   type State,
 } from "@taleweaver/core";
+import { browserHtmlParser } from "./html-parser";
 import { createDigitalReconciler, type DigitalReconciler } from "./digital-reconciler";
 import { mapBeforeInput, replacementInsertText } from "./map-before-input";
 import { mapDigitalKey } from "./map-digital-key";
@@ -57,6 +62,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     attrRegistry: options.attrRegistry,
     containerWidth: options.containerWidth ?? 800,
     pageConfig: options.pageConfig,
+    htmlParser: browserHtmlParser,
   };
 
   let editorState: EditorState =
@@ -132,8 +138,13 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
   }
   function onCopy(e: ClipboardEvent): void {
     e.preventDefault();
-    const text = extractText(editorState.state, editorState.selection, builtinEmbedSerializer, "suggesting");
-    e.clipboardData?.setData("text/plain", text);
+    const frag = extractFragment(editorState.state, editorState.selection);
+    e.clipboardData?.setData(
+      "text/plain",
+      extractText(editorState.state, editorState.selection, builtinEmbedSerializer, "suggesting"),
+    );
+    e.clipboardData?.setData("text/html", encodeHtml(frag));
+    e.clipboardData?.setData(TALEWEAVER_CLIP_MIME, encodeFragmentClip(frag));
   }
   function onCut(e: ClipboardEvent): void {
     onCopy(e);
@@ -141,8 +152,18 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
   }
   function onPaste(e: ClipboardEvent): void {
     e.preventDefault();
-    const text = e.clipboardData?.getData("text/plain") ?? "";
-    if (text !== "") dispatch({ type: "PASTE", text });
+    const text = e.clipboardData?.getData("text/plain");
+    const html = e.clipboardData?.getData("text/html");
+    const clip = e.clipboardData?.getData(TALEWEAVER_CLIP_MIME);
+    const payload: { type: "PASTE"; text?: string; html?: string; clip?: string } = {
+      type: "PASTE",
+    };
+    if (text) payload.text = text;
+    if (html) payload.html = html;
+    if (clip) payload.clip = clip;
+    if (payload.text !== undefined || payload.html !== undefined || payload.clip !== undefined) {
+      dispatch(payload);
+    }
   }
 
   container.contentEditable = "true";

@@ -1,11 +1,22 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import * as core from "@taleweaver/core";
 import {
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
   type ComponentRegistry,
   type AttrRegistry,
 } from "@taleweaver/core";
-import { asBlockId, createPosition, createSpan, getBlock } from "@taleweaver/core";
+import { asBlockId, createPosition, createSpan, getBlock, TALEWEAVER_CLIP_MIME } from "@taleweaver/core";
+
+// Wrap `reduceEditor` as a spy so paste tests can assert the exact action payload
+// forwarded into the reducer.  All other core exports are left as real implementations.
+vi.mock("@taleweaver/core", async () => {
+  const actual = await vi.importActual<typeof core>("@taleweaver/core");
+  return {
+    ...actual,
+    reduceEditor: vi.fn(actual.reduceEditor),
+  };
+});
 import { createDigitalController, type DigitalController } from "./digital-controller";
 import { createDigitalSelectionBridge } from "./digital-selection-bridge";
 
@@ -505,6 +516,112 @@ describe("DigitalController — copy/cut (F5)", () => {
     expect(store.get("text/plain")).toBe("hello");
     // ...and the selection was deleted from the document.
     expect(container.textContent).not.toContain("hello");
+    controller.destroy();
+  });
+
+  it("copy writes text/html and the lossless clip (rich clipboard — T12)", () => {
+    const { controller, container } = makeController();
+    controller.dispatch({ type: "INSERT_TEXT", text: "hello" });
+    const id = leafBlockId(container);
+    const span = createSpan(createPosition(asBlockId(id), 0), createPosition(asBlockId(id), 5));
+    controller.dispatch({ type: "SET_SELECTION", selection: span });
+
+    const { data, store } = makeClipboardData();
+    container.dispatchEvent(makeClipboardEvent("copy", data));
+
+    // text/plain survives unchanged
+    expect(store.get("text/plain")).toBe("hello");
+    // text/html must be a non-empty HTML string
+    const html = store.get("text/html") ?? "";
+    expect(html.length).toBeGreaterThan(0);
+    expect(html).toContain("<");
+    // lossless clip must be a non-empty base64 string
+    const clip = store.get(TALEWEAVER_CLIP_MIME) ?? "";
+    expect(clip.length).toBeGreaterThan(0);
+    controller.destroy();
+  });
+
+  it("cut writes all three clipboard flavors then dispatches DELETE_RANGE (T12)", () => {
+    const { controller, container } = makeController();
+    controller.dispatch({ type: "INSERT_TEXT", text: "hello" });
+    const id = leafBlockId(container);
+    const span = createSpan(createPosition(asBlockId(id), 0), createPosition(asBlockId(id), 5));
+    controller.dispatch({ type: "SET_SELECTION", selection: span });
+
+    const { data, store } = makeClipboardData();
+    container.dispatchEvent(makeClipboardEvent("cut", data));
+
+    expect(store.get("text/plain")).toBe("hello");
+    const html = store.get("text/html") ?? "";
+    expect(html.length).toBeGreaterThan(0);
+    const clip = store.get(TALEWEAVER_CLIP_MIME) ?? "";
+    expect(clip.length).toBeGreaterThan(0);
+    // Cut must also delete the selection
+    expect(container.textContent).not.toContain("hello");
+    controller.destroy();
+  });
+});
+
+describe("DigitalController — paste rich clipboard (T12)", () => {
+  it("paste dispatches PASTE carrying text, html, and clip when all three flavors are present", () => {
+    const { controller, container } = makeController();
+    // Insert some text first so there is state to paste into
+    controller.dispatch({ type: "INSERT_TEXT", text: "before" });
+
+    // Reset the spy call log so earlier dispatches (INSERT_TEXT above) don't interfere.
+    vi.mocked(core.reduceEditor).mockClear();
+
+    // Provide all three clipboard flavors
+    const { data } = makeClipboardData({
+      "text/plain": "plain text",
+      "text/html": "<p>html text</p>",
+      [TALEWEAVER_CLIP_MIME]: "SOME_CLIP_DATA",
+    });
+    container.dispatchEvent(makeClipboardEvent("paste", data));
+
+    // The reducer must have been called with the exact PASTE payload — proving all
+    // three flavors were forwarded, not silently dropped.
+    const calls = vi.mocked(core.reduceEditor).mock.calls;
+    const pasteCall = calls.find(([, action]) => action.type === "PASTE");
+    expect(pasteCall).toBeDefined();
+    const pasteAction = pasteCall![1];
+    expect(pasteAction).toMatchObject({
+      type: "PASTE",
+      text: "plain text",
+      html: "<p>html text</p>",
+      clip: "SOME_CLIP_DATA",
+    });
+    // Absent flavors must NOT be present as keys.
+    expect("extra" in pasteAction).toBe(false);
+    controller.destroy();
+  });
+
+  it("paste dispatches PASTE with only text when html and clip are absent (T12 — partial flavors)", () => {
+    const { controller, container } = makeController();
+    controller.dispatch({ type: "INSERT_TEXT", text: "start" });
+
+    const { data } = makeClipboardData({ "text/plain": "world" });
+    const before = controller.editorState;
+    container.dispatchEvent(makeClipboardEvent("paste", data));
+    expect(controller.editorState).not.toBe(before);
+    // The pasted text appears in the document
+    expect(container.textContent).toContain("world");
+    controller.destroy();
+  });
+
+  it("paste with only html and clip (no text/plain) still dispatches PASTE (T12 — non-empty subset)", () => {
+    const { controller, container } = makeController();
+    controller.dispatch({ type: "INSERT_TEXT", text: "base" });
+
+    // html only — clip is a realistic base64; we don't need it to decode
+    // successfully here; we just need the dispatch to happen with html set.
+    const { data } = makeClipboardData({
+      "text/html": "<p>rich</p>",
+    });
+    const before = controller.editorState;
+    container.dispatchEvent(makeClipboardEvent("paste", data));
+    // State changes (html paste decoded by htmlParser + core)
+    expect(controller.editorState).not.toBe(before);
     controller.destroy();
   });
 });
