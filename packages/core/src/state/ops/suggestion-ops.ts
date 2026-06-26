@@ -1734,7 +1734,7 @@ function resolve(
  * {@link FORMATTING_SUGGESTION_ATTR} (the only provenance that reaches embeds —
  * #478; `markFormatting` stamps it, {@link resolveEmbedFormatting} reads+strips it).
  */
-function suggestionIdsOnItem(item: InlineItem): SuggestionId[] {
+export function suggestionIdsOnItem(item: InlineItem): SuggestionId[] {
   const out: SuggestionId[] = [];
   if (item.kind === "text") {
     for (const key of [

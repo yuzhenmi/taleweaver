@@ -453,6 +453,17 @@ export type { SelectionEntry, UndoRedoResult, BeginKey } from "./history";
 export { History, createHistory, UNDO_COALESCE_PAUSE_MS } from "./history";
 
 // ─────────────────────────────────────────────────────────────────────────
+// Fragment extraction (T3 — copy-side producer)
+// ─────────────────────────────────────────────────────────────────────────
+
+// `extractFragment(state, span)` produces a self-contained fragment `State`
+// (a mini-document: fresh `document` root + selected content + referenced
+// listDefs + footnote embedContents + suggestion records). It is the
+// COPY-side producer; later tasks feed its output to `encodeHtml` and the
+// lossless binary serializer.
+export { extractFragment } from "./ops/extract-fragment";
+
+// ─────────────────────────────────────────────────────────────────────────
 // Boot
 // ─────────────────────────────────────────────────────────────────────────
 
