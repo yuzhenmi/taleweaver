@@ -67,7 +67,7 @@ import {
   type TextShaper,
   type Hyphenator,
 } from "@taleweaver/core";
-import { createCanvasShaper, createLiangHyphenator } from "@taleweaver/print";
+import { createCanvasShaper, createLiangHyphenator, browserHtmlParser } from "@taleweaver/print";
 import { EN_US_PATTERN_SET } from "@taleweaver/hyphenation-en-us";
 import { tryLoadPerfFixtureFromUrl } from "./perf-fixture";
 import { loadFairytale } from "./fairytale-seed";
@@ -93,6 +93,9 @@ function createConfig(): EditorConfig {
     componentRegistry: createDefaultComponentRegistry(),
     attrRegistry: createDefaultAttrRegistry(),
     containerWidth: DEFAULT_WIDTH,
+    // Inject the DOM HTML parser so handlePaste can decode text/html (rich paste).
+    // Without it, core silently falls back to the plain-text path.
+    htmlParser: browserHtmlParser,
   };
 }
 
