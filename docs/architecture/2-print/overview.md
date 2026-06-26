@@ -113,9 +113,12 @@ specialized helpers it composes.
   (`state/serialize/`); its DECODE half parses through an injected `HtmlParser`
   over the DOM-free `HtmlNode` interface, keeping core headless. This file is the
   thin DOM adapter a browser host supplies — it wraps `DOMParser` + DOM `Node`s
-  as `HtmlNode`s. The host passes `browserHtmlParser` into
-  `createHtmlDocumentSerializer({ allocator, parseHtml })`. See
-  [`../1-core/1.7-serialization.md`](../1-core/1.7-serialization.md).
+  as `HtmlNode`s. The print controller injects `browserHtmlParser` into
+  `EditorConfig.htmlParser` so that `PASTE { html }` payloads are decoded by
+  `decodeHtml` inside `handlePaste`. See
+  [`../1-core/1.7-serialization.md`](../1-core/1.7-serialization.md) and the
+  clipboard wiring section of
+  [`2.8-editor-controller.md`](./2.8-editor-controller.md#clipboard-wiring).
 
 - **`dom-mirror/`** (file: `dom-mirror.ts`) — `buildDomMirror`, a pure structural
   transform from an `AccessibilityNode` tree (core's `buildAccessibilityTree`
