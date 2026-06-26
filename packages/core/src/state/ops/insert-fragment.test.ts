@@ -201,6 +201,67 @@ function makeFragTable() {
   );
 }
 
+/**
+ * Fragment containing a table with TWO cells in one row, paragraphs "one" and
+ * "two". Used to exercise the multi-cell flatten path (cells flow into the
+ * destination in document order). Span runs from the start of the first cell
+ * paragraph to the end of the second so the whole table is extracted.
+ */
+function makeFragTwoCellTable() {
+  const src = buildState({
+    rootId: "doc",
+    blocks: [
+      buildBlock({ id: "doc", type: "document", firstChildId: "tbl", lastChildId: "tbl" }),
+      buildBlock({
+        id: "tbl",
+        type: "table",
+        parentId: "doc",
+        firstChildId: "row",
+        lastChildId: "row",
+      }),
+      buildBlock({
+        id: "row",
+        type: "table-row",
+        parentId: "tbl",
+        firstChildId: "cellA",
+        lastChildId: "cellB",
+      }),
+      buildBlock({
+        id: "cellA",
+        type: "table-cell",
+        parentId: "row",
+        nextSiblingId: "cellB",
+        firstChildId: "cpA",
+        lastChildId: "cpA",
+      }),
+      buildBlock({
+        id: "cpA",
+        type: "paragraph",
+        parentId: "cellA",
+        inlineContent: inlineContent([text("one")]),
+      }),
+      buildBlock({
+        id: "cellB",
+        type: "table-cell",
+        parentId: "row",
+        prevSiblingId: "cellA",
+        firstChildId: "cpB",
+        lastChildId: "cpB",
+      }),
+      buildBlock({
+        id: "cpB",
+        type: "paragraph",
+        parentId: "cellB",
+        inlineContent: inlineContent([text("two")]),
+      }),
+    ],
+  });
+  return extractFragment(
+    src,
+    createSpan(createPosition(bid("cpA"), 0), createPosition(bid("cpB"), 3)),
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // T5b fixtures
 // ─────────────────────────────────────────────────────────────────────────────
@@ -571,7 +632,7 @@ describe("insertFragment — T5a leaf-only boundary semantics", () => {
     // The pasted anchor embed must be present in the dest caret block.
     const destBlock = getBlock(r.state, bid("p"));
     const anchorItem = destBlock?.inlineContent?.items.find(
-      (it) => it.kind === "embed" && (it as { kind: "embed"; embedType: string }).embedType === FOOTNOTE_EMBED_TYPE,
+      (it) => it.kind === "embed" && it.embedType === FOOTNOTE_EMBED_TYPE,
     ) as { kind: "embed"; properties: Record<string, unknown> } | undefined;
     expect(anchorItem).toBeDefined();
 
@@ -787,36 +848,673 @@ describe("insertFragment — T5b container subtree splice", () => {
 
   it("container-only fragment at offset 0 produces no empty leading block", () => {
     // dest p="abcd" caret at 0; fragment = [table]
-    // Expected: [paragraph(""), table, paragraph("abcd")]
-    // The prefix is "" (split at 0), suffix is "abcd".
+    // T6/E5: offset=0 → skip split → no empty leading paragraph.
+    // Expected: [table, paragraph("abcd")]
     const dest = makeDest();
     const frag = makeFragTable();
     const alloc = createTestAllocator("T5b-i");
     const r = insertFragment(dest, collapsed(createPosition(bid("p"), 0)), frag, alloc);
 
     const types = orderedBlockTypes(r.state);
-    expect(types).toEqual(["paragraph", "table", "paragraph"]);
+    expect(types).toEqual(["table", "paragraph"]);
 
     const ids = topLevelIds(r.state);
-    const suffixId = ids[2];
-    if (suffixId === undefined) throw new Error("suffixId undefined");
-    expect(blockText(r.state, suffixId)).toBe("abcd");
+    // The paragraph (was caret block) should contain the full original content "abcd"
+    const paraId = ids[1];
+    if (paraId === undefined) throw new Error("paraId undefined");
+    expect(blockText(r.state, paraId)).toBe("abcd");
   });
 
   it("container-only fragment at end of block produces no empty trailing block", () => {
     // dest p="abcd" caret at 4; fragment = [table]
-    // Expected: [paragraph("abcd"), table, paragraph("")]
+    // T6/E5: offset=len → no empty suffix block.
+    // Expected: [paragraph("abcd"), table] — suffix block is dropped.
     const dest = makeDest();
     const frag = makeFragTable();
     const alloc = createTestAllocator("T5b-j");
     const r = insertFragment(dest, collapsed(createPosition(bid("p"), 4)), frag, alloc);
 
     const types = orderedBlockTypes(r.state);
-    expect(types).toEqual(["paragraph", "table", "paragraph"]);
+    expect(types).toEqual(["paragraph", "table"]);
 
     const ids = topLevelIds(r.state);
     const prefixId = ids[0];
     if (prefixId === undefined) throw new Error("prefixId undefined");
     expect(blockText(r.state, prefixId)).toBe("abcd");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T6: edge behaviors
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("insertFragment — T6 edge behaviors", () => {
+  // ── E1: table-into-cell flatten ────────────────────────────────────────────
+
+  it("E1: table pasted into a table cell is FLATTENED (no nested table)", () => {
+    // dest: document > table > row > cell > paragraph("hello")
+    // caret: inside the cell paragraph at offset 5 (end)
+    // fragment: a table with one cell containing "pasted"
+    // Expected: no nested table; cell paragraph text is extended / a sibling paragraph is added
+    // — the fragment's table is replaced by its cell paragraphs (flattened)
+    const dest = buildStateFromBlocks({
+      rootId: bid("doc"),
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "tbl", lastChildId: "tbl" }),
+        buildBlock({
+          id: "tbl",
+          type: "table",
+          parentId: "doc",
+          firstChildId: "row",
+          lastChildId: "row",
+        }),
+        buildBlock({
+          id: "row",
+          type: "table-row",
+          parentId: "tbl",
+          firstChildId: "cell",
+          lastChildId: "cell",
+        }),
+        buildBlock({
+          id: "cell",
+          type: "table-cell",
+          parentId: "row",
+          firstChildId: "cp",
+          lastChildId: "cp",
+        }),
+        buildBlock({
+          id: "cp",
+          type: "paragraph",
+          parentId: "cell",
+          inlineContent: inlineContent([text("hello")]),
+        }),
+      ],
+    });
+
+    // Fragment: a table (container) with one cell paragraph "pasted"
+    const frag = makeFragTable();
+
+    const alloc = createTestAllocator("T6-E1");
+    // Caret at end of "hello" (offset 5) inside the cell paragraph
+    const r = insertFragment(dest, collapsed(createPosition(bid("cp"), 5)), frag, alloc);
+
+    // After flattening, the destination must NOT have any nested table.
+    // Walk the entire block tree from root — no block with type "table"
+    // should appear under any table-cell.
+    function hasCellDescendantOfType(state: State, type: string): boolean {
+      const root = getBlock(state, state.rootId);
+      if (root === null) return false;
+      // BFS over the whole tree looking for type blocks parented inside cells.
+      const visited = new Set<BlockId>();
+      const queue: BlockId[] = [state.rootId];
+      while (queue.length > 0) {
+        const id = queue.shift();
+        if (id === undefined || visited.has(id)) continue;
+        visited.add(id);
+        const block = getBlock(state, id);
+        if (block === null) continue;
+        // Depth: if this block is a table, check if any ancestor is a table-cell.
+        if (block.type === type) {
+          let cur = block.parentId;
+          while (cur !== null) {
+            const parent = getBlock(state, cur);
+            if (parent === null) break;
+            if (parent.type === "table-cell") return true;
+            cur = parent.parentId;
+          }
+        }
+        if (block.firstChildId !== null) queue.push(block.firstChildId);
+        if (block.nextSiblingId !== null) queue.push(block.nextSiblingId);
+      }
+      return false;
+    }
+    expect(hasCellDescendantOfType(r.state, "table")).toBe(false);
+
+    // The FLATTENED pasted cell content must actually land in the destination
+    // cell as flow content — not be dropped. makeFragTable's single cell holds
+    // "cell content"; pasting at end of "hello" inline-merges it → "hellocell content".
+    // (Asserts content survival, which the old `toContain("hello")` check missed:
+    // dropping the paste entirely would still pass that.)
+    expect(blockText(r.state, "cp")).toBe("hellocell content");
+
+    // The cell's flow content stays in the cell (parent chain leads to "cell").
+    const cp = getBlock(r.state, bid("cp"));
+    expect(cp?.parentId).toBe(bid("cell"));
+  });
+
+  it("E1: a MULTI-cell pasted table flattens its cells into the destination cell in document order", () => {
+    // dest: document > table > row > cell > paragraph("hello"); caret at end (offset 5)
+    // fragment: a table with TWO cells "one" / "two".
+    // Expected: both cells' paragraphs land as cell flow content, in order, no nested table.
+    const dest = buildStateFromBlocks({
+      rootId: bid("doc"),
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "tbl", lastChildId: "tbl" }),
+        buildBlock({ id: "tbl", type: "table", parentId: "doc", firstChildId: "row", lastChildId: "row" }),
+        buildBlock({ id: "row", type: "table-row", parentId: "tbl", firstChildId: "cell", lastChildId: "cell" }),
+        buildBlock({ id: "cell", type: "table-cell", parentId: "row", firstChildId: "cp", lastChildId: "cp" }),
+        buildBlock({
+          id: "cp",
+          type: "paragraph",
+          parentId: "cell",
+          inlineContent: inlineContent([text("hello")]),
+        }),
+      ],
+    });
+
+    const frag = makeFragTwoCellTable();
+    const alloc = createTestAllocator("T6-E1-multi");
+    const r = insertFragment(dest, collapsed(createPosition(bid("cp"), 5)), frag, alloc);
+
+    // No nested table survived the flatten.
+    const cellBlock = getBlock(r.state, bid("cell"));
+    expect(cellBlock?.type).toBe("table-cell");
+
+    // Walk the cell's flow content (its leaf-paragraph chain) and collect texts
+    // in document order. The two flattened cell paragraphs ("one", "two") merge
+    // around the caret: first cell content merges into the prefix ("hello" +
+    // "one"), the second is prepended to the suffix ("two").
+    const cellTexts: string[] = [];
+    let childId: BlockId | null = cellBlock?.firstChildId ?? null;
+    while (childId !== null) {
+      const child = getBlock(r.state, childId);
+      if (child === null) break;
+      // No nested table inside the cell.
+      expect(child.type).not.toBe("table");
+      cellTexts.push(blockText(r.state, childId));
+      childId = child.nextSiblingId;
+    }
+    // Both pasted cells' content present, in order, inside the destination cell.
+    expect(cellTexts).toEqual(["helloone", "two"]);
+  });
+
+  // ── E2: list-level rebasing ────────────────────────────────────────────────
+
+  it("E2a: list items copied at level 2 re-base to level 0 on paste into non-list target", () => {
+    // Fragment: [para("A"), li(level=2), li(level=3), para("B")]
+    // The para("A") and para("B") are first/last and get merged into prefix/suffix.
+    // The two list-items are middle blocks → appear as standalone blocks in the result.
+    // Expected: after paste, list items are rebased: levels become 0 and 1.
+    const frag = buildStateFromBlocks({
+      rootId: bid("fdoc"),
+      blocks: [
+        buildBlock({ id: "fdoc", type: "document", firstChildId: "fpa", lastChildId: "fpb" }),
+        buildBlock({
+          id: "fpa",
+          type: "paragraph",
+          parentId: "fdoc",
+          nextSiblingId: "fli1",
+          inlineContent: inlineContent([text("A")]),
+        }),
+        buildBlock({
+          id: "fli1",
+          type: "list-item",
+          parentId: "fdoc",
+          prevSiblingId: "fpa",
+          nextSiblingId: "fli2",
+          attrs: { listId: "L1", listLevel: 2 },
+          inlineContent: inlineContent([text("deep")]),
+        }),
+        buildBlock({
+          id: "fli2",
+          type: "list-item",
+          parentId: "fdoc",
+          prevSiblingId: "fli1",
+          nextSiblingId: "fpb",
+          attrs: { listId: "L1", listLevel: 3 },
+          inlineContent: inlineContent([text("deeper")]),
+        }),
+        buildBlock({
+          id: "fpb",
+          type: "paragraph",
+          parentId: "fdoc",
+          prevSiblingId: "fli2",
+          inlineContent: inlineContent([text("B")]),
+        }),
+      ],
+      listDefs: {
+        L1: { levels: [{ style: "disc", start: 1, restart: "always" }] },
+      },
+    });
+
+    const dest = makeDest();
+    const alloc = createTestAllocator("T6-E2a");
+    const r = insertFragment(dest, collapsed(createPosition(bid("p"), 2)), frag, alloc);
+
+    // Collect list-item blocks in document order.
+    const root = getBlock(r.state, r.state.rootId);
+    const listItems: Array<{ level: number }> = [];
+    let cur: BlockId | null = root?.firstChildId ?? null;
+    while (cur !== null) {
+      const block = getBlock(r.state, cur);
+      if (block === null) break;
+      if (block.type === "list-item") {
+        listItems.push({ level: (block.attrs as Record<string, unknown>)["listLevel"] as number });
+      }
+      cur = block.nextSiblingId;
+    }
+
+    // Two list items; min level (2) subtracted → 0 and 1
+    expect(listItems).toHaveLength(2);
+    expect(listItems[0]?.level).toBe(0);
+    expect(listItems[1]?.level).toBe(1);
+  });
+
+  it("E2b: list items pasted INTO a list item at level 1 add 1 to each re-based level", () => {
+    // Fragment: [para("A"), li(level=2), li(level=3), para("B")]
+    // para("A")/para("B") merge into prefix/suffix; li1/li2 become standalone middle blocks.
+    // Dest caret is inside a list-item at level 1.
+    // Inserted list items: levels 2 and 3 → rebase (min=2 subtracted) → 0 and 1 → plus targetLevel 1 → 1 and 2.
+    const frag = buildStateFromBlocks({
+      rootId: bid("fdoc"),
+      blocks: [
+        buildBlock({ id: "fdoc", type: "document", firstChildId: "fpa", lastChildId: "fpb" }),
+        buildBlock({
+          id: "fpa",
+          type: "paragraph",
+          parentId: "fdoc",
+          nextSiblingId: "fli1",
+          inlineContent: inlineContent([text("A")]),
+        }),
+        buildBlock({
+          id: "fli1",
+          type: "list-item",
+          parentId: "fdoc",
+          prevSiblingId: "fpa",
+          nextSiblingId: "fli2",
+          attrs: { listId: "L1", listLevel: 2 },
+          inlineContent: inlineContent([text("deep")]),
+        }),
+        buildBlock({
+          id: "fli2",
+          type: "list-item",
+          parentId: "fdoc",
+          prevSiblingId: "fli1",
+          nextSiblingId: "fpb",
+          attrs: { listId: "L1", listLevel: 3 },
+          inlineContent: inlineContent([text("deeper")]),
+        }),
+        buildBlock({
+          id: "fpb",
+          type: "paragraph",
+          parentId: "fdoc",
+          prevSiblingId: "fli2",
+          inlineContent: inlineContent([text("B")]),
+        }),
+      ],
+      listDefs: {
+        L1: { levels: [{ style: "disc", start: 1, restart: "always" }] },
+      },
+    });
+
+    // Destination: a list item at level 1
+    const destDoc = buildStateFromBlocks({
+      rootId: bid("doc"),
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "dli", lastChildId: "dli" }),
+        buildBlock({
+          id: "dli",
+          type: "list-item",
+          parentId: "doc",
+          attrs: { listId: "DL", listLevel: 1 },
+          inlineContent: inlineContent([text("target")]),
+        }),
+      ],
+      listDefs: {
+        DL: { levels: [{ style: "disc", start: 1, restart: "always" }] },
+      },
+    });
+
+    const alloc = createTestAllocator("T6-E2b");
+    // Caret in middle of "target" at offset 3
+    const r = insertFragment(destDoc, collapsed(createPosition(bid("dli"), 3)), frag, alloc);
+
+    // Collect list-item blocks in document order.
+    const root = getBlock(r.state, r.state.rootId);
+    const listItems: Array<{ level: number }> = [];
+    let cur2: BlockId | null = root?.firstChildId ?? null;
+    while (cur2 !== null) {
+      const block = getBlock(r.state, cur2);
+      if (block === null) break;
+      if (block.type === "list-item") {
+        listItems.push({ level: (block.attrs as Record<string, unknown>)["listLevel"] as number });
+      }
+      cur2 = block.nextSiblingId;
+    }
+
+    // Result: [list-item(prefix, level=1), list-item(li1, level=1), list-item(li2, level=2), list-item(suffix, level=1)]
+    // The two inserted items (positions 1 and 2 in result) should be at 1 and 2.
+    expect(listItems.length).toBeGreaterThanOrEqual(2);
+    const insertedLevels = listItems.slice(1, listItems.length - 1).map((x) => x.level);
+    expect(insertedLevels).toEqual([1, 2]);
+  });
+
+  // ── E3: trailing/leading empty trim ───────────────────────────────────────
+
+  it("E3: leading and trailing empty leaf blocks are trimmed from multi-block fragment", () => {
+    // Fragment: [para(""), para("content"), para("")] — 3 blocks, first and last empty
+    // Paste into dest at mid-block → only "content" should be inserted (no empty flanking blocks)
+    // Build the fragment state directly (no extractFragment) to have precise empty items.
+    const frag = buildState({
+      rootId: "fdoc",
+      blocks: [
+        buildBlock({ id: "fdoc", type: "document", firstChildId: "fe1", lastChildId: "fe3" }),
+        buildBlock({
+          id: "fe1",
+          type: "paragraph",
+          parentId: "fdoc",
+          nextSiblingId: "fmid",
+          inlineContent: inlineContent([]),
+        }),
+        buildBlock({
+          id: "fmid",
+          type: "paragraph",
+          parentId: "fdoc",
+          prevSiblingId: "fe1",
+          nextSiblingId: "fe3",
+          inlineContent: inlineContent([text("content")]),
+        }),
+        buildBlock({
+          id: "fe3",
+          type: "paragraph",
+          parentId: "fdoc",
+          prevSiblingId: "fmid",
+          inlineContent: inlineContent([]),
+        }),
+      ],
+    });
+
+    const dest = makeDest();
+    const alloc = createTestAllocator("T6-E3");
+    const r = insertFragment(dest, collapsed(createPosition(bid("p"), 2)), frag, alloc);
+
+    // After trimming: fragment is effectively [para("content")] — one leaf.
+    // Paste at offset 2 into "abcd" → single leaf merge → "abcontentcd", one block.
+    expect(orderedBlockTexts(r.state)).toEqual(["abcontentcd"]);
+  });
+
+  it("E3: only-empty leading block is trimmed but non-empty trailing block is kept", () => {
+    // Fragment: [para(""), para("X"), para("Y")] — leading empty only
+    // Trimming: drop leading empty → [para("X"), para("Y")]
+    const frag = buildState({
+      rootId: "fdoc",
+      blocks: [
+        buildBlock({ id: "fdoc", type: "document", firstChildId: "fe1", lastChildId: "fpy" }),
+        buildBlock({
+          id: "fe1",
+          type: "paragraph",
+          parentId: "fdoc",
+          nextSiblingId: "fpx",
+          inlineContent: inlineContent([]),
+        }),
+        buildBlock({
+          id: "fpx",
+          type: "paragraph",
+          parentId: "fdoc",
+          prevSiblingId: "fe1",
+          nextSiblingId: "fpy",
+          inlineContent: inlineContent([text("X")]),
+        }),
+        buildBlock({
+          id: "fpy",
+          type: "paragraph",
+          parentId: "fdoc",
+          prevSiblingId: "fpx",
+          inlineContent: inlineContent([text("Y")]),
+        }),
+      ],
+    });
+
+    const dest = makeDest();
+    const alloc = createTestAllocator("T6-E3b");
+    const r = insertFragment(dest, collapsed(createPosition(bid("p"), 2)), frag, alloc);
+
+    // [para("X"), para("Y")] pasted at offset 2 of "abcd"
+    // → split: prefix="ab", suffix="cd"
+    // → firstLeaf="X" into prefix → "abX"
+    // → lastLeaf="Y" prepends to suffix → "Ycd"
+    expect(orderedBlockTexts(r.state)).toEqual(["abX", "Ycd"]);
+  });
+
+  // ── E4: empty target adopt ─────────────────────────────────────────────────
+
+  it("E4: pasting into an EMPTY block at offset 0 adopts the first leaf type and attrs", () => {
+    // Dest: doc > paragraph("") (empty)
+    // Fragment: [list-item("Hello", listLevel=0)]
+    // Expected: the empty paragraph BECOMES a list-item with the same attrs, containing "Hello"
+    const emptyDest = buildStateFromBlocks({
+      rootId: bid("doc"),
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "ep", lastChildId: "ep" }),
+        buildBlock({
+          id: "ep",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([]),
+        }),
+      ],
+    });
+
+    const src = buildStateFromBlocks({
+      rootId: bid("doc"),
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "li", lastChildId: "li" }),
+        buildBlock({
+          id: "li",
+          type: "list-item",
+          parentId: "doc",
+          attrs: { listId: "L1", listLevel: 0 },
+          inlineContent: inlineContent([text("Hello")]),
+        }),
+      ],
+      listDefs: {
+        L1: { levels: [{ style: "disc", start: 1, restart: "always" }] },
+      },
+    });
+    const frag = extractFragment(
+      src,
+      createSpan(createPosition(bid("li"), 0), createPosition(bid("li"), 5)),
+    );
+
+    const alloc = createTestAllocator("T6-E4");
+    const r = insertFragment(emptyDest, collapsed(createPosition(bid("ep"), 0)), frag, alloc);
+
+    // The caret block "ep" should now be a list-item (type adopted)
+    const block = getBlock(r.state, bid("ep"));
+    expect(block?.type).toBe("list-item");
+    // And its text should be "Hello"
+    expect(blockText(r.state, "ep")).toBe("Hello");
+  });
+
+  // ── E5: offset 0 / offset=len no-empty-split ──────────────────────────────
+
+  it("E5: container-only fragment at offset 0 produces NO empty leading paragraph (T5b-i updated)", () => {
+    // dest p="abcd" caret at 0; fragment = [table]
+    // T6/E5 fix: skip split at offset=0 → [table, paragraph("abcd")] (no empty leading para)
+    const dest = makeDest();
+    const frag = makeFragTable();
+    const alloc = createTestAllocator("T6-E5a");
+    const r = insertFragment(dest, collapsed(createPosition(bid("p"), 0)), frag, alloc);
+
+    const types = orderedBlockTypes(r.state);
+    // No empty leading paragraph; table comes first, then "abcd".
+    expect(types).toEqual(["table", "paragraph"]);
+
+    const ids = topLevelIds(r.state);
+    // The paragraph (was caret block, now suffix with full original content)
+    // should contain "abcd" (no text was consumed — offset was 0).
+    const paraId = ids[1];
+    if (paraId === undefined) throw new Error("paraId undefined");
+    expect(blockText(r.state, paraId)).toBe("abcd");
+  });
+
+  it("E5: container-only fragment at offset=len produces NO empty trailing paragraph", () => {
+    // dest p="abcd" caret at 4; fragment = [table]
+    // T6/E5 fix: skip split at offset=len → [paragraph("abcd"), table] (no empty trailing para)
+    const dest = makeDest();
+    const frag = makeFragTable();
+    const alloc = createTestAllocator("T6-E5b");
+    const r = insertFragment(dest, collapsed(createPosition(bid("p"), 4)), frag, alloc);
+
+    const types = orderedBlockTypes(r.state);
+    expect(types).toEqual(["paragraph", "table"]);
+
+    const ids = topLevelIds(r.state);
+    const paraId = ids[0];
+    if (paraId === undefined) throw new Error("paraId undefined");
+    expect(blockText(r.state, paraId)).toBe("abcd");
+  });
+
+  it("E5: mixed [table, para] at offset 0 inserts table before block then merges last leaf into block", () => {
+    // dest p="abcd" caret 0; fragment = [table, para("Y")]
+    // E5: offset=0, firstLeaf=null (first is container), so skipSplitAtStart=true.
+    // Table goes before caret block. Last leaf "Y" prepends to caret block at 0.
+    // Expected: [table, paragraph("Yabcd")]
+    const frag = buildState({
+      rootId: "fdoc",
+      blocks: [
+        buildBlock({ id: "fdoc", type: "document", firstChildId: "ftbl", lastChildId: "fpy" }),
+        buildBlock({
+          id: "ftbl",
+          type: "table",
+          parentId: "fdoc",
+          nextSiblingId: "fpy",
+          firstChildId: "frow",
+          lastChildId: "frow",
+        }),
+        buildBlock({
+          id: "frow",
+          type: "table-row",
+          parentId: "ftbl",
+          firstChildId: "fcell",
+          lastChildId: "fcell",
+        }),
+        buildBlock({
+          id: "fcell",
+          type: "table-cell",
+          parentId: "frow",
+          firstChildId: "fcp",
+          lastChildId: "fcp",
+        }),
+        buildBlock({
+          id: "fcp",
+          type: "paragraph",
+          parentId: "fcell",
+          inlineContent: inlineContent([text("T")]),
+        }),
+        buildBlock({
+          id: "fpy",
+          type: "paragraph",
+          parentId: "fdoc",
+          prevSiblingId: "ftbl",
+          inlineContent: inlineContent([text("Y")]),
+        }),
+      ],
+    });
+    const dest = makeDest();
+    const alloc = createTestAllocator("T6-E5c");
+    const r = insertFragment(dest, collapsed(createPosition(bid("p"), 0)), frag, alloc);
+
+    const types = orderedBlockTypes(r.state);
+    expect(types).toEqual(["table", "paragraph"]);
+    // The paragraph should have "Y" prepended to "abcd" → "Yabcd"
+    const ids = topLevelIds(r.state);
+    const paraId = ids[1];
+    if (paraId === undefined) throw new Error("paraId undefined");
+    expect(blockText(r.state, paraId)).toBe("Yabcd");
+  });
+
+  // ── E6: footnote-in-footnote ──────────────────────────────────────────────
+
+  it("E6: fragment containing a footnote-anchor embed pasted into a footnote body has the anchor stripped", () => {
+    // Dest: footnote body containing a paragraph "fn text"
+    // Fragment: a paragraph "pasted [footnote-anchor] text" (contains a footnote anchor)
+    // Expected: the pasted inline content lands without the footnote-anchor embed.
+
+    const dest = buildStateFromBlocks({
+      rootId: bid("doc"),
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "mp", lastChildId: "mp" }),
+        buildBlock({
+          id: "mp",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([
+            embed("footnote-anchor", { contentBlockId: "fnroot" }),
+          ]),
+        }),
+      ],
+      embedContents: [
+        buildBlock({
+          id: "fnroot",
+          type: "footnote-body",
+          firstChildId: "fnp",
+          lastChildId: "fnp",
+        }),
+        buildBlock({
+          id: "fnp",
+          type: "paragraph",
+          parentId: "fnroot",
+          inlineContent: inlineContent([text("fn text")]),
+        }),
+      ],
+    });
+
+    // Fragment: a paragraph containing text + footnote-anchor embed + text
+    const FOOTNOTE_EMBED_TYPE = "footnote-anchor";
+    const fragSrc = buildStateFromBlocks({
+      rootId: bid("fdoc"),
+      blocks: [
+        buildBlock({ id: "fdoc", type: "document", firstChildId: "fp", lastChildId: "fp" }),
+        buildBlock({
+          id: "fp",
+          type: "paragraph",
+          parentId: "fdoc",
+          inlineContent: inlineContent([
+            text("before "),
+            embed(FOOTNOTE_EMBED_TYPE, { contentBlockId: "ffnbody" }),
+            text(" after"),
+          ]),
+        }),
+      ],
+      embedContents: [
+        buildBlock({
+          id: "ffnbody",
+          type: "footnote-body",
+          firstChildId: "ffnp",
+          lastChildId: "ffnp",
+        }),
+        buildBlock({
+          id: "ffnp",
+          type: "paragraph",
+          parentId: "ffnbody",
+          inlineContent: inlineContent([text("nested footnote")]),
+        }),
+      ],
+    });
+    const frag = extractFragment(
+      fragSrc,
+      createSpan(createPosition(bid("fp"), 0), createPosition(bid("fp"), 14)),
+    );
+
+    const alloc = createTestAllocator("T6-E6");
+    // Paste into the footnote body paragraph (embedContent)
+    const r = insertFragment(dest, collapsed(createPosition(bid("fnp"), 0)), frag, alloc);
+
+    // The footnote body paragraph should now contain "before " + " after" but NO footnote-anchor embed.
+    // fnp lives in embedContents (not main blocks) — use getEmbedContent.
+    const fnpEmbed = getEmbedContent(r.state, bid("fnp"));
+    const items = fnpEmbed?.inlineContent?.items ?? [];
+    const hasAnchorEmbed = items.some(
+      (it) => it.kind === "embed" && it.embedType === FOOTNOTE_EMBED_TYPE,
+    );
+    expect(hasAnchorEmbed).toBe(false);
+    // Text should still be there
+    const textContent = items
+      .filter((it) => it.kind === "text")
+      .map((it) => (it as { kind: "text"; text: string }).text)
+      .join("");
+    expect(textContent).toContain("before");
+    expect(textContent).toContain("after");
   });
 });
