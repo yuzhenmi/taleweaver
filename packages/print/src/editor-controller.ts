@@ -1796,6 +1796,21 @@ export function createEditorController(
 
   function handleKeyDown(e: KeyboardEvent) {
     if (isComposing || e.isComposing) return;
+    // Paste-without-formatting (Ctrl/Cmd+Shift+V): async path — must be
+    // intercepted before mapKeyEvent (which returns null for this chord and
+    // would silently swallow the preventDefault). Reads text/plain ONLY from
+    // the Clipboard API and dispatches PASTE { text } with no html/clip.
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "v" || e.key === "V")) {
+      e.preventDefault();
+      if (navigator.clipboard !== undefined) {
+        navigator.clipboard.readText().then((text) => {
+          if (text) dispatch({ type: "PASTE", text });
+        }).catch(() => {
+          // Permission denied or unavailable — graceful no-op.
+        });
+      }
+      return;
+    }
     // Tab / Shift+Tab routing is context-sensitive: pass whether the caret's
     // focus block is a list-item so the keymap can map Tab → list nesting.
     const focusBlock =

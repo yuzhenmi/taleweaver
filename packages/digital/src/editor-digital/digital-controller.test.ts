@@ -625,3 +625,72 @@ describe("DigitalController — paste rich clipboard (T12)", () => {
     controller.destroy();
   });
 });
+
+describe("DigitalController — paste-without-formatting (T13)", () => {
+  it("Cmd/Ctrl+Shift+V dispatches PASTE with text only (no html/clip)", async () => {
+    const { controller, container } = makeController();
+    controller.dispatch({ type: "INSERT_TEXT", text: "before" });
+
+    // Reset the spy so earlier dispatches don't interfere
+    vi.mocked(core.reduceEditor).mockClear();
+
+    // Stub navigator.clipboard.readText to resolve with "hello"
+    const readText = vi.fn().mockResolvedValue("hello");
+    Object.defineProperty(navigator, "clipboard", {
+      value: { readText },
+      configurable: true,
+    });
+
+    container.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "v",
+        metaKey: true,
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+    // Flush the microtask queue so the readText promise resolves
+    await Promise.resolve();
+
+    const calls = vi.mocked(core.reduceEditor).mock.calls;
+    const pasteCall = calls.find(([, action]) => action.type === "PASTE");
+    expect(pasteCall).toBeDefined();
+    const pasteAction = pasteCall![1];
+    expect(pasteAction).toMatchObject({ type: "PASTE", text: "hello" });
+    // Must NOT carry html or clip keys
+    expect("html" in pasteAction).toBe(false);
+    expect("clip" in pasteAction).toBe(false);
+
+    controller.destroy();
+  });
+
+  it("is a graceful no-op when readText rejects (permission denied)", async () => {
+    const { controller, container } = makeController();
+    vi.mocked(core.reduceEditor).mockClear();
+
+    const readText = vi.fn().mockRejectedValue(new DOMException("NotAllowedError"));
+    Object.defineProperty(navigator, "clipboard", {
+      value: { readText },
+      configurable: true,
+    });
+
+    container.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "V",
+        ctrlKey: true,
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    // Flush the readText().catch() microtask before asserting no dispatch.
+    await Promise.resolve();
+
+    const calls = vi.mocked(core.reduceEditor).mock.calls;
+    expect(calls.find(([, action]) => action.type === "PASTE")).toBeUndefined();
+
+    controller.destroy();
+  });
+});

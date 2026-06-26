@@ -3013,4 +3013,79 @@ describe("createEditorController", () => {
       ctrl.destroy();
     });
   });
+
+  describe("paste-without-formatting (T13)", () => {
+    it("Cmd/Ctrl+Shift+V dispatches PASTE with text only (no html/clip)", async () => {
+      const dispatch = vi.fn();
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const ctrl = createEditorController(container, makeOptions({ dispatch }));
+      ctrl.update(makeFakeEditorState());
+
+      const textarea = container.querySelector("textarea")!;
+
+      // Stub navigator.clipboard.readText to resolve with "hello"
+      const readText = vi.fn().mockResolvedValue("hello");
+      Object.defineProperty(navigator, "clipboard", {
+        value: { readText },
+        configurable: true,
+      });
+
+      textarea.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "v",
+          metaKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      // Flush the microtask queue so the readText promise resolves
+      await Promise.resolve();
+
+      expect(dispatch).toHaveBeenCalledWith({ type: "PASTE", text: "hello" });
+      // Must NOT carry html or clip keys
+      const pasteCall = dispatch.mock.calls.find(([a]) => a?.type === "PASTE");
+      expect(pasteCall).toBeDefined();
+      expect("html" in pasteCall![0]).toBe(false);
+      expect("clip" in pasteCall![0]).toBe(false);
+
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("is a graceful no-op when readText rejects (permission denied)", async () => {
+      const dispatch = vi.fn();
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const ctrl = createEditorController(container, makeOptions({ dispatch }));
+      ctrl.update(makeFakeEditorState());
+
+      const textarea = container.querySelector("textarea")!;
+
+      const readText = vi.fn().mockRejectedValue(new DOMException("NotAllowedError"));
+      Object.defineProperty(navigator, "clipboard", {
+        value: { readText },
+        configurable: true,
+      });
+
+      textarea.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "V",
+          ctrlKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      // Flush the readText().catch() microtask before asserting no dispatch.
+      await Promise.resolve();
+
+      expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: "PASTE" }));
+
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+  });
 });

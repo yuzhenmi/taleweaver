@@ -110,6 +110,21 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     }
   }
   function onKeyDown(e: KeyboardEvent): void {
+    // Paste-without-formatting (Ctrl/Cmd+Shift+V): async path — must be
+    // intercepted before mapDigitalKey (which returns null for this chord and
+    // would silently drop the event). Reads text/plain ONLY from the Clipboard
+    // API and dispatches PASTE { text } with no html/clip.
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "v" || e.key === "V")) {
+      e.preventDefault();
+      if (navigator.clipboard !== undefined) {
+        navigator.clipboard.readText().then((text) => {
+          if (text) dispatch({ type: "PASTE", text });
+        }).catch(() => {
+          // Permission denied or unavailable — graceful no-op.
+        });
+      }
+      return;
+    }
     // Tab routing is context-sensitive: tell the mapper whether the caret's focus block is a
     // list-item so Tab nests the list (LIST_INDENT) rather than inserting a tab.
     const focusBlock = getBlock(editorState.state, editorState.selection.focus.blockId);
