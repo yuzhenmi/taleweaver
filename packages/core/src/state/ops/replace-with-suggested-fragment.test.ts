@@ -23,6 +23,8 @@ import { describe, it, expect } from "vitest";
 import {
   replaceWithSuggestedFragment,
   planReplaceWithSuggestedFragment,
+  acceptAll,
+  rejectAll,
   type ReplaceSuggestionInput,
 } from "./suggestion-ops";
 import { type SuggestionId } from "../suggestions";
@@ -417,6 +419,174 @@ describe("replaceWithSuggestedFragment — S4 surgical START block for n>1", () 
     // previously B's n>1 full-replace minted a fresh Y.Text for the prefix.
     expect(findYTextByString(r.state, "B", "a")).toBe(bPrefixBefore);
     expect(findYTextByString(r.state, "E", "hi")).toBe(eTailBefore);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// T9: rich suggested-fragment path — rich inline marks carried, content embeds
+// dropped, block type/attrs per-line honored, caret-length in sync.
+// ────────────────────────────────────────────────────────────────────────────
+
+import { INSERTION_SUGGESTION_ATTR, BLOCK_SPLIT_SUGGESTION_EMBED_TYPE } from "../suggestions";
+import { embed } from "../../test-utils/state-builders";
+
+describe("replaceWithSuggestedFragment — T9 rich inline + embed filtering", () => {
+  /** Single-block doc with one paragraph P. */
+  function singlePara(p: InlineContent): State {
+    return buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "P", lastChildId: "P" }),
+        buildBlock({ id: "P", type: "paragraph", parentId: "doc", inlineContent: p }),
+      ],
+    });
+  }
+
+  /** Concatenate the text of a block's items (embeds contribute nothing). */
+  function blockText(items: readonly InlineItem[]): string {
+    return items.map((it) => (it.kind === "text" ? it.text : "")).join("");
+  }
+
+  /** Two-block doc: paragraph P1 then P2. */
+  function twoParagraphs(p1: InlineContent, p2: InlineContent): State {
+    return buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "P1", lastChildId: "P2" }),
+        buildBlock({ id: "P1", type: "paragraph", parentId: "doc", nextSiblingId: "P2", inlineContent: p1 }),
+        buildBlock({ id: "P2", type: "paragraph", parentId: "doc", prevSiblingId: "P1", inlineContent: p2 }),
+      ],
+    });
+  }
+
+  it("suggested fragment carries rich inline marks on the inserted runs", () => {
+    // Fragment: one line with bold text "x". After the op, the inserted run must
+    // carry the bold attr AND the insertionSuggestionId.
+    const state = singlePara(inlineContent([text("hello")]));
+    const sp = createSpan(
+      createPosition(asBlockId("P"), 0),
+      createPosition(asBlockId("P"), 0),
+    );
+    const fragment: SiblingBlockInit[] = [
+      { type: "paragraph", inlineContent: inlineContent([text("x", { bold: true })]) },
+    ];
+    const r = replaceWithSuggestedFragment(state, sp, fragment, REPL("d", "ins"), createTestAllocator());
+    const items = resolveBlock(r.state, asBlockId("P"))?.block.inlineContent?.items ?? [];
+    // Find the inserted "x" run.
+    const xRun = items.find((it) => it.kind === "text" && it.text === "x");
+    expect(xRun).toBeDefined();
+    if (xRun === undefined || xRun.kind !== "text") throw new Error("unreachable");
+    expect(xRun.attrs["bold"]).toBe(true);
+    expect(typeof xRun.attrs[INSERTION_SUGGESTION_ATTR]).toBe("string");
+  });
+
+  it("suggested fragment lines keep their OWN block type (heading block created for heading line)", () => {
+    // Fragment: line0 = paragraph "intro" + line1 = heading "H". After the op, the
+    // new block (line1) must have type "heading". B keeps its own type "paragraph".
+    const state = twoParagraphs(inlineContent([text("before")]), inlineContent([text("after")]));
+    const sp = createSpan(
+      createPosition(asBlockId("P1"), 0),
+      createPosition(asBlockId("P1"), 0),
+    );
+    const fragment: SiblingBlockInit[] = [
+      { type: "paragraph", inlineContent: inlineContent([text("intro")]) },
+      { type: "heading", attrs: { level: 1 }, inlineContent: inlineContent([text("H")]) },
+    ];
+    const r = replaceWithSuggestedFragment(state, sp, fragment, REPL("d", "ins"), createTestAllocator());
+    // After the op, the block sequence is: P1 (B, truncated to intro+split), newBlock (heading "H" + tailBundle), P2.
+    const seq = blockSeq(r.state);
+    // seq[0] = P1; seq[1] = new heading block; seq[2] = P2
+    expect(seq.length).toBe(3);
+    const newBlockId = nth(seq, 1, "new block");
+    const newBlock = resolveBlock(r.state, asBlockId(newBlockId));
+    expect(newBlock?.block.type).toBe("heading");
+    expect(newBlock?.block.attrs["level"]).toBe(1);
+  });
+
+  it("drops an un-trackable inline image embed from a suggested paste line", () => {
+    // Fragment line has [text "a", embed "image"]. After the suggested insert, only
+    // "a" (with insertion id) must appear; the image embed must be absent. acceptAll /
+    // rejectAll are NON-undoable and mutate the doc in place, so each resolve arm gets a
+    // FRESH suggested state (the suggestion-ops.test convention).
+    const sp = createSpan(
+      createPosition(asBlockId("P"), 0),
+      createPosition(asBlockId("P"), 0),
+    );
+    const fragment: SiblingBlockInit[] = [
+      { type: "paragraph", inlineContent: inlineContent([text("a"), embed("image", { src: "x.png" })]) },
+    ];
+    const mkSuggested = (): State =>
+      replaceWithSuggestedFragment(
+        singlePara(inlineContent([text("hello")])),
+        sp,
+        fragment,
+        REPL("d", "ins"),
+        createTestAllocator(),
+      ).state;
+
+    const suggested = mkSuggested();
+    const items = resolveBlock(suggested, asBlockId("P"))?.block.inlineContent?.items ?? [];
+    // "a" run must be present with insertion id (genuinely tracked).
+    const aRun = items.find((it) => it.kind === "text" && it.text === "a");
+    expect(aRun).toBeDefined();
+    if (aRun === undefined || aRun.kind !== "text") throw new Error("unreachable");
+    expect(typeof aRun.attrs[INSERTION_SUGGESTION_ATTR]).toBe("string");
+    // The image embed must NOT appear at insert time.
+    expect(items.find((it) => it.kind === "embed" && it.embedType === "image")).toBeUndefined();
+    // The only embed that CAN appear is a block-split-suggestion embed minted by the op.
+    const nonBreakEmbeds = items.filter(
+      (it) => it.kind === "embed" && it.embedType !== BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
+    );
+    expect(nonBreakEmbeds).toHaveLength(0);
+
+    // accept-all → the inserted "a" is PRESENT (now plain — insertion id stripped, so
+    // it coalesces with the original "hello" into "ahello") and NO embed survives (the
+    // dropped content embed leaves zero residue; the split-embed is also resolved away).
+    const accItems = resolveBlock(acceptAll(mkSuggested()).state, asBlockId("P"))?.block
+      .inlineContent?.items ?? [];
+    expect(blockText(accItems)).toBe("ahello");
+    expect(accItems.every((it) => it.kind === "text")).toBe(true);
+    expect(
+      accItems.every((it) => it.kind !== "text" || it.attrs[INSERTION_SUGGESTION_ATTR] === undefined),
+    ).toBe(true);
+
+    // reject-all → the inserted "a" is REMOVED (only original "hello" remains) and NO
+    // embed survives.
+    const rejItems = resolveBlock(rejectAll(mkSuggested()).state, asBlockId("P"))?.block
+      .inlineContent?.items ?? [];
+    expect(blockText(rejItems)).toBe("hello");
+    expect(rejItems.every((it) => it.kind === "text")).toBe(true);
+  });
+
+  it("caret / endPosition stays correct when content embeds are filtered (filter-then-measure)", () => {
+    // Fragment: single line = [text "ab", embed "inline-image", text "cd"].
+    // Filtered items = [text "ab", text "cd"] → length 4.
+    // endPosition.offset must be c(=0) + 4 = 4, NOT 5 (which would include the embed).
+    const state = singlePara(inlineContent([text("x")]));
+    const sp = createSpan(
+      createPosition(asBlockId("P"), 0),
+      createPosition(asBlockId("P"), 0),
+    );
+    const fragment: SiblingBlockInit[] = [
+      {
+        type: "paragraph",
+        inlineContent: inlineContent([
+          text("ab"),
+          embed("inline-image", { src: "y.png" }),
+          text("cd"),
+        ]),
+      },
+    ];
+    const plan = planReplaceWithSuggestedFragment(
+      state,
+      sp,
+      fragment,
+      REPL("d", "ins"),
+      createTestAllocator(),
+    );
+    // Without filtering: "ab"(2) + embed(1) + "cd"(2) = 5.
+    // With filtering:    "ab"(2) + "cd"(2) = 4.
+    expect(plan.endPosition.offset).toBe(4);
   });
 });
 

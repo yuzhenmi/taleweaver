@@ -904,11 +904,26 @@ function buildJoinSuggestionEmbed(delId: SuggestionId): EmbedItem {
   });
 }
 
+/**
+ * Returns the trackable inline items for a fragment line: content embeds
+ * (image, tab, inline hard-break, …) are DROPPED because the resolve layer's
+ * invariant (`:1853`) only allows insertion/deletion tags on TEXT runs.
+ * Block-split/join suggestion embeds minted by this op are NOT content embeds
+ * and are NOT present in incoming `line.inlineContent` — but we guard with
+ * {@link isBreakEmbed} to be explicit. Both {@link fragmentLineItems} and
+ * {@link fragmentLineLength} MUST consume the output of this filter so that the
+ * tagged items and the caret offset stay in sync.
+ */
+function filterLineContentItems(line: SiblingBlockInit): ReadonlyArray<InlineItem> {
+  const raw = line.inlineContent?.items ?? [];
+  return raw.filter((item) => item.kind !== "embed" || isBreakEmbed(item));
+}
+
 function fragmentLineItems(line: SiblingBlockInit, insId: SuggestionId): InlineItem[] {
-  return tagInsertionRuns(line.inlineContent?.items ?? [], insId);
+  return tagInsertionRuns(filterLineContentItems(line), insId);
 }
 function fragmentLineLength(line: SiblingBlockInit): number {
-  return inlineContentLength({ items: line.inlineContent?.items ?? [] });
+  return inlineContentLength({ items: filterLineContentItems(line) });
 }
 
 export function planReplaceWithSuggestedFragment(
