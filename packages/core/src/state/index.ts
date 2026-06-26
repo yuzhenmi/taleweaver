@@ -464,6 +464,19 @@ export { History, createHistory, UNDO_COALESCE_PAUSE_MS } from "./history";
 export { extractFragment } from "./ops/extract-fragment";
 
 // ─────────────────────────────────────────────────────────────────────────
+// Fragment-clip lossless codec + MIME constant (T4)
+// ─────────────────────────────────────────────────────────────────────────
+
+// `TALEWEAVER_CLIP_MIME` — the private clipboard MIME type.
+// `encodeFragmentClip(fragment)` → base64 string.
+// `decodeFragmentClip(clip)` → State | null (never throws).
+export {
+  TALEWEAVER_CLIP_MIME,
+  encodeFragmentClip,
+  decodeFragmentClip,
+} from "./serialize";
+
+// ─────────────────────────────────────────────────────────────────────────
 // Boot
 // ─────────────────────────────────────────────────────────────────────────
 

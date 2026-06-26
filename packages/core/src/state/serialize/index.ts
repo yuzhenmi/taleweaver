@@ -41,3 +41,9 @@ export {
   createHtmlDocumentSerializer,
   HTML_FORMAT,
 } from "./html-serializer";
+
+export {
+  TALEWEAVER_CLIP_MIME,
+  encodeFragmentClip,
+  decodeFragmentClip,
+} from "./fragment-clip";
