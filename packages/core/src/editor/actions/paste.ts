@@ -1,4 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
+import type { EditorAction } from "../editor-action";
 import { getBlock, resolveBlock, productionAllocator, createPosition, createSpan, spanStart, deleteRange, insertText, splitBlockAtPosition, insertBlocksAfter, replaceWithSuggestedFragment } from "../../state";
 import type { State, BlockId, Position, SiblingBlockInit, InlineContent } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
@@ -19,9 +20,10 @@ function lineToInlineContent(lineText: string): InlineContent {
 
 export function handlePaste(
   editor: EditorState,
-  rawText: string,
+  action: Extract<EditorAction, { type: "PASTE" }>,
   config: EditorConfig,
 ): EditorState {
+  const rawText = action.text ?? "";
   if (rawText.length === 0) return editor;
 
   // Normalize line endings: strip \r so \r\n becomes \n.

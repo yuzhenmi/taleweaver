@@ -1,6 +1,7 @@
 import { createEmptyDocument, History, createHistory, selectionContextOf, positionsEqual } from "../state";
 import { isDevMode } from "../state/dev-mode";
 import type { State, Selection, BlockId, PageConfig } from "../state";
+import type { HtmlParser } from "../state/serialize/html-node";
 import type { ComponentRegistry } from "../components/component-registry";
 import type { AttrRegistry } from "../cascade/attr-registry";
 import type { EditorAction } from "./editor-action";
@@ -192,6 +193,11 @@ export interface EditorConfig {
    * owns "who is suggesting" (this is configuration, not session state).
    */
   readonly suggestingAuthor?: string | null;
+  /**
+   * Injected DOM-free HTML parser; host passes browserHtmlParser; absent →
+   * HTML paste falls back to plain.
+   */
+  readonly htmlParser?: HtmlParser;
 }
 
 export function createInitialEditorState(config: EditorConfig): EditorState {
@@ -375,7 +381,7 @@ export function reduceEditor(
       result = handleClearFormatting(editor, config);
       break;
     case "PASTE":
-      result = handlePaste(editor, action.text, config);
+      result = handlePaste(editor, action, config);
       break;
     case "SET_BLOCK_TYPE":
       result = handleSetBlockType(

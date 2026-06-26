@@ -18,6 +18,13 @@ describe("coalesceKeyOf", () => {
     expect(coalesceKeyOf({ type: "DELETE_RANGE", span: SAMPLE_SPAN })).toBe("delete");
   });
 
+  it("PASTE stays a discrete (non-coalescing) unit after widening", () => {
+    // T8: PASTE widened to { text?, html?, clip? }; must still key to "command".
+    expect(coalesceKeyOf({ type: "PASTE", html: "<p>x</p>" })).toBe("command");
+    expect(coalesceKeyOf({ type: "PASTE", clip: "abc", html: "<p>x</p>", text: "x" })).toBe("command");
+    expect(coalesceKeyOf({ type: "PASTE" })).toBe("command");
+  });
+
   it("classifies discrete commands", () => {
     const commands: EditorAction[] = [
       { type: "SPLIT_NODE" },
