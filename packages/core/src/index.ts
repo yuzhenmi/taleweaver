@@ -234,6 +234,10 @@ export {
   decodeHtml,
   createHtmlDocumentSerializer,
   HTML_FORMAT,
+  extractFragment,
+  TALEWEAVER_CLIP_MIME,
+  encodeFragmentClip,
+  decodeFragmentClip,
 } from "./state";
 
 // Cascade

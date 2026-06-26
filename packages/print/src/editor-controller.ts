@@ -1,4 +1,4 @@
-import { createSpan, createPosition, isCollapsed, extractText, builtinEmbedSerializer, selectWord, getBlock, inlineContentLength, findItemAtOffset, selectionContextOf, comparePositions, findMatches, resolveCommentRange, resolveSuggestionRange, spanStart, spanEnd, markStart, markEnd, buildAccessibilityTree, type Position, type BlockId, type CommentId, type SuggestionId, type TextShaper, type TextMeasurer, type Hyphenator, type PageConfig, type ComponentRegistry, type AttrRegistry, type EditorAction, type EditorState, type State, type TextMatch, type FindMatchesOptions, type Span, type CaretAffinity, isOpenableLinkUrl, makeBlockParentLookup, createDefaultComponentRegistry, createDefaultAttrRegistry } from "@taleweaver/core";
+import { createSpan, createPosition, isCollapsed, extractText, builtinEmbedSerializer, selectWord, getBlock, inlineContentLength, findItemAtOffset, selectionContextOf, comparePositions, findMatches, resolveCommentRange, resolveSuggestionRange, spanStart, spanEnd, markStart, markEnd, buildAccessibilityTree, extractFragment, encodeHtml, encodeFragmentClip, TALEWEAVER_CLIP_MIME, type Position, type BlockId, type CommentId, type SuggestionId, type TextShaper, type TextMeasurer, type Hyphenator, type PageConfig, type ComponentRegistry, type AttrRegistry, type EditorAction, type EditorState, type State, type TextMatch, type FindMatchesOptions, type Span, type CaretAffinity, isOpenableLinkUrl, makeBlockParentLookup, createDefaultComponentRegistry, createDefaultAttrRegistry } from "@taleweaver/core";
 import { resolvePixelPosition, type PixelPosition } from "./cursor/cursor-position";
 import { resolvePositionFromPixel } from "./cursor/hit-test";
 import { computeSelectionRects, computeSelectionRectsForPage, type SelectionRect } from "./cursor/selection-geometry";
@@ -1859,16 +1859,20 @@ export function createEditorController(
     if (!state) return;
     if (isCollapsed(state.selection)) return;
     e.preventDefault();
-    const text = extractText(state.state, state.selection, builtinEmbedSerializer);
-    e.clipboardData?.setData("text/plain", text);
+    const frag = extractFragment(state.state, state.selection);
+    e.clipboardData?.setData("text/plain", extractText(state.state, state.selection, builtinEmbedSerializer));
+    e.clipboardData?.setData("text/html", encodeHtml(frag));
+    e.clipboardData?.setData(TALEWEAVER_CLIP_MIME, encodeFragmentClip(frag));
   }
 
   function handleCut(e: ClipboardEvent) {
     if (!state) return;
     if (isCollapsed(state.selection)) return;
     e.preventDefault();
-    const text = extractText(state.state, state.selection, builtinEmbedSerializer);
-    e.clipboardData?.setData("text/plain", text);
+    const frag = extractFragment(state.state, state.selection);
+    e.clipboardData?.setData("text/plain", extractText(state.state, state.selection, builtinEmbedSerializer));
+    e.clipboardData?.setData("text/html", encodeHtml(frag));
+    e.clipboardData?.setData(TALEWEAVER_CLIP_MIME, encodeFragmentClip(frag));
     dispatch({ type: "DELETE_BACKWARD" });
   }
 
@@ -1880,8 +1884,16 @@ export function createEditorController(
     e.preventDefault();
     if (!state) return;
     const text = e.clipboardData?.getData("text/plain");
-    if (text) {
-      dispatch({ type: "PASTE", text });
+    const html = e.clipboardData?.getData("text/html");
+    const clip = e.clipboardData?.getData(TALEWEAVER_CLIP_MIME);
+    const payload: { type: "PASTE"; text?: string; html?: string; clip?: string } = {
+      type: "PASTE",
+    };
+    if (text) payload.text = text;
+    if (html) payload.html = html;
+    if (clip) payload.clip = clip;
+    if (payload.text !== undefined || payload.html !== undefined || payload.clip !== undefined) {
+      dispatch(payload);
     }
   }
 

@@ -145,6 +145,10 @@ vi.mock("@taleweaver/core", async () => {
       ),
     ),
     extractText: vi.fn(() => "hello"),
+    extractFragment: vi.fn((state: core.State, _span: core.Span) => state),
+    encodeHtml: vi.fn(() => "<p>hello</p>"),
+    encodeFragmentClip: vi.fn(() => "MOCK_CLIP_BASE64"),
+    TALEWEAVER_CLIP_MIME: actual.TALEWEAVER_CLIP_MIME,
   };
 });
 // Geometric cursor fns relocated to `@taleweaver/print` (this package); mock them
@@ -2372,7 +2376,8 @@ describe("createEditorController", () => {
       const textarea = container.querySelector("textarea")!;
       const clipboardData = {
         setData: vi.fn(),
-        getData: vi.fn(() => "pasted text"),
+        // text/plain only; html and clip are empty so they are NOT forwarded
+        getData: vi.fn((mime: string) => mime === "text/plain" ? "pasted text" : ""),
       };
       const pasteEvent = new Event("paste", { bubbles: true }) as unknown as ClipboardEvent;
       Object.defineProperty(pasteEvent, "clipboardData", { value: clipboardData });
@@ -2383,6 +2388,120 @@ describe("createEditorController", () => {
         type: "PASTE",
         text: "pasted text",
       });
+
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("copy writes text/plain, text/html, and the lossless clip (rich clipboard)", () => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const ctrl = createEditorController(container, makeOptions());
+
+      const focusBlockId = fakeEditorBase.selection.focus.blockId;
+      const state = makeFakeEditorState({
+        selection: core.createSpan(
+          core.createPosition(focusBlockId, 0),
+          core.createPosition(focusBlockId, 5),
+        ),
+      });
+      ctrl.update(state);
+
+      const textarea = container.querySelector("textarea")!;
+      const clipboardData = {
+        setData: vi.fn(),
+        getData: vi.fn(),
+      };
+      const copyEvent = new Event("copy", { bubbles: true }) as unknown as ClipboardEvent;
+      Object.defineProperty(copyEvent, "clipboardData", { value: clipboardData });
+      Object.defineProperty(copyEvent, "preventDefault", { value: vi.fn() });
+      textarea.dispatchEvent(copyEvent);
+
+      expect(core.extractFragment).toHaveBeenCalled();
+      expect(core.encodeHtml).toHaveBeenCalled();
+      expect(core.encodeFragmentClip).toHaveBeenCalled();
+      expect(clipboardData.setData).toHaveBeenCalledWith("text/plain", "hello");
+      expect(clipboardData.setData).toHaveBeenCalledWith(
+        "text/html",
+        expect.stringContaining("<p>"),
+      );
+      expect(clipboardData.setData).toHaveBeenCalledWith(
+        core.TALEWEAVER_CLIP_MIME,
+        "MOCK_CLIP_BASE64",
+      );
+
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("paste dispatches PASTE carrying clip+html+text from clipboardData", () => {
+      const dispatch = vi.fn();
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const ctrl = createEditorController(container, makeOptions({ dispatch }));
+      ctrl.update(makeFakeEditorState());
+
+      const textarea = container.querySelector("textarea")!;
+      const clipboardData = {
+        setData: vi.fn(),
+        getData: vi.fn((mime: string) => {
+          if (mime === "text/plain") return "plain text";
+          if (mime === "text/html") return "<p>html text</p>";
+          if (mime === core.TALEWEAVER_CLIP_MIME) return "SOME_CLIP_DATA";
+          return "";
+        }),
+      };
+      const pasteEvent = new Event("paste", { bubbles: true }) as unknown as ClipboardEvent;
+      Object.defineProperty(pasteEvent, "clipboardData", { value: clipboardData });
+      Object.defineProperty(pasteEvent, "preventDefault", { value: vi.fn() });
+      textarea.dispatchEvent(pasteEvent);
+
+      expect(dispatch).toHaveBeenCalledWith({
+        type: "PASTE",
+        text: "plain text",
+        html: "<p>html text</p>",
+        clip: "SOME_CLIP_DATA",
+      });
+
+      ctrl.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("cut writes all three clipboard flavors then dispatches DELETE_BACKWARD", () => {
+      const dispatch = vi.fn();
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const ctrl = createEditorController(container, makeOptions({ dispatch }));
+
+      const focusBlockId = fakeEditorBase.selection.focus.blockId;
+      const state = makeFakeEditorState({
+        selection: core.createSpan(
+          core.createPosition(focusBlockId, 0),
+          core.createPosition(focusBlockId, 5),
+        ),
+      });
+      ctrl.update(state);
+
+      const textarea = container.querySelector("textarea")!;
+      const clipboardData = {
+        setData: vi.fn(),
+        getData: vi.fn(),
+      };
+      const cutEvent = new Event("cut", { bubbles: true }) as unknown as ClipboardEvent;
+      Object.defineProperty(cutEvent, "clipboardData", { value: clipboardData });
+      Object.defineProperty(cutEvent, "preventDefault", { value: vi.fn() });
+      textarea.dispatchEvent(cutEvent);
+
+      expect(clipboardData.setData).toHaveBeenCalledWith("text/plain", "hello");
+      expect(clipboardData.setData).toHaveBeenCalledWith(
+        "text/html",
+        expect.stringContaining("<p>"),
+      );
+      expect(clipboardData.setData).toHaveBeenCalledWith(
+        core.TALEWEAVER_CLIP_MIME,
+        "MOCK_CLIP_BASE64",
+      );
+      expect(dispatch).toHaveBeenCalledWith({ type: "DELETE_BACKWARD" });
 
       ctrl.destroy();
       document.body.removeChild(container);
