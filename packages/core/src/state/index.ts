@@ -469,8 +469,8 @@ export { extractFragment } from "./ops/extract-fragment";
 
 // `insertFragment(state, selection, fragment, allocator)` inserts a fragment
 // `State` into `state` at `selection` in DIRECT (non-suggesting) mode.
-// T5a handles fragments whose top-level blocks are ALL LEAVES.
-// Container top-level blocks throw the T5b stub error until T5b is built.
+// Supports both leaf-only and container top-level blocks; container subtrees
+// are materialized as siblings (the split-merge algorithm handles all cases).
 export type { InsertFragmentResult } from "./ops/insert-fragment";
 export { insertFragment } from "./ops/insert-fragment";
 

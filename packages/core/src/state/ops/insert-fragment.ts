@@ -24,7 +24,7 @@ import { isCollapsed } from "../../cursor/selection";
 import { getListDefsForState } from "../list-defs";
 import { writeListDefInTx } from "../list-defs";
 import { newListId } from "../block-id";
-import { getBlocksMap, getEmbedContentsMap, getYBlock, getSuggestionsMap, type BlockTreeKind } from "../yjs-doc";
+import { getEmbedContentsMap, getTreeMap, getYBlock, getSuggestionsMap, type BlockTreeKind } from "../yjs-doc";
 import { buildYBlock, buildYAttrs } from "../y-block";
 import { ancestorChain } from "../block-traversal";
 import { FOOTNOTE_ANCHOR_EMBED_TYPE } from "./insert-footnote";
@@ -716,6 +716,13 @@ export function insertFragment(
         transferSuggestionRecords(suggestionRecords, suggestionIdMap, doc);
         // (a) Split the caret block → prefix + suffix.
         splitBlockAtPositionInTx(doc, splitPlan);
+        // (a') E4 adopt: if caret block was empty at offset 0 and first item is a leaf,
+        // adopt the leaf's type+attrs onto the prefix block (same as single-leaf E4 arm).
+        if (shouldAdoptType && firstLeaf !== null) {
+          const yCaretBlock = getYBlock(doc, caretBlockId, "insertFragment:adoptType", caretBlockKind);
+          yCaretBlock.set("type", firstLeaf.type);
+          yCaretBlock.set("attrs", buildYAttrs(firstLeaf.attrs));
+        }
         // (b) Merge firstLeaf into prefix (if first item is a leaf).
         if (prefixMergePlan !== null) {
           insertItemsInTx(doc, prefixMergePlan);
@@ -725,13 +732,14 @@ export function insertFragment(
         // leaf blocks into blocksMap, then relink the whole run's sibling chain
         // (prefix → [middle roots] → suffix) in one pass.
         if (orderedMiddle.length > 0) {
-          // First, materialize all containers' blocks into blocksMap.
-          const blocksMap = getBlocksMap(doc);
+          // First, materialize all containers' blocks into the correct tree map
+          // (same tree as the caret block — main blocks or embedContents).
+          const treeMap = getTreeMap(doc, caretBlockKind);
           for (const entry of orderedMiddle) {
             if (entry.kind === "container") {
               // Materialize the container subtree (all blocks: root + descendants).
               for (const [id, block] of entry.cloned.blocks) {
-                blocksMap.set(
+                treeMap.set(
                   id,
                   buildYBlock({
                     type: block.type,
@@ -747,7 +755,7 @@ export function insertFragment(
               }
             } else {
               // Materialize the leaf block.
-              blocksMap.set(
+              treeMap.set(
                 entry.id,
                 buildYBlock({
                   type: entry.type,
@@ -773,20 +781,20 @@ export function insertFragment(
             throw new Error("insertFragment: orderedMiddle produced no roots");
           }
           // afterBlock (prefix = caretBlockId) → first middle root.
-          getYBlock(doc, caretBlockId, "insertFragment").set("nextSiblingId", firstRoot);
+          getYBlock(doc, caretBlockId, "insertFragment", caretBlockKind).set("nextSiblingId", firstRoot);
           // Set parentId, prevSiblingId, nextSiblingId for each root.
           for (let i = 0; i < middleRoots.length; i++) {
             const rootId = middleRoots[i];
             if (rootId === undefined) continue;
             const prevId = i === 0 ? caretBlockId : (middleRoots[i - 1] ?? null);
             const nextId = i === middleRoots.length - 1 ? suffixBlockId : (middleRoots[i + 1] ?? null);
-            const yRoot = getYBlock(doc, rootId, "insertFragment");
+            const yRoot = getYBlock(doc, rootId, "insertFragment", caretBlockKind);
             yRoot.set("parentId", caretParentId);
             yRoot.set("prevSiblingId", prevId);
             yRoot.set("nextSiblingId", nextId);
           }
           // suffixBlock.prevSiblingId → last middle root.
-          getYBlock(doc, suffixBlockId, "insertFragment").set("prevSiblingId", lastRoot);
+          getYBlock(doc, suffixBlockId, "insertFragment", caretBlockKind).set("prevSiblingId", lastRoot);
         }
         // (d) Prepend lastLeaf to suffix (if last item is a leaf).
         if (suffixPrependPlan !== null) {
@@ -848,14 +856,25 @@ export function insertFragment(
         }
         // T7: transfer suggestion records (re-keyed under fresh ids).
         transferSuggestionRecords(suggestionRecords, suggestionIdMap, doc);
+        // E4 adopt (skip-split path): if caret block was empty at offset 0 and
+        // skipSplitAtEnd is true (caret block is the prefix), adopt the first leaf's
+        // type+attrs onto the caret block — same contract as the split arm's adopt block.
+        // skipSplitAtStart implies firstLeaf===null (items go BEFORE the caret block),
+        // so adoption is only meaningful for skipSplitAtEnd.
+        if (shouldAdoptType && skipSplitAtEnd && firstLeaf !== null) {
+          const yCaretBlock = getYBlock(doc, caretBlockId, "insertFragment:adoptType", caretBlockKind);
+          yCaretBlock.set("type", firstLeaf.type);
+          yCaretBlock.set("attrs", buildYAttrs(firstLeaf.attrs));
+        }
 
         // Insert middle items.
         if (orderedMiddle.length > 0) {
-          const blocksMap = getBlocksMap(doc);
+          // Use the same tree as the caret block (main blocks or embedContents).
+          const treeMap = getTreeMap(doc, caretBlockKind);
           for (const entry of orderedMiddle) {
             if (entry.kind === "container") {
               for (const [id, block] of entry.cloned.blocks) {
-                blocksMap.set(
+                treeMap.set(
                   id,
                   buildYBlock({
                     type: block.type,
@@ -870,7 +889,7 @@ export function insertFragment(
                 );
               }
             } else {
-              blocksMap.set(
+              treeMap.set(
                 entry.id,
                 buildYBlock({
                   type: entry.type,
@@ -895,26 +914,26 @@ export function insertFragment(
           }
           // Wire: anchorBlock ↔ firstRoot ↔ … ↔ lastRoot ↔ afterRunBlock
           if (anchorBlockId !== null) {
-            getYBlock(doc, anchorBlockId, "insertFragment").set("nextSiblingId", firstRoot);
+            getYBlock(doc, anchorBlockId, "insertFragment", caretBlockKind).set("nextSiblingId", firstRoot);
           } else {
             // Middle items start at beginning of parent's children — update parent.firstChildId.
-            getYBlock(doc, caretParentId, "insertFragment").set("firstChildId", firstRoot);
+            getYBlock(doc, caretParentId, "insertFragment", caretBlockKind).set("firstChildId", firstRoot);
           }
           for (let i = 0; i < middleRoots.length; i++) {
             const rootId = middleRoots[i];
             if (rootId === undefined) continue;
             const prevId = i === 0 ? anchorBlockId : (middleRoots[i - 1] ?? null);
             const nextId = i === middleRoots.length - 1 ? afterRunBlockId : (middleRoots[i + 1] ?? null);
-            const yRoot = getYBlock(doc, rootId, "insertFragment");
+            const yRoot = getYBlock(doc, rootId, "insertFragment", caretBlockKind);
             yRoot.set("parentId", caretParentId);
             yRoot.set("prevSiblingId", prevId);
             yRoot.set("nextSiblingId", nextId);
           }
           if (afterRunBlockId !== null) {
-            getYBlock(doc, afterRunBlockId, "insertFragment").set("prevSiblingId", lastRoot);
+            getYBlock(doc, afterRunBlockId, "insertFragment", caretBlockKind).set("prevSiblingId", lastRoot);
           } else {
             // Middle items go at end of parent's children — update parent.lastChildId.
-            getYBlock(doc, caretParentId, "insertFragment").set("lastChildId", lastRoot);
+            getYBlock(doc, caretParentId, "insertFragment", caretBlockKind).set("lastChildId", lastRoot);
           }
         }
 

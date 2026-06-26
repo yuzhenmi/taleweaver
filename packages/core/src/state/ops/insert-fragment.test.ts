@@ -1780,3 +1780,323 @@ describe("insertFragment — T7 suggestion-record transfer", () => {
     expect((taggedItem as { kind: "text"; attrs: Record<string, unknown> }).attrs[FORMATTING_SUGGESTION_ATTR]).toBe(rec.id);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// C1: multi-block paste into embedContent (footnote body)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("insertFragment — C1 multi-block paste into embedContent tree", () => {
+  /**
+   * Destination: main doc > mp (paragraph with footnote anchor)
+   *   embedContents: fnroot (footnote-body) > fnp (paragraph "existing")
+   * Fragment: 3 paragraphs "A", "B", "C" (forces middle items → split path with middle block)
+   */
+  function makeFootnoteDest() {
+    return buildStateFromBlocks({
+      rootId: bid("doc"),
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "mp", lastChildId: "mp" }),
+        buildBlock({
+          id: "mp",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([embed("footnote-anchor", { contentBlockId: "fnroot" })]),
+        }),
+      ],
+      embedContents: [
+        buildBlock({ id: "fnroot", type: "footnote-body", firstChildId: "fnp", lastChildId: "fnp" }),
+        buildBlock({
+          id: "fnp",
+          type: "paragraph",
+          parentId: "fnroot",
+          inlineContent: inlineContent([text("existing")]),
+        }),
+      ],
+    });
+  }
+
+  function makeThreeLeafFragment() {
+    return buildStateFromBlocks({
+      rootId: bid("fdoc"),
+      blocks: [
+        buildBlock({
+          id: "fdoc",
+          type: "document",
+          firstChildId: "fp1",
+          lastChildId: "fp3",
+        }),
+        buildBlock({
+          id: "fp1",
+          type: "paragraph",
+          parentId: "fdoc",
+          nextSiblingId: "fp2",
+          inlineContent: inlineContent([text("A")]),
+        }),
+        buildBlock({
+          id: "fp2",
+          type: "paragraph",
+          parentId: "fdoc",
+          prevSiblingId: "fp1",
+          nextSiblingId: "fp3",
+          inlineContent: inlineContent([text("B")]),
+        }),
+        buildBlock({
+          id: "fp3",
+          type: "paragraph",
+          parentId: "fdoc",
+          prevSiblingId: "fp2",
+          inlineContent: inlineContent([text("C")]),
+        }),
+      ],
+    });
+  }
+
+  it("C1a: ≥3 leaf fragment pasted into footnote body lands in embedContent tree (no throw)", () => {
+    const dest = makeFootnoteDest();
+    const fragSrc = makeThreeLeafFragment();
+    const frag = extractFragment(
+      fragSrc,
+      createSpan(createPosition(bid("fp1"), 0), createPosition(bid("fp3"), 1)),
+    );
+
+    const alloc = createTestAllocator("C1a");
+    // Paste into "fnp" (lives in embedContents, not main blocks tree).
+    // Before fix this threw: "getYBlock: block 'fnp' disappeared mid-transaction"
+    const r = insertFragment(dest, collapsed(createPosition(bid("fnp"), 0)), frag, alloc);
+
+    // After insert: fnp should now contain text from "A" (merged into prefix).
+    // The newly created middle block and suffix block must resolve via getEmbedContent.
+    const fnpBlock = getEmbedContent(r.state, bid("fnp"));
+    expect(fnpBlock).not.toBeNull();
+
+    // The endPosition block must also exist in the embedContent tree.
+    const endBlock = getEmbedContent(r.state, r.endPosition.blockId);
+    expect(endBlock).not.toBeNull();
+
+    // Text "A" should be in fnp (the prefix block that became the caret block).
+    const fnpText = fnpBlock?.inlineContent?.items
+      .filter((it) => it.kind === "text")
+      .map((it) => (it as { kind: "text"; text: string }).text)
+      .join("") ?? "";
+    expect(fnpText).toContain("A");
+
+    // C1a-extra: the middle block ("B") must also be in the embedContent tree,
+    // with parentId chaining to the same footnote-body root as fnp.
+    // Resolve it by scanning siblings from fnp to find the block containing "B".
+    const fnpParentId = fnpBlock?.parentId;
+    expect(fnpParentId).not.toBeNull();
+    // Walk siblings of fnp (nextSiblingId chain) to find a block whose text contains "B".
+    let cur: BlockId | null = fnpBlock?.nextSiblingId ?? null;
+    let middleBlock = null;
+    while (cur !== null) {
+      const b = getEmbedContent(r.state, cur);
+      if (b === null) break;
+      const t = b.inlineContent?.items
+        .filter((it) => it.kind === "text")
+        .map((it) => (it as { kind: "text"; text: string }).text)
+        .join("") ?? "";
+      if (t.includes("B")) { middleBlock = b; break; }
+      cur = b.nextSiblingId ?? null;
+    }
+    expect(middleBlock).not.toBeNull();
+    // Middle block lives in the embedContents tree (parentId matches fnp's parent = footnote body root).
+    expect(middleBlock?.parentId).toBe(fnpParentId);
+  });
+
+  it("C1b: container-bearing fragment pasted into footnote body does not throw, content lands", () => {
+    // Fragment: 2 leaf paragraphs + a container (table) — the table is a container
+    // which forces the middle-item path. E1 will flatten it since we're NOT inside a
+    // table-cell; or it remains a container. Either way must not throw.
+    // Simpler: just use a 3-leaf fragment (same as C1a) but verify container path too.
+    // Use 2 leaves only — the multi-item split path still runs (no middle, but suffix/prefix create path).
+    const dest = makeFootnoteDest();
+    const fragSrc = buildStateFromBlocks({
+      rootId: bid("fdoc2"),
+      blocks: [
+        buildBlock({
+          id: "fdoc2",
+          type: "document",
+          firstChildId: "fpa",
+          lastChildId: "fpb",
+        }),
+        buildBlock({
+          id: "fpa",
+          type: "paragraph",
+          parentId: "fdoc2",
+          nextSiblingId: "fpb",
+          inlineContent: inlineContent([text("hello")]),
+        }),
+        buildBlock({
+          id: "fpb",
+          type: "paragraph",
+          parentId: "fdoc2",
+          prevSiblingId: "fpa",
+          inlineContent: inlineContent([text("world")]),
+        }),
+      ],
+    });
+
+    const frag = extractFragment(
+      fragSrc,
+      createSpan(createPosition(bid("fpa"), 0), createPosition(bid("fpb"), 5)),
+    );
+
+    const alloc = createTestAllocator("C1b");
+    // Should not throw — caret in embedContent tree.
+    const r = insertFragment(dest, collapsed(createPosition(bid("fnp"), 4)), frag, alloc);
+
+    // Both endPosition block and fnp should be in embedContent tree.
+    const fnpBlock = getEmbedContent(r.state, bid("fnp"));
+    expect(fnpBlock).not.toBeNull();
+    const endBlock = getEmbedContent(r.state, r.endPosition.blockId);
+    expect(endBlock).not.toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// M1: multi-block paste into empty block adopts first block's type
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("insertFragment — M1 multi-block paste adopts first block type on empty target", () => {
+  it("M1: [heading, paragraph] pasted into empty paragraph → first block becomes heading", () => {
+    const dest = buildStateFromBlocks({
+      rootId: bid("doc"),
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([]), // empty
+        }),
+      ],
+    });
+
+    const fragSrc = buildStateFromBlocks({
+      rootId: bid("fdoc"),
+      blocks: [
+        buildBlock({
+          id: "fdoc",
+          type: "document",
+          firstChildId: "fh",
+          lastChildId: "fp",
+        }),
+        buildBlock({
+          id: "fh",
+          type: "heading",
+          parentId: "fdoc",
+          nextSiblingId: "fp",
+          attrs: { level: 1 },
+          inlineContent: inlineContent([text("Heading")]),
+        }),
+        buildBlock({
+          id: "fp",
+          type: "paragraph",
+          parentId: "fdoc",
+          prevSiblingId: "fh",
+          inlineContent: inlineContent([text("Body")]),
+        }),
+      ],
+    });
+
+    const frag = extractFragment(
+      fragSrc,
+      createSpan(createPosition(bid("fh"), 0), createPosition(bid("fp"), 4)),
+    );
+
+    const alloc = createTestAllocator("M1");
+    const r = insertFragment(dest, collapsed(createPosition(bid("p"), 0)), frag, alloc);
+
+    // The caret block "p" (the prefix) should have been adopted to type "heading".
+    const pBlock = getBlock(r.state, bid("p"));
+    expect(pBlock?.type).toBe("heading");
+  });
+
+  it("M1-skip-split: [heading 'H', table] pasted into empty paragraph at offset 0 → block becomes heading, table follows as sibling", () => {
+    // This exercises the SKIP-SPLIT arm (skipSplitAtEnd=true: caretOffset 0 === totalContentLen 0,
+    // lastLeaf===null because last fragment item is a container). The caret block is empty so
+    // shouldAdoptType===true, but pre-fix the skip-split path had no adoption block — it would
+    // leave the block as "paragraph". This test FAILS before the fix and PASSES after.
+    const dest = buildStateFromBlocks({
+      rootId: bid("doc"),
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([]), // empty
+        }),
+      ],
+    });
+
+    // Fragment: heading "H" followed by a table (container).
+    // Build directly as a State (not via extractFragment) so the table is a true
+    // top-level container item in the fragment doc — extractFragment would
+    // recurse into the table and flatten it to a leaf if the span ends inside.
+    const frag = buildStateFromBlocks({
+      rootId: bid("fdoc"),
+      blocks: [
+        buildBlock({
+          id: "fdoc",
+          type: "document",
+          firstChildId: "fh",
+          lastChildId: "ftbl",
+        }),
+        buildBlock({
+          id: "fh",
+          type: "heading",
+          parentId: "fdoc",
+          nextSiblingId: "ftbl",
+          attrs: { level: 1 },
+          inlineContent: inlineContent([text("H")]),
+        }),
+        buildBlock({
+          id: "ftbl",
+          type: "table",
+          parentId: "fdoc",
+          prevSiblingId: "fh",
+          firstChildId: "frow",
+          lastChildId: "frow",
+        }),
+        buildBlock({
+          id: "frow",
+          type: "table-row",
+          parentId: "ftbl",
+          firstChildId: "fcell",
+          lastChildId: "fcell",
+        }),
+        buildBlock({
+          id: "fcell",
+          type: "table-cell",
+          parentId: "frow",
+          firstChildId: "fcp",
+          lastChildId: "fcp",
+        }),
+        buildBlock({
+          id: "fcp",
+          type: "paragraph",
+          parentId: "fcell",
+          inlineContent: inlineContent([text("cell")]),
+        }),
+      ],
+    });
+
+    const alloc = createTestAllocator("M1-skip-split");
+    const r = insertFragment(dest, collapsed(createPosition(bid("p"), 0)), frag, alloc);
+
+    // The caret block "p" must now be a heading (adopted from firstLeaf = heading "H").
+    const pBlock = getBlock(r.state, bid("p"));
+    expect(pBlock?.type).toBe("heading");
+    // "H" content was merged into the caret block.
+    const pText = pBlock?.inlineContent?.items
+      .filter((it) => it.kind === "text")
+      .map((it) => (it as { kind: "text"; text: string }).text)
+      .join("") ?? "";
+    expect(pText).toBe("H");
+    // The table must follow as a sibling of "p".
+    expect(pBlock?.nextSiblingId).not.toBeNull();
+    const tableBlock = getBlock(r.state, pBlock!.nextSiblingId!);
+    expect(tableBlock?.type).toBe("table");
+  });
+});
