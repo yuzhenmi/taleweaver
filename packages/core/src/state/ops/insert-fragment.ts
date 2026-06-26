@@ -13,21 +13,18 @@ import {
   splitBlockAtPositionInTx,
 } from "./split-block";
 import {
-  insertBlocksAfterInTx,
-} from "./insert-blocks-after";
-import type { SiblingBlockInit } from "./insert-blocks-after";
-import {
   planInsertItemsSplitInPlace,
   insertItemsInTx,
 } from "./insert-items";
 import { clonePastedSubtree } from "../clone-pasted-subtree";
+import type { ClonedSubtree } from "../clone-pasted-subtree";
 import { isCrossContextSelection } from "../../editor/actions/selection-guards";
 import { spanStart } from "../block-compare";
 import { isCollapsed } from "../../cursor/selection";
 import { getListDefsForState } from "../list-defs";
 import { writeListDefInTx } from "../list-defs";
 import { newListId } from "../block-id";
-import { getEmbedContentsMap } from "../yjs-doc";
+import { getBlocksMap, getEmbedContentsMap, getYBlock } from "../yjs-doc";
 import { buildYBlock } from "../y-block";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -47,15 +44,6 @@ export interface InsertFragmentResult extends OperationResult {
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function transferSuggestionRecords(_fragmentState: State, _destDoc: Y.Doc): void {
   // no-op — will be implemented in T7
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// T5b seam: container subtree splice (deferred)
-// ─────────────────────────────────────────────────────────────────────────────
-
-// T5b: container subtree splice — not yet implemented.
-function containerSpliceStub(): never {
-  throw new Error("insertFragment: container splice not yet implemented (T5b)");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -101,14 +89,15 @@ function materializeEmbedContentsInTx(
  * Insert a fragment `State` (produced by `extractFragment` / `decodeHtml` / `decodeFragmentClip`)
  * into `state` at `selection`, in DIRECT (non-suggesting) mode.
  *
- * **Leaf-only boundary semantics (T5a):**
+ * **Boundary semantics (T5a + T5b):**
  * - Cross-context selection → identity no-op.
  * - Non-collapsed selection → `deleteRange` first; caret = range start.
  * - Empty fragment (no top-level blocks) → identity no-op.
- * - Top-level container blocks → throws `"insertFragment: container splice not yet implemented (T5b)"`.
- * - 1 top-level leaf → inline-merge into caret block via `planInsertItemsSplitInPlace` + `insertItemsInTx`.
- * - N > 1 top-level leaves → split caret block; merge first leaf into prefix; insert middles via
- *   `insertBlocksAfter`; prepend last leaf to suffix.
+ * - 1 top-level leaf → inline-merge into caret block via `planInsertItemsSplitInPlace`.
+ * - N > 1 top-level items (leaves and/or containers) → split caret block; first leaf (if any)
+ *   merges into prefix; last leaf (if any) prepends to suffix; middle items (containers and/or
+ *   leaves) become standalone siblings; container subtrees are materialized into
+ *   `getBlocksMap` + relinked inline in the transaction body.
  *
  * Fragment `listDefs` are cloned under fresh ids so pasted list numbering is
  * independent of the destination's lists. Suggestion-record copy is deferred to T7.
@@ -157,13 +146,21 @@ export function insertFragment(
   // corruption). We use the CLONED root's re-keyed inline items in every splice
   // arm (NOT the raw fragment items), and materialize every cloned
   // embed-content block into the destination tree inside the transaction.
-  interface ClonedLeaf {
-    readonly type: string;
-    readonly attrs: Record<string, unknown>;
-    readonly items: ReadonlyArray<InlineItem>;
-  }
 
-  const clonedLeaves: ClonedLeaf[] = [];
+  /** A single top-level item collected from the fragment walk. */
+  type TopLevelItem =
+    | {
+        readonly kind: "leaf";
+        readonly type: string;
+        readonly attrs: Record<string, unknown>;
+        readonly items: ReadonlyArray<InlineItem>;
+      }
+    | {
+        readonly kind: "container";
+        readonly cloned: ClonedSubtree;
+      };
+
+  const topLevelItems: TopLevelItem[] = [];
   // Accumulate every cloned embed-content block (footnote bodies + their
   // subtrees) from all top-level children — materialized into the destination's
   // embedContents map inside the transaction.
@@ -174,15 +171,10 @@ export function insertFragment(
     const fragBlock = getBlock(fragment, cur);
     if (fragBlock === null) break;
 
-    // T5b stub: containers are not yet supported.
-    if (fragBlock.firstChildId !== null || fragBlock.inlineContent === null) {
-      containerSpliceStub();
-    }
-
-    // Clone the leaf subtree into the destination namespace. For a leaf the
-    // `blocks` map holds exactly one entry (the cloned root) whose inline items
-    // carry RE-KEYED embed references; `embedContents` holds any footnote bodies
-    // the leaf's embeds point at (recursively).
+    // Clone the subtree into the destination namespace. For a leaf, `blocks`
+    // holds exactly one entry; for a container, `blocks` holds the whole
+    // subtree (table + rows + cells + leaf paragraphs). `embedContents` holds
+    // any footnote bodies reachable from inline content at any depth.
     const cloned = clonePastedSubtree(fragment, fragBlock.id, allocator, state);
     const clonedRoot = cloned.blocks.get(cloned.rootId);
     if (clonedRoot === null || clonedRoot === undefined) {
@@ -190,21 +182,23 @@ export function insertFragment(
         `insertFragment: cloned root "${cloned.rootId}" missing from clone result`,
       );
     }
-    if (clonedRoot.inlineContent === null) {
-      // Defensive — the container guard above already rejects null-inlineContent
-      // blocks, and cloning preserves the inlineContent slot.
-      throw new Error(
-        `insertFragment: cloned leaf "${cloned.rootId}" has no inlineContent`,
-      );
-    }
-    clonedLeaves.push({
-      type: clonedRoot.type,
-      attrs: { ...(clonedRoot.attrs as Record<string, unknown>) },
-      items: clonedRoot.inlineContent.items,
-    });
+
     // Collect this child's cloned embed-content bodies for materialization.
     for (const [id, block] of cloned.embedContents) {
       clonedEmbedContents.set(id, block);
+    }
+
+    if (clonedRoot.inlineContent !== null && clonedRoot.firstChildId === null) {
+      // Leaf block: record as a leaf item.
+      topLevelItems.push({
+        kind: "leaf",
+        type: clonedRoot.type,
+        attrs: { ...(clonedRoot.attrs as Record<string, unknown>) },
+        items: clonedRoot.inlineContent.items,
+      });
+    } else {
+      // Container block (table, section, etc.): record the full cloned subtree.
+      topLevelItems.push({ kind: "container", cloned });
     }
 
     cur = fragBlock.nextSiblingId;
@@ -220,7 +214,7 @@ export function insertFragment(
 
   // Step 4: splice.
   // Step 4a: 0 top-level blocks → identity no-op.
-  if (clonedLeaves.length === 0) {
+  if (topLevelItems.length === 0) {
     return { state, dirtyIds: new Set<BlockId>(), endPosition: caretPos };
   }
 
@@ -234,7 +228,7 @@ export function insertFragment(
     throw new Error(`insertFragment: caret block "${caretBlockId}" has no inlineContent (container?)`);
   }
 
-  // Remap listIds in cloned leaves' attrs.
+  // Remap listIds in leaf attrs.
   function remapLeafAttrs(attrs: Record<string, unknown>): Record<string, unknown> {
     const listId = attrs["listId"];
     if (typeof listId === "string" && listIdRemap.has(listId)) {
@@ -243,18 +237,19 @@ export function insertFragment(
     return attrs;
   }
 
-  // Remap all leaves' attrs.
-  const remappedLeaves = clonedLeaves.map((leaf) => ({
-    ...leaf,
-    attrs: remapLeafAttrs(leaf.attrs),
-  }));
+  // Apply listId remap to all leaf items.
+  const remappedItems: TopLevelItem[] = topLevelItems.map((item) => {
+    if (item.kind === "leaf") {
+      return { ...item, attrs: remapLeafAttrs(item.attrs) };
+    }
+    return item;
+  });
 
   let endPosition: Position;
 
-  if (remappedLeaves.length === 1) {
-    // ── Single leaf: inline-merge items at caret offset ──────────────────────
-    const leaf = remappedLeaves[0];
-    if (leaf === undefined) throw new Error("insertFragment: invariant violation — leaf[0] undefined");
+  // ── Single leaf: inline-merge items at caret offset ──────────────────────
+  if (remappedItems.length === 1 && remappedItems[0]?.kind === "leaf") {
+    const leaf = remappedItems[0];
     const leafItems = leaf.items;
     const liveItems = caretBlock.inlineContent.items;
 
@@ -288,86 +283,72 @@ export function insertFragment(
     for (const id of result.dirtyIds) accumulatedDirtyIds.add(id);
     endPosition = createPosition(caretBlockId, caretOffset + insertedLength);
   } else {
-    // ── Multi-leaf: split-merge ───────────────────────────────────────────────
-    // (a) Split caret block at caretOffset → prefix (caretBlockId) + suffix (new block).
+    // ── Multi-item (containers and/or multiple leaves): split-merge ──────────
+    //
+    // General algorithm:
+    //   - Split caret block at caretOffset → prefix (caretBlockId) + suffix (suffixBlockId).
+    //   - If first item is a leaf: merge its items into the end of prefix.
+    //   - If last item is a leaf: prepend its items to the start of suffix.
+    //   - Everything in between (containers and/or middle leaves) → insert as
+    //     standalone siblings between prefix and suffix. All materialized in one
+    //     transaction via getBlocksMap + boundary relink.
+
     const splitPlan = planSplitBlockAtPosition(currentState, caretPos, allocator);
     const suffixBlockId = splitPlan.newBlockId;
 
-    // (b) Compute the inline items for the prefix merge (first frag leaf items)
-    //     and the suffix prepend (last frag leaf items).
-    const firstLeaf = remappedLeaves[0];
-    const lastLeaf = remappedLeaves[remappedLeaves.length - 1];
-    if (firstLeaf === undefined || lastLeaf === undefined) {
-      throw new Error("insertFragment: invariant violation — leaves undefined");
-    }
-
-    // After the split the prefix block has inline content = original [0..caretOffset).
-    // We need to merge firstLeaf.items AT THE END of the prefix (i.e., at offset = caretOffset).
-    // The suffix starts with original [caretOffset..end) items; we prepend lastLeaf.items at offset 0.
-    // splitInlineContentAtOffset returns [headItems, tailItems] (a tuple).
-    const [prefixItems, suffixItems] = splitInlineContentAtOffset(caretBlock.inlineContent, caretOffset);
-
-    // Plan: insert firstLeaf.items at end of prefix (at offset = sum of prefixItems lengths).
-    const prefixLength = prefixItems.reduce(
-      (s, it) => s + (it.kind === "text" ? it.text.length : 1),
-      0,
-    );
-    const prefixMergePlan = planInsertItemsSplitInPlace(
-      caretBlockId,
-      "block",
-      prefixItems,
-      prefixLength,
-      firstLeaf.items,
-    );
-
-    // Plan: prepend lastLeaf.items at offset 0 of suffix.
-    // The suffix block (post-split) has content = original [caretOffset..end).
-    const suffixPrependPlan = planInsertItemsSplitInPlace(
-      suffixBlockId,
-      "block",
-      suffixItems,
-      0,
-      lastLeaf.items,
-    );
-
-    // Middle leaves become SiblingBlockInit array, inserted after prefix (caretBlockId).
-    const middleLeaves = remappedLeaves.slice(1, -1);
-    const middleInits: SiblingBlockInit[] = middleLeaves.map((leaf) => ({
-      type: leaf.type,
-      attrs: leaf.attrs,
-      inlineContent: { items: leaf.items },
-    }));
-
-    // Plan middle inserts (after prefix = caretBlockId).
-    // IMPORTANT: planInsertBlocksAfter reads afterBlock.nextSiblingId from the pre-split state.
-    // But after the split, prefix.nextSiblingId = suffixBlockId. So we compute the plan with
-    // the correct post-split oldNextId by allocating IDs manually and constructing the plan directly.
-    // We need the parentId of the caret block (which the split preserves — prefix keeps parentId).
     const caretParentId = caretBlock.parentId;
     if (caretParentId === null) {
       throw new Error("insertFragment: caret block has no parent (root)");
     }
-    const middlePlan =
-      middleLeaves.length > 0
-        ? {
-            parentId: caretParentId,
-            afterBlockId: caretBlockId,
-            // After the split, prefix.nextSiblingId = suffixBlockId.
-            // Middle siblings are inserted between prefix and suffix.
-            oldNextId: suffixBlockId,
-            entries: middleInits.map((init) => ({
-              id: allocator.allocate(),
-              type: init.type,
-              attrs: init.attrs ?? {},
-              inlineContent: init.inlineContent ?? null,
-            })),
-          }
-        : null;
 
-    const lastInsertedLength = lastLeaf.items.reduce(
+    // Identify first and last leaf for prefix/suffix merge.
+    const firstItem = remappedItems[0];
+    const lastItem = remappedItems[remappedItems.length - 1];
+
+    const firstLeaf = firstItem?.kind === "leaf" ? firstItem : null;
+    const lastLeaf = lastItem?.kind === "leaf" ? lastItem : null;
+
+    // Middle items = everything between the first and last item (exclusive).
+    // If first or last is a leaf, it's consumed by prefix/suffix merge and excluded from middle.
+    const middleStart = firstLeaf !== null ? 1 : 0;
+    const middleEnd = lastLeaf !== null ? remappedItems.length - 1 : remappedItems.length;
+    const middleItems = remappedItems.slice(middleStart, middleEnd);
+
+    // Plan prefix merge: append firstLeaf.items to end of prefix block.
+    const [prefixItems, suffixItems] = splitInlineContentAtOffset(caretBlock.inlineContent, caretOffset);
+    const prefixLength = prefixItems.reduce(
       (s, it) => s + (it.kind === "text" ? it.text.length : 1),
       0,
     );
+    const prefixMergePlan =
+      firstLeaf !== null
+        ? planInsertItemsSplitInPlace(caretBlockId, "block", prefixItems, prefixLength, firstLeaf.items)
+        : null;
+
+    // Plan suffix prepend: prepend lastLeaf.items at offset 0 of suffix block.
+    const suffixPrependPlan =
+      lastLeaf !== null
+        ? planInsertItemsSplitInPlace(suffixBlockId, "block", suffixItems, 0, lastLeaf.items)
+        : null;
+
+    // Build the ordered list of "middle" items in document order: containers and
+    // leaves interleaved, allocating a fresh id for each leaf as it is encountered
+    // (the allocator is bumped once per leaf, in order — `map` is in-order). We
+    // splice them all between prefix and suffix in one transaction below.
+    type MiddleEntry =
+      | { readonly kind: "container"; readonly cloned: ClonedSubtree }
+      | { readonly kind: "leaf"; readonly id: BlockId; readonly type: string; readonly attrs: Record<string, unknown>; readonly items: ReadonlyArray<InlineItem> };
+
+    const orderedMiddle: MiddleEntry[] = middleItems.map((item) =>
+      item.kind === "container"
+        ? { kind: "container", cloned: item.cloned }
+        : { kind: "leaf", id: allocator.allocate(), type: item.type, attrs: item.attrs, items: item.items },
+    );
+
+    const lastInsertedLength =
+      lastLeaf !== null
+        ? lastLeaf.items.reduce((s, it) => s + (it.kind === "text" ? it.text.length : 1), 0)
+        : 0;
 
     const result = applyOperation(currentState, (doc) => {
       // Materialize cloned footnote bodies into the destination embedContents tree.
@@ -379,22 +360,91 @@ export function insertFragment(
       }
       // T7: transfer suggestion records here
       transferSuggestionRecords(fragment, doc);
-      // (a) Split the caret block.
+      // (a) Split the caret block → prefix + suffix.
       splitBlockAtPositionInTx(doc, splitPlan);
-      // (b) Merge first frag leaf into prefix (append at end of prefix).
-      insertItemsInTx(doc, prefixMergePlan);
-      // (c) Insert middle siblings after prefix (if any).
-      if (middlePlan !== null) {
-        insertBlocksAfterInTx(doc, middlePlan);
+      // (b) Merge firstLeaf into prefix (if first item is a leaf).
+      if (prefixMergePlan !== null) {
+        insertItemsInTx(doc, prefixMergePlan);
       }
-      // (d) Prepend last frag leaf to suffix.
-      insertItemsInTx(doc, suffixPrependPlan);
+      // (c) Insert middle items (containers + middle leaves) between prefix and suffix.
+      // Single contiguous splice: materialize all container subtrees and standalone
+      // leaf blocks into blocksMap, then relink the whole run's sibling chain
+      // (prefix → [middle roots] → suffix) in one pass.
+      if (orderedMiddle.length > 0) {
+        // First, materialize all containers' blocks into blocksMap.
+        const blocksMap = getBlocksMap(doc);
+        for (const entry of orderedMiddle) {
+          if (entry.kind === "container") {
+            // Materialize the container subtree (all blocks: root + descendants).
+            for (const [id, block] of entry.cloned.blocks) {
+              blocksMap.set(
+                id,
+                buildYBlock({
+                  type: block.type,
+                  attrs: block.attrs,
+                  parentId: block.parentId,
+                  prevSiblingId: block.prevSiblingId,
+                  nextSiblingId: block.nextSiblingId,
+                  firstChildId: block.firstChildId,
+                  lastChildId: block.lastChildId,
+                  inlineContent: block.inlineContent,
+                }),
+              );
+            }
+          } else {
+            // Materialize the leaf block.
+            blocksMap.set(
+              entry.id,
+              buildYBlock({
+                type: entry.type,
+                attrs: entry.attrs,
+                parentId: caretParentId, // placeholder; overwritten in relink
+                prevSiblingId: null,     // placeholder; overwritten in relink
+                nextSiblingId: null,     // placeholder; overwritten in relink
+                firstChildId: null,
+                lastChildId: null,
+                inlineContent: { items: [...entry.items] },
+              }),
+            );
+          }
+        }
+        // Collect the root ids of all middle entries in order.
+        const middleRoots: BlockId[] = orderedMiddle.map((e) =>
+          e.kind === "container" ? e.cloned.rootId : e.id,
+        );
+        // Relink the run: afterBlock → middleRoots[0] → ... → middleRoots[n-1] → suffixBlock
+        const firstRoot = middleRoots[0];
+        const lastRoot = middleRoots[middleRoots.length - 1];
+        if (firstRoot === undefined || lastRoot === undefined) {
+          throw new Error("insertFragment: orderedMiddle produced no roots");
+        }
+        // afterBlock (prefix = caretBlockId) → first middle root.
+        getYBlock(doc, caretBlockId, "insertFragment").set("nextSiblingId", firstRoot);
+        // Set parentId, prevSiblingId, nextSiblingId for each root.
+        for (let i = 0; i < middleRoots.length; i++) {
+          const rootId = middleRoots[i];
+          if (rootId === undefined) continue;
+          const prevId = i === 0 ? caretBlockId : (middleRoots[i - 1] ?? null);
+          const nextId = i === middleRoots.length - 1 ? suffixBlockId : (middleRoots[i + 1] ?? null);
+          const yRoot = getYBlock(doc, rootId, "insertFragment");
+          yRoot.set("parentId", caretParentId);
+          yRoot.set("prevSiblingId", prevId);
+          yRoot.set("nextSiblingId", nextId);
+        }
+        // suffixBlock.prevSiblingId → last middle root.
+        getYBlock(doc, suffixBlockId, "insertFragment").set("prevSiblingId", lastRoot);
+      }
+      // (d) Prepend lastLeaf to suffix (if last item is a leaf).
+      if (suffixPrependPlan !== null) {
+        insertItemsInTx(doc, suffixPrependPlan);
+      }
     });
 
     currentState = result.state;
     for (const id of result.dirtyIds) accumulatedDirtyIds.add(id);
 
-    // endPosition: end of lastLeaf.items prepended to suffix → offset = lastInsertedLength.
+    // endPosition: if last item was a leaf, offset = lastInsertedLength (into suffix).
+    // If last item was a container, offset = 0 (suffix is unchanged, caret at start).
     endPosition = createPosition(suffixBlockId, lastInsertedLength);
   }
 
