@@ -8,6 +8,14 @@ import { buildBlock, buildState, inlineContent, text, embed } from "../../test-u
 import { buildStateFromBlocks } from "../build-state-from-blocks";
 import { getBlock, getEmbedContent } from "../state";
 import type { State } from "../state";
+import type { SuggestionId } from "../suggestions";
+import {
+  getSuggestions,
+  INSERTION_SUGGESTION_ATTR,
+  DELETION_SUGGESTION_ATTR,
+  FORMATTING_SUGGESTION_ATTR,
+  BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
+} from "../suggestions";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -1516,5 +1524,259 @@ describe("insertFragment — T6 edge behaviors", () => {
       .join("");
     expect(textContent).toContain("before");
     expect(textContent).toContain("after");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T7: suggestion-record transfer + id remap
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("insertFragment — T7 suggestion-record transfer", () => {
+  /** Build a minimal dest doc: document > paragraph("hello") */
+  function makeSimpleDest() {
+    return buildStateFromBlocks({
+      rootId: bid("doc"),
+      blocks: [
+        buildBlock({ id: bid("doc"), type: "document", firstChildId: bid("p"), lastChildId: bid("p") }),
+        buildBlock({
+          id: bid("p"),
+          type: "paragraph",
+          parentId: bid("doc"),
+          inlineContent: inlineContent([text("hello")]),
+        }),
+      ],
+    });
+  }
+
+  /**
+   * Build a fragment carrying one run tagged with an insertion suggestion s1.
+   * The fragment has a root > paragraph whose inline content is one text run
+   * with attrs { [INSERTION_SUGGESTION_ATTR]: "s1" }. The fragment's suggestions
+   * side-table has a record { id:"s1", kind:"insertion", author:"alice", createdAt:123 }.
+   */
+  function makeFragWithInsertionSuggestion() {
+    const s1 = "s1" as SuggestionId;
+    const fragState = buildStateFromBlocks({
+      rootId: bid("fdoc"),
+      blocks: [
+        buildBlock({ id: bid("fdoc"), type: "document", firstChildId: bid("fp"), lastChildId: bid("fp") }),
+        buildBlock({
+          id: bid("fp"),
+          type: "paragraph",
+          parentId: bid("fdoc"),
+          inlineContent: inlineContent([
+            text("suggested", { [INSERTION_SUGGESTION_ATTR]: s1 }),
+          ]),
+        }),
+      ],
+      suggestions: [{ id: s1, kind: "insertion", author: "alice", createdAt: 123 }],
+    });
+    return { fragState, s1 };
+  }
+
+  /**
+   * Build a fragment carrying a break-suggestion embed (block-split) whose
+   * properties.suggestionId = "bs1", plus the matching record.
+   */
+  function makeFragWithBreakSuggestion() {
+    const bs1 = "bs1" as SuggestionId;
+    const fragState = buildStateFromBlocks({
+      rootId: bid("fdoc"),
+      blocks: [
+        buildBlock({ id: bid("fdoc"), type: "document", firstChildId: bid("fp"), lastChildId: bid("fp") }),
+        buildBlock({
+          id: bid("fp"),
+          type: "paragraph",
+          parentId: bid("fdoc"),
+          inlineContent: inlineContent([
+            text("before"),
+            embed(BLOCK_SPLIT_SUGGESTION_EMBED_TYPE, { suggestionId: bs1 }),
+            text("after"),
+          ]),
+        }),
+      ],
+      suggestions: [{ id: bs1, kind: "insertion", author: "bob", createdAt: 456 }],
+    });
+    return { fragState, bs1 };
+  }
+
+  it("direct-mode lossless paste preserves a pending insertion suggestion under a FRESH id", () => {
+    const dest = makeSimpleDest();
+    const { fragState, s1 } = makeFragWithInsertionSuggestion();
+    const alloc = createTestAllocator("T7-ins");
+
+    const r = insertFragment(dest, createSpan(createPosition(bid("p"), 0), createPosition(bid("p"), 0)), fragState, alloc);
+
+    const recs = getSuggestions(r.state);
+    expect(recs).toHaveLength(1);
+    const rec = recs[0];
+    if (rec === undefined) throw new Error("expected recs[0]");
+    // id must be fresh (not the old "s1")
+    expect(rec.id).not.toBe(s1);
+    // kind / author / createdAt preserved
+    expect(rec.kind).toBe("insertion");
+    expect(rec.author).toBe("alice");
+    expect(rec.createdAt).toBe(123);
+
+    // the pasted run's insertion attr must point at the new id
+    const pBlock = getBlock(r.state, bid("p"));
+    expect(pBlock).not.toBeNull();
+    const taggedItems = (pBlock?.inlineContent?.items ?? []).filter(
+      (it) => it.kind === "text" && it.attrs[INSERTION_SUGGESTION_ATTR] !== undefined,
+    );
+    expect(taggedItems).toHaveLength(1);
+    const taggedItem = taggedItems[0];
+    if (taggedItem === undefined) throw new Error("expected taggedItems[0]");
+    expect((taggedItem as { kind: "text"; attrs: Record<string, unknown> }).attrs[INSERTION_SUGGESTION_ATTR]).toBe(rec.id);
+  });
+
+  it("remaps a break-suggestion embed's properties.suggestionId", () => {
+    const dest = makeSimpleDest();
+    const { fragState, bs1 } = makeFragWithBreakSuggestion();
+    const alloc = createTestAllocator("T7-break");
+
+    const r = insertFragment(dest, createSpan(createPosition(bid("p"), 0), createPosition(bid("p"), 0)), fragState, alloc);
+
+    const recs = getSuggestions(r.state);
+    expect(recs).toHaveLength(1);
+    const rec = recs[0];
+    if (rec === undefined) throw new Error("expected recs[0]");
+    expect(rec.id).not.toBe(bs1);
+    expect(rec.kind).toBe("insertion");
+    expect(rec.author).toBe("bob");
+    expect(rec.createdAt).toBe(456);
+
+    // find the break-suggestion embed in the pasted block and check its properties.suggestionId
+    const pBlock = getBlock(r.state, bid("p"));
+    const breakEmbed = (pBlock?.inlineContent?.items ?? []).find(
+      (it) => it.kind === "embed" && it.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
+    );
+    expect(breakEmbed).toBeDefined();
+    if (breakEmbed === undefined) throw new Error("expected breakEmbed");
+    expect((breakEmbed as { kind: "embed"; properties: Record<string, unknown> }).properties.suggestionId).toBe(rec.id);
+  });
+
+  it("no collision when pasting the same fragment twice (two distinct fresh ids)", () => {
+    const dest = makeSimpleDest();
+    const { fragState } = makeFragWithInsertionSuggestion();
+    const alloc = createTestAllocator("T7-collision");
+
+    const r1 = insertFragment(dest, createSpan(createPosition(bid("p"), 0), createPosition(bid("p"), 0)), fragState, alloc);
+    const r2 = insertFragment(r1.state, createSpan(createPosition(bid("p"), 0), createPosition(bid("p"), 0)), fragState, alloc);
+
+    const recs = getSuggestions(r2.state);
+    // After two pastes: 2 records, distinct ids
+    expect(recs).toHaveLength(2);
+    const id0 = recs[0];
+    const id1 = recs[1];
+    if (id0 === undefined || id1 === undefined) throw new Error("expected recs[0] and recs[1]");
+    expect(id0.id).not.toBe(id1.id);
+  });
+
+  it("a fragment with NO suggestions transfers none", () => {
+    const dest = makeSimpleDest();
+    // Build a plain fragment with no suggestion records
+    const plainFrag = buildStateFromBlocks({
+      rootId: bid("fdoc"),
+      blocks: [
+        buildBlock({ id: bid("fdoc"), type: "document", firstChildId: bid("fp"), lastChildId: bid("fp") }),
+        buildBlock({
+          id: bid("fp"),
+          type: "paragraph",
+          parentId: bid("fdoc"),
+          inlineContent: inlineContent([text("plain text")]),
+        }),
+      ],
+    });
+    const alloc = createTestAllocator("T7-none");
+    const r = insertFragment(dest, createSpan(createPosition(bid("p"), 0), createPosition(bid("p"), 0)), plainFrag, alloc);
+    const recs = getSuggestions(r.state);
+    expect(recs).toHaveLength(0);
+  });
+
+  it("preserves kind/author/createdAt on a deletion suggestion", () => {
+    const sf1 = "sf1" as SuggestionId;
+    const fragState = buildStateFromBlocks({
+      rootId: bid("fdoc"),
+      blocks: [
+        buildBlock({ id: bid("fdoc"), type: "document", firstChildId: bid("fp"), lastChildId: bid("fp") }),
+        buildBlock({
+          id: bid("fp"),
+          type: "paragraph",
+          parentId: bid("fdoc"),
+          inlineContent: inlineContent([
+            text("styled", { [DELETION_SUGGESTION_ATTR]: sf1 }),
+          ]),
+        }),
+      ],
+      suggestions: [{ id: sf1, kind: "deletion", author: "carol", createdAt: 789 }],
+    });
+    const dest = makeSimpleDest();
+    const alloc = createTestAllocator("T7-del");
+    const r = insertFragment(dest, createSpan(createPosition(bid("p"), 0), createPosition(bid("p"), 0)), fragState, alloc);
+    const recs = getSuggestions(r.state);
+    expect(recs).toHaveLength(1);
+    const rec = recs[0];
+    if (rec === undefined) throw new Error("expected recs[0]");
+    expect(rec.kind).toBe("deletion");
+    expect(rec.author).toBe("carol");
+    expect(rec.createdAt).toBe(789);
+    expect(rec.id).not.toBe(sf1);
+    // The run's deletion attr must point at the new id
+    const pBlock = getBlock(r.state, bid("p"));
+    const taggedItems = (pBlock?.inlineContent?.items ?? []).filter(
+      (it) => it.kind === "text" && it.attrs[DELETION_SUGGESTION_ATTR] !== undefined,
+    );
+    expect(taggedItems).toHaveLength(1);
+    const taggedItem = taggedItems[0];
+    if (taggedItem === undefined) throw new Error("expected taggedItems[0]");
+    expect((taggedItem as { kind: "text"; attrs: Record<string, unknown> }).attrs[DELETION_SUGGESTION_ATTR]).toBe(rec.id);
+  });
+
+  it("carries a formatting suggestion's proposedAttrs and repoints FORMATTING_SUGGESTION_ATTR to the fresh id", () => {
+    // Spec §5 step-3: a `formatting` record's proposedAttrs must transfer; this is a
+    // distinct code path from insertion/deletion (proposedAttrs spread + the
+    // FORMATTING_SUGGESTION_ATTR rewrite branch). Fails if either regressed.
+    const fmt1 = "fmt1" as SuggestionId;
+    const fragState = buildStateFromBlocks({
+      rootId: bid("fdoc"),
+      blocks: [
+        buildBlock({ id: bid("fdoc"), type: "document", firstChildId: bid("fp"), lastChildId: bid("fp") }),
+        buildBlock({
+          id: bid("fp"),
+          type: "paragraph",
+          parentId: bid("fdoc"),
+          inlineContent: inlineContent([
+            text("formatted", { [FORMATTING_SUGGESTION_ATTR]: fmt1 }),
+          ]),
+        }),
+      ],
+      suggestions: [{ id: fmt1, kind: "formatting", author: "dave", createdAt: 321, proposedAttrs: { bold: true } }],
+    });
+    const dest = makeSimpleDest();
+    const alloc = createTestAllocator("T7-fmt");
+    const r = insertFragment(dest, createSpan(createPosition(bid("p"), 0), createPosition(bid("p"), 0)), fragState, alloc);
+
+    const recs = getSuggestions(r.state);
+    expect(recs).toHaveLength(1);
+    const rec = recs[0];
+    if (rec === undefined) throw new Error("expected recs[0]");
+    // fresh id (carrier-repoint target)
+    expect(rec.id).not.toBe(fmt1);
+    expect(rec.kind).toBe("formatting");
+    expect(rec.author).toBe("dave");
+    expect(rec.createdAt).toBe(321);
+    // proposedAttrs must deep-equal the source (the spread path)
+    expect(rec.proposedAttrs).toEqual({ bold: true });
+
+    // the pasted run's FORMATTING_SUGGESTION_ATTR must point at the fresh id (the rewrite branch)
+    const pBlock = getBlock(r.state, bid("p"));
+    const taggedItems = (pBlock?.inlineContent?.items ?? []).filter(
+      (it) => it.kind === "text" && it.attrs[FORMATTING_SUGGESTION_ATTR] !== undefined,
+    );
+    expect(taggedItems).toHaveLength(1);
+    const taggedItem = taggedItems[0];
+    if (taggedItem === undefined) throw new Error("expected taggedItems[0]");
+    expect((taggedItem as { kind: "text"; attrs: Record<string, unknown> }).attrs[FORMATTING_SUGGESTION_ATTR]).toBe(rec.id);
   });
 });

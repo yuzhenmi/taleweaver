@@ -24,10 +24,22 @@ import { isCollapsed } from "../../cursor/selection";
 import { getListDefsForState } from "../list-defs";
 import { writeListDefInTx } from "../list-defs";
 import { newListId } from "../block-id";
-import { getBlocksMap, getEmbedContentsMap, getYBlock, type BlockTreeKind } from "../yjs-doc";
+import { getBlocksMap, getEmbedContentsMap, getYBlock, getSuggestionsMap, type BlockTreeKind } from "../yjs-doc";
 import { buildYBlock, buildYAttrs } from "../y-block";
 import { ancestorChain } from "../block-traversal";
 import { FOOTNOTE_ANCHOR_EMBED_TYPE } from "./insert-footnote";
+import { STATE_INTERNAL } from "../state-internal";
+import type { SuggestionId, SuggestionRecord } from "../suggestions";
+import {
+  newSuggestionId,
+  writeSuggestionRecordInTx,
+  readSuggestionRecord,
+  INSERTION_SUGGESTION_ATTR,
+  DELETION_SUGGESTION_ATTR,
+  FORMATTING_SUGGESTION_ATTR,
+  BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
+  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
+} from "../suggestions";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public type
@@ -39,12 +51,157 @@ export interface InsertFragmentResult extends OperationResult {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// T7 seam: suggestion-record transfer (deferred)
+// T7: suggestion-record transfer + id remap
 // ─────────────────────────────────────────────────────────────────────────────
 
-// T7: transfer suggestion records here
-function transferSuggestionRecords(_fragmentState: State, _destDoc: Y.Doc): void {
-  // no-op — will be implemented in T7
+/**
+ * Build a fresh-id remap for every suggestion record in `fragmentState`.
+ * Returns both the old→new id map and the original records (needed for writing
+ * the records into the destination under their new ids).
+ *
+ * Uses `newSuggestionId()` (crypto.randomUUID-based) — the same minting path
+ * the suggestion subsystem uses for brand-new suggestions.
+ */
+function buildSuggestionIdRemap(fragmentState: State): {
+  idMap: ReadonlyMap<SuggestionId, SuggestionId>;
+  records: SuggestionRecord[];
+} {
+  const doc = fragmentState[STATE_INTERNAL].doc;
+  const suggestionsMap = getSuggestionsMap(doc);
+  const idMap = new Map<SuggestionId, SuggestionId>();
+  const records: SuggestionRecord[] = [];
+
+  for (const key of suggestionsMap.keys()) {
+    const oldId = key as SuggestionId;
+    const record = readSuggestionRecord(doc, oldId);
+    if (record === null) continue;
+    const newId = newSuggestionId();
+    idMap.set(oldId, newId);
+    records.push(record);
+  }
+
+  return { idMap, records };
+}
+
+/**
+ * Rewrite suggestion ids in an array of inline items, replacing every occurrence
+ * of an old suggestion id (in text ATTRS or break-embed properties) with the
+ * corresponding new id from `idMap`. Returns a new array only when at least one
+ * item changed; otherwise returns the original array (reference equality).
+ *
+ * Covers:
+ * - text runs: INSERTION_SUGGESTION_ATTR, DELETION_SUGGESTION_ATTR, FORMATTING_SUGGESTION_ATTR
+ * - break-suggestion embeds (BLOCK_SPLIT / BLOCK_JOIN): `properties.suggestionId`
+ */
+function rewriteItemSuggestionIds(
+  items: ReadonlyArray<InlineItem>,
+  idMap: ReadonlyMap<SuggestionId, SuggestionId>,
+): ReadonlyArray<InlineItem> {
+  if (idMap.size === 0) return items;
+
+  let changed = false;
+  const rewritten: InlineItem[] = items.map((item) => {
+    if (item.kind === "text") {
+      let newAttrs: Record<string, unknown> | null = null;
+      for (const key of [INSERTION_SUGGESTION_ATTR, DELETION_SUGGESTION_ATTR, FORMATTING_SUGGESTION_ATTR] as const) {
+        const v = item.attrs[key];
+        if (typeof v === "string") {
+          const newId = idMap.get(v as SuggestionId);
+          if (newId !== undefined) {
+            if (newAttrs === null) newAttrs = { ...(item.attrs as Record<string, unknown>) };
+            newAttrs[key] = newId;
+          }
+        }
+      }
+      if (newAttrs !== null) {
+        changed = true;
+        return { kind: "text" as const, text: item.text, attrs: newAttrs };
+      }
+      return item;
+    }
+    // embed
+    if (
+      item.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE ||
+      item.embedType === BLOCK_JOIN_SUGGESTION_EMBED_TYPE
+    ) {
+      const sid = item.properties.suggestionId;
+      if (typeof sid === "string") {
+        const newId = idMap.get(sid as SuggestionId);
+        if (newId !== undefined) {
+          changed = true;
+          return {
+            kind: "embed" as const,
+            embedType: item.embedType,
+            attrs: item.attrs,
+            properties: { ...item.properties, suggestionId: newId },
+          };
+        }
+      }
+    }
+    return item;
+  });
+
+  return changed ? rewritten : items;
+}
+
+/**
+ * Write each fragment suggestion record into the destination document under its
+ * fresh id (from `idMap`), preserving kind / author / createdAt / proposedAttrs.
+ * Must be called inside an open Yjs transaction.
+ */
+function transferSuggestionRecords(
+  records: SuggestionRecord[],
+  idMap: ReadonlyMap<SuggestionId, SuggestionId>,
+  destDoc: Y.Doc,
+): void {
+  for (const record of records) {
+    const newId = idMap.get(record.id);
+    if (newId === undefined) continue;
+    writeSuggestionRecordInTx(destDoc, {
+      id: newId,
+      kind: record.kind,
+      author: record.author,
+      createdAt: record.createdAt,
+      ...(record.proposedAttrs !== undefined ? { proposedAttrs: record.proposedAttrs } : {}),
+    });
+  }
+}
+
+/**
+ * Apply suggestion-id rewrite to every leaf block in a `ClonedSubtree`.
+ * Returns a NEW ClonedSubtree whose `blocks` map has rewritten inline items;
+ * `embedContents` items are also rewritten (footnote body paragraphs can carry
+ * suggestion attrs). Returns the original when `idMap` is empty.
+ */
+function rewriteClonedSubtreeSuggestionIds(
+  cloned: ClonedSubtree,
+  idMap: ReadonlyMap<SuggestionId, SuggestionId>,
+): ClonedSubtree {
+  if (idMap.size === 0) return cloned;
+
+  function rewriteBlocksMap(
+    source: ReadonlyMap<BlockId, Block>,
+  ): ReadonlyMap<BlockId, Block> {
+    let changed = false;
+    const newMap = new Map<BlockId, Block>();
+    for (const [id, block] of source) {
+      if (block.inlineContent !== null) {
+        const newItems = rewriteItemSuggestionIds(block.inlineContent.items, idMap);
+        if (newItems !== block.inlineContent.items) {
+          changed = true;
+          newMap.set(id, { ...block, inlineContent: { ...block.inlineContent, items: newItems } });
+          continue;
+        }
+      }
+      newMap.set(id, block);
+    }
+    return changed ? newMap : source;
+  }
+
+  const newBlocks = rewriteBlocksMap(cloned.blocks);
+  const newEmbedContents = rewriteBlocksMap(cloned.embedContents);
+  if (newBlocks === cloned.blocks && newEmbedContents === cloned.embedContents) return cloned;
+  return { rootId: cloned.rootId, blocks: newBlocks, embedContents: newEmbedContents };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -159,7 +316,10 @@ function materializeEmbedContentsInTx(
  *   `getBlocksMap` + relinked inline in the transaction body.
  *
  * Fragment `listDefs` are cloned under fresh ids so pasted list numbering is
- * independent of the destination's lists. Suggestion-record copy is deferred to T7.
+ * independent of the destination's lists. Fragment `suggestion` records are copied
+ * into the destination under FRESH ids (T7); every carrier (text attrs + break-embed
+ * `properties.suggestionId`) is rewritten to the new id so the destination holds
+ * no dangling references.
  */
 export function insertFragment(
   state: State,
@@ -193,6 +353,12 @@ export function insertFragment(
     // Malformed fragment — identity no-op.
     return { state, dirtyIds: new Set<BlockId>(), endPosition: caretPos };
   }
+
+  // T7: build suggestion-id remap BEFORE walking/cloning so the rewrite can be
+  // applied to every cloned item in the same pass. Fresh ids are minted once here;
+  // the records and the idMap are passed into transferSuggestionRecords inside
+  // each transaction arm below.
+  const { idMap: suggestionIdMap, records: suggestionRecords } = buildSuggestionIdRemap(fragment);
 
   // Walk fragment's top-level children and clone EACH into the destination
   // namespace via `clonePastedSubtree` (spec §5 step 3). Cloning is REQUIRED
@@ -234,7 +400,10 @@ export function insertFragment(
     // holds exactly one entry; for a container, `blocks` holds the whole
     // subtree (table + rows + cells + leaf paragraphs). `embedContents` holds
     // any footnote bodies reachable from inline content at any depth.
-    const cloned = clonePastedSubtree(fragment, fragBlock.id, allocator, state);
+    const rawCloned = clonePastedSubtree(fragment, fragBlock.id, allocator, state);
+    // T7: rewrite suggestion ids in the cloned subtree (leaf items and all
+    // container-block items) so spliced blocks already carry the new ids.
+    const cloned = rewriteClonedSubtreeSuggestionIds(rawCloned, suggestionIdMap);
     const clonedRoot = cloned.blocks.get(cloned.rootId);
     if (clonedRoot === null || clonedRoot === undefined) {
       throw new Error(
@@ -248,7 +417,7 @@ export function insertFragment(
     }
 
     if (clonedRoot.inlineContent !== null && clonedRoot.firstChildId === null) {
-      // Leaf block: record as a leaf item.
+      // Leaf block: record as a leaf item (items already rewritten by rewriteClonedSubtreeSuggestionIds).
       topLevelItems.push({
         kind: "leaf",
         type: clonedRoot.type,
@@ -434,8 +603,8 @@ export function insertFragment(
         const newId = listIdRemap.get(oldId);
         if (newId !== undefined) writeListDefInTx(doc, newId, def);
       }
-      // T7: transfer suggestion records here
-      transferSuggestionRecords(fragment, doc);
+      // T7: transfer suggestion records (re-keyed under fresh ids).
+      transferSuggestionRecords(suggestionRecords, suggestionIdMap, doc);
       // E4: adopt type+attrs of the single leaf if caret block was empty at 0.
       if (shouldAdoptType) {
         const yCaretBlock = getYBlock(doc, caretBlockId, "insertFragment:adoptType", caretBlockKind);
@@ -543,8 +712,8 @@ export function insertFragment(
           const newId = listIdRemap.get(oldId);
           if (newId !== undefined) writeListDefInTx(doc, newId, def);
         }
-        // T7: transfer suggestion records here
-        transferSuggestionRecords(fragment, doc);
+        // T7: transfer suggestion records (re-keyed under fresh ids).
+        transferSuggestionRecords(suggestionRecords, suggestionIdMap, doc);
         // (a) Split the caret block → prefix + suffix.
         splitBlockAtPositionInTx(doc, splitPlan);
         // (b) Merge firstLeaf into prefix (if first item is a leaf).
@@ -677,8 +846,8 @@ export function insertFragment(
           const newId = listIdRemap.get(oldId);
           if (newId !== undefined) writeListDefInTx(doc, newId, def);
         }
-        // T7: transfer suggestion records here
-        transferSuggestionRecords(fragment, doc);
+        // T7: transfer suggestion records (re-keyed under fresh ids).
+        transferSuggestionRecords(suggestionRecords, suggestionIdMap, doc);
 
         // Insert middle items.
         if (orderedMiddle.length > 0) {
