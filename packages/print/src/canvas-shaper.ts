@@ -10,14 +10,17 @@ import type {
 import { resolveSpacingPx, clusterSpacing, toBreakOpportunities } from "@taleweaver/core";
 import { buildCssFontString } from "./font-config";
 import { segmentClusters } from "./text-clusters";
+import { needsNativeComplexShaping } from "./complex-script";
 
 /**
  * Canvas-based TextShaper. Default backend bundled with `@taleweaver/print`.
  *
  * Limitations vs a HarfBuzz backend:
- *   - Each UAX #29 grapheme cluster is one cluster (combining marks, surrogate
- *     pairs, ZWJ sequences, regional-indicator flags each form one cluster) with
- *     per-cluster `measureText` metrics — no HarfBuzz shaping / ligature detection.
+ *   - Grapheme segmentation is UAX #29; when complex-script shaping is needed
+ *     (Arabic-family scripts), the backend delegates glyph shaping to the browser
+ *     by measuring the whole run and distributing advances back to clusters. This
+ *     preserves contextual forms but is still an approximation for per-cluster
+ *     carets compared with a real shaping engine.
  *   - Break opportunities come from the conformant UAX #14 line-break
  *     classifier (soft/hard kinds); the `hyphen` kind stays reserved for a
  *     future hyphenation backend.
@@ -79,18 +82,45 @@ export function createCanvasShaper(
     // `normal`-identity contract means default styles add 0 (see text-spacing.ts).
     const letterPx = resolveSpacingPx(style.letterSpacing);
     const wordPx = resolveSpacingPx(style.wordSpacing);
-    // Segment via the shared helper so the renderer (which paints each cluster
-    // at the matching cumulative advance, #330) can never diverge from how the
-    // shaper measured. v1 clusters are single code units.
+    // Segment via the shared helper so shaper and renderer stay in lockstep.
     let start = 0;
-    for (const c of segmentClusters(text)) {
+    const segmented = segmentClusters(text);
+    // Native complex shaping path (Arabic-family scripts): when spacing is
+    // `normal`, renderer paints this run in one fillText call. To keep
+    // caret/hit-test aligned with that painted run, derive each cluster advance
+    // from prefix deltas of the NATIVE shaped width:
+    //   adv(i) = width(text[0..i]) - width(text[0..i-1]).
+    // This captures contextual joining effects much better than proportional
+    // redistribution of isolated-cluster widths.
+    const useNativeComplexRun =
+      needsNativeComplexShaping(text) && letterPx === 0 && wordPx === 0;
+    const nativeClusterAdvances: number[] = [];
+    if (useNativeComplexRun) {
+      let prefix = "";
+      let prev = 0;
+      for (const c of segmented) {
+        prefix += c;
+        const current = ctx.measureText(prefix).width;
+        nativeClusterAdvances.push(Math.max(0, current - prev));
+        prev = current;
+      }
+    }
+
+    for (let i = 0; i < segmented.length; i++) {
+      const c = segmented[i];
+      if (c === undefined) continue;
       // U+00AD SOFT HYPHEN is a zero-advance format char (Cf): it renders nothing
       // and adds no width unless it is the chosen line-end break (where the IFC
       // shapes a "-" glyph separately). `ctx.measureText("­")` is browser/
       // font-dependent (often the width of a rendered hyphen), so we force 0 here
       // to match real shapers (HarfBuzz zero-advances default-ignorable Cf chars)
       // and keep word widths invariant to embedded soft hyphens (hyphenation).
-      const w = c === "­" ? 0 : ctx.measureText(c).width + clusterSpacing(c, letterPx, wordPx);
+      const raw = c === "\u00AD"
+        ? 0
+        : useNativeComplexRun
+          ? (nativeClusterAdvances[i] ?? 0)
+          : ctx.measureText(c).width;
+      const w = raw + clusterSpacing(c, letterPx, wordPx);
       clusters.push({
         start,
         end: start + c.length,

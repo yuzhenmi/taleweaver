@@ -258,6 +258,13 @@ describe("#330 cluster-positioned painting", () => {
     expect(ctx._fills.length).toBe(0);
   });
 
+  it("complex-script runs (Arabic) paint as one native-shaped fillText call", () => {
+    const box = makeTextRun({ text: "عربي", x: 12 });
+    paint(ctx, box);
+    expect(ctx._fills.length).toBe(1);
+    expect(nth(ctx._fills, 0, "fill")).toMatchObject({ text: "عربي", x: 12 });
+  });
+
   it("paints whitespace clusters (spaces have width)", () => {
     const box = makeTextRun({ text: "a b", x: 0 });
     paint(ctx, box);

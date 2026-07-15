@@ -4,6 +4,7 @@ import type { SelectionRect } from "./cursor/selection-geometry";
 import { markStart, markEnd, resolveSpacingPx, clusterSpacing, fromTransformFns, resolveTransformOrigin, physicalBorderSides } from "@taleweaver/core";
 import { buildCssFontString } from "./font-config";
 import { segmentClusters } from "./text-clusters";
+import { needsNativeComplexShaping } from "./complex-script";
 import type { ImageCache } from "./image-cache";
 import { hashPaintInputs } from "./paint-cache";
 import type { PaintCache, Rect, MatchHighlightRectSnapshot, CommentHighlightRectSnapshot, SuggestionHighlightRectSnapshot } from "./paint-cache";
@@ -1358,7 +1359,21 @@ function paintBox(
     // "ltr" (the physical-coordinate contract). `undefined`/even ⇒ LTR (the
     // overwhelmingly common case), painted exactly as before.
     const rtl = box.bidiLevel !== undefined && box.bidiLevel % 2 === 1;
-    if (rtl) {
+    // Native complex-script shaping path (Arabic-family scripts): draw the whole
+    // run so the browser applies contextual forms/ligatures. Keep this gated to
+    // normal spacing; explicit letter/word spacing still needs cluster placement.
+    const useNativeComplexRun =
+      needsNativeComplexShaping(box.text) && letterPx === 0 && wordPx === 0;
+    if (useNativeComplexRun) {
+      if (rtl) {
+        ctx.save();
+        ctx.textAlign = "right";
+        ctx.fillText(box.text, absX + box.width, baselineY);
+        ctx.restore();
+      } else {
+        ctx.fillText(box.text, absX, baselineY);
+      }
+    } else if (rtl) {
       // Place the logically-first cluster at the box's RIGHT edge and walk left.
       // Using the SAME per-cluster advances as the LTR path (so the run still
       // spans exactly [absX, absX + box.width]); only the WITHIN-box placement
