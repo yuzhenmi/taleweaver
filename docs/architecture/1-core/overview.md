@@ -33,11 +33,11 @@ directory is one module.
 - **`render/`** — the render tree. Walks the state's block tree
   top-down and dispatches each block through the component registry to
   produce a `RenderNode` tree of layout-relevant elements. Incremental
-  rebuild driven by `dirtyIds` is the target contract but not yet
-  implemented (see `1.2-render.md`). Render also bakes generated marker
-  text (list bullets/numbers) onto the list-item element's style by
-  consulting the `numbering/` service — there is no CSS generated-content
-  or counters layer (see `1.2-render.md`).
+  rebuild driven by `dirtyIds` is implemented (`render-incremental.ts`,
+  wired into `render()` via the `RenderOptions` incremental triple) [implemented].
+  Render also bakes generated marker text (list bullets/numbers) onto the
+  list-item element's style by consulting the `numbering/` service — there is
+  no CSS generated-content or counters layer (see `1.2-render.md`).
 
 - **`numbering/`** — the render-time numbering service. A pure, general
   counter engine (`computeCounters`) plus a list collector
@@ -164,7 +164,7 @@ in `@taleweaver/print`; see [`../2-print/overview.md`](../2-print/overview.md).
 
 **Layout — text core** (the geometric box-layout surface — `LayoutBox`/`BlockBox`/`LineBox`/`TextRunBox`, `PageBox`, `layoutTree`/`layoutTreeIncremental`, `establishesNewBFC`, `computeUsedStyle`, `VirtualLayoutTree`, the IFC-state cache, `computeIntrinsicSizes`, the goto-destination/pdf-outline resolvers — RELOCATED to `@taleweaver/print`; import them from there) — `PageConfig`, `PageMargins`. `IntrinsicSizes`, `IntrinsicContribution`, `IntrinsicSizesCache`, `createIntrinsicSizesCache`. `TextShaper`, `ShapedRun`, `Cluster`, `BreakOpportunity`, `FontMetrics`, `GlyphId`, `toBreakOpportunities`. `TextMeasurer`, `createMockMeasurer`, `adaptShaperToMeasurer`, `measurerToShaper`, `isTextShaper`. `createMockShaper`, `createVariableMockShaper`. `Hyphenator`, `createMockHyphenator`. UAX #14 line-break (`lineBreakClass`, `lineBreakOpportunities`, `LineBreakClass`, …) and UAX #9 bidi (`resolveBidiLevels`, `reorderVisual`, `bidiMirror`, `BidiClass`, …). `graphemeClusters`. `Mat2D` + the `mat2d` affine ops. `tokenize`/`transformRun`/`resolveSpacingPx`/`clusterSpacing`. `isDevMode`.
 
-**Components** — `ComponentDefinition`, `ComponentRegistry`, `createComponentRegistry`, `createDefaultComponentRegistry`. Built-in component definitions: `documentComponent`, `paragraphComponent`, `headingComponent`, `listItemComponent`, `imageComponent`, `horizontalLineComponent`, `tableComponent`, `tableRowComponent`, `tableCellComponent`. (There is NO `listComponent`: the flat Google-Docs list model has no `list` container — a list-item is a leaf carrying `listId` + `listLevel` attrs; see `1.1-state.md`.) (`text` and `span` are deleted — text is items inside `inlineContent`; spans are reconstructed by render from same-attr text-item groupings.)
+**Components** — `ComponentDefinition`, `ComponentRegistry`, `createComponentRegistry`, `createDefaultComponentRegistry`. Built-in component definitions: `documentComponent`, `paragraphComponent`, `headingComponent`, `listItemComponent`, `imageComponent`, `horizontalLineComponent`, `tableComponent`, `tableRowComponent`, `tableCellComponent`, `footnoteBodyComponent`, `tableOfContentsComponent`. (`templateBodyComponent` is registered in `createDefaultComponentRegistry` and exported from the `components/` barrel, but is NOT re-exported on the package barrel `@taleweaver/core`.) (There is NO `listComponent`: the flat Google-Docs list model has no `list` container — a list-item is a leaf carrying `listId` + `listLevel` attrs; see `1.1-state.md`.) (`text` and `span` are deleted — text is items inside `inlineContent`; spans are reconstructed by render from same-attr text-item groupings.)
 
 **Cursor — geometry-free selection model only** (the geometric cursor surface — `resolvePixelPosition`/`resolvePositionFromPixel`/`PixelPosition`, `computeSelectionRects`/`SelectionRect`, `getCommentRangeRects`/`getSuggestionRangeRects`, `moveToLine`/`moveToLineBoundary` — RELOCATED to `@taleweaver/print`; import them from there) — `isCollapsed`, `selectionsEqual`, `CaretAffinity`. `moveByCharacter`, `moveByWord`, `expandSelection`, `selectWord`. `isObjectSelection`. `nextGraphemeBoundary`, `prevGraphemeBoundary`.
 

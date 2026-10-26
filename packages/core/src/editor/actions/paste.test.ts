@@ -10,6 +10,8 @@
  *
  * Harness mirrors the other `actions/*.test.ts` (insert-node, section-break):
  * drive via `reduceEditor`, inspect via `getBlock` walking the block tree.
+ *
+ * T10 additions: rich routing tests (clip→html→text priority, suggesting mode).
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -19,9 +21,19 @@ import {
   getTextOf,
   firstChildId,
   type EditorState,
+  type EditorConfig,
 } from "./test-helpers";
-import { getBlock } from "../../state";
-import type { BlockId } from "../../state";
+import {
+  getBlock,
+  buildDocumentFromTree,
+  createTestAllocator,
+  encodeFragmentClip,
+  decodeFragmentClip,
+  INSERTION_SUGGESTION_ATTR,
+  DELETION_SUGGESTION_ATTR,
+  resolveBlock,
+} from "../../state";
+import type { BlockId, HtmlParser, HtmlNode, State } from "../../state";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -277,5 +289,414 @@ describe("handlePaste — paste-then-select-all preserves content (regression)",
     // ("four", length 4) — and must not have touched the block tree.
     expect(after.selection.anchor).toEqual({ blockId: blocks[0], offset: 0 });
     expect(after.selection.focus).toEqual({ blockId: blocks[2], offset: 4 });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T10: rich routing helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Minimal DOM-free HtmlParser for T10 tests. Parses `<p>text</p>` fragments
+ * only — the surface handlePaste tests exercise (full whitespace-collapsing
+ * is covered in html-decode.test.ts).
+ *
+ * Produces a synthetic BODY node implementing the HtmlNode interface.
+ */
+class T10TestNode implements HtmlNode {
+  readonly kind: "element" | "text" | "other";
+  readonly tagName: string;
+  private readonly _attrs: Map<string, string>;
+  private readonly _children: T10TestNode[];
+  private readonly _childNodes: T10TestNode[];
+  readonly data: string;
+
+  constructor(
+    kind: "element" | "text" | "other",
+    tagName: string,
+    attrs: Map<string, string>,
+    childNodes: T10TestNode[],
+    data: string,
+  ) {
+    this.kind = kind;
+    this.tagName = tagName;
+    this._attrs = attrs;
+    this._childNodes = childNodes;
+    this._children = childNodes.filter((n) => n.kind === "element");
+    this.data = data;
+  }
+  getAttribute(name: string): string | null {
+    return this._attrs.get(name.toLowerCase()) ?? null;
+  }
+  get children(): readonly HtmlNode[] { return this._children; }
+  get childNodes(): readonly HtmlNode[] { return this._childNodes; }
+  getStyleProperty(_prop: "textAlign" | "width"): string | null { return null; }
+}
+
+const VOID_TAGS_T10 = new Set(["BR", "HR", "IMG", "COL", "INPUT", "META", "LINK"]);
+
+function t10ParseNode(html: string, pos: number): { node: T10TestNode; end: number } | null {
+  if (pos >= html.length) return null;
+  if (html[pos] === "<") {
+    if (html[pos + 1] === "/" || html.slice(pos, pos + 4) === "<!--") return null;
+    const gtIdx = html.indexOf(">", pos + 1);
+    if (gtIdx < 0) return null;
+    const tagContent = html.slice(pos + 1, gtIdx);
+    const selfClose = tagContent.endsWith("/");
+    const tagBody = selfClose ? tagContent.slice(0, -1).trim() : tagContent;
+    const spaceIdx = tagBody.search(/\s/);
+    const tagName = (spaceIdx < 0 ? tagBody : tagBody.slice(0, spaceIdx)).toUpperCase();
+    let end = gtIdx + 1;
+    const childNodes: T10TestNode[] = [];
+    if (!selfClose && !VOID_TAGS_T10.has(tagName)) {
+      let cur = end;
+      while (cur < html.length) {
+        const closingMatch = new RegExp(`^</${tagName}\\s*>`, "i").exec(html.slice(cur));
+        if (closingMatch !== null) { cur += closingMatch[0].length; break; }
+        const child = t10ParseNode(html, cur);
+        if (child === null) break;
+        childNodes.push(child.node);
+        cur = child.end;
+      }
+      end = cur;
+    }
+    return { node: new T10TestNode("element", tagName, new Map(), childNodes, ""), end };
+  } else {
+    const ltIdx = html.indexOf("<", pos);
+    const raw = ltIdx < 0 ? html.slice(pos) : html.slice(pos, ltIdx);
+    if (raw === "") return null;
+    const decoded = raw.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&nbsp;/g, " ");
+    return { node: new T10TestNode("text", "", new Map(), [], decoded), end: ltIdx < 0 ? html.length : ltIdx };
+  }
+}
+
+const testHtmlParser: HtmlParser = (html: string): HtmlNode => {
+  const bodyMatch = /<body[^>]*>([\s\S]*?)<\/body>/i.exec(html);
+  const inner = bodyMatch !== null ? (bodyMatch[1] ?? html) : html;
+  const childNodes: T10TestNode[] = [];
+  let pos = 0;
+  while (pos < inner.length) {
+    const r = t10ParseNode(inner, pos);
+    if (r === null) {
+      const next = inner.indexOf("<", pos);
+      if (next < 0 || next === pos) break;
+      pos = next;
+      continue;
+    }
+    childNodes.push(r.node);
+    pos = r.end;
+  }
+  return new T10TestNode("element", "BODY", new Map(), childNodes, "");
+};
+
+/** Config with html parser for rich paste tests. */
+const richConfig: EditorConfig = { ...config, htmlParser: testHtmlParser };
+
+/** Config with suggesting mode for suggesting-branch tests. */
+const suggestingConfig: EditorConfig = { ...config, suggestingAuthor: "alice" };
+
+/** Config with both html parser and suggesting mode. */
+const richSuggestingConfig: EditorConfig = {
+  ...config,
+  htmlParser: testHtmlParser,
+  suggestingAuthor: "alice",
+};
+
+/**
+ * Build a minimal fragment State with one paragraph containing `text`.
+ * Used to encode as clip and verify priority routing.
+ */
+function makeClipFragment(text: string): State {
+  return buildDocumentFromTree(
+    {
+      type: "document",
+      children: [
+        {
+          type: "paragraph",
+          inlineContent: { items: [{ kind: "text", text, attrs: {} }] },
+        },
+      ],
+    },
+    {},
+    createTestAllocator("clip"),
+  );
+}
+
+/**
+ * Build a clip fragment whose single run carries the given inline attrs (used to
+ * simulate carried suggestion provenance — a foreign DELETION/INSERTION id).
+ */
+function makeClipFragmentWithAttrs(
+  text: string,
+  attrs: Record<string, unknown>,
+  seed = "clipattr",
+): State {
+  return buildDocumentFromTree(
+    {
+      type: "document",
+      children: [
+        {
+          type: "paragraph",
+          inlineContent: { items: [{ kind: "text", text, attrs }] },
+        },
+      ],
+    },
+    {},
+    createTestAllocator(seed),
+  );
+}
+
+/** Walk a State document root's top-level children and collect their block ids. */
+function fragTopLevelBlocks(state: State): BlockId[] {
+  const root = resolveBlock(state, state.rootId)?.block;
+  if (root === undefined) return [];
+  const ids: BlockId[] = [];
+  let id: BlockId | null = root.firstChildId ?? null;
+  while (id !== null) {
+    ids.push(id);
+    id = resolveBlock(state, id)?.block.nextSiblingId ?? null;
+  }
+  return ids;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T10 priority routing tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("handlePaste — T10 rich routing: priority clip→html→text", () => {
+  it("prefers clip over html and text: clip fragment text lands, not html/text content", () => {
+    const initial = createInitialEditorState(richConfig);
+    const clipFragment = makeClipFragment("FROM_CLIP");
+    const clip = encodeFragmentClip(clipFragment);
+
+    const next = reduceEditor(
+      initial,
+      { type: "PASTE", clip, html: "<p>FROM_HTML</p>", text: "FROM_TEXT" },
+      richConfig,
+    );
+
+    const blocks = fragTopLevelBlocks(next.state);
+    // The clip fragment has exactly 1 paragraph with "FROM_CLIP".
+    expect(getTextOf(next.state, blocks[0]!)).toBe("FROM_CLIP");
+  });
+
+  it("falls back to html when no clip present and parser is configured", () => {
+    const initial = createInitialEditorState(richConfig);
+
+    const next = reduceEditor(
+      initial,
+      { type: "PASTE", html: "<p>FROM_HTML</p>", text: "FROM_TEXT" },
+      richConfig,
+    );
+
+    const blocks = fragTopLevelBlocks(next.state);
+    expect(getTextOf(next.state, blocks[0]!)).toBe("FROM_HTML");
+  });
+
+  it("falls back to text when no parser is configured, even with html present", () => {
+    // config has NO htmlParser — html present but no parser → plain-text path.
+    const initial = createInitialEditorState(config);
+
+    const next = reduceEditor(
+      initial,
+      { type: "PASTE", html: "<p>FROM_HTML</p>", text: "FROM_TEXT" },
+      config,
+    );
+
+    const blocks = fragTopLevelBlocks(next.state);
+    // Plain text path: no <p> tags stripped, literal text "FROM_TEXT" inserted.
+    expect(getTextOf(next.state, blocks[0]!)).toBe("FROM_TEXT");
+  });
+
+  it("malformed clip falls through to html (clip:'@@@' → invalid base64)", () => {
+    const initial = createInitialEditorState(richConfig);
+    // "@@@" is not valid base64 → decodeFragmentClip returns null → fall through to html.
+    const badClip = "@@@";
+    expect(decodeFragmentClip(badClip)).toBeNull(); // pre-condition
+
+    const next = reduceEditor(
+      initial,
+      { type: "PASTE", clip: badClip, html: "<p>FROM_HTML</p>", text: "FROM_TEXT" },
+      richConfig,
+    );
+
+    const blocks = fragTopLevelBlocks(next.state);
+    expect(getTextOf(next.state, blocks[0]!)).toBe("FROM_HTML");
+  });
+
+  it("plain {text} path is byte-identical to today — no regression on multi-line", () => {
+    // This mirrors test (2) from the existing suite but goes through the new routing code.
+    const initial = createInitialEditorState(richConfig);
+
+    const next = reduceEditor(initial, { type: "PASTE", text: "a\nb\nc" }, richConfig);
+
+    const blocks = fragTopLevelBlocks(next.state);
+    expect(blocks).toHaveLength(3);
+    expect(getTextOf(next.state, blocks[0]!)).toBe("a");
+    expect(getTextOf(next.state, blocks[1]!)).toBe("b");
+    expect(getTextOf(next.state, blocks[2]!)).toBe("c");
+    // Cursor at end of last line.
+    expect(next.selection.focus).toEqual({ blockId: blocks[2], offset: 1 });
+  });
+
+  it("no usable payload → no-op (returns same editor reference)", () => {
+    const initial = createInitialEditorState(richConfig);
+    // PASTE with nothing usable: empty text, no html, no clip.
+    const next = reduceEditor(initial, { type: "PASTE" }, richConfig);
+    expect(next).toBe(initial);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T10 suggesting-mode tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("handlePaste — T10 suggesting mode with rich routing", () => {
+  /**
+   * Walk all inline items of a block and return the set of unique
+   * INSERTION_SUGGESTION_ATTR values present.
+   */
+  function insertionIds(state: State, blockId: BlockId): Set<string> {
+    const block = resolveBlock(state, blockId)?.block;
+    const ids = new Set<string>();
+    for (const item of block?.inlineContent?.items ?? []) {
+      if (item.kind === "text") {
+        const v = item.attrs[INSERTION_SUGGESTION_ATTR];
+        if (typeof v === "string") ids.add(v);
+      }
+    }
+    return ids;
+  }
+
+  /** Collect the unique DELETION_SUGGESTION_ATTR values on a block's text runs. */
+  function deletionIds(state: State, blockId: BlockId): Set<string> {
+    const block = resolveBlock(state, blockId)?.block;
+    const ids = new Set<string>();
+    for (const item of block?.inlineContent?.items ?? []) {
+      if (item.kind === "text") {
+        const v = item.attrs[DELETION_SUGGESTION_ATTR];
+        if (typeof v === "string") ids.add(v);
+      }
+    }
+    return ids;
+  }
+
+  it("rich html paste in suggesting mode tracks ALL pasted text as ONE insertion id", () => {
+    // Two paragraphs in the fragment: both runs should share the same insertionId.
+    const initial = createInitialEditorState(richSuggestingConfig);
+
+    const next = reduceEditor(
+      initial,
+      { type: "PASTE", html: "<p>Hello</p><p>World</p>", text: "Hello\nWorld" },
+      richSuggestingConfig,
+    );
+
+    const blocks = fragTopLevelBlocks(next.state);
+    // At least 2 blocks in the result doc.
+    expect(blocks.length).toBeGreaterThanOrEqual(2);
+
+    // Collect all insertionIds across all blocks.
+    const allIds = new Set<string>();
+    for (const id of blocks) {
+      for (const insId of insertionIds(next.state, id)) allIds.add(insId);
+    }
+    // All tracked insertion runs share ONE suggestion id (the whole paste is ONE insertion).
+    expect(allIds.size).toBe(1);
+  });
+
+  it("table in fragment is flattened to leaf paragraphs in suggesting mode", () => {
+    // A table fragment: <table><tr><td><p>Cell A</p></td><td><p>Cell B</p></td></tr></table>
+    const tableHtml =
+      "<table><tbody><tr><td><p>Cell A</p></td><td><p>Cell B</p></td></tr></tbody></table>";
+
+    const initial = createInitialEditorState(richSuggestingConfig);
+
+    const next = reduceEditor(
+      initial,
+      { type: "PASTE", html: tableHtml, text: "Cell A\tCell B" },
+      richSuggestingConfig,
+    );
+
+    // In suggesting mode, the table MUST have been flattened. The resulting
+    // document should contain text from both cells as tracked insertions.
+    const blocks = fragTopLevelBlocks(next.state);
+    const allText = blocks.map((id) => getTextOf(next.state, id)).join("|");
+    // Both cell texts must be present somewhere.
+    expect(allText).toContain("Cell A");
+    expect(allText).toContain("Cell B");
+
+    // Every tracked text run should carry an insertionId (suggesting mode).
+    const allIds = new Set<string>();
+    for (const id of blocks) {
+      for (const insId of insertionIds(next.state, id)) allIds.add(insId);
+    }
+    expect(allIds.size).toBeGreaterThanOrEqual(1);
+  });
+
+  it("suggesting mode: clip paste carrying a foreign INSERTION id re-tracks under a FRESH id", () => {
+    // The clip's run carries a foreign insertion id (provenance from the source doc).
+    // Per spec §3.3, suggesting-mode paste IGNORES carried suggestion state and
+    // re-tracks the whole paste as a fresh insertion: the resulting run's insertion
+    // id must DIFFER from the carried one (no foreign/dangling id survives).
+    const carriedInsId = "foreign-insertion-id-123";
+    const clipFragment = makeClipFragmentWithAttrs("CLIP_TEXT", {
+      [INSERTION_SUGGESTION_ATTR]: carriedInsId,
+    });
+    const clip = encodeFragmentClip(clipFragment);
+
+    const freshSuggesting = createInitialEditorState(suggestingConfig);
+    const next = reduceEditor(
+      freshSuggesting,
+      { type: "PASTE", clip, text: "CLIP_TEXT" },
+      suggestingConfig,
+    );
+
+    const resultBlocks = fragTopLevelBlocks(next.state);
+    expect(getTextOf(next.state, resultBlocks[0]!)).toBe("CLIP_TEXT");
+
+    const allIns = new Set<string>();
+    for (const id of resultBlocks) {
+      for (const insId of insertionIds(next.state, id)) allIns.add(insId);
+    }
+    // Exactly one fresh insertion id, and it is NOT the carried (foreign) one.
+    expect(allIns.size).toBe(1);
+    expect(allIns.has(carriedInsId)).toBe(false);
+  });
+
+  it("suggesting mode: clip paste carrying a foreign DELETION id is stripped — no deletion attr leaks", () => {
+    // The clip's run carries a foreign DELETION id (e.g. text copied while it had a
+    // pending deletion suggestion). Per §3.3, suggesting-mode paste must STRIP it:
+    // the re-tracked run carries ONLY the fresh insertion id, NO deletion attr, and
+    // the dangling foreign id never appears in the destination.
+    const carriedDelId = "foreign-deletion-id-456";
+    const clipFragment = makeClipFragmentWithAttrs("CLIP_TEXT", {
+      [DELETION_SUGGESTION_ATTR]: carriedDelId,
+    });
+    const clip = encodeFragmentClip(clipFragment);
+
+    const freshSuggesting = createInitialEditorState(suggestingConfig);
+    const next = reduceEditor(
+      freshSuggesting,
+      { type: "PASTE", clip, text: "CLIP_TEXT" },
+      suggestingConfig,
+    );
+
+    const resultBlocks = fragTopLevelBlocks(next.state);
+    expect(getTextOf(next.state, resultBlocks[0]!)).toBe("CLIP_TEXT");
+
+    // No deletion attr survives anywhere — the carried (foreign) id is gone.
+    const allDel = new Set<string>();
+    for (const id of resultBlocks) {
+      for (const delId of deletionIds(next.state, id)) allDel.add(delId);
+    }
+    expect(allDel.size).toBe(0);
+    expect(allDel.has(carriedDelId)).toBe(false);
+
+    // The run IS tracked as a fresh insertion (suggesting mode re-tracks it).
+    const allIns = new Set<string>();
+    for (const id of resultBlocks) {
+      for (const insId of insertionIds(next.state, id)) allIns.add(insId);
+    }
+    expect(allIns.size).toBe(1);
   });
 });

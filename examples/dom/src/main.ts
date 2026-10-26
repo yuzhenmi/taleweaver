@@ -10,6 +10,7 @@ import {
 import {
   createCanvasShaper,
   createEditorController,
+  browserHtmlParser,
 } from "@taleweaver/print";
 
 const PAGE_HEIGHT = 1056; // US Letter height at 96 DPI
@@ -37,6 +38,9 @@ async function init() {
     componentRegistry: createDefaultComponentRegistry(),
     attrRegistry: createDefaultAttrRegistry(),
     containerWidth: PAGE_WIDTH,
+    // Inject the DOM HTML parser so handlePaste can decode text/html (rich paste).
+    // Without it, core silently falls back to the plain-text path.
+    htmlParser: browserHtmlParser,
   };
 
   let editorState: EditorState = createInitialEditorState(config);

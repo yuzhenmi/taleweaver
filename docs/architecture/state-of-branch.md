@@ -215,6 +215,14 @@ field-by-field and throws `MalformedDocumentError` on a malformed
 node/listDef/comment/suggestion. It is HOST-registered (needs a `blockKindResolver`
 + `IdAllocator`), NOT in `createDefaultSerializerRegistry`.
 
+The **clipboard fragment helpers** ship in `core`'s `state/serialize/`:
+`base64.ts` (`bytesToBase64` / `base64ToBytes` — runtime-agnostic, no `btoa`/`atob`);
+`fragment-clip.ts` (`TALEWEAVER_CLIP_MIME = "application/x-taleweaver-clip"`,
+`encodeFragmentClip` / `decodeFragmentClip` — binary-serialize → base64 and back,
+`null` on malformed). HTML whitespace collapsing (`white-space: normal` semantics)
+ships in `html-decode.ts` as a correctness fix for cross-app paste. See
+[`1.7-serialization.md`](./1-core/1.7-serialization.md#clipboard-fragment-helpers).
+
 Named follow-ups: pairing the wire document with scroll view-state for full
 save/restore; JSON table round-trip; v2 + migration path. See
 [`1.7-serialization.md`](./1-core/1.7-serialization.md),
@@ -335,7 +343,10 @@ Built-in component behavior:
   `<colgroup>` `%` widths, `colspan`/`rowspan`, and `<div>` cell surrogates) decodes
   back into `table` blocks via the headless `decodeTable` walk. Still `[missing]`:
   browser-gated example-app Table menu wiring (the `INSERT_TABLE` button + span-aware
-  actions + header-row toggle), and structural table copy/paste.
+  actions + header-row toggle). Structural table copy/paste is `[implemented]` via
+  `extractFragment` / `insertFragment` (a pasted table in DIRECT mode round-trips
+  losslessly; a pasted table in SUGGESTING mode is flattened per the structural-insertion
+  change-tracking deferral above).
 
 ### `render/` `[implemented]`
 
@@ -467,15 +478,38 @@ Per-page paint coordinates: `paintPage` and `walkAndDetectChanges` translate by
 its own canvas. `acquireCanvas` resets canvas dimensions and the per-page
 `PaintCache` when a slot's canvas is freshly created or recycled from the pool.
 
-Page templates designed (not yet implemented): state-tree-backed editable
-headers/footers scoped to `section` nodes; footnotes as inline state-tree nodes with
-section-level numbering policy; six margin regions; first/odd/even page variants;
-iterative footnote-slot convergence; two-pass page-count resolution; cursor-scope
-extension for editing header/footer/footnote subtrees. Decomposes into sub-pieces
-(headers/footers/footnotes/templates).
+Page templates `[implemented]` — headers, footers, and footnotes are all built
+end-to-end:
+- **State model:** `template-body` containers (header/footer bodies) and `footnote-body`
+  containers as state-tree nodes; `section` blocks carry `headerBlockId`/`footerBlockId`
+  (`insert-template-body.ts`, `section-plan.ts`).
+- **Editor actions:** `INSERT_HEADER`/`INSERT_FOOTER` (`handleInsertHeaderFooter`, with a
+  one-per-section idempotency guard and active-section resolution), `INSERT_FOOTNOTE`
+  (`handleInsertFootnote`), `SET_FOOTNOTE_POLICY`; cursor scope extends into the
+  header/footer/footnote subtrees.
+- **Numbering:** `continuous`, `restart-per-section`, and `restart-per-page` footnote
+  numbering (`footnotes/numbering.ts`); the render pass uses a `continuous` substitute
+  for `restart-per-page` until the layout pass supplies `pageAssignment`
+  (`render-footnotes.ts` `effectiveRenderPolicy`).
+- **Layout:** `resolveFootnotes` lays footnote bodies into a per-page `footnoteSlot` with
+  greedy fill, line-boundary splitting of footnote bodies ACROSS pages (FN-5
+  continuations), and a D8 self-eviction convergence fixpoint; growing header/footer
+  slots (`computeSlotInsets`, #328/#329) push the content area when a header/footer
+  exceeds its margin; two-pass page-count convergence (`runFieldConvergence`). Paint and
+  cursor/hit-test descend all three slots.
+- **Deliberate deviation:** no footnote separator rule line is drawn
+  (`FOOTNOTE_SEPARATOR_HEIGHT` is retained as a gap-only reservation; the Google-Docs
+  horizontal line was removed per user directive).
 
-Still missing:
-- All template sub-pieces (headers/footers/footnotes).
+Still missing / partial:
+- First / left / right (odd/even) page template variants (cover page, mirrored book
+  spreads) — absent.
+- Per-section "link to previous" header/footer cascade: currently falls back to the
+  doc-root `headerBlockId`/`footerBlockId` only, not the nearest prior explicit section;
+  copy-on-unlink seeding not yet built. `[partial]`
+- Footnote rendering in the legacy `paginateRoot` path: a float doc that ALSO has
+  footnotes (or is multi-column) routes to `paginateRoot`, which builds `PageBox`es with
+  all slots `null`, so footnote bodies are not rendered in that path.
 - Bottom-side margin truncation across breaks for the edge case where the parent has
   bottom padding/border on a partial fragment (top side already shipped).
 - Cross-page floats for the legacy `paginateRoot` path (float + multi-column /
@@ -601,7 +635,13 @@ Selection types, `moveByCharacter`, `moveByWord`, `selectWord`,
 Reducer, action handlers, geometry queries, line navigation all present. Action
 coverage is broad: insert text, delete (backward, forward, by word, by line), move
 (char, word, line, document boundary), expand selection, apply inline style, set
-block type, insert node.
+block type, insert node. Rich clipboard `[implemented]`: `PASTE { text?, html?,
+clip? }` (all optional); `handlePaste` priority routing (clip → html → text);
+`extractFragment` / `insertFragment` (DIRECT-mode lossless fragment ops);
+`EditorConfig.htmlParser` injection; `encodeFragmentClip` / `decodeFragmentClip`
+lossless clip flavor; HTML whitespace collapsing in `decodeHtml`. See
+[`1.5-editor.md`](./1-core/1.5-editor.md#clipboard-and-paste) and
+[`1.7-serialization.md`](./1-core/1.7-serialization.md#clipboard-fragment-helpers).
 
 Known gaps:
 - **Cursor placement within a word broken across lines** — `[implemented]` for both
@@ -848,7 +888,12 @@ Editor actions (slice 4):
 - 4d-editor: `handleInsertText` expanded-selection branch routes type-over-a-selection
   through `replaceWithSuggestion`; direct mode keeps the destructive `replaceRange`.
 - PASTE-as-suggestion: `handlePaste` in suggesting mode routes through
-  `replaceWithSuggestedFragment`.
+  `replaceWithSuggestedFragment`; fragment lines carry their own type/attrs and rich
+  inline items (marks/links); un-trackable inline embeds are dropped; container
+  content is FLATTENED to leaf cells' paragraph content (structural-insertion
+  change-tracking — which would enable suggesting-mode container paste — is a
+  separate deferred feature; see `state-of-branch.md` "Structural-insertion
+  change-tracking" entry below).
 - 4d-format: all 8 inline-format handlers (`TOGGLE_STYLE`, `SET_TEXT_COLOR`,
   `SET_HIGHLIGHT`, `SET_FONT_SIZE`, `SET_FONT_FAMILY`, `SET_LINK`,
   `SET_TEXT_TRANSFORM`, `CLEAR_FORMATTING`) are suggesting-aware via
@@ -922,6 +967,17 @@ REMAINING:
   hook point (`render-core.ts` container loop) are the foundation it will reuse. The
   `getWordCount` per-block projected-count gap is deliberate (per-block by design).
   See `1.1-state.md` "The `suggestions` map" + `1.5-editor.md`.
+
+**Structural-insertion change-tracking** `[missing]` — deferred named feature. The
+current suggestion model tracks inline insert/delete/format and block split/join, but
+has no representation for "this whole container (table / set of blocks) is an
+inserted suggestion." Until this feature ships: (1) pasting a container block (e.g. a
+table) in suggesting mode flattens it to its leaf cells' paragraph content — each
+cell paragraph becomes a tracked paragraph insertion; (2) inserting a table via the
+toolbar while suggesting is a direct (untracked) edit. When structural-insertion
+tracking is built, both operations inherit it via the same ops. See
+[`1.5-editor.md`](./1-core/1.5-editor.md#structural-insertion-change-tracking-deferred-feature)
+for the mechanism.
 
 ### `accessibility/` `[implemented]` (core projection + dom mirror builder) / `[partial]` (dom mirror materialization)
 
@@ -1051,8 +1107,16 @@ a fully-positioned `LayoutBox`, used for identity sizing and the unsupported-fea
 path (`position:absolute`, multi-column-float, and float+footnote documents fall back
 to the legacy full positioned tree in v1; single-column float/`clear` docs now take
 the virtualized path). Input listeners, key-handler integration, cursor blink, scroll
-syncing, and image-cache integration are all present. See
-`2-print/2.8-editor-controller.md` for the virtual page model.
+syncing, and image-cache integration are all present. Rich clipboard
+(three-flavor copy/paste + paste-without-formatting via Ctrl/Cmd+Shift+V) is
+wired: `copy`/`cut` write `text/plain`, `text/html`, and
+`TALEWEAVER_CLIP_MIME` in the synchronous `ClipboardEvent` handler;
+`paste` forwards all three to `PASTE { text?, html?, clip? }`; a `keydown`
+handler for Ctrl/Cmd+Shift+V reads `navigator.clipboard.readText()` and
+dispatches `PASTE { text }` only. `browserHtmlParser` is injected into
+`EditorConfig.htmlParser` by the host (e.g. the React adapter's `use-editor.ts`
+`createConfig`); the print controller itself never constructs an `EditorConfig`. See
+`2-print/2.8-editor-controller.md` for the virtual page model and clipboard wiring detail.
 
 ### `canvas-renderer` `[implemented]`
 
@@ -1137,7 +1201,10 @@ composition, and clipboard events to geometry-free `EditorAction`s; the
 `digital-reconciler` diffs each new `EditorState` into minimal DOM mutations; the
 `digital-selection-bridge` translates the browser `Selection` to core `Position`s by
 walking `data-block-id` elements and measuring UTF-16 units. The browser owns caret
-geometry/navigation. See
+geometry/navigation. Rich clipboard (three-flavor copy/paste + paste-without-formatting
+via Ctrl/Cmd+Shift+V) is wired symmetrically to the print controller; digital ships
+its own `html-parser.ts` DOM adapter injected into `EditorConfig.htmlParser` (the
+`digital ↛ print` boundary is preserved). See
 [`3-digital/3.2-digital-controller.md`](./3-digital/3.2-digital-controller.md).
 
 ### Other print helpers `[implemented]`

@@ -8,7 +8,7 @@ import {
   type EditorState,
   type EditorConfig,
 } from "@taleweaver/core";
-import { createCanvasShaper } from "@taleweaver/print";
+import { createCanvasShaper, browserHtmlParser } from "@taleweaver/print";
 
 const DEFAULT_WIDTH = 600;
 
@@ -33,6 +33,7 @@ function createConfig(_options?: UseEditorOptions): EditorConfig {
     componentRegistry: createDefaultComponentRegistry(),
     attrRegistry: createDefaultAttrRegistry(),
     containerWidth: DEFAULT_WIDTH,
+    htmlParser: browserHtmlParser,
   };
 }
 

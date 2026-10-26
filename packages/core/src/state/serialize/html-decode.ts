@@ -88,6 +88,46 @@ const BOOLEAN_MARK_TAGS: Readonly<Record<string, string>> = {
 };
 
 /**
+ * Trim a leading and/or trailing single space from a `InlineItem[]` assembled
+ * from an element's children, applying CSS `white-space: normal` block-edge
+ * collapsing. A leading/trailing space item is either removed entirely (if it
+ * was the sole character) or shrunk by one character. Only a plain single space
+ * `" "` at the very start/end qualifies (collapsed runs are already single-space
+ * by the time they arrive here).
+ *
+ * This trim is applied at the ASSEMBLY boundary (`inlineContentOf`, `<li>`
+ * flush, cell flush) — NOT inside the per-node recursion, which lacks
+ * block-start/end context.
+ */
+function trimEdgeSpaces(items: InlineItem[]): InlineItem[] {
+  // Trim leading space
+  if (items.length > 0) {
+    const first = items[0];
+    if (first !== undefined && first.kind === "text" && first.text.startsWith(" ")) {
+      const trimmed = first.text.slice(1);
+      if (trimmed.length === 0) {
+        items = items.slice(1);
+      } else {
+        items = [{ ...first, text: trimmed }, ...items.slice(1)];
+      }
+    }
+  }
+  // Trim trailing space
+  if (items.length > 0) {
+    const last = items[items.length - 1];
+    if (last !== undefined && last.kind === "text" && last.text.endsWith(" ")) {
+      const trimmed = last.text.slice(0, -1);
+      if (trimmed.length === 0) {
+        items = items.slice(0, -1);
+      } else {
+        items = [...items.slice(0, -1), { ...last, text: trimmed }];
+      }
+    }
+  }
+  return items;
+}
+
+/**
  * Dispatch a SINGLE DOM node into inline items under the current mark set: a
  * text node becomes a TextItem stamped with `activeAttrs`; a mark element ADDS
  * its attr to the set and recurses (order-independent, M1); `<a href>` adds
@@ -97,6 +137,11 @@ const BOOLEAN_MARK_TAGS: Readonly<Record<string, string>> = {
  * by both the leaf-element walk (`accumulateInline`) and the `<li>` walk
  * (`walkList`) — so marks / `<br>` inside a list item are handled identically to
  * those inside a paragraph.
+ *
+ * Text-node data is normalised to CSS `white-space: normal` semantics: runs of
+ * ASCII whitespace (space / tab / newline / CR / FF) are collapsed to a single
+ * space. Edge trimming is deferred to the assembly boundary (`inlineContentOf`,
+ * `<li>` / cell flush) where block start/end context is available.
  */
 function accumulateNode(
   node: HtmlNode,
@@ -104,7 +149,8 @@ function accumulateNode(
   out: InlineItem[],
 ): void {
   if (node.kind === "text") {
-    const value = node.data;
+    // CSS white-space: normal — collapse any run of ASCII whitespace to a single space.
+    const value = node.data.replace(/[ \t\r\n\f]+/g, " ");
     if (value.length > 0) {
       out.push({ kind: "text", text: value, attrs: activeAttrs });
     }
@@ -156,9 +202,11 @@ function accumulateInline(
 
 /** Build a leaf BlockNode's inline content from an element's children. */
 function inlineContentOf(el: HtmlNode): { items: InlineItem[] } {
-  const items: InlineItem[] = [];
-  accumulateInline(el, {}, items);
-  return { items };
+  const raw: InlineItem[] = [];
+  accumulateInline(el, {}, raw);
+  // CSS white-space: normal block-edge trim: drop a leading/trailing space that
+  // arose from collapsing inter-tag whitespace at the start/end of the block.
+  return { items: trimEdgeSpaces(raw) };
 }
 
 /** Heading level 1–6 from an h1–h6 tag, defaulting to 1. */
@@ -308,7 +356,8 @@ function walkList(
     acc.blocks.push({
       type: "list-item",
       attrs: liAttrs,
-      inlineContent: { items },
+      // CSS white-space: normal block-edge trim at the <li> assembly boundary.
+      inlineContent: { items: trimEdgeSpaces(items) },
     });
     // Recurse nested lists, keeping the same listId, deeper level.
     for (const nested of nestedLists) {
@@ -345,13 +394,15 @@ function decodeFlowContent(
   const cellAcc: DecodeAccumulator = { blocks: [], listDefs: acc.listDefs };
   let pending: InlineItem[] = [];
   const flush = (): void => {
-    if (pending.length === 0) return;
+    // CSS white-space: normal block-edge trim at the cell inline-run assembly boundary.
+    const items = trimEdgeSpaces(pending);
+    pending = [];
+    if (items.length === 0) return;
     cellAcc.blocks.push({
       type: "paragraph",
       attrs: withInheritedAttrs(inherited),
-      inlineContent: { items: pending },
+      inlineContent: { items },
     });
-    pending = [];
   };
   for (const child of el.childNodes) {
     if (child.kind === "element" && BLOCK_LEVEL_TAGS.has(child.tagName)) {
@@ -366,6 +417,14 @@ function decodeFlowContent(
         decodeBlockElement(child, cellAcc, inherited);
       }
     } else {
+      // CSS white-space: normal: a whitespace-only text node between block-level
+      // elements in cell flow content is dropped (it would flush an empty paragraph).
+      // Text nodes adjacent to inline content are still accumulated (the collapse in
+      // accumulateNode reduces them to a single space, trimEdgeSpaces removes them at
+      // the assembly boundary if they end up at a block edge).
+      if (child.kind === "text" && child.data.trim() === "" && pending.length === 0) {
+        continue; // inter-block whitespace-only text node — skip
+      }
       accumulateNode(child, {}, pending);
     }
   }
