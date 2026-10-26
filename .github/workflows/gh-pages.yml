@@ -29,9 +29,6 @@ jobs:
 
       - run: npm ci
 
-      - name: Build libraries
-        run: npm run build -w packages/core -w packages/dom -w packages/react
-
       - name: Build example
         run: npm run build -w examples/react
 

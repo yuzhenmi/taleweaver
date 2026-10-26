@@ -1,9 +1,20 @@
 {
   "name": "taleweaver",
   "private": true,
-  "workspaces": ["packages/*", "examples/*"],
+  "workspaces": [
+    "packages/*",
+    "examples/*"
+  ],
   "scripts": {
     "gen:uax14": "node scripts/gen-uax14-table.ts",
-    "gen:uax9": "node scripts/gen-uax9-table.ts"
+    "gen:uax9": "node scripts/gen-uax9-table.ts",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint:boundaries": "npm run lint:boundaries --workspace=packages/core",
+    "smoke:esm": "node scripts/smoke-esm.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.12"
   }
 }

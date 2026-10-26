@@ -1,20 +1,44 @@
 {
   "name": "@taleweaver/digital",
-  "version": "0.0.1",
+  "version": "0.1.0",
+  "description": "Contenteditable (DOM-flow) editing backend for Taleweaver.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yuzhenmi/taleweaver.git",
+    "directory": "packages/digital"
+  },
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "@taleweaver/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
+  "files": [
+    "dist",
+    "!dist/**/*.test.*",
+    "!dist/**/integration",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
     "clean": "rm -rf dist",
     "prebuild": "rm -rf dist",
-    "build": "tsc",
-    "test": "vitest run"
+    "build": "tsc --emitDeclarationOnly && esbuild src/index.ts --bundle --packages=external --format=esm --target=es2022 --sourcemap --outfile=dist/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "prepack": "cp ../../LICENSE LICENSE",
+    "postpack": "rm -f LICENSE"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "peerDependencies": {
-    "@taleweaver/core": "0.0.1"
+    "@taleweaver/core": "^0.1.0"
   },
   "devDependencies": {
     "typescript": "^5.7",

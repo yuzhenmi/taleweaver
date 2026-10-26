@@ -1,24 +1,50 @@
 {
   "name": "@taleweaver/react",
-  "version": "0.0.1",
+  "version": "0.1.0",
+  "description": "React bindings for Taleweaver.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yuzhenmi/taleweaver.git",
+    "directory": "packages/react"
+  },
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "@taleweaver/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
+  "files": [
+    "dist",
+    "!dist/**/*.test.*",
+    "!dist/**/integration",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
-    "build": "tsc",
-    "test": "vitest run"
+    "build": "tsc --emitDeclarationOnly && esbuild src/index.ts --bundle --packages=external --format=esm --target=es2022 --sourcemap --outfile=dist/index.js --jsx=automatic --banner:js='\"use client\";'",
+    "test": "vitest run",
+    "clean": "rm -rf dist",
+    "prebuild": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "prepack": "cp ../../LICENSE LICENSE",
+    "postpack": "rm -f LICENSE"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "peerDependencies": {
-    "@taleweaver/core": "0.0.1",
-    "@taleweaver/print": "0.0.1",
+    "@taleweaver/core": "^0.1.0",
+    "@taleweaver/print": "^0.1.0",
     "react": "^18 || ^19",
     "react-dom": "^18 || ^19"
   },
   "devDependencies": {
-    "@taleweaver/print": "0.0.1",
+    "@taleweaver/print": "^0.1.0",
     "@testing-library/react": "^16",
     "@types/react": "^19",
     "@types/react-dom": "^19",
