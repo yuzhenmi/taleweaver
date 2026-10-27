@@ -72,4 +72,5 @@ export {
   handleRejectSuggestion,
   handleAcceptAllSuggestions,
   handleRejectAllSuggestions,
+  handleResolveSuggestionGroup,
 } from "./suggestion-actions";

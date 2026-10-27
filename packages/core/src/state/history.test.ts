@@ -14,7 +14,8 @@ import { extractText } from "./extract-text";
 import type { BlockId } from "./block-id";
 import { STATE_INTERNAL } from "./state-internal";
 import { buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
-import { SUGGESTION_RESOLVE_ORIGIN } from "./suggestions";
+// A non-null origin opts a transaction out of undo tracking (e.g. a collaborator's edit).
+const UNTRACKED_ORIGIN = Symbol("untracked");
 
 describe("Yjs UndoManager no-op behavior (empirical baseline)", () => {
   // Step 1.1 finding (2026-05-22): Yjs SKIPS no-op groups under
@@ -1073,7 +1074,7 @@ describe("History.advanceState — C1 stale-snapshot hazard (slice 2 piece C)", 
 
   /**
    * A non-undoable resolve that mutates block B: stamps `{ resolved: true }`
-   * onto B's attrs under SUGGESTION_RESOLVE_ORIGIN (the txn the slice-3
+   * onto B's attrs under UNTRACKED_ORIGIN (the txn the slice-3
    * accept/reject ops produce — origin-tagged, undo-manager-invisible).
    */
   function resolveOnB(state: ReturnType<typeof buildState>) {
@@ -1083,7 +1084,7 @@ describe("History.advanceState — C1 stale-snapshot hazard (slice 2 piece C)", 
         setBlockAttrsInTx(doc, BLOCK_B, { resolved: true }, "test-resolve");
         return new Set<BlockId>([BLOCK_B]);
       },
-      { origin: SUGGESTION_RESOLVE_ORIGIN },
+      { origin: UNTRACKED_ORIGIN },
     );
   }
 

@@ -1003,7 +1003,7 @@ describe("mintInsertion — identity no-op", () => {
 // ─────────────────────────────────────────────────────────────────────────
 // acceptSuggestion / rejectSuggestion (slice 3d-i) — resolve ONE suggestion by
 // id: apply it for real (accept) or discard it (reject), then delete the
-// record. NON-undoable (Google Docs convention).
+// record. Undoable (one history entry).
 // ─────────────────────────────────────────────────────────────────────────
 
 describe("acceptSuggestion / rejectSuggestion — insertion", () => {
@@ -1218,7 +1218,7 @@ describe("acceptSuggestion / rejectSuggestion — formatting", () => {
     expect("bold" in tabEmbed(s).attrs).toBe(false);
   });
 
-  // Fresh state per bulk resolve: acceptAll/rejectAll are NON-undoable and mutate
+  // Fresh state per bulk resolve: acceptAll/rejectAll mutate
   // the doc in place, so each must start from an independent markFormatting result.
   it("acceptAll resolves a VISIBLE embed's provenance — applies + strips (#478)", () => {
     const acc = acceptAll(markFormatting(withTabEmbed(), span(0, 5), { bold: true }, INPUT).state).state;
@@ -1264,8 +1264,8 @@ describe("acceptSuggestion / rejectSuggestion — formatting", () => {
   });
 });
 
-describe("acceptSuggestion — NON-undoable (invisible to the UndoManager)", () => {
-  it("an accept pushes NO undo step: undo still reverts the prior tracked edit, then nothing remains", () => {
+describe("acceptSuggestion — UNDOABLE (one undo step)", () => {
+  it("an accept is ONE undo step restoring the suggestion; the next undo reverts the prior tracked edit", () => {
     // Two blocks: pA carries a tracked, committed formatting edit (the ONLY
     // undo entry); pB carries an INDEPENDENT suggestion we will accept. The
     // accept rewrites ONLY pB (a non-undoable SUGGESTION_RESOLVE_ORIGIN txn → no
@@ -1332,22 +1332,21 @@ describe("acceptSuggestion — NON-undoable (invisible to the UndoManager)", () 
     expect(fmtAttr(s1, "pA")).toBe(aSid);
     expect(getSuggestions(s1).length).toBe(2);
 
-    // Close the open undo group BEFORE the non-undoable resolve, so the untracked
-    // resolve txn cannot merge into it under captureTimeout:MAX (the same
-    // stopCapturing the editor does before any non-coalescing op).
-    history.breakCoalescing();
-    // Accept pB's suggestion — NON-undoable; rewrites ONLY pB. Reconcile cached
-    // state (the resolve txn skipped History.commit).
+    // Accept pB's suggestion as its own undo entry (rewrites ONLY pB).
+    history.beginEntry("command", 200);
     const accepted = acceptSuggestion(s1, bSid);
-    history.advanceState(accepted.state);
+    history.commit(accepted, { before: null, after: null });
     expect(fmtAttr(accepted.state, "pB")).toBeUndefined(); // applied + stripped in pB
     expect(getSuggestions(accepted.state).length).toBe(1); // only pA's remains
 
-    // undo() pops the ONLY tracked entry — pA's create — and reverts it cleanly.
+    // The first undo restores pB's suggestion exactly; the second reverts pA's create.
+    const restored = history.undo();
+    if (restored === null) throw new Error("expected undo to return a result");
+    expect(fmtAttr(restored.state, "pB")).toBe(bSid);
+    expect(getSuggestions(restored.state).length).toBe(2);
     const undone = history.undo();
-    if (undone === null) throw new Error("expected undo to return a result");
+    if (undone === null) throw new Error("expected a second undo");
     expect(fmtAttr(undone.state, "pA")).toBeUndefined(); // pA edit reverted
-    // The accept itself produced NO undo step → no second undo remains.
     expect(history.canUndo()).toBe(false);
 
     history.destroy();
@@ -1757,8 +1756,8 @@ describe("acceptAll / rejectAll — NESTED deletion + formatting on ONE run", ()
   });
 });
 
-describe("acceptAll — NON-undoable (invisible to the UndoManager)", () => {
-  it("acceptAll pushes NO undo step: undo reverts only the prior tracked edit", () => {
+describe("acceptAll — UNDOABLE (one undo step)", () => {
+  it("acceptAll is ONE undo step restoring the suggestion; the next undo reverts the prior tracked edit", () => {
     // Mirror of the single-id NON-undoable proof, adapted for the BULK op: because
     // acceptAll resolves EVERY suggestion, pA's tracked undo entry must NOT itself
     // be a suggestion (else acceptAll would rewrite pA and detach its StackItem).
@@ -1814,19 +1813,20 @@ describe("acceptAll — NON-undoable (invisible to the UndoManager)", () => {
     expect(pAText(s1)).toBe("aaaaaaXYZ");
     expect(getSuggestions(s1).length).toBe(1); // only pB's suggestion
 
-    history.breakCoalescing();
-    // acceptAll resolves pB's suggestion — a non-undoable txn that touches ONLY
-    // pB, pushing no StackItem; reconcile the cached state.
+    // acceptAll resolves pB's suggestion as its own undo entry (touches ONLY pB).
+    history.beginEntry("command", 200);
     const accepted = acceptAll(s1);
-    history.advanceState(accepted.state);
+    history.commit(accepted, { before: null, after: null });
     expect(getSuggestions(accepted.state).length).toBe(0); // suggestion resolved
     expect(pAText(accepted.state)).toBe("aaaaaaXYZ"); // pA untouched by acceptAll
 
-    // undo() pops the ONLY tracked entry — pA's insert — and reverts it cleanly.
+    // The first undo restores pB's suggestion; the second reverts pA's insert.
+    const restored = history.undo();
+    if (restored === null) throw new Error("expected undo to return a result");
+    expect(getSuggestions(restored.state).length).toBe(1);
     const undone = history.undo();
-    if (undone === null) throw new Error("expected undo to return a result");
+    if (undone === null) throw new Error("expected a second undo");
     expect(pAText(undone.state)).toBe("aaaaaa"); // pA insert reverted
-    // The acceptAll itself produced NO undo step → nothing remains.
     expect(history.canUndo()).toBe(false);
 
     history.destroy();
@@ -1914,24 +1914,20 @@ describe("#484 — identity-preserving resolve keeps a prior same-block undoable
     const sE1 = editedE1.state;
     expect(pText(sE1)).toBe("INSabcdefE1");
 
-    // Break the open undo group before the non-undoable resolve.
-    history.breakCoalescing();
-    // Resolve s-pre (REJECT → drops "INS"). Identity-preserving: only the "INS"
-    // run is removed; E1's run keeps its Y.Text. Reconcile cached state.
+    // Resolve s-pre (REJECT → drops "INS") as its own undo entry. Identity-
+    // preserving: only the "INS" run is removed; E1's run keeps its Y.Text.
+    history.beginEntry("command", 200);
     const resolved = rejectSuggestion(sE1, sPre);
-    history.advanceState(resolved.state);
+    history.commit(resolved, { before: null, after: null });
     expect(pText(resolved.state)).toBe("abcdefE1"); // INS dropped, E1 survives
 
-    // undo() reverts E1 cleanly — proving its StackItem survived the resolve.
-    // E1's inserted text is gone (a REAL revert, not a silent no-op).
+    // The first undo restores the rejected "INS"; the second reverts E1 cleanly —
+    // proving E1's StackItem survived the resolve (a REAL revert, not a no-op).
+    const restored = history.undo();
+    if (restored === null) throw new Error("expected undo to return a result");
+    expect(pText(restored.state)).toBe("INSabcdefE1");
     const undone = history.undo();
-    if (undone === null) throw new Error("expected undo to return a result");
-    // The #484 win: undo of E1 is a REAL revert (E1's text gone), not the
-    // pre-#484 silent no-op (which left "abcdefE1"). Full content is "INSabcdef":
-    // undoing E1 also REVIVES the rejected "INS" — that revival is the SEPARATE
-    // #483 entanglement (a non-undoable resolve deletion overlapping a tracked
-    // StackItem's region), explicitly out of #484's scope. Pinning the exact
-    // result rules out over/under-revert; it still fails pre-#484 (was "abcdefE1").
+    if (undone === null) throw new Error("expected a second undo");
     expect(pText(undone.state)).toBe("INSabcdef");
 
     history.destroy();
@@ -1971,17 +1967,20 @@ describe("#484 — identity-preserving resolve keeps a prior same-block undoable
     const sE1 = editedE1.state;
     expect(pText(sE1)).toBe("INSabcdefE1");
 
-    history.breakCoalescing();
     // Accept s-pre (STRIP → "INS" becomes plain {} text, stays distinct from the
-    // colored run). Then undo E1.
+    // colored run) as its own undo entry.
+    history.beginEntry("command", 200);
     const resolved = acceptSuggestion(sE1, sPre);
-    history.advanceState(resolved.state);
+    history.commit(resolved, { before: null, after: null });
     expect(pText(resolved.state)).toBe("INSabcdefE1"); // INS now plain, E1 present
 
-    // undo() of the plain E1 edit is a REAL revert (E1's text gone), not a
-    // silent no-op — the resolve preserved E1's run identity.
+    // The first undo restores the pending suggestion; the second — undo of the plain
+    // E1 edit — is a REAL revert: the resolve preserved E1's run identity.
+    const restored = history.undo();
+    if (restored === null) throw new Error("expected undo to return a result");
+    expect(getSuggestions(restored.state).length).toBe(1);
     const undone = history.undo();
-    if (undone === null) throw new Error("expected undo to return a result");
+    if (undone === null) throw new Error("expected a second undo");
     // The #484 win: undo of the plain E1 edit is a REAL revert (E1 gone), not the
     // pre-#484 silent no-op (which left "INSabcdefE1"). Here the accept STRIPPED
     // (not dropped) INS, so it stays — undo of E1 cleanly yields "INSabcdef".

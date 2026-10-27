@@ -23,7 +23,7 @@ import {
   type DigitalController,
   type DecorationPointerEvent,
 } from "@taleweaver/digital";
-import type { Anchor, Decoration, FindStatus, Position } from "@taleweaver/core";
+import type { Anchor, Decoration, FindStatus, Position, Proposal, ProposeResult, SuggestionGroupStyle } from "@taleweaver/core";
 import type { FindHandle } from "./components/find-bar";
 import { createDemoAttrRegistry } from "./components/mentions";
 
@@ -47,6 +47,10 @@ export interface UseDigitalEditorResult {
   findHandle: FindHandle;
   /** Anchor a range that follows every later edit (the async-check demo). */
   createAnchor: (from: Position, to: Position) => Anchor | null;
+  /** Offer a proposal as one suggestion group (the suggest-edit demo). */
+  propose: (proposal: Proposal, options?: { readonly basedOn?: State }) => Promise<ProposeResult>;
+  /** Live per-group suggestion styling (the suggest-edit demo). */
+  setSuggestionStyles: (styleOf: SuggestionGroupStyle | null) => void;
 }
 
 export function useDigitalEditor(
@@ -148,5 +152,16 @@ export function useDigitalEditor(
     [],
   );
 
-  return { editorState, dispatch, containerRef, focus, getState, setDecorations, findHandle, createAnchor };
+  const propose = useCallback(
+    (proposal: Proposal, options?: { readonly basedOn?: State }): Promise<ProposeResult> =>
+      controllerRef.current?.propose(proposal, options) ??
+      Promise.resolve({ ok: false, reason: "rejected", problem: { kind: "invalid", message: "not mounted" } }),
+    [],
+  );
+
+  const setSuggestionStyles = useCallback((styleOf: SuggestionGroupStyle | null) => {
+    controllerRef.current?.setSuggestionStyles(styleOf);
+  }, []);
+
+  return { editorState, dispatch, containerRef, focus, getState, setDecorations, findHandle, createAnchor, propose, setSuggestionStyles };
 }

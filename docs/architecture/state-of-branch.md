@@ -663,6 +663,19 @@ host's `EditorConfig` (`config` option);
 `getMarkRanges` host query. See [`1.5-editor.md`](./1-core/1.5-editor.md) "Typing
 attributes and inline marks" and [`1.3-cascade.md`](./1-core/1.3-cascade.md).
 
+Host proposals + suggestion groups `[implemented]`: records carry optional `groupId` +
+host `metadata`; `getSuggestionGroups`; `PROPOSE` (several edits → ONE group, any editing
+mode, caret and stored typing attrs only rebased, ONE tracked undo entry ordered with the
+user's edits, overlaps with pending suggestions rejected in O(n log n), `basedOn` mapped by
+the REDUCER through the change chain with the verdicts chained on `EditorState.lastProposal`;
+controllers' `propose()` → `Promise<ProposeResult>` with the true verdict in both backends);
+`ACCEPT_/REJECT_SUGGESTION_GROUP` (atomic, one undo step); accept / reject are undoable;
+live per-source styling via `setSuggestionStyles` (both controllers, React
+`suggestionStyles`). `[partial]`: Google Docs keeps another author's proposals out of the
+user's undo stack — blocked on identity-preserving inline storage (T6; a peer change that
+splits the user's just-typed run has the same dead-undo-entry problem today). See [`1.5-editor.md`](./1-core/1.5-editor.md) "Host
+proposals" and [`1.1-state.md`](./1-core/1.1-state.md).
+
 Anchors + collaboration `[implemented]`: `AnchorSet` (live anchors through local edits,
 undo/redo and peer changes; `deleted` / `changed`), document versions + `mapPosition`
 (bounded MappingLog), and first-class foreign-change handling in both controllers
@@ -871,8 +884,7 @@ binary serialize round-trip.
 Range index + read + Layer-1 hooks (slice 2): `buildSuggestionRangeIndex` /
 `resolveSuggestionRange` / `getSuggestions(state) → ResolvedSuggestion[]`
 (orphaned-by-absence derived); the optional `origin` param on BOTH `applyOperation`
-and `runTransaction` + `SUGGESTION_RESOLVE_ORIGIN`; `History.advanceState(newState)`
-for the non-undoable accept/reject path.
+and `runTransaction` (a generic untracked-change opt-out) + `History.advanceState(newState)`.
 
 Creation ops (slice 3a–3c):
 - `markFormatting` (slice 3a): stamps `formattingSuggestionId` over a span + writes a
@@ -888,10 +900,10 @@ Creation ops (slice 3a–3c):
 
 Resolution ops (slice 3d):
 - `acceptSuggestion`/`rejectSuggestion`: single-id resolve, dispatching by record
-  `kind` (spec §6), each a NON-undoable `applyOperation(..., {origin:
-  SUGGESTION_RESOLVE_ORIGIN})` via `applyResolveDecisionsInTx` (identity-preserving
-  per-owning-block minimal diff); the editor handler calls `History.advanceState`.
-- `acceptAll`/`rejectAll`: resolve every suggestion in one non-undoable txn via a
+  `kind` (spec §6), each an ordinary UNDOABLE `applyOperation` via
+  `applyResolveDecisionsInTx` (identity-preserving per-owning-block minimal diff);
+  the editor commits it as one history entry (undo restores the suggestion exactly).
+- `acceptAll`/`rejectAll`: resolve every suggestion in one undoable txn via a
   COMBINED per-block rewrite (a run carrying insertion+deletion+formatting is walked
   once with a dominance order — acceptAll: deletion-drop dominates; rejectAll:
   insertion-drop dominates).
@@ -908,7 +920,7 @@ in EVERY editing context (main body OR footnote/header/footer/template body).
 
 Editor actions (slice 4):
 - 4a: `ACCEPT_SUGGESTION`/`REJECT_SUGGESTION`/`ACCEPT_ALL_SUGGESTIONS`/`REJECT_ALL_SUGGESTIONS`
-  via a `"resolve"` ActionClass.
+  (`command` class: each one undoable entry; a grouped suggestion resolves its whole group).
 - 4b: `EditorConfig.suggestingAuthor` + `newSuggestionId`/`newSuggestionInput` +
   `INSERT_TEXT` collapsed-caret branch → `mintInsertion`.
 - 4c (i–iii): `DELETE_BACKWARD`, `DELETE_FORWARD`, `DELETE_WORD`, `DELETE_LINE` all
@@ -942,7 +954,7 @@ Editor actions (slice 4):
 - 4e resolve: `resolve(state, id, mode)` handles the two break embeds: drops the
   embed via `applyResolveDecisionsInTx`, then — when `(insertion && reject) ||
   (deletion && accept)` — merges N with its next sibling via
-  `mergeWithNextSiblingLiveInTx` (same non-undoable transaction); `resolveAll`
+  `mergeWithNextSiblingLiveInTx` (same transaction); `resolveAll`
   extends symmetrically, walking merge owners in REVERSE document order to handle
   cascaded merges correctly.
 - 4e editor: collapsed Enter → `splitWithSuggestion`; Backspace/Delete at a PLAIN

@@ -381,10 +381,9 @@ export function freshStateFromDoc(state: State): State {
  * **`options.origin`** (optional) tags the underlying `doc.transact` so the
  * `History`'s `Y.UndoManager` can decide whether to track the change. Omitting
  * `options` (the common case) is byte-identical to the pre-origin signature —
- * Yjs's default `null` origin, which History tracks (undoable). The suggestion
- * accept/reject ops (slice 3) pass `{ origin: SUGGESTION_RESOLVE_ORIGIN }` so the
- * resolve is NON-undoable; that caller then reconciles History's cached
- * `currentState` via `History.advanceState` (the txn skipped `History.commit`).
+ * Yjs's default `null` origin, which History tracks (undoable). A non-`null` origin
+ * opts the change out of undo tracking; such a caller must reconcile History's
+ * cached `currentState` via `History.advanceState` (the txn skips `History.commit`).
  *
  * The returned State has a fresh SnapshotCache built
  * as an overlay on top of the input state's cache, giving three
@@ -427,8 +426,7 @@ export function applyOperation(
   const doc = internal.doc;
   let extra: ReadonlySet<BlockId> | undefined;
   // `options?.origin` (default `undefined`) tags the transaction so the History's
-  // Y.UndoManager can opt the change OUT of undo tracking (the suggestion
-  // accept/reject ops pass SUGGESTION_RESOLVE_ORIGIN). `undefined` is
+  // Y.UndoManager can opt the change OUT of undo tracking. `undefined` is
   // byte-identical to the pre-origin call (Yjs's default `null` origin, tracked).
   const { dirtyIds: captured } = runTransaction(
     doc,

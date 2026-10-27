@@ -449,19 +449,24 @@ describe("resolveAll break — TQ-1: split at offset 0 + middle-of-doc pair", ()
   });
 });
 
-describe("resolveAll break — NON-undoable + identity no-op", () => {
-  it("a break-cascade rejectAll pushes no undo step", () => {
+describe("resolveAll break — UNDOABLE + identity no-op", () => {
+  it("a break-cascade rejectAll is ONE undo step that restores the splits and their records", () => {
     const { state: seeded } = threeConsecutiveSplits();
+    const before = getSuggestions(seeded).length;
 
     const history = createHistory(seeded);
     expect(history.canUndo()).toBe(false);
 
+    history.beginEntry("command", 0);
     const resolved = rejectAll(seeded);
-    history.advanceState(resolved.state);
+    history.commit(resolved, { before: null, after: null });
     // The cascade landed (one block "ABCD")...
     expect(textOf(resolved.state, "p")).toBe("ABCD");
     expect(getSuggestions(resolved.state).length).toBe(0);
-    // ...but it produced NO undo step.
+    // ...as ONE undo step, which restores every split suggestion.
+    expect(history.canUndo()).toBe(true);
+    const undone = history.undo();
+    expect(undone === null ? -1 : getSuggestions(undone.state).length).toBe(before);
     expect(history.canUndo()).toBe(false);
 
     history.destroy();

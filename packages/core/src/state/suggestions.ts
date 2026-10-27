@@ -50,6 +50,8 @@ export interface SuggestionMintInput {
   readonly id: SuggestionId;
   readonly author: string;
   readonly createdAt: number;
+  /** Mint a fresh record — never extend an adjacent suggestion (host proposals). */
+  readonly noCoalesce?: boolean;
 }
 
 /**
@@ -80,6 +82,19 @@ export interface SuggestionRecord {
   readonly author: string;
   readonly createdAt: number;
   readonly proposedAttrs?: Readonly<Record<string, unknown>>;
+  /**
+   * The reviewable GROUP this suggestion belongs to (a host proposal spanning several
+   * edits). Absent → the suggestion is a group of its own (`groupId ?? id`, see
+   * {@link suggestionGroupOf}). Accept / reject act on whole groups.
+   */
+  readonly groupId?: string;
+  /** Host-defined metadata (opaque JSON, e.g. `{ source, reason }`), stored with the record. */
+  readonly metadata?: Readonly<Record<string, unknown>>;
+}
+
+/** The group a suggestion belongs to: its `groupId`, or its own id (a group of one). */
+export function suggestionGroupOf(record: Pick<SuggestionRecord, "id" | "groupId">): string {
+  return record.groupId ?? record.id;
 }
 
 /**
@@ -212,28 +227,6 @@ export function blockBoundaryMergesInView(
 }
 
 /**
- * The Y.Doc transaction `origin` slice-3's accept/reject ops pass so the resolve
- * txn is NON-undoable. The `History` constructs its `Y.UndoManager` with
- * `trackedOrigins: new Set([null])` — only `null`-origin (default) transactions
- * are tracked — so a transaction tagged with this symbol fires NO UndoManager
- * StackItem event and cannot be reverted by `History.undo`. Accepting/rejecting a
- * suggestion is a final resolution (Google Docs does not let you undo an
- * accept/reject through the normal Ctrl+Z stack), so it must be invisible to the
- * undo manager. Passed via `applyOperation(state, fn, { origin:
- * SUGGESTION_RESOLVE_ORIGIN })` (which forwards it to `runTransaction` →
- * `doc.transact(fn, origin)`); the caller then reconciles the cached
- * `currentState` via {@link History.advanceState} (the non-undoable txn skipped
- * `History.commit`, so `currentState` would otherwise stay pinned at the
- * pre-resolve snapshot).
- *
- * A unique `Symbol` (not a string) keeps the origin from ever colliding with any
- * future origin tag.
- */
-export const SUGGESTION_RESOLVE_ORIGIN: unique symbol = Symbol(
-  "suggestion-resolve",
-);
-
-/**
  * Guarded read of a required field out of an untyped Yjs `Y.Map<unknown>` — the
  * suggestions-map mirror of comments.ts's `requireRecordField`. `Y.Map.get`
  * returns `undefined` for an absent key; a bare `as T` would silently widen that
@@ -247,6 +240,10 @@ function requireRecordField<T>(yMap: Y.Map<unknown>, id: string, key: string): T
     throw new Error(`suggestions: record "${id}" missing required "${key}" field`);
   }
   return raw as T;
+}
+
+function isPlainRecord(v: unknown): v is Readonly<Record<string, unknown>> {
+  return typeof v === "object" && v !== null && !Array.isArray(v) && !(v instanceof Y.AbstractType);
 }
 
 /**
@@ -265,6 +262,8 @@ export function writeSuggestionRecordInTx(doc: Y.Doc, record: SuggestionRecord):
   if (record.proposedAttrs !== undefined) {
     yRecord.set("proposedAttrs", buildYAttrs(record.proposedAttrs as ReadonlyAttrs));
   }
+  if (record.groupId !== undefined) yRecord.set("groupId", record.groupId);
+  if (record.metadata !== undefined) yRecord.set("metadata", record.metadata);
   getSuggestionsMap(doc).set(record.id, yRecord);
 }
 
@@ -283,14 +282,21 @@ export function readSuggestionRecord(doc: Y.Doc, id: SuggestionId): SuggestionRe
     author: requireRecordField<string>(yRecord, id, "author"),
     createdAt: requireRecordField<number>(yRecord, id, "createdAt"),
   };
+  const groupId = yRecord.get("groupId");
+  const metadata = yRecord.get("metadata");
+  const grouping = {
+    ...(typeof groupId === "string" ? { groupId } : {}),
+    ...(isPlainRecord(metadata) ? { metadata: Object.freeze({ ...metadata }) } : {}),
+  };
   const yProposed = yRecord.get("proposedAttrs");
   if (yProposed instanceof Y.Map) {
     return Object.freeze({
       ...base,
       proposedAttrs: Object.freeze(yMapAsObject(yProposed)),
+      ...grouping,
     });
   }
-  return Object.freeze(base);
+  return Object.freeze({ ...base, ...grouping });
 }
 
 /**
@@ -502,4 +508,54 @@ export function getSuggestions(state: State): readonly ResolvedSuggestion[] {
     );
   }
   return Object.freeze(out);
+}
+
+/**
+ * A reviewable group of suggestions (a host proposal, or a single suggestion — a group
+ * of one). `author` / `createdAt` / `metadata` are the first member's (a proposal writes
+ * the same values on every member; a member's own `metadata` may extend it).
+ */
+export interface SuggestionGroup {
+  readonly id: string;
+  readonly author: string;
+  readonly createdAt: number;
+  readonly metadata: Readonly<Record<string, unknown>> | undefined;
+  /** The member suggestions (document order of their first tagged item; orphans last). */
+  readonly suggestions: readonly ResolvedSuggestion[];
+  /** The live ranges of the members (orphaned members contribute none). */
+  readonly ranges: readonly SuggestionRange[];
+}
+
+/** Every open suggestion group, in document order of its first range (orphans last). */
+export function getSuggestionGroups(state: State): readonly SuggestionGroup[] {
+  const byGroup = new Map<string, ResolvedSuggestion[]>();
+  for (const s of getSuggestions(state)) {
+    const key = suggestionGroupOf(s);
+    let members = byGroup.get(key);
+    if (members === undefined) byGroup.set(key, (members = []));
+    members.push(s);
+  }
+  // Document order: rank each range start by the order the range index produced them.
+  const order = new Map<string, number>();
+  let k = 0;
+  for (const [id] of buildSuggestionRangeIndex(state)) order.set(id, k++);
+  const rank = (s: ResolvedSuggestion): number => order.get(s.id) ?? Number.MAX_SAFE_INTEGER;
+  const groups: SuggestionGroup[] = [];
+  for (const [id, members] of byGroup) {
+    members.sort((a, b) => rank(a) - rank(b));
+    const first = members[0];
+    if (first === undefined) continue;
+    groups.push(
+      Object.freeze({
+        id,
+        author: first.author,
+        createdAt: first.createdAt,
+        metadata: first.metadata,
+        suggestions: Object.freeze(members),
+        ranges: Object.freeze(members.flatMap((m) => (m.range === null ? [] : [m.range]))),
+      }),
+    );
+  }
+  const groupRank = (g: SuggestionGroup): number => Math.min(...g.suggestions.map(rank));
+  return Object.freeze(groups.sort((a, b) => groupRank(a) - groupRank(b)));
 }

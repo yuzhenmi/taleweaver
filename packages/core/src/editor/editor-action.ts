@@ -1,4 +1,4 @@
-import type { Selection, Position, Span, BlockInit, TextMatch, BlockId, CrossReferenceMode, CommentId, SuggestionId, PageFieldNumberStyle } from "../state";
+import type { Selection, Position, Span, BlockInit, TextMatch, BlockId, CrossReferenceMode, CommentId, SuggestionId, PageFieldNumberStyle, State } from "../state";
 import type { TextAlign, TextTransform } from "../styles/style";
 import type { TabStop } from "../styles/tab-stops";
 import type { CounterFormat, FootnoteNumberingPolicy } from "../footnotes";
@@ -6,6 +6,7 @@ import type { CaretAffinity } from "../cursor/selection";
 import type { ColumnRule } from "../styles/column-config";
 import type { ImageWrap } from "./actions/set-image-wrap";
 import type { Transaction } from "./extensions";
+import type { Proposal } from "./proposals";
 
 export type EditorAction =
   /**
@@ -77,9 +78,8 @@ export type EditorAction =
    * `dispatch` that applies nested actions through the reducer — suggesting mode,
    * typing attrs and mark rules apply as for user edits — and they land in a SINGLE
    * undo entry. `run` must be pure (no host side effects): it may be re-run. Steps
-   * must be undoable: dispatching a non-undoable action (ACCEPT_/REJECT_SUGGESTION,
-   * ACCEPT_/REJECT_ALL_SUGGESTIONS) or UNDO / REDO throws before it applies, and a
-   * throwing transaction is rolled back entirely.
+   * must be undoable as part of it: dispatching UNDO / REDO, APPLY_FOREIGN_CHANGE
+   * (untracked) or PROPOSE (another author's own entry) throws before it applies, and a throwing transaction is rolled back entirely.
    */
   | { type: "TRANSACTION"; run: (tx: Transaction) => void }
   /**
@@ -156,11 +156,21 @@ export type EditorAction =
       body: string;
       createdAt: number;
     }
-  // Change-tracking (Suggesting mode) RESOLVE actions. NON-undoable — the state
-  // ops run a `SUGGESTION_RESOLVE_ORIGIN` txn that fires no UndoManager StackItem
-  // (accept/reject is final, Ctrl+Z cannot revert it — the Google Docs
-  // convention). Classified `"resolve"` in `coalesce-key.ts`.
+  // Change-tracking RESOLVE actions — each ONE undoable history entry (undo restores
+  // the suggestion exactly). A suggestion that belongs to a group resolves with its
+  // whole group (groups are reviewed as one unit).
   | { type: "ACCEPT_SUGGESTION"; id: SuggestionId }
   | { type: "REJECT_SUGGESTION"; id: SuggestionId }
+  | { type: "ACCEPT_SUGGESTION_GROUP"; groupId: string }
+  | { type: "REJECT_SUGGESTION_GROUP"; groupId: string }
   | { type: "ACCEPT_ALL_SUGGESTIONS" }
-  | { type: "REJECT_ALL_SUGGESTIONS" };
+  | { type: "REJECT_ALL_SUGGESTIONS" }
+  /**
+   * A host PROPOSAL: several edits recorded as ONE suggestion group, in any editing
+   * mode. Like another author's change it is NOT in the user's undo stack, and the caret
+   * is only rebased through it. `basedOn`: the version the edit positions refer to —
+   * mapped through the change chain (stale when the ranges changed). Refused whole when
+   * invalid / self-overlapping / overlapping a pending suggestion. The verdict lands on
+   * `EditorState.lastProposal`.
+   */
+  | { type: "PROPOSE"; proposal: Proposal; basedOn?: State };

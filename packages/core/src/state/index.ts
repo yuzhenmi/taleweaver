@@ -431,15 +431,16 @@ export {
   // resolve suggestion visuals (author color + underline/lineThrough) without
   // piercing STATE_INTERNAL.
   readSuggestionRecordFromState,
-  // The Layer-1 origin slice-3's accept/reject ops pass to make the resolve
-  // txn non-undoable; intra-state (consumed by ops), barrel-exposed here.
-  SUGGESTION_RESOLVE_ORIGIN,
+  // Groups (host proposals): a suggestion's group, and the open groups.
+  suggestionGroupOf,
+  getSuggestionGroups,
 } from "./suggestions";
+export type { SuggestionGroup } from "./suggestions";
 // Suggesting-mode Layer-3 op surface (the complete feature op set). The three
 // CREATE ops (`markFormatting`/`markDeletion`/`mintInsertion`) mint suggestions
 // from the editor's mutating handlers in Suggesting mode (slice 4b+); the four
-// RESOLVE ops (`acceptSuggestion`/`rejectSuggestion`/`acceptAll`/`rejectAll`)
-// run a `SUGGESTION_RESOLVE_ORIGIN` (non-undoable) transaction.
+// RESOLVE ops (`acceptSuggestion`/`rejectSuggestion`/`acceptAll`/`rejectAll`,
+// `accept/rejectSuggestionGroup`) run ordinary undoable transactions.
 export {
   markFormatting,
   markDeletion,
@@ -451,6 +452,9 @@ export {
   rejectSuggestion,
   acceptAll,
   rejectAll,
+  acceptSuggestionGroup,
+  rejectSuggestionGroup,
+  assignSuggestionGroup,
 } from "./ops/suggestion-ops";
 export type { ReplaceSuggestionInput } from "./ops/suggestion-ops";
 

@@ -346,8 +346,7 @@ export function requireInTransaction(doc: Y.Doc, opName: string): void {
  * **`origin`** (optional) is forwarded to `doc.transact(fn, origin)`. It tags
  * the transaction so `History`'s `Y.UndoManager` (constructed with
  * `trackedOrigins: new Set([null])`) can decide whether to track it: the default
- * (`undefined` → Yjs's `null`) IS tracked (undoable); a non-`null` tag (e.g.
- * `SUGGESTION_RESOLVE_ORIGIN` from the suggestion accept/reject ops) is NOT, so
+ * (`undefined` → Yjs's `null`) IS tracked (undoable); a non-`null` tag is NOT, so
  * the change is non-undoable. `undefined` is byte-identical to the pre-origin
  * call.
  */
@@ -405,8 +404,7 @@ export function runTransaction(
         "directly and let the outer caller's runTransaction capture dirtyIds.",
     );
   }
-  // Origin precedence: an EXPLICIT `origin` arg (e.g. the slice-3 suggestion
-  // accept/reject ops passing SUGGESTION_RESOLVE_ORIGIN) wins; otherwise adopt the
+  // Origin precedence: an EXPLICIT `origin` arg wins; otherwise adopt the
   // AMBIENT origin (a collab host's per-dispatch peer tag, or `null` — Yjs's
   // default — outside any `runWithTransactionOrigin` scope). `undefined` explicit
   // arg falls through to ambient, so non-collab callers stay byte-identical (`null`,

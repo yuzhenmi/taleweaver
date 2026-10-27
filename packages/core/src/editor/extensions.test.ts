@@ -309,13 +309,12 @@ describe("review round 1", () => {
 });
 
 describe("TRANSACTION steps must be undoable", () => {
-  it("dispatching ACCEPT_SUGGESTION (or UNDO) throws before applying and rolls back earlier steps", () => {
+  it("dispatching UNDO / REDO / PROPOSE (not undoable here) throws before applying and rolls back earlier steps", () => {
     const suggest = makeConfig({ suggestingAuthor: "A" });
     const config = makeConfig();
     let s = run(createInitialEditorState(suggest), suggest, { type: "INSERT_TEXT", text: "abc" });
-    const [suggestion] = getSuggestions(s.state);
-    if (suggestion === undefined) throw new Error("setup");
-    for (const bad of [{ type: "ACCEPT_SUGGESTION", id: suggestion.id }, { type: "UNDO" }] as const) {
+    const proposal = { type: "PROPOSE", proposal: { groupId: "g", author: "B", edits: [] } } as const;
+    for (const bad of [{ type: "UNDO" }, { type: "REDO" }, proposal] as const) {
       expect(() =>
         run(s, config, {
           type: "TRANSACTION",
@@ -326,7 +325,6 @@ describe("TRANSACTION steps must be undoable", () => {
         }),
       ).toThrow(/not undoable/);
       expect(textOf(s)).toBe("abc");
-      expect(getSuggestions(s.state)).toHaveLength(1); // the suggestion was not resolved
     }
     s = run(s, config, { type: "INSERT_TEXT", text: "!" });
     expect(textOf(s)).toBe("abc!");
@@ -335,6 +333,27 @@ describe("TRANSACTION steps must be undoable", () => {
     s = run(s, config, { type: "UNDO" });
     expect(textOf(s)).toBe("");
   });
+
+  it("suggestion accept / reject are ordinary undoable steps inside a transaction (one undo step for all)", () => {
+    const suggest = makeConfig({ suggestingAuthor: "A" });
+    const config = makeConfig();
+    let s = run(createInitialEditorState(suggest), suggest, { type: "INSERT_TEXT", text: "abc" });
+    const [suggestion] = getSuggestions(s.state);
+    if (suggestion === undefined) throw new Error("setup");
+    s = run(s, config, {
+      type: "TRANSACTION",
+      run: (tx) => {
+        tx.dispatch({ type: "ACCEPT_SUGGESTION", id: suggestion.id });
+        tx.dispatch({ type: "INSERT_TEXT", text: "!" });
+      },
+    });
+    expect(getSuggestions(s.state)).toHaveLength(0);
+    expect(textOf(s)).toBe("abc!");
+    s = run(s, config, { type: "UNDO" });
+    expect(textOf(s)).toBe("abc");
+    expect(getSuggestions(s.state)).toHaveLength(1);
+  });
+
 });
 
 describe("round 2", () => {

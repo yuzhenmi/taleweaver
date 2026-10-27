@@ -305,10 +305,8 @@ describe("resolve break — text-run resolution still works alongside (additive 
   });
 });
 
-describe("resolve break — NON-undoable (the resolve pushes no undo step)", () => {
-  it("resolving a split-reject (a merge) is invisible to the UndoManager", () => {
-    // Seed the split BEFORE constructing the History so the create is not the
-    // tracked entry we test; we only need a live break suggestion to resolve.
+describe("resolve break — UNDOABLE (the resolve is one undo step)", () => {
+  it("resolving a split-reject (a merge) is one undo step that restores the split", () => {
     const alloc = createTestAllocator("p2");
     const seeded = splitWithSuggestion(
       oneBlock(),
@@ -318,17 +316,17 @@ describe("resolve break — NON-undoable (the resolve pushes no undo step)", () 
     ).state;
 
     const history = createHistory(seeded);
-    // No tracked edits have been committed → nothing to undo.
     expect(history.canUndo()).toBe(false);
 
-    // Reject the split (a non-undoable SUGGESTION_RESOLVE_ORIGIN merge txn).
+    history.beginEntry("command", 0);
     const resolved = rejectSuggestion(seeded, SPLIT_ID);
-    history.advanceState(resolved.state);
-    // The merge landed (one block "abcdef")...
+    history.commit(resolved, { before: null, after: null });
     expect(textOf(resolved.state, "p")).toBe("abcdef");
     expect(getSuggestions(resolved.state).length).toBe(0);
-    // ...but it produced NO undo step.
-    expect(history.canUndo()).toBe(false);
+    expect(history.canUndo()).toBe(true);
+    const undone = history.undo();
+    expect(undone === null ? [] : getSuggestions(undone.state).map((x) => x.id)).toEqual([SPLIT_ID]);
+    expect(undone === null ? "" : textOf(undone.state, "p")).toBe("abc");
 
     history.destroy();
   });

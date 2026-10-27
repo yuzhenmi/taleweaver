@@ -3,7 +3,6 @@ import type { Position, State, BlockId } from "../state";
 import { isCollapsed } from "../cursor/selection";
 import { transitionMapping } from "../decorations/decoration-layers";
 import type { EditorAction } from "./editor-action";
-import { coalesceKeyOf } from "./coalesce-key";
 import type { EditorConfig, EditorState } from "./editor-state";
 import type { AttrRegistry } from "../cascade/attr-registry";
 import type { ComponentRegistry } from "../components/component-registry";
@@ -23,8 +22,9 @@ export interface Transaction {
   readonly editor: EditorState;
   /**
    * Apply one action through the reducer, inside the transaction's single undo entry.
-   * Throws (before applying) for an action that is not undoable — suggestion
-   * accept/reject and UNDO / REDO — since it could not be rolled back with the rest.
+   * Throws (before applying) for an action that cannot be a step — UNDO / REDO, a peer's
+   * `APPLY_FOREIGN_CHANGE` (untracked), a `PROPOSE` (another author's change: its own undo
+   * entry and verdict, never merged into the user's transaction).
    */
   dispatch(action: EditorAction): void;
 }
@@ -119,17 +119,18 @@ export function runTransaction(
         return current;
       },
       dispatch(action) {
-        // Only undoable steps: a step that bypasses History (suggestion accept/reject —
-        // non-undoable by design — UNDO / REDO, or a peer's change) could not be rolled back with the
-        // rest, so it is refused BEFORE it applies (the throw rolls back earlier steps).
+        // Only undoable steps: a step that bypasses this History (UNDO / REDO, a peer's
+        // change, another author's proposal) could not be rolled back with the rest, so it is refused
+        // BEFORE it applies (the throw rolls back earlier steps). Suggestion accept /
+        // reject are ordinary undoable steps.
         if (
-          coalesceKeyOf(action) === "resolve" ||
           action.type === "UNDO" ||
           action.type === "REDO" ||
-          action.type === "APPLY_FOREIGN_CHANGE"
+          action.type === "APPLY_FOREIGN_CHANGE" ||
+          action.type === "PROPOSE"
         ) {
           throw new Error(
-            `TRANSACTION: "${action.type}" is not undoable and cannot be a transaction step`,
+            `TRANSACTION: "${action.type}" is not undoable here and cannot be a transaction step`,
           );
         }
         const next = reduce(current, action, config);

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { EditorView, type EditorViewHandle } from "@taleweaver/react";
 import { setPerfTraceEnabled, report, resetPerfTrace, type Decoration, type Position, type State } from "@taleweaver/core";
 import { AsyncCheckBar, useAsyncCheck } from "./async-check";
+import { ASSISTANT_STYLE, SuggestEditBar, useSuggestEdit, type Propose } from "./suggest-edit";
 import { createDemoExtensions, createPickerBridge, ExtensionsHint, MentionPicker } from "./mention-picker";
 import { usePerfEditor } from "../use-perf-editor";
 import { EditorChrome } from "./editor-chrome";
@@ -52,6 +53,14 @@ export function PrintSurface({
     [],
   );
   const check = useAsyncCheck(editor.editorState, createAnchor);
+  // Suggest-edit demo (host proposals) — same as the digital tab.
+  const propose = useCallback<Propose>(
+    (proposal, options) =>
+      viewRef.current?.propose(proposal, options) ??
+      Promise.resolve({ ok: false, reason: "rejected", problem: { kind: "invalid", message: "not mounted" } }),
+    [],
+  );
+  const suggest = useSuggestEdit(editor.editorState, propose);
   useWritingAids(aids, editor.editorState, setDecorations, check.decorations);
 
   // Register the live-state getter for the tab-bar hand-off (stable across renders).
@@ -84,6 +93,7 @@ export function PrintSurface({
       <WritingAidsToggle checked={aids} onChange={setAids} />
       <ExtensionsHint />
       <AsyncCheckBar check={check} />
+      <SuggestEditBar tool={suggest} editorState={editor.editorState} dispatch={editor.dispatch} />
       <div className="relative flex-1 overflow-y-auto bg-[#f9fbfd]">
         {findMode && viewRef.current && (
           <FindBar
@@ -101,6 +111,7 @@ export function PrintSurface({
             {...editor}
             ref={viewRef}
             pageHeight={PAGE_HEIGHT}
+            suggestionStyles={ASSISTANT_STYLE}
             pageGap={PAGE_GAP}
             decorations={aidResult.decorations}
             decorationsBasedOn={aidResult.basedOn}

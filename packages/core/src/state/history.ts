@@ -250,8 +250,7 @@ export class History {
         // (default `null` — the single-editor case, Yjs's default origin). A
         // collab host passes its distinct peer origin here AND tags all its edits
         // with the same origin (via `runWithTransactionOrigin`): its own edits stay
-        // undoable, while a REMOTE peer's edits (a different origin) and the
-        // non-undoable suggestion-resolve ops (SUGGESTION_RESOLVE_ORIGIN) are
+        // undoable, while a REMOTE peer's edits (a different origin) are
         // excluded — so undo isolation across collaborators falls out for free.
         trackedOrigins: new Set([trackedOrigin]),
       },
@@ -559,8 +558,8 @@ export class History {
         poppedItem = this.undoManager.undo();
       });
       // canUndo() was true yet undo() returned no item — a LEGITIMATE outcome,
-      // not a desync. A NON-undoable resolve (SUGGESTION_RESOLVE_ORIGIN) surgically
-      // rewrites a block's inline content (`applyResolveDecisionsInTx`, #484 —
+      // not a desync. A change outside this History's tracking (a collaborator's
+      // edit) can surgically rewrite a block's inline content (`applyResolveDecisionsInTx`, #484 —
       // in-place attr swaps + delete-by-index of the dropped runs), which can turn a
       // preceding tracked StackItem that targeted the DELETED runs into a no-op.
       // Yjs's `popStackItem` pops such no-op items as it scans and returns null once
@@ -647,7 +646,7 @@ export class History {
         poppedItem = this.undoManager.redo();
       });
       // canRedo() was true yet redo() returned no item — graceful no-op, mirror
-      // of undo()'s handling. A non-undoable resolve (SUGGESTION_RESOLVE_ORIGIN)
+      // of undo()'s handling. An untracked change (a collaborator's edit)
       // that DELETED the very runs a redo StackItem tracked can leave that item a
       // no-op; Yjs's popStackItem pops it and returns null when nothing reapplies.
       // The Y.Doc was not mutated, so `currentState` stays valid. See undo() for

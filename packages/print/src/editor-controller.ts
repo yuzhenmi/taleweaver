@@ -1,4 +1,4 @@
-import { createSpan, createPosition, isCollapsed, extractText, builtinEmbedSerializer, selectWord, getBlock, inlineContentLength, findItemAtOffset, selectionContextOf, spanStart, spanEnd, markStart, markEnd, recordSample, buildAccessibilityTree, extractFragment, encodeHtml, encodeFragmentClip, TALEWEAVER_CLIP_MIME, type Position, type BlockId, type TextShaper, type TextMeasurer, type Hyphenator, type PageConfig, type EditorConfig, type EditorAction, type EditorState, type State, type TextMatch, type FindMatchesOptions, type Span, type CaretAffinity, isOpenableLinkUrl, makeBlockParentLookup, runKeyBinding, resolveCommand, modConventionFor, compileKeymap, escapeWouldChange, type Command, createAnchorSet, mapPositionFrom, subscribeRemoteChanges, getYDoc, UNKNOWN_MAPPING, type Anchor, type AnchorOptions, type Assoc, type MappedPosition, createDefaultComponentRegistry, createDefaultAttrRegistry, createDecorationLayers, createFindSession, createMappingLog, mapDecorations, transitionMapping, EMPTY_DECORATION_SET, type FindStatus, type Decoration, type DecorationSet, type WidgetDecoration, type CommentHighlight, type SuggestionHighlight } from "@taleweaver/core";
+import { createSpan, createPosition, isCollapsed, extractText, builtinEmbedSerializer, selectWord, getBlock, inlineContentLength, findItemAtOffset, selectionContextOf, spanStart, spanEnd, markStart, markEnd, recordSample, buildAccessibilityTree, extractFragment, encodeHtml, encodeFragmentClip, TALEWEAVER_CLIP_MIME, type Position, type BlockId, type TextShaper, type TextMeasurer, type Hyphenator, type PageConfig, type EditorConfig, type EditorAction, type EditorState, type State, type TextMatch, type FindMatchesOptions, type Span, type CaretAffinity, isOpenableLinkUrl, makeBlockParentLookup, runKeyBinding, resolveCommand, modConventionFor, compileKeymap, escapeWouldChange, type Command, createAnchorSet, mapPositionFrom, type Proposal, type ProposeResult, type ProposalOutcome, proposeResultOf, type SuggestionGroupStyle, subscribeRemoteChanges, getYDoc, UNKNOWN_MAPPING, type Anchor, type AnchorOptions, type Assoc, type MappedPosition, createDefaultComponentRegistry, createDefaultAttrRegistry, createDecorationLayers, createFindSession, createMappingLog, mapDecorations, transitionMapping, EMPTY_DECORATION_SET, type FindStatus, type Decoration, type DecorationSet, type WidgetDecoration, type CommentHighlight, type SuggestionHighlight } from "@taleweaver/core";
 import { resolvePixelPosition, type PixelPosition } from "./cursor/cursor-position";
 import { resolvePositionFromPixel } from "./cursor/hit-test";
 import { computeSelectionRects, computeSelectionRectsForPage, type SelectionRect } from "./cursor/selection-geometry";
@@ -184,6 +184,22 @@ export interface EditorController {
    * or before the first `update`.
    */
   createAnchor(from: Position, to?: Position, options?: AnchorOptions & { readonly basedOn?: State }): Anchor | null;
+  /**
+   * Offer `proposal` as ONE suggestion group, dispatched to the host as `PROPOSE` (any
+   * editing mode; the caret is only rebased). `basedOn`: the version its positions refer
+   * to (default: the version this controller shows); the host's reducer maps it through
+   * the edits made since and validates it. Resolves with that TRUE verdict once an `update`
+   * carrying it arrives (`EditorState.lastProposal`); "stale" when the document is
+   * replaced before the host applies it; rejected ("controller destroyed") when the
+   * controller is destroyed first, and at once before the first `update` ("no document
+   * yet") or after `destroy`.
+   */
+  propose(proposal: Proposal, options?: { readonly basedOn?: State }): Promise<ProposeResult>;
+  /**
+   * Host per-group styling of suggestions (e.g. per `metadata.source`), kept live through
+   * proposals, accept / reject and undo. `null` clears it.
+   */
+  setSuggestionStyles(styleOf: SuggestionGroupStyle | null): void;
   /** Compose the live document into a PDF byte stream (pages + outline bookmarks
    *  + internal /GoTo + external /URI links). Pure query — no mutation. `print`
    *  never imports `@taleweaver/pdf`, so the host injects the pdf emitter (e.g.
@@ -436,6 +452,53 @@ export function createEditorController(
   let tocNavDownY = 0;
   let isComposing = false;
   let destroyed = false;
+  // Proposals dispatched to the host, awaiting the reducer's verdict on a later update
+  // (dispatch order). `seenProposal`: the newest verdict already settled.
+  let pendingProposals: Array<{ readonly proposal: Proposal; readonly resolve: (result: ProposeResult) => void }> = [];
+  let seenProposal: ProposalOutcome | undefined;
+  const rejectedProposal = (message: string): ProposeResult => ({ ok: false, reason: "rejected", problem: { kind: "invalid", message } });
+
+  /**
+   * Settle the pending proposals whose verdicts arrived in `latest`'s chain (matched by
+   * the dispatched object, oldest first). Dispatches apply in order, so a pending proposal
+   * dispatched BEFORE a settled one with no verdict in the chain was never applied by the
+   * host ("proposal was not applied by the host") — or, when the chain was cut (more than
+   * MAX_PROPOSAL_CHAIN proposals between two updates), its verdict aged out. After a
+   * document replacement (`replaced`) the rest can no longer land on the document they
+   * were computed for: stale. A host that never updates again leaves the rest pending
+   * until the next update / replacement / destroy.
+   */
+  function settleProposals(latest: ProposalOutcome | undefined, replaced: boolean): void {
+    const fresh: ProposalOutcome[] = [];
+    // Walk back to the last verdict already seen — by its dispatch number, which copies of
+    // a trimmed chain keep (object identity does not survive a trim). A gap between the
+    // oldest verdict walked and the one seen means the chain was cut.
+    const seenSeq = seenProposal?.seq ?? 0;
+    for (let o = latest; o !== undefined && o.seq > seenSeq; o = o.prior) fresh.push(o);
+    const oldest = fresh.at(-1);
+    const cut = oldest !== undefined && oldest.seq > seenSeq + 1;
+    seenProposal = latest;
+    if (pendingProposals.length === 0) return;
+    const settled = new Set<number>();
+    let lastSettled = -1;
+    for (let k = fresh.length - 1; k >= 0; k--) {
+      const outcome = fresh[k];
+      const i = pendingProposals.findIndex((p, j) => !settled.has(j) && p.proposal === outcome?.proposal);
+      const entry = pendingProposals[i];
+      if (outcome === undefined || entry === undefined) continue;
+      settled.add(i);
+      lastSettled = Math.max(lastSettled, i);
+      entry.resolve(proposeResultOf(outcome));
+    }
+    pendingProposals.forEach((p, j) => {
+      if (settled.has(j)) return;
+      if (j < lastSettled) p.resolve(rejectedProposal(cut ? "verdict aged out" : "proposal was not applied by the host"));
+      else if (replaced) p.resolve({ ok: false, reason: "stale" });
+      else return;
+      settled.add(j);
+    });
+    pendingProposals = pendingProposals.filter((_p, j) => !settled.has(j));
+  }
 
   // Image cache for rendering image blocks
   const imageCache = new ImageCache(() => paint());
@@ -2115,6 +2178,7 @@ export function createEditorController(
     const tTotal = markStart("ctrl.update");
     const prev = state;
     state = editorState;
+    let replaced = false;
 
     // Decoration layers: carry every layer through the transition (positions
     // mapped; comment / suggestion ranges re-scanned when the edit touched their
@@ -2128,7 +2192,10 @@ export function createEditorController(
         // can no longer be mapped. A host that batched several dispatches still maps
         // (transitionMapping walks the change chain).
         if (mapping !== UNKNOWN_MAPPING) mappingLog.record(prev.state, editorState.state, mapping);
-        else mappingLog.reset(editorState.state);
+        else {
+          mappingLog.reset(editorState.state);
+          replaced = true;
+        }
         layers.advance(prev, editorState, mapping);
         anchors.advance(prev.state, editorState.state, mapping);
         // Find live-recompute (D9): an open session re-finds only in the edited
@@ -2150,6 +2217,7 @@ export function createEditorController(
       for (const op of ops) op(editorState.state);
     }
     pendingHost = null;
+    settleProposals(editorState.lastProposal, replaced);
     // Fragments computed against the previous tree / document are dead.
     decoRectCache.clear();
     markEnd("ctrl.decorationLayers", tLayers);
@@ -2442,6 +2510,8 @@ export function createEditorController(
 
   function destroy() {
     destroyed = true;
+    for (const p of pendingProposals) p.resolve(rejectedProposal("controller destroyed"));
+    pendingProposals = [];
     unsubscribeRemote?.();
     unsubscribeRemote = null;
     layoutTree = null;
@@ -2548,6 +2618,25 @@ export function createEditorController(
       if (state === null) return null;
       const { basedOn, ...rest } = anchorOptions;
       return anchors.createAt(mappingLog, state.state, basedOn ?? state.state, from, to, rest);
+    },
+    propose(proposal: Proposal, proposeOptions: { readonly basedOn?: State } = {}): Promise<ProposeResult> {
+      if (destroyed) return Promise.resolve(rejectedProposal("controller destroyed"));
+      if (state === null) return Promise.resolve(rejectedProposal("no document yet"));
+      // The HOST owns the state: the proposal is dispatched with the version its positions
+      // refer to (default: the version this controller shows), and the host's reducer maps
+      // it through the change chain and validates it — so it can never land on wrong text
+      // even if the host has applied edits this controller has not seen yet. The promise
+      // resolves with the reducer's verdict when an update carrying it arrives.
+      const basedOn = proposeOptions.basedOn ?? state.state;
+      return new Promise<ProposeResult>((resolve) => {
+        pendingProposals.push({ proposal, resolve });
+        dispatch({ type: "PROPOSE", proposal, basedOn });
+      });
+    },
+    setSuggestionStyles(styleOf: SuggestionGroupStyle | null): void {
+      if (destroyed) return;
+      withLayers((doc) => layers.setSuggestionStyles(doc, styleOf));
+      redrawDecorations();
     },
     runCommand(command: string | Command): boolean {
       if (destroyed || state === null) return false;

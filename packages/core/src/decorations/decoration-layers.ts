@@ -1,7 +1,8 @@
 import type { EditorState } from "../editor/editor-state";
-import type { Block, BlockId, Position, State, TextMatch } from "../state";
+import type { Block, BlockId, Position, State, TextMatch, SuggestionGroup } from "../state";
 import { createPositionMapping, IDENTITY_MAPPING, UNKNOWN_MAPPING, type PositionMapping } from "../state/position-mapping";
 import { peekBlock, resolveBlock } from "../state/state";
+import { recordSample } from "../perf/perf-trace";
 import {
   COMMENT_START_EMBED_TYPE,
   COMMENT_END_EMBED_TYPE,
@@ -16,12 +17,14 @@ import {
   patchDecorationSet,
   EMPTY_DECORATION_SET,
   type Decoration,
+  type DecorationAttrs,
   type DecorationSet,
 } from "./decorations";
 import {
   findHighlightDecorations,
   commentHighlightDecorations,
   suggestionHighlightDecorations,
+  suggestionGroupDecorations,
   type CommentHighlight,
   type SuggestionHighlight,
 } from "./builtin-highlights";
@@ -123,12 +126,23 @@ export interface DecorationLayers {
   patchFind(state: State, matches: readonly TextMatch[], activeIndex: number, blocks: ReadonlySet<BlockId>): void;
   setComments(state: State, highlights: readonly CommentHighlight[] | null): void;
   setSuggestions(state: State, highlights: readonly SuggestionHighlight[] | null): void;
+  /**
+   * Host per-group styling of suggestions (e.g. a colour per `metadata.source`), kept
+   * LIVE: re-derived from the document whenever an edit touches tracked runs or group
+   * records (a proposal landing, accept / reject, undo). `null` clears it.
+   */
+  setSuggestionStyles(state: State, styleOf: SuggestionGroupStyle | null): void;
   /** Carry every layer through the transition `prev → next`. */
   advance(prev: EditorState, next: EditorState, mapping?: PositionMapping): void;
 }
 
+/** How the host styles a suggestion group (null = leave it to the built-in visuals). */
+export type SuggestionGroupStyle = (group: SuggestionGroup) => DecorationAttrs | null;
+
 export function createDecorationLayers(): DecorationLayers {
   let host = EMPTY_DECORATION_SET;
+  let groupStyle: SuggestionGroupStyle | null = null;
+  let groupStyleSet = EMPTY_DECORATION_SET;
   let find = EMPTY_DECORATION_SET;
   let comments: readonly CommentHighlight[] | null = null;
   let suggestions: readonly SuggestionHighlight[] | null = null;
@@ -137,12 +151,24 @@ export function createDecorationLayers(): DecorationLayers {
   let merged = EMPTY_DECORATION_SET;
 
   const remerge = (): void => {
-    merged = mergeDecorationSets([suggestionSet, commentSet, find, host]);
+    merged = mergeDecorationSets([suggestionSet, groupStyleSet, commentSet, find, host]);
   };
-  const resolveAnchored = (state: State): void => {
-    commentSet = comments === null ? EMPTY_DECORATION_SET : createDecorationSet(state, commentHighlightDecorations(state, comments));
-    suggestionSet =
-      suggestions === null ? EMPTY_DECORATION_SET : createDecorationSet(state, suggestionHighlightDecorations(state, suggestions));
+  // Each content-derived layer is re-derived on its own (a setter / trigger never
+  // re-scans the others). The counters let tests prove it.
+  const deriveComments = (state: State): DecorationSet => {
+    if (comments === null) return EMPTY_DECORATION_SET;
+    recordSample("decorations.deriveComments", 0);
+    return createDecorationSet(state, commentHighlightDecorations(state, comments));
+  };
+  const deriveSuggestions = (state: State): DecorationSet => {
+    if (suggestions === null) return EMPTY_DECORATION_SET;
+    recordSample("decorations.deriveSuggestions", 0);
+    return createDecorationSet(state, suggestionHighlightDecorations(state, suggestions));
+  };
+  const deriveGroupStyles = (state: State): DecorationSet => {
+    if (groupStyle === null) return EMPTY_DECORATION_SET;
+    recordSample("decorations.deriveGroupStyles", 0);
+    return createDecorationSet(state, suggestionGroupDecorations(state, groupStyle));
   };
 
   return {
@@ -166,18 +192,27 @@ export function createDecorationLayers(): DecorationLayers {
     },
     setComments(state, highlights) {
       comments = highlights;
-      resolveAnchored(state);
+      commentSet = deriveComments(state);
       remerge();
     },
     setSuggestions(state, highlights) {
       suggestions = highlights;
-      resolveAnchored(state);
+      suggestionSet = deriveSuggestions(state);
+      remerge();
+    },
+    setSuggestionStyles(state, styleOf) {
+      groupStyle = styleOf;
+      groupStyleSet = deriveGroupStyles(state);
       remerge();
     },
     advance(prev, next, given) {
       if (prev.state === next.state) return;
       const anything =
-        host !== EMPTY_DECORATION_SET || find !== EMPTY_DECORATION_SET || comments !== null || suggestions !== null;
+        host !== EMPTY_DECORATION_SET ||
+        find !== EMPTY_DECORATION_SET ||
+        comments !== null ||
+        suggestions !== null ||
+        groupStyle !== null;
       if (!anything) return;
       const mapping = given ?? transitionMapping(prev, next);
       // A text-identical change (formatting, accepting/rejecting a suggestion) moves no
@@ -194,7 +229,7 @@ export function createDecorationLayers(): DecorationLayers {
         // Markers are characters in the text, so unless one was added/removed/moved across
         // blocks the ranges map exactly (end inclusive — see commentHighlightDecorations).
         commentSet = markersChanged(prev.state, next.state, touched)
-          ? createDecorationSet(next.state, commentHighlightDecorations(next.state, comments))
+          ? deriveComments(next.state)
           : mapDecorationSet(commentSet, mapping, next.state);
       }
       // ponytail: re-scans the whole document when an edit touches a tracked run (every
@@ -202,8 +237,17 @@ export function createDecorationLayers(): DecorationLayers {
       // per-block incremental suggestion range index (ticket T2) if it shows up in profiles.
       if (suggestions !== null) {
         suggestionSet = dirtyTouches(prev.state, next.state, touched, holdsSuggestion)
-          ? createDecorationSet(next.state, suggestionHighlightDecorations(next.state, suggestions))
+          ? deriveSuggestions(next.state)
           : mapDecorationSet(suggestionSet, mapping, next.state);
+      }
+      // Group styling: group records live in a side table (a change to them surfaces the
+      // root as dirty), runs in the blocks — re-derive when either was touched.
+      if (groupStyle !== null) {
+        const records = touched === null || touched.has(next.state.rootId);
+        groupStyleSet =
+          records || dirtyTouches(prev.state, next.state, touched, holdsSuggestion)
+            ? deriveGroupStyles(next.state)
+            : mapDecorationSet(groupStyleSet, mapping, next.state);
       }
       remerge();
     },

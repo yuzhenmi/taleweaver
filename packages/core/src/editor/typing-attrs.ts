@@ -127,3 +127,14 @@ export function storeTypingAttrs(
 ): EditorState {
   return { ...editor, storedAttrs: mergeAttrs(getTypingAttrs(editor, registry), delta) };
 }
+
+/**
+ * The attrs text written over `[from, to]` takes, as if typed there: at a point the
+ * inherited typing attrs, over a range the first replaced character's (see
+ * `getTypingAttrs`). Used by host proposals so suggested text matches its surroundings.
+ */
+export function replacementAttrs(state: State, from: Position, to: Position, registry: AttrRegistry): ReadonlyAttrs {
+  return from.blockId === to.blockId && from.offset === to.offset
+    ? inheritedAttrsAt(state, from, registry)
+    : typeOverAttrs(state, from, registry);
+}

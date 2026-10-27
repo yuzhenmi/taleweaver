@@ -5,7 +5,6 @@ export type ActionClass =
   | "insert" // coalescible text insertion
   | "delete" // coalescible text deletion (any direction/granularity)
   | "command" // discrete edit — its own undo unit, never coalesces
-  | "resolve" // non-undoable suggestion accept/reject — breaks the open group, opens NO tracked group
   | "selection-break" // caret move / selection change / undo / redo — breaks the open group
   | "inert"; // neither edits nor breaks coalescing
 
@@ -84,16 +83,14 @@ export function coalesceKeyOf(action: EditorAction): ActionClass {
     case "DELETE_COMMENT":
     case "ADD_REPLY":
       return "command";
+    // Suggestion resolution and host proposals: undoable, each its own entry.
     case "ACCEPT_SUGGESTION":
     case "REJECT_SUGGESTION":
+    case "ACCEPT_SUGGESTION_GROUP":
+    case "REJECT_SUGGESTION_GROUP":
     case "ACCEPT_ALL_SUGGESTIONS":
     case "REJECT_ALL_SUGGESTIONS":
-      // NON-undoable resolve: the state op runs a SUGGESTION_RESOLVE_ORIGIN txn
-      // that fires no UndoManager StackItem, so `"command"` (which `beginEntry`s a
-      // TRACKED group) is wrong here — it would open a group the op never fills.
-      // `"resolve"` only BREAKS the open group (so preceding typing commits as its
-      // own unit) without opening one.
-      return "resolve";
+      return "command";
     case "MOVE_WORD":
     case "MOVE_DOCUMENT_BOUNDARY":
     case "EXPAND_WORD":
@@ -109,6 +106,9 @@ export function coalesceKeyOf(action: EditorAction): ActionClass {
     case "SET_CONTAINER_WIDTH":
     // A peer's change: not ours to undo, and it must not split our typing group.
     case "APPLY_FOREIGN_CHANGE":
+    // Another author's proposal: keeps the stored typing attrs; its handler opens its OWN
+    // undo entry only when it applies something (1.5 "Host proposals").
+    case "PROPOSE":
       return "inert";
     default: {
       const _exhaustive: never = action;

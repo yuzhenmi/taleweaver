@@ -1,6 +1,6 @@
-import type { BlockId, State, TextMatch, CommentId, SuggestionId } from "../state";
-import { createPosition, buildCommentRangeIndex, buildSuggestionRangeIndex } from "../state";
-import type { InlineDecoration } from "./decorations";
+import type { BlockId, State, TextMatch, CommentId, SuggestionId, SuggestionGroup } from "../state";
+import { createPosition, buildCommentRangeIndex, buildSuggestionRangeIndex, getSuggestionGroups } from "../state";
+import type { DecorationAttrs, InlineDecoration } from "./decorations";
 
 /**
  * The engine's built-in highlights (find matches, comments, suggestions) expressed as
@@ -104,6 +104,28 @@ export function suggestionHighlightDecorations(state: State, highlights: readonl
       class: active ? "tw-suggestion tw-suggestion-active" : "tw-suggestion",
       style: { backgroundColor: active ? ACTIVE_SUGGESTION_HIGHLIGHT_FILL : SUGGESTION_HIGHLIGHT_FILL },
       data: { kind: "suggestion", suggestionId },
+    });
+  }
+  return out;
+}
+
+/**
+ * Host per-group styling of suggestions: one inline decoration over every live range
+ * of every open suggestion group for which `styleOf(group)` returns a look (class /
+ * style / attributes) — e.g. a colour per `metadata.source`. Ids are
+ * `suggestion-group:<groupId>:<n>`; `data` is the group. The built-in suggestion visuals
+ * (author colour, insertion underline / deletion strike) stay underneath as defaults.
+ */
+export function suggestionGroupDecorations(
+  state: State,
+  styleOf: (group: SuggestionGroup) => DecorationAttrs | null,
+): InlineDecoration[] {
+  const out: InlineDecoration[] = [];
+  for (const group of getSuggestionGroups(state)) {
+    const look = styleOf(group);
+    if (look === null) continue;
+    group.ranges.forEach((range, n) => {
+      out.push({ kind: "inline", id: `suggestion-group:${group.id}:${n}`, from: range.start, to: range.end, ...look, data: group });
     });
   }
   return out;

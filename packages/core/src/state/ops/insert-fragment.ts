@@ -146,7 +146,9 @@ function rewriteItemSuggestionIds(
 
 /**
  * Write each fragment suggestion record into the destination document under its
- * fresh id (from `idMap`), preserving kind / author / createdAt / proposedAttrs.
+ * fresh id (from `idMap`), preserving kind / author / createdAt / proposedAttrs /
+ * metadata. A pasted copy of a suggestion GROUP becomes a NEW group (one fresh group id
+ * per source group), so it is reviewed independently of the original.
  * Must be called inside an open Yjs transaction.
  */
 function transferSuggestionRecords(
@@ -154,15 +156,23 @@ function transferSuggestionRecords(
   idMap: ReadonlyMap<SuggestionId, SuggestionId>,
   destDoc: Y.Doc,
 ): void {
+  const groupMap = new Map<string, string>();
   for (const record of records) {
     const newId = idMap.get(record.id);
     if (newId === undefined) continue;
+    let groupId: string | undefined;
+    if (record.groupId !== undefined) {
+      groupId = groupMap.get(record.groupId) ?? newSuggestionId();
+      groupMap.set(record.groupId, groupId);
+    }
     writeSuggestionRecordInTx(destDoc, {
       id: newId,
       kind: record.kind,
       author: record.author,
       createdAt: record.createdAt,
       ...(record.proposedAttrs !== undefined ? { proposedAttrs: record.proposedAttrs } : {}),
+      ...(groupId !== undefined ? { groupId } : {}),
+      ...(record.metadata !== undefined ? { metadata: record.metadata } : {}),
     });
   }
 }

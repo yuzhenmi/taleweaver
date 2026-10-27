@@ -21,7 +21,7 @@ import {
   DELETION_SUGGESTION_ATTR,
   FORMATTING_SUGGESTION_ATTR,
   INSERTION_SUGGESTION_ATTR,
-  SUGGESTION_RESOLVE_ORIGIN,
+  suggestionGroupOf,
   readSuggestionRecord,
   writeSuggestionRecordInTx,
   type SuggestionId,
@@ -125,6 +125,7 @@ export function markFormatting(
       record.kind === "formatting" &&
       record.author === input.author &&
       attrsEqual(record.proposedAttrs ?? {}, proposedAttrs),
+    input.noCoalesce,
   );
 
   return applyOperation(state, (doc) => {
@@ -285,6 +286,7 @@ function planMarkDeletion(
     input.id,
     DELETION_SUGGESTION_ATTR,
     (record) => record.kind === "deletion" && record.author === input.author,
+    input.noCoalesce,
   );
 
   // Compute the per-owning-block rewrites + whether any run was TAGGED (vs all
@@ -409,6 +411,7 @@ export function mintInsertion(
     input.id,
     INSERTION_SUGGESTION_ATTR,
     (record) => record.kind === "insertion" && record.author === input.author,
+    input.noCoalesce,
   );
 
   // Stamp the resolved (possibly coalesced) id over the intended format. This
@@ -445,6 +448,8 @@ export interface ReplaceSuggestionInput {
   readonly author: string;
   /** SHARED by both the insertion + deletion records — the render-layer "replace" grouping signal. */
   readonly createdAt: number;
+  /** Mint fresh records — never extend an adjacent suggestion (host proposals). */
+  readonly noCoalesce?: boolean;
 }
 
 /**
@@ -557,6 +562,7 @@ export function replaceWithSuggestion(
     input.insertionId,
     INSERTION_SUGGESTION_ATTR,
     (record) => record.kind === "insertion" && record.author === input.author,
+    input.noCoalesce,
   );
 
   // Stamp the resolved insertion id over the intended live format. OVERWRITES only
@@ -1075,6 +1081,7 @@ export function planReplaceWithSuggestedFragment(
       input.insertionId,
       INSERTION_SUGGESTION_ATTR,
       (rec) => rec.kind === "insertion" && rec.author === input.author,
+      input.noCoalesce,
     );
     insId = decision.id;
     insRecord = decision.reusing
@@ -1379,10 +1386,8 @@ export type { NewBlockSpec } from "./insert-new-blocks";
  *     attrs AND strip the `formattingSuggestionId` (the proposal lands).
  * After the content rewrite the record is deleted from the `suggestions` map.
  *
- * NON-undoable: the resolve transaction is tagged with
- * {@link SUGGESTION_RESOLVE_ORIGIN}, so the History's UndoManager (tracking only
- * `null`-origin txns) fires no StackItem — accepting is a final resolution that
- * Ctrl+Z cannot revert (Google Docs convention). See {@link resolve}.
+ * UNDOABLE: an ordinary tracked transaction (the editor commits it as one history
+ * entry; undo restores the record and the tagged runs exactly).
  *
  * Identity no-op (returns the SAME `state` reference + empty dirtyIds, per the
  * T7 contract) when no record exists for `id`.
@@ -1404,7 +1409,7 @@ export function acceptSuggestion(
  *     the run's live attrs are unchanged).
  * After the rewrite the record is deleted from the `suggestions` map.
  *
- * NON-undoable (same {@link SUGGESTION_RESOLVE_ORIGIN} txn tag as accept).
+ * Undoable, like {@link acceptSuggestion}.
  * Identity no-op when no record exists for `id`.
  */
 export function rejectSuggestion(
@@ -1598,8 +1603,8 @@ function resolveBlockScan(
 
 /**
  * Shared resolve engine for {@link resolve} / {@link resolveAll}: runs
- * {@link resolveBlockScan}, then in ONE {@link SUGGESTION_RESOLVE_ORIGIN}-tagged
- * (non-undoable) `applyOperation` transaction:
+ * {@link resolveBlockScan}, then in ONE ordinary (undoable) `applyOperation`
+ * transaction:
  *   1. applies each touched block's per-item decisions IN PLACE over the live
  *      Y.Array via the surgical {@link applyResolveDecisionsInTx} (identity-
  *      preserving: untouched survivor runs keep their Y.Text, so a prior undoable
@@ -1648,7 +1653,6 @@ function runResolve(
       }
       if (writes.length === 0) return new Set<BlockId>([state.rootId]);
     },
-    { origin: SUGGESTION_RESOLVE_ORIGIN },
   );
 }
 
@@ -1679,7 +1683,7 @@ function runResolve(
  * cross-block suggested replace/delete tags one `block-join-suggestion` per crossed
  * boundary with the SAME deletion id, so accepting it merges them all (reverse order).
  *
- * NON-undoable + the absent-record identity no-op are documented on
+ * Undoability + the absent-record identity no-op are documented on
  * {@link acceptSuggestion} / {@link rejectSuggestion} and {@link runResolve}.
  */
 function resolve(
@@ -1883,14 +1887,14 @@ function resolveEmbedFormatting(
   if (onlyId !== undefined && fmtRaw !== onlyId) return null;
   let attrs = attrsWithout(item.attrs, FORMATTING_SUGGESTION_ATTR);
   if (mode === "accept") {
-    const record = readSuggestionRecord(doc, fmtRaw as SuggestionId);
+    const record = typeof fmtRaw === "string" ? readSuggestionRecord(doc, fmtRaw as SuggestionId) : null;
     attrs = mergeAttrs(attrs, record?.proposedAttrs ?? {});
   }
   return { kind: "embed", embedType: item.embedType, attrs, properties: item.properties };
 }
 
 /**
- * ACCEPT EVERY suggestion in the document in ONE non-undoable transaction (the
+ * ACCEPT EVERY suggestion in the document in ONE undoable transaction (the
  * "Accept all" command). Each TEXT run is resolved against ALL the suggestion
  * ids it carries at once (a run can be insertion-by-A + deletion-by-B +
  * formatting-by-C simultaneously), with the accept dominance order from
@@ -1898,8 +1902,7 @@ function resolveEmbedFormatting(
  * plain (insertion id stripped) with any formatting proposal applied live. ALL
  * records are deleted. See {@link resolveAll}.
  *
- * NON-undoable ({@link SUGGESTION_RESOLVE_ORIGIN}) — Ctrl+Z cannot revert a bulk
- * accept, exactly as {@link acceptSuggestion}. Identity no-op (same `state` ref +
+ * Undoable (one history entry), exactly as {@link acceptSuggestion}. Identity no-op (same `state` ref +
  * empty dirtyIds) when the document has no suggestions.
  */
 export function acceptAll(state: State, registry?: AttrRegistry): OperationResult {
@@ -1907,13 +1910,13 @@ export function acceptAll(state: State, registry?: AttrRegistry): OperationResul
 }
 
 /**
- * REJECT EVERY suggestion in the document in ONE non-undoable transaction (the
+ * REJECT EVERY suggestion in the document in ONE undoable transaction (the
  * "Reject all" command). The inverse of {@link acceptAll}: per run, the reject
  * dominance order from {@link rejectAllRun} applies — reject-insertion DROPS the
  * run; otherwise the run is kept (deletion + formatting ids stripped, no proposal
  * applied). ALL records are deleted. See {@link resolveAll}.
  *
- * NON-undoable, same identity no-op contract as {@link acceptAll}.
+ * Undoable, same identity no-op contract as {@link acceptAll}.
  */
 export function rejectAll(state: State, registry?: AttrRegistry): OperationResult {
   return resolveAll(state, "reject", registry);
@@ -1945,11 +1948,11 @@ function withAttrs(item: TextItem, attrs: ReadonlyAttrs): TextItem {
  * a null record → just stripping the id). A run carrying none of the three ids is
  * untouched (`touched: false`).
  */
-function acceptAllRun(item: TextItem, doc: Y.Doc): AllRewrite {
-  const hasInsertion = typeof item.attrs[INSERTION_SUGGESTION_ATTR] === "string";
-  const hasDeletion = typeof item.attrs[DELETION_SUGGESTION_ATTR] === "string";
+function acceptAllRun(item: TextItem, doc: Y.Doc, inSet: (raw: unknown) => raw is SuggestionId): AllRewrite {
+  const hasInsertion = inSet(item.attrs[INSERTION_SUGGESTION_ATTR]);
+  const hasDeletion = inSet(item.attrs[DELETION_SUGGESTION_ATTR]);
   const fmtRaw = item.attrs[FORMATTING_SUGGESTION_ATTR];
-  const hasFormatting = typeof fmtRaw === "string";
+  const hasFormatting = inSet(fmtRaw);
 
   if (!hasInsertion && !hasDeletion && !hasFormatting) {
     return { touched: false, keep: true, item };
@@ -1975,10 +1978,10 @@ function acceptAllRun(item: TextItem, doc: Y.Doc): AllRewrite {
  * deletion id and the formatting id stripped (the proposal discarded). A run
  * carrying none of the three ids is untouched (`touched: false`).
  */
-function rejectAllRun(item: TextItem): AllRewrite {
-  const hasInsertion = typeof item.attrs[INSERTION_SUGGESTION_ATTR] === "string";
-  const hasDeletion = typeof item.attrs[DELETION_SUGGESTION_ATTR] === "string";
-  const hasFormatting = typeof item.attrs[FORMATTING_SUGGESTION_ATTR] === "string";
+function rejectAllRun(item: TextItem, inSet: (raw: unknown) => raw is SuggestionId): AllRewrite {
+  const hasInsertion = inSet(item.attrs[INSERTION_SUGGESTION_ATTR]);
+  const hasDeletion = inSet(item.attrs[DELETION_SUGGESTION_ATTR]);
+  const hasFormatting = inSet(item.attrs[FORMATTING_SUGGESTION_ATTR]);
 
   if (!hasInsertion && !hasDeletion && !hasFormatting) {
     return { touched: false, keep: true, item };
@@ -2020,46 +2023,106 @@ function resolveAll(
   state: State,
   mode: "accept" | "reject",
   registry: AttrRegistry | undefined,
+  only: ReadonlySet<SuggestionId> | null = null,
 ): OperationResult {
   const doc = state[STATE_INTERNAL].doc;
-  const ids: SuggestionId[] = [...getSuggestionsMap(doc).keys()].map(
-    (key) => key as SuggestionId,
-  );
-  // No suggestions → identity no-op (return the input State reference).
+  const ids: SuggestionId[] = [...getSuggestionsMap(doc).keys()]
+    .map((key) => key as SuggestionId)
+    .filter((id) => only === null || only.has(id));
+  // No (matching) suggestions → identity no-op (return the input State reference).
   if (ids.length === 0) {
     return { state, dirtyIds: NO_DIRTY };
   }
+  const inSet = (raw: unknown): raw is SuggestionId =>
+    typeof raw === "string" && (only === null || only.has(raw as SuggestionId));
 
-  return runResolve(state, ids, (item) => {
-    // BREAK embed — DROP it (always), and decide whether the owning block N merges
-    // with its next sibling. Only the two break embedTypes are dropped; every other
-    // embed (footnote-anchor/tab/comment) is kept as-is.
+  const classify = (item: InlineItem): ScanItemResult => {
+    const fmt = item.attrs[FORMATTING_SUGGESTION_ATTR];
+    // BREAK embed of a resolved id — DROP it, and decide whether the owning block N
+    // merges with its next sibling. Other ids' break embeds and every other embed
+    // (footnote-anchor/tab/comment) are kept.
     if (isBreakEmbed(item)) {
       const sidRaw = item.properties.suggestionId;
-      let merge = false;
-      if (typeof sidRaw === "string") {
-        const record = readSuggestionRecord(doc, sidRaw as SuggestionId);
-        merge =
-          record !== null &&
-          ((record.kind === "insertion" && mode === "reject") ||
-            (record.kind === "deletion" && mode === "accept"));
-      }
+      if (!inSet(sidRaw)) return { op: "keep" };
+      const record = readSuggestionRecord(doc, sidRaw);
+      const merge =
+        record !== null &&
+        ((record.kind === "insertion" && mode === "reject") ||
+          (record.kind === "deletion" && mode === "accept"));
       return { op: "breakDrop", merge };
     }
     if (item.kind === "text") {
-      const rewrite = mode === "accept" ? acceptAllRun(item, doc) : rejectAllRun(item);
+      const rewrite = mode === "accept" ? acceptAllRun(item, doc, inSet) : rejectAllRun(item, inSet);
       if (!rewrite.touched) return { op: "keep" };
       return rewrite.keep && rewrite.item !== undefined
         ? { op: "rewrite", attrs: rewrite.item.attrs }
         : { op: "drop" };
     }
-    // A non-break embed — resolve a formatting-suggestion provenance id if it
-    // carries one (#478; a VISIBLE field embed in a formatting range). Markers /
-    // unstamped embeds yield null → keep as-is.
-    const resolvedEmbed = resolveEmbedFormatting(item, mode, doc);
-    if (resolvedEmbed !== null) return { op: "rewrite", attrs: resolvedEmbed.attrs };
+    // A non-break embed — resolve a formatting-suggestion provenance id it carries
+    // (#478; a VISIBLE field embed in a formatting range) when that id is resolved.
+    if (inSet(fmt)) {
+      const resolvedEmbed = resolveEmbedFormatting(item, mode, doc, fmt);
+      if (resolvedEmbed !== null) return { op: "rewrite", attrs: resolvedEmbed.attrs };
+    }
     return { op: "keep" };
-  }, registry);
+  };
+  // Delete the resolved records, plus any OTHER suggestion this resolve fully orphans
+  // (a co-tenant id whose only runs were dropped).
+  const deletes = only === null ? ids : collectSetResolveRecordDeletes(state, new Set(ids), classify);
+  return runResolve(state, deletes, classify, registry);
+}
+
+/**
+ * The record ids a set resolve must delete: the resolved ids plus every co-tenant id
+ * (outside the set) left with no surviving tagged item.
+ */
+function collectSetResolveRecordDeletes(
+  state: State,
+  ids: ReadonlySet<SuggestionId>,
+  classify: (item: InlineItem) => ScanItemResult,
+): SuggestionId[] {
+  const dropped = new Set<SuggestionId>();
+  const survivors = new Set<SuggestionId>();
+  for (const block of iterateAllBlocksInDocumentOrder(state)) {
+    const content = block.inlineContent;
+    if (content === null) continue;
+    for (const item of content.items) {
+      const op = classify(item).op;
+      const gone = op === "drop" || op === "breakDrop";
+      for (const sid of suggestionIdsOnItem(item)) {
+        if (ids.has(sid)) continue;
+        (gone ? dropped : survivors).add(sid);
+      }
+    }
+  }
+  return [...ids, ...[...dropped].filter((c) => !survivors.has(c))];
+}
+
+/**
+ * ACCEPT every suggestion of one GROUP (a host proposal, or a single suggestion — a group
+ * of one, see `suggestionGroupOf`) in ONE transaction: one undo step. Per-run resolution
+ * follows {@link acceptAll}'s dominance rules restricted to the group's ids; a co-tenant
+ * suggestion outside the group survives (or is cleaned up if it loses all its content).
+ * Identity no-op when the group has no records.
+ */
+export function acceptSuggestionGroup(state: State, groupId: string, registry?: AttrRegistry): OperationResult {
+  return resolveAll(state, "accept", registry, groupMemberIds(state, groupId));
+}
+
+/** REJECT every suggestion of one group in one transaction (inverse of {@link acceptSuggestionGroup}). */
+export function rejectSuggestionGroup(state: State, groupId: string, registry?: AttrRegistry): OperationResult {
+  return resolveAll(state, "reject", registry, groupMemberIds(state, groupId));
+}
+
+/** The record ids of group `groupId` (`suggestionGroupOf(record) === groupId`). */
+function groupMemberIds(state: State, groupId: string): Set<SuggestionId> {
+  const doc = state[STATE_INTERNAL].doc;
+  const out = new Set<SuggestionId>();
+  for (const key of getSuggestionsMap(doc).keys()) {
+    const record = readSuggestionRecord(doc, key as SuggestionId);
+    if (record !== null && suggestionGroupOf(record) === groupId) out.add(record.id);
+  }
+  return out;
 }
 
 /** Outcome of {@link rebuildBlockForDeletion}: the new items + whether any run was tagged. */
@@ -2328,7 +2391,9 @@ function resolveCoalesce(
   mintId: SuggestionId,
   attrKey: string,
   matches: CoalescePredicate,
+  noCoalesce = false,
 ): CoalesceDecision {
+  if (noCoalesce) return { id: mintId, reusing: false };
   const start = spanStart(state, span);
   const end = spanEnd(state, span);
 
@@ -2415,5 +2480,35 @@ function textItemSuggestionId(
  */
 function coalesces(state: State, id: SuggestionId, matches: CoalescePredicate): boolean {
   const record = readSuggestionRecord(state[STATE_INTERNAL].doc, id);
-  return record !== null && matches(record);
+  // A grouped suggestion (a host proposal) is a closed reviewable unit: never extended.
+  return record !== null && record.groupId === undefined && matches(record);
+}
+
+/**
+ * Put suggestions `ids` into group `groupId` with `metadata` (host proposals). A
+ * side-table-only write (the record maps), so it surfaces the root as dirty; one
+ * tracked transaction. Ids without a record are skipped; identity no-op when none.
+ */
+export function assignSuggestionGroup(
+  state: State,
+  ids: ReadonlyArray<SuggestionId>,
+  groupId: string,
+  metadata: Readonly<Record<string, unknown>> | undefined,
+  perId?: ReadonlyMap<SuggestionId, Readonly<Record<string, unknown>>>,
+): OperationResult {
+  const map = getSuggestionsMap(state[STATE_INTERNAL].doc);
+  const present = ids.filter((id) => map.get(id) !== undefined);
+  if (present.length === 0) return { state, dirtyIds: NO_DIRTY };
+  return applyOperation(state, (doc) => {
+    const records = getSuggestionsMap(doc);
+    for (const id of present) {
+      const yRecord = records.get(id);
+      if (yRecord === undefined) continue;
+      yRecord.set("groupId", groupId);
+      const own = perId?.get(id);
+      const merged = own === undefined ? metadata : { ...(metadata ?? {}), ...own };
+      if (merged !== undefined) yRecord.set("metadata", merged);
+    }
+    return new Set<BlockId>([state.rootId]);
+  });
 }

@@ -14,6 +14,7 @@ import {
   type InlineDecoration,
 } from "./decorations";
 import { createDecorationLayers, transitionMapping } from "./decoration-layers";
+import { report, resetPerfTrace, setPerfTraceEnabled } from "../perf/perf-trace";
 import { insertText } from "../state";
 import { reconcileForeignChange } from "../editor/reconcile-foreign-change";
 import { MAX_CHANGE_CHAIN } from "../editor/editor-state";
@@ -168,6 +169,73 @@ describe("DecorationSet", () => {
     const accepted = reduceEditor(typed, { type: "ACCEPT_SUGGESTION", id }, config);
     layers.advance(typed, accepted);
     expect(layers.merged.forBlock(p1).inline.length).toBe(0);
+  });
+
+  it("live per-group suggestion styling follows proposals, accept, reject and undo", () => {
+    const { editor, p1, p2 } = twoParas();
+    const layers = createDecorationLayers();
+    layers.setSuggestionStyles(editor.state, (g) => (g.metadata?.source === "bot" ? { class: "by-bot" } : null));
+    const styled = (): number =>
+      [p1, p2].reduce((n, b) => n + layers.merged.forBlock(b).inline.filter((s) => s.decoration.class === "by-bot").length, 0);
+    const advance = (prev: EditorState, action: EditorAction): EditorState => {
+      for (const b of iterateLeafBlocksInDocumentOrder(prev.state)) void b;
+      const next = reduceEditor(prev, action, config);
+      layers.advance(prev, next);
+      return next;
+    };
+    expect(styled()).toBe(0);
+    const groupId = "g-bot";
+    const proposal = {
+      groupId,
+      author: "bot",
+      metadata: { source: "bot" },
+      edits: [
+        { kind: "replace" as const, from: createPosition(p1, 5), to: createPosition(p1, 8), text: "saw" },
+        { kind: "format" as const, from: createPosition(p2, 3), to: createPosition(p2, 9), attrs: { bold: true } },
+      ],
+    };
+    const proposed = advance(editor, { type: "PROPOSE", proposal });
+    expect(styled()).toBe(3); // deletion + insertion + formatting
+    const accepted = advance(proposed, { type: "ACCEPT_SUGGESTION_GROUP", groupId });
+    expect(styled()).toBe(0);
+    const undone = advance(accepted, { type: "UNDO" });
+    expect(styled()).toBe(3);
+    const rejected = advance(undone, { type: "REJECT_SUGGESTION_GROUP", groupId });
+    expect(styled()).toBe(0);
+    layers.setSuggestionStyles(rejected.state, null);
+    expect(styled()).toBe(0);
+  });
+
+  it("each setter re-derives ONLY its own layer (flipping the active comment scans no suggestion layer)", () => {
+    const { editor, p1 } = twoParas();
+    const suggesting = { ...config, suggestingAuthor: "alice" };
+    const typed = reduceEditor(at(editor, p1, 4), { type: "INSERT_TEXT", text: "a" }, suggesting);
+    const id = getSuggestions(typed.state)[0]?.id;
+    if (id === undefined) throw new Error("no suggestion");
+    const layers = createDecorationLayers();
+    layers.setSuggestions(typed.state, [{ suggestionId: id, active: false }]);
+    layers.setSuggestionStyles(typed.state, () => ({ class: "styled" }));
+    const derived = (act: () => void): Record<string, number> => {
+      resetPerfTrace();
+      setPerfTraceEnabled(true);
+      try {
+        act();
+      } finally {
+        setPerfTraceEnabled(false);
+      }
+      const count = (label: string) => report().entries.find((e) => e.label === label)?.count ?? 0;
+      return {
+        comments: count("decorations.deriveComments"),
+        suggestions: count("decorations.deriveSuggestions"),
+        groupStyles: count("decorations.deriveGroupStyles"),
+      };
+    };
+    const comment = "c1" as CommentId;
+    expect(derived(() => layers.setComments(typed.state, [{ commentId: comment, active: false }]))).toEqual({ comments: 1, suggestions: 0, groupStyles: 0 });
+    expect(derived(() => layers.setComments(typed.state, [{ commentId: comment, active: true }]))).toEqual({ comments: 1, suggestions: 0, groupStyles: 0 });
+    expect(derived(() => layers.setSuggestions(typed.state, [{ suggestionId: id, active: true }]))).toEqual({ comments: 0, suggestions: 1, groupStyles: 0 });
+    expect(derived(() => layers.setSuggestionStyles(typed.state, null))).toEqual({ comments: 0, suggestions: 0, groupStyles: 0 });
+    expect(derived(() => layers.setSuggestionStyles(typed.state, () => null))).toEqual({ comments: 0, suggestions: 0, groupStyles: 1 });
   });
 
   it("replace-all across many paragraphs keeps every decoration on untouched text", () => {

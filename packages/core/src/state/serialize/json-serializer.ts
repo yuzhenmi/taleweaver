@@ -353,12 +353,21 @@ function encodeSuggestions(
     a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
   );
   for (const s of sorted) {
-    const bare: { kind: SuggestionRecord["kind"]; author: string; createdAt: number; proposedAttrs?: Readonly<Record<string, unknown>> } = {
+    const bare: {
+      kind: SuggestionRecord["kind"];
+      author: string;
+      createdAt: number;
+      proposedAttrs?: Readonly<Record<string, unknown>>;
+      groupId?: string;
+      metadata?: Readonly<Record<string, unknown>>;
+    } = {
       kind: s.kind,
       author: s.author,
       createdAt: s.createdAt,
     };
     if (s.proposedAttrs !== undefined) bare.proposedAttrs = { ...s.proposedAttrs };
+    if (s.groupId !== undefined) bare.groupId = s.groupId;
+    if (s.metadata !== undefined) bare.metadata = { ...s.metadata };
     out[s.id] = bare;
   }
   return out;
@@ -673,21 +682,17 @@ function decodeSuggestions(raw: unknown): SuggestionRecord[] | undefined {
     if (!isSuggestionKind(rec.kind)) throw new MalformedDocumentError(JSON_FORMAT);
     if (typeof rec.author !== "string") throw new MalformedDocumentError(JSON_FORMAT);
     if (typeof rec.createdAt !== "number") throw new MalformedDocumentError(JSON_FORMAT);
-    const record: SuggestionRecord =
-      rec.proposedAttrs === undefined
-        ? {
-            id: id as SuggestionRecord["id"],
-            kind: rec.kind,
-            author: rec.author,
-            createdAt: rec.createdAt,
-          }
-        : {
-            id: id as SuggestionRecord["id"],
-            kind: rec.kind,
-            author: rec.author,
-            createdAt: rec.createdAt,
-            proposedAttrs: decodeProposedAttrs(rec.proposedAttrs),
-          };
+    if (rec.groupId !== undefined && typeof rec.groupId !== "string") throw new MalformedDocumentError(JSON_FORMAT);
+    if (rec.metadata !== undefined && !isRecord(rec.metadata)) throw new MalformedDocumentError(JSON_FORMAT);
+    const record: SuggestionRecord = {
+      id: id as SuggestionRecord["id"],
+      kind: rec.kind,
+      author: rec.author,
+      createdAt: rec.createdAt,
+      ...(rec.proposedAttrs !== undefined ? { proposedAttrs: decodeProposedAttrs(rec.proposedAttrs) } : {}),
+      ...(typeof rec.groupId === "string" ? { groupId: rec.groupId } : {}),
+      ...(isRecord(rec.metadata) ? { metadata: Object.freeze({ ...rec.metadata }) } : {}),
+    };
     out.push(record);
   }
   return out;

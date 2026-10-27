@@ -2,6 +2,7 @@ import { createEmptyDocument, History, createHistory, selectionContextOf, positi
 import { getTypingAttrs } from "./typing-attrs";
 import { normalizeSelectionForAtomicMarks } from "./atomic-marks";
 import { handleApplyForeignChange } from "./foreign-change";
+import { handlePropose, type ProposalOutcome } from "./proposals";
 import { runTransaction, applyInputRules, updateActiveTrigger, type ActiveTrigger, type EditorExtensions } from "./extensions";
 import { isDevMode } from "../state/dev-mode";
 import type { State, Selection, BlockId, PageConfig, ReadonlyAttrs } from "../state";
@@ -85,6 +86,7 @@ import {
   handleAcceptSuggestion,
   handleRejectSuggestion,
   handleAcceptAllSuggestions,
+  handleResolveSuggestionGroup,
   handleRejectAllSuggestions,
 } from "./actions";
 
@@ -197,6 +199,12 @@ export interface EditorState {
    * caret leaves it or its text stops matching. NON-undoable view state.
    */
   readonly activeTrigger?: ActiveTrigger;
+  /**
+   * The reducer's verdict on the most recent `PROPOSE` (applied / stale / rejected, with
+   * the problem). A host that dispatches proposals asynchronously (print) reads the
+   * outcome here on the next state. View state, never in history.
+   */
+  readonly lastProposal?: ProposalOutcome;
 }
 
 export interface EditorConfig {
@@ -341,13 +349,6 @@ export function reduceEditor(
     case "delete":
     case "command":
       editor.history.beginEntry(coalesceClass, (config.now ?? Date.now)());
-      break;
-    case "resolve":
-      // Non-undoable suggestion accept/reject: BREAK the open group (so any
-      // preceding typing commits as its own unit) WITHOUT opening a tracked one —
-      // the resolve op's `SUGGESTION_RESOLVE_ORIGIN` txn fires no StackItem, so
-      // `beginEntry` (the committing arm) would open a group that never fills.
-      editor.history.breakCoalescing();
       break;
     case "selection-break":
       editor.history.breakCoalescing();
@@ -672,6 +673,15 @@ export function reduceEditor(
       break;
     case "REJECT_SUGGESTION":
       result = handleRejectSuggestion(editor, action.id, config);
+      break;
+    case "ACCEPT_SUGGESTION_GROUP":
+      result = handleResolveSuggestionGroup(editor, action.groupId, "accept", config);
+      break;
+    case "REJECT_SUGGESTION_GROUP":
+      result = handleResolveSuggestionGroup(editor, action.groupId, "reject", config);
+      break;
+    case "PROPOSE":
+      result = handlePropose(editor, action.proposal, action.basedOn, config);
       break;
     case "ACCEPT_ALL_SUGGESTIONS":
       result = handleAcceptAllSuggestions(editor, config);

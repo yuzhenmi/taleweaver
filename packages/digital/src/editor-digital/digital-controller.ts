@@ -31,6 +31,11 @@ import {
   modConventionFor,
   compileKeymap,
   createAnchorSet,
+  proposeResultOf,
+  type ProposalOutcome,
+  type SuggestionGroupStyle,
+  type Proposal,
+  type ProposeResult,
   mapPositionFrom,
   subscribeRemoteChanges,
   getYDoc,
@@ -155,6 +160,20 @@ export interface DigitalController {
    * current one); null when that version can no longer be mapped or the content is gone.
    */
   createAnchor(from: Position, to?: Position, options?: AnchorOptions & { readonly basedOn?: State }): Anchor | null;
+  /**
+   * Offer `proposal` as ONE suggestion group (works in any editing mode; the caret is
+   * only rebased). `basedOn`: the version its positions refer to — mapped through the
+   * edits made since; `{ ok: false, reason: "stale" }` when its ranges changed meanwhile,
+   * `"rejected"` when it overlaps pending suggestions / itself or is invalid ("controller
+   * destroyed" after `destroy`). Resolves at once with the reducer's verdict (same
+   * promise shape as the print controller, whose host owns the state).
+   */
+  propose(proposal: Proposal, options?: { readonly basedOn?: State }): Promise<ProposeResult>;
+  /**
+   * Host per-group styling of suggestions (e.g. per `metadata.source`), kept live through
+   * proposals, accept / reject and undo. `null` clears it.
+   */
+  setSuggestionStyles(styleOf: SuggestionGroupStyle | null): void;
   /**
    * Run a host command — by name (`extensions.commands`) or directly — against the
    * current state with this controller's `dispatch`. Returns whether it ran.
@@ -403,7 +422,9 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     container.focus();
   }
 
+  let destroyed = false;
   function destroy(): void {
+    destroyed = true;
     unsubscribeRemote?.();
     unsubscribeRemote = null;
     container.removeEventListener("beforeinput", onBeforeInput);
@@ -497,6 +518,28 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     createAnchor(from, to, anchorOptions = {}) {
       const { basedOn, ...rest } = anchorOptions;
       return anchors.createAt(log, editorState.state, basedOn ?? editorState.state, from, to, rest);
+    },
+    propose(proposal, proposeOptions = {}) {
+      if (destroyed) return Promise.resolve({ ok: false, reason: "rejected", problem: { kind: "invalid", message: "controller destroyed" } });
+      // The reducer maps (from `basedOn`) and validates authoritatively; this controller
+      // owns the state, so its verdict is already known — resolve with it. Another PROPOSE
+      // may land before we read (e.g. from onChange), so find OUR verdict in the chain: the
+      // oldest one for this object dispatched after `before`.
+      const before = editorState.lastProposal?.seq ?? 0;
+      dispatch({
+        type: "PROPOSE",
+        proposal,
+        ...(proposeOptions.basedOn !== undefined ? { basedOn: proposeOptions.basedOn } : {}),
+      });
+      let ours: ProposalOutcome | undefined;
+      for (let o = editorState.lastProposal; o !== undefined && o.seq > before; o = o.prior) {
+        if (o.proposal === proposal) ours = o;
+      }
+      return Promise.resolve(proposeResultOf(ours));
+    },
+    setSuggestionStyles(styleOf) {
+      layers.setSuggestionStyles(editorState.state, styleOf);
+      redraw();
     },
     runCommand(command) {
       const resolved = resolveCommand(command, options.extensions);

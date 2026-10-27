@@ -24,7 +24,6 @@ import {
   buildSuggestionRangeIndex,
   resolveSuggestionRange,
   getSuggestions,
-  SUGGESTION_RESOLVE_ORIGIN,
   INSERTION_SUGGESTION_ATTR,
   DELETION_SUGGESTION_ATTR,
   FORMATTING_SUGGESTION_ATTR,
@@ -477,7 +476,11 @@ describe("suggestions — range index + read (slice 2 piece A)", () => {
   });
 });
 
-describe("suggestions — SUGGESTION_RESOLVE_ORIGIN non-undoable hook (slice 2 piece B)", () => {
+// A non-null transaction origin opts a change out of undo tracking (the generic
+// applyOperation hook; suggestion resolution no longer uses it — it is undoable).
+const UNTRACKED_ORIGIN = Symbol("untracked");
+
+describe("suggestions — applyOperation origin opt-out (non-null origin is not tracked)", () => {
   const ROOT = asBlockId("doc");
   const PARA = asBlockId("p");
 
@@ -510,7 +513,7 @@ describe("suggestions — SUGGESTION_RESOLVE_ORIGIN non-undoable hook (slice 2 p
 
     const withoutOrigin = applyOperation(freshDoc(), writeFn);
     const withOrigin = applyOperation(freshDoc(), writeFn, {
-      origin: SUGGESTION_RESOLVE_ORIGIN,
+      origin: UNTRACKED_ORIGIN,
     });
 
     // Same dirtyIds.
@@ -524,7 +527,7 @@ describe("suggestions — SUGGESTION_RESOLVE_ORIGIN non-undoable hook (slice 2 p
     ).toEqual(record);
   });
 
-  it("a write under SUGGESTION_RESOLVE_ORIGIN is NOT tracked by History.undo", () => {
+  it("a write under UNTRACKED_ORIGIN is NOT tracked by History.undo", () => {
     const s0 = freshDoc();
     const history = createHistory(s0);
 
@@ -547,7 +550,7 @@ describe("suggestions — SUGGESTION_RESOLVE_ORIGIN non-undoable hook (slice 2 p
         writeSuggestionRecordInTx(doc, record);
         return new Set<BlockId>([ROOT]);
       },
-      { origin: SUGGESTION_RESOLVE_ORIGIN },
+      { origin: UNTRACKED_ORIGIN },
     );
     history.advanceState(resolved.state);
 

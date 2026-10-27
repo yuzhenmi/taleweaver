@@ -1174,3 +1174,166 @@ describe("DigitalController — remote changes: lifetime, ownership, IME", () =>
     m.controller.destroy();
   });
 });
+
+describe("DigitalController — host proposals (suggestion groups)", async () => {
+  function mountWithText(text: string) {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const controller = createDigitalController({
+      container,
+      componentRegistry: createDefaultComponentRegistry(),
+      attrRegistry: createDefaultAttrRegistry(),
+      containerWidth: 800,
+      doc: document,
+    });
+    controller.dispatch({ type: "INSERT_TEXT", text });
+    return { controller, container, id: asBlockId(leafBlockId(container)) };
+  }
+  const ctrlZ = (container: HTMLElement) =>
+    container.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true, cancelable: true }));
+
+  const ctrlShiftZ = (container: HTMLElement) =>
+    container.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+  const styledText = (container: HTMLElement): string =>
+    Array.from(leafBlock(container).querySelectorAll(".by-assistant")).map((el) => el.textContent).join("|");
+
+  it("propose() lands one group without moving the caret, with live per-source styling through accept / reject / undo / redo", async () => {
+    const { controller, container, id } = mountWithText("The  quick fox");
+    controller.setSuggestionStyles((g) => (g.metadata?.source === "assistant" ? { class: "by-assistant" } : null));
+    const groupId = core.newSuggestionGroupId();
+    const result = await controller.propose({
+      groupId,
+      author: "assistant",
+      metadata: { source: "assistant" },
+      edits: [
+        { kind: "replace", from: createPosition(id, 3), to: createPosition(id, 4), text: "" },
+        { kind: "replace", from: createPosition(id, 5), to: createPosition(id, 10), text: "swift" },
+      ],
+    });
+    expect(result).toEqual({ ok: true });
+    expect(controller.editorState.lastProposal).toMatchObject({ groupId, outcome: "applied" });
+    // The caret stays after "fox" — only rebased past the 5 inserted (pending) characters.
+    expect(controller.editorState.selection.focus).toEqual(createPosition(id, 19));
+    expect(core.getSuggestionGroups(controller.editorState.state).map((g) => g.id)).toEqual([groupId]);
+    // Built-in suggestion visuals: inserted text underlined, deleted struck; host styling on top.
+    expect(leafBlock(container).querySelector("u")?.textContent).toBe("swift");
+    expect(leafBlock(container).querySelectorAll("s").length).toBeGreaterThan(0);
+    const styled = styledText(container);
+    expect(styled.replaceAll("|", "")).toBe(" swiftquick");
+    controller.dispatch({ type: "ACCEPT_SUGGESTION_GROUP", groupId });
+    expect(leafBlock(container).textContent).toBe("The swift fox");
+    expect(styledText(container)).toBe("");
+    ctrlZ(container);
+    expect(core.getSuggestionGroups(controller.editorState.state).map((g) => g.id)).toEqual([groupId]);
+    expect(styledText(container)).toBe(styled);
+    ctrlShiftZ(container);
+    expect(leafBlock(container).textContent).toBe("The swift fox");
+    ctrlZ(container);
+    controller.dispatch({ type: "REJECT_SUGGESTION_GROUP", groupId });
+    expect(leafBlock(container).textContent).toBe("The  quick fox");
+    expect(styledText(container)).toBe("");
+    ctrlZ(container);
+    expect(core.getSuggestionGroups(controller.editorState.state).map((g) => g.id)).toEqual([groupId]);
+    expect(styledText(container)).toBe(styled);
+    ctrlShiftZ(container);
+    expect(leafBlock(container).textContent).toBe("The  quick fox");
+    expect(core.getSuggestions(controller.editorState.state)).toHaveLength(0);
+    controller.setSuggestionStyles(null);
+    controller.destroy();
+  });
+
+  it("a proposal inside the just-typed run is its own undo entry after the typing: Ctrl+Z undoes it, then the typing", async () => {
+    const { controller, container, id } = mountWithText("jumps over");
+    controller.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(id, 0), createPosition(id, 0)) });
+    controller.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(id, 10), createPosition(id, 10)) });
+    container.dispatchEvent(makeBeforeInput("insertText", { data: "!" }));
+    const groupId = core.newSuggestionGroupId();
+    const result = await controller.propose({
+      groupId,
+      author: "assistant",
+      edits: [{ kind: "replace", from: createPosition(id, 5), to: createPosition(id, 5), text: " high" }],
+    });
+    expect(result).toEqual({ ok: true });
+    expect(leafBlock(container).textContent).toBe("jumps high over!");
+    ctrlZ(container);
+    expect(leafBlock(container).textContent).toBe("jumps over!");
+    expect(core.getSuggestions(controller.editorState.state)).toHaveLength(0);
+    ctrlZ(container);
+    expect(leafBlock(container).textContent).toBe("jumps over");
+    ctrlShiftZ(container);
+    ctrlShiftZ(container);
+    expect(leafBlock(container).textContent).toBe("jumps high over!");
+    expect(core.getSuggestionGroups(controller.editorState.state).map((g) => g.id)).toEqual([groupId]);
+    controller.destroy();
+  });
+
+  it("a PROPOSE nested inside propose() (from onChange) does not hide the outer verdict; each gets its own", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const box: { started: boolean; nested?: Promise<core.ProposeResult> } = { started: false };
+    const controller = createDigitalController({
+      container,
+      componentRegistry: createDefaultComponentRegistry(),
+      attrRegistry: createDefaultAttrRegistry(),
+      containerWidth: 800,
+      doc: document,
+      onChange: (state) => {
+        if (box.started || state.lastProposal === undefined) return;
+        box.started = true;
+        box.nested = controller.propose({
+          groupId: core.newSuggestionGroupId(),
+          author: "b",
+          edits: [{ kind: "replace", from: createPosition(id, 0), to: createPosition(id, 2), text: "x" }], // overlaps the outer one
+        });
+      },
+    });
+    controller.dispatch({ type: "INSERT_TEXT", text: "hello world" });
+    const id = asBlockId(leafBlockId(container));
+    const outer = await controller.propose({
+      groupId: core.newSuggestionGroupId(),
+      author: "a",
+      edits: [{ kind: "replace", from: createPosition(id, 0), to: createPosition(id, 5), text: "howdy" }],
+    });
+    expect(outer).toEqual({ ok: true });
+    if (box.nested === undefined) throw new Error("nested propose did not run");
+    const inner = await box.nested;
+    expect(inner.ok === false && inner.reason === "rejected" ? inner.problem.kind : null).toBe("conflict");
+    controller.destroy();
+  });
+
+  it("propose() after destroy is rejected without touching the document", async () => {
+    const { controller, id } = mountWithText("abc");
+    const before = controller.editorState.state;
+    controller.destroy();
+    const result = await controller.propose({
+      groupId: core.newSuggestionGroupId(),
+      author: "a",
+      edits: [{ kind: "replace", from: createPosition(id, 0), to: createPosition(id, 1), text: "x" }],
+    });
+    expect(result).toEqual({ ok: false, reason: "rejected", problem: { kind: "invalid", message: "controller destroyed" } });
+    expect(controller.editorState.state).toBe(before);
+  });
+
+  it("a proposal based on an older version lands mapped; one whose range was edited is stale; overlaps are rejected", async () => {
+    const { controller, container, id } = mountWithText("hello world");
+    const v0 = controller.version;
+    const proposal = (from: number, to: number, text: string): core.Proposal => ({
+      groupId: core.newSuggestionGroupId(),
+      author: "assistant",
+      edits: [{ kind: "replace", from: createPosition(id, from), to: createPosition(id, to), text }],
+    });
+    controller.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(id, 0), createPosition(id, 0)) });
+    container.dispatchEvent(makeBeforeInput("insertText", { data: ">" }));
+    expect(await controller.propose(proposal(6, 11, "there"), { basedOn: v0 })).toEqual({ ok: true }); // edit BEFORE the range
+    controller.dispatch({ type: "ACCEPT_ALL_SUGGESTIONS" });
+    expect(leafBlock(container).textContent).toBe(">hello there");
+    const v1 = controller.version;
+    controller.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(id, 3), createPosition(id, 3)) });
+    container.dispatchEvent(makeBeforeInput("insertText", { data: "Z" }));
+    expect(await controller.propose(proposal(1, 6, "howdy"), { basedOn: v1 })).toEqual({ ok: false, reason: "stale" });
+    expect((await controller.propose(proposal(1, 4, "x"))).ok).toBe(true);
+    const clash = await controller.propose(proposal(2, 3, "y"));
+    expect(clash.ok === false && clash.reason === "rejected" ? clash.problem.kind : null).toBe("conflict");
+    controller.destroy();
+  });
+});

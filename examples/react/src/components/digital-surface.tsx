@@ -6,6 +6,7 @@ import { SelectionBubble } from "./selection-bubble";
 import { BlockHoverHandles } from "./block-hover-handles";
 import { FindBar, useFindShortcut } from "./find-bar";
 import { AsyncCheckBar, useAsyncCheck } from "./async-check";
+import { ASSISTANT_STYLE, SuggestEditBar, useSuggestEdit } from "./suggest-edit";
 import { createDemoExtensions, createPickerBridge, ExtensionsHint, MentionPicker } from "./mention-picker";
 import { useWritingAids, WritingAidPopover, WritingAidsToggle, type AidPointerEvent } from "./writing-aids";
 
@@ -46,6 +47,10 @@ export function DigitalSurface({
   useFindShortcut(setFindMode);
   // Async-check demo (anchors) — same as the print tab.
   const check = useAsyncCheck(editor.editorState, editor.createAnchor);
+  // Suggest-edit demo (host proposals) — same as the print tab.
+  const suggest = useSuggestEdit(editor.editorState, editor.propose);
+  const { setSuggestionStyles } = editor;
+  useEffect(() => setSuggestionStyles(ASSISTANT_STYLE), [setSuggestionStyles]);
   useWritingAids(aids, editor.editorState, editor.setDecorations, check.decorations);
 
   useEffect(() => {
@@ -60,6 +65,7 @@ export function DigitalSurface({
       <WritingAidsToggle checked={aids} onChange={setAids} />
       <ExtensionsHint />
       <AsyncCheckBar check={check} />
+      <SuggestEditBar tool={suggest} editorState={editor.editorState} dispatch={editor.dispatch} />
       <div className="relative flex-1 overflow-y-auto bg-white">
         {findMode && (
           <FindBar

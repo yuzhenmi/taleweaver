@@ -25,6 +25,7 @@ export {
   findDecorationId,
   commentHighlightDecorations,
   suggestionHighlightDecorations,
+  suggestionGroupDecorations,
   FIND_HIGHLIGHT_FILL,
   ACTIVE_FIND_HIGHLIGHT_FILL,
   COMMENT_HIGHLIGHT_FILL,
@@ -32,5 +33,5 @@ export {
   SUGGESTION_HIGHLIGHT_FILL,
   ACTIVE_SUGGESTION_HIGHLIGHT_FILL,
 } from "./builtin-highlights";
-export type { DecorationLayers } from "./decoration-layers";
+export type { DecorationLayers, SuggestionGroupStyle } from "./decoration-layers";
 export { createDecorationLayers, transitionMapping } from "./decoration-layers";

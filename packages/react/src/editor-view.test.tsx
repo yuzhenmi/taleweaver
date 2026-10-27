@@ -28,6 +28,7 @@ const mockReplaceActive = vi.fn(() => ({ total: 2, activeIndex: 0 }));
 const mockReplaceAll = vi.fn(() => ({ total: 0, activeIndex: -1 }));
 const mockFindStatus = vi.fn(() => ({ total: 3, activeIndex: 0 }));
 const mockSetDecorations = vi.fn();
+const mockSetSuggestionStyles = vi.fn();
 
 vi.mock("@taleweaver/print", async () => {
   const actual = await vi.importActual<typeof import("@taleweaver/print")>(
@@ -46,6 +47,7 @@ vi.mock("@taleweaver/print", async () => {
       replaceAll: mockReplaceAll,
       findStatus: mockFindStatus,
       setDecorations: mockSetDecorations,
+      setSuggestionStyles: mockSetSuggestionStyles,
     })),
   };
 });
@@ -153,15 +155,18 @@ describe("EditorView", () => {
     expect(mockDestroy).toHaveBeenCalledTimes(1);
   });
 
-  it("forwards the decorations prop to controller.setDecorations (after the state update)", () => {
+  it("forwards the decorations / suggestionStyles props to the controller (after the state update)", () => {
     const decorations: Decoration[] = [{ kind: "block", id: "b", blockId: asBlockId("x") }];
+    const styleOf = () => ({ class: "by-source" });
     function DecoratedHarness() {
       const editor = useEditor();
-      return <EditorView {...editor} decorations={decorations} />;
+      return <EditorView {...editor} decorations={decorations} suggestionStyles={styleOf} />;
     }
     mockSetDecorations.mockClear();
+    mockSetSuggestionStyles.mockClear();
     render(<DecoratedHarness />);
     expect(mockSetDecorations).toHaveBeenLastCalledWith(decorations, undefined);
+    expect(mockSetSuggestionStyles).toHaveBeenLastCalledWith(styleOf);
     const updateOrder = mockUpdate.mock.invocationCallOrder.at(-1) ?? 0;
     const decoOrder = mockSetDecorations.mock.invocationCallOrder.at(-1) ?? 0;
     expect(decoOrder).toBeGreaterThan(updateOrder);

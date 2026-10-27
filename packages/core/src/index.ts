@@ -205,6 +205,8 @@ export {
   buildSuggestionRangeIndex,
   resolveSuggestionRange,
   getSuggestions,
+  getSuggestionGroups,
+  suggestionGroupOf,
 } from "./state";
 export type {
   SuggestionId,
@@ -213,6 +215,7 @@ export type {
   SuggestionRange,
   ResolvedSuggestion,
   SuggestionView,
+  SuggestionGroup,
 } from "./state";
 
 // History (Y.UndoManager-backed)
@@ -434,6 +437,16 @@ export { getTypingAttrs } from "./editor/typing-attrs";
 export { createAnchorSet, mapPositionFrom } from "./editor/anchors";
 export type { Anchor, AnchorSet, AnchorOptions } from "./editor/anchors";
 export { getYDoc, subscribeRemoteChanges, rebaseSelection } from "./editor/foreign-change";
+// Host proposals: suggestion groups with metadata.
+export { newSuggestionGroupId, validateProposal, proposeResultOf, MAX_PROPOSAL_CHAIN } from "./editor/proposals";
+export type {
+  Proposal,
+  ProposedEdit,
+  ProposalProblem,
+  ProposeResult,
+  ProposalOutcome,
+  SuggestionMetadata,
+} from "./editor/proposals";
 // Host extension API: commands, keymap, input rules, triggers, transactions.
 export {
   matchKeyBinding,

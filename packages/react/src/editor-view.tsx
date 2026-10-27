@@ -22,6 +22,9 @@ import {
   type AnchorOptions,
   type Assoc,
   type MappedPosition,
+  type Proposal,
+  type ProposeResult,
+  type SuggestionGroupStyle,
   markStart,
   markEnd,
   recordSample,
@@ -79,6 +82,11 @@ export interface EditorViewProps {
    * others pass `"ignore"`. Read at mount.
    */
   remoteChanges?: "observe" | "ignore";
+  /**
+   * Host per-group styling of suggestions (e.g. per `metadata.source`), kept live by the
+   * controller through proposals, accept / reject and undo. Pass a stable function.
+   */
+  suggestionStyles?: SuggestionGroupStyle | null;
 }
 
 /**
@@ -110,6 +118,8 @@ export interface EditorViewHandle {
   mapPosition(position: Position, version: State, assoc?: Assoc): MappedPosition | null;
   /** Anchor a point / range that follows every later edit (null before mount / unmappable). */
   createAnchor(from: Position, to?: Position, options?: AnchorOptions & { readonly basedOn?: State }): Anchor | null;
+  /** Offer a proposal as one suggestion group; resolves with the reducer's verdict (see the print controller's `propose`). */
+  propose(proposal: Proposal, options?: { readonly basedOn?: State }): Promise<ProposeResult>;
 }
 
 const EMPTY_FIND_STATUS: FindStatus = { total: 0, activeIndex: -1 };
@@ -121,7 +131,7 @@ const handleProfile: ProfilerOnRenderCallback = (id, _phase, actualDuration) => 
 
 export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
   function EditorView(
-    { editorState, dispatch, containerRef, measurer, pageHeight, pageGap, pageConfig, hyphenator, decorations, decorationsBasedOn, onDecorationPointer, config, remoteChanges },
+    { editorState, dispatch, containerRef, measurer, pageHeight, pageGap, pageConfig, hyphenator, decorations, decorationsBasedOn, onDecorationPointer, config, remoteChanges, suggestionStyles },
     ref,
   ) {
   const controllerRef = useRef<EditorController | null>(null);
@@ -153,6 +163,9 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
       version: () => controllerRef.current?.version ?? null,
       mapPosition: (position, version, assoc) => controllerRef.current?.mapPosition(position, version, assoc) ?? null,
       createAnchor: (from, to, options) => controllerRef.current?.createAnchor(from, to, options) ?? null,
+      propose: (proposal, options) =>
+        controllerRef.current?.propose(proposal, options) ??
+        Promise.resolve({ ok: false, reason: "rejected", problem: { kind: "invalid", message: "not mounted" } }),
     }),
     [],
   );
@@ -185,6 +198,10 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
       markEnd("react.subscribe.notify", t);
     }
   }, [editorState]);
+
+  useEffect(() => {
+    controllerRef.current?.setSuggestionStyles(suggestionStyles ?? null);
+  }, [suggestionStyles]);
 
   // After the state update above, so decorations land on the state they were computed for.
   useEffect(() => {
