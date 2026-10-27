@@ -275,6 +275,21 @@ function readSnapshot(
   return snap;
 }
 
+/**
+ * Cache-ONLY read across all three trees: returns the snapshot this cache chain
+ * already holds for `id`, or `undefined` on a miss / invalidation stop. Never reads
+ * the Y.Doc and never promotes — safe on a SUPERSEDED State whose Y.Doc has since
+ * been mutated (a cold read there would return post-mutation content). Used by
+ * position mapping to read a transition's PREVIOUS block text.
+ */
+export function peekSnapshot(cache: SnapshotCache, id: BlockId): Block | undefined {
+  for (const kind of ["block", "embedContent", "templateContent"] as const) {
+    const { hit } = walkChain(cache, id, kind);
+    if (hit !== null) return hit;
+  }
+  return undefined;
+}
+
 export function getBlockSnapshot(
   doc: Y.Doc,
   id: BlockId,

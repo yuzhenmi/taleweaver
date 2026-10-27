@@ -46,6 +46,7 @@ function makeEditor(state: State, selection: Selection): EditorState {
     selection,
     history: createHistory(state),
     lastDirtyIds: null,
+    lastChange: null,
     containerWidth: config.containerWidth,
     targetX: null,
   };

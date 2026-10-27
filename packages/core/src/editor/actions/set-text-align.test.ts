@@ -152,6 +152,7 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
       },
       history: createHistory(initialState),
       lastDirtyIds: null,
+      lastChange: null,
       containerWidth: config.containerWidth,
       targetX: null,
     };

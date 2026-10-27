@@ -1,6 +1,7 @@
 import { createPosition, createSpan, iterateLeafBlocksInDocumentOrder } from "../../state";
 import type { State, BlockId, Selection } from "../../state";
 import type { EditorState, EditorConfig } from "../editor-state";
+import { recordChange } from "../editor-state";
 import { cascadePass, cascadePassIncremental } from "../../cascade";
 import type { ElementBox, RenderNode } from "../../render/render-node";
 import type { RenderOutput } from "../../render/render";
@@ -13,17 +14,21 @@ import type { RenderOutput } from "../../render/render";
  * backend consumes to rebuild layout incrementally (reusing unchanged subtrees
  * by reference). `dirtyIds === undefined` records `null` (a full rebuild).
  *
- * `_oldEditor` / `_config` are retained in the signature (every mutating
- * handler calls `rebuildTrees(newEditor, oldEditor, config, dirtyIds)`) but are
- * no longer read — core carries no prior geometry to thread.
+ * `oldEditor` is the handler's input (the pre-action editor): its `state` is what
+ * `lastChange.from` records, so position mapping knows which State `dirtyIds` is relative
+ * to. `_config` is retained in the signature but no longer read.
  */
 export function rebuildTrees(
   newEditor: EditorState,
-  _oldEditor: EditorState,
+  oldEditor: EditorState,
   _config: EditorConfig,
   dirtyIds?: ReadonlySet<BlockId>,
 ): EditorState {
-  return { ...newEditor, lastDirtyIds: dirtyIds ?? null };
+  return {
+    ...newEditor,
+    lastDirtyIds: dirtyIds ?? null,
+    lastChange: dirtyIds !== undefined ? recordChange(oldEditor.lastChange, oldEditor.state, dirtyIds) : null,
+  };
 }
 
 /**

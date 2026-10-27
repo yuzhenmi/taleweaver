@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { EditorView, type EditorViewHandle } from "@taleweaver/react";
-import { setPerfTraceEnabled, report, resetPerfTrace, type State } from "@taleweaver/core";
+import { setPerfTraceEnabled, report, resetPerfTrace, type Decoration, type State } from "@taleweaver/core";
 import { usePerfEditor } from "../use-perf-editor";
 import { EditorChrome } from "./editor-chrome";
-import { FindBar } from "./find-bar";
+import { FindBar, useFindShortcut } from "./find-bar";
+import { useWritingAids, WritingAidPopover, WritingAidsToggle, type AidPointerEvent } from "./writing-aids";
 
 const PAGE_HEIGHT = 1056; // US Letter at 96 DPI
 const PAGE_GAP = 24;
@@ -24,6 +25,18 @@ export function PrintSurface({
   const editor = usePerfEditor(seed ?? undefined);
   const viewRef = useRef<EditorViewHandle>(null);
   const [findMode, setFindMode] = useState<null | "find" | "replace">(null);
+  // Same writing-aids decoration demo as the digital tab.
+  const [aids, setAids] = useState(true);
+  const [aidResult, setAidResult] = useState<{ decorations: readonly Decoration[]; basedOn: State | undefined }>({
+    decorations: [],
+    basedOn: undefined,
+  });
+  const setDecorations = useCallback(
+    (decorations: readonly Decoration[], basedOn: State) => setAidResult({ decorations, basedOn }),
+    [],
+  );
+  const [pointer, setPointer] = useState<AidPointerEvent | null>(null);
+  useWritingAids(aids, editor.editorState, setDecorations);
 
   // Register the live-state getter for the tab-bar hand-off (stable across renders).
   useEffect(() => {
@@ -47,27 +60,12 @@ export function PrintSurface({
     };
   }, [editor.isPerfFixture]);
 
-  // Ctrl/Cmd+F → find; Ctrl/Cmd+H → replace (find/replace is print-only in v1).
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      const mod = e.ctrlKey || e.metaKey;
-      if (!mod || e.altKey) return;
-      const key = e.key.toLowerCase();
-      if (key === "f") {
-        e.preventDefault();
-        setFindMode("find");
-      } else if (key === "h") {
-        e.preventDefault();
-        setFindMode("replace");
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  useFindShortcut(setFindMode);
 
   return (
     <>
       <EditorChrome dispatch={editor.dispatch} editorState={editor.editorState} focus={editor.focus} />
+      <WritingAidsToggle checked={aids} onChange={setAids} />
       <div className="relative flex-1 overflow-y-auto bg-[#f9fbfd]">
         {findMode && viewRef.current && (
           <FindBar
@@ -81,9 +79,18 @@ export function PrintSurface({
           />
         )}
         <div className="mx-auto mt-4 mb-12" style={{ width: 816 }}>
-          <EditorView {...editor} ref={viewRef} pageHeight={PAGE_HEIGHT} pageGap={PAGE_GAP} />
+          <EditorView
+            {...editor}
+            ref={viewRef}
+            pageHeight={PAGE_HEIGHT}
+            pageGap={PAGE_GAP}
+            decorations={aidResult.decorations}
+            decorationsBasedOn={aidResult.basedOn}
+            onDecorationPointer={setPointer}
+          />
         </div>
       </div>
+      <WritingAidPopover event={pointer} />
     </>
   );
 }

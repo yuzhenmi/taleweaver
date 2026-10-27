@@ -15,6 +15,8 @@ import {
   type PageConfig,
   type Hyphenator,
   type Position,
+  type Decoration,
+  type State,
   markStart,
   markEnd,
   recordSample,
@@ -25,6 +27,7 @@ import {
   type EditorController,
   type FindStatus,
   type CaretViewportRect,
+  type PrintDecorationPointerEvent,
 } from "@taleweaver/print";
 
 export interface EditorViewProps {
@@ -42,6 +45,20 @@ export interface EditorViewProps {
    */
   pageConfig?: PageConfig;
   hyphenator?: Hyphenator;
+  /**
+   * View-only host decorations (see core `Decoration`). Applied after the editor state
+   * they were computed against; the controller keeps them mapped through later edits
+   * until this prop changes.
+   */
+  decorations?: readonly Decoration[];
+  /**
+   * The document `State` `decorations` were computed against (default: the current one).
+   * Pass it when decorations are computed asynchronously: the controller maps them through
+   * the edits made since, or drops them when that State is too old to map.
+   */
+  decorationsBasedOn?: State;
+  /** Hover / click on decorated content (built-in highlights included). */
+  onDecorationPointer?: (event: PrintDecorationPointerEvent) => void;
 }
 
 /**
@@ -78,10 +95,13 @@ const handleProfile: ProfilerOnRenderCallback = (id, _phase, actualDuration) => 
 
 export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
   function EditorView(
-    { editorState, dispatch, containerRef, measurer, pageHeight, pageGap, pageConfig, hyphenator },
+    { editorState, dispatch, containerRef, measurer, pageHeight, pageGap, pageConfig, hyphenator, decorations, decorationsBasedOn, onDecorationPointer },
     ref,
   ) {
   const controllerRef = useRef<EditorController | null>(null);
+  // Latest pointer callback, read through a ref so the mount-only controller sees updates.
+  const pointerRef = useRef(onDecorationPointer);
+  pointerRef.current = onDecorationPointer;
 
   // Imperative handle (#433): delegate the controller's find/replace methods.
   // Each closure reads `controllerRef.current` lazily (at call time, not capture
@@ -118,6 +138,7 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
       pageGap,
       pageConfig,
       hyphenator,
+      onDecorationPointer: (event) => pointerRef.current?.(event),
     });
     controllerRef.current = ctrl;
     ctrl.update(editorState);
@@ -133,6 +154,11 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
       markEnd("react.subscribe.notify", t);
     }
   }, [editorState]);
+
+  // After the state update above, so decorations land on the state they were computed for.
+  useEffect(() => {
+    controllerRef.current?.setDecorations(decorations ?? [], decorationsBasedOn);
+  }, [decorations, decorationsBasedOn]);
 
   return (
     <Profiler id="EditorView" onRender={handleProfile}>

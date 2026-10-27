@@ -141,6 +141,7 @@ module imports its type vocabulary.
 6. [`1.6-perf.md`](./1.6-perf.md) — instrumentation.
 7. [`1.7-serialization.md`](./1.7-serialization.md) — pluggable document (de)serialization, the serializer registry, the v1 lossless Yjs-binary format.
 8. [`1.8-accessibility.md`](./1.8-accessibility.md) — the geometry-free `AccessibilityNode` semantic projection (`buildAccessibilityTree`); a read-side sibling of `getOutline`/`extractText`.
+9. [`1.9-decorations.md`](./1.9-decorations.md) — view-only decorations (inline / widget / block), `DecorationSet`, the shared decoration layers (built-in find/comment/suggestion highlights included), and text-diff position mapping across transitions.
 
 The GEOMETRIC layers that consume this `core` brain — the box-layout engine
 (BFC/IFC/Table FC, floats, used-style resolution), pagination
@@ -171,6 +172,8 @@ in `@taleweaver/print`; see [`../2-print/overview.md`](../2-print/overview.md).
 **Editor** — `EditorAction`, `EditorState`, `EditorConfig`. `createInitialEditorState`, `reduceEditor`. `findFirstContentBlock`, `findLastContentBlock`.
 
 **Line traversal** — RELOCATED to `@taleweaver/print` (`AbsoluteLineBox`, `LineLeaf`, `collectLineBoxes`, `collectLineLeaves`, `findLineForPosition`). The LineBox-canonical line-level geometry queries are geometric, so they live with the rest of the geometric cursor surface in `@taleweaver/print`; import them from there.
+
+**Decorations & position mapping** — Types: `Decoration`, `InlineDecoration`, `WidgetDecoration`, `BlockDecoration`, `DecorationAttrs`, `DecorationStyle`, `DecorationSet`, `BlockDecorations`, `InlineSegment`, `DecorationLayers`, `CommentHighlight`, `SuggestionHighlight`, `PositionMapping`, `MappedPosition`, `Assoc`. Functions: `createDecorationSet`, `mapDecorationSet`, `mergeDecorationSets`, `changedDecorationBlocks`, `decorationsAt`, `createDecorationLayers`, `transitionMapping`, `findHighlightDecorations`, `commentHighlightDecorations`, `suggestionHighlightDecorations`, `createPositionMapping`, `IDENTITY_MAPPING`, `UNKNOWN_MAPPING` (see `1.9-decorations.md`).
 
 **Accessibility** — `buildAccessibilityTree`. Types: `AccessibilityNode`, `AccessibilityRole`, `AccessibilityTextRun`, `BuildAccessibilityTreeOptions`. The geometry-free semantic projection (see `1.8-accessibility.md`).
 

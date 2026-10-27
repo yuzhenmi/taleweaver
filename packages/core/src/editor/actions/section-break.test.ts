@@ -91,6 +91,7 @@ function makeEditor(cursorBlock: BlockId): EditorState {
     selection: { anchor: cursor, focus: cursor },
     history: createHistory(initialState),
     lastDirtyIds: null,
+    lastChange: null,
     containerWidth: config.containerWidth,
     targetX: null,
   };

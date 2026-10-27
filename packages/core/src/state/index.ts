@@ -66,6 +66,8 @@ export {
 } from "./state";
 
 export { subscribeForeignChanges } from "./collab";
+export type { Assoc, MappedPosition, PositionMapping } from "./position-mapping";
+export { createPositionMapping, IDENTITY_MAPPING, UNKNOWN_MAPPING } from "./position-mapping";
 export { runWithTransactionOrigin } from "./yjs-doc";
 
 // Block snapshot type and the insert-time partial-block shape.

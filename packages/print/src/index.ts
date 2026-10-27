@@ -13,17 +13,11 @@ export { FONT_CONFIG, buildCssFontString, getEffectiveStyles } from "./font-conf
 export { createCanvasMeasurer } from "./canvas-measurer";
 export { createCanvasShaper } from "./canvas-shaper";
 export { mapKeyEvent } from "./key-handler";
-export type { CursorState, MatchHighlightRect, CommentHighlightRect, SuggestionHighlightRect } from "./canvas-renderer";
-export {
-  paintCanvas,
-  paintPage,
-  MATCH_HIGHLIGHT_FILL,
-  ACTIVE_MATCH_HIGHLIGHT_FILL,
-  COMMENT_HIGHLIGHT_FILL,
-  ACTIVE_COMMENT_HIGHLIGHT_FILL,
-  SUGGESTION_HIGHLIGHT_FILL,
-  ACTIVE_SUGGESTION_HIGHLIGHT_FILL,
-} from "./canvas-renderer";
+export type { CursorState } from "./canvas-renderer";
+export { paintCanvas, paintPage } from "./canvas-renderer";
+// Decoration paint fragments (the renderer's input type; the fills of the
+// built-in find / comment / suggestion highlights live in core).
+export type { DecorationRect, DecorationUnderlinePaint } from "./decoration-geometry";
 // `taleweaver-html` (de)serialization now lives in `@taleweaver/core`
 // (`state/serialize/`); core stays DOM-free by parsing through an injected
 // `HtmlParser`. This package provides the browser DOM adapter that supplies one.
@@ -43,11 +37,11 @@ export {
   readMirrorSelection,
 } from "./dom-mirror-selection";
 export { createEditorController } from "./editor-controller";
-export type { EditorController, EditorControllerOptions, FindStatus, CommentHighlight, SuggestionHighlight, CaretViewportRect } from "./editor-controller";
+export type { EditorController, EditorControllerOptions, FindStatus, CommentHighlight, SuggestionHighlight, CaretViewportRect, PrintDecorationPointerEvent } from "./editor-controller";
 export type { PrintPdfEmitInput, PdfEmitter } from "./pdf-export";
 export { ImageCache } from "./image-cache";
 export type { PaintInputHash, PaintCache } from "./paint-cache";
-export type { Rect, CursorSnapshot, MatchHighlightRectSnapshot, CommentHighlightRectSnapshot, SuggestionHighlightRectSnapshot } from "./paint-cache";
+export type { Rect, CursorSnapshot, DecorationRectSnapshot } from "./paint-cache";
 export { hashPaintInputs, createPaintCache } from "./paint-cache";
 
 // The read-only DOM viewer + contenteditable editing backend moved to @taleweaver/digital

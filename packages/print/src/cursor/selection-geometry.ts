@@ -190,6 +190,29 @@ export function computeSelectionRectsForPage(
   anchorAffinity?: CaretAffinity,
   focusAffinity?: CaretAffinity,
 ): SelectionRect[] {
+  return computeSelectionRectsForPageRange(
+    state, span, pageBox, pageIndex, startPos.pageIndex, endPos.pageIndex,
+    shaperOrMeasurer, anchorAffinity, focusAffinity,
+  );
+}
+
+/**
+ * {@link computeSelectionRectsForPage} given only the PAGE INDICES the span's
+ * start and end land on — all it reads from the resolved pixel positions. Lets a
+ * caller that already knows a block's page (e.g. from the page plan) skip the
+ * pixel-position resolution.
+ */
+export function computeSelectionRectsForPageRange(
+  state: State,
+  span: Span,
+  pageBox: LayoutBox,
+  pageIndex: number,
+  startPage: number,
+  endPage: number,
+  shaperOrMeasurer: TextShaper | TextMeasurer,
+  anchorAffinity?: CaretAffinity,
+  focusAffinity?: CaretAffinity,
+): SelectionRect[] {
   const t = markStart("cursor.selection-geometry");
   try {
     // #503 (see `computeSelectionRects`): a logically-collapsed span is VISUALLY
@@ -199,8 +222,6 @@ export function computeSelectionRectsForPage(
     if (positionsEqual(span.anchor, span.focus) && !affinitiesDiffer(anchorAffinity, focusAffinity)) {
       return [];
     }
-    const startPage = startPos.pageIndex;
-    const endPage = endPos.pageIndex;
     if (pageIndex < startPage || pageIndex > endPage) return [];
 
     const measurer: TextMeasurer = isTextShaper(shaperOrMeasurer)

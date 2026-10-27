@@ -45,6 +45,16 @@ export {
   resolveBlock,
 } from "./state";
 export { createEmptyDocument } from "./state";
+export type { Assoc, MappedPosition, PositionMapping } from "./state";
+export { createPositionMapping, IDENTITY_MAPPING, UNKNOWN_MAPPING } from "./state";
+export * from "./decorations";
+export type { FindSession, FindStatus } from "./editor/find-session";
+export { createFindSession } from "./editor/find-session";
+export type { DocumentChange } from "./editor/editor-state";
+export { MAX_CHANGE_CHAIN } from "./editor/editor-state";
+export type { FindRefresh } from "./editor/find-session";
+export type { MappingLog } from "./editor/mapping-log";
+export { createMappingLog, composeMappings, DEFAULT_MAPPING_LOG_CAPACITY } from "./editor/mapping-log";
 // Declarative construction: lower a nested `BlockNode` tree → `State` (mints
 // ids, derives all structural links). The safe public counterpart to the
 // internal bulk constructor; the foundation importers (e.g. the HTML

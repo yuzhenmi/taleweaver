@@ -76,6 +76,7 @@ describe("handleSetBlockType — same-kind transitions succeed (regression #155)
       selection: { anchor: { blockId: "li" as BlockId, offset: 0 }, focus: { blockId: "li" as BlockId, offset: 0 } },
       history: createHistory(initialState),
       lastDirtyIds: null,
+      lastChange: null,
       containerWidth: config.containerWidth,
       targetX: null,
     };

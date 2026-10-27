@@ -5,7 +5,7 @@
  * can bind to it. Counterpart to `usePerfEditor` (the print/canvas backend); the
  * tab-bar swaps between the two, handing the live `State` off on switch.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
@@ -18,7 +18,13 @@ import {
   type PageConfig,
   type State,
 } from "@taleweaver/core";
-import { createDigitalController, type DigitalController } from "@taleweaver/digital";
+import {
+  createDigitalController,
+  type DigitalController,
+  type DecorationPointerEvent,
+} from "@taleweaver/digital";
+import type { Decoration, FindStatus } from "@taleweaver/core";
+import type { FindHandle } from "./components/find-bar";
 
 const PAGE_CONFIG: PageConfig = {
   pageInlineSize: 816,
@@ -34,9 +40,16 @@ export interface UseDigitalEditorResult {
   focus: () => void;
   /** The live core `State` — read at a tab-bar switch to hand off the document. */
   getState: () => State;
+  /** Replace the host decoration layer (view-only; mapped through edits). */
+  setDecorations: (decorations: readonly Decoration[], basedOn?: State) => void;
+  /** Find / replace, same surface as the print `EditorViewHandle` (drives the shared find bar). */
+  findHandle: FindHandle;
 }
 
-export function useDigitalEditor(initialState?: State): UseDigitalEditorResult {
+export function useDigitalEditor(
+  initialState?: State,
+  onDecorationPointer?: (event: DecorationPointerEvent) => void,
+): UseDigitalEditorResult {
   // Registries + config built once (stable across renders).
   const configRef = useRef<EditorConfig | null>(null);
   if (configRef.current === null) {
@@ -64,6 +77,9 @@ export function useDigitalEditor(initialState?: State): UseDigitalEditorResult {
   // `key`, so a fresh hook instance picks up the new seed). Holding it in a ref keeps
   // the mount effect's dependency array empty without lying to the linter.
   const seedRef = useRef(initialState);
+  // Latest pointer callback, read through a ref so the mount effect stays one-shot.
+  const pointerRef = useRef(onDecorationPointer);
+  pointerRef.current = onDecorationPointer;
 
   useEffect(() => {
     const el = containerRef.current;
@@ -75,6 +91,7 @@ export function useDigitalEditor(initialState?: State): UseDigitalEditorResult {
       pageConfig: PAGE_CONFIG,
       initialState: seedRef.current,
       onChange: setEditorState,
+      onDecorationPointer: (event) => pointerRef.current?.(event),
     });
     controllerRef.current = controller;
     // No initial setEditorState here: the `useState` initializer already seeded the
@@ -103,5 +120,22 @@ export function useDigitalEditor(initialState?: State): UseDigitalEditorResult {
     [],
   );
 
-  return { editorState, dispatch, containerRef, focus, getState };
+  const setDecorations = useCallback((decorations: readonly Decoration[], basedOn?: State) => {
+    controllerRef.current?.setDecorations(decorations, basedOn);
+  }, []);
+
+  const findHandle = useMemo<FindHandle>(() => {
+    const none: FindStatus = { total: 0, activeIndex: -1 };
+    return {
+      findStart: (query, options) => controllerRef.current?.findStart(query, options) ?? none,
+      findNext: () => controllerRef.current?.findNext() ?? none,
+      findPrev: () => controllerRef.current?.findPrev() ?? none,
+      findClose: () => controllerRef.current?.findClose(),
+      findStatus: () => controllerRef.current?.findStatus() ?? none,
+      replaceActive: (r) => controllerRef.current?.replaceActive(r) ?? none,
+      replaceAll: (r) => controllerRef.current?.replaceAll(r) ?? none,
+    };
+  }, []);
+
+  return { editorState, dispatch, containerRef, focus, getState, setDecorations, findHandle };
 }

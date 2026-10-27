@@ -1,6 +1,6 @@
 import type { BlockId } from "../state";
 import { freshState } from "../state";
-import { clearTransientViewState, type EditorState } from "./editor-state";
+import { clearTransientViewState, recordChange, type EditorState } from "./editor-state";
 
 /**
  * Apply a PEER's edit to the local `EditorState` (live-collab P1).
@@ -46,5 +46,6 @@ export function reconcileForeignChange(
     ...editor,
     state: freshState(editor.state, dirtyIds),
     lastDirtyIds: dirtyIds,
+    lastChange: recordChange(editor.lastChange, editor.state, dirtyIds),
   });
 }

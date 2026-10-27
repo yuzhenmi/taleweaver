@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { iterateBlocksInDocumentOrder, iterateLeafBlocksInDocumentOrder } from "./document-order";
 import { buildState, buildBlock } from "../test-utils/state-builders";
+import { asBlockId } from "./block-id";
 
 describe("iterateBlocksInDocumentOrder", () => {
   it("yields blocks depth-first: parent, children, then next sibling", () => {
@@ -16,6 +17,33 @@ describe("iterateBlocksInDocumentOrder", () => {
     });
     const ids = [...iterateBlocksInDocumentOrder(state)].map((b) => b.id);
     expect(ids).toEqual(["root", "a", "a1", "b"]);
+  });
+
+  it("walks a long flat chain in linear time and still detects a sibling cycle", () => {
+    // 10,000 siblings: past the guard's lazy threshold, the block-count bound must be
+    // computed once per walk — a per-step O(blocks) bound made this ~60M map iterations.
+    const n = 10_000;
+    const ids = Array.from({ length: n }, (_, i) => `p${i}`);
+    const blocks = [
+      buildBlock({ id: "root", type: "doc", firstChildId: "p0", lastChildId: `p${n - 1}` }),
+      ...ids.map((id, i) =>
+        buildBlock({
+          id,
+          type: "paragraph",
+          parentId: "root",
+          prevSiblingId: i > 0 ? `p${i - 1}` : null,
+          nextSiblingId: i < n - 1 ? `p${i + 1}` : null,
+          inlineContent: { items: [] },
+        }),
+      ),
+    ];
+    const t = performance.now();
+    expect([...iterateBlocksInDocumentOrder(buildState({ rootId: "root", blocks }))].length).toBe(n + 1);
+    expect(performance.now() - t).toBeLessThan(1000);
+
+    const cyclic = blocks.map((b) => (b.id === `p${n - 1}` ? { ...b, nextSiblingId: asBlockId("p5000") } : b));
+    const cyclicState = buildState({ rootId: "root", blocks: cyclic });
+    expect(() => [...iterateBlocksInDocumentOrder(cyclicState)]).toThrow(/cycle/);
   });
 
   it("yields just the root for a single-block doc", () => {

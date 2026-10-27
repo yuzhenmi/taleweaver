@@ -71,6 +71,7 @@ function buildEditor(state: State, caret: { blockId: BlockId; offset: number }):
     selection: createSpan(cursor, cursor),
     history: createHistory(state),
     lastDirtyIds: null,
+    lastChange: null,
     containerWidth: config.containerWidth,
     targetX: null,
   };

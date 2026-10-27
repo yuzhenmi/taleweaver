@@ -949,9 +949,8 @@ Render (slice 5):
   suggestionId)` in `cursor/suggestion-rects.ts` (barrel-exported).
 - 6b DOM-controller overlay: `setSuggestionHighlights(highlights)` /
   `clearSuggestionHighlights()` on the DOM controller — exact mirror of the comment
-  overlay; two-stage self-healing; painting a TEAL band BELOW the comment band (full
-  layering: bg→suggestion→comment→find→selection→text) via `paintSuggestionHighlights`
-  + `SuggestionHighlightRect` + `addSuggestionHighlightDirty`.
+  overlay; a TEAL band BELOW the comment band (layering bg→suggestion→comment→find→
+  selection→text), drawn as a decoration on the shared decoration layer.
 
 REMAINING:
 - **`5c-structural` RENDER surface — DEFERRED.** The RENDER block-box merge
@@ -1123,13 +1122,11 @@ dispatches `PASTE { text }` only. `browserHtmlParser` is injected into
 `paintCanvas` and `paintPage` both work. Viewport culling works. Two paint paths
 (with cache, without cache) both correct. Root short-circuit in
 `walkAndDetectChanges` fires correctly when wired via the controller's paint cache.
-The overlay band is `background → suggestion highlights → comment highlights → match
-highlights → selection → text`. The find-match highlight overlay (`MatchHighlightRect[]`)
-paints under the selection tint and under text, with `addMatchHighlightDirty` per-page
-dirty marking. The comment highlight overlay (`CommentHighlightRect[]`, amber) paints
-below the find highlights; the controller's `setCommentHighlights` /
-`clearCommentHighlights` store `{ commentId, active }` and re-resolve each comment's
-range from live state every `update()`. The find SESSION + navigation shipped:
+The overlay band is `background → decorations (block backgrounds, then inline bands +
+underlines in layer order: suggestions → comments → find → host) → selection → text`.
+Find / comment / suggestion highlights are decorations on the controller's core
+`DecorationLayers` (see the "Decorations & position mapping" entry); ONE
+`paintDecorations` + `addDecorationDirty` path paints and dirty-tracks them all. The find SESSION + navigation shipped:
 `findStart`/`findNext`/`findPrev`/`findClose` (returning `FindStatus`) run
 `findMatches`, highlight + cycle (wrap) the active match, scroll it into view via
 `scrollVisualIntoView`, and live-recompute on every doc edit in `update()`. The
@@ -1188,6 +1185,21 @@ emitter does not emit `display` (tag choice carries it), so a cascaded
 acceptable for a flowing read-only view (no floats/clear in this scope), a recorded
 gap not a silent one. See [`3-digital/3.1-dom-view.md`](./3-digital/3.1-dom-view.md).
 
+### Decorations & position mapping `[implemented]` (browser smoke pending)
+
+Core `decorations/` (types, `DecorationSet`, `DecorationLayers`, built-in find /
+comment / suggestion highlights as decorations) and `state/position-mapping.ts`
+(text-diff mapping across any transition, incl. split/merge, undo and foreign changes)
+`[implemented]`. Digital draws inline / widget / block decorations (widgets ordered by
+side, outside inline wrappers, caret-hopped on arrows), reports pointer events, and
+draws its find/comment/suggestion highlights through the layer `[implemented]`
+(browser smoke pending). Print draws inline bands + underlines and block backgrounds through
+ONE lazily-resolved, per-page-cached paint path (its find/comment/suggestion highlights
+are decoration layers too), renders widgets as zero-offset DOM overlays at their caret
+rect (no text reflow), and reports pointer events `[implemented]` — see
+[`2-print/2.8-editor-controller.md`](./2-print/2.8-editor-controller.md). See
+[`1-core/1.9-decorations.md`](./1-core/1.9-decorations.md).
+
 ### Digital interactive controller `[implemented]`
 
 `@taleweaver/digital`'s `editor-digital/` is the interactive `contenteditable`
@@ -1198,10 +1210,12 @@ reconciler → optional `onChange` host notification). It maps native `beforeinp
 (`map-before-input`), `keydown` (`map-digital-key` — a thin non-nav chord map that
 deliberately avoids `print`'s geometric `NavIntent` mapper), `selectionchange`, IME
 composition, and clipboard events to geometry-free `EditorAction`s; the
-`digital-reconciler` diffs each new `EditorState` into minimal DOM mutations; the
+`digital-reconciler` renders incrementally (render + cascade reuse) and patches only the
+DOM units whose styled node or decorations changed; the
 `digital-selection-bridge` translates the browser `Selection` to core `Position`s by
 walking `data-block-id` elements and measuring UTF-16 units. The browser owns caret
-geometry/navigation. Rich clipboard (three-flavor copy/paste + paste-without-formatting
+geometry/navigation. Find / replace (`findStart` … `replaceAll`, same contract as print) runs on core's
+`createFindSession` with matches drawn as decorations. Rich clipboard (three-flavor copy/paste + paste-without-formatting
 via Ctrl/Cmd+Shift+V) is wired symmetrically to the print controller; digital ships
 its own `html-parser.ts` DOM adapter injected into `EditorConfig.htmlParser` (the
 `digital ↛ print` boundary is preserved). See
@@ -1224,7 +1238,8 @@ across renders.
 ### `editor-view` `[implemented]`
 
 Mount / update / unmount lifecycle works. Controller wiring works. React.Profiler
-instrumentation works.
+instrumentation works. Decorations: `decorations` / `decorationsBasedOn` /
+`onDecorationPointer` props forward to the print controller's decoration layer.
 
 ---
 

@@ -1,16 +1,18 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { State } from "@taleweaver/core";
 import { useDigitalEditor } from "../use-digital-editor";
 import { EditorChrome } from "./editor-chrome";
 import { SelectionBubble } from "./selection-bubble";
 import { BlockHoverHandles } from "./block-hover-handles";
+import { FindBar, useFindShortcut } from "./find-bar";
+import { useWritingAids, WritingAidPopover, WritingAidsToggle, type AidPointerEvent } from "./writing-aids";
 
 /**
  * The DIGITAL editing surface: the `@taleweaver/digital` contenteditable backend
  * — the browser flows the styled tree to the container width; NO print geometry,
  * NO pagination. Shares the same chrome (the toolbar dispatches the same
  * `EditorAction`s). Exposes its live `State` via `registerGetState` for the
- * tab-bar hand-off. Find/replace (print-geometry-specific) is omitted in v1.
+ * tab-bar hand-off. Find/replace and the writing-aids demo are shared with the print tab.
  *
  * Notion-style canvas: there is NO "page" (page chrome is a print-only concept).
  * The editor is a blank canvas whose content is capped to a comfortable reading
@@ -24,7 +26,12 @@ export function DigitalSurface({
   seed: State | null;
   registerGetState: (getState: () => State) => void;
 }) {
-  const editor = useDigitalEditor(seed ?? undefined);
+  const [pointer, setPointer] = useState<AidPointerEvent | null>(null);
+  const editor = useDigitalEditor(seed ?? undefined, setPointer);
+  const [aids, setAids] = useState(true);
+  const [findMode, setFindMode] = useState<null | "find" | "replace">(null);
+  useFindShortcut(setFindMode);
+  useWritingAids(aids, editor.editorState, editor.setDecorations);
 
   useEffect(() => {
     registerGetState(editor.getState);
@@ -35,12 +42,25 @@ export function DigitalSurface({
       <EditorChrome dispatch={editor.dispatch} editorState={editor.editorState} focus={editor.focus} />
       {/* Blank canvas — no page sheet/shadow/backdrop. Content is centered and capped to a
           comfortable reading column (Notion-style), so the browser flows to that width. */}
+      <WritingAidsToggle checked={aids} onChange={setAids} />
       <div className="relative flex-1 overflow-y-auto bg-white">
+        {findMode && (
+          <FindBar
+            handle={editor.findHandle}
+            mode={findMode}
+            editorState={editor.editorState}
+            onClose={() => {
+              setFindMode(null);
+              editor.focus();
+            }}
+          />
+        )}
         <div
           ref={editor.containerRef}
           className="mx-auto min-h-[60vh] w-full max-w-[720px] px-6 py-16 outline-none"
         />
       </div>
+      <WritingAidPopover event={pointer} />
       <SelectionBubble dispatch={editor.dispatch} editorState={editor.editorState} containerRef={editor.containerRef} />
       <BlockHoverHandles
         dispatch={editor.dispatch}

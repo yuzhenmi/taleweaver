@@ -7,15 +7,24 @@ import {
   type ComponentRegistry,
   type AttrRegistry,
   type SuggestionView,
+  type RenderOutput,
+  type BlockId,
+  cascadePassIncremental,
+  type DecorationSet,
+  EMPTY_DECORATION_SET,
   render,
+  asBlockId,
   cascadePass,
   isExportSafeLinkUrl,
 } from "@taleweaver/core";
 import { computedStyleToInlineStyle } from "./computed-style-to-css";
+import { decorateBlockElement } from "./decorate-dom";
 
 export interface RenderDocumentToDomOptions {
   readonly suggestionView?: SuggestionView;
   readonly stampBlockIds?: boolean; // digital controller passes true
+  /** View-only decorations drawn into each stamped block (requires `stampBlockIds`). */
+  readonly decorations?: DecorationSet;
 }
 
 /**
@@ -31,14 +40,51 @@ export function renderDocumentToDom(
   doc: Document,
   options?: RenderDocumentToDomOptions,
 ): HTMLElement {
-  const out = render(
-    state,
-    componentRegistry,
-    attrRegistry,
-    options?.suggestionView !== undefined ? { suggestionView: options.suggestionView } : undefined,
-  );
-  const root = cascadePass(out.root);
-  const dom = renderNodeToDom(root, doc, options?.stampBlockIds ?? false);
+  const { cascaded } = renderStyled(state, componentRegistry, attrRegistry, options);
+  return styledRootToDom(cascaded, doc, options?.stampBlockIds ?? false, options?.decorations);
+}
+
+/** A styled tree: the render output plus its cascaded root. */
+export interface StyledTree {
+  readonly out: RenderOutput;
+  readonly cascaded: RenderNode;
+}
+
+/**
+ * render() → cascade, full or incremental (pass the previous tree + its State + the dirty
+ * set). The ONE place digital runs the pipeline, so render options such as
+ * `suggestionView` can never drift between the viewer, a full rebuild and an incremental
+ * reconcile.
+ */
+export function renderStyled(
+  state: State,
+  componentRegistry: ComponentRegistry,
+  attrRegistry: AttrRegistry,
+  options?: Pick<RenderDocumentToDomOptions, "suggestionView">,
+  incremental?: { readonly prev: StyledTree; readonly prevState: State; readonly dirtyIds: ReadonlySet<BlockId> },
+): StyledTree {
+  const view = options?.suggestionView !== undefined ? { suggestionView: options.suggestionView } : {};
+  if (incremental === undefined) {
+    const out = render(state, componentRegistry, attrRegistry, view);
+    return { out, cascaded: cascadePass(out.root) };
+  }
+  const out = render(state, componentRegistry, attrRegistry, {
+    ...view,
+    prev: incremental.prev.out,
+    prevState: incremental.prevState,
+    dirtyIds: incremental.dirtyIds,
+  });
+  return { out, cascaded: cascadePassIncremental(out.root, incremental.prev.out.root, incremental.prev.cascaded) };
+}
+
+/** Materialize a cascaded document root as ONE element (wrapping a fragment/null root). */
+export function styledRootToDom(
+  root: RenderNode,
+  doc: Document,
+  stamp: boolean,
+  decorations: DecorationSet = EMPTY_DECORATION_SET,
+): HTMLElement {
+  const dom = renderNodeToDom(root, doc, stamp, decorations);
   // The document root component is display:block → one <div>. If it ever unwraps
   // (fragment) or skips (null), wrap so the HTMLElement contract holds.
   if (dom instanceof HTMLElement) return dom;
@@ -51,12 +97,41 @@ export function renderDocumentToDom(
  * Map a single styled-tree node to DOM. Returns `null` for nodes that emit
  * nothing (`display:none`).
  */
-export function renderNodeToDom(node: RenderNode, doc: Document, stamp = false): Node | null {
+export function renderNodeToDom(
+  node: RenderNode,
+  doc: Document,
+  stamp = false,
+  decorations: DecorationSet = EMPTY_DECORATION_SET,
+): Node | null {
   if (node.type === "text") return textBoxToDom(node, doc);
-  return elementBoxToDom(node, doc, stamp);
+  return elementBoxToDom(node, doc, stamp, decorations);
 }
 
-function elementBoxToDom(box: ElementBox, doc: Document, stamp: boolean): Node | null {
+/**
+ * Render ONE stamped block node exactly as the whole-document render would place it (the
+ * digital reconciler's per-block path): a list-item yields its `<li>` (marker included,
+ * nested sub-lists NOT — they belong to the run), anything else its element. Returns null
+ * for nodes that emit no element (`display:none`, unwrapped sections).
+ */
+export function renderBlockToDom(
+  node: ElementBox,
+  doc: Document,
+  decorations: DecorationSet = EMPTY_DECORATION_SET,
+): HTMLElement | null {
+  if (listMetaOf(node) !== undefined) return listItemToDom(node, doc, true, decorations);
+  const dom = elementBoxToDom(node, doc, true, decorations);
+  return dom instanceof HTMLElement ? dom : null;
+}
+
+/** Draw a stamped block's decorations once its content is built (no-op unless stamped). */
+function decorate(elem: HTMLElement, box: ElementBox, decorations: DecorationSet, doc: Document): void {
+  if (elem.getAttribute("data-block-id") !== box.key) return;
+  const decos = decorations.forBlock(asBlockId(box.key));
+  if (decos.inline.length === 0 && decos.widgets.length === 0 && decos.block.length === 0) return;
+  decorateBlockElement(elem, decos, doc);
+}
+
+function elementBoxToDom(box: ElementBox, doc: Document, stamp: boolean, decorations: DecorationSet): Node | null {
   const m = box.metadata;
   const display = box.computedStyle?.display ?? "block";
 
@@ -66,14 +141,16 @@ function elementBoxToDom(box: ElementBox, doc: Document, stamp: boolean): Node |
     const h = doc.createElement(`h${m.headingLevel}`);
     applyStyle(h, box);
     stampBlockId(h, box, stamp, "block");
-    appendChildren(h, box.children, doc, childStamp(stamp, "block"));
+    appendChildren(h, box.children, doc, childStamp(stamp, "block"), decorations);
     fillEmptyLineHost(h, "block", doc);
+    decorate(h, box, decorations, doc);
     return h;
   }
   if (m?.horizontalLine === true) {
     const hr = doc.createElement("hr");
     applyStyle(hr, box);
     stampBlockId(hr, box, stamp, "block");
+    decorate(hr, box, decorations, doc);
     return hr;
   }
   if (m?.image !== undefined) {
@@ -87,13 +164,14 @@ function elementBoxToDom(box: ElementBox, doc: Document, stamp: boolean): Node |
     // via the inline-embed subtree arrives with stamp=false (childStamp turned it off), so this
     // no-ops there — the F6 fix.
     stampBlockId(img, box, stamp, "block");
+    decorate(img, box, decorations, doc); // block decorations only (an image has no inline content)
     return img;
   }
   if (m?.blockType === "section" || display === "contents") {
     // Unwrap: emit children into a fragment (the section box has no tag).
     const frag = doc.createDocumentFragment();
     // A section/`display:contents` box is a transparent block container — keep the block path.
-    appendChildren(frag, box.children, doc, childStamp(stamp, "block"));
+    appendChildren(frag, box.children, doc, childStamp(stamp, "block"), decorations);
     return frag;
   }
   if (display === "none") return null;
@@ -113,8 +191,9 @@ function elementBoxToDom(box: ElementBox, doc: Document, stamp: boolean): Node |
   stampInlineEmbed(elem, box, stamp);
   // childStamp forces stamp=false when `display` is inline/inline-block (run-wrapper OR
   // inline-embed outer box) — so the inline-image inner display:block box never sees stamp=true.
-  appendChildren(elem, box.children, doc, childStamp(stamp, display));
+  appendChildren(elem, box.children, doc, childStamp(stamp, display), decorations);
   fillEmptyLineHost(elem, display, doc);
+  decorate(elem, box, decorations, doc);
   return elem;
 }
 
@@ -200,11 +279,11 @@ function applyStyle(elem: HTMLElement, box: ElementBox): void {
   }
 }
 
-interface ListMeta { readonly level: number; readonly listId: string; readonly ordered: boolean }
+export interface ListMeta { readonly level: number; readonly listId: string; readonly ordered: boolean }
 
 // A grouped list-item carries metadata.list; anything else (or a list-item whose
 // marker was unresolved) is a "plain" child appended directly.
-function listMetaOf(node: RenderNode): ListMeta | undefined {
+export function listMetaOf(node: RenderNode): ListMeta | undefined {
   if (node.type !== "element") return undefined;
   if ((node.computedStyle?.display ?? "block") !== "list-item") return undefined;
   return node.metadata?.list;
@@ -212,7 +291,13 @@ function listMetaOf(node: RenderNode): ListMeta | undefined {
 
 // Append each child's DOM, grouping consecutive list-items into nested
 // <ul>/<ol>. Mirrors encodeListRun in html-encode.ts (string-based).
-function appendChildren(parent: Node, children: readonly RenderNode[], doc: Document, stamp: boolean): void {
+function appendChildren(
+  parent: Node,
+  children: readonly RenderNode[],
+  doc: Document,
+  stamp: boolean,
+  decorations: DecorationSet,
+): void {
   // Stack of open list containers, one per nesting level (index = level).
   let stack: Array<{ el: HTMLElement; listId: string }> = [];
 
@@ -220,7 +305,7 @@ function appendChildren(parent: Node, children: readonly RenderNode[], doc: Docu
     const lm = listMetaOf(child);
     if (lm === undefined) {
       stack = []; // a non-list child ends any open list run
-      const dom = renderNodeToDom(child, doc, stamp);
+      const dom = renderNodeToDom(child, doc, stamp, decorations);
       if (dom !== null) parent.appendChild(dom);
       continue;
     }
@@ -245,25 +330,45 @@ function appendChildren(parent: Node, children: readonly RenderNode[], doc: Docu
       stack = stack.slice(0, level);
       stack[level] = { el: listEl, listId: lm.listId };
     }
-    const li = doc.createElement("li");
-    // The <li> carries the list-item's own cascaded block style (textAlign,
-    // lineHeight, INDENT margin, writingMode, spacing, color, and the structural
-    // `padding-inline-start` gutter) — same as every other ElementBox branch. Its
-    // inline content recurses into the <li>.
-    if (child.type === "element") {
-      applyStyle(li, child);
-      // `list-style: none` (host CSS may set it either way; we own the marker) +
-      // `position: relative` so the marker can sit absolutely in the gutter.
-      const liStyle = li.getAttribute("style");
-      li.setAttribute("style", `${liStyle !== null && liStyle !== "" ? `${liStyle}; ` : ""}list-style: none; position: relative`);
-      stampBlockId(li, child, stamp, "list-item");
-      appendChildren(li, child.children, doc, childStamp(stamp, "list-item"));
-      fillEmptyLineHost(li, "list-item", doc); // BEFORE the marker: an empty item must still get a filler
-      renderListMarker(li, child.computedStyle?.markerText, doc); // generated marker (abs-pos, bridge-excluded) LAST
-
-    }
-    stack[level]?.el.appendChild(li);
+    if (child.type === "element") stack[level]?.el.appendChild(listItemToDom(child, doc, stamp, decorations));
   }
+}
+
+/**
+ * Render ONE run of consecutive list-items (as grouped by the whole-document walk: the
+ * run's root list is its first item's) into its top-level `<ul>/<ol>`, nested levels
+ * included — the digital reconciler's per-run path.
+ */
+export function renderListRunToDom(
+  items: readonly ElementBox[],
+  doc: Document,
+  decorations: DecorationSet = EMPTY_DECORATION_SET,
+): HTMLElement | null {
+  const frag = doc.createDocumentFragment();
+  appendChildren(frag, items, doc, true, decorations);
+  const first = frag.firstElementChild;
+  return first instanceof HTMLElement ? first : null;
+}
+
+/**
+ * One list-item's `<li>`. It carries the list-item's own cascaded block style (textAlign,
+ * lineHeight, INDENT margin, writingMode, spacing, color, and the structural
+ * `padding-inline-start` gutter) — same as every other ElementBox branch. Its inline content
+ * recurses into the `<li>`; nested sub-lists are appended by the caller's run grouping.
+ */
+function listItemToDom(child: ElementBox, doc: Document, stamp: boolean, decorations: DecorationSet): HTMLElement {
+  const li = doc.createElement("li");
+  applyStyle(li, child);
+  // `list-style: none` (host CSS may set it either way; we own the marker) +
+  // `position: relative` so the marker can sit absolutely in the gutter.
+  const liStyle = li.getAttribute("style");
+  li.setAttribute("style", `${liStyle !== null && liStyle !== "" ? `${liStyle}; ` : ""}list-style: none; position: relative`);
+  stampBlockId(li, child, stamp, "list-item");
+  appendChildren(li, child.children, doc, childStamp(stamp, "list-item"), decorations);
+  fillEmptyLineHost(li, "list-item", doc); // BEFORE the marker: an empty item must still get a filler
+  decorate(li, child, decorations, doc);
+  renderListMarker(li, child.computedStyle?.markerText, doc); // generated marker (abs-pos, bridge-excluded) LAST
+  return li;
 }
 
 /**

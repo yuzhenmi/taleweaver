@@ -1,0 +1,110 @@
+import type { BlockId, State, TextMatch, CommentId, SuggestionId } from "../state";
+import { createPosition, buildCommentRangeIndex, buildSuggestionRangeIndex } from "../state";
+import type { InlineDecoration } from "./decorations";
+
+/**
+ * The engine's built-in highlights (find matches, comments, suggestions) expressed as
+ * ordinary inline decorations, so every backend draws them through the ONE decoration
+ * mechanism. Ids are namespaced `tw-*`; classes let a DOM host restyle them.
+ */
+
+/** Inactive / active find-match fills (Google Docs yellow / orange). */
+export const FIND_HIGHLIGHT_FILL = "rgba(255, 213, 0, 0.40)";
+export const ACTIVE_FIND_HIGHLIGHT_FILL = "rgba(255, 138, 0, 0.55)";
+/** Inactive / active comment fills (soft / deeper amber). */
+export const COMMENT_HIGHLIGHT_FILL = "rgba(255, 199, 110, 0.35)";
+export const ACTIVE_COMMENT_HIGHLIGHT_FILL = "rgba(255, 167, 38, 0.55)";
+/** Inactive / active suggestion fills (soft / deeper teal). */
+export const SUGGESTION_HIGHLIGHT_FILL = "rgba(45, 178, 168, 0.30)";
+export const ACTIVE_SUGGESTION_HIGHLIGHT_FILL = "rgba(20, 150, 140, 0.50)";
+
+export interface CommentHighlight {
+  readonly commentId: CommentId;
+  readonly active: boolean;
+}
+
+export interface SuggestionHighlight {
+  readonly suggestionId: SuggestionId;
+  readonly active: boolean;
+}
+
+/** The decoration id of a find match: stable per occurrence (block + offset), so an edit
+ *  in one block never renames another block's highlights. */
+export function findDecorationId(match: TextMatch): string {
+  return `tw-find:${match.blockId}:${match.start}`;
+}
+
+/**
+ * Find matches → decorations; the match at `activeIndex` (if in range) is emphasized.
+ * `onlyBlocks` limits the output to matches in those blocks (incremental redraw).
+ */
+export function findHighlightDecorations(
+  matches: readonly TextMatch[],
+  activeIndex: number,
+  onlyBlocks?: ReadonlySet<BlockId>,
+): InlineDecoration[] {
+  const out: InlineDecoration[] = [];
+  matches.forEach((m, i) => {
+    if (onlyBlocks !== undefined && !onlyBlocks.has(m.blockId)) return;
+    const active = i === activeIndex;
+    out.push({
+      kind: "inline",
+      id: findDecorationId(m),
+      from: createPosition(m.blockId, m.start),
+      to: createPosition(m.blockId, m.end),
+      class: active ? "tw-find tw-find-active" : "tw-find",
+      style: { backgroundColor: active ? ACTIVE_FIND_HIGHLIGHT_FILL : FIND_HIGHLIGHT_FILL },
+      // No list index: it would go stale for blocks a patch does not redraw. The match is
+      // identified by the decoration's own `from`/`to` (and its stable id).
+      data: { kind: "find" },
+    });
+  });
+  return out;
+}
+
+/**
+ * Comment ranges (resolved from live state — markers move with the text) → decorations.
+ * Orphaned / unresolvable comments emit nothing.
+ */
+export function commentHighlightDecorations(state: State, highlights: readonly CommentHighlight[]): InlineDecoration[] {
+  const out: InlineDecoration[] = [];
+  if (highlights.length === 0) return out;
+  const index = buildCommentRangeIndex(state); // one document scan for all comments
+  for (const { commentId, active } of highlights) {
+    const range = index.get(commentId) ?? null;
+    if (range === null || range.orphaned) continue;
+    out.push({
+      kind: "inline",
+      id: `tw-comment:${commentId}`,
+      from: range.start,
+      to: range.end,
+      // `to` is the end marker's leading edge: text typed there lands INSIDE the comment.
+      inclusiveEnd: true,
+      class: active ? "tw-comment tw-comment-active" : "tw-comment",
+      style: { backgroundColor: active ? ACTIVE_COMMENT_HIGHLIGHT_FILL : COMMENT_HIGHLIGHT_FILL },
+      data: { kind: "comment", commentId },
+    });
+  }
+  return out;
+}
+
+/** Pending suggestion ranges (resolved from live state) → decorations. */
+export function suggestionHighlightDecorations(state: State, highlights: readonly SuggestionHighlight[]): InlineDecoration[] {
+  const out: InlineDecoration[] = [];
+  if (highlights.length === 0) return out;
+  const index = buildSuggestionRangeIndex(state); // one document scan for all suggestions
+  for (const { suggestionId, active } of highlights) {
+    const range = index.get(suggestionId) ?? null;
+    if (range === null) continue;
+    out.push({
+      kind: "inline",
+      id: `tw-suggestion:${suggestionId}`,
+      from: range.start,
+      to: range.end,
+      class: active ? "tw-suggestion tw-suggestion-active" : "tw-suggestion",
+      style: { backgroundColor: active ? ACTIVE_SUGGESTION_HIGHLIGHT_FILL : SUGGESTION_HIGHLIGHT_FILL },
+      data: { kind: "suggestion", suggestionId },
+    });
+  }
+  return out;
+}

@@ -4,6 +4,7 @@ import { render, act } from "@testing-library/react";
 import { EditorView, type EditorViewHandle } from "./editor-view";
 import { useEditor } from "./use-editor";
 import { createEditorController } from "@taleweaver/print";
+import { asBlockId, type Decoration } from "@taleweaver/core";
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -26,6 +27,7 @@ const mockFindClose = vi.fn();
 const mockReplaceActive = vi.fn(() => ({ total: 2, activeIndex: 0 }));
 const mockReplaceAll = vi.fn(() => ({ total: 0, activeIndex: -1 }));
 const mockFindStatus = vi.fn(() => ({ total: 3, activeIndex: 0 }));
+const mockSetDecorations = vi.fn();
 
 vi.mock("@taleweaver/print", async () => {
   const actual = await vi.importActual<typeof import("@taleweaver/print")>(
@@ -43,6 +45,7 @@ vi.mock("@taleweaver/print", async () => {
       replaceActive: mockReplaceActive,
       replaceAll: mockReplaceAll,
       findStatus: mockFindStatus,
+      setDecorations: mockSetDecorations,
     })),
   };
 });
@@ -135,6 +138,20 @@ describe("EditorView", () => {
     expect(mockDestroy).not.toHaveBeenCalled();
     unmount();
     expect(mockDestroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("forwards the decorations prop to controller.setDecorations (after the state update)", () => {
+    const decorations: Decoration[] = [{ kind: "block", id: "b", blockId: asBlockId("x") }];
+    function DecoratedHarness() {
+      const editor = useEditor();
+      return <EditorView {...editor} decorations={decorations} />;
+    }
+    mockSetDecorations.mockClear();
+    render(<DecoratedHarness />);
+    expect(mockSetDecorations).toHaveBeenLastCalledWith(decorations, undefined);
+    const updateOrder = mockUpdate.mock.invocationCallOrder.at(-1) ?? 0;
+    const decoOrder = mockSetDecorations.mock.invocationCallOrder.at(-1) ?? 0;
+    expect(decoOrder).toBeGreaterThan(updateOrder);
   });
 
   it("works with paginated mode", () => {

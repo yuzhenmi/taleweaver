@@ -100,6 +100,7 @@ describe("handleSetLineSpacing — SET_LINE_SPACING action", () => {
       },
       history: createHistory(initialState),
       lastDirtyIds: null,
+      lastChange: null,
       containerWidth: config.containerWidth,
       targetX: null,
     };

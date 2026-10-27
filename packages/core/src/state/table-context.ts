@@ -1,5 +1,5 @@
 import type { State } from "./state";
-import { getBlock, blockCount } from "./state";
+import { getBlock, createWalkGuard } from "./state";
 import type { BlockId } from "./block-id";
 import { ancestorChain } from "./block-traversal";
 import { isSpan, spanValue } from "./table-cell-span";
@@ -58,11 +58,10 @@ export function getChildIds(state: State, parentId: BlockId): BlockId[] {
   const out: BlockId[] = [];
   // Cycle-detection bound, matching block-traversal's chain walks: a corrupt
   // `nextSiblingId` cycle would otherwise loop forever.
-  const maxSteps = blockCount(state) + 1;
-  let steps = 0;
+  const guard = createWalkGuard(state);
   let cur: BlockId | null = parent.firstChildId;
   while (cur !== null) {
-    if (++steps > maxSteps) {
+    if (guard.step()) {
       throw new Error(`getChildIds: cycle detected in sibling chain under "${parentId}"`);
     }
     const child = getBlock(state, cur);

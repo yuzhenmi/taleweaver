@@ -1,3 +1,4 @@
+import { isGeneratedNode, isWidget, DECO_ID_ATTR, WIDGET_ATTR } from "../dom-view/decorate-dom";
 import {
   createPosition,
   createSpan,
@@ -37,7 +38,8 @@ function isEmptyLineFiller(node: Node): boolean {
  * NO content offsets and is never a caret target, so every offset walk skips it.
  */
 function isListMarker(node: Node): boolean {
-  return node instanceof HTMLElement && node.hasAttribute("data-tw-marker");
+  // Decoration widgets (`data-tw-widget`) are generated content under the same contract.
+  return isGeneratedNode(node);
 }
 
 /** The nearest ancestor element carrying `data-block-id`, or null. */
@@ -123,6 +125,41 @@ interface DomPoint {
  * a text node consumes `.length`, an embed atom consumes 1 and yields a point in the PARENT
  * before/after the atom). Falls back to `(block, childCount)` for an offset past the end.
  */
+/**
+ * A caret at a widget's position sits AFTER side=-1 widgets ("before its position") and
+ * BEFORE side=1 widgets. Given the DOM point right after `node` (the last content unit at
+ * the offset), skip forward over any side=-1 widgets that follow it — climbing out of
+ * decoration wrappers `node` ends, which widgets are placed outside of.
+ */
+function pastLeadingWidgets(node: Node): DomPoint | null {
+  let cur: Node = node;
+  while (cur.nextSibling === null && cur.parentNode instanceof HTMLElement && cur.parentNode.hasAttribute(DECO_ID_ATTR)) {
+    cur = cur.parentNode;
+  }
+  let last: Node | null = null;
+  for (let sib = cur.nextSibling; isWidget(sib) && sib.getAttribute(WIDGET_ATTR) === "-1"; sib = sib.nextSibling) last = sib;
+  const parent = cur.parentNode;
+  if (last === null || parent === null) return null;
+  return { node: parent, offset: Array.prototype.indexOf.call(parent.childNodes, last) + 1 };
+}
+
+/**
+ * The mirror of {@link pastLeadingWidgets} for a point at the START of a content unit:
+ * step back BEFORE any side=1 widgets placed right before `node` (they belong after the
+ * caret), climbing out of decoration wrappers `node` starts.
+ */
+function beforeTrailingWidgets(node: Node): DomPoint | null {
+  let cur: Node = node;
+  while (cur.previousSibling === null && cur.parentNode instanceof HTMLElement && cur.parentNode.hasAttribute(DECO_ID_ATTR)) {
+    cur = cur.parentNode;
+  }
+  let first: Node | null = null;
+  for (let sib = cur.previousSibling; isWidget(sib) && sib.getAttribute(WIDGET_ATTR) !== "-1"; sib = sib.previousSibling) first = sib;
+  const parent = cur.parentNode;
+  if (first === null || parent === null) return null;
+  return { node: parent, offset: Array.prototype.indexOf.call(parent.childNodes, first) };
+}
+
 function locateOffset(block: HTMLElement, offset: number): DomPoint {
   let remaining = offset;
   let result: DomPoint | null = null;
@@ -132,7 +169,10 @@ function locateOffset(block: HTMLElement, offset: number): DomPoint {
     if (isListMarker(node)) return false; // generated marker: not content, skip
     if (node instanceof Text) {
       if (remaining <= node.length) {
-        result = { node, offset: remaining };
+        result =
+          (remaining === node.length && remaining > 0 ? pastLeadingWidgets(node) : null) ??
+          (remaining === 0 ? beforeTrailingWidgets(node) : null) ??
+          { node, offset: remaining };
         return true;
       }
       remaining -= node.length;
@@ -140,11 +180,11 @@ function locateOffset(block: HTMLElement, offset: number): DomPoint {
     }
     if (isInlineEmbed(node)) {
       if (remaining === 0) {
-        result = { node: parent, offset: indexInParent }; // point BEFORE the atom
+        result = beforeTrailingWidgets(node) ?? { node: parent, offset: indexInParent }; // point BEFORE the atom
         return true;
       }
       if (remaining === 1) {
-        result = { node: parent, offset: indexInParent + 1 }; // point AFTER the atom
+        result = pastLeadingWidgets(node) ?? { node: parent, offset: indexInParent + 1 }; // point AFTER the atom
         return true;
       }
       remaining -= 1;
@@ -170,7 +210,10 @@ function locateOffset(block: HTMLElement, offset: number): DomPoint {
   // empty LIST item also carries a generated marker span, so the filler-only check ignores markers.
   const contentKids = Array.from(block.childNodes).filter((n) => !isListMarker(n));
   if (contentKids.length === 1 && contentKids[0] !== undefined && isEmptyLineFiller(contentKids[0])) {
-    return { node: block, offset: 0 };
+    // Before the filler — but after any side=-1 widgets drawn at offset 0.
+    let lead = 0;
+    for (let kid: Node | null = block.firstChild; isWidget(kid) && kid.getAttribute(WIDGET_ATTR) === "-1"; kid = kid.nextSibling) lead++;
+    return { node: block, offset: lead };
   }
   // offset past the end, or empty block → end of the block's children.
   return { node: block, offset: block.childNodes.length };

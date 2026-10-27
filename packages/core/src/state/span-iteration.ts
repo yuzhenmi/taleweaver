@@ -1,5 +1,5 @@
 import type { State } from "./state";
-import { resolveBlock, blockCount } from "./state";
+import { resolveBlock, createWalkGuard } from "./state";
 import type { Span } from "./block-position";
 import { createSpan } from "./block-position";
 import { comparePositions, selectionContextOf } from "./block-compare";
@@ -105,11 +105,10 @@ export function* iterateSpan(state: State, span: Span): Iterable<BlockRange> {
   // error that names the anchor + focus block IDs — useful for debugging
   // corrupt block trees. Bound source: blockCount(), same as the inner
   // guards in block-traversal.ts (map-agnostic since C.2c T7a).
-  const maxSteps = blockCount(state) + 1;
-  let steps = 0;
+  const guard = createWalkGuard(state);
   let currentId = nextBlockInDocOrder(state, normalized.anchor.blockId);
   while (currentId && currentId !== normalized.focus.blockId) {
-    if (++steps > maxSteps) {
+    if (guard.step()) {
       throw new Error(
         `iterateSpan: step bound exceeded walking from anchor "${normalized.anchor.blockId}" to focus "${normalized.focus.blockId}" — block tree may be corrupt`,
       );
@@ -180,11 +179,10 @@ export function* iterateBlocksInSpan(state: State, span: Span): Iterable<Block> 
   // Outer cycle/step guard: see iterateSpan above for rationale.
   // Catches sibling-level cycles that span multiple nextBlockInDocOrder
   // calls (which the per-call inner guard cannot see).
-  const maxSteps = blockCount(state) + 1;
-  let steps = 0;
+  const guard = createWalkGuard(state);
   let currentId = nextBlockInDocOrder(state, normalized.anchor.blockId);
   while (currentId) {
-    if (++steps > maxSteps) {
+    if (guard.step()) {
       throw new Error(
         `iterateBlocksInSpan: step bound exceeded walking from anchor "${normalized.anchor.blockId}" to focus "${normalized.focus.blockId}" — block tree may be corrupt`,
       );

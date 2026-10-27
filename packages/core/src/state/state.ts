@@ -17,6 +17,7 @@ import {
   compactCache,
   chainDepth,
   getBlockSnapshot,
+  peekSnapshot,
   getEmbedContentSnapshot,
   getTemplateContentSnapshot,
   type SnapshotCache,
@@ -165,6 +166,39 @@ export function resolveBlock(state: State, id: BlockId): ResolvedBlock | null {
   const t = getTemplateContent(state, id);
   if (t !== null) return { block: t, kind: "templateContent" };
   return null;
+}
+
+/**
+ * Cache-only block read (all trees) — see `peekSnapshot`. `undefined` means "not
+ * known to this State without reading the live Y.Doc", NOT "absent". State-module
+ * internal; position mapping uses it to read a superseded State safely.
+ */
+export function peekBlock(state: State, id: BlockId): Block | undefined {
+  return peekSnapshot(state[STATE_INTERNAL].snapshotCache, id);
+}
+
+/** Walks shorter than this never consult {@link blockCount} (see `createWalkGuard`). */
+const CYCLE_CHECK_THRESHOLD = 4096;
+
+/**
+ * Cycle guard for one linked-list walk over the block tree: `step()` counts a step and
+ * returns true once the walk has taken more steps than there are blocks (a well-formed
+ * walk never can, so the chain loops). `blockCount` is O(blocks) (Yjs `Y.Map.size`
+ * iterates), so the guard computes it lazily — only once a walk passes
+ * {@link CYCLE_CHECK_THRESHOLD} steps — and at most ONCE per walk. A normal walk pays O(1)
+ * per step; an eager per-step bound made every document-order walk quadratic.
+ */
+export function createWalkGuard(state: State): { step(): boolean } {
+  let steps = 0;
+  let bound = -1;
+  return {
+    step(): boolean {
+      steps++;
+      if (steps <= CYCLE_CHECK_THRESHOLD) return false;
+      if (bound < 0) bound = blockCount(state) + 1;
+      return steps > bound;
+    },
+  };
 }
 
 /**

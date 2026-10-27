@@ -28,6 +28,7 @@ function makeEditor(state: State, focusId: string, offset: number): EditorState 
     selection: { anchor: caret, focus: caret },
     history: createHistory(state),
     lastDirtyIds: null,
+    lastChange: null,
     containerWidth: config.containerWidth,
     targetX: null,
   };

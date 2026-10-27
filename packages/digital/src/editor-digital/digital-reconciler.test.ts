@@ -7,6 +7,10 @@ import {
   asBlockId,
   createPosition,
   createSpan,
+  setBlockAttrs,
+  paragraphComponent,
+  createElementBox,
+  getBlock,
   type EditorState,
   type EditorConfig,
 } from "@taleweaver/core";
@@ -234,5 +238,32 @@ describe("DigitalReconciler.reconcile — selection-only no-op (full-rebuild pat
     if (sel !== null && sel.focusNode !== null) {
       expect(container.contains(sel.focusNode)).toBe(true);
     }
+  });
+});
+
+describe("DigitalReconciler.reconcile — host-hidden blocks", () => {
+  it("a block a host component un-hides appears (the in-place fast path never skips a missing element)", () => {
+    const { config } = makeEditor();
+    // Host component: a paragraph with `attrs.hidden` renders display:none.
+    const base = paragraphComponent;
+    const render: typeof base.render = (view, ctx, inline) =>
+      view.attrs.hidden === true ? createElementBox(view.id, { display: "none" }, []) : base.render(view, ctx, inline);
+    config.componentRegistry.register({ ...base, render });
+    let st = type(createInitialEditorState(config), config, "ab");
+    st = reduceEditor(st, { type: "SPLIT_NODE" }, config);
+    st = type(st, config, "cd");
+    const root = getBlock(st.state, st.state.rootId);
+    const second = root?.lastChildId;
+    if (second == null) throw new Error("setup");
+    const hide = setBlockAttrs(st.state, second, { hidden: true });
+    const hidden: EditorState = { ...st, state: hide.state, lastDirtyIds: hide.dirtyIds };
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const r = createDigitalReconciler(config.componentRegistry, config.attrRegistry, document);
+    r.mount(container, hidden);
+    expect(container.querySelector(`[data-block-id="${second}"]`)).toBeNull();
+    const show = setBlockAttrs(hidden.state, second, { hidden: false });
+    r.reconcile(hidden, { ...hidden, state: show.state, lastDirtyIds: show.dirtyIds }, false);
+    expect(container.querySelector(`[data-block-id="${second}"]`)?.textContent).toBe("cd");
   });
 });

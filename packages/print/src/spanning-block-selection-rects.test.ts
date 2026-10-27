@@ -1,10 +1,12 @@
 // packages/print/src/spanning-block-selection-rects.test.ts
 //
-// VL bridge removal, Slice 3 (Bucket A). The controller's three spanning-block
-// fallbacks — selection rects, find-match highlight, comment highlight — used to
-// route through a whole-tree-positioning bridge (`computeSelectionRects` over the
-// fully-positioned tree). They now union `computeSelectionRectsForPage` over the
-// pages a spanning block covers (`selectionRectsAcrossPages` in the controller).
+// VL bridge removal, Slice 3 (Bucket A). The controller's spanning-block
+// selection fallback used to route through a whole-tree-positioning bridge
+// (`computeSelectionRects` over the fully-positioned tree). It now unions
+// `computeSelectionRectsForPage` over the pages a spanning block covers
+// (`selectionRectsAcrossPages` in the controller). (Find / comment / suggestion
+// highlights are decorations now: they resolve per painted page through
+// `computeSelectionRectsForPageRange`, using the same per-page geometry.)
 //
 // These tests prove that per-page union (the exact logic the helper runs) on a
 // REAL paragraph taller than a page:
@@ -14,9 +16,6 @@
 //      PAGE-LOCAL y + its `pageIndex` (page-1 rects carry pageIndex 1 with a
 //      page-local y, not a doc-absolute y stacked under page-0 — the controller
 //      adds the slot offset at paint time).
-// The span shape is feature-agnostic: a selection span, a find-match span, and a
-// comment-range span over the same boundary block all feed the identical
-// `selectionRectsAcrossPages` union — so this property covers all three sites.
 //
 // Real core (no `@taleweaver/core` mock): we need genuine multi-page geometry,
 // which the mock-based editor-controller.test.ts (resolvePixelPosition stubbed to

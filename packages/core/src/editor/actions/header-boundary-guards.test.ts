@@ -112,6 +112,7 @@ function buildEditorWithSelection(state: State, anchor: Position, focus: Positio
     selection: createSpan(anchor, focus),
     history: createHistory(state),
     lastDirtyIds: null,
+    lastChange: null,
     containerWidth: config.containerWidth,
     targetX: null,
   };

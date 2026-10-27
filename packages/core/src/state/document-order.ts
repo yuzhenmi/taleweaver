@@ -6,6 +6,7 @@ import {
   getEmbedContentIds,
   getTemplateContentIds,
   blockCount,
+  createWalkGuard,
   type State,
 } from "./state";
 
@@ -133,13 +134,12 @@ function* walk(
   try {
     yield block;
     // Sibling-chain cycle bound: see the module docstring + block-traversal.ts.
-    const maxSteps = blockCount(state) + 1;
     let childId = block.firstChildId;
-    let steps = 0;
+    const guard = createWalkGuard(state);
     while (childId !== null) {
-      if (++steps > maxSteps) {
+      if (guard.step()) {
         throw new Error(
-          `iterateBlocksInDocumentOrder: cycle detected in block tree (visited >${maxSteps} children of "${id}")`,
+          `iterateBlocksInDocumentOrder: cycle detected in block tree (visited >${blockCount(state) + 1} children of "${id}")`,
         );
       }
       yield* walk(state, childId, visited, resolve);

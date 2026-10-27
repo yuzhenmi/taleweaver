@@ -20,14 +20,13 @@ import {
   paintCanvas,
   paintPage,
   createPaintCache,
-  COMMENT_HIGHLIGHT_FILL,
-  ACTIVE_COMMENT_HIGHLIGHT_FILL,
-  MATCH_HIGHLIGHT_FILL,
   createEditorController,
-  type CommentHighlightRect,
 } from "./index";
+import { commentBand, findBand, type TestBand } from "./test-utils/highlight-bands";
 import * as core from "@taleweaver/core";
 import * as printPkg from "./index";
+
+const { COMMENT_HIGHLIGHT_FILL, ACTIVE_COMMENT_HIGHLIGHT_FILL, FIND_HIGHLIGHT_FILL: MATCH_HIGHLIGHT_FILL } = core;
 
 type Op =
   | { kind: "fillRect"; x: number; y: number; w: number; h: number; fillStyle: string }
@@ -372,7 +371,7 @@ describe("controller setCommentHighlights / clearCommentHighlights (comments sli
     const matches = [
       { x: 0, y: 0, width: 24, height: RUN_HEIGHT, pageIndex: 0, active: false },
     ];
-    paintCanvas(ctx, run, [], matches, comments, [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
+    paintCanvas(ctx, run, [], [...comments.map(commentBand), ...matches.map(findBand)], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
 
     const comment = ctx._ops.findIndex(isCommentInactive);
     const match = ctx._ops.findIndex(isMatch);
@@ -475,20 +474,20 @@ describe("comment-highlight overlay — incremental clear/erase (slice 5)", () =
     const cache = createPaintCache();
     const page = makePageR();
     const OLD_RECT = { x: 5, y: 7, width: 24, height: RUN_HEIGHT_R };
-    const comments: CommentHighlightRect[] = [
-      { ...OLD_RECT, pageIndex: 0, commentId: "c1" as core.CommentId, active: false },
+    const comments: TestBand[] = [
+      { ...OLD_RECT, pageIndex: 0, active: false },
     ];
 
     // Frame 1: paint WITH a comment highlight so the PaintCache records its rect.
-    paintPage(ctx, page, [], [], comments, [], null, "hidden", undefined, cache);
-    expect(cache.getLastCommentHighlightRects()).not.toBeNull();
+    paintPage(ctx, page, [], comments.map(commentBand), null, "hidden", undefined, cache);
+    expect(cache.getLastDecorationRects()).not.toBeNull();
     expect(ctx._ops.filter(isCommentInactive)).toHaveLength(1);
 
     // Frame 2: SAME (reference-equal) layout tree, but comment highlights cleared to
     // []. The only thing that changed is the highlight set → the repaint MUST be
     // driven purely by addCommentHighlightDirty dirtying the OLD rect.
     ctx._ops.length = 0;
-    const dirty = paintPage(ctx, page, [], [], [], [], null, "hidden", undefined, cache);
+    const dirty = paintPage(ctx, page, [], [], null, "hidden", undefined, cache);
 
     // The OLD comment-highlight rect's region was dirtied (so it gets erased)...
     expect(
@@ -506,6 +505,6 @@ describe("comment-highlight overlay — incremental clear/erase (slice 5)", () =
     // No new comment band is painted after the clear.
     expect(ctx._ops.filter((o) => isCommentInactive(o) || isCommentActive(o))).toHaveLength(0);
     // Cache forgot the old rects (curr=[] recorded).
-    expect(cache.getLastCommentHighlightRects()).toEqual([]);
+    expect(cache.getLastDecorationRects()).toEqual([]);
   });
 });

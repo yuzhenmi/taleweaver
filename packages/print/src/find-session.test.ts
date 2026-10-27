@@ -20,10 +20,10 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   createEditorController,
-  MATCH_HIGHLIGHT_FILL,
-  ACTIVE_MATCH_HIGHLIGHT_FILL,
 } from "./index";
 import * as core from "@taleweaver/core";
+
+const { FIND_HIGHLIGHT_FILL: MATCH_HIGHLIGHT_FILL, ACTIVE_FIND_HIGHLIGHT_FILL: ACTIVE_MATCH_HIGHLIGHT_FILL } = core;
 
 type Op =
   | { kind: "fillRect"; x: number; y: number; w: number; h: number; fillStyle: string }

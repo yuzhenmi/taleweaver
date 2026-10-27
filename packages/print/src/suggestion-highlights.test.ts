@@ -21,14 +21,13 @@ import {
   paintCanvas,
   paintPage,
   createPaintCache,
-  SUGGESTION_HIGHLIGHT_FILL,
-  ACTIVE_SUGGESTION_HIGHLIGHT_FILL,
-  COMMENT_HIGHLIGHT_FILL,
   createEditorController,
-  type SuggestionHighlightRect,
 } from "./index";
 import * as core from "@taleweaver/core";
 import * as printPkg from "./index";
+import { commentBand, suggestionBand, type TestBand } from "./test-utils/highlight-bands";
+
+const { SUGGESTION_HIGHLIGHT_FILL, ACTIVE_SUGGESTION_HIGHLIGHT_FILL, COMMENT_HIGHLIGHT_FILL } = core;
 
 type Op =
   | { kind: "fillRect"; x: number; y: number; w: number; h: number; fillStyle: string }
@@ -328,7 +327,7 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
     const comments = [
       { x: 0, y: 0, width: 24, height: RUN_HEIGHT, pageIndex: 0, commentId: "c1" as core.CommentId, active: false },
     ];
-    paintCanvas(ctx, run, [], [], comments, suggestions, { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
+    paintCanvas(ctx, run, [], [...suggestions.map(suggestionBand), ...comments.map(commentBand)], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
 
     const suggestion = ctx._ops.findIndex(isSuggestionInactive);
     const comment = ctx._ops.findIndex(isComment);
@@ -429,20 +428,20 @@ describe("suggestion-highlight overlay — incremental clear/erase (slice 6)", (
     const cache = createPaintCache();
     const page = makePageR();
     const OLD_RECT = { x: 5, y: 7, width: 24, height: RUN_HEIGHT_R };
-    const suggestions: SuggestionHighlightRect[] = [
-      { ...OLD_RECT, pageIndex: 0, suggestionId: "s1" as core.SuggestionId, active: false },
+    const suggestions: TestBand[] = [
+      { ...OLD_RECT, pageIndex: 0, active: false },
     ];
 
     // Frame 1: paint WITH a suggestion highlight so the PaintCache records its rect.
-    paintPage(ctx, page, [], [], [], suggestions, null, "hidden", undefined, cache);
-    expect(cache.getLastSuggestionHighlightRects()).not.toBeNull();
+    paintPage(ctx, page, [], suggestions.map(suggestionBand), null, "hidden", undefined, cache);
+    expect(cache.getLastDecorationRects()).not.toBeNull();
     expect(ctx._ops.filter(isSuggestionInactive)).toHaveLength(1);
 
     // Frame 2: SAME (reference-equal) layout tree, but suggestion highlights cleared to
     // []. The only thing that changed is the highlight set → the repaint MUST be
     // driven purely by addSuggestionHighlightDirty dirtying the OLD rect.
     ctx._ops.length = 0;
-    const dirty = paintPage(ctx, page, [], [], [], [], null, "hidden", undefined, cache);
+    const dirty = paintPage(ctx, page, [], [], null, "hidden", undefined, cache);
 
     // The OLD suggestion-highlight rect's region was dirtied (so it gets erased)...
     expect(
@@ -460,6 +459,6 @@ describe("suggestion-highlight overlay — incremental clear/erase (slice 6)", (
     // No new suggestion band is painted after the clear.
     expect(ctx._ops.filter((o) => isSuggestionInactive(o) || isSuggestionActive(o))).toHaveLength(0);
     // Cache forgot the old rects (curr=[] recorded).
-    expect(cache.getLastSuggestionHighlightRects()).toEqual([]);
+    expect(cache.getLastDecorationRects()).toEqual([]);
   });
 });
