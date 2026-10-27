@@ -23,7 +23,7 @@ export interface Transaction {
   /**
    * Apply one action through the reducer, inside the transaction's single undo entry.
    * Throws (before applying) for an action that cannot be a step — UNDO / REDO, a peer's
-   * `APPLY_FOREIGN_CHANGE` (untracked), a `PROPOSE` (another author's change: its own undo
+   * `APPLY_FOREIGN_CHANGE` (untracked), a `PROPOSE` (another author's change: untracked, or its own undo
    * entry and verdict, never merged into the user's transaction).
    */
   dispatch(action: EditorAction): void;

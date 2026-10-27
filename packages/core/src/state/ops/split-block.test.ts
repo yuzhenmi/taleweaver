@@ -651,21 +651,14 @@ describe("splitBlockAtPositionInTx — composability with insertTextInTx", () =>
   //   (1) split "abcdef" at offset 3 → original = "abc", new block = "def"
   //   (2) insert "X" at the START of the original block (offset 0)
   //
-  // Why offset 0 for step (2): the second `planInsertText` reads `state`,
-  // which is the PRE-MUTATION snapshot ("abcdef"). A plan that targets
-  // offset 0 picks the leading edge of items[0] = text("abcdef"), and the
-  // resulting in-place mutation (itemIndex=0, within=0) on the original
-  // block's Y.Text — which the split's inTx has already shortened to
-  // "abc" — produces a well-defined result ("Xabc") at any post-split
-  // length ≥ 0. If we instead read offset 5 from the pre-mutation
-  // snapshot (valid in "abcdef" but past the end of "abc" after the
-  // split), the in-place insertion would attempt to write past the
-  // shortened Y.Text's end. That is the design limit of plan/inTx: the
-  // SECOND plan must target a cursor position the FIRST mutation didn't
-  // invalidate. For positions the split DOES affect (e.g., the post-split
-  // cursor inside the new block), `replaceRange` is the precedent — its
-  // `planInsertTextFullReplace` works against the freshly-merged items
-  // array instead of the snapshot.
+  // Why offset 0 for step (2): the second `planInsertText` validates against
+  // `state`, the PRE-MUTATION snapshot ("abcdef"), but its write is an offset
+  // insert on the live Y.Text the split already shortened to "abc". Offset 0 is
+  // valid in both. That is the design limit of plan/inTx: the SECOND plan must
+  // target a position the FIRST mutation didn't invalidate (offset 5 is valid in
+  // "abcdef" but past the end of "abc"). For positions the first write DOES move,
+  // the composer computes the post-write offset itself (as `replaceRange` targets
+  // the delete plan's seam).
   it("split + insertText composed in one applyOperation produce one undo entry", () => {
     const state = buildState({
       rootId: "doc",
@@ -746,5 +739,20 @@ describe("splitBlockAtPositionInTx — composability with insertTextInTx", () =>
 
     // No further undo step: the two ops collapsed into one entry.
     expect(history.canUndo()).toBe(false);
+  });
+});
+
+describe("splitBlockAtPosition — offset inside a surrogate pair", () => {
+  it("snaps ONCE: the cut and the moved suffix use the same grapheme boundary", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("a😀b")]) }),
+      ],
+    });
+    const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 2), createTestAllocator("p2"));
+    expect(getBlock(result.state, "p" as BlockId)?.inlineContent?.items).toMatchObject([{ text: "a" }]);
+    expect(getBlock(result.state, "p2-0" as BlockId)?.inlineContent?.items).toMatchObject([{ text: "😀b" }]);
   });
 });

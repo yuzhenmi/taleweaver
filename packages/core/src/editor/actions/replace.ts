@@ -87,7 +87,7 @@ export function handleReplaceAll(
 
   const selectionBefore = editor.selection;
   const plan = planReplaceMatches(editor.state, matches, replacement);
-  const result = applyReplaceAllPlan(editor.state, plan);
+  const result = applyReplaceAllPlan(editor.state, plan, config.attrRegistry);
 
   // No-op identity contract (#141).
   if (result.state === editor.state) return editor;

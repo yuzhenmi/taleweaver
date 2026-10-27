@@ -29,6 +29,8 @@ import {
   assertNoSharedEmbedContent,
 } from "./embed-content-cascade";
 import { assertChainIntegrity } from "./chain-integrity";
+import { assertNoLegacyStorage } from "./upgrade";
+import { assertInlineStorageInvariants } from "./y-inline";
 
 /**
  * Maximum chain depth before `applyOperation` compacts. Each
@@ -69,6 +71,9 @@ export interface State {
 
 export function createState(args: { rootId: BlockId; doc?: Y.Doc }): State {
   const doc = args.doc ?? createYDoc({ rootId: args.rootId });
+  // Legacy inline storage is never loaded: the host upgrades it first
+  // (`upgradeDocument`, single authority). Shape-based and authoritative.
+  assertNoLegacyStorage(doc);
   // Ensure meta.rootId is set (in case caller passed an externally-built doc).
   //
   // `rootId` is the ONLY field doc-meta may hold: it is immutable for the
@@ -491,6 +496,9 @@ export function applyOperation(
     // silently drop or duplicate blocks in the render walk. Inductively scoped
     // by dirtyIds (full scan only on a deletion). See chain-integrity.ts.
     assertChainIntegrity(newState, "applyOperation", dirtyIds);
+    // Inline-storage invariant: every dirty leaf still holds ONE Y.Text (never a
+    // run array) and no op split a surrogate pair (offsets are grapheme-aligned).
+    assertInlineStorageInvariants(internal.doc, "applyOperation", dirtyIds);
   }
   return { state: newState, dirtyIds };
 }

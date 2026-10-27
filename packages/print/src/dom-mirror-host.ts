@@ -23,6 +23,12 @@ export interface DomMirrorHost {
   readonly element: HTMLElement;
   syncTree(tree: AccessibilityNode, resolvedFields?: ReadonlyMap<string, string>): void;
   syncSelection(selection: EngineSelection): void;
+  /**
+   * Abandon an IME composition (the controller halted mid-composition): the composed
+   * DOM text is dropped and the mirror is rebuilt from the last synced tree (its last
+   * good projection). The next `compositionend` reports nothing new.
+   */
+  abandonComposition(): void;
   focus(): void;
   destroy(): void;
 }
@@ -149,5 +155,12 @@ export function createDomMirrorHost(options: DomMirrorHostOptions): DomMirrorHos
     element.remove();
   }
 
-  return { element, syncTree, syncSelection, focus, destroy };
+  function abandonComposition(): void {
+    isComposing = false;
+    if (priorTree === null) return;
+    element.replaceChildren();
+    priorMap = reconcileMirror(element, null, priorTree.children, null, doc);
+  }
+
+  return { element, syncTree, syncSelection, abandonComposition, focus, destroy };
 }

@@ -1,5 +1,7 @@
 import type { EditorState, EditorConfig } from "../editor-state";
 import { rebuildTrees } from "./helpers";
+import { recordChange } from "../editor-state";
+import { rebaseSelection } from "../foreign-change";
 
 export function handleUndo(
   editor: EditorState,
@@ -11,7 +13,11 @@ export function handleUndo(
   // remaining StackItem was dead — its content was replaced by a non-undoable
   // same-block resolve (see history.ts undo() for the dead-StackItem rationale).
   if (result === null) return editor;
-  const selection = result.selection ?? editor.selection;
+  // An unresolvable stored selection (its block is gone, or its anchor character
+  // was deleted and not restored) falls back to the selection this undo's own
+  // change produces: the current selection rebased through it.
+  const lastChange = recordChange(editor.lastChange, editor.state, result.dirtyIds);
+  const selection = result.selection ?? rebaseSelection(editor, { ...editor, state: result.state, lastChange });
   // On a non-null result, result.dirtyIds is non-empty: Y.UndoManager skips
   // no-op groups at commit time (see history.ts "Yjs no-op behavior" docstring),
   // so a recorded undo entry always corresponds to a real Y.Doc mutation, and a

@@ -30,7 +30,7 @@ import {
 import { buildYBlock } from "./y-block";
 import type { BlockId } from "./block-id";
 
-/** Build an N-paragraph doc, each paragraph holding one text run (a nested Y.Text). */
+/** Build an N-paragraph doc, each paragraph holding its inline Y.Text (a nested type). */
 function buildDoc(n: number): Y.Doc {
   const doc = createYDoc({ rootId: "root" as BlockId });
   runTransaction(doc, () => {
@@ -59,7 +59,7 @@ function buildDoc(n: number): Y.Doc {
           nextSiblingId: i < n - 1 ? (`p-${i + 1}` as BlockId) : null,
           firstChildId: null,
           lastChildId: null,
-          // One text run per block: a Y.Text inside Y.Array inside Y.Map.
+          // The block's inline content: one Y.Text inside the block Y.Map.
           inlineContent: { items: [{ kind: "text", text: `block ${i}`, attrs: {} }] },
         }),
       );
@@ -68,13 +68,13 @@ function buildDoc(n: number): Y.Doc {
   return doc;
 }
 
-/** Mean per-call time (µs) of looking up the owning block of a mid-tree Y.Text. */
+/** Mean per-call time (µs) of looking up the owning block of a mid-tree block's Y.Text. */
 function perCallUs(doc: Y.Doc, targetBlockId: BlockId): number {
   const yBlocks = getBlocksMap(doc);
   const yBlock = yBlocks.get(targetBlockId);
   if (yBlock === undefined) throw new Error("test setup failed");
-  const yInline = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>>;
-  const yText = yInline.get(0).get("text") as Y.Text;
+  const yText = yBlock.get("inlineContent");
+  if (!(yText instanceof Y.Text)) throw new Error("test setup failed: no inline Y.Text");
 
   type TreeMapsArg = Parameters<typeof findOwningBlockIdForTest>[0];
   type TypeArg = Parameters<typeof findOwningBlockIdForTest>[1];

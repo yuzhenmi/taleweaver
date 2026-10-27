@@ -25,11 +25,16 @@ import {
   type Proposal,
   type ProposeResult,
   type SuggestionGroupStyle,
+  type IncompatibleDocumentReport,
   markStart,
   markEnd,
   recordSample,
   isPerfTraceEnabled,
+  isDevMode,
+  inspectDocument,
+  getYDoc,
 } from "@taleweaver/core";
+import { haltLinkOf, hookDispatchOf } from "./use-editor";
 import {
   createEditorController,
   type EditorController,
@@ -87,6 +92,14 @@ export interface EditorViewProps {
    * controller through proposals, accept / reject and undo. Pass a stable function.
    */
   suggestionStyles?: SuggestionGroupStyle | null;
+  /**
+   * The controller halted on incompatible (legacy) document storage in a peer update
+   * (see the print controller's `onIncompatibleDocument`). A `useEditor` hook driving
+   * this view is told AUTOMATICALLY — linked through the hook's OWN `dispatch`, which
+   * must be passed unwrapped (dev builds warn when a hook's state arrives with another
+   * dispatch); this prop is for other hosts, or extra observers.
+   */
+  onIncompatibleDocument?: (report: IncompatibleDocumentReport) => void;
 }
 
 /**
@@ -131,13 +144,15 @@ const handleProfile: ProfilerOnRenderCallback = (id, _phase, actualDuration) => 
 
 export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
   function EditorView(
-    { editorState, dispatch, containerRef, measurer, pageHeight, pageGap, pageConfig, hyphenator, decorations, decorationsBasedOn, onDecorationPointer, config, remoteChanges, suggestionStyles },
+    { editorState, dispatch, containerRef, measurer, pageHeight, pageGap, pageConfig, hyphenator, decorations, decorationsBasedOn, onDecorationPointer, config, remoteChanges, suggestionStyles, onIncompatibleDocument },
     ref,
   ) {
   const controllerRef = useRef<EditorController | null>(null);
   // Latest pointer callback, read through a ref so the mount-only controller sees updates.
   const pointerRef = useRef(onDecorationPointer);
   pointerRef.current = onDecorationPointer;
+  const incompatibleRef = useRef(onIncompatibleDocument);
+  incompatibleRef.current = onIncompatibleDocument;
 
   // Imperative handle (#433): delegate the controller's find/replace methods.
   // Each closure reads `controllerRef.current` lazily (at call time, not capture
@@ -170,6 +185,47 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
     [],
   );
 
+  // The `useEditor` hook driving this view (if any) — linked through its `dispatch`.
+  const link = haltLinkOf(dispatch);
+  // A hook's state with another dispatch (a wrapper): the halt link is broken — the
+  // hook would never learn of a halt. Warn once in dev builds.
+  const warnedRef = useRef(false);
+  if (link === undefined && !warnedRef.current && isDevMode()) {
+    const owner = hookDispatchOf(editorState);
+    if (owner !== undefined && owner !== dispatch) {
+      warnedRef.current = true;
+      console.warn(
+        "EditorView: `editorState` comes from useEditor but `dispatch` is not that hook's own dispatch; " +
+          "pass the hook's dispatch unwrapped, or the hook is never told when the editor halts.",
+      );
+    }
+  }
+  const decorationsRef = useRef({ decorations, decorationsBasedOn, suggestionStyles });
+  decorationsRef.current = { decorations, decorationsBasedOn, suggestionStyles };
+
+  /** The controller halted: tell the linked hook and the `onIncompatibleDocument` prop. */
+  function reportIncompatible(report: IncompatibleDocumentReport): void {
+    link?.onIncompatibleDocument(report);
+    incompatibleRef.current?.(report);
+  }
+
+  /** Hand the state to the controller — never a halted hook's; re-apply props on resume. */
+  function show(ctrl: EditorController, next: EditorState): void {
+    if (link?.halted() === true) return;
+    const wasHalted = ctrl.halted;
+    ctrl.update(next);
+    // The controller is the source of truth: a replacement it refused (legacy storage
+    // still / again) halts the hook again.
+    if (ctrl.halted && link !== undefined && !link.halted()) {
+      reportIncompatible({ legacyBlocks: inspectDocument(getYDoc(next.state)).legacyBlocks });
+    } else if (wasHalted && !ctrl.halted) {
+      // A resume replaced the document and dropped every layer: set this view's again.
+      const props = decorationsRef.current;
+      ctrl.setSuggestionStyles(props.suggestionStyles ?? null);
+      ctrl.setDecorations(props.decorations ?? [], props.decorationsBasedOn);
+    }
+  }
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -183,9 +239,13 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
       ...(config !== undefined ? { config } : {}),
       ...(remoteChanges !== undefined ? { remoteChanges } : {}),
       onDecorationPointer: (event) => pointerRef.current?.(event),
+      onIncompatibleDocument: reportIncompatible,
+      onDocumentCompatible: () => link?.onDocumentCompatible(),
+      // Re-created while the hook is halted: start halted (watching the document).
+      ...(link?.halted() === true ? { startHaltedOn: editorState } : {}),
     });
     controllerRef.current = ctrl;
-    ctrl.update(editorState);
+    show(ctrl, editorState);
     return () => ctrl.destroy();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // mount-only
@@ -193,7 +253,8 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
   useEffect(() => {
     const t = markStart("react.subscribe.notify");
     try {
-      controllerRef.current?.update(editorState);
+      const ctrl = controllerRef.current;
+      if (ctrl !== null) show(ctrl, editorState);
     } finally {
       markEnd("react.subscribe.notify", t);
     }

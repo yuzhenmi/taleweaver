@@ -520,16 +520,24 @@ export interface SuggestionGroup {
   readonly author: string;
   readonly createdAt: number;
   readonly metadata: Readonly<Record<string, unknown>> | undefined;
-  /** The member suggestions (document order of their first tagged item; orphans last). */
+  /** The VISIBLE member suggestions (≥1 tagged char / embed), in document order. */
   readonly suggestions: readonly ResolvedSuggestion[];
-  /** The live ranges of the members (orphaned members contribute none). */
+  /** The live ranges of the members. */
   readonly ranges: readonly SuggestionRange[];
 }
 
-/** Every open suggestion group, in document order of its first range (orphans last). */
+/**
+ * Every open suggestion group with ≥1 visible member, in document order of its first
+ * range. A record that tags no content (orphaned — e.g. the user's undo removed every
+ * char an untracked proposal tagged) is hidden; the next resolve of its group drops it.
+ */
 export function getSuggestionGroups(state: State): readonly SuggestionGroup[] {
   const byGroup = new Map<string, ResolvedSuggestion[]>();
   for (const s of getSuggestions(state)) {
+    // A record is visible iff it still tags ≥1 char / embed: an untracked proposal
+    // whose every tagged char the user's own undo removed has nothing to show (it is
+    // dropped by the next resolve of its group).
+    if (s.range === null) continue;
     const key = suggestionGroupOf(s);
     let members = byGroup.get(key);
     if (members === undefined) byGroup.set(key, (members = []));

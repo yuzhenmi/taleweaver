@@ -1,31 +1,20 @@
 /**
- * Identity-preserving deletion-strike applier (#491, Task 2) — direct unit tests
- * for `applyDeletionStrikeInTx`.
+ * Deletion-strike applier (#491) — direct unit tests for `applyDeletionStrikeInTx`.
  *
- * The applier walks one block's LIVE Y.Array over `[rangeStart, rangeEnd)` and,
- * per item, does EXACTLY what `applyAttrsToBlockRange` does (apply-attrs.ts) plus
- * one branch:
- *   - run wholly outside the range → skipped (Y.Text identity kept);
- *   - text run whole-covered, NOT own-insertion → tagged in place
- *     (`yItem.set("attrs", …)`, Y.Text identity kept) with the deletion id;
- *   - text run whole-covered, deleter's OWN pending insertion → deleted by index
- *     (don't-advance discipline; cursor still advances past the deleted extent);
- *   - text run partially covered → split before/middle/after; middle tagged OR
- *     omitted (own-insertion); the straddler loses Y.Text identity (unavoidable);
- *   - embed in range → kept untagged.
- * A post-pass `mergeAdjacentSameAttrsTextItemsInPlace` restores the normalization
- * invariants, so the live content is BYTE-IDENTICAL to the pure
- * `rebuildBlockForDeletion` + `mergeAdjacentTextItems` oracle.
- *
- * These call the applier directly inside a Y.Doc transaction (mirroring
- * `resolve-applier.test.ts` / `apply-attrs.test.ts`), reading/capturing raw Y
- * types via `getYBlock` and the `STATE_INTERNAL` live-doc accessor. Own-insertion
- * records are seeded via `writeSuggestionRecordInTx`.
+ * Offset writes on the block's inline `Y.Text` over `[rangeStart, rangeEnd)`:
+ *   - an in-range text run that is NOT the deleter's own pending insertion is
+ *     TAGGED with the deletion id (`format` — its characters keep their identity);
+ *   - the deleter's OWN pending insertion is deleted for real;
+ *   - embeds in range are kept untagged.
+ * The resulting read model equals the pure `rebuildBlockForDeletion` +
+ * `mergeAdjacentTextItems` oracle.
  */
-import * as Y from "yjs";
 import { describe, it, expect } from "vitest";
 import { applyDeletionStrikeInTx, rebuildBlockForDeletion } from "./suggestion-ops";
-import { getYBlock, runTransaction } from "../yjs-doc";
+import { runTransaction } from "../yjs-doc";
+import { inlineItemsFromYText } from "../y-inline";
+import { blockText, relAt, survives } from "../../test-utils/relpos-survival";
+import { freshState } from "../state";
 import { STATE_INTERNAL } from "../state-internal";
 import { writeSuggestionRecordInTx } from "../suggestions";
 import type { SuggestionId } from "../suggestions";
@@ -71,42 +60,14 @@ function oneBlock(content: InlineContent): State {
   });
 }
 
-/** The live Y.Array of block "p"'s inline content (raw Y access for the test). */
-function yItemsOf(state: State): Y.Array<Y.Map<unknown>> {
-  const doc = state[STATE_INTERNAL].doc;
-  const yBlock = getYBlock(doc, "p" as BlockId, "test", "block");
-  return yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>>;
+/** Block "p"'s live inline items (the read model of its Y.Text). */
+function liveItems(state: State): InlineItem[] {
+  return inlineItemsFromYText(blockText(state, "p"));
 }
 
-/** The Y.Text child of the item at `index` (raw Y access). */
-function yTextAt(yItems: Y.Array<Y.Map<unknown>>, index: number): Y.Text {
-  return yItems.get(index).get("text") as Y.Text;
-}
-
-/** The plain attrs object of the item at `index`. */
-function attrsAt(yItems: Y.Array<Y.Map<unknown>>, index: number): Record<string, unknown> {
-  const yAttrs = yItems.get(index).get("attrs") as Y.Map<unknown>;
-  return yAttrs.toJSON() as Record<string, unknown>;
-}
-
-/** Read the live Y.Array back into a plain InlineItem[] for oracle comparison. */
-function liveItems(yItems: Y.Array<Y.Map<unknown>>): InlineItem[] {
-  const out: InlineItem[] = [];
-  for (let i = 0; i < yItems.length; i++) {
-    const yItem = yItems.get(i);
-    const attrs = attrsAt(yItems, i);
-    if (yItem.get("kind") === "text") {
-      out.push({ kind: "text", text: yTextAt(yItems, i).toString(), attrs });
-    } else {
-      out.push({
-        kind: "embed",
-        embedType: yItem.get("embedType") as string,
-        attrs,
-        properties: (yItem.get("properties") as Y.Map<unknown>).toJSON() as Record<string, unknown>,
-      });
-    }
-  }
-  return out;
+/** `{ text, attrs }` of every text item (compact assertions). */
+function yItems2(state: State): { text: string; attrs: ReadonlyAttrs }[] {
+  return liveItems(state).flatMap((it) => (it.kind === "text" ? [{ text: it.text, attrs: it.attrs }] : []));
 }
 
 /** Run the applier on block "p" over [start, end) with the standard id/author. */
@@ -122,7 +83,6 @@ function strike(state: State, start: number, end: number): boolean {
       end,
       DEL_ID,
       AUTHOR,
-      undefined,
       "test",
     ).tagged;
   });
@@ -143,42 +103,23 @@ function seedOwnInsertion(state: State, id: string): void {
 }
 
 describe("applyDeletionStrikeInTx", () => {
-  it("tags a whole-covered run in place — preserves its Y.Text identity", () => {
-    // items: text("xx", {bold:true}), text("yy", {italic:true})
-    // strike [0,2): the "xx" run is fully covered, not an own-insertion → tagged
-    // in place. Distinct neighbor attrs ⇒ no coalesce ⇒ Y.Text MUST survive (===).
+  it("tags a covered run in place — every struck character keeps its identity", () => {
     const state = oneBlock(
       inlineContent([text("xx", { bold: true }), text("yy", { italic: true })]),
     );
-    const yItems = yItemsOf(state);
-    const xxText = yTextAt(yItems, 0);
+    const relX = relAt(state, "p", 1);
+    const relY = relAt(state, "p", 2);
 
     const tagged = strike(state, 0, 2);
 
     expect(tagged).toBe(true);
-    expect(yItems.length).toBe(2);
-    expect(yTextAt(yItems, 0).toString()).toBe("xx");
-    expect(attrsAt(yItems, 0)).toEqual({ bold: true, [DELETION_SUGGESTION_ATTR]: DEL_ID });
-    expect(yTextAt(yItems, 0)).toBe(xxText); // in-place attrs swap, same Y.Text
-    expect(yTextAt(yItems, 1).toString()).toBe("yy");
-    expect(attrsAt(yItems, 1)).toEqual({ italic: true });
-  });
-
-  it("keeps a run wholly outside the range untouched (Y.Text identity ===)", () => {
-    // items: text("aa", {}), text("bb", {bold:true})
-    // strike [0,2): only "aa" is covered; "bb" is wholly outside ⇒ never written.
-    const state = oneBlock(
-      inlineContent([text("aa", {}), text("bb", { bold: true })]),
-    );
-    const yItems = yItemsOf(state);
-    const bbText = yTextAt(yItems, 1);
-
-    strike(state, 0, 2);
-
-    expect(yItems.length).toBe(2);
-    expect(yTextAt(yItems, 1).toString()).toBe("bb");
-    expect(attrsAt(yItems, 1)).toEqual({ bold: true });
-    expect(yTextAt(yItems, 1)).toBe(bbText); // untouched survivor keeps identity
+    expect(yItems2(state)).toEqual([
+      { text: "xx", attrs: { bold: true, [DELETION_SUGGESTION_ATTR]: DEL_ID } },
+      { text: "yy", attrs: { italic: true } },
+    ]);
+    const after = freshState(state, new Set(["p" as BlockId]));
+    expect(survives(relX, after, "x")).toBe(true);
+    expect(survives(relY, after, "y")).toBe(true);
   });
 
   it("drops a whole-covered own-insertion run by index (not tagged)", () => {
@@ -191,16 +132,13 @@ describe("applyDeletionStrikeInTx", () => {
       ]),
     );
     seedOwnInsertion(state, "i1");
-    const yItems = yItemsOf(state);
-    const cdText = yTextAt(yItems, 1);
+    const relC = relAt(state, "p", 2);
 
     const tagged = strike(state, 0, 2);
 
     expect(tagged).toBe(false); // nothing tagged — only an own-insertion dropped
-    expect(yItems.length).toBe(1);
-    expect(yTextAt(yItems, 0).toString()).toBe("cd");
-    expect(attrsAt(yItems, 0)).toEqual({ bold: true });
-    expect(yTextAt(yItems, 0)).toBe(cdText); // survivor keeps identity
+    expect(yItems2(state)).toEqual([{ text: "cd", attrs: { bold: true } }]);
+    expect(survives(relC, freshState(state, new Set(["p" as BlockId])), "c")).toBe(true);
   });
 
   it("splits a straddling run — before kept (orig attrs), middle tagged", () => {
@@ -214,6 +152,17 @@ describe("applyDeletionStrikeInTx", () => {
     expect(yItems2(state)).toEqual([
       { text: "ab", attrs: { bold: true } },
       { text: "cd", attrs: { bold: true, [DELETION_SUGGESTION_ATTR]: DEL_ID } },
+    ]);
+  });
+
+  it("a range endpoint inside a surrogate pair is snapped OUT before tagging (no U+FFFD)", () => {
+    const state = oneBlock(inlineContent([text("a😀b")]));
+
+    expect(strike(state, 2, 4)).toBe(true);
+
+    expect(yItems2(state)).toEqual([
+      { text: "a", attrs: {} },
+      { text: "😀b", attrs: { [DELETION_SUGGESTION_ATTR]: DEL_ID } },
     ]);
   });
 
@@ -256,11 +205,10 @@ describe("applyDeletionStrikeInTx", () => {
 
     strike(state, 0, 4);
 
-    const yItems = yItemsOf(state);
     // The embed survives untagged at its position; surrounding text is tagged.
-    const embedIdx = liveItems(yItems).findIndex((it) => it.kind === "embed");
+    const embedIdx = liveItems(state).findIndex((it) => it.kind === "embed");
     expect(embedIdx).toBeGreaterThanOrEqual(0);
-    expect(nth(liveItems(yItems), embedIdx, "embed item").attrs).toEqual({});
+    expect(nth(liveItems(state), embedIdx, "embed item").attrs).toEqual({});
   });
 
   it("coalesces a newly-tagged run into a same-id neighbor (post-pass)", () => {
@@ -275,10 +223,7 @@ describe("applyDeletionStrikeInTx", () => {
 
     strike(state, 2, 4);
 
-    const yItems = yItemsOf(state);
-    expect(yItems.length).toBe(1);
-    expect(yTextAt(yItems, 0).toString()).toBe("abcd");
-    expect(attrsAt(yItems, 0)).toEqual({ [DELETION_SUGGESTION_ATTR]: DEL_ID });
+    expect(yItems2(state)).toEqual([{ text: "abcd", attrs: { [DELETION_SUGGESTION_ATTR]: DEL_ID } }]);
   });
 
   it("re-striking a run already carrying this exact id fires no change (no-op guard)", () => {
@@ -287,27 +232,26 @@ describe("applyDeletionStrikeInTx", () => {
     const state = oneBlock(
       inlineContent([text("ab", { [DELETION_SUGGESTION_ATTR]: DEL_ID })]),
     );
-    const yItems = yItemsOf(state);
-    const abText = yTextAt(yItems, 0);
-
+    const doc = state[STATE_INTERNAL].doc;
+    let changed = 0;
+    const onTx = (tx: { changed: Map<unknown, unknown> }): void => {
+      if (tx.changed.size > 0) changed++;
+    };
+    doc.on("afterTransaction", onTx);
     strike(state, 0, 2);
+    doc.off("afterTransaction", onTx);
 
-    expect(yItems.length).toBe(1);
-    expect(yTextAt(yItems, 0)).toBe(abText); // same Y.Text — no write fired
-    expect(attrsAt(yItems, 0)).toEqual({ [DELETION_SUGGESTION_ATTR]: DEL_ID });
+    expect(changed).toBe(0); // no write fired
+    expect(yItems2(state)).toEqual([{ text: "ab", attrs: { [DELETION_SUGGESTION_ATTR]: DEL_ID } }]);
   });
 
   it("zero-width range no-ops (rangeStart === rangeEnd)", () => {
     const state = oneBlock(inlineContent([text("ab", {})]));
-    const yItems = yItemsOf(state);
-    const abText = yTextAt(yItems, 0);
 
     const tagged = strike(state, 1, 1);
 
     expect(tagged).toBe(false);
-    expect(yItems.length).toBe(1);
-    expect(yTextAt(yItems, 0)).toBe(abText);
-    expect(attrsAt(yItems, 0)).toEqual({});
+    expect(yItems2(state)).toEqual([{ text: "ab", attrs: {} }]);
   });
 
   describe("oracle-diff against rebuildBlockForDeletion + mergeAdjacentTextItems", () => {
@@ -399,7 +343,7 @@ describe("applyDeletionStrikeInTx", () => {
         );
         expect(tagged).toBe(expectedTagged);
 
-        const live = liveItems(yItemsOf(state));
+        const live = liveItems(state);
 
         expect(live.length).toBe(oracle.length);
         for (let i = 0; i < oracle.length; i++) {
@@ -418,17 +362,3 @@ describe("applyDeletionStrikeInTx", () => {
     }
   });
 });
-
-/**
- * Convenience: read block "p"'s live runs as {text, attrs} for text-only fixtures.
- * Narrows on `kind` (no unsafe cast) and throws clearly if a fixture unexpectedly
- * contains an embed — rather than silently `.toString()`-ing an `undefined` Y.Text.
- */
-function yItems2(state: State): ReadonlyArray<{ text: string; attrs: ReadonlyAttrs }> {
-  return liveItems(yItemsOf(state)).map((item) => {
-    if (item.kind !== "text") {
-      throw new Error(`yItems2: expected a text item, got "${item.kind}"`);
-    }
-    return { text: item.text, attrs: item.attrs };
-  });
-}

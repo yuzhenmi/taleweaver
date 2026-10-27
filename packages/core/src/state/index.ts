@@ -65,10 +65,20 @@ export {
   docHasFootnotes,
 } from "./state";
 
-export { subscribeForeignChanges } from "./collab";
+export { subscribeForeignChanges, type CompatibilityGateOptions } from "./collab";
+export {
+  upgradeDocument,
+  inspectDocument,
+  CURRENT_SCHEMA_VERSION,
+  UPGRADE_ORIGIN,
+  type UpgradeReport,
+  type DocumentInspection,
+  type IncompatibleDocumentReport,
+} from "./upgrade";
+export { LegacyDocumentError } from "./y-inline";
 export type { Assoc, MappedPosition, PositionMapping } from "./position-mapping";
 export { createPositionMapping, IDENTITY_MAPPING, UNKNOWN_MAPPING } from "./position-mapping";
-export { runWithTransactionOrigin } from "./yjs-doc";
+export { runWithTransactionOrigin, currentTransactionOrigin, UntrackedOrigin } from "./yjs-doc";
 
 // Block snapshot type and the insert-time partial-block shape.
 export type { Block } from "./block";

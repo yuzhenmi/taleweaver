@@ -1242,7 +1242,7 @@ describe("DigitalController — host proposals (suggestion groups)", async () =>
     controller.destroy();
   });
 
-  it("a proposal inside the just-typed run is its own undo entry after the typing: Ctrl+Z undoes it, then the typing", async () => {
+  it("a proposal inside the just-typed run is NOT in the user's undo stack: Ctrl+Z undoes the typing, the proposal stays", async () => {
     const { controller, container, id } = mountWithText("jumps over");
     controller.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(id, 0), createPosition(id, 0)) });
     controller.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(id, 10), createPosition(id, 10)) });
@@ -1255,12 +1255,9 @@ describe("DigitalController — host proposals (suggestion groups)", async () =>
     });
     expect(result).toEqual({ ok: true });
     expect(leafBlock(container).textContent).toBe("jumps high over!");
-    ctrlZ(container);
-    expect(leafBlock(container).textContent).toBe("jumps over!");
-    expect(core.getSuggestions(controller.editorState.state)).toHaveLength(0);
-    ctrlZ(container);
-    expect(leafBlock(container).textContent).toBe("jumps over");
-    ctrlShiftZ(container);
+    ctrlZ(container); // the user's own last edit: the typed "!"
+    expect(leafBlock(container).textContent).toBe("jumps high over");
+    expect(core.getSuggestionGroups(controller.editorState.state).map((g) => g.id)).toEqual([groupId]);
     ctrlShiftZ(container);
     expect(leafBlock(container).textContent).toBe("jumps high over!");
     expect(core.getSuggestionGroups(controller.editorState.state).map((g) => g.id)).toEqual([groupId]);

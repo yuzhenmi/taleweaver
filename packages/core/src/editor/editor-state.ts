@@ -348,7 +348,7 @@ export function reduceEditor(
     case "insert":
     case "delete":
     case "command":
-      editor.history.beginEntry(coalesceClass, (config.now ?? Date.now)());
+      editor.history.beginEntry(coalesceClass, (config.now ?? Date.now)(), editor.selection);
       break;
     case "selection-break":
       editor.history.breakCoalescing();

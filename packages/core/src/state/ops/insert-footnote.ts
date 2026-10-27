@@ -5,10 +5,7 @@ import type { BlockId, IdAllocator } from "../block-id";
 import type { Position } from "../block-position";
 import {
   inlineContentLength,
-  splitInlineContentAtOffset,
-  mergeAdjacentTextItems,
   type EmbedItem,
-  type InlineItem,
 } from "../inline-content";
 import {
   getEmbedContentsMap,
@@ -16,7 +13,8 @@ import {
   requireInTransaction,
   type BlockTreeKind,
 } from "../yjs-doc";
-import { buildYBlock, buildYInlineContent } from "../y-block";
+import { buildYBlock } from "../y-block";
+import { insertInlineItems, requireYInline } from "../y-inline";
 import { assertNoIdCollision } from "../id-collision-check";
 
 /** The `embedType` discriminant for a footnote call marker. */
@@ -38,16 +36,15 @@ export interface InsertFootnoteResult extends OperationResult {
 }
 
 /**
- * Pre-computed plan for the anchor-insertion half of `insertFootnote`: the
- * leaf block's tree provenance plus the new `items[]` after the anchor is
- * spliced in at `position.offset`. A footnote anchor never lands mid-text-run
- * in a way that merges with neighbours (an embed is a barrier), so this is
- * always a full-replace of the leaf's inlineContent.
+ * Pre-computed plan for the anchor-insertion half of `insertFootnote`: the host leaf's
+ * tree provenance, the insertion offset and the embed — one offset
+ * `insertEmbed` into the leaf's inline `Y.Text` (no other character moves).
  */
 interface AnchorInsertPlan {
   readonly blockId: BlockId;
   readonly kind: BlockTreeKind;
-  readonly items: ReadonlyArray<InlineItem>;
+  readonly offset: number;
+  readonly embed: EmbedItem;
 }
 
 /**
@@ -129,8 +126,8 @@ export function insertFootnote(
 }
 
 /**
- * Validate `position` and produce the anchor-insertion plan (the new leaf
- * `items[]` with a `footnote-anchor` EmbedItem spliced in at `position.offset`,
+ * Validate `position` and produce the anchor-insertion plan (a
+ * `footnote-anchor` EmbedItem to insert at `position.offset`,
  * referencing `bodyRootId`). All snapshot reads + validation happen here,
  * BEFORE the surrounding `applyOperation` opens. Throws on every condition the
  * `insertFootnote` docstring lists.
@@ -165,16 +162,7 @@ function planAnchorInsert(
     properties: Object.freeze({ contentBlockId: bodyRootId }),
   });
 
-  const [left, right] = splitInlineContentAtOffset(
-    block.inlineContent,
-    position.offset,
-  );
-  // An embed is a merge barrier, so `mergeAdjacentTextItems` only normalizes
-  // the split halves around it (e.g. re-joining a text run we never split, or
-  // dropping a zero-length item) — it never merges across the anchor.
-  const items = mergeAdjacentTextItems([...left, anchor, ...right]);
-
-  return { blockId: position.blockId, kind, items };
+  return { blockId: position.blockId, kind, offset: position.offset, embed: anchor };
 }
 
 /**
@@ -220,8 +208,8 @@ function insertFootnoteBodyInTx(
 }
 
 /**
- * In-transaction primitive: full-replace the anchor leaf's inlineContent with
- * the pre-computed `plan.items` (anchor spliced in). Caller owns the
+ * In-transaction primitive: insert the anchor embed into the leaf's inline
+ * `Y.Text` at `plan.offset`. Caller owns the
  * surrounding transaction. Routes the write to the leaf's owning tree
  * (`plan.kind`) so an anchor inside a header/footer or another footnote body
  * mutates the correct Y.Map.
@@ -229,5 +217,5 @@ function insertFootnoteBodyInTx(
 function insertAnchorInTx(doc: Y.Doc, plan: AnchorInsertPlan): void {
   requireInTransaction(doc, "insertFootnote");
   const yBlock = getYBlock(doc, plan.blockId, "insertFootnote", plan.kind);
-  yBlock.set("inlineContent", buildYInlineContent({ items: plan.items }));
+  insertInlineItems(requireYInline(yBlock, plan.blockId, "insertFootnote"), plan.offset, [plan.embed]);
 }

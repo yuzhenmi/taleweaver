@@ -34,13 +34,21 @@ import { insertNewBlocksInTx, type NewBlockSpec } from "./insert-new-blocks";
 import type { SiblingBlockInit } from "./insert-blocks-after";
 import { STATE_INTERNAL } from "../state-internal";
 import { getSuggestionsMap, getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
-import { buildYInlineItem, buildYAttrs } from "../y-block";
-import { mergeAdjacentSameAttrsTextItemsInPlace, yItemLength, yMapAsObject } from "../y-utils";
-import { planApplyAttrsToRange, applyAttrsToRangeInTx } from "./apply-attrs";
-import { planInsertText, insertTextInTx, planInsertTextSplitInPlace } from "./insert-text";
 import {
-  planInsertItemsSplitInPlace,
-  planReplaceBlockTailInPlace,
+  attrsDiff,
+  inlineItemsFromYText,
+  insertInlineItems,
+  readYInline,
+  requireYInline,
+  snapOffset,
+  snapRange,
+  toYFormatDelta,
+} from "../y-inline";
+import { planApplyAttrsToRange, applyAttrsToRangeInTx } from "./apply-attrs";
+import { planInsertText, insertTextInTx } from "./insert-text";
+import {
+  planInsertItemsAt,
+  planReplaceBlockTail,
   insertItemsInTx,
   type InsertItemsPlan,
 } from "./insert-items";
@@ -191,7 +199,6 @@ export function markDeletion(
   state: State,
   span: Span,
   input: SuggestionMintInput,
-  registry?: AttrRegistry,
 ): OperationResult {
   const plan = planMarkDeletion(state, span, input);
   // Collapsed span / nothing to mark → identity no-op (the input State reference).
@@ -213,7 +220,6 @@ export function markDeletion(
         write.rangeEnd,
         plan.id,
         input.author,
-        registry,
         "markDeletion",
       );
       anyTagged ||= tagged;
@@ -248,12 +254,9 @@ export function markDeletion(
  * an existing record, and the span's owning tree `kind`.
  *
  * Extracted from {@link markDeletion} so the composite {@link replaceWithSuggestion}
- * can reuse the strike plan. The strike itself is surgical
- * ({@link applyDeletionStrikeInTx}, driven by `rangeStart`/`rangeEnd`), preserving
- * untouched runs' Y.Text identity. `replaceWithSuggestion` reads `startWrite.items`
- * (the post-strike content of the start block — byte-identical to the surgical
- * strike's result) to build its split-in-place insert plan's offsets: the insert
- * must resolve against the POST-strike start block, not the pre-strike `state`.
+ * can reuse the strike plan. The strike itself is an in-place offset write
+ * ({@link applyDeletionStrikeInTx}, driven by `rangeStart`/`rangeEnd`): no character
+ * outside the span is re-minted.
  *
  * Returns `null` for the no-op cases (collapsed span, or `planApplyAttrsToRange`
  * yields nothing) so the caller short-circuits with the identity contract.
@@ -328,10 +331,10 @@ function planMarkDeletion(
 interface MarkDeletionPlan {
   /**
    * The per-owning-block strike writes. `rangeStart`/`rangeEnd` (from the
-   * `iterateSpan` segment) drive the surgical {@link applyDeletionStrikeInTx};
-   * `items` (the post-strike content) is RETAINED because the composite
-   * {@link replaceWithSuggestion} reads `startWrite.items` to build its insert
-   * plan's offsets (byte-identical to the surgical strike's result).
+   * `iterateSpan` segment) drive the in-place {@link applyDeletionStrikeInTx};
+   * `items` (the post-strike content, as the strike leaves it) is read by the
+   * fragment-replace planner, which slices the start block's post-strike content
+   * and records each block's expected post-write content.
    */
   readonly writes: {
     readonly blockId: BlockId;
@@ -459,18 +462,13 @@ export interface ReplaceSuggestionInput {
  * atomically). The strike + the insert + BOTH records (an `insertion` and a
  * `deletion`) land as ONE undo entry and one collab event.
  *
- * Composes {@link planMarkDeletion} (the strike plan) with an identity-preserving
- * {@link planInsertTextSplitInPlace} insert (#492). The start block is struck
- * SURGICALLY in-tx (via {@link applyDeletionStrikeInTx}) — leaving every untouched
- * run's Y.Text CRDT identity intact — so its live Y.Array, after the strike, is
- * byte-identical to the start block's `writes` entry (`startWrite.items`). The
- * suggested run is then inserted split-in-place against that identity-preserved
- * array: it drops in at the selection-start run boundary (the strike pre-splits
- * there, so `within === 0` → no run loses identity). `startWrite.items` is read for
- * the insert OFFSET (it describes the live post-strike content), NOT as full-replace
- * content. The load-bearing ordering: the start block's strike MUST run BEFORE the
- * insert (else the split-in-place plan resolves against post-strike items but mutates
- * a still-pre-strike live array → document corruption).
+ * Composes {@link planMarkDeletion} (the strike plan) with an offset insert
+ * ({@link planInsertText} + {@link insertTextInTx}). Every struck block is struck
+ * in place by {@link applyDeletionStrikeInTx} (`format` tags; only the author's own
+ * pending insertions inside the span are deleted), so no character outside the
+ * span is re-minted. The strike never changes content before the selection start,
+ * so the start offset is the post-strike seam and the suggested run is inserted
+ * there with one offset insert.
  *
  * The new run lands at `start.offset` — BEFORE the struck selection text — and
  * carries `insertionSuggestionId`. `attrs` is its INTENDED live format (the
@@ -483,13 +481,9 @@ export interface ReplaceSuggestionInput {
  * strike never touches the run before `start`); the deletion coalesces per
  * {@link planMarkDeletion}. A coalesced half writes no new record.
  *
- * Block-write discipline (3-step in-tx order): (1) the loop surgically strikes
- * every NON-start struck block; (2) the START block is struck surgically too (a
- * separate `applyDeletionStrikeInTx`, skipped by the loop) — making its live Y.Array
- * the identity-preserved post-strike content; (3) the suggested run is inserted
- * split-in-place into that live array. The start block is thus struck once and
- * inserted-into once, never full-replaced — preserving the CRDT identity of every
- * run the edit doesn't touch.
+ * Block-write order (one transaction): strike every struck block, then insert the
+ * suggested run at the seam — offset writes on each block's inline `Y.Text`; no
+ * block's inline storage is rewritten.
  *
  * Degenerate delegation (the editor caller is always the expanded non-empty
  * branch, but these keep the op total):
@@ -521,7 +515,7 @@ export function replaceWithSuggestion(
       id: input.deletionId,
       author: input.author,
       createdAt: input.createdAt,
-    }, registry);
+    });
   }
 
   // Degenerate: collapsed span → nothing to strike, a pure suggested insertion.
@@ -569,38 +563,15 @@ export function replaceWithSuggestion(
   // `insertionSuggestionId` (any stale caller value is replaced by the resolved id).
   const insertAttrs: ReadonlyAttrs = { ...attrs, [INSERTION_SUGGESTION_ATTR]: insId };
 
-  // Build the insert plan against the POST-strike items of the start block (its
-  // `writes` entry). `startWrite.items` describes the start block's LIVE Y.Array
-  // AFTER its surgical strike (applied in step 2 of the in-tx body below) — which is
-  // byte-identical to `startWrite.items`, so `planInsertTextSplitInPlace` resolves
-  // the insert OFFSET against it and drops the suggested run identity-preservingly
-  // (the strike pre-splits at `start.offset`, so the insert lands at a run boundary
-  // — zero identity loss). The plan is built pre-tx but only resolves itemIndex/
-  // within from `startWrite.items`; the in-tx strike makes the live array match.
-  // If the start block has no struck write (it contributed no in-range text — e.g.
-  // the span starts exactly at end-of-block), it's untouched by the strike, so a
-  // normal in-place plan against the live `state` is safe.
-  const startWrite = delPlan.writes.find((w) => w.blockId === start.blockId);
-  const insertPlan = startWrite
-    ? planInsertTextSplitInPlace(
-        start.blockId,
-        delPlan.kind,
-        startWrite.items,
-        start.offset,
-        text,
-        insertAttrs,
-        registry,
-      )
-    : planInsertText(state, start, text, insertAttrs, registry);
+  // The suggested run lands at `start.offset` — an offset insert AFTER the strike.
+  // The strike never changes content before `start` (it tags in place and only
+  // removes the author's own insertions INSIDE the span), so `start.offset` is the
+  // post-strike seam too. `planInsertText` validates against the pre-strike state.
+  const insertPlan = planInsertText(state, start, text, insertAttrs, registry);
 
   return applyOperation(state, (d) => {
-    // 3-step in-tx order (LOAD-BEARING). Step 1: surgically strike every NON-start
-    // struck block (the start block is skipped here and struck in step 2). The
-    // `startWrite === undefined` branch strikes ALL blocks here (the start block was
-    // never struck) and the insert is a normal in-place mutation into the live start
-    // block.
+    // Strike every struck block, then insert the suggested run at the seam.
     for (const write of delPlan.writes) {
-      if (startWrite !== undefined && write.blockId === start.blockId) continue;
       applyDeletionStrikeInTx(
         d,
         write.blockId,
@@ -609,28 +580,9 @@ export function replaceWithSuggestion(
         write.rangeEnd,
         delPlan.id,
         input.author,
-        registry,
         "replaceWithSuggestion",
       );
     }
-    // Step 2: strike the START block surgically too — so its live Y.Array becomes the
-    // identity-preserved post-strike content (byte-identical to `startWrite.items`)
-    // that the split-in-place insert resolves against. MUST run BEFORE the insert.
-    if (startWrite !== undefined) {
-      applyDeletionStrikeInTx(
-        d,
-        startWrite.blockId,
-        delPlan.kind,
-        startWrite.rangeStart,
-        startWrite.rangeEnd,
-        delPlan.id,
-        input.author,
-        registry,
-        "replaceWithSuggestion",
-      );
-    }
-    // Step 3: insert the suggested run (split-in-place into the now-struck live array,
-    // or a normal in-place insert when the start block was never struck).
     insertTextInTx(d, insertPlan);
     // Write the deletion record (≥1 run tagged AND not coalesced).
     if (delPlan.taggedAny && !delPlan.reusing) {
@@ -654,6 +606,21 @@ export function replaceWithSuggestion(
 }
 
 /**
+ * `span` normalized forward with its endpoints snapped OUT to grapheme boundaries
+ * (start backward, end forward; a collapsed span snaps backward) — computed ONCE by a
+ * planner so the strike, the cut and the insert all use the same offsets.
+ */
+function snapSpanOut(state: State, span: Span): Span {
+  const start = spanStart(state, span);
+  const end = spanEnd(state, span);
+  const itemsOf = (id: BlockId): ReadonlyArray<InlineItem> => resolveBlock(state, id)?.block.inlineContent?.items ?? [];
+  const s = createPosition(start.blockId, snapOffset(itemsOf(start.blockId), start.offset));
+  const collapsed = start.blockId === end.blockId && start.offset === end.offset;
+  const e = collapsed ? s : createPosition(end.blockId, snapOffset(itemsOf(end.blockId), end.offset, 1));
+  return createSpan(s, e);
+}
+
+/**
  * ENTER (paragraph SPLIT) over a NON-COLLAPSED selection in Suggesting mode: the
  * SPLIT_NODE analog of {@link replaceWithSuggestion}. SOFT-DELETE the selection (the
  * text STAYS, struck with `deletionSuggestionId`) AND insert a suggested paragraph
@@ -664,8 +631,8 @@ export function replaceWithSuggestion(
  *
  * Composes {@link planMarkDeletion} (the strike plan) with the structural
  * {@link planSplitBlockAtPosition} + {@link splitBlockAtPositionInTx}, then APPENDS a
- * zero-width {@link BLOCK_SPLIT_SUGGESTION_EMBED_TYPE} embed to block N's live
- * Y.Array — exactly the {@link splitWithSuggestion} embed-append discipline.
+ * zero-width {@link BLOCK_SPLIT_SUGGESTION_EMBED_TYPE} embed to block N's inline
+ * `Y.Text` — exactly the {@link splitWithSuggestion} embed-append discipline.
  *
  * SINGLE-BLOCK scope: the editor caller guarantees `spanStart.blockId ===
  * spanEnd.blockId` (a cross-block Enter-over-selection needs block-JOIN suggestions
@@ -685,13 +652,12 @@ export function replaceWithSuggestion(
  * split materializes N+1 from B's post-strike LIVE content `[splitOffset, postLen)`
  * (the unstruck tail), leaving the struck selection in N.
  *
- * Append discipline: the surgical strike mutates B's Y.Array in place (tagging the
- * struck runs, dropping own-insertions — untouched runs keep their `Y.Text`
- * identity), so the split reads B's POST-strike live content.
- * `splitBlockAtPositionInTx` then sets B's content to `[0, splitOffset)` IN PLACE
- * (identity-preserving); this op then APPENDS just the zero-width break embed to B's
- * live `inlineContent` Y.Array — so B's surviving post-strike text-run CRDT identity
- * is preserved end-to-end. N+1 + the sibling rewiring stay as the split left them.
+ * Append discipline: the strike writes B's inline `Y.Text` in place (`format` tags
+ * on the struck text, deletes of own-insertions), so the split reads B's POST-strike
+ * live content. `splitBlockAtPositionInTx` then cuts B to `[0, splitOffset)` with one
+ * offset delete; this op then APPENDS just the zero-width break embed (one offset
+ * insert) — no surviving character of B is re-minted. N+1 + the sibling rewiring stay
+ * as the split left them.
  *
  * The two records share `createdAt` as the render-layer "this was ONE replace"
  * grouping signal (like {@link replaceWithSuggestion}). The deletion record is written
@@ -705,18 +671,17 @@ export function replaceWithSuggestion(
  * no strike, no deletion record).
  *
  * `newBlockInit` overrides N+1's `type` / `attrs` (the heading→paragraph follow-on
- * hook), threaded through to {@link planSplitBlockAtPosition} unchanged. `registry`
- * is threaded into the strike's {@link applyDeletionStrikeInTx} so its
- * `mergeAdjacentSameAttrsTextItemsInPlace` post-pass honors a custom per-key `equals`.
+ * hook), threaded through to {@link planSplitBlockAtPosition} unchanged.
  */
 export function splitWithSuggestionOverSelection(
   state: State,
-  span: Span,
+  rawSpan: Span,
   allocator: IdAllocator,
   input: ReplaceSuggestionInput,
   newBlockInit?: { readonly type?: string; readonly attrs?: ReadonlyAttrs },
-  registry?: AttrRegistry,
 ): OperationResult {
+  // Snapped ONCE: the strike, the split offset and the break embed share one cut.
+  const span = snapSpanOut(state, rawSpan);
   const start = spanStart(state, span);
   const end = spanEnd(state, span);
   const blockB = start.blockId; // === end.blockId for a single-block span.
@@ -786,9 +751,8 @@ export function splitWithSuggestionOverSelection(
 
   return applyOperation(state, (doc) => {
     // 1. Apply the strike writes (B written BEFORE the split so the split reads
-    //    B's post-strike content). For a single-block span this is just B. The
-    //    surgical applier mutates the struck runs IN PLACE over the live Y.Array
-    //    (identity-preserving), byte-identical to the old full-replace.
+    //    B's post-strike content). For a single-block span this is just B: offset
+    //    `format` / `delete` writes on its inline Y.Text.
     for (const w of delPlan.writes) {
       applyDeletionStrikeInTx(
         doc,
@@ -798,21 +762,18 @@ export function splitWithSuggestionOverSelection(
         w.rangeEnd,
         delPlan.id,
         input.author,
-        registry,
         "splitWithSuggestionOverSelection",
       );
     }
     // 2. The REAL structural split: materializes N+1 from B's now-post-strike LIVE
-    //    content [splitOffset, postLen) (the unstruck tail) + rewires siblings; sets
-    //    B's content to [0, splitOffset) IN PLACE (identity-preserving).
+    //    content [splitOffset, postLen) (the unstruck tail) + rewires siblings; cuts
+    //    B to [0, splitOffset) with one offset delete.
     splitBlockAtPositionInTx(doc, splitPlan);
-    // 3. APPEND just the break embed to B's LIVE inlineContent Y.Array. The in-place
-    //    split already left B's content as [0, splitOffset); appending the barrier
-    //    embed preserves B's surviving text-run CRDT identity (no full-replace). N+1 +
+    // 3. APPEND just the break embed to B's inline Y.Text (one offset insert). N+1 +
     //    the rewiring stay as the split left them.
     const yB = getYBlock(doc, blockB, "splitWithSuggestionOverSelection", splitPlan.kind);
-    const yBItems = yB.get("inlineContent") as Y.Array<Y.Map<unknown>>;
-    yBItems.push([buildYInlineItem(embed)]);
+    const yBText = requireYInline(yB, blockB, "splitWithSuggestionOverSelection");
+    insertInlineItems(yBText, yBText.length, [embed]);
     // 4. The deletion record (≥1 run tagged AND not coalesced).
     if (delPlan.taggedAny && !delPlan.reusing) {
       writeSuggestionRecordInTx(doc, {
@@ -856,7 +817,7 @@ export interface ReplaceFragmentPlan {
   readonly endPosition: Position;
   /**
    * The start block B's pre-tx insert plan. Non-null for the start block whenever a line
-   * is inserted into B: `n===1` (S3) is a `split-in-place` insert of line0 at offset `c`
+   * is inserted into B: `n===1` (S3) is an offset `insert` of line0 at offset `c`
    * resolved against B's POST-strike content; `n>1` (S4) is a `replace-tail` against B's
    * ORIGINAL pre-strike items that keeps [0:c], drops the rest, and appends line0 +
    * split-embed (B's struck tail relocates by value into the last new block — B is NOT
@@ -865,7 +826,7 @@ export interface ReplaceFragmentPlan {
   readonly bInsertPlan: InsertItemsPlan | null;
   /**
    * The fragment's line count `n`. The applier dispatches the START block on it — B is
-   * surgical for ALL n: `n===0` ⇒ strike only; `n===1` ⇒ strike + split-insert line0 via
+   * surgical for ALL n: `n===0` ⇒ strike only; `n===1` ⇒ strike + offset-insert line0 via
    * `bInsertPlan`; `n>1` ⇒ `replace-tail` truncation via `bInsertPlan` (no strike, no
    * join — both relocate into the last new block).
    */
@@ -934,12 +895,15 @@ function fragmentLineLength(line: SiblingBlockInit): number {
 
 export function planReplaceWithSuggestedFragment(
   state: State,
-  span: Span,
+  rawSpan: Span,
   fragment: readonly SiblingBlockInit[],
   input: ReplaceSuggestionInput,
   allocator: IdAllocator,
   registry?: AttrRegistry,
 ): ReplaceFragmentPlan {
+  // Snapped ONCE: the strike range, the prefix cut `c`, the insert and the moved tail
+  // all use the same grapheme-aligned offsets.
+  const span = snapSpanOut(state, rawSpan);
   const at = spanStart(state, span);
   const resolved = resolveBlock(state, at.blockId);
   if (resolved === null || resolved.block.inlineContent === null) {
@@ -968,16 +932,10 @@ export function planReplaceWithSuggestedFragment(
   // E does not), and the deletion record (when ≥1 run was tagged and not coalesced).
   let prefix: ReadonlyArray<InlineItem>;
   let tailBundle: ReadonlyArray<InlineItem>;
-  // B's POST-strike content (== B's live Y.Array after the surgical strike, before
-  // the fragment insert). The `bInsertPlan`'s offset `c` is resolved against THIS so
-  // its split indices line up with B's live array post-strike. Equals the original
-  // items when nothing is struck in B (PF-1 / start-at-end-of-B).
-  let bStrikeItems: ReadonlyArray<InlineItem>;
   const extraWrites: ResolveWrite[] = [];
   let delRecord: SuggestionRecord | null = null;
   // The start block B's surgical-strike coords + whether B's END gets a cross-block
-  // JOIN embed appended (used only by the n===0 applier; B's n>0 writes still ride the
-  // old full-replace). `bRangeStart < bRangeEnd` ⇒ B has a strike (false in the
+  // JOIN embed appended (used by the n===0 and n===1 appliers). `bRangeStart < bRangeEnd` ⇒ B has a strike (false in the
   // collapsed / nothing-struck-in-B case). `bDeletionId` is the id for BOTH B's strike
   // AND its cross-block join append (so it is non-null whenever `bAppendJoinEmbed`).
   let bDeletionId: SuggestionId | null = null;
@@ -991,7 +949,6 @@ export function planReplaceWithSuggestedFragment(
     );
     prefix = pfx;
     tailBundle = sfx;
-    bStrikeItems = resolved.block.inlineContent.items;
   } else {
     const end = spanEnd(state, span);
     const startBlockId = at.blockId;
@@ -1009,7 +966,6 @@ export function planReplaceWithSuggestedFragment(
     // The id is needed when B is struck OR when its cross-block join is appended.
     bDeletionId = bWrite || crossBlock ? delPlan.id : null;
     const bItems = bWrite ? bWrite.items : resolved.block.inlineContent.items;
-    bStrikeItems = bItems;
     const [pfx, afterPrefix] = splitInlineContentAtOffset({ items: bItems }, c);
     prefix = pfx;
     tailBundle = crossBlock
@@ -1042,7 +998,7 @@ export function planReplaceWithSuggestedFragment(
 
   // The start block B's write entry (its strike coords + the full-replace `items`, now
   // read ONLY by the test equivalence oracle). `appendJoinEmbed` (= cross-block) is consumed by
-  // the n===0 (strike-only) and n===1 (strike + split-insert) surgical appliers. B is
+  // the n===0 (strike-only) and n===1 (strike + offset-insert) surgical appliers. B is
   // surgical for ALL n now; the n>1 applier truncates B via `bInsertPlan` (replace-tail)
   // and ignores these strike fields (B's struck tail relocates into the last new block).
   const bWriteEntry = (items: ReadonlyArray<InlineItem>): ResolveWrite => ({
@@ -1100,12 +1056,11 @@ export function planReplaceWithSuggestedFragment(
     if (line0 === undefined) {
       throw new Error("planReplaceWithSuggestedFragment: n===1 but fragment[0] missing (unreachable)");
     }
-    // Surgical (#492 lockstep): after the applier strikes B in place (live array ==
-    // `bStrikeItems`), split-insert line0 at offset `c` resolved against `bStrikeItems`.
-    const bInsertPlan = planInsertItemsSplitInPlace(
+    // Surgical (#492 lockstep): after the applier strikes B in place (the block's inline Y.Text ==
+    // `bStrikeItems`), offset-insert line0 at offset `c` resolved against `bStrikeItems`.
+    const bInsertPlan = planInsertItemsAt(
       at.blockId,
       kind,
-      bStrikeItems,
       c,
       fragmentLineItems(line0, insId),
       registry,
@@ -1151,10 +1106,9 @@ export function planReplaceWithSuggestedFragment(
   // correct. Striking B first would desync these indices (resolved vs ORIGINAL items).
   // B's [0:c] is strike-untouched, so the kept prefix == `prefix` and final B is
   // byte-identical to the old full-replace `bItems` below.
-  const bInsertPlan = planReplaceBlockTailInPlace(
+  const bInsertPlan = planReplaceBlockTail(
     at.blockId,
     kind,
-    resolved.block.inlineContent.items,
     c,
     [...fragmentLineItems(line0, insId), buildSplitSuggestionEmbed(insId)],
     registry,
@@ -1234,7 +1188,7 @@ export function replaceWithSuggestedFragment(
     // intervening block or E. NON-start writes are ALWAYS surgical (#493 S2): strike
     // in place (preserving untouched runs' Y.Text identity) + append the cross-block
     // JOIN embed for interveners. The START block is surgical for ALL n: n===0 strike-
-    // only; n===1 strike + split-insert line0 via `bInsertPlan`; n>1 replace-tail
+    // only; n===1 strike + offset-insert line0 via `bInsertPlan`; n>1 replace-tail
     // truncation via `bInsertPlan` (no strike — B's struck tail relocates into the last
     // new block). The full-replace seam (`writeBlockInlineContentInTx`) is now GONE:
     // every write in this op preserves untouched runs' Y.Text CRDT identity (#493).
@@ -1260,7 +1214,7 @@ export function replaceWithSuggestedFragment(
       // and n===1 (strike + insert line0 at c). `bInsertPlan` is non-null only for the
       // n===1 start; it is `null` for n===0's start and for every NON-start write.
       const insertPlan = isStart ? plan.bInsertPlan : null;
-      applySurgicalFragmentWrite(doc, w, input.author, registry, insertPlan);
+      applySurgicalFragmentWrite(doc, w, input.author, insertPlan);
     }
     const firstNew = plan.newBlocks[0];
     const lastNew = plan.newBlocks[plan.newBlocks.length - 1];
@@ -1325,11 +1279,11 @@ export function insertFragmentAsSuggestion(
  *   1. STRIKE `[w.rangeStart, w.rangeEnd)` in place via {@link applyDeletionStrikeInTx}
  *      when planned (`w.deletionId !== null` with a non-empty range) — preserving the
  *      `Y.Text` identity of every UNTOUCHED run.
- *   2. INSERT `insertPlan` (the start block B's `n===1` line0 split-insert at offset
+ *   2. INSERT `insertPlan` (the start block B's `n===1` line0 offset insert at
  *      `c`, resolved against B's POST-strike content) via {@link insertItemsInTx}.
  *      `null` for n===0's start and every NON-start write. NOTE the n>1 start does NOT
  *      reach here — its `replace-tail` `bInsertPlan` is applied by a dedicated branch in
- *      the loop above (no strike), so this helper only ever sees split-in-place plans.
+ *      the loop above (no strike), so this helper only ever sees `insert`-mode plans.
  *   3. APPEND the trailing block-JOIN-suggestion embed (interveners + the cross-block
  *      start block) when `w.appendJoinEmbed`.
  *
@@ -1340,7 +1294,6 @@ function applySurgicalFragmentWrite(
   doc: Y.Doc,
   w: ResolveWrite,
   author: string,
-  registry: AttrRegistry | undefined,
   insertPlan: InsertItemsPlan | null,
 ): void {
   // 1. Strike B's [rangeStart, rangeEnd) in place (#492 lockstep) when planned.
@@ -1353,7 +1306,6 @@ function applySurgicalFragmentWrite(
       w.rangeEnd,
       w.deletionId,
       author,
-      registry,
       "replaceWithSuggestedFragment",
     );
   }
@@ -1366,10 +1318,9 @@ function applySurgicalFragmentWrite(
     if (w.deletionId === null) {
       throw new Error("applySurgicalFragmentWrite: appendJoinEmbed requires a deletionId");
     }
-    const yItems = getYBlock(doc, w.blockId, "replaceWithSuggestedFragment", w.kind).get(
-      "inlineContent",
-    ) as Y.Array<Y.Map<unknown>>;
-    yItems.insert(yItems.length, [buildYInlineItem(buildJoinSuggestionEmbed(w.deletionId))]);
+    const yBlock = getYBlock(doc, w.blockId, "replaceWithSuggestedFragment", w.kind);
+    const yText = requireYInline(yBlock, w.blockId, "replaceWithSuggestedFragment");
+    insertInlineItems(yText, yText.length, [buildJoinSuggestionEmbed(w.deletionId)]);
   }
 }
 
@@ -1445,15 +1396,16 @@ export interface ResolveWrite {
 }
 
 /**
- * A per-owning-block decision list for the identity-preserving resolve path
- * (#484). Distinct from {@link ResolveWrite} (which carries rebuilt `items` and
- * remains in use by the fragment-replace create-op path): a resolve no longer
- * rebuilds a block's content — it applies per-item decisions in place over the
- * live Y.Array. `decisions[k]` corresponds to the pre-resolve snapshot item k.
+ * A per-owning-block decision list for the resolve path. Distinct from
+ * {@link ResolveWrite} (which carries rebuilt `items` and remains in use by the
+ * fragment-replace create-op path): a resolve never rebuilds a block's content — it
+ * applies per-item decisions as offset writes on the block's inline `Y.Text`.
+ * `decisions[k]` corresponds to the pre-resolve snapshot item k.
  */
 interface ResolveDecisionWrite {
   readonly blockId: BlockId;
   readonly kind: BlockTreeKind;
+  readonly items: ReadonlyArray<InlineItem>;
   readonly decisions: readonly ScanItemResult[];
 }
 
@@ -1487,8 +1439,8 @@ export type ScanItemResult =
   // keep item as-is (untouched).
   | { readonly op: "keep" }
   // touched: replace ONLY this item's attrs (text/embedType/properties unchanged
-  // — every resolve rewrite is attrs-only, so the applier does an in-place
-  // identity-preserving `yItem.set("attrs", …)`).
+  // — every resolve rewrite is attrs-only, so the applier formats the item's range
+  // in place, identity-preserving).
   | { readonly op: "rewrite"; readonly attrs: ReadonlyAttrs }
   // touched: omit this run (real delete).
   | { readonly op: "drop" }
@@ -1496,53 +1448,51 @@ export type ScanItemResult =
   | { readonly op: "breakDrop"; readonly merge: boolean };
 
 /**
- * Identity-preserving resolve applier (#484). Walks `decisions` (aligned to the
- * pre-resolve snapshot item order) against the LIVE Y.Array, applying each in
- * place:
- *   - keep    → advance (no Y write).
- *   - rewrite → `yItem.set("attrs", buildYAttrs(d.attrs))` in place. Preserves the
- *               item's Y.Text (text) / embedType / properties — and therefore its
- *               per-character CRDT identity. Works for text AND embed items (both
- *               have an "attrs" Y.Map child).
- *   - drop / breakDrop → `yItems.delete(index, 1)`; do NOT advance (next item
- *               slides into the slot — mirrors applyAttrsToBlockRange).
- * Then `mergeAdjacentSameAttrsTextItemsInPlace` restores the (a)/(b) normalization
- * invariants; a value-converging neighbor pair keeps the RECEIVER run's Y.Text
- * identity (only the donor's migrated chars are fresh). MUST run inside an
- * already-open transaction.
- *
- * No no-op guard on the rewrite write (cf. applyAttrsToBlockRange #358): classify
- * only emits `rewrite` when attrs genuinely differ, so it is never a no-op.
+ * Identity-preserving resolve applier (#484). `decisions[k]` applies to snapshot
+ * item `items[k]` (the pre-resolve read model of the block); each is applied as an
+ * OFFSET write on the block's inline `Y.Text`:
+ *   - keep    → nothing.
+ *   - rewrite → `format` the item's range with the attrs diff (old → new): the
+ *               characters keep their CRDT identity.
+ *   - drop / breakDrop → delete the item's range.
+ * Formats never shift offsets, so all rewrites run first; drops then run in
+ * DESCENDING offset order so each delete leaves the earlier offsets valid. MUST run
+ * inside an already-open transaction.
  */
 export function applyResolveDecisionsInTx(
   doc: Y.Doc,
   blockId: BlockId,
   kind: BlockTreeKind,
+  items: ReadonlyArray<InlineItem>,
   decisions: readonly ScanItemResult[],
   registry: AttrRegistry | undefined,
 ): void {
   requireInTransaction(doc, "resolveSuggestion");
   const yBlock = getYBlock(doc, blockId, "resolveSuggestion", kind);
-  const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
-  if (yItems === null) return; // defensive — scan only yields leaves
+  const yText = readYInline(yBlock, blockId);
+  if (yText === null) return; // defensive — scan only yields leaves
 
-  let liveIndex = 0;
-  for (const d of decisions) {
-    switch (d.op) {
-      case "keep":
-        liveIndex++;
-        break;
-      case "rewrite":
-        yItems.get(liveIndex).set("attrs", buildYAttrs(d.attrs));
-        liveIndex++;
-        break;
-      case "drop":
-      case "breakDrop":
-        yItems.delete(liveIndex, 1);
-        break;
+  const drops: { start: number; end: number }[] = [];
+  let pos = 0;
+  decisions.forEach((d, k) => {
+    const item = items[k];
+    if (item === undefined) return;
+    const len = item.kind === "text" ? item.text.length : 1;
+    if (d.op === "rewrite") {
+      // A rewrite never targets a structural marker (markers carry no provenance),
+      // and item boundaries are grapheme-aligned — format the item's range directly.
+      const delta = toYFormatDelta(attrsDiff(item.attrs, d.attrs, registry));
+      if (Object.keys(delta).length > 0) yText.format(pos, len, delta);
+    } else if (d.op === "drop" || d.op === "breakDrop") {
+      drops.push({ start: pos, end: pos + len });
     }
+    pos += len;
+  });
+  // Item boundaries of the one snapshot read: raw deletes, no per-drop re-read.
+  for (let i = drops.length - 1; i >= 0; i--) {
+    const r = drops[i];
+    if (r !== undefined) yText.delete(r.start, r.end - r.start);
   }
-  mergeAdjacentSameAttrsTextItemsInPlace(yItems, registry);
 }
 
 /**
@@ -1594,6 +1544,7 @@ function resolveBlockScan(
       writes.push({
         blockId: block.id,
         kind: resolveBlock(state, block.id)?.kind ?? "block",
+        items: content.items,
         decisions,
       });
     }
@@ -1605,12 +1556,12 @@ function resolveBlockScan(
  * Shared resolve engine for {@link resolve} / {@link resolveAll}: runs
  * {@link resolveBlockScan}, then in ONE ordinary (undoable) `applyOperation`
  * transaction:
- *   1. applies each touched block's per-item decisions IN PLACE over the live
- *      Y.Array via the surgical {@link applyResolveDecisionsInTx} (identity-
- *      preserving: untouched survivor runs keep their Y.Text, so a prior undoable
- *      `StackItem` stays valid across the resolve — #484). `registry` is threaded
- *      to the applier's post-pass coalescer so custom per-key `equals`
- *      interpreters apply (load-bearing for `comment`-bearing runs);
+ *   1. applies each touched block's per-item decisions as offset writes on its
+ *      inline `Y.Text` via {@link applyResolveDecisionsInTx} (rewrites `format`,
+ *      drops delete — no character is re-minted, so a prior undoable `StackItem`
+ *      stays valid across the resolve). `registry` is threaded to the applier's
+ *      attrs diff so custom per-key `equals` interpreters apply (load-bearing for
+ *      `comment`-bearing runs);
  *   2. runs the conditional break MERGES in REVERSE document order via the live
  *      {@link mergeWithNextSiblingLiveInTx} helper — which reads each owner's
  *      CURRENT next sibling off the Y.Doc (so a cascade reflects prior merges) and
@@ -1640,7 +1591,7 @@ function runResolve(
     state,
     (d) => {
       for (const write of writes) {
-        applyResolveDecisionsInTx(d, write.blockId, write.kind, write.decisions, registry);
+        applyResolveDecisionsInTx(d, write.blockId, write.kind, write.items, write.decisions, registry);
       }
       for (let i = mergeOwners.length - 1; i >= 0; i--) {
         const owner = mergeOwners[i];
@@ -2001,7 +1952,7 @@ function rejectAllRun(item: TextItem, inSet: (raw: unknown) => raw is Suggestion
  * The shared {@link acceptAll} / {@link rejectAll} implementation. Unlike the
  * single-id {@link resolve} (which classifies per ONE id), this resolves EVERY id
  * every run carries in one combined rewrite — looping the single-id resolve would
- * re-plan each pass against the same now-stale pre-tx snapshot while the live array
+ * re-plan each pass against the same now-stale pre-tx snapshot while the block's inline Y.Text
  * mutates underneath it, and a single run can carry insertion + deletion +
  * formatting ids at once (the per-id passes would fight over that run's attrs).
  *
@@ -2236,19 +2187,14 @@ function isOwnInsertion(item: InlineItem, author: string, doc: Y.Doc): boolean {
 }
 
 /**
- * Identity-preserving deletion strike over one block's live Y.Array on
- * `[rangeStart, rangeEnd)`. Mirrors `applyAttrsToBlockRange`: runs wholly outside
- * are skipped (Y.Text identity kept); a whole-covered text run is tagged in place
- * (`yItem.set("attrs", …)`) OR deleted by index (the deleter's OWN pending
- * insertion); a partial run is split before/middle/after (the straddler loses
- * Y.Text identity — unavoidable, Yjs has no in-place Y.Text split), middle tagged
- * or omitted; embeds in range are kept untagged. A post-pass
- * `mergeAdjacentSameAttrsTextItemsInPlace` restores the normalization invariants, so the
- * final content is byte-identical to `rebuildBlockForDeletion` + full-replace —
- * only the surviving runs' Y.Text identities differ (preserved here, discarded by
- * the old full-replace). Returns whether any run was TAGGED (a redundant
- * cross-check against the plan's pre-computed `taggedAny`). MUST run inside an open
- * transaction.
+ * Identity-preserving deletion strike over one block's inline `Y.Text` on
+ * `[rangeStart, rangeEnd)`, as offset writes: each in-range TEXT run is either
+ * tagged with the deletion id (`format` — its characters keep their CRDT identity)
+ * or, when it is the deleter's OWN pending insertion, deleted for real; embeds in
+ * range are kept untagged. Formats run first; own-insertion deletes then run in
+ * DESCENDING offset order. The resulting content equals `rebuildBlockForDeletion`.
+ * Returns whether any run was TAGGED (a cross-check against the plan's
+ * `taggedAny`). MUST run inside an open transaction.
  */
 export function applyDeletionStrikeInTx(
   doc: Y.Doc,
@@ -2258,110 +2204,45 @@ export function applyDeletionStrikeInTx(
   rangeEnd: number,
   id: SuggestionId,
   author: string,
-  registry: AttrRegistry | undefined,
   opName: string,
 ): { tagged: boolean } {
   requireInTransaction(doc, opName);
   const yBlock = getYBlock(doc, blockId, opName, kind);
-  const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
-  if (yItems === null) return { tagged: false };
-  const tagged = strikeBlockRange(yItems, rangeStart, rangeEnd, id, author, doc);
-  mergeAdjacentSameAttrsTextItemsInPlace(yItems, registry);
-  return { tagged };
-}
-
-/**
- * The live-Y.Array twin of {@link rebuildBlockForDeletion}, structured exactly
- * like `applyAttrsToBlockRange`'s `while (i < yItems.length)` cursor walk. Tags or
- * drops the in-range portion of each item; returns whether anything was tagged.
- */
-function strikeBlockRange(
-  yItems: Y.Array<Y.Map<unknown>>,
-  start: number,
-  end: number,
-  id: SuggestionId,
-  author: string,
-  doc: Y.Doc,
-): boolean {
-  if (start === end) return false;
+  const yText = readYInline(yBlock, blockId);
+  if (yText === null || rangeStart >= rangeEnd) return { tagged: false };
+  // ONE read of the block; the range is snapped OUT to grapheme boundaries once and
+  // every tag / drop below uses those offsets.
+  const items = inlineItemsFromYText(yText);
+  const [start, end] = snapRange(items, rangeStart, rangeEnd);
   let tagged = false;
-  let cursor = 0;
-  let i = 0;
-  while (i < yItems.length) {
-    const yItem = yItems.get(i);
-    const itemLen = yItemLength(yItem);
-    const itemEnd = cursor + itemLen;
-    if (itemEnd <= start) {
-      // Item entirely before the range — advance.
-      cursor = itemEnd;
-      i++;
-      continue;
-    }
-    if (cursor >= end) break; // Item entirely after the range — done.
-    if (yItem.get("kind") !== "text") {
-      // Embed in range — kept untagged (out of scope, mirrors rebuildBlockForDeletion).
-      cursor = itemEnd;
-      i++;
-      continue;
-    }
-    const existing = yMapAsObject(yItem.get("attrs") as Y.Map<unknown>) as ReadonlyAttrs;
-    const ownIns = isOwnInsertionAttrs(existing, author, doc);
-    const localStart = Math.max(0, start - cursor);
-    const localEnd = Math.min(itemLen, end - cursor);
-
-    if (localStart === 0 && localEnd === itemLen) {
-      // Whole-covered text run.
-      if (ownIns) {
-        // The deleter's OWN pending insertion — remove it for real.
-        yItems.delete(i, 1);
-        // Advance the logical cursor past the deleted extent; do NOT advance `i`
-        // (the next item slides into slot `i`). rebuildBlockForDeletion advances
-        // its cursor for EVERY item — omitting this here mis-offsets all
-        // subsequent items.
-        cursor = itemEnd;
+  const tags: { start: number; end: number }[] = [];
+  const drops: { start: number; end: number }[] = [];
+  let pos = 0;
+  for (const item of items) {
+    const len = item.kind === "text" ? item.text.length : 1;
+    const lo = Math.max(pos, start);
+    const hi = Math.min(pos + len, end);
+    if (item.kind === "text" && lo < hi) {
+      if (isOwnInsertionAttrs(item.attrs, author, doc)) {
+        drops.push({ start: lo, end: hi });
       } else {
-        // No-op guard (mirrors applyAttrsToBlockRange #358): skip the write when
-        // the run already carries this exact deletion id, so a re-strike fires no
-        // Yjs event / block-dirty. The deletion attr is a scalar id — a plain
-        // `!==` compare suffices (no registry/attrsEqual needed).
-        if (existing[DELETION_SUGGESTION_ATTR] !== id) {
-          yItem.set("attrs", buildYAttrs({ ...existing, [DELETION_SUGGESTION_ATTR]: id }));
-        }
         tagged = true;
-        cursor = itemEnd;
-        i++;
+        // A re-strike of a run already carrying this id writes nothing (no event).
+        if (item.attrs[DELETION_SUGGESTION_ATTR] !== id) tags.push({ start: lo, end: hi });
       }
-      continue;
     }
-
-    // Partial-covered: split before/middle/after via delete+insert (apply-attrs pattern).
-    const text = (yItem.get("text") as Y.Text).toString();
-    const before = text.slice(0, localStart);
-    const middle = text.slice(localStart, localEnd);
-    const after = text.slice(localEnd);
-    const repl: Y.Map<unknown>[] = [];
-    if (before.length > 0) {
-      repl.push(buildYInlineItem({ kind: "text", text: before, attrs: existing }));
-    }
-    if (!ownIns) {
-      repl.push(
-        buildYInlineItem({
-          kind: "text",
-          text: middle,
-          attrs: { ...existing, [DELETION_SUGGESTION_ATTR]: id },
-        }),
-      );
-      tagged = true;
-    }
-    if (after.length > 0) {
-      repl.push(buildYInlineItem({ kind: "text", text: after, attrs: existing }));
-    }
-    yItems.delete(i, 1);
-    yItems.insert(i, repl);
-    i += repl.length;
-    cursor = itemEnd;
+    pos += len;
+    if (pos >= end) break;
   }
-  return tagged;
+  // Every offset is a snapped endpoint or an item boundary, and text runs are never
+  // markers, so tags / drops are raw `format` / `delete` (formats shift nothing;
+  // drops descending so earlier offsets stay valid).
+  for (const t of tags) yText.format(t.start, t.end - t.start, { [DELETION_SUGGESTION_ATTR]: id });
+  for (let i = drops.length - 1; i >= 0; i--) {
+    const r = drops[i];
+    if (r !== undefined) yText.delete(r.start, r.end - r.start);
+  }
+  return { tagged };
 }
 
 /** Outcome of the pure coalesce computation: the effective id to stamp + whether it reuses an existing record. */

@@ -114,6 +114,7 @@ export function useSuggestEdit(editorState: EditorState, propose: Propose): Sugg
           // The editor's TRUE verdict (print: once the host has applied the dispatch).
           if (result.ok) setStatus("Suggested — review it in the panel.");
           else if (result.reason === "stale") setStatus("Discarded: the paragraph changed while the suggestion was being made.");
+          else if (result.reason === "halted") setStatus("Not proposed: the editor is halted (the document needs an upgrade).");
           else setStatus(`Not proposed (${result.problem.kind === "invalid" ? result.problem.message : result.problem.kind}).`);
         });
       }, 1000),

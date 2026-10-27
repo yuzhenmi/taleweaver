@@ -37,7 +37,7 @@ import {
 import { createHistory } from "../history";
 import { insertText } from "./insert-text";
 import { applyOperation, createState, getBlock, resolveBlock } from "../state";
-import { getYBlock } from "../yjs-doc";
+import { blockText, relAt, survives } from "../../test-utils/relpos-survival";
 import { STATE_INTERNAL } from "../state-internal";
 import * as Y from "yjs";
 import { createPosition, createSpan } from "../block-position";
@@ -697,25 +697,9 @@ describe("markDeletion — identity no-ops", () => {
 // in the same block AND a peer's concurrent insert into an untouched run).
 // ─────────────────────────────────────────────────────────────────────────
 
-/** The live Y.Array of block `id`'s inlineContent (raw-Y access for identity). */
-function yItemsOf(s: State, id: string): Y.Array<Y.Map<unknown>> {
-  const doc = s[STATE_INTERNAL].doc;
-  const yBlock = getYBlock(doc, id as BlockId, "test", "block");
-  const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
-  if (yItems === null) throw new Error(`block ${id} has no inlineContent`);
-  return yItems;
-}
-
-/** The Y.Text of the inline item at `index` (text items only). */
-function yTextAt(yItems: Y.Array<Y.Map<unknown>>, index: number): Y.Text {
-  return yItems.get(index).get("text") as Y.Text;
-}
-
 describe("markDeletion — identity-preserving strike (#491)", () => {
-  it("D1: a run wholly OUTSIDE the strike range keeps its Y.Text identity", () => {
-    // Three distinct-attr runs so nothing coalesces: aa[0,2) bb[2,4) cc[4,6).
-    // Strike the MIDDLE run bb[2,4) (whole-covered). aa (before) and cc (after)
-    // are untouched survivors and must keep their exact Y.Text objects.
+  it("D1: characters wholly OUTSIDE the strike range keep their identity", () => {
+    // Three distinct-attr runs: aa[0,2) bb[2,4) cc[4,6). Strike bb[2,4).
     const s0 = oneBlock(
       inlineContent([
         text("aa", { bold: true }),
@@ -723,22 +707,19 @@ describe("markDeletion — identity-preserving strike (#491)", () => {
         text("cc", { underline: true }),
       ]),
     );
-    const y0 = yItemsOf(s0, "p");
-    const aaText = yTextAt(y0, 0);
-    const ccText = yTextAt(y0, 2);
+    const relA = relAt(s0, "p", 0);
+    const relC = relAt(s0, "p", 5);
 
     const s1 = markDeletion(s0, span(2, 4), DEL_INPUT).state;
-    const y1 = yItemsOf(s1, "p");
 
     // Layout unchanged: aa[bb tagged]cc, three runs, all text present.
-    expect(y1.length).toBe(3);
+    expect(pItems(s1).length).toBe(3);
     expect(pText(s1)).toBe("aabbcc");
-    // The untouched survivors are the SAME Y.Text objects (identity preserved).
-    expect(yTextAt(y1, 0)).toBe(aaText);
-    expect(yTextAt(y1, 2)).toBe(ccText);
+    expect(survives(relA, s1, "a")).toBe(true);
+    expect(survives(relC, s1, "c")).toBe(true);
   });
 
-  it("D3: a whole-covered tagged run keeps its Y.Text identity (only attrs change)", () => {
+  it("D3: a tagged run keeps its characters' identity (only attrs change)", () => {
     const s0 = oneBlock(
       inlineContent([
         text("aa", { bold: true }),
@@ -746,15 +727,13 @@ describe("markDeletion — identity-preserving strike (#491)", () => {
         text("cc", { underline: true }),
       ]),
     );
-    const y0 = yItemsOf(s0, "p");
-    const bbText = yTextAt(y0, 1);
+    const relB = relAt(s0, "p", 3);
 
     const s1 = markDeletion(s0, span(2, 4), DEL_INPUT).state;
-    const y1 = yItemsOf(s1, "p");
 
-    // The tagged run is the SAME Y.Text object — only its attrs gained the
-    // deletion id (an in-place set, not a rebuild).
-    expect(yTextAt(y1, 1)).toBe(bbText);
+    // The tagged characters are the same CRDT items — only their attrs gained the
+    // deletion id (a format, not a rebuild).
+    expect(survives(relB, s1, "b")).toBe(true);
     const bbItem = pItems(s1).find((it) => it.kind === "text" && it.text === "bb");
     if (bbItem?.kind !== "text") throw new Error("expected the bb run");
     expect(bbItem.attrs[DELETION_SUGGESTION_ATTR]).toBe(DEL_SID);
@@ -786,11 +765,11 @@ describe("markDeletion — identity-preserving strike (#491)", () => {
     const stateA = markDeletion(fixture, span(2, 4), DEL_INPUT).state;
 
     // Peer B (concurrently, on its own doc): insert "Z" into the UNTOUCHED cc
-    // run's live Y.Text at local offset 1 → "cZc". Direct Y.Text mutation models
-    // a peer typing into that run before sync.
-    const yccB = yTextAt(yItemsOf(stateB, "p"), 2);
+    // run (block offset 5) → "cZc". Direct Y.Text mutation models a peer typing
+    // into that run before sync.
+    const yB = blockText(stateB, "p");
     docB.transact(() => {
-      yccB.insert(1, "Z");
+      yB.insert(5, "Z", { underline: true });
     });
 
     // Sync the two peers (exchange update bytes, both directions).
@@ -1862,22 +1841,6 @@ describe("acceptAll / rejectAll — empty-doc / no-suggestions identity no-op", 
 // applier takes over.
 // ─────────────────────────────────────────────────────────────────────────
 
-/** The live Y.Array of block "p"'s inline content (raw Y access for U3). */
-function yItemsOfP(s: State): Y.Array<Y.Map<unknown>> {
-  const doc = s[STATE_INTERNAL].doc;
-  const yBlock = getYBlock(doc, "p" as BlockId, "test", "block");
-  return yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>>;
-}
-
-/** The index of the first item in `yItems` whose Y.Text equals `t` (-1 if none). */
-function indexOfText(yItems: Y.Array<Y.Map<unknown>>, t: string): number {
-  for (let i = 0; i < yItems.length; i++) {
-    const yText = yItems.get(i).get("text");
-    if (yText !== undefined && (yText as Y.Text).toString() === t) return i;
-  }
-  return -1;
-}
-
 describe("#484 — identity-preserving resolve keeps a prior same-block undoable edit valid", () => {
   it("U1: undo of a prior tracked-insertion edit survives a resolve of a DIFFERENT suggestion in that block", () => {
     // Two suggestions in ONE block "p": a SEEDED insertion ("INS" via s-pre, the
@@ -1990,7 +1953,7 @@ describe("#484 — identity-preserving resolve keeps a prior same-block undoable
     history.destroy();
   });
 
-  it("U3: an untouched, structurally non-coalescing survivor keeps its Y.Text === across a resolve", () => {
+  it("U3: every character survives a resolve that strips a tag", () => {
     // Fixture (plan §T3 Step 1): three runs
     //   text("a", {insertionSuggestionId: s1}), text("b", {}), text("c", {bold:true}).
     // Accept s1 → run0 strips to {} and coalesces with run1 ("ab"{}) — run0/1
@@ -2015,20 +1978,13 @@ describe("#484 — identity-preserving resolve keeps a prior same-block undoable
       return new Set<BlockId>([s.rootId]);
     }).state;
 
-    // Capture the survivor "c" Y.Text BEFORE the resolve (at index 2).
-    const yBefore = yItemsOfP(s);
-    const cIndexBefore = indexOfText(yBefore, "c");
-    expect(cIndexBefore).toBe(2);
-    const survivorCText = yBefore.get(cIndexBefore).get("text") as Y.Text;
+    const relC = relAt(s, "p", 2);
 
     const resolved = acceptSuggestion(s, s1).state;
 
-    // After: "ab"{} coalesced (run0+run1) then "c"{bold}. Re-find "c" by content
-    // (it shifted to index 1 post-coalesce) and assert SAME Y.Text object.
-    const yAfter = yItemsOfP(resolved);
-    const cIndexAfter = indexOfText(yAfter, "c");
-    expect(cIndexAfter).toBe(1);
-    expect(yAfter.get(cIndexAfter).get("text")).toBe(survivorCText);
+    // After: "ab"{} then "c"{bold}; "c" is the same CRDT item.
+    expect(pItems(resolved)).toEqual([text("ab"), text("c", { bold: true })]);
+    expect(survives(relC, resolved, "c")).toBe(true);
   });
 });
 

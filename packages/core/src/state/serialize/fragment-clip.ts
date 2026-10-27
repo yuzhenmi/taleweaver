@@ -5,14 +5,18 @@
  * → base64 string (via the runtime-agnostic codec), carried under the private
  * MIME type `TALEWEAVER_CLIP_MIME`.
  *
- * This module is intentionally thin: it is a pure composition of
- * `createBinaryDocumentSerializer` and `bytesToBase64`/`base64ToBytes`.
- * All hard work (Yjs encode/decode, format validation) lives in those pieces.
+ * This module is intentionally thin: a composition of the Yjs-native binary
+ * codec and `bytesToBase64`/`base64ToBytes`. Decoding runs `upgradeDocument` on
+ * the clip doc (a private, single-authority doc) so a clip from a legacy engine
+ * pastes correctly.
  *
  * DOM-free: no `btoa`/`atob`, no DOM globals, no sibling-package imports.
  */
 
-import type { State } from "../state";
+import * as Y from "yjs";
+import { createState, type State } from "../state";
+import { getMetaRootId } from "../yjs-doc";
+import { upgradeDocument } from "../upgrade";
 import { bytesToBase64, base64ToBytes } from "./base64";
 import { createBinaryDocumentSerializer } from "./binary-serializer";
 
@@ -48,7 +52,14 @@ export function decodeFragmentClip(clip: string): State | null {
   const bytes = base64ToBytes(clip);
   if (bytes === null) return null;
   try {
-    return createBinaryDocumentSerializer().decode(bytes);
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, bytes);
+    const rootId = getMetaRootId(doc);
+    if (rootId === undefined) return null;
+    // A clip is a private, single-authority document: upgrade legacy inline
+    // storage (a clip copied from an older engine) before loading it.
+    upgradeDocument(doc);
+    return createState({ rootId, doc });
   } catch {
     // Any decode failure — a thrown MalformedDocumentError on a non-document
     // payload, or a Yjs-internal parse error on structurally invalid bytes —

@@ -6,17 +6,14 @@ import { STATE_INTERNAL } from "../state-internal";
 import type { BlockId } from "../block-id";
 import type { Span } from "../block-position";
 import { spanStart, spanEnd } from "../block-compare";
-import {
-  mergeAdjacentTextItems,
-  type InlineItem,
-} from "../inline-content";
+import type { InlineItem } from "../inline-content";
 import {
   getCommentsMap,
   getYBlock,
   requireInTransaction,
   type BlockTreeKind,
 } from "../yjs-doc";
-import { buildYInlineContent } from "../y-block";
+import { requireYInline } from "../y-inline";
 import {
   writeCommentRecordInTx,
   replyToY,
@@ -147,23 +144,19 @@ function setResolved(state: State, id: CommentId, resolved: boolean): OperationR
  * the `comments` map, in ONE tracked transaction (undoable as a unit; redo
  * re-adds).
  *
- * The markers are stripped per OWNING BLOCK: every inline item carrying this
- * `commentId` as a `comment-start`/`comment-end` embed is filtered out of its
- * block's `inlineContent`, and the block is full-replaced. This is correct for
- * BOTH the same-block case (both markers stripped in one rewrite) and the
- * cross-block case (each marker stripped from its own block) — and avoids the
- * stale-offset hazard of composing two independent `deleteRange` plans against
- * the same pre-transaction snapshot (a same-block second delete would re-write
- * the block from a snapshot that still contained the first marker).
+ * The markers are stripped per OWNING BLOCK: every inline embed carrying this
+ * `commentId` as a `comment-start`/`comment-end` is deleted from its block's
+ * inline `Y.Text` by offset, in DESCENDING offset order per block (so one
+ * delete never shifts the next one's offset). No other character is touched.
  *
  * No-op (identity) if the comment has neither a record nor any marker in
  * content. A one-sided surviving marker is stripped too.
  *
- * When markers survive, their owning-block rewrites are themselves tree-map
+ * When markers survive, their deletes are themselves block-tree
  * writes, so `applyOperation` captures them as dirty and the op advances state
  * (tracked + undoable). In the ORPHANED-BY-ABSENCE case — the record is present
  * but BOTH markers are already gone (e.g. a `deleteRange` removed the whole
- * commented span incl. both markers) — there is no block rewrite, so the only
+ * commented span incl. both markers) — there is no block write, so the only
  * mutation is the `comments` map delete. The `comments` map is deliberately
  * EXCLUDED from dirty-capture (it is a side-table, not a block tree; see
  * `yjs-doc.ts`), so without help that delete would capture no dirtyId, making
@@ -184,7 +177,10 @@ export function deleteComment(state: State, id: CommentId): OperationResult {
     for (const write of writes) {
       requireInTransaction(d, "deleteComment");
       const yBlock = getYBlock(d, write.blockId, "deleteComment", write.kind);
-      yBlock.set("inlineContent", buildYInlineContent({ items: write.items }));
+      const yText = requireYInline(yBlock, write.blockId, "deleteComment");
+      // Descending snapshot offsets of one-unit embeds: raw deletes, each leaving
+      // the earlier offsets valid (no per-marker block re-read).
+      for (const offset of write.offsets) yText.delete(offset, 1);
     }
     getCommentsMap(d).delete(id);
     // Orphaned-by-absence: no marker block was rewritten, so the comments-map
@@ -237,19 +233,19 @@ export function addReply(
   });
 }
 
-/** Pre-computed marker-strip write for one owning leaf block. */
+/** Pre-computed marker-strip write for one owning leaf block: marker offsets, DESCENDING. */
 interface StripWrite {
   readonly blockId: BlockId;
   readonly kind: BlockTreeKind;
-  readonly items: ReadonlyArray<InlineItem>;
+  readonly offsets: readonly number[];
 }
 
 /**
  * Plan the marker-strip for `id`: for each block whose inline content holds a
  * `comment-start`/`comment-end` embed carrying this `commentId`, produce a
- * write with those embeds removed (and the split text halves re-normalized via
- * `mergeAdjacentTextItems`, since removing the embed merge-barrier may make two
- * text runs adjacent). Blocks with no such marker produce no write. Computed
+ * write listing those embeds' offsets (descending; each is one raw one-char
+ * delete — the read model coalesces the text runs a removed marker separated).
+ * Blocks with no such marker produce no write. Computed
  * against the pre-transaction snapshot via ONE full-document block walk
  * (`iterateBlocksInDocumentOrder`, the same scan the resolver uses) plus
  * `resolveBlock` for each owning block — so every marker for `id` is stripped,
@@ -269,22 +265,19 @@ function planMarkerStrip(state: State, id: CommentId): StripWrite[] {
   for (const block of iterateBlocksInDocumentOrder(state)) {
     const content = block.inlineContent;
     if (content === null) continue;
-    const kept: InlineItem[] = [];
-    let removed = false;
+    const offsets: number[] = [];
+    let pos = 0;
     for (const item of content.items) {
-      if (isCommentMarkerFor(item, id)) {
-        removed = true;
-        continue;
-      }
-      kept.push(item);
+      if (isCommentMarkerFor(item, id)) offsets.unshift(pos);
+      pos += item.kind === "text" ? item.text.length : 1;
     }
-    if (!removed) continue;
+    if (offsets.length === 0) continue;
     const resolved = resolveBlock(state, block.id);
     if (resolved === null) continue; // unreachable: an iterated block resolves.
     writes.push({
       blockId: block.id,
       kind: resolved.kind,
-      items: mergeAdjacentTextItems(kept),
+      offsets,
     });
   }
   return writes;

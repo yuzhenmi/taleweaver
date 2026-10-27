@@ -351,6 +351,17 @@ describe("json-serializer", () => {
       },
     });
 
+    it("drops a stored null inline attr on decode (the upgrade normalization; JSON format unchanged)", () => {
+      const withNull = JSON.stringify({
+        format: "taleweaver-json",
+        version: 1,
+        root: { type: "document", children: [{ type: "paragraph", content: [{ text: "x", attrs: { bold: true, link: null } }] }] },
+      });
+      const state = makeSerializer().decode(withNull);
+      const para = getBlock(state, getBlock(state, state.rootId)?.firstChildId as BlockId);
+      expect(para?.inlineContent?.items).toEqual([{ kind: "text", text: "x", attrs: { bold: true } }]);
+    });
+
     it("decodes id-less JSON to a valid State with minted ids + derived links", () => {
       const ser = makeSerializer();
       const state = ser.decode(handAuthored);

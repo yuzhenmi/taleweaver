@@ -1,12 +1,11 @@
-import * as Y from "yjs";
 import { describe, it, expect } from "vitest";
 import { insertText, insertTextInTx, planInsertText } from "./insert-text";
 import { getBlock } from "../state";
-import { getYBlock } from "../yjs-doc";
 import { STATE_INTERNAL } from "../state-internal";
 import { buildBlock, buildState, text, embed, inlineContent } from "../../test-utils/state-builders";
 import { createPosition } from "../block-position";
 import type { BlockId } from "../block-id";
+import { relAt, survives } from "../../test-utils/relpos-survival";
 
 describe("insertText — middle of single text item", () => {
   // doc > [p("hello world")]
@@ -342,137 +341,60 @@ describe("insertText — empty text", () => {
   });
 });
 
-describe("insertText — Y.Text identity preservation (in-place mutation)", () => {
-  // When the insertion lands inside (or adjacent to) a text run whose attrs
-  // match the incoming attrs, we mutate that run's existing Y.Text in place
-  // via yText.insert(...). This preserves per-character CRDT identity across
-  // edits — what Yjs is for.
-  const getYTextAt = (state: ReturnType<typeof buildState>, blockId: BlockId, itemIndex: number): Y.Text => {
-    const yBlock = getYBlock(state[STATE_INTERNAL].doc, blockId, "test");
-    const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>>;
-    const yItem = yItems.get(itemIndex);
-    return yItem.get("text") as Y.Text;
-  };
-
-  it("preserves Y.Text identity when typing into a same-attrs run", () => {
-    const state = buildState({
+describe("insertText — character survival (one offset insert)", () => {
+  // Inline storage is one Y.Text per block: an insert never re-mints an existing
+  // character, whatever its attrs — same-attrs, different-attrs (mid-run), or next
+  // to an embed.
+  const fixture = (runs: Parameters<typeof inlineContent>[0]) =>
+    buildState({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello")]) }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent(runs) }),
       ],
     });
-    const beforeYText = getYTextAt(state, "p" as BlockId, 0);
-    const result = insertText(state, createPosition("p" as BlockId, 3), "X", {});
-    const afterYText = getYTextAt(result.state, "p" as BlockId, 0);
-    expect(afterYText).toBe(beforeYText);
-    expect(afterYText.toString()).toBe("helXlo");
+
+  it("same-attrs insert keeps every character", () => {
+    const state = fixture([text("hello")]);
+    const rels = [0, 4].map((o) => relAt(state, "p", o));
+    const after = insertText(state, createPosition("p" as BlockId, 3), "X", {}).state;
+    expect(survives(rels[0] ?? relAt(state, "p", 0), after, "h")).toBe(true);
+    expect(survives(rels[1] ?? relAt(state, "p", 0), after, "o")).toBe(true);
   });
 
-  it("preserves Y.Text identity when typing at end of a same-attrs run (end of content)", () => {
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello")]) }),
-      ],
-    });
-    const beforeYText = getYTextAt(state, "p" as BlockId, 0);
-    const result = insertText(state, createPosition("p" as BlockId, 5), "!", {});
-    const afterYText = getYTextAt(result.state, "p" as BlockId, 0);
-    expect(afterYText).toBe(beforeYText);
-    expect(afterYText.toString()).toBe("hello!");
-  });
-
-  it("preserves prev-run Y.Text identity at a text→text boundary when attrs match prev", () => {
-    // [text("hello") {}, text("world") {bold:true}]; insert " " {} at offset 5.
-    // Trailing-edge preference: insert at the end of the prev text item → mutate the first run.
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({
-          id: "p",
-          type: "paragraph",
-          parentId: "doc",
-          inlineContent: inlineContent([text("hello"), text("world", { bold: true })]),
-        }),
-      ],
-    });
-    const beforeYText0 = getYTextAt(state, "p" as BlockId, 0);
-    const beforeYText1 = getYTextAt(state, "p" as BlockId, 1);
-    const result = insertText(state, createPosition("p" as BlockId, 5), " ", {});
-    const afterYText0 = getYTextAt(result.state, "p" as BlockId, 0);
-    const afterYText1 = getYTextAt(result.state, "p" as BlockId, 1);
-    expect(afterYText0).toBe(beforeYText0);
-    expect(afterYText1).toBe(beforeYText1);
-    expect(afterYText0.toString()).toBe("hello ");
-    expect(afterYText1.toString()).toBe("world");
-  });
-
-  it("falls back to full-replace when attrs differ (Y.Text identity not preserved)", () => {
-    // Different attrs forces a split: in-place is not possible.
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("helloworld")]) }),
-      ],
-    });
-    const beforeYText = getYTextAt(state, "p" as BlockId, 0);
+  it("a DIFFERENT-attrs insert inside a run keeps every character of the run", () => {
+    const state = fixture([text("helloworld")]);
+    const relW = relAt(state, "p", 5);
+    const relO = relAt(state, "p", 4);
     const result = insertText(state, createPosition("p" as BlockId, 5), "BOLD", { bold: true });
-    // After fallback the Y.Array is rebuilt; the original Y.Text instance is no longer attached.
-    const afterYText0 = getYTextAt(result.state, "p" as BlockId, 0);
-    expect(afterYText0).not.toBe(beforeYText);
-    // Structural result still correct.
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
-    expect(items).toHaveLength(3);
-    expect(items?.[0]).toMatchObject({ kind: "text", text: "hello", attrs: {} });
-    expect(items?.[1]).toMatchObject({ kind: "text", text: "BOLD", attrs: { bold: true } });
-    expect(items?.[2]).toMatchObject({ kind: "text", text: "world", attrs: {} });
+    expect(survives(relW, result.state, "w")).toBe(true);
+    expect(survives(relO, result.state, "o")).toBe(true);
+    expect(getBlock(result.state, "p" as BlockId)?.inlineContent?.items).toEqual([
+      text("hello"),
+      text("BOLD", { bold: true }),
+      text("world"),
+    ]);
   });
 
-  it("falls back to full-replace when the block has a pre-existing unnormalized pair elsewhere", () => {
-    // [text("a"){}, text("b"){}, embed, text("hello"){italic}]
-    // Insert "X" {italic} at offset 4 (inside the last item).
-    // Without the full-items normalization scan, the in-place strategy
-    // would mutate the last item's Y.Text and leave the
-    // [text("a"), text("b")] adjacency intact. The fix: detect the
-    // pre-existing adjacent same-attrs pair, bail to the full-replace
-    // fallback so mergeAdjacentTextItems normalizes the whole block.
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({
-          id: "p",
-          type: "paragraph",
-          parentId: "doc",
-          inlineContent: inlineContent([
-            text("a"),
-            text("b"),
-            { kind: "embed", embedType: "image", attrs: {}, properties: {} },
-            text("hello", { italic: true }),
-          ]),
-        }),
-      ],
-    });
-    const beforeYText = getYTextAt(state, "p" as BlockId, 3);
-    const result = insertText(
-      state,
-      createPosition("p" as BlockId, 4),
-      "X",
-      { italic: true },
-    );
-    // Full-replace fallback: original Y.Text identity is lost (rebuilt array).
-    const afterItalicYText = getYTextAt(result.state, "p" as BlockId, 2);
-    expect(afterItalicYText).not.toBe(beforeYText);
-    // Whole-block normalization ran: [text("ab"), embed, text("hXello"){italic}].
-    const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
-    expect(items).toHaveLength(3);
-    expect(items?.[0]).toMatchObject({ kind: "text", text: "ab", attrs: {} });
-    expect(items?.[1]).toMatchObject({ kind: "embed", embedType: "image" });
-    expect(items?.[2]).toMatchObject({ kind: "text", text: "hXello", attrs: { italic: true } });
+  it("inserts with COMPLETE attrs: typing {} after a bold run is not bold", () => {
+    const state = fixture([text("hello", { bold: true })]);
+    const result = insertText(state, createPosition("p" as BlockId, 5), "!", {});
+    expect(getBlock(result.state, "p" as BlockId)?.inlineContent?.items).toEqual([
+      text("hello", { bold: true }),
+      text("!"),
+    ]);
+  });
+
+  it("an insert next to an embed keeps the neighbouring characters", () => {
+    const state = fixture([text("a"), embed("image", {}), text("hello", { italic: true })]);
+    const rel = relAt(state, "p", 2);
+    const result = insertText(state, createPosition("p" as BlockId, 3), "X", { italic: true });
+    expect(survives(rel, result.state, "h")).toBe(true);
+    expect(getBlock(result.state, "p" as BlockId)?.inlineContent?.items).toEqual([
+      text("a"),
+      embed("image", {}),
+      text("hXello", { italic: true }),
+    ]);
   });
 });
 

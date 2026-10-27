@@ -1,4 +1,4 @@
-import * as Y from "yjs";
+import type * as Y from "yjs";
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId, IdAllocator } from "../block-id";
@@ -6,11 +6,12 @@ import type { ReadonlyAttrs } from "../attrs";
 import type { Position } from "../block-position";
 import {
   inlineContentLength,
+  splitInlineContentAtOffset,
   type EmbedItem,
 } from "../inline-content";
 import { getTreeMap, getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
-import { buildYBlock, buildYInlineItem } from "../y-block";
-import { yMapAsObject, cloneInlineItem, yItemLength } from "../y-utils";
+import { buildYBlock } from "../y-block";
+import { inlineItemsFromYText, insertInlineItems, requireYInline, snapOffset } from "../y-inline";
 import { assertNoIdCollision } from "../id-collision-check";
 import { assertSameTree } from "../assert-same-tree";
 import {
@@ -84,12 +85,11 @@ export interface SplitBlockPlan {
  *   - the block is the root (parentId === null),
  *   - the offset is out of range [0, inlineContentLength].
  *
- * Y.Doc identity: the original block's content Y.Text retains identity
- * for the left half — when the split lands inside a text run, the
- * straddling Y.Text is shortened in place (not rebuilt). Only the new
- * block's suffix items are freshly materialized. No normalization
- * post-pass is needed: a clean split of normalized inline content yields
- * two halves that are each individually normalized.
+ * Y.Doc identity: the original block keeps its inline `Y.Text`; the suffix is
+ * cut from it with one offset delete, so every left-half character keeps its
+ * CRDT identity. The suffix is materialized fresh in the new block (Yjs cannot
+ * reparent items — a peer's concurrent edit in the moved part is a known
+ * structural-op limit).
  *
  * Composition: see `splitBlockAtPositionInTx` for the in-transaction
  * primitive that lets callers chain a split with other `*InTx` ops inside
@@ -196,13 +196,8 @@ export function planSplitBlockAtPosition(
  *     multiple `*InTx` calls inside ONE Y.Doc transaction for atomicity
  *     (single undo entry, single collab event).
  *
- * Reads from the LIVE Y.Doc (the original block's Y.Array<inlineContent>
- * and its child Y.Texts) are unavoidable here — preserving per-character
- * CRDT identity on the left half of a straddled text run requires
- * shortening the existing Y.Text in place, which the plan can't encode as
- * pure data. The reads are local to the original block's items, not the
- * snapshot, so they remain safe for composition (the plan's pre-mutation
- * `state` is irrelevant once the prior `*InTx` has mutated the doc).
+ * Reads the original block's LIVE inline items (to materialize the suffix),
+ * so it composes after prior in-tx ops on that block.
  */
 export function splitBlockAtPositionInTx(doc: Y.Doc, plan: SplitBlockPlan): void {
   requireInTransaction(doc, "splitBlockAtPosition");
@@ -222,7 +217,13 @@ export function splitBlockAtPositionInTx(doc: Y.Doc, plan: SplitBlockPlan): void
 
   // Split yOriginal's inlineContent: items in [0, offset) stay; items in
   // [offset, end) move to a new block. Straddling text items split.
-  const suffixItems = splitInlineContent(yOriginal, plan.offset);
+  // The offset is snapped to a grapheme boundary ONCE; the moved suffix and the cut
+  // both use it (a raw mid-pair offset would move a lone surrogate).
+  const yText = requireYInline(yOriginal, plan.blockId, "splitBlockAtPosition");
+  const liveItems = inlineItemsFromYText(yText);
+  const at = snapOffset(liveItems, plan.offset);
+  const [, suffixItems] = splitInlineContentAtOffset({ items: liveItems }, at);
+  if (yText.length > at) yText.delete(at, yText.length - at);
 
   // Build new block from the plan's resolved type/attrs + neighbor links.
   const newYBlock = buildYBlock({
@@ -233,11 +234,8 @@ export function splitBlockAtPositionInTx(doc: Y.Doc, plan: SplitBlockPlan): void
     nextSiblingId: plan.originalNextId,
     firstChildId: null,
     lastChildId: null,
-    inlineContent: null,
+    inlineContent: { items: suffixItems },
   });
-  const newInlineContent = new Y.Array<Y.Map<unknown>>();
-  if (suffixItems.length > 0) newInlineContent.push(suffixItems);
-  newYBlock.set("inlineContent", newInlineContent);
   // New block inherits the reference block's map (`plan.kind`).
   yTree.set(plan.newBlockId, newYBlock);
 
@@ -255,58 +253,6 @@ export function splitBlockAtPositionInTx(doc: Y.Doc, plan: SplitBlockPlan): void
   if (yParent.get("lastChildId") === plan.blockId) {
     yParent.set("lastChildId", plan.newBlockId);
   }
-}
-
-/**
- * Mutates `yOriginal.inlineContent` by removing items (and the trailing part
- * of any straddling text item) from `offset` onward, returning a fresh array
- * of detached Y.Map items representing the suffix. Caller owns inserting them
- * into the new block's inlineContent Y.Array.
- *
- * Straddling-text case: the original's Y.Text is shortened in-place
- * (preserving CRDT identity for the left half) and a fresh Y.Map text item
- * carrying the right half is returned in the suffix.
- *
- * Entirely-in-suffix case: items are cloned into the suffix and removed from
- * the original. (Move-without-clone isn't supported by Yjs — a Y type can
- * only belong to one parent.)
- */
-function splitInlineContent(yOriginal: Y.Map<unknown>, offset: number): Y.Map<unknown>[] {
-  const yItems = yOriginal.get("inlineContent") as Y.Array<Y.Map<unknown>>;
-  const suffix: Y.Map<unknown>[] = [];
-  let cursor = 0;
-  let i = 0;
-  while (i < yItems.length) {
-    const yItem = yItems.get(i);
-    const itemLen = yItemLength(yItem);
-    const itemEnd = cursor + itemLen;
-
-    if (itemEnd <= offset) {
-      // Entirely in prefix: leave alone.
-      cursor = itemEnd;
-      i++;
-      continue;
-    }
-    if (cursor >= offset) {
-      // Entirely in suffix: clone into the suffix, remove from original.
-      suffix.push(cloneInlineItem(yItem));
-      yItems.delete(i, 1);
-      // Don't advance i — yItems.delete shifts subsequent items down.
-      continue;
-    }
-    // Straddles boundary; must be text (embed length is 1, can't straddle).
-    const yText = yItem.get("text") as Y.Text;
-    const within = offset - cursor;
-    const after = yText.toString().slice(within);
-    const attrs = yMapAsObject(yItem.get("attrs") as Y.Map<unknown>);
-    if (after.length > 0) {
-      yText.delete(within, after.length);
-      suffix.push(buildYInlineItem({ kind: "text", text: after, attrs }));
-    }
-    cursor = itemEnd;
-    i++;
-  }
-  return suffix;
 }
 
 /**
@@ -338,15 +284,12 @@ function splitInlineContent(yOriginal: Y.Map<unknown>, offset: number): Y.Map<un
  * on block N (the first half), regardless of `newBlockInit`.
  *
  * Composition discipline: the structural split is performed by
- * {@link splitBlockAtPositionInTx}, which writes block N's content as `[0, offset)`
- * IN PLACE (shortening N's live Y.Array — identity-preserving). This op then APPENDS
- * just the zero-width break embed to N's live `inlineContent` Y.Array. Appending —
- * rather than full-replacing N — preserves the per-character CRDT identity of N's
- * surviving text runs (the foundation the Yjs-backed state model exists to protect
- * for collab), and avoids the double-write the old full-replace incurred (it
- * discarded the split's in-place result). Block N+1 + the sibling rewiring the split
- * performed are UNTOUCHED. The embed is built as plain data PRE-transaction (pure)
- * so the tx body only mutates the live array.
+ * {@link splitBlockAtPositionInTx}, which cuts block N's inline `Y.Text` to
+ * `[0, offset)` with one offset delete (identity-preserving). This op then APPENDS
+ * just the zero-width break embed to N's `Y.Text` (one offset insert), so every
+ * surviving character of N keeps its CRDT identity. Block N+1 + the sibling
+ * rewiring the split performed are UNTOUCHED. The embed is built as plain data
+ * PRE-transaction (pure) so the tx body only mutates the live text.
  *
  * Validation (block missing / non-leaf / root / offset out of range) is delegated to
  * {@link planSplitBlockAtPosition}, which throws with its canonical messages.
@@ -379,16 +322,13 @@ export function splitWithSuggestion(
 
   return applyOperation(state, (doc) => {
     // 1. Perform the REAL structural split (block N+1 materialized, siblings rewired,
-    //    block N's content set to [0, offset) IN PLACE — identity-preserving).
+    //    block N's content cut to [0, offset) — identity-preserving).
     splitBlockAtPositionInTx(doc, plan);
-    // 2. APPEND just the break embed to block N's LIVE inlineContent Y.Array. The
-    //    in-place split already left N's content normalized as [0, offset); appending
-    //    the barrier embed keeps it normalized and preserves N's text-run CRDT
-    //    identity (no full-replace). N+1 + the sibling rewiring stay as the split
-    //    left them.
+    // 2. APPEND just the break embed to block N's inline Y.Text (offset insert).
+    //    N+1 + the sibling rewiring stay as the split left them.
     const yN = getYBlock(doc, plan.blockId, "splitWithSuggestion", plan.kind);
-    const yItems = yN.get("inlineContent") as Y.Array<Y.Map<unknown>>;
-    yItems.push([buildYInlineItem(embed)]);
+    const yText = requireYInline(yN, plan.blockId, "splitWithSuggestion");
+    insertInlineItems(yText, yText.length, [embed]);
     // 3. Write the `insertion` record (a suggested split IS a tracked insertion of a
     //    paragraph break).
     writeSuggestionRecordInTx(doc, {

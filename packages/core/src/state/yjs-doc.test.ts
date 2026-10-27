@@ -172,7 +172,26 @@ describe("yjs-doc", () => {
       expect(result.dirtyIds.has("tmplP" as BlockId)).toBe(true);
     });
 
-    it("captures a nested edit inside a template body's inlineContent as the body's dirtyId", () => {
+    it("captures a FORMAT-only edit on a template body's own inline Y.Text as the body's dirtyId", () => {
+      const doc = createYDoc();
+      const templates = getTemplateContentsMap(doc);
+      const yBody = new Y.Map<unknown>();
+      const yText = new Y.Text();
+      yText.insert(0, "hello");
+      yBody.set("inlineContent", yText);
+      runTransaction(doc, () => {
+        templates.set("tmplP", yBody);
+      });
+      // Exercises the findOwningBlockId template-map branch with the current shape.
+      const result = runTransaction(doc, () => {
+        yText.format(1, 3, { bold: true });
+      });
+      expect([...result.dirtyIds]).toEqual(["tmplP"]);
+    });
+
+    // LEGACY run-array shape (`Y.Array<Y.Map{text: Y.Text}>`): the dirty walk must still
+    // map an old client's nested edit to its block — the legacy-shape gate needs the id.
+    it("LEGACY shape: captures a nested edit inside a template body's run array as the body's dirtyId", () => {
       const doc = createYDoc();
       const templates = getTemplateContentsMap(doc);
       const yBody = new Y.Map<unknown>();
@@ -197,7 +216,7 @@ describe("yjs-doc", () => {
       expect(result.dirtyIds.has("tmplP" as BlockId)).toBe(true);
     });
 
-    it("captures Y.Text mutation deep inside Y.Array inside block as the block's dirtyId", () => {
+    it("LEGACY shape: captures a Y.Text mutation deep inside a run array inside a block as the block's dirtyId", () => {
       const doc = createYDoc();
       const blocks = getBlocksMap(doc);
       const yBlock = new Y.Map<unknown>();
@@ -230,8 +249,9 @@ describe("yjs-doc", () => {
       expect(result.dirtyIds.has("blk-1" as BlockId)).toBe(true);
     });
 
-    it("amortizes parent-chain walks across changed Y types (S-A1)", () => {
-      // Mutate text + attrs of many items across few blocks. Each item
+    it("amortizes parent-chain walks across changed Y types (S-A1, LEGACY run-array shape: the deepest chains)", () => {
+      // Mutate text + attrs of many items across few blocks (legacy per-run Y.Maps —
+      // the deepest parent chains the walk can meet). Each item
       // contributes two entries to `changedParentTypes` whose walks all
       // share intermediate cursors (the item Y.Map, the inlineContent
       // Y.Array, the block Y.Map). Without per-transaction memoization

@@ -1,8 +1,10 @@
 import * as Y from "yjs";
-import type { Selection } from "./block-position";
+import type { Position, Selection } from "./block-position";
+import { createPosition, createSpan, positionsEqual } from "./block-position";
 import type { BlockId } from "./block-id";
 import type { OperationResult, State } from "./state";
-import { freshState } from "./state";
+import { freshState, resolveBlock } from "./state";
+import { selectionContextOf } from "./block-compare";
 import {
   captureDirtyIds,
   getBlocksMap,
@@ -11,7 +13,10 @@ import {
   getListDefsMap,
   getSuggestionsMap,
   getTemplateContentsMap,
+  getTreeMaps,
+  owningBlockIdOf,
 } from "./yjs-doc";
+import { followRedoneItem, readYInline, snapOffset } from "./y-inline";
 import { STATE_INTERNAL } from "./state-internal";
 import { isDevMode } from "./dev-mode";
 
@@ -69,15 +74,98 @@ type YStackItem = NonNullable<ReturnType<Y.UndoManager["undo"]>>;
 const SEL_KEY: unique symbol = Symbol("taleweaver.history.selectionEntry");
 
 /**
+ * One stored selection endpoint: CRDT-anchored, so it stays correct across
+ * untracked changes (a peer's edit, a host proposal) applied after the entry was
+ * recorded. In a block with inline storage `rel` is a `RelativePosition` on its
+ * `Y.Text` (a type-anchored relpos covers an empty text); in a container
+ * (`inlineContent === null`) `rel` is null and the endpoint is `(blockId, 0)`.
+ */
+interface StoredEndpoint {
+  readonly blockId: BlockId;
+  readonly rel: Y.RelativePosition | null;
+}
+interface StoredSelection {
+  readonly anchor: StoredEndpoint;
+  readonly focus: StoredEndpoint;
+}
+/** What is welded onto a StackItem: the encoded before / after selections. */
+interface StoredEntry {
+  readonly before: StoredSelection | null;
+  readonly after: StoredSelection | null;
+}
+
+function encodeEndpoint(doc: Y.Doc, pos: Position): StoredEndpoint {
+  for (const tree of getTreeMaps(doc)) {
+    const yBlock = tree.get(pos.blockId);
+    if (yBlock === undefined) continue;
+    const yText = readYInline(yBlock, pos.blockId);
+    if (yText === null) return { blockId: pos.blockId, rel: null };
+    const index = Math.max(0, Math.min(pos.offset, yText.length));
+    // A caret is anchored to the char on its LEFT (assoc −1), as `rebaseSelection`
+    // treats it: a peer's insert right after it (incl. at the end of the text) must
+    // not drag the restored caret along. At offset 0 there is no left char, so it
+    // anchors to the right one (assoc 0; type-anchored in an empty text).
+    return {
+      blockId: pos.blockId,
+      rel: Y.createRelativePositionFromTypeIndex(yText, index, index > 0 ? -1 : 0),
+    };
+  }
+  return { blockId: pos.blockId, rel: null };
+}
+
+function encodeSelection(doc: Y.Doc, sel: Selection): StoredSelection;
+function encodeSelection(doc: Y.Doc, sel: Selection | null): StoredSelection | null;
+function encodeSelection(doc: Y.Doc, sel: Selection | null): StoredSelection | null {
+  if (sel === null) return null;
+  const anchor = encodeEndpoint(doc, sel.anchor);
+  return { anchor, focus: positionsEqual(sel.anchor, sel.focus) ? anchor : encodeEndpoint(doc, sel.focus) };
+}
+
+/**
+ * Resolve a stored endpoint against `state` (whose doc has the undo/redo applied).
+ * The block is DERIVED from the resolved `Y.Text` (a peer split may have moved the
+ * anchor char's block), never trusted from the stored id — except for a null-`rel`
+ * container endpoint. Unresolvable (null) when the anchor char is deleted and not
+ * restored, the text / block is gone, or the position is unknown to this doc.
+ * A resolved offset is snapped to a grapheme boundary.
+ */
+function resolveEndpoint(state: State, ep: StoredEndpoint): Position | null {
+  if (ep.rel === null) return resolveBlock(state, ep.blockId) === null ? null : createPosition(ep.blockId, 0);
+  const doc = state[STATE_INTERNAL].doc;
+  if (ep.rel.item !== null) {
+    // The anchor char (the caret's LEFT char, or its right one at offset 0), followed
+    // through redone copies: deleted and not restored by this undo → unresolvable.
+    const anchor = followRedoneItem(doc, ep.rel.item);
+    if (anchor === null || anchor.deleted) return null;
+  }
+  const abs = Y.createAbsolutePositionFromRelativePosition(ep.rel, doc);
+  if (abs === null || !(abs.type instanceof Y.Text)) return null;
+  const blockId = owningBlockIdOf(doc, abs.type);
+  if (blockId === null) return null;
+  const content = resolveBlock(state, blockId)?.block.inlineContent ?? null;
+  if (content === null) return null;
+  return createPosition(blockId, snapOffset(content.items, abs.index));
+}
+
+function resolveSelection(state: State, stored: StoredSelection): Selection | null {
+  const anchor = resolveEndpoint(state, stored.anchor);
+  const focus = stored.focus === stored.anchor ? anchor : resolveEndpoint(state, stored.focus);
+  if (anchor === null || focus === null) return null;
+  const ctx = selectionContextOf(state, anchor.blockId);
+  if (ctx === null || ctx !== selectionContextOf(state, focus.blockId)) return createSpan(focus, focus);
+  return createSpan(anchor, focus);
+}
+
+/**
  * Read the `SelectionEntry` welded onto a StackItem's `.meta`. Returns null
  * if absent — which, in correct operation, never happens: `commit()` writes
  * the entry onto every item it produces. A null here means a tracked edit
  * fired without a matching `commit` (the dev assertion in `undo`/`redo`
  * surfaces it).
  */
-function readSelectionEntry(item: YStackItem): SelectionEntry | null {
+function readSelectionEntry(item: YStackItem): StoredEntry | null {
   const entry = item.meta.get(SEL_KEY);
-  return entry === undefined ? null : (entry as SelectionEntry);
+  return entry === undefined ? null : (entry as StoredEntry);
 }
 
 /**
@@ -205,7 +293,10 @@ export class History {
   // (the first one writes the full selection pair, later ones advance only `after`).
   private batchDepth = 0;
   private batchCommitted = false;
-  private batchBefore: Selection | null = null;
+  private batchBefore: StoredSelection | null = null;
+  // The selection passed to `beginEntry`, encoded against the PRE-action doc (an
+  // undo restores the pre-action content, so its anchors must be pre-action chars).
+  private pendingBefore: { readonly raw: Selection; readonly stored: StoredSelection } | null = null;
   // Rollback bookkeeping for a throwing transaction: the undo-stack depth and the
   // wrapper's state when the outermost batch opened.
   private batchStackDepth = 0;
@@ -271,7 +362,7 @@ export class History {
    * coalesce (their `coalesceKey` is set to null, so the next action also
    * breaks).
    */
-  beginEntry(key: BeginKey, now: number): void {
+  beginEntry(key: BeginKey, now: number, selection?: Selection): void {
     if (this.batchDepth > 0) {
       // Inside a transaction: never close the group; merge into its first commit.
       this.didCoalesce = this.batchCommitted;
@@ -289,6 +380,16 @@ export class History {
     this.didCoalesce = canCoalesce;
     this.coalesceKey = coalescible ? key : null;
     this.lastEditTime = now;
+    // A coalesced edit keeps its group's original `before`; only a fresh entry
+    // needs the pre-action encoding.
+    this.pendingBefore =
+      selection === undefined || canCoalesce
+        ? null
+        : { raw: selection, stored: encodeSelection(this.doc(), selection) };
+  }
+
+  private doc(): Y.Doc {
+    return this.currentState[STATE_INTERNAL].doc;
   }
 
   /**
@@ -312,7 +413,7 @@ export class History {
   beginBatch(selectionBefore: Selection): void {
     if (this.batchDepth === 0) {
       this.batchCommitted = false;
-      this.batchBefore = selectionBefore;
+      this.batchBefore = encodeSelection(this.doc(), selectionBefore);
       this.batchStackDepth = this.undoManager.undoStack.length;
       this.batchState = this.currentState;
       this.batchPoisoned = false;
@@ -445,16 +546,30 @@ export class History {
     // write the full pair (the pre-#420 behavior). The `.meta.get` cast follows
     // the existing localized-Yjs-cast pattern used by `readSelectionEntry`
     // (Y.Map.meta is typed loosely by Yjs) — not new type-unsafety.
+    // `before` is encoded against the PRE-action doc when `beginEntry` saw the
+    // same selection (the editor always passes it); otherwise against the current
+    // (post-action) doc — still a valid anchor for positions the action kept.
+    const doc = this.doc();
+    const pending = this.pendingBefore;
+    this.pendingBefore = null;
+    const storedBefore =
+      pending !== null && selections.before !== null && selectionsEqual(pending.raw, selections.before)
+        ? pending.stored
+        : encodeSelection(doc, selections.before);
+    const storedAfter = encodeSelection(doc, selections.after);
     if (this.didCoalesce) {
-      const existing = top.meta.get(SEL_KEY) as SelectionEntry | undefined;
+      const existing = top.meta.get(SEL_KEY) as StoredEntry | undefined;
       top.meta.set(SEL_KEY, {
-        before: existing !== undefined ? existing.before : selections.before,
-        after: selections.after,
-      });
+        before: existing !== undefined ? existing.before : storedBefore,
+        after: storedAfter,
+      } satisfies StoredEntry);
     } else {
       // A transaction's entry restores the selection from BEFORE the transaction,
       // not the one its first step happened to start from.
-      top.meta.set(SEL_KEY, this.batchBefore !== null ? { before: this.batchBefore, after: selections.after } : selections);
+      top.meta.set(SEL_KEY, {
+        before: this.batchBefore !== null ? this.batchBefore : storedBefore,
+        after: storedAfter,
+      } satisfies StoredEntry);
     }
     if (this.batchDepth > 0) this.batchCommitted = true;
     // All bookkeeping succeeded — now advance the wrapper's current state.
@@ -611,7 +726,7 @@ export class History {
       this.currentState = newState;
       return {
         state: newState,
-        selection: entry === null ? null : entry.before,
+        selection: entry === null || entry.before === null ? null : resolveSelection(newState, entry.before),
         dirtyIds,
       };
     } catch (err) {
@@ -680,7 +795,7 @@ export class History {
       this.currentState = newState;
       return {
         state: newState,
-        selection: entry === null ? null : entry.after,
+        selection: entry === null || entry.after === null ? null : resolveSelection(newState, entry.after),
         dirtyIds,
       };
     } catch (err) {
@@ -707,7 +822,7 @@ export class History {
    */
   private carryEntryToTop(
     stack: readonly YStackItem[],
-    entry: SelectionEntry,
+    entry: StoredEntry,
   ): void {
     const top = stack[stack.length - 1];
     if (top === undefined) {
@@ -737,4 +852,8 @@ export function createHistory(
   trackedOrigin: unknown = null,
 ): History {
   return new History(state, maxDepth ?? DEFAULT_MAX_UNDO_DEPTH, trackedOrigin);
+}
+
+function selectionsEqual(a: Selection, b: Selection): boolean {
+  return positionsEqual(a.anchor, b.anchor) && positionsEqual(a.focus, b.focus);
 }

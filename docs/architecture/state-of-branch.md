@@ -125,40 +125,34 @@ the incremental render/cascade/layout passes. `applyOperation` returns the input
 "did anything change?" guard. The old path-based `StateNode` immutable tree is
 fully removed.
 
-**Surgical same-block `deleteRange` (selection-rebasing Phase 1, slice 1)
-`[implemented]`.** The same-block `deleteRange` path mutates the block's
-`inlineContent` `Y.Array`/`Y.Text`s IN PLACE (`surgicallyDeleteInlineRangeInTx`
-in `y-utils.ts`) rather than full-replacing via `buildYInlineContent`: runs outside
-the deleted range — and the surviving portion of a straddled run — keep their
-`Y.Text` CRDT identity, so a Yjs `RelativePosition` anchored there survives (the
-foundation for within-block selection rebasing under concurrent edits). Read-back is
-byte-identical to the old rebuild. The seam-merge RECEIVER keeps identity; the
-DONOR's migrated same-attrs chars are fresh (the Class-2 limit — Yjs has no
-identity-preserving cross-`Y.Text` move). The CROSS-BLOCK path still full-replaces
-the anchor block; a later surgical-ops slice migrates it.
-
-**Surgical same-block `replaceRange` (selection-rebasing Phase 1, slice 2)
-`[implemented]`.** A SAME-BLOCK `replaceRange` (type-over-a-selection /
-replace-one) preserves `Y.Text` identity for the runs it doesn't touch via the
-identity-aware `planInsertTextSplitInPlace` (a boundary/interior insert), instead of
-the old `planInsertTextFullReplace`. A `RelativePosition` in a NON-straddled
-surviving run survives the replace; read-back is byte-identical to the old
-full-replace. The CROSS-BLOCK `replaceRange` path still full-replaces (its delete
-full-replaces the anchor block — migrated when cross-block delete goes surgical).
-The run that STRADDLES the insertion point still loses identity (Class-2 limit).
-
-**Universal in-place seam-merge (selection-rebasing Phase 1, slice 5)
-`[implemented]`.** ALL six live-array post-edit seam normalizers (in
-`applyAttrsToRange`, `mergeAdjacentBlocks`, the `split-in-place` insert applier,
-`insertItemsInTx`, and the two suggestion appliers `applyResolveDecisionsInTx` /
-the strike applier) now call the identity-preserving twin
-`mergeAdjacentSameAttrsTextItemsInPlace` instead of the rebuild
-`mergeAdjacentSameAttrsTextItems`. When applying an attr / merging blocks /
-inserting makes two runs converge to same-attrs, the merge RECEIVER keeps its
-`Y.Text` identity; only the donor's migrated chars are fresh (Class-2 limit).
-Read-back is byte-identical at every site. The rebuild
-`mergeAdjacentSameAttrsTextItems` is RETAINED as the general /
-detached-array-safe normalizer and the Y-side drift oracle.
+**Inline storage: ONE `Y.Text` per leaf block `[implemented]`.** Text runs are
+characters carrying Yjs formatting attributes; embeds are plain-JSON `insertEmbed`
+items. Every inline write is an offset insert / delete / format (`state/y-inline.ts`)
+— no whole-block rewrite except creating a block — so formatting never re-mints a
+character: concurrent format/format and type/format converge without loss, a
+`RelativePosition` survives any in-block edit, and an undo entry survives a peer's (or
+a host proposal's) formatting. Attrs enter Yjs through one boundary (`null` dropped),
+inserts carry complete attrs (registry-equal neighbours canonicalized), formats skip
+structural markers (and the read model projects marker attrs to `{}`), and every
+endpoint is grapheme-snapped. Per-keystroke cost: O(items in the edited block),
+independent of document size (`inline-keystroke.bench.ts`). History selections are
+CRDT-anchored RelativePositions (a caret anchors to its left character; unresolvable →
+the undo's own rebased caret). Composed ops snap each endpoint once; multi-write ops
+read each block once. Host proposals carry a per-host `UntrackedOrigin` (self to the
+proposing host's foreign-change subscription, foreign to any other host). Schema
+2; legacy schema-1 storage (per-run `Y.Array`) is upgraded only by the host's explicit
+single-authority `upgradeDocument`, refused on load (`LegacyDocumentError`), upgraded
+in a pasted clip, and HALTS every controller when a peer update carries it (1.5
+"Incompatible documents"); a halted controller resumes on a document replacement — over
+the same, upgraded Y.Doc too (an upgrade by a peer or by the host itself fires
+`onDocumentCompatible`; the React hook then resumes by itself, and halts again if legacy
+storage returns first); print resumes only on a fresh State (its change chain never
+reaches the halted State), never one reduced from it. `[partial]` — **structural block ops under concurrency**:
+paragraph merge / split re-mint the moved characters (Yjs cannot reparent items), so a
+peer's concurrent typing in the moved part is lost (merge) or lands in the wrong block
+(split), and a peer's split / merge breaks the user's open undo entry for the moved
+characters (Ctrl+Z only partially undoes that typing). A different structural model is
+a separate design.
 
 Known follow-ups: `Y.Map.set(key, sameValue)` fires change events → scattered
 same-value-write guards in ops like `reparent-children.ts` self-move; consolidate
@@ -175,9 +169,10 @@ The v1 built-in is a LOSSLESS binary serializer (`createBinaryDocumentSerializer
 `BINARY_FORMAT = "taleweaver-binary"`) backed by Yjs's native update codec
 (`Y.encodeStateAsUpdate` / `Y.applyUpdate`): one round-trip over the WHOLE
 `Y.Doc` (all three block trees + `listDefs` + `comments` + `suggestions` + `meta`
-rootId). Decode reads `rootId` via the state-private `getMetaRootId` and rebuilds
-`State` with a fresh snapshot cache; a decoded doc with no rootId throws
-`MalformedDocumentError`.
+rootId / schemaVersion). Decode reads `rootId` via the state-private `getMetaRootId`
+and rebuilds `State` with a fresh snapshot cache; a decoded doc with no rootId throws
+`MalformedDocumentError`; legacy inline storage throws `LegacyDocumentError` (the host
+runs `upgradeDocument` first; `inspectDocument` reports the effective schema).
 
 The editor-level open/save surface is `exportDocument` / `loadDocument`
 (`editor/document-io.ts`, on the core barrel): `loadDocument` deserializes into a
@@ -665,21 +660,25 @@ attributes and inline marks" and [`1.3-cascade.md`](./1-core/1.3-cascade.md).
 
 Host proposals + suggestion groups `[implemented]`: records carry optional `groupId` +
 host `metadata`; `getSuggestionGroups`; `PROPOSE` (several edits → ONE group, any editing
-mode, caret and stored typing attrs only rebased, ONE tracked undo entry ordered with the
-user's edits, overlaps with pending suggestions rejected in O(n log n), `basedOn` mapped by
+mode, caret and stored typing attrs only rebased, UNTRACKED — not in the user's undo stack
+(a block-splitting proposal stays one tracked entry: the structural-op limit), a record
+tagging no content hidden from `getSuggestionGroups`, overlaps with pending suggestions
+rejected in O(n log n), `basedOn` mapped by
 the REDUCER through the change chain with the verdicts chained on `EditorState.lastProposal`;
 controllers' `propose()` → `Promise<ProposeResult>` with the true verdict in both backends);
 `ACCEPT_/REJECT_SUGGESTION_GROUP` (atomic, one undo step); accept / reject are undoable;
 live per-source styling via `setSuggestionStyles` (both controllers, React
-`suggestionStyles`). `[partial]`: Google Docs keeps another author's proposals out of the
-user's undo stack — blocked on identity-preserving inline storage (T6; a peer change that
-splits the user's just-typed run has the same dead-undo-entry problem today). See [`1.5-editor.md`](./1-core/1.5-editor.md) "Host
+`suggestionStyles`). See [`1.5-editor.md`](./1-core/1.5-editor.md) "Host
 proposals" and [`1.1-state.md`](./1-core/1.1-state.md).
 
 Anchors + collaboration `[implemented]`: `AnchorSet` (live anchors through local edits,
 undo/redo and peer changes; `deleted` / `changed`), document versions + `mapPosition`
 (bounded MappingLog), and first-class foreign-change handling in both controllers
-(`subscribeRemoteChanges` → `APPLY_FOREIGN_CHANGE` → selection rebased). See
+(`subscribeRemoteChanges` → `APPLY_FOREIGN_CHANGE` → selection rebased, grapheme-snapped;
+a legacy-storage peer update halts the controller instead — every controller, also with
+`remoteChanges: "ignore"`; both backends + React `useEditor().halted` (linked to its
+`EditorView` automatically), digital `replaceDocument`, `onDocumentCompatible` + resume
+on the same upgraded Y.Doc). See
 [`1.9-decorations.md`](./1-core/1.9-decorations.md) "Anchors" / "Foreign changes".
 
 Host extensions `[implemented]`: `EditorConfig.extensions` — commands
@@ -891,7 +890,7 @@ Creation ops (slice 3a–3c):
   `formatting` record with `proposedAttrs`; same-author/same-proposal adjacency
   coalesces by id reuse.
 - `markDeletion` (slice 3b): soft-delete a span's text (stamp `deletionSuggestionId`,
-  text stays visible) via identity-preserving per-owning-block surgical strike
+  text stays visible) via a per-owning-block offset strike (format, never re-mint)
   (`applyDeletionStrikeInTx`), with delete-own-insertion + nesting +
   same-author coalescing rules.
 - `mintInsertion` (slice 3c): inserts text carrying `insertionSuggestionId` +
@@ -901,7 +900,7 @@ Creation ops (slice 3a–3c):
 Resolution ops (slice 3d):
 - `acceptSuggestion`/`rejectSuggestion`: single-id resolve, dispatching by record
   `kind` (spec §6), each an ordinary UNDOABLE `applyOperation` via
-  `applyResolveDecisionsInTx` (identity-preserving per-owning-block minimal diff);
+  `applyResolveDecisionsInTx` (per-owning-block minimal offset diff);
   the editor commits it as one history entry (undo restores the suggestion exactly).
 - `acceptAll`/`rejectAll`: resolve every suggestion in one undoable txn via a
   COMBINED per-block rewrite (a run carrying insertion+deletion+formatting is walked
@@ -928,10 +927,9 @@ Editor actions (slice 4):
   a suggested JOIN via `markBlockJoinSuggestion`.
 - 4d-state (`replaceWithSuggestion`): type-over-selection in suggesting mode —
   soft-deletes the selection AND inserts new text at the selection start in ONE
-  transaction, producing TWO records. FULLY IDENTITY-PRESERVING: the in-tx body
-  strikes every block (including the start block) surgically via
-  `applyDeletionStrikeInTx`, then inserts the suggested run via a `split-in-place`
-  plan built PRE-tx against the post-strike `writes` items.
+  transaction, producing TWO records. Offset writes only: the in-tx body strikes every
+  block via `applyDeletionStrikeInTx` (formats the struck runs), then inserts the
+  suggested run at the selection start.
 - 4d-editor: `handleInsertText` expanded-selection branch routes type-over-a-selection
   through `replaceWithSuggestion`; direct mode keeps the destructive `replaceRange`.
 - PASTE-as-suggestion: `handlePaste` in suggesting mode routes through

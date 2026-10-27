@@ -5,14 +5,11 @@ import type { BlockId } from "../block-id";
 import type { Position } from "../block-position";
 import {
   inlineContentLength,
-  splitInlineContentAtOffset,
-  mergeAdjacentTextItems,
   INLINE_IMAGE_EMBED_TYPE,
   type EmbedItem,
-  type InlineItem,
 } from "../inline-content";
 import { getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
-import { buildYInlineContent } from "../y-block";
+import { insertInlineItems, requireYInline } from "../y-inline";
 
 /** The primitive image data carried inline by an `inline-image` EmbedItem. */
 export interface InlineImageProperties {
@@ -27,15 +24,15 @@ export interface InlineImageProperties {
 }
 
 /**
- * Pre-computed plan for `insertInlineImage`: the host leaf's tree provenance plus
- * the new `items[]` with the `inline-image` EmbedItem spliced in at
- * `position.offset`. An embed is a merge barrier, so this is always a
- * full-replace of the leaf's inlineContent.
+ * Pre-computed plan for `insertInlineImage`: the host leaf's
+ * tree provenance, the insertion offset and the embed — one offset
+ * `insertEmbed` into the leaf's inline `Y.Text` (no other character moves).
  */
 interface InlineImageInsertPlan {
   readonly blockId: BlockId;
   readonly kind: BlockTreeKind;
-  readonly items: ReadonlyArray<InlineItem>;
+  readonly offset: number;
+  readonly embed: EmbedItem;
 }
 
 /**
@@ -69,7 +66,8 @@ export function insertInlineImage(
 }
 
 /**
- * Validate `position` and produce the insertion plan (the new leaf `items[]` with
+ * Validate `position` and produce the insertion plan (the embed +
+ * offset for
  * an `inline-image` EmbedItem spliced in). All snapshot reads + validation happen
  * here, BEFORE the surrounding `applyOperation` opens.
  */
@@ -108,21 +106,16 @@ function planInlineImageInsert(
     }),
   });
 
-  const [left, right] = splitInlineContentAtOffset(block.inlineContent, position.offset);
-  // An embed is a merge barrier, so `mergeAdjacentTextItems` only normalizes the
-  // split halves around it — it never merges across the image.
-  const items = mergeAdjacentTextItems([...left, image, ...right]);
-
-  return { blockId: position.blockId, kind, items };
+  return { blockId: position.blockId, kind, offset: position.offset, embed: image };
 }
 
 /**
- * In-transaction primitive: full-replace the host leaf's inlineContent with the
- * pre-computed `plan.items` (image spliced in). Caller owns the surrounding
+ * In-transaction primitive: insert the embed into the host leaf's inline
+ * `Y.Text` at `plan.offset` (image spliced in). Caller owns the surrounding
  * transaction.
  */
 function insertInlineImageInTx(doc: Y.Doc, plan: InlineImageInsertPlan): void {
   requireInTransaction(doc, "insertInlineImage");
   const yBlock = getYBlock(doc, plan.blockId, "insertInlineImage", plan.kind);
-  yBlock.set("inlineContent", buildYInlineContent({ items: plan.items }));
+  insertInlineItems(requireYInline(yBlock, plan.blockId, "insertInlineImage"), plan.offset, [plan.embed]);
 }

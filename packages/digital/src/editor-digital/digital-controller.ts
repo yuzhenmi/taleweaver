@@ -39,6 +39,7 @@ import {
   mapPositionFrom,
   subscribeRemoteChanges,
   getYDoc,
+  inspectDocument,
   type Anchor,
   type AnchorOptions,
   type Assoc,
@@ -52,6 +53,9 @@ import {
   type AttrRegistry,
   type PageConfig,
   type State,
+  type BlockId,
+  type IncompatibleDocumentReport,
+  UNKNOWN_MAPPING,
 } from "@taleweaver/core";
 import { browserHtmlParser } from "./html-parser";
 import { createDigitalReconciler, type DigitalReconciler } from "./digital-reconciler";
@@ -102,13 +106,44 @@ export interface DigitalControllerOptions {
    * `"ignore"` (else each would apply the same peer change).
    */
   readonly remoteChanges?: "observe" | "ignore";
+  /**
+   * A peer update carried LEGACY inline storage (an old client): the controller HALTS —
+   * `contenteditable` off, every action and further remote change ignored, the last good
+   * render kept, every member a defined no-op that never touches the Y.Doc. Called once
+   * per halt — and again, while still halted, when legacy storage returns after
+   * `onDocumentCompatible` was reported.
+   * Do not keep reading the halted State with core read functions (a snapshot-cache miss
+   * throws `LegacyDocumentError`). While halted, setters and clears of decorations /
+   * highlights / styles are no-ops (`decorations` keeps the last good set). Exit: the
+   * document is upgraded (`upgradeDocument`, single authority — here, or by an upgraded
+   * peer, see `onDocumentCompatible`) and the host calls
+   * {@link DigitalController.replaceDocument} with a State over it (same Y.Doc or another).
+   */
+  readonly onIncompatibleDocument?: (report: IncompatibleDocumentReport) => void;
+  /**
+   * While HALTED, the document became free of legacy storage (an upgraded peer, or this
+   * host itself, ran `upgradeDocument` on it — any transaction is re-checked): the host can now resume with
+   * {@link DigitalController.replaceDocument} and a fresh State over the same Y.Doc
+   * (`createState({ rootId, doc })`). Called once per halt.
+   */
+  readonly onDocumentCompatible?: () => void;
 }
 
 export interface DigitalController {
   readonly editorState: EditorState;
   /** The host decoration layer, mapped through every edit since it was set. */
   readonly decorations: DecorationSet;
+  /** True while halted on incompatible (legacy) document storage — see `onIncompatibleDocument`. */
+  readonly halted: boolean;
   dispatch(action: EditorAction): void;
+  /**
+   * Replace the document: the editor shows `state` (a fresh history, the caret at its
+   * start, the mapping log restarted — older versions no longer map, anchors die). Every
+   * decoration layer and the find session are dropped (the host sets them again). This
+   * is also how a halted controller resumes (after `upgradeDocument`), on the same
+   * Y.Doc or another.
+   */
+  replaceDocument(state: State): void;
   /**
    * Replace the host decorations. They stay attached through later edits (position-mapped)
    * until replaced; a decoration whose range is deleted disappears. Only blocks whose drawn
@@ -202,6 +237,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
       : createInitialEditorState(config);
 
   let isComposing = false;
+  let destroyed = false;
   const modConvention = modConventionFor(win.navigator.userAgent);
   // Parse the host keymap now: a malformed binding name fails at configuration time.
   if (options.extensions?.keymap !== undefined) compileKeymap(options.extensions.keymap);
@@ -216,14 +252,51 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     doc,
   );
 
-  const layers = createDecorationLayers();
+  let layers = createDecorationLayers();
   if (options.decorations !== undefined) layers.setHost(editorState.state, options.decorations);
   const find = createFindSession();
   const log = createMappingLog();
   log.reset(editorState.state);
   const anchors = createAnchorSet();
 
+  // HALTED (a peer update carried legacy inline storage): controller-local runtime state
+  // — the reducer knows nothing of it. Layer setters are no-ops meanwhile (deriving reads
+  // the doc); `decorations` keeps the last good set.
+  let halted = false;
+  const EMPTY_FIND: FindStatus = { total: 0, activeIndex: -1 };
+
+  /** `onDocumentCompatible` was reported since the last `onIncompatibleDocument`. */
+  let toldCompatible = false;
+
+  /** Halt (once per halt — again while still halted only if the host was told "compatible" since). */
+  function halt(blockIds: readonly BlockId[]): void {
+    if (destroyed) return;
+    if (halted) {
+      if (!toldCompatible) return;
+      toldCompatible = false;
+      options.onIncompatibleDocument?.({ legacyBlocks: blockIds });
+      return;
+    }
+    halted = true;
+    container.contentEditable = "false";
+    // An in-flight IME composition is abandoned: its composed DOM text is dropped and the
+    // DOM shows the last good projection again (no document read).
+    if (isComposing) {
+      isComposing = false;
+      reconciler.restore();
+    }
+    options.onIncompatibleDocument?.({ legacyBlocks: blockIds });
+  }
+
+  /** Run a decoration-layer setter now (and redraw); a no-op while halted. */
+  function layerOp(op: (s: State) => void): void {
+    if (halted) return;
+    op(editorState.state);
+    redraw();
+  }
+
   function dispatch(action: EditorAction): void {
+    if (halted) return;
     const prev = editorState;
     editorState = reduceEditor(editorState, action, config);
     if (prev.state !== editorState.state) {
@@ -251,6 +324,10 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
   }
 
   function onBeforeInput(e: InputEvent): void {
+    if (halted) {
+      e.preventDefault();
+      return;
+    }
     if (isComposing && e.inputType !== "insertCompositionText") return;
     // C1: the `paste` ClipboardEvent handler is the single paste source. Suppress the browser's
     // native mutation from this beforeinput but do NOT dispatch — `onPaste` already did.
@@ -271,6 +348,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     }
   }
   function onKeyDown(e: KeyboardEvent): void {
+    if (halted) return;
     // Host keymap BEFORE the defaults (and never mid-composition: the IME owns
     // keys like Enter until it commits). A command that runs claims the key; an
     // unbound (`null`) key is swallowed so neither our default nor the browser's runs.
@@ -316,7 +394,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     dispatch(action);
   }
   function onSelectionChange(): void {
-    if (isComposing) return;
+    if (halted || isComposing) return;
     const bridge = reconciler.getBridge();
     if (bridge === null) return;
     const span = bridge.readDomSelection();
@@ -328,6 +406,10 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
   }
   function onCompositionEnd(e: CompositionEvent): void {
     isComposing = false;
+    if (halted) {
+      reconciler.restore(); // drop what the IME committed into the DOM meanwhile
+      return;
+    }
     // D1: `CompositionEvent.data` can be `null` at runtime (e.g. a cancelled composition).
     // `e.data !== ""` is `true` for `null`, so guard against null too — dispatching INSERT_TEXT
     // with a null `text` crashes the reducer (Y.Text.insert rejects null).
@@ -339,6 +421,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
   }
   function onCopy(e: ClipboardEvent): void {
     e.preventDefault();
+    if (halted) return; // empty clipboard: copying reads the (incompatible) document
     // copy:"drop" marks are stripped from what leaves the editor.
     const frag = extractFragment(editorState.state, editorState.selection, options.attrRegistry);
     e.clipboardData?.setData(
@@ -350,6 +433,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
   }
   function onCut(e: ClipboardEvent): void {
     onCopy(e);
+    if (halted) return;
     dispatch({ type: "DELETE_RANGE", span: editorState.selection });
   }
   function onPaste(e: ClipboardEvent): void {
@@ -375,14 +459,25 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
   // `Y.applyUpdate` call. Re-subscribed whenever the document's Y.Doc changes.
   let remoteDoc: unknown = null;
   let unsubscribeRemote: (() => void) | null = null;
-  function followRemoteDoc(): void {
-    if (options.remoteChanges === "ignore") return;
-    const doc = getYDoc(editorState.state);
-    if (doc === remoteDoc) return;
+  // Every controller shape-checks peer updates (legacy storage halts it), whether or
+  // not it applies them (`remoteChanges: "ignore"`).
+  function followRemoteDoc(force = false, watched: State = editorState.state, startHalted = false): void {
+    const doc = getYDoc(watched);
+    if (doc === remoteDoc && !force) return;
     unsubscribeRemote?.();
     remoteDoc = doc;
-    unsubscribeRemote = subscribeRemoteChanges(editorState.state, (dirtyIds) =>
-      dispatch({ type: "APPLY_FOREIGN_CHANGE", dirtyIds }),
+    unsubscribeRemote = subscribeRemoteChanges(
+      watched,
+      (dirtyIds) => {
+        if (options.remoteChanges !== "ignore") dispatch({ type: "APPLY_FOREIGN_CHANGE", dirtyIds });
+      },
+      halt,
+      () => {
+        if (!halted || destroyed) return;
+        toldCompatible = true;
+        options.onDocumentCompatible?.();
+      },
+      { startHalted },
     );
   }
   followRemoteDoc();
@@ -422,7 +517,42 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     container.focus();
   }
 
-  let destroyed = false;
+  function replaceDocument(state: State): void {
+    if (destroyed) return;
+    // The replacement must hold no legacy storage (the load assertion; O(blocks), only
+    // here) — checked even when not halted (legacy may land between `createState` and
+    // here). Refused, its legacy storage went unseen (not halted yet, another document,
+    // or a local write after "compatible"): halt (or report again if the host was told
+    // "compatible") and watch this document halted — so its upgrade is reported. The
+    // current editor stays as it is.
+    const legacy = inspectDocument(getYDoc(state)).legacyBlocks;
+    if (legacy.length > 0) {
+      if (!halted || getYDoc(state) !== remoteDoc || toldCompatible) {
+        halt(legacy);
+        followRemoteDoc(true, state, true);
+      }
+      return;
+    }
+    const prev = editorState;
+    // Built before the old History is destroyed: a throwing build leaves the editor intact.
+    const next = createEditorStateFromState(state, initialSelectionForState(state), config);
+    prev.history.destroy(); // the old document's undo manager detaches from its Y.Doc
+    editorState = next;
+    halted = false;
+    toldCompatible = false;
+    container.contentEditable = "true";
+    // Older versions can no longer be mapped: the log restarts and anchors see an unknown
+    // transition; every layer and the find session are dropped (the host sets them again).
+    log.reset(editorState.state);
+    anchors.advance(prev.state, editorState.state, UNKNOWN_MAPPING);
+    layers = createDecorationLayers();
+    find.close();
+    followRemoteDoc(true); // afresh, even on the same Y.Doc
+    reconciler.reconcile(prev, editorState, isComposing, layers.merged);
+    pointer?.sync();
+    options.onChange?.(editorState);
+  }
+
   function destroy(): void {
     destroyed = true;
     unsubscribeRemote?.();
@@ -447,64 +577,68 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     get decorations() {
       return layers.host;
     },
+    get halted() {
+      return halted;
+    },
     dispatch,
+    replaceDocument,
     setDecorations(decorations, basedOn) {
+      if (halted) return; // a no-op: `decorations` keeps the last good set
       let current: readonly Decoration[] = decorations;
       if (basedOn !== undefined && basedOn !== editorState.state) {
         const mapping = log.mappingFrom(basedOn);
         current = mapping === null ? [] : mapDecorations(decorations, mapping, editorState.state);
       }
-      layers.setHost(editorState.state, current);
-      redraw();
+      layerOp((s) => layers.setHost(s, current));
     },
     setFindHighlights(matches, activeIndex) {
-      layers.setFind(editorState.state, matches, activeIndex);
-      redraw();
+      layerOp((s) => layers.setFind(s, matches, activeIndex));
     },
     clearFindHighlights() {
-      layers.setFind(editorState.state, [], -1);
-      redraw();
+      layerOp((s) => layers.setFind(s, [], -1));
     },
     setCommentHighlights(highlights) {
-      layers.setComments(editorState.state, highlights);
-      redraw();
+      layerOp((s) => layers.setComments(s, highlights));
     },
     clearCommentHighlights() {
-      layers.setComments(editorState.state, null);
-      redraw();
+      layerOp((s) => layers.setComments(s, null));
     },
     setSuggestionHighlights(highlights) {
-      layers.setSuggestions(editorState.state, highlights);
-      redraw();
+      layerOp((s) => layers.setSuggestions(s, highlights));
     },
     clearSuggestionHighlights() {
-      layers.setSuggestions(editorState.state, null);
-      redraw();
+      layerOp((s) => layers.setSuggestions(s, null));
     },
     findStart(query, findOptions) {
+      if (halted) return EMPTY_FIND;
       find.start(editorState.state, editorState.selection.focus, query, findOptions);
       return showFind(true);
     },
     findNext() {
+      if (halted) return EMPTY_FIND;
       find.next();
       return showFind(true);
     },
     findPrev() {
+      if (halted) return EMPTY_FIND;
       find.prev();
       return showFind(true);
     },
     findClose() {
+      if (halted) return;
       find.close();
       layers.setFind(editorState.state, [], -1);
       redraw();
     },
-    findStatus: () => find.status(),
+    findStatus: () => (halted ? EMPTY_FIND : find.status()),
     replaceActive(replacement) {
+      if (halted) return EMPTY_FIND;
       const action = find.replaceActiveAction(replacement);
       if (action !== null) dispatch(action);
       return find.status();
     },
     replaceAll(replacement) {
+      if (halted) return EMPTY_FIND;
       const action = find.replaceAllAction(replacement);
       if (action !== null) dispatch(action);
       return find.status();
@@ -513,14 +647,17 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
       return editorState.state;
     },
     mapPosition(position, version, assoc) {
+      if (halted) return null;
       return mapPositionFrom(log, editorState.state, version, position, assoc);
     },
     createAnchor(from, to, anchorOptions = {}) {
+      if (halted) return null;
       const { basedOn, ...rest } = anchorOptions;
       return anchors.createAt(log, editorState.state, basedOn ?? editorState.state, from, to, rest);
     },
     propose(proposal, proposeOptions = {}) {
       if (destroyed) return Promise.resolve({ ok: false, reason: "rejected", problem: { kind: "invalid", message: "controller destroyed" } });
+      if (halted) return Promise.resolve({ ok: false, reason: "halted" });
       // The reducer maps (from `basedOn`) and validates authoritatively; this controller
       // owns the state, so its verdict is already known — resolve with it. Another PROPOSE
       // may land before we read (e.g. from onChange), so find OUR verdict in the chain: the
@@ -538,10 +675,10 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
       return Promise.resolve(proposeResultOf(ours));
     },
     setSuggestionStyles(styleOf) {
-      layers.setSuggestionStyles(editorState.state, styleOf);
-      redraw();
+      layerOp((s) => layers.setSuggestionStyles(s, styleOf));
     },
     runCommand(command) {
+      if (halted) return false;
       const resolved = resolveCommand(command, options.extensions);
       return resolved !== null && resolved(editorState, dispatch);
     },

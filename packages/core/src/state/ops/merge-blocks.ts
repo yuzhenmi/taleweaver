@@ -1,11 +1,10 @@
-import * as Y from "yjs";
+import type * as Y from "yjs";
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import { asBlockId, type BlockId } from "../block-id";
 import { getTreeMap, getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
-import { cloneInlineItem, mergeAdjacentSameAttrsTextItemsInPlace } from "../y-utils";
+import { inlineItemsFromYText, insertInlineItems, requireYInline } from "../y-inline";
 import { type EmbedItem } from "../inline-content";
-import { buildYInlineItem } from "../y-block";
 import { assertSameTree } from "../assert-same-tree";
 import {
   BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
@@ -76,20 +75,14 @@ export interface MergeBlocksPlan {
  *   - blocks are not adjacent siblings (left.nextSiblingId !== rightId
  *     OR right.prevSiblingId !== leftId).
  *
- * Y.Doc identity: right's items are deep-cloned onto left's inlineContent
- * Y.Array (Yjs forbids re-parenting a Y type). Left's existing items retain
- * their Y.Text identity, INCLUDING the left-side seam run when the seam
- * converges (last-of-left and first-of-right have value-equal attrs): the
- * in-place seam-merge appends the right run's chars into the left (receiver)
- * run's `Y.Text` and drops the cloned donor — so the left run keeps identity
- * (only the donor's migrated chars are fresh, which they already were as a
- * clone). Items away from the seam are never touched.
+ * Y.Doc identity: right's content is appended to left's inline `Y.Text` with
+ * one offset insert (Yjs cannot reparent items, so right's characters are
+ * re-minted — a peer's concurrent edit in the right block is a known
+ * structural-op limit). Every character of left keeps its CRDT identity.
  *
- * `registry` (optional): an `AttrRegistry`; threaded to the seam-merge
- * normalizer (`mergeAdjacentSameAttrsTextItemsInPlace`) so interpreters with a
- * custom per-key `equals` (e.g. a `comment` interpreter that ignores
- * `timestamp`) opt into custom adjacent-item compare semantics across
- * the block seam. Omitted → deep-value compare.
+ * `registry` (optional): an `AttrRegistry`; threaded to the append's
+ * canonicalization (a registry-equal seam run is written with left's stored
+ * attrs). Omitted → deep-value compare.
  *
  * Composition: see `mergeAdjacentBlocksInTx` for the in-transaction primitive
  * used to chain a merge with other `*InTx` ops inside a single Y.Doc
@@ -205,11 +198,8 @@ export function planMergeAdjacentBlocks(
  *   - Future composers needing to chain a block merge with another `*InTx`
  *     op inside ONE Y.Doc transaction.
  *
- * Reads from the LIVE Y.Doc (the two blocks' inlineContent Y.Arrays) are
- * unavoidable here — Yjs forbids re-parenting a Y type so right's items
- * must be cloned onto left's array, which requires touching the live
- * arrays. Those reads target the items being mutated, not the snapshot,
- * so they remain composition-safe.
+ * Reads right's LIVE inline items (to append them to left), so it composes
+ * after prior in-tx ops on either block.
  */
 export function mergeAdjacentBlocksInTx(
   doc: Y.Doc,
@@ -225,23 +215,11 @@ export function mergeAdjacentBlocksInTx(
   const yTree = getTreeMap(doc, plan.kind);
   const yLeft = getYBlock(doc, plan.leftId, "mergeAdjacentBlocks", plan.kind);
   const yRight = getYBlock(doc, plan.rightId, "mergeAdjacentBlocks", plan.kind);
-  const yLeftItems = yLeft.get("inlineContent") as Y.Array<Y.Map<unknown>>;
-  const yRightItems = yRight.get("inlineContent") as Y.Array<Y.Map<unknown>>;
+  const yLeftText = requireYInline(yLeft, plan.leftId, "mergeAdjacentBlocks");
+  const yRightText = requireYInline(yRight, plan.rightId, "mergeAdjacentBlocks");
 
-  // Append clones of right's items to left. Yjs forbids re-parenting a Y
-  // type, so we clone — left keeps its existing items' Y.Text identity;
-  // only right's items get freshly materialized on the left side.
-  const cloned: Y.Map<unknown>[] = [];
-  for (let i = 0; i < yRightItems.length; i++) {
-    cloned.push(cloneInlineItem(yRightItems.get(i)));
-  }
-  if (cloned.length > 0) {
-    yLeftItems.push(cloned);
-    // Same-attrs merge pass to uphold the normalized inline-content invariant.
-    // Only needed when we actually appended items. In-place: the left-side seam
-    // run (receiver) keeps its Y.Text identity (the donor was a fresh clone anyway).
-    mergeAdjacentSameAttrsTextItemsInPlace(yLeftItems, registry);
-  }
+  // Append right's content to left (offset insert; left keeps every char's identity).
+  insertInlineItems(yLeftText, yLeftText.length, inlineItemsFromYText(yRightText), registry);
 
   // Rewire siblings around right (right.next becomes left.next).
   yLeft.set("nextSiblingId", plan.rightNextId);
@@ -298,11 +276,11 @@ export function mergeWithNextSiblingLiveInTx(
 
   // Same-parent adjacent LEAF-pair validity, read LIVE. The root has a null
   // parent (can't merge); a cross-parent boundary or a container is not a valid
-  // merge. A leaf has a NON-null `inlineContent` Y.Array and a null `firstChildId`
+  // merge. A leaf has a NON-null inline `Y.Text` and a null `firstChildId`
   // (mutually exclusive). Check BOTH — a true superset of what
-  // `mergeAdjacentBlocksInTx` requires (which reads both blocks' `inlineContent`
-  // arrays unconditionally), matching `planMergeAdjacentBlocks`'s leaf guard so a
-  // degenerate block can never reach the unconditional Y.Array read.
+  // `mergeAdjacentBlocksInTx` requires (which reads both blocks' inline
+  // content unconditionally), matching `planMergeAdjacentBlocks`'s leaf guard so a
+  // degenerate block can never reach the unconditional inline read.
   const parentRaw = yLeft.get("parentId");
   if (typeof parentRaw !== "string") return;
   if (yRight.get("parentId") !== parentRaw) return;
@@ -334,12 +312,10 @@ export function mergeWithNextSiblingLiveInTx(
  * Symmetric mirror of {@link splitWithSuggestion} (the suggested-SPLIT create op),
  * but simpler: there is no structural change. A suggested join is modeled as a
  * single zero-width {@link BLOCK_JOIN_SUGGESTION_EMBED_TYPE} embed APPENDED to block
- * N's live `inlineContent` Y.Array (the prev sibling of `secondBlockId`) carrying the
- * owning `suggestionId` in its `properties`, PLUS a `deletion` {@link SuggestionRecord}
- * — both in ONE tracked `applyOperation` transaction (one undo entry / one collab
- * event). Appending — rather than full-replacing N — preserves the per-character CRDT
- * identity of N's surviving text runs (the foundation the Yjs-backed state model
- * exists to protect for collab). The embed occupies exactly ONE `Position` offset
+ * N's inline `Y.Text` (the prev sibling of `secondBlockId`) carrying the owning
+ * `suggestionId` in its `properties`, PLUS a `deletion` {@link SuggestionRecord} —
+ * both in ONE tracked `applyOperation` transaction (one undo entry / one collab
+ * event). The append is one offset insert, so N's characters keep their identity. The embed occupies exactly ONE `Position` offset
  * (every embed does) and serializes to "" — it is the marker the range scan
  * ({@link buildSuggestionRangeIndex}) reads to surface the suggestion's range.
  *
@@ -397,13 +373,11 @@ export function markBlockJoinSuggestion(
   });
 
   return applyOperation(state, (doc) => {
-    // 1. APPEND the break embed to block N's LIVE inlineContent Y.Array (single block
-    //    write — no structural change). Appending preserves N's text-run CRDT identity
-    //    (no full-replace); N's existing content is already normalized and the barrier
-    //    embed stays last.
+    // 1. APPEND the break embed to block N's inline Y.Text (single offset insert —
+    //    no structural change).
     const yN = getYBlock(doc, prevId, "markBlockJoinSuggestion", prev.kind);
-    const yItems = yN.get("inlineContent") as Y.Array<Y.Map<unknown>>;
-    yItems.push([buildYInlineItem(embed)]);
+    const yText = requireYInline(yN, prevId, "markBlockJoinSuggestion");
+    insertInlineItems(yText, yText.length, [embed]);
     // 2. Write the `deletion` record (a suggested join IS a tracked deletion of a
     //    paragraph break).
     writeSuggestionRecordInTx(doc, {

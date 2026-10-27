@@ -46,8 +46,7 @@ export function replaceBlockWithText(
   // The insert plan is computed against the pre-mutation snapshot. The insert
   // target is a SIBLING of the removed block, so the removal (which only deletes
   // the target's subtree + relinks neighbour sibling pointers) leaves the
-  // target's `inlineContent` Y.Array identity intact — the plan's in-place /
-  // full-replace decision stays valid post-removal.
+  // target's inline content untouched — the plan's offset stays valid.
   const insertPlan = planInsertText(
     state,
     { blockId: insertAt.blockId, offset: insertAt.offset },

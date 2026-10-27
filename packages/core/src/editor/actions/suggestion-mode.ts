@@ -115,7 +115,7 @@ export function deleteRangeOrSuggest(
   const input = suggestionInputForBlock(state, spanStart(state, span).blockId, config);
   return input === null
     ? deleteRange(state, span)
-    : markDeletion(state, span, input, config.attrRegistry);
+    : markDeletion(state, span, input);
 }
 
 /**

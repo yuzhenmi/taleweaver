@@ -14,6 +14,7 @@ import {
   compactCache,
 } from "./snapshot";
 import type { BlockId } from "./block-id";
+import { LegacyDocumentError } from "./y-inline";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -31,15 +32,9 @@ function buildParagraphYBlock(text: string): Y.Map<unknown> {
   yBlock.set("nextSiblingId", null);
   yBlock.set("firstChildId", null);
   yBlock.set("lastChildId", null);
-  const items = new Y.Array<Y.Map<unknown>>();
-  const textItem = new Y.Map<unknown>();
-  textItem.set("kind", "text");
   const yText = new Y.Text();
-  yText.insert(0, text);
-  textItem.set("text", yText);
-  textItem.set("attrs", new Y.Map());
-  items.push([textItem]);
-  yBlock.set("inlineContent", items);
+  yText.insert(0, text, {});
+  yBlock.set("inlineContent", yText);
   return yBlock;
 }
 
@@ -139,16 +134,10 @@ describe("snapshot", () => {
         yBlock.set("nextSiblingId", null);
         yBlock.set("firstChildId", null);
         yBlock.set("lastChildId", null);
-        const items = new Y.Array<Y.Map<unknown>>();
-        const embedItem = new Y.Map<unknown>();
-        embedItem.set("kind", "embed");
-        embedItem.set("embedType", "image");
-        embedItem.set("attrs", new Y.Map<unknown>());
-        const yProps = new Y.Map<unknown>();
-        yProps.set("nested", nestedProperty);
-        embedItem.set("properties", yProps);
-        items.push([embedItem]);
-        yBlock.set("inlineContent", items);
+        const yText = new Y.Text();
+        // A raw (peer-style) embed write bypassing the builders.
+        yText.insertEmbed(0, { embedType: "image", properties: { nested: nestedProperty } });
+        yBlock.set("inlineContent", yText);
         blocks.set(id, yBlock);
       });
     }
@@ -189,10 +178,7 @@ describe("snapshot", () => {
         if (omit !== "nextSiblingId") yBlock.set("nextSiblingId", null);
         if (omit !== "firstChildId") yBlock.set("firstChildId", null);
         if (omit !== "lastChildId") yBlock.set("lastChildId", null);
-        if (omit !== "inlineContent") {
-          const items = new Y.Array<Y.Map<unknown>>();
-          yBlock.set("inlineContent", items);
-        }
+        if (omit !== "inlineContent") yBlock.set("inlineContent", new Y.Text());
         blocks.set(id, yBlock);
       });
     }
@@ -270,20 +256,12 @@ describe("snapshot", () => {
     });
   });
 
-  // A11: inline-item field guards. buildInlineContentSnapshot reads each
-  // inline item's fields via `yItem.get(key)`; a malformed item (a collab
-  // peer / bad migration that wrote an item missing a required key) would
-  // silently coerce `undefined` into the snapshot. Mirror buildBlockSnapshot's
-  // requireField named-throw so the failure names the missing field + index.
-  describe("buildInlineContentSnapshot field guards (A11)", () => {
-    // Seed a block with a single inline item whose fields are taken from
-    // `entries`, omitting any key in `omit`, then snapshot the block.
-    function seedBlockWithRawInlineItem(
-      doc: Y.Doc,
-      id: string,
-      entries: Array<[string, unknown]>,
-      omit: string,
-    ): void {
+  // A11: inline storage guards. The read model rejects malformed inline storage
+  // with a clear error instead of silently coercing it into the snapshot: an
+  // embed that is not `{ embedType, properties }`, and the legacy run-array shape
+  // (a typed LegacyDocumentError — no read path parses legacy storage).
+  describe("inline storage guards (A11)", () => {
+    function seedBlockWithInline(doc: Y.Doc, id: string, inline: Y.Text | Y.Array<Y.Map<unknown>>): void {
       runTransaction(doc, () => {
         const yBlock = new Y.Map<unknown>();
         yBlock.set("type", "paragraph");
@@ -293,87 +271,36 @@ describe("snapshot", () => {
         yBlock.set("nextSiblingId", null);
         yBlock.set("firstChildId", null);
         yBlock.set("lastChildId", null);
-        const items = new Y.Array<Y.Map<unknown>>();
-        const yItem = new Y.Map<unknown>();
-        for (const [key, value] of entries) {
-          if (key !== omit) yItem.set(key, value);
-        }
-        items.push([yItem]);
-        yBlock.set("inlineContent", items);
+        yBlock.set("inlineContent", inline);
         getBlocksMap(doc).set(id, yBlock);
       });
     }
 
-    function textItemEntries(): Array<[string, unknown]> {
+    it("throws when an embed is missing embedType", () => {
+      const doc = createYDoc();
       const yText = new Y.Text();
-      yText.insert(0, "hi");
-      return [
-        ["kind", "text"],
-        ["text", yText],
-        ["attrs", new Y.Map<unknown>()],
-      ];
-    }
-
-    function embedItemEntries(): Array<[string, unknown]> {
-      return [
-        ["kind", "embed"],
-        ["embedType", "image"],
-        ["attrs", new Y.Map<unknown>()],
-        ["properties", new Y.Map<unknown>()],
-      ];
-    }
-
-    it("throws when an inline item is missing kind", () => {
-      const doc = createYDoc();
-      seedBlockWithRawInlineItem(doc, "p1", textItemEntries(), "kind");
-      const cache = createSnapshotCache();
-      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
-        /inline item at index 0 missing required "kind" field/,
+      yText.insertEmbed(0, { properties: {} });
+      seedBlockWithInline(doc, "p1", yText);
+      expect(() => getBlockSnapshot(doc, "p1" as BlockId, createSnapshotCache())).toThrow(
+        /malformed embed/,
       );
     });
 
-    it("throws when a text inline item is missing text", () => {
+    it("throws when an embed is a shared Y type (not plain JSON)", () => {
       const doc = createYDoc();
-      seedBlockWithRawInlineItem(doc, "p1", textItemEntries(), "text");
-      const cache = createSnapshotCache();
-      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
-        /inline item at index 0 missing required "text" field/,
+      const yText = new Y.Text();
+      yText.insertEmbed(0, new Y.Map<unknown>());
+      seedBlockWithInline(doc, "p1", yText);
+      expect(() => getBlockSnapshot(doc, "p1" as BlockId, createSnapshotCache())).toThrow(
+        /malformed embed/,
       );
     });
 
-    it("throws when a text inline item is missing attrs", () => {
+    it("throws a typed LegacyDocumentError on the legacy run-array shape", () => {
       const doc = createYDoc();
-      seedBlockWithRawInlineItem(doc, "p1", textItemEntries(), "attrs");
-      const cache = createSnapshotCache();
-      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
-        /inline item at index 0 missing required "attrs" field/,
-      );
-    });
-
-    it("throws when an embed inline item is missing embedType", () => {
-      const doc = createYDoc();
-      seedBlockWithRawInlineItem(doc, "p1", embedItemEntries(), "embedType");
-      const cache = createSnapshotCache();
-      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
-        /inline item at index 0 missing required "embedType" field/,
-      );
-    });
-
-    it("throws when an embed inline item is missing attrs", () => {
-      const doc = createYDoc();
-      seedBlockWithRawInlineItem(doc, "p1", embedItemEntries(), "attrs");
-      const cache = createSnapshotCache();
-      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
-        /inline item at index 0 missing required "attrs" field/,
-      );
-    });
-
-    it("throws when an embed inline item is missing properties", () => {
-      const doc = createYDoc();
-      seedBlockWithRawInlineItem(doc, "p1", embedItemEntries(), "properties");
-      const cache = createSnapshotCache();
-      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
-        /inline item at index 0 missing required "properties" field/,
+      seedBlockWithInline(doc, "p1", new Y.Array<Y.Map<unknown>>());
+      expect(() => getBlockSnapshot(doc, "p1" as BlockId, createSnapshotCache())).toThrow(
+        LegacyDocumentError,
       );
     });
 

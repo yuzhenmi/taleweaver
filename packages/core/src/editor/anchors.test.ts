@@ -178,7 +178,13 @@ describe("collaboration: APPLY_FOREIGN_CHANGE over two synced Y.Docs", () => {
     docA.on("update", (u: Uint8Array, origin: unknown) => {
       if (origin !== "sync") Y.applyUpdate(docB, u, "sync");
     });
-    subscribeRemoteChanges(b.editor.state, (dirtyIds) => b.run({ type: "APPLY_FOREIGN_CHANGE", dirtyIds }));
+    subscribeRemoteChanges(
+      b.editor.state,
+      (dirtyIds) => b.run({ type: "APPLY_FOREIGN_CHANGE", dirtyIds }),
+      () => {
+        throw new Error("unexpected legacy storage");
+      },
+    );
     const id = a.selection.focus.blockId;
     return {
       b,

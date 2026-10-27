@@ -13,7 +13,7 @@ import {
   splitBlockAtPositionInTx,
 } from "./split-block";
 import {
-  planInsertItemsSplitInPlace,
+  planInsertItemsAt,
   insertItemsInTx,
 } from "./insert-items";
 import { clonePastedSubtree } from "../clone-pasted-subtree";
@@ -319,7 +319,7 @@ function materializeEmbedContentsInTx(
  * - Cross-context selection → identity no-op.
  * - Non-collapsed selection → `deleteRange` first; caret = range start.
  * - Empty fragment (no top-level blocks) → identity no-op.
- * - 1 top-level leaf → inline-merge into caret block via `planInsertItemsSplitInPlace`.
+ * - 1 top-level leaf → inline-merge into caret block via `planInsertItemsAt`.
  * - N > 1 top-level items (leaves and/or containers) → split caret block; first leaf (if any)
  *   merges into prefix; last leaf (if any) prepends to suffix; middle items (containers and/or
  *   leaves) become standalone siblings; container subtrees are materialized into
@@ -590,15 +590,8 @@ export function insertFragment(
   if (remappedItems.length === 1 && remappedItems[0]?.kind === "leaf") {
     const leaf = remappedItems[0];
     const leafItems = leaf.items;
-    const liveItems = caretBlock.inlineContent.items;
 
-    const insertPlan = planInsertItemsSplitInPlace(
-      caretBlockId,
-      caretBlockKind,
-      liveItems,
-      caretOffset,
-      leafItems,
-    );
+    const insertPlan = planInsertItemsAt(caretBlockId, caretBlockKind, caretOffset, leafItems);
 
     const insertedLength = leafItems.reduce(
       (sum, it) => sum + (it.kind === "text" ? it.text.length : 1),
@@ -691,14 +684,14 @@ export function insertFragment(
       const suffixBlockId = splitPlan.newBlockId;
 
       // Plan prefix merge: append firstLeaf.items to end of prefix block.
-      const [prefixItems, suffixItems] = splitInlineContentAtOffset(caretBlock.inlineContent, caretOffset);
+      const [prefixItems] = splitInlineContentAtOffset(caretBlock.inlineContent, caretOffset);
       const prefixLength = prefixItems.reduce(
         (s, it) => s + (it.kind === "text" ? it.text.length : 1),
         0,
       );
       const prefixMergePlan =
         firstLeaf !== null
-          ? planInsertItemsSplitInPlace(caretBlockId, caretBlockKind, prefixItems, prefixLength, firstLeaf.items)
+          ? planInsertItemsAt(caretBlockId, caretBlockKind, prefixLength, firstLeaf.items)
           : null;
 
       // Plan suffix prepend: prepend lastLeaf.items at offset 0 of suffix block.
@@ -706,7 +699,7 @@ export function insertFragment(
       // tree as the caret block, so it uses the same kind.
       const suffixPrependPlan =
         lastLeaf !== null
-          ? planInsertItemsSplitInPlace(suffixBlockId, caretBlockKind, suffixItems, 0, lastLeaf.items)
+          ? planInsertItemsAt(suffixBlockId, caretBlockKind, 0, lastLeaf.items)
           : null;
 
       const lastInsertedLength =
@@ -844,9 +837,9 @@ export function insertFragment(
         0,
       );
       const leafMergePlan = skipSplitAtStart && lastLeaf !== null
-        ? planInsertItemsSplitInPlace(caretBlockId, caretBlockKind, caretBlock.inlineContent.items, 0, lastLeaf.items)
+        ? planInsertItemsAt(caretBlockId, caretBlockKind, 0, lastLeaf.items)
         : skipSplitAtEnd && firstLeaf !== null
-          ? planInsertItemsSplitInPlace(caretBlockId, caretBlockKind, caretBlock.inlineContent.items, prefixLength, firstLeaf.items)
+          ? planInsertItemsAt(caretBlockId, caretBlockKind, prefixLength, firstLeaf.items)
           : null;
 
       const lastInsertedLength =

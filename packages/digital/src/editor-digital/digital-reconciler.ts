@@ -42,6 +42,12 @@ export interface DigitalReconciler {
    * bridge wired to the authoritative `blockElMap` (no redundant second bridge).
    */
   getBridge(): DigitalSelectionBridge | null;
+  /**
+   * Re-materialize the DOM from the last RENDERED tree (no document read): drops whatever
+   * an IME composition wrote into the DOM, restoring the last good projection. Used when
+   * the controller halts mid-composition.
+   */
+  restore(): void;
   /** True when some block's DOM was left stale under an IME composition (see `reconcile`). */
   hasPending(): boolean;
   /** The live element rendered for `blockId` (O(1)), or null. */
@@ -163,12 +169,21 @@ export function createDigitalReconciler(
   function fullRebuild(state: State, decorations: DecorationSet): void {
     if (container === null) return;
     const tree = renderStyled(state, componentRegistry, attrRegistry);
-    const root = styledRootToDom(tree.cascaded, doc, true, decorations);
+    materialize(tree.cascaded, decorations);
+    rendered = { ...tree, state, decorations };
+  }
+
+  function materialize(cascaded: RenderNode, decorations: DecorationSet): void {
+    if (container === null) return;
+    const root = styledRootToDom(cascaded, doc, true, decorations);
     container.replaceChildren(root);
     blockElMap.clear();
     indexSubtree(root);
     pending.clear();
-    rendered = { ...tree, state, decorations };
+  }
+
+  function restore(): void {
+    if (rendered !== null) materialize(rendered.cascaded, rendered.decorations);
   }
 
   function mount(c: HTMLElement, initial: EditorState, decorations: DecorationSet = EMPTY_DECORATION_SET): void {
@@ -460,6 +475,7 @@ export function createDigitalReconciler(
     mount,
     reconcile,
     getBridge,
+    restore,
     hasPending: () => pending.size > 0,
     blockElement: (blockId) => blockElMap.get(blockId) ?? null,
     destroy,

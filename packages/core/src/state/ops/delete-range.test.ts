@@ -860,3 +860,19 @@ describe("deleteRangeInTx — transaction guard", () => {
     );
   });
 });
+
+describe("deleteRange — cross-block focus inside a surrogate pair", () => {
+  it("snaps the focus OUT once: the moved suffix starts after the whole cluster", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "b1", lastChildId: "b2" }),
+        buildBlock({ id: "b1", type: "paragraph", parentId: "doc", nextSiblingId: "b2", inlineContent: inlineContent([text("ab")]) }),
+        buildBlock({ id: "b2", type: "paragraph", parentId: "doc", prevSiblingId: "b1", inlineContent: inlineContent([text("😀cd")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("b1" as BlockId, 1), createPosition("b2" as BlockId, 1));
+    const result = deleteRange(state, span);
+    expect(getBlock(result.state, "b1" as BlockId)?.inlineContent?.items).toMatchObject([{ text: "acd" }]);
+  });
+});

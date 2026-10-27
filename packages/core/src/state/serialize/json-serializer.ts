@@ -17,6 +17,7 @@ import {
 import { isCounterStyle } from "../../styles/format-counter";
 import type { CounterRestart } from "../../numbering/types";
 import { buildStateFromBlocks } from "../build-state-from-blocks";
+import { normalizeLegacyAttrs } from "../upgrade";
 import type { DocumentSerializer } from "./document-serializer";
 import { MalformedDocumentError } from "./document-serializer";
 
@@ -546,18 +547,27 @@ function decodeInlineItem(raw: unknown): InlineItem {
     return Object.freeze({
       kind: "text",
       text: raw.text,
-      attrs: decodeAttrs(raw.attrs),
+      attrs: decodeInlineAttrs(raw.attrs),
     });
   }
   if (typeof raw.embed === "string") {
     return Object.freeze({
       kind: "embed",
       embedType: raw.embed,
-      attrs: decodeAttrs(raw.attrs),
+      attrs: decodeInlineAttrs(raw.attrs),
       properties: decodeProps(raw.props),
     });
   }
   throw new MalformedDocumentError(JSON_FORMAT);
+}
+
+/**
+ * Inline-run attrs: the same normalization as `upgradeDocument` (stored `null`
+ * values are dropped — the current storage never holds them). The JSON format is
+ * unchanged; only its decoder normalizes.
+ */
+function decodeInlineAttrs(raw: unknown): ReadonlyAttrs {
+  return Object.freeze(normalizeLegacyAttrs(decodeAttrs(raw)));
 }
 
 function decodeAttrs(raw: unknown): ReadonlyAttrs {

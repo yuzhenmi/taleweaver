@@ -1,4 +1,4 @@
-import { createSpan, createPosition, isCollapsed, extractText, builtinEmbedSerializer, selectWord, getBlock, inlineContentLength, findItemAtOffset, selectionContextOf, spanStart, spanEnd, markStart, markEnd, recordSample, buildAccessibilityTree, extractFragment, encodeHtml, encodeFragmentClip, TALEWEAVER_CLIP_MIME, type Position, type BlockId, type TextShaper, type TextMeasurer, type Hyphenator, type PageConfig, type EditorConfig, type EditorAction, type EditorState, type State, type TextMatch, type FindMatchesOptions, type Span, type CaretAffinity, isOpenableLinkUrl, makeBlockParentLookup, runKeyBinding, resolveCommand, modConventionFor, compileKeymap, escapeWouldChange, type Command, createAnchorSet, mapPositionFrom, type Proposal, type ProposeResult, type ProposalOutcome, proposeResultOf, type SuggestionGroupStyle, subscribeRemoteChanges, getYDoc, UNKNOWN_MAPPING, type Anchor, type AnchorOptions, type Assoc, type MappedPosition, createDefaultComponentRegistry, createDefaultAttrRegistry, createDecorationLayers, createFindSession, createMappingLog, mapDecorations, transitionMapping, EMPTY_DECORATION_SET, type FindStatus, type Decoration, type DecorationSet, type WidgetDecoration, type CommentHighlight, type SuggestionHighlight } from "@taleweaver/core";
+import { inspectDocument, type IncompatibleDocumentReport, createSpan, createPosition, isCollapsed, extractText, builtinEmbedSerializer, selectWord, getBlock, inlineContentLength, findItemAtOffset, selectionContextOf, spanStart, spanEnd, markStart, markEnd, recordSample, buildAccessibilityTree, extractFragment, encodeHtml, encodeFragmentClip, TALEWEAVER_CLIP_MIME, type Position, type BlockId, type TextShaper, type TextMeasurer, type Hyphenator, type PageConfig, type EditorConfig, type EditorAction, type EditorState, type State, type TextMatch, type FindMatchesOptions, type Span, type CaretAffinity, isOpenableLinkUrl, makeBlockParentLookup, runKeyBinding, resolveCommand, modConventionFor, compileKeymap, escapeWouldChange, type Command, createAnchorSet, mapPositionFrom, type Proposal, type ProposeResult, type ProposalOutcome, proposeResultOf, type SuggestionGroupStyle, subscribeRemoteChanges, getYDoc, UNKNOWN_MAPPING, type Anchor, type AnchorOptions, type Assoc, type MappedPosition, createDefaultComponentRegistry, createDefaultAttrRegistry, createDecorationLayers, createFindSession, createMappingLog, mapDecorations, transitionMapping, EMPTY_DECORATION_SET, type FindStatus, type Decoration, type DecorationSet, type WidgetDecoration, type CommentHighlight, type SuggestionHighlight } from "@taleweaver/core";
 import { resolvePixelPosition, type PixelPosition } from "./cursor/cursor-position";
 import { resolvePositionFromPixel } from "./cursor/hit-test";
 import { computeSelectionRects, computeSelectionRectsForPage, type SelectionRect } from "./cursor/selection-geometry";
@@ -34,6 +34,13 @@ const SCROLL_DURATION = 250;
  * an empty `language` ("" = no language) is skipped so a language-free document
  * emits no `/Lang`.
  */
+/** `editorState` is, or was reduced from, a forbidden State (its change chain reaches one; bounded walk). */
+function descendsFrom(editorState: EditorState, forbidden: (s: State) => boolean): boolean {
+  if (forbidden(editorState.state)) return true;
+  for (let c = editorState.lastChange; c !== null; c = c.prior) if (forbidden(c.from)) return true;
+  return false;
+}
+
 function firstBodyLanguage(box: LayoutBox): string | null {
   if (box.type === "text-run" && box.computedStyle.language !== "") {
     return box.computedStyle.language;
@@ -119,7 +126,8 @@ export interface EditorControllerOptions {
    * Collaboration: `"observe"` (default) — every peer update that lands in the current
    * document's Y.Doc is dispatched to the host as `APPLY_FOREIGN_CHANGE`; `"ignore"` —
    * nothing is. Exactly ONE controller per document should observe; any other
-   * controller over the same document passes `"ignore"`.
+   * controller over the same document passes `"ignore"`. Either way the controller
+   * shape-checks every peer update and HALTS on legacy storage (`onIncompatibleDocument`).
    */
   remoteChanges?: "observe" | "ignore";
   /** Initial host decorations (view-only; see {@link EditorController.setDecorations}).
@@ -132,6 +140,35 @@ export interface EditorControllerOptions {
    * Fires for built-in highlights too (ids prefixed `tw-`).
    */
   onDecorationPointer?: (event: PrintDecorationPointerEvent) => void;
+  /**
+   * A peer update carried LEGACY inline storage (an old client): the controller HALTS
+   * — it ignores every action and further remote change, keeps the last good render on
+   * screen, and every member has a defined no-op result without touching the Y.Doc.
+   * Called once per halt — and again, while still halted, when legacy storage returns
+   * after `onDocumentCompatible` was reported. Do not keep reading the halted State with
+   * core read functions (a snapshot-cache miss throws `LegacyDocumentError`). Exit: the
+   * document is upgraded (`upgradeDocument`, single authority — here, or by an upgraded
+   * peer) and the host calls `update` with a FRESH EditorState that holds no legacy
+   * storage — one built anew (`createEditorStateFromState`) over the same (upgraded)
+   * Y.Doc, or one over another document, possibly with edits on top. A State reduced
+   * from the halted one (its change chain reaches the halted State) is ignored. While
+   * halted, setters and clears of decorations / highlights / styles are no-ops; the
+   * replacement drops every layer (the host sets them again).
+   */
+  onIncompatibleDocument?: (report: IncompatibleDocumentReport) => void;
+  /**
+   * While HALTED, the document became free of legacy storage (an upgraded peer, or this
+   * host itself, ran `upgradeDocument` on it — any transaction is re-checked): the host can now resume by calling `update` with a
+   * fresh EditorState over the same Y.Doc (`createState({ rootId, doc })`). Called once
+   * per halt; the controller stays halted until that `update`.
+   */
+  onDocumentCompatible?: () => void;
+  /**
+   * @internal Start HALTED on `startHaltedOn`'s document (a React view re-created while
+   * its editor is halted): nothing is shown and no action runs; the document is watched
+   * so `onDocumentCompatible` fires once it is upgraded. `update` resumes as usual.
+   */
+  startHaltedOn?: EditorState;
 }
 
 // The find-bar status ("n of N"; `activeIndex` -1 when no match is active) is
@@ -152,6 +189,8 @@ export interface CaretViewportRect {
 }
 
 export interface EditorController {
+  /** True while halted on incompatible (legacy) document storage — see `onIncompatibleDocument`. */
+  readonly halted: boolean;
   update(editorState: EditorState): void;
   focus(): void;
   destroy(): void;
@@ -318,7 +357,13 @@ export function createEditorController(
   container: HTMLElement,
   options: EditorControllerOptions,
 ): EditorController {
-  const { measurer, dispatch } = options;
+  const { measurer } = options;
+  // HALTED (a peer update carried legacy inline storage): controller-local runtime
+  // state — the reducer knows nothing of it. Every action and remote change is ignored.
+  let halted = options.startHaltedOn !== undefined;
+  const dispatch = (action: EditorAction): void => {
+    if (!halted) options.dispatch(action);
+  };
   // Object-selection resolver (#525): threaded into the body hit-test calls so a
   // click inside an image's rect selects the image as an object. Absent → the
   // text-only fall-through (byte-identical to before #525).
@@ -457,6 +502,63 @@ export function createEditorController(
   let pendingProposals: Array<{ readonly proposal: Proposal; readonly resolve: (result: ProposeResult) => void }> = [];
   let seenProposal: ProposalOutcome | undefined;
   const rejectedProposal = (message: string): ProposeResult => ({ ok: false, reason: "rejected", problem: { kind: "invalid", message } });
+  const HALTED_RESULT: ProposeResult = { ok: false, reason: "halted" };
+  const EMPTY_FIND: FindStatus = { total: 0, activeIndex: -1 };
+
+  /** `onDocumentCompatible` was reported since the last `onIncompatibleDocument`. */
+  let toldCompatible = false;
+  /** Replacement States refused while halted (legacy storage): their descendants never resume. */
+  let refusedStates = new WeakSet<State>();
+
+  /**
+   * Halt on legacy storage in a peer update (see `onIncompatibleDocument`). Once per
+   * halt — again while still halted only if the host was told "compatible" since.
+   */
+  function halt(blockIds: readonly BlockId[]): void {
+    if (destroyed) return;
+    if (halted) {
+      if (!toldCompatible) return;
+      toldCompatible = false;
+      options.onIncompatibleDocument?.({ legacyBlocks: blockIds });
+      return;
+    }
+    halted = true;
+    // Abandon an in-flight IME composition: its text would land on a halted editor.
+    // The composed text is dropped and the composed block shows its last good
+    // projection again (the canvas never drew it; the a11y mirror is restored).
+    if (isComposing) {
+      isComposing = false;
+      textarea.value = "";
+      textarea.blur();
+      mirrorHost?.abandonComposition();
+    }
+    for (const p of pendingProposals) p.resolve(HALTED_RESULT);
+    pendingProposals = [];
+    options.onIncompatibleDocument?.({ legacyBlocks: blockIds });
+  }
+
+  /**
+   * Watch `editorState`'s Y.Doc: peer changes are dispatched (unless `remoteChanges`
+   * is `"ignore"`), and EVERY controller shape-checks them — legacy storage halts it;
+   * while halted, a document that became compatible again fires `onDocumentCompatible`.
+   */
+  function watchDocument(editorState: EditorState, startHalted: boolean): void {
+    unsubscribeRemote?.();
+    remoteDoc = getYDoc(editorState.state);
+    unsubscribeRemote = subscribeRemoteChanges(
+      editorState.state,
+      (dirtyIds) => {
+        if (options.remoteChanges !== "ignore") dispatch({ type: "APPLY_FOREIGN_CHANGE", dirtyIds });
+      },
+      halt,
+      () => {
+        if (!halted || destroyed) return;
+        toldCompatible = true;
+        options.onDocumentCompatible?.();
+      },
+      { startHalted },
+    );
+  }
 
   /**
    * Settle the pending proposals whose verdicts arrived in `latest`'s chain (matched by
@@ -568,7 +670,7 @@ export function createEditorController(
   // Calls made before the first `update()` (no document yet) are queued and
   // replayed against the first state; `pendingHost` lets the `decorations` getter
   // report a queued host set meanwhile.
-  const layers = createDecorationLayers();
+  let layers = createDecorationLayers();
   // Recent transitions + their mappings, so decorations a host computed against an
   // older State (`setDecorations(d, basedOn)`) can be mapped onto the current one.
   const mappingLog = createMappingLog();
@@ -579,7 +681,9 @@ export function createEditorController(
     pendingHost = initial;
     pendingLayerOps.push((s) => layers.setHost(s, initial));
   }
+  /** A layer setter: a no-op while halted (deriving reads the doc), queued before the first document. */
   function withLayers(op: (s: State) => void): void {
+    if (halted) return;
     if (state === null) pendingLayerOps.push(op);
     else op(state.state);
   }
@@ -647,6 +751,8 @@ export function createEditorController(
   function getPageBox(idx: number): LayoutBox | null {
     if (virtualTree !== null) {
       if (idx < 0 || idx >= virtualTree.plan.entries.length) return null;
+      // Pages are built from the already-rendered styled tree (no document read), so a
+      // halted controller pages its last good render.
       return virtualTree.getPage(idx);
     }
     return positionedPages[idx] ?? null;
@@ -1657,6 +1763,7 @@ export function createEditorController(
   }
 
   function handleMouseDown(e: MouseEvent) {
+    if (halted) return;
     if (destroyed || !state || !layoutTree) return;
     e.preventDefault();
     // Re-focus the active host. On the mirror path the mirror is the focus/IME
@@ -1803,6 +1910,7 @@ export function createEditorController(
   }
 
   function handleMouseMove(e: MouseEvent) {
+    if (halted) return;
     if (!isDragging || !state || !layoutTree) return;
 
     // TOC click-to-navigate: a pending nav survives tiny pointer jitter but is
@@ -1891,6 +1999,8 @@ export function createEditorController(
   // ── Keyboard / input handling ──────────────────────────────────────────
 
   function handleKeyDown(e: KeyboardEvent) {
+    // Halted: no default is prevented — browser shortcuts (Tab, reload, …) keep working.
+    if (halted) return;
     if (isComposing || e.isComposing) return;
     // Host keymap BEFORE the defaults: a command that runs claims the key; an
     // unbound (`null`) key is swallowed so the default cannot run.
@@ -1945,6 +2055,10 @@ export function createEditorController(
   }
 
   function handleInput() {
+    if (halted) {
+      textarea.value = "";
+      return;
+    }
     if (isComposing) return;
     // Ignore input while blurred. An `input` that fires when the editor is not
     // focused (a programmatic textarea value-set, or a stray event arriving after
@@ -1969,6 +2083,10 @@ export function createEditorController(
 
   function handleCompositionEnd(e: CompositionEvent) {
     isComposing = false;
+    if (halted) {
+      textarea.value = "";
+      return;
+    }
     const text = e.data;
     if (text) {
       dispatch({ type: "INSERT_TEXT", text, userInput: true });
@@ -1979,6 +2097,10 @@ export function createEditorController(
   // ── Clipboard handling ─────────────────────────────────────────────────
 
   function handleCopy(e: ClipboardEvent) {
+    if (halted) {
+      e.preventDefault(); // empty clipboard: copying reads the (incompatible) document
+      return;
+    }
     if (!state) return;
     if (isCollapsed(state.selection)) return;
     e.preventDefault();
@@ -1989,6 +2111,10 @@ export function createEditorController(
   }
 
   function handleCut(e: ClipboardEvent) {
+    if (halted) {
+      e.preventDefault();
+      return;
+    }
     if (!state) return;
     if (isCollapsed(state.selection)) return;
     e.preventDefault();
@@ -2116,6 +2242,10 @@ export function createEditorController(
       },
       onCompositionEnd: (text) => {
         isComposing = false;
+        if (halted) {
+          mirrorHost?.abandonComposition(); // drop the composed DOM text
+          return;
+        }
         if (text.length > 0) dispatch({ type: "INSERT_TEXT", text, userInput: true });
         else syncMirror(); // apply what was deferred while composing (e.g. a peer change)
       },
@@ -2137,6 +2267,9 @@ export function createEditorController(
     mirrorHost.focus();
   }
 
+  // A view re-created while its editor is halted: watch the halted document (no render).
+  if (options.startHaltedOn !== undefined) watchDocument(options.startHaltedOn, true);
+
   // ── Public API ─────────────────────────────────────────────────────────
 
   /**
@@ -2147,7 +2280,7 @@ export function createEditorController(
    * can land mid-composition); composition end re-syncs.
    */
   function syncMirror(): void {
-    if (mirrorHost === null || state === null || isComposing) return;
+    if (halted || mirrorHost === null || state === null || isComposing) return;
     // VIEW INVARIANT (design R1-Minor-6): the a11y tree's suggestionView MUST match
     // the view the layout's `globalFieldValues` were resolved at — both are
     // "suggesting" today. A future preview-mode a11y build must thread the
@@ -2165,17 +2298,51 @@ export function createEditorController(
 
   function update(editorState: EditorState) {
     if (destroyed) return;
-    // Collaboration: follow the document's Y.Doc (re-subscribing when the host swaps
-    // in another document).
     const doc = getYDoc(editorState.state);
-    if (options.remoteChanges !== "ignore" && doc !== remoteDoc) {
-      unsubscribeRemote?.();
-      remoteDoc = doc;
-      unsubscribeRemote = subscribeRemoteChanges(editorState.state, (dirtyIds) =>
-        dispatch({ type: "APPLY_FOREIGN_CHANGE", dirtyIds }),
-      );
+    // A document REPLACEMENT (the first State, another Y.Doc, or a State not reduced from
+    // the current one) must hold no legacy storage (the load assertion; O(blocks), only
+    // here) — checked even when not halted (legacy may land between `createState` and
+    // here): refused, the controller halts on it and keeps the last good render. Halted,
+    // only such a replacement resumes; the halted State, a refused replacement and any
+    // State reduced from either keep the last good render.
+    let resumed = false;
+    if (halted) {
+      const haltedState = state?.state ?? options.startHaltedOn?.state;
+      if (descendsFrom(editorState, (s) => s === haltedState || refusedStates.has(s))) return;
     }
+    const current = state?.state;
+    const replacing = halted || current === undefined || doc !== remoteDoc || !descendsFrom(editorState, (s) => s === current);
+    if (replacing) {
+      const legacy = inspectDocument(doc).legacyBlocks;
+      if (legacy.length > 0) {
+        // A refused replacement is forbidden like the halted State: so is anything reduced from it.
+        refusedStates.add(editorState.state);
+        // Its legacy storage went unseen (not halted yet, another document, or a local
+        // write after "compatible"): halt (or report again if the host was told
+        // "compatible") and watch this document halted — so its upgrade is reported.
+        if (!halted || doc !== remoteDoc || toldCompatible) {
+          halt(legacy);
+          watchDocument(editorState, true);
+        }
+        return;
+      }
+    }
+    if (halted) {
+      halted = false;
+      toldCompatible = false;
+      refusedStates = new WeakSet();
+      resumed = true;
+    }
+    // Collaboration: follow the document's Y.Doc (re-subscribing when the host swaps
+    // in another document, or afresh on resume).
+    if (doc !== remoteDoc || resumed) watchDocument(editorState, false);
     const tTotal = markStart("ctrl.update");
+    // A resume is a document replacement: every layer and the find session are dropped
+    // (the host sets them again); the transition is unknown.
+    if (resumed) {
+      layers = createDecorationLayers();
+      find.close();
+    }
     const prev = state;
     state = editorState;
     let replaced = false;
@@ -2358,6 +2525,7 @@ export function createEditorController(
 
   function setDecorations(decorations: readonly Decoration[], basedOn?: State): void {
     if (destroyed) return;
+    if (halted) return; // a no-op: `decorations` keeps the last good set
     if (state === null) pendingHost = decorations;
     withLayers((s) => {
       let current = decorations;
@@ -2409,10 +2577,11 @@ export function createEditorController(
   // ── Find session + navigation (#433) ─────────────────────────────────────
 
   function findStatus(): FindStatus {
-    return find.status();
+    return halted ? EMPTY_FIND : find.status();
   }
 
   function replaceActive(replacement: string): FindStatus {
+    if (halted) return EMPTY_FIND;
     if (destroyed) return find.status();
     // Dispatch the engine action; the host's reducer produces the new state and
     // the following `update()` refreshes the session (activating the first match
@@ -2423,6 +2592,7 @@ export function createEditorController(
   }
 
   function replaceAll(replacement: string): FindStatus {
+    if (halted) return EMPTY_FIND;
     if (destroyed) return find.status();
     // One undo step (REPLACE_ALL); the following `update()` refreshes the session.
     const action = find.replaceAllAction(replacement);
@@ -2450,32 +2620,35 @@ export function createEditorController(
   }
 
   function findStart(query: string, options?: FindMatchesOptions): FindStatus {
-    if (destroyed || state === null) return { total: 0, activeIndex: -1 };
+    if (halted || destroyed || state === null) return EMPTY_FIND;
     // Finds from the caret (the first match at/after it is active — Google Docs).
     find.start(state.state, state.selection.focus, query, options);
     return showFind(true);
   }
 
   function findNext(): FindStatus {
+    if (halted) return EMPTY_FIND;
     if (destroyed || find.status().total === 0) return find.status();
     find.next();
     return showFind(true);
   }
 
   function findPrev(): FindStatus {
+    if (halted) return EMPTY_FIND;
     if (destroyed || find.status().total === 0) return find.status();
     find.prev();
     return showFind(true);
   }
 
   function findClose(): void {
-    if (destroyed) return;
+    if (halted || destroyed) return;
     find.close();
     // Does NOT move the document selection — the caret stays where it was.
     clearFindHighlights();
   }
 
   function exportToPdf(emit: PdfEmitter): Uint8Array {
+    if (halted) throw new Error("exportToPdf: halted on incompatible document storage");
     const st = state;
     if (st === null) throw new Error("exportToPdf: no document is loaded");
     const tree = virtualTree;
@@ -2589,7 +2762,7 @@ export function createEditorController(
   // pure read-only query: no mutation, no repaint. Returns null when nothing is
   // loaded / unresolvable.
   function getCaretRect(position: Position): CaretViewportRect | null {
-    if (destroyed || state === null || layoutTree === null) return null;
+    if (halted || destroyed || state === null || layoutTree === null) return null;
     const pos = resolvePixelPosition(
       state.state, position, layoutTree, measurer, state.caretPageHint,
     );
@@ -2603,6 +2776,9 @@ export function createEditorController(
   }
 
   return {
+    get halted() {
+      return halted;
+    },
     update,
     focus,
     destroy,
@@ -2611,16 +2787,17 @@ export function createEditorController(
       return state?.state ?? null;
     },
     mapPosition(position: Position, version: State, assoc?: Assoc): MappedPosition | null {
-      if (state === null) return null;
+      if (halted || state === null) return null;
       return mapPositionFrom(mappingLog, state.state, version, position, assoc);
     },
     createAnchor(from: Position, to?: Position, anchorOptions: AnchorOptions & { readonly basedOn?: State } = {}): Anchor | null {
-      if (state === null) return null;
+      if (halted || state === null) return null;
       const { basedOn, ...rest } = anchorOptions;
       return anchors.createAt(mappingLog, state.state, basedOn ?? state.state, from, to, rest);
     },
     propose(proposal: Proposal, proposeOptions: { readonly basedOn?: State } = {}): Promise<ProposeResult> {
       if (destroyed) return Promise.resolve(rejectedProposal("controller destroyed"));
+      if (halted) return Promise.resolve(HALTED_RESULT);
       if (state === null) return Promise.resolve(rejectedProposal("no document yet"));
       // The HOST owns the state: the proposal is dispatched with the version its positions
       // refer to (default: the version this controller shows), and the host's reducer maps
@@ -2639,7 +2816,7 @@ export function createEditorController(
       redrawDecorations();
     },
     runCommand(command: string | Command): boolean {
-      if (destroyed || state === null) return false;
+      if (halted || destroyed || state === null) return false;
       const resolved = resolveCommand(command, options.config?.extensions);
       return resolved !== null && resolved(state, dispatch);
     },

@@ -1,14 +1,20 @@
-import { useReducer, useRef, useEffect, useCallback } from "react";
+import { useReducer, useRef, useEffect, useCallback, useState } from "react";
 import {
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
   createInitialEditorState,
+  createEditorStateFromState,
+  initialSelectionForState,
   reduceEditor,
+  createState,
+  getYDoc,
   type EditorAction,
   type EditorState,
   type EditorConfig,
   type AttrRegistry,
   type EditorExtensions,
+  type IncompatibleDocumentReport,
+  type State,
 } from "@taleweaver/core";
 import { createCanvasShaper, browserHtmlParser } from "@taleweaver/print";
 
@@ -24,7 +30,53 @@ export interface UseEditorOptions {
   readonly attrRegistry?: AttrRegistry;
   /** Host extensions (commands, keymap, input rules, triggers) — on the returned `config`. */
   readonly extensions?: EditorExtensions;
+  /**
+   * The editor HALTED: a peer update carried legacy inline storage (an old client). The
+   * returned `halted` becomes true and `dispatch` ignores actions; the last good render
+   * stays. Exit: once the document is upgraded (`upgradeDocument`, single authority)
+   * the hook resumes BY ITSELF when an upgraded peer's update makes the shared document
+   * compatible again (it replaces the document with a fresh State over the same Y.Doc);
+   * a host that upgrades a copy passes it to the returned `replaceDocument`. The halt
+   * reaches the hook from the `EditorView` it drives automatically — linked through the
+   * hook's OWN `dispatch`, so pass the returned `dispatch` to the view unwrapped (a
+   * wrapper breaks the link; dev builds warn). Called once per halt; the hook mirrors the
+   * controller, so it halts (and calls this) again when legacy storage returns before a
+   * resume reaches the controller, or the controller refuses a replacement.
+   */
+  readonly onIncompatibleDocument?: (report: IncompatibleDocumentReport) => void;
 }
+
+/**
+ * @internal The link between a `useEditor` hook and the `EditorView` it drives, keyed by
+ * the hook's stable `dispatch` (which every view receives): the view reports a halt and
+ * a document that became compatible again to the hook, and reads whether the hook is
+ * halted (a halted hook's state is never handed to a controller).
+ */
+export interface HaltLink {
+  readonly halted: () => boolean;
+  readonly onIncompatibleDocument: (report: IncompatibleDocumentReport) => void;
+  readonly onDocumentCompatible: () => void;
+}
+const haltLinks = new WeakMap<object, HaltLink>();
+
+/** @internal The halt link of the hook that owns `dispatch`, if any. */
+export function haltLinkOf(dispatch: object): HaltLink | undefined {
+  return haltLinks.get(dispatch);
+}
+
+/** Every EditorState a hook handed out → that hook's `dispatch` (dev-time link check). */
+const stateOwners = new WeakMap<EditorState, object>();
+
+/**
+ * @internal The `dispatch` of the `useEditor` hook that produced `editorState`, if any —
+ * a view given a hook's state with ANOTHER dispatch (e.g. a wrapper) is not linked.
+ */
+export function hookDispatchOf(editorState: EditorState): object | undefined {
+  return stateOwners.get(editorState);
+}
+
+/** A reducer message: an editor action, or a whole-document replacement. */
+type EditorMessage = EditorAction | { readonly type: "react.replaceDocument"; readonly editorState: EditorState };
 
 function createConfig(options?: UseEditorOptions): EditorConfig {
   // L-B / closes #164: pass createCanvasShaper directly. The legacy
@@ -63,12 +115,58 @@ export function useEditor(options?: UseEditorOptions) {
   }
   const shaper = shaperRef.current;
 
-  const [editorState, dispatch] = useReducer(
-    (state: EditorState, action: EditorAction) =>
-      reduceEditor(state, action, config),
+  const [editorState, send] = useReducer(
+    (state: EditorState, message: EditorMessage) =>
+      message.type === "react.replaceDocument" ? message.editorState : reduceEditor(state, message, config),
     config,
     createInitialEditorState,
   );
+  const stateRef = useRef(editorState);
+  stateRef.current = editorState;
+  // The LIVE history, updated synchronously by `replaceDocument` (the render-time
+  // `stateRef` lags until React re-renders, so two replacements in one batch would
+  // destroy the same history twice and leak the first replacement's).
+  const historyRef = useRef(editorState.history);
+
+  // HALTED mirrors the print controller's (spread `onIncompatibleDocument` into
+  // `EditorView`): while halted no action reaches the reducer (it would read the
+  // incompatible document).
+  const [halted, setHalted] = useState(false);
+  const haltedRef = useRef(false);
+  const hostHook = useRef(options?.onIncompatibleDocument);
+  hostHook.current = options?.onIncompatibleDocument;
+  const dispatch = useCallback((action: EditorAction) => {
+    if (!haltedRef.current) send(action);
+  }, []);
+  const onIncompatibleDocument = useCallback((report: IncompatibleDocumentReport) => {
+    if (haltedRef.current) return;
+    haltedRef.current = true;
+    setHalted(true);
+    hostHook.current?.(report);
+  }, []);
+  /** Show another document (fresh history, caret at its start) — also how a halted editor resumes. */
+  const replaceDocument = useCallback(
+    (state: State) => {
+      const next = createEditorStateFromState(state, initialSelectionForState(state), config);
+      historyRef.current.destroy(); // detach the old document's undo manager
+      historyRef.current = next.history;
+      haltedRef.current = false;
+      setHalted(false);
+      send({ type: "react.replaceDocument", editorState: next });
+    },
+    [config],
+  );
+  // Halted, and the shared document is compatible again (an upgraded peer upgraded it):
+  // the hook owns the state, so it resumes by replacing it with a fresh State over it.
+  const onDocumentCompatible = useCallback(() => {
+    if (!haltedRef.current) return;
+    const halted = stateRef.current.state;
+    replaceDocument(createState({ rootId: halted.rootId, doc: getYDoc(halted) }));
+  }, [replaceDocument]);
+  if (!haltLinks.has(dispatch)) {
+    haltLinks.set(dispatch, { halted: () => haltedRef.current, onIncompatibleDocument, onDocumentCompatible });
+  }
+  stateOwners.set(editorState, dispatch);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -101,5 +199,7 @@ export function useEditor(options?: UseEditorOptions) {
     shaper,
     focus,
     config,
+    halted,
+    replaceDocument,
   };
 }

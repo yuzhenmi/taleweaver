@@ -3,14 +3,14 @@ import {
   resolveBlock,
   createPosition,
   createSpan,
-  inlineContentLength,
   selectionContextOf,
   positionsEqual,
 } from "../state";
 import type { BlockId, Position, Selection, State } from "../state";
 import { peekBlock } from "../state/state";
 import { STATE_INTERNAL } from "../state/state-internal";
-import { dirtyIdsFromTransaction } from "../state/yjs-doc";
+import { snapOffset } from "../state/y-inline";
+import { compatibilityGate, type CompatibilityGateOptions } from "../state/collab";
 import { transitionMapping } from "../decorations/decoration-layers";
 import { comparePositionsCached, type Assoc } from "../state/position-mapping";
 import { initialSelectionForState } from "./actions/helpers";
@@ -34,26 +34,46 @@ export function getYDoc(state: State): Y.Doc {
  * edits, undo / redo and suggestion resolution are local transactions and never
  * reported. A peer change touching only the side tables (comments, suggestions, list
  * definitions) reports the root as dirty. Returns the unsubscribe function.
+ *
+ * A remote transaction carrying LEGACY inline storage (an old client's update) is
+ * shape-checked FIRST (its touched blocks, O(changed)) and reported to
+ * `onIncompatible(blockIds)` INSTEAD of `onRemoteChange`: no APPLY_FOREIGN_CHANGE
+ * is dispatched for it, and the controller halts (see `LegacyDocumentError`). The
+ * subscription stays halted (reporting nothing) until a later transaction — remote,
+ * or LOCAL (a host upgrading the shared doc itself) — leaves the document free of
+ * legacy storage; then `onCompatible()` is called once (see `compatibilityGate` in
+ * `state/collab.ts`).
  */
 export function subscribeRemoteChanges(
   state: State,
   onRemoteChange: (dirtyIds: ReadonlySet<BlockId>) => void,
+  onIncompatible: (blockIds: readonly BlockId[]) => void,
+  onCompatible?: () => void,
+  options?: CompatibilityGateOptions,
 ): () => void {
   const doc = getYDoc(state);
+  const gate = compatibilityGate(doc, onIncompatible, onCompatible, options);
   const handler = (tx: Y.Transaction): void => {
-    if (tx.local || tx.changed.size === 0) return;
-    const dirtyIds = dirtyIdsFromTransaction(doc, tx);
-    onRemoteChange(dirtyIds.size > 0 ? dirtyIds : new Set([state.rootId]));
+    if (tx.changed.size === 0) return;
+    const dirtyIds = gate.check(tx, !tx.local);
+    if (dirtyIds !== null) onRemoteChange(dirtyIds.size > 0 ? dirtyIds : new Set([state.rootId]));
   };
   doc.on("afterTransaction", handler);
-  return () => doc.off("afterTransaction", handler);
+  return () => {
+    gate.dispose();
+    doc.off("afterTransaction", handler);
+  };
 }
 
-/** A text-bearing position in `block` of `next`, clamped to its length, or null. */
+/**
+ * A text-bearing position in `block` of `next`, clamped to its length and snapped
+ * back to a grapheme-cluster boundary (a peer's edit can leave an offset inside a
+ * surrogate pair / cluster), or null.
+ */
 function clampInto(next: State, blockId: BlockId, offset: number): Position | null {
   const content = resolveBlock(next, blockId)?.block.inlineContent ?? null;
   if (content === null) return null;
-  return createPosition(blockId, Math.max(0, Math.min(offset, inlineContentLength(content))));
+  return createPosition(blockId, snapOffset(content.items, offset));
 }
 
 /**
@@ -95,8 +115,10 @@ export function rebaseSelection(before: EditorState, after: EditorState): Select
   const { anchor, focus } = before.selection;
   const mapping = transitionMapping(before, after);
   const collapsed = positionsEqual(anchor, focus);
-  const map = (p: Position, assoc: Assoc): Position =>
-    mapping.map(p, assoc).position ?? nearestValid(before.state, after.state, p);
+  const map = (p: Position, assoc: Assoc): Position => {
+    const mapped = mapping.map(p, assoc).position;
+    return mapped === null ? nearestValid(before.state, after.state, p) : (clampInto(after.state, mapped.blockId, mapped.offset) ?? mapped);
+  };
   if (collapsed) {
     const caret = map(focus, -1);
     return createSpan(caret, caret);

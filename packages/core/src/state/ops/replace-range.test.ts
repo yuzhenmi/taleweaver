@@ -596,3 +596,18 @@ describe("replaceRangeInTx — transaction guard", () => {
     );
   });
 });
+
+describe("replaceRange — range endpoint inside a surrogate pair", () => {
+  it("inserts at the SNAPPED seam the delete used", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("a😀bc")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 2), createPosition("p" as BlockId, 3));
+    const result = replaceRange(state, span, "Z", {});
+    expect(getBlock(result.state, "p" as BlockId)?.inlineContent?.items).toMatchObject([{ text: "aZbc" }]);
+  });
+});

@@ -11,6 +11,12 @@ const COMMENTS_KEY = "comments";
 const SUGGESTIONS_KEY = "suggestions";
 const META_KEY = "meta";
 
+/** The inline-storage schema this engine reads and writes (see `upgrade.ts`). */
+export const CURRENT_SCHEMA_VERSION = 2;
+
+/** The `meta` key holding the document's schema version (immutable between upgrades). */
+export const SCHEMA_VERSION_KEY = "schemaVersion";
+
 export function createYDoc(args?: { rootId?: BlockId }): Y.Doc {
   const doc = new Y.Doc();
   doc.getMap(BLOCKS_KEY);
@@ -23,6 +29,9 @@ export function createYDoc(args?: { rootId?: BlockId }): Y.Doc {
   if (args?.rootId !== undefined) {
     meta.set("rootId", args.rootId);
   }
+  // A fresh local doc is born at the current inline-storage schema. Only this and
+  // `upgradeDocument` ever write the marker (see `upgrade.ts`).
+  meta.set(SCHEMA_VERSION_KEY, CURRENT_SCHEMA_VERSION);
   return doc;
 }
 
@@ -154,15 +163,18 @@ export function allTreeBlockCount(doc: Y.Doc): number {
 }
 
 /**
- * Returns the doc's meta Y.Map. Currently holds only `rootId`, which is
- * set once in `createYDoc` and never reassigned during a session.
+ * Returns the doc's meta Y.Map. Holds `rootId` (set once in `createYDoc`, never
+ * reassigned) and `schemaVersion` (the inline-storage schema; written only by
+ * `createYDoc` for a fresh local doc and by `upgradeDocument` — immutable between
+ * upgrades, and never written by `createState` on a host-supplied, possibly
+ * pre-sync doc).
  *
- * **doc-meta holds ONLY the immutable `rootId`.** Mutable, user-observable
+ * **doc-meta holds ONLY these immutable fields.** Mutable, user-observable
  * state belongs in the Layer-3 block-tree Y.Maps (blocks / embedContents /
  * templateContents), NOT here — doc-meta is outside the History
  * UndoManager's tracked scopes, so a doc-meta write silently lapses out of
  * undo/redo and loses state across a session. The `A14` whitelist test
- * (`encapsulation.test.ts`) fails the moment a non-`rootId` key appears.
+ * (`encapsulation.test.ts`) fails the moment any other key appears.
  *
  * **Not tracked by the History UndoManager.** The `History` class
  * (`history.ts`) constructs its `Y.UndoManager` with the blocks map,
@@ -375,6 +387,23 @@ let ambientTransactionOrigin: unknown = null;
  * dispatch's edits carry its peer origin. No-op-equivalent for non-collab callers
  * (they never call it → origin stays `null`).
  */
+/** The current ambient transaction origin (`null` outside any `runWithTransactionOrigin`). */
+export function currentTransactionOrigin(): unknown {
+  return ambientTransactionOrigin;
+}
+
+/**
+ * The origin of an UNTRACKED change a host makes on its own behalf (a host
+ * proposal): `owner` is that host's own origin. No `History` tracks it (a History
+ * tracks its owner's origin by identity, and this is a different value), yet
+ * `subscribeForeignChanges(state, owner, …)` recognises it as SELF — so the host
+ * never re-applies its own proposal as a foreign change — while a second host on
+ * the same doc (a different `selfOrigin`) still sees it as foreign.
+ */
+export class UntrackedOrigin {
+  constructor(readonly owner: unknown) {}
+}
+
 export function runWithTransactionOrigin<T>(origin: unknown, fn: () => T): T {
   const prev = ambientTransactionOrigin;
   ambientTransactionOrigin = origin;
@@ -512,6 +541,16 @@ function findOwningBlockId(
     cursor = parent;
   }
   return null;
+}
+
+/**
+ * The BlockId whose block Y.Map (in any of the three block trees) contains
+ * `type`, or null when `type` is not nested under a block. O(depth). Used to map
+ * a resolved `RelativePosition`'s `Y.Text` back to its owning block.
+ */
+export function owningBlockIdOf(doc: Y.Doc, type: Y.Text): BlockId | null {
+  const treeMapSet = new Set<AnyYType>(getTreeMaps(doc).map((m) => m as unknown as AnyYType));
+  return findOwningBlockId(type as unknown as AnyYType, treeMapSet);
 }
 
 /**

@@ -1,15 +1,8 @@
 /**
- * Identity-survival contract for `mergeAdjacentBlocks`' SEAM-MERGE (surgical-inline-ops
- * Phase 1, slice 5). When two blocks merge and their seam runs are same-attrs, the LEFT
- * block's trailing run (the merge RECEIVER, already live in the left block's Y.Array)
- * keeps its `Y.Text` identity after slice 5 swaps the post-pass to the in-place twin
- * (`mergeAdjacentSameAttrsTextItemsInPlace`).
- *
- * RED before the swap (the rebuild post-pass replaces both seam runs with a fresh
- * `Y.Text`, orphaning the receiver too); GREEN after. NOTE: the donor (the right block's
- * content) is CLONED into the left (Class-3 structural — fresh regardless), so the
- * left-side RECEIVER survival is the only discriminating assertion; a donor-orphan check
- * would pass with or without the swap (the right block is deleted entirely) and is omitted.
+ * Character-survival contract for `mergeAdjacentBlocks`: right's content is
+ * appended to left's `Y.Text` with one offset insert, so every character of the
+ * LEFT block keeps its identity. The right block's characters are re-minted (Yjs
+ * cannot reparent items) — the documented structural-op limit, asserted honestly.
  */
 import { describe, it, expect } from "vitest";
 import { mergeAdjacentBlocks } from "./merge-blocks";
@@ -29,15 +22,15 @@ function twoBlocks(left: ReturnType<typeof text>[], right: ReturnType<typeof tex
   });
 }
 
-describe("mergeAdjacentBlocks seam-merge — RelativePosition identity survival", () => {
-  it("the LEFT block's trailing run (merge receiver) keeps identity when the seam runs converge", () => {
-    // p1=["AX"{bold}], p2=["YB"{bold}]; merge p1+p2. The clone of "YB" is appended onto
-    // p1's live array, then "AX"{bold} + "YB"{bold} are same-attrs and merge → "AXYB"{bold}.
-    // With the in-place seam normalizer, "AX" (receiver) keeps its Y.Text; a
-    // RelativePosition at 'A' in p1's trailing run survives the merge.
+describe("mergeAdjacentBlocks — character survival", () => {
+  it("every LEFT character survives; the moved RIGHT characters are re-minted (structural limit)", () => {
     const s = twoBlocks([text("AX", { bold: true })], [text("YB", { bold: true })]);
-    const rel = relAt(s, "p1", 0); // 'A' in p1's trailing run (the receiver)
+    const relA = relAt(s, "p1", 0);
+    const relX = relAt(s, "p1", 1);
+    const relY = relAt(s, "p2", 0);
     const after = mergeAdjacentBlocks(s, "p1" as BlockId, "p2" as BlockId).state;
-    expect(survives(rel, after, "A")).toBe(true);
+    expect(survives(relA, after, "A")).toBe(true);
+    expect(survives(relX, after, "X")).toBe(true);
+    expect(survives(relY, after, "Y")).toBe(false);
   });
 });

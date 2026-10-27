@@ -184,18 +184,20 @@ describe(`A13: ${ESCAPE_HATCH_IDENTIFIER} escape hatch has no production callers
   });
 });
 
-// --- A14: doc-meta map holds ONLY the immutable `rootId`.
+// --- A14: doc-meta map holds ONLY immutable fields: `rootId` and `schemaVersion`.
 //
 // The meta Y.Map is intentionally outside the History UndoManager's tracked
 // scopes (see `getMetaMap` docstring): any mutable field placed there would
 // silently fall out of undo/redo. This whitelist test fails the moment a new
 // key appears in doc-meta, forcing a decision (immutable → fine; mutable →
-// must live under a tracked Layer-3 map).
+// must live under a tracked Layer-3 map). `schemaVersion` qualifies: it is
+// written only by `createYDoc` (a fresh doc) and `upgradeDocument` (a one-shot,
+// single-authority, untracked upgrade) and is immutable between upgrades.
 
-const DOC_META_WHITELIST = ["rootId"];
+const DOC_META_WHITELIST = ["rootId", "schemaVersion"];
 
 describe("A14: doc-meta immutability whitelist", () => {
-  it("a freshly constructed State's doc-meta holds only rootId", () => {
+  it("a freshly constructed State's doc-meta holds only rootId + schemaVersion", () => {
     // Build the doc explicitly so we can reach its meta map (the State's
     // Y.Doc is private behind STATE_INTERNAL; createState reuses the doc we
     // pass in, so the meta map we inspect is exactly the State's).

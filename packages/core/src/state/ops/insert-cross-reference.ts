@@ -5,13 +5,10 @@ import type { BlockId } from "../block-id";
 import type { Position } from "../block-position";
 import {
   inlineContentLength,
-  splitInlineContentAtOffset,
-  mergeAdjacentTextItems,
   type EmbedItem,
-  type InlineItem,
 } from "../inline-content";
 import { getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
-import { buildYInlineContent } from "../y-block";
+import { insertInlineItems, requireYInline } from "../y-inline";
 import type { PageFieldNumberStyle } from "../page-field";
 
 /** The `embedType` discriminant for a cross-reference field. */
@@ -29,15 +26,15 @@ export const CROSS_REFERENCE_EMBED_TYPE = "cross-reference";
 export type CrossReferenceMode = "number" | "text" | "page";
 
 /**
- * Pre-computed plan for `insertCrossReference`: the host leaf's tree provenance
- * plus the new `items[]` with the `cross-reference` EmbedItem spliced in at
- * `position.offset`. An embed is a merge barrier, so this is always a
- * full-replace of the leaf's inlineContent.
+ * Pre-computed plan for `insertCrossReference`: the host leaf's
+ * tree provenance, the insertion offset and the embed — one offset
+ * `insertEmbed` into the leaf's inline `Y.Text` (no other character moves).
  */
 interface CrossReferenceInsertPlan {
   readonly blockId: BlockId;
   readonly kind: BlockTreeKind;
-  readonly items: ReadonlyArray<InlineItem>;
+  readonly offset: number;
+  readonly embed: EmbedItem;
 }
 
 /**
@@ -84,7 +81,8 @@ export function insertCrossReference(
 }
 
 /**
- * Validate `position` and produce the insertion plan (the new leaf `items[]` with
+ * Validate `position` and produce the insertion plan (the embed +
+ * offset for
  * a `cross-reference` EmbedItem spliced in at `position.offset`). All snapshot
  * reads + validation happen here, BEFORE the surrounding `applyOperation` opens.
  */
@@ -127,22 +125,17 @@ function planCrossReferenceInsert(
     properties,
   });
 
-  const [left, right] = splitInlineContentAtOffset(block.inlineContent, position.offset);
-  // An embed is a merge barrier, so `mergeAdjacentTextItems` only normalizes the
-  // split halves around it — it never merges across the reference.
-  const items = mergeAdjacentTextItems([...left, reference, ...right]);
-
-  return { blockId: position.blockId, kind, items };
+  return { blockId: position.blockId, kind, offset: position.offset, embed: reference };
 }
 
 /**
- * In-transaction primitive: full-replace the host leaf's inlineContent with the
- * pre-computed `plan.items` (reference spliced in). Caller owns the surrounding
+ * In-transaction primitive: insert the embed into the host leaf's inline
+ * `Y.Text` at `plan.offset` (reference spliced in). Caller owns the surrounding
  * transaction. Routes the write to the leaf's owning tree (`plan.kind`) so a
  * reference inside a header/footer or a footnote body mutates the correct Y.Map.
  */
 function insertCrossReferenceInTx(doc: Y.Doc, plan: CrossReferenceInsertPlan): void {
   requireInTransaction(doc, "insertCrossReference");
   const yBlock = getYBlock(doc, plan.blockId, "insertCrossReference", plan.kind);
-  yBlock.set("inlineContent", buildYInlineContent({ items: plan.items }));
+  insertInlineItems(requireYInline(yBlock, plan.blockId, "insertCrossReference"), plan.offset, [plan.embed]);
 }

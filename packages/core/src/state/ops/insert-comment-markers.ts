@@ -6,14 +6,11 @@ import type { Position, Span } from "../block-position";
 import { spanStart, spanEnd } from "../block-compare";
 import {
   inlineContentLength,
-  splitInlineContentAtOffset,
-  mergeAdjacentTextItems,
   type EmbedItem,
   type InlineContent,
-  type InlineItem,
 } from "../inline-content";
 import { getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
-import { buildYInlineContent } from "../y-block";
+import { insertInlineItems, requireYInline } from "../y-inline";
 import {
   COMMENT_START_EMBED_TYPE,
   COMMENT_END_EMBED_TYPE,
@@ -21,9 +18,10 @@ import {
 } from "../comments";
 
 /**
- * Pre-computed write for ONE leaf block: its tree provenance plus the new
- * `items[]` to full-replace its inlineContent with. An embed is a merge
- * barrier, so marker insertion is always a full-replace of the leaf's items.
+ * Pre-computed write for ONE leaf block: its tree provenance plus the marker
+ * embeds to insert, as `{ offset, marker }` in DESCENDING offset order (so an
+ * earlier insert never shifts a later one's offset). Each is one offset
+ * `insertEmbed` into the leaf's inline `Y.Text`.
  *
  * Exported so a higher-level op (`addComment`, slice 2) can compose the marker
  * insert with its thread-record write in ONE `applyOperation` transaction:
@@ -33,7 +31,7 @@ import {
 export interface LeafWrite {
   readonly blockId: BlockId;
   readonly kind: BlockTreeKind;
-  readonly items: ReadonlyArray<InlineItem>;
+  readonly inserts: ReadonlyArray<{ readonly offset: number; readonly marker: EmbedItem }>;
 }
 
 /**
@@ -80,11 +78,11 @@ export function insertCommentMarkers(
  * Validate both endpoints and produce the per-leaf write list against the
  * pre-transaction snapshot. Two cases:
  *
- *   - START and END in the SAME block → ONE write: splice the END marker at
- *     `end.offset` then the START marker at `start.offset` into that block's
- *     items (end-first so the start splice does not shift the end offset).
+ *   - START and END in the SAME block → ONE write: insert the END marker at
+ *     `end.offset` then the START marker at `start.offset` (end-first so the
+ *     start insert does not shift the end offset).
  *   - START and END in DIFFERENT blocks → TWO writes: the start marker into the
- *     start leaf, the end marker into the end leaf (independent splices).
+ *     start leaf, the end marker into the end leaf (independent inserts).
  *
  * Throws on a missing block, a non-leaf host, or an out-of-range offset for
  * either endpoint.
@@ -102,10 +100,17 @@ export function planCommentMarkers(
     const { content, kind } = resolveLeaf(state, start.blockId);
     requireInRange(content, start.offset, start.blockId);
     requireInRange(content, end.offset, end.blockId);
-    // End-first: splice the end marker, then the start marker into the result.
-    const afterEnd = spliceMarker(content, end.offset, endMarker);
-    const afterStart = spliceMarker({ items: afterEnd }, start.offset, startMarker);
-    return [{ blockId: start.blockId, kind, items: afterStart }];
+    // End-first: the end marker's insert cannot shift the start offset (start ≤ end).
+    return [
+      {
+        blockId: start.blockId,
+        kind,
+        inserts: [
+          { offset: end.offset, marker: endMarker },
+          { offset: start.offset, marker: startMarker },
+        ],
+      },
+    ];
   }
 
   const startLeaf = resolveLeaf(state, start.blockId);
@@ -117,12 +122,12 @@ export function planCommentMarkers(
     {
       blockId: end.blockId,
       kind: endLeaf.kind,
-      items: spliceMarker(endLeaf.content, end.offset, endMarker),
+      inserts: [{ offset: end.offset, marker: endMarker }],
     },
     {
       blockId: start.blockId,
       kind: startLeaf.kind,
-      items: spliceMarker(startLeaf.content, start.offset, startMarker),
+      inserts: [{ offset: start.offset, marker: startMarker }],
     },
   ];
 }
@@ -166,28 +171,15 @@ function requireInRange(content: InlineContent, offset: number, blockId: BlockId
 }
 
 /**
- * Splice a marker into `content` at `offset`, returning the normalized items.
- * An embed is a merge barrier, so `mergeAdjacentTextItems` only normalizes the
- * split halves around the marker — it never merges across it.
- */
-function spliceMarker(
-  content: InlineContent,
-  offset: number,
-  marker: EmbedItem,
-): ReadonlyArray<InlineItem> {
-  const [left, right] = splitInlineContentAtOffset(content, offset);
-  return mergeAdjacentTextItems([...left, marker, ...right]);
-}
-
-/**
- * In-transaction primitive: full-replace the host leaf's inlineContent with the
- * pre-computed `write.items`. Caller owns the surrounding transaction. Routes
- * the write to the leaf's owning tree (`write.kind`).
+ * In-transaction primitive: insert the planned markers into the host leaf's
+ * inline `Y.Text` (offset inserts, descending). Caller owns the surrounding
+ * transaction. Routes the write to the leaf's owning tree (`write.kind`).
  */
 function insertLeafWriteInTx(doc: Y.Doc, write: LeafWrite): void {
   requireInTransaction(doc, "insertCommentMarkers");
   const yBlock = getYBlock(doc, write.blockId, "insertCommentMarkers", write.kind);
-  yBlock.set("inlineContent", buildYInlineContent({ items: write.items }));
+  const yText = requireYInline(yBlock, write.blockId, "insertCommentMarkers");
+  for (const { offset, marker } of write.inserts) insertInlineItems(yText, offset, [marker]);
 }
 
 /**

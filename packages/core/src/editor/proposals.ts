@@ -15,6 +15,9 @@ import {
   productionAllocator,
   createPositionMapping,
   findItemAtOffset,
+  runWithTransactionOrigin,
+  currentTransactionOrigin,
+  UntrackedOrigin,
 } from "../state";
 import type {
   BlockId,
@@ -231,11 +234,18 @@ function linesFor(state: State, at: Position, text: string, attrs: ReadonlyAttrs
  * ranges changed or the version is unknown), validate, then apply every edit as a
  * suggestion (fresh, non-coalescing records, author = the proposal's), mapping each
  * later edit through the earlier ones, and tag all records with the group + metadata.
- * The change is ONE tracked undo entry, in order with the user's edits (it becomes
- * untracked once identity-preserving inline storage lands — an untracked change that
- * re-creates the user's just-typed run would leave that undo entry dead). PROPOSE is an
- * `inert` coalesce class, so the entry is opened here, only when something is applied;
- * the selection is rebased and stored typing attrs kept. The verdict is `lastProposal`.
+ * A proposal is another author's change, so it is NOT in the user's undo stack:
+ * it runs under an {@link UntrackedOrigin} owned by the dispatching host's origin
+ * (untracked; self to that host's own foreign-change subscription) and the History only advances its
+ * cached state — Ctrl+Z keeps undoing the user's own last edit (accept / reject stay
+ * undoable user actions). Inline storage never re-mints a character on an in-block
+ * edit, and undo selections are CRDT-anchored, so the user's open entry survives.
+ * EXCEPTION (structural-op limit): a proposal whose application SPLITS a block (a
+ * multi-paragraph replace) re-mints the moved tail and would break the user's open
+ * entry, so it stays TRACKED — one undo entry in order with the user's edits.
+ * PROPOSE is an `inert` coalesce class, so a tracked entry is opened here, only when
+ * something is applied; the selection is rebased and stored typing attrs kept. The
+ * verdict is `lastProposal`.
  */
 export function handlePropose(
   editor: EditorState,
@@ -254,8 +264,16 @@ export function handlePropose(
   }
   const problem = validateProposal(editor.state, proposal);
   if (problem !== null) return verdict({ groupId: proposal.groupId, outcome: "rejected", problem });
-  editor.history.beginEntry("command", (config.now ?? Date.now)());
-  return applyProposal(editor, proposal, config, outcomeOf);
+  const tracked = proposal.edits.some((e) => e.kind === "replace" && e.text.includes("\n"));
+  if (tracked) {
+    editor.history.beginEntry("command", (config.now ?? Date.now)(), editor.selection);
+    return applyProposal(editor, proposal, config, outcomeOf, true);
+  }
+  // Per-instance untracked origin: wraps the dispatching host's own (ambient) origin,
+  // so no History tracks it but the host's own foreign-change subscription treats it
+  // as self (a second host on the same doc still sees it as foreign).
+  const origin = new UntrackedOrigin(currentTransactionOrigin());
+  return runWithTransactionOrigin(origin, () => applyProposal(editor, proposal, config, outcomeOf, false));
 }
 
 function applyProposal(
@@ -263,6 +281,7 @@ function applyProposal(
   proposal: Proposal,
   config: EditorConfig,
   outcomeOf: (verdict: Verdict) => ProposalOutcome,
+  tracked: boolean,
 ): EditorState {
   const createdAt = (config.now ?? Date.now)();
   const registry = config.attrRegistry;
@@ -309,7 +328,7 @@ function applyProposal(
     const point = positionsEqual(from, to);
     if (edit.text === "") {
       const id = newSuggestionId();
-      step(markDeletion(state, span, { id, author: proposal.author, createdAt, noCoalesce: true }, registry), [id], edit.metadata);
+      step(markDeletion(state, span, { id, author: proposal.author, createdAt, noCoalesce: true }), [id], edit.metadata);
     } else if (edit.text.includes("\n")) {
       const input = { deletionId: newSuggestionId(), insertionId: newSuggestionId(), author: proposal.author, createdAt, noCoalesce: true };
       const result = replaceWithSuggestedFragment(state, span, linesFor(state, from, edit.text, attrs), input, productionAllocator, registry);
@@ -339,7 +358,8 @@ function applyProposal(
     lastProposal: outcomeOf({ groupId: proposal.groupId, outcome: "applied" }),
   };
   const selection = rebaseSelection(editor, after);
-  editor.history.commit({ state, dirtyIds: dirty }, { before: editor.selection, after: selection });
+  if (tracked) editor.history.commit({ state, dirtyIds: dirty }, { before: editor.selection, after: selection });
+  else editor.history.advanceState(state);
   return { ...after, selection };
 }
 
@@ -349,7 +369,9 @@ export type ProposeResult =
   /** Computed against a version whose edited ranges have since changed (or aged out). */
   | { readonly ok: false; readonly reason: "stale" }
   /** Refused as it stands (see the problem). */
-  | { readonly ok: false; readonly reason: "rejected"; readonly problem: ProposalProblem };
+  | { readonly ok: false; readonly reason: "rejected"; readonly problem: ProposalProblem }
+  /** The controller is halted on incompatible (legacy) document storage. */
+  | { readonly ok: false; readonly reason: "halted" };
 
 /**
  * The reducer's verdict on the last `PROPOSE` (`EditorState.lastProposal`). `proposal` is

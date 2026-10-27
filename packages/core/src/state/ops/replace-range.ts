@@ -15,8 +15,7 @@ import {
 import {
   insertTextInTx,
   planInsertText,
-  planInsertTextFullReplace,
-  planInsertTextSplitInPlace,
+  planInsertTextAt,
   type InsertTextPlan,
 } from "./insert-text";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
@@ -42,20 +41,9 @@ import type { AttrRegistry } from "../../cascade/attr-registry";
  * delete-plan-null-with-empty-text no-op short-circuit BEFORE producing a
  * plan: `planReplaceRange` returns `null`, signalling the caller to no-op.
  *
- * The insert plan that FOLLOWS a `deletePlan` is computed against
- * `deletePlan.mergedItems` (the known post-delete items), NOT against `state`'s
- * stale PRE-delete snapshot — and its STRATEGY depends on what `deleteRangeInTx`
- * did to the anchor block:
- *   - after a SAME-BLOCK delete (surgical, in place — the live Y.Array survives
- *     identity-preserved, equal to `mergedItems`), `insertPlan` is `split-in-place`
- *     (`planInsertTextSplitInPlace`): a boundary/interior insert that keeps every
- *     NON-straddled run's `Y.Text` CRDT identity.
- *   - after a CROSS-BLOCK delete (still full-replaces the anchor block's Y.Array →
- *     its identity is gone), `insertPlan` is `full-replace` (`planInsertTextFullReplace`)
- *     — an in-place insert against the destroyed array would be unsafe.
- * When `deletePlan` is null (the pure-insert cases), `insertPlan` is the regular
- * `planInsertText` result (in-place or full-replace — both safe, as no prior write
- * blew away the Y.Text identity in the same transaction).
+ * The insert plan that FOLLOWS a `deletePlan` targets the deletion seam (the
+ * delete plan's grapheme-snapped `anchorOffset`) — both writes are offset ops on
+ * the anchor's inline `Y.Text`, so the insert needs no post-delete snapshot.
  */
 export interface ReplaceRangePlan {
   readonly deletePlan: DeleteRangePlan | null;
@@ -70,8 +58,8 @@ export interface ReplaceRangePlan {
  *   2. If the text is non-empty, insert it at the cursor position.
  *
  * The cursor position lands at the seam between the surviving anchor
- * prefix and the focus suffix — i.e., `{ normalized.anchor.blockId,
- * normalized.anchor.offset }` post-delete.
+ * prefix and the focus suffix — i.e., the delete plan's grapheme-snapped
+ * `anchorOffset` in the anchor block, post-delete.
  *
  * `attrs` is the formatting for the inserted text. Caller computes the
  * intended formatting (e.g., from the cursor's containing run, or a
@@ -95,8 +83,8 @@ export interface ReplaceRangePlan {
  * bounds, sibling reachability) come from `planDeleteRange`. For the
  * collapsed-insert path, errors come from `planInsertText`. After the
  * delete plan is validated, the cursor position is always valid in the
- * post-delete anchor block (the seam at `normalized.anchor.offset` is
- * within the `mergedItems` array by construction).
+ * post-delete anchor block (the seam at the plan's `anchorOffset` is within
+ * the post-delete content by construction).
  *
  * Behavior:
  *   - Collapsed span + empty text: pure no-op.
@@ -205,9 +193,7 @@ export function planReplaceRange(
       return null;
     }
     // Insert-only path. The cursor is just span.anchor — no normalization
-    // needed for a collapsed span. `planInsertText` validates the position
-    // and may pick an in-place plan (safe: no prior delete in this tx blew
-    // away the Y.Text identity).
+    // needed for a collapsed span. `planInsertText` validates the position.
     return {
       deletePlan: null,
       insertPlan: planInsertText(state, span.anchor, text, attrs, registry),
@@ -254,47 +240,20 @@ export function planReplaceRange(
     };
   }
 
-  // Delete + insert, ONE transaction (T12). The insertion plan is built against
-  // `deletePlan.mergedItems` — the anchor block's POST-DELETE inlineContent — NOT
-  // against `state` (whose snapshot of the anchor block is still pre-delete).
-  //
-  // The insert STRATEGY depends on what `deleteRangeInTx` did to the anchor block:
-  //   - SAME-BLOCK delete is SURGICAL (slice 1): it leaves the live Y.Array intact
-  //     and identity-preserved, equal to `mergedItems` item-for-item. So the insert
-  //     can use `planInsertTextSplitInPlace` — a boundary/interior insert that keeps
-  //     every NON-straddled run's `Y.Text` CRDT identity (the win: a RelativePosition
-  //     in a surviving run survives the replace). Read-back stays byte-identical: the
-  //     `split-in-place` applier runs `mergeAdjacentSameAttrsTextItemsInPlace`, mirroring the
-  //     full-replace path's `mergeAdjacentTextItems`.
-  //   - CROSS-BLOCK delete still FULL-REPLACES the anchor block's Y.Array, so the live
-  //     array's identity is already gone → `split-in-place`'s precondition is violated.
-  //     Keep `planInsertTextFullReplace` until cross-block delete goes surgical too.
-  const cursorOffset = normalized.anchor.offset;
+  // Delete + insert, ONE transaction (T12). Both are offset writes on the anchor
+  // block's inline Y.Text: after the delete the seam sits at the plan's (snapped)
+  // anchor offset (same-block and cross-block alike), so the insert targets it. Both
+  // phases share the anchor block, hence the same owning tree (`deletePlan.kind`).
   const anchorBlockId =
     deletePlan.mode === "same-block" ? deletePlan.blockId : deletePlan.anchorId;
-  // Thread the span's owning tree (`deletePlan.kind`, resolved by `planDeleteRange`
-  // via `resolveBlock`) into the insert plan so the composed `insertTextInTx` writes
-  // into the correct Y.Map. Both phases share the same anchor block, hence the same `kind`.
-  const insertPlan =
-    deletePlan.mode === "same-block"
-      ? planInsertTextSplitInPlace(
-          anchorBlockId,
-          deletePlan.kind,
-          deletePlan.mergedItems,
-          cursorOffset,
-          text,
-          attrs,
-          registry,
-        )
-      : planInsertTextFullReplace(
-          anchorBlockId,
-          deletePlan.kind,
-          deletePlan.mergedItems,
-          cursorOffset,
-          text,
-          attrs,
-          registry,
-        );
+  const insertPlan = planInsertTextAt(
+    anchorBlockId,
+    deletePlan.kind,
+    deletePlan.anchorOffset, // the grapheme-snapped seam the delete leaves
+    text,
+    attrs,
+    registry,
+  );
 
   return { deletePlan, insertPlan };
 }

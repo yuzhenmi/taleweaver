@@ -30,7 +30,7 @@
  */
 import type { Block } from "./block";
 
-type FieldKind = "string" | "id-nullable" | "attrs-map" | "inline-content-array-nullable";
+type FieldKind = "string" | "id-nullable" | "attrs-map" | "inline-text-nullable";
 
 export interface BlockFieldSpec<K extends keyof Block = keyof Block> {
   readonly key: K;
@@ -47,7 +47,7 @@ export const BLOCK_FIELDS = [
   { key: "nextSiblingId", kind: "id-nullable" },
   { key: "firstChildId",  kind: "id-nullable" },
   { key: "lastChildId",   kind: "id-nullable" },
-  { key: "inlineContent", kind: "inline-content-array-nullable" },
+  { key: "inlineContent", kind: "inline-text-nullable" },
   // NOTE: `id` is NOT here — it's the outer Y.Map key.
 ] as const satisfies ReadonlyArray<BlockFieldSpec>;
 

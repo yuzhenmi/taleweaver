@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
-import { buildYBlock, buildYInlineItem, type YBlockInit } from "./y-block";
+import { buildYBlock, type YBlockInit } from "./y-block";
+import { buildYInlineText, inlineItemsFromYText } from "./y-inline";
 import type { BlockId } from "./block-id";
 
 // Yjs forbids reading from a Y.Map / Y.Array / Y.Text that is not yet
@@ -31,7 +32,7 @@ describe("y-block", () => {
     expect((yBlock.get("attrs") as Y.Map<unknown>).get("bold")).toBe(true);
     expect(yBlock.get("parentId")).toBe("root");
     expect(yBlock.get("prevSiblingId")).toBeNull();
-    expect(yBlock.get("inlineContent")).toBeInstanceOf(Y.Array);
+    expect(yBlock.get("inlineContent")).toBeInstanceOf(Y.Text);
   });
 
   it("sets inlineContent to null for container blocks", () => {
@@ -64,14 +65,9 @@ describe("y-block", () => {
       },
     };
     const yBlock = attach(buildYBlock(init));
-    const items = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>>;
-    expect(items.length).toBe(1);
-    const yItem = items.get(0);
-    expect(yItem.get("kind")).toBe("text");
-    const yText = yItem.get("text") as Y.Text;
-    expect(yText.toString()).toBe("hello");
-    const yAttrs = yItem.get("attrs") as Y.Map<unknown>;
-    expect(yAttrs.get("bold")).toBe(true);
+    // ONE Y.Text per block; the run's attrs are Yjs formatting attributes.
+    const yText = yBlock.get("inlineContent") as Y.Text;
+    expect(yText.toDelta()).toEqual([{ insert: "hello", attributes: { bold: true } }]);
   });
 
   it("populates embed item fields", () => {
@@ -95,11 +91,12 @@ describe("y-block", () => {
       },
     };
     const yBlock = attach(buildYBlock(init));
-    const items = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>>;
-    const yItem = items.get(0);
-    expect(yItem.get("kind")).toBe("embed");
-    expect(yItem.get("embedType")).toBe("image");
-    expect((yItem.get("properties") as Y.Map<unknown>).get("src")).toBe("url");
+    // An embed is plain-JSON `insertEmbed` content `{ embedType, properties }`.
+    const yText = yBlock.get("inlineContent") as Y.Text;
+    expect(yText.toDelta()).toEqual([{ insert: { embedType: "image", properties: { src: "url" } } }]);
+    expect(inlineItemsFromYText(yText)).toEqual([
+      { kind: "embed", embedType: "image", attrs: {}, properties: { src: "url" } },
+    ]);
   });
 
   // T39: write-path guard. Constructing an inline embed item with a nested
@@ -108,37 +105,37 @@ describe("y-block", () => {
   // foreign Y.Doc via cross-doc paste would produce undefined CRDT
   // behavior, and a snapshot of such properties would be a live reference
   // rather than a value.
-  describe("buildYInlineItem nested Y-type guard", () => {
+  describe("buildYInlineText nested Y-type guard", () => {
     it("throws when an embed property is a Y.Map", () => {
       expect(() =>
-        buildYInlineItem({
+        buildYInlineText({ items: [{
           kind: "embed",
           embedType: "image",
           attrs: {},
           properties: { nested: new Y.Map<unknown>() },
-        }),
+        }] }),
       ).toThrow(/nested Y types are not allowed/i);
     });
 
     it("throws when an embed property is a Y.Text", () => {
       expect(() =>
-        buildYInlineItem({
+        buildYInlineText({ items: [{
           kind: "embed",
           embedType: "image",
           attrs: {},
           properties: { nested: new Y.Text() },
-        }),
+        }] }),
       ).toThrow(/nested Y types are not allowed/i);
     });
 
     it("throws when an embed attr is a Y.Array", () => {
       expect(() =>
-        buildYInlineItem({
+        buildYInlineText({ items: [{
           kind: "embed",
           embedType: "image",
           attrs: { nested: new Y.Array<unknown>() },
           properties: {},
-        }),
+        }] }),
       ).toThrow(/nested Y types are not allowed/i);
     });
   });

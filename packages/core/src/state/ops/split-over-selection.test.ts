@@ -305,3 +305,19 @@ describe("splitWithSuggestionOverSelection — collapsed-after-normalization fal
     expect(nth(suggestions, 0, "suggestion").id).toBe(INS_ID);
   });
 });
+
+describe("splitWithSuggestionOverSelection — span endpoint inside a surrogate pair", () => {
+  it('"ab😀cd" [1,3) is snapped ONCE to [1,4): the strike and the split share the cut', () => {
+    const state = oneBlock(inlineContent([text("ab😀cd")]));
+    const span = createSpan(createPosition("p" as BlockId, 1), createPosition("p" as BlockId, 3));
+    const r = splitWithSuggestionOverSelection(state, span, createTestAllocator(), INPUT);
+    const p = getBlock(r.state, "p" as BlockId);
+    const nextId = p?.nextSiblingId ?? null;
+    if (nextId === null) throw new Error("no split");
+    const texts = (id: BlockId) =>
+      (getBlock(r.state, id)?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "|"));
+    expect(texts("p" as BlockId)).toEqual(["a", "b😀", "|"]);
+    expect(p?.inlineContent?.items[1]?.attrs).toEqual({ [DELETION_SUGGESTION_ATTR]: DEL_ID });
+    expect(texts(nextId)).toEqual(["cd"]);
+  });
+});

@@ -18,6 +18,10 @@ import {
   createPosition,
   createSpan,
   getYDoc,
+  createState,
+  subscribeForeignChanges,
+  subscribeRemoteChanges,
+  runWithTransactionOrigin,
   createEditorStateFromState,
   initialSelectionForState,
   serializeDocument,
@@ -113,24 +117,88 @@ describe("PROPOSE — host proposals as one suggestion group", () => {
     ["replacing text next to the just-typed run", (_p1: BlockId, p2: BlockId) => ({ kind: "replace" as const, from: at(p2, 6), to: at(p2, 10), text: "past" })],
     ["formatting the just-typed run", (_p1: BlockId, p2: BlockId) => ({ kind: "format" as const, from: at(p2, 0), to: at(p2, 5), attrs: { bold: true } })],
     ["in another paragraph", (p1: BlockId) => ({ kind: "replace" as const, from: at(p1, 5), to: at(p1, 10), text: "swift" })],
-  ])("is ONE undo entry in order with the user's edits (%s): undo the proposal, then the typing; redo both", (_label, edit) => {
-    const { typed, after, p1, p2, proposal } = typedThenProposed(edit);
+  ])("is NOT in the user's undo stack (%s): Ctrl+Z undoes the typing, the proposal is kept; redo restores the typing", (_label, edit) => {
+    const { after, p1, p2, proposal } = typedThenProposed(edit);
     const proposedText = [textOf(after, p1), textOf(after, p2)];
     const runs2 = runsOf(after, p2);
     const undo1 = run(after, config, { type: "UNDO" });
-    expect(getSuggestions(undo1.state)).toHaveLength(0); // the whole group is gone, nothing dangles
-    expect(textOf(undo1, p1)).toBe("The  quick fox");
-    expect(runsOf(undo1, p2)).toEqual([["jumps over!", {}]]);
+    // The user's own last edit — the typed "!" — is undone; the proposal stays.
+    expect(textOf(undo1, p1)).toBe(proposedText[0]);
+    expect(textOf(undo1, p2)).toBe((proposedText[1] ?? "").replace(/!$/, ""));
+    expect(getSuggestionGroups(undo1.state).map((g) => g.id)).toEqual([proposal.groupId]);
+    const redo1 = run(undo1, config, { type: "REDO" });
+    expect([textOf(redo1, p1), textOf(redo1, p2)]).toEqual(proposedText);
+    expect(runsOf(redo1, p2)).toEqual(runs2);
+  });
+
+  it("a block-splitting (multi-paragraph) proposal stays ONE tracked undo entry, in order with the user's edits", () => {
+    const { typed, after, p2, proposal } = typedThenProposed((p1) => ({
+      kind: "replace" as const,
+      from: at(p1, 0),
+      to: at(p1, 3),
+      text: "One\nTwo",
+    }));
+    expect(getSuggestionGroups(after.state).map((g) => g.id)).toEqual([proposal.groupId]);
+    const undo1 = run(after, config, { type: "UNDO" });
+    expect(getSuggestions(undo1.state)).toHaveLength(0); // the proposal is undone first
+    expect(textOf(undo1, p2)).toBe("jumps over!");
     expect(undo1.selection).toEqual(typed.selection);
     const undo2 = run(undo1, config, { type: "UNDO" });
-    expect(textOf(undo2, p2)).toBe("jumps over"); // the "!" — the typing — is undone next
-    const redo1 = run(undo2, config, { type: "REDO" });
-    expect(textOf(redo1, p2)).toBe("jumps over!");
-    expect(getSuggestions(redo1.state)).toHaveLength(0);
-    const redo2 = run(redo1, config, { type: "REDO" });
-    expect([textOf(redo2, p1), textOf(redo2, p2)]).toEqual(proposedText);
-    expect(runsOf(redo2, p2)).toEqual(runs2);
-    expect(getSuggestionGroups(redo2.state).map((g) => g.id)).toEqual([proposal.groupId]);
+    expect(textOf(undo2, p2)).toBe("jumps over"); // then the typing
+  });
+
+  it("an untracked proposal is SELF to its own host's subscriptions, FOREIGN to a second host on the same doc", () => {
+    const { s, p1 } = twoParagraphs();
+    // A collab host: its edits carry its own origin, which its History tracks.
+    const hostA = createEditorStateFromState(s.state, s.selection, config, "hostA");
+    const seenByA: ReadonlySet<BlockId>[] = [];
+    const seenByB: ReadonlySet<BlockId>[] = [];
+    const remoteA: ReadonlySet<BlockId>[] = [];
+    const remoteB: ReadonlySet<BlockId>[] = [];
+    const noLegacy = (): void => {
+      throw new Error("unexpected legacy storage");
+    };
+    const docA = getYDoc(s.state);
+    const docB = new Y.Doc();
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
+    docA.on("update", (u: Uint8Array) => Y.applyUpdate(docB, u, "sync"));
+    const stateB = createState({ rootId: s.state.rootId, doc: docB });
+    const unsubs = [
+      subscribeForeignChanges(s.state, "hostA", (ids) => seenByA.push(ids), noLegacy),
+      subscribeForeignChanges(s.state, "hostB", (ids) => seenByB.push(ids), noLegacy),
+      subscribeRemoteChanges(s.state, (ids) => remoteA.push(ids), noLegacy),
+      subscribeRemoteChanges(stateB, (ids) => remoteB.push(ids), noLegacy),
+    ];
+    const proposal: Proposal = {
+      groupId: newSuggestionGroupId(),
+      author: "assistant",
+      edits: [{ kind: "replace", from: at(p1, 0), to: at(p1, 3), text: "A" }],
+    };
+    const after = runWithTransactionOrigin("hostA", () => run(hostA, config, { type: "PROPOSE", proposal }));
+    for (const u of unsubs) u();
+    expect(after.lastProposal?.outcome).toBe("applied");
+    expect(seenByA).toEqual([]); // its own proposal: never an APPLY_FOREIGN_CHANGE on itself
+    expect(seenByB.length).toBeGreaterThan(0); // another host on the same doc must re-render
+    expect(remoteA).toEqual([]);
+    expect(remoteB.length).toBeGreaterThan(0); // a synced peer sees it
+    // Still untracked: the host's undo stack does not hold it.
+    expect(textOf(runWithTransactionOrigin("hostA", () => run(after, config, { type: "UNDO" })), p1)).toBe(textOf(after, p1));
+  });
+
+  it("a proposal whose every tagged char the user's undo removes is hidden, and dropped by its group's resolve", () => {
+    const { p2, after, proposal } = typedThenProposed((_p1, p) => ({
+      kind: "format" as const,
+      from: at(p, 10),
+      to: at(p, 11),
+      attrs: { bold: true },
+    })); // formats exactly the typed "!"
+    expect(getSuggestionGroups(after.state).map((g) => g.id)).toEqual([proposal.groupId]);
+    const undone = run(after, config, { type: "UNDO" });
+    expect(textOf(undone, p2)).toBe("jumps over");
+    expect(getSuggestionGroups(undone.state)).toEqual([]); // nothing tagged → hidden
+    expect(getSuggestions(undone.state)).toHaveLength(1); // the record still exists…
+    const rejected = run(undone, config, { type: "REJECT_SUGGESTION_GROUP", groupId: proposal.groupId });
+    expect(getSuggestions(rejected.state)).toHaveLength(0); // …until its group resolves
   });
 
   it("keeps stored typing attrs: collapsed bold, a proposal lands elsewhere, the typed text is still bold", () => {

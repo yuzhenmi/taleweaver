@@ -2,12 +2,6 @@ import * as Y from "yjs";
 import type { Block } from "./block";
 import type { BlockId } from "./block-id";
 import type { ReadonlyAttrs } from "./attrs";
-import type {
-  InlineContent,
-  InlineItem,
-  TextItem,
-  EmbedItem,
-} from "./inline-content";
 import {
   getBlocksMap,
   getEmbedContentsMap,
@@ -16,6 +10,7 @@ import {
 } from "./yjs-doc";
 import { assertNoNestedYTypes } from "./y-utils";
 import { BLOCK_FIELDS } from "./block-schema";
+import { inlineContentSnapshot, isLegacyInlineValue, LegacyDocumentError } from "./y-inline";
 
 /**
  * The three top-level block trees a snapshot can come from. A BlockId is
@@ -379,71 +374,20 @@ function buildBlockSnapshot(id: BlockId, yBlock: Y.Map<unknown>): Block {
         result[spec.key] = freezeAttrs(yMapToObject(yAttrs));
         break;
       }
-      case "inline-content-array-nullable": {
-        const yInline = requireNullableField<Y.Array<Y.Map<unknown>>>(
-          yBlock,
-          id,
-          spec.key,
-        );
-        result[spec.key] =
-          yInline === null ? null : buildInlineContentSnapshot(yInline);
+      case "inline-text-nullable": {
+        const raw = requireNullableField<unknown>(yBlock, id, spec.key);
+        // Defense in depth: legacy run-array storage is never parsed — a typed
+        // LegacyDocumentError instead of an opaque field error.
+        if (isLegacyInlineValue(raw)) throw new LegacyDocumentError([id]);
+        if (raw !== null && !(raw instanceof Y.Text)) {
+          throw new Error(`buildBlockSnapshot: block "${id}" has malformed "${spec.key}" (expected Y.Text or null)`);
+        }
+        result[spec.key] = raw === null ? null : inlineContentSnapshot(raw);
         break;
       }
     }
   }
   return Object.freeze(result) as unknown as Block;
-}
-
-/**
- * Like `requireField`, but for an inline item inside `buildInlineContentSnapshot`.
- * Yjs `Y.Map.get` returns `undefined` for absent keys; casting the result
- * silently widens `undefined` to the expected type and crashes opaquely
- * downstream (e.g. `Cannot read properties of undefined`). This turns a
- * malformed item (a collab peer / migration that wrote an item missing a
- * required key) into a clear error naming the field and its index.
- */
-function requireItemField<T>(
-  yItem: Y.Map<unknown>,
-  i: number,
-  key: string,
-): T {
-  const raw = yItem.get(key);
-  if (raw === undefined) {
-    throw new Error(
-      `buildInlineContentSnapshot: inline item at index ${i} missing required "${key}" field`,
-    );
-  }
-  return raw as T;
-}
-
-function buildInlineContentSnapshot(yItems: Y.Array<Y.Map<unknown>>): InlineContent {
-  const items: InlineItem[] = [];
-  for (let i = 0; i < yItems.length; i++) {
-    const yItem = yItems.get(i);
-    const kind = requireItemField<"text" | "embed">(yItem, i, "kind");
-    if (kind === "text") {
-      const yText = requireItemField<Y.Text>(yItem, i, "text");
-      const yAttrs = requireItemField<Y.Map<unknown>>(yItem, i, "attrs");
-      const item: TextItem = Object.freeze({
-        kind: "text",
-        text: yText.toString(),
-        attrs: freezeAttrs(yMapToObject(yAttrs)),
-      });
-      items.push(item);
-    } else {
-      const embedType = requireItemField<string>(yItem, i, "embedType");
-      const yAttrs = requireItemField<Y.Map<unknown>>(yItem, i, "attrs");
-      const yProps = requireItemField<Y.Map<unknown>>(yItem, i, "properties");
-      const item: EmbedItem = Object.freeze({
-        kind: "embed",
-        embedType,
-        attrs: freezeAttrs(yMapToObject(yAttrs)),
-        properties: Object.freeze(yMapToObject(yProps)),
-      });
-      items.push(item);
-    }
-  }
-  return Object.freeze({ items: Object.freeze(items) });
 }
 
 /**

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import * as Y from "yjs";
 import { createHistory, UNDO_COALESCE_PAUSE_MS, type History } from "./history";
-import { createEmptyDocument } from "./initial-state";
+import { createEmptyDocument as createBlankDocument } from "./initial-state";
 import { setBlockAttrs, setBlockAttrsInTx } from "./ops/set-block-attrs";
 import { insertText } from "./ops/insert-text";
 import { deleteRange } from "./ops/delete-range";
@@ -16,6 +16,27 @@ import { STATE_INTERNAL } from "./state-internal";
 import { buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
 // A non-null origin opts a transaction out of undo tracking (e.g. a collaborator's edit).
 const UNTRACKED_ORIGIN = Symbol("untracked");
+
+/**
+ * The tests below commit caret selections at offsets 0..9 of the first paragraph:
+ * undo/redo resolve a stored selection against the restored content (offsets are
+ * clamped to it), so the fixture paragraph holds ten characters.
+ */
+function createEmptyDocument(): ReturnType<typeof createBlankDocument> {
+  const blank = createBlankDocument();
+  const firstId = getBlock(blank, blank.rootId)?.firstChildId ?? null;
+  if (firstId === null) throw new Error("fixture: no first paragraph");
+  // Untracked so the seeding is never an undo entry.
+  return applyOperation(
+    blank,
+    (doc) => {
+      const yText = getYBlock(doc, firstId, "fixture").get("inlineContent");
+      if (!(yText instanceof Y.Text)) throw new Error("fixture: no inline text");
+      yText.insert(0, "0123456789", {});
+    },
+    { origin: UNTRACKED_ORIGIN },
+  ).state;
+}
 
 describe("Yjs UndoManager no-op behavior (empirical baseline)", () => {
   // Step 1.1 finding (2026-05-22): Yjs SKIPS no-op groups under
@@ -903,7 +924,7 @@ describe("History — typing coalescing (#420)", () => {
     state: ReturnType<typeof createEmptyDocument>;
     blockId: BlockId;
   } {
-    const state = createEmptyDocument();
+    const state = createBlankDocument();
     const root = getBlock(state, state.rootId);
     if (root === null || root.firstChildId === null) {
       throw new Error("test fixture: missing first child");
@@ -937,11 +958,14 @@ describe("History — typing coalescing (#420)", () => {
     key: "insert" | "delete" | "command",
     now: number,
   ): ReturnType<typeof createEmptyDocument> {
-    history.beginEntry(key, now);
     const before = createSpan(
       createPosition(blockId, offset),
       createPosition(blockId, offset),
     );
+    // The editor passes the pre-action selection to beginEntry (encoded against
+    // the pre-action doc, so an undo restores it even though the action's own
+    // characters are removed).
+    history.beginEntry(key, now, before);
     const result = insertText(state, createPosition(blockId, offset), ch, {});
     const after = createSpan(
       createPosition(blockId, offset + ch.length),

@@ -4,38 +4,43 @@ import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import {
   splitInlineContentAtOffset,
-  mergeAdjacentTextItems,
   attrsAtOffset,
   type InlineItem,
 } from "../inline-content";
 import type { BlockTreeKind } from "../yjs-doc";
-import { getEmbedContentsMap } from "../yjs-doc";
+import { getEmbedContentsMap, getYBlock } from "../yjs-doc";
+import { inlineItemsFromYText, replaceInlineText, requireYInline } from "../y-inline";
 import { collectEmbedContentSubtreeFromInlineContent } from "../embed-content-cascade";
-import { insertTextInTx } from "./insert-text";
 import type { TextMatch } from "../find-matches";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
 import type { AttrRegistry } from "../../cascade/attr-registry";
 
+/** One match replacement inside a block: delete `[start, end)`, insert `text` (with `attrs`) at `start`. */
+export interface MatchReplacement {
+  readonly start: number;
+  readonly end: number;
+  readonly text: string;
+  readonly attrs: ReadonlyAttrs;
+}
+
 /**
- * One block's post-replacement inline content. `kind` is the tree the block
- * lives in (always `"block"`/main for `findMatches`-sourced matches, but
- * threaded for symmetry with `replaceRange`'s tree-awareness so this primitive
- * is correct if a future caller passes embed/template-body matches).
+ * One block's replacements, in DESCENDING `start` order (so each offset write
+ * leaves the earlier matches' offsets valid). `kind` is the tree the block lives
+ * in (always `"block"`/main for `findMatches`-sourced matches, but threaded for
+ * symmetry with `replaceRange`'s tree-awareness so this primitive is correct if a
+ * future caller passes embed/template-body matches).
  */
 export interface BlockWrite {
   readonly blockId: BlockId;
   readonly kind: BlockTreeKind;
-  readonly items: ReadonlyArray<InlineItem>;
+  readonly replacements: ReadonlyArray<MatchReplacement>;
 }
 
 /**
  * Pre-computed plan for `replaceAllMatches` (the REPLACE_ALL editor action's
- * state primitive). `blockWrites` holds one entry per affected block — its
- * FINAL inline content with ALL the block's matches applied. Composing N
- * per-match `replaceRangeInTx` calls in the same block would not work: each
- * full-replaces the block from its own pre-computed plan, clobbering the prior
- * call. So REPLACE_ALL batches PER BLOCK — compute the block's final content
- * once, then write it once.
+ * state primitive). `blockWrites` holds one entry per affected block with ALL
+ * the block's match replacements as offset writes (descending), applied in ONE
+ * transaction — no other character in the block is touched.
  *
  * `embedContentIdsToDelete` is the set of embed-content subtree roots referenced
  * by removed inline slices. Dropping an `EmbedItem` carrying a
@@ -51,30 +56,8 @@ export interface ReplaceAllPlan {
 }
 
 /**
- * Replace `[start, end)` of `items` with a single text item carrying `attrs`
- * (omit the text item when `text === ""` → pure deletion). A thin composition
- * over the existing inline-content helpers — no new offset-walking. The
- * `mergeAdjacentTextItems` normalize pass merges adjacent same-attrs runs and
- * drops empty text items, the same canonicalization `insertText`/`deleteRange`
- * apply.
- */
-function spliceRun(
-  items: ReadonlyArray<InlineItem>,
-  start: number,
-  end: number,
-  text: string,
-  attrs: ReadonlyAttrs,
-  registry?: AttrRegistry,
-): InlineItem[] {
-  const left = splitInlineContentAtOffset({ items }, start)[0];
-  const right = splitInlineContentAtOffset({ items }, end)[1];
-  const mid: InlineItem[] = text === "" ? [] : [{ kind: "text", text, attrs }];
-  return mergeAdjacentTextItems([...left, ...mid, ...right], registry);
-}
-
-/**
  * Pure planner for REPLACE_ALL. Groups `matches` by block, applies each block's
- * matches RIGHT-TO-LEFT (descending `start`) so each splice's offsets stay
+ * matches RIGHT-TO-LEFT (descending `start`) so each replacement's offsets stay
  * valid against the still-unmodified prefix, and emits one `BlockWrite` per
  * affected block plus the cascaded embed-content ids.
  *
@@ -88,7 +71,6 @@ export function planReplaceMatches(
   state: State,
   matches: readonly TextMatch[],
   replacement: string,
-  registry?: AttrRegistry,
 ): ReplaceAllPlan {
   // Group matches by blockId, preserving first-seen block order. (Within a
   // group, matches keep their input order.)
@@ -118,7 +100,7 @@ export function planReplaceMatches(
     }
 
     // Assert ascending + non-overlapping within the block (findMatches guarantees
-    // it; a violation means malformed input that would corrupt the splice).
+    // it; a violation means malformed input that would corrupt the replacements).
     for (let i = 1; i < blockMatches.length; i++) {
       const prev = blockMatches[i - 1];
       const curr = blockMatches[i];
@@ -131,10 +113,11 @@ export function planReplaceMatches(
       }
     }
 
-    let items: ReadonlyArray<InlineItem> = block.inlineContent.items;
+    const items: ReadonlyArray<InlineItem> = block.inlineContent.items;
+    const replacements: MatchReplacement[] = [];
 
     // Apply RIGHT-TO-LEFT: an earlier match's [start,end) is unaffected by a
-    // later match's splice. We iterate the (ascending) array in reverse.
+    // later match's replacement. We iterate the (ascending) array in reverse.
     for (let i = blockMatches.length - 1; i >= 0; i--) {
       const m = blockMatches[i];
       if (m === undefined) {
@@ -158,10 +141,10 @@ export function planReplaceMatches(
       // semantics). NOT `getActiveFormatting`/`cursorTextItem`, which use
       // left-of-cursor caret semantics (the opposite direction).
       const attrs = attrsAtOffset({ items }, m.start);
-      items = spliceRun(items, m.start, m.end, replacement, attrs, registry);
+      replacements.push({ start: m.start, end: m.end, text: replacement, attrs });
     }
 
-    blockWrites.push({ blockId, kind, items });
+    blockWrites.push({ blockId, kind, replacements });
   }
 
   return { blockWrites, embedContentIdsToDelete };
@@ -169,10 +152,8 @@ export function planReplaceMatches(
 
 /**
  * Apply a `ReplaceAllPlan` to `state` in ONE `applyOperation` (= ONE Y
- * transaction = ONE undo step, per brief D5). Each block write is a
- * full-replace of that block's `inlineContent` — `insertTextInTx`'s
- * full-replace branch does exactly `getYBlock(...).set("inlineContent", ...)`,
- * so reuse it directly. Embed bodies referenced by removed slices are
+ * transaction = ONE undo step, per brief D5). Each replacement is an offset
+ * delete + insert on the block's inline `Y.Text`. Embed bodies referenced by removed slices are
  * cascade-deleted from the embedContents map inside the same transaction.
  *
  * No-op (returns the input state reference, empty dirtyIds) when there are no
@@ -185,11 +166,11 @@ export function replaceAllMatches(
   replacement: string,
   registry?: AttrRegistry,
 ): OperationResult {
-  const plan = planReplaceMatches(state, matches, replacement, registry);
+  const plan = planReplaceMatches(state, matches, replacement);
   if (plan.blockWrites.length === 0 && plan.embedContentIdsToDelete.size === 0) {
     return { state, dirtyIds: new Set<BlockId>() };
   }
-  return applyReplaceAllPlan(state, plan);
+  return applyReplaceAllPlan(state, plan, registry);
 }
 
 /**
@@ -200,15 +181,14 @@ export function replaceAllMatches(
 export function applyReplaceAllPlan(
   state: State,
   plan: ReplaceAllPlan,
+  registry?: AttrRegistry,
 ): OperationResult {
   return applyOperation(state, (doc) => {
     for (const w of plan.blockWrites) {
-      insertTextInTx(doc, {
-        blockId: w.blockId,
-        kind: w.kind,
-        mode: "full-replace",
-        items: w.items,
-      });
+      const yText = requireYInline(getYBlock(doc, w.blockId, "replaceAllMatches", w.kind), w.blockId, "replaceAllMatches");
+      // ONE read per block; replacements are descending, so its offsets stay valid.
+      const live = inlineItemsFromYText(yText);
+      for (const r of w.replacements) replaceInlineText(yText, live, r.start, r.end, r.text, r.attrs, registry);
     }
     if (plan.embedContentIdsToDelete.size > 0) {
       const yEmbeds = getEmbedContentsMap(doc);
