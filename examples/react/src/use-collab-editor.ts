@@ -82,6 +82,8 @@ export interface UseCollabEditorResult {
   hyphenator: Hyphenator;
   pageConfig: PageConfig;
   focus: () => void;
+  /** The reducer's config — spread into `EditorView` so the controller uses the same registries. */
+  config: EditorConfig;
 }
 
 /**
@@ -167,5 +169,6 @@ export function useCollabEditor(sharedDoc: State, selfOrigin: string): UseCollab
     hyphenator: geometry.hyphenator,
     pageConfig: PAGE_CONFIG,
     focus,
+    config,
   };
 }

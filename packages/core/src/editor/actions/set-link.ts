@@ -2,6 +2,7 @@ import type { EditorState, EditorConfig } from "../editor-state";
 import { isCollapsed } from "../../cursor/selection";
 import { applyAttrsOrSuggest } from "./suggestion-mode";
 import { rebuildTrees } from "./helpers";
+import { storeTypingAttrs } from "../typing-attrs";
 
 /**
  * Set or clear a hyperlink on the current selection. Used by HL.4's
@@ -19,9 +20,9 @@ import { rebuildTrees } from "./helpers";
  * mutates state. Click handling (Cmd/Ctrl-click to open the URL)
  * lives in the DOM editor controller (HL.3).
  *
- * Mirrors the toggle-style.ts shape: collapsed selection short-
- * circuits to a no-op (no link can be applied to a single cursor
- * position); T7 state-equality short-circuit; the selection is
+ * Mirrors the toggle-style.ts shape: at a collapsed caret, REMOVING the
+ * link records it in the pending typing attrs (the next typed text is not
+ * linked) while setting a URL is a no-op (a link needs text); T7 state-equality short-circuit; the selection is
  * preserved unchanged; dirtyIds threaded through to the
  * incremental render pipeline (per R-D.3).
  */
@@ -31,7 +32,13 @@ export function handleSetLink(
   config: EditorConfig,
 ): EditorState {
   const { selection } = editor;
-  if (isCollapsed(selection)) return editor;
+  // Collapsed caret: removing the link stops the next typed text from being
+  // linked (typing attrs); a URL needs text to target, so setting one is a no-op.
+  if (isCollapsed(selection)) {
+    return url === null || url.length === 0
+      ? storeTypingAttrs(editor, { link: undefined }, config.attrRegistry)
+      : editor;
+  }
 
   // Normalize empty string to a removal — UX rule: an empty URL
   // isn't a meaningful link. Per the HL.1 test note, the cascade

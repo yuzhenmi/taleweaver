@@ -209,6 +209,10 @@ export {
 export type { ActiveFormatting } from "./active-formatting";
 export { getActiveFormatting } from "./active-formatting";
 
+// Inline marks: the ranges of a mark type (host query) + the per-block primitive.
+export type { MarkRange, BlockMarkRange, MarkEquality } from "./mark-ranges";
+export { getMarkRanges, blockMarkRanges, markEqualityOf } from "./mark-ranges";
+
 // ─────────────────────────────────────────────────────────────────────────
 // Layer 3 — state-mutating operations + history
 //

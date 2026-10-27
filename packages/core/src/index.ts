@@ -141,8 +141,8 @@ export type {
   OutlineEntry,
   OutlineOptions,
 } from "./state";
-export { getActiveFormatting } from "./state";
-export type { ActiveFormatting } from "./state";
+export { getActiveFormatting, getMarkRanges } from "./state";
+export type { ActiveFormatting, MarkRange } from "./state";
 
 // List numbering definitions — surfaced for human-friendly serializers that
 // classify a list as ordered/unordered and mint fresh list ids on decode.
@@ -252,8 +252,15 @@ export {
 
 // Cascade
 export { cascadePass, cascadePassIncremental, composeComputed, resolveLength } from "./cascade";
-export { AttrRegistry, createDefaultAttrRegistry } from "./cascade/attr-registry";
-export type { AttrInterpreter, CascadeContext } from "./cascade/attr-registry";
+export {
+  AttrRegistry,
+  createDefaultAttrRegistry,
+  registerMark,
+  markInstanceKey,
+  markTypeOf,
+  MARK_INSTANCE_SEPARATOR,
+} from "./cascade/attr-registry";
+export type { AttrInterpreter, CascadeContext, MarkSpec, MarkDom } from "./cascade/attr-registry";
 
 // Render tree (new pipeline)
 export type {
@@ -420,6 +427,9 @@ export type { EditorAction } from "./editor/editor-action";
 // reason about the same set.
 export type { InlineFormatAttrKey } from "./editor/inline-format-keys";
 export { INLINE_FORMAT_ATTR_KEYS } from "./editor/inline-format-keys";
+// Typing attributes: what the next typed text gets (pending storedAttrs, else
+// inherited at the caret per each key's MarkSpec).
+export { getTypingAttrs } from "./editor/typing-attrs";
 // LineBox-canonical line traversal (`AbsoluteLineBox` / `collectLineBoxes` etc.)
 // is geometric and RELOCATED to `@taleweaver/print` (dual-mode Phase 3 sub-phase 3).
 export type {

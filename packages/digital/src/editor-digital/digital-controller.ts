@@ -253,7 +253,8 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
   }
   function onCopy(e: ClipboardEvent): void {
     e.preventDefault();
-    const frag = extractFragment(editorState.state, editorState.selection);
+    // copy:"drop" marks are stripped from what leaves the editor.
+    const frag = extractFragment(editorState.state, editorState.selection, options.attrRegistry);
     e.clipboardData?.setData(
       "text/plain",
       extractText(editorState.state, editorState.selection, builtinEmbedSerializer, "suggesting"),

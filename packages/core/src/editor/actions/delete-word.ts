@@ -1,4 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
+import { expandSpanOverAtomicMarks } from "../atomic-marks";
 import { createPosition, createSpan, spanStart, spanEnd } from "../../state";
 import { moveByWord } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
@@ -73,10 +74,12 @@ export function handleDeleteWord(
   }
   if (target.offset === pos.offset) return editor;
 
-  const span =
-    direction === "backward"
-      ? createSpan(target, pos)
-      : createSpan(pos, target);
+  // A word step that ends inside an atomic mark deletes the whole mark.
+  const span = expandSpanOverAtomicMarks(
+    editor.state,
+    direction === "backward" ? createSpan(target, pos) : createSpan(pos, target),
+    config.attrRegistry,
+  );
   const result = deleteRangeOrSuggest(editor.state, span, config);
   if (result.state === editor.state) return editor;
   // Soft-delete leaves the caret on the FAR edge of the struck span in the
@@ -93,7 +96,7 @@ export function handleDeleteWord(
     spanStart(editor.state, span).blockId,
     config,
   );
-  const newCursor = direction === "backward" ? target : suggesting ? target : pos;
+  const newCursor = direction === "backward" ? span.anchor : suggesting ? span.focus : span.anchor;
   const newSelection = createSpan(newCursor, newCursor);
   editor.history.commit(result, {
     before: selection,

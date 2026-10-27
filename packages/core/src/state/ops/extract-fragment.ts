@@ -5,7 +5,8 @@ import { productionAllocator } from "../block-id";
 import type { Span } from "../block-position";
 import type { Block } from "../block";
 import type { InlineItem, InlineContent } from "../inline-content";
-import { splitInlineContentAtOffset, inlineContentLength } from "../inline-content";
+import { splitInlineContentAtOffset, inlineContentLength, mergeAdjacentTextItems } from "../inline-content";
+import type { AttrRegistry } from "../../cascade/attr-registry";
 import { normalizeSpan } from "../span-iteration";
 import { selectionContextOf } from "../block-compare";
 import { ancestorChain } from "../block-traversal";
@@ -50,10 +51,27 @@ import { getListDefsForState, type ListDef } from "../list-defs";
  * as the walk skeleton (they skip / throw on container blocks — table structure
  * would be destroyed). The walk is a direct sibling chain from the context root.
  *
+ * **Inline marks:** given the `registry`, marks registered with `copy: "drop"`
+ * (see `MarkSpec`) are stripped from the copied content; every other attr —
+ * formatting and `copy: "keep"` marks — is carried.
+ *
  * @throws if the span crosses selection contexts (header→body etc.).
  */
-export function extractFragment(state: State, span: Span): State {
-  return extractFragmentWithAllocator(state, span, productionAllocator);
+export function extractFragment(state: State, span: Span, registry?: AttrRegistry): State {
+  return extractFragmentWithAllocator(state, span, productionAllocator, registry);
+}
+
+/** `block` without the attrs `drop` rejects on its inline items (runs re-merged). */
+function stripInlineAttrs(block: Block, drop: (key: string) => boolean): Block {
+  const content = block.inlineContent;
+  if (content === null || !content.items.some((it) => Object.keys(it.attrs).some(drop))) return block;
+  const items = content.items.map((it): InlineItem => {
+    if (!Object.keys(it.attrs).some(drop)) return it;
+    const attrs: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(it.attrs)) if (!drop(k)) attrs[k] = v;
+    return { ...it, attrs: Object.freeze(attrs) };
+  });
+  return Object.freeze({ ...block, inlineContent: Object.freeze({ items: Object.freeze(mergeAdjacentTextItems(items)) }) });
 }
 
 /**
@@ -67,6 +85,7 @@ function extractFragmentWithAllocator(
   state: State,
   span: Span,
   alloc: IdAllocator,
+  registry?: AttrRegistry,
 ): State {
   // 1. Normalize span to document order.
   const normalized = normalizeSpan(state, span);
@@ -155,11 +174,12 @@ function extractFragmentWithAllocator(
     }
   }
 
-  // 6. Build and return the fragment State.
+  // 6. Strip copy:"drop" marks, then build and return the fragment State.
+  const drop = registry?.hasCopyDropMarks() === true ? (key: string) => registry.dropsOnCopy(key) : null;
   return buildStateFromBlocks({
     rootId,
-    blocks: allBlocks,
-    embedContents: allEmbedContents,
+    blocks: drop === null ? allBlocks : allBlocks.map((b) => stripInlineAttrs(b, drop)),
+    embedContents: drop === null ? allEmbedContents : allEmbedContents.map((b) => stripInlineAttrs(b, drop)),
     listDefs,
     suggestions: suggestionRecords,
   });

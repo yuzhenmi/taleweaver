@@ -18,7 +18,7 @@ import {
   isExportSafeLinkUrl,
 } from "@taleweaver/core";
 import { computedStyleToInlineStyle } from "./computed-style-to-css";
-import { decorateBlockElement } from "./decorate-dom";
+import { decorateBlockElement, applyHostClassAndAttributes } from "./decorate-dom";
 
 export interface RenderDocumentToDomOptions {
   readonly suggestionView?: SuggestionView;
@@ -428,6 +428,14 @@ function textBoxToDom(box: TextBox, doc: Document): Node {
     a.setAttribute("href", box.link);
     a.appendChild(current);
     current = a;
+  }
+  // Inline marks (`MarkSpec.toDom`): one span carrying every mark's class /
+  // attributes, outermost so a host can address the whole run.
+  if (box.marks !== undefined && box.marks.length > 0) {
+    const span = doc.createElement("span");
+    for (const m of box.marks) applyHostClassAndAttributes(span, m.class, m.attributes);
+    span.appendChild(current);
+    current = span;
   }
   return current;
 }

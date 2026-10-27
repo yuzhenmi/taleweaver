@@ -42,6 +42,20 @@ export type EditorAction =
   | { type: "SET_FONT_SIZE"; size: number | null }
   | { type: "SET_FONT_FAMILY"; family: string | null }
   | { type: "CLEAR_FORMATTING" }
+  /**
+   * Put inline mark `key` = `value` on `span` (default: the selection). An
+   * exclusive mark replaces the type's value there; a non-exclusive one adds an
+   * instance (see `MarkSpec`). `replace` (non-exclusive marks): an existing
+   * instance's value to swap for `value` in the same step (one undo step, one
+   * suggestion). Undoable; tracked as a formatting suggestion in suggesting mode.
+   * No-op on a collapsed span.
+   */
+  | { type: "SET_MARK"; key: string; value: unknown; replace?: unknown; span?: Span }
+  /**
+   * Remove inline mark `key` from `span` (default: the selection) — only the runs /
+   * instance whose value deep-equals `value` when given, every value otherwise.
+   */
+  | { type: "REMOVE_MARK"; key: string; value?: unknown; span?: Span }
   | { type: "PASTE"; text?: string; html?: string; clip?: string }
   | { type: "SET_BLOCK_TYPE"; blockType: string; properties?: Record<string, unknown> }
   | { type: "TOGGLE_LIST"; listType: "ordered" | "unordered" }

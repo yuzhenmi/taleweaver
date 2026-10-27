@@ -17,6 +17,7 @@ import {
   type Position,
   type Decoration,
   type State,
+  type EditorConfig,
   markStart,
   markEnd,
   recordSample,
@@ -59,6 +60,14 @@ export interface EditorViewProps {
   decorationsBasedOn?: State;
   /** Hover / click on decorated content (built-in highlights included). */
   onDecorationPointer?: (event: PrintDecorationPointerEvent) => void;
+  /**
+   * The host's core `EditorConfig` — the SAME object the reducer runs with — so the
+   * print controller renders, hit-tests and copies with exactly the registries
+   * editing uses (host marks paint via their `toStyle`). `useEditor` returns it,
+   * so spreading the hook result passes it. Default: the built-in registries.
+   * Read at mount.
+   */
+  config?: Pick<EditorConfig, "componentRegistry" | "attrRegistry">;
 }
 
 /**
@@ -95,7 +104,7 @@ const handleProfile: ProfilerOnRenderCallback = (id, _phase, actualDuration) => 
 
 export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
   function EditorView(
-    { editorState, dispatch, containerRef, measurer, pageHeight, pageGap, pageConfig, hyphenator, decorations, decorationsBasedOn, onDecorationPointer },
+    { editorState, dispatch, containerRef, measurer, pageHeight, pageGap, pageConfig, hyphenator, decorations, decorationsBasedOn, onDecorationPointer, config },
     ref,
   ) {
   const controllerRef = useRef<EditorController | null>(null);
@@ -138,6 +147,7 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
       pageGap,
       pageConfig,
       hyphenator,
+      ...(config !== undefined ? { config } : {}),
       onDecorationPointer: (event) => pointerRef.current?.(event),
     });
     controllerRef.current = ctrl;

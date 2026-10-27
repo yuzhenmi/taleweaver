@@ -28,6 +28,7 @@ import {
   Highlighter,
   Ban,
   RemoveFormatting,
+  AtSign,
 } from "lucide-react";
 import { Toggle } from "@/components/ui/toggle";
 import { Button } from "@/components/ui/button";
@@ -46,6 +47,7 @@ import {
 import type { EditorAction, EditorState, FootnoteNumberingPolicy } from "@taleweaver/print";
 import { documentFootnotePolicy } from "@taleweaver/print";
 import { getFormatState } from "./toolbar-utils";
+import { mentionAction } from "./mentions";
 
 interface ToolbarProps {
   dispatch: React.Dispatch<EditorAction>;
@@ -384,6 +386,16 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
         label="Clear formatting (Ctrl+\)"
         icon={RemoveFormatting}
         onAction={() => dispatch({ type: "CLEAR_FORMATTING" })}
+      />
+      {/* Inline-mark demo: turn the selected name into an atomic mention chip. */}
+      <ToolbarButton
+        label="Mention (turn the selected name into a mention)"
+        icon={AtSign}
+        disabled={mentionAction(editorState) === null}
+        onAction={() => {
+          const action = mentionAction(editorState);
+          if (action !== null) dispatch(action);
+        }}
       />
 
       <Separator orientation="vertical" className="mx-1 h-5 bg-[#c4c7c5]" />

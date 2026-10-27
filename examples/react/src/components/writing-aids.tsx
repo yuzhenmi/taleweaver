@@ -8,6 +8,7 @@ import {
   type EditorState,
   type State,
 } from "@taleweaver/core";
+import { mentionDecorations } from "./mentions";
 /** The pointer event fields the demo reads — satisfied by BOTH backends' events
  *  (digital `DecorationPointerEvent`, print `PrintDecorationPointerEvent`). */
 export interface AidPointerEvent {
@@ -99,6 +100,8 @@ export function writingAidDecorations(state: State): Decoration[] {
 /**
  * Recompute the aids off the keystroke path (debounced): between recomputes the editor
  * keeps the previous set mapped through every edit, so it stays attached while typing.
+ * The mention hover decorations (computed from the mark ranges) ride along, whether or
+ * not the writing aids are shown.
  */
 export function useWritingAids(
   enabled: boolean,
@@ -107,12 +110,9 @@ export function useWritingAids(
 ): void {
   const state = editorState.state;
   useEffect(() => {
-    if (!enabled) {
-      setDecorations([], state);
-      return;
-    }
     // Computed against `state`; the editor maps the result through any edits made since.
-    const handle = window.setTimeout(() => setDecorations(writingAidDecorations(state), state), 250);
+    const compute = () => [...(enabled ? writingAidDecorations(state) : []), ...mentionDecorations(state)];
+    const handle = window.setTimeout(() => setDecorations(compute(), state), 250);
     return () => window.clearTimeout(handle);
   }, [enabled, state, setDecorations]);
 }

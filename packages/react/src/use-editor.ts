@@ -7,16 +7,23 @@ import {
   type EditorAction,
   type EditorState,
   type EditorConfig,
+  type AttrRegistry,
 } from "@taleweaver/core";
 import { createCanvasShaper, browserHtmlParser } from "@taleweaver/print";
 
 const DEFAULT_WIDTH = 600;
 
 export interface UseEditorOptions {
-  // Plan 2: pageHeight and pageMargins will be added here
+  /**
+   * The attribute registry (built-in formatting + any host marks registered with
+   * `registerMark`). Default: `createDefaultAttrRegistry()`. It lives on the
+   * returned `config`, which spreading the hook result into `EditorView` hands to
+   * the print controller — one config for reducer and controller.
+   */
+  readonly attrRegistry?: AttrRegistry;
 }
 
-function createConfig(_options?: UseEditorOptions): EditorConfig {
+function createConfig(options?: UseEditorOptions): EditorConfig {
   // L-B / closes #164: pass createCanvasShaper directly. The legacy
   // createCanvasMeasurer is a thin adapter that adaptShaperToMeasurer-wraps
   // the shaper into a TextMeasurer interface (per-string total width,
@@ -31,7 +38,7 @@ function createConfig(_options?: UseEditorOptions): EditorConfig {
     // print backend's controller. The shaper is created + returned separately
     // (see `useEditor`'s `shaperRef`).
     componentRegistry: createDefaultComponentRegistry(),
-    attrRegistry: createDefaultAttrRegistry(),
+    attrRegistry: options?.attrRegistry ?? createDefaultAttrRegistry(),
     containerWidth: DEFAULT_WIDTH,
     htmlParser: browserHtmlParser,
   };
@@ -89,5 +96,6 @@ export function useEditor(options?: UseEditorOptions) {
     containerRef,
     shaper,
     focus,
+    config,
   };
 }

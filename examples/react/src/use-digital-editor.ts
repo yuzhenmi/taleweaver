@@ -8,7 +8,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createDefaultComponentRegistry,
-  createDefaultAttrRegistry,
   createEditorStateFromState,
   createInitialEditorState,
   initialSelectionForState,
@@ -25,6 +24,7 @@ import {
 } from "@taleweaver/digital";
 import type { Decoration, FindStatus } from "@taleweaver/core";
 import type { FindHandle } from "./components/find-bar";
+import { createDemoAttrRegistry } from "./components/mentions";
 
 const PAGE_CONFIG: PageConfig = {
   pageInlineSize: 816,
@@ -55,7 +55,7 @@ export function useDigitalEditor(
   if (configRef.current === null) {
     configRef.current = {
       componentRegistry: createDefaultComponentRegistry(),
-      attrRegistry: createDefaultAttrRegistry(),
+      attrRegistry: createDemoAttrRegistry(), // built-ins + the demo `mention` mark
       containerWidth: 816,
       pageConfig: PAGE_CONFIG,
     };

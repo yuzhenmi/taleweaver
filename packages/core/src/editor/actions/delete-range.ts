@@ -1,6 +1,7 @@
 import type { EditorState, EditorConfig } from "../editor-state";
+import { expandSpanOverAtomicMarks } from "../atomic-marks";
 import type { Span } from "../../state";
-import { createPosition, createSpan, normalizeSpan, spanStart } from "../../state";
+import { createPosition, createSpan, spanStart } from "../../state";
 import { deleteRangeOrSuggest } from "./suggestion-mode";
 import { rebuildTrees } from "./helpers";
 
@@ -24,7 +25,8 @@ export function handleDeleteRange(
   span: Span,
   config: EditorConfig,
 ): EditorState {
-  const norm = normalizeSpan(editor.state, span);
+  // Normalized, and grown over any atomic mark it only partly covers.
+  const norm = expandSpanOverAtomicMarks(editor.state, span, config.attrRegistry);
   const result = deleteRangeOrSuggest(editor.state, norm, config);
   if (result.state === editor.state) return editor;
   const start = spanStart(editor.state, norm);

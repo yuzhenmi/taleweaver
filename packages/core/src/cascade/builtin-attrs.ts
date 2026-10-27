@@ -145,6 +145,8 @@ export const linkInterpreter: AttrInterpreter = {
     typeof value === "string"
       ? { color: "#1a73e8", underline: true }
       : {},
+  // Google Docs / Word: typing at a link's edge does not extend the link.
+  mark: { inclusive: false },
 };
 
 export const fontFamilyInterpreter: AttrInterpreter = {

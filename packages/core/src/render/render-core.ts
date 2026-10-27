@@ -354,6 +354,7 @@ export function expandInlineItems(
           runStyle,
           item.text,
           typeof linkAttr === "string" ? linkAttr : undefined,
+          attrRegistry.markDom(item.attrs),
         ),
       );
     } else if (item.embedType === FOOTNOTE_ANCHOR_EMBED_TYPE) {

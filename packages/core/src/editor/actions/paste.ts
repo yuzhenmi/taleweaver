@@ -34,15 +34,16 @@ import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 import { replaceSuggestionInputForBlock } from "./suggestion-mode";
 import { isCrossContextSelection } from "./selection-guards";
+import { getTypingAttrs } from "../typing-attrs";
 
 /**
- * Build the inline content for one pasted line: a single empty-attrs text
- * run, or an empty leaf when the line is empty. Pasted runs carry EMPTY
- * attrs `{}` (matching the legacy per-line `insertText(..., {})` path).
+ * Build the inline content for one pasted line: a single text run carrying the
+ * typing attrs `attrs` (plain text pastes in the formatting at the caret, like
+ * typing), or an empty leaf when the line is empty.
  */
-function lineToInlineContent(lineText: string): InlineContent {
+function lineToInlineContent(lineText: string, attrs: ReadonlyAttrs): InlineContent {
   return lineText.length > 0
-    ? { items: [{ kind: "text", text: lineText, attrs: {} }] }
+    ? { items: [{ kind: "text", text: lineText, attrs }] }
     : { items: [] };
 }
 
@@ -281,6 +282,8 @@ export function handlePaste(
 
   // Normalize line endings: strip \r so \r\n becomes \n.
   const text = rawText.replace(/\r/g, "");
+  // Plain text takes the typing attrs at the caret / selection start, like typing.
+  const attrs = getTypingAttrs(editor, config.attrRegistry);
 
   // Suggesting mode: insert the paste as ONE tracked suggestion instead of mutating
   // destructively. The fragment is a tracked INSERTION (inter-line breaks are
@@ -302,7 +305,7 @@ export function handlePaste(
     const sourceAttrs = sourceBlock?.attrs ?? {};
     const fragment: SiblingBlockInit[] = text
       .split("\n")
-      .map((line) => ({ type: sourceType, attrs: sourceAttrs, inlineContent: lineToInlineContent(line) }));
+      .map((line) => ({ type: sourceType, attrs: sourceAttrs, inlineContent: lineToInlineContent(line, attrs) }));
     const result = replaceWithSuggestedFragment(
       editor.state,
       selection,
@@ -361,7 +364,7 @@ export function handlePaste(
   // Insert the first line as text at the current position. (If L0 is empty,
   // skip; pos stays put — matching the legacy path.)
   if (firstLine.length > 0) {
-    const r = insertText(state, pos, firstLine, {});
+    const r = insertText(state, pos, firstLine, attrs, config.attrRegistry);
     state = r.state;
     for (const id of r.dirtyIds) accumulatedDirtyIds.add(id);
     pos = createPosition(pos.blockId, pos.offset + firstLine.length);
@@ -418,7 +421,8 @@ export function handlePaste(
           state,
           createPosition(lastNewBlockId, 0),
           lastLine,
-          {},
+          attrs,
+          config.attrRegistry,
         );
         state = r.state;
         for (const id of r.dirtyIds) accumulatedDirtyIds.add(id);
@@ -439,7 +443,7 @@ export function handlePaste(
           middleInits.push({
             type: sourceType,
             attrs: sourceAttrs,
-            inlineContent: lineToInlineContent(middleLine),
+            inlineContent: lineToInlineContent(middleLine, attrs),
           });
         }
         const bulkResult = insertBlocksAfter(

@@ -4,7 +4,7 @@ import { render, act } from "@testing-library/react";
 import { EditorView, type EditorViewHandle } from "./editor-view";
 import { useEditor } from "./use-editor";
 import { createEditorController } from "@taleweaver/print";
-import { asBlockId, type Decoration } from "@taleweaver/core";
+import { asBlockId, createDefaultAttrRegistry, type Decoration } from "@taleweaver/core";
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -111,6 +111,16 @@ describe("EditorView", () => {
     render(<EditorHarness />);
     // May be called twice in React StrictMode (dev double-mount)
     expect(createEditorController).toHaveBeenCalled();
+  });
+
+  it("hands useEditor's config (one registry for reducer + controller) to the controller (host marks paint in print)", () => {
+    const attrRegistry = createDefaultAttrRegistry();
+    function RegistryHarness() {
+      const editor = useEditor({ attrRegistry });
+      return <EditorView {...editor} />;
+    }
+    render(<RegistryHarness />);
+    expect(vi.mocked(createEditorController).mock.calls.at(-1)?.[1].config?.attrRegistry).toBe(attrRegistry);
   });
 
   it("calls controller.update() with initial editorState", () => {

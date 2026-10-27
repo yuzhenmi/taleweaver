@@ -4,6 +4,7 @@ import type { Selection } from "./block-position";
 import { positionsEqual } from "./block-position";
 import type { Block } from "./block";
 import type { TextItem } from "./inline-content";
+import type { ReadonlyAttrs } from "./attrs";
 import { iterateSpan, iterateBlocksInSpan } from "./span-iteration";
 import type { TextTransform } from "../styles";
 
@@ -108,13 +109,24 @@ const UNSEEN = Symbol("unseen");
  * Degenerate selections (focus block missing, or no leaf blocks at all) yield
  * toggles `false`, values `null`, and `blockType` the focus block's type
  * (falling back to `"paragraph"`).
+ *
+ * `storedAttrs` — the editor's pending typing attrs (`EditorState.storedAttrs`,
+ * set by a format command at a collapsed caret). When given at a collapsed caret
+ * they ARE the inline formatting (they are what the next keystroke types), so the
+ * toolbar reflects a collapsed Bold toggle immediately.
  */
-export function getActiveFormatting(state: State, selection: Selection): ActiveFormatting {
+export function getActiveFormatting(
+  state: State,
+  selection: Selection,
+  storedAttrs?: ReadonlyAttrs,
+): ActiveFormatting {
   const collapsed = positionsEqual(selection.anchor, selection.focus);
 
   // ── Inline: gather the text items the selection reads. ──────────────────
-  const inlineItems = collapsed
-    ? cursorTextItem(state, selection)
+  const inlineItems: TextItem[] = collapsed
+    ? storedAttrs !== undefined
+      ? [{ kind: "text", text: "", attrs: storedAttrs }]
+      : cursorTextItem(state, selection)
     : spanTextItems(state, selection);
 
   const bold = toggleOf(inlineItems, "bold");

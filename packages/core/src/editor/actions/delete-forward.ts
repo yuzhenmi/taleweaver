@@ -1,4 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
+import { expandSpanOverAtomicMarks } from "../atomic-marks";
 import { resolveBlock, createPosition, createSpan, spanStart, spanEnd, mergeAdjacentBlocks, markBlockJoinSuggestion, mergeSectionWithPrevious, inlineContentLength } from "../../state";
 import { moveByCharacter } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
@@ -73,7 +74,8 @@ export function handleDeleteForward(
     const next = moveByCharacter(editor.state, pos, "forward");
     if (next.blockId !== pos.blockId) return editor;
     if (next.offset === pos.offset) return editor;
-    const span = createSpan(pos, next);
+    // A character of an atomic mark deletes the whole mark.
+    const span = expandSpanOverAtomicMarks(editor.state, createSpan(pos, next), config.attrRegistry);
     const result = deleteRangeOrSuggest(editor.state, span, config);
     if (result.state === editor.state) return editor;
     // Forward soft-delete strikes the char in place, so the caret must ADVANCE
@@ -90,8 +92,8 @@ export function handleDeleteForward(
       config,
     );
     const newCursor = suggesting
-      ? createPosition(next.blockId, next.offset)
-      : createPosition(pos.blockId, pos.offset);
+      ? createPosition(span.focus.blockId, span.focus.offset)
+      : createPosition(span.anchor.blockId, span.anchor.offset);
     const newSelection = createSpan(newCursor, newCursor);
     editor.history.commit(result, {
       before: selection,

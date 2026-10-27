@@ -1,4 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
+import { inheritedAttrsAt } from "../typing-attrs";
 import {
   getBlock,
   resolveBlock,
@@ -125,8 +126,8 @@ function caretAfterObjectDelete(
  * (an image with only atomic-leaf neighbours — not reachable from the standard
  * insert pipeline, which always trails a paragraph).
  *
- * `text` is the typed run (always non-empty from the typing path); attrs are
- * taken from the insert target's surrounding run by `insertText`'s planner.
+ * `text` is the typed run (always non-empty from the typing path); it takes the
+ * typing attrs at the landing position (`inheritedAttrsAt`).
  */
 export function replaceObjectWithText(
   editor: EditorState,
@@ -141,7 +142,9 @@ export function replaceObjectWithText(
   const target = textTargetSibling(editor, obj.nextSiblingId, obj.prevSiblingId);
   if (target === null) return editor;
 
-  const attrs: ReadonlyAttrs = {};
+  // Typing attributes at the landing caret (pending ones win), like any typing.
+  const attrs: ReadonlyAttrs =
+    editor.storedAttrs ?? inheritedAttrsAt(editor.state, createPosition(target.blockId, target.offset), config.attrRegistry);
   const result = replaceBlockWithText(
     editor.state,
     objId,

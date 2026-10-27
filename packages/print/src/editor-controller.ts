@@ -1,4 +1,4 @@
-import { createSpan, createPosition, isCollapsed, extractText, builtinEmbedSerializer, selectWord, getBlock, inlineContentLength, findItemAtOffset, selectionContextOf, spanStart, spanEnd, markStart, markEnd, buildAccessibilityTree, extractFragment, encodeHtml, encodeFragmentClip, TALEWEAVER_CLIP_MIME, type Position, type BlockId, type TextShaper, type TextMeasurer, type Hyphenator, type PageConfig, type ComponentRegistry, type AttrRegistry, type EditorAction, type EditorState, type State, type TextMatch, type FindMatchesOptions, type Span, type CaretAffinity, isOpenableLinkUrl, makeBlockParentLookup, createDefaultComponentRegistry, createDefaultAttrRegistry, createDecorationLayers, createFindSession, createMappingLog, mapDecorations, transitionMapping, EMPTY_DECORATION_SET, type FindStatus, type Decoration, type DecorationSet, type WidgetDecoration, type CommentHighlight, type SuggestionHighlight } from "@taleweaver/core";
+import { createSpan, createPosition, isCollapsed, extractText, builtinEmbedSerializer, selectWord, getBlock, inlineContentLength, findItemAtOffset, selectionContextOf, spanStart, spanEnd, markStart, markEnd, buildAccessibilityTree, extractFragment, encodeHtml, encodeFragmentClip, TALEWEAVER_CLIP_MIME, type Position, type BlockId, type TextShaper, type TextMeasurer, type Hyphenator, type PageConfig, type EditorConfig, type EditorAction, type EditorState, type State, type TextMatch, type FindMatchesOptions, type Span, type CaretAffinity, isOpenableLinkUrl, makeBlockParentLookup, createDefaultComponentRegistry, createDefaultAttrRegistry, createDecorationLayers, createFindSession, createMappingLog, mapDecorations, transitionMapping, EMPTY_DECORATION_SET, type FindStatus, type Decoration, type DecorationSet, type WidgetDecoration, type CommentHighlight, type SuggestionHighlight } from "@taleweaver/core";
 import { resolvePixelPosition, type PixelPosition } from "./cursor/cursor-position";
 import { resolvePositionFromPixel } from "./cursor/hit-test";
 import { computeSelectionRects, computeSelectionRectsForPage, type SelectionRect } from "./cursor/selection-geometry";
@@ -102,28 +102,19 @@ export interface EditorControllerOptions {
    */
   accessibilityMirror?: boolean;
   /**
-   * The block-kind resolver used by the object-selection hit-test pre-pass
-   * (#525). When provided, a click INSIDE an atomic-leaf block's rect (image /
-   * horizontal-line) selects that block AS AN OBJECT — `resolvePositionFromPixel`
-   * returns the collapsed-on-atomic position `{blockId, 0}`, taking priority over
-   * the LineBox text fall-through. When omitted, hit-testing is text-only
-   * (byte-identical to today). The `ComponentRegistry` is the canonical
-   * `BlockKindResolver`.
-   *
-   * ALSO consumed by the layout-driver (Phase 0b): the render pass it owns is
-   * parameterized by the component registry. Defaults to
-   * `createDefaultComponentRegistry()` when omitted — the host should pass the
-   * SAME registry instance it built its `EditorConfig` with so the driver's
-   * render matches the reducer's editing ops.
+   * The registries of the host's core `EditorConfig` — pass that SAME config object
+   * the reducer runs with, so the controller can never paint / hit-test with a
+   * registry different from the one editing uses (the two used to be separate
+   * options and could silently diverge, e.g. host marks editing correctly but never
+   * painting). Consumed by:
+   * - the layout-driver's render + cascade (`attrRegistry` → host marks paint via
+   *   `toStyle`; `componentRegistry` → block render);
+   * - the object-selection hit-test pre-pass (#525) and NavIntent resolution
+   *   (`componentRegistry` is the canonical `BlockKindResolver`);
+   * - copy / cut (`extractFragment(…, attrRegistry)` strips `copy: "drop"` marks).
+   * Omitted → the built-in registries (`createDefault*Registry()`).
    */
-  componentRegistry?: ComponentRegistry;
-  /**
-   * The attribute registry the layout-driver's cascade pass needs (Phase 0b).
-   * Defaults to `createDefaultAttrRegistry()` when omitted. As with
-   * `componentRegistry`, the host should pass the SAME instance it used for
-   * core's `EditorConfig`.
-   */
-  attrRegistry?: AttrRegistry;
+  config?: Pick<EditorConfig, "componentRegistry" | "attrRegistry">;
   /** Initial host decorations (view-only; see {@link EditorController.setDecorations}).
    *  Applied against the first `update()`'s document. */
   decorations?: readonly Decoration[];
@@ -292,18 +283,19 @@ export function createEditorController(
   // layout-driver AND the geometric-nav resolver (Phase 0b) both need the SAME
   // instance the host built its state with — for object-selection detection in
   // nav, and the render/cascade passes in the driver.
-  const componentRegistry = options.componentRegistry ?? createDefaultComponentRegistry();
+  const componentRegistry = options.config?.componentRegistry ?? createDefaultComponentRegistry();
   // The render→cascade→layout pipeline lives in the print backend's layout-driver
   // (Phase 0b). It needs the same component/attr registries the host built its
   // `EditorConfig` with; default to the built-in registries when omitted (the
   // empty-document tests construct the controller with `{ measurer, dispatch }`
   // only, and their state is built from the same defaults).
+  const attrRegistry = options.config?.attrRegistry ?? createDefaultAttrRegistry();
   const driver = createLayoutDriver({
     measurer: options.measurer,
     hyphenator: options.hyphenator,
     pageConfig: options.pageConfig,
     componentRegistry,
-    attrRegistry: options.attrRegistry ?? createDefaultAttrRegistry(),
+    attrRegistry,
   });
   const pageHeight = options.pageHeight;
   const pageGap = options.pageGap ?? DEFAULT_PAGE_GAP;
@@ -1876,7 +1868,7 @@ export function createEditorController(
     if (!state) return;
     if (isCollapsed(state.selection)) return;
     e.preventDefault();
-    const frag = extractFragment(state.state, state.selection);
+    const frag = extractFragment(state.state, state.selection, attrRegistry); // strips copy:"drop" marks
     e.clipboardData?.setData("text/plain", extractText(state.state, state.selection, builtinEmbedSerializer));
     e.clipboardData?.setData("text/html", encodeHtml(frag));
     e.clipboardData?.setData(TALEWEAVER_CLIP_MIME, encodeFragmentClip(frag));
@@ -1886,7 +1878,7 @@ export function createEditorController(
     if (!state) return;
     if (isCollapsed(state.selection)) return;
     e.preventDefault();
-    const frag = extractFragment(state.state, state.selection);
+    const frag = extractFragment(state.state, state.selection, attrRegistry); // strips copy:"drop" marks
     e.clipboardData?.setData("text/plain", extractText(state.state, state.selection, builtinEmbedSerializer));
     e.clipboardData?.setData("text/html", encodeHtml(frag));
     e.clipboardData?.setData(TALEWEAVER_CLIP_MIME, encodeFragmentClip(frag));

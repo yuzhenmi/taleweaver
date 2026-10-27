@@ -647,6 +647,22 @@ lossless clip flavor; HTML whitespace collapsing in `decodeHtml`. See
 [`1.5-editor.md`](./1-core/1.5-editor.md#clipboard-and-paste) and
 [`1.7-serialization.md`](./1-core/1.7-serialization.md#clipboard-fragment-helpers).
 
+Typing attributes `[implemented]`: typed text (keystrokes, IME commits, type-over,
+plain-text paste) takes `getTypingAttrs` — pending `EditorState.storedAttrs` (set by
+a format command at a collapsed caret, carried into a block emptied by delete/Enter),
+else the attrs inherited at the caret per each key's inclusiveness (`link` and host
+marks are non-inclusive at their edges; change-tracking ids are never inherited).
+`getActiveFormatting` reads `storedAttrs`. Inline marks `[implemented]`: `MarkSpec`
+on `AttrInterpreter.mark` (`registerMark`) — inclusive / exclusive (non-exclusive
+instances under `type#…` keys) / atomic (overlapping atomic ranges form one unit;
+caret normalization in `reduceEditor`, whole-unit deletes) / copy keep-drop (`extractFragment(…, registry)`) / `toDom`
+(`TextBox.marks`, applied by the digital DOM view; print paints via `toStyle`);
+`SET_MARK` (with `replace` for an instance swap) / `REMOVE_MARK` (undoable, formatting
+suggestions in suggesting mode); the print controller derives its registries from the
+host's `EditorConfig` (`config` option);
+`getMarkRanges` host query. See [`1.5-editor.md`](./1-core/1.5-editor.md) "Typing
+attributes and inline marks" and [`1.3-cascade.md`](./1-core/1.3-cascade.md).
+
 Known gaps:
 - **Cursor placement within a word broken across lines** — `[implemented]` for both
   within-word split paths: (1) manual hyphenation — a word splits at an authored

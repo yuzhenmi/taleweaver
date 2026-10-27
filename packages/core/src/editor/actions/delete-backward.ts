@@ -1,4 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
+import { expandSpanOverAtomicMarks } from "../atomic-marks";
 import { resolveBlock, createPosition, createSpan, mergeAdjacentBlocks, markBlockJoinSuggestion, mergeSectionWithPrevious, inlineContentLength } from "../../state";
 import { moveByCharacter } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
@@ -56,10 +57,11 @@ export function handleDeleteBackward(
     const prev = moveByCharacter(editor.state, pos, "backward");
     if (prev.blockId !== pos.blockId) return editor;
     if (prev.offset === pos.offset) return editor;
-    const span = createSpan(prev, pos);
+    // A character of an atomic mark deletes the whole mark.
+    const span = expandSpanOverAtomicMarks(editor.state, createSpan(prev, pos), config.attrRegistry);
     const result = deleteRangeOrSuggest(editor.state, span, config);
     if (result.state === editor.state) return editor;
-    const newCursor = createPosition(prev.blockId, prev.offset);
+    const newCursor = createPosition(span.anchor.blockId, span.anchor.offset);
     const newSelection = createSpan(newCursor, newCursor);
     editor.history.commit(result, {
       before: selection,

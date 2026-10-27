@@ -94,6 +94,8 @@ function selectionHasAttr(
  * collapsed selections (single cursor position).
  */
 function cursorHasAttr(editor: EditorState, attrKey: string): boolean {
+  // Pending typing attrs (a format command at the caret) are what typing gets.
+  if (editor.storedAttrs !== undefined) return editor.storedAttrs[attrKey] !== undefined;
   const { blockId, offset } = editor.selection.focus;
   const block = getBlock(editor.state, blockId);
   if (!block || !block.inlineContent) return false;
@@ -163,6 +165,7 @@ function selectionCommonAttrValue(
  * such text item.
  */
 function cursorAttrValue(editor: EditorState, attrKey: string): unknown {
+  if (editor.storedAttrs !== undefined) return editor.storedAttrs[attrKey];
   const { blockId, offset } = editor.selection.focus;
   const block = getBlock(editor.state, blockId);
   if (!block || !block.inlineContent) return undefined;

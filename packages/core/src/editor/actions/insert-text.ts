@@ -15,6 +15,7 @@ import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection } from "./selection-guards";
 import { suggestionInputForBlock, replaceSuggestionInputForBlock } from "./suggestion-mode";
 import { replaceObjectWithText } from "./object-edits";
+import { getTypingAttrs } from "../typing-attrs";
 
 export function handleInsertText(
   editor: EditorState,
@@ -29,6 +30,10 @@ export function handleInsertText(
   if (objId !== null) return replaceObjectWithText(editor, config, objId, text);
 
   const selectionBefore = editor.selection;
+  // Typing attributes: pending storedAttrs, else inherited at the caret (or the
+  // first selected character for a type-over) — see `getTypingAttrs`. Read after
+  // the cross-context guard (a cross-context span has no start).
+  const typingAttrs = () => getTypingAttrs(editor, config.attrRegistry);
 
   let result: OperationResult;
   let newCursorBlockId;
@@ -54,8 +59,8 @@ export function handleInsertText(
     const replaceInput = replaceSuggestionInputForBlock(editor.state, start.blockId, config);
     result =
       replaceInput === null
-        ? replaceRange(editor.state, selectionBefore, text, {})
-        : replaceWithSuggestion(editor.state, selectionBefore, text, {}, replaceInput);
+        ? replaceRange(editor.state, selectionBefore, text, typingAttrs(), config.attrRegistry)
+        : replaceWithSuggestion(editor.state, selectionBefore, text, typingAttrs(), replaceInput, config.attrRegistry);
     newCursorBlockId = start.blockId;
     newCursorOffset = start.offset + text.length;
   } else {
@@ -72,8 +77,8 @@ export function handleInsertText(
     const sugInput = suggestionInputForBlock(editor.state, focus.blockId, config);
     result =
       sugInput === null
-        ? insertText(editor.state, focus, text, {})
-        : mintInsertion(editor.state, focus, text, {}, sugInput);
+        ? insertText(editor.state, focus, text, typingAttrs(), config.attrRegistry)
+        : mintInsertion(editor.state, focus, text, typingAttrs(), sugInput);
     newCursorBlockId = focus.blockId;
     newCursorOffset = focus.offset + text.length;
   }

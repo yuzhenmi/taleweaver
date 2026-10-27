@@ -79,11 +79,23 @@ function applyVisual(el: HTMLElement, d: Decoration): void {
   }
 }
 
-function applyAttrs(el: HTMLElement, d: Decoration): void {
-  addClasses(el, d.class);
-  for (const [name, value] of Object.entries(d.attributes ?? {})) {
+/**
+ * Put host-supplied classes + attributes on `el` (decorations, inline-mark
+ * `toDom`), filtering reserved / unsafe attribute names (see `isAllowedAttribute`).
+ */
+export function applyHostClassAndAttributes(
+  el: HTMLElement,
+  cls: string | undefined,
+  attributes: Readonly<Record<string, string>> | undefined,
+): void {
+  addClasses(el, cls);
+  for (const [name, value] of Object.entries(attributes ?? {})) {
     if (isAllowedAttribute(name)) el.setAttribute(name, value);
   }
+}
+
+function applyAttrs(el: HTMLElement, d: Decoration): void {
+  applyHostClassAndAttributes(el, d.class, d.attributes);
   applyVisual(el, d);
 }
 

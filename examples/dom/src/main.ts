@@ -53,6 +53,8 @@ async function init() {
   const ctrl = createEditorController(container, {
     measurer: shaper,
     dispatch,
+    // The SAME config the reducer uses, so host-registered marks paint and copy correctly.
+    config,
     pageHeight: PAGE_HEIGHT,
     pageGap: PAGE_GAP,
   });

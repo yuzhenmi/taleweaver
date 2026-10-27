@@ -52,7 +52,6 @@ declare global {
 }
 import {
   createDefaultComponentRegistry,
-  createDefaultAttrRegistry,
   reduceEditor,
   createEditorStateFromState,
   initialSelectionForState,
@@ -71,6 +70,7 @@ import { createCanvasShaper, createLiangHyphenator, browserHtmlParser } from "@t
 import { EN_US_PATTERN_SET } from "@taleweaver/hyphenation-en-us";
 import { tryLoadPerfFixtureFromUrl } from "./perf-fixture";
 import { loadFairytale } from "./fairytale-seed";
+import { createDemoAttrRegistry } from "./components/mentions";
 
 const DEFAULT_WIDTH = 600;
 
@@ -91,7 +91,7 @@ function createConfig(): EditorConfig {
   // owns the render→cascade→layout pipeline via the layout-driver.
   return {
     componentRegistry: createDefaultComponentRegistry(),
-    attrRegistry: createDefaultAttrRegistry(),
+    attrRegistry: createDemoAttrRegistry(), // built-ins + the demo `mention` mark
     containerWidth: DEFAULT_WIDTH,
     // Inject the DOM HTML parser so handlePaste can decode text/html (rich paste).
     // Without it, core silently falls back to the plain-text path.

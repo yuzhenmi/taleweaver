@@ -2,6 +2,7 @@ import type { EditorState, EditorConfig } from "../editor-state";
 import { isCollapsed } from "../../cursor/selection";
 import { applyAttrsOrSuggest } from "./suggestion-mode";
 import { rebuildTrees } from "./helpers";
+import { storeTypingAttrs } from "../typing-attrs";
 
 /**
  * Set or clear the font family on the current selection. Used by the toolbar
@@ -22,8 +23,9 @@ import { rebuildTrees } from "./helpers";
  * The cascade is responsible for visual styling; this handler only mutates
  * state.
  *
- * Mirrors set-text-color.ts exactly: collapsed selection short-circuits to a
- * no-op (no font family can be applied to a single cursor position); T7
+ * Mirrors set-text-color.ts exactly:
+ * a collapsed caret records the value as pending typing attrs (`storeTypingAttrs`)
+ * for the next typed text — the document is unchanged; T7
  * state-equality short-circuit; the selection is preserved unchanged;
  * dirtyIds threaded through to the incremental render pipeline (per R-D.3).
  */
@@ -33,13 +35,13 @@ export function handleSetFontFamily(
   config: EditorConfig,
 ): EditorState {
   const { selection } = editor;
-  if (isCollapsed(selection)) return editor;
-
   // Normalize empty string to a removal — an empty family isn't a meaningful
   // value, so this handler is where we reject it.
   const incoming = family !== null && family.length > 0
     ? { fontFamily: family }
     : { fontFamily: undefined };
+  // Collapsed caret: the family applies to the next typed text (typing attrs).
+  if (isCollapsed(selection)) return storeTypingAttrs(editor, incoming, config.attrRegistry);
   const result = applyAttrsOrSuggest(editor.state, selection, incoming, config);
   if (result.state === editor.state) return editor;
 

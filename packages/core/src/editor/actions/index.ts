@@ -27,6 +27,7 @@ export { handleSetHighlight } from "./set-highlight";
 export { handleSetFontSize } from "./set-font-size";
 export { handleSetFontFamily } from "./set-font-family";
 export { handleClearFormatting } from "./clear-formatting";
+export { handleSetMark, handleRemoveMark } from "./set-mark";
 export { handleUndo } from "./undo";
 export { handleRedo } from "./redo";
 export { handlePaste } from "./paste";

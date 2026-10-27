@@ -694,3 +694,141 @@ describe("DigitalController — paste-without-formatting (T13)", () => {
     controller.destroy();
   });
 });
+
+describe("DigitalController — inline marks + typing attributes (F3)", () => {
+  function makeMarkController(): { controller: DigitalController; container: HTMLElement; id: ReturnType<typeof asBlockId> } {
+    const attrRegistry = createDefaultAttrRegistry();
+    core.registerMark(attrRegistry, "mention", {
+      atomic: true,
+      toStyle: () => ({ backgroundColor: "#e8f0fe" }),
+      toDom: (value) => ({
+        class: "mention",
+        attributes: { "data-ref": String((value as { ref?: unknown }).ref), onclick: "x", "data-tw-x": "y" },
+      }),
+    });
+    core.registerMark(attrRegistry, "secret", { copy: "drop" });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const controller = createDigitalController({
+      container,
+      componentRegistry: createDefaultComponentRegistry(),
+      attrRegistry,
+      containerWidth: 800,
+      doc: document,
+    });
+    controller.dispatch({ type: "INSERT_TEXT", text: "Hi Anna and Bob" });
+    const id = asBlockId(leafBlockId(container));
+    controller.dispatch({
+      type: "SET_MARK",
+      key: "mention",
+      value: { ref: "a" },
+      span: createSpan(createPosition(id, 3), createPosition(id, 7)),
+    });
+    return { controller, container, id };
+  }
+
+  const caretAt = (id: ReturnType<typeof asBlockId>, o: number) => createSpan(createPosition(id, o), createPosition(id, o));
+
+  it("typing (beforeinput) and an IME commit inside a bold word are bold", () => {
+    const { controller, container, id } = makeMarkController();
+    controller.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(id, 12), createPosition(id, 15)) });
+    controller.dispatch({ type: "TOGGLE_STYLE", style: "bold" });
+    controller.dispatch({ type: "SET_SELECTION", selection: caretAt(id, 13) });
+    container.dispatchEvent(makeBeforeInput("insertText", { data: "X" }));
+    container.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    container.dispatchEvent(new CompositionEvent("compositionend", { data: "日", bubbles: true }));
+    const items = getBlock(controller.editorState.state, id)?.inlineContent?.items ?? [];
+    const last = items[items.length - 1];
+    expect(last?.kind === "text" ? [last.text, last.attrs] : null).toEqual(["BX日ob", { bold: true }]);
+    expect(leafBlock(container).querySelector("strong")?.textContent).toBe("BX日ob");
+    controller.destroy();
+  });
+
+  it("renders the mark's toDom class / attributes on the run (reserved / handler names filtered)", () => {
+    const { controller, container } = makeMarkController();
+    const el = leafBlock(container).querySelector(".mention");
+    expect(el?.textContent).toBe("Anna");
+    expect(el?.getAttribute("data-ref")).toBe("a");
+    expect(el?.hasAttribute("onclick")).toBe(false);
+    expect(el?.hasAttribute("data-tw-x")).toBe(false);
+    controller.destroy();
+  });
+
+  it("a DOM caret placed inside the mention (selectionchange) snaps to its nearest edge, in the model and the DOM", () => {
+    const { controller, container, id } = makeMarkController();
+    const bridge = createDigitalSelectionBridge(container, window);
+    bridge.positionToDom(caretAt(id, 4));
+    document.dispatchEvent(new Event("selectionchange"));
+    expect(controller.editorState.selection.focus.offset).toBe(3);
+    expect(bridge.readDomSelection()?.focus.offset).toBe(3);
+    controller.dispatch({ type: "SET_SELECTION", selection: caretAt(id, 7) });
+    container.dispatchEvent(makeBeforeInput("deleteContentBackward"));
+    expect(leafBlock(container).textContent).toBe("Hi  and Bob");
+    controller.destroy();
+  });
+
+  // The DOM selection the browser produces (drag / double-click / Shift+Arrow / Arrow),
+  // delivered through selectionchange exactly as a real gesture would be.
+  function domSelect(container: HTMLElement, id: ReturnType<typeof asBlockId>, a: number, f: number): void {
+    createDigitalSelectionBridge(container, window).positionToDom(createSpan(createPosition(id, a), createPosition(id, f)));
+    document.dispatchEvent(new Event("selectionchange"));
+  }
+  const offsets = (c: DigitalController) => [c.editorState.selection.anchor.offset, c.editorState.selection.focus.offset];
+
+  it.each([
+    [4, 13, [3, 13]],
+    [6, 13, [3, 13]],
+    [4, 1, [7, 1]],
+    [6, 1, [7, 1]],
+  ])("a drag from %i (inside the mention) to %i selects the whole mention", (from, to, expected) => {
+    const { controller, container, id } = makeMarkController();
+    domSelect(container, id, from, from); // mousedown
+    domSelect(container, id, from, to); // drag
+    expect(offsets(controller)).toEqual(expected);
+    controller.destroy();
+  });
+
+  it("double-click (native word selection) inside the mention selects all of it", () => {
+    const { controller, container, id } = makeMarkController();
+    controller.dispatch({ type: "SET_SELECTION", selection: caretAt(id, 1) });
+    domSelect(container, id, 4, 6); // a partial word inside the mention
+    expect(offsets(controller)).toEqual([3, 7]);
+    controller.destroy();
+  });
+
+  it("Shift+Arrow and Arrow from an edge cross the mention as one unit; forward Delete removes it", () => {
+    const { controller, container, id } = makeMarkController();
+    controller.dispatch({ type: "SET_SELECTION", selection: caretAt(id, 3) });
+    domSelect(container, id, 3, 4); // Shift+ArrowRight
+    expect(offsets(controller)).toEqual([3, 7]);
+    controller.dispatch({ type: "SET_SELECTION", selection: caretAt(id, 7) });
+    domSelect(container, id, 6, 6); // ArrowLeft from the end
+    expect(offsets(controller)).toEqual([3, 3]);
+    container.dispatchEvent(makeBeforeInput("deleteContentForward"));
+    expect(leafBlock(container).textContent).toBe("Hi  and Bob");
+    controller.destroy();
+  });
+
+  it("Ctrl+B (the non-Mac primary modifier alone) at a collapsed caret bolds the next typed text", () => {
+    const { controller, container, id } = makeMarkController();
+    controller.dispatch({ type: "SET_SELECTION", selection: caretAt(id, 15) });
+    container.dispatchEvent(new KeyboardEvent("keydown", { key: "b", ctrlKey: true, bubbles: true, cancelable: true }));
+    container.dispatchEvent(makeBeforeInput("insertText", { data: "!" }));
+    const items = getBlock(controller.editorState.state, id)?.inlineContent?.items ?? [];
+    expect(items.at(-1)?.attrs).toEqual({ bold: true });
+    controller.destroy();
+  });
+
+  it("copy strips copy:\"drop\" marks from the clip and keeps the others", () => {
+    const { controller, container, id } = makeMarkController();
+    controller.dispatch({ type: "SET_MARK", key: "secret", value: true, span: createSpan(createPosition(id, 0), createPosition(id, 15)) });
+    controller.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(id, 0), createPosition(id, 15)) });
+    const { data, store } = makeClipboardData();
+    container.dispatchEvent(makeClipboardEvent("copy", data));
+    const frag = core.decodeFragmentClip(store.get(TALEWEAVER_CLIP_MIME) ?? "");
+    if (frag === null) throw new Error("no clip");
+    expect(core.getMarkRanges(frag, "mention").map((r) => r.value)).toEqual([{ ref: "a" }]);
+    expect(core.getMarkRanges(frag, "secret")).toEqual([]);
+    controller.destroy();
+  });
+});

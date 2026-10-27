@@ -55,6 +55,7 @@ export function DocMenuBar({ dispatch, editorState, focus }: DocMenuBarProps) {
   const activeTextTransform = getActiveFormatting(
     editorState.state,
     editorState.selection,
+    editorState.storedAttrs,
   ).textTransform;
   const textTransformValue =
     activeTextTransform === "mixed"

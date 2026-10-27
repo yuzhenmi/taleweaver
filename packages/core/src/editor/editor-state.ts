@@ -1,6 +1,8 @@
-import { createEmptyDocument, History, createHistory, selectionContextOf, positionsEqual } from "../state";
+import { createEmptyDocument, History, createHistory, selectionContextOf, positionsEqual, resolveBlock } from "../state";
+import { getTypingAttrs } from "./typing-attrs";
+import { normalizeSelectionForAtomicMarks } from "./atomic-marks";
 import { isDevMode } from "../state/dev-mode";
-import type { State, Selection, BlockId, PageConfig } from "../state";
+import type { State, Selection, BlockId, PageConfig, ReadonlyAttrs } from "../state";
 import type { HtmlParser } from "../state/serialize/html-node";
 import type { ComponentRegistry } from "../components/component-registry";
 import type { AttrRegistry } from "../cascade/attr-registry";
@@ -32,6 +34,8 @@ import {
   handleSetFontSize,
   handleSetFontFamily,
   handleClearFormatting,
+  handleSetMark,
+  handleRemoveMark,
   handleUndo,
   handleRedo,
   handlePaste,
@@ -171,6 +175,19 @@ export interface EditorState {
    * `History`, never part of `Position` / `Selection` / `Span`.
    */
   readonly anchorAffinity?: CaretAffinity;
+  /**
+   * Pending TYPING ATTRS (word-processor "stored marks"): the attrs the next typed
+   * text takes instead of those inherited at the caret. Set by a format command at
+   * a collapsed caret (Bold with nothing selected → the next keystroke is bold) and
+   * when an edit empties the caret's block (the deleted / split-off text's
+   * formatting carries over, as in Google Docs / Word). `undefined` = inherit.
+   *
+   * Lifecycle: cleared by every action except the one that set it, an inert
+   * action, and a `SET_SELECTION` to the same selection — so any caret move or
+   * document edit (including the typing that consumes it) drops it. NON-undoable
+   * view state, never in `History`. Read it through `getTypingAttrs`.
+   */
+  readonly storedAttrs?: ReadonlyAttrs;
 }
 
 export interface EditorConfig {
@@ -423,6 +440,12 @@ export function reduceEditor(
     case "CLEAR_FORMATTING":
       result = handleClearFormatting(editor, config);
       break;
+    case "SET_MARK":
+      result = handleSetMark(editor, action.key, action.value, action.replace, action.span, config);
+      break;
+    case "REMOVE_MARK":
+      result = handleRemoveMark(editor, action.key, action.value, action.span, config);
+      break;
     case "PASTE":
       result = handlePaste(editor, action, config);
       break;
@@ -658,7 +681,73 @@ export function reduceEditor(
     result = clearTransientViewState(result);
   }
 
-  return result;
+  // Atomic marks: the caret never rests inside one (whatever moved it — a click,
+  // an arrow step, undo, a programmatic selection), and a range selection covers
+  // one whole or not at all.
+  if (result !== editor && config.attrRegistry.hasAtomicMarks()) {
+    const selection = normalizeSelectionForAtomicMarks(
+      result.state,
+      result.selection,
+      editor.selection,
+      config.attrRegistry,
+    );
+    if (selection !== result.selection) result = { ...result, selection };
+  }
+
+  return updateStoredAttrs(editor, result, action, coalesceClass, config);
+}
+
+/** Actions after which an emptied caret block keeps the removed text's typing attrs. */
+const CARRY_TYPING_ATTRS: ReadonlySet<EditorAction["type"]> = new Set([
+  "DELETE_BACKWARD",
+  "DELETE_FORWARD",
+  "DELETE_WORD",
+  "DELETE_RANGE",
+  "SPLIT_NODE",
+]);
+
+/**
+ * The `storedAttrs` lifecycle (see `EditorState.storedAttrs`): drop pending typing
+ * attrs the action did not set itself (unless it is inert or re-sets the same
+ * selection); and when a delete / paragraph split leaves the caret in an EMPTY
+ * block, carry the INCLUSIVE typing attrs from before the edit so typing there
+ * continues in the same formatting (Google Docs / Word) — never a link or mark.
+ */
+function updateStoredAttrs(
+  before: EditorState,
+  result: EditorState,
+  action: EditorAction,
+  coalesceClass: ReturnType<typeof coalesceKeyOf>,
+  config: EditorConfig,
+): EditorState {
+  let out = result;
+  if (out.storedAttrs !== undefined && out.storedAttrs === before.storedAttrs) {
+    const keep =
+      coalesceClass === "inert" ||
+      (action.type === "SET_SELECTION" &&
+        positionsEqual(out.selection.anchor, before.selection.anchor) &&
+        positionsEqual(out.selection.focus, before.selection.focus));
+    if (!keep) out = { ...out, storedAttrs: undefined };
+  }
+  if (
+    out.storedAttrs === undefined &&
+    out.state !== before.state &&
+    CARRY_TYPING_ATTRS.has(action.type) &&
+    positionsEqual(out.selection.anchor, out.selection.focus)
+  ) {
+    const content = resolveBlock(out.state, out.selection.focus.blockId)?.block.inlineContent ?? null;
+    if (content !== null && content.items.length === 0) {
+      // Only INCLUSIVE keys (formatting) carry: a deleted link / mention / other
+      // non-inclusive or atomic mark — and change-tracking ids — must not
+      // resurrect on the next keystroke.
+      const carried: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(getTypingAttrs(before, config.attrRegistry))) {
+        if (config.attrRegistry.isInclusive(key)) carried[key] = value;
+      }
+      if (Object.keys(carried).length > 0) out = { ...out, storedAttrs: Object.freeze(carried) };
+    }
+  }
+  return out;
 }
 
 /**
