@@ -412,9 +412,14 @@ export function createDigitalReconciler(
   ): void {
     if (container === null || bridge === null) return;
     const prev = rendered;
+    // Never write the DOM selection while an IME composition is active: it would cancel
+    // or corrupt the composition. The controller re-projects it on compositionend.
+    const projectSelection = (): void => {
+      if (!isComposing) bridge?.positionToDom(next.selection);
+    };
     if (prev === null) {
       fullRebuild(next.state, decorations);
-      bridge.positionToDom(next.selection);
+      projectSelection();
       return;
     }
     const dirty = next.lastDirtyIds;
@@ -422,11 +427,11 @@ export function createDigitalReconciler(
     if (stateChanged && dirty === null) {
       // Unknown change set (document replaced): rebuild everything.
       fullRebuild(next.state, decorations);
-      bridge.positionToDom(next.selection);
+      projectSelection();
       return;
     }
     if (!stateChanged && decorations === prev.decorations && pending.size === 0) {
-      bridge.positionToDom(next.selection); // selection-only: no DOM work
+      projectSelection(); // selection-only: no DOM work
       return;
     }
     const tree: StyledTree =
@@ -436,7 +441,7 @@ export function createDigitalReconciler(
     if (patch(next.state, prev, tree.cascaded, decorations, isComposing)) {
       rendered = { out: tree.out, cascaded: tree.cascaded, state: next.state, decorations };
     }
-    bridge.positionToDom(next.selection);
+    projectSelection();
   }
 
   function getBridge(): DigitalSelectionBridge | null {

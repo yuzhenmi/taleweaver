@@ -82,6 +82,12 @@ export type EditorAction =
    * throwing transaction is rolled back entirely.
    */
   | { type: "TRANSACTION"; run: (tx: Transaction) => void }
+  /**
+   * A collaborator's change has landed in this editor's Y.Doc (`dirtyIds` = the blocks
+   * it touched; see `subscribeRemoteChanges`): reconcile the EditorState and rebase the
+   * local selection through it. Never touches local undo grouping.
+   */
+  | { type: "APPLY_FOREIGN_CHANGE"; dirtyIds: ReadonlySet<BlockId> }
   | { type: "SELECT_ALL" }
   | { type: "DELETE_WORD"; direction: "forward" | "backward" }
   // DELETE_RANGE (Phase 0b): delete a geometry-free `Span` in ONE history commit,

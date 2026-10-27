@@ -430,6 +430,10 @@ export { INLINE_FORMAT_ATTR_KEYS } from "./editor/inline-format-keys";
 // Typing attributes: what the next typed text gets (pending storedAttrs, else
 // inherited at the caret per each key's MarkSpec).
 export { getTypingAttrs } from "./editor/typing-attrs";
+// Anchors + collaboration: anchors that follow every edit; peer changes as an action.
+export { createAnchorSet, mapPositionFrom } from "./editor/anchors";
+export type { Anchor, AnchorSet, AnchorOptions } from "./editor/anchors";
+export { getYDoc, subscribeRemoteChanges, rebaseSelection } from "./editor/foreign-change";
 // Host extension API: commands, keymap, input rules, triggers, transactions.
 export {
   matchKeyBinding,

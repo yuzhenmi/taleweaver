@@ -43,6 +43,7 @@
   "devDependencies": {
     "@taleweaver/hyphenation-en-us": "^0.1.0",
     "typescript": "^5.7",
-    "vitest": "^3"
+    "vitest": "^3",
+    "yjs": "~13.6.18"
   }
 }

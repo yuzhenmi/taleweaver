@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { EditorView, type EditorViewHandle } from "@taleweaver/react";
 import { setPerfTraceEnabled, report, resetPerfTrace, type Decoration, type Position, type State } from "@taleweaver/core";
+import { AsyncCheckBar, useAsyncCheck } from "./async-check";
 import { createDemoExtensions, createPickerBridge, ExtensionsHint, MentionPicker } from "./mention-picker";
 import { usePerfEditor } from "../use-perf-editor";
 import { EditorChrome } from "./editor-chrome";
@@ -45,7 +46,13 @@ export function PrintSurface({
     [],
   );
   const [pointer, setPointer] = useState<AidPointerEvent | null>(null);
-  useWritingAids(aids, editor.editorState, setDecorations);
+  // Async-check demo (anchors) — same as the digital tab.
+  const createAnchor = useCallback(
+    (from: Position, to: Position) => viewRef.current?.createAnchor(from, to) ?? null,
+    [],
+  );
+  const check = useAsyncCheck(editor.editorState, createAnchor);
+  useWritingAids(aids, editor.editorState, setDecorations, check.decorations);
 
   // Register the live-state getter for the tab-bar hand-off (stable across renders).
   useEffect(() => {
@@ -76,6 +83,7 @@ export function PrintSurface({
       <EditorChrome dispatch={editor.dispatch} editorState={editor.editorState} focus={editor.focus} />
       <WritingAidsToggle checked={aids} onChange={setAids} />
       <ExtensionsHint />
+      <AsyncCheckBar check={check} />
       <div className="relative flex-1 overflow-y-auto bg-[#f9fbfd]">
         {findMode && viewRef.current && (
           <FindBar

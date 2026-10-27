@@ -18,6 +18,10 @@ import {
   type Decoration,
   type State,
   type EditorConfig,
+  type Anchor,
+  type AnchorOptions,
+  type Assoc,
+  type MappedPosition,
   markStart,
   markEnd,
   recordSample,
@@ -69,6 +73,12 @@ export interface EditorViewProps {
    * Read at mount.
    */
   config?: Pick<EditorConfig, "componentRegistry" | "attrRegistry" | "extensions">;
+  /**
+   * Collaboration: whether this view's controller applies peer updates landing in the
+   * document's Y.Doc (default `"observe"`). Exactly one view per document observes;
+   * others pass `"ignore"`. Read at mount.
+   */
+  remoteChanges?: "observe" | "ignore";
 }
 
 /**
@@ -94,6 +104,12 @@ export interface EditorViewHandle {
    * position-anchored UI such as a collaborator's remote cursor.
    */
   getCaretRect(position: Position): CaretViewportRect | null;
+  /** The controller's current document version (null before mount). */
+  version(): State | null;
+  /** Map a position from an older version (null when aged out / before mount). */
+  mapPosition(position: Position, version: State, assoc?: Assoc): MappedPosition | null;
+  /** Anchor a point / range that follows every later edit (null before mount / unmappable). */
+  createAnchor(from: Position, to?: Position, options?: AnchorOptions & { readonly basedOn?: State }): Anchor | null;
 }
 
 const EMPTY_FIND_STATUS: FindStatus = { total: 0, activeIndex: -1 };
@@ -105,7 +121,7 @@ const handleProfile: ProfilerOnRenderCallback = (id, _phase, actualDuration) => 
 
 export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
   function EditorView(
-    { editorState, dispatch, containerRef, measurer, pageHeight, pageGap, pageConfig, hyphenator, decorations, decorationsBasedOn, onDecorationPointer, config },
+    { editorState, dispatch, containerRef, measurer, pageHeight, pageGap, pageConfig, hyphenator, decorations, decorationsBasedOn, onDecorationPointer, config, remoteChanges },
     ref,
   ) {
   const controllerRef = useRef<EditorController | null>(null);
@@ -134,6 +150,9 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
         controllerRef.current?.replaceAll(replacement) ?? EMPTY_FIND_STATUS,
       findStatus: () => controllerRef.current?.findStatus() ?? EMPTY_FIND_STATUS,
       getCaretRect: (position) => controllerRef.current?.getCaretRect(position) ?? null,
+      version: () => controllerRef.current?.version ?? null,
+      mapPosition: (position, version, assoc) => controllerRef.current?.mapPosition(position, version, assoc) ?? null,
+      createAnchor: (from, to, options) => controllerRef.current?.createAnchor(from, to, options) ?? null,
     }),
     [],
   );
@@ -149,6 +168,7 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
       pageConfig,
       hyphenator,
       ...(config !== undefined ? { config } : {}),
+      ...(remoteChanges !== undefined ? { remoteChanges } : {}),
       onDecorationPointer: (event) => pointerRef.current?.(event),
     });
     controllerRef.current = ctrl;

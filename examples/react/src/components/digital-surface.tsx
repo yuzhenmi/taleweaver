@@ -5,6 +5,7 @@ import { EditorChrome } from "./editor-chrome";
 import { SelectionBubble } from "./selection-bubble";
 import { BlockHoverHandles } from "./block-hover-handles";
 import { FindBar, useFindShortcut } from "./find-bar";
+import { AsyncCheckBar, useAsyncCheck } from "./async-check";
 import { createDemoExtensions, createPickerBridge, ExtensionsHint, MentionPicker } from "./mention-picker";
 import { useWritingAids, WritingAidPopover, WritingAidsToggle, type AidPointerEvent } from "./writing-aids";
 
@@ -43,7 +44,9 @@ export function DigitalSurface({
   const [aids, setAids] = useState(true);
   const [findMode, setFindMode] = useState<null | "find" | "replace">(null);
   useFindShortcut(setFindMode);
-  useWritingAids(aids, editor.editorState, editor.setDecorations);
+  // Async-check demo (anchors) — same as the print tab.
+  const check = useAsyncCheck(editor.editorState, editor.createAnchor);
+  useWritingAids(aids, editor.editorState, editor.setDecorations, check.decorations);
 
   useEffect(() => {
     registerGetState(editor.getState);
@@ -56,6 +59,7 @@ export function DigitalSurface({
           comfortable reading column (Notion-style), so the browser flows to that width. */}
       <WritingAidsToggle checked={aids} onChange={setAids} />
       <ExtensionsHint />
+      <AsyncCheckBar check={check} />
       <div className="relative flex-1 overflow-y-auto bg-white">
         {findMode && (
           <FindBar

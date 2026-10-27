@@ -210,8 +210,11 @@ export function createPositionMapping(
     let x1: number;
     let x2: number;
     try {
-      x1 = fromSeg !== undefined ? fromSeg.start + from.offset : regionBoundaryAfter(from.blockId);
-      x2 = toSeg !== undefined ? toSeg.start + to.offset : regionBoundaryBefore(to.blockId);
+      // An end outside the diffed region sits strictly BEFORE / AFTER the region's
+      // nearest block boundary (−/+ 0.5): an insertion at the very start of the next
+      // dirty block (or end of the previous one) is inside the range, not at its edge.
+      x1 = fromSeg !== undefined ? fromSeg.start + from.offset : regionBoundaryAfter(from.blockId) - 0.5;
+      x2 = toSeg !== undefined ? toSeg.start + to.offset : regionBoundaryBefore(to.blockId) + 0.5;
     } catch (e) {
       if (e instanceof UnknownBlock) return true;
       throw e;
@@ -378,6 +381,21 @@ function ancestorChain(get: (id: BlockId) => Block | undefined, id: BlockId): Bl
     cur = block.parentId;
   }
   return chain;
+}
+
+/**
+ * Document order of two positions in a possibly SUPERSEDED State, reading only its
+ * snapshot cache (never the live Y.Doc, which may already hold a later change):
+ * negative / zero / positive, or null when a needed block was never snapshotted.
+ */
+export function comparePositionsCached(state: State, a: Position, b: Position): number | null {
+  if (a.blockId === b.blockId) return a.offset - b.offset;
+  try {
+    return compareWith((id) => peekBlock(state, id), a.blockId, b.blockId);
+  } catch (e) {
+    if (e instanceof UnknownBlock) return null;
+    throw e;
+  }
 }
 
 /**

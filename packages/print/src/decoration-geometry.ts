@@ -1,4 +1,5 @@
 import {
+  recordSample,
   asBlockId,
   createPosition,
   createSpan,
@@ -152,6 +153,9 @@ function pushInline(
       for (const r of hit.rects) out.push(r);
       continue;
     }
+    // Deterministic perf counter (no-op unless tracing): segment geometries computed
+    // (cache misses) — the typing-latency gate bounds it per keystroke.
+    recordSample("decorations.segmentGeometry", 0);
     const span = createSpan(createPosition(blockId, seg.start), createPosition(blockId, seg.end));
     let rects: SelectionRect[];
     let cacheable = true;

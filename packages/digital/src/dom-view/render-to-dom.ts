@@ -1,4 +1,5 @@
 import {
+  recordSample,
   type RenderNode,
   type TextBox,
   type ElementBox,
@@ -118,6 +119,7 @@ export function renderBlockToDom(
   doc: Document,
   decorations: DecorationSet = EMPTY_DECORATION_SET,
 ): HTMLElement | null {
+  recordSample("digital.renderBlock", 0); // deterministic perf counter (no-op unless tracing)
   if (listMetaOf(node) !== undefined) return listItemToDom(node, doc, true, decorations);
   const dom = elementBoxToDom(node, doc, true, decorations);
   return dom instanceof HTMLElement ? dom : null;

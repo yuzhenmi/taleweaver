@@ -30,6 +30,15 @@ import {
   resolveCommand,
   modConventionFor,
   compileKeymap,
+  createAnchorSet,
+  mapPositionFrom,
+  subscribeRemoteChanges,
+  getYDoc,
+  type Anchor,
+  type AnchorOptions,
+  type Assoc,
+  type MappedPosition,
+  type Position,
   escapeWouldChange,
   type EditorState,
   type EditorConfig,
@@ -81,6 +90,13 @@ export interface DigitalControllerOptions {
    * on Mac / Ctrl elsewhere), input rules and triggers.
    */
   readonly extensions?: EditorExtensions;
+  /**
+   * Collaboration: `"observe"` (default) — apply every peer update that lands in this
+   * document's Y.Doc (`APPLY_FOREIGN_CHANGE`); `"ignore"` — don't. Exactly ONE controller
+   * per document should observe; any other controller over the same document passes
+   * `"ignore"` (else each would apply the same peer change).
+   */
+  readonly remoteChanges?: "observe" | "ignore";
 }
 
 export interface DigitalController {
@@ -126,6 +142,19 @@ export interface DigitalController {
   replaceActive(replacement: string): FindStatus;
   /** Replace every match (one undo step). */
   replaceAll(replacement: string): FindStatus;
+  /** The current document version (an opaque token for `mapPosition` / `createAnchor`). */
+  readonly version: State;
+  /**
+   * Map `position` from an earlier `version` to the current document: `{ position, deleted }`,
+   * or null once that version has aged out of the controller's mapping log.
+   */
+  mapPosition(position: Position, version: State, assoc?: Assoc): MappedPosition | null;
+  /**
+   * Anchor a point (`to` omitted) or range that follows every later edit (local, undo /
+   * redo, collaborative). `basedOn`: the version the positions refer to (default: the
+   * current one); null when that version can no longer be mapped or the content is gone.
+   */
+  createAnchor(from: Position, to?: Position, options?: AnchorOptions & { readonly basedOn?: State }): Anchor | null;
   /**
    * Run a host command — by name (`extensions.commands`) or directly — against the
    * current state with this controller's `dispatch`. Returns whether it ran.
@@ -173,6 +202,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
   const find = createFindSession();
   const log = createMappingLog();
   log.reset(editorState.state);
+  const anchors = createAnchorSet();
 
   function dispatch(action: EditorAction): void {
     const prev = editorState;
@@ -181,6 +211,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
       const mapping = transitionMapping(prev, editorState);
       log.record(prev.state, editorState.state, mapping);
       layers.advance(prev, editorState, mapping);
+      anchors.advance(prev.state, editorState.state, mapping);
       if (find.active) {
         // Re-find only in the edited blocks; redraw only the blocks whose matches changed.
         const { changedBlocks } = find.refresh(editorState.state, mapping);
@@ -188,6 +219,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
         else layers.patchFind(editorState.state, find.matches(), find.activeIndex(), changedBlocks);
       }
     }
+    if (prev.state !== editorState.state) followRemoteDoc();
     reconciler.reconcile(prev, editorState, isComposing, layers.merged);
     pointer?.sync();
     if (editorState !== prev) options.onChange?.(editorState);
@@ -281,9 +313,10 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     // `e.data !== ""` is `true` for `null`, so guard against null too — dispatching INSERT_TEXT
     // with a null `text` crashes the reducer (Y.Text.insert rejects null).
     if (e.data !== null && e.data !== "") dispatch({ type: "INSERT_TEXT", text: e.data, userInput: true });
-    // A decoration change that landed mid-composition was deferred for the composed block;
-    // draw it now that the composition is over.
-    else if (reconciler.hasPending()) redraw();
+    // Work deferred while composing (a decoration change for the composed block, a peer
+    // change's rebased selection — the DOM selection is never touched mid-composition)
+    // is applied now that the composition is over.
+    else redraw();
   }
   function onCopy(e: ClipboardEvent): void {
     e.preventDefault();
@@ -315,6 +348,25 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
       dispatch(payload);
     }
   }
+
+  // Collaboration: a peer's change applied to this document's Y.Doc (Y.applyUpdate from
+  // a provider) is reconciled at once — selection rebased, decorations / anchors /
+  // triggers / mapping log advanced, DOM patched — through the ordinary dispatch.
+  // Dispatched synchronously from Yjs `afterTransaction` — i.e. inside the provider's
+  // `Y.applyUpdate` call. Re-subscribed whenever the document's Y.Doc changes.
+  let remoteDoc: unknown = null;
+  let unsubscribeRemote: (() => void) | null = null;
+  function followRemoteDoc(): void {
+    if (options.remoteChanges === "ignore") return;
+    const doc = getYDoc(editorState.state);
+    if (doc === remoteDoc) return;
+    unsubscribeRemote?.();
+    remoteDoc = doc;
+    unsubscribeRemote = subscribeRemoteChanges(editorState.state, (dirtyIds) =>
+      dispatch({ type: "APPLY_FOREIGN_CHANGE", dirtyIds }),
+    );
+  }
+  followRemoteDoc();
 
   container.contentEditable = "true";
   reconciler.mount(container, editorState, layers.merged);
@@ -352,6 +404,8 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
   }
 
   function destroy(): void {
+    unsubscribeRemote?.();
+    unsubscribeRemote = null;
     container.removeEventListener("beforeinput", onBeforeInput);
     container.removeEventListener("keydown", onKeyDown);
     doc.removeEventListener("selectionchange", onSelectionChange);
@@ -433,6 +487,16 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
       const action = find.replaceAllAction(replacement);
       if (action !== null) dispatch(action);
       return find.status();
+    },
+    get version() {
+      return editorState.state;
+    },
+    mapPosition(position, version, assoc) {
+      return mapPositionFrom(log, editorState.state, version, position, assoc);
+    },
+    createAnchor(from, to, anchorOptions = {}) {
+      const { basedOn, ...rest } = anchorOptions;
+      return anchors.createAt(log, editorState.state, basedOn ?? editorState.state, from, to, rest);
     },
     runCommand(command) {
       const resolved = resolveCommand(command, options.extensions);

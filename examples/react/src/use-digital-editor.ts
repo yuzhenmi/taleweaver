@@ -23,7 +23,7 @@ import {
   type DigitalController,
   type DecorationPointerEvent,
 } from "@taleweaver/digital";
-import type { Decoration, FindStatus } from "@taleweaver/core";
+import type { Anchor, Decoration, FindStatus, Position } from "@taleweaver/core";
 import type { FindHandle } from "./components/find-bar";
 import { createDemoAttrRegistry } from "./components/mentions";
 
@@ -45,6 +45,8 @@ export interface UseDigitalEditorResult {
   setDecorations: (decorations: readonly Decoration[], basedOn?: State) => void;
   /** Find / replace, same surface as the print `EditorViewHandle` (drives the shared find bar). */
   findHandle: FindHandle;
+  /** Anchor a range that follows every later edit (the async-check demo). */
+  createAnchor: (from: Position, to: Position) => Anchor | null;
 }
 
 export function useDigitalEditor(
@@ -141,5 +143,10 @@ export function useDigitalEditor(
     };
   }, []);
 
-  return { editorState, dispatch, containerRef, focus, getState, setDecorations, findHandle };
+  const createAnchor = useCallback(
+    (from: Position, to: Position) => controllerRef.current?.createAnchor(from, to) ?? null,
+    [],
+  );
+
+  return { editorState, dispatch, containerRef, focus, getState, setDecorations, findHandle, createAnchor };
 }

@@ -1,4 +1,4 @@
-import { createSpan, createPosition, isCollapsed, extractText, builtinEmbedSerializer, selectWord, getBlock, inlineContentLength, findItemAtOffset, selectionContextOf, spanStart, spanEnd, markStart, markEnd, buildAccessibilityTree, extractFragment, encodeHtml, encodeFragmentClip, TALEWEAVER_CLIP_MIME, type Position, type BlockId, type TextShaper, type TextMeasurer, type Hyphenator, type PageConfig, type EditorConfig, type EditorAction, type EditorState, type State, type TextMatch, type FindMatchesOptions, type Span, type CaretAffinity, isOpenableLinkUrl, makeBlockParentLookup, runKeyBinding, resolveCommand, modConventionFor, compileKeymap, escapeWouldChange, type Command, createDefaultComponentRegistry, createDefaultAttrRegistry, createDecorationLayers, createFindSession, createMappingLog, mapDecorations, transitionMapping, EMPTY_DECORATION_SET, type FindStatus, type Decoration, type DecorationSet, type WidgetDecoration, type CommentHighlight, type SuggestionHighlight } from "@taleweaver/core";
+import { createSpan, createPosition, isCollapsed, extractText, builtinEmbedSerializer, selectWord, getBlock, inlineContentLength, findItemAtOffset, selectionContextOf, spanStart, spanEnd, markStart, markEnd, recordSample, buildAccessibilityTree, extractFragment, encodeHtml, encodeFragmentClip, TALEWEAVER_CLIP_MIME, type Position, type BlockId, type TextShaper, type TextMeasurer, type Hyphenator, type PageConfig, type EditorConfig, type EditorAction, type EditorState, type State, type TextMatch, type FindMatchesOptions, type Span, type CaretAffinity, isOpenableLinkUrl, makeBlockParentLookup, runKeyBinding, resolveCommand, modConventionFor, compileKeymap, escapeWouldChange, type Command, createAnchorSet, mapPositionFrom, subscribeRemoteChanges, getYDoc, UNKNOWN_MAPPING, type Anchor, type AnchorOptions, type Assoc, type MappedPosition, createDefaultComponentRegistry, createDefaultAttrRegistry, createDecorationLayers, createFindSession, createMappingLog, mapDecorations, transitionMapping, EMPTY_DECORATION_SET, type FindStatus, type Decoration, type DecorationSet, type WidgetDecoration, type CommentHighlight, type SuggestionHighlight } from "@taleweaver/core";
 import { resolvePixelPosition, type PixelPosition } from "./cursor/cursor-position";
 import { resolvePositionFromPixel } from "./cursor/hit-test";
 import { computeSelectionRects, computeSelectionRectsForPage, type SelectionRect } from "./cursor/selection-geometry";
@@ -115,6 +115,13 @@ export interface EditorControllerOptions {
    * Omitted → the built-in registries (`createDefault*Registry()`).
    */
   config?: Pick<EditorConfig, "componentRegistry" | "attrRegistry" | "extensions">;
+  /**
+   * Collaboration: `"observe"` (default) — every peer update that lands in the current
+   * document's Y.Doc is dispatched to the host as `APPLY_FOREIGN_CHANGE`; `"ignore"` —
+   * nothing is. Exactly ONE controller per document should observe; any other
+   * controller over the same document passes `"ignore"`.
+   */
+  remoteChanges?: "observe" | "ignore";
   /** Initial host decorations (view-only; see {@link EditorController.setDecorations}).
    *  Applied against the first `update()`'s document. */
   decorations?: readonly Decoration[];
@@ -163,6 +170,20 @@ export interface EditorController {
    * ran (false: unknown name, no state yet, or the command declined).
    */
   runCommand(command: string | Command): boolean;
+  /** The current document version (an opaque token for `mapPosition` / `createAnchor`); null before the first `update`. */
+  readonly version: State | null;
+  /**
+   * Map `position` from an earlier `version` to the current document: `{ position, deleted }`,
+   * or null once that version has aged out of the controller's mapping log.
+   */
+  mapPosition(position: Position, version: State, assoc?: Assoc): MappedPosition | null;
+  /**
+   * Anchor a point (`to` omitted) or range that follows every later edit (local, undo /
+   * redo, collaborative). `basedOn`: the version the positions refer to (default: the
+   * current one); null when that version can no longer be mapped, the content is gone,
+   * or before the first `update`.
+   */
+  createAnchor(from: Position, to?: Position, options?: AnchorOptions & { readonly basedOn?: State }): Anchor | null;
   /** Compose the live document into a PDF byte stream (pages + outline bookmarks
    *  + internal /GoTo + external /URI links). Pure query — no mutation. `print`
    *  never imports `@taleweaver/pdf`, so the host injects the pdf emitter (e.g.
@@ -296,6 +317,13 @@ export function createEditorController(
   // empty-document tests construct the controller with `{ measurer, dispatch }`
   // only, and their state is built from the same defaults).
   const attrRegistry = options.config?.attrRegistry ?? createDefaultAttrRegistry();
+  // Anchors follow every transition `update` sees (the same mapping the decorations use).
+  const anchors = createAnchorSet();
+  // A peer's change landing in the current document's Y.Doc is DISPATCHED to the host
+  // as APPLY_FOREIGN_CHANGE (the host owns the state; its reducer rebases the selection
+  // and the next `update` advances decorations / anchors / mapping log as usual).
+  let remoteDoc: unknown = null;
+  let unsubscribeRemote: (() => void) | null = null;
   // Host keymap `Mod` = Cmd on Mac, Ctrl elsewhere (the same rule as the digital backend).
   const modConvention = modConventionFor(typeof navigator === "undefined" ? "" : navigator.userAgent);
   // Parse the host keymap now: a malformed binding name fails at configuration time.
@@ -901,6 +929,7 @@ export function createEditorController(
     if (st !== null && tree !== null && set !== EMPTY_DECORATION_SET) {
       const tWidgets = markStart("ctrl.syncWidgets");
       const place = (w: WidgetDecoration, page: number | null): void => {
+        recordSample("ctrl.widgetResolve", 0); // deterministic perf counter (no-op unless tracing)
         const pos = resolvePixelPosition(st.state, w.at, tree, measurer, page ?? st.caretPageHint);
         if (pos === null) return;
         if (page !== null && pos.pageIndex !== page) return; // another page's instance
@@ -2025,6 +2054,7 @@ export function createEditorController(
       onCompositionEnd: (text) => {
         isComposing = false;
         if (text.length > 0) dispatch({ type: "INSERT_TEXT", text, userInput: true });
+        else syncMirror(); // apply what was deferred while composing (e.g. a peer change)
       },
       // Idempotency loop-break: a `selectionchange` whose span equals the current
       // engine selection must NOT re-dispatch SET_SELECTION (the mirror selection
@@ -2046,8 +2076,42 @@ export function createEditorController(
 
   // ── Public API ─────────────────────────────────────────────────────────
 
+  /**
+   * Re-materialize the accessibility mirror (slice 2b) from the current state +
+   * selection. Gated on the host being present (flag-on); a no-op on the default
+   * textarea path. Skipped while an IME composition is active — rewriting the mirror's
+   * DOM or selection under the IME would cancel / corrupt the composition (a peer change
+   * can land mid-composition); composition end re-syncs.
+   */
+  function syncMirror(): void {
+    if (mirrorHost === null || state === null || isComposing) return;
+    // VIEW INVARIANT (design R1-Minor-6): the a11y tree's suggestionView MUST match
+    // the view the layout's `globalFieldValues` were resolved at — both are
+    // "suggesting" today. A future preview-mode a11y build must thread the
+    // matching-view field map, or field text will key against the wrong values.
+    const resolvedFields =
+      layoutTree !== null && layoutTree.type === "virtual-root"
+        ? layoutTree.globalFieldValues
+        : new Map<string, string>();
+    mirrorHost.syncTree(
+      buildAccessibilityTree(state.state, { suggestionView: "suggesting" }),
+      resolvedFields,
+    );
+    mirrorHost.syncSelection(state.selection);
+  }
+
   function update(editorState: EditorState) {
     if (destroyed) return;
+    // Collaboration: follow the document's Y.Doc (re-subscribing when the host swaps
+    // in another document).
+    const doc = getYDoc(editorState.state);
+    if (options.remoteChanges !== "ignore" && doc !== remoteDoc) {
+      unsubscribeRemote?.();
+      remoteDoc = doc;
+      unsubscribeRemote = subscribeRemoteChanges(editorState.state, (dirtyIds) =>
+        dispatch({ type: "APPLY_FOREIGN_CHANGE", dirtyIds }),
+      );
+    }
     const tTotal = markStart("ctrl.update");
     const prev = state;
     state = editorState;
@@ -2061,10 +2125,12 @@ export function createEditorController(
         // One mapping for the transition, shared by the layers and the session.
         const mapping = transitionMapping(prev, editorState);
         // An unknown transition (document replaced) restarts the log: older States
-        // can no longer be mapped.
-        if (editorState.lastChange?.from === prev.state) mappingLog.record(prev.state, editorState.state, mapping);
+        // can no longer be mapped. A host that batched several dispatches still maps
+        // (transitionMapping walks the change chain).
+        if (mapping !== UNKNOWN_MAPPING) mappingLog.record(prev.state, editorState.state, mapping);
         else mappingLog.reset(editorState.state);
         layers.advance(prev, editorState, mapping);
+        anchors.advance(prev.state, editorState.state, mapping);
         // Find live-recompute (D9): an open session re-finds only in the edited
         // blocks (keeping its active occurrence; advancing past a replacement) and
         // the find layer is patched only where matches changed. Never scrolls — a
@@ -2193,21 +2259,9 @@ export function createEditorController(
     // on the default textarea path. The mirror tree is the semantic projection
     // (`buildAccessibilityTree`, suggesting view); `syncSelection` then re-places
     // the DOM selection to match the engine caret/range.
-    if (mirrorHost !== null && state !== null) {
-      // VIEW INVARIANT (design R1-Minor-6): the a11y tree's suggestionView MUST match
-      // the view the layout's `globalFieldValues` were resolved at — both are
-      // "suggesting" today. A future preview-mode a11y build must thread the
-      // matching-view field map, or field text will key against the wrong values.
-      const resolvedFields =
-        layoutTree !== null && layoutTree.type === "virtual-root"
-          ? layoutTree.globalFieldValues
-          : new Map<string, string>();
-      mirrorHost.syncTree(
-        buildAccessibilityTree(state.state, { suggestionView: "suggesting" }),
-        resolvedFields,
-      );
-      mirrorHost.syncSelection(state.selection);
-    }
+    // Re-materialize the accessibility mirror (slice 2b) from the fresh state +
+    // selection, AFTER paint (a no-op on the default textarea path).
+    syncMirror();
 
     const tScroll = markStart("ctrl.scrollIntoView");
     scrollCursorIntoView();
@@ -2388,6 +2442,8 @@ export function createEditorController(
 
   function destroy() {
     destroyed = true;
+    unsubscribeRemote?.();
+    unsubscribeRemote = null;
     layoutTree = null;
     virtualTree = null;
     hasSelectionHighlight = false;
@@ -2481,6 +2537,18 @@ export function createEditorController(
     focus,
     destroy,
     getCaretRect,
+    get version() {
+      return state?.state ?? null;
+    },
+    mapPosition(position: Position, version: State, assoc?: Assoc): MappedPosition | null {
+      if (state === null) return null;
+      return mapPositionFrom(mappingLog, state.state, version, position, assoc);
+    },
+    createAnchor(from: Position, to?: Position, anchorOptions: AnchorOptions & { readonly basedOn?: State } = {}): Anchor | null {
+      if (state === null) return null;
+      const { basedOn, ...rest } = anchorOptions;
+      return anchors.createAt(mappingLog, state.state, basedOn ?? state.state, from, to, rest);
+    },
     runCommand(command: string | Command): boolean {
       if (destroyed || state === null) return false;
       const resolved = resolveCommand(command, options.config?.extensions);

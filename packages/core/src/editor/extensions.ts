@@ -120,9 +120,14 @@ export function runTransaction(
       },
       dispatch(action) {
         // Only undoable steps: a step that bypasses History (suggestion accept/reject —
-        // non-undoable by design — or UNDO / REDO) could not be rolled back with the
+        // non-undoable by design — UNDO / REDO, or a peer's change) could not be rolled back with the
         // rest, so it is refused BEFORE it applies (the throw rolls back earlier steps).
-        if (coalesceKeyOf(action) === "resolve" || action.type === "UNDO" || action.type === "REDO") {
+        if (
+          coalesceKeyOf(action) === "resolve" ||
+          action.type === "UNDO" ||
+          action.type === "REDO" ||
+          action.type === "APPLY_FOREIGN_CHANGE"
+        ) {
           throw new Error(
             `TRANSACTION: "${action.type}" is not undoable and cannot be a transaction step`,
           );

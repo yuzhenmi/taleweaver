@@ -10,6 +10,7 @@ export interface DomMirrorHostOptions {
   readonly onKeyDown?: (e: KeyboardEvent) => void;
   readonly onInsertText?: (text: string) => void;
   readonly onCompositionStart?: () => void;
+  /** Composition ended: the committed text, or "" when it was cancelled. */
   readonly onCompositionEnd?: (text: string) => void;
   readonly onCopy?: (e: ClipboardEvent) => void;
   readonly onCut?: (e: ClipboardEvent) => void;
@@ -105,7 +106,9 @@ export function createDomMirrorHost(options: DomMirrorHostOptions): DomMirrorHos
   }
   function handleCompositionEnd(e: CompositionEvent): void {
     isComposing = false;
-    if (e.data.length > 0) options.onCompositionEnd?.(e.data);
+    // Always reported — with "" for a cancelled composition — so the controller can apply
+    // what it deferred while composing. (`data` can be null at runtime.)
+    options.onCompositionEnd?.(typeof e.data === "string" ? e.data : "");
   }
   function handleCopy(e: ClipboardEvent): void { options.onCopy?.(e); }
   function handleCut(e: ClipboardEvent): void { options.onCut?.(e); }

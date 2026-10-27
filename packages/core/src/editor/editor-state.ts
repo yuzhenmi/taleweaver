@@ -1,6 +1,7 @@
 import { createEmptyDocument, History, createHistory, selectionContextOf, positionsEqual, resolveBlock } from "../state";
 import { getTypingAttrs } from "./typing-attrs";
 import { normalizeSelectionForAtomicMarks } from "./atomic-marks";
+import { handleApplyForeignChange } from "./foreign-change";
 import { runTransaction, applyInputRules, updateActiveTrigger, type ActiveTrigger, type EditorExtensions } from "./extensions";
 import { isDevMode } from "../state/dev-mode";
 import type { State, Selection, BlockId, PageConfig, ReadonlyAttrs } from "../state";
@@ -371,6 +372,9 @@ export function reduceEditor(
     case "TRANSACTION":
       result = runTransaction(editor, action.run, config, reduceEditor);
       break;
+    case "APPLY_FOREIGN_CHANGE":
+      result = handleApplyForeignChange(editor, action.dirtyIds);
+      break;
     case "DELETE_BACKWARD":
       result = handleDeleteBackward(editor, config);
       break;
@@ -712,7 +716,14 @@ export function reduceEditor(
   }
 
   result = updateStoredAttrs(editor, result, action, coalesceClass, config);
-  return updateActiveTrigger(editor, result, action, config);
+  result = updateActiveTrigger(editor, result, action, config);
+  // Keep the selection's blocks snapshotted in the current state: a later foreign
+  // change maps the caret from that snapshot (the Y.Doc has changed by then). O(1).
+  if (result.state !== editor.state || result.selection !== editor.selection) {
+    resolveBlock(result.state, result.selection.focus.blockId);
+    resolveBlock(result.state, result.selection.anchor.blockId);
+  }
+  return result;
 }
 
 /** Actions after which an emptied caret block keeps the removed text's typing attrs. */

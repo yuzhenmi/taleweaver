@@ -1,3 +1,4 @@
+import * as Y from "yjs";
 import { describe, it, expect, vi } from "vitest";
 import * as core from "@taleweaver/core";
 import {
@@ -1025,5 +1026,151 @@ describe("DigitalController — keyboard edge cases (host extensions)", () => {
     keydown(container, "M", { ctrlKey: true, shiftKey: true, repeat: true });
     expect(text(controller)).toBe("Anna Anna ");
     controller.destroy();
+  });
+});
+
+describe("DigitalController — anchors, versions and collaboration", () => {
+  function mountWith(initialState?: core.State): { controller: DigitalController; container: HTMLElement } {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const controller = createDigitalController({
+      container,
+      componentRegistry: createDefaultComponentRegistry(),
+      attrRegistry: createDefaultAttrRegistry(),
+      containerWidth: 800,
+      doc: document,
+      ...(initialState !== undefined ? { initialState } : {}),
+    });
+    return { controller, container };
+  }
+  const typeKeys = (container: HTMLElement, text: string) => {
+    for (const ch of text) container.dispatchEvent(makeBeforeInput("insertText", { data: ch }));
+  };
+  const caretAt = (id: core.BlockId, o: number) => createSpan(createPosition(id, o), createPosition(id, o));
+
+  it("an anchor follows typing, undo and redo; mapPosition maps from an older version", () => {
+    const { controller, container } = mountWith();
+    typeKeys(container, "hello world");
+    const id = asBlockId(leafBlockId(container));
+    const v0 = controller.version;
+    const anchor = controller.createAnchor(createPosition(id, 6), createPosition(id, 11));
+    if (anchor === null) throw new Error("no anchor");
+    controller.dispatch({ type: "SET_SELECTION", selection: caretAt(id, 0) });
+    typeKeys(container, ">> ");
+    expect([anchor.from.offset, anchor.to.offset]).toEqual([9, 14]);
+    expect(controller.mapPosition(createPosition(id, 6), v0)).toEqual({ position: createPosition(id, 9), deleted: false });
+    container.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true, cancelable: true }));
+    expect([anchor.from.offset, anchor.to.offset]).toEqual([6, 11]);
+    // An anchor created against the old version lands at its mapped place.
+    typeKeys(container, "!!");
+    const late = controller.createAnchor(createPosition(id, 6), createPosition(id, 11), { basedOn: v0 });
+    expect(late === null ? null : [late.from.offset, late.to.offset, late.changed]).toEqual([8, 13, false]);
+    controller.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(id, 8), createPosition(id, 13)) });
+    controller.dispatch({ type: "DELETE_BACKWARD" });
+    expect(late?.deleted).toBe(true);
+    controller.destroy();
+  });
+
+  it("a peer's update (separate Y.Doc, Y.applyUpdate) is applied: DOM, selection rebased, anchors moved", () => {
+    const cfg = { componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800 };
+    let peerA = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text: "hello world" }, cfg);
+    const docA = core.getYDoc(peerA.state);
+    const docB = new Y.Doc();
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
+    const { controller, container } = mountWith(core.createState({ rootId: peerA.state.rootId, doc: docB }));
+    docA.on("update", (u: Uint8Array) => Y.applyUpdate(docB, u, "provider"));
+    const id = peerA.selection.focus.blockId;
+    controller.dispatch({ type: "SET_SELECTION", selection: caretAt(id, 5) });
+    const anchor = controller.createAnchor(createPosition(id, 6), createPosition(id, 11));
+    peerA = core.reduceEditor(peerA, { type: "SET_SELECTION", selection: caretAt(id, 0) }, cfg);
+    peerA = core.reduceEditor(peerA, { type: "INSERT_TEXT", text: "Oh, " }, cfg);
+    expect(leafBlock(container).textContent).toBe("Oh, hello world");
+    expect(controller.editorState.selection.focus).toEqual(createPosition(id, 9));
+    expect(anchor === null ? null : [anchor.from.offset, anchor.to.offset]).toEqual([10, 15]);
+    // The local user keeps typing at the rebased caret; undo stays local.
+    typeKeys(container, "_");
+    expect(leafBlock(container).textContent).toBe("Oh, hello_ world");
+    container.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true, cancelable: true }));
+    expect(leafBlock(container).textContent).toBe("Oh, hello world");
+    controller.destroy();
+  });
+});
+
+describe("DigitalController — remote changes: lifetime, ownership, IME", () => {
+  const cfg = { componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800 };
+  function peerPair() {
+    let peerA = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text: "hello world" }, cfg);
+    const docA = core.getYDoc(peerA.state);
+    const docB = new Y.Doc();
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
+    docA.on("update", (u: Uint8Array) => Y.applyUpdate(docB, u, "provider"));
+    const stateB = core.createState({ rootId: peerA.state.rootId, doc: docB });
+    return {
+      stateB,
+      type: (t: string) => {
+        peerA = core.reduceEditor(peerA, { type: "INSERT_TEXT", text: t }, cfg);
+      },
+    };
+  }
+  function mountOn(state: core.State, remoteChanges?: "observe" | "ignore") {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const seen: core.EditorAction[] = [];
+    const reduce = vi.mocked(core.reduceEditor);
+    const controller = createDigitalController({
+      container,
+      componentRegistry: createDefaultComponentRegistry(),
+      attrRegistry: createDefaultAttrRegistry(),
+      containerWidth: 800,
+      doc: document,
+      initialState: state,
+      ...(remoteChanges !== undefined ? { remoteChanges } : {}),
+      onChange: () => {
+        const last = reduce.mock.calls.at(-1)?.[1];
+        if (last !== undefined) seen.push(last);
+      },
+    });
+    return { controller, container, foreign: () => seen.filter((a) => a.type === "APPLY_FOREIGN_CHANGE").length };
+  }
+
+  it("local edits dispatch no foreign change; after destroy() a peer update is ignored", () => {
+    const pair = peerPair();
+    const m = mountOn(pair.stateB);
+    m.container.dispatchEvent(makeBeforeInput("insertText", { data: "!" }));
+    expect(m.foreign()).toBe(0);
+    pair.type("A");
+    expect(m.foreign()).toBe(1);
+    m.controller.destroy();
+    pair.type("B");
+    expect(m.foreign()).toBe(1);
+  });
+
+  it("with two controllers on one document, only the observing one applies peer changes", () => {
+    const pair = peerPair();
+    const owner = mountOn(pair.stateB);
+    const other = mountOn(pair.stateB, "ignore");
+    pair.type("A");
+    expect(owner.foreign()).toBe(1);
+    expect(other.foreign()).toBe(0);
+    owner.controller.destroy();
+    other.controller.destroy();
+  });
+
+  it("a peer change during IME composition never writes the DOM selection; compositionend re-projects it", () => {
+    const pair = peerPair();
+    const m = mountOn(pair.stateB);
+    m.container.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    const sel = window.getSelection();
+    if (sel === null) throw new Error("no selection");
+    const writes = [vi.spyOn(sel, "setBaseAndExtent"), vi.spyOn(sel, "collapse"), vi.spyOn(sel, "addRange")];
+    pair.type("A");
+    expect(m.foreign()).toBe(1);
+    expect(writes.every((w) => w.mock.calls.length === 0)).toBe(true);
+    const cancelled = new CompositionEvent("compositionend", { bubbles: true });
+    Object.defineProperty(cancelled, "data", { value: null, configurable: true });
+    m.container.dispatchEvent(cancelled);
+    expect(writes.some((w) => w.mock.calls.length > 0)).toBe(true);
+    writes.forEach((w) => w.mockRestore());
+    m.controller.destroy();
   });
 });

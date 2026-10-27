@@ -11,16 +11,54 @@ import {
   type ContainerBlockNode,
   type Decoration,
   type CommentId,
+  report,
+  resetPerfTrace,
+  setPerfTraceEnabled,
 } from "@taleweaver/core";
 import { createDigitalController, type DigitalController } from "../editor-digital/digital-controller";
 
 /**
- * Typing-latency budget: a 20,000-word chapter (400 × 50-word paragraphs) with
- * 1,000 inline decorations. Budget: median keystroke dispatch ≤ 16 ms and a one-decoration
- * update ≤ 16 ms under jsdom (a real browser is several times faster). Guards against any
- * regression back to whole-document re-rendering.
+ * Typing-latency gate (digital backend): a 20,000-word chapter (400 × 50-word paragraphs)
+ * with 1,000 inline decorations, and a ~100-page document with comment highlights.
+ *
+ * The REAL gate is deterministic — per-operation counts from the perf trace, independent
+ * of machine load:
+ *  - per keystroke: `render.blockBody` ≤ 10 (the edited block; a whole-document
+ *    re-render is 400+), `digital.renderBlock` ≤ 5 (DOM for the edited block only),
+ *    `decorations.mapped` ≤ 10 (the edited block's decorations; all = 1,000);
+ *  - per one-decoration `setDecorations`: `digital.renderBlock` ≤ 3 (only the block whose
+ *    decoration changed is redrawn) and no core render.
+ * Wall-clock checks are COARSE backstops only (jsdom on a shared, loaded machine is
+ * noisy): median keystroke / decoration update ≤ 100 ms (measured a few ms; a
+ * whole-document re-render costs far more).
  */
-const BUDGET_MS = 16;
+const BACKSTOP_MS = 100;
+const PER_KEYSTROKE = { blocksRendered: 10, domBlocks: 5, decorationsMapped: 10 };
+const DOM_BLOCKS_PER_UPDATE = 3;
+
+const countOf = (label: string): number => report().entries.find((e) => e.label === label)?.count ?? 0;
+
+/** Run `fn` `times` times with the perf trace on; per-run counts of the gate's labels. */
+function counted(times: number, fn: (i: number) => void): { samples: number[]; blocksRendered: number; domBlocks: number; decorationsMapped: number } {
+  const samples: number[] = [];
+  resetPerfTrace();
+  setPerfTraceEnabled(true);
+  try {
+    for (let i = 0; i < times; i++) {
+      const t = performance.now();
+      fn(i);
+      samples.push(performance.now() - t);
+    }
+  } finally {
+    setPerfTraceEnabled(false);
+  }
+  return {
+    samples,
+    blocksRendered: countOf("render.blockBody") / times,
+    domBlocks: countOf("digital.renderBlock") / times,
+    decorationsMapped: countOf("decorations.mapped") / times,
+  };
+}
 
 function chapter(paragraphs = 400): ContainerBlockNode {
   const words = "the quick brown fox jumps over a lazy dog while Anna watches".split(" ");
@@ -70,22 +108,26 @@ describe("digital typing latency (20k words, 1,000 decorations)", () => {
     const caret = createPosition(target, 10);
     controller.dispatch({ type: "SET_SELECTION", selection: createSpan(caret, caret) });
 
-    const typing: number[] = [];
-    for (let i = 0; i < 60; i++) {
-      const t = performance.now();
-      controller.dispatch({ type: "INSERT_TEXT", text: "x" });
-      typing.push(performance.now() - t);
-    }
-    const updates: number[] = [];
-    for (let i = 0; i < 30; i++) {
-      const next = decorations.map((d, k) => (k === 500 ? { ...d, class: `mention v${i}` } : d));
-      const t = performance.now();
-      controller.setDecorations(next);
-      updates.push(performance.now() - t);
-    }
-    console.log(`typing median ${median(typing).toFixed(2)}ms; decoration update median ${median(updates).toFixed(2)}ms`);
-    expect(median(typing)).toBeLessThan(BUDGET_MS);
-    expect(median(updates)).toBeLessThan(BUDGET_MS);
+    const typing = counted(60, () => controller.dispatch({ type: "INSERT_TEXT", text: "x" }));
+    const updates = counted(30, (i) =>
+      controller.setDecorations(decorations.map((d, k) => (k === 500 ? { ...d, class: `mention v${i}` } : d))),
+    );
+    console.log(
+      `typing median ${median(typing.samples).toFixed(2)}ms ${JSON.stringify({ ...typing, samples: undefined })}; ` +
+        `decoration update median ${median(updates.samples).toFixed(2)}ms ${JSON.stringify({ ...updates, samples: undefined })}`,
+    );
+    // Liveness first: a renamed / silent trace label must not pass a budget vacuously.
+    expect(typing.decorationsMapped).toBeGreaterThan(0);
+    expect(typing.blocksRendered).toBeGreaterThan(0);
+    expect(typing.blocksRendered).toBeLessThanOrEqual(PER_KEYSTROKE.blocksRendered);
+    expect(typing.domBlocks).toBeGreaterThan(0);
+    expect(typing.domBlocks).toBeLessThanOrEqual(PER_KEYSTROKE.domBlocks);
+    expect(typing.decorationsMapped).toBeLessThanOrEqual(PER_KEYSTROKE.decorationsMapped);
+    expect(updates.domBlocks).toBeGreaterThan(0);
+    expect(updates.domBlocks).toBeLessThanOrEqual(DOM_BLOCKS_PER_UPDATE);
+    expect(updates.blocksRendered).toBe(0); // `render.blockBody` is proven live by the keystroke run above
+    expect(median(typing.samples)).toBeLessThan(BACKSTOP_MS);
+    expect(median(updates.samples)).toBeLessThan(BACKSTOP_MS);
     expect(controller.decorations.decorations.length).toBe(1000);
     controller.destroy();
   });
@@ -110,14 +152,15 @@ describe("digital typing latency (20k words, 1,000 decorations)", () => {
     controller.setDecorations(ids.slice(0, 1000).map((id, k) => ({ kind: "inline", id: `d${k}`, from: createPosition(id, 4), to: createPosition(id, 9) })));
     const caret = createPosition(target, 10);
     controller.dispatch({ type: "SET_SELECTION", selection: createSpan(caret, caret) });
-    const typing: number[] = [];
-    for (let i = 0; i < 40; i++) {
-      const t = performance.now();
-      controller.dispatch({ type: "INSERT_TEXT", text: "x" });
-      typing.push(performance.now() - t);
-    }
-    console.log(`100-page typing median ${median(typing).toFixed(2)}ms`);
-    expect(median(typing)).toBeLessThan(BUDGET_MS);
+    const typing = counted(40, () => controller.dispatch({ type: "INSERT_TEXT", text: "x" }));
+    console.log(`100-page typing median ${median(typing.samples).toFixed(2)}ms ${JSON.stringify({ ...typing, samples: undefined })}`);
+    expect(typing.blocksRendered).toBeGreaterThan(0);
+    expect(typing.blocksRendered).toBeLessThanOrEqual(PER_KEYSTROKE.blocksRendered);
+    expect(typing.domBlocks).toBeGreaterThan(0);
+    expect(typing.domBlocks).toBeLessThanOrEqual(PER_KEYSTROKE.domBlocks);
+    expect(typing.decorationsMapped).toBeGreaterThan(0);
+    expect(typing.decorationsMapped).toBeLessThanOrEqual(PER_KEYSTROKE.decorationsMapped);
+    expect(median(typing.samples)).toBeLessThan(BACKSTOP_MS);
     controller.destroy();
   });
 });

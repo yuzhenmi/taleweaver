@@ -3,31 +3,37 @@ import * as core from "@taleweaver/core";
 import { createEditorController } from "../editor-controller";
 
 /**
- * Typing-latency budget (print backend): a 20,000-word chapter (400 ×
- * 50-word paragraphs) with 1,000 inline decorations + 100 widgets, paginated on Letter pages,
- * three pages visible. Decoration geometry is resolved lazily per painted page and
- * cached, so decorations must add (almost) nothing to a keystroke.
+ * Typing-latency gate (print backend): a 20,000-word chapter (400 × 50-word paragraphs)
+ * with 1,000 inline decorations + 100 widgets, paginated on Letter pages, three pages
+ * visible. Decoration geometry is resolved lazily per painted page and cached, so
+ * decorations must add (almost) nothing to a keystroke.
  *
- * Budgets (jsdom; a real browser is several times faster):
- *  - decoration work per keystroke (layer mapping + visible-page fragment
- *    resolution + widget placement, perf-traced) ≤ 16 ms — resolving all 1,000 decorations would
- *    cost well over 100 ms;
- *  - median keystroke (reduce + controller.update) WITH 1,000 decorations
- *    ≤ 1.5 × the same document's median WITHOUT decorations + 2 ms;
- *  - median one-decoration update (`setDecorations`) ≤ 16 ms;
- *  - median BARE keystroke ≤ 150 ms — a coarse wall-clock backstop only (measured ~15 ms;
- *    ~220–400 ms when every paragraph was re-laid-out per keystroke);
- *  - `ifc.layout` calls per keystroke ≤ 30: the edited paragraph's meta + re-materializing
- *    the edited page (~13 paragraphs/page here; measured 14). Re-laying the whole
- *    document is 400+.
- * Guards against any regression to resolving every decoration per update.
+ * The REAL gate is deterministic: per-keystroke operation counts from the perf trace,
+ * which do not depend on machine load —
+ *  - `ifc.layout` ≤ 30: the edited paragraph's meta + re-materializing the edited page
+ *    (~13 paragraphs/page; measured 14). Re-laying the whole document is 400+.
+ *  - `render.blockBody` ≤ 10: the edited block (measured 2). A full re-render is 400+.
+ *  - `decorations.mapped` ≤ 10: only the edited block's decorations are carried
+ *    (measured 3). Mapping every decoration is 1,100.
+ *  - `decorations.segmentGeometry` ≤ 100: inline-decoration geometry recomputed for
+ *    the re-materialized page only (measured ~30). Resolving every decoration is 1,000.
+ *  - `ctrl.widgetResolve` ≤ 20: widgets on the visible pages only (measured 9; all 100
+ *    otherwise).
+ *  - a one-decoration `setDecorations` recomputes ≤ 5 segment geometries (measured ~1).
+ * Wall-clock checks are COARSE backstops only (jsdom on a shared, loaded machine is
+ * noisy): median keystroke ≤ 150 ms with and without decorations (measured ~15–20 ms;
+ * 220–400 ms when every paragraph was re-laid-out), median decoration update ≤ 100 ms.
  */
-const UPDATE_BUDGET_MS = 16;
-const DECORATION_WORK_BUDGET_MS = 16;
-// Coarse wall-clock backstop only (jsdom under shared-machine load is noisy): the
-// deterministic `ifc.layout` count below is the real regression gate.
-const TYPING_BUDGET_MS = 150;
-const IFC_LAYOUTS_PER_KEYSTROKE_BUDGET = 30;
+const TYPING_BACKSTOP_MS = 150;
+const UPDATE_BACKSTOP_MS = 100;
+const PER_KEYSTROKE_BUDGET = {
+  ifcLayouts: 30,
+  blocksRendered: 10,
+  decorationsMapped: 10,
+  segmentGeometries: 100,
+  widgetResolves: 20,
+};
+const SEGMENTS_PER_UPDATE_BUDGET = 5;
 
 const LETTER: core.PageConfig = {
   pageInlineSize: 816,
@@ -92,7 +98,20 @@ afterEach(() => {
   if (originalIO !== undefined) globalThis.IntersectionObserver = originalIO;
 });
 
-function run(withDecorations: boolean, keystrokes: number): { typing: number; update: number; count: number; decorationMs: number; ifcLayouts: number } {
+interface RunResult {
+  typing: number;
+  update: number;
+  count: number;
+  decorationMs: number;
+  /** Deterministic per-keystroke operation counts (perf-trace counters). */
+  perKey: { ifcLayouts: number; blocksRendered: number; decorationsMapped: number; segmentGeometries: number; widgetResolves: number };
+  /** Decoration positions resolved by one one-decoration `setDecorations` (median-free: exact). */
+  updateResolves: number;
+}
+
+const countOf = (label: string): number => core.report().entries.find((e) => e.label === label)?.count ?? 0;
+
+function run(withDecorations: boolean, keystrokes: number): RunResult {
   const config = cfg();
   const state = core.buildDocumentFromTree(chapter(), {}, core.createTestAllocator());
   const ids: core.BlockId[] = [];
@@ -142,23 +161,34 @@ function run(withDecorations: boolean, keystrokes: number): { typing: number; up
   // Decoration work per keystroke: carrying the layers through the edit + resolving
   // the visible pages' fragments (the only decoration code on the typing path).
   const entries = core.report().entries;
-  const ifcLayouts = (entries.find((e) => e.label === "ifc.layout")?.count ?? 0) / keystrokes;
+  const perKey = {
+    ifcLayouts: countOf("ifc.layout") / keystrokes,
+    blocksRendered: countOf("render.blockBody") / keystrokes,
+    decorationsMapped: countOf("decorations.mapped") / keystrokes,
+    segmentGeometries: countOf("decorations.segmentGeometry") / keystrokes,
+    widgetResolves: countOf("ctrl.widgetResolve") / keystrokes,
+  };
   const decorationMs =
     entries
       .filter((e) => e.label === "ctrl.decorationLayers" || e.label === "ctrl.decorationRects" || e.label === "ctrl.syncWidgets")
       .reduce((sum, e) => sum + e.totalMs, 0) / keystrokes;
   const updates: number[] = [];
+  let updateResolves = 0;
   if (withDecorations) {
+    core.resetPerfTrace();
+    core.setPerfTraceEnabled(true);
     for (let i = 0; i < 30; i++) {
       const next = decorations.map((d, k) => (k === 30 ? { ...d, style: { backgroundColor: `rgba(${i}, 0, 0, 0.2)` } } : d));
       const t = performance.now();
       controller.setDecorations(next);
       updates.push(performance.now() - t);
     }
+    core.setPerfTraceEnabled(false);
+    updateResolves = countOf("decorations.segmentGeometry") / 30;
   }
   const count = controller.decorations.decorations.length;
   controller.destroy();
-  return { typing: median(typing), update: median(updates), count, decorationMs, ifcLayouts };
+  return { typing: median(typing), update: median(updates), count, decorationMs, perKey, updateResolves };
 }
 
 describe("print typing latency (20k words, 1,000 decorations + 100 widgets)", () => {
@@ -168,13 +198,29 @@ describe("print typing latency (20k words, 1,000 decorations + 100 widgets)", ()
     const decorated = run(true, 15);
     console.log(
       `print typing median: ${base.typing.toFixed(2)}ms bare / ${decorated.typing.toFixed(2)}ms with 1,000 decorations + 100 widgets; ` +
-        `decoration work ${decorated.decorationMs.toFixed(2)}ms/keystroke; ifc.layout ${base.ifcLayouts.toFixed(1)}/keystroke; decoration update median ${decorated.update.toFixed(2)}ms`,
+        `decoration work ${decorated.decorationMs.toFixed(2)}ms/keystroke; decoration update median ${decorated.update.toFixed(2)}ms; ` +
+        `per keystroke bare ${JSON.stringify(base.perKey)} decorated ${JSON.stringify(decorated.perKey)}; update resolves ${decorated.updateResolves}`,
     );
     expect(decorated.count).toBe(1100);
-    expect(base.typing).toBeLessThan(TYPING_BUDGET_MS);
-    expect(base.ifcLayouts).toBeLessThanOrEqual(IFC_LAYOUTS_PER_KEYSTROKE_BUDGET);
-    expect(decorated.decorationMs).toBeLessThan(DECORATION_WORK_BUDGET_MS);
-    expect(decorated.typing).toBeLessThan(base.typing * 1.5 + 2);
-    expect(decorated.update).toBeLessThan(UPDATE_BUDGET_MS);
+    // Deterministic gate (load-independent operation counts).
+    for (const r of [base, decorated]) {
+      // Liveness first: a renamed / silent trace label must not pass a budget vacuously.
+      expect(r.perKey.ifcLayouts).toBeGreaterThan(0);
+      expect(r.perKey.ifcLayouts).toBeLessThanOrEqual(PER_KEYSTROKE_BUDGET.ifcLayouts);
+      expect(r.perKey.blocksRendered).toBeGreaterThan(0);
+      expect(r.perKey.blocksRendered).toBeLessThanOrEqual(PER_KEYSTROKE_BUDGET.blocksRendered);
+    }
+    expect(decorated.perKey.decorationsMapped).toBeGreaterThan(0); // the counter is live
+    expect(decorated.perKey.decorationsMapped).toBeLessThanOrEqual(PER_KEYSTROKE_BUDGET.decorationsMapped);
+    expect(decorated.perKey.segmentGeometries).toBeGreaterThan(0);
+    expect(decorated.perKey.segmentGeometries).toBeLessThanOrEqual(PER_KEYSTROKE_BUDGET.segmentGeometries);
+    expect(decorated.perKey.widgetResolves).toBeGreaterThan(0);
+    expect(decorated.perKey.widgetResolves).toBeLessThanOrEqual(PER_KEYSTROKE_BUDGET.widgetResolves);
+    expect(decorated.updateResolves).toBeGreaterThan(0);
+    expect(decorated.updateResolves).toBeLessThanOrEqual(SEGMENTS_PER_UPDATE_BUDGET);
+    // Coarse wall-clock backstops.
+    expect(base.typing).toBeLessThan(TYPING_BACKSTOP_MS);
+    expect(decorated.typing).toBeLessThan(TYPING_BACKSTOP_MS);
+    expect(decorated.update).toBeLessThan(UPDATE_BACKSTOP_MS);
   }, 120_000);
 });

@@ -107,6 +107,8 @@ export function coalesceKeyOf(action: EditorAction): ActionClass {
     case "REDO":
       return "selection-break";
     case "SET_CONTAINER_WIDTH":
+    // A peer's change: not ours to undo, and it must not split our typing group.
+    case "APPLY_FOREIGN_CHANGE":
       return "inert";
     default: {
       const _exhaustive: never = action;

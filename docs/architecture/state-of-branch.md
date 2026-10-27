@@ -663,6 +663,12 @@ host's `EditorConfig` (`config` option);
 `getMarkRanges` host query. See [`1.5-editor.md`](./1-core/1.5-editor.md) "Typing
 attributes and inline marks" and [`1.3-cascade.md`](./1-core/1.3-cascade.md).
 
+Anchors + collaboration `[implemented]`: `AnchorSet` (live anchors through local edits,
+undo/redo and peer changes; `deleted` / `changed`), document versions + `mapPosition`
+(bounded MappingLog), and first-class foreign-change handling in both controllers
+(`subscribeRemoteChanges` → `APPLY_FOREIGN_CHANGE` → selection rebased). See
+[`1.9-decorations.md`](./1-core/1.9-decorations.md) "Anchors" / "Foreign changes".
+
 Host extensions `[implemented]`: `EditorConfig.extensions` — commands
 (`(editor, dispatch?) => boolean`, `runCommand` on both controllers), keymap (consulted
 before each backend's defaults; `Mod` = Cmd on Apple / Ctrl elsewhere; `null` unbinds),

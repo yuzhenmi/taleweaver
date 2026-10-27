@@ -13,6 +13,7 @@
  * needed `renderBlockBody`, which used to live in `render.ts`, which in turn
  * dispatches into render-incremental for the incremental path).
  */
+import { recordSample } from "../perf/perf-trace";
 import {
   resolveBlock,
   getOutline,
@@ -137,6 +138,8 @@ export function renderBlockBody(
     parentSpecified: Partial<Style> | undefined,
   ) => RenderNode,
 ): RenderNode {
+  // Deterministic perf counter (no-op unless tracing): blocks rendered per update.
+  recordSample("render.blockBody", 0);
   if (visited.has(block.id)) {
     throw new Error(`render: cycle detected at block "${block.id}"`);
   }

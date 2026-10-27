@@ -107,14 +107,19 @@ export function useWritingAids(
   enabled: boolean,
   editorState: EditorState,
   setDecorations: (decorations: readonly Decoration[], basedOn: State) => void,
+  extra: () => readonly Decoration[] = () => [],
 ): void {
   const state = editorState.state;
   useEffect(() => {
     // Computed against `state`; the editor maps the result through any edits made since.
-    const compute = () => [...(enabled ? writingAidDecorations(state) : []), ...mentionDecorations(state)];
+    const compute = () => [
+      ...(enabled ? writingAidDecorations(state) : []),
+      ...mentionDecorations(state),
+      ...extra(),
+    ];
     const handle = window.setTimeout(() => setDecorations(compute(), state), 250);
     return () => window.clearTimeout(handle);
-  }, [enabled, state, setDecorations]);
+  }, [enabled, state, setDecorations, extra]);
 }
 
 /** A hover card anchored to the innermost hovered decoration that carries a message. */

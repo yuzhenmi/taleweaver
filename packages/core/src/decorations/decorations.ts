@@ -1,4 +1,5 @@
 import type { BlockId, Position, State } from "../state";
+import { recordSample } from "../perf/perf-trace";
 import { createSpan, comparePositions, iterateSpan, resolveBlock } from "../state";
 import type { Assoc, PositionMapping } from "../state/position-mapping";
 
@@ -446,6 +447,7 @@ export function decorationsAt(set: DecorationSet, position: Position): Decoratio
 }
 
 function mapDecoration(d: Decoration, mapping: PositionMapping, next: State): Decoration | null {
+  recordSample("decorations.mapped", 0); // deterministic perf counter (no-op unless tracing)
   switch (d.kind) {
     case "block":
       return resolveBlock(next, d.blockId) === null ? null : d;
