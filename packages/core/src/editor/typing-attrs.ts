@@ -5,7 +5,7 @@ import {
   deepValueEqual,
   INSERTION_SUGGESTION_ATTR,
   DELETION_SUGGESTION_ATTR,
-  FORMATTING_SUGGESTION_ATTR,
+  isFormattingSuggestionKey,
 } from "../state";
 import type { State, Position, ReadonlyAttrs, InlineItem, TextItem } from "../state";
 import type { AttrRegistry } from "../cascade/attr-registry";
@@ -17,11 +17,10 @@ import type { EditorState } from "./editor-state";
  * Typed text is attributed to its own author (suggesting mode mints a fresh
  * insertion), never folded into someone else's suggestion.
  */
-const NEVER_INHERITED: ReadonlySet<string> = new Set([
-  INSERTION_SUGGESTION_ATTR,
-  DELETION_SUGGESTION_ATTR,
-  FORMATTING_SUGGESTION_ATTR,
-]);
+const PROVENANCE_KEYS: ReadonlySet<string> = new Set([INSERTION_SUGGESTION_ATTR, DELETION_SUGGESTION_ATTR]);
+function neverInherited(key: string): boolean {
+  return PROVENANCE_KEYS.has(key) || isFormattingSuggestionKey(key);
+}
 
 const EMPTY: ReadonlyAttrs = Object.freeze({});
 
@@ -69,7 +68,7 @@ export function inheritedAttrsAt(state: State, pos: Position, registry: AttrRegi
   if (base === null) return EMPTY;
   const out: Record<string, unknown> = {};
   for (const key of Object.keys(base.attrs)) {
-    if (NEVER_INHERITED.has(key)) continue;
+    if (neverInherited(key)) continue;
     if (!registry.isInclusive(key)) {
       // At a block edge or an atomic mark: never extended.
       if (registry.isAtomic(key) || before === null || after === null) continue;
@@ -96,7 +95,7 @@ function typeOverAttrs(state: State, start: Position, registry: AttrRegistry): R
   if (after === null) return inheritedAttrsAt(state, start, registry);
   const out: Record<string, unknown> = {};
   for (const key of Object.keys(after.attrs)) {
-    if (NEVER_INHERITED.has(key) || registry.isAtomic(key)) continue;
+    if (neverInherited(key) || registry.isAtomic(key)) continue;
     out[key] = after.attrs[key];
   }
   return Object.freeze(out);

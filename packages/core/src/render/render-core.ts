@@ -29,7 +29,8 @@ import {
   BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
   INSERTION_SUGGESTION_ATTR,
   DELETION_SUGGESTION_ATTR,
-  FORMATTING_SUGGESTION_ATTR,
+  pendingFormattingSuggestions,
+  resolveFormattingSuggestionTags,
   readSuggestionRecordFromState,
   itemVisibleInView,
 } from "../state";
@@ -332,24 +333,23 @@ export function expandInlineItems(
       i++;
       continue;
     }
-    const itemStyle: Partial<Style> = attrRegistry.applyAll(item.attrs, {
-      parentStyle: blockSpecified,
-    });
+    // Change-tracking: in `"suggesting"` view, layer the suggestion visuals (author
+    // color + underline/lineThrough + formatting preview) on top of the cascaded
+    // style — for text runs AND visible embeds (a formatting suggestion tags both).
+    // In a preview view, suppress those visuals — but in `"final"` apply the
+    // formatting proposals FOR REAL.
+    const itemStyle: Partial<Style> = resolveSuggestionStyle(
+      item.attrs,
+      attrRegistry.applyAll(item.attrs, { parentStyle: blockSpecified }),
+      state,
+      attrRegistry,
+      blockSpecified,
+      view,
+    );
     const key = inlineRenderKey(blockId, i);
     if (item.kind === "text") {
       // InlineItem narrows to TextItem here via the discriminated union.
-      // Change-tracking slice 5a/5c-iii: in `"suggesting"` view, layer the
-      // suggestion visuals (author color + underline/lineThrough + formatting
-      // preview) on top of the cascaded itemStyle. In a preview view, suppress
-      // those visuals — but in `"final"` apply a formatting proposal FOR REAL.
-      const runStyle = resolveSuggestionStyle(
-        item.attrs,
-        itemStyle,
-        state,
-        attrRegistry,
-        blockSpecified,
-        view,
-      );
+      const runStyle = itemStyle;
       const linkAttr = item.attrs.link;
       out.push(
         createTextBox(
@@ -713,7 +713,8 @@ export function expandInlineItems(
 }
 
 /**
- * Change-tracking slice 5a: resolve the suggestion VISUALS for a text run and
+ * Change-tracking slice 5a: resolve the suggestion VISUALS for a text run (or a
+ * visible embed carrying formatting-suggestion tags) and
  * return the final per-run style. When the run carries NO suggestion-id
  * dimension this returns `baseStyle` UNCHANGED (same reference) — the no-op fast
  * path keeps plain runs byte-identical to a no-suggestion render. Otherwise it
@@ -721,9 +722,10 @@ export function expandInlineItems(
  * (design §5):
  *   - **insertion** → author color + `underline`.
  *   - **deletion** → author color + `lineThrough` (still laid out, struck).
- *   - **formatting** → the record's `proposedAttrs` composited over the base
- *     (the proposal PREVIEW — shown but not yet applied for real) PLUS a subtle
- *     author-color `underline` indicator.
+ *   - **formatting** → every pending suggestion's `proposedAttrs` composited over
+ *     the live attrs in (order, createdAt, id) order, minus each one's shadowed keys (the
+ *     proposal PREVIEW — shown but not yet applied for real) PLUS a subtle
+ *     author-color `underline` indicator (the newest suggestion's author).
  *   - a run carrying MULTIPLE dimensions gets all of them (e.g. nested
  *     insertion+deletion → color + underline + lineThrough).
  *
@@ -731,7 +733,7 @@ export function expandInlineItems(
  * is read from the `suggestions` map by id ({@link readSuggestionRecordFromState});
  * an id with no record (collab race / migration) contributes nothing.
  *
- * `proposedAttrs` are translated through the SAME `attrRegistry.applyAll` an
+ * The composite attrs are translated through the SAME `attrRegistry.applyAll` an
  * inline run's own attrs go through (mirroring the established compose path —
  * not an ad-hoc style translation), with the run's containing-block specified
  * style as parent context, so the preview matches what `accept` will make real.
@@ -746,87 +748,53 @@ function resolveSuggestionStyle(
 ): Partial<Style> {
   const insertionId = attrs[INSERTION_SUGGESTION_ATTR];
   const deletionId = attrs[DELETION_SUGGESTION_ATTR];
-  const formattingId = attrs[FORMATTING_SUGGESTION_ATTR];
+  // Pending formatting suggestions on the run in (order, createdAt, id) order; a tag whose
+  // record is missing (collab race) is ignored.
+  const pending = pendingFormattingSuggestions(attrs, (id) => readSuggestionRecordFromState(state, id));
   // Fast path: not a tracked run → no override, return the base unchanged so a
   // plain run is identical to a no-suggestion render.
-  if (
-    typeof insertionId !== "string" &&
-    typeof deletionId !== "string" &&
-    typeof formattingId !== "string"
-  ) {
+  if (typeof insertionId !== "string" && typeof deletionId !== "string" && pending.length === 0) {
     return baseStyle;
   }
+
+  // The COMPOSITE of the pending formatting proposals over the live attrs (what
+  // accepting them all makes real), translated through the attr registry exactly
+  // like a run's own attrs — so the preview, including a proposed REMOVAL, matches
+  // what `accept` produces.
+  const composite = (): Partial<Style> => {
+    if (pending.length === 0) return baseStyle;
+    const byId = new Map(pending.map((p) => [p.record.id, p.record]));
+    const finalAttrs = resolveFormattingSuggestionTags(attrs, () => "accept", (id) => byId.get(id) ?? null);
+    return attrRegistry.applyAll(finalAttrs, { parentStyle: blockSpecified });
+  };
 
   // 5c-iii preview views: the run already SURVIVED `itemVisibleInView`, so it is
   // rendered as it would read once resolved — with NO suggestion decoration
-  // (no author color / underline / lineThrough). A `"final"` view applies a
-  // formatting proposal FOR REAL (`proposedAttrs` composited over the base);
-  // `"original"` drops the proposal (keeps the live attrs already in `baseStyle`).
-  if (view !== "suggesting") {
-    if (view === "final") {
-      const fmtRecord =
-        typeof formattingId === "string"
-          ? readSuggestionRecordFromState(state, formattingId as SuggestionId)
-          : null;
-      if (fmtRecord?.proposedAttrs !== undefined) {
-        const proposedStyle = attrRegistry.applyAll(fmtRecord.proposedAttrs, {
-          parentStyle: blockSpecified,
-        });
-        return { ...baseStyle, ...proposedStyle };
-      }
-    }
-    return baseStyle;
-  }
+  // (no author color / underline / lineThrough). A `"final"` view applies the
+  // formatting proposals FOR REAL; `"original"` keeps the live attrs (`baseStyle`).
+  if (view !== "suggesting") return view === "final" ? composite() : baseStyle;
 
-  // Compose order: start from the base (the run's normal cascaded style), then
-  // the formatting PROPOSAL preview (so it can be visibly overridden by the
-  // author-color indicator below), then the author-color + decoration overrides
-  // LAST (they are the suggestion's defining visual, not overridable by the
-  // proposal).
-  let result: Partial<Style> = { ...baseStyle };
-
-  // Read the formatting record ONCE — it serves both the proposal preview AND (as
-  // the lowest-precedence fallback) the author tint, so the formatting dimension
-  // never triggers a second Y.Doc lookup on the per-keystroke render hot path.
-  const formattingRecord =
-    typeof formattingId === "string"
-      ? readSuggestionRecordFromState(state, formattingId as SuggestionId)
-      : null;
-
-  // Formatting proposal: composite the proposed attrs over the base as the
-  // preview, translated through the attr registry exactly like inline run attrs.
-  if (formattingRecord?.proposedAttrs !== undefined) {
-    const proposedStyle = attrRegistry.applyAll(formattingRecord.proposedAttrs, {
-      parentStyle: blockSpecified,
-    });
-    result = { ...result, ...proposedStyle };
-  }
-
-  // Author color is shared across the run's dimensions (a run is typically all
-  // one author per dimension; when both an insertion and a deletion id are
-  // present we prefer the insertion author for the single tint, falling back to
-  // deletion then formatting). The decoration flags accumulate across whichever
-  // dimensions are present. The suggestion overrides compose LAST so they are
-  // the run's defining visual (not overridable by the proposal preview).
-  const authorColor = resolveRunAuthorColor(state, insertionId, deletionId, formattingRecord);
+  // Compose order: the formatting-proposal composite first, then the author-color +
+  // decoration overrides LAST (they are the suggestion's defining visual, not
+  // overridable by the proposal).
+  const newestFormatting = pending[pending.length - 1]?.record ?? null;
+  const authorColor = resolveRunAuthorColor(state, insertionId, deletionId, newestFormatting);
   // Insertion → underline; formatting → the same subtle author-color underline
   // indicator. Deletion → lineThrough. A nested run accumulates all flags.
-  const wantUnderline = typeof insertionId === "string" || typeof formattingId === "string";
+  const wantUnderline = typeof insertionId === "string" || pending.length > 0;
   const wantLineThrough = typeof deletionId === "string";
-  result = {
-    ...result,
+  return {
+    ...composite(),
     ...(authorColor !== null ? { color: authorColor } : {}),
     ...(wantUnderline ? { underline: true } : {}),
     ...(wantLineThrough ? { lineThrough: true } : {}),
   };
-
-  return result;
 }
 
 /**
  * Resolve the single author color to tint a tracked run, reading the owning
  * record for whichever dimension is present. Prefers the insertion author, then
- * deletion, then formatting (a run is normally a single author per dimension;
+ * deletion, then the newest pending formatting suggestion (a run is normally a single author per dimension;
  * the preference only matters for a nested insertion+deletion by two different
  * authors, where one tint must be chosen). Returns `null` when no present id
  * resolves to a record (collab race / migration), so the caller leaves `color`

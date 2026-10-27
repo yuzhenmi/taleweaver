@@ -13,7 +13,8 @@ import {
   getSuggestions,
   INSERTION_SUGGESTION_ATTR,
   DELETION_SUGGESTION_ATTR,
-  FORMATTING_SUGGESTION_ATTR,
+  formattingSuggestionIds,
+  formattingSuggestionKey,
   BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
 } from "../suggestions";
 
@@ -1733,11 +1734,12 @@ describe("insertFragment — T7 suggestion-record transfer", () => {
     expect((taggedItem as { kind: "text"; attrs: Record<string, unknown> }).attrs[DELETION_SUGGESTION_ATTR]).toBe(rec.id);
   });
 
-  it("carries a formatting suggestion's proposedAttrs and repoints FORMATTING_SUGGESTION_ATTR to the fresh id", () => {
+  it("carries formatting suggestions' proposedAttrs and re-keys every formatting tag of a doubly-tagged run (shadowed keys kept)", () => {
     // Spec §5 step-3: a `formatting` record's proposedAttrs must transfer; this is a
     // distinct code path from insertion/deletion (proposedAttrs spread + the
-    // FORMATTING_SUGGESTION_ATTR rewrite branch). Fails if either regressed.
+    // formatting-tag rewrite branch). Fails if either regressed.
     const fmt1 = "fmt1" as SuggestionId;
+    const fmt2 = "fmt2" as SuggestionId;
     const fragState = buildStateFromBlocks({
       rootId: bid("fdoc"),
       blocks: [
@@ -1747,37 +1749,45 @@ describe("insertFragment — T7 suggestion-record transfer", () => {
           type: "paragraph",
           parentId: bid("fdoc"),
           inlineContent: inlineContent([
-            text("formatted", { [FORMATTING_SUGGESTION_ATTR]: fmt1 }),
+            text("formatted", { [formattingSuggestionKey(fmt1)]: '["color"]', [formattingSuggestionKey(fmt2)]: true }),
           ]),
         }),
       ],
-      suggestions: [{ id: fmt1, kind: "formatting", author: "dave", createdAt: 321, proposedAttrs: { bold: true } }],
+      suggestions: [
+        { id: fmt1, kind: "formatting", author: "dave", createdAt: 321, order: 7, proposedAttrs: { bold: true, color: "red" } },
+        { id: fmt2, kind: "formatting", author: "erin", createdAt: 322, proposedAttrs: { italic: true } },
+      ],
     });
     const dest = makeSimpleDest();
     const alloc = createTestAllocator("T7-fmt");
     const r = insertFragment(dest, createSpan(createPosition(bid("p"), 0), createPosition(bid("p"), 0)), fragState, alloc);
 
     const recs = getSuggestions(r.state);
-    expect(recs).toHaveLength(1);
-    const rec = recs[0];
-    if (rec === undefined) throw new Error("expected recs[0]");
-    // fresh id (carrier-repoint target)
-    expect(rec.id).not.toBe(fmt1);
+    expect(recs).toHaveLength(2);
+    const rec = recs.find((x) => x.author === "dave");
+    const rec2 = recs.find((x) => x.author === "erin");
+    if (rec === undefined || rec2 === undefined) throw new Error("expected both records");
+    // fresh ids (carrier-repoint targets)
+    expect([rec.id, rec2.id]).not.toContain(fmt1);
+    expect([rec.id, rec2.id]).not.toContain(fmt2);
     expect(rec.kind).toBe("formatting");
-    expect(rec.author).toBe("dave");
     expect(rec.createdAt).toBe(321);
+    expect(rec.order).toBe(7); // the stacking order survives the re-mint
+    expect(rec2.order).toBeUndefined();
     // proposedAttrs must deep-equal the source (the spread path)
-    expect(rec.proposedAttrs).toEqual({ bold: true });
+    expect(rec.proposedAttrs).toEqual({ bold: true, color: "red" });
 
-    // the pasted run's FORMATTING_SUGGESTION_ATTR must point at the fresh id (the rewrite branch)
+    // the pasted run's formatting tag must name the fresh id (the rewrite branch)
     const pBlock = getBlock(r.state, bid("p"));
     const taggedItems = (pBlock?.inlineContent?.items ?? []).filter(
-      (it) => it.kind === "text" && it.attrs[FORMATTING_SUGGESTION_ATTR] !== undefined,
+      (it) => it.kind === "text" && formattingSuggestionIds(it.attrs)[0] !== undefined,
     );
     expect(taggedItems).toHaveLength(1);
     const taggedItem = taggedItems[0];
     if (taggedItem === undefined) throw new Error("expected taggedItems[0]");
-    expect((taggedItem as { kind: "text"; attrs: Record<string, unknown> }).attrs[FORMATTING_SUGGESTION_ATTR]).toBe(rec.id);
+    expect(formattingSuggestionIds(taggedItem.attrs).sort()).toEqual([rec.id, rec2.id].sort());
+    expect(taggedItem.attrs[formattingSuggestionKey(rec.id)]).toBe('["color"]');
+    expect(taggedItem.attrs[formattingSuggestionKey(rec2.id)]).toBe(true);
   });
 });
 

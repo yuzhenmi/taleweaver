@@ -127,13 +127,17 @@ describe("typing attributes", () => {
     expect(getMarkRanges(s.state, "secret").map((r) => [r.from.offset, r.to.offset])).toEqual([[0, 3]]);
   });
 
-  it("never inherits change-tracking provenance (direct typing inside a suggested insertion)", () => {
+  it("never inherits change-tracking provenance (direct typing inside a suggested insertion / formatting suggestion)", () => {
     const suggest = makeConfig({ suggestingAuthor: "A" });
     const direct = makeConfig();
     let s = run(createInitialEditorState(suggest), suggest, { type: "INSERT_TEXT", text: "abc" });
     expect(runs(s)[0]?.[1][INSERTION_SUGGESTION_ATTR]).toBeDefined();
     s = run(s, direct, caret(blockId(s), 1), { type: "INSERT_TEXT", text: "X" });
     expect(runs(s).find(([t]) => t === "X")?.[1]).toEqual({});
+    // Inside a run carrying a formatting suggestion's tag: the tag is not inherited.
+    s = run(s, suggest, select(blockId(s), 0, 4), { type: "TOGGLE_STYLE", style: "italic" });
+    s = run(s, direct, caret(blockId(s), 2), { type: "INSERT_TEXT", text: "Y" });
+    expect(Object.keys(runs(s).find(([t]) => t === "Y")?.[1] ?? { missing: true })).toEqual([]);
   });
 
   it("collapsed TOGGLE_STYLE stores typing attrs: toolbar shows it, next keystroke uses it, a caret move drops it", () => {

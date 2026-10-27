@@ -29,6 +29,7 @@ import type {
   OperationResult,
 } from "../state";
 import { suggestionIdsOnItem } from "../state/ops/suggestion-ops";
+import { nextSuggestionOrder } from "../state/suggestions";
 import type { PositionMapping } from "../state/position-mapping";
 import { recordSample } from "../perf/perf-trace";
 import { recordChange, type EditorConfig, type EditorState } from "./editor-state";
@@ -321,23 +322,23 @@ function applyProposal(
     const span = createSpan(from, to);
     if (edit.kind === "format") {
       const id = newSuggestionId();
-      step(markFormatting(state, span, edit.attrs, { id, author: proposal.author, createdAt, noCoalesce: true }), [id], edit.metadata);
+      step(markFormatting(state, span, edit.attrs, { id, author: proposal.author, createdAt, order: nextSuggestionOrder(), noCoalesce: true }), [id], edit.metadata);
       continue;
     }
     const attrs = replacementAttrs(state, from, to, registry);
     const point = positionsEqual(from, to);
     if (edit.text === "") {
       const id = newSuggestionId();
-      step(markDeletion(state, span, { id, author: proposal.author, createdAt, noCoalesce: true }), [id], edit.metadata);
+      step(markDeletion(state, span, { id, author: proposal.author, createdAt, order: nextSuggestionOrder(), noCoalesce: true }), [id], edit.metadata);
     } else if (edit.text.includes("\n")) {
-      const input = { deletionId: newSuggestionId(), insertionId: newSuggestionId(), author: proposal.author, createdAt, noCoalesce: true };
+      const input = { deletionId: newSuggestionId(), insertionId: newSuggestionId(), author: proposal.author, createdAt, order: nextSuggestionOrder(), noCoalesce: true };
       const result = replaceWithSuggestedFragment(state, span, linesFor(state, from, edit.text, attrs), input, productionAllocator, registry);
       step(result, [input.deletionId, input.insertionId], edit.metadata);
     } else if (point) {
       const id = newSuggestionId();
-      step(mintInsertion(state, from, edit.text, attrs, { id, author: proposal.author, createdAt, noCoalesce: true }), [id], edit.metadata);
+      step(mintInsertion(state, from, edit.text, attrs, { id, author: proposal.author, createdAt, order: nextSuggestionOrder(), noCoalesce: true }), [id], edit.metadata);
     } else {
-      const input = { deletionId: newSuggestionId(), insertionId: newSuggestionId(), author: proposal.author, createdAt, noCoalesce: true };
+      const input = { deletionId: newSuggestionId(), insertionId: newSuggestionId(), author: proposal.author, createdAt, order: nextSuggestionOrder(), noCoalesce: true };
       step(replaceWithSuggestion(state, span, edit.text, attrs, input, registry), [input.deletionId, input.insertionId], edit.metadata);
     }
   }

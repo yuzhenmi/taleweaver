@@ -31,7 +31,7 @@ import {
   productionAllocator,
   BINARY_FORMAT,
   JSON_FORMAT,
-  FORMATTING_SUGGESTION_ATTR,
+  formattingSuggestionIds,
   type EditorAction,
   type EditorConfig,
   type EditorState,
@@ -98,7 +98,7 @@ describe("PROPOSE — host proposals as one suggestion group", () => {
     expect(g?.ranges.length).toBe(4);
     // The live text keeps everything (suggestions are pending).
     expect(textOf(after, p1)).toBe("The  swiftquick fox");
-    expect(runsOf(after, p2).find(([t]) => t === "jumps")?.[1][FORMATTING_SUGGESTION_ATTR]).toBeDefined();
+    expect(formattingSuggestionIds(runsOf(after, p2).find(([t]) => t === "jumps")?.[1] ?? {})).toHaveLength(1);
   });
 
   /** "The  quick fox" / "jumps over" + "!" typed as its own undo entry at the end of paragraph 2. */
@@ -415,11 +415,12 @@ describe("rendering hook and compatibility", () => {
   });
 
   it("a document with OLD-shape suggestion records (no group / metadata) still loads, lists and resolves", () => {
-    // A suggesting-mode insertion writes exactly the pre-group record shape.
+    // A suggesting-mode insertion, minus its `order`, is exactly the pre-group record shape.
     const old = run(createInitialEditorState(config), { ...config, suggestingAuthor: "legacy" }, { type: "INSERT_TEXT", text: "abc" });
     const yRecords = getYDoc(old.state).getMap("suggestions");
     const [legacyId] = [...yRecords.keys()];
     const yRecord = legacyId === undefined ? undefined : yRecords.get(legacyId);
+    if (yRecord instanceof Y.Map) getYDoc(old.state).transact(() => yRecord.delete("order"));
     expect(yRecord instanceof Y.Map ? [...yRecord.keys()].sort() : null).toEqual(["author", "createdAt", "kind"]);
     const reg = createDefaultSerializerRegistry();
     reg.register(createJsonDocumentSerializer({ allocator: productionAllocator, blockKindResolver: config.componentRegistry }));
@@ -437,5 +438,9 @@ describe("rendering hook and compatibility", () => {
     expect(getSuggestionGroups(back).map((g) => [g.suggestions.length, g.metadata])).toEqual([
       [4, { source: "assistant", reason: "tidy up" }],
     ]);
+    // …including each record's mint `order` (strictly increasing in application order).
+    const orders = (st: typeof back) => new Map(getSuggestions(st).map((x) => [x.id, x.order]));
+    expect(orders(back)).toEqual(orders(proposed.state));
+    expect([...orders(back).values()].every((o) => typeof o === "number")).toBe(true);
   });
 });

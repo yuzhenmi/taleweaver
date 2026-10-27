@@ -294,7 +294,7 @@ describe("applyAttrsToRange — embed items in range", () => {
   });
 
   it("does NOT stamp a tracked-change provenance attr onto a marker embed (#465 dangling-ref root cause)", () => {
-    // The markFormatting path applies { formattingSuggestionId } over a range. A
+    // The markFormatting path applies its `formattingSuggestionId:<id>` tag over a range. A
     // comment marker in that range must NOT receive it — else, after the
     // suggestion record is deleted on resolve, the marker keeps a dangling
     // reference to a since-deleted record forever.
@@ -315,10 +315,10 @@ describe("applyAttrsToRange — embed items in range", () => {
       ],
     });
     const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3));
-    const result = applyAttrsToRange(state, span, { formattingSuggestionId: "fs1" });
+    const result = applyAttrsToRange(state, span, { "formattingSuggestionId:fs1": true });
     const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items?.[1]).toMatchObject({ kind: "embed", embedType: "comment-end" });
-    expect(items?.[1]?.attrs).toEqual({}); // no dangling formattingSuggestionId
+    expect(items?.[1]?.attrs).toEqual({}); // no dangling formatting tag
   });
 });
 

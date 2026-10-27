@@ -26,7 +26,7 @@ import {
   getSuggestions,
   INSERTION_SUGGESTION_ATTR,
   DELETION_SUGGESTION_ATTR,
-  FORMATTING_SUGGESTION_ATTR,
+  formattingSuggestionKey,
   BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
   type SuggestionId,
   type SuggestionRecord,
@@ -276,7 +276,7 @@ describe("suggestions — range index + read (slice 2 piece A)", () => {
           nextSiblingId: "p2",
           inlineContent: inlineContent([
             text("X", { [DELETION_SUGGESTION_ATTR]: "s-del" }),
-            text("Y", { [FORMATTING_SUGGESTION_ATTR]: "s-fmt" }),
+            text("Y", { [formattingSuggestionKey("s-fmt" as SuggestionId)]: true }),
             embed(BLOCK_JOIN_SUGGESTION_EMBED_TYPE, { suggestionId: "s-join" }),
           ]),
         }),

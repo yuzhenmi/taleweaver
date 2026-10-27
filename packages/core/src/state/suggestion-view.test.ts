@@ -13,7 +13,7 @@ import {
   blockBoundaryMergesInView,
   INSERTION_SUGGESTION_ATTR,
   DELETION_SUGGESTION_ATTR,
-  FORMATTING_SUGGESTION_ATTR,
+  formattingSuggestionKey,
   BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
   BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
   type SuggestionId,
@@ -28,7 +28,7 @@ describe("itemVisibleInView (slice 5c-i projection foundation)", () => {
       expect(itemVisibleInView(text("plain"), "suggesting")).toBe(true);
       expect(itemVisibleInView(text("ins", { [INSERTION_SUGGESTION_ATTR]: ID }), "suggesting")).toBe(true);
       expect(itemVisibleInView(text("del", { [DELETION_SUGGESTION_ATTR]: ID }), "suggesting")).toBe(true);
-      expect(itemVisibleInView(text("fmt", { [FORMATTING_SUGGESTION_ATTR]: ID }), "suggesting")).toBe(true);
+      expect(itemVisibleInView(text("fmt", { [formattingSuggestionKey(ID)]: true }), "suggesting")).toBe(true);
       expect(itemVisibleInView(embed(BLOCK_SPLIT_SUGGESTION_EMBED_TYPE, { suggestionId: ID }), "suggesting")).toBe(true);
       expect(itemVisibleInView(embed(BLOCK_JOIN_SUGGESTION_EMBED_TYPE, { suggestionId: ID }), "suggesting")).toBe(true);
     });
@@ -41,7 +41,7 @@ describe("itemVisibleInView (slice 5c-i projection foundation)", () => {
       // kept: the insertion is accepted (becomes real text), formatting stays
       // visible (only its style changes), plain text and the split embed survive.
       expect(itemVisibleInView(text("ins", { [INSERTION_SUGGESTION_ATTR]: ID }), "final")).toBe(true);
-      expect(itemVisibleInView(text("fmt", { [FORMATTING_SUGGESTION_ATTR]: ID }), "final")).toBe(true);
+      expect(itemVisibleInView(text("fmt", { [formattingSuggestionKey(ID)]: true }), "final")).toBe(true);
       expect(itemVisibleInView(text("plain"), "final")).toBe(true);
       expect(itemVisibleInView(embed(BLOCK_SPLIT_SUGGESTION_EMBED_TYPE, { suggestionId: ID }), "final")).toBe(true);
     });
@@ -54,7 +54,7 @@ describe("itemVisibleInView (slice 5c-i projection foundation)", () => {
       // kept: the deletion is rejected (text stays), formatting stays visible,
       // plain text and the join embed survive.
       expect(itemVisibleInView(text("del", { [DELETION_SUGGESTION_ATTR]: ID }), "original")).toBe(true);
-      expect(itemVisibleInView(text("fmt", { [FORMATTING_SUGGESTION_ATTR]: ID }), "original")).toBe(true);
+      expect(itemVisibleInView(text("fmt", { [formattingSuggestionKey(ID)]: true }), "original")).toBe(true);
       expect(itemVisibleInView(text("plain"), "original")).toBe(true);
       expect(itemVisibleInView(embed(BLOCK_JOIN_SUGGESTION_EMBED_TYPE, { suggestionId: ID }), "original")).toBe(true);
     });

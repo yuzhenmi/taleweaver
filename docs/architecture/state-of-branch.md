@@ -876,7 +876,8 @@ accept/reject-able suggestion) is partially implemented.
 State vocabulary (slice 1): the `suggestions` Y.Map — the 6th top-level side-table,
 6th `Y.UndoManager` scope; `SuggestionId`/`SuggestionKind`/`SuggestionRecord` +
 record IO; the THREE independent inline-attr dimensions
-(`insertionSuggestionId` / `deletionSuggestionId` / `formattingSuggestionId`); the
+(`insertionSuggestionId` / `deletionSuggestionId` / one `formattingSuggestionId:<id>`
+tag per formatting suggestion); the
 two zero-width break embeds (`block-join-suggestion` / `block-split-suggestion`);
 binary serialize round-trip.
 
@@ -886,9 +887,20 @@ Range index + read + Layer-1 hooks (slice 2): `buildSuggestionRangeIndex` /
 and `runTransaction` (a generic untracked-change opt-out) + `History.advanceState(newState)`.
 
 Creation ops (slice 3a–3c):
-- `markFormatting` (slice 3a): stamps `formattingSuggestionId` over a span + writes a
-  `formatting` record with `proposedAttrs`; same-author/same-proposal adjacency
-  coalesces by id reuse.
+- `markFormatting`: stamps its own `formattingSuggestionId:<id>` tag over a
+  span + writes a `formatting` record with `proposedAttrs`; same-author/same-proposal
+  adjacency coalesces by id reuse (not when the span holds a newer formatting
+  suggestion, nor into an id shadowed on a span character — a fresh id is minted).
+- Stacked formatting suggestions `[implemented]`: several formatting suggestions on
+  the same characters each keep their tag and full range; pending ones preview in
+  (order, createdAt, id) order (`order` = per-editor monotonic mint counter, Lamport-bumped
+  past every formatting suggestion in the span, so a mint ranks above all it stacks on
+  regardless of clocks, across reloads and peers; order-less records fall back to
+  createdAt, id; preserved by paste and JSON); accepting one shadows its keys on older pending ones on that
+  run, so every sequential accept/reject order (and group / all) gives the
+  creation-order result; record-less tags are ignored and cleaned on resolve;
+  concurrent resolution converges by Yjs client order. Legacy single-key documents are
+  re-keyed by `normalizeLegacyAttrs` (upgrade + JSON decode).
 - `markDeletion` (slice 3b): soft-delete a span's text (stamp `deletionSuggestionId`,
   text stays visible) via a per-owning-block offset strike (format, never re-mint)
   (`applyDeletionStrikeInTx`), with delete-own-insertion + nesting +
@@ -970,7 +982,8 @@ All of slice 4 + 4e + paste/cross-block-fragment is COMPLETE.
 Render (slice 5):
 - 5a render text-run visuals: `expandInlineItems` → `resolveSuggestionStyle`
   (insertion=author-color+underline, deletion=author-color+lineThrough,
-  formatting=`proposedAttrs` preview + author-color underline indicator; deterministic
+  formatting=composite of every pending suggestion's `proposedAttrs` preview +
+  author-color underline indicator (newest suggestion's author); deterministic
   `authorColorOf` palette; plain runs byte-identical via fast path).
 - 5b render break-suggestion pilcrows: `expandInlineItems` peels `block-split-suggestion`
   / `block-join-suggestion` embeds into a VISIBLE pilcrow ¶ wrapped in a single

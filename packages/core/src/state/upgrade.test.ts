@@ -49,17 +49,22 @@ describe("legacy detection + load refusal", () => {
 });
 
 describe("upgradeDocument", () => {
-  it("converts every legacy block, drops stored nulls, writes the marker; then edit + undo work", () => {
+  it("converts every legacy block, drops stored nulls, re-keys the legacy formatting-suggestion attr, writes the marker; then edit + undo work", () => {
     const doc = legacyDoc(
-      [text("ab", { bold: true, link: null }), embed("tab"), text("cd")],
-      [text("second")],
+      [text("ab", { bold: true, link: null }), embed("tab", {}, { formattingSuggestionId: "f1" }), text("cd")],
+      [text("second", { formattingSuggestionId: "f2" })],
     );
     const report = upgradeDocument(doc);
     expect(report).toEqual({ fromVersion: 1, toVersion: CURRENT_SCHEMA_VERSION, upgradedBlocks: ["p1", "p2"] });
     expect(inspectDocument(doc)).toEqual({ schemaVersion: CURRENT_SCHEMA_VERSION, legacyBlocks: [] });
 
     const s0 = createState({ rootId: LEGACY_ROOT, doc });
-    expect(getBlock(s0, P1)?.inlineContent?.items).toEqual([text("ab", { bold: true }), embed("tab"), text("cd")]);
+    expect(getBlock(s0, P1)?.inlineContent?.items).toEqual([
+      text("ab", { bold: true }),
+      embed("tab", {}, { "formattingSuggestionId:f1": true }),
+      text("cd"),
+    ]);
+    expect(getBlock(s0, "p2" as BlockId)?.inlineContent?.items).toEqual([text("second", { "formattingSuggestionId:f2": true })]);
 
     const history = createHistory(s0);
     history.beginEntry("insert", 0, span(P1, 5, 5));

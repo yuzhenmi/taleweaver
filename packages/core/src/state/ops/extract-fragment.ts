@@ -733,7 +733,7 @@ function collectEmbedContentsFromItems(
  * Collect any referenced suggestion records from inline items. Provenance lives
  * on text-run attrs (insertion/deletion/formatting), on break-suggestion embeds
  * (`properties.suggestionId`), AND on visible field embeds (footnote-anchor /
- * cross-reference) via `FORMATTING_SUGGESTION_ATTR`. The canonical harvester
+ * cross-reference) via their per-suggestion formatting tags. The canonical harvester
  * `suggestionIdsOnItem` (suggestion-ops) covers all three so the lossless flavor
  * never round-trips a dangling reference (a fragment carrying a suggested
  * block-split/join or a formatting-suggested anchor brings its record too).

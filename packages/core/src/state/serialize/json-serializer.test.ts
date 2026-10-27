@@ -351,15 +351,22 @@ describe("json-serializer", () => {
       },
     });
 
-    it("drops a stored null inline attr on decode (the upgrade normalization; JSON format unchanged)", () => {
+    it("drops a stored null inline attr and re-keys a legacy formattingSuggestionId on decode (the upgrade normalization; JSON format unchanged)", () => {
       const withNull = JSON.stringify({
         format: "taleweaver-json",
         version: 1,
-        root: { type: "document", children: [{ type: "paragraph", content: [{ text: "x", attrs: { bold: true, link: null } }] }] },
+        root: {
+          type: "document",
+          children: [
+            { type: "paragraph", content: [{ text: "x", attrs: { bold: true, link: null, formattingSuggestionId: "f1" } }] },
+          ],
+        },
       });
       const state = makeSerializer().decode(withNull);
       const para = getBlock(state, getBlock(state, state.rootId)?.firstChildId as BlockId);
-      expect(para?.inlineContent?.items).toEqual([{ kind: "text", text: "x", attrs: { bold: true } }]);
+      expect(para?.inlineContent?.items).toEqual([
+        { kind: "text", text: "x", attrs: { bold: true, "formattingSuggestionId:f1": true } },
+      ]);
     });
 
     it("decodes id-less JSON to a valid State with minted ids + derived links", () => {
@@ -592,6 +599,16 @@ describe("json-serializer", () => {
         ),
       ).toThrow(MalformedDocumentError);
     });
+    it.each(["2", Infinity, 1e300, -1, 1.5, null])(
+      "throws MalformedDocumentError for a suggestion whose order (%s) is not a non-negative safe integer",
+      (order) => {
+        expect(() =>
+          makeSerializer().decode(
+            envelopeWith({ suggestions: { s1: { kind: "insertion", author: "a", createdAt: 1, order } } }),
+          ),
+        ).toThrow(MalformedDocumentError);
+      },
+    );
     it("throws MalformedDocumentError for a suggestion with a non-object proposedAttrs", () => {
       expect(() =>
         makeSerializer().decode(

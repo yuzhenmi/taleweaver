@@ -336,6 +336,7 @@ export function splitWithSuggestion(
       kind: "insertion",
       author: input.author,
       createdAt: input.createdAt,
+      order: input.order,
     });
   });
 }

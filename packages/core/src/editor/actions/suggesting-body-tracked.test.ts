@@ -44,6 +44,7 @@ import {
   resolveBlock,
   selectionContextOf,
   BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
+  formattingSuggestionIds,
   type BlockId,
 } from "../../state";
 
@@ -68,7 +69,7 @@ function textOfResolved(editor: EditorState, blockId: BlockId): string {
     .join("");
 }
 
-/** Whether ANY text run in `blockId` carries the named suggestion-provenance attr. */
+/** Whether ANY text run in `blockId` carries the named suggestion provenance (formatting: any per-id tag). */
 function anyRunHasAttr(
   editor: EditorState,
   blockId: BlockId,
@@ -76,7 +77,10 @@ function anyRunHasAttr(
 ): boolean {
   const block = resolveBlock(editor.state, blockId)?.block ?? null;
   for (const it of block?.inlineContent?.items ?? []) {
-    if (it.kind === "text" && it.attrs[attr] !== undefined) return true;
+    if (it.kind !== "text") continue;
+    if (attr === "formattingSuggestionId" ? formattingSuggestionIds(it.attrs).length > 0 : it.attrs[attr] !== undefined) {
+      return true;
+    }
   }
   return false;
 }

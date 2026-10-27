@@ -8,7 +8,7 @@ import {
   COMMENT_END_EMBED_TYPE,
   INSERTION_SUGGESTION_ATTR,
   DELETION_SUGGESTION_ATTR,
-  FORMATTING_SUGGESTION_ATTR,
+  isFormattingSuggestionKey,
 } from "../state";
 import {
   createDecorationSet,
@@ -91,7 +91,7 @@ function holdsSuggestion(block: Block | undefined): boolean {
     (i) =>
       i.attrs[INSERTION_SUGGESTION_ATTR] !== undefined ||
       i.attrs[DELETION_SUGGESTION_ATTR] !== undefined ||
-      i.attrs[FORMATTING_SUGGESTION_ATTR] !== undefined,
+      Object.keys(i.attrs).some(isFormattingSuggestionKey),
   );
 }
 

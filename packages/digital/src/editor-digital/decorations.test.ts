@@ -6,6 +6,9 @@ import {
   createSpan,
   getBlock,
   findMatches,
+  getSuggestions,
+  reduceEditor,
+  createInitialEditorState,
   type BlockId,
   type CommentId,
   type Decoration,
@@ -402,4 +405,97 @@ describe("digital decorations", () => {
       }
     }
   }, 30_000);
+});
+
+describe("digital — stacked formatting suggestions", () => {
+  it("renders the composite preview + both highlights; accept / undo of one keeps the other", () => {
+    const componentRegistry = createDefaultComponentRegistry();
+    const attrRegistry = createDefaultAttrRegistry();
+    const base = { componentRegistry, attrRegistry, containerWidth: 800 };
+    const alice = { ...base, suggestingAuthor: "alice", now: () => 1 };
+    const bob = { ...base, suggestingAuthor: "bob", now: () => 2 };
+    let editor = reduceEditor(createInitialEditorState(base), { type: "INSERT_TEXT", text: "abcdefgh" }, base);
+    const p = editor.selection.focus.blockId;
+    const select = (a: number, b: number): EditorAction => ({ type: "SET_SELECTION", selection: createSpan(createPosition(p, a), createPosition(p, b)) });
+    editor = reduceEditor(reduceEditor(editor, select(0, 4), alice), { type: "TOGGLE_STYLE", style: "bold" }, alice);
+    editor = reduceEditor(reduceEditor(editor, select(2, 6), bob), { type: "TOGGLE_STYLE", style: "italic" }, bob);
+    const ids = getSuggestions(editor.state).map((s) => s.id);
+    const [a, b] = ids;
+    if (a === undefined || b === undefined) throw new Error("expected two suggestions");
+
+    const container = document.createElement("div");
+    document.body.replaceChildren(container);
+    const controller = createDigitalController({ container, componentRegistry, attrRegistry, doc: document, initialState: editor.state });
+    controller.setSuggestionHighlights(ids.map((suggestionId) => ({ suggestionId, active: false })));
+    /** [text, font-weight, font-style, color] of the styled text-run spans. */
+    const looks = (): string[][] =>
+      Array.from(container.querySelectorAll<HTMLElement>("span"))
+        .filter((e) => e.style.whiteSpace !== "" && (e.textContent ?? "") !== "")
+        .map((e) => [e.textContent ?? "", e.style.fontWeight, e.style.fontStyle, e.style.color]);
+    const merged = (): string[][] => {
+      const out: string[][] = [];
+      for (const l of looks()) {
+        const last = out[out.length - 1];
+        if (last !== undefined && last.slice(1).join() === l.slice(1).join()) last[0] = `${last[0] ?? ""}${l[0] ?? ""}`;
+        else out.push([...l]);
+      }
+      return out;
+    };
+    // Composite preview; the overlap is tinted by the newest suggestion's author.
+    const before = merged();
+    const aliceTint = before[0]?.[3] ?? "";
+    const bobTint = before[2]?.[3] ?? "";
+    expect(aliceTint).not.toBe("");
+    expect(bobTint).not.toBe(aliceTint);
+    expect(before).toEqual([
+      ["ab", "bold", "", aliceTint],
+      ["cd", "bold", "italic", bobTint],
+      ["ef", "", "italic", bobTint],
+      ["gh", "", "", ""],
+    ]);
+    expect(decoText(container, `tw-suggestion:${a}`)).toBe("abcd");
+    expect(decoText(container, `tw-suggestion:${b}`)).toBe("cdef");
+
+    controller.dispatch({ type: "ACCEPT_SUGGESTION", id: b });
+    expect(merged()).toEqual([
+      ["ab", "bold", "", aliceTint],
+      ["cd", "bold", "italic", aliceTint],
+      ["ef", "", "italic", ""],
+      ["gh", "", "", ""],
+    ]);
+    expect(decoText(container, `tw-suggestion:${a}`)).toBe("abcd");
+    expect(decoText(container, `tw-suggestion:${b}`)).toBe("");
+
+    controller.dispatch({ type: "UNDO" });
+    expect(decoText(container, `tw-suggestion:${b}`)).toBe("cdef");
+    expect(merged()).toEqual(before);
+    controller.destroy();
+  });
+
+  it("an embed-only formatting suggestion (a tab) is highlighted and previews on the embed", () => {
+    const componentRegistry = createDefaultComponentRegistry();
+    const attrRegistry = createDefaultAttrRegistry();
+    const base = { componentRegistry, attrRegistry, containerWidth: 800 };
+    const alice = { ...base, suggestingAuthor: "alice" };
+    let editor = reduceEditor(createInitialEditorState(base), { type: "INSERT_TEXT", text: "ab" }, base);
+    editor = reduceEditor(editor, { type: "INSERT_TAB" }, base);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "cd" }, base);
+    const p = editor.selection.focus.blockId;
+    editor = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(p, 2), createPosition(p, 3)) }, alice);
+    editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" }, alice);
+    const [only] = getSuggestions(editor.state);
+    if (only === undefined) throw new Error("expected a suggestion");
+
+    const container = document.createElement("div");
+    document.body.replaceChildren(container);
+    const controller = createDigitalController({ container, componentRegistry, attrRegistry, doc: document, initialState: editor.state });
+    controller.setSuggestionHighlights([{ suggestionId: only.id, active: false }]);
+    const deco = container.querySelector<HTMLElement>(`[data-tw-deco="tw-suggestion:${only.id}"]`);
+    expect(deco).not.toBeNull();
+    // The band wraps exactly the tab, which previews the proposal with the author indicator.
+    expect(deco?.textContent).toBe("");
+    const tab = deco?.querySelector<HTMLElement>("[data-inline-embed]");
+    expect([tab?.style.fontWeight, tab?.style.textDecorationLine]).toEqual(["bold", "underline"]);
+    controller.destroy();
+  });
 });

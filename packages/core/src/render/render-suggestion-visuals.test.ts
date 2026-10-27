@@ -30,12 +30,12 @@ import {
 import {
   INSERTION_SUGGESTION_ATTR,
   DELETION_SUGGESTION_ATTR,
-  FORMATTING_SUGGESTION_ATTR,
+  formattingSuggestionKey,
   BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
   BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
 } from "../state";
 import type { SuggestionId, SuggestionRecord, State } from "../state";
-import { applyOperation } from "../state";
+import { applyOperation, acceptSuggestion } from "../state";
 // `writeSuggestionRecordInTx` is intra-state (not re-exported from the barrel),
 // imported directly to seed records — mirrors suggestion-ops.test.ts.
 import { writeSuggestionRecordInTx } from "../state/suggestions";
@@ -112,7 +112,7 @@ describe("expandInlineItems — suggestion visuals (slice 5a)", () => {
     const state = buildDoc(
       // The LIVE run carries italic; the proposal is to ALSO make it bold.
       inlineContent([
-        text("formatted", { italic: true, [FORMATTING_SUGGESTION_ATTR]: id }),
+        text("formatted", { italic: true, [formattingSuggestionKey(id)]: true }),
       ]),
       [{ id, kind: "formatting", author: AUTHOR, createdAt: 0, proposedAttrs }],
     );
@@ -124,6 +124,64 @@ describe("expandInlineItems — suggestion visuals (slice 5a)", () => {
     // The author-color underline indicator is present.
     expect(box.style.underline).toBe(true);
     expect(box.style.color).toBe(authorColorOf(AUTHOR));
+  });
+
+  it("stacked formatting suggestions composite in (createdAt, id) order; the newest author tints; a proposed removal previews; a record-less tag is ignored", () => {
+    const older = "fA" as SuggestionId;
+    const newer = "fB" as SuggestionId;
+    const gone = "fGone" as SuggestionId;
+    const state = buildDoc(
+      inlineContent([
+        text("stacked", {
+          italic: true,
+          [formattingSuggestionKey(newer)]: true,
+          [formattingSuggestionKey(older)]: true,
+          [formattingSuggestionKey(gone)]: true,
+        }),
+      ]),
+      [
+        { id: older, kind: "formatting", author: AUTHOR, createdAt: 1, proposedAttrs: { bold: true, fontSize: 20 } },
+        { id: newer, kind: "formatting", author: "bob", createdAt: 2, proposedAttrs: { fontSize: 30, italic: undefined } },
+      ],
+    );
+    const box = textBoxWith(render(state, reg, attrReg).root, "stacked");
+    expect(box.style.fontWeight).toBe("bold"); // older's bold
+    expect(box.style.fontSize).toBe(30); // newer wins the conflicting key
+    expect(box.style.fontStyle).toBeUndefined(); // newer proposes removing italic
+    expect(box.style.color).toBe(authorColorOf("bob"));
+    expect(box.style.underline).toBe(true);
+    // "final" view = the same composite, without the indicator; "original" = live.
+    const final = textBoxWith(render(state, reg, attrReg, { suggestionView: "final" }).root, "stacked");
+    expect([final.style.fontWeight, final.style.fontSize, final.style.underline]).toEqual(["bold", 30, undefined]);
+    const original = textBoxWith(render(state, reg, attrReg, { suggestionView: "original" }).root, "stacked");
+    expect([original.style.fontWeight, original.style.fontStyle]).toEqual([undefined, "italic"]);
+  });
+
+  it("a visible embed tagged by a formatting suggestion gets the same composite + indicator; its final view equals accepting it", () => {
+    const id = "fEmb" as SuggestionId;
+    const build = (): State =>
+      buildDoc(
+        inlineContent([text("x"), embed("tab", {}, { [formattingSuggestionKey(id)]: true }), text("y")]),
+        [{ id, kind: "formatting", author: "bob", createdAt: 1, proposedAttrs: { bold: true } }],
+      );
+    const tabBox = (root: RenderNode): ElementBox => {
+      let found: ElementBox | null = null;
+      const walk = (n: RenderNode): void => {
+        if (found !== null || n.type === "text") return;
+        const el = n as ElementBox;
+        if (el.metadata?.embedType === "tab") found = el;
+        else for (const c of el.children) walk(c);
+      };
+      walk(root);
+      if (found === null) throw new Error("no tab box");
+      return found;
+    };
+    const suggesting = tabBox(render(build(), reg, attrReg).root).style;
+    expect([suggesting.fontWeight, suggesting.underline, suggesting.color]).toEqual(["bold", true, authorColorOf("bob")]);
+    const final = tabBox(render(build(), reg, attrReg, { suggestionView: "final" }).root).style;
+    const accepted = tabBox(render(acceptSuggestion(build(), id).state, reg, attrReg).root).style;
+    expect(final).toEqual(accepted);
+    expect(final.fontWeight).toBe("bold");
   });
 
   it("nested insertion+deletion run gets author color + underline + lineThrough", () => {
@@ -390,7 +448,7 @@ describe("render — SuggestionView preview projection (slice 5c-iii)", () => {
   it('"final" applies a formatting proposal FOR REAL (bold), no underline indicator', () => {
     const id = "fmt" as SuggestionId;
     const state = buildDoc(
-      inlineContent([text("formatted", { italic: true, [FORMATTING_SUGGESTION_ATTR]: id })]),
+      inlineContent([text("formatted", { italic: true, [formattingSuggestionKey(id)]: true })]),
       [{ id, kind: "formatting", author: AUTHOR, createdAt: 0, proposedAttrs: { bold: true } }],
     );
     const box = textBoxWith(render(state, reg, attrReg, { suggestionView: "final" }).root, "formatted");
@@ -403,7 +461,7 @@ describe("render — SuggestionView preview projection (slice 5c-iii)", () => {
   it('"original" drops a formatting proposal (live attrs only, no preview)', () => {
     const id = "fmt" as SuggestionId;
     const state = buildDoc(
-      inlineContent([text("formatted", { italic: true, [FORMATTING_SUGGESTION_ATTR]: id })]),
+      inlineContent([text("formatted", { italic: true, [formattingSuggestionKey(id)]: true })]),
       [{ id, kind: "formatting", author: AUTHOR, createdAt: 0, proposedAttrs: { bold: true } }],
     );
     const box = textBoxWith(render(state, reg, attrReg, { suggestionView: "original" }).root, "formatted");

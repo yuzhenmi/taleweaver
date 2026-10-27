@@ -17,7 +17,7 @@ import {
   insertFragment,
   INSERTION_SUGGESTION_ATTR,
   DELETION_SUGGESTION_ATTR,
-  FORMATTING_SUGGESTION_ATTR,
+  isFormattingSuggestionKey,
   BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
   BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
 } from "../../state";
@@ -47,22 +47,20 @@ function lineToInlineContent(lineText: string, attrs: ReadonlyAttrs): InlineCont
     : { items: [] };
 }
 
-/** Suggestion-provenance attr keys stripped from carried items in suggesting mode. */
-const CARRIED_SUGGESTION_ATTRS = [
-  INSERTION_SUGGESTION_ATTR,
-  DELETION_SUGGESTION_ATTR,
-  FORMATTING_SUGGESTION_ATTR,
-] as const;
+/** Is `key` suggestion provenance (stripped from carried items in suggesting mode)? */
+function isCarriedSuggestionAttr(key: string): boolean {
+  return key === INSERTION_SUGGESTION_ATTR || key === DELETION_SUGGESTION_ATTR || isFormattingSuggestionKey(key);
+}
 
 /**
  * Strip ALL carried suggestion provenance from a fragment leaf's inline items
  * (spec §3.3): a suggesting-mode paste IGNORES the carried suggestion state and
  * re-tracks the whole paste as the CURRENT author's fresh insertion. The carried
  * fragment (from a lossless clip via `extractFragment`) can hold any of:
- *   - text-run attrs INSERTION/DELETION/FORMATTING_SUGGESTION_ATTR
+ *   - text-run attrs INSERTION/DELETION_SUGGESTION_ATTR + every formatting tag
  *   - block-split / block-join suggestion EMBEDS (zero-width inter-line breaks)
  * All of these reference suggestion ids in the SOURCE document and would leak a
- * foreign / dangling id into the destination. We remove the three attrs from
+ * foreign / dangling id into the destination. We remove those attrs from
  * every text run and DROP the break-suggestion embeds (`replaceWithSuggestedFragment`
  * mints FRESH inter-line break embeds and tags fresh insertion ids). Content
  * embeds (image/tab/hard-break) are left as-is here — T9's `filterLineContentItems`
@@ -82,8 +80,8 @@ function stripCarriedSuggestionState(items: ReadonlyArray<InlineItem>): InlineIt
     }
     if (item.kind === "text") {
       let cleared: Record<string, unknown> | null = null;
-      for (const key of CARRIED_SUGGESTION_ATTRS) {
-        if (key in item.attrs) {
+      for (const key of Object.keys(item.attrs)) {
+        if (isCarriedSuggestionAttr(key)) {
           if (cleared === null) cleared = { ...item.attrs };
           delete cleared[key];
         }

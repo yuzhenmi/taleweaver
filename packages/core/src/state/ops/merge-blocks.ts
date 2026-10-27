@@ -385,6 +385,7 @@ export function markBlockJoinSuggestion(
       kind: "deletion",
       author: input.author,
       createdAt: input.createdAt,
+      order: input.order,
     });
   });
 }

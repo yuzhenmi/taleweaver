@@ -171,6 +171,25 @@ describe("DecorationSet", () => {
     expect(layers.merged.forBlock(p1).inline.length).toBe(0);
   });
 
+  it("stacked formatting suggestions each keep their own highlight; accepting one drops only its highlight", () => {
+    const { editor, p1 } = twoParas();
+    const select = (e: EditorState, a: number, b: number, cfg: typeof config): EditorState =>
+      reduceEditor(e, { type: "SET_SELECTION", selection: createSpan(createPosition(p1, a), createPosition(p1, b)) }, cfg);
+    const alice = { ...config, suggestingAuthor: "alice", now: () => 1 };
+    const bob = { ...config, suggestingAuthor: "bob", now: () => 2 };
+    const bold = reduceEditor(select(editor, 0, 8, alice), { type: "TOGGLE_STYLE", style: "bold" }, alice);
+    const both = reduceEditor(select(bold, 5, 13, bob), { type: "TOGGLE_STYLE", style: "italic" }, bob);
+    const [a, b] = getSuggestions(both.state).map((x) => x.id);
+    if (a === undefined || b === undefined) throw new Error("expected two suggestions");
+    const layers = createDecorationLayers();
+    layers.setSuggestions(both.state, [{ suggestionId: a, active: false }, { suggestionId: b, active: false }]);
+    expect(inlineText(layers.merged, p1)).toEqual([[`tw-suggestion:${a}`, 0, 8], [`tw-suggestion:${b}`, 5, 13]]);
+    for (const blk of iterateLeafBlocksInDocumentOrder(both.state)) void blk;
+    const accepted = reduceEditor(both, { type: "ACCEPT_SUGGESTION", id: b }, config);
+    layers.advance(both, accepted);
+    expect(inlineText(layers.merged, p1)).toEqual([[`tw-suggestion:${a}`, 0, 8]]);
+  });
+
   it("live per-group suggestion styling follows proposals, accept, reject and undo", () => {
     const { editor, p1, p2 } = twoParas();
     const layers = createDecorationLayers();

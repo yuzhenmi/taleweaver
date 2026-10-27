@@ -1,6 +1,7 @@
 import type { EditorConfig } from "../editor-state";
 import {
   newSuggestionId,
+  nextSuggestionOrder,
   deleteRange,
   markDeletion,
   applyAttrsToRange,
@@ -25,8 +26,9 @@ export function newSuggestionInput(
 ): SuggestionMintInput | null {
   const author = config.suggestingAuthor ?? null;
   if (author === null) return null;
-  return { id: newSuggestionId(), author, createdAt: (config.now ?? Date.now)() };
+  return { id: newSuggestionId(), author, createdAt: (config.now ?? Date.now)(), order: nextSuggestionOrder() };
 }
+
 
 /** The create-op `input` for a TYPE-OVER-A-SELECTION suggestion (the suggestion
  *  analog of `replaceRange`), or `null` when not suggesting (direct editing). Mints
@@ -43,6 +45,7 @@ export function newReplaceSuggestionInput(
     insertionId: newSuggestionId(),
     author,
     createdAt: (config.now ?? Date.now)(),
+    order: nextSuggestionOrder(),
   };
 }
 
@@ -122,7 +125,7 @@ export function deleteRangeOrSuggest(
  * Apply the `incoming` attr delta over the `span` — really (direct editing)
  * via `applyAttrsToRange`, or as a tracked FORMATTING SUGGESTION (suggesting
  * mode) via `markFormatting`. In suggesting mode the run's LIVE format attrs
- * (bold/color/…) stay UNCHANGED; only a `formattingSuggestionId` provenance
+ * (bold/color/…) stay UNCHANGED; only a `formattingSuggestionId:<id>` provenance
  * attr is stamped over the span + a `formatting` record carrying `incoming` as
  * its `proposedAttrs` is written — the proposal lands on the live attrs only on
  * ACCEPT. Both return an `OperationResult`; the caller's cursor/commit/rebuild

@@ -2,7 +2,8 @@ import type { BlockDecorations, Decoration, WidgetDecoration } from "@taleweaver
 
 /**
  * DOM drawing for core decorations. Decorations are view-only: every node this
- * module creates is either a wrapper around existing document text (`data-tw-deco`) or a
+ * module creates is either a wrapper around existing document text or inline embeds
+ * (`data-tw-deco`) or a
  * zero-offset, non-editable widget (`data-tw-widget`), so the selection bridge's offset walk
  * and the document model are unaffected.
  */
@@ -100,12 +101,12 @@ function applyAttrs(el: HTMLElement, d: Decoration): void {
 }
 
 interface TextSlice {
-  readonly node: Text;
+  readonly node: Text | HTMLElement; // a text node, or an inline embed element (one unit)
   readonly start: number; // block offset of node's first unit
 }
 
-/** Text nodes of a leaf block element in offset order (embeds/generated nodes skipped). */
-function collectText(root: Node): TextSlice[] {
+/** Text nodes and inline embeds of a leaf block element in offset order (generated nodes skipped). */
+function collectUnits(root: Node): TextSlice[] {
   const out: TextSlice[] = [];
   let acc = 0;
   const visit = (node: Node): void => {
@@ -115,7 +116,8 @@ function collectText(root: Node): TextSlice[] {
       return;
     }
     if (isGeneratedNode(node)) return;
-    if (isInlineEmbed(node)) {
+    if (isInlineEmbed(node) && node instanceof HTMLElement) {
+      out.push({ node, start: acc });
       acc += 1;
       return;
     }
@@ -126,7 +128,18 @@ function collectText(root: Node): TextSlice[] {
 }
 
 function wrapRange(block: HTMLElement, start: number, end: number, d: Decoration, doc: Document): void {
-  for (const slice of collectText(block)) {
+  for (const slice of collectUnits(block)) {
+    if (!(slice.node instanceof Text)) {
+      // An inline embed inside the range (e.g. a formatting suggestion on a tab) is
+      // wrapped whole — it is one offset unit.
+      if (slice.start < start || slice.start >= end) continue;
+      const span = doc.createElement("span");
+      span.setAttribute(DECO_ID_ATTR, d.id);
+      applyAttrs(span, d);
+      slice.node.replaceWith(span);
+      span.appendChild(slice.node);
+      continue;
+    }
     const nodeEnd = slice.start + slice.node.length;
     if (nodeEnd <= start || slice.start >= end || slice.node.length === 0) continue;
     let target = slice.node;

@@ -663,7 +663,7 @@ describe("handlePaste — T10 suggesting mode with rich routing", () => {
     expect(allIns.has(carriedInsId)).toBe(false);
   });
 
-  it("suggesting mode: clip paste carrying a foreign DELETION id is stripped — no deletion attr leaks", () => {
+  it("suggesting mode: clip paste carrying a foreign DELETION id + two stacked formatting tags is stripped — no provenance leaks", () => {
     // The clip's run carries a foreign DELETION id (e.g. text copied while it had a
     // pending deletion suggestion). Per §3.3, suggesting-mode paste must STRIP it:
     // the re-tracked run carries ONLY the fresh insertion id, NO deletion attr, and
@@ -671,6 +671,8 @@ describe("handlePaste — T10 suggesting mode with rich routing", () => {
     const carriedDelId = "foreign-deletion-id-456";
     const clipFragment = makeClipFragmentWithAttrs("CLIP_TEXT", {
       [DELETION_SUGGESTION_ATTR]: carriedDelId,
+      "formattingSuggestionId:f1": true,
+      "formattingSuggestionId:f2": '["color"]',
     });
     const clip = encodeFragmentClip(clipFragment);
 
@@ -698,5 +700,10 @@ describe("handlePaste — T10 suggesting mode with rich routing", () => {
       for (const insId of insertionIds(next.state, id)) allIns.add(insId);
     }
     expect(allIns.size).toBe(1);
+    for (const id of resultBlocks) {
+      for (const it of getBlock(next.state, id)?.inlineContent?.items ?? []) {
+        expect(Object.keys(it.attrs).filter((k) => k.startsWith("formattingSuggestionId"))).toEqual([]);
+      }
+    }
   });
 });

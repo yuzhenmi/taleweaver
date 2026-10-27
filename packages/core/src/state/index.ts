@@ -404,7 +404,8 @@ export {
 } from "./comments";
 
 // Change-tracking / Suggesting mode (slice 1 — INERT state vocabulary). The
-// three inline-attr dimensions (`insertion/deletion/formattingSuggestionId`) +
+// three inline-attr dimensions (`insertion/deletionSuggestionId` + per-suggestion
+// `formattingSuggestionId:<id>` tags) +
 // the two zero-width break embeds (block-join/split) tag tracked changes; their
 // records live in the 6th `suggestions` side-table Y.Map keyed by SuggestionId.
 // The types + attr-key + embed-type consts are part of the public surface (the
@@ -421,12 +422,21 @@ export type {
   ResolvedSuggestion,
   SuggestionMintInput,
   SuggestionView,
+  PendingFormattingSuggestion,
 } from "./suggestions";
 export {
   newSuggestionId,
+  nextSuggestionOrder,
   INSERTION_SUGGESTION_ATTR,
   DELETION_SUGGESTION_ATTR,
   FORMATTING_SUGGESTION_ATTR,
+  // Per-suggestion formatting tags (`formattingSuggestionId:<id>`): several
+  // formatting suggestions stack on one run; their composite / resolution.
+  formattingSuggestionKey,
+  formattingSuggestionIds,
+  isFormattingSuggestionKey,
+  pendingFormattingSuggestions,
+  resolveFormattingSuggestionTags,
   BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
   BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
   // The slice-5c preview-view projection foundation — per-item visibility under

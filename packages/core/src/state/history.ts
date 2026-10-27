@@ -189,7 +189,7 @@ function readSelectionEntry(item: YStackItem): StoredEntry | null {
  * with its in-content `comment-start`/`comment-end` markers (undoable-as-
  * content; the markers live in the tracked block trees) — a comment is one undo
  * unit. Tracking the suggestions map makes a tracked-change record revert
- * atomically with the inline `insertion/deletion/formattingSuggestionId` attrs
+ * atomically with the inline insertion / deletion / per-suggestion formatting attrs
  * (and the block-join/split break embeds) that carry its id — a suggestion is
  * one undo unit, same as a comment. Per-TRANSACTION tracking (Yjs reverts the
  * types a transaction changed,

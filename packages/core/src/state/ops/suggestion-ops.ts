@@ -6,7 +6,7 @@ import type { Position, Span } from "../block-position";
 import { createSpan, createPosition } from "../block-position";
 import { spanStart, spanEnd } from "../block-compare";
 import type { ReadonlyAttrs } from "../attrs";
-import { attrsEqual, mergeAttrs } from "../attrs";
+import { attrsEqual } from "../attrs";
 import {
   inlineContentLength,
   mergeAdjacentTextItems,
@@ -21,6 +21,12 @@ import {
   DELETION_SUGGESTION_ATTR,
   FORMATTING_SUGGESTION_ATTR,
   INSERTION_SUGGESTION_ATTR,
+  compareSuggestionOrder,
+  formattingSuggestionIds,
+  formattingSuggestionKey,
+  observeSuggestionOrder,
+  isValidSuggestionOrder,
+  resolveFormattingSuggestionTags,
   suggestionGroupOf,
   readSuggestionRecord,
   writeSuggestionRecordInTx,
@@ -30,6 +36,7 @@ import {
   type SuggestionRecord,
 } from "../suggestions";
 import { iterateAllBlocksInDocumentOrder } from "../document-order";
+import type { BlockRange } from "../span-iteration";
 import { insertNewBlocksInTx, type NewBlockSpec } from "./insert-new-blocks";
 import type { SiblingBlockInit } from "./insert-blocks-after";
 import { STATE_INTERNAL } from "../state-internal";
@@ -67,16 +74,17 @@ import { isDevMode } from "../dev-mode";
 const NO_DIRTY: ReadonlySet<BlockId> = new Set<BlockId>();
 
 /**
- * Mark `span` with a formatting SUGGESTION: stamp a `formattingSuggestionId`
- * attr over the span AND write a `formatting` {@link SuggestionRecord} carrying
+ * Mark `span` with a formatting SUGGESTION: stamp this suggestion's own tag
+ * (`formattingSuggestionKey(id)`) over the span AND write a `formatting` {@link SuggestionRecord} carrying
  * `proposedAttrs` (the format delta the action WOULD have applied, e.g.
  * `{ bold: true }`), in ONE tracked `applyOperation` transaction — so the attr +
  * record land as ONE undo entry and one collab event.
  *
  * The run's LIVE format attrs (bold/italic/color/…) are UNCHANGED: only the
- * provenance `formattingSuggestionId` attr is added (merged into existing attrs
- * by `applyAttrsToRangeInTx`). The proposal is applied only on ACCEPT (a later
- * slice).
+ * provenance tag is added. Another formatting suggestion already on the text keeps
+ * ITS tag — suggestions stack per run, each independently resolvable (preview and
+ * resolution order: `resolveFormattingSuggestionTags`). The
+ * proposal is applied only on ACCEPT.
  *
  * Composes the `apply-attrs` PLAN + its `*InTx` applier (NOT the public
  * `applyAttrsToRange`, which opens its own transaction) so the attr-set and the
@@ -87,7 +95,10 @@ const NO_DIRTY: ReadonlySet<BlockId> = new Set<BlockId>();
  * Coalescing: if a text run IMMEDIATELY adjacent to the (normalized) span —
  * same-block only, mirroring comments — already carries a `formatting`
  * suggestion by the SAME author with an EQUAL `proposedAttrs`, this mark REUSES
- * that suggestion's id (widening its range) instead of minting a new record. The
+ * that suggestion's id (widening its range) instead of minting a new record —
+ * unless the span holds a formatting suggestion that orders AFTER it, or a span
+ * character carries that id SHADOWED (in both cases reusing the id would leave the
+ * new action beneath another value); a fresh, newest id is minted instead. The
  * BEFORE neighbor is preferred when both sides coalesce. No new record is written
  * in the coalescing case (the existing record already describes the proposal).
  *
@@ -124,6 +135,11 @@ export function markFormatting(
   }
 
   // Coalesce decision is PURE and computed BEFORE opening the transaction.
+  const stateDoc = state[STATE_INTERNAL].doc;
+  const inSpan = formattingRecordsInSegments(plan.segments, stateDoc);
+  // Never reuse an id that is shadowed on a span character (an accepted newer value
+  // overrides it there, so reusing it would not show the new action), nor one that a
+  // newer formatting suggestion in the span ranks above.
   const { id, reusing } = resolveCoalesce(
     state,
     span,
@@ -132,23 +148,71 @@ export function markFormatting(
     (record) =>
       record.kind === "formatting" &&
       record.author === input.author &&
-      attrsEqual(record.proposedAttrs ?? {}, proposedAttrs),
+      attrsEqual(record.proposedAttrs ?? {}, proposedAttrs) &&
+      !inSpan.shadowed.has(record.id) &&
+      !inSpan.records.some((other) => other.id !== record.id && compareSuggestionOrder(other, record) > 0),
     input.noCoalesce,
   );
 
+  // Lamport bump: a fresh mint ranks above every formatting suggestion it stacks on,
+  // whatever this editor's counter says (reload, peer); the counter then moves past it.
+  const stackedMax = Math.max(0, ...inSpan.records.map((r) => r.order ?? 0));
+  // Clamped so it stays a valid (safe-integer) order even over a maximal stacked one.
+  // An invalid input order (NaN, negative, unsafe) counts as absent.
+  const inputOrder = input.order !== undefined && isValidSuggestionOrder(input.order) ? input.order : undefined;
+  const order =
+    inSpan.records.length === 0
+      ? inputOrder
+      : Math.min(Number.MAX_SAFE_INTEGER, Math.max(inputOrder ?? 0, stackedMax + 1));
+  if (!reusing && order !== undefined) observeSuggestionOrder(order);
+
+  const key = formattingSuggestionKey(id);
   return applyOperation(state, (doc) => {
-    applyAttrsToRangeInTx(doc, plan, { [FORMATTING_SUGGESTION_ATTR]: id }, undefined);
+    applyAttrsToRangeInTx(doc, plan, { [key]: true }, undefined);
     if (!reusing) {
       writeSuggestionRecordInTx(doc, {
         id,
         kind: "formatting",
         author: input.author,
         createdAt: input.createdAt,
+        order,
         proposedAttrs,
       });
     }
   });
 }
+
+/**
+ * The formatting records tagged on any item inside the plan's segments, and the ids
+ * whose tag carries a non-empty shadowed set on some of those items.
+ */
+function formattingRecordsInSegments(
+  segments: ReadonlyArray<BlockRange>,
+  doc: Y.Doc,
+): { records: SuggestionRecord[]; shadowed: Set<SuggestionId> } {
+  const ids = new Set<SuggestionId>();
+  const shadowed = new Set<SuggestionId>();
+  for (const seg of segments) {
+    let pos = 0;
+    for (const item of seg.block.inlineContent?.items ?? []) {
+      const end = pos + (item.kind === "text" ? item.text.length : 1);
+      if (end > seg.rangeStart && pos < seg.rangeEnd) {
+        for (const id of formattingSuggestionIds(item.attrs)) {
+          ids.add(id);
+          if (item.attrs[formattingSuggestionKey(id)] !== true) shadowed.add(id);
+        }
+      }
+      pos = end;
+    }
+  }
+  const records: SuggestionRecord[] = [];
+  for (const id of ids) {
+    const record = readSuggestionRecord(doc, id);
+    if (record !== null) records.push(record);
+  }
+  return { records, shadowed };
+}
+
 
 /**
  * Mark `span` as a SUGGESTED DELETION (Suggesting-mode soft-delete). For each
@@ -241,6 +305,7 @@ export function markDeletion(
         kind: "deletion",
         author: input.author,
         createdAt: input.createdAt,
+        order: input.order,
       });
     }
   });
@@ -431,6 +496,7 @@ export function mintInsertion(
         kind: "insertion",
         author: input.author,
         createdAt: input.createdAt,
+        order: input.order,
       });
     }
   });
@@ -451,6 +517,8 @@ export interface ReplaceSuggestionInput {
   readonly author: string;
   /** SHARED by both the insertion + deletion records — the render-layer "replace" grouping signal. */
   readonly createdAt: number;
+  /** Mint sequence number, shared by both records (see `SuggestionRecord.order`). */
+  readonly order?: number;
   /** Mint fresh records — never extend an adjacent suggestion (host proposals). */
   readonly noCoalesce?: boolean;
 }
@@ -515,6 +583,7 @@ export function replaceWithSuggestion(
       id: input.deletionId,
       author: input.author,
       createdAt: input.createdAt,
+      order: input.order,
     });
   }
 
@@ -527,6 +596,7 @@ export function replaceWithSuggestion(
       id: input.insertionId,
       author: input.author,
       createdAt: input.createdAt,
+      order: input.order,
     });
   }
 
@@ -537,6 +607,7 @@ export function replaceWithSuggestion(
     id: input.deletionId,
     author: input.author,
     createdAt: input.createdAt,
+    order: input.order,
   });
   const start = spanStart(state, span);
   if (delPlan === null) {
@@ -544,6 +615,7 @@ export function replaceWithSuggestion(
       id: input.insertionId,
       author: input.author,
       createdAt: input.createdAt,
+      order: input.order,
     });
   }
 
@@ -591,6 +663,7 @@ export function replaceWithSuggestion(
         kind: "deletion",
         author: input.author,
         createdAt: input.createdAt,
+        order: input.order,
       });
     }
     // Write the insertion record (unless coalesced into an existing one).
@@ -600,6 +673,7 @@ export function replaceWithSuggestion(
         kind: "insertion",
         author: input.author,
         createdAt: input.createdAt,
+        order: input.order,
       });
     }
   });
@@ -692,12 +766,14 @@ export function splitWithSuggestionOverSelection(
     id: input.deletionId,
     author: input.author,
     createdAt: input.createdAt,
+    order: input.order,
   });
   if (delPlan === null) {
     return splitWithSuggestion(state, start, allocator, {
       id: input.insertionId,
       author: input.author,
       createdAt: input.createdAt,
+      order: input.order,
     }, newBlockInit);
   }
 
@@ -781,6 +857,7 @@ export function splitWithSuggestionOverSelection(
         kind: "deletion",
         author: input.author,
         createdAt: input.createdAt,
+        order: input.order,
       });
     }
     // 5. The insertion record (a suggested split is its OWN tracked insertion — NO
@@ -790,6 +867,7 @@ export function splitWithSuggestionOverSelection(
       kind: "insertion",
       author: input.author,
       createdAt: input.createdAt,
+      order: input.order,
     });
   });
 }
@@ -924,6 +1002,7 @@ export function planReplaceWithSuggestedFragment(
     id: input.deletionId,
     author: input.author,
     createdAt: input.createdAt,
+    order: input.order,
   });
 
   // The start block B's prefix [0:c] (untouched by the strike), the bundle that rides
@@ -992,7 +1071,7 @@ export function planReplaceWithSuggestedFragment(
       });
     }
     if (delPlan.taggedAny && !delPlan.reusing) {
-      delRecord = { id: delPlan.id, kind: "deletion", author: input.author, createdAt: input.createdAt };
+      delRecord = { id: delPlan.id, kind: "deletion", author: input.author, createdAt: input.createdAt, order: input.order };
     }
   }
 
@@ -1042,10 +1121,10 @@ export function planReplaceWithSuggestedFragment(
     insId = decision.id;
     insRecord = decision.reusing
       ? null
-      : { id: insId, kind: "insertion", author: input.author, createdAt: input.createdAt };
+      : { id: insId, kind: "insertion", author: input.author, createdAt: input.createdAt, order: input.order };
   } else {
     insId = input.insertionId;
-    insRecord = { id: insId, kind: "insertion", author: input.author, createdAt: input.createdAt };
+    insRecord = { id: insId, kind: "insertion", author: input.author, createdAt: input.createdAt, order: input.order };
   }
   const records: SuggestionRecord[] = [];
   if (insRecord !== null) records.push(insRecord);
@@ -1268,6 +1347,7 @@ export function insertFragmentAsSuggestion(
       insertionId: input.id,
       author: input.author,
       createdAt: input.createdAt,
+      order: input.order,
     },
     allocator,
     registry,
@@ -1333,8 +1413,9 @@ export type { NewBlockSpec } from "./insert-new-blocks";
  *     suggested text becomes plain, permanent text).
  *   - deletion   → DROP each tagged run (the soft-deleted text is removed FOR
  *     REAL).
- *   - formatting → APPLY the record's `proposedAttrs` to each tagged run's LIVE
- *     attrs AND strip the `formattingSuggestionId` (the proposal lands).
+ *   - formatting → APPLY the record's `proposedAttrs` (minus the run's shadowed
+ *     keys) to each tagged run's LIVE attrs, shadow those keys on OLDER pending
+ *     formatting suggestions on the run, AND strip its tag (the proposal lands).
  * After the content rewrite the record is deleted from the `suggestions` map.
  *
  * UNDOABLE: an ordinary tracked transaction (the editor commits it as one history
@@ -1356,7 +1437,7 @@ export function acceptSuggestion(
  *   - insertion  → DROP each tagged run (the suggested text never lands).
  *   - deletion   → STRIP the `deletionSuggestionId` from each tagged run (the
  *     text stays; the deletion is discarded).
- *   - formatting → STRIP the `formattingSuggestionId` (the proposal is discarded;
+ *   - formatting → STRIP its formatting tag (the proposal is discarded;
  *     the run's live attrs are unchanged).
  * After the rewrite the record is deleted from the `suggestions` map.
  *
@@ -1371,8 +1452,8 @@ export function rejectSuggestion(
   return resolve(state, id, "reject", registry);
 }
 
-/** What a resolve does to each TAGGED run of the resolved suggestion. */
-type ResolveAction = "strip" | "drop" | "applyStrip";
+/** What a resolve does to each TAGGED run of a resolved insertion / deletion. */
+type ResolveAction = "strip" | "drop";
 
 /**
  * A pre-computed per-owning-block rewrite for the fragment-replace path. Carries
@@ -1608,16 +1689,18 @@ function runResolve(
 }
 
 /**
- * The shared accept/reject implementation. Picks the kind's provenance `attrKey`
- * and a per-run {@link ResolveAction} from `record.kind` × `mode` (spec §6), then
- * delegates to the shared {@link runResolve} engine with a single-id `classify`.
- * Only TEXT runs carry suggestion ids (the create ops never tag embeds), so the
- * classify narrows to `item.kind === "text"` before testing `attrs[attrKey]`;
- * non-matching items (incl. every non-break embed) are kept as-is.
+ * The shared accept/reject implementation. An insertion / deletion picks the kind's
+ * provenance `attrKey` and a per-run {@link ResolveAction} from `record.kind` ×
+ * `mode` (spec §6), then delegates to the shared {@link runResolve} engine with a
+ * single-id `classify`. Insertion / deletion ids tag TEXT runs only, so the classify
+ * narrows to `item.kind === "text"` before testing `attrs[attrKey]`.
  *
  * Per-run {@link ResolveAction}: `strip` drops the provenance attr (the run stays
- * plain); `drop` omits the run (real delete); `applyStrip` also merges the record's
- * `proposedAttrs` into the run's live attrs (formatting accept). Block writes are
+ * plain); `drop` omits the run (real delete). A FORMATTING suggestion rewrites every
+ * text run / visible embed carrying its tag through
+ * `resolveFormattingSuggestionTags` (accept applies the proposal minus the run's
+ * shadowed keys and shadows those keys on older pending suggestions; reject removes
+ * the tag; tags of missing records on the run are cleaned). Block writes are
  * tree-map writes (dirty-captured); the ORPHANED case — record present but no run in
  * ANY tree carries its id — does no block write, so {@link runResolve} surfaces
  * `state.rootId` for the record delete.
@@ -1650,9 +1733,8 @@ function resolve(
     return { state, dirtyIds: NO_DIRTY };
   }
 
-  const attrKey = ATTR_KEY_BY_KIND[record.kind];
-  const action = resolveAction(record.kind, mode);
-  const proposedAttrs = record.proposedAttrs ?? {};
+  const readRecord = (sid: SuggestionId): SuggestionRecord | null => readSuggestionRecord(doc, sid);
+  const tagKey = formattingSuggestionKey(id);
   // A break resolution MERGES N + N+1 when undoing a split (insertion+reject) or
   // doing a join (deletion+accept); a split-accept / join-reject keeps the split.
   const breakMerge =
@@ -1664,26 +1746,19 @@ function resolve(
     if (isBreakEmbed(item) && item.properties.suggestionId === id) {
       return { op: "breakDrop", merge: breakMerge };
     }
-    if (item.kind === "text" && item.attrs[attrKey] === id) {
-      switch (action) {
-        case "strip":
-          return { op: "rewrite", attrs: attrsWithout(item.attrs, attrKey) };
-        case "drop":
-          return { op: "drop" };
-        case "applyStrip":
-          return {
-            op: "rewrite",
-            attrs: mergeAttrs(attrsWithout(item.attrs, attrKey), proposedAttrs),
-          };
-      }
+    if (record.kind === "formatting") {
+      // A text run or VISIBLE field embed (#478) carrying this suggestion's tag.
+      if (!(tagKey in item.attrs)) return { op: "keep" };
+      return {
+        op: "rewrite",
+        attrs: resolveFormattingSuggestionTags(item.attrs, (sid) => (sid === id ? mode : null), readRecord),
+      };
     }
-    // A VISIBLE embed carrying THIS formatting id — resolve its provenance
-    // (#478): accept applies the proposal + strips the id, reject strips it.
-    // resolveEmbedFormatting returns null for break/marker embeds (no formatting
-    // attr) and for an embed carrying a DIFFERENT id (`onlyId` filter).
-    if (item.kind === "embed") {
-      const resolvedEmbed = resolveEmbedFormatting(item, mode, doc, id);
-      if (resolvedEmbed !== null) return { op: "rewrite", attrs: resolvedEmbed.attrs };
+    const attrKey = ATTR_KEY_BY_KIND[record.kind];
+    if (item.kind === "text" && item.attrs[attrKey] === id) {
+      return resolveAction(record.kind, mode) === "strip"
+        ? { op: "rewrite", attrs: attrsWithout(item.attrs, attrKey) }
+        : { op: "drop" };
     }
     // Non-matching item (text without this id; any other embed) — keep as-is.
     return { op: "keep" };
@@ -1697,24 +1772,21 @@ function resolve(
 }
 
 /**
- * The suggestion ids a single inline item carries: a text run via its three
- * provenance attrs ({@link INSERTION_SUGGESTION_ATTR} / `DELETION` / `FORMATTING`),
- * a break-suggestion embed via `properties.suggestionId`, a VISIBLE field embed
- * (footnote-anchor / cross-reference / page-field / tab) via its
- * {@link FORMATTING_SUGGESTION_ATTR} (the only provenance that reaches embeds —
- * #478; `markFormatting` stamps it, {@link resolveEmbedFormatting} reads+strips it).
+ * The suggestion ids a single inline item carries: a text run via its insertion /
+ * deletion attrs ({@link INSERTION_SUGGESTION_ATTR} / `DELETION`) and every
+ * formatting tag (`formattingSuggestionIds`), a break-suggestion embed via
+ * `properties.suggestionId`, a VISIBLE field embed (footnote-anchor /
+ * cross-reference / page-field / tab) via its formatting tags (the only provenance
+ * that reaches embeds — #478; `markFormatting` stamps them, the resolvers rewrite them).
  */
 export function suggestionIdsOnItem(item: InlineItem): SuggestionId[] {
   const out: SuggestionId[] = [];
   if (item.kind === "text") {
-    for (const key of [
-      INSERTION_SUGGESTION_ATTR,
-      DELETION_SUGGESTION_ATTR,
-      FORMATTING_SUGGESTION_ATTR,
-    ]) {
+    for (const key of [INSERTION_SUGGESTION_ATTR, DELETION_SUGGESTION_ATTR]) {
       const v = item.attrs[key];
       if (typeof v === "string") out.push(v as SuggestionId);
     }
+    out.push(...formattingSuggestionIds(item.attrs));
     return out;
   }
   // item.kind === "embed" — branch on embedType WITHOUT the isBreakEmbed type-guard,
@@ -1729,10 +1801,9 @@ export function suggestionIdsOnItem(item: InlineItem): SuggestionId[] {
     if (typeof sid === "string") out.push(sid as SuggestionId);
   } else {
     // visible field embed (footnote-anchor / cross-reference / page-field / tab) —
-    // can carry FORMATTING_SUGGESTION_ATTR (#478); must be reported so
+    // can carry formatting tags (#478); must be reported so
     // collectResolveRecordDeletes counts it as a co-tenant survivor.
-    const v = item.attrs[FORMATTING_SUGGESTION_ATTR];
-    if (typeof v === "string") out.push(v as SuggestionId);
+    out.push(...formattingSuggestionIds(item.attrs));
   }
   return out;
 }
@@ -1773,11 +1844,10 @@ function collectResolveRecordDeletes(
   return out;
 }
 
-/** The provenance attr key carrying a suggestion id for each {@link SuggestionKind}. */
-const ATTR_KEY_BY_KIND: Record<SuggestionKind, string> = {
+/** The provenance attr key carrying an insertion / deletion suggestion id. */
+const ATTR_KEY_BY_KIND: Record<Exclude<SuggestionKind, "formatting">, string> = {
   insertion: INSERTION_SUGGESTION_ATTR,
   deletion: DELETION_SUGGESTION_ATTR,
-  formatting: FORMATTING_SUGGESTION_ATTR,
 };
 
 /**
@@ -1787,19 +1857,11 @@ const ATTR_KEY_BY_KIND: Record<SuggestionKind, string> = {
  * |-------------|--------------|---------|
  * | insertion   | strip        | drop    |
  * | deletion    | drop         | strip   |
- * | formatting  | applyStrip   | strip   |
  *
- * (`applyStrip` is the ONLY action that also merges `proposedAttrs`.)
+ * (Formatting resolves through `resolveFormattingSuggestionTags`.)
  */
-function resolveAction(kind: SuggestionKind, mode: "accept" | "reject"): ResolveAction {
-  switch (kind) {
-    case "insertion":
-      return mode === "accept" ? "strip" : "drop";
-    case "deletion":
-      return mode === "accept" ? "drop" : "strip";
-    case "formatting":
-      return mode === "accept" ? "applyStrip" : "strip";
-  }
+function resolveAction(kind: Exclude<SuggestionKind, "formatting">, mode: "accept" | "reject"): ResolveAction {
+  return (kind === "insertion") === (mode === "accept") ? "strip" : "drop";
 }
 
 /** A copy of `attrs` with `key` omitted (the run loses its provenance id). */
@@ -1809,48 +1871,12 @@ function attrsWithout(attrs: ReadonlyAttrs, key: string): ReadonlyAttrs {
 }
 
 /**
- * Resolve a VISIBLE embed's formatting-suggestion provenance (#478). A visible
- * field embed (footnote-anchor / cross-reference / page-field / tab) inside a
- * formatting-suggestion range carries `formattingSuggestionId` —
- * `markFormatting` stamps visible embeds via `applyAttrsToRange` (zero-width
- * structural markers are skipped, #465). On resolve the id MUST be removed from
- * the embed, else it dangles after the record is deleted (a reference to a
- * since-deleted record, durable in the Y.Doc):
- *   - `accept` → apply the record's `proposedAttrs` to the embed's live attrs AND
- *     strip the id (the field inherits the now-permanent format);
- *   - `reject` → strip the id only (the proposal is discarded).
- *
- * Only the FORMATTING provenance reaches embeds (insertion/deletion tag text
- * only), so this handles just that attr. `onlyId`, when given, restricts the
- * action to an embed carrying THAT specific id (the single-id {@link resolve}
- * path); omitted, any formatting id is resolved (the bulk {@link resolveAll}
- * path). Returns the rewritten embed, or `null` when the embed carries no
- * matching formatting id (caller keeps it as-is).
- */
-function resolveEmbedFormatting(
-  item: EmbedItem,
-  mode: "accept" | "reject",
-  doc: Y.Doc,
-  onlyId?: SuggestionId,
-): EmbedItem | null {
-  const fmtRaw = item.attrs[FORMATTING_SUGGESTION_ATTR];
-  if (typeof fmtRaw !== "string") return null;
-  if (onlyId !== undefined && fmtRaw !== onlyId) return null;
-  let attrs = attrsWithout(item.attrs, FORMATTING_SUGGESTION_ATTR);
-  if (mode === "accept") {
-    const record = typeof fmtRaw === "string" ? readSuggestionRecord(doc, fmtRaw as SuggestionId) : null;
-    attrs = mergeAttrs(attrs, record?.proposedAttrs ?? {});
-  }
-  return { kind: "embed", embedType: item.embedType, attrs, properties: item.properties };
-}
-
-/**
  * ACCEPT EVERY suggestion in the document in ONE undoable transaction (the
  * "Accept all" command). Each TEXT run is resolved against ALL the suggestion
  * ids it carries at once (a run can be insertion-by-A + deletion-by-B +
  * formatting-by-C simultaneously), with the accept dominance order from
  * {@link acceptAllRun}: accept-deletion DROPS the run; otherwise the run is kept
- * plain (insertion id stripped) with any formatting proposal applied live. ALL
+ * plain (insertion id stripped) with its formatting proposals applied live. ALL
  * records are deleted. See {@link resolveAll}.
  *
  * Undoable (one history entry), exactly as {@link acceptSuggestion}. Identity no-op (same `state` ref +
@@ -1894,16 +1920,15 @@ function withAttrs(item: TextItem, attrs: ReadonlyAttrs): TextItem {
  * Resolve ONE text run for {@link acceptAll}. Dominance: a deletion id (accept-
  * deletion) DROPS the run — a char inserted-by-A AND deletion-suggested-by-B,
  * both accepted, ends up deleted. Otherwise the run is KEPT with: the insertion
- * id stripped (if present); and — if it carries a formatting id — the record's
- * `proposedAttrs` applied live (`mergeAttrs(attrsWithout(attrs, fmtKey), proposed)`,
- * a null record → just stripping the id). A run carrying none of the three ids is
- * untouched (`touched: false`).
+ * id stripped (if present); and its resolved formatting suggestions applied live in
+ * (order, createdAt, id) order via `resolveFormattingSuggestionTags` (a missing record →
+ * just stripping its tag). A run carrying no resolved id is untouched
+ * (`touched: false`).
  */
 function acceptAllRun(item: TextItem, doc: Y.Doc, inSet: (raw: unknown) => raw is SuggestionId): AllRewrite {
   const hasInsertion = inSet(item.attrs[INSERTION_SUGGESTION_ATTR]);
   const hasDeletion = inSet(item.attrs[DELETION_SUGGESTION_ATTR]);
-  const fmtRaw = item.attrs[FORMATTING_SUGGESTION_ATTR];
-  const hasFormatting = inSet(fmtRaw);
+  const hasFormatting = formattingSuggestionIds(item.attrs).some(inSet);
 
   if (!hasInsertion && !hasDeletion && !hasFormatting) {
     return { touched: false, keep: true, item };
@@ -1913,12 +1938,8 @@ function acceptAllRun(item: TextItem, doc: Y.Doc, inSet: (raw: unknown) => raw i
     return { touched: true, keep: false };
   }
   // Keep: strip the insertion id; apply the formatting proposal (if any).
-  let attrs = attrsWithout(item.attrs, INSERTION_SUGGESTION_ATTR);
-  if (hasFormatting) {
-    const record = readSuggestionRecord(doc, fmtRaw as SuggestionId);
-    const proposed = record?.proposedAttrs ?? {};
-    attrs = mergeAttrs(attrsWithout(attrs, FORMATTING_SUGGESTION_ATTR), proposed);
-  }
+  let attrs = hasInsertion ? attrsWithout(item.attrs, INSERTION_SUGGESTION_ATTR) : item.attrs;
+  if (hasFormatting) attrs = resolveFormattingInSet(attrs, "accept", doc, inSet);
   return { touched: true, keep: true, item: withAttrs(item, attrs) };
 }
 
@@ -1926,13 +1947,13 @@ function acceptAllRun(item: TextItem, doc: Y.Doc, inSet: (raw: unknown) => raw i
  * Resolve ONE text run for {@link rejectAll}. Dominance: an insertion id (reject-
  * insertion) DROPS the run — the suggested text never lands (so a run that is
  * BOTH insertion AND deletion is also dropped). Otherwise the run is KEPT with the
- * deletion id and the formatting id stripped (the proposal discarded). A run
- * carrying none of the three ids is untouched (`touched: false`).
+ * deletion id and the resolved formatting tags stripped (the proposals discarded).
+ * A run carrying no resolved id is untouched (`touched: false`).
  */
-function rejectAllRun(item: TextItem, inSet: (raw: unknown) => raw is SuggestionId): AllRewrite {
+function rejectAllRun(item: TextItem, doc: Y.Doc, inSet: (raw: unknown) => raw is SuggestionId): AllRewrite {
   const hasInsertion = inSet(item.attrs[INSERTION_SUGGESTION_ATTR]);
   const hasDeletion = inSet(item.attrs[DELETION_SUGGESTION_ATTR]);
-  const hasFormatting = inSet(item.attrs[FORMATTING_SUGGESTION_ATTR]);
+  const hasFormatting = formattingSuggestionIds(item.attrs).some(inSet);
 
   if (!hasInsertion && !hasDeletion && !hasFormatting) {
     return { touched: false, keep: true, item };
@@ -1944,8 +1965,22 @@ function rejectAllRun(item: TextItem, inSet: (raw: unknown) => raw is Suggestion
   // Keep: strip the deletion + formatting ids (proposal discarded).
   let attrs = item.attrs;
   if (hasDeletion) attrs = attrsWithout(attrs, DELETION_SUGGESTION_ATTR);
-  if (hasFormatting) attrs = attrsWithout(attrs, FORMATTING_SUGGESTION_ATTR);
+  if (hasFormatting) attrs = resolveFormattingInSet(attrs, "reject", doc, inSet);
   return { touched: true, keep: true, item: withAttrs(item, attrs) };
+}
+
+/** Resolve (in `mode`) every formatting suggestion of the resolved set tagged in `attrs`. */
+function resolveFormattingInSet(
+  attrs: ReadonlyAttrs,
+  mode: "accept" | "reject",
+  doc: Y.Doc,
+  inSet: (raw: unknown) => raw is SuggestionId,
+): ReadonlyAttrs {
+  return resolveFormattingSuggestionTags(
+    attrs,
+    (sid) => (inSet(sid) ? mode : null),
+    (sid) => readSuggestionRecord(doc, sid),
+  );
 }
 
 /**
@@ -1988,7 +2023,8 @@ function resolveAll(
     typeof raw === "string" && (only === null || only.has(raw as SuggestionId));
 
   const classify = (item: InlineItem): ScanItemResult => {
-    const fmt = item.attrs[FORMATTING_SUGGESTION_ATTR];
+    // Read before the break-embed type guard narrows the fall-through to `never`.
+    const itemAttrs = item.attrs;
     // BREAK embed of a resolved id — DROP it, and decide whether the owning block N
     // merges with its next sibling. Other ids' break embeds and every other embed
     // (footnote-anchor/tab/comment) are kept.
@@ -2003,19 +2039,16 @@ function resolveAll(
       return { op: "breakDrop", merge };
     }
     if (item.kind === "text") {
-      const rewrite = mode === "accept" ? acceptAllRun(item, doc, inSet) : rejectAllRun(item, inSet);
+      const rewrite = mode === "accept" ? acceptAllRun(item, doc, inSet) : rejectAllRun(item, doc, inSet);
       if (!rewrite.touched) return { op: "keep" };
       return rewrite.keep && rewrite.item !== undefined
         ? { op: "rewrite", attrs: rewrite.item.attrs }
         : { op: "drop" };
     }
-    // A non-break embed — resolve a formatting-suggestion provenance id it carries
-    // (#478; a VISIBLE field embed in a formatting range) when that id is resolved.
-    if (inSet(fmt)) {
-      const resolvedEmbed = resolveEmbedFormatting(item, mode, doc, fmt);
-      if (resolvedEmbed !== null) return { op: "rewrite", attrs: resolvedEmbed.attrs };
-    }
-    return { op: "keep" };
+    // A non-break embed — resolve the formatting tags it carries (#478; a VISIBLE
+    // field embed in a formatting range) whose ids are resolved.
+    const attrs = resolveFormattingInSet(itemAttrs, mode, doc, inSet);
+    return attrs === itemAttrs ? { op: "keep" } : { op: "rewrite", attrs };
   };
   // Delete the resolved records, plus any OTHER suggestion this resolve fully orphans
   // (a co-tenant id whose only runs were dropped).
@@ -2278,12 +2311,12 @@ function resolveCoalesce(
   const start = spanStart(state, span);
   const end = spanEnd(state, span);
 
-  const beforeId = neighborSuggestionId(state, start.blockId, start.offset - 1, attrKey);
-  const afterId = neighborSuggestionAfter(state, end.blockId, end.offset, attrKey);
+  const beforeIds = neighborSuggestionIds(state, start.blockId, start.offset - 1, attrKey);
+  const afterIds = neighborSuggestionIdsAfter(state, end.blockId, end.offset, attrKey);
 
   // Prefer the BEFORE neighbor when both coalesce.
-  for (const candidate of [beforeId, afterId]) {
-    if (candidate !== null && coalesces(state, candidate, matches)) {
+  for (const candidate of [...beforeIds, ...afterIds]) {
+    if (coalesces(state, candidate, matches)) {
       return { id: candidate, reusing: true };
     }
   }
@@ -2291,67 +2324,71 @@ function resolveCoalesce(
 }
 
 /**
- * The `attrKey` suggestion id of the text run CONTAINING document offset
- * `containedOffset` in `blockId`, or `null` when `containedOffset < 0`, the
+ * The `attrKey` suggestion ids of the text run CONTAINING document offset
+ * `containedOffset` in `blockId`; empty when `containedOffset < 0`, the
  * block is absent/non-leaf, or the containing item is not a text run carrying the
  * attr. Used for the BEFORE neighbor (the run holding `start.offset - 1`).
  */
-function neighborSuggestionId(
+function neighborSuggestionIds(
   state: State,
   blockId: BlockId,
   containedOffset: number,
   attrKey: string,
-): SuggestionId | null {
-  if (containedOffset < 0) return null;
+): SuggestionId[] {
+  if (containedOffset < 0) return [];
   const content = resolveBlock(state, blockId)?.block.inlineContent ?? null;
-  if (content === null) return null;
+  if (content === null) return [];
   let cursor = 0;
   for (const item of content.items) {
     const len = item.kind === "text" ? item.text.length : 1;
     const itemStart = cursor;
     const itemEnd = cursor + len;
     if (containedOffset >= itemStart && containedOffset < itemEnd) {
-      return textItemSuggestionId(item, attrKey);
+      return textItemSuggestionIds(item, attrKey);
     }
     cursor = itemEnd;
   }
-  return null;
+  return [];
 }
 
 /**
- * The `attrKey` suggestion id of the text run that STARTS at document offset
- * `startOffset` in `blockId`, or `null` when no item starts there (e.g.
+ * The `attrKey` suggestion ids of the text run that STARTS at document offset
+ * `startOffset` in `blockId`; empty when no item starts there (e.g.
  * `startOffset` is at/after end-of-block, or the run there is not a text item
  * carrying the attr). Used for the AFTER neighbor (the run beginning at
  * `end.offset`).
  */
-function neighborSuggestionAfter(
+function neighborSuggestionIdsAfter(
   state: State,
   blockId: BlockId,
   startOffset: number,
   attrKey: string,
-): SuggestionId | null {
+): SuggestionId[] {
   const content = resolveBlock(state, blockId)?.block.inlineContent ?? null;
-  if (content === null) return null;
+  if (content === null) return [];
   let cursor = 0;
   for (const item of content.items) {
     if (cursor === startOffset) {
-      return textItemSuggestionId(item, attrKey);
+      return textItemSuggestionIds(item, attrKey);
     }
     cursor += item.kind === "text" ? item.text.length : 1;
     if (cursor > startOffset) break; // passed the boundary — no item starts exactly here
   }
-  return null;
+  return [];
 }
 
-/** The `attrKey` suggestion id of a text item (a branded id after a string-typed read), or `null`. */
-function textItemSuggestionId(
+/**
+ * The `attrKey`-dimension suggestion ids of a text item (empty for an embed). The
+ * formatting dimension is per-id tags, so a run can hold several candidates.
+ */
+function textItemSuggestionIds(
   item: { readonly kind: "text" | "embed"; readonly attrs: ReadonlyAttrs },
   attrKey: string,
-): SuggestionId | null {
-  if (item.kind !== "text") return null;
+): SuggestionId[] {
+  if (item.kind !== "text") return [];
+  if (attrKey === FORMATTING_SUGGESTION_ATTR) return formattingSuggestionIds(item.attrs);
   const raw = item.attrs[attrKey];
-  return typeof raw === "string" ? (raw as SuggestionId) : null;
+  return typeof raw === "string" ? [raw as SuggestionId] : [];
 }
 
 /**

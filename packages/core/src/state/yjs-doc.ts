@@ -83,7 +83,7 @@ export function getCommentsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
  * `listDefs` and `comments` — it is intentionally excluded from
  * TREE_MAP_GETTERS / dirty-capture / the snapshot cache. The suggestion RANGE
  * is NOT stored here: it is DERIVED by a content scan over the three
- * `insertion/deletion/formattingSuggestionId` inline attrs (and the two
+ * `insertionSuggestionId` / `deletionSuggestionId` / `formattingSuggestionId:<id>` inline attrs (and the two
  * block-join/split break embeds) that carry the id (see `state/suggestions.ts`)
  * — exactly as comments derive their range from in-content markers. The map IS
  * undo-tracked: `history.ts` adds it as a Y.UndoManager scope, so a suggestion

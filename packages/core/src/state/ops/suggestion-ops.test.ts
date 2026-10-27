@@ -28,7 +28,8 @@ import {
 import {
   getSuggestions,
   writeSuggestionRecordInTx,
-  FORMATTING_SUGGESTION_ATTR,
+  formattingSuggestionIds,
+  formattingSuggestionKey,
   DELETION_SUGGESTION_ATTR,
   INSERTION_SUGGESTION_ATTR,
   type SuggestionId,
@@ -96,8 +97,8 @@ function pItems(s: State) {
 /** The first text item of p whose attrs carry the formatting-suggestion attr. */
 function markedRunAttr(s: State): unknown {
   for (const it of pItems(s)) {
-    if (it.kind === "text" && it.attrs[FORMATTING_SUGGESTION_ATTR] !== undefined) {
-      return it.attrs[FORMATTING_SUGGESTION_ATTR];
+    if (it.kind === "text" && formattingSuggestionIds(it.attrs)[0] !== undefined) {
+      return formattingSuggestionIds(it.attrs)[0];
     }
   }
   return undefined;
@@ -137,14 +138,14 @@ describe("markFormatting — stamp suggestion attr + write record in ONE tracked
     ).state;
 
     const marked = pItems(s).find(
-      (it) => it.kind === "text" && it.attrs[FORMATTING_SUGGESTION_ATTR] !== undefined,
+      (it) => it.kind === "text" && formattingSuggestionIds(it.attrs)[0] !== undefined,
     );
     if (marked === undefined || marked.kind !== "text") {
       throw new Error("expected a marked text run");
     }
     expect(marked.attrs.bold).toBe(true);
     expect("italic" in marked.attrs).toBe(false);
-    expect(marked.attrs[FORMATTING_SUGGESTION_ATTR]).toBe(SID);
+    expect(formattingSuggestionIds(marked.attrs)[0]).toBe(SID);
   });
 
   it("does NOT stamp the suggestion id onto a zero-width marker embed in range (#465 dangling-ref)", () => {
@@ -160,7 +161,7 @@ describe("markFormatting — stamp suggestion attr + write record in ONE tracked
     ).state;
     const marker = pItems(s).find((it) => it.kind === "embed" && it.embedType === "comment-start");
     if (marker === undefined || marker.kind !== "embed") throw new Error("expected the marker");
-    expect(FORMATTING_SUGGESTION_ATTR in marker.attrs).toBe(false);
+    expect(formattingSuggestionIds(marker.attrs).length > 0).toBe(false);
     // The surrounding text still carries the proposal id (sanity: the op ran).
     expect(markedRunAttr(s)).toBe(SID);
   });
@@ -1103,7 +1104,7 @@ describe("acceptSuggestion / rejectSuggestion — multi-author nested run cleanu
     // Precondition: the embed carries fmt1; no SURVIVING text run carries fmt1.
     const embedBefore = pItems(s).find((it) => it.kind === "embed" && it.embedType === "page-field");
     if (embedBefore === undefined || embedBefore.kind !== "embed") throw new Error("expected page-field embed");
-    expect(embedBefore.attrs[FORMATTING_SUGGESTION_ATTR]).toBe(FMT1);
+    expect(formattingSuggestionIds(embedBefore.attrs)[0]).toBe(FMT1);
     expect(getSuggestions(s).length).toBe(2); // ins1 + fmt1 both live
 
     const r = rejectSuggestion(s, "ins1" as SuggestionId).state;
@@ -1113,7 +1114,7 @@ describe("acceptSuggestion / rejectSuggestion — multi-author nested run cleanu
     expect(after.find((x) => x.id === FMT1)).toBeDefined();
     const embedAfter = pItems(r).find((it) => it.kind === "embed" && it.embedType === "page-field");
     if (embedAfter === undefined || embedAfter.kind !== "embed") throw new Error("expected surviving page-field embed");
-    expect(embedAfter.attrs[FORMATTING_SUGGESTION_ATTR]).toBe(FMT1);
+    expect(formattingSuggestionIds(embedAfter.attrs)[0]).toBe(FMT1);
   });
 
   it("does NOT over-delete a co-tenant that still tags surviving content", () => {
@@ -1148,7 +1149,7 @@ describe("acceptSuggestion / rejectSuggestion — formatting", () => {
       throw new Error("expected the bcd run");
     }
     expect(run.attrs.bold).toBe(true);
-    expect(FORMATTING_SUGGESTION_ATTR in run.attrs).toBe(false);
+    expect(formattingSuggestionIds(run.attrs).length > 0).toBe(false);
   });
 
   it("reject STRIPS the formatting id and leaves live attrs unchanged (proposal discarded)", () => {
@@ -1164,7 +1165,7 @@ describe("acceptSuggestion / rejectSuggestion — formatting", () => {
     for (const it of pItems(s)) {
       if (it.kind !== "text") continue;
       expect("bold" in it.attrs).toBe(false);
-      expect(FORMATTING_SUGGESTION_ATTR in it.attrs).toBe(false);
+      expect(formattingSuggestionIds(it.attrs).length > 0).toBe(false);
     }
     expect(markedRunAttr(s)).toBeUndefined();
   });
@@ -1183,17 +1184,17 @@ describe("acceptSuggestion / rejectSuggestion — formatting", () => {
 
   it("accept applies the proposal to a VISIBLE embed in range + strips its id (#478)", () => {
     const marked = markFormatting(withTabEmbed(), span(0, 5), { bold: true }, INPUT).state;
-    expect(tabEmbed(marked).attrs[FORMATTING_SUGGESTION_ATTR]).toBe(SID); // stamped (visible embed)
+    expect(formattingSuggestionIds(tabEmbed(marked).attrs)[0]).toBe(SID); // stamped (visible embed)
 
     const s = acceptSuggestion(marked, SID).state;
-    expect(FORMATTING_SUGGESTION_ATTR in tabEmbed(s).attrs).toBe(false);
+    expect(formattingSuggestionIds(tabEmbed(s).attrs).length > 0).toBe(false);
     expect(tabEmbed(s).attrs.bold).toBe(true);
   });
 
   it("reject strips a VISIBLE embed's formatting id without applying the proposal (#478)", () => {
     const marked = markFormatting(withTabEmbed(), span(0, 5), { bold: true }, INPUT).state;
     const s = rejectSuggestion(marked, SID).state;
-    expect(FORMATTING_SUGGESTION_ATTR in tabEmbed(s).attrs).toBe(false);
+    expect(formattingSuggestionIds(tabEmbed(s).attrs).length > 0).toBe(false);
     expect("bold" in tabEmbed(s).attrs).toBe(false);
   });
 
@@ -1201,13 +1202,13 @@ describe("acceptSuggestion / rejectSuggestion — formatting", () => {
   // the doc in place, so each must start from an independent markFormatting result.
   it("acceptAll resolves a VISIBLE embed's provenance — applies + strips (#478)", () => {
     const acc = acceptAll(markFormatting(withTabEmbed(), span(0, 5), { bold: true }, INPUT).state).state;
-    expect(FORMATTING_SUGGESTION_ATTR in tabEmbed(acc).attrs).toBe(false);
+    expect(formattingSuggestionIds(tabEmbed(acc).attrs).length > 0).toBe(false);
     expect(tabEmbed(acc).attrs.bold).toBe(true);
   });
 
   it("rejectAll resolves a VISIBLE embed's provenance — strips, no proposal (#478)", () => {
     const rej = rejectAll(markFormatting(withTabEmbed(), span(0, 5), { bold: true }, INPUT).state).state;
-    expect(FORMATTING_SUGGESTION_ATTR in tabEmbed(rej).attrs).toBe(false);
+    expect(formattingSuggestionIds(tabEmbed(rej).attrs).length > 0).toBe(false);
     expect("bold" in tabEmbed(rej).attrs).toBe(false);
   });
 
@@ -1234,12 +1235,12 @@ describe("acceptSuggestion / rejectSuggestion — formatting", () => {
     const accepted = acceptSuggestion(s, SID).state;
     const tab = pItems(accepted).find((it) => it.kind === "embed" && it.embedType === "tab");
     if (tab === undefined || tab.kind !== "embed") throw new Error("expected the tab embed");
-    expect(FORMATTING_SUGGESTION_ATTR in tab.attrs).toBe(false); // S1 resolved
+    expect(formattingSuggestionIds(tab.attrs).length > 0).toBe(false); // S1 resolved
     expect(tab.attrs.bold).toBe(true);
 
     const pf = pItems(accepted).find((it) => it.kind === "embed" && it.embedType === "page-field");
     if (pf === undefined || pf.kind !== "embed") throw new Error("expected the page-field embed");
-    expect(pf.attrs[FORMATTING_SUGGESTION_ATTR]).toBe(SID2); // the OTHER suggestion is untouched
+    expect(formattingSuggestionIds(pf.attrs)[0]).toBe(SID2); // the OTHER suggestion is untouched
   });
 });
 
@@ -1280,8 +1281,8 @@ describe("acceptSuggestion — UNDOABLE (one undo step)", () => {
       createSpan(createPosition(block as BlockId, a), createPosition(block as BlockId, b));
     const fmtAttr = (s: State, block: string): unknown => {
       for (const it of getBlock(s, block as BlockId)?.inlineContent?.items ?? []) {
-        if (it.kind === "text" && it.attrs[FORMATTING_SUGGESTION_ATTR] !== undefined) {
-          return it.attrs[FORMATTING_SUGGESTION_ATTR];
+        if (it.kind === "text" && formattingSuggestionIds(it.attrs)[0] !== undefined) {
+          return formattingSuggestionIds(it.attrs)[0];
         }
       }
       return undefined;
@@ -1545,7 +1546,7 @@ describe("acceptAll — resolve every suggestion (accept dominance) in ONE non-u
     // The FMT run is LIVE bold and carries no formatting id.
     const fmt = runWithText(s, "FMT");
     expect(fmt.attrs.bold).toBe(true);
-    expect(FORMATTING_SUGGESTION_ATTR in fmt.attrs).toBe(false);
+    expect(formattingSuggestionIds(fmt.attrs).length > 0).toBe(false);
 
     // No deletion id survives anywhere.
     for (const it of pItems(s)) {
@@ -1569,7 +1570,7 @@ describe("rejectAll — resolve every suggestion (reject dominance) in ONE non-u
     // The FMT run keeps original (non-bold) attrs, no formatting id.
     const fmt = runWithText(s, "FMT");
     expect("bold" in fmt.attrs).toBe(false);
-    expect(FORMATTING_SUGGESTION_ATTR in fmt.attrs).toBe(false);
+    expect(formattingSuggestionIds(fmt.attrs).length > 0).toBe(false);
 
     // No insertion id survives anywhere.
     for (const it of pItems(s)) {
@@ -1637,7 +1638,7 @@ describe("acceptAll / rejectAll — NESTED insertion + formatting on ONE run (co
         text("a"),
         text("X", {
           [INSERTION_SUGGESTION_ATTR]: ALL_INS_SID,
-          [FORMATTING_SUGGESTION_ATTR]: ALL_FMT_SID,
+          [formattingSuggestionKey(ALL_FMT_SID)]: true,
         }),
         text("z"),
       ]),
@@ -1662,7 +1663,7 @@ describe("acceptAll / rejectAll — NESTED insertion + formatting on ONE run (co
     const x = runWithText(s, "X");
     expect(x.attrs.bold).toBe(true);
     expect(INSERTION_SUGGESTION_ATTR in x.attrs).toBe(false);
-    expect(FORMATTING_SUGGESTION_ATTR in x.attrs).toBe(false);
+    expect(formattingSuggestionIds(x.attrs).length > 0).toBe(false);
     expect(getSuggestions(s).length).toBe(0);
   });
 
@@ -1689,7 +1690,7 @@ describe("acceptAll / rejectAll — NESTED deletion + formatting on ONE run", ()
         text("a"),
         text("X", {
           [DELETION_SUGGESTION_ATTR]: ALL_DEL_SID,
-          [FORMATTING_SUGGESTION_ATTR]: ALL_FMT_SID,
+          [formattingSuggestionKey(ALL_FMT_SID)]: true,
         }),
         text("z"),
       ]),
@@ -1729,7 +1730,7 @@ describe("acceptAll / rejectAll — NESTED deletion + formatting on ONE run", ()
       if (it.kind !== "text") continue;
       expect("bold" in it.attrs).toBe(false); // proposal discarded
       expect(DELETION_SUGGESTION_ATTR in it.attrs).toBe(false);
-      expect(FORMATTING_SUGGESTION_ATTR in it.attrs).toBe(false);
+      expect(formattingSuggestionIds(it.attrs).length > 0).toBe(false);
     }
     expect(getSuggestions(s).length).toBe(0);
   });

@@ -36,7 +36,8 @@ import {
   readSuggestionRecord,
   INSERTION_SUGGESTION_ATTR,
   DELETION_SUGGESTION_ATTR,
-  FORMATTING_SUGGESTION_ATTR,
+  formattingSuggestionIds,
+  formattingSuggestionKey,
   BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
   BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
 } from "../suggestions";
@@ -90,7 +91,9 @@ function buildSuggestionIdRemap(fragmentState: State): {
  * item changed; otherwise returns the original array (reference equality).
  *
  * Covers:
- * - text runs: INSERTION_SUGGESTION_ATTR, DELETION_SUGGESTION_ATTR, FORMATTING_SUGGESTION_ATTR
+ * - text runs: INSERTION_SUGGESTION_ATTR, DELETION_SUGGESTION_ATTR, and every
+ *   per-id formatting tag (re-keyed, its shadowed-key value kept)
+ * - visible embeds: their formatting tags
  * - break-suggestion embeds (BLOCK_SPLIT / BLOCK_JOIN): `properties.suggestionId`
  */
 function rewriteItemSuggestionIds(
@@ -101,23 +104,17 @@ function rewriteItemSuggestionIds(
 
   let changed = false;
   const rewritten: InlineItem[] = items.map((item) => {
+    const newAttrs = remapSuggestionAttrs(item.attrs, idMap);
     if (item.kind === "text") {
-      let newAttrs: Record<string, unknown> | null = null;
-      for (const key of [INSERTION_SUGGESTION_ATTR, DELETION_SUGGESTION_ATTR, FORMATTING_SUGGESTION_ATTR] as const) {
-        const v = item.attrs[key];
-        if (typeof v === "string") {
-          const newId = idMap.get(v as SuggestionId);
-          if (newId !== undefined) {
-            if (newAttrs === null) newAttrs = { ...(item.attrs as Record<string, unknown>) };
-            newAttrs[key] = newId;
-          }
-        }
-      }
       if (newAttrs !== null) {
         changed = true;
         return { kind: "text" as const, text: item.text, attrs: newAttrs };
       }
       return item;
+    }
+    if (newAttrs !== null) {
+      changed = true;
+      item = { ...item, attrs: newAttrs };
     }
     // embed
     if (
@@ -144,9 +141,31 @@ function rewriteItemSuggestionIds(
   return changed ? rewritten : items;
 }
 
+/** `attrs` with every suggestion id in `idMap` remapped, or `null` when none is. */
+function remapSuggestionAttrs(
+  attrs: Readonly<Record<string, unknown>>,
+  idMap: ReadonlyMap<SuggestionId, SuggestionId>,
+): Record<string, unknown> | null {
+  let out: Record<string, unknown> | null = null;
+  for (const key of [INSERTION_SUGGESTION_ATTR, DELETION_SUGGESTION_ATTR] as const) {
+    const v = attrs[key];
+    const newId = typeof v === "string" ? idMap.get(v as SuggestionId) : undefined;
+    if (newId !== undefined) (out ??= { ...attrs })[key] = newId;
+  }
+  for (const id of formattingSuggestionIds(attrs)) {
+    const newId = idMap.get(id);
+    if (newId === undefined) continue;
+    const next: Record<string, unknown> = (out ??= { ...attrs });
+    const value = next[formattingSuggestionKey(id)];
+    delete next[formattingSuggestionKey(id)];
+    next[formattingSuggestionKey(newId)] = value;
+  }
+  return out;
+}
+
 /**
  * Write each fragment suggestion record into the destination document under its
- * fresh id (from `idMap`), preserving kind / author / createdAt / proposedAttrs /
+ * fresh id (from `idMap`), preserving kind / author / createdAt / order / proposedAttrs /
  * metadata. A pasted copy of a suggestion GROUP becomes a NEW group (one fresh group id
  * per source group), so it is reviewed independently of the original.
  * Must be called inside an open Yjs transaction.
@@ -170,6 +189,7 @@ function transferSuggestionRecords(
       kind: record.kind,
       author: record.author,
       createdAt: record.createdAt,
+      ...(record.order !== undefined ? { order: record.order } : {}),
       ...(record.proposedAttrs !== undefined ? { proposedAttrs: record.proposedAttrs } : {}),
       ...(groupId !== undefined ? { groupId } : {}),
       ...(record.metadata !== undefined ? { metadata: record.metadata } : {}),

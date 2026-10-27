@@ -1,5 +1,6 @@
 import * as Y from "yjs";
 import type { ReadonlyAttrs } from "./attrs";
+import { mergeAttrs } from "./attrs";
 import type { InlineItem } from "./inline-content";
 import type { State } from "./state";
 import type { Position } from "./block-position";
@@ -37,6 +38,34 @@ export function newSuggestionId(): SuggestionId {
   return crypto.randomUUID() as SuggestionId;
 }
 
+let lastSuggestionOrder = 0;
+
+/**
+ * The next suggestion mint sequence number (`SuggestionRecord.order`): strictly
+ * increasing across every mint of this JS realm, so monotonic per editor. It is the
+ * primary suggestion order key ({@link compareSuggestionOrder}), so clocks never decide
+ * (a proposal's edits share one `createdAt`; peer clocks skew). A formatting mint
+ * additionally bumps its order past every formatting suggestion it stacks on (Lamport)
+ * and advances this counter past that value ({@link observeSuggestionOrder}), so it
+ * ranks above everything it stacks on across reloads and peers.
+ */
+export function nextSuggestionOrder(): number {
+  // Saturates at the largest safe integer (only reachable via a peer-written maximal
+  // order); ties there fall back to `createdAt`, then id.
+  lastSuggestionOrder = Math.min(Number.MAX_SAFE_INTEGER, lastSuggestionOrder + 1);
+  return lastSuggestionOrder;
+}
+
+/** Advance the mint counter past an `order` value seen in a document (Lamport receive). Invalid values are ignored. */
+export function observeSuggestionOrder(order: number): void {
+  if (isValidSuggestionOrder(order) && order > lastSuggestionOrder) lastSuggestionOrder = order;
+}
+
+/** A valid `SuggestionRecord.order`: a non-negative safe integer (anything else reads as absent). */
+export function isValidSuggestionOrder(value: unknown): value is number {
+  return Number.isSafeInteger(value) && typeof value === "number" && value >= 0;
+}
+
 /**
  * The fields a host supplies to MINT a single-id suggestion (insertion / deletion /
  * formatting / a suggested split or join). `id` is the branded {@link SuggestionId}
@@ -50,6 +79,8 @@ export interface SuggestionMintInput {
   readonly id: SuggestionId;
   readonly author: string;
   readonly createdAt: number;
+  /** Mint sequence number (see {@link SuggestionRecord.order}). */
+  readonly order?: number;
   /** Mint a fresh record — never extend an adjacent suggestion (host proposals). */
   readonly noCoalesce?: boolean;
 }
@@ -81,6 +112,13 @@ export interface SuggestionRecord {
   readonly kind: SuggestionKind;
   readonly author: string;
   readonly createdAt: number;
+  /**
+   * Mint sequence number, monotonic per editor (`nextSuggestionOrder`) and
+   * Lamport-bumped for formatting mints (causal: above everything it stacks on).
+   * Formatting suggestions on a run are ordered by (`order`, `createdAt`, id);
+   * absent = 0 (older records fall back to `createdAt`, then id).
+   */
+  readonly order?: number;
   readonly proposedAttrs?: Readonly<Record<string, unknown>>;
   /**
    * The reviewable GROUP this suggestion belongs to (a host proposal spanning several
@@ -109,8 +147,136 @@ export const INSERTION_SUGGESTION_ATTR = "insertionSuggestionId";
 /** Inline-attr key marking a run as suggested-deleted. Value = {@link SuggestionId}. */
 export const DELETION_SUGGESTION_ATTR = "deletionSuggestionId";
 
-/** Inline-attr key marking a run as having a pending formatting proposal. Value = {@link SuggestionId}. */
+/**
+ * Key PREFIX of the inline attrs tagging a run with pending formatting proposals. A
+ * run carries ONE tag per formatting suggestion — key
+ * `formattingSuggestionId:<id>` ({@link formattingSuggestionKey}) — so several
+ * suggestions stack on the same characters, each independently resolvable. The `:`
+ * separator is deliberately NOT the mark-instance `#` separator: provenance is not a
+ * mark, so `markTypeOf` / `getMarkRanges` / `AttrRegistry` never treat a tag as one.
+ * Tag value: `true`, or the canonical JSON of the sorted attr keys SHADOWED on this
+ * run by an accepted newer suggestion (see {@link resolveFormattingSuggestionTags}).
+ */
 export const FORMATTING_SUGGESTION_ATTR = "formattingSuggestionId";
+
+const FORMATTING_SUGGESTION_PREFIX = `${FORMATTING_SUGGESTION_ATTR}:`;
+
+/** The run attr key tagging a run with formatting suggestion `id`. */
+export function formattingSuggestionKey(id: SuggestionId): string {
+  return FORMATTING_SUGGESTION_PREFIX + id;
+}
+
+/** True iff `key` is a formatting-suggestion tag ({@link formattingSuggestionKey}). */
+export function isFormattingSuggestionKey(key: string): boolean {
+  return key.startsWith(FORMATTING_SUGGESTION_PREFIX) && key.length > FORMATTING_SUGGESTION_PREFIX.length;
+}
+
+/** The formatting suggestion ids tagged on a run (attr-key order; records not consulted). */
+export function formattingSuggestionIds(attrs: ReadonlyAttrs): SuggestionId[] {
+  const out: SuggestionId[] = [];
+  for (const key of Object.keys(attrs)) {
+    if (isFormattingSuggestionKey(key)) out.push(key.slice(FORMATTING_SUGGESTION_PREFIX.length) as SuggestionId);
+  }
+  return out;
+}
+
+/** The attr keys a tag value marks as shadowed (`true` / malformed → none). */
+function shadowedKeysOf(value: unknown): Set<string> {
+  if (typeof value !== "string") return new Set();
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return new Set(Array.isArray(parsed) ? parsed.filter((k): k is string => typeof k === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/** The canonical tag value for a shadowed-key set (primitive → exact Yjs attribute equality). */
+function tagValueOf(shadowed: ReadonlySet<string>): true | string {
+  return shadowed.size === 0 ? true : JSON.stringify([...shadowed].sort());
+}
+
+/** One pending formatting suggestion on a run: its record + the keys shadowed on this run. */
+export interface PendingFormattingSuggestion {
+  readonly record: SuggestionRecord;
+  readonly shadowed: ReadonlySet<string>;
+}
+
+/**
+ * The pending formatting suggestions tagged on a run, ordered by
+ * {@link compareSuggestionOrder} (`order`, `createdAt`, id) —
+ * deterministic on every peer. A tag whose record is missing (or not a formatting
+ * record) is ignored.
+ */
+export function pendingFormattingSuggestions(
+  attrs: ReadonlyAttrs,
+  readRecord: (id: SuggestionId) => SuggestionRecord | null,
+): PendingFormattingSuggestion[] {
+  const out: PendingFormattingSuggestion[] = [];
+  for (const id of formattingSuggestionIds(attrs)) {
+    const record = readRecord(id);
+    if (record === null || record.kind !== "formatting") continue;
+    out.push({ record, shadowed: shadowedKeysOf(attrs[formattingSuggestionKey(id)]) });
+  }
+  return out.sort((a, b) => compareSuggestionOrder(a.record, b.record));
+}
+
+/**
+ * The (`order`, `createdAt`, id) order of suggestions — deterministic on every peer.
+ * `order` comes first: with the Lamport bump it is causal (a formatting mint ranks above
+ * everything it stacks on, whatever the clocks say); records without one (0) fall back
+ * to `createdAt`, then id. Negative when `a` ranks before `b`.
+ */
+export function compareSuggestionOrder(
+  a: Pick<SuggestionRecord, "id" | "createdAt" | "order">,
+  b: Pick<SuggestionRecord, "id" | "createdAt" | "order">,
+): number {
+  return (a.order ?? 0) - (b.order ?? 0) || a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
+
+/**
+ * Resolve formatting suggestions on ONE run (text or visible embed). `decide(id)` says
+ * what happens to each tagged suggestion: `"accept"`, `"reject"`, or `null` (stays
+ * pending). Suggestions are processed in (`order`, `createdAt`, id) order:
+ *   - accept S → live attrs ⊕= `S.proposedAttrs` minus S's shadowed keys; every OLDER
+ *     suggestion still pending on the run gets those keys added to its shadowed set
+ *     (the newer, accepted value must win over an older proposal's preview);
+ *   - reject S → its tag is removed (pending suggestions never shadow).
+ * So any sequential accept/reject order — and a set resolve (group / all) — yields the
+ * same attrs as accepting in creation order. Tags whose record is missing are stripped.
+ * Returns `attrs` itself when no tag is decided (the run is untouched).
+ *
+ * With `decide = () => "accept"` this is the run's COMPOSITE ("final" / preview) attrs.
+ */
+export function resolveFormattingSuggestionTags(
+  attrs: ReadonlyAttrs,
+  decide: (id: SuggestionId) => "accept" | "reject" | null,
+  readRecord: (id: SuggestionId) => SuggestionRecord | null,
+): ReadonlyAttrs {
+  const ids = formattingSuggestionIds(attrs);
+  if (!ids.some((id) => decide(id) !== null)) return attrs;
+  let live: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(attrs)) {
+    if (!isFormattingSuggestionKey(key)) live[key] = value;
+  }
+  const kept: { id: SuggestionId; shadowed: Set<string> }[] = [];
+  for (const { record, shadowed } of pendingFormattingSuggestions(attrs, readRecord)) {
+    const decision = decide(record.id);
+    if (decision === null) {
+      kept.push({ id: record.id, shadowed: new Set(shadowed) });
+      continue;
+    }
+    if (decision === "reject") continue;
+    const effective: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(record.proposedAttrs ?? {})) {
+      if (!shadowed.has(key)) effective[key] = value;
+    }
+    live = { ...mergeAttrs(live, effective) };
+    for (const older of kept) for (const key of Object.keys(effective)) older.shadowed.add(key);
+  }
+  for (const { id, shadowed } of kept) live[formattingSuggestionKey(id)] = tagValueOf(shadowed);
+  return Object.freeze(live);
+}
 
 /**
  * The `embedType` discriminant of the embed that records a suggested JOIN of two
@@ -259,6 +425,7 @@ export function writeSuggestionRecordInTx(doc: Y.Doc, record: SuggestionRecord):
   yRecord.set("kind", record.kind);
   yRecord.set("author", record.author);
   yRecord.set("createdAt", record.createdAt);
+  if (isValidSuggestionOrder(record.order)) yRecord.set("order", record.order);
   if (record.proposedAttrs !== undefined) {
     yRecord.set("proposedAttrs", buildYAttrs(record.proposedAttrs as ReadonlyAttrs));
   }
@@ -284,7 +451,10 @@ export function readSuggestionRecord(doc: Y.Doc, id: SuggestionId): SuggestionRe
   };
   const groupId = yRecord.get("groupId");
   const metadata = yRecord.get("metadata");
+  const order = yRecord.get("order");
   const grouping = {
+    // A peer-written invalid order (Infinity, 1e300, negative, fraction) reads as absent.
+    ...(isValidSuggestionOrder(order) ? { order } : {}),
     ...(typeof groupId === "string" ? { groupId } : {}),
     ...(isPlainRecord(metadata) ? { metadata: Object.freeze({ ...metadata }) } : {}),
   };
@@ -357,7 +527,8 @@ interface RangeAccumulator {
  *   - an `embed` item advances the cursor by 1. If its `embedType` is one of the
  *     break-suggestion embeds ({@link BLOCK_JOIN_SUGGESTION_EMBED_TYPE} /
  *     {@link BLOCK_SPLIT_SUGGESTION_EMBED_TYPE}), read `properties.suggestionId`
- *     and extend that id's range by the embed's 1-offset slot.
+ *     and extend that id's range by the embed's 1-offset slot; a visible field
+ *     embed extends the range of every formatting suggestion tagged on it.
  *
  * A single id may appear on multiple contiguous items (a whole inserted run) and
  * across multiple blocks. The scan visits items in strictly-monotone document
@@ -390,15 +561,16 @@ export function buildSuggestionRangeIndex(
         const itemStart = createPosition(block.id, offset);
         offset += item.text.length;
         const itemEnd = createPosition(block.id, offset);
-        // A text item may carry up to all three suggestion-id dimensions at
-        // once (insertion-A + deletion-B + formatting-C — distinct ids). Extend
-        // every present id's range.
+        // A text item may carry every suggestion dimension at once (insertion-A +
+        // deletion-B + formatting-C + formatting-D — distinct ids). Extend every
+        // present id's range.
         for (const key of SUGGESTION_ATTR_KEYS) {
           const rawId = item.attrs[key];
           if (typeof rawId === "string") {
             extend(acc, rawId as SuggestionId, itemStart, itemEnd);
           }
         }
+        for (const id of formattingSuggestionIds(item.attrs)) extend(acc, id, itemStart, itemEnd);
         continue;
       }
       // Embed: contributes one offset unit. A break-suggestion embed carries its
@@ -415,6 +587,8 @@ export function buildSuggestionRangeIndex(
           extend(acc, rawId as SuggestionId, itemStart, itemEnd);
         }
       }
+      // A visible field embed inside a formatting suggestion carries its tag.
+      for (const id of formattingSuggestionIds(item.attrs)) extend(acc, id, itemStart, itemEnd);
     }
   }
 
@@ -425,12 +599,8 @@ export function buildSuggestionRangeIndex(
   return index;
 }
 
-/** The three inline suggestion-id attr keys, iterated by the range scan. */
-const SUGGESTION_ATTR_KEYS = [
-  INSERTION_SUGGESTION_ATTR,
-  DELETION_SUGGESTION_ATTR,
-  FORMATTING_SUGGESTION_ATTR,
-] as const;
+/** The single-valued inline suggestion-id attr keys (formatting tags are per-id keys). */
+const SUGGESTION_ATTR_KEYS = [INSERTION_SUGGESTION_ATTR, DELETION_SUGGESTION_ATTR] as const;
 
 /**
  * Extend the accumulated range for `id` to enclose `[itemStart, itemEnd]`. The

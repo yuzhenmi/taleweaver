@@ -21,6 +21,7 @@ import type { InlineItem } from "./inline-content";
 import { CURRENT_SCHEMA_VERSION, SCHEMA_VERSION_KEY, getMetaMap, getTreeMaps } from "./yjs-doc";
 import { buildYInlineText, isLegacyInlineValue, LegacyDocumentError } from "./y-inline";
 import { yMapAsObject } from "./y-utils";
+import { FORMATTING_SUGGESTION_ATTR, formattingSuggestionKey, type SuggestionId } from "./suggestions";
 
 export { CURRENT_SCHEMA_VERSION, SCHEMA_VERSION_KEY } from "./yjs-doc";
 
@@ -94,13 +95,20 @@ export function assertNoLegacyStorage(doc: Y.Doc): void {
 /**
  * Normalize one legacy run's attrs into current storage: stored `null` values are
  * dropped (Yjs formatting treats `null` as "remove"; the read model treats an
- * absent key as unset). Shared by `upgradeDocument` and
- * the JSON decoder.
+ * absent key as unset), and the legacy single formatting-suggestion attr
+ * (`formattingSuggestionId: <id>`) becomes that suggestion's own tag
+ * (`formattingSuggestionId:<id>: true`). Shared by `upgradeDocument` and the JSON
+ * decoder.
  */
 export function normalizeLegacyAttrs(attrs: Readonly<Record<string, unknown>>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(attrs)) {
-    if (value !== null && value !== undefined) out[key] = value;
+    if (value === null || value === undefined) continue;
+    if (key === FORMATTING_SUGGESTION_ATTR) {
+      if (typeof value === "string" && value.length > 0) out[formattingSuggestionKey(value as SuggestionId)] = true;
+      continue;
+    }
+    out[key] = value;
   }
   return out;
 }
@@ -133,7 +141,8 @@ function readLegacyItems(yItems: Y.Array<unknown>, blockId: BlockId): InlineItem
 /**
  * Upgrade `doc` to the current schema, in ONE untracked transaction
  * ({@link UPGRADE_ORIGIN}): every legacy block's run array is replaced by a
- * `Y.Text` holding the same content (null attrs dropped), and
+ * `Y.Text` holding the same content (attrs normalized by
+ * {@link normalizeLegacyAttrs}), and
  * `meta.schemaVersion` is set. Idempotent (a current doc is left untouched apart
  * from writing a missing version marker). Run it with a SINGLE authority — never
  * concurrently on several peers, never from an editor.

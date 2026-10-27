@@ -13,6 +13,7 @@ import {
   getSuggestions,
   type SuggestionRecord,
   type SuggestionKind,
+  isValidSuggestionOrder,
 } from "../suggestions";
 import { isCounterStyle } from "../../styles/format-counter";
 import type { CounterRestart } from "../../numbering/types";
@@ -358,6 +359,7 @@ function encodeSuggestions(
       kind: SuggestionRecord["kind"];
       author: string;
       createdAt: number;
+      order?: number;
       proposedAttrs?: Readonly<Record<string, unknown>>;
       groupId?: string;
       metadata?: Readonly<Record<string, unknown>>;
@@ -366,6 +368,7 @@ function encodeSuggestions(
       author: s.author,
       createdAt: s.createdAt,
     };
+    if (s.order !== undefined) bare.order = s.order;
     if (s.proposedAttrs !== undefined) bare.proposedAttrs = { ...s.proposedAttrs };
     if (s.groupId !== undefined) bare.groupId = s.groupId;
     if (s.metadata !== undefined) bare.metadata = { ...s.metadata };
@@ -563,7 +566,8 @@ function decodeInlineItem(raw: unknown): InlineItem {
 
 /**
  * Inline-run attrs: the same normalization as `upgradeDocument` (stored `null`
- * values are dropped — the current storage never holds them). The JSON format is
+ * values are dropped — the current storage never holds them — and a legacy single
+ * `formattingSuggestionId` becomes its per-suggestion tag). The JSON format is
  * unchanged; only its decoder normalizes.
  */
 function decodeInlineAttrs(raw: unknown): ReadonlyAttrs {
@@ -693,12 +697,14 @@ function decodeSuggestions(raw: unknown): SuggestionRecord[] | undefined {
     if (typeof rec.author !== "string") throw new MalformedDocumentError(JSON_FORMAT);
     if (typeof rec.createdAt !== "number") throw new MalformedDocumentError(JSON_FORMAT);
     if (rec.groupId !== undefined && typeof rec.groupId !== "string") throw new MalformedDocumentError(JSON_FORMAT);
+    if (rec.order !== undefined && !isValidSuggestionOrder(rec.order)) throw new MalformedDocumentError(JSON_FORMAT);
     if (rec.metadata !== undefined && !isRecord(rec.metadata)) throw new MalformedDocumentError(JSON_FORMAT);
     const record: SuggestionRecord = {
       id: id as SuggestionRecord["id"],
       kind: rec.kind,
       author: rec.author,
       createdAt: rec.createdAt,
+      ...(isValidSuggestionOrder(rec.order) ? { order: rec.order } : {}),
       ...(rec.proposedAttrs !== undefined ? { proposedAttrs: decodeProposedAttrs(rec.proposedAttrs) } : {}),
       ...(typeof rec.groupId === "string" ? { groupId: rec.groupId } : {}),
       ...(isRecord(rec.metadata) ? { metadata: Object.freeze({ ...rec.metadata }) } : {}),
