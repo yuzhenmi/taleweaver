@@ -1,6 +1,7 @@
 import { createEmptyDocument, History, createHistory, selectionContextOf, positionsEqual, resolveBlock } from "../state";
 import { getTypingAttrs } from "./typing-attrs";
 import { normalizeSelectionForAtomicMarks } from "./atomic-marks";
+import { runTransaction, applyInputRules, updateActiveTrigger, type ActiveTrigger, type EditorExtensions } from "./extensions";
 import { isDevMode } from "../state/dev-mode";
 import type { State, Selection, BlockId, PageConfig, ReadonlyAttrs } from "../state";
 import type { HtmlParser } from "../state/serialize/html-node";
@@ -188,6 +189,13 @@ export interface EditorState {
    * view state, never in `History`. Read it through `getTypingAttrs`.
    */
   readonly storedAttrs?: ReadonlyAttrs;
+  /**
+   * The host trigger the user is typing (`EditorExtensions.triggers`): its start
+   * `from` (mapped through every edit), the caret `to`, and the `query` typed after
+   * the trigger text. Maintained centrally by `reduceEditor`; ends on ESCAPE, when the
+   * caret leaves it or its text stops matching. NON-undoable view state.
+   */
+  readonly activeTrigger?: ActiveTrigger;
 }
 
 export interface EditorConfig {
@@ -224,6 +232,8 @@ export interface EditorConfig {
    * HTML paste falls back to plain.
    */
   readonly htmlParser?: HtmlParser;
+  /** Host extensions: commands, keymap, input rules, triggers. */
+  readonly extensions?: EditorExtensions;
 }
 
 export function createInitialEditorState(config: EditorConfig): EditorState {
@@ -353,6 +363,13 @@ export function reduceEditor(
   switch (action.type) {
     case "INSERT_TEXT":
       result = handleInsertText(editor, action.text, config);
+      // User-typed text may complete a host input rule (its own undo entry).
+      if (action.userInput === true && result.state !== editor.state) {
+        result = applyInputRules(result, config, reduceEditor);
+      }
+      break;
+    case "TRANSACTION":
+      result = runTransaction(editor, action.run, config, reduceEditor);
       break;
     case "DELETE_BACKWARD":
       result = handleDeleteBackward(editor, config);
@@ -694,7 +711,8 @@ export function reduceEditor(
     if (selection !== result.selection) result = { ...result, selection };
   }
 
-  return updateStoredAttrs(editor, result, action, coalesceClass, config);
+  result = updateStoredAttrs(editor, result, action, coalesceClass, config);
+  return updateActiveTrigger(editor, result, action, config);
 }
 
 /** Actions after which an emptied caret block keeps the removed text's typing attrs. */

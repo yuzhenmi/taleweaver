@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { EditorView, type EditorViewHandle } from "@taleweaver/react";
-import { setPerfTraceEnabled, report, resetPerfTrace, type Decoration, type State } from "@taleweaver/core";
+import { setPerfTraceEnabled, report, resetPerfTrace, type Decoration, type Position, type State } from "@taleweaver/core";
+import { createDemoExtensions, createPickerBridge, ExtensionsHint, MentionPicker } from "./mention-picker";
 import { usePerfEditor } from "../use-perf-editor";
 import { EditorChrome } from "./editor-chrome";
 import { FindBar, useFindShortcut } from "./find-bar";
@@ -15,6 +16,11 @@ const PAGE_GAP = 24;
  * print-geometry-specific). Exposes its live `State` via `registerGetState` so
  * the tab-bar can hand the document off on switch.
  */
+/** The caret rect of a position from the print view handle (viewport coords). */
+function printCaretRect(handle: EditorViewHandle | null, position: Position) {
+  return handle?.getCaretRect(position) ?? null;
+}
+
 export function PrintSurface({
   seed,
   registerGetState,
@@ -22,7 +28,10 @@ export function PrintSurface({
   seed: State | null;
   registerGetState: (getState: () => State) => void;
 }) {
-  const editor = usePerfEditor(seed ?? undefined);
+  // Host extensions demo (mention picker, keymap, input rule) — same as the digital tab.
+  const [bridge] = useState(createPickerBridge);
+  const [extensions] = useState(() => createDemoExtensions(bridge));
+  const editor = usePerfEditor(seed ?? undefined, extensions);
   const viewRef = useRef<EditorViewHandle>(null);
   const [findMode, setFindMode] = useState<null | "find" | "replace">(null);
   // Same writing-aids decoration demo as the digital tab.
@@ -66,6 +75,7 @@ export function PrintSurface({
     <>
       <EditorChrome dispatch={editor.dispatch} editorState={editor.editorState} focus={editor.focus} />
       <WritingAidsToggle checked={aids} onChange={setAids} />
+      <ExtensionsHint />
       <div className="relative flex-1 overflow-y-auto bg-[#f9fbfd]">
         {findMode && viewRef.current && (
           <FindBar
@@ -91,6 +101,12 @@ export function PrintSurface({
         </div>
       </div>
       <WritingAidPopover event={pointer} />
+      <MentionPicker
+        editorState={editor.editorState}
+        dispatch={editor.dispatch}
+        bridge={bridge}
+        caretRect={(p) => printCaretRect(viewRef.current, p)}
+      />
     </>
   );
 }

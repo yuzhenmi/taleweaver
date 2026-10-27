@@ -61,6 +61,7 @@ import {
   type EditorAction,
   type EditorState,
   type EditorConfig,
+  type EditorExtensions,
   type PageConfig,
   type State,
   type TextShaper,
@@ -81,7 +82,7 @@ const PAGE_CONFIG: PageConfig = {
   pageGap:        24,
 };
 
-function createConfig(): EditorConfig {
+function createConfig(extensions?: EditorExtensions): EditorConfig {
   // Phase 0b: core's `EditorConfig` no longer carries the print mechanics
   // `measurer`/`hyphenator` (they moved to the backend `LayoutConfig`). `pageConfig`
   // STAYS available on `EditorConfig` (document page-setup data, read by
@@ -96,6 +97,7 @@ function createConfig(): EditorConfig {
     // Inject the DOM HTML parser so handlePaste can decode text/html (rich paste).
     // Without it, core silently falls back to the plain-text path.
     htmlParser: browserHtmlParser,
+    ...(extensions !== undefined ? { extensions } : {}),
   };
 }
 
@@ -135,10 +137,10 @@ export interface UsePerfEditorResult {
  * `?perfFixture=N` in the URL on mount and, if present, replaces the empty
  * initial state with the N-paragraph synthetic fixture.
  */
-export function usePerfEditor(initialState?: State): UsePerfEditorResult {
+export function usePerfEditor(initialState?: State, extensions?: EditorExtensions): UsePerfEditorResult {
   const configRef = useRef<EditorConfig | null>(null);
   if (configRef.current === null) {
-    configRef.current = createConfig();
+    configRef.current = createConfig(extensions);
   }
   const config = configRef.current;
 

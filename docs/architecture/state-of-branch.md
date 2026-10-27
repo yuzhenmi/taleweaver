@@ -663,6 +663,15 @@ host's `EditorConfig` (`config` option);
 `getMarkRanges` host query. See [`1.5-editor.md`](./1-core/1.5-editor.md) "Typing
 attributes and inline marks" and [`1.3-cascade.md`](./1-core/1.3-cascade.md).
 
+Host extensions `[implemented]`: `EditorConfig.extensions` — commands
+(`(editor, dispatch?) => boolean`, `runCommand` on both controllers), keymap (consulted
+before each backend's defaults; `Mod` = Cmd on Apple / Ctrl elsewhere; `null` unbinds),
+input rules (after `INSERT_TEXT { userInput }`, own undo entry), triggers
+(`EditorState.activeTrigger`, mapped through edits, Escape / caret-away end it,
+composition-deferred) and the `TRANSACTION` action (several steps, ONE undo entry via
+`History.beginBatch/endBatch`). See [`1.5-editor.md`](./1-core/1.5-editor.md) "Host
+extensions".
+
 Known gaps:
 - **Cursor placement within a word broken across lines** — `[implemented]` for both
   within-word split paths: (1) manual hyphenation — a word splits at an authored

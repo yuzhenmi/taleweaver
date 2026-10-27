@@ -63,11 +63,12 @@ export interface EditorViewProps {
   /**
    * The host's core `EditorConfig` — the SAME object the reducer runs with — so the
    * print controller renders, hit-tests and copies with exactly the registries
-   * editing uses (host marks paint via their `toStyle`). `useEditor` returns it,
+   * editing uses (host marks paint via their `toStyle`) and consults the host
+   * keymap (`extensions`). `useEditor` returns it,
    * so spreading the hook result passes it. Default: the built-in registries.
    * Read at mount.
    */
-  config?: Pick<EditorConfig, "componentRegistry" | "attrRegistry">;
+  config?: Pick<EditorConfig, "componentRegistry" | "attrRegistry" | "extensions">;
 }
 
 /**

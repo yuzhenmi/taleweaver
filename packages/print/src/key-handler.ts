@@ -64,6 +64,9 @@ export function mapKeyEvent(
   // Select all
   if (mod && key === "a") return { type: "SELECT_ALL" };
 
+  // Escape (any modifiers, as in digital): deselect an object / end a host trigger.
+  if (key === "Escape") return { type: "ESCAPE" };
+
   // Arrow keys (horizontal)
   if (key === "ArrowLeft" || key === "ArrowRight") {
     const boundary = key === "ArrowLeft" ? "start" : "end";

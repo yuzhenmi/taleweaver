@@ -40,9 +40,10 @@ function insertedTextFallback(e: InputEvent): string | null {
 export function mapBeforeInput(e: InputEvent, ctx: MapBeforeInputCtx): EditorAction | null {
   switch (e.inputType) {
     case "insertText": {
-      if (e.data !== null) return { type: "INSERT_TEXT", text: e.data };
+      // User typing: input rules and triggers apply.
+      if (e.data !== null) return { type: "INSERT_TEXT", text: e.data, userInput: true };
       const fallback = insertedTextFallback(e);
-      return fallback !== null ? { type: "INSERT_TEXT", text: fallback } : null;
+      return fallback !== null ? { type: "INSERT_TEXT", text: fallback, userInput: true } : null;
     }
     case "insertReplacementText": {
       const span = targetRangeSpan(e, ctx);

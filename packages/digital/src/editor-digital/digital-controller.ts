@@ -24,6 +24,13 @@ import {
   type TextMatch,
   type CommentHighlight,
   type SuggestionHighlight,
+  type EditorExtensions,
+  type Command,
+  runKeyBinding,
+  resolveCommand,
+  modConventionFor,
+  compileKeymap,
+  escapeWouldChange,
   type EditorState,
   type EditorConfig,
   type EditorAction,
@@ -69,6 +76,11 @@ export interface DigitalControllerOptions {
    * on-screen rects. Fires for built-in highlights too (ids prefixed `tw-`).
    */
   readonly onDecorationPointer?: (event: DecorationPointerEvent) => void;
+  /**
+   * Host extensions: commands, keymap (consulted before the defaults; `Mod` = Cmd
+   * on Mac / Ctrl elsewhere), input rules and triggers.
+   */
+  readonly extensions?: EditorExtensions;
 }
 
 export interface DigitalController {
@@ -114,6 +126,11 @@ export interface DigitalController {
   replaceActive(replacement: string): FindStatus;
   /** Replace every match (one undo step). */
   replaceAll(replacement: string): FindStatus;
+  /**
+   * Run a host command — by name (`extensions.commands`) or directly — against the
+   * current state with this controller's `dispatch`. Returns whether it ran.
+   */
+  runCommand(command: string | Command): boolean;
   focus(): void;
   destroy(): void;
 }
@@ -128,6 +145,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     containerWidth: options.containerWidth ?? 800,
     pageConfig: options.pageConfig,
     htmlParser: browserHtmlParser,
+    ...(options.extensions !== undefined ? { extensions: options.extensions } : {}),
   };
 
   let editorState: EditorState =
@@ -136,7 +154,10 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
       : createInitialEditorState(config);
 
   let isComposing = false;
-  const mac = /Mac|iPhone|iPad/i.test(win.navigator.userAgent);
+  const modConvention = modConventionFor(win.navigator.userAgent);
+  // Parse the host keymap now: a malformed binding name fails at configuration time.
+  if (options.extensions?.keymap !== undefined) compileKeymap(options.extensions.keymap);
+  const mac = modConvention === "meta";
 
   // The reconciler owns the single selection bridge (created on its `mount`, wired to its
   // authoritative `blockElMap`). The controller reuses it via `reconciler.getBridge()` — there is
@@ -195,10 +216,20 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
       e.preventDefault();
       dispatch(action);
       const replacement = replacementInsertText(e);
-      if (replacement !== null && replacement !== "") dispatch({ type: "INSERT_TEXT", text: replacement });
+      if (replacement !== null && replacement !== "") dispatch({ type: "INSERT_TEXT", text: replacement, userInput: true });
     }
   }
   function onKeyDown(e: KeyboardEvent): void {
+    // Host keymap BEFORE the defaults (and never mid-composition: the IME owns
+    // keys like Enter until it commits). A command that runs claims the key; an
+    // unbound (`null`) key is swallowed so neither our default nor the browser's runs.
+    if (!isComposing && !e.isComposing) {
+      const outcome = runKeyBinding(options.extensions, e, modConvention, editorState, dispatch);
+      if (outcome !== "default") {
+        e.preventDefault();
+        return;
+      }
+    }
     // Paste-without-formatting (Ctrl/Cmd+Shift+V): async path — must be
     // intercepted before mapDigitalKey (which returns null for this chord and
     // would silently drop the event). Reads text/plain ONLY from the Clipboard
@@ -227,6 +258,9 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     const focusBlock = getBlock(editorState.state, editorState.selection.focus.blockId);
     const action = mapDigitalKey(e, { mac, inListItem: focusBlock?.type === "list-item" });
     if (action === null) return;
+    // Claim Escape only when it dismisses something (an object selection or a host
+    // trigger); otherwise it must reach the page (e.g. close a containing dialog).
+    if (action.type === "ESCAPE" && !escapeWouldChange(editorState, options.componentRegistry)) return;
     e.preventDefault();
     dispatch(action);
   }
@@ -246,7 +280,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     // D1: `CompositionEvent.data` can be `null` at runtime (e.g. a cancelled composition).
     // `e.data !== ""` is `true` for `null`, so guard against null too — dispatching INSERT_TEXT
     // with a null `text` crashes the reducer (Y.Text.insert rejects null).
-    if (e.data !== null && e.data !== "") dispatch({ type: "INSERT_TEXT", text: e.data });
+    if (e.data !== null && e.data !== "") dispatch({ type: "INSERT_TEXT", text: e.data, userInput: true });
     // A decoration change that landed mid-composition was deferred for the composed block;
     // draw it now that the composition is over.
     else if (reconciler.hasPending()) redraw();
@@ -399,6 +433,10 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
       const action = find.replaceAllAction(replacement);
       if (action !== null) dispatch(action);
       return find.status();
+    },
+    runCommand(command) {
+      const resolved = resolveCommand(command, options.extensions);
+      return resolved !== null && resolved(editorState, dispatch);
     },
     focus,
     destroy,

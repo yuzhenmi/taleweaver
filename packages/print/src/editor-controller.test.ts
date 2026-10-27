@@ -1523,7 +1523,7 @@ describe("createEditorController", () => {
       textarea.value = "a";
       textarea.dispatchEvent(new Event("input", { bubbles: true }));
 
-      expect(dispatch).toHaveBeenCalledWith({ type: "INSERT_TEXT", text: "a" });
+      expect(dispatch).toHaveBeenCalledWith({ type: "INSERT_TEXT", text: "a", userInput: true });
       expect(textarea.value).toBe("");
 
       ctrl.destroy();
@@ -2561,6 +2561,7 @@ describe("createEditorController", () => {
       expect(dispatch).toHaveBeenCalledWith({
         type: "INSERT_TEXT",
         text: "你",
+        userInput: true,
       });
       expect(textarea.value).toBe("");
 
@@ -2824,7 +2825,7 @@ describe("createEditorController", () => {
       textarea.value = "x";
       textarea.dispatchEvent(new Event("input"));
 
-      expect(dispatch).toHaveBeenCalledWith({ type: "INSERT_TEXT", text: "x" });
+      expect(dispatch).toHaveBeenCalledWith({ type: "INSERT_TEXT", text: "x", userInput: true });
 
       ctrl.destroy();
       document.body.removeChild(container);
@@ -2871,7 +2872,7 @@ describe("createEditorController", () => {
       textarea.value = "stale";
       textarea.dispatchEvent(new Event("input"));
 
-      expect(dispatch).not.toHaveBeenCalledWith({ type: "INSERT_TEXT", text: "stale" });
+      expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: "INSERT_TEXT", text: "stale" }));
       expect(textarea.value).toBe("");
 
       ctrl.destroy();

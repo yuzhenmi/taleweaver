@@ -13,6 +13,7 @@ import {
   initialSelectionForState,
   type EditorAction,
   type EditorConfig,
+  type EditorExtensions,
   type EditorState,
   type PageConfig,
   type State,
@@ -49,6 +50,7 @@ export interface UseDigitalEditorResult {
 export function useDigitalEditor(
   initialState?: State,
   onDecorationPointer?: (event: DecorationPointerEvent) => void,
+  extensions?: EditorExtensions,
 ): UseDigitalEditorResult {
   // Registries + config built once (stable across renders).
   const configRef = useRef<EditorConfig | null>(null);
@@ -56,6 +58,7 @@ export function useDigitalEditor(
     configRef.current = {
       componentRegistry: createDefaultComponentRegistry(),
       attrRegistry: createDemoAttrRegistry(), // built-ins + the demo `mention` mark
+      ...(extensions !== undefined ? { extensions } : {}),
       containerWidth: 816,
       pageConfig: PAGE_CONFIG,
     };
@@ -92,6 +95,7 @@ export function useDigitalEditor(
       initialState: seedRef.current,
       onChange: setEditorState,
       onDecorationPointer: (event) => pointerRef.current?.(event),
+      ...(config.extensions !== undefined ? { extensions: config.extensions } : {}),
     });
     controllerRef.current = controller;
     // No initial setEditorState here: the `useState` initializer already seeded the

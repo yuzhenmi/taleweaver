@@ -1,4 +1,4 @@
-import { createSpan, createPosition, isCollapsed, extractText, builtinEmbedSerializer, selectWord, getBlock, inlineContentLength, findItemAtOffset, selectionContextOf, spanStart, spanEnd, markStart, markEnd, buildAccessibilityTree, extractFragment, encodeHtml, encodeFragmentClip, TALEWEAVER_CLIP_MIME, type Position, type BlockId, type TextShaper, type TextMeasurer, type Hyphenator, type PageConfig, type EditorConfig, type EditorAction, type EditorState, type State, type TextMatch, type FindMatchesOptions, type Span, type CaretAffinity, isOpenableLinkUrl, makeBlockParentLookup, createDefaultComponentRegistry, createDefaultAttrRegistry, createDecorationLayers, createFindSession, createMappingLog, mapDecorations, transitionMapping, EMPTY_DECORATION_SET, type FindStatus, type Decoration, type DecorationSet, type WidgetDecoration, type CommentHighlight, type SuggestionHighlight } from "@taleweaver/core";
+import { createSpan, createPosition, isCollapsed, extractText, builtinEmbedSerializer, selectWord, getBlock, inlineContentLength, findItemAtOffset, selectionContextOf, spanStart, spanEnd, markStart, markEnd, buildAccessibilityTree, extractFragment, encodeHtml, encodeFragmentClip, TALEWEAVER_CLIP_MIME, type Position, type BlockId, type TextShaper, type TextMeasurer, type Hyphenator, type PageConfig, type EditorConfig, type EditorAction, type EditorState, type State, type TextMatch, type FindMatchesOptions, type Span, type CaretAffinity, isOpenableLinkUrl, makeBlockParentLookup, runKeyBinding, resolveCommand, modConventionFor, compileKeymap, escapeWouldChange, type Command, createDefaultComponentRegistry, createDefaultAttrRegistry, createDecorationLayers, createFindSession, createMappingLog, mapDecorations, transitionMapping, EMPTY_DECORATION_SET, type FindStatus, type Decoration, type DecorationSet, type WidgetDecoration, type CommentHighlight, type SuggestionHighlight } from "@taleweaver/core";
 import { resolvePixelPosition, type PixelPosition } from "./cursor/cursor-position";
 import { resolvePositionFromPixel } from "./cursor/hit-test";
 import { computeSelectionRects, computeSelectionRectsForPage, type SelectionRect } from "./cursor/selection-geometry";
@@ -114,7 +114,7 @@ export interface EditorControllerOptions {
    * - copy / cut (`extractFragment(…, attrRegistry)` strips `copy: "drop"` marks).
    * Omitted → the built-in registries (`createDefault*Registry()`).
    */
-  config?: Pick<EditorConfig, "componentRegistry" | "attrRegistry">;
+  config?: Pick<EditorConfig, "componentRegistry" | "attrRegistry" | "extensions">;
   /** Initial host decorations (view-only; see {@link EditorController.setDecorations}).
    *  Applied against the first `update()`'s document. */
   decorations?: readonly Decoration[];
@@ -157,6 +157,12 @@ export interface EditorController {
    * overlay position-anchored UI (e.g. remote collaborator cursors).
    */
   getCaretRect(position: Position): CaretViewportRect | null;
+  /**
+   * Run a host command — by name (`config.extensions.commands`) or directly —
+   * against the current state with this controller's `dispatch`. Returns whether it
+   * ran (false: unknown name, no state yet, or the command declined).
+   */
+  runCommand(command: string | Command): boolean;
   /** Compose the live document into a PDF byte stream (pages + outline bookmarks
    *  + internal /GoTo + external /URI links). Pure query — no mutation. `print`
    *  never imports `@taleweaver/pdf`, so the host injects the pdf emitter (e.g.
@@ -290,6 +296,10 @@ export function createEditorController(
   // empty-document tests construct the controller with `{ measurer, dispatch }`
   // only, and their state is built from the same defaults).
   const attrRegistry = options.config?.attrRegistry ?? createDefaultAttrRegistry();
+  // Host keymap `Mod` = Cmd on Mac, Ctrl elsewhere (the same rule as the digital backend).
+  const modConvention = modConventionFor(typeof navigator === "undefined" ? "" : navigator.userAgent);
+  // Parse the host keymap now: a malformed binding name fails at configuration time.
+  if (options.config?.extensions?.keymap !== undefined) compileKeymap(options.config.extensions.keymap);
   const driver = createLayoutDriver({
     measurer: options.measurer,
     hyphenator: options.hyphenator,
@@ -1790,6 +1800,15 @@ export function createEditorController(
 
   function handleKeyDown(e: KeyboardEvent) {
     if (isComposing || e.isComposing) return;
+    // Host keymap BEFORE the defaults: a command that runs claims the key; an
+    // unbound (`null`) key is swallowed so the default cannot run.
+    if (state !== null) {
+      const outcome = runKeyBinding(options.config?.extensions, e, modConvention, state, dispatch);
+      if (outcome !== "default") {
+        e.preventDefault();
+        return;
+      }
+    }
     // Paste-without-formatting (Ctrl/Cmd+Shift+V): async path — must be
     // intercepted before mapKeyEvent (which returns null for this chord and
     // would silently swallow the preventDefault). Reads text/plain ONLY from
@@ -1815,6 +1834,9 @@ export function createEditorController(
       inListItem: focusBlock?.type === "list-item",
     });
     if (result === null) return;
+    // Claim Escape only when it dismisses something (an object selection or a host
+    // trigger); otherwise it must reach the page (e.g. close a containing dialog).
+    if (!isNavIntent(result) && result.type === "ESCAPE" && (state === null || !escapeWouldChange(state, componentRegistry))) return;
     e.preventDefault();
     if (isNavIntent(result)) {
       // Geometric navigation (Phase 0b): core's reducer is geometry-free, so the
@@ -1844,7 +1866,7 @@ export function createEditorController(
     }
     const text = textarea.value;
     if (text) {
-      dispatch({ type: "INSERT_TEXT", text });
+      dispatch({ type: "INSERT_TEXT", text, userInput: true });
     }
     textarea.value = "";
   }
@@ -1857,7 +1879,7 @@ export function createEditorController(
     isComposing = false;
     const text = e.data;
     if (text) {
-      dispatch({ type: "INSERT_TEXT", text });
+      dispatch({ type: "INSERT_TEXT", text, userInput: true });
     }
     textarea.value = "";
   }
@@ -1992,7 +2014,7 @@ export function createEditorController(
       // The mirror's beforeinput already prevented the default and resolved the
       // text, so this just dispatches the SAME INSERT_TEXT the textarea path does.
       onInsertText: (text) => {
-        if (text.length > 0) dispatch({ type: "INSERT_TEXT", text });
+        if (text.length > 0) dispatch({ type: "INSERT_TEXT", text, userInput: true });
       },
       // Set the CONTROLLER's composition flag (the one `handleKeyDown`/
       // `handleInput` gate on). NOT `handleCompositionStart`, which also clears
@@ -2002,7 +2024,7 @@ export function createEditorController(
       },
       onCompositionEnd: (text) => {
         isComposing = false;
-        if (text.length > 0) dispatch({ type: "INSERT_TEXT", text });
+        if (text.length > 0) dispatch({ type: "INSERT_TEXT", text, userInput: true });
       },
       // Idempotency loop-break: a `selectionchange` whose span equals the current
       // engine selection must NOT re-dispatch SET_SELECTION (the mirror selection
@@ -2459,6 +2481,11 @@ export function createEditorController(
     focus,
     destroy,
     getCaretRect,
+    runCommand(command: string | Command): boolean {
+      if (destroyed || state === null) return false;
+      const resolved = resolveCommand(command, options.config?.extensions);
+      return resolved !== null && resolved(state, dispatch);
+    },
     exportToPdf,
     get decorations() {
       // Before the first update, the queued host set (not yet validated against a document).

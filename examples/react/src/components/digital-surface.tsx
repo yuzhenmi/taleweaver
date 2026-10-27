@@ -5,6 +5,7 @@ import { EditorChrome } from "./editor-chrome";
 import { SelectionBubble } from "./selection-bubble";
 import { BlockHoverHandles } from "./block-hover-handles";
 import { FindBar, useFindShortcut } from "./find-bar";
+import { createDemoExtensions, createPickerBridge, ExtensionsHint, MentionPicker } from "./mention-picker";
 import { useWritingAids, WritingAidPopover, WritingAidsToggle, type AidPointerEvent } from "./writing-aids";
 
 /**
@@ -19,6 +20,14 @@ import { useWritingAids, WritingAidPopover, WritingAidsToggle, type AidPointerEv
  * width and centered — not a US-Letter sheet floating on a gray backdrop. (The
  * persistent toolbar is a later step toward inline selection tools.)
  */
+/** The DOM caret's rect (the browser lays out digital text; the caret sits at the query end). */
+function domCaretRect() {
+  const sel = window.getSelection();
+  if (sel === null || sel.rangeCount === 0) return null;
+  const r = sel.getRangeAt(0).getBoundingClientRect();
+  return { left: r.left, top: r.top, height: r.height };
+}
+
 export function DigitalSurface({
   seed,
   registerGetState,
@@ -27,7 +36,10 @@ export function DigitalSurface({
   registerGetState: (getState: () => State) => void;
 }) {
   const [pointer, setPointer] = useState<AidPointerEvent | null>(null);
-  const editor = useDigitalEditor(seed ?? undefined, setPointer);
+  // Host extensions demo (mention picker, keymap, input rule) — same as the print tab.
+  const [bridge] = useState(createPickerBridge);
+  const [extensions] = useState(() => createDemoExtensions(bridge));
+  const editor = useDigitalEditor(seed ?? undefined, setPointer, extensions);
   const [aids, setAids] = useState(true);
   const [findMode, setFindMode] = useState<null | "find" | "replace">(null);
   useFindShortcut(setFindMode);
@@ -43,6 +55,7 @@ export function DigitalSurface({
       {/* Blank canvas — no page sheet/shadow/backdrop. Content is centered and capped to a
           comfortable reading column (Notion-style), so the browser flows to that width. */}
       <WritingAidsToggle checked={aids} onChange={setAids} />
+      <ExtensionsHint />
       <div className="relative flex-1 overflow-y-auto bg-white">
         {findMode && (
           <FindBar
@@ -61,6 +74,7 @@ export function DigitalSurface({
         />
       </div>
       <WritingAidPopover event={pointer} />
+      <MentionPicker editorState={editor.editorState} dispatch={editor.dispatch} bridge={bridge} caretRect={domCaretRect} />
       <SelectionBubble dispatch={editor.dispatch} editorState={editor.editorState} containerRef={editor.containerRef} />
       <BlockHoverHandles
         dispatch={editor.dispatch}

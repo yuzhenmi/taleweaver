@@ -430,6 +430,32 @@ export { INLINE_FORMAT_ATTR_KEYS } from "./editor/inline-format-keys";
 // Typing attributes: what the next typed text gets (pending storedAttrs, else
 // inherited at the caret per each key's MarkSpec).
 export { getTypingAttrs } from "./editor/typing-attrs";
+// Host extension API: commands, keymap, input rules, triggers, transactions.
+export {
+  matchKeyBinding,
+  parseKeyBinding,
+  resolveCommand,
+  runKeyBinding,
+  triggerChange,
+  replaceRangeWithMarkedText,
+  modConventionFor,
+  compileKeymap,
+  escapeWouldChange,
+} from "./editor/extensions";
+export type {
+  Transaction,
+  Command,
+  KeyBinding,
+  InputRule,
+  InputRuleRange,
+  TriggerSpec,
+  ActiveTrigger,
+  EditorExtensions,
+  TriggerChange,
+  KeyEventLike,
+  ModConvention,
+  ParsedBinding,
+} from "./editor/extensions";
 // LineBox-canonical line traversal (`AbsoluteLineBox` / `collectLineBoxes` etc.)
 // is geometric and RELOCATED to `@taleweaver/print` (dual-mode Phase 3 sub-phase 3).
 export type {

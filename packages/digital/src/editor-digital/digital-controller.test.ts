@@ -695,7 +695,7 @@ describe("DigitalController — paste-without-formatting (T13)", () => {
   });
 });
 
-describe("DigitalController — inline marks + typing attributes (F3)", () => {
+describe("DigitalController — inline marks + typing attributes", () => {
   function makeMarkController(): { controller: DigitalController; container: HTMLElement; id: ReturnType<typeof asBlockId> } {
     const attrRegistry = createDefaultAttrRegistry();
     core.registerMark(attrRegistry, "mention", {
@@ -829,6 +829,201 @@ describe("DigitalController — inline marks + typing attributes (F3)", () => {
     if (frag === null) throw new Error("no clip");
     expect(core.getMarkRanges(frag, "mention").map((r) => r.value)).toEqual([{ ref: "a" }]);
     expect(core.getMarkRanges(frag, "secret")).toEqual([]);
+    controller.destroy();
+  });
+});
+
+describe("DigitalController — host extensions", () => {
+  const insertMention: core.Command = (editor, dispatch) => {
+    if (dispatch === undefined) return true;
+    const at = editor.selection.focus;
+    dispatch(core.replaceRangeWithMarkedText({ from: at, to: at }, "Anna", { key: "mention", value: { ref: "p1" } }, " "));
+    return true;
+  };
+  const pickTrigger: core.Command = (editor, dispatch) => {
+    const t = editor.activeTrigger;
+    if (t === undefined) return false;
+    dispatch?.(core.replaceRangeWithMarkedText(t, "Anna", { key: "mention", value: { ref: "p1" } }, " "));
+    return true;
+  };
+  const extensions: core.EditorExtensions = {
+    commands: { insertMention },
+    keymap: { "Mod-Shift-m": "insertMention", "Mod-b": null, Enter: pickTrigger },
+    inputRules: [{ pattern: /--$/, replace: "—" }],
+    triggers: [{ id: "mention", text: "@" }],
+  };
+
+  function mountExt(): { controller: DigitalController; container: HTMLElement } {
+    const attrRegistry = createDefaultAttrRegistry();
+    core.registerMark(attrRegistry, "mention", { atomic: true });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const controller = createDigitalController({
+      container,
+      componentRegistry: createDefaultComponentRegistry(),
+      attrRegistry,
+      containerWidth: 800,
+      doc: document,
+      extensions,
+    });
+    return { controller, container };
+  }
+  const typeKeys = (container: HTMLElement, text: string) => {
+    for (const ch of text) container.dispatchEvent(makeBeforeInput("insertText", { data: ch }));
+  };
+  const keydown = (container: HTMLElement, key: string, init: KeyboardEventInit = {}) => {
+    const e = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init });
+    container.dispatchEvent(e);
+    return e;
+  };
+  const text = (c: DigitalController) =>
+    (getBlock(c.editorState.state, c.editorState.selection.focus.blockId)?.inlineContent?.items ?? [])
+      .map((i) => (i.kind === "text" ? i.text : ""))
+      .join("");
+
+  it("a host binding (Mod = Ctrl off-Mac) runs its command as one undo step; Mod-b unbound; runCommand", () => {
+    const { controller, container } = mountExt();
+    typeKeys(container, "Hi ");
+    expect(keydown(container, "M", { ctrlKey: true, shiftKey: true }).defaultPrevented).toBe(true);
+    expect(text(controller)).toBe("Hi Anna ");
+    expect(leafBlock(container).textContent).toBe("Hi Anna ");
+    keydown(container, "z", { ctrlKey: true });
+    expect(text(controller)).toBe("Hi ");
+    expect(keydown(container, "b", { ctrlKey: true }).defaultPrevented).toBe(true);
+    typeKeys(container, "x");
+    const items = getBlock(controller.editorState.state, controller.editorState.selection.focus.blockId)?.inlineContent?.items ?? [];
+    expect(items.every((i) => i.attrs.bold === undefined)).toBe(true);
+    expect(controller.runCommand("insertMention")).toBe(true);
+    expect(text(controller)).toBe("Hi xAnna ");
+    controller.destroy();
+  });
+
+  it("typing -- autoformats; Ctrl+Z reverts only the autoformat", () => {
+    const { controller, container } = mountExt();
+    typeKeys(container, "a--");
+    expect(text(controller)).toBe("a—");
+    keydown(container, "z", { ctrlKey: true });
+    expect(text(controller)).toBe("a--");
+    controller.destroy();
+  });
+
+  it("@ opens a trigger tracking the query; Escape ends it; Enter picks through the keymap", () => {
+    const { controller, container } = mountExt();
+    typeKeys(container, "Hi @an");
+    expect(controller.editorState.activeTrigger).toMatchObject({ id: "mention", query: "an" });
+    keydown(container, "Escape");
+    expect(controller.editorState.activeTrigger).toBeUndefined();
+    typeKeys(container, " @a");
+    expect(keydown(container, "Enter").defaultPrevented).toBe(true);
+    expect(text(controller)).toBe("Hi @an Anna ");
+    expect(controller.editorState.activeTrigger).toBeUndefined();
+    controller.destroy();
+  });
+
+  it("while composing, keys go to the IME and nothing triggers; the commit does", () => {
+    const { controller, container } = mountExt();
+    container.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    container.dispatchEvent(makeBeforeInput("insertCompositionText", { data: "@" }));
+    expect(keydown(container, "Enter", { isComposing: true }).defaultPrevented).toBe(false);
+    expect(controller.editorState.activeTrigger).toBeUndefined();
+    container.dispatchEvent(new CompositionEvent("compositionend", { data: "@あ", bubbles: true }));
+    expect(controller.editorState.activeTrigger).toMatchObject({ query: "あ" });
+    controller.destroy();
+  });
+});
+
+describe("DigitalController — keyboard edge cases (host extensions)", () => {
+  const insertMention: core.Command = (editor, dispatch) => {
+    if (dispatch === undefined) return true;
+    const at = editor.selection.focus;
+    dispatch(core.replaceRangeWithMarkedText({ from: at, to: at }, "Anna", { key: "mention", value: { ref: "p1" } }, " "));
+    return true;
+  };
+  const extensions: core.EditorExtensions = { keymap: { "Mod-Shift-m": insertMention }, triggers: [{ id: "mention", text: "@" }] };
+  function mount(ext: core.EditorExtensions = extensions): { controller: DigitalController; container: HTMLElement } {
+    const attrRegistry = createDefaultAttrRegistry();
+    core.registerMark(attrRegistry, "mention", { atomic: true });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const controller = createDigitalController({
+      container,
+      componentRegistry: createDefaultComponentRegistry(),
+      attrRegistry,
+      containerWidth: 800,
+      doc: document,
+      extensions: ext,
+    });
+    return { controller, container };
+  }
+  const keydown = (container: HTMLElement, key: string, init: KeyboardEventInit = {}) => {
+    const e = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init });
+    container.dispatchEvent(e);
+    return e;
+  };
+  const typeKeys = (container: HTMLElement, text: string) => {
+    for (const ch of text) container.dispatchEvent(makeBeforeInput("insertText", { data: ch }));
+  };
+  const text = (c: DigitalController) =>
+    (getBlock(c.editorState.state, c.editorState.selection.focus.blockId)?.inlineContent?.items ?? [])
+      .map((i) => (i.kind === "text" ? i.text : ""))
+      .join("");
+
+  it("a malformed keymap fails when the controller is created", () => {
+    expect(() => mount({ keymap: { "Hyper-x": null } })).toThrow(/unknown modifier/);
+  });
+
+  it("Escape is claimed only when it dismisses something (a trigger); otherwise it propagates", () => {
+    const { controller, container } = mount();
+    typeKeys(container, "Hi ");
+    expect(keydown(container, "Escape").defaultPrevented).toBe(false);
+    typeKeys(container, "@a");
+    expect(keydown(container, "Escape", { shiftKey: true }).defaultPrevented).toBe(true);
+    expect(controller.editorState.activeTrigger).toBeUndefined();
+    controller.destroy();
+  });
+
+  it("on an Apple platform Cmd is Mod (Ctrl is not)", () => {
+    Object.defineProperty(navigator, "userAgent", { value: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)", configurable: true });
+    try {
+      const { controller, container } = mount();
+      keydown(container, "M", { ctrlKey: true, shiftKey: true });
+      expect(text(controller)).toBe("");
+      keydown(container, "M", { metaKey: true, shiftKey: true });
+      expect(text(controller)).toBe("Anna ");
+      controller.destroy();
+    } finally {
+      Reflect.deleteProperty(navigator, "userAgent"); // back to jsdom's prototype getter
+    }
+  });
+
+  it("AltGr (Ctrl+Alt) producing @ is not swallowed and its input opens the trigger; a dead key too", () => {
+    const { controller, container } = mount();
+    expect(keydown(container, "@", { ctrlKey: true, altKey: true, code: "KeyQ" }).defaultPrevented).toBe(false);
+    typeKeys(container, "@");
+    expect(controller.editorState.activeTrigger).toMatchObject({ query: "" });
+    keydown(container, "Escape");
+    expect(keydown(container, "Dead", { code: "BracketLeft" }).defaultPrevented).toBe(false);
+    typeKeys(container, " @é");
+    expect(controller.editorState.activeTrigger).toMatchObject({ query: "é" });
+    controller.destroy();
+  });
+
+  it("AltGr text (Polish AltGr+L = Ctrl+Alt, key ł) is typed, not taken by a Mod-Alt-l binding", () => {
+    let ran = 0;
+    const { controller, container } = mount({ keymap: { "Mod-Alt-l": () => (ran++, true) } });
+    expect(keydown(container, "ł", { ctrlKey: true, altKey: true, code: "KeyL", modifierAltGraph: true }).defaultPrevented).toBe(false);
+    typeKeys(container, "ł");
+    expect(text(controller)).toBe("ł");
+    keydown(container, "l", { ctrlKey: true, altKey: true, code: "KeyL" }); // a real Ctrl+Alt+L
+    expect(ran).toBe(1);
+    controller.destroy();
+  });
+
+  it("an auto-repeating host binding re-runs its command", () => {
+    const { controller, container } = mount();
+    keydown(container, "M", { ctrlKey: true, shiftKey: true });
+    keydown(container, "M", { ctrlKey: true, shiftKey: true, repeat: true });
+    expect(text(controller)).toBe("Anna Anna ");
     controller.destroy();
   });
 });

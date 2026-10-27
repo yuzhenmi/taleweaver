@@ -66,6 +66,7 @@ export function coalesceKeyOf(action: EditorAction): ActionClass {
     case "SET_FONT_SIZE":
     case "SET_FONT_FAMILY":
     case "CLEAR_FORMATTING":
+    case "TRANSACTION":
     case "SET_MARK":
     case "REMOVE_MARK":
     case "SET_TEXT_ALIGN":

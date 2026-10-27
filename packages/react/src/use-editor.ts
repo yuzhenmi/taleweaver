@@ -8,6 +8,7 @@ import {
   type EditorState,
   type EditorConfig,
   type AttrRegistry,
+  type EditorExtensions,
 } from "@taleweaver/core";
 import { createCanvasShaper, browserHtmlParser } from "@taleweaver/print";
 
@@ -21,6 +22,8 @@ export interface UseEditorOptions {
    * the print controller — one config for reducer and controller.
    */
   readonly attrRegistry?: AttrRegistry;
+  /** Host extensions (commands, keymap, input rules, triggers) — on the returned `config`. */
+  readonly extensions?: EditorExtensions;
 }
 
 function createConfig(options?: UseEditorOptions): EditorConfig {
@@ -39,6 +42,7 @@ function createConfig(options?: UseEditorOptions): EditorConfig {
     // (see `useEditor`'s `shaperRef`).
     componentRegistry: createDefaultComponentRegistry(),
     attrRegistry: options?.attrRegistry ?? createDefaultAttrRegistry(),
+    ...(options?.extensions !== undefined ? { extensions: options.extensions } : {}),
     containerWidth: DEFAULT_WIDTH,
     htmlParser: browserHtmlParser,
   };

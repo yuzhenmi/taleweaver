@@ -39,7 +39,9 @@ describe("iterateBlocksInDocumentOrder", () => {
     ];
     const t = performance.now();
     expect([...iterateBlocksInDocumentOrder(buildState({ rootId: "root", blocks }))].length).toBe(n + 1);
-    expect(performance.now() - t).toBeLessThan(1000);
+    // Coarse bound (shared machines are noisy): linear is milliseconds; the quadratic bug was
+    // tens of seconds (~60M map iterations).
+    expect(performance.now() - t).toBeLessThan(5000);
 
     const cyclic = blocks.map((b) => (b.id === `p${n - 1}` ? { ...b, nextSiblingId: asBlockId("p5000") } : b));
     const cyclicState = buildState({ rootId: "root", blocks: cyclic });

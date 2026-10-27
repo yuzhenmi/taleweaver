@@ -200,6 +200,19 @@ export class History {
   private coalesceKey: BeginKey | null = null;
   private lastEditTime = 0;
   private didCoalesce = false;
+  // Transaction batching: while `batchDepth > 0` every committed step joins ONE
+  // undo group. `batchCommitted` records whether the group already received a commit
+  // (the first one writes the full selection pair, later ones advance only `after`).
+  private batchDepth = 0;
+  private batchCommitted = false;
+  private batchBefore: Selection | null = null;
+  // Rollback bookkeeping for a throwing transaction: the undo-stack depth and the
+  // wrapper's state when the outermost batch opened.
+  private batchStackDepth = 0;
+  private batchState: State | null = null;
+  // An inner transaction aborted inside the open batch (its error may have been
+  // swallowed by the outer `run`): the outermost batch must roll back entirely.
+  private batchPoisoned = false;
 
   constructor(
     state: State,
@@ -260,6 +273,11 @@ export class History {
    * breaks).
    */
   beginEntry(key: BeginKey, now: number): void {
+    if (this.batchDepth > 0) {
+      // Inside a transaction: never close the group; merge into its first commit.
+      this.didCoalesce = this.batchCommitted;
+      return;
+    }
     const coalescible = key === "insert" || key === "delete";
     const canCoalesce =
       coalescible &&
@@ -280,8 +298,81 @@ export class History {
    * starts a fresh undo unit. Idempotent and cheap.
    */
   breakCoalescing(): void {
+    if (this.batchDepth > 0) return; // a step inside a transaction never splits it
     this.undoManager.stopCapturing();
     this.coalesceKey = null;
+  }
+
+  /**
+   * Open a TRANSACTION: every committing step until the matching `endBatch`
+   * lands in ONE undo entry, whose `before` selection is the first step's and whose
+   * `after` is the last step's. Nestable (inner batches join the outer one). The
+   * caller has already run `beginEntry` for the transaction action itself, which
+   * closed the previous group. `selectionBefore` is the selection undo restores.
+   */
+  beginBatch(selectionBefore: Selection): void {
+    if (this.batchDepth === 0) {
+      this.batchCommitted = false;
+      this.batchBefore = selectionBefore;
+      this.batchStackDepth = this.undoManager.undoStack.length;
+      this.batchState = this.currentState;
+      this.batchPoisoned = false;
+    }
+    this.batchDepth++;
+  }
+
+  /** True while a transaction is open (its steps are not separate edits). */
+  get batching(): boolean {
+    return this.batchDepth > 0;
+  }
+
+  /** Close a transaction opened by `beginBatch`; the next edit starts a fresh entry. */
+  endBatch(): void {
+    if (this.batchDepth === 0) throw new Error("History.endBatch: no open batch");
+    if (this.batchDepth === 1 && this.batchPoisoned) {
+      // A nested transaction failed and its error was caught: its steps were never
+      // seen by the outer transaction's editor state, so roll EVERYTHING back.
+      this.abortBatch();
+      throw new Error(
+        "TRANSACTION: a nested transaction failed; the whole transaction was rolled back",
+      );
+    }
+    this.batchDepth--;
+    if (this.batchDepth === 0) {
+      this.undoManager.stopCapturing();
+      this.coalesceKey = null;
+      this.batchBefore = null;
+      this.batchState = null;
+    }
+  }
+
+  /**
+   * Abandon the OUTERMOST open transaction after a step threw: revert everything it
+   * applied (its single undo item, if it produced one — undone and dropped, never
+   * redoable), restore the wrapper's state, and close the batch. Returns the State the
+   * history is back at. An inner (nested) batch closes and POISONS the outermost one:
+   * even if the outer `run` swallows the inner error, ending the outer batch rolls the
+   * whole transaction back and throws (`endBatch`).
+   */
+  abortBatch(): State {
+    if (this.batchDepth === 0) throw new Error("History.abortBatch: no open batch");
+    this.batchDepth--;
+    if (this.batchDepth > 0) {
+      this.batchPoisoned = true; // the outermost batch rolls back when it ends
+      return this.currentState;
+    }
+    this.batchPoisoned = false;
+    if (this.undoManager.undoStack.length > this.batchStackDepth) {
+      this.undoManager.undo();
+      this.undoManager.redoStack.pop();
+    }
+    this.undoManager.stopCapturing();
+    this.coalesceKey = null;
+    this.batchBefore = null;
+    const restored = this.batchState ?? this.currentState;
+    this.batchState = null;
+    this.currentState = restored;
+    return restored;
   }
 
   /**
@@ -362,8 +453,11 @@ export class History {
         after: selections.after,
       });
     } else {
-      top.meta.set(SEL_KEY, selections);
+      // A transaction's entry restores the selection from BEFORE the transaction,
+      // not the one its first step happened to start from.
+      top.meta.set(SEL_KEY, this.batchBefore !== null ? { before: this.batchBefore, after: selections.after } : selections);
     }
+    if (this.batchDepth > 0) this.batchCommitted = true;
     // All bookkeeping succeeded — now advance the wrapper's current state.
     this.currentState = opResult.state;
     // #234: cap undo depth. Y.UndoManager has no maxDepth, so once the stack

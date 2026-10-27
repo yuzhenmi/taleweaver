@@ -92,6 +92,7 @@ describe("mapBeforeInput — core table (2d)", () => {
     expect(mapBeforeInput(fakeInput("insertText", { data: "x" }), CTX)).toEqual({
       type: "INSERT_TEXT",
       text: "x",
+      userInput: true,
     });
   });
 
@@ -104,7 +105,7 @@ describe("mapBeforeInput — core table (2d)", () => {
       data: null,
       dataTransfer: makeClipboardData({ "text/plain": "fb" }),
     });
-    expect(mapBeforeInput(e, CTX)).toEqual({ type: "INSERT_TEXT", text: "fb" });
+    expect(mapBeforeInput(e, CTX)).toEqual({ type: "INSERT_TEXT", text: "fb", userInput: true });
   });
 
   it("insertText with null data and an ABSENT (undefined) dataTransfer → null, no throw", () => {

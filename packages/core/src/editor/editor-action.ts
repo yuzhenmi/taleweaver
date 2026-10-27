@@ -5,9 +5,15 @@ import type { CounterFormat, FootnoteNumberingPolicy } from "../footnotes";
 import type { CaretAffinity } from "../cursor/selection";
 import type { ColumnRule } from "../styles/column-config";
 import type { ImageWrap } from "./actions/set-image-wrap";
+import type { Transaction } from "./extensions";
 
 export type EditorAction =
-  | { type: "INSERT_TEXT"; text: string }
+  /**
+   * Insert `text` at the caret / over the selection. `userInput: true` marks text the
+   * USER typed (keystrokes, beforeinput, IME commits) — only such text fires the host's
+   * input rules and triggers; programmatic / command inserts never do.
+   */
+  | { type: "INSERT_TEXT"; text: string; userInput?: boolean }
   | { type: "DELETE_BACKWARD" }
   | { type: "SPLIT_NODE" }
   | { type: "MOVE_WORD"; direction: "forward" | "backward" }
@@ -66,6 +72,16 @@ export type EditorAction =
   // ESCAPE (#525): deselect an object selection — collapse the caret to just
   // AFTER the atomic-leaf object (Google Docs). A no-op for a text caret.
   | { type: "ESCAPE" }
+  /**
+   * Run several engine steps as ONE edit: `run` receives the live editor and a
+   * `dispatch` that applies nested actions through the reducer — suggesting mode,
+   * typing attrs and mark rules apply as for user edits — and they land in a SINGLE
+   * undo entry. `run` must be pure (no host side effects): it may be re-run. Steps
+   * must be undoable: dispatching a non-undoable action (ACCEPT_/REJECT_SUGGESTION,
+   * ACCEPT_/REJECT_ALL_SUGGESTIONS) or UNDO / REDO throws before it applies, and a
+   * throwing transaction is rolled back entirely.
+   */
+  | { type: "TRANSACTION"; run: (tx: Transaction) => void }
   | { type: "SELECT_ALL" }
   | { type: "DELETE_WORD"; direction: "forward" | "backward" }
   // DELETE_RANGE (Phase 0b): delete a geometry-free `Span` in ONE history commit,

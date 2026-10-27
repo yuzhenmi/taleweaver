@@ -191,7 +191,11 @@ describe("mapKeyEvent", () => {
 
   it("returns null for unrecognized keys", () => {
     expect(mapKeyEvent(key({ key: "F1" }))).toBeNull();
-    expect(mapKeyEvent(key({ key: "Escape" }))).toBeNull();
+  });
+
+  it("maps Escape to ESCAPE (object deselect / end a host trigger), as digital does", () => {
+    expect(mapKeyEvent(key({ key: "Escape" }))).toEqual({ type: "ESCAPE" });
+    expect(mapKeyEvent(key({ key: "Escape", shiftKey: true }))).toEqual({ type: "ESCAPE" }); // any modifiers, as digital
   });
 
   // --- Delete forward ---

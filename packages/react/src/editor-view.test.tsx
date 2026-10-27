@@ -115,12 +115,15 @@ describe("EditorView", () => {
 
   it("hands useEditor's config (one registry for reducer + controller) to the controller (host marks paint in print)", () => {
     const attrRegistry = createDefaultAttrRegistry();
+    const extensions = { keymap: { "Mod-k": null } };
     function RegistryHarness() {
-      const editor = useEditor({ attrRegistry });
+      const editor = useEditor({ attrRegistry, extensions });
       return <EditorView {...editor} />;
     }
     render(<RegistryHarness />);
-    expect(vi.mocked(createEditorController).mock.calls.at(-1)?.[1].config?.attrRegistry).toBe(attrRegistry);
+    const passed = vi.mocked(createEditorController).mock.calls.at(-1)?.[1].config;
+    expect(passed?.attrRegistry).toBe(attrRegistry);
+    expect(passed?.extensions).toBe(extensions); // host keymap reaches the print controller
   });
 
   it("calls controller.update() with initial editorState", () => {
