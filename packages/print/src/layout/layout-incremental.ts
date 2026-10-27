@@ -4,8 +4,7 @@ import type { TextShaper } from "@taleweaver/core";
 import type { Hyphenator } from "@taleweaver/core";
 import type { TextMeasurer } from "@taleweaver/core";
 import type { PageConfig } from "./page-config";
-import { isTextShaper, measurerToShaper } from "@taleweaver/core";
-import { layoutTree } from "./dispatch";
+import { layoutTree, resolveShaper } from "./dispatch";
 import { layoutBlock } from "./bfc";
 import { layoutTable } from "./table-fc";
 import { cascadePass } from "@taleweaver/core";
@@ -79,9 +78,7 @@ export function layoutTreeIncremental(
       return oldLayout;
     }
 
-    const shaper: TextShaper = isTextShaper(shaperOrMeasurer)
-      ? shaperOrMeasurer
-      : measurerToShaper(shaperOrMeasurer);
+    const shaper = resolveShaper(shaperOrMeasurer);
 
     // Auto-run cascade if not yet done.
     const layoutRoot: ElementBox = newRoot.type === "element" && newRoot.computedStyle

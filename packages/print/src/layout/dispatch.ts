@@ -24,6 +24,24 @@ const EMPTY_TEMPLATE_CONTENTS: ReadonlyMap<BlockId, ElementBox> = new Map();
 /** Empty cascaded-footnote-body map default (no footnote bodies). */
 const EMPTY_EMBED_CONTENTS: ReadonlyMap<BlockId, ElementBox> = new Map();
 
+// One adapter per `TextMeasurer`, so a host that passes a measurer (rather than a
+// `TextShaper`) hands layout a REF-STABLE shaper on every cycle. The block-meta
+// cache (`build-fit-metas`) keys on the shaper ref; a fresh adapter per call
+// misses it and re-lays EVERY block on EVERY keystroke. A `WeakMap`, so dropping
+// the measurer drops its adapter.
+const _adaptedShapers = new WeakMap<TextMeasurer, TextShaper>();
+
+/** The shaper for `shaperOrMeasurer`; a measurer's adapter is memoized (ref-stable). */
+export function resolveShaper(shaperOrMeasurer: TextShaper | TextMeasurer): TextShaper {
+  if (isTextShaper(shaperOrMeasurer)) return shaperOrMeasurer;
+  let shaper = _adaptedShapers.get(shaperOrMeasurer);
+  if (shaper === undefined) {
+    shaper = measurerToShaper(shaperOrMeasurer);
+    _adaptedShapers.set(shaperOrMeasurer, shaper);
+  }
+  return shaper;
+}
+
 /**
  * Top-level layout entry. Dispatches by display value of the root node.
  * For Plan 1, only `display: block` is supported at the root.
@@ -65,9 +83,7 @@ export function layoutTree(
       throw new Error("Layout root must be an element node");
     }
 
-    const shaper: TextShaper = isTextShaper(shaperOrMeasurer)
-      ? shaperOrMeasurer
-      : measurerToShaper(shaperOrMeasurer);
+    const shaper = resolveShaper(shaperOrMeasurer);
 
     // Auto-run cascade if computedStyle is not populated
     const layoutRoot: ElementBox = root.computedStyle

@@ -669,8 +669,11 @@ function layoutTreeIncremental(
 
 `layoutTree` runs cascade if the root's `computedStyle` is missing, then dispatches by `cs.display`. `layoutTreeIncremental` adds a whole-tree short-circuit (`newRoot === oldRoot && oldLayout != null && oldLayout.width === containerWidth`) and otherwise builds a `LayoutBoxCache` from `oldLayout` + `oldRoot` and threads it through the root context.
 
+Both entries resolve their shaper through `resolveShaper` (`dispatch.ts`): a `TextShaper` passes through; a legacy `TextMeasurer` is adapted ONCE per measurer (WeakMap-memoized) so layout sees a ref-stable shaper across cycles. The block-meta cache (`build-fit-metas`) keys on the shaper ref, so a per-call adapter would miss it and re-lay every block on every keystroke.
+
 ### Performance contracts
 
 - Whole-tree layout (cold start): O(N) where N is render-tree size.
 - Incremental layout with single-paragraph edit: O(D) where D is the size of the changed paragraph plus the path from root. Unchanged paragraphs flow through the BFC's reuse gate.
+- Paginated (virtual) single-paragraph edit: the measure pass rebuilds only the edited block's meta (shaper-ref + width + hyphenator keyed cache) and carries forward unchanged pages; positioning is bounded to the pages materialized (the edited page re-lays its blocks). Holds for `TextShaper` and `TextMeasurer` hosts alike (see `resolveShaper`); guarded by `perf/typing-latency.test.ts` (`ifc.layout` calls per keystroke).
 - Document root with all children unchanged but parent rebuilt (e.g., `INSERT_NODE` outside any paragraph): O(1) via `renderNodesLayoutEquivalent`.

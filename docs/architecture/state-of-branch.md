@@ -623,7 +623,11 @@ Known gaps:
   bodies.
 
 A legacy `TextMeasurer` interface exists alongside `TextShaper` for backwards
-compatibility; new code uses `TextShaper`.
+compatibility; new code uses `TextShaper`. Print layout adapts a `TextMeasurer`
+once per instance (`resolveShaper`), so for measurer-based hosts too the per-keystroke
+measure pass is an O(top-level blocks) reference-checked walk that REBUILDS only the
+changed blocks' metas; the O(top-level blocks) walk itself is a known gap against the
+O(1)-per-keystroke goal.
 
 ### `cursor/` `[implemented]`
 

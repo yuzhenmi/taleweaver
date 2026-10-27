@@ -14,11 +14,20 @@ import { createEditorController } from "../editor-controller";
  *    cost well over 100 ms;
  *  - median keystroke (reduce + controller.update) WITH 1,000 decorations
  *    ≤ 1.5 × the same document's median WITHOUT decorations + 2 ms;
- *  - median one-decoration update (`setDecorations`) ≤ 16 ms.
+ *  - median one-decoration update (`setDecorations`) ≤ 16 ms;
+ *  - median BARE keystroke ≤ 150 ms — a coarse wall-clock backstop only (measured ~15 ms;
+ *    ~220–400 ms when every paragraph was re-laid-out per keystroke);
+ *  - `ifc.layout` calls per keystroke ≤ 30: the edited paragraph's meta + re-materializing
+ *    the edited page (~13 paragraphs/page here; measured 14). Re-laying the whole
+ *    document is 400+.
  * Guards against any regression to resolving every decoration per update.
  */
 const UPDATE_BUDGET_MS = 16;
 const DECORATION_WORK_BUDGET_MS = 16;
+// Coarse wall-clock backstop only (jsdom under shared-machine load is noisy): the
+// deterministic `ifc.layout` count below is the real regression gate.
+const TYPING_BUDGET_MS = 150;
+const IFC_LAYOUTS_PER_KEYSTROKE_BUDGET = 30;
 
 const LETTER: core.PageConfig = {
   pageInlineSize: 816,
@@ -83,7 +92,7 @@ afterEach(() => {
   if (originalIO !== undefined) globalThis.IntersectionObserver = originalIO;
 });
 
-function run(withDecorations: boolean, keystrokes: number): { typing: number; update: number; count: number; decorationMs: number } {
+function run(withDecorations: boolean, keystrokes: number): { typing: number; update: number; count: number; decorationMs: number; ifcLayouts: number } {
   const config = cfg();
   const state = core.buildDocumentFromTree(chapter(), {}, core.createTestAllocator());
   const ids: core.BlockId[] = [];
@@ -132,8 +141,10 @@ function run(withDecorations: boolean, keystrokes: number): { typing: number; up
   core.setPerfTraceEnabled(false);
   // Decoration work per keystroke: carrying the layers through the edit + resolving
   // the visible pages' fragments (the only decoration code on the typing path).
+  const entries = core.report().entries;
+  const ifcLayouts = (entries.find((e) => e.label === "ifc.layout")?.count ?? 0) / keystrokes;
   const decorationMs =
-    core.report().entries
+    entries
       .filter((e) => e.label === "ctrl.decorationLayers" || e.label === "ctrl.decorationRects" || e.label === "ctrl.syncWidgets")
       .reduce((sum, e) => sum + e.totalMs, 0) / keystrokes;
   const updates: number[] = [];
@@ -147,7 +158,7 @@ function run(withDecorations: boolean, keystrokes: number): { typing: number; up
   }
   const count = controller.decorations.decorations.length;
   controller.destroy();
-  return { typing: median(typing), update: median(updates), count, decorationMs };
+  return { typing: median(typing), update: median(updates), count, decorationMs, ifcLayouts };
 }
 
 describe("print typing latency (20k words, 1,000 decorations + 100 widgets)", () => {
@@ -157,9 +168,11 @@ describe("print typing latency (20k words, 1,000 decorations + 100 widgets)", ()
     const decorated = run(true, 15);
     console.log(
       `print typing median: ${base.typing.toFixed(2)}ms bare / ${decorated.typing.toFixed(2)}ms with 1,000 decorations + 100 widgets; ` +
-        `decoration work ${decorated.decorationMs.toFixed(2)}ms/keystroke; decoration update median ${decorated.update.toFixed(2)}ms`,
+        `decoration work ${decorated.decorationMs.toFixed(2)}ms/keystroke; ifc.layout ${base.ifcLayouts.toFixed(1)}/keystroke; decoration update median ${decorated.update.toFixed(2)}ms`,
     );
     expect(decorated.count).toBe(1100);
+    expect(base.typing).toBeLessThan(TYPING_BUDGET_MS);
+    expect(base.ifcLayouts).toBeLessThanOrEqual(IFC_LAYOUTS_PER_KEYSTROKE_BUDGET);
     expect(decorated.decorationMs).toBeLessThan(DECORATION_WORK_BUDGET_MS);
     expect(decorated.typing).toBeLessThan(base.typing * 1.5 + 2);
     expect(decorated.update).toBeLessThan(UPDATE_BUDGET_MS);
