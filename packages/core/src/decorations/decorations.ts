@@ -450,7 +450,9 @@ function mapDecoration(d: Decoration, mapping: PositionMapping, next: State): De
   recordSample("decorations.mapped", 0); // deterministic perf counter (no-op unless tracing)
   switch (d.kind) {
     case "block":
-      return resolveBlock(next, d.blockId) === null ? null : d;
+      // ProseMirror: a node decoration survives only while its node maps intact — a
+      // block split, merged into, renamed or removed in the transition drops it.
+      return resolveBlock(next, d.blockId) === null || mapping.restructured(d.blockId) ? null : d;
     case "widget": {
       const m = mapping.map(d.at, d.side ?? 1);
       if (m.position === null) return null;
@@ -526,7 +528,10 @@ function indexDecoration(state: State, d: Decoration, index: Map<BlockId, Mutabl
       }
       const blocks: BlockId[] = [];
       for (const r of ranges) {
-        if (r.rangeEnd <= r.rangeStart) continue;
+        // An empty piece is kept only at the range's two ends: a paragraph-boundary
+        // suggestion's range `[(L, len), (R, 0)]` covers no character, and its ¶ (drawn on
+        // L or R) is styled through these zero-length segments.
+        if (r.rangeEnd <= r.rangeStart && r.block.id !== d.from.blockId && r.block.id !== d.to.blockId) continue;
         slot(index, r.block.id).inline.push({ decoration: d, start: r.rangeStart, end: r.rangeEnd });
         blocks.push(r.block.id);
       }

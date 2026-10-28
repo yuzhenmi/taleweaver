@@ -1,9 +1,9 @@
 /**
  * @module section-plan
  *
- * Section-structure pre-pass (P1.C.2b-1, Task 1).
+ * Section-structure pre-pass.
  *
- * Sections compute `display: contents`, so C.1a's `flattenContents` splices them
+ * Sections compute `display: contents`, so `flattenContents` splices them
  * OUT of the child list the measure pass iterates — the paginator can't see
  * section boundaries directly. This module walks the UNFLATTENED cascaded doc
  * root and produces a `SectionPlan`: the ordered section boundaries expressed as
@@ -12,7 +12,7 @@
  * sections self-identify via a `{ blockType: "section" }` metadata marker stamped
  * by the section component, so no predicate parameter / state threading is needed.
  *
- * This pre-pass is inert on its own; T2/T3 consume the plan to force a page break
+ * This pre-pass is inert on its own; the measure pass consumes the plan to force a page break
  * before the flattened child that begins a new section.
  */
 import type { RenderNode, ElementBox } from "@taleweaver/core";
@@ -34,31 +34,30 @@ export interface SectionBoundary {
   /** The `section` block's id, or null for the implicit (section-less) leading section. */
   readonly sectionId: BlockId | null;
   /**
-   * The section's effective page geometry, if it OVERRIDES the doc-wide config
-   * (C.2b-2). `undefined` for the implicit leading boundary and for any section
+   * The section's effective page geometry, if it OVERRIDES the doc-wide config.
+   * `undefined` for the implicit leading boundary and for any section
    * whose attrs resolve equal to docWide — leaving the no-override path inert,
-   * so consumers (T2's measure pass) fall back to docWide when this is absent.
+   * so consumers (the measure pass) fall back to docWide when this is absent.
    */
   readonly pageConfig?: PageConfig;
   /**
    * The id of the `templateContents` body that lays out into this section's
-   * pages' HEADER slot (C.2c). For a real section, the section's `headerBlockId`
-   * attr (stamped raw into the section box metadata, coerced here); for the
-   * implicit/leading boundary, the DOC-ROOT box's `headerBlockId` metadata.
-   * `undefined` when the section/doc declares no header. The measure pass tags
-   * each page with the active boundary's value so a later task lays the body
-   * into the slot — T2 only carries the id, no layout yet.
+   * pages' HEADER slot: the section's `headerBlockId` attr (stamped raw
+   * into the section box metadata, coerced here). The page keys live on sections
+   * only (a break-less doc's final section carries them; the root
+   * carries none). `undefined` when the section declares no header. The measure pass tags
+   * each page with the active boundary's value, and materialization lays the
+   * body into the slot.
    */
   readonly headerBlockId?: BlockId;
-  /** The footer-slot body id; symmetric to `headerBlockId` (C.2c). */
+  /** The footer-slot body id; symmetric to `headerBlockId`. */
   readonly footerBlockId?: BlockId;
   /**
-   * The section's effective column config, if it OVERRIDES the doc default
-   * (multi-column slice 1). `undefined` for the implicit leading boundary and
+   * The section's effective column config, if it OVERRIDES the doc default.
+   * `undefined` for the implicit leading boundary and
    * for any section whose attrs resolve equal to the doc default (incl.
    * single-column `columnCount === 1`) — keeping the no-override path inert.
-   * INERT in slice 1: no layout pass consumes this yet; slice 2's
-   * `MultiColumnBox` + column fragmentation do.
+   * Consumed by the measure pass and the `MultiColumnBox` column fragmentation.
    */
   readonly columnConfig?: ColumnConfig;
 }
@@ -67,21 +66,14 @@ export interface SectionPlan {
   /** Ordered by startFlattenedIndex ascending; boundaries[0].startFlattenedIndex === 0 always. */
   readonly boundaries: readonly SectionBoundary[];
   /**
-   * The effective doc-wide column default — `docDefaultColumns` resolved over the
-   * doc-root's own column metadata (multi-column slice 1). Slice 2's measure/layout
-   * pass reads THIS as the column layout for any boundary carrying no `columnConfig`
-   * override (i.e. `sectionStateAt(...).columnConfig === undefined`). It differs
-   * from the raw `docDefaultColumns` argument whenever the doc root itself carries
-   * a `columnCount` / `columnGap` / `columnRule` override, so the raw argument is
-   * NOT a safe fallback.
+   * The doc-wide column default (`docDefaultColumns`). The
+   * measure/layout pass reads THIS as the column layout for any boundary carrying
+   * no `columnConfig` override (i.e. `sectionStateAt(...).columnConfig ===
+   * undefined`). Column overrides live on sections only.
    *
-   * REQUIRED (not optional): this is the authoritative resolved doc-wide default
-   * value — the column analog of the measure pass's required `docWide: PageConfig`
-   * argument, NOT a per-boundary override-presence flag like `pageConfig?`. Making
-   * it optional would let a hand-built plan with a non-trivial doc-root column
-   * context silently fall through to the engine default in slice 2, a wrong value
-   * the type system could not catch. Every plan (incl. `IMPLICIT_SECTION_PLAN`)
-   * states it explicitly. INERT in slice 1 (no consumer yet).
+   * REQUIRED (not optional): the column analog of the measure pass's required
+   * `docWide: PageConfig` argument, NOT a per-boundary override-presence flag like
+   * `pageConfig?`. Every plan (incl. `IMPLICIT_SECTION_PLAN`) states it explicitly.
    */
   readonly effectiveDefaultColumns: ColumnConfig;
 }
@@ -92,23 +84,22 @@ export interface SectionStateAt {
   /** startFlattenedIndex of the next boundary strictly AFTER `index`, or null if none. */
   readonly nextBoundaryIndex: number | null;
   /**
-   * The active boundary's page-geometry override, if any (C.2b-2). `undefined`
+   * The active boundary's page-geometry override, if any. `undefined`
    * when the active boundary carries no override (the common case + the implicit
    * leading boundary); the measure pass applies the `?? docWide` fallback.
    */
   readonly pageConfig?: PageConfig;
   /**
-   * The active boundary's header-slot body id (C.2c), or `undefined` when the
+   * The active boundary's header-slot body id, or `undefined` when the
    * active section/doc declares no header. The measure pass stamps it onto each
-   * page so a later task lays the templateContents body into the header slot.
+   * page; the page producer lays that templateContents body into the header slot.
    */
   readonly headerBlockId?: BlockId;
-  /** The active boundary's footer-slot body id; symmetric (C.2c). */
+  /** The active boundary's footer-slot body id; symmetric. */
   readonly footerBlockId?: BlockId;
   /**
-   * The active boundary's column-config override (multi-column slice 1), or
-   * `undefined` when it carries none. Carried inert in slice 1 (no consumer);
-   * slice 2's measure/layout passes consume it.
+   * The active boundary's column-config override, or
+   * `undefined` when it carries none. Consumed by the measure/layout passes.
    */
   readonly columnConfig?: ColumnConfig;
 }
@@ -137,7 +128,7 @@ export function isSectionBox(node: RenderNode): node is ElementBox {
  * Deep-equal two `PageConfig`s over their scalar + margin fields. Used to keep
  * the no-override path inert: a section whose resolved config equals docWide
  * gets NO `pageConfig` stamped on its boundary. Exported so the measure pass's
- * per-entry geometry reuse gate (C.2b-2) can reuse the SAME comparison — a
+ * per-entry geometry reuse gate can reuse the SAME comparison — a
  * page's fit depends on its effective geometry, so a config that differs by
  * reference but is field-equal must still count as reusable.
  */
@@ -159,33 +150,24 @@ export function pageConfigsEqual(a: PageConfig, b: PageConfig): boolean {
  * is stamped ONLY when the resolved config differs from `docWide`; an equal
  * (or no-override) config leaves it `undefined`, keeping the common case inert.
  *
- * Header/footer body ids (C.2c) are read RAW off the section box metadata and
+ * Header/footer body ids are read RAW off the section box metadata and
  * coerced (string ⇒ BlockId, else `undefined`); they are independent of the
  * geometry-override gate — a section may carry a header without overriding its
- * page geometry. A section that declares NO own header/footer FALLS BACK to the
- * doc-root ids (`docHeaderBlockId`/`docFooterBlockId`) — mirroring how
- * `docDefaultColumns` is the column fallback. This is load-bearing: a section
- * opening at flattened index 0 (the shape `applySectionBreak` produces — fresh
- * sections carry `attrs: {}`) suppresses the implicit-leading boundary, so
- * without this fallback a doc-root header/footer would silently vanish from every
- * page after a section break (audit Finding 1). An `undefined` resolved id is
- * simply absent on the boundary.
+ * page geometry. There is no doc-root fallback (the root carries no
+ * page keys; a section break copies its section's attrs — Word's "same as
+ * previous"). An `undefined` id is simply absent on the boundary.
  */
 function makeSectionBoundary(
   startFlattenedIndex: number,
   sectionBox: ElementBox,
   docWide: PageConfig,
   docDefaultColumns: ColumnConfig,
-  docHeaderBlockId: BlockId | undefined,
-  docFooterBlockId: BlockId | undefined,
 ): SectionBoundary {
   const cfg = resolveSectionPageConfig(docWide, sectionBox.metadata);
   const colCfg = resolveColumnConfig(docDefaultColumns, sectionBox.metadata);
   const sectionId = sectionBox.key as BlockId;
-  const headerBlockId =
-    coerceBlockId(sectionBox.metadata?.headerBlockId) ?? docHeaderBlockId;
-  const footerBlockId =
-    coerceBlockId(sectionBox.metadata?.footerBlockId) ?? docFooterBlockId;
+  const headerBlockId = coerceBlockId(sectionBox.metadata?.headerBlockId);
+  const footerBlockId = coerceBlockId(sectionBox.metadata?.footerBlockId);
   return {
     startFlattenedIndex,
     sectionId,
@@ -215,13 +197,12 @@ function makeSectionBoundary(
  *   non-section `display:contents` wrapper correctly expands via `flattenContents`).
  *
  * After the walk, if no boundary sits at index 0 (the first child is not a
- * section), PREPEND the implicit `{ 0, null }` boundary (no `pageConfig`). A
- * section-less doc thus yields exactly `[{ 0, null }]`. The implicit/leading
- * boundary takes its header/footer body ids from the DOC-ROOT box's own
- * metadata (C.2c — the implicit-section default lives on the doc root), so a
- * section-less doc with a doc-root header flows it to that boundary.
+ * section), PREPEND the implicit `{ 0, null }` boundary (no `pageConfig`, no page
+ * keys). A section-less root (a hand-built test tree; a document always ends with
+ * its final section) thus yields exactly `[{ 0, null }]`. The root's own metadata
+ * is never read: page keys live on sections.
  *
- * INVARIANT (I-2): the returned `boundaries` are sorted with STRICTLY increasing
+ * INVARIANT (strictly-increasing boundaries): the returned `boundaries` are sorted with STRICTLY increasing
  * `startFlattenedIndex` — the de-dup guarantees no two entries share an index.
  */
 export function buildSectionPlan(
@@ -229,23 +210,6 @@ export function buildSectionPlan(
   docWide: PageConfig,
   docDefaultColumns: ColumnConfig = DEFAULT_COLUMN_CONFIG,
 ): SectionPlan {
-  // Doc-root header/footer body ids (C.2c, I1): the implicit/leading section's
-  // default, read RAW off the doc-root box metadata and coerced. The doc-root
-  // box IS `cascadedRoot`. Computed before the children loop so it is available
-  // when the implicit boundary is prepended below — independent of whether the
-  // doc has any real sections.
-  const docHeaderBlockId = coerceBlockId(cascadedRoot.metadata?.headerBlockId);
-  const docFooterBlockId = coerceBlockId(cascadedRoot.metadata?.footerBlockId);
-  // The EFFECTIVE doc-default columns: the doc root itself may carry column
-  // attrs (a doc-wide column count), so a section's override is gated against
-  // this resolved default — a section echoing the doc-wide count stays inert,
-  // a section differing (incl. back to single-column) stamps. Mirrors the
-  // doc-root header/footer default above.
-  const effectiveDefaultColumns = resolveColumnConfig(
-    docDefaultColumns,
-    cascadedRoot.metadata,
-  );
-
   // Mutable accumulator; the de-dup needs to overwrite the last-pushed boundary
   // when a coincident index recurs, so we build with a plain array.
   const boundaries: SectionBoundary[] = [];
@@ -258,9 +222,7 @@ export function buildSectionPlan(
         startFlattenedIndex,
         child,
         docWide,
-        effectiveDefaultColumns,
-        docHeaderBlockId,
-        docFooterBlockId,
+        docDefaultColumns,
       );
       const last = boundaries[boundaries.length - 1];
       if (last !== undefined && last.startFlattenedIndex === startFlattenedIndex) {
@@ -276,40 +238,28 @@ export function buildSectionPlan(
     }
   }
 
-  // Implicit leading section: if nothing opened at index 0, the doc begins with
-  // a section-less run. Its header/footer body ids come from the doc root (I1) —
-  // an explicit section starting at index 0 instead owns page 0 with its OWN
-  // ids, so this branch (and the doc-root default) does not apply there.
+  // Implicit leading section: if nothing opened at index 0, the root begins with
+  // a section-less run (no page keys).
   const firstBoundary = boundaries[0];
   if (firstBoundary === undefined || firstBoundary.startFlattenedIndex !== 0) {
-    boundaries.unshift({
-      startFlattenedIndex: 0,
-      sectionId: null,
-      ...(docHeaderBlockId !== undefined ? { headerBlockId: docHeaderBlockId } : {}),
-      ...(docFooterBlockId !== undefined ? { footerBlockId: docFooterBlockId } : {}),
-    });
+    boundaries.unshift({ startFlattenedIndex: 0, sectionId: null });
   }
 
-  return { boundaries, effectiveDefaultColumns };
+  return { boundaries, effectiveDefaultColumns: docDefaultColumns };
 }
 
 /**
- * True iff the document root OR any `section` element resolves a multi-column
- * region (`columnCount > 1`). Used by the legacy-vs-virtual pagination gate (VL
- * float fast-path Task 5): a float doc routes to the virtualized fast path only
- * when it is SINGLE-COLUMN (the V1 measure-pass float branch does not model
+ * True iff any `section` element resolves a multi-column
+ * region (`columnCount > 1`). Used by the legacy-vs-virtual pagination gate (the
+ * float fast path): a float doc routes to the virtualized fast path only
+ * when it is SINGLE-COLUMN (the measure-pass float branch does not model
  * multi-column floats). Reuses the EXACT column source `buildSectionPlan` uses —
- * `resolveColumnConfig(DEFAULT_COLUMN_CONFIG, metadata)` over the doc root and
- * every section box's metadata — so the gate and the plan agree by construction;
- * no `buildSectionPlan` refactor needed (`resolveColumnConfig` is already a
- * standalone exported function). Returns true on the first multicol region found.
+ * `resolveColumnConfig(DEFAULT_COLUMN_CONFIG, metadata)` over every section box's
+ * metadata (the root carries no column keys) — so the gate and the
+ * plan agree by construction. Returns true on the first multicol region found.
  */
 export function hasMultiColumnRegion(root: RenderNode): boolean {
-  if (root.type !== "element") return false;
-  if (resolveColumnConfig(DEFAULT_COLUMN_CONFIG, root.metadata).columnCount > 1) {
-    return true;
-  }
-  return sectionHasMultiColumn(root);
+  return root.type === "element" && sectionHasMultiColumn(root);
 }
 
 /** Recursively scan for a `section` element whose resolved columnCount > 1. */
@@ -330,7 +280,7 @@ function sectionHasMultiColumn(node: ElementBox): boolean {
 /**
  * The active section + next boundary at a flattened-child `index`.
  *
- * Binary-searches `boundaries` (sorted, strictly increasing per I-2) for the last
+ * Binary-searches `boundaries` (sorted, strictly increasing — see `buildSectionPlan`) for the last
  * boundary with `startFlattenedIndex <= index`: its `sectionId` is the active
  * section; the next boundary's `startFlattenedIndex`, if any, is `nextBoundaryIndex`
  * (the forced-break cap that ends this section), else null. O(log boundaries).
@@ -356,7 +306,7 @@ export function sectionStateAt(plan: SectionPlan, index: number): SectionStateAt
   }
   const active = boundaries[found];
   if (active === undefined) {
-    // I-2 guarantees ≥1 boundary (the implicit leading section is always unshifted),
+    // buildSectionPlan guarantees ≥1 boundary (the implicit leading section is always unshifted),
     // so `found` (0..length-1) always resolves.
     throw new Error(`section-plan: active boundary ${found} missing (unreachable, boundaries non-empty)`);
   }
@@ -364,16 +314,16 @@ export function sectionStateAt(plan: SectionPlan, index: number): SectionStateAt
   return {
     activeSectionId: active.sectionId,
     nextBoundaryIndex: next !== undefined ? next.startFlattenedIndex : null,
-    // Surface the active boundary's geometry override (C.2b-2); `undefined`
+    // Surface the active boundary's geometry override; `undefined`
     // when it carries none ⇒ the measure pass falls back to docWide.
     pageConfig: active.pageConfig,
-    // Surface the active boundary's header/footer body ids (C.2c); `undefined`
+    // Surface the active boundary's header/footer body ids; `undefined`
     // when the active section/doc declares none. The measure pass stamps these
-    // onto each page so a later task lays the body into the slot.
+    // onto each page; the page producer lays the body into the slot.
     headerBlockId: active.headerBlockId,
     footerBlockId: active.footerBlockId,
-    // Surface the active boundary's column override (multi-column slice 1);
-    // `undefined` when it carries none. Carried inert — slice 2 consumes it.
+    // Surface the active boundary's column override;
+    // `undefined` when it carries none. Consumed by the measure/layout passes.
     columnConfig: active.columnConfig,
   };
 }

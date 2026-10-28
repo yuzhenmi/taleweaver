@@ -281,6 +281,23 @@ describe("#330 cluster-positioned painting", () => {
     expect(nth(ctx._fills, 1, "fill").x).toBeCloseTo(ctx.measureText("a").width + 5, 6);
   });
 
+  it("an embedded soft hyphen advances 0 and paints nothing (matches the shaper), LTR and RTL", () => {
+    // The mock measures U+00AD as an 8px letter; the shaper zero-advances it, so
+    // paint must too or glyphs after it drift from the caret.
+    const text = "co\u00ADop";
+    const absX = 7;
+    const ltr = makeTextRun({ text, x: absX });
+    paint(ctx, ltr);
+    expect(ctx._fills.map((f) => f.text)).toEqual(["c", "o", "o", "p"]);
+    expect(ctx._fills.map((f) => f.x)).toEqual([absX, absX + 8, absX + 16, absX + 24]);
+
+    ctx._fills.length = 0;
+    const width = 32;
+    paint(ctx, makeTextRun({ text, x: absX, width, bidiLevel: 1 }));
+    // rightEdge − Σadvances(0..=i) with the soft hyphen contributing 0.
+    expect(ctx._fills.map((f) => f.x)).toEqual([absX + 24, absX + 16, absX + 8, absX]);
+  });
+
   it("paint advances include word-spacing on word separators", () => {
     // word-spacing adds extra advance only on word-separator clusters (U+0020).
     // letterSpacing also applies to every cluster. "a b": a@0, space@(8+2)=10,

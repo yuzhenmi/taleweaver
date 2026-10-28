@@ -18,6 +18,12 @@ import type { RenderNode } from "../render/render-node";
 export interface ContainerComponentDefinition {
   readonly type: string;
   readonly kind: "container";
+  /**
+   * The block's STORAGE shape when it is not a plain flow holder (see
+   * `BlockKindResolver.getStorageShape`): a table is a grid entry, its rows / cells grid
+   * entries, a section a mark partitioning the root flow. Absent ⇒ `"container"`.
+   */
+  readonly storage?: "table" | "row" | "cell" | "section";
   render(
     view: ContainerBlockView,
     context: RenderContext,
@@ -30,7 +36,7 @@ export interface ContainerComponentDefinition {
  * a RenderContext, and the pre-expanded inline items as RenderNodes
  * (TextBoxes for TextItems, ElementBoxes for EmbedItems).
  *
- * Per master spec § "Components" — `text` and `span` are NOT registered.
+ * `text` and `span` are NOT registered.
  * The renderer expands `view.inlineContent.items` directly into
  * `inlineRenderNodes`; leaf components receive them already built.
  *

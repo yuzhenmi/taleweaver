@@ -1,7 +1,7 @@
 /**
  * @module footnotes/policy
  *
- * FN-6.3: the document-level footnote numbering policy, read from the document
+ * The document-level footnote numbering policy, read from the document
  * ROOT block's RAW attrs. The policy is NOT a style property — it is a
  * document-wide setting (mirroring Google Docs' Footnote settings dialog), so
  * it is stored as raw `attrs` on the root block and read directly here, NOT
@@ -13,8 +13,8 @@
  *
  * Each is validated independently against its closed set of literals; an
  * absent or invalid value falls back to the Google Docs default for that field
- * (`continuous` / `decimal`). The toolbar UI that WRITES these keys is a later
- * task; until then a document simply uses the default.
+ * (`continuous` / `decimal`). The `SET_FOOTNOTE_POLICY` editor action writes these keys;
+ * a document that never sets them simply uses the default.
  */
 import { getBlock } from "../state";
 import type { State } from "../state";

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { setBlockAttrs, setBlockAttrsInTx } from "./set-block-attrs";
 import { getBlock, applyOperation } from "../state";
-import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
+import { buildBlock, buildState, inlineContent, finalSectionOf, withTestAttrs } from "../../test-utils/state-builders";
 import type { BlockId } from "../block-id";
 import { AttrRegistry } from "../../cascade/attr-registry";
 
@@ -23,7 +23,7 @@ describe("setBlockAttrs", () => {
     // Block-shape invariants preserved:
     expect(updated?.id).toBe("p");
     expect(updated?.type).toBe("paragraph");
-    expect(updated?.parentId).toBe("doc");
+    expect(updated?.parentId).toBe(finalSectionOf(result.state));
   });
 
   it("returns dirtyIds containing only the modified block", () => {
@@ -120,12 +120,11 @@ describe("setBlockAttrs — AttrRegistry custom equality (#263)", () => {
     });
 
   it("with registry: a same-id comment + different timestamp is a NO-OP (state ref preserved)", () => {
-    const state = fixtureWithComment();
+    const state = withTestAttrs(fixtureWithComment(), commentRegistry);
     const result = setBlockAttrs(
       state,
       "p" as BlockId,
       { comment: { id: "c1", timestamp: 2 } },
-      commentRegistry,
     );
     expect(result.state).toBe(state);
     expect(result.dirtyIds.size).toBe(0);
@@ -143,12 +142,11 @@ describe("setBlockAttrs — AttrRegistry custom equality (#263)", () => {
   });
 
   it("with registry: a different-id comment still mutates (registry equality reports false)", () => {
-    const state = fixtureWithComment();
+    const state = withTestAttrs(fixtureWithComment(), commentRegistry);
     const result = setBlockAttrs(
       state,
       "p" as BlockId,
       { comment: { id: "c2", timestamp: 1 } },
-      commentRegistry,
     );
     expect(result.state).not.toBe(state);
     expect([...result.dirtyIds]).toEqual(["p"]);

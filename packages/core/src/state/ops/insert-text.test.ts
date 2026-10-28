@@ -2,7 +2,11 @@ import { describe, it, expect } from "vitest";
 import { insertText, insertTextInTx, planInsertText } from "./insert-text";
 import { getBlock } from "../state";
 import { STATE_INTERNAL } from "../state-internal";
-import { buildBlock, buildState, text, embed, inlineContent } from "../../test-utils/state-builders";
+import * as Y from "yjs";
+import { buildBlock, buildState, buildFlowDoc, text, embed, inlineContent, withTestAttrs } from "../../test-utils/state-builders";
+import { splitBlockAtPosition } from "./split-block";
+import { getRegistry } from "../registry";
+import { createTestAllocator } from "../block-id";
 import { createPosition } from "../block-position";
 import type { BlockId } from "../block-id";
 import { relAt, survives } from "../../test-utils/relpos-survival";
@@ -409,7 +413,9 @@ describe("insertText — error cases", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "s" }),
-        buildBlock({ id: "s", type: "section", parentId: "doc" }), // container, no inlineContent
+        // A container with a child (an empty SECTION is not in the read model).
+        buildBlock({ id: "s", type: "section", parentId: "doc", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "s", inlineContent: inlineContent([]) }),
       ],
     });
     expect(() => insertText(state, createPosition("s" as BlockId, 0), "x", {})).toThrow(/not a leaf/);
@@ -457,5 +463,48 @@ describe("insertTextInTx — transaction guard", () => {
     expect(() => insertTextInTx(state[STATE_INTERNAL].doc, plan)).toThrow(
       /insertText: must be called inside Y\.Doc\.transact/,
     );
+  });
+});
+
+describe("insertText — the ¶'s character props follow typing at the paragraph end", () => {
+  // The editor binds its attr registry to the doc; every ¶-props writer reads it there.
+  const flowDoc = (...a: Parameters<typeof buildFlowDoc>) => withTestAttrs(buildFlowDoc(...a));
+  const marks = (s: ReturnType<typeof buildFlowDoc>, b: string) => getBlock(s, b as BlockId)?.markAttrs;
+
+  it("typing at (P, len) gives ¶P the inclusive subset of the typed run's attrs (no link, no provenance)", () => {
+    const s0 = flowDoc([{ p: "P", t: "ab" }, { p: "Q", t: "z" }]);
+    const s1 = insertText(s0, createPosition("P" as BlockId, 2), "c", { bold: true, link: "x", insertionSuggestionId: "s1" }).state;
+    expect(marks(s1, "P")).toEqual({ bold: true });
+    // Typing into an EMPTY paragraph also sets them (its start is its end).
+    const s2 = insertText(flowDoc([{ p: "E", t: "" }]), createPosition("E" as BlockId, 0), "x", { italic: true }).state;
+    expect(marks(s2, "E")).toEqual({ italic: true });
+  });
+
+  it("typing before the end, or a keystroke with unchanged attrs, writes no entry update (O(1))", () => {
+    const s0 = flowDoc([{ p: "P", t: "ab", markAttrs: { bold: true } }]);
+    const m = getRegistry(s0[STATE_INTERNAL].doc).get("P")?.get("markAttrs");
+    if (!(m instanceof Y.Map)) throw new Error("no markAttrs map");
+    let events = 0;
+    m.observe(() => events++);
+    const mid = insertText(s0, createPosition("P" as BlockId, 1), "x", { italic: true }).state;
+    const same = insertText(mid, createPosition("P" as BlockId, 3), "y", { bold: true, link: "u" }).state;
+    expect(events).toBe(0);
+    expect(marks(same, "P")).toEqual({ bold: true });
+  });
+
+  it("Enter after bold text at the end leaves a bold EMPTY line (the tail keeps ¶B)", () => {
+    const s0 = flowDoc([{ p: "B", t: "ab" }]);
+    const typed = insertText(s0, createPosition("B" as BlockId, 2), "c", { bold: true }).state;
+    const split = splitBlockAtPosition(typed, createPosition("B" as BlockId, 3), createTestAllocator("n")).state;
+    expect(getBlock(split, "B" as BlockId)?.inlineContent?.items).toEqual([]);
+    expect(marks(split, "B")).toEqual({ bold: true });
+    expect(marks(split, "n-0")).toEqual({ bold: true });
+  });
+
+  it("suggesting-style typing at (P, len) then Enter: the empty line carries no suggestion attr and no link", () => {
+    const s0 = flowDoc([{ p: "B", t: "ab" }]);
+    const typed = insertText(s0, createPosition("B" as BlockId, 2), "c", { insertionSuggestionId: "s1", link: "x" }).state;
+    const split = splitBlockAtPosition(typed, createPosition("B" as BlockId, 3), createTestAllocator("n")).state;
+    expect(marks(split, "B")).toBeUndefined();
   });
 });

@@ -1,7 +1,7 @@
 /**
  * @module footnotes/types
  *
- * Shared types for the footnote-numbering module (FN-3). Kept in one place so
+ * Shared types for the footnote-numbering module. Kept in one place so
  * `collect-anchors`, `numbering`, and consumers (render markers, the
  * `resolveFootnotes` layout pass) import from a single source.
  */
@@ -31,7 +31,7 @@ export interface FootnoteAnchorRef {
 
 /**
  * How footnote numbers reset, plus the displayed format. Mirrors the Google
- * Docs footnote settings (per-section in the full model; FN-3 takes a single
+ * Docs footnote settings (per-section in the full model; this module takes a single
  * doc-wide policy — per-section policy variation is a later refinement that
  * does not change this shape).
  */

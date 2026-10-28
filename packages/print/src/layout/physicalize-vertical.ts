@@ -2,7 +2,7 @@ import type { BlockBox, LayoutBox } from "./layout-box";
 import { rebuildBoxWithOffsets } from "./layout-box";
 
 /**
- * P3.1 — the vertical-rl post-layout physicalize pass (C-1 option B).
+ * The vertical-rl post-layout physicalize pass.
  *
  * For `writing-mode: vertical-rl`, a box's physical block-axis coordinate is the
  * right-to-left mirror `x = containerBlockSize − blockOffset − blockSize`. But
@@ -104,7 +104,7 @@ function physicalizeVrl(box: LayoutBox, containerBlockSize: number): LayoutBox {
     // frame. Mirror the container's block-axis x, then recurse each column against
     // THIS box's resolved block-size — the generic `"children" in box` path below
     // would skip `columns` (no `children` field) and leave the columns un-mirrored.
-    // NOTE: vertical-mode multicol is OUT v1 (the design declares columns a
+    // NOTE: vertical-mode multicol is not supported (the design declares columns a
     // horizontal-mode feature), so no producer reaches here today; this arm keeps
     // the pass type-complete should vertical multicol ever be added.
     const cisMc = box.y + box.inlineOffset + box.inlineSize;

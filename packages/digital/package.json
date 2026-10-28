@@ -38,11 +38,12 @@
     "access": "public"
   },
   "peerDependencies": {
-    "@taleweaver/core": "^0.1.0"
+    "@taleweaver/core": "^0.1.0",
+    "yjs": "13.6.30"
   },
   "devDependencies": {
     "typescript": "^5.7",
     "vitest": "^3",
-    "yjs": "~13.6.18"
+    "yjs": "13.6.30"
   }
 }

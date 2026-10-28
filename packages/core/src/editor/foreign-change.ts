@@ -6,7 +6,7 @@ import {
   selectionContextOf,
   positionsEqual,
 } from "../state";
-import type { BlockId, Position, Selection, State } from "../state";
+import type { BlockId, Position, Selection, State, IncompatibleDocumentReport } from "../state";
 import { peekBlock } from "../state/state";
 import { STATE_INTERNAL } from "../state/state-internal";
 import { snapOffset } from "../state/y-inline";
@@ -47,7 +47,7 @@ export function getYDoc(state: State): Y.Doc {
 export function subscribeRemoteChanges(
   state: State,
   onRemoteChange: (dirtyIds: ReadonlySet<BlockId>) => void,
-  onIncompatible: (blockIds: readonly BlockId[]) => void,
+  onIncompatible: (report: IncompatibleDocumentReport) => void,
   onCompatible?: () => void,
   options?: CompatibilityGateOptions,
 ): () => void {

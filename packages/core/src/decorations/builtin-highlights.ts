@@ -130,3 +130,15 @@ export function suggestionGroupDecorations(
   }
   return out;
 }
+
+/** The suggestion ids a built-in suggestion decoration's `data` names (a highlight, or a group); `[]` for any other data. */
+export function suggestionIdsOf(data: unknown): string[] {
+  if (typeof data !== "object" || data === null) return [];
+  if ("suggestionId" in data && typeof data.suggestionId === "string") return [data.suggestionId];
+  if (!("suggestions" in data) || !Array.isArray(data.suggestions)) return [];
+  const out: string[] = [];
+  for (const m of data.suggestions) {
+    if (typeof m === "object" && m !== null && "id" in m && typeof m.id === "string") out.push(m.id);
+  }
+  return out;
+}

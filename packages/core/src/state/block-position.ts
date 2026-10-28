@@ -53,8 +53,7 @@ export function positionsEqual(a: Position, b: Position): boolean {
 /**
  * Compare two positions in the same block. Returns negative/zero/positive
  * by offset. Throws if blockIds differ — cross-block compare requires
- * walking the block tree and lives in `block-compare.ts` (Layer 2 utility,
- * added in Phase 2).
+ * walking the block tree and lives in `block-compare.ts` (Layer 2 utility).
  */
 export function comparePositionsWithinBlock(a: Position, b: Position): number {
   if (a.blockId !== b.blockId) {

@@ -26,6 +26,7 @@ import {
 import * as core from "@taleweaver/core";
 import * as printPkg from "./index";
 import { commentBand, suggestionBand, type TestBand } from "./test-utils/highlight-bands";
+import { finalSection } from "./test-utils/final-section"; // body blocks live in the final section
 
 const { SUGGESTION_HIGHLIGHT_FILL, ACTIVE_SUGGESTION_HIGHLIGHT_FILL, COMMENT_HIGHLIGHT_FILL } = core;
 
@@ -83,7 +84,7 @@ const suggestingConfig: core.EditorConfig = {
 
 /** The first body paragraph id under the document root. */
 function bodyParaId(editor: core.EditorState): core.BlockId {
-  const root = core.getBlock(editor.state, editor.state.rootId);
+  const root = finalSection(editor.state);
   const id = root?.firstChildId;
   if (id === undefined || id === null) throw new Error("no paragraph block");
   return id;
@@ -104,7 +105,7 @@ function seededSuggestion(text: string): { editor: core.EditorState; suggestionI
   let editor = core.createInitialEditorState(suggestingConfig);
   editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text }, suggestingConfig);
   const suggestions = core.getSuggestions(editor.state);
-  const live = suggestions.find((s) => !s.orphaned);
+  const live = suggestions[0];
   if (live === undefined) throw new Error("no live suggestion minted");
   return { editor, suggestionId: live.id };
 }
@@ -196,7 +197,7 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
       suggestingConfig,
     );
     editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "world" }, suggestingConfig);
-    const suggestions = core.getSuggestions(editor.state).filter((s) => !s.orphaned);
+    const suggestions = core.getSuggestions(editor.state);
     expect(suggestions.length).toBeGreaterThanOrEqual(2);
     const [s1, s2] = suggestions;
     if (s1 === undefined || s2 === undefined) throw new Error("expected two suggestions");

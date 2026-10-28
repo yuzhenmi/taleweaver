@@ -10,6 +10,11 @@ import {
 } from "../state";
 import type { State, Position, Selection, Span } from "../state";
 import type { AttrRegistry } from "../cascade/attr-registry";
+import { requireAttrRegistry } from "../state/mark-attrs";
+import { STATE_INTERNAL } from "../state/state-internal";
+
+/** The attr registry bound to the editor's doc (its atomic marks). */
+const registryOf = (state: State): AttrRegistry => requireAttrRegistry(state[STATE_INTERNAL].doc);
 
 /**
  * The atomic UNIT `pos` lies strictly inside, or null: the connected component of
@@ -87,8 +92,9 @@ export function normalizeSelectionForAtomicMarks(
   state: State,
   selection: Selection,
   prev: Selection,
-  registry: AttrRegistry,
 ): Selection {
+  const registry = registryOf(state);
+  if (!registry.hasAtomicMarks()) return selection;
   const collapsed = positionsEqual(selection.anchor, selection.focus);
   if (collapsed) {
     const focus = normalizeEndpoint(state, selection.focus, prev.focus, true, true, false, registry);
@@ -105,8 +111,9 @@ export function normalizeSelectionForAtomicMarks(
  * partly inside it — a delete touching part of an atomic unit (overlapping atomic
  * ranges count as one) removes all of it.
  */
-export function expandSpanOverAtomicMarks(state: State, span: Span, registry: AttrRegistry): Span {
+export function expandSpanOverAtomicMarks(state: State, span: Span): Span {
   const norm = normalizeSpan(state, span);
+  const registry = registryOf(state);
   if (!registry.hasAtomicMarks()) return norm;
   const s = atomicUnitAround(state, norm.anchor, registry);
   const e = atomicUnitAround(state, norm.focus, registry);

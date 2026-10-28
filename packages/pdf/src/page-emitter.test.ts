@@ -6,6 +6,17 @@ import { createStandard14FontProvider } from "./font-provider";
 import type { PdfFontProvider, PdfFontHandle } from "./font-provider";
 import { createMockImageProvider } from "./mock-image-provider";
 import { rectYUp } from "./coordinate";
+import {
+  createDefaultAttrRegistry,
+  createDefaultComponentRegistry,
+  createInitialEditorState,
+  createMockShaper,
+  createPosition,
+  createSpan,
+  reduceEditor,
+  render,
+} from "@taleweaver/core";
+import { layoutTree } from "@taleweaver/print";
 
 const decode = (b: Uint8Array) => new TextDecoder("latin1").decode(b);
 
@@ -131,6 +142,33 @@ describe("emitPageContent", () => {
     expect(s).toContain("6 64.5 Td\n<42> Tj");
   });
 
+  it("skips an embedded soft hyphen but still emits a synthetic hyphen run", () => {
+    const provider = createStandard14FontProvider();
+    const deps = { provider, fontResourceName: () => "/F0", imageResourceName: () => "/Im0" };
+    const soft = textRun({
+      text: "A­B", x: 10, y: 20, width: 16, height: 16, fontSize: 12,
+      clusterWidths: [8, 0, 8],
+    });
+    const s = decode(emitPageContent(page([soft]), deps).contentBytes);
+    expect(s).not.toContain("<ad> Tj");
+    expect(s).toContain("7.5 49.5 Td\n<41> Tj");
+    expect(s).toContain("13.5 49.5 Td\n<42> Tj");
+    const hyphen = textRun({ text: "-", x: 0, y: 0, width: 4, height: 16, fontSize: 12, clusterWidths: [4] });
+    expect(decode(emitPageContent(page([hyphen]), deps).contentBytes)).toContain("<2d> Tj");
+    // A run of ONLY soft hyphens shows nothing, so it is an empty run: no font
+    // registered, no text object, and no tagged Span with an MCID.
+    const onlySoft = textRun({ text: "\u00AD", x: 0, y: 0, width: 0, height: 16, fontSize: 12, clusterWidths: [0] });
+    const cs = { backgroundColor: "transparent" } as unknown as ComputedStyle;
+    const block = { type: "block", key: "b1", x: 0, y: 0, width: 0, height: 16, children: [onlySoft], computedStyle: cs, usedStyle: NO_BORDER_USED_STYLE } as unknown;
+    const r = emitPageContent(page([block]), { ...deps, structureBlockIds: new Set(["b1"]) });
+    const out = decode(r.contentBytes);
+    expect(out).not.toContain("Tf");
+    expect(out).not.toContain("BDC");
+    expect(out).not.toContain("Tj");
+    expect(r.usedHandles).toHaveLength(0);
+    expect(r.structRefs).toHaveLength(0);
+  });
+
   it("runs background then foreground: text emits exactly once across the two passes", () => {
     const run = textRun({ text: "A", x: 0, y: 0, width: 8, height: 16, fontSize: 12, clusterWidths: [8] });
     const provider = createStandard14FontProvider();
@@ -196,7 +234,7 @@ describe("emitPageContent", () => {
       encodeRun: (h, text) =>
         h === ghost
           ? { clusters: [], dropped: text.length }
-          : { clusters: Array.from(text, (ch) => ({ bytes: new Uint8Array([ch.charCodeAt(0)]), unicode: ch })), dropped: 0 },
+          : { clusters: Array.from(text, (ch) => ({ bytes: new Uint8Array([ch.charCodeAt(0)]), unicode: ch, shown: true })), dropped: 0 },
       writeFontObjects: () => new Map(),
     };
     const ghostRun = textRun({ text: "X", x: 0, y: 0, width: 8, height: 16, fontSize: 12, color: "#ff0000", clusterWidths: [8] });
@@ -428,5 +466,37 @@ describe("emitPageContent", () => {
     const s = decode(result.contentBytes);
     expect(s).toContain("0.9412 0.9412 0.9412 rg\n7.5 37.5 30 30 re\nf\n");
     expect(s).not.toContain(" Do\n");
+  });
+});
+
+describe("emitPageContent — suggested-boundary ¶ mark (change tracking)", () => {
+  it("draws the mark from the layout tree: the ¶ glyph and its join strike in the author colour, as an artifact", () => {
+    const componentRegistry = createDefaultComponentRegistry();
+    const attrRegistry = createDefaultAttrRegistry();
+    const direct = { componentRegistry, attrRegistry, containerWidth: 200 };
+    const alice = { ...direct, suggestingAuthor: "alice" };
+    let e = createInitialEditorState(direct);
+    e = reduceEditor(e, { type: "INSERT_TEXT", text: "Anna" }, direct);
+    const first = e.selection.focus.blockId;
+    e = reduceEditor(e, { type: "SPLIT_NODE" }, direct);
+    e = reduceEditor(e, { type: "INSERT_TEXT", text: "Rosa" }, direct);
+    const second = e.selection.focus.blockId;
+    e = reduceEditor(e, { type: "SET_SELECTION", selection: createSpan(createPosition(second, 0), createPosition(second, 0)) }, alice);
+    e = reduceEditor(e, { type: "DELETE_BACKWARD" }, alice); // a pending join, drawn at the end of "Anna"
+    const pageConfig = { pageInlineSize: 200, pageBlockSize: 100, pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 }, pageGap: 10 };
+    const tree = layoutTree(render(e.state, componentRegistry, attrRegistry).root, 200, createMockShaper(8, 16), pageConfig);
+    if (tree.type !== "virtual-root") throw new Error("expected a paginated tree");
+    const { contentBytes } = emitPageContent(tree.getPage(0), {
+      provider: createStandard14FontProvider(),
+      fontResourceName: () => "/F0",
+      imageResourceName: () => "/Im0",
+      structureBlockIds: new Set<string>([first, second]),
+    });
+    const s = decode(contentBytes);
+    // "¶" is WinAnsi 0xB6, drawn (with its strike) inside an artifact sequence.
+    const m = /(\S+ \S+ \S+ rg)\n\/Artifact BDC\nBT\n\/F0 \S+ Tf\n\S+ \S+ Td\n<b6> Tj\nET\n(\S+ \S+ \S+ rg)\n\S+ \S+ \S+ \S+ re\nf\nEMC/.exec(s);
+    expect(m).not.toBeNull();
+    expect(m?.[1]).not.toBe("0 0 0 rg"); // the author colour, not the run's black
+    expect(m?.[2]).toBe(m?.[1]);
   });
 });

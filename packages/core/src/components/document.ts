@@ -11,7 +11,7 @@ import { writingModeFromAttrs, langFromAttrs } from "./leaf-style-attrs";
  * `whiteSpace: "break-spaces"` is the editor's body default — matching Google
  * Docs' trailing-space behavior. A word processor preserves every space the
  * user types (leading, interior runs, trailing) and wraps at WORD boundaries.
- * Trailing whitespace at a soft-wrap boundary HANGS (#338): a space unit never
+ * Trailing whitespace at a soft-wrap boundary HANGS: a space unit never
  * wraps to the next line on its own (only words wrap), and a hung space is
  * CLAMPED to the line's content edge — its box geometry and the caret are
  * pinned to the edge, so no number of trailing spaces pushes a glyph or the
@@ -54,30 +54,8 @@ export const documentComponent: ContainerComponentDefinition = {
       // feeding PDF `/Lang` and per-block auto-hyphenation. See leaf-style-attrs.ts.
       ...(language !== undefined ? { language } : {}),
     };
-    return createElementBox(
-      view.id,
-      style,
-      childRenderNodes,
-      // The implicit-section default header/footer body ids (C.2c). A
-      // section-less document (or the leading section-less run) takes its
-      // header/footer from the doc root's own attrs; `section-plan`'s
-      // `buildSectionPlan` reads these off `cascadedRoot.metadata` onto the
-      // implicit/leading boundary. Stamped RAW (no AttrRegistry interpreter),
-      // mirroring how the section component stamps per-section ids; the plan
-      // coerces them (string ⇒ BlockId, else undefined).
-      {
-        headerBlockId: view.attrs.headerBlockId,
-        footerBlockId: view.attrs.footerBlockId,
-        // Whole-doc multi-column default (Format ▸ Columns applied with no
-        // section break). `buildSectionPlan` reads these off `cascadedRoot.metadata`
-        // (the doc-root box IS the cascaded root) via `resolveColumnConfig` into
-        // `effectiveDefaultColumns`, mirroring how the per-section component stamps
-        // its own overrides and how `headerBlockId`/`footerBlockId` flow doc-wide.
-        // Stamped RAW (no AttrRegistry interpreter); the plan validates them.
-        columnCount: view.attrs.columnCount,
-        columnGap: view.attrs.columnGap,
-        columnRule: view.attrs.columnRule,
-      },
-    );
+    // Page keys (header / footer links, columns) live on the sections — the final
+    // section always exists; the root stamps none.
+    return createElementBox(view.id, style, childRenderNodes);
   },
 };

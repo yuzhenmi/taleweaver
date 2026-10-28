@@ -9,6 +9,7 @@ import {
   isCrossContextSelection,
   expandedSpanCollapsePoint,
   moveByCharacter,
+  caretAfterMarkers,
   expandSelection,
   seedAnchorAffinity,
   isTextShaper,
@@ -23,12 +24,12 @@ import {
 } from "@taleweaver/core";
 import { moveToLine, moveToLineBoundary } from "../cursor/line-navigation";
 import { resolveLineForPosition, buildBlockGraphemeStepper } from "../cursor/visual-motion";
-import { buildLineBidiView, moveVisually } from "../cursor/line-bidi";
+import { buildLineBidiView, moveVisually, type GraphemeStepper, type LineBidiView, type MoveVisuallyResult } from "../cursor/line-bidi";
 import type { LayoutBox } from "../layout/layout-node";
 import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
 
 /**
- * The geometric-navigation INTENTS the print backend owns (Phase 0b). Core's
+ * The geometric-navigation INTENTS the print backend owns. Core's
  * reducer is geometry-free: it has NO MOVE_CURSOR / MOVE_LINE / EXPAND_* /
  * DELETE_LINE actions. Instead the controller maps the keystroke to one of these
  * `NavIntent`s, the backend's `resolveNavIntent` reads the driver-built
@@ -152,7 +153,7 @@ function resolveMoveCursor(
 
   const view = buildLineBidiView(line);
   const step = buildBlockGraphemeStepper(editor.state, selection.focus.blockId);
-  const result = moveVisually(view, selection.focus.offset, editor.caretAffinity, visualDir, step);
+  const result = stepPastMarkers(editor, view, visualDir, step);
 
   if ("exit" in result) {
     const newFocus = moveByCharacter(editor.state, selection.focus, result.exitLogicalDir);
@@ -161,6 +162,32 @@ function resolveMoveCursor(
 
   const newFocus: Position = { blockId: selection.focus.blockId, offset: result.offset };
   return setCaret(newFocus, result.caretAffinity, null);
+}
+
+/**
+ * One visual caret step from the focus that never stops beside a structural marker
+ * (bookmark / comment): the landing offset is normalized through
+ * core `caretAfterMarkers`; a landing that normalizes back to the focus (a gap
+ * between a marker and a character) steps again from there, so one press crosses
+ * one character. Block-local; each offset is visited at most once.
+ */
+function stepPastMarkers(
+  editor: EditorState,
+  view: LineBidiView,
+  visualDir: "left" | "right",
+  step: GraphemeStepper,
+): MoveVisuallyResult {
+  const focus = editor.selection.focus;
+  const seen = new Set<number>([focus.offset]);
+  let result = moveVisually(view, focus.offset, editor.caretAffinity, visualDir, step);
+  while (!("exit" in result)) {
+    const landed = caretAfterMarkers(editor.state, createPosition(focus.blockId, result.offset)).offset;
+    if (landed !== focus.offset) return landed === result.offset ? result : { offset: landed, caretAffinity: "after" };
+    if (seen.has(result.offset)) return result;
+    seen.add(result.offset);
+    result = moveVisually(view, result.offset, result.caretAffinity, visualDir, step);
+  }
+  return result;
 }
 
 // ── EXPAND_SELECTION (was expand-selection.ts) ─────────────────────────────
@@ -189,7 +216,7 @@ function resolveExpandSelection(
 
   const view = buildLineBidiView(line);
   const step = buildBlockGraphemeStepper(editor.state, selection.focus.blockId);
-  const result = moveVisually(view, selection.focus.offset, editor.caretAffinity, visualDir, step);
+  const result = stepPastMarkers(editor, view, visualDir, step);
 
   if ("exit" in result) {
     return logicalExtend(editor, result.exitLogicalDir, newAnchorAffinity);
@@ -302,7 +329,7 @@ function resolveMoveLineBoundary(
   );
   if (pos === null) return null;
   const caretAffinity: CaretAffinity = boundary === "start" ? "after" : "before";
-  return setCaret(pos, caretAffinity, null);
+  return setCaret(caretAfterMarkers(editor.state, pos), caretAffinity, null);
 }
 
 // ── EXPAND_LINE_BOUNDARY (was expand-line-boundary.ts) ─────────────────────
@@ -326,7 +353,7 @@ function resolveExpandLineBoundary(
   const caretAffinity: CaretAffinity = boundary === "start" ? "after" : "before";
   return {
     type: "SET_SELECTION",
-    selection: createSpan(editor.selection.anchor, pos),
+    selection: createSpan(editor.selection.anchor, caretAfterMarkers(editor.state, pos)),
     caretAffinity,
     anchorAffinity: newAnchorAffinity,
     targetX: null,

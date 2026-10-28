@@ -1,14 +1,11 @@
+import type { BlockKindResolver } from "./block-kinds";
 import type { Block } from "./block";
+import type { ReadonlyAttrs } from "./attrs";
 import type { BlockId } from "./block-id";
 import { createState, type State } from "./state";
 import { STATE_INTERNAL } from "./state-internal";
-import {
-  runTransaction,
-  getBlocksMap,
-  getEmbedContentsMap,
-  getTemplateContentsMap,
-} from "./yjs-doc";
-import { buildYBlock } from "./y-block";
+import { writeRoot, type TreeNode } from "./flow-ops";
+import type { TreeKind } from "./registry";
 import { writeListDefInTx, type ListDef } from "./list-defs";
 import { writeCommentRecordInTx, type CommentRecord } from "./comments";
 import { writeSuggestionRecordInTx, type SuggestionRecord } from "./suggestions";
@@ -28,6 +25,8 @@ export interface BuildStateFromBlocksArgs {
   readonly comments?: ReadonlyArray<CommentRecord>;
   /** Suggestion records, written into the top-level `suggestions` Y.Map. */
   readonly suggestions?: ReadonlyArray<SuggestionRecord>;
+  /** Storage-shape authority (the component registry), bound to the new doc. */
+  readonly resolver: BlockKindResolver;
 }
 
 /**
@@ -45,61 +44,13 @@ export interface BuildStateFromBlocksArgs {
  * `test-utils/state-builders.buildState`, which delegates here.
  */
 export function buildStateFromBlocks(args: BuildStateFromBlocksArgs): State {
-  const state = createState({ rootId: args.rootId });
+  const state = createState({ rootId: args.rootId, resolver: args.resolver });
   const doc = state[STATE_INTERNAL].doc;
-  runTransaction(doc, () => {
-    const yBlocks = getBlocksMap(doc);
-    for (const block of args.blocks) {
-      yBlocks.set(
-        block.id,
-        buildYBlock({
-          type: block.type,
-          attrs: block.attrs,
-          parentId: block.parentId,
-          prevSiblingId: block.prevSiblingId,
-          nextSiblingId: block.nextSiblingId,
-          firstChildId: block.firstChildId,
-          lastChildId: block.lastChildId,
-          inlineContent: block.inlineContent,
-        }),
-      );
-    }
-    if (args.embedContents !== undefined) {
-      const yEmbeds = getEmbedContentsMap(doc);
-      for (const block of args.embedContents) {
-        yEmbeds.set(
-          block.id,
-          buildYBlock({
-            type: block.type,
-            attrs: block.attrs,
-            parentId: block.parentId,
-            prevSiblingId: block.prevSiblingId,
-            nextSiblingId: block.nextSiblingId,
-            firstChildId: block.firstChildId,
-            lastChildId: block.lastChildId,
-            inlineContent: block.inlineContent,
-          }),
-        );
-      }
-    }
-    if (args.templateContents !== undefined) {
-      const yTemplates = getTemplateContentsMap(doc);
-      for (const block of args.templateContents) {
-        yTemplates.set(
-          block.id,
-          buildYBlock({
-            type: block.type,
-            attrs: block.attrs,
-            parentId: block.parentId,
-            prevSiblingId: block.prevSiblingId,
-            nextSiblingId: block.nextSiblingId,
-            firstChildId: block.firstChildId,
-            lastChildId: block.lastChildId,
-            inlineContent: block.inlineContent,
-          }),
-        );
-      }
-    }
+  doc.transact(() => {
+    const main = treesOf(args.blocks, args.rootId);
+    for (const root of main) writeRoot(doc, root, "block");
+    writeRoots(doc, args.embedContents, "embedContent");
+    writeRoots(doc, args.templateContents, "templateContent");
     if (args.listDefs !== undefined) {
       for (const [listId, def] of Object.entries(args.listDefs)) {
         writeListDefInTx(doc, listId, def);
@@ -119,10 +70,68 @@ export function buildStateFromBlocks(args: BuildStateFromBlocksArgs): State {
   return state;
 }
 
+function writeRoots(doc: Parameters<typeof writeRoot>[0], blocks: ReadonlyArray<Block> | undefined, tree: TreeKind): void {
+  if (blocks === undefined) return;
+  for (const root of treesOf(blocks, null)) writeRoot(doc, root, tree);
+}
+
+/**
+ * Pointer-described blocks → trees. Children follow the `firstChildId` →
+ * `nextSiblingId` chain; a block naming a parent but missing from that chain is
+ * appended after it (list order). Roots: `rootId`, or every block with
+ * `parentId === null` when `rootId` is null.
+ */
+export function treesOf(
+  blocks: ReadonlyArray<Block>,
+  rootId: BlockId | null,
+  markAttrsOf?: (b: Block) => ReadonlyAttrs | undefined,
+): TreeNode[] {
+  const byId = new Map<BlockId, Block>();
+  for (const b of blocks) byId.set(b.id, b);
+  const childrenOf = new Map<BlockId, Block[]>();
+  for (const b of blocks) {
+    if (b.parentId === null) continue;
+    const list = childrenOf.get(b.parentId) ?? [];
+    list.push(b);
+    childrenOf.set(b.parentId, list);
+  }
+  const visited = new Set<BlockId>();
+  const node = (b: Block): TreeNode => {
+    visited.add(b.id);
+    const kids: TreeNode[] = [];
+    const seen = new Set<BlockId>();
+    for (let c = b.firstChildId; c !== null && !seen.has(c); ) {
+      seen.add(c);
+      const cb = byId.get(c);
+      if (cb === undefined) break;
+      kids.push(node(cb));
+      c = cb.nextSiblingId;
+    }
+    for (const cb of childrenOf.get(b.id) ?? []) {
+      if (!seen.has(cb.id) && !visited.has(cb.id)) kids.push(node(cb));
+    }
+    return {
+      id: b.id,
+      type: b.type,
+      attrs: b.attrs,
+      inlineContent: b.inlineContent,
+      children: kids,
+      ...(b.breakSuggestion !== undefined ? { breakSuggestion: b.breakSuggestion } : {}),
+      ...(markAttrsOf !== undefined ? { markAttrs: markAttrsOf(b) } : b.markAttrs !== undefined ? { markAttrs: b.markAttrs } : {}),
+    };
+  };
+  if (rootId !== null) {
+    const r = byId.get(rootId);
+    return r === undefined ? [] : [node(r)];
+  }
+  return blocks.filter((b) => b.parentId === null).map(node);
+}
+
 export interface BuildStateWithListDefsArgs {
   readonly rootId: BlockId;
   readonly blocks: ReadonlyArray<Block>;
   readonly listDefs: Record<string, ListDef>;
+  readonly resolver: BlockKindResolver;
 }
 
 /**
@@ -141,5 +150,6 @@ export function buildStateWithListDefs(
     rootId: args.rootId,
     blocks: args.blocks,
     listDefs: args.listDefs,
+    resolver: args.resolver,
   });
 }

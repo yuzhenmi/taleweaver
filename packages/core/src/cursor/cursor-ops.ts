@@ -1,5 +1,6 @@
 import { resolveBlock, createPosition, createSpan, inlineContentLength, findItemAtOffset, nextBlockInDocOrder, prevBlockInDocOrder } from "../state";
-import type { State, BlockId, Position, Span, InlineContent } from "../state";
+import type { State, BlockId, Position, Span, InlineContent, InlineItem } from "../state";
+import { isStructuralMarkerEmbedType } from "../state/embed-markers";
 import {
   nextGraphemeBoundary,
   prevGraphemeBoundary,
@@ -33,16 +34,19 @@ export function moveByCharacter(
   const content: InlineContent = block.inlineContent ?? { items: [] };
   const total = inlineContentLength(content);
 
+  // Markers are not caret stops: a move skips the markers on its side first,
+  // crosses ONE character, and lands after any markers adjacent to it.
   if (direction === "forward") {
-    if (position.offset >= total) {
+    const from = offsetAfterMarkers(content, position.offset);
+    if (from >= total) {
       const next = findNextContentBlock(state, position.blockId);
-      return next === null ? position : createPosition(next, 0);
+      return next === null ? position : caretAfterMarkers(state, createPosition(next, 0));
     }
-    const advanced = advanceForward(content, position.offset);
-    return createPosition(position.blockId, advanced);
+    return createPosition(position.blockId, offsetAfterMarkers(content, advanceForward(content, from)));
   }
 
-  if (position.offset <= 0) {
+  const from = offsetBeforeMarkers(content, position.offset);
+  if (from <= 0) {
     const prev = findPrevContentBlock(state, position.blockId);
     if (prev === null) return position;
     const prevBlock = resolveBlock(state, prev)?.block ?? null;
@@ -50,8 +54,7 @@ export function moveByCharacter(
     const prevTotal = inlineContentLength(prevBlock.inlineContent ?? { items: [] });
     return createPosition(prev, prevTotal);
   }
-  const retreated = advanceBackward(content, position.offset);
-  return createPosition(position.blockId, retreated);
+  return createPosition(position.blockId, advanceBackward(content, from));
 }
 
 /**
@@ -237,8 +240,8 @@ function advanceWordBackward(content: InlineContent, offset: number): number {
  * an empty block or with no preceding word in the block, returns a
  * collapsed span at `position`. Position on an embed also collapses.
  *
- * Operates within a single block — does not cross block boundaries. (A
- * P11.x action that wants triple-click or similar may compose this with
+ * Operates within a single block — does not cross block boundaries. (An
+ * action that wants triple-click or similar may compose this with
  * cross-block logic.)
  */
 export function selectWord(state: State, position: Position): Span {
@@ -293,4 +296,54 @@ export function expandSelection(
 ): Span {
   const newFocus = moveByCharacter(state, span.focus, direction);
   return createSpan(span.anchor, newFocus);
+}
+
+/** True when `item` is a zero-width structural marker (bookmark / comment start or end). */
+function isMarkerItem(item: InlineItem | undefined): boolean {
+  return item?.kind === "embed" && isStructuralMarkerEmbedType(item.embedType);
+}
+
+/**
+ * Caret affinity at structural markers (Word): markers are not caret
+ * stops — a caret Position adjacent to markers stands AFTER every adjacent marker, so
+ * typing at a bookmark's (or comment's) start lands inside it and at its end outside.
+ * Returns `offset` moved past the run of markers starting at it. O(items before
+ * `offset` + adjacent markers) — block-local, never a document scan.
+ */
+function offsetAfterMarkers(content: InlineContent, offset: number): number {
+  const { itemIndex, withinItem } = findItemAtOffset(content, offset);
+  if (withinItem !== 0) return offset;
+  let at = offset;
+  for (let i = itemIndex; isMarkerItem(content.items[i]); i++) at++;
+  return at;
+}
+
+/** `offset` moved back over the run of markers ending at it (the marker-skipping half of a backward move). */
+function offsetBeforeMarkers(content: InlineContent, offset: number): number {
+  const { itemIndex, withinItem } = findItemAtOffset(content, offset);
+  if (withinItem !== 0) return offset;
+  let at = offset;
+  for (let i = itemIndex - 1; isMarkerItem(content.items[i]); i--) at--;
+  return at;
+}
+
+/**
+ * THE caret-affinity normalization: `position` moved past every structural
+ * marker adjacent on its right. Every caret-producing point applies it — core's reducer
+ * entry for every caret insertion (`INSERTS_AT_CARET`) and character moves; print's hit-test / arrow keys and digital's DOM bridge call it
+ * too. Unknown or container blocks return `position` unchanged.
+ */
+export function caretAfterMarkers(state: State, position: Position): Position {
+  const content = resolveBlock(state, position.blockId)?.block.inlineContent ?? null;
+  if (content === null) return position;
+  const at = offsetAfterMarkers(content, position.offset);
+  return at === position.offset ? position : createPosition(position.blockId, at);
+}
+
+/** `position` moved back before every structural marker adjacent on its left (where a backward move starts). */
+export function caretBeforeMarkers(state: State, position: Position): Position {
+  const content = resolveBlock(state, position.blockId)?.block.inlineContent ?? null;
+  if (content === null) return position;
+  const at = offsetBeforeMarkers(content, position.offset);
+  return at === position.offset ? position : createPosition(position.blockId, at);
 }

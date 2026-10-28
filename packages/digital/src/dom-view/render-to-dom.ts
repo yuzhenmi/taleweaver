@@ -17,6 +17,9 @@ import {
   asBlockId,
   cascadePass,
   isExportSafeLinkUrl,
+  HARD_BREAK_EMBED_TYPE,
+  composeComputed,
+  type BoundaryMarkMetadata,
 } from "@taleweaver/core";
 import { computedStyleToInlineStyle } from "./computed-style-to-css";
 import { decorateBlockElement, applyHostClassAndAttributes } from "./decorate-dom";
@@ -144,7 +147,8 @@ function elementBoxToDom(box: ElementBox, doc: Document, stamp: boolean, decorat
     applyStyle(h, box);
     stampBlockId(h, box, stamp, "block");
     appendChildren(h, box.children, doc, childStamp(stamp, "block"), decorations);
-    fillEmptyLineHost(h, "block", doc);
+    appendEndMark(h, box, doc);
+    fillEmptyLineHost(h, "block", doc, box);
     decorate(h, box, decorations, doc);
     return h;
   }
@@ -164,7 +168,7 @@ function elementBoxToDom(box: ElementBox, doc: Document, stamp: boolean, decorat
     applyStyle(img, box);
     // A block image box reached on the block path IS stamped; an inline-image inner box reached
     // via the inline-embed subtree arrives with stamp=false (childStamp turned it off), so this
-    // no-ops there — the F6 fix.
+    // no-ops there.
     stampBlockId(img, box, stamp, "block");
     decorate(img, box, decorations, doc); // block decorations only (an image has no inline content)
     return img;
@@ -177,6 +181,12 @@ function elementBoxToDom(box: ElementBox, doc: Document, stamp: boolean, decorat
     return frag;
   }
   if (display === "none") return null;
+  if (m?.embedType === HARD_BREAK_EMBED_TYPE) {
+    // A soft line break (Shift+Enter): one offset unit that breaks the line.
+    const br = doc.createElement("br");
+    stampInlineEmbed(br, box, stamp);
+    return br;
+  }
 
   const tag =
     display === "list-item" ? "li"
@@ -194,7 +204,8 @@ function elementBoxToDom(box: ElementBox, doc: Document, stamp: boolean, decorat
   // childStamp forces stamp=false when `display` is inline/inline-block (run-wrapper OR
   // inline-embed outer box) — so the inline-image inner display:block box never sees stamp=true.
   appendChildren(elem, box.children, doc, childStamp(stamp, display), decorations);
-  fillEmptyLineHost(elem, display, doc);
+  appendEndMark(elem, box, doc);
+  fillEmptyLineHost(elem, display, doc, box);
   decorate(elem, box, decorations, doc);
   return elem;
 }
@@ -220,23 +231,117 @@ function elementBoxToDom(box: ElementBox, doc: Document, stamp: boolean, decorat
 const LINE_HOST_DISPLAYS: ReadonlySet<ComputedStyle["display"]> = new Set([
   "block", "flow-root", "list-item", "table-cell",
 ]);
-function fillEmptyLineHost(elem: HTMLElement, display: ComputedStyle["display"], doc: Document): void {
+function fillEmptyLineHost(elem: HTMLElement, display: ComputedStyle["display"], doc: Document, box: ElementBox): void {
   if (!LINE_HOST_DISPLAYS.has(display)) return;
   if (elem.querySelector("[data-block-id]") !== null) return; // a container (nested blocks), not an empty line
-  if ((elem.textContent ?? "") !== "") return; // has text → already has a line box
-  if (elem.querySelector("img, [data-inline-embed]") !== null) return; // replaced/embed content → has a box
-  const br = doc.createElement("br");
-  br.setAttribute("data-tw-empty-line", "");
-  elem.replaceChildren(br); // drop empty styled spans; the filler IS the line box
+  // Generated nodes (a boundary ¶ anchor) are not content: they neither make the line
+  // non-empty nor get dropped.
+  const content = Array.from(elem.childNodes).filter((n) => !isGenerated(n));
+  const last = content[content.length - 1];
+  if (last instanceof HTMLElement && last.tagName === "BR" && last.hasAttribute("data-inline-embed")) {
+    // A soft break ending the paragraph: a trailing <br> alone draws no next line.
+    elem.append(emptyLineFiller(doc));
+    return;
+  }
+  if (content.some((n) => (n.textContent ?? "") !== "")) return; // has text → already has a line box
+  if (content.some((n) => n instanceof HTMLElement && (n.matches("img, [data-inline-embed]") || n.querySelector("img, [data-inline-embed]") !== null))) return; // replaced/embed content → has a box
+  for (const n of content) n.remove(); // drop empty styled spans; the filler IS the line box
+  const filler = emptyLineFiller(doc);
+  // The line takes the ¶'s character props (render's strut sentinel carries `markAttrs`),
+  // as print's strut: the <br>'s own font sizes the empty line.
+  const strut = box.children.length === 1 ? box.children[0] : undefined;
+  const css = strut?.type === "text" && box.computedStyle !== undefined && strut.computedStyle !== undefined ? characterCss(strut.computedStyle, box.computedStyle) : "";
+  if (css !== "") filler.setAttribute("style", css);
+  elem.append(filler); // AFTER the generated ¶ anchor: the ¶ precedes the filler
 }
 
-/** Block-level display values — the ones that can host more block boxes (F6 propagation gate). */
+/** The character declarations (font, colour, decoration, spacing) of `cs` that differ from `base`'s. */
+function characterCss(cs: ComputedStyle, base: ComputedStyle): string {
+  return computedStyleToInlineStyle(cs, base)
+    .split("; ")
+    .filter((d) => /^(font-|color|background-color|text-decoration|letter-spacing|word-spacing|text-transform)/.test(d))
+    .join("; ");
+}
+
+function emptyLineFiller(doc: Document): HTMLElement {
+  const br = doc.createElement("br");
+  br.setAttribute("data-tw-empty-line", "");
+  return br;
+}
+
+/** Engine-generated, offset-less DOM (the boundary ¶ anchor). */
+function isGenerated(node: Node): boolean {
+  return node instanceof HTMLElement && node.hasAttribute(GENERATED_ATTR);
+}
+
+/** Attribute on engine-generated DOM that carries no content offsets (zero cursor stops). */
+export const GENERATED_ATTR = "data-tw-generated";
+/** Attribute listing the suggestion ids a generated ¶ names (space-separated). */
+export const SUGGESTION_ID_ATTR = "data-tw-suggestion-id";
+
+/**
+ * Draw a text block's tracked ¶ (`metadata.endMark`, change tracking — the block's OWN
+ * paragraph mark at (block, len); a `section-*` kind is a section-end item, drawn as Word's
+ * "Section Break" label) the way list markers are drawn: a zero-size, non-editable,
+ * `aria-hidden` END anchor appended after the content (see {@link endAnchor}). In an empty
+ * block it precedes the filler `<br>` (see {@link fillEmptyLineHost}); host widgets at
+ * (block, len) are inserted before it (decorate-dom). The selection bridge skips generated
+ * nodes.
+ */
+function appendEndMark(elem: HTMLElement, box: ElementBox, doc: Document): void {
+  const mark = box.metadata?.endMark;
+  if (mark !== undefined) elem.appendChild(endMarkAnchor(mark, doc));
+}
+
+/** The label of a section-end item (Word: "Section Break"; print draws the same words). */
+const SECTION_BREAK_LABEL = "Section Break";
+
+function endMarkAnchor(mark: BoundaryMarkMetadata, doc: Document): HTMLElement {
+  const label = mark.kind.startsWith("section") ? SECTION_BREAK_LABEL : "¶";
+  const anchor = endAnchor(doc, "tw-break-mark", "tw-break-mark-glyph", label, `text-decoration-line: ${breakDecorationLine(mark.kind)}` + (mark.color !== null ? `; color: ${mark.color}` : ""));
+  anchor.setAttribute("data-tw-break-kind", mark.kind);
+  anchor.setAttribute(SUGGESTION_ID_ATTR, mark.suggestionIds.join(" "));
+  return anchor;
+}
+
+/** `text-decoration-line` for a tracked ¶ kind: insert / split → underline, join → strike. */
+function breakDecorationLine(kind: BoundaryMarkMetadata["kind"]): string {
+  const lines = [/split|insert/.test(kind) ? "underline" : "", kind.includes("join") ? "line-through" : ""].filter((d) => d !== "");
+  return lines.length > 0 ? lines.join(" ") : "none";
+}
+
+/** Attribute on every generated END anchor (a tracked ¶, a selected-¶ indicator). */
+export const END_ANCHOR_ATTR = "data-tw-end-anchor";
+
+/**
+ * A generated END anchor (a hanging ¶): a zero-size, non-editable, `aria-hidden`
+ * inline span (`position: relative`) holding an absolutely positioned glyph that starts
+ * at the caret position after the content, so it never takes line space, wraps, or
+ * carries the caret. Its glyph is clipped at a table cell's border box by `cell-clip.ts`.
+ */
+export function endAnchor(doc: Document, anchorClass: string, glyphClass: string, text: string, glyphStyle: string): HTMLElement {
+  const anchor = doc.createElement("span");
+  anchor.setAttribute(GENERATED_ATTR, "");
+  anchor.setAttribute(END_ANCHOR_ATTR, "");
+  anchor.setAttribute("class", anchorClass);
+  anchor.setAttribute("aria-hidden", "true");
+  anchor.setAttribute("contenteditable", "false");
+  anchor.setAttribute("style", "position: relative; display: inline; width: 0");
+  const glyph = doc.createElement("span");
+  glyph.setAttribute("class", glyphClass);
+  glyph.setAttribute("style", `position: absolute; inset-inline-start: 0; inset-block-start: 0; white-space: nowrap; user-select: none; ${glyphStyle}`);
+  glyph.appendChild(doc.createTextNode(text));
+  anchor.appendChild(glyph);
+  return anchor;
+}
+
+/** Block-level display values — the ones that can host more block boxes (the stamp propagation gate). */
 function isBlockLevelDisplay(display: ComputedStyle["display"]): boolean {
   return display !== "inline" && display !== "inline-block";
 }
 
 /**
- * Stamp `data-block-id={box.key}` on a BLOCK-LEVEL element box only (digital, 2a / F6 option (a)).
+ * Stamp `data-block-id={box.key}` on a BLOCK-LEVEL element box only.
  * The caller passes a `stamp` flag that is TRUE only on the block-render path and is forced FALSE
  * the moment recursion descends into inline-expansion content (a run-wrapper OR an inline-embed
  * subtree). So this stamps iff: `stamp` is still true (no inline ancestor) AND the box is NOT an
@@ -245,7 +350,7 @@ function isBlockLevelDisplay(display: ComputedStyle["display"]): boolean {
  * inline-expansion descendant (including the inline-image inner `display:block` box, key
  * `${blockId}/inline/${i}/0`) from reaching this with `stamp=true`. The bridge walks up to the
  * nearest `[data-block-id]`, so stamping a composite inline key would corrupt every offset
- * mapping (spec C1/F6) — hence the strict block-only gate.
+ * mapping — hence the strict block-only gate.
  */
 function stampBlockId(elem: HTMLElement, box: ElementBox, stamp: boolean, display: ComputedStyle["display"]): void {
   if (!stamp) return;
@@ -254,7 +359,7 @@ function stampBlockId(elem: HTMLElement, box: ElementBox, stamp: boolean, displa
   elem.setAttribute("data-block-id", box.key);
 }
 
-/** Stamp `data-inline-embed` on an inline-embed element box (digital, 2a / spec F1). */
+/** Stamp `data-inline-embed` on an inline-embed element box. */
 function stampInlineEmbed(elem: HTMLElement, box: ElementBox, stamp: boolean): void {
   if (!stamp) return;
   if (box.metadata?.embedType === undefined) return;
@@ -265,7 +370,7 @@ function stampInlineEmbed(elem: HTMLElement, box: ElementBox, stamp: boolean): v
  * The `stamp` flag to pass into a box's CHILD recursion. It stays TRUE only while we are on the
  * block→block path: descending into ANY inline-level box (a run-wrapper OR an inline-embed outer
  * box, both `display` inline/inline-block) forces it FALSE for the whole subtree, so no
- * inline-expansion descendant is ever stamped (F6 option (a)).
+ * inline-expansion descendant is ever stamped.
  */
 function childStamp(stamp: boolean, display: ComputedStyle["display"]): boolean {
   return stamp && isBlockLevelDisplay(display);
@@ -332,7 +437,11 @@ function appendChildren(
       stack = stack.slice(0, level);
       stack[level] = { el: listEl, listId: lm.listId };
     }
-    if (child.type === "element") stack[level]?.el.appendChild(listItemToDom(child, doc, stamp, decorations));
+    const list = stack[level]?.el;
+    if (child.type === "element" && list !== undefined) {
+      const li = listItemToDom(child, doc, stamp, decorations);
+      list.appendChild(li);
+    }
   }
 }
 
@@ -367,9 +476,10 @@ function listItemToDom(child: ElementBox, doc: Document, stamp: boolean, decorat
   li.setAttribute("style", `${liStyle !== null && liStyle !== "" ? `${liStyle}; ` : ""}list-style: none; position: relative`);
   stampBlockId(li, child, stamp, "list-item");
   appendChildren(li, child.children, doc, childStamp(stamp, "list-item"), decorations);
-  fillEmptyLineHost(li, "list-item", doc); // BEFORE the marker: an empty item must still get a filler
+  appendEndMark(li, child, doc);
+  fillEmptyLineHost(li, "list-item", doc, child); // BEFORE the marker: an empty item must still get a filler
   decorate(li, child, decorations, doc);
-  renderListMarker(li, child.computedStyle?.markerText, doc); // generated marker (abs-pos, bridge-excluded) LAST
+  renderListMarker(li, child, doc); // generated marker (abs-pos, bridge-excluded) LAST
   return li;
 }
 
@@ -384,8 +494,14 @@ function listItemToDom(child: ElementBox, doc: Document, stamp: boolean, decorat
  * units (generated content, zero cursor stops — the same contract as the paginated marker box).
  * Absent/empty `markerText` (a non-numbered item) emits no marker.
  */
-function renderListMarker(li: HTMLElement, markerText: string | undefined, doc: Document): void {
+function renderListMarker(li: HTMLElement, item: ElementBox, doc: Document): void {
+  const itemCs = item.computedStyle;
+  const markerText = itemCs?.markerText;
   if (markerText === undefined || markerText === "") return;
+  // The marker's character props: the ¶'s (`list.markerStyle`, Word formats the number
+  // with the ¶'s rPr), as print's marker box — only what differs from the item's.
+  const markerStyle = item.metadata?.list?.markerStyle;
+  const own = markerStyle === undefined || itemCs === undefined ? "" : characterCss(composeComputed(markerStyle, itemCs), itemCs);
   const marker = doc.createElement("span");
   marker.setAttribute("data-tw-marker", "");
   marker.setAttribute("contenteditable", "false");
@@ -395,7 +511,7 @@ function renderListMarker(li: HTMLElement, markerText: string | undefined, doc: 
   // which for an EMPTY item is the line AFTER the filler `<br>`, dropping the bullet
   // to the next line until content is typed. Pinning keeps it on the first line in
   // both the empty and non-empty cases.
-  marker.setAttribute("style", "position: absolute; inset-inline-start: 0; inset-block-start: 0; user-select: none; pointer-events: none; white-space: nowrap");
+  marker.setAttribute("style", `position: absolute; inset-inline-start: 0; inset-block-start: 0; user-select: none; pointer-events: none; white-space: nowrap${own !== "" ? `; ${own}` : ""}`);
   marker.appendChild(doc.createTextNode(markerText));
   li.appendChild(marker);
 }

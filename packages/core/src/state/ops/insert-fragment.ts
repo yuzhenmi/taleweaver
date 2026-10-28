@@ -24,9 +24,11 @@ import { isCollapsed } from "../../cursor/selection";
 import { getListDefsForState } from "../list-defs";
 import { writeListDefInTx } from "../list-defs";
 import { newListId } from "../block-id";
-import { getEmbedContentsMap, getTreeMap, getYBlock, getSuggestionsMap, type BlockTreeKind } from "../yjs-doc";
-import { buildYBlock, buildYAttrs } from "../y-block";
-import { ancestorChain } from "../block-traversal";
+import { getSuggestionsMap, type BlockTreeKind } from "../yjs-doc";
+import { insertChildren, writeRoot, writeBlockAttrs, writeBlockType, writeTypedMarkAttrs, type TreeNode } from "../flow-ops";
+import type { ReadonlyAttrs } from "../attrs";
+import { treesOf } from "../build-state-from-blocks";
+import { ancestorChain, topLevelBlockIds } from "../block-traversal";
 import { FOOTNOTE_ANCHOR_EMBED_TYPE } from "./insert-footnote";
 import { STATE_INTERNAL } from "../state-internal";
 import type { SuggestionId, SuggestionRecord } from "../suggestions";
@@ -38,8 +40,6 @@ import {
   DELETION_SUGGESTION_ATTR,
   formattingSuggestionIds,
   formattingSuggestionKey,
-  BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
-  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
 } from "../suggestions";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -52,7 +52,7 @@ export interface InsertFragmentResult extends OperationResult {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// T7: suggestion-record transfer + id remap
+// Suggestion-record transfer + id remap
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -86,7 +86,7 @@ function buildSuggestionIdRemap(fragmentState: State): {
 
 /**
  * Rewrite suggestion ids in an array of inline items, replacing every occurrence
- * of an old suggestion id (in text ATTRS or break-embed properties) with the
+ * of an old suggestion id (in text ATTRS or embed formatting tags) with the
  * corresponding new id from `idMap`. Returns a new array only when at least one
  * item changed; otherwise returns the original array (reference equality).
  *
@@ -94,7 +94,6 @@ function buildSuggestionIdRemap(fragmentState: State): {
  * - text runs: INSERTION_SUGGESTION_ATTR, DELETION_SUGGESTION_ATTR, and every
  *   per-id formatting tag (re-keyed, its shadowed-key value kept)
  * - visible embeds: their formatting tags
- * - break-suggestion embeds (BLOCK_SPLIT / BLOCK_JOIN): `properties.suggestionId`
  */
 function rewriteItemSuggestionIds(
   items: ReadonlyArray<InlineItem>,
@@ -115,25 +114,6 @@ function rewriteItemSuggestionIds(
     if (newAttrs !== null) {
       changed = true;
       item = { ...item, attrs: newAttrs };
-    }
-    // embed
-    if (
-      item.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE ||
-      item.embedType === BLOCK_JOIN_SUGGESTION_EMBED_TYPE
-    ) {
-      const sid = item.properties.suggestionId;
-      if (typeof sid === "string") {
-        const newId = idMap.get(sid as SuggestionId);
-        if (newId !== undefined) {
-          changed = true;
-          return {
-            kind: "embed" as const,
-            embedType: item.embedType,
-            attrs: item.attrs,
-            properties: { ...item.properties, suggestionId: newId },
-          };
-        }
-      }
     }
     return item;
   });
@@ -235,11 +215,11 @@ function rewriteClonedSubtreeSuggestionIds(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// T6 edge-case helpers
+// Edge-case helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * T6/E1: Check if `blockId` lives inside a table-cell by walking the
+ * Check if `blockId` lives inside a table-cell by walking the
  * ancestor chain. Returns true when any ancestor has type "table-cell".
  */
 function isInsideTableCell(state: State, blockId: BlockId): boolean {
@@ -251,7 +231,7 @@ function isInsideTableCell(state: State, blockId: BlockId): boolean {
 }
 
 /**
- * T6/E1: Walk a cloned table subtree and collect all LEAF blocks (paragraphs
+ * Walk a cloned table subtree and collect all LEAF blocks (paragraphs
  * and other inline-content blocks) from every cell as TopLevelItem leaves.
  * Used to flatten a pasted table when the destination caret is inside a cell.
  */
@@ -298,33 +278,40 @@ function flattenClonedTableToLeaves(
 
 /**
  * Materialize cloned embed-content blocks (footnote bodies + their subtrees)
- * into the destination's `embedContents` Y.Map. The blocks are FROZEN `Block`
- * SNAPSHOTS from `clonePastedSubtree` with fresh ids and re-keyed contentBlockId
- * references — `buildYBlock` turns each into a live Y.Map (mirrors
- * `insert-footnote.ts`'s body-materialization pattern). MUST run inside an
- * already-open transaction.
+ * as `embedContent` roots. The blocks are FROZEN `Block` SNAPSHOTS from
+ * `clonePastedSubtree` with fresh ids and re-keyed contentBlockId references;
+ * each body root is written with `writeRoot` (as `insert-footnote.ts` does). MUST
+ * run inside an already-open transaction.
  */
 function materializeEmbedContentsInTx(
   doc: Y.Doc,
   clonedEmbedContents: ReadonlyMap<BlockId, Block>,
 ): void {
   if (clonedEmbedContents.size === 0) return;
-  const embedTree = getEmbedContentsMap(doc);
-  for (const [id, block] of clonedEmbedContents) {
-    embedTree.set(
-      id,
-      buildYBlock({
-        type: block.type,
-        attrs: block.attrs,
-        parentId: block.parentId,
-        prevSiblingId: block.prevSiblingId,
-        nextSiblingId: block.nextSiblingId,
-        firstChildId: block.firstChildId,
-        lastChildId: block.lastChildId,
-        inlineContent: block.inlineContent,
-      }),
-    );
-  }
+  for (const root of treesOf([...clonedEmbedContents.values()], null)) writeRoot(doc, root, "embedContent");
+}
+
+/**
+ * The ¶ ending a pasted CLOSED paragraph takes that paragraph's ¶ formatting (Word: a
+ * pasted paragraph mark brings its own rPr), filtered to the doc's inclusive keys. No
+ * registry bound to the doc → no write (as every `markAttrs` writer).
+ */
+function writePastedMarkAttrs(doc: Y.Doc, id: BlockId, markAttrs: ReadonlyAttrs | undefined): void {
+  writeTypedMarkAttrs(doc, id, markAttrs ?? {});
+}
+
+/** The middle run of a multi-block paste as tree nodes (containers keep their subtree). */
+function middleNodes(
+  entries: ReadonlyArray<
+    | { readonly kind: "container"; readonly cloned: ClonedSubtree }
+    | { readonly kind: "leaf"; readonly id: BlockId; readonly type: string; readonly attrs: Record<string, unknown>; readonly items: ReadonlyArray<InlineItem>; readonly markAttrs?: ReadonlyAttrs }
+  >,
+): TreeNode[] {
+  return entries.flatMap((e): TreeNode[] =>
+    e.kind === "container"
+      ? treesOf([...e.cloned.blocks.values()], e.cloned.rootId)
+      : [{ id: e.id, type: e.type, attrs: e.attrs, inlineContent: { items: [...e.items] }, children: [], ...(e.markAttrs !== undefined ? { markAttrs: e.markAttrs } : {}) }],
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -335,7 +322,7 @@ function materializeEmbedContentsInTx(
  * Insert a fragment `State` (produced by `extractFragment` / `decodeHtml` / `decodeFragmentClip`)
  * into `state` at `selection`, in DIRECT (non-suggesting) mode.
  *
- * **Boundary semantics (T5a + T5b):**
+ * **Boundary semantics:**
  * - Cross-context selection → identity no-op.
  * - Non-collapsed selection → `deleteRange` first; caret = range start.
  * - Empty fragment (no top-level blocks) → identity no-op.
@@ -347,9 +334,9 @@ function materializeEmbedContentsInTx(
  *
  * Fragment `listDefs` are cloned under fresh ids so pasted list numbering is
  * independent of the destination's lists. Fragment `suggestion` records are copied
- * into the destination under FRESH ids (T7); every carrier (text attrs + break-embed
- * `properties.suggestionId`) is rewritten to the new id so the destination holds
- * no dangling references.
+ * into the destination under FRESH ids; every carrier (text attrs + embed
+ * formatting tags) is rewritten to the new id so the destination holds no dangling
+ * references. Break tags are never carried: a pasted boundary is a real break.
  */
 export function insertFragment(
   state: State,
@@ -384,14 +371,14 @@ export function insertFragment(
     return { state, dirtyIds: new Set<BlockId>(), endPosition: caretPos };
   }
 
-  // T7: build suggestion-id remap BEFORE walking/cloning so the rewrite can be
+  // Build the suggestion-id remap BEFORE walking/cloning so the rewrite can be
   // applied to every cloned item in the same pass. Fresh ids are minted once here;
   // the records and the idMap are passed into transferSuggestionRecords inside
   // each transaction arm below.
   const { idMap: suggestionIdMap, records: suggestionRecords } = buildSuggestionIdRemap(fragment);
 
   // Walk fragment's top-level children and clone EACH into the destination
-  // namespace via `clonePastedSubtree` (spec §5 step 3). Cloning is REQUIRED
+  // namespace via `clonePastedSubtree`. Cloning is REQUIRED
   // even for leaf paragraphs: a leaf routinely carries footnote-anchor /
   // comment-range embeds whose `contentBlockId` references a body in the
   // fragment's `embedContents`. `clonePastedSubtree` allocates fresh block ids,
@@ -409,6 +396,8 @@ export function insertFragment(
         readonly type: string;
         readonly attrs: Record<string, unknown>;
         readonly items: ReadonlyArray<InlineItem>;
+        /** The pasted paragraph's ¶ formatting (Word: a pasted ¶ brings its rPr). */
+        readonly markAttrs?: ReadonlyAttrs;
       }
     | {
         readonly kind: "container";
@@ -421,8 +410,8 @@ export function insertFragment(
   // embedContents map inside the transaction.
   const clonedEmbedContents = new Map<BlockId, Block>();
 
-  let cur: BlockId | null = fragRoot.firstChildId;
-  while (cur !== null) {
+  // The fragment's blocks sit in its (final) section — a fragment is section-free.
+  for (const cur of topLevelBlockIds(fragment)) {
     const fragBlock = getBlock(fragment, cur);
     if (fragBlock === null) break;
 
@@ -431,7 +420,7 @@ export function insertFragment(
     // subtree (table + rows + cells + leaf paragraphs). `embedContents` holds
     // any footnote bodies reachable from inline content at any depth.
     const rawCloned = clonePastedSubtree(fragment, fragBlock.id, allocator, state);
-    // T7: rewrite suggestion ids in the cloned subtree (leaf items and all
+    // Rewrite suggestion ids in the cloned subtree (leaf items and all
     // container-block items) so spliced blocks already carry the new ids.
     const cloned = rewriteClonedSubtreeSuggestionIds(rawCloned, suggestionIdMap);
     const clonedRoot = cloned.blocks.get(cloned.rootId);
@@ -453,13 +442,12 @@ export function insertFragment(
         type: clonedRoot.type,
         attrs: { ...(clonedRoot.attrs as Record<string, unknown>) },
         items: clonedRoot.inlineContent.items,
+        ...(clonedRoot.markAttrs !== undefined ? { markAttrs: clonedRoot.markAttrs } : {}),
       });
     } else {
       // Container block (table, section, etc.): record the full cloned subtree.
       topLevelItems.push({ kind: "container", cloned });
     }
-
-    cur = fragBlock.nextSiblingId;
   }
 
   // Step 3 continued: merge fragment listDefs under fresh ids.
@@ -507,9 +495,9 @@ export function insertFragment(
     return item;
   });
 
-  // ── T6 edge-case transforms (applied in order before splice) ──────────────
+  // ── Edge-case transforms (applied in order before splice) ──────────────
 
-  // E1: table-into-cell flatten.
+  // Table-into-cell flatten.
   // If the caret is inside a table-cell, replace any cloned table containers with
   // their cell leaf paragraphs (no nested tables).
   if (isInsideTableCell(currentState, caretPos.blockId)) {
@@ -529,7 +517,7 @@ export function insertFragment(
     remappedItems = flattenedItems;
   }
 
-  // E2: list-level rebasing.
+  // List-level rebasing.
   // Find the minimum listLevel across all leaf list-items in the fragment.
   // Subtract minLevel from each, then add the target block's listLevel (if in a list).
   {
@@ -564,22 +552,10 @@ export function insertFragment(
     }
   }
 
-  // E3: trim leading/trailing empty leaf blocks.
-  // If there are >1 items, drop an empty-inlineContent leaf at the start and/or end.
-  if (remappedItems.length > 1) {
-    const firstItem = remappedItems[0];
-    if (firstItem?.kind === "leaf" && firstItem.items.length === 0) {
-      remappedItems = remappedItems.slice(1);
-    }
-  }
-  if (remappedItems.length > 1) {
-    const lastItem = remappedItems[remappedItems.length - 1];
-    if (lastItem?.kind === "leaf" && lastItem.items.length === 0) {
-      remappedItems = remappedItems.slice(0, -1);
-    }
-  }
+  // (No empty-leaf trimming: an empty leading / trailing leaf is a ¶ the span covered
+  // — so pasting it inserts a paragraph break, as Word / GDocs do.)
 
-  // E6: footnote-in-footnote stripping.
+  // Footnote-in-footnote stripping.
   // If the caret is inside an embed-content (e.g. a footnote body), strip
   // footnote-anchor embeds from any leaf items' inline content.
   const caretResolvedBlock = resolveBlock(currentState, caretPos.blockId);
@@ -596,7 +572,7 @@ export function insertFragment(
 
   let endPosition: Position;
 
-  // E4: empty target adopt — if the caret block is empty at offset 0 AND the first
+  // Empty target adopt — if the caret block is empty at offset 0 AND the first
   // top-level item is a leaf, adopt the leaf's type and attrs for the caret block.
   // This is done before the splice arms so both single-leaf and multi-item benefit.
   const caretContentIsEmpty = caretBlock.inlineContent.items.length === 0;
@@ -626,13 +602,12 @@ export function insertFragment(
         const newId = listIdRemap.get(oldId);
         if (newId !== undefined) writeListDefInTx(doc, newId, def);
       }
-      // T7: transfer suggestion records (re-keyed under fresh ids).
+      // Transfer suggestion records (re-keyed under fresh ids).
       transferSuggestionRecords(suggestionRecords, suggestionIdMap, doc);
-      // E4: adopt type+attrs of the single leaf if caret block was empty at 0.
+      // Adopt type+attrs of the single leaf if caret block was empty at 0.
       if (shouldAdoptType) {
-        const yCaretBlock = getYBlock(doc, caretBlockId, "insertFragment:adoptType", caretBlockKind);
-        yCaretBlock.set("type", leaf.type);
-        yCaretBlock.set("attrs", buildYAttrs(leaf.attrs));
+        writeBlockType(doc, caretBlockId, leaf.type);
+        writeBlockAttrs(doc, caretBlockId, leaf.attrs);
       }
       insertItemsInTx(doc, insertPlan);
     });
@@ -644,14 +619,14 @@ export function insertFragment(
     // ── Multi-item (containers and/or multiple leaves): split-merge ──────────
     //
     // General algorithm:
-    //   - Split caret block at caretOffset → prefix (caretBlockId) + suffix (suffixBlockId).
+    //   - Split caret block at caretOffset → prefix (the head, new id) + suffix (caretBlockId).
     //   - If first item is a leaf: merge its items into the end of prefix.
     //   - If last item is a leaf: prepend its items to the start of suffix.
     //   - Everything in between (containers and/or middle leaves) → insert as
     //     standalone siblings between prefix and suffix. All materialized in one
     //     transaction via getBlocksMap + boundary relink.
     //
-    // E5: skip-split optimization — when offset=0 with no firstLeaf, the split
+    // Skip-split optimization — when offset=0 with no firstLeaf, the split
     // would produce an empty prefix block. Avoid by treating caretBlock as the suffix
     // and inserting middle items before it. Symmetric for offset=len with no lastLeaf.
 
@@ -667,7 +642,7 @@ export function insertFragment(
     const firstLeaf = firstItem?.kind === "leaf" ? firstItem : null;
     const lastLeaf = lastItem?.kind === "leaf" ? lastItem : null;
 
-    // E5: detect skip-split conditions.
+    // Detect skip-split conditions.
     const totalContentLen = caretBlock.inlineContent.items.reduce(
       (s, it) => s + (it.kind === "text" ? it.text.length : 1),
       0,
@@ -690,18 +665,21 @@ export function insertFragment(
     // splice them all between prefix and suffix in one transaction below.
     type MiddleEntry =
       | { readonly kind: "container"; readonly cloned: ClonedSubtree }
-      | { readonly kind: "leaf"; readonly id: BlockId; readonly type: string; readonly attrs: Record<string, unknown>; readonly items: ReadonlyArray<InlineItem> };
+      | { readonly kind: "leaf"; readonly id: BlockId; readonly type: string; readonly attrs: Record<string, unknown>; readonly items: ReadonlyArray<InlineItem>; readonly markAttrs?: ReadonlyAttrs };
 
     const orderedMiddle: MiddleEntry[] = middleItems.map((item) =>
       item.kind === "container"
         ? { kind: "container", cloned: item.cloned }
-        : { kind: "leaf", id: allocator.allocate(), type: item.type, attrs: item.attrs, items: item.items },
+        : { kind: "leaf", id: allocator.allocate(), type: item.type, attrs: item.attrs, items: item.items, markAttrs: item.markAttrs },
     );
 
     // ── Split-based path (normal case) ───────────────────────────────────────
     if (!skipSplit) {
+      // Split (Word): the HEAD [0, caretOffset) takes the new id — the prefix; the
+      // caret block keeps its id as the suffix.
       const splitPlan = planSplitBlockAtPosition(currentState, caretPos, allocator);
-      const suffixBlockId = splitPlan.newBlockId;
+      const prefixBlockId = splitPlan.newBlockId;
+      const suffixBlockId = caretBlockId;
 
       // Plan prefix merge: append firstLeaf.items to end of prefix block.
       const [prefixItems] = splitInlineContentAtOffset(caretBlock.inlineContent, caretOffset);
@@ -711,7 +689,7 @@ export function insertFragment(
       );
       const prefixMergePlan =
         firstLeaf !== null
-          ? planInsertItemsAt(caretBlockId, caretBlockKind, prefixLength, firstLeaf.items)
+          ? planInsertItemsAt(prefixBlockId, caretBlockKind, prefixLength, firstLeaf.items)
           : null;
 
       // Plan suffix prepend: prepend lastLeaf.items at offset 0 of suffix block.
@@ -735,89 +713,28 @@ export function insertFragment(
           const newId = listIdRemap.get(oldId);
           if (newId !== undefined) writeListDefInTx(doc, newId, def);
         }
-        // T7: transfer suggestion records (re-keyed under fresh ids).
+        // Transfer suggestion records (re-keyed under fresh ids).
         transferSuggestionRecords(suggestionRecords, suggestionIdMap, doc);
         // (a) Split the caret block → prefix + suffix.
         splitBlockAtPositionInTx(doc, splitPlan);
-        // (a') E4 adopt: if caret block was empty at offset 0 and first item is a leaf,
-        // adopt the leaf's type+attrs onto the prefix block (same as single-leaf E4 arm).
+        // (a') adopt: if caret block was empty at offset 0 and first item is a leaf,
+        // adopt the leaf's type+attrs onto the prefix block (same as single-leaf adopt arm).
         if (shouldAdoptType && firstLeaf !== null) {
-          const yCaretBlock = getYBlock(doc, caretBlockId, "insertFragment:adoptType", caretBlockKind);
-          yCaretBlock.set("type", firstLeaf.type);
-          yCaretBlock.set("attrs", buildYAttrs(firstLeaf.attrs));
+          writeBlockType(doc, prefixBlockId, firstLeaf.type);
+          writeBlockAttrs(doc, prefixBlockId, firstLeaf.attrs);
         }
-        // (b) Merge firstLeaf into prefix (if first item is a leaf).
+        // (b) Merge firstLeaf into prefix (if first item is a leaf). The prefix's ¶
+        // is the pasted first paragraph's (closed) ¶, so it brings that ¶'s formatting.
         if (prefixMergePlan !== null) {
           insertItemsInTx(doc, prefixMergePlan);
         }
+        if (firstLeaf !== null) writePastedMarkAttrs(doc, prefixBlockId, firstLeaf.markAttrs);
         // (c) Insert middle items (containers + middle leaves) between prefix and suffix.
         // Single contiguous splice: materialize all container subtrees and standalone
         // leaf blocks into blocksMap, then relink the whole run's sibling chain
         // (prefix → [middle roots] → suffix) in one pass.
         if (orderedMiddle.length > 0) {
-          // First, materialize all containers' blocks into the correct tree map
-          // (same tree as the caret block — main blocks or embedContents).
-          const treeMap = getTreeMap(doc, caretBlockKind);
-          for (const entry of orderedMiddle) {
-            if (entry.kind === "container") {
-              // Materialize the container subtree (all blocks: root + descendants).
-              for (const [id, block] of entry.cloned.blocks) {
-                treeMap.set(
-                  id,
-                  buildYBlock({
-                    type: block.type,
-                    attrs: block.attrs,
-                    parentId: block.parentId,
-                    prevSiblingId: block.prevSiblingId,
-                    nextSiblingId: block.nextSiblingId,
-                    firstChildId: block.firstChildId,
-                    lastChildId: block.lastChildId,
-                    inlineContent: block.inlineContent,
-                  }),
-                );
-              }
-            } else {
-              // Materialize the leaf block.
-              treeMap.set(
-                entry.id,
-                buildYBlock({
-                  type: entry.type,
-                  attrs: entry.attrs,
-                  parentId: caretParentId, // placeholder; overwritten in relink
-                  prevSiblingId: null,     // placeholder; overwritten in relink
-                  nextSiblingId: null,     // placeholder; overwritten in relink
-                  firstChildId: null,
-                  lastChildId: null,
-                  inlineContent: { items: [...entry.items] },
-                }),
-              );
-            }
-          }
-          // Collect the root ids of all middle entries in order.
-          const middleRoots: BlockId[] = orderedMiddle.map((e) =>
-            e.kind === "container" ? e.cloned.rootId : e.id,
-          );
-          // Relink the run: afterBlock → middleRoots[0] → ... → middleRoots[n-1] → suffixBlock
-          const firstRoot = middleRoots[0];
-          const lastRoot = middleRoots[middleRoots.length - 1];
-          if (firstRoot === undefined || lastRoot === undefined) {
-            throw new Error("insertFragment: orderedMiddle produced no roots");
-          }
-          // afterBlock (prefix = caretBlockId) → first middle root.
-          getYBlock(doc, caretBlockId, "insertFragment", caretBlockKind).set("nextSiblingId", firstRoot);
-          // Set parentId, prevSiblingId, nextSiblingId for each root.
-          for (let i = 0; i < middleRoots.length; i++) {
-            const rootId = middleRoots[i];
-            if (rootId === undefined) continue;
-            const prevId = i === 0 ? caretBlockId : (middleRoots[i - 1] ?? null);
-            const nextId = i === middleRoots.length - 1 ? suffixBlockId : (middleRoots[i + 1] ?? null);
-            const yRoot = getYBlock(doc, rootId, "insertFragment", caretBlockKind);
-            yRoot.set("parentId", caretParentId);
-            yRoot.set("prevSiblingId", prevId);
-            yRoot.set("nextSiblingId", nextId);
-          }
-          // suffixBlock.prevSiblingId → last middle root.
-          getYBlock(doc, suffixBlockId, "insertFragment", caretBlockKind).set("prevSiblingId", lastRoot);
+          insertChildren(doc, caretParentId, prefixBlockId, middleNodes(orderedMiddle), caretBlockKind);
         }
         // (d) Prepend lastLeaf to suffix (if last item is a leaf).
         if (suffixPrependPlan !== null) {
@@ -832,7 +749,7 @@ export function insertFragment(
       // If last item was a container, offset = 0 (suffix is unchanged, caret at start).
       endPosition = createPosition(suffixBlockId, lastInsertedLength);
     } else {
-      // ── Skip-split path (E5): offset at boundary with no leaf to fill empty side ──
+      // ── Skip-split path: offset at boundary with no leaf to fill empty side ──
       //
       // skipSplitAtStart: caretBlock becomes the "suffix" — items are inserted before it.
       //   Any lastLeaf is prepended to caretBlock at offset 0.
@@ -845,8 +762,6 @@ export function insertFragment(
       // For skipSplitAtStart: the "before anchor" is caretBlock.prevSiblingId.
       // For skipSplitAtEnd: the "before anchor" is caretBlock itself.
       const anchorBlockId: BlockId | null = skipSplitAtStart ? caretBlock.prevSiblingId : caretBlockId;
-      // The block that immediately follows the inserted run:
-      const afterRunBlockId: BlockId | null = skipSplitAtStart ? caretBlockId : caretBlock.nextSiblingId;
 
       // Plan leaf merge if needed.
       // skipSplitAtStart: lastLeaf prepends to caretBlock at offset 0 (caretBlock = suffix).
@@ -877,87 +792,21 @@ export function insertFragment(
           const newId = listIdRemap.get(oldId);
           if (newId !== undefined) writeListDefInTx(doc, newId, def);
         }
-        // T7: transfer suggestion records (re-keyed under fresh ids).
+        // Transfer suggestion records (re-keyed under fresh ids).
         transferSuggestionRecords(suggestionRecords, suggestionIdMap, doc);
-        // E4 adopt (skip-split path): if caret block was empty at offset 0 and
+        // adopt (skip-split path): if caret block was empty at offset 0 and
         // skipSplitAtEnd is true (caret block is the prefix), adopt the first leaf's
         // type+attrs onto the caret block — same contract as the split arm's adopt block.
         // skipSplitAtStart implies firstLeaf===null (items go BEFORE the caret block),
         // so adoption is only meaningful for skipSplitAtEnd.
         if (shouldAdoptType && skipSplitAtEnd && firstLeaf !== null) {
-          const yCaretBlock = getYBlock(doc, caretBlockId, "insertFragment:adoptType", caretBlockKind);
-          yCaretBlock.set("type", firstLeaf.type);
-          yCaretBlock.set("attrs", buildYAttrs(firstLeaf.attrs));
+          writeBlockType(doc, caretBlockId, firstLeaf.type);
+          writeBlockAttrs(doc, caretBlockId, firstLeaf.attrs);
         }
 
         // Insert middle items.
         if (orderedMiddle.length > 0) {
-          // Use the same tree as the caret block (main blocks or embedContents).
-          const treeMap = getTreeMap(doc, caretBlockKind);
-          for (const entry of orderedMiddle) {
-            if (entry.kind === "container") {
-              for (const [id, block] of entry.cloned.blocks) {
-                treeMap.set(
-                  id,
-                  buildYBlock({
-                    type: block.type,
-                    attrs: block.attrs,
-                    parentId: block.parentId,
-                    prevSiblingId: block.prevSiblingId,
-                    nextSiblingId: block.nextSiblingId,
-                    firstChildId: block.firstChildId,
-                    lastChildId: block.lastChildId,
-                    inlineContent: block.inlineContent,
-                  }),
-                );
-              }
-            } else {
-              treeMap.set(
-                entry.id,
-                buildYBlock({
-                  type: entry.type,
-                  attrs: entry.attrs,
-                  parentId: caretParentId,
-                  prevSiblingId: null,
-                  nextSiblingId: null,
-                  firstChildId: null,
-                  lastChildId: null,
-                  inlineContent: { items: [...entry.items] },
-                }),
-              );
-            }
-          }
-          const middleRoots: BlockId[] = orderedMiddle.map((e) =>
-            e.kind === "container" ? e.cloned.rootId : e.id,
-          );
-          const firstRoot = middleRoots[0];
-          const lastRoot = middleRoots[middleRoots.length - 1];
-          if (firstRoot === undefined || lastRoot === undefined) {
-            throw new Error("insertFragment(skip-split): orderedMiddle produced no roots");
-          }
-          // Wire: anchorBlock ↔ firstRoot ↔ … ↔ lastRoot ↔ afterRunBlock
-          if (anchorBlockId !== null) {
-            getYBlock(doc, anchorBlockId, "insertFragment", caretBlockKind).set("nextSiblingId", firstRoot);
-          } else {
-            // Middle items start at beginning of parent's children — update parent.firstChildId.
-            getYBlock(doc, caretParentId, "insertFragment", caretBlockKind).set("firstChildId", firstRoot);
-          }
-          for (let i = 0; i < middleRoots.length; i++) {
-            const rootId = middleRoots[i];
-            if (rootId === undefined) continue;
-            const prevId = i === 0 ? anchorBlockId : (middleRoots[i - 1] ?? null);
-            const nextId = i === middleRoots.length - 1 ? afterRunBlockId : (middleRoots[i + 1] ?? null);
-            const yRoot = getYBlock(doc, rootId, "insertFragment", caretBlockKind);
-            yRoot.set("parentId", caretParentId);
-            yRoot.set("prevSiblingId", prevId);
-            yRoot.set("nextSiblingId", nextId);
-          }
-          if (afterRunBlockId !== null) {
-            getYBlock(doc, afterRunBlockId, "insertFragment", caretBlockKind).set("prevSiblingId", lastRoot);
-          } else {
-            // Middle items go at end of parent's children — update parent.lastChildId.
-            getYBlock(doc, caretParentId, "insertFragment", caretBlockKind).set("lastChildId", lastRoot);
-          }
+          insertChildren(doc, caretParentId, anchorBlockId, middleNodes(orderedMiddle), caretBlockKind);
         }
 
         // Merge boundary leaf (lastLeaf into caretBlock start, or firstLeaf into caretBlock end).

@@ -61,10 +61,10 @@ const EMPHASIS_TAG: Record<EmphasisKey, string> = {
  * `link` → <a>, `insertion` → <ins>, `deletion` → <del>, plain → <span>.
  * A link `href` is sanitized through {@link isExportSafeLinkUrl} (the same seam
  * the HTML export uses) so a `javascript:`/`data:` URL is never emitted into the
- * mirror DOM that slice 2b mounts. Emphasis is nested innermost-first so the
+ * mirror DOM that the accessibility mirror host mounts. Emphasis is nested innermost-first so the
  * outermost emphasis element is <strong> when bold is active. `data-offset-start` /
  * `data-offset-end` (the LITERAL block offsets, I5) are stamped on the
- * outermost wrapper — the forward hook slice 2b uses to map a browser Selection
+ * outermost wrapper — the forward hook the mirror host uses to map a browser Selection
  * position back to a literal {blockId, offset} Position.
  */
 export function buildRunElement(run: AccessibilityTextRun, doc: Document): HTMLElement {
@@ -83,7 +83,7 @@ export function buildRunElement(run: AccessibilityTextRun, doc: Document): HTMLE
   } else if (run.link !== undefined) {
     wrapper = doc.createElement("a");
     // Sanitize the href the same way the HTML export does: omit it entirely for a
-    // dangerous scheme (javascript:/data:/…) so the mirror DOM that slice 2b mounts
+    // dangerous scheme (javascript:/data:/…) so the mirror DOM that the accessibility mirror host mounts
     // can never carry an executable href. The <a> wrapper stays for AT semantics.
     if (isExportSafeLinkUrl(run.link)) {
       wrapper.setAttribute("href", run.link);
@@ -143,15 +143,15 @@ function appendTextRuns(
  * The `doc` parameter defaults to the ambient `document` global and is
  * injected in tests (jsdom supplies it).
  *
- * Slice 2a: structural transform only. Controller wiring, focus management,
- * Selection sync, and `DomMirrorCache` are slice 2b concerns.
+ * Structural transform only. Controller wiring, focus management,
+ * Selection sync, and `DomMirrorCache` are the mirror host's concerns.
  */
 export function buildDomMirror(
   node: AccessibilityNode,
   doc: Document = document,
 ): HTMLElement {
   const el = buildElement(node, doc);
-  // Forward hook for slice-2b Selection mapping: a browser Selection position
+  // Hook for mapping a browser Selection back to the model: a browser Selection position
   // resolves to {blockId, offset} where the offset comes off the run wrapper
   // (data-offset-*) and the blockId comes off the nearest block ancestor stamped
   // here. Applied uniformly to ALL roles whose node has a real source block;
@@ -218,7 +218,7 @@ function buildElement(node: AccessibilityNode, doc: Document): HTMLElement {
       return doc.createElement(node.listOrdered === true ? "ol" : "ul");
     case "listitem": {
       const li = doc.createElement("li");
-      // #555: an ordered item's resolved ordinal → native `<li value=N>` so a
+      // An ordered item's resolved ordinal → native `<li value=N>` so a
       // screen reader announces the TRUE number (start-at / restart aware) rather
       // than the bare `<ol>`'s 1,2,3…. Absent for bullets.
       if (node.listOrdinal !== undefined) li.setAttribute("value", String(node.listOrdinal));

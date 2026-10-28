@@ -54,7 +54,7 @@ export function sourceBlockIdOf(parentKey: string): BlockId {
  *  keyed `${listItemKey}-marker` (`bfc.ts` createMarkerBox); strip that suffix,
  *  then `sourceBlockIdOf` (which strips any `/anon[...]`) recovers the list-item
  *  block id. Used by the tagged-PDF emitter to route a bullet/number's MCID to
- *  its list item's `Lbl` (#526). */
+ *  its list item's `Lbl`. */
 export function markerOwnerKey(key: string): BlockId {
   const base = key.endsWith("-marker") ? key.slice(0, -"-marker".length) : key;
   return sourceBlockIdOf(base);
@@ -88,11 +88,11 @@ function tabStopsEqual(a: readonly TabStop[], b: readonly TabStop[]): boolean {
 
 /**
  * Resolve the next tab stop strictly to the RIGHT of pen position `x`
- * (tab stops, S3). Returns both the destination `position` and the explicit
+ * (tab stops). Returns both the destination `position` and the explicit
  * `stop` it landed on (or `null` for a default-grid stop) so the caller can read
  * the stop's `leader`.
  *
- * Algorithm (Google-Docs / word-processor convergent model, spec §"The model"):
+ * Algorithm (the Google-Docs / word-processor convergent model):
  *  - the explicit stop with the smallest EFFECTIVE position `> x`, if any;
  *    otherwise
  *  - the next default-grid position `(floor(x / D) + 1) * D` — the smallest
@@ -178,7 +178,7 @@ interface Token {
    * paragraph source (`IfcSourceAssembly.source`) — i.e. `childBase + matchStart`
    * for text tokens, the OBJECT REPLACEMENT char's offset for an inline-block,
    * and the `\n`'s offset for a LINE_BREAK. Mirrors the parallel
-   * `asm.tokenBases[]` at construction time; the bidi reorder (P4-C) reads it
+   * `asm.tokenBases[]` at construction time; the bidi reorder reads it
    * off the token directly so boxes built from a token can be ordered by source
    * position without re-walking the tree. When a token is split at wrap time
    * (`trySoftSplit` / `tryHyphenSplit`) the prefix keeps the original base and
@@ -212,19 +212,18 @@ interface Token {
     isReplaced?: boolean;
   };
   /**
-   * Set on the inline-block token of a `"tab"` embed (tab stops S2). Recognizes
-   * the tab as a tab unit so later slices can compute its destination-stop
-   * advance (S3) + leader paint (S9). A recognized tab is still a zero-advance
-   * inline-block in S2 — no advance logic rides this flag yet.
+   * Set on the inline-block token of a `"tab"` embed (tab stops). Recognizes
+   * the tab as a tab unit so the wrap loop can compute its destination-stop
+   * advance + leader paint; the advance is resolved at the overflow check.
    */
   isTab?: boolean;
   /**
-   * Destination-stop leader for a recognized tab token (tab stops S3). The tab's
+   * Destination-stop leader for a recognized tab token (tab stops). The tab's
    * advance is position-dependent, so its destination stop — and therefore its
    * leader — is resolved only at the wrap-loop overflow-check seam, where the
    * frozen unit's token carries the resolved leader. Read by the box-emit
    * (`buildLineChildrenForAncestorLevel`) to stamp `InlineBlockBox.inlineMeta`.
-   * Absent until the tab is resolved (the S2 zero-advance sentinel has none →
+   * Absent until the tab is resolved (an unresolved tab has none →
    * the box-emit defaults to `"none"`).
    */
   tabLeader?: LeaderStyle;
@@ -295,7 +294,7 @@ interface WrapUnit {
   tokenEndIdx: number;
   /**
    * Set when this unit's (single) token is a recognized `"tab"` inline-block
-   * (tab stops S2). A tab inline-block is always its own one-token wrap unit.
+   * (tab stops). A tab inline-block is always its own one-token wrap unit.
    */
   isTab?: boolean;
 }
@@ -311,7 +310,7 @@ interface HyphenBreak {
   inlineAncestorStyles: readonly ComputedStyle[];
   sourceKey: string;
   /**
-   * The hyperlink URL of the split word's source token (#521 PDF /Link),
+   * The hyperlink URL of the split word's source token (PDF /Link),
    * threaded so the synthetic hyphen run inherits its parent word's link.
    * Opaque to geometry; `undefined` when the word carries no link.
    */
@@ -333,10 +332,10 @@ interface HyphenBreak {
  *   - `normal`/`pre-wrap`: the trailing space(s) are SLURPED into the final
  *     word's unit (`[word, space*]`) → we sum that one unit's trailing spaces
  *     then stop at the word token.
- *   - `break-spaces` (#314, the editor default): each preserved space is its
+ *   - `break-spaces`: each preserved space is its
  *     OWN single-glyph unit, so a line ending in N trailing spaces has N
  *     standalone space units → we sum all N then stop at the preceding word
- *     unit (#339 — before this, only the last unit's space was excluded).
+ *     unit (only the last unit's space was excluded previously).
  *   - a line-break / zero-width sentinel unit carries a non-space token, which
  *     stops the walk (it contributes nothing).
  * An empty-tokens unit (degenerate — shouldn't occur) also stops the walk.
@@ -506,7 +505,7 @@ function trimTrailingLetterSpacing(
  * `[word, space*]` — NOT all-spaces), so this predicate is false there and the
  * hang gate never fires — words wrap exactly as before.
  *
- * The greedy wrap loop uses this to HANG a space (#338): a space unit never
+ * The greedy wrap loop uses this to HANG a space: a space unit never
  * triggers its own soft wrap (it stays on the current line even when it
  * overflows, matching Google Docs' trailing-space-at-wrap behavior). A
  * line-break unit carries non-space sentinel tokens, so it is never a space
@@ -538,8 +537,8 @@ function singleTokenUnit(from: WrapUnit, token: Token, tokenIdx: number): WrapUn
 }
 
 /**
- * The ONE source-offset derivation for a wrap-time token split (M1
- * consolidation). When a text token is split at DISPLAY code-unit index
+ * The ONE source-offset derivation for a wrap-time token split (shared by the
+ * hyphen and word-split paths). When a text token is split at DISPLAY code-unit index
  * `prefixDisplayLen`, the suffix's absolute source base advances by exactly
  * that many code units past the prefix's base (the same quantity used to slice
  * the prefix `text`). Both `trySoftSplit` and `tryHyphenSplit` route through
@@ -561,7 +560,7 @@ export function splitSuffixSourceBase(prefixBase: number, prefixDisplayLen: numb
 }
 
 /**
- * P3 — JUSTIFY a line's units (CSS Text 3 §7.3): widen the INTERIOR inter-word
+ * JUSTIFY a line's units (CSS Text 3 §7.3): widen the INTERIOR inter-word
  * spaces so the last non-trailing glyph's right edge reaches `lineInlineSize`,
  * WITHOUT shifting the line (its inline-start stays at the float-start).
  *
@@ -590,14 +589,14 @@ export function splitSuffixSourceBase(prefixBase: number, prefixDisplayLen: numb
  * @param units          the line's accumulated wrap units (not mutated).
  * @param lineInlineSize the available inline width of the line.
  * @param contentWidth   visible content width (trailing whitespace excluded) —
- *                       the SAME value P2 uses for alignment.
+ *                       the SAME value alignment uses.
  */
 function justifyUnits(
   units: readonly WrapUnit[],
   lineInlineSize: number,
   contentWidth: number,
 ): readonly WrapUnit[] {
-  // Tab stops S8: Google Docs does NOT stretch a line that contains a tab. The
+  // Tab stops: Google Docs does NOT stretch a line that contains a tab. The
   // tab advances already position content to the stops; widening the inter-word
   // spaces would displace that content from its stops. Return the line units
   // UNCHANGED whenever any unit on the line is a tab. (Placed before any gap
@@ -686,7 +685,7 @@ const OBJECT_REPLACEMENT = "￼";
 
 /**
  * Accumulator threaded through `collectInlineTokens` so the IFC can derive
- * UAX #14 line-break opportunities (S2.4). It records:
+ * UAX #14 line-break opportunities. It records:
  *  - `source`: the IFC's full SOURCE text, in child/visual order (each text
  *    child's verbatim `fullText`; one OBJECT REPLACEMENT char per inline atomic).
  *    This is the ONLY representation that is both source-faithful (NBSP/WJ seen,
@@ -737,13 +736,13 @@ function collectInlineTokens(
   out: Token[],
   asm: IfcSourceAssembly,
   intrinsicCache: IntrinsicSizesCache,
-  // L-D (A6): parent layout context for inline-block sub-layout. When
+  // Parent layout context for inline-block sub-layout. When
   // present, inline-block descendants use makeChildContext so they
   // inherit the parent's prevLayoutCache / ifcStateCache — enabling
   // incremental reuse for unchanged inline-blocks. When absent (the
   // exported collectTokens test path and rewrap-incremental path), the
   // inline-block sub-layout falls back to makeRootContext (no
-  // incremental reuse — matches pre-L-D behavior for those callers).
+  // incremental reuse — matches the fresh-root behavior for those callers).
   parentCtx: LayoutContext | null,
 ): void {
   // Flatten `display: contents` elements: such an element generates no box, so
@@ -762,7 +761,7 @@ function collectInlineTokens(
       const fullText = child.text;
       const shapedRun = fullText.length > 0 ? shaper.shape(fullText, cs, direction) : null;
 
-      // S2.4: record this run's SOURCE span + white-space mode for UAX #14
+      // Record this run's SOURCE span + white-space mode for UAX #14
       // line-break derivation. `childBase` is this run's absolute start offset
       // into `asm.source`; a token's absolute base = `childBase + matchStart`.
       const childBase = asm.source.length;
@@ -846,7 +845,7 @@ function collectInlineTokens(
         // emitted by the tokenizer — `cursor` is positioned at a whitespace char
         // in the source. Use cursor directly: `indexOf(" ", cursor)` would skip
         // forward to the first LITERAL space, leaving non-space leading whitespace
-        // (TAB at offset 0, NBSP, etc.) unowned (#365). For non-space tokens use
+        // (TAB at offset 0, NBSP, etc.) unowned. For non-space tokens use
         // indexOf as before; if it returns -1 (rare; some other synthetic
         // separator), fall back to cursor with a dev-mode warning so the drift
         // is visible without being fatal.
@@ -897,7 +896,7 @@ function collectInlineTokens(
             b => b.kind === "hyphen" && b.clusterIndex > matchStart && b.clusterIndex <= matchEnd,
           ).map(b => b.clusterIndex - matchStart);
 
-          // HYPH.S3 — manual producer. A U+00AD SOFT HYPHEN is an author-supplied
+          // Manual producer: a U+00AD SOFT HYPHEN is an author-supplied
           // hyphenation opportunity. The engine's mock/canvas shapers classify it
           // (UAX #14 class BA) as a `kind:"soft"` break, NOT `kind:"hyphen"`, so
           // under `manual`/`auto` we SYNTHESIZE the hyphen-break opportunity from
@@ -917,7 +916,7 @@ function collectInlineTokens(
               if (part.charCodeAt(ci) === 0x00ad) synthesizedHyphenBreaks.push(ci + 1);
             }
           }
-          // HYPH.S4 — auto producer. Under `hyphens: auto` with a resolved content
+          // Auto producer. Under `hyphens: auto` with a resolved content
           // language and an injected hyphenator, ask it for algorithmic in-word break
           // points (suffix-start indices over the DISPLAY word `part`) and keep only those
           // passing `hyphenate-limit-chars` (minWord/minBefore/minAfter). Merged with the
@@ -1028,7 +1027,7 @@ function collectInlineTokens(
         const nextStart = next !== undefined ? next.matchStart : fullText.length;
         nt.token.sourceLength = nextStart - start;
         out.push(nt.token);
-        // S2.4: this token's absolute base into `asm.source` (kept parallel to `out`).
+        // Record this token's absolute base in `asm.tokenBases` (kept parallel to `out`).
         asm.tokenBases.push(childBase + start);
       }
     } else if (child.type === "element" && cs.display === "inline") {
@@ -1036,7 +1035,7 @@ function collectInlineTokens(
       const newStyles = [...ancestorStyles, cs];
       collectInlineTokens(child.children, newAncestors, newStyles, shaper, hyphenator, writingMode, direction, out, asm, intrinsicCache, parentCtx);
     } else if (child.type === "element" && cs.display === "inline-block") {
-      // S2.4: an inline atomic occupies one OBJECT REPLACEMENT char (class CB)
+      // An inline atomic occupies one OBJECT REPLACEMENT char (class CB)
       // in the source string — breakable around (LB20), the correct
       // wrap-around-an-inline-object semantics.
       const ibBase = asm.source.length;
@@ -1113,9 +1112,9 @@ function collectInlineTokens(
       // (the production layoutInlineContent path), use makeChildContext so
       // the inline-block sub-layout inherits the parent's prevLayoutCache
       // and ifcStateCache — unchanged inline-blocks can then be reused
-      // incrementally rather than re-laid out every keystroke (L-D / A6).
+      // incrementally rather than re-laid out every keystroke.
       // External callers (collectTokens / rewrap-incremental) pass null
-      // and get the pre-L-D fresh-root behavior.
+      // and get the fresh-root behavior.
       const ibResolvedInlineSize = inlineSizePx > 0 ? inlineSizePx : 100;
       const ibCtx = parentCtx !== null
         ? makeChildContext(parentCtx, cs, ibResolvedInlineSize, "indefinite")
@@ -1167,12 +1166,12 @@ function collectInlineTokens(
           targetId: typeof child.metadata?.targetId === "string" ? child.metadata.targetId : undefined,
           isReplaced: child.metadata?.replacedInline === true ? true : undefined,
         },
-        // Tab stops S2: recognize a `"tab"` embed's inline-block as a tab unit.
+        // Tab stops: recognize a `"tab"` embed's inline-block as a tab unit.
         // The render layer emits the tab via its generic embed fallback as an
         // inline-block ElementBox carrying `metadata.embedType === "tab"`.
         isTab: child.metadata?.embedType === "tab",
       });
-      // S2.4: the inline atomic's base is the OBJECT REPLACEMENT char's offset.
+      // The inline atomic's base is the OBJECT REPLACEMENT char's offset.
       asm.tokenBases.push(ibBase);
     }
     // Other display values (block, etc.) are ignored at this level.
@@ -1189,11 +1188,9 @@ function collectInlineTokens(
  * `cjBreakable: true` hardcoded = CSS `line-break: normal/auto` (the editor
  * default — CJK ideographs break between each other regardless, and CJ small-
  * kana become breakable). There is no `line-break` computed-style property yet;
- * when one is added it threads through to this call site. NOTE for P7
- * (hyphenation): `hyphens: auto` + the document `language` will thread through
- * this same path — so when the `line-break` property is modeled, pass a
- * `ComputedStyle`-derived `LineBreakOptions` here rather than a literal, to
- * avoid two separate threading passes.
+ * when one is added, pass a `ComputedStyle`-derived `LineBreakOptions` here
+ * rather than a literal. Hyphenation does not flow through this function; it
+ * is built by the token producer.
  */
 function annotateLineBreaks(out: Token[], asm: IfcSourceAssembly): void {
   if (asm.source.length === 0) return;
@@ -1214,7 +1211,7 @@ function annotateLineBreaks(out: Token[], asm: IfcSourceAssembly): void {
     }
     return undefined;
   };
-  // HYPH.S2/S3 — the glyph-less UAX #14 soft break a U+00AD SOFT HYPHEN suggests
+  // The glyph-less UAX #14 soft break a U+00AD SOFT HYPHEN suggests
   // is ALWAYS removed, regardless of `hyphens`. U+00AD is class BA, so
   // `lineBreakOpportunities` emits a soft break at the offset immediately AFTER
   // it; that plain (no-glyph) break is never the correct rendering of a soft
@@ -1329,7 +1326,7 @@ export type { Token };
 
 /**
  * Collect all tokens from `parent`'s inline children. Exposed for testing and
- * for incremental-wrap logic (Plan 3.G Task 3).
+ * for incremental-wrap logic.
  */
 export function collectTokens(
   parent: ElementBox,
@@ -1357,7 +1354,7 @@ export function collectTokens(
 }
 
 /**
- * Lay out inline content (text — Plan 1 only handles text children)
+ * Lay out inline content (text children)
  * into LineBoxes within the parent block's content area.
  */
 export function layoutInlineContent(
@@ -1372,9 +1369,9 @@ export function layoutInlineContent(
   hyphenator: Hyphenator | undefined,
   // Coherent float+pagination: cumulative document-flow offset of this
   // paragraph's FIRST line — a fixed property of where the paragraph began,
-  // stamped onto every IFCBreakToken so it survives across page fragments. A
-  // later task queries floats at the line's TRUE cumulative offset; CARRIED ONLY
-  // here (the float query is unchanged), so geometry is identical.
+  // stamped onto every IFCBreakToken so it survives across page fragments; the
+  // float queries (`effectiveLineDims`) use it to query floats at the line's
+  // TRUE cumulative offset.
   paraFlowStart: number,
   fragmentation?: FragmentationContext,
 ): LayoutResult<BlockBox> {
@@ -1385,14 +1382,14 @@ export function layoutInlineContent(
   const availableInlineSize = ctx.containingInlineSize;
   const writingMode = ctx.writingMode;
   const direction = ctx.direction;
-  // P2 (#312): the block's resolved text alignment. Each flushed line (and the
+  // The block's resolved text alignment. Each flushed line (and the
   // empty-paragraph strut) shifts its LOGICAL inline start by a logical delta
   // from `computeAlignmentOffset`; `logicalToPhysical` (in the box factory)
   // resolves the physical edge. Because the line's children are positioned
   // relative to the line, shifting the line's inline start shifts the whole
   // line — so paint / caret / hit-test / selection geometry, all of which
-  // consume the laid-out `box.x`, follow for free. JUSTIFY falls back to start
-  // in P2. (RTL end/center line-box geometry is deferred — see ifc-align.ts and
+  // consume the laid-out `box.x`, follow for free. JUSTIFY aligns as start
+  // here (the justify pass widens the spaces). (RTL end/center line-box geometry is deferred — see ifc-align.ts and
   // ifc-align.test.ts; start under RTL is a no-op logical shift, no regression.)
   const textAlign = parentCs.textAlign;
 
@@ -1400,7 +1397,7 @@ export function layoutInlineContent(
   const measurer = adaptShaperToMeasurer(shaper);
 
   const ws = parentCs.whiteSpace;
-  // Plan 3.G Task 7: textWrap value pass-through. Only "wrap" / "nowrap" affect
+  // textWrap value pass-through. Only "wrap" / "nowrap" affect
   // behavior; "balance" / "pretty" / "stable" are reserved for future work
   // (Knuth-Plass-style optimal wrap; not yet implemented). They are treated as
   // "wrap" by default.
@@ -1412,7 +1409,7 @@ export function layoutInlineContent(
 
   const floatEnv = ctx.floatEnv;
 
-  // P5 (#391): CSS Text §8 `text-indent` — the block's first-line indent,
+  // CSS Text §8 `text-indent` — the block's first-line indent,
   // resolved to a used length (px) against the containing inline size. It is
   // LOGICAL (inline-start), so it composes additively with the float
   // `inlineStartSize` and is RTL/vertical-WM-correct via the existing logical
@@ -1423,6 +1420,11 @@ export function layoutInlineContent(
   // hot cache-hit path before the wrap-cache short-circuit, so a per-call
   // ~50-field UsedStyle allocation would be a per-keystroke regression.
   const blockTextIndent = resolveUsedLength(parentCs.textIndent, availableInlineSize, 0);
+
+  /** True when an inline-end float shortens the line (its end is short of the content inline end). */
+  function endsAtFloat(lineInlineCursor: number, lineInlineSize: number): boolean {
+    return lineInlineCursor + lineInlineSize < inlineOffset + availableInlineSize - 1e-6;
+  }
 
   /**
    * Returns the effective line inlineOffset and inlineSize at a given
@@ -1453,7 +1455,7 @@ export function layoutInlineContent(
   // the wrap loop consults them via trySoftSplit + the breakableBefore gate.
   annotateLineBreaks(tokens, asm);
 
-  // P4-C: resolve UAX #9 bidi embedding levels ONCE for the whole paragraph
+  // Resolve UAX #9 bidi embedding levels ONCE for the whole paragraph
   // (a run's level depends on surrounding runs, so it must run over the full
   // assembled source, not per-line). Each line later derives its U16 source
   // span and queries these levels in `reorderLineForBidi` (via the cheap fast
@@ -1475,12 +1477,12 @@ export function layoutInlineContent(
   // from `tokens.some((t) => t.isTab === true)`).
   const cachedState = fragmentation === undefined ? ctx.ifcStateCache.get(parent.key) : undefined;
   const prevState = cachedState !== undefined && !cachedState.hasTab ? cachedState : undefined;
-  // P2 (#312) / #333: the cached lines bake in their alignment offset — each
+  // The cached lines bake in their alignment offset — each
   // top-level child's `inlineOffset` carries the alignment delta (the line
   // itself spans the full width at the natural inline-start). A change to ONLY
   // `textAlign` or `direction` — tokens + availableInlineSize unchanged — must
   // re-lay the lines, not return the stale (differently-aligned) ones. Gate the
-  // hit on alignment too. P5 (#391): the FIRST line also bakes in `text-indent`
+  // hit on alignment too. The FIRST line also bakes in `text-indent`
   // (its inline-start cursor + width), so gate on it as well — an indent-only
   // change must re-lay, not reuse stale first-line geometry.
   if (
@@ -1507,7 +1509,7 @@ export function layoutInlineContent(
   const tMiss = markStart("ifc.cache.miss");
   markEnd("ifc.cache.miss", tMiss);
 
-  // Per-line token-range metadata for incremental re-wrap (Plan 3.G Task 4+).
+  // Per-line token-range metadata for incremental re-wrap.
   // Keyed by the LineBox object (via WeakMap) so it doesn't prevent GC.
   const lineMeta = new WeakMap<LineBox, { startTokenIdx: number; endTokenIdx: number }>();
 
@@ -1554,7 +1556,7 @@ export function layoutInlineContent(
       // path that bypasses `pushUnit`) is load-bearing: the greedy wrap loop's
       // `pushUnit` advances `cursorOffset` by the unit's
       // `unitOffsetContribution`, so the line's `inlineOffsetStart..End` covers
-      // the leading spaces (closing #308 for preserving modes).
+      // the leading spaces (closing for preserving modes).
       if (preservesWhitespace(tok.style.whiteSpace)) {
         // Under `break-spaces` every preserved space is its OWN wrap unit so a
         // run of spaces can wrap independently across lines (CSS Text 3: a
@@ -1562,7 +1564,7 @@ export function layoutInlineContent(
         // end). Emitting a single-glyph unit here (instead of slurping the run)
         // is load-bearing: the greedy loop wraps an overflowing space to the
         // next line, and a 1-glyph space unit can never force-place past the
-        // page edge — so the caret stays on-page (#314). For `pre`/`pre-wrap`
+        // page edge — so the caret stays on-page. For `pre`/`pre-wrap`
         // keep the run bundling.
         if (isBreakSpaces) {
           units.push({
@@ -1604,7 +1606,7 @@ export function layoutInlineContent(
         continue;
       }
       // Collapsing mode — emit a ZERO-WIDTH unit so `pushUnit` advances
-      // `cursorOffset` by the token's `sourceLength` (closing #308 for
+      // `cursorOffset` by the token's `sourceLength` (closing for
       // collapsing modes). Symmetric with the preserving-mode emit above,
       // but we CLONE the token with `width: 0` so:
       //   - `pushUnit` advances the line's `currentWidth` by 0 (the
@@ -1614,7 +1616,7 @@ export function layoutInlineContent(
       //     `inlineOffset` at the current cursor position, so subsequent
       //     leaves stack at the same x. Caret-position then falls within the
       //     leaf's [absoluteX, absoluteX + 0] range and clamps to
-      //     absoluteX = 0 via the existing leaf-right-edge clamp (#338 P2).
+      //     absoluteX = 0 via the existing leaf-right-edge clamp.
       //   - The token's `sourceLength` (1 source char per leading whitespace,
       //     assigned by the lookahead pass in `collectInlineTokens`) flows
       //     into `offsetLength = sum(t.sourceLength)`, so the leaf owns the
@@ -1624,7 +1626,7 @@ export function layoutInlineContent(
       // owned by no unit; `cursorOffset` doesn't advance for them, and the
       // caret accumulator (cursor-position.ts) sees a line that ends BEFORE
       // those offsets — caret at offsets 0..N-1 of "   hello" falls past
-      // `line.inlineOffsetEnd` and clamps (#308). Same gap applies to an
+      // `line.inlineOffsetEnd` and clamps. Same gap applies to an
       // all-whitespace paragraph like "   " (today emits a strut line with
       // inlineOffsetEnd=0; with the fix the line owns all 3 source chars).
       const zeroWidthTok: Token = { ...tok, width: 0 };
@@ -1653,7 +1655,7 @@ export function layoutInlineContent(
     // slurp) so each following space becomes its own wrap unit via the
     // leading/orphan branch above. This is what lets an overflowing space
     // wrap to the next line while the word stays intact on the current line
-    // (#314 — never split the word early, never push a glyph past the edge).
+    // (never split the word early, never push a glyph past the edge).
     // The spaces' offset contribution is preserved because that branch emits
     // them (closing the trailing-space offset gap for break-spaces).
     const unit: Token[] = [tok];
@@ -1680,7 +1682,7 @@ export function layoutInlineContent(
       inlineAncestorStyles: tok.inlineAncestorStyles,
       tokenStartIdx: unitStartIdx,
       tokenEndIdx: i - 1,
-      // Tab stops S2: a recognized tab inline-block is its own single-token
+      // A recognized tab inline-block is its own single-token
       // unit (an inline-block never slurps trailing spaces — it has none).
       isTab: tok.isTab === true,
     });
@@ -1696,7 +1698,7 @@ export function layoutInlineContent(
   // Track the first and last token index for the units accumulated on the current line.
   let currentLineStartTokenIdx = -1;
   let currentLineEndTokenIdx = -1;
-  // E-E.1: state-model offset accumulator for stamping
+  // State-model offset accumulator for stamping
   // `inlineOffsetStart` / `inlineOffsetEnd` on each emitted LineBox.
   // Advances per unit consumed via `pushUnit`. Each token contributes its
   // `sourceLength` — the count of STATE-model characters it owns: 1 for an
@@ -1773,7 +1775,7 @@ export function layoutInlineContent(
     const prefixText = firstTok.text.slice(0, bestBreakIdx);
     const suffixText = firstTok.text.slice(bestBreakIdx);
 
-    // M1: derive the suffix's source position from the token's
+    // Derive the suffix's source position from the token's
     // `absoluteSourceBase` field (the ONE offset-derivation path) rather than
     // re-parsing `firstTok.id`. The suffix begins `bestBreakIdx` DISPLAY code
     // units after the prefix, so its absolute base advances by exactly that
@@ -1800,7 +1802,7 @@ export function layoutInlineContent(
       isLineBreak: false,
       inlineAncestors: firstTok.inlineAncestors,
       inlineAncestorStyles: firstTok.inlineAncestorStyles,
-      // #521 PDF /Link: a word-split keeps both fragments inside the SAME link
+      // PDF /Link: a word-split keeps both fragments inside the SAME link
       // as the original word, so the prefix word-run carries it through (the
       // synthetic hyphen inherits it via hyphenBreak.link).
       ...(firstTok.link !== undefined ? { link: firstTok.link } : {}),
@@ -1810,7 +1812,7 @@ export function layoutInlineContent(
       id: `${firstTok.sourceKey}:${suffixSourceBase}`,
       sourceKey: firstTok.sourceKey,
       text: suffixText,
-      // #521 PDF /Link: the suffix fragment stays inside the original word's link.
+      // PDF /Link: the suffix fragment stays inside the original word's link.
       ...(firstTok.link !== undefined ? { link: firstTok.link } : {}),
       // The remainder of the original token's source span. Together with the
       // prefix's `bestBreakIdx` this re-sums to firstTok.sourceLength, which
@@ -1921,7 +1923,7 @@ export function layoutInlineContent(
     const prefixText = firstTok.text.slice(0, splitAt);
     const suffixText = firstTok.text.slice(splitAt);
 
-    // M1: mirror tryHyphenSplit — derive the suffix source position from the
+    // Mirror tryHyphenSplit — derive the suffix source position from the
     // `absoluteSourceBase` field (the single offset-derivation path), not by
     // re-parsing `firstTok.id`. The suffix begins `splitAt` DISPLAY code units
     // after the prefix.
@@ -1940,7 +1942,7 @@ export function layoutInlineContent(
       isLineBreak: false,
       inlineAncestors: firstTok.inlineAncestors,
       inlineAncestorStyles: firstTok.inlineAncestorStyles,
-      // #521 PDF /Link: a word-split keeps both fragments inside the SAME link as
+      // PDF /Link: a word-split keeps both fragments inside the SAME link as
       // the original word, so both the prefix and suffix runs carry it through. (No
       // synthetic hyphen on this path — that is tryHyphenSplit only.)
       ...(firstTok.link !== undefined ? { link: firstTok.link } : {}),
@@ -1950,7 +1952,7 @@ export function layoutInlineContent(
       id: `${firstTok.sourceKey}:${suffixSourceBase}`,
       sourceKey: firstTok.sourceKey,
       text: suffixText,
-      // #521 PDF /Link: the suffix fragment stays inside the original word's link.
+      // PDF /Link: the suffix fragment stays inside the original word's link.
       ...(firstTok.link !== undefined ? { link: firstTok.link } : {}),
       sourceLength: firstTok.sourceLength - splitAt,
       // Suffix base advances by the prefix's DISPLAY length (splitAt).
@@ -2012,8 +2014,7 @@ export function layoutInlineContent(
    * `intrinsic-sizes-pass.ts`). Skips space / inline-block / line-break units and
    * (mirroring `tryHyphenSplit`'s grow-token punt) text-transform grow/shrink tokens
    * whose `sourceDisplayLengths` make display≠source offsets unsafe for the
-   * source-base split — a named follow-up, consistent with the shipped hyphen
-   * behavior, not a new degradation.
+   * source-base split, consistent with the hyphen behavior.
    */
   function tryEmergencyBreak(
     unit: WrapUnit,
@@ -2091,7 +2092,7 @@ export function layoutInlineContent(
       isLineBreak: false,
       inlineAncestors: firstTok.inlineAncestors,
       inlineAncestorStyles: firstTok.inlineAncestorStyles,
-      // #521 PDF /Link: a word-split keeps both fragments inside the SAME link as
+      // PDF /Link: a word-split keeps both fragments inside the SAME link as
       // the original word, so both the prefix and suffix runs carry it through. (No
       // synthetic hyphen on this path — that is tryHyphenSplit only.)
       ...(firstTok.link !== undefined ? { link: firstTok.link } : {}),
@@ -2101,7 +2102,7 @@ export function layoutInlineContent(
       id: `${firstTok.sourceKey}:${suffixSourceBase}`,
       sourceKey: firstTok.sourceKey,
       text: suffixText,
-      // #521 PDF /Link: the suffix fragment stays inside the original word's link.
+      // PDF /Link: the suffix fragment stays inside the original word's link.
       ...(firstTok.link !== undefined ? { link: firstTok.link } : {}),
       sourceLength: firstTok.sourceLength - splitAt,
       absoluteSourceBase: suffixSourceBase,
@@ -2161,7 +2162,7 @@ export function layoutInlineContent(
     lineInlineCursor: number,
     lineInlineSize: number,
     hyphen: HyphenBreak | null,
-    // P3 (#312): set on the FINAL flush (the last/only line of the paragraph)
+    // Set on the FINAL flush (the last/only line of the paragraph)
     // and on a hard-LINE_BREAK-terminated flush. Neither is justified
     // (CSS Text 3 §7.3); both fall through to start-alignment. Soft-wrap and
     // hyphen-split flushes leave this `false` (more content follows → justify).
@@ -2173,13 +2174,13 @@ export function layoutInlineContent(
     // line as "last". The caller knows which flush is terminal; it tells us.
     noJustify: boolean = false,
   ): LineBox {
-    // P2 (#312, #333): compute the alignment offset and apply it to the line's
+    // Compute the alignment offset and apply it to the line's
     // CHILDREN's origin (via `buildLineWithFragments`'s `alignmentOffset` arg).
     // `lineInlineCursor` itself stays at the natural inline-start — the line
     // box covers the full available inline size, so `logicalToPhysical` mirrors
     // it correctly under RTL. Centering must use the VISIBLE width — exclude
     // trailing whitespace (the merged trailing-space tokens in collapsing modes,
-    // and the standalone space units in break-spaces #314/#339 —
+    // and the standalone space units in break-spaces —
     // `trailingSpaceWidthOf` sums the full trailing RUN of space units across
     // both shapes).
     // CSS Text 3 §8.1: also exclude the trailing tracking (letter-spacing) of
@@ -2191,7 +2192,7 @@ export function layoutInlineContent(
       - trailingLetterSpacingOf(currentUnits);
     const alignmentOffset = computeAlignmentOffset(lineInlineSize, contentWidth, textAlign, direction);
 
-    // P3 (#312): JUSTIFY widens interior inter-word spaces (it does NOT shift
+    // JUSTIFY widens interior inter-word spaces (it does NOT shift
     // the line — `computeAlignmentOffset` returns 0 for justify). A line is
     // justified iff textAlign==="justify" AND it is NOT the last/only line of
     // the paragraph AND NOT hard-break-terminated (`noJustify` covers both).
@@ -2212,7 +2213,8 @@ export function layoutInlineContent(
       startOff,              // inlineOffsetStart
       cursorOffset,          // inlineOffsetEnd
       alignmentOffset,
-      paragraphBidi,         // P4-C: per-paragraph bidi levels (closure-captured)
+      paragraphBidi,         // Per-paragraph bidi levels (closure-captured)
+      endsAtFloat(lineInlineCursor, lineInlineSize),
     );
     if (currentLineStartTokenIdx >= 0) {
       lineMeta.set(line, {
@@ -2274,18 +2276,23 @@ export function layoutInlineContent(
   // line box to attach to.
   if (units.length === 0) {
     const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0);
-    // P2 (#312) / #333: a strut (empty paragraph) has zero content width, so
+    // A strut (empty paragraph) has zero content width, so
     // the gap is the full line. The alignment is carried on a single zero-width
     // STRUT CHILD inside the line — caret/selection consumers walk `line.children`
-    // (post-#172 / #208 LineBox-canonical), so the strut leaf naturally provides
+    // (LineBox-canonical), so the strut leaf naturally provides
     // the empty-line caret anchor at the right physical position under either
     // direction (LTR center → center; RTL center → center; LTR end → right;
     // RTL end → left). The LINE itself spans the full inline size at the
     // natural inline-start, so `logicalToPhysical` mirrors it correctly under
     // RTL.
     const strutAlignmentOffset = computeAlignmentOffset(lineInlineSize, 0, textAlign, direction);
-    const strutBlockSize = measurer.measureHeight(parentCs);
-    const strutUsedStyle = computeUsedStyle(parentCs, availableInlineSize, "indefinite");
+    // The empty paragraph's line is laid out in its ¶ character props (Word /
+    // GDocs): the render strut sentinel (the lone empty text child)
+    // carries the ¶'s `markAttrs`; the block style when there is none.
+    const sentinel = parent.children.length === 1 ? parent.children[0] : undefined;
+    const strutCs = (sentinel !== undefined && sentinel.type === "text" && sentinel.text === "" ? sentinel.computedStyle : undefined) ?? parentCs;
+    const strutBlockSize = measurer.measureHeight(strutCs);
+    const strutUsedStyle = computeUsedStyle(strutCs, availableInlineSize, "indefinite");
     const strutChild = createTextRunBox(
       `${parent.key}-l${lineIndex}:strut`,
       /* inlineOffset */ strutAlignmentOffset,
@@ -2294,7 +2301,7 @@ export function layoutInlineContent(
       /* blockSize */ strutBlockSize,
       writingMode,
       direction,
-      parentCs,
+      strutCs,
       strutUsedStyle,
       /* text */ "",
       // The strut owns ZERO state offsets — caret accounting treats it as a
@@ -2334,6 +2341,9 @@ export function layoutInlineContent(
       /* inlineOffsetStart */ 0,
       /* inlineOffsetEnd */ 0,
       /* isBlockBoundaryLine */ true,
+      /* endsWithHyphenContinuation */ undefined,
+      /* containingBlockSize */ undefined,
+      endsAtFloat(lineInlineCursor, lineInlineSize),
     );
     lines.push(strutLine);
     lineBlockOffset += strutBlockSize;
@@ -2362,7 +2372,7 @@ export function layoutInlineContent(
       const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0);
       if (currentLineStartOffset < 0) currentLineStartOffset = cursorOffset;
       cursorOffset += unitOffsetContribution(unit);
-      // Hard-break-terminated line is NOT justified (P3, CSS Text 3 §7.3).
+      // Hard-break-terminated line is NOT justified (CSS Text 3 §7.3).
       flushLine(lineInlineCursor, lineInlineSize, pendingHyphen, /* noJustify */ true);
       lastUnitWasForcedBreak = true;
       continue;
@@ -2371,7 +2381,7 @@ export function layoutInlineContent(
     // Soft wrap — only when canWrap is true
     let { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0);
 
-    // Tab stops S3/S5 — resolve-at-the-overflow-check, freeze-geometry. A tab's
+    // Tab stops: resolve at the overflow check, then freeze geometry. A tab's
     // advance is POSITION-DEPENDENT: it depends on the running pen position
     // (`currentWidth`) when the tab is reached on this line. Resolve it HERE,
     // before the overflow test reads `unit.totalWidth`, and substitute a frozen
@@ -2379,12 +2389,12 @@ export function layoutInlineContent(
     //
     // The destination stop's `alignment` selects how the advance is computed:
     //   - left / default-grid (`stop === null`): advance to the stop `position`
-    //     (S3). The pen lands ON the stop; the following segment flows from it.
+    // The pen lands ON the stop; the following segment flows from it.
     //   - right: advance so the post-tab SEGMENT ENDS on the stop. Needs the
-    //     segment's width `w` → `position − w − pen` (S5).
+    //     segment's width `w` → `position − w − pen`.
     //   - center: advance so the segment is CENTERED on the stop → `position
-    //     − w/2 − pen` (S5).
-    //   - decimal: the first '.' (U+002E) in the segment lands on the stop (S6).
+    //     − w/2 − pen`.
+    //   - decimal: the first '.' (U+002E) in the segment lands on the stop.
     //     Needs the inline distance from the segment start to that '.' →
     //     `position − dOff − pen`. No '.' on the line → right fallback.
     // Right/center/decimal read the post-tab segment via a bounded look-ahead
@@ -2420,7 +2430,7 @@ export function layoutInlineContent(
         // same per-unit `totalWidth` the wrap loop uses — no re-measure — and
         // never advances `uqi`.
         //
-        // For `decimal` (S6) we ALSO locate the FIRST decimal separator (v1 =
+        // For `decimal` we ALSO locate the FIRST decimal separator (the
         // `.` U+002E) in the segment's DISPLAY text and accumulate the inline
         // distance from the segment start to the START of that `.` grapheme
         // (`dOff`). Within the unit/token that contains the `.`, the sub-token
@@ -2500,7 +2510,7 @@ export function layoutInlineContent(
       };
     }
 
-    // #338 (trailing-space HANG, match Google Docs): a SPACE unit never
+    // Trailing-space HANG (matches Google Docs): a SPACE unit never
     // triggers its own soft wrap. Only word / inline-block units wrap. When an
     // overflowing unit is all-spaces (a standalone space unit emitted by
     // `break-spaces`/`pre`/`pre-wrap`), skip the flush and fall through to
@@ -2510,8 +2520,8 @@ export function layoutInlineContent(
     // wraps correctly (it hits this overflow→wrap branch with the advanced
     // currentWidth). Under collapsing `normal` the trailing space is slurped
     // into the word's unit, so `isSpaceUnit` is false there and words wrap as
-    // before. (P2/#338 will CLAMP the hung space to the content edge; for now it
-    // may extend past it.)
+    // before. Box emission later clamps the hung space's geometry to the
+    // content edge.
     if (canWrap && !isSpaceUnit(unit) && currentWidth + unit.totalWidth > lineInlineSize && currentUnits.length > 0) {
       const available = lineInlineSize - currentWidth;
       // UAX #14 soft split first (e.g. CJK between ideographs) — no hyphen glyph.
@@ -2654,7 +2664,7 @@ export function layoutInlineContent(
 
   if (currentUnits.length > 0) {
     const { lineInlineCursor, lineInlineSize } = effectiveLineDims(lineBlockOffset, lineIndex === 0);
-    // Final flush — the last/only line of the paragraph is NOT justified (P3).
+    // Final flush — the last/only line of the paragraph is NOT justified.
     flushLine(lineInlineCursor, lineInlineSize, pendingHyphen, /* noJustify */ true);
   } else if (lastUnitWasForcedBreak) {
     // The inline content ENDED on a forced break (hard-break embed) with no
@@ -2675,7 +2685,7 @@ export function layoutInlineContent(
   // that incremental-wrap convergence detection can find metadata on the
   // cached lines.
   //
-  // E-E.1: the `Object.freeze({ ...line, children: ... })` spread inside
+  // The `Object.freeze({ ...line, children: ... })` spread inside
   // assignFragmentEdges naturally propagates the new LineBox-canonical
   // fields (`ownerBlockId`, `inlineOffsetStart/End`, `isBlockBoundaryLine`)
   // because they are enumerable own-properties on the source LineBox.
@@ -2695,7 +2705,7 @@ export function layoutInlineContent(
     resultLines.push(box);
   }
 
-  // E-E.1: stamp `isBlockBoundaryLine = true` on the absolutely-last
+  // Stamp `isBlockBoundaryLine = true` on the absolutely-last
   // line of the block. Strut lines (empty paragraph) were already
   // stamped at creation, so the no-op fast path covers them. For
   // wrapped blocks, every line was emitted with `false`; the last
@@ -2731,7 +2741,7 @@ export function layoutInlineContent(
       textIndent: blockTextIndent,
       tabStops: parentCs.tabStops,
       defaultTabStop: parentCs.defaultTabStop,
-      // S2: true when this block contains a recognized `"tab"` inline-block.
+      // True when this block contains a recognized `"tab"` inline-block.
       // The cache READ path treats a `hasTab` entry as a forced miss (a tab's
       // resolved advance depends on its line-position, not just its token text),
       // so an incremental re-wrap of a tab-bearing block always re-lays.
@@ -2739,11 +2749,11 @@ export function layoutInlineContent(
     });
   }
 
-  // D.1-D.5: Line-level fragmentation (fit-check, orphans, widows, hyphen-pair, resume).
+  // Line-level fragmentation (fit-check, orphans, widows, hyphen-pair, resume).
   // Unified block: handles both fresh fragments (resumeFrom === null, startLine = 0)
   // and resumed fragments (resumeFrom.type === "ifc", startLine = resumeFrom.resumeAtLine).
   if (fragmentation !== undefined) {
-    // D.5 — Determine where to start emitting lines (resume support).
+    // Determine where to start emitting lines (resume support).
     let startLine = 0;
     if (fragmentation.resumeFrom !== null) {
       if (fragmentation.resumeFrom.type !== "ifc") {
@@ -2757,7 +2767,7 @@ export function layoutInlineContent(
     // The suffix of lines we consider on this fragment (lines[startLine..end]).
     const linesToConsider = resultLines.slice(startLine);
 
-    // D.1 — Greedy fit-loop on the suffix.
+    // Greedy fit-loop on the suffix.
     let used = 0;
     let placedLineCount = 0;
     for (let fi = 0; fi < linesToConsider.length; fi++) {
@@ -2776,14 +2786,14 @@ export function layoutInlineContent(
       return { box: null, breakToken: { type: "ifc", resumeAtLine: startLine, paraFlowStart }, inFlowConsumed: 0 };
     }
 
-    // D.2 — Orphans constraint (CSS Fragmentation L4 §5.4).
+    // Orphans constraint (CSS Fragmentation L4 §5.4).
     // At least `orphans` lines must remain on the current fragment. Default 2 per CSS spec.
     const orphans = parentCs.orphans ?? 2;
     if (placedLineCount < linesToConsider.length && placedLineCount < orphans) {
       return { box: null, breakToken: { type: "ifc", resumeAtLine: startLine, paraFlowStart }, inFlowConsumed: 0 };
     }
 
-    // D.3 — Widows constraint (CSS Fragmentation L4 §5.4).
+    // Widows constraint (CSS Fragmentation L4 §5.4).
     // At least `widows` lines must carry over to the next fragment. Default 2 per CSS spec.
     // Back off placedLineCount until the constraint is satisfied.
     const widows = parentCs.widows ?? 2;
@@ -2795,7 +2805,7 @@ export function layoutInlineContent(
       return { box: null, breakToken: { type: "ifc", resumeAtLine: startLine, paraFlowStart }, inFlowConsumed: 0 };
     }
 
-    // D.4 — Hyphen-pair constraint (CSS Fragmentation L4 §5).
+    // Hyphen-pair constraint (CSS Fragmentation L4 §5).
     // A page break must not fall between two lines of a hyphenated word. If the
     // last placed line ends with a hyphen continuation, back off past it.
     // Live now that `hyphens: manual` produces real hyphenated lines from authored
@@ -2848,6 +2858,8 @@ export function layoutInlineContent(
         line.inlineOffsetEnd,
         line.isBlockBoundaryLine,
         line.endsWithHyphenContinuation,
+        /* containingBlockSize */ undefined,
+        line.endsAtFloat,
       );
     }
     const rebasedSuffix: LineBox[] = [];
@@ -2900,7 +2912,7 @@ export function layoutInlineContent(
     return { box: allSuffixBox, breakToken: null, inFlowConsumed: usedAdjusted };
   }
 
-  // E-E.1: use `resultLines` (which has the isBlockBoundaryLine patch
+  // Use `resultLines` (which has the isBlockBoundaryLine patch
   // applied to the last line) rather than `result` (pre-patch), so the
   // BlockBox's children agree with the cache. Otherwise a cache hit on
   // a subsequent layout pass returns the patched lines while the
@@ -3035,25 +3047,26 @@ function buildLineWithFragments(
   ownerBlockId: BlockId,
   inlineOffsetStart: number,
   inlineOffsetEnd: number,
-  // #333: alignment offset applied to the children's line-relative origin so
+  // Alignment offset applied to the children's line-relative origin so
   // the LINE itself spans the full inline size (`lineInlineCursor` stays at
   // the natural inline-start). `logicalToPhysical` then mirrors the line
   // correctly under RTL — content lands at the right physical position for
-  // end/center under both directions. See the design doc:
-  // docs/superpowers/specs/2026-05-28-textalign-rtl-fullwidth-line-design.md.
+  // end/center under both directions.
   alignmentOffset: number = 0,
-  // P4-C: the paragraph's resolved bidi levels (resolved once per paragraph in
+  // The paragraph's resolved bidi levels (resolved once per paragraph in
   // `layoutInlineContent`). `null` for an empty/source-less paragraph. The line
   // derives its own U16 source span from `units` and passes both to
   // `reorderLineForBidi`, which fast-paths to identity when the line is pure-LTR.
   paragraphBidi: ParagraphBidi | null = null,
+  // `LineBox.endsAtFloat`: an inline-end float shortens this line.
+  endsAtFloat = false,
 ): LineBox {
   const parentUsedStyle = computeUsedStyle(parentCs, containingInlineSize, "indefinite");
   const lineBlockSizeTracker = { value: 0 };
   // `originInlineOffset = alignmentOffset` is the PHYSICAL position where this
   // level's content begins within the line; `buildLineChildrenForAncestorLevel`
   // uses it ONLY to compare a hung trailing space's PHYSICAL position against
-  // `lineInlineSize` for the #338/#340 clamp. Box-positioning (each child's
+  // `lineInlineSize` for the hung-space clamp. Box-positioning (each child's
   // own `inlineOffset` within the line) is still LEVEL-RELATIVE — see the
   // post-build shift below.
   let children = buildLineChildrenForAncestorLevel(
@@ -3085,12 +3098,12 @@ function buildLineWithFragments(
       /* containingInlineSize */ lineInlineSize,
       /* sourceDisplayLengths */ undefined,
       // The hyphen owns no source span and is never a bidi-split target —
-      // leave clusterWidths/sourceStart undefined (P4-C skips it).
+      // leave clusterWidths/sourceStart undefined (the bidi reorder skips it).
       /* clusterWidths */ undefined,
       /* sourceStart */ undefined,
       /* bidiLevel */ undefined,
       /* containingBlockSize */ undefined,
-      /* link — inherit the split word's link (#521 PDF /Link) */ hyphenBreak.link,
+      /* link — inherit the split word's link (PDF /Link) */ hyphenBreak.link,
     );
     children = [...children, hyphenBox];
   }
@@ -3113,7 +3126,7 @@ function buildLineWithFragments(
     // `trim`. `trimTrailingLetterSpacing` IS the skip oracle: it returns the
     // rebuilt box for a trimmable glyph leaf (a top-level `text-run`, OR an
     // InlineBox whose last glyph is nested inside a `display:inline` element,
-    // e.g. `<em>word</em>` at the line end — #434), and `undefined` for a box
+    // e.g. `<em>word</em>` at the line end), and `undefined` for a box
     // that carries no trimmable trailing glyph (a whitespace-only `text-run` —
     // the hung trailing space that lands AFTER the word leaf under
     // `break-spaces`; an all-whitespace InlineBox like `<em> </em>`; or an
@@ -3142,7 +3155,7 @@ function buildLineWithFragments(
 
   const lineBlockSize = lineBlockSizeTracker.value > 0 ? lineBlockSizeTracker.value : measurer.measureHeight(parentCs);
 
-  // #333: shift every top-level child by `alignmentOffset` so the content sits
+  // Shift every top-level child by `alignmentOffset` so the content sits
   // at the right inline position within the (full-width) line. `buildLineChildren`
   // packs children from `cursorInlineOffset=0` (level-relative); the shift
   // applies once, uniformly, AT THE TOP LEVEL. Recursive levels (inside
@@ -3157,7 +3170,7 @@ function buildLineWithFragments(
   }
 
   const aligned = applyVerticalAlign(children, lineBlockSize, lineInlineSize, parentCs.fontSize);
-  // P4-C: derive this line's U16 source span from its wrap units, then reorder
+  // Derive this line's U16 source span from its wrap units, then reorder
   // by the paragraph's bidi levels. The fast path no-ops for pure-LTR lines.
   const lineSourceRange = deriveLineSourceRangeU16(units);
   const reordered = reorderLineForBidi(
@@ -3177,6 +3190,8 @@ function buildLineWithFragments(
     /* inlineOffsetEnd */ inlineOffsetEnd,
     /* isBlockBoundaryLine — stamped later if this line ends the block */ false,
     /* endsWithHyphenContinuation */ hyphenBreak !== null ? true : undefined,
+    /* containingBlockSize */ undefined,
+    endsAtFloat,
   );
 }
 
@@ -3189,11 +3204,11 @@ function buildLineWithFragments(
  * where THIS build level begins. The top-level call passes 0 (its children are
  * line-relative); a recursive call for an inline element passes the physical
  * position where that element's box sits (so its inner children's frame is
- * `originInlineOffset` from the line origin). The hung-SPACE clamp (#338 P2 / #340)
+ * `originInlineOffset` from the line origin). The hung-SPACE clamp
  * compares the box's PHYSICAL position (`originInlineOffset + cursorInlineOffset`)
  * against `lineInlineSize` — without the origin, a recursive call would compare an
  * INNER-relative offset and miss a trailing space that hangs past the line content
- * edge (#340: `<em>word   </em>` at the edge).
+ * edge.
  */
 function buildLineChildrenForAncestorLevel(
   parentKey: string,
@@ -3239,10 +3254,10 @@ function buildLineChildrenForAncestorLevel(
           /* sourceStart — the OBJECT_REPLACEMENT char's absolute source offset */ firstTok.absoluteSourceBase,
           /* bidiLevel */ undefined,
           /* containingBlockSize */ undefined,
-          // Tab stops S2/S3: stamp typed tab metadata onto the recognized tab
+          // Tab stops: stamp typed tab metadata onto the recognized tab
           // box. The destination-stop leader is resolved at the overflow-check
-          // seam (S3) and carried on `firstTok.tabLeader`; absent (the S2
-          // zero-advance sentinel, or a default-grid stop) defaults to "none".
+          // seam and carried on `firstTok.tabLeader`; absent (an unresolved
+          // tab, or a default-grid stop) defaults to "none".
           firstTok.isTab === true
             ? { embedType: "tab", leader: firstTok.tabLeader ?? "none" }
             : undefined,
@@ -3278,7 +3293,7 @@ function buildLineChildrenForAncestorLevel(
           }
         }
 
-        // Per-DISPLAY-code-unit advances for the WHOLE run, used by the P4-C
+        // Per-DISPLAY-code-unit advances for the WHOLE run, used by the
         // bidi reorder to split the box at a level boundary. Built by
         // concatenating each token's `clusterWidths` — SAME partition shape as
         // `leafSDL` above, but over DISPLAY code units (`t.text.length`), not
@@ -3309,9 +3324,9 @@ function buildLineChildrenForAncestorLevel(
 
         const tokUsedStyle = computeUsedStyle(tokStyle, lineInlineSize, "indefinite");
 
-        // #338 P2 / #340 — clamp a HUNG SPACE box's physical geometry to the line
+        // Clamp a HUNG SPACE box's physical geometry to the line
         // content edge (`lineInlineSize`, line-relative). A trailing/interior
-        // space that hangs past the edge (P1) must not draw, position the caret,
+        // space that hangs past the edge must not draw, position the caret,
         // or extend selection past it. Clamp ONLY space boxes — a word/inline
         // unit that overflows (a force-placed unbreakable word wider than the
         // line) legitimately overflows per CSS and must NOT be clipped. The clamp
@@ -3321,7 +3336,7 @@ function buildLineChildrenForAncestorLevel(
         // to the edge with width 0). A straddling space draws partial width up to
         // the edge.
         //
-        // #340: `cursorInlineOffset` is relative to THIS build level's frame,
+        // `cursorInlineOffset` is relative to THIS build level's frame,
         // which for a recursive inline-element call is offset from the line origin
         // by `originInlineOffset`. The clamp compares the PHYSICAL position
         // `physBase = originInlineOffset + cursorInlineOffset` against
@@ -3376,7 +3391,7 @@ function buildLineChildrenForAncestorLevel(
     const innerChildren = buildLineChildrenForAncestorLevel(
       parentKey, lineIndex, innerUnits, depth + 1,
       measurer, innerBlockSizeTracker, writingMode, direction, lineInlineSize,
-      // #340: the inline element's box sits at the PHYSICAL position
+      // The inline element's box sits at the PHYSICAL position
       // `originInlineOffset + cursorInlineOffset` (this level's frame plus the
       // accumulated offset before the box) — its inner children's clamp edge is
       // measured from there.
@@ -3388,11 +3403,11 @@ function buildLineChildrenForAncestorLevel(
     lineBlockSizeTracker.value = Math.max(lineBlockSizeTracker.value, boxBlockSize);
 
     const ancestorUsedStyle = computeUsedStyle(ancestorStyle, lineInlineSize, "indefinite");
-    // For B.2, hardcode fragmentEdge to "only". B.3 fixes cross-line resolution.
+    // Provisional fragmentEdge "only"; assignFragmentEdges corrects it across lines.
     out.push(createInlineBox(
       `${parentKey}-l${lineIndex}-i${out.length}-${ancestorKey}`,
       cursorInlineOffset, 0, boxInlineSize, boxBlockSize, writingMode, direction, ancestorStyle, ancestorUsedStyle, innerChildren, "only",
-      ancestorKey, // L-C: store explicitly; do not derive from box.key
+      ancestorKey, // store explicitly; do not derive from box.key
       /* containingInlineSize */ lineInlineSize,
     ));
     // `boxInlineSize` is the sum of the (possibly clamped) inner child widths, so
@@ -3417,7 +3432,7 @@ function buildLineChildrenForAncestorLevel(
  * based on which lines contain it.
  */
 function assignFragmentEdges(lines: LayoutBox[]): LayoutBox[] {
-  // Phase 1: tally line indices per inline-ancestor key.
+  // Pass 1: tally line indices per inline-ancestor key.
   const lineIndicesByAncestor = new Map<string, number[]>();
   lines.forEach((line, idx) => {
     if (line.type !== "line") return;
@@ -3429,13 +3444,13 @@ function assignFragmentEdges(lines: LayoutBox[]): LayoutBox[] {
     });
   });
 
-  // Phase 2: rebuild each line with corrected fragmentEdges.
+  // Pass 2: rebuild each line with corrected fragmentEdges.
   //
   // The spread-and-cast below is INTENTIONALLY NOT routed through
   // `withInlineOffset`/`withBlockOffset`/`createLineBox`. It mutates ONLY
   // `children` — not `inlineOffset`, `blockOffset`, `inlineSize`, or
-  // `blockSize`. The logical↔physical position invariant (the one L-A
-  // introduced `assertLayoutBoxConsistent` to protect) is untouched here,
+  // `blockSize`. The logical↔physical position invariant (which
+  // `assertLayoutBoxConsistent` protects) is untouched here,
   // so this pattern is safe.
   //
   // If a future change to this site mutates a position field, route it
@@ -3443,7 +3458,7 @@ function assignFragmentEdges(lines: LayoutBox[]): LayoutBox[] {
   // check, as in `bfc.ts`'s float-placement site and `ifc.ts`'s
   // `applyVerticalAlign`.
   //
-  // E-E.1: the spread also propagates the LineBox-canonical fields
+  // The spread also propagates the LineBox-canonical fields
   // (`ownerBlockId`, `inlineOffsetStart/End`, `isBlockBoundaryLine`)
   // because they are enumerable own-properties on the source LineBox.
   // If a future change routes this through `createLineBox` instead,
@@ -3465,18 +3480,6 @@ function visitInlineBoxes(children: readonly LayoutBox[], visit: (b: InlineBox) 
   }
 }
 
-/**
- * Reorder a line's child boxes for visual presentation per their bidi
- * levels. Plan 3.C ships uniform-level reordering (all children share the
- * same level — produced by mock/canvas shapers). Mixed-level reordering
- * (Unicode Bidi Algorithm L1–L3) lands in a later plan when bidi-aware
- * shapers ship.
- *
- * @param children logical-order children, each with an `inlineOffset`
- *   placing it within the line.
- * @param lineInlineSize the line's inline-extent.
- * @returns children in visual order with rewritten `inlineOffset`s.
- */
 /**
  * The half-open U16 source span `[startU16, endU16)` a line covers in the
  * assembled paragraph source (`IfcSourceAssembly.source`). Both ends are
@@ -3551,14 +3554,14 @@ function reorderLineForBidi(
 ): LayoutBox[] {
   if (children.length === 0) return [];
 
-  // FAST PATH (P4-C.1 T3): a line needs no reorder when the paragraph has no
+  // FAST PATH: a line needs no reorder when the paragraph has no
   // bidi resolution (empty/source-less) OR the paragraph base is LTR (level 0)
   // AND no codepoint in THIS line's source span carries an RTL (level > 0)
   // embedding. This covers the overwhelmingly common pure-LTR case at zero
   // allocation — just a tight scan of the line's level slice. The fast path is
   // IDENTITY: under LTR the incoming `children` are already physical-correct
   // (logical == physical, alignment pre-shift applied at the call site), so
-  // pure-LTR content is byte-identical to pre-P4-C.
+  // pure-LTR content is laid out exactly as without bidi.
   if (paragraphBidi === null) {
     return [...children];
   }
@@ -3590,12 +3593,12 @@ function reorderLineForBidi(
       }
     }
     if (!hasRtl) {
-      // Pure-LTR line under an LTR paragraph — identity, same as before P4-C.
+      // Pure-LTR line under an LTR paragraph — identity, same as without bidi.
       return [...children];
     }
   }
 
-  // REORDER PATH (P4-C.1 T6): the line carries RTL content (or an RTL paragraph
+  // REORDER PATH: the line carries RTL content (or an RTL paragraph
   // base). Produce real UAX #9 L1/L2 visual order via `reorderLineLeaves`, which
   // emits VISUAL-ORDER boxes packed-from-0 on the LOGICAL inline axis, positioned
   // `direction:"ltr"` so `logicalToPhysical` applies no RTL inline-flip. That
@@ -3659,7 +3662,7 @@ function correctFragmentEdge(
   const newChildren = box.children.map((c) => correctFragmentEdge(c, lineIdx, lineIndicesByAncestor));
   // Spread-and-cast safe here: this mutates only `children` and
   // `fragmentEdge`, neither of which is part of the logical↔physical
-  // position invariant L-A protects. If a future change mutates a
+  // position invariant `assertLayoutBoxConsistent` protects. If a future change mutates a
   // position field, switch to `withBlockOffset` / `withOffsets` and add
   // an `assertLayoutBoxConsistent` check.
   return Object.freeze({ ...box, children: Object.freeze(newChildren), fragmentEdge: edge }) as LayoutBox;

@@ -1,6 +1,6 @@
-import type { EditorState } from "../editor/editor-state";
+import type { EditorState, DocumentChange } from "../editor/editor-state";
 import type { Block, BlockId, Position, State, TextMatch, SuggestionGroup } from "../state";
-import { createPositionMapping, IDENTITY_MAPPING, UNKNOWN_MAPPING, type PositionMapping } from "../state/position-mapping";
+import { mappingAcross, IDENTITY_MAPPING, UNKNOWN_MAPPING, type PositionMapping } from "../state/position-mapping";
 import { peekBlock, resolveBlock } from "../state/state";
 import { recordSample } from "../perf/perf-trace";
 import {
@@ -43,11 +43,10 @@ export function transitionMapping(prev: EditorState, next: EditorState): Positio
   // Only the two endpoints are read — `prev` through the cache-only peek, `next` live —
   // never a superseded intermediate State (whose uncached blocks would read the current
   // Y.Doc). Past the bounded chain the extent is unknown: map conservatively.
-  let dirty: Set<BlockId> | null = null;
+  const links: DocumentChange[] = [];
   for (let c = next.lastChange; c !== null; c = c.prior) {
-    if (dirty === null) dirty = new Set(c.dirtyIds);
-    else for (const id of c.dirtyIds) dirty.add(id);
-    if (c.from === prev.state) return createPositionMapping(prev.state, next.state, dirty, editStart(prev), editStart(next));
+    links.push(c);
+    if (c.from === prev.state) return mappingAcross(links.reverse(), next.state, editStart(prev), editStart(next));
   }
   return UNKNOWN_MAPPING;
 }
@@ -87,6 +86,8 @@ function markersChanged(prev: State, next: State, dirty: ReadonlySet<BlockId> | 
   return before !== after;
 }
 function holdsSuggestion(block: Block | undefined): boolean {
+  // A boundary tag (paragraph / section-break suggestion) lives on the block itself.
+  if (block?.breakSuggestion !== undefined) return true;
   return (block?.inlineContent?.items ?? []).some(
     (i) =>
       i.attrs[INSERTION_SUGGESTION_ATTR] !== undefined ||
@@ -234,7 +235,7 @@ export function createDecorationLayers(): DecorationLayers {
       }
       // ponytail: re-scans the whole document when an edit touches a tracked run (every
       // keystroke in suggesting mode while suggestion highlights are shown); upgrade to a
-      // per-block incremental suggestion range index (ticket T2) if it shows up in profiles.
+      // per-block incremental suggestion range index if it shows up in profiles.
       if (suggestions !== null) {
         suggestionSet = dirtyTouches(prev.state, next.state, touched, holdsSuggestion)
           ? deriveSuggestions(next.state)

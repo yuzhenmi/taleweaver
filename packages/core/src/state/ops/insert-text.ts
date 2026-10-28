@@ -1,14 +1,16 @@
 import type * as Y from "yjs";
+import { requireBlockText } from "../block-text";
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { Position } from "../block-position";
 import type { ReadonlyAttrs } from "../attrs";
 import { inlineContentLength } from "../inline-content";
-import { getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
-import { insertInlineText, requireYInline } from "../y-inline";
+import { requireInTransaction, type BlockTreeKind } from "../yjs-doc";
+import { insertInlineText } from "../y-inline";
+import { writeTypedMarkAttrs } from "../flow-ops";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
-import type { AttrRegistry } from "../../cascade/attr-registry";
+import { attrRegistryOf } from "../mark-attrs";
 
 /**
  * Pre-computed mutation plan for `insertTextInTx`: ONE offset insert of `text`
@@ -22,7 +24,6 @@ export interface InsertTextPlan {
   readonly offset: number;
   readonly text: string;
   readonly attrs: ReadonlyAttrs;
-  readonly registry?: AttrRegistry;
 }
 
 /**
@@ -32,6 +33,9 @@ export interface InsertTextPlan {
  * it from context, e.g. typing attrs). Returns OperationResult with
  * dirtyIds = { position.blockId }. Empty `text` is a no-op (original state).
  *
+ * Typing at the paragraph's end (offset = length) also gives the ¶ the typed run's
+ * inclusive formatting (`markAttrs`) — written only where it differs. Inclusiveness and
+ * attr equality come from the attr registry bound to the doc (`bindAttrRegistry`).
  * One offset `Y.Text.insert`: no existing character moves or is re-minted, so a
  * `RelativePosition` anywhere in the block survives. When `attrs` is
  * registry-equal to a non-marker neighbour's, the neighbour's stored value is
@@ -48,13 +52,12 @@ export function insertText(
   position: Position,
   text: string,
   attrs: ReadonlyAttrs,
-  registry?: AttrRegistry,
 ): OperationResult {
   if (text === "") {
     return { state, dirtyIds: new Set<BlockId>() };
   }
 
-  const plan = planInsertText(state, position, text, attrs, registry);
+  const plan = planInsertText(state, position, text, attrs);
   return applyOperation(state, (doc) => {
     insertTextInTx(doc, plan);
   });
@@ -69,8 +72,13 @@ export function insertText(
  */
 export function insertTextInTx(doc: Y.Doc, plan: InsertTextPlan): void {
   requireInTransaction(doc, "insertText");
-  const yBlock = getYBlock(doc, plan.blockId, "insertText", plan.kind);
-  insertInlineText(requireYInline(yBlock, plan.blockId, "insertText"), plan.offset, plan.text, plan.attrs, plan.registry);
+  const text = requireBlockText(doc, plan.blockId, "insertText");
+  const atEnd = plan.offset === text.length;
+  insertInlineText(text, plan.offset, plan.text, plan.attrs, attrRegistryOf(doc));
+  // Typing at (P, len): the ¶ takes the typed run's inclusive formatting (Word / GDocs
+  // keep the ¶'s rPr in step with the text it ends). `text.id`, not `plan.blockId`: the
+  // insert materialized an implicit run (its derived id is gone, its ¶ now real).
+  if (atEnd) writeTypedMarkAttrs(doc, text.id, plan.attrs);
 }
 
 /**
@@ -83,7 +91,6 @@ export function planInsertText(
   position: Position,
   text: string,
   attrs: ReadonlyAttrs,
-  registry?: AttrRegistry,
 ): InsertTextPlan {
   const resolved = resolveBlock(state, position.blockId);
   if (resolved === null) {
@@ -101,7 +108,7 @@ export function planInsertText(
     );
   }
 
-  return planInsertTextAt(position.blockId, kind, position.offset, text, attrs, registry);
+  return planInsertTextAt(position.blockId, kind, position.offset, text, attrs);
 }
 
 /**
@@ -115,7 +122,6 @@ export function planInsertTextAt(
   offset: number,
   text: string,
   attrs: ReadonlyAttrs,
-  registry?: AttrRegistry,
 ): InsertTextPlan {
-  return { blockId, kind, offset, text, attrs, registry };
+  return { blockId, kind, offset, text, attrs };
 }

@@ -4,7 +4,7 @@ import type { RenderNode, ElementBox } from "./render-node";
 import { createDefaultComponentRegistry } from "../components/component-registry";
 import { createDefaultAttrRegistry } from "../cascade/attr-registry";
 import { buildStateWithListDefs } from "../state/build-state-from-blocks";
-import { buildBlock, inlineContent, text } from "../test-utils/state-builders";
+import { TEST_RESOLVER, buildBlock, inlineContent, text } from "../test-utils/state-builders";
 import { asBlockId, removeBlock, type ListDef } from "../state";
 
 const ORDERED_DEF: ListDef = {
@@ -39,7 +39,7 @@ function li(id: string, prevId: string | null, nextId: string | null): ReturnTyp
 
 describe("render — flat list numbering (service-wired)", () => {
   it("numbers a single ordered list 1..3 via the render-time service", () => {
-    const state = buildStateWithListDefs({
+    const state = buildStateWithListDefs({ resolver: TEST_RESOLVER,
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "i1", lastChildId: "i3" }),
@@ -54,7 +54,7 @@ describe("render — flat list numbering (service-wired)", () => {
   });
 
   it("restarts after an intervening paragraph (the #425 run rule)", () => {
-    const state = buildStateWithListDefs({
+    const state = buildStateWithListDefs({ resolver: TEST_RESOLVER,
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "i1", lastChildId: "i3" }),
@@ -72,7 +72,7 @@ describe("render — flat list numbering (service-wired)", () => {
   it("renders no marker for a list-item whose listId has no def (graceful)", () => {
     // computeCounters falls back to decimal/start-1 when a scope has no def, so
     // even a def-less list still numbers — assert it does not crash + numbers.
-    const state = buildStateWithListDefs({
+    const state = buildStateWithListDefs({ resolver: TEST_RESOLVER,
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "i1", lastChildId: "i1" }),
@@ -91,7 +91,7 @@ describe("render — flat list numbering (service-wired)", () => {
     // own marker.)
     const reg = createDefaultComponentRegistry();
     const attrReg = createDefaultAttrRegistry();
-    const state = buildStateWithListDefs({
+    const state = buildStateWithListDefs({ resolver: TEST_RESOLVER,
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "i1", lastChildId: "i3" }),
@@ -117,7 +117,7 @@ describe("render — flat list numbering (service-wired)", () => {
   it("renumbers FOLLOWING items incrementally when an earlier item is deleted (Task 11 diff)", () => {
     const reg = createDefaultComponentRegistry();
     const attrReg = createDefaultAttrRegistry();
-    const state = buildStateWithListDefs({
+    const state = buildStateWithListDefs({ resolver: TEST_RESOLVER,
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "i1", lastChildId: "i3" }),
@@ -136,5 +136,31 @@ describe("render — flat list numbering (service-wired)", () => {
     const { state: next, dirtyIds } = removeBlock(state, asBlockId("i1"));
     const out = render(next, reg, attrReg, { prev, prevState: state, dirtyIds });
     expect(listMarkers(out.root)).toEqual(["1.", "2."]);
+  });
+});
+
+describe("render — the list marker's character style comes from the ¶'s markAttrs", () => {
+  /** The `list.markerStyle` of every list-item element box, in document order. */
+  function markerStyles(root: RenderNode): unknown[] {
+    const out: unknown[] = [];
+    const walk = (node: RenderNode): void => {
+      if (node.type !== "element") return;
+      if (node.style.display === "list-item") out.push(node.metadata?.list?.markerStyle);
+      for (const c of node.children) walk(c);
+    };
+    walk(root);
+    return out;
+  }
+
+  it("Word formats the number with the paragraph mark's rPr: a bold ¶ → a bold marker; none → no marker style", () => {
+    const bold = { ...li("i1", null, "i2"), markAttrs: { bold: true } };
+    const state = buildStateWithListDefs({ resolver: TEST_RESOLVER,
+      rootId: asBlockId("doc"),
+      blocks: [buildBlock({ id: "doc", type: "document", firstChildId: "i1", lastChildId: "i2" }), bold, li("i2", "i1", null)],
+      listDefs: { L1: ORDERED_DEF },
+    });
+    const attrs = createDefaultAttrRegistry();
+    const out = render(state, createDefaultComponentRegistry(), attrs);
+    expect(markerStyles(out.root)).toEqual([attrs.applyAll({ bold: true }, { parentStyle: {} }), undefined]);
   });
 });

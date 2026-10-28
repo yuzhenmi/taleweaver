@@ -14,36 +14,20 @@ import {
 import { insertText } from "./ops/insert-text";
 import { createPosition } from "./block-position";
 import { buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
-import {
-  getEmbedContentsMap,
-  getTemplateContentsMap,
-} from "./yjs-doc";
-import { buildYBlock } from "./y-block";
+import { getRegistry } from "./registry";
+import { insertChildren, writeRoot } from "./flow-ops";
 import { STATE_INTERNAL } from "./state-internal";
 import type { BlockId } from "./block-id";
 
-/**
- * Build a body-block Y.Map fixture (footnote / header body) for direct
- * insertion into a tree map in tests.
- */
-function ybody(args: {
-  type: string;
-  parentId?: string | null;
-  inlineText?: string;
-}): Y.Map<unknown> {
-  return buildYBlock({
-    type: args.type,
+/** A body root (footnote / header body) holding one paragraph `${id}-p` with `inlineText`. */
+function body(id: string, type: string, inlineText: string) {
+  return {
+    id: id as BlockId,
+    type,
     attrs: {},
-    parentId: (args.parentId ?? null) as BlockId | null,
-    prevSiblingId: null,
-    nextSiblingId: null,
-    firstChildId: null,
-    lastChildId: null,
-    inlineContent:
-      args.inlineText === undefined
-        ? null
-        : { items: [text(args.inlineText)] },
-  });
+    inlineContent: null,
+    children: [{ id: `${id}-p` as BlockId, type: "paragraph", attrs: {}, inlineContent: { items: [text(inlineText)] }, children: [] }],
+  };
 }
 
 describe("root-id-cache: #313 root-only contract preserved", () => {
@@ -156,13 +140,13 @@ describe("root-id-cache: invalidation across add/remove", () => {
 
     // Add a second root.
     doc.transact(() => {
-      getEmbedContentsMap(doc).set("fn-2", ybody({ type: "paragraph", inlineText: "b" }));
+      writeRoot(doc, body("fn-2", "footnote-body", "b"), "embedContent");
     });
     expect(Array.from(getEmbedContentRootIds(doc)).sort()).toEqual(["fn-1", "fn-2"]);
 
     // Remove the first root.
     doc.transact(() => {
-      getEmbedContentsMap(doc).delete("fn-1");
+      getRegistry(doc).delete("fn-1");
     });
     expect(Array.from(getEmbedContentRootIds(doc)).sort()).toEqual(["fn-2"]);
   });
@@ -179,17 +163,17 @@ describe("root-id-cache: invalidation across add/remove", () => {
     expect(Array.from(getTemplateContentRootIds(doc)).sort()).toEqual(["tpl-1"]);
 
     doc.transact(() => {
-      getTemplateContentsMap(doc).set("tpl-2", ybody({ type: "header-body", inlineText: "b" }));
+      writeRoot(doc, body("tpl-2", "header-body", "b"), "templateContent");
     });
     expect(Array.from(getTemplateContentRootIds(doc)).sort()).toEqual(["tpl-1", "tpl-2"]);
 
     doc.transact(() => {
-      getTemplateContentsMap(doc).delete("tpl-1");
+      getRegistry(doc).delete("tpl-1");
     });
     expect(Array.from(getTemplateContentRootIds(doc)).sort()).toEqual(["tpl-2"]);
   });
 
-  it("excludes a non-root child added to the map (parentId !== null)", () => {
+  it("excludes a non-root child added to a body", () => {
     const state = buildState({
       rootId: "root",
       blocks: [buildBlock({ id: "root", type: "document" })],
@@ -200,13 +184,10 @@ describe("root-id-cache: invalidation across add/remove", () => {
     const doc = state[STATE_INTERNAL].doc;
     expect(Array.from(getEmbedContentRootIds(doc)).sort()).toEqual(["fn-root"]);
 
-    // A body child (parentId points at the root) is registered in the same
-    // map; the accessor must still yield ONLY the root.
+    // A body child is registered in the same registry; the accessor must
+    // still yield ONLY the root.
     doc.transact(() => {
-      getEmbedContentsMap(doc).set(
-        "fn-child",
-        ybody({ type: "paragraph", parentId: "fn-root", inlineText: "child" }),
-      );
+      insertChildren(doc, "fn-root", null, body("fn-child", "paragraph", "child").children, "embedContent");
     });
     expect(Array.from(getEmbedContentRootIds(doc)).sort()).toEqual(["fn-root"]);
   });
@@ -227,7 +208,7 @@ describe("root-id-cache: invalidation across UNDO/REDO (Yjs surgery path)", () =
       ],
     });
     const doc = state[STATE_INTERNAL].doc;
-    const yEmbeds = getEmbedContentsMap(doc);
+    const yEmbeds = getRegistry(doc);
 
     // Prime the cache before any UndoManager activity.
     expect(Array.from(getEmbedContentRootIds(doc))).toEqual(["fn-1"]);
@@ -262,7 +243,7 @@ describe("root-id-cache: invalidation across UNDO/REDO (Yjs surgery path)", () =
       ],
     });
     const doc = state[STATE_INTERNAL].doc;
-    const yTemplates = getTemplateContentsMap(doc);
+    const yTemplates = getRegistry(doc);
     expect(Array.from(getTemplateContentRootIds(doc))).toEqual(["tpl-1"]);
 
     const undoManager = new Y.UndoManager([yTemplates], {
@@ -338,9 +319,9 @@ describe("root-id-cache: recompute-counter (perf shape)", () => {
     // Mutate a NESTED value inside the body block (not the map key-set). With
     // a flat `observe` (not observeDeep), this must NOT flag staleness.
     applyOperation(state, () => {
-      const body = getEmbedContentsMap(doc).get("fn-1");
-      if (body === undefined) throw new Error("fn-1 missing");
-      body.set("type", "paragraph-edited");
+      const entry = getRegistry(doc).get("fn-1");
+      if (entry === undefined) throw new Error("fn-1 missing");
+      entry.set("type", "paragraph-edited");
     });
     void Array.from(getEmbedContentRootIds(doc));
 
@@ -360,7 +341,7 @@ describe("root-id-cache: recompute-counter (perf shape)", () => {
     __resetRootIdRecomputesForTest();
 
     doc.transact(() => {
-      getEmbedContentsMap(doc).set("fn-2", ybody({ type: "paragraph", inlineText: "b" }));
+      writeRoot(doc, body("fn-2", "footnote-body", "b"), "embedContent");
     });
     // First read after the add recomputes once.
     void Array.from(getEmbedContentRootIds(doc));
@@ -385,7 +366,7 @@ describe("root-id-cache: recompute-counter (perf shape)", () => {
     __resetRootIdRecomputesForTest();
 
     doc.transact(() => {
-      getTemplateContentsMap(doc).delete("tpl-1");
+      getRegistry(doc).delete("tpl-1");
     });
     void Array.from(getTemplateContentRootIds(doc));
     void Array.from(getTemplateContentRootIds(doc));

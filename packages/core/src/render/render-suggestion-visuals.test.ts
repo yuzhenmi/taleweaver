@@ -12,8 +12,8 @@
  *   - a plain run (no suggestion ids) is byte-identical to today.
  *
  * The author color comes from `authorColorOf(author)` (deterministic per author).
- * This slice does NOT touch the break-suggestion embeds (pilcrows = slice 5b) or
- * the preview SuggestionView filter (slice 5c).
+ * Also covered below: the paragraph-break suggestion ¶ marks (block-box metadata,
+ * slice 5b) and the preview SuggestionView filter (slice 5c).
  */
 import { describe, it, expect } from "vitest";
 import { render } from "./render";
@@ -31,14 +31,19 @@ import {
   INSERTION_SUGGESTION_ATTR,
   DELETION_SUGGESTION_ATTR,
   formattingSuggestionKey,
-  BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
-  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
+  splitWithSuggestion,
+  markParagraphMarkDeletion,
+  createTestAllocator,
+  createPosition,
 } from "../state";
-import type { SuggestionId, SuggestionRecord, State } from "../state";
+import type { BlockId, SuggestionId, SuggestionRecord, State } from "../state";
 import { applyOperation, acceptSuggestion } from "../state";
 // `writeSuggestionRecordInTx` is intra-state (not re-exported from the barrel),
 // imported directly to seed records — mirrors suggestion-ops.test.ts.
 import { writeSuggestionRecordInTx } from "../state/suggestions";
+import { getSuggestionsMap } from "../state/yjs-doc";
+import { getRegistry } from "../state/registry";
+import { INSERTION_TAG_KEY } from "../state/break-tags";
 import { authorColorOf } from "../styles";
 import type { ReadonlyAttrs } from "../state";
 
@@ -56,7 +61,7 @@ function textBoxWith(root: RenderNode, t: string): TextBox {
       if ((node as TextBox).text === t) found = node as TextBox;
       return;
     }
-    for (const child of (node as ElementBox).children) walk(child);
+    if (node.type === "element") for (const child of node.children) walk(child);
   }
   walk(root);
   if (found === null) throw new Error(`no TextBox with text "${t}"`);
@@ -167,8 +172,8 @@ describe("expandInlineItems — suggestion visuals (slice 5a)", () => {
     const tabBox = (root: RenderNode): ElementBox => {
       let found: ElementBox | null = null;
       const walk = (n: RenderNode): void => {
-        if (found !== null || n.type === "text") return;
-        const el = n as ElementBox;
+        if (found !== null || n.type !== "element") return;
+        const el = n;
         if (el.metadata?.embedType === "tab") found = el;
         else for (const c of el.children) walk(c);
       };
@@ -249,124 +254,131 @@ describe("authorColorOf", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-// Slice 5b — break-suggestion pilcrow glyphs
+// Formatting marks in flow
 //
-// A suggested paragraph break (the `block-split-suggestion` / `block-join-
-// suggestion` embeds appended to the END of block N, carrying the owning id in
-// `properties.suggestionId`) renders as a VISIBLE pilcrow (¶) instead of the
-// zero-width comment-marker atom: a split is INSERTION-flavored (author color +
-// underline), a join is DELETION-flavored (author color + lineThrough). Like the
-// cross-reference embed, the glyph is wrapped in a SINGLE inline-block atom so it
-// still emits exactly ONE IFC token (one state-model offset) regardless of glyph
-// width — preserving the offset↔box 1:1 invariant the break embed relies on.
+// A suggested paragraph break is a KEY on its ¶'s registry entry, not an inline
+// item. The ¶ is block-box METADATA on the paragraph it ends:
+// `metadata.endMark = { kind, color, suggestionIds }` — no IFC token, no offset —
+// on the block whose OWN ¶ is keyed; a section-end ¶ draws a
+// `section-*` kind on that paragraph. Shown only while the record exists, only in the
+// literal "suggesting" view.
 // ─────────────────────────────────────────────────────────────────────────
 
-/** Find the first ElementBox whose metadata stamps `embedType === t`. */
-function embedBoxWith(root: RenderNode, t: string): ElementBox {
+/** The ElementBox rendered for block `id` (its key), or null. */
+function blockBox(root: RenderNode, id: string): ElementBox | null {
   let found: ElementBox | null = null;
   function walk(node: RenderNode): void {
-    if (found !== null) return;
-    if (node.type === "element") {
-      const el = node as ElementBox;
-      if (el.metadata?.embedType === t) {
-        found = el;
-        return;
-      }
-      for (const child of el.children) walk(child);
+    if (found !== null || node.type !== "element") return;
+    if (node.key === id) {
+      found = node;
+      return;
     }
+    for (const child of node.children) walk(child);
   }
   walk(root);
-  if (found === null) throw new Error(`no ElementBox with embedType "${t}"`);
   return found;
 }
 
-/** The single ¶ glyph TextBox a break-suggestion embed box wraps. */
-function pilcrowChild(box: ElementBox): TextBox {
-  expect(box.children.length).toBe(1);
-  const child = box.children[0];
-  if (child === undefined) throw new Error("expected one pilcrow child");
-  expect(child.type).toBe("text");
-  return child as TextBox;
+
+/** doc > p("abc"), split (suggested, by AUTHOR) at offset 2 → head("ab", keyed ¶) | p("c"). */
+function buildSplitDoc(id: SuggestionId): { state: State; head: BlockId } {
+  const r = splitWithSuggestion(buildDoc(inlineContent([text("abc")]), []), createPosition("p" as BlockId, 2), createTestAllocator("n"), {
+    id,
+    author: AUTHOR,
+    createdAt: 0,
+  });
+  return { state: r.state, head: r.newBlockId };
 }
 
-/** doc > p( "abc" + the given break embed ), with one suggestion record seeded. */
-function buildBreakDoc(
-  embedType: string,
-  id: SuggestionId,
-  record: SuggestionRecord,
-): State {
-  return buildDoc(
-    inlineContent([
-      text("abc"),
-      embed(embedType, { suggestionId: id }),
-    ]),
-    [record],
-  );
+/** doc > p1("ab") | p2("c"), with ¶p1 suggested for deletion (by AUTHOR). */
+function buildJoinDoc(id: SuggestionId): State {
+  const base = buildState({
+    rootId: "doc",
+    blocks: [
+      buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+      buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("ab")]) }),
+      buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text("c")]) }),
+    ],
+  });
+  return markParagraphMarkDeletion(base, "p1" as BlockId, { id, author: AUTHOR, createdAt: 0 }).state;
 }
 
-describe("expandInlineItems — break-suggestion pilcrows (slice 5b)", () => {
-  it("split embed renders a ¶ pilcrow with author color + underline (insertion-flavored)", () => {
+/** doc > s1[a("A")] | s2[b("B")]: ¶a is the section-end item of s1. */
+function twoSections(): State {
+  return buildState({
+    rootId: "doc",
+    blocks: [
+      buildBlock({ id: "doc", type: "document", firstChildId: "s1", lastChildId: "s2" }),
+      buildBlock({ id: "s1", type: "section", parentId: "doc", nextSiblingId: "s2", firstChildId: "a", lastChildId: "a" }),
+      buildBlock({ id: "a", type: "paragraph", parentId: "s1", inlineContent: inlineContent([text("A")]) }),
+      buildBlock({ id: "s2", type: "section", parentId: "doc", prevSiblingId: "s1", firstChildId: "b", lastChildId: "b" }),
+      buildBlock({ id: "b", type: "paragraph", parentId: "s2", inlineContent: inlineContent([text("B")]) }),
+    ],
+  });
+}
+
+describe("render — tracked ¶ metadata (endMark self-derived)", () => {
+  it("a split draws an author-colored `split` endMark on the block whose OWN ¶ is inserted (the new head); no inline child, no ¶ text", () => {
     const id = "split" as SuggestionId;
-    const state = buildBreakDoc(BLOCK_SPLIT_SUGGESTION_EMBED_TYPE, id, {
-      id,
-      kind: "insertion",
-      author: AUTHOR,
-      createdAt: 0,
-    });
-    const box = embedBoxWith(render(state, reg, attrReg).root, BLOCK_SPLIT_SUGGESTION_EMBED_TYPE);
-    // One atomic inline-block (offset↔box 1:1 preserved), now VISIBLE.
-    expect(box.style.display).toBe("inline-block");
-    const glyph = pilcrowChild(box);
-    expect(glyph.text).toBe("¶");
-    expect(glyph.style.underline).toBe(true);
-    expect(glyph.style.lineThrough).toBeUndefined();
-    expect(glyph.style.color).toBe(authorColorOf(AUTHOR));
+    const { state, head } = buildSplitDoc(id);
+    const root = render(state, reg, attrReg).root;
+    expect(blockBox(root, head)?.metadata?.endMark).toEqual({ kind: "split", color: authorColorOf(AUTHOR), suggestionIds: [id] });
+    expect(blockBox(root, "p")?.metadata?.endMark).toBeUndefined();
+    expect(allTexts(root).join("")).toBe("abc");
   });
 
-  it("join embed renders a ¶ pilcrow with author color + lineThrough (deletion-flavored)", () => {
+  it("a join draws an author-colored `join` endMark on the block whose ¶ is suggested for deletion", () => {
     const id = "join" as SuggestionId;
-    const state = buildBreakDoc(BLOCK_JOIN_SUGGESTION_EMBED_TYPE, id, {
-      id,
-      kind: "deletion",
-      author: AUTHOR,
-      createdAt: 0,
-    });
-    const box = embedBoxWith(render(state, reg, attrReg).root, BLOCK_JOIN_SUGGESTION_EMBED_TYPE);
-    expect(box.style.display).toBe("inline-block");
-    const glyph = pilcrowChild(box);
-    expect(glyph.text).toBe("¶");
-    expect(glyph.style.lineThrough).toBe(true);
-    expect(glyph.style.underline).toBeUndefined();
-    expect(glyph.style.color).toBe(authorColorOf(AUTHOR));
+    const root = render(buildJoinDoc(id), reg, attrReg).root;
+    expect(blockBox(root, "p1")?.metadata?.endMark).toEqual({ kind: "join", color: authorColorOf(AUTHOR), suggestionIds: [id] });
+    expect(blockBox(root, "p2")?.metadata?.endMark).toBeUndefined();
+    expect(allTexts(root)).not.toContain("¶");
   });
 
-  it("break embed with no resolvable record still renders a struck/added ¶ but no author color", () => {
-    // A split embed whose owning record is absent (collab race / migration): the
-    // decoration still marks it (the embed TYPE alone determines split=underline)
-    // but the author tint falls through to the cascade (no override).
+  it("a key on the first block's own ¶ is drawn on that block", () => {
+    const id = "s" as SuggestionId;
+    const base = buildDoc(inlineContent([text("abc")]), [{ id, kind: "insertion", author: AUTHOR, createdAt: 0 }]);
+    const tagged = applyOperation(base, (doc) => {
+      getRegistry(doc).get("p")?.set(INSERTION_TAG_KEY, id);
+    }).state;
+    expect(blockBox(render(tagged, reg, attrReg).root, "p")?.metadata?.endMark).toEqual({ kind: "split", color: authorColorOf(AUTHOR), suggestionIds: [id] });
+  });
+
+  it("a tag whose record is gone draws no mark", () => {
     const id = "orphan" as SuggestionId;
-    const state = buildDoc(
-      inlineContent([
-        text("abc"),
-        embed(BLOCK_SPLIT_SUGGESTION_EMBED_TYPE, { suggestionId: id }),
-      ]),
-      [], // no record seeded
-    );
-    const box = embedBoxWith(render(state, reg, attrReg).root, BLOCK_SPLIT_SUGGESTION_EMBED_TYPE);
-    const glyph = pilcrowChild(box);
-    expect(glyph.text).toBe("¶");
-    expect(glyph.style.underline).toBe(true);
-    expect(glyph.style.color).toBeUndefined();
+    const { state, head } = buildSplitDoc(id);
+    const orphaned = applyOperation(state, (doc) => {
+      getSuggestionsMap(doc).delete(id);
+      return new Set([state.rootId]);
+    }).state;
+    expect(blockBox(render(orphaned, reg, attrReg).root, head)?.metadata?.endMark).toBeUndefined();
+  });
+
+  it("a section-end ¶ draws a `section-*` endMark on its own paragraph, only in the suggesting view", () => {
+    const id = "sb" as SuggestionId;
+    const keyed = markParagraphMarkDeletion(twoSections(), "a" as BlockId, { id, author: AUTHOR, createdAt: 0 }).state;
+    const root = render(keyed, reg, attrReg).root;
+    expect(blockBox(root, "a")?.metadata?.endMark).toEqual({ kind: "section-join", color: authorColorOf(AUTHOR), suggestionIds: [id] });
+    expect(blockBox(root, "b")?.metadata?.endMark).toBeUndefined();
+    expect(blockBox(render(keyed, reg, attrReg, { suggestionView: "final" }).root, "a")?.metadata?.endMark).toBeUndefined();
+
+    const ins = "si" as SuggestionId;
+    const inserted = applyOperation(twoSections(), (doc) => {
+      getRegistry(doc).get("a")?.set(INSERTION_TAG_KEY, ins);
+      writeSuggestionRecordInTx(doc, { id: ins, kind: "insertion", author: AUTHOR, createdAt: 0 });
+    }).state;
+    expect(blockBox(render(inserted, reg, attrReg).root, "a")?.metadata?.endMark).toEqual({ kind: "section-insert", color: authorColorOf(AUTHOR), suggestionIds: [ins] });
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────
 // Slice 5c-iii — render preview-view projection. `render(..., {suggestionView})`
 // filters resolved-away items AND suppresses the 5a/5b suggestion visuals:
-//   - "final" (accept all): deletion runs + join pilcrows GONE; insertion runs
-//     render as plain text; formatting proposals applied FOR REAL (no underline).
-//   - "original" (reject all): insertion runs + split pilcrows GONE; deletion
-//     runs render as plain text; formatting proposals dropped (live attrs only).
+//   - "final" (accept all): deletion runs GONE; insertion runs render as plain
+//     text; formatting proposals applied FOR REAL (no underline).
+//   - "original" (reject all): insertion runs GONE; deletion runs render as plain
+//     text; formatting proposals dropped (live attrs only).
+//   - neither preview view draws a boundary ¶ mark.
 // ─────────────────────────────────────────────────────────────────────────
 
 /** All TextBox.text strings in document order. */
@@ -374,10 +386,10 @@ function allTexts(root: RenderNode): string[] {
   const out: string[] = [];
   function walk(node: RenderNode): void {
     if (node.type === "text") {
-      out.push((node as TextBox).text);
+      out.push(node.text);
       return;
     }
-    for (const child of (node as ElementBox).children) walk(child);
+    for (const child of node.children) walk(child);
   }
   walk(root);
   return out;
@@ -392,7 +404,7 @@ function maybeTextBox(root: RenderNode, t: string): TextBox | null {
       if ((node as TextBox).text === t) found = node as TextBox;
       return;
     }
-    for (const child of (node as ElementBox).children) walk(child);
+    if (node.type === "element") for (const child of node.children) walk(child);
   }
   walk(root);
   return found;
@@ -470,33 +482,18 @@ describe("render — SuggestionView preview projection (slice 5c-iii)", () => {
     expect(box.style.underline).toBeUndefined();
   });
 
-  it('break embeds: a SURVIVING break renders zero-width (no ¶) in preview views', () => {
-    // "final": a split SURVIVES (accepted) but shows no pilcrow — its break is the
-    // block boundary itself (the structural merge is the carved 5c-structural).
-    const splitId = "split" as SuggestionId;
-    const splitState = buildDoc(
-      inlineContent([text("a"), embed(BLOCK_SPLIT_SUGGESTION_EMBED_TYPE, { suggestionId: splitId }), text("b")]),
-      [{ id: splitId, kind: "insertion", author: AUTHOR, createdAt: 0 }],
-    );
+  it("break tags: a SURVIVING break draws no ¶ mark in preview views", () => {
+    // "final": a split SURVIVES (accepted) but shows no mark — its break is the
+    // block boundary itself.
+    const { state: splitState, head } = buildSplitDoc("split" as SuggestionId);
     const splitRoot = render(splitState, reg, attrReg, { suggestionView: "final" }).root;
-    expect(allTexts(splitRoot).join("")).toBe("ab");
-    expect(allTexts(splitRoot)).not.toContain("¶");
-    // The embed box is PRESENT (rendered zero-width), NOT dropped — locks the
-    // distinction the text-only assertions above can't (both pass if dropped).
-    const splitBox = embedBoxWith(splitRoot, BLOCK_SPLIT_SUGGESTION_EMBED_TYPE);
-    expect(splitBox.children).toHaveLength(0);
-    expect(splitBox.style.inlineSize).toBe(0);
+    expect(allTexts(splitRoot).join("")).toBe("abc");
+    expect(blockBox(splitRoot, head)?.metadata?.endMark).toBeUndefined();
 
-    // Symmetric: a join SURVIVES in "original" (rejected) → same zero-width atom.
-    const joinId = "join" as SuggestionId;
-    const joinState = buildDoc(
-      inlineContent([text("a"), embed(BLOCK_JOIN_SUGGESTION_EMBED_TYPE, { suggestionId: joinId }), text("b")]),
-      [{ id: joinId, kind: "deletion", author: AUTHOR, createdAt: 0 }],
-    );
-    const joinRoot = render(joinState, reg, attrReg, { suggestionView: "original" }).root;
+    // Symmetric: a join SURVIVES in "original" (rejected) → no mark either.
+    const joinRoot = render(buildJoinDoc("join" as SuggestionId), reg, attrReg, { suggestionView: "original" }).root;
+    expect(blockBox(joinRoot, "p1")?.metadata?.endMark).toBeUndefined();
     expect(allTexts(joinRoot)).not.toContain("¶");
-    const joinBox = embedBoxWith(joinRoot, BLOCK_JOIN_SUGGESTION_EMBED_TYPE);
-    expect(joinBox.children).toHaveLength(0);
   });
 
   it("default (no option) renders the literal suggesting view with 5a visuals intact", () => {

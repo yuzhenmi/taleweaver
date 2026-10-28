@@ -3,7 +3,9 @@ import type { State, OperationResult } from "../state";
 import { applyOperation, getBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
-import { getBlocksMap, getEmbedContentsMap, getYBlock, requireInTransaction } from "../yjs-doc";
+import { requireInTransaction } from "../yjs-doc";
+import { deleteColumnEntry, liveColumns } from "../table-storage";
+import { removeBlockStorage } from "../flow-ops";
 import { setBlockAttrsInTx } from "./set-block-attrs";
 import { planRemoveBlock } from "./remove-block";
 import { removeColumnWidth, isColumnWidths } from "../table-column-widths";
@@ -12,7 +14,7 @@ import type { TableContext } from "../table-context";
 
 /**
  * Pre-computed mutation plan for `deleteTableColumnSpanAwareInTx`. Everything is read
- * from the PRE-mutation occupancy grid + tree (the `computeReparentWrites` discipline).
+ * from the PRE-mutation occupancy grid + tree.
  */
 export interface DeleteTableColumnSpanAwarePlan {
   readonly tableId: BlockId;
@@ -38,10 +40,12 @@ export interface DeleteTableColumnSpanAwarePlan {
   /** Table attrs with `columnWidths` shrunk (a removed column lowers the count), or
    *  null for an auto-layout table (no `columnWidths` attr → no change). */
   readonly newTableAttrs: ReadonlyAttrs | null;
+  /** Grid column index being deleted. */
+  readonly targetCol: number;
 }
 
 /**
- * Span-aware DELETE_TABLE_COLUMN (P15b / D5): delete the caret cell's grid column on
+ * Span-aware DELETE_TABLE_COLUMN: delete the caret cell's grid column on
  * a well-formed SPANNED table, as one atomic transaction. A cell whose horizontal
  * span COVERS the column from the left shrinks its `colSpan` by 1; a cell
  * ORIGINATING in the column with `colSpan > 1` likewise shrinks (its origin column
@@ -52,7 +56,7 @@ export interface DeleteTableColumnSpanAwarePlan {
  *
  * Caller routes here only for a SPANNED, non-ragged table with MORE THAN ONE grid
  * column (the last-column case collapses the whole table via
- * `deleteTableWithReplacement`, handled by the editor handler as in P15a). NO-OP
+ * `deleteTable`, handled by the editor handler). NO-OP
  * (same `state`) when the grid can't be built or there is only one column.
  * Caret-after is the handler's concern. MAIN-TREE ONLY.
  */
@@ -117,6 +121,7 @@ export function planDeleteTableColumnSpanAware(state: State, ctx: TableContext):
     blockIdsToDelete,
     embedContentIdsToDelete,
     newTableAttrs,
+    targetCol: gc,
   };
 }
 
@@ -139,35 +144,11 @@ function withColSpan(state: State, cellId: BlockId, n: number): ReadonlyAttrs {
  */
 export function deleteTableColumnSpanAwareInTx(doc: Y.Doc, plan: DeleteTableColumnSpanAwarePlan): void {
   requireInTransaction(doc, "deleteTableColumnSpanAware");
-  const blocksMap = getBlocksMap(doc);
-
-  for (const bump of plan.spanBumps) {
-    setBlockAttrsInTx(doc, bump.cellId, bump.newAttrs, "deleteTableColumnSpanAware");
-  }
-
-  // Splice each removed cell out of its row. The removed cells are in DISTINCT rows
-  // (a column owns one slot per row), so the splices are independent.
-  for (const rc of plan.removedCells) {
-    if (rc.prevSiblingId !== null) {
-      getYBlock(doc, rc.prevSiblingId, "deleteTableColumnSpanAware").set("nextSiblingId", rc.nextSiblingId);
-    }
-    if (rc.nextSiblingId !== null) {
-      getYBlock(doc, rc.nextSiblingId, "deleteTableColumnSpanAware").set("prevSiblingId", rc.prevSiblingId);
-    }
-    if (rc.removingFirstChild || rc.removingLastChild) {
-      const yRow = getYBlock(doc, rc.rowId, "deleteTableColumnSpanAware");
-      if (rc.removingFirstChild) yRow.set("firstChildId", rc.nextSiblingId);
-      if (rc.removingLastChild) yRow.set("lastChildId", rc.prevSiblingId);
-    }
-  }
-
-  // Delete embed bodies first, then the removed cells' subtrees.
-  if (plan.embedContentIdsToDelete.size > 0) {
-    const yEmbeds = getEmbedContentsMap(doc);
-    for (const id of plan.embedContentIdsToDelete) yEmbeds.delete(id);
-  }
-  for (const id of plan.blockIdsToDelete) blocksMap.delete(id);
-
+  // Grid model: spans crossing the column shrink by themselves (id ranges); an
+  // anchor in it whose span continues moves to the next column.
+  for (const id of plan.embedContentIdsToDelete) removeBlockStorage(doc, id);
+  const colId = liveColumns(doc, plan.tableId)[plan.targetCol];
+  if (colId !== undefined) deleteColumnEntry(doc, plan.tableId, colId);
   if (plan.newTableAttrs !== null) {
     setBlockAttrsInTx(doc, plan.tableId, plan.newTableAttrs, "deleteTableColumnSpanAware");
   }

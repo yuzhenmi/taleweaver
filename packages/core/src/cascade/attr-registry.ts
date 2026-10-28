@@ -24,6 +24,11 @@ export interface AttrInterpreter {
    * exclusive, not atomic, kept on copy).
    */
   readonly mark?: MarkSpec;
+  /**
+   * `false` for a ONE-SHOT block attr: never copied to the new block of a split
+   * (e.g. a list counter restart). Default: inherited.
+   */
+  readonly inheritOnSplit?: boolean;
 }
 
 /** DOM hints a mark contributes to its run in the digital (DOM) backend. */
@@ -93,9 +98,9 @@ export function markTypeOf(attrKey: string): string {
  * Cascade context — passed to interpreters that need information about
  * the surrounding cascade state.
  *
- * Phase 3 ships the minimal `parentStyle` field (the resolved declarable
- * style of the parent block, useful for explicit inheritance flags). Later
- * phases will extend this for more sophisticated needs:
+ * The context carries the minimal `parentStyle` field (the resolved declarable
+ * style of the parent block, useful for explicit inheritance flags). It does not yet
+ * carry what richer interpreters would need:
  *   - currentColor (needs own resolved color)
  *   - em-relative sizing (needs own parent fontSize after resolution)
  *   - root-relative units (needs root style)
@@ -219,15 +224,13 @@ export const attrRegistry = new AttrRegistry();
 
 /**
  * Construct a fresh `AttrRegistry` pre-populated with every built-in
- * attribute interpreter. Canonical production wiring (P7+): callers
+ * attribute interpreter. Canonical production wiring: callers
  * inject the returned registry into `render(state, componentRegistry,
  * attrRegistry)` so cascade interpreters actually contribute to
  * `ComputedStyle`.
  *
  * Tests that want isolation can instantiate `new AttrRegistry()` and
  * register only the interpreters under test.
- *
- * See Decision G in docs/superpowers/specs/phase-5-plus/decisions.md.
  */
 export function createDefaultAttrRegistry(): AttrRegistry {
   const reg = new AttrRegistry();

@@ -13,6 +13,8 @@
  *
  * T10 additions: rich routing tests (clip→html→text priority, suggesting mode).
  */
+import { finalSectionOf } from "../../test-utils/state-builders";
+import { TEST_RESOLVER } from "../../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import {
   config,
@@ -32,6 +34,7 @@ import {
   INSERTION_SUGGESTION_ATTR,
   DELETION_SUGGESTION_ATTR,
   resolveBlock,
+  topLevelBlockIds,
 } from "../../state";
 import type { BlockId, HtmlParser, HtmlNode, State } from "../../state";
 
@@ -43,7 +46,7 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 
 /** Ordered list of the document root's direct children. */
 function rootChildren(editor: EditorState): BlockId[] {
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
   if (root === null) return [];
   const ids: BlockId[] = [];
   let cur: BlockId | null = root.firstChildId;
@@ -418,7 +421,7 @@ function makeClipFragment(text: string): State {
       ],
     },
     {},
-    createTestAllocator("clip"),
+    createTestAllocator("clip"), TEST_RESOLVER
   );
 }
 
@@ -442,21 +445,13 @@ function makeClipFragmentWithAttrs(
       ],
     },
     {},
-    createTestAllocator(seed),
+    createTestAllocator(seed), TEST_RESOLVER
   );
 }
 
 /** Walk a State document root's top-level children and collect their block ids. */
 function fragTopLevelBlocks(state: State): BlockId[] {
-  const root = resolveBlock(state, state.rootId)?.block;
-  if (root === undefined) return [];
-  const ids: BlockId[] = [];
-  let id: BlockId | null = root.firstChildId ?? null;
-  while (id !== null) {
-    ids.push(id);
-    id = resolveBlock(state, id)?.block.nextSiblingId ?? null;
-  }
-  return ids;
+  return topLevelBlockIds(state); // the root holds sections
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -512,7 +507,7 @@ describe("handlePaste — T10 rich routing: priority clip→html→text", () => 
     const initial = createInitialEditorState(richConfig);
     // "@@@" is not valid base64 → decodeFragmentClip returns null → fall through to html.
     const badClip = "@@@";
-    expect(decodeFragmentClip(badClip)).toBeNull(); // pre-condition
+    expect(decodeFragmentClip(badClip, TEST_RESOLVER, richConfig.attrRegistry)).toBeNull(); // pre-condition
 
     const next = reduceEditor(
       initial,

@@ -77,9 +77,9 @@ export interface ComputedStyle {
   // Auto-hyphenation limits (CSS Text 4 `hyphenate-limit-chars`):
   // [min-word, min-before, min-after]. Inherits.
   hyphenateLimitChars: readonly [number, number, number];
-  // CSS Text 3 §5.1 — last-resort within-word break to avoid overflow. v1 ships
-  // `normal` (initial — overflow) + `break-word` (break an unbreakable word at a
-  // grapheme boundary). `anywhere` (the min-content variant) is a follow-up.
+  // CSS Text 3 §5.1 — last-resort within-word break to avoid overflow. Values:
+  // `normal` (initial — overflow), `break-word` (break an unbreakable word at a
+  // grapheme boundary), and `anywhere` (the same, also lowering min-content).
   overflowWrap:        "normal" | "break-word" | "anywhere";
   letterSpacing:       ComputedLength | "normal";
   wordSpacing:         ComputedLength | "normal";

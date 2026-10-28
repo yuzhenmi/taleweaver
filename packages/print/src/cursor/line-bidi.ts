@@ -64,7 +64,7 @@ export interface BidiViewLeaf {
 }
 
 /**
- * The per-line bidi view (P4-C.2 spec §A): the single place that knows the
+ * The per-line bidi view: the single place that knows the
  * VISUAL↔LOGICAL leaf correspondence for one line. Pure, built on demand per
  * resolved line, no persistent state.
  *
@@ -84,7 +84,7 @@ export interface LineBidiView {
    * to. Carried on the view so the caret-X / offset / selection-interval helpers
    * project the INLINE axis to the right physical letter (x for h-tb, y for
    * vertical) without re-deriving it. `direction` is sourced from
-   * `computedStyle.direction` (the canonical source, M3) — the same field
+   * `computedStyle.direction` (the canonical source) — the same field
    * `paragraphDirection` reads.
    */
   readonly axisMap: AxisMap;
@@ -95,7 +95,7 @@ export interface LineBidiView {
  * Is this leaf a SYNTHETIC run that owns no state positions (the empty-paragraph
  * strut, the synthetic hyphen)? Such runs have `offsetLength === 0` AND no
  * `sourceStart`. They keep painting; they are simply not caret targets, so they
- * are excluded from the bidi view (spec §A "synthetic runs excluded", C-2). This
+ * are excluded from the bidi view (synthetic runs excluded). This
  * also avoids a `NaN`-sort hazard from comparing an `undefined` `sourceStart`.
  *
  * `InlineBlockBox` always owns one state unit (`offsetContribution === 1`,
@@ -111,7 +111,7 @@ function isSyntheticLeaf(leaf: LineLeaf): boolean {
 }
 
 /**
- * Build the `LineBidiView` for one absolute line (P4-C.2 spec §A).
+ * Build the `LineBidiView` for one absolute line.
  *
  * Algorithm:
  *   1. Collect the line's leaves in VISUAL order (`collectLineLeaves`).
@@ -129,7 +129,7 @@ function isSyntheticLeaf(leaf: LineLeaf): boolean {
 export function buildLineBidiView(alb: AbsoluteLineBox): LineBidiView {
   const paragraphDirection = alb.line.computedStyle.direction;
   const paragraphLevel = paragraphDirection === "rtl" ? 1 : 0;
-  // M3: the canonical direction source is `computedStyle.direction` (same field
+  // The canonical direction source is `computedStyle.direction` (same field
   // `paragraphDirection` reads); writing-mode comes off the line box.
   const axisMap = axisMapFor(alb.line.writingMode, paragraphDirection);
 
@@ -197,8 +197,8 @@ function sourceStartOf(leaf: LineLeaf): number {
 }
 
 /**
- * Caret INLINE-AXIS coordinate for a STATE offset within a leaf (P4-C.2 spec §B
- * intra-leaf, P3.5a generalized to the inline axis).
+ * Caret INLINE-AXIS coordinate for a STATE offset within a leaf (intra-leaf,
+ * generalized to the inline axis).
  *
  *   - text-run: convert the leaf-local STATE offset to a DISPLAY index via
  *     `sourceDisplayLengths` (1:1 when absent), measure the display prefix, then
@@ -262,8 +262,8 @@ export function caretInlineCoordInLeaf(
 
 /**
  * Inverse of `caretInlineCoordInLeaf`: the STATE offset for a LEAF-LOCAL INLINE
- * offset (`localInline = clickInline − coordOf(leaf, am.inline)`) (P4-C.2 spec §C
- * intra-leaf, P3.5a generalized to the inline axis).
+ * offset (`localInline = clickInline − coordOf(leaf, am.inline)`) (intra-leaf,
+ * generalized to the inline axis).
  *
  *   - text-run: even-level → `findCharOffset(text, localInline)`; odd-level →
  *     measured from `size − localInline`. The display offset is reverse-mapped to
@@ -329,7 +329,7 @@ function clamp(value: number, lo: number, hi: number): number {
 }
 
 /**
- * The dual-caret boundary tiebreak (load-bearing — site of #500/#502/#503
+ * The dual-caret boundary tiebreak (load-bearing — the site of the caret-affinity seam
  * fixes). At a bidi/run boundary an offset can be owned by the candidate ENDING
  * at it (`endingIdx`) or the candidate STARTING at it (`startingIdx`); the
  * `affinity` picks the side:
@@ -410,7 +410,7 @@ export function findLeafOwner(
 /**
  * Resolve a `(offset, affinity)` to its VISUAL INLINE-AXIS coordinate on a line
  * — the visual position the caret/selection endpoint draws at, accounting for
- * bidi reordering. Used by the #503 selection visual-extent path: the highlight
+ * bidi reordering. Used by the selection visual-extent path: the highlight
  * is the contiguous inline interval between the anchor's and focus's resolved
  * visual coords, so each Shift+Arrow press grows it monotonically (instead of the
  * logical-range path's transient-empty collapse at a direction boundary).
@@ -423,7 +423,7 @@ export function findLeafOwner(
  *   2. `caretInlineCoordInLeaf` computes the raw inline coord within that leaf
  *      (even-level → `base + w`, odd-level → `base + size − w`).
  *   3. Clamp to the owner leaf's own inline-axis box edges (`[leafLo, leafHi]`),
- *      the same #338-P2 clamp `selectionRectsForLineRange` applies: a CLAMPED
+ *      the same trailing-space clamp `selectionRectsForLineRange` applies: a CLAMPED
  *      hung trailing-space run has IFC width 0 at the content edge, but the
  *      prefix measurement still adds ~one glyph advance — clamping pins the
  *      coord to the (clamped) box edge so selection geometry and caret coord
@@ -470,11 +470,11 @@ const X_EPSILON = 1e-6;
 
 /**
  * Segment a line-local LOGICAL selection range `[rangeStartOffset,
- * rangeEndOffset)` into its VISUAL highlight intervals (P4-C.2 spec §F).
+ * rangeEndOffset)` into its VISUAL highlight intervals.
  *
  * A contiguous logical range can map to MULTIPLE disjoint visual intervals
  * once the line is bidi-reordered: each leaf the range overlaps contributes one
- * interval, computed from the §B caret-X formula at BOTH clipped endpoints. For
+ * interval, computed from the level-parity caret-X formula at BOTH clipped endpoints. For
  * an LTR leaf the logically-earlier offset is the LOWER x; for an RTL leaf the
  * endpoints SWAP (the logically-later offset sits at the LOWER x). Both are
  * emitted as `xLo <= xHi`, so a rect's width is never negative — fixing the
@@ -510,11 +510,11 @@ export function selectionRectsForLineRange(
     if (b <= a) continue; // no overlap with this leaf
 
     const ltr = v.level % 2 === 0;
-    // §B caret inline-coord at both clipped endpoints. Even-level: a → lower,
+    // Level-parity caret inline-coord at both clipped endpoints. Even-level: a → lower,
     // b → higher. Odd-level: the logically-later offset sits LOWER, so the
     // endpoints swap (b → lower, a → higher). Emit as xLo <= xHi (width never < 0).
     //
-    // #338 P2 clamp (I2): pin each endpoint to the OWNING leaf's own inline-axis
+    // Trailing-space clamp: pin each endpoint to the OWNING leaf's own inline-axis
     // box edges (`[coordOf(leaf, am.inline), + sizeAlong(leaf, am.inline)]`). For
     // a CLAMPED hung trailing-space run (the IFC gave it width 0 at the content
     // edge), `caretInlineCoordInLeaf`'s prefix measurement still adds ~one glyph
@@ -523,7 +523,7 @@ export function selectionRectsForLineRange(
     // identical clamp so selection geometry and caret coord agree.
     // Direction-agnostic: even-level hits the upper bound, odd-level the lower.
     // These are INLINE-axis intervals; the selection caller projects them to
-    // physical in P3.5c.
+    // physical.
     const leafLo = coordOf(v.leaf, am.inline);
     const leafHi = leafLo + sizeAlong(v.leaf, am.inline);
     const xa = clamp(caretInlineCoordInLeaf(v, a, measurer, am), leafLo, leafHi);
@@ -556,12 +556,12 @@ export function selectionRectsForLineRange(
 export type { VisualInterval };
 
 // ---------------------------------------------------------------------------
-// Visual-order caret motion (P4-C.2 §E) — ArrowLeft / ArrowRight
+// Visual-order caret motion — ArrowLeft / ArrowRight
 // ---------------------------------------------------------------------------
 
 /**
  * Move the collapsed caret ONE visual step (ArrowLeft / ArrowRight) within a
- * bidi-reordered line (P4-C.2 spec §E). Ported from the ALGORITHM of
+ * bidi-reordered line. Ported from the ALGORITHM of
  * CodeMirror 6's `moveVisually` (the de-facto browser-equivalent for visual
  * caret motion across bidi runs) — restructured to operate on our
  * `LineBidiView`, NOT copied verbatim.
@@ -691,7 +691,7 @@ export function moveVisually(
       ? "before"
       : "after";
 
-  // DIRECTION-BOUNDARY vs SAME-PARITY discriminator (spec §E):
+  // DIRECTION-BOUNDARY vs SAME-PARITY discriminator:
   //   - DIFFERENT parity (LTR↔RTL): the entered run's facing edge is its FAR
   //     logical end, so `enteredOffset !== offset` — the caret JUMPS to the other
   //     run's edge at the same VISUAL x but a different logical offset (the
@@ -787,8 +787,7 @@ function rightmostByState(visualLeaves: readonly BidiViewLeaf[]): number {
  *
  * Mirrors the prefix-sum in `cursor-position.ts`'s text-run branch
  * (`sdl.slice(0, localOffset).reduce(...)`). Re-implemented here (not imported)
- * because that helper is private to `cursor-position.ts`; P4-C.2.1+ migrates the
- * consumers onto these shared helpers.
+ * because that helper is private to `cursor-position.ts`.
  */
 function stateToDisplay(
   sdl: readonly number[] | undefined,

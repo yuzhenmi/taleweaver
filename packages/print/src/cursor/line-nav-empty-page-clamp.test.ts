@@ -20,6 +20,7 @@ import { createDefaultComponentRegistry } from "@taleweaver/core";
 import { createDefaultAttrRegistry } from "@taleweaver/core";
 import { buildBlockFitMetas } from "../layout/build-fit-metas";
 import { measurePass } from "../layout/measure-pass";
+import { flattenContents } from "../layout/group-children";
 import { IMPLICIT_SECTION_PLAN } from "../layout/section-plan";
 import { makeRootContext } from "../layout/layout-context";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
@@ -78,7 +79,9 @@ function buildTwoPageDoc(): { state: State; tree: VirtualLayoutTree } {
   const shaper = createMockShaper(SHAPER_CHAR_W, SHAPER_LINE_H);
   const pcis = cfg.pageInlineSize - cfg.pageMargins.inlineStart - cfg.pageMargins.inlineEnd;
   const metas = buildBlockFitMetas(cascadedRoot, shaper, undefined, pcis);
-  const plan = measurePass(metas, cfg, IMPLICIT_SECTION_PLAN, cascadedRoot.children);
+  // the root's child is the (display: contents) final section — index the
+  // plan over the FLATTENED children, exactly as the virtual producer does.
+  const plan = measurePass(metas, cfg, IMPLICIT_SECTION_PLAN, flattenContents(cascadedRoot.children));
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, cfg.pageInlineSize);
   const tree = makeVirtualLayoutTree(plan, cascadedRoot, ctx, shaper, cfg, undefined, undefined);
   return { state, tree };

@@ -8,6 +8,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as Y from "yjs";
 import * as core from "@taleweaver/core";
 import { createEditorController, type EditorController } from "./index";
+import { createDefaultComponentRegistry } from "@taleweaver/core";
+
+const TEST_RESOLVER = createDefaultComponentRegistry();
 
 let originalGetContext: PropertyDescriptor | undefined;
 
@@ -111,7 +114,7 @@ describe("print — collaboration", () => {
     const docA = core.getYDoc(peerA.state);
     const docB = new Y.Doc();
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
-    const stateB = core.createState({ rootId: peerA.state.rootId, doc: docB });
+    const stateB = core.createState({ resolver: TEST_RESOLVER, rootId: peerA.state.rootId, doc: docB });
     const m = mount(core.createEditorStateFromState(stateB, core.initialSelectionForState(stateB), cfg));
     docA.on("update", (u: Uint8Array) => Y.applyUpdate(docB, u, "provider"));
     const id = peerA.selection.focus.blockId;
@@ -143,7 +146,7 @@ function peerPair(text = "hello world") {
   const docB = new Y.Doc();
   Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
   docA.on("update", (u: Uint8Array) => Y.applyUpdate(docB, u, "provider"));
-  const stateB = core.createState({ rootId: peerA.state.rootId, doc: docB });
+  const stateB = core.createState({ resolver: TEST_RESOLVER, rootId: peerA.state.rootId, doc: docB });
   const id = peerA.selection.focus.blockId;
   return {
     id,

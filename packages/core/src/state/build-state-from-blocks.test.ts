@@ -1,13 +1,14 @@
+import { TEST_RESOLVER } from "../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import type { BlockId } from "./block-id";
 import { getBlock, getEmbedContent, getTemplateContent } from "./state";
 import { buildStateFromBlocks } from "./build-state-from-blocks";
 import { STATE_INTERNAL } from "./state-internal";
-import { getTemplateContentsMap } from "./yjs-doc";
+import { getRegistry } from "./registry";
 import type { Block } from "./block";
 import { getListDef, type ListDef } from "./list-defs";
 import { getComments, type CommentId, type CommentRecord } from "./comments";
-import { getSuggestions, type SuggestionId, type SuggestionRecord } from "./suggestions";
+import { readSuggestionRecord, type SuggestionId, type SuggestionRecord } from "./suggestions";
 
 function block(args: {
   id: string;
@@ -33,7 +34,7 @@ function block(args: {
 
 describe("buildStateFromBlocks", () => {
   it("materializes main-tree blocks into the Y.Doc blocks map", () => {
-    const state = buildStateFromBlocks({
+    const state = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: "doc" as BlockId,
       blocks: [
         block({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -45,11 +46,13 @@ describe("buildStateFromBlocks", () => {
     const p = getBlock(state, "p" as BlockId);
     expect(doc?.type).toBe("document");
     expect(p?.type).toBe("paragraph");
-    expect(p?.parentId).toBe("doc");
+    // The root's child is its final section, the parent of the top-level blocks.
+    expect(p?.parentId).toBe(doc?.firstChildId);
+    expect(getBlock(state, doc?.lastChildId ?? ("" as BlockId))?.type).toBe("section");
   });
 
   it("materializes embed-content blocks into the embedContents map", () => {
-    const state = buildStateFromBlocks({
+    const state = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: "doc" as BlockId,
       blocks: [block({ id: "doc", type: "document" })],
       embedContents: [block({ id: "fn-1", type: "paragraph" })],
@@ -61,23 +64,20 @@ describe("buildStateFromBlocks", () => {
   });
 
   it("materializes template-content blocks into the templateContents map", () => {
-    const state = buildStateFromBlocks({
+    const state = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: "doc" as BlockId,
       blocks: [block({ id: "doc", type: "document" })],
       templateContents: [block({ id: "tmpl-1", type: "paragraph" })],
     });
-    // No getTemplateContent accessor exists yet (lands in T4); read the body
-    // back through the raw template map.
-    const doc = state[STATE_INTERNAL].doc;
-    const yBody = getTemplateContentsMap(doc).get("tmpl-1" as BlockId);
-    expect(yBody?.get("type")).toBe("paragraph");
+    expect(getTemplateContent(state, "tmpl-1" as BlockId)?.type).toBe("paragraph");
+    expect(getRegistry(state[STATE_INTERNAL].doc).get("tmpl-1")?.get("tree")).toBe("templateContent");
     // It must NOT have leaked into the main blocks map or the embedContents map.
     expect(getBlock(state, "tmpl-1" as BlockId)).toBeNull();
     expect(getEmbedContent(state, "tmpl-1" as BlockId)).toBeNull();
   });
 
   it("returns a state with no embedContents when none are passed", () => {
-    const state = buildStateFromBlocks({
+    const state = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: "doc" as BlockId,
       blocks: [block({ id: "doc", type: "document" })],
     });
@@ -85,11 +85,11 @@ describe("buildStateFromBlocks", () => {
   });
 
   it("returns a state with no templateContents when none are passed", () => {
-    const state = buildStateFromBlocks({
+    const state = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: "doc" as BlockId,
       blocks: [block({ id: "doc", type: "document" })],
     });
-    expect(getTemplateContentsMap(state[STATE_INTERNAL].doc).size).toBe(0);
+    expect([...getRegistry(state[STATE_INTERNAL].doc).values()].filter((e) => e.get("tree") === "templateContent")).toHaveLength(0);
   });
 
   it("materializes listDefs, comments, and suggestions alongside all three block trees (whole-doc, id-preserving)", () => {
@@ -111,7 +111,7 @@ describe("buildStateFromBlocks", () => {
       createdAt: 3000,
     };
 
-    const state = buildStateFromBlocks({
+    const state = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: "doc" as BlockId,
       blocks: [
         block({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -158,11 +158,11 @@ describe("buildStateFromBlocks", () => {
     ]);
 
     // Suggestion present + id-identical.
-    const suggestions = getSuggestions(state);
-    expect(suggestions).toHaveLength(1);
-    expect(suggestions[0]?.id).toBe("sugg-1");
-    expect(suggestions[0]?.kind).toBe("insertion");
-    expect(suggestions[0]?.author).toBe("carol");
-    expect(suggestions[0]?.createdAt).toBe(3000);
+    // (It tags no content, so `getSuggestions` does not surface it: read the record.)
+    const sugg = readSuggestionRecord(state[STATE_INTERNAL].doc, "sugg-1" as SuggestionId);
+    expect(sugg?.id).toBe("sugg-1");
+    expect(sugg?.kind).toBe("insertion");
+    expect(sugg?.author).toBe("carol");
+    expect(sugg?.createdAt).toBe(3000);
   });
 });

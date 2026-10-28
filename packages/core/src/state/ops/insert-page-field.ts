@@ -1,4 +1,5 @@
 import type * as Y from "yjs";
+import { requireBlockText } from "../block-text";
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
@@ -7,8 +8,8 @@ import {
   inlineContentLength,
   type EmbedItem,
 } from "../inline-content";
-import { getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
-import { insertInlineItems, requireYInline } from "../y-inline";
+import { requireInTransaction, type BlockTreeKind } from "../yjs-doc";
+import { insertInlineItems } from "../y-inline";
 import { PAGE_FIELD_EMBED_TYPE, type PageFieldKind, type PageFieldNumberStyle } from "../page-field";
 
 // Re-export the root-level constants so consumers can import either location.
@@ -100,6 +101,5 @@ function planPageFieldInsert(
  */
 function insertPageFieldInTx(doc: Y.Doc, plan: PageFieldInsertPlan): void {
   requireInTransaction(doc, "insertPageField");
-  const yBlock = getYBlock(doc, plan.blockId, "insertPageField", plan.kind);
-  insertInlineItems(requireYInline(yBlock, plan.blockId, "insertPageField"), plan.offset, [plan.embed]);
+  insertInlineItems(requireBlockText(doc, plan.blockId, "insertPageField"), plan.offset, [plan.embed]);
 }

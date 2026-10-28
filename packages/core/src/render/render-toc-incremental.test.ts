@@ -199,7 +199,6 @@ describe("render — TOC incremental outline-signature perf contract", () => {
       state,
       asBlockId(H1),
       { textAlign: "center" },
-      attrReg,
     );
     expect(dirtyIds.has(asBlockId(H1))).toBe(true);
     const out = render(next, reg, attrReg, { prev, prevState: state, dirtyIds });

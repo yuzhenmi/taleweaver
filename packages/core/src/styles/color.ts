@@ -1,2 +1,2 @@
-/** A CSS color string. Validation deferred — for v1 we accept any string. */
+/** A CSS color string. Any string is accepted; no validation is performed. */
 export type Color = string;

@@ -254,12 +254,11 @@ describe("selectionContextOf", () => {
     // sub-trees yet). Future phases will add embed-content blocks with
     // parentId === null; selectionContextOf should return them as their own
     // context root.
+    // A parentless block lives in its own tree (here a footnote body).
     const state = buildState({
       rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document" }),
-        buildBlock({ id: "orphan", type: "footnote-body", inlineContent: inlineContent([]) }), // parentId defaults to null
-      ],
+      blocks: [buildBlock({ id: "doc", type: "document" })],
+      embedContents: [buildBlock({ id: "orphan", type: "footnote-body", inlineContent: inlineContent([]) })],
     });
     expect(selectionContextOf(state, "orphan" as BlockId)).toBe("orphan");
   });

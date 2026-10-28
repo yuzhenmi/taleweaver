@@ -13,6 +13,7 @@ function isNonNegativeInteger(v: unknown): v is number {
 export const tableComponent: ContainerComponentDefinition = {
   type: "table",
   kind: "container",
+  storage: "table",
   render: (view, _ctx, childRenderNodes) => {
     const cw = view.attrs.columnWidths;
     const hrc = view.attrs.headerRowCount;

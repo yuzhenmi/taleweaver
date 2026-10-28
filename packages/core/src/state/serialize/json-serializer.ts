@@ -1,18 +1,19 @@
 import type { ReadonlyAttrs } from "../attrs";
 import type { Block } from "../block";
+import type { BreakSuggestion } from "../break-tags";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { BlockKind, BlockKindResolver } from "../block-kinds";
 import type { InlineContent, InlineItem } from "../inline-content";
 import type { State } from "../state";
 import { getBlock, getEmbedContent, getTemplateContent } from "../state";
-import { STATE_INTERNAL } from "../state-internal";
-import { getEmbedContentsMap, getTemplateContentsMap } from "../yjs-doc";
+import { getEmbedContentIds, getTemplateContentIds } from "../state";
 import { getListDefsForState, type ListDef, type ListLevelConfig } from "../list-defs";
 import { getComments, type CommentRecord, type CommentReply } from "../comments";
 import {
   getSuggestions,
   type SuggestionRecord,
   type SuggestionKind,
+  type SuggestionId,
   isValidSuggestionOrder,
 } from "../suggestions";
 import { isCounterStyle } from "../../styles/format-counter";
@@ -23,7 +24,7 @@ import type { DocumentSerializer } from "./document-serializer";
 import { MalformedDocumentError } from "./document-serializer";
 
 /**
- * Stable format id for the v1 human-friendly JSON serializer. A readable,
+ * Stable format id for the human-friendly JSON serializer. A readable,
  * hand-authorable document format that is LOSSLESS for everything EXCEPT tables
  * (the binary serializer is the lossless escape for table-bearing documents).
  * A future format change ships a NEW id — old JSON is never reinterpreted under
@@ -64,6 +65,10 @@ export interface JsonNode {
   readonly attrs?: Record<string, unknown>;
   readonly content?: JsonInlineItem[];
   readonly children?: JsonNode[];
+  /** Pending paragraph / section-break suggestion tags on this block (see `break-tags.ts`). */
+  readonly breakSuggestion?: { readonly insertionId?: string; readonly deletionId?: string };
+  /** A paragraph's ¶ character props (`Block.markAttrs`); omitted when empty. */
+  readonly markAttrs?: Record<string, unknown>;
 }
 
 /** A wire inline item: a styled text run OR an embed marker. `attrs`/`props` omitted when empty. */
@@ -148,13 +153,13 @@ function encodeDocument(
 
   const embedRoots = encodeForestRoots(
     state,
-    [...getEmbedContentsMap(state[STATE_INTERNAL].doc).keys()] as BlockId[],
+    [...getEmbedContentIds(state)],
     (s, id) => getEmbedContent(s, id),
     resolver,
   );
   const templateRoots = encodeForestRoots(
     state,
-    [...getTemplateContentsMap(state[STATE_INTERNAL].doc).keys()] as BlockId[],
+    [...getTemplateContentIds(state)],
     (s, id) => getTemplateContent(s, id),
     resolver,
   );
@@ -236,11 +241,15 @@ function encodeNode(
     attrs?: Record<string, unknown>;
     content?: JsonInlineItem[];
     children?: JsonNode[];
+    breakSuggestion?: JsonNode["breakSuggestion"];
+    markAttrs?: Record<string, unknown>;
   } = { id: block.id, type: block.type };
 
   if (Object.keys(block.attrs).length > 0) {
     node.attrs = { ...block.attrs };
   }
+  if (block.breakSuggestion !== undefined) node.breakSuggestion = { ...block.breakSuggestion };
+  if (block.markAttrs !== undefined) node.markAttrs = { ...block.markAttrs };
 
   switch (kind) {
     case "container":
@@ -428,6 +437,7 @@ function decodeDocument(
     listDefs: decodeListDefs(parsed.listDefs),
     comments: decodeComments(parsed.comments),
     suggestions: decodeSuggestions(parsed.suggestions),
+    resolver,
   });
 }
 
@@ -462,6 +472,8 @@ function flattenNode(
   const attrs = decodeAttrs(raw.attrs);
   const kind = resolveKind(resolver, type);
   const inlineContent = decodeInlineContent(kind, raw.content);
+  const breakSuggestion = decodeBreakSuggestion(raw.breakSuggestion);
+  const markAttrs = isRecord(raw.markAttrs) && Object.keys(raw.markAttrs).length > 0 ? decodeAttrs(raw.markAttrs) : undefined;
 
   // Push self FIRST (document order), with child/sibling links patched in below.
   const selfIndex = out.length;
@@ -476,6 +488,8 @@ function flattenNode(
       firstChildId: null,
       lastChildId: null,
       inlineContent,
+      ...(breakSuggestion !== undefined ? { breakSuggestion } : {}),
+      ...(markAttrs !== undefined ? { markAttrs } : {}),
     }) as Block,
   );
 
@@ -524,6 +538,17 @@ function flattenNode(
   }
 
   return { id, index: selfIndex };
+}
+
+/** A node's break-suggestion tags (string ids only; anything else is dropped). */
+function decodeBreakSuggestion(raw: unknown): BreakSuggestion | undefined {
+  if (!isRecord(raw)) return undefined;
+  const out: { insertionId?: SuggestionId; deletionId?: SuggestionId } = {};
+  for (const field of ["insertionId", "deletionId"] as const) {
+    const v = raw[field];
+    if (typeof v === "string") out[field] = v as SuggestionId;
+  }
+  return Object.keys(out).length > 0 ? Object.freeze(out) : undefined;
 }
 
 /**

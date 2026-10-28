@@ -25,7 +25,7 @@
  * layout exactly as the controller does.
  */
 import { describe, it, expect } from "vitest";
-import { createMockShaper, getBlock, INITIAL_COMPUTED_STYLE, adaptShaperToMeasurer, type TextMeasurer, type BlockId, type PageConfig } from "@taleweaver/core";
+import { createMockShaper, INITIAL_COMPUTED_STYLE, adaptShaperToMeasurer, type TextMeasurer, type BlockId, type PageConfig } from "@taleweaver/core";
 import { computeSelectionRects, computeUsedStyle, createBlockBox, getLineIndex, buildLineBidiView, inlineCoordForOffset, type LayoutBox, type VirtualLayoutTree, type SelectionRect } from "../index";
 import {
   makeNavEditor,
@@ -35,6 +35,7 @@ import {
   layoutOf,
   type NavCtx,
 } from "./nav-test-helpers";
+import { finalSection } from "../test-utils/final-section"; // body blocks live in the final section
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -75,7 +76,7 @@ function assembleAllPages(tree: VirtualLayoutTree): LayoutBox {
 }
 
 function paragraphId(ctx: NavCtx): BlockId {
-  const root = getBlock(ctx.editor.state, ctx.editor.state.rootId);
+  const root = finalSection(ctx.editor.state);
   if (root === null || root.firstChildId === null) throw new Error("test setup");
   return root.firstChildId;
 }

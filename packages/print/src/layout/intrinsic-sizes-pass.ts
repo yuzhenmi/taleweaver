@@ -73,7 +73,7 @@ function computeContributionUncached(
     // Should not happen post-cascade, but be defensive.
     return ZERO_CONTRIBUTION;
   }
-  // Tab stops S3: a `"tab"` embed (recognized by its marker metadata) is an
+  // A `"tab"` embed (recognized by its marker metadata) is an
   // atomic inline-block whose advance is position-dependent at layout time and
   // has no stop context during an intrinsic query. Reserve `defaultTabStop` (D)
   // as a conservative advance so a shrink-to-fit / inline-block container sizes
@@ -158,9 +158,9 @@ function computeTextContribution(
   // the narrowest line the IFC can produce. `minClusterInlineSize` (widest single
   // cluster, always ≤ a segment) is kept as a `max` lower bound so a coarser
   // word-aware shaper still floors correctly.
-  // HYPH.S2 — under `hyphens: none`, drop the in-word break a soft hyphen
+  // Under `hyphens: none`, drop the in-word break a soft hyphen
   // (U+00AD, UAX #14 class BA) suggests, mirroring the IFC's `annotateLineBreaks`
-  // suppression. This is a DISTINCT correction from the slice-1 zero-advance fix:
+  // suppression. This is a DISTINCT correction from zeroing the soft hyphen's advance:
   // zeroing the soft hyphen's width does NOT remove its break opportunity, so
   // without this filter min-content would still split the word there. A break at
   // `clusterIndex` is BEFORE that offset, so the soft hyphen sits at `idx - 1`.
@@ -266,7 +266,7 @@ function computeBlockContribution(
   // `ComputedLength` (never "auto"), so the third arg is inert.
   const indent = cs ? resolveUsedLength(cs.textIndent, 0, 0) : 0;
 
-  // L-F / C3: per CSS Sizing 3 §5.2 (max-content of a block container),
+  // Per CSS Sizing 3 §5.2 (max-content of a block container),
   // a block container with mixed block + inline children performs
   // anonymous-block wrapping: each consecutive run of inline children
   // becomes one anonymous block. Container's max-content is then the
@@ -415,14 +415,14 @@ function computeTableIntrinsicSizes(
   // Table min = sum(colMin); table max = sum(colMax).
 
   // Both walks go through `flattenContents` so a `display: contents` wrapper
-  // (e.g. a `section` containing table rows in P1.C) is transparent here, just
+  // (e.g. a `section` containing table rows) is transparent here, just
   // as it is in BFC / IFC layout and in the inline intrinsic path above. Without
   // the flatten, the `display !== "table-row"` / "table-cell" filters would skip
   // the contents wrapper and silently produce { min: 0, max: 0 }.
   //
   // Cells are placed onto the same §17.5 grid the Table FC builds (assignTableGrid)
   // and their intrinsic sizes fed — keyed by grid placement — into the §17.4
-  // span-aware distributor (P8.S2), so a colSpan>1 cell contributes across the
+  // span-aware distributor, so a colSpan>1 cell contributes across the
   // columns it spans rather than being charged entirely to one column.
   const gridRows: GridCellInput[][] = [];
   const measures: { min: number; max: number }[] = []; // document order, 1:1 with grid cells

@@ -4,7 +4,10 @@ import { applyOperation, getBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import { requireInTransaction } from "../yjs-doc";
-import { planRemoveBlock, removeBlockInTx } from "./remove-block";
+import { deleteColumnEntry } from "../table-storage";
+import { removeBlockStorage } from "../flow-ops";
+import { getRegistry } from "../registry";
+import { planRemoveBlock } from "./remove-block";
 import type { RemoveBlockPlan } from "./remove-block";
 import { setBlockAttrsInTx } from "./set-block-attrs";
 import { removeColumnWidth, isColumnWidths } from "../table-column-widths";
@@ -34,7 +37,7 @@ export interface DeleteTableColumnPlan {
  * `resolveTableContext`, guarded on `ctx.ragged` (no-op on a degenerate ragged
  * table), routed a `ctx.spanned` table to the span-aware op (this op assumes
  * `!ctx.spanned`), AND ensured this is NOT the last column — a single-column table
- * collapses to a whole-table delete via `deleteTableWithReplacement`. This op THROWS on a
+ * collapses to a whole-table delete via `deleteTable`. This op THROWS on a
  * 1-column table (caller contract).
  *
  * MAIN-TREE ONLY. dirtyIds covers the table (its `columnWidths` attr write and/or
@@ -57,7 +60,7 @@ export function planDeleteTableColumn(state: State, ctx: TableContext): DeleteTa
   }
   const colCount = caretRowCells.length;
   // The single-column case collapses the whole table; the caller routes it to
-  // deleteTableWithReplacement and must never reach this op.
+  // deleteTable and must never reach this op.
   if (colCount <= 1) {
     throw new Error("deleteTableColumn: last column must collapse the whole table");
   }
@@ -90,13 +93,14 @@ export function planDeleteTableColumn(state: State, ctx: TableContext): DeleteTa
  */
 export function deleteTableColumnInTx(doc: Y.Doc, plan: DeleteTableColumnPlan): void {
   requireInTransaction(doc, "deleteTableColumn");
-
-  // Each plan removes one cell in a distinct row (disjoint sibling chains), so
-  // the N removals computed from the same pre-mutation snapshot do not interfere.
+  // The column is the grid column of the removed cells; footnote bodies they
+  // referenced go with them.
+  const reg = getRegistry(doc);
+  const colId = plan.cellPlans.map((p) => reg.get(p.blockId)?.get("col")).find((c): c is string => typeof c === "string");
   for (const cellPlan of plan.cellPlans) {
-    removeBlockInTx(doc, cellPlan);
+    for (const id of cellPlan.embedContentIds) removeBlockStorage(doc, id);
   }
-
+  if (colId !== undefined) deleteColumnEntry(doc, plan.tableId, colId);
   if (plan.newTableAttrs !== null) {
     setBlockAttrsInTx(doc, plan.tableId, plan.newTableAttrs, "deleteTableColumn");
   }

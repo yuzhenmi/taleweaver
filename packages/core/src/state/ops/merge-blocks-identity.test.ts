@@ -1,8 +1,7 @@
 /**
- * Character-survival contract for `mergeAdjacentBlocks`: right's content is
- * appended to left's `Y.Text` with one offset insert, so every character of the
- * LEFT block keeps its identity. The right block's characters are re-minted (Yjs
- * cannot reparent items) — the documented structural-op limit, asserted honestly.
+ * Character-survival contract for `mergeAdjacentBlocks`: blocks are ranges of one
+ * CRDT sequence delimited by marks, so a merge deletes the right block's mark
+ * and EVERY character — left and right — keeps its identity.
  */
 import { describe, it, expect } from "vitest";
 import { mergeAdjacentBlocks } from "./merge-blocks";
@@ -23,7 +22,7 @@ function twoBlocks(left: ReturnType<typeof text>[], right: ReturnType<typeof tex
 }
 
 describe("mergeAdjacentBlocks — character survival", () => {
-  it("every LEFT character survives; the moved RIGHT characters are re-minted (structural limit)", () => {
+  it("every character survives, LEFT and RIGHT (a merge deletes the mark only — nothing is re-minted)", () => {
     const s = twoBlocks([text("AX", { bold: true })], [text("YB", { bold: true })]);
     const relA = relAt(s, "p1", 0);
     const relX = relAt(s, "p1", 1);
@@ -31,6 +30,6 @@ describe("mergeAdjacentBlocks — character survival", () => {
     const after = mergeAdjacentBlocks(s, "p1" as BlockId, "p2" as BlockId).state;
     expect(survives(relA, after, "A")).toBe(true);
     expect(survives(relX, after, "X")).toBe(true);
-    expect(survives(relY, after, "Y")).toBe(false);
+    expect(survives(relY, after, "Y")).toBe(true);
   });
 });

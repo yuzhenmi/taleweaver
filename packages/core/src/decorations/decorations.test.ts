@@ -15,7 +15,7 @@ import {
 } from "./decorations";
 import { createDecorationLayers, transitionMapping } from "./decoration-layers";
 import { report, resetPerfTrace, setPerfTraceEnabled } from "../perf/perf-trace";
-import { insertText } from "../state";
+import { insertText, splitBlockAtPosition, mergeAdjacentBlocks, createTestAllocator } from "../state";
 import { reconcileForeignChange } from "../editor/reconcile-foreign-change";
 import { MAX_CHANGE_CHAIN } from "../editor/editor-state";
 
@@ -38,9 +38,11 @@ function twoParas() {
   editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "Anna met Rosa" }, config);
   editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
   editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "in Berlin" }, config);
-  const root = getBlock(editor.state, editor.state.rootId);
-  const p1 = root?.firstChildId;
-  const p2 = root?.lastChildId;
+  // root → its final section → the paragraphs.
+  const section = getBlock(editor.state, editor.state.rootId)?.lastChildId;
+  const sec = section == null ? null : getBlock(editor.state, section);
+  const p1 = sec?.firstChildId;
+  const p2 = sec?.lastChildId;
   if (p1 == null || p2 == null) throw new Error("setup");
   return { editor, p1, p2 };
 }
@@ -108,10 +110,13 @@ describe("DecorationSet", () => {
     const del = step(editor, { type: "DELETE_RANGE", span: createSpan(createPosition(p1, 0), createPosition(p1, 5)) }, set);
     expect(del.set.decorations.map((d) => d.id)).toEqual(["rosa"]);
 
+    // Enter: the head [0, 6) takes the new id, the tail (the caret's block) keeps p1.
     const split = step(at(del.next, p1, 6), { type: "SPLIT_NODE" }, del.set);
-    const newBlock = split.next.selection.focus.blockId;
-    expect(inlineText(split.set, p1)).toEqual([["rosa", 4, 6]]);
-    expect(inlineText(split.set, newBlock)).toEqual([["rosa", 0, 2]]);
+    const head = getBlock(split.next.state, p1)?.prevSiblingId;
+    if (head == null) throw new Error("no head");
+    expect(split.next.selection.focus.blockId).toBe(p1);
+    expect(inlineText(split.set, head)).toEqual([["rosa", 4, 6]]);
+    expect(inlineText(split.set, p1)).toEqual([["rosa", 0, 2]]);
   });
 
   it("a block decoration disappears with its block; untouched blocks are not re-diffed", () => {
@@ -120,9 +125,27 @@ describe("DecorationSet", () => {
       { kind: "block", id: "flag", blockId: p2 },
       mention("anna", p1, 0, 4),
     ]);
+    // ¶p1 + all of p2's text go: p2 survives as the merge target, so its block
+    // decoration is dropped (merged into); "anna" maps into p2.
     const del = step(editor, { type: "DELETE_RANGE", span: createSpan(createPosition(p1, 13), createPosition(p2, 9)) }, set);
     expect(del.set.decorations.map((d) => d.id)).toEqual(["anna"]);
     expect(del.set.forBlock(p2).block).toEqual([]);
+    expect(inlineText(del.set, p2)).toEqual([["anna", 0, 4]]);
+  });
+
+  it("a block decoration is DROPPED when its block is split, merged into or renamed in the transaction (ProseMirror node decorations)", () => {
+    const { editor, p1, p2 } = twoParas();
+    const flags = (): DecorationSet =>
+      createDecorationSet(editor.state, [{ kind: "block", id: "f1", blockId: p1 }, { kind: "block", id: "f2", blockId: p2 }]);
+    const via = (r: { state: typeof editor.state; dirtyIds: ReadonlySet<BlockId> }) =>
+      mapDecorationSet(flags(), createPositionMapping(editor.state, r.state, r.dirtyIds), r.state).decorations.map((d) => d.id);
+    for (const b of iterateLeafBlocksInDocumentOrder(editor.state)) void b;
+    // Typing keeps both.
+    expect(via(insertText(editor.state, createPosition(p1, 2), "x", {}))).toEqual(["f1", "f2"]);
+    // A split moves p1's text under a new id: p1 is restructured; p2 is untouched.
+    expect(via(splitBlockAtPosition(editor.state, createPosition(p1, 4), createTestAllocator("n")))).toEqual(["f2"]);
+    // A merge deletes ¶p1 (gone) and shifts p2's content (merged into): both go.
+    expect(via(mergeAdjacentBlocks(editor.state, p1, p2))).toEqual([]);
   });
 
   it("comment highlights follow typing inside the comment and re-resolve when markers change", () => {
@@ -133,10 +156,14 @@ describe("DecorationSet", () => {
     layers.setComments(ed.state, [{ commentId: "c1" as CommentId, active: false }]);
     const range = () => layers.merged.forBlock(p1).inline.map((s) => [s.start, s.end]);
     expect(range()).toEqual([[0, 5]]); // [start marker, end marker) around "Anna"
-    // Type at the end of the commented word (before the end marker): the comment grows.
+    // Type inside the commented word: the comment grows. (At its END — before the end
+    // marker — the text lands after the marker, outside: caret affinity, Word.)
     for (const b of iterateLeafBlocksInDocumentOrder(ed.state)) void b;
-    const typed = reduceEditor(at(ed, p1, 5), { type: "INSERT_TEXT", text: "a" }, config);
-    layers.advance(at(ed, p1, 5), typed);
+    const typed = reduceEditor(at(ed, p1, 3), { type: "INSERT_TEXT", text: "a" }, config);
+    layers.advance(at(ed, p1, 3), typed);
+    expect(range()).toEqual([[0, 6]]);
+    const atEnd = reduceEditor(at(typed, p1, 6), { type: "INSERT_TEXT", text: "b" }, config);
+    layers.advance(at(typed, p1, 6), atEnd);
     expect(range()).toEqual([[0, 6]]);
   });
 

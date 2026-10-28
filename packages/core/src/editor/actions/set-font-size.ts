@@ -26,9 +26,9 @@ import { storeTypingAttrs } from "../typing-attrs";
  *
  * Mirrors set-text-color.ts exactly:
  * a collapsed caret records the value as pending typing attrs (`storeTypingAttrs`)
- * for the next typed text — the document is unchanged; T7
+ * for the next typed text — the document is unchanged; a
  * state-equality short-circuit; the selection is preserved unchanged;
- * dirtyIds threaded through to the incremental render pipeline (per R-D.3).
+ * dirtyIds threaded through to the incremental render pipeline.
  */
 export function handleSetFontSize(
   editor: EditorState,
@@ -42,7 +42,7 @@ export function handleSetFontSize(
     ? { fontSize: size }
     : { fontSize: undefined };
   // Collapsed caret: the size applies to the next typed text (typing attrs).
-  if (isCollapsed(selection)) return storeTypingAttrs(editor, incoming, config.attrRegistry);
+  if (isCollapsed(selection)) return storeTypingAttrs(editor, incoming);
   const result = applyAttrsOrSuggest(editor.state, selection, incoming, config);
   if (result.state === editor.state) return editor;
 

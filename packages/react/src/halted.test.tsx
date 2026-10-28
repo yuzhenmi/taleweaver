@@ -1,11 +1,12 @@
 /**
- * React: `useEditor` exposes the print controller's HALTED state. A peer update
- * carrying legacy inline storage halts the real controller inside `EditorView`, which
- * tells the hook AUTOMATICALLY (no prop wiring); the hook's `halted` turns true, the
- * host's `onIncompatibleDocument` is called once, `dispatch` ignores actions;
- * `replaceDocument` with an upgraded document resumes, and so does an upgraded peer
- * upgrading the shared document (the hook replaces the document by itself) — also
- * after the view was re-created while halted.
+ * React: `useEditor` exposes the print controller's HALTED state. A legacy client
+ * writing into the frozen legacy root halts the real controller inside `EditorView`,
+ * which tells the hook AUTOMATICALLY (no prop wiring); the hook's `halted` turns true,
+ * the host's `onIncompatibleDocument` is called once, `dispatch` ignores actions;
+ * `replaceDocument` resumes (the halt is sticky: an upgrade does not). A replacement
+ * over a NOT-YET-UPGRADED document halts too, and that document's upgrade resumes the
+ * hook by itself (it replaces the document) — also after the view was re-created while
+ * halted.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, act } from "@testing-library/react";
@@ -13,6 +14,8 @@ import * as Y from "yjs";
 import * as core from "@taleweaver/core";
 import { EditorView } from "./editor-view";
 import { useEditor } from "./use-editor";
+
+const RESOLVER = core.createDefaultComponentRegistry();
 
 let originalGetContext: PropertyDescriptor | undefined;
 /** The fill style of every `fillRect`, in order. */
@@ -38,13 +41,13 @@ beforeEach(() => {
     writable: true,
     configurable: true,
   });
-  originalResizeObserver = global.ResizeObserver;
-  global.ResizeObserver = vi.fn().mockImplementation(() => ({ observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() }));
+  originalResizeObserver = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = vi.fn().mockImplementation(() => ({ observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() }));
 });
 
 afterEach(() => {
   if (originalGetContext !== undefined) Object.defineProperty(HTMLCanvasElement.prototype, "getContext", originalGetContext);
-  if (originalResizeObserver !== undefined) global.ResizeObserver = originalResizeObserver;
+  if (originalResizeObserver !== undefined) globalThis.ResizeObserver = originalResizeObserver;
   document.body.innerHTML = "";
 });
 
@@ -60,6 +63,37 @@ function legacyRuns(text: string): Y.Array<Y.Map<unknown>> {
   runs.push([run]);
   return runs;
 }
+
+function legacyBlock(type: string, parentId: string | null, inline: Y.Array<Y.Map<unknown>> | null, child?: string): Y.Map<unknown> {
+  const b = new Y.Map<unknown>();
+  b.set("type", type);
+  b.set("attrs", new Y.Map<unknown>());
+  b.set("parentId", parentId);
+  b.set("prevSiblingId", null);
+  b.set("nextSiblingId", null);
+  b.set("firstChildId", child ?? null);
+  b.set("lastChildId", child ?? null);
+  b.set("inlineContent", inline);
+  return b;
+}
+
+/**
+ * A NOT-YET-UPGRADED document: a State bound to an empty Y.Doc, then a schema-1
+ * document (`doc > p1("legacy")`) synced in.
+ */
+function notYetUpgraded(): { doc: Y.Doc; state: core.State } {
+  const doc = new Y.Doc();
+  const state = core.createState({ resolver: RESOLVER, rootId: "doc" as core.BlockId, doc });
+  doc.transact(() => {
+    const blocks = doc.getMap<Y.Map<unknown>>("blocks");
+    blocks.set("doc", legacyBlock("document", null, null, "p1"));
+    blocks.set("p1", legacyBlock("paragraph", "doc", legacyRuns("legacy")));
+  });
+  return { doc, state };
+}
+
+const P1 = "p1" as core.BlockId;
+const LEGACY_SCHEMA: core.IncompatibleDocumentReport = { reason: "legacy-schema", legacyBlocks: [core.asBlockId("doc"), P1], legacyText: {} };
 
 /** Mount `useEditor` + `EditorView` with NO halt wiring; `remount()` re-creates the view. */
 function mount(options: { readonly wrapDispatch?: boolean } = {}) {
@@ -128,9 +162,9 @@ function mount(options: { readonly wrapDispatch?: boolean } = {}) {
       box.decorations = decorations;
       act(() => box.rerender());
     },
-    /** An OLD client rewrites the paragraph with its run-array storage. */
+    /** An OLD client writes its replica of the paragraph into the frozen legacy root. */
     legacyEdit: (text: string) =>
-      peer.transact(() => peer.getMap<Y.Map<unknown>>("blocks").get(id)?.set("inlineContent", legacyRuns(text))),
+      peer.transact(() => peer.getMap<Y.Map<unknown>>("blocks").set(id, legacyBlock("paragraph", null, legacyRuns(text)))),
   };
 }
 
@@ -146,98 +180,103 @@ describe("useEditor — HALTED", () => {
     m.legacyEdit("old");
     expect(m.api().halted).toBe(true);
     expect(m.hook).toHaveBeenCalledTimes(1);
-    expect(m.hook).toHaveBeenCalledWith({ legacyBlocks: [m.id] });
+    expect(m.hook).toHaveBeenCalledWith({ reason: "legacy-write", legacyBlocks: [m.id], legacyText: { [m.id]: "old" } });
 
     // dispatch is ignored while halted.
     const halted = m.api().editorState;
     act(() => m.api().dispatch({ type: "INSERT_TEXT", text: "x" }));
     expect(m.api().editorState).toBe(halted);
 
-    // Exit: upgrade a copy (single authority) and replace the document.
-    const upgraded = new Y.Doc();
-    Y.applyUpdate(upgraded, Y.encodeStateAsUpdate(m.doc));
-    core.upgradeDocument(upgraded);
+    // Exit: the host replaces the document (a fresh State over the same Y.Doc).
     fills = [];
-    act(() => m.api().replaceDocument(core.createState({ rootId: halted.state.rootId, doc: upgraded })));
+    act(() => m.api().replaceDocument(core.createState({ resolver: RESOLVER, rootId: halted.state.rootId, doc: m.doc })));
     expect(m.api().halted).toBe(false);
     // The replacement dropped every layer; the view set its `decorations` prop again.
     expect(fills).toContain(tint);
     act(() => m.api().dispatch({ type: "INSERT_TEXT", text: "!" }));
-    expect(textOf(m.api().editorState, m.id)).toBe("!old");
+    expect(textOf(m.api().editorState, m.id)).toBe("!hello"); // the legacy write was not merged
   });
 
-  it("an upgraded peer upgrading the SHARED document resumes the hook by itself — also after the view was re-created while halted", () => {
+  it("a legacy-write halt is STICKY: an upgrade (by a peer or locally) does not resume the hook, nor does re-creating the view", async () => {
     const m = mount();
     m.legacyEdit("old");
     expect(m.api().halted).toBe(true);
+    act(() => {
+      core.bindAttrRegistry(m.peer, core.createDefaultAttrRegistry()); // no editor adopted the peer: the host binds
+      core.upgradeDocument(m.peer, { resolver: RESOLVER });
+      core.upgradeDocument(m.doc, { resolver: RESOLVER });
+    });
+    expect(m.api().halted).toBe(true);
+    m.remount();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(m.api().halted).toBe(true);
+    expect(m.hook).toHaveBeenCalledTimes(1);
+  });
+
+  it("a replacement over a NOT-YET-UPGRADED document halts the hook; its upgrade resumes the hook by itself — also after the view was re-created while halted", () => {
+    const m = mount();
+    const x = notYetUpgraded();
+    act(() => m.api().replaceDocument(x.state));
+    expect(m.api().halted).toBe(true);
+    expect(m.hook).toHaveBeenCalledTimes(1);
+    expect(m.hook).toHaveBeenCalledWith(LEGACY_SCHEMA);
     // The view is re-created while halted: its controller starts halted (it is never
     // handed the halted state) and keeps watching the document.
     m.remount();
     expect(m.api().halted).toBe(true);
-    core.upgradeDocument(m.peer); // an upgraded peer upgrades the shared document
+    act(() => {
+      core.upgradeDocument(x.doc, { resolver: RESOLVER }); // the host is the single authority
+    });
     expect(m.api().halted).toBe(false);
     act(() => m.api().dispatch({ type: "INSERT_TEXT", text: "!" }));
-    expect(textOf(m.api().editorState, m.id)).toBe("!old");
+    expect(textOf(m.api().editorState, P1)).toBe("!legacy");
     expect(m.hook).toHaveBeenCalledTimes(1);
   });
 
-  it("the host upgrading the SHARED document LOCALLY resumes the hook by itself", () => {
+  it("the controller is the source of truth: a legacy write before the resume renders, or a refused replacement, halts the hook again", () => {
     const m = mount();
-    m.legacyEdit("old");
+    const x = notYetUpgraded();
+    act(() => m.api().replaceDocument(x.state));
     expect(m.api().halted).toBe(true);
+    // The upgrade resumes the hook, but an old client writes into the frozen legacy root
+    // before the replacement reaches the controller.
     act(() => {
-      core.upgradeDocument(m.doc); // the host is the single authority: a local transaction
-    });
-    expect(m.api().halted).toBe(false);
-    act(() => m.api().dispatch({ type: "INSERT_TEXT", text: "!" }));
-    expect(textOf(m.api().editorState, m.id)).toBe("!old");
-  });
-
-  it("the controller is the source of truth: legacy storage returning before the resume renders, or a refused replacement, halts the hook again", () => {
-    const m = mount();
-    m.legacyEdit("old");
-    expect(m.api().halted).toBe(true);
-    // The upgrade resumes the hook, but an old client writes legacy storage again before
-    // the replacement reaches the controller.
-    act(() => {
-      core.upgradeDocument(m.peer);
-      m.legacyEdit("again");
+      core.upgradeDocument(x.doc, { resolver: RESOLVER });
+      x.doc.transact(() => x.doc.getMap<Y.Map<unknown>>("blocks").get("p1")?.set("inlineContent", legacyRuns("again")));
     });
     expect(m.api().halted).toBe(true);
     expect(m.hook).toHaveBeenCalledTimes(2);
+    expect(m.hook).toHaveBeenLastCalledWith({ reason: "legacy-write", legacyBlocks: ["p1"], legacyText: { p1: "again" } });
     const halted = m.api().editorState;
     act(() => m.api().dispatch({ type: "INSERT_TEXT", text: "x" }));
     expect(m.api().editorState).toBe(halted);
-    // The host replaces the document with an upgraded copy, but legacy storage lands in
-    // the copy before the replacement renders: the controller refuses it, the hook halts
-    // again — and the copy's later upgrade resumes it.
-    const copy = new Y.Doc();
-    Y.applyUpdate(copy, Y.encodeStateAsUpdate(m.doc));
-    core.upgradeDocument(copy);
-    act(() => {
-      m.api().replaceDocument(core.createState({ rootId: halted.state.rootId, doc: copy }));
-      copy.transact(() => copy.getMap<Y.Map<unknown>>("blocks").get(m.id)?.set("inlineContent", legacyRuns("stale")));
-    });
+    // The host replaces the document with another not-yet-upgraded one: the controller
+    // refuses it, the hook halts again — and that document's upgrade resumes it.
+    const y = notYetUpgraded();
+    act(() => m.api().replaceDocument(y.state));
     expect(m.api().halted).toBe(true);
     expect(m.hook).toHaveBeenCalledTimes(3);
-    expect(m.hook).toHaveBeenLastCalledWith({ legacyBlocks: [m.id] });
+    expect(m.hook).toHaveBeenLastCalledWith(LEGACY_SCHEMA);
     // The view's prop observes the same halts as the hook.
     expect(m.viewHook).toHaveBeenCalledTimes(3);
-    expect(m.viewHook).toHaveBeenLastCalledWith({ legacyBlocks: [m.id] });
+    expect(m.viewHook).toHaveBeenLastCalledWith(LEGACY_SCHEMA);
     act(() => {
-      core.upgradeDocument(copy);
+      core.upgradeDocument(y.doc, { resolver: RESOLVER });
     });
     expect(m.api().halted).toBe(false);
     act(() => m.api().dispatch({ type: "INSERT_TEXT", text: "!" }));
-    expect(textOf(m.api().editorState, m.id)).toBe("!stale");
+    expect(textOf(m.api().editorState, P1)).toBe("!legacy");
   });
 
   it("an upgrade while the view is unmounted resumes the hook when the view mounts again", async () => {
     const m = mount();
-    m.legacyEdit("old");
+    const x = notYetUpgraded();
+    act(() => m.api().replaceDocument(x.state));
     expect(m.api().halted).toBe(true);
     m.showView(false);
-    core.upgradeDocument(m.peer); // no view watches: the hook is not told yet
+    core.upgradeDocument(x.doc, { resolver: RESOLVER }); // no view watches: the hook is not told yet
     expect(m.api().halted).toBe(true);
     m.showView(true);
     await act(async () => {
@@ -245,7 +284,7 @@ describe("useEditor — HALTED", () => {
     });
     expect(m.api().halted).toBe(false);
     act(() => m.api().dispatch({ type: "INSERT_TEXT", text: "!" }));
-    expect(textOf(m.api().editorState, m.id)).toBe("!old");
+    expect(textOf(m.api().editorState, P1)).toBe("!legacy");
   });
 
   it("dev builds warn once when a view gets a hook's state with another (wrapped) dispatch", () => {
@@ -270,7 +309,7 @@ describe("useEditor — HALTED", () => {
     const copy = (): core.State => {
       const d = new Y.Doc();
       Y.applyUpdate(d, Y.encodeStateAsUpdate(m.doc));
-      return core.createState({ rootId: m.api().editorState.state.rootId, doc: d });
+      return core.createState({ resolver: RESOLVER, rootId: m.api().editorState.state.rootId, doc: d });
     };
     act(() => {
       m.api().replaceDocument(copy());

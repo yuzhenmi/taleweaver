@@ -3,19 +3,20 @@ import * as Y from "yjs";
 import {
   attrsDiff,
   buildYInlineText,
-  deleteInlineRange,
   formatInlineRange,
   inlineItemsFromYText,
   insertInlineItems,
   insertInlineText,
-  readYInline,
   toYAttributes,
-  assertInlineStorageInvariants,
-  LegacyDocumentError,
 } from "./y-inline";
 import { mergeAdjacentTextItems, type InlineItem } from "./inline-content";
-import type { BlockId } from "./block-id";
 import { AttrRegistry } from "../cascade/attr-registry";
+import { buildState, buildBlock, inlineContent } from "../test-utils/state-builders";
+import { STATE_INTERNAL } from "./state-internal";
+import { applyOperation } from "./state";
+import { blockText, assertInlineStorageInvariants, type BlockText } from "./block-text";
+import { insertPieceAfter } from "./y-flow";
+import type { BlockId } from "./block-id";
 
 /** A live (integrated) block Y.Text seeded with `items`. */
 function liveText(items: InlineItem[], doc = new Y.Doc()): Y.Text {
@@ -125,7 +126,6 @@ describe("y-inline — format", () => {
 
 describe("y-inline — grapheme snapping (no U+FFFD)", () => {
   const SMILE = "😀"; // a surrogate pair
-  const FAMILY = "👨‍👩‍👧"; // a ZWJ sequence
 
   it("format with an endpoint inside a surrogate pair snaps the range OUT", () => {
     const yText = liveText([text(`a${SMILE}b`)]);
@@ -133,12 +133,6 @@ describe("y-inline — grapheme snapping (no U+FFFD)", () => {
     const items = inlineItemsFromYText(yText);
     expect(items).toEqual([text("a"), text(`${SMILE}b`, { bold: true })]);
     expect(items.map((i) => (i.kind === "text" ? i.text : "")).join("")).not.toContain("�");
-  });
-
-  it("delete with an endpoint inside a ZWJ sequence removes the whole cluster", () => {
-    const yText = liveText([text(`x${FAMILY}y`)]);
-    deleteInlineRange(yText, 0, 3); // ends inside the family cluster
-    expect(inlineItemsFromYText(yText)).toEqual([text("y")]);
   });
 
   it("an insert offset inside a surrogate pair snaps to the cluster start", () => {
@@ -167,16 +161,6 @@ describe("y-inline — read model", () => {
     const yText = liveText([]);
     insertInlineItems(yText, 0, [{ kind: "embed", embedType: "tab", attrs: { bold: true }, properties: { w: 1 } }]);
     expect(yText.toDelta()).toEqual([{ insert: { embedType: "tab", properties: { w: 1 } }, attributes: { bold: true } }]);
-  });
-});
-
-describe("y-inline — legacy detection", () => {
-  it("readYInline throws LegacyDocumentError on the legacy run-array shape", () => {
-    const doc = new Y.Doc();
-    const yBlock = new Y.Map<unknown>();
-    doc.getMap("blocks").set("p", yBlock);
-    yBlock.set("inlineContent", new Y.Array());
-    expect(() => readYInline(yBlock, "p" as BlockId)).toThrow(LegacyDocumentError);
   });
 });
 
@@ -216,15 +200,20 @@ describe("y-inline — read model equals the JS normalizer (randomized)", () => 
   });
 });
 
-describe("y-inline — assertInlineStorageInvariants", () => {
-  /** A doc whose block "p" holds a Y.Text written by `write`. */
-  function blockWith(write: (t: Y.Text) => void): Y.Doc {
-    const doc = new Y.Doc();
-    const yBlock = new Y.Map<unknown>();
-    const yText = new Y.Text();
-    yBlock.set("inlineContent", yText);
-    doc.getMap<Y.Map<unknown>>("blocks").set("p", yBlock);
-    write(yText);
+describe("assertInlineStorageInvariants (pieces)", () => {
+  /** A one-paragraph doc whose block "p" is written by `write` through its piece storage. */
+  function blockWith(write: (t: BlockText) => void): Y.Doc {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }),
+      ],
+    });
+    const doc = state[STATE_INTERNAL].doc;
+    const t = blockText(doc, "p");
+    if (t === null) throw new Error("setup");
+    doc.transact(() => write(t));
     return doc;
   }
   const check = (doc: Y.Doc) => () => assertInlineStorageInvariants(doc, "op", ["p" as BlockId]);
@@ -242,13 +231,36 @@ describe("y-inline — assertInlineStorageInvariants", () => {
       t.insert(0, "\uDE00");
       t.insert(0, "\uD83D"); // left of the first item: Yjs keeps two items
     });
-    const yText = doc.getMap<Y.Map<unknown>>("blocks").get("p")?.get("inlineContent");
-    if (!(yText instanceof Y.Text)) throw new Error("setup");
-    expect(yText.toDelta()).toEqual([{ insert: "😀" }]);
+    expect(check(doc)).toThrow(/lone surrogate/);
+  });
+
+  it("a pair split across two PIECES throws", () => {
+    const doc = blockWith((t) => {
+      t.insert(0, "a\uD83D");
+      const end = t.point(2);
+      const fresh = new Y.Text();
+      insertPieceAfter(end.piece, fresh);
+      fresh.insert(0, "\uDE00b");
+    });
     expect(check(doc)).toThrow(/lone surrogate/);
   });
 
   it("a whole pair passes", () => {
     expect(check(blockWith((t) => t.insert(0, "a😀b")))).not.toThrow();
+  });
+
+  it("applyOperation runs it in dev mode", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }),
+      ],
+    });
+    expect(() =>
+      applyOperation(state, (doc) => {
+        blockText(doc, "p")?.insert(0, "\uD83D");
+      }),
+    ).toThrow(/lone surrogate/);
   });
 });

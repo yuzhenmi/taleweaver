@@ -3,6 +3,7 @@ import { config, reduceEditor, createInitialEditorState, createPosition } from "
 import { createFindSession } from "./find-session";
 import { findHighlightDecorations, findDecorationId } from "../decorations/builtin-highlights";
 import { transitionMapping } from "../decorations/decoration-layers";
+import { getBlock } from "../state";
 
 function seeded(text: string) {
   let e = createInitialEditorState(config);
@@ -52,10 +53,11 @@ describe("createFindSession", () => {
   it("an edit before the active match keeps the same occurrence active and redraws only edited blocks", () => {
     let e = createInitialEditorState(config);
     e = reduceEditor(e, { type: "INSERT_TEXT", text: "x cat" }, config);
-    const p1 = e.selection.focus.blockId;
     e = reduceEditor(e, { type: "SPLIT_NODE" }, config);
     e = reduceEditor(e, { type: "INSERT_TEXT", text: "cat cat" }, config);
     const p2 = e.selection.focus.blockId;
+    // The split's head "x cat" is the new block.
+    const p1 = getBlock(e.state, p2)?.prevSiblingId ?? p2;
     const s = createFindSession();
     s.start(e.state, createPosition(p2, 4), "cat"); // active = p2's second "cat"
     expect(s.activeIndex()).toBe(2);

@@ -1,14 +1,14 @@
+import { topLevelBlockIds } from "../block-traversal";
 import { describe, it, expect } from "vitest";
 import { extractFragment } from "./extract-fragment";
 import { encodeHtml } from "../serialize/html-encode";
 import { createSpan, createPosition } from "../block-position";
 import type { BlockId } from "../block-id";
-import { buildBlock, buildState, inlineContent, text, embed } from "../../test-utils/state-builders";
+import { TEST_RESOLVER, buildBlock, buildState, inlineContent, text, embed } from "../../test-utils/state-builders";
 import { getBlock, getEmbedContent } from "../state";
 import { COMMENT_START_EMBED_TYPE, COMMENT_END_EMBED_TYPE } from "../comments";
 import {
   INSERTION_SUGGESTION_ATTR,
-  BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
   readSuggestionRecordFromState,
   type SuggestionId,
   type SuggestionRecord,
@@ -24,17 +24,8 @@ function bid(s: string): BlockId {
 
 /** Top-level block types under the fragment's root. */
 function fragTopLevelTypes(frag: ReturnType<typeof extractFragment>): string[] {
-  const root = getBlock(frag, frag.rootId);
-  if (root === null) return [];
-  const types: string[] = [];
-  let cur: BlockId | null = root.firstChildId;
-  while (cur !== null) {
-    const block = getBlock(frag, cur);
-    if (block === null) break;
-    types.push(block.type);
-    cur = block.nextSiblingId;
-  }
-  return types;
+  // The fragment's blocks sit in its final section.
+  return topLevelBlockIds(frag).map((id) => getBlock(frag, id)?.type ?? "?");
 }
 
 /** InlineContent items of the nth top-level block (0-indexed). */
@@ -44,7 +35,7 @@ function fragBlockItems(
 ): Array<{ kind: string; text?: string; attrs?: Record<string, unknown> }> {
   const root = getBlock(frag, frag.rootId);
   if (root === null) return [];
-  let cur: BlockId | null = root.firstChildId;
+  let cur: BlockId | null = topLevelBlockIds(frag)[0] ?? null; // the fragment's final section
   let i = 0;
   while (cur !== null) {
     const block = getBlock(frag, cur);
@@ -81,7 +72,7 @@ function fragHasEmbedContent(frag: ReturnType<typeof extractFragment>): boolean 
   // We check by walking all top-level block inlineContent for an embed with contentBlockId
   const root = getBlock(frag, frag.rootId);
   if (root === null) return false;
-  let cur: BlockId | null = root.firstChildId;
+  let cur: BlockId | null = topLevelBlockIds(frag)[0] ?? null; // the fragment's final section
   while (cur !== null) {
     const block = getBlock(frag, cur);
     if (block === null) break;
@@ -103,7 +94,7 @@ function fragHasEmbedContent(frag: ReturnType<typeof extractFragment>): boolean 
 function fragHasCommentEmbed(frag: ReturnType<typeof extractFragment>): boolean {
   const root = getBlock(frag, frag.rootId);
   if (root === null) return false;
-  let cur: BlockId | null = root.firstChildId;
+  let cur: BlockId | null = topLevelBlockIds(frag)[0] ?? null; // the fragment's final section
   while (cur !== null) {
     const block = getBlock(frag, cur);
     if (block === null) break;
@@ -125,8 +116,8 @@ function fragHasCommentEmbed(frag: ReturnType<typeof extractFragment>): boolean 
 
 /**
  * Returns suggestion records stored in the fragment. Harvests provenance ids
- * via the canonical `suggestionIdsOnItem` (text attrs + break-embed
- * `properties.suggestionId` + embed FORMATTING_SUGGESTION_ATTR), then reads
+ * via the canonical `suggestionIdsOnItem` (text attrs + embed
+ * FORMATTING_SUGGESTION_ATTR), then reads
  * each record back out of the fragment's suggestions side-table.
  */
 function suggestionRecordsOf(
@@ -135,7 +126,7 @@ function suggestionRecordsOf(
   const root = getBlock(frag, frag.rootId);
   if (root === null) return [];
   const ids = new Set<string>();
-  let cur: BlockId | null = root.firstChildId;
+  let cur: BlockId | null = topLevelBlockIds(frag)[0] ?? null; // the fragment's final section
   while (cur !== null) {
     const block = getBlock(frag, cur);
     if (block === null) break;
@@ -276,24 +267,19 @@ describe("extractFragment", () => {
       ],
     });
 
-    // Select the whole table: position in "cp" offset 0 to end (5)
-    const wholeTableSpan = createSpan(
-      createPosition(bid("cp"), 0),
-      createPosition(bid("cp"), 5),
-    );
-    const frag = extractFragment(state, wholeTableSpan);
-
-    // The table block is a container — the common ancestor of the span is "cp",
-    // but we walk up to find the top-level children of the document.
-    // In this case, cp is deeply nested; the top-level subtree is the "tbl" block.
-    // Since the whole "cp" is selected (full block), and it's the only leaf,
-    // the table subtree should be cloned whole.
-    expect(fragTopLevelTypes(frag)).toEqual(["table"]);
+    // Select the whole table: the span covering its unit, (tbl, 0)–(the paragraph after
+    // it, 0) (Word: the object's [i, i+1]). A span inside the cell
+    // text copies the text only.
+    const after = getBlock(state, bid("tbl"))?.nextSiblingId;
+    if (after == null) throw new Error("no paragraph after the table");
+    const frag = extractFragment(state, createSpan(createPosition(bid("tbl"), 0), createPosition(after, 0)));
+    // The table, then the empty open paragraph the span ends in.
+    expect(fragTopLevelTypes(frag)).toEqual(["table", "paragraph"]);
+    const textOnly = extractFragment(state, createSpan(createPosition(bid("cp"), 0), createPosition(bid("cp"), 5)));
+    expect(fragTopLevelTypes(textOnly)).toEqual(["paragraph"]);
     // walk into the cloned table: row/cell structure intact
-    const fragRoot = getBlock(frag, frag.rootId);
-    expect(fragRoot).not.toBeNull();
-    const tblId = fragRoot?.firstChildId;
-    expect(tblId).not.toBeNull();
+    const tblId = topLevelBlockIds(frag)[0];
+    expect(tblId).toBeDefined();
     const tbl = getBlock(frag, tblId as BlockId);
     expect(tbl?.type).toBe("table");
     const rowId = tbl?.firstChildId;
@@ -312,7 +298,7 @@ describe("extractFragment", () => {
     // doc: p → [text "Hello ", footnote-anchor(contentBlockId="fnbody"), text " World"]
     // embed: fnbody → paragraph "Footnote text"
     const FOOTNOTE_EMBED_TYPE = "footnote-anchor";
-    const state = buildStateFromBlocks({
+    const state = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: bid("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -385,10 +371,10 @@ describe("extractFragment", () => {
 
   // ── suggestion records carried into fragment ─────────────────────────────
 
-  it("carries referenced suggestion records into the fragment (feeds T4/T7)", () => {
+  it("carries referenced suggestion records into the fragment", () => {
     // p: text "hello" with insertionSuggestionId="s1"
     // suggestion record: { id:"s1", kind:"insertion", author:"Alice", createdAt:0 }
-    const state = buildStateFromBlocks({
+    const state = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: bid("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -411,40 +397,6 @@ describe("extractFragment", () => {
 
     const records = suggestionRecordsOf(frag);
     expect(records.map((r) => r.id)).toContain("s1");
-  });
-
-  it("carries a break-suggestion embed's record (provenance via properties.suggestionId)", () => {
-    // p: "ab" + block-split-suggestion embed (suggestionId="s2") + "cd"
-    // The suggestion provenance lives on the embed's properties, NOT a text attr,
-    // so the canonical harvester (suggestionIdsOnItem) must pick it up — a
-    // fragment carrying the embed must carry its record (else lossless flavor
-    // round-trips a dangling reference).
-    const state = buildStateFromBlocks({
-      rootId: bid("doc"),
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({
-          id: "p",
-          type: "paragraph",
-          parentId: "doc",
-          inlineContent: inlineContent([
-            text("ab"),
-            embed(BLOCK_SPLIT_SUGGESTION_EMBED_TYPE, { suggestionId: "s2" }),
-            text("cd"),
-          ]),
-        }),
-      ],
-      suggestions: [
-        { id: "s2" as SuggestionId, kind: "insertion", author: "Bob", createdAt: 1 },
-      ],
-    });
-
-    // offsets: "ab"=2, embed=1, "cd"=2 → total 5. Select 1..4 to span the embed.
-    const span = createSpan(createPosition(bid("p"), 1), createPosition(bid("p"), 4));
-    const frag = extractFragment(state, span);
-
-    const records = suggestionRecordsOf(frag);
-    expect(records.map((r) => r.id)).toContain("s2");
   });
 
   // ── cross-cell same-table span: linear leaf extraction (no grid model) ────

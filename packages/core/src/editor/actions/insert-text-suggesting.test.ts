@@ -18,6 +18,7 @@
  * text.length`. Direct mode (suggestingAuthor unset) keeps the destructive
  * `replaceRange`.
  */
+import { finalSectionOf } from "../../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import {
   config as directConfig,
@@ -40,7 +41,7 @@ import { getBlock, getSuggestions, type BlockId } from "../../state";
 
 /** The first body paragraph id under the document root. */
 function bodyParaId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = getBlock(editor.state, finalSectionOf(editor.state));
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
     throw new Error("document root has no first child paragraph");
@@ -77,7 +78,6 @@ describe("handleInsertText — suggesting mode (slice 4b)", () => {
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("insertion");
     expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
-    expect(nth(suggestions, 0, "suggestion").orphaned).toBe(false);
 
     // The run carries the insertion-suggestion provenance attr = the record id.
     const items = getBlock(next.state, paraId)?.inlineContent?.items ?? [];
@@ -272,7 +272,7 @@ describe("handleInsertText — type over a selection, suggesting mode (slice 4d-
     s = reduceEditor(s, { type: "SPLIT_NODE" }, directConfig);
     s = reduceEditor(s, { type: "INSERT_TEXT", text: "def" }, directConfig);
 
-    const root = getBlock(s.state, s.state.rootId);
+    const root = getBlock(s.state, finalSectionOf(s.state));
     const p1 = root?.firstChildId ?? null;
     const p2 = root?.lastChildId ?? null;
     if (p1 === null || p2 === null || p1 === p2) {
@@ -317,5 +317,22 @@ describe("handleInsertText — type over a selection, suggesting mode (slice 4d-
     expect(next.selection.anchor).toEqual(next.selection.focus);
     expect(next.selection.focus.blockId).toBe(p1);
     expect(next.selection.focus.offset).toBe(2);
+  });
+});
+
+describe("suggesting typing keeps ¶P's markAttrs", () => {
+  it("bold typing at (P, len) writes the inclusive set on ¶P; Enter gives a bold empty line with no suggestion attr or link", () => {
+    const suggesting: EditorConfig = { ...directConfig, suggestingAuthor: "alice" };
+    let editor = reduceEditor(createInitialEditorState(directConfig), { type: "INSERT_TEXT", text: "ab" }, directConfig);
+    const p = bodyParaId(editor);
+    expect(getBlock(editor.state, p)?.markAttrs).toBeUndefined();
+    editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" }, suggesting);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "c" }, suggesting);
+    // The registry reached the suggesting writer: ¶P carries bold, never the provenance id.
+    expect(getBlock(editor.state, p)?.markAttrs).toEqual({ bold: true });
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, suggesting);
+    // The caret block is the empty tail (B keeps its id); its ¶ keeps the bold props only.
+    const tail = getBlock(editor.state, editor.selection.focus.blockId);
+    expect(tail?.markAttrs).toEqual({ bold: true });
   });
 });

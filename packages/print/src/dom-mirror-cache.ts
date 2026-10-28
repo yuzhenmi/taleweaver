@@ -45,7 +45,7 @@ export function selfFingerprint(node: AccessibilityNode): string {
     node.role,
     node.level ?? "",
     node.listOrdered === undefined ? "" : String(node.listOrdered),
-    // #555: include the listitem ordinal so a renumber (start/restart change)
+    // Include the listitem ordinal so a renumber (start/restart change)
     // re-fingerprints and rebuilds the `<li value=N>` rather than reusing a stale one.
     node.listOrdinal ?? "",
     node.name ?? "",
@@ -177,7 +177,7 @@ function reconcileNode(
  * a node-data-derived attribute that can change WITHOUT changing the rendered tag or
  * the sourceBlockId key must be patched here (otherwise a reused element keeps a
  * stale attr). `img` and `navigation` qualify — both derive `aria-label` from
- * `node.name`; `listitem` qualifies on `value` (#555, derived from the mutable
+ * `node.name`; `listitem` qualifies on `value` (derived from the mutable
  * `listOrdinal` — a renumber changes it without changing the tag or the key).
  * (Other tag-derived attrs like list ol/ul and heading level are handled by the
  * renderedTag reuse gate; `doc-footnote`'s id is the sourceBlockId key, stable
@@ -196,7 +196,7 @@ function syncElementAttrs(el: HTMLElement, node: AccessibilityNode): void {
       el.removeAttribute("aria-label");
     }
   } else if (node.role === "listitem") {
-    // #555: a renumber (start/restart change) updates the ordinal on a reused
+    // A renumber (start/restart change) updates the ordinal on a reused
     // <li>. Removing covers ordered→unordered (ordinal disappears). Mirrors buildElement.
     if (node.listOrdinal !== undefined) {
       el.setAttribute("value", String(node.listOrdinal));

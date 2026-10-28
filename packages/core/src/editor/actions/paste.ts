@@ -8,6 +8,7 @@ import {
   createSpan,
   spanStart,
   deleteRange,
+  bookmarkDeletionSpan,
   insertText,
   splitBlockAtPosition,
   insertBlocksAfter,
@@ -18,8 +19,6 @@ import {
   INSERTION_SUGGESTION_ATTR,
   DELETION_SUGGESTION_ATTR,
   isFormattingSuggestionKey,
-  BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
-  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
 } from "../../state";
 import type {
   State,
@@ -54,30 +53,21 @@ function isCarriedSuggestionAttr(key: string): boolean {
 
 /**
  * Strip ALL carried suggestion provenance from a fragment leaf's inline items
- * (spec §3.3): a suggesting-mode paste IGNORES the carried suggestion state and
+ * — a suggesting-mode paste IGNORES the carried suggestion state and
  * re-tracks the whole paste as the CURRENT author's fresh insertion. The carried
  * fragment (from a lossless clip via `extractFragment`) can hold any of:
  *   - text-run attrs INSERTION/DELETION_SUGGESTION_ATTR + every formatting tag
- *   - block-split / block-join suggestion EMBEDS (zero-width inter-line breaks)
  * All of these reference suggestion ids in the SOURCE document and would leak a
  * foreign / dangling id into the destination. We remove those attrs from
- * every text run and DROP the break-suggestion embeds (`replaceWithSuggestedFragment`
- * mints FRESH inter-line break embeds and tags fresh insertion ids). Content
- * embeds (image/tab/hard-break) are left as-is here — T9's `filterLineContentItems`
+ * every text run (`replaceWithSuggestedFragment` tags fresh insertion ids; a
+ * fragment never carries boundary tags — `extractFragment` omits them). Content
+ * embeds (image/tab/hard-break) are left as-is here — `filterLineContentItems`
  * drops them downstream; this helper is solely about clearing carried SUGGESTION
  * state, not content shape.
  */
 function stripCarriedSuggestionState(items: ReadonlyArray<InlineItem>): InlineItem[] {
   const out: InlineItem[] = [];
   for (const item of items) {
-    if (
-      item.kind === "embed" &&
-      (item.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE ||
-        item.embedType === BLOCK_JOIN_SUGGESTION_EMBED_TYPE)
-    ) {
-      // Drop carried break-suggestion embeds — fresh ones are minted per inter-line break.
-      continue;
-    }
     if (item.kind === "text") {
       let cleared: Record<string, unknown> | null = null;
       for (const key of Object.keys(item.attrs)) {
@@ -96,15 +86,15 @@ function stripCarriedSuggestionState(items: ReadonlyArray<InlineItem>): InlineIt
 
 /**
  * Linearize a fragment State to a flat array of leaf `SiblingBlockInit[]` for
- * the suggesting-mode paste path (spec §7). Containers (tables) are FLATTENED
- * to their leaf paragraphs (block-level structural-insertion tracking is a
- * deferred feature — §7 "interim" behavior). Un-trackable content embeds are
+ * the suggesting-mode paste path. Containers (tables) are FLATTENED
+ * to their leaf paragraphs (block-level structural-insertion tracking is not
+ * built). Un-trackable content embeds are
  * handled downstream by `filterLineContentItems` inside
  * `replaceWithSuggestedFragment`.
  *
  * Each leaf's items are run through {@link stripCarriedSuggestionState} so any
  * carried suggestion provenance (from a lossless clip) is cleared before the
- * paste is re-tracked as the current author's fresh insertion (spec §3.3).
+ * paste is re-tracked as the current author's fresh insertion.
  *
  * Walk strategy: depth-first, document order. A block is a leaf when it has
  * `inlineContent !== null` and `firstChildId === null`; a block is a container
@@ -126,7 +116,7 @@ function linearizeFragmentForSuggesting(
     if (block === null) return;
 
     if (block.inlineContent !== null && block.firstChildId === null) {
-      // Leaf: emit with its own type/attrs per spec §7 (paragraph, heading, list-item …).
+      // Leaf: emit with its own type/attrs (paragraph, heading, list-item …).
       // Containers are FLATTENED, so this leaf may be a cell paragraph whose type
       // is "paragraph" — that is correct (cells contain leaves). Carried suggestion
       // provenance is stripped so the re-tracked insertion carries ONLY fresh ids.
@@ -174,7 +164,7 @@ function linearizeFragmentForSuggesting(
 }
 
 /**
- * Resolve the paste fragment by priority (spec §6.1):
+ * Resolve the paste fragment by priority:
  *   1. `clip` → `decodeFragmentClip(clip)` — null on malformed → fall through
  *   2. `html` AND `config.htmlParser` → `decodeHtml(html, allocator, parser)`
  *   3. Otherwise → null (caller uses the plain-text path)
@@ -187,14 +177,14 @@ function resolveFragment(
 
   // Priority 1: lossless clip flavor.
   if (clip !== undefined && clip.length > 0) {
-    const decoded = decodeFragmentClip(clip);
+    const decoded = decodeFragmentClip(clip, config.componentRegistry, config.attrRegistry);
     if (decoded !== null) return decoded;
     // null → malformed → fall through to html/text below
   }
 
   // Priority 2: rich html when a parser is configured.
   if (html !== undefined && html.length > 0 && config.htmlParser !== undefined) {
-    return decodeHtml(html, productionAllocator, config.htmlParser);
+    return decodeHtml(html, productionAllocator, config.htmlParser, config.componentRegistry);
   }
 
   // Priority 3 (plain text) is handled by the caller, not here.
@@ -227,9 +217,9 @@ export function handlePaste(
 
     if (replaceInput !== null) {
       // ── Suggesting mode: linearize fragment → SiblingBlockInit[] ──────────
-      // Spec §7: carried suggestion state is IGNORED; re-track the whole paste as
+      // Carried suggestion state is IGNORED; re-track the whole paste as
       // ONE new insertion by the current author. Containers are flattened to their
-      // leaf paragraphs (structural-insertion tracking is a deferred feature).
+      // leaf paragraphs (structural-insertion tracking is not built).
       const sourceBlock = resolveBlock(editor.state, startBlockId)?.block ?? null;
       const sourceType = sourceBlock?.type ?? "paragraph";
       const sourceAttrs: ReadonlyAttrs = sourceBlock?.attrs ?? {};
@@ -271,7 +261,7 @@ export function handlePaste(
     );
   }
 
-  // ── Plain-text path (spec §6.1 arm 3 / fallback) ─────────────────────────
+  // ── Plain-text path ─────────────────────────
   // Used when: no clip / malformed clip, AND (no html OR no config.htmlParser), OR
   // explicit paste-without-formatting (action carries only `text`).
   // This body is VERBATIM from the original handler (behavior preserved exactly).
@@ -281,12 +271,12 @@ export function handlePaste(
   // Normalize line endings: strip \r so \r\n becomes \n.
   const text = rawText.replace(/\r/g, "");
   // Plain text takes the typing attrs at the caret / selection start, like typing.
-  const attrs = getTypingAttrs(editor, config.attrRegistry);
+  const attrs = getTypingAttrs(editor);
 
   // Suggesting mode: insert the paste as ONE tracked suggestion instead of mutating
-  // destructively. The fragment is a tracked INSERTION (inter-line breaks are
-  // block-split-suggestion embeds); a paste OVER a selection ALSO soft-deletes it
-  // (cross-block: a block-join-suggestion per crossed boundary) — accept lands the
+  // destructively. The fragment is a tracked INSERTION (inter-line breaks are split
+  // tags on the new paragraph marks); a paste OVER a selection ALSO soft-deletes it
+  // (cross-block: a join tag per crossed boundary) — accept lands the
   // paste, reject restores the document. Tracking is ALL-CONTEXT (main + footnote /
   // header / footer bodies) via `replaceSuggestionInputForBlock`. When NOT suggesting
   // / no editing context, `replaceInput` is null → fall through to the direct path.
@@ -343,7 +333,7 @@ export function handlePaste(
     ) {
       return editor;
     }
-    const start = spanStart(state, selection);
+    const start = bookmarkDeletionSpan(state, selection).span.anchor;
     const deleteResult = deleteRange(state, selection);
     state = deleteResult.state;
     for (const id of deleteResult.dirtyIds) accumulatedDirtyIds.add(id);
@@ -362,7 +352,7 @@ export function handlePaste(
   // Insert the first line as text at the current position. (If L0 is empty,
   // skip; pos stays put — matching the legacy path.)
   if (firstLine.length > 0) {
-    const r = insertText(state, pos, firstLine, attrs, config.attrRegistry);
+    const r = insertText(state, pos, firstLine, attrs);
     state = r.state;
     for (const id of r.dirtyIds) accumulatedDirtyIds.add(id);
     pos = createPosition(pos.blockId, pos.offset + firstLine.length);
@@ -372,7 +362,7 @@ export function handlePaste(
   // to the freshly created suffix block, and bulk-insert any MIDDLE lines as
   // sibling blocks between the two — a CONSTANT number of `applyOperation`
   // calls regardless of line count (replacing the legacy O(k) per-line
-  // split+insert chain — Smell B / #291).
+  // split+insert chain).
   if (k > 1) {
     const block = getBlock(state, pos.blockId);
     // Match the legacy guard: a null-parent / null-inlineContent / missing
@@ -382,29 +372,13 @@ export function handlePaste(
       const sourceAttrs = block.attrs;
       const sourceId = block.id;
 
-      // (a) Split B at pos: B keeps `prefix⊕L0`; a new next sibling N_last
-      //     holds `suffix`. New block inherits B's type/attrs (split clones).
+      // (a) Split B at pos: a NEW head H takes `prefix⊕L0` and
+      //     B keeps `suffix` + its ¶ — so B is the last pasted line's block.
       const splitResult = splitBlockAtPosition(state, pos, productionAllocator);
       state = splitResult.state;
       for (const id of splitResult.dirtyIds) accumulatedDirtyIds.add(id);
-
-      // N_last is the suffix block split created. Both arms below are
-      // contractually IMPOSSIBLE — split never deletes the source block and
-      // always rewires its nextSiblingId to the new block — so we throw rather
-      // than silently dropping lines 1..k-1 (which would make a multi-line
-      // paste appear to succeed while losing content).
-      const afterSplit = getBlock(state, sourceId);
-      if (afterSplit === null) {
-        throw new Error(
-          `handlePaste: source block "${sourceId}" disappeared after split (invariant violation)`,
-        );
-      }
-      const lastNewBlockId = afterSplit.nextSiblingId;
-      if (lastNewBlockId === null) {
-        throw new Error(
-          `handlePaste: split of "${sourceId}" produced no next sibling (invariant violation)`,
-        );
-      }
+      const headId = splitResult.newBlockId;
+      const lastNewBlockId = sourceId;
       // k > 1 here, so index k-1 is in [1, length-1] and the last line exists.
       const lastLine = lines[k - 1];
       if (lastLine === undefined) {
@@ -420,13 +394,12 @@ export function handlePaste(
           createPosition(lastNewBlockId, 0),
           lastLine,
           attrs,
-          config.attrRegistry,
         );
         state = r.state;
         for (const id of r.dirtyIds) accumulatedDirtyIds.add(id);
       }
 
-      // (c) Bulk-insert the MIDDLE lines L1…L_{k-2} between B and N_last in
+      // (c) Bulk-insert the MIDDLE lines L1…L_{k-2} between H and B in
       //     ONE transaction.
       if (k > 2) {
         const middleInits: SiblingBlockInit[] = [];
@@ -446,7 +419,7 @@ export function handlePaste(
         }
         const bulkResult = insertBlocksAfter(
           state,
-          sourceId,
+          headId,
           middleInits,
           productionAllocator,
         );
@@ -459,8 +432,8 @@ export function handlePaste(
     }
   }
 
-  // E-B / #141: chained ops accumulate dirtyIds manually. Use
-  // state-equality check (T7 identity contract) for consistency with
+  // Chained ops accumulate dirtyIds manually. Use
+  // state-equality check (the identity-no-op contract) for consistency with
   // other handlers — `state` remains === editor.state iff every chained
   // op was a no-op.
   if (state === editor.state) return editor;

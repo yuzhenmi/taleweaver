@@ -3,7 +3,18 @@ import type { State } from "./state";
 import type { BlockId } from "./block-id";
 import { STATE_INTERNAL } from "./state-internal";
 import { UntrackedOrigin, dirtyIdsFromTransaction } from "./yjs-doc";
-import { inspectDocument, legacyBlocksAmong } from "./upgrade";
+import {
+  inspectDocument,
+  legacyBlocksTouched,
+  legacyTextOf,
+  legacyWritesSinceUpgrade,
+  markLegacySurfaced,
+  CURRENT_SCHEMA_VERSION,
+  SCHEMA_VERSION_KEY,
+  type IncompatibleDocumentReport,
+} from "./upgrade";
+import { getMetaMap } from "./yjs-doc";
+import { foreignStructSeen, transactionStructs } from "./mark-index";
 
 /**
  * The collaboration seam: subscribe to FOREIGN changes on this `State`'s shared
@@ -48,7 +59,7 @@ export function subscribeForeignChanges(
   state: State,
   selfOrigin: unknown,
   onForeignChange: (dirtyIds: ReadonlySet<BlockId>) => void,
-  onIncompatible: (blockIds: readonly BlockId[]) => void,
+  onIncompatible: (report: IncompatibleDocumentReport) => void,
   onCompatible?: () => void,
   options?: CompatibilityGateOptions,
 ): () => void {
@@ -91,54 +102,88 @@ export interface CompatibilityGate {
 }
 
 /**
- * The legacy-shape gate shared by `subscribeForeignChanges` and
- * `subscribeRemoteChanges`. Normally it shape-checks a watched transaction's touched
- * blocks (O(changed)); a legacy block HALTS the gate and calls
- * `onIncompatible(blockIds)` once. While halted every transaction — watched or not —
- * is withheld and the known legacy blocks plus the touched ones are re-checked
- * (O(changed + legacy)); once none is left the gate calls `onCompatible()` and reports
- * again from the next transaction.
+ * The compatibility gate shared by `subscribeForeignChanges` and
+ * `subscribeRemoteChanges`. It HALTS (calling `onIncompatible(report)` once) when a
+ * transaction:
+ *   - touches a type under a FROZEN legacy root (a legacy peer wrote after the
+ *     upgrade): the report carries the touched legacy blocks and their current
+ *     legacy text — surfaced, not merged (sticky);
+ *   - carries a struct decoded by a second Yjs instance (sticky);
+ *   - raises `meta.schemaVersion` past this engine's (sticky).
+ * A gate that starts halted on a not-yet-upgraded document resumes
+ * (`onCompatible()`) once it is upgraded. While halted every transaction is
+ * withheld. Detection is O(changed) per transaction; a legacy write that landed
+ * before the gate started (no transaction to see) is found once at start by
+ * comparing the frozen roots with the upgrade's baseline (O(legacy content)).
  */
 export function compatibilityGate(
   doc: Y.Doc,
-  onIncompatible: (blockIds: readonly BlockId[]) => void,
+  onIncompatible: (report: IncompatibleDocumentReport) => void,
   onCompatible: (() => void) | undefined,
   options: CompatibilityGateOptions | undefined,
 ): CompatibilityGate {
-  /** The legacy blocks while halted; null while compatible. */
-  let legacy: ReadonlySet<BlockId> | null = null;
+  /** Why the gate is halted: a not-yet-upgraded document (resumable) or a sticky incompatibility. */
+  let halted: "schema" | "sticky" | null = null;
   /** Bumped on every halt / resume / dispose: a stale start-up `onCompatible` is dropped. */
   let epoch = 0;
+  const schemaOk = (): boolean => inspectDocument(doc).schemaVersion === CURRENT_SCHEMA_VERSION;
   if (options?.startHalted === true) {
-    const found = inspectDocument(doc).legacyBlocks;
-    if (found.length > 0) legacy = new Set(found);
+    if (!schemaOk()) halted = "schema";
     else {
       const at = epoch;
-      queueMicrotask(() => {
+      void Promise.resolve().then(() => {
         if (epoch === at) onCompatible?.();
+      });
+    }
+  }
+  const halt = (report: IncompatibleDocumentReport): null => {
+    halted = "sticky";
+    epoch++;
+    if (report.reason === "legacy-write") markLegacySurfaced(doc);
+    onIncompatible(report);
+    return null;
+  };
+  const legacyReport = (touched: readonly BlockId[]): IncompatibleDocumentReport => {
+    const legacyText: Record<string, string> = {};
+    for (const id of touched) legacyText[id] = legacyTextOf(doc, id) ?? "";
+    return { reason: "legacy-write", legacyBlocks: touched, legacyText };
+  };
+  // A legacy write that landed before this gate started watching (between the upgrade /
+  // `createState` and the subscription) carries no transaction to see: compare the frozen
+  // roots against the upgrade's baseline once, at start (O(legacy content)).
+  if (halted === null && schemaOk()) {
+    const early = legacyWritesSinceUpgrade(doc);
+    if (early.length > 0) {
+      halted = "sticky";
+      const at = ++epoch;
+      void Promise.resolve().then(() => {
+        if (epoch !== at) return;
+        markLegacySurfaced(doc);
+        onIncompatible(legacyReport(early));
       });
     }
   }
   return {
     check(tx, watched) {
-      if (legacy === null && !watched) return null;
-      const dirtyIds = dirtyIdsFromTransaction(doc, tx);
-      if (legacy !== null) {
-        const left = legacyBlocksAmong(doc, new Set([...legacy, ...dirtyIds]));
-        if (left.length > 0) legacy = new Set(left);
-        else {
-          legacy = null;
+      if (halted === "sticky") return null;
+      if (halted === "schema") {
+        if (schemaOk()) {
+          halted = null;
           epoch++;
           onCompatible?.();
         }
         return null;
       }
-      const found = legacyBlocksAmong(doc, dirtyIds);
-      if (found.length === 0) return dirtyIds;
-      legacy = new Set(found);
-      epoch++;
-      onIncompatible(found);
-      return null;
+      transactionStructs(tx);
+      if (foreignStructSeen(doc)) return halt({ reason: "second-yjs-instance", legacyBlocks: [], legacyText: {} });
+      const touched = legacyBlocksTouched(doc, tx);
+      if (touched.length > 0) return halt(legacyReport(touched));
+      const v = getMetaMap(doc).get(SCHEMA_VERSION_KEY);
+      if (typeof v === "number" && v > CURRENT_SCHEMA_VERSION) {
+        return halt({ reason: "newer-schema", legacyBlocks: [], legacyText: {} });
+      }
+      if (!watched) return null;
+      return dirtyIdsFromTransaction(doc, tx);
     },
     dispose() {
       epoch++;

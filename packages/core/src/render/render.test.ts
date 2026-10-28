@@ -1,6 +1,8 @@
+import { sectionComponent } from "../components/section";
+import { bodyChildren } from "../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import { render, type RenderOutput } from "./render";
-import { createComponentRegistry } from "../components/component-registry";
+import { createComponentRegistry, createDefaultComponentRegistry } from "../components/component-registry";
 import { AttrRegistry, createDefaultAttrRegistry } from "../cascade/attr-registry";
 import type { AttrInterpreter } from "../cascade/attr-registry";
 import type {
@@ -11,7 +13,7 @@ import type { RenderNode, ElementBox } from "./render-node";
 import { createElementBox } from "./render-node";
 import { createEmptyDocument } from "../state";
 import type { BlockId } from "../state";
-import { buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
+import { TEST_RESOLVER, buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -37,16 +39,17 @@ const paragraphComponent: LeafComponentDefinition = {
 function basicRegistry() {
   const reg = createComponentRegistry();
   reg.register(documentComponent);
+  reg.register(sectionComponent); // a document always holds its final section
   reg.register(paragraphComponent);
   return reg;
 }
 
 describe("render (new)", () => {
   it("renders an empty document", () => {
-    const state = createEmptyDocument();
+    const state = createEmptyDocument({ resolver: TEST_RESOLVER });
     const out: RenderOutput = render(state, basicRegistry(), createDefaultAttrRegistry());
     expect(out.root.type).toBe("element");
-    expect((out.root as { children: ReadonlyArray<RenderNode> }).children).toHaveLength(1);
+    expect(bodyChildren(out.root)).toHaveLength(1);
   });
 
   it("renders a single paragraph with text content", () => {
@@ -59,7 +62,7 @@ describe("render (new)", () => {
     });
     const out = render(state, basicRegistry(), createDefaultAttrRegistry());
     expect(out.root.type).toBe("element");
-    const docChildren = (out.root as { children: ReadonlyArray<RenderNode> }).children;
+    const docChildren = bodyChildren(out.root);
     expect(docChildren).toHaveLength(1);
     const p = docChildren[0] as { children: ReadonlyArray<RenderNode> };
     expect(p.children).toHaveLength(1);
@@ -83,14 +86,18 @@ describe("render (new)", () => {
       ],
     });
     const out = render(state, basicRegistry(), createDefaultAttrRegistry());
-    const p = ((out.root as { children: ReadonlyArray<RenderNode> }).children[0]) as { children: ReadonlyArray<RenderNode> };
+    const p = (bodyChildren(out.root)[0]) as { children: ReadonlyArray<RenderNode> };
     expect(p.children).toHaveLength(2);
     expect((p.children[0] as { text: string }).text).toBe("hello");
     expect((p.children[1] as { text: string }).text).toBe("world");
   });
 
   it("throws when an unregistered block type is encountered", () => {
+    // The state is written under a registry that knows the type; the RENDER registry doesn't.
+    const writeReg = createDefaultComponentRegistry();
+    writeReg.register({ type: "unknown-block-type", kind: "leaf", leafShape: "atomic", render: (view) => createElementBox(view.id, { display: "block" }, []) });
     const state = buildState({
+      resolver: writeReg,
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "x", lastChildId: "x" }),
@@ -99,6 +106,7 @@ describe("render (new)", () => {
     });
     const reg = createComponentRegistry();
     reg.register(documentComponent);
+    reg.register(sectionComponent); // a document always holds its final section
     expect(() => render(state, reg, createDefaultAttrRegistry())).toThrow(/unknown-block-type/);
   });
 
@@ -112,7 +120,7 @@ describe("render (new)", () => {
       ],
     });
     const out = render(state, basicRegistry(), createDefaultAttrRegistry());
-    const docChildren = (out.root as { children: ReadonlyArray<RenderNode> }).children;
+    const docChildren = bodyChildren(out.root);
     expect(docChildren).toHaveLength(2);
   });
 
@@ -147,6 +155,7 @@ describe("render (new)", () => {
     });
     const reg = createComponentRegistry();
     reg.register(documentComponent);
+    reg.register(sectionComponent); // a document always holds its final section
     reg.register(paragraphCapture);
     render(state, reg, createDefaultAttrRegistry());
     expect(observedSet).toBe(true);
@@ -217,7 +226,7 @@ describe("render — embed-content zones", () => {
     const reg = basicRegistry();
     reg.register(fnBodyComponent);
     const out = render(state, reg, createDefaultAttrRegistry());
-    const p = ((out.root as { children: ReadonlyArray<RenderNode> }).children[0]) as { children: ReadonlyArray<RenderNode> };
+    const p = (bodyChildren(out.root)[0]) as { children: ReadonlyArray<RenderNode> };
     // Single inline child: the fn-anchor ElementBox. NOT the fn-body content.
     expect(p.children).toHaveLength(1);
     expect((p.children[0] as { children: ReadonlyArray<RenderNode> }).children).toHaveLength(0);
@@ -312,48 +321,44 @@ describe("render — template-content zones", () => {
     // No regression to the existing maps: root still a document element with
     // one child, embedContents still empty.
     expect(out.root.type).toBe("element");
-    expect((out.root as ElementBox).children).toHaveLength(1);
+    expect(bodyChildren(out.root)).toHaveLength(1);
     expect(out.embedContents.size).toBe(0);
   });
 
   it("incremental render: dirty template body re-rendered fresh, unchanged body reused by ref", () => {
+    // Template bodies are flow holders: a container body holding a paragraph.
+    const tmplBox: ContainerComponentDefinition = {
+      type: "tmpl-box",
+      kind: "container",
+      render: (view, _ctx, children) =>
+        ({ type: "element", key: view.id, style: { display: "block" }, children } as RenderNode),
+    };
     const reg = basicRegistry();
-    reg.register(tmplBodyComponent);
+    reg.register(tmplBox);
     const attrs = createDefaultAttrRegistry();
+    const bodies = (alpha: string) => [
+      buildBlock({ id: "hdr-a", type: "tmpl-box", firstChildId: "hdr-a-p", lastChildId: "hdr-a-p" }),
+      buildBlock({ id: "hdr-a-p", type: "paragraph", parentId: "hdr-a", inlineContent: inlineContent([text(alpha)]) }),
+      buildBlock({ id: "hdr-b", type: "tmpl-box", firstChildId: "hdr-b-p", lastChildId: "hdr-b-p" }),
+      buildBlock({ id: "hdr-b-p", type: "paragraph", parentId: "hdr-b", inlineContent: inlineContent([text("beta")]) }),
+    ];
+    const docBlocks = () => [
+      buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+      buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("doc body")]) }),
+    ];
 
-    const state1 = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("doc body")]) }),
-      ],
-      templateContents: [
-        buildBlock({ id: "hdr-a", type: "tmpl-body", inlineContent: inlineContent([text("alpha")]) }),
-        buildBlock({ id: "hdr-b", type: "tmpl-body", inlineContent: inlineContent([text("beta")]) }),
-      ],
-    });
+    const state1 = buildState({ rootId: "doc", blocks: docBlocks(), templateContents: bodies("alpha") });
     const prev = render(state1, reg, attrs);
 
-    // New state: hdr-a's content changed, hdr-b unchanged. The
-    // incremental render is driven by an explicit dirtyIds set naming the
-    // changed body (template bodies have no main-tree parent chain, so the
-    // invalidation set is exactly {hdr-a}). hdr-b must be reused by ref.
-    const state2 = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("doc body")]) }),
-      ],
-      templateContents: [
-        buildBlock({ id: "hdr-a", type: "tmpl-body", inlineContent: inlineContent([text("ALPHA-edited")]) }),
-        buildBlock({ id: "hdr-b", type: "tmpl-body", inlineContent: inlineContent([text("beta")]) }),
-      ],
-    });
+    // New state: hdr-a's paragraph changed, hdr-b unchanged. The incremental
+    // render is driven by an explicit dirtyIds set naming the changed body + its
+    // paragraph. hdr-b must be reused by ref.
+    const state2 = buildState({ rootId: "doc", blocks: docBlocks(), templateContents: bodies("ALPHA-edited") });
 
     const out = render(state2, reg, attrs, {
       prev,
       prevState: state1,
-      dirtyIds: new Set(["hdr-a" as BlockId]),
+      dirtyIds: new Set(["hdr-a" as BlockId, "hdr-a-p" as BlockId]),
     });
 
     const prevA = prev.templateContents.get("hdr-a" as BlockId);
@@ -368,9 +373,13 @@ describe("render — template-content zones", () => {
     // …and the fresh node reflects the edited content.
     expect(outA?.type).toBe("element");
     if (outA?.type === "element") {
-      const textChild = nth(outA.children, 0, "text child");
-      expect(textChild.type).toBe("text");
-      expect((textChild as { text: string }).text).toBe("ALPHA-edited");
+      const para = nth(outA.children, 0, "paragraph child");
+      expect(para.type).toBe("element");
+      if (para.type === "element") {
+        const textChild = nth(para.children, 0, "text child");
+        expect(textChild.type).toBe("text");
+        expect((textChild as { text: string }).text).toBe("ALPHA-edited");
+      }
     }
   });
 });
@@ -398,7 +407,7 @@ describe("render — A1: inline RenderNodes carry no pre-cascade computedStyle",
       ],
     });
     const out = render(state, basicRegistry(), createDefaultAttrRegistry());
-    const p = ((out.root as ElementBox).children[0]) as ElementBox;
+    const p = (bodyChildren(out.root)[0]) as ElementBox;
     const textNode = nth(p.children, 0, "text node");
     expect(textNode.type).toBe("text");
     expect(textNode.computedStyle).toBeUndefined();
@@ -432,7 +441,7 @@ describe("render — A1: inline RenderNodes carry no pre-cascade computedStyle",
     const reg = basicRegistry();
     reg.register(fnAnchor);
     const out = render(state, reg, createDefaultAttrRegistry());
-    const p = ((out.root as ElementBox).children[0]) as ElementBox;
+    const p = (bodyChildren(out.root)[0]) as ElementBox;
     const embedNode = nth(p.children, 0, "embed node");
     expect(embedNode.type).toBe("element");
     expect(embedNode.computedStyle).toBeUndefined();
@@ -458,7 +467,7 @@ describe("render — A1: inline RenderNodes carry no pre-cascade computedStyle",
       ],
     });
     const out = render(state, basicRegistry(), createDefaultAttrRegistry());
-    const p = ((out.root as ElementBox).children[0]) as ElementBox;
+    const p = (bodyChildren(out.root)[0]) as ElementBox;
     // Strut sentinel must still be emitted (one TextBox child).
     expect(p.children).toHaveLength(1);
     const strut = nth(p.children, 0, "strut sentinel");
@@ -472,22 +481,6 @@ describe("render — A2: visited set is drained per recursion path", () => {
   // A2: cycle detection should mark the active recursion path only, not
   // accumulate over the whole walk. Behavior contract: visited set is empty
   // again at the end of every subtree.
-
-  it("legitimate cycle still throws", () => {
-    // A → B → A. Built directly via buildBlock with cross-pointing first/next.
-    const state = buildState({
-      rootId: "a",
-      blocks: [
-        buildBlock({ id: "a", type: "document", firstChildId: "b", lastChildId: "b" }),
-        // Cycle: b's first child is "a". This is illegal but the renderer
-        // must surface it as a cycle, not loop forever.
-        buildBlock({ id: "b", type: "document", parentId: "a", firstChildId: "a", lastChildId: "a" }),
-      ],
-    });
-    const reg = createComponentRegistry();
-    reg.register(documentComponent);
-    expect(() => render(state, reg, createDefaultAttrRegistry())).toThrow(/cycle/);
-  });
 
   it("does NOT false-positive: same block id reused across main-tree and a fresh embed-content walk", () => {
     // Main-tree paragraph and embed-content fn-body share NO id, but the
@@ -583,13 +576,15 @@ describe("render — A3: CascadeContext threaded to attrRegistry.applyAll", () =
     const state = buildState({
       rootId: "doc",
       blocks: [
-        // Parent: bold (so its specified.fontWeight === "bold").
-        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p", attrs: { bold: true } }),
+        // Parent: a bold section (so its specified.fontWeight === "bold") — a
+        // paragraph's parent is always its section.
+        buildBlock({ id: "doc", type: "document", firstChildId: "sec", lastChildId: "sec" }),
+        buildBlock({ id: "sec", type: "section", parentId: "doc", firstChildId: "p", lastChildId: "p", attrs: { bold: true } }),
         // Child: inheritWeight attribute — interpreter consults ctx.parentStyle.
         buildBlock({
           id: "p",
           type: "paragraph",
-          parentId: "doc",
+          parentId: "sec",
           attrs: { inheritWeight: true },
           inlineContent: inlineContent([text("x")]),
         }),
@@ -597,6 +592,7 @@ describe("render — A3: CascadeContext threaded to attrRegistry.applyAll", () =
     });
     const reg = createComponentRegistry();
     reg.register(documentComponent);
+    reg.register(sectionComponent); // a document always holds its final section
     reg.register(capturingParagraph);
     const attrReg = new AttrRegistry();
     // Register the built-in `bold` plus the parent-sensitive interpreter.
@@ -633,6 +629,9 @@ describe("render — A3: CascadeContext threaded to attrRegistry.applyAll", () =
     });
     const reg = createComponentRegistry();
     reg.register(capturingDoc);
+    // The childless root holds its final section with one empty paragraph.
+    reg.register(sectionComponent);
+    reg.register(paragraphComponent);
     const attrReg = new AttrRegistry();
     attrReg.register(parentSensitiveInterpreter);
     render(state, reg, attrReg);
@@ -656,6 +655,7 @@ describe("render — A5: atomic-leaf strut sentinel suppression", () => {
         return createElementBox(view.id, { display: "block" }, []);
       },
     };
+    TEST_RESOLVER.register(atomicSpy);
     const state = buildState({
       rootId: "doc",
       blocks: [
@@ -666,6 +666,8 @@ describe("render — A5: atomic-leaf strut sentinel suppression", () => {
     });
     const reg = createComponentRegistry();
     reg.register(documentComponent);
+    reg.register(sectionComponent); // a document always holds its final section
+    reg.register(paragraphComponent); // a paragraph follows every block object (invariant I)
     reg.register(atomicSpy);
     render(state, reg, createDefaultAttrRegistry());
     expect(observedCount).toBe(0);
@@ -685,6 +687,7 @@ describe("render — A5: atomic-leaf strut sentinel suppression", () => {
         return createElementBox(view.id, { display: "block" }, [...inlineRenderNodes]);
       },
     };
+    TEST_RESOLVER.register(inlineSpy);
     const state = buildState({
       rootId: "doc",
       blocks: [
@@ -694,10 +697,26 @@ describe("render — A5: atomic-leaf strut sentinel suppression", () => {
     });
     const reg = createComponentRegistry();
     reg.register(documentComponent);
+    reg.register(sectionComponent); // a document always holds its final section
     reg.register(inlineSpy);
     render(state, reg, createDefaultAttrRegistry());
     expect(observedCount).toBe(1);
     expect(observedFirstText).toBe("");
+  });
+
+  it("an EMPTY paragraph's strut sentinel carries its ¶'s character props (Word: the empty line takes the ¶ mark's formatting)", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "e", lastChildId: "e" }),
+        { ...buildBlock({ id: "e", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }), markAttrs: { bold: true } },
+      ],
+    });
+    const out = render(state, createDefaultComponentRegistry(), createDefaultAttrRegistry());
+    const para = bodyChildren(out.root)[0];
+    const strut = para?.type === "element" ? para.children[0] : undefined;
+    expect(strut?.type === "text" ? strut.text : null).toBe("");
+    expect(strut?.style.fontWeight).toBe("bold");
   });
 });
 
@@ -749,7 +768,7 @@ describe("render (incremental — R-D)", () => {
     // Find p1, p2, p3 in both outputs.
     function findChild(root: RenderNode, key: string): RenderNode | undefined {
       if (root.type !== "element") return undefined;
-      for (const c of (root as ElementBox).children) {
+      for (const c of bodyChildren(root)) {
         if (c.key === key) return c;
         if (c.type === "element") {
           const found = findChild(c, key);
@@ -848,7 +867,7 @@ describe("render (incremental — R-D)", () => {
 
     function findChild(root: RenderNode, key: string): RenderNode | undefined {
       if (root.type !== "element") return undefined;
-      for (const c of (root as ElementBox).children) {
+      for (const c of bodyChildren(root)) {
         if (c.key === key) return c;
         if (c.type === "element") {
           const found = findChild(c, key);
@@ -875,7 +894,7 @@ describe("render (incremental — R-D)", () => {
 
     // And p1 / p3 (untouched siblings beyond the rewired link) are still
     // present as the parent's direct children.
-    const outDocChildren = (outDoc as ElementBox).children;
+    const outDocChildren = bodyChildren(outDoc);
     expect(outDocChildren.map((c) => c.key).sort()).toEqual(["p1", "p3"]);
   });
 });
@@ -916,6 +935,10 @@ describe("render — #285 multi-level embed/template container bodies", () => {
     render: (view, _ctx, inlineChildren) =>
       ({ type: "element", key: view.id, style: { display: "block" }, children: inlineChildren } as RenderNode),
   };
+
+  // buildState writes under TEST_RESOLVER (file-local module instance): register the host body types.
+  TEST_RESOLVER.register(bodyContainerComponent);
+  TEST_RESOLVER.register(bodyParaComponent);
 
   function bodyRegistry() {
     const reg = basicRegistry();

@@ -6,9 +6,9 @@ import type { CounterEvent, CounterValue } from "./types";
  * Walk the BODY tree in document order and emit a CounterEvent per `list-item`.
  * `breakBefore` is true when the immediately-preceding document-order block was
  * NOT a list-item sharing this item's listId — i.e. a fresh consecutive run
- * starts here (#425). `override` comes from the optional `listCounterOverride`
+ * starts here. `override` comes from the optional `listCounterOverride`
  * attr (SET_LIST_RESTART). Only BODY blocks are numbered (footnote/header/footer
- * bodies are out of list scope in v1).
+ * bodies are out of list scope).
  *
  * Attrs are read off the frozen `ReadonlyAttrs` record (a
  * `Readonly<Record<string, unknown>>`) by string key and narrowed at the read

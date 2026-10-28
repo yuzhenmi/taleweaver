@@ -14,7 +14,7 @@ import {
   mergeCells,
   resolveCellRange,
   buildTableGrid,
-  deleteTableWithReplacement,
+  deleteTable,
   getBlock,
   createPosition,
   createSpan,
@@ -29,8 +29,8 @@ import { rebuildTrees } from "./helpers";
  * No-ops (returns the same `editor` reference) when the caret is not inside an
  * editable table — `resolveTableContext` returns null — OR the table is `ragged`
  * (the degenerate carve-out). A WELL-FORMED SPANNED table routes to the span-aware
- * op (`insertTableRowSpanAware`, P15b); a plain no-span table uses the byte-
- * identical P15a `insertTableRow`.
+ * op (`insertTableRowSpanAware`); a plain no-span table uses the byte-
+ * identical plain `insertTableRow`.
  *
  * Selection is UNCHANGED: Google Docs keeps the cursor in its current cell on
  * insert-row, and the caret's paragraph still exists after the edit. One undo
@@ -66,9 +66,9 @@ export function handleInsertTableRow(
  *
  * No-ops (same `editor` ref) when the caret is not inside an editable table OR the
  * table is `ragged` (the degenerate carve-out). A WELL-FORMED SPANNED table routes
- * to the span-aware `insertTableColumnSpanAware` (P15b — a crossing colSpan grows,
+ * to the span-aware `insertTableColumnSpanAware` (a crossing colSpan grows,
  * new cells only in uncovered rows); a plain no-span table uses the byte-identical
- * P15a `insertTableColumn`. Both rewrite `columnWidths` (when present) in the same
+ * plain `insertTableColumn`. Both rewrite `columnWidths` (when present) in the same
  * transaction → one undo reverts cells + widths. Selection is UNCHANGED (Google
  * Docs keeps the cursor in its current cell on insert-column).
  */
@@ -99,10 +99,9 @@ export function handleInsertTableColumn(
 
 /**
  * Shared "delete the whole table" path used by `DELETE_TABLE` and the last-row /
- * last-column collapse. Via `deleteTableWithReplacement`: when the table is the
- * body's sole child, a fresh empty paragraph replaces it → caret at its start;
- * otherwise caret lands at the start of the table's next sibling (or previous,
- * if it was last). Span-agnostic (deleting a whole table is always safe). One
+ * last-column collapse, via `deleteTable`: the caret lands at the
+ * start of the table's next sibling (a paragraph always follows a table —
+ * invariant I), or the previous one. Span-agnostic (deleting a whole table is always safe). One
  * undo entry. No-op (same `editor` ref) only when the table block is missing.
  */
 function deleteWholeTable(
@@ -114,11 +113,11 @@ function deleteWholeTable(
   if (table === null) return editor; // defensive
   const siblingId = table.nextSiblingId ?? table.prevSiblingId; // pre-op; survives the delete
 
-  const result = deleteTableWithReplacement(editor.state, tableId, productionAllocator);
+  const result = deleteTable(editor.state, tableId);
   if (result.state === editor.state) return editor;
 
-  const caretBlockId = result.newParagraphId ?? siblingId;
-  if (caretBlockId === null) return editor; // unreachable: sole-child → paragraph; else a sibling exists
+  const caretBlockId = siblingId;
+  if (caretBlockId === null) return editor; // unreachable: a paragraph follows every table (invariant I)
 
   const cursor = createPosition(caretBlockId, 0);
   const after = createSpan(cursor, cursor);
@@ -130,7 +129,7 @@ function deleteWholeTable(
 }
 
 /**
- * `DELETE_TABLE` handler (P15a). Removes the whole table the caret is in.
+ * `DELETE_TABLE` handler. Removes the whole table the caret is in.
  *
  * No-op (same `editor` ref) when the caret is not inside a main-tree table.
  * Unlike the row/column ops this is SPAN-AGNOSTIC — deleting an entire table is
@@ -150,15 +149,15 @@ export function handleDeleteTable(editor: EditorState, config: EditorConfig): Ed
  * table is `ragged` (the degenerate carve-out). When the caret's row is the LAST
  * remaining row, deleting it would empty the table, so this collapses to deleting
  * the whole table (Google Docs) via `deleteWholeTable`. Otherwise a WELL-FORMED
- * SPANNED table routes to `deleteTableRowSpanAware` (P15b — covering spans shrink,
+ * SPANNED table routes to `deleteTableRowSpanAware` (covering spans shrink,
  * an originating span re-homes one row down), a plain no-span table to
- * `deleteTableRow` (removes the row + re-derives `headerRowCount` in one tx, #487).
+ * `deleteTableRow` (removes the row + re-derives `headerRowCount` in one tx).
  *
  * Caret-after (`rowCount > 1`): the cell in the caret's column that takes the
  * deleted row's place — the next row, or the previous row when the deleted row was
- * last. For the span-aware path this is resolved from the PRE-op occupancy grid
- * (F6); for the P15a path from `ctx.cellIdsByRow`. The target cell id survives the
- * delete; its first paragraph is read from the POST-op state (I4). One undo (`"command"`).
+ * last. For the span-aware path this is resolved from the PRE-op occupancy grid;
+ * for the no-span path from `ctx.cellIdsByRow`. The target cell id survives the
+ * delete; its first paragraph is read from the POST-op state. One undo (`"command"`).
  */
 export function handleDeleteTableRow(editor: EditorState, config: EditorConfig): EditorState {
   const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
@@ -170,7 +169,7 @@ export function handleDeleteTableRow(editor: EditorState, config: EditorConfig):
   }
 
   if (ctx.spanned) {
-    // Span-aware: resolve the caret target from the PRE-op occupancy grid (F6) —
+    // Span-aware: resolve the caret target from the PRE-op occupancy grid —
     // the cell in the caret's column at the row that takes the deleted row's place.
     // `ctx.grid` is the grid `resolveTableContext` already built (for `ragged`); reuse
     // it rather than re-scanning the tree with a second `buildTableGrid`.
@@ -196,17 +195,17 @@ export function handleDeleteTableRow(editor: EditorState, config: EditorConfig):
     return rebuildTrees({ ...editor, state: result.state, selection: after }, editor, config, result.dirtyIds);
   }
 
-  // P15a path (no-span table). Caret target: same column in the next row, else
+  // No-span path. Caret target: same column in the next row, else
   // the previous (pre-op ctx).
   const targetRow = ctx.cellIdsByRow[ctx.rowIndex + 1] ?? ctx.cellIdsByRow[ctx.rowIndex - 1];
   const targetCellId = targetRow?.[ctx.colIndex] ?? null;
 
-  // #487: the plain delete composes `removeBlock` + a `headerRowCount` re-derive in
+  // The plain delete composes `removeBlock` + a `headerRowCount` re-derive in
   // ONE transaction, so deleting a header row keeps the count valid (one undo entry).
   const result = deleteTableRow(editor.state, ctx);
   if (result.state === editor.state) return editor;
 
-  // Read the target cell's first paragraph from the POST-op state (I4).
+  // Read the target cell's first paragraph from the POST-op state.
   const targetCell = targetCellId !== null ? getBlock(result.state, targetCellId) : null;
   const caretBlockId = targetCell?.firstChildId ?? null;
   if (caretBlockId === null) return editor; // defensive: non-ragged rowCount>1 always has a target
@@ -225,16 +224,16 @@ export function handleDeleteTableRow(editor: EditorState, config: EditorConfig):
  *
  * Gated on `ctx.ragged` ONLY (no-op outside any table or on a degenerate ragged
  * table); a WELL-FORMED SPANNED table (`ctx.spanned`) routes to the span-aware
- * `deleteTableColumnSpanAware` (P15b — a covering/originating colSpan shrinks, a
+ * `deleteTableColumnSpanAware` (a covering/originating colSpan shrinks, a
  * 1×1 in the deleted column is removed), a plain no-span table to the byte-identical
- * P15a `deleteTableColumn`. When the caret's column is the LAST remaining column,
+ * plain `deleteTableColumn`. When the caret's column is the LAST remaining column,
  * deleting it would empty the table, so this collapses to deleting the whole table
  * (Google Docs) via `deleteWholeTable`.
  *
  * Caret-after: same row, the adjacent column's cell. The span-aware path resolves
  * the target via the PRE-op occupancy grid (`occupancy[caretGridRow][targetGridCol]`'s
- * owner — the column-axis mirror of the row op's F6); the P15a path uses the pre-op
- * `ctx` row. First paragraph read from the POST-op `result.state` (I4). The op
+ * owner — the column-axis mirror of the row op's target); the no-span path uses the pre-op
+ * `ctx` row. First paragraph read from the POST-op `result.state`. The op
  * rewrites `columnWidths` (when present) in the same transaction → one undo entry
  * (`"command"`).
  */
@@ -277,7 +276,7 @@ export function handleDeleteTableColumn(editor: EditorState, config: EditorConfi
     return rebuildTrees({ ...editor, state: result.state, selection: after }, editor, config, result.dirtyIds);
   }
 
-  // P15a path (no-span table). Caret target: same row, next column's cell, else the
+  // No-span path. Caret target: same row, next column's cell, else the
   // previous (pre-op ctx).
   // ctx.rowIndex is the validated caret row from resolveTableContext, so the row
   // is always present in the per-row cell grid.
@@ -292,7 +291,7 @@ export function handleDeleteTableColumn(editor: EditorState, config: EditorConfi
   const result = deleteTableColumn(editor.state, ctx);
   if (result.state === editor.state) return editor;
 
-  // Read the target cell's first paragraph from the POST-op state (I4).
+  // Read the target cell's first paragraph from the POST-op state.
   const targetCell = targetCellId !== null ? getBlock(result.state, targetCellId) : null;
   const caretBlockId = targetCell?.firstChildId ?? null;
   if (caretBlockId === null) return editor; // defensive: non-ragged colCount>1 always has a target
@@ -307,12 +306,12 @@ export function handleDeleteTableColumn(editor: EditorState, config: EditorConfi
 }
 
 /**
- * `SPLIT_CELL` handler (P15b). Unmerges the caret's merged cell into 1×1 cells.
+ * `SPLIT_CELL` handler. Unmerges the caret's merged cell into 1×1 cells.
  *
  * No-op (same `editor` ref) when the caret is not inside a main-tree table
- * (`resolveTableContext` null) OR the table is `ragged` (a degenerate shape P15b
- * leaves gated — the ragged carve-out wins even over a span; see the design's F7).
- * Unlike the P15a row/column ops this is NOT gated on `ctx.hasSpans`: split only
+ * (`resolveTableContext` null) OR the table is `ragged` (a degenerate shape the
+ * span-aware ops leave gated — the ragged carve-out wins even over a span).
+ * Unlike the no-span row/column ops this is NOT gated on `ctx.hasSpans`: split only
  * makes sense ON a spanned table, and `splitCell` itself no-ops (same `State` ref)
  * when the caret cell is a plain 1×1, so a spanned-table-but-caret-on-a-1×1-cell
  * is a clean no-op too.
@@ -341,7 +340,7 @@ export function handleSplitCell(editor: EditorState, config: EditorConfig): Edit
 }
 
 /**
- * `MERGE_CELLS` handler (P15b). Merges the cells spanned by the selection into one
+ * `MERGE_CELLS` handler. Merges the cells spanned by the selection into one
  * spanned cell (the survivor at the range's top-left), via `resolveCellRange` →
  * `mergeCells`.
  *
@@ -350,9 +349,9 @@ export function handleSplitCell(editor: EditorState, config: EditorConfig): Edit
  * resolves to no cross-cell range / a single cell (`resolveCellRange` null, or
  * `mergeCells`'s own same-`State` short-circuit).
  *
- * Caret-after: COLLAPSED at offset 0 of the survivor's first paragraph (F4). The
+ * Caret-after: COLLAPSED at offset 0 of the survivor's first paragraph. The
  * survivor is the cell originating at `(minRow, minCol)`; its id survives the merge,
- * so its first paragraph is read from the POST-op state (I4). One undo (`"command"`).
+ * so its first paragraph is read from the POST-op state. One undo (`"command"`).
  */
 export function handleMergeCells(editor: EditorState, config: EditorConfig): EditorState {
   const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);

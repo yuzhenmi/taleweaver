@@ -1,10 +1,13 @@
+import { topLevelBlockIds } from "../block-traversal";
 import { describe, it, expect } from "vitest";
 import { insertFragment } from "./insert-fragment";
 import { extractFragment } from "./extract-fragment";
 import { createSpan, createPosition } from "../block-position";
 import type { BlockId } from "../block-id";
 import { createTestAllocator } from "../block-id";
-import { buildBlock, buildState, inlineContent, text, embed } from "../../test-utils/state-builders";
+import { TEST_RESOLVER, withTestAttrs, buildBlock, buildState, buildFlowDoc, finalSectionOf, inlineContent, text, embed } from "../../test-utils/state-builders";
+import { flowShape } from "../../test-utils/invariant-i";
+import { STATE_INTERNAL } from "../state-internal";
 import { buildStateFromBlocks } from "../build-state-from-blocks";
 import { getBlock, getEmbedContent } from "../state";
 import type { State } from "../state";
@@ -15,7 +18,6 @@ import {
   DELETION_SUGGESTION_ATTR,
   formattingSuggestionIds,
   formattingSuggestionKey,
-  BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
 } from "../suggestions";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -43,7 +45,7 @@ function orderedBlockTexts(state: State): (string | null)[] {
   const root = getBlock(state, state.rootId);
   if (root === null) return [];
   const texts: (string | null)[] = [];
-  let cur: BlockId | null = root.firstChildId;
+  let cur: BlockId | null = topLevelBlockIds(state)[0] ?? null; // the final section's first block
   while (cur !== null) {
     const block = getBlock(state, cur);
     if (block === null) break;
@@ -169,6 +171,13 @@ function makeEmptyFragment() {
 }
 
 /** Fragment containing a table (container) — for the T5b stub test. */
+/** The span covering exactly object `id`: (obj, 0)–(the paragraph after it, 0). */
+function wholeObjectSpan(state: State, id: string) {
+  const after = getBlock(state, bid(id))?.nextSiblingId;
+  if (after == null) throw new Error("no paragraph after the object");
+  return createSpan(createPosition(bid(id), 0), createPosition(after, 0));
+}
+
 function makeFragTable() {
   const src = buildState({
     rootId: "doc",
@@ -203,11 +212,9 @@ function makeFragTable() {
       }),
     ],
   });
-  // Extract the whole table. Use a span spanning the cell paragraph.
-  return extractFragment(
-    src,
-    createSpan(createPosition(bid("cp"), 0), createPosition(bid("cp"), 12)),
-  );
+  // Extract the whole table: the span covers its unit, (tbl, 0)–(paragraph after it, 0)
+  // (Word: the object's [i, i+1]).
+  return extractFragment(src, wholeObjectSpan(src, "tbl"));
 }
 
 /**
@@ -267,7 +274,7 @@ function makeFragTwoCellTable() {
   });
   return extractFragment(
     src,
-    createSpan(createPosition(bid("cpA"), 0), createPosition(bid("cpB"), 3)),
+    wholeObjectSpan(src, "tbl"),
   );
 }
 
@@ -341,7 +348,7 @@ function orderedBlockTypes(state: State): string[] {
   const root = getBlock(state, state.rootId);
   if (root === null) return [];
   const types: string[] = [];
-  let cur: BlockId | null = root.firstChildId;
+  let cur: BlockId | null = topLevelBlockIds(state)[0] ?? null; // the final section's first block
   while (cur !== null) {
     const block = getBlock(state, cur);
     if (block === null) break;
@@ -353,17 +360,7 @@ function orderedBlockTypes(state: State): string[] {
 
 /** Walk the sibling chain and collect ids in document order. */
 function topLevelIds(state: State): BlockId[] {
-  const root = getBlock(state, state.rootId);
-  if (root === null) return [];
-  const ids: BlockId[] = [];
-  let cur: BlockId | null = root.firstChildId;
-  while (cur !== null) {
-    ids.push(cur);
-    const block = getBlock(state, cur);
-    if (block === null) break;
-    cur = block.nextSiblingId;
-  }
-  return ids;
+  return topLevelBlockIds(state);
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -597,7 +594,7 @@ describe("insertFragment — T5a leaf-only boundary semantics", () => {
     // Fragment source: doc > p = [text "Hi ", footnote-anchor(contentBlockId="fnbody"), text " end"]
     // embedContents: fnbody (footnote-body) > fnp "Footnote text"
     const FOOTNOTE_EMBED_TYPE = "footnote-anchor";
-    const src = buildStateFromBlocks({
+    const src = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: bid("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -710,8 +707,8 @@ describe("insertFragment — T5b container subtree splice", () => {
     expect(tableBlock).not.toBeNull();
     expect(tableBlock?.type).toBe("table");
 
-    // The table's parent must be the document root.
-    expect(tableBlock?.parentId).toBe(r.state.rootId);
+    // The table's parent is the document's (final) section.
+    expect(tableBlock?.parentId).toBe(finalSectionOf(r.state));
 
     // The table's row must exist.
     const rowId = tableBlock?.firstChildId;
@@ -825,7 +822,7 @@ describe("insertFragment — T5b container subtree splice", () => {
 
     const tableBlock = getBlock(r.state, tableId);
     expect(tableBlock?.type).toBe("table");
-    expect(tableBlock?.parentId).toBe(r.state.rootId);
+    expect(tableBlock?.parentId).toBe(finalSectionOf(r.state));
 
     const rowId = tableBlock?.firstChildId;
     if (rowId === null || rowId === undefined) throw new Error("rowId null");
@@ -874,22 +871,23 @@ describe("insertFragment — T5b container subtree splice", () => {
     expect(blockText(r.state, paraId)).toBe("abcd");
   });
 
-  it("container-only fragment at end of block produces no empty trailing block", () => {
-    // dest p="abcd" caret at 4; fragment = [table]
-    // T6/E5: offset=len → no empty suffix block.
-    // Expected: [paragraph("abcd"), table] — suffix block is dropped.
+  it("a whole-table fragment at the end of a block: [abcd, table, the caret's (empty) paragraph]", () => {
+    // dest p="abcd" caret at 4; fragment = [table, its trailing open ""] (
+    // invariant I — Word keeps a paragraph after every table, so p follows it, empty).
     const dest = makeDest();
     const frag = makeFragTable();
     const alloc = createTestAllocator("T5b-j");
     const r = insertFragment(dest, collapsed(createPosition(bid("p"), 4)), frag, alloc);
 
     const types = orderedBlockTypes(r.state);
-    expect(types).toEqual(["paragraph", "table"]);
+    expect(types).toEqual(["paragraph", "table", "paragraph"]);
 
     const ids = topLevelIds(r.state);
     const prefixId = ids[0];
     if (prefixId === undefined) throw new Error("prefixId undefined");
     expect(blockText(r.state, prefixId)).toBe("abcd");
+    expect(ids[2]).toBe("p");
+    expect(blockText(r.state, "p")).toBe("");
   });
 });
 
@@ -906,7 +904,7 @@ describe("insertFragment — T6 edge behaviors", () => {
     // fragment: a table with one cell containing "pasted"
     // Expected: no nested table; cell paragraph text is extended / a sibling paragraph is added
     // — the fragment's table is replaced by its cell paragraphs (flattened)
-    const dest = buildStateFromBlocks({
+    const dest = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: bid("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "tbl", lastChildId: "tbl" }),
@@ -981,21 +979,23 @@ describe("insertFragment — T6 edge behaviors", () => {
 
     // The FLATTENED pasted cell content must actually land in the destination
     // cell as flow content — not be dropped. makeFragTable's single cell holds
-    // "cell content"; pasting at end of "hello" inline-merges it → "hellocell content".
-    // (Asserts content survival, which the old `toContain("hello")` check missed:
-    // dropping the paste entirely would still pass that.)
-    expect(blockText(r.state, "cp")).toBe("hellocell content");
+    // "cell content" closed by its ¶, so pasting at the end of
+    // "hello" → head "hellocell content" | the caret's paragraph cp, now empty.
+    const cp = getBlock(r.state, bid("cp"));
+    const head = cp?.prevSiblingId ?? null;
+    expect(head === null ? null : blockText(r.state, head)).toBe("hellocell content");
+    expect(blockText(r.state, "cp")).toBe("");
 
     // The cell's flow content stays in the cell (parent chain leads to "cell").
-    const cp = getBlock(r.state, bid("cp"));
     expect(cp?.parentId).toBe(bid("cell"));
+    expect(head === null ? null : getBlock(r.state, head)?.parentId).toBe(bid("cell"));
   });
 
   it("E1: a MULTI-cell pasted table flattens its cells into the destination cell in document order", () => {
     // dest: document > table > row > cell > paragraph("hello"); caret at end (offset 5)
     // fragment: a table with TWO cells "one" / "two".
     // Expected: both cells' paragraphs land as cell flow content, in order, no nested table.
-    const dest = buildStateFromBlocks({
+    const dest = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: bid("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "tbl", lastChildId: "tbl" }),
@@ -1033,8 +1033,9 @@ describe("insertFragment — T6 edge behaviors", () => {
       cellTexts.push(blockText(r.state, childId));
       childId = child.nextSiblingId;
     }
-    // Both pasted cells' content present, in order, inside the destination cell.
-    expect(cellTexts).toEqual(["helloone", "two"]);
+    // Both pasted cells' content present, in order, inside the destination cell; each
+    // cell's paragraph was closed by its ¶, so the caret's paragraph follows, empty.
+    expect(cellTexts).toEqual(["helloone", "two", ""]);
   });
 
   // ── E2: list-level rebasing ────────────────────────────────────────────────
@@ -1044,7 +1045,7 @@ describe("insertFragment — T6 edge behaviors", () => {
     // The para("A") and para("B") are first/last and get merged into prefix/suffix.
     // The two list-items are middle blocks → appear as standalone blocks in the result.
     // Expected: after paste, list items are rebased: levels become 0 and 1.
-    const frag = buildStateFromBlocks({
+    const frag = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: bid("fdoc"),
       blocks: [
         buildBlock({ id: "fdoc", type: "document", firstChildId: "fpa", lastChildId: "fpb" }),
@@ -1091,9 +1092,8 @@ describe("insertFragment — T6 edge behaviors", () => {
     const r = insertFragment(dest, collapsed(createPosition(bid("p"), 2)), frag, alloc);
 
     // Collect list-item blocks in document order.
-    const root = getBlock(r.state, r.state.rootId);
     const listItems: Array<{ level: number }> = [];
-    let cur: BlockId | null = root?.firstChildId ?? null;
+    let cur: BlockId | null = topLevelBlockIds(r.state)[0] ?? null;
     while (cur !== null) {
       const block = getBlock(r.state, cur);
       if (block === null) break;
@@ -1114,7 +1114,7 @@ describe("insertFragment — T6 edge behaviors", () => {
     // para("A")/para("B") merge into prefix/suffix; li1/li2 become standalone middle blocks.
     // Dest caret is inside a list-item at level 1.
     // Inserted list items: levels 2 and 3 → rebase (min=2 subtracted) → 0 and 1 → plus targetLevel 1 → 1 and 2.
-    const frag = buildStateFromBlocks({
+    const frag = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: bid("fdoc"),
       blocks: [
         buildBlock({ id: "fdoc", type: "document", firstChildId: "fpa", lastChildId: "fpb" }),
@@ -1157,7 +1157,7 @@ describe("insertFragment — T6 edge behaviors", () => {
     });
 
     // Destination: a list item at level 1
-    const destDoc = buildStateFromBlocks({
+    const destDoc = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: bid("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "dli", lastChildId: "dli" }),
@@ -1179,9 +1179,8 @@ describe("insertFragment — T6 edge behaviors", () => {
     const r = insertFragment(destDoc, collapsed(createPosition(bid("dli"), 3)), frag, alloc);
 
     // Collect list-item blocks in document order.
-    const root = getBlock(r.state, r.state.rootId);
     const listItems: Array<{ level: number }> = [];
-    let cur2: BlockId | null = root?.firstChildId ?? null;
+    let cur2: BlockId | null = topLevelBlockIds(r.state)[0] ?? null;
     while (cur2 !== null) {
       const block = getBlock(r.state, cur2);
       if (block === null) break;
@@ -1200,9 +1199,9 @@ describe("insertFragment — T6 edge behaviors", () => {
 
   // ── E3: trailing/leading empty trim ───────────────────────────────────────
 
-  it("E3: leading and trailing empty leaf blocks are trimmed from multi-block fragment", () => {
-    // Fragment: [para(""), para("content"), para("")] — 3 blocks, first and last empty
-    // Paste into dest at mid-block → only "content" should be inserted (no empty flanking blocks)
+  it("an empty leading / trailing leaf is a covered ¶ — pasting it inserts the break", () => {
+    // Fragment: [para(""), para("content"), para("")] — the leading empty paragraph is a
+    // ¶ the copied span covered; the trailing one is the (empty) open paragraph.
     // Build the fragment state directly (no extractFragment) to have precise empty items.
     const frag = buildState({
       rootId: "fdoc",
@@ -1237,14 +1236,12 @@ describe("insertFragment — T6 edge behaviors", () => {
     const alloc = createTestAllocator("T6-E3");
     const r = insertFragment(dest, collapsed(createPosition(bid("p"), 2)), frag, alloc);
 
-    // After trimming: fragment is effectively [para("content")] — one leaf.
-    // Paste at offset 2 into "abcd" → single leaf merge → "abcontentcd", one block.
-    expect(orderedBlockTexts(r.state)).toEqual(["abcontentcd"]);
+    // Paste at offset 2 into "abcd": "ab" + "" ¶ | "content" ¶ | "" + "cd" (Word / GDocs).
+    expect(orderedBlockTexts(r.state)).toEqual(["ab", "content", "cd"]);
   });
 
-  it("E3: only-empty leading block is trimmed but non-empty trailing block is kept", () => {
-    // Fragment: [para(""), para("X"), para("Y")] — leading empty only
-    // Trimming: drop leading empty → [para("X"), para("Y")]
+  it("a leading empty paragraph pastes as a break before the rest", () => {
+    // Fragment: [para(""), para("X"), para("Y")] — the leading empty paragraph's ¶ is pasted.
     const frag = buildState({
       rootId: "fdoc",
       blocks: [
@@ -1278,11 +1275,9 @@ describe("insertFragment — T6 edge behaviors", () => {
     const alloc = createTestAllocator("T6-E3b");
     const r = insertFragment(dest, collapsed(createPosition(bid("p"), 2)), frag, alloc);
 
-    // [para("X"), para("Y")] pasted at offset 2 of "abcd"
-    // → split: prefix="ab", suffix="cd"
-    // → firstLeaf="X" into prefix → "abX"
-    // → lastLeaf="Y" prepends to suffix → "Ycd"
-    expect(orderedBlockTexts(r.state)).toEqual(["abX", "Ycd"]);
+    // [para(""), para("X"), para("Y")] pasted at offset 2 of "abcd"
+    // → prefix "ab" + "" | "X" | "Y" + "cd".
+    expect(orderedBlockTexts(r.state)).toEqual(["ab", "X", "Ycd"]);
   });
 
   // ── E4: empty target adopt ─────────────────────────────────────────────────
@@ -1291,7 +1286,7 @@ describe("insertFragment — T6 edge behaviors", () => {
     // Dest: doc > paragraph("") (empty)
     // Fragment: [list-item("Hello", listLevel=0)]
     // Expected: the empty paragraph BECOMES a list-item with the same attrs, containing "Hello"
-    const emptyDest = buildStateFromBlocks({
+    const emptyDest = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: bid("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "ep", lastChildId: "ep" }),
@@ -1304,7 +1299,7 @@ describe("insertFragment — T6 edge behaviors", () => {
       ],
     });
 
-    const src = buildStateFromBlocks({
+    const src = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: bid("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "li", lastChildId: "li" }),
@@ -1337,7 +1332,7 @@ describe("insertFragment — T6 edge behaviors", () => {
 
   // ── E5: offset 0 / offset=len no-empty-split ──────────────────────────────
 
-  it("E5: container-only fragment at offset 0 produces NO empty leading paragraph (T5b-i updated)", () => {
+  it("container-only fragment at offset 0 produces NO empty leading paragraph (T5b-i updated)", () => {
     // dest p="abcd" caret at 0; fragment = [table]
     // T6/E5 fix: skip split at offset=0 → [table, paragraph("abcd")] (no empty leading para)
     const dest = makeDest();
@@ -1357,16 +1352,15 @@ describe("insertFragment — T6 edge behaviors", () => {
     expect(blockText(r.state, paraId)).toBe("abcd");
   });
 
-  it("E5: container-only fragment at offset=len produces NO empty trailing paragraph", () => {
-    // dest p="abcd" caret at 4; fragment = [table]
-    // T6/E5 fix: skip split at offset=len → [paragraph("abcd"), table] (no empty trailing para)
+  it("a whole-table fragment at offset=len: the paragraph after the table is the caret's (invariant I)", () => {
+    // dest p="abcd" caret at 4; fragment = [table, ""] → [abcd, table, p ""].
     const dest = makeDest();
     const frag = makeFragTable();
     const alloc = createTestAllocator("T6-E5b");
     const r = insertFragment(dest, collapsed(createPosition(bid("p"), 4)), frag, alloc);
 
     const types = orderedBlockTypes(r.state);
-    expect(types).toEqual(["paragraph", "table"]);
+    expect(types).toEqual(["paragraph", "table", "paragraph"]);
 
     const ids = topLevelIds(r.state);
     const paraId = ids[0];
@@ -1374,7 +1368,7 @@ describe("insertFragment — T6 edge behaviors", () => {
     expect(blockText(r.state, paraId)).toBe("abcd");
   });
 
-  it("E5: mixed [table, para] at offset 0 inserts table before block then merges last leaf into block", () => {
+  it("mixed [table, para] at offset 0 inserts table before block then merges last leaf into block", () => {
     // dest p="abcd" caret 0; fragment = [table, para("Y")]
     // E5: offset=0, firstLeaf=null (first is container), so skipSplitAtStart=true.
     // Table goes before caret block. Last leaf "Y" prepends to caret block at 0.
@@ -1440,7 +1434,7 @@ describe("insertFragment — T6 edge behaviors", () => {
     // Fragment: a paragraph "pasted [footnote-anchor] text" (contains a footnote anchor)
     // Expected: the pasted inline content lands without the footnote-anchor embed.
 
-    const dest = buildStateFromBlocks({
+    const dest = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: bid("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "mp", lastChildId: "mp" }),
@@ -1471,7 +1465,7 @@ describe("insertFragment — T6 edge behaviors", () => {
 
     // Fragment: a paragraph containing text + footnote-anchor embed + text
     const FOOTNOTE_EMBED_TYPE = "footnote-anchor";
-    const fragSrc = buildStateFromBlocks({
+    const fragSrc = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: bid("fdoc"),
       blocks: [
         buildBlock({ id: "fdoc", type: "document", firstChildId: "fp", lastChildId: "fp" }),
@@ -1529,13 +1523,13 @@ describe("insertFragment — T6 edge behaviors", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// T7: suggestion-record transfer + id remap
+// Suggestion-record transfer + id remap
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("insertFragment — T7 suggestion-record transfer", () => {
+describe("insertFragment — suggestion-record transfer", () => {
   /** Build a minimal dest doc: document > paragraph("hello") */
   function makeSimpleDest() {
-    return buildStateFromBlocks({
+    return buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: bid("doc"),
       blocks: [
         buildBlock({ id: bid("doc"), type: "document", firstChildId: bid("p"), lastChildId: bid("p") }),
@@ -1557,7 +1551,7 @@ describe("insertFragment — T7 suggestion-record transfer", () => {
    */
   function makeFragWithInsertionSuggestion() {
     const s1 = "s1" as SuggestionId;
-    const fragState = buildStateFromBlocks({
+    const fragState = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: bid("fdoc"),
       blocks: [
         buildBlock({ id: bid("fdoc"), type: "document", firstChildId: bid("fp"), lastChildId: bid("fp") }),
@@ -1575,36 +1569,10 @@ describe("insertFragment — T7 suggestion-record transfer", () => {
     return { fragState, s1 };
   }
 
-  /**
-   * Build a fragment carrying a break-suggestion embed (block-split) whose
-   * properties.suggestionId = "bs1", plus the matching record.
-   */
-  function makeFragWithBreakSuggestion() {
-    const bs1 = "bs1" as SuggestionId;
-    const fragState = buildStateFromBlocks({
-      rootId: bid("fdoc"),
-      blocks: [
-        buildBlock({ id: bid("fdoc"), type: "document", firstChildId: bid("fp"), lastChildId: bid("fp") }),
-        buildBlock({
-          id: bid("fp"),
-          type: "paragraph",
-          parentId: bid("fdoc"),
-          inlineContent: inlineContent([
-            text("before"),
-            embed(BLOCK_SPLIT_SUGGESTION_EMBED_TYPE, { suggestionId: bs1 }),
-            text("after"),
-          ]),
-        }),
-      ],
-      suggestions: [{ id: bs1, kind: "insertion", author: "bob", createdAt: 456 }],
-    });
-    return { fragState, bs1 };
-  }
-
   it("direct-mode lossless paste preserves a pending insertion suggestion under a FRESH id", () => {
     const dest = makeSimpleDest();
     const { fragState, s1 } = makeFragWithInsertionSuggestion();
-    const alloc = createTestAllocator("T7-ins");
+    const alloc = createTestAllocator("rec-ins");
 
     const r = insertFragment(dest, createSpan(createPosition(bid("p"), 0), createPosition(bid("p"), 0)), fragState, alloc);
 
@@ -1631,36 +1599,10 @@ describe("insertFragment — T7 suggestion-record transfer", () => {
     expect((taggedItem as { kind: "text"; attrs: Record<string, unknown> }).attrs[INSERTION_SUGGESTION_ATTR]).toBe(rec.id);
   });
 
-  it("remaps a break-suggestion embed's properties.suggestionId", () => {
-    const dest = makeSimpleDest();
-    const { fragState, bs1 } = makeFragWithBreakSuggestion();
-    const alloc = createTestAllocator("T7-break");
-
-    const r = insertFragment(dest, createSpan(createPosition(bid("p"), 0), createPosition(bid("p"), 0)), fragState, alloc);
-
-    const recs = getSuggestions(r.state);
-    expect(recs).toHaveLength(1);
-    const rec = recs[0];
-    if (rec === undefined) throw new Error("expected recs[0]");
-    expect(rec.id).not.toBe(bs1);
-    expect(rec.kind).toBe("insertion");
-    expect(rec.author).toBe("bob");
-    expect(rec.createdAt).toBe(456);
-
-    // find the break-suggestion embed in the pasted block and check its properties.suggestionId
-    const pBlock = getBlock(r.state, bid("p"));
-    const breakEmbed = (pBlock?.inlineContent?.items ?? []).find(
-      (it) => it.kind === "embed" && it.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
-    );
-    expect(breakEmbed).toBeDefined();
-    if (breakEmbed === undefined) throw new Error("expected breakEmbed");
-    expect((breakEmbed as { kind: "embed"; properties: Record<string, unknown> }).properties.suggestionId).toBe(rec.id);
-  });
-
   it("no collision when pasting the same fragment twice (two distinct fresh ids)", () => {
     const dest = makeSimpleDest();
     const { fragState } = makeFragWithInsertionSuggestion();
-    const alloc = createTestAllocator("T7-collision");
+    const alloc = createTestAllocator("rec-collision");
 
     const r1 = insertFragment(dest, createSpan(createPosition(bid("p"), 0), createPosition(bid("p"), 0)), fragState, alloc);
     const r2 = insertFragment(r1.state, createSpan(createPosition(bid("p"), 0), createPosition(bid("p"), 0)), fragState, alloc);
@@ -1677,7 +1619,7 @@ describe("insertFragment — T7 suggestion-record transfer", () => {
   it("a fragment with NO suggestions transfers none", () => {
     const dest = makeSimpleDest();
     // Build a plain fragment with no suggestion records
-    const plainFrag = buildStateFromBlocks({
+    const plainFrag = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: bid("fdoc"),
       blocks: [
         buildBlock({ id: bid("fdoc"), type: "document", firstChildId: bid("fp"), lastChildId: bid("fp") }),
@@ -1689,7 +1631,7 @@ describe("insertFragment — T7 suggestion-record transfer", () => {
         }),
       ],
     });
-    const alloc = createTestAllocator("T7-none");
+    const alloc = createTestAllocator("rec-none");
     const r = insertFragment(dest, createSpan(createPosition(bid("p"), 0), createPosition(bid("p"), 0)), plainFrag, alloc);
     const recs = getSuggestions(r.state);
     expect(recs).toHaveLength(0);
@@ -1697,7 +1639,7 @@ describe("insertFragment — T7 suggestion-record transfer", () => {
 
   it("preserves kind/author/createdAt on a deletion suggestion", () => {
     const sf1 = "sf1" as SuggestionId;
-    const fragState = buildStateFromBlocks({
+    const fragState = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: bid("fdoc"),
       blocks: [
         buildBlock({ id: bid("fdoc"), type: "document", firstChildId: bid("fp"), lastChildId: bid("fp") }),
@@ -1713,7 +1655,7 @@ describe("insertFragment — T7 suggestion-record transfer", () => {
       suggestions: [{ id: sf1, kind: "deletion", author: "carol", createdAt: 789 }],
     });
     const dest = makeSimpleDest();
-    const alloc = createTestAllocator("T7-del");
+    const alloc = createTestAllocator("rec-del");
     const r = insertFragment(dest, createSpan(createPosition(bid("p"), 0), createPosition(bid("p"), 0)), fragState, alloc);
     const recs = getSuggestions(r.state);
     expect(recs).toHaveLength(1);
@@ -1740,7 +1682,7 @@ describe("insertFragment — T7 suggestion-record transfer", () => {
     // formatting-tag rewrite branch). Fails if either regressed.
     const fmt1 = "fmt1" as SuggestionId;
     const fmt2 = "fmt2" as SuggestionId;
-    const fragState = buildStateFromBlocks({
+    const fragState = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: bid("fdoc"),
       blocks: [
         buildBlock({ id: bid("fdoc"), type: "document", firstChildId: bid("fp"), lastChildId: bid("fp") }),
@@ -1759,7 +1701,7 @@ describe("insertFragment — T7 suggestion-record transfer", () => {
       ],
     });
     const dest = makeSimpleDest();
-    const alloc = createTestAllocator("T7-fmt");
+    const alloc = createTestAllocator("rec-fmt");
     const r = insertFragment(dest, createSpan(createPosition(bid("p"), 0), createPosition(bid("p"), 0)), fragState, alloc);
 
     const recs = getSuggestions(r.state);
@@ -1802,7 +1744,7 @@ describe("insertFragment — C1 multi-block paste into embedContent tree", () =>
    * Fragment: 3 paragraphs "A", "B", "C" (forces middle items → split path with middle block)
    */
   function makeFootnoteDest() {
-    return buildStateFromBlocks({
+    return buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: bid("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "mp", lastChildId: "mp" }),
@@ -1826,7 +1768,7 @@ describe("insertFragment — C1 multi-block paste into embedContent tree", () =>
   }
 
   function makeThreeLeafFragment() {
-    return buildStateFromBlocks({
+    return buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: bid("fdoc"),
       blocks: [
         buildBlock({
@@ -1883,12 +1825,13 @@ describe("insertFragment — C1 multi-block paste into embedContent tree", () =>
     const endBlock = getEmbedContent(r.state, r.endPosition.blockId);
     expect(endBlock).not.toBeNull();
 
-    // Text "A" should be in fnp (the prefix block that became the caret block).
+    // fnp is the SUFFIX (the split's head takes the new id): it holds "C" +
+    // its own text; "A" is in the head, the block before the middle one.
     const fnpText = fnpBlock?.inlineContent?.items
       .filter((it) => it.kind === "text")
       .map((it) => (it as { kind: "text"; text: string }).text)
       .join("") ?? "";
-    expect(fnpText).toContain("A");
+    expect(fnpText).toContain("C");
 
     // C1a-extra: the middle block ("B") must also be in the embedContent tree,
     // with parentId chaining to the same footnote-body root as fnp.
@@ -1896,7 +1839,7 @@ describe("insertFragment — C1 multi-block paste into embedContent tree", () =>
     const fnpParentId = fnpBlock?.parentId;
     expect(fnpParentId).not.toBeNull();
     // Walk siblings of fnp (nextSiblingId chain) to find a block whose text contains "B".
-    let cur: BlockId | null = fnpBlock?.nextSiblingId ?? null;
+    let cur: BlockId | null = fnpBlock?.prevSiblingId ?? null;
     let middleBlock = null;
     while (cur !== null) {
       const b = getEmbedContent(r.state, cur);
@@ -1906,9 +1849,11 @@ describe("insertFragment — C1 multi-block paste into embedContent tree", () =>
         .map((it) => (it as { kind: "text"; text: string }).text)
         .join("") ?? "";
       if (t.includes("B")) { middleBlock = b; break; }
-      cur = b.nextSiblingId ?? null;
+      cur = b.prevSiblingId ?? null;
     }
     expect(middleBlock).not.toBeNull();
+    const head = middleBlock?.prevSiblingId == null ? null : getEmbedContent(r.state, middleBlock.prevSiblingId);
+    expect(head?.inlineContent?.items.map((it) => (it.kind === "text" ? it.text : "")).join("")).toContain("A");
     // Middle block lives in the embedContents tree (parentId matches fnp's parent = footnote body root).
     expect(middleBlock?.parentId).toBe(fnpParentId);
   });
@@ -1920,7 +1865,7 @@ describe("insertFragment — C1 multi-block paste into embedContent tree", () =>
     // Simpler: just use a 3-leaf fragment (same as C1a) but verify container path too.
     // Use 2 leaves only — the multi-item split path still runs (no middle, but suffix/prefix create path).
     const dest = makeFootnoteDest();
-    const fragSrc = buildStateFromBlocks({
+    const fragSrc = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: bid("fdoc2"),
       blocks: [
         buildBlock({
@@ -1969,7 +1914,7 @@ describe("insertFragment — C1 multi-block paste into embedContent tree", () =>
 
 describe("insertFragment — M1 multi-block paste adopts first block type on empty target", () => {
   it("M1: [heading, paragraph] pasted into empty paragraph → first block becomes heading", () => {
-    const dest = buildStateFromBlocks({
+    const dest = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: bid("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -1982,7 +1927,7 @@ describe("insertFragment — M1 multi-block paste adopts first block type on emp
       ],
     });
 
-    const fragSrc = buildStateFromBlocks({
+    const fragSrc = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: bid("fdoc"),
       blocks: [
         buildBlock({
@@ -2017,9 +1962,11 @@ describe("insertFragment — M1 multi-block paste adopts first block type on emp
     const alloc = createTestAllocator("M1");
     const r = insertFragment(dest, collapsed(createPosition(bid("p"), 0)), frag, alloc);
 
-    // The caret block "p" (the prefix) should have been adopted to type "heading".
-    const pBlock = getBlock(r.state, bid("p"));
-    expect(pBlock?.type).toBe("heading");
+    // The prefix — the split's head (new id), the first block — adopts "heading"; the
+    // caret block "p" is the suffix holding "Body".
+    const first = topLevelBlockIds(r.state)[0];
+    expect(first === undefined ? null : getBlock(r.state, first)?.type).toBe("heading");
+    expect(blockText(r.state, "p")).toBe("Body");
   });
 
   it("M1-skip-split: [heading 'H', table] pasted into empty paragraph at offset 0 → block becomes heading, table follows as sibling", () => {
@@ -2027,7 +1974,7 @@ describe("insertFragment — M1 multi-block paste adopts first block type on emp
     // lastLeaf===null because last fragment item is a container). The caret block is empty so
     // shouldAdoptType===true, but pre-fix the skip-split path had no adoption block — it would
     // leave the block as "paragraph". This test FAILS before the fix and PASSES after.
-    const dest = buildStateFromBlocks({
+    const dest = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: bid("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -2044,7 +1991,7 @@ describe("insertFragment — M1 multi-block paste adopts first block type on emp
     // Build directly as a State (not via extractFragment) so the table is a true
     // top-level container item in the fragment doc — extractFragment would
     // recurse into the table and flatten it to a leaf if the span ends inside.
-    const frag = buildStateFromBlocks({
+    const frag = buildStateFromBlocks({ resolver: TEST_RESOLVER,
       rootId: bid("fdoc"),
       blocks: [
         buildBlock({
@@ -2095,18 +2042,70 @@ describe("insertFragment — M1 multi-block paste adopts first block type on emp
     const alloc = createTestAllocator("M1-skip-split");
     const r = insertFragment(dest, collapsed(createPosition(bid("p"), 0)), frag, alloc);
 
-    // The caret block "p" must now be a heading (adopted from firstLeaf = heading "H").
-    const pBlock = getBlock(r.state, bid("p"));
-    expect(pBlock?.type).toBe("heading");
-    // "H" content was merged into the caret block.
-    const pText = pBlock?.inlineContent?.items
-      .filter((it) => it.kind === "text")
-      .map((it) => (it as { kind: "text"; text: string }).text)
-      .join("") ?? "";
-    expect(pText).toBe("H");
-    // The table must follow as a sibling of "p".
-    expect(pBlock?.nextSiblingId).not.toBeNull();
-    const tableBlock = getBlock(r.state, pBlock!.nextSiblingId!);
-    expect(tableBlock?.type).toBe("table");
+    // The fragment holds the paragraph invariant I puts after its table, so the paste
+    // splits: head (new id, adopted as the heading "H"), the table, then the caret
+    // block "p" (empty) — Word keeps a paragraph after every table.
+    expect(flowShape(r.state, "doc")).toMatch(/^\S+:"H" \[\S+\] p:""$/);
+    const first = topLevelBlockIds(r.state)[0];
+    expect(first === undefined ? null : getBlock(r.state, first)?.type).toBe("heading");
+  });
+});
+
+describe("fragments — the ¶ is a unit: a closed paragraph pastes as a split, an open trailing one merges", () => {
+  const src = () => buildFlowDoc([{ p: "P", t: "abc" }, { p: "N", t: "xy" }]);
+  const dst = () => buildFlowDoc([{ p: "D", t: "hello" }]);
+  const span = (a: string, ao: number, b: string, bo: number) => createSpan(createPosition(a as BlockId, ao), createPosition(b as BlockId, bo));
+  const at = (b: string, o: number) => span(b, o, b, o);
+
+  it("a span (P, a)–(N, 0) holds ¶P: P's tail is a CLOSED paragraph, followed by N's empty open start", () => {
+    const frag = extractFragment(src(), span("P", 1, "N", 0));
+    expect(topLevelBlockIds(frag).map((id) => getBlock(frag, id)?.inlineContent?.items.map((i) => (i.kind === "text" ? i.text : "")).join(""))).toEqual(["bc", ""]);
+  });
+
+  it("pasting a closed paragraph inserts a ¶ at the caret (a split, Word / GDocs)", () => {
+    const frag = extractFragment(src(), span("P", 1, "N", 0));
+    const r = insertFragment(dst(), at("D", 2), frag, createTestAllocator("f"));
+    expect(flowShape(r.state, "doc")).toMatch(/^\S+:"hebc" D:"llo"$/);
+    expect(r.endPosition).toEqual(createPosition("D" as BlockId, 0));
+  });
+
+  it("pasting exactly a ¶ — (P, len)–(N, 0) — splits the caret's paragraph", () => {
+    const frag = extractFragment(src(), span("P", 3, "N", 0));
+    const r = insertFragment(dst(), at("D", 2), frag, createTestAllocator("f"));
+    expect(flowShape(r.state, "doc")).toMatch(/^\S+:"he" D:"llo"$/);
+  });
+
+  it("a pasted CLOSED paragraph brings its ¶ formatting (Word): the head's ¶ takes the pasted first paragraph's markAttrs; an open paste keeps the caret's ¶", () => {
+    const bsrc = () => buildFlowDoc([{ p: "P", t: "abc", markAttrs: { bold: true } }, { p: "N", t: "xy" }]);
+    const idst = () => {
+      const d = buildFlowDoc([{ p: "D", t: "hello", markAttrs: { italic: true } }]);
+      withTestAttrs(d[STATE_INTERNAL].doc);
+      return d;
+    };
+    // Split arm (mid-paragraph caret).
+    const r = insertFragment(idst(), at("D", 2), extractFragment(bsrc(), span("P", 1, "N", 1)), createTestAllocator("f"));
+    const head = topLevelBlockIds(r.state)[0];
+    expect(head === undefined ? undefined : getBlock(r.state, head)?.markAttrs).toEqual({ bold: true });
+    expect(getBlock(r.state, "D" as BlockId)?.markAttrs).toEqual({ italic: true });
+    // Caret at the end, [closed ¶, table, open empty ¶]: the head ends the pasted ¶;
+    // the trailing open paragraph keeps the caret's ¶.
+    const withTable = buildFlowDoc([{ p: "P", t: "abc", markAttrs: { bold: true } }, { table: "T", cells: ["c"] }, { p: "Z", t: "" }]);
+    const r3 = insertFragment(idst(), at("D", 5), extractFragment(withTable, span("P", 0, "Z", 0)), createTestAllocator("h"));
+    const head3 = topLevelBlockIds(r3.state)[0];
+    expect(head3 === undefined ? undefined : getBlock(r3.state, head3)?.markAttrs).toEqual({ bold: true });
+    expect(getBlock(r3.state, "D" as BlockId)?.markAttrs).toEqual({ italic: true });
+    // Open single-line paste keeps the caret paragraph's ¶.
+    const r2 = insertFragment(idst(), at("D", 2), extractFragment(bsrc(), span("P", 1, "P", 3)), createTestAllocator("g"));
+    expect(getBlock(r2.state, "D" as BlockId)?.markAttrs).toEqual({ italic: true });
+  });
+
+  it("pasting an OPEN trailing paragraph merges into the caret's paragraph", () => {
+    const frag = extractFragment(src(), span("P", 1, "P", 3));
+    const r = insertFragment(dst(), at("D", 2), frag, createTestAllocator("f"));
+    expect(flowShape(r.state, "doc")).toBe('D:"hebcllo"');
+    const two = extractFragment(src(), span("P", 1, "N", 1));
+    const r2 = insertFragment(dst(), at("D", 2), two, createTestAllocator("g"));
+    expect(flowShape(r2.state, "doc")).toMatch(/^\S+:"hebc" D:"xllo"$/);
+    expect(r2.endPosition).toEqual(createPosition("D" as BlockId, 1));
   });
 });

@@ -17,7 +17,7 @@ type ListType = "ordered" | "unordered";
 
 /**
  * Toggle list formatting over the selection (Google Docs numbered/bulleted-list
- * control) in the FLAT list model (D1/D6).
+ * control) in the FLAT list model.
  *
  * A "list" is a maximal document-order run of `list-item` leaves sharing a
  * `listId`; nesting is the per-item `listLevel`. There is no `list` container.
@@ -84,7 +84,6 @@ export function handleToggleList(
           state,
           t.id,
           { listId: undefined, listLevel: undefined, listCounterOverride: undefined },
-          config.attrRegistry,
         ),
       );
     }
@@ -117,7 +116,7 @@ export function handleToggleList(
       // untouched: a fresh paragraph has neither (renders at level 0), and a
       // converted list-item keeps its existing nesting (Google Docs preserves
       // the indent level across a numbered↔bulleted conversion).
-      apply(mergeBlockAttrs(state, t.id, { listId }, config.attrRegistry));
+      apply(mergeBlockAttrs(state, t.id, { listId }));
     }
 
     if (joinId === undefined) {

@@ -38,6 +38,10 @@ describe("mapKeyEvent", () => {
     });
   });
 
+  it("maps Shift+Enter to INSERT_LINE_BREAK", () => {
+    expect(mapKeyEvent(key({ key: "Enter", shiftKey: true }))).toEqual({ type: "INSERT_LINE_BREAK" });
+  });
+
   it("maps ArrowLeft to MOVE_CURSOR backward", () => {
     expect(mapKeyEvent(key({ key: "ArrowLeft" }))).toEqual({
       type: "MOVE_CURSOR",

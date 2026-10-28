@@ -40,6 +40,12 @@ import {
   subscribeRemoteChanges,
   getYDoc,
   inspectDocument,
+  resolveSuggestionRange,
+  asBlockId,
+  isCollapsed,
+  caretBeforeMarkers,
+  inlineContentLength,
+  type SuggestionId,
   type Anchor,
   type AnchorOptions,
   type Assoc,
@@ -53,15 +59,18 @@ import {
   type AttrRegistry,
   type PageConfig,
   type State,
-  type BlockId,
   type IncompatibleDocumentReport,
   UNKNOWN_MAPPING,
 } from "@taleweaver/core";
+import { between, createSelectedParagraphs } from "./selected-paragraphs";
+import { createCellClip } from "../dom-view/cell-clip";
 import { browserHtmlParser } from "./html-parser";
 import { createDigitalReconciler, type DigitalReconciler } from "./digital-reconciler";
 import { mapBeforeInput, replacementInsertText } from "./map-before-input";
 import { mapDigitalKey } from "./map-digital-key";
 import { hopWidgets } from "./widget-caret";
+import { END_ANCHOR_ATTR } from "../dom-view/render-to-dom";
+import type { DomPoint } from "./digital-selection-bridge";
 import { createDecorationPointer, type DecorationPointerEvent } from "./decoration-pointer";
 
 export type { DecorationPointerEvent } from "./decoration-pointer";
@@ -107,24 +116,24 @@ export interface DigitalControllerOptions {
    */
   readonly remoteChanges?: "observe" | "ignore";
   /**
-   * A peer update carried LEGACY inline storage (an old client): the controller HALTS —
-   * `contenteditable` off, every action and further remote change ignored, the last good
-   * render kept, every member a defined no-op that never touches the Y.Doc. Called once
-   * per halt — and again, while still halted, when legacy storage returns after
-   * `onDocumentCompatible` was reported.
-   * Do not keep reading the halted State with core read functions (a snapshot-cache miss
-   * throws `LegacyDocumentError`). While halted, setters and clears of decorations /
-   * highlights / styles are no-ops (`decorations` keeps the last good set). Exit: the
-   * document is upgraded (`upgradeDocument`, single authority — here, or by an upgraded
-   * peer, see `onDocumentCompatible`) and the host calls
-   * {@link DigitalController.replaceDocument} with a State over it (same Y.Doc or another).
+   * The document is incompatible (`report.reason`: a legacy client wrote into the frozen
+   * legacy root — its blocks and current legacy text are surfaced, not merged; a peer
+   * raised the schema past this engine's; a second Yjs instance; or a replacement's
+   * document is not upgraded yet): the controller HALTS — `contenteditable` off, every
+   * action and further remote change ignored, the last good render kept, every member a
+   * defined no-op that never touches the Y.Doc. Called once per halt — and again, while
+   * still halted, when a legacy write lands after `onDocumentCompatible` was reported.
+   * Do not keep reading the halted State with core read functions. While halted, setters
+   * and clears of decorations / highlights / styles are no-ops (`decorations` keeps the
+   * last good set). Exit: the host calls {@link DigitalController.replaceDocument} with a
+   * State holding no legacy storage (same Y.Doc or another).
    */
   readonly onIncompatibleDocument?: (report: IncompatibleDocumentReport) => void;
   /**
-   * While HALTED, the document became free of legacy storage (an upgraded peer, or this
-   * host itself, ran `upgradeDocument` on it — any transaction is re-checked): the host can now resume with
-   * {@link DigitalController.replaceDocument} and a fresh State over the same Y.Doc
-   * (`createState({ rootId, doc })`). Called once per halt.
+   * While HALTED on a NOT-YET-UPGRADED document ("legacy-schema"), it was upgraded (by
+   * this host or an upgraded peer — any transaction is re-checked): the host can now
+   * resume with {@link DigitalController.replaceDocument} and a fresh State over the same
+   * Y.Doc (`createState({ rootId, doc })`). Called once per halt; never for a sticky halt.
    */
   readonly onDocumentCompatible?: () => void;
 }
@@ -168,6 +177,13 @@ export interface DigitalController {
   /** Highlight pending suggestion ranges; re-resolved from live state on every edit. */
   setSuggestionHighlights(highlights: readonly SuggestionHighlight[]): void;
   clearSuggestionHighlights(): void;
+  /**
+   * The on-screen rects of a pending suggestion (the counterpart of print
+   * `getSuggestionRangeRects`): its text's client rects + every boundary ¶ glyph naming
+   * it (a paragraph / section-break suggestion covers no character). `[]` when the
+   * suggestion has no live range.
+   */
+  suggestionRects(suggestionId: SuggestionId): DOMRect[];
   /**
    * Find / replace (same contract as the print controller): `findStart` highlights every
    * match, activates the first at/after the caret and scrolls it into view; matches are
@@ -250,7 +266,17 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     options.componentRegistry,
     options.attrRegistry,
     doc,
+    (id, el) => {
+      selected.mounted(id, el);
+      cellClip.watch(el);
+    },
   );
+  const isMounted = (el: HTMLElement): boolean => {
+    const id = el.getAttribute("data-block-id");
+    return id !== null && reconciler.blockElement(asBlockId(id)) === el;
+  };
+  const cellClip = createCellClip(doc, isMounted);
+  const selected = createSelectedParagraphs((id) => reconciler.blockElement(id), (el) => cellClip.watch(el));
 
   let layers = createDecorationLayers();
   if (options.decorations !== undefined) layers.setHost(editorState.state, options.decorations);
@@ -269,12 +295,12 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
   let toldCompatible = false;
 
   /** Halt (once per halt — again while still halted only if the host was told "compatible" since). */
-  function halt(blockIds: readonly BlockId[]): void {
+  function halt(report: IncompatibleDocumentReport): void {
     if (destroyed) return;
     if (halted) {
       if (!toldCompatible) return;
       toldCompatible = false;
-      options.onIncompatibleDocument?.({ legacyBlocks: blockIds });
+      options.onIncompatibleDocument?.(report);
       return;
     }
     halted = true;
@@ -285,7 +311,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
       isComposing = false;
       reconciler.restore();
     }
-    options.onIncompatibleDocument?.({ legacyBlocks: blockIds });
+    options.onIncompatibleDocument?.(report);
   }
 
   /** Run a decoration-layer setter now (and redraw); a no-op while halted. */
@@ -313,6 +339,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     }
     if (prev.state !== editorState.state) followRemoteDoc();
     reconciler.reconcile(prev, editorState, isComposing, layers.merged);
+    selected.sync(editorState);
     pointer?.sync();
     if (editorState !== prev) options.onChange?.(editorState);
   }
@@ -320,6 +347,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
   /** Re-draw after a decoration-only change (no state transition). */
   function redraw(): void {
     reconciler.reconcile(editorState, editorState, isComposing, layers.merged);
+    selected.sync(editorState);
     pointer?.sync();
   }
 
@@ -374,13 +402,14 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
       }
       return;
     }
-    if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    if (e.key.startsWith("Arrow") && !e.metaKey && !e.ctrlKey && !e.altKey) {
       const sel = win.getSelection();
-      // Logical direction: in an RTL block ArrowRight moves backward.
       const focusEl = sel?.focusNode instanceof Element ? sel.focusNode : (sel?.focusNode?.parentElement ?? null);
-      const rtl = focusEl !== null && win.getComputedStyle(focusEl).direction === "rtl";
-      const forward = (e.key === "ArrowRight") !== rtl;
-      if (sel !== null) hopWidgets(sel, forward ? "forward" : "backward", e.shiftKey);
+      const forward = sel === null || focusEl === null ? null : inlineArrowForward(e.key, win.getComputedStyle(focusEl));
+      if (sel !== null && forward !== null) {
+        if (e.shiftKey || isCollapsed(editorState.selection)) hopMarkers(sel, forward, e.shiftKey);
+        hopWidgets(sel, forward ? "forward" : "backward", e.shiftKey);
+      }
     }
     // Tab routing is context-sensitive: tell the mapper whether the caret's focus block is a
     // list-item so Tab nests the list (LIST_INDENT) rather than inserting a tab.
@@ -393,12 +422,46 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     e.preventDefault();
     dispatch(action);
   }
+  /**
+   * Structural markers and generated END anchors carry no caret stop in the model, but the
+   * browser gives each one: the DOM caret can sit before a marker the model stands after
+   * (re-reading it changes nothing, so it is not re-placed), and a caret past an END anchor
+   * is pulled back before it. Before the browser's default arrow move, put the DOM caret
+   * past them in the direction of travel, so the move advances one real character (or
+   * leaves the ¶).
+   */
+  function hopMarkers(sel: Selection, forward: boolean, extend: boolean): void {
+    const bridge = reconciler.getBridge();
+    const focus = editorState.selection.focus;
+    const el = reconciler.blockElement(focus.blockId);
+    const content = getBlock(editorState.state, focus.blockId)?.inlineContent ?? null;
+    if (bridge === null || el === null || content === null) return;
+    const before = caretBeforeMarkers(editorState.state, focus);
+    let point: DomPoint | null = null;
+    if (!forward) {
+      if (before.offset < focus.offset) point = bridge.pointAt(before);
+    } else {
+      const anchors = el.querySelectorAll(`:scope > [${END_ANCHOR_ATTR}]`);
+      const last = anchors.item(anchors.length - 1);
+      if (last !== null && focus.offset === inlineContentLength(content)) {
+        point = { node: el, offset: Array.prototype.indexOf.call(el.childNodes, last) + 1 };
+      } else if (before.offset < focus.offset) {
+        point = bridge.pointAt(focus);
+      }
+    }
+    if (point === null) return;
+    if (extend) sel.extend(point.node, point.offset);
+    else sel.collapse(point.node, point.offset);
+  }
   function onSelectionChange(): void {
     if (halted || isComposing) return;
     const bridge = reconciler.getBridge();
     if (bridge === null) return;
     const span = bridge.readDomSelection();
-    if (span === null || selectionsEqual(span, editorState.selection)) return;
+    if (span === null) return;
+    // A caret in / after a generated ¶: keep it before the mark.
+    if (isCollapsed(span)) bridge.normalizeCaret(span.focus);
+    if (selectionsEqual(span, editorState.selection)) return;
     dispatch({ type: "SET_SELECTION", selection: span });
   }
   function onCompositionStart(): void {
@@ -410,7 +473,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
       reconciler.restore(); // drop what the IME committed into the DOM meanwhile
       return;
     }
-    // D1: `CompositionEvent.data` can be `null` at runtime (e.g. a cancelled composition).
+    // `CompositionEvent.data` can be `null` at runtime (e.g. a cancelled composition).
     // `e.data !== ""` is `true` for `null`, so guard against null too — dispatching INSERT_TEXT
     // with a null `text` crashes the reducer (Y.Text.insert rejects null).
     if (e.data !== null && e.data !== "") dispatch({ type: "INSERT_TEXT", text: e.data, userInput: true });
@@ -423,7 +486,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     e.preventDefault();
     if (halted) return; // empty clipboard: copying reads the (incompatible) document
     // copy:"drop" marks are stripped from what leaves the editor.
-    const frag = extractFragment(editorState.state, editorState.selection, options.attrRegistry);
+    const frag = extractFragment(editorState.state, editorState.selection);
     e.clipboardData?.setData(
       "text/plain",
       extractText(editorState.state, editorState.selection, builtinEmbedSerializer, "suggesting"),
@@ -484,6 +547,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
 
   container.contentEditable = "true";
   reconciler.mount(container, editorState, layers.merged);
+  selected.sync(editorState);
   const pointer =
     options.onDecorationPointer !== undefined
       ? createDecorationPointer(container, () => layers.merged, options.onDecorationPointer, (id) => reconciler.blockElement(id))
@@ -528,7 +592,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     const legacy = inspectDocument(getYDoc(state)).legacyBlocks;
     if (legacy.length > 0) {
       if (!halted || getYDoc(state) !== remoteDoc || toldCompatible) {
-        halt(legacy);
+        halt({ reason: "legacy-schema", legacyBlocks: legacy, legacyText: {} });
         followRemoteDoc(true, state, true);
       }
       return;
@@ -549,6 +613,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     find.close();
     followRemoteDoc(true); // afresh, even on the same Y.Doc
     reconciler.reconcile(prev, editorState, isComposing, layers.merged);
+    selected.sync(editorState);
     pointer?.sync();
     options.onChange?.(editorState);
   }
@@ -566,6 +631,7 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     container.removeEventListener("cut", onCut);
     container.removeEventListener("paste", onPaste);
     pointer?.destroy();
+    cellClip.disconnect();
     reconciler.destroy();
     container.contentEditable = "false";
   }
@@ -608,6 +674,41 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     },
     clearSuggestionHighlights() {
       layerOp((s) => layers.setSuggestions(s, null));
+    },
+    suggestionRects(suggestionId) {
+      if (halted) return [];
+      const range = resolveSuggestionRange(editorState.state, suggestionId);
+      const bridge = reconciler.getBridge();
+      if (range === null || bridge === null) return [];
+      // The tracked ¶ glyphs naming the suggestion (a ¶'s range covers no character), in
+      // the range's blocks: O(its blocks).
+      const generated: DOMRect[] = [];
+      const blocks = [...(between(editorState.state, range.start.blockId, range.end.blockId, { steps: Infinity }) ?? []), range.end.blockId];
+      for (const id of blocks) {
+        const glyph = reconciler.blockElement(id)?.querySelector(":scope > .tw-break-mark")?.firstElementChild ?? null;
+        if (glyph === null || !(glyph.parentElement?.getAttribute("data-tw-suggestion-id") ?? "").split(" ").includes(suggestionId)) continue;
+        addRect(generated, glyph.getBoundingClientRect());
+      }
+      const within = (r: DOMRect, g: DOMRect): boolean =>
+        r.left >= g.left && r.top >= g.top && r.right <= g.right && r.bottom <= g.bottom;
+      const out: DOMRect[] = [];
+      const a = bridge.pointAt(range.start);
+      const b = bridge.pointAt(range.end);
+      if (a !== null && b !== null) {
+        const r = container.ownerDocument.createRange();
+        r.setStart(a.node, a.offset);
+        r.setEnd(b.node, b.offset);
+        // jsdom has no layout (no Range rects); browsers always do. Zero-width rects (a
+        // caret-like edge, a generated anchor, the empty slice at a block start) and rects
+        // inside a ¶ glyph / section-break label (added once below) are not highlight area.
+        if (typeof r.getClientRects === "function") {
+          for (const rect of Array.from(r.getClientRects())) {
+            if (rect.width > 0 && rect.height > 0 && !generated.some((g) => within(rect, g))) addRect(out, rect);
+          }
+        }
+      }
+      for (const g of generated) addRect(out, g);
+      return out;
     },
     findStart(query, findOptions) {
       if (halted) return EMPTY_FIND;
@@ -685,4 +786,24 @@ export function createDigitalController(options: DigitalControllerOptions): Digi
     focus,
     destroy,
   };
+}
+
+/** Push `r` unless an identical rect is already in `rects`. */
+function addRect(rects: DOMRect[], r: DOMRect): void {
+  if (!rects.some((x) => x.left === r.left && x.top === r.top && x.width === r.width && x.height === r.height)) rects.push(r);
+}
+
+/**
+ * Whether arrow `key` moves FORWARD along the inline axis of text styled `style`, or null
+ * for a block-axis key (the browser's mapping: horizontal → Left / Right, vertical →
+ * Up / Down; ArrowRight / ArrowDown run with the inline direction; `direction: rtl`
+ * reverses it).
+ */
+function inlineArrowForward(key: string, style: CSSStyleDeclaration): boolean | null {
+  const mode = style.getPropertyValue("writing-mode");
+  const vertical = mode.startsWith("vertical");
+  const ahead = vertical ? "ArrowDown" : "ArrowRight";
+  const back = vertical ? "ArrowUp" : "ArrowLeft";
+  if (key !== ahead && key !== back) return null;
+  return (key === ahead) !== (style.direction === "rtl");
 }

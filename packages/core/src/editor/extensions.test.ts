@@ -1,3 +1,4 @@
+import { finalSectionOf } from "../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import {
   createInitialEditorState,
@@ -251,7 +252,7 @@ describe("TRANSACTION rollback", () => {
     expect(textOf(s)).toBe("abc");
     s = run(s, config, { type: "INSERT_TEXT", text: "!" });
     expect(textOf(s)).toBe("abc!");
-    const root = getBlock(s.state, s.state.rootId);
+    const root = getBlock(s.state, finalSectionOf(s.state)); // the root holds sections
     expect(getBlock(s.state, root?.firstChildId ?? ("" as BlockId))?.nextSiblingId ?? null).toBeNull();
     s = run(s, config, { type: "UNDO" });
     expect(textOf(s)).toBe("abc");

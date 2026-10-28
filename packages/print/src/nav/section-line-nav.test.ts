@@ -72,7 +72,10 @@ function childIds(ctx: NavCtx, parent: BlockId): BlockId[] {
 }
 
 function nthBlockId(ctx: NavCtx, n: number): BlockId {
-  const id = rootChildIds(ctx)[n];
+  // the root holds sections only — index the final section's paragraphs.
+  const sections = rootChildIds(ctx);
+  const last = sections[sections.length - 1];
+  const id = last === undefined ? undefined : childIds(ctx, last)[n];
   if (id === undefined) throw new Error(`no block ${n}`);
   return id;
 }

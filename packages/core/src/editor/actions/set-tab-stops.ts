@@ -24,8 +24,8 @@ import { rebuildTrees } from "./helpers";
  *  - the target block is not a MAIN-tree block — `getBlock` is used intentionally
  *    (main-tree only): a tab-stop edit (from a future ruler UI) targets a main-body
  *    paragraph, so a `blockId` referring to an embed/template-body block (a footnote,
- *    header, or footer body) is silently refused. (Editing tab stops on a paragraph
- *    inside an embed/template body is a named follow-up alongside the ruler UI.)
+ *    header, or footer body) is silently refused — tab stops inside an
+ *    embed/template body cannot be set through this action.
  *  - the merge produced no change (identical stops already present) — the
  *    identity guard, mirroring `handleSetTextAlign`.
  *
@@ -39,7 +39,7 @@ export function handleSetTabStops(
 ): EditorState {
   if (getBlock(editor.state, blockId) === null) return editor;
 
-  const result = mergeBlockAttrs(editor.state, blockId, { tabStops }, config.attrRegistry);
+  const result = mergeBlockAttrs(editor.state, blockId, { tabStops });
   // No-op merge (identical stops already present): same state ref → return the
   // input editor unchanged so the "no change → same reference" contract holds.
   if (result.state === editor.state) return editor;

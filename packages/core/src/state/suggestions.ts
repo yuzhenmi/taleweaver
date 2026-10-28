@@ -6,22 +6,21 @@ import type { State } from "./state";
 import type { Position } from "./block-position";
 import { createPosition } from "./block-position";
 import { iterateAllBlocksInDocumentOrder } from "./document-order";
-import { buildYAttrs } from "./y-block";
 import { yMapAsObject } from "./y-utils";
 import { STATE_INTERNAL } from "./state-internal";
 import { getSuggestionsMap, requireInTransaction } from "./yjs-doc";
+import { boundaryRangeParts } from "./break-suggestions";
 
 declare const crypto: { randomUUID(): string };
 
 /**
- * Branded identifier for a tracked-change suggestion. Minted host-side (slice 3)
+ * Branded identifier for a tracked-change suggestion. Minted host-side
  * and stamped into the inline `attrs` of every `TextItem` the suggestion covers
  * (via one of {@link INSERTION_SUGGESTION_ATTR} / {@link DELETION_SUGGESTION_ATTR}
  * / {@link FORMATTING_SUGGESTION_ATTR}) AND used as the key of its
  * {@link SuggestionRecord} in the top-level `suggestions` Y.Map. The structural
- * paragraph-break case (deleting/inserting a block boundary) stamps the id into
- * the `properties` of a {@link BLOCK_JOIN_SUGGESTION_EMBED_TYPE} /
- * {@link BLOCK_SPLIT_SUGGESTION_EMBED_TYPE} embed instead.
+ * paragraph-break / section-break case (inserting or deleting a boundary) stores
+ * the id as a TAG on the mark's registry entry instead (see `break-tags.ts`).
  */
 export type SuggestionId = string & { readonly __brand: "SuggestionId" };
 
@@ -72,8 +71,8 @@ export function isValidSuggestionOrder(value: unknown): value is number {
  * (minted host-side; REUSED — not consumed — when a create op coalesces into an
  * adjacent same-author suggestion); `author` / `createdAt` are deterministic
  * host-injected values. Shared by every single-id create op
- * (markFormatting / markDeletion / mintInsertion / splitWithSuggestion /
- * markBlockJoinSuggestion). The two-id replace input is {@link ReplaceSuggestionInput}.
+ * (markFormatting / markDeletion / mintInsertion / mintLineBreak / splitWithSuggestion /
+ * markParagraphMarkDeletion). The two-id replace input is {@link ReplaceSuggestionInput}.
  */
 export interface SuggestionMintInput {
   readonly id: SuggestionId;
@@ -104,8 +103,8 @@ export type SuggestionKind = "insertion" | "deletion" | "formatting";
  * marker-scan model). `author`/`createdAt` are host-injected
  * (deterministic/testable). `proposedAttrs` is present ONLY for the
  * `formatting` kind: the attrs the suggestion proposes to apply (e.g.
- * `{ bold: true }`), stored CRDT-mergeably as a nested `Y.Map` (built via
- * `buildYAttrs`, read back via the public `yMapAsObject`).
+ * `{ bold: true }`), stored CRDT-mergeably as a nested `Y.Map` keeping every
+ * key (read back via the public `yMapAsObject`).
  */
 export interface SuggestionRecord {
   readonly id: SuggestionId;
@@ -279,28 +278,7 @@ export function resolveFormattingSuggestionTags(
 }
 
 /**
- * The `embedType` discriminant of the embed that records a suggested JOIN of two
- * blocks (a suggested deletion of a paragraph break with no adjacent text to
- * carry a {@link DELETION_SUGGESTION_ATTR}). Like every other embed it occupies
- * one `Position` offset and emits exactly one IFC token (the one-token / one-offset
- * #407 invariant); it serializes to "" (see `state/extract-text.ts`). Its
- * `properties` carry the owning {@link SuggestionId}. It RENDERS as a visible
- * struck pilcrow (¶) — a deletion-flavored inline-block atom tinted by the
- * suggestion author's color (see `render/render-core.ts`).
- */
-export const BLOCK_JOIN_SUGGESTION_EMBED_TYPE = "block-join-suggestion";
-
-/**
- * The `embedType` discriminant of the embed that records a suggested SPLIT (a
- * suggested insertion of a paragraph break). Same one-IFC-token / one-offset /
- * serialize-to-"" contract as {@link BLOCK_JOIN_SUGGESTION_EMBED_TYPE}, but
- * RENDERS as a visible UNDERLINED pilcrow (¶) — an insertion-flavored inline-block
- * atom tinted by the suggestion author's color.
- */
-export const BLOCK_SPLIT_SUGGESTION_EMBED_TYPE = "block-split-suggestion";
-
-/**
- * The preview-view selector for the read/render projection (slice 5c) — a PURE
+ * The preview-view selector for the read/render projection — a PURE
  * derivation over inline content (never a state mutation) that selects what
  * `extractText` / `getWordCount` / serialize / render see over a document with
  * pending tracked changes:
@@ -317,15 +295,16 @@ export type SuggestionView = "suggesting" | "final" | "original";
 
 /**
  * Per-item VISIBILITY under a {@link SuggestionView} — the foundation predicate of
- * the slice-5c projection. Returns whether `item` survives into the projected
+ * the preview-view projection. Returns whether `item` survives into the projected
  * document for `view`:
  *   - `"suggesting"` → everything is visible (the literal document).
- *   - `"final"` (accept all) → a text run carrying a {@link DELETION_SUGGESTION_ATTR}
- *     is absent (its deletion is accepted), and a {@link BLOCK_JOIN_SUGGESTION_EMBED_TYPE}
- *     embed is absent (the suggested break-deletion happens). Insertions/splits stay.
- *   - `"original"` (reject all) → a text run carrying an {@link INSERTION_SUGGESTION_ATTR}
- *     is absent (its insertion is rejected), and a {@link BLOCK_SPLIT_SUGGESTION_EMBED_TYPE}
- *     embed is absent (the suggested split is undone). Deletions/joins stay.
+ *   - `"final"` (accept all) → an item (a text run, or an embed revision such as a
+ *     tracked soft line break) carrying a {@link DELETION_SUGGESTION_ATTR}
+ *     is absent (its deletion is accepted). Insertions stay.
+ *   - `"original"` (reject all) → an item carrying an {@link INSERTION_SUGGESTION_ATTR}
+ *     is absent (its insertion is rejected). Deletions stay.
+ * Tracked ¶s are not items: they are keys on the ¶'s entry, projected by
+ * `boundaryMergesInView` (`break-suggestions.ts`).
  *
  * A run that is BOTH an insertion AND a deletion (text inserted then struck in
  * suggesting mode) is absent in BOTH non-literal views — accept removes it via the
@@ -339,17 +318,11 @@ export function itemVisibleInView(item: InlineItem, view: SuggestionView): boole
       // The literal document — every item is visible.
       return true;
     case "final":
-      // Accept all → the dimensions resolved AWAY are deletions (text runs) and
-      // joins (break embeds); everything else stays.
-      return item.kind === "text"
-        ? typeof item.attrs[DELETION_SUGGESTION_ATTR] !== "string"
-        : item.embedType !== BLOCK_JOIN_SUGGESTION_EMBED_TYPE;
+      // Accept all → deletion runs resolve away; everything else stays.
+      return typeof item.attrs[DELETION_SUGGESTION_ATTR] !== "string";
     case "original":
-      // Reject all → the symmetric mirror: insertions (text runs) and splits
-      // (break embeds) resolve away; everything else stays.
-      return item.kind === "text"
-        ? typeof item.attrs[INSERTION_SUGGESTION_ATTR] !== "string"
-        : item.embedType !== BLOCK_SPLIT_SUGGESTION_EMBED_TYPE;
+      // Reject all → the symmetric mirror: insertion runs resolve away.
+      return typeof item.attrs[INSERTION_SUGGESTION_ATTR] !== "string";
     default: {
       // Exhaustiveness guard (mirrors `assertNeverWritingMode` / the editor's
       // `action satisfies never`): adding a 4th `SuggestionView` member is a
@@ -359,37 +332,6 @@ export function itemVisibleInView(item: InlineItem, view: SuggestionView): boole
       throw new Error(`Unhandled SuggestionView: ${String(exhaustive)}`);
     }
   }
-}
-
-/**
- * The slice-5c-structural projection: returns whether a block whose inline content
- * is `items` MERGES with its NEXT sibling in `view` — i.e. its trailing
- * break-suggestion embed (a `block-join-suggestion` / `block-split-suggestion`,
- * always appended LAST by the create ops) is resolved AWAY in this view. A join
- * accepted in `"final"` and a split rejected in `"original"` both merge the two
- * blocks into one paragraph; the literal `"suggesting"` view never merges.
- *
- * The trailing embed's view-INVISIBILITY (per {@link itemVisibleInView}) IS the
- * merge decision — the same `breakMerge = (insertion && reject) || (deletion &&
- * accept)` predicate the `resolve` cascade uses, but read-only and derived from
- * the embed alone (no record read). Consumers suppress the inter-block separator
- * across a merging boundary: `extractText` / word count drop the "\n"; the render
- * projection (the remaining 5c-structural surface) concatenates the block boxes.
- * Always `false` when the block has no trailing break embed.
- */
-export function blockBoundaryMergesInView(
-  items: ReadonlyArray<InlineItem>,
-  view: SuggestionView,
-): boolean {
-  if (view === "suggesting") return false;
-  const last = items[items.length - 1];
-  return (
-    last !== undefined &&
-    last.kind === "embed" &&
-    (last.embedType === BLOCK_JOIN_SUGGESTION_EMBED_TYPE ||
-      last.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE) &&
-    !itemVisibleInView(last, view)
-  );
 }
 
 /**
@@ -417,7 +359,7 @@ function isPlainRecord(v: unknown): v is Readonly<Record<string, unknown>> {
  * Y.Map keyed by `record.id`. Must run inside a transaction (mirrors
  * `writeCommentRecordInTx`). Scalars (`kind`/`author`/`createdAt`) are plain
  * values; the optional `proposedAttrs` (formatting kind only) becomes a nested
- * `Y.Map` via `buildYAttrs` so concurrent proposal edits merge under collab.
+ * `Y.Map` (every key kept) so concurrent proposal edits merge under collab.
  */
 export function writeSuggestionRecordInTx(doc: Y.Doc, record: SuggestionRecord): void {
   requireInTransaction(doc, "writeSuggestionRecord");
@@ -427,7 +369,11 @@ export function writeSuggestionRecordInTx(doc: Y.Doc, record: SuggestionRecord):
   yRecord.set("createdAt", record.createdAt);
   if (isValidSuggestionOrder(record.order)) yRecord.set("order", record.order);
   if (record.proposedAttrs !== undefined) {
-    yRecord.set("proposedAttrs", buildYAttrs(record.proposedAttrs as ReadonlyAttrs));
+    // Every key is kept, `undefined` included: an undefined proposed value means
+    // "remove this attr" on accept (a block-attrs map drops undefined instead).
+    const yProposed = new Y.Map<unknown>();
+    for (const [k, v] of Object.entries(record.proposedAttrs)) yProposed.set(k, v);
+    yRecord.set("proposedAttrs", yProposed);
   }
   if (record.groupId !== undefined) yRecord.set("groupId", record.groupId);
   if (record.metadata !== undefined) yRecord.set("metadata", record.metadata);
@@ -437,7 +383,7 @@ export function writeSuggestionRecordInTx(doc: Y.Doc, record: SuggestionRecord):
 /**
  * Read a suggestion record back out of the `suggestions` map, or `null` if
  * absent. The optional `proposedAttrs` nested `Y.Map` is frozen to a plain
- * object via the PUBLIC `yMapAsObject` (which carries the #142 nested-Y-type
+ * object via the PUBLIC `yMapAsObject` (which carries the nested-Y-type
  * guard). The returned record is frozen.
  */
 export function readSuggestionRecord(doc: Y.Doc, id: SuggestionId): SuggestionRecord | null {
@@ -486,7 +432,7 @@ export function readSuggestionRecordFromState(
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Range index + read surface (slice 2)
+// Range index + read surface
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
@@ -499,11 +445,9 @@ export function readSuggestionRecordFromState(
  *
  * Unlike {@link CommentRange} there is NO `orphaned` field on the range itself:
  * a suggestion's items ARE its content (not a paired marker pair that can go
- * one-sided), so the LIVE condition is simply "≥1 item carries the id". Orphaning
- * is therefore derived purely at the read side ({@link getSuggestions}): a record
- * whose id tags no item has NO entry in the index → it is reported `orphaned:
- * true, range: null`. The index thus only ever holds well-formed (non-empty)
- * ranges.
+ * one-sided), so the LIVE condition is simply "≥1 item carries the id". A record
+ * whose id tags nothing has NO entry in the index and is not surfaced by
+ * {@link getSuggestions}. The index thus only ever holds well-formed ranges.
  */
 export interface SuggestionRange {
   readonly start: Position;
@@ -524,11 +468,11 @@ interface RangeAccumulator {
  *     suggestion attr keys present in its `attrs`, extend that id's range via
  *     {@link extend} (the first occurrence seeds `start`; each later one only
  *     advances `end` — see that function's JSDoc + the monotonicity note below).
- *   - an `embed` item advances the cursor by 1. If its `embedType` is one of the
- *     break-suggestion embeds ({@link BLOCK_JOIN_SUGGESTION_EMBED_TYPE} /
- *     {@link BLOCK_SPLIT_SUGGESTION_EMBED_TYPE}), read `properties.suggestionId`
- *     and extend that id's range by the embed's 1-offset slot; a visible field
- *     embed extends the range of every formatting suggestion tagged on it.
+ *   - an `embed` item advances the cursor by 1; a visible field embed extends the
+ *     range of every formatting suggestion tagged on it.
+ *   - a key on the block's own ¶ (`boundaryRangeParts`, a section-end item's too)
+ *     extends its id's range by the ¶: `[(P, len P), (N, 0)]`, collapsed at
+ *     `(P, len P)` when an object or the flow end follows.
  *
  * A single id may appear on multiple contiguous items (a whole inserted run) and
  * across multiple blocks. The scan visits items in strictly-monotone document
@@ -542,10 +486,9 @@ interface RangeAccumulator {
  * suggestion id is CONTEXT-LOCAL (every item it tags lives in one tree), so its
  * occurrences stay contiguous and monotone within that tree's segment of the walk.
  *
- * Returns only ids with ≥1 tagged item. A record with no items is
- * orphaned-by-absence and surfaced as orphaned at the read side, which holds the
- * record list. One O(N inline-items) walk, no layout — the mirror of
- * {@link buildCommentRangeIndex}.
+ * Returns only ids with ≥1 tagged item. A record with no items is not surfaced by
+ * the read side ({@link getSuggestions}). One O(N inline-items) walk, no layout —
+ * the mirror of {@link buildCommentRangeIndex}.
  */
 export function buildSuggestionRangeIndex(
   state: State,
@@ -573,23 +516,19 @@ export function buildSuggestionRangeIndex(
         for (const id of formattingSuggestionIds(item.attrs)) extend(acc, id, itemStart, itemEnd);
         continue;
       }
-      // Embed: contributes one offset unit. A break-suggestion embed carries its
-      // owning id in `properties.suggestionId`.
+      // Embed: contributes one offset unit; a visible field embed inside a
+      // formatting suggestion carries its tag, and an inline insertion revision (a
+      // tracked soft line break) its insertion id.
       const itemStart = createPosition(block.id, offset);
       offset += 1;
       const itemEnd = createPosition(block.id, offset);
-      if (
-        item.embedType === BLOCK_JOIN_SUGGESTION_EMBED_TYPE ||
-        item.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE
-      ) {
-        const rawId = item.properties.suggestionId;
-        if (typeof rawId === "string") {
-          extend(acc, rawId as SuggestionId, itemStart, itemEnd);
-        }
+      for (const key of SUGGESTION_ATTR_KEYS) {
+        const rawId = item.attrs[key];
+        if (typeof rawId === "string") extend(acc, rawId as SuggestionId, itemStart, itemEnd);
       }
-      // A visible field embed inside a formatting suggestion carries its tag.
       for (const id of formattingSuggestionIds(item.attrs)) extend(acc, id, itemStart, itemEnd);
     }
+    for (const p of boundaryRangeParts(state, block)) extend(acc, p.id, p.start, p.end);
   }
 
   const index = new Map<SuggestionId, SuggestionRange>();
@@ -597,6 +536,23 @@ export function buildSuggestionRangeIndex(
     index.set(id, Object.freeze({ start: range.start, end: range.end }));
   }
   return index;
+}
+
+/**
+ * The suggestion ids a single inline item carries: a text run via its insertion /
+ * deletion attrs ({@link INSERTION_SUGGESTION_ATTR} / `DELETION`) and every
+ * formatting tag (`formattingSuggestionIds`); a VISIBLE field embed (footnote-anchor
+ * / cross-reference / page-field / tab) via its formatting tags (the only provenance
+ * that reaches embeds).
+ */
+export function suggestionIdsOnItem(item: InlineItem): SuggestionId[] {
+  const out: SuggestionId[] = [];
+  for (const key of [INSERTION_SUGGESTION_ATTR, DELETION_SUGGESTION_ATTR]) {
+    const v = item.attrs[key];
+    if (typeof v === "string") out.push(v as SuggestionId);
+  }
+  out.push(...formattingSuggestionIds(item.attrs));
+  return out;
 }
 
 /** The single-valued inline suggestion-id attr keys (formatting tags are per-id keys). */
@@ -641,28 +597,19 @@ export function resolveSuggestionRange(
   return buildSuggestionRangeIndex(state).get(id) ?? null;
 }
 
-/**
- * A suggestion record combined with its scanned RANGE. `orphaned: true` (with
- * `range: null`) when the record exists in the `suggestions` map but no item
- * carries its id — the whole tagged extent was deleted, or the record was
- * written before any item adopted it. Mirror of {@link ResolvedComment}'s
- * orphaned-by-absence, except a suggestion's range is `null` when orphaned (a
- * suggestion has no defensive paired-marker position to fall back on — its items
- * ARE its content).
- */
+/** A suggestion record combined with its scanned (live) RANGE. */
 export interface ResolvedSuggestion extends SuggestionRecord {
-  readonly range: SuggestionRange | null;
-  readonly orphaned: boolean;
+  readonly range: SuggestionRange;
 }
 
 /**
- * The read surface for suggestions: every record in the `suggestions` map joined
- * with its scanned range. A record whose id tags ≥1 item → `{ ...record, range,
- * orphaned: false }`; a record whose id tags nothing → `{ ...record, range:
- * null, orphaned: true }`. One range scan ({@link buildSuggestionRangeIndex})
- * feeds every record — a single O(N inline-items + N records) pass. Frozen
- * output, stable iteration order (the `suggestions` map's key order). Mirror of
- * {@link getComments}.
+ * The read surface for suggestions: every record in the `suggestions` map that has
+ * a LIVE carrier (≥1 tagged char / embed, or a key on a live ¶), joined with its
+ * range. A record with no live carrier is never surfaced and is deleted lazily by the
+ * next resolve (its last occurrence was deleted, a concurrent same-key write lost by
+ * last-writer-wins, its ¶ was deleted by a peer). Write ops never delete records. One range scan ({@link buildSuggestionRangeIndex}) feeds every
+ * record — a single O(N inline-items + N records) pass. Frozen output, stable
+ * iteration order (the `suggestions` map's key order).
  */
 export function getSuggestions(state: State): readonly ResolvedSuggestion[] {
   const doc = state[STATE_INTERNAL].doc;
@@ -670,12 +617,11 @@ export function getSuggestions(state: State): readonly ResolvedSuggestion[] {
   const out: ResolvedSuggestion[] = [];
   for (const key of getSuggestionsMap(doc).keys()) {
     const id = key as SuggestionId;
+    const range = rangeIndex.get(id);
+    if (range === undefined) continue;
     const record = readSuggestionRecord(doc, id);
     if (record === null) continue;
-    const range = rangeIndex.get(id) ?? null;
-    out.push(
-      Object.freeze({ ...record, range, orphaned: range === null }),
-    );
+    out.push(Object.freeze({ ...record, range }));
   }
   return Object.freeze(out);
 }
@@ -698,16 +644,11 @@ export interface SuggestionGroup {
 
 /**
  * Every open suggestion group with ≥1 visible member, in document order of its first
- * range. A record that tags no content (orphaned — e.g. the user's undo removed every
- * char an untracked proposal tagged) is hidden; the next resolve of its group drops it.
+ * range. A record with no live range is not a member (see {@link getSuggestions}).
  */
 export function getSuggestionGroups(state: State): readonly SuggestionGroup[] {
   const byGroup = new Map<string, ResolvedSuggestion[]>();
   for (const s of getSuggestions(state)) {
-    // A record is visible iff it still tags ≥1 char / embed: an untracked proposal
-    // whose every tagged char the user's own undo removed has nothing to show (it is
-    // dropped by the next resolve of its group).
-    if (s.range === null) continue;
     const key = suggestionGroupOf(s);
     let members = byGroup.get(key);
     if (members === undefined) byGroup.set(key, (members = []));
@@ -730,7 +671,7 @@ export function getSuggestionGroups(state: State): readonly SuggestionGroup[] {
         createdAt: first.createdAt,
         metadata: first.metadata,
         suggestions: Object.freeze(members),
-        ranges: Object.freeze(members.flatMap((m) => (m.range === null ? [] : [m.range]))),
+        ranges: Object.freeze(members.map((m) => m.range)),
       }),
     );
   }

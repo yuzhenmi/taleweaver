@@ -261,11 +261,12 @@ describe("embedded composite font object graph (mock provider)", () => {
   it("emits the mock's 2-byte CIDs verbatim into the page content stream", () => {
     // 'A' → cid 65 (0x0041), 'B' → cid 66 (0x0042). Each display cluster is its
     // own `Td … <hex> Tj`; the hex is the big-endian 2-byte CID. This locks the
-    // end-to-end wiring: encodeRun bytes → showTextAt → content-stream hex.
+    // end-to-end wiring: encodeRun bytes → showTextAt → content-stream hex. The
+    // embedded soft hyphen is encoded not-shown, so it emits no CID at all.
     const provider = createMockEmbeddedFontProvider({ embeddedFamilies: ["MockFam"] });
     const bytes = emitPdf({
       pageCount: 1,
-      getPage: () => page([run("AB", 10, 20, "MockFam")]),
+      getPage: () => page([run("A\u00ADB", 10, 20, "MockFam")]),
       fontProvider: provider,
     });
     const pdf = parsePdf(bytes);

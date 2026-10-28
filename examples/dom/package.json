@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "@taleweaver/core": "^0.1.0",
-    "@taleweaver/print": "^0.1.0"
+    "@taleweaver/print": "^0.1.0",
+    "yjs": "13.6.30"
   },
   "devDependencies": {
     "typescript": "^5.7",

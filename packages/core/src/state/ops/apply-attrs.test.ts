@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { applyAttrsToRange, planApplyAttrsToRange, applyAttrsToRangeInTx } from "./apply-attrs";
 import { getBlock, applyOperation } from "../state";
-import { buildBlock, buildState, text, embed, inlineContent } from "../../test-utils/state-builders";
+import { buildBlock, buildState, buildFlowDoc, text, embed, inlineContent, withTestAttrs } from "../../test-utils/state-builders";
 import { createPosition, createSpan } from "../block-position";
 import type { BlockId } from "../block-id";
 import { STATE_INTERNAL } from "../state-internal";
@@ -259,7 +259,7 @@ describe("applyAttrsToRange — embed items in range", () => {
   });
 
   it("does NOT stamp inline-format attrs onto zero-width structural marker embeds (#465)", () => {
-    // [text("a"), comment-start marker, block-split-suggestion marker, text("b")]
+    // [text("a"), comment-start marker, comment-end marker, text("b")]
     // Apply { bold: true } over the whole range. Text items get bold; the two
     // STRUCTURAL MARKER embeds keep attrs={} — markers carry no formattable
     // content (contrast the visible `image` embed tests above, which DO merge).
@@ -274,7 +274,7 @@ describe("applyAttrsToRange — embed items in range", () => {
           inlineContent: inlineContent([
             text("a"),
             embed("comment-start", { commentId: "c1" }),
-            embed("block-split-suggestion", { suggestionId: "s1" }),
+            embed("comment-end", { commentId: "c1" }),
             text("b"),
           ]),
         }),
@@ -286,7 +286,7 @@ describe("applyAttrsToRange — embed items in range", () => {
     expect(items).toHaveLength(4);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "a", attrs: { bold: true } });
     expect(items?.[1]).toMatchObject({ kind: "embed", embedType: "comment-start", properties: { commentId: "c1" } });
-    expect(items?.[2]).toMatchObject({ kind: "embed", embedType: "block-split-suggestion", properties: { suggestionId: "s1" } });
+    expect(items?.[2]).toMatchObject({ kind: "embed", embedType: "comment-end", properties: { commentId: "c1" } });
     expect(items?.[3]).toMatchObject({ kind: "text", text: "b", attrs: { bold: true } });
     // Strict: the markers' attrs must be EXACTLY {} (toMatchObject's {} is vacuous).
     expect(items?.[1]?.attrs).toEqual({});
@@ -683,12 +683,15 @@ describe("applyAttrsToRange — error cases", () => {
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
         buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hi")]) }),
-        buildBlock({ id: "fn", type: "footnote-body", inlineContent: inlineContent([text("footnote")]) }),
+      ],
+      embedContents: [
+        buildBlock({ id: "fn", type: "footnote-body", firstChildId: "fnp", lastChildId: "fnp" }),
+        buildBlock({ id: "fnp", type: "paragraph", parentId: "fn", inlineContent: inlineContent([text("footnote")]) }),
       ],
     });
     const span = createSpan(
       createPosition("p" as BlockId, 0),
-      createPosition("fn" as BlockId, 1),
+      createPosition("fnp" as BlockId, 1),
     );
     expect(() => applyAttrsToRange(state, span, { bold: true })).toThrow(/different selection contexts/);
   });
@@ -722,7 +725,7 @@ describe("applyAttrsToRange — plan/InTx split (composition primitive)", () => 
     // result sees a fresh State snapshot (a raw runTransaction mutates Yjs but
     // does not refresh the original state's lazy snapshot cache).
     const result = applyOperation(state, () =>
-      applyAttrsToRangeInTx(state[STATE_INTERNAL].doc, plan, { bold: true }, undefined),
+      applyAttrsToRangeInTx(state[STATE_INTERNAL].doc, plan, { bold: true }),
     );
     const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(3);
@@ -753,7 +756,7 @@ describe("applyAttrsToRange — plan/InTx split (composition primitive)", () => 
     expect(plan).not.toBeNull();
     if (plan === null) return;
     const result = applyOperation(state, () =>
-      applyAttrsToRangeInTx(state[STATE_INTERNAL].doc, plan, { italic: true }, undefined),
+      applyAttrsToRangeInTx(state[STATE_INTERNAL].doc, plan, { italic: true }),
     );
     const items = getBlock(result.state, "p" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(1);
@@ -767,7 +770,34 @@ describe("applyAttrsToRange — plan/InTx split (composition primitive)", () => 
     expect(plan).not.toBeNull();
     if (plan === null) return;
     expect(() =>
-      applyAttrsToRangeInTx(state[STATE_INTERNAL].doc, plan, { bold: true }, undefined),
+      applyAttrsToRangeInTx(state[STATE_INTERNAL].doc, plan, { bold: true }),
     ).toThrow(/applyAttrsToRange: must be called inside Y\.Doc\.transact/);
+  });
+});
+
+describe("applyAttrsToRange — formatting over a ¶ writes its character props", () => {
+  const marks = (s: ReturnType<typeof buildFlowDoc>, b: string) => getBlock(s, b as BlockId)?.markAttrs;
+  // The ¶'s inclusive keys are judged by the attr registry bound to the doc.
+  const doc2 = () => withTestAttrs(buildFlowDoc([{ p: "P", t: "abcd" }, { p: "N", t: "xy" }]));
+
+  it("a span covering ¶P (crossing into N) sets the inclusive keys on ¶P only", () => {
+    const s = applyAttrsToRange(doc2(), createSpan(createPosition("P" as BlockId, 1), createPosition("N" as BlockId, 1)), { bold: true, link: "u" }).state;
+    expect(marks(s, "P")).toEqual({ bold: true });
+    expect(marks(s, "N")).toBeUndefined();
+  });
+
+  it("selecting exactly the ¶ — (P, len)–(N, 0) — formats it; a span ENDING at (P, len) does too", () => {
+    const only = applyAttrsToRange(doc2(), createSpan(createPosition("P" as BlockId, 4), createPosition("N" as BlockId, 0)), { italic: true }).state;
+    expect(marks(only, "P")).toEqual({ italic: true });
+    const ending = applyAttrsToRange(doc2(), createSpan(createPosition("P" as BlockId, 2), createPosition("P" as BlockId, 4)), { bold: true }).state;
+    expect(marks(ending, "P")).toEqual({ bold: true });
+  });
+
+  it("a span stopping before the end leaves the ¶ alone; removing a key clears it from the ¶", () => {
+    const inner = applyAttrsToRange(doc2(), createSpan(createPosition("P" as BlockId, 0), createPosition("P" as BlockId, 2)), { bold: true }).state;
+    expect(marks(inner, "P")).toBeUndefined();
+    const set = applyAttrsToRange(doc2(), createSpan(createPosition("P" as BlockId, 0), createPosition("P" as BlockId, 4)), { bold: true, italic: true }).state;
+    const cleared = applyAttrsToRange(set, createSpan(createPosition("P" as BlockId, 0), createPosition("P" as BlockId, 4)), { bold: undefined }).state;
+    expect(marks(cleared, "P")).toEqual({ italic: true });
   });
 });

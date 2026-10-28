@@ -52,13 +52,13 @@ export function handleResolveSuggestionGroup(
   config: EditorConfig,
 ): EditorState {
   const op = mode === "accept" ? acceptSuggestionGroup : rejectSuggestionGroup;
-  return commitResolve(editor, op(editor.state, groupId, config.attrRegistry), config);
+  return commitResolve(editor, op(editor.state, groupId), config);
 }
 
 export function handleAcceptAllSuggestions(editor: EditorState, config: EditorConfig): EditorState {
-  return commitResolve(editor, acceptAll(editor.state, config.attrRegistry), config);
+  return commitResolve(editor, acceptAll(editor.state), config);
 }
 
 export function handleRejectAllSuggestions(editor: EditorState, config: EditorConfig): EditorState {
-  return commitResolve(editor, rejectAll(editor.state, config.attrRegistry), config);
+  return commitResolve(editor, rejectAll(editor.state), config);
 }

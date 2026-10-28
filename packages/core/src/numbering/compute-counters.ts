@@ -26,7 +26,7 @@ function levelConfig(def: CounterDef | undefined, level: number): CounterLevelDe
  *
  * Per-scope state is a stack of running counters indexed by level. Entering a
  * level resets all deeper levels (CSS-list-like). `breakBefore` restarts the
- * scope's level-0..current chain (the #425 consecutive-run rule). `override`
+ * scope's level-0..current chain (the consecutive-run rule). `override`
  * forces a value and the sequence continues from it.
  *
  * This engine handles RENDER-TIME-derivable counters only — counters whose

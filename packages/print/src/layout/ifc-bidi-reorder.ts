@@ -13,10 +13,10 @@ import { reorderRunsByLevel } from "@taleweaver/core";
 
 /**
  * Split a line `TextRunBox` into two single-level fragments at a DISPLAY-U16
- * boundary. Used by the P4-C bidi reorder (Task 5) which splits a run at a
- * bidi-level boundary into two boxes that are then repositioned (Task 6).
+ * boundary. Used by the bidi reorder which splits a run at a
+ * bidi-level boundary into two boxes that are then repositioned.
  *
- * THREE index spaces are in play (the recurring correctness theme of P4-C):
+ * THREE index spaces are in play (the recurring correctness theme of the bidi reorder):
  * - **display-U16**: index into `box.text` and `box.clusterWidths` (1:1 with
  *   `text`, `length === text.length`). `splitAtDisplayU16` is in this space.
  * - **STATE**: what `box.offsetLength` counts (state-model characters). Differs
@@ -26,7 +26,7 @@ import { reorderRunsByLevel } from "@taleweaver/core";
  *   STATE unit giving how many DISPLAY units it renders; `undefined` ⇒ display
  *   == state 1:1).
  *
- * The caller repositions each fragment's `inlineOffset` later (Task 6); here we
+ * The caller repositions each fragment's `inlineOffset` later; here we
  * just build them at the box's current offset. Each fragment's `inlineSize` is
  * the NATURAL prefix/suffix sum of `clusterWidths` (these may exceed `inlineSize`
  * after a trim/clamp — reconciliation against the box's actual `inlineSize` is
@@ -120,8 +120,8 @@ export function splitTextRunBoxAtOffset(
     box.sourceStart === undefined ? undefined : box.sourceStart + splitAtDisplayU16;
 
   // 5. Keys / geometry. Both fragments keep the box's current offset/geometry;
-  //    the caller repositions inlineOffset in Task 6. These split fragments are
-  //    REORDER OUTPUT, so they are positioned with `direction:"ltr"` per the P4-C
+  //    the caller repositions inlineOffset later. These split fragments are
+  //    REORDER OUTPUT, so they are positioned with `direction:"ltr"` per the reorder
   //    coordinate contract: the reorder already produced VISUAL order, so the box
   //    factory must NOT re-apply the RTL inline-flip. Positioning is into the
   //    LOGICAL `inlineOffset`; `logicalToPhysical(inlineOffset, …, writingMode,
@@ -193,14 +193,15 @@ export interface BidiSegment {
  * Walks the line's `children` (in LOGICAL order) and, per child, emits one or
  * more `{ box, level }` segments — splitting any `TextRunBox` that straddles a
  * level boundary so every emitted box carries exactly one bidi level. The
- * pieces are returned in logical order; the caller (Task 6) reorders them.
+ * pieces are returned in logical order; the caller reorders them.
  *
  * This is the FLAT case: text-runs and atomic inlines (`InlineBlockBox`,
- * defensively `MarkerBox`). `InlineBox` recursion is the NEXT task (T5b); a
- * line containing an `InlineBox` throws here.
+ * defensively `MarkerBox`). `InlineBox` recursion is not supported here; a
+ * line containing an `InlineBox` throws (the nested path goes through
+ * {@link flattenLineToLeaves}).
  *
  * **Levels come ONLY from `postL1Levels`** — the post-L1 line levels the caller
- * (Task 6) computed via {@link applyL1} for the line's codepoint slice, indexed
+ * computed via {@link applyL1} for the line's codepoint slice, indexed
  * RELATIVE to `lineStartCp`. We never read `bidiLevelAtSourceOffset` (which is
  * the PRE-L1 paragraph-wide level); L1 resets — trailing-whitespace and
  * segment/paragraph separators dropping to the paragraph level — change which
@@ -221,7 +222,7 @@ export interface BidiSegment {
  *   offset that makes `postL1Levels` line-relative.
  * @param postL1Levels post-L1 line levels (line-relative), from `applyL1`.
  * @returns the line's boxes in logical order, each tagged with its bidi level.
- * @throws on an `InlineBox` (Task 5b), an unexpected box type, or a text-run /
+ * @throws on an `InlineBox` (nested inline-box reordering is unsupported), an unexpected box type, or a text-run /
  *   inline-block missing the `sourceStart` / `clusterWidths` it must carry.
  */
 export function segmentLine(
@@ -287,7 +288,7 @@ function segmentChild(
       return;
     }
     case "inline":
-      throw new Error("segmentLine: InlineBox recursion is Task 5b");
+      throw new Error("segmentLine: InlineBox recursion is not supported");
     default:
       throw new Error(
         `segmentLine: unexpected box type ${JSON.stringify(child.type)} on a line`,
@@ -352,8 +353,7 @@ function segmentTextRun(
  * A LEAF box of a line (never an `InlineBox`), tagged with its chain of
  * `InlineBox` ancestors. Produced by {@link flattenLineToLeaves}; the bidi
  * reorder of a line containing inline elements (`<em>`, links) segments and
- * reorders these leaves, then re-nests them back into `InlineBox` fragments
- * (later tasks).
+ * reorders these leaves, then re-nests them back into `InlineBox` fragments.
  */
 export interface FlatLeaf {
   /** A `TextRunBox | InlineBlockBox | MarkerBox` (or a defensively-passed-through
@@ -661,7 +661,7 @@ function sourceStartOfBox(box: LayoutBox): number {
  *
  * Pure: inputs are not mutated; every returned box is freshly built. This does
  * NO IFC wiring (computing `postL1Levels`, stamping the line, etc.) — that is the
- * caller's job (Task 6-ii); this only produces the reordered nested boxes.
+ * caller's job; this only produces the reordered nested boxes.
  *
  * @param children       the line's nested children, in logical order.
  * @param paragraphBidi  paragraph-wide bidi result (for `cpIndexAtUtf16`).

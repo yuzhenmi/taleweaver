@@ -1,3 +1,5 @@
+import { finalSectionOf } from "../test-utils/state-builders";
+import { TEST_RESOLVER } from "../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
 import {
@@ -117,6 +119,8 @@ describe("PROPOSE — host proposals as one suggestion group", () => {
     ["replacing text next to the just-typed run", (_p1: BlockId, p2: BlockId) => ({ kind: "replace" as const, from: at(p2, 6), to: at(p2, 10), text: "past" })],
     ["formatting the just-typed run", (_p1: BlockId, p2: BlockId) => ({ kind: "format" as const, from: at(p2, 0), to: at(p2, 5), attrs: { bold: true } })],
     ["in another paragraph", (p1: BlockId) => ({ kind: "replace" as const, from: at(p1, 5), to: at(p1, 10), text: "swift" })],
+    // Multi-paragraph: the new paragraphs are splits (marks), so nothing the user typed is re-minted.
+    ["splitting the just-typed paragraph (multi-paragraph)", (_p1: BlockId, p2: BlockId) => ({ kind: "replace" as const, from: at(p2, 0), to: at(p2, 5), text: "One\nTwo" })],
   ])("is NOT in the user's undo stack (%s): Ctrl+Z undoes the typing, the proposal is kept; redo restores the typing", (_label, edit) => {
     const { after, p1, p2, proposal } = typedThenProposed(edit);
     const proposedText = [textOf(after, p1), textOf(after, p2)];
@@ -131,20 +135,11 @@ describe("PROPOSE — host proposals as one suggestion group", () => {
     expect(runsOf(redo1, p2)).toEqual(runs2);
   });
 
-  it("a block-splitting (multi-paragraph) proposal stays ONE tracked undo entry, in order with the user's edits", () => {
-    const { typed, after, p2, proposal } = typedThenProposed((p1) => ({
-      kind: "replace" as const,
-      from: at(p1, 0),
-      to: at(p1, 3),
-      text: "One\nTwo",
-    }));
-    expect(getSuggestionGroups(after.state).map((g) => g.id)).toEqual([proposal.groupId]);
-    const undo1 = run(after, config, { type: "UNDO" });
-    expect(getSuggestions(undo1.state)).toHaveLength(0); // the proposal is undone first
-    expect(textOf(undo1, p2)).toBe("jumps over!");
-    expect(undo1.selection).toEqual(typed.selection);
-    const undo2 = run(undo1, config, { type: "UNDO" });
-    expect(textOf(undo2, p2)).toBe("jumps over"); // then the typing
+  it("rejecting an untracked multi-paragraph proposal keeps the user's text (and its undo entry)", () => {
+    const { after, p2, proposal } = typedThenProposed((p1) => ({ kind: "replace" as const, from: at(p1, 0), to: at(p1, 3), text: "One\nTwo" }));
+    const rejected = run(after, config, { type: "REJECT_SUGGESTION_GROUP", groupId: proposal.groupId });
+    expect(getSuggestions(rejected.state)).toHaveLength(0);
+    expect(textOf(rejected, p2)).toBe("jumps over!");
   });
 
   it("an untracked proposal is SELF to its own host's subscriptions, FOREIGN to a second host on the same doc", () => {
@@ -162,7 +157,7 @@ describe("PROPOSE — host proposals as one suggestion group", () => {
     const docB = new Y.Doc();
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
     docA.on("update", (u: Uint8Array) => Y.applyUpdate(docB, u, "sync"));
-    const stateB = createState({ rootId: s.state.rootId, doc: docB });
+    const stateB = createState({ resolver: TEST_RESOLVER, rootId: s.state.rootId, doc: docB });
     const unsubs = [
       subscribeForeignChanges(s.state, "hostA", (ids) => seenByA.push(ids), noLegacy),
       subscribeForeignChanges(s.state, "hostB", (ids) => seenByB.push(ids), noLegacy),
@@ -196,9 +191,10 @@ describe("PROPOSE — host proposals as one suggestion group", () => {
     const undone = run(after, config, { type: "UNDO" });
     expect(textOf(undone, p2)).toBe("jumps over");
     expect(getSuggestionGroups(undone.state)).toEqual([]); // nothing tagged → hidden
-    expect(getSuggestions(undone.state)).toHaveLength(1); // the record still exists…
+    expect(getSuggestions(undone.state)).toHaveLength(0); // a rangeless record is never surfaced…
+    expect(getYDoc(undone.state).getMap("suggestions").size).toBe(1); // …but still exists
     const rejected = run(undone, config, { type: "REJECT_SUGGESTION_GROUP", groupId: proposal.groupId });
-    expect(getSuggestions(rejected.state)).toHaveLength(0); // …until its group resolves
+    expect(getYDoc(rejected.state).getMap("suggestions").size).toBe(0); // …until its group resolves
   });
 
   it("keeps stored typing attrs: collapsed bold, a proposal lands elsewhere, the typed text is still bold", () => {
@@ -304,7 +300,7 @@ describe("PROPOSE — host proposals as one suggestion group", () => {
     };
     const after = run(s, config, { type: "PROPOSE", proposal });
     const accepted = run(after, config, { type: "ACCEPT_SUGGESTION_GROUP", groupId: proposal.groupId });
-    const root = getBlock(accepted.state, accepted.state.rootId);
+    const root = getBlock(accepted.state, finalSectionOf(accepted.state));
     const texts: string[] = [];
     for (let id = root?.firstChildId ?? null; id !== null; id = getBlock(accepted.state, id)?.nextSiblingId ?? null) texts.push(textOf(accepted, id));
     expect(texts).toEqual(["The  quick fox.", "New line", "jumps over"]);
@@ -422,7 +418,7 @@ describe("rendering hook and compatibility", () => {
     const yRecord = legacyId === undefined ? undefined : yRecords.get(legacyId);
     if (yRecord instanceof Y.Map) getYDoc(old.state).transact(() => yRecord.delete("order"));
     expect(yRecord instanceof Y.Map ? [...yRecord.keys()].sort() : null).toEqual(["author", "createdAt", "kind"]);
-    const reg = createDefaultSerializerRegistry();
+    const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
     reg.register(createJsonDocumentSerializer({ allocator: productionAllocator, blockKindResolver: config.componentRegistry }));
     const loaded = deserializeDocument(serializeDocument(old.state, BINARY_FORMAT, reg), BINARY_FORMAT, reg);
     const groups = getSuggestionGroups(loaded);

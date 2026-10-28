@@ -15,6 +15,7 @@
  * attrs — proving the render→layout reflow actually fires on a section-attrs
  * change. Harness mirrors `section-pagination.test.ts`.
  */
+import { topLevelBlockIds } from "../../state";
 import { describe, it, expect } from "vitest";
 import {
   createInitialEditorState,
@@ -98,7 +99,7 @@ function buildPasted(config: EditorConfig, n: number): EditorState {
 
 /** The document root's direct children, in order. */
 function rootChildIds(editor: EditorState): BlockId[] {
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = getBlock(editor.state, editor.state.rootId); // the root holds sections
   if (root === null || root.firstChildId === null) return [];
   const ids: BlockId[] = [];
   let id: BlockId | null = root.firstChildId;
@@ -111,7 +112,7 @@ function rootChildIds(editor: EditorState): BlockId[] {
 
 /** The nth top-level block id (paragraphs, pre-section-break). */
 function nthBlockId(editor: EditorState, n: number): BlockId {
-  const ids = rootChildIds(editor);
+  const ids = topLevelBlockIds(editor.state);
   const id = ids[n];
   if (id === undefined) throw new Error(`no block ${n}`);
   return id;
@@ -348,14 +349,17 @@ describe("handleToggleSectionLandscape — TOGGLE_SECTION_LANDSCAPE action", () 
     expect(sectionPageGeometry(undone, config, sectionB)).toEqual(docWide);
   });
 
-  it("is a no-op in a section-less doc (no SECTION_BREAK made)", () => {
+  it("a break-less doc toggles its FINAL section (there is always a section)", () => {
     const config = makeConfig();
     const editor = buildPasted(config, 3);
+    const finalSection = getBlock(editor.state, editor.state.rootId)?.lastChildId ?? null;
+    if (finalSection === null) throw new Error("no final section");
 
     const next = reduceEditor(editor, { type: "TOGGLE_SECTION_LANDSCAPE" }, config);
 
-    // Same state reference (no-op; reducer entry-clears lastDirtyIds).
-    expect(next.state).toBe(editor.state);
+    expect(next.state).not.toBe(editor.state);
+    expect(getBlock(next.state, finalSection)?.attrs.pageInlineSize).toBeDefined();
+    expect(getBlock(next.state, next.state.rootId)?.attrs.pageInlineSize).toBeUndefined();
   });
 
   it("is a no-op when config.pageConfig is absent (unpaginated harness)", () => {

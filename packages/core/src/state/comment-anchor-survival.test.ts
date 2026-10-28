@@ -1,22 +1,16 @@
 /**
- * Comments slice-0 SPIKE — RESULT: a Yjs `RelativePosition` does NOT survive the
- * engine's STRUCTURAL block ops, so the comments feature uses paired MARKER-EMBED
- * anchors, NOT RelativePosition.
- *
- * Inline storage is one `Y.Text` per block, so every in-block op (insert, delete,
- * format) keeps every surviving character's identity. But a paragraph split moves
- * the tail into a NEW block's `Y.Text` and a merge moves the right block into the
- * left — Yjs cannot reparent items, so those characters are re-minted (the
- * structural-op limit). The measured survival matrix (asserted below, so it is a
- * durable record + a guard that flips if the ops ever change):
+ * Comments slice-0 SPIKE (re-measured under structural identity): blocks are
+ * ranges of ONE CRDT sequence delimited by mark items, so a split inserts a mark
+ * and a merge deletes one — no character is ever re-minted. The survival matrix
+ * (asserted below, a durable record + a guard that flips if the ops ever change):
  *   - insert-before (same block):   SURVIVES
  *   - delete-elsewhere (same block): SURVIVES
  *   - split, anchor in LEFT half:   SURVIVES
- *   - split, anchor in RIGHT half:  ORPHANS   (moved into the new block)
- *   - merge, anchor in right block:  ORPHANS   (moved into the left block)
+ *   - split, anchor in RIGHT half:  SURVIVES
+ *   - merge, anchor in right block:  SURVIVES
  *
- * A comment anchor MUST survive splits and merges, so it is a marker embed: markers
- * ARE inline content, so they move with surrounding text for free.
+ * Comment anchors stay paired MARKER embeds (they are inline content and move with
+ * the text by construction).
  */
 import { describe, it, expect } from "vitest";
 import { insertText } from "./ops/insert-text";
@@ -70,8 +64,8 @@ describe("comments slice-0 spike — RelativePosition survival across structural
     expect(survives(rel, after, "w")).toBe(true);
   });
 
-  it("split — anchor in the LEFT half SURVIVES, in the RIGHT half ORPHANS", () => {
-    // Split "hello world" at offset 5 → left "hello" (same chars), right " world" (re-minted in the new block).
+  it("split — anchors in BOTH halves SURVIVE (a split inserts a mark, no character is re-minted)", () => {
+    // Split "hello world" at offset 5 → left "hello", right " world" — same chars on both sides.
     const sL = oneBlock();
     const relLeft = relAt(sL, "p", 2); // "l", left half
     const splitL = splitBlockAtPosition(sL, createPosition("p" as BlockId, 5), createTestAllocator("p2")).state;
@@ -80,13 +74,13 @@ describe("comments slice-0 spike — RelativePosition survival across structural
     const sR = oneBlock();
     const relRight = relAt(sR, "p", 6); // "w", right half
     const splitR = splitBlockAtPosition(sR, createPosition("p" as BlockId, 5), createTestAllocator("p3")).state;
-    expect(survives(relRight, splitR, "w")).toBe(false);
+    expect(survives(relRight, splitR, "w")).toBe(true);
   });
 
-  it("merge — anchor in the merged-in RIGHT block ORPHANS (its chars are re-minted in the left block)", () => {
+  it("merge — an anchor in the merged-in RIGHT block SURVIVES (a merge deletes the mark only)", () => {
     const s = twoBlocks();
     const rel = relAt(s, "p2", 0); // "w" of "world"
     const merged = mergeAdjacentBlocks(s, "p1" as BlockId, "p2" as BlockId).state;
-    expect(survives(rel, merged, "w")).toBe(false);
+    expect(survives(rel, merged, "w")).toBe(true);
   });
 });

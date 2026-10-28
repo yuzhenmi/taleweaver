@@ -1,4 +1,5 @@
 import type * as Y from "yjs";
+import { requireBlockText } from "../block-text";
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
@@ -9,8 +10,8 @@ import {
   type EmbedItem,
   type InlineContent,
 } from "../inline-content";
-import { getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
-import { insertInlineItems, requireYInline } from "../y-inline";
+import { requireInTransaction, type BlockTreeKind } from "../yjs-doc";
+import { insertInlineItems } from "../y-inline";
 import {
   COMMENT_START_EMBED_TYPE,
   COMMENT_END_EMBED_TYPE,
@@ -23,7 +24,7 @@ import {
  * earlier insert never shifts a later one's offset). Each is one offset
  * `insertEmbed` into the leaf's inline `Y.Text`.
  *
- * Exported so a higher-level op (`addComment`, slice 2) can compose the marker
+ * Exported so the higher-level `addComment` op can compose the marker
  * insert with its thread-record write in ONE `applyOperation` transaction:
  * `planCommentMarkers` against the pre-transaction snapshot, then
  * `applyCommentMarkerWritesInTx` inside the surrounding transaction.
@@ -51,8 +52,8 @@ export interface LeafWrite {
  * spliced into ONE items array end-first; when the span crosses blocks, each
  * marker lands in its own leaf).
  *
- * The op TRUSTS `commentId` (minted host-side by the editor action in a later
- * slice). It DOES validate both endpoint positions.
+ * The op TRUSTS `commentId` (minted host-side, carried on the
+ * `ADD_COMMENT` action into `addComment`). It DOES validate both endpoint positions.
  *
  * `dirtyIds` covers the host leaf block(s) whose inlineContent changed —
  * `captureDirtyIds` tracks the tree maps automatically.
@@ -177,8 +178,7 @@ function requireInRange(content: InlineContent, offset: number, blockId: BlockId
  */
 function insertLeafWriteInTx(doc: Y.Doc, write: LeafWrite): void {
   requireInTransaction(doc, "insertCommentMarkers");
-  const yBlock = getYBlock(doc, write.blockId, "insertCommentMarkers", write.kind);
-  const yText = requireYInline(yBlock, write.blockId, "insertCommentMarkers");
+  const yText = requireBlockText(doc, write.blockId, "insertCommentMarkers");
   for (const { offset, marker } of write.inserts) insertInlineItems(yText, offset, [marker]);
 }
 

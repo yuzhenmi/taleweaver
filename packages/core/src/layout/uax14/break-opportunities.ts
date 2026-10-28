@@ -19,8 +19,8 @@ export interface LineBreakOptions {
    * When true, resolve `CJ` (CJK small kana etc.) → `ID` (breakable) — the CSS
    * `line-break: normal/auto` tailoring. Default `false` = the UAX #14 LB1
    * default `CJ` → `NS` (no-break), which is what `LineBreakTest.txt` is
-   * generated from, so the conformance suite runs with the default. The S2.4
-   * integration layer passes `true` for CSS `line-break: normal/auto`.
+   * generated from, so the conformance suite runs with the default. The
+   * line-break integration layer passes `true` for CSS `line-break: normal/auto`.
    */
   readonly cjBreakable?: boolean;
 }

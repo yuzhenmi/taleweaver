@@ -18,11 +18,11 @@ import { prepareEmbedInsertPoint } from "./selection-guards";
  * Insertion semantics live in the `createTable` Layer-3 op (caret at block START
  * → table before; END → after; MID → split the block, table between halves).
  *
- * **Body context (v1: main document body only).** Tables are refused while the
+ * **Body context (main document body only).** Tables are refused while the
  * caret is inside a header / footer / footnote body — those resolve to a
- * non-`rootId` context (mirrors INSERT_FOOTNOTE). Nested tables (caret in a cell)
- * and tables in template/embed bodies are a deliberate v2; v1 refuses, it does
- * not half-insert.
+ * non-`rootId` context (mirrors INSERT_FOOTNOTE); a refusal never half-inserts.
+ * A caret in a table cell resolves to the main-body context, so this guard does
+ * not refuse it: the table is created inside the cell.
  *
  * **Non-collapsed selection** is REPLACED, not preserved: `prepareEmbedInsertPoint`
  * deletes the selected range first (folding its dirtyIds into the single commit
@@ -42,7 +42,7 @@ export function handleInsertTable(
   if (rows < 1 || cols < 1) return editor;
 
   // Refuse a table inside a footnote / header / footer body — only main document
-  // body text (which resolves to `state.rootId`) may host a table in v1. Read
+  // body text (which resolves to `state.rootId`) may host a table. Read
   // `focus` (the active end), matching INSERT_FOOTNOTE.
   if (selectionContextOf(editor.state, editor.selection.focus.blockId) !== editor.state.rootId) {
     return editor;

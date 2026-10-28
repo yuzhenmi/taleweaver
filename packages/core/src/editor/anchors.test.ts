@@ -1,3 +1,5 @@
+import { finalSectionOf } from "../test-utils/state-builders";
+import { TEST_RESOLVER } from "../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
 import {
@@ -173,7 +175,7 @@ describe("collaboration: APPLY_FOREIGN_CHANGE over two synced Y.Docs", () => {
     const docA = getYDoc(a.state);
     const docB = new Y.Doc();
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
-    const stateB = createState({ rootId: a.state.rootId, doc: docB });
+    const stateB = createState({ resolver: TEST_RESOLVER, rootId: a.state.rootId, doc: docB });
     const b = harness(createEditorStateFromState(stateB, initialSelectionForState(stateB), config));
     docA.on("update", (u: Uint8Array, origin: unknown) => {
       if (origin !== "sync") Y.applyUpdate(docB, u, "sync");
@@ -214,31 +216,33 @@ describe("collaboration: APPLY_FOREIGN_CHANGE over two synced Y.Docs", () => {
     expect(textOf(b.editor, id)).toBe("Oh, hello_XY world!");
   });
 
-  it("when B's caret block is deleted by A, B's caret lands on the nearest valid position", () => {
+  it("when B's caret block is merged away by A, B's caret keeps its character in the survivor", () => {
     const { a, b, id } = peers("first");
     a({ type: "SPLIT_NODE" }, { type: "INSERT_TEXT", text: "second" });
-    const second = getBlock(b.editor.state, id)?.nextSiblingId ?? null;
-    if (second === null) throw new Error("setup");
-    b.run(caret(second, 3));
-    textOf(b.editor, second);
-    // A deletes the whole second paragraph (select from end of first to end of second).
-    a({ type: "SET_SELECTION", selection: createSpan(at(id, 5), at(second, 6)) }, { type: "DELETE_BACKWARD" });
+    // the split's head "first" is the new block; `id` keeps "second".
+    const first = getBlock(b.editor.state, id)?.prevSiblingId ?? null;
+    if (first === null) throw new Error("setup");
+    b.run(caret(first, 3));
+    textOf(b.editor, first);
+    // A deletes ¶first and the whole second paragraph (end of first → end of second):
+    // the block `first` leaves the read model, its text reads in the survivor `id`.
+    a({ type: "SET_SELECTION", selection: createSpan(at(first, 5), at(id, 6)) }, { type: "DELETE_BACKWARD" });
     expect(textOf(b.editor, id)).toBe("first");
-    expect(b.editor.selection.focus).toEqual(at(id, 5));
-    expect(getBlock(b.editor.state, b.editor.selection.focus.blockId)).not.toBeNull();
+    expect(getBlock(b.editor.state, first)).toBeNull();
+    expect(b.editor.selection.focus).toEqual(at(id, 3));
   });
 
   it("a BACKWARD cross-block selection keeps its direction and content through a peer edit", () => {
     const { a, b, id } = peers("first");
     a({ type: "SPLIT_NODE" }, { type: "INSERT_TEXT", text: "second" });
-    const second = getBlock(b.editor.state, id)?.nextSiblingId ?? null;
-    if (second === null) throw new Error("setup");
-    b.run({ type: "SET_SELECTION", selection: createSpan(at(second, 3), at(id, 2)) });
+    const first = getBlock(b.editor.state, id)?.prevSiblingId ?? null;
+    if (first === null) throw new Error("setup");
+    b.run({ type: "SET_SELECTION", selection: createSpan(at(id, 3), at(first, 2)) });
+    textOf(b.editor, first);
     textOf(b.editor, id);
-    textOf(b.editor, second);
-    a(caret(id, 0), { type: "INSERT_TEXT", text: ">" });
-    expect(b.editor.selection.anchor).toEqual(at(second, 3));
-    expect(b.editor.selection.focus).toEqual(at(id, 3));
+    a(caret(first, 0), { type: "INSERT_TEXT", text: ">" });
+    expect(b.editor.selection.anchor).toEqual(at(id, 3));
+    expect(b.editor.selection.focus).toEqual(at(first, 3));
   });
 
   it("a foreign change does not join B's undo history", () => {
@@ -256,7 +260,7 @@ describe("anchors — review round 1", () => {
   function threeParagraphs() {
     const h = harness();
     h.run({ type: "INSERT_TEXT", text: "Anna" }, { type: "SPLIT_NODE" }, { type: "INSERT_TEXT", text: "went" }, { type: "SPLIT_NODE" }, { type: "INSERT_TEXT", text: "home" });
-    const root = getBlock(h.editor.state, h.editor.state.rootId);
+    const root = getBlock(h.editor.state, finalSectionOf(h.editor.state)); // the root holds sections
     const ids: BlockId[] = [];
     for (let id = root?.firstChildId ?? null; id !== null; id = getBlock(h.editor.state, id)?.nextSiblingId ?? null) ids.push(id);
     const [a, b, c] = ids;
@@ -302,7 +306,7 @@ describe("anchors — indexing cost", () => {
     // Six paragraphs p0..p5.
     h.run({ type: "INSERT_TEXT", text: "p0" });
     for (let i = 1; i < 6; i++) h.run({ type: "SPLIT_NODE" }, { type: "INSERT_TEXT", text: `p${i}` });
-    const root = getBlock(h.editor.state, h.editor.state.rootId);
+    const root = getBlock(h.editor.state, finalSectionOf(h.editor.state)); // the root holds sections
     const ids: BlockId[] = [];
     for (let id = root?.firstChildId ?? null; id !== null; id = getBlock(h.editor.state, id)?.nextSiblingId ?? null) ids.push(id);
     const [p0, p1, p2, p3, p4, p5] = ids;
@@ -331,7 +335,7 @@ describe("anchors — indexing cost", () => {
     const h = harness();
     h.run({ type: "INSERT_TEXT", text: "p0" });
     for (let i = 1; i < 300; i++) h.run({ type: "SPLIT_NODE" }, { type: "INSERT_TEXT", text: `p${i}` });
-    const root = getBlock(h.editor.state, h.editor.state.rootId);
+    const root = getBlock(h.editor.state, finalSectionOf(h.editor.state)); // the root holds sections
     const first = root?.firstChildId;
     const last = root?.lastChildId;
     if (first == null || last == null) throw new Error("setup");

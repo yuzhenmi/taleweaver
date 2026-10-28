@@ -16,7 +16,7 @@ import type { Style } from "../styles";
  * `template-body` (headers/footers): a `paragraph` root is a single
  * inline-bearing leaf with no children, so splitting it (Enter) would create a
  * SECOND `parentId: null` root in embedContents — a sibling the slot never
- * renders, and a spurious extra `getEmbedContentIds` entry (the #313 root-only
+ * renders, and a spurious extra `getEmbedContentIds` entry (the root-only
  * contract expects exactly one root per body). The container model keeps one
  * root; new lines are CHILDREN.
  *
@@ -25,7 +25,7 @@ import type { Style } from "../styles";
  * word boundaries and preserves every typed space, exactly like the document
  * body.
  *
- * `orphans: 1, widows: 1` (FN-5, decision E2): footnotes split at single-line
+ * `orphans: 1, widows: 1`: footnotes split at single-line
  * granularity. Google Docs places a single line of a footnote body on page N and
  * the rest on N+1 — footnotes are NOT subject to the default 2-line orphan/widow
  * constraint. Without this, a 2-line body where only 1 line fits would return
@@ -33,7 +33,7 @@ import type { Style } from "../styles";
  * are `inherits: true`, so they cascade from this body root through the anonymous
  * block to the IFC's `parentCs.orphans`/`parentCs.widows` readers.
  *
- * `markerText` (FN-6.2b): the body displays its footnote number as a generated,
+ * `markerText`: the body displays its footnote number as a generated,
  * offset-excluded leading marker — the "1" at the start of the footnote in the
  * slot (Google Docs parity). The number comes from `ctx.footnoteNumber(view.id)`
  * (`view.id` is the body root id === the footnote's `contentBlockId`, the key

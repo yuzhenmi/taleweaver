@@ -14,6 +14,7 @@ import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import { makeRootContext } from "../layout/layout-context";
 import { buildBlockFitMetas } from "../layout/build-fit-metas";
 import { measurePass } from "../layout/measure-pass";
+import { flattenContents } from "../layout/group-children";
 import { IMPLICIT_SECTION_PLAN } from "../layout/section-plan";
 import { makeVirtualLayoutTree } from "../layout/virtual-layout-tree";
 import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
@@ -149,7 +150,7 @@ export function buildSpanningTree({ pages }: { pages: number }): SpanningTreeRes
     pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
   const shaper = createMockShaper(8, lineHeight);
   const metas = buildBlockFitMetas(root, shaper, undefined, pageContentInlineSize);
-  const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children);
+  const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, flattenContents(root.children));
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
   const tree = makeVirtualLayoutTree(plan, root, ctx, createMockShaper(8, lineHeight), pageConfig);
   return { tree, blockId };

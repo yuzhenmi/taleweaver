@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { insertNewBlocksInTx, type NewBlockSpec } from "./insert-new-blocks";
-import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
+import { buildState, buildBlock, inlineContent, text, finalSectionOf } from "../../test-utils/state-builders";
 import { applyOperation, resolveBlock } from "../state";
 import { asBlockId } from "../block-id";
 import { getYBlock } from "../yjs-doc";
@@ -22,11 +22,12 @@ describe("insertNewBlocksInTx — materialize pre-linked new blocks (PF-0)", () 
         buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("x")]) }),
       ],
     });
+    const F = finalSectionOf(state);
     const specs: NewBlockSpec[] = [
       { id: asBlockId("n1"), kind: "block", type: "paragraph", attrs: {}, items: [text("a")],
-        parentId: asBlockId("doc"), prevSiblingId: asBlockId("p"), nextSiblingId: asBlockId("n2") },
+        parentId: F, prevSiblingId: asBlockId("p"), nextSiblingId: asBlockId("n2") },
       { id: asBlockId("n2"), kind: "block", type: "paragraph", attrs: {}, items: [text("b")],
-        parentId: asBlockId("doc"), prevSiblingId: asBlockId("n1"), nextSiblingId: null },
+        parentId: F, prevSiblingId: asBlockId("n1"), nextSiblingId: null },
     ];
     // The primitive does NOT rewire neighbors — that's the caller's job. Mirror it
     // so the resulting chain is consistent (else the assertChainIntegrity dev
@@ -38,7 +39,7 @@ describe("insertNewBlocksInTx — materialize pre-linked new blocks (PF-0)", () 
     }).state;
     const n1 = resolveBlock(next, asBlockId("n1"))?.block;
     const n2 = resolveBlock(next, asBlockId("n2"))?.block;
-    expect(n1?.parentId).toBe("doc");
+    expect(n1?.parentId).toBe(F);
     expect(n1?.prevSiblingId).toBe("p");
     expect(n1?.nextSiblingId).toBe("n2");
     expect((n1?.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "")).join("")).toBe("a");

@@ -18,6 +18,7 @@
  * DELETE_WORD is structurally simple — a cross-block word delete is already a
  * NO-OP in BOTH modes (no merge path), so there is no structural gate.
  */
+import { finalSectionOf } from "../../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import {
   config as directConfig,
@@ -40,7 +41,7 @@ import { getBlock, getSuggestions, type BlockId } from "../../state";
 
 /** The first body paragraph id under the document root. */
 function bodyParaId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = getBlock(editor.state, finalSectionOf(editor.state));
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
     throw new Error("document root has no first child paragraph");
@@ -289,7 +290,7 @@ describe("handleDeleteWord — suggesting mode (slice 4c-iii)", () => {
     s = reduceEditor(s, { type: "SPLIT_NODE" }, directConfig);
     s = reduceEditor(s, { type: "INSERT_TEXT", text: "def" }, directConfig);
 
-    const root = getBlock(s.state, s.state.rootId);
+    const root = getBlock(s.state, finalSectionOf(s.state));
     const secondId = root?.lastChildId ?? null;
     if (secondId === null) {
       throw new Error("expected a second paragraph");

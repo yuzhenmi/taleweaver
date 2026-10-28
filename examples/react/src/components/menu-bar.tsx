@@ -41,9 +41,7 @@ interface DocMenuBarProps {
   focus?: () => void;
 }
 
-// Plan 2 will re-add: insertImage (INSERT_NODE with image factory)
-// Plan 2 will re-add: table insertion (INSERT_NODE with table factory)
-// Plan 2 will re-add: horizontal-line insertion (INSERT_NODE with hr factory)
+// Not offered here: image, table and horizontal-line insertion.
 
 export function DocMenuBar({ dispatch, editorState, focus }: DocMenuBarProps) {
   // Active capitalization at the selection. `getActiveFormatting().textTransform`
@@ -103,7 +101,7 @@ export function DocMenuBar({ dispatch, editorState, focus }: DocMenuBarProps) {
           <MenubarItem onSelect={() => { dispatch({ type: "INSERT_NODE", node: createParagraph() }); focus?.(); }}>
             Paragraph
           </MenubarItem>
-          {/* Plan 2 will re-add: Image, Table, Horizontal line */}
+          {/* Image, Table and Horizontal line insertion are not offered here. */}
         </MenubarContent>
       </MenubarMenu>
 

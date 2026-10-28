@@ -3,7 +3,7 @@ import { freshState } from "../state";
 import { clearTransientViewState, recordChange, type EditorState } from "./editor-state";
 
 /**
- * Apply a PEER's edit to the local `EditorState` (live-collab P1).
+ * Apply a PEER's edit to the local `EditorState` (live collab).
  *
  * When a remote peer mutates the shared `Y.Doc`, the local
  * `subscribeForeignChanges` observer fires with the set of block ids that
@@ -20,17 +20,18 @@ import { clearTransientViewState, recordChange, type EditorState } from "./edito
  *   print backend relayouts only the foreign-dirtied blocks on the next
  *   `update()`, exactly like the post-local-dispatch path.
  *
- * **Selection and history pass through untouched.** A foreign edit is not in
- * the local undo history (the peer owns it), and selection rebasing under a
- * concurrent remote edit is a deferred rough edge (the eventual fix is Yjs
- * `RelativePosition`). The local caret keeps its `Position`; only a peer
- * editing the SAME block the caret sits in can drift it.
+ * **Selection and history pass through this function untouched.** A foreign
+ * edit is not in the local undo history (the peer owns it). Selection rebasing
+ * under the remote edit is done by the caller (`handleApplyForeignChange` →
+ * `rebaseSelection`), not here.
  *
- * This is an editor-level seam, NOT a controller change: the print controller
- * is a fed-`editorState` renderer, so the host (React hook) calls this and
- * feeds the result back through the controller's normal `update(editorState)`
- * path. Core is geometry-free (Phase 0b), so — like `rebuildTrees` — this
- * carries no `config`/geometry.
+ * This is an editor-level seam, NOT a controller change: a backend controller
+ * that observes a peer's Y.Doc update dispatches `APPLY_FOREIGN_CHANGE`, whose
+ * reducer arm (`handleApplyForeignChange`) calls this in whichever reducer owns
+ * the state: the print host feeds the result back through its controller's
+ * `update(editorState)`; the digital controller reduces it in its own `dispatch`.
+ * Core is geometry-free, so — like `rebuildTrees` — this carries no
+ * `config`/geometry.
  */
 export function reconcileForeignChange(
   editor: EditorState,

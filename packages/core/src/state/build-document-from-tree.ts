@@ -1,3 +1,4 @@
+import type { BlockKindResolver } from "./block-kinds";
 import type { Block } from "./block";
 import type { BlockId, IdAllocator } from "./block-id";
 import type { InlineContent } from "./inline-content";
@@ -67,6 +68,7 @@ export function buildDocumentFromTree(
   root: ContainerBlockNode,
   listDefs: Record<string, ListDef>,
   allocator: IdAllocator,
+  resolver: BlockKindResolver,
 ): State {
   const blocks: Block[] = [];
 
@@ -123,5 +125,5 @@ export function buildDocumentFromTree(
 
   const rootId = allocator.allocate();
   build(root, rootId, null, null, null);
-  return buildStateWithListDefs({ rootId, blocks, listDefs });
+  return buildStateWithListDefs({ rootId, blocks, listDefs, resolver });
 }

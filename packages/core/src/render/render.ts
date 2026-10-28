@@ -16,7 +16,7 @@ import type { CounterValue } from "../numbering/types";
 import type { RenderContext } from "./block-view";
 import type { RenderNode } from "./render-node";
 import { renderBlockBody } from "./render-core";
-import { buildCrossReferenceIndex } from "./collect-cross-references";
+import { buildCrossReferenceIndex, type CrossReferenceIndex } from "./collect-cross-references";
 import {
   effectiveRenderPolicy,
   makeRenderContext,
@@ -26,18 +26,18 @@ import { renderIncremental } from "./render-incremental";
 
 /**
  * Output of the new renderer. `root` is the main document's RenderNode tree;
- * `embedContents` (populated by T8) carries footnote bodies etc. as a
+ * `embedContents` carries footnote bodies etc. as a
  * parallel map keyed by BlockId, consumed by pagination. `templateContents`
- * (C.2a) carries header/footer template bodies as a second parallel map,
- * rendered the same way as embeds; nothing positions these bodies until
- * C.2c wires templates into pagination.
+ * carries header/footer template bodies as a second parallel map, rendered
+ * the same way as embeds; pagination lays each body out into the header /
+ * footer slot of every page its section assigns it to.
  */
 export interface RenderOutput {
   readonly root: RenderNode;
   readonly embedContents: ReadonlyMap<BlockId, RenderNode>;
   readonly templateContents: ReadonlyMap<BlockId, RenderNode>;
   /**
-   * FN-8: the document's footnote anchors in document order, cached on the
+   * The document's footnote anchors in document order, cached on the
    * render output so the NEXT incremental cycle can REUSE them — skipping the
    * O(N_blocks) `collectFootnoteAnchors` walk when no edit could have changed
    * the list (no dirty block gained/lost/moved an anchor; see
@@ -45,7 +45,7 @@ export interface RenderOutput {
    */
   readonly footnoteAnchors: readonly FootnoteAnchorRef[];
   /**
-   * FN-8: the per-anchor numbering map for THIS cycle (keyed by
+   * The per-anchor numbering map for THIS cycle (keyed by
    * `FootnoteAnchorRef.contentBlockId`), cached alongside `footnoteAnchors`.
    * When the anchors are reused unchanged, this map is reused too (the default
    * continuous policy is a pure function of the anchor list), so the per-cycle
@@ -62,15 +62,13 @@ export interface RenderOutput {
    */
   readonly listCounters: ReadonlyMap<BlockId, CounterValue>;
   /**
-   * Reverse index `targetId → [host blockIds]` over the document's cross-
-   * reference fields, cached so the NEXT incremental cycle can (a) REUSE it
-   * unchanged when no dirty block touched a cross-reference (the
-   * `footnoteAnchors` reuse precedent) and (b) expand its invalidation set: a
-   * target whose value changed this cycle (edited, deleted, or renumbered)
-   * forces every host referencing it to re-render, even though the host's own
-   * content is unchanged. Empty for a cross-reference-free document.
+   * The cross-reference index (bookmarkId → host blocks, bookmarkId → its paired
+   * range), handed to the NEXT incremental cycle, which updates it from its dirty
+   * blocks (O(dirty), see `updateCrossReferenceIndex`) and re-renders every host
+   * whose bookmark's value may have changed (a covered block edited, the pairing
+   * changed, or the start block renumbered).
    */
-  readonly crossReferenceIndex: ReadonlyMap<BlockId, ReadonlyArray<BlockId>>;
+  readonly crossReferenceIndex: CrossReferenceIndex;
   /**
    * The document outline signature for THIS cycle — the ordered heading list (id,
    * level, display text) a `table-of-contents` block derives its entries from,
@@ -83,8 +81,8 @@ export interface RenderOutput {
    */
   readonly outlineSignature: OutlineSignature;
   /**
-   * The change-tracking preview view this output was rendered under (slice
-   * 5c-iii). Cached so the incremental dispatch can DETECT a view switch: reused
+   * The change-tracking preview view this output was rendered under
+   * (a `SuggestionView`). Cached so the incremental dispatch can DETECT a view switch: reused
    * prev nodes carry the prior view's suggestion projection, so a render whose
    * `suggestionView` differs from `prev.suggestionView` MUST take the full path
    * rather than the incremental one. `"suggesting"` for a default render.
@@ -117,8 +115,9 @@ export interface RenderOutput {
  * the common-case cost is O(depth) per edit instead of O(N).
  */
 /**
- * Shared frozen empty list-counter map for the list-free path (and the
- * incremental path until Task 11 wires incremental list-renumbering). A document
+ * Shared frozen empty list-counter map for the list-free path, full and
+ * incremental (`render-incremental.ts` diffs it against the previous cycle's
+ * counters and re-renders the `listRenumbered` blocks). A document
  * with no list-items computes no counters; the list-item component's
  * `ctx.counterValue` lookup then misses for every block, so no marker is baked —
  * identical to the pre-wiring behavior, minus the collection walk.
@@ -130,10 +129,10 @@ export interface RenderOptions {
   readonly prevState?: State;
   readonly dirtyIds?: ReadonlySet<BlockId>;
   /**
-   * FN-6.4 (slice 2): an AUTHORITATIVE footnote numbering map injected by the
+   * An AUTHORITATIVE footnote numbering map injected by the
    * layout-driven `restart-per-page` second pass (`rebuildTrees`). When present,
    * BOTH render paths use it as `fnNumbers` INSTEAD of the policy-derived
-   * computation (`effectiveRenderPolicy(state)` / the FN-8 reused cache) — the
+   * computation (`effectiveRenderPolicy(state)` / the reused cache) — the
    * override is the source of truth for this cycle. It flows to BOTH the inline
    * call markers (`expandInlineItems`) and the body leading markers
    * (`makeRenderContext` → `footnoteNumber`), so the two always agree.
@@ -141,12 +140,12 @@ export interface RenderOptions {
    * This is the clean injection point for layout-derived numbers: render is the
    * level where a footnote number lives (a `TextBox.text` / a body `markerText`),
    * and `restart-per-page` numbers are only known after pagination — a contained
-   * `target-counter`. When absent, behavior is exactly as before FN-6.4.
+   * `target-counter`. When absent, behavior is unchanged.
    */
   readonly footnoteNumbersOverride?: ReadonlyMap<BlockId, FootnoteNumber>;
   /**
-   * Change-tracking preview view (slice 5c-iii). `"suggesting"` (default) renders
-   * the literal document with the 5a/5b suggestion visuals; `"final"` renders as
+   * Change-tracking preview view. `"suggesting"` (default) renders
+   * the literal document with the suggestion visuals; `"final"` renders as
    * if all suggestions were ACCEPTED; `"original"` as if all were REJECTED. Pure
    * derivation over inline content (no state mutation) — see
    * {@link RenderContext.suggestionView}. Live editing always uses `"suggesting"`.
@@ -186,8 +185,7 @@ export function render(
   options?: RenderOptions,
 ): RenderOutput {
   // Incremental path: all three options must be provided. Otherwise
-  // fall through to the full-rebuild path below (unchanged from
-  // before R-D, so callers that don't opt in keep working).
+  // fall through to the full-rebuild path below (so callers that don't opt in keep working).
   if (
     options !== undefined &&
     options.prev !== undefined &&
@@ -210,9 +208,9 @@ export function render(
     );
   }
 
-  // FN-2: compute the footnote numbering map once for this render cycle and
+  // Compute the footnote numbering map once for this render cycle and
   // thread it down so the footnote-anchor marker renders its number by id.
-  // FN-8: a footnote-free doc skips the O(N_blocks) `collectFootnoteAnchors`
+  // A footnote-free doc skips the O(N_blocks) `collectFootnoteAnchors`
   // walk entirely (an empty map is the identical result). `docHasFootnotes` is
   // O(1) (cached embed-content root-id set). We collect the anchor LIST here
   // (not just the numbers) so the resulting RenderOutput can CACHE it — the
@@ -221,14 +219,14 @@ export function render(
   const fnAnchors = docHasFootnotes(state)
     ? collectFootnoteAnchors(state)
     : EMPTY_FOOTNOTE_ANCHORS;
-  // FN-6.4: an explicit override (layout-derived per-page numbers) is
+  // An explicit override (layout-derived per-page numbers) is
   // authoritative — use it directly and skip the policy-derived computation.
   const fnNumbers = options?.footnoteNumbersOverride !== undefined
     ? options.footnoteNumbersOverride
     : fnAnchors.length > 0
       ? footnoteNumbers(fnAnchors, effectiveRenderPolicy(state))
       : EMPTY_FOOTNOTE_NUMBERS;
-  // P10: compute the list-item numbering map once for this render cycle and
+  // Compute the list-item numbering map once for this render cycle and
   // thread it down so each list-item bakes its marker by id. A list-free doc
   // skips the O(N_blocks) `collectListEvents` walk (`docHasLists` early-exits at
   // the first list-item; a list-free doc pays one allocation-free walk) and uses
@@ -238,9 +236,8 @@ export function render(
     listEvents.length > 0
       ? computeCounters(listEvents, getListDefsForState(state))
       : EMPTY_LIST_COUNTERS;
-  // Build the cross-reference target→hosts index for THIS cycle so the next
-  // incremental cycle can reuse it (and expand its invalidation set). The full
-  // path always walks every block anyway, so this adds no asymptotic cost.
+  // Build the cross-reference index for THIS cycle; the next incremental cycle
+  // updates it from its dirty blocks. The full path walks every block anyway.
   const crossReferenceIndex = buildCrossReferenceIndex(state);
   // The document outline signature for THIS cycle, cached so the next incremental
   // cycle can reuse it (and expand its invalidation set when a heading changes).
@@ -253,6 +250,7 @@ export function render(
     fnNumbers,
     listCounters,
     options?.suggestionView ?? "suggesting",
+    crossReferenceIndex.bookmarks,
   );
   const visited = new Set<BlockId>();
   const rootBlock = getBlock(state, state.rootId);
@@ -303,7 +301,8 @@ export function render(
   // Template contents: rendered exactly like embed contents — each
   // header/footer template body is a self-contained subtree with no parent
   // computed style (uses initial). Its own freshly-seeded `visited` set
-  // (independent walk over its own descendants). Inert until C.2c.
+  // (independent walk over its own descendants). Pagination positions each
+  // body in the header/footer slots of the pages that use it.
   const templateContents = new Map<BlockId, RenderNode>();
   for (const id of getTemplateContentIds(state)) {
     const block = getTemplateContent(state, id);
@@ -358,7 +357,7 @@ export function render(
  * inline interpreters see the containing block's specified style as
  * parent context.
  *
- * **Leaf dispatch (A5):** `def.leafShape === "atomic"` receives `[]`
+ * **Leaf dispatch:** `def.leafShape === "atomic"` receives `[]`
  * directly — `expandInlineItems` is bypassed so the strut sentinel
  * cannot leak to atomic components. Inline-bearing leaves call
  * `expandInlineItems` as normal.

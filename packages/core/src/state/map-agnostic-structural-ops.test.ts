@@ -90,82 +90,53 @@ function joinText(items: ReadonlyArray<{ kind: string; text?: string }> | undefi
 }
 
 describe("C.2c T7c — splitBlockAtPosition inside a templateContents header body", () => {
-  it("creates the NEW header paragraph IN templateContents (NOT the main map) with correct rewiring", () => {
+  it("creates the NEW header paragraph (the head) IN templateContents (NOT the main map) with correct rewiring", () => {
     const state = buildWithHeaderBody();
-    const allocator = createTestAllocator("hp");
-    // Split "alpha" at offset 3 → left "alp", new block "ha".
-    const result = splitBlockAtPosition(state, createPosition(HDR_P1, 3), allocator);
+    // Split "alpha" at offset 3 → head "alp" (new id), tail "ha" keeps hdr-c1.
+    const result = splitBlockAtPosition(state, createPosition(HDR_P1, 3), createTestAllocator("hp"));
     const newId = "hp-0" as BlockId;
-
-    // The new block lives in templateContents, NOT the main blocks map.
-    const newBlock = getTemplateContent(result.state, newId);
-    expect(newBlock).not.toBeNull();
+    const head = getTemplateContent(result.state, newId);
+    expect(head).not.toBeNull();
     expect(getBlock(result.state, newId)).toBeNull();
-
-    // New block content + identity.
-    expect(joinText(newBlock?.inlineContent?.items)).toBe("ha");
-    expect(newBlock?.type).toBe("paragraph");
-    // Parent is the header root (inherited from the original block's parent).
-    expect(newBlock?.parentId).toBe(HDR_ROOT);
-    expect(newBlock?.prevSiblingId).toBe(HDR_P1);
-    // Original hdr-c1's old next sibling becomes the new block's next.
-    expect(newBlock?.nextSiblingId).toBe(HDR_P2);
-
-    // Original block: keeps id, content "alp", next rewired to the new block.
-    const left = getTemplateContent(result.state, HDR_P1);
-    expect(joinText(left?.inlineContent?.items)).toBe("alp");
-    expect(left?.nextSiblingId).toBe(newId);
-
-    // hdr-c2's prevSibling rewired to the new block (it sits between).
-    const c2 = getTemplateContent(result.state, HDR_P2);
-    expect(c2?.prevSiblingId).toBe(newId);
-
-    // dirtyIds reports the touched template ids.
+    expect(joinText(head?.inlineContent?.items)).toBe("alp");
+    expect(head?.type).toBe("paragraph");
+    expect(head?.parentId).toBe(HDR_ROOT);
+    expect(head?.prevSiblingId).toBeNull();
+    expect(head?.nextSiblingId).toBe(HDR_P1);
+    const tail = getTemplateContent(result.state, HDR_P1);
+    expect(joinText(tail?.inlineContent?.items)).toBe("ha");
+    expect(tail?.nextSiblingId).toBe(HDR_P2);
+    expect(getTemplateContent(result.state, HDR_ROOT)?.firstChildId).toBe(newId);
     expect(result.dirtyIds.has(HDR_P1)).toBe(true);
     expect(result.dirtyIds.has(newId)).toBe(true);
-    expect(result.dirtyIds.has(HDR_P2)).toBe(true);
+    expect(result.dirtyIds.has(HDR_ROOT)).toBe(true);
   });
 
-  it("splitting the LAST header child rewires the header root's lastChildId in templateContents", () => {
+  it("splitting the LAST header child: the tail keeps its id and stays the header root's last child", () => {
     const state = buildWithHeaderBody();
-    const allocator = createTestAllocator("hp");
-    // Split the last child "beta" at offset 2 → "be" | "ta".
-    const result = splitBlockAtPosition(state, createPosition(HDR_P2, 2), allocator);
+    const result = splitBlockAtPosition(state, createPosition(HDR_P2, 2), createTestAllocator("hp"));
     const newId = "hp-0" as BlockId;
-
-    const newBlock = getTemplateContent(result.state, newId);
-    expect(newBlock).not.toBeNull();
-    expect(getBlock(result.state, newId)).toBeNull();
-    expect(joinText(newBlock?.inlineContent?.items)).toBe("ta");
-    expect(newBlock?.nextSiblingId).toBeNull();
-
-    // Header root's lastChildId rewired to the new block.
+    expect(joinText(getTemplateContent(result.state, newId)?.inlineContent?.items)).toBe("be");
+    expect(joinText(getTemplateContent(result.state, HDR_P2)?.inlineContent?.items)).toBe("ta");
     const root = getTemplateContent(result.state, HDR_ROOT);
-    expect(root?.lastChildId).toBe(newId);
     expect(root?.firstChildId).toBe(HDR_P1);
-    expect(result.dirtyIds.has(HDR_ROOT)).toBe(true);
+    expect(root?.lastChildId).toBe(HDR_P2);
+    expect(getTemplateContent(result.state, HDR_P1)?.nextSiblingId).toBe(newId);
   });
 });
 
 describe("C.2c T7c — mergeAdjacentBlocks inside a templateContents header body", () => {
-  it("merges hdr-c2 into hdr-c1 in templateContents, removing hdr-c2 from the template map", () => {
+  it("merges hdr-c1 into hdr-c2 (the survivor) in templateContents, removing hdr-c1", () => {
     const state = buildWithHeaderBody();
     const result = mergeAdjacentBlocks(state, HDR_P1, HDR_P2);
-
-    // hdr-c1 absorbs hdr-c2's content.
-    const left = getTemplateContent(result.state, HDR_P1);
-    expect(joinText(left?.inlineContent?.items)).toBe("alphabeta");
-    // hdr-c1 was the first child; merging the last sibling makes it the last too.
-    expect(left?.nextSiblingId).toBeNull();
-
-    // hdr-c2 removed from the templateContents map (and never present in main).
-    expect(getTemplateContent(result.state, HDR_P2)).toBeNull();
-    expect(getBlock(result.state, HDR_P2)).toBeNull();
-
-    // Header root's lastChildId rewired to hdr-c1 (hdr-c2 was last child).
+    const survivor = getTemplateContent(result.state, HDR_P2);
+    expect(joinText(survivor?.inlineContent?.items)).toBe("alphabeta");
+    expect(survivor?.prevSiblingId).toBeNull();
+    expect(getTemplateContent(result.state, HDR_P1)).toBeNull();
+    expect(getBlock(result.state, HDR_P1)).toBeNull();
     const root = getTemplateContent(result.state, HDR_ROOT);
-    expect(root?.lastChildId).toBe(HDR_P1);
-
+    expect(root?.firstChildId).toBe(HDR_P2);
+    expect(root?.lastChildId).toBe(HDR_P2);
     expect(result.dirtyIds.has(HDR_P1)).toBe(true);
     expect(result.dirtyIds.has(HDR_P2)).toBe(true);
     expect(result.dirtyIds.has(HDR_ROOT)).toBe(true);
@@ -179,18 +150,13 @@ describe("C.2c T7c — deleteRange inside a templateContents header body", () =>
     const span = createSpan(createPosition(HDR_P1, 3), createPosition(HDR_P2, 2));
     const result = deleteRange(state, span);
 
-    // hdr-c1 keeps "alp" + hdr-c2 suffix "ta" → "alpta".
-    const anchor = getTemplateContent(result.state, HDR_P1);
-    expect(joinText(anchor?.inlineContent?.items)).toBe("alpta");
-    expect(anchor?.nextSiblingId).toBeNull();
-
-    // hdr-c2 removed from templateContents (not main).
-    expect(getTemplateContent(result.state, HDR_P2)).toBeNull();
-    expect(getBlock(result.state, HDR_P2)).toBeNull();
-
-    // Header root's lastChildId rewired to the anchor.
-    const root = getTemplateContent(result.state, HDR_ROOT);
-    expect(root?.lastChildId).toBe(HDR_P1);
+    // The focus hdr-c2 survives with "alp" + its suffix "ta" → "alpta".
+    const focus = getTemplateContent(result.state, HDR_P2);
+    expect(joinText(focus?.inlineContent?.items)).toBe("alpta");
+    expect(focus?.prevSiblingId).toBeNull();
+    expect(getTemplateContent(result.state, HDR_P1)).toBeNull();
+    expect(getBlock(result.state, HDR_P1)).toBeNull();
+    expect(getTemplateContent(result.state, HDR_ROOT)?.firstChildId).toBe(HDR_P2);
 
     expect(result.dirtyIds.has(HDR_P1)).toBe(true);
     expect(result.dirtyIds.has(HDR_P2)).toBe(true);
@@ -228,15 +194,15 @@ describe("C.2c T7c — replaceRange inside a templateContents header body", () =
   it("replaces a cross-block range across the two header paragraphs (reflected in templateContents)", () => {
     const state = buildWithHeaderBody();
     // Replace from hdr-c1 offset 3 to hdr-c2 offset 2 with "MID":
-    //   "alp" + "MID" + "ta" → "alpMIDta" in hdr-c1; hdr-c2 removed.
+    //   "alp" + "MID" + "ta" → "alpMIDta" in the surviving hdr-c2; hdr-c1 removed.
     const span = createSpan(createPosition(HDR_P1, 3), createPosition(HDR_P2, 2));
     const result = replaceRange(state, span, "MID", {});
 
-    const anchor = getTemplateContent(result.state, HDR_P1);
-    expect(joinText(anchor?.inlineContent?.items)).toBe("alpMIDta");
-    expect(getTemplateContent(result.state, HDR_P2)).toBeNull();
-    expect(getBlock(result.state, HDR_P2)).toBeNull();
-    expect(result.dirtyIds.has(HDR_P1)).toBe(true);
+    const focus = getTemplateContent(result.state, HDR_P2);
+    expect(joinText(focus?.inlineContent?.items)).toBe("alpMIDta");
+    expect(getTemplateContent(result.state, HDR_P1)).toBeNull();
+    expect(getBlock(result.state, HDR_P1)).toBeNull();
+    expect(result.dirtyIds.has(HDR_P2)).toBe(true);
   });
 });
 
@@ -249,7 +215,7 @@ describe("C.2c T7c — main-tree no-regression smoke (byte-identical structural 
     // New block lives in the MAIN map (not templateContents).
     expect(getBlock(result.state, newId)).not.toBeNull();
     expect(getTemplateContent(result.state, newId)).toBeNull();
-    expect(joinText(getBlock(result.state, BODY_P)?.inlineContent?.items)).toBe("body");
-    expect(joinText(getBlock(result.state, newId)?.inlineContent?.items)).toBe(" text");
+    expect(joinText(getBlock(result.state, newId)?.inlineContent?.items)).toBe("body");
+    expect(joinText(getBlock(result.state, BODY_P)?.inlineContent?.items)).toBe(" text");
   });
 });

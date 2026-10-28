@@ -29,7 +29,7 @@ import { compareBlocksInDocOrder, selectionContextOf } from "./block-compare";
 import { iterateSpan, iterateBlocksInSpan } from "./span-iteration";
 import { moveByCharacter } from "../cursor/cursor-ops";
 import { createPosition, createSpan } from "./block-position";
-import { buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
+import { buildBlock, buildState, inlineContent, text, finalSectionOf } from "../test-utils/state-builders";
 import type { BlockId } from "./block-id";
 import type { State } from "./state";
 
@@ -98,9 +98,9 @@ describe("C.2c T7a — ancestorChain is map-agnostic", () => {
     expect(ancestorChain(state, HDR_ROOT)).toEqual([HDR_ROOT]);
   });
 
-  it("main-tree ancestorChain is unchanged (byte-identical)", () => {
+  it("main-tree ancestorChain: paragraph → its (final) section → the root", () => {
     const state = buildWithHeaderBody();
-    expect(ancestorChain(state, BODY_P)).toEqual([BODY_P, DOC]);
+    expect(ancestorChain(state, BODY_P)).toEqual([BODY_P, finalSectionOf(state), DOC]);
   });
 });
 

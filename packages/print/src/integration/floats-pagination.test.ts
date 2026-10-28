@@ -30,6 +30,7 @@ import type { PageBox } from "../layout/page-box";
 import type { LayoutBox } from "../layout/layout-box";
 import { buildBlockFitMetas } from "../layout/build-fit-metas";
 import { measurePass, type FloatPageMeasurer } from "../layout/measure-pass";
+import { flattenContents } from "../layout/group-children";
 import { accumulateListCounter } from "../layout/fit-core";
 import { createFloatEnvironment } from "../layout/float-context";
 import { IMPLICIT_SECTION_PLAN } from "../layout/section-plan";
@@ -151,7 +152,7 @@ function buildTree(root: ElementBox, pageConfig: PageConfig) {
   const metas = buildBlockFitMetas(root, shaper, undefined, pageContentInlineSize);
   const measurer = makeMeasurer(root, shaper, contentCtx, metas);
   const plan = measurePass(
-    metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children,
+    metas, pageConfig, IMPLICIT_SECTION_PLAN, flattenContents(root.children),
     undefined, undefined, undefined, measurer,
   );
   // #528: enable float pushing in materialize, mirroring the production producer

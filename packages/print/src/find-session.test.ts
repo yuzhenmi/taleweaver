@@ -22,6 +22,7 @@ import {
   createEditorController,
 } from "./index";
 import * as core from "@taleweaver/core";
+import { finalSection } from "./test-utils/final-section"; // body blocks live in the final section
 
 const { FIND_HIGHLIGHT_FILL: MATCH_HIGHLIGHT_FILL, ACTIVE_FIND_HIGHLIGHT_FILL: ACTIVE_MATCH_HIGHLIGHT_FILL } = core;
 
@@ -192,7 +193,7 @@ describe("find session + navigation (#433)", () => {
     // at/after offset 4 is the 2nd occurrence (offset 8) → activeIndex 1.
     const cfg = config();
     let editor = seededEditorState("foo bar foo baz foo");
-    const blockId = core.getBlock(editor.state, editor.state.rootId)?.firstChildId;
+    const blockId = finalSection(editor.state)?.firstChildId;
     if (blockId === null || blockId === undefined) throw new Error("no block");
     editor = core.reduceEditor(
       editor,
@@ -221,7 +222,7 @@ describe("find session + navigation (#433)", () => {
     editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "hello hello" }, cfg);
     editor = core.reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, cfg);
     // Sanity: the caret is now in a different context than the main body.
-    const bodyBlockId = core.getBlock(editor.state, editor.state.rootId)?.firstChildId;
+    const bodyBlockId = finalSection(editor.state)?.firstChildId;
     if (bodyBlockId === null || bodyBlockId === undefined) throw new Error("no body block");
     expect(core.selectionContextOf(editor.state, editor.selection.focus.blockId)).not.toBe(
       core.selectionContextOf(editor.state, bodyBlockId),
@@ -421,7 +422,7 @@ describe("find session + navigation (#433)", () => {
       const cfg = config();
       let editor = core.createInitialEditorState(cfg);
       editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "foo" }, cfg);
-      const topBlockId = core.getBlock(editor.state, editor.state.rootId)?.firstChildId;
+      const topBlockId = finalSection(editor.state)?.firstChildId;
       if (topBlockId === null || topBlockId === undefined) throw new Error("no top block");
       for (let i = 0; i < 8; i++) {
         editor = core.reduceEditor(editor, { type: "SPLIT_NODE" }, cfg);
@@ -446,7 +447,7 @@ describe("find session + navigation (#433)", () => {
       // caret pinned at the top. The live recompute refreshes the matches; with
       // the caret in view at the top, cursor-scroll is inert. The recompute must
       // not smooth-scroll (no rAF scheduled).
-      const lastBlockId = core.getBlock(editor.state, editor.state.rootId)?.lastChildId;
+      const lastBlockId = finalSection(editor.state)?.lastChildId;
       if (lastBlockId === null || lastBlockId === undefined) throw new Error("no last block");
       editor = core.reduceEditor(
         editor,
@@ -486,7 +487,7 @@ describe("find session + navigation (#433)", () => {
     // "foo foo" → 2 matches. Active = index 1 (the 2nd). Delete the whole doc's
     // text down to "foo" → only 1 match survives; activeIndex clamps 1 → 0.
     let editor = seededEditorState("foo foo");
-    const blockId = core.getBlock(editor.state, editor.state.rootId)?.firstChildId;
+    const blockId = finalSection(editor.state)?.firstChildId;
     if (blockId === null || blockId === undefined) throw new Error("no block");
 
     const { container, lastCtx } = mount();

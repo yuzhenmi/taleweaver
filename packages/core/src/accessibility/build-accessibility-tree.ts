@@ -28,9 +28,11 @@ import {
   type SuggestionView,
 } from "../state";
 import { collectListEvents, computeCounters } from "../numbering";
+import { endMarkOf, readSuggestionRecordFromState, type BoundaryMarkKind } from "../state";
 import type { CounterValue } from "../numbering";
 import { inlineRenderKey } from "../render/inline-render-key";
 import type {
+  AccessibilityBoundarySuggestion,
   AccessibilityNode,
   AccessibilityTextRun,
   BuildAccessibilityTreeOptions,
@@ -242,7 +244,7 @@ function collectRuns(
     // Adding a throw here would incorrectly fire on tab, hard-break, cross-reference,
     // page-field, and suggestion markers — all of which are legitimately handled by the
     // general path. The block-type guard (assertUnmappedBlockType) is the load-bearing
-    // exhaustiveness guard for slice 1; a per-embed guard would require enumerating
+    // exhaustiveness guard; a per-embed guard would require enumerating
     // every "serializable" embed type explicitly, which is a maintenance trap.
     const display = extractText(
       state,
@@ -313,6 +315,30 @@ function listIdOf(attrs: Block["attrs"]): string | null {
   return typeof raw === "string" ? raw : null;
 }
 
+const BOUNDARY_DESCRIPTION: Readonly<Record<BoundaryMarkKind, string>> = {
+  split: "Suggested paragraph break",
+  join: "Suggested paragraph join",
+  "split+join": "Suggested paragraph break, suggested to be removed",
+  "section-insert": "Suggested section break",
+  "section-join": "Suggested section break removal",
+  "section-insert+section-join": "Suggested section break, suggested to be removed",
+};
+
+/**
+ * The pending tracked-¶ suggestion of a text block — its OWN ¶ (the ¶ owner's
+ * node describes it), as `{ suggestion }` — only in the literal "suggesting" view and
+ * only while the suggestion's record exists. The text is unchanged.
+ */
+function boundarySuggestion(state: State, block: Block, view: SuggestionView): { suggestion?: AccessibilityBoundarySuggestion } {
+  if (view !== "suggesting") return {};
+  const mark = endMarkOf(state, block.id);
+  const first = mark?.suggestionIds[0];
+  if (mark === null || first === undefined) return {};
+  const author = readSuggestionRecordFromState(state, first)?.author ?? "";
+  const description = author === "" ? BOUNDARY_DESCRIPTION[mark.kind] : `${BOUNDARY_DESCRIPTION[mark.kind]} by ${author}`;
+  return { suggestion: { kind: mark.kind, author, description } };
+}
+
 /**
  * Build a bare `listitem` AccessibilityNode for a single `list-item` block with
  * no children yet. Used by both `groupListItems` (where children are injected
@@ -330,7 +356,8 @@ function buildBareListItem(
     level: listLevelOf(block.attrs),
     text: collectRuns(state, block, view),
     children: [],
-    // #555: the resolved ordinal of an ORDERED item, so the dom-mirror emits
+    ...boundarySuggestion(state, block, view),
+    // The resolved ordinal of an ORDERED item, so the dom-mirror emits
     // `<li value=N>` and AT announces the true number (start-at/restart aware),
     // not the browser-native 1,2,3… of a bare `<ol>`. Omitted for bullets.
     ...(listOrdinal !== undefined ? { listOrdinal } : {}),
@@ -363,12 +390,12 @@ function groupListItems(
 
   const listDefs = getListDefsForState(state);
 
-  // #555: resolve every item's ordinal via the SAME numbering engine the
+  // Resolve every item's ordinal via the SAME numbering engine the
   // render/HTML paths use (single source of truth, never re-derived). Ordered
   // listitems carry `listOrdinal` so the dom-mirror can emit `<li value=N>` and
   // AT announces start-at/restart numbers correctly.
   //
-  // GRANULARITY (deliberate v1): computed once per `groupListItems` call — i.e.
+  // GRANULARITY (deliberate): computed once per `groupListItems` call — i.e.
   // once per MAXIMAL CONSECUTIVE run of list-items under a parent, NOT once per
   // tree build. A document with k list runs separated by non-list blocks pays k
   // full-document `collectListEvents`+`computeCounters` walks (O(k·N)). The walk is
@@ -471,7 +498,7 @@ function groupListItems(
 
     for (const block of sameIdItems) {
       const itemLevel = listLevelOf(block.attrs);
-      // Ordered items carry the resolved ordinal (#555); bullets carry none.
+      // Ordered items carry the resolved ordinal; bullets carry none.
       const ordinal = ordered ? counters.get(block.id)?.value : undefined;
       const bareItem = buildBareListItem(state, block, view, ordinal);
 
@@ -772,7 +799,7 @@ function buildTable(
  * `footerBlockId` (→ `"contentinfo"`). Returns `"banner"` as a safe default for
  * an unlinked body (defensive — should not normally occur).
  *
- * Performance note: this is an O(bodies × main-tree) scan — acceptable for v1
+ * Performance note: this is an O(bodies × main-tree) scan — acceptable
  * because the body count is tiny (one header + one footer per section). A future
  * pass can build a single bodyId→role map upfront if needed.
  */
@@ -864,7 +891,7 @@ function buildBlockNode(
       };
     case "table-of-contents":
       // The TOC anchor block: a navigation landmark. Generated entry links are
-      // layout-derived; v1 exposes only the landmark with no children.
+      // layout-derived, so the projection emits only the landmark, with no children.
       return {
         role: "navigation",
         sourceBlockId: block.id,
@@ -877,6 +904,7 @@ function buildBlockNode(
         sourceBlockId: block.id,
         text: collectRuns(state, block, view),
         children: [],
+        ...boundarySuggestion(state, block, view),
       };
     case "heading":
       return {
@@ -885,6 +913,7 @@ function buildBlockNode(
         level: headingLevel(block.attrs),
         text: collectRuns(state, block, view),
         children: [],
+        ...boundarySuggestion(state, block, view),
       };
     case "list-item":
       // A bare list-item node (used when buildBlockNode is called directly on a
@@ -951,7 +980,7 @@ export function buildAccessibilityTree(
   // after the main document children. Reading order: main body first, then footnote bodies
   // (document-content), then template bodies (page-furniture).
   //
-  // getEmbedContentIds / getTemplateContentIds yield ROOT ids only (#313); each root
+  // getEmbedContentIds / getTemplateContentIds yield ROOT ids only; each root
   // heads a self-contained body subtree whose blocks live in its own Y.Map — we walk
   // them via anyResolve. Bodies that fail to resolve (should not occur in a well-formed
   // state, but be defensive) are skipped rather than thrown.

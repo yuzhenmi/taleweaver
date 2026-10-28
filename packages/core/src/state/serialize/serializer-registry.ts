@@ -1,3 +1,4 @@
+import type { BlockKindResolver } from "../block-kinds";
 import type { DocumentSerializer } from "./document-serializer";
 import { createBinaryDocumentSerializer } from "./binary-serializer";
 
@@ -34,7 +35,7 @@ export function createSerializerRegistry(): SerializerRegistry {
 }
 
 /**
- * A registry pre-populated with the built-in serializers. Contains ONLY the v1
+ * A registry pre-populated with the built-in serializers. Contains ONLY the
  * Yjs-binary serializer (`createBinaryDocumentSerializer`) — the one serializer
  * with no host-supplied dependencies. It stays arg-free.
  *
@@ -45,8 +46,8 @@ export function createSerializerRegistry(): SerializerRegistry {
  * they are HOST-registered (the host constructs them with its registry and
  * `register`s them onto this registry).
  */
-export function createDefaultSerializerRegistry(): SerializerRegistry {
+export function createDefaultSerializerRegistry(deps: { blockKindResolver: BlockKindResolver }): SerializerRegistry {
   const reg = createSerializerRegistry();
-  reg.register(createBinaryDocumentSerializer());
+  reg.register(createBinaryDocumentSerializer(deps));
   return reg;
 }

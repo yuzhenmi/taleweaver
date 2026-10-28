@@ -16,7 +16,7 @@ import { resolveBidiLevels, type BaseDirection } from "@taleweaver/core";
 export interface ParagraphBidi {
   /** Per-codepoint embedding levels (from resolveBidiLevels). */
   readonly levels: Uint8Array;
-  /** Per-codepoint ORIGINAL bidi class (for L1 in reorder, P4-C). */
+  /** Per-codepoint ORIGINAL bidi class (for L1 in the line reorder). */
   readonly types: Uint8Array;
   readonly paragraphLevel: number;
   /**

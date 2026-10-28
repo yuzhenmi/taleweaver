@@ -30,13 +30,16 @@ import {
   firstBlockId,
   type NavCtx,
 } from "./nav-test-helpers";
+import { createDefaultComponentRegistry } from "@taleweaver/core";
+
+const TEST_RESOLVER = createDefaultComponentRegistry();
 
 const CHAR_W = 8;
 const LINE_H = 16;
 
 /** A fresh nav context over one paragraph "AB" <hard-break> "CD" (block length 5). */
 function hardBreakCtx(): { ctx: NavCtx; para: BlockId } {
-  const state = decodeHtml("<p>AB<br>CD</p>", productionAllocator, browserHtmlParser);
+  const state = decodeHtml("<p>AB<br>CD</p>", productionAllocator, browserHtmlParser, TEST_RESOLVER);
   const ctx = makeNavEditorFromState(state, {
     containerWidth: 200,
     charWidth: CHAR_W,

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildAccessibilityTree } from "./build-accessibility-tree";
-import { buildState, buildBlock, inlineContent, text, embed } from "../test-utils/state-builders";
+import { registryWith, testLeaf, TEST_RESOLVER, buildState, buildBlock, inlineContent, text, embed } from "../test-utils/state-builders";
 import { buildStateWithListDefs } from "../state/build-state-from-blocks";
 import { inlineRenderKey } from "../render/inline-render-key";
 import {
@@ -27,13 +27,17 @@ const ORDERED_LIST_DEF: ListDef = {
 };
 
 describe("buildAccessibilityTree", () => {
-  it("maps an empty document to a single document-role root with no children", () => {
+  it("maps an empty document to a document-role root holding one empty paragraph", () => {
+    // An empty document holds one paragraph (its final ¶ — Word / GDocs).
     const state = buildState({
       rootId: "doc",
       blocks: [buildBlock({ id: "doc", type: "document" })],
     });
     const tree = buildAccessibilityTree(state);
-    expect(tree).toEqual({ role: "document", sourceBlockId: "doc", children: [] });
+    expect(tree.role).toBe("document");
+    expect(tree.sourceBlockId).toBe("doc");
+    expect(tree.children.map((c) => c.role)).toEqual(["paragraph"]);
+    expect(tree.children[0]?.text).toEqual([]);
   });
 
   it("renders a document with one paragraph as a paragraph node carrying its text run", () => {
@@ -303,7 +307,7 @@ describe("buildAccessibilityTree", () => {
   });
 
   it("groups consecutive list-items sharing a listId into a synthetic list node", () => {
-    const state = buildStateWithListDefs({
+    const state = buildStateWithListDefs({ resolver: TEST_RESOLVER,
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "li1", lastChildId: "p" }),
@@ -328,7 +332,7 @@ describe("buildAccessibilityTree", () => {
   });
 
   it("stamps the resolved ordinal on ORDERED listitems so AT numbers start-at/restart lists correctly (#555)", () => {
-    const state = buildStateWithListDefs({
+    const state = buildStateWithListDefs({ resolver: TEST_RESOLVER,
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "li1", lastChildId: "li2" }),
@@ -346,7 +350,7 @@ describe("buildAccessibilityTree", () => {
   });
 
   it("does NOT stamp listOrdinal on UNORDERED (bullet) listitems (#555)", () => {
-    const state = buildStateWithListDefs({
+    const state = buildStateWithListDefs({ resolver: TEST_RESOLVER,
       rootId: asBlockId("doc"),
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "li1", lastChildId: "li1" }),
@@ -487,15 +491,17 @@ describe("buildAccessibilityTree", () => {
       ],
     });
     const children = buildAccessibilityTree(state).children;
-    // section is flattened: img, hr, toc, then the section's child paragraph inline
-    expect(children.map((c) => c.role)).toEqual(["img", "separator", "navigation", "paragraph"]);
+    // section is flattened: img, hr, toc, then the section's child paragraph inline. A
+    // paragraph follows every block object (invariant I — Word / GDocs), so
+    // consecutive objects are separated by an empty paragraph.
+    expect(children.map((c) => c.role)).toEqual(["img", "paragraph", "separator", "paragraph", "navigation", "paragraph"]);
     const img = nth(children, 0, "img node");
     expect(img).toMatchObject({ role: "img", sourceBlockId: "img", name: "" }); // no alt attr → "" (unlabeled)
-    const hr = nth(children, 1, "hr node");
+    const hr = nth(children, 2, "hr node");
     expect(hr).toMatchObject({ role: "separator", sourceBlockId: "hr", children: [] });
-    const toc = nth(children, 2, "toc node");
+    const toc = nth(children, 4, "toc node");
     expect(toc).toMatchObject({ role: "navigation", sourceBlockId: "toc", name: "Table of contents" });
-    const flattenedPara = nth(children, 3, "flattened paragraph");
+    const flattenedPara = nth(children, 5, "flattened paragraph");
     expect(flattenedPara.sourceBlockId).toBe("sp");
     expect(flattenedPara.text).toEqual([{ text: "in section", sourceOffsetStart: 0, sourceOffsetEnd: 10 }]);
   });
@@ -517,41 +523,38 @@ describe("buildAccessibilityTree", () => {
           attrs: { src: "x.png" } }),
       ],
     });
-    const children = buildAccessibilityTree(state).children;
-    expect(children.map((c) => c.role)).toEqual(["img", "img", "img"]);
-    expect(children[0]).toMatchObject({ role: "img", sourceBlockId: "labeled", name: "A red barn" });
-    expect(children[1]).toMatchObject({ role: "img", sourceBlockId: "deco", name: "" });
-    expect(children[2]).toMatchObject({ role: "img", sourceBlockId: "bare", name: "" });
+    // A paragraph follows every image (invariant I); only the images are checked.
+    const images = buildAccessibilityTree(state).children.filter((c) => c.role === "img");
+    expect(images).toHaveLength(3);
+    expect(images[0]).toMatchObject({ role: "img", sourceBlockId: "labeled", name: "A red barn" });
+    expect(images[1]).toMatchObject({ role: "img", sourceBlockId: "deco", name: "" });
+    expect(images[2]).toMatchObject({ role: "img", sourceBlockId: "bare", name: "" });
   });
 
   it("section is a list-grouping boundary: list-items across a section boundary are NOT merged", () => {
-    // A top-level list-item (L1), then a section containing a list-item (also L1),
-    // then another top-level list-item (L1). The section is a grouping boundary —
-    // the three items must NOT merge into one list. Expected result: three separate
-    // synthetic "list" nodes (the outer two each contain one item; the middle list
-    // is the flattened section child, also containing one item).
-    //
-    // This is acceptable v1 behavior: a section acts as a grouping fence. Items
-    // inside the section are grouped within the recursive buildChildren(section)
-    // call and do NOT merge with outer items.
+    // Three sections, each holding one list-item of the same list (L1). The
+    // section is a grouping boundary — the three items must NOT merge into one
+    // list: three separate synthetic "list" nodes. (sections partition the
+    // root flow, so every root child is a section once one exists.)
     const state = buildState({
       rootId: "doc",
       blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "li1", lastChildId: "li3" }),
-        buildBlock({ id: "li1", type: "list-item", parentId: "doc", nextSiblingId: "sec",
+        buildBlock({ id: "doc", type: "document", firstChildId: "s1", lastChildId: "s3" }),
+        buildBlock({ id: "s1", type: "section", parentId: "doc", nextSiblingId: "sec", firstChildId: "li1", lastChildId: "li1" }),
+        buildBlock({ id: "li1", type: "list-item", parentId: "s1",
           attrs: { listId: "L1", listLevel: 0 }, inlineContent: inlineContent([text("outer-1")]) }),
-        // section acts as a grouping boundary between li1 and li3
         buildBlock({ id: "sec", type: "section", parentId: "doc",
-          prevSiblingId: "li1", nextSiblingId: "li3",
+          prevSiblingId: "s1", nextSiblingId: "s3",
           firstChildId: "li2", lastChildId: "li2" }),
         buildBlock({ id: "li2", type: "list-item", parentId: "sec",
           attrs: { listId: "L1", listLevel: 0 }, inlineContent: inlineContent([text("inner")]) }),
-        buildBlock({ id: "li3", type: "list-item", parentId: "doc", prevSiblingId: "sec",
+        buildBlock({ id: "s3", type: "section", parentId: "doc", prevSiblingId: "sec", firstChildId: "li3", lastChildId: "li3" }),
+        buildBlock({ id: "li3", type: "list-item", parentId: "s3",
           attrs: { listId: "L1", listLevel: 0 }, inlineContent: inlineContent([text("outer-2")]) }),
       ],
     });
     const children = buildAccessibilityTree(state).children;
-    // li1 → list, sec (flattened) → list (li2 grouped within section), li3 → list
+    // each section (flattened) → its own list
     // Three separate lists, NOT merged across the section boundary.
     expect(children.map((c) => c.role)).toEqual(["list", "list", "list"]);
     expect(nth(nth(children, 0, "list 0").children, 0, "item").sourceBlockId).toBe("li1");
@@ -611,11 +614,13 @@ describe("buildAccessibilityTree", () => {
           inlineContent: inlineContent([text("Footer")]) }),
       ],
     });
-    expect(buildAccessibilityTree(state).children.map((c) => c.role)).toEqual(["contentinfo"]);
+    // The childless doc reads one implicit empty paragraph, then the footer body.
+    expect(buildAccessibilityTree(state).children.map((c) => c.role)).toEqual(["paragraph", "contentinfo"]);
   });
 
   it("THROWS on an unmapped block type (a missing-from-AT node is an invisible regression)", () => {
     const state = buildState({
+      resolver: registryWith(testLeaf("totally-unknown-block", "inline-bearing")), // state knows it; the AT role map does not
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "x", lastChildId: "x" }),

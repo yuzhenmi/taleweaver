@@ -5,8 +5,8 @@ import type { LayoutBox } from "./layout/layout-node";
  * All values are in canvas (device-independent) pixels.
  *
  * PaintCache instances are 1:1 with paint targets (canvases / pages).
- * When Plan 5 introduces pagination (one canvas per page), each canvas
- * will carry its own PaintCache so dirty-region tracking is per-page.
+ * With pagination (one canvas per page), each page canvas carries its own
+ * PaintCache so dirty-region tracking is per-page.
  */
 export interface Rect {
   x: number;
@@ -45,7 +45,7 @@ export type PaintInputHash = string;
  * possible but unlikely for normal documents.
  */
 export function hashPaintInputs(box: LayoutBox): PaintInputHash {
-  // Position + size (parent-relative — see Plan 3.H Task 1)
+  // Position + size (parent-relative)
   let h = `${box.x}:${box.y}:${box.width}:${box.height}`;
 
   // ComputedStyle: paint-relevant fields
@@ -90,13 +90,16 @@ export function hashPaintInputs(box: LayoutBox): PaintInputHash {
   } else if (box.type === "table") {
     h += `|cols:${box.columnPxWidths.join(",")}`;
   } else if (box.type === "multicolumn") {
-    // A MultiColumnBox paints nothing of its own (no column-rule this slice), so
-    // its OWN paint-input footprint is the column count + each column's identity
-    // (position/size). The per-column subtree hashes are computed by the
+    // A MultiColumnBox's OWN paint is its column-rule (drawn in each gap), so its
+    // paint-input footprint is the rule + the column count + each column's
+    // identity (position/size). The per-column subtree hashes are computed by the
     // per-box walk; here we record the column boundary so a change to the column
     // GEOMETRY (a column added/removed or repositioned) marks the container dirty
     // — mirroring how `table` records its `columnPxWidths`.
     h += `|mcols:${box.columns.length}:${box.columns.map((c) => `${c.x},${c.y},${c.width},${c.height}`).join(";")}`;
+    if (box.columnRule !== null) {
+      h += `|rule:${box.columnRule.width}:${box.columnRule.style}:${box.columnRule.color}`;
+    }
   } else if (box.type === "page") {
     h += `|page:${box.pageIndex}`;
   }

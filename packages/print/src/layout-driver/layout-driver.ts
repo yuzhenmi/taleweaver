@@ -21,7 +21,7 @@ import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
 import type { LayoutConfig } from "./layout-config";
 
 /**
- * The print backend's layout-driver (Phase 0b). Core's editor reducer is
+ * The print backend's layout-driver. Core's editor reducer is
  * geometry-free: every mutation handler records WHAT changed (`lastDirtyIds`),
  * and this driver owns the render → cascade → layout rebuild after each
  * dispatch. It retains the full prior-cycle pipeline trees as closure state so
@@ -52,7 +52,7 @@ export interface LayoutDriver {
 
 /**
  * The product of one render → cascade → layout cycle: every tree the driver
- * retains across `rebuild` calls. The FN-6.4 second pass reuses this shape as
+ * retains across `rebuild` calls. The footnote numbering second pass reuses this shape as
  * BOTH its prev-inputs and its output so the feedback loop is a plain re-run.
  */
 interface PipelineResult {
@@ -73,7 +73,7 @@ interface PipelinePrev {
   readonly prevLayout: LayoutBox | VirtualLayoutTree;
   readonly dirtyIds?: ReadonlySet<BlockId>;
   /**
-   * FN-6.4: a layout-derived numbering map that OVERRIDES the policy-derived
+   * A layout-derived numbering map that OVERRIDES the policy-derived
    * computation for THIS render (the per-page numbers). Threaded into
    * `render`'s `footnoteNumbersOverride`. Absent on the first pass.
    */
@@ -81,7 +81,7 @@ interface PipelinePrev {
 }
 
 /**
- * Hard cap on the FN-6.4 per-page re-render convergence loop. A marker
+ * Hard cap on the per-page re-render convergence loop. A marker
  * glyph-width change ("9"→"10") could in principle shift a line / repaginate,
  * moving an anchor to a different page → another renumber. In practice ONE extra
  * pass suffices (the diff is then empty); the loop is correctness insurance.
@@ -95,11 +95,12 @@ export function createLayoutDriver(layoutConfig: LayoutConfig): LayoutDriver {
   // Null until the first rebuild populates them.
   let prev: PipelineResult | null = null;
   let prevState: State | null = null;
+  let prevWidth: number | null = null;
 
   /**
    * Run one render → cascade → layout cycle. Incremental when `cycle.dirtyIds`
    * is supplied (each stage reuses unchanged subtrees by reference, gated on the
-   * set); full rebuild otherwise. Extracted so the FN-6.4 second pass can re-run
+   * set); full rebuild otherwise. Extracted so the second pass can re-run
    * the SAME pipeline with a numbering override.
    */
   function renderCascadeLayout(
@@ -173,7 +174,7 @@ export function createLayoutDriver(layoutConfig: LayoutConfig): LayoutDriver {
   }
 
   /**
-   * FN-6.4 restart-per-page numbering second pass. When the document policy is
+   * Restart-per-page numbering second pass. When the document policy is
    * restart-per-page AND the doc has footnotes AND the layout is the virtualized
    * tree (the only path that surfaces `footnoteAnchorPages`), recompute the
    * per-page-correct numbers from the layout's anchor→page map and re-render the
@@ -254,6 +255,10 @@ export function createLayoutDriver(layoutConfig: LayoutConfig): LayoutDriver {
     containerWidth: number,
     lastDirtyIds: ReadonlySet<BlockId> | null,
   ): LayoutBox | VirtualLayoutTree {
+    // Nothing the pipeline reads changed (a selection-only / inert dispatch: same
+    // State, same width, no dirty set): the prior tree stands. Without this a caret
+    // move re-rendered and re-laid-out the whole document (O(doc) per caret move).
+    if (prev !== null && state === prevState && containerWidth === prevWidth && lastDirtyIds === null) return prev.layout;
     // The incremental cycle inputs: present only when we have BOTH prior trees
     // AND a dirty set. `lastDirtyIds === null` ≡ a full rebuild (initial build /
     // resize) — but still reuse the prior CASCADED tree as the layout `prev` when
@@ -276,6 +281,7 @@ export function createLayoutDriver(layoutConfig: LayoutConfig): LayoutDriver {
 
     prev = converged;
     prevState = state;
+    prevWidth = containerWidth;
     return converged.layout;
   }
 
@@ -284,7 +290,7 @@ export function createLayoutDriver(layoutConfig: LayoutConfig): LayoutDriver {
 
 /**
  * The anchor→page map from a layout, or `null` for a non-virtual `LayoutBox`
- * (which carries no `footnoteAnchorPages`). FN-6.4's second pass needs the
+ * (which carries no `footnoteAnchorPages`). The numbering second pass needs the
  * virtualized tree's map; the legacy positioned path falls back to continuous.
  */
 function anchorPagesOf(

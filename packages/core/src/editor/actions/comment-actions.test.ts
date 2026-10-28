@@ -7,6 +7,7 @@
  * embeds (slices 0-2); these tests assert via the `getComments` read surface and
  * via the marker embeds in the affected blocks' inline content.
  */
+import { finalSectionOf } from "../../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import {
   config,
@@ -35,7 +36,7 @@ const CID = "c1" as CommentId;
 
 /** The first body paragraph id under the document root. */
 function bodyParaId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
     throw new Error("document root has no first child paragraph");
@@ -161,8 +162,8 @@ describe("handleAddComment — ADD_COMMENT", () => {
   it("preserves the visible selection across the +2 markers — CROSS-BLOCK", () => {
     const initial = createInitialEditorState(config);
     const p1 = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" }, config);
-    const firstId = bodyParaId(p1);
     const split = reduceEditor(p1, { type: "SPLIT_NODE" }, config);
+    const firstId = bodyParaId(split); // the split's head (new id)
     const withSecond = reduceEditor(split, { type: "INSERT_TEXT", text: "def" }, config);
     const secondId = withSecond.selection.focus.blockId;
     expect(secondId).not.toBe(firstId);
@@ -329,8 +330,8 @@ describe("handleDeleteComment — DELETE_COMMENT", () => {
     // strips markers from para1 only, so the para2 selection stays valid.
     const initial = createInitialEditorState(config);
     const p1 = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" }, config);
-    const firstId = bodyParaId(p1);
     const split = reduceEditor(p1, { type: "SPLIT_NODE" }, config);
+    const firstId = bodyParaId(split); // the split's head (new id)
     const withSecond = reduceEditor(split, { type: "INSERT_TEXT", text: "defgh" }, config);
     const secondId = withSecond.selection.focus.blockId;
 

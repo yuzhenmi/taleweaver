@@ -1,17 +1,17 @@
 // packages/pdf/src/pdf-structure.ts
 //
-// #526 (T4) — the pdf-package-local structure MODEL. A `PdfStructureNode` tree
+// The pdf-package-local structure MODEL. A `PdfStructureNode` tree
 // mirrors the core `AccessibilityNode` projection but speaks PDF's standard
 // structure-element vocabulary (`Document`/`P`/`H1..H6`/`L`/`LI`/`Table`/…)
 // instead of ARIA roles. `mapAccessibilityTree` is the pure mapping. The
-// emit-pdf consumer that turns this tree into a `/StructTreeRoot` + marked-
-// content is the NEXT task (T5); this module only defines the model + mapping.
+// emit-pdf consumer turns this tree into a `/StructTreeRoot` + marked
+// content; this module only defines the model + mapping.
 
 import type { AccessibilityNode, AccessibilityRole } from "@taleweaver/core";
 
 /**
  * The subset of PDF standard structure types (PDF 32000-1:2008 §14.8.4) this
- * engine emits. `Lbl`/`LBody` are produced by the T5 consumer's LI split (using
+ * engine emits. `Lbl`/`LBody` are produced by the emit-pdf consumer's LI split (using
  * the page-emitter's marker-ownership info) — NOT by this model, which keeps a
  * `listitem` as a plain `LI`.
  */
@@ -127,8 +127,8 @@ function roleOf(role: AccessibilityRole, name: string | undefined): PdfStructRol
  * (with its own recursively-mapped children); a child that maps to `null` is
  * excluded from the structure tree along with its ENTIRE subtree — its children
  * are NOT hoisted to this level. The only dropped roles with children are
- * banner/contentinfo (running header/footer content), which T3 tags as
- * /Artifact and emits no MCID for; a hoisted child would be a dangling
+ * banner/contentinfo (running header/footer content), which the page emitter
+ * tags as /Artifact and emits no MCID for; a hoisted child would be a dangling
  * empty-/K structure node referencing no marked content.
  */
 function mapChildren(nodes: readonly AccessibilityNode[]): PdfStructureNode[] {
@@ -138,7 +138,7 @@ function mapChildren(nodes: readonly AccessibilityNode[]): PdfStructureNode[] {
     if (mapped !== null) out.push(mapped);
     // else: the node is excluded from the structure tree along with its ENTIRE
     // subtree. The only dropped roles with children are banner/contentinfo
-    // (running header/footer content), which T3 tags as /Artifact and emits no
+    // (running header/footer content), which the page emitter tags as /Artifact and emits no
     // MCID for — a hoisted child would be a dangling empty-/K structure node.
   }
   return out;
@@ -167,7 +167,7 @@ function mapNode(node: AccessibilityNode): PdfStructureNode | null {
  * (banner/contentinfo running content, separators, decorative images) — their
  * drawn content is tagged `/Artifact` by the page-emitter, so their ENTIRE
  * subtree is dropped (running header/footer content is /Artifact, carries no
- * MCID — a hoisted child would dangle as an empty-/K structure node). (#526)
+ * MCID — a hoisted child would dangle as an empty-/K structure node).
  */
 export function mapAccessibilityTree(node: AccessibilityNode): PdfStructureNode | null {
   return mapNode(node);

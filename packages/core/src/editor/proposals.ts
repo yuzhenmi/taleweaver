@@ -30,7 +30,7 @@ import type {
 } from "../state";
 import { suggestionIdsOnItem } from "../state/ops/suggestion-ops";
 import { nextSuggestionOrder } from "../state/suggestions";
-import type { PositionMapping } from "../state/position-mapping";
+import { mappingAcross, type ChangeLink, type PositionMapping } from "../state/position-mapping";
 import { recordSample } from "../perf/perf-trace";
 import { recordChange, type EditorConfig, type EditorState } from "./editor-state";
 import { replacementAttrs } from "./typing-attrs";
@@ -241,12 +241,9 @@ function linesFor(state: State, at: Position, text: string, attrs: ReadonlyAttrs
  * cached state — Ctrl+Z keeps undoing the user's own last edit (accept / reject stay
  * undoable user actions). Inline storage never re-mints a character on an in-block
  * edit, and undo selections are CRDT-anchored, so the user's open entry survives.
- * EXCEPTION (structural-op limit): a proposal whose application SPLITS a block (a
- * multi-paragraph replace) re-mints the moved tail and would break the user's open
- * entry, so it stays TRACKED — one undo entry in order with the user's edits.
- * PROPOSE is an `inert` coalesce class, so a tracked entry is opened here, only when
- * something is applied; the selection is rebased and stored typing attrs kept. The
- * verdict is `lastProposal`.
+ * A multi-paragraph replace is untracked too: its new paragraphs are splits (marks),
+ * so no character is re-minted. The selection is rebased and stored typing attrs
+ * kept. The verdict is `lastProposal`.
  */
 export function handlePropose(
   editor: EditorState,
@@ -265,16 +262,11 @@ export function handlePropose(
   }
   const problem = validateProposal(editor.state, proposal);
   if (problem !== null) return verdict({ groupId: proposal.groupId, outcome: "rejected", problem });
-  const tracked = proposal.edits.some((e) => e.kind === "replace" && e.text.includes("\n"));
-  if (tracked) {
-    editor.history.beginEntry("command", (config.now ?? Date.now)(), editor.selection);
-    return applyProposal(editor, proposal, config, outcomeOf, true);
-  }
   // Per-instance untracked origin: wraps the dispatching host's own (ambient) origin,
   // so no History tracks it but the host's own foreign-change subscription treats it
   // as self (a second host on the same doc still sees it as foreign).
   const origin = new UntrackedOrigin(currentTransactionOrigin());
-  return runWithTransactionOrigin(origin, () => applyProposal(editor, proposal, config, outcomeOf, false));
+  return runWithTransactionOrigin(origin, () => applyProposal(editor, proposal, config, outcomeOf));
 }
 
 function applyProposal(
@@ -282,10 +274,8 @@ function applyProposal(
   proposal: Proposal,
   config: EditorConfig,
   outcomeOf: (verdict: Verdict) => ProposalOutcome,
-  tracked: boolean,
 ): EditorState {
   const createdAt = (config.now ?? Date.now)();
-  const registry = config.attrRegistry;
   let state = editor.state;
   let change = editor.lastChange;
   const dirty = new Set<BlockId>();
@@ -325,21 +315,21 @@ function applyProposal(
       step(markFormatting(state, span, edit.attrs, { id, author: proposal.author, createdAt, order: nextSuggestionOrder(), noCoalesce: true }), [id], edit.metadata);
       continue;
     }
-    const attrs = replacementAttrs(state, from, to, registry);
+    const attrs = replacementAttrs(state, from, to);
     const point = positionsEqual(from, to);
     if (edit.text === "") {
       const id = newSuggestionId();
       step(markDeletion(state, span, { id, author: proposal.author, createdAt, order: nextSuggestionOrder(), noCoalesce: true }), [id], edit.metadata);
     } else if (edit.text.includes("\n")) {
       const input = { deletionId: newSuggestionId(), insertionId: newSuggestionId(), author: proposal.author, createdAt, order: nextSuggestionOrder(), noCoalesce: true };
-      const result = replaceWithSuggestedFragment(state, span, linesFor(state, from, edit.text, attrs), input, productionAllocator, registry);
+      const result = replaceWithSuggestedFragment(state, span, linesFor(state, from, edit.text, attrs), input, productionAllocator);
       step(result, [input.deletionId, input.insertionId], edit.metadata);
     } else if (point) {
       const id = newSuggestionId();
       step(mintInsertion(state, from, edit.text, attrs, { id, author: proposal.author, createdAt, order: nextSuggestionOrder(), noCoalesce: true }), [id], edit.metadata);
     } else {
       const input = { deletionId: newSuggestionId(), insertionId: newSuggestionId(), author: proposal.author, createdAt, order: nextSuggestionOrder(), noCoalesce: true };
-      step(replaceWithSuggestion(state, span, edit.text, attrs, input, registry), [input.deletionId, input.insertionId], edit.metadata);
+      step(replaceWithSuggestion(state, span, edit.text, attrs, input), [input.deletionId, input.insertionId], edit.metadata);
     }
   }
   if (minted.length === 0) {
@@ -359,8 +349,7 @@ function applyProposal(
     lastProposal: outcomeOf({ groupId: proposal.groupId, outcome: "applied" }),
   };
   const selection = rebaseSelection(editor, after);
-  if (tracked) editor.history.commit({ state, dirtyIds: dirty }, { before: editor.selection, after: selection });
-  else editor.history.advanceState(state);
+  editor.history.advanceState(state);
   return { ...after, selection };
 }
 
@@ -431,10 +420,10 @@ export function proposeResultOf(outcome: ProposalOutcome | undefined): ProposeRe
  * bounded chain, or the document was replaced).
  */
 function mappingSince(editor: EditorState, basedOn: State): PositionMapping | null {
-  const dirty = new Set<BlockId>();
+  const links: ChangeLink[] = [];
   for (let c = editor.lastChange; c !== null; c = c.prior) {
-    for (const id of c.dirtyIds) dirty.add(id);
-    if (c.from === basedOn) return createPositionMapping(basedOn, editor.state, dirty);
+    links.push(c);
+    if (c.from === basedOn) return mappingAcross(links.reverse(), editor.state);
   }
   return null;
 }

@@ -18,6 +18,7 @@ import {
   createTestAllocator,
   buildDocumentFromTree,
   getBlock,
+  lastLeafBlock,
   newListId,
   classifyListDef,
   getListDefsForState,
@@ -36,6 +37,9 @@ import {
   type ReadonlyAttrs,
 } from "@taleweaver/core";
 import { browserHtmlParser } from "./html-parser";
+import { createDefaultComponentRegistry } from "@taleweaver/core";
+
+const TEST_RESOLVER = createDefaultComponentRegistry();
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -83,7 +87,7 @@ function build(
   listDefs: Record<string, ListDef> = {},
 ): State {
   const root: ContainerBlockNode = { type: "document", children };
-  return buildDocumentFromTree(root, listDefs, createTestAllocator("fx"));
+  return buildDocumentFromTree(root, listDefs, createTestAllocator("fx"), TEST_RESOLVER);
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -121,8 +125,11 @@ function readLeaves(state: State): SemBlock[] {
         }
       }
       out.push({ type: block.type, attrs: block.attrs, inline: inlineParts });
+    } else if (block.firstChildId === null) {
+      // An atomic leaf (image, hr) stores no inline content; a childless container reads as an implicit paragraph.
+      out.push({ type: block.type, attrs: block.attrs, inline: [] });
     } else {
-      let childId = block.firstChildId;
+      let childId: BlockId | null = block.firstChildId;
       while (childId !== null) {
         const child = getBlock(state, childId);
         if (child === null) break;
@@ -136,7 +143,7 @@ function readLeaves(state: State): SemBlock[] {
 }
 
 function roundTrip(state: State): State {
-  const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("dec") });
+  const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("dec") });
   return ser.decode(ser.encode(state));
 }
 
@@ -146,7 +153,7 @@ afterEach(() => {
 
 describe("createHtmlDocumentSerializer", () => {
   it("exposes the taleweaver-html format id", () => {
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("d") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("d") });
     expect(ser.format).toBe(HTML_FORMAT);
     expect(HTML_FORMAT).toBe("taleweaver-html");
   });
@@ -186,7 +193,7 @@ describe("createHtmlDocumentSerializer", () => {
     // The first three share ONE listId (the ordered list); the fourth is the bullet list.
     const defs = getListDefsForState(roundTrip(state));
     // Re-derive from a single decode so ids line up:
-    const dec = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("once") });
+    const dec = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("once") });
     const decoded = dec.decode(dec.encode(state));
     const decItems = readLeaves(decoded).filter((b) => b.type === "list-item");
     const olDecId = nth(decItems, 0, "list-item").attrs.listId;
@@ -230,7 +237,7 @@ describe("createHtmlDocumentSerializer", () => {
   // alt has three meaningful states: non-empty (labeled), "" (decorative —
   // PRESERVED as alt=""), absent (unlabeled — NO alt attribute).
   it("encodes image alt: labeled → alt=\"…\", decorative → alt=\"\", absent → no alt attr", () => {
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("enc") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("enc") });
 
     const labeled = build([
       { type: "image", attrs: { src: "barn.png", alt: 'A "red" barn' }, inlineContent: inline() },
@@ -253,7 +260,7 @@ describe("createHtmlDocumentSerializer", () => {
   });
 
   it("decodes <img alt>: \"Cat\" → alt:\"Cat\", \"\" → alt:\"\", missing → no alt key", () => {
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("dec-alt") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("dec-alt") });
 
     const labeled = readLeaves(ser.decode('<body><img src="x" alt="Cat"></body>'))
       .find((b) => b.type === "image");
@@ -301,7 +308,7 @@ describe("createHtmlDocumentSerializer", () => {
         text(" here"),
       )),
     ]);
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("inimg") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("inimg") });
     const html = ser.encode(state);
     // The <img> is INLINE — it sits inside the <p>, between the two text runs,
     // NOT as a block sibling of the <p>.
@@ -326,7 +333,7 @@ describe("createHtmlDocumentSerializer", () => {
     const blockState = build([
       { type: "image", attrs: { src: "javascript:alert(1)", width: 40, height: 30, alt: "x" }, inlineContent: inline() },
     ]);
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("xssimg") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("xssimg") });
     const inlineHtml = ser.encode(inlineState);
     const blockHtml = ser.encode(blockState);
     // The dangerous scheme is dropped from BOTH, identically.
@@ -343,7 +350,7 @@ describe("createHtmlDocumentSerializer", () => {
       "<h1>The Brave Tailor</h1>" +
       "<p>Once there was a <strong>brave</strong> little tailor.</p>" +
       "<p>He set out into the world.</p>";
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("frag") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("frag") });
     const leaves = readLeaves(ser.decode(html));
     expect(leaves.map((b) => b.type)).toEqual(["heading", "paragraph", "paragraph"]);
     expect(nth(leaves, 0, "leaf").attrs.level).toBe(1);
@@ -382,7 +389,7 @@ describe("createHtmlDocumentSerializer", () => {
       "</ol>" +
       "<p>The <a href=\"https://example.com/keepers-log\">keepers' log</a> waits.</p>";
 
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("fairy") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("fairy") });
     const leaves = readLeaves(ser.decode(html));
 
     // The full doc-order block-type sequence.
@@ -448,8 +455,8 @@ describe("createHtmlDocumentSerializer", () => {
     ]);
     // The link is the document's last block; assert the href round-tripped (the
     // SemBlock mark-set drops the URL, so read the raw TextItem).
-    const decRoot = getBlock(decoded, decoded.rootId);
-    const linkPara = getBlock(decoded, decRoot?.lastChildId ?? decoded.rootId);
+    // the root holds sections — the last paragraph is the last LEAF.
+    const linkPara = getBlock(decoded, lastLeafBlock(decoded, decoded.rootId) ?? decoded.rootId);
     const linkItem = linkPara?.inlineContent?.items.find(
       (i): i is TextItem => i.kind === "text" && i.attrs.link !== undefined,
     );
@@ -468,7 +475,7 @@ describe("createHtmlDocumentSerializer", () => {
 
   // §5 / M1 — order-independent mark accumulation.
   it("accumulates marks order-independently (<strong><em> ≡ <em><strong>)", () => {
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("oi") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("oi") });
     const a = readLeaves(ser.decode("<p><strong><em>x</em></strong></p>"));
     const b = readLeaves(ser.decode("<p><em><strong>x</strong></em></p>"));
     expect(nth(a, 0, "leaf").inline).toEqual([["x", ["bold", "italic"]]]);
@@ -477,7 +484,7 @@ describe("createHtmlDocumentSerializer", () => {
 
   // §5 / M2 — <a href> round-trips the URL into attrs.link.
   it("round-trips <a href> into attrs.link", () => {
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("a") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("a") });
     const html = '<p>visit <a href="https://example.test/page">my site</a> now</p>';
     const decoded = ser.decode(html);
     const block = getBlock(decoded, getMainFirstLeaf(decoded));
@@ -498,7 +505,7 @@ describe("createHtmlDocumentSerializer", () => {
 
   // §5 / C2 — arbitrarily-nested lists round-trip levels (one listId across levels).
   it("round-trips a 2-level nested list to listLevels 0 and 1 sharing one listId", () => {
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("nest") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("nest") });
     const html = "<ul><li>outer<ul><li>inner</li></ul></li></ul>";
     const decoded = ser.decode(html);
     const items = readLeaves(decoded).filter((b) => b.type === "list-item");
@@ -515,7 +522,7 @@ describe("createHtmlDocumentSerializer", () => {
   // #554 — DECODE reads <ol start>/<li value> back into the list model, closing
   // the round-trip half of #552 (the encode side already emits them).
   it("decodes <ol start=N> into the list def's level-0 start", () => {
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("olstart") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("olstart") });
     const decoded = ser.decode(`<body><ol start="5"><li>a</li><li>b</li></ol></body>`);
     const items = readLeaves(decoded).filter((b) => b.type === "list-item");
     const listId = nth(items, 0, "list-item").attrs.listId;
@@ -525,7 +532,7 @@ describe("createHtmlDocumentSerializer", () => {
   });
 
   it("decodes <li value=N> into the item's listCounterOverride attr", () => {
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("livalue") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("livalue") });
     const decoded = ser.decode(`<body><ol><li>a</li><li value="5">b</li><li>c</li></ol></body>`);
     const items = readLeaves(decoded).filter((b) => b.type === "list-item");
     expect(nth(items, 0, "list-item").attrs.listCounterOverride).toBeUndefined();
@@ -534,7 +541,7 @@ describe("createHtmlDocumentSerializer", () => {
   });
 
   it("decodes <ol start=N> on a NESTED level into that level's def start", () => {
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("nestolstart") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("nestolstart") });
     const decoded = ser.decode(`<body><ol><li>a<ol start="3"><li>b</li></ol></li></ol></body>`);
     const items = readLeaves(decoded).filter((b) => b.type === "list-item");
     const listId = nth(items, 0, "list-item").attrs.listId;
@@ -569,7 +576,7 @@ describe("createHtmlDocumentSerializer", () => {
         },
       },
     );
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("fill") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("fill") });
     const html = ser.encode(state);
     // Level 1 carries the explicit start; level 2 is a BARE <ol> (default 1).
     expect(html).toContain(`<ol start="5">`);
@@ -588,7 +595,7 @@ describe("createHtmlDocumentSerializer", () => {
       ],
       { [listId]: { levels: [{ style: "decimal", start: 5, restart: "after-break" }] } },
     );
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("rt") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("rt") });
     const html = ser.encode(state);
     // Sanity: the encode side emits the ordinals (already shipped in #552).
     expect(html).toBe(`<body><ol start="5"><li>a</li><li value="9">b</li><li>c</li></ol></body>`);
@@ -600,7 +607,7 @@ describe("createHtmlDocumentSerializer", () => {
   // §4 — inline MARKS inside an <li> are preserved (regression: walkList used to
   // descend into the mark element and drop the mark).
   it("preserves inline marks inside a list item", () => {
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("limk") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("limk") });
     const decoded = ser.decode("<ul><li><strong>bold</strong> rest</li></ul>");
     const items = readLeaves(decoded).filter((b) => b.type === "list-item");
     expect(items.length).toBe(1);
@@ -610,7 +617,7 @@ describe("createHtmlDocumentSerializer", () => {
 
   // §4 — a <br> inside an <li> becomes a hard-break embed (same regression).
   it("preserves a hard-break inside a list item", () => {
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("libr") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("libr") });
     const decoded = ser.decode("<ol><li>a<br>b</li></ol>");
     const items = readLeaves(decoded).filter((b) => b.type === "list-item");
     expect(items.length).toBe(1);
@@ -619,7 +626,7 @@ describe("createHtmlDocumentSerializer", () => {
 
   // §4 / §5 — unsupported elements ignored but recursed into.
   it("ignores unsupported wrappers but keeps their inline text", () => {
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("u") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("u") });
     const html = "<p>hello <span>brave</span> world</p><div>aside text</div>";
     const leaves = readLeaves(ser.decode(html));
     // The <span>'s text survives inside the paragraph.
@@ -631,7 +638,7 @@ describe("createHtmlDocumentSerializer", () => {
 
   // §4 / §5 — empty / whitespace HTML → single empty-paragraph doc (no throw).
   it("decodes empty or whitespace HTML to a single empty-paragraph doc", () => {
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("e") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("e") });
     for (const html of ["", "   \n  ", "<div></div>", "<!-- comment -->"]) {
       const leaves = readLeaves(ser.decode(html));
       expect(leaves.length).toBe(1);
@@ -653,7 +660,7 @@ describe("createHtmlDocumentSerializer", () => {
           text(" more"),
         )),
       ]);
-      const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("fn") });
+      const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("fn") });
       const html = ser.encode(state);
       // (a) The anchor is omitted from the HTML.
       expect(html).not.toContain(FOOTNOTE_ANCHOR_EMBED_TYPE);
@@ -686,7 +693,7 @@ describe("createHtmlDocumentSerializer", () => {
       ],
       { [shared]: decimalDef() },
     );
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("i4") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("i4") });
     const html = ser.encode(state);
     // Two separate <ol> elements in the output.
     expect((html.match(/<ol>/g) ?? []).length).toBe(2);
@@ -699,7 +706,7 @@ describe("createHtmlDocumentSerializer", () => {
   // §4 — HTML escaping on encode.
   it("HTML-escapes special characters in text on encode", () => {
     const state = build([para(inline(text('a < b & c > d "q"')))]);
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("esc") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("esc") });
     const html = ser.encode(state);
     expect(html).toContain("&lt;");
     expect(html).toContain("&amp;");
@@ -711,7 +718,7 @@ describe("createHtmlDocumentSerializer", () => {
 
   // §4 — decode accepts alt tags (<b>/<i>/<del>).
   it("decodes alt mark tags <b>/<i>/<del> equivalently", () => {
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("alt") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("alt") });
     const leaves = readLeaves(ser.decode("<p><b>x</b><i>y</i><del>z</del></p>"));
     const marksOf = (t: string) => nth(leaves, 0, "leaf").inline.find(([tt]) => tt === t)?.[1];
     expect(marksOf("x")).toEqual(["bold"]);
@@ -735,7 +742,7 @@ describe("createHtmlDocumentSerializer", () => {
   // dropped; the link TEXT is preserved. Mirrors the Cmd/Ctrl-click allowlist.
   it("drops the <a> wrapper for a javascript: link on encode (keeps the text)", () => {
     const state = build([para(inline(text("click "), text("here", { link: "javascript:alert(1)" })))]);
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("xss") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("xss") });
     const html = ser.encode(state);
     expect(html).not.toContain("javascript:");
     expect(html).not.toContain("<a ");
@@ -747,7 +754,7 @@ describe("createHtmlDocumentSerializer", () => {
       para(inline(text("a", { link: "https://ok.test/x" }))),
       para(inline(text("b", { link: "/relative/path" }))),
     ]);
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("safe") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("safe") });
     const html = ser.encode(state);
     expect(html).toContain('<a href="https://ok.test/x">a</a>');
     expect(html).toContain('<a href="/relative/path">b</a>');
@@ -762,7 +769,7 @@ describe("createHtmlDocumentSerializer", () => {
         tableRow([cell([para(inline(text("C")))]), cell([para(inline(text("D")))])]),
       ]),
     ]);
-    const html = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("t") }).encode(state);
+    const html = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("t") }).encode(state);
     expect(html).toContain("<table>");
     expect(html).toContain("</table>");
     expect(html).toContain("<tr><td><p>A</p></td><td><p>B</p></td></tr>");
@@ -776,7 +783,7 @@ describe("createHtmlDocumentSerializer", () => {
         { columnWidths: [0.25, 0.75] },
       ),
     ]);
-    const html = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("cw") }).encode(state);
+    const html = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("cw") }).encode(state);
     expect(html).toContain("<colgroup>");
     expect(html).toContain('<col style="width:25%">');
     expect(html).toContain('<col style="width:75%">');
@@ -789,9 +796,11 @@ describe("createHtmlDocumentSerializer", () => {
           cell([para(inline(text("S")))], { rowSpan: 2, colSpan: 3 }),
           cell([para(inline(text("T")))]),
         ]),
+        // The grid model clamps a span to the table's rows: rowspan=2 needs a second row.
+        tableRow([cell([para(inline(text("U")))])]),
       ]),
     ]);
-    const html = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("sp") }).encode(state);
+    const html = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("sp") }).encode(state);
     expect(html).toContain('<td rowspan="2" colspan="3"><p>S</p></td>');
     expect(html).toContain("<td><p>T</p></td>"); // omitted span → no attrs
   });
@@ -800,7 +809,7 @@ describe("createHtmlDocumentSerializer", () => {
     const state = build([
       table([tableRow([cell([para(inline())]), cell([para(inline(text("Z")))])])]),
     ]);
-    const html = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("ec") }).encode(state);
+    const html = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("ec") }).encode(state);
     expect(html).toContain("<td><p></p></td><td><p>Z</p></td>");
   });
 
@@ -816,7 +825,7 @@ describe("createHtmlDocumentSerializer", () => {
       ],
       { [lid]: discDef() },
     );
-    const html = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("nl") }).encode(state);
+    const html = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("nl") }).encode(state);
     expect(html).toContain("<td><ul><li>one</li><li>two</li></ul></td>");
   });
 });
@@ -866,7 +875,7 @@ describe("html-decode hardening", () => {
   });
 
   it("decode recovers items from a directly-nested <ul><ul> (no intervening <li>) (F1)", () => {
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("nest") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("nest") });
     const decoded = ser.decode("<body><ul><li>a<ul><ul><li>b</li></ul></ul></li></ul></body>");
     const items = readLeaves(decoded).filter((b) => b.type === "list-item");
     expect(items.map((b) => b.inline[0]?.[0])).toEqual(["a", "b"]);
@@ -876,21 +885,21 @@ describe("html-decode hardening", () => {
   // F2: decode is the untrusted-input trust boundary; sanitize dangerous URL
   // schemes symmetrically with the #466 export fix (isExportSafeLinkUrl).
   it("decode drops a dangerous-scheme <a href> but keeps the link text (F2)", () => {
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("xss-a") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("xss-a") });
     const decoded = ser.decode('<body><p><a href="javascript:alert(1)">x</a></p></body>');
     const p = readLeaves(decoded).find((b) => b.type === "paragraph");
     expect(p?.inline).toEqual([["x", []]]); // text survives, no `link` mark
   });
 
   it("decode drops a dangerous-scheme <img src> (F2)", () => {
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("xss-i") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("xss-i") });
     const decoded = ser.decode('<body><img src="javascript:alert(1)"></body>');
     const img = readLeaves(decoded).find((b) => b.type === "image");
     expect(img?.attrs.src).toBe("");
   });
 
   it("decode KEEPS safe http(s) <a href> and <img src> (F2 precision)", () => {
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("safe") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("safe") });
     const decoded = ser.decode(
       '<body><p><a href="https://ok.test">x</a></p><img src="https://ok.test/i.png"></body>',
     );
@@ -904,7 +913,7 @@ describe("html-decode hardening", () => {
   // into auto-hyphenation without repeating attrs on every paragraph. (Auto-
   // hyphenation Slice 5: the example app authors `<div lang="en" hyphens="auto">`.)
   it("decode inherits lang/hyphens/text-align from a wrapping element to descendant blocks", () => {
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("inh") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("inh") });
     const decoded = ser.decode(
       '<body><div lang="en" hyphens="auto" style="text-align: justify">' +
         "<p>first</p><h2>head</h2><ul><li>item</li></ul></div></body>",
@@ -925,7 +934,7 @@ describe("html-decode hardening", () => {
   });
 
   it("decode lets a child element's own lang override the inherited one; invalid hyphens is ignored", () => {
-    const ser = createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("ovr") });
+    const ser = createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("ovr") });
     const decoded = ser.decode(
       '<body><div lang="en" hyphens="auto">' +
         '<p lang="de" hyphens="sometimes">x</p><p>y</p></div></body>',
@@ -942,7 +951,7 @@ describe("html-decode hardening", () => {
 
 describe("createHtmlDocumentSerializer — table DECODE (#480)", () => {
   function makeSer() {
-    return createHtmlDocumentSerializer({ parseHtml: browserHtmlParser, allocator: createTestAllocator("tbl") });
+    return createHtmlDocumentSerializer({ blockKindResolver: TEST_RESOLVER, parseHtml: browserHtmlParser, allocator: createTestAllocator("tbl") });
   }
   function decodeBody(html: string): State {
     return makeSer().decode(`<body>${html}</body>`);
@@ -974,8 +983,9 @@ describe("createHtmlDocumentSerializer — table DECODE (#480)", () => {
       return out;
     };
 
-    const root = getBlock(state, state.rootId);
-    let id = root?.firstChildId ?? null;
+    // the root holds sections only; the body blocks live in the final section.
+    const section = getBlock(state, getBlock(state, state.rootId)?.lastChildId ?? state.rootId);
+    let id = section?.firstChildId ?? null;
     let tableId: BlockId | null = null;
     while (id !== null) {
       const b = getBlock(state, id);
@@ -1026,7 +1036,10 @@ describe("createHtmlDocumentSerializer — table DECODE (#480)", () => {
   });
 
   it("reads colspan/rowspan > 1 as attrs; = 1 omitted", () => {
-    const t = firstTable(decodeBody('<table><tr><td colspan="2" rowspan="3">x</td><td>y</td></tr></table>'));
+    const t = firstTable(decodeBody(
+      // rowspan=3 needs three rows: the grid model clamps a span to the table's rows.
+      '<table><tr><td colspan="2" rowspan="3">x</td><td>y</td></tr><tr><td>z</td></tr><tr><td>w</td></tr></table>',
+    ));
     expect(t?.rows[0]?.[0]?.colSpan).toBe(2);
     expect(t?.rows[0]?.[0]?.rowSpan).toBe(3);
     expect(t?.rows[0]?.[1]?.colSpan).toBeUndefined();
@@ -1063,7 +1076,9 @@ describe("createHtmlDocumentSerializer — table DECODE (#480)", () => {
 
   it("recovers a nested table inside a cell", () => {
     const html = "<table><tr><td><table><tr><td><p>inner</p></td></tr></table></td></tr></table>";
-    expect(reencode(html)).toContain(html);
+    // A block object is always followed by a paragraph — the cell (and
+    // the document) gain a trailing empty paragraph after the nested table.
+    expect(reencode(html)).toContain("<table><tr><td><table><tr><td><p>inner</p></td></tr></table><p></p></td></tr></table>");
   });
 
   it("treats <th> like <td> and preserves cell marks", () => {

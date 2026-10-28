@@ -77,8 +77,8 @@ function clamp(v: number, lo: number, hi: number): number {
  * positioning (the digital editor IS contenteditable, so `window.getSelection()` is authoritative)
  * and the model's `getActiveFormatting` for active-state highlighting.
  *
- * Step 2 of the digital Notion direction (the persistent toolbar still hosts block-level actions
- * until the slash-menu / block handle land in step 3).
+ * Part of the digital Notion-style mode (the persistent toolbar still hosts block-level actions;
+ * the block handle covers block-level affordances).
  */
 export function SelectionBubble({
   dispatch,

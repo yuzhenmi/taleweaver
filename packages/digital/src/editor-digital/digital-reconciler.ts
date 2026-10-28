@@ -132,6 +132,8 @@ export function createDigitalReconciler(
   componentRegistry: ComponentRegistry,
   attrRegistry: AttrRegistry,
   doc: Document,
+  /** Called for every block element the reconciler (re)mounts, as it is indexed. */
+  onBlockMounted?: (blockId: BlockId, el: HTMLElement) => void,
 ): DigitalReconciler {
   let container: HTMLElement | null = null;
   let bridge: DigitalSelectionBridge | null = null;
@@ -146,13 +148,16 @@ export function createDigitalReconciler(
    */
   const pending = new Set<string>();
 
-  function indexSubtree(el: Element): void {
+  function index(el: Element): void {
     const id = el.getAttribute("data-block-id");
-    if (id !== null && el instanceof HTMLElement) blockElMap.set(asBlockId(id), el);
-    el.querySelectorAll("[data-block-id]").forEach((child) => {
-      const cid = child.getAttribute("data-block-id");
-      if (cid !== null && child instanceof HTMLElement) blockElMap.set(asBlockId(cid), child);
-    });
+    if (id === null || !(el instanceof HTMLElement)) return;
+    blockElMap.set(asBlockId(id), el);
+    onBlockMounted?.(asBlockId(id), el);
+  }
+
+  function indexSubtree(el: Element): void {
+    index(el);
+    el.querySelectorAll("[data-block-id]").forEach(index);
   }
 
   function unindexSubtree(el: Element): void {
@@ -166,6 +171,11 @@ export function createDigitalReconciler(
     el.querySelectorAll("[data-block-id]").forEach(drop);
   }
 
+  /** Remove a unit element from the DOM (and the index). */
+  function removeUnit(el: HTMLElement): void {
+    unindexSubtree(el);
+    el.remove();
+  }
   function fullRebuild(state: State, decorations: DecorationSet): void {
     if (container === null) return;
     const tree = renderStyled(state, componentRegistry, attrRegistry);
@@ -183,7 +193,8 @@ export function createDigitalReconciler(
   }
 
   function restore(): void {
-    if (rendered !== null) materialize(rendered.cascaded, rendered.decorations);
+    if (rendered === null) return;
+    materialize(rendered.cascaded, rendered.decorations);
   }
 
   function mount(c: HTMLElement, initial: EditorState, decorations: DecorationSet = EMPTY_DECORATION_SET): void {
@@ -191,7 +202,7 @@ export function createDigitalReconciler(
     const win = doc.defaultView ?? window;
     // Thread the authoritative `blockElMap` into the bridge so `positionToDom` resolves blocks via
     // an O(1) map lookup instead of an O(n) `querySelectorAll` scan per keystroke.
-    bridge = createDigitalSelectionBridge(c, win, (blockId) => blockElMap.get(blockId) ?? null);
+    bridge = createDigitalSelectionBridge(c, win, (blockId) => blockElMap.get(blockId) ?? null, () => rendered?.state ?? null);
     fullRebuild(initial.state, decorations);
     bridge.positionToDom(initial.selection);
   }
@@ -366,6 +377,7 @@ export function createDigitalReconciler(
         pending.add(parentKey);
       };
       const targets: HTMLElement[] = [];
+      const fresh: HTMLElement[] = [];
       for (const nu of newUnits) {
         const ou = oldByKey.get(nu.key);
         oldByKey.delete(nu.key);
@@ -378,13 +390,13 @@ export function createDigitalReconciler(
               deferContainer();
               el = existing;
             } else {
-              const fresh = renderUnit(nu);
-              el = fresh !== null ? swap(existing, fresh) : existing;
+              const again = renderUnit(nu);
+              el = again !== null ? swap(existing, again) : existing;
             }
           }
         } else {
           el = renderUnit(nu);
-          if (el !== null) indexSubtree(el);
+          if (el !== null) fresh.push(el);
         }
         if (el !== null) targets.push(el);
       }
@@ -396,18 +408,18 @@ export function createDigitalReconciler(
           targets.push(el);
           continue;
         }
-        unindexSubtree(el);
-        el.remove();
+        removeUnit(el);
       }
       // Put the unit elements in order.
       let cursor: ChildNode | null = parentEl.firstChild;
-      for (const el of targets) {
-        if (cursor === el) {
-          cursor = el.nextSibling;
+      for (const target of targets) {
+        if (cursor === target) {
+          cursor = target.nextSibling;
           continue;
         }
-        parentEl.insertBefore(el, cursor);
+        parentEl.insertBefore(target, cursor);
       }
+      for (const el of fresh) indexSubtree(el); // once placed: mount hooks see the live DOM
     }
 
     const rootEl = container.firstElementChild;

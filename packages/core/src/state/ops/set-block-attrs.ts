@@ -1,12 +1,12 @@
+import { attrRegistryOf } from "../mark-attrs";
 import type * as Y from "yjs";
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import { attrsEqual } from "../attrs";
-import { getYBlock, requireInTransaction } from "../yjs-doc";
-import { buildYAttrs } from "../y-block";
-import type { AttrRegistry } from "../../cascade/attr-registry";
+import { requireInTransaction } from "../yjs-doc";
+import { writeBlockAttrs } from "../flow-ops";
 
 /**
  * Replace a block's attrs with the given bag. Returns the new state and
@@ -19,11 +19,10 @@ import type { AttrRegistry } from "../../cascade/attr-registry";
  * Without this, a same-value `Y.Map.set("attrs", …)` fires a spurious change
  * event that dirties the block and cascades into re-render/re-layout.
  *
- * `registry` is consulted by `attrsEqual` for per-key custom equality (an
- * interpreter's `equals` overrides the default `deepValueEqual`) — e.g. a
- * `comment` attr whose `timestamp` field shouldn't affect "did anything
- * change?" decisions. Omitted → structural deep equality only. Callers from
- * the editor pass `config.attrRegistry`.
+ * The attr registry bound to the doc supplies per-key custom equality to
+ * `attrsEqual` (an interpreter's `equals` overrides the default `deepValueEqual`,
+ * e.g. a `comment` attr whose `timestamp` must not count); none bound → structural
+ * deep equality only.
  *
  * Throws if the block does not exist.
  */
@@ -31,19 +30,17 @@ export function setBlockAttrs(
   state: State,
   blockId: BlockId,
   attrs: ReadonlyAttrs,
-  registry?: AttrRegistry,
 ): OperationResult {
   const resolved = resolveBlock(state, blockId);
   if (resolved === null) {
     throw new Error(`setBlockAttrs: block "${blockId}" not found`);
   }
-  const { block, kind } = resolved;
+  const { block } = resolved;
   return applyOperation(state, (doc) => {
-    if (attrsEqual(block.attrs, attrs, registry)) {
+    if (attrsEqual(block.attrs, attrs, attrRegistryOf(doc))) {
       return;
     }
-    const yBlock = getYBlock(doc, blockId, "setBlockAttrs", kind);
-    yBlock.set("attrs", buildYAttrs(attrs));
+    writeBlockAttrs(doc, blockId, attrs);
   });
 }
 
@@ -66,5 +63,5 @@ export function setBlockAttrsInTx(
   opName: string,
 ): void {
   requireInTransaction(doc, opName);
-  getYBlock(doc, blockId, opName).set("attrs", buildYAttrs(attrs));
+  writeBlockAttrs(doc, blockId, attrs);
 }

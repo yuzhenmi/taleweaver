@@ -12,6 +12,7 @@ export type { PatternSet } from "@taleweaver/core";
 export { FONT_CONFIG, buildCssFontString, getEffectiveStyles } from "./font-config";
 export { createCanvasMeasurer } from "./canvas-measurer";
 export { createCanvasShaper } from "./canvas-shaper";
+export { isSoftHyphen } from "./text-clusters";
 export { mapKeyEvent } from "./key-handler";
 export type { CursorState } from "./canvas-renderer";
 export { paintCanvas, paintPage } from "./canvas-renderer";
@@ -25,7 +26,7 @@ export { browserHtmlParser } from "./html-parser";
 // Accessibility DOM mirror: pure AccessibilityNode → detached, visually-hidden
 // semantic DOM subtree (consumes core's buildAccessibilityTree projection).
 export { buildDomMirror } from "./dom-mirror";
-// Accessibility DOM mirror host (slice 2b): mounts the hidden, AT-visible,
+// Accessibility DOM mirror host: mounts the hidden, AT-visible,
 // focusable contenteditable mirror, full-rebuilds it from the AccessibilityNode
 // tree each paint, and wires input + browser-Selection mapping.
 export { createDomMirrorHost } from "./dom-mirror-host";
@@ -45,7 +46,7 @@ export type { Rect, CursorSnapshot, DecorationRectSnapshot } from "./paint-cache
 export { hashPaintInputs, createPaintCache } from "./paint-cache";
 
 // The read-only DOM viewer + contenteditable editing backend moved to @taleweaver/digital
-// (dual-mode Phase 3a). @taleweaver/print is the PRINT backend (canvas/layout-driver/paint).
+// @taleweaver/print is the PRINT backend (canvas/layout-driver/paint).
 
 // Re-exports from core (backward compatibility, geometry-free)
 export type { EditorAction } from "@taleweaver/core";
@@ -55,15 +56,15 @@ export type { SelectionEntry, UndoRedoResult } from "@taleweaver/core";
 export { createInitialEditorState, reduceEditor } from "@taleweaver/core";
 export type { CounterFormat, FootnoteNumberingPolicy } from "@taleweaver/core";
 export { documentFootnotePolicy } from "@taleweaver/core";
-// Find & Replace (#433): re-export the find primitives the find-bar UI needs.
+// Find & Replace: re-export the find primitives the find-bar UI needs.
 export { findMatches } from "@taleweaver/core";
 export type { TextMatch, FindMatchesOptions } from "@taleweaver/core";
 
 // === Geometric layout engine — RELOCATED HERE from @taleweaver/core ===
-// (dual-mode Phase 3 sub-phase 3). The positioned-box layout types, the layout
+// The positioned-box layout types, the layout
 // passes (BFC / IFC / fragmentation / pagination / virtual tree), the table FCs,
 // used-style, footnote-resolve, the PDF outline/goto-destination helpers, and the
-// D3 geometric cursor surface (hit-test / cursor-position / selection-geometry /
+// geometric cursor surface (hit-test / cursor-position / selection-geometry /
 // line-navigation / line-bidi / line-flatten / atomic-box-index / comment+suggestion
 // rects) all live in this package now. Consumers (react, pdf, examples) import them
 // from `@taleweaver/print`.
@@ -95,7 +96,7 @@ export type { VirtualLayoutTree } from "./layout/virtual-layout-tree";
 // consumer builds a layout tree from a (geometry-free) core `State` by calling
 // `createLayoutDriver(layoutConfig).rebuild(state, containerWidth, null)`. The
 // `LayoutConfig` carries the print-only geometry capabilities (measurer /
-// hyphenator) that left core's `EditorConfig` in Phase 0b.
+// hyphenator) that left core's `EditorConfig`.
 export { createLayoutDriver } from "./layout-driver/layout-driver";
 export type { LayoutDriver } from "./layout-driver/layout-driver";
 export type { LayoutConfig } from "./layout-driver/layout-config";
@@ -103,15 +104,15 @@ export {
   __getGetPageDriverCountForTest,
   __resetGetPageDriverCountForTest,
 } from "./layout/virtual-layout-tree";
-// #522 — internal /GoTo destination resolution for the PDF exporter.
+// Internal /GoTo destination resolution for the PDF exporter.
 export {
   resolveGotoDestination,
   makeInternalDestinationResolver,
   type InternalDestination,
 } from "./layout/resolve-goto-destination";
-// #523 — PDF outline (`/Outlines` bookmark tree) helper.
+// PDF outline (`/Outlines` bookmark tree) helper.
 export { buildPdfOutline, type PdfOutlineNode } from "./layout/pdf-outline";
-// Cursor — D3 geometric surface.
+// Cursor — geometric surface.
 export { resolvePositionFromPixel } from "./cursor/hit-test";
 export type { PixelPosition } from "./cursor/cursor-position";
 export { resolvePixelPosition } from "./cursor/cursor-position";
@@ -128,6 +129,9 @@ export { resolveLineForPosition, buildBlockGraphemeStepper } from "./cursor/visu
 export { buildLineBidiView, moveVisually, inlineCoordForOffset } from "./cursor/line-bidi";
 export type { LineBidiView, MoveVisuallyResult } from "./cursor/line-bidi";
 export { getAtomicBoxIndex } from "./cursor/atomic-box-index";
+export { getBoundaryMarkIndex, boundaryMarkRectOf } from "./cursor/boundary-mark-index";
+export type { BoundaryMarkRect } from "./cursor/boundary-mark-index";
+export type { MarkerBox, BoundaryMarkBox, BoundaryMarkPlacement } from "./layout/layout-box";
 export type { AtomicBoxIndex, AbsoluteRect } from "./cursor/atomic-box-index";
 export type { AbsoluteLineBox, LineLeaf, LineIndex } from "./cursor/line-flatten";
 export {

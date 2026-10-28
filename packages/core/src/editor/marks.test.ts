@@ -1,3 +1,5 @@
+import { finalSectionOf } from "../test-utils/state-builders";
+import { TEST_RESOLVER } from "../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import {
   createInitialEditorState,
@@ -201,7 +203,7 @@ describe("typing attributes", () => {
     const id = blockId(s);
     s = run(s, config, select(id, 0, 2), { type: "TOGGLE_STYLE", style: "bold" }, caret(id, 1));
     s = run(s, config, { type: "PASTE", text: "x\ny\nz" });
-    const root = getBlock(s.state, s.state.rootId);
+    const root = getBlock(s.state, finalSectionOf(s.state)); // the root holds sections
     const ids: BlockId[] = [];
     for (let c = root?.firstChildId ?? null; c !== null; c = getBlock(s.state, c)?.nextSiblingId ?? null) ids.push(c);
     expect(ids.map((b) => runs(s, b))).toEqual([
@@ -259,10 +261,10 @@ describe("mark semantics", () => {
       { type: "SET_MARK", key: "person", value: { ref: "p", seen: 1 }, span: createSpan(createPosition(id, 1), createPosition(id, 3)) },
       { type: "SET_MARK", key: "person", value: { ref: "p", seen: 2 }, span: createSpan(createPosition(id, 3), createPosition(id, 5)) },
     );
-    expect(getMarkRanges(s.state, "person", config.attrRegistry).map((r) => [r.from.offset, r.to.offset])).toEqual([[1, 5]]);
+    expect(getMarkRanges(s.state, "person").map((r) => [r.from.offset, r.to.offset])).toEqual([[1, 5]]);
     expect(run(s, config, caret(id, 2)).selection.focus.offset).toBe(1); // one unit 1..5, not 1..3
     s = run(s, config, { type: "REMOVE_MARK", key: "person", value: { ref: "p" }, span: createSpan(createPosition(id, 0), createPosition(id, 6)) });
-    expect(getMarkRanges(s.state, "person", config.attrRegistry)).toEqual([]);
+    expect(getMarkRanges(s.state, "person")).toEqual([]);
   });
 
   it("overlapping atomic marks form one unit: a snapped caret never lands inside the other", () => {
@@ -324,6 +326,25 @@ describe("mark semantics", () => {
     // Shift+Left from the end edge back into it deselects to the start edge.
     const back = run(s, config, select(id, 1, 7), select(id, 1, 6)).selection;
     expect([back.anchor.offset, back.focus.offset]).toEqual([1, 3]);
+  });
+
+  it("TOGGLE_STYLE / SET_MARK over a span covering ¶P write ¶P's inclusive markAttrs", () => {
+    const config = makeConfig();
+    let s = run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "ab" });
+    s = run(s, config, { type: "SPLIT_NODE" }, { type: "INSERT_TEXT", text: "cd" });
+    const n = blockId(s);
+    const p = getBlock(s.state, n)?.prevSiblingId;
+    if (p === undefined || p === null) throw new Error("no paragraph before the caret's");
+    const sel = (from: number): EditorAction => ({
+      type: "SET_SELECTION",
+      selection: createSpan(createPosition(p, from), createPosition(n, 0)),
+    });
+    s = run(s, config, sel(0), { type: "TOGGLE_STYLE", style: "bold" });
+    expect(getBlock(s.state, p)?.markAttrs).toEqual({ bold: true });
+    // Only the ¶ selected — (P, len)–(N, 0); a non-inclusive mark never reaches the ¶.
+    s = run(s, config, sel(2), { type: "SET_MARK", key: "tag", value: "t" }, { type: "SET_MARK", key: "secret", value: 1 });
+    expect(getBlock(s.state, p)?.markAttrs).toEqual({ bold: true, tag: "t" });
+    expect(getBlock(s.state, n)?.markAttrs).toBeUndefined();
   });
 
   it("SET_MARK + getMarkRanges; adjacent runs with different values stay distinct", () => {
@@ -453,7 +474,7 @@ describe("mark semantics", () => {
       value: { id: 7 },
       span: createSpan(createPosition(blockId(m), 0), createPosition(blockId(m), 5)),
     });
-    const reg = createDefaultSerializerRegistry();
+    const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
     reg.register(createJsonDocumentSerializer({ allocator: productionAllocator, blockKindResolver: config.componentRegistry }));
     for (const format of [JSON_FORMAT, BINARY_FORMAT]) {
       const back: State = deserializeDocument(serializeDocument(s.state, format, reg), format, reg);
@@ -467,7 +488,7 @@ describe("mark semantics", () => {
     let s = withMention(config);
     const id = blockId(s);
     s = run(s, config, select(id, 0, 15), { type: "SET_MARK", key: "secret", value: true });
-    const frag = extractFragment(s.state, s.selection, config.attrRegistry);
+    const frag = extractFragment(s.state, s.selection);
     expect(getMarkRanges(frag, "secret")).toEqual([]);
     expect(getMarkRanges(frag, "mention").map((r) => r.value)).toEqual([{ ref: "a" }]);
     const fresh = createInitialEditorState(config);
@@ -492,7 +513,7 @@ describe("mark semantics", () => {
   it("getTypingAttrs is public and mirrors what INSERT_TEXT uses", () => {
     const config = makeConfig();
     const s = withMention(config);
-    expect(getTypingAttrs(run(s, config, caret(blockId(s), 7)), config.attrRegistry)).toEqual({});
+    expect(getTypingAttrs(run(s, config, caret(blockId(s), 7)))).toEqual({});
   });
 
   it("render carries mark DOM hints on the run (toDom) and the mark's toStyle", () => {

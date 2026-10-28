@@ -10,6 +10,7 @@ import {
   createState,
   getYDoc,
   type EditorConfig,
+  type BlockKindResolver,
   type State,
   type Position,
 } from "@taleweaver/core";
@@ -50,7 +51,7 @@ export function CollabSurface({
   // Built once: peer A from the handed-off document (or a small starter doc), peer B
   // as a replica of it.
   const peersRef = useRef<{ a: State; b: State } | null>(null);
-  if (peersRef.current === null) peersRef.current = connectPeers(seed ?? makeStarterDoc());
+  if (peersRef.current === null) peersRef.current = connectPeers(seed ?? makeStarterDoc(), createDefaultComponentRegistry());
   const peers = peersRef.current;
 
   const paneA = useCollabEditor(peers.a);
@@ -196,7 +197,7 @@ function RemoteCursor({
 }
 
 /** Peer B: a replica of `a` over its own Y.Doc, kept in sync with `a` in both directions. */
-function connectPeers(a: State): { a: State; b: State } {
+function connectPeers(a: State, resolver: BlockKindResolver): { a: State; b: State } {
   const docA = getYDoc(a);
   const docB = new Y.Doc();
   Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
@@ -207,7 +208,7 @@ function connectPeers(a: State): { a: State; b: State } {
   docB.on("update", (u: Uint8Array, origin: unknown) => {
     if (origin !== SYNC) Y.applyUpdate(docA, u, SYNC);
   });
-  return { a, b: createState({ rootId: a.rootId, doc: docB }) };
+  return { a, b: createState({ rootId: a.rootId, doc: docB, resolver }) };
 }
 
 /** A small fresh document so the collab demo opens with editable content. */
@@ -217,7 +218,7 @@ function makeStarterDoc(): State {
     attrRegistry: createDefaultAttrRegistry(),
     containerWidth: 600,
   };
-  const empty = createEmptyDocument();
+  const empty = createEmptyDocument({ resolver: config.componentRegistry });
   let editor = createEditorStateFromState(empty, initialSelectionForState(empty), config);
   editor = reduceEditor(
     editor,

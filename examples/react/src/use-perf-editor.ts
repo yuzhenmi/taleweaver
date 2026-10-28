@@ -83,7 +83,7 @@ const PAGE_CONFIG: PageConfig = {
 };
 
 function createConfig(extensions?: EditorExtensions): EditorConfig {
-  // Phase 0b: core's `EditorConfig` no longer carries the print mechanics
+  // Core's `EditorConfig` does not carry the print mechanics
   // `measurer`/`hyphenator` (they moved to the backend `LayoutConfig`). `pageConfig`
   // STAYS available on `EditorConfig` (document page-setup data, read by
   // toggle-section-landscape) but is OPTIONAL — this demo doesn't toggle section
@@ -102,7 +102,7 @@ function createConfig(extensions?: EditorExtensions): EditorConfig {
 }
 
 /**
- * Build the print-geometry capabilities the controller needs (Phase 0b): the
+ * Build the print-geometry capabilities the controller needs: the
  * canvas text-shaper and the Liang auto-hyphenator. Pass the shaper directly
  * (NOT createCanvasMeasurer). The measurer adapter chain (adaptShaperToMeasurer
  * → measurerToShaper) distributes a string's total width uniformly across its
@@ -144,7 +144,7 @@ export function usePerfEditor(initialState?: State, extensions?: EditorExtension
   }
   const config = configRef.current;
 
-  // Print-geometry capabilities (Phase 0b): built once, passed to the controller
+  // Print-geometry capabilities: built once, passed to the controller
   // (via the EditorView spread), NOT to core's geometry-free `EditorConfig`.
   const geometryRef = useRef<{ measurer: TextShaper; hyphenator: Hyphenator } | null>(null);
   if (geometryRef.current === null) {

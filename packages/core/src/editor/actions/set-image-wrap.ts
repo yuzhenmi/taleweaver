@@ -45,7 +45,6 @@ export function handleSetImageWrap(
     editor.state,
     blockId,
     incoming,
-    config.attrRegistry,
   );
   if (result.state === editor.state) return editor;
 

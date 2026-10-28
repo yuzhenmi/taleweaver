@@ -2,29 +2,54 @@ import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
 import {
   createYDoc,
-  getBlocksMap,
-  getEmbedContentsMap,
-  getTemplateContentsMap,
   getListDefsMap,
   getCommentsMap,
   getMetaMap,
-  getTreeMap,
   allTreeBlockCount,
   getYBlock,
   runTransaction,
   requireInTransaction,
-  __getWalkStepsForTest,
-  __resetWalkStepsForTest,
+  dirtyIdsFromTransaction,
 } from "./yjs-doc";
+import { getBlock } from "./state";
+import { splitBlockAtPosition } from "./ops/split-block";
+import { mergeAdjacentBlocks } from "./ops/merge-blocks";
+import { createTestAllocator } from "./block-id";
+import { buildFlowDoc, finalSectionOf, withTestAttrs } from "../test-utils/state-builders";
+import { getRegistry } from "./registry";
 import type { BlockId } from "./block-id";
+import { createPosition } from "./block-position";
+import { STATE_INTERNAL } from "./state-internal";
+import { insertText } from "./ops/insert-text";
+import { setBlockAttrs } from "./ops/set-block-attrs";
+import { removeBlock } from "./ops/remove-block";
+import { applyAttrsToRange } from "./ops/apply-attrs";
+import { createSpan } from "./block-position";
+import { buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
+
+const id = (s: string) => s as BlockId;
+
+/** A document `doc` with paragraphs p1, p2 and a header body `hdr` > `hp`. */
+function fixture() {
+  return buildState({
+    rootId: "doc",
+    blocks: [
+      buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+      buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("one")]) }),
+      buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text("two")]) }),
+    ],
+    templateContents: [
+      buildBlock({ id: "hdr", type: "header-body", firstChildId: "hp", lastChildId: "hp" }),
+      buildBlock({ id: "hp", type: "paragraph", parentId: "hdr", inlineContent: inlineContent([text("hello")]) }),
+    ],
+  });
+}
 
 describe("yjs-doc", () => {
   describe("createYDoc", () => {
-    it("creates a Y.Doc with the five data maps (blocks, embedContents, templateContents, listDefs, comments) + meta", () => {
+    it("creates a Y.Doc with the registry, listDefs, comments and meta maps", () => {
       const doc = createYDoc();
-      expect(getBlocksMap(doc)).toBeInstanceOf(Y.Map);
-      expect(getEmbedContentsMap(doc)).toBeInstanceOf(Y.Map);
-      expect(getTemplateContentsMap(doc)).toBeInstanceOf(Y.Map);
+      expect(getRegistry(doc)).toBeInstanceOf(Y.Map);
       expect(getListDefsMap(doc)).toBeInstanceOf(Y.Map);
       expect(getCommentsMap(doc)).toBeInstanceOf(Y.Map);
       expect(getMetaMap(doc)).toBeInstanceOf(Y.Map);
@@ -47,9 +72,7 @@ describe("yjs-doc", () => {
       expect(comments.size).toBe(0);
     });
 
-    it("does NOT include the comments map in the block-tree maps (allTreeBlockCount unchanged)", () => {
-      // The comments map is a side-table keyed by commentId, like listDefs —
-      // NOT a block tree. Writing to it must not affect allTreeBlockCount.
+    it("does NOT count side-table entries as blocks (allTreeBlockCount unchanged)", () => {
       const doc = createYDoc();
       getCommentsMap(doc).set("c1", new Y.Map());
       getListDefsMap(doc).set("l1", new Y.Map());
@@ -57,39 +80,11 @@ describe("yjs-doc", () => {
     });
   });
 
-  describe("getTreeMap", () => {
-    it("returns the templateContents map for kind 'templateContent'", () => {
-      const doc = createYDoc();
-      expect(getTreeMap(doc, "templateContent")).toBe(getTemplateContentsMap(doc));
-    });
-
-    it("returns the embedContents map for kind 'embedContent'", () => {
-      const doc = createYDoc();
-      expect(getTreeMap(doc, "embedContent")).toBe(getEmbedContentsMap(doc));
-    });
-
-    it("returns the main blocks map for kind 'block'", () => {
-      const doc = createYDoc();
-      expect(getTreeMap(doc, "block")).toBe(getBlocksMap(doc));
-    });
-  });
-
   describe("allTreeBlockCount", () => {
-    it("sums the sizes of all three tree maps", () => {
-      const doc = createYDoc();
-      getBlocksMap(doc).set("b1", new Y.Map());
-      getBlocksMap(doc).set("b2", new Y.Map());
-      getEmbedContentsMap(doc).set("e1", new Y.Map());
-      getTemplateContentsMap(doc).set("t1", new Y.Map());
-      getTemplateContentsMap(doc).set("t2", new Y.Map());
-      getTemplateContentsMap(doc).set("t3", new Y.Map());
-      // 2 main + 1 embed + 3 template = 6.
-      expect(allTreeBlockCount(doc)).toBe(6);
-    });
-
-    it("is zero for an empty doc", () => {
-      const doc = createYDoc();
-      expect(allTreeBlockCount(doc)).toBe(0);
+    it("counts the registry entries of every tree", () => {
+      // doc + p1 + p2 + hdr + hp.
+      // doc + its final section + p1 + p2, hdr + hp.
+      expect(allTreeBlockCount(fixture()[STATE_INTERNAL].doc)).toBe(6);
     });
   });
 
@@ -99,10 +94,10 @@ describe("yjs-doc", () => {
       let called = false;
       runTransaction(doc, () => {
         called = true;
-        getBlocksMap(doc).set("test", new Y.Map());
+        getListDefsMap(doc).set("test", new Y.Map());
       });
       expect(called).toBe(true);
-      expect(getBlocksMap(doc).has("test")).toBe(true);
+      expect(getListDefsMap(doc).has("test")).toBe(true);
     });
 
     it("throws (dev) when called reentrantly inside another transaction", () => {
@@ -113,237 +108,103 @@ describe("yjs-doc", () => {
       expect(() =>
         runTransaction(doc, () => {
           runTransaction(doc, () => {
-            getBlocksMap(doc).set("inner", new Y.Map());
+            getListDefsMap(doc).set("inner", new Y.Map());
           });
         }),
       ).toThrow(/already inside a Y\.Doc transaction/);
-      // The guard throws BEFORE doc.transact, so the inner write never lands —
-      // no half-mutation. (A regression that moved the guard after the
-      // transaction would commit "inner" and fail here.)
-      expect(getBlocksMap(doc).has("inner")).toBe(false);
+      // The guard throws BEFORE doc.transact, so the inner write never lands.
+      expect(getListDefsMap(doc).has("inner")).toBe(false);
     });
 
-    it("returns the set of changed BlockIds (blocks map)", () => {
-      const doc = createYDoc();
-      const result = runTransaction(doc, () => {
-        const blocks = getBlocksMap(doc);
-        const yBlock = new Y.Map();
-        yBlock.set("type", "paragraph");
-        blocks.set("blk-1", yBlock);
-      });
-      expect(result.dirtyIds.has("blk-1" as BlockId)).toBe(true);
+    it("reports a text edit as the edited block's dirtyId", () => {
+      const r = insertText(fixture(), createPosition(id("p2"), 1), "X", {});
+      expect(r.dirtyIds.has(id("p2"))).toBe(true);
+      expect(r.dirtyIds.has(id("p1"))).toBe(false);
     });
 
-    it("captures BlockId mutations inside a block's Y.Map as that block's dirtyId", () => {
-      const doc = createYDoc();
-      const blocks = getBlocksMap(doc);
-      const yBlock = new Y.Map<unknown>();
-      yBlock.set("type", "paragraph");
-      yBlock.set("attrs", new Y.Map());
-      runTransaction(doc, () => {
-        blocks.set("blk-1", yBlock);
-      });
-
-      const result = runTransaction(doc, () => {
-        (yBlock.get("attrs") as Y.Map<unknown>).set("bold", true);
-      });
-      expect(result.dirtyIds.has("blk-1" as BlockId)).toBe(true);
+    it("reports a block-attr write as that block's dirtyId", () => {
+      const r = setBlockAttrs(fixture(), id("p1"), { textAlign: "center" });
+      expect(r.dirtyIds.has(id("p1"))).toBe(true);
     });
 
-    it("captures embed-content map mutations as dirty BlockIds", () => {
-      const doc = createYDoc();
-      const result = runTransaction(doc, () => {
-        const embeds = getEmbedContentsMap(doc);
-        const yBody = new Y.Map();
-        yBody.set("type", "fn-body");
-        embeds.set("body-1", yBody);
-      });
-      expect(result.dirtyIds.has("body-1" as BlockId)).toBe(true);
+    it("reports a FORMAT-only edit inside a template body as the edited block's dirtyId", () => {
+      const r = applyAttrsToRange(fixture(), createSpan(createPosition(id("hp"), 1), createPosition(id("hp"), 4)), { bold: true });
+      expect(r.dirtyIds.has(id("hp"))).toBe(true);
     });
 
-    it("captures template-content map mutations as dirty BlockIds", () => {
-      const doc = createYDoc();
-      const result = runTransaction(doc, () => {
-        const templates = getTemplateContentsMap(doc);
-        const yBody = new Y.Map();
-        yBody.set("type", "header-body");
-        templates.set("tmplP", yBody);
-      });
-      expect(result.dirtyIds.has("tmplP" as BlockId)).toBe(true);
+    it("reports a block removal as the removed block's dirtyId", () => {
+      const r = removeBlock(fixture(), id("p2"));
+      expect(r.dirtyIds.has(id("p2"))).toBe(true);
+    });
+  });
+
+  // candidates are derived structurally, then compared exactly —
+  // only ids whose read-model record changed are dirty; untouched blocks keep their snapshot.
+  describe("dirty sets are exact", () => {
+    const four = () => buildFlowDoc([{ p: "p0", t: "zero" }, { p: "p1", t: "one" }, { p: "p2", t: "two" }, { p: "p3", t: "three" }]);
+    const ids = (s: ReadonlySet<BlockId>) => [...s].sort();
+
+    it("a local keystroke dirties exactly its owner (mid and at the end of the paragraph)", () => {
+      expect(ids(insertText(four(), createPosition(id("p1"), 1), "X", {}).dirtyIds)).toEqual(["p1"]);
+      expect(ids(insertText(four(), createPosition(id("p1"), 3), "X", {}).dirtyIds)).toEqual(["p1"]);
     });
 
-    it("captures a FORMAT-only edit on a template body's own inline Y.Text as the body's dirtyId", () => {
-      const doc = createYDoc();
-      const templates = getTemplateContentsMap(doc);
-      const yBody = new Y.Map<unknown>();
-      const yText = new Y.Text();
-      yText.insert(0, "hello");
-      yBody.set("inlineContent", yText);
-      runTransaction(doc, () => {
-        templates.set("tmplP", yBody);
-      });
-      // Exercises the findOwningBlockId template-map branch with the current shape.
-      const result = runTransaction(doc, () => {
-        yText.format(1, 3, { bold: true });
-      });
-      expect([...result.dirtyIds]).toEqual(["tmplP"]);
+    it("a remote keystroke dirties exactly its owner", () => {
+      const a = four();
+      const b = new Y.Doc();
+      Y.applyUpdate(b, Y.encodeStateAsUpdate(a[STATE_INTERNAL].doc));
+      const seen: string[][] = [];
+      b.on("afterTransaction", (tx: Y.Transaction) => seen.push(ids(dirtyIdsFromTransaction(b, tx))));
+      const typed = insertText(a, createPosition(id("p2"), 2), "X", {}).state;
+      Y.applyUpdate(b, Y.encodeStateAsUpdate(typed[STATE_INTERNAL].doc, Y.encodeStateVector(b)), "remote");
+      expect(seen).toEqual([["p2"]]);
     });
 
-    // LEGACY run-array shape (`Y.Array<Y.Map{text: Y.Text}>`): the dirty walk must still
-    // map an old client's nested edit to its block — the legacy-shape gate needs the id.
-    it("LEGACY shape: captures a nested edit inside a template body's run array as the body's dirtyId", () => {
-      const doc = createYDoc();
-      const templates = getTemplateContentsMap(doc);
-      const yBody = new Y.Map<unknown>();
-      const yArray = new Y.Array<Y.Map<unknown>>();
-      const yItem = new Y.Map<unknown>();
-      const yText = new Y.Text();
-      yText.insert(0, "hello");
-      yItem.set("text", yText);
-      yArray.push([yItem]);
-      yBody.set("inlineContent", yArray);
-      runTransaction(doc, () => {
-        templates.set("tmplP", yBody);
-      });
-
-      // Mutate the Y.Text nested deep inside the template body (exercises the
-      // findOwningBlockId template-map branch).
-      const result = runTransaction(doc, () => {
-        const yb = getYBlock(doc, "tmplP" as BlockId, "test", "templateContent");
-        const arr = yb.get("inlineContent") as Y.Array<Y.Map<unknown>>;
-        (arr.get(0).get("text") as Y.Text).insert(0, "X");
-      });
-      expect(result.dirtyIds.has("tmplP" as BlockId)).toBe(true);
+    it("Enter dirties the head, the tail and only the neighbours whose links changed", () => {
+      const mid = splitBlockAtPosition(four(), createPosition(id("p1"), 1), createTestAllocator("h"));
+      expect(ids(mid.dirtyIds)).toEqual(["h-0", "p0", "p1"]);
+      const first = four();
+      const F = finalSectionOf(first);
+      const top = splitBlockAtPosition(first, createPosition(id("p0"), 2), createTestAllocator("h"));
+      expect(ids(top.dirtyIds)).toEqual(["h-0", "p0", F].sort());
+      const end = splitBlockAtPosition(four(), createPosition(id("p3"), 5), createTestAllocator("h"));
+      expect(ids(end.dirtyIds)).toEqual(["h-0", "p2", "p3"]);
     });
 
-    it("LEGACY shape: captures a Y.Text mutation deep inside a run array inside a block as the block's dirtyId", () => {
-      const doc = createYDoc();
-      const blocks = getBlocksMap(doc);
-      const yBlock = new Y.Map<unknown>();
-      const yArray = new Y.Array<Y.Map<unknown>>();
-      const yItem = new Y.Map<unknown>();
-      const yText = new Y.Text();
-      yText.insert(0, "hello");
-      yItem.set("text", yText);
-      yArray.push([yItem]);
-      yBlock.set("inlineContent", yArray);
-      runTransaction(doc, () => {
-        blocks.set("blk-1", yBlock);
-      });
-
-      const result = runTransaction(doc, () => {
-        yText.insert(0, "X");
-      });
-      expect(result.dirtyIds.has("blk-1" as BlockId)).toBe(true);
+    it("Backspace-merge dirties the vanished paragraph, the survivor and the relinked neighbour", () => {
+      const r = mergeAdjacentBlocks(four(), id("p1"), id("p2"));
+      expect(ids(r.dirtyIds)).toEqual(["p0", "p1", "p2"]);
     });
 
-    it("captures block deletion as a dirtyId", () => {
-      const doc = createYDoc();
-      const blocks = getBlocksMap(doc);
-      runTransaction(doc, () => {
-        blocks.set("blk-1", new Y.Map());
-      });
-      const result = runTransaction(doc, () => {
-        blocks.delete("blk-1");
-      });
-      expect(result.dirtyIds.has("blk-1" as BlockId)).toBe(true);
-    });
-
-    it("amortizes parent-chain walks across changed Y types (S-A1, LEGACY run-array shape: the deepest chains)", () => {
-      // Mutate text + attrs of many items across few blocks (legacy per-run Y.Maps —
-      // the deepest parent chains the walk can meet). Each item
-      // contributes two entries to `changedParentTypes` whose walks all
-      // share intermediate cursors (the item Y.Map, the inlineContent
-      // Y.Array, the block Y.Map). Without per-transaction memoization
-      // every changed Y type re-walks the full chain; with memoization
-      // each cursor is visited at most once.
-      const doc = createYDoc();
-      const blocks = getBlocksMap(doc);
-
-      const NUM_BLOCKS = 5;
-      const ITEMS_PER_BLOCK = 10;
-      const itemHandles: Array<{ text: Y.Text; attrs: Y.Map<unknown> }> = [];
-
-      runTransaction(doc, () => {
-        for (let b = 0; b < NUM_BLOCKS; b++) {
-          const yBlock = new Y.Map<unknown>();
-          const yArray = new Y.Array<Y.Map<unknown>>();
-          for (let i = 0; i < ITEMS_PER_BLOCK; i++) {
-            const yItem = new Y.Map<unknown>();
-            const yText = new Y.Text();
-            yText.insert(0, "hi");
-            const yAttrs = new Y.Map<unknown>();
-            yItem.set("text", yText);
-            yItem.set("attrs", yAttrs);
-            yArray.push([yItem]);
-            itemHandles.push({ text: yText, attrs: yAttrs });
-          }
-          yBlock.set("inlineContent", yArray);
-          blocks.set(`blk-${b}` as BlockId, yBlock);
-        }
-      });
-
-      __resetWalkStepsForTest();
-      const result = runTransaction(doc, () => {
-        for (const { text, attrs } of itemHandles) {
-          text.insert(0, "X");
-          attrs.set("bold", true);
-        }
-      });
-
-      // Correctness: exactly NUM_BLOCKS unique ids are dirty.
-      expect(result.dirtyIds.size).toBe(NUM_BLOCKS);
-      for (let b = 0; b < NUM_BLOCKS; b++) {
-        expect(result.dirtyIds.has(`blk-${b}` as BlockId)).toBe(true);
-      }
-
-      // Empirical separation for this fixture (NUM_BLOCKS=5,
-      // ITEMS_PER_BLOCK=10, mutating text + attrs of every item):
-      //   memoized walk:    161 steps
-      //   non-memoized walk: 566 steps
-      // The 250-step threshold cleanly separates the two regimes. The
-      // `> 0` lower bound guards against a silent regression in the
-      // counter or in the memo plumbing that would suppress instrumentation
-      // entirely and let `< 250` pass vacuously.
-      const steps = __getWalkStepsForTest();
-      expect(steps).toBeGreaterThan(0);
-      expect(steps).toBeLessThan(250);
+    it("a ¶-key write (formatting exactly the ¶) dirties exactly its owner", () => {
+      const r = applyAttrsToRange(withTestAttrs(four()), createSpan(createPosition(id("p1"), 3), createPosition(id("p2"), 0)), { italic: true });
+      expect(getBlock(r.state, id("p1"))?.markAttrs).toEqual({ italic: true });
+      expect(ids(r.dirtyIds)).toEqual(["p1"]);
     });
   });
 
   describe("getYBlock", () => {
-    it("returns the per-block Y.Map for a known id", () => {
-      const doc = createYDoc();
-      const yBlock = new Y.Map<unknown>();
-      runTransaction(doc, () => {
-        getBlocksMap(doc).set("p1", yBlock);
+    it("returns the block's registry entry", () => {
+      const doc = fixture()[STATE_INTERNAL].doc;
+      doc.transact(() => {
+        const entry = getYBlock(doc, id("p1"), "test");
+        expect(entry).toBe(getRegistry(doc).get("p1"));
+        expect(entry.get("type")).toBe("paragraph");
       });
-      expect(getYBlock(doc, "p1" as BlockId, "test")).toBe(yBlock);
+    });
+
+    it("returns template-body entries from the same registry", () => {
+      const doc = fixture()[STATE_INTERNAL].doc;
+      doc.transact(() => {
+        expect(getYBlock(doc, id("hp"), "test").get("type")).toBe("paragraph");
+      });
     });
 
     it("throws with op name when the id is missing", () => {
       const doc = createYDoc();
-      expect(() => getYBlock(doc, "missing" as BlockId, "myOp")).toThrow(
+      expect(() => doc.transact(() => getYBlock(doc, "missing" as BlockId, "myOp"))).toThrow(
         /myOp: block "missing" disappeared mid-transaction/,
       );
-    });
-
-    it("kind='embedContent' reads from the embedContents map", () => {
-      const doc = createYDoc();
-      const yBody = new Y.Map<unknown>();
-      runTransaction(doc, () => {
-        getEmbedContentsMap(doc).set("body-1", yBody);
-      });
-      expect(getYBlock(doc, "body-1" as BlockId, "test", "embedContent")).toBe(yBody);
-    });
-
-    it("kind='templateContent' reads from the templateContents map", () => {
-      const doc = createYDoc();
-      const yBody = new Y.Map<unknown>();
-      runTransaction(doc, () => {
-        getTemplateContentsMap(doc).set("tmpl-1", yBody);
-      });
-      expect(getYBlock(doc, "tmpl-1" as BlockId, "test", "templateContent")).toBe(yBody);
     });
   });
 
@@ -378,12 +239,12 @@ describe("yjs-doc", () => {
       // so `requireInTransaction` should pass when an *InTx helper is
       // (hypothetically) reached from inside the undo reversal context.
       const doc = createYDoc();
-      const blocks = getBlocksMap(doc);
-      const undoManager = new Y.UndoManager(blocks, { trackedOrigins: new Set([null]) });
+      const scope = getListDefsMap(doc);
+      const undoManager = new Y.UndoManager(scope, { trackedOrigins: new Set([null]) });
 
       // Make a tracked change so the undo manager has something to undo.
       doc.transact(() => {
-        blocks.set("blk-1" as BlockId, new Y.Map());
+        scope.set("l1", new Y.Map());
       });
 
       let observedTxInside = false;

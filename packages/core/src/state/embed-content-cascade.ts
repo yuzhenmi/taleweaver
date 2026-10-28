@@ -4,8 +4,7 @@ import {
   getEmbedContent,
   getTemplateContent,
 } from "./state";
-import { STATE_INTERNAL } from "./state-internal";
-import { getTreeMaps } from "./yjs-doc";
+import { iterateAllBlocksInDocumentOrder } from "./document-order";
 import type { BlockId } from "./block-id";
 import type { InlineContent } from "./inline-content";
 
@@ -149,51 +148,15 @@ export function assertNoOrphanedEmbedContent(
 }
 
 /**
- * Walk every block in all three top-level Y.Maps and check each block's
+ * Walk every block of every tree (main, footnote bodies, template bodies) and check each block's
  * inline content for orphan EmbedItem references. Used by the direct entry-
  * point (no dirtyIds) and by the deletion-detected fallback path.
  */
 function fullScanForOrphans(state: State, opName: string): void {
-  const doc = state[STATE_INTERNAL].doc;
-  const [mainMap, embedMap, templateMap] = getTreeMaps(doc);
-  if (mainMap === undefined || embedMap === undefined || templateMap === undefined) {
-    throw new Error(
-      "embed-content-cascade: getTreeMaps returned fewer than the three doc trees " +
-        "(blocks/embedContents/templateContents) — doc not initialized",
-    );
-  }
-  iterateMapForOrphans(state, mainMap, (id) => getBlock(state, id), opName);
-  iterateMapForOrphans(state, embedMap, (id) => getEmbedContent(state, id), opName);
-  iterateMapForOrphans(
-    state,
-    templateMap,
-    (id) => getTemplateContent(state, id),
-    opName,
-  );
-}
-
-/**
- * Iterate every block id present in `map` and, for each block whose
- * `inlineContent` is non-null, scan EmbedItems for dangling references.
- *
- * `resolve` fetches the frozen Block snapshot for the named id from the
- * tree owning `map` (so the snapshot cache short-circuits per id). Y.Map
- * key iteration is the structural fast path: each block appears exactly
- * once in its owning map, no cycle defense needed at this layer.
- */
-function iterateMapForOrphans(
-  state: State,
-  map: { keys(): IterableIterator<string> },
-  resolve: (id: BlockId) => { inlineContent: InlineContent | null } | null,
-  opName: string,
-): void {
-  for (const key of map.keys()) {
-    const id = key as BlockId;
-    const block = resolve(id);
-    if (block === null) continue;
-    const content = block.inlineContent;
-    if (content === null) continue;
-    assertNoOrphansInInlineContent(state, id, content, opName);
+  // The read model of every tree (not registry keys): implicit paragraphs
+  // (`${anchor}#i`) carry content but have no registry entry.
+  for (const block of iterateAllBlocksInDocumentOrder(state)) {
+    if (block.inlineContent !== null) assertNoOrphansInInlineContent(state, block.id, block.inlineContent, opName);
   }
 }
 
@@ -236,8 +199,7 @@ function assertNoOrphansInInlineContent(
  * owners" case (sharing). Together they establish: every embedContent root
  * has exactly one anchor.
  *
- * Sharing is unsupported by design (see
- * `docs/superpowers/specs/2026-05-30-367-shared-embedcontent-decision.md`):
+ * Sharing is unsupported by design:
  * Word and Google Docs both follow the "each anchor owns its own body"
  * model, and the cascade-delete in `removeBlock` / `deleteRange` is
  * unconditional under that model. Copy-paste remaps every `contentBlockId`
@@ -321,54 +283,15 @@ function inlineContentHasEmbedRef(content: InlineContent): boolean {
 }
 
 /**
- * Walk every block in all three top-level Y.Maps, accumulating each
+ * Walk every block of every tree, accumulating each
  * `EmbedItem.properties.contentBlockId` reference into a shared
  * `Map<contentBlockId, owningBlockId>`. Throws on the first contentBlockId
  * that is already a key (a second owning anchor).
  */
 function fullScanForSharing(state: State, opName: string): void {
-  const doc = state[STATE_INTERNAL].doc;
-  const [mainMap, embedMap, templateMap] = getTreeMaps(doc);
-  if (mainMap === undefined || embedMap === undefined || templateMap === undefined) {
-    throw new Error(
-      "embed-content-cascade: getTreeMaps returned fewer than the three doc trees " +
-        "(blocks/embedContents/templateContents) — doc not initialized",
-    );
-  }
   const seenRefs = new Map<BlockId, BlockId>();
-  iterateMapForSharing(mainMap, (id) => getBlock(state, id), seenRefs, opName);
-  iterateMapForSharing(
-    embedMap,
-    (id) => getEmbedContent(state, id),
-    seenRefs,
-    opName,
-  );
-  iterateMapForSharing(
-    templateMap,
-    (id) => getTemplateContent(state, id),
-    seenRefs,
-    opName,
-  );
-}
-
-/**
- * Iterate every block id present in `map` and, for each block whose
- * `inlineContent` is non-null, fold its EmbedItem references into
- * `seenRefs`, throwing on the first duplicate.
- */
-function iterateMapForSharing(
-  map: { keys(): IterableIterator<string> },
-  resolve: (id: BlockId) => { inlineContent: InlineContent | null } | null,
-  seenRefs: Map<BlockId, BlockId>,
-  opName: string,
-): void {
-  for (const key of map.keys()) {
-    const id = key as BlockId;
-    const block = resolve(id);
-    if (block === null) continue;
-    const content = block.inlineContent;
-    if (content === null) continue;
-    accumulateSharingInInlineContent(id, content, seenRefs, opName);
+  for (const block of iterateAllBlocksInDocumentOrder(state)) {
+    if (block.inlineContent !== null) accumulateSharingInInlineContent(block.id, block.inlineContent, seenRefs, opName);
   }
 }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildBlock, buildState, text, embed, inlineContent } from "./state-builders";
+import { buildBlock, buildState, text, embed, inlineContent, finalSectionOf } from "./state-builders";
 import { getBlock, getEmbedContent } from "../state";
 import type { BlockId } from "../state";
 
@@ -35,8 +35,9 @@ describe("state-builders (Y.Doc-backed)", () => {
       ],
     });
     expect(state.rootId).toBe("root");
-    const root = getBlock(state, "root" as BlockId);
-    expect(root?.firstChildId).toBe("p1");
+    // root → its final section → p1.
+    expect(getBlock(state, "p1" as BlockId)?.parentId).toBe(finalSectionOf(state));
+    expect(getBlock(state, finalSectionOf(state))?.firstChildId).toBe("p1");
     const p1 = getBlock(state, "p1" as BlockId);
     expect(p1?.inlineContent?.items[0]).toEqual({ kind: "text", text: "hello", attrs: {} });
   });
@@ -76,7 +77,10 @@ describe("buildState — embedContents", () => {
     const body = getEmbedContent(state, "fn-body-1" as BlockId);
     expect(body).not.toBeNull();
     expect(body?.type).toBe("fn-body");
-    expect(body?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "footnote text" });
+    // A body root is a flow holder: its own inline content becomes the body flow's
+    // first paragraph (terminated by its own ¶).
+    const para = body?.firstChildId ? getEmbedContent(state, body.firstChildId) : null;
+    expect(para?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "footnote text" });
     // Embed-content blocks should NOT appear in the main blocks map.
     expect(getBlock(state, "fn-body-1" as BlockId)).toBeNull();
   });

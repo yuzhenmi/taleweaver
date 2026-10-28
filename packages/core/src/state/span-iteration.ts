@@ -104,7 +104,7 @@ export function* iterateSpan(state: State, span: Span): Iterable<BlockRange> {
   // counter here catches that cross-call case and surfaces a contextual
   // error that names the anchor + focus block IDs — useful for debugging
   // corrupt block trees. Bound source: blockCount(), same as the inner
-  // guards in block-traversal.ts (map-agnostic since C.2c T7a).
+  // guards in block-traversal.ts (map-agnostic).
   const guard = createWalkGuard(state);
   let currentId = nextBlockInDocOrder(state, normalized.anchor.blockId);
   while (currentId && currentId !== normalized.focus.blockId) {

@@ -40,7 +40,6 @@ export function handleSetImageAlt(
     editor.state,
     blockId,
     incoming,
-    config.attrRegistry,
   );
   if (result.state === editor.state) return editor;
 

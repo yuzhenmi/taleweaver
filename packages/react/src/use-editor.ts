@@ -31,12 +31,14 @@ export interface UseEditorOptions {
   /** Host extensions (commands, keymap, input rules, triggers) — on the returned `config`. */
   readonly extensions?: EditorExtensions;
   /**
-   * The editor HALTED: a peer update carried legacy inline storage (an old client). The
-   * returned `halted` becomes true and `dispatch` ignores actions; the last good render
-   * stays. Exit: once the document is upgraded (`upgradeDocument`, single authority)
-   * the hook resumes BY ITSELF when an upgraded peer's update makes the shared document
-   * compatible again (it replaces the document with a fresh State over the same Y.Doc);
-   * a host that upgrades a copy passes it to the returned `replaceDocument`. The halt
+   * The editor HALTED on an incompatible document (`report.reason`): a legacy client
+   * wrote into the frozen legacy root, a peer raised the schema past this engine's, a
+   * second Yjs instance decoded updates, or a replacement's document is not upgraded yet.
+   * The returned `halted` becomes true and `dispatch` ignores actions; the last good
+   * render stays. Exit: the host passes a fresh State to the returned `replaceDocument`
+   * (a legacy write is surfaced in the report, not merged). A not-yet-upgraded document
+   * ("legacy-schema") also resumes BY ITSELF once it is upgraded (`upgradeDocument`,
+   * single authority): the hook replaces it with a fresh State over the same Y.Doc. The halt
    * reaches the hook from the `EditorView` it drives automatically — linked through the
    * hook's OWN `dispatch`, so pass the returned `dispatch` to the view unwrapped (a
    * wrapper breaks the link; dev builds warn). Called once per halt; the hook mirrors the
@@ -79,7 +81,7 @@ export function hookDispatchOf(editorState: EditorState): object | undefined {
 type EditorMessage = EditorAction | { readonly type: "react.replaceDocument"; readonly editorState: EditorState };
 
 function createConfig(options?: UseEditorOptions): EditorConfig {
-  // L-B / closes #164: pass createCanvasShaper directly. The legacy
+  // Pass createCanvasShaper directly. The legacy
   // createCanvasMeasurer is a thin adapter that adaptShaperToMeasurer-wraps
   // the shaper into a TextMeasurer interface (per-string total width,
   // not per-character glyph info). That adapter then synthesizes per-
@@ -89,7 +91,7 @@ function createConfig(options?: UseEditorOptions): EditorConfig {
   // misalignment, line-wrap at the wrong characters. Using the shaper
   // directly delivers true per-glyph advances and cluster boundaries.
   return {
-    // Phase 0b: `measurer` left core's `EditorConfig` (geometry-only) for the
+    // `measurer` is not part of core's geometry-free `EditorConfig`; it belongs to the
     // print backend's controller. The shaper is created + returned separately
     // (see `useEditor`'s `shaperRef`).
     componentRegistry: createDefaultComponentRegistry(),
@@ -107,7 +109,7 @@ export function useEditor(options?: UseEditorOptions) {
   }
   const config = configRef.current;
 
-  // The print text-shaper (geometry-only, Phase 0b). Built once and passed to
+  // The print text-shaper (geometry-only). Built once and passed to
   // the controller / returned to consumers; no longer part of `EditorConfig`.
   const shaperRef = useRef<ReturnType<typeof createCanvasShaper> | null>(null);
   if (shaperRef.current === null) {
@@ -138,9 +140,12 @@ export function useEditor(options?: UseEditorOptions) {
   const dispatch = useCallback((action: EditorAction) => {
     if (!haltedRef.current) send(action);
   }, []);
+  /** Why the hook halted: only a not-yet-upgraded document ("legacy-schema") resumes on its own. */
+  const haltReasonRef = useRef<IncompatibleDocumentReport["reason"] | null>(null);
   const onIncompatibleDocument = useCallback((report: IncompatibleDocumentReport) => {
     if (haltedRef.current) return;
     haltedRef.current = true;
+    haltReasonRef.current = report.reason;
     setHalted(true);
     hostHook.current?.(report);
   }, []);
@@ -156,13 +161,15 @@ export function useEditor(options?: UseEditorOptions) {
     },
     [config],
   );
-  // Halted, and the shared document is compatible again (an upgraded peer upgraded it):
-  // the hook owns the state, so it resumes by replacing it with a fresh State over it.
+  // Halted on a NOT-YET-UPGRADED document that is now upgraded: the hook owns the state,
+  // so it resumes by replacing it with a fresh State over it. A sticky halt (a legacy
+  // write, a newer schema, a second Yjs instance) never resumes on its own — even when a
+  // view re-created while halted reports its (already current) document compatible.
   const onDocumentCompatible = useCallback(() => {
-    if (!haltedRef.current) return;
+    if (!haltedRef.current || haltReasonRef.current !== "legacy-schema") return;
     const halted = stateRef.current.state;
-    replaceDocument(createState({ rootId: halted.rootId, doc: getYDoc(halted) }));
-  }, [replaceDocument]);
+    replaceDocument(createState({ rootId: halted.rootId, doc: getYDoc(halted), resolver: config.componentRegistry }));
+  }, [replaceDocument, config]);
   if (!haltLinks.has(dispatch)) {
     haltLinks.set(dispatch, { halted: () => haltedRef.current, onIncompatibleDocument, onDocumentCompatible });
   }

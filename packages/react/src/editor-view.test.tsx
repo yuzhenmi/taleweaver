@@ -65,8 +65,8 @@ beforeEach(() => {
   mockReplaceAll.mockClear();
   mockFindStatus.mockClear();
 
-  originalResizeObserver = global.ResizeObserver;
-  global.ResizeObserver = vi.fn().mockImplementation(() => ({
+  originalResizeObserver = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = vi.fn().mockImplementation(() => ({
     observe: vi.fn(),
     unobserve: vi.fn(),
     disconnect: vi.fn(),
@@ -75,7 +75,7 @@ beforeEach(() => {
 
 afterEach(() => {
   if (originalResizeObserver) {
-    global.ResizeObserver = originalResizeObserver;
+    globalThis.ResizeObserver = originalResizeObserver;
   }
 });
 
@@ -83,20 +83,17 @@ afterEach(() => {
 
 function EditorHarness() {
   const editor = useEditor();
-  return <EditorView {...editor} />;
+  return <EditorView {...editor} measurer={editor.shaper} />;
 }
 
 function RefHarness({ handleRef }: { handleRef: React.Ref<EditorViewHandle> }) {
   const editor = useEditor();
-  return <EditorView {...editor} ref={handleRef} />;
+  return <EditorView {...editor} measurer={editor.shaper} ref={handleRef} />;
 }
 
 function PaginatedEditorHarness() {
-  const editor = useEditor({
-    pageHeight: 100,
-    pageMargins: { top: 10, bottom: 10, left: 10, right: 10 },
-  });
-  return <EditorView {...editor} pageHeight={100} pageGap={8} />;
+  const editor = useEditor();
+  return <EditorView {...editor} measurer={editor.shaper} pageHeight={100} pageGap={8} />;
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -120,7 +117,7 @@ describe("EditorView", () => {
     const extensions = { keymap: { "Mod-k": null } };
     function RegistryHarness() {
       const editor = useEditor({ attrRegistry, extensions });
-      return <EditorView {...editor} />;
+      return <EditorView {...editor} measurer={editor.shaper} />;
     }
     render(<RegistryHarness />);
     const passed = vi.mocked(createEditorController).mock.calls.at(-1)?.[1].config;
@@ -160,7 +157,7 @@ describe("EditorView", () => {
     const styleOf = () => ({ class: "by-source" });
     function DecoratedHarness() {
       const editor = useEditor();
-      return <EditorView {...editor} decorations={decorations} suggestionStyles={styleOf} />;
+      return <EditorView {...editor} measurer={editor.shaper} decorations={decorations} suggestionStyles={styleOf} />;
     }
     mockSetDecorations.mockClear();
     mockSetSuggestionStyles.mockClear();

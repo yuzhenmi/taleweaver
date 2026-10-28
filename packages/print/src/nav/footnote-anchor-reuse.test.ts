@@ -26,6 +26,7 @@ import { describe, it, expect } from "vitest";
 import {
   createInitialEditorState,
   reduceEditor,
+  getBlock,
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
   render,
@@ -143,7 +144,11 @@ describe("FN-8 — footnote-bearing incremental skips the anchor walk when no an
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" }, config);
     const secondHost = editor.selection.focus.blockId;
     editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
-    expect(secondHost).not.toBe(firstHost);
+    // split head = new id — the first anchor's paragraph is now the head
+    // (a NEW id) and the tail (typed into) keeps `firstHost`; two distinct hosts.
+    const firstAnchorHost = getBlock(editor.state, secondHost)?.prevSiblingId ?? null;
+    expect(firstAnchorHost).not.toBeNull();
+    expect(firstAnchorHost).not.toBe(secondHost);
     // Caret to right after the SECOND anchor ("b" + anchor → offset 2) and
     // backspace it out.
     editor = reduceEditor(

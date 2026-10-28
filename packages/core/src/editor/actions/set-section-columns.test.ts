@@ -2,8 +2,8 @@
  * `SET_SECTION_COLUMNS` editor action + `handleSetSectionColumns`.
  *
  * The action sets the multi-column override (Google Docs Format ▸ Columns) on
- * the SECTION at the cursor — or, when the cursor is in a section-less run, on
- * the DOC ROOT (whole-doc columns). It only SETS the target block's
+ * the SECTION at the cursor (the final section of a break-less
+ * doc). It only SETS the target block's
  * `columnCount` / `columnGap` / `columnRule` attrs; the
  * render→cascade→measure→materialize pipeline (slices T1–T5) turns those attrs
  * into the per-page `columnConfig` and rendered columns. `columnCount: 1` is the
@@ -14,6 +14,8 @@
  * the attrs — proving the render→layout reflow actually fires on the change.
  * Harness mirrors `toggle-section-landscape.test.ts`.
  */
+import { finalSectionOf } from "../../test-utils/state-builders";
+import { topLevelBlockIds } from "../../state";
 import { describe, it, expect } from "vitest";
 import { createInitialEditorState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, getBlock, createPosition, render, cascadePass, type EditorConfig, type PageConfig, type EditorState, type BlockId } from "../../index";
 import { layoutTree } from "@taleweaver/print";
@@ -58,7 +60,7 @@ function buildPasted(config: EditorConfig, n: number): EditorState {
   return reduceEditor(createInitialEditorState(config), { type: "PASTE", text }, config);
 }
 
-/** The document root's direct children, in order. */
+/** The document root's direct children (its sections), in order. */
 function rootChildIds(editor: EditorState): BlockId[] {
   const root = getBlock(editor.state, editor.state.rootId);
   if (root === null || root.firstChildId === null) return [];
@@ -71,9 +73,9 @@ function rootChildIds(editor: EditorState): BlockId[] {
   return ids;
 }
 
-/** The nth top-level block id (paragraphs, pre-section-break). */
+/** The nth top-level body block id (paragraphs, pre-section-break). */
 function nthBlockId(editor: EditorState, n: number): BlockId {
-  const ids = rootChildIds(editor);
+  const ids = topLevelBlockIds(editor.state);
   const id = ids[n];
   if (id === undefined) throw new Error(`no block ${n}`);
   return id;
@@ -187,7 +189,7 @@ describe("handleSetSectionColumns — SET_SECTION_COLUMNS action", () => {
     expect(sectionPlanColumnCounts(next, sectionA, config).every((n) => n === 1)).toBe(true);
   });
 
-  it("applies columns DOC-WIDE when there is no section break (writes the doc root)", () => {
+  it("applies columns DOC-WIDE when there is no section break (writes the final section)", () => {
     const config = makeConfig();
     const editor = buildPasted(config, 3);
 
@@ -200,11 +202,11 @@ describe("handleSetSectionColumns — SET_SECTION_COLUMNS action", () => {
       config,
     );
 
-    // Doc root carries the override.
-    const root = getBlock(next.state, next.state.rootId);
-    expect(root?.attrs.columnCount).toBe(2);
+    // The (final) section carries the override (there is always a section).
+    expect(getBlock(next.state, finalSectionOf(next.state))?.attrs.columnCount).toBe(2);
+    expect(getBlock(next.state, next.state.rootId)?.attrs.columnCount).toBeUndefined();
 
-    // RESOLVED: the whole doc's pages are 2-column (effectiveDefaultColumns).
+    // RESOLVED: the whole doc's pages are 2-column.
     const counts = allPlanColumnCounts(next, config);
     expect(counts.length).toBeGreaterThan(0);
     expect(counts.every((n) => n === 2)).toBe(true);
@@ -231,7 +233,7 @@ describe("handleSetSectionColumns — SET_SECTION_COLUMNS action", () => {
     expect(getBlock(oneCol.state, sectionB)?.attrs.columnGap).toBe(24);
   });
 
-  it("is a no-op (same STATE reference) when the columnCount is already set (T7 guard)", () => {
+  it("is a no-op (same STATE reference) when the columnCount is already set (identity guard)", () => {
     const config = makeConfig();
     const { editor: initial } = twoSectionEditor(config);
 

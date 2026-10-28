@@ -3,7 +3,6 @@ import { findMatches } from "./find-matches";
 import { buildBlock, buildState, text, embed, inlineContent } from "../test-utils/state-builders";
 import type { BlockId } from "./block-id";
 import { COMMENT_START_EMBED_TYPE, COMMENT_END_EMBED_TYPE } from "./comments";
-import { BLOCK_JOIN_SUGGESTION_EMBED_TYPE } from "./suggestions";
 
 /**
  * Build a single-paragraph document with the given block text.
@@ -242,30 +241,6 @@ describe("findMatches", () => {
     // OUTSIDE the match (end = last-matched-char Position + 1 = 8 + 1 = 9).
     expect(findMatches(state, "here")).toEqual([
       { blockId: "p" as BlockId, start: 5, end: 9 },
-    ]);
-  });
-
-  it("a ZERO-WIDTH change-tracking break-suggestion marker also counts as length 1 (B1)", () => {
-    // The same zero-width-marker class as comments: block-join/split suggestion
-    // embeds (change-tracking) serialize to "" yet occupy ONE Position offset.
-    // A match after one must report its Position offset, not the collapsed index.
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({
-          id: "p", type: "paragraph", parentId: "doc",
-          inlineContent: inlineContent([
-            text("foo "),
-            embed(BLOCK_JOIN_SUGGESTION_EMBED_TYPE, { suggestionId: "s1" }),
-            text("bar"),
-          ]),
-        }),
-      ],
-    });
-    // "foo "=[0,4), join-suggestion@4, "bar"=[5,8) — "bar" begins at 5, NOT 4.
-    expect(findMatches(state, "bar")).toEqual([
-      { blockId: "p" as BlockId, start: 5, end: 8 },
     ]);
   });
 });

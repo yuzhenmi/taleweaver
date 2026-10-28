@@ -4,14 +4,14 @@ import type { NavIntent } from "./nav/nav-intent";
 /**
  * The key map's result: a geometry-free core `EditorAction`, OR a geometric
  * `NavIntent` the controller resolves against the driver-built layoutTree before
- * dispatching a `SET_SELECTION` / `DELETE_RANGE` to core (Phase 0b — the 7 nav
+ * dispatching a `SET_SELECTION` / `DELETE_RANGE` to core (the 7 nav
  * handlers live in the backend, not core's reducer). The controller's keydown
  * path discriminates: a `NavIntent` goes through `resolveNavIntent`, everything
  * else dispatches straight to core.
  */
 export type KeyResult = EditorAction | NavIntent;
 
-/** The `NavIntent` type discriminators `mapKeyEvent` may return (Phase 0b). */
+/** The `NavIntent` type discriminators `mapKeyEvent` may return. */
 const NAV_INTENT_TYPES: ReadonlySet<string> = new Set([
   "MOVE_CURSOR",
   "EXPAND_SELECTION",
@@ -29,13 +29,13 @@ export function isNavIntent(result: KeyResult): result is NavIntent {
 
 /**
  * Document context the keymap needs for context-sensitive chords. Optional so
- * callers that don't supply it get the non-list behavior (Tab unmapped).
+ * callers that don't supply it get the non-list behavior (Tab → `INSERT_TAB`).
  */
 export interface KeyContext {
   /**
    * True when the caret's focus block is a `list-item`. Enables Tab / Shift+Tab
    * to nest / un-nest the list (LIST_INDENT / LIST_OUTDENT); outside a list-item
-   * Tab is left unmapped (its current behavior).
+   * Tab inserts a tab (`INSERT_TAB`) and Shift+Tab is a no-op.
    */
   readonly inListItem?: boolean;
 }
@@ -125,7 +125,9 @@ export function mapKeyEvent(
     return { type: "DELETE_FORWARD" };
   }
 
-  if (key === "Enter") return { type: "SPLIT_NODE" };
+  // Enter splits the paragraph; Shift+Enter is a soft line break inside it (Word
+  // `\v`, GDocs `\u000b`).
+  if (key === "Enter") return shiftKey ? { type: "INSERT_LINE_BREAK" } : { type: "SPLIT_NODE" };
 
   // Tab / Shift+Tab — context-sensitive (Google Docs):
   //  - In a list-item: nest / un-nest (LIST_INDENT / LIST_OUTDENT). `handleIndent`

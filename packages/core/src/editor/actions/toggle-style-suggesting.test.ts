@@ -11,6 +11,7 @@
  * `format-suggesting.test.ts` — they share the same helper, so this file proves
  * the cycle once on the canonical handler.
  */
+import { finalSectionOf } from "../../test-utils/state-builders";
 import { describe, it, expect, vi } from "vitest";
 import {
   config as directConfig,
@@ -39,7 +40,7 @@ import { formattingSuggestionIds } from "../../state";
 
 /** The first body paragraph id under the document root. */
 function bodyParaId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = getBlock(editor.state, finalSectionOf(editor.state));
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
     throw new Error("document root has no first child paragraph");

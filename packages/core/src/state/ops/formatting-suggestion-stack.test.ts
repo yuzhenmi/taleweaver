@@ -32,7 +32,7 @@ import { STATE_INTERNAL } from "../state-internal";
 import { createPosition, createSpan } from "../block-position";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
-import { buildBlock, buildState, embed, inlineContent, text } from "../../test-utils/state-builders";
+import { TEST_RESOLVER, buildBlock, buildState, embed, inlineContent, text } from "../../test-utils/state-builders";
 import { suggestionHighlightDecorations } from "../../decorations/builtin-highlights";
 import { getMarkRanges } from "../mark-ranges";
 import { createDefaultAttrRegistry, markTypeOf } from "../../cascade/attr-registry";
@@ -153,7 +153,7 @@ describe("stacked formatting suggestions — creation", () => {
     const yRecord = d.getMap("suggestions").get(B);
     if (!(yRecord instanceof Y.Map)) throw new Error("no record");
     d.transact(() => yRecord.set("order", bad));
-    s = createState({ rootId: s.rootId, doc: d });
+    s = createState({ resolver: TEST_RESOLVER, rootId: s.rootId, doc: d });
     expect(readSuggestionRecord(d, B)?.order).toBeUndefined();
     s = markFormatting(s, span(2, 4), { color: "blue" }, { id: A, author: "me", createdAt: 5, order: nextSuggestionOrder() }).state;
     expect(preview(s, 2).color).toBe("blue");
@@ -306,7 +306,7 @@ describe("stacked formatting suggestions — missing records + concurrency", () 
     d.transact(() => {
       d.getMap("suggestions").delete(A);
     });
-    const s = createState({ rootId: s0.rootId, doc: d });
+    const s = createState({ resolver: TEST_RESOLVER, rootId: s0.rootId, doc: d });
     expect(pendingFormattingSuggestions(attrsAt(s, 7), (id) => readSuggestionRecord(d, id)).map((p) => p.record.id)).toEqual([B]);
     expect(preview(s, 7)).toEqual({ italic: true });
     const r = acceptSuggestion(s, B).state;
@@ -320,7 +320,7 @@ describe("stacked formatting suggestions — missing records + concurrency", () 
       const d = new Y.Doc();
       d.clientID = clientID;
       Y.applyUpdate(d, update);
-      return createState({ rootId: s0.rootId, doc: d });
+      return createState({ resolver: TEST_RESOLVER, rootId: s0.rootId, doc: d });
     };
     const p1 = acceptSuggestion(peer(101), A).state;
     const p2 = acceptSuggestion(peer(202), B).state;
@@ -328,8 +328,8 @@ describe("stacked formatting suggestions — missing records + concurrency", () 
     const d2 = p2[STATE_INTERNAL].doc;
     Y.applyUpdate(d1, Y.encodeStateAsUpdate(d2));
     Y.applyUpdate(d2, Y.encodeStateAsUpdate(d1));
-    const m1 = createState({ rootId: s0.rootId, doc: d1 });
-    const m2 = createState({ rootId: s0.rootId, doc: d2 });
+    const m1 = createState({ resolver: TEST_RESOLVER, rootId: s0.rootId, doc: d1 });
+    const m2 = createState({ resolver: TEST_RESOLVER, rootId: s0.rootId, doc: d2 });
     expect(getBlock(m1, P)?.inlineContent).toEqual(getBlock(m2, P)?.inlineContent);
     expect(getSuggestions(m1)).toEqual([]);
     for (const m of [m1, m2]) {

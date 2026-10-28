@@ -3,9 +3,10 @@
  * suggested paragraph SPLIT or JOIN) through the shared `acceptSuggestion` /
  * `rejectSuggestion` resolution.
  *
- * A break suggestion carries its id on a zero-width break embed appended to the
- * END of the owning block N (`properties.suggestionId`), NOT on a text run.
- * Resolving one ALWAYS drops the embed and CONDITIONALLY MERGES N + N+1:
+ * A break suggestion is a KEY on a ¶'s own registry entry (
+ * `insertionSuggestionId` on the split's new head H, `deletionSuggestionId` on the
+ * join's LEFT block), NOT a text run. Resolving one ALWAYS deletes the key and
+ * CONDITIONALLY deletes the keyed ¶ (the merge rule: survivor = the paragraph after it):
  *
  *   | seed (record.kind) | accept            | reject            |
  *   |--------------------|-------------------|-------------------|
@@ -13,25 +14,18 @@
  *   | join  (deletion)   | MERGE (do join)   | keep split        |
  *
  * The load-bearing properties exercised here: (1) all four truth-table cases land
- * the right block count + text; (2) the embed is gone in every case; (3) the
- * record is gone; (4) the chain stays intact; (5) a moved boundary clears the
- * embed but SKIPS the merge (no throw); (6) plain text-run resolution still works
- * (the embed branch is purely additive); (7) the resolve is non-undoable.
+ * the right block count + text; (2) the tag is gone in every case; (3) the
+ * record is gone; (4) the chain stays intact; (5) plain text-run resolution still
+ * works alongside; (6) the resolve is one undo step.
  *
  * Suggestions are seeded via the REAL create ops (`splitWithSuggestion` /
- * `markBlockJoinSuggestion`), never hand-built embeds.
+ * `markParagraphMarkDeletion`), never hand-built tags.
  */
 import { describe, it, expect } from "vitest";
 import { splitWithSuggestion } from "./split-block";
-import { removeBlock } from "./remove-block";
-import { markBlockJoinSuggestion } from "./merge-blocks";
+import { markParagraphMarkDeletion } from "./merge-blocks";
 import { acceptSuggestion, rejectSuggestion, mintInsertion } from "./suggestion-ops";
-import {
-  getSuggestions,
-  BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
-  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
-  type SuggestionId,
-} from "../suggestions";
+import { getSuggestions, type SuggestionId } from "../suggestions";
 import { createHistory } from "../history";
 import { getBlock } from "../state";
 import type { State } from "../state";
@@ -42,6 +36,7 @@ import {
   inlineContent,
 } from "../../test-utils/state-builders";
 import { createPosition } from "../block-position";
+import { finalSectionOf } from "../../test-utils/state-builders";
 import { createTestAllocator, type BlockId } from "../block-id";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
@@ -111,20 +106,15 @@ function textOf(s: State, id: string): string {
   return out;
 }
 
-/** True iff the block carries ANY break-suggestion embed. */
-function hasBreakEmbed(s: State, id: string): boolean {
-  return itemsOf(s, id).some(
-    (it) =>
-      it.kind === "embed" &&
-      (it.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE ||
-        it.embedType === BLOCK_JOIN_SUGGESTION_EMBED_TYPE),
-  );
+/** True iff the block carries ANY paragraph-break suggestion tag. */
+function hasBreakTag(s: State, id: string): boolean {
+  return getBlock(s, id as BlockId)?.breakSuggestion !== undefined;
 }
 
-/** The count of blocks that are direct children of `doc` (the body paragraphs). */
+/** The count of body paragraphs (children of the final section). */
 function bodyBlockCount(s: State): number {
   let count = 0;
-  let id: BlockId | null = getBlock(s, "doc" as BlockId)?.firstChildId ?? null;
+  let id: BlockId | null = getBlock(s, finalSectionOf(s))?.firstChildId ?? null;
   for (let guard = 0; id !== null && guard < 100; guard++) {
     count++;
     id = getBlock(s, id)?.nextSiblingId ?? null;
@@ -133,7 +123,7 @@ function bodyBlockCount(s: State): number {
 }
 
 describe("resolve break — SPLIT ACCEPT (keep split)", () => {
-  it("drops the embed, keeps TWO blocks, removes the record, chain intact", () => {
+  it("deletes the tag, keeps TWO blocks, removes the record, chain intact", () => {
     const allocator = createTestAllocator("p2");
     const seeded = splitWithSuggestion(
       oneBlock(),
@@ -141,28 +131,28 @@ describe("resolve break — SPLIT ACCEPT (keep split)", () => {
       allocator,
       SPLIT_INPUT,
     ).state;
-    // Sanity: the seed produced N="abc"+embed, N+1="def", one insertion record.
-    expect(hasBreakEmbed(seeded, "p")).toBe(true);
+    // Sanity: the seed produced head H="abc" (new id, keyed ¶), p="def", one insertion record.
+    expect(hasBreakTag(seeded, "p2-0")).toBe(true);
     expect(getSuggestions(seeded).length).toBe(1);
     expect(nth(getSuggestions(seeded), 0, "suggestion").kind).toBe("insertion");
 
     const s = acceptSuggestion(seeded, SPLIT_ID).state;
 
-    // Embed gone from N; still TWO blocks "abc" | "def".
-    expect(hasBreakEmbed(s, "p")).toBe(false);
-    expect(textOf(s, "p")).toBe("abc");
-    expect(textOf(s, "p2-0")).toBe("def");
+    // Key gone from ¶H; still TWO blocks "abc" | "def".
+    expect(hasBreakTag(s, "p2-0")).toBe(false);
+    expect(textOf(s, "p2-0")).toBe("abc");
+    expect(textOf(s, "p")).toBe("def");
     expect(bodyBlockCount(s)).toBe(2);
     // Chain intact.
-    expect(getBlock(s, "p" as BlockId)?.nextSiblingId).toBe("p2-0");
-    expect(getBlock(s, "p2-0" as BlockId)?.prevSiblingId).toBe("p");
+    expect(getBlock(s, "p2-0" as BlockId)?.nextSiblingId).toBe("p");
+    expect(getBlock(s, "p" as BlockId)?.prevSiblingId).toBe("p2-0");
     // Record gone.
     expect(getSuggestions(s).length).toBe(0);
   });
 });
 
 describe("resolve break — SPLIT REJECT (merge / undo the split)", () => {
-  it("merges N+1 back into N → ONE block 'abcdef', embed + record gone", () => {
+  it("deletes ¶H → ONE block 'abcdef' that keeps p's id, key + record gone", () => {
     const allocator = createTestAllocator("p2");
     const seeded = splitWithSuggestion(
       oneBlock(),
@@ -173,14 +163,13 @@ describe("resolve break — SPLIT REJECT (merge / undo the split)", () => {
 
     const s = rejectSuggestion(seeded, SPLIT_ID).state;
 
-    // ONE block "abcdef" (N+1 merged away + removed), no embed.
+    // ONE block "abcdef" (¶H deleted; the survivor is p), no key.
     expect(textOf(s, "p")).toBe("abcdef");
-    expect(hasBreakEmbed(s, "p")).toBe(false);
+    expect(hasBreakTag(s, "p")).toBe(false);
     expect(getBlock(s, "p2-0" as BlockId)).toBeNull();
     expect(bodyBlockCount(s)).toBe(1);
-    // Chain intact: the doc's single child is N.
-    expect(getBlock(s, "doc" as BlockId)?.firstChildId).toBe("p");
-    expect(getBlock(s, "doc" as BlockId)?.lastChildId).toBe("p");
+    expect(getBlock(s, finalSectionOf(s))?.firstChildId).toBe("p");
+    expect(getBlock(s, finalSectionOf(s))?.lastChildId).toBe("p");
     expect(getBlock(s, "p" as BlockId)?.nextSiblingId).toBeNull();
     // Record gone.
     expect(getSuggestions(s).length).toBe(0);
@@ -188,37 +177,36 @@ describe("resolve break — SPLIT REJECT (merge / undo the split)", () => {
 });
 
 describe("resolve break — JOIN ACCEPT (do the join / merge)", () => {
-  it("merges p2 into p1 → ONE block 'abcdef', embed + record gone", () => {
-    const seeded = markBlockJoinSuggestion(twoBlocks(), "p2" as BlockId, JOIN_INPUT).state;
-    // Sanity: p1 ends with a join embed; one deletion record; still two blocks.
-    expect(hasBreakEmbed(seeded, "p1")).toBe(true);
+  it("deletes ¶p1 → ONE block 'abcdef' that keeps p2's id, key + record gone", () => {
+    const seeded = markParagraphMarkDeletion(twoBlocks(), "p1" as BlockId, JOIN_INPUT).state;
+    // Sanity: ¶p1 carries the deletion key; one deletion record; still two blocks.
+    expect(hasBreakTag(seeded, "p1")).toBe(true);
     expect(getSuggestions(seeded).length).toBe(1);
     expect(nth(getSuggestions(seeded), 0, "suggestion").kind).toBe("deletion");
     expect(bodyBlockCount(seeded)).toBe(2);
 
     const s = acceptSuggestion(seeded, JOIN_ID).state;
 
-    // ONE block "abcdef" (p2 merged away + removed), no embed.
-    expect(textOf(s, "p1")).toBe("abcdef");
-    expect(hasBreakEmbed(s, "p1")).toBe(false);
-    expect(getBlock(s, "p2" as BlockId)).toBeNull();
+    // ONE block "abcdef" (¶p1 deleted; the survivor is p2), no key.
+    expect(textOf(s, "p2")).toBe("abcdef");
+    expect(hasBreakTag(s, "p2")).toBe(false);
+    expect(getBlock(s, "p1" as BlockId)).toBeNull();
     expect(bodyBlockCount(s)).toBe(1);
-    expect(getBlock(s, "doc" as BlockId)?.firstChildId).toBe("p1");
-    expect(getBlock(s, "doc" as BlockId)?.lastChildId).toBe("p1");
-    expect(getBlock(s, "p1" as BlockId)?.nextSiblingId).toBeNull();
+    expect(getBlock(s, finalSectionOf(s))?.firstChildId).toBe("p2");
+    expect(getBlock(s, "p2" as BlockId)?.nextSiblingId).toBeNull();
     // Record gone.
     expect(getSuggestions(s).length).toBe(0);
   });
 });
 
 describe("resolve break — JOIN REJECT (keep split)", () => {
-  it("drops the embed, keeps TWO blocks 'abc' | 'def', removes the record", () => {
-    const seeded = markBlockJoinSuggestion(twoBlocks(), "p2" as BlockId, JOIN_INPUT).state;
+  it("deletes the tag, keeps TWO blocks 'abc' | 'def', removes the record", () => {
+    const seeded = markParagraphMarkDeletion(twoBlocks(), "p1" as BlockId, JOIN_INPUT).state;
 
     const s = rejectSuggestion(seeded, JOIN_ID).state;
 
-    // Embed gone from p1; still TWO blocks "abc" | "def".
-    expect(hasBreakEmbed(s, "p1")).toBe(false);
+    // Key gone from ¶p1; still TWO blocks "abc" | "def".
+    expect(hasBreakTag(s, "p1")).toBe(false);
     expect(textOf(s, "p1")).toBe("abc");
     expect(textOf(s, "p2")).toBe("def");
     expect(bodyBlockCount(s)).toBe(2);
@@ -229,45 +217,7 @@ describe("resolve break — JOIN REJECT (keep split)", () => {
   });
 });
 
-describe("resolve break — merge-validity guard (moved boundary)", () => {
-  it("a would-merge whose boundary is no longer adjacent clears the embed but SKIPS the merge (no throw)", () => {
-    // Seed a split: N="abc"+embed(SPLIT_ID), N+1="p2-0"="def".
-    const alloc = createTestAllocator("p2");
-    const seeded = splitWithSuggestion(
-      oneBlock(),
-      createPosition("p" as BlockId, 3),
-      alloc,
-      SPLIT_INPUT,
-    ).state;
-    expect(hasBreakEmbed(seeded, "p")).toBe(true);
-
-    // INVALIDATE the boundary: remove N+1 ("p2-0") so N ("p") becomes the LAST child
-    // (nextSiblingId === null). The SPLIT_ID embed still rides on "p", but there is
-    // no longer an adjacent next sibling to merge into — the guard's `nextId !== null`
-    // check must fail and the merge must be SKIPPED (never call
-    // planMergeAdjacentBlocks on this boundary — it would throw).
-    const moved = removeBlock(seeded, "p2-0" as BlockId).state;
-    expect(getBlock(moved, "p" as BlockId)?.nextSiblingId).toBeNull();
-    expect(getBlock(moved, "p2-0" as BlockId)).toBeNull();
-    // The SPLIT_ID record is still live (removeBlock doesn't touch the suggestions map).
-    expect(getSuggestions(moved).map((r) => r.id)).toContain(SPLIT_ID);
-    const beforeCount = bodyBlockCount(moved);
-
-    // Reject the split (a would-merge: insertion + reject). The embed must be CLEARED
-    // but, because the boundary moved, NO merge happens — and crucially no throw.
-    const s = rejectSuggestion(moved, SPLIT_ID).state;
-
-    // Embed gone, record gone.
-    expect(hasBreakEmbed(s, "p")).toBe(false);
-    expect(getSuggestions(s).length).toBe(0);
-    // No block was merged away — block count unchanged, "p" still present with its text.
-    expect(bodyBlockCount(s)).toBe(beforeCount);
-    expect(textOf(s, "p")).toBe("abc");
-    expect(getBlock(s, "p" as BlockId)?.nextSiblingId).toBeNull();
-  });
-});
-
-describe("resolve break — text-run resolution still works alongside (additive embed branch)", () => {
+describe("resolve break — text-run resolution still works alongside", () => {
   it("a plain text-run insertion accept-strips correctly (no break interference)", () => {
     const seeded = mintInsertion(
       oneBlock(),
@@ -326,7 +276,7 @@ describe("resolve break — UNDOABLE (the resolve is one undo step)", () => {
     expect(history.canUndo()).toBe(true);
     const undone = history.undo();
     expect(undone === null ? [] : getSuggestions(undone.state).map((x) => x.id)).toEqual([SPLIT_ID]);
-    expect(undone === null ? "" : textOf(undone.state, "p")).toBe("abc");
+    expect(undone === null ? "" : textOf(undone.state, "p")).toBe("def");
 
     history.destroy();
   });

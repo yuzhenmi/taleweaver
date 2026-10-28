@@ -609,7 +609,7 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
 
       {/* Toggle the page orientation of the SECTION at the cursor between the
           doc-wide page size and landscape (doc-wide dimensions swapped).
-          No-op in a section-less doc — make a Section break first. */}
+          Every body block sits in a section (the final one at least). */}
       <ToolbarButton
         label="Toggle section orientation"
         icon={RectangleHorizontal}

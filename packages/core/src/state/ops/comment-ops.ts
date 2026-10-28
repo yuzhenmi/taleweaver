@@ -1,4 +1,5 @@
 import * as Y from "yjs";
+import { requireBlockText } from "../block-text";
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import { iterateBlocksInDocumentOrder } from "../document-order";
@@ -9,11 +10,9 @@ import { spanStart, spanEnd } from "../block-compare";
 import type { InlineItem } from "../inline-content";
 import {
   getCommentsMap,
-  getYBlock,
   requireInTransaction,
   type BlockTreeKind,
 } from "../yjs-doc";
-import { requireYInline } from "../y-inline";
 import {
   writeCommentRecordInTx,
   replyToY,
@@ -28,7 +27,7 @@ import {
   applyCommentMarkerWritesInTx,
 } from "./insert-comment-markers";
 
-/** An empty dirtyIds set — the identity-no-op return per the T7 contract. */
+/** An empty dirtyIds set — the identity-no-op return per the identity-no-op contract. */
 const NO_DIRTY: ReadonlySet<BlockId> = new Set<BlockId>();
 
 /**
@@ -57,14 +56,14 @@ export interface AddReplyInput {
  * `applyOperation` transaction — so the markers + record land as ONE undo
  * entry (undoable-as-content, §2) and one collab event.
  *
- * Composes the slice-1 `insert-comment-markers` PLAN + its `*InTx` applier
+ * Composes the `insert-comment-markers` PLAN + its `*InTx` applier
  * (NOT `insertCommentMarkers`, which would open its own transaction) so the
  * marker inserts share the record write's transaction. The record starts with
  * `replies: []` and `resolved: false`.
  *
  * Validates the span exactly like `insertCommentMarkers` (via
  * `planCommentMarkers`): throws if either endpoint's block is missing, is not a
- * leaf, or its offset is out of range. (The editor action — a later slice — is
+ * leaf, or its offset is out of range. (The `ADD_COMMENT` editor action is
  * responsible for the collapsed / cross-context / non-main-body guards.)
  */
 export function addComment(
@@ -76,8 +75,8 @@ export function addComment(
   // unique by contract, so a same-id re-add is a programmer error; short-circuit
   // to the input state BEFORE planning/splicing a SECOND marker pair (which would
   // overwrite the record AND leave a duplicate-marker comment — the precondition
-  // the I-1 `deleteComment` full-scan defends against). Mirrors `setResolved`'s
-  // absent-guard short-circuit (the T7 identity-no-op contract).
+  // the `deleteComment` full-scan defends against). Mirrors `setResolved`'s
+  // absent-guard short-circuit (the identity-no-op contract).
   if (getCommentsMap(state[STATE_INTERNAL].doc).get(input.id) !== undefined) {
     return { state, dirtyIds: NO_DIRTY };
   }
@@ -101,7 +100,7 @@ export function addComment(
 /**
  * Mark a comment resolved. Tracked op (the `comments` map is in the
  * UndoManager's scopes). Identity no-op (returns the same `state` reference, so
- * the editor short-circuits per the T7 contract) if the comment is absent or
+ * the editor short-circuits per the identity-no-op contract) if the comment is absent or
  * already resolved. A real flip surfaces `state.rootId` as the dirtyId (the
  * `comments` map is excluded from dirty-capture) so the op advances state and
  * lands a committable, undoable entry — see {@link setResolved}.
@@ -176,8 +175,7 @@ export function deleteComment(state: State, id: CommentId): OperationResult {
   return applyOperation(state, (d) => {
     for (const write of writes) {
       requireInTransaction(d, "deleteComment");
-      const yBlock = getYBlock(d, write.blockId, "deleteComment", write.kind);
-      const yText = requireYInline(yBlock, write.blockId, "deleteComment");
+      const yText = requireBlockText(doc, write.blockId, "deleteComment");
       // Descending snapshot offsets of one-unit embeds: raw deletes, each leaving
       // the earlier offsets valid (no per-marker block re-read).
       for (const offset of write.offsets) yText.delete(offset, 1);

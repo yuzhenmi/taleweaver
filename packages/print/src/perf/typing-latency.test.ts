@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as core from "@taleweaver/core";
 import { createEditorController } from "../editor-controller";
+import { createDefaultComponentRegistry } from "@taleweaver/core";
+import { finalSection } from "../test-utils/final-section"; // body blocks live in the final section
+
+const TEST_RESOLVER = createDefaultComponentRegistry();
 
 /**
  * Typing-latency gate (print backend): a 20,000-word chapter (400 × 50-word paragraphs)
@@ -20,12 +24,17 @@ import { createEditorController } from "../editor-controller";
  *  - `ctrl.widgetResolve` ≤ 20: widgets on the visible pages only (measured 9; all 100
  *    otherwise).
  *  - a one-decoration `setDecorations` recomputes ≤ 5 segment geometries (measured ~1).
- * Wall-clock checks are COARSE backstops only (jsdom on a shared, loaded machine is
- * noisy): median keystroke ≤ 150 ms with and without decorations (measured ~15–20 ms;
- * 220–400 ms when every paragraph was re-laid-out), median decoration update ≤ 100 ms.
+ * Wall-clock checks are COARSE ratio backstops only, against keystrokes measured in the
+ * same run (an absolute budget flakes on a shared, loaded machine): the bare keystroke on
+ * the 20k-word chapter ≤ 3× the bare keystroke on a ~1k-word document built the same way
+ * (O(1) per keystroke regardless of document size; measured ~1×), the decorated median
+ * keystroke ≤ 3× the bare one (measured ~1×), and the median decoration update ≤ 1× the
+ * bare keystroke (measured ~0.2×).
  */
-const TYPING_BACKSTOP_MS = 150;
-const UPDATE_BACKSTOP_MS = 100;
+const SIZE_SCALING_RATIO = 3;
+const SMALL_DOC_PARAGRAPHS = 20; // 20 × 50 words = 1,000 words
+const DECORATED_TYPING_RATIO = 3;
+const UPDATE_RATIO = 1;
 const PER_KEYSTROKE_BUDGET = {
   ifcLayouts: 30,
   blocksRendered: 10,
@@ -51,9 +60,9 @@ function cfg(): core.EditorConfig {
   };
 }
 
-function chapter(): core.ContainerBlockNode {
+function chapter(paragraphs: number): core.ContainerBlockNode {
   const words = "the quick brown fox jumps over a lazy dog while Anna watches".split(" ");
-  const children = Array.from({ length: 400 }, (_, p) => ({
+  const children = Array.from({ length: paragraphs }, (_, p) => ({
     type: "paragraph",
     inlineContent: {
       items: [{ kind: "text" as const, text: Array.from({ length: 50 }, (_, w) => words[(p + w) % words.length]).join(" "), attrs: {} }],
@@ -111,11 +120,11 @@ interface RunResult {
 
 const countOf = (label: string): number => core.report().entries.find((e) => e.label === label)?.count ?? 0;
 
-function run(withDecorations: boolean, keystrokes: number): RunResult {
+function run(withDecorations: boolean, keystrokes: number, paragraphs = 400): RunResult {
   const config = cfg();
-  const state = core.buildDocumentFromTree(chapter(), {}, core.createTestAllocator());
+  const state = core.buildDocumentFromTree(chapter(paragraphs), {}, core.createTestAllocator(), TEST_RESOLVER);
   const ids: core.BlockId[] = [];
-  for (let id = core.getBlock(state, state.rootId)?.firstChildId ?? null; id !== null; id = core.getBlock(state, id)?.nextSiblingId ?? null) ids.push(id);
+  for (let id = finalSection(state)?.firstChildId ?? null; id !== null; id = core.getBlock(state, id)?.nextSiblingId ?? null) ids.push(id);
   const container = document.createElement("div");
   document.body.replaceChildren(container);
   const controller = createEditorController(container, {
@@ -134,7 +143,7 @@ function run(withDecorations: boolean, keystrokes: number): RunResult {
       decorations.push({ kind: "inline", id: `d${p}:${start}`, from: core.createPosition(id, start), to: core.createPosition(id, start + 5), style: { backgroundColor: "rgba(0, 0, 255, 0.2)" } });
     }
   });
-  expect(decorations.length).toBe(1000);
+  expect(decorations.length).toBe(Math.ceil(paragraphs / 2) * 3 + Math.floor(paragraphs / 2) * 2);
   // Plus a widget in every fourth paragraph (100 widgets).
   ids.forEach((id, p) => {
     if (p % 4 === 0) decorations.push({ kind: "widget", id: `w${p}`, at: core.createPosition(id, 20), text: "\u2022" });
@@ -194,10 +203,11 @@ function run(withDecorations: boolean, keystrokes: number): RunResult {
 describe("print typing latency (20k words, 1,000 decorations + 100 widgets)", () => {
   it("decorations add no meaningful keystroke cost; decoration updates stay within budget", () => {
     run(true, 3); // warm-up (JIT, font/line caches)
+    const small = run(false, 15, SMALL_DOC_PARAGRAPHS);
     const base = run(false, 15);
     const decorated = run(true, 15);
     console.log(
-      `print typing median: ${base.typing.toFixed(2)}ms bare / ${decorated.typing.toFixed(2)}ms with 1,000 decorations + 100 widgets; ` +
+      `print typing median: ${small.typing.toFixed(2)}ms bare 1k words / ${base.typing.toFixed(2)}ms bare / ${decorated.typing.toFixed(2)}ms with 1,000 decorations + 100 widgets; ` +
         `decoration work ${decorated.decorationMs.toFixed(2)}ms/keystroke; decoration update median ${decorated.update.toFixed(2)}ms; ` +
         `per keystroke bare ${JSON.stringify(base.perKey)} decorated ${JSON.stringify(decorated.perKey)}; update resolves ${decorated.updateResolves}`,
     );
@@ -218,9 +228,9 @@ describe("print typing latency (20k words, 1,000 decorations + 100 widgets)", ()
     expect(decorated.perKey.widgetResolves).toBeLessThanOrEqual(PER_KEYSTROKE_BUDGET.widgetResolves);
     expect(decorated.updateResolves).toBeGreaterThan(0);
     expect(decorated.updateResolves).toBeLessThanOrEqual(SEGMENTS_PER_UPDATE_BUDGET);
-    // Coarse wall-clock backstops.
-    expect(base.typing).toBeLessThan(TYPING_BACKSTOP_MS);
-    expect(decorated.typing).toBeLessThan(TYPING_BACKSTOP_MS);
-    expect(decorated.update).toBeLessThan(UPDATE_BACKSTOP_MS);
+    // Coarse wall-clock backstops, relative to the bare keystrokes of this run.
+    expect(base.typing).toBeLessThanOrEqual(SIZE_SCALING_RATIO * small.typing);
+    expect(decorated.typing).toBeLessThan(DECORATED_TYPING_RATIO * base.typing);
+    expect(decorated.update).toBeLessThan(UPDATE_RATIO * base.typing);
   }, 120_000);
 });

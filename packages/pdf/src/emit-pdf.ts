@@ -28,7 +28,7 @@ export interface EmitPdfInput {
    *  mapped controller-side from core's accessibility projection via
    *  `mapAccessibilityTree`. Drives the `/StructTreeRoot` + marked content.
    *  Absent ⇒ NO structure tree is emitted (the document stays untagged). The
-   *  emitter consumer is added in a later slice; this field is the contract. */
+   *  emitter consumes this field when present. */
   readonly structureTree?: PdfStructureNode;
   /** The document's natural language (a BCP-47 tag, e.g. `"en-US"`) → the
    *  catalog `/Lang`. Absent ⇒ no `/Lang` is emitted. */
@@ -79,9 +79,9 @@ export function emitPdf(input: EmitPdfInput): Uint8Array {
     return name;
   };
 
-  // #526 tagged PDF — when a structure tree is supplied, derive the set of every
+  // Tagged PDF — when a structure tree is supplied, derive the set of every
   // block id it carries (DFS). Passing this into the page-emitter's `deps`
-  // activates T3's marked-content tagging; absent ⇒ NO tagging at all (the
+  // activates the page emitter's marked-content tagging; absent ⇒ NO tagging at all (the
   // content streams + page/catalog dicts stay byte-identical to the untagged
   // baseline). Each page's returned `structRefs` are captured alongside the
   // page object ids to drive the `/StructTreeRoot` ParentTree + StructElems.
@@ -153,8 +153,8 @@ export function emitPdf(input: EmitPdfInput): Uint8Array {
   // Pre-allocate every page object id BEFORE writing any page, so a page-1
   // internal /GoTo annot can forward-reference a later page's object id (PDF
   // indirect refs are legal forward refs; `finish` only requires every allocated
-  // id be written). NOTE: this reorders object ids vs the pre-#522 interleaving →
-  // the std-14 byte-golden fixture regenerates (design M3); the
+  // id be written). NOTE: this reorders object ids vs an interleaved allocation order (the
+  // std-14 byte-golden fixture reflects this order); the
   // /Annots-omitted-when-link-free invariant still holds.
   const pageObjIds: number[] = perPage.map(() => writer.allocate());
 
@@ -218,7 +218,7 @@ export function emitPdf(input: EmitPdfInput): Uint8Array {
     const pageId = pageObjIds[i];
     if (pageId === undefined) throw new Error(`emit-pdf: pageObjIds[${i}] unexpectedly undefined`);
     const [x0, y0, x1, y1] = mediaBoxOf(p.width, p.height);
-    // #526 tagged PDF — page `i` is ParentTree key `i`. The `/StructParents`
+    // Tagged PDF — page `i` is ParentTree key `i`. The `/StructParents`
     // entry is appended ONLY when tagging is active (structureBlockIds defined),
     // keeping the untagged /Page dict byte-identical.
     const structParentsBody = structureBlockIds !== undefined ? ` /StructParents ${i}` : "";
@@ -312,7 +312,7 @@ export function emitPdf(input: EmitPdfInput): Uint8Array {
     outlinesRef = ` /Outlines ${outlineRootId} 0 R`;
   }
 
-  // #526 tagged PDF — the `/StructTreeRoot` object graph + per-page ParentTree.
+  // Tagged PDF — the `/StructTreeRoot` object graph + per-page ParentTree.
   // Built only when a structure tree was supplied (the gate `structureBlockIds`
   // mirrors); absent ⇒ the catalog stays byte-identical (no /StructTreeRoot, no
   // /MarkInfo, no /Lang). Mirrors the `/Outlines` two-pass pattern: pre-allocate
@@ -343,7 +343,7 @@ export function emitPdf(input: EmitPdfInput): Uint8Array {
   return writer.finish(catalogId);
 }
 
-// ── #526 tagged-PDF: structure-tree emit ─────────────────────────────────────
+// ── Tagged-PDF: structure-tree emit ─────────────────────────────────────
 
 /** One marked-content correlation returned by the page-emitter (a structure-leaf
  *  block id, the MCID it was wrapped with, and whether it is a list/footnote

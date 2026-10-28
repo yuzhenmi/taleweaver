@@ -5,9 +5,9 @@
  * positions and rewriting the Top-DICT (and, for CID-keyed fonts, the FD-DICT)
  * offset operators with FIXED-WIDTH operands. GID/CID numbering is preserved.
  *
- * THIS FILE (T4) provides the parsing half: a generic DICT decoder that captures
- * raw operand bytes, and a structure locator. T5/T6 add the INDEX encoder,
- * CharStrings rebuild, and the canonical re-emit.
+ * Parsing: a generic DICT decoder that captures raw operand bytes, and a
+ * structure locator. Emitting: the INDEX encoder, the CharStrings rebuild, and the
+ * canonical re-emit.
  */
 
 import { MalformedFontError, Reader } from "./truetype-parser";

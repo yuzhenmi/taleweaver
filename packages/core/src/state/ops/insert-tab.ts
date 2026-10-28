@@ -1,4 +1,5 @@
 import type * as Y from "yjs";
+import { requireBlockText } from "../block-text";
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
@@ -7,8 +8,8 @@ import {
   inlineContentLength,
   type EmbedItem,
 } from "../inline-content";
-import { getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
-import { insertInlineItems, requireYInline } from "../y-inline";
+import { requireInTransaction, type BlockTreeKind } from "../yjs-doc";
+import { insertInlineItems } from "../y-inline";
 
 /** The `embedType` discriminant for a tab. */
 export const TAB_EMBED_TYPE = "tab";
@@ -34,7 +35,7 @@ interface TabInsertPlan {
  * pointer properties): it OWNS NOTHING — no `embedContents` body, no
  * `contentBlockId` — so the embed-cascade scanners ignore it. It occupies exactly
  * ONE position-offset unit; the IFC resolves its position-dependent advance at
- * layout time (S3+), not in state.
+ * layout time, not in state.
  *
  * `dirtyIds` covers the host leaf block (its inlineContent changed) —
  * `captureDirtyIds` tracks the tree maps automatically.
@@ -94,6 +95,5 @@ function planTabInsert(state: State, position: Position): TabInsertPlan {
  */
 function insertTabInTx(doc: Y.Doc, plan: TabInsertPlan): void {
   requireInTransaction(doc, "insertTab");
-  const yBlock = getYBlock(doc, plan.blockId, "insertTab", plan.kind);
-  insertInlineItems(requireYInline(yBlock, plan.blockId, "insertTab"), plan.offset, [plan.embed]);
+  insertInlineItems(requireBlockText(doc, plan.blockId, "insertTab"), plan.offset, [plan.embed]);
 }

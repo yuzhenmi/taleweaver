@@ -152,7 +152,7 @@ describe("isObjectSelection (#525)", () => {
     // yields getBlockKind → null, so even a collapsed-at-offset-0 selection on
     // a real block is not an object selection.
     const state = docWithImage();
-    const unknownResolver: BlockKindResolver = { getBlockKind: () => null };
+    const unknownResolver: BlockKindResolver = { getBlockKind: () => null, getStorageShape: () => null };
     const pos = createPosition(IMAGE_ID, 0);
     const sel = createSpan(pos, pos);
     expect(isObjectSelection(state, sel, unknownResolver)).toBeNull();

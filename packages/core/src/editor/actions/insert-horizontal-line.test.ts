@@ -62,10 +62,12 @@ describe("handleInsertHorizontalLine — INSERT_HORIZONTAL_LINE (#L11.1)", () =>
     // Build two paragraphs: "a" then an empty one (Enter at end of "a").
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" }, config);
-    const para1 = firstChildId(editor.state) as BlockId;
+    const para2 = firstChildId(editor.state) as BlockId;
     editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
-    const para2 = getBlock(editor.state, para1)?.nextSiblingId ?? null;
-    expect(para2).not.toBeNull();
+    // the head "a" is the new block; the original keeps the (empty) tail.
+    const para1 = getBlock(editor.state, para2)?.prevSiblingId ?? null;
+    expect(para1).not.toBeNull();
+    if (para1 === null) return;
 
     // Put the caret back in para1, then insert the rule.
     const caretInPara1 = createPosition(para1, 1);

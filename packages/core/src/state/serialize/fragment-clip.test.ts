@@ -1,3 +1,5 @@
+import { attrRegistry } from "../../cascade/attr-registry";
+import { topLevelBlockIds } from "../block-traversal";
 import { describe, it, expect } from "vitest";
 import { encodeFragmentClip, decodeFragmentClip, TALEWEAVER_CLIP_MIME } from "./fragment-clip";
 import { extractFragment } from "../ops/extract-fragment";
@@ -5,7 +7,7 @@ import { createSpan, createPosition } from "../block-position";
 import type { BlockId } from "../block-id";
 import type { State } from "../state";
 import { getBlock, getEmbedContent } from "../state";
-import { buildBlock, inlineContent, text, embed } from "../../test-utils/state-builders";
+import { TEST_RESOLVER, buildBlock, inlineContent, text, embed } from "../../test-utils/state-builders";
 import { buildStateFromBlocks } from "../build-state-from-blocks";
 import {
   INSERTION_SUGGESTION_ATTR,
@@ -23,17 +25,8 @@ function bid(s: string): BlockId {
 
 /** Top-level block types under the fragment's root. */
 function fragTopLevelTypes(frag: State): string[] {
-  const root = getBlock(frag, frag.rootId);
-  if (root === null) return [];
-  const types: string[] = [];
-  let cur: BlockId | null = root.firstChildId;
-  while (cur !== null) {
-    const block = getBlock(frag, cur);
-    if (block === null) break;
-    types.push(block.type);
-    cur = block.nextSiblingId;
-  }
-  return types;
+  // The fragment's blocks sit in its final section.
+  return topLevelBlockIds(frag).map((id) => getBlock(frag, id)?.type ?? "?");
 }
 
 /**
@@ -46,7 +39,7 @@ function suggestionRecordsOf(frag: State): readonly SuggestionRecord[] {
   const root = getBlock(frag, frag.rootId);
   if (root === null) return [];
   const ids = new Set<string>();
-  let cur: BlockId | null = root.firstChildId;
+  let cur: BlockId | null = topLevelBlockIds(frag)[0] ?? null; // the fragment's final section
   while (cur !== null) {
     const block = getBlock(frag, cur);
     if (block === null) break;
@@ -66,7 +59,7 @@ function suggestionRecordsOf(frag: State): readonly SuggestionRecord[] {
 function fragHasEmbedContent(frag: State): boolean {
   const root = getBlock(frag, frag.rootId);
   if (root === null) return false;
-  let cur: BlockId | null = root.firstChildId;
+  let cur: BlockId | null = topLevelBlockIds(frag)[0] ?? null; // the fragment's final section
   while (cur !== null) {
     const block = getBlock(frag, cur);
     if (block === null) break;
@@ -93,7 +86,7 @@ const FOOTNOTE_EMBED_TYPE = "footnote-anchor";
  * AND a text run carrying a pending insertion suggestion.
  */
 function buildRichState(): State {
-  return buildStateFromBlocks({
+  return buildStateFromBlocks({ resolver: TEST_RESOLVER,
     rootId: bid("doc"),
     blocks: [
       buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
@@ -145,7 +138,7 @@ describe("fragment-clip codec", () => {
     expect(typeof clip).toBe("string");
     expect(clip.length).toBeGreaterThan(0);
 
-    const back = decodeFragmentClip(clip);
+    const back = decodeFragmentClip(clip, TEST_RESOLVER, attrRegistry);
     expect(back).not.toBeNull();
     const backState = back as State;
 
@@ -174,18 +167,18 @@ describe("fragment-clip codec", () => {
   });
 
   it("returns null on malformed clip — not base64", () => {
-    expect(decodeFragmentClip("@@@")).toBeNull();
+    expect(decodeFragmentClip("@@@", TEST_RESOLVER, attrRegistry)).toBeNull();
   });
 
   it("returns null on malformed clip — valid base64 but not a valid document", () => {
     // "AAAA" decodes to 3 zero bytes — not a valid Yjs doc
-    expect(decodeFragmentClip("AAAA")).toBeNull();
+    expect(decodeFragmentClip("AAAA", TEST_RESOLVER, attrRegistry)).toBeNull();
   });
 
   it("decodeFragmentClip never throws — always returns State or null", () => {
     // Garbage strings that are neither base64 nor valid docs
     for (const bad of ["", "!!!!", "not-base64-at-all", "AAAAAAAAAA=="]) {
-      expect(() => decodeFragmentClip(bad)).not.toThrow();
+      expect(() => decodeFragmentClip(bad, TEST_RESOLVER, attrRegistry)).not.toThrow();
     }
   });
 });

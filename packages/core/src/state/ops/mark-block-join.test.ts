@@ -1,34 +1,29 @@
 /**
- * Change-tracking slice 4e-state-join — `markBlockJoinSuggestion`, the suggested
- * paragraph-JOIN op (Backspace at block-start / Delete at block-end in Suggesting
- * mode).
+ * `markParagraphMarkDeletion` — the suggested ¶ DELETION op (Backspace at block-start /
+ * Delete at block-end in Suggesting mode).
  *
  * A suggested join = both paragraphs stay REAL separate blocks (NO merge) PLUS a
- * zero-width `block-join-suggestion` embed at the END of the FIRST block (the prev
- * sibling of the second) carrying the owning `suggestionId` in its `properties`
- * PLUS a `deletion` `SuggestionRecord` — ALL in ONE tracked transaction (one undo
- * entry). Resolution (a LATER slice) does the actual merge on accept / removes the
- * embed on reject — NOT this op.
+ * `deletionSuggestionId` key on the LEFT block's OWN ¶ entry PLUS a `deletion`
+ * `SuggestionRecord` — ALL in ONE tracked transaction (one undo entry). No inline item
+ * is added. Resolution does the actual merge on accept / deletes the key on reject —
+ * NOT this op. A ¶ that accepting would not delete (invariant I) is never keyed.
  *
  * The load-bearing properties exercised here: (1) NO structural merge (block count
- * unchanged, both still linked); (2) the break embed lands as the LAST item of the
- * first block and occupies exactly ONE offset; (3) a `deletion` record is written
- * with the right id/author/createdAt; (4) the range-index round-trips (orphaned
- * false, range = the embed's one-offset span); (5) the whole op is ONE undo unit;
- * (6) identity no-op when the second block is a first-child (no preceding break).
+ * unchanged, both still linked); (2) the tag lands on the right block and inline
+ * lengths are unchanged; (3) a `deletion` record is written with the right
+ * id/author/createdAt; (4) the range-index round-trips (range = end
+ * of left → start of right); (5) the whole op is ONE undo unit; (6) identity no-op
+ * on a ¶ accepting would keep (the flow's final ¶, a non-empty ¶ before an object).
  */
 import { describe, it, expect } from "vitest";
-import { markBlockJoinSuggestion } from "./merge-blocks";
-import {
-  getSuggestions,
-  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
-  type SuggestionId,
-} from "../suggestions";
+import { markParagraphMarkDeletion } from "./merge-blocks";
+import { getSuggestions, type SuggestionId } from "../suggestions";
+import { acceptSuggestion } from "./suggestion-ops";
 import { createHistory } from "../history";
 import { getBlock } from "../state";
 import type { State } from "../state";
 import { inlineContentLength } from "../inline-content";
-import {
+import { TEST_RESOLVER, testContainer,
   buildBlock,
   buildState,
   text,
@@ -36,6 +31,9 @@ import {
   inlineContent,
 } from "../../test-utils/state-builders";
 import type { BlockId } from "../block-id";
+
+// Host container types the default registry lacks (file-local registry instance).
+TEST_RESOLVER.register(testContainer("container"));
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -84,14 +82,19 @@ function textOf(s: State, id: string): string {
   return out;
 }
 
+/** The block's paragraph-break suggestion tags (read model), or undefined. */
+function breakOf(s: State, id: string) {
+  return getBlock(s, id as BlockId)?.breakSuggestion;
+}
+
 /** Count of blocks present in the main tree (excluding the root). */
 function leafBlockIds(s: State, ids: readonly string[]): string[] {
   return ids.filter((id) => getBlock(s, id as BlockId) !== null);
 }
 
-describe("markBlockJoinSuggestion — basic join mark: no merge + break embed + deletion record", () => {
-  it("keeps both blocks SEPARATE; first block gets the break embed; one deletion record; range round-trips", () => {
-    const result = markBlockJoinSuggestion(twoBlocks(), "p2" as BlockId, INPUT);
+describe("markParagraphMarkDeletion — basic join mark: no merge + deletion tag + deletion record", () => {
+  it("keeps both blocks SEPARATE; second block gets the deletion tag; one deletion record; range round-trips", () => {
+    const result = markParagraphMarkDeletion(twoBlocks(), "p1" as BlockId, INPUT);
     const s = result.state;
 
     // NO merge: both blocks still present and still SEPARATE in the chain.
@@ -100,24 +103,14 @@ describe("markBlockJoinSuggestion — basic join mark: no merge + break embed + 
     const p2 = getBlock(s, "p2" as BlockId);
     expect(p1?.nextSiblingId).toBe("p2");
     expect(p2?.prevSiblingId).toBe("p1");
-    expect(p2?.parentId).toBe("doc");
+    expect(p2?.parentId).toBe(p1?.parentId);
 
-    // Block N (p1): text "abc" + a trailing block-join-suggestion embed carrying the id.
+    // p1 owns the ¶ between them: its OWN entry carries the deletion key; p2 untagged.
     expect(textOf(s, "p1")).toBe("abc");
-    const nItems = itemsOf(s, "p1");
-    const lastN = nth(nItems, nItems.length - 1, "last item");
-    expect(lastN.kind).toBe("embed");
-    if (lastN.kind !== "embed") throw new Error("expected the break embed as last item of N");
-    expect(lastN.embedType).toBe(BLOCK_JOIN_SUGGESTION_EMBED_TYPE);
-    expect(lastN.properties.suggestionId).toBe(SID);
-    // N's offset length = "abc"(3) + embed(1) = 4 (the embed occupies one offset).
-    const nContent = getBlock(s, "p1" as BlockId)?.inlineContent;
-    if (nContent == null) throw new Error("expected block N inlineContent");
-    expect(inlineContentLength(nContent)).toBe(4);
-
-    // Block 2 (p2): untouched — text "def", no break embed.
+    expect(breakOf(s, "p1")).toEqual({ deletionId: SID });
     expect(textOf(s, "p2")).toBe("def");
-    expect(itemsOf(s, "p2").some((it) => it.kind === "embed")).toBe(false);
+    expect(breakOf(s, "p2")).toBeUndefined();
+    expect(result.removedBoundary).toBeNull();
 
     // Exactly ONE deletion record, with the right id/author/createdAt.
     const suggestions = getSuggestions(s);
@@ -127,56 +120,43 @@ describe("markBlockJoinSuggestion — basic join mark: no merge + break embed + 
     expect(sug.kind).toBe("deletion");
     expect(sug.author).toBe("alice");
     expect(sug.createdAt).toBe(2000);
-    // Range-index round-trip: the break embed surfaces the suggestion's RANGE
-    // (the embed's `properties.suggestionId` is the key `buildSuggestionRangeIndex`
-    // reads). A wrong key / embedType would silently report orphaned:true,range:null
-    // while every assertion above still passed.
-    expect(sug.orphaned).toBe(false);
+    // Range-index round-trip: the boundary tag surfaces the suggestion's RANGE
+    // (end of p1 → start of p2). A wrong tag key would silently report
+    // no range (the record would not be surfaced at all).
     expect(sug.range).toEqual({
       start: { blockId: "p1", offset: 3 },
-      end: { blockId: "p1", offset: 4 },
+      end: { blockId: "p2", offset: 0 },
     });
   });
 });
 
-describe("markBlockJoinSuggestion — offset invariant: the break embed occupies exactly one offset and is last", () => {
-  it("first block's inline length is content-length + 1 and the embed is the final item", () => {
-    const s = markBlockJoinSuggestion(twoBlocks(), "p2" as BlockId, INPUT).state;
+describe("markParagraphMarkDeletion — offset invariant: no inline item is added", () => {
+  it("both blocks' inline lengths are unchanged; no embed anywhere", () => {
+    const s = markParagraphMarkDeletion(twoBlocks(), "p1" as BlockId, INPUT).state;
 
     const nContent = getBlock(s, "p1" as BlockId)?.inlineContent;
     if (nContent == null) throw new Error("expected block N inlineContent");
-    // "abc" (3 offsets) + embed (1 offset) = 4.
-    expect(inlineContentLength(nContent)).toBe(4);
-
-    const items = nContent.items;
-    // The break embed is the LAST item; there is exactly one such embed.
-    const last = nth(items, items.length - 1, "last item");
-    expect(last.kind).toBe("embed");
-    expect(
-      items.filter(
-        (it) => it.kind === "embed" && it.embedType === BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
-      ).length,
-    ).toBe(1);
+    expect(inlineContentLength(nContent)).toBe(3);
+    const rContent = getBlock(s, "p2" as BlockId)?.inlineContent;
+    if (rContent == null) throw new Error("expected block 2 inlineContent");
+    expect(inlineContentLength(rContent)).toBe(3);
+    expect([...nContent.items, ...rContent.items].some((it) => it.kind === "embed")).toBe(false);
   });
 });
 
-describe("markBlockJoinSuggestion — ONE undo entry (embed + record are one transaction)", () => {
-  it("a single undo reverts the WHOLE op back to clean abc|def, no embed, no record", () => {
+describe("markParagraphMarkDeletion — ONE undo entry (tag + record are one transaction)", () => {
+  it("a single undo reverts the WHOLE op back to clean abc|def, no tag, no record", () => {
     const s0 = twoBlocks();
     const history = createHistory(s0);
 
     history.beginEntry("command", 0);
-    const join = markBlockJoinSuggestion(s0, "p2" as BlockId, INPUT);
+    const join = markParagraphMarkDeletion(s0, "p1" as BlockId, INPUT);
     history.commit(join, { before: null, after: null });
     const s1 = join.state;
 
-    // Post-op: embed on N, one record.
+    // Post-op: key on ¶p1, one record.
     expect(getSuggestions(s1).length).toBe(1);
-    expect(
-      itemsOf(s1, "p1").some(
-        (it) => it.kind === "embed" && it.embedType === BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
-      ),
-    ).toBe(true);
+    expect(breakOf(s1, "p1")).toEqual({ deletionId: SID });
 
     // ONE undo reverts everything.
     const undone = history.undo();
@@ -185,8 +165,8 @@ describe("markBlockJoinSuggestion — ONE undo entry (embed + record are one tra
     // Back to clean "abc" | "def".
     expect(textOf(s2, "p1")).toBe("abc");
     expect(textOf(s2, "p2")).toBe("def");
-    // No break embed anywhere.
-    expect(itemsOf(s2, "p1").some((it) => it.kind === "embed")).toBe(false);
+    // No key anywhere.
+    expect(breakOf(s2, "p1")).toBeUndefined();
     // No record.
     expect(getSuggestions(s2).length).toBe(0);
 
@@ -194,66 +174,66 @@ describe("markBlockJoinSuggestion — ONE undo entry (embed + record are one tra
   });
 });
 
-describe("markBlockJoinSuggestion — no-op on a first-child (no preceding break)", () => {
-  it("marking the FIRST block is an identity no-op: same state ref, no record, no embed", () => {
+describe("markParagraphMarkDeletion — no-op on a ¶ accepting would keep", () => {
+  it("the flow's FINAL ¶ is an identity no-op: same state ref, no record, no tag", () => {
     const state = twoBlocks();
-    // p1 is the first child (prevSiblingId === null) — there is no break before it.
-    const result = markBlockJoinSuggestion(state, "p1" as BlockId, INPUT);
+    // ¶p2 is the flow's last unit (I2): never deleted, so never keyed.
+    const result = markParagraphMarkDeletion(state, "p2" as BlockId, INPUT);
 
     // Identity: the input State reference is returned unchanged.
     expect(result.state).toBe(state);
     // No suggestion record written.
     expect(getSuggestions(result.state).length).toBe(0);
-    // No break embed appended anywhere.
-    expect(itemsOf(result.state, "p1").some((it) => it.kind === "embed")).toBe(false);
-    expect(itemsOf(result.state, "p2").some((it) => it.kind === "embed")).toBe(false);
+    // No tag anywhere.
+    expect(breakOf(result.state, "p1")).toBeUndefined();
+    expect(breakOf(result.state, "p2")).toBeUndefined();
   });
 
-  it("marking a MISSING second block is an identity no-op", () => {
+  it("marking a MISSING block is an identity no-op", () => {
     const state = twoBlocks();
-    const result = markBlockJoinSuggestion(state, "nope" as BlockId, INPUT);
+    const result = markParagraphMarkDeletion(state, "nope" as BlockId, INPUT);
     expect(result.state).toBe(state);
     expect(getSuggestions(result.state).length).toBe(0);
   });
 
-  it("no-op when the prev sibling is a CONTAINER (can't hold an inline break embed)", () => {
-    // doc → [container "c" (a table-cell-like container with a child), leaf "p"];
-    // "p".prevSibling is the container, which has inlineContent: null.
-    const state = buildState({
+  /** doc → [p (text), container c, after]; ¶p is the unit before the container. */
+  function beforeContainer(pText: string): State {
+    return buildState({
       rootId: "doc",
       blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "c", lastChildId: "p" }),
-        buildBlock({
-          id: "c",
-          type: "container",
-          parentId: "doc",
-          nextSiblingId: "p",
-          firstChildId: "cc",
-          lastChildId: "cc",
-        }),
-        buildBlock({
-          id: "cc",
-          type: "paragraph",
-          parentId: "c",
-          inlineContent: inlineContent([text("x")]),
-        }),
-        buildBlock({
-          id: "p",
-          type: "paragraph",
-          parentId: "doc",
-          prevSiblingId: "c",
-          inlineContent: inlineContent([text("def")]),
-        }),
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "after" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", nextSiblingId: "c", inlineContent: inlineContent(pText === "" ? [] : [text(pText)]) }),
+        buildBlock({ id: "c", type: "container", parentId: "doc", prevSiblingId: "p", nextSiblingId: "after", firstChildId: "cc", lastChildId: "cc" }),
+        buildBlock({ id: "cc", type: "paragraph", parentId: "c", inlineContent: inlineContent([text("x")]) }),
+        buildBlock({ id: "after", type: "paragraph", parentId: "doc", prevSiblingId: "c", inlineContent: inlineContent([]) }),
       ],
     });
-    const result = markBlockJoinSuggestion(state, "p" as BlockId, INPUT);
+  }
+
+  it("a NON-empty ¶ before a container is never keyed (accepting would keep it: the final-projection check)", () => {
+    const state = beforeContainer("def");
+    const result = markParagraphMarkDeletion(state, "p" as BlockId, INPUT);
     expect(result.state).toBe(state);
     expect(getSuggestions(result.state).length).toBe(0);
   });
 
-  it("appends the break embed AFTER an existing trailing embed on block N (two adjacent embeds, neither folded)", () => {
-    // Block N already ends in some other (non-suggestion) embed; the join embed
-    // must append as a distinct final item — embeds are merge barriers.
+  it("an EMPTY ¶ before a container is a tracked ¶ deletion; accept removes the paragraph", () => {
+    const result = markParagraphMarkDeletion(beforeContainer(""), "p" as BlockId, INPUT);
+    expect(breakOf(result.state, "p")).toEqual({ deletionId: SID });
+    expect(nth(getSuggestions(result.state), 0, "suggestion").range).toEqual({ start: { blockId: "p", offset: 0 }, end: { blockId: "p", offset: 0 } });
+    const accepted = acceptSuggestion(result.state, SID).state;
+    expect(getBlock(accepted, "p" as BlockId)).toBeNull();
+    expect(getSuggestions(accepted).length).toBe(0);
+  });
+
+  it("the flow's final ¶ right after a container is never keyed (I2)", () => {
+    const state = beforeContainer("def");
+    expect(markParagraphMarkDeletion(state, "after" as BlockId, INPUT).state).toBe(state);
+  });
+
+  it("leaves an existing trailing embed on block N untouched (the key goes on N's own ¶ entry)", () => {
+    // Block N already ends in some other (non-suggestion) embed; the join is a key on
+    // ¶p1's entry, so N's items are unchanged.
     const state = buildState({
       rootId: "doc",
       blocks: [
@@ -274,20 +254,17 @@ describe("markBlockJoinSuggestion — no-op on a first-child (no preceding break
         }),
       ],
     });
-    const result = markBlockJoinSuggestion(state, "p2" as BlockId, INPUT);
+    const result = markParagraphMarkDeletion(state, "p1" as BlockId, INPUT);
     const items = itemsOf(result.state, "p1");
-    // "ab"(text) + tab embed + join embed = 3 items; the LAST is the join embed.
-    expect(items.length).toBe(3);
-    const last = nth(items, items.length - 1, "last item");
-    expect(last.kind).toBe("embed");
-    expect(last.kind === "embed" ? last.properties.suggestionId : null).toBe(SID);
-    // The pre-existing tab embed survives, distinct from the join embed.
-    expect(items.filter((it) => it.kind === "embed").length).toBe(2);
+    // "ab"(text) + tab embed — unchanged.
+    expect(items.length).toBe(2);
+    expect(nth(items, 1, "tab").kind).toBe("embed");
+    expect(breakOf(result.state, "p1")).toEqual({ deletionId: SID });
   });
 });
 
-describe("markBlockJoinSuggestion — multi-block: mark the join before the THIRD paragraph", () => {
-  it("the embed lands on the SECOND block (p3's prev sibling); p1/p3 untouched; one deletion record", () => {
+describe("markParagraphMarkDeletion — multi-block: key the ¶ between p2 and p3", () => {
+  it("the key lands on ¶p2 (its own entry); p1/p3 untouched; one deletion record", () => {
     // doc > [ p1("one"), p2("two"), p3("three") ]
     const state = buildState({
       rootId: "doc",
@@ -318,20 +295,14 @@ describe("markBlockJoinSuggestion — multi-block: mark the join before the THIR
       ],
     });
 
-    const s = markBlockJoinSuggestion(state, "p3" as BlockId, INPUT).state;
+    const s = markParagraphMarkDeletion(state, "p2" as BlockId, INPUT).state;
 
-    // The embed lands on p2 (p3's prev sibling), NOT p1 or p3.
-    const p2Items = itemsOf(s, "p2");
-    const lastP2 = nth(p2Items, p2Items.length - 1, "last item");
-    expect(lastP2.kind).toBe("embed");
-    if (lastP2.kind !== "embed") throw new Error("expected break embed on p2");
-    expect(lastP2.embedType).toBe(BLOCK_JOIN_SUGGESTION_EMBED_TYPE);
-    expect(textOf(s, "p2")).toBe("two");
-
-    // p1 and p3 untouched — no embeds.
-    expect(itemsOf(s, "p1").some((it) => it.kind === "embed")).toBe(false);
-    expect(itemsOf(s, "p3").some((it) => it.kind === "embed")).toBe(false);
+    // The key lands on ¶p2, NOT p1 or p3.
+    expect(breakOf(s, "p2")).toEqual({ deletionId: SID });
+    expect(breakOf(s, "p1")).toBeUndefined();
+    expect(breakOf(s, "p3")).toBeUndefined();
     expect(textOf(s, "p1")).toBe("one");
+    expect(textOf(s, "p2")).toBe("two");
     expect(textOf(s, "p3")).toBe("three");
 
     // No merge: all three blocks present and linked.

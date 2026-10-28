@@ -30,6 +30,7 @@ import type { PageBox } from "../page-box";
 import type { LayoutBox } from "../layout-box";
 import { buildBlockFitMetas } from "../build-fit-metas";
 import { measurePass } from "../measure-pass";
+import { flattenContents } from "../group-children";
 import type { PagePlan, PagePlanEntry } from "../measure-pass";
 import { IMPLICIT_SECTION_PLAN } from "../section-plan";
 import { DEFAULT_COLUMN_CONFIG } from "@taleweaver/core";
@@ -214,7 +215,7 @@ function buildPlanAndTree(root: ElementBox, pageConfig: PageConfig) {
     pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
   const shaper = createMockShaper(8, 16);
   const metas = buildBlockFitMetas(root, shaper, undefined, pageContentInlineSize);
-  const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children);
+  const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, flattenContents(root.children));
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
   const tree = makeVirtualLayoutTree(plan, root, ctx, createMockShaper(8, 16), pageConfig);
   return { plan, tree };
@@ -228,7 +229,7 @@ describe("VirtualLayoutTree.globalFieldValues", () => {
       pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
     const shaper = createMockShaper(8, 16);
     const metas = buildBlockFitMetas(root, shaper, undefined, pageContentInlineSize);
-    const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children);
+    const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, flattenContents(root.children));
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
     const fields = new Map<string, string>([["b/inline/1", "2"]]);
     const tree = makeVirtualLayoutTree(
@@ -632,7 +633,7 @@ describe("VirtualLayoutTree — #487 S5 reuse-gate height sensitivity", () => {
     // as the candidate, a broken gate would stale-reuse planA's row-3 boundary and
     // `resumeAfter` would wrongly be 3 — so the `=== 2` assertion genuinely tests
     // that the gate REFUSED the stale page (because the table node ref changed).
-    const planB = measurePass(metasB, pageConfig, IMPLICIT_SECTION_PLAN, rootB.children, planA);
+    const planB = measurePass(metasB, pageConfig, IMPLICIT_SECTION_PLAN, flattenContents(rootB.children), planA);
 
     // (2) OUTCOME — the continuation RE-FITS against the new (larger)
     // headerBlockSize. Page 0 now holds rows 0,1 only (header 50 + row 30 = 80 ≤
@@ -684,7 +685,7 @@ describe("VirtualLayoutTree — #487 S5 reuse-gate height sensitivity", () => {
     const pcis =
       pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
     const metasB = buildBlockFitMetas(rootB, createMockShaper(8, 16), undefined, pcis);
-    const planB = measurePass(metasB, pageConfig, IMPLICIT_SECTION_PLAN, rootB.children);
+    const planB = measurePass(metasB, pageConfig, IMPLICIT_SECTION_PLAN, flattenContents(rootB.children));
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
     const treeB = makeVirtualLayoutTree(planB, rootB, ctx, createMockShaper(8, 16), pageConfig, treeA);
 
@@ -742,7 +743,7 @@ describe("VirtualLayoutTree — carry-forward memo", () => {
     };
     const pcis = pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
     const metasB = buildBlockFitMetas(rootBShared, createMockShaper(8, 16), undefined, pcis);
-    const planB = measurePass(metasB, pageConfig, IMPLICIT_SECTION_PLAN, rootBShared.children);
+    const planB = measurePass(metasB, pageConfig, IMPLICIT_SECTION_PLAN, flattenContents(rootBShared.children));
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
     const treeB = makeVirtualLayoutTree(planB, rootBShared, ctx, createMockShaper(8, 16), pageConfig, treeA);
 
@@ -773,7 +774,7 @@ describe("VirtualLayoutTree — carry-forward memo", () => {
     };
     const pcis = cfgB.pageInlineSize - cfgB.pageMargins.inlineStart - cfgB.pageMargins.inlineEnd;
     const metasB = buildBlockFitMetas(rootBShared, createMockShaper(8, 16), undefined, pcis);
-    const planB = measurePass(metasB, cfgB, IMPLICIT_SECTION_PLAN, rootBShared.children);
+    const planB = measurePass(metasB, cfgB, IMPLICIT_SECTION_PLAN, flattenContents(rootBShared.children));
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, cfgB.pageInlineSize);
     const treeB = makeVirtualLayoutTree(planB, rootBShared, ctx, createMockShaper(8, 16), cfgB, treeA);
 
@@ -957,7 +958,7 @@ describe("VirtualLayoutTree — carry-forward memo", () => {
     };
     const pcis = pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
     const metasB = buildBlockFitMetas(rootBShared, createMockShaper(8, 16), undefined, pcis);
-    const planB = measurePass(metasB, pageConfig, IMPLICIT_SECTION_PLAN, rootBShared.children);
+    const planB = measurePass(metasB, pageConfig, IMPLICIT_SECTION_PLAN, flattenContents(rootBShared.children));
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
     const treeB = makeVirtualLayoutTree(planB, rootBShared, ctx, createMockShaper(8, 16), pageConfig, treeA);
 
@@ -1156,7 +1157,7 @@ describe("VirtualLayoutTree — cascaded template-body map threading (C.2c T3)",
     const root = cascadeRoot({ display: "block" }, children);
     const pageContentInlineSize = pageConfig.pageInlineSize;
     const metas = buildBlockFitMetas(root, createMockShaper(8, 16), undefined, pageContentInlineSize);
-    const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children);
+    const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, flattenContents(root.children));
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
 
     const hdrBody = cascadeRoot({ display: "block" }, [paragraph("hdr", 1)]);
@@ -1185,7 +1186,7 @@ describe("VirtualLayoutTree — cascaded template-body map threading (C.2c T3)",
     const pageContentInlineSize =
       pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
     const metas = buildBlockFitMetas(root, createMockShaper(8, 16), undefined, pageContentInlineSize);
-    const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children);
+    const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, flattenContents(root.children));
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
 
     const withoutBodies = makeVirtualLayoutTree(plan, root, ctx, createMockShaper(8, 16), pageConfig);
@@ -1221,7 +1222,7 @@ describe("VirtualLayoutTree — header/footer slot layout (C.2c T4)", () => {
     const root = cascadeRoot({ display: "block" }, children);
     const pcis = cfg.pageInlineSize - cfg.pageMargins.inlineStart - cfg.pageMargins.inlineEnd;
     const metas = buildBlockFitMetas(root, createMockShaper(8, 16), undefined, pcis);
-    const plan = measurePass(metas, cfg, IMPLICIT_SECTION_PLAN, root.children);
+    const plan = measurePass(metas, cfg, IMPLICIT_SECTION_PLAN, flattenContents(root.children));
     const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, cfg.pageInlineSize);
     return { root, plan, ctx };
   }

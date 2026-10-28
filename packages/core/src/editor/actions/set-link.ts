@@ -22,9 +22,9 @@ import { storeTypingAttrs } from "../typing-attrs";
  *
  * Mirrors the toggle-style.ts shape: at a collapsed caret, REMOVING the
  * link records it in the pending typing attrs (the next typed text is not
- * linked) while setting a URL is a no-op (a link needs text); T7 state-equality short-circuit; the selection is
+ * linked) while setting a URL is a no-op (a link needs text); state-equality short-circuit; the selection is
  * preserved unchanged; dirtyIds threaded through to the
- * incremental render pipeline (per R-D.3).
+ * incremental render pipeline.
  */
 export function handleSetLink(
   editor: EditorState,
@@ -36,7 +36,7 @@ export function handleSetLink(
   // linked (typing attrs); a URL needs text to target, so setting one is a no-op.
   if (isCollapsed(selection)) {
     return url === null || url.length === 0
-      ? storeTypingAttrs(editor, { link: undefined }, config.attrRegistry)
+      ? storeTypingAttrs(editor, { link: undefined })
       : editor;
   }
 

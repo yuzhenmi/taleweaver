@@ -26,7 +26,7 @@ export type EditorAction =
       selection: Selection;
       caretPageHint?: number;
       caretAffinity?: CaretAffinity;
-      // #503: the ANCHOR's bidi-boundary side. Post-Phase-0b, the backend
+      // The ANCHOR's bidi-boundary side. The backend
       // NavIntent resolver originates affinity (the lifted line/expand handlers
       // moved out of core), threading BOTH `caretAffinity` and `anchorAffinity`
       // here so affinity that once survived via the central-reset exemption now
@@ -70,7 +70,7 @@ export type EditorAction =
   | { type: "SET_LIST_RESTART"; value: number | null }
   | { type: "MOVE_DOCUMENT_BOUNDARY"; boundary: "start" | "end" }
   | { type: "EXPAND_DOCUMENT_BOUNDARY"; boundary: "start" | "end" }
-  // ESCAPE (#525): deselect an object selection — collapse the caret to just
+  // ESCAPE: deselect an object selection — collapse the caret to just
   // AFTER the atomic-leaf object (Google Docs). A no-op for a text caret.
   | { type: "ESCAPE" }
   /**
@@ -90,11 +90,11 @@ export type EditorAction =
   | { type: "APPLY_FOREIGN_CHANGE"; dirtyIds: ReadonlySet<BlockId> }
   | { type: "SELECT_ALL" }
   | { type: "DELETE_WORD"; direction: "forward" | "backward" }
-  // DELETE_RANGE (Phase 0b): delete a geometry-free `Span` in ONE history commit,
+  // DELETE_RANGE: delete a geometry-free `Span` in ONE history commit,
   // collapsing the caret to the document-order START (normalized, backward-span
   // safe). The print backend computes the span for line-deletion (Cmd+Backspace)
   // — the geometry lives in the backend NavIntent — and dispatches this; core
-  // owns the deletion. Also the public arbitrary-span delete (Phase 2).
+  // owns the deletion. Also the public arbitrary-span delete.
   | { type: "DELETE_RANGE"; span: Span }
   | { type: "INSERT_NODE"; node: BlockInit; position?: Position }
   | { type: "SECTION_BREAK" }
@@ -108,12 +108,14 @@ export type EditorAction =
       targetId: BlockId;
       refMode: CrossReferenceMode;
       // Number format for `refMode: "page"` page-number references (default "decimal");
-      // ignored by "number"/"text" modes. Read by the INSERT_CROSS_REFERENCE handler (S7).
+      // ignored by "number"/"text" modes. Read by the INSERT_CROSS_REFERENCE handler.
       numberStyle?: PageFieldNumberStyle;
     }
   | { type: "INSERT_PAGE_NUMBER"; numberStyle?: PageFieldNumberStyle }
   | { type: "INSERT_PAGE_COUNT"; numberStyle?: PageFieldNumberStyle }
   | { type: "INSERT_TAB" }
+  /** Soft line break (Shift+Enter): an inline `hard-break` in the paragraph. */
+  | { type: "INSERT_LINE_BREAK" }
   | { type: "SET_TAB_STOPS"; blockId: BlockId; tabStops: readonly TabStop[] }
   | { type: "INSERT_HORIZONTAL_LINE" }
   | { type: "INSERT_TABLE_OF_CONTENTS" }

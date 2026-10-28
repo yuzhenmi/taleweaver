@@ -1,9 +1,9 @@
 /**
  * @module render/footnote-marker
  *
- * FN-2: build the inline RenderNode for a `footnote-anchor` EmbedItem — the
+ * Build the inline RenderNode for a `footnote-anchor` EmbedItem — the
  * superscript call marker (a raised, reduced-size number, e.g. a small "1").
- * The displayed number comes from the FN-3 numbering module
+ * The displayed number comes from the footnote numbering module
  * (`footnoteNumbers`), keyed by the anchor's `properties.contentBlockId`.
  *
  * Marker geometry (Google Docs parity):
@@ -32,7 +32,7 @@ import { createElementBox, createTextBox, type RenderNode } from "./render-node"
 
 /**
  * Reduced font-size scale for the marker, relative to the surrounding text —
- * the established superscript scale (spec §2: "reduced font-size").
+ * the established superscript scale.
  */
 export const FOOTNOTE_MARKER_FONT_SCALE = 0.75;
 
@@ -65,7 +65,7 @@ export const FOOTNOTE_MARKER_MISSING_TEXT = "?";
  *   or `undefined` when the anchor is absent from the numbering map.
  * @param metadata the embed metadata (`{ embedType, ...properties }`) — the
  *   same shape a plain embed carries — so the marker box stays recognizable as
- *   a footnote-anchor embed for downstream cursor/hit-test/editing (FN-7).
+ *   a footnote-anchor embed for downstream cursor/hit-test/editing.
  */
 export function buildFootnoteMarker(
   key: string,

@@ -1,4 +1,4 @@
-import { inspectDocument, type IncompatibleDocumentReport, createSpan, createPosition, isCollapsed, extractText, builtinEmbedSerializer, selectWord, getBlock, inlineContentLength, findItemAtOffset, selectionContextOf, spanStart, spanEnd, markStart, markEnd, recordSample, buildAccessibilityTree, extractFragment, encodeHtml, encodeFragmentClip, TALEWEAVER_CLIP_MIME, type Position, type BlockId, type TextShaper, type TextMeasurer, type Hyphenator, type PageConfig, type EditorConfig, type EditorAction, type EditorState, type State, type TextMatch, type FindMatchesOptions, type Span, type CaretAffinity, isOpenableLinkUrl, makeBlockParentLookup, runKeyBinding, resolveCommand, modConventionFor, compileKeymap, escapeWouldChange, type Command, createAnchorSet, mapPositionFrom, type Proposal, type ProposeResult, type ProposalOutcome, proposeResultOf, type SuggestionGroupStyle, subscribeRemoteChanges, getYDoc, UNKNOWN_MAPPING, type Anchor, type AnchorOptions, type Assoc, type MappedPosition, createDefaultComponentRegistry, createDefaultAttrRegistry, createDecorationLayers, createFindSession, createMappingLog, mapDecorations, transitionMapping, EMPTY_DECORATION_SET, type FindStatus, type Decoration, type DecorationSet, type WidgetDecoration, type CommentHighlight, type SuggestionHighlight } from "@taleweaver/core";
+import { inspectDocument, type IncompatibleDocumentReport, createSpan, createPosition, isCollapsed, extractText, builtinEmbedSerializer, selectWord, selectParagraph, getBlock, findItemAtOffset, selectionContextOf, spanStart, spanEnd, markStart, markEnd, recordSample, buildAccessibilityTree, extractFragment, encodeHtml, encodeFragmentClip, TALEWEAVER_CLIP_MIME, type Position, type BlockId, type TextShaper, type TextMeasurer, type Hyphenator, type PageConfig, type EditorConfig, type EditorAction, type EditorState, type State, type TextMatch, type FindMatchesOptions, type Span, type CaretAffinity, isOpenableLinkUrl, makeBlockParentLookup, runKeyBinding, resolveCommand, modConventionFor, compileKeymap, escapeWouldChange, type Command, createAnchorSet, mapPositionFrom, type Proposal, type ProposeResult, type ProposalOutcome, proposeResultOf, type SuggestionGroupStyle, subscribeRemoteChanges, getYDoc, UNKNOWN_MAPPING, type Anchor, type AnchorOptions, type Assoc, type MappedPosition, createDefaultComponentRegistry, createDefaultAttrRegistry, createDecorationLayers, createFindSession, createMappingLog, mapDecorations, transitionMapping, EMPTY_DECORATION_SET, type FindStatus, type Decoration, type DecorationSet, type WidgetDecoration, type CommentHighlight, type SuggestionHighlight } from "@taleweaver/core";
 import { resolvePixelPosition, type PixelPosition } from "./cursor/cursor-position";
 import { resolvePositionFromPixel } from "./cursor/hit-test";
 import { computeSelectionRects, computeSelectionRectsForPage, type SelectionRect } from "./cursor/selection-geometry";
@@ -88,7 +88,7 @@ export interface EditorControllerOptions {
   pageHeight?: number;
   pageGap?: number;
   /**
-   * The paginated page config (Phase 0b). The render→cascade→layout pipeline
+   * The paginated page config. The render→cascade→layout pipeline
    * lives in the print backend's layout-driver now (not core's reducer), so the
    * HOST supplies `pageConfig` here instead of in core's `EditorConfig`.
    * `undefined` ⇒ unpaginated layout (the prior default for callers that passed
@@ -96,16 +96,14 @@ export interface EditorControllerOptions {
    */
   pageConfig?: PageConfig;
   /**
-   * Injected auto-hyphenation capability (Phase 0b). Threaded into the
-   * layout-driver's layout pass exactly as core's `EditorConfig.hyphenator`
-   * used to be. `undefined` ⇒ no hyphenation.
+   * Injected auto-hyphenation capability, passed to the layout-driver as
+   * `LayoutConfig.hyphenator`. `undefined` ⇒ no hyphenation.
    */
   hyphenator?: Hyphenator;
   /**
    * When true, mount a hidden, AT-visible accessibility mirror that subsumes the
-   * textarea as the focus/IME/clipboard host (slice 2b). Default false — the
-   * textarea path is unchanged. Flipping the default ON is gated on the incremental
-   * DomMirrorCache slice + the user's in-browser IME/screen-reader smoke.
+   * textarea as the focus/IME/clipboard host. Default false — the
+   * textarea path is unchanged. Flipping the default ON is gated on the user's in-browser IME/screen-reader smoke.
    */
   accessibilityMirror?: boolean;
   /**
@@ -116,9 +114,9 @@ export interface EditorControllerOptions {
    * painting). Consumed by:
    * - the layout-driver's render + cascade (`attrRegistry` → host marks paint via
    *   `toStyle`; `componentRegistry` → block render);
-   * - the object-selection hit-test pre-pass (#525) and NavIntent resolution
+   * - the object-selection hit-test pre-pass and NavIntent resolution
    *   (`componentRegistry` is the canonical `BlockKindResolver`);
-   * - copy / cut (`extractFragment(…, attrRegistry)` strips `copy: "drop"` marks).
+   * - copy / cut (`extractFragment` strips `copy: "drop"` marks, judged by the registry bound to the doc).
    * Omitted → the built-in registries (`createDefault*Registry()`).
    */
   config?: Pick<EditorConfig, "componentRegistry" | "attrRegistry" | "extensions">;
@@ -141,26 +139,28 @@ export interface EditorControllerOptions {
    */
   onDecorationPointer?: (event: PrintDecorationPointerEvent) => void;
   /**
-   * A peer update carried LEGACY inline storage (an old client): the controller HALTS
-   * — it ignores every action and further remote change, keeps the last good render on
-   * screen, and every member has a defined no-op result without touching the Y.Doc.
-   * Called once per halt — and again, while still halted, when legacy storage returns
-   * after `onDocumentCompatible` was reported. Do not keep reading the halted State with
-   * core read functions (a snapshot-cache miss throws `LegacyDocumentError`). Exit: the
-   * document is upgraded (`upgradeDocument`, single authority — here, or by an upgraded
-   * peer) and the host calls `update` with a FRESH EditorState that holds no legacy
-   * storage — one built anew (`createEditorStateFromState`) over the same (upgraded)
-   * Y.Doc, or one over another document, possibly with edits on top. A State reduced
-   * from the halted one (its change chain reaches the halted State) is ignored. While
-   * halted, setters and clears of decorations / highlights / styles are no-ops; the
-   * replacement drops every layer (the host sets them again).
+   * The document is incompatible (`report.reason`: a legacy client wrote into the frozen
+   * legacy root — its blocks and current legacy text are surfaced, not merged; a peer
+   * raised the schema past this engine's; a second Yjs instance; or a replacement's
+   * document is not upgraded yet): the controller HALTS — it ignores every action and
+   * further remote change, keeps the last good render on screen, and every member has a
+   * defined no-op result without touching the Y.Doc. Called once per halt — and again,
+   * while still halted, when a legacy write lands after `onDocumentCompatible` was
+   * reported. Do not keep reading the halted State with core read functions. Exit: the
+   * host calls `update` with a FRESH EditorState that holds no legacy storage — one built
+   * anew (`createEditorStateFromState`) over the same Y.Doc, or one over another
+   * document, possibly with edits on top. A State reduced from the halted one (its change
+   * chain reaches the halted State) is ignored. While halted, setters and clears of
+   * decorations / highlights / styles are no-ops; the replacement drops every layer (the
+   * host sets them again).
    */
   onIncompatibleDocument?: (report: IncompatibleDocumentReport) => void;
   /**
-   * While HALTED, the document became free of legacy storage (an upgraded peer, or this
-   * host itself, ran `upgradeDocument` on it — any transaction is re-checked): the host can now resume by calling `update` with a
-   * fresh EditorState over the same Y.Doc (`createState({ rootId, doc })`). Called once
-   * per halt; the controller stays halted until that `update`.
+   * While HALTED on a NOT-YET-UPGRADED document ("legacy-schema"), it was upgraded (by
+   * this host or an upgraded peer — any transaction is re-checked): the host can now
+   * resume by calling `update` with a fresh EditorState over the same Y.Doc
+   * (`createState({ rootId, doc })`). Called once per halt; the controller stays halted
+   * until that `update`. Never for a sticky halt.
    */
   onDocumentCompatible?: () => void;
   /**
@@ -267,7 +267,7 @@ export interface EditorController {
    */
   setDecorations(decorations: readonly Decoration[], basedOn?: State): void;
   /**
-   * Show the find-match highlights (#433): `matches` as translucent yellow
+   * Show the find-match highlights: `matches` as translucent yellow
    * decorations (`tw-find:*`), the match at `activeIndex` emphasized in orange.
    * `activeIndex` out of range → no match emphasized. There is ONE find layer:
    * this writes it directly (mapped through edits until replaced); `findStart`
@@ -278,7 +278,7 @@ export interface EditorController {
   /** Clear the (one) find layer and repaint (erases the band). */
   clearFindHighlights(): void;
   /**
-   * Show the comment highlights (comments slice 5): each given comment's anchored
+   * Show the comment highlights: each given comment's anchored
    * range as a translucent amber decoration (`tw-comment:*`), `active` ones in a
    * deeper amber. Ranges are mapped through edits and re-scanned from the
    * document only when an edit adds or removes a comment marker, so the host
@@ -289,7 +289,7 @@ export interface EditorController {
   /** Hide the comment highlights and repaint (erases the band). */
   clearCommentHighlights(): void;
   /**
-   * Show the suggestion highlights (change-tracking slice 6): each pending
+   * Show the suggestion highlights: each pending
    * tracked-change's range as a translucent teal decoration (`tw-suggestion:*`),
    * `active` ones deeper. Mapped through edits; re-scanned when an edit touches
    * a tracked run. A
@@ -299,7 +299,7 @@ export interface EditorController {
   /** Hide the suggestion highlights and repaint (erases the band). */
   clearSuggestionHighlights(): void;
   /**
-   * Start a find session (#433): run `findMatches(state, query, options)`,
+   * Start a find session: run `findMatches(state, query, options)`,
    * highlight every match, pick the initial active match (the first at/after the
    * document cursor — Google Docs "find from here"), and scroll it into view.
    * Stores the session so a doc edit live-recomputes the matches (in `update()`).
@@ -316,7 +316,7 @@ export interface EditorController {
    */
   findStatus(): FindStatus;
   /**
-   * Replace the ACTIVE find match with `replacement` (#433). When a session is
+   * Replace the ACTIVE find match with `replacement`. When a session is
    * active and there's an active match, dispatches `REPLACE_MATCH` with that
    * match (the core session's active match). Does NOT manually advance the
    * active index — the session's refresh in the following `update()` moves it to
@@ -327,7 +327,7 @@ export interface EditorController {
    */
   replaceActive(replacement: string): FindStatus;
   /**
-   * Replace EVERY match in the active session with `replacement` (#433) in one
+   * Replace EVERY match in the active session with `replacement` in one
    * undo step — dispatches `REPLACE_ALL` with the session's matches
    * (the core session's matches). Returns the current (pre-refresh) status. No-op
    * (no dispatch) when there's no session / no matches.
@@ -364,16 +364,16 @@ export function createEditorController(
   const dispatch = (action: EditorAction): void => {
     if (!halted) options.dispatch(action);
   };
-  // Object-selection resolver (#525): threaded into the body hit-test calls so a
+  // Object-selection resolver: threaded into the body hit-test calls so a
   // click inside an image's rect selects the image as an object. Absent → the
-  // text-only fall-through (byte-identical to before #525).
+  // text-only fall-through (byte-identical to no resolver).
   // The resolved component registry (host-supplied or the built-in default). The
-  // layout-driver AND the geometric-nav resolver (Phase 0b) both need the SAME
+  // layout-driver AND the geometric-nav resolver both need the SAME
   // instance the host built its state with — for object-selection detection in
   // nav, and the render/cascade passes in the driver.
   const componentRegistry = options.config?.componentRegistry ?? createDefaultComponentRegistry();
-  // The render→cascade→layout pipeline lives in the print backend's layout-driver
-  // (Phase 0b). It needs the same component/attr registries the host built its
+  // The render→cascade→layout pipeline lives in the print backend's layout-driver.
+  // It needs the same component/attr registries the host built its
   // `EditorConfig` with; default to the built-in registries when omitted (the
   // empty-document tests construct the controller with `{ measurer, dispatch }`
   // only, and their state is built from the same defaults).
@@ -398,7 +398,7 @@ export function createEditorController(
   });
   const pageHeight = options.pageHeight;
   const pageGap = options.pageGap ?? DEFAULT_PAGE_GAP;
-  // Accessibility mirror (slice 2b): when ON, a hidden AT-visible DOM mirror
+  // Accessibility mirror: when ON, a hidden AT-visible DOM mirror
   // SUBSUMES the textarea as the focus/IME/clipboard host. Default OFF — the
   // textarea path is byte-identical to today. Assigned inside the gated
   // construction below; null whenever the flag is off.
@@ -409,13 +409,15 @@ export function createEditorController(
 
   let state: EditorState | null = null;
   // The current layout tree, built by the backend layout-driver from
-  // `state.state` + `state.lastDirtyIds` in `update()` (Phase 0b). In paginated mode
+  // `state.state` + `state.lastDirtyIds` in `update()`. In paginated mode
   // it is a `VirtualLayoutTree` (a `PagePlan` + lazily-materialized pages); in
   // unpaginated / unsupported-feature-fallback mode it is a fully-positioned
   // `LayoutBox`. The HOT PATH (paint visible pages, slot sizing, caret) reads
   // the plan + `getPage(visible ∪ cursorPage)` directly and never materializes
-  // every page (Phase 3 Tasks 2/3).
+  // every page.
   let layoutTree: LayoutBox | VirtualLayoutTree | null = null;
+  /** The layout tree the page slots / single canvas were last synced to. */
+  let syncedTree: LayoutBox | VirtualLayoutTree | null = null;
   // The positioned `LayoutBox` for the NON-paginated paths only (single-canvas
   // paint/sizing + the `pageIndex === null` selection/find/comment branches).
   // In those branches `layoutTree` is already a fully-positioned `LayoutBox`
@@ -514,12 +516,12 @@ export function createEditorController(
    * Halt on legacy storage in a peer update (see `onIncompatibleDocument`). Once per
    * halt — again while still halted only if the host was told "compatible" since.
    */
-  function halt(blockIds: readonly BlockId[]): void {
+  function halt(report: IncompatibleDocumentReport): void {
     if (destroyed) return;
     if (halted) {
       if (!toldCompatible) return;
       toldCompatible = false;
-      options.onIncompatibleDocument?.({ legacyBlocks: blockIds });
+      options.onIncompatibleDocument?.(report);
       return;
     }
     halted = true;
@@ -534,7 +536,7 @@ export function createEditorController(
     }
     for (const p of pendingProposals) p.resolve(HALTED_RESULT);
     pendingProposals = [];
-    options.onIncompatibleDocument?.({ legacyBlocks: blockIds });
+    options.onIncompatibleDocument?.(report);
   }
 
   /**
@@ -606,7 +608,7 @@ export function createEditorController(
   const imageCache = new ImageCache(() => paint());
 
   // Paint caches: one for the single-canvas mode, one per page index for
-  // paginated mode. Plan 3.K.2 Task 1 wires these so paint takes the
+  // paginated mode. These make paint take the
   // incremental path with root-reference short-circuit. Without these,
   // every paint pass clears the entire canvas and repaints every box —
   // O(N) per cursor move. Pruned on page removal in the excess-slot loop
@@ -646,7 +648,7 @@ export function createEditorController(
   let selEnd: PixelPosition | null = null;
   let selSpanningFallback = false;
 
-  // ── Find session (#433) ──────────────────────────────────────────────────
+  // ── Find session ──────────────────────────────────────────────────
   //
   // Core's geometry-free find session (shared with the digital backend) owns the
   // query, the match list and navigation; this controller draws it as the find
@@ -714,7 +716,7 @@ export function createEditorController(
   // `pageSlots`'s length is the page count; an empty array means non-paginated
   // (single-canvas mode).
   //
-  // Pages are NOT uniform-height (C.2b-2): a `section` can override its page
+  // Pages are NOT uniform-height: a `section` can override its page
   // geometry, so every consumer (slot sizing, caret/textarea Y, scroll, mouse
   // hit-test) reads PER-SLOT geometry from this array — there is no
   // `pageIndex * (pageHeight + pageGap)` arithmetic and no virtual-vs-positioned
@@ -1250,7 +1252,7 @@ export function createEditorController(
         canvas.height = physicalHeight;
         canvas.style.width = `${page.width}px`;
         canvas.style.height = `${page.height}px`;
-        // A dimension change means this page's geometry changed (C.2b-2: a
+        // A dimension change means this page's geometry changed (a
         // section's page size was overridden, re-materializing the PageBox at a
         // new width/height). A pure geometry change moves no content boxes, so
         // walkAndDetectChanges would see "no diff" and short-circuit, leaving
@@ -1352,7 +1354,7 @@ export function createEditorController(
   function scrollVisualIntoView(pos: { pageIndex: number; y: number; height: number }) {
     const sp = scrollParent;
 
-    // Compute visual Y from the target's page slot. Per-page geometry (C.2b-2):
+    // Compute visual Y from the target's page slot. Per-page geometry:
     // the page's document-y is its slot `top` (running-sum offset), NOT a
     // uniform `pageIndex * (pageHeight + pageGap)`. Paginated-vs-not is keyed on
     // slot presence (an empty `pageSlotGeoms` ⇒ non-paginated single canvas).
@@ -1389,8 +1391,15 @@ export function createEditorController(
 
   function syncDom() {
     if (!state || !layoutTree) return;
+    // The page slots / canvases depend on the layout tree only. A selection-only
+    // update keeps the tree (the driver returns the prior one), so the O(pages)
+    // slot pass is skipped and only the textarea follows the caret.
+    if (layoutTree !== syncedTree) syncPageDom(layoutTree);
+    positionTextarea();
+  }
 
-    const tree = layoutTree;
+  function syncPageDom(tree: LayoutBox | VirtualLayoutTree) {
+    syncedTree = tree;
 
     // Derive the page-SLOT geometry WITHOUT positioning any page. Virtual mode:
     // read `plan.entries` (count + per-slot blockSize) — never the whole tree.
@@ -1403,7 +1412,7 @@ export function createEditorController(
     if (pageHeight) {
       if (tree.type === "virtual-root") {
         newVirtualTree = tree;
-        // Per-entry geometry (C.2b-2): width + gap are PER-ENTRY (a section may
+        // Per-entry geometry: width + gap are PER-ENTRY (a section may
         // override its page size/gap), height is the entry's `blockSize`, and
         // `top` is the running-sum `blockOffset`. The slot tops in DOM flow
         // (height + marginBottom, summed) MUST agree with `top` — caret/mouse
@@ -1477,8 +1486,11 @@ export function createEditorController(
 
       container.style.minHeight = "100%";
     }
+  }
 
-    // Position textarea on the correct page. Per-page geometry (C.2b-2): the
+  function positionTextarea() {
+    const isPaginated = pageSlotGeoms.length > 0;
+    // Position textarea on the correct page. Per-page geometry: the
     // page's document-y is its slot `top` (the plan's running-sum offset), NOT
     // `pageIndex * (pageHeight + pageGap)`.
     const cursorSlot = pageSlotGeoms[cursorPos.pageIndex];
@@ -1540,7 +1552,7 @@ export function createEditorController(
       slot.dataset.pageIndex = String(i);
       slot.style.width = `${geom.width}px`;
       slot.style.height = `${geom.height}px`;
-      // Per-entry gap (C.2b-2): keeps the DOM-flow slot tops (height +
+      // Per-entry gap: keeps the DOM-flow slot tops (height +
       // marginBottom, summed) consistent with each slot's `top` (running-sum
       // offset) that caret/mouse use — they MUST agree.
       slot.style.marginBottom = i < targetCount - 1 ? `${geom.gap}px` : "0";
@@ -1666,7 +1678,7 @@ export function createEditorController(
       }
 
       // Click outside any slot — find the page by visual Y. Pages are NOT
-      // uniform-height (C.2b-2: a section may override its geometry), so the
+      // uniform-height (a section may override its geometry), so the
       // slot top is the running-sum `top` in `pageSlotGeoms`, NOT
       // `idx*(pageHeight+pageGap)`. With a virtual tree the plan maps document-y
       // → page authoritatively (`pageIndexAtBlockOffset`, a binary search over
@@ -1805,10 +1817,11 @@ export function createEditorController(
     }
 
     // Hit-test against ONLY the clicked page (virtual tree) — never
-    // materialize the whole document (Phase 4).
+    // materialize the whole document.
     const hitTree = treeForPageHitTest(coords.pageIndex);
     if (!hitTree) return;
-    // TODO(#525 browser): suppress caret + paint bbox when isObjectSelection
+    // TODO: when the hit resolves to an object selection (e.g. an image), suppress the
+    // text caret and paint the object bounding box instead.
     const hit = resolvePositionFromPixel(
       state.state,
       hitTree,
@@ -1822,7 +1835,7 @@ export function createEditorController(
       dispatch({ type: "MOVE_DOCUMENT_BOUNDARY", boundary: "end" });
       return;
     }
-    // P4-C.2.2b §D: carry the hit-side caret-affinity seed through to the click's
+    // Carry the hit-side caret-affinity seed through to the click's
     // SET_SELECTION so a collapsed caret at a bidi direction boundary renders on
     // the clicked side. Multi-click / shift-extend selections are non-collapsed
     // (affinity is inert there) — they pass no seed, which clears any stale value.
@@ -1845,24 +1858,10 @@ export function createEditorController(
       }
     }
 
-    // Triple-click: select paragraph (the entire leaf block).
-    // In the new model `pos.blockId` IS the leaf block, so we select from
-    // offset 0 to that block's inline-content length.
+    // Triple-click: select the paragraph WITH its ¶ (Word; core `selectParagraph`):
+    // (P, 0)–(N, 0), or (P, 0)–(P, len) on a flow's last one.
     if (e.detail >= 3) {
-      const block = getBlock(state.state, pos.blockId);
-      if (block) {
-        const length = block.inlineContent
-          ? inlineContentLength(block.inlineContent)
-          : 0;
-        dispatch({
-          type: "SET_SELECTION",
-          selection: createSpan(
-            createPosition(pos.blockId, 0),
-            createPosition(pos.blockId, length),
-          ),
-          caretPageHint: coords.pageIndex,
-        });
-      }
+      dispatch({ type: "SET_SELECTION", selection: selectParagraph(state.state, pos), caretPageHint: coords.pageIndex });
       return;
     }
 
@@ -1898,7 +1897,7 @@ export function createEditorController(
 
     // Single click: position cursor + start drag. Seed the caret affinity from
     // the hit side so a collapsed caret at a bidi direction boundary renders
-    // there (P4-C.2.2b §D).
+    // there.
     isDragging = true;
     dragAnchor = pos;
     dispatch({
@@ -1945,7 +1944,7 @@ export function createEditorController(
       componentRegistry,
     );
     if (hit) {
-      // P4-C.2.2b §D: a drag builds a (usually non-collapsed) span — caret
+      // A drag builds a (usually non-collapsed) span — caret
       // affinity is inert across a range, so the drag's SET_SELECTION carries the
       // hit-side seed only so a drag that collapses back onto a boundary still
       // renders on the pointer side.
@@ -2041,7 +2040,7 @@ export function createEditorController(
     if (!isNavIntent(result) && result.type === "ESCAPE" && (state === null || !escapeWouldChange(state, componentRegistry))) return;
     e.preventDefault();
     if (isNavIntent(result)) {
-      // Geometric navigation (Phase 0b): core's reducer is geometry-free, so the
+      // Geometric navigation: core's reducer is geometry-free, so the
       // backend resolves the intent against the driver-built `layoutTree` +
       // measurer → a `SET_SELECTION` / `DELETE_RANGE` it dispatches to core. A
       // null resolution (line-move off the document edge, degenerate line-delete)
@@ -2065,7 +2064,7 @@ export function createEditorController(
     // a focus race) would apply text at a STALE caret — the engine's selection
     // points elsewhere. Clear the buffer so the value can't leak into the next
     // focused input. (Provenance of focused non-typing input — autofill /
-    // translation bulk-sets — is a separate hardening concern, tracked as #490.)
+    // translation bulk-sets — is a separate hardening concern.)
     if (!focused) {
       textarea.value = "";
       return;
@@ -2104,7 +2103,7 @@ export function createEditorController(
     if (!state) return;
     if (isCollapsed(state.selection)) return;
     e.preventDefault();
-    const frag = extractFragment(state.state, state.selection, attrRegistry); // strips copy:"drop" marks
+    const frag = extractFragment(state.state, state.selection); // strips copy:"drop" marks
     e.clipboardData?.setData("text/plain", extractText(state.state, state.selection, builtinEmbedSerializer));
     e.clipboardData?.setData("text/html", encodeHtml(frag));
     e.clipboardData?.setData(TALEWEAVER_CLIP_MIME, encodeFragmentClip(frag));
@@ -2118,7 +2117,7 @@ export function createEditorController(
     if (!state) return;
     if (isCollapsed(state.selection)) return;
     e.preventDefault();
-    const frag = extractFragment(state.state, state.selection, attrRegistry); // strips copy:"drop" marks
+    const frag = extractFragment(state.state, state.selection); // strips copy:"drop" marks
     e.clipboardData?.setData("text/plain", extractText(state.state, state.selection, builtinEmbedSerializer));
     e.clipboardData?.setData("text/html", encodeHtml(frag));
     e.clipboardData?.setData(TALEWEAVER_CLIP_MIME, encodeFragmentClip(frag));
@@ -2210,7 +2209,7 @@ export function createEditorController(
         )
       : null;
 
-  // ── Accessibility mirror host (slice 2b, gated) ──────────────────────────
+  // ── Accessibility mirror host (gated) ──────────────────────────
   //
   // When `accessibilityMirror` is ON, build the hidden AT-visible DOM mirror and
   // make it the focus/IME/clipboard host. Built AFTER the handler closures +
@@ -2273,7 +2272,7 @@ export function createEditorController(
   // ── Public API ─────────────────────────────────────────────────────────
 
   /**
-   * Re-materialize the accessibility mirror (slice 2b) from the current state +
+   * Re-materialize the accessibility mirror from the current state +
    * selection. Gated on the host being present (flag-on); a no-op on the default
    * textarea path. Skipped while an IME composition is active — rewriting the mirror's
    * DOM or selection under the IME would cancel / corrupt the composition (a peer change
@@ -2321,7 +2320,7 @@ export function createEditorController(
         // write after "compatible"): halt (or report again if the host was told
         // "compatible") and watch this document halted — so its upgrade is reported.
         if (!halted || doc !== remoteDoc || toldCompatible) {
-          halt(legacy);
+          halt({ reason: "legacy-schema", legacyBlocks: legacy, legacyText: {} });
           watchDocument(editorState, true);
         }
         return;
@@ -2365,7 +2364,7 @@ export function createEditorController(
         }
         layers.advance(prev, editorState, mapping);
         anchors.advance(prev.state, editorState.state, mapping);
-        // Find live-recompute (D9): an open session re-finds only in the edited
+        // Find live-recompute: an open session re-finds only in the edited
         // blocks (keeping its active occurrence; advancing past a replacement) and
         // the find layer is patched only where matches changed. Never scrolls — a
         // recompute mid-typing must not yank the viewport.
@@ -2395,7 +2394,7 @@ export function createEditorController(
     // `selectionRectsAcrossPages` — the whole document is never materialized.
     // Only the non-paginated branches read it as a positioned `LayoutBox` (via
     // `nonPaginatedTree()`).
-    // Phase 0b: the backend layout-driver owns the render→cascade→layout
+    // The backend layout-driver owns the render→cascade→layout
     // rebuild. Core's reducer is geometry-free — it records WHAT changed
     // (`state.lastDirtyIds`); the driver consumes that to rebuild incrementally
     // (reusing unchanged page subtrees by reference) and is the SOLE source of
@@ -2418,7 +2417,7 @@ export function createEditorController(
       layoutTree,
       measurer,
       state.caretPageHint,
-      // P4-C.2.2b read-side: feed the stored bidi caret-affinity so a collapsed
+      // Feed the stored bidi caret-affinity so a collapsed
       // caret at an LTR↔RTL run boundary renders on the side the user clicked /
       // last arrowed to (the dual-caret). The seed is written by hit-test + bidi
       // move; without threading it here the render always defaulted to "after".
@@ -2489,13 +2488,11 @@ export function createEditorController(
     paint();
     markEnd("ctrl.paint", tPaint);
 
-    // Re-materialize the accessibility mirror (slice 2b) from the fresh state +
+    // Re-materialize the accessibility mirror from the fresh state +
     // selection, AFTER paint. Gated on the host being present (flag-on); a no-op
     // on the default textarea path. The mirror tree is the semantic projection
     // (`buildAccessibilityTree`, suggesting view); `syncSelection` then re-places
     // the DOM selection to match the engine caret/range.
-    // Re-materialize the accessibility mirror (slice 2b) from the fresh state +
-    // selection, AFTER paint (a no-op on the default textarea path).
     syncMirror();
 
     const tScroll = markStart("ctrl.scrollIntoView");
@@ -2574,7 +2571,7 @@ export function createEditorController(
     redrawDecorations();
   }
 
-  // ── Find session + navigation (#433) ─────────────────────────────────────
+  // ── Find session + navigation ─────────────────────────────────────
 
   function findStatus(): FindStatus {
     return halted ? EMPTY_FIND : find.status();
@@ -2659,7 +2656,7 @@ export function createEditorController(
     }
     const coreState = st.state;
     const parentOf = makeBlockParentLookup(coreState);
-    // The RAW core accessibility projection (#526): the injected emitter maps it
+    // The RAW core accessibility projection: the injected emitter maps it
     // to the PDF structure model. `null` (a document whose root is dropped —
     // should not occur for a real document root) ⇒ no /StructTreeRoot.
     const accessibilityTree = buildAccessibilityTree(coreState);
@@ -2726,7 +2723,7 @@ export function createEditorController(
     // otherwise leak (collab / multi-view).
     state?.history.destroy();
 
-    // Dispose the accessibility mirror host (slice 2b): detaches its
+    // Dispose the accessibility mirror host: detaches its
     // selectionchange + element listeners and removes the mirror element.
     if (mirrorHost !== null) {
       mirrorHost.destroy();

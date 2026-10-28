@@ -1,10 +1,8 @@
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId, IdAllocator } from "../block-id";
-import type { ReadonlyAttrs } from "../attrs";
 import { mergeAttrs } from "../attrs";
-import { getTreeMap, getYBlock } from "../yjs-doc";
-import { buildYBlock, buildYAttrs } from "../y-block";
+import { writeRoot, writeBlockAttrs } from "../flow-ops";
 import { assertNoIdCollision } from "../id-collision-check";
 
 /** Which page region a template body fills, and the attr key it links through. */
@@ -13,8 +11,8 @@ export type TemplateRegion = "header" | "footer";
 export interface InsertTemplateBodyArgs {
   readonly region: TemplateRegion;
   /**
-   * The SECTION block the body links onto. For the implicit (doc-root)
-   * section this is `state.rootId`; per-section bodies pass the section's id.
+   * The SECTION block the body links onto (a doc-root section — the
+   * final section when there is no break).
    * Must resolve to a block in the MAIN tree (`kind === "block"`).
    */
   readonly sectionBlockId: BlockId;
@@ -48,13 +46,13 @@ const REGION_ATTR_KEY: Record<TemplateRegion, "headerBlockId" | "footerBlockId">
  * page slot (`materializePage`) — which lays out the ONE linked root's subtree
  * via its BFC — renders every line. A single `paragraph` root would split into
  * a SECOND `parentId: null` root the slot never renders (the "Enter does
- * nothing" bug, #326) and a spurious extra `getTemplateContentIds` entry.
+ * nothing" bug) and a spurious extra `getTemplateContentIds` entry.
  *
  * Writes, one transaction:
  *  1. A fresh `template-body` CONTAINER root (`parentId: null` — a tree root in
  *     templateContents, NOT a child; `inlineContent: null` — it's a container)
  *     whose `firstChildId`/`lastChildId` point at the paragraph child below.
- *     Its null `parentId` makes the #313 root-only iterator
+ *     Its null `parentId` makes the root-only iterator
  *     (`getTemplateContentIds`) pick up EXACTLY this one root, so the render
  *     path lays out the body once.
  *  2. A fresh `paragraph` CHILD (`parentId: <container>`, empty `inlineContent`,
@@ -111,47 +109,20 @@ export function insertTemplateBody(
     assertNoIdCollision(doc, bodyRootId, "insertTemplateBody");
     assertNoIdCollision(doc, firstParagraphId, "insertTemplateBody");
 
-    const templateTree = getTreeMap(doc, "templateContent");
-
-    // (1) Materialize the CONTAINER body root into the templateContents tree.
-    templateTree.set(
-      bodyRootId,
-      buildYBlock({
+    // (1)+(2) The CONTAINER body root + its empty paragraph, in the templateContents tree.
+    writeRoot(
+      doc,
+      {
+        id: bodyRootId,
         type: "template-body",
         attrs: {},
-        parentId: null,
-        prevSiblingId: null,
-        nextSiblingId: null,
-        firstChildId: firstParagraphId,
-        lastChildId: firstParagraphId,
         inlineContent: null,
-      }),
+        children: [{ id: firstParagraphId, type: "paragraph", attrs: {}, inlineContent: { items: [] }, children: [] }],
+      },
+      "templateContent",
     );
-
-    // (2) Materialize the empty paragraph CHILD under the container.
-    templateTree.set(
-      firstParagraphId,
-      buildYBlock({
-        type: "paragraph",
-        attrs: {},
-        parentId: bodyRootId,
-        prevSiblingId: null,
-        nextSiblingId: null,
-        firstChildId: null,
-        lastChildId: null,
-        inlineContent: { items: [] },
-      }),
-    );
-
-    // (3) Merge the link attr onto the section block (main tree). Re-read the
-    // section's CURRENT attrs from the snapshot via `resolved.block.attrs`
-    // (a frozen pre-tx snapshot) and merge the single region key, mirroring
-    // `mergeBlockAttrs`.
-    const merged: ReadonlyAttrs = mergeAttrs(resolved.block.attrs, {
-      [attrKey]: bodyRootId,
-    });
-    const ySection = getYBlock(doc, sectionBlockId, "insertTemplateBody", "block");
-    ySection.set("attrs", buildYAttrs(merged));
+    // (3) Merge the link attr onto the section block (main tree).
+    writeBlockAttrs(doc, sectionBlockId, mergeAttrs(resolved.block.attrs, { [attrKey]: bodyRootId }));
   });
 
   return {

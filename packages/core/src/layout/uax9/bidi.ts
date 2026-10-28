@@ -4,10 +4,9 @@ import { bracketPair, canonicalBracketEquiv } from "./mirror";
 /**
  * UAX #9 Unicode Bidirectional Algorithm — rule engine.
  *
- * This file is the foundation for the resolution phases. It currently
- * implements P2/P3 (paragraph embedding-level detection); the X (explicit
- * levels), W (weak types), N (neutrals), and I (implicit levels) passes land in
- * later tasks. All passes operate on a compact per-codepoint `Uint8Array` of
+ * This file implements the resolution phases: P2/P3 (paragraph embedding-level
+ * detection), then the X (explicit levels), W (weak types), N (neutrals), and I
+ * (implicit levels) passes. All passes operate on a compact per-codepoint `Uint8Array` of
  * CLASS CODES (small ints) rather than `BidiClass` strings, for hot-path speed.
  *
  * MODULE-INTERNAL: nothing here is re-exported from any barrel / package
@@ -129,7 +128,7 @@ export const CC = {
  * and it is AL or R, the level is 1; otherwise (L found, or no strong char
  * found) the level is 0.
  *
- * This is also reused by X5c (FSI direction detection, a later task) to derive
+ * This is also reused by X5c (FSI direction detection) to derive
  * an isolate's direction from its enclosed text — hence it is exported for tests
  * + intra-module reuse, but is MODULE-INTERNAL (never barrel-exported).
  */
@@ -958,7 +957,7 @@ export function applyImplicit(
 
 // ===========================================================================
 // resolveBidiLevels — the public single-paragraph driver wiring the whole UBA.
-// MODULE-INTERNAL (the barrel export lands in a later task).
+// Exported from the package barrel.
 // ===========================================================================
 
 /**

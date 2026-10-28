@@ -15,7 +15,7 @@ import { createElementBox } from "../render/render-node";
  * inline-bearing leaf with no children, so splitting it (Enter) would
  * create a SECOND `parentId: null` root in templateContents — a sibling
  * the slot (which lays out only the ONE linked root's subtree) never
- * renders, and a spurious extra `getTemplateContentIds` entry (the #313
+ * renders, and a spurious extra `getTemplateContentIds` entry (the
  * root-only contract expects exactly one root per body). The container
  * model keeps one root; new lines are CHILDREN.
  *

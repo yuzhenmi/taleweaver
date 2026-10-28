@@ -36,6 +36,7 @@ import { makeRootContext } from "./layout-context";
 import { paginateRoot } from "./paginate";
 import { buildBlockFitMetas } from "./build-fit-metas";
 import { measurePass } from "./measure-pass";
+import { flattenContents } from "./group-children";
 import { IMPLICIT_SECTION_PLAN } from "./section-plan";
 import { makeVirtualLayoutTree } from "./virtual-layout-tree";
 import type { PageConfig } from "./page-config";
@@ -122,7 +123,7 @@ function virtualPage(root: ElementBox): PageBox {
     pageConfig.pageMargins.inlineEnd;
   const shaper = createMockShaper(CHAR_W, LINE_CROSS);
   const metas = buildBlockFitMetas(root, shaper, undefined, contentInline);
-  const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children);
+  const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, flattenContents(root.children));
   const ctx = makeRootContext(
     root.computedStyle ?? INITIAL_COMPUTED_STYLE,
     pageConfig.pageInlineSize,

@@ -18,6 +18,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { createEditorController } from "./index";
 import * as core from "@taleweaver/core";
+import { finalSection } from "./test-utils/final-section"; // body blocks live in the final section
 
 const measurer: core.TextMeasurer = core.createMockMeasurer(8, 16);
 
@@ -106,7 +107,7 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
 
   it("replaceActive dispatches REPLACE_MATCH with the active TextMatch + replacement", () => {
     const editor = seededEditorState("foo bar foo baz foo"); // 3 × "foo"
-    const blockId = core.getBlock(editor.state, editor.state.rootId)?.firstChildId;
+    const blockId = finalSection(editor.state)?.firstChildId;
     if (blockId === null || blockId === undefined) throw new Error("no block");
     const dispatch = vi.fn();
     const ctrl = createEditorController(mount(), { measurer, dispatch });
@@ -156,7 +157,7 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
     // manual ++ would have skipped to index 1.
     expect(ctrl.findStatus()).toEqual({ total: 2, activeIndex: 0 });
     // The text actually changed.
-    const replacedBlockId = core.getBlock(editor.state, editor.state.rootId)?.firstChildId;
+    const replacedBlockId = finalSection(editor.state)?.firstChildId;
     if (replacedBlockId === null || replacedBlockId === undefined) throw new Error("no block");
     expect(
       core.extractText(
@@ -245,7 +246,7 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
 
   it("replaceAll dispatches REPLACE_ALL with all session matches + replacement", () => {
     const editor = seededEditorState("foo bar foo baz foo"); // 3 × "foo"
-    const blockId = core.getBlock(editor.state, editor.state.rootId)?.firstChildId;
+    const blockId = finalSection(editor.state)?.firstChildId;
     if (blockId === null || blockId === undefined) throw new Error("no block");
     const dispatch = vi.fn();
     const ctrl = createEditorController(mount(), { measurer, dispatch });

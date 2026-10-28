@@ -28,7 +28,7 @@ import { applyAttrsToRange } from "./ops/apply-attrs";
 import { getBlock, getTemplateContent } from "./state";
 import { createPosition, createSpan } from "./block-position";
 import type { BlockKind, BlockKindResolver } from "./block-kinds";
-import { buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
+import { TEST_RESOLVER, buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
 import type { BlockId } from "./block-id";
 import type { State } from "./state";
 
@@ -61,6 +61,7 @@ const TYPE_KINDS: Record<string, BlockKind> = {
 };
 const resolver: BlockKindResolver = {
   getBlockKind: (t) => TYPE_KINDS[t] ?? null,
+  getStorageShape: (t) => TEST_RESOLVER.getStorageShape(t),
 };
 
 // A header template body: a ROOT container (parentId === null, in

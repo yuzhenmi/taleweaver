@@ -1,5 +1,5 @@
-import type { BlockId, Position, State } from "../state";
-import { IDENTITY_MAPPING, type Assoc, type MappedPosition, type PositionMapping } from "../state/position-mapping";
+import type { State } from "../state";
+import { IDENTITY_MAPPING, composeMappings, type PositionMapping } from "../state/position-mapping";
 
 /**
  * A bounded log of a controller's recent document transitions and their position
@@ -57,42 +57,4 @@ export function createMappingLog(capacity = DEFAULT_MAPPING_LOG_CAPACITY): Mappi
   };
 }
 
-/** Apply `mappings` in order. */
-export function composeMappings(mappings: readonly PositionMapping[]): PositionMapping {
-  const live = mappings.filter((m) => !m.identity);
-  if (live.length === 0) return IDENTITY_MAPPING;
-  const only = live[0];
-  if (live.length === 1 && only !== undefined) return only;
-  let dirty: Set<BlockId> | null = new Set();
-  for (const m of live) {
-    if (m.dirty === null || dirty === null) dirty = null;
-    else for (const id of m.dirty) dirty.add(id);
-  }
-  return {
-    identity: false,
-    dirty,
-    map(position: Position, assoc: Assoc = 1): MappedPosition {
-      let pos: Position | null = position;
-      let deleted = false;
-      for (const m of live) {
-        if (pos === null) break;
-        const r = m.map(pos, assoc);
-        pos = r.position;
-        deleted = deleted || r.deleted;
-      }
-      return { position: pos, deleted: deleted || pos === null };
-    },
-    touches(from: Position, to: Position): boolean {
-      // Conservative across steps: true unless every step provably left the range alone.
-      let a: Position | null = from;
-      let b: Position | null = to;
-      for (const m of live) {
-        if (a === null || b === null) return true;
-        if (m.touches(a, b)) return true;
-        a = m.map(a, 1).position;
-        b = m.map(b, -1).position;
-      }
-      return false;
-    },
-  };
-}
+export { composeMappings } from "../state/position-mapping";

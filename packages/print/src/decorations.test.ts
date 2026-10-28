@@ -11,6 +11,9 @@ import * as core from "@taleweaver/core";
 import { createEditorController, paintCanvas, type DecorationRect, type EditorController, type LayoutBox, type PrintDecorationPointerEvent } from "./index";
 import type { ImageCache } from "./image-cache";
 import { computeDecorationRects } from "./decoration-geometry";
+import { createDefaultComponentRegistry } from "@taleweaver/core";
+
+const TEST_RESOLVER = createDefaultComponentRegistry();
 
 type Op =
   | { kind: "fillRect"; x: number; y: number; w: number; h: number; fillStyle: string }
@@ -89,6 +92,8 @@ let originalGetContext: PropertyDescriptor | undefined;
 let originalIO: typeof IntersectionObserver | undefined;
 /** Page indices the stubbed IntersectionObserver reports as visible. */
 let visiblePages: (idx: number) => boolean = () => true;
+/** Re-report every observed page slot to the live observer (a scroll). */
+let scroll: () => void = () => {};
 const containers: HTMLElement[] = [];
 
 beforeEach(() => {
@@ -106,14 +111,19 @@ beforeEach(() => {
     configurable: true,
   });
   originalIO = globalThis.IntersectionObserver;
-  globalThis.IntersectionObserver = vi.fn().mockImplementation((cb: IntersectionObserverCallback) => ({
-    observe: (el: Element) => {
-      const idx = Number((el as HTMLElement).dataset.pageIndex);
-      cb([{ target: el, isIntersecting: visiblePages(idx) } as unknown as IntersectionObserverEntry], {} as IntersectionObserver);
-    },
-    unobserve: vi.fn(),
-    disconnect: vi.fn(),
-  })) as unknown as typeof IntersectionObserver;
+  globalThis.IntersectionObserver = vi.fn().mockImplementation((cb: IntersectionObserverCallback) => {
+    const observed: Element[] = [];
+    const entry = (el: Element) => ({ target: el, isIntersecting: visiblePages(Number((el as HTMLElement).dataset.pageIndex)) }) as unknown as IntersectionObserverEntry;
+    scroll = () => cb(observed.map(entry), {} as IntersectionObserver);
+    return {
+      observe: (el: Element) => {
+        observed.push(el);
+        cb([entry(el)], {} as IntersectionObserver);
+      },
+      unobserve: vi.fn(),
+      disconnect: vi.fn(),
+    };
+  }) as unknown as typeof IntersectionObserver;
 });
 
 afterEach(() => {
@@ -138,9 +148,11 @@ function seeded(texts: readonly string[], cfg: core.EditorConfig): { editor: cor
     type: "document",
     children: texts.map((text) => ({ type: "paragraph", inlineContent: { items: [{ kind: "text" as const, text, attrs: {} }] } })),
   };
-  const state = core.buildDocumentFromTree(root, {}, core.createTestAllocator());
+  const state = core.buildDocumentFromTree(root, {}, core.createTestAllocator(), TEST_RESOLVER);
   const ids: core.BlockId[] = [];
-  for (let id = core.getBlock(state, state.rootId)?.firstChildId ?? null; id !== null; id = core.getBlock(state, id)?.nextSiblingId ?? null) ids.push(id);
+  // the root holds sections only; a break-less doc's paragraphs live in its final section.
+  const section = core.getBlock(state, state.rootId)?.lastChildId ?? null;
+  for (let id = section === null ? null : (core.getBlock(state, section)?.firstChildId ?? null); id !== null; id = core.getBlock(state, id)?.nextSiblingId ?? null) ids.push(id);
   return { editor: core.createEditorStateFromState(state, core.initialSelectionForState(state), cfg), ids };
 }
 
@@ -899,8 +911,8 @@ describe("print decorations — geometry across pages and regions", () => {
       attrs: { writingMode: "vertical-rl" },
       children: [{ type: "paragraph", attrs: { writingMode: "vertical-rl" }, inlineContent: { items: [{ kind: "text", text: "abc def", attrs: {} }] } }],
     };
-    const state = core.buildDocumentFromTree(root, {}, core.createTestAllocator());
-    const p = core.getBlock(state, state.rootId)?.firstChildId ?? null;
+    const state = core.buildDocumentFromTree(root, {}, core.createTestAllocator(), TEST_RESOLVER);
+    const p = core.firstLeafBlock(state, state.rootId); // root → section → paragraph
     if (p === null) throw new Error("setup");
     const { container, controller } = mount();
     controller.update(core.createEditorStateFromState(state, core.initialSelectionForState(state), cfg));
@@ -929,13 +941,13 @@ describe("print decorations — geometry across pages and regions", () => {
     controller.update(editor);
     controller.setDecorations([{ kind: "widget", id: "late", at: core.createPosition(c, 2), text: "!" }]);
     expect(container.querySelector('[data-tw-deco="late"]')).toBeNull();
-    visiblePages = () => true; // "scroll": the observer now reports page 2
-    controller.update(editor);
+    visiblePages = () => true; // scroll: the observer now reports page 2
+    scroll();
     const el = container.querySelector('[data-tw-deco="late"]');
     expect(el).not.toBeNull();
     expect((el as HTMLElement).style.left).toBe(`${controller.getCaretRect(core.createPosition(c, 2))?.left ?? NaN}px`);
     visiblePages = (i) => i === 0;
-    controller.update(editor);
+    scroll();
     expect(container.querySelector('[data-tw-deco="late"]')).toBeNull();
     controller.destroy();
   });

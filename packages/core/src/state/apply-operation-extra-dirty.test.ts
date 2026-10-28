@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
 import { applyOperation } from "./state";
+import { writeBlockType } from "./flow-ops";
 import { buildState, buildBlock } from "../test-utils/state-builders";
 import type { BlockId } from "./index";
 
@@ -49,9 +50,7 @@ describe("applyOperation extra-dirty return channel", () => {
   it("unions extra ids with block-tree-captured ids", () => {
     const state = singleBlockState();
     const result = applyOperation(state, (doc) => {
-      const blocks = doc.getMap("blocks") as Y.Map<Y.Map<unknown>>;
-      const p1 = blocks.get("p1") as Y.Map<unknown>;
-      p1.set("type", "heading"); // captured as dirty p1 by the txn
+      writeBlockType(doc, "p1", "heading"); // captured as dirty p1 by the txn
       return new Set<BlockId>(["root" as BlockId]); // extra
     });
     expect(result.dirtyIds.has("p1" as BlockId)).toBe(true);

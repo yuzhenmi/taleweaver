@@ -182,9 +182,9 @@ describe("marker survival across structural ops (the spike's matrix — now ALL 
     const merged = mergeAdjacentBlocks(base, "p1" as BlockId, "p2" as BlockId).state;
     const range = resolveCommentRange(merged, CID);
     expect(range?.orphaned).toBe(false);
-    // After merge everything lives in p1.
-    expect(range?.start.blockId).toBe("p1");
-    expect(range?.end.blockId).toBe("p1");
+    // After merge everything lives in the survivor p2 (¶p1 is deleted).
+    expect(range?.start.blockId).toBe("p2");
+    expect(range?.end.blockId).toBe("p2");
   });
 });
 

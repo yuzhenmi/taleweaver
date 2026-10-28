@@ -15,6 +15,7 @@
  * Plus a guard-lock: CLEAR_FORMATTING in DIRECT mode must NOT strip a
  * suggestion-provenance id (`INLINE_FORMAT_ATTR_KEYS` is a curated allow-list).
  */
+import { finalSectionOf } from "../../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import {
   config as directConfig,
@@ -44,7 +45,7 @@ import { formattingSuggestionIds } from "../../state";
 
 /** The first body paragraph id under the document root. */
 function bodyParaId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = getBlock(editor.state, finalSectionOf(editor.state));
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
     throw new Error("document root has no first child paragraph");

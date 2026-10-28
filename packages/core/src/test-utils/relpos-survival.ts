@@ -1,66 +1,60 @@
 /**
  * Test-only helpers for measuring CHARACTER-level `RelativePosition` survival
- * across the engine's ops. A leaf block's inline content is ONE `Y.Text`, so a
- * `RelativePosition` minted at a block offset anchors to that character's CRDT
- * item.
+ * across the engine's ops. A block's content is a region of a flow (pieces of
+ * `Y.Text`), so a `RelativePosition` minted at a block offset anchors to that
+ * character's CRDT item.
  *
  * A position "survives" an op only if its anchor character is STILL LIVE (not
  * deleted — Yjs would otherwise silently resolve a dead char to its old neighbour)
- * in a block `Y.Text` that is still reachable from one of the three block trees,
- * AND that character is `expectChar`. A re-minted character (e.g. one moved
- * between blocks by a split / merge) is a different item → reported as orphaned.
+ * in a live block, AND that character is `expectChar`. A re-minted character (e.g.
+ * one moved between blocks) is a different item → reported as orphaned.
  */
 import * as Y from "yjs";
 import type { State } from "../state/state";
+import { getBlock, resolveBlock } from "../state/state";
 import { STATE_INTERNAL } from "../state/state-internal";
-import { getTreeMaps, getYBlock, type BlockTreeKind } from "../state/yjs-doc";
 import type { BlockId } from "../state/block-id";
-import { followRedoneItem, inlineItemsFromYText, requireYInline } from "../state/y-inline";
+import { followRedoneItem } from "../state/y-inline";
+import { requireBlockText, pointInRegion, type BlockText } from "../state/block-text";
+import { readCtx, regionOf, positionAtPieceIndex } from "../state/flow-read";
+import { isPiece } from "../state/y-flow";
 
 /** The underlying Y.Doc of a State (test-only encapsulation pierce). */
 export function docOf(state: State): Y.Doc {
   return state[STATE_INTERNAL].doc;
 }
 
-/** Block `id`'s inline `Y.Text`. */
-export function blockText(state: State, id: string, kind: BlockTreeKind = "block"): Y.Text {
-  return requireYInline(getYBlock(docOf(state), id as BlockId, "blockText", kind), id as BlockId, "blockText");
+/** Block `id`'s inline text surface. */
+export function blockText(state: State, id: string): BlockText {
+  return requireBlockText(docOf(state), id as BlockId, "blockText");
 }
 
 /** Mint a `RelativePosition` anchored to the character at block offset `offset` of block `id`. */
-export function relAt(state: State, id: string, offset: number, kind: BlockTreeKind = "block"): Y.RelativePosition {
-  return Y.createRelativePositionFromTypeIndex(blockText(state, id, kind), offset);
-}
-
-/** Every live block `Y.Text` across the three block trees. */
-function liveBlockTexts(state: State): Set<Y.Text> {
-  const out = new Set<Y.Text>();
-  for (const tree of getTreeMaps(docOf(state))) {
-    for (const yBlock of tree.values()) {
-      const inline = yBlock.get("inlineContent");
-      if (inline instanceof Y.Text) out.add(inline);
-    }
-  }
-  return out;
-}
-
-/** The block offset-aligned text of `yText` (each embed is one U+FFFC). */
-function alignedText(yText: Y.Text): string {
-  return inlineItemsFromYText(yText)
-    .map((it) => (it.kind === "text" ? it.text : "￼"))
-    .join("");
+export function relAt(state: State, id: string, offset: number): Y.RelativePosition {
+  const doc = docOf(state);
+  const ctx = readCtx(doc);
+  const region = regionOf(ctx, id);
+  if (region === null) throw new Error(`relAt: block "${id}" has no inline content`);
+  // The char AT `offset` starts right after the point at `offset` (index of that char).
+  const p = pointInRegion(ctx, region, offset + 1);
+  return Y.createRelativePositionFromTypeIndex(p.piece, p.index - 1);
 }
 
 /**
- * True iff `rel`'s anchor character is still live, in a live block `Y.Text`, and
- * is `expectChar`. See module docstring.
+ * True iff `rel`'s anchor character is still live, in a live block, and is
+ * `expectChar`. See module docstring.
  */
 export function survives(rel: Y.RelativePosition, state: State, expectChar: string): boolean {
   const doc = docOf(state);
   const item = rel.item === null ? null : followRedoneItem(doc, rel.item);
   if (item === null || item.deleted) return false;
   const abs = Y.createAbsolutePositionFromRelativePosition(rel, doc);
-  if (abs === null || !(abs.type instanceof Y.Text)) return false;
-  if (!liveBlockTexts(state).has(abs.type)) return false;
-  return alignedText(abs.type).charAt(abs.index) === expectChar;
+  if (abs === null || !isPiece(abs.type)) return false;
+  const at = positionAtPieceIndex(readCtx(doc), abs.type, abs.index + 1);
+  if (at === null) return false;
+  const block = getBlock(state, at.id as BlockId) ?? resolveBlock(state, at.id as BlockId)?.block ?? null;
+  const items = block?.inlineContent?.items ?? null;
+  if (items === null) return false;
+  const text = items.map((it) => (it.kind === "text" ? it.text : "￼")).join("");
+  return text.charAt(at.offset - 1) === expectChar;
 }

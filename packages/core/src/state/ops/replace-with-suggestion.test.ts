@@ -39,7 +39,7 @@ import { createPosition, createSpan } from "../block-position";
 import type { Span } from "../block-position";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
-import {
+import { TEST_RESOLVER,
   buildBlock,
   buildState,
   text,
@@ -335,7 +335,7 @@ describe("replaceWithSuggestion — collab identity", () => {
     // Peer B starts from a synced copy (clone via update bytes — the transport).
     const docB = new Y.Doc();
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(fixture[STATE_INTERNAL].doc));
-    const stateB = createState({ rootId: fixture.rootId, doc: docB });
+    const stateB = createState({ resolver: TEST_RESOLVER, rootId: fixture.rootId, doc: docB });
 
     // Peer A: replace "world" (offsets 6..11) with "earth".
     const stateA = replaceWithSuggestion(fixture, span(6, 11), "earth", {}, INPUT).state;
@@ -353,7 +353,7 @@ describe("replaceWithSuggestion — collab identity", () => {
 
     // After merge, A sees BOTH changes: "world" tagged-deleted + "earth" inserted
     // AND B's "Z" landed inside the untouched "!" run ("Z!").
-    const mergedA = createState({ rootId: fixture.rootId, doc: stateA[STATE_INTERNAL].doc });
+    const mergedA = createState({ resolver: TEST_RESOLVER, rootId: fixture.rootId, doc: stateA[STATE_INTERNAL].doc });
     expect(pText(mergedA)).toBe("hello earthworldZ!");
     const struck = pItems(mergedA).find((it) => it.kind === "text" && it.text === "world");
     if (struck?.kind !== "text") throw new Error("expected the tagged world run");

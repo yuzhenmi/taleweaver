@@ -1008,20 +1008,17 @@ describe("measurePass — per-section header/footer ids", () => {
     expect(plan.entries.every((e) => e.footerBlockId === undefined)).toBe(true);
   });
 
-  it("doc-root default header id → implicit-section pages carry it", () => {
-    // A section-less doc whose ROOT carries a header id (the implicit-section
-    // default). buildSectionPlan reads it off cascadedRoot.metadata onto the
-    // implicit boundary; every page (all implicit-section) carries it.
+  it("a break-less doc's final section header id → every page carries it; the root's own keys are never read", () => {
     const render = sDoc(
-      Array.from({ length: 7 }, (_, i) => sPara(`p${i}`)),
+      [sSection("final", Array.from({ length: 7 }, (_, i) => sPara(`p${i}`)), { headerBlockId: "hdr", footerBlockId: "ftr" })],
       { headerBlockId: "docHdr", footerBlockId: "docFtr" },
     );
     const { plan } = sectionPlanFrom(render);
 
     expect(plan.entries.length).toBeGreaterThan(1);
-    expect(plan.entries.every((e) => e.activeSectionId === null)).toBe(true);
-    expect(plan.entries.every((e) => e.headerBlockId === "docHdr")).toBe(true);
-    expect(plan.entries.every((e) => e.footerBlockId === "docFtr")).toBe(true);
+    expect(plan.entries.every((e) => e.activeSectionId === "final")).toBe(true);
+    expect(plan.entries.every((e) => e.headerBlockId === "hdr")).toBe(true);
+    expect(plan.entries.every((e) => e.footerBlockId === "ftr")).toBe(true);
   });
 
   it("per-section: section 2 has a header, section 1 doesn't → correct per page", () => {

@@ -1,7 +1,8 @@
 /**
  * PF-1 (paste-as-suggestion): `insertFragmentAsSuggestion` — insert a 1..N-line
  * fragment at a COLLAPSED position as ONE tracked insertion (runs carry the
- * insertion id; inter-line breaks are block-split-suggestion embeds sharing it;
+ * insertion id; each inserted ¶ — the ¶ of each new head before the caret block —
+ * carries an `insertionSuggestionId` key sharing it;
  * one insertion record). Accept-all keeps text + makes splits real; reject-all
  * removes the whole fragment (re-merges). Tree-`kind`-aware (works in any body).
  */
@@ -16,11 +17,9 @@ import {
 import {
   getSuggestions,
   INSERTION_SUGGESTION_ATTR,
-  BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
-  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
   type SuggestionId,
 } from "../suggestions";
-import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
+import { buildState, buildBlock, inlineContent, text, finalSectionOf } from "../../test-utils/state-builders";
 import { resolveBlock, type State } from "../state";
 import { createPosition, createSpan } from "../block-position";
 import { asBlockId, createTestAllocator } from "../block-id";
@@ -39,9 +38,10 @@ function oneBlock(s = "abcdef"): State {
 }
 const blockText = (st: State, id: string) =>
   (resolveBlock(st, asBlockId(id))?.block.inlineContent?.items ?? []).map((i) => (i.kind === "text" ? i.text : "")).join("");
+const breakOf = (st: State, id: string) => resolveBlock(st, asBlockId(id))?.block.breakSuggestion;
 const blockSeq = (st: State): string[] => {
   const out: string[] = [];
-  let id = resolveBlock(st, asBlockId("doc"))?.block.firstChildId ?? null;
+  let id = resolveBlock(st, finalSectionOf(st))?.block.firstChildId ?? null;
   while (id) { out.push(id); id = resolveBlock(st, id)?.block.nextSiblingId ?? null; }
   return out;
 };
@@ -58,7 +58,7 @@ describe("insertFragmentAsSuggestion — collapsed-span tracked fragment insert 
     expect(r.endPosition).toEqual(createPosition(asBlockId("p"), 4));
   });
 
-  it("two-line fragment splits the block: B keeps prefix+line0+split-embed; new block holds line1+suffix", () => {
+  it("two-line fragment splits the block: a new head holds prefix+line0 (its ¶ keyed); B holds line1+suffix", () => {
     const r = insertFragmentAsSuggestion(oneBlock("abcdef"), createPosition(asBlockId("p"), 3),
       [{ type: "paragraph", inlineContent: inlineContent([text("X")]) },
        { type: "paragraph", inlineContent: inlineContent([text("Y")]) }], INPUT("s1"), createTestAllocator());
@@ -66,19 +66,20 @@ describe("insertFragmentAsSuggestion — collapsed-span tracked fragment insert 
     expect(seq.length).toBe(2);
     expect(blockText(r.state, nth(seq, 0, "block"))).toBe("abcX");
     expect(blockText(r.state, nth(seq, 1, "block"))).toBe("Ydef");
-    const p0 = resolveBlock(r.state, asBlockId(nth(seq, 0, "block")))?.block.inlineContent?.items ?? [];
-    const emb = p0.find((i) => i.kind === "embed" && i.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE);
-    expect(emb && emb.kind === "embed" && emb.properties.suggestionId).toBe("s1");
+    expect(breakOf(r.state, nth(seq, 0, "block"))).toEqual({ insertionId: "s1" });
+    expect(nth(seq, 1, "block")).toBe("p");
+    expect(breakOf(r.state, "p")).toBeUndefined();
     expect(getSuggestions(r.state).map((x) => x.kind)).toEqual(["insertion"]);
   });
 
-  it("ACCEPT-all keeps the two-line split for real (2 blocks, no embed, no suggestions)", () => {
+  it("ACCEPT-all keeps the two-line split for real (2 blocks, no tag, no suggestions)", () => {
     const r = insertFragmentAsSuggestion(oneBlock("abcdef"), createPosition(asBlockId("p"), 3),
       [{ type: "paragraph", inlineContent: inlineContent([text("X")]) },
        { type: "paragraph", inlineContent: inlineContent([text("Y")]) }], INPUT("s1"), createTestAllocator());
     const accepted = acceptAll(r.state).state;
     const seq = blockSeq(accepted);
     expect(seq.map((id) => blockText(accepted, id))).toEqual(["abcX", "Ydef"]);
+    expect(seq.map((id) => breakOf(accepted, id))).toEqual([undefined, undefined]);
     expect(getSuggestions(accepted).length).toBe(0);
   });
 
@@ -93,7 +94,7 @@ describe("insertFragmentAsSuggestion — collapsed-span tracked fragment insert 
     expect(getSuggestions(rejected).length).toBe(0);
   });
 
-  it("three-line fragment: middle block gets a split-embed (not the suffix); accept keeps 3, reject re-merges", () => {
+  it("three-line fragment: each inserted ¶ (the two new heads') gets the insertion key; accept keeps 3, reject re-merges", () => {
     const mk = () => insertFragmentAsSuggestion(oneBlock("abcdef"), createPosition(asBlockId("p"), 3),
       [{ type: "paragraph", inlineContent: inlineContent([text("X")]) },
        { type: "paragraph", inlineContent: inlineContent([text("Y")]) },
@@ -102,15 +103,8 @@ describe("insertFragmentAsSuggestion — collapsed-span tracked fragment insert 
     const seq = blockSeq(r.state);
     expect(seq.length).toBe(3);
     expect(seq.map((id) => blockText(r.state, id))).toEqual(["abcX", "Y", "Zdef"]);
-    // B and the MIDDLE block each carry a split-embed sharing s1; the LAST does not.
-    const splitEmbedSuggestionId = (id: string): string | null => {
-      const emb = (resolveBlock(r.state, asBlockId(id))?.block.inlineContent?.items ?? [])
-        .find((i) => i.kind === "embed" && i.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE);
-      return emb && emb.kind === "embed" ? String(emb.properties.suggestionId) : null;
-    };
-    expect(splitEmbedSuggestionId(nth(seq, 0, "block"))).toBe("s1");
-    expect(splitEmbedSuggestionId(nth(seq, 1, "block"))).toBe("s1");
-    expect(splitEmbedSuggestionId(nth(seq, 2, "block"))).toBeNull(); // last new block has the plain suffix, no embed
+    // Both inserted ¶s (after X, after Y) are keyed on their OWN (new head) entry, sharing s1; B is not.
+    expect(seq.map((id) => breakOf(r.state, id))).toEqual([{ insertionId: "s1" }, { insertionId: "s1" }, undefined]);
     expect(getSuggestions(r.state).map((x) => x.kind)).toEqual(["insertion"]);
     // accept keeps all three splits for real; reject (fresh state) re-merges to one.
     const accepted = acceptAll(mk().state).state;
@@ -173,10 +167,8 @@ function twoBlocks(a: string, b: string): State {
     buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text(a)]) }),
     buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text(b)]) }) ] });
 }
-const hasJoinEmbed = (st: State, id: string, sugId: string): boolean =>
-  (resolveBlock(st, asBlockId(id))?.block.inlineContent?.items ?? []).some(
-    (it) => it.kind === "embed" && it.embedType === BLOCK_JOIN_SUGGESTION_EMBED_TYPE
-      && it.properties.suggestionId === sugId);
+const hasJoinTag = (st: State, id: string, sugId: string): boolean =>
+  breakOf(st, id)?.deletionId === sugId;
 
 describe("replaceWithSuggestedFragment — strike + fragment (PF-2)", () => {
   it("empty fragment over a single-block selection ≡ markDeletion (no new blocks)", () => {
@@ -199,14 +191,15 @@ describe("replaceWithSuggestedFragment — strike + fragment (PF-2)", () => {
       .toEqual(resolveBlock(viaShipped.state, asBlockId("p"))?.block.inlineContent?.items);
   });
 
-  it("CROSS-block selection + 1-line fragment: strikes both blocks + a join embed; accept merges to one flow; reject restores", () => {
+  it("CROSS-block selection + 1-line fragment: strikes both blocks + a join tag; accept merges to one flow; reject restores", () => {
     // p1="abcdef", p2="ghijkl"; select p1[2..] .. p2[..4]; paste "XYZ".
     const mk = () => replaceWithSuggestedFragment(twoBlocks("abcdef", "ghijkl"),
       createSpan(createPosition(asBlockId("p1"), 2), createPosition(asBlockId("p2"), 4)),
       [{ type: "paragraph", inlineContent: inlineContent([text("XYZ")]) }], REPL("d", "i"), createTestAllocator());
     const r = mk();
-    // p1 holds the deletion-flavored join embed (its boundary to p2). No new blocks (1-line).
-    expect(hasJoinEmbed(r.state, "p1", "d")).toBe(true);
+    // ¶p1 (the crossed ¶) holds the deletion key. No new blocks (1-line).
+    expect(hasJoinTag(r.state, "p1", "d")).toBe(true);
+    expect(breakOf(r.state, "p2")).toBeUndefined();
     expect(blockSeq(r.state).length).toBe(2);
     expect(getSuggestions(r.state).map((x) => x.kind).sort()).toEqual(["deletion", "insertion"]);
     // accept: "ab" + "XYZ" + "kl" merged into ONE block (struck cdef/ghij removed, break joined).

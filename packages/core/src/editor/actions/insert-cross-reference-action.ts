@@ -18,17 +18,17 @@ import { prepareEmbedInsertPoint } from "./selection-guards";
  * `INSERT_CROSS_REFERENCE` handler — splices a `cross-reference` EmbedItem at the
  * caret that displays the target's number (`refMode: "number"`), text
  * (`refMode: "text"`), or PAGE number (`refMode: "page"`), auto-updating when the
- * target changes (XR.S4 wires the number/text incremental propagation; page mode
- * is resolved late from paginated layout — see `1.5-pagination.md`).
+ * target changes (number/text targets propagate incrementally; page mode
+ * is resolved late from paginated layout — see `docs/architecture/2-print/2.3-pagination.md`).
  *
- * **The S1 op TRUSTS its `targetId`** (validation deliberately lives here, not in
+ * **The state-layer op TRUSTS its `targetId`** (validation deliberately lives here, not in
  * the Layer-3 op, mirroring how editor handlers gate structural preconditions).
  * This handler rejects — returns the editor UNCHANGED — when:
  *
  *  - the caret is NOT in the main document body. A cross-reference may only be
  *    inserted into body text (which resolves to `state.rootId`), not inside a
  *    header / footer / footnote body. This keeps the set of host blocks aligned
- *    with XR.S4's `buildCrossReferenceIndex`, which scans the main tree only —
+ *    with the cross-reference host index, which scans the main tree only —
  *    a ref in an embed body would never receive target-update propagation.
  *    Mirrors the footnote handler's context guard.
  *  - the `targetId` does not resolve to a MAIN-TREE block (`getBlock` returns
@@ -42,7 +42,7 @@ import { prepareEmbedInsertPoint } from "./selection-guards";
  *    its content spans pages). Any inline-bearing block has a deterministic page.
  *
  * `numberStyle` is honored for `"page"` mode (the displayed page number's format,
- * default `"decimal"`); it is ignored by `"number"`/`"text"` (the S1 op stores it
+ * default `"decimal"`); it is ignored by `"number"`/`"text"` (the op stores it
  * only for the `"page"` variant).
  *
  * A rejected insert is a silent no-op (the host app validates target choice in
@@ -66,7 +66,7 @@ export function handleInsertCrossReference(
   const focus = editor.selection.focus;
 
   // Body-text-only: refuse a cross-reference inside a footnote / header / footer
-  // body (a non-root context), matching XR.S4's main-tree host index.
+  // body (a non-root context), matching the main-tree host index.
   if (selectionContextOf(editor.state, focus.blockId) !== editor.state.rootId) {
     return editor;
   }

@@ -20,6 +20,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createEditorController } from "./index";
 import * as core from "@taleweaver/core";
 import * as printPkg from "./index";
+import { createDefaultComponentRegistry } from "@taleweaver/core";
+import { finalSection } from "./test-utils/final-section"; // body blocks live in the final section
+
+const TEST_RESOLVER = createDefaultComponentRegistry();
 
 interface SpyCtx extends CanvasRenderingContext2D {
   _ops: unknown[];
@@ -94,10 +98,10 @@ function seededTocEditor(): {
       },
     ],
   };
-  const state = core.buildDocumentFromTree(root, {}, core.createTestAllocator());
+  const state = core.buildDocumentFromTree(root, {}, core.createTestAllocator(), TEST_RESOLVER);
 
   // Read the two heading ids back (doc-order children after the TOC).
-  const doc = core.getBlock(state, state.rootId);
+  const doc = finalSection(state);
   if (doc === null || doc.firstChildId === null) throw new Error("no toc");
   const toc = core.getBlock(state, doc.firstChildId);
   if (toc === null || toc.nextSiblingId === null) throw new Error("no h1");

@@ -17,12 +17,12 @@
  *
  * Slice 4e-editor (folded in below) wires the block-end case: a Delete at the END
  * of a PLAIN paragraph (with a non-empty next paragraph sibling) marks a suggested
- * JOIN via `markBlockJoinSuggestion` — a zero-width `block-join-suggestion` embed
- * appended to the END of the CURRENT block N + a `deletion` record, with the two
- * blocks staying SEPARATE (no merge) and the caret unchanged. The adjacent-atomic-
- * leaf / section-merge branches keep their current untracked behavior in suggesting
- * mode (those-as-suggestions are explicit follow-ups).
+ * JOIN via `markBlockJoinSuggestion` — a `deletionSuggestionId` tag on the NEXT
+ * (right) block's registry entry + a `deletion` record, with the two blocks staying
+ * SEPARATE (no merge) and the caret unchanged. A section boundary is a tracked
+ * section join (`markSectionJoinSuggestion`).
  */
+import { finalSectionOf } from "../../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import {
   config as directConfig,
@@ -44,13 +44,12 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 import {
   getBlock,
   getSuggestions,
-  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
   type BlockId,
 } from "../../state";
 
 /** The first body paragraph id under the document root. */
 function bodyParaId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = getBlock(editor.state, finalSectionOf(editor.state));
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
     throw new Error("document root has no first child paragraph");
@@ -109,15 +108,9 @@ function deletionIdAt(
   return undefined;
 }
 
-/** True if `blockId`'s inlineContent ends with a `block-join-suggestion` embed. */
-function endsWithJoinEmbed(editor: EditorState, blockId: BlockId): boolean {
-  const items = getBlock(editor.state, blockId)?.inlineContent?.items ?? [];
-  const last = items[items.length - 1];
-  return (
-    last !== undefined &&
-    last.kind === "embed" &&
-    last.embedType === BLOCK_JOIN_SUGGESTION_EMBED_TYPE
-  );
+/** True if `blockId` carries a paragraph-join tag (the boundary at its start). */
+function joinTagged(editor: EditorState, blockId: BlockId): boolean {
+  return getBlock(editor.state, blockId)?.breakSuggestion?.deletionId !== undefined;
 }
 
 /** Seed a single paragraph with `text` typed in (direct mode), caret at end. */
@@ -140,7 +133,7 @@ function twoParagraphs(): {
   s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" }, directConfig);
   s = reduceEditor(s, { type: "SPLIT_NODE" }, directConfig);
   s = reduceEditor(s, { type: "INSERT_TEXT", text: "def" }, directConfig);
-  const root = getBlock(s.state, s.state.rootId);
+  const root = getBlock(s.state, finalSectionOf(s.state));
   const firstId = root?.firstChildId ?? null;
   const secondId = root?.lastChildId ?? null;
   if (firstId === null || secondId === null || firstId === secondId) {
@@ -259,7 +252,7 @@ describe("handleDeleteForward — suggesting mode (slice 4c-ii)", () => {
     expect(getSuggestions(next.state)).toHaveLength(0);
   });
 
-  it("block-end Delete at a PLAIN paragraph boundary marks a suggested JOIN (blocks stay separate, embed on current block N, deletion record, caret unchanged, undoable)", () => {
+  it("block-end Delete at a PLAIN paragraph boundary marks a suggested JOIN (blocks stay separate, join tag on the next block, deletion record, caret unchanged, undoable)", () => {
     const { editor, firstId, secondId } = twoParagraphs();
     const placed = caretAt(editor, firstId, 3); // caret at end of "abc"
 
@@ -271,9 +264,11 @@ describe("handleDeleteForward — suggesting mode (slice 4c-ii)", () => {
     expect(getTextOf(next.state, firstId)).toBe("abc");
     expect(getTextOf(next.state, secondId)).toBe("def");
 
-    // The CURRENT block N ("abc") ends with the zero-width join-suggestion embed
-    // (the break AFTER currentBlock = before nextBlock lands at currentBlock's end).
-    expect(endsWithJoinEmbed(next, firstId)).toBe(true);
+    // The NEXT block ("def") carries the join tag (the break AFTER currentBlock =
+    // the boundary at nextBlock's start); the current block does not.
+    // The key is on ¶first (the ¶ Delete at (first, len) deletes).
+    expect(joinTagged(next, firstId)).toBe(true);
+    expect(joinTagged(next, secondId)).toBe(false);
 
     // A `deletion` SuggestionRecord exists (attributed to alice).
     const suggestions = getSuggestions(next.state);
@@ -285,10 +280,10 @@ describe("handleDeleteForward — suggesting mode (slice 4c-ii)", () => {
     expect(next.selection.anchor).toEqual(next.selection.focus);
     expect(next.selection.focus).toEqual(createPosition(firstId, 3));
 
-    // Undoable: UNDO removes the embed + record, blocks unchanged.
+    // Undoable: UNDO removes the tag + record, blocks unchanged.
     expect(next.history.canUndo()).toBe(true);
     const undone = reduceEditor(next, { type: "UNDO" }, suggestingConfig);
-    expect(endsWithJoinEmbed(undone, firstId)).toBe(false);
+    expect(joinTagged(undone, firstId)).toBe(false);
     expect(getSuggestions(undone.state)).toHaveLength(0);
     expect(getTextOf(undone.state, firstId)).toBe("abc");
     expect(getTextOf(undone.state, secondId)).toBe("def");
@@ -307,11 +302,11 @@ describe("handleDeleteForward — suggesting mode (slice 4c-ii)", () => {
 
     const next = reduceEditor(placed, { type: "DELETE_FORWARD" }, directConfig);
 
-    // Real merge: block N now holds "abcdef"; the second block is gone.
-    expect(getTextOf(next.state, firstId)).toBe("abcdef");
-    expect(getBlock(next.state, secondId)).toBeNull();
+    // Real merge: the second block (survivor R) holds "abcdef"; the first is gone.
+    expect(getTextOf(next.state, secondId)).toBe("abcdef");
+    expect(getBlock(next.state, firstId)).toBeNull();
     // Caret stays at currentBlock:currentLen (offset 3).
-    expect(next.selection.focus).toEqual(createPosition(firstId, 3));
+    expect(next.selection.focus).toEqual(createPosition(secondId, 3));
     expect(getSuggestions(next.state)).toHaveLength(0);
   });
 });

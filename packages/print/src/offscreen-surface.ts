@@ -1,5 +1,5 @@
 /**
- * POSITIONING slice 6 — offscreen-surface seam for `opacity` group compositing.
+ * Offscreen-surface seam for `opacity` group compositing.
  *
  * A box with `opacity < 1` paints its WHOLE atomic subtree into a temporary
  * offscreen surface at full opacity, then composites that surface onto the

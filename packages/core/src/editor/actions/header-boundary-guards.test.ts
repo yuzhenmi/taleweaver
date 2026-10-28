@@ -222,9 +222,10 @@ describe("C.2c T7e — same-context expanded selections are NOT refused", () => 
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
 
     // The selected range across the two header paragraphs is deleted and they
-    // merge: "al" + "ta" = "alta" in c1, c2 consumed.
-    expect(headerText(next.state, HDR_P1)).toBe("alta");
-    expect(getTemplateContent(next.state, HDR_P2)).toBeNull();
+    // merge: "al" + "ta" = "alta". ¶c1 is in the range, so the focus paragraph c2
+    // survives and c1 is consumed.
+    expect(headerText(next.state, HDR_P2)).toBe("alta");
+    expect(getTemplateContent(next.state, HDR_P1)).toBeNull();
     expect(next.state).not.toBe(editor.state);
     // Main body untouched.
     expect(bodyText(next.state, BODY_P1)).toBe("body text");
@@ -252,9 +253,10 @@ describe("C.2c T7e — same-context expanded selections are NOT refused", () => 
     );
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
 
-    // Cross-block delete + merge: "body " + " body" = "body  body" in p.
-    expect(bodyText(next.state, BODY_P1)).toBe("body  body");
-    expect(getBlock(next.state, BODY_P2)).toBeNull();
+    // Cross-block delete + merge: "body " + " body" = "body  body"; the focus
+    // paragraph p2 survives, p is consumed.
+    expect(bodyText(next.state, BODY_P2)).toBe("body  body");
+    expect(getBlock(next.state, BODY_P1)).toBeNull();
     expect(next.state).not.toBe(editor.state);
     // Header untouched.
     expect(headerText(next.state, HDR_P1)).toBe("alpha");

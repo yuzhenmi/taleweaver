@@ -1,4 +1,5 @@
 import type { BlockDecorations, Decoration, WidgetDecoration } from "@taleweaver/core";
+import { suggestionIdsOf } from "@taleweaver/core";
 
 /**
  * DOM drawing for core decorations. Decorations are view-only: every node this
@@ -16,9 +17,12 @@ export const WIDGET_ATTR = "data-tw-widget";
 /** Attribute on a block element listing its block-decoration ids (space-separated). */
 export const BLOCK_DECO_ATTR = "data-tw-block-deco";
 
-/** True for engine-generated DOM that carries no content offsets (list marker, widget). */
+/** True for engine-generated DOM that carries no content offsets (list marker, widget, tracked ¶ / section-break label). */
 export function isGeneratedNode(node: Node): boolean {
-  return node instanceof HTMLElement && (node.hasAttribute("data-tw-marker") || node.hasAttribute(WIDGET_ATTR));
+  return (
+    node instanceof HTMLElement &&
+    (node.hasAttribute("data-tw-marker") || node.hasAttribute(WIDGET_ATTR) || node.hasAttribute("data-tw-generated"))
+  );
 }
 
 export function isWidget(node: Node | null): node is HTMLElement {
@@ -227,8 +231,9 @@ function insertWidget(block: HTMLElement, w: WidgetDecoration, doc: Document): v
   block.childNodes.forEach(visit);
   if (point === null) {
     // End of content (or an empty block): after any widgets already there, before the
-    // empty-line filler / list marker.
-    const tail = block.querySelector(":scope > br[data-tw-empty-line], :scope > [data-tw-marker]");
+    // boundary ¶ anchor / empty-line filler / list marker (the first of them) — the ¶
+    // always follows every widget at (E, len).
+    const tail = block.querySelector(":scope > [data-tw-generated], :scope > br[data-tw-empty-line], :scope > [data-tw-marker]");
     point = { parent: block, ref: tail };
   }
   const { parent, ref } = point;
@@ -274,7 +279,40 @@ export function applyBlockDecorations(el: HTMLElement, decos: BlockDecorations["
  * then placed OUTSIDE those wrappers.
  */
 export function decorateBlockElement(el: HTMLElement, decos: BlockDecorations, doc: Document): void {
-  for (const seg of decos.inline) wrapRange(el, seg.start, seg.end, seg.decoration, doc);
+  for (const seg of decos.inline) {
+    wrapRange(el, seg.start, seg.end, seg.decoration, doc);
+    styleBoundaryMarks(el, seg.decoration);
+  }
   for (const w of decos.widgets) insertWidget(el, w, doc);
   applyBlockDecorations(el, decos.block);
+}
+
+/**
+ * A suggestion decoration (built-in highlight, or host group styling) also reaches the
+ * block's generated boundary ¶ glyphs naming one of its suggestions: a paragraph-boundary
+ * suggestion's range covers no character, so the glyph is styled directly (its
+ * `data-tw-suggestion-id` list).
+ */
+function styleBoundaryMarks(el: HTMLElement, d: Decoration): void {
+  const ids = suggestionIdsOf(d.data);
+  if (ids.length === 0) return;
+  el.querySelectorAll(":scope > [data-tw-suggestion-id]").forEach((anchor) => {
+    const named = (anchor.getAttribute("data-tw-suggestion-id") ?? "").split(" ");
+    if (!ids.some((id) => named.includes(id))) return;
+    const glyph = anchor.firstElementChild;
+    if (glyph instanceof HTMLElement) wrapGeneratedText(glyph, d);
+  });
+}
+
+/**
+ * Draw decoration `d` on a generated glyph / label like a decorated text range: its
+ * content goes into a `data-tw-deco` span inside it, so the decoration COMPOSES with the
+ * glyph's own underline / strike instead of replacing it, and pointer tracking finds it.
+ */
+export function wrapGeneratedText(glyph: HTMLElement, d: Decoration): void {
+  const span = glyph.ownerDocument.createElement("span");
+  span.setAttribute(DECO_ID_ATTR, d.id);
+  applyAttrs(span, d);
+  span.append(...Array.from(glyph.childNodes));
+  glyph.appendChild(span);
 }

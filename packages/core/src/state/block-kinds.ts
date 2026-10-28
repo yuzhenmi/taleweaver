@@ -30,10 +30,11 @@
  * `display: list-item` on the rendered ElementBox and does not require a
  * containing `list` block. Nesting list inside list (sub-lists) is
  * achieved by a `list` container wrapping further list-items, not by
- * list-item itself owning children. P10 ("Lists with proper markers")
- * wires this up end-to-end with counters; the leaf classification is the
- * underlying data-model shape it lands on.
+ * list-item itself owning children. List numbering builds on this
+ * leaf classification.
  */
+
+import type { BlockShape } from "./registry";
 
 export type BlockKind = "inline-bearing-leaf" | "atomic-leaf" | "container";
 
@@ -51,4 +52,11 @@ export interface BlockKindResolver {
    * "type 'X' is not registered" error at the action-handler boundary).
    */
   getBlockKind(type: string): BlockKind | null;
+  /**
+   * The registry STORAGE shape of a block of `type` (null for an unregistered type):
+   * by kind — inline-bearing leaf → `text`, atomic leaf → `atomic`, container →
+   * `container` (a flow holder) — unless the component declares `storage` (table / row /
+   * cell / section). Writers store a node by this shape, never by its child count.
+   */
+  getStorageShape(type: string): BlockShape | null;
 }

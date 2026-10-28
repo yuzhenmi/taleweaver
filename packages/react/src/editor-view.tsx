@@ -51,7 +51,7 @@ export interface EditorViewProps {
   pageHeight?: number;
   pageGap?: number;
   /**
-   * Phase 0b: page setup + auto-hyphenation moved out of core's `EditorConfig`
+   * Page setup + auto-hyphenation moved out of core's `EditorConfig`
    * into the controller. The host (e.g. the perf example) threads them through
    * here so the layout-driver paginates / hyphenates. `undefined` ⇒ unpaginated
    * / no hyphenation (the common-path host default).
@@ -103,7 +103,7 @@ export interface EditorViewProps {
 }
 
 /**
- * The imperative API a parent gets via `ref` (#433). Delegates the controller's
+ * The imperative API a parent gets via `ref`. Delegates the controller's
  * find-session + replace methods so a find-bar (held in the parent) can drive
  * find/replace without reaching into the encapsulated controller. Each method
  * reads `controllerRef.current` lazily; before mount (controller still null) the
@@ -154,7 +154,7 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
   const incompatibleRef = useRef(onIncompatibleDocument);
   incompatibleRef.current = onIncompatibleDocument;
 
-  // Imperative handle (#433): delegate the controller's find/replace methods.
+  // Imperative handle: delegate the controller's find/replace methods.
   // Each closure reads `controllerRef.current` lazily (at call time, not capture
   // time), so the stable `[]` deps are correct — the ref is mutated in the
   // mount effect after the controller is created. Null-guard returns the empty
@@ -217,7 +217,7 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(
     // The controller is the source of truth: a replacement it refused (legacy storage
     // still / again) halts the hook again.
     if (ctrl.halted && link !== undefined && !link.halted()) {
-      reportIncompatible({ legacyBlocks: inspectDocument(getYDoc(next.state)).legacyBlocks });
+      reportIncompatible({ reason: "legacy-schema", legacyBlocks: inspectDocument(getYDoc(next.state)).legacyBlocks, legacyText: {} });
     } else if (wasHalted && !ctrl.halted) {
       // A resume replaced the document and dropped every layer: set this view's again.
       const props = decorationsRef.current;

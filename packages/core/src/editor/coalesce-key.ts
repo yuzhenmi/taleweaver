@@ -1,6 +1,6 @@
 import type { EditorAction } from "./editor-action";
 
-/** How an action affects undo-group coalescing (#420). */
+/** How an action affects undo-group coalescing. */
 export type ActionClass =
   | "insert" // coalescible text insertion
   | "delete" // coalescible text deletion (any direction/granularity)
@@ -9,10 +9,9 @@ export type ActionClass =
   | "inert"; // neither edits nor breaks coalescing
 
 /**
- * Classify an `EditorAction` for undo-group coalescing (#420). Exhaustive over
+ * Classify an `EditorAction` for undo-group coalescing. Exhaustive over
  * the action union — the `never` default makes a newly-added action a COMPILE
- * error here until it is classified. See
- * `docs/superpowers/specs/2026-06-01-undo-coalescing-design.md`.
+ * error here until it is classified.
  */
 export function coalesceKeyOf(action: EditorAction): ActionClass {
   switch (action.type) {
@@ -40,6 +39,7 @@ export function coalesceKeyOf(action: EditorAction): ActionClass {
     case "INSERT_PAGE_NUMBER":
     case "INSERT_PAGE_COUNT":
     case "INSERT_TAB":
+    case "INSERT_LINE_BREAK":
     case "SET_TAB_STOPS":
     case "INSERT_HORIZONTAL_LINE":
     case "INSERT_TABLE_OF_CONTENTS":
@@ -97,7 +97,7 @@ export function coalesceKeyOf(action: EditorAction): ActionClass {
     case "EXPAND_DOCUMENT_BOUNDARY":
     case "SELECT_ALL":
     case "SET_SELECTION":
-    // #525: ESCAPE is a pure selection move (deselect an object → caret beside
+    // ESCAPE is a pure selection move (deselect an object → caret beside
     // it), so it breaks the open undo group like any other caret move.
     case "ESCAPE":
     case "UNDO":

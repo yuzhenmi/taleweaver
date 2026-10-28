@@ -1,9 +1,9 @@
 /**
- * Layering-neutral table occupancy-grid core (P8 §17.5 grid model, shared by
+ * Layering-neutral table occupancy-grid core (§17.5 grid model, shared by
  * layout AND state).
  *
  * This is the CSS Tables 3 §17.5 cell-placement scan, extracted so STATE code
- * (P15b span-aware editing ops, which must reason in grid coordinates over a
+ * (span-aware editing ops, which must reason in grid coordinates over a
  * `State` Block tree) can build the SAME grid layout builds — without depending
  * on `LayoutBoxMetadata`. The input is a NEUTRAL `GridCell` whose spans are
  * already resolved to integers ≥ 1 by the caller.
@@ -39,7 +39,7 @@ export interface GridCell {
   readonly colSpan: number;
 }
 
-/** A cell's resolved placement in the table grid (P8). */
+/** A cell's resolved placement in the table grid. */
 export interface AssignedCell {
   readonly cellId: BlockId;
   readonly gridRow: number;
@@ -64,7 +64,7 @@ export interface TableGrid {
 
 /**
  * Assign every cell a grid origin `(gridRow, gridCol)` + span via the CSS
- * Tables 3 §17.5 grid model (P8). Scans rows top-to-bottom, cells left-to-right:
+ * Tables 3 §17.5 grid model. Scans rows top-to-bottom, cells left-to-right:
  * each cell takes the first column free at its row (skipping columns still
  * consumed by a cell spanning DOWN from an earlier row), then claims its
  * `colSpan × rowSpan` rectangle.

@@ -6,6 +6,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as core from "@taleweaver/core";
 import { createEditorController, type EditorController } from "./index";
+import { createDefaultComponentRegistry } from "@taleweaver/core";
+
+const TEST_RESOLVER = createDefaultComponentRegistry();
 
 const MENTION_BG = "rgb(10, 20, 30)";
 
@@ -175,7 +178,7 @@ describe("print — atomic marks through the controller", () => {
     const e = new Event("copy", { bubbles: true, cancelable: true });
     Object.defineProperty(e, "clipboardData", { value: { setData: (k: string, v: string) => store.set(k, v), getData: () => "" } });
     m.textarea.dispatchEvent(e);
-    const frag = core.decodeFragmentClip(store.get(core.TALEWEAVER_CLIP_MIME) ?? "");
+    const frag = core.decodeFragmentClip(store.get(core.TALEWEAVER_CLIP_MIME) ?? "", TEST_RESOLVER, core.createDefaultAttrRegistry());
     if (frag === null) throw new Error("no clip");
     expect(core.getMarkRanges(frag, "mention").map((r) => r.value)).toEqual([{ ref: "a" }]);
     expect(core.getMarkRanges(frag, "secret")).toEqual([]);

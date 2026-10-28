@@ -1,15 +1,18 @@
 import type * as Y from "yjs";
+import { blockText } from "../block-text";
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { Span } from "../block-position";
 import type { ReadonlyAttrs } from "../attrs";
 import { iterateSpan, type BlockRange } from "../span-iteration";
-import { getYBlock, requireInTransaction } from "../yjs-doc";
-import { formatInlineRange, readYInline } from "../y-inline";
+import { requireInTransaction } from "../yjs-doc";
+import { formatInlineRange } from "../y-inline";
+import { mergeMarkAttrs } from "../flow-ops";
+import { inlineContentLength } from "../inline-content";
 import type { ResolvedBlockKind } from "../state";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
-import type { AttrRegistry } from "../../cascade/attr-registry";
+import { attrRegistryOf } from "../mark-attrs";
 
 /**
  * Apply attrs to all inline content within a span.
@@ -24,7 +27,7 @@ import type { AttrRegistry } from "../../cascade/attr-registry";
  * STRUCTURAL MARKER embeds (comment/suggestion markers — see
  * {@link isStructuralMarkerEmbedType}) are SKIPPED: they carry no formattable
  * content, and stamping a tracked-change provenance attr onto one would leave a
- * dangling reference after the suggestion resolves (#465).
+ * dangling reference after the suggestion resolves.
  *
  * Returns OperationResult with dirtyIds = every block id whose items
  * changed.
@@ -45,12 +48,17 @@ import type { AttrRegistry } from "../../cascade/attr-registry";
  * each block (`formatInlineRange`). `format` never deletes or re-mints
  * characters, so every character keeps its CRDT identity — a `RelativePosition`
  * and an open undo entry survive any formatting. Items the attrs would not
- * change are not written (#358 no-op guard: no Yjs event, no dirty block).
+ * change are not written (no-op guard: no Yjs event, no dirty block).
  * A `null` / `undefined` value removes the key (stored attrs never hold null).
  *
- * `registry` (optional): an `AttrRegistry` whose per-key `equals` decides
- * whether an item already holds the incoming value (custom equality, e.g. a
- * `comment` interpreter that ignores `timestamp`). Omitted → deep-value compare.
+ * The ¶: when the span covers a paragraph's ¶ (it continues
+ * past the paragraph) or ends at the paragraph's end with content selected, the
+ * inclusive keys of `attrs` are merged into that ¶'s `markAttrs` (judged by the registry
+ * bound to the doc).
+ *
+ * The attr registry bound to the doc supplies per-key `equals`, deciding whether an
+ * item already holds the incoming value (custom equality, e.g. a `comment`
+ * interpreter that ignores `timestamp`). None bound → deep-value compare.
  *
  * Composition: see `applyAttrsToRangeInTx` for the in-transaction primitive
  * (resolved via `planApplyAttrsToRange`) used to compose attr application
@@ -63,7 +71,6 @@ export function applyAttrsToRange(
   state: State,
   span: Span,
   attrs: ReadonlyAttrs,
-  registry?: AttrRegistry,
 ): OperationResult {
   // Empty incoming attrs = no-op. Mirrors insertText's empty-text guard
   // and avoids re-allocating items / dirtying blocks unnecessarily.
@@ -91,7 +98,7 @@ export function applyAttrsToRange(
   }
 
   return applyOperation(state, (doc) => {
-    applyAttrsToRangeInTx(doc, plan, attrs, registry);
+    applyAttrsToRangeInTx(doc, plan, attrs);
   });
 }
 
@@ -118,7 +125,7 @@ export interface ApplyAttrsToRangePlan {
  * span) are handled by the caller BEFORE planning, to preserve the
  * identity contract; they are not re-checked here.
  *
- * C.2c T7b: a span is confined to a single selection context (cross-context
+ * A span is confined to a single selection context (cross-context
  * spans are refused by `iterateSpan`), so all segments share one owning tree
  * — resolved ONCE from the first segment. `?? "block"` is a defensive
  * fallback (segments were just yielded by `iterateSpan`, so `resolveBlock`
@@ -158,14 +165,19 @@ export function applyAttrsToRangeInTx(
   doc: Y.Doc,
   plan: ApplyAttrsToRangePlan,
   attrs: ReadonlyAttrs,
-  registry: AttrRegistry | undefined,
 ): void {
   requireInTransaction(doc, "applyAttrsToRange");
+  const registry = attrRegistryOf(doc);
+  const last = plan.segments[plan.segments.length - 1];
   for (const seg of plan.segments) {
-    if (seg.rangeStart >= seg.rangeEnd) continue; // zero-width range in this block
-    const yBlock = getYBlock(doc, seg.block.id, "applyAttrsToRange", plan.kind);
-    const yText = readYInline(yBlock, seg.block.id);
-    if (yText === null) continue; // defensive — iterateSpan only yields leaves
-    formatInlineRange(yText, seg.rangeStart, seg.rangeEnd, attrs, registry);
+    // The span covers ¶P (it continues past P) or ends at (P, len) with content
+    // selected: P's ¶ is formatted too (Word / GDocs format the ¶'s rPr).
+    const len = seg.block.inlineContent === null ? -1 : inlineContentLength(seg.block.inlineContent);
+    const coversMark = seg.rangeEnd === len && (seg !== last || seg.rangeStart < seg.rangeEnd);
+    // The text is formatted FIRST: a write to an implicit run materializes its ¶ and
+    // renames it (`yText.id`), so the ¶ props then go to that same paragraph.
+    const yText = seg.rangeStart < seg.rangeEnd ? blockText(doc, seg.block.id) : null;
+    if (yText !== null) formatInlineRange(yText, seg.rangeStart, seg.rangeEnd, attrs, registry);
+    if (coversMark) mergeMarkAttrs(doc, yText?.id ?? seg.block.id, attrs);
   }
 }

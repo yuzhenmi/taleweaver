@@ -242,7 +242,9 @@ describe("digital decorations", () => {
     expect(decoText(container, "tw-comment:c1")).toBe("Anna");
     controller.dispatch(caret(p1, 0));
     controller.dispatch({ type: "INSERT_TEXT", text: "So " });
-    expect(decoText(container, "tw-comment:c1")).toBe("Anna");
+    // A marker is never a caret stop: the caret at (p1, 0) stands after the comment's
+    // start marker, so typing there lands inside the comment (Word).
+    expect(decoText(container, "tw-comment:c1")).toBe("So Anna");
     expect(container.querySelectorAll(".tw-comment-active").length).toBeGreaterThan(0);
     controller.clearCommentHighlights();
     expect(container.querySelectorAll(".tw-comment").length).toBe(0);
@@ -326,18 +328,19 @@ describe("digital decorations", () => {
     expect(container.contains(text)).toBe(true); // composition DOM untouched
     container.dispatchEvent(new CompositionEvent("compositionend", { data: "" }));
     expectMatchesFullRender(env);
+    const merged = p2; // a merge's survivor is the right paragraph R
 
     // A list run restructured around the composed item.
     controller.dispatch({ type: "SELECT_ALL" });
     controller.dispatch({ type: "TOGGLE_LIST", listType: "unordered" });
-    controller.dispatch(caret(p1, 0));
+    controller.dispatch(caret(merged, 0));
     controller.dispatch({ type: "SPLIT_NODE" });
     const items = Array.from(container.querySelectorAll("li"));
     const composedText = items[1]?.querySelector("span")?.firstChild ?? items[1];
     if (composedText == null) throw new Error("setup");
     window.getSelection()?.setBaseAndExtent(composedText, 0, composedText, 0);
     container.dispatchEvent(new CompositionEvent("compositionstart"));
-    controller.dispatch(caret(p1, 0));
+    controller.dispatch(caret(merged, 0));
     controller.dispatch({ type: "TOGGLE_LIST", listType: "unordered" }); // first item leaves the list
     container.dispatchEvent(new CompositionEvent("compositionend", { data: "" }));
     expectMatchesFullRender(env);

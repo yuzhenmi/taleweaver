@@ -28,11 +28,11 @@ async function init() {
   document.body.style.backgroundColor = "#f9fbfd";
 
   const canvas = document.createElement("canvas");
-  // L-B / #164: pass the shaper directly; createCanvasMeasurer is a lossy
+  // Pass the shaper directly; createCanvasMeasurer is a lossy
   // adapter (equal per-character widths, no cluster info).
   const shaper = createCanvasShaper(canvas);
 
-  // Phase 0b: `measurer` LEFT core's geometry-free `EditorConfig`; the shaper is
+  // `measurer` is not part of core's geometry-free `EditorConfig`; the shaper is
   // built here and passed to the controller (print mechanics), not the config.
   const config: EditorConfig = {
     componentRegistry: createDefaultComponentRegistry(),

@@ -1,16 +1,20 @@
 /**
- * HALTED print controller: a peer update carrying LEGACY inline storage (an old
- * client's run-array) halts the controller — the host hook fires once, no
+ * HALTED print controller: a legacy client writing into the frozen legacy root of a
+ * schema-3 document (or a replacement over a not-yet-upgraded document) halts the
+ * controller — the host hook fires once with an `IncompatibleDocumentReport`, no
  * APPLY_FOREIGN_CHANGE is dispatched, typing does nothing (browser defaults are not
  * prevented), the screen keeps the last good render, every member of the controller
  * interface has a defined no-op result without reading the Y.Doc, decoration setters
- * are no-ops, and a document replacement through `update` resumes editing — on the
- * same (upgraded) Y.Doc or another one.
+ * are no-ops, and a document replacement through `update` (a FRESH State holding no
+ * legacy storage — the same Y.Doc or another one) resumes editing.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as Y from "yjs";
 import * as core from "@taleweaver/core";
 import { createEditorController, type EditorController, type EditorControllerOptions } from "./index";
+import { createDefaultComponentRegistry } from "@taleweaver/core";
+
+const TEST_RESOLVER = createDefaultComponentRegistry();
 
 let originalGetContext: PropertyDescriptor | undefined;
 let originalIO: typeof IntersectionObserver | undefined;
@@ -89,25 +93,59 @@ function legacyRuns(text: string): Y.Array<Y.Map<unknown>> {
   return runs;
 }
 
-/** An old client APPENDS a never-seen paragraph (legacy storage) after `afterId`. */
-function appendLegacyParagraph(doc: Y.Doc, rootId: core.BlockId, afterId: core.BlockId, text: string): core.BlockId {
-  const id = "legacy-p" as core.BlockId;
-  const blocks = doc.getMap<Y.Map<unknown>>("blocks");
+/**
+ * A LEGACY client (a pre-schema-3 engine) writes paragraph `id` into the legacy
+ * `blocks` root — frozen in a schema-3 document, so the write is a legacy write.
+ */
+function legacyWrite(doc: Y.Doc, text: string, id = "legacy-p"): core.BlockId {
+  doc.transact(() => doc.getMap<Y.Map<unknown>>("blocks").set(id, legacyBlock("paragraph", "doc", legacyRuns(text))));
+  return id as core.BlockId;
+}
+
+function legacyBlock(type: string, parentId: string | null, inline: Y.Array<Y.Map<unknown>> | null, child?: string): Y.Map<unknown> {
+  const b = new Y.Map<unknown>();
+  b.set("type", type);
+  b.set("attrs", new Y.Map<unknown>());
+  b.set("parentId", parentId);
+  b.set("prevSiblingId", null);
+  b.set("nextSiblingId", null);
+  b.set("firstChildId", child ?? null);
+  b.set("lastChildId", child ?? null);
+  b.set("inlineContent", inline);
+  return b;
+}
+
+/**
+ * A NOT-YET-UPGRADED document: the host bound an EditorState to an empty Y.Doc, then a
+ * schema-1 document (`doc > p1("legacy")`) synced in.
+ */
+function notYetUpgraded(): { doc: Y.Doc; editorState: core.EditorState } {
+  const doc = new Y.Doc();
+  const state = core.createState({ resolver: TEST_RESOLVER, rootId: "doc" as core.BlockId, doc });
+  const editorState = core.createEditorStateFromState(state, core.initialSelectionForState(state), cfg);
   doc.transact(() => {
-    const b = new Y.Map<unknown>();
-    b.set("type", "paragraph");
-    b.set("attrs", new Y.Map<unknown>());
-    b.set("parentId", rootId);
-    b.set("prevSiblingId", afterId);
-    b.set("nextSiblingId", null);
-    b.set("firstChildId", null);
-    b.set("lastChildId", null);
-    b.set("inlineContent", legacyRuns(text));
-    blocks.set(id, b);
-    blocks.get(afterId)?.set("nextSiblingId", id);
-    blocks.get(rootId)?.set("lastChildId", id);
+    const blocks = doc.getMap<Y.Map<unknown>>("blocks");
+    blocks.set("doc", legacyBlock("document", null, null, "p1"));
+    blocks.set("p1", legacyBlock("paragraph", "doc", legacyRuns("legacy")));
   });
-  return id;
+  return { doc, editorState };
+}
+
+/** A FRESH EditorState over `doc` (a document replacement, not a descendant). */
+function freshOver(doc: Y.Doc, rootId: core.BlockId): core.EditorState {
+  const state = core.createState({ resolver: TEST_RESOLVER, rootId, doc });
+  return core.createEditorStateFromState(state, core.initialSelectionForState(state), cfg);
+}
+
+declare function require(id: "node:module"): { createRequire(url: string): (id: string) => unknown };
+
+/** A peer edit decoded into `doc` by a SECOND Yjs instance (a duplicated `yjs` bundle). */
+function secondInstanceWrite(from: Y.Doc, doc: Y.Doc): void {
+  const Y2 = require("node:module").createRequire(import.meta.url)("yjs") as typeof Y;
+  const other = new Y.Doc();
+  Y.applyUpdate(other, Y.encodeStateAsUpdate(from));
+  other.getMap("meta").set("probe", 1);
+  Y2.applyUpdate(doc, Y.encodeStateAsUpdate(other, Y.encodeStateVector(doc)), "foreign");
 }
 
 type HaltedCase = () => unknown;
@@ -119,7 +157,7 @@ function setup(text = "hello", extra: Partial<EditorControllerOptions> = {}) {
   const docB = new Y.Doc();
   Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
   docA.on("update", (u: Uint8Array) => Y.applyUpdate(docB, u, "provider"));
-  const stateB = core.createState({ rootId: peerA.state.rootId, doc: docB });
+  const stateB = core.createState({ resolver: TEST_RESOLVER, rootId: peerA.state.rootId, doc: docB });
   let current = core.createEditorStateFromState(stateB, core.initialSelectionForState(stateB), cfg);
   const actions: core.EditorAction[] = [];
   const reports: core.IncompatibleDocumentReport[] = [];
@@ -160,6 +198,8 @@ function setup(text = "hello", extra: Partial<EditorControllerOptions> = {}) {
     peer: (action: core.EditorAction) => {
       peerA = core.reduceEditor(peerA, action, cfg);
     },
+    /** Peer A's caret block. */
+    peerFocus: () => peerA.selection.focus.blockId,
   };
 }
 
@@ -200,8 +240,8 @@ function typeInto(textarea: HTMLTextAreaElement, text: string): KeyboardEvent {
   return key;
 }
 
-describe("print — HALTED on legacy storage in a peer update", () => {
-  it("halts once, keeps the screen, ignores focused typing without preventing defaults, and every member is a no-op that never reads the Y.Doc", async () => {
+describe("print — HALTED on an incompatible document", () => {
+  it("halts once on a legacy write, keeps the screen, ignores focused typing without preventing defaults, every member is a no-op that never reads the Y.Doc; a fresh State resumes", async () => {
     const m = setup();
     const c = m.controller;
     c.setDecorations([{ kind: "inline", id: "kept", from: core.createPosition(m.id, 0), to: core.createPosition(m.id, 1), style: { backgroundColor: "red" } }]);
@@ -216,15 +256,15 @@ describe("print — HALTED on legacy storage in a peer update", () => {
     expect(fills).toContain(core.COMMENT_HIGHLIGHT_FILL);
     m.actions.length = 0;
     const before = m.get();
-    // An OLD client appends a never-seen (never-cached) paragraph in its run-array storage.
-    const legacyId = appendLegacyParagraph(m.docA, m.rootId, m.id, "old client");
-    expect(m.reports).toEqual([{ legacyBlocks: [legacyId] }]);
+    // An OLD client writes a paragraph into the frozen legacy root: surfaced with its text.
+    const legacyId = legacyWrite(m.docA, "old client");
+    expect(m.reports).toEqual([{ reason: "legacy-write", legacyBlocks: [legacyId], legacyText: { [legacyId]: "old client" } }]);
     expect(c.halted).toBe(true);
     expect(m.actions.some((a) => a.type === "APPLY_FOREIGN_CHANGE")).toBe(false);
     expect(m.get()).toBe(before); // the host state is unchanged
 
     // A second legacy update does not call the hook again.
-    m.docA.transact(() => m.docA.getMap<Y.Map<unknown>>("blocks").get(legacyId)?.set("inlineContent", legacyRuns("again")));
+    legacyWrite(m.docA, "again", legacyId);
     expect(m.reports).toHaveLength(1);
 
     // Typing into the FOCUSED textarea does nothing; the keydown default is not prevented.
@@ -294,12 +334,8 @@ describe("print — HALTED on legacy storage in a peer update", () => {
     expect(c.decorations.decorations.map((d) => d.id)).toEqual(["kept"]);
     expect(m.actions).toHaveLength(0);
 
-    // Exit: the host upgrades a copy of the document (single authority) and replaces it.
-    const upgraded = new Y.Doc();
-    Y.applyUpdate(upgraded, Y.encodeStateAsUpdate(m.docB));
-    expect(core.upgradeDocument(upgraded).upgradedBlocks).toEqual([legacyId]);
-    const resumed = core.createState({ rootId: before.state.rootId, doc: upgraded });
-    m.set(core.createEditorStateFromState(resumed, core.initialSelectionForState(resumed), cfg));
+    // Exit: the host REPLACES the document (here a fresh State over the same Y.Doc).
+    m.set(freshOver(m.docB, m.rootId));
     fills = [];
     c.update(m.get());
     expect(c.halted).toBe(false);
@@ -309,28 +345,23 @@ describe("print — HALTED on legacy storage in a peer update", () => {
     expect(fills).not.toContain(core.COMMENT_HIGHLIGHT_FILL);
     typeInto(m.textarea, "!");
     expect(m.actions.map((a) => a.type)).toEqual(["DELETE_BACKWARD", "INSERT_TEXT"]);
-    expect(core.getBlock(m.get().state, legacyId)?.inlineContent?.items).toEqual([{ kind: "text", text: "again", attrs: {} }]);
+    // The legacy write was surfaced, not merged.
+    expect(core.getBlock(m.get().state, legacyId)).toBeNull();
     c.destroy();
   });
 
-  it("resumes on the SAME Y.Doc: an upgraded peer fires onDocumentCompatible once; update with a new State over it resumes", () => {
+  it("a legacy-write halt is STICKY: upgradeDocument (by a peer or locally) is a no-op and never reports compatible; a fresh State over the same Y.Doc resumes and observes peers again", () => {
     const m = setup();
-    const legacyId = appendLegacyParagraph(m.docA, m.rootId, m.id, "old");
     const c = m.controller;
+    legacyWrite(m.docA, "old");
     expect(c.halted).toBe(true);
-    // A new State over the still-legacy doc does not resume (it fails the load check).
-    const stale = core.createEditorStateFromState(m.get().state, m.get().selection, cfg);
-    c.update(stale);
-    expect(c.halted).toBe(true);
+    expect(core.upgradeDocument(m.docA, { resolver: TEST_RESOLVER }).upgradedBlocks).toEqual([]);
+    expect(core.upgradeDocument(m.docB, { resolver: TEST_RESOLVER }).upgradedBlocks).toEqual([]);
+    m.peer({ type: "INSERT_TEXT", text: "?" }); // later peer edits stay withheld
     expect(m.compatible()).toBe(0);
-    // An upgraded peer upgrades the shared document; it syncs to B.
-    core.upgradeDocument(m.docA);
-    expect(m.compatible()).toBe(1);
-    expect(c.halted).toBe(true); // still halted until the host replaces the document
-    m.peer({ type: "INSERT_TEXT", text: "?" }); // later peer edits do not fire it again
-    expect(m.compatible()).toBe(1);
-    const fresh = core.createState({ rootId: m.rootId, doc: m.docB });
-    m.set(core.createEditorStateFromState(fresh, core.initialSelectionForState(fresh), cfg));
+    expect(c.halted).toBe(true);
+    expect(m.actions).toHaveLength(0);
+    m.set(freshOver(m.docB, m.rootId));
     c.update(m.get());
     expect(c.halted).toBe(false);
     typeInto(m.textarea, "!");
@@ -338,116 +369,96 @@ describe("print — HALTED on legacy storage in a peer update", () => {
     // Peer changes are observed again after the resume.
     m.peer({ type: "INSERT_TEXT", text: "+" });
     expect(m.actions.some((a) => a.type === "APPLY_FOREIGN_CHANGE")).toBe(true);
-    expect(core.getBlock(m.get().state, legacyId)).not.toBeNull();
     c.destroy();
   });
 
-  it("the host upgrading the shared Y.Doc LOCALLY and resuming via update observes peers again", () => {
-    const m = setup();
-    appendLegacyParagraph(m.docA, m.rootId, m.id, "old");
-    core.upgradeDocument(m.docB); // a LOCAL transaction: the halted gate re-checks it too
-    expect(m.compatible()).toBe(1);
-    const fresh = core.createState({ rootId: m.rootId, doc: m.docB });
-    m.set(core.createEditorStateFromState(fresh, core.initialSelectionForState(fresh), cfg));
-    m.controller.update(m.get());
-    expect(m.controller.halted).toBe(false);
-    // A peer edit (a raw Y.Text insert — peer A's own replica still holds the legacy block).
-    const yText = m.docA.getMap<Y.Map<unknown>>("blocks").get(m.id)?.get("inlineContent");
-    if (!(yText instanceof Y.Text)) throw new Error("setup");
-    yText.insert(0, "+");
-    expect(m.actions.map((a) => a.type)).toEqual(["APPLY_FOREIGN_CHANGE"]);
-    expect(core.getBlock(m.get().state, m.id)?.inlineContent?.items).toEqual([{ kind: "text", text: "+hello", attrs: {} }]);
-    m.controller.destroy();
+  it("a newer-schema or second-Yjs-instance halt is STICKY: reported once, never onDocumentCompatible, peer edits withheld", () => {
+    for (const reason of ["newer-schema", "second-yjs-instance"] as const) {
+      const m = setup();
+      const c = m.controller;
+      if (reason === "newer-schema") m.docA.getMap("meta").set("schemaVersion", core.CURRENT_SCHEMA_VERSION + 1);
+      else secondInstanceWrite(m.docA, m.docB);
+      expect(c.halted).toBe(true);
+      expect(m.reports.map((r) => r.reason)).toEqual([reason]);
+      // Nothing resumes it by itself: the schema dropping back, an upgrade, later peer edits.
+      if (reason === "newer-schema") m.docA.getMap("meta").set("schemaVersion", core.CURRENT_SCHEMA_VERSION);
+      core.upgradeDocument(m.docB, { resolver: TEST_RESOLVER });
+      m.peer({ type: "INSERT_TEXT", text: "?" });
+      expect(m.compatible()).toBe(0);
+      expect(c.halted).toBe(true);
+      expect(m.reports).toHaveLength(1);
+      expect(m.actions).toHaveLength(0);
+      c.destroy();
+    }
   });
 
   it("resumes only on a FRESH State: a State reduced from the halted one is ignored", () => {
     const m = setup();
-    appendLegacyParagraph(m.docA, m.rootId, m.id, "old");
-    core.upgradeDocument(m.docA);
-    expect(m.compatible()).toBe(1);
+    legacyWrite(m.docA, "old");
     // A descendant of the halted State (the host kept reducing it): not a replacement.
     const descendant = core.reduceEditor(m.get(), { type: "APPLY_FOREIGN_CHANGE", dirtyIds: new Set([m.id]) }, cfg);
     expect(descendant.state).not.toBe(m.get().state);
     expect(descendant.lastChange).not.toBeNull();
     m.controller.update(descendant);
     expect(m.controller.halted).toBe(true);
-    // A fresh State over the same (upgraded) Y.Doc — with an edit on top (the host
-    // reduced it before rendering) — resumes: its chain never reaches the halted State.
-    const fresh = core.createState({ rootId: m.rootId, doc: m.docB });
-    const replacement = core.createEditorStateFromState(fresh, core.initialSelectionForState(fresh), cfg);
-    m.set(core.reduceEditor(replacement, { type: "INSERT_TEXT", text: "!" }, cfg));
+    // A fresh State over the same Y.Doc — with an edit on top (the host reduced it
+    // before rendering) — resumes: its chain never reaches the halted State.
+    m.set(core.reduceEditor(freshOver(m.docB, m.rootId), { type: "INSERT_TEXT", text: "!" }, cfg));
     expect(m.get().lastChange).not.toBeNull();
     m.controller.update(m.get());
     expect(m.controller.halted).toBe(false);
     m.controller.destroy();
   });
 
-  it("legacy storage returning after onDocumentCompatible (before the host resumed) reports the halt again", () => {
+  it("update (not halted) refuses a NOT-YET-UPGRADED document: halts on it, keeps the last good render, reports compatible once it is upgraded — and a legacy write before the resume reports again", () => {
     const m = setup();
-    appendLegacyParagraph(m.docA, m.rootId, m.id, "old");
-    expect(m.reports).toHaveLength(1);
-    core.upgradeDocument(m.docA);
+    const x = notYetUpgraded();
+    const before = m.get().state;
+    m.controller.update(x.editorState);
+    expect(m.controller.halted).toBe(true);
+    expect(m.reports).toEqual([{ reason: "legacy-schema", legacyBlocks: ["doc", "p1"], legacyText: {} }]);
+    expect(m.controller.version).toBe(before); // the old document stays shown
+    core.upgradeDocument(x.doc, { resolver: TEST_RESOLVER });
     expect(m.compatible()).toBe(1);
-    // An old client writes legacy storage again before the host replaced the document.
-    m.docA.getMap<Y.Map<unknown>>("blocks").get(m.id)?.set("inlineContent", legacyRuns("again"));
+    // A legacy client writes into the (now frozen) legacy root before the host resumed.
+    x.doc.transact(() => x.doc.getMap<Y.Map<unknown>>("blocks").get("p1")?.set("inlineContent", legacyRuns("again")));
     expect(m.controller.halted).toBe(true);
     expect(m.reports).toHaveLength(2);
-    expect(m.reports[1]?.legacyBlocks).toEqual([m.id]);
+    expect(m.reports[1]).toEqual({ reason: "legacy-write", legacyBlocks: ["p1"], legacyText: { p1: "again" } });
     // Further legacy writes without another "compatible" stay silent.
-    m.docA.getMap<Y.Map<unknown>>("blocks").get(m.id)?.set("inlineContent", legacyRuns("more"));
+    x.doc.transact(() => x.doc.getMap<Y.Map<unknown>>("blocks").get("p1")?.set("inlineContent", legacyRuns("more")));
     expect(m.reports).toHaveLength(2);
+    // A fresh State over the upgraded document resumes; it shows the upgraded content.
+    const resumed = freshOver(x.doc, "doc" as core.BlockId);
+    m.controller.update(resumed);
+    expect(m.controller.halted).toBe(false);
+    expect(m.controller.version).toBe(resumed.state);
+    expect(core.getBlock(resumed.state, "p1" as core.BlockId)?.inlineContent?.items).toEqual([{ kind: "text", text: "legacy", attrs: {} }]);
     m.controller.destroy();
   });
 
-  it("a replacement refused for legacy storage the watch never saw (a LOCAL write after onDocumentCompatible) reports the halt again, keeps watching, and never resumes on its descendants", () => {
+  it("halted, a replacement over a NOT-YET-UPGRADED document is refused: no second report, its document is watched (its upgrade is reported), its descendants never resume", () => {
     const m = setup();
-    appendLegacyParagraph(m.docA, m.rootId, m.id, "old");
-    core.upgradeDocument(m.docA);
-    expect(m.compatible()).toBe(1);
-    const fresh = core.createState({ rootId: m.rootId, doc: m.docB });
-    const replacement = core.createEditorStateFromState(fresh, core.initialSelectionForState(fresh), cfg);
-    // A local (unwatched) legacy write before the host's update.
-    m.docB.getMap<Y.Map<unknown>>("blocks").get(m.id)?.set("inlineContent", legacyRuns("local"));
-    m.controller.update(replacement);
+    legacyWrite(m.docA, "old");
+    const x = notYetUpgraded();
+    m.controller.update(x.editorState);
     expect(m.controller.halted).toBe(true);
-    expect(m.reports).toHaveLength(2);
-    // The document is watched halted again: its upgrade is reported.
-    core.upgradeDocument(m.docB);
-    expect(m.compatible()).toBe(2);
+    expect(m.reports).toHaveLength(1);
+    core.upgradeDocument(x.doc, { resolver: TEST_RESOLVER });
+    expect(m.compatible()).toBe(1);
     // A State reduced from the refused replacement never resumes; a fresh one does.
-    const descendant = core.reduceEditor(replacement, { type: "APPLY_FOREIGN_CHANGE", dirtyIds: new Set([m.id]) }, cfg);
-    expect(descendant.lastChange?.from).toBe(replacement.state);
+    const descendant = core.reduceEditor(x.editorState, { type: "APPLY_FOREIGN_CHANGE", dirtyIds: new Set(["p1" as core.BlockId]) }, cfg);
+    expect(descendant.lastChange?.from).toBe(x.editorState.state);
     m.controller.update(descendant);
     expect(m.controller.halted).toBe(true);
-    const fresh2 = core.createState({ rootId: m.rootId, doc: m.docB });
-    m.controller.update(core.createEditorStateFromState(fresh2, core.initialSelectionForState(fresh2), cfg));
+    m.controller.update(freshOver(x.doc, "doc" as core.BlockId));
     expect(m.controller.halted).toBe(false);
     m.controller.destroy();
   });
 
-  it("update (not halted) refuses another Y.Doc that gained legacy storage after createState: halts on it, keeps the last good render, watches it", () => {
-    const m = setup();
-    const x = new Y.Doc();
-    Y.applyUpdate(x, Y.encodeStateAsUpdate(m.docB));
-    const fresh = core.createState({ rootId: m.rootId, doc: x });
-    const replacement = core.createEditorStateFromState(fresh, core.initialSelectionForState(fresh), cfg);
-    x.getMap<Y.Map<unknown>>("blocks").get(m.id)?.set("inlineContent", legacyRuns("legacy"));
-    const before = m.get().state;
-    m.controller.update(replacement);
-    expect(m.controller.halted).toBe(true);
-    expect(m.reports).toEqual([{ legacyBlocks: [m.id] }]);
-    expect(m.controller.version).toBe(before); // the old document stays shown
-    core.upgradeDocument(x);
-    expect(m.compatible()).toBe(1);
-    m.controller.destroy();
-  });
-
-  it("startHaltedOn a document upgraded meanwhile fires onDocumentCompatible (microtask)", async () => {
-    const m = setup();
-    appendLegacyParagraph(m.docA, m.rootId, m.id, "old");
-    const halted = m.get();
-    m.controller.destroy();
-    core.upgradeDocument(m.docB); // upgraded while no controller watched
+  it("startHaltedOn a not-yet-upgraded document upgraded meanwhile fires onDocumentCompatible (microtask)", async () => {
+    const x = notYetUpgraded();
+    core.upgradeDocument(x.doc, { resolver: TEST_RESOLVER }); // upgraded while no controller watched
     let compatible = 0;
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -455,7 +466,7 @@ describe("print — HALTED on legacy storage in a peer update", () => {
       measurer: core.createMockMeasurer(8, 16),
       dispatch: () => {},
       config: cfg,
-      startHaltedOn: halted,
+      startHaltedOn: x.editorState,
       onDocumentCompatible: () => compatible++,
     });
     expect(c.halted).toBe(true);
@@ -468,8 +479,8 @@ describe("print — HALTED on legacy storage in a peer update", () => {
     const m = setup("hello", { remoteChanges: "ignore" });
     m.peer({ type: "INSERT_TEXT", text: "!" });
     expect(m.actions).toHaveLength(0); // ignored, as before
-    const legacyId = appendLegacyParagraph(m.docA, m.rootId, m.id, "old");
-    expect(m.reports).toEqual([{ legacyBlocks: [legacyId] }]);
+    const legacyId = legacyWrite(m.docA, "old");
+    expect(m.reports).toEqual([{ reason: "legacy-write", legacyBlocks: [legacyId], legacyText: { [legacyId]: "old" } }]);
     expect(m.controller.halted).toBe(true);
     m.controller.destroy();
   });
@@ -479,7 +490,7 @@ describe("print — HALTED on legacy storage in a peer update", () => {
     m.textarea.focus();
     m.textarea.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
     m.textarea.value = "あ";
-    appendLegacyParagraph(m.docA, m.rootId, m.id, "old");
+    legacyWrite(m.docA, "old");
     expect(m.textarea.value).toBe("");
     m.textarea.dispatchEvent(new CompositionEvent("compositionend", { data: "あ", bubbles: true }));
     expect(m.actions).toHaveLength(0);
@@ -496,7 +507,7 @@ describe("print — HALTED on legacy storage in a peer update", () => {
     const textNode = Array.from(mirror.querySelectorAll("*")).flatMap((e) => Array.from(e.childNodes)).find((n) => n.nodeType === 3);
     if (textNode === undefined) throw new Error("no text node");
     textNode.textContent = "helloあ";
-    appendLegacyParagraph(m.docA, m.rootId, m.id, "old");
+    legacyWrite(m.docA, "old");
     expect(m.controller.halted).toBe(true);
     expect(mirror.textContent).toBe("hello");
     // A late compositionend (the IME's composed text back in the DOM) is dropped too.
@@ -508,7 +519,7 @@ describe("print — HALTED on legacy storage in a peer update", () => {
     m.controller.destroy();
   });
 
-  it("a page never painted, holding the legacy block, scrolls into view while halted: it paints the last good layout, nothing throws", () => {
+  it("a page never painted scrolls into view while halted: it paints the last good layout, nothing throws", () => {
     const paragraphs = Array.from({ length: 80 }, (_, i) => `para ${i}`).join("\n");
     const m = setup("x", {
       pageHeight: 200,
@@ -528,11 +539,8 @@ describe("print — HALTED on legacy storage in a peer update", () => {
     const pages = [...slots.keys()];
     expect(pages.length).toBeGreaterThan(2);
     const last = Math.max(...pages);
-    // The old client rewrites the LAST paragraph (on a page never laid out) with legacy storage.
-    const blocks = m.docA.getMap<Y.Map<unknown>>("blocks");
-    const lastId = blocks.get(m.rootId)?.get("lastChildId");
-    if (typeof lastId !== "string") throw new Error("setup");
-    m.docA.transact(() => blocks.get(lastId)?.set("inlineContent", legacyRuns("old")));
+    // The old client rewrites its replica of the LAST paragraph (on a page never laid out).
+    legacyWrite(m.docA, "old", m.peerFocus());
     expect(m.controller.halted).toBe(true);
     // The page scrolls into view while halted: painted from the last good layout (the
     // virtual layout materializes a page from the styled tree, never from the Y.Doc).
@@ -544,5 +552,5 @@ describe("print — HALTED on legacy storage in a peer update", () => {
     expect(painted.join("")).not.toMatch(/old/);
     expect(painted.join("")).toContain("para 79");
     m.controller.destroy();
-  });
+  }, /* Fixed synchronous work (~0.2 s idle); the default 5 s budget is exceeded only under parallel-suite load. */ 30_000);
 });

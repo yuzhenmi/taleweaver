@@ -21,6 +21,8 @@ vi.mock("@taleweaver/core", async () => {
 import { createDigitalController, type DigitalController } from "./digital-controller";
 import { createDigitalSelectionBridge } from "./digital-selection-bridge";
 
+const TEST_RESOLVER = createDefaultComponentRegistry();
+
 function makeController(): {
   controller: DigitalController;
   container: HTMLElement;
@@ -434,6 +436,27 @@ describe("DigitalController — input correctness (audit Slice A)", () => {
     controller.destroy();
   });
 
+  it("Shift+Enter (beforeinput insertLineBreak) is a soft break inside the paragraph; Enter splits", () => {
+    const { controller, container } = makeController();
+    controller.dispatch({ type: "INSERT_TEXT", text: "ab" });
+    const block = controller.editorState.selection.focus.blockId;
+    container.dispatchEvent(makeBeforeInput("insertLineBreak"));
+    // A break ending the paragraph gets a filler <br> so its (empty) next line shows; the
+    // caret at (block, 3) sits between the two.
+    const el = container.querySelector(`[data-block-id="${block}"]`);
+    const kids = Array.from(el?.childNodes ?? []).map((n) => (n instanceof HTMLElement ? `${n.tagName}${n.hasAttribute("data-tw-empty-line") ? ":filler" : ""}` : "#text"));
+    expect(kids).toEqual(["SPAN", "BR", "BR:filler"]);
+    const sel = window.getSelection();
+    expect(sel?.focusNode).toBe(el);
+    expect(sel?.focusOffset).toBe(2);
+    controller.dispatch({ type: "INSERT_TEXT", text: "c" });
+    expect(controller.editorState.selection.focus).toEqual(createPosition(block, 4)); // ab + break + c: one paragraph
+    expect(container.querySelectorAll("[data-block-id] br:not([data-tw-empty-line])")).toHaveLength(1);
+    container.dispatchEvent(makeBeforeInput("insertParagraph"));
+    expect(controller.editorState.selection.focus.offset).toBe(0); // Enter: a new paragraph
+    controller.destroy();
+  });
+
   it("compositionend with null data dispatches nothing (D1)", () => {
     const { controller, container } = makeController();
     controller.dispatch({ type: "INSERT_TEXT", text: "abc" });
@@ -826,7 +849,7 @@ describe("DigitalController — inline marks + typing attributes", () => {
     controller.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(id, 0), createPosition(id, 15)) });
     const { data, store } = makeClipboardData();
     container.dispatchEvent(makeClipboardEvent("copy", data));
-    const frag = core.decodeFragmentClip(store.get(TALEWEAVER_CLIP_MIME) ?? "");
+    const frag = core.decodeFragmentClip(store.get(TALEWEAVER_CLIP_MIME) ?? "", TEST_RESOLVER, createDefaultAttrRegistry());
     if (frag === null) throw new Error("no clip");
     expect(core.getMarkRanges(frag, "mention").map((r) => r.value)).toEqual([{ ref: "a" }]);
     expect(core.getMarkRanges(frag, "secret")).toEqual([]);
@@ -1077,7 +1100,7 @@ describe("DigitalController — anchors, versions and collaboration", () => {
     const docA = core.getYDoc(peerA.state);
     const docB = new Y.Doc();
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
-    const { controller, container } = mountWith(core.createState({ rootId: peerA.state.rootId, doc: docB }));
+    const { controller, container } = mountWith(core.createState({ resolver: TEST_RESOLVER, rootId: peerA.state.rootId, doc: docB }));
     docA.on("update", (u: Uint8Array) => Y.applyUpdate(docB, u, "provider"));
     const id = peerA.selection.focus.blockId;
     controller.dispatch({ type: "SET_SELECTION", selection: caretAt(id, 5) });
@@ -1104,7 +1127,7 @@ describe("DigitalController — remote changes: lifetime, ownership, IME", () =>
     const docB = new Y.Doc();
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
     docA.on("update", (u: Uint8Array) => Y.applyUpdate(docB, u, "provider"));
-    const stateB = core.createState({ rootId: peerA.state.rootId, doc: docB });
+    const stateB = core.createState({ resolver: TEST_RESOLVER, rootId: peerA.state.rootId, doc: docB });
     return {
       stateB,
       type: (t: string) => {

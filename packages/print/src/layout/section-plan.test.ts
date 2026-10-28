@@ -4,6 +4,7 @@ import {
   sectionStateAt,
   isSectionBox,
   IMPLICIT_SECTION_PLAN,
+  hasMultiColumnRegion,
 } from "./section-plan";
 import type { SectionPlan } from "./section-plan";
 import { createElementBox } from "@taleweaver/core";
@@ -81,17 +82,6 @@ function contentsWrapper(key: string, children: readonly RenderNode[]): ElementB
 /** A doc-root ElementBox with the given children. */
 function docRoot(children: readonly RenderNode[]): ElementBox {
   return withComputed(createElementBox("doc", { display: "block" }, children), "block");
-}
-
-/** A doc-root ElementBox carrying its own metadata (e.g. a doc-wide header/footer). */
-function docRootWithMeta(
-  children: readonly RenderNode[],
-  metadata: Record<string, unknown>,
-): ElementBox {
-  return withComputed(
-    createElementBox("doc", { display: "block" }, children, metadata),
-    "block",
-  );
 }
 
 // --- isSectionBox ------------------------------------------------------------
@@ -337,8 +327,6 @@ describe("buildSectionPlan — per-section header/footer ids", () => {
   });
 
   it("a section with NO own header/footer AND a doc root with none → both undefined (no id to inherit)", () => {
-    // `docRoot` carries no metadata, so there is no doc-root id to fall back to;
-    // contrast the `docRootWithMeta` cases below where the section inherits one.
     const root = docRoot([para("p1"), section("sec", [para("a")])]);
     const plan = buildSectionPlan(root, DOC_WIDE);
     const secBoundary = plan.boundaries.find((b) => b.sectionId === "sec");
@@ -357,75 +345,23 @@ describe("buildSectionPlan — per-section header/footer ids", () => {
     expect(secBoundary?.footerBlockId).toBeUndefined();
   });
 
-  it("a section with NO own header/footer falls back to the doc-root ids (Finding 1: header dropped after a section break at index 0)", () => {
-    // Repro: a doc carrying a doc-root header/footer, whose index-0 child is a
-    // section with attrs `{}` (exactly the shape `applySectionBreak` produces).
-    // The section opens at flattened index 0, so the implicit-leading boundary —
-    // which would otherwise carry the doc-root ids — is never prepended. Without
-    // the doc-root fallback the running content silently vanishes from every page.
-    const root = docRootWithMeta(
-      [section("sec", [para("a"), para("b")])],
-      { headerBlockId: "docHdr", footerBlockId: "docFtr" },
-    );
-    const plan = buildSectionPlan(root, DOC_WIDE);
-    const secBoundary = plan.boundaries.find((b) => b.sectionId === "sec");
-    expect(secBoundary).toBeDefined();
-    expect(secBoundary?.headerBlockId).toBe("docHdr");
-    expect(secBoundary?.footerBlockId).toBe("docFtr");
-  });
-
-  it("a section's OWN header/footer overrides the doc-root ids", () => {
-    const root = docRootWithMeta(
-      [section("sec", [para("a")], { headerBlockId: "secHdr", footerBlockId: "secFtr" })],
-      { headerBlockId: "docHdr", footerBlockId: "docFtr" },
-    );
-    const plan = buildSectionPlan(root, DOC_WIDE);
-    const secBoundary = plan.boundaries.find((b) => b.sectionId === "sec");
-    expect(secBoundary?.headerBlockId).toBe("secHdr");
-    expect(secBoundary?.footerBlockId).toBe("secFtr");
-  });
-
-  it("doc-root metadata header/footer ids → the implicit/leading boundary carries them (section-less doc)", () => {
-    // A section-less doc whose ROOT box carries the header/footer ids (the
-    // implicit-section default lives on the doc root). buildSectionPlan reads
-    // them off `cascadedRoot.metadata` onto the implicit `{0,null}` boundary.
+  it("the ROOT's page keys are never read — they live on sections (a break-less doc's final section carries them)", () => {
     const root = withComputed(
-      createElementBox("doc", { display: "block" }, [para("p1"), para("p2")], {
+      createElementBox("doc", { display: "block" }, [section("sec", [para("a")]), para("p")], {
         headerBlockId: "docHdr",
         footerBlockId: "docFtr",
+        columnCount: 2,
       }),
       "block",
     );
     const plan = buildSectionPlan(root, DOC_WIDE);
-    expect(plan.boundaries.length).toBe(1);
-    const implicit = nth(plan.boundaries, 0, "boundary");
-    expect(implicit.sectionId).toBeNull();
-    expect(implicit.headerBlockId).toBe("docHdr");
-    expect(implicit.footerBlockId).toBe("docFtr");
-  });
-
-  it("doc-root ids feed the LEADING implicit boundary AND a trailing section inherits them (link-to-previous default)", () => {
-    // [p1, section(...)] → boundaries [{0,null},{1,sec}]. The doc-root ids land on
-    // the implicit leading boundary; the trailing section declares no own header,
-    // so it INHERITS the doc-root id — matching Google Docs' "link to previous"
-    // default and the `effectiveDefaultColumns` column-fallback parity. (The footer
-    // stays undefined: the doc root set no footer to inherit.)
-    const root = withComputed(
-      createElementBox(
-        "doc",
-        { display: "block" },
-        [para("p1"), section("sec", [para("a")])],
-        { headerBlockId: "docHdr" },
-      ),
-      "block",
-    );
-    const plan = buildSectionPlan(root, DOC_WIDE);
-    const implicit = plan.boundaries.find((b) => b.sectionId === null);
-    const secBoundary = plan.boundaries.find((b) => b.sectionId === "sec");
-    expect(implicit?.headerBlockId).toBe("docHdr");
-    expect(implicit?.footerBlockId).toBeUndefined();
-    expect(secBoundary?.headerBlockId).toBe("docHdr");
-    expect(secBoundary?.footerBlockId).toBeUndefined();
+    for (const b of plan.boundaries) {
+      expect(b.headerBlockId).toBeUndefined();
+      expect(b.footerBlockId).toBeUndefined();
+      expect(b.columnConfig).toBeUndefined();
+    }
+    expect(plan.effectiveDefaultColumns).toEqual(DEFAULT_COLUMN_CONFIG);
+    expect(hasMultiColumnRegion(root)).toBe(false);
   });
 
   it("doc-root with NO header/footer metadata → implicit boundary undefined", () => {
@@ -652,25 +588,6 @@ describe("buildSectionPlan — per-section columnConfig", () => {
     const secBoundary = plan.boundaries.find((b) => b.sectionId === "sec");
     // Equal to docDefault ⇒ no columnConfig stamped (inert).
     expect(secBoundary?.columnConfig).toBeUndefined();
-  });
-
-  it("doc-root metadata columnCount → the implicit boundary's effective default differs ⇒ a section echoing the engine default stamps", () => {
-    // The doc root declares columnCount 2; a child section with no override
-    // inherits that default, so its (absent) override resolves EQUAL to the
-    // doc default ⇒ still no stamp. But a section overriding back to 1 differs.
-    const root = withComputed(
-      createElementBox("doc", { display: "block" }, [section("sec", [para("a")], { columnCount: 1 })], {
-        columnCount: 2,
-      }),
-      "block",
-    );
-    const plan = buildSectionPlan(root, DOC_WIDE);
-    const secBoundary = plan.boundaries.find((b) => b.sectionId === "sec");
-    expect(secBoundary?.columnConfig?.columnCount).toBe(1);
-    // The resolved doc-wide default is EXPOSED on the plan (the slice-2 fallback
-    // for boundaries with no override) — it reflects the doc-root metadata (2),
-    // NOT the raw DOC_WIDE/engine single-column default.
-    expect(plan.effectiveDefaultColumns.columnCount).toBe(2);
   });
 
   it("sectionStateAt surfaces the active boundary's columnConfig", () => {

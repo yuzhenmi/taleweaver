@@ -11,7 +11,7 @@ import type { AbsPosEnvironment } from "./abs-pos-context";
 import { createAbsPosEnvironment } from "./abs-pos-context";
 
 /**
- * POSITIONING slice 3 — the absolute containing block (abc) for the box currently
+ * The absolute containing block (abc) for the box currently
  * being laid out: the nearest positioned (or transformed) ancestor whose
  * coordinate frame an `position: absolute` descendant resolves its
  * `inset*` against (CSS Positioned Layout 3 §3). The document root's abc is the
@@ -49,12 +49,12 @@ export interface AbsoluteContainingBlock {
 }
 
 /**
- * POSITIONING slice 3 — a box establishes an absolute containing block (the
+ * A box establishes an absolute containing block (the
  * coordinate frame for `position: absolute` descendants) when it is positioned
  * (`relative` / `absolute`) OR has a non-empty `transform` (CSS
  * Transforms 1 §6 — a transformed box is a containing block for absolute
  * descendants). `transform` defaults to `[]`, so the transform clause is
- * inert until slice 5.
+ * inert for untransformed boxes.
  */
 export function establishesAbsoluteContainingBlock(cs: ComputedStyle): boolean {
   if (cs.position === "relative" || cs.position === "absolute") {
@@ -116,7 +116,7 @@ export interface LayoutContext {
    */
   readonly prevFloatEnv: FloatEnvironment | null;
   /**
-   * POSITIONING slice 3 — the absolute containing block for the box being laid
+   * The absolute containing block for the box being laid
    * out. `makeChildContext` replaces it with the entered box when that box
    * establishes one (`establishesAbsoluteContainingBlock`); otherwise it is
    * inherited so abs-pos descendants rise to the nearest abc-establishing
@@ -125,7 +125,7 @@ export interface LayoutContext {
    */
   readonly absoluteContainingBlock: AbsoluteContainingBlock;
   /**
-   * POSITIONING slice 3 — `true` when the box laid out under this context OWNS
+   * `true` when the box laid out under this context OWNS
    * `absoluteContainingBlock` (the pending-list is its own fresh one, not shared
    * with an ancestor). The owner DRAINS the pending-list in its post-loop second
    * pass; non-owners pass abs-pos descendants up to the owning ancestor. Mirrors
@@ -135,7 +135,7 @@ export interface LayoutContext {
    */
   readonly ownsAbsoluteContainingBlock: boolean;
   /**
-   * POSITIONING slice 3 — the offset from the current abc's CONTENT origin to
+   * The offset from the current abc's CONTENT origin to
    * this context's box frame, in the abc's coordinate system. The establishing
    * box's own children carry `{0, 0}`; an in-flow descendant accumulates the
    * intervening child offsets. When an abs-pos child registers its static
@@ -162,7 +162,7 @@ export interface LayoutContext {
  * @param contentOrigin the entered (child) box's in-flow position within the
  *   PARENT frame — its `(childInlineStart, childBlockOffset)`. Used ONLY to
  *   accumulate `originFromAbc` for abs-pos static-position capture through
- *   non-establishing in-flow descendants (POSITIONING slice 3). Defaults to
+ *   non-establishing in-flow descendants. Defaults to
  *   `{0, 0}`; a non-default value matters only when an abs-pos box is nested
  *   inside a non-positioned in-flow box, where the static-position fallback must
  *   stay expressed in the abc's frame. Inert for the common (direct-child or
@@ -187,7 +187,7 @@ export function makeChildContext(
     ? createFloatEnvironment()
     : parent.floatEnv;
 
-  // POSITIONING slice 3 — when the entered box establishes an absolute
+  // When the entered box establishes an absolute
   // containing block, give its descendants a FRESH abc with a fresh pending-list
   // (mirroring the fresh `floatEnv` for a new BFC root). Otherwise inherit the
   // parent's abc so abs-pos descendants rise to the nearest establishing
@@ -257,7 +257,7 @@ export function makeRootContext(
     isBFCRoot: true,
     prevLayoutCache: null,
     prevFloatEnv: null,
-    // POSITIONING slice 3 — the root's abc is the page/viewport content area; an
+    // The root's abc is the page/viewport content area; an
     // abs-pos box with no positioned ancestor resolves its insets against it. The
     // root frame origin is `{0, 0}`; block-size is `"indefinite"` (the document
     // height is content-derived), so block-axis percent insets against the root

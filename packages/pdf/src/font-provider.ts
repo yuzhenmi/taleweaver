@@ -1,11 +1,19 @@
 import type { ComputedStyle } from "@taleweaver/core";
 import type { PdfWriter } from "./pdf-writer";
+import { isSoftHyphen } from "@taleweaver/print";
 import { encodeWinAnsi } from "./winansi";
 
-/** One encoded display cluster: the bytes to show + its logical Unicode. */
+/**
+ * One encoded display cluster: the bytes to show + its logical Unicode.
+ * `shown: false` marks a cluster that is never painted (U+00AD SOFT HYPHEN — a
+ * chosen hyphenation break paints as a separate "-" run). It stays in the run so
+ * clusters still align one-to-one with the layout's cluster advances, but its
+ * code is never recorded as used, and the emitter skips it.
+ */
 export interface EncodedCluster {
   readonly bytes: Uint8Array;
   readonly unicode: string;
+  readonly shown: boolean;
 }
 
 export interface EncodedRun {
@@ -106,7 +114,7 @@ function baseFontFor(used: ComputedStyle): string {
 /**
  * The default zero-dependency provider: standard-14 simple Type1 fonts,
  * WinAnsi-encoded. A PERMANENT baseline (it coexists with the future embedded
- * provider); not a v1 substitute for embedding (spec §2/§4.8).
+ * provider).
  */
 export function createStandard14FontProvider(): PdfFontProvider {
   return {
@@ -120,9 +128,13 @@ export function createStandard14FontProvider(): PdfFontProvider {
       const clusters: EncodedCluster[] = [];
       let dropped = 0;
       for (const ch of text) {
+        if (isSoftHyphen(ch)) {
+          clusters.push({ bytes: new Uint8Array(), unicode: ch, shown: false });
+          continue;
+        }
         const enc = encodeWinAnsi(ch);
         dropped += enc.dropped;
-        clusters.push({ bytes: enc.bytes, unicode: ch });
+        clusters.push({ bytes: enc.bytes, unicode: ch, shown: true });
       }
       return { clusters, dropped };
     },

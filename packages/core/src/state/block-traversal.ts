@@ -18,7 +18,7 @@ export function nextBlockInDocOrder(state: State, blockId: BlockId): BlockId | n
   let cursor = block;
   // Cycle-detection bound: total block count across all three trees (main
   // `blocks`, `embedContents`, `templateContents`) via the `blockCount`
-  // Layer-1 accessor. Since C.2c T7a this helper is map-agnostic (it resolves
+  // Layer-1 accessor. This helper is map-agnostic (it resolves
   // blocks via `resolveBlock`, which checks all three trees), so a walk WITHIN
   // an embed or template body subtree (a header/footer body, footnote body) is
   // a legitimate traversal — its depth is bounded by that body's block count,
@@ -144,4 +144,25 @@ export function lastLeafBlock(state: State, blockId: BlockId): BlockId | null {
     cursor = next;
   }
   return cursor.id;
+}
+
+/**
+ * The document's top-level blocks in order: the children of each of the root's
+ * sections (the root's children are always sections — the final one always exists).
+ * O(top-level blocks).
+ */
+export function topLevelBlockIds(state: State): BlockId[] {
+  const out: BlockId[] = [];
+  const guard = createWalkGuard(state);
+  for (let s = resolveBlock(state, state.rootId)?.block.firstChildId ?? null; s !== null; ) {
+    const section = resolveBlock(state, s)?.block ?? null;
+    if (section === null) break;
+    for (let c = section.firstChildId; c !== null; ) {
+      if (guard.step()) throw new Error("topLevelBlockIds: cycle in the sibling chain");
+      out.push(c);
+      c = resolveBlock(state, c)?.block.nextSiblingId ?? null;
+    }
+    s = section.nextSiblingId;
+  }
+  return out;
 }

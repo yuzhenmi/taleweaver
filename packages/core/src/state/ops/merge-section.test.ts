@@ -1,303 +1,86 @@
+/**
+ * Deleting a section break (Word): ONE step deletes the section-end
+ * item — the ¶ of the section's last paragraph — so the paragraphs merge by the
+ * paragraph rule and the content joins the FOLLOWING section (whose attrs it takes;
+ * no section-attr copy). There is no leading `#s0` section: content before the first
+ * break belongs to that section, and the last section is the final section.
+ */
 import { describe, it, expect } from "vitest";
-import { mergeSectionWithPrevious } from "./merge-section";
-import { getBlock } from "../state";
-import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
+import { deleteSectionBreak } from "./merge-section";
+import { getBlock, type State } from "../state";
+import { buildFlowDoc } from "../../test-utils/state-builders";
+import { flowShape, assertInvariantI } from "../../test-utils/invariant-i";
 import type { BlockId } from "../block-id";
 
-/**
- * Read every structural pointer of a block as a plain object so assertions
- * can compare the whole 5-pointer shape at once.
- */
-function pointers(state: ReturnType<typeof buildState>, id: string) {
-  const b = getBlock(state, id as BlockId);
-  if (b === null) throw new Error(`block ${id} not found`);
-  return {
-    parentId: b.parentId,
-    prevSiblingId: b.prevSiblingId,
-    nextSiblingId: b.nextSiblingId,
-    firstChildId: b.firstChildId,
-    lastChildId: b.lastChildId,
-  };
-}
-
-/** Walk a container's child chain via firstChildId/nextSiblingId. */
-function childIds(state: ReturnType<typeof buildState>, parentId: string): string[] {
-  const parent = getBlock(state, parentId as BlockId);
-  if (parent === null) throw new Error(`block ${parentId} not found`);
+const id = (s: string) => s as BlockId;
+const childIds = (s: State, parent: string): string[] => {
   const out: string[] = [];
-  let cur = parent.firstChildId;
-  let guard = 0;
-  while (cur !== null) {
-    if (++guard > 10000) throw new Error("childIds: runaway chain");
-    out.push(cur);
-    const b = getBlock(state, cur);
-    if (b === null) throw new Error(`block ${cur} not found mid-chain`);
-    cur = b.nextSiblingId;
-  }
+  for (let c = getBlock(s, id(parent))?.firstChildId ?? null; c !== null; c = getBlock(s, c)?.nextSiblingId ?? null) out.push(c);
   return out;
-}
+};
 
-const bid = (s: string) => s as BlockId;
-
-describe("mergeSectionWithPrevious — two sections [P{a,b}, X{c,d}] → merge X", () => {
-  const fixture = () =>
-    buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "P", lastChildId: "X" }),
-        buildBlock({ id: "P", type: "section", parentId: "doc", nextSiblingId: "X", firstChildId: "a", lastChildId: "b" }),
-        buildBlock({ id: "X", type: "section", parentId: "doc", prevSiblingId: "P", firstChildId: "c", lastChildId: "d" }),
-        buildBlock({ id: "a", type: "paragraph", parentId: "P", nextSiblingId: "b", inlineContent: inlineContent([]) }),
-        buildBlock({ id: "b", type: "paragraph", parentId: "P", prevSiblingId: "a", inlineContent: inlineContent([]) }),
-        buildBlock({ id: "c", type: "paragraph", parentId: "X", nextSiblingId: "d", inlineContent: inlineContent([]) }),
-        buildBlock({ id: "d", type: "paragraph", parentId: "X", prevSiblingId: "c", inlineContent: inlineContent([]) }),
-      ],
-    });
-
-  it("reparents X's children onto the end of P, deletes X, relinks the doc root", () => {
-    const state = fixture();
-    const result = mergeSectionWithPrevious(state, bid("X"));
-
-    // Root now has exactly one child: P.
-    expect(childIds(result.state, "doc")).toEqual(["P"]);
-    expect(pointers(result.state, "doc")).toMatchObject({
-      firstChildId: "P",
-      lastChildId: "P",
-    });
-
-    // X is gone.
-    expect(getBlock(result.state, bid("X"))).toBeNull();
-
-    // P now holds a→b→c→d in order.
-    expect(childIds(result.state, "P")).toEqual(["a", "b", "c", "d"]);
-
-    // P's section pointers.
-    expect(pointers(result.state, "P")).toEqual({
-      parentId: "doc",
-      prevSiblingId: null,
-      nextSiblingId: null,
-      firstChildId: "a",
-      lastChildId: "d",
-    });
-
-    // Seam: b ↔ c stitched; tail d terminated.
-    expect(getBlock(result.state, bid("c"))?.parentId).toBe("P");
-    expect(getBlock(result.state, bid("c"))?.prevSiblingId).toBe("b");
-    expect(getBlock(result.state, bid("b"))?.nextSiblingId).toBe("c");
-    expect(getBlock(result.state, bid("d"))?.parentId).toBe("P");
-    expect(getBlock(result.state, bid("d"))?.nextSiblingId).toBeNull();
-    expect(getBlock(result.state, bid("a"))?.prevSiblingId).toBeNull();
+describe("deleteSectionBreak", () => {
+  it("merges the section's last paragraph with the next one; the content takes the FOLLOWING section", () => {
+    const state = buildFlowDoc([
+      { sec: "S1", attrs: { pageWidth: 50 }, children: [{ p: "a", t: "a" }, { p: "b", t: "b", type: "heading", attrs: { level: 1 } }] },
+      { sec: "F", attrs: { pageWidth: 100 }, children: [{ p: "c", t: "c" }, { p: "d", t: "d" }] },
+    ]);
+    const r = deleteSectionBreak(state, id("S1"));
+    expect(flowShape(r.state, "doc")).toBe('a:"a" c:"bc" d:"d"');
+    expect(childIds(r.state, "doc")).toEqual(["F"]);
+    expect(childIds(r.state, "F")).toEqual(["a", "c", "d"]);
+    expect(getBlock(r.state, id("F"))?.attrs).toEqual({ pageWidth: 100 });
+    // Paragraph rule: the non-empty left paragraph's formatting is applied to the survivor.
+    expect(getBlock(r.state, id("c"))?.type).toBe("heading");
+    expect([...r.dirtyIds]).toEqual(expect.arrayContaining(["a", "b", "c", "S1", "F", "doc"]));
+    assertInvariantI(r.state, "storage");
   });
 
-  it("dirtyIds contains the moved children + P + X (+ root)", () => {
-    const state = fixture();
-    const result = mergeSectionWithPrevious(state, bid("X"));
-    const dirty = new Set(result.dirtyIds);
-    // Moved children + previous section + removed section.
-    for (const id of ["c", "d", "P", "X"]) {
-      expect(dirty.has(id as BlockId)).toBe(true);
-    }
-    // X was the doc-root tail; removing it updates the root's lastChildId.
-    expect(dirty.has(bid("doc"))).toBe(true);
-    // `b` is the append ANCHOR (P's prior last child): its nextSiblingId is
-    // rewired to `c`, so it IS dirty. But `a` (P's non-adjacent first child) is
-    // never rewritten ⇒ NOT dirty — proving the merge touches only the seam.
-    expect(dirty.has(bid("b"))).toBe(true);
-    expect(dirty.has(bid("a"))).toBe(false);
-  });
-});
-
-describe("mergeSectionWithPrevious — three sections [P{a}, X{b}, Y{c}] → merge X", () => {
-  const fixture = () =>
-    buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "P", lastChildId: "Y" }),
-        buildBlock({ id: "P", type: "section", parentId: "doc", nextSiblingId: "X", firstChildId: "a", lastChildId: "a" }),
-        buildBlock({ id: "X", type: "section", parentId: "doc", prevSiblingId: "P", nextSiblingId: "Y", firstChildId: "b", lastChildId: "b" }),
-        buildBlock({ id: "Y", type: "section", parentId: "doc", prevSiblingId: "X", firstChildId: "c", lastChildId: "c" }),
-        buildBlock({ id: "a", type: "paragraph", parentId: "P", inlineContent: inlineContent([]) }),
-        buildBlock({ id: "b", type: "paragraph", parentId: "X", inlineContent: inlineContent([]) }),
-        buildBlock({ id: "c", type: "paragraph", parentId: "Y", inlineContent: inlineContent([]) }),
-      ],
-    });
-
-  it("merges X into P, leaves Y untouched, relinks P ↔ Y", () => {
-    const state = fixture();
-    const result = mergeSectionWithPrevious(state, bid("X"));
-
-    expect(childIds(result.state, "doc")).toEqual(["P", "Y"]);
-    expect(getBlock(result.state, bid("X"))).toBeNull();
-
-    // P now holds [a, b] — assert the append seam explicitly (not just the
-    // walked child list): P.lastChild moved to b, and a↔b are linked, b reparented.
-    expect(childIds(result.state, "P")).toEqual(["a", "b"]);
-    expect(getBlock(result.state, bid("P"))?.lastChildId).toBe("b");
-    expect(getBlock(result.state, bid("a"))?.nextSiblingId).toBe("b");
-    expect(getBlock(result.state, bid("b"))?.prevSiblingId).toBe("a");
-    expect(getBlock(result.state, bid("b"))?.parentId).toBe("P");
-    expect(getBlock(result.state, bid("b"))?.nextSiblingId).toBeNull();
-
-    // Doc-root chain re-stitched: P.next === Y, Y.prev === P.
-    expect(getBlock(result.state, bid("P"))?.nextSiblingId).toBe("Y");
-    expect(getBlock(result.state, bid("Y"))?.prevSiblingId).toBe("P");
-    expect(getBlock(result.state, bid("doc"))?.lastChildId).toBe("Y");
-
-    // Y untouched (still holds [c]).
-    expect(childIds(result.state, "Y")).toEqual(["c"]);
-    expect(pointers(result.state, "Y")).toEqual({
-      parentId: "doc",
-      prevSiblingId: "P",
-      nextSiblingId: null,
-      firstChildId: "c",
-      lastChildId: "c",
-    });
-  });
-});
-
-describe("mergeSectionWithPrevious — first section (no prev) is a no-op", () => {
-  const fixture = () =>
-    buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "X", lastChildId: "Y" }),
-        buildBlock({ id: "X", type: "section", parentId: "doc", nextSiblingId: "Y", firstChildId: "a", lastChildId: "a" }),
-        buildBlock({ id: "Y", type: "section", parentId: "doc", prevSiblingId: "X", firstChildId: "b", lastChildId: "b" }),
-        buildBlock({ id: "a", type: "paragraph", parentId: "X", inlineContent: inlineContent([]) }),
-        buildBlock({ id: "b", type: "paragraph", parentId: "Y", inlineContent: inlineContent([]) }),
-      ],
-    });
-
-  it("returns the SAME state reference and empty dirtyIds", () => {
-    const state = fixture();
-    const result = mergeSectionWithPrevious(state, bid("X"));
-    expect(result.state).toBe(state);
-    expect(result.dirtyIds.size).toBe(0);
-    // Nothing changed.
-    expect(childIds(result.state, "doc")).toEqual(["X", "Y"]);
-    expect(childIds(result.state, "X")).toEqual(["a"]);
-  });
-});
-
-describe("mergeSectionWithPrevious — empty section [P{a}, X{}] → merge X", () => {
-  const fixture = () =>
-    buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "P", lastChildId: "X" }),
-        buildBlock({ id: "P", type: "section", parentId: "doc", nextSiblingId: "X", firstChildId: "a", lastChildId: "a" }),
-        buildBlock({ id: "X", type: "section", parentId: "doc", prevSiblingId: "P", firstChildId: null, lastChildId: null }),
-        buildBlock({ id: "a", type: "paragraph", parentId: "P", inlineContent: inlineContent([]) }),
-      ],
-    });
-
-  it("deletes the empty X, leaves P's children intact, chain valid", () => {
-    const state = fixture();
-    const result = mergeSectionWithPrevious(state, bid("X"));
-
-    expect(childIds(result.state, "doc")).toEqual(["P"]);
-    expect(getBlock(result.state, bid("X"))).toBeNull();
-    // P's children unchanged.
-    expect(childIds(result.state, "P")).toEqual(["a"]);
-    expect(pointers(result.state, "P")).toEqual({
-      parentId: "doc",
-      prevSiblingId: null,
-      nextSiblingId: null,
-      firstChildId: "a",
-      lastChildId: "a",
-    });
-    expect(getBlock(result.state, bid("doc"))?.lastChildId).toBe("P");
-  });
-});
-
-describe("mergeSectionWithPrevious — validation", () => {
-  it("throws when the section id does not exist", () => {
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "P", lastChildId: "P" }),
-        buildBlock({ id: "P", type: "section", parentId: "doc", firstChildId: "a", lastChildId: "a" }),
-        buildBlock({ id: "a", type: "paragraph", parentId: "P", inlineContent: inlineContent([]) }),
-      ],
-    });
-    expect(() => mergeSectionWithPrevious(state, bid("nope"))).toThrow(
-      /section "nope" not found/,
-    );
+  it("three sections: deleting the middle break leaves the first section untouched", () => {
+    const state = buildFlowDoc([
+      { sec: "S1", children: [{ p: "a", t: "a" }] },
+      { sec: "S2", attrs: { pageWidth: 2 }, children: [{ p: "b", t: "b" }] },
+      { sec: "F", attrs: { pageWidth: 3 }, children: [{ p: "c", t: "c" }] },
+    ]);
+    const r = deleteSectionBreak(state, id("S2"));
+    expect(flowShape(r.state, "doc")).toBe('a:"a"/S1 c:"bc"');
+    expect(childIds(r.state, "doc")).toEqual(["S1", "F"]);
+    expect(getBlock(r.state, id("S1"))?.nextSiblingId).toBe("F");
   });
 
-  it("throws when the id is not a section (a paragraph)", () => {
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "P", lastChildId: "P" }),
-        buildBlock({ id: "P", type: "section", parentId: "doc", firstChildId: "a", lastChildId: "a" }),
-        buildBlock({ id: "a", type: "paragraph", parentId: "P", inlineContent: inlineContent([]) }),
-      ],
-    });
-    expect(() => mergeSectionWithPrevious(state, bid("a"))).toThrow();
+  it("an empty paragraph carrying the break is removed; the next paragraph keeps its formatting", () => {
+    const state = buildFlowDoc([
+      { sec: "S1", children: [{ p: "a", t: "a" }, { p: "e", t: "" }] },
+      { sec: "F", children: [{ p: "h", t: "h", type: "heading", attrs: { level: 1 } }] },
+    ]);
+    const r = deleteSectionBreak(state, id("S1"));
+    expect(flowShape(r.state, "doc")).toBe('a:"a" h:"h"');
+    expect(getBlock(r.state, id("h"))?.type).toBe("heading");
   });
 
-  it("throws when the section's parent is not the document root (not a flat doc-root section)", () => {
-    // A nested section: wrapper W contains a section X. X.parentId !== rootId.
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "W", lastChildId: "W" }),
-        buildBlock({ id: "W", type: "section", parentId: "doc", firstChildId: "X", lastChildId: "X" }),
-        buildBlock({ id: "X", type: "section", parentId: "W", firstChildId: "a", lastChildId: "a" }),
-        buildBlock({ id: "a", type: "paragraph", parentId: "X", inlineContent: inlineContent([]) }),
-      ],
-    });
-    expect(() => mergeSectionWithPrevious(state, bid("X"))).toThrow(
-      /not a flat doc-root section/,
-    );
+  it("content before the first break belongs to THAT section (no `#s0`); deleting it joins everything into the final section", () => {
+    const state = buildFlowDoc([{ p: "lead", t: "x" }, { sec: "S1", children: [{ p: "b", t: "b" }] }, { sec: "F", children: [{ p: "c", t: "c" }] }]);
+    expect(getBlock(state, id("lead"))?.parentId).toBe("S1");
+    expect(getBlock(state, id("doc#s0"))).toBeNull();
+    const r = deleteSectionBreak(state, id("S1"));
+    expect(flowShape(r.state, "doc")).toBe('lead:"x" c:"bc"');
+    expect(getBlock(r.state, id("lead"))?.parentId).toBe("F");
   });
 
-  it("throws when the previous doc-root sibling is not a section (corrupt state)", () => {
-    // A doc-root child that is a paragraph sitting before a section X — violates
-    // the flat-section invariant, so merging X must refuse.
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "P", lastChildId: "X" }),
-        buildBlock({ id: "P", type: "paragraph", parentId: "doc", nextSiblingId: "X", inlineContent: inlineContent([]) }),
-        buildBlock({ id: "X", type: "section", parentId: "doc", prevSiblingId: "P", firstChildId: "a", lastChildId: "a" }),
-        buildBlock({ id: "a", type: "paragraph", parentId: "X", inlineContent: inlineContent([]) }),
-      ],
-    });
-    expect(() => mergeSectionWithPrevious(state, bid("X"))).toThrow();
+  it("the final section has no break: identity no-op; a break before a table that invariant I needs is kept", () => {
+    const state = buildFlowDoc([{ sec: "S1", children: [{ p: "a", t: "a" }] }, { sec: "F", children: [{ p: "b", t: "b" }] }]);
+    const same = deleteSectionBreak(state, id("F"));
+    expect(same.state).toBe(state);
+    expect(same.dirtyIds.size).toBe(0);
+    const table = buildFlowDoc([{ sec: "S1", children: [{ p: "a", t: "a" }] }, { sec: "F", children: [{ table: "T", cells: ["c1"] }, { p: "z", t: "z" }] }]);
+    const kept = deleteSectionBreak(table, id("S1"));
+    expect(kept.state).toBe(table);
+    expect(flowShape(kept.state, "doc")).toBe('a:"a"/S1 [T] z:"z"');
   });
-});
 
-describe("mergeSectionWithPrevious — atomicity (single applyOperation)", () => {
-  it("returns one consistent OperationResult: every block reachable + coherent", () => {
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "P", lastChildId: "X" }),
-        buildBlock({ id: "P", type: "section", parentId: "doc", nextSiblingId: "X", firstChildId: "a", lastChildId: "b" }),
-        buildBlock({ id: "X", type: "section", parentId: "doc", prevSiblingId: "P", firstChildId: "c", lastChildId: "d" }),
-        buildBlock({ id: "a", type: "paragraph", parentId: "P", nextSiblingId: "b", inlineContent: inlineContent([]) }),
-        buildBlock({ id: "b", type: "paragraph", parentId: "P", prevSiblingId: "a", inlineContent: inlineContent([]) }),
-        buildBlock({ id: "c", type: "paragraph", parentId: "X", nextSiblingId: "d", inlineContent: inlineContent([]) }),
-        buildBlock({ id: "d", type: "paragraph", parentId: "X", prevSiblingId: "c", inlineContent: inlineContent([]) }),
-      ],
-    });
-    const result = mergeSectionWithPrevious(state, bid("X"));
-
-    // All paragraphs reachable from root via child chains; X is not.
-    const reachable = new Set<string>();
-    const visit = (id: string) => {
-      if (reachable.has(id)) return;
-      reachable.add(id);
-      for (const c of childIds(result.state, id)) visit(c);
-    };
-    visit("doc");
-    for (const id of ["P", "a", "b", "c", "d"]) {
-      expect(reachable.has(id)).toBe(true);
-    }
-    expect(reachable.has("X")).toBe(false);
-    // root + one section + four paragraphs.
-    expect(reachable.size).toBe(6);
+  it("validation: a missing id or a non-section throws", () => {
+    const state = buildFlowDoc([{ sec: "S1", children: [{ p: "a", t: "a" }] }, { sec: "F", children: [{ p: "b", t: "b" }] }]);
+    expect(() => deleteSectionBreak(state, id("nope"))).toThrow(/not found/);
+    expect(() => deleteSectionBreak(state, id("a"))).toThrow(/not a section/);
   });
 });

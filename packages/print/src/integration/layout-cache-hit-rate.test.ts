@@ -22,7 +22,6 @@ import {
   createDefaultAttrRegistry,
   type EditorConfig,
   type PageConfig,
-  getBlock,
   createPosition,
   createSpan,
 } from "@taleweaver/core";
@@ -34,6 +33,7 @@ import {
   __getMetaBuildCountForTest,
   __resetMetaBuildCountForTest,
 } from "../layout/build-fit-metas";
+import { finalSection } from "../test-utils/final-section"; // body blocks live in the final section
 
 function makeConfig(): EditorConfig {
   const pageConfig: PageConfig = {
@@ -55,7 +55,7 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);
     const firstId = (() => {
-      const root = getBlock(editor.state, editor.state.rootId);
+      const root = finalSection(editor.state);
       if (root === null || root.firstChildId === null) throw new Error("?");
       return root.firstChildId;
     })();
@@ -139,7 +139,7 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);
     const firstId = (() => {
-      const root = getBlock(editor.state, editor.state.rootId);
+      const root = finalSection(editor.state);
       if (root === null || root.firstChildId === null) throw new Error("?");
       return root.firstChildId;
     })();
@@ -188,7 +188,7 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
     for (const N of [500]) {
       let editor = createInitialEditorState(config);
       const firstId = (() => {
-        const root = getBlock(editor.state, editor.state.rootId);
+        const root = finalSection(editor.state);
         if (root === null || root.firstChildId === null) throw new Error("?");
         return root.firstChildId;
       })();
@@ -248,7 +248,7 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);
     const firstId = (() => {
-      const root = getBlock(editor.state, editor.state.rootId);
+      const root = finalSection(editor.state);
       if (root === null || root.firstChildId === null) throw new Error("?");
       return root.firstChildId;
     })();

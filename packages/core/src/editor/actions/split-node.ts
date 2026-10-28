@@ -1,5 +1,5 @@
 import type { EditorState, EditorConfig } from "../editor-state";
-import { resolveBlock, productionAllocator, createPosition, createSpan, deleteRange, splitBlockAtPosition, splitWithSuggestion, splitWithSuggestionOverSelection, replaceWithSuggestedFragment, spanStart, spanEnd, inlineContentLength } from "../../state";
+import { resolveBlock, productionAllocator, createPosition, createSpan, deleteRange, splitBlockAtPosition, splitWithSuggestion, splitWithSuggestionOverSelection, markDeletion, spanStart, spanEnd, inlineContentLength } from "../../state";
 import type { BlockId } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { isObjectSelection } from "../../cursor/object-selection";
@@ -13,7 +13,7 @@ export function handleSplitNode(
   editor: EditorState,
   config: EditorConfig,
 ): EditorState {
-  // Object selection (#525): Enter on a selected atomic-leaf (image) does
+  // Object selection: Enter on a selected atomic-leaf (image) does
   // nothing — an atomic block has no text content to split. No-op (Google Docs).
   if (isObjectSelection(editor.state, editor.selection, config.componentRegistry) !== null) {
     return editor;
@@ -26,7 +26,7 @@ export function handleSplitNode(
   const accumulatedDirtyIds = new Set<BlockId>();
 
   if (!isCollapsed(selection)) {
-    // C.2c §6: cross-CONTEXT selection refusal (see isCrossContextSelection).
+    // Cross-CONTEXT selection refusal (see isCrossContextSelection).
     // Both the suggesting composite and the direct deleteRange would otherwise
     // operate on a cross-tree span (deleteRange throws "no common ancestor"), so
     // refuse here ONCE for both modes.
@@ -43,7 +43,7 @@ export function handleSplitNode(
     const sStart = spanStart(editor.state, selection);
     const replaceInput = replaceSuggestionInputForBlock(editor.state, sStart.blockId, config);
     if (replaceInput !== null) {
-      // Suggesting mode (4e-editor-composite + PF-4): a non-collapsed Enter
+      // Suggesting mode: a non-collapsed Enter
       // SOFT-DELETES the selection (text stays, struck) THEN inserts a suggested
       // paragraph split, in ONE undoable transaction.
       const sEnd = spanEnd(editor.state, selection);
@@ -70,7 +70,8 @@ export function handleSplitNode(
 
       if (sStart.blockId === sEnd.blockId) {
         // SINGLE-BLOCK: the dedicated soft-delete-then-split composite (struck text
-        // stays in block N BEFORE the break; caret → the clean suffix block N+1).
+        // stays in the new head BEFORE the break; the block keeps the clean suffix and
+        // the caret (B, 0)).
         const newBlockInit =
           followOnType !== undefined ? { type: followOnType, attrs: {} } : undefined;
         const result = splitWithSuggestionOverSelection(
@@ -81,11 +82,7 @@ export function handleSplitNode(
           newBlockInit,
         );
         if (result.state === editor.state) return editor;
-        // Caret → start of the new (suffix) block.
-        const updated = resolveBlock(result.state, sStart.blockId)?.block ?? null;
-        const newBlockId = updated?.nextSiblingId ?? null;
-        if (newBlockId === null) return editor;
-        const newCursor = createPosition(newBlockId, 0);
+        const newCursor = createPosition(sStart.blockId, 0);
         const newSelection = createSpan(newCursor, newCursor);
         editor.history.commit(result, { before: selection, after: newSelection });
         return rebuildTrees(
@@ -96,39 +93,34 @@ export function handleSplitNode(
         );
       }
 
-      // CROSS-BLOCK (PF-4): "insert a paragraph break" over a multi-block selection.
-      // Model it as replacing the selection with an EMPTY two-line fragment via the
-      // fragment composite — the selection is soft-deleted (struck, with a block-join
-      // suggestion per crossed boundary) and a suggested split is inserted; accept
-      // removes the selection + leaves ONE break, reject restores the original blocks.
-      // The break's NEW block inherits the start block's type/attrs (matching the
-      // direct path's delete-then-split merge), overridden by `followOnType` (fresh
-      // attrs) when the selection ends at end-of-E (the new block is then empty).
-      const breakType = followOnType ?? splitBlock.type;
-      const breakAttrs = followOnType !== undefined ? {} : splitBlock.attrs;
-      const fragment = [
-        { type: splitBlock.type, attrs: splitBlock.attrs, inlineContent: { items: [] } },
-        { type: breakType, attrs: breakAttrs, inlineContent: { items: [] } },
-      ];
-      const result = replaceWithSuggestedFragment(
-        editor.state,
-        selection,
-        fragment,
-        replaceInput,
-        productionAllocator,
-      );
-      if (result.state === editor.state) return editor;
-      const newCursor = result.endPosition;
+      // CROSS-BLOCK: the selection is soft-deleted (struck, its ¶s keyed), then
+      // a suggested ¶ is inserted at the selection END — as the single-block composite
+      // (Word / GDocs put the insertion after the struck text). The split at E's
+      // post-strike end is the direct split rule: at k = len the tail B takes
+      // `followOnType`, so accepting gives exactly the direct delete-then-split result.
+      // E keeps its id (a removed own ¶ leaves the survivor R) and the strike never
+      // touches its tail, so the post-strike split offset is E's length minus the tail.
+      const mint = { author: replaceInput.author, createdAt: replaceInput.createdAt, order: replaceInput.order, noCoalesce: replaceInput.noCoalesce };
+      const del = markDeletion(editor.state, selection, { ...mint, id: replaceInput.deletionId });
+      const postEnd = resolveBlock(del.state, sEnd.blockId)?.block ?? null;
+      if (postEnd === null || postEnd.inlineContent === null) return editor;
+      const tailLen = inlineContentLength(endBlock.inlineContent) - sEnd.offset;
+      const splitPos = createPosition(sEnd.blockId, inlineContentLength(postEnd.inlineContent) - tailLen);
+      const newBlockInit = followOnType !== undefined ? { type: followOnType, attrs: {} } : undefined;
+      const split = splitWithSuggestion(del.state, splitPos, productionAllocator, { ...mint, id: replaceInput.insertionId }, newBlockInit);
+      for (const id of del.dirtyIds) accumulatedDirtyIds.add(id);
+      for (const id of split.dirtyIds) accumulatedDirtyIds.add(id);
+      const newCursor = createPosition(sEnd.blockId, 0);
       const newSelection = createSpan(newCursor, newCursor);
       editor.history.commit(
-        { state: result.state, dirtyIds: result.dirtyIds },
+        { state: split.state, dirtyIds: accumulatedDirtyIds },
         { before: selection, after: newSelection },
       );
       return rebuildTrees(
-        { ...editor, state: result.state, selection: newSelection },
+        { ...editor, state: split.state, selection: newSelection },
         editor,
         config,
-        result.dirtyIds,
+        accumulatedDirtyIds,
       );
     }
 
@@ -183,10 +175,9 @@ export function handleSplitNode(
     followOnType !== undefined ? { type: followOnType, attrs: {} } : undefined;
 
   // Suggesting mode: route the split through `splitWithSuggestion` (a tracked
-  // INSERTION of a paragraph break — a REAL structural split PLUS a zero-width
-  // `block-split-suggestion` embed on block N + an `insertion` record, ONE
-  // undoable op). Everything downstream (cursor → newBlockId:0 via
-  // `updatedOriginal.nextSiblingId`, `history.commit`, `rebuildTrees`) is
+  // INSERTION of a paragraph break — a REAL structural split PLUS the boundary tag
+  // on the new block + an `insertion` record, ONE undoable op). Everything downstream (cursor → (B, 0),
+  // `history.commit`, `rebuildTrees`) is
   // IDENTICAL to the direct path because the split is real; `newBlockInit` is
   // threaded through unchanged.
   // Gate on the split block's context: a split in ANY editing context (main body
@@ -200,8 +191,8 @@ export function handleSplitNode(
       : splitWithSuggestion(current.state, pos, productionAllocator, suggestInput, newBlockInit);
   for (const id of splitResult.dirtyIds) accumulatedDirtyIds.add(id);
 
-  // E-B / #141: chained ops accumulate dirtyIds manually. Use the T7
-  // identity contract — splitResult.state === editor.state iff every
+  // Chained ops accumulate dirtyIds manually. Use the
+  // identity-no-op contract — splitResult.state === editor.state iff every
   // chained primitive was a no-op:
   //   - collapsed branch: splitResult is built from editor.state, so
   //     splitResult.state === editor.state iff split itself was no-op.
@@ -216,11 +207,9 @@ export function handleSplitNode(
   // primitives were no-ops, so returning editor is correct.
   if (splitResult.state === editor.state) return editor;
 
-  const updatedOriginal = resolveBlock(splitResult.state, pos.blockId)?.block ?? null;
-  if (updatedOriginal === null) return editor;
-  const newBlockId = updatedOriginal.nextSiblingId;
-  if (newBlockId === null) return editor;
-  const newCursor = createPosition(newBlockId, 0);
+  // The caret goes to the start of the block AFTER the break: the caret's own block,
+  // which keeps the tail + its ¶ (the head [0, k) is the new block).
+  const newCursor = createPosition(pos.blockId, 0);
   const newSelection = createSpan(newCursor, newCursor);
 
   editor.history.commit(

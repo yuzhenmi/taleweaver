@@ -198,7 +198,7 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
 
     const again = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" }, config);
 
-    // No commit, no state change (T7 identity contract): the `state` is the SAME
+    // No commit, no state change (the identity-no-op contract): the `state` is the SAME
     // reference. Phase 0b: the reducer entry-clears `lastDirtyIds` to null at the
     // start of every dispatch, so a no-op AFTER a mutating action returns a new
     // top-level object (lastDirtyIds null) — but the underlying `state` is
@@ -211,7 +211,7 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
     // Behavior-level regression for the 2026-05-29 commit-contract relaxation:
     // `history.commit` used to throw in dev when given an opResult with empty
     // dirtyIds, as a belt-and-suspenders for handler-side short-circuiting.
-    // The belt has been removed (handlers still short-circuit via the T7
+    // The belt has been removed (handlers still short-circuit via the
     // identity contract; commit is also no-op-safe). This guards against a
     // regression where some path could ever invoke commit on a no-op and
     // surface a hard error to end users.

@@ -57,16 +57,19 @@ function yBlock(fields: {
   return m;
 }
 
-/** doc > [ p1(items1), p2(items2) ] in the legacy storage, rootId "doc". */
-export function legacyDoc(items1: readonly InlineItem[], items2: readonly InlineItem[] = []): Y.Doc {
+/** doc > [ p1(items1), p2(items2), …pN ] in the legacy storage, rootId "doc". */
+export function legacyDoc(items1: readonly InlineItem[], items2: readonly InlineItem[] = [], ...more: readonly (readonly InlineItem[])[]): Y.Doc {
+  const all = [items1, items2, ...more];
+  const pid = (k: number): string | undefined => (k >= 0 && k < all.length ? `p${k + 1}` : undefined);
   const doc = new Y.Doc();
   doc.transact(() => {
     for (const key of ["embedContents", "templateContents", "listDefs", "comments", "suggestions"]) doc.getMap(key);
     doc.getMap("meta").set("rootId", "doc");
     const blocks = doc.getMap<Y.Map<unknown>>("blocks");
-    blocks.set("doc", yBlock({ type: "document", parentId: null, first: "p1", last: "p2", inline: null }));
-    blocks.set("p1", yBlock({ type: "paragraph", parentId: "doc", next: "p2", inline: legacyInline(items1) }));
-    blocks.set("p2", yBlock({ type: "paragraph", parentId: "doc", prev: "p1", inline: legacyInline(items2) }));
+    blocks.set("doc", yBlock({ type: "document", parentId: null, first: "p1", last: pid(all.length - 1), inline: null }));
+    all.forEach((items, k) => {
+      blocks.set(`p${k + 1}`, yBlock({ type: "paragraph", parentId: "doc", prev: pid(k - 1), next: pid(k + 1), inline: legacyInline(items) }));
+    });
   });
   return doc;
 }

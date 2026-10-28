@@ -1,7 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { iterateBlocksInDocumentOrder, iterateLeafBlocksInDocumentOrder } from "./document-order";
-import { buildState, buildBlock } from "../test-utils/state-builders";
-import { asBlockId } from "./block-id";
+import { TEST_RESOLVER, testContainer, buildState, buildBlock } from "../test-utils/state-builders";
+import { getBlock } from "./state";
+import type { BlockId } from "./block-id";
+
+// Host container types the default registry lacks (file-local registry instance).
+TEST_RESOLVER.register(testContainer("blockquote"));
 
 describe("iterateBlocksInDocumentOrder", () => {
   it("yields blocks depth-first: parent, children, then next sibling", () => {
@@ -10,16 +14,17 @@ describe("iterateBlocksInDocumentOrder", () => {
       rootId: "root",
       blocks: [
         buildBlock({ id: "root", type: "doc", firstChildId: "a", lastChildId: "b" }),
-        buildBlock({ id: "a", type: "paragraph", parentId: "root", nextSiblingId: "b", firstChildId: "a1", lastChildId: "a1" }),
+        buildBlock({ id: "a", type: "blockquote", parentId: "root", nextSiblingId: "b", firstChildId: "a1", lastChildId: "a1" }),
         buildBlock({ id: "a1", type: "paragraph", parentId: "a", inlineContent: { items: [] } }),
         buildBlock({ id: "b", type: "paragraph", parentId: "root", prevSiblingId: "a", inlineContent: { items: [] } }),
       ],
     });
     const ids = [...iterateBlocksInDocumentOrder(state)].map((b) => b.id);
-    expect(ids).toEqual(["root", "a", "a1", "b"]);
+    // The root's child is its final section, which holds the top-level blocks.
+    expect(ids).toEqual(["root", getBlock(state, "root" as BlockId)?.firstChildId, "a", "a1", "b"]);
   });
 
-  it("walks a long flat chain in linear time and still detects a sibling cycle", () => {
+  it("walks a long flat chain in linear time", () => {
     // 10,000 siblings: past the guard's lazy threshold, the block-count bound must be
     // computed once per walk — a per-step O(blocks) bound made this ~60M map iterations.
     const n = 10_000;
@@ -38,35 +43,22 @@ describe("iterateBlocksInDocumentOrder", () => {
       ),
     ];
     const t = performance.now();
-    expect([...iterateBlocksInDocumentOrder(buildState({ rootId: "root", blocks }))].length).toBe(n + 1);
+    expect([...iterateBlocksInDocumentOrder(buildState({ rootId: "root", blocks }))].length).toBe(n + 2); // + the final section
     // Coarse bound (shared machines are noisy): linear is milliseconds; the quadratic bug was
     // tens of seconds (~60M map iterations).
     expect(performance.now() - t).toBeLessThan(5000);
-
-    const cyclic = blocks.map((b) => (b.id === `p${n - 1}` ? { ...b, nextSiblingId: asBlockId("p5000") } : b));
-    const cyclicState = buildState({ rootId: "root", blocks: cyclic });
-    expect(() => [...iterateBlocksInDocumentOrder(cyclicState)]).toThrow(/cycle/);
+    // (The derived tree cannot cycle — no cycle-detection case remains.)
   });
 
-  it("yields just the root for a single-block doc", () => {
+  it("yields the root, its final section and the one empty paragraph of a childless doc", () => {
+    // Rev 11: the creator writes a childless flow's one ¶; the root always holds its final section.
     const state = buildState({
       rootId: "root",
       blocks: [buildBlock({ id: "root", type: "doc" })],
     });
-    expect([...iterateBlocksInDocumentOrder(state)].map((b) => b.id)).toEqual(["root"]);
-  });
-
-  it("throws (no stack overflow) on a firstChildId ancestor cycle", () => {
-    // Corrupted state: root → a, and a.firstChildId points back at root. The
-    // recursion's active-path guard must throw rather than recurse forever.
-    const state = buildState({
-      rootId: "root",
-      blocks: [
-        buildBlock({ id: "root", type: "doc", firstChildId: "a", lastChildId: "a" }),
-        buildBlock({ id: "a", type: "paragraph", parentId: "root", firstChildId: "root", lastChildId: "root" }),
-      ],
-    });
-    expect(() => [...iterateBlocksInDocumentOrder(state)]).toThrow(/cycle/);
+    const got = [...iterateBlocksInDocumentOrder(state)];
+    expect(got.map((b) => b.type)).toEqual(["doc", "section", "paragraph"]);
+    expect(got[2]?.inlineContent).toEqual({ items: [] });
   });
 });
 
@@ -83,25 +75,5 @@ describe("iterateLeafBlocksInDocumentOrder", () => {
       ],
     });
     expect([...iterateLeafBlocksInDocumentOrder(state)].map((b) => b.id)).toEqual(["a1", "b"]);
-  });
-
-  it("TERMINATES on a malformed two-parents topology (#510 regression — was an infinite loop)", () => {
-    // Invalid per the one-parentId invariant: `c` is the firstChildId of BOTH
-    // `a` and `b`, with c.parentId = "a". The old `firstLeafBlock` +
-    // `nextBlockInDocOrder` cursor sweep oscillated b⇄c forever (a CPU-bound
-    // hang that defeats vitest's --test-timeout and never lets the worker exit).
-    // Routing through iterateBlocksInDocumentOrder's active-path guard must make
-    // this TERMINATE — the shared leaf `c` is visited once per parent, no live
-    // ancestor cycle, no throw.
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "doc", firstChildId: "a", lastChildId: "b" }),
-        buildBlock({ id: "a", type: "section", parentId: "doc", nextSiblingId: "b", firstChildId: "c", lastChildId: "c" }),
-        buildBlock({ id: "b", type: "section", parentId: "doc", prevSiblingId: "a", firstChildId: "c", lastChildId: "c" }),
-        buildBlock({ id: "c", type: "paragraph", parentId: "a", inlineContent: { items: [] } }),
-      ],
-    });
-    expect([...iterateLeafBlocksInDocumentOrder(state)].map((b) => b.id)).toEqual(["c", "c"]);
   });
 });

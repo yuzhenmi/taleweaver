@@ -5,7 +5,7 @@
  * (the original Liang patterns shipped with Knuth's TeX, public domain). The
  * full set is ~4500 patterns; the engine treats the pattern set as DATA — adding
  * more (or registering other languages) is a data change with no algorithm or
- * core change. This v1 subset is sufficient to correctly hyphenate common
+ * core change. This subset is sufficient to correctly hyphenate common
  * English words (and the package's test vocabulary) at dictionary-correct
  * points. Expand by pasting more `hyphen.tex` patterns into the string below.
  *

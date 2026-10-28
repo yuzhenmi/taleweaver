@@ -7,6 +7,7 @@ import {
   inlineContent,
   text,
   embed,
+  finalSectionOf,
 } from "../test-utils/state-builders";
 
 /** A footnote-anchor EmbedItem pointing at `bodyRootId`. */
@@ -73,8 +74,10 @@ describe("collectFootnoteAnchors — document order across blocks", () => {
     });
     const anchors = collectFootnoteAnchors(state);
     expect(anchors.map((a) => a.contentBlockId)).toEqual(["fb1", "fb2"]);
-    expect(anchors[0]).toEqual({ contentBlockId: "fb1", blockId: "p1", sectionId: null });
-    expect(anchors[1]).toEqual({ contentBlockId: "fb2", blockId: "p3", sectionId: null });
+    // A section-less document's blocks sit in its final section.
+    const F = finalSectionOf(state);
+    expect(anchors[0]).toEqual({ contentBlockId: "fb1", blockId: "p1", sectionId: F });
+    expect(anchors[1]).toEqual({ contentBlockId: "fb2", blockId: "p3", sectionId: F });
   });
 });
 
@@ -109,9 +112,11 @@ describe("collectFootnoteAnchors — multiple anchors in one block", () => {
 });
 
 describe("collectFootnoteAnchors — sections", () => {
-  it("tags each anchor with its enclosing section id (null before any section)", () => {
+  it("tags each anchor with its enclosing section id (content before the first break belongs to THAT section)", () => {
+    // no leading `${root}#s0` — a section ends with its break, so p0 (before
+    // s1's break) is in s1; the last section s2 is the final section.
     // doc
-    //  ├─ p0 (implicit/root section)      → anchor fb0, sectionId null
+    //  ├─ p0 (before s1's break)          → anchor fb0, sectionId s1
     //  ├─ section s1
     //  │   └─ p1                          → anchor fb1, sectionId s1
     //  └─ section s2
@@ -170,7 +175,7 @@ describe("collectFootnoteAnchors — sections", () => {
     });
     const anchors = collectFootnoteAnchors(state);
     expect(anchors).toEqual([
-      { contentBlockId: "fb0", blockId: "p0", sectionId: null },
+      { contentBlockId: "fb0", blockId: "p0", sectionId: "s1" },
       { contentBlockId: "fb1", blockId: "p1", sectionId: "s1" },
       { contentBlockId: "fb2", blockId: "p2", sectionId: "s2" },
     ]);

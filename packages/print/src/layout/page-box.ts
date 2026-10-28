@@ -51,7 +51,7 @@ export interface PageBox {
   readonly absoluteChildren?: readonly LayoutBox[];
 
   /**
-   * POSITIONING slice 4 — stacking-context role, mirrored from `LayoutBoxBase`
+   * Stacking-context role, mirrored from `LayoutBoxBase`
    * so the `LayoutBox` union carries it and the painter reads it uniformly. A
    * page FRAME is never a stacking context (it is not positioned, opaque, and
    * untransformed — `createPageBox` never sets it), so this is ALWAYS absent on a
@@ -80,7 +80,7 @@ export interface PageBox {
   readonly footerSlot: BlockBox | null;
 
   /**
-   * The footnote slot laid out at this page's bottom (FN-4), between the body
+   * The footnote slot laid out at this page's bottom, between the body
    * content area and the footer, or null when this page carries no footnotes.
    * A wrapping `BlockBox` positioned at block-offset `blockSize −
    * effectiveBottomInset − footnoteSlotHeight`, containing a thin separator
@@ -93,11 +93,11 @@ export interface PageBox {
   /**
    * Page-local top of the body content area = `effectiveTopInset`; bottom =
    * `blockSize − effectiveBottomInset`. The full top/bottom margins OUTSIDE
-   * this band are the header/footer zones (#332): a click above
+   * this band are the header/footer zones: a click above
    * `effectiveTopInset` belongs to the header, a click at/below
    * `blockSize − effectiveBottomInset` belongs to the footer, anywhere in
    * between is the body (including the body's empty tail below its last line).
-   * On a #328 growing slot these exceed the raw page margins; on a plain page
+   * On a growing header/footer slot these exceed the raw page margins; on a plain page
    * they equal the page's content margins.
    */
   readonly effectiveTopInset: number;
@@ -108,7 +108,7 @@ export interface PageBox {
  * NOTE: This inlines the base geometry + style-freezing logic that
  * `createBoxBase` provides for the factories in `layout-box.ts`.
  * Reusing `createBoxBase` would require exporting it from that file,
- * which Task 3 is the right place to handle. When `createBoxBase`
+ * which is out of scope here. When `createBoxBase`
  * becomes shared, refactor this factory to consume it (one-line change).
  */
 export function createPageBox(

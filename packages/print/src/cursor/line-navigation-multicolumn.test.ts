@@ -39,6 +39,7 @@ import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import { createMockShaper } from "@taleweaver/core";
 import { buildBlockFitMetas } from "../layout/build-fit-metas";
 import { measurePass } from "../layout/measure-pass";
+import { flattenContents } from "../layout/group-children";
 import { makeVirtualLayoutTree } from "../layout/virtual-layout-tree";
 import { positionTreeForTest } from "../test-utils/position-tree";
 import { getLineIndex } from "./line-flatten";
@@ -148,7 +149,7 @@ function buildMulticolumnDoc(
     metas,
     pageConfig,
     columnSectionPlan(columnConfig),
-    root.children,
+    flattenContents(root.children),
     undefined,
     undefined,
     (inlineSize) => buildBlockFitMetas(root, shaper, undefined, inlineSize),

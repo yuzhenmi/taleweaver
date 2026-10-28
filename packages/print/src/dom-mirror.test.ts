@@ -15,6 +15,9 @@ import {
 } from "@taleweaver/core";
 import { buildDomMirror, renderedTag, resolveFieldText, resolveTreeFields } from "./dom-mirror";
 import { BROKEN_CROSS_REFERENCE_TEXT } from "@taleweaver/core";
+import { createDefaultComponentRegistry } from "@taleweaver/core";
+
+const TEST_RESOLVER = createDefaultComponentRegistry();
 
 const bid = (s: string): BlockId => s as BlockId;
 
@@ -499,7 +502,7 @@ describe("buildDomMirror — integration with buildAccessibilityTree", () => {
     const state = buildDocumentFromTree(
       root,
       { [listId]: decimalDef() },
-      createTestAllocator("int"),
+      createTestAllocator("int"), TEST_RESOLVER
     );
 
     const tree = buildAccessibilityTree(state);

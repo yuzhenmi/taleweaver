@@ -145,7 +145,7 @@ describe("handleSetLineSpacing — SET_LINE_SPACING action", () => {
 
     const again = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 2 }, config);
 
-    // No commit, no state change (T7 identity contract). Phase 0b: the no-op
+    // No commit, no state change (the identity-no-op contract). Phase 0b: the no-op
     // identity is `state` reference equality — the editor OBJECT differs because
     // the dispatch entry-clear strips the prior mutating action's stale
     // `lastDirtyIds` hint (the SET_LINE_SPACING above set a non-null set).

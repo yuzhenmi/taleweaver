@@ -75,16 +75,7 @@ function strike(state: State, start: number, end: number): boolean {
   const doc = state[STATE_INTERNAL].doc;
   let tagged = false;
   runTransaction(doc, () => {
-    tagged = applyDeletionStrikeInTx(
-      doc,
-      "p" as BlockId,
-      "block",
-      start,
-      end,
-      DEL_ID,
-      AUTHOR,
-      "test",
-    ).tagged;
+    tagged = applyDeletionStrikeInTx(doc, [{ blockId: "p" as BlockId, rangeStart: start, rangeEnd: end }], DEL_ID, AUTHOR, "test", new Set()).tagged;
   });
   return tagged;
 }

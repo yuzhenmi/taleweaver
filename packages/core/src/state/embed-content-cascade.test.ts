@@ -3,7 +3,7 @@ import {
   assertNoOrphanedEmbedContent,
   assertNoSharedEmbedContent,
 } from "./embed-content-cascade";
-import { applyOperation, freshStateFromDoc, getBlock } from "./state";
+import { applyOperation, freshStateFromDoc, getBlock, getEmbedContent } from "./state";
 import { STATE_INTERNAL } from "./state-internal";
 import { removeBlock } from "./ops/remove-block";
 import { insertText } from "./ops/insert-text";
@@ -15,11 +15,7 @@ import {
   inlineContent,
   text,
 } from "../test-utils/state-builders";
-import {
-  getEmbedContentsMap,
-  getBlocksMap,
-  runTransaction,
-} from "./yjs-doc";
+import { getRegistry } from "./registry";
 import type { BlockId } from "./block-id";
 import { createTestAllocator } from "./block-id";
 
@@ -425,8 +421,7 @@ describe("assertNoOrphanedEmbedContent", () => {
       // applyOperation itself would fire the invariant assertion.)
       const doc = state[STATE_INTERNAL].doc;
       doc.transact(() => {
-        const embedContentsMap = getEmbedContentsMap(doc);
-        embedContentsMap.delete("fn-body-1");
+        getRegistry(doc).delete("fn-body-1");
       });
       // Fresh state with full cache invalidation reflects the bypass write.
       const badState = freshStateFromDoc(state);
@@ -473,67 +468,9 @@ describe("assertNoOrphanedEmbedContent", () => {
       });
       expect(() =>
         applyOperation(state, () => {
-          const embedContentsMap = getEmbedContentsMap(
-            state[STATE_INTERNAL].doc,
-          );
-          embedContentsMap.delete("fn-body-1");
+          getRegistry(state[STATE_INTERNAL].doc).delete("fn-body-1");
         }),
       ).toThrow(/fn-body-1/);
-    });
-  });
-
-  describe("cycle defense", () => {
-    it("terminates when a sibling chain is malformed with a self-cycle (does not loop forever)", () => {
-      // Construct a state then write a sibling self-cycle directly into the
-      // Y.Doc, bypassing the higher-level ops' structural invariants. The
-      // traversal must terminate via either the visited Set or the step cap
-      // and report orphans (or none) without hanging the test.
-      const state = buildState({
-        rootId: "doc",
-        blocks: [
-          buildBlock({
-            id: "doc",
-            type: "document",
-            firstChildId: "p1",
-            lastChildId: "p2",
-          }),
-          buildBlock({
-            id: "p1",
-            type: "paragraph",
-            parentId: "doc",
-            nextSiblingId: "p2",
-            inlineContent: inlineContent([text("a")]),
-          }),
-          buildBlock({
-            id: "p2",
-            type: "paragraph",
-            parentId: "doc",
-            prevSiblingId: "p1",
-            inlineContent: inlineContent([text("b")]),
-          }),
-        ],
-      });
-      // Inject a sibling self-cycle: p2.nextSiblingId = p1. The walker
-      // visits doc → p1 → p2 → p1 (already visited, terminate).
-      //
-      // Use direct Y.Doc surgery (runTransaction + freshStateFromDoc), NOT
-      // applyOperation — applyOperation's dev-mode assertChainIntegrity would
-      // (correctly) reject this deliberately-malformed chain before the test
-      // could exercise the cascade walker's own cycle defense. freshStateFromDoc
-      // is the documented escape hatch for untracked external surgery.
-      runTransaction(state[STATE_INTERNAL].doc, () => {
-        const blocksMap = getBlocksMap(state[STATE_INTERNAL].doc);
-        const yp2 = blocksMap.get("p2");
-        if (yp2 === undefined) throw new Error("test setup: missing p2");
-        yp2.set("nextSiblingId", "p1");
-      });
-      const badState = freshStateFromDoc(state);
-      // Must terminate, not hang. (Vitest's default per-test timeout would
-      // catch infinite loops, but the explicit not-hang assertion is the
-      // visible contract.)
-      expect(() =>
-        assertNoOrphanedEmbedContent(badState, "cycle"),
-      ).not.toThrow();
     });
   });
 });
@@ -816,14 +753,16 @@ describe("assertNoSharedEmbedContent", () => {
       expect(() =>
         assertNoSharedEmbedContent(state, "cross-tree-op"),
       ).toThrow(/shared/);
-      // Both owning blocks named: the main-tree anchor (p1) and the
-      // body-tree anchor (outer).
+      // Both owning blocks named: the main-tree anchor (p1) and the body-tree
+      // anchor (the outer body's paragraph — its inline content became the body
+      // flow's first paragraph).
       expect(() =>
         assertNoSharedEmbedContent(state, "cross-tree-op"),
       ).toThrow(/p1/);
+      const outerPara = getEmbedContent(state, "outer" as BlockId)?.firstChildId ?? "missing";
       expect(() =>
         assertNoSharedEmbedContent(state, "cross-tree-op"),
-      ).toThrow(/outer/);
+      ).toThrow(new RegExp(outerPara));
     });
   });
 

@@ -1,4 +1,5 @@
 import type * as Y from "yjs";
+import { requireBlockText } from "../block-text";
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId, IdAllocator } from "../block-id";
@@ -8,13 +9,11 @@ import {
   type EmbedItem,
 } from "../inline-content";
 import {
-  getEmbedContentsMap,
-  getYBlock,
   requireInTransaction,
   type BlockTreeKind,
 } from "../yjs-doc";
-import { buildYBlock } from "../y-block";
-import { insertInlineItems, requireYInline } from "../y-inline";
+import { writeRoot } from "../flow-ops";
+import { insertInlineItems } from "../y-inline";
 import { assertNoIdCollision } from "../id-collision-check";
 
 /** The `embedType` discriminant for a footnote call marker. */
@@ -56,10 +55,10 @@ interface AnchorInsertPlan {
  *     whose `firstChildId`/`lastChildId` point at the paragraph child below,
  *     plus a fresh empty `paragraph` CHILD (`parentId: <container>`) — the
  *     editable line the caret lands in. The CONTAINER model mirrors
- *     header/footer template bodies (#326): a footnote body is multi-paragraph
+ *     header/footer template bodies: a footnote body is multi-paragraph
  *     (pressing Enter splits the child paragraph into siblings UNDER the one
  *     root, instead of orphaning a second `parentId: null` root the slot never
- *     renders). The null `parentId` makes the #313 root-only iterator
+ *     renders). The null `parentId` makes the root-only iterator
  *     (`getEmbedContentIds`) pick up EXACTLY this one root.
  *  2. A `footnote-anchor` `EmbedItem` spliced into the cursor leaf's
  *     `inlineContent` at `position.offset`, with empty `attrs` and
@@ -176,34 +175,16 @@ function insertFootnoteBodyInTx(
   firstParagraphId: BlockId,
 ): void {
   requireInTransaction(doc, "insertFootnote");
-  const embedTree = getEmbedContentsMap(doc);
-
-  embedTree.set(
-    bodyRootId,
-    buildYBlock({
+  writeRoot(
+    doc,
+    {
+      id: bodyRootId,
       type: FOOTNOTE_BODY_TYPE,
       attrs: {},
-      parentId: null,
-      prevSiblingId: null,
-      nextSiblingId: null,
-      firstChildId: firstParagraphId,
-      lastChildId: firstParagraphId,
       inlineContent: null,
-    }),
-  );
-
-  embedTree.set(
-    firstParagraphId,
-    buildYBlock({
-      type: "paragraph",
-      attrs: {},
-      parentId: bodyRootId,
-      prevSiblingId: null,
-      nextSiblingId: null,
-      firstChildId: null,
-      lastChildId: null,
-      inlineContent: { items: [] },
-    }),
+      children: [{ id: firstParagraphId, type: "paragraph", attrs: {}, inlineContent: { items: [] }, children: [] }],
+    },
+    "embedContent",
   );
 }
 
@@ -216,6 +197,5 @@ function insertFootnoteBodyInTx(
  */
 function insertAnchorInTx(doc: Y.Doc, plan: AnchorInsertPlan): void {
   requireInTransaction(doc, "insertFootnote");
-  const yBlock = getYBlock(doc, plan.blockId, "insertFootnote", plan.kind);
-  insertInlineItems(requireYInline(yBlock, plan.blockId, "insertFootnote"), plan.offset, [plan.embed]);
+  insertInlineItems(requireBlockText(doc, plan.blockId, "insertFootnote"), plan.offset, [plan.embed]);
 }

@@ -3,8 +3,8 @@ import type { State, OperationResult } from "../state";
 import { applyOperation, getBlock } from "../state";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
-import { getBlocksMap, getYBlock, requireInTransaction } from "../yjs-doc";
-import { buildYBlock } from "../y-block";
+import { requireInTransaction } from "../yjs-doc";
+import { insertRowEntry, implicitSlots, createCell } from "../table-storage";
 import { assertNoIdCollision } from "../id-collision-check";
 import { setBlockAttrsInTx } from "./set-block-attrs";
 import { buildTableGrid } from "../table-context";
@@ -14,7 +14,7 @@ import { headerRowAttrsAfterRowEdit } from "./table-header-rows";
 
 /**
  * Pre-computed mutation plan for `insertTableRowSpanAwareInTx`. Everything is read
- * from the PRE-mutation occupancy grid (the `computeReparentWrites` discipline).
+ * from the PRE-mutation occupancy grid.
  */
 export interface InsertTableRowSpanAwarePlan {
   readonly tableId: BlockId;
@@ -28,13 +28,13 @@ export interface InsertTableRowSpanAwarePlan {
   /** Cells whose vertical span crosses the insertion boundary — their `rowSpan`
    *  grows by 1 to cover the new row. `newAttrs` is the full REPLACE bag. */
   readonly crossingBumps: readonly { readonly cellId: BlockId; readonly newAttrs: ReadonlyAttrs }[];
-  /** The table's new attrs bag when the insert shifts `headerRowCount` (#487), or
+  /** The table's new attrs bag when the insert shifts `headerRowCount`, or
    *  `null` when unchanged. Written in the SAME tx as the row splice. */
   readonly headerAttrs: ReadonlyAttrs | null;
 }
 
 /**
- * Span-aware INSERT_TABLE_ROW (P15b / D5): insert a row above/below the caret's
+ * Span-aware INSERT_TABLE_ROW: insert a row above/below the caret's
  * cell on a well-formed SPANNED table, as one atomic transaction. A cell whose
  * vertical span CROSSES the insertion boundary grows its `rowSpan` by 1 (it now
  * covers the new row); new empty 1×1 cells are created only in the grid columns
@@ -42,7 +42,7 @@ export interface InsertTableRowSpanAwarePlan {
  * `columnWidths` is untouched.
  *
  * Caller (the editor handler) resolves `ctx` and routes here only for a SPANNED,
- * non-ragged table (1×1 tables go through the byte-identical P15a `insertTableRow`).
+ * non-ragged table (1×1 tables go through the byte-identical plain `insertTableRow`).
  * NO-OP (same `state`) when the grid can't be built. MAIN-TREE ONLY.
  */
 export function insertTableRowSpanAware(
@@ -109,7 +109,7 @@ export function planInsertTableRowSpanAware(
   const prevRowId = gr - 1 >= 0 ? (ctx.rowIds[gr - 1] ?? null) : null;
   const nextRowId = gr < rowCount ? (ctx.rowIds[gr] ?? null) : null;
 
-  // #487: the new row's destination grid-row index is `gr` (the insertion
+  // The new row's destination grid-row index is `gr` (the insertion
   // boundary). Keep `headerRowCount` naming the leading block.
   const headerAttrs = headerRowAttrsAfterRowEdit(state, ctx.tableId, "insert", gr);
 
@@ -131,80 +131,19 @@ export function planInsertTableRowSpanAware(
  */
 export function insertTableRowSpanAwareInTx(doc: Y.Doc, plan: InsertTableRowSpanAwarePlan): void {
   requireInTransaction(doc, "insertTableRowSpanAware");
-
-  const blocksMap = getBlocksMap(doc);
   assertNoIdCollision(doc, plan.newRowId, "insertTableRowSpanAware");
   for (const c of plan.newCells) {
     assertNoIdCollision(doc, c.cellId, "insertTableRowSpanAware");
     assertNoIdCollision(doc, c.paragraphId, "insertTableRowSpanAware");
   }
-
-  for (const bump of plan.crossingBumps) {
-    setBlockAttrsInTx(doc, bump.cellId, bump.newAttrs, "insertTableRowSpanAware");
-  }
-
-  const cells = plan.newCells;
-  const lastCell = cells.length - 1;
-  for (const [i, cell] of cells.entries()) {
-    const { cellId, paragraphId } = cell;
-    const prevCell = cells[i - 1];
-    const nextCell = cells[i + 1];
-    blocksMap.set(
-      cellId,
-      buildYBlock({
-        type: "table-cell",
-        attrs: {},
-        parentId: plan.newRowId,
-        prevSiblingId: i === 0 ? null : (prevCell?.cellId ?? null),
-        nextSiblingId: i === lastCell ? null : (nextCell?.cellId ?? null),
-        firstChildId: paragraphId,
-        lastChildId: paragraphId,
-        inlineContent: null,
-      }),
-    );
-    blocksMap.set(
-      paragraphId,
-      buildYBlock({
-        type: "paragraph",
-        attrs: {},
-        parentId: cellId,
-        prevSiblingId: null,
-        nextSiblingId: null,
-        firstChildId: null,
-        lastChildId: null,
-        inlineContent: { items: [] },
-      }),
-    );
-  }
-
-  blocksMap.set(
-    plan.newRowId,
-    buildYBlock({
-      type: "table-row",
-      attrs: {},
-      parentId: plan.tableId,
-      prevSiblingId: plan.prevRowId,
-      nextSiblingId: plan.nextRowId,
-      firstChildId: cells[0]?.cellId ?? null,
-      lastChildId: cells[lastCell]?.cellId ?? null,
-      inlineContent: null,
-    }),
-  );
-
-  if (plan.prevRowId !== null) {
-    getYBlock(doc, plan.prevRowId, "insertTableRowSpanAware").set("nextSiblingId", plan.newRowId);
-  }
-  if (plan.nextRowId !== null) {
-    getYBlock(doc, plan.nextRowId, "insertTableRowSpanAware").set("prevSiblingId", plan.newRowId);
-  }
-  if (plan.prevRowId === null || plan.nextRowId === null) {
-    const yTable = getYBlock(doc, plan.tableId, "insertTableRowSpanAware");
-    if (plan.prevRowId === null) yTable.set("firstChildId", plan.newRowId);
-    if (plan.nextRowId === null) yTable.set("lastChildId", plan.newRowId);
-  }
-
-  // #487: re-write the table's `headerRowCount` (same tx) when the insert
-  // shifted it. `null` when unchanged.
+  // Spans are id ranges: a row inserted inside a vertical span is covered by it
+  // automatically (the planner's crossing bumps need no write). Cells go into the
+  // slots left uncovered, in column order.
+  insertRowEntry(doc, plan.tableId, plan.newRowId, plan.prevRowId);
+  implicitSlots(doc, plan.tableId, plan.newRowId).forEach((col, i) => {
+    const c = plan.newCells[i];
+    if (c !== undefined) createCell(doc, plan.newRowId, col, c.cellId, c.paragraphId);
+  });
   if (plan.headerAttrs !== null) {
     setBlockAttrsInTx(doc, plan.tableId, plan.headerAttrs, "insertTableRowSpanAware");
   }

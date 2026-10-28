@@ -14,7 +14,8 @@ const MAX_PARENT_WALK_STEPS = 1_000;
 
 /**
  * Resolve the `section` block governing the cursor's focus block, or null if
- * there is none.
+ * there is none (every main-body block sits in a section — the final
+ * one when there is no break —, so null means the caret is outside the main body).
  *
  * Sections are FLAT under the doc root (they never nest). The active section is
  * the doc-root child the focus sits under, IFF that child's `type === "section"`.

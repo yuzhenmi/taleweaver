@@ -41,7 +41,7 @@ import { isDevMode } from "@taleweaver/core";
  * the target's block-axis band), so the move THREADS it out to seed
  * `EditorState.caretAffinity` — without it, an offset-shared caret renders with
  * the default ("after"), which pins to the LATER line, so an ArrowUp across a
- * column/soft-wrap boundary would appear to do nothing (#500). For the common
+ * column/soft-wrap boundary would appear to do nothing. For the common
  * NON-boundary offset the affinity is the same value the caret would have anyway
  * (the offset is unambiguously on one line), so threading it is inert there.
  *
@@ -67,7 +67,7 @@ type LineMoveResult = {
  * it back as the `targetX` arg) so the caret remembers its column
  * across multiple up/down keystrokes. `caretAffinity` seeds
  * `EditorState.caretAffinity` so an offset shared across a soft-wrap / column
- * boundary renders on the line the move landed on (#500) — see `LineMoveResult`.
+ * boundary renders on the line the move landed on — see `LineMoveResult`.
  *
  * Edge cases:
  *   - At the topmost line moving up: return start-of-document
@@ -82,7 +82,7 @@ type LineMoveResult = {
  * resolved PER-PAGE: only the caret's page (+ at most one adjacent page
  * for a page-boundary crossing) is materialized via `getPage` — never
  * the whole document. This is what keeps the first arrow keypress after
- * an edit O(1 page) on a large doc instead of O(N_pages) (Phase 4).
+ * an edit O(1 page) on a large doc instead of O(N_pages).
  */
 export function moveToLine(
   state: State,
@@ -91,7 +91,7 @@ export function moveToLine(
   shaperOrMeasurer: TextShaper | TextMeasurer,
   direction: "up" | "down",
   targetX: number | null,
-  // #323: which page's header/footer SLOT instance the caret is on (view state).
+  // Which page's header/footer SLOT instance the caret is on (view state).
   // Threaded into the virtual-tree per-page resolution so a template-block
   // line-move stays on the page the user is editing (instead of jumping to the
   // body's first carrying page). `undefined` for a body caret / single-page.
@@ -115,11 +115,11 @@ export function moveToLine(
 /**
  * Positioned-tree line move (algorithm LineBox-canonical):
  *   1. Resolve current position to a PixelPosition for the initial inline-axis
- *      goal (`PixelPosition.x` is the INLINE-axis coord per the P3.5 contract).
- *   2. Use the WeakMap-cached doc-wide `LineIndex` (L-PERF-D) and find
+ *      goal (`PixelPosition.x` is the INLINE-axis coord per the writing-mode cursor contract).
+ *   2. Use the WeakMap-cached doc-wide `LineIndex` and find
  *      the current line via `findLineForPosition`.
  *   3. Pick the previous / next entry in the flat list (CONTEXT-FILTERED
- *      per #327 — only same-context lines are candidates).
+ *      — only same-context lines are candidates).
  *   4. Resolve the preserved inline-axis goal onto the adjacent line's
  *      block-axis band via `resolveTargetLine` (which projects to a physical
  *      click through the target line's axis map).
@@ -204,12 +204,12 @@ function moveToLineVirtual(
   const endPage = plan.pageIndexOfBlock(position.blockId);
   const span = plan.pageSpanOfBlock(position.blockId);
 
-  // #323: a header/footer SLOT (template) block isn't in `pageIndexOfBlock`
+  // A header/footer SLOT (template) block isn't in `pageIndexOfBlock`
   // (it's never a top-level body child). Resolve it per-page on the HINTED page
-  // (with the I1 empty-slot fallback) so a footer line-move stays O(1) on the
+  // (with the empty-slot fallback) so a footer line-move stays O(1) on the
   // page the user is editing instead of positioning the whole document. The footer
   // is single-line within its isolated slot context, so Up/Down is a no-op (the
-  // #327 context filter), but it must run on the right page.
+  // context filter), but it must run on the right page.
   if (endPage < 0) {
     const templatePage = resolveTemplateBlockPageWithLines(state, tree, position.blockId, caretPageHint);
     if (templatePage >= 0) {
@@ -217,7 +217,7 @@ function moveToLineVirtual(
     }
     // FOOTNOTE-body caret: resolve its slot page per-page (the body lives in the
     // embedContents tree, so neither `pageIndexOfBlock` nor the template resolver
-    // maps it). Up/Down is a no-op within the isolated footnote context (#327
+    // maps it). Up/Down is a no-op within the isolated footnote context (context
     // filter), but it must run on the right page.
     const footnotePage = resolveFootnoteBlockPage(state, tree, position);
     if (footnotePage >= 0) {
@@ -225,9 +225,9 @@ function moveToLineVirtual(
     }
     // TABLE-CELL (or any MAIN-tree block nested inside a top-level container):
     // walk up parentId to the page-mapped containing top-level block (the table)
-    // and move within its page (#495). Unlike the footnote/footer cases above, a
+    // and move within its page. Unlike the footnote/footer cases above, a
     // table cell is NOT an isolated context — `selectionContextOf` walks a cell
-    // paragraph up to `state.rootId`, so the #327 context filter spans the full
+    // paragraph up to `state.rootId`, so the context filter spans the full
     // main body and Up/Down navigates across cells + surrounding paragraphs (the
     // crash fix only ensures it resolves the right page, not table-aware nav).
     const nestedPage = resolveNestedMainTreeBlockPage(state, tree, position);
@@ -277,7 +277,7 @@ function moveToLineVirtual(
  * line above/below belongs to a different block, possibly on an adjacent page);
  * that crossing is delegated to `moveToLineOnPage` on the boundary fragment's
  * page, with the already-resolved goal-x passed as `targetX` so it is not
- * re-measured (and the same #327 context-filter / document-boundary rules apply).
+ * re-measured (and the same context-filter / document-boundary rules apply).
  */
 function moveToLineInSpanningBlock(
   state: State,
@@ -348,7 +348,7 @@ function moveToLineInSpanningBlock(
 
 /**
  * The per-page line-move body, shared by the main-body path (page = the caret's
- * own page) and the #323 template path (page = the resolved header/footer SLOT
+ * own page) and the template path (page = the resolved header/footer SLOT
  * page). `p` is the page the caret is currently on; the same context-filtered
  * adjacent-line walk runs, with the slot-context no-op rule and the body
  * adjacent-page continuation. The caret's X is measured on page `p` (passed as
@@ -369,9 +369,9 @@ function moveToLineOnPage(
   if (currentPixel === null) return null;
   const x = targetX ?? currentPixel.x;
 
-  // #327: constrain candidate lines to the caret's selection context — never
+  // Constrain candidate lines to the caret's selection context — never
   // cross the body↔header/footer (slot) boundary. The header/footer slot lines
-  // live in the SAME per-page index as the body lines (C.2c T6), so an
+  // live in the SAME per-page index as the body lines, so an
   // unfiltered ArrowUp from a page's top body line would step into the header.
   const caretContext = selectionContextOf(state, position.blockId);
   const filter = makeContextFilter(state, caretContext);
@@ -442,9 +442,9 @@ function moveToLineOnPage(
 }
 
 /**
- * #323 helper for line-nav: resolve which PAGE a header/footer template-block
+ * Helper for line-nav: resolve which PAGE a header/footer template-block
  * caret is on, then VERIFY the chosen page actually carries the block's lines —
- * applying the I1 empty-slot fallback (a hint at a page whose slot lacks this
+ * applying the empty-slot fallback (a hint at a page whose slot lacks this
  * body recomputes WITHOUT the hint). Returns the page that carries the block's
  * lines, or -1 if none does (the caller then tries the footnote resolver, else
  * degrades safely). Never positions the whole document — only `getPage` of the
@@ -460,7 +460,7 @@ function resolveTemplateBlockPageWithLines(
   if (page < 0) return -1;
   if (getLineIndex(tree.getPage(page)).byBlock.get(blockId)?.length) return page;
   if (caretPageHint !== undefined) {
-    // I1 STALE-FALLBACK: the hinted page's slot doesn't carry this body. Retry
+    // STALE-FALLBACK: the hinted page's slot doesn't carry this body. Retry
     // on the template-root default carrying page (no hint).
     const defaultPage = resolveTemplateBlockPage(state, tree.plan, blockId, undefined);
     if (defaultPage >= 0 && defaultPage !== page &&
@@ -514,9 +514,9 @@ function resolveTargetLine(
   target: AbsoluteLineBox,
 ): LineMoveResult | null {
   const am = axisMapFor(target.line.writingMode, target.line.computedStyle.direction);
-  // Multi-column slice 3b: clamp the preserved inline goal to the TARGET line's
-  // inline extent so the hit-test below lands on THIS line's column (after slice
-  // 3a the hit-test restricts candidates to the column containing the click; a
+  // Clamp the preserved inline goal to the TARGET line's
+  // inline extent so the hit-test below lands on THIS line's column (the hit-test
+  // restricts candidates to the column containing the click; a
   // cross-column move's raw goal X is the SOURCE column's X, which would re-pick
   // a SOURCE-column line at the target's block band). For single-column the goal
   // already lies within the full-width line (or the hit-test clamps identically),
@@ -539,7 +539,7 @@ function resolveTargetLine(
     : lineCoordOf(target, am.block);
   const clickX = am.inline === "x" ? inlineGoal : targetBlockCoord;
   const clickY = am.inline === "y" ? inlineGoal : targetBlockCoord;
-  // #500: THREAD the hit-test's caretAffinity out instead of discarding it. The
+  // THREAD the hit-test's caretAffinity out instead of discarding it. The
   // hit-test picked the TARGET line at the target's block-axis band, so the
   // affinity it returns pins the caret to THAT line — load-bearing when the
   // landed offset is SHARED across a soft-wrap / column boundary (the previous
@@ -605,7 +605,7 @@ export function moveToLineBoundary(
   layoutTree: LayoutBox | VirtualLayoutTree,
   _shaperOrMeasurer: TextShaper | TextMeasurer,
   boundary: "start" | "end",
-  // #323: which page's header/footer SLOT instance the caret is on (view state).
+  // Which page's header/footer SLOT instance the caret is on (view state).
   caretPageHint?: number,
 ): Position | null {
   const t = markStart("cursor.line-navigation.moveToLineBoundary");
@@ -632,8 +632,8 @@ export function moveToLineBoundary(
         return boundaryPositionOfLine(spanLine, boundary);
       }
       if (p < 0) {
-        // #323: a header/footer SLOT (template) block — resolve its page on the
-        // HINTED page (with the I1 empty-slot fallback) instead of falling to
+        // A header/footer SLOT (template) block — resolve its page on the
+        // HINTED page (with the empty-slot fallback) instead of falling to
         // whole-document positioning. Home/End stays inside the slot context (one LineBox).
         p = resolveTemplateBlockPageWithLines(state, layoutTree, position.blockId, caretPageHint);
         if (p < 0) {
@@ -643,7 +643,7 @@ export function moveToLineBoundary(
           if (p < 0) {
             // TABLE-CELL (or any MAIN-tree block nested in a top-level container):
             // walk up parentId to the page-mapped containing top-level block (the
-            // table) and run Home/End on its page (#495).
+            // table) and run Home/End on its page.
             p = resolveNestedMainTreeBlockPage(state, layoutTree, position);
           }
           if (p < 0) {

@@ -1,5 +1,6 @@
 import type { PageBox, LayoutBox } from "@taleweaver/print";
-import { sourceBlockIdOf, markerOwnerKey } from "@taleweaver/print";
+import { sourceBlockIdOf, markerOwnerKey, boundaryMarkRectOf, createMarkerBox } from "@taleweaver/print";
+import type { BoundaryMarkPlacement } from "@taleweaver/print";
 import { physicalBorderSides, isOpenableLinkUrl } from "@taleweaver/core";
 import { ContentStreamBuilder } from "./content-stream";
 import { pointYUp, rectYUp, PX_TO_PT } from "./coordinate";
@@ -17,7 +18,7 @@ export interface PageEmitDeps {
   /** Map a resolved image `imageKey` to its stable `/Imn` resource name. */
   readonly imageResourceName: (imageKey: string) => string;
   /**
-   * The set of block ids that are tagged structure leaves (#526 tagged PDF). When
+   * The set of block ids that are tagged structure leaves (tagged PDF). When
    * present, body-region content owned by a member id is wrapped in a marked-content
    * `/Span <</MCID n>> BDC … EMC` sequence and recorded in `PageEmitResult.structRefs`;
    * header/footer-region content is wrapped in `/Artifact … EMC` (excluded from the
@@ -67,7 +68,7 @@ export interface PageEmitResult {
    *  no internal links. Resolution to a concrete page/coords happens in emit-pdf
    *  (which holds the injected resolver). */
   readonly internalLinkRects: readonly { readonly targetId: string; readonly rect: readonly [number, number, number, number] }[];
-  /** One entry per marked-content sequence emitted on this page (#526 tagged PDF):
+  /** One entry per marked-content sequence emitted on this page (tagged PDF):
    *  the owning structure-leaf `blockId`, the `mcid` it was wrapped with, and
    *  whether the leaf is a list/footnote MARKER (`Lbl`) vs the block's own content.
    *  Drives the caller's `/StructTreeRoot` ParentTree + element construction.
@@ -152,12 +153,12 @@ function emitTextLeaf(
   const fontSize: number = cs.fontSize;
   const handle = deps.provider.resolveFont(cs);
   const encoded = deps.provider.encodeRun(handle, box.text);
-  // Register the handle as USED only when it actually emits glyphs. Adding it
-  // before the empty-cluster guard would let `usedHandleByKey` (which drives
-  // emitPdf's written font objects) diverge from the set of fonts that appear in
-  // a content stream — leaving an allocated-but-unreferenced font object. Keeping
-  // the add after the guard makes those two sets provably equal.
-  if (encoded.clusters.length === 0) return;
+  // A run with no SHOWN cluster (empty, all dropped, or only soft hyphens)
+  // paints nothing: return before registering the handle or opening a tagged
+  // sequence. `usedHandleByKey` drives emitPdf's written font objects, so
+  // registering only past this guard makes it equal to the set of fonts some
+  // content stream shows a glyph in — no unreferenced font object, no empty Span.
+  if (!encoded.clusters.some((c) => c.shown)) return;
   const key = handle.fontKey;
   if (!usedHandleByKey.has(key)) usedHandleByKey.set(key, handle);
 
@@ -178,7 +179,7 @@ function emitTextLeaf(
     prefix += a;
   }
 
-  // #526 tagged PDF — wrap the visible run (glyphs + decorations) in a
+  // Tagged PDF — wrap the visible run (glyphs + decorations) in a
   // marked-content sequence so AT can map painted content to structure.
   // A list/footnote MARKER routes to its OWNER block's structure element (its
   // `Lbl`); other text routes to the carried `ownerBlockId`. Header/footer
@@ -189,9 +190,11 @@ function emitTextLeaf(
   // `owner` is only consulted on the tagging-active path (it can route to a
   // tagged Span), so compute it only there — when untagged it is never read.
   const owner = ids !== undefined && box.type === "marker" ? markerOwnerKey(box.key) : ownerBlockId;
+  // A suggested-boundary ¶ (change tracking) is an editing annotation, not
+  // document content: an artifact, like header/footer content.
   const tagged = ids === undefined
     ? "none" as const
-    : region === "header" || region === "footer"
+    : region === "header" || region === "footer" || (box.type === "marker" && box.boundaryMark !== undefined)
       ? "artifact" as const
       : owner !== null && ids.has(owner)
         ? "span" as const
@@ -214,6 +217,7 @@ function emitTextLeaf(
     if (cluster === undefined || left === undefined || advance === undefined) {
       throw new Error(`page-emitter: cluster geometry at ${i} unexpectedly undefined`);
     }
+    if (!cluster.shown) continue;
     const leftEngineX = rtl
       ? absX + box.width - (left + advance)
       : absX + left;
@@ -221,11 +225,11 @@ function emitTextLeaf(
     builder.showTextAt(resourceName, fontSize, px, py, cluster.bytes);
   }
 
-  // Text decorations — text-run boxes only (markers carry no decorations).
-  // Thin 1px filled rects painted AFTER glyphs so they render on top.
-  // Mirrors canvas-renderer.ts:1475-1485 geometry exactly.
-  if (box.type === "text-run") {
-    if (box.link !== undefined && isOpenableLinkUrl(box.link)) {
+  // Text decorations — text runs and suggested-boundary ¶ glyphs (list /
+  // footnote markers carry none). Thin 1px filled rects painted AFTER glyphs so
+  // they render on top. Mirrors the canvas renderer's geometry exactly.
+  if (box.type === "text-run" || box.boundaryMark !== undefined) {
+    if (box.type === "text-run" && box.link !== undefined && isOpenableLinkUrl(box.link)) {
       const [lx, ly, lw, lh] = rectYUp(absX, absY, box.width, box.height, pageHeightPx);
       linkRects.push({ url: box.link, rect: [lx, ly, lx + lw, ly + lh] });
     }
@@ -242,7 +246,7 @@ function emitTextLeaf(
     }
   }
 
-  // Close the #526 marked-content sequence opened above (EMC after the last
+  // Close the marked-content sequence opened above (EMC after the last
   // glyph/decoration) and record the MCID↔block correlation for a tagged Span.
   if (tagged === "artifact") {
     builder.endArtifact();
@@ -301,13 +305,13 @@ function emitHorizontalRule(
  * Emit per-side border rects for a non-text-leaf box in the BACKGROUND phase.
  * Mirrors `canvas-renderer.ts:paintBorders`: each side is a solid filled rect
  * (dashed/dotted rendering is not implemented in the canvas renderer either —
- * v1 treats all styles as solid). Each side is only emitted when its width > 0
+ * all styles are treated as solid). Each side is only emitted when its width > 0
  * and its style is not "none".
  *
- * v1 simplification: inline-box fragments on soft-wrap line boundaries may
+ * Simplification: inline-box fragments on soft-wrap line boundaries may
  * suppress the left or right border in the canvas renderer
  * (`paintInlineBorders`). Here we emit all four sides for every box, including
- * inline boxes — inline-fragment border-edge suppression is a v1 omission.
+ * inline boxes — inline-fragment border-edge suppression is omitted.
  */
 function emitBoxBorders(
   box: LayoutBox,
@@ -444,7 +448,7 @@ function emitImage(
   const handle = deps.imageProvider?.resolveImage(img.src) ?? null;
   const [xPt, yBottomPt, wPt, hPt] = rectYUp(absX, absY, img.width, img.height, pageHeightPx);
 
-  // #526 tagged PDF — an image owned by a tagged structure leaf becomes a
+  // Tagged PDF — an image owned by a tagged structure leaf becomes a
   // /Figure-class Span (MCID + structRef); a header/footer image, OR any image
   // whose owner is NOT in `structureBlockIds` (e.g. a decorative/HR image the
   // controller dropped from the set), becomes an /Artifact so nothing paints
@@ -481,6 +485,92 @@ function emitImage(
   }
 }
 
+/**
+ * A tracked ¶, mirroring the canvas painter, clipped to its visible rect from the
+ * boundary-mark index (cell border box, column gap, page box, float margin box); a
+ * mark clipped away entirely is not emitted:
+ *  - ¶: the glyph (+ its underline / strike);
+ *  - section kind: a double dotted rule across the box (caret → line end) with the
+ *    label centred, underlined (insertion) / struck (join), in the author colour. In
+ *    vertical writing mode the rule runs along the strip; the label is omitted (the
+ *    PDF text path draws horizontal runs only).
+ * Both are artifacts (`emitTextLeaf` wraps a `boundaryMark` leaf in `/Artifact`
+ * when tagging is active; the rule is wrapped here).
+ */
+function emitBoundaryMark(
+  box: TextLeafBox,
+  placement: BoundaryMarkPlacement,
+  absX: number,
+  absY: number,
+  pageHeightPx: number,
+  builder: ContentStreamBuilder,
+  deps: PageEmitDeps,
+  usedHandleByKey: Map<string, PdfFontHandle>,
+  linkRects: { url: string; rect: [number, number, number, number] }[],
+  region: EmitRegion,
+  ownerBlockId: string | null,
+  mcidCounter: McidCounter,
+  structRefs: StructRef[],
+  page: PageBox,
+): void {
+  if (box.type !== "marker") return;
+  const indexed = boundaryMarkRectOf(page, box);
+  if (indexed === undefined) return;
+  // pdf paints untransformed: every clip (own and outer) applies in one flat frame.
+  let x0 = indexed.x;
+  let y0 = indexed.y;
+  let x1 = indexed.x + indexed.width;
+  let y1 = indexed.y + indexed.height;
+  for (const c of indexed.outerClips) {
+    x0 = Math.max(x0, c.x0);
+    y0 = Math.max(y0, c.y0);
+    x1 = Math.min(x1, c.x1);
+    y1 = Math.min(y1, c.y1);
+  }
+  if (x1 <= x0 || y1 <= y0) return;
+  const rect = { ...indexed, x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+  const clipped = rect.width < box.width || rect.height < box.height;
+  if (clipped) {
+    builder.saveState();
+    const [x, y, w, h] = rectYUp(absX + (rect.x - rect.glyphX), absY + (rect.y - rect.glyphY), rect.width, rect.height, pageHeightPx);
+    builder.clipRect(x, y, w, h);
+  }
+  const label = placement.labelInlineSize;
+  if (label === undefined) {
+    emitTextLeaf(box, absX, absY, pageHeightPx, builder, deps, usedHandleByKey, linkRects, region, ownerBlockId, mcidCounter, structRefs);
+  } else {
+    const fill = parseCssColor(box.computedStyle.color) ?? BLACK;
+    const vertical = box.writingMode !== "horizontal-tb";
+    const inlineSize = vertical ? box.height : box.width;
+    const mid = (vertical ? box.width : box.height) / 2;
+    const labelStart = Math.max(0, (inlineSize - label) / 2);
+    const GAP = 6;
+    const DOT = 2;
+    const tagged = deps.structureBlockIds !== undefined;
+    if (tagged) builder.beginArtifact();
+    for (let p = 0; p + DOT <= inlineSize; p += 2 * DOT) {
+      if (!vertical && p + DOT > labelStart - GAP && p < labelStart + label + GAP) continue;
+      for (const off of [-1.5, 1.5]) {
+        const [x, y, w, h] = vertical
+          ? rectYUp(absX + mid + off - 0.5, absY + p, 1, DOT, pageHeightPx)
+          : rectYUp(absX + p, absY + mid + off - 0.5, DOT, 1, pageHeightPx);
+        builder.fillRect(fill, x, y, w, h);
+      }
+    }
+    if (tagged) builder.endArtifact();
+    if (!vertical) {
+      // The label as its own leaf (its measured width), so `emitTextLeaf` spaces the
+      // glyphs and draws the decorations under the label only.
+      const labelBox = createMarkerBox(
+        box.key, 0, 0, label, box.height, box.writingMode, box.direction,
+        box.computedStyle, box.usedStyle, box.text, label, undefined, undefined, placement,
+      );
+      emitTextLeaf(labelBox, absX + labelStart, absY, pageHeightPx, builder, deps, usedHandleByKey, linkRects, region, ownerBlockId, mcidCounter, structRefs);
+    }
+  }
+  if (clipped) builder.restoreState();
+}
+
 function walk(
   box: LayoutBox,
   parentAbsX: number,
@@ -498,6 +588,7 @@ function walk(
   ownerBlockId: string | null,
   mcidCounter: McidCounter,
   structRefs: StructRef[],
+  page: PageBox,
 ): void {
   // Accumulate the box's absolute origin: parent-relative physical (x, y) plus
   // the optional `position: relative` paint-time delta — mirroring the canvas
@@ -506,13 +597,13 @@ function walk(
   const absX = parentAbsX + box.x + (rel !== undefined ? rel.dx : 0);
   const absY = parentAbsY + box.y + (rel !== undefined ? rel.dy : 0);
 
-  // #526 tagged PDF — carry the owning structure-leaf block id down the tree.
+  // Tagged PDF — carry the owning structure-leaf block id down the tree.
   // A LineBox stamps its `ownerBlockId` (the block whose IFC produced the line);
   // a BlockBox adopts its own source block id ONLY when that id is a tagged leaf
   // (so non-leaf container blocks don't shadow the line owner). The value flows
   // to `emitTextLeaf`/`emitImage`, which open the marked-content sequence.
   // Only consult `box.key` when tagging is active; the untagged path never reads
-  // it, keeping that path identical to the pre-#526 behavior.
+  // it, keeping that path identical to the untagged behavior.
   let childOwnerBlockId = ownerBlockId;
   if (deps.structureBlockIds !== undefined) {
     if (box.type === "line") {
@@ -539,6 +630,14 @@ function walk(
     }
   }
 
+  if (box.type === "marker" && box.boundaryMark !== undefined) {
+    // A tracked ¶ / section-break label (change tracking): an editing
+    // annotation, emitted foreground-only inside `/Artifact` marked content.
+    if (phase === "foreground") {
+      emitBoundaryMark(box, box.boundaryMark, absX, absY, pageHeightPx, builder, deps, usedHandleByKey, linkRects, region, ownerBlockId, mcidCounter, structRefs, page);
+    }
+    return;
+  }
   if (isTextLeaf(box)) {
     // Text leaves carry no in-flow children and no abs-pos descendants. Glyphs
     // are foreground-only; the background pass is a no-op for a text leaf.
@@ -569,9 +668,9 @@ function walk(
     emitTabLeader(box, absX, absY, pageHeightPx, builder);
   }
   if (box.type === "multicolumn") {
-    for (const col of box.columns) walk(col, absX, absY, pageHeightPx, phase, builder, deps, usedHandleByKey, usedImageByKey, linkRects, internalLinkRects, childInsideTocEntry, region, childOwnerBlockId, mcidCounter, structRefs);
+    for (const col of box.columns) walk(col, absX, absY, pageHeightPx, phase, builder, deps, usedHandleByKey, usedImageByKey, linkRects, internalLinkRects, childInsideTocEntry, region, childOwnerBlockId, mcidCounter, structRefs, page);
   } else if (hasChildren(box)) {
-    for (const child of box.children) walk(child, absX, absY, pageHeightPx, phase, builder, deps, usedHandleByKey, usedImageByKey, linkRects, internalLinkRects, childInsideTocEntry, region, childOwnerBlockId, mcidCounter, structRefs);
+    for (const child of box.children) walk(child, absX, absY, pageHeightPx, phase, builder, deps, usedHandleByKey, usedImageByKey, linkRects, internalLinkRects, childInsideTocEntry, region, childOwnerBlockId, mcidCounter, structRefs, page);
   }
   // `position: absolute` descendants are OUT of `children`; they live in
   // `absoluteChildren` and are positioned in THIS box's coordinate frame, so
@@ -579,7 +678,7 @@ function walk(
   // as the painter does. Document order: children/columns first, then abs.
   const absChildren = box.absoluteChildren;
   if (absChildren !== undefined) {
-    for (const ac of absChildren) walk(ac, absX, absY, pageHeightPx, phase, builder, deps, usedHandleByKey, usedImageByKey, linkRects, internalLinkRects, childInsideTocEntry, region, childOwnerBlockId, mcidCounter, structRefs);
+    for (const ac of absChildren) walk(ac, absX, absY, pageHeightPx, phase, builder, deps, usedHandleByKey, usedImageByKey, linkRects, internalLinkRects, childInsideTocEntry, region, childOwnerBlockId, mcidCounter, structRefs, page);
   }
 }
 
@@ -606,7 +705,7 @@ export function emitPageContent(page: PageBox, deps: PageEmitDeps): PageEmitResu
   const usedImageByKey = new Map<string, PdfImageHandle>();
   const linkRects: { url: string; rect: [number, number, number, number] }[] = [];
   const internalLinkRects: { targetId: string; rect: [number, number, number, number] }[] = [];
-  // #526 — one MCID allocator per page (starts at 0); one structRefs accumulator.
+  // One MCID allocator per page (starts at 0); one structRefs accumulator.
   const mcidCounter: McidCounter = { next: 0 };
   const structRefs: StructRef[] = [];
   const pageHeightPx = page.height;
@@ -632,7 +731,7 @@ export function emitPageContent(page: PageBox, deps: PageEmitDeps): PageEmitResu
         walk(
           r, 0, 0, pageHeightPx, phase, builder, deps,
           usedHandleByKey, usedImageByKey, linkRects, internalLinkRects, false,
-          group.region, null, mcidCounter, structRefs,
+          group.region, null, mcidCounter, structRefs, page,
         );
       }
     }

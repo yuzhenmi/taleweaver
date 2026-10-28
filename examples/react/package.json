@@ -23,7 +23,7 @@
     "react-dom": "^19",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.2.1",
-    "yjs": "~13.6.18"
+    "yjs": "13.6.30"
   },
   "devDependencies": {
     "@types/react": "^19",

@@ -1,3 +1,4 @@
+import { finalSectionOf } from "../../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import {
   createInitialEditorState,
@@ -24,7 +25,7 @@ function makeConfig(): EditorConfig {
 function textItems(
   editor: ReturnType<typeof createInitialEditorState>,
 ): TextItem[] {
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
   if (root === null || root.firstChildId === null) return [];
   const p = getBlock(editor.state, root.firstChildId);
   if (p === null || p.inlineContent === null) return [];
@@ -38,7 +39,7 @@ function selectAll(
   length: number,
   config: EditorConfig,
 ): ReturnType<typeof createInitialEditorState> {
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
   if (root === null || root.firstChildId === null) throw new Error("no para");
   const pId = root.firstChildId;
   return reduceEditor(

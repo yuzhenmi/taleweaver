@@ -114,7 +114,7 @@ describe("handleIndent — INDENT / OUTDENT actions", () => {
     expect(getBlock(editor.state, paraId)?.attrs.marginInlineStart).toBeUndefined();
   });
 
-  it("OUTDENT from 0: no-op (clamped — same editor reference via T7 identity)", () => {
+  it("OUTDENT from 0: no-op (clamped — same editor reference via the identity guard)", () => {
     const initial = createInitialEditorState(config);
     const editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" }, config);
     const paraId = firstChildId(editor.state) as BlockId;
@@ -211,7 +211,7 @@ describe("handleIndent — INDENT / OUTDENT actions", () => {
 
     const next = reduceEditor(editor, { type: "INDENT" }, config);
 
-    // Skipped → no marginInlineStart written, same editor reference (T7 identity).
+    // Skipped → no marginInlineStart written, same editor reference (identity guard).
     expect(next).toBe(editor);
     expect(getBlock(next.state, "li" as BlockId)?.attrs.marginInlineStart).toBeUndefined();
   });

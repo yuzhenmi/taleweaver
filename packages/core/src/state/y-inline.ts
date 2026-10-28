@@ -1,13 +1,13 @@
 /**
- * The inline storage of a leaf block: ONE `Y.Text` per block under the block's
- * `inlineContent` key. Text runs are characters carrying Yjs formatting
+ * The inline content of a leaf block: its region of the flow (see `block-text.ts`),
+ * written through the `InlineText` surface. Text runs are characters carrying Yjs formatting
  * attributes (the run's attrs); inline embeds are `insertEmbed` items whose
  * content is plain JSON `{ embedType, properties }` plus formatting attributes.
  * Block offsets count UTF-16 code units + 1 per embed — exactly `Y.Text`
  * indexing, so a `Position.offset` IS a `Y.Text` index.
  *
  * Every inline write goes through the offset primitives here
- * ({@link insertInlineItems} / {@link deleteInlineRange} / {@link formatInlineRange}):
+ * ({@link insertInlineItems} / {@link formatInlineRange}; deletion: `deleteUnits` in `flow-ops.ts`):
  * `format` never deletes characters, so formatting never changes a character's
  * CRDT identity, concurrent format/format and type/format converge without loss,
  * and an undo entry survives foreign formatting.
@@ -30,7 +30,7 @@ import type { ReadonlyAttrs } from "./attrs";
 import { attrsEqual, deepValueEqual } from "./attrs";
 import type { InlineContent, InlineItem, TextItem, EmbedItem } from "./inline-content";
 import { assertNoNestedYTypes } from "./y-utils";
-import { getTreeMaps } from "./yjs-doc";
+import type { InlineText } from "./block-text";
 import { isStructuralMarkerEmbedType } from "./embed-markers";
 import { nextGraphemeBoundary, prevGraphemeBoundary } from "../cursor/grapheme-utils";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
@@ -47,7 +47,7 @@ export class LegacyDocumentError extends Error {
   constructor(blockIds: readonly BlockId[]) {
     super(
       `Legacy inline storage in block(s) ${blockIds.map((id) => `"${id}"`).join(", ")}: ` +
-        `run upgradeDocument(doc) (single authority) before loading this document.`,
+        `bind the AttrRegistry (bindAttrRegistry), then run upgradeDocument(doc, { resolver }) (single authority) before loading this document.`,
     );
     this.name = "LegacyDocumentError";
     this.blockIds = blockIds;
@@ -73,56 +73,9 @@ export function followRedoneItem(doc: Y.Doc, id: Y.ID): Y.Item | null {
   return item instanceof Y.Item ? item : null;
 }
 
-/** True iff `value` (a block's `inlineContent` Y value) is the legacy run-array shape. */
+/** True iff `value` (a legacy block's `inlineContent` Y value) is the legacy run-array shape. */
 export function isLegacyInlineValue(value: unknown): value is Y.Array<unknown> {
   return value instanceof Y.Array;
-}
-
-/**
- * The block's inline `Y.Text`, or `null` for a container (`inlineContent === null`).
- * Throws {@link LegacyDocumentError} on the legacy shape and a plain error on any
- * other malformed value.
- */
-export function readYInline(yBlock: Y.Map<unknown>, blockId: BlockId): Y.Text | null {
-  const raw = yBlock.get("inlineContent");
-  if (raw === null) return null;
-  if (raw instanceof Y.Text) return raw;
-  if (isLegacyInlineValue(raw)) throw new LegacyDocumentError([blockId]);
-  throw new Error(`block "${blockId}": malformed inlineContent (expected Y.Text or null)`);
-}
-
-/**
- * Dev-mode post-op check over the blocks an op touched: each leaf's inline storage
- * is a `Y.Text` (no op wrote the run-array shape) and no Y.Text item holds a lone
- * surrogate (no op split a pair — every endpoint is grapheme-snapped). O(touched content).
- */
-export function assertInlineStorageInvariants(doc: Y.Doc, opName: string, blockIds: Iterable<BlockId>): void {
-  for (const id of blockIds) {
-    for (const tree of getTreeMaps(doc)) {
-      const yBlock = tree.get(id);
-      if (yBlock === undefined) continue;
-      const yText = readYInline(yBlock, id);
-      if (yText === null) break;
-      // Per Y.Text ITEM, not the joined text: a pair split across two items (two runs,
-      // or two same-attr items Yjs keeps apart) reads whole once joined, but each half
-      // is a lone surrogate in storage — Yjs splices it to U+FFFD on a later split.
-      for (let item = yText._start; item !== null; item = item.right) {
-        if (!item.deleted && item.content instanceof Y.ContentString && LONE_SURROGATE.test(item.content.str)) {
-          throw new Error(`${opName}: block "${id}" holds a lone surrogate (an offset split a pair)`);
-        }
-      }
-      break;
-    }
-  }
-}
-
-const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
-
-/** {@link readYInline} for a write path that requires a leaf. */
-export function requireYInline(yBlock: Y.Map<unknown>, blockId: BlockId, opName: string): Y.Text {
-  const yText = readYInline(yBlock, blockId);
-  if (yText === null) throw new Error(`${opName}: block "${blockId}" is not a leaf (no inlineContent)`);
-  return yText;
 }
 
 /**
@@ -179,7 +132,7 @@ function itemLength(item: InlineItem): number {
  * no canonicalization — the raw writer shared by the builders and
  * {@link insertInlineItems}). Each item carries its COMPLETE attrs.
  */
-function writeItems(yText: Y.Text, offset: number, items: ReadonlyArray<InlineItem>): void {
+function writeItems(yText: InlineText, offset: number, items: ReadonlyArray<InlineItem>): void {
   let at = offset;
   for (const item of items) {
     if (item.kind === "text") {
@@ -208,7 +161,7 @@ type DeltaOp = { insert?: unknown; attributes?: Record<string, unknown> };
  * structural marker embeds' attrs projected to their allowed (empty) set. Items are
  * NOT frozen (callers freeze for snapshots).
  */
-export function inlineItemsFromYText(yText: Y.Text): InlineItem[] {
+export function inlineItemsFromYText(yText: InlineText): InlineItem[] {
   const items: InlineItem[] = [];
   for (const op of yText.toDelta() as DeltaOp[]) {
     const attrs: Record<string, unknown> = {};
@@ -256,7 +209,7 @@ export function inlineItemsFromYText(yText: Y.Text): InlineItem[] {
 }
 
 /** Frozen snapshot form of {@link inlineItemsFromYText}. */
-export function inlineContentSnapshot(yText: Y.Text): InlineContent {
+export function inlineContentSnapshot(yText: InlineText): InlineContent {
   const items = inlineItemsFromYText(yText).map((item): InlineItem =>
     item.kind === "text"
       ? Object.freeze<TextItem>({ kind: "text", text: item.text, attrs: Object.freeze(item.attrs) })
@@ -391,7 +344,7 @@ function canonical(
  * offset actually used.
  */
 export function insertInlineItems(
-  yText: Y.Text,
+  yText: InlineText,
   offset: number,
   items: ReadonlyArray<InlineItem>,
   registry?: AttrRegistry,
@@ -414,7 +367,7 @@ export function insertInlineItems(
 
 /** Insert one text run (complete `attrs`) at `offset`. See {@link insertInlineItems}. */
 export function insertInlineText(
-  yText: Y.Text,
+  yText: InlineText,
   offset: number,
   text: string,
   attrs: ReadonlyAttrs,
@@ -425,16 +378,17 @@ export function insertInlineText(
 }
 
 /**
- * Replace `[start, end)` with one text run (complete `attrs`), given `live` — the
- * block's read model from the caller's ONE read. Callers applying several
- * replacements to one block go in DESCENDING order, so `live`'s offsets before each
- * replacement stay valid. The range is snapped OUT; the run is canonicalized
- * against its non-marker neighbours in `live` (a stale right neighbour of an
- * adjacent earlier replacement only offers a registry-equal candidate, so it can
- * change which equal value is stored, never the semantics).
+ * Write one text run (complete `attrs`) at `start` in place of `[start, end)`, which the
+ * caller has just deleted (`deleteUnits`). `live` is the block's read model from the
+ * caller's ONE read, before that deletion: the run is canonicalized against its
+ * non-marker neighbours there (left of `start`, right of `end`). Callers replacing
+ * several ranges of one block go in DESCENDING order, so `live`'s offsets before each
+ * replacement stay valid (a stale right neighbour of an adjacent earlier replacement
+ * only offers a registry-equal candidate: it can change which equal value is stored,
+ * never the semantics).
  */
-export function replaceInlineText(
-  yText: Y.Text,
+export function writeReplacementText(
+  yText: InlineText,
   live: ReadonlyArray<InlineItem>,
   start: number,
   end: number,
@@ -442,17 +396,9 @@ export function replaceInlineText(
   attrs: ReadonlyAttrs,
   registry?: AttrRegistry,
 ): void {
-  const [s, e] = snapRange(live, start, end);
-  if (e > s) yText.delete(s, e - s);
   if (text.length === 0) return;
-  const stored = canonical(attrs, [neighbourAttrs(live, s, -1), neighbourAttrs(live, e, 1)], registry);
-  writeItems(yText, s, [{ kind: "text", text, attrs: stored }]);
-}
-
-/** Delete `[start, end)` (snapped OUT to grapheme boundaries, clamped). */
-export function deleteInlineRange(yText: Y.Text, start: number, end: number): void {
-  const [s, e] = snapRange(inlineItemsFromYText(yText), start, end);
-  if (e > s) yText.delete(s, e - s);
+  const stored = canonical(attrs, [neighbourAttrs(live, start, -1), neighbourAttrs(live, end, 1)], registry);
+  writeItems(yText, start, [{ kind: "text", text, attrs: stored }]);
 }
 
 /** True iff applying `yDelta` to `attrs` changes something (registry-aware equality). */
@@ -480,7 +426,7 @@ function deltaChanges(attrs: ReadonlyAttrs, yDelta: Readonly<Record<string, unkn
  * event, no dirty block).
  */
 export function formatInlineRange(
-  yText: Y.Text,
+  yText: InlineText,
   start: number,
   end: number,
   delta: ReadonlyAttrs,

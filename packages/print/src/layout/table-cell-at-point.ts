@@ -17,7 +17,7 @@ export interface LocatedTableCell {
  *
  * Tests each positioned cell's physical rect directly rather than the §17.5
  * occupancy grid: a spanning cell's box already covers its full merged region
- * (rowSpan height / colSpan width from S2/S3) and cell rects tile the table
+ * (rowSpan height / colSpan width) and cell rects tile the table
  * without overlap, so the first cell whose rect contains the point is the owner —
  * including a point in a rowSpan cell's lower region or a colSpan cell's trailing
  * region. Using physical rects keeps this writing-mode-agnostic (the vertical-rl

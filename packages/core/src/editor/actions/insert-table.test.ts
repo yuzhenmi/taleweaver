@@ -6,6 +6,7 @@
  * Behavior-level tests through `reduceEditor`: insertion semantics (empty doc /
  * mid-paragraph split), one-undo-step, body-context refusal, and range-replace.
  */
+import { finalSectionOf } from "../../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import {
   config,
@@ -19,7 +20,7 @@ import type { BlockId } from "../../state";
 
 /** The id of the first body paragraph under the document root. */
 function bodyParaId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
   const id = root?.firstChildId;
   if (id === undefined || id === null) throw new Error("document root has no first child");
   return id;
@@ -28,7 +29,7 @@ function bodyParaId(editor: EditorState): BlockId {
 /** The ordered block types of the document root's direct children. */
 function topLevelTypes(editor: EditorState): string[] {
   const out: string[] = [];
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
   for (let id = root?.firstChildId ?? null; id !== null; id = getBlock(editor.state, id)?.nextSiblingId ?? null) {
     out.push(getBlock(editor.state, id)?.type ?? "?");
   }
@@ -50,7 +51,7 @@ function ancestorTypes(editor: EditorState, blockId: BlockId): string[] {
 
 /** The single table block among the root's children (throws if not exactly one). */
 function theTableId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
   let found: BlockId | null = null;
   for (let id = root?.firstChildId ?? null; id !== null; id = getBlock(editor.state, id)?.nextSiblingId ?? null) {
     if (getBlock(editor.state, id)?.type === "table") {
@@ -108,11 +109,11 @@ describe("handleInsertTable — INSERT_TABLE", () => {
     );
 
     const next = reduceEditor(placed, { type: "INSERT_TABLE", rows: 2, cols: 2 }, config);
-    // "abc" | table | "def".
+    // "abc" | table | "def". The head "abc" is the new block; the
+    // caret's paragraph keeps the tail "def" (and its ¶) after the table.
     expect(topLevelTypes(next)).toEqual(["paragraph", "table", "paragraph"]);
-    expect(getTextOf(next.state, paraId)).toBe("abc");
-    const lastPara = getBlock(next.state, getBlock(next.state, next.state.rootId)?.lastChildId as BlockId);
-    expect(lastPara?.type).toBe("paragraph");
+    expect(getTextOf(next.state, paraId)).toBe("def");
+    expect(getTextOf(next.state, bodyParaId(next))).toBe("abc");
     // caret in cell (0,0).
     expect(ancestorTypes(next, next.selection.focus.blockId).slice(0, 2)).toEqual([
       "paragraph",
@@ -149,8 +150,9 @@ describe("handleInsertTable — INSERT_TABLE", () => {
     );
 
     const next = reduceEditor(placed, { type: "INSERT_TABLE", rows: 1, cols: 1 }, config);
-    // "cd" deleted → "ab" | table | "ef".
-    expect(getTextOf(next.state, paraId)).toBe("ab");
+    // "cd" deleted → "ab" | table | "ef" (the head "ab" is the new block).
+    expect(getTextOf(next.state, paraId)).toBe("ef");
+    expect(getTextOf(next.state, bodyParaId(next))).toBe("ab");
     expect(topLevelTypes(next)).toEqual(["paragraph", "table", "paragraph"]);
 
     // ONE undo restores "abcdef" AND removes the table.

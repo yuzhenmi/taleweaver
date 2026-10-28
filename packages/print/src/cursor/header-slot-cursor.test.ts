@@ -27,6 +27,7 @@ import { createDefaultComponentRegistry } from "@taleweaver/core";
 import { createDefaultAttrRegistry } from "@taleweaver/core";
 import { buildBlockFitMetas } from "../layout/build-fit-metas";
 import { measurePass, type PagePlan, type PagePlanEntry } from "../layout/measure-pass";
+import { flattenContents } from "../layout/group-children";
 import { IMPLICIT_SECTION_PLAN } from "../layout/section-plan";
 import { makeRootContext } from "../layout/layout-context";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
@@ -71,13 +72,23 @@ function pageConfig(): PageConfig {
   };
 }
 
-// The header/footer body is a SINGLE-PARAGRAPH root: the body root block IS the
-// content-bearing paragraph (no wrapping container). This matches the T8 body
-// shape — `blockId === root` — so the slot caret's `position.blockId` equals the
-// id `pageIndexOfTemplateBlock` maps (the slot ROOT). #323: per-page caret
-// instance is a follow-up; the slot caret resolves to the FIRST page.
+// The header/footer body is a `template-body` container root (a tree root is
+// always a container) holding ONE paragraph — the shape `insertTemplateBody`
+// creates. The plan tags the slot ROOT; a caret in the paragraph reaches the
+// slot's page through its root. #323: per-page caret instance is a follow-up;
+// the slot caret resolves to the FIRST page.
 const HEADER_ROOT = "hdr-root" as BlockId;
 const FOOTER_ROOT = "ftr-root" as BlockId;
+const HEADER_P = "hdr-p" as BlockId;
+const FOOTER_P = "ftr-p" as BlockId;
+
+/** A `template-body` root holding one paragraph of `content`. */
+function templateBody(root: BlockId, para: BlockId, content: string) {
+  return [
+    buildBlock({ id: root, type: "template-body", firstChildId: para, lastChildId: para }),
+    buildBlock({ id: para, type: "paragraph", parentId: root, inlineContent: inlineContent([text(content)]) }),
+  ];
+}
 
 interface Built {
   state: State;
@@ -96,22 +107,8 @@ function buildDocWithHeader(opts: {
   headerText: string;
   footerText?: string;
 }): Built {
-  const templateBlocks = [
-    buildBlock({
-      id: HEADER_ROOT,
-      type: "paragraph",
-      inlineContent: inlineContent([text(opts.headerText)]),
-    }),
-  ];
-  if (opts.footerText !== undefined) {
-    templateBlocks.push(
-      buildBlock({
-        id: FOOTER_ROOT,
-        type: "paragraph",
-        inlineContent: inlineContent([text(opts.footerText)]),
-      }),
-    );
-  }
+  const templateBlocks = templateBody(HEADER_ROOT, HEADER_P, opts.headerText);
+  if (opts.footerText !== undefined) templateBlocks.push(...templateBody(FOOTER_ROOT, FOOTER_P, opts.footerText));
 
   const state = buildState({
     rootId: "doc",
@@ -143,7 +140,7 @@ function buildDocWithHeader(opts: {
   const shaper = createMockShaper(SHAPER_CHAR_W, SHAPER_LINE_H);
   const pcis = cfg.pageInlineSize - cfg.pageMargins.inlineStart - cfg.pageMargins.inlineEnd;
   const metas = buildBlockFitMetas(cascadedRoot, shaper, undefined, pcis);
-  const basePlan = measurePass(metas, cfg, IMPLICIT_SECTION_PLAN, cascadedRoot.children);
+  const basePlan = measurePass(metas, cfg, IMPLICIT_SECTION_PLAN, flattenContents(cascadedRoot.children));
   // Tag page 0 with header/footer ids (this is what the section plan does in
   // production; here we set it directly so the slot is materialized).
   const plan = planWithEntries(basePlan, (e) =>
@@ -230,7 +227,7 @@ describe("C.2c T6 — hit-test into the header band", () => {
     const positioned = positionTreeForTest(virtual);
 
     // Find the header line's geometry to click on it precisely.
-    const hdrLines = getLineIndex(positioned).byBlock.get(HEADER_ROOT) ?? [];
+    const hdrLines = getLineIndex(positioned).byBlock.get(HEADER_P) ?? [];
     expect(hdrLines.length).toBe(1);
     const hdrLine = nth(hdrLines, 0, "header line");
     // The header is in the TOP margin band (y near 0, well above the body).
@@ -241,14 +238,14 @@ describe("C.2c T6 — hit-test into the header band", () => {
     const atStart = resolvePositionFromPixel(state, positioned, shaper, 0.1, yInHeader);
     expect(atStart).not.toBeNull();
     if (atStart === null) return;
-    expect(atStart.blockId).toBe(HEADER_ROOT);
+    expect(atStart.blockId).toBe(HEADER_P);
     expect(atStart.offset).toBe(0);
 
     // Click at x=24 (3 chars * 8px) → offset 3 of the header.
     const atMid = resolvePositionFromPixel(state, positioned, shaper, 24, yInHeader);
     expect(atMid).not.toBeNull();
     if (atMid === null) return;
-    expect(atMid.blockId).toBe(HEADER_ROOT);
+    expect(atMid.blockId).toBe(HEADER_P);
     expect(atMid.offset).toBe(3);
   });
 
@@ -277,7 +274,7 @@ describe("C.2c T6 — caret (position→pixel) into the header slot", () => {
       headerText: "header",
     });
 
-    const pos = createPosition(HEADER_ROOT, 3);
+    const pos = createPosition(HEADER_P, 3);
     const got = resolvePixelPosition(state, pos, virtual, shaper);
     expect(got).not.toBeNull();
     if (got === null) return;
@@ -295,7 +292,7 @@ describe("C.2c T6 — caret (position→pixel) into the header slot", () => {
     });
     const positioned = positionTreeForTest(virtual);
     for (const offset of [0, 2, 6]) {
-      const pos = createPosition(HEADER_ROOT, offset);
+      const pos = createPosition(HEADER_P, offset);
       const got = resolvePixelPosition(state, pos, virtual, shaper);
       const oracle = resolvePixelPosition(state, pos, positioned, shaper);
       expect(got, `offset ${offset}`).toEqual(oracle);
@@ -310,7 +307,7 @@ describe("C.2c T6 — caret (position→pixel) into the header slot", () => {
     // Fresh, unmaterialized tree: a slot caret must drive exactly ONE per-page
     // layoutBlock call (page 0 via the fast path), NOT the whole document.
     __resetGetPageDriverCountForTest();
-    const pos = createPosition(HEADER_ROOT, 2);
+    const pos = createPosition(HEADER_P, 2);
     const got = resolvePixelPosition(state, pos, virtual, shaper);
     expect(got).not.toBeNull();
     expect(__getGetPageDriverCountForTest()).toBe(1);
@@ -327,8 +324,8 @@ describe("C.2c T6 — selection-geometry into the header slot", () => {
 
     // Select "head" (offset 0..4) within the header.
     const span = createSpan(
-      createPosition(HEADER_ROOT, 0),
-      createPosition(HEADER_ROOT, 4),
+      createPosition(HEADER_P, 0),
+      createPosition(HEADER_P, 4),
     );
     const rects = computeSelectionRects(state, span, positioned, shaper);
     expect(rects.length).toBeGreaterThan(0);

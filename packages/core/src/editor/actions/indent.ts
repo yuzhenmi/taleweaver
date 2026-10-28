@@ -46,7 +46,7 @@ export const MIN_INDENT_CONTENT_WIDTH = 96;
  *
  * No-op (return the input `editor` unchanged, never calling `history.commit`):
  *  - No target leaf changed (the running state is still `editor.state`) — the
- *    T7 identity guard. (Notably: OUTDENT when every target is already at 0.)
+ *    identity guard. (Notably: OUTDENT when every target is already at 0.)
  *
  * Selection is UNCHANGED: indent is a block-geometry change, not a caret move.
  */
@@ -92,7 +92,6 @@ export function handleIndent(
       state,
       blockId,
       { marginInlineStart: nextValue },
-      config.attrRegistry,
     );
     // No-op merge (value unchanged): same state ref → skip.
     if (result.state === state) continue;
@@ -100,7 +99,7 @@ export function handleIndent(
     for (const id of result.dirtyIds) dirtyIds.add(id);
   }
 
-  // T7 identity contract: nothing changed → return the input editor unchanged.
+  // the identity-no-op contract: nothing changed → return the input editor unchanged.
   // (`history.commit` is itself no-op-safe.)
   if (state === editor.state) return editor;
 

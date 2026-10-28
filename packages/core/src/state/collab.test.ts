@@ -115,7 +115,7 @@ describe("subscribeForeignChanges (collab seam)", () => {
 });
 
 describe("subscribeForeignChanges — legacy storage halts the subscription until compatible", () => {
-  it("reports legacy once, withholds changes while halted, then calls onCompatible once the document is upgraded", () => {
+  it("a peer write into the FROZEN legacy roots halts once (sticky) with the touched block and its legacy text", () => {
     const state = makeState();
     const doc = state[STATE_INTERNAL].doc;
     const events: string[] = [];
@@ -123,19 +123,17 @@ describe("subscribeForeignChanges — legacy storage halts the subscription unti
       state,
       "self",
       (ids) => events.push(`change:${[...ids].join(",")}`),
-      (ids) => events.push(`incompatible:${ids.join(",")}`),
+      (report) => events.push(`incompatible:${report.reason}:${report.legacyBlocks.join(",")}:${JSON.stringify(report.legacyText)}`),
       () => events.push("compatible"),
     );
-    const setInline = (value: unknown): void => {
-      doc.transact(() => getYBlock(doc, asBlockId("p"), "collab-test").set("inlineContent", value), "peer");
-    };
-    setInline(legacyInline([text("old")]));
-    doc.transact(() => getYBlock(doc, asBlockId("p"), "collab-test").set("type", "heading"), "peer"); // still legacy: withheld, no second report
-    const upgraded = new Y.Text();
-    upgraded.insert(0, "new");
-    setInline(upgraded); // the document is compatible again
-    editBlockP(state, "peer"); // reported normally
-    expect(events).toEqual(["incompatible:p", "compatible", "change:p"]);
+    // An old (schema-2) client writes block "p" into its legacy `blocks` root.
+    doc.transact(() => {
+      const legacy = new Y.Map<unknown>();
+      legacy.set("inlineContent", legacyInline([text("old")]));
+      doc.getMap<Y.Map<unknown>>("blocks").set("p", legacy);
+    }, "peer");
+    editBlockP(state, "peer"); // halted: withheld, no second report
+    expect(events).toEqual(['incompatible:legacy-write:p:{"p":"old"}']);
     unsub();
   });
 

@@ -26,6 +26,9 @@ import * as canvasRenderer from "./canvas-renderer";
 import * as keyHandler from "./key-handler";
 import * as core from "@taleweaver/core";
 import * as printPkg from "./index";
+import { createDefaultComponentRegistry } from "@taleweaver/core";
+
+const TEST_RESOLVER = createDefaultComponentRegistry();
 
 /** A capturing stub emitter: records the `PrintPdfEmitInput` and returns minimal
  *  `%PDF`-prefixed bytes so `exportToPdf`'s return contract stays observable
@@ -210,7 +213,7 @@ function buildRealPaginatedEditorState(): {
   const probe = core.buildDocumentFromTree(
     buildTree(null),
     {},
-    core.createTestAllocator("probe"),
+    core.createTestAllocator("probe"), TEST_RESOLVER
   );
   let conclusionId: core.BlockId | null = null;
   let cursor = core.firstLeafBlock(probe, probe.rootId);
@@ -234,7 +237,7 @@ function buildRealPaginatedEditorState(): {
   const state = core.buildDocumentFromTree(
     buildTree(conclusionId),
     {},
-    core.createTestAllocator("probe"),
+    core.createTestAllocator("probe"), TEST_RESOLVER
   );
   const selection = core.initialSelectionForState(state);
   const editorState = core.createEditorStateFromState(state, selection, config);
@@ -425,7 +428,7 @@ describe("controller.exportToPdf", () => {
         },
       ],
     };
-    const state = core.buildDocumentFromTree(tree, {}, core.createTestAllocator("lang"));
+    const state = core.buildDocumentFromTree(tree, {}, core.createTestAllocator("lang"), TEST_RESOLVER);
     const selection = core.initialSelectionForState(state);
     const editorState = core.createEditorStateFromState(state, selection, config);
 

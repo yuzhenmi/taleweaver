@@ -4,9 +4,8 @@ import { applyOperation, resolveBlock } from "../state";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { Position } from "../block-position";
 import { createPosition } from "../block-position";
-import { inlineContentLength } from "../inline-content";
-import { getBlocksMap, getYBlock, requireInTransaction } from "../yjs-doc";
-import { buildYBlock } from "../y-block";
+import { requireInTransaction } from "../yjs-doc";
+import { insertChildren, type TreeNode } from "../flow-ops";
 import { assertNoIdCollision } from "../id-collision-check";
 import {
   planSplitBlockAtPosition,
@@ -105,8 +104,8 @@ export function buildTableSubtreePlan(
  * Insertion is BLOCK-level (a table is a sibling of paragraphs), resolved to
  * the nearest block boundary of the caret's block:
  *   - caret at block START (offset 0) → table BEFORE the block;
- *   - caret at block END (offset === length) → table AFTER the block;
- *   - caret MID-block → SPLIT the block at the offset, table BETWEEN the halves.
+ *   - caret at offset k > 0 → a ¶ ends the head at the caret, then the table:
+ *     head (new id), table, tail (the caret's block — empty at the end).
  *
  * One `applyOperation` transaction (the optional split + the whole subtree +
  * the splice) → one undo entry. Returns `OperationResult` plus:
@@ -116,7 +115,7 @@ export function buildTableSubtreePlan(
  * MAIN-TREE only: the caret block must live in the main document tree. A caret
  * in a footnote/header/footer body throws a clear "main-body only" error; the
  * editor handler also refuses those contexts before calling this (tables there
- * are out of scope in v1).
+ * are out of scope).
  *
  * Throws if the caret block does not exist, is in a non-main-tree body, is a
  * container (non-leaf), is the root (no parent to host a sibling), or if
@@ -150,8 +149,8 @@ export function planCreateTable(
   allocator: IdAllocator,
 ): CreateTablePlan {
   // Resolve across all trees so a footnote/header/footer-body caret yields a
-  // clear "main-body only" error rather than a misleading "not found" (the v1
-  // body-context refusal also lives in the T2 editor handler, but the op states
+  // clear "main-body only" error rather than a misleading "not found" (the
+  // body-context refusal also lives in the editor handler, but the op states
   // its own MAIN-TREE precondition explicitly).
   const resolved = resolveBlock(state, caretPosition.blockId);
   if (resolved === null) {
@@ -160,7 +159,7 @@ export function planCreateTable(
   if (resolved.kind !== "block") {
     throw new Error(
       `createTable: block "${caretPosition.blockId}" is in a ${resolved.kind} body; ` +
-        `tables are supported in the main document body only (v1)`,
+        `tables are supported in the main document body only`,
     );
   }
   const block = resolved.block;
@@ -175,8 +174,6 @@ export function planCreateTable(
     );
   }
 
-  const length = inlineContentLength(block.inlineContent);
-
   // Resolve the block-boundary insertion case. The split (if any) is planned
   // BEFORE the subtree so the canonical split errors win, and so allocation
   // order is deterministic.
@@ -184,18 +181,15 @@ export function planCreateTable(
   let afterId: BlockId | null;
   let beforeId: BlockId | null;
   if (caretPosition.offset <= 0) {
-    // START: table before the caret's block.
+    // START: only the table item is written, before the caret's block.
     afterId = block.prevSiblingId;
     beforeId = caretPosition.blockId;
-  } else if (caretPosition.offset >= length) {
-    // END: table after the caret's block.
-    afterId = caretPosition.blockId;
-    beforeId = block.nextSiblingId;
   } else {
-    // MID: split, table between the prefix (kept id) and the new suffix block.
+    // k > 0: a ¶ ends the head at the caret, then the table: head H,
+    // table, tail = the caret's block (empty when k = len).
     split = planSplitBlockAtPosition(state, caretPosition, allocator);
-    afterId = caretPosition.blockId;
-    beforeId = split.newBlockId;
+    afterId = split.newBlockId;
+    beforeId = caretPosition.blockId;
   }
 
   const subtree = buildTableSubtreePlan(rows, cols, allocator);
@@ -230,7 +224,6 @@ export function createTableInTx(doc: Y.Doc, plan: CreateTablePlan): void {
     splitBlockAtPositionInTx(doc, plan.split);
   }
 
-  const blocksMap = getBlocksMap(doc);
   const { tableId, columnWidths, rows } = plan.subtree;
 
   // Dev-mode defense against allocator id collision (every fresh id).
@@ -244,89 +237,25 @@ export function createTableInTx(doc: Y.Doc, plan: CreateTablePlan): void {
   }
 
   // 2. Materialize the subtree (cells + paragraphs + rows), then the table.
-  const lastRow = rows.length - 1;
-  for (const [r, row] of rows.entries()) {
-    const lastCell = row.cells.length - 1;
-    for (const [c, cell] of row.cells.entries()) {
-      const { cellId, paragraphId } = cell;
-      const prevCell = row.cells[c - 1];
-      const nextCell = row.cells[c + 1];
-      blocksMap.set(
-        cellId,
-        buildYBlock({
-          type: "table-cell",
-          attrs: {},
-          parentId: row.rowId,
-          prevSiblingId: c === 0 ? null : (prevCell?.cellId ?? null),
-          nextSiblingId: c === lastCell ? null : (nextCell?.cellId ?? null),
-          firstChildId: paragraphId,
-          lastChildId: paragraphId,
-          inlineContent: null,
-        }),
-      );
-      blocksMap.set(
-        paragraphId,
-        buildYBlock({
-          type: "paragraph",
-          attrs: {},
-          parentId: cellId,
-          prevSiblingId: null,
-          nextSiblingId: null,
-          firstChildId: null,
-          lastChildId: null,
-          inlineContent: { items: [] },
-        }),
-      );
-    }
-    const prevRow = rows[r - 1];
-    const nextRow = rows[r + 1];
-    const rowFirstCell = row.cells[0];
-    const rowLastCell = row.cells[lastCell];
-    if (rowFirstCell === undefined || rowLastCell === undefined) {
-      throw new Error(`createTable: row ${r} has no cells (unreachable)`);
-    }
-    blocksMap.set(
-      row.rowId,
-      buildYBlock({
-        type: "table-row",
-        attrs: {},
-        parentId: tableId,
-        prevSiblingId: r === 0 ? null : (prevRow?.rowId ?? null),
-        nextSiblingId: r === lastRow ? null : (nextRow?.rowId ?? null),
-        firstChildId: rowFirstCell.cellId,
-        lastChildId: rowLastCell.cellId,
-        inlineContent: null,
-      }),
-    );
-  }
-  const tableFirstRow = rows[0];
-  const tableLastRow = rows[lastRow];
-  if (tableFirstRow === undefined || tableLastRow === undefined) {
-    throw new Error("createTable: table has no rows (unreachable)");
-  }
-  blocksMap.set(
-    tableId,
-    buildYBlock({
-      type: "table",
-      attrs: { columnWidths: [...columnWidths] },
-      parentId: plan.parentId,
-      prevSiblingId: plan.afterId,
-      nextSiblingId: plan.beforeId,
-      firstChildId: tableFirstRow.rowId,
-      lastChildId: tableLastRow.rowId,
+  const node: TreeNode = {
+    id: tableId,
+    type: "table",
+    attrs: { columnWidths: [...columnWidths] },
+    inlineContent: null,
+    children: rows.map((row) => ({
+      id: row.rowId,
+      type: "table-row",
+      attrs: {},
       inlineContent: null,
-    }),
-  );
-
-  // 3. Splice the table into the parent's child chain between afterId/beforeId.
-  if (plan.afterId !== null) {
-    getYBlock(doc, plan.afterId, "createTable").set("nextSiblingId", tableId);
-  } else {
-    getYBlock(doc, plan.parentId, "createTable").set("firstChildId", tableId);
-  }
-  if (plan.beforeId !== null) {
-    getYBlock(doc, plan.beforeId, "createTable").set("prevSiblingId", tableId);
-  } else {
-    getYBlock(doc, plan.parentId, "createTable").set("lastChildId", tableId);
-  }
+      children: row.cells.map((cell) => ({
+        id: cell.cellId,
+        type: "table-cell",
+        attrs: {},
+        inlineContent: null,
+        children: [{ id: cell.paragraphId, type: "paragraph", attrs: {}, inlineContent: { items: [] }, children: [] }],
+      })),
+    })),
+  };
+  // The table mark goes after `afterId` (or first in the parent).
+  insertChildren(doc, plan.parentId, plan.afterId, [node], "block");
 }

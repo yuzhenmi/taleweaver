@@ -21,10 +21,10 @@ import { storeTypingAttrs } from "../typing-attrs";
  * Mirrors set-text-color.ts exactly, but instead of setting one attr it sets
  * EVERY inline-format key to `undefined` (which `mergeAttrs` interprets as a
  * removal). At a collapsed caret the next typed text is made unformatted
- * (pending typing attrs, `storeTypingAttrs`); the T7 state-equality short-circuit also covers an
+ * (pending typing attrs, `storeTypingAttrs`); the state-equality short-circuit also covers an
  * already-clean selection (no attrs removed → no state change → no history
  * entry). The selection is preserved unchanged; dirtyIds threaded
- * through to the incremental render pipeline (per R-D.3).
+ * through to the incremental render pipeline.
  */
 export function handleClearFormatting(
   editor: EditorState,
@@ -41,7 +41,7 @@ export function handleClearFormatting(
     incoming[key] = undefined;
   }
   // Collapsed caret: the next typed text is unformatted (typing attrs).
-  if (isCollapsed(selection)) return storeTypingAttrs(editor, incoming, config.attrRegistry);
+  if (isCollapsed(selection)) return storeTypingAttrs(editor, incoming);
   const result = applyAttrsOrSuggest(editor.state, selection, incoming, config);
   // No attr was actually present to remove → no state change → no-op
   // (also short-circuits an already-clean selection, no history entry).

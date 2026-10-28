@@ -3,14 +3,12 @@ import type { Span } from "./block-position";
 import { iterateSpan } from "./span-iteration";
 import type { InlineItem, EmbedItem } from "./inline-content";
 import { COMMENT_START_EMBED_TYPE, COMMENT_END_EMBED_TYPE } from "./comments";
+import { BOOKMARK_START_EMBED_TYPE, BOOKMARK_END_EMBED_TYPE } from "./bookmarks";
 import { PAGE_FIELD_EMBED_TYPE } from "./page-field";
 import { HARD_BREAK_EMBED_TYPE } from "./hard-break";
-import {
-  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
-  BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
-  itemVisibleInView,
-  blockBoundaryMergesInView,
-} from "./suggestions";
+import { itemVisibleInView } from "./suggestions";
+import { boundaryMergesInView } from "./break-suggestions";
+import type { Block } from "./block";
 import type { SuggestionView } from "./suggestions";
 
 /** Object Replacement Character — represents an embed in extracted text. */
@@ -49,10 +47,9 @@ export const builtinEmbedSerializer: EmbedSerializer = (item) => {
       return "\t";
     case COMMENT_START_EMBED_TYPE:
     case COMMENT_END_EMBED_TYPE:
-    case BLOCK_JOIN_SUGGESTION_EMBED_TYPE:
-    case BLOCK_SPLIT_SUGGESTION_EMBED_TYPE:
-      // Comment-range markers AND change-tracking break-suggestion embeds are
-      // zero-width anchors — they must NOT emit the U+FFFC EMBED_CHAR into
+    case BOOKMARK_START_EMBED_TYPE:
+    case BOOKMARK_END_EMBED_TYPE:
+      // Comment-range markers are zero-width anchors — they must NOT emit the U+FFFC EMBED_CHAR into
       // extractText / getWordCount / clipboard. They still occupy one Position
       // offset in the document model (handled by the cursor path), but
       // contribute no extracted text and no word count.
@@ -110,11 +107,9 @@ export const captionEmbedSerializer: EmbedSerializer = (item) => {
  * were REJECTED (insertion runs omitted, deletions kept). A filtered-out item
  * still occupies its literal offsets (the span is in literal-document offsets) —
  * only its text contribution is dropped. The block-boundary STRUCTURAL projection
- * (slice 5c-structural) is also applied: across a boundary that MERGES in `view`
- * (an accepted join / rejected split — the prior block's trailing break embed is
- * resolved away, per {@link blockBoundaryMergesInView}) the inter-block "\n" is
- * SUPPRESSED, so the two blocks' text concatenates exactly as the real
- * `mergeAdjacentBlocksInTx` would (no separator, no space).
+ * is also applied: across a paragraph boundary that MERGES in `view` (an accepted
+ * join / rejected split, per `boundaryMergesInView`) the inter-block "\n" is
+ * SUPPRESSED, so the two blocks' text concatenates exactly as the resolve would.
  *
  * Used by clipboard, find/replace, accessibility.
  */
@@ -125,25 +120,19 @@ export function extractText(
   view: SuggestionView = "suggesting",
 ): string {
   const parts: string[] = [];
-  let prevItems: ReadonlyArray<InlineItem> | null = null;
+  let prev: Block | null = null;
   for (const { block, rangeStart, rangeEnd } of iterateSpan(state, span)) {
-    if (prevItems !== null) {
-      // 5c-structural: a merging boundary (accepted join / rejected split on the
-      // PRIOR block's trailing break embed) suppresses the inter-block "\n".
-      parts.push(blockBoundaryMergesInView(prevItems, view) ? "" : "\n");
+    if (prev !== null) {
+      // A paragraph boundary resolved away in `view` suppresses the inter-block "\n".
+      parts.push(boundaryMergesInView(state, prev, block, view) ? "" : "\n");
     }
-    const items = block.inlineContent?.items ?? EMPTY_ITEMS;
     if (block.inlineContent) {
-      parts.push(extractTextFromBlock(items, rangeStart, rangeEnd, embedSerializer, view));
+      parts.push(extractTextFromBlock(block.inlineContent.items, rangeStart, rangeEnd, embedSerializer, view));
     }
-    prevItems = items;
+    prev = block;
   }
   return parts.join("");
 }
-
-/** Shared empty item list — the boundary marker for a non-leaf/empty block (which
- *  carries no trailing break embed, so its boundary never merges). */
-const EMPTY_ITEMS: ReadonlyArray<InlineItem> = Object.freeze([]);
 
 function extractTextFromBlock(
   items: ReadonlyArray<InlineItem>,

@@ -1,10 +1,10 @@
 // packages/core/src/layout/pdf-outline.ts
 //
-// #523 — PDF outline (`/Outlines` bookmark tree) core helper. `buildPdfOutline`
+// PDF outline (`/Outlines` bookmark tree) core helper. `buildPdfOutline`
 // turns `getOutline`'s flat `{ blockId, level, text }[]` into a nested,
 // destination-resolved `PdfOutlineNode[]`: a stack nest-by-level (a level skip
 // attaches to the nearest shallower ancestor) and each node's `dest` resolved via
-// the shipped `resolveGotoDestination`. Reuses #410 `getOutline` + #522
+// the shipped `resolveGotoDestination`. Reuses `getOutline` +
 // `resolveGotoDestination`.
 
 import type { State } from "@taleweaver/core";

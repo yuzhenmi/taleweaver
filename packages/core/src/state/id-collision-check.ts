@@ -1,10 +1,6 @@
 import type * as Y from "yjs";
 import type { BlockId } from "./block-id";
-import {
-  getBlocksMap,
-  getEmbedContentsMap,
-  getTemplateContentsMap,
-} from "./yjs-doc";
+import { getRegistry } from "./registry";
 import { isDevMode } from "./dev-mode";
 
 /**
@@ -30,11 +26,7 @@ export function assertNoIdCollision(
   opName: string,
 ): void {
   if (!isDevMode()) return;
-  if (
-    getBlocksMap(doc).has(newId) ||
-    getEmbedContentsMap(doc).has(newId) ||
-    getTemplateContentsMap(doc).has(newId)
-  ) {
+  if (getRegistry(doc).has(newId)) {
     throw new Error(
       `${opName}: allocator returned a colliding id "${newId}" — already exists in state`,
     );

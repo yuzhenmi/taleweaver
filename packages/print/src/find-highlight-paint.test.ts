@@ -19,6 +19,7 @@ import { findBand, type TestBand } from "./test-utils/highlight-bands";
 import { createPaintCache } from "./paint-cache";
 import type { LayoutBox, SelectionRect } from "./index";
 import * as core from "@taleweaver/core";
+import { finalSection } from "./test-utils/final-section"; // body blocks live in the final section
 
 const MATCH_HIGHLIGHT_FILL = core.FIND_HIGHLIGHT_FILL;
 const ACTIVE_MATCH_HIGHLIGHT_FILL = core.ACTIVE_FIND_HIGHLIGHT_FILL;
@@ -333,7 +334,7 @@ function seededEditorState(text: string): { editor: core.EditorState; blockId: c
   };
   let editor = core.createInitialEditorState(config);
   editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text }, config);
-  const block = core.getBlock(editor.state, editor.state.rootId);
+  const block = finalSection(editor.state);
   const blockId = block?.firstChildId;
   if (blockId === null || blockId === undefined) throw new Error("no paragraph block");
   return { editor, blockId };

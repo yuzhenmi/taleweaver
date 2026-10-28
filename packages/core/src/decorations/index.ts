@@ -26,6 +26,7 @@ export {
   commentHighlightDecorations,
   suggestionHighlightDecorations,
   suggestionGroupDecorations,
+  suggestionIdsOf,
   FIND_HIGHLIGHT_FILL,
   ACTIVE_FIND_HIGHLIGHT_FILL,
   COMMENT_HIGHLIGHT_FILL,

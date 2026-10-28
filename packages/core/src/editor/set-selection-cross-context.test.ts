@@ -11,6 +11,7 @@
  * engine backstop verified at the reducer level.
  */
 import { describe, it, expect } from "vitest";
+import { finalSectionOf } from "../test-utils/state-builders";
 import { config, reduceEditor, createInitialEditorState } from "./actions/test-helpers";
 import type { EditorState } from "./editor-state";
 import { selectionContextOf, getActiveFormatting, inlineContentLength, resolveBlock } from "../state";
@@ -202,7 +203,9 @@ describe("document-boundary handlers stay in the caret's selection context", () 
     // Focus is the FIRST content block of the main document.
     const firstBlock = resolveBlock(expanded.state, expanded.selection.focus.blockId)?.block ?? null;
     if (firstBlock === null) throw new Error("expected a resolvable first block");
-    expect(firstBlock.parentId).toBe(mainRoot);
+    // a top-level block's parent is its section (the final one here).
+    expect(firstBlock.parentId).toBe(finalSectionOf(expanded.state));
+    expect(firstBlock.prevSiblingId).toBeNull();
   });
 
   it("MOVE_DOCUMENT_BOUNDARY from a MAIN-tree caret still moves to the main document end", () => {

@@ -10,8 +10,9 @@
 import { describe, it, expect } from "vitest";
 import { paintPage } from "./canvas-renderer";
 import { createPaintCache } from "./paint-cache";
-import { createInitialEditorState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, getBlock, createPosition, createSpan, render, cascadePass, type EditorConfig, type PageConfig, type EditorState, type BlockId } from "@taleweaver/core";
+import { createInitialEditorState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, createPosition, createSpan, render, cascadePass, type EditorConfig, type PageConfig, type EditorState, type BlockId } from "@taleweaver/core";
 import { layoutTree, type LayoutBox } from "./index";
+import { finalSection } from "./test-utils/final-section"; // body blocks live in the final section
 
 // Phase 0b: core's `EditorState` is geometry-free — the layout tree lives in the
 // backend driver. Build it via core's render → cascade → layout pipeline (what
@@ -55,7 +56,7 @@ function getPage0(editor: EditorState, config: EditorConfig): LayoutBox {
 }
 
 function firstChildId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = finalSection(editor.state);
   if (root === null || root.firstChildId === null) throw new Error("no first block");
   return root.firstChildId;
 }

@@ -21,7 +21,7 @@ import { iterateLeafBlocksInDocumentOrder } from "./document-order";
  * serializes to "\n" (1 char), a tab to "\t" (1 char), but a zero-width
  * comment/suggestion/page-field marker serializes to "" (0 chars). Matching on
  * raw extracted text would therefore drift left by one Position for every
- * zero-width marker before the match (B1 / #463 — a data-loss bug, since a
+ * zero-width marker before the match (a data-loss bug, since a
  * left-shifted offset splices `replaceRange` at the wrong place). To stay exact,
  * the search walks the inline items building a VISIBLE haystack (markers emit no
  * char, so a query still matches transparently across an invisible marker —
@@ -119,7 +119,7 @@ function isWordChar(ch: string | undefined): boolean {
  *
  * Read-only query over state — the forkless foundation of Find & Replace.
  * Searches the MAIN document tree only (embedContents / templateContents —
- * footnote and header/footer bodies — are a deferred scope decision).
+ * footnote and header/footer bodies — are not searched).
  *
  * - `query === ""` → `[]`. A whitespace query (e.g. `" "`) IS a valid search;
  *   only the empty string is excluded.

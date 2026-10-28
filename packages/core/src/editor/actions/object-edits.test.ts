@@ -154,16 +154,15 @@ describe("deleteObjectSelection (#525)", () => {
     expect(isObjectSelection(undone.state, undone.selection, componentRegistry)).toBe(IMAGE_ID);
   });
 
-  it("places the caret at the END of the preceding block when the image is last", () => {
+  it("an image authored LAST still has a paragraph after it (invariant I): the caret lands at its start", () => {
     const editor = editorFrom(imageLastDoc());
-    const precedingLen = blockLength(editor.state, PARA_ID);
+    const after = getBlock(editor.state, IMAGE_ID)?.nextSiblingId ?? null;
+    expect(after).not.toBeNull();
 
     const next = deleteObjectSelection(editor, config, IMAGE_ID);
 
     expect(getBlock(next.state, IMAGE_ID)).toBeNull();
-    expect(next.selection.focus.blockId).toBe(PARA_ID);
-    expect(next.selection.focus.offset).toBe(precedingLen);
-    expect(precedingLen).toBe("above".length);
+    expect(next.selection.focus).toEqual({ blockId: after, offset: 0 });
   });
 
   it("keeps the empty-doc invariant when the image is the only content block", () => {
@@ -233,11 +232,11 @@ describe("moveOffObject (#525)", () => {
     expect(next.state).toBe(editor.state);
   });
 
-  it("forward with no following content block: keeps the caret on the object", () => {
+  it("forward from an image authored last: the paragraph invariant I put after it takes the caret", () => {
     const editor = editorFrom(imageLastDoc());
+    const after = getBlock(editor.state, IMAGE_ID)?.nextSiblingId ?? null;
     const next = moveOffObject(editor, IMAGE_ID, "forward");
-    // No next content block → unchanged (still the object selection).
-    expect(next).toBe(editor);
+    expect(next.selection.focus).toEqual({ blockId: after, offset: 0 });
   });
 
   it("backward with no preceding content block: keeps the caret on the object", () => {

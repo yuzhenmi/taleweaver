@@ -9,7 +9,7 @@ export function handleMoveWord(
   direction: "forward" | "backward",
   config: EditorConfig,
 ): EditorState {
-  // Object selection (#525): Ctrl+Arrow on a selected atomic-leaf (image) places
+  // Object selection: Ctrl+Arrow on a selected atomic-leaf (image) places
   // the caret immediately BESIDE the object (before/after it), not past it. A
   // raw `moveByWord` from offset 0 of the atomic block would skip the image and
   // land inside the adjacent paragraph.

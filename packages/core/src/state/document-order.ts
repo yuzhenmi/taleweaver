@@ -76,7 +76,7 @@ export function* iterateLeafBlocksInDocumentOrder(state: State): Iterable<Block>
  * then each `embedContents` body subtree (footnote bodies), then each
  * `templateContents` body subtree (header/footer template bodies). Each
  * embed/template ROOT (from {@link getEmbedContentIds}/{@link getTemplateContentIds},
- * which yield roots only — #313) heads a self-contained subtree resolved via
+ * which yield roots only) heads a self-contained subtree resolved via
  * `resolveBlock` (its blocks live in their own Y.Map, not the main one), with the
  * same per-subtree active-path cycle guard + `blockCount`-bounded sibling loop the
  * main walk uses (`blockCount` already sums all three trees).

@@ -10,7 +10,7 @@ import { iterateBlocksInDocumentOrder } from "./document-order";
 import { getCommentsMap, requireInTransaction } from "./yjs-doc";
 
 /**
- * Branded identifier for a comment thread. Minted host-side (slice 3) and
+ * Branded identifier for a comment thread. Minted host-side and
  * stamped into BOTH of a comment's paired marker embeds (`properties.commentId`)
  * AND used as the key of its `CommentRecord` in the top-level `comments` Y.Map.
  */
@@ -31,7 +31,7 @@ export interface CommentReply {
  * embeds in inline content (the markers ARE the anchor; see
  * {@link buildCommentRangeIndex}). `createdAt` is host-injected
  * (deterministic/testable). `replies` is stored CRDT-mergeably (a `Y.Array<Y.Map>`
- * in the Y.Doc; slice 2), frozen to a plain array on read.
+ * in the Y.Doc), frozen to a plain array on read.
  */
 export interface CommentRecord {
   readonly id: CommentId;
@@ -197,7 +197,7 @@ function rootLeafId(state: State): BlockId {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Thread-record ↔ Y.Map storage (slice 2)
+// Thread-record ↔ Y.Map storage
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
@@ -242,7 +242,7 @@ function replyFromY(m: Y.Map<unknown>, recordId: string): CommentReply {
  * Build the storage `Y.Map` for a thread record: scalar fields plus `replies`
  * as a `Y.Array<Y.Map>` (NOT a plain JS array) so concurrent reply appends
  * MERGE under collab rather than clobbering the list. Used by both
- * {@link writeCommentRecordInTx} (whole-record write) and the slice-2
+ * {@link writeCommentRecordInTx} (whole-record write) and the
  * `addReply` op (which reuses {@link replyToY} for a single reply).
  *
  * State-internal: re-exported from `state/index.ts` for intra-state use (the

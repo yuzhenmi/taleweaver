@@ -53,7 +53,7 @@ export function resolveUsedLengthOrNone(
  * @param containingBlockSize the block-axis size of the containing block in
  *   pixels, or `"indefinite"` when the containing block has no definite
  *   block-size (e.g., the document root, or any block whose size is
- *   content-derived). Plumbed for forward-compat: in v1 all percent properties
+ *   content-derived). Plumbed for forward-compat: today all percent properties
  *   on `UsedStyle` resolve against the inline axis (CSS spec for
  *   margin/padding/textIndent in horizontal-tb), so this parameter is unused
  *   today. Future schema additions (e.g., `block-size: 50%`) will consume it.
@@ -64,8 +64,8 @@ export function computeUsedStyle(
   containingBlockSize: number | "indefinite",
   fallbackForAutoMargin: number = 0,
 ): UsedStyle {
-  // Plan 3.D: containingBlockSize is plumbed for future block-axis-percent
-  // resolution. In v1, all percent properties on UsedStyle resolve against
+  // containingBlockSize is plumbed for future block-axis-percent
+  // resolution. Today, all percent properties on UsedStyle resolve against
   // the inline axis (per CSS for margin/padding/textIndent/etc. in
   // horizontal-tb), so containingBlockSize is currently unused. Future
   // schema additions (e.g., block-size: 50%) will consume it.
@@ -108,14 +108,14 @@ export function computeUsedStyle(
     fontStyle: cs.fontStyle,
     underline: cs.underline,
     lineThrough: cs.lineThrough,
-    // C-B (#166): line-height resolution per CSS Inline Layout.
+    // Line-height resolution per CSS Inline Layout.
     //   - unitless number → ratio × own fontSize (the most common author form).
     //   - percent ComputedLength → resolve against OWN fontSize, NOT the
     //     containing-block inline size. This corrects a long-standing
     //     bug where `resolveUsedLength(cs.lineHeight, containingInlineSize, 0)`
     //     would treat `lineHeight: 150%` as 150% of the page width.
     //   - bare px (post-flatten ComputedLength other than percent): pass
-    //     through. Currently unreachable under the C-B input restriction —
+    //     through. Currently unreachable under the line-height input restriction (`flattenLineHeight`) —
     //     cascade refuses px line-height — but kept as a safety branch.
     lineHeight:
       typeof cs.lineHeight === "number"

@@ -6,12 +6,16 @@ import type { Span } from "../block-position";
 import type { Block } from "../block";
 import type { InlineItem, InlineContent } from "../inline-content";
 import { splitInlineContentAtOffset, inlineContentLength, mergeAdjacentTextItems } from "../inline-content";
-import type { AttrRegistry } from "../../cascade/attr-registry";
 import { normalizeSpan } from "../span-iteration";
+import { bookmarkIdOf, bookmarksRemovedBy } from "../bookmarks";
+import { bookmarkDeletionSpan } from "./delete-range";
 import { selectionContextOf } from "../block-compare";
 import { ancestorChain } from "../block-traversal";
 import { clonePastedSubtree } from "../clone-pasted-subtree";
 import { buildStateFromBlocks } from "../build-state-from-blocks";
+import { storageResolverOf } from "../storage-shapes";
+import { attrRegistryOf } from "../mark-attrs";
+import { STATE_INTERNAL } from "../state-internal";
 import { COMMENT_START_EMBED_TYPE, COMMENT_END_EMBED_TYPE } from "../comments";
 import {
   readSuggestionRecordFromState,
@@ -24,7 +28,7 @@ import { getListDefsForState, type ListDef } from "../list-defs";
  * Extract the content covered by `span` from `state` into a self-contained
  * fragment `State`. The fragment's root is a fresh `document` block. The
  * fragment is the interchange currency for copy-paste: it feeds `encodeHtml`
- * (HTML flavor) and the lossless binary serializer (T4).
+ * (HTML flavor) and the lossless binary serializer.
  *
  * **Walk strategy:** a document-order sibling walk over the span's SELECTION
  * CONTEXT ROOT (the root of the tree the span lives in — the document body, or
@@ -39,26 +43,45 @@ import { getListDefsForState, type ListDef } from "../list-defs";
  * paragraph is fully selected has endpoints whose LCA is that paragraph, but
  * the TABLE is the top-level subtree that is fully covered.
  *
- * **Cross-cell same-table spans** (no whole-cell grid-selection model exists —
- * deferred, see `packages/print/src/cursor/selection-geometry.test.ts:1025`)
+ * **Cross-cell same-table spans** (no whole-cell grid-selection model exists)
  * extract the spanned LEAF content LINEARLY (the spanned paragraphs become
  * top-level fragment blocks), consistent with `extractText` / plain-copy. The
  * recursion naturally flattens such a span to its spanned leaves. Structural
- * sub-table (cell-range) extraction is explicitly deferred to that unbuilt
- * cell-grid-selection feature.
+ * sub-table (cell-range) extraction is not supported: it needs a whole-cell
+ * grid-selection model.
  *
  * **CRITICAL:** does NOT use `iterateSpan` / `iterateLeafBlocksInDocumentOrder`
  * as the walk skeleton (they skip / throw on container blocks — table structure
  * would be destroyed). The walk is a direct sibling chain from the context root.
  *
- * **Inline marks:** given the `registry`, marks registered with `copy: "drop"`
+ * **Inline marks:** marks registered with `copy: "drop"` in the attr registry bound to
+ * the doc
  * (see `MarkSpec`) are stripped from the copied content; every other attr —
  * formatting and `copy: "keep"` marks — is carried.
  *
  * @throws if the span crosses selection contexts (header→body etc.).
  */
-export function extractFragment(state: State, span: Span, registry?: AttrRegistry): State {
-  return extractFragmentWithAllocator(state, span, productionAllocator, registry);
+export function extractFragment(state: State, span: Span): State {
+  return extractFragmentWithAllocator(state, span, productionAllocator);
+}
+
+/** `block` without its break-suggestion tags (never copied into a fragment). */
+/** `block` without the bookmark markers of bookmarks outside `covered`. */
+function withoutUncoveredBookmarks(block: Block, covered: ReadonlySet<string>): Block {
+  const items = block.inlineContent?.items;
+  if (items === undefined) return block;
+  const keep = items.filter((it) => {
+    const id = bookmarkIdOf(it);
+    return id === null || covered.has(id);
+  });
+  return keep.length === items.length ? block : Object.freeze({ ...block, inlineContent: Object.freeze({ items: Object.freeze(mergeAdjacentTextItems(keep)) }) });
+}
+
+function withoutBreakTags(block: Block): Block {
+  if (block.breakSuggestion === undefined) return block;
+  const { breakSuggestion: _tags, ...rest } = block;
+  void _tags;
+  return Object.freeze(rest);
 }
 
 /** `block` without the attrs `drop` rejects on its inline items (runs re-merged). */
@@ -85,22 +108,30 @@ function extractFragmentWithAllocator(
   state: State,
   span: Span,
   alloc: IdAllocator,
-  registry?: AttrRegistry,
 ): State {
   // 1. Normalize span to document order.
   const normalized = normalizeSpan(state, span);
-  const startPos = normalized.anchor;
-  const endPos = normalized.focus;
-
   // 2. Assert single selection context, and capture the context root — the
   //    block whose children we walk in document order.
-  const startCtx = selectionContextOf(state, startPos.blockId);
-  const endCtx = selectionContextOf(state, endPos.blockId);
+  const startCtx = selectionContextOf(state, normalized.anchor.blockId);
+  const endCtx = selectionContextOf(state, normalized.focus.blockId);
   if (startCtx === null || endCtx === null || startCtx !== endCtx) {
     throw new Error(
       `extractFragment: cross-context span (start context "${startCtx}" vs end context "${endCtx}")`,
     );
   }
+
+  // Bookmarks (Word): the fragment carries exactly the bookmarks a deletion of
+  // the span removes, over the same widened span (`bookmarkDeletionSpan`): a selection
+  // of exactly a bookmark's text carries it (cut + paste moves it); every other
+  // bookmark marker is dropped (a copy of part of a bookmark has none). A container
+  // endpoint (a whole-table copy) has no adjacent inline markers: the covered
+  // bookmarks are then those with both markers in the fragment (step 6).
+  const isLeaf = (id: BlockId): boolean => (resolveBlock(state, id)?.block.inlineContent ?? null) !== null;
+  const leafEnds = isLeaf(normalized.anchor.blockId) && isLeaf(normalized.focus.blockId);
+  const deletion = leafEnds ? bookmarkDeletionSpan(state, normalized) : null;
+  const startPos = deletion?.span.anchor ?? normalized.anchor;
+  const endPos = deletion?.span.focus ?? normalized.focus;
 
   // 3. Walk the context root's children in document order and collect top-level
   //    entries. Each entry is either a cloned subtree (from clonePastedSubtree)
@@ -174,12 +205,23 @@ function extractFragmentWithAllocator(
     }
   }
 
-  // 6. Strip copy:"drop" marks, then build and return the fragment State.
+  // 6. Strip copy:"drop" marks and every break-suggestion tag (a copied suggested
+  // boundary pastes as a real break), then build and return the fragment State.
+  const registry = attrRegistryOf(state[STATE_INTERNAL].doc);
   const drop = registry?.hasCopyDropMarks() === true ? (key: string) => registry.dropsOnCopy(key) : null;
+  const covered =
+    deletion?.removed ??
+    bookmarksRemovedBy([...allBlocks, ...allEmbedContents].map((b) => {
+      const items = b.inlineContent?.items ?? [];
+      return { items, from: 0, to: inlineContentLength({ items }) };
+    }));
+  const clean = (b: Block): Block => withoutUncoveredBookmarks(withoutBreakTags(drop === null ? b : stripInlineAttrs(b, drop)), covered);
   return buildStateFromBlocks({
+    // The fragment stores its blocks by the source document's taxonomy.
+    resolver: storageResolverOf(state[STATE_INTERNAL].doc),
     rootId,
-    blocks: drop === null ? allBlocks : allBlocks.map((b) => stripInlineAttrs(b, drop)),
-    embedContents: drop === null ? allEmbedContents : allEmbedContents.map((b) => stripInlineAttrs(b, drop)),
+    blocks: allBlocks.map(clean),
+    embedContents: allEmbedContents.map(clean),
     listDefs,
     suggestions: suggestionRecords,
   });
@@ -271,30 +313,29 @@ function collectFromAncestor(
           topLevelEntries.push({ kind: "partial", rootId: newId, block: buildPartialLeaf(newId, child, items) });
         }
       } else {
-        // Container: check if it is fully covered (selection covers the whole
-        // container from first leaf offset 0 to last leaf end). If so, clone it
-        // whole. Otherwise recurse to extract the partially-covered sub-range.
-        if (isContainerFullyCovered(state, cur, startBlockId, startOffset, endBlockId, endOffset)) {
-          // Clone the whole subtree.
-          cloneSubtreeInto(state, cur, alloc, topLevelEntries, allEmbedContents, seenSuggestionIds, suggestionRecords, listDefs);
-        } else {
-          // Container partially covered: recurse into it.
-          collectFromAncestor(
-            state,
-            cur,
-            startBlockId,
-            startOffset,
-            endBlockId,
-            endOffset,
-            alloc,
-            topLevelEntries,
-            allEmbedContents,
-            listDefs,
-            seenSuggestionIds,
-            suggestionRecords,
-          );
-        }
+        // Container holding BOTH ends: the span ends before the container's last ¶,
+        // so it never covers the container unit ("the span covers
+        // the ¶" — Word: selecting a cell's text copies the text, not the table).
+        // Recurse to extract the covered sub-range.
+        collectFromAncestor(
+          state,
+          cur,
+          startBlockId,
+          startOffset,
+          endBlockId,
+          endOffset,
+          alloc,
+          topLevelEntries,
+          allEmbedContents,
+          listDefs,
+          seenSuggestionIds,
+          suggestionRecords,
+        );
       }
+    } else if (childContainsStart && cur === startBlockId && child.firstChildId !== null) {
+      // The span starts AT the object position (obj, 0) and runs past the object: it
+      // covers the whole unit (Word: the picture's [i, i+1]). Clone it whole.
+      cloneSubtreeInto(state, cur, alloc, topLevelEntries, allEmbedContents, seenSuggestionIds, suggestionRecords, listDefs);
     } else if (childContainsStart) {
       // Span starts inside this child, exits through right side.
       if (child.firstChildId === null) {
@@ -403,8 +444,17 @@ function collectFromAncestor(
         const afterStart = isAfterInSiblingChain(state, cur, startSibling, ancestorId);
         const beforeEnd = isBeforeInSiblingChain(state, cur, endSibling, ancestorId);
         if (afterStart && beforeEnd) {
-          // Fully inside the span: clone the whole subtree.
-          cloneSubtreeInto(state, cur, alloc, topLevelEntries, allEmbedContents, seenSuggestionIds, suggestionRecords, listDefs);
+          const first = child.type === "section" ? findFirstLeaf(state, cur) : null;
+          const last = child.type === "section" ? findLastLeaf(state, cur) : null;
+          if (first !== null && last !== null) {
+            // A section is not copied (a fragment is section-free): its blocks are.
+            const lastBlock = requireBlock(state, last);
+            const lastLen = lastBlock.inlineContent === null ? 0 : inlineContentLength(lastBlock.inlineContent);
+            collectFromAncestor(state, cur, first, 0, last, lastLen, alloc, topLevelEntries, allEmbedContents, listDefs, seenSuggestionIds, suggestionRecords);
+          } else {
+            // Fully inside the span: clone the whole subtree.
+            cloneSubtreeInto(state, cur, alloc, topLevelEntries, allEmbedContents, seenSuggestionIds, suggestionRecords, listDefs);
+          }
         }
         // else: fully outside span (before start or after end) → skip.
       }
@@ -428,7 +478,7 @@ function cloneSubtreeInto(
   suggestionRecords: SuggestionRecord[],
   listDefs: Record<string, ListDef>,
 ): void {
-  const cloned = clonePastedSubtree(state, subtreeId, alloc, state);
+  const cloned = clonePastedSubtree(state, subtreeId, alloc, state, false);
   for (const block of cloned.embedContents.values()) {
     allEmbedContents.push(block);
   }
@@ -451,38 +501,6 @@ function cloneSubtreeInto(
 }
 
 // ─── Utility helpers ─────────────────────────────────────────────────────────
-
-/**
- * True iff the span (startBlockId, startOffset) → (endBlockId, endOffset)
- * covers the entire content of the container subtree rooted at `containerId`.
- * "Entire content" means:
- *   - startBlockId is the first leaf of the container AND startOffset is 0
- *   - endBlockId is the last leaf of the container AND endOffset equals the
- *     leaf's full inline-content length
- */
-function isContainerFullyCovered(
-  state: State,
-  containerId: BlockId,
-  startBlockId: BlockId,
-  startOffset: number,
-  endBlockId: BlockId,
-  endOffset: number,
-): boolean {
-  const firstLeaf = findFirstLeaf(state, containerId);
-  if (firstLeaf === null) return false;
-  if (firstLeaf !== startBlockId || startOffset !== 0) return false;
-
-  const lastLeaf = findLastLeaf(state, containerId);
-  if (lastLeaf === null) return false;
-  if (lastLeaf !== endBlockId) return false;
-
-  const lastLeafBlock = resolveBlock(state, lastLeaf)?.block ?? null;
-  if (lastLeafBlock === null) return false;
-  const lastLeafLen = lastLeafBlock.inlineContent !== null
-    ? inlineContentLength(lastLeafBlock.inlineContent)
-    : 0;
-  return endOffset === lastLeafLen;
-}
 
 function requireBlock(state: State, id: BlockId): Block {
   const block = resolveBlock(state, id)?.block ?? null;
@@ -630,7 +648,7 @@ function findLastLeaf(state: State, rootId: BlockId): BlockId | null {
 }
 
 /**
- * Slice inline content from [start, end). Drops comment-marker embeds (M3).
+ * Slice inline content from [start, end). Drops comment-marker embeds.
  */
 function sliceInlineContent(
   content: InlineContent,
@@ -640,7 +658,7 @@ function sliceInlineContent(
   const [, fromStart] = splitInlineContentAtOffset(content, start);
   const trimmedContent: InlineContent = Object.freeze({ items: Object.freeze(fromStart) });
   const [slice] = splitInlineContentAtOffset(trimmedContent, end - start);
-  // Drop comment-start and comment-end marker embeds (M3: partial arm).
+  // Drop comment-start and comment-end marker embeds.
   return slice.filter(
     (item) =>
       !(
@@ -666,6 +684,8 @@ function buildPartialLeaf(newId: BlockId, source: Block, items: InlineItem[]): B
     firstChildId: null,
     lastChildId: null,
     inlineContent: Object.freeze({ items: Object.freeze(items) }),
+    // The ¶'s formatting rides along: a closed paragraph pastes with its own ¶ (Word).
+    ...(source.markAttrs !== undefined ? { markAttrs: source.markAttrs } : {}),
   });
 }
 

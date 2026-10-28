@@ -1,0 +1,68 @@
+import type { EditorState, EditorConfig } from "../editor-state";
+import { insertLineBreak, mintLineBreak, markDeletion, deleteRange, createPosition, createSpan, spanStart, spanEnd, resolveBlock } from "../../state";
+import type { BlockId, OperationResult, Position, State, ReplaceSuggestionInput } from "../../state";
+import { blockAfter } from "../../cursor/paragraph-mark";
+import { isCollapsed } from "../../cursor/selection";
+import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
+import { replaceSuggestionInputForBlock } from "./suggestion-mode";
+import { commitWithCaret } from "./paragraph-mark-delete";
+
+/**
+ * `INSERT_LINE_BREAK` (Shift+Enter): insert a soft line break — an
+ * inline `hard-break` embed (Word `\v`, Google Docs `\u000b`) — at the caret,
+ * replacing a selection (deleted, or struck in suggesting mode) as ONE undo step. No
+ * new ¶ and no paragraph attrs. The caret lands just after the break.
+ *
+ * In suggesting mode the break is an inline insertion revision (`mintLineBreak`), and
+ * a selection is struck (not deleted). No-op (same editor) for a cross-context /
+ * un-deletable selection.
+ */
+export function handleInsertLineBreak(editor: EditorState, config: EditorConfig): EditorState {
+  const { selection } = editor;
+  const input = replaceSuggestionInputForBlock(editor.state, spanStart(editor.state, selection).blockId, config);
+  if (input !== null) return suggestLineBreak(editor, config, input);
+  let state: State = editor.state;
+  let at = selection.focus;
+  const dirtyIds = new Set<BlockId>();
+  if (!isCollapsed(selection)) {
+    if (isCrossContextSelection(state, selection)) return editor;
+    const start = expandedSpanCollapsePoint(state, selection);
+    if (start === null) return editor;
+    const r = deleteRange(state, selection);
+    state = r.state;
+    for (const id of r.dirtyIds) dirtyIds.add(id);
+    at = start;
+  }
+  const r = insertLineBreak(state, at);
+  for (const id of r.dirtyIds) dirtyIds.add(id);
+  const result: OperationResult = { state: r.state, dirtyIds };
+  return commitWithCaret(editor, config, result, createPosition(at.blockId, at.offset + 1));
+}
+
+/**
+ * Suggesting-mode Shift+Enter: the break goes in at the selection start FIRST (so no
+ * strike can rename that block), then the selection — shifted past the break when it
+ * ends in the same block — is struck (`markDeletion`), as ONE undo step. When the
+ * strike removed the start block's own pending ¶ (the merge keeps the start block's
+ * content at the front of the paragraph after it), the caret follows to that survivor.
+ */
+function suggestLineBreak(editor: EditorState, config: EditorConfig, input: ReplaceSuggestionInput): EditorState {
+  const { selection } = editor;
+  if (!isCollapsed(selection) && isCrossContextSelection(editor.state, selection)) return editor;
+  const start = spanStart(editor.state, selection);
+  const end = spanEnd(editor.state, selection);
+  const meta = { author: input.author, createdAt: input.createdAt, order: input.order };
+  const ins = mintLineBreak(editor.state, start, { ...meta, id: input.insertionId });
+  const dirtyIds = new Set<BlockId>(ins.dirtyIds);
+  let state = ins.state;
+  const startBlock = resolveBlock(state, start.blockId)?.block ?? null;
+  const survivor = startBlock === null ? null : (blockAfter(state, startBlock)?.block.id ?? null);
+  if (!isCollapsed(selection)) {
+    const shift = (p: Position): Position => (p.blockId === start.blockId ? createPosition(p.blockId, p.offset + 1) : p);
+    const struck = markDeletion(state, createSpan(shift(start), shift(end)), { ...meta, id: input.deletionId });
+    state = struck.state;
+    for (const id of struck.dirtyIds) dirtyIds.add(id);
+  }
+  const caretBlock = resolveBlock(state, start.blockId) !== null || survivor === null ? start.blockId : survivor;
+  return commitWithCaret(editor, config, { state, dirtyIds }, createPosition(caretBlock, start.offset + 1));
+}

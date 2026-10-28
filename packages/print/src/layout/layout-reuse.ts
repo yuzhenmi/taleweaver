@@ -65,7 +65,7 @@ export function createLayoutBoxCache(): LayoutBoxCache {
  *   populate per-entry render-node references for identity checking.
  * @param cache optional existing cache to populate (creates a new one if omitted).
  *
- * ## Wrapper transparency (L-PERF-A)
+ * ## Wrapper transparency
  *
  * In paginated layouts, the engine wraps real render-node-keyed boxes in
  * anonymous wrappers: `paginateRoot` produces a root BlockBox whose children
@@ -86,7 +86,7 @@ export function createLayoutBoxCache(): LayoutBoxCache {
  * multiple pages produces a per-page partial-fragment LayoutBox with the
  * same `key` in each per-page subtree. The walk visits both — `cache.set`
  * fires twice for the same key and the last write wins. This does NOT
- * cause incorrect reuse in practice because L-PERF-A's
+ * cause incorrect reuse in practice because subtree reuse's
  * `isResumeFromDegenerate` gate in `bfc.layoutBlock` rejects reuse for
  * any non-fresh-start request: the second-page call requesting the
  * paragraph's continuation has a non-degenerate `resumeFrom`, so it
@@ -132,7 +132,7 @@ export function buildLayoutBoxCacheFromTree(
     // so the layout boxes carry the contents element's grandchildren keys (not
     // the contents element's own key). Building `rnByKey` from raw `rn.children`
     // would orphan those layout boxes from their render nodes and silently break
-    // L-PERF-A reuse for them on every keystroke. (Same-ref fast path when no
+    // subtree reuse for them on every keystroke. (Same-ref fast path when no
     // contents element is present.)
     const rnByKey = new Map<string, RenderNode>();
     for (const child of flattenContents(rn.children)) {

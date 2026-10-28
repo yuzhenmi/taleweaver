@@ -9,6 +9,7 @@
  * (non-undoable) transaction, so the key assertion (beyond resolution) is that
  * accept/reject add NO undo step (Ctrl+Z cannot revert them).
  */
+import { finalSectionOf } from "../../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import {
   config,
@@ -40,11 +41,10 @@ import {
   type Selection,
   type SuggestionId,
 } from "../../state";
-import { assertChainIntegrity } from "../../state/chain-integrity";
 
 /** The first body paragraph id under the document root. */
 function bodyParaId(state: State): BlockId {
-  const root = getBlock(state, state.rootId);
+  const root = getBlock(state, finalSectionOf(state));
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
     throw new Error("document root has no first child paragraph");
@@ -151,11 +151,11 @@ describe("resolve actions are UNDOABLE (one history entry each)", () => {
     const initial = createInitialEditorState(config);
     let s = reduceEditor(initial, { type: "INSERT_TEXT", text: "first" }, config);
     s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
-    const root = getBlock(s.state, s.state.rootId);
+    const root = getBlock(s.state, finalSectionOf(s.state));
     const paraA = root?.firstChildId;
     if (paraA === undefined || paraA === null) throw new Error("no para A");
     const seeded = seedFormatting(s.state, paraA, 0, 3, { bold: true }, SID);
-    const paraB = getBlock(seeded, seeded.rootId)?.lastChildId;
+    const paraB = getBlock(seeded, finalSectionOf(seeded))?.lastChildId;
     if (paraB === undefined || paraB === null) throw new Error("no para B");
     let editor = createEditorStateFromState(seeded, caretAt(paraB, 0), config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "typed" }, config);
@@ -206,7 +206,6 @@ describe("same-block resolve then undo (S1 — identity-preserving, #484)", () =
     expect(getTextOf(restored.state, paraId)).toBe("hi");
     const undone = reduceEditor(restored, { type: "UNDO" }, suggesting);
     expect(getTextOf(undone.state, paraId)).toBe("");
-    assertChainIntegrity(undone.state, "s1-regression");
     expect(() => reduceEditor(undone, { type: "UNDO" }, suggesting)).not.toThrow();
   });
 });

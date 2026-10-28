@@ -6,14 +6,12 @@ import { resolveActiveSection } from "./active-section";
 
 /**
  * `SET_SECTION_COLUMNS` handler — sets the multi-column override (Google Docs
- * Format ▸ Columns) on the SECTION at the cursor; when the cursor is in a
- * section-less run (no `SECTION_BREAK` has been made) it applies the override
- * DOC-WIDE by writing the doc-root block's attrs (the doc-root's column
- * metadata becomes `buildSectionPlan`'s `effectiveDefaultColumns`). This is the
+ * Format ▸ Columns) on the SECTION at the cursor (there is always a
+ * section — the final one holds a break-less document). This is the
  * editor surface for the per-section column geometry: it only SETS the target
  * block's `columnCount` / `columnGap` / `columnRule` attrs; the
  * render→cascade→measure→materialize→paint pipeline already turns those attrs
- * into rendered columns (slices T1–T5).
+ * into rendered columns.
  *
  * `columnCount: 1` is the SINGLE-COLUMN state — it sets `columnCount: 1`
  * (matching `DEFAULT_COLUMN_CONFIG.columnCount`), which `resolveColumnConfig`
@@ -28,7 +26,7 @@ import { resolveActiveSection } from "./active-section";
  *
  * No-ops (return the input `editor` unchanged, never calling `history.commit`):
  *  - The merge is a no-op (`mergeBlockAttrs` returns the same state reference):
- *    the T7 identity guard preserves the "no change → same editor reference"
+ *    the identity guard preserves the "no change → same editor reference"
  *    invariant. (`history.commit` is itself no-op-safe; this guard is about the
  *    identity invariant.) This covers re-setting the SAME columnCount.
  *
@@ -42,13 +40,11 @@ export function handleSetSectionColumns(
   action: { columnCount: number; columnGap?: number; columnRule?: ColumnRule | null },
   config: EditorConfig,
 ): EditorState {
-  // Target the active SECTION at the cursor, or the doc root when the cursor is
-  // in a section-less run (whole-doc columns). The doc-root box's column
-  // metadata flows to `buildSectionPlan`'s `effectiveDefaultColumns` (the
-  // document component stamps `columnCount`/`columnGap`/`columnRule` onto the
-  // cascaded root's metadata, mirroring the section component).
-  const targetId =
-    resolveActiveSection(editor, editor.selection.focus.blockId) ?? editor.state.rootId;
+  // Target the active SECTION at the cursor (main-body content always
+  // sits in a section — the final one when there is no break). A caret outside the
+  // main body has none: no-op.
+  const targetId = resolveActiveSection(editor, editor.selection.focus.blockId);
+  if (targetId === null) return editor;
 
   const target = getBlock(editor.state, targetId);
   if (target === null) return editor;
@@ -63,9 +59,9 @@ export function handleSetSectionColumns(
     incoming.columnRule = action.columnRule;
   }
 
-  const result = mergeBlockAttrs(editor.state, targetId, incoming, config.attrRegistry);
+  const result = mergeBlockAttrs(editor.state, targetId, incoming);
 
-  // T7 identity contract: a no-op merge returns the same state reference.
+  // the identity-no-op contract: a no-op merge returns the same state reference.
   if (result.state === editor.state) return editor;
 
   editor.history.commit(

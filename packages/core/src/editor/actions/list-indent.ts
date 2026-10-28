@@ -11,13 +11,14 @@ export const MAX_LIST_LEVEL = 8;
  * LIST_INDENT / LIST_OUTDENT — change the `listLevel` of the target list-item(s)
  * by `delta` (+1 to indent, −1 to outdent), clamped to [0, MAX_LIST_LEVEL].
  *
- * The FLAT list model (D4): nesting is a per-item attribute, NOT tree surgery —
+ * The FLAT list model: nesting is a per-item attribute, NOT tree surgery —
  * indent is a cheap `listLevel` edit. Mirrors `handleIndent`'s shape (multi-block
  * span, per-item no-op short-circuit, single `history.commit`) but targets only
  * `list-item` leaves and edits `listLevel` instead of `marginInlineStart`. A
  * non-list-item in the selection is skipped — plain-paragraph indent uses the
- * INDENT/OUTDENT action instead. (Routing Tab / Shift+Tab on a list-item to
- * this action, vs INDENT on a plain paragraph, is wired up in a later task.)
+ * INDENT/OUTDENT action instead. (Both backends' key maps route Tab / Shift+Tab
+ * on a list-item to this action; outside a list Tab inserts a tab (`INSERT_TAB`)
+ * and Shift+Tab is a no-op.)
  *
  * No-op (return the input `editor` unchanged, never calling `history.commit`):
  * collapsed caret not in a list-item; a range covering no list-items; or every
@@ -45,7 +46,6 @@ export function handleListIndent(
       state,
       blockId,
       { listLevel: nextValue },
-      config.attrRegistry,
     );
     if (result.state === state) continue;
     state = result.state;

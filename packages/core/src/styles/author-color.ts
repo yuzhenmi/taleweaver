@@ -8,9 +8,8 @@ import type { Color } from "./color";
  * suggestion colors. The colors are deliberately saturated-but-dark enough to
  * read as text on a white page (each clears WCAG AA contrast against #fff).
  *
- * The palette is FIXED and small for v1. A host-configurable palette is a named
- * future follow-up — NOT this slice — so this stays a module-level constant
- * rather than an injected dependency.
+ * The palette is FIXED and small. A host-configurable palette is not supported,
+ * so this stays a module-level constant rather than an injected dependency.
  */
 const AUTHOR_COLOR_PALETTE: readonly Color[] = [
   "#1a73e8", // blue
@@ -31,8 +30,8 @@ const AUTHOR_COLOR_PALETTE: readonly Color[] = [
  * length. Pure — no global state, no allocation beyond the integer hash.
  *
  * Collisions are possible (any hash into a fixed-size palette can collide), and
- * acceptable for v1: the palette is intentionally small + fixed, and a
- * host-configurable palette is the named future follow-up.
+ * acceptable: the palette is intentionally small + fixed, and a
+ * host-configurable palette is not supported.
  */
 export function authorColorOf(author: string): Color {
   // djb2: hash = hash * 33 + c, kept in 32-bit unsigned range via >>> 0.

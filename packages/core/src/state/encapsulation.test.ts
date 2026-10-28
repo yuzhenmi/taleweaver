@@ -8,6 +8,7 @@
  * `docs/architecture/1-core/1.1-state.md` (Yjs encapsulation) and must
  * STOP and surface for coordination.
  */
+import { TEST_RESOLVER } from "../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import type { State } from "./state";
 import { createState } from "./state";
@@ -66,7 +67,7 @@ describe("State encapsulation (runtime)", () => {
     // appear via Object.keys / for..in / spread. (Symbol-keyed props
     // are still enumerable via Reflect.ownKeys; that's expected — the
     // encapsulation is type-level, not a runtime sandbox.)
-    const state = createState({ rootId: "root" as BlockId });
+    const state = createState({ resolver: TEST_RESOLVER, rootId: "root" as BlockId });
     expect(Object.keys(state)).toEqual(["rootId"]);
     // Throwaway reference so the `_Used` alias survives strict checks.
     const _ignore: _Used | undefined = undefined;
@@ -202,7 +203,7 @@ describe("A14: doc-meta immutability whitelist", () => {
     // Y.Doc is private behind STATE_INTERNAL; createState reuses the doc we
     // pass in, so the meta map we inspect is exactly the State's).
     const doc = createYDoc({ rootId: "root" as BlockId });
-    createState({ rootId: "root" as BlockId, doc });
+    createState({ resolver: TEST_RESOLVER, rootId: "root" as BlockId, doc });
 
     const meta = getMetaMap(doc);
     expect([...meta.keys()].sort()).toEqual([...DOC_META_WHITELIST].sort());

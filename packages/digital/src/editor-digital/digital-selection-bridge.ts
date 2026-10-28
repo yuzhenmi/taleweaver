@@ -2,10 +2,12 @@ import { isGeneratedNode, isWidget, DECO_ID_ATTR, WIDGET_ATTR } from "../dom-vie
 import {
   createPosition,
   createSpan,
+  caretAfterMarkers,
   type Position,
   type Span,
   type Selection,
   type BlockId,
+  type State,
   asBlockId,
 } from "@taleweaver/core";
 
@@ -14,6 +16,15 @@ export interface DigitalSelectionBridge {
   domToPosition(node: Node, nodeOffset: number): Position | null;
   readDomSelection(): Span | null;
   positionToDom(selection: Selection): void;
+  /** The DOM point a model position renders at (null while its block is not mounted). */
+  pointAt(position: Position): DomPoint | null;
+  /**
+   * After-slot normalization: when the DOM selection is a caret inside generated content
+   * or right after a generated ¶ anchor (a click on the glyph, the browser's slot after the
+   * anchor), move it to where `position` renders —
+   * before the ¶ — so typing and IME composition happen before the mark. No-op otherwise.
+   */
+  normalizeCaret(position: Position): void;
 }
 
 /** True iff `el` is a recognized inline-embed atom (1 unit, no descent). */
@@ -40,6 +51,14 @@ function isEmptyLineFiller(node: Node): boolean {
 function isListMarker(node: Node): boolean {
   // Decoration widgets (`data-tw-widget`) are generated content under the same contract.
   return isGeneratedNode(node);
+}
+
+/** The generated ¶ anchor (`data-tw-generated`) containing `node`, below `block`, or null. */
+function breakMarkOf(node: Node, block: HTMLElement): HTMLElement | null {
+  for (let cur: Node | null = node; cur !== null && cur !== block; cur = cur.parentNode) {
+    if (cur instanceof HTMLElement && cur.hasAttribute("data-tw-generated")) return cur;
+  }
+  return null;
 }
 
 /** The nearest ancestor element carrying `data-block-id`, or null. */
@@ -115,7 +134,7 @@ function accumulateToNode(block: HTMLElement, target: Node, targetOffset: number
   return found;
 }
 
-interface DomPoint {
+export interface DomPoint {
   readonly node: Node;
   readonly offset: number;
 }
@@ -210,9 +229,14 @@ function locateOffset(block: HTMLElement, offset: number): DomPoint {
   // empty LIST item also carries a generated marker span, so the filler-only check ignores markers.
   const contentKids = Array.from(block.childNodes).filter((n) => !isListMarker(n));
   if (contentKids.length === 1 && contentKids[0] !== undefined && isEmptyLineFiller(contentKids[0])) {
-    // Before the filler — but after any side=-1 widgets drawn at offset 0.
+    // Before the filler — after the side=-1 widgets drawn at offset 0, before the ¶
+    // anchor and side=1 widgets (the caret / IME sits before the mark). Generated nodes
+    // never count toward the lead.
     let lead = 0;
-    for (let kid: Node | null = block.firstChild; isWidget(kid) && kid.getAttribute(WIDGET_ATTR) === "-1"; kid = kid.nextSibling) lead++;
+    for (let kid: Node | null = block.firstChild; kid !== null; kid = kid.nextSibling) {
+      if (!(isWidget(kid) && kid.getAttribute(WIDGET_ATTR) === "-1")) break;
+      lead++;
+    }
     return { node: block, offset: lead };
   }
   // offset past the end, or empty block → end of the block's children.
@@ -222,17 +246,41 @@ function locateOffset(block: HTMLElement, offset: number): DomPoint {
 /** Resolve the block element for a `BlockId`, or null. Injected by the reconciler (its `blockElMap`). */
 export type BlockElementLookup = (blockId: BlockId) => HTMLElement | null;
 
+/** Collapsed DOM point inside a `data-tw-generated` node or right after one. */
+function inGeneratedSlot(node: Node, offset: number): boolean {
+  for (let cur: Node | null = node; cur !== null; cur = cur.parentNode) {
+    if (cur instanceof HTMLElement && cur.hasAttribute("data-tw-generated")) return true;
+  }
+  if (!(node instanceof HTMLElement) || offset === 0) return false;
+  const prev = node.childNodes.item(offset - 1);
+  return prev instanceof HTMLElement && prev.hasAttribute("data-tw-generated");
+}
+
 export function createDigitalSelectionBridge(
   root: HTMLElement,
   win: Window,
   blockElementLookup?: BlockElementLookup,
+  /** The rendered document: DOM points normalize through its markers (absent → raw offsets). */
+  stateOf?: () => State | null,
 ): DigitalSelectionBridge {
   function domToPosition(node: Node, nodeOffset: number): Position | null {
+    const raw = rawDomToPosition(node, nodeOffset);
+    const state = stateOf?.() ?? null;
+    // A structural marker (bookmark / comment) is never a caret stop: a point just
+    // before markers stands after them, as in print's hit-test.
+    return raw === null || state === null ? raw : caretAfterMarkers(state, raw);
+  }
+
+  function rawDomToPosition(node: Node, nodeOffset: number): Position | null {
     const block = enclosingBlockElement(node);
     if (block === null) return null;
     const rawId = block.getAttribute("data-block-id");
     if (rawId === null) return null;
     const blockId: BlockId = asBlockId(rawId);
+    // A click on the generated ¶ (change tracking): it is drawn at (block, len) and is
+    // not a caret stop.
+    const mark = breakMarkOf(node, block);
+    if (mark !== null) return createPosition(blockId, measure(block));
     const offset = accumulateToNode(block, node, nodeOffset);
     if (offset === null) return null;
     return createPosition(blockId, offset);
@@ -274,5 +322,18 @@ export function createDigitalSelectionBridge(
     sel.setBaseAndExtent(a.node, a.offset, f.node, f.offset);
   }
 
-  return { root, domToPosition, readDomSelection, positionToDom };
+  function pointAt(position: Position): DomPoint | null {
+    const block = blockElementFor(position.blockId);
+    return block === null ? null : locateOffset(block, position.offset);
+  }
+
+  function normalizeCaret(position: Position): void {
+    const sel = win.getSelection();
+    if (sel === null || !sel.isCollapsed || sel.focusNode === null || !root.contains(sel.focusNode)) return;
+    if (!inGeneratedSlot(sel.focusNode, sel.focusOffset)) return;
+    const p = pointAt(position);
+    if (p !== null && (p.node !== sel.focusNode || p.offset !== sel.focusOffset)) sel.collapse(p.node, p.offset);
+  }
+
+  return { root, domToPosition, readDomSelection, positionToDom, pointAt, normalizeCaret };
 }

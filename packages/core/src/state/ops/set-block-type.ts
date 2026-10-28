@@ -1,7 +1,7 @@
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
-import { getYBlock } from "../yjs-doc";
+import { writeBlockType } from "../flow-ops";
 import type { BlockKindResolver } from "../block-kinds";
 
 /**
@@ -11,7 +11,7 @@ import type { BlockKindResolver } from "../block-kinds";
  * Throws if the block does not exist, or if either the existing or new
  * type is not registered with the resolver.
  *
- * Shape-invariance contract (T11): cross-kind transitions are REFUSED.
+ * Shape-invariance contract: cross-kind transitions are REFUSED.
  * A block's kind (inline-bearing-leaf / atomic-leaf / container — see
  * `block-kinds.ts`) determines which of its structural fields are
  * meaningful: `inlineContent.items` for inline-bearing-leaves (paragraph,
@@ -49,7 +49,7 @@ export function setBlockType(
   if (resolved === null) {
     throw new Error(`setBlockType: block "${blockId}" not found`);
   }
-  const { block, kind } = resolved;
+  const { block } = resolved;
   const oldKind = resolver.getBlockKind(block.type);
   if (oldKind === null) {
     throw new Error(
@@ -68,6 +68,17 @@ export function setBlockType(
         `Compose remove + insert instead of changing kind.`,
     );
   }
+  // Same kind, different STORAGE shape (e.g. an `aside` flow holder → a grid
+  // `table-cell`): the stored entry cannot change shape in place.
+  const oldShape = resolver.getStorageShape(block.type);
+  const newShape = resolver.getStorageShape(type);
+  if (oldShape !== newShape) {
+    throw new Error(
+      `setBlockType: cross-storage-shape change refused — ` +
+        `block "${blockId}" is stored as ${String(oldShape)} ("${block.type}"), ` +
+        `new type "${type}" as ${String(newShape)}. Compose remove + insert instead.`,
+    );
+  }
   if (type === block.type) {
     // No-op: requested type already in place. Return the input state
     // reference unchanged (identity-preserving "did anything change?"
@@ -76,7 +87,6 @@ export function setBlockType(
     return { state, dirtyIds: new Set() };
   }
   return applyOperation(state, (doc) => {
-    const yBlock = getYBlock(doc, blockId, "setBlockType", kind);
-    yBlock.set("type", type);
+    writeBlockType(doc, blockId, type);
   });
 }

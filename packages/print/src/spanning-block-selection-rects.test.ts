@@ -26,6 +26,7 @@
 import { describe, it, expect } from "vitest";
 import { createInitialEditorState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockMeasurer, createSpan, createPosition, spanStart, spanEnd, INITIAL_COMPUTED_STYLE, getBlock, inlineContentLength, render, cascadePass, type EditorState, type EditorConfig, type State, type Span, type TextShaper, type TextMeasurer, type BlockId, type PageConfig } from "@taleweaver/core";
 import { resolvePixelPosition, computeSelectionRects, computeSelectionRectsForPage, createBlockBox, computeUsedStyle, layoutTree, type LayoutBox, type VirtualLayoutTree, type SelectionRect } from "./index";
+import { finalSection } from "./test-utils/final-section"; // body blocks live in the final section
 
 /**
  * TEST-ONLY oracle: assemble a `VirtualLayoutTree`'s pages into one positioned
@@ -112,7 +113,7 @@ function buildSpanningEditor(): {
   editor = reduceEditor(editor, { type: "INSERT_TEXT", text: words.join(" ") }, config);
 
   // The seeded body paragraph is the document root's first child.
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = finalSection(editor.state);
   const blockId = root?.firstChildId;
   if (blockId === undefined || blockId === null) {
     throw new Error("expected a seeded body paragraph");

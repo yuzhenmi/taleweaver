@@ -9,7 +9,7 @@ import { type AbsoluteLineBox, getLineIndex } from "./line-flatten";
  * frame) — this list is for the OFFSET domain (cross-fragment ordering /
  * find-by-offset for spanning-block navigation), NOT a uniform document-absolute
  * coordinate space. Geometry of a chosen line resolves per-page via
- * `tree.getPage(line.pageIndex)`. See docs/superpowers/specs/2026-06-09-vl-bridge-removal-design.md.
+ * `tree.getPage(line.pageIndex)`.
  */
 export function collectBlockLinesAcrossPages(
   tree: VirtualLayoutTree,

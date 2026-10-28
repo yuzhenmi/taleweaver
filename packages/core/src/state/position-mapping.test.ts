@@ -5,7 +5,7 @@ import type { EditorState } from "../editor/editor-state";
 import { getBlock, iterateLeafBlocksInDocumentOrder, extractText } from "./index";
 import type { BlockId, Position } from "./index";
 import { createPositionMapping, diffRegions, IDENTITY_MAPPING } from "./position-mapping";
-import { buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
+import { TEST_RESOLVER, buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
 import { createState } from "./state";
 import { STATE_INTERNAL } from "./state-internal";
 import { asBlockId } from "./block-id";
@@ -27,9 +27,9 @@ function step(editor: EditorState, action: EditorAction) {
 }
 
 function firstBlock(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, editor.state.rootId);
-  if (root?.firstChildId == null) throw new Error("no block");
-  return root.firstChildId;
+  // The document's first paragraph (the root holds its final section).
+  for (const b of iterateLeafBlocksInDocumentOrder(editor.state)) return b.id;
+  throw new Error("no block");
 }
 
 function at(editor: EditorState, blockId: BlockId, offset: number): EditorState {
@@ -107,14 +107,16 @@ describe("createPositionMapping", () => {
     expect(mapping.touches(createPosition(p, 0), createPosition(p, 3))).toBe(false);
   });
 
-  it("Enter (split) moves positions after the split point into the new block", () => {
+  it("Enter (split) moves positions before the split point into the new head; the tail keeps the id", () => {
     const { editor, p } = seeded("first Anna second");
     const { next, mapping } = step(at(editor, p, 5), { type: "SPLIT_NODE" });
     const m = mapping.map(createPosition(p, 6));
     expect(m.deleted).toBe(false);
-    expect(m.position?.blockId).not.toBe(p);
+    expect(m.position).toEqual(createPosition(p, 1));
     expect(textAt(next, m.position, 4)).toBe("Anna");
-    expect(mapping.map(createPosition(p, 2)).position).toEqual(createPosition(p, 2));
+    const head = mapping.map(createPosition(p, 2)).position;
+    expect(head?.blockId).not.toBe(p);
+    expect(head?.offset).toBe(2);
   });
 
   it("Backspace at a block start (merge) moves positions into the previous block", () => {
@@ -163,9 +165,10 @@ describe("createPositionMapping — cold blocks (foreign changes)", () => {
         buildBlock({ id: "Y", type: "paragraph", parentId: "doc", prevSiblingId: "Z", inlineContent: inlineContent([text("tail text")]) }),
       ],
     });
-    for (const id of ["doc", "K", "Z"]) getBlock(prev, asBlockId(id)); // warm everything but Y
+    // Warm everything but Y (incl. the root's final section, the blocks' parent).
+    for (const id of ["doc", getBlock(prev, asBlockId("doc"))?.firstChildId ?? "", "K", "Z"]) getBlock(prev, asBlockId(id));
     // The peer's edits, applied through an unrelated State over the same Y.Doc.
-    const peer = createState({ rootId: prev.rootId, doc: prev[STATE_INTERNAL].doc });
+    const peer = createState({ resolver: TEST_RESOLVER, rootId: prev.rootId, doc: prev[STATE_INTERNAL].doc });
     const r1 = removeBlock(peer, asBlockId("Z"));
     const r2 = insertText(r1.state, createPosition(asBlockId("Y"), 0), ">> ", {});
     const dirty = new Set([...r1.dirtyIds, ...r2.dirtyIds]);

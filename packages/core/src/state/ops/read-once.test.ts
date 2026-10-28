@@ -1,11 +1,11 @@
 /**
- * Multi-write ops read each block's inline `Y.Text` ONCE, compute offsets from that
+ * Multi-write ops read each block's inline text (`BlockText`) ONCE, compute offsets from that
  * read, and apply raw writes in descending order — O(block) per block, never one
  * re-read per item written (replace-all, resolve drops, deletion-strike drops,
  * comment-marker strip).
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
-import * as Y from "yjs";
+import { BlockText } from "../block-text";
 import { applyReplaceAllPlan, planReplaceMatches } from "./replace-matches";
 import { applyDeletionStrikeInTx, applyResolveDecisionsInTx } from "./suggestion-ops";
 import { addComment, deleteComment } from "./comment-ops";
@@ -33,10 +33,10 @@ function oneBlock(content: InlineContent): State {
   });
 }
 
-/** `Y.Text#toDelta` reads (= block read-model builds) made INSIDE `doc`'s transactions while `run` runs. */
+/** `BlockText#toDelta` reads (= block read-model builds) made INSIDE `doc`'s transactions while `run` runs. */
 function readsInTransaction(state: State, run: () => void): number {
   const doc = state[STATE_INTERNAL].doc;
-  const spy = vi.spyOn(Y.Text.prototype, "toDelta");
+  const spy = vi.spyOn(BlockText.prototype, "toDelta");
   let reads = 0;
   let mark = 0;
   const begin = (): void => {
@@ -73,7 +73,7 @@ describe("multi-write ops read each block once", () => {
     const doc = state[STATE_INTERNAL].doc;
     const reads = readsInTransaction(state, () =>
       runTransaction(doc, () => {
-        applyResolveDecisionsInTx(doc, P, "block", items, [{ op: "drop" }, { op: "keep" }, { op: "drop" }], undefined);
+        applyResolveDecisionsInTx(doc, [{ blockId: P, items, decisions: [{ op: "drop" }, { op: "keep" }, { op: "drop" }] }]);
       }),
     );
     expect(reads).toBe(0);
@@ -87,7 +87,7 @@ describe("multi-write ops read each block once", () => {
     });
     const reads = readsInTransaction(state, () =>
       runTransaction(doc, () => {
-        applyDeletionStrikeInTx(doc, P, "block", 0, 5, "d1" as SuggestionId, "alice", "test");
+        applyDeletionStrikeInTx(doc, [{ blockId: P, rangeStart: 0, rangeEnd: 5 }], "d1" as SuggestionId, "alice", "test", new Set());
       }),
     );
     expect(reads).toBe(1);

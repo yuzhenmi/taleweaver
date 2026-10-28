@@ -76,8 +76,10 @@ describe("#419 — undo of a mid-line split restores a valid in-context selectio
     );
 
     const split = reduceEditor(atMid, { type: "SPLIT_NODE" }, config);
-    // Sanity: the split actually produced a second block.
-    expect(split.selection.focus.blockId).not.toBe(blockId);
+    // Sanity: the split actually produced a second block — the head (new id) before
+    // the caret's block, which keeps its id.
+    expect(split.selection.focus.blockId).toBe(blockId);
+    expect(resolveBlock(split.state, blockId)?.block.prevSiblingId ?? null).not.toBeNull();
 
     const undone = reduceEditor(split, { type: "UNDO" }, config);
     expectSelectionValidAndInContext(undone);

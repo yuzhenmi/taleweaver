@@ -6,7 +6,7 @@ import type { AssignedCell } from "./table-grid-core";
 
 /**
  * A rectangular cell range in GRID coordinates within one table — the input to
- * the P15b merge-cells command (and the basis for any future cell-rectangle
+ * the merge-cells command (and the basis for any future cell-rectangle
  * selection). Inclusive bounds: the range covers grid rows `minRow..maxRow` and
  * columns `minCol..maxCol`. A single-cell range has `minRow === maxRow &&
  * minCol === maxCol`.
@@ -22,12 +22,12 @@ export interface CellRange {
 /**
  * Resolve the rectangular cell range spanned by a linear `selection` whose anchor
  * and focus sit in (possibly different) cells of the SAME main-tree table, or
- * `null` when the endpoints aren't both in one table (D1). The editor `Selection`
+ * `null` when the endpoints aren't both in one table. The editor `Selection`
  * stays linear; this is the pure resolver that turns a cross-cell selection into
- * a grid rectangle (mirroring how P15a added `resolveTableContext` rather than
+ * a grid rectangle (mirroring how `resolveTableContext` was added rather than
  * extending `Selection`).
  *
- * Algorithm (D1 + design-review F3): bounding-box the anchor and focus cells'
+ * Algorithm: bounding-box the anchor and focus cells'
  * grid RECTANGLES (a merged endpoint contributes its whole `rowSpan×colSpan`
  * rectangle), then expand to whole span-rectangles to a fixpoint — for every slot
  * `(r,c)` in the current box, look up `occupancy[r][c]`, find that cell's

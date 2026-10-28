@@ -4,7 +4,7 @@
  *
  * `decisions[k]` applies to snapshot item `items[k]`: `keep` writes nothing,
  * `rewrite` formats the item's range with the attrs diff (its characters keep
- * their identity), `drop` / `breakDrop` delete the item's range. The load-bearing
+ * their identity), `drop` deletes the item's range. The load-bearing
  * properties: (a) untouched and rewritten characters keep their CRDT identity;
  * (b) drops remove exactly their item (descending offsets, so later drops are not
  * mis-offset); (c) a rewrite that makes neighbours equal reads back as one run;
@@ -38,7 +38,7 @@ function resolveP(state: State, decisions: readonly ScanItemResult[]): { after: 
   const doc = state[STATE_INTERNAL].doc;
   const items = resolveBlock(state, "p" as BlockId)?.block.inlineContent?.items ?? [];
   const { dirtyIds } = runTransaction(doc, () => {
-    applyResolveDecisionsInTx(doc, "p" as BlockId, "block", items, decisions, undefined);
+    applyResolveDecisionsInTx(doc, [{ blockId: "p" as BlockId, items, decisions }]);
   });
   const after = freshState(state, dirtyIds);
   return { after, items: resolveBlock(after, "p" as BlockId)?.block.inlineContent?.items ?? [] };
@@ -61,14 +61,12 @@ describe("applyResolveDecisionsInTx", () => {
     expect(survives(relX, after, "x")).toBe(true);
   });
 
-  it("drop and breakDrop delete exactly their item; kept characters survive", () => {
-    for (const drop of [{ op: "drop" }, { op: "breakDrop", merge: false }] as const) {
-      const state = oneBlock(inlineContent([text("x", {}), text("y", { del: "s1" }), text("z", { bold: true })]));
-      const relZ = relAt(state, "p", 2);
-      const { after, items } = resolveP(state, [{ op: "keep" }, drop, { op: "keep" }]);
-      expect(items).toEqual([text("x"), text("z", { bold: true })]);
-      expect(survives(relZ, after, "z")).toBe(true);
-    }
+  it("drop deletes exactly its item; kept characters survive", () => {
+    const state = oneBlock(inlineContent([text("x", {}), text("y", { del: "s1" }), text("z", { bold: true })]));
+    const relZ = relAt(state, "p", 2);
+    const { after, items } = resolveP(state, [{ op: "keep" }, { op: "drop" }, { op: "keep" }]);
+    expect(items).toEqual([text("x"), text("z", { bold: true })]);
+    expect(survives(relZ, after, "z")).toBe(true);
   });
 
   it("several drops in one block (descending offsets) empty it exactly", () => {

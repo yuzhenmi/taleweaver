@@ -44,9 +44,8 @@ function cascadeRoot(rootStyle: Style, children: readonly ElementBox[]): Element
 }
 
 /**
- * Cascade a doc root carrying a doc-wide `columnCount` metadata override — `buildSectionPlan`
- * (inside `buildVirtualPaginatedTree`) reads this off the root box to derive the doc-wide column
- * default, so a 2-column doc flows through the producer's §4.4 convergence + multicol measure↔
+ * Cascade a doc root whose final section carries a `columnCount` metadata override —
+ * `buildSectionPlan` (inside `buildVirtualPaginatedTree`) reads it off the section box, so a 2-column doc flows through the producer's §4.4 convergence + multicol measure↔
  * materialize path. `cascadePass` preserves metadata (block-type/column attrs are open-schema).
  */
 function cascadeRootWithColumns(
@@ -54,7 +53,9 @@ function cascadeRootWithColumns(
   children: readonly ElementBox[],
   columnCount: number,
 ): ElementBox {
-  const root = createElementBox("root", rootStyle, children, { columnCount });
+  // Column keys live on sections: a break-less doc's FINAL section carries them.
+  const section = createElementBox("final-section", { display: "contents" } as Style, children, { blockType: "section", columnCount });
+  const root = createElementBox("root", rootStyle, [section]);
   const cascaded = cascadePass(root);
   if (cascaded.type !== "element") throw new Error("cascadePass returned non-element");
   return cascaded;

@@ -16,7 +16,7 @@
  * the content inline size minus the inter-column gaps, divided evenly.
  * The single source of truth shared by the measure pass, the footnote
  * re-fit pass, and the materialize pass — they MUST agree on this number
- * (a divergence here was the root cause of the #494 multicol drift), so it
+ * (a divergence here was the root cause of the multicol drift), so it
  * lives in one function rather than three copy-pasted expressions.
  */
 export function computeTrackInlineSize(

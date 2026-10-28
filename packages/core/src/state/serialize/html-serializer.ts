@@ -1,8 +1,7 @@
 /**
  * The `taleweaver-html` human-friendly `DocumentSerializer<string>` — a readable
  * HTML-subset format for AUTHORING/SEEDING documents (not lossless interchange;
- * the binary serializer owns that). Spec:
- * `docs/superpowers/specs/2026-06-08-human-friendly-serializer-design.md` §4.
+ * the binary serializer owns that).
  *
  * Lives in `@taleweaver/core`; DECODE parses via an injected `HtmlParser` (the
  * host supplies a DOM-backed adapter), keeping core DOM-free. ENCODE is pure (no
@@ -19,6 +18,7 @@
  *   }));
  */
 import type { IdAllocator } from "../block-id";
+import type { BlockKindResolver } from "../block-kinds";
 import type { DocumentSerializer } from "./document-serializer";
 import type { HtmlParser } from "./html-node";
 import { encodeHtml } from "./html-encode";
@@ -36,10 +36,12 @@ export const HTML_FORMAT = "taleweaver-html";
 export function createHtmlDocumentSerializer(deps: {
   allocator: IdAllocator;
   parseHtml: HtmlParser;
+  /** Storage-shape authority (the component registry) for the decoded document. */
+  blockKindResolver: BlockKindResolver;
 }): DocumentSerializer<string> {
   return {
     format: HTML_FORMAT,
     encode: (state) => encodeHtml(state),
-    decode: (html) => decodeHtml(html, deps.allocator, deps.parseHtml),
+    decode: (html) => decodeHtml(html, deps.allocator, deps.parseHtml, deps.blockKindResolver),
   };
 }

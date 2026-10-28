@@ -8,6 +8,12 @@ import {
   DELETION_SUGGESTION_ATTR,
 } from "../state";
 import type { CounterValue } from "../numbering";
+import { createPosition, type BookmarkRange } from "../state";
+
+/** A bookmark range over units [0, len) of block `id` (fields target bookmarks). */
+function over(id: string, len: number): BookmarkRange {
+  return { start: createPosition(id as BlockId, 0), end: createPosition(id as BlockId, len) };
+}
 
 /** doc → [list-item "li" (a numbered item), heading "h" "Title", container "c" (no inlineContent)]. */
 function doc(): State {
@@ -28,7 +34,7 @@ const numbering: ReadonlyMap<BlockId, CounterValue> = new Map([
 
 describe("resolveCrossReference", () => {
   it("number mode → the target's formatted counter from the numbering map (view-independent)", () => {
-    const target = { targetId: "li" as BlockId, refMode: "number" as const };
+    const target = { range: over("li", 10), refMode: "number" as const };
     expect(resolveCrossReference(doc(), numbering, target)).toBe("3");
     // The counter comes from the per-render numbering map (already view-correct);
     // number mode returns BEFORE the view param is consulted, so it is invariant
@@ -37,25 +43,18 @@ describe("resolveCrossReference", () => {
     expect(resolveCrossReference(doc(), numbering, target, "original")).toBe("3");
   });
 
-  it("number mode, target absent from the numbering map (unnumbered / deleted) → broken-ref", () => {
-    expect(resolveCrossReference(doc(), numbering, { targetId: "h" as BlockId, refMode: "number" })).toBe(BROKEN_CROSS_REFERENCE_TEXT);
-    expect(resolveCrossReference(doc(), numbering, { targetId: "gone" as BlockId, refMode: "number" })).toBe(BROKEN_CROSS_REFERENCE_TEXT);
+  it("number mode, the bookmark start's paragraph is not numbered → broken-ref", () => {
+    expect(resolveCrossReference(doc(), numbering, { range: over("h", 5), refMode: "number" })).toBe(BROKEN_CROSS_REFERENCE_TEXT);
   });
 
   it("text mode → the target block's full text", () => {
-    expect(resolveCrossReference(doc(), numbering, { targetId: "h" as BlockId, refMode: "text" })).toBe("Title");
-    expect(resolveCrossReference(doc(), numbering, { targetId: "li" as BlockId, refMode: "text" })).toBe("first item");
+    expect(resolveCrossReference(doc(), numbering, { range: over("h", 5), refMode: "text" })).toBe("Title");
+    expect(resolveCrossReference(doc(), numbering, { range: over("li", 10), refMode: "text" })).toBe("first item");
+    // A bookmark over part of the text reads just that part (Word's REF).
+    expect(resolveCrossReference(doc(), numbering, { range: { start: createPosition("li" as BlockId, 6), end: createPosition("li" as BlockId, 10) }, refMode: "text" })).toBe("item");
   });
 
-  it("text mode, target missing → broken-ref", () => {
-    expect(resolveCrossReference(doc(), numbering, { targetId: "gone" as BlockId, refMode: "text" })).toBe(BROKEN_CROSS_REFERENCE_TEXT);
-  });
-
-  it("text mode, target is not inline-bearing (a container) → broken-ref", () => {
-    expect(resolveCrossReference(doc(), numbering, { targetId: "c" as BlockId, refMode: "text" })).toBe(BROKEN_CROSS_REFERENCE_TEXT);
-  });
-
-  it("text mode, an empty target → empty string (the target EXISTS — not broken)", () => {
+  it("text mode, an empty bookmark → empty string (it EXISTS — not broken)", () => {
     const state = buildState({
       rootId: "doc",
       blocks: [
@@ -63,7 +62,7 @@ describe("resolveCrossReference", () => {
         buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }),
       ],
     });
-    expect(resolveCrossReference(state, numbering, { targetId: "p" as BlockId, refMode: "text" })).toBe("");
+    expect(resolveCrossReference(state, numbering, { range: over("p", 0), refMode: "text" })).toBe("");
   });
 
   it("text mode → embeds in the target contribute CLEAN caption text, not U+FFFC / \\t / \\n (XR-2)", () => {
@@ -87,7 +86,7 @@ describe("resolveCrossReference", () => {
         }),
       ],
     });
-    expect(resolveCrossReference(state, numbering, { targetId: "h" as BlockId, refMode: "text" })).toBe(
+    expect(resolveCrossReference(state, numbering, { range: over("h", 14), refMode: "text" })).toBe(
       "Part One Two",
     );
   });
@@ -110,7 +109,7 @@ describe("resolveCrossReference", () => {
         }),
       ],
     });
-    const target = { targetId: "h" as BlockId, refMode: "text" as const };
+    const target = { range: over("h", 10), refMode: "text" as const };
     expect(resolveCrossReference(state, numbering, target)).toBe("Keep Added"); // default "suggesting"
     expect(resolveCrossReference(state, numbering, target, "final")).toBe("Keep Added");
     expect(resolveCrossReference(state, numbering, target, "original")).toBe("Keep ");
@@ -132,7 +131,7 @@ describe("resolveCrossReference", () => {
         }),
       ],
     });
-    const target = { targetId: "h" as BlockId, refMode: "text" as const };
+    const target = { range: over("h", 7), refMode: "text" as const };
     expect(resolveCrossReference(state, numbering, target, "final")).toBe("Stay");
     expect(resolveCrossReference(state, numbering, target, "original")).toBe("StayCut");
   });

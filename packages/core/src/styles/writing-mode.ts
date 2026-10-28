@@ -50,7 +50,7 @@ export interface PhysicalRect {
  *     x = containingBlockSize − blockOffset − blockSize. Because the box factory
  *     does not have the containing block-size at construction time, this is an
  *     OPTIONAL trailing param: when omitted or "indefinite", the un-mirrored x
- *     (= blockOffset) is returned — the pending value that the P3.1 physicalize
+ *     (= blockOffset) is returned — the pending value that the physicalize
  *     pass corrects once the containing block-size is known.
  *   - width = blockSize, height = inlineSize.
  *
@@ -118,7 +118,7 @@ export function logicalToPhysical(
 
 /**
  * Exact inverse of `logicalToPhysical` for all four (writingMode, direction)
- * combos. Used by hit-testing (P3.5) to map a physical point/rect back to the
+ * combos. Used by hit-testing to map a physical point/rect back to the
  * logical axes. For `vertical-rl`, the `containingBlockSize` arg must match
  * whichever form produced the physical rect: supply it to invert the mirror;
  * omit it to invert the un-mirrored form.
@@ -191,7 +191,7 @@ export interface AxisMap {
 
 /**
  * The consumer-facing axis selector: which physical axis each logical axis maps
- * to, plus whether the inline axis is reversed. Used by P3.5+ layout/cursor
+ * to, plus whether the inline axis is reversed. Used by layout/cursor
  * code to pick the right physical coordinate without re-deriving the mapping.
  *
  * Per `1.0-styles.md`: `horizontal-tb` maps inline→x, block→y; both vertical

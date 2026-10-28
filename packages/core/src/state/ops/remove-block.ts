@@ -2,7 +2,8 @@ import type * as Y from "yjs";
 import type { State, OperationResult } from "../state";
 import { applyOperation, getBlock } from "../state";
 import type { BlockId } from "../block-id";
-import { getBlocksMap, getEmbedContentsMap, getYBlock, requireInTransaction } from "../yjs-doc";
+import { requireInTransaction } from "../yjs-doc";
+import { removeBlockStorage } from "../flow-ops";
 import { collectEmbedContentSubtreeFromInlineContent } from "../embed-content-cascade";
 
 /**
@@ -194,64 +195,10 @@ export function planRemoveBlock(state: State, blockId: BlockId): RemoveBlockPlan
  */
 export function removeBlockInTx(doc: Y.Doc, plan: RemoveBlockPlan): void {
   requireInTransaction(doc, "removeBlock");
-
-  const yBlocks = getBlocksMap(doc);
-
-  // Cascade-delete embed-content subtrees referenced by the deleted blocks.
-  // Done first so the dirty-id capture observes the deletes alongside the
-  // main-tree deletes within one transaction.
-  if (plan.embedContentIds.size > 0) {
-    const yEmbeds = getEmbedContentsMap(doc);
-    for (const id of plan.embedContentIds) {
-      yEmbeds.delete(id);
-    }
-  }
-
-  // Relink prev sibling's nextSiblingId → block's nextSiblingId.
-  if (plan.prevSiblingId !== null) {
-    getYBlock(doc, plan.prevSiblingId, "removeBlock").set(
-      "nextSiblingId",
-      plan.nextSiblingId,
-    );
-  }
-
-  // Relink next sibling's prevSiblingId → block's prevSiblingId.
-  if (plan.nextSiblingId !== null) {
-    getYBlock(doc, plan.nextSiblingId, "removeBlock").set(
-      "prevSiblingId",
-      plan.prevSiblingId,
-    );
-  }
-
-  // Update the parent's firstChildId / lastChildId only when the removed
-  // block sat at a boundary. Writing same-value to a Y.Map still fires a
-  // change event, which would land the parent in dirtyIds and trigger an
-  // unnecessary re-paint. A MIDDLE removal touches neither boundary, so we
-  // skip the parent entirely — it stays OUT of dirtyIds. The parent still
-  // re-renders correctly on a middle removal via render's
-  // computeInvalidatedBlocks ancestor-walk: the deleted child IS in
-  // dirtyIds (part of the deleted subtree), and the walk resolves each
-  // dirty id through prevState when it's gone from the new state, so the
-  // deleted child's parent gets added to the invalidation set regardless of
-  // whether removeBlock writes the parent here.
-  //
-  // Shared contract with insertBlock: a block is in `dirtyIds` iff its OWN
-  // fields changed; child-membership changes propagate through render's
-  // ancestor walk.
-  if (plan.removingFirstChild || plan.removingLastChild) {
-    const yParent = getYBlock(doc, plan.parentId, "removeBlock");
-    if (plan.removingFirstChild) {
-      yParent.set("firstChildId", plan.nextSiblingId);
-    }
-    if (plan.removingLastChild) {
-      yParent.set("lastChildId", plan.prevSiblingId);
-    }
-  }
-
-  // Delete every id in the subtree from the blocks map.
-  for (const id of plan.subtreeIds) {
-    yBlocks.delete(id);
-  }
+  // Footnote bodies referenced from the removed subtree go first (their entries).
+  for (const id of plan.embedContentIds) removeBlockStorage(doc, id);
+  // Marks + content (a section takes its blocks along); a leaf entry survives.
+  removeBlockStorage(doc, plan.blockId);
 }
 
 /**

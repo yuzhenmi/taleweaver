@@ -22,6 +22,9 @@ import { emitPdf, type EmitPdfInput } from "./emit-pdf";
 import { mapAccessibilityTree, type PdfStructureNode } from "./pdf-structure";
 import { parsePdf, type ParsedPdf } from "./pdf-parse";
 import { createMockImageProvider } from "./mock-image-provider";
+import { createDefaultComponentRegistry } from "@taleweaver/core";
+
+const TEST_RESOLVER = createDefaultComponentRegistry();
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -86,7 +89,7 @@ function buildTaggedInput(): {
   const state = core.buildDocumentFromTree(
     tree,
     { L1: ORDERED_DEF },
-    core.createTestAllocator("blk"),
+    core.createTestAllocator("blk"), TEST_RESOLVER
   );
 
   // Geometry-free editor config (Phase 0b: `measurer` moved to the print
@@ -271,8 +274,10 @@ describe("emitPdf — tagged PDF (#526 T5)", () => {
     const top = childElems(pdf, doc.body);
     const roles = top.map((c) => c.role);
 
-    // Order-faithful top-level roles. NO Lbl/LBody/TR/TH/TD here (nested).
-    expect(roles).toEqual(["H1", "P", "P", "L", "Figure", "Table"]);
+    // Order-faithful top-level roles. NO Lbl/LBody/TR/TH/TD here (nested). Each block
+    // object (both images, the rule, the table) is followed by its mandatory empty
+    // paragraph (invariant I) — tagged P like any paragraph.
+    expect(roles).toEqual(["H1", "P", "P", "L", "Figure", "P", "P", "P", "Table", "P"]);
 
     // No banner StructElem anywhere (header is /Artifact); no separator/HR element.
     const allElems = Array.from({ length: pdf.objectCount }, (_, i) => pdf.object(i + 1) ?? "")

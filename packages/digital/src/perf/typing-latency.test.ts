@@ -17,6 +17,8 @@ import {
 } from "@taleweaver/core";
 import { createDigitalController, type DigitalController } from "../editor-digital/digital-controller";
 
+const TEST_RESOLVER = createDefaultComponentRegistry();
+
 /**
  * Typing-latency gate (digital backend): a 20,000-word chapter (400 × 50-word paragraphs)
  * with 1,000 inline decorations, and a ~100-page document with comment highlights.
@@ -74,7 +76,9 @@ function chapter(paragraphs = 400): ContainerBlockNode {
 function paragraphIds(controller: DigitalController): BlockId[] {
   const state = controller.editorState.state;
   const out: BlockId[] = [];
-  for (let id = getBlock(state, state.rootId)?.firstChildId ?? null; id !== null; id = getBlock(state, id)?.nextSiblingId ?? null) out.push(id);
+  // The root's children are sections: a break-less document's body is its final section.
+  const body = getBlock(state, getBlock(state, state.rootId)?.lastChildId ?? state.rootId);
+  for (let id = body?.firstChildId ?? null; id !== null; id = getBlock(state, id)?.nextSiblingId ?? null) out.push(id);
   return out;
 }
 
@@ -91,7 +95,7 @@ describe("digital typing latency (20k words, 1,000 decorations)", () => {
       container,
       componentRegistry: createDefaultComponentRegistry(),
       attrRegistry: createDefaultAttrRegistry(),
-      initialState: buildDocumentFromTree(chapter(), {}, createTestAllocator()),
+      initialState: buildDocumentFromTree(chapter(), {}, createTestAllocator(), TEST_RESOLVER),
       doc: document,
     });
     const ids = paragraphIds(controller);
@@ -139,7 +143,7 @@ describe("digital typing latency (20k words, 1,000 decorations)", () => {
       container,
       componentRegistry: createDefaultComponentRegistry(),
       attrRegistry: createDefaultAttrRegistry(),
-      initialState: buildDocumentFromTree(chapter(1000), {}, createTestAllocator()),
+      initialState: buildDocumentFromTree(chapter(1000), {}, createTestAllocator(), TEST_RESOLVER),
       doc: document,
     });
     const ids = paragraphIds(controller);

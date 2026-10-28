@@ -1,15 +1,9 @@
 /**
  * C.1b-T4: `SECTION_BREAK` editor action + `handleSectionBreak`.
  *
- * Wires the Layer-3 `applySectionBreak` op into the editor reducer. The
- * break splits the document root's children into FLAT `section` blocks at
- * the cursor's boundary block, collapses the cursor to the first leaf of
- * the boundary subtree, and rebuilds render/cascade/layout.
- *
- * No-op contract (Decision 5 / T7): breaking at the FIRST child of the
- * container would create an empty leading section, so `applySectionBreak`
- * returns the input `state` reference unchanged; the handler short-circuits
- * and returns the original editor.
+ * Wires the Layer-3 `applySectionBreak` op into the editor reducer. (Word)
+ * The break is a split of the caret's paragraph whose head ends a
+ * new section; the caret stays at the start of the tail.
  */
 import { describe, it, expect } from "vitest";
 import { config, measurer, reduceEditor } from "./test-helpers";
@@ -97,9 +91,9 @@ function makeEditor(cursorBlock: BlockId): EditorState {
   };
 }
 
-/** Ordered list of the document root's direct children. */
-function rootChildren(editor: EditorState): BlockId[] {
-  const root = getBlock(editor.state, editor.state.rootId);
+/** Ordered list of a block's direct children (the root's: its sections). */
+function childrenOf(editor: EditorState, id: BlockId = editor.state.rootId): BlockId[] {
+  const root = getBlock(editor.state, id);
   if (root === null) return [];
   const ids: BlockId[] = [];
   let cur: BlockId | null = root.firstChildId;
@@ -118,24 +112,28 @@ describe("handleSectionBreak — SECTION_BREAK action", () => {
 
     const next = reduceEditor(initial, { type: "SECTION_BREAK" }, config);
 
-    // T7 (positive direction): a real break produces a NEW state reference.
+    // Positive direction: a real break produces a NEW state reference.
     expect(next.state).not.toBe(initial.state);
 
     // Root now has exactly two children, both `section` blocks.
-    const children = rootChildren(next);
+    const children = childrenOf(next);
     expect(children).toHaveLength(2);
     for (const id of children) {
       expect(getBlock(next.state, id)?.type).toBe("section");
     }
 
-    // Leading section holds [p1, p2]; trailing section holds [p3, p4].
+    // (Word) the break is a SPLIT of p3 at 0 whose head H (a new,
+    // empty paragraph) carries the section end. Leading section = [p1, p2, H];
+    // the final section keeps [p3, p4].
     const [secA, secB] = children;
-    expect(getBlock(next.state, "p1" as BlockId)?.parentId).toBe(secA);
-    expect(getBlock(next.state, "p2" as BlockId)?.parentId).toBe(secA);
-    expect(getBlock(next.state, "p3" as BlockId)?.parentId).toBe(secB);
-    expect(getBlock(next.state, "p4" as BlockId)?.parentId).toBe(secB);
+    const leading = childrenOf(next, secA as BlockId);
+    expect(leading.slice(0, 2)).toEqual(["p1", "p2"]);
+    expect(leading).toHaveLength(3);
+    const head = leading[2] as BlockId;
+    expect(getBlock(next.state, head)?.inlineContent?.items).toEqual([]);
+    expect(childrenOf(next, secB as BlockId)).toEqual(["p3", "p4"]);
 
-    // Cursor collapses to the first leaf of the boundary (p3 is a leaf → p3).
+    // Cursor stays at the start of the tail (p3).
     expect(next.selection.focus).toEqual({ blockId: "p3" as BlockId, offset: 0 });
     expect(next.selection.anchor).toEqual({ blockId: "p3" as BlockId, offset: 0 });
 
@@ -143,20 +141,19 @@ describe("handleSectionBreak — SECTION_BREAK action", () => {
     expect(layoutOf(next.state)).toBeDefined();
   });
 
-  it("is a no-op when the cursor is in the first child (would create an empty leading section)", () => {
+  it("a break at the start of the first paragraph leaves an empty paragraph carrying it (Word)", () => {
+    // a section always holds ≥ 1 paragraph — the one its section end
+    // terminates — so a break at (p1, 0) no longer has to be refused: the split's
+    // empty head is the leading section's paragraph.
     const initial = makeEditor("p1" as BlockId);
 
     const next = reduceEditor(initial, { type: "SECTION_BREAK" }, config);
 
-    // T7 identity: state reference unchanged, selection unchanged.
-    expect(next.state).toBe(initial.state);
-    expect(next.selection).toBe(initial.selection);
-    // Root children are still the original paragraphs (no sections).
-    expect(rootChildren(next)).toEqual([
-      "p1" as BlockId,
-      "p2" as BlockId,
-      "p3" as BlockId,
-      "p4" as BlockId,
-    ]);
+    const [secA, secB] = childrenOf(next);
+    const leading = childrenOf(next, secA as BlockId);
+    expect(leading).toHaveLength(1);
+    expect(getBlock(next.state, leading[0] as BlockId)?.inlineContent?.items).toEqual([]);
+    expect(childrenOf(next, secB as BlockId)).toEqual(["p1", "p2", "p3", "p4"]);
+    expect(next.selection.focus).toEqual({ blockId: "p1" as BlockId, offset: 0 });
   });
 });

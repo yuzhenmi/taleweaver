@@ -25,6 +25,7 @@ import {
 import { commentBand, findBand, type TestBand } from "./test-utils/highlight-bands";
 import * as core from "@taleweaver/core";
 import * as printPkg from "./index";
+import { finalSection } from "./test-utils/final-section"; // body blocks live in the final section
 
 const { COMMENT_HIGHLIGHT_FILL, ACTIVE_COMMENT_HIGHLIGHT_FILL, FIND_HIGHLIGHT_FILL: MATCH_HIGHLIGHT_FILL } = core;
 
@@ -81,7 +82,7 @@ function seededEditorState(text: string): { editor: core.EditorState; blockId: c
   };
   let editor = core.createInitialEditorState(config);
   editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text }, config);
-  const block = core.getBlock(editor.state, editor.state.rootId);
+  const block = finalSection(editor.state);
   const blockId = block?.firstChildId;
   if (blockId === null || blockId === undefined) throw new Error("no paragraph block");
   return { editor, blockId, config };
@@ -293,15 +294,16 @@ describe("controller setCommentHighlights / clearCommentHighlights (comments sli
     // Type paragraph 1, split (Enter) into a second paragraph, type paragraph 2,
     // then comment across the block boundary. A cross-block comment range
     // (range.start.blockId !== range.end.blockId) must paint a band in EACH block.
-    const { editor, blockId: block1, config } = seededEditorState("first paragraph");
+    const { editor, blockId: block2, config } = seededEditorState("first paragraph");
     // Caret sits at the end of "first paragraph" after INSERT_TEXT; Enter there
-    // splits a fresh empty paragraph after it.
+    // splits. The head ("first paragraph") gets a NEW id; the empty tail
+    // keeps the original id, so typing lands in the original block.
     let e = core.reduceEditor(editor, { type: "SPLIT_NODE" }, config);
     e = core.reduceEditor(e, { type: "INSERT_TEXT", text: "second paragraph" }, config);
 
-    // The split created a sibling after block1; resolve it as the second block.
-    const block2 = core.getBlock(e.state, block1)?.nextSiblingId;
-    if (block2 === null || block2 === undefined) throw new Error("no second paragraph block");
+    // The split head is the original block's previous sibling.
+    const block1 = core.getBlock(e.state, block2)?.prevSiblingId;
+    if (block1 === null || block1 === undefined) throw new Error("no first paragraph block");
 
     // Select from inside paragraph 1 (offset 6) to inside paragraph 2 (offset 6),
     // a genuine cross-block range, then mint the comment over it.

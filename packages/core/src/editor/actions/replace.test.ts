@@ -1,3 +1,4 @@
+import { finalSectionOf } from "../../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import { config } from "./test-helpers";
 import {
@@ -18,7 +19,7 @@ function withText(text: string): EditorState {
 }
 
 function firstParagraphId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
   const id = root?.firstChildId;
   if (id === null || id === undefined) throw new Error("no first paragraph");
   return id;
@@ -102,7 +103,7 @@ describe("REPLACE_ALL", () => {
     editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "bar baz" }, config);
 
-    const root = getBlock(editor.state, editor.state.rootId);
+    const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
     const p1 = root?.firstChildId;
     const p2 = root?.lastChildId;
     if (p1 === null || p1 === undefined || p2 === null || p2 === undefined) {

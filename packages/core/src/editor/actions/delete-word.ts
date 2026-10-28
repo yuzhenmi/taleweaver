@@ -14,7 +14,7 @@ export function handleDeleteWord(
   direction: "forward" | "backward",
   config: EditorConfig,
 ): EditorState {
-  // Object selection (#525): Ctrl+Delete on a selected atomic-leaf (image)
+  // Object selection: Ctrl+Delete on a selected atomic-leaf (image)
   // removes the object as a unit. Routes BEFORE the collapsed word-delete path,
   // whose cross-block guard would otherwise silently no-op on the atomic block.
   const objId = isObjectSelection(editor.state, editor.selection, config.componentRegistry);
@@ -29,7 +29,7 @@ export function handleDeleteWord(
     // body (embedContents / templateContents) is actually deleted: the
     // cross-CONTEXT refusal + the tree-aware (resolveBlock) deletable-span
     // guard. Using getBlock here (main-tree only) would early-return a no-op for
-    // a body-context range (#430).
+    // a body-context range.
     if (isCrossContextSelection(editor.state, selection)) return editor;
     const start = expandedSpanCollapsePoint(editor.state, selection);
     if (start === null) return editor;
@@ -47,10 +47,11 @@ export function handleDeleteWord(
       spanStart(editor.state, selection).blockId,
       config,
     );
-    const collapseTo =
-      suggesting && direction === "forward"
+    const collapseTo = suggesting
+      ? direction === "forward"
         ? spanEnd(editor.state, selection)
-        : start;
+        : spanStart(editor.state, selection)
+      : start;
     const newCursor = createPosition(collapseTo.blockId, collapseTo.offset);
     const newSelection = createSpan(newCursor, newCursor);
     editor.history.commit(result, {
@@ -78,7 +79,6 @@ export function handleDeleteWord(
   const span = expandSpanOverAtomicMarks(
     editor.state,
     direction === "backward" ? createSpan(target, pos) : createSpan(pos, target),
-    config.attrRegistry,
   );
   const result = deleteRangeOrSuggest(editor.state, span, config);
   if (result.state === editor.state) return editor;

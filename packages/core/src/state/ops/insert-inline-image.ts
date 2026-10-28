@@ -1,4 +1,5 @@
 import type * as Y from "yjs";
+import { requireBlockText } from "../block-text";
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
@@ -8,8 +9,8 @@ import {
   INLINE_IMAGE_EMBED_TYPE,
   type EmbedItem,
 } from "../inline-content";
-import { getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
-import { insertInlineItems, requireYInline } from "../y-inline";
+import { requireInTransaction, type BlockTreeKind } from "../yjs-doc";
+import { insertInlineItems } from "../y-inline";
 
 /** The primitive image data carried inline by an `inline-image` EmbedItem. */
 export interface InlineImageProperties {
@@ -116,6 +117,5 @@ function planInlineImageInsert(
  */
 function insertInlineImageInTx(doc: Y.Doc, plan: InlineImageInsertPlan): void {
   requireInTransaction(doc, "insertInlineImage");
-  const yBlock = getYBlock(doc, plan.blockId, "insertInlineImage", plan.kind);
-  insertInlineItems(requireYInline(yBlock, plan.blockId, "insertInlineImage"), plan.offset, [plan.embed]);
+  insertInlineItems(requireBlockText(doc, plan.blockId, "insertInlineImage"), plan.offset, [plan.embed]);
 }

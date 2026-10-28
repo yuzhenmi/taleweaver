@@ -4,6 +4,7 @@ import { createElementBox } from "../render/render-node";
 export const tableRowComponent: ContainerComponentDefinition = {
   type: "table-row",
   kind: "container",
+  storage: "row",
   render: (view, _ctx, childRenderNodes) =>
     createElementBox(view.id, { display: "table-row" }, childRenderNodes),
 };

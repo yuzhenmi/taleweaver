@@ -395,7 +395,7 @@ export function registerBuiltinAttrs(registry: AttrRegistry): void {
   registry.register(fontSizeInterpreter);
   registry.register(colorInterpreter);
   registry.register(backgroundColorInterpreter);
-  // C-C: typography interpreters for inheritable text properties that
+  // Typography interpreters for inheritable text properties that
   // no component synthesizes.
   registry.register(textAlignInterpreter);
   registry.register(textTransformInterpreter);

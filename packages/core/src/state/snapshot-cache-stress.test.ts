@@ -1,49 +1,33 @@
 import { describe, it, expect } from "vitest";
-import { createState, getBlock, applyOperation } from "./state";
-import { getBlocksMap } from "./yjs-doc";
-import { buildYBlock } from "./y-block";
+import { getBlock, type State } from "./state";
 import type { BlockId } from "./block-id";
 import { setBlockAttrs } from "./ops/set-block-attrs";
-import { STATE_INTERNAL } from "./state-internal";
+import { buildBlock, buildState, inlineContent } from "../test-utils/state-builders";
+
+/** A flat N-paragraph document: root + empty paragraphs p-0 … p-(n-1). */
+function buildFlatDoc(n: number): State {
+  const ids = Array.from({ length: n }, (_, i) => `p-${i}`);
+  return buildState({
+    rootId: "root",
+    blocks: [
+      buildBlock({ id: "root", type: "document", firstChildId: ids[0] ?? null, lastChildId: ids[n - 1] ?? null }),
+      ...ids.map((id, i) =>
+        buildBlock({
+          id,
+          type: "paragraph",
+          parentId: "root",
+          prevSiblingId: ids[i - 1] ?? null,
+          nextSiblingId: ids[i + 1] ?? null,
+          inlineContent: inlineContent([]),
+        }),
+      ),
+    ],
+  });
+}
 
 describe("snapshot cache (stress)", () => {
   it("reuses cached snapshots for unchanged blocks after a single-block mutation", () => {
-    const state = createState({ rootId: "root" as BlockId });
-    // Seed 100 sibling blocks under root.
-    let prevId: BlockId | null = null;
-    applyOperation(state, () => {
-      const yBlocks = getBlocksMap(state[STATE_INTERNAL].doc);
-      yBlocks.set(
-        "root",
-        buildYBlock({
-          type: "document",
-          attrs: {},
-          parentId: null,
-          prevSiblingId: null,
-          nextSiblingId: null,
-          firstChildId: "p-0" as BlockId,
-          lastChildId: "p-99" as BlockId,
-          inlineContent: null,
-        }),
-      );
-      for (let i = 0; i < 100; i++) {
-        const id = `p-${i}` as BlockId;
-        yBlocks.set(
-          id,
-          buildYBlock({
-            type: "paragraph",
-            attrs: {},
-            parentId: "root" as BlockId,
-            prevSiblingId: prevId,
-            nextSiblingId: i < 99 ? (`p-${i + 1}` as BlockId) : null,
-            firstChildId: null,
-            lastChildId: null,
-            inlineContent: { items: [] },
-          }),
-        );
-        prevId = id;
-      }
-    });
+    const state = buildFlatDoc(100);
 
     // Materialize all 100 snapshots into the cache.
     const before: Array<ReturnType<typeof getBlock>> = [];

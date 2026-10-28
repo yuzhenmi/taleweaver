@@ -10,6 +10,11 @@ import {
 import type { State, Position, ReadonlyAttrs, InlineItem, TextItem } from "../state";
 import type { AttrRegistry } from "../cascade/attr-registry";
 import { isCollapsed } from "../cursor/selection";
+import { requireAttrRegistry } from "../state/mark-attrs";
+import { STATE_INTERNAL } from "../state/state-internal";
+
+/** The attr registry bound to the editor's doc (the editor binds `EditorConfig.attrRegistry`). */
+const registryOf = (state: State): AttrRegistry => requireAttrRegistry(state[STATE_INTERNAL].doc);
 import type { EditorState } from "./editor-state";
 
 /**
@@ -53,19 +58,30 @@ function itemsAt(state: State, blockId: Position["blockId"]): ReadonlyArray<Inli
   return resolveBlock(state, blockId)?.block.inlineContent?.items ?? [];
 }
 
+/** An EMPTY paragraph's typing attrs: its ¶'s character props (`markAttrs`, inclusive keys only). */
+function emptyParagraphAttrs(state: State, blockId: Position["blockId"]): ReadonlyAttrs {
+  return resolveBlock(state, blockId)?.block.markAttrs ?? EMPTY;
+}
+
 /**
  * The attrs text typed at a collapsed caret `pos` inherits (word-processor
  * "typing attributes"): those of the character BEFORE the caret (at block start:
- * the character after), keeping
+ * the character after; in an EMPTY paragraph, its ¶'s character props — `markAttrs`), keeping
  *   - every INCLUSIVE key (formatting), and
  *   - a NON-inclusive key (link, most host marks) only when the caret is strictly
  *     inside its range — the same value on both sides; at its edge it is dropped,
- * and never an atomic mark or change-tracking provenance.
+ * and never an atomic mark or change-tracking provenance. Keys are judged by the attr
+ * registry bound to the doc.
  */
-export function inheritedAttrsAt(state: State, pos: Position, registry: AttrRegistry): ReadonlyAttrs {
+export function inheritedAttrsAt(state: State, pos: Position): ReadonlyAttrs {
+  return inheritedWith(state, pos, registryOf(state));
+}
+
+function inheritedWith(state: State, pos: Position, registry: AttrRegistry): ReadonlyAttrs {
   const { before, after } = neighbours(itemsAt(state, pos.blockId), pos.offset);
   const base = before ?? after;
-  if (base === null) return EMPTY;
+  // No text run (an empty paragraph): Word / GDocs type with the ¶'s formatting.
+  if (base === null) return emptyParagraphAttrs(state, pos.blockId);
   const out: Record<string, unknown> = {};
   for (const key of Object.keys(base.attrs)) {
     if (neverInherited(key)) continue;
@@ -92,7 +108,7 @@ export function inheritedAttrsAt(state: State, pos: Position, registry: AttrRegi
  */
 function typeOverAttrs(state: State, start: Position, registry: AttrRegistry): ReadonlyAttrs {
   const { after } = neighbours(itemsAt(state, start.blockId), start.offset);
-  if (after === null) return inheritedAttrsAt(state, start, registry);
+  if (after === null) return inheritedWith(state, start, registry);
   const out: Record<string, unknown> = {};
   for (const key of Object.keys(after.attrs)) {
     if (neverInherited(key) || registry.isAtomic(key)) continue;
@@ -106,12 +122,12 @@ function typeOverAttrs(state: State, start: Position, registry: AttrRegistry): R
  * command at a collapsed caret) if any, else the attrs inherited at the caret
  * (or, over a selection, those of its first character).
  */
-export function getTypingAttrs(editor: EditorState, registry: AttrRegistry): ReadonlyAttrs {
+export function getTypingAttrs(editor: EditorState): ReadonlyAttrs {
   if (editor.storedAttrs !== undefined) return editor.storedAttrs;
   const { state, selection } = editor;
   return isCollapsed(selection)
-    ? inheritedAttrsAt(state, selection.focus, registry)
-    : typeOverAttrs(state, spanStart(state, selection), registry);
+    ? inheritedAttrsAt(state, selection.focus)
+    : typeOverAttrs(state, spanStart(state, selection), registryOf(state));
 }
 
 /**
@@ -122,9 +138,8 @@ export function getTypingAttrs(editor: EditorState, registry: AttrRegistry): Rea
 export function storeTypingAttrs(
   editor: EditorState,
   delta: ReadonlyAttrs,
-  registry: AttrRegistry,
 ): EditorState {
-  return { ...editor, storedAttrs: mergeAttrs(getTypingAttrs(editor, registry), delta) };
+  return { ...editor, storedAttrs: mergeAttrs(getTypingAttrs(editor), delta) };
 }
 
 /**
@@ -132,8 +147,8 @@ export function storeTypingAttrs(
  * inherited typing attrs, over a range the first replaced character's (see
  * `getTypingAttrs`). Used by host proposals so suggested text matches its surroundings.
  */
-export function replacementAttrs(state: State, from: Position, to: Position, registry: AttrRegistry): ReadonlyAttrs {
+export function replacementAttrs(state: State, from: Position, to: Position): ReadonlyAttrs {
   return from.blockId === to.blockId && from.offset === to.offset
-    ? inheritedAttrsAt(state, from, registry)
-    : typeOverAttrs(state, from, registry);
+    ? inheritedAttrsAt(state, from)
+    : typeOverAttrs(state, from, registryOf(state));
 }

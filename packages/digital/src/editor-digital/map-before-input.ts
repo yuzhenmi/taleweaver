@@ -23,7 +23,7 @@ function targetRangeSpan(e: InputEvent, ctx: MapBeforeInputCtx): Span | null {
 }
 
 /**
- * Read inserted text from dataTransfer when `e.data` is null (F9 — Safari dictation/replace).
+ * Read inserted text from dataTransfer when `e.data` is null (Safari dictation/replace).
  * Guards with a truthiness check, not `!== null`: the `dataTransfer` property is `DataTransfer | null`
  * by type but can be ABSENT (`undefined`) on synthetic/jsdom events, and `.getData()` on `undefined`
  * would throw.
@@ -53,6 +53,7 @@ export function mapBeforeInput(e: InputEvent, ctx: MapBeforeInputCtx): EditorAct
     case "insertCompositionText":
       return null; // mid-composition; compositionend handles it
     case "insertLineBreak":
+      return { type: "INSERT_LINE_BREAK" }; // Shift+Enter: a soft break, never a new paragraph
     case "insertParagraph":
       return { type: "SPLIT_NODE" };
     case "insertFromPaste":
@@ -112,9 +113,9 @@ export function mapBeforeInput(e: InputEvent, ctx: MapBeforeInputCtx): EditorAct
 /**
  * For `insertReplacementText`, the controller needs both the delete (returned by mapBeforeInput)
  * and the replacement insert. Expose the replacement text so the controller can dispatch the
- * follow-on INSERT_TEXT (spec C4 / F9). Returns null when not a replacement event.
+ * follow-on INSERT_TEXT. Returns null when not a replacement event.
  *
- * Falls back to `dataTransfer["text/plain"]` when `e.data` is null (D2): some engines deliver the
+ * Falls back to `dataTransfer["text/plain"]` when `e.data` is null: some engines deliver the
  * replacement payload only via `dataTransfer`. Without the fallback the mapped DELETE_RANGE would
  * run but the follow-on INSERT_TEXT would be skipped — text deleted, no replacement.
  */

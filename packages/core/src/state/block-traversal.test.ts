@@ -2,6 +2,10 @@ import { describe, it, expect } from "vitest";
 import { nextBlockInDocOrder, prevBlockInDocOrder, ancestorChain, firstLeafBlock, lastLeafBlock } from "./block-traversal";
 import { buildBlock, buildState, text, inlineContent } from "../test-utils/state-builders";
 import type { BlockId } from "./block-id";
+import { getBlock, type State } from "./state";
+
+/** The document's final section: the root's child, the parent of a section-less doc's blocks. */
+const fin = (s: State): string | null => getBlock(s, s.rootId)?.firstChildId ?? null;
 
 describe("nextBlockInDocOrder", () => {
   it("returns the first child when the block has children", () => {
@@ -12,7 +16,8 @@ describe("nextBlockInDocOrder", () => {
         buildBlock({ id: "p1", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hi")]) }),
       ],
     });
-    expect(nextBlockInDocOrder(state, "doc" as BlockId)).toBe("p1");
+    expect(nextBlockInDocOrder(state, "doc" as BlockId)).toBe(fin(state));
+    expect(nextBlockInDocOrder(state, fin(state) as BlockId)).toBe("p1");
   });
 
   it("returns the next sibling when no children but has a next sibling", () => {
@@ -59,22 +64,6 @@ describe("nextBlockInDocOrder", () => {
     const state = buildState({ rootId: "doc", blocks: [buildBlock({ id: "doc", type: "document" })] });
     expect(nextBlockInDocOrder(state, "missing" as BlockId)).toBeNull();
   });
-
-  it("throws on cycle detection in parent chain", () => {
-    // Construct a cycle: A.parentId = B, B.parentId = A
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "a", lastChildId: "a" }),
-        buildBlock({ id: "a", type: "section", parentId: "b", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "b", type: "section", parentId: "a", inlineContent: inlineContent([]) }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "a", inlineContent: inlineContent([text("hi")]) }),
-      ],
-    });
-    // nextBlockInDocOrder on "p" should ascend via parent pointers: p -> a -> b -> a (cycle).
-    // It should throw before infinite-looping.
-    expect(() => nextBlockInDocOrder(state, "p" as BlockId)).toThrow(/cycle detected/);
-  });
 });
 
 describe("prevBlockInDocOrder", () => {
@@ -86,7 +75,7 @@ describe("prevBlockInDocOrder", () => {
         buildBlock({ id: "p1", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }),
       ],
     });
-    expect(prevBlockInDocOrder(state, "p1" as BlockId)).toBe("doc");
+    expect(prevBlockInDocOrder(state, "p1" as BlockId)).toBe(fin(state));
   });
 
   it("returns the previous sibling's deepest last leaf when there is a prev sibling", () => {
@@ -129,7 +118,7 @@ describe("prevBlockInDocOrder", () => {
         buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([]) }),
       ],
     });
-    expect(prevBlockInDocOrder(state, "p1" as BlockId)).toBe("doc");
+    expect(prevBlockInDocOrder(state, "p1" as BlockId)).toBe(fin(state));
   });
 });
 
@@ -164,8 +153,11 @@ describe("ancestorChain", () => {
 describe("firstLeafBlock", () => {
   it("returns the block itself when it is a leaf (no children)", () => {
     const state = buildState({
-      rootId: "p",
-      blocks: [buildBlock({ id: "p", type: "paragraph", inlineContent: inlineContent([]) })],
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }),
+      ],
     });
     expect(firstLeafBlock(state, "p" as BlockId)).toBe("p");
   });
@@ -193,8 +185,11 @@ describe("firstLeafBlock", () => {
 describe("lastLeafBlock", () => {
   it("returns the block itself when it is a leaf", () => {
     const state = buildState({
-      rootId: "p",
-      blocks: [buildBlock({ id: "p", type: "paragraph", inlineContent: inlineContent([]) })],
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }),
+      ],
     });
     expect(lastLeafBlock(state, "p" as BlockId)).toBe("p");
   });

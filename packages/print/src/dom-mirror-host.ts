@@ -87,7 +87,7 @@ export function createDomMirrorHost(options: DomMirrorHostOptions): DomMirrorHos
     const span = readMirrorSelection(element, win);
     // readMirrorSelection returns null unless both endpoints are inside the mirror,
     // so this only fires for in-mirror selections. Loop-prevention is the controller's
-    // idempotency check (Task 8), not a host-side flag.
+    // idempotency check, not a host-side flag.
     if (span !== null) options.onSelectionChange(span);
   }
 

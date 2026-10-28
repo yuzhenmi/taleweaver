@@ -3,8 +3,8 @@ import type { State, OperationResult } from "../state";
 import { applyOperation, getBlock } from "../state";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
-import { getBlocksMap, getYBlock, requireInTransaction } from "../yjs-doc";
-import { buildYBlock } from "../y-block";
+import { requireInTransaction } from "../yjs-doc";
+import { insertColumnEntry, liveColumns, createCell, freshColumnId } from "../table-storage";
 import { assertNoIdCollision } from "../id-collision-check";
 import { setBlockAttrsInTx } from "./set-block-attrs";
 import { spliceColumnWidth, isColumnWidths } from "../table-column-widths";
@@ -91,7 +91,7 @@ export function planInsertTableColumn(
   });
 
   // columnWidths lives in the table's block attrs. Present → splice + renormalize
-  // (one new fraction at targetCol); absent → auto-layout, no attr change (M2/D3).
+  // (one new fraction at targetCol); absent → auto-layout, no attr change.
   const table = getBlock(state, ctx.tableId);
   const cw = table?.attrs.columnWidths;
   const newTableAttrs: ReadonlyAttrs | null =
@@ -110,56 +110,16 @@ export function planInsertTableColumn(
  */
 export function insertTableColumnInTx(doc: Y.Doc, plan: InsertTableColumnPlan): void {
   requireInTransaction(doc, "insertTableColumn");
-
-  const blocksMap = getBlocksMap(doc);
   for (const r of plan.rows) {
     assertNoIdCollision(doc, r.cellId, "insertTableColumn");
     assertNoIdCollision(doc, r.paragraphId, "insertTableColumn");
   }
-
-  for (const r of plan.rows) {
-    blocksMap.set(
-      r.cellId,
-      buildYBlock({
-        type: "table-cell",
-        attrs: {},
-        parentId: r.rowId,
-        prevSiblingId: r.prevCellId,
-        nextSiblingId: r.nextCellId,
-        firstChildId: r.paragraphId,
-        lastChildId: r.paragraphId,
-        inlineContent: null,
-      }),
-    );
-    blocksMap.set(
-      r.paragraphId,
-      buildYBlock({
-        type: "paragraph",
-        attrs: {},
-        parentId: r.cellId,
-        prevSiblingId: null,
-        nextSiblingId: null,
-        firstChildId: null,
-        lastChildId: null,
-        inlineContent: { items: [] },
-      }),
-    );
-
-    // Splice into the row's cell chain (insertBlock boundary discipline: write
-    // the row's first/lastChildId only at a boundary).
-    if (r.prevCellId !== null) {
-      getYBlock(doc, r.prevCellId, "insertTableColumn").set("nextSiblingId", r.cellId);
-    }
-    if (r.nextCellId !== null) {
-      getYBlock(doc, r.nextCellId, "insertTableColumn").set("prevSiblingId", r.cellId);
-    }
-    if (r.prevCellId === null || r.nextCellId === null) {
-      const yRow = getYBlock(doc, r.rowId, "insertTableColumn");
-      if (r.prevCellId === null) yRow.set("firstChildId", r.cellId);
-      if (r.nextCellId === null) yRow.set("lastChildId", r.cellId);
-    }
-  }
-
+  // A new column id at grid position `targetCol`; spans crossing it cover it
+  // automatically (id ranges). Rows left uncovered get a fresh cell.
+  const cols = liveColumns(doc, plan.tableId);
+  const colId = freshColumnId();
+  insertColumnEntry(doc, plan.tableId, colId, plan.targetCol === 0 ? null : (cols[plan.targetCol - 1] ?? null));
+  for (const r of plan.rows) createCell(doc, r.rowId, colId, r.cellId, r.paragraphId);
   if (plan.newTableAttrs !== null) {
     setBlockAttrsInTx(doc, plan.tableId, plan.newTableAttrs, "insertTableColumn");
   }

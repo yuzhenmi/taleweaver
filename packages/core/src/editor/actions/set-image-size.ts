@@ -4,7 +4,7 @@ import type { BlockId } from "../../state";
 import { rebuildTrees } from "./helpers";
 
 /**
- * `SET_IMAGE_SIZE` handler (#P11.4) — the engine half of image resize. Merges
+ * `SET_IMAGE_SIZE` handler — the engine half of image resize. Merges
  * `width`/`height` (pixels) onto the target `image` block's attrs, which
  * `imageComponent` already reads (an absent dimension means intrinsic "auto").
  *
@@ -45,7 +45,6 @@ export function handleSetImageSize(
     editor.state,
     blockId,
     { width, height },
-    config.attrRegistry,
   );
   if (result.state === editor.state) return editor;
 

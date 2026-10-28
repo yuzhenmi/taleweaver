@@ -208,6 +208,13 @@ describe("createEmbeddedFontProvider — resolveFont + encodeRun", () => {
     // WinAnsi 'A' = 0x41 single byte.
     expect([...nth(enc.clusters, 0, "cluster").bytes]).toEqual([0x41]);
   });
+
+  it("encodeRun keeps a soft hyphen as a cluster (alignment) but marks it not shown", () => {
+    const ttf = buildTestFontBytes();
+    const p = createEmbeddedFontProvider({ fonts: { TestFam: ttf } });
+    const enc = p.encodeRun(p.resolveFont(cs("TestFam")), "A\u00ADB");
+    expect(enc.clusters.map((c) => [c.unicode, c.shown])).toEqual([["A", true], ["\u00AD", false], ["B", true]]);
+  });
 });
 
 describe("createEmbeddedFontProvider — emitPdf integration", () => {
@@ -293,16 +300,22 @@ describe("createEmbeddedFontProvider — emitPdf integration", () => {
     expect(pdf.raw).toMatch(/\/Subtype \/Type1 \/BaseFont \/Helvetica /);
   });
 
-  it("only emits the USED gids in /W (not all numGlyphs)", () => {
+  it("only emits the USED gids in /W (not all numGlyphs), excluding a never-shown soft hyphen", () => {
     const ttf = buildTestFontBytes();
     const p = createEmbeddedFontProvider({ fonts: { TestFam: ttf } });
     const bytes = emitPdf({
       pageCount: 1,
-      getPage: () => page([run("A", 10, 20, "TestFam")]),
+      getPage: () => page([run("A\u00ADA", 10, 20, "TestFam")]),
       fontProvider: p,
     });
     const pdf = parsePdf(bytes);
     const t0 = nth(type0Objects(pdf), 0, "Type0 object").body;
+    // The soft hyphen (unmapped → gid 0) is never shown, so its code reaches
+    // neither /W nor /ToUnicode.
+    const tuId = refIn(t0, "ToUnicode");
+    if (tuId === null) throw new Error("expected a ToUnicode stream");
+    const tuText = new TextDecoder("latin1").decode(pdf.streamObject(tuId)?.payload ?? new Uint8Array());
+    expect(tuText).toContain("1 beginbfchar\n<0024> <0041>\nendbfchar");
     const descId = refInArray(t0, "DescendantFonts");
     if (descId === null) throw new Error("unreachable");
     const desc = pdf.object(descId) ?? "";

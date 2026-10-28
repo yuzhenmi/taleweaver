@@ -1,16 +1,8 @@
-import * as Y from "yjs";
+import type * as Y from "yjs";
 import type { Block } from "./block";
 import type { BlockId } from "./block-id";
-import type { ReadonlyAttrs } from "./attrs";
-import {
-  getBlocksMap,
-  getEmbedContentsMap,
-  getTemplateContentsMap,
-  type BlockTreeKind,
-} from "./yjs-doc";
-import { assertNoNestedYTypes } from "./y-utils";
-import { BLOCK_FIELDS } from "./block-schema";
-import { inlineContentSnapshot, isLegacyInlineValue, LegacyDocumentError } from "./y-inline";
+import type { BlockTreeKind } from "./yjs-doc";
+import { deriveBlock, readCtx } from "./flow-read";
 
 /**
  * The three top-level block trees a snapshot can come from. A BlockId is
@@ -54,7 +46,7 @@ function emptySnapshots(): Record<BlockTreeKind, Map<BlockId, Block>> {
  * that returns the same data — never wrong data). Adding a 4th tree means
  * extending `BlockTreeKind` / `TREE_KINDS`; the per-op code is already a loop.
  *
- * **Read fall-through (S-A2).** A read first checks this layer's
+ * **Read fall-through.** A read first checks this layer's
  * `snapshots[kind]` map. On miss it consults `invalidated` — ids the most
  * recent mutation rendered stale on this layer; reads of those skip `base`
  * and re-snapshot from the Y.Doc. Otherwise (`base !== null` and the id is
@@ -131,7 +123,7 @@ export function createOverlayCache(
 
 /**
  * Count the depth of the layer chain rooted at `cache`. Used by
- * `applyOperation` to decide when to compact (L-PERF-E). O(depth) but
+ * `applyOperation` to decide when to compact. O(depth) but
  * called once per applyOperation, never inside a tight loop.
  */
 export function chainDepth(cache: SnapshotCache): number {
@@ -160,7 +152,8 @@ export function chainDepth(cache: SnapshotCache): number {
  *   3. Return a fresh SnapshotCache with the collected entries, an empty
  *      invalidation set, `base = null`.
  *
- * Used by L-PERF-E (chain compaction). Without it, a paste handler
+ * Called by `applyOperation` / `freshState` once `chainDepth` reaches
+ * `CHAIN_DEPTH_COMPACT_THRESHOLD`. Without it, a paste handler
  * that chains many applyOperation calls leaves a deep chain; subsequent
  * reads pay O(depth) per call, making bulk ops O(N²).
  */
@@ -245,29 +238,21 @@ function promoteInto(
 }
 
 /**
- * Shared read path for all three trees. Walks the cache chain's `kind`
- * sub-map; on a full miss, reads the cold block from `getYMap(doc)` (the
- * tree-specific Y.Map) and promotes the fresh snapshot into every visited
- * layer's `kind` sub-map.
+ * Shared read path for all three trees. Walks the cache chain's `kind` sub-map;
+ * on a full miss, DERIVES the block from the flows + registry (`flow-read.ts`) and
+ * promotes the fresh snapshot into every visited layer's `kind` sub-map. A block
+ * derived in another tree reads as null here.
  */
-function readSnapshot(
-  doc: Y.Doc,
-  id: BlockId,
-  cache: SnapshotCache,
-  kind: BlockTreeKind,
-  getYMap: (doc: Y.Doc) => Y.Map<Y.Map<unknown>>,
-): Block | null {
+function readSnapshot(doc: Y.Doc, id: BlockId, cache: SnapshotCache, kind: BlockTreeKind): Block | null {
   const { hit, visited } = walkChain(cache, id, kind);
   if (hit !== null) {
     promoteInto(visited, id, hit, kind);
     return hit;
   }
-  // Chain miss or invalidation-stop → fresh read from the tree's Y.Map.
-  const yBlock = getYMap(doc).get(id);
-  if (yBlock === undefined) return null;
-  const snap = buildBlockSnapshot(id, yBlock);
-  promoteInto(visited, id, snap, kind);
-  return snap;
+  const derived = deriveBlock(readCtx(doc), id);
+  if (derived === null || derived.tree !== kind) return null;
+  promoteInto(visited, id, derived.block, kind);
+  return derived.block;
 }
 
 /**
@@ -290,7 +275,7 @@ export function getBlockSnapshot(
   id: BlockId,
   cache: SnapshotCache,
 ): Block | null {
-  return readSnapshot(doc, id, cache, "block", getBlocksMap);
+  return readSnapshot(doc, id, cache, "block");
 }
 
 export function getEmbedContentSnapshot(
@@ -298,7 +283,7 @@ export function getEmbedContentSnapshot(
   id: BlockId,
   cache: SnapshotCache,
 ): Block | null {
-  return readSnapshot(doc, id, cache, "embedContent", getEmbedContentsMap);
+  return readSnapshot(doc, id, cache, "embedContent");
 }
 
 export function getTemplateContentSnapshot(
@@ -306,106 +291,5 @@ export function getTemplateContentSnapshot(
   id: BlockId,
   cache: SnapshotCache,
 ): Block | null {
-  return readSnapshot(doc, id, cache, "templateContent", getTemplateContentsMap);
-}
-
-/**
- * Read a required field from a block's Y.Map. Yjs `Y.Map.get` returns
- * `undefined` for absent keys, distinct from a value that was
- * deliberately set to `null`. Casting the result silently widens
- * `undefined` to the expected type and crashes opaquely downstream;
- * this helper turns "missing key" into a clear error naming the field.
- */
-function requireField<T>(yBlock: Y.Map<unknown>, id: BlockId, key: string): T {
-  const raw = yBlock.get(key);
-  if (raw === undefined) {
-    throw new Error(
-      `buildBlockSnapshot: block "${id}" missing required "${key}" field`,
-    );
-  }
-  return raw as T;
-}
-
-/**
- * Like requireField, but for fields whose legal value-set includes
- * `null` (e.g. `parentId`, `inlineContent`). `null` is a valid value
- * meaning "no parent" / "container without inline content"; `undefined`
- * (the key wasn't set) is still an error.
- */
-function requireNullableField<T>(
-  yBlock: Y.Map<unknown>,
-  id: BlockId,
-  key: string,
-): T | null {
-  const raw = yBlock.get(key);
-  if (raw === undefined) {
-    throw new Error(
-      `buildBlockSnapshot: block "${id}" missing required "${key}" field (use null for absence)`,
-    );
-  }
-  return raw as T | null;
-}
-
-/**
- * Build a frozen Block snapshot from a block's inner Y.Map. Iterates the
- * shared BLOCK_FIELDS catalog and dispatches on each field's `kind`, so
- * the read path cannot drift from the write path's field list (see
- * block-schema.ts for the compile-time coverage check).
- */
-function buildBlockSnapshot(id: BlockId, yBlock: Y.Map<unknown>): Block {
-  // We accumulate into a record then cast to Block at the end. The cast is
-  // safe because (a) BLOCK_FIELDS' compile-time coverage check guarantees
-  // every Block field except `id` is iterated, (b) `id` is assigned
-  // separately below, and (c) each kind's branch assigns a value of the
-  // correct shape for its key.
-  const result: Record<string, unknown> = { id };
-  for (const spec of BLOCK_FIELDS) {
-    switch (spec.kind) {
-      case "string": {
-        result[spec.key] = requireField<string>(yBlock, id, spec.key);
-        break;
-      }
-      case "id-nullable": {
-        result[spec.key] = requireNullableField<BlockId>(yBlock, id, spec.key);
-        break;
-      }
-      case "attrs-map": {
-        const yAttrs = requireField<Y.Map<unknown>>(yBlock, id, spec.key);
-        result[spec.key] = freezeAttrs(yMapToObject(yAttrs));
-        break;
-      }
-      case "inline-text-nullable": {
-        const raw = requireNullableField<unknown>(yBlock, id, spec.key);
-        // Defense in depth: legacy run-array storage is never parsed — a typed
-        // LegacyDocumentError instead of an opaque field error.
-        if (isLegacyInlineValue(raw)) throw new LegacyDocumentError([id]);
-        if (raw !== null && !(raw instanceof Y.Text)) {
-          throw new Error(`buildBlockSnapshot: block "${id}" has malformed "${spec.key}" (expected Y.Text or null)`);
-        }
-        result[spec.key] = raw === null ? null : inlineContentSnapshot(raw);
-        break;
-      }
-    }
-  }
-  return Object.freeze(result) as unknown as Block;
-}
-
-/**
- * Read a Y.Map of attrs/properties into a plain object. Asserts that no
- * value (or nested array/object value) is a live Yjs shared type — see
- * `assertNoNestedYTypes` in y-utils.ts. Without this guard a snapshot
- * could embed a live Y.Map/Y.Text reference, defeating the "frozen
- * value snapshot" contract and propagating cross-doc on paste.
- */
-function yMapToObject(yMap: Y.Map<unknown>): Record<string, unknown> {
-  const obj: Record<string, unknown> = {};
-  for (const [key, value] of yMap.entries()) {
-    assertNoNestedYTypes(value, key);
-    obj[key] = value;
-  }
-  return obj;
-}
-
-function freezeAttrs(obj: Record<string, unknown>): ReadonlyAttrs {
-  return Object.freeze(obj) as ReadonlyAttrs;
+  return readSnapshot(doc, id, cache, "templateContent");
 }

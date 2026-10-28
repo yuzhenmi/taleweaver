@@ -19,7 +19,7 @@ export function handleRedo(
   const selection = result.selection ?? rebaseSelection(editor, { ...editor, state: result.state, lastChange });
   // See handleUndo for why result.dirtyIds is non-empty on a non-null (real)
   // redo result.
-  // #323: clear the non-undoable `caretPageHint` (see handleUndo for the
+  // Clear the non-undoable `caretPageHint` (see handleUndo for the
   // rationale — the post-restore page is ambiguous, and the `{ ...editor }`
   // spread would otherwise inherit a stale hint).
   return rebuildTrees(

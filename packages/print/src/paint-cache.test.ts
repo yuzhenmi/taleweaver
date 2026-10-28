@@ -106,6 +106,15 @@ describe("hashPaintInputs", () => {
     expect(hashPaintInputs(opaque)).not.toContain("|op:");
     expect(hashPaintInputs(a)).toContain("|op:");
   });
+
+  it("a column-rule change → different hash (the multicolumn box paints its rule)", () => {
+    const cols = { type: "multicolumn", columns: [] };
+    const none = makeBlockBox({ ...cols, columnRule: null } as Partial<LayoutBox>);
+    const red = makeBlockBox({ ...cols, columnRule: { width: 1, style: "solid", color: "red" } } as Partial<LayoutBox>);
+    const blue = makeBlockBox({ ...cols, columnRule: { width: 1, style: "solid", color: "blue" } } as Partial<LayoutBox>);
+    expect(hashPaintInputs(red)).not.toBe(hashPaintInputs(blue));
+    expect(hashPaintInputs(none)).not.toContain("|rule:");
+  });
 });
 
 describe("createPaintCache", () => {

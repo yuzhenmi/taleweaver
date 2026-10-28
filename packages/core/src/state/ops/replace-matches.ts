@@ -1,4 +1,6 @@
 import type { State, OperationResult } from "../state";
+import { attrRegistryOf } from "../mark-attrs";
+import { requireBlockText } from "../block-text";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
@@ -8,17 +10,23 @@ import {
   type InlineItem,
 } from "../inline-content";
 import type { BlockTreeKind } from "../yjs-doc";
-import { getEmbedContentsMap, getYBlock } from "../yjs-doc";
-import { inlineItemsFromYText, replaceInlineText, requireYInline } from "../y-inline";
+import { removeBlockStorage, deleteUnits } from "../flow-ops";
+import { inlineItemsFromYText, writeReplacementText } from "../y-inline";
+import { bookmarkDeletionSpan } from "./delete-range";
+import { createPosition, createSpan } from "../block-position";
 import { collectEmbedContentSubtreeFromInlineContent } from "../embed-content-cascade";
 import type { TextMatch } from "../find-matches";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
-import type { AttrRegistry } from "../../cascade/attr-registry";
 
-/** One match replacement inside a block: delete `[start, end)`, insert `text` (with `attrs`) at `start`. */
+/**
+ * One match replacement inside a block: delete `[start, end)` — the match's span as a
+ * deletion acts on it ({@link bookmarkDeletionSpan}), removing `removedBookmarks` —
+ * then insert `text` (with `attrs`) at `start` (as typing over a selection).
+ */
 export interface MatchReplacement {
   readonly start: number;
   readonly end: number;
+  readonly removedBookmarks: ReadonlySet<string>;
   readonly text: string;
   readonly attrs: ReadonlyAttrs;
 }
@@ -141,7 +149,8 @@ export function planReplaceMatches(
       // semantics). NOT `getActiveFormatting`/`cursorTextItem`, which use
       // left-of-cursor caret semantics (the opposite direction).
       const attrs = attrsAtOffset({ items }, m.start);
-      replacements.push({ start: m.start, end: m.end, text: replacement, attrs });
+      const { span, removed } = bookmarkDeletionSpan(state, createSpan(createPosition(blockId, m.start), createPosition(blockId, m.end)));
+      replacements.push({ start: span.anchor.offset, end: span.focus.offset, removedBookmarks: removed, text: replacement, attrs });
     }
 
     blockWrites.push({ blockId, kind, replacements });
@@ -152,7 +161,7 @@ export function planReplaceMatches(
 
 /**
  * Apply a `ReplaceAllPlan` to `state` in ONE `applyOperation` (= ONE Y
- * transaction = ONE undo step, per brief D5). Each replacement is an offset
+ * transaction = ONE undo step). Each replacement is an offset
  * delete + insert on the block's inline `Y.Text`. Embed bodies referenced by removed slices are
  * cascade-deleted from the embedContents map inside the same transaction.
  *
@@ -164,13 +173,12 @@ export function replaceAllMatches(
   state: State,
   matches: readonly TextMatch[],
   replacement: string,
-  registry?: AttrRegistry,
 ): OperationResult {
   const plan = planReplaceMatches(state, matches, replacement);
   if (plan.blockWrites.length === 0 && plan.embedContentIdsToDelete.size === 0) {
     return { state, dirtyIds: new Set<BlockId>() };
   }
-  return applyReplaceAllPlan(state, plan, registry);
+  return applyReplaceAllPlan(state, plan);
 }
 
 /**
@@ -181,20 +189,19 @@ export function replaceAllMatches(
 export function applyReplaceAllPlan(
   state: State,
   plan: ReplaceAllPlan,
-  registry?: AttrRegistry,
 ): OperationResult {
   return applyOperation(state, (doc) => {
+    const registry = attrRegistryOf(doc);
     for (const w of plan.blockWrites) {
-      const yText = requireYInline(getYBlock(doc, w.blockId, "replaceAllMatches", w.kind), w.blockId, "replaceAllMatches");
+      const yText = requireBlockText(doc, w.blockId, "replaceAllMatches");
       // ONE read per block; replacements are descending, so its offsets stay valid.
+      // `yText.id`: the first write into an implicit run materializes it under a new id.
       const live = inlineItemsFromYText(yText);
-      for (const r of w.replacements) replaceInlineText(yText, live, r.start, r.end, r.text, r.attrs, registry);
-    }
-    if (plan.embedContentIdsToDelete.size > 0) {
-      const yEmbeds = getEmbedContentsMap(doc);
-      for (const id of plan.embedContentIdsToDelete) {
-        yEmbeds.delete(id);
+      for (const r of w.replacements) {
+        deleteUnits(doc, { spans: [{ id: yText.id, from: r.start, to: r.end, items: live }], removedBookmarks: r.removedBookmarks });
+        writeReplacementText(yText, live, r.start, r.end, r.text, r.attrs, registry);
       }
     }
+    for (const id of plan.embedContentIdsToDelete) removeBlockStorage(doc, id);
   });
 }

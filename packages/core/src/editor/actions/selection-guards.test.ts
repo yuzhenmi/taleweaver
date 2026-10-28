@@ -168,20 +168,16 @@ describe("expandedSpanCollapsePoint", () => {
     expect(result).toEqual(spanStart(state, span));
   });
 
-  it("returns spanStart for a same-parent cross-block span", () => {
+  it("returns the delete seam for a same-parent cross-block span: (end block, start offset) — the end block survives", () => {
     const state = buildStateWithHeaderBody();
     const span = createSpan(createPosition(BODY_P1, 5), createPosition(BODY_P2, 4));
-    const result = expandedSpanCollapsePoint(state, span);
-    expect(result).not.toBeNull();
-    expect(result).toEqual(spanStart(state, span));
+    expect(expandedSpanCollapsePoint(state, span)).toEqual(createPosition(BODY_P2, 5));
   });
 
-  it("returns the EARLIER endpoint regardless of anchor/focus order (spanStart semantics)", () => {
+  it("is independent of anchor/focus order (document order decides start / end)", () => {
     const state = buildStateWithHeaderBody();
-    // anchor later than focus → spanStart is the focus (doc-order earlier).
     const span = createSpan(createPosition(BODY_P2, 4), createPosition(BODY_P1, 5));
-    const result = expandedSpanCollapsePoint(state, span);
-    expect(result).toEqual(createPosition(BODY_P1, 5));
+    expect(expandedSpanCollapsePoint(state, span)).toEqual(createPosition(BODY_P2, 5));
   });
 
   it("returns null for a cross-parent span (different parents → deleteRange would throw)", () => {

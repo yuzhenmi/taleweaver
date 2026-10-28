@@ -1,9 +1,10 @@
 import type { EditorState, EditorConfig } from "../editor-state";
 import { expandSpanOverAtomicMarks } from "../atomic-marks";
 import type { Span } from "../../state";
-import { createPosition, createSpan, spanStart } from "../../state";
-import { deleteRangeOrSuggest } from "./suggestion-mode";
+import { createPosition, createSpan, spanStart, bookmarkDeletionSpan } from "../../state";
+import { deleteRangeOrSuggest, isSuggestingInBlock } from "./suggestion-mode";
 import { rebuildTrees } from "./helpers";
+import { expandedSpanCollapsePoint } from "./selection-guards";
 
 /**
  * Delete a geometry-free `Span` in a SINGLE history commit, collapsing the caret
@@ -13,7 +14,7 @@ import { rebuildTrees } from "./helpers";
  * lifted `DELETE_LINE` collapsed-tail (`before: original-selection`,
  * `after: collapsed-to-start`) byte-for-byte.
  *
- * DELETE_RANGE is PUBLIC (Phase 2 dispatches arbitrary spans), so it NORMALIZES
+ * DELETE_RANGE is PUBLIC (any caller may dispatch an arbitrary span), so it NORMALIZES
  * the span first: the caret always collapses to the document-order start
  * regardless of the caller's anchor/focus direction (a backward span — anchor
  * AFTER focus — deletes the same text and collapses to the document-order start,
@@ -26,10 +27,13 @@ export function handleDeleteRange(
   config: EditorConfig,
 ): EditorState {
   // Normalized, and grown over any atomic mark it only partly covers.
-  const norm = expandSpanOverAtomicMarks(editor.state, span, config.attrRegistry);
+  const norm = expandSpanOverAtomicMarks(editor.state, span);
   const result = deleteRangeOrSuggest(editor.state, norm, config);
   if (result.state === editor.state) return editor;
-  const start = spanStart(editor.state, norm);
+  // Direct mode: the seam in the survivor R, as Backspace over a selection.
+  const start = isSuggestingInBlock(editor.state, spanStart(editor.state, norm).blockId, config)
+    ? spanStart(editor.state, norm)
+    : expandedSpanCollapsePoint(editor.state, norm) ?? bookmarkDeletionSpan(editor.state, norm).span.anchor;
   const newCursor = createPosition(start.blockId, start.offset);
   const newSelection = createSpan(newCursor, newCursor);
   editor.history.commit(result, { before: editor.selection, after: newSelection });

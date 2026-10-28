@@ -7,8 +7,9 @@ import {
   createPosition,
   createSpan,
   spanStart,
+  bookmarkDeletionSpan,
 } from "../../state";
-import type { OperationResult } from "../../state";
+import type { OperationResult, Position } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { isObjectSelection } from "../../cursor/object-selection";
 import { rebuildTrees } from "./helpers";
@@ -22,7 +23,7 @@ export function handleInsertText(
   text: string,
   config: EditorConfig,
 ): EditorState {
-  // Object selection (#525): typing over a selected atomic-leaf (image) replaces
+  // Object selection: typing over a selected atomic-leaf (image) replaces
   // the object with the typed text (Google Docs). Routes BEFORE the collapsed
   // path, which would otherwise throw — `insertText` rejects an atomic block
   // (`inlineContent === null`).
@@ -33,13 +34,13 @@ export function handleInsertText(
   // Typing attributes: pending storedAttrs, else inherited at the caret (or the
   // first selected character for a type-over) — see `getTypingAttrs`. Read after
   // the cross-context guard (a cross-context span has no start).
-  const typingAttrs = () => getTypingAttrs(editor, config.attrRegistry);
+  const typingAttrs = () => getTypingAttrs(editor);
 
   let result: OperationResult;
   let newCursorBlockId;
   let newCursorOffset;
   if (!isCollapsed(selectionBefore)) {
-    // C.2c §6: cross-CONTEXT selection refusal (see isCrossContextSelection).
+    // Cross-CONTEXT selection refusal (see isCrossContextSelection).
     // replaceRange's spanStart would throw "no common ancestor" on a cross-tree
     // span. NOTE: insert-text intentionally has ONLY this guard — not the
     // deletable-span (resolveBlock/parentId) guard the delete/split handlers
@@ -47,23 +48,30 @@ export function handleInsertText(
     if (isCrossContextSelection(editor.state, selectionBefore)) return editor;
     const start = spanStart(editor.state, selectionBefore);
     // Suggesting mode: type-over-a-selection is the tracked composite — soft-delete
-    // the selection + insert `text` as a suggestion at its start, in ONE undoable op
+    // the selection + insert `text` as a suggestion at its seam, in ONE undoable op
     // (replaceWithSuggestion, the suggestion analog of replaceRange). Direct mode uses
-    // the destructive replaceRange. The caret formula is identical for both: the new
-    // text lands at `start`, so the cursor is `start.offset + text.length` (in
-    // suggesting mode the struck old text follows the caret; in direct mode it's gone).
+    // the destructive replaceRange. The caret goes right after the new text, at the
+    // deletion's seam (where a removed bookmark's start marker just before the
+    // selection was) — in suggesting mode the struck old text follows the caret.
     // Gate on the selection-start block's context: a type-over in ANY editing
     // context (main body OR a footnote/header/footer body) is TRACKED;
     // `replaceSuggestionInputForBlock` returns null only when not suggesting or
     // the block resolves to no context, → direct `replaceRange`.
     const replaceInput = replaceSuggestionInputForBlock(editor.state, start.blockId, config);
-    result =
-      replaceInput === null
-        ? replaceRange(editor.state, selectionBefore, text, typingAttrs(), config.attrRegistry)
-        : replaceWithSuggestion(editor.state, selectionBefore, text, typingAttrs(), replaceInput, config.attrRegistry);
-    newCursorBlockId = start.blockId;
-    newCursorOffset = start.offset + text.length;
+    let end: Position;
+    if (replaceInput === null) {
+      result = replaceRange(editor.state, selectionBefore, text, typingAttrs());
+      const seam = bookmarkDeletionSpan(editor.state, selectionBefore).span.anchor;
+      end = createPosition(seam.blockId, seam.offset + text.length);
+    } else {
+      const suggested = replaceWithSuggestion(editor.state, selectionBefore, text, typingAttrs(), replaceInput);
+      result = suggested;
+      end = suggested.endPosition;
+    }
+    newCursorBlockId = end.blockId;
+    newCursorOffset = end.offset;
   } else {
+    // The reducer already moved the caret past adjacent markers (`reduceEditor`).
     const focus = selectionBefore.focus;
     // Suggesting mode: insert `text` as a tracked SUGGESTION (mintInsertion
     // stamps the insertion-provenance id + writes/coalesces an `insertion`
@@ -77,13 +85,13 @@ export function handleInsertText(
     const sugInput = suggestionInputForBlock(editor.state, focus.blockId, config);
     result =
       sugInput === null
-        ? insertText(editor.state, focus, text, typingAttrs(), config.attrRegistry)
+        ? insertText(editor.state, focus, text, typingAttrs())
         : mintInsertion(editor.state, focus, text, typingAttrs(), sugInput);
     newCursorBlockId = focus.blockId;
     newCursorOffset = focus.offset + text.length;
   }
 
-  // T7 identity contract: a no-op op returns the same state reference,
+  // the identity-no-op contract: a no-op op returns the same state reference,
   // so the editor module's "no change → same editor reference" invariant
   // requires the early return here. `history.commit` is itself no-op-safe
   // (it silently drops empty `dirtyIds`), so this short-circuit is about

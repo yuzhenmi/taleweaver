@@ -6,7 +6,7 @@
  * This CORE reads the sfnt header + table directory and the four always-required
  * tables: `head` (units/bbox/macStyle/loca-format), `hhea` (asc/desc/hMetrics
  * count), `maxp` (glyph count), and `hmtx` (per-glyph advances). The directory
- * `Map` and raw `bytes` are exposed so later tasks can read `cmap`/`OS-2`/`post`/
+ * `Map` and raw `bytes` are exposed so the other table readers can read `cmap`/`OS-2`/`post`/
  * `name` and emit the `FontFile2` program stream — all WITHOUT re-parsing.
  *
  * All metrics are in font design units (`unitsPerEm` per em), NOT px/pt; the
@@ -99,7 +99,7 @@ export interface ParsedFont {
   cmapLookup(codepoint: number): number;
   /** The raw source bytes (for the future `FontFile2` program stream). */
   readonly bytes: Uint8Array;
-  /** The table directory, keyed by 4-char tag (for T2/T3 cmap/OS-2/post/name). */
+  /** The table directory, keyed by 4-char tag (cmap / OS-2 / post / name lookups). */
   readonly tables: ReadonlyMap<string, TableRecord>;
   /**
    * The PDF `/FontDescriptor` metrics in 1000-em space, derived from `head`,

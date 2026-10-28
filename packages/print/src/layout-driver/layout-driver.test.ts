@@ -12,7 +12,7 @@
 // Real core (no `@taleweaver/core` mock): the driver IS core's pipeline.
 
 import { describe, it, expect } from "vitest";
-import { createInitialEditorState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockMeasurer, render, cascadePass, makeBlockParentLookup, type EditorConfig, type EditorState, type PageConfig } from "@taleweaver/core";
+import { createInitialEditorState, reduceEditor, createSpan, createPosition, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockMeasurer, render, cascadePass, makeBlockParentLookup, type EditorConfig, type EditorState, type PageConfig } from "@taleweaver/core";
 import { layoutTreeIncremental, type LayoutBox, type VirtualLayoutTree, type PageBox } from "../index";
 import { createLayoutDriver } from "./layout-driver";
 import type { LayoutConfig } from "./layout-config";
@@ -131,6 +131,20 @@ describe("createLayoutDriver — Phase 0b relocation of the layout pipeline", ()
         fingerprint(oraclePages[i] as never),
       );
     }
+  });
+
+  it("a selection-only update (same State, same width, no dirty set) returns the prior tree: a caret move never re-lays-out the document (O(1) per caret move)", () => {
+    const config = makeConfig();
+    let editor = createInitialEditorState(config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "Some text" }, config);
+    const driver = createLayoutDriver(makeLayoutConfig(config));
+    const first = driver.rebuild(editor.state, editor.containerWidth, null);
+    const moved = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(editor.selection.focus.blockId, 1), createPosition(editor.selection.focus.blockId, 1)) }, config);
+    expect(moved.state).toBe(editor.state);
+    expect(moved.lastDirtyIds).toBeNull();
+    expect(driver.rebuild(moved.state, moved.containerWidth, moved.lastDirtyIds)).toBe(first);
+    // A width change still rebuilds.
+    expect(driver.rebuild(moved.state, moved.containerWidth + 10, null)).not.toBe(first);
   });
 
   it("incremental rebuild reuses an unchanged page by reference, rebuilds the edited one", () => {

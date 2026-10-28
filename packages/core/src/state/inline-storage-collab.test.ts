@@ -26,7 +26,7 @@ import { STATE_INTERNAL } from "./state-internal";
 import { createPosition, createSpan } from "./block-position";
 import { createTestAllocator, type BlockId } from "./block-id";
 import type { CommentId } from "./comments";
-import { buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
+import { TEST_RESOLVER, buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
 import { blockText, relAt, survives } from "../test-utils/relpos-survival";
 
 const P = "p" as BlockId;
@@ -51,7 +51,7 @@ const textOf = (s: State) => itemsOf(s).map((i) => (i.kind === "text" ? i.text :
 function peerOf(s: State): State {
   const doc = new Y.Doc();
   Y.applyUpdate(doc, Y.encodeStateAsUpdate(s[STATE_INTERNAL].doc));
-  return createState({ rootId: s.rootId, doc });
+  return createState({ resolver: TEST_RESOLVER, rootId: s.rootId, doc });
 }
 
 /** Exchange updates both ways; return fresh States over each doc. */
@@ -60,14 +60,14 @@ function sync(a: State, b: State): [State, State] {
   const db = b[STATE_INTERNAL].doc;
   Y.applyUpdate(db, Y.encodeStateAsUpdate(da));
   Y.applyUpdate(da, Y.encodeStateAsUpdate(db));
-  return [createState({ rootId: a.rootId, doc: da }), createState({ rootId: b.rootId, doc: db })];
+  return [createState({ resolver: TEST_RESOLVER, rootId: a.rootId, doc: da }), createState({ resolver: TEST_RESOLVER, rootId: b.rootId, doc: db })];
 }
 
 /** Format `[a, b)` of block p with `attrs` as an UNTRACKED (foreign) transaction. */
 function foreignFormat(s: State, a: number, b: number, attrs: Record<string, unknown>): State {
   const plan = planApplyAttrsToRange(s, span(a, b));
   if (plan === null) throw new Error("empty format plan");
-  return applyOperation(s, (doc) => applyAttrsToRangeInTx(doc, plan, attrs, undefined), { origin: UNTRACKED }).state;
+  return applyOperation(s, (doc) => applyAttrsToRangeInTx(doc, plan, attrs), { origin: UNTRACKED }).state;
 }
 
 describe("T6 — undo survives a foreign format", () => {

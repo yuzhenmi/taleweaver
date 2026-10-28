@@ -4,6 +4,7 @@ import type { Position } from "./block-position";
 import { createPosition } from "./block-position";
 import type { State } from "./state";
 import { peekBlock, resolveBlock } from "./state";
+import { mapThrough, blockTouched, changedBlocks, type TxMapping } from "./tx-mapping";
 
 /**
  * Which side an ambiguous position sticks to when content is inserted exactly at it,
@@ -38,6 +39,13 @@ export interface PositionMapping {
    * Conservative: returns true when it cannot tell.
    */
   touches(from: Position, to: Position): boolean;
+  /**
+   * Whether the transition split, merged into, renamed or removed block `id` — its
+   * content no longer maps intact onto itself (a block decoration
+   * is dropped then, as ProseMirror drops a node decoration). Conservative: true
+   * when it cannot tell.
+   */
+  restructured(id: BlockId): boolean;
 }
 
 /** The identity mapping (selection-only transitions, no-op edits). */
@@ -46,6 +54,7 @@ export const IDENTITY_MAPPING: PositionMapping = Object.freeze({
   dirty: new Set<BlockId>(),
   map: (position: Position): MappedPosition => ({ position, deleted: false }),
   touches: (): boolean => false,
+  restructured: (): boolean => false,
 });
 
 /** A mapping for a transition whose changes are unknown (e.g. the whole document was
@@ -55,7 +64,190 @@ export const UNKNOWN_MAPPING: PositionMapping = Object.freeze({
   dirty: null,
   map: (): MappedPosition => ({ position: null, deleted: true }),
   touches: (): boolean => true,
+  restructured: (): boolean => true,
 });
+
+// ---------------------------------------------------------------------------
+// Exact (transaction-derived) mappings
+// ---------------------------------------------------------------------------
+
+/** Exact per-transaction mappings carried by a dirty set (see `tx-mapping.ts`). */
+const exactBySet = new WeakMap<ReadonlySet<BlockId>, readonly TxMapping[]>();
+
+/** Attach `maps` (in transaction order) to the dirty set they produced. */
+export function attachTxMappings(dirtyIds: ReadonlySet<BlockId>, maps: readonly TxMapping[]): void {
+  exactBySet.set(dirtyIds, maps);
+}
+
+/** The exact transaction mappings a dirty set carries, or undefined (unknown provenance). */
+export function txMappingsOf(dirtyIds: ReadonlySet<BlockId>): readonly TxMapping[] | undefined {
+  return exactBySet.get(dirtyIds);
+}
+
+/** Document order of two blocks: in `prev`'s cache, else in `next`'s live read model; null = unknown. */
+function orderIn(prev: State, next: State, a: BlockId, b: BlockId): number | null {
+  if (a === b) return 0;
+  try {
+    return compareWith((id) => peekBlock(prev, id), a, b);
+  } catch (e) {
+    if (!(e instanceof UnknownBlock)) throw e;
+  }
+  try {
+    return compareWith((id) => resolveBlock(next, id)?.block, a, b);
+  } catch (e) {
+    if (e instanceof UnknownBlock) return null;
+    throw e;
+  }
+}
+
+function txIdentity(m: TxMapping): boolean {
+  if (m.gone.size > 0) return false;
+  for (const [id, bm] of m.blocks) {
+    if (bm.hunks.length > 0 || bm.segs.length !== 1) return false;
+    const seg = bm.segs[0];
+    if (seg === undefined || seg.id !== id || seg.from !== seg.base) return false;
+  }
+  return true;
+}
+
+/**
+ * The EXACT mapping `prev → next` from the transactions' own structure changes
+ * (`tx-mapping.ts`): no text diff, no previous-content cache — a block the previous
+ * State never read maps exactly. `prev` / `next` only order blocks for `touches`
+ * across blocks.
+ */
+export function exactPositionMapping(
+  prev: State,
+  next: State,
+  dirtyIds: ReadonlySet<BlockId>,
+  maps: readonly TxMapping[],
+): PositionMapping {
+  const live = maps.filter((m) => !txIdentity(m));
+  if (live.length === 0) return IDENTITY_MAPPING;
+  const map = (position: Position, assoc: Assoc = 1): MappedPosition => {
+    let pos: Position | null = position;
+    let deleted = false;
+    for (const m of live) {
+      if (pos === null) break;
+      const r = mapThrough(m, pos, assoc);
+      pos = r.position;
+      deleted = deleted || r.deleted;
+    }
+    return { position: pos, deleted: deleted || pos === null };
+  };
+  const touchesOne = (m: TxMapping, from: Position, to: Position, first: boolean): boolean => {
+    if (from.blockId === to.blockId) return blockTouched(m, from.blockId, from.offset, to.offset);
+    if (blockTouched(m, from.blockId, from.offset, Infinity)) return true;
+    if (blockTouched(m, to.blockId, -Infinity, to.offset)) return true;
+    for (const z of changedBlocks(m)) {
+      if (z === from.blockId || z === to.blockId) continue;
+      const zid = asBlockIdLocal(z);
+      const lo = first ? orderIn(prev, next, from.blockId, zid) : orderIn(next, next, from.blockId, zid);
+      const hi = first ? orderIn(prev, next, zid, to.blockId) : orderIn(next, next, zid, to.blockId);
+      if (lo === null || hi === null || (lo <= 0 && hi <= 0)) return true;
+    }
+    return false;
+  };
+  return {
+    identity: false,
+    dirty: dirtyIds,
+    map,
+    touches(from: Position, to: Position): boolean {
+      let a: Position | null = from;
+      let b: Position | null = to;
+      let first = true;
+      for (const m of live) {
+        if (a === null || b === null) return true;
+        if (touchesOne(m, a, b, first)) return true;
+        a = mapThrough(m, a, 1).position;
+        b = mapThrough(m, b, -1).position;
+        first = false;
+      }
+      return false;
+    },
+    restructured: (id: BlockId): boolean => live.some((m) => txRestructured(m, id)),
+  };
+}
+
+/** `id` left, or its content maps anywhere but onto itself at the same offsets (split / merge / rename). */
+function txRestructured(m: TxMapping, id: string): boolean {
+  if (m.gone.has(id)) return true;
+  const bm = m.blocks.get(id);
+  if (bm === undefined) return false;
+  const seg = bm.segs[0];
+  return bm.segs.length !== 1 || seg === undefined || seg.id !== id || seg.from !== seg.base;
+}
+
+const asBlockIdLocal = (s: string): BlockId => s as BlockId;
+
+/** Apply `mappings` in order. */
+export function composeMappings(mappings: readonly PositionMapping[]): PositionMapping {
+  const live = mappings.filter((m) => !m.identity);
+  if (live.length === 0) return IDENTITY_MAPPING;
+  const only = live[0];
+  if (live.length === 1 && only !== undefined) return only;
+  let dirty: Set<BlockId> | null = new Set();
+  for (const m of live) {
+    if (m.dirty === null || dirty === null) dirty = null;
+    else for (const id of m.dirty) dirty.add(id);
+  }
+  return {
+    identity: false,
+    dirty,
+    map(position: Position, assoc: Assoc = 1): MappedPosition {
+      let pos: Position | null = position;
+      let deleted = false;
+      for (const m of live) {
+        if (pos === null) break;
+        const r = m.map(pos, assoc);
+        pos = r.position;
+        deleted = deleted || r.deleted;
+      }
+      return { position: pos, deleted: deleted || pos === null };
+    },
+    touches(from: Position, to: Position): boolean {
+      // Conservative across steps: true unless every step provably left the range alone.
+      let a: Position | null = from;
+      let b: Position | null = to;
+      for (const m of live) {
+        if (a === null || b === null) return true;
+        if (m.touches(a, b)) return true;
+        a = m.map(a, 1).position;
+        b = m.map(b, -1).position;
+      }
+      return false;
+    },
+    restructured: (id: BlockId): boolean => live.some((m) => m.restructured(id)),
+  };
+}
+
+/** One document change of a chain: the State it was made from + its dirty set. */
+export interface ChangeLink {
+  readonly from: State;
+  readonly dirtyIds: ReadonlySet<BlockId>;
+}
+
+/**
+ * The mapping across a chain of changes (oldest first) ending at `next`: the exact
+ * transaction mappings composed when every change carries them; otherwise one text
+ * diff over the union of the dirty sets (changes of unknown provenance).
+ */
+export function mappingAcross(links: readonly ChangeLink[], next: State, hint?: Position, nextHint?: Position): PositionMapping {
+  const first = links[0];
+  if (first === undefined) return IDENTITY_MAPPING;
+  const exact: PositionMapping[] = [];
+  for (let i = 0; i < links.length; i++) {
+    const link = links[i];
+    if (link === undefined) continue;
+    const maps = txMappingsOf(link.dirtyIds);
+    if (maps === undefined) break;
+    exact.push(exactPositionMapping(link.from, links[i + 1]?.from ?? next, link.dirtyIds, maps));
+  }
+  if (exact.length === links.length) return composeMappings(exact);
+  const dirty = new Set<BlockId>();
+  for (const l of links) for (const id of l.dirtyIds) dirty.add(id);
+  return createPositionMapping(first.from, next, dirty, hint, nextHint);
+}
 
 /** Embeds occupy one offset; they diff as this placeholder. */
 const EMBED_CHAR = "￼";
@@ -114,6 +306,8 @@ export function createPositionMapping(
   nextHint?: Position,
 ): PositionMapping {
   if (prev === next || dirtyIds.size === 0) return IDENTITY_MAPPING;
+  const exact = txMappingsOf(dirtyIds);
+  if (exact !== undefined) return exactPositionMapping(prev, next, dirtyIds, exact);
 
   const prevGet = (id: BlockId): Block | undefined => peekBlock(prev, id);
   const nextGet = (id: BlockId): Block | undefined => resolveBlock(next, id)?.block;
@@ -252,7 +446,15 @@ export function createPositionMapping(
     return compareWith(prevGet, lo, id) <= 0 && compareWith(prevGet, id, hi) <= 0;
   }
 
-  return { identity: false, dirty: dirtyIds, map, touches };
+  // Diffed (unknown-provenance) changes: `id` keeps its identity iff it still exists and
+  // its start still maps onto its own start (a split or merge moves it).
+  const restructured = (id: BlockId): boolean => {
+    if (!dirtyIds.has(id)) return false;
+    if (nextGet(id) === undefined) return true;
+    const start = map(createPosition(id, 0), 1).position;
+    return start === null || start.blockId !== id || start.offset !== 0;
+  };
+  return { identity: false, dirty: dirtyIds, map, touches, restructured };
 }
 
 /**

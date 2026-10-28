@@ -20,6 +20,7 @@ import { makeRootContext } from "./layout-context";
 import { paginateRoot } from "./paginate";
 import { buildBlockFitMetas } from "./build-fit-metas";
 import { measurePass } from "./measure-pass";
+import { flattenContents } from "./group-children";
 import { IMPLICIT_SECTION_PLAN } from "./section-plan";
 import { makeVirtualLayoutTree } from "./virtual-layout-tree";
 import type { PageConfig } from "./page-config";
@@ -268,7 +269,7 @@ describe("physicalizeVertical — both layout seams mirror a real vertical-rl do
     const pageContentInlineSize =
       pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
     const metas = buildBlockFitMetas(root, createMockShaper(8, 16), undefined, pageContentInlineSize);
-    const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children);
+    const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, flattenContents(root.children));
     const ctx = makeRootContext(root.computedStyle ?? INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
     const tree = makeVirtualLayoutTree(plan, root, ctx, createMockShaper(8, 16), pageConfig);
     const page = tree.getPage(0);
@@ -348,7 +349,7 @@ describe("physicalizeVertical — both seams mirror against the FULL page block-
     const pageContentInlineSize =
       pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
     const metas = buildBlockFitMetas(root, createMockShaper(8, 16), undefined, pageContentInlineSize);
-    const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children);
+    const plan = measurePass(metas, pageConfig, IMPLICIT_SECTION_PLAN, flattenContents(root.children));
     const ctx = makeRootContext(root.computedStyle ?? INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
     const tree = makeVirtualLayoutTree(plan, root, ctx, createMockShaper(8, 16), pageConfig);
     const page = tree.getPage(0);

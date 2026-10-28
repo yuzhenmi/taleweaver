@@ -1,4 +1,7 @@
-import { createEmptyDocument, History, createHistory, selectionContextOf, positionsEqual, resolveBlock } from "../state";
+import { createEmptyDocument, History, createHistory, selectionContextOf, positionsEqual, resolveBlock, createSpan } from "../state";
+import { caretAfterMarkers } from "../cursor/cursor-ops";
+import { STATE_INTERNAL } from "../state/state-internal";
+import { bindAttrRegistry } from "../state/mark-attrs";
 import { getTypingAttrs } from "./typing-attrs";
 import { normalizeSelectionForAtomicMarks } from "./atomic-marks";
 import { handleApplyForeignChange } from "./foreign-change";
@@ -66,6 +69,7 @@ import {
   handleInsertCrossReference,
   handleInsertPageField,
   handleInsertTab,
+  handleInsertLineBreak,
   handleSetTabStops,
   handleSetTextAlign,
   handleSetLineSpacing,
@@ -102,7 +106,7 @@ export interface EditorState {
   readonly selection: Selection;
   readonly history: History;
   /**
-   * What this dispatch changed (Phase 0b): the set of block ids whose own
+   * What this dispatch changed: the set of block ids whose own
    * attrs/content changed in the action that produced THIS state — the
    * geometry-free hand-off to the print backend's layout-driver, which consumes
    * it to rebuild the render→cascade→layout tree INCREMENTALLY (reusing unchanged
@@ -134,7 +138,7 @@ export interface EditorState {
   readonly containerWidth: number;
   readonly targetX: number | null;
   /**
-   * NON-undoable view state (#323): which page's header/footer SLOT instance the
+   * NON-undoable view state: which page's header/footer SLOT instance the
    * caret is visually on. A header/footer body is ONE shared `templateContents`
    * subtree rendered into EVERY page's slot, so a slot caret `Position` is
    * page-AMBIGUOUS; this records the page the user is editing so caret-render
@@ -151,7 +155,7 @@ export interface EditorState {
    */
   readonly caretPageHint?: number;
   /**
-   * NON-undoable view state (P4-C.2 §D): the caret ASSOCIATION (which logical
+   * NON-undoable view state: the caret ASSOCIATION (which logical
    * side a collapsed caret sticks to) at a bidi direction boundary. One logical
    * `offset` has TWO visual positions at an LTR↔RTL boundary; `"before"` draws
    * the caret at the trailing edge of the leaf ENDING at the offset, `"after"`
@@ -163,15 +167,15 @@ export interface EditorState {
    * mouse hit-test (from the hit side) and by visual-order arrow motion at a
    * boundary flip; RESET to `undefined` by edits and non-arrow selection changes
    * so it never goes stale. It is VIEW state — never stored in `History`, never
-   * part of `Position` / `Selection` / `Span`. The handler wiring (the central
-   * reset + the hit-test / arrow writes) lands in P4-C.2.1+; this field + its
-   * default are the shared primitive.
+   * part of `Position` / `Selection` / `Span`. This field + its default are the
+   * shared primitive the handlers (the central reset + the hit-test / arrow
+   * writes) use.
    */
   readonly caretAffinity?: CaretAffinity;
   /**
-   * NON-undoable view state (#503): the ANCHOR's caret-boundary association at a
+   * NON-undoable view state: the ANCHOR's caret-boundary association at a
    * bidi direction boundary — the symmetric twin of `caretAffinity` (the FOCUS's
-   * boundary side). Post-Phase-0b the print backend's NavIntent resolver seeds it
+   * boundary side). The print backend's NavIntent resolver seeds it
    * (on the collapse→extend transition, via the barrel-exported `seedAnchorAffinity`)
    * and threads it through the `SET_SELECTION` it dispatches; thereafter it persists
    * through continued extension. Clears on any action but `SET_SELECTION` (the same
@@ -213,7 +217,7 @@ export interface EditorConfig {
   readonly containerWidth: number;
   /**
    * Document page-setup data (size, orientation, margins, gap). DOCUMENT data,
-   * NOT layout geometry (Phase 0b Resolution B): page setup round-trips with the
+   * NOT layout geometry: page setup round-trips with the
    * document (Google Docs File ▸ Page setup; Word per-section; .docx). The
    * geometry-free reducer reads it in `toggle-section-landscape` (the landscape
    * dimension swap consults the document's default page dimensions). The print
@@ -225,12 +229,12 @@ export interface EditorConfig {
    */
   readonly pageConfig?: PageConfig;
   /**
-   * Injected clock for undo-coalescing timing (#420). Defaults to `Date.now`.
+   * Injected clock for undo-coalescing timing. Defaults to `Date.now`.
    * Tests pass a controllable counter so the pause window is deterministic.
    */
   readonly now?: () => number;
   /**
-   * Suggesting mode (change-tracking, spec §3): when a non-null author string, every
+   * Suggesting mode (change-tracking): when a non-null author string, every
    * mutating edit becomes a tracked SUGGESTION attributed to that author (timestamped
    * via `now`), instead of a direct edit. `null`/undefined = direct editing. The HOST
    * owns "who is suggesting" (this is configuration, not session state).
@@ -246,7 +250,7 @@ export interface EditorConfig {
 }
 
 export function createInitialEditorState(config: EditorConfig): EditorState {
-  const state = createEmptyDocument();
+  const state = createEmptyDocument({ resolver: config.componentRegistry });
   const selection = initialSelectionForState(state);
   return createEditorStateFromState(state, selection, config);
 }
@@ -257,7 +261,7 @@ export function createInitialEditorState(config: EditorConfig): EditorState {
  * here with the empty document. Primarily for tests that need a non-default seed
  * document (e.g. a table-only body) without an editor-from-state injection seam.
  *
- * Phase 0b: core is geometry-free. This builds NO render/cascade/layout trees —
+ * Core is geometry-free. This builds NO render/cascade/layout trees —
  * the print backend's layout-driver owns that pipeline and rebuilds it from
  * `state` after each dispatch. `lastDirtyIds: null` signals the driver to do a
  * FULL initial build.
@@ -265,7 +269,7 @@ export function createInitialEditorState(config: EditorConfig): EditorState {
  * `historyOrigin` is the transaction origin the editor's `History` tracks for
  * undo (default `null` = the single-editor origin). A collaborating peer passes
  * its own origin token so its `UndoManager` tracks ONLY its own edits (undo
- * isolation, E4b) — building the right History up front instead of replacing a
+ * isolation) — building the right History up front instead of replacing a
  * default one (which would leak the default's UndoManager listener).
  */
 export function createEditorStateFromState(
@@ -274,6 +278,8 @@ export function createEditorStateFromState(
   config: EditorConfig,
   historyOrigin: unknown = null,
 ): EditorState {
+  // Every state writer judging an attr (¶ markAttrs, one-shot attrs) reads it from the doc.
+  bindAttrRegistry(state[STATE_INTERNAL].doc, config.attrRegistry);
   return {
     state,
     selection,
@@ -321,22 +327,50 @@ export function recordChange(prior: DocumentChange | null, from: State, dirtyIds
   return { from, dirtyIds, prior: base, depth: (base?.depth ?? 0) + 1 };
 }
 
+/** Actions that insert content at a collapsed caret (a split is not one: it has its own marker rule). */
+const INSERTS_AT_CARET: ReadonlySet<EditorAction["type"]> = new Set<EditorAction["type"]>([
+  "INSERT_TEXT",
+  "PASTE",
+  "INSERT_LINE_BREAK",
+  "INSERT_TAB",
+  "INSERT_CROSS_REFERENCE",
+  "INSERT_FOOTNOTE",
+  "INSERT_PAGE_NUMBER",
+  "INSERT_PAGE_COUNT",
+  "INSERT_INLINE_IMAGE",
+]);
+
+/** `editor` with a collapsed caret moved past the markers adjacent on its right. */
+function withCaretAfterMarkers(editor: EditorState): EditorState {
+  const { anchor, focus } = editor.selection;
+  if (!positionsEqual(anchor, focus)) return editor;
+  const caret = caretAfterMarkers(editor.state, focus);
+  return caret === focus ? editor : { ...editor, selection: createSpan(caret, caret) };
+}
+
 /** Pure reducer: applies an action to EditorState and returns new state. */
 export function reduceEditor(
   rawEditor: EditorState,
   action: EditorAction,
   config: EditorConfig,
 ): EditorState {
-  // Phase 0b ENTRY-CLEAR: `lastDirtyIds` is the layout-driver's per-dispatch
+  // The editor's attr registry is the doc's: every state op and editor helper reads it
+  // there (O(1); also covers an EditorState not built by `createEditorStateFromState`).
+  bindAttrRegistry(rawEditor.state[STATE_INTERNAL].doc, config.attrRegistry);
+  // ENTRY-CLEAR: `lastDirtyIds` is the layout-driver's per-dispatch
   // incremental hint, written ONLY by a mutating action's `rebuildTrees`. Clear
   // it at the entry of every dispatch so a prior mutating action's dirty ids
   // never leak forward onto a later selection-only / inert action (which would
   // make the driver wrongly rebuild only those blocks). A mutating handler's
   // `rebuildTrees` re-sets a fresh non-null set; everything else leaves it null.
-  const editor =
+  const cleared =
     rawEditor.lastDirtyIds === null ? rawEditor : { ...rawEditor, lastDirtyIds: null };
+  // Markers are not caret stops: every insertion at a collapsed caret goes after the
+  // markers adjacent on its right — inside a bookmark / comment at its start, outside
+  // at its end. Normalized once here, so no insertion handler repeats it (block-local).
+  const editor = INSERTS_AT_CARET.has(action.type) ? withCaretAfterMarkers(cleared) : cleared;
 
-  // #420: undo-group coalescing. Decide the undo boundary BEFORE the operation
+  // Undo-group coalescing. Decide the undo boundary BEFORE the operation
   // runs (with `captureTimeout: MAX`, a transaction merges into the open group
   // unless we `stopCapturing` first). Committing actions open/continue a group;
   // selection jumps and undo/redo close it; inert actions (container resize) do
@@ -398,7 +432,7 @@ export function reduceEditor(
       result = handleSetContainerWidth(editor, action.width, config);
       break;
     case "SET_SELECTION": {
-      // Engine backstop (#424): a Span must keep BOTH endpoints in the SAME
+      // Engine backstop: a Span must keep BOTH endpoints in the SAME
       // selection context (the main document tree, OR one footnote/embed body,
       // OR one header/footer/template body). Cross-context spans are unsupported
       // by the data model — `iterateSpan` throws on them — so storing one here is
@@ -489,7 +523,7 @@ export function reduceEditor(
       result = handleExpandDocumentBoundary(editor, action.boundary);
       break;
     case "ESCAPE":
-      // #525: pure selection move (no commit) — collapse an object selection to
+      // Pure selection move (no commit) — collapse an object selection to
       // just after the object. Not a line/vertical action and does not manage
       // bidi affinity, so it joins no targetX / caretAffinity / anchorAffinity
       // exemption list.
@@ -542,6 +576,9 @@ export function reduceEditor(
       break;
     case "INSERT_TAB":
       result = handleInsertTab(editor, config);
+      break;
+    case "INSERT_LINE_BREAK":
+      result = handleInsertLineBreak(editor, config);
       break;
     case "SET_TAB_STOPS":
       result = handleSetTabStops(editor, action.blockId, action.tabStops, config);
@@ -699,7 +736,7 @@ export function reduceEditor(
   // Central transient-view-state clear: `targetX` (line-nav sticky goal column)
   // and the bidi-boundary affinities are all resolved against a SPECIFIC
   // document/layout shape, so any action other than the one that MANAGES them
-  // must reset them (else they go stale). Post-Phase-0b that managing action is
+  // must reset them (else they go stale). That managing action is
   // `SET_SELECTION` alone — the print backend's NavIntent resolver originates a
   // line-move's `targetX` + caret/anchor affinity and threads ALL THREE through
   // the `SET_SELECTION` it dispatches (a programmatic / body `SET_SELECTION`
@@ -715,13 +752,8 @@ export function reduceEditor(
   // Atomic marks: the caret never rests inside one (whatever moved it — a click,
   // an arrow step, undo, a programmatic selection), and a range selection covers
   // one whole or not at all.
-  if (result !== editor && config.attrRegistry.hasAtomicMarks()) {
-    const selection = normalizeSelectionForAtomicMarks(
-      result.state,
-      result.selection,
-      editor.selection,
-      config.attrRegistry,
-    );
+  if (result !== editor) {
+    const selection = normalizeSelectionForAtomicMarks(result.state, result.selection, editor.selection);
     if (selection !== result.selection) result = { ...result, selection };
   }
 
@@ -780,7 +812,7 @@ function updateStoredAttrs(
       // non-inclusive or atomic mark — and change-tracking ids — must not
       // resurrect on the next keystroke.
       const carried: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(getTypingAttrs(before, config.attrRegistry))) {
+      for (const [key, value] of Object.entries(getTypingAttrs(before))) {
         if (config.attrRegistry.isInclusive(key)) carried[key] = value;
       }
       if (Object.keys(carried).length > 0) out = { ...out, storedAttrs: Object.freeze(carried) };
@@ -818,10 +850,10 @@ export function clearTransientViewState(editor: EditorState): EditorState {
 }
 
 /**
- * The shared `anchorAffinity` seed/persist rule (#503) for the three focus-only
+ * The shared `anchorAffinity` seed/persist rule for the three focus-only
  * selection extenders — `EXPAND_SELECTION` (Shift+ArrowLeft/Right), `EXPAND_LINE`
- * (Shift+ArrowUp/Down), `EXPAND_LINE_BOUNDARY` (Shift+Home/End). Post-Phase-0b
- * these extenders live in the print backend's NavIntent resolver, which imports
+ * (Shift+ArrowUp/Down), `EXPAND_LINE_BOUNDARY` (Shift+Home/End).
+ * These extenders live in the print backend's NavIntent resolver, which imports
  * this barrel-exported helper to compute the `anchorAffinity` it threads into the
  * `SET_SELECTION` it dispatches. They all keep the ANCHOR fixed and move only the
  * FOCUS, so the anchor's bidi-boundary side must be captured ONCE — on the

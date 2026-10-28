@@ -51,7 +51,7 @@ export interface Style {
   // Display & layout participation
   readonly display?: Display;
 
-  // Writing-mode and direction (Plan 3.A: horizontal-tb only; ltr/rtl both supported)
+  // Writing-mode and direction
   readonly writingMode?: WritingMode;
   readonly direction?:   Direction;
 
@@ -109,7 +109,7 @@ export interface Style {
   readonly whiteSpace?:    WhiteSpace;
   readonly verticalAlign?: VerticalAlign;
 
-  // Text — typography (Plan 3.C reservations; consumers in Plan 3.G + Plan 4)
+  // Text — typography
   readonly textAlign?:           TextAlign;
   readonly textIndent?:          Length;
   readonly textWrap?:            "wrap" | "nowrap" | "balance" | "pretty" | "stable";
@@ -139,7 +139,7 @@ export interface Style {
   readonly breakAfter?:  BreakAfter;
   readonly breakInside?: BreakInside;
 
-  // Fragmentation — additional (Plan 3.C reservations; consumers in Plan 5)
+  // Fragmentation — additional
   readonly widows?:  number;
   readonly orphans?: number;
 
@@ -155,8 +155,7 @@ export interface Style {
   readonly markerText?: string;
 
   // Positioning (CSS Positioned Layout 3 / Transforms 1) — all non-inheriting.
-  // Layout/paint consumers land in later positioning slices; the vocabulary is
-  // inert until then.
+  // Consumed by the print backend's layout and paint.
   readonly position?: Position;
   // Logical insets. `insetInlineStart` wins over `insetInlineEnd` when both are
   // set (and the block pair symmetrically); resolved against the containing

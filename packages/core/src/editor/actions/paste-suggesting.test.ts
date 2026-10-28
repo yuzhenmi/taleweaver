@@ -1,9 +1,9 @@
 /**
  * Change-tracking PF-3: PASTE in suggesting mode inserts the pasted fragment as ONE
  * tracked insertion (via `replaceWithSuggestedFragment`) instead of mutating the
- * document destructively. A multi-line paste's inter-line breaks become
- * `block-split-suggestion` embeds; a paste OVER a selection soft-deletes the
- * selection (cross-block: with a `block-join-suggestion` per crossed boundary) and
+ * document destructively. A multi-line paste's inter-line breaks become split
+ * TAGS (`insertionSuggestionId` on each new block); a paste OVER a selection
+ * soft-deletes the selection (cross-block: a join tag per crossed boundary) and
  * inserts the fragment in ONE undoable op. Accept-all lands the paste for real;
  * reject-all restores the original document. Tracking is ALL-CONTEXT (main body AND
  * footnote / header / footer bodies) via the MT-4 `replaceSuggestionInputForBlock`
@@ -11,6 +11,7 @@
  *
  * Behavior-level tests through the real reducer (`PASTE` action).
  */
+import { finalSectionOf } from "../../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import {
   config as directConfig,
@@ -36,8 +37,7 @@ import {
   getSuggestions,
   resolveBlock,
   selectionContextOf,
-  BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
-  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
+  endMarkOf,
   type BlockId,
 } from "../../state";
 
@@ -53,7 +53,7 @@ function bodyParaId(editor: EditorState): BlockId {
 /** Doc-order block ids under the MAIN document root. */
 function blockSeq(editor: EditorState): BlockId[] {
   const out: BlockId[] = [];
-  let id = getBlock(editor.state, editor.state.rootId)?.firstChildId ?? null;
+  let id = getBlock(editor.state, finalSectionOf(editor.state))?.firstChildId ?? null;
   while (id) {
     out.push(id);
     id = getBlock(editor.state, id)?.nextSiblingId ?? null;
@@ -66,14 +66,9 @@ const textOfResolved = (editor: EditorState, id: BlockId): string =>
     .map((it) => (it.kind === "text" ? it.text : ""))
     .join("");
 
-const hasSplitEmbed = (editor: EditorState, id: BlockId): boolean =>
-  (resolveBlock(editor.state, id)?.block?.inlineContent?.items ?? []).some(
-    (it) => it.kind === "embed" && it.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
-  );
-const hasJoinEmbed = (editor: EditorState, id: BlockId): boolean =>
-  (resolveBlock(editor.state, id)?.block?.inlineContent?.items ?? []).some(
-    (it) => it.kind === "embed" && it.embedType === BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
-  );
+/** The kind of the boundary ¶ drawn at the END of `id` (split / join / …), or null. */
+const endMarkKind = (editor: EditorState, id: BlockId): string | null =>
+  endMarkOf(editor.state, id)?.kind ?? null;
 
 const paste = (e: EditorState, text: string, cfg: EditorConfig): EditorState =>
   reduceEditor(e, { type: "PASTE", text }, cfg);
@@ -129,11 +124,13 @@ describe("handlePaste — suggesting mode (PF-3)", () => {
     expect(getSuggestions(direct.state)).toHaveLength(0);
   });
 
-  it("collapsed caret, two-line paste: ONE insertion + a split embed + two blocks; accept keeps split, reject removes paste", () => {
+  it("collapsed caret, two-line paste: ONE insertion + a split tag + two blocks; accept keeps split, reject removes paste", () => {
     const { editor: sug } = freshCollapsedPaste("X\nY");
     const seq = blockSeq(sug);
+    // the inserted ¶ is the new head's own (keyed on its entry).
     expect(getTextOf(sug.state, nth(seq, 0, "block id"))).toBe("abcX");
-    expect(hasSplitEmbed(sug, nth(seq, 0, "block id"))).toBe(true);
+    expect(endMarkKind(sug, nth(seq, 0, "block id"))).toBe("split");
+    expect(getBlock(sug.state, nth(seq, 0, "block id"))?.breakSuggestion?.insertionId).toBe(getSuggestions(sug.state)[0]?.id);
     expect(getTextOf(sug.state, nth(seq, 1, "block id"))).toBe("Y");
     expect(getSuggestions(sug.state).map((s) => s.kind)).toEqual(["insertion"]);
     // caret lands after the last pasted line ("Y") in the new block, before any suffix.
@@ -161,7 +158,7 @@ describe("handlePaste — suggesting mode (PF-3)", () => {
 
   it("paste over a CROSS-block selection: strikes both blocks + join; accept merges to ONE flow; reject restores", () => {
     const { editor: sug, p1 } = freshCrossBlockPaste();
-    expect(hasJoinEmbed(sug, p1)).toBe(true);
+    expect(endMarkKind(sug, p1)).toBe("join");
     expect(getSuggestions(sug.state).map((s) => s.kind).sort()).toEqual(["deletion", "insertion"]);
 
     const accepted = reduceEditor(freshCrossBlockPaste().editor, { type: "ACCEPT_ALL_SUGGESTIONS" }, suggestingConfig);
@@ -201,10 +198,13 @@ describe("handlePaste — suggesting mode (PF-3)", () => {
 
     const sug = paste(caretAt(seeded, bodyPara, 3), "P\nQ", suggestingConfig);
     expect(getSuggestions(sug.state).map((s) => s.kind)).toEqual(["insertion"]);
-    expect(hasSplitEmbed(sug, bodyPara)).toBe(true);
-
+    // The new head (before the body paragraph, which keeps "Q" + its ¶) holds "abcP".
+    const head = resolveBlock(sug.state, bodyPara)?.block.prevSiblingId ?? null;
+    if (head === null) throw new Error("expected a new head");
+    expect(endMarkKind(sug, head)).toBe("split");
     const accepted = reduceEditor(sug, { type: "ACCEPT_ALL_SUGGESTIONS" }, suggestingConfig);
-    expect(textOfResolved(accepted, bodyPara)).toBe("abcP");
+    expect(textOfResolved(accepted, head)).toBe("abcP");
+    expect(textOfResolved(accepted, bodyPara)).toBe("Q");
     expect(getSuggestions(accepted.state)).toHaveLength(0);
   });
 

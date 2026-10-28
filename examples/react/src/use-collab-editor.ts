@@ -89,7 +89,7 @@ export function useCollabEditor(peerDoc: State): UseCollabEditorResult {
 
   const [editorState, setEditorState] = useState<EditorState>(() =>
     // Build with this peer's origin so its History's UndoManager tracks ONLY its
-    // own edits (undo isolation, E4b) — no default-History-then-replace dance.
+    // own edits (undo isolation) — no default-History-then-replace dance.
     createEditorStateFromState(peerDoc, initialSelectionForState(peerDoc), config),
   );
 

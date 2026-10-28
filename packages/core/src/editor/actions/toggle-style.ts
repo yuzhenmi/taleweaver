@@ -67,8 +67,8 @@ export function handleToggleStyle(
   // Collapsed caret: toggle the style for the next typed text (typing attrs),
   // relative to what that text would otherwise get.
   if (isCollapsed(selection)) {
-    const on = Boolean(getTypingAttrs(editor, config.attrRegistry)[attrKey]);
-    return storeTypingAttrs(editor, { [attrKey]: on ? undefined : true }, config.attrRegistry);
+    const on = Boolean(getTypingAttrs(editor)[attrKey]);
+    return storeTypingAttrs(editor, { [attrKey]: on ? undefined : true });
   }
 
   const all = selectionAllHaveAttr(editor.state, selection, attrKey);

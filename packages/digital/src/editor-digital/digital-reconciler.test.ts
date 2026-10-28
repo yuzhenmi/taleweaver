@@ -253,7 +253,7 @@ describe("DigitalReconciler.reconcile — host-hidden blocks", () => {
     st = reduceEditor(st, { type: "SPLIT_NODE" }, config);
     st = type(st, config, "cd");
     const root = getBlock(st.state, st.state.rootId);
-    const second = root?.lastChildId;
+    const second = getBlock(st.state, root?.lastChildId ?? st.state.rootId)?.lastChildId; // root → final section → paragraphs
     if (second == null) throw new Error("setup");
     const hide = setBlockAttrs(st.state, second, { hidden: true });
     const hidden: EditorState = { ...st, state: hide.state, lastDirtyIds: hide.dirtyIds };

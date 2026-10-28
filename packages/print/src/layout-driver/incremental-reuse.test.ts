@@ -30,6 +30,7 @@ import { createInitialEditorState, reduceEditor, getBlock, createDefaultComponen
 import { type PageBox } from "../index";
 import { createLayoutDriver } from "./layout-driver";
 import type { LayoutConfig } from "./layout-config";
+import { finalSection } from "../test-utils/final-section"; // body blocks live in the final section
 
 const measurer = createMockShaper(8, 16); // 16px line-height, 8px/char.
 
@@ -97,7 +98,7 @@ function findBoxByKey(box: BoxLike, key: string): BoxLike | null {
 
 /** The first body block id of a fresh editor. */
 function firstBodyBlockId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = finalSection(editor.state);
   if (root === null || root.firstChildId === null) throw new Error("no body block");
   return root.firstChildId;
 }
@@ -109,12 +110,15 @@ describe("layout-driver incremental reuse (perf guard)", () => {
     const config = makeEditorConfig();
     let editor = createInitialEditorState(config);
 
-    const blockIds: BlockId[] = [];
     for (let i = 0; i < 24; i++) {
       editor = reduceEditor(editor, { type: "INSERT_TEXT", text: `Paragraph ${i}` }, config);
-      blockIds.push(editor.selection.focus.blockId);
       if (i < 23) editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
     }
+    // a split's head gets a NEW id while the focused tail keeps the old one,
+    // so read the 24 paragraph ids back in document order.
+    const blockIds: BlockId[] = [];
+    for (let id = finalSection(editor.state)?.firstChildId ?? null; id !== null; id = getBlock(editor.state, id)?.nextSiblingId ?? null) blockIds.push(id);
+    expect(blockIds.length).toBe(24);
 
     const driver = createLayoutDriver(makeLayoutConfig());
     const before = driver.rebuild(editor.state, editor.containerWidth, null);

@@ -38,7 +38,7 @@ export function handleSetTextTransform(
   const { selection } = editor;
   // Collapsed caret: the transform applies to the next typed text (typing attrs).
   if (isCollapsed(selection)) {
-    return storeTypingAttrs(editor, { textTransform: value === "none" ? undefined : value }, config.attrRegistry);
+    return storeTypingAttrs(editor, { textTransform: value === "none" ? undefined : value });
   }
 
   // `"none"` is the initial value → remove the attr (undefined = removal in

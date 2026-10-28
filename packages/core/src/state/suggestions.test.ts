@@ -13,11 +13,8 @@ import * as Y from "yjs";
 import {
   createYDoc,
   getSuggestionsMap,
-  getBlocksMap,
-  getEmbedContentsMap,
-  getTemplateContentsMap,
-  getTreeMaps,
 } from "./yjs-doc";
+import { getRegistry } from "./registry";
 import {
   writeSuggestionRecordInTx,
   readSuggestionRecord,
@@ -27,16 +24,15 @@ import {
   INSERTION_SUGGESTION_ATTR,
   DELETION_SUGGESTION_ATTR,
   formattingSuggestionKey,
-  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
   type SuggestionId,
   type SuggestionRecord,
 } from "./suggestions";
+import { markParagraphMarkDeletion } from "./ops/merge-blocks";
 import {
   buildState,
   buildBlock,
   inlineContent,
   text,
-  embed,
 } from "../test-utils/state-builders";
 import { asBlockId } from "./block-id";
 import { applyOperation, type State } from "./state";
@@ -59,17 +55,9 @@ describe("suggestions — 6th side-table Y.Map (slice 1.1)", () => {
     expect(getSuggestionsMap(doc)).toBe(getSuggestionsMap(doc));
   });
 
-  it("the suggestions map is NOT one of the block-tree maps (excluded from TREE_MAP_GETTERS)", () => {
+  it("the suggestions map is NOT the block registry (side-tables are not block trees)", () => {
     const doc = createYDoc();
-    const suggestions = getSuggestionsMap(doc);
-    const treeMaps = getTreeMaps(doc);
-    // The block-tree maps are exactly blocks / embedContents / templateContents.
-    expect(treeMaps).toContain(getBlocksMap(doc));
-    expect(treeMaps).toContain(getEmbedContentsMap(doc));
-    expect(treeMaps).toContain(getTemplateContentsMap(doc));
-    // The suggestions side-table must NOT be among them (mirror the comments /
-    // listDefs exclusion — side-tables are not block trees).
-    expect(treeMaps).not.toContain(suggestions);
+    expect(getSuggestionsMap(doc)).not.toBe(getRegistry(doc));
   });
 });
 
@@ -258,9 +246,9 @@ describe("suggestions — range index + read (slice 2 piece A)", () => {
     expect(resolveSuggestionRange(state, "nope" as SuggestionId)).toBeNull();
   });
 
-  it("indexes all three attr dimensions + a break-suggestion embed by its properties.suggestionId", () => {
-    // p1: "X"(del s-del) "Y"(fmt s-fmt) [block-join-suggestion s-join] ; p2: "Z"(ins s-ins)
-    const state = buildState({
+  it("indexes all three attr dimensions + a paragraph-join boundary tag", () => {
+    // p1: "X"(del s-del) "Y"(fmt s-fmt) ; p2: "Z"(ins s-ins), tagged with join s-join
+    const base = buildState({
       rootId: "doc",
       blocks: [
         buildBlock({
@@ -277,7 +265,6 @@ describe("suggestions — range index + read (slice 2 piece A)", () => {
           inlineContent: inlineContent([
             text("X", { [DELETION_SUGGESTION_ATTR]: "s-del" }),
             text("Y", { [formattingSuggestionKey("s-fmt" as SuggestionId)]: true }),
-            embed(BLOCK_JOIN_SUGGESTION_EMBED_TYPE, { suggestionId: "s-join" }),
           ]),
         }),
         buildBlock({
@@ -291,6 +278,11 @@ describe("suggestions — range index + read (slice 2 piece A)", () => {
         }),
       ],
     });
+    const state = markParagraphMarkDeletion(base, asBlockId("p1"), {
+      id: "s-join" as SuggestionId,
+      author: "alice",
+      createdAt: 1,
+    }).state;
     const index = buildSuggestionRangeIndex(state);
 
     expect(index.get("s-del" as SuggestionId)).toEqual({
@@ -301,10 +293,10 @@ describe("suggestions — range index + read (slice 2 piece A)", () => {
       start: createPosition(asBlockId("p1"), 1),
       end: createPosition(asBlockId("p1"), 2),
     });
-    // The join embed sits at offset 2 (after "X","Y"), occupying [2,3).
+    // The join boundary runs from the end of p1 to the start of p2.
     expect(index.get("s-join" as SuggestionId)).toEqual({
       start: createPosition(asBlockId("p1"), 2),
-      end: createPosition(asBlockId("p1"), 3),
+      end: createPosition(asBlockId("p2"), 0),
     });
     expect(index.get("s-ins" as SuggestionId)).toEqual({
       start: createPosition(asBlockId("p2"), 0),
@@ -389,7 +381,7 @@ describe("suggestions — range index + read (slice 2 piece A)", () => {
     expect(mainRange?.end).toEqual(createPosition(asBlockId("p"), 1));
   });
 
-  it("getSuggestions joins records with their ranges and flags orphaned-by-absence", () => {
+  it("getSuggestions joins records with their ranges and never surfaces a rangeless record", () => {
     const liveRecord: SuggestionRecord = {
       id: "s1" as SuggestionId,
       kind: "insertion",
@@ -428,21 +420,16 @@ describe("suggestions — range index + read (slice 2 piece A)", () => {
 
     const live = byId.get("s1" as SuggestionId);
     expect(live).toBeDefined();
-    expect(live?.orphaned).toBe(false);
     expect(live?.kind).toBe("insertion");
     expect(live?.range).toEqual({
       start: createPosition(asBlockId("p"), 0),
       end: createPosition(asBlockId("p"), 2),
     });
 
-    const orphan = byId.get("s-orphan" as SuggestionId);
-    expect(orphan).toBeDefined();
-    expect(orphan?.orphaned).toBe(true);
-    expect(orphan?.range).toBeNull();
-    expect(orphan?.kind).toBe("deletion");
+    expect(byId.has("s-orphan" as SuggestionId)).toBe(false);
   });
 
-  it("a record tagging NO item resolves to orphaned:true, range:null", () => {
+  it("a record tagging NO item has no range and is not surfaced", () => {
     const record: SuggestionRecord = {
       id: "s-lonely" as SuggestionId,
       kind: "formatting",
@@ -468,11 +455,7 @@ describe("suggestions — range index + read (slice 2 piece A)", () => {
     }).state;
 
     expect(resolveSuggestionRange(state, record.id)).toBeNull();
-    const [only] = getSuggestions(state);
-    expect(only?.id).toBe("s-lonely");
-    expect(only?.orphaned).toBe(true);
-    expect(only?.range).toBeNull();
-    expect(only?.proposedAttrs).toEqual({ bold: true });
+    expect(getSuggestions(state)).toEqual([]);
   });
 });
 

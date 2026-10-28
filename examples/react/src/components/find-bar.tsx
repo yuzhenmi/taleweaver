@@ -43,7 +43,7 @@ export function useFindShortcut(open: (mode: "find" | "replace") => void): void 
 }
 
 /**
- * The Google-Docs-style floating find/replace bar (#433 slice 6, sub-slice B).
+ * The Google-Docs-style floating find/replace bar.
  *
  * It is a thin UI shell over the already-shipped `EditorViewHandle`: the
  * controller owns the find session (matches + activeIndex), so this component

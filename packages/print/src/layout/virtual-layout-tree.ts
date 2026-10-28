@@ -1,8 +1,8 @@
-// packages/core/src/layout/virtual-layout-tree.ts
+// packages/print/src/layout/virtual-layout-tree.ts
 //
-// Virtualized-layout Phase 2. The on-demand page-materialization machinery.
+// Virtualized layout: the on-demand page-materialization machinery.
 //
-// A `VirtualLayoutTree` carries the `PagePlan` (from Phase-1 `measurePass`) plus
+// A `VirtualLayoutTree` carries the `PagePlan` (from `measurePass`) plus
 // a memoizing `getPage(i)` that positions ONE page on demand by running the
 // SAME per-page `layoutBlock` recipe `paginateRoot` runs — seeded from the
 // plan's `resumeInto` token (NOT from a sequential previous-page break). This is
@@ -13,12 +13,6 @@
 // deep-equals `paginateRoot`'s whole tree. The equivalence suite
 // (`virtual-layout-tree.test.ts`) guards this against any drift — `paginateRoot`
 // is the oracle.
-//
-// **Unwired** (like Phase 1): `layoutTreeIncremental` is NOT changed; no
-// consumer is touched. Wiring + controller migration are Phase 3.
-//
-// Design: docs/superpowers/specs/2026-05-24-virtualized-layout-design.md
-// Plan:   docs/superpowers/plans/2026-05-24-virtualized-layout-phase2.md
 
 import type { ElementBox } from "@taleweaver/core";
 import type { BlockId } from "@taleweaver/core";
@@ -63,16 +57,15 @@ export interface VirtualLayoutTree {
   /** Document block-size (== plan.totalBlockSize). */
   readonly blockSize: number;
   /**
-   * FN-6.4 — each footnote body (`contentBlockId`) → the 0-based page index its
+   * Each footnote body (`contentBlockId`) → the 0-based page index its
    * ANCHOR REFERENCE lands on (from `footnoteAnchorPageAssignment` over the RAW
    * measure plan — the same anchor→page source of truth `resolveFootnotes` uses
    * to assign bodies). Empty for a footnote-free doc.
    *
    * This is the `pageAssignment` shape `footnoteNumbers(anchors, policy,
-   * pageAssignment)` consumes for `restart-per-page` numbering (FN-6.1). FN-6.4
-   * slice 1 ONLY exposes it here so the post-layout rebuild pipeline can read it;
-   * slices 2-6 thread it into the render pipeline's `footnoteNumbers` call. This
-   * field changes NO numbering behaviour on its own.
+   * pageAssignment)` consumes for `restart-per-page` numbering. It is
+   * exposed here so the layout driver's post-layout numbering pass can read it;
+   * the field changes NO numbering behaviour on its own.
    */
   readonly footnoteAnchorPages: ReadonlyMap<BlockId, number>;
   /**
@@ -93,8 +86,8 @@ export interface VirtualLayoutTree {
 //
 // `getPage` invokes `layoutBlock(root, …)` once per SINGLE-COLUMN page it
 // positions (the top-level per-page driver call — recursion into children is
-// internal). A MULTICOL page (Task 5) drives it N times — once per column track.
-// The Phase-2 guard test asserts that calling only `getPage(19)` on a 20-page
+// internal). A MULTICOL page drives it N times — once per column track.
+// The guard test asserts that calling only `getPage(19)` on a 20-page
 // SINGLE-COLUMN tree drives layout ONCE, not 20 times — i.e. positioning page 19
 // does NOT position pages 0–18. Production code pays one integer increment per
 // per-page body driver call it actually materializes (N for a multicol page).
@@ -128,7 +121,7 @@ interface PageFingerprint {
   readonly blockOffset: number;
   readonly listCounterAtStart: number;
   /**
-   * The EFFECTIVE per-page geometry this page was POSITIONED with (C.2b-2):
+   * The EFFECTIVE per-page geometry this page was POSITIONED with:
    * `PagePlanEntry.pageConfig` (the active section's override, or the doc-wide
    * config). The WHOLE config participates — not just `pageInlineSize` +
    * content-block-size — because two configs can share content-block-size yet
@@ -142,11 +135,9 @@ interface PageFingerprint {
   /**
    * The effective multi-column config this page was POSITIONED with (see
    * `PagePlanEntry.columnConfig`). MUST participate in the fingerprint: a
-   * column-count / gap / rule change re-materializes the `MultiColumnBox` (and,
-   * once T3+ land, changes the page's column distribution). Compared via
-   * `columnConfigsEqual` (deep — `columnConfigsEqual` covers count/gap/rule).
-   * INERT until T3 makes a multicol page lay out differently; until then it is
-   * always the resolved default and never flips, so it adds no reuse misses.
+   * column-count / gap / rule change re-materializes the `MultiColumnBox` and
+   * changes the page's column distribution. Compared via `columnConfigsEqual`
+   * (deep — count/gap/rule).
    */
   readonly columnConfig: ColumnConfig;
   /**
@@ -172,7 +163,7 @@ interface PageFingerprint {
   readonly stopBeforeIndex: number | null;
   /**
    * The header / footer template-body ids this page's slots were laid out from
-   * (C.2c T4): `PagePlanEntry.headerBlockId` / `.footerBlockId`. `undefined`
+   * (`PagePlanEntry.headerBlockId` / `.footerBlockId`). `undefined`
    * when the active section/doc declares no header/footer. MUST participate so a
    * section header-id change (a SECTION_BREAK that flips the active header) re-
    * materializes the page even when its body content + resume tokens are
@@ -192,7 +183,7 @@ interface PageFingerprint {
   readonly headerBody: ElementBox | undefined;
   readonly footerBody: ElementBox | undefined;
   /**
-   * The effective slot insets this page was POSITIONED with (#328 growing slot):
+   * The effective slot insets this page was POSITIONED with (growing slot):
    * `PagePlanEntry.effectiveTopInset` / `.effectiveBottomInset`. DEFENSIVE-
    * REDUNDANT today — the insets are a pure function of the header/footer body
    * refs + the page geometry, both of which already participate in the
@@ -205,7 +196,7 @@ interface PageFingerprint {
   readonly effectiveTopInset: number;
   readonly effectiveBottomInset: number;
   /**
-   * The footnote-body ids assigned to THIS page's slot (FN-4):
+   * The footnote-body ids assigned to THIS page's slot:
    * `PagePlanEntry.footnoteContentBlockIds`. An empty array ⇒ no slot. MUST
    * participate so a footnote that moves onto/off a page (a different assigned
    * set) re-materializes the page even when its body content is unchanged.
@@ -223,7 +214,7 @@ interface PageFingerprint {
   readonly footnoteBodies: readonly (ElementBox | undefined)[];
   /**
    * The INBOUND footnote-continuation list this page renders at the TOP of its
-   * slot (FN-5.5 / E6(b)): `PagePlanEntry.footnoteContinuation`. Each element is
+   * slot: `PagePlanEntry.footnoteContinuation`. Each element is
    * a `{ contentBlockId, resumeToken }` carried from the PRIOR page's split. MUST
    * participate so a page whose inbound continuation changed — the upstream split
    * point moved (a different `resumeToken`) OR a different body is now carried —
@@ -234,7 +225,7 @@ interface PageFingerprint {
   readonly footnoteContinuation: readonly FootnoteContinuation[];
   /**
    * The cascaded body REFERENCES (`embedBodies.get(contentBlockId)`) for the
-   * INBOUND `footnoteContinuation` list (FN-5.5 / E6(b)). Reference identity is
+   * INBOUND `footnoteContinuation` list. Reference identity is
    * the change signal: editing a continued body produces a NEW cascaded
    * ElementBox for the same id, so the ref differs → re-materialize even when the
    * `resumeToken` is unchanged. Element-aligned with `footnoteContinuation`;
@@ -243,7 +234,7 @@ interface PageFingerprint {
   readonly footnoteContinuationBodies: readonly (ElementBox | undefined)[];
   /**
    * The per-page resolved PAGE-FIELD value strings this page's header/footer slots
-   * display (F-2). Computed in spec order over the TEMPLATE field specs: a
+   * display. Computed in spec order over the TEMPLATE field specs: a
    * `page-number` field's value is `formatCounter(pageIndex + 1, …)` (varies per
    * page), a `page-count`/global field's is its `globalFieldValues` entry (same
    * everywhere). MUST participate so a page whose field VALUE changed re-materializes
@@ -268,17 +259,16 @@ interface PageFingerprint {
   /**
    * The pushed-float list this page was POSITIONED with
    * (`PagePlanEntry.incomingPushedFloats`): floats deferred from the prior page
-   * to land here (#528 T3). MUST participate so a changed pushed float
-   * re-materializes the landing page. Empty ⇒ no pushed floats — the byte-
-   * identical default for every page in T3 (no producer pushes yet), so this
-   * never blocks a valid reuse. Compared field-wise via `pushedFloatListsEqual`.
+   * to land here. MUST participate so a changed pushed float
+   * re-materializes the landing page. Empty ⇒ no pushed floats (the default),
+   * so it never blocks a valid reuse. Compared field-wise via `pushedFloatListsEqual`.
    */
   readonly incomingPushedFloats: readonly PushedFloat[];
 }
 
 /**
  * Structural equality of two INBOUND footnote-continuation lists + their
- * resolved body refs (FN-5.5 / E6(b)). Equal iff same length AND each element
+ * resolved body refs. Equal iff same length AND each element
  * agrees on `contentBlockId` (string ===), `resumeToken` (structural
  * `breakTokensEqual`), and the resolved body ref (reference ===). A split point
  * that moved upstream flips a `resumeToken`; a continued-body edit flips a body
@@ -317,11 +307,11 @@ function childrenRefsEqual(a: readonly unknown[], b: readonly unknown[]): boolea
 
 /**
  * Field-wise equality of two incoming active-float shadow lists (VL float
- * fast-path Task 2). Equal iff same length AND each element agrees on every
+ * fast-path). Equal iff same length AND each element agrees on every
  * placement field (`side` / `inlineOffset` / `blockOffset` / `inlineSize` /
  * `blockSize`). A changed upstream float (resized, moved sides, or re-placed at a
  * different offset) flips one of these → the downstream page re-materializes.
- * Compared by value (not reference) since the carry pass (Task 3) builds fresh
+ * Compared by value (not reference) since the carry pass builds fresh
  * `PlacedFloat` objects each measure cycle.
  */
 function placedFloatListsEqual(a: readonly PlacedFloat[], b: readonly PlacedFloat[]): boolean {
@@ -344,13 +334,11 @@ function placedFloatListsEqual(a: readonly PlacedFloat[], b: readonly PlacedFloa
 }
 
 /**
- * Field-wise equality of two pushed-float lists (#528 T3). Equal iff same length
+ * Field-wise equality of two pushed-float lists. Equal iff same length
  * AND each element agrees on its float `node` (reference ===, the cascaded
  * RenderNode) and `side`. A pushed-float carries no geometry (it is re-laid-out
- * on the landing page), so only node identity + side define it. INERT in T3 —
- * both lists are always empty (no producer pushes), so they compare equal and
- * no-pushed-float docs stay byte-identical; the comparison matters once T4's
- * producer fills the lists.
+ * on the landing page), so only node identity + side define it. Two empty lists
+ * (no-pushed-float docs) compare equal.
  */
 function pushedFloatListsEqual(a: readonly PushedFloat[], b: readonly PushedFloat[]): boolean {
   if (a.length !== b.length) return false;
@@ -382,13 +370,13 @@ function fingerprintsEqual(a: PageFingerprint, b: PageFingerprint): boolean {
     a.footerBody === b.footerBody &&
     a.effectiveTopInset === b.effectiveTopInset &&
     a.effectiveBottomInset === b.effectiveBottomInset &&
-    // FN-4: a different assigned footnote set OR an edited footnote body (new
+    // A different assigned footnote set OR an edited footnote body (new
     // ref) invalidates the page's slot. `childrenRefsEqual` is order-sensitive
     // element-by-element identity — exactly the contract for both the id list
     // (string ===) and the body-ref list (reference ===).
     childrenRefsEqual(a.footnoteContentBlockIds, b.footnoteContentBlockIds) &&
     childrenRefsEqual(a.footnoteBodies, b.footnoteBodies) &&
-    // FN-5.5 (E6(b)): the INBOUND continuation list (the prior page's split
+    // The INBOUND continuation list (the prior page's split
     // carries) + the resolved body refs. A moved upstream split point flips a
     // resumeToken; a continued-body edit flips a body ref — either re-materializes.
     footnoteContinuationsEqual(
@@ -398,16 +386,15 @@ function fingerprintsEqual(a: PageFingerprint, b: PageFingerprint): boolean {
     childrenRefsEqual(a.children, b.children) &&
     breakTokensEqual(a.resumeInto, b.resumeInto) &&
     breakTokensEqual(a.resumeOut, b.resumeOut) &&
-    // F-2: a page-field VALUE change (page-number shifted across pages, or
+    // A page-field VALUE change (page-number shifted across pages, or
     // page-count changed) busts the reuse even when the body refs are unchanged.
     childrenRefsEqual(a.pageFieldValues, b.pageFieldValues) &&
     // VL float fast-path: a changed upstream float shadow re-materializes exactly
     // the downstream pages it touches. Empty lists (the non-float default) compare
     // equal, so field-free / no-float docs stay byte-identical.
     placedFloatListsEqual(a.incomingActiveFloats, b.incomingActiveFloats) &&
-    // #528 T3: a changed pushed float (deferred from the prior page) re-materializes
-    // the landing page. Empty lists (the no-pushed-float default — always the case
-    // in T3) compare equal, so byte-identical reuse holds until T4's producer lands.
+    // A changed pushed float (deferred from the prior page) re-materializes
+    // the landing page. Empty lists (the no-pushed-float default) compare equal.
     pushedFloatListsEqual(a.incomingPushedFloats, b.incomingPushedFloats)
   );
 }
@@ -421,11 +408,10 @@ function fingerprintsEqual(a: PageFingerprint, b: PageFingerprint): boolean {
  * @param prevTree optional prior tree for carry-forward memo: an unchanged page
  *   (same fingerprint) whose prior PageBox was materialized is returned by
  *   reference, preserving paint-cache + LineIndex warmth.
- * @param cascadedTemplateContents cascaded header/footer template bodies (C.2c),
+ * @param cascadedTemplateContents cascaded header/footer template bodies,
  *   keyed by body root BlockId. Captured in the closure so `materializePage`
  *   can resolve a page's header/footer body and lay it into the page's slot.
- *   T3 only STORES it (no read site yet); T4 consumes it. Defaults to an empty
- *   map so a no-header/footer doc is byte-identical.
+ *   Defaults to an empty map so a no-header/footer doc is byte-identical.
  */
 export function makeVirtualLayoutTree(
   plan: PagePlan,
@@ -435,27 +421,27 @@ export function makeVirtualLayoutTree(
   pageConfig: PageConfig,
   prevTree?: VirtualLayoutTree,
   cascadedTemplateContents: ReadonlyMap<BlockId, ElementBox> = new Map(),
-  // FN-4: cascaded footnote bodies, keyed by body root BlockId. Captured in the
+  // Cascaded footnote bodies, keyed by body root BlockId. Captured in the
   // closure as `embedBodies` so `materializePage` can lay each page's assigned
   // bodies into the footnote slot, and `fingerprintOf` can read the body refs as
   // the slot's change signal. Defaults to an empty map (no footnote bodies).
   cascadedEmbedContents: ReadonlyMap<BlockId, ElementBox> = new Map(),
-  // FN-4 (D6): the RAW (pre-`resolveFootnotes`) measure plan, stored as the
+  // The RAW (pre-`resolveFootnotes`) measure plan, stored as the
   // tree's non-enumerable `__rawPlan` so the NEXT cycle's `measurePass`
   // carry-forward compares against the footnote-UNAWARE plan (the resolved
   // `plan` re-fits footnote pages, which would otherwise look like spurious
   // mismatches). Defaults to `plan` — for a footnote-free doc `resolveFootnotes`
   // returns `rawPlan` unchanged, so `plan === rawPlan` and the default is exact;
-  // any tree built before FN-4 also reads back its own `plan` via the fallback.
+  // any tree built before footnote resolution also reads back its own `plan` via the fallback.
   rawPlan: PagePlan = plan,
-  // FN-6.4 slice 1: each footnote body (`contentBlockId`) → the page index its
+  // Each footnote body (`contentBlockId`) → the page index its
   // anchor reference marker RENDERS on (the `footnoteNumbers` `pageAssignment`
-  // shape). Computed by the producer from the RESOLVED plan + anchors (audit F2:
-  // footnote-slot eviction can move an anchor past its raw-plan page) and stored on
+  // shape). Computed by the producer from the RESOLVED plan + anchors (footnote-slot
+  // eviction can move an anchor past its raw-plan page) and stored on
   // the tree (`footnoteAnchorPages`) for post-layout consumers. Defaults to an empty
   // map (footnote-free doc).
   footnoteAnchorPages: ReadonlyMap<BlockId, number> = new Map(),
-  // F-2 (layout-dependent fields): the page-field specs (from `collectPageFields`)
+  // Layout-dependent fields: the page-field specs (from `collectPageFields`)
   // + the resolved document-global values (from `resolvePageFields`). Captured in
   // the closure so `materializePage` substitutes each header/footer page-field
   // placeholder with its per-page value before slot layout (self-page page-number
@@ -465,7 +451,7 @@ export function makeVirtualLayoutTree(
   // are byte-identical.
   fieldSpecs: readonly FieldSpec[] = [],
   globalFieldValues: ReadonlyMap<string, string> = new Map(),
-  // R-F6: each MAIN-BODY layout field's final effective width (grown-or-reserved), by render
+  // Each MAIN-BODY layout field's final effective width (grown-or-reserved), by render
   // key — the IDENTICAL widths the converged measure pass sized the body cross-ref atoms at.
   // Used to width-patch the body root BEFORE substituting the real text, so materialize and
   // measure size each atom byte-identically (no narrower-than-reservation value lets a
@@ -473,13 +459,13 @@ export function makeVirtualLayoutTree(
   // Defaulted empty so existing callers/tests stay byte-identical (the patch is a ref-equal
   // no-op for an empty map).
   mainBodyFieldWidths: ReadonlyMap<string, number> = new Map(),
-  // Auto-hyphenation (slice 2): threaded ALONGSIDE `shaper` and captured in the
+  // Auto-hyphenation: threaded ALONGSIDE `shaper` and captured in the
   // closure so each per-page `getPage` `layoutBlock` (body + header/footer +
   // footnote slot) lays out with the same hyphenation inputs the measure pass
   // used. Trailing + optional so existing callers/tests stay valid. `undefined`
-  // ⇒ none. Carried but UNUSED in this slice.
+  // ⇒ none.
   hyphenator?: Hyphenator,
-  // #528 cross-page float pushing. Set `true` by the production producer
+  // cross-page float pushing. Set `true` by the production producer
   // (`virtual-producer.ts`) ONLY for float docs — exactly when the plan was built
   // with the float-aware `floatPageMeasurer` — so measure and materialize agree on
   // page boundaries. Plain `measurePass`-built trees (e.g. test harnesses without
@@ -514,35 +500,34 @@ export function makeVirtualLayoutTree(
   const rootUsedStyle: UsedStyle = computeUsedStyle(rootComputed, pageConfig.pageInlineSize, "indefinite");
   const contentCtx: LayoutContext = { ...ctx, containingInlineSize: pageContentInlineSize };
 
-  // C.2c (T3): the cascaded header/footer template bodies, captured in the
-  // closure keyed by body root BlockId. `materializePage` will resolve a page's
-  // header/footer body from this map and lay it into the page's slot (T4
-  // consumes it; T3 only stores + exposes it). Exposed as a non-enumerable hook
-  // below so it stays out of the public contract surface but remains
-  // inspectable for tests and reachable by the T4 read site.
+  // The cascaded header/footer template bodies, captured in the closure keyed by
+  // body root BlockId. `materializePage` resolves a page's header/footer body
+  // from this map and lays it into the page's slot. Exposed as a non-enumerable
+  // hook below so it stays out of the public contract surface but remains
+  // inspectable for tests.
   const templateBodies = cascadedTemplateContents;
 
-  // FN-4: the cascaded footnote bodies, keyed by body root BlockId. Captured in
+  // The cascaded footnote bodies, keyed by body root BlockId. Captured in
   // the closure so `materializePage` can resolve a page's assigned footnote
   // bodies and lay them into the footnote slot, and `fingerprintOf` can read the
   // body refs as the slot's change signal. Empty for a footnote-free doc.
   const embedBodies = cascadedEmbedContents;
 
-  // F-2: the page-field specs + resolved global values, captured for
+  // The page-field specs + resolved global values, captured for
   // `materializePage` (substitution) and `fingerprintOf` (value fold). Only
   // TEMPLATE (header/footer) fields appear on EVERY page, so only they contribute
   // to the per-page fingerprint value array; a `host:"main"` field appears on just
-  // its own page and is page-scoped in F-3 (none exist in F-2). `pageGlobalFieldValues`
+  // its own page and is page-scoped (main-body page-fields are not collected). `pageGlobalFieldValues`
   // is passed whole to `substituteLayoutFields` (it reads the global value for a
   // page-count and ignores the rest; page-number is computed from `pageIndex`).
   const pageGlobalFieldValues = globalFieldValues;
   const templateFieldSpecs = fieldSpecs.filter((s) => s.host === "template");
   const mainBodyFieldSpecs = fieldSpecs.filter((s) => s.host === "main");
 
-  // §4.10 + R-F6: prepare the main-body root for per-page layout ONCE — width-patch each body
+  // §4.10: prepare the main-body root for per-page layout ONCE — width-patch each body
   // cross-ref atom to its final reservation, THEN substitute the GLOBAL field values.
   //
-  // R-F6 (width-patch FIRST): `mainBodyFieldWidths` carries each body field's grown-or-reserved
+  // Width-patch FIRST: `mainBodyFieldWidths` carries each body field's grown-or-reserved
   // width — IDENTICAL to what the converged measure pass used (virtual-producer.ts threads the
   // SAME merged map into both the measure-pass `patchRootFieldWidths` and here). Sizing the atom
   // to the reservation (not shrink-to-fit the real value) makes materialize and measure size it
@@ -554,8 +539,8 @@ export function makeVirtualLayoutTree(
   //
   // §4.10 (substitute SECOND): cross-ref-page values don't vary per page — the target's page is
   // global — so substitute once here, not per page. `pageIndex` is 0 but only used by per-page
-  // page-number substitution, which (per the R-F5 invariant below) cannot occur in the main body.
-  // R-F5 invariant: the ONLY main-body layout field is cross-ref-page (a GLOBAL value).
+  // page-number substitution, which (per the invariant below) cannot occur in the main body.
+  // Invariant: the ONLY main-body layout field is cross-ref-page (a GLOBAL value).
   // page-number/page-count are gated to template bodies by INSERT_PAGE_NUMBER/COUNT, so a
   // main-body page-number — which the pageIndex-0 substitution would wrongly stamp "1" —
   // cannot occur; assert it in dev.
@@ -575,7 +560,7 @@ export function makeVirtualLayoutTree(
   );
 
   /**
-   * The per-page page-field value strings (F-2 fingerprint fold), in
+   * The per-page page-field value strings (fingerprint fold), in
    * `templateFieldSpecs` order: page-number → `formatCounter(pageIndex+1, …)`;
    * page-count/global → its `globalFieldValues` entry (or "" if unresolved). A
    * stable, deterministic array per page; an empty result for a field-free doc.
@@ -616,9 +601,8 @@ export function makeVirtualLayoutTree(
     return Object.freeze([...templateValues, ...mainValues]);
   }
 
-  // C.2c (T4): the per-page fingerprint. MOVED into the closure (from top level)
-  // so it can resolve a page's header/footer body REFERENCE off `templateBodies`
-  // — the slot's change signal. The cross-tree compare in `getPage` works
+  // The per-page fingerprint, in the closure so it can resolve a page's
+  // header/footer body REFERENCE off `templateBodies` — the slot's change signal. The cross-tree compare in `getPage` works
   // because the PREVIOUS tree's fingerprints were computed by ITS OWN closure
   // (its own `templateBodies`) and `thisFp` by this tree's: a re-cascaded body
   // (new ref) makes them differ → re-materialize; an unchanged carried-forward
@@ -643,18 +627,18 @@ export function makeVirtualLayoutTree(
       footerBody: footerBlockId !== undefined ? templateBodies.get(footerBlockId) : undefined,
       effectiveTopInset: entry.effectiveTopInset,
       effectiveBottomInset: entry.effectiveBottomInset,
-      // FN-4: the assigned footnote ids + their cascaded body refs. The id list
+      // The assigned footnote ids + their cascaded body refs. The id list
       // is shared by reference from the entry (so an unchanged page keeps the
       // SAME array ref — but `childrenRefsEqual` compares element-wise anyway).
       // The body refs are resolved off `embedBodies`: a body edit flips the ref.
       footnoteContentBlockIds: entry.footnoteContentBlockIds,
       footnoteBodies: entry.footnoteContentBlockIds.map((id) => embedBodies.get(id)),
-      // FN-5.5 (E6(b)): the inbound continuation list + its resolved body refs.
+      // The inbound continuation list + its resolved body refs.
       footnoteContinuation: entry.footnoteContinuation,
       footnoteContinuationBodies: entry.footnoteContinuation.map((c) =>
         embedBodies.get(c.contentBlockId),
       ),
-      // F-2: the per-page page-field value strings (the VALUE signal; the body REF
+      // The per-page page-field value strings (the VALUE signal; the body REF
       // above is the STRUCTURAL signal). A value change (doc grew a page → a later
       // page's number shifts, or page-count changed) busts the reuse even though the
       // cascaded body ref is unchanged.
@@ -663,8 +647,8 @@ export function makeVirtualLayoutTree(
       // a changed upstream float re-materializes the pages it touches. Empty default
       // for non-float docs ⇒ byte-identical reuse.
       incomingActiveFloats: entry.incomingActiveFloats,
-      // #528 T3: the pushed floats deferred onto this page. Empty default for
-      // no-pushed-float docs (every page in T3) ⇒ byte-identical reuse.
+      // The pushed floats deferred onto this page. Empty default for
+      // no-pushed-float docs ⇒ byte-identical reuse.
       incomingPushedFloats: entry.incomingPushedFloats,
     };
   }
@@ -715,29 +699,29 @@ export function makeVirtualLayoutTree(
   }
 
   function materializePage(pageIndex: number, entry: PagePlanEntry): PageBox {
-    // Per-entry effective geometry (C.2b-2): this page is positioned with its
+    // Per-entry effective geometry: this page is positioned with its
     // OWN `pageConfig` — the active section's geometry override (or the doc-wide
     // config when it carries none). For a no-override doc every entry's
     // `pageConfig` IS the doc-wide config (same fields), so the values below
     // equal the closure-captured ones.
     const effCfg = entry.pageConfig;
     const effMargins = effCfg.pageMargins;
-    // Effective slot insets for THIS page (#328 growing slot): the body content
+    // Effective slot insets for THIS page (growing slot): the body content
     // area is `[effectiveTopInset, pageBlockSize − effectiveBottomInset]` — the
     // header grows the top inset, the footer grows the bottom one. For a no-slot
     // page the insets equal the raw margins (the measure pass's `?? margin`
     // fallback), so the values below reduce to the raw-margin content area.
     const effTopInset = entry.effectiveTopInset;
     const effBottomInset = entry.effectiveBottomInset;
-    // FN-4 (D1): the footnote slot reserves `footnoteSlotHeight` between the body
+    // The footnote slot reserves `footnoteSlotHeight` between the body
     // content and the footer. `effectiveBottomInset` is UNCHANGED (header/footer
     // meaning only); the slot reservation lives ONLY in `footnoteSlotHeight`, so
     // the body content area is reduced by `effBottomInset + footnoteSlotHeight`.
-    // 0 for a page with no footnotes ⇒ byte-identical to the pre-FN-4 body.
+    // 0 for a page with no footnotes ⇒ byte-identical to the footnote-free body.
     const footnoteSlotHeight = entry.footnoteSlotHeight;
     const effContentBlockSize =
       effCfg.pageBlockSize - effTopInset - effBottomInset - footnoteSlotHeight;
-    // Slot-cap invariant (#329), mirroring measurePass: the producer's
+    // Slot-cap invariant, mirroring measurePass: the producer's
     // `computeSlotInsets` pre-caps the per-section insets so the body content
     // area always retains ≥ minBody. This branch is therefore UNREACHABLE for
     // producer-built plans; it is kept as a dev-only invariant assert (not a
@@ -747,7 +731,7 @@ export function makeVirtualLayoutTree(
       throw new Error(
         `materializePage: header/footer insets (top=${effTopInset}, bottom=${effBottomInset}) ` +
           `leave no body content area within pageBlockSize=${effCfg.pageBlockSize} — the slot ` +
-          `should have been capped by the producer (see #329).`,
+          `should have been capped by the producer.`,
       );
     }
     const effContentInlineSize =
@@ -770,23 +754,23 @@ export function makeVirtualLayoutTree(
     // NOTE: an earlier version threaded a per-page `prevLayoutCache` built from
     // the prior tree's PageBox (buildLayoutBoxCacheFromTree(prevPage, …)) so
     // unchanged blocks WITHIN a re-materialized page reused their prior boxes
-    // (intra-page L-PERF-A/-G). That was REMOVED — it reused a moved block's
+    // (intra-page subtree reuse / reposition-on-clone). That was REMOVED — it reused a moved block's
     // box at its STALE position (e.g. Enter at the start of a line left the
     // text painted on the old line: the cache returned the text box at its
     // pre-edit blockOffset instead of repositioning it). Re-materializing one
     // visible page from scratch is cheap (the measure pass already decided the
     // boundaries; this just positions ~one page of blocks). A correct
-    // intra-page reuse can be reinstated later (see the tracked follow-up), but
+    // intra-page reuse can be reinstated later (not implemented), but
     // correctness comes first. `getPage` runs the SAME per-page driver call
     // paginateRoot runs (paginate.ts:213–220), seeded from the PLAN's
     // resumeInto — NOT a sequential previous-page break.
-    // Multi-column body construction (T5). Build the page's `MultiColumnBox` by
+    // Multi-column body construction. Build the page's `MultiColumnBox` by
     // laying the SAME cascaded root into N side-by-side column tracks, each at the
     // per-column slice the measure pass (`fitColumnsOnPage`) computed. The result
     // flows downstream EXACTLY like the single-column body box: it becomes
     // `bodyChildren`, the page's content child, and every box-walker (paint,
     // `collectLineBoxes`, `physicalizeVertical`, dirty-detect) already has a
-    // "multicolumn" arm descending `columns` (slice 2b).
+    // "multicolumn" arm descending `columns`.
     const materializeMultiColumnBody = (
       mcEntry: PagePlanEntry,
       cap: number | undefined,
@@ -819,7 +803,7 @@ export function makeVirtualLayoutTree(
               `(measure-vs-materialize drift — columns.length=${columnFit.columns.length}, N=${N}).`,
           );
         }
-        // Column offsets are RELATIVE to the MultiColumnBox's OWN frame (#497):
+        // Column offsets are RELATIVE to the MultiColumnBox's OWN frame:
         // the paint renderer + line collector descend each column from the MC box's
         // absolute origin (which already carries `effMargins.inlineStart` /
         // `effTopInset`) and ADD the column's `inlineOffset`/`blockOffset`. So the
@@ -876,7 +860,7 @@ export function makeVirtualLayoutTree(
         }
         // An empty (content-exhausted) column yields a `null` box — produce an
         // EMPTY column `BlockBox` (zero children, `blockSize: 0`) at the column's
-        // MC-frame-relative inline/block origin (block = 0, #497) so geometry +
+        // MC-frame-relative inline/block origin (block = 0) so geometry +
         // paint stay uniform across all N columns.
         const colBox =
           rawColBox ??
@@ -898,7 +882,7 @@ export function makeVirtualLayoutTree(
       // The MultiColumnBox spans the FULL content inline width at the content
       // origin; its block-size is the ACTUAL rendered column height
       // (`balancedColumnHeight`), NOT `effContentBlockSize` — they differ for a
-      // short FILL/balanced page (M-2).
+      // short FILL/balanced page.
       return createMultiColumnBox(
         `${cascadedRoot.key}-mc-p${pageIndex}`,
         effMargins.inlineStart,
@@ -915,7 +899,7 @@ export function makeVirtualLayoutTree(
       );
     };
 
-    // Section cap (C.2b-1): honor the SAME `stopBeforeIndex` the plan's
+    // Section cap: honor the SAME `stopBeforeIndex` the plan's
     // `fitOnePage` / `fitColumnsOnPage` applied to this page, so positioning stops
     // before the next section's leading block instead of greedily filling the
     // leftover room with it. `null` (no next boundary) ⇒ `undefined` ⇒ no cap.
@@ -923,7 +907,7 @@ export function makeVirtualLayoutTree(
     const stopBeforeIndex = entry.stopBeforeIndex ?? undefined;
     // The body box — a plain `BlockBox` for a single-column page (BYTE-IDENTICAL
     // to the pre-multicol path: same `layoutBlock` call, same args), or a
-    // `MultiColumnBox` for a multicol section's page (T5). `null` when nothing fit
+    // `MultiColumnBox` for a multicol section's page. `null` when nothing fit
     // (guarded downstream identically to the single-column null body).
     let box: LayoutBox | null;
     if (entry.columnConfig.columnCount > 1) {
@@ -938,7 +922,7 @@ export function makeVirtualLayoutTree(
       // this page's floats — placed by its own layoutBlock — never bleed into the next.)
       const pageFloatEnv = createFloatEnvironment();
       for (const f of entry.incomingActiveFloats) pageFloatEnv.seedPlaced(f);
-      // #528 (T4): the floats PUSHED onto this page from the prior page are placed
+      // The floats PUSHED onto this page from the prior page are placed
       // at this page's content top (AFTER the active-shadow seed, BEFORE the body
       // `layoutBlock`) so the body flows around them. The positioned float boxes
       // are KEPT (appended to the body's children below, exactly like a float the
@@ -960,7 +944,7 @@ export function makeVirtualLayoutTree(
         // renders its resolved page number (== cascadedRoot for a field-free body).
         substitutedRoot,
         effMargins.inlineStart,
-        // Body origin (#328): the EFFECTIVE top inset, not the raw margin — a tall
+        // Body origin: the EFFECTIVE top inset, not the raw margin — a tall
         // header has grown `effectiveTopInset` past `blockStart`, pushing the body
         // down. For a no-slot page this equals `effMargins.blockStart`.
         effTopInset,
@@ -972,7 +956,7 @@ export function makeVirtualLayoutTree(
           pageIndex,
           resumeFrom: entry.resumeInto,
           stopBeforeIndex,
-          // #528: opt into float pushing ONLY when the plan was built with the
+          // Opt into float pushing ONLY when the plan was built with the
           // float-aware measure pass (the producer sets `enableFloatPushing` for
           // float docs) — so measure and materialize agree. A float-blind plan
           // (no measurer) keeps floats overflowing, with no measure/materialize
@@ -1017,15 +1001,15 @@ export function makeVirtualLayoutTree(
     // the per-page heights before this one (no longer pageIndex*(H+gap), since
     // a section may override its geometry). The PageBox block-size is the
     // SECTION's effective page block-size, not the content size.
-    // The body BFC box (guarded — can be null when nothing fit). The FN-4
-    // footnote slot is NOT in `children`: it is a PURE NAMED field
+    // The body BFC box (guarded — can be null when nothing fit). The footnote
+    // slot is NOT in `children`: it is a PURE NAMED field
     // (`PageBox.footnoteSlot`), exactly like `headerSlot` / `footerSlot`. The
     // paint / dirty-detect / line-collection / cursor-baseline walkers reach it
     // BY NAME (DA3); keeping it out of `children` is what guarantees it is
     // painted / collected EXACTLY ONCE (no double-processing).
     const bodyChildren: LayoutBox[] = box ? [box] : [];
 
-    // C.2c (T4) + #328 (growing slot): lay the page's header/footer template
+    // Growing slot: lay the page's header/footer template
     // bodies at their NATURAL height — never clipped. Each is a single-shot
     // `layoutBlock` of the cascaded body at the content inline-offset, with
     // `availableBlockSize: MAX_SAFE_INTEGER` so the body lays out fully (no
@@ -1050,7 +1034,7 @@ export function makeVirtualLayoutTree(
       if (blockId === undefined) return null;
       const rawBody = templateBodies.get(blockId);
       if (rawBody === undefined) return null;
-      // F-2: bind page-field values LATE — substitute each placeholder with its
+      // Bind page-field values LATE — substitute each placeholder with its
       // per-page value (page-number = pageIndex+1; page-count = global) on a
       // spine-clone, BEFORE slot layout, so the slot's line geometry accounts for
       // the real value's width. Identity-preserving (the SAME ref returns for a
@@ -1074,20 +1058,20 @@ export function makeVirtualLayoutTree(
       effCfg.pageBlockSize - effBottomInset,
     );
 
-    // FN-4 / FN-5.5: the footnote slot. A wrapping BlockBox positioned (D1)
+    // The footnote slot. A wrapping BlockBox positioned
     // between the body content and the footer, at page-block-offset
     // `pageBlockSize − effectiveBottomInset − footnoteSlotHeight`, holding a thin
     // separator rule (FOOTNOTE_SEPARATOR_HEIGHT) followed by the stacked footnote
-    // bodies. FN-5.5 renders, in order: (1) the INBOUND continuation list
+    // bodies. The slot renders, in order: (1) the INBOUND continuation list
     // (`entry.footnoteContinuation` — the prior page's split carries, each resumed
     // from its `resumeToken`), then (2) the FRESH bodies that STARTED on this page
     // (`entry.footnoteContentBlockIds`, resumed from null). Every body lays out
-    // BOUNDED by the shrinking remaining slot area (NOT MAX as FN-4.3 used) so a
+    // BOUNDED by the shrinking remaining slot area (NOT MAX) so a
     // PARTIAL body renders exactly what `resolveFootnotes` planned. Children's
     // blockOffsets are SLOT-LOCAL (the slot is a BlockBox; the page→slot offset is
     // the wrapper's `blockOffset`).
     //
-    // GATE (E4): fire iff `footnoteSlotHeight > 0` — the authoritative resolved
+    // GATE: fire iff `footnoteSlotHeight > 0` — the authoritative resolved
     // height, which is 0 EXACTLY when nothing renders (including the
     // inbound-non-empty-but-nothing-fit case, where the whole list carries
     // forward). A list-length check would draw a zero-height separator into
@@ -1106,7 +1090,7 @@ export function makeVirtualLayoutTree(
             // arithmetic in `resolveFootnotes`/`computeSlotLayout` is unchanged —
             // we simply emit no box (and paint nothing) for that band.
             // The slot-local cursor starts below the separator gap; `remaining` bounds
-            // each body's layout by what is left of the resolved slot (E5). The
+            // each body's layout by what is left of the resolved slot. The
             // footnote area available to the bodies is `footnoteSlotHeight −
             // FOOTNOTE_SEPARATOR_HEIGHT`; the cursor + remaining track the SAME
             // shrinking window so a partial body renders exactly `resolveFootnotes`'s
@@ -1116,7 +1100,7 @@ export function makeVirtualLayoutTree(
             // Lay ONE footnote body (continuation or fresh) into the slot, bounded
             // by `remaining`, resumed from `resumeToken`. Advances the cursor +
             // shrinks `remaining` by the laid box's height. Guards a missing body
-            // (dev throw / prod skip), a null box, and a C.6-overflow body that
+            // (dev throw / prod skip), a null box, and an overflow-rule body that
             // exceeds `remaining` (defensive — shouldn't happen since
             // `resolveFootnotes` planned the height; dev throw / prod skip).
             // The slot-local block-offset of a body box's FIRST line — descend
@@ -1148,7 +1132,7 @@ export function makeVirtualLayoutTree(
             ): void => {
               const body = embedBodies.get(id);
               if (body === undefined) {
-                // A no-MVP defect (a footnote body silently missing from the
+                // A defect (a footnote body silently missing from the
                 // cascaded map). Dev-only throw; prod skips so layout never
                 // crashes. Mirrors resolveFootnotes's computeSlotLayout guard.
                 if (isDevMode()) {
@@ -1159,15 +1143,15 @@ export function makeVirtualLayoutTree(
                 }
                 return;
               }
-              // Bug #415 + #416: the leading footnote-number marker, and the
+              // The leading footnote-number marker, and the
               // body's marker GUTTER. The body root carries the number via
-              // `markerText` (FN-6.2b, set by footnoteBodyComponent from
+              // `markerText` (set by footnoteBodyComponent from
               // ctx.footnoteNumber). ONLY a FRESH body (the page where the footnote
               // STARTS) shows the number; a continuation tail does NOT repeat it.
               //
               // We must reserve room for the number BEFORE the body text so the
-              // marker PRECEDES the text instead of painting on top of it (#415,
-              // which happened because both were placed at the same inline-start).
+              // marker PRECEDES the text instead of painting on top of it
+              // (which is what placing both at the same inline-start would do).
               // So we measure the marker first, derive a gutter (markerInlineSize +
               // gap), inset the body by that gutter (LTR) / shrink its inline-size
               // (both directions), and place the marker in the reserved gutter
@@ -1187,7 +1171,7 @@ export function makeVirtualLayoutTree(
               const measurer = adaptShaperToMeasurer(shaper);
               // CRITICAL: the gutter is the SINGLE body-narrowing source of truth —
               // the SAME `footnoteMarkerGutter` helper the measure/partition pass
-              // (`computeSlotLayout`) lays this body out with (#415). Both narrow
+              // (`computeSlotLayout`) lays this body out with. Both narrow
               // the body to `effContentInlineSize − gutter`, so the wrap / line
               // count / split partition can never disagree and the planned slot
               // height always fits the rendered body. The gutter is now a FIXED
@@ -1206,7 +1190,7 @@ export function makeVirtualLayoutTree(
               // shifted right by the gutter so the gutter sits at the inline-start.
               const bodyInlineSize = Math.max(0, effContentInlineSize - gutter);
               const isRtl = ctx.direction === "rtl";
-              // Slot-LOCAL inline-offset (#416): the slot wrapper is positioned at
+              // Slot-LOCAL inline-offset: the slot wrapper is positioned at
               // the page content inline-start, so its CHILDREN are 0-based — NOT
               // `effMargins.inlineStart` (that double-padded the bodies). LTR insets
               // the body past the gutter; RTL keeps the body at 0 (gutter is on the
@@ -1226,12 +1210,12 @@ export function makeVirtualLayoutTree(
                 { availableBlockSize: remaining, pageIndex, resumeFrom: resumeToken },
               );
               // Stack the body ONLY if it actually fits the remaining slot area.
-              // This mirrors computeSlotLayout's C.6 bound (`box === null ||
-              // box.blockSize > remaining`): a CSS Fragmentation §3.5 C.6
+              // This mirrors computeSlotLayout's overflow bound (`box === null ||
+              // box.blockSize > remaining`): a CSS Fragmentation §3.5 overflow
               // force-placed box can exceed the bounded `remaining`, and such a
               // body is excluded from the entry's lists (carried forward instead),
               // so the plan should NEVER put a body here that doesn't fit. This is
-              // a defensive guard against a future plan/reuse-gate bug from
+              // a defensive guard against a future PagePlan/reuse-gate bug from
               // over-rendering into the footer; in dev it's a real plan-mismatch
               // signal, so throw — in prod skip gracefully.
               if (bodyBox !== null && bodyBox.blockSize <= remaining) {
@@ -1283,7 +1267,7 @@ export function makeVirtualLayoutTree(
                   `materializePage: footnote body ${id} (blockSize ` +
                     `${bodyBox.blockSize}) overruns the remaining slot area ` +
                     `(${remaining}) — the plan must not place a body that does ` +
-                    `not fit (C.6-overflow bodies are carried forward).`,
+                    `not fit (overflow-rule bodies are carried forward).`,
                 );
               }
             };
@@ -1294,7 +1278,7 @@ export function makeVirtualLayoutTree(
             // ONLY correct if the two lists are DISJOINT: a body id that both
             // resumes a prior split AND "starts fresh" on this page would be laid
             // out TWICE and render its leading-number marker twice (the exact
-            // double-marker regression a future plan change could introduce — e.g.
+            // double-marker regression a future PagePlan change could introduce — e.g.
             // `resolveFootnotes` stamping a deferred/continued body into
             // `footnoteContentBlockIds`). `computeSlotLayout` guarantees
             // disjointness today (a fresh body that fully defers is carried in
@@ -1318,12 +1302,12 @@ export function makeVirtualLayoutTree(
                 }
               }
             }
-            // (E5 step 2) the INBOUND continuation list, in order, each resumed
+            // First, the INBOUND continuation list, in order, each resumed
             // from its carried `resumeToken` (the prior page's split point).
             for (const cont of entry.footnoteContinuation) {
               layBody(cont.contentBlockId, cont.resumeToken, /* isFresh */ false);
             }
-            // (E5 step 3) the FRESH bodies that STARTED here, in order, resumed
+            // Then the FRESH bodies that STARTED here, in order, resumed
             // from null. A fresh body fully deferred is NOT in this list (it is in
             // this page's outbound → the next page's inbound), so it is never
             // double-rendered.
@@ -1361,13 +1345,13 @@ export function makeVirtualLayoutTree(
       pageIndex,
       effCfg.pageInlineSize,
       headerSlot, footerSlot, footnoteSlot,
-      // #332 region-classification edges: body content area is
+      // Region-classification edges: body content area is
       // [effTopInset, pageBlockSize − effBottomInset]; the margins outside
-      // are the header/footer zones. On a #328 growing slot these exceed the
+      // are the header/footer zones. On a growing slot these exceed the
       // raw margins; on a plain page they equal the page's content margins.
       effTopInset, effBottomInset,
     );
-    // P3.1: bake the vertical-rl block-axis mirror into the assembled page's
+    // Bake the vertical-rl block-axis mirror into the assembled page's
     // CONTENT + named slots (the page FRAME is NOT mirrored). No-op (same
     // reference) for horizontal-tb / vertical-lr, so this is byte-identical for
     // all existing content. Mirror against the page's FULL block-size — the body
@@ -1401,7 +1385,7 @@ export function makeVirtualLayoutTree(
   }
 
   // This tree's per-page fingerprint, for the NEXT tree's comparison. Uses each
-  // entry's own EFFECTIVE `pageConfig` (C.2b-2), so a doc-wide resize OR a
+  // entry's own EFFECTIVE `pageConfig`, so a doc-wide resize OR a
   // per-section geometry change between trees is reflected in the fingerprint.
   function fingerprintAt(pageIndex: number): PageFingerprint | undefined {
     const entry = plan.entries[pageIndex];
@@ -1420,7 +1404,7 @@ export function makeVirtualLayoutTree(
     plan,
     inlineSize: plan.pageInlineSize,
     blockSize: plan.totalBlockSize,
-    // FN-6.4 slice 1: the anchor→reference-page assignment, exposed for the
+    // The anchor→reference-page assignment, exposed for the
     // post-layout rebuild pipeline (the `footnoteNumbers` `pageAssignment` shape).
     footnoteAnchorPages,
     globalFieldValues,
@@ -1439,14 +1423,14 @@ export function makeVirtualLayoutTree(
     value: templateBodies,
     enumerable: false,
   });
-  // FN-4.4: the cascaded footnote bodies this tree was built with, for the NEXT
+  // Incremental carry-forward: the cascaded footnote bodies this tree was built with, for the NEXT
   // cycle's `resolveFootnotes` reuse gate — it compares a prior-assigned body's
   // CURRENT ref against this prior ref (ref-equal iff the body is unchanged).
   Object.defineProperty(tree, "__cascadedEmbedContents", {
     value: embedBodies,
     enumerable: false,
   });
-  // FN-4 (D6): the raw pre-resolveFootnotes plan, for the NEXT cycle's
+  // The raw pre-resolveFootnotes plan, for the NEXT cycle's
   // measurePass carry-forward source.
   Object.defineProperty(tree, "__rawPlan", {
     value: rawPlan,
@@ -1467,14 +1451,14 @@ interface VirtualLayoutTreeInternal extends VirtualLayoutTree {
   /** This tree's fingerprint for `pageIndex` (uses this tree's geometry), or undefined if out of range. */
   readonly __fingerprintAt?: (pageIndex: number) => PageFingerprint | undefined;
   /**
-   * The cascaded header/footer template bodies this tree was built with (C.2c),
-   * keyed by body root BlockId. T3 stores it here (no read site yet); T4's
-   * `materializePage` consumes it to lay bodies into each page's slot. Exposed
+   * The cascaded header/footer template bodies this tree was built with,
+   * keyed by body root BlockId; `materializePage` consumes it to lay bodies into
+   * each page's slot. Exposed
    * for test inspection of the threading.
    */
   readonly __cascadedTemplateContents?: ReadonlyMap<BlockId, ElementBox>;
   /**
-   * The cascaded footnote bodies this tree was built with (FN-4.4), keyed by body
+   * The cascaded footnote bodies this tree was built with, keyed by body
    * root BlockId. `buildVirtualPaginatedTree` reads `prevTree?.__cascadedEmbedContents`
    * as the NEXT cycle's `resolveFootnotes` reuse-gate comparison source — the prior
    * body ref for each id (ref-equal to the current iff the body is unchanged).
@@ -1482,8 +1466,8 @@ interface VirtualLayoutTreeInternal extends VirtualLayoutTree {
    */
   readonly __cascadedEmbedContents?: ReadonlyMap<BlockId, ElementBox>;
   /**
-   * The RAW (pre-`resolveFootnotes`) measure plan this tree was built from
-   * (FN-4 D6). `buildVirtualPaginatedTree` reads `prevTree?.__rawPlan` as the
+   * The RAW (pre-`resolveFootnotes`) measure plan this tree was built from.
+   * `buildVirtualPaginatedTree` reads `prevTree?.__rawPlan` as the
    * NEXT cycle's `measurePass` carry-forward source — the footnote-UNAWARE plan,
    * so the re-fitted footnote pages in the resolved `plan` don't look like
    * spurious mismatches. Equals `plan` for a footnote-free tree.

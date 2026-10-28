@@ -123,8 +123,8 @@ describe("mapBeforeInput — core table (2d)", () => {
     expect(mapBeforeInput(fakeInput("insertCompositionText", { data: "あ" }), CTX)).toBeNull();
   });
 
-  it("insertLineBreak → SPLIT_NODE", () => {
-    expect(mapBeforeInput(fakeInput("insertLineBreak"), CTX)).toEqual({ type: "SPLIT_NODE" });
+  it("insertLineBreak (Shift+Enter) → INSERT_LINE_BREAK, a soft break inside the paragraph", () => {
+    expect(mapBeforeInput(fakeInput("insertLineBreak"), CTX)).toEqual({ type: "INSERT_LINE_BREAK" });
   });
 
   it("insertParagraph → SPLIT_NODE", () => {

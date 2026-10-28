@@ -40,12 +40,13 @@ import { insertText } from "./insert-text";
 import { applyOperation, createState, getBlock, resolveBlock } from "../state";
 import { blockText, relAt, survives } from "../../test-utils/relpos-survival";
 import { STATE_INTERNAL } from "../state-internal";
+import { getSuggestionsMap } from "../yjs-doc";
 import * as Y from "yjs";
 import { createPosition, createSpan } from "../block-position";
 import type { Span } from "../block-position";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
-import {
+import { TEST_RESOLVER,
   buildBlock,
   buildState,
   text,
@@ -118,7 +119,6 @@ describe("markFormatting — stamp suggestion attr + write record in ONE tracked
     expect(sug.author).toBe("alice");
     expect(sug.createdAt).toBe(1000);
     expect(sug.proposedAttrs).toEqual({ bold: true });
-    expect(sug.orphaned).toBe(false);
     expect(sug.range).not.toBeNull();
     expect(sug.range?.start).toEqual(createPosition("p" as BlockId, 1));
     expect(sug.range?.end).toEqual(createPosition("p" as BlockId, 4));
@@ -388,7 +388,6 @@ describe("markDeletion — soft-delete plain text (tag, do NOT remove)", () => {
     expect(sug.author).toBe("alice");
     expect(sug.createdAt).toBe(5000);
     expect(sug.proposedAttrs).toBeUndefined();
-    expect(sug.orphaned).toBe(false);
     expect(sug.range?.start).toEqual(createPosition("p" as BlockId, 1));
     expect(sug.range?.end).toEqual(createPosition("p" as BlockId, 4));
   });
@@ -439,7 +438,6 @@ describe("markDeletion — own pending insertion is REMOVED for real", () => {
     expect(before.length).toBe(1);
     expect(nth(before, 0, "suggestion").id).toBe("ins1");
     expect(nth(before, 0, "suggestion").kind).toBe("insertion");
-    expect(nth(before, 0, "suggestion").orphaned).toBe(false);
 
     // alice soft-deletes "BB" (offsets 2..4).
     s = markDeletion(s, span(2, 4), DEL_INPUT).state;
@@ -450,10 +448,8 @@ describe("markDeletion — own pending insertion is REMOVED for real", () => {
     const after = getSuggestions(s);
     const deletions = after.filter((x) => x.kind === "deletion");
     expect(deletions.length).toBe(0);
-    // The insertion record now has no tagged item → orphaned.
-    const ins = after.find((x) => x.id === "ins1");
-    expect(ins?.orphaned).toBe(true);
-    expect(ins?.range).toBeNull();
+    // The insertion record now has no tagged item → never surfaced.
+    expect(after.find((x) => x.id === "ins1")).toBeUndefined();
   });
 
   it("removes ONLY the in-range portion of a partially-covered own-insertion (surviving halves keep the insertion id)", () => {
@@ -478,7 +474,6 @@ describe("markDeletion — own pending insertion is REMOVED for real", () => {
     // insertion record stays LIVE because its surviving halves still carry it.
     const after = getSuggestions(s);
     expect(after.filter((x) => x.kind === "deletion").length).toBe(0);
-    expect(after.find((x) => x.id === "ins1")?.orphaned).toBe(false);
   });
 });
 
@@ -513,9 +508,7 @@ describe("markDeletion — nesting over a DIFFERENT author's insertion", () => {
     const ins = after.find((x) => x.id === "ins1");
     const del = after.find((x) => x.id === DEL_SID);
     expect(ins?.kind).toBe("insertion");
-    expect(ins?.orphaned).toBe(false);
     expect(del?.kind).toBe("deletion");
-    expect(del?.orphaned).toBe(false);
   });
 });
 
@@ -552,13 +545,11 @@ describe("markDeletion — mixed span (own-insertion removed; everything else ta
     }
     expect(cc.attrs[INSERTION_SUGGESTION_ATTR]).toBe("insBob");
 
-    // Records: insAlice orphaned (text removed), insBob live, one deletion.
+    // Records: insAlice rangeless (text removed) → not surfaced, insBob live, one deletion.
     const after = getSuggestions(s);
-    expect(after.find((x) => x.id === "insAlice")?.orphaned).toBe(true);
-    expect(after.find((x) => x.id === "insBob")?.orphaned).toBe(false);
+    expect(after.find((x) => x.id === "insAlice")).toBeUndefined();
     const del = after.find((x) => x.id === DEL_SID);
     expect(del?.kind).toBe("deletion");
-    expect(del?.orphaned).toBe(false);
     expect(del?.range?.start).toEqual(createPosition("p" as BlockId, 0));
     expect(del?.range?.end).toEqual(createPosition("p" as BlockId, 6));
   });
@@ -760,7 +751,7 @@ describe("markDeletion — identity-preserving strike (#491)", () => {
     // bytes — the collab transport).
     const docB = new Y.Doc();
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(fixture[STATE_INTERNAL].doc));
-    const stateB = createState({ rootId: fixture.rootId, doc: docB });
+    const stateB = createState({ resolver: TEST_RESOLVER, rootId: fixture.rootId, doc: docB });
 
     // Peer A: markDeletion over the MIDDLE run bb[2,4) (cc is untouched).
     const stateA = markDeletion(fixture, span(2, 4), DEL_INPUT).state;
@@ -780,7 +771,7 @@ describe("markDeletion — identity-preserving strike (#491)", () => {
     // After merge, A sees BOTH changes: bb is tagged-deleted AND B's "Z" landed
     // inside the untouched cc run ("cZc"). With the old full-replace, A's strike
     // tombstoned cc's Y.Text, so B's insert would be lost (cc stays "cc").
-    const mergedA = createState({ rootId: fixture.rootId, doc: stateA[STATE_INTERNAL].doc });
+    const mergedA = createState({ resolver: TEST_RESOLVER, rootId: fixture.rootId, doc: stateA[STATE_INTERNAL].doc });
     expect(pText(mergedA)).toBe("aabbcZc");
     const bbItem = pItems(mergedA).find((it) => it.kind === "text" && it.text === "bb");
     if (bbItem?.kind !== "text") throw new Error("expected the tagged bb run");
@@ -825,7 +816,6 @@ describe("mintInsertion — insert text carrying an insertion id + write record 
     expect(sug.author).toBe("alice");
     expect(sug.createdAt).toBe(7000);
     expect(sug.proposedAttrs).toBeUndefined();
-    expect(sug.orphaned).toBe(false);
     // Range covers the inserted "XY" run (offsets 3..5).
     expect(sug.range?.start).toEqual(createPosition("p" as BlockId, 3));
     expect(sug.range?.end).toEqual(createPosition("p" as BlockId, 5));
@@ -1131,7 +1121,7 @@ describe("acceptSuggestion / rejectSuggestion — multi-author nested run cleanu
     const after = getSuggestions(r);
     expect(after.length).toBe(1);
     expect(nth(after, 0, "suggestion").id).toBe(DEL_SID);
-    expect(nth(after, 0, "suggestion").orphaned).toBe(false); // del1 still live on "CC"
+    expect(nth(after, 0, "suggestion").range.end).toEqual(createPosition("p" as BlockId, 4)); // del1 still live on "CC"
   });
 });
 
@@ -1363,12 +1353,12 @@ describe("acceptSuggestion / rejectSuggestion — absent record no-op", () => {
         createdAt: 1,
       });
     }).state;
-    expect(getSuggestions(seeded).length).toBe(1);
+    expect(getSuggestions(seeded).length).toBe(0); // rangeless → never surfaced
 
     const r = acceptSuggestion(seeded, orphan);
     expect(r.state).not.toBe(seeded); // state advanced (not an identity no-op)
     expect(r.dirtyIds.size).toBeGreaterThan(0);
-    expect(getSuggestions(r.state).length).toBe(0); // the dangling record is gone
+    expect(getSuggestionsMap(r.state[STATE_INTERNAL].doc).size).toBe(0); // the dangling record is gone
   });
 });
 
@@ -1383,9 +1373,10 @@ describe("acceptSuggestion / rejectSuggestion — multi-block deletion (write lo
     ).state;
 
     const s = acceptSuggestion(marked, DEL_SID).state;
-    // Tagged text removed for real in BOTH blocks.
-    expect(itemsOf(s, "p1").map((it) => (it.kind === "text" ? it.text : "")).join("")).toBe("ab");
-    expect(itemsOf(s, "p2").map((it) => (it.kind === "text" ? it.text : "")).join("")).toBe("kl");
+    // Tagged text removed for real in BOTH blocks, and the crossed ¶p1 (keyed with the
+    // same id) is deleted: one paragraph "abkl" (Word / GDocs), survivor p2.
+    expect(itemsOf(s, "p2").map((it) => (it.kind === "text" ? it.text : "")).join("")).toBe("abkl");
+    expect(getBlock(s, "p1" as BlockId)).toBeNull();
     expect(getSuggestions(s).length).toBe(0);
   });
 

@@ -4,6 +4,7 @@ import {
   createPosition,
   createSpan,
   EMPTY_DECORATION_SET,
+  suggestionIdsOf,
   type BlockDecoration,
   type BlockId,
   type DecorationSet,
@@ -18,6 +19,7 @@ import type { LayoutBox } from "./layout/layout-node";
 import type { PixelPosition } from "./cursor/cursor-position";
 import { computeSelectionRects, computeSelectionRectsForPageRange, type SelectionRect } from "./cursor/selection-geometry";
 import { getLineIndex, type AbsoluteLineBox } from "./cursor/line-flatten";
+import { getBoundaryMarksByBlock, type BoundaryMarkRect } from "./cursor/boundary-mark-index";
 
 /**
  * Print geometry for core decorations. Every decoration the canvas draws — host
@@ -107,14 +109,46 @@ export function computeDecorationRects(input: DecorationGeometryInput): Decorati
   // inside the band (a culled walk — O(visible), never the document).
   const index = pageIndex !== null ? getBlockBoxIndex(root) : collectIndex(root, input.band ?? { top: -Infinity, bottom: Infinity });
   for (const box of index.boxes) pushBlock(out, decorations.forBlock(box.blockId).block, box, page);
+  const marksByBlock = getBoundaryMarksByBlock(root);
   const seen = new Set<BlockId>();
   for (const box of index.boxes) {
     if (seen.has(box.blockId)) continue;
     seen.add(box.blockId);
     const lines = lineIndex.byBlock.get(box.blockId);
     if (lines !== undefined) pushInline(out, input, box.blockId, lines, index.rel.get(box.blockId));
+    const marks = marksByBlock.get(box.blockId);
+    if (marks !== undefined && marks.length > 0) pushMarks(out, input, box.blockId, marks, lines ?? [], index.rel.get(box.blockId));
   }
   return out;
+}
+
+/**
+ * A suggestion decoration (the built-in highlight, a host group style) also covers
+ * the tracked ¶ glyphs / section-break labels of `blockId` naming one of its
+ * suggestions: a ¶ suggestion's range covers no character of the block, so the
+ * glyph / label rect is the fragment — painted once under the glyph and hit by the
+ * pointer (which reports the decoration, i.e. its suggestion ids, and this rect).
+ */
+function pushMarks(
+  out: DecorationRect[],
+  input: DecorationGeometryInput,
+  blockId: BlockId,
+  marks: readonly BoundaryMarkRect[],
+  lines: readonly AbsoluteLineBox[],
+  rel: RelShift | undefined,
+): void {
+  const done = new Set<InlineDecoration>();
+  for (const seg of input.decorations.forBlock(blockId).inline) {
+    const style = seg.decoration.style;
+    if (done.has(seg.decoration) || (style?.backgroundColor === undefined && style?.underline === undefined)) continue;
+    const ids = suggestionIdsOf(seg.decoration.data);
+    if (ids.length === 0) continue;
+    done.add(seg.decoration);
+    for (const m of marks) {
+      if (!m.box.boundaryMark.mark.suggestionIds.some((id) => ids.includes(id))) continue;
+      out.push(shift(decorate(m, seg.decoration, style, lines), rel));
+    }
+  }
 }
 
 /** The distinct block ids with a box inside `band` on `root` (paint order) — the

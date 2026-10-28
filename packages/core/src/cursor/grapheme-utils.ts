@@ -1,7 +1,6 @@
 /**
- * Grapheme cluster + UAX #29 word-boundary helpers, shared between the
- * legacy and new cursor-ops modules during the P9–P15 parallel window.
- * Survives the cutover.
+ * Grapheme cluster + UAX #29 word-boundary helpers shared by the
+ * cursor-ops modules.
  *
  * All functions are pure: input is a string + offset, output is a
  * boundary offset. Offsets count UTF-16 code units (matching String.length
