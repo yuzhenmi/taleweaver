@@ -27,6 +27,8 @@ import type { PageBox, VirtualLayoutTree, PrintPdfEmitInput } from "@taleweaver/
 import { layoutTree } from "@taleweaver/print";
 import { createPdfEmitter } from "./pdf-emitter";
 
+const TEST_RESOLVER = createDefaultComponentRegistry();
+
 const CONTAINER_WIDTH = 320;
 
 function pageConfig() {
@@ -61,7 +63,7 @@ function buildRealLayout(): {
       },
     ],
   };
-  const state = buildDocumentFromTree(doc, {}, createTestAllocator("pdf-emit"));
+  const state = buildDocumentFromTree(doc, {}, createTestAllocator("pdf-emit"), TEST_RESOLVER);
   const rendered = render(state, componentRegistry, attrRegistry);
   const cascaded = cascadePass(rendered.root);
   const layout = layoutTree(cascaded, CONTAINER_WIDTH, measurer, pageConfig());

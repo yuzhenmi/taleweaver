@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { mergeBlockAttrs } from "./merge-block-attrs";
 import { getBlock } from "../state";
-import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
+import { buildBlock, buildState, inlineContent, withTestAttrs } from "../../test-utils/state-builders";
 import type { BlockId } from "../block-id";
 import { AttrRegistry } from "../../cascade/attr-registry";
 
@@ -67,7 +67,7 @@ describe("mergeBlockAttrs", () => {
     const result = mergeBlockAttrs(state, "p" as BlockId, { bold: true });
     // The merged result is structurally equal to existing. The op's
     // attrsEqual short-circuit must skip the Y.Map write entirely so
-    // applyOperation returns the input state reference unchanged (T7
+    // applyOperation returns the input state reference unchanged (the identity-no-op contract;
     // no-op contract). This is the more interesting case than empty
     // incoming — it pins the structural-equality short-circuit.
     expect(result.state).toBe(state);
@@ -123,12 +123,11 @@ describe("mergeBlockAttrs — AttrRegistry custom equality (#263)", () => {
     });
 
   it("with registry: same-id comment + different timestamp is a NO-OP (state ref preserved)", () => {
-    const state = fixtureWithComment();
+    const state = withTestAttrs(fixtureWithComment(), commentRegistry);
     const result = mergeBlockAttrs(
       state,
       "p" as BlockId,
       { comment: { id: "c1", timestamp: 2 } },
-      commentRegistry,
     );
     expect(result.state).toBe(state);
     expect(result.dirtyIds.size).toBe(0);

@@ -4,7 +4,7 @@ export { handleDeleteBackward } from "./delete-backward";
 export { handleDeleteForward } from "./delete-forward";
 export { handleDeleteWord } from "./delete-word";
 export { handleDeleteRange } from "./delete-range";
-// Geometry-free helpers the print backend's NavIntent resolver reuses (Phase 0b):
+// Geometry-free helpers the print backend's NavIntent resolver reuses:
 // the object-nav selection + the line-delete span guards.
 export { objectMoveSelection } from "./object-edits";
 export { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
@@ -27,6 +27,7 @@ export { handleSetHighlight } from "./set-highlight";
 export { handleSetFontSize } from "./set-font-size";
 export { handleSetFontFamily } from "./set-font-family";
 export { handleClearFormatting } from "./clear-formatting";
+export { handleSetMark, handleRemoveMark } from "./set-mark";
 export { handleUndo } from "./undo";
 export { handleRedo } from "./redo";
 export { handlePaste } from "./paste";
@@ -49,6 +50,7 @@ export { handleInsertFootnote } from "./insert-footnote-action";
 export { handleInsertCrossReference } from "./insert-cross-reference-action";
 export { handleInsertPageField } from "./insert-page-field-action";
 export { handleInsertTab } from "./insert-tab-action";
+export { handleInsertLineBreak } from "./insert-line-break";
 export { handleSetTabStops } from "./set-tab-stops";
 export { handleSetTextAlign } from "./set-text-align";
 export { handleSetLineSpacing } from "./set-line-spacing";
@@ -71,4 +73,5 @@ export {
   handleRejectSuggestion,
   handleAcceptAllSuggestions,
   handleRejectAllSuggestions,
+  handleResolveSuggestionGroup,
 } from "./suggestion-actions";

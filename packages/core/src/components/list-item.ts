@@ -34,10 +34,9 @@ import {
  *     numbered marker (decimal/alpha/roman) gets a trailing "." appended; a
  *     bullet glyph (disc/circle/square) is rendered as-is.
  *
- * `markerText` is set ONLY when `counterValue` resolves: before the render
- * wiring supplies the numbering service (and for the legacy stub RenderContexts
- * that omit `counterValue`), the item renders with no marker rather than a
- * stale glyph.
+ * `markerText` is set ONLY when `counterValue` resolves: a RenderContext that
+ * omits `counterValue` (e.g. a test stub) renders the item with no marker rather
+ * than a stale glyph.
  *
  * Block-level structural style that must reach the layout cascade
  * (writingMode / textAlign / lineHeight / marginInlineStart / paragraph
@@ -51,7 +50,7 @@ import {
  * paddingInlineStart + marginInlineStart`) — so indenting a list item increases
  * its indent past the base list indent.
  *
- * DESIGN RATIONALE (#418): a list-item intentionally has ZERO default block
+ * DESIGN RATIONALE: a list-item intentionally has ZERO default block
  * margins — UNLIKE the paragraph component, which defaults `marginBlockEnd:
  * 0.5em` for inter-paragraph spacing. Consecutive list items therefore pack
  * tightly into a cohesive list, matching the Google-Docs / word-processor
@@ -127,7 +126,7 @@ export const listItemComponent: LeafComponentDefinition = {
       // User indent (INDENT/OUTDENT) composes ON TOP OF the structural padding.
       ...(marginInlineStart !== undefined ? { marginInlineStart } : {}),
       // Paragraph-spacing attrs (space-before/after). Default is ZERO block
-      // margins (#418) — only authored values appear here.
+      // margins — only authored values appear here.
       ...(marginBlockStart !== undefined ? { marginBlockStart } : {}),
       ...(marginBlockEnd !== undefined ? { marginBlockEnd } : {}),
     };

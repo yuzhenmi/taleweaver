@@ -1,7 +1,7 @@
 /**
  * @module section-column-config
  *
- * Section-level column-config resolution (multi-column slice 1).
+ * Section-level column-config resolution.
  *
  * A `section` block may carry column overrides (`columnCount`, `columnGap`,
  * `columnRule`) in its attrs; the section component stamps those into its

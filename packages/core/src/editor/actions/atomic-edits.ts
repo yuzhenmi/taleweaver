@@ -21,7 +21,7 @@ import { rebuildTrees } from "./helpers";
  * No-op (same `editor` reference, no `history.commit`) when the focus block is
  * missing, is the root, or is not in the MAIN tree — `insertBlocksAfter` /
  * `getBlock` are main-tree-only, so a caret inside a header/footer/footnote
- * body is out of scope (design D3).
+ * body is out of scope.
  */
 export function insertAtomicBlockAfterFocus(
   editor: EditorState,
@@ -58,7 +58,7 @@ export function insertAtomicBlockAfterFocus(
 }
 
 /**
- * Google-Docs atomic-object deletion at a block boundary (#P11.3). An
+ * Google-Docs atomic-object deletion at a block boundary. An
  * atomic-leaf block (image / horizontal-line) holds no cursor positions of its
  * own (`inlineContent === null`), so the grapheme-stepping delete handlers walk
  * straight past it and the merge-adjacency guard then fails — leaving Backspace

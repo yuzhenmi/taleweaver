@@ -19,7 +19,7 @@
 import { describe, it, expect } from "vitest";
 import { config, measurer, reduceEditor } from "./actions/test-helpers";
 import type { EditorState } from "./editor-state";
-import { getBlock, firstLeafBlock, createHistory } from "../state";
+import { getBlock, firstLeafBlock, createHistory, topLevelBlockIds } from "../state";
 import type { State, BlockId } from "../state";
 import { positionTreeForTest } from "@taleweaver/print";
 import type { LayoutBox } from "@taleweaver/print";
@@ -93,6 +93,7 @@ function makeEditor(cursorBlock: BlockId): EditorState {
     selection: { anchor: cursor, focus: cursor },
     history: createHistory(initialState),
     lastDirtyIds: null,
+    lastChange: null,
     containerWidth: config.containerWidth,
     targetX: null,
     caretPageHint: undefined,
@@ -189,7 +190,7 @@ function paraGeometry(root: LayoutBox): Record<string, AbsBox | null> {
 }
 
 describe("SECTION_BREAK — editor-level transparency + undo/redo integration", () => {
-  it("lays out paragraphs geometry-identically before/after the break, collapses the cursor, and round-trips through undo/redo", () => {
+  it("lays out the sections transparently (only the break's empty head paragraph is new), keeps the cursor, and round-trips through undo/redo", () => {
     // ----- Setup: doc [p1,p2,p3,p4], cursor at start of p3 -----
     const before = makeEditor("p3" as BlockId);
     const beforeSelection = before.selection;
@@ -230,12 +231,21 @@ describe("SECTION_BREAK — editor-level transparency + undo/redo integration", 
     const secA = nth(sectionIds, 0, "section");
     const secB = nth(sectionIds, 1, "section");
 
-    // ----- TRANSPARENCY: paragraph geometry identical before vs after -----
+    // ----- GEOMETRY: the sections are transparent; the only new box is the break's
+    // empty head paragraph H before p3 (Word: a break at a paragraph
+    // start leaves an empty paragraph carrying it), so p1 / p2 are unchanged and p3 / p4
+    // move down by exactly one line pitch.
     const afterLayout = materialize(after);
     const afterGeom = paraGeometry(afterLayout);
+    const p2Geom = beforeGeom["p2"];
+    if (p2Geom == null) throw new Error("section-break integration: no p2 geometry");
+    const pitch = p2Geom.y - p1Geom.y;
+    expect(pitch).toBeGreaterThan(0);
     for (const k of PARA_KEYS) {
+      const b = beforeGeom[k];
       expect(afterGeom[k]).not.toBeNull();
-      expect(afterGeom[k]).toEqual(beforeGeom[k]);
+      if (b == null) continue;
+      expect(afterGeom[k]).toEqual(k === "p1" || k === "p2" ? b : { ...b, y: b.y + pitch });
     }
 
     // The created sections (display: contents) generate NO layout box.
@@ -254,8 +264,9 @@ describe("SECTION_BREAK — editor-level transparency + undo/redo integration", 
     // ----- 3. UNDO: restore original structure + selection + geometry -----
     const undone = reduceEditor(after, { type: "UNDO" }, config);
 
-    // Root children are the original paragraphs again — no sections remain.
-    const undoneRootChildren = rootChildIds(undone.state);
+    // One (final) section again, holding the original paragraphs.
+    expect(rootChildIds(undone.state)).toHaveLength(1);
+    const undoneRootChildren = topLevelBlockIds(undone.state);
     expect(undoneRootChildren).toEqual([
       "p1" as BlockId,
       "p2" as BlockId,
@@ -297,10 +308,10 @@ describe("SECTION_BREAK — editor-level transparency + undo/redo integration", 
     expect(redone.selection.focus).toEqual(redoneCursor);
     expect(redone.selection.anchor).toEqual(redoneCursor);
 
-    // Transparency holds again after redo.
+    // The post-break geometry holds again after redo.
     const redoneGeom = paraGeometry(materialize(redone));
     for (const k of PARA_KEYS) {
-      expect(redoneGeom[k]).toEqual(beforeGeom[k]);
+      expect(redoneGeom[k]).toEqual(afterGeom[k]);
     }
   });
 });

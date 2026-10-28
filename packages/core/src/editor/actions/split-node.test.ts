@@ -7,6 +7,7 @@
  * Normal. The follow-on applies ONLY to the new (empty) block created by Enter
  * at the END; a mid-text split keeps both halves as the heading.
  */
+import { finalSectionOf } from "../../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import {
   createInitialEditorState,
@@ -30,7 +31,7 @@ function makeConfig(): EditorConfig {
 }
 
 function firstBlockId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
   if (root === null || root.firstChildId === null) {
     throw new Error("test setup: no first child");
   }
@@ -62,20 +63,20 @@ describe("SPLIT_NODE — follow-on block type (Enter at end of heading)", () => 
 
     editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
 
-    // Original block: still a heading, level intact, content intact.
-    const original = getBlock(editor.state, headingId);
-    expect(original?.type).toBe("heading");
-    expect(original?.attrs).toEqual({ level: 1 });
-
-    // New block: a paragraph with NO inherited heading attrs.
-    const newId = original?.nextSiblingId ?? null;
-    expect(newId).not.toBeNull();
-    const created = getBlock(editor.state, newId as BlockId);
+    // (Word) the split's HEAD [0, k) is the new block; the caret's
+    // block keeps the tail + its ¶. So the heading text now lives in the new head
+    // (type + level intact) and the original id is the new, empty Normal paragraph.
+    const created = getBlock(editor.state, headingId);
     expect(created?.type).toBe("paragraph");
     expect(created?.attrs).toEqual({});
+    const headId = created?.prevSiblingId ?? null;
+    expect(headId).not.toBeNull();
+    const head = getBlock(editor.state, headId as BlockId);
+    expect(head?.type).toBe("heading");
+    expect(head?.attrs).toEqual({ level: 1 });
 
     // Cursor lands at the start of the new paragraph.
-    expect(editor.selection.focus).toEqual(createPosition(newId as BlockId, 0));
+    expect(editor.selection.focus).toEqual(createPosition(headingId, 0));
   });
 
   it("Enter in the MIDDLE of a heading keeps BOTH halves as heading", () => {
@@ -97,13 +98,16 @@ describe("SPLIT_NODE — follow-on block type (Enter at end of heading)", () => 
 
     editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
 
-    const original = getBlock(editor.state, headingId);
-    expect(original?.type).toBe("heading");
-    const newId = original?.nextSiblingId as BlockId;
-    const created = getBlock(editor.state, newId);
-    // Mid-split: the follow-on type does NOT apply — both stay heading.
-    expect(created?.type).toBe("heading");
-    expect(created?.attrs).toEqual({ level: 2 });
+    // Mid-split: the follow-on type does NOT apply — both halves stay heading
+    // (the head [0, 2) is the new block).
+    const tail = getBlock(editor.state, headingId);
+    expect(tail?.type).toBe("heading");
+    expect(tail?.attrs).toEqual({ level: 2 });
+    const headId = tail?.prevSiblingId ?? null;
+    expect(headId).not.toBeNull();
+    const head = getBlock(editor.state, headId as BlockId);
+    expect(head?.type).toBe("heading");
+    expect(head?.attrs).toEqual({ level: 2 });
   });
 
   it("Enter at the END of a paragraph creates a paragraph (no follow-on; unchanged)", () => {
@@ -114,9 +118,57 @@ describe("SPLIT_NODE — follow-on block type (Enter at end of heading)", () => 
     editor = typeString(editor, "hello", config);
     editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
 
-    const original = getBlock(editor.state, paragraphId);
-    expect(original?.type).toBe("paragraph");
-    const created = getBlock(editor.state, original?.nextSiblingId as BlockId);
-    expect(created?.type).toBe("paragraph");
+    const tail = getBlock(editor.state, paragraphId);
+    expect(tail?.type).toBe("paragraph");
+    const headId = tail?.prevSiblingId ?? null;
+    expect(headId).not.toBeNull();
+    expect(getBlock(editor.state, headId as BlockId)?.type).toBe("paragraph");
+  });
+});
+
+describe("SPLIT_NODE — the head's ¶ character props", () => {
+  it("Enter mid bold text: the new head's markAttrs carry the inclusive props at the caret (the registry reaches the split)", () => {
+    const config = makeConfig();
+    let editor = createInitialEditorState(config);
+    const pId = firstBlockId(editor);
+    editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" }, config);
+    editor = typeString(editor, "abcd", config);
+    editor = { ...editor, selection: createSpan(createPosition(pId, 2), createPosition(pId, 2)) };
+
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+
+    const headId = getBlock(editor.state, pId)?.prevSiblingId ?? null;
+    expect(headId).not.toBeNull();
+    expect(getBlock(editor.state, headId as BlockId)?.markAttrs).toEqual({ bold: true });
+  });
+});
+
+describe("splits made by other actions write the head's ¶ character props too", () => {
+  function boldAbcd(config: EditorConfig): { editor: EditorState; pId: BlockId } {
+    let editor = createInitialEditorState(config);
+    const pId = firstBlockId(editor);
+    editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" }, config);
+    editor = typeString(editor, "abcd", config);
+    editor = { ...editor, selection: createSpan(createPosition(pId, 2), createPosition(pId, 2)) };
+    return { editor, pId };
+  }
+
+  it("SECTION_BREAK mid bold text", () => {
+    const config = makeConfig();
+    const { editor, pId } = boldAbcd(config);
+    const next = reduceEditor(editor, { type: "SECTION_BREAK" }, config);
+    const sectionA = getBlock(next.state, next.state.rootId)?.firstChildId ?? null;
+    const headId = sectionA === null ? null : (getBlock(next.state, sectionA)?.lastChildId ?? null);
+    expect(headId).not.toBe(pId);
+    expect(getBlock(next.state, headId as BlockId)?.markAttrs).toEqual({ bold: true });
+  });
+
+  it("INSERT_TABLE mid bold text", () => {
+    const config = makeConfig();
+    const { editor, pId } = boldAbcd(config);
+    const next = reduceEditor(editor, { type: "INSERT_TABLE", rows: 1, cols: 1 }, config);
+    const tableId = getBlock(next.state, pId)?.prevSiblingId ?? null;
+    const headId = tableId === null ? null : (getBlock(next.state, tableId)?.prevSiblingId ?? null);
+    expect(getBlock(next.state, headId as BlockId)?.markAttrs).toEqual({ bold: true });
   });
 });

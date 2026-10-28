@@ -17,16 +17,16 @@ import {
   createPosition,
   createSpan,
 } from "./actions/test-helpers";
-import { getBlock } from "../state";
+import { topLevelBlockIds } from "../state";
 import type { BlockId } from "../state";
 
 /** The first content block id of a fresh editor (the only paragraph). */
 function firstBlockId(state: ReturnType<typeof createInitialEditorState>["state"]): BlockId {
-  const root = getBlock(state, state.rootId);
-  if (root === null || root.firstChildId === null) {
+  const first = topLevelBlockIds(state)[0]; // the root holds sections
+  if (first === undefined) {
     throw new Error("last-dirty-ids.test: editor seed has no content block");
   }
-  return root.firstChildId;
+  return first;
 }
 
 describe("EditorState.lastDirtyIds", () => {

@@ -12,6 +12,7 @@
  *   - container (document, list, table, table-row, table-cell, etc.)
  *     carries `children: BlockInit[]`; `inlineContent` is omitted.
  */
+import { finalSectionOf } from "../../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import {
   config,
@@ -32,7 +33,7 @@ function lastChildOf(state: State, parentId: BlockId): BlockId {
 describe("handleInsertNode — BlockInit shape (T31)", () => {
   it("inserts an inline-bearing-leaf paragraph with inlineContent items", () => {
     const initial = createInitialEditorState(config);
-    const root = getBlock(initial.state, initial.state.rootId);
+    const root = getBlock(initial.state, finalSectionOf(initial.state)); // the root holds sections
     const beforeLastId = root?.lastChildId ?? null;
 
     const init: BlockInit = {
@@ -55,7 +56,7 @@ describe("handleInsertNode — BlockInit shape (T31)", () => {
       config,
     );
 
-    const newId = lastChildOf(next.state, next.state.rootId);
+    const newId = lastChildOf(next.state, finalSectionOf(next.state));
     expect(newId).not.toBe(beforeLastId);
     const inserted = getBlock(next.state, newId);
     expect(inserted?.type).toBe("paragraph");
@@ -85,7 +86,7 @@ describe("handleInsertNode — BlockInit shape (T31)", () => {
       config,
     );
 
-    const newId = lastChildOf(next.state, next.state.rootId);
+    const newId = lastChildOf(next.state, finalSectionOf(next.state));
     const inserted = getBlock(next.state, newId);
     expect(inserted?.type).toBe("list-item");
     expect(inserted?.attrs).toEqual({ listType: "unordered" });
@@ -106,7 +107,11 @@ describe("handleInsertNode — BlockInit shape (T31)", () => {
       config,
     );
 
-    const newId = lastChildOf(next.state, next.state.rootId);
+    // Invariant I: a paragraph always follows an object, so the image is
+    // the block before the body's last (empty) paragraph.
+    const trailing = getBlock(next.state, lastChildOf(next.state, finalSectionOf(next.state)));
+    expect(trailing?.type).toBe("paragraph");
+    const newId = trailing?.prevSiblingId as BlockId;
     const inserted = getBlock(next.state, newId);
     expect(inserted?.type).toBe("image");
     expect(inserted?.attrs).toEqual({ src: "x.png" });
@@ -143,7 +148,8 @@ describe("handleInsertNode — BlockInit shape (T31)", () => {
       config,
     );
 
-    const tableId = lastChildOf(next.state, next.state.rootId);
+    // A paragraph always follows a table (invariant I).
+    const tableId = getBlock(next.state, lastChildOf(next.state, finalSectionOf(next.state)))?.prevSiblingId as BlockId;
     const table = getBlock(next.state, tableId);
     expect(table?.type).toBe("table");
     expect(table?.inlineContent).toBeNull();

@@ -49,8 +49,8 @@ export interface BreakOpportunity {
  * backend (mock, canvas, and the legacy measurer adapter) produces identical
  * break kinds: the classifier's mandatory breaks become `"hard"`, the rest
  * `"soft"`. `clusterIndex` is the UTF-16 code-unit offset (break is BEFORE it).
- * The `"hyphen"` kind is never produced here — it comes from a hyphenation
- * backend, which is not yet wired.
+ * The `"hyphen"` kind is never produced here — hyphenation opportunities come
+ * from the injected `Hyphenator` (`LayoutConfig.hyphenator`), applied by the IFC.
  *
  * Defaults to `cjBreakable: true` (CSS `line-break: normal` — the editor
  * default, CJ small-kana breakable). Pass `options` to select a different

@@ -27,7 +27,7 @@ import { rebuildTrees } from "./helpers";
  *
  * No-op (return the input `editor` unchanged, never calling `history.commit`):
  *  - No target leaf changed (the running state is still `editor.state`) — the
- *    T7 identity guard. (Notably: every target already has this spacing.)
+ *    identity guard. (Notably: every target already has this spacing.)
  *
  * Selection is UNCHANGED: line spacing is a block-geometry change, not a caret
  * move.
@@ -45,14 +45,14 @@ export function handleSetLineSpacing(
     // Defensive: skip a block that resolved into the target list but is now
     // missing (never expected — the ids come from the live state).
     if (getBlock(state, blockId) === null) continue;
-    const result = mergeBlockAttrs(state, blockId, { lineHeight: spacing }, config.attrRegistry);
+    const result = mergeBlockAttrs(state, blockId, { lineHeight: spacing });
     // No-op merge (block already has this spacing): same state ref → skip.
     if (result.state === state) continue;
     state = result.state;
     for (const id of result.dirtyIds) dirtyIds.add(id);
   }
 
-  // T7 identity contract: nothing changed → return the input editor unchanged
+  // the identity-no-op contract: nothing changed → return the input editor unchanged
   // (the editor module's "no change → same editor reference" invariant).
   // (`history.commit` is itself no-op-safe.)
   if (state === editor.state) return editor;

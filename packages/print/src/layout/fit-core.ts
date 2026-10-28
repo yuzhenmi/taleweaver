@@ -1,15 +1,12 @@
 // packages/core/src/layout/fit-core.ts
 //
-// Pure fragmentation-decision core (virtualized-layout Phase 1). The page-break
+// Pure fragmentation-decision core (virtualized layout). The page-break
 // decisions that today live inside `bfc.layoutBlock` / `ifc.layoutInlineContent`
 // / `table-fc` as a side effect of producing positioned boxes are extracted
 // here as PURE functions over per-block metadata. Both real layout (decide →
 // position boxes) and the measure pass (decide → boundaries only) call the same
 // functions, so page boundaries are computed identically whether or not boxes
 // are materialized.
-//
-// Design: docs/superpowers/specs/2026-05-24-virtualized-layout-design.md
-// Plan:   docs/superpowers/plans/2026-05-24-virtualized-layout-phase1.md
 //
 // SCOPE: float / `clear` documents are NOT modeled here — their break
 // decisions are non-local (shared float environment). The measure-pass caller
@@ -74,7 +71,7 @@ export interface BlockFitMeta {
    * It is already folded into `totalBlockSize` (whole-fit path), but it ALSO
    * inflates a fragmenting container's PARTIAL-fragment height (bfc.ts:299
    * `childBlockOffset + lastMarginBlockEndPartial + paddingBlockEnd`), which is
-   * what the parent's §C.6 whole-block-fit overflow check compares against
+   * what the parent's overflow-rule whole-block-fit overflow check compares against
    * `remaining`. Absent (0) for leaves and containers with no end padding.
    */
   readonly paddingBlockEnd?: number;
@@ -112,9 +109,10 @@ export interface BlockFitMeta {
   /** `ifc` leaf: CSS `widows` (min lines carried to next fragment). */
   readonly widows?: number;
   /**
-   * `ifc` leaf: per-line "this line ends mid-hyphenated-pair" flag. The D.4
-   * hyphen-pair back-off can move a break a line earlier; reproducing the
-   * boundary needs to know which line ends a hyphenated pair.
+   * `ifc` leaf: per-line "this line ends mid-hyphenated-pair" flag. The
+   * hyphen-pair back-off can move a break one or more lines earlier (it keeps
+   * stepping back while the preceding line ends mid-hyphenated-pair), so the
+   * fit needs to know which lines end mid-hyphenated-pair.
    */
   readonly lineEndsWithHyphen?: readonly boolean[];
 
@@ -133,7 +131,7 @@ export interface BlockFitMeta {
 
   /** `table` leaf: the reserved block-size of the repeating header — the prefix
    *  sum `Σ rowBlockSizes[0, headerRowCount)`. Both the measure pass and the
-   *  materialize pass read THIS value (the single source of truth, §4 of the
+   *  materialize pass read THIS value (the single source of truth of the
    *  header-repetition design) so a continuation fragment reserves and emits the
    *  identical header height. Absent / 0 when `headerRowCount` is absent / 0. */
   readonly headerBlockSize?: number;
@@ -157,7 +155,7 @@ export interface FitPageResult {
    * `runningOffset` at the moment it returned. A PARENT container reads this to
    * reconstruct the bfc partial-fragment height of a fragmenting child container
    * (`paddingBlockStart + consumedBlockSize + trailingMarginBlockEnd +
-   * paddingBlockEnd`, bfc.ts:298–299), so it can run the same §C.6
+   * paddingBlockEnd`, bfc.ts:298–299), so it can run the same overflow-rule
    * whole-block-fit / overflow check bfc does at bfc.ts:626–642. Does NOT
    * include the flow's own padding (the flow models a container's *children*;
    * the parent adds the container's padding).
@@ -190,7 +188,7 @@ export interface FitRowsResult {
 
 /**
  * Decide how many lines of an IFC leaf fit in `remainingBlockSize`, honoring
- * orphans / widows / hyphen-pair back-off. Pure port of ifc.ts D.1–D.4. When
+ * orphans / widows / hyphen-pair back-off. Pure port of the IFC's line-fit loop. When
  * the result places fewer than all remaining lines but the orphans/widows/
  * hyphen rules force pushing the whole paragraph, `placedLineCount` is 0 and
  * `resumeAtLine === startLine`.
@@ -208,14 +206,14 @@ export function fitLinesInIFC(
   remainingBlockSize: number,
   startLine: number,
 ): FitLinesResult {
-  // Faithful port of ifc.ts:880–996 D.1–D.4. Operates on the suffix
+  // Faithful port of the IFC's line-fit loop (orphans/widows/break-inside). Operates on the suffix
   // lines[startLine..]. "Push the whole paragraph" (nothing placed) is
   // signaled by { placedLineCount: 0, resumeAtLine: startLine }.
   const pushWhole: FitLinesResult = { placedLineCount: 0, resumeAtLine: startLine };
 
   const suffixLength = Math.max(0, lineBlockSizes.length - startLine);
 
-  // D.1 — greedy fit-loop on the suffix.
+  // Greedy fit-loop on the suffix.
   let used = 0;
   let placedLineCount = 0;
   for (let fi = 0; fi < suffixLength; fi++) {
@@ -230,10 +228,10 @@ export function fitLinesInIFC(
 
   if (placedLineCount === 0) return pushWhole;
 
-  // D.2 — orphans: at least `orphans` lines must remain on this fragment.
+  // Orphans: at least `orphans` lines must remain on this fragment.
   if (placedLineCount < suffixLength && placedLineCount < orphans) return pushWhole;
 
-  // D.3 — widows: at least `widows` lines must carry to the next fragment.
+  // Widows: at least `widows` lines must carry to the next fragment.
   while (
     placedLineCount > 0 &&
     placedLineCount < suffixLength &&
@@ -243,7 +241,7 @@ export function fitLinesInIFC(
   }
   if (placedLineCount < suffixLength && placedLineCount < orphans) return pushWhole;
 
-  // D.4 — hyphen-pair: a break must not fall between two lines of a
+  // Hyphen-pair: a break must not fall between two lines of a
   // hyphenated word. The flag at suffix index (placedLineCount - 1) maps to the
   // absolute line (startLine + placedLineCount - 1).
   while (
@@ -265,7 +263,7 @@ export function fitLinesInIFC(
 /**
  * Decide how many body rows of a table leaf fit in `remainingBlockSize`. Pure
  * port of table-fc's row fit loop, extended with the repeating-header
- * reservation (#487, header-repetition design §7.3).
+ * reservation.
  *
  * The header reservation is owned by the CALLEE (this function), NOT
  * pre-subtracted by the caller: it fits the suffix rows `[startRow, rowCount)`
@@ -278,8 +276,8 @@ export function fitLinesInIFC(
  * `forceProgress` is `headerRowCount > 0 && startRow > 0` (a header-reserved
  * continuation). When it is true and the reduced remaining admits ZERO body
  * rows, exactly ONE body row is force-placed (overflowing the fragment) so
- * `resumeAtRow` strictly advances every fragment — the §6 PROGRESS anti-hang
- * floor that overrides the §C.6 whole-suffix dump.
+ * `resumeAtRow` strictly advances every fragment — the progress anti-hang
+ * floor that overrides the overflow-rule whole-suffix dump.
  *
  * When `forceProgress` is false (`startRow === 0` OR `headerBlockSize === 0`)
  * the function is byte-identical to the pre-header behavior: subtract −0 and
@@ -311,8 +309,8 @@ export function fitRowsInTable(
   }
 
   if (placedRowCount === 0) {
-    // §6 PROGRESS floor: on a header-reserved continuation, force exactly one
-    // body row so the resume index strictly advances (no whole-suffix §C.6 dump,
+    // Progress floor: on a header-reserved continuation, force exactly one
+    // body row so the resume index strictly advances (no whole-suffix overflow-rule dump,
     // no hang). The forced row overflows the fragment; that is accepted.
     if (forceProgress && suffixLength > 0) {
       return {
@@ -334,7 +332,7 @@ export function fitRowsInTable(
  * Decide one page's content: walk top-level block metas from `startIndex`,
  * accumulating the running in-page block offset (collapsed margins + §5.4
  * first-on-fragment truncation), honoring break-before/after/inside and the
- * §C.6 overflow rule, recursing into container children and delegating
+ * overflow rule, recursing into container children and delegating
  * ifc/table leaves to `fitLinesInIFC` / `fitRowsInTable`. Pure port of
  * bfc.layoutBlock's fragmentation-aware decision logic — positions no boxes.
  */
@@ -361,14 +359,13 @@ export function fitOnePage(
   // table / recursive container fits use `remaining = pageContentBlockSize −
   // runningOffset`, matching bfc.ts:350 / 540 / 627.
   //
-  // Section cap (C.2b-1 T2): `stopBeforeIndex` is an EXCLUSIVE upper bound on
+  // Section cap: `stopBeforeIndex` is an EXCLUSIVE upper bound on
   // the TOP-LEVEL child index this page may place — the page may place
   // `[startIndex, stopBeforeIndex)`. It forces a page break before the boundary
   // child exactly as if that child had break-before:page (the section-page-break
   // mechanism). Normalize here before delegating: the cap is ACTIVE only when it
   // is present AND strictly greater than `startIndex`; otherwise (omitted / null
-  // / `<= startIndex`) there is NO cap (pass `undefined` down), preserving the
-  // pre-T2 behavior. A `<= startIndex` cap would mean "place nothing", which
+  // / `<= startIndex`) there is NO cap (pass `undefined` down). A `<= startIndex` cap would mean "place nothing", which
   // must never happen — the measure-pass caller only passes a boundary strictly
   // greater than startIndex; normalizing to no-cap is the defensive guard.
   const normalizedStopBeforeIndex =
@@ -467,7 +464,7 @@ function fitOnePageRecursive(
   });
 
   for (let i = effectiveStartIndex; i < metas.length; i++) {
-    // Section cap (C.2b-1 T2): stop before placing the child at stopBeforeIndex,
+    // Section cap: stop before placing the child at stopBeforeIndex,
     // as if it had break-before:page. Top-level only. Placed BEFORE the
     // margin-advance / list-counter accumulation / per-child fit so the capped
     // child has NO side effects and the list counter is NOT rolled back — it
@@ -615,11 +612,11 @@ function fitOnePageRecursive(
 
       // break-inside:avoid on a paragraph that would fragment: bfc.ts:645–665
       // applies the SAME rule a fragmenting container gets — discard the partial,
-      // push the WHOLE remainder to the next fragment; or §C.6 overflow-consume-
+      // push the WHOLE remainder to the next fragment; or overflow-consume-
       // whole when first-on-fragment. The IFC line-fit is bypassed entirely.
       if (fragments && meta.breakInsideAvoid) {
         if (!fragmentHasContent) {
-          // §C.6 overflow-consume-whole for a break-inside:avoid paragraph that
+          // overflow-consume-whole for a break-inside:avoid paragraph that
           // is first-on-fragment and too tall.
           //
           // UNREACHABLE when resuming (startLine > 0): a break-inside:avoid
@@ -646,7 +643,7 @@ function fitOnePageRecursive(
       }
 
       if (fit.placedLineCount === 0) {
-        // IFC couldn't place anything (bfc.ts:356–364). §C.6: if first on the
+        // IFC couldn't place anything (bfc.ts:356–364). Overflow rule: if first on the
         // fragment, consume whole (overflow); else break here.
         if (!fragmentHasContent) {
           // Overflow-consume-whole: place the remaining (from startLine) lines.
@@ -715,19 +712,19 @@ function fitOnePageRecursive(
         leafResumeToken !== null && leafResumeToken.type === "table"
           ? leafResumeToken.resumeAtRow
           : 0;
-      // P8.S5.T2: a rowSpan cell straddling THIS table's incoming break is carried
+      // A rowSpan cell straddling THIS table's incoming break is carried
       // on the leaf resume token's `spanningCells`. The measure pass works only off
       // `rowBlockSizes` (no cell interiors), so it cannot recompute the list — it
       // THREADS the incoming continuation through unchanged so the page plan doesn't
-      // drop it; the FC refines the exact interiorBreakToken at getPage time (S5.T3).
+      // drop it; the FC refines the exact interiorBreakToken at getPage time.
       const inheritedSpanningCells =
         leafResumeToken !== null && leafResumeToken.type === "table"
           ? leafResumeToken.spanningCells
           : undefined;
-      // #487 header-repetition: a continuation fragment (startRow > 0) of a table
+      // Header repetition: a continuation fragment (startRow > 0) of a table
       // with header rows reserves `headerBlockSize` at the top for the re-emitted
-      // header. `forceProgress` guarantees ≥1 placed body row in that case (the §6
-      // PROGRESS floor), so the §C.6 placedRowCount===0 overflow-consume path below
+      // header. `forceProgress` guarantees ≥1 placed body row in that case (the
+      // progress floor), so the overflow-rule placedRowCount===0 overflow-consume path below
       // is never reached when the header is reserved. On the FIRST fragment
       // (startRow === 0) the header rows are ordinary leading rows: no reservation,
       // byte-identical to today (headerBlockSize subtracts −0, no force).
@@ -737,7 +734,7 @@ function fitOnePageRecursive(
       const forceProgress = startRow > 0 && headerRowCount > 0;
       const fit = fitRowsInTable(rowSizes, remaining, startRow, headerBlockSize, forceProgress);
       if (fit.placedRowCount === 0) {
-        // Table couldn't place a row (bfc.ts:573–588). §C.6 overflow if first.
+        // Table couldn't place a row (bfc.ts:573–588). overflow if first.
         if (!fragmentHasContent) {
           // Overflow-consume the SUFFIX rows actually on this fragment
           // (`rowSizes[startRow..]`), NOT `meta.totalBlockSize` (the WHOLE table).
@@ -746,15 +743,15 @@ function fitOnePageRecursive(
           // sibling after the table on this overflow page would be positioned too
           // low. Mirrors the partial-fit branch's `placedRowsUsed` suffix sum below.
           //
-          // #487: `headerBlockSize` is INTENTIONALLY NOT added here (unlike the
-          // partial-fit and all-fit advancing paths). Under PROGRESS (§6),
+          // `headerBlockSize` is INTENTIONALLY NOT added here (unlike the
+          // partial-fit and all-fit advancing paths). Under the progress floor,
           // `forceProgress` guarantees `fitRowsInTable` returns `placedRowCount >= 1`
           // whenever `suffixLength > 0`, so this `placedRowCount === 0` path is only
           // reached for the header-reserved case when `suffixLength === 0` (no body
           // rows remain) — in which case `suffixRowsUsed === 0` and the table
           // terminates here. Adding `headerBlockSize` would account for a repeated
           // header on a fragment the materializer cannot emit (it would produce a
-          // header-only "continuation" with no body rows). So spec §7.3's "all three
+          // header-only "continuation" with no body rows). So the rule "all three
           // advancing paths add headerBlockSize" holds for the two REACHABLE header
           // paths; this path is structurally excluded for the header case.
           let suffixRowsUsed = 0;
@@ -781,7 +778,7 @@ function fitOnePageRecursive(
         // PLACED rows' heights so a parent container's `consumedBlockSize` — and a
         // sibling positioned after the table on this fragment — is exact (mirrors
         // the partial-IFC case above). `headerBlockSize` is 0 on the first fragment
-        // and when the table has no header (#487 §7.3). The fragmenting table
+        // and when the table has no header (header repetition). The fragmenting table
         // carries no trailing margin.
         let placedRowsUsed = 0;
         for (let ri = startRow; ri < startRow + fit.placedRowCount; ri++) {
@@ -816,7 +813,7 @@ function fitOnePageRecursive(
     // --- Container block (kind:"block" with children) → RECURSE. ---
     // Mirror bfc.ts:536–543 (child fragmentation threading: the recursed
     // container gets the reduced `remaining` and the resume token only on the
-    // first iteration) + 593–673 (nested token build + break-inside/§C.6).
+    // first iteration) + 593–673 (nested token build + break-inside/overflow-rule).
     const childResume =
       leafResumeToken !== null && leafResumeToken.type === "block" ? leafResumeToken : null;
     const childChildren = meta.children ?? [];
@@ -858,7 +855,7 @@ function fitOnePageRecursive(
     // bfc's per-child whole-block-fit check (bfc.ts:626–642) compares THIS
     // partial height against `remaining` BEFORE the break-inside / nested-resume
     // handling — a padded/bordered container's bottom padding can push the
-    // partial over the page bottom, triggering §C.6 the same way an oversized
+    // partial over the page bottom, triggering the overflow rule the same way an oversized
     // leaf does.
     if (childResult.resumeOut !== null) {
       const containerPaddingBlockEnd = meta.paddingBlockEnd ?? 0;
@@ -874,7 +871,7 @@ function fitOnePageRecursive(
 
       // bfc.ts:626–642 whole-block fit check on the PARTIAL box height. When it
       // overflows `remaining`, the partial fragment is treated like an oversized
-      // child: §C.6 consume-the-partial-whole when first-on-fragment (the
+      // child: overflow-rule consume-the-partial-whole when first-on-fragment (the
       // container's inner resume token is DISCARDED — bfc pushes the partial box
       // and `continue`s, bfc.ts:630–634), else break BEFORE this container.
       if (partialContainerHeight > remaining) {
@@ -895,11 +892,11 @@ function fitOnePageRecursive(
       }
 
       // Partial fits. bfc.ts:645–673: break-inside:avoid → discard partial, push
-      // whole (or §C.6 overflow if first-on-fragment); otherwise the container is
+      // whole (or overflow if first-on-fragment); otherwise the container is
       // the last on the page and threads its nested resume token.
       if (meta.breakInsideAvoid) {
         if (!fragmentHasContent) {
-          // §C.6 overflow-consume-whole (bfc.ts:653–658): re-lay the WHOLE
+          // overflow-consume-whole (bfc.ts:653–658): re-lay the WHOLE
           // container unfragmented → its `totalBlockSize`.
           runningOffset += meta.totalBlockSize;
           prevMarginBlockEnd = meta.marginBlockEnd;
@@ -940,7 +937,7 @@ function fitOnePageRecursive(
 
     // Container fit fully. Whole-block fit check (bfc.ts:626–642).
     if (meta.totalBlockSize > remaining) {
-      // §C.6: first-on-fragment too-tall → consume whole + overflow.
+      // Overflow rule: first-on-fragment too-tall → consume whole + overflow.
       if (!fragmentHasContent) {
         runningOffset += meta.totalBlockSize;
         prevMarginBlockEnd = meta.marginBlockEnd;
@@ -972,7 +969,7 @@ function fitOnePageRecursive(
 
 /**
  * Block-axis size of an ifc-leaf's lines from `startLine` to the end — the
- * height consumed when the paragraph is overflow-consumed-whole (§C.6) or
+ * height consumed when the paragraph is overflow-consumed-whole or
  * pushed whole (break-inside:avoid). Mirrors bfc's `applyOverflowRule`
  * re-laying the block unfragmented (it places every remaining line).
  */
@@ -1054,7 +1051,7 @@ function paraFlowStartFromResumeToken(token: BreakToken | null): number | undefi
  * Exported for the VL float fast-path producer closure (`floatPageMeasurer`),
  * which advances the per-page list counter over the consumed metas the SAME way
  * `fitOnePage` does — so the float path's `listCounterAtStart` is byte-identical
- * to the `fitOnePage` path (PR1-1).
+ * to the `fitOnePage` path.
  */
 export function accumulateListCounter(meta: BlockFitMeta, counter: number): number {
   let next = counter;

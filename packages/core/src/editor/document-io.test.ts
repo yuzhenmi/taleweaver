@@ -34,7 +34,7 @@ import {
   asBlockId,
 } from "../state";
 import type { State, BlockId } from "../state";
-import { buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
+import { TEST_RESOLVER, buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
 
 const ID = (s: string): BlockId => asBlockId(s);
 
@@ -141,7 +141,7 @@ describe("document-io — exportDocument / loadDocument", () => {
       initialSelectionForState(state),
       config,
     );
-    const reg = createDefaultSerializerRegistry();
+    const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
     const bytes = exportDocument(editor, BINARY_FORMAT, reg);
     const loaded = loadDocument(bytes, BINARY_FORMAT, reg, config);
 
@@ -157,7 +157,7 @@ describe("document-io — exportDocument / loadDocument", () => {
       initialSelectionForState(state),
       config,
     );
-    const reg = createDefaultSerializerRegistry();
+    const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
     const bytes = exportDocument(editor, BINARY_FORMAT, reg);
     const loaded = loadDocument(bytes, BINARY_FORMAT, reg, config);
 
@@ -179,7 +179,7 @@ describe("document-io — exportDocument / loadDocument", () => {
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "history" }, config);
     expect(editor.history.canUndo()).toBe(true);
 
-    const reg = createDefaultSerializerRegistry();
+    const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
     const bytes = exportDocument(editor, BINARY_FORMAT, reg);
     const loaded = loadDocument(bytes, BINARY_FORMAT, reg, config);
 
@@ -195,7 +195,7 @@ describe("document-io — exportDocument / loadDocument", () => {
       initialSelectionForState(state),
       config,
     );
-    const reg = createDefaultSerializerRegistry();
+    const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
     const bytes = exportDocument(editor, BINARY_FORMAT, reg);
     const loaded = loadDocument(bytes, BINARY_FORMAT, reg, config);
 
@@ -221,7 +221,7 @@ describe("document-io — exportDocument / loadDocument", () => {
     // Produce valid bytes via a populated registry, then attempt to load with
     // an empty one — the format lookup fails before any decode.
     const editor = createInitialEditorState(config);
-    const fullReg = createDefaultSerializerRegistry();
+    const fullReg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
     const bytes = serializeDocument(editor.state, BINARY_FORMAT, fullReg);
     const emptyReg = createSerializerRegistry();
     expect(() => loadDocument(bytes, BINARY_FORMAT, emptyReg, config)).toThrow(
@@ -230,7 +230,7 @@ describe("document-io — exportDocument / loadDocument", () => {
   });
 
   it("loadDocument throws MalformedDocumentError for malformed wire data", () => {
-    const reg = createDefaultSerializerRegistry();
+    const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
     // A genuine Yjs update from an empty Y.Doc: it applies cleanly but seeds no
     // meta.rootId → getMetaRootId returns undefined → MalformedDocumentError.
     // This exercises the specific code-owned path. (Raw garbage like

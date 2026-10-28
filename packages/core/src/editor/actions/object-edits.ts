@@ -1,12 +1,12 @@
 import type { EditorState, EditorConfig } from "../editor-state";
+import { inheritedAttrsAt } from "../typing-attrs";
 import {
   getBlock,
   resolveBlock,
   createPosition,
   createSpan,
   inlineContentLength,
-  productionAllocator,
-  deleteTableWithReplacement,
+  deleteTable,
   replaceBlockWithText,
 } from "../../state";
 import type { BlockId, Position, ReadonlyAttrs, State, Selection } from "../../state";
@@ -14,7 +14,7 @@ import { findNextContentBlock, findPrevContentBlock } from "../../cursor/cursor-
 import { rebuildTrees } from "./helpers";
 
 /**
- * Shared editor-layer helpers for image OBJECT-SELECTION (#525). An object
+ * Shared editor-layer helpers for image OBJECT-SELECTION. An object
  * selection is a COLLAPSED `Selection` on an atomic-leaf block (`{ blockId, 0 }`);
  * `isObjectSelection` returns the selected block id. These three helpers are the
  * surviving-block edits the later guard slices (DELETE / typing / arrow) call:
@@ -40,12 +40,9 @@ function contentLengthOf(editor: EditorState, blockId: BlockId): number {
 /**
  * Delete the selected object as a unit (Google Docs: Backspace/Delete on a
  * selected image removes it). Caret placement after removal:
- *  - the START of the FOLLOWING block, when one exists;
- *  - else the END of the PRECEDING block;
- *  - else (the object was the parent's SOLE child) the start of a fresh empty
- *    paragraph — `deleteTableWithReplacement` (a generic
- *    remove-block-with-replacement primitive) seeds it in the SAME transaction
- *    so the body is never left empty.
+ *  - the START of the FOLLOWING block (invariant I: a paragraph always follows
+ *    a block object);
+ *  - else the END of the PRECEDING block.
  *
  * One undo entry. Undo restores the image AND the object selection (the commit's
  * `before` selection IS the object selection `{ objId, 0 }`). No-op (same
@@ -64,16 +61,15 @@ export function deleteObjectSelection(
   const nextSiblingId = obj.nextSiblingId;
   const prevSiblingId = obj.prevSiblingId;
 
-  const result = deleteTableWithReplacement(editor.state, objId, productionAllocator);
+  const result = deleteTable(editor.state, objId);
   if (result.state === editor.state) return editor;
 
   const caret = caretAfterObjectDelete(
     editor,
     nextSiblingId,
     prevSiblingId,
-    result.newParagraphId,
   );
-  if (caret === null) return editor; // unreachable: seed paragraph OR a sibling exists
+  if (caret === null) return editor; // unreachable: a paragraph follows every object (invariant I)
 
   const newSelection = createSpan(caret, caret);
   editor.history.commit(
@@ -89,8 +85,7 @@ export function deleteObjectSelection(
 }
 
 /**
- * Resolve the post-delete caret: following-block start, else preceding-block end,
- * else the seeded paragraph's start. The preceding block's content length is read
+ * Resolve the post-delete caret: following-block start, else preceding-block end. The preceding block's content length is read
  * from the ORIGINAL `editor` state — removing a sibling does not touch the
  * preceding block's `inlineContent`, so its length is identical pre/post-delete.
  */
@@ -98,16 +93,12 @@ function caretAfterObjectDelete(
   editor: EditorState,
   nextSiblingId: BlockId | null,
   prevSiblingId: BlockId | null,
-  seededParagraphId: BlockId | null,
 ): Position | null {
   if (nextSiblingId !== null) {
     return createPosition(nextSiblingId, 0);
   }
   if (prevSiblingId !== null) {
     return createPosition(prevSiblingId, contentLengthOf(editor, prevSiblingId));
-  }
-  if (seededParagraphId !== null) {
-    return createPosition(seededParagraphId, 0);
   }
   return null;
 }
@@ -125,8 +116,8 @@ function caretAfterObjectDelete(
  * (an image with only atomic-leaf neighbours — not reachable from the standard
  * insert pipeline, which always trails a paragraph).
  *
- * `text` is the typed run (always non-empty from the typing path); attrs are
- * taken from the insert target's surrounding run by `insertText`'s planner.
+ * `text` is the typed run (always non-empty from the typing path); it takes the
+ * typing attrs at the landing position (`inheritedAttrsAt`).
  */
 export function replaceObjectWithText(
   editor: EditorState,
@@ -141,14 +132,15 @@ export function replaceObjectWithText(
   const target = textTargetSibling(editor, obj.nextSiblingId, obj.prevSiblingId);
   if (target === null) return editor;
 
-  const attrs: ReadonlyAttrs = {};
+  // Typing attributes at the landing caret (pending ones win), like any typing.
+  const attrs: ReadonlyAttrs =
+    editor.storedAttrs ?? inheritedAttrsAt(editor.state, createPosition(target.blockId, target.offset));
   const result = replaceBlockWithText(
     editor.state,
     objId,
     { blockId: target.blockId, offset: target.offset },
     text,
     attrs,
-    config.attrRegistry,
   );
   if (result.state === editor.state) return editor;
 
@@ -215,7 +207,7 @@ export function moveOffObject(
  * the object (forward → start of the next content block; backward → end of the
  * previous one), or `null` at the document edge (no neighbour). Factored out of
  * `moveOffObject` so the print backend's NavIntent resolver (which owns the
- * geometric ArrowLeft/Right/Up/Down handlers post-Phase-0b) computes the IDENTICAL
+ * geometric ArrowLeft/Right/Up/Down handlers) computes the IDENTICAL
  * object-nav selection without an `EditorState`, then dispatches it as a
  * `SET_SELECTION`. Takes a bare `State` (not `EditorState`) so it is reusable
  * across the seam.

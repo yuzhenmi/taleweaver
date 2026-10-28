@@ -3,7 +3,12 @@ import type { BlockId } from "../block-id";
 import { createTestAllocator } from "../block-id";
 import type { Block } from "../block";
 import type { State } from "../state";
-import { getBlock, getEmbedContent, getTemplateContent } from "../state";
+import { createState, getBlock, getEmbedContent, getTemplateContent } from "../state";
+import * as Y from "yjs";
+import { STATE_INTERNAL } from "../state-internal";
+import { removeBlock } from "../ops/remove-block";
+import { insertText } from "../ops/insert-text";
+import { createPosition } from "../block-position";
 import { buildStateFromBlocks } from "../build-state-from-blocks";
 import { getListDefsForState, type ListDef } from "../list-defs";
 import {
@@ -15,7 +20,7 @@ import {
 } from "../comments";
 import { getSuggestions, type SuggestionId, type SuggestionRecord } from "../suggestions";
 import { iterateBlocksInDocumentOrder } from "../document-order";
-import {
+import { testContainer, TEST_RESOLVER,
   buildBlock,
   text,
   embed,
@@ -24,6 +29,10 @@ import {
 import { MalformedDocumentError } from "./document-serializer";
 import { createJsonDocumentSerializer, JSON_FORMAT } from "./json-serializer";
 import type { BlockKind, BlockKindResolver } from "../block-kinds";
+
+// Host container types the default registry lacks (file-local registry instance).
+TEST_RESOLVER.register(testContainer("list"));
+TEST_RESOLVER.register(testContainer("container"));
 
 // ─────────────────────────────────────────────────────────────────────────
 // A tiny BlockKindResolver covering exactly the types these tests use. The
@@ -51,6 +60,7 @@ const blockKindResolver: BlockKindResolver = {
   getBlockKind(type: string): BlockKind | null {
     return KINDS[type] ?? null;
   },
+  getStorageShape: (type: string) => TEST_RESOLVER.getStorageShape(type),
 };
 
 function makeSerializer() {
@@ -121,7 +131,7 @@ function buildRichState(): State {
     createdAt: 3000,
   };
 
-  return buildStateFromBlocks({
+  return buildStateFromBlocks({ resolver: TEST_RESOLVER,
     rootId: "doc" as BlockId,
     blocks: [
       buildBlock({
@@ -190,10 +200,11 @@ function buildRichState(): State {
         nextSiblingId: "empty-container",
         inlineContent: inlineContent([]),
       }),
-      // ... an EMPTY container (inlineContent null, children [])
+      // ... an EMPTY container (inlineContent null, children []). Not a SECTION:
+      // an empty section is not in the read model.
       buildBlock({
         id: "empty-container",
-        type: "section",
+        type: "container",
         parentId: "doc",
         prevSiblingId: "empty-p",
         nextSiblingId: null,
@@ -315,7 +326,6 @@ describe("json-serializer", () => {
       expect(suggestions[0]?.kind).toBe("insertion");
       expect(suggestions[0]?.author).toBe("carol");
       expect(suggestions[0]?.createdAt).toBe(3000);
-      expect(suggestions[0]?.orphaned).toBe(false);
     });
 
     it("does NOT serialize a `range` field on comments (range is reconstructed, not stored)", () => {
@@ -328,6 +338,70 @@ describe("json-serializer", () => {
       expect(parsed.comments["cmt-1"]).toBeDefined();
       expect(parsed.comments["cmt-1"]).not.toHaveProperty("range");
       expect(parsed.comments["cmt-1"]).not.toHaveProperty("orphaned");
+    });
+
+    it("round-trips DERIVED ids (an implicit `#i` run) and the final section; no leading `#s0` exists", () => {
+      // An implicit paragraph exists only where storage breaks invariant I (concurrency):
+      // [img][P][Q][img2][Z] — peer A removes P while peer B types in P and removes Q.
+      const ser = makeSerializer();
+      const base = buildStateFromBlocks({ resolver: TEST_RESOLVER,
+        rootId: "doc" as BlockId,
+        blocks: [
+          buildBlock({ id: "doc", type: "document", firstChildId: "img", lastChildId: "Z" }),
+          buildBlock({ id: "img", type: "image", parentId: "doc", nextSiblingId: "P" }),
+          buildBlock({ id: "P", type: "paragraph", parentId: "doc", prevSiblingId: "img", nextSiblingId: "Q", inlineContent: inlineContent([text("abc")]) }),
+          buildBlock({ id: "Q", type: "paragraph", parentId: "doc", prevSiblingId: "P", nextSiblingId: "img2", inlineContent: inlineContent([text("q")]) }),
+          buildBlock({ id: "img2", type: "image", parentId: "doc", prevSiblingId: "Q", nextSiblingId: "Z" }),
+          buildBlock({ id: "Z", type: "paragraph", parentId: "doc", prevSiblingId: "img2", inlineContent: inlineContent([text("z")]) }),
+        ],
+      });
+      const peer = (c: number) => {
+        const d = new Y.Doc();
+        d.clientID = c;
+        Y.applyUpdate(d, Y.encodeStateAsUpdate(base[STATE_INTERNAL].doc));
+        return createState({ resolver: TEST_RESOLVER, rootId: base.rootId, doc: d });
+      };
+      const a = removeBlock(peer(1), "P" as BlockId).state;
+      const b = removeBlock(insertText(peer(2), createPosition("P" as BlockId, 1), "X", {}).state, "Q" as BlockId).state;
+      Y.applyUpdate(a[STATE_INTERNAL].doc, Y.encodeStateAsUpdate(b[STATE_INTERNAL].doc));
+      const stray = createState({ resolver: TEST_RESOLVER, rootId: a.rootId, doc: a[STATE_INTERNAL].doc });
+      expect(getBlock(stray, "img#i" as BlockId)?.inlineContent?.items).toEqual([{ kind: "text", text: "X", attrs: {} }]);
+      const strayBack = ser.decode(ser.encode(stray));
+      expect(getBlock(strayBack, "img#i" as BlockId)?.inlineContent?.items).toEqual([{ kind: "text", text: "X", attrs: {} }]);
+      assertSameDocument(stray, strayBack);
+
+      // Blocks before the last section belong to it (no `${root}#s0`); it is the final section.
+      const sectioned = buildStateFromBlocks({ resolver: TEST_RESOLVER,
+        rootId: "doc" as BlockId,
+        blocks: [
+          buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "s1" }),
+          buildBlock({ id: "p", type: "paragraph", parentId: "doc", nextSiblingId: "s1", inlineContent: inlineContent([text("lead")]) }),
+          buildBlock({ id: "s1", type: "section", parentId: "doc", prevSiblingId: "p", firstChildId: "q", lastChildId: "q" }),
+          buildBlock({ id: "q", type: "paragraph", parentId: "s1", inlineContent: inlineContent([text("tail")]) }),
+        ],
+      });
+      expect(getBlock(sectioned, "p" as BlockId)?.parentId).toBe("s1");
+      expect(getBlock(sectioned, "doc" as BlockId)?.lastChildId).toBe("s1");
+      assertSameDocument(sectioned, ser.decode(ser.encode(sectioned)));
+
+      // ¶ character props (`markAttrs`) and the final section's id round-trip:
+      // the final section is the root's last child on the wire.
+      const marked = buildStateFromBlocks({ resolver: TEST_RESOLVER,
+        rootId: "doc" as BlockId,
+        blocks: [
+          buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+          { ...buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }), markAttrs: { bold: true } },
+        ],
+      });
+      const fin = getBlock(marked, "doc" as BlockId)?.lastChildId;
+      expect(getBlock(marked, "p" as BlockId)?.markAttrs).toEqual({ bold: true });
+      const wire = JSON.parse(ser.encode(marked)) as { root: { children: { id: string; children: { markAttrs?: unknown }[] }[] } };
+      expect(wire.root.children[0]?.id).toBe(fin);
+      expect(wire.root.children[0]?.children[0]?.markAttrs).toEqual({ bold: true });
+      const markedBack = ser.decode(ser.encode(marked));
+      expect(getBlock(markedBack, "p" as BlockId)?.markAttrs).toEqual({ bold: true });
+      expect(getBlock(markedBack, "doc" as BlockId)?.lastChildId).toBe(fin);
+      assertSameDocument(marked, markedBack);
     });
   });
 
@@ -351,21 +425,42 @@ describe("json-serializer", () => {
       },
     });
 
+    it("drops a stored null inline attr and re-keys a legacy formattingSuggestionId on decode (the upgrade normalization; JSON format unchanged)", () => {
+      const withNull = JSON.stringify({
+        format: "taleweaver-json",
+        version: 1,
+        root: {
+          type: "document",
+          children: [
+            { type: "paragraph", content: [{ text: "x", attrs: { bold: true, link: null, formattingSuggestionId: "f1" } }] },
+          ],
+        },
+      });
+      const state = makeSerializer().decode(withNull);
+      const fin = getBlock(state, getBlock(state, state.rootId)?.firstChildId as BlockId);
+      const para = getBlock(state, fin?.firstChildId as BlockId);
+      expect(para?.inlineContent?.items).toEqual([
+        { kind: "text", text: "x", attrs: { bold: true, "formattingSuggestionId:f1": true } },
+      ]);
+    });
+
     it("decodes id-less JSON to a valid State with minted ids + derived links", () => {
       const ser = makeSerializer();
       const state = ser.decode(handAuthored);
 
       const root = getBlock(state, state.rootId);
       expect(root?.type).toBe("document");
+      // The root always holds its final section; a section-less document's blocks are in it.
       expect(root?.firstChildId).not.toBeNull();
-      expect(root?.lastChildId).not.toBeNull();
-      expect(root?.firstChildId).not.toBe(root?.lastChildId);
+      expect(root?.firstChildId).toBe(root?.lastChildId);
+      const sec = getBlock(state, root?.firstChildId as BlockId);
+      expect(sec?.type).toBe("section");
 
       // first child is the heading, links derived.
-      const headId = root?.firstChildId as BlockId;
+      const headId = sec?.firstChildId as BlockId;
       const head = getBlock(state, headId);
       expect(head?.type).toBe("heading");
-      expect(head?.parentId).toBe(state.rootId);
+      expect(head?.parentId).toBe(sec?.id);
       expect(head?.prevSiblingId).toBeNull();
       expect(head?.attrs).toEqual({ headingLevel: 1 });
       expect(head?.inlineContent).toEqual({
@@ -416,7 +511,7 @@ describe("json-serializer", () => {
 
   describe("(c) wire-golden — kind-driven children/content rule", () => {
     it("container emits children (no content), inline-bearing-leaf emits content (even []), atomic-leaf emits neither", () => {
-      const state = buildStateFromBlocks({
+      const state = buildStateFromBlocks({ resolver: TEST_RESOLVER,
         rootId: "doc" as BlockId,
         blocks: [
           buildBlock({
@@ -449,8 +544,16 @@ describe("json-serializer", () => {
         id: "doc",
         type: "document",
         children: [
-          { id: "p", type: "paragraph", content: [] },
-          { id: "hr", type: "horizontal-line" },
+          {
+            id: expect.any(String),
+            type: "section",
+            children: [
+              { id: "p", type: "paragraph", content: [] },
+              { id: "hr", type: "horizontal-line" },
+              // Invariant I: a paragraph follows the line at the story's end.
+              { id: expect.any(String), type: "paragraph", content: [] },
+            ],
+          },
         ],
       });
       // side-tables omitted when empty.
@@ -581,6 +684,16 @@ describe("json-serializer", () => {
         ),
       ).toThrow(MalformedDocumentError);
     });
+    it.each(["2", Infinity, 1e300, -1, 1.5, null])(
+      "throws MalformedDocumentError for a suggestion whose order (%s) is not a non-negative safe integer",
+      (order) => {
+        expect(() =>
+          makeSerializer().decode(
+            envelopeWith({ suggestions: { s1: { kind: "insertion", author: "a", createdAt: 1, order } } }),
+          ),
+        ).toThrow(MalformedDocumentError);
+      },
+    );
     it("throws MalformedDocumentError for a suggestion with a non-object proposedAttrs", () => {
       expect(() =>
         makeSerializer().decode(
@@ -596,7 +709,7 @@ describe("json-serializer", () => {
 
   describe("(e) tables deferred; table-of-contents is NOT a table", () => {
     it("encoding a state with a table block throws a clear error mentioning binary", () => {
-      const state = buildStateFromBlocks({
+      const state = buildStateFromBlocks({ resolver: TEST_RESOLVER,
         rootId: "doc" as BlockId,
         blocks: [
           buildBlock({ id: "doc", type: "document", firstChildId: "t", lastChildId: "t" }),
@@ -620,7 +733,7 @@ describe("json-serializer", () => {
     });
 
     it("NEGATIVE control: a table-of-contents block round-trips successfully (atomic leaf, not a table)", () => {
-      const state = buildStateFromBlocks({
+      const state = buildStateFromBlocks({ resolver: TEST_RESOLVER,
         rootId: "doc" as BlockId,
         blocks: [
           buildBlock({ id: "doc", type: "document", firstChildId: "toc", lastChildId: "toc" }),

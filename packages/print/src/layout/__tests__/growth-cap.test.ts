@@ -43,7 +43,9 @@ function cascadeRoot(
   children: readonly ElementBox[],
   metadata?: Record<string, unknown>,
 ): ElementBox {
-  const root = createElementBox("root", rootStyle, children, metadata);
+  // Page keys live on sections: a break-less doc's FINAL section carries them.
+  const body = metadata === undefined ? children : [createElementBox("final-section", { display: "contents" } as Style, children, { blockType: "section", ...metadata })];
+  const root = createElementBox("root", rootStyle, body);
   const cascaded = cascadePass(root);
   if (cascaded.type !== "element") throw new Error("cascadePass returned non-element");
   return cascaded;

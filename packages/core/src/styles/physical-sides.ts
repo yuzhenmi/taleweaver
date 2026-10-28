@@ -52,7 +52,7 @@ export interface LogicalSideContext {
 export function resolveLogicalSides(us: Readonly<LogicalSideContext>): LogicalSideMap {
   const isRtl = us.direction === "rtl";
   // Exhaustive over the WritingMode union: a future 4th mode makes the `default`
-  // arm a compile error (#437), and an out-of-union value throws rather than
+  // arm a compile error, and an out-of-union value throws rather than
   // silently mapping as h-tb. h-tb stays byte-identical to the legacy path.
   switch (us.writingMode) {
     case "horizontal-tb":

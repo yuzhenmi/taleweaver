@@ -16,6 +16,7 @@
  * page so a couple one-line paragraphs leave leftover room, and a mid-doc
  * `SECTION_BREAK` so section 2 lands on page 2 with section 1 NOT filling page 1.
  */
+import { topLevelBlockIds } from "../../state";
 import { describe, it, expect } from "vitest";
 import { createInitialEditorState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, getBlock, createPosition, render, cascadePass, type EditorConfig, type PageConfig, type EditorState, type BlockId } from "../../index";
 import { layoutTree } from "@taleweaver/print";
@@ -62,7 +63,7 @@ function buildPasted(config: EditorConfig, n: number): EditorState {
 
 /** The document root's direct children, in order. */
 function rootChildIds(editor: EditorState): BlockId[] {
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = getBlock(editor.state, editor.state.rootId); // the root holds sections
   if (root === null || root.firstChildId === null) return [];
   const ids: BlockId[] = [];
   let id: BlockId | null = root.firstChildId;
@@ -75,7 +76,7 @@ function rootChildIds(editor: EditorState): BlockId[] {
 
 /** The nth top-level block id (paragraphs, pre-section-break). */
 function nthBlockId(editor: EditorState, n: number): BlockId {
-  const ids = rootChildIds(editor);
+  const ids = topLevelBlockIds(editor.state);
   const id = ids[n];
   if (id === undefined) throw new Error(`no block ${n}`);
   return id;

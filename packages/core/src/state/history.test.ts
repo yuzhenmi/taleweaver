@@ -1,20 +1,44 @@
 import { describe, it, expect, vi } from "vitest";
 import * as Y from "yjs";
 import { createHistory, UNDO_COALESCE_PAUSE_MS, type History } from "./history";
-import { createEmptyDocument } from "./initial-state";
+import { createEmptyDocument as createBlankDocument } from "./initial-state";
 import { setBlockAttrs, setBlockAttrsInTx } from "./ops/set-block-attrs";
 import { insertText } from "./ops/insert-text";
 import { deleteRange } from "./ops/delete-range";
 import { applyOperation, getBlock } from "./state";
-import { getMetaMap, getTemplateContentsMap, getYBlock, runWithTransactionOrigin } from "./yjs-doc";
+import { getMetaMap, getYBlock, runWithTransactionOrigin } from "./yjs-doc";
+import { getRegistry } from "./registry";
+import { requireBlockText } from "./block-text";
 import { getListDef, writeListDefInTx, type ListDef } from "./list-defs";
 import { createPosition, createSpan } from "./block-position";
 import { inlineContentLength } from "./inline-content";
 import { extractText } from "./extract-text";
 import type { BlockId } from "./block-id";
 import { STATE_INTERNAL } from "./state-internal";
-import { buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
-import { SUGGESTION_RESOLVE_ORIGIN } from "./suggestions";
+import { TEST_RESOLVER, buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
+// A non-null origin opts a transaction out of undo tracking (e.g. a collaborator's edit).
+const UNTRACKED_ORIGIN = Symbol("untracked");
+
+/**
+ * The tests below commit caret selections at offsets 0..9 of the first paragraph:
+ * undo/redo resolve a stored selection against the restored content (offsets are
+ * clamped to it), so the fixture paragraph holds ten characters.
+ */
+function createEmptyDocument(): ReturnType<typeof createBlankDocument> {
+  const blank = createBlankDocument({ resolver: TEST_RESOLVER });
+  // The root holds its final section, which holds the paragraph.
+  const section = getBlock(blank, blank.rootId)?.firstChildId ?? null;
+  const firstId = section === null ? null : (getBlock(blank, section)?.firstChildId ?? null);
+  if (firstId === null) throw new Error("fixture: no first paragraph");
+  // Untracked so the seeding is never an undo entry.
+  return applyOperation(
+    blank,
+    (doc) => {
+      requireBlockText(doc, firstId, "fixture").insert(0, "0123456789", {});
+    },
+    { origin: UNTRACKED_ORIGIN },
+  ).state;
+}
 
 describe("Yjs UndoManager no-op behavior (empirical baseline)", () => {
   // Step 1.1 finding (2026-05-22): Yjs SKIPS no-op groups under
@@ -26,7 +50,7 @@ describe("Yjs UndoManager no-op behavior (empirical baseline)", () => {
   // is no StackItem to attach the SelectionEntry to (the entry lives on
   // `StackItem.meta`, not in a parallel array), so commit returns early
   // before any mutation. Handlers conventionally short-circuit FIRST via
-  // the T7 identity contract (`result.state === editor.state`), but commit
+  // the identity-no-op contract (`result.state === editor.state`), but commit
   // is itself no-op-safe.
   it("empty transaction does not produce an undoStack entry", () => {
     const doc = new Y.Doc();
@@ -50,7 +74,8 @@ describe("Yjs UndoManager no-op behavior (empirical baseline)", () => {
 
 describe("history (Y.UndoManager wrapper)", () => {
   function firstChild(state: ReturnType<typeof createEmptyDocument>) {
-    const root = getBlock(state, state.rootId);
+    const rootSection = getBlock(state, state.rootId)?.firstChildId ?? null;
+    const root = rootSection === null ? null : getBlock(state, rootSection);
     if (root === null) throw new Error("test fixture: missing root");
     const childId = root.firstChildId;
     if (childId === null) throw new Error("test fixture: missing first child id");
@@ -398,20 +423,21 @@ describe("history (Y.UndoManager wrapper)", () => {
         buildBlock({ id: "root", type: "doc", firstChildId: null, lastChildId: null }),
       ],
       templateContents: [
-        buildBlock({ id: bodyId, type: "paragraph", parentId: null }),
+        buildBlock({ id: bodyId, type: "header-body", parentId: null, firstChildId: "tp", lastChildId: "tp" }),
+        buildBlock({ id: "tp", type: "paragraph", parentId: bodyId, inlineContent: inlineContent([]) }),
       ],
     });
     const doc = state[STATE_INTERNAL].doc;
 
     // Pre-edit value at the raw Y.Doc level.
-    expect(getTemplateContentsMap(doc).get(bodyId)?.get("type")).toBe("paragraph");
+    expect(getRegistry(doc).get(bodyId)?.get("type")).toBe("header-body");
 
     const history = createHistory(state);
     // Edit the template body's `type` field inside a tracked transaction.
     const opResult = applyOperation(state, () => {
-      getYBlock(doc, bodyId as BlockId, "test", "templateContent").set("type", "heading");
+      getYBlock(doc, bodyId as BlockId, "test", "templateContent").set("type", "footer-body");
     });
-    expect(getTemplateContentsMap(doc).get(bodyId)?.get("type")).toBe("heading");
+    expect(getRegistry(doc).get(bodyId)?.get("type")).toBe("footer-body");
 
     const sel = createSpan(createPosition(bodyId as BlockId, 0), createPosition(bodyId as BlockId, 0));
     history.commit(opResult, { before: sel, after: sel });
@@ -421,14 +447,14 @@ describe("history (Y.UndoManager wrapper)", () => {
     const undone = history.undo();
     expect(undone).not.toBeNull();
     if (undone === null) throw new Error("expected undo to succeed");
-    expect(getTemplateContentsMap(doc).get(bodyId)?.get("type")).toBe("paragraph");
+    expect(getRegistry(doc).get(bodyId)?.get("type")).toBe("header-body");
     expect(undone.dirtyIds.has(bodyId as BlockId)).toBe(true);
 
     // Redo re-applies the edit.
     const redone = history.redo();
     expect(redone).not.toBeNull();
     if (redone === null) throw new Error("expected redo to succeed");
-    expect(getTemplateContentsMap(doc).get(bodyId)?.get("type")).toBe("heading");
+    expect(getRegistry(doc).get(bodyId)?.get("type")).toBe("footer-body");
   });
 
   it("undoes a listDef write atomically (Task 5)", () => {
@@ -625,10 +651,10 @@ describe("history (Y.UndoManager wrapper)", () => {
 
   it("DEV: commit on a no-op opResult silently returns and does not grow the undo stack", () => {
     // No-op opResults (`dirtyIds.size === 0`) used to throw in dev mode as a
-    // belt-and-suspenders for the (since-codified) handler-level T7 identity
+    // belt-and-suspenders for the (since-codified) handler-level identity
     // short-circuit. That contract has been relaxed: commit silently drops the
     // no-op in BOTH dev and prod — there is no StackItem produced by Yjs's
-    // no-op group, so there is nothing to record. The handler-side T7 guard
+    // no-op group, so there is nothing to record. The handler-side identity guard
     // (`result.state === editor.state`) remains the conventional first stop;
     // commit is the safe backstop.
     const state0 = createEmptyDocument();
@@ -726,7 +752,8 @@ describe("history (Y.UndoManager wrapper)", () => {
 
 describe("history undo-depth cap (#234)", () => {
   function firstChildOf(state: ReturnType<typeof createEmptyDocument>): BlockId {
-    const root = getBlock(state, state.rootId);
+    const rootSection = getBlock(state, state.rootId)?.firstChildId ?? null;
+    const root = rootSection === null ? null : getBlock(state, rootSection);
     if (root === null || root.firstChildId === null) {
       throw new Error("test fixture: missing first child");
     }
@@ -902,8 +929,9 @@ describe("History — typing coalescing (#420)", () => {
     state: ReturnType<typeof createEmptyDocument>;
     blockId: BlockId;
   } {
-    const state = createEmptyDocument();
-    const root = getBlock(state, state.rootId);
+    const state = createBlankDocument({ resolver: TEST_RESOLVER });
+    const rootSection = getBlock(state, state.rootId)?.firstChildId ?? null;
+    const root = rootSection === null ? null : getBlock(state, rootSection);
     if (root === null || root.firstChildId === null) {
       throw new Error("test fixture: missing first child");
     }
@@ -936,11 +964,14 @@ describe("History — typing coalescing (#420)", () => {
     key: "insert" | "delete" | "command",
     now: number,
   ): ReturnType<typeof createEmptyDocument> {
-    history.beginEntry(key, now);
     const before = createSpan(
       createPosition(blockId, offset),
       createPosition(blockId, offset),
     );
+    // The editor passes the pre-action selection to beginEntry (encoded against
+    // the pre-action doc, so an undo restores it even though the action's own
+    // characters are removed).
+    history.beginEntry(key, now, before);
     const result = insertText(state, createPosition(blockId, offset), ch, {});
     const after = createSpan(
       createPosition(blockId, offset + ch.length),
@@ -1073,7 +1104,7 @@ describe("History.advanceState — C1 stale-snapshot hazard (slice 2 piece C)", 
 
   /**
    * A non-undoable resolve that mutates block B: stamps `{ resolved: true }`
-   * onto B's attrs under SUGGESTION_RESOLVE_ORIGIN (the txn the slice-3
+   * onto B's attrs under UNTRACKED_ORIGIN (the txn the slice-3
    * accept/reject ops produce — origin-tagged, undo-manager-invisible).
    */
   function resolveOnB(state: ReturnType<typeof buildState>) {
@@ -1083,7 +1114,7 @@ describe("History.advanceState — C1 stale-snapshot hazard (slice 2 piece C)", 
         setBlockAttrsInTx(doc, BLOCK_B, { resolved: true }, "test-resolve");
         return new Set<BlockId>([BLOCK_B]);
       },
-      { origin: SUGGESTION_RESOLVE_ORIGIN },
+      { origin: UNTRACKED_ORIGIN },
     );
   }
 

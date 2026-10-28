@@ -36,7 +36,7 @@ function setRootPolicy(
   state: State,
   attrs: Record<string, unknown>,
 ): { state: State; dirtyIds: ReadonlySet<BlockId> } {
-  const result = mergeBlockAttrs(state, state.rootId, attrs, attrRegistry);
+  const result = mergeBlockAttrs(state, state.rootId, attrs);
   return { state: result.state, dirtyIds: result.dirtyIds };
 }
 

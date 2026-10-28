@@ -1,0 +1,56 @@
+name: Release
+
+# Push a `v<version>` tag after bumping every @taleweaver/* package to <version>
+# (lockstep pre-1.0 semver; see README "Versioning").
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Tagged commit must be on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+      - run: node scripts/check-release.mjs
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm run smoke:esm
+
+      # Per-package so a re-run after a partial publish skips already-published versions.
+      # Pre-release tags (v0.2.0-rc.1) publish under the `next` dist-tag.
+      - name: Publish
+        run: |
+          DIST_TAG=latest
+          case "$GITHUB_REF_NAME" in *-*) DIST_TAG=next ;; esac
+          for p in core print digital react hyphenation-en-us; do
+            name=$(node -p "require('./packages/$p/package.json').name")
+            version=$(node -p "require('./packages/$p/package.json').version")
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "skip $name@$version (already published)"
+            else
+              npm publish --provenance --tag "$DIST_TAG" -w "packages/$p"
+            fi
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

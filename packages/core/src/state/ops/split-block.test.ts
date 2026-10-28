@@ -1,369 +1,132 @@
+/**
+ * Split (Word / Quill): insert a ¶ at the caret. The NEW ¶ ends the
+ * HEAD [0, k), which takes the new id; the tail keeps ¶B, its id and its entry. No
+ * text item moves. One-shot attrs follow the content that carried them;
+ * `newBlockInit` ("style for the following paragraph") is written onto B at k = len;
+ * H's ¶ takes the inclusive formatting at the caret (`markAttrs`).
+ */
 import { describe, it, expect } from "vitest";
+import * as Y from "yjs";
 import {
   splitBlockAtPosition,
   splitBlockAtPositionInTx,
   planSplitBlockAtPosition,
 } from "./split-block";
 import { planInsertText, insertTextInTx } from "./insert-text";
-import { applyOperation, getBlock } from "../state";
+import { setBlockAttrs } from "./set-block-attrs";
+import { applyOperation, createState, getBlock, type State } from "../state";
 import { STATE_INTERNAL } from "../state-internal";
 import { createHistory } from "../history";
-import { buildBlock, buildState, text, embed, inlineContent } from "../../test-utils/state-builders";
+import type { Block } from "../block";
+import { buildBlock, buildState, text, embed, inlineContent, TEST_RESOLVER, withTestAttrs } from "../../test-utils/state-builders";
+import { flowShape, assertInvariantI } from "../../test-utils/invariant-i";
 import { createPosition, createSpan } from "../block-position";
 import { createTestAllocator, type BlockId } from "../block-id";
 
-describe("splitBlockAtPosition — single-block, mid-text-item split", () => {
-  // doc > [p("hello world")]
-  // Split at offset 5: p_left = "hello", new block = " world"
-  const fixture = () =>
-    buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello world")]) }),
-      ],
-    });
+const id = (s: string) => s as BlockId;
+/** doc > [blocks…] (a section-less document: its blocks sit in the final section). */
+function doc(...blocks: Block[]): State {
+  const ids = blocks.map((b) => b.id);
+  const linked = blocks.map((b, i) => ({ ...b, parentId: id("doc"), prevSiblingId: ids[i - 1] ?? null, nextSiblingId: ids[i + 1] ?? null }));
+  return buildState({ rootId: "doc", blocks: [buildBlock({ id: "doc", type: "document", firstChildId: ids[0] ?? null, lastChildId: ids[ids.length - 1] ?? null }), ...linked] });
+}
+const para = (pid: string, ...items: Parameters<typeof inlineContent>[0]) => buildBlock({ id: pid, type: "paragraph", inlineContent: inlineContent(items) });
+const fin = (s: State): BlockId => {
+  const f = getBlock(s, id("doc"))?.lastChildId;
+  if (f === null || f === undefined) throw new Error("no final section");
+  return f;
+};
+const items = (s: State, b: string) => getBlock(s, id(b))?.inlineContent?.items;
 
-  it("splits the leaf block into two adjacent siblings", () => {
-    const state = fixture();
-    const allocator = createTestAllocator("p2");
-    const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 5), allocator);
-
-    // Original block: same id, content "hello", nextSibling rewired to new block.
-    const left = getBlock(result.state, "p" as BlockId);
-    expect(left).toBeDefined();
-    expect(left?.id).toBe("p");
-    expect(left?.inlineContent?.items).toHaveLength(1);
-    expect(left?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "hello" });
-    expect(left?.nextSiblingId).toBe("p2-0");
-
-    // New block: id from allocator, content " world", parentId same as original.
-    const right = getBlock(result.state, "p2-0" as BlockId);
-    expect(right).toBeDefined();
-    expect(right?.type).toBe("paragraph");
-    expect(right?.parentId).toBe("doc");
-    expect(right?.prevSiblingId).toBe("p");
-    expect(right?.nextSiblingId).toBeNull();
-    expect(right?.firstChildId).toBeNull();
-    expect(right?.lastChildId).toBeNull();
-    expect(right?.inlineContent?.items).toHaveLength(1);
-    expect(right?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: " world" });
-
-    // Parent: lastChildId updated to new block (original was the only/last child).
-    const parent = getBlock(result.state, "doc" as BlockId);
-    expect(parent?.firstChildId).toBe("p");
-    expect(parent?.lastChildId).toBe("p2-0");
-
-    // dirtyIds: { p, p2-0, doc }. (No nextSibling existed to rewire; parent.lastChildId changed → parent dirty.)
-    expect(new Set(result.dirtyIds)).toEqual(new Set(["p", "p2-0", "doc"]));
-  });
-});
-
-describe("splitBlockAtPosition — split at text-item boundary", () => {
-  it("splits cleanly between two text items without splitting either", () => {
-    // Block: [text("hello") {}, text(" world") { italic: true }] — total length 11.
-    // Split at offset 5 — exactly between the two items.
-    // Expected: left [text("hello")], right [text(" world", italic)]
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({
-          id: "p",
-          type: "paragraph",
-          parentId: "doc",
-          inlineContent: inlineContent([text("hello"), text(" world", { italic: true })]),
-        }),
-      ],
-    });
-    const allocator = createTestAllocator("p2");
-    const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 5), allocator);
-
-    const left = getBlock(result.state, "p" as BlockId);
-    expect(left?.inlineContent?.items).toHaveLength(1);
-    expect(left?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "hello", attrs: {} });
-
-    const right = getBlock(result.state, "p2-0" as BlockId);
-    expect(right?.inlineContent?.items).toHaveLength(1);
-    expect(right?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: " world", attrs: { italic: true } });
-  });
-});
-
-describe("splitBlockAtPosition — split inside a multi-item block (preserves attrs on both halves)", () => {
-  it("splits inside the styled middle of three text items, preserving attrs on both halves of the split item", () => {
-    // Block: [text("ab", {}), text("cd", { bold: true }), text("ef", {})] — normalized
-    // (no two adjacent items share attrs). Total length 6.
-    // Split at offset 3 — falls inside the bold "cd" at within=1.
-    // Expected:
-    //   left  = [text("ab", {}), text("c", { bold: true })]
-    //   right = [text("d", { bold: true }), text("ef", {})]
-    // Both halves of the split bold item must carry { bold: true } — this is the
-    // most likely place an attrs-preservation bug would silently strip formatting
-    // (e.g., a text-item builder called without the attrs arg). Pin it explicitly.
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({
-          id: "p",
-          type: "paragraph",
-          parentId: "doc",
-          inlineContent: inlineContent([
-            text("ab"),
-            text("cd", { bold: true }),
-            text("ef"),
-          ]),
-        }),
-      ],
-    });
-    const allocator = createTestAllocator("p2");
-    const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 3), allocator);
-
-    const left = getBlock(result.state, "p" as BlockId);
-    expect(left?.inlineContent?.items).toHaveLength(2);
-    expect(left?.inlineContent?.items[0]).toMatchObject({ text: "ab", attrs: {} });
-    expect(left?.inlineContent?.items[1]).toMatchObject({ text: "c", attrs: { bold: true } });
-
-    const right = getBlock(result.state, "p2-0" as BlockId);
-    expect(right?.inlineContent?.items).toHaveLength(2);
-    expect(right?.inlineContent?.items[0]).toMatchObject({ text: "d", attrs: { bold: true } });
-    expect(right?.inlineContent?.items[1]).toMatchObject({ text: "ef", attrs: {} });
-  });
-});
-
-describe("splitBlockAtPosition — split at embed-item boundaries", () => {
-  it("splits at the leading edge of an embed item (offset = pre-embed length)", () => {
-    // Block: [text("a"), embed("img"), text("b")] — total length 3.
-    // Split at offset 1 — exactly at the leading edge of the embed.
-    // Expected: left [text("a")], right [embed("img"), text("b")]
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({
-          id: "p",
-          type: "paragraph",
-          parentId: "doc",
-          inlineContent: inlineContent([text("a"), embed("img"), text("b")]),
-        }),
-      ],
-    });
-    const allocator = createTestAllocator("p2");
-    const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 1), allocator);
-
-    const left = getBlock(result.state, "p" as BlockId);
-    expect(left?.inlineContent?.items).toHaveLength(1);
-    expect(left?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "a" });
-
-    const right = getBlock(result.state, "p2-0" as BlockId);
-    expect(right?.inlineContent?.items).toHaveLength(2);
-    expect(right?.inlineContent?.items[0]).toMatchObject({ kind: "embed", embedType: "img" });
-    expect(right?.inlineContent?.items[1]).toMatchObject({ kind: "text", text: "b" });
+describe("splitBlockAtPosition — the head takes the new id, the tail keeps B", () => {
+  it("mid-text: H = [0, k), B = [k, len); links and dirty ids", () => {
+    const state = doc(para("p", text("hello world")));
+    const F = fin(state);
+    const result = splitBlockAtPosition(state, createPosition(id("p"), 5), createTestAllocator("p2"));
+    expect(flowShape(result.state, "doc")).toBe('p2-0:"hello" p:" world"');
+    const head = getBlock(result.state, id("p2-0"));
+    expect(head?.type).toBe("paragraph");
+    expect(head?.parentId).toBe(F);
+    expect(head?.prevSiblingId).toBeNull();
+    expect(head?.nextSiblingId).toBe("p");
+    expect(getBlock(result.state, id("p"))?.prevSiblingId).toBe("p2-0");
+    expect(getBlock(result.state, F)?.firstChildId).toBe("p2-0");
+    expect(getBlock(result.state, F)?.lastChildId).toBe("p");
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p", "p2-0", F]));
+    assertInvariantI(result.state, "storage");
   });
 
-  it("splits at the trailing edge of an embed item (offset = pre-embed length + 1)", () => {
-    // Same fixture as above. Split at offset 2 — just after the embed.
-    // Expected: left [text("a"), embed("img")], right [text("b")]
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({
-          id: "p",
-          type: "paragraph",
-          parentId: "doc",
-          inlineContent: inlineContent([text("a"), embed("img"), text("b")]),
-        }),
-      ],
-    });
-    const allocator = createTestAllocator("p2");
-    const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 2), allocator);
-
-    const left = getBlock(result.state, "p" as BlockId);
-    expect(left?.inlineContent?.items).toHaveLength(2);
-    expect(left?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "a" });
-    expect(left?.inlineContent?.items[1]).toMatchObject({ kind: "embed", embedType: "img" });
-
-    const right = getBlock(result.state, "p2-0" as BlockId);
-    expect(right?.inlineContent?.items).toHaveLength(1);
-    expect(right?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "b" });
+  it("splits between two text items without splitting either; attrs survive on both halves", () => {
+    const s1 = splitBlockAtPosition(doc(para("p", text("hello"), text(" world", { italic: true }))), createPosition(id("p"), 5), createTestAllocator("p2")).state;
+    expect(items(s1, "p2-0")).toEqual([{ kind: "text", text: "hello", attrs: {} }]);
+    expect(items(s1, "p")).toEqual([{ kind: "text", text: " world", attrs: { italic: true } }]);
+    const s2 = splitBlockAtPosition(doc(para("p", text("ab"), text("cd", { bold: true }), text("ef"))), createPosition(id("p"), 3), createTestAllocator("p2")).state;
+    expect(items(s2, "p2-0")).toMatchObject([{ text: "ab", attrs: {} }, { text: "c", attrs: { bold: true } }]);
+    expect(items(s2, "p")).toMatchObject([{ text: "d", attrs: { bold: true } }, { text: "ef", attrs: {} }]);
   });
 
-  it("splits at offset 0 in a block whose first item is an embed", () => {
-    // Block: [embed("img"), text("a")] — total length 2.
-    // Split at offset 0 — leading edge of the embed.
-    // Expected: left [], right [embed("img"), text("a")]
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({
-          id: "p",
-          type: "paragraph",
-          parentId: "doc",
-          inlineContent: inlineContent([embed("img"), text("a")]),
-        }),
-      ],
-    });
-    const allocator = createTestAllocator("p2");
-    const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 0), allocator);
-
-    const left = getBlock(result.state, "p" as BlockId);
-    expect(left?.inlineContent?.items).toEqual([]);
-
-    const right = getBlock(result.state, "p2-0" as BlockId);
-    expect(right?.inlineContent?.items).toHaveLength(2);
-    expect(right?.inlineContent?.items[0]).toMatchObject({ kind: "embed", embedType: "img" });
-    expect(right?.inlineContent?.items[1]).toMatchObject({ kind: "text", text: "a" });
-  });
-});
-
-describe("splitBlockAtPosition — edge offsets", () => {
-  it("offset=0 produces an empty original block + new block holding all original content", () => {
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello")]) }),
-      ],
-    });
-    const allocator = createTestAllocator("p2");
-    const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 0), allocator);
-
-    const left = getBlock(result.state, "p" as BlockId);
-    expect(left?.inlineContent?.items).toEqual([]);
-
-    const right = getBlock(result.state, "p2-0" as BlockId);
-    expect(right?.inlineContent?.items).toHaveLength(1);
-    expect(right?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "hello" });
-
-    // Parent's lastChildId rewired (original was the last child).
-    expect(getBlock(result.state, "doc" as BlockId)?.lastChildId).toBe("p2-0");
-
-    // dirtyIds: original block, new block, parent (lastChildId changed).
-    expect(new Set(result.dirtyIds)).toEqual(new Set(["p", "p2-0", "doc"]));
+  it("splits at either edge of an embed", () => {
+    const fixture = () => doc(para("p", text("a"), embed("img"), text("b")));
+    const lead = splitBlockAtPosition(fixture(), createPosition(id("p"), 1), createTestAllocator("p2")).state;
+    expect(items(lead, "p2-0")).toMatchObject([{ kind: "text", text: "a" }]);
+    expect(items(lead, "p")).toMatchObject([{ kind: "embed", embedType: "img" }, { kind: "text", text: "b" }]);
+    const trail = splitBlockAtPosition(fixture(), createPosition(id("p"), 2), createTestAllocator("p2")).state;
+    expect(items(trail, "p2-0")).toMatchObject([{ kind: "text", text: "a" }, { kind: "embed", embedType: "img" }]);
+    expect(items(trail, "p")).toMatchObject([{ kind: "text", text: "b" }]);
+    const zero = splitBlockAtPosition(doc(para("p", embed("img"), text("a"))), createPosition(id("p"), 0), createTestAllocator("p2")).state;
+    expect(items(zero, "p2-0")).toEqual([]);
+    expect(items(zero, "p")).toMatchObject([{ kind: "embed", embedType: "img" }, { kind: "text", text: "a" }]);
   });
 
-  it("offset=total length produces a full original block + empty new block", () => {
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello")]) }),
-      ],
-    });
-    const allocator = createTestAllocator("p2");
-    const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 5), allocator);
-
-    const left = getBlock(result.state, "p" as BlockId);
-    expect(left?.inlineContent?.items).toHaveLength(1);
-    expect(left?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "hello" });
-
-    const right = getBlock(result.state, "p2-0" as BlockId);
-    expect(right?.inlineContent?.items).toEqual([]);
-
-    expect(getBlock(result.state, "doc" as BlockId)?.lastChildId).toBe("p2-0");
-    expect(new Set(result.dirtyIds)).toEqual(new Set(["p", "p2-0", "doc"]));
+  it("offset 0 of a non-empty block: the new EMPTY paragraph is above, the content keeps B's id", () => {
+    const state = doc(para("p", text("hello")));
+    const F = fin(state);
+    const result = splitBlockAtPosition(state, createPosition(id("p"), 0), createTestAllocator("p2"));
+    expect(flowShape(result.state, "doc")).toBe('p2-0:"" p:"hello"');
+    expect(getBlock(result.state, F)?.firstChildId).toBe("p2-0");
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p", "p2-0", F]));
   });
 
-  it("splits an empty leaf block at offset 0 into two empty siblings", () => {
-    // Empty paragraph — pressing Enter on an empty line should produce two empty paragraphs.
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }),
-      ],
-    });
-    const allocator = createTestAllocator("p2");
-    const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 0), allocator);
-
-    const left = getBlock(result.state, "p" as BlockId);
-    expect(left?.inlineContent?.items).toEqual([]);
-
-    const right = getBlock(result.state, "p2-0" as BlockId);
-    expect(right?.inlineContent?.items).toEqual([]);
-    expect(right?.type).toBe("paragraph");
-    expect(right?.parentId).toBe("doc");
-    expect(right?.prevSiblingId).toBe("p");
-
-    expect(getBlock(result.state, "doc" as BlockId)?.lastChildId).toBe("p2-0");
-    expect(new Set(result.dirtyIds)).toEqual(new Set(["p", "p2-0", "doc"]));
-  });
-});
-
-describe("splitBlockAtPosition — linked-list correctness", () => {
-  // doc > [p1, p2, p3] — split p2.
-  const threeChildFixture = () =>
-    buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("one")]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: inlineContent([text("two")]) }),
-        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: inlineContent([text("three")]) }),
-      ],
-    });
-
-  it("middle child split: prev sibling's nextSiblingId unchanged; next sibling's prevSiblingId rewired; parent unchanged", () => {
-    const state = threeChildFixture();
-    const allocator = createTestAllocator("p2b");
-    const result = splitBlockAtPosition(state, createPosition("p2" as BlockId, 1), allocator);
-
-    expect(getBlock(result.state, "p1" as BlockId)?.nextSiblingId).toBe("p2"); // unchanged
-    expect(getBlock(result.state, "p2" as BlockId)?.nextSiblingId).toBe("p2b-0"); // rewired
-    expect(getBlock(result.state, "p2b-0" as BlockId)?.prevSiblingId).toBe("p2");
-    expect(getBlock(result.state, "p2b-0" as BlockId)?.nextSiblingId).toBe("p3");
-    expect(getBlock(result.state, "p3" as BlockId)?.prevSiblingId).toBe("p2b-0"); // rewired
-
-    // Parent's first/last unchanged (split was a middle child).
-    const parent = getBlock(result.state, "doc" as BlockId);
-    expect(parent?.firstChildId).toBe("p1");
-    expect(parent?.lastChildId).toBe("p3");
-
-    // dirtyIds: { p2, p2b-0, p3 }. Parent NOT dirty (no first/last change).
-    expect(new Set(result.dirtyIds)).toEqual(new Set(["p2", "p2b-0", "p3"]));
+  it("offset = length: the head keeps the text under the new id, the empty tail keeps B", () => {
+    const result = splitBlockAtPosition(doc(para("p", text("hello"))), createPosition(id("p"), 5), createTestAllocator("p2"));
+    expect(flowShape(result.state, "doc")).toBe('p2-0:"hello" p:""');
   });
 
-  it("first-child split: parent's firstChildId unchanged (still original); next sibling's prevSiblingId rewired", () => {
-    const state = threeChildFixture();
-    const allocator = createTestAllocator("p1b");
-    const result = splitBlockAtPosition(state, createPosition("p1" as BlockId, 1), allocator);
-
-    expect(getBlock(result.state, "p1" as BlockId)?.prevSiblingId).toBeNull(); // unchanged
-    expect(getBlock(result.state, "p1" as BlockId)?.nextSiblingId).toBe("p1b-0");
-    expect(getBlock(result.state, "p1b-0" as BlockId)?.prevSiblingId).toBe("p1");
-    expect(getBlock(result.state, "p1b-0" as BlockId)?.nextSiblingId).toBe("p2");
-    expect(getBlock(result.state, "p2" as BlockId)?.prevSiblingId).toBe("p1b-0"); // rewired
-
-    const parent = getBlock(result.state, "doc" as BlockId);
-    expect(parent?.firstChildId).toBe("p1"); // unchanged
-    expect(parent?.lastChildId).toBe("p3"); // unchanged
-
-    expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p1b-0", "p2"]));
+  it("an empty block splits into two empty paragraphs", () => {
+    const result = splitBlockAtPosition(doc(para("p")), createPosition(id("p"), 0), createTestAllocator("p2"));
+    expect(flowShape(result.state, "doc")).toBe('p2-0:"" p:""');
+    expect(getBlock(result.state, id("p2-0"))?.type).toBe("paragraph");
   });
 
-  it("last-child split: parent's lastChildId rewired to new block; no next sibling existed", () => {
-    const state = threeChildFixture();
-    const allocator = createTestAllocator("p3b");
-    const result = splitBlockAtPosition(state, createPosition("p3" as BlockId, 2), allocator);
-
-    expect(getBlock(result.state, "p3" as BlockId)?.nextSiblingId).toBe("p3b-0");
-    expect(getBlock(result.state, "p3b-0" as BlockId)?.prevSiblingId).toBe("p3");
-    expect(getBlock(result.state, "p3b-0" as BlockId)?.nextSiblingId).toBeNull();
-
-    const parent = getBlock(result.state, "doc" as BlockId);
-    expect(parent?.firstChildId).toBe("p1"); // unchanged
-    expect(parent?.lastChildId).toBe("p3b-0"); // rewired
-
-    // dirtyIds: { p3, p3b-0, doc }. Parent dirty because lastChildId changed.
-    expect(new Set(result.dirtyIds)).toEqual(new Set(["p3", "p3b-0", "doc"]));
+  it("linked list: a middle split rewires only the previous sibling; the next one and the parent are untouched", () => {
+    const state = doc(para("p1", text("one")), para("p2", text("two")), para("p3", text("three")));
+    const F = fin(state);
+    const result = splitBlockAtPosition(state, createPosition(id("p2"), 1), createTestAllocator("p2b"));
+    expect(flowShape(result.state, "doc")).toBe('p1:"one" p2b-0:"t" p2:"wo" p3:"three"');
+    expect(getBlock(result.state, id("p1"))?.nextSiblingId).toBe("p2b-0");
+    expect(getBlock(result.state, id("p2b-0"))?.prevSiblingId).toBe("p1");
+    expect(getBlock(result.state, id("p2"))?.prevSiblingId).toBe("p2b-0");
+    expect(getBlock(result.state, id("p3"))?.prevSiblingId).toBe("p2");
+    expect(getBlock(result.state, F)?.firstChildId).toBe("p1");
+    expect(getBlock(result.state, F)?.lastChildId).toBe("p3");
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "p2b-0"]));
   });
 
-  it("nested-block split: leaf nested inside a section uses the section as the parent for sibling linkage", () => {
-    // doc > section > [p_only] — split p_only.
-    // The section is the parent of p_only; the section's lastChildId should be rewired to the new block.
-    // doc's child pointers (firstChildId/lastChildId = "section") are unchanged.
+  it("first-child / last-child splits rewire the parent's first child only", () => {
+    const first = doc(para("p1", text("one")), para("p2", text("two")));
+    const F = fin(first);
+    const r1 = splitBlockAtPosition(first, createPosition(id("p1"), 1), createTestAllocator("n"));
+    expect(getBlock(r1.state, F)?.firstChildId).toBe("n-0");
+    expect(getBlock(r1.state, F)?.lastChildId).toBe("p2");
+    const last = doc(para("p1", text("one")), para("p2", text("two")));
+    const F2 = fin(last);
+    const r2 = splitBlockAtPosition(last, createPosition(id("p2"), 1), createTestAllocator("m"));
+    expect(getBlock(r2.state, F2)?.firstChildId).toBe("p1");
+    expect(getBlock(r2.state, F2)?.lastChildId).toBe("p2");
+    expect(getBlock(r2.state, id("m-0"))?.prevSiblingId).toBe("p1");
+  });
+
+  it("a paragraph inside an explicit section splits under that section", () => {
     const state = buildState({
       rootId: "doc",
       blocks: [
@@ -372,113 +135,109 @@ describe("splitBlockAtPosition — linked-list correctness", () => {
         buildBlock({ id: "p_only", type: "paragraph", parentId: "section", inlineContent: inlineContent([text("hello")]) }),
       ],
     });
-    const allocator = createTestAllocator("pNew");
-    const result = splitBlockAtPosition(state, createPosition("p_only" as BlockId, 3), allocator);
-
-    // New block's parent is the section, NOT the doc.
-    const right = getBlock(result.state, "pNew-0" as BlockId);
-    expect(right?.parentId).toBe("section");
-
-    // Section's child pointers: firstChildId unchanged (still p_only), lastChildId rewired to new block.
-    const section = getBlock(result.state, "section" as BlockId);
-    expect(section?.firstChildId).toBe("p_only");
-    expect(section?.lastChildId).toBe("pNew-0");
-
-    // doc's child pointers untouched.
-    const doc = getBlock(result.state, "doc" as BlockId);
-    expect(doc?.firstChildId).toBe("section");
-    expect(doc?.lastChildId).toBe("section");
-
-    // dirtyIds: section dirtied (lastChildId changed); doc NOT dirtied.
+    const result = splitBlockAtPosition(state, createPosition(id("p_only"), 3), createTestAllocator("pNew"));
+    expect(getBlock(result.state, id("pNew-0"))?.parentId).toBe("section");
+    expect(getBlock(result.state, id("section"))?.firstChildId).toBe("pNew-0");
+    expect(getBlock(result.state, id("section"))?.lastChildId).toBe("p_only");
+    expect(getBlock(result.state, id("doc"))?.firstChildId).toBe("section");
     expect(new Set(result.dirtyIds)).toEqual(new Set(["p_only", "pNew-0", "section"]));
+  });
+
+  it("the head takes B's type + attrs; its id comes from the allocator", () => {
+    const state = doc(buildBlock({ id: "li", type: "list-item", attrs: { level: 2, ordered: true }, inlineContent: inlineContent([text("hello")]) }));
+    const result = splitBlockAtPosition(state, createPosition(id("li"), 3), createTestAllocator("custom"));
+    const head = getBlock(result.state, id("custom-0"));
+    expect(head?.type).toBe("list-item");
+    expect(head?.attrs).toEqual({ level: 2, ordered: true });
+    expect(getBlock(result.state, id("li"))?.attrs).toEqual({ level: 2, ordered: true });
+  });
+
+  it("snapshots: the pre-op state still reads the pre-op snapshots", () => {
+    const state = doc(para("p1", text("one")), para("p", text("hello")), para("p3", text("three")));
+    const beforeP = getBlock(state, id("p"));
+    const result = splitBlockAtPosition(state, createPosition(id("p"), 2), createTestAllocator("p2"));
+    expect(result.state).not.toBe(state);
+    expect(getBlock(state, id("p"))).toBe(beforeP);
+    expect(beforeP?.inlineContent?.items).toMatchObject([{ text: "hello" }]);
+    expect(getBlock(result.state, id("p"))).not.toBe(beforeP);
+  });
+
+  it("snaps ONCE inside a surrogate pair: the cut uses one grapheme boundary", () => {
+    const result = splitBlockAtPosition(doc(para("p", text("a😀b"))), createPosition(id("p"), 2), createTestAllocator("p2"));
+    expect(items(result.state, "p2-0")).toMatchObject([{ text: "a" }]);
+    expect(items(result.state, "p")).toMatchObject([{ text: "😀b" }]);
   });
 });
 
-describe("splitBlockAtPosition — block-level invariants", () => {
-  it("new block inherits type, attrs, and parentId from the original", () => {
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "li", lastChildId: "li" }),
-        buildBlock({
-          id: "li",
-          type: "list-item",
-          attrs: { level: 2, ordered: true },
-          parentId: "doc",
-          inlineContent: inlineContent([text("hello")]),
-        }),
-      ],
-    });
-    const allocator = createTestAllocator("li2");
-    const result = splitBlockAtPosition(state, createPosition("li" as BlockId, 3), allocator);
+describe("splitBlockAtPosition — newBlockInit, one-shot attrs, ¶ character props", () => {
+  const heading = () => doc(buildBlock({ id: "h", type: "heading", attrs: { level: 1 }, inlineContent: inlineContent([text("Title")]) }));
 
-    const right = getBlock(result.state, "li2-0" as BlockId);
-    expect(right?.type).toBe("list-item");
-    expect(right?.attrs).toEqual({ level: 2, ordered: true });
-    expect(right?.parentId).toBe("doc");
+  it("newBlockInit at k = len is written onto B (the empty tail); H keeps the heading", () => {
+    const result = splitBlockAtPosition(heading(), createPosition(id("h"), 5), createTestAllocator("n"), { type: "paragraph", attrs: {} });
+    expect(flowShape(result.state, "doc")).toBe('n-0:"Title" h:""');
+    expect(getBlock(result.state, id("n-0"))?.type).toBe("heading");
+    expect(getBlock(result.state, id("n-0"))?.attrs).toEqual({ level: 1 });
+    expect(getBlock(result.state, id("h"))?.type).toBe("paragraph");
+    expect(getBlock(result.state, id("h"))?.attrs).toEqual({});
   });
 
-  it("new block id comes from allocator.allocate()", () => {
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hi")]) }),
-      ],
-    });
-    const allocator = createTestAllocator("custom");
-    const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 1), allocator);
-
-    expect(getBlock(result.state, "custom-0" as BlockId) !== null).toBe(true);
-    expect(getBlock(result.state, "p" as BlockId)?.nextSiblingId).toBe("custom-0");
+  it("without newBlockInit both halves keep the heading; before the end newBlockInit does not apply", () => {
+    const plain = splitBlockAtPosition(heading(), createPosition(id("h"), 5), createTestAllocator("n")).state;
+    expect(getBlock(plain, id("n-0"))?.type).toBe("heading");
+    expect(getBlock(plain, id("h"))?.type).toBe("heading");
+    const mid = splitBlockAtPosition(heading(), createPosition(id("h"), 2), createTestAllocator("n"), { type: "paragraph", attrs: {} }).state;
+    expect(getBlock(mid, id("h"))?.type).toBe("heading");
+    expect(getBlock(mid, id("n-0"))?.type).toBe("heading");
   });
 
-  it("preserves structural sharing: untouched blocks retain object identity", () => {
-    // doc > [p1, p2, p3] — split p2; p1 should keep identity. (p3 is rewired, so its identity changes.)
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p3" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("one")]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: inlineContent([text("two")]) }),
-        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: inlineContent([text("three")]) }),
-      ],
-    });
-    const beforeP1 = getBlock(state, "p1" as BlockId);
-    const allocator = createTestAllocator("p2b");
-    const result = splitBlockAtPosition(state, createPosition("p2" as BlockId, 1), allocator);
-    expect(getBlock(result.state, "p1" as BlockId)).toBe(beforeP1);
+  const listItem = (t: string) => doc(buildBlock({ id: "b", type: "paragraph", attrs: { listId: "L", listCounterOverride: 5 }, inlineContent: inlineContent(t === "" ? [] : [text(t)]) }));
+
+  it("one-shot attrs follow the content: k > 0 and k = len move them to H, deleted from B", () => {
+    for (const k of [1, 3]) {
+      const s = splitBlockAtPosition(listItem("abc"), createPosition(id("b"), k), createTestAllocator("n")).state;
+      expect(getBlock(s, id("n-0"))?.attrs).toEqual({ listId: "L", listCounterOverride: 5 });
+      expect(getBlock(s, id("b"))?.attrs).toEqual({ listId: "L" });
+    }
   });
 
-  it("preserves immutability (original snapshots and state not mutated; modified block produces a fresh snapshot)", () => {
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hello")]) }),
-      ],
-    });
-    // Cache pre-op snapshots BEFORE the op so the pre-op State.snapshotCache
-    // holds them. (Y.Doc itself is mutated in place; per-State view stability
-    // comes from each State's cache, not from Y.Doc immutability.)
-    const beforeP = getBlock(state, "p" as BlockId);
-    const beforeDoc = getBlock(state, "doc" as BlockId);
-    const allocator = createTestAllocator("p2");
-    const result = splitBlockAtPosition(state, createPosition("p" as BlockId, 2), allocator);
+  it("one-shot attrs: k = 0 on a non-empty B keeps them on B; an empty B moves them to H (the upper paragraph)", () => {
+    const zero = splitBlockAtPosition(listItem("abc"), createPosition(id("b"), 0), createTestAllocator("n")).state;
+    expect(getBlock(zero, id("n-0"))?.attrs).toEqual({ listId: "L" });
+    expect(getBlock(zero, id("b"))?.attrs).toEqual({ listId: "L", listCounterOverride: 5 });
+    const empty = splitBlockAtPosition(listItem(""), createPosition(id("b"), 0), createTestAllocator("n")).state;
+    expect(getBlock(empty, id("n-0"))?.attrs).toEqual({ listId: "L", listCounterOverride: 5 });
+    expect(getBlock(empty, id("b"))?.attrs).toEqual({ listId: "L" });
+  });
 
-    // Original state instance is replaced by a fresh one (fresh snapshot cache).
-    expect(result.state).not.toBe(state);
-    // Pre-op snapshots are frozen and unchanged.
-    expect(beforeP?.inlineContent?.items).toHaveLength(1);
-    expect(beforeP?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "hello" });
-    expect(beforeP?.nextSiblingId).toBeNull();
-    // Reading via the pre-op state handle still sees the pre-op snapshots
-    // (cached on the input state's snapshot cache, untouched by applyOperation).
-    expect(getBlock(state, "p" as BlockId)).toBe(beforeP);
-    expect(getBlock(state, "doc" as BlockId)).toBe(beforeDoc);
-    // The post-op state sees the new block.
-    expect(getBlock(result.state, "p2-0" as BlockId)).not.toBeNull();
-    expect(getBlock(result.state, "p" as BlockId)).not.toBe(beforeP);
+  it("H's ¶ takes the INCLUSIVE formatting at the caret (no link, no provenance); an empty B passes its own", () => {
+    // The registry bound to the doc judges inclusiveness (none bound: no markAttrs).
+    const state = () => doc(para("p", text("ab", { bold: true }), text("cd", { bold: true, link: "x", insertionSuggestionId: "s1" })));
+    expect(getBlock(splitBlockAtPosition(state(), createPosition(id("p"), 4), createTestAllocator("n")).state, id("n-0"))?.markAttrs).toBeUndefined();
+    const end = splitBlockAtPosition(withTestAttrs(state()), createPosition(id("p"), 4), createTestAllocator("n")).state;
+    expect(getBlock(end, id("n-0"))?.markAttrs).toEqual({ bold: true });
+    const start = splitBlockAtPosition(withTestAttrs(doc(para("p", text("ab", { italic: true })))), createPosition(id("p"), 0), createTestAllocator("n")).state;
+    expect(getBlock(start, id("n-0"))?.markAttrs).toEqual({ italic: true });
+    const empty = doc({ ...para("p"), markAttrs: { bold: true } });
+    const e = splitBlockAtPosition(empty, createPosition(id("p"), 0), createTestAllocator("n")).state;
+    expect(getBlock(e, id("n-0"))?.markAttrs).toEqual({ bold: true });
+    expect(getBlock(e, id("p"))?.markAttrs).toEqual({ bold: true });
+  });
+
+  it("split × a concurrent attr edit on B: the tail has the peer's write, H keeps the split-time copy (y-quill)", () => {
+    const base = doc(buildBlock({ id: "b", type: "paragraph", attrs: { align: "left" }, inlineContent: inlineContent([text("abcd")]) }));
+    const peer = (c: number): State => {
+      const d = new Y.Doc();
+      d.clientID = c;
+      Y.applyUpdate(d, Y.encodeStateAsUpdate(base[STATE_INTERNAL].doc));
+      return createState({ resolver: TEST_RESOLVER, rootId: base.rootId, doc: d });
+    };
+    const a = splitBlockAtPosition(peer(1), createPosition(id("b"), 2), createTestAllocator("n")).state;
+    const b = setBlockAttrs(peer(2), id("b"), { align: "right" }).state;
+    Y.applyUpdate(a[STATE_INTERNAL].doc, Y.encodeStateAsUpdate(b[STATE_INTERNAL].doc));
+    const merged = createState({ resolver: TEST_RESOLVER, rootId: a.rootId, doc: a[STATE_INTERNAL].doc });
+    expect(flowShape(merged, "doc")).toBe('n-0:"ab" b:"cd"');
+    expect(getBlock(merged, id("b"))?.attrs).toEqual({ align: "right" });
+    expect(getBlock(merged, id("n-0"))?.attrs).toEqual({ align: "left" });
   });
 });
 
@@ -521,7 +280,9 @@ describe("splitBlockAtPosition — error cases", () => {
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "s" }),
-        buildBlock({ id: "s", type: "section", parentId: "doc" }), // null inlineContent AND null firstChildId
+        // An object block: null inlineContent AND null firstChildId. (An empty
+        // SECTION is not in the read model.)
+        buildBlock({ id: "s", type: "horizontal-line", parentId: "doc" }),
       ],
     });
     const allocator = createTestAllocator();
@@ -531,7 +292,8 @@ describe("splitBlockAtPosition — error cases", () => {
   });
 
   it("throws when the block is the root (parentId is null)", () => {
-    // Root block, leaf-shaped (atypical but legal — a single-paragraph "document" root).
+    // Root block given leaf-shaped. A tree root is always a flow HOLDER (its own
+    // inline content reads as the implicit paragraph `p#i`), so it is refused as a container.
     const state = buildState({
       rootId: "p",
       blocks: [
@@ -541,7 +303,7 @@ describe("splitBlockAtPosition — error cases", () => {
     const allocator = createTestAllocator();
     expect(() =>
       splitBlockAtPosition(state, createPosition("p" as BlockId, 1), allocator),
-    ).toThrow(/root/);
+    ).toThrow(/container/);
   });
 
   it("throws when offset is negative", () => {
@@ -592,159 +354,28 @@ describe("splitBlockAtPosition — error cases", () => {
   });
 });
 
-describe("splitBlockAtPosition — newBlockInit override (#236)", () => {
-  // doc > [h1("Title")] — a heading with a level attr.
-  const fixture = () =>
-    buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "h", lastChildId: "h" }),
-        buildBlock({
-          id: "h",
-          type: "heading",
-          attrs: { level: 1 },
-          parentId: "doc",
-          inlineContent: inlineContent([text("Title")]),
-        }),
-      ],
-    });
-
-  it("new (suffix) block uses the override type + attrs; original is unchanged", () => {
-    const state = fixture();
-    const allocator = createTestAllocator("n");
-    // Split at the END (offset 5): suffix is empty; override it to a paragraph.
-    const result = splitBlockAtPosition(
-      state,
-      createPosition("h" as BlockId, 5),
-      allocator,
-      { type: "paragraph", attrs: {} },
-    );
-
-    // Original keeps its type, attrs, and content.
-    const original = getBlock(result.state, "h" as BlockId);
-    expect(original?.type).toBe("heading");
-    expect(original?.attrs).toEqual({ level: 1 });
-    expect(original?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "Title" });
-
-    // New block takes the override — NOT the heading's type/attrs.
-    const created = getBlock(result.state, "n-0" as BlockId);
-    expect(created?.type).toBe("paragraph");
-    expect(created?.attrs).toEqual({});
-    expect(created?.inlineContent?.items ?? []).toHaveLength(0);
-    expect(created?.parentId).toBe("doc");
-    expect(created?.prevSiblingId).toBe("h");
-  });
-
-  it("without an override, the new block inherits the original's type + attrs", () => {
-    const state = fixture();
-    const allocator = createTestAllocator("n");
-    const result = splitBlockAtPosition(state, createPosition("h" as BlockId, 5), allocator);
-    const created = getBlock(result.state, "n-0" as BlockId);
-    expect(created?.type).toBe("heading");
-    expect(created?.attrs).toEqual({ level: 1 });
-  });
-});
 
 describe("splitBlockAtPositionInTx — composability with insertTextInTx", () => {
-  // doc > [p("abcdef")]
-  // Compose two ops inside ONE applyOperation:
-  //   (1) split "abcdef" at offset 3 → original = "abc", new block = "def"
-  //   (2) insert "X" at the START of the original block (offset 0)
-  //
-  // Why offset 0 for step (2): the second `planInsertText` reads `state`,
-  // which is the PRE-MUTATION snapshot ("abcdef"). A plan that targets
-  // offset 0 picks the leading edge of items[0] = text("abcdef"), and the
-  // resulting in-place mutation (itemIndex=0, within=0) on the original
-  // block's Y.Text — which the split's inTx has already shortened to
-  // "abc" — produces a well-defined result ("Xabc") at any post-split
-  // length ≥ 0. If we instead read offset 5 from the pre-mutation
-  // snapshot (valid in "abcdef" but past the end of "abc" after the
-  // split), the in-place insertion would attempt to write past the
-  // shortened Y.Text's end. That is the design limit of plan/inTx: the
-  // SECOND plan must target a cursor position the FIRST mutation didn't
-  // invalidate. For positions the split DOES affect (e.g., the post-split
-  // cursor inside the new block), `replaceRange` is the precedent — its
-  // `planInsertTextFullReplace` works against the freshly-merged items
-  // array instead of the snapshot.
+  // Split "abcdef" at 3 (H = "abc", B = "def"), then insert "X" at (B, 0) — a position
+  // the split does not invalidate — in ONE applyOperation: one undo entry.
   it("split + insertText composed in one applyOperation produce one undo entry", () => {
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({
-          id: "p",
-          type: "paragraph",
-          parentId: "doc",
-          inlineContent: inlineContent([text("abcdef")]),
-        }),
-      ],
-    });
-    const allocator = createTestAllocator("new");
+    const state = doc(para("p", text("abcdef")));
+    const F = fin(state);
     const history = createHistory(state);
-
-    // Plan BOTH ops against the same pre-mutation snapshot. The second
-    // planInsertText targets offset 0, which is unaffected by the split
-    // (see the rationale above the it()).
-    const splitPlan = planSplitBlockAtPosition(
-      state,
-      createPosition("p" as BlockId, 3),
-      allocator,
-    );
-    const insertPlan = planInsertText(
-      state,
-      createPosition("p" as BlockId, 0),
-      "X",
-      {},
-    );
-
+    const splitPlan = planSplitBlockAtPosition(state, createPosition(id("p"), 3), createTestAllocator("new"));
+    const insertPlan = planInsertText(state, createPosition(id("p"), 0), "X", {});
     const opResult = applyOperation(state, () => {
       splitBlockAtPositionInTx(state[STATE_INTERNAL].doc, splitPlan);
       insertTextInTx(state[STATE_INTERNAL].doc, insertPlan);
     });
-    const sel = createSpan(
-      createPosition("p" as BlockId, 0),
-      createPosition("p" as BlockId, 0),
-    );
+    const sel = createSpan(createPosition(id("p"), 0), createPosition(id("p"), 0));
     history.commit(opResult, { before: sel, after: sel });
-
-    // Post-condition: original block carries "X" + the split's prefix; new
-    // block carries the split's suffix. Both effects landed in one
-    // transaction (one Y.Doc afterTransaction, one undo group).
-    const original = getBlock(opResult.state, "p" as BlockId);
-    expect(original?.inlineContent?.items).toHaveLength(1);
-    expect(original?.inlineContent?.items[0]).toMatchObject({
-      kind: "text",
-      text: "Xabc",
-    });
-    const newBlock = getBlock(opResult.state, "new-0" as BlockId);
-    expect(newBlock?.inlineContent?.items).toHaveLength(1);
-    expect(newBlock?.inlineContent?.items[0]).toMatchObject({
-      kind: "text",
-      text: "def",
-    });
-
-    // ONE undo entry: a single undo restores the ORIGINAL document.
-    expect(history.canUndo()).toBe(true);
+    expect(flowShape(opResult.state, "doc")).toBe('new-0:"abc" p:"Xdef"');
     const undone = history.undo();
-    expect(undone).not.toBeNull();
     if (undone === null) throw new Error("expected undo to succeed");
-
-    // After one undo: the original block has its original content; the new
-    // block is gone (the split is reversed); the parent's lastChildId is
-    // restored to the original block.
-    const restored = getBlock(undone.state, "p" as BlockId);
-    expect(restored?.inlineContent?.items).toHaveLength(1);
-    expect(restored?.inlineContent?.items[0]).toMatchObject({
-      kind: "text",
-      text: "abcdef",
-    });
-    expect(restored?.nextSiblingId).toBeNull();
-    expect(getBlock(undone.state, "new-0" as BlockId)).toBeNull();
-    const docBlock = getBlock(undone.state, "doc" as BlockId);
-    expect(docBlock?.firstChildId).toBe("p");
-    expect(docBlock?.lastChildId).toBe("p");
-
-    // No further undo step: the two ops collapsed into one entry.
+    expect(flowShape(undone.state, "doc")).toBe('p:"abcdef"');
+    expect(getBlock(undone.state, id("new-0"))).toBeNull();
+    expect(getBlock(undone.state, F)?.firstChildId).toBe("p");
     expect(history.canUndo()).toBe(false);
   });
 });

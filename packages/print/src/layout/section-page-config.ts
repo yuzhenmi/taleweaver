@@ -1,7 +1,7 @@
 /**
  * @module section-page-config
  *
- * Section-level page-geometry resolution (P1.C.2b-2, Task 1).
+ * Section-level page-geometry resolution.
  *
  * A `section` block may carry page-geometry overrides in its attrs (page size,
  * margins, gap). The section component stamps those attrs into its ElementBox

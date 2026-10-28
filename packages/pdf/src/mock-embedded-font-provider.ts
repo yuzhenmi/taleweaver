@@ -1,4 +1,5 @@
 import type { ComputedStyle } from "@taleweaver/core";
+import { isSoftHyphen } from "@taleweaver/print";
 import type { PdfWriter } from "./pdf-writer";
 import {
   createStandard14FontProvider,
@@ -157,11 +158,15 @@ export function createMockEmbeddedFontProvider(opts?: {
       const data = dataFor(handle);
       const clusters: EncodedCluster[] = [];
       for (const ch of text) {
+        if (isSoftHyphen(ch)) {
+          clusters.push({ bytes: new Uint8Array(), unicode: ch, shown: false });
+          continue;
+        }
         const cp = ch.codePointAt(0) ?? 0;
         const cid = data.cmap.get(cp) ?? 0;
         // 2-byte big-endian CID (Identity-H).
         const bytes = new Uint8Array([(cid >> 8) & 0xff, cid & 0xff]);
-        clusters.push({ bytes, unicode: ch });
+        clusters.push({ bytes, unicode: ch, shown: true });
       }
       return { clusters, dropped: 0 };
     },

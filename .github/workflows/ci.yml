@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # Type-checks every package (incl. tests) and the examples.
+      - run: npm run typecheck
+
+      - run: npm run lint:boundaries
+
+      - run: npm test
+
+      # Builds publishable dist (esbuild + tsc declarations) and the examples.
+      - run: npm run build
+
+      # Imports each publishable package's built entry under plain Node ESM.
+      - run: npm run smoke:esm

@@ -16,7 +16,7 @@ import type { BreakToken, FragmentationContext } from "./fragmentation";
 import { breakTokensEqual } from "./fragmentation";
 
 /**
- * Per-page reuse fingerprint (L-PERF-C).
+ * Per-page reuse fingerprint.
  *
  * One entry per cached page. `childrenOnPage` are the cascaded render-
  * node references that fit on this page in the previous paginate cycle
@@ -89,11 +89,11 @@ function childrenMatchFingerprint(
  * Paginate a block-flow document by driving `layoutBlock` per page with the
  * previous page's breakToken as the next page's resumeFrom.
  *
- * P1.B: interleaved-with-BFC fragmentation. The fragmenter is no longer a
+ * Interleaved-with-BFC fragmentation. The fragmenter is no longer a
  * post-hoc pass over a fully-laid-out tree; it's a per-page coordinator
  * that asks the BFC to produce one page's worth of content at a time.
  *
- * **L-PERF-C — page-level reuse.** When `prevRoot` is supplied (passed
+ * **Page-level reuse.** When `prevRoot` is supplied (passed
  * from `layoutTreeIncremental`), each prospective page first consults
  * the WeakMap-cached pagination fingerprint from the previous cycle.
  * If the current `startIndex` and the children-slice references match
@@ -117,8 +117,8 @@ export function paginateRoot(
   root: ElementBox,
   ctx: LayoutContext,
   shaper: TextShaper,
-  // Auto-hyphenation (slice 2): threaded ALONGSIDE `shaper` to the per-page
-  // `layoutBlock`. `undefined` ⇒ none. Carried but UNUSED in this slice. (This
+  // Auto-hyphenation: threaded ALONGSIDE `shaper` to the per-page
+  // `layoutBlock`. `undefined` ⇒ none. (This
   // is the legacy float/`clear` fallback path; the virtual path threads it via
   // `buildVirtualPaginatedTree`.)
   hyphenator: Hyphenator | undefined,
@@ -230,7 +230,7 @@ export function paginateRoot(
       pageFlowBase,
     );
     const { box, breakToken } = result;
-    // P3.1: bake the vertical-rl block-axis mirror now that the BFC box's
+    // Bake the vertical-rl block-axis mirror now that the BFC box's
     // container block sizes are all resolved. No-op (same reference) for
     // horizontal-tb / vertical-lr, so this is byte-identical for all existing
     // content. The mirror is against the page's FULL block-size — the BFC body
@@ -253,7 +253,7 @@ export function paginateRoot(
     }
     // Wrap the BFC's BlockBox as a single page child so its (margins.inlineStart,
     // margins.blockStart) offset is preserved in the descendant coordinate
-    // system. PageBox.children are walked with parent (0, 0) per P1.A.14's
+    // system. PageBox.children are walked with parent (0, 0) per the
     // PageBox-as-frame convention; nesting the BFC under PageBox lets the
     // margin offset propagate naturally to paint and editor utilities.
     const placedChildren: readonly LayoutBox[] = physBox ? [physBox] : [];
@@ -267,11 +267,11 @@ export function paginateRoot(
       placedChildren,
       pageIndex,
       pageConfig.pageInlineSize,
-      // T1: header/footer slots default null (legacy positioned-paginate path).
-      // FN-4: footnote slot also null — footnotes flow only through the virtual
+      // Header/footer slots default null (legacy positioned-paginate path).
+      // Footnote slot also null — footnotes flow only through the virtual
       // path (float/clear docs that fall to this legacy path are out of scope).
       null, null, null,
-      // #332 region edges: this legacy path lays the body flush at the page
+      // Region edges: this legacy path lays the body flush at the page
       // content margins (no growing slot), so the body content area is exactly
       // [margins.blockStart, pageBlockSize − margins.blockEnd].
       margins.blockStart, margins.blockEnd,
@@ -336,7 +336,7 @@ export function paginateRoot(
       rootComputed, rootUsedStyle,
       [], 0, pageConfig.pageInlineSize,
       null, null, null,
-      // #332 region edges: empty defensive page uses the page content margins.
+      // Region edges: empty defensive page uses the page content margins.
       margins.blockStart, margins.blockEnd,
     ));
     pageIndex = 1;

@@ -1,6 +1,6 @@
 import type { BlockId } from "./block-id";
 import type { Block } from "./block";
-import { resolveBlock, blockCount, type State } from "./state";
+import { resolveBlock, blockCount, createWalkGuard, type State } from "./state";
 
 /**
  * Walk to the next block in document order:
@@ -18,18 +18,17 @@ export function nextBlockInDocOrder(state: State, blockId: BlockId): BlockId | n
   let cursor = block;
   // Cycle-detection bound: total block count across all three trees (main
   // `blocks`, `embedContents`, `templateContents`) via the `blockCount`
-  // Layer-1 accessor. Since C.2c T7a this helper is map-agnostic (it resolves
+  // Layer-1 accessor. This helper is map-agnostic (it resolves
   // blocks via `resolveBlock`, which checks all three trees), so a walk WITHIN
   // an embed or template body subtree (a header/footer body, footnote body) is
   // a legitimate traversal — its depth is bounded by that body's block count,
   // not the main map's. A main-map-sized bound would under-bound such a walk
   // and spuriously throw. Summing all three is a safe upper limit on the
   // distinct blocks any single doc-order traversal can visit.
-  const maxSteps = blockCount(state) + 1;
-  let steps = 0;
+  const guard = createWalkGuard(state);
   while (true) {
-    if (++steps > maxSteps) {
-      throw new Error(`nextBlockInDocOrder: cycle detected in block tree (visited >${maxSteps} blocks)`);
+    if (guard.step()) {
+      throw new Error(`nextBlockInDocOrder: cycle detected in block tree (visited >${blockCount(state) + 1} blocks)`);
     }
     if (cursor.nextSiblingId) return cursor.nextSiblingId;
     if (!cursor.parentId) return null;
@@ -58,11 +57,10 @@ export function prevBlockInDocOrder(state: State, blockId: BlockId): BlockId | n
     if (cursor === null) return null;
     // Cycle-detection bound: see nextBlockInDocOrder for the rationale
     // on why this uses the all-tree block count.
-    const maxSteps = blockCount(state) + 1;
-    let steps = 0;
+    const guard = createWalkGuard(state);
     while (cursor.lastChildId) {
-      if (++steps > maxSteps) {
-        throw new Error(`prevBlockInDocOrder: cycle detected in block tree (visited >${maxSteps} blocks)`);
+      if (guard.step()) {
+        throw new Error(`prevBlockInDocOrder: cycle detected in block tree (visited >${blockCount(state) + 1} blocks)`);
       }
       const next: Block | null = resolveBlock(state, cursor.lastChildId)?.block ?? null;
       if (next === null) break;
@@ -86,11 +84,10 @@ export function ancestorChain(state: State, blockId: BlockId): BlockId[] {
   let current: BlockId | null = blockId;
   // Cycle-detection bound: see nextBlockInDocOrder for the rationale
   // on why this uses the all-tree block count.
-  const maxSteps = blockCount(state) + 1;
-  let steps = 0;
+  const guard = createWalkGuard(state);
   while (current) {
-    if (++steps > maxSteps) {
-      throw new Error(`ancestorChain: cycle detected in block tree (visited >${maxSteps} blocks)`);
+    if (guard.step()) {
+      throw new Error(`ancestorChain: cycle detected in block tree (visited >${blockCount(state) + 1} blocks)`);
     }
     const block: Block | null = resolveBlock(state, current)?.block ?? null;
     if (block === null) {
@@ -115,11 +112,10 @@ export function firstLeafBlock(state: State, blockId: BlockId): BlockId | null {
   if (cursor === null) return null;
   // Cycle-detection bound: see nextBlockInDocOrder for the rationale
   // on why this uses the all-tree block count.
-  const maxSteps = blockCount(state) + 1;
-  let steps = 0;
+  const guard = createWalkGuard(state);
   while (cursor.firstChildId) {
-    if (++steps > maxSteps) {
-      throw new Error(`firstLeafBlock: cycle detected in block tree (visited >${maxSteps} blocks)`);
+    if (guard.step()) {
+      throw new Error(`firstLeafBlock: cycle detected in block tree (visited >${blockCount(state) + 1} blocks)`);
     }
     const next: Block | null = resolveBlock(state, cursor.firstChildId)?.block ?? null;
     if (next === null) break;
@@ -138,15 +134,35 @@ export function lastLeafBlock(state: State, blockId: BlockId): BlockId | null {
   if (cursor === null) return null;
   // Cycle-detection bound: see nextBlockInDocOrder for the rationale
   // on why this uses the all-tree block count.
-  const maxSteps = blockCount(state) + 1;
-  let steps = 0;
+  const guard = createWalkGuard(state);
   while (cursor.lastChildId) {
-    if (++steps > maxSteps) {
-      throw new Error(`lastLeafBlock: cycle detected in block tree (visited >${maxSteps} blocks)`);
+    if (guard.step()) {
+      throw new Error(`lastLeafBlock: cycle detected in block tree (visited >${blockCount(state) + 1} blocks)`);
     }
     const next: Block | null = resolveBlock(state, cursor.lastChildId)?.block ?? null;
     if (next === null) break;
     cursor = next;
   }
   return cursor.id;
+}
+
+/**
+ * The document's top-level blocks in order: the children of each of the root's
+ * sections (the root's children are always sections — the final one always exists).
+ * O(top-level blocks).
+ */
+export function topLevelBlockIds(state: State): BlockId[] {
+  const out: BlockId[] = [];
+  const guard = createWalkGuard(state);
+  for (let s = resolveBlock(state, state.rootId)?.block.firstChildId ?? null; s !== null; ) {
+    const section = resolveBlock(state, s)?.block ?? null;
+    if (section === null) break;
+    for (let c = section.firstChildId; c !== null; ) {
+      if (guard.step()) throw new Error("topLevelBlockIds: cycle in the sibling chain");
+      out.push(c);
+      c = resolveBlock(state, c)?.block.nextSiblingId ?? null;
+    }
+    s = section.nextSiblingId;
+  }
+  return out;
 }

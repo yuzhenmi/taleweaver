@@ -6,7 +6,7 @@ import {
 } from "./insert-blocks-after";
 import { getBlock, applyOperation } from "../state";
 import { STATE_INTERNAL } from "../state-internal";
-import { buildBlock, buildState, inlineContent, text } from "../../test-utils/state-builders";
+import { buildBlock, buildState, inlineContent, text, finalSectionOf } from "../../test-utils/state-builders";
 import { createTestAllocator } from "../block-id";
 import type { BlockId } from "../block-id";
 
@@ -29,7 +29,7 @@ const fixture = () =>
   });
 
 describe("insertBlocksAfter — middle insert (one block)", () => {
-  it("(a) splices one block after a middle child; parent NOT dirty", () => {
+  it("(a) splices one block after a middle child; the parent's ends are unchanged", () => {
     const state = fixture();
     const allocator = createTestAllocator("new");
     const result = insertBlocksAfter(
@@ -44,7 +44,7 @@ describe("insertBlocksAfter — middle insert (one block)", () => {
     // New block linkage: afterBlock → new → oldNext.
     const newBlock = getBlock(result.state, newId);
     expect(newBlock?.type).toBe("paragraph");
-    expect(newBlock?.parentId).toBe("doc");
+    expect(newBlock?.parentId).toBe(finalSectionOf(result.state));
     expect(newBlock?.prevSiblingId).toBe("p1");
     expect(newBlock?.nextSiblingId).toBe("p2");
 
@@ -54,9 +54,9 @@ describe("insertBlocksAfter — middle insert (one block)", () => {
     expect(getBlock(result.state, "p2" as BlockId)?.prevSiblingId).toBe(newId);
 
     // parent boundaries unchanged.
-    expect(getBlock(result.state, "doc" as BlockId)?.firstChildId).toBe("p1");
-    expect(getBlock(result.state, "doc" as BlockId)?.lastChildId).toBe("p3");
-    expect(result.dirtyIds.has("doc" as BlockId)).toBe(false);
+    expect(getBlock(result.state, finalSectionOf(result.state))?.firstChildId).toBe("p1");
+    expect(getBlock(result.state, finalSectionOf(result.state))?.lastChildId).toBe("p3");
+    expect(result.dirtyIds.has(finalSectionOf(result.state))).toBe(false);
   });
 });
 
@@ -87,16 +87,16 @@ describe("insertBlocksAfter — append after last child (three blocks)", () => {
     expect(getBlock(result.state, n2)?.nextSiblingId).toBeNull();
 
     // parent.lastChildId now the run tail; firstChildId unchanged.
-    expect(getBlock(result.state, "doc" as BlockId)?.lastChildId).toBe(n2);
-    expect(getBlock(result.state, "doc" as BlockId)?.firstChildId).toBe("p1");
+    expect(getBlock(result.state, finalSectionOf(result.state))?.lastChildId).toBe(n2);
+    expect(getBlock(result.state, finalSectionOf(result.state))?.firstChildId).toBe("p1");
 
     // parent IS dirty on append.
-    expect(result.dirtyIds.has("doc" as BlockId)).toBe(true);
+    expect(result.dirtyIds.has(finalSectionOf(result.state))).toBe(true);
 
     // sanity: all new parents → doc.
-    expect(getBlock(result.state, n0)?.parentId).toBe("doc");
-    expect(getBlock(result.state, n1)?.parentId).toBe("doc");
-    expect(getBlock(result.state, n2)?.parentId).toBe("doc");
+    expect(getBlock(result.state, n0)?.parentId).toBe(finalSectionOf(result.state));
+    expect(getBlock(result.state, n1)?.parentId).toBe(finalSectionOf(result.state));
+    expect(getBlock(result.state, n2)?.parentId).toBe(finalSectionOf(result.state));
   });
 });
 
@@ -164,7 +164,7 @@ describe("insertBlocksAfter — dirtyIds exactness", () => {
       [{ type: "paragraph", inlineContent: inlineContent([]) }],
       allocator,
     );
-    // new block, p1 (afterBlock.next rewired), p2 (oldNext.prev rewired). NOT doc.
+    // new block, p1 (afterBlock.next rewired), p2 (oldNext.prev rewired). NOT the parent.
     expect(new Set(result.dirtyIds)).toEqual(new Set(["new-0", "p1", "p2"]));
   });
 
@@ -177,8 +177,8 @@ describe("insertBlocksAfter — dirtyIds exactness", () => {
       [{ type: "paragraph", inlineContent: inlineContent([]) }],
       allocator,
     );
-    // new block, p3 (afterBlock.next rewired), doc (parent.lastChildId rewired). NOT p2.
-    expect(new Set(result.dirtyIds)).toEqual(new Set(["new-0", "p3", "doc"]));
+    // new block, p3 (afterBlock.next rewired), the final section (parent.lastChildId rewired). NOT p2.
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["new-0", "p3", finalSectionOf(result.state)]));
   });
 });
 
@@ -233,7 +233,7 @@ describe("planInsertBlocksAfter / insertBlocksAfterInTx — composition primitiv
     if (plan === null) return;
 
     // Plan captured the pre-mutation boundary.
-    expect(plan.parentId).toBe("doc");
+    expect(plan.parentId).toBe(finalSectionOf(state));
     expect(plan.afterBlockId).toBe("p1");
     expect(plan.oldNextId).toBe("p2");
     expect(plan.entries.map((e) => e.id)).toEqual(["new-0", "new-1"]);
@@ -258,12 +258,12 @@ describe("planInsertBlocksAfter / insertBlocksAfterInTx — composition primitiv
     expect(getBlock(next, n0)?.nextSiblingId).toBe(n1);
     expect(getBlock(next, n1)?.prevSiblingId).toBe(n0);
     expect(getBlock(next, n1)?.nextSiblingId).toBe("p2");
-    expect(getBlock(next, n0)?.parentId).toBe("doc");
-    expect(getBlock(next, n1)?.parentId).toBe("doc");
+    expect(getBlock(next, n0)?.parentId).toBe(finalSectionOf(next));
+    expect(getBlock(next, n1)?.parentId).toBe(finalSectionOf(next));
 
     // Middle insert: parent boundaries unchanged.
-    expect(getBlock(next, "doc" as BlockId)?.firstChildId).toBe("p1");
-    expect(getBlock(next, "doc" as BlockId)?.lastChildId).toBe("p3");
+    expect(getBlock(next, finalSectionOf(next))?.firstChildId).toBe("p1");
+    expect(getBlock(next, finalSectionOf(next))?.lastChildId).toBe("p3");
   });
 
   it("(i2) appended run rewires parent.lastChildId to the run tail", () => {
@@ -286,7 +286,7 @@ describe("planInsertBlocksAfter / insertBlocksAfterInTx — composition primitiv
     const tail = nth(plan.entries, plan.entries.length - 1, "entry").id;
     expect(getBlock(next, "p3" as BlockId)?.nextSiblingId).toBe(tail);
     expect(getBlock(next, tail)?.nextSiblingId).toBeNull();
-    expect(getBlock(next, "doc" as BlockId)?.lastChildId).toBe(tail);
+    expect(getBlock(next, finalSectionOf(next))?.lastChildId).toBe(tail);
   });
 
   it("(i3) planInsertBlocksAfter returns null for empty inits", () => {

@@ -10,8 +10,9 @@
 import { describe, it, expect } from "vitest";
 import { paintPage } from "./canvas-renderer";
 import { createPaintCache } from "./paint-cache";
-import { createInitialEditorState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, getBlock, createPosition, createSpan, render, cascadePass, type EditorConfig, type PageConfig, type EditorState, type BlockId } from "@taleweaver/core";
+import { createInitialEditorState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, createPosition, createSpan, render, cascadePass, type EditorConfig, type PageConfig, type EditorState, type BlockId } from "@taleweaver/core";
 import { layoutTree, type LayoutBox } from "./index";
+import { finalSection } from "./test-utils/final-section"; // body blocks live in the final section
 
 // Phase 0b: core's `EditorState` is geometry-free — the layout tree lives in the
 // backend driver. Build it via core's render → cascade → layout pipeline (what
@@ -55,7 +56,7 @@ function getPage0(editor: EditorState, config: EditorConfig): LayoutBox {
 }
 
 function firstChildId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = finalSection(editor.state);
   if (root === null || root.firstChildId === null) throw new Error("no first block");
   return root.firstChildId;
 }
@@ -81,7 +82,7 @@ describe("Enter at first position repaints page 0 (view-layer regression)", () =
 
     const cache = createPaintCache();
     const mount = makeSpyCtx();
-    paintPage(mount.ctx, getPage0(editor, config), [], [], [], [], CURSOR, "active", undefined, cache);
+    paintPage(mount.ctx, getPage0(editor, config), [], [], CURSOR, "active", undefined, cache);
     const mountY = welcomeY(mount.fills);
 
     // Enter at the very start, then repaint page 0 with the SAME persistent
@@ -90,7 +91,7 @@ describe("Enter at first position repaints page 0 (view-layer regression)", () =
     editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
 
     const after = makeSpyCtx();
-    paintPage(after.ctx, getPage0(editor, config), [], [], [], [], CURSOR, "active", undefined, cache);
+    paintPage(after.ctx, getPage0(editor, config), [], [], CURSOR, "active", undefined, cache);
 
     // 'Welcome' must be redrawn LOWER (it moved from line 0 to line 1).
     expect(welcomeY(after.fills)).toBeGreaterThan(mountY);

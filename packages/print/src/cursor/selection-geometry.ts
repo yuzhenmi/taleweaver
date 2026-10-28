@@ -1,12 +1,14 @@
-import { positionsEqual, spanStart, spanEnd, selectionContextOf, comparePositions } from "@taleweaver/core";
+import { positionsEqual, spanStart, spanEnd, selectionContextOf, comparePositions, createPosition } from "@taleweaver/core";
 import type { State, Span, BlockId, BlockKindResolver } from "@taleweaver/core";
 import type { LayoutBox } from "../layout/layout-node";
 import { getAtomicBoxIndex } from "./atomic-box-index";
+import { getBoundaryMarksByBlock } from "./boundary-mark-index";
+import { clipInFrame } from "./ancestor-clip";
 import type { TextShaper } from "@taleweaver/core";
 import type { TextMeasurer } from "@taleweaver/core";
 import { isTextShaper, adaptShaperToMeasurer } from "@taleweaver/core";
 import type { ComputedStyle } from "@taleweaver/core";
-import { resolvePixelPosition, type PixelPosition } from "./cursor-position";
+import { resolvePixelPosition, resolvePositionInOwnLines, type PixelPosition } from "./cursor-position";
 import {
   collectLineLeaves,
   coordOf,
@@ -37,16 +39,37 @@ export interface SelectionRect {
 }
 
 /**
- * Tolerance (px) for treating a content segment's right edge as coincident with
- * the line's right edge when fusing the paragraph-break indicator onto it.
+ * Tolerance (px) for treating a content segment's edge as touching the ¶ extension
+ * when fusing the extension onto it.
  */
 const INDICATOR_EPSILON = 1e-6;
+
+/** An interval along a line's inline axis (physical coordinates). */
+interface InlineInterval {
+  readonly lo: number;
+  readonly hi: number;
+}
+
+/**
+ * The inline-axis extent of the end-mark ¶ glyph drawn after `al` (its block's last
+ * line), or `undefined` when none is placed there. Same frame as the line index.
+ */
+function endMarkInterval(tree: LayoutBox, al: AbsoluteLineBox): InlineInterval | undefined {
+  if (!al.line.isBlockBoundaryLine) return undefined;
+  const m = getBoundaryMarksByBlock(tree)
+    .get(al.line.ownerBlockId)
+    ?.find((r) => r.pageIndex === al.pageIndex);
+  if (m === undefined) return undefined;
+  return axisMapFor(al.line.writingMode, al.line.computedStyle.direction).inline === "x"
+    ? { lo: m.x, hi: m.x + m.width }
+    : { lo: m.y, hi: m.y + m.height };
+}
 
 /**
  * Do two endpoint affinities make a same-offset span VISUALLY non-empty? At a
  * bidi direction boundary one logical offset has two visual positions, so a
  * logically-collapsed span (equal positions) is the visual dual-caret case when
- * BOTH affinities are defined AND differ (#503). Returns `false` whenever either
+ * BOTH affinities are defined AND differ. Returns `false` whenever either
  * is `undefined` (every affinity-less caller) → the byte-identical early return.
  */
 function affinitiesDiffer(
@@ -63,8 +86,7 @@ function affinitiesDiffer(
  * return an empty array — callers that need a 1px caret rect should
  * synthesize it from `resolvePixelPosition(focus)`.
  *
- * Algorithm (LineBox-canonical; see
- * `docs/superpowers/specs/2026-05-23-linebox-canonical-anchor-design.md`):
+ * Algorithm (LineBox-canonical):
  *   1. Normalize the span to (start, end) in document order.
  *   2. Resolve start and end to PixelPositions (for their X coords).
  *   3. Find the `AbsoluteLineBox` containing each via
@@ -91,7 +113,7 @@ export function computeSelectionRects(
 ): SelectionRect[] {
   const t = markStart("cursor.selection-geometry");
   try {
-    // #503: a logically-collapsed span (same offset) is VISUALLY non-empty when
+    // A logically-collapsed span (same offset) is VISUALLY non-empty when
     // the anchor and focus sit on OPPOSITE sides of a bidi direction boundary —
     // same offset, but DIFFERENT affinities (the dual-caret case). There the
     // highlight spans the two visual coords (e.g. press 4 of Shift+Arrow through
@@ -109,7 +131,7 @@ export function computeSelectionRects(
     const start = spanStart(state, span);
     const end = spanEnd(state, span);
 
-    // #503 visual-extent: map anchor/focus affinities to DOCUMENT order. The
+    // Visual-extent: map anchor/focus affinities to DOCUMENT order. The
     // start is the document-earlier endpoint; if the anchor is at-or-before the
     // focus it owns the start side (`<=0` → collapsed/same-offset returns 0 →
     // anchorIsStart = true). A `comparePositions` boolean (not `===` reference
@@ -122,11 +144,11 @@ export function computeSelectionRects(
     const endPos = resolvePixelPosition(state, end, layoutTree, measurer);
     if (startPos === null || endPos === null) return [];
 
-    // L-PERF-D: shared with cursor-position + line-navigation via the
+    // Shared with cursor-position + line-navigation via the
     // WeakMap-cached LineIndex; only the first consumer per layout
     // cycle pays the collectLineBoxes walk.
     //
-    // Context isolation (#327 companion): C.2c T6 made `.all` include the
+    // Context isolation: `.all` includes the
     // header/footer SLOT lines, so for a body span (start→end across pages) the
     // index range would otherwise enclose the interleaved slot lines between
     // pages. Filter candidate lines to the SELECTION's context (anchor and focus
@@ -158,6 +180,7 @@ export function computeSelectionRects(
         measurer,
         startAffinity,
         endAffinity,
+        endMarkInterval(layoutTree, al),
       );
       for (const r of lineRects) rects.push(r);
     }
@@ -190,17 +213,38 @@ export function computeSelectionRectsForPage(
   anchorAffinity?: CaretAffinity,
   focusAffinity?: CaretAffinity,
 ): SelectionRect[] {
+  return computeSelectionRectsForPageRange(
+    state, span, pageBox, pageIndex, startPos.pageIndex, endPos.pageIndex,
+    shaperOrMeasurer, anchorAffinity, focusAffinity,
+  );
+}
+
+/**
+ * {@link computeSelectionRectsForPage} given only the PAGE INDICES the span's
+ * start and end land on — all it reads from the resolved pixel positions. Lets a
+ * caller that already knows a block's page (e.g. from the page plan) skip the
+ * pixel-position resolution.
+ */
+export function computeSelectionRectsForPageRange(
+  state: State,
+  span: Span,
+  pageBox: LayoutBox,
+  pageIndex: number,
+  startPage: number,
+  endPage: number,
+  shaperOrMeasurer: TextShaper | TextMeasurer,
+  anchorAffinity?: CaretAffinity,
+  focusAffinity?: CaretAffinity,
+): SelectionRect[] {
   const t = markStart("cursor.selection-geometry");
   try {
-    // #503 (see `computeSelectionRects`): a logically-collapsed span is VISUALLY
+    // As in `computeSelectionRects`, a logically-collapsed span is VISUALLY
     // non-empty at a bidi boundary when the affinities differ (the dual-caret
     // case). Only short-circuit when BOTH logically and visually collapsed. Every
     // affinity-less caller keeps the byte-identical early return.
     if (positionsEqual(span.anchor, span.focus) && !affinitiesDiffer(anchorAffinity, focusAffinity)) {
       return [];
     }
-    const startPage = startPos.pageIndex;
-    const endPage = endPos.pageIndex;
     if (pageIndex < startPage || pageIndex > endPage) return [];
 
     const measurer: TextMeasurer = isTextShaper(shaperOrMeasurer)
@@ -210,13 +254,13 @@ export function computeSelectionRectsForPage(
     const start = spanStart(state, span);
     const end = spanEnd(state, span);
 
-    // #503 visual-extent: map anchor/focus affinities to DOCUMENT order (see
+    // Visual-extent: map anchor/focus affinities to DOCUMENT order (see
     // `computeSelectionRects` for the rationale on the `comparePositions` boolean).
     const anchorIsStart = comparePositions(state, span.anchor, span.focus) <= 0;
     const startAffinity = anchorIsStart ? anchorAffinity : focusAffinity;
     const endAffinity = anchorIsStart ? focusAffinity : anchorAffinity;
 
-    // Context isolation (#327 companion): on a page carrying both body and
+    // Context isolation: on a page carrying both body and
     // header/footer slot lines, the per-page index interleaves them ([header,
     // body, footer]). Filter to the SELECTION's context so a body span's lo..hi
     // range can't include this page's slot lines (and vice-versa). Single-context
@@ -247,6 +291,7 @@ export function computeSelectionRectsForPage(
         measurer,
         startAffinity,
         endAffinity,
+        endMarkInterval(pageBox, pl),
       );
       for (const r of lineRects) rects.push(r);
     }
@@ -260,8 +305,8 @@ export function computeSelectionRectsForPage(
  * Project an INLINE interval (`[inlineLo, inlineHi]` along the inline axis) plus
  * a BLOCK band (`blockLo`, extent `blockSize` along the block axis) into a TRUE
  * PHYSICAL `SelectionRect`-shaped `{x, y, width, height}` via the line's axis
- * map (I5). `SelectionRect` feeds paint directly, so unlike `PixelPosition`
- * (which stays inline/block until P3.8) it must be physical here.
+ * map. `SelectionRect` feeds paint directly, so unlike `PixelPosition`
+ * (which stays inline/block) it must be physical here.
  *
  * The inline span lands on the `am.inline` physical axis (x+width if
  * `am.inline === "x"`, else y+height); the block band lands on the `am.block`
@@ -292,22 +337,21 @@ function physicalRectFromAxes(
  * this page — so a line on a fully-enclosed middle page is neither, getting a
  * full-width rect. Returns an EMPTY array when the line contributes nothing.
  *
- * Bidi-aware (P4-C.2 §F): the partial branches (same-line, first-line,
+ * Bidi-aware: the partial branches (same-line, first-line,
  * last-line) segment the line-local logical range into its VISUAL intervals via
  * `selectionRectsForLineRange`, so a range crossing a direction boundary draws
  * >= 2 disjoint rects (never the old single `endX - startX` strip, which could
  * go NEGATIVE on a reordered line). The middle-full-line branch keeps
  * `computeLineEdges` (already direction-safe: a min/max over all leaf
- * positions). The paragraph-break indicator (after a block-boundary line) is a
- * separate small rect at the line's inline end, appended to first/middle lines.
+ * positions). A covered ¶ (a block-boundary first/middle line) adds the ¶
+ * extension (`paragraphExtension`), fused onto a content interval it touches.
  *
- * Writing-mode-aware (P3.5c §I5): all geometry below is computed in INLINE/BLOCK
+ * Writing-mode-aware: all geometry below is computed in INLINE/BLOCK
  * terms (the selected inline span + the line's block band) and projected to a
  * TRUE PHYSICAL `SelectionRect` via `physicalRectFromAxes` at the LAST step. The
  * `VisualInterval {xLo,xHi}` from `selectionRectsForLineRange` are INLINE-axis
- * intervals (P3.5a) — they are projected HERE, never re-projected in line-bidi.
- * The paragraph-break indicator is an INLINE advance, folded into the inline
- * span BEFORE projection. For h-tb the projection is identity (byte-identical).
+ * intervals — they are projected HERE, never re-projected in line-bidi.
+ * The ¶ extension is an INLINE interval, fused BEFORE projection. For h-tb the projection is identity (byte-identical).
  */
 function emitLineRect(
   al: AbsoluteLineBox,
@@ -318,14 +362,19 @@ function emitLineRect(
   measurer: TextMeasurer,
   startAffinity?: CaretAffinity,
   endAffinity?: CaretAffinity,
+  // The tracked ¶ glyph's / section label's extent at this block end, if drawn.
+  endMark?: InlineInterval,
 ): SelectionRect[] {
   const line = al.line;
   const am = axisMapFor(line.writingMode, line.computedStyle.direction);
   const { inlineLo: lineInlineLo, inlineHi: lineInlineHi, trailingStyle } =
     computeLineEdges(al, am);
-  const indicatorW = line.isBlockBoundaryLine
-    ? measurer.measureWidth("  ", trailingStyle)
-    : 0;
+  // The ¶ extension: a block-boundary line whose ¶ the selection covers
+  // (it continues past this line) paints one rect anchored at the caret paint
+  // position of (P, len), advancing along the line's base direction (RTL →
+  // leftward, vertical → down) by the two-space indicator width, widened to a drawn
+  // tracked ¶ / section label.
+  const ext = line.isBlockBoundaryLine && !isGlobalLast ? paragraphExtension(al, am, measurer, trailingStyle, endMark) : null;
 
   // The line's block band — shared by every rect emitted for this line. Both
   // are physical coords (start coords are pre-physicalized; the extent projects
@@ -333,18 +382,30 @@ function emitLineRect(
   const blockLo = lineCoordOf(al, am.block);
   const blockSize = lineSizeAlong(al, am.block);
 
-  const out: SelectionRect[] = [];
+  // Inline intervals of this line's highlight, projected to physical at the end.
+  const spans: { lo: number; hi: number }[] = [];
   const push = (inlineLo: number, inlineHi: number): void => {
-    if (inlineHi - inlineLo <= 0) return;
-    out.push(physicalRectFromAxes(am, inlineLo, inlineHi, blockLo, blockSize, al.pageIndex));
+    if (inlineHi - inlineLo > 0) spans.push({ lo: inlineLo, hi: inlineHi });
+  };
+  const done = (): SelectionRect[] => {
+    if (ext !== null) {
+      // Fused onto a content interval it touches (a pure-LTR line stays ONE rect).
+      const touching = spans.find((sp) => sp.hi >= ext.lo - INDICATOR_EPSILON && sp.lo <= ext.hi + INDICATOR_EPSILON);
+      if (touching !== undefined) {
+        touching.lo = Math.min(touching.lo, ext.lo);
+        touching.hi = Math.max(touching.hi, ext.hi);
+      } else {
+        push(ext.lo, ext.hi);
+      }
+    }
+    return spans.map((sp) => physicalRectFromAxes(am, sp.lo, sp.hi, blockLo, blockSize, al.pageIndex));
   };
 
   if (!isGlobalFirst && !isGlobalLast) {
     // Middle full line: the whole line's content (direction-safe via the
-    // min/max over leaf positions), plus the paragraph-break indicator (an
-    // inline advance past the line's inline end).
-    push(lineInlineLo, lineInlineHi + indicatorW);
-    return out;
+    // min/max over leaf positions), plus the ¶ extension.
+    push(lineInlineLo, lineInlineHi);
+    return done();
   }
 
   // Partial line — segment the line-local logical range into VISUAL intervals.
@@ -361,22 +422,14 @@ function emitLineRect(
 
   const view = buildLineBidiView(al);
   if (view.isEmpty) {
-    // Strut-only line (empty paragraph). No caret-target leaves, so the
-    // segmentation yields nothing — fall back to the line's content edges (for
-    // an empty line both collapse to the line inline-start) plus the
-    // paragraph-break indicator. This keeps the empty-paragraph narrow indicator
-    // (#169/#201). Only the first/middle lines carry the trailing indicator (an
-    // empty LAST line contributes only its collapsed content edge, i.e. nothing
-    // visible).
-    if (isGlobalFirst) {
-      push(lineInlineLo, lineInlineHi + indicatorW);
-    } else {
-      push(lineInlineLo, lineInlineHi);
-    }
-    return out;
+    // Strut-only line (empty paragraph): no caret-target leaves; its content
+    // edges collapse to the line inline-start, so only the ¶ extension shows
+    // — on a first / middle line (an empty LAST line contributes
+    // nothing visible).
+    return done();
   }
 
-  // #503 VISUAL-EXTENT path. When the keyboard supplied a bidi-boundary affinity
+  // VISUAL-EXTENT path. When the keyboard supplied a bidi-boundary affinity
   // for this line's active endpoint(s), draw the SINGLE contiguous inline interval
   // between the anchor's and focus's RESOLVED VISUAL coords — so each Shift+Arrow
   // press grows the highlight monotonically instead of the logical-range path's
@@ -390,58 +443,65 @@ function emitLineRect(
   // existing logical path below (mouse-drag, EXPAND_WORD, comment/find consumers,
   // the focus line at a clean line-start after a cross, middle full lines).
   if (isGlobalFirst && isGlobalLast && startAffinity !== undefined && endAffinity !== undefined) {
-    // Same-line selection: both endpoints land on this line. No paragraph-break
-    // indicator (same-line is the global-last line — matches the logical path).
+    // Same-line selection: both endpoints land on this line (no ¶ covered).
     const sx = inlineCoordForOffset(view, rangeStart, startAffinity, measurer);
     const ex = inlineCoordForOffset(view, rangeEnd, endAffinity, measurer);
     push(Math.min(sx, ex), Math.max(sx, ex));
-    return out;
+    return done();
   }
   if (isGlobalFirst && !isGlobalLast && startAffinity !== undefined) {
     // First line of a multi-line selection: from the anchor's resolved visual
-    // coord to the line's inline end (+ the paragraph-break indicator).
-    push(inlineCoordForOffset(view, rangeStart, startAffinity, measurer), lineInlineHi + indicatorW);
-    return out;
+    // coord to the line's inline end (+ the ¶ extension).
+    push(inlineCoordForOffset(view, rangeStart, startAffinity, measurer), lineInlineHi);
+    return done();
   }
   if (isGlobalLast && !isGlobalFirst && endAffinity !== undefined) {
     // Last line of a multi-line selection: from the line's inline start to the
-    // focus's resolved visual coord. No trailing indicator (this is the last line).
+    // focus's resolved visual coord (its ¶ is not covered).
     push(lineInlineLo, inlineCoordForOffset(view, rangeEnd, endAffinity, measurer));
-    return out;
+    return done();
   }
 
-  const segments = selectionRectsForLineRange(view, rangeStart, rangeEnd, measurer);
-
-  // The paragraph-break indicator trails a block-boundary line whenever the
-  // selection continues past it (i.e. this is NOT the global-last line). It sits
-  // at the line's inline end (`[lineInlineHi, lineInlineHi + indicatorW]`), past
-  // the logical line end — so it is bidi-agnostic. When a content segment
-  // already ends AT `lineInlineHi` (the LTR case: the trailing run reaches the
-  // line's inline end), the indicator is FUSED onto that segment so a pure-LTR
-  // line stays a SINGLE rect (byte-identical to the legacy merged strip). When
-  // no segment reaches `lineInlineHi` (e.g. an RTL trailing run, or no content
-  // at all) the indicator is emitted as its own rect at the inline end. All of
-  // this is in INLINE space; the `push` projection maps it to physical.
-  const indicatorActive = !isGlobalLast && indicatorW > 0;
-  let indicatorFused = false;
-  if (indicatorActive) {
-    for (const seg of segments) {
-      if (Math.abs(seg.xHi - lineInlineHi) <= INDICATOR_EPSILON) {
-        seg.xHi = lineInlineHi + indicatorW;
-        indicatorFused = true;
-        break;
-      }
-    }
-  }
-
-  for (const seg of segments) {
+  for (const seg of selectionRectsForLineRange(view, rangeStart, rangeEnd, measurer)) {
     push(seg.xLo, seg.xHi);
   }
-  if (indicatorActive && !indicatorFused) {
-    push(lineInlineHi, lineInlineHi + indicatorW);
-  }
+  return done();
+}
 
-  return out;
+/**
+ * The ¶ extension of a block-boundary line, in INLINE coordinates: the
+ * hanging-¶ box anchored at the caret paint position of (P, len) (bidi, the
+ * trailing-space clamp, vertical), `width("  ")` long along the base direction, widened to the
+ * drawn tracked ¶ / section label (`endMark`) when one is shown, stopped at the line end
+ * when an inline-end float shortens the line (`LineBox.endsAtFloat`) and clipped by the
+ * line's `ancestorClip`, as the glyph is (null when clipped away entirely).
+ */
+function paragraphExtension(
+  al: AbsoluteLineBox,
+  am: AxisMap,
+  measurer: TextMeasurer,
+  trailingStyle: ComputedStyle,
+  endMark: InlineInterval | undefined,
+): InlineInterval | null {
+  const w = measurer.measureWidth("  ", trailingStyle);
+  const caret = resolvePositionInOwnLines([al], createPosition(al.line.ownerBlockId, al.line.inlineOffsetEnd), measurer, "before");
+  const lo = am.inlineReversed ? caret.x - w : caret.x;
+  const hi = am.inlineReversed ? caret.x : caret.x + w;
+  let ext = endMark === undefined ? { lo, hi } : { lo: Math.min(lo, endMark.lo), hi: Math.max(hi, endMark.hi) };
+  if (al.line.endsAtFloat === true) {
+    // An inline-end float shortens the line: stop at the line end (the float's margin
+    // box), as the ¶ glyph does. The extension starts at the caret, inside the line, so
+    // keeping it within the line's span cuts only its inline-end side (either direction).
+    const start = lineCoordOf(al, am.inline);
+    ext = { lo: Math.max(ext.lo, start), hi: Math.min(ext.hi, start + lineSizeAlong(al, am.inline)) };
+  }
+  // Clipped as the ¶ glyph is: the line's ancestor clip (cell border box, column, page).
+  if (al.ancestorClip === undefined) return ext;
+  const clip = clipInFrame(al.ancestorClip, al.inverseTransform);
+  if (clip === null) return null;
+  const clo = am.inline === "x" ? clip.x0 : clip.y0;
+  const chi = am.inline === "x" ? clip.x1 : clip.y1;
+  return ext.hi <= clo || ext.lo >= chi ? null : { lo: Math.max(ext.lo, clo), hi: Math.min(ext.hi, chi) };
 }
 
 /**
@@ -503,7 +563,7 @@ function computeLineEdges(
 }
 
 /**
- * Object-selection geometry (#525). Return the `SelectionRect` (absolute physical
+ * Object-selection geometry. Return the `SelectionRect` (absolute physical
  * bbox + page) for an atomic-leaf block — the rect the host paints as the "this
  * image is selected" outline.
  *

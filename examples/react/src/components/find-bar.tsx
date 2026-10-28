@@ -14,10 +14,36 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { EditorViewHandle } from "@taleweaver/react";
-import type { EditorState, FindMatchesOptions } from "@taleweaver/print";
+import type { EditorState, FindMatchesOptions } from "@taleweaver/core";
+
+/** The find/replace surface both backends expose (print `EditorViewHandle`, digital controller). */
+export type FindHandle = Pick<
+  EditorViewHandle,
+  "findStart" | "findNext" | "findPrev" | "findClose" | "findStatus" | "replaceActive" | "replaceAll"
+>;
+
+/** Ctrl/Cmd+F → find, Ctrl/Cmd+H → replace — the same shortcut on every tab. */
+export function useFindShortcut(open: (mode: "find" | "replace") => void): void {
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key === "f") {
+        e.preventDefault();
+        open("find");
+      } else if (key === "h") {
+        e.preventDefault();
+        open("replace");
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open]);
+}
 
 /**
- * The Google-Docs-style floating find/replace bar (#433 slice 6, sub-slice B).
+ * The Google-Docs-style floating find/replace bar.
  *
  * It is a thin UI shell over the already-shipped `EditorViewHandle`: the
  * controller owns the find session (matches + activeIndex), so this component
@@ -29,7 +55,7 @@ import type { EditorState, FindMatchesOptions } from "@taleweaver/print";
  * correction #3).
  */
 export interface FindBarProps {
-  handle: EditorViewHandle;
+  handle: FindHandle;
   mode: "find" | "replace";
   onClose: () => void;
   /**

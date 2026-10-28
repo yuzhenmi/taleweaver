@@ -7,18 +7,18 @@ import { resolveActiveSection } from "./active-section";
  * `TOGGLE_SECTION_LANDSCAPE` handler — toggles the page-geometry override on
  * the SECTION at the cursor between doc-wide and LANDSCAPE (the doc-wide
  * dimensions swapped → wider + shorter pages). This is the editor surface for
- * the per-section page geometry (C.2b-2): it only SETS / CLEARS the section
+ * the per-section page geometry: it only SETS / CLEARS the section
  * block's `attrs.pageInlineSize` / `attrs.pageBlockSize`; the render→layout
  * pipeline already flows those attrs to per-section page geometry.
  *
  * No-ops (return the input `editor` unchanged, never calling `history.commit`):
  *  - `config.pageConfig === undefined` (unpaginated harness): the doc-wide dims
  *    needed to compute the landscape swap are unknown.
- *  - No active section: the cursor is in a bare doc-root document (no
- *    SECTION_BREAK has been made), so the doc-root child the focus sits under
- *    is not a `section`.
+ *  - No active section: the caret is outside the main body (a header /
+ *    footnote body). Main-body content always sits in a section (the
+ *    final section when there is no break).
  *  - The merge is a no-op (`mergeBlockAttrs` returns the same state reference):
- *    the T7 identity guard preserves the "no change → same editor reference"
+ *    the identity guard preserves the "no change → same editor reference"
  *    invariant. (`history.commit` is itself no-op-safe; this guard is about
  *    the identity invariant.)
  *
@@ -50,9 +50,9 @@ export function handleToggleSectionLandscape(
         pageBlockSize: pageConfig.pageInlineSize,
       };
 
-  const result = mergeBlockAttrs(editor.state, sectionId, incoming, config.attrRegistry);
+  const result = mergeBlockAttrs(editor.state, sectionId, incoming);
 
-  // T7 identity contract: a no-op merge returns the same state reference.
+  // the identity-no-op contract: a no-op merge returns the same state reference.
   if (result.state === editor.state) return editor;
 
   editor.history.commit(

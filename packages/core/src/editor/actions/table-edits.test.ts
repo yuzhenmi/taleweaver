@@ -3,7 +3,7 @@ import { config, createInitialEditorState, reduceEditor, createPosition, createS
 import { createEditorStateFromState } from "../editor-state";
 import type { EditorState } from "../editor-state";
 import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
-import { getBlock, getChildIds } from "../../state";
+import { getBlock, getChildIds, topLevelBlockIds } from "../../state";
 import type { BlockId, BlockInit, State } from "../../state";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
@@ -28,9 +28,9 @@ function editorWithTable(): EditorState {
   return reduceEditor(editor, { type: "INSERT_NODE", node: tableInit() }, config);
 }
 
-/** Find the table block id (first table under the doc root, depth-first by child order). */
+/** Find the table block id (first top-level table, in document order). */
 function findTableId(state: State): BlockId {
-  for (const id of getChildIds(state, state.rootId)) {
+  for (const id of topLevelBlockIds(state)) {
     if (getBlock(state, id)?.type === "table") return id;
   }
   throw new Error("no table in state");
@@ -66,8 +66,7 @@ describe("handleInsertTableRow — INSERT_TABLE_ROW (P15a.S2)", () => {
     expect(next).toBe(editor);
   });
 
-  it("no-ops on a ragged table (the degenerate carve-out — ctx.ragged gate)", () => {
-    // row0 has 2 cells, row1 has 1 cell → a grid hole → resolveTableContext.ragged = true.
+  it("a table written with a missing slot is never ragged (grid: the slot reads as an implicit cell) — the op runs", () => {
     const cell = (): BlockInit => ({ type: "table-cell", children: [{ type: "paragraph", inlineContent: { items: [] } }] });
     const ragged: BlockInit = {
       type: "table",
@@ -83,7 +82,10 @@ describe("handleInsertTableRow — INSERT_TABLE_ROW (P15a.S2)", () => {
     editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
 
     const next = reduceEditor(editor, { type: "INSERT_TABLE_ROW", position: "below" }, config);
-    expect(next).toBe(editor);
+    expect(next).not.toBe(editor);
+    const rows = getChildIds(next.state, tableId);
+    expect(rows.length).toBe(3);
+    expect(getChildIds(next.state, nth(rows, 1, "row")).length).toBe(2);
   });
 
   it("inserts a row below the caret's row; the table grows from 2 to 3 rows", () => {
@@ -156,17 +158,18 @@ describe("handleDeleteTable — DELETE_TABLE (P15a.S3)", () => {
     expect(next).toBe(editor);
   });
 
-  it("deletes the whole table; caret lands on the surviving sibling", () => {
-    // editorWithTable → doc has [seeded empty paragraph, table]; table's prev is
-    // that paragraph, so deleting it is the plain-removal path (no replacement).
+  it("deletes the whole table; caret lands on the paragraph after it", () => {
+    // editorWithTable → doc has [seeded empty paragraph, table, paragraph] (invariant I:
+    // a paragraph follows every table); the caret goes to the one after the table (Word).
     let editor = editorWithTable();
     const tableId = findTableId(editor.state);
-    const seededPara = getBlock(editor.state, editor.state.rootId)?.firstChildId ?? null;
+    // Invariant I: a paragraph always follows a table — the caret goes there (Word).
+    const seededPara = getBlock(editor.state, tableId)?.nextSiblingId ?? null;
     editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
 
     const next = reduceEditor(editor, { type: "DELETE_TABLE" }, config);
     expect(getBlock(next.state, tableId)).toBeNull();
-    // caret moved to the surviving sibling (the seeded paragraph, table's prev)
+    // caret moved to the paragraph after the table
     expect(next.selection.focus.blockId).toBe(seededPara);
   });
 
@@ -198,11 +201,10 @@ describe("handleDeleteTable — DELETE_TABLE (P15a.S3)", () => {
     expect(getBlock(undone.state, tableId)?.type).toBe("table");
   });
 
-  it("sole-child table → caret lands on the fresh replacement paragraph", () => {
-    // A document whose ONLY child is a 1×1 table (no seeded sibling paragraph).
-    // Deleting it must leave a fresh empty paragraph and place the caret there:
-    // the handler's `caretBlockId = result.newParagraphId ?? siblingId` branch
-    // where newParagraphId !== null (no surviving sibling to fall back to).
+  it("sole-child table → caret lands on the paragraph after it", () => {
+    // A document whose only authored child is a 1×1 table. Invariant I:
+    // a paragraph always follows a table, so deleting the table leaves exactly
+    // that paragraph and the caret lands on it (no replacement paragraph is minted).
     const state = buildState({
       rootId: "doc",
       blocks: [
@@ -218,13 +220,13 @@ describe("handleDeleteTable — DELETE_TABLE (P15a.S3)", () => {
 
     const next = reduceEditor(editor, { type: "DELETE_TABLE" }, config);
 
-    // table subtree gone; the body has exactly one replacement paragraph
+    // table subtree gone; the body holds exactly the trailing paragraph
     expect(getBlock(next.state, "table" as BlockId)).toBeNull();
-    const bodyChildren = getChildIds(next.state, next.state.rootId);
+    const bodyChildren = topLevelBlockIds(next.state);
     expect(bodyChildren.length).toBe(1);
     const replacement = nth(bodyChildren, 0, "block");
     expect(getBlock(next.state, replacement)?.type).toBe("paragraph");
-    // caret landed on the fresh replacement paragraph (no sibling fallback)
+    // caret landed on it
     expect(next.selection.focus.blockId).toBe(replacement);
   });
 });
@@ -245,7 +247,7 @@ describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
     expect(next).toBe(editor);
   });
 
-  it("no-ops on a ragged table (the degenerate carve-out — ctx.ragged gate)", () => {
+  it("a table written with a missing slot is never ragged (grid: the slot reads as an implicit cell) — the op runs", () => {
     const cell = (): BlockInit => ({ type: "table-cell", children: [{ type: "paragraph", inlineContent: { items: [] } }] });
     const ragged: BlockInit = {
       type: "table",
@@ -261,7 +263,8 @@ describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
     editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
 
     const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" }, config);
-    expect(next).toBe(editor);
+    expect(next).not.toBe(editor);
+    expect(getChildIds(next.state, tableId).length).toBe(1);
   });
 
   it("routes a WELL-FORMED SPANNED table to the span-aware op (P15b): a covering rowSpan shrinks + caret lands", () => {
@@ -326,7 +329,8 @@ describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_NODE", node: oneRowTableInit() }, config);
     const tableId = findTableId(editor.state);
-    const seededPara = getBlock(editor.state, editor.state.rootId)?.firstChildId ?? null;
+    // Invariant I: a paragraph always follows a table — the caret goes there (Word).
+    const seededPara = getBlock(editor.state, tableId)?.nextSiblingId ?? null;
     editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
 
     const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" }, config);
@@ -335,7 +339,7 @@ describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
     expect(next.selection.focus.blockId).toBe(seededPara);
   });
 
-  it("deleting the only row of a sole-child table → fresh replacement paragraph", () => {
+  it("deleting the only row of a sole-child table → caret on the paragraph after it (invariant I)", () => {
     const state = buildState({
       rootId: "doc",
       blocks: [
@@ -352,7 +356,7 @@ describe("handleDeleteTableRow — DELETE_TABLE_ROW (P15a.S4)", () => {
     const next = reduceEditor(editor, { type: "DELETE_TABLE_ROW" }, config);
 
     expect(getBlock(next.state, "table" as BlockId)).toBeNull();
-    const bodyChildren = getChildIds(next.state, next.state.rootId);
+    const bodyChildren = topLevelBlockIds(next.state);
     expect(bodyChildren.length).toBe(1);
     const body0 = nth(bodyChildren, 0, "block");
     expect(getBlock(next.state, body0)?.type).toBe("paragraph");
@@ -440,7 +444,7 @@ describe("handleInsertTableColumn — INSERT_TABLE_COLUMN (P15a.S5)", () => {
     expect(next).toBe(editor);
   });
 
-  it("no-ops on a ragged table (the degenerate carve-out — ctx.ragged gate)", () => {
+  it("a table written with a missing slot is never ragged (grid: the slot reads as an implicit cell) — the op runs", () => {
     const cell = (): BlockInit => ({ type: "table-cell", children: [{ type: "paragraph", inlineContent: { items: [] } }] });
     const ragged: BlockInit = {
       type: "table",
@@ -456,7 +460,8 @@ describe("handleInsertTableColumn — INSERT_TABLE_COLUMN (P15a.S5)", () => {
     editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
 
     const next = reduceEditor(editor, { type: "INSERT_TABLE_COLUMN", position: "right" }, config);
-    expect(next).toBe(editor);
+    expect(next).not.toBe(editor);
+    for (const row of getChildIds(next.state, tableId)) expect(getChildIds(next.state, row).length).toBe(3);
   });
 
   it("routes a WELL-FORMED SPANNED table to the span-aware op (P15b): a crossing colSpan grows", () => {
@@ -535,7 +540,7 @@ describe("handleDeleteTableColumn — DELETE_TABLE_COLUMN (P15a.S6)", () => {
     expect(next).toBe(editor);
   });
 
-  it("no-ops on a ragged table (the degenerate carve-out — ctx.ragged gate)", () => {
+  it("a table written with a missing slot is never ragged (grid: the slot reads as an implicit cell) — the op runs", () => {
     const cell = (): BlockInit => ({ type: "table-cell", children: [{ type: "paragraph", inlineContent: { items: [] } }] });
     const ragged: BlockInit = {
       type: "table",
@@ -551,7 +556,8 @@ describe("handleDeleteTableColumn — DELETE_TABLE_COLUMN (P15a.S6)", () => {
     editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
 
     const next = reduceEditor(editor, { type: "DELETE_TABLE_COLUMN" }, config);
-    expect(next).toBe(editor);
+    expect(next).not.toBe(editor);
+    for (const row of getChildIds(next.state, tableId)) expect(getChildIds(next.state, row).length).toBe(1);
   });
 
   it("routes a WELL-FORMED SPANNED table to the span-aware op (P15b): covering colSpan shrinks, the 1×1 at the deleted column is removed, caret lands", () => {
@@ -617,7 +623,8 @@ describe("handleDeleteTableColumn — DELETE_TABLE_COLUMN (P15a.S6)", () => {
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_NODE", node: oneRowTableInit() }, config);
     let tableId = findTableId(editor.state);
-    const seededPara = getBlock(editor.state, editor.state.rootId)?.firstChildId ?? null;
+    // Invariant I: a paragraph always follows a table — the caret goes there (Word).
+    const seededPara = getBlock(editor.state, tableId)?.nextSiblingId ?? null;
     // Delete column 0, then column 0 again: the second delete is on a 1-column
     // table → collapses the whole table.
     editor = selectInto(editor, firstCellParagraph(editor.state, tableId));
@@ -684,10 +691,9 @@ describe("handleSplitCell — SPLIT_CELL (P15b.S2)", () => {
     expect(next).toBe(editor);
   });
 
-  it("no-ops (same editor ref) on a ragged table — the degenerate carve-out (ctx.ragged gate)", () => {
-    // row0 = [A(colSpan 2), B], row1 = [C, D] → A spans cols 0–1, B lands at col 2,
-    // but row1 only fills cols 0–1 → occupancy [[A,A,B],[C,D,null]] has a HOLE at
-    // (1,2). The grid-based `ragged` flag is true, so SPLIT_CELL stays gated.
+  it("a 'holed' table is never ragged (grid: the hole reads as an implicit cell) — SPLIT_CELL runs", () => {
+    // row0 = [A(colSpan 2), B], row1 = [C, D] → A spans cols 0–1, B lands at col 2;
+    // row1's slot (1,2) reads as an implicit cell, so the table is spanned, not ragged.
     const blocks = [
       buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
       buildBlock({ id: "table", type: "table", parentId: "doc", firstChildId: "r0", lastChildId: "r1" }),
@@ -706,7 +712,9 @@ describe("handleSplitCell — SPLIT_CELL (P15b.S2)", () => {
     const caret = createPosition("Ap" as BlockId, 0);
     const editor = createEditorStateFromState(state, createSpan(caret, caret), config);
     const next = reduceEditor(editor, { type: "SPLIT_CELL" }, config);
-    expect(next).toBe(editor);
+    expect(next).not.toBe(editor);
+    expect(getBlock(next.state, "A" as BlockId)?.attrs.colSpan).toBeUndefined();
+    expect(getChildIds(next.state, "r0" as BlockId).length).toBe(3);
   });
 
   it("unmerges a colSpan-2 cell: row0 grows to 2 cells, the survivor drops its span, caret stays", () => {
@@ -799,8 +807,8 @@ describe("handleMergeCells — MERGE_CELLS (P15b.S3)", () => {
     expect(getBlock(undone.state, survivor)?.attrs.colSpan).toBeUndefined();
   });
 
-  it("no-ops (same editor ref) on a ragged table — the degenerate carve-out (ctx.ragged gate)", () => {
-    // Holed table: row0=[A(colSpan2),B], row1=[C,D] → occupancy [[A,A,B],[C,D,null]].
+  it("a 'holed' table is never ragged (grid: the hole reads as an implicit cell) — MERGE_CELLS runs", () => {
+    // Holed table: row0=[A(colSpan2),B], row1=[C,D] → occupancy [[A,A,B],[C,D,r1|c2]].
     const blocks = [
       buildBlock({ id: "doc", type: "document", firstChildId: "table", lastChildId: "table" }),
       buildBlock({ id: "table", type: "table", parentId: "doc", firstChildId: "r0", lastChildId: "r1" }),
@@ -822,6 +830,8 @@ describe("handleMergeCells — MERGE_CELLS (P15b.S3)", () => {
       config,
     );
     const next = reduceEditor(editor, { type: "MERGE_CELLS" }, config);
-    expect(next).toBe(editor);
+    expect(next).not.toBe(editor);
+    expect(getBlock(next.state, "A" as BlockId)?.attrs.colSpan).toBe(2);
+    expect(getBlock(next.state, "A" as BlockId)?.attrs.rowSpan).toBe(2);
   });
 });

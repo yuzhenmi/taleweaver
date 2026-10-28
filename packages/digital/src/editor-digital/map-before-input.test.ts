@@ -92,6 +92,7 @@ describe("mapBeforeInput — core table (2d)", () => {
     expect(mapBeforeInput(fakeInput("insertText", { data: "x" }), CTX)).toEqual({
       type: "INSERT_TEXT",
       text: "x",
+      userInput: true,
     });
   });
 
@@ -104,7 +105,7 @@ describe("mapBeforeInput — core table (2d)", () => {
       data: null,
       dataTransfer: makeClipboardData({ "text/plain": "fb" }),
     });
-    expect(mapBeforeInput(e, CTX)).toEqual({ type: "INSERT_TEXT", text: "fb" });
+    expect(mapBeforeInput(e, CTX)).toEqual({ type: "INSERT_TEXT", text: "fb", userInput: true });
   });
 
   it("insertText with null data and an ABSENT (undefined) dataTransfer → null, no throw", () => {
@@ -122,8 +123,8 @@ describe("mapBeforeInput — core table (2d)", () => {
     expect(mapBeforeInput(fakeInput("insertCompositionText", { data: "あ" }), CTX)).toBeNull();
   });
 
-  it("insertLineBreak → SPLIT_NODE", () => {
-    expect(mapBeforeInput(fakeInput("insertLineBreak"), CTX)).toEqual({ type: "SPLIT_NODE" });
+  it("insertLineBreak (Shift+Enter) → INSERT_LINE_BREAK, a soft break inside the paragraph", () => {
+    expect(mapBeforeInput(fakeInput("insertLineBreak"), CTX)).toEqual({ type: "INSERT_LINE_BREAK" });
   });
 
   it("insertParagraph → SPLIT_NODE", () => {

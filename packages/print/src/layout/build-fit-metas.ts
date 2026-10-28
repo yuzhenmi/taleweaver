@@ -1,16 +1,13 @@
-// packages/core/src/layout/build-fit-metas.ts
+// packages/print/src/layout/build-fit-metas.ts
 //
-// Build the per-block `BlockFitMeta[]` that the measure pass / fit-core consume
-// (virtualized-layout Phase 1). A meta carries the allocation-free inputs the
+// Build the per-block `BlockFitMeta[]` that the measure pass / fit-core
+// consume. A meta carries the allocation-free inputs the
 // fit-core needs to reproduce every page-break decision — margins, break
 // properties, total height, and (for leaves) per-line / per-row block-sizes.
 //
 // The metas mirror the block tree: a container block (blockquote, list, nested
 // BFC) carries recursive `children`; a leaf carries either IFC line data
 // (a paragraph) or table row data.
-//
-// Design: docs/superpowers/specs/2026-05-24-virtualized-layout-design.md
-// Plan:   docs/superpowers/plans/2026-05-24-virtualized-layout-phase1.md
 
 import type { ElementBox } from "@taleweaver/core";
 import type { LayoutBox, LineBox } from "./layout-box";
@@ -28,7 +25,7 @@ import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import type { ComputedStyle } from "@taleweaver/core";
 
 // ---------------------------------------------------------------------------
-// Incremental cache (virtualized-layout Phase 3, Task 0).
+// Incremental cache.
 //
 // `buildBlockFitMetas` is called once per measure pass (every keystroke). Each
 // call previously laid out EVERY block fresh — O(N) full unfragmented layouts —
@@ -64,7 +61,7 @@ import type { ComputedStyle } from "@taleweaver/core";
 // NOT cached: a bare inline-run group under a container synthesizes a FRESH
 // anonymous `ElementBox` each call (`ifcLeafMetaFromInlineRun`) with no stable
 // reference, so it has no usable key and is rebuilt every call. Those are rare;
-// caching them is out of scope for v1.
+// caching them is not done.
 // ---------------------------------------------------------------------------
 
 interface MetaCacheEntry {
@@ -79,7 +76,7 @@ interface MetaCacheEntry {
   readonly shaperRef: TextShaper;
   /**
    * The `Hyphenator` instance this meta was built with (hyphenator guard). The
-   * slice-4 auto producer makes line-wrapping depend on the hyphenator's break
+   * auto-hyphenation producer makes line-wrapping depend on the hyphenator's break
    * points, so a different `Hyphenator` (different breaks ⇒ different line
    * counts ⇒ different pagination) must miss the cache and rebuild even for the
    * same `ElementBox` ref + width + shaper. `undefined` ⇒ no hyphenation.
@@ -297,7 +294,7 @@ function classifyChild(
   hyphenator: Hyphenator | undefined,
   pageContentInlineSize: number,
 ): BlockFitMeta {
-  // The slice-4 auto producer makes line-wrapping hyphenation-dependent, so the
+  // The auto-hyphenation producer makes line-wrapping hyphenation-dependent, so the
   // built meta depends on the `Hyphenator` instance — it is part of the cache key
   // (alongside `child` ref + `shaper` + `width`). A swapped hyphenator yields
   // different breaks ⇒ different line counts ⇒ different pagination, so it must
@@ -376,12 +373,12 @@ function buildChildMeta(
             .filter((c): c is LayoutBox => c.type === "table-row")
             .map((row) => row.blockSize)
         : [];
-    // #487 header-repetition: the first `headerRowCount` rows repeat at the top of
-    // every continuation fragment. Read the count off the table box metadata (S2
-    // stamped `metadata.headerRowCount` from the `table` component), clamp it to
-    // the actual row count (defense — the S1 op already clamps), and reserve
+    // Header-row repetition: the first `headerRowCount` rows repeat at the top of
+    // every continuation fragment. Read the count off the table box metadata
+    // (`metadata.headerRowCount`, stamped from the `table` component), clamp it to
+    // the actual row count (defense — the set-header-rows op already clamps), and reserve
     // `headerBlockSize = Σ rowBlockSizes[0, headerRowCount)` — the prefix sum the
-    // measure AND materialize passes both read (the single source of truth, §4).
+    // measure AND materialize passes both read (the single source of truth).
     // `rowBlockSizes` already covers ALL rows because `layoutChildInWrapper` lays
     // the table unfragmented from row 0 (the N3 invariant). Absent / 0 ⇒
     // headerBlockSize 0 ⇒ byte-identical to the pre-header behavior.
@@ -435,7 +432,7 @@ function buildChildMeta(
   // `paddingBlockStart` (bfc.ts:229/350/540). `paddingBlockEnd` is added to the
   // container height after children are placed (bfc.ts:728) — already folded
   // into `totalBlockSize`; it ALSO inflates a fragmenting container's PARTIAL
-  // height (bfc.ts:299), which `fitOnePage`'s §C.6 check needs. `noBottomBoundary`
+  // height (bfc.ts:299), which `fitOnePage`'s last-fragment check needs. `noBottomBoundary`
   // (bfc.ts:224) decides whether the trailing child margin is suppressed in that
   // partial height. Border-block-width never shifts block-axis geometry in this
   // engine; it participates ONLY here, as a margin-collapse-through boundary.

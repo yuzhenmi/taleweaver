@@ -3,10 +3,10 @@ import { extractText, builtinEmbedSerializer, type EmbedSerializer } from "./ext
 import { buildBlock, buildState, text, embed, inlineContent } from "../test-utils/state-builders";
 import { createPosition, createSpan } from "./block-position";
 import type { BlockId } from "./block-id";
-import {
-  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
-  BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
-} from "./suggestions";
+import { createTestAllocator } from "./block-id";
+import type { SuggestionId } from "./suggestions";
+import { markParagraphMarkDeletion } from "./ops/merge-blocks";
+import { splitWithSuggestion } from "./ops/split-block";
 
 describe("extractText", () => {
   it("extracts text from a single text item, full range", () => {
@@ -252,34 +252,6 @@ describe("extractText — SuggestionView projection (slice 5c-ii)", () => {
     expect(extractText(state, fullSpan, builtinEmbedSerializer, "original")).toBe("keepDELtail");
   });
 
-  it("filters a break embed by view even under the default (U+FFFC) serializer", () => {
-    // doc > p( "a" + <block-join>embed</block-join> + "b" ) — the join embed is
-    // visible (→ U+FFFC) in "suggesting" but dropped in "final" (accept-all
-    // deletes the join), exercising itemVisibleInView's EMBED branch through
-    // extractText independently of builtinEmbedSerializer's ""-mapping.
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
-        buildBlock({
-          id: "p",
-          type: "paragraph",
-          parentId: "doc",
-          inlineContent: inlineContent([
-            text("a"),
-            embed("block-join-suggestion", { suggestionId: "s" }),
-            text("b"),
-          ]),
-        }),
-      ],
-    });
-    const span = createSpan(createPosition("p" as BlockId, 0), createPosition("p" as BlockId, 3));
-    // Default serializer maps the embed to U+FFFC under the literal view…
-    expect(extractText(state, span)).toBe("a￼b");
-    // …but "final" drops the join embed entirely (no U+FFFC), offsets intact.
-    expect(extractText(state, span, undefined, "final")).toBe("ab");
-  });
-
   it("a filtered-out run does not shift the offsets of later runs (span is literal-domain)", () => {
     // Sub-span starting INSIDE the deletion run (offset 8) through tail: the
     // deletion's literal offsets are still consumed, so "final" yields just the
@@ -293,32 +265,24 @@ describe("extractText — SuggestionView projection (slice 5c-ii)", () => {
 });
 
 describe("extractText — 5c-structural block-boundary merge projection", () => {
-  // Two paragraphs whose boundary carries a break-suggestion embed at the END of
-  // the FIRST block. In the view where that embed is resolved AWAY the blocks MERGE,
+  // Two paragraphs whose boundary carries a break-suggestion TAG (seeded by the
+  // real create ops). In the view where that tag is resolved AWAY the blocks MERGE,
   // so the inter-block "\n" is suppressed (the text concatenates exactly as the real
-  // mergeAdjacentBlocksInTx would: no separator, no space).
-  function twoBlocks(boundaryEmbedType: string): ReturnType<typeof buildState> {
-    return buildState({
+  // boundary removal would: no separator, no space).
+  const INPUT = { id: "s1" as SuggestionId, author: "alice", createdAt: 1 };
+
+  it("accepted JOIN (final view): merges — the inter-block \\n is suppressed", () => {
+    const base = buildState({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({
-          id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2",
-          inlineContent: inlineContent([text("Hello"), embed(boundaryEmbedType, { suggestionId: "s1" })]),
-        }),
-        buildBlock({
-          id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1",
-          inlineContent: inlineContent([text("World")]),
-        }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("Hello")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text("World")]) }),
       ],
     });
-  }
-  // p1 length = "Hello"(5) + embed(1) = 6; p2 = "World"(5).
-  const wholeSpan = createSpan(createPosition("p1" as BlockId, 0), createPosition("p2" as BlockId, 5));
-
-  it("accepted JOIN (final view): merges — the inter-block \\n is suppressed", () => {
-    const state = twoBlocks(BLOCK_JOIN_SUGGESTION_EMBED_TYPE);
-    // final: the join embed is resolved away → blocks merge → "HelloWorld".
+    const state = markParagraphMarkDeletion(base, "p1" as BlockId, INPUT).state;
+    const wholeSpan = createSpan(createPosition("p1" as BlockId, 0), createPosition("p2" as BlockId, 5));
+    // final: the join is accepted → blocks merge → "HelloWorld".
     expect(extractText(state, wholeSpan, builtinEmbedSerializer, "final")).toBe("HelloWorld");
     // original: the join is KEPT (deletion rejected) → blocks stay split.
     expect(extractText(state, wholeSpan, builtinEmbedSerializer, "original")).toBe("Hello\nWorld");
@@ -327,8 +291,18 @@ describe("extractText — 5c-structural block-boundary merge projection", () => 
   });
 
   it("rejected SPLIT (original view): merges — the inter-block \\n is suppressed", () => {
-    const state = twoBlocks(BLOCK_SPLIT_SUGGESTION_EMBED_TYPE);
-    // original: the split embed is resolved away → blocks merge → "HelloWorld".
+    const base = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("HelloWorld")]) }),
+      ],
+    });
+    const r = splitWithSuggestion(base, createPosition("p1" as BlockId, 5), createTestAllocator("n"), INPUT);
+    const state = r.state;
+    // the new head H holds "Hello" and its keyed ¶; p1 keeps "World".
+    const wholeSpan = createSpan(createPosition(r.newBlockId, 0), createPosition("p1" as BlockId, 5));
+    // original: the split is rejected → blocks merge → "HelloWorld".
     expect(extractText(state, wholeSpan, builtinEmbedSerializer, "original")).toBe("HelloWorld");
     // final: the split is KEPT (insertion accepted) → blocks stay split.
     expect(extractText(state, wholeSpan, builtinEmbedSerializer, "final")).toBe("Hello\nWorld");

@@ -10,17 +10,16 @@ import {
   assertDeleteRangeEndpoints,
   deleteRangeInTx,
   planDeleteRange,
+  seamBlockOf,
   type DeleteRangePlan,
 } from "./delete-range";
 import {
   insertTextInTx,
   planInsertText,
-  planInsertTextFullReplace,
-  planInsertTextSplitInPlace,
+  planInsertTextAt,
   type InsertTextPlan,
 } from "./insert-text";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
-import type { AttrRegistry } from "../../cascade/attr-registry";
 
 /**
  * Pre-computed mutation plan for `replaceRangeInTx`. Produced by
@@ -34,7 +33,7 @@ import type { AttrRegistry } from "../../cascade/attr-registry";
  *   - Non-collapsed span + empty text  → `{ deletePlan, insertPlan: null }`
  *     (a pure delete).
  *   - Non-collapsed + non-empty        → `{ deletePlan, insertPlan }`
- *     (delete then insert, ONE transaction — T12 atomicity).
+ *     (delete then insert, ONE transaction).
  *   - Re-collapsed-after-normalize + non-empty text → `{ deletePlan: null,
  *     insertPlan }` (logical op reduces to a plain insert at the cursor).
  *
@@ -42,20 +41,9 @@ import type { AttrRegistry } from "../../cascade/attr-registry";
  * delete-plan-null-with-empty-text no-op short-circuit BEFORE producing a
  * plan: `planReplaceRange` returns `null`, signalling the caller to no-op.
  *
- * The insert plan that FOLLOWS a `deletePlan` is computed against
- * `deletePlan.mergedItems` (the known post-delete items), NOT against `state`'s
- * stale PRE-delete snapshot — and its STRATEGY depends on what `deleteRangeInTx`
- * did to the anchor block:
- *   - after a SAME-BLOCK delete (surgical, in place — the live Y.Array survives
- *     identity-preserved, equal to `mergedItems`), `insertPlan` is `split-in-place`
- *     (`planInsertTextSplitInPlace`): a boundary/interior insert that keeps every
- *     NON-straddled run's `Y.Text` CRDT identity.
- *   - after a CROSS-BLOCK delete (still full-replaces the anchor block's Y.Array →
- *     its identity is gone), `insertPlan` is `full-replace` (`planInsertTextFullReplace`)
- *     — an in-place insert against the destroyed array would be unsafe.
- * When `deletePlan` is null (the pure-insert cases), `insertPlan` is the regular
- * `planInsertText` result (in-place or full-replace — both safe, as no prior write
- * blew away the Y.Text identity in the same transaction).
+ * The insert plan that FOLLOWS a `deletePlan` targets the deletion seam (the
+ * delete plan's grapheme-snapped `anchorOffset`) — both writes are offset ops on
+ * the anchor's inline `Y.Text`, so the insert needs no post-delete snapshot.
  */
 export interface ReplaceRangePlan {
   readonly deletePlan: DeleteRangePlan | null;
@@ -70,8 +58,8 @@ export interface ReplaceRangePlan {
  *   2. If the text is non-empty, insert it at the cursor position.
  *
  * The cursor position lands at the seam between the surviving anchor
- * prefix and the focus suffix — i.e., `{ normalized.anchor.blockId,
- * normalized.anchor.offset }` post-delete.
+ * prefix and the focus suffix — i.e., the delete plan's grapheme-snapped
+ * `anchorOffset` in the anchor block, post-delete.
  *
  * `attrs` is the formatting for the inserted text. Caller computes the
  * intended formatting (e.g., from the cursor's containing run, or a
@@ -80,7 +68,7 @@ export interface ReplaceRangePlan {
  * Returns OperationResult with dirtyIds = the set of block ids touched
  * by the composite (delete + insert) Y.Doc transaction.
  *
- * Atomicity (T12): for the non-collapsed + non-empty path, the delete
+ * Atomicity: for the non-collapsed + non-empty path, the delete
  * and insert mutations run inside a SINGLE `applyOperation` /
  * `runTransaction` boundary. A collab peer subscribing to the doc sees
  * the composite as one atomic change — there is no observable
@@ -95,35 +83,32 @@ export interface ReplaceRangePlan {
  * bounds, sibling reachability) come from `planDeleteRange`. For the
  * collapsed-insert path, errors come from `planInsertText`. After the
  * delete plan is validated, the cursor position is always valid in the
- * post-delete anchor block (the seam at `normalized.anchor.offset` is
- * within the `mergedItems` array by construction).
+ * post-delete anchor block (the seam at the plan's `anchorOffset` is within
+ * the post-delete content by construction).
  *
  * Behavior:
  *   - Collapsed span + empty text: pure no-op.
  *   - Collapsed span + non-empty text: insert only (single transaction).
  *   - Non-collapsed span + empty text: delete only (single transaction).
  *   - Non-collapsed span + non-empty text: delete + insert in ONE
- *     transaction (T12 atomicity).
+ *     transaction (atomic).
  *
  * `replaceRange` is a thin composition: `planReplaceRange` (pure
  * validate + normalize + plan) then `applyOperation(replaceRangeInTx)`.
  * The split lets `REPLACE_MATCH`/composite callers reuse the planner and
  * the in-transaction primitive — see `replaceRangeInTx`.
  *
- * `registry` (optional): an `AttrRegistry`; threaded to `deleteRange`'s
- * seam-merge and `insertText`'s run-merge so interpreters with a custom
- * per-key `equals` (e.g. a `comment` interpreter that ignores
- * `timestamp`) opt into custom adjacent-item compare semantics across
- * both phases of the composite. Omitted → deep-value compare.
+ * Attr equality (a custom per-key `equals`, e.g. a `comment` interpreter that
+ * ignores `timestamp`) comes from the attr registry bound to the doc; none bound →
+ * deep-value compare.
  */
 export function replaceRange(
   state: State,
   span: Span,
   text: string,
   attrs: ReadonlyAttrs,
-  registry?: AttrRegistry,
 ): OperationResult {
-  const plan = planReplaceRange(state, span, text, attrs, registry);
+  const plan = planReplaceRange(state, span, text, attrs);
   if (plan === null) {
     // No-op (collapsed + empty text, or re-collapsed delete with empty text).
     return { state, dirtyIds: new Set<BlockId>() };
@@ -192,7 +177,6 @@ export function planReplaceRange(
   span: Span,
   text: string,
   attrs: ReadonlyAttrs,
-  registry?: AttrRegistry,
 ): ReplaceRangePlan | null {
   const isCollapsed =
     span.anchor.blockId === span.focus.blockId &&
@@ -205,12 +189,10 @@ export function planReplaceRange(
       return null;
     }
     // Insert-only path. The cursor is just span.anchor — no normalization
-    // needed for a collapsed span. `planInsertText` validates the position
-    // and may pick an in-place plan (safe: no prior delete in this tx blew
-    // away the Y.Text identity).
+    // needed for a collapsed span. `planInsertText` validates the position.
     return {
       deletePlan: null,
-      insertPlan: planInsertText(state, span.anchor, text, attrs, registry),
+      insertPlan: planInsertText(state, span.anchor, text, attrs),
     };
   }
 
@@ -234,7 +216,7 @@ export function planReplaceRange(
   // offset / sibling-reachability checks that the legacy public
   // `deleteRange` ran. A `null` return means the span re-collapsed
   // after normalization — treat as no-op (no delete).
-  const deletePlan = planDeleteRange(state, span, registry);
+  const deletePlan = planDeleteRange(state, span);
 
   // Delete-only path (insert is a no-op because text === "").
   if (text === "") {
@@ -250,51 +232,20 @@ export function planReplaceRange(
   if (deletePlan === null) {
     return {
       deletePlan: null,
-      insertPlan: planInsertText(state, normalized.anchor, text, attrs, registry),
+      insertPlan: planInsertText(state, normalized.anchor, text, attrs),
     };
   }
 
-  // Delete + insert, ONE transaction (T12). The insertion plan is built against
-  // `deletePlan.mergedItems` — the anchor block's POST-DELETE inlineContent — NOT
-  // against `state` (whose snapshot of the anchor block is still pre-delete).
-  //
-  // The insert STRATEGY depends on what `deleteRangeInTx` did to the anchor block:
-  //   - SAME-BLOCK delete is SURGICAL (slice 1): it leaves the live Y.Array intact
-  //     and identity-preserved, equal to `mergedItems` item-for-item. So the insert
-  //     can use `planInsertTextSplitInPlace` — a boundary/interior insert that keeps
-  //     every NON-straddled run's `Y.Text` CRDT identity (the win: a RelativePosition
-  //     in a surviving run survives the replace). Read-back stays byte-identical: the
-  //     `split-in-place` applier runs `mergeAdjacentSameAttrsTextItemsInPlace`, mirroring the
-  //     full-replace path's `mergeAdjacentTextItems`.
-  //   - CROSS-BLOCK delete still FULL-REPLACES the anchor block's Y.Array, so the live
-  //     array's identity is already gone → `split-in-place`'s precondition is violated.
-  //     Keep `planInsertTextFullReplace` until cross-block delete goes surgical too.
-  const cursorOffset = normalized.anchor.offset;
-  const anchorBlockId =
-    deletePlan.mode === "same-block" ? deletePlan.blockId : deletePlan.anchorId;
-  // Thread the span's owning tree (`deletePlan.kind`, resolved by `planDeleteRange`
-  // via `resolveBlock`) into the insert plan so the composed `insertTextInTx` writes
-  // into the correct Y.Map. Both phases share the same anchor block, hence the same `kind`.
-  const insertPlan =
-    deletePlan.mode === "same-block"
-      ? planInsertTextSplitInPlace(
-          anchorBlockId,
-          deletePlan.kind,
-          deletePlan.mergedItems,
-          cursorOffset,
-          text,
-          attrs,
-          registry,
-        )
-      : planInsertTextFullReplace(
-          anchorBlockId,
-          deletePlan.kind,
-          deletePlan.mergedItems,
-          cursorOffset,
-          text,
-          attrs,
-          registry,
-        );
+  // Delete + insert, ONE transaction: after the delete the seam sits at the
+  // plan's (snapped) anchor offset of the surviving block (the focus, cross-block),
+  // so the insert targets it, in the same owning tree (`deletePlan.kind`).
+  const insertPlan = planInsertTextAt(
+    seamBlockOf(deletePlan),
+    deletePlan.kind,
+    deletePlan.anchorOffset, // the grapheme-snapped seam the delete leaves
+    text,
+    attrs,
+  );
 
   return { deletePlan, insertPlan };
 }

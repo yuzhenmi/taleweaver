@@ -11,7 +11,8 @@
  * `format-suggesting.test.ts` — they share the same helper, so this file proves
  * the cycle once on the canonical handler.
  */
-import { describe, it, expect } from "vitest";
+import { finalSectionOf } from "../../test-utils/state-builders";
+import { describe, it, expect, vi } from "vitest";
 import {
   config as directConfig,
   reduceEditor,
@@ -35,10 +36,11 @@ import {
   createSpan,
   type BlockId,
 } from "../../state";
+import { formattingSuggestionIds } from "../../state";
 
 /** The first body paragraph id under the document root. */
 function bodyParaId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = getBlock(editor.state, finalSectionOf(editor.state));
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
     throw new Error("document root has no first child paragraph");
@@ -103,7 +105,7 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
     expect(runs.length).toBeGreaterThan(0);
     // Every selected run gains the provenance id; NONE gain live bold.
     for (const run of runs) {
-      expect(run.attrs.formattingSuggestionId).toBeDefined();
+      expect(formattingSuggestionIds(run.attrs)[0]).toBeDefined();
       expect(run.attrs.bold).toBeUndefined();
     }
 
@@ -114,7 +116,7 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
     expect(nth(suggestions, 0, "suggestion").author).toBe("alice");
     expect(nth(suggestions, 0, "suggestion").proposedAttrs).toEqual({ bold: true });
     // The runs' id matches the record's id.
-    expect(nth(runs, 0, "run").attrs.formattingSuggestionId).toBe(nth(suggestions, 0, "suggestion").id);
+    expect(formattingSuggestionIds(nth(runs, 0, "run").attrs)[0]).toBe(nth(suggestions, 0, "suggestion").id);
 
     // Attr-only change → selection preserved UNCHANGED, backward DIRECTION
     // included (anchor stays at 6, focus at 0). The old code normalized to a
@@ -138,7 +140,7 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
     expect(runs.length).toBeGreaterThan(0);
     for (const run of runs) {
       expect(run.attrs.bold).toBe(true);
-      expect(run.attrs.formattingSuggestionId).toBeUndefined();
+      expect(formattingSuggestionIds(run.attrs)[0]).toBeUndefined();
     }
     expect(getSuggestions(accepted.state)).toHaveLength(0);
   });
@@ -156,7 +158,7 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
     expect(runs.length).toBeGreaterThan(0);
     for (const run of runs) {
       expect(run.attrs.bold).toBeUndefined();
-      expect(run.attrs.formattingSuggestionId).toBeUndefined();
+      expect(formattingSuggestionIds(run.attrs)[0]).toBeUndefined();
     }
     expect(getSuggestions(rejected.state)).toHaveLength(0);
   });
@@ -196,7 +198,7 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
     // Live bold still present (the removal lands only on accept).
     for (const run of textItems(next, bolded.paraId)) {
       expect(run.attrs.bold).toBe(true);
-      expect(run.attrs.formattingSuggestionId).toBeDefined();
+      expect(formattingSuggestionIds(run.attrs)[0]).toBeDefined();
     }
 
     // Accept the removal proposal → live bold is actually REMOVED. This locks the
@@ -209,7 +211,7 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
     expect(acceptedRuns.length).toBeGreaterThan(0);
     for (const run of acceptedRuns) {
       expect(run.attrs.bold).toBeUndefined();
-      expect(run.attrs.formattingSuggestionId).toBeUndefined();
+      expect(formattingSuggestionIds(run.attrs)[0]).toBeUndefined();
     }
     expect(getSuggestions(accepted.state)).toHaveLength(0);
   });
@@ -223,7 +225,7 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
     const undone = reduceEditor(suggested, { type: "UNDO" }, suggestingConfig);
     expect(getSuggestions(undone.state)).toHaveLength(0);
     for (const run of textItems(undone, paraId)) {
-      expect(run.attrs.formattingSuggestionId).toBeUndefined();
+      expect(formattingSuggestionIds(run.attrs)[0]).toBeUndefined();
       expect(run.attrs.bold).toBeUndefined();
     }
   });
@@ -234,8 +236,59 @@ describe("handleToggleStyle — suggesting mode (slice 4d-format)", () => {
 
     for (const run of textItems(next, paraId)) {
       expect(run.attrs.bold).toBe(true);
-      expect(run.attrs.formattingSuggestionId).toBeUndefined();
+      expect(formattingSuggestionIds(run.attrs)[0]).toBeUndefined();
     }
     expect(getSuggestions(next.state)).toHaveLength(0);
+  });
+});
+
+describe("handleToggleStyle — suggesting over another formatting suggestion", () => {
+  it("a second user's suggestion over the first's text does NOT shrink it; both stay independently resolvable", () => {
+    const { editor, paraId } = seededSelection(suggestingConfig);
+    const bob: EditorConfig = { ...directConfig, suggestingAuthor: "bob", now: () => 2000 };
+    const bold = reduceEditor(selectIn(editor, paraId, 0, 4, suggestingConfig), { type: "TOGGLE_STYLE", style: "bold" }, suggestingConfig);
+    const both = reduceEditor(selectIn(bold, paraId, 2, 6, bob), { type: "TOGGLE_STYLE", style: "italic" }, bob);
+    const byAuthor = (e: EditorState, author: string) => getSuggestions(e.state).find((s) => s.author === author);
+    const range = (e: EditorState, author: string) => {
+      const r = byAuthor(e, author)?.range;
+      return r === undefined || r === null ? null : [r.start.offset, r.end.offset];
+    };
+    expect(range(both, "alice")).toEqual([0, 4]);
+    expect(range(both, "bob")).toEqual([2, 6]);
+
+    const aliceId = byAuthor(both, "alice")?.id;
+    const bobId = byAuthor(both, "bob")?.id;
+    if (aliceId === undefined || bobId === undefined) throw new Error("expected both suggestions");
+    // Reject alice's, accept bob's: only bob's italic lands, only on [2,6).
+    const rejected = reduceEditor(both, { type: "REJECT_SUGGESTION", id: aliceId }, directConfig);
+    expect(range(rejected, "bob")).toEqual([2, 6]);
+    const accepted = reduceEditor(rejected, { type: "ACCEPT_SUGGESTION", id: bobId }, directConfig);
+    expect(textItems(accepted, paraId).map((r) => [r.text, r.attrs])).toEqual([
+      ["ab", {}],
+      ["cdef", { italic: true }],
+    ]);
+  });
+
+  it("with a clock that repeats (same createdAt), the later suggestion still wins — whatever the ids' order", () => {
+    for (const ids of [["0-first", "f-second"], ["f-first", "0-second"]]) {
+      const { editor, paraId } = seededSelection(suggestingConfig);
+      // The two suggestion ids are minted in the given order.
+      const queue = [...ids];
+      const real = crypto.randomUUID.bind(crypto);
+      const spy = vi.spyOn(crypto, "randomUUID").mockImplementation(() => {
+        const next = queue.shift();
+        return next === undefined ? real() : (next as ReturnType<typeof crypto.randomUUID>);
+      });
+      try {
+        const bob: EditorConfig = { ...directConfig, suggestingAuthor: "bob", now: () => 1000 };
+        const red = reduceEditor(selectIn(editor, paraId, 0, 6, suggestingConfig), { type: "SET_TEXT_COLOR", color: "red" }, suggestingConfig);
+        const blue = reduceEditor(selectIn(red, paraId, 2, 4, bob), { type: "SET_TEXT_COLOR", color: "blue" }, bob);
+        expect(getSuggestions(blue.state).map((x) => x.id).sort()).toEqual([...ids].sort());
+        const accepted = reduceEditor(blue, { type: "ACCEPT_ALL_SUGGESTIONS" }, directConfig);
+        expect(textItems(accepted, paraId).find((r) => r.text.includes("c"))?.attrs.color).toBe("blue");
+      } finally {
+        spy.mockRestore();
+      }
+    }
   });
 });

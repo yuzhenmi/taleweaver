@@ -5,7 +5,7 @@ import type { Direction } from "@taleweaver/core";
 
 /**
  * Snapshot of an IFC's wrap output for one paragraph (or anonymous block run).
- * Cached per `paragraph.key` for incremental re-wrap (Plan 3.G Task 3).
+ * Cached per `paragraph.key` for incremental re-wrap.
  *
  * On a subsequent layout, we compare the new tokens against `state.tokens`
  * to find the change point; lines unaffected by the change can be reused

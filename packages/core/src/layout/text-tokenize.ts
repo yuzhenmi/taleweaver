@@ -19,7 +19,7 @@ const MANDATORY_BREAK_RE = /\r\n|[\n\u000B\u000C\r\u0085\u2028\u2029]/;
 
 /**
  * Split a string into tokens (words and inter-word spaces) according to white-space mode.
- * Plan 1 supports only "normal". Plans 2+ add nowrap, pre, pre-wrap, pre-line,
+ * Handles normal, nowrap, pre, pre-wrap, pre-line,
  * and break-spaces (which reuses the pre-wrap tokenization).
  */
 export function tokenize(text: string, whiteSpace: WhiteSpace): string[] {
@@ -36,7 +36,7 @@ export function tokenize(text: string, whiteSpace: WhiteSpace): string[] {
         return text.length === 0 ? [] : Array(text.length).fill(" ");
       }
       const out: string[] = [];
-      // Emit ONE space token per LEADING-whitespace character (#308).
+      // Emit ONE space token per LEADING-whitespace character.
       // Symmetric with the trailing-space handling below; without this, source
       // offsets in [0, matchStart-of-first-word) are owned by no token and the
       // IFC's per-line offset cursor (`cursorOffset` in ifc.ts) never advances
@@ -125,7 +125,7 @@ export function tokenize(text: string, whiteSpace: WhiteSpace): string[] {
       // PRESERVES leading/trailing whitespace that `normal` would trim and
       // does NOT collapse runs of interior whitespace (each char becomes its
       // own " " token, e.g. " a" → [" ","a"] vs normal ["a"]). (Tab/NBSP
-      // width fidelity is out of scope for Phase 1.)
+      // width fidelity is not modelled here.)
       const segments = text.split(MANDATORY_BREAK_RE);
       const out: string[] = [];
       // `split` yields a dense array; iterate values to drop the index read.
@@ -157,7 +157,7 @@ export function tokenize(text: string, whiteSpace: WhiteSpace): string[] {
       // `split` yields a dense array; iterate values to drop the index read.
       for (const [li, line] of lines.entries()) {
         const trimmed = line.trim();
-        // First-line leading whitespace (#366 / #308-part-2): the IFC's
+        // First-line leading whitespace: the IFC's
         // second-pass lookahead in `collectInlineTokens` absorbs the leading
         // whitespace of NON-first line segments into the preceding LINE_BREAK
         // token's `sourceLength` (LINE_BREAK.sourceLength = next.matchStart -
@@ -165,7 +165,7 @@ export function tokenize(text: string, whiteSpace: WhiteSpace): string[] {
         // Only the very FIRST line lacks a preceding LINE_BREAK and thus
         // strands those source offsets. Emit one orphan " " token per leading
         // whitespace char on the first line — symmetric with the
-        // `normal`/`nowrap` γ fix at the top of this function. The IFC
+        // `normal`/`nowrap` leading-whitespace handling at the top of this function. The IFC
         // grouper's collapsing-mode arm then renders each as a zero-width unit
         // (no visible glyph) while `cursorOffset` advances over the source.
         if (li === 0) {

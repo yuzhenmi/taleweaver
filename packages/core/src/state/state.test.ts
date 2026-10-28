@@ -14,11 +14,11 @@ import {
 } from "./state";
 import { createEmptyDocument } from "./initial-state";
 import { chainDepth } from "./snapshot";
-import { runTransaction, getBlocksMap, getMetaMap, allTreeBlockCount } from "./yjs-doc";
-import { buildYBlock } from "./y-block";
+import { getMetaMap, allTreeBlockCount } from "./yjs-doc";
+import { insertChildren, writeBlockType } from "./flow-ops";
 import type { BlockId } from "./block-id";
 import type { State } from "./state";
-import { buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
+import { TEST_RESOLVER, buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
 import { insertText } from "./ops/insert-text";
 import { applyAttrsToRange } from "./ops/apply-attrs";
 import { deleteRange } from "./ops/delete-range";
@@ -26,92 +26,74 @@ import { replaceRange } from "./ops/replace-range";
 import { createPosition, createSpan } from "./block-position";
 import { STATE_INTERNAL } from "./state-internal";
 
+/** A document `root` with one empty paragraph per id. */
+function docWith(ids: readonly string[]): State {
+  return buildState({
+    rootId: "root",
+    blocks: [
+      buildBlock({ id: "root", type: "document", firstChildId: ids[0] ?? null, lastChildId: ids[ids.length - 1] ?? null }),
+      ...ids.map((pid, k) =>
+        buildBlock({
+          id: pid,
+          type: "paragraph",
+          parentId: "root",
+          prevSiblingId: ids[k - 1] ?? null,
+          nextSiblingId: ids[k + 1] ?? null,
+          inlineContent: inlineContent([]),
+        }),
+      ),
+    ],
+  });
+}
+
+/** Retype block `id` in one operation. */
+function retype(state: State, id: string, type: string) {
+  return applyOperation(state, (doc) => writeBlockType(doc, id, type));
+}
+
 describe("state", () => {
   it("createState produces a State with a Y.Doc-backed root", () => {
-    const state = createState({ rootId: "root" as BlockId });
+    const state = createState({ resolver: TEST_RESOLVER, rootId: "root" as BlockId });
     expect(state.rootId).toBe("root");
   });
 
   it("getBlock returns null for unknown ids", () => {
-    const state = createState({ rootId: "root" as BlockId });
+    const state = createState({ resolver: TEST_RESOLVER, rootId: "root" as BlockId });
     expect(getBlock(state, "missing" as BlockId)).toBeNull();
   });
 
   it("getBlock returns a frozen Block snapshot for known ids", () => {
-    const state = createState({ rootId: "root" as BlockId });
-    runTransaction(state[STATE_INTERNAL].doc, () => {
-      const blocks = getBlocksMap(state[STATE_INTERNAL].doc);
-      blocks.set("root", buildYBlock({
-        type: "document",
-        attrs: {},
-        parentId: null,
-        prevSiblingId: null,
-        nextSiblingId: null,
-        firstChildId: null,
-        lastChildId: null,
-        inlineContent: null,
-      }));
-    });
-    const snap = getBlock(state, "root" as BlockId);
+    const snap = getBlock(docWith(["p1"]), "root" as BlockId);
     expect(snap).not.toBeNull();
     expect(snap!.type).toBe("document");
     expect(Object.isFrozen(snap)).toBe(true);
   });
 
   it("rootId is read from meta map", () => {
-    const state = createState({ rootId: "root-99" as BlockId });
+    const state = createState({ resolver: TEST_RESOLVER, rootId: "root-99" as BlockId });
     expect(getMetaMap(state[STATE_INTERNAL].doc).get("rootId")).toBe("root-99");
   });
 });
 
 describe("applyOperation", () => {
   it("runs fn in a transaction and returns OperationResult with dirtyIds", () => {
-    const state = createState({ rootId: "root" as BlockId });
-    const result = applyOperation(state, () => {
-      const blocks = getBlocksMap(state[STATE_INTERNAL].doc);
-      // Standalone block (parentId null) — this test exercises only
-      // applyOperation's dirty-id capture, so a valid minimal tree keeps the
-      // dev-mode assertChainIntegrity happy without needing a parent.
-      blocks.set("p1", buildYBlock({
-        type: "paragraph",
-        attrs: {},
-        parentId: null,
-        prevSiblingId: null,
-        nextSiblingId: null,
-        firstChildId: null,
-        lastChildId: null,
-        inlineContent: { items: [] },
-      }));
+    const state = docWith(["p0"]);
+    const result = applyOperation(state, (doc) => {
+      insertChildren(doc, "root", "p0", [{ id: "p1" as BlockId, type: "paragraph", attrs: {}, inlineContent: { items: [] }, children: [] }], "block");
     });
     expect(result.dirtyIds.has("p1" as BlockId)).toBe(true);
     expect(getBlock(result.state, "p1" as BlockId)).not.toBeNull();
   });
 
   it("produces a State with a fresh SnapshotCache (snapshots reflect post-mutation state)", () => {
-    const state = createState({ rootId: "root" as BlockId });
-    applyOperation(state, () => {
-      const blocks = getBlocksMap(state[STATE_INTERNAL].doc);
-      blocks.set("p1", buildYBlock({
-        type: "paragraph",
-        attrs: {},
-        parentId: null,
-        prevSiblingId: null,
-        nextSiblingId: null,
-        firstChildId: null,
-        lastChildId: null,
-        inlineContent: { items: [] },
-      }));
-    });
-    const result = applyOperation(state, () => {
-      const blocks = getBlocksMap(state[STATE_INTERNAL].doc);
-      const yBlock = blocks.get("p1")!;
-      yBlock.set("type", "heading");
-    });
+    const state = docWith(["p1"]);
+    getBlock(state, "p1" as BlockId);
+    const result = retype(state, "p1", "heading");
     expect(getBlock(result.state, "p1" as BlockId)?.type).toBe("heading");
   });
 
   it("freshStateFromDoc returns a State referencing the same Y.Doc with a clean cache", () => {
-    const state = createState({ rootId: "root" as BlockId });
+    const state = createState({ resolver: TEST_RESOLVER, rootId: "root" as BlockId });
     const next = freshStateFromDoc(state);
     expect(next[STATE_INTERNAL].doc).toBe(state[STATE_INTERNAL].doc);
     expect(next.rootId).toBe(state.rootId);
@@ -123,7 +105,7 @@ describe("applyOperation", () => {
     // empty), `applyOperation` short-circuits and returns the literal input
     // State reference. Callers can then check `result.state === input.state`
     // as an O(1) "did anything change?" guard.
-    const state = createState({ rootId: "root" as BlockId });
+    const state = createState({ resolver: TEST_RESOLVER, rootId: "root" as BlockId });
     const result = applyOperation(state, () => {
       /* no mutations */
     });
@@ -132,41 +114,20 @@ describe("applyOperation", () => {
   });
 
   it("applyOperation creates an empty overlay layer instead of carrying forward N cached entries (S-A2)", () => {
-    // The carry-forward path before S-A2 copied every non-dirty entry
-    // from the input cache into a fresh map — O(N_cached) per mutation.
     // With overlay caching, the new cache starts empty and lazily falls
-    // through to the input cache (its base), so this allocation cost is
-    // O(dirtyIds.size) regardless of how many blocks the input cache
-    // had warmed up.
+    // through to the input cache (its base), so the allocation cost is
+    // O(dirtyIds.size) regardless of how many blocks the input cache warmed.
     //
-    // Runs with NODE_ENV=production so the dev-mode
-    // `assertNoOrphanedEmbedContent` invariant (#363) — which reads every
-    // block via `getBlock` after each `applyOperation` and would warm the
-    // fresh overlay — stays off the path. The empty-overlay property tested
-    // here is the production hot-path contract; dev-mode cache warming from
-    // invariant assertions is a separate, accepted tradeoff.
+    // Runs with NODE_ENV=production so dev-mode invariant assertions (which
+    // read every block after each `applyOperation` and would warm the fresh
+    // overlay) stay off the path.
     const origNodeEnv = (globalThis as { process?: { env?: { NODE_ENV?: string } } })
       .process?.env?.NODE_ENV;
     const proc = (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process;
     if (proc?.env !== undefined) proc.env.NODE_ENV = "production";
     try {
       const NUM_BLOCKS = 100;
-      const state = createState({ rootId: "root" as BlockId });
-      applyOperation(state, () => {
-        const blocks = getBlocksMap(state[STATE_INTERNAL].doc);
-        for (let i = 0; i < NUM_BLOCKS; i++) {
-          blocks.set(`b${i}`, buildYBlock({
-            type: "paragraph",
-            attrs: {},
-            parentId: null,
-            prevSiblingId: null,
-            nextSiblingId: null,
-            firstChildId: null,
-            lastChildId: null,
-            inlineContent: { items: [] },
-          }));
-        }
-      });
+      const state = docWith(Array.from({ length: NUM_BLOCKS }, (_, i) => `b${i}`));
       // freshStateFromDoc the cache so all ids are uncached, then warm.
       const warm = freshStateFromDoc(state);
       for (let i = 0; i < NUM_BLOCKS; i++) {
@@ -175,16 +136,11 @@ describe("applyOperation", () => {
       expect(warm[STATE_INTERNAL].snapshotCache.snapshots.block.size).toBe(NUM_BLOCKS);
 
       // Mutate a single block.
-      const tiny = applyOperation(warm, () => {
-        const yBlock = getBlocksMap(warm[STATE_INTERNAL].doc).get("b0")!;
-        yBlock.set("type", "heading");
-      });
+      const tiny = retype(warm, "b0", "heading");
       expect(tiny.dirtyIds.size).toBe(1);
 
       const newCache = tiny.state[STATE_INTERNAL].snapshotCache;
-      // The new overlay starts empty — no entries carried forward, in ANY
-      // tree (the overlay-starts-empty property is what the whole carry-forward
-      // correctness argument rests on, so assert all three sub-maps).
+      // The new overlay starts empty — no entries carried forward, in ANY tree.
       expect(newCache.snapshots.block.size).toBe(0);
       expect(newCache.snapshots.embedContent.size).toBe(0);
       expect(newCache.snapshots.templateContent.size).toBe(0);
@@ -207,83 +163,27 @@ describe("applyOperation", () => {
 
   it("survives a 15K-deep cache chain without stack overflow (S-A2 iterative read)", () => {
     // Each non-no-op applyOperation pushes a new layer onto the cache
-    // chain. A long editing session can produce tens of thousands of
-    // layers; a cold read on a deeply-buried block would blow V8's
-    // ~10K-frame stack if the chain walk were recursive. The walk is
-    // iterative; this test asserts the chain can grow well past the
-    // stack limit without throwing.
+    // chain. A cold read on a deeply-buried block would blow V8's ~10K-frame
+    // stack if the chain walk were recursive. The walk is iterative.
     const DEPTH = 15_000;
-    let state = createState({ rootId: "root" as BlockId });
-    state = applyOperation(state, () => {
-      const blocks = getBlocksMap(state[STATE_INTERNAL].doc);
-      blocks.set("cold", buildYBlock({
-        type: "paragraph",
-        attrs: {},
-        parentId: null,
-        prevSiblingId: null,
-        nextSiblingId: null,
-        firstChildId: null,
-        lastChildId: null,
-        inlineContent: { items: [] },
-      }));
-    }).state;
-    // Now build the chain: each iteration mutates a DIFFERENT id, so
-    // "cold" stays uncached on every new layer (never promoted, never
-    // invalidated above the root).
+    let state = docWith(["cold", "hot"]);
+    // Each iteration mutates a DIFFERENT id, so "cold" stays uncached on every
+    // new layer (never promoted, never invalidated above the root).
     for (let i = 0; i < DEPTH; i++) {
-      const idx = i;
-      state = applyOperation(state, () => {
-        const blocks = getBlocksMap(state[STATE_INTERNAL].doc);
-        blocks.set(`other-${idx}`, buildYBlock({
-          type: "paragraph",
-          attrs: {},
-          parentId: null,
-          prevSiblingId: null,
-          nextSiblingId: null,
-          firstChildId: null,
-          lastChildId: null,
-          inlineContent: { items: [] },
-        }));
-      }).state;
+      state = retype(state, "hot", i % 2 === 0 ? "heading" : "paragraph").state;
     }
-    // First read of "cold" from the topmost layer must walk past
-    // DEPTH+1 layers without blowing the stack.
     const snap = getBlock(state, "cold" as BlockId);
     expect(snap).not.toBeNull();
     expect(snap?.type).toBe("paragraph");
-    // #428: generous timeout — this is a heavy stress test (15K-deep chain) that
-    // asserts correctness (no stack overflow), not wall-clock. It runs ~30s in
-    // isolation but can balloon under full-suite parallel CPU contention; 120s
-    // absorbs that so the suite stays deterministically green.
+    // #428: generous timeout — heavy stress test asserting correctness, not wall-clock.
   }, 120_000);
 
   it("freshState compacts deep chains so undo/redo runs stay bounded (#273)", () => {
-    // Each undo/redo mints a freshState(state, dirtyIds). Before #273 that
-    // ONLY ever built an overlay layer — never compacted — so a long
-    // undo/redo run grew the chain without bound. Now freshState compacts at
-    // the same depth threshold applyOperation uses.
-    let state = createState({ rootId: "root" as BlockId });
-    state = applyOperation(state, () => {
-      getBlocksMap(state[STATE_INTERNAL].doc).set(
-        "root",
-        buildYBlock({
-          type: "document",
-          attrs: {},
-          parentId: null,
-          prevSiblingId: null,
-          nextSiblingId: null,
-          firstChildId: null,
-          lastChildId: null,
-          inlineContent: null,
-        }),
-      );
-    }).state;
-
+    let state = docWith(["p1"]);
     // 200 freshState calls would chain 200-deep without compaction.
     for (let i = 0; i < 200; i++) {
       state = freshState(state, new Set(["root" as BlockId]));
     }
-
     // Bounded near the compaction threshold (≤ 64), not ~201.
     expect(chainDepth(state[STATE_INTERNAL].snapshotCache)).toBeLessThanOrEqual(64);
     // ...and reads still resolve correctly after compaction + invalidation.
@@ -291,22 +191,7 @@ describe("applyOperation", () => {
   });
 
   it("freshState builds an overlay (no compaction) for a shallow chain", () => {
-    let state = createState({ rootId: "root" as BlockId });
-    state = applyOperation(state, () => {
-      getBlocksMap(state[STATE_INTERNAL].doc).set(
-        "root",
-        buildYBlock({
-          type: "document",
-          attrs: {},
-          parentId: null,
-          prevSiblingId: null,
-          nextSiblingId: null,
-          firstChildId: null,
-          lastChildId: null,
-          inlineContent: null,
-        }),
-      );
-    }).state;
+    const state = docWith(["p1"]);
     const before = chainDepth(state[STATE_INTERNAL].snapshotCache);
     const next = freshState(state, new Set(["root" as BlockId]));
     // Shallow chain → overlay path: one layer deeper, base preserved.
@@ -315,38 +200,12 @@ describe("applyOperation", () => {
   });
 
   it("preserves snapshot reference identity for unchanged blocks across applyOperation", () => {
-    const state = createState({ rootId: "root" as BlockId });
-    applyOperation(state, () => {
-      const blocks = getBlocksMap(state[STATE_INTERNAL].doc);
-      blocks.set("root", buildYBlock({
-        type: "document",
-        attrs: {},
-        parentId: null,
-        prevSiblingId: null,
-        nextSiblingId: null,
-        firstChildId: "p1" as BlockId,
-        lastChildId: "p1" as BlockId,
-        inlineContent: null,
-      }));
-      blocks.set("p1", buildYBlock({
-        type: "paragraph",
-        attrs: {},
-        parentId: "root" as BlockId,
-        prevSiblingId: null,
-        nextSiblingId: null,
-        firstChildId: null,
-        lastChildId: null,
-        inlineContent: { items: [] },
-      }));
-    });
+    const state = docWith(["p1"]);
     // Materialize snapshots into the cache.
     const rootBefore = getBlock(state, "root" as BlockId);
     const p1Before = getBlock(state, "p1" as BlockId);
     // Run an op that only touches p1.
-    const result = applyOperation(state, () => {
-      const yP1 = getBlocksMap(state[STATE_INTERNAL].doc).get("p1")!;
-      yP1.set("type", "heading");
-    });
+    const result = retype(state, "p1", "heading");
     // root is unchanged → identity preserved.
     expect(getBlock(result.state, "root" as BlockId)).toBe(rootBefore);
     // p1 was dirtied → fresh snapshot.
@@ -356,7 +215,7 @@ describe("applyOperation", () => {
 });
 
 describe("applyOperation no-op invariant across ops", () => {
-  // Per T7 step 7.3: every op that can produce a no-op input MUST return
+  // Every op that can produce a no-op input MUST return
   // `result.state === input.state` (reference equality) and an empty
   // dirtyIds set. Other ops (setBlockAttrs, setBlockType, insertBlock,
   // splitBlockAtPosition, removeBlock, mergeAdjacentBlocks,
@@ -496,7 +355,7 @@ describe("getEmbedContentIds", () => {
   });
 
   it("yields nothing when no embed contents exist", () => {
-    const state = createEmptyDocument();
+    const state = createEmptyDocument({ resolver: TEST_RESOLVER });
     expect(Array.from(getEmbedContentIds(state))).toEqual([]);
   });
 });
@@ -597,7 +456,7 @@ describe("getTemplateContentIds", () => {
   });
 
   it("yields nothing when no template contents exist", () => {
-    const state = createEmptyDocument();
+    const state = createEmptyDocument({ resolver: TEST_RESOLVER });
     expect(Array.from(getTemplateContentIds(state))).toEqual([]);
   });
 });
@@ -662,35 +521,20 @@ describe("resolveBlock", () => {
     const state = threeTreeState();
     expect(resolveBlock(state, "unknown" as BlockId)).toBeNull();
   });
-
-  it("prefers the main tree over embed/template on id collision (defensive)", () => {
-    const state = buildState({
-      rootId: "root",
-      blocks: [
-        buildBlock({ id: "root", type: "document" }),
-        buildBlock({ id: "dup", type: "paragraph", parentId: "root" }),
-      ],
-      embedContents: [buildBlock({ id: "dup", type: "fn-body" })],
-      templateContents: [buildBlock({ id: "dup", type: "header-body" })],
-    });
-    const resolved = resolveBlock(state, "dup" as BlockId);
-    expect(resolved?.kind).toBe("block");
-    expect(resolved?.block.type).toBe("paragraph");
-  });
 });
 
 describe("blockCount", () => {
   it("counts the blocks of an empty document", () => {
-    // createEmptyDocument seeds a `document` container + one `paragraph` child.
-    const state = createEmptyDocument();
-    expect(blockCount(state)).toBe(2);
+    // createEmptyDocument seeds a `document` container, its final section + one `paragraph`.
+    const state = createEmptyDocument({ resolver: TEST_RESOLVER });
+    expect(blockCount(state)).toBe(3);
   });
 
   it("sums blocks across ALL THREE trees, not just the main map", () => {
     // This is the property that makes blockCount a safe cycle-detection bound
     // for traversals that legitimately walk WITHIN an embed/template body: a
-    // main-map-only count would under-bound such a walk. 2 main + 1 embed +
-    // 1 template = 4.
+    // main-map-only count would under-bound such a walk. 3 main (root, final
+    // section, p1) + 2 embed + 2 template (each childless body's one ¶) = 7.
     const state = buildState({
       rootId: "root",
       blocks: [
@@ -700,7 +544,7 @@ describe("blockCount", () => {
       embedContents: [buildBlock({ id: "fn", type: "fn-body" })],
       templateContents: [buildBlock({ id: "hdr", type: "header-body" })],
     });
-    expect(blockCount(state)).toBe(4);
+    expect(blockCount(state)).toBe(7);
   });
 
   it("delegates to allTreeBlockCount (same value, Y.Doc hidden behind Layer 1)", () => {

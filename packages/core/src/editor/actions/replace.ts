@@ -33,7 +33,7 @@ function attrsAtMatchStart(editor: EditorState, match: TextMatch): ReadonlyAttrs
  * lands at the seam (replaceRange's contract: end of the inserted text).
  *
  * The HOST recomputes find matches afterward (offsets shifted) and advances the
- * active index — that find-session bookkeeping is the host's job (brief D7), not
+ * active index — that find-session bookkeeping is the host's job, not
  * the engine's.
  */
 export function handleReplaceMatch(
@@ -50,7 +50,7 @@ export function handleReplaceMatch(
   const attrs = attrsAtMatchStart(editor, match);
   const result = replaceRange(editor.state, span, replacement, attrs);
 
-  // No-op identity contract (#141): a no-op op returns the same state reference.
+  // No-op identity contract: a no-op op returns the same state reference.
   if (result.state === editor.state) return editor;
 
   // Cursor at the seam: start offset + replacement length (replaceRange's
@@ -70,7 +70,7 @@ export function handleReplaceMatch(
 
 /**
  * REPLACE_ALL — replace EVERY match in `matches` with `replacement` in ONE undo
- * step (brief D5). Plans the per-block batch (`planReplaceMatches`), applies it
+ * step. Plans the per-block batch (`planReplaceMatches`), applies it
  * in a single `applyOperation` (`applyReplaceAllPlan`), and collapses the cursor
  * to the start of the first affected block's first replacement (deterministic +
  * always valid).
@@ -89,14 +89,14 @@ export function handleReplaceAll(
   const plan = planReplaceMatches(editor.state, matches, replacement);
   const result = applyReplaceAllPlan(editor.state, plan);
 
-  // No-op identity contract (#141).
+  // No-op identity contract.
   if (result.state === editor.state) return editor;
 
   // Cursor: collapse to the start of the FIRST affected block's first
   // replacement (the document-first block in `blockWrites`, which preserves
-  // first-seen block order from the document-ordered `matches`). The first
-  // match in that block has the smallest start (matches are ascending), so the
-  // seam is its `start`.
+  // first-seen block order from the document-ordered `matches`). Replacements are
+  // descending, so the block's first is its LAST; its `start` is the seam (where a
+  // removed bookmark's start marker was).
   // `matches.length > 0` (guarded above) and a non-no-op result mean the plan
   // wrote to at least one block, so the first block-write is always present.
   const firstWrite = plan.blockWrites[0];
@@ -106,8 +106,8 @@ export function handleReplaceAll(
     );
   }
   const firstBlockId = firstWrite.blockId;
-  const firstMatchStart = matches.find((m) => m.blockId === firstBlockId)?.start ?? 0;
-  const newCursor = createPosition(firstBlockId, firstMatchStart);
+  const seam = firstWrite.replacements[firstWrite.replacements.length - 1]?.start ?? 0;
+  const newCursor = createPosition(firstBlockId, seam);
   const newSelection = createSpan(newCursor, newCursor);
 
   editor.history.commit(result, { before: selectionBefore, after: newSelection });

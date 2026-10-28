@@ -1,5 +1,5 @@
 /**
- * Object-delete wiring (#525 T7). An object selection is a COLLAPSED `Selection`
+ * Object-delete wiring. An object selection is a COLLAPSED `Selection`
  * on an atomic-leaf block (`{ blockId, 0 }`). DELETE_FORWARD / DELETE_BACKWARD
  * on an object selection remove the selected image AS A UNIT (Google Docs) via
  * `deleteObjectSelection` — a hard `removeBlock` in BOTH direct and suggesting
@@ -20,7 +20,7 @@ import {
   createSpan,
   asBlockId,
 } from "../../state";
-import type { BlockId, Selection, State } from "../../state";
+import type { Selection, State } from "../../state";
 import { isObjectSelection } from "../../cursor/object-selection";
 import {
   buildState,
@@ -107,15 +107,7 @@ function editorFrom(state: State, cfg: EditorConfig): EditorState {
   return editor;
 }
 
-function blockLengthOf(state: State, id: BlockId): number {
-  const b = getBlock(state, id);
-  if (b === null || b.inlineContent === null) return 0;
-  return b.inlineContent.items
-    .map((it) => (it.kind === "text" ? it.text.length : 1))
-    .reduce((a, n) => a + n, 0);
-}
-
-describe("DELETE_FORWARD / DELETE_BACKWARD on an object selection (#525 T7)", () => {
+describe("DELETE_FORWARD / DELETE_BACKWARD on an object selection", () => {
   it("DELETE_FORWARD removes the image and lands the caret at the following block's start", () => {
     const editor = editorFrom(standardDoc(), config);
 
@@ -155,16 +147,17 @@ describe("DELETE_FORWARD / DELETE_BACKWARD on an object selection (#525 T7)", ()
     expect(next.selection.focus.offset).toBe(0);
   });
 
-  it("DELETE_BACKWARD on a LAST-block image lands the caret at the preceding block's end", () => {
+  it("DELETE_BACKWARD on an image authored LAST lands the caret on the paragraph invariant I put after it", () => {
+    // Invariant I: a paragraph always follows an object, so an image is
+    // never the body's last block — the caret goes to that paragraph's start.
     const editor = editorFrom(imageLastDoc(), config);
-    const precedingLen = blockLengthOf(editor.state, PARA_ID);
+    const after = getBlock(editor.state, IMAGE_ID)?.nextSiblingId ?? null;
+    expect(after).not.toBeNull();
 
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
 
     expect(getBlock(next.state, IMAGE_ID)).toBeNull();
-    expect(next.selection.focus.blockId).toBe(PARA_ID);
-    expect(next.selection.focus.offset).toBe(precedingLen);
-    expect(precedingLen).toBe("above".length);
+    expect(next.selection.focus).toEqual({ blockId: after, offset: 0 });
   });
 
   it("SUGGESTING MODE: object DELETE_BACKWARD HARD-removes the image (not soft-deleted)", () => {

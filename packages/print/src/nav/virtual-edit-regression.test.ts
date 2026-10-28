@@ -35,6 +35,7 @@ import {
   type NavCtx,
   type MakeNavEditorOptions,
 } from "./nav-test-helpers";
+import { finalSection } from "../test-utils/final-section"; // body blocks live in the final section
 
 const PAGE_OPTS: MakeNavEditorOptions = {
   containerWidth: 800,
@@ -88,7 +89,7 @@ function paintFrame(ctx: NavCtx): LayoutBox | VirtualLayoutTree {
 }
 
 function firstBlockIdOf(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = finalSection(editor.state);
   if (root === null || root.firstChildId === null) throw new Error("no first block");
   return root.firstChildId;
 }

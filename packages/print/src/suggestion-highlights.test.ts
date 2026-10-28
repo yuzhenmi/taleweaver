@@ -21,18 +21,18 @@ import {
   paintCanvas,
   paintPage,
   createPaintCache,
-  SUGGESTION_HIGHLIGHT_FILL,
-  ACTIVE_SUGGESTION_HIGHLIGHT_FILL,
-  COMMENT_HIGHLIGHT_FILL,
   createEditorController,
-  type SuggestionHighlightRect,
 } from "./index";
 import * as core from "@taleweaver/core";
 import * as printPkg from "./index";
+import { commentBand, suggestionBand, type TestBand } from "./test-utils/highlight-bands";
+import { finalSection } from "./test-utils/final-section"; // body blocks live in the final section
+
+const { SUGGESTION_HIGHLIGHT_FILL, ACTIVE_SUGGESTION_HIGHLIGHT_FILL, COMMENT_HIGHLIGHT_FILL } = core;
 
 type Op =
   | { kind: "fillRect"; x: number; y: number; w: number; h: number; fillStyle: string }
-  | { kind: "fillText"; text: string; x: number; y: number; fillStyle: string }
+  | { kind: "fillText"; text: string; x: number; y: number; fillStyle: string; font: string }
   | { kind: "clearRect"; x: number; y: number; w: number; h: number };
 
 interface SpyCtx extends CanvasRenderingContext2D {
@@ -53,8 +53,8 @@ function createSpyCtx(): SpyCtx {
     fillRect(this: { fillStyle: string }, x: number, y: number, w: number, h: number) {
       ops.push({ kind: "fillRect", x, y, w, h, fillStyle: this.fillStyle });
     },
-    fillText(this: { fillStyle: string }, text: string, x: number, y: number) {
-      ops.push({ kind: "fillText", text, x, y, fillStyle: this.fillStyle });
+    fillText(this: { fillStyle: string; font: string }, text: string, x: number, y: number) {
+      ops.push({ kind: "fillText", text, x, y, fillStyle: this.fillStyle, font: this.font });
     },
     measureText: (t: string) => ({ width: t.length * 8 } as TextMetrics),
     setTransform() {
@@ -84,7 +84,7 @@ const suggestingConfig: core.EditorConfig = {
 
 /** The first body paragraph id under the document root. */
 function bodyParaId(editor: core.EditorState): core.BlockId {
-  const root = core.getBlock(editor.state, editor.state.rootId);
+  const root = finalSection(editor.state);
   const id = root?.firstChildId;
   if (id === undefined || id === null) throw new Error("no paragraph block");
   return id;
@@ -105,7 +105,7 @@ function seededSuggestion(text: string): { editor: core.EditorState; suggestionI
   let editor = core.createInitialEditorState(suggestingConfig);
   editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text }, suggestingConfig);
   const suggestions = core.getSuggestions(editor.state);
-  const live = suggestions.find((s) => !s.orphaned);
+  const live = suggestions[0];
   if (live === undefined) throw new Error("no live suggestion minted");
   return { editor, suggestionId: live.id };
 }
@@ -197,7 +197,7 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
       suggestingConfig,
     );
     editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "world" }, suggestingConfig);
-    const suggestions = core.getSuggestions(editor.state).filter((s) => !s.orphaned);
+    const suggestions = core.getSuggestions(editor.state);
     expect(suggestions.length).toBeGreaterThanOrEqual(2);
     const [s1, s2] = suggestions;
     if (s1 === undefined || s2 === undefined) throw new Error("expected two suggestions");
@@ -214,6 +214,83 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
     expect(inactive.length).toBeGreaterThan(0);
     expect(active.length).toBeGreaterThan(0);
 
+    controller.destroy();
+  });
+
+  it("stacked formatting suggestions: composite preview glyphs + one band per suggestion; accept / undo of one keeps the other", () => {
+    const base = { ...suggestingConfig, suggestingAuthor: null };
+    const alice = { ...suggestingConfig, suggestingAuthor: "alice", now: () => 1 };
+    const bob = { ...suggestingConfig, suggestingAuthor: "bob", now: () => 2 };
+    let editor = core.reduceEditor(core.createInitialEditorState(base), { type: "INSERT_TEXT", text: "abcdefgh" }, base);
+    const paraId = bodyParaId(editor);
+    const select = (a: number, b: number): core.EditorAction => ({
+      type: "SET_SELECTION",
+      selection: core.createSpan(core.createPosition(paraId, a), core.createPosition(paraId, b)),
+    });
+    editor = core.reduceEditor(core.reduceEditor(editor, select(0, 4), alice), { type: "TOGGLE_STYLE", style: "bold" }, alice);
+    editor = core.reduceEditor(core.reduceEditor(editor, select(2, 6), bob), { type: "TOGGLE_STYLE", style: "italic" }, bob);
+    const ids = core.getSuggestions(editor.state).map((x) => x.id);
+    const [a, b] = ids;
+    if (a === undefined || b === undefined) throw new Error("expected two suggestions");
+
+    const { container, lastCtx } = mount();
+    let current = editor;
+    let controller: ReturnType<typeof createEditorController> | null = null;
+    const dispatch = (action: core.EditorAction): void => {
+      current = core.reduceEditor(current, action, base);
+      controller?.update(current);
+    };
+    controller = createEditorController(container, { measurer, dispatch, config: base });
+    controller.update(current);
+    const glyphLook = (ch: string): [boolean, boolean, string] => {
+      const op = [...(lastCtx()?._ops ?? [])].reverse().find((o) => o.kind === "fillText" && o.text.includes(ch));
+      if (op === undefined || op.kind !== "fillText") throw new Error(`no glyph ${ch}`);
+      return [/\bbold\b/.test(op.font), /\bitalic\b/.test(op.font), op.fillStyle];
+    };
+    const aliceTint = glyphLook("a")[2];
+    const bobTint = glyphLook("e")[2];
+    expect(bobTint).not.toBe(aliceTint);
+    expect(glyphLook("a")).toEqual([true, false, aliceTint]);
+    expect(glyphLook("c")).toEqual([true, true, bobTint]); // composite; newest author tints
+    expect(glyphLook("e")).toEqual([false, true, bobTint]);
+    expect(glyphLook("g")[0]).toBe(false);
+
+    controller.setSuggestionHighlights(ids.map((suggestionId) => ({ suggestionId, active: false })));
+    // A's band over "abcd" and B's over "cdef" (8px glyphs, one rect per run piece):
+    // the overlap "cd" is banded once per suggestion.
+    const bands = suggestionOps(lastCtx()).inactive.map((o) => (o.kind === "fillRect" ? [o.x, o.w] : []));
+    expect(bands).toEqual([[0, 16], [16, 16], [16, 16], [32, 16]]);
+
+    dispatch({ type: "ACCEPT_SUGGESTION", id: b });
+    expect(core.getSuggestions(current.state).map((x) => x.id)).toEqual([a]);
+    expect(glyphLook("c")).toEqual([true, true, aliceTint]);
+    expect(glyphLook("e")[1]).toBe(true);
+    dispatch({ type: "UNDO" });
+    expect(core.getSuggestions(current.state).map((x) => x.id).sort()).toEqual([a, b].sort());
+    expect(glyphLook("c")).toEqual([true, true, bobTint]);
+    controller.destroy();
+  });
+
+  it("an embed-only formatting suggestion (a tab) is banded", () => {
+    const base = { ...suggestingConfig, suggestingAuthor: null };
+    let editor = core.reduceEditor(core.createInitialEditorState(base), { type: "INSERT_TEXT", text: "ab" }, base);
+    editor = core.reduceEditor(editor, { type: "INSERT_TAB" }, base);
+    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "cd" }, base);
+    const paraId = bodyParaId(editor);
+    const tabOnly = core.createSpan(core.createPosition(paraId, 2), core.createPosition(paraId, 3));
+    editor = core.reduceEditor(editor, { type: "SET_SELECTION", selection: tabOnly }, suggestingConfig);
+    editor = core.reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" }, suggestingConfig);
+    const [only] = core.getSuggestions(editor.state);
+    if (only === undefined) throw new Error("expected a suggestion");
+    expect(only.range?.start.offset).toBe(2);
+
+    const { container, lastCtx } = mount();
+    const controller = createEditorController(container, { measurer, dispatch: vi.fn() });
+    controller.update(editor);
+    controller.setSuggestionHighlights([{ suggestionId: only.id, active: false }]);
+    const bands = suggestionOps(lastCtx()).inactive;
+    expect(bands.length).toBe(1);
+    expect(bands[0]?.kind === "fillRect" ? [bands[0].x, bands[0].w > 0] : null).toEqual([16, true]);
     controller.destroy();
   });
 
@@ -328,7 +405,7 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
     const comments = [
       { x: 0, y: 0, width: 24, height: RUN_HEIGHT, pageIndex: 0, commentId: "c1" as core.CommentId, active: false },
     ];
-    paintCanvas(ctx, run, [], [], comments, suggestions, { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
+    paintCanvas(ctx, run, [], [...suggestions.map(suggestionBand), ...comments.map(commentBand)], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
 
     const suggestion = ctx._ops.findIndex(isSuggestionInactive);
     const comment = ctx._ops.findIndex(isComment);
@@ -429,20 +506,20 @@ describe("suggestion-highlight overlay — incremental clear/erase (slice 6)", (
     const cache = createPaintCache();
     const page = makePageR();
     const OLD_RECT = { x: 5, y: 7, width: 24, height: RUN_HEIGHT_R };
-    const suggestions: SuggestionHighlightRect[] = [
-      { ...OLD_RECT, pageIndex: 0, suggestionId: "s1" as core.SuggestionId, active: false },
+    const suggestions: TestBand[] = [
+      { ...OLD_RECT, pageIndex: 0, active: false },
     ];
 
     // Frame 1: paint WITH a suggestion highlight so the PaintCache records its rect.
-    paintPage(ctx, page, [], [], [], suggestions, null, "hidden", undefined, cache);
-    expect(cache.getLastSuggestionHighlightRects()).not.toBeNull();
+    paintPage(ctx, page, [], suggestions.map(suggestionBand), null, "hidden", undefined, cache);
+    expect(cache.getLastDecorationRects()).not.toBeNull();
     expect(ctx._ops.filter(isSuggestionInactive)).toHaveLength(1);
 
     // Frame 2: SAME (reference-equal) layout tree, but suggestion highlights cleared to
     // []. The only thing that changed is the highlight set → the repaint MUST be
     // driven purely by addSuggestionHighlightDirty dirtying the OLD rect.
     ctx._ops.length = 0;
-    const dirty = paintPage(ctx, page, [], [], [], [], null, "hidden", undefined, cache);
+    const dirty = paintPage(ctx, page, [], [], null, "hidden", undefined, cache);
 
     // The OLD suggestion-highlight rect's region was dirtied (so it gets erased)...
     expect(
@@ -460,6 +537,6 @@ describe("suggestion-highlight overlay — incremental clear/erase (slice 6)", (
     // No new suggestion band is painted after the clear.
     expect(ctx._ops.filter((o) => isSuggestionInactive(o) || isSuggestionActive(o))).toHaveLength(0);
     // Cache forgot the old rects (curr=[] recorded).
-    expect(cache.getLastSuggestionHighlightRects()).toEqual([]);
+    expect(cache.getLastDecorationRects()).toEqual([]);
   });
 });

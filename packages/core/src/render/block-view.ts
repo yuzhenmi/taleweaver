@@ -1,3 +1,4 @@
+import type { BookmarkRange } from "../state";
 import type { BlockId, ReadonlyAttrs, InlineContent, State, SuggestionView } from "../state";
 import type { ComputedStyle } from "../styles";
 import type { CounterValue } from "../numbering/types";
@@ -67,14 +68,14 @@ export interface RenderContext {
    * within a numbering scope (e.g. a list-item within its listId), or undefined
    * if the block has no counter / the scope isn't numbered this cycle. OPTIONAL
    * so existing stubs and the not-yet-wired path remain valid; the production
-   * factory (makeRenderContext) supplies it in a later task. Lists are the first
+   * factory (makeRenderContext) always supplies it. Lists are the first
    * consumer; custom numbered components consume the same API.
    */
   counterValue?(scopeKey: string, blockId: BlockId): CounterValue | undefined;
   /**
-   * The change-tracking preview view for this render cycle (slice 5c-iii). Drives
+   * The change-tracking preview view for this render cycle. Drives
    * `expandInlineItems`' projection of pending suggestions: `"suggesting"`
-   * (default) shows the literal document with the 5a/5b suggestion visuals;
+   * (default) shows the literal document with the suggestion visuals;
    * `"final"` renders as if all suggestions were ACCEPTED (deletion runs + join
    * pilcrows dropped, formatting `proposedAttrs` applied for real, NO suggestion
    * decoration); `"original"` as if all were REJECTED (insertion runs + split
@@ -83,4 +84,10 @@ export interface RenderContext {
    * production factory `makeRenderContext` always supplies it.
    */
   suggestionView?: SuggestionView;
+  /**
+   * The paired range of bookmark `bookmarkId` this cycle (the cross-reference
+   * index's `bookmarks`), or undefined when it is broken / absent. OPTIONAL so
+   * stubs read every cross-reference as broken.
+   */
+  bookmarkRange?(bookmarkId: string): BookmarkRange | undefined;
 }

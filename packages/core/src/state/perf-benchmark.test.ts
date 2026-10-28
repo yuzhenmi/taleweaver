@@ -18,49 +18,31 @@
  * clean enough to gate on a ratio).
  */
 import { describe, it, expect } from "vitest";
-import { createState, getBlock } from "./state";
+import { getBlock } from "./state";
 import type { State } from "./state";
-import { getBlocksMap, runTransaction } from "./yjs-doc";
-import { buildYBlock } from "./y-block";
 import { setBlockAttrs } from "./ops/set-block-attrs";
 import type { BlockId } from "./block-id";
-import { STATE_INTERNAL } from "./state-internal";
+import { buildBlock, buildState, inlineContent } from "../test-utils/state-builders";
 
-/** Build a flat N-paragraph document (root + N empty paragraphs). */
+/** A flat N-paragraph document: root + empty paragraphs p-0 … p-(n-1). */
 function buildFlatDoc(n: number): State {
-  const state = createState({ rootId: "root" as BlockId });
-  runTransaction(state[STATE_INTERNAL].doc, () => {
-    const yBlocks = getBlocksMap(state[STATE_INTERNAL].doc);
-    yBlocks.set(
-      "root",
-      buildYBlock({
-        type: "document",
-        attrs: {},
-        parentId: null,
-        prevSiblingId: null,
-        nextSiblingId: null,
-        firstChildId: "p-0" as BlockId,
-        lastChildId: `p-${n - 1}` as BlockId,
-        inlineContent: null,
-      }),
-    );
-    for (let i = 0; i < n; i++) {
-      yBlocks.set(
-        `p-${i}` as BlockId,
-        buildYBlock({
+  const ids = Array.from({ length: n }, (_, i) => `p-${i}`);
+  return buildState({
+    rootId: "root",
+    blocks: [
+      buildBlock({ id: "root", type: "document", firstChildId: ids[0] ?? null, lastChildId: ids[n - 1] ?? null }),
+      ...ids.map((id, i) =>
+        buildBlock({
+          id,
           type: "paragraph",
-          attrs: {},
-          parentId: "root" as BlockId,
-          prevSiblingId: i > 0 ? (`p-${i - 1}` as BlockId) : null,
-          nextSiblingId: i < n - 1 ? (`p-${i + 1}` as BlockId) : null,
-          firstChildId: null,
-          lastChildId: null,
-          inlineContent: { items: [] },
+          parentId: "root",
+          prevSiblingId: ids[i - 1] ?? null,
+          nextSiblingId: ids[i + 1] ?? null,
+          inlineContent: inlineContent([]),
         }),
-      );
-    }
+      ),
+    ],
   });
-  return state;
 }
 
 describe("perf benchmark (smoke)", () => {
@@ -90,22 +72,7 @@ describe("perf benchmark (smoke)", () => {
   });
 
   it("getBlock on cached snapshot is sub-millisecond", () => {
-    const state = createState({ rootId: "root" as BlockId });
-    runTransaction(state[STATE_INTERNAL].doc, () => {
-      getBlocksMap(state[STATE_INTERNAL].doc).set(
-        "root",
-        buildYBlock({
-          type: "document",
-          attrs: {},
-          parentId: null,
-          prevSiblingId: null,
-          nextSiblingId: null,
-          firstChildId: null,
-          lastChildId: null,
-          inlineContent: null,
-        }),
-      );
-    });
+    const state = buildFlatDoc(1);
     // Prime the cache.
     getBlock(state, "root" as BlockId);
     // Time 10k cache-hits (averaged → robust to a single contention spike).

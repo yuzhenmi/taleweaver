@@ -1,3 +1,4 @@
+import { registryWith, testContainer, TEST_RESOLVER } from "../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import { createTestAllocator, type BlockId } from "./block-id";
 import { getBlock } from "./state";
@@ -19,6 +20,11 @@ function requireBlock(state: State, id: BlockId): Block {
 }
 
 /** Read a child-link id that must be set (narrows `BlockId | null` without `!`). */
+/** The final section: the root's child, holding a section-less document's top-level blocks. */
+function topOf(state: State): Block {
+  return requireBlock(state, requireId(requireBlock(state, state.rootId).lastChildId));
+}
+
 function requireId(id: BlockId | null): BlockId {
   if (id === null) {
     throw new Error("expected a non-null block id");
@@ -39,20 +45,25 @@ describe("buildDocumentFromTree", () => {
         },
       ],
     };
-    const state = buildDocumentFromTree(root, {}, createTestAllocator());
+    const state = buildDocumentFromTree(root, {}, createTestAllocator(), TEST_RESOLVER);
 
-    const doc = requireBlock(state, state.rootId);
-    expect(doc.type).toBe("document");
-    expect(doc.parentId).toBeNull();
-    expect(doc.prevSiblingId).toBeNull();
-    expect(doc.nextSiblingId).toBeNull();
-    expect(doc.inlineContent).toBeNull();
+    const rootBlock = requireBlock(state, state.rootId);
+    expect(rootBlock.type).toBe("document");
+    expect(rootBlock.parentId).toBeNull();
+    expect(rootBlock.prevSiblingId).toBeNull();
+    expect(rootBlock.nextSiblingId).toBeNull();
+    expect(rootBlock.inlineContent).toBeNull();
+    // The root's only child is its final section, which holds the paragraph.
+    expect(rootBlock.firstChildId).toBe(rootBlock.lastChildId);
+    const doc = topOf(state);
+    expect(doc.type).toBe("section");
+    expect(doc.parentId).toBe(state.rootId);
     expect(doc.firstChildId).not.toBeNull();
     expect(doc.firstChildId).toBe(doc.lastChildId);
 
     const para = requireBlock(state, requireId(doc.firstChildId));
     expect(para.type).toBe("paragraph");
-    expect(para.parentId).toBe(state.rootId);
+    expect(para.parentId).toBe(doc.id);
     expect(para.prevSiblingId).toBeNull();
     expect(para.nextSiblingId).toBeNull();
     expect(para.firstChildId).toBeNull();
@@ -71,9 +82,9 @@ describe("buildDocumentFromTree", () => {
         { type: "paragraph", inlineContent: { items: [] } },
       ],
     };
-    const state = buildDocumentFromTree(root, {}, createTestAllocator());
+    const state = buildDocumentFromTree(root, {}, createTestAllocator(), TEST_RESOLVER);
 
-    const doc = requireBlock(state, state.rootId);
+    const doc = topOf(state);
     const p1Id = requireId(doc.firstChildId);
     const p1 = requireBlock(state, p1Id);
     const p2Id = requireId(p1.nextSiblingId);
@@ -102,7 +113,7 @@ describe("buildDocumentFromTree", () => {
         },
       ],
     };
-    const state = buildDocumentFromTree(root, {}, createTestAllocator());
+    const state = buildDocumentFromTree(root, {}, createTestAllocator(), TEST_RESOLVER);
 
     const doc = requireBlock(state, state.rootId);
     const sectionId = requireId(doc.firstChildId);
@@ -125,17 +136,23 @@ describe("buildDocumentFromTree", () => {
     expect(section.nextSiblingId).toBeNull();
   });
 
-  it("gives an empty container null firstChild/lastChild", () => {
+  it("an empty container holds ONE empty paragraph (firstChild === lastChild)", () => {
     const root: ContainerBlockNode = {
       type: "document",
-      children: [{ type: "section", children: [] }],
+      // (An empty SECTION is not in the read model; a childless
+      // generic container is.)
+      children: [{ type: "blockquote", children: [] }],
     };
-    const state = buildDocumentFromTree(root, {}, createTestAllocator());
+    const state = buildDocumentFromTree(root, {}, createTestAllocator(), registryWith(testContainer("blockquote")));
 
-    const doc = requireBlock(state, state.rootId);
+    const doc = topOf(state);
     const section = requireBlock(state, requireId(doc.firstChildId));
-    expect(section.firstChildId).toBeNull();
-    expect(section.lastChildId).toBeNull();
+    // Rev 11: the creator writes the childless flow's one ¶ (a real, empty paragraph).
+    const implicit = requireBlock(state, requireId(section.firstChildId));
+    expect(section.lastChildId).toBe(section.firstChildId);
+    expect(implicit.type).toBe("paragraph");
+    expect(implicit.parentId).toBe(section.id);
+    expect(implicit.inlineContent?.items).toEqual([]);
   });
 
   it("mints distinct ids from the allocator in deterministic order", () => {
@@ -146,9 +163,9 @@ describe("buildDocumentFromTree", () => {
         { type: "paragraph", inlineContent: { items: [] } },
       ],
     };
-    const state = buildDocumentFromTree(root, {}, createTestAllocator("blk"));
+    const state = buildDocumentFromTree(root, {}, createTestAllocator("blk"), TEST_RESOLVER);
 
-    const doc = requireBlock(state, state.rootId);
+    const doc = topOf(state);
     const firstChildId = requireId(doc.firstChildId);
     const lastChildId = requireId(doc.lastChildId);
     const allIds = [state.rootId, firstChildId, lastChildId];
@@ -171,9 +188,9 @@ describe("buildDocumentFromTree", () => {
         { type: "paragraph", inlineContent: { items: [] } },
       ],
     };
-    const state = buildDocumentFromTree(root, {}, createTestAllocator());
+    const state = buildDocumentFromTree(root, {}, createTestAllocator(), TEST_RESOLVER);
 
-    const doc = requireBlock(state, state.rootId);
+    const doc = topOf(state);
     const heading = requireBlock(state, requireId(doc.firstChildId));
     expect(heading.attrs).toEqual({ level: 2 });
     const para = requireBlock(state, requireId(doc.lastChildId));
@@ -197,12 +214,12 @@ describe("buildDocumentFromTree", () => {
     const state = buildDocumentFromTree(
       root,
       { "list-1": def },
-      createTestAllocator(),
+      createTestAllocator(), TEST_RESOLVER
     );
 
     expect(getListDefsForState(state).get("list-1")).toEqual(def);
 
-    const doc = requireBlock(state, state.rootId);
+    const doc = topOf(state);
     const item = requireBlock(state, requireId(doc.firstChildId));
     expect(item.type).toBe("list-item");
     expect(item.attrs).toEqual({ listId: "list-1", listLevel: 0 });
@@ -217,9 +234,9 @@ describe("buildDocumentFromTree", () => {
       type: "document",
       children: [{ type: "paragraph", inlineContent: { items } }],
     };
-    const state = buildDocumentFromTree(root, {}, createTestAllocator());
+    const state = buildDocumentFromTree(root, {}, createTestAllocator(), TEST_RESOLVER);
 
-    const doc = requireBlock(state, state.rootId);
+    const doc = topOf(state);
     const para = requireBlock(state, requireId(doc.firstChildId));
     expect(para.inlineContent).toEqual({ items });
   });

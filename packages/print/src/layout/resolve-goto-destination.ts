@@ -1,6 +1,6 @@
 // packages/core/src/layout/resolve-goto-destination.ts
 //
-// #522 — internal /GoTo destination resolution for the PDF exporter. Maps a
+// Internal /GoTo destination resolution for the PDF exporter. Maps a
 // cross-reference / TOC target block id to its exact PDF destination
 // `{ pageIndex, yTopPx, xLeftPx }` (or `null` for a broken / slot target),
 // wrapping the shipped `resolvePixelPosition` (exact-y, materializes only the

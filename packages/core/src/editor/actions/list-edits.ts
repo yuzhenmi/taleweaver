@@ -39,7 +39,6 @@ export function unlistBlock(
     typeResult.state,
     block.id,
     { listId: undefined, listLevel: undefined, listCounterOverride: undefined },
-    config.attrRegistry,
   );
   if (attrResult.state === editor.state) return editor;
 

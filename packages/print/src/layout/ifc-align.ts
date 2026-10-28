@@ -13,7 +13,7 @@ import type { Direction } from "@taleweaver/core";
  *   - start → 0      (content stays at the inline-start edge)
  *   - end   → gap    (content pushed to the inline-end edge)
  *   - center → gap/2 (content centered)
- *   - justify → 0    (P2: start-equivalent; P3 implements distribution)
+ *   - justify → 0    (start-equivalent here; the IFC's justify pass distributes the gap)
  *
  * This is direction-INDEPENDENT in the logical inline axis. The `direction`
  * argument is retained for the pure-function contract (and a future content-
@@ -54,7 +54,7 @@ export function computeAlignmentOffset(
 }
 
 /**
- * P3 — distribute a justification `gap` across `spaceCount` interior inter-word
+ * Distribute a justification `gap` across `spaceCount` interior inter-word
  * spaces. Returns a per-space added width whose SUM is EXACTLY the non-negative
  * clamped gap (no sub-pixel drift). Each space starts at `floor(gap / N)`; the
  * integer remainder `floor(gap) − floor(gap/N)·N` is spread one whole unit at a

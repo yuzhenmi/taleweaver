@@ -4,12 +4,11 @@ import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import { planRemoveBlock, removeBlockInTx } from "./remove-block";
 import { planInsertText, insertTextInTx } from "./insert-text";
-import type { AttrRegistry } from "../../cascade/attr-registry";
 
 /**
  * Replace a whole block with `text` inserted into a sibling text block — in ONE
  * transaction (one undo entry / one collab event). Used by image
- * OBJECT-SELECTION (#525): when an atomic-leaf object is selected and the user
+ * OBJECT-SELECTION: when an atomic-leaf object is selected and the user
  * types, the object block is removed AND the typed character lands in the
  * neighbouring text block, as a SINGLE undoable edit.
  *
@@ -19,7 +18,7 @@ import type { AttrRegistry } from "../../cascade/attr-registry";
  *   (the following block's start, or the preceding block's end) and validates it
  *   is a text-bearing leaf.
  *
- * Composition mirrors `replaceRange` (#161): both `*InTx` sub-primitives run
+ * Composition mirrors `replaceRange`: both `*InTx` sub-primitives run
  * inside the single `applyOperation` transaction. The insert plan is computed
  * from the PRE-mutation snapshot (the sibling block is untouched by the removal —
  * `removeBlock` only deletes the target subtree and relinks neighbours, it does
@@ -40,20 +39,17 @@ export function replaceBlockWithText(
   insertAt: { readonly blockId: BlockId; readonly offset: number },
   text: string,
   attrs: ReadonlyAttrs,
-  registry?: AttrRegistry,
 ): OperationResult {
   const removePlan = planRemoveBlock(state, removeBlockId);
   // The insert plan is computed against the pre-mutation snapshot. The insert
   // target is a SIBLING of the removed block, so the removal (which only deletes
   // the target's subtree + relinks neighbour sibling pointers) leaves the
-  // target's `inlineContent` Y.Array identity intact — the plan's in-place /
-  // full-replace decision stays valid post-removal.
+  // target's inline content untouched — the plan's offset stays valid.
   const insertPlan = planInsertText(
     state,
     { blockId: insertAt.blockId, offset: insertAt.offset },
     text,
     attrs,
-    registry,
   );
   return applyOperation(state, (doc) => {
     removeBlockInTx(doc, removePlan);

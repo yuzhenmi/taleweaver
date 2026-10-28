@@ -1,6 +1,6 @@
 /**
  * Pure helpers for the `columnWidths` attr (an array of fractions summing to ~1.0)
- * a `table` block carries when it uses explicit column sizing. Used by the P15a
+ * a `table` block carries when it uses explicit column sizing. Used by the
  * column insert/delete ops to keep the fractions consistent. When a table has NO
  * `columnWidths` (auto-layout), the ops skip these entirely — auto-layout
  * recomputes widths from the new cell set.

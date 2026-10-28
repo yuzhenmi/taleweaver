@@ -2,7 +2,7 @@ import type { ElementBox, RenderNode } from "@taleweaver/core";
 import { PAGE_FIELD_EMBED_TYPE, CROSS_REFERENCE_EMBED_TYPE, type BlockId } from "@taleweaver/core";
 
 /**
- * F-3 §4.4 growth mechanism. Produce a PATCHED copy of the cascaded template bodies
+ * Page-field width-growth mechanism. Produce a PATCHED copy of the cascaded template bodies
  * in which every layout-field atom (page-field or cross-ref-page) whose render key is
  * in `grownWidths` has its `computedStyle.inlineSize` overridden to the grown
  * (worst-case value) width — an explicit width the IFC honors over `auto` (ifc.ts uses

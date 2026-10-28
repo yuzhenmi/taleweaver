@@ -1,13 +1,20 @@
-import type { Selection, Position, Span, BlockInit, TextMatch, BlockId, CrossReferenceMode, CommentId, SuggestionId, PageFieldNumberStyle } from "../state";
+import type { Selection, Position, Span, BlockInit, TextMatch, BlockId, CrossReferenceMode, CommentId, SuggestionId, PageFieldNumberStyle, State } from "../state";
 import type { TextAlign, TextTransform } from "../styles/style";
 import type { TabStop } from "../styles/tab-stops";
 import type { CounterFormat, FootnoteNumberingPolicy } from "../footnotes";
 import type { CaretAffinity } from "../cursor/selection";
 import type { ColumnRule } from "../styles/column-config";
 import type { ImageWrap } from "./actions/set-image-wrap";
+import type { Transaction } from "./extensions";
+import type { Proposal } from "./proposals";
 
 export type EditorAction =
-  | { type: "INSERT_TEXT"; text: string }
+  /**
+   * Insert `text` at the caret / over the selection. `userInput: true` marks text the
+   * USER typed (keystrokes, beforeinput, IME commits) — only such text fires the host's
+   * input rules and triggers; programmatic / command inserts never do.
+   */
+  | { type: "INSERT_TEXT"; text: string; userInput?: boolean }
   | { type: "DELETE_BACKWARD" }
   | { type: "SPLIT_NODE" }
   | { type: "MOVE_WORD"; direction: "forward" | "backward" }
@@ -19,7 +26,7 @@ export type EditorAction =
       selection: Selection;
       caretPageHint?: number;
       caretAffinity?: CaretAffinity;
-      // #503: the ANCHOR's bidi-boundary side. Post-Phase-0b, the backend
+      // The ANCHOR's bidi-boundary side. The backend
       // NavIntent resolver originates affinity (the lifted line/expand handlers
       // moved out of core), threading BOTH `caretAffinity` and `anchorAffinity`
       // here so affinity that once survived via the central-reset exemption now
@@ -42,23 +49,52 @@ export type EditorAction =
   | { type: "SET_FONT_SIZE"; size: number | null }
   | { type: "SET_FONT_FAMILY"; family: string | null }
   | { type: "CLEAR_FORMATTING" }
-  | { type: "PASTE"; text: string }
+  /**
+   * Put inline mark `key` = `value` on `span` (default: the selection). An
+   * exclusive mark replaces the type's value there; a non-exclusive one adds an
+   * instance (see `MarkSpec`). `replace` (non-exclusive marks): an existing
+   * instance's value to swap for `value` in the same step (one undo step, one
+   * suggestion). Undoable; tracked as a formatting suggestion in suggesting mode.
+   * No-op on a collapsed span.
+   */
+  | { type: "SET_MARK"; key: string; value: unknown; replace?: unknown; span?: Span }
+  /**
+   * Remove inline mark `key` from `span` (default: the selection) — only the runs /
+   * instance whose value deep-equals `value` when given, every value otherwise.
+   */
+  | { type: "REMOVE_MARK"; key: string; value?: unknown; span?: Span }
+  | { type: "PASTE"; text?: string; html?: string; clip?: string }
   | { type: "SET_BLOCK_TYPE"; blockType: string; properties?: Record<string, unknown> }
   | { type: "TOGGLE_LIST"; listType: "ordered" | "unordered" }
   | { type: "SET_LIST_TYPE"; listType: "ordered" | "unordered" }
   | { type: "SET_LIST_RESTART"; value: number | null }
   | { type: "MOVE_DOCUMENT_BOUNDARY"; boundary: "start" | "end" }
   | { type: "EXPAND_DOCUMENT_BOUNDARY"; boundary: "start" | "end" }
-  // ESCAPE (#525): deselect an object selection — collapse the caret to just
+  // ESCAPE: deselect an object selection — collapse the caret to just
   // AFTER the atomic-leaf object (Google Docs). A no-op for a text caret.
   | { type: "ESCAPE" }
+  /**
+   * Run several engine steps as ONE edit: `run` receives the live editor and a
+   * `dispatch` that applies nested actions through the reducer — suggesting mode,
+   * typing attrs and mark rules apply as for user edits — and they land in a SINGLE
+   * undo entry. `run` must be pure (no host side effects): it may be re-run. Steps
+   * must be undoable as part of it: dispatching UNDO / REDO, APPLY_FOREIGN_CHANGE
+   * (untracked) or PROPOSE (another author's own entry) throws before it applies, and a throwing transaction is rolled back entirely.
+   */
+  | { type: "TRANSACTION"; run: (tx: Transaction) => void }
+  /**
+   * A collaborator's change has landed in this editor's Y.Doc (`dirtyIds` = the blocks
+   * it touched; see `subscribeRemoteChanges`): reconcile the EditorState and rebase the
+   * local selection through it. Never touches local undo grouping.
+   */
+  | { type: "APPLY_FOREIGN_CHANGE"; dirtyIds: ReadonlySet<BlockId> }
   | { type: "SELECT_ALL" }
   | { type: "DELETE_WORD"; direction: "forward" | "backward" }
-  // DELETE_RANGE (Phase 0b): delete a geometry-free `Span` in ONE history commit,
+  // DELETE_RANGE: delete a geometry-free `Span` in ONE history commit,
   // collapsing the caret to the document-order START (normalized, backward-span
   // safe). The print backend computes the span for line-deletion (Cmd+Backspace)
   // — the geometry lives in the backend NavIntent — and dispatches this; core
-  // owns the deletion. Also the public arbitrary-span delete (Phase 2).
+  // owns the deletion. Also the public arbitrary-span delete.
   | { type: "DELETE_RANGE"; span: Span }
   | { type: "INSERT_NODE"; node: BlockInit; position?: Position }
   | { type: "SECTION_BREAK" }
@@ -72,12 +108,14 @@ export type EditorAction =
       targetId: BlockId;
       refMode: CrossReferenceMode;
       // Number format for `refMode: "page"` page-number references (default "decimal");
-      // ignored by "number"/"text" modes. Read by the INSERT_CROSS_REFERENCE handler (S7).
+      // ignored by "number"/"text" modes. Read by the INSERT_CROSS_REFERENCE handler.
       numberStyle?: PageFieldNumberStyle;
     }
   | { type: "INSERT_PAGE_NUMBER"; numberStyle?: PageFieldNumberStyle }
   | { type: "INSERT_PAGE_COUNT"; numberStyle?: PageFieldNumberStyle }
   | { type: "INSERT_TAB" }
+  /** Soft line break (Shift+Enter): an inline `hard-break` in the paragraph. */
+  | { type: "INSERT_LINE_BREAK" }
   | { type: "SET_TAB_STOPS"; blockId: BlockId; tabStops: readonly TabStop[] }
   | { type: "INSERT_HORIZONTAL_LINE" }
   | { type: "INSERT_TABLE_OF_CONTENTS" }
@@ -120,11 +158,21 @@ export type EditorAction =
       body: string;
       createdAt: number;
     }
-  // Change-tracking (Suggesting mode) RESOLVE actions. NON-undoable — the state
-  // ops run a `SUGGESTION_RESOLVE_ORIGIN` txn that fires no UndoManager StackItem
-  // (accept/reject is final, Ctrl+Z cannot revert it — the Google Docs
-  // convention). Classified `"resolve"` in `coalesce-key.ts`.
+  // Change-tracking RESOLVE actions — each ONE undoable history entry (undo restores
+  // the suggestion exactly). A suggestion that belongs to a group resolves with its
+  // whole group (groups are reviewed as one unit).
   | { type: "ACCEPT_SUGGESTION"; id: SuggestionId }
   | { type: "REJECT_SUGGESTION"; id: SuggestionId }
+  | { type: "ACCEPT_SUGGESTION_GROUP"; groupId: string }
+  | { type: "REJECT_SUGGESTION_GROUP"; groupId: string }
   | { type: "ACCEPT_ALL_SUGGESTIONS" }
-  | { type: "REJECT_ALL_SUGGESTIONS" };
+  | { type: "REJECT_ALL_SUGGESTIONS" }
+  /**
+   * A host PROPOSAL: several edits recorded as ONE suggestion group, in any editing
+   * mode. Like another author's change it is NOT in the user's undo stack, and the caret
+   * is only rebased through it. `basedOn`: the version the edit positions refer to —
+   * mapped through the change chain (stale when the ranges changed). Refused whole when
+   * invalid / self-overlapping / overlapping a pending suggestion. The verdict lands on
+   * `EditorState.lastProposal`.
+   */
+  | { type: "PROPOSE"; proposal: Proposal; basedOn?: State };

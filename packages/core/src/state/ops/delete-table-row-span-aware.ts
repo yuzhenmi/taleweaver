@@ -3,7 +3,9 @@ import type { State, OperationResult } from "../state";
 import { applyOperation, getBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
-import { getBlocksMap, getEmbedContentsMap, getYBlock, requireInTransaction } from "../yjs-doc";
+import { requireInTransaction } from "../yjs-doc";
+import { deleteRowEntry } from "../table-storage";
+import { removeBlockStorage } from "../flow-ops";
 import { setBlockAttrsInTx } from "./set-block-attrs";
 import { planRemoveBlock } from "./remove-block";
 import { buildTableGrid } from "../table-context";
@@ -12,7 +14,7 @@ import { headerRowAttrsAfterRowEdit } from "./table-header-rows";
 
 /**
  * Pre-computed mutation plan for `deleteTableRowSpanAwareInTx`. Everything is read
- * from the PRE-mutation occupancy grid + tree (the `computeReparentWrites` discipline).
+ * from the PRE-mutation occupancy grid + tree.
  */
 export interface DeleteTableRowSpanAwarePlan {
   readonly tableId: BlockId;
@@ -34,21 +36,21 @@ export interface DeleteTableRowSpanAwarePlan {
   /** The next row's final cell chain after the re-homed cells join it (grid-column
    *  order), or null when nothing re-homes. */
   readonly reHomeRow: { readonly rowId: BlockId; readonly cellIds: readonly BlockId[] } | null;
-  /** The table's new attrs bag when the delete shifts `headerRowCount` (#487), or
+  /** The table's new attrs bag when the delete shifts `headerRowCount`, or
    *  `null` when unchanged. Written in the SAME tx as the row removal. */
   readonly headerAttrs: ReadonlyAttrs | null;
 }
 
 /**
- * Span-aware DELETE_TABLE_ROW (P15b / D5): delete the caret cell's grid row on a
+ * Span-aware DELETE_TABLE_ROW: delete the caret cell's grid row on a
  * well-formed SPANNED table, as one atomic transaction. A cell COVERING the row
  * from above shrinks its `rowSpan` by 1; a cell ORIGINATING in the row with
  * `rowSpan > 1` re-homes one row down (keeps its content, `rowSpan -= 1`); a plain
  * 1×1 cell is removed (subtree + embed cascade). The now-empty row block is removed.
  *
  * Caller routes here only for a SPANNED, non-ragged table with MORE THAN ONE grid
- * row (the last-row case collapses the whole table via `deleteTableWithReplacement`,
- * handled by the editor handler as in P15a). NO-OP (same `state`) when the grid
+ * row (the last-row case collapses the whole table via `deleteTable`,
+ * handled by the editor handler). NO-OP (same `state`) when the grid
  * can't be built or there is only one row. Caret-after is the handler's concern.
  * MAIN-TREE ONLY. Column count unchanged → `columnWidths` untouched.
  */
@@ -113,7 +115,7 @@ export function planDeleteTableRowSpanAware(state: State, ctx: TableContext): De
   }
 
   const table = getBlock(state, ctx.tableId);
-  // #487: the deleted grid row is `gr`. Keep `headerRowCount` naming the leading
+  // The deleted grid row is `gr`. Keep `headerRowCount` naming the leading
   // block (delete at r < count → count-1; deleting the last header row → 0).
   const headerAttrs = headerRowAttrsAfterRowEdit(state, ctx.tableId, "delete", gr);
   return {
@@ -152,54 +154,11 @@ function withRowSpan(state: State, cellId: BlockId, n: number): ReadonlyAttrs {
  */
 export function deleteTableRowSpanAwareInTx(doc: Y.Doc, plan: DeleteTableRowSpanAwarePlan): void {
   requireInTransaction(doc, "deleteTableRowSpanAware");
-  const blocksMap = getBlocksMap(doc);
-
-  for (const bump of plan.coveringBumps) {
-    setBlockAttrsInTx(doc, bump.cellId, bump.newAttrs, "deleteTableRowSpanAware");
-  }
-
-  // Re-home: drop a row of span + reparent onto the next row.
-  for (const rh of plan.rehomed) {
-    setBlockAttrsInTx(doc, rh.cellId, rh.newAttrs, "deleteTableRowSpanAware");
-    if (plan.reHomeRow !== null) {
-      getYBlock(doc, rh.cellId, "deleteTableRowSpanAware").set("parentId", plan.reHomeRow.rowId);
-    }
-  }
-  if (plan.reHomeRow !== null) {
-    const { rowId, cellIds } = plan.reHomeRow;
-    for (const [i, cellId] of cellIds.entries()) {
-      const yCell = getYBlock(doc, cellId, "deleteTableRowSpanAware");
-      yCell.set("prevSiblingId", i === 0 ? null : (cellIds[i - 1] ?? null));
-      yCell.set("nextSiblingId", i === cellIds.length - 1 ? null : (cellIds[i + 1] ?? null));
-    }
-    const yRow = getYBlock(doc, rowId, "deleteTableRowSpanAware");
-    yRow.set("firstChildId", cellIds[0] ?? null);
-    yRow.set("lastChildId", cellIds[cellIds.length - 1] ?? null);
-  }
-
-  // Splice the deleted row out of the table's row chain.
-  if (plan.prevRowId !== null) {
-    getYBlock(doc, plan.prevRowId, "deleteTableRowSpanAware").set("nextSiblingId", plan.nextRowId);
-  }
-  if (plan.nextRowId !== null) {
-    getYBlock(doc, plan.nextRowId, "deleteTableRowSpanAware").set("prevSiblingId", plan.prevRowId);
-  }
-  if (plan.removingFirstRow || plan.removingLastRow) {
-    const yTable = getYBlock(doc, plan.tableId, "deleteTableRowSpanAware");
-    if (plan.removingFirstRow) yTable.set("firstChildId", plan.nextRowId);
-    if (plan.removingLastRow) yTable.set("lastChildId", plan.prevRowId);
-  }
-
-  // #487: re-write the table's `headerRowCount` (same tx) when the delete shifted
-  // it. The table block survives the delete; write before the deletion loop.
+  // Grid model: spans covering the row shrink by themselves (id ranges); an anchor
+  // in the row whose span continues is re-homed to the next row (its content kept).
   if (plan.headerAttrs !== null) {
     setBlockAttrsInTx(doc, plan.tableId, plan.headerAttrs, "deleteTableRowSpanAware");
   }
-
-  // Delete embed bodies first, then the row block + removed cells' subtrees.
-  if (plan.embedContentIdsToDelete.size > 0) {
-    const yEmbeds = getEmbedContentsMap(doc);
-    for (const id of plan.embedContentIdsToDelete) yEmbeds.delete(id);
-  }
-  for (const id of plan.blockIdsToDelete) blocksMap.delete(id);
+  for (const id of plan.embedContentIdsToDelete) removeBlockStorage(doc, id);
+  deleteRowEntry(doc, plan.tableId, plan.deletedRowId);
 }

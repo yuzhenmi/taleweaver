@@ -7,7 +7,7 @@ import type { TextMeasurer } from "@taleweaver/core";
 /**
  * Test helper: position-only view of `resolvePositionFromPixel`.
  *
- * P4-C.2.2b changed `resolvePositionFromPixel` to return
+ * `resolvePositionFromPixel` returns
  * `{ position, caretAffinity }` so a click seeds `EditorState.caretAffinity` at
  * a bidi direction boundary. Tests that assert ONLY the resolved `Position`
  * (offset / blockId) use this thin wrapper to keep the prior `Position | null`

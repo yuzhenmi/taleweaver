@@ -1,21 +1,30 @@
+import { txMappingOf, type TxMapping } from "./tx-mapping";
+import { attachTxMappings } from "./position-mapping";
 import * as Y from "yjs";
 import type { BlockId } from "./block-id";
 import { asBlockId } from "./block-id";
 import { isDevMode } from "./dev-mode";
+import { getRegistry, type TreeKind } from "./registry";
+import { realIdForWrite } from "./flow-ops";
+import { dirtyIdsFromFlows } from "./flow-dirty";
 
-const BLOCKS_KEY = "blocks";
-const EMBED_CONTENTS_KEY = "embedContents";
-const TEMPLATE_CONTENTS_KEY = "templateContents";
 const LIST_DEFS_KEY = "listDefs";
 const COMMENTS_KEY = "comments";
 const SUGGESTIONS_KEY = "suggestions";
 const META_KEY = "meta";
 
+/** Legacy (schema ≤ 2) block-tree roots. Read only by `upgrade.ts`; never written. */
+export const LEGACY_TREE_ROOTS = ["blocks", "embedContents", "templateContents"] as const;
+
+/** The storage schema this engine reads and writes (see `upgrade.ts`). */
+export const CURRENT_SCHEMA_VERSION = 3;
+
+/** The `meta` key holding the document's schema version (immutable between upgrades). */
+export const SCHEMA_VERSION_KEY = "schemaVersion";
+
 export function createYDoc(args?: { rootId?: BlockId }): Y.Doc {
   const doc = new Y.Doc();
-  doc.getMap(BLOCKS_KEY);
-  doc.getMap(EMBED_CONTENTS_KEY);
-  doc.getMap(TEMPLATE_CONTENTS_KEY);
+  getRegistry(doc);
   doc.getMap(LIST_DEFS_KEY);
   doc.getMap(COMMENTS_KEY);
   doc.getMap(SUGGESTIONS_KEY);
@@ -23,146 +32,63 @@ export function createYDoc(args?: { rootId?: BlockId }): Y.Doc {
   if (args?.rootId !== undefined) {
     meta.set("rootId", args.rootId);
   }
+  // A fresh local doc is born at the current schema. Only this and
+  // `upgradeDocument` ever write the marker (see `upgrade.ts`).
+  meta.set(SCHEMA_VERSION_KEY, CURRENT_SCHEMA_VERSION);
   return doc;
-}
-
-export function getBlocksMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
-  return doc.getMap(BLOCKS_KEY) as Y.Map<Y.Map<unknown>>;
-}
-
-export function getEmbedContentsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
-  return doc.getMap(EMBED_CONTENTS_KEY) as Y.Map<Y.Map<unknown>>;
-}
-
-export function getTemplateContentsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
-  return doc.getMap(TEMPLATE_CONTENTS_KEY) as Y.Map<Y.Map<unknown>>;
 }
 
 /**
  * The top-level `listDefs` config side-table: listId → per-list numbering
- * config (Y.Map). NOT a block tree (keys are listId strings, not BlockIds), so
- * it is intentionally excluded from TREE_MAP_GETTERS / dirty-capture / the
- * snapshot cache. Tracked by the UndoManager (history.ts) as a 4th scope.
+ * config (Y.Map). Not a block structure; tracked by the History UndoManager.
  */
 export function getListDefsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
   return doc.getMap(LIST_DEFS_KEY) as Y.Map<Y.Map<unknown>>;
 }
 
 /**
- * The top-level `comments` side-table: commentId → comment thread record
- * (Y.Map of author/body/createdAt/resolved scalars + a replies Y.Array). NOT a
- * block tree (keys are commentId strings, not BlockIds), so — like `listDefs` —
- * it is intentionally excluded from TREE_MAP_GETTERS / dirty-capture / the
- * snapshot cache. The comment RANGE is NOT stored here: paired zero-width
- * `comment-start`/`comment-end` marker embeds in inline content ARE the anchor
- * (see `state/comments.ts`). The map IS undo-tracked: `history.ts` adds it as a
- * Y.UndoManager scope, so a comment thread reverts atomically with its markers
- * (per-transaction tracking means a pure text edit, which never touches this
- * map, leaves comments untouched). It is excluded from dirty-capture, so a
- * comments-only write surfaces `state.rootId` as its dirtyId (the `setListType`
- * precedent) to advance state and land a committable, undoable entry.
+ * The top-level `comments` side-table: commentId → comment thread record. The
+ * comment RANGE is not stored here: paired zero-width `comment-start` /
+ * `comment-end` marker embeds in inline content ARE the anchor (see
+ * `state/comments.ts`). Undo-tracked; a comments-only write surfaces
+ * `state.rootId` as its dirtyId.
  */
 export function getCommentsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
   return doc.getMap(COMMENTS_KEY) as Y.Map<Y.Map<unknown>>;
 }
 
 /**
- * The top-level `suggestions` side-table (change-tracking / Suggesting mode):
- * suggestionId → suggestion record (Y.Map of kind/author/createdAt scalars +
- * an optional nested `proposedAttrs` Y.Map for the formatting variant). NOT a
- * block tree (keys are suggestionId strings, not BlockIds), so — like
- * `listDefs` and `comments` — it is intentionally excluded from
- * TREE_MAP_GETTERS / dirty-capture / the snapshot cache. The suggestion RANGE
- * is NOT stored here: it is DERIVED by a content scan over the three
- * `insertion/deletion/formattingSuggestionId` inline attrs (and the two
- * block-join/split break embeds) that carry the id (see `state/suggestions.ts`)
- * — exactly as comments derive their range from in-content markers. The map IS
- * undo-tracked: `history.ts` adds it as a Y.UndoManager scope, so a suggestion
- * record reverts atomically with the tagged items / break embeds (per-transaction
- * tracking means a pure text edit, which never touches this map, leaves
- * suggestions untouched). It is excluded from dirty-capture, so a
- * suggestions-only write surfaces `state.rootId` as its dirtyId (the `setListType`
- * precedent) to advance state and land a committable, undoable entry.
+ * The top-level `suggestions` side-table (change tracking): suggestionId →
+ * record. The suggestion RANGE is derived by a content scan over the
+ * `insertionSuggestionId` / `deletionSuggestionId` / `formattingSuggestionId:<id>`
+ * inline attrs and the block-level tags (see `state/suggestions.ts`).
+ * Undo-tracked; a suggestions-only write surfaces `state.rootId` as its dirtyId.
  */
 export function getSuggestionsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
   return doc.getMap(SUGGESTIONS_KEY) as Y.Map<Y.Map<unknown>>;
 }
 
-/**
- * Which tree a block id belongs to. The single source of truth for the set
- * of top-level block-tree Y.Maps. Adding a 4th tree (e.g. comments) means
- * extending this record + `BlockTreeKind` — every consumer below
- * (`getYBlock`, dirty-capture event scan, owning-block walk) iterates it
- * rather than naming the three maps individually.
- */
-const TREE_MAP_GETTERS = {
-  block: getBlocksMap,
-  embedContent: getEmbedContentsMap,
-  templateContent: getTemplateContentsMap,
-} as const satisfies Record<string, (doc: Y.Doc) => Y.Map<Y.Map<unknown>>>;
+/** Which tree a block belongs to (its registry entry's `tree`, written at creation). */
+export type BlockTreeKind = TreeKind;
 
-export type BlockTreeKind = keyof typeof TREE_MAP_GETTERS;
-
-// Type-level cross-check that `BlockTreeKind` (the set of trees identified
-// here) stays in lockstep with `ResolvedBlockKind` (state.ts) — both must be
-// exactly `"block" | "embedContent" | "templateContent"`. These two unions are
-// produced independently (this one from `TREE_MAP_GETTERS`' keys; the other
-// hand-written in state.ts), so without a tripwire one could grow a tree the
-// other doesn't know about. The mutual `extends` assignments below fail to
-// compile if either union gains/loses a member relative to the other. (A direct
-// `import type { ResolvedBlockKind }` would create a yjs-doc → state import
-// cycle; instead we restate the literal union here and let the assertions catch
-// drift in BOTH directions — if `ResolvedBlockKind` changes, its own assertion
-// against this literal fails; see state.ts.)
-type _BlockTreeKindMatchesLiteral = BlockTreeKind extends "block" | "embedContent" | "templateContent" ? true : never;
-type _LiteralMatchesBlockTreeKind = "block" | "embedContent" | "templateContent" extends BlockTreeKind ? true : never;
-const _blockTreeKindCrossCheck: [_BlockTreeKindMatchesLiteral, _LiteralMatchesBlockTreeKind] = [true, true];
-void _blockTreeKindCrossCheck;
-
-/**
- * The single top-level block-tree map owning blocks of the given `kind`.
- * Mirror of `getYBlock`'s `kind` dispatch at the map level: lets a Layer-3 op
- * route a write to the correct map once it knows a resolved block's tree
- * provenance (via `resolveBlock(...).kind`), without naming the three maps
- * individually.
- */
-export function getTreeMap(doc: Y.Doc, kind: BlockTreeKind): Y.Map<Y.Map<unknown>> {
-  return TREE_MAP_GETTERS[kind](doc);
-}
-
-/**
- * All top-level block-tree maps for `doc`, in the stable order of
- * `TREE_MAP_GETTERS`. Used by `captureDirtyIds` (the changed-key event scan
- * and the owning-block parent-chain membership test).
- */
-export function getTreeMaps(doc: Y.Doc): Y.Map<Y.Map<unknown>>[] {
-  return Object.values(TREE_MAP_GETTERS).map((get) => get(doc));
-}
-
-/**
- * Total block count across ALL three trees (main `blocks`, `embedContents`,
- * `templateContents`). This is the widened cycle-detection bound for the
- * map-agnostic traversal/compare/span helpers: a deep template or embed body
- * subtree can hold more blocks than the main map alone, so a main-map-sized
- * bound (`getBlocksMap(doc).size`) would under-bound a legitimate walk through
- * such a body and spuriously throw "cycle detected". Summing all three keeps
- * the bound a safe upper limit on the number of distinct blocks any single
- * traversal could visit.
- */
+/** Number of registry entries (the index size; dev checks only). */
 export function allTreeBlockCount(doc: Y.Doc): number {
-  return getTreeMaps(doc).reduce((n, m) => n + m.size, 0);
+  return getRegistry(doc).size;
 }
 
 /**
- * Returns the doc's meta Y.Map. Currently holds only `rootId`, which is
- * set once in `createYDoc` and never reassigned during a session.
+ * Returns the doc's meta Y.Map. Holds `rootId` (set once in `createYDoc`, never
+ * reassigned) and `schemaVersion` (the inline-storage schema; written only by
+ * `createYDoc` for a fresh local doc and by `upgradeDocument` — immutable between
+ * upgrades, and never written by `createState` on a host-supplied, possibly
+ * pre-sync doc).
  *
- * **doc-meta holds ONLY the immutable `rootId`.** Mutable, user-observable
+ * **doc-meta holds ONLY these immutable fields.** Mutable, user-observable
  * state belongs in the Layer-3 block-tree Y.Maps (blocks / embedContents /
  * templateContents), NOT here — doc-meta is outside the History
  * UndoManager's tracked scopes, so a doc-meta write silently lapses out of
- * undo/redo and loses state across a session. The `A14` whitelist test
- * (`encapsulation.test.ts`) fails the moment a non-`rootId` key appears.
+ * undo/redo and loses state across a session. The doc-meta whitelist test
+ * (`encapsulation.test.ts`) fails the moment any other key appears.
  *
  * **Not tracked by the History UndoManager.** The `History` class
  * (`history.ts`) constructs its `Y.UndoManager` with the blocks map,
@@ -210,55 +136,32 @@ export function getMetaRootId(doc: Y.Doc): BlockId | undefined {
 }
 
 /**
- * Fetch a block's Y.Map by id with a throw-on-miss contract. Layer 3 ops
- * call this inside `applyOperation` *after* having verified existence via
- * `getBlock(state, id) !== null`; the throw branch is a defensive guard
- * against future invariant breakage (it should never fire in correct code)
- * but is preferable to a non-null assertion because (a) it satisfies
- * CLAUDE.md's no-`!` rule via narrowing, (b) it surfaces the op name in
- * the error if it ever does fire.
- *
- * `kind` selects between the main blocks map, the embedContents map, and
- * the templateContents map.
+ * The registry entry to WRITE for block `id` (its `type` / `attrs`). A derived
+ * entity is made real first: an implicit paragraph / cell / leading section is
+ * materialized (fresh id + `implicitOf`), a joined chain is collapsed (see
+ * `flow-ops.ts`). Throws when the block is not in the read model. `kind` is kept
+ * for call-site compatibility; provenance is the entry's own `tree`.
  */
 export function getYBlock(
   doc: Y.Doc,
   id: BlockId,
   opName: string,
-  kind: BlockTreeKind = "block",
+  _kind?: BlockTreeKind,
 ): Y.Map<unknown> {
-  const yBlock = TREE_MAP_GETTERS[kind](doc).get(id);
-  if (yBlock === undefined) {
-    throw new Error(`${opName}: ${kind} "${id}" disappeared mid-transaction`);
+  void _kind;
+  let real: string;
+  try {
+    real = realIdForWrite(doc, id);
+  } catch {
+    throw new Error(`${opName}: block "${id}" disappeared mid-transaction`);
   }
-  return yBlock;
+  const entry = getRegistry(doc).get(real);
+  if (entry === undefined) throw new Error(`${opName}: block "${id}" disappeared mid-transaction`);
+  return entry;
 }
 
 export interface TransactionResult {
   readonly dirtyIds: ReadonlySet<BlockId>;
-}
-
-// Yjs's Transaction#changed is typed as Map<AbstractType<YEvent<any>>, Set<string|null>>
-// and #changedParentTypes uses the same key type. Y.Map's event-type generic is
-// invariant, so to look up our concrete Y.Map<Y.Map<unknown>> instance we use
-// reference identity and treat the map keys uniformly as AbstractType<YEvent<any>>.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyYType = Y.AbstractType<Y.YEvent<any>>;
-
-/**
- * Recover the key a block-level Y.Map was inserted under in its parent tree
- * Y.Map: the `parentSub` field of its CRDT `_item`. `_item` / `parentSub`
- * are Yjs internals (TypeScript-invisible) but stable across Yjs 13.x and
- * used by Yjs's own bindings (e.g. y-prosemirror); the version is pinned to
- * `~13.6.x` and `yjs-version-guard.test.ts` is the tripwire if the field is
- * ever removed. The `as unknown as { ... }` cast is the compliant escape
- * hatch (CLAUDE.md forbids `as any`). Returns null if the item or its
- * `parentSub` is absent. Shared by the two owning-block walks below.
- */
-function getParentSubKey(cursor: AnyYType): BlockId | null {
-  const item = (cursor as unknown as { _item?: { parentSub?: string } })._item;
-  if (item === undefined || item.parentSub === undefined) return null;
-  return item.parentSub as BlockId;
 }
 
 /**
@@ -346,8 +249,7 @@ export function requireInTransaction(doc: Y.Doc, opName: string): void {
  * **`origin`** (optional) is forwarded to `doc.transact(fn, origin)`. It tags
  * the transaction so `History`'s `Y.UndoManager` (constructed with
  * `trackedOrigins: new Set([null])`) can decide whether to track it: the default
- * (`undefined` → Yjs's `null`) IS tracked (undoable); a non-`null` tag (e.g.
- * `SUGGESTION_RESOLVE_ORIGIN` from the suggestion accept/reject ops) is NOT, so
+ * (`undefined` → Yjs's `null`) IS tracked (undoable); a non-`null` tag is NOT, so
  * the change is non-undoable. `undefined` is byte-identical to the pre-origin
  * call.
  */
@@ -376,6 +278,23 @@ let ambientTransactionOrigin: unknown = null;
  * dispatch's edits carry its peer origin. No-op-equivalent for non-collab callers
  * (they never call it → origin stays `null`).
  */
+/** The current ambient transaction origin (`null` outside any `runWithTransactionOrigin`). */
+export function currentTransactionOrigin(): unknown {
+  return ambientTransactionOrigin;
+}
+
+/**
+ * The origin of an UNTRACKED change a host makes on its own behalf (a host
+ * proposal): `owner` is that host's own origin. No `History` tracks it (a History
+ * tracks its owner's origin by identity, and this is a different value), yet
+ * `subscribeForeignChanges(state, owner, …)` recognises it as SELF — so the host
+ * never re-applies its own proposal as a foreign change — while a second host on
+ * the same doc (a different `selfOrigin`) still sees it as foreign.
+ */
+export class UntrackedOrigin {
+  constructor(readonly owner: unknown) {}
+}
+
 export function runWithTransactionOrigin<T>(origin: unknown, fn: () => T): T {
   const prev = ambientTransactionOrigin;
   ambientTransactionOrigin = origin;
@@ -405,8 +324,7 @@ export function runTransaction(
         "directly and let the outer caller's runTransaction capture dirtyIds.",
     );
   }
-  // Origin precedence: an EXPLICIT `origin` arg (e.g. the slice-3 suggestion
-  // accept/reject ops passing SUGGESTION_RESOLVE_ORIGIN) wins; otherwise adopt the
+  // Origin precedence: an EXPLICIT `origin` arg wins; otherwise adopt the
   // AMBIENT origin (a collab host's per-dispatch peer tag, or `null` — Yjs's
   // default — outside any `runWithTransactionOrigin` scope). `undefined` explicit
   // arg falls through to ambient, so non-collab callers stay byte-identical (`null`,
@@ -434,8 +352,10 @@ export function captureDirtyIds(
   fn: () => void,
 ): ReadonlySet<BlockId> {
   const dirtyIds = new Set<BlockId>();
+  const maps: TxMapping[] = [];
   const captureDirty = (tx: Y.Transaction) => {
     for (const id of dirtyIdsFromTransaction(doc, tx)) dirtyIds.add(id);
+    maps.push(txMappingOf(doc, tx));
   };
   doc.on("afterTransaction", captureDirty);
   try {
@@ -443,145 +363,18 @@ export function captureDirtyIds(
   } finally {
     doc.off("afterTransaction", captureDirty);
   }
+  attachTxMappings(dirtyIds, maps);
   return dirtyIds;
 }
 
 /**
- * The per-transaction half of `captureDirtyIds`: every `BlockId` whose subtree
- * was mutated by ONE `Y.Transaction`. Pulled out of `captureDirtyIds`' inner
- * closure so the SAME derivation feeds two consumers from a single home:
- *   - `captureDirtyIds` (local edits — aggregates across the transactions a `fn`
- *     runs), and
- *   - `subscribeForeignChanges` (collab — a standing observer that reacts to a
- *     REMOTE peer's transaction on a shared doc; see `state/collab.ts`).
- *
- * A direct add/remove/replace of a tree key marks that id dirty; a deeper change
- * (a block's inline content / attrs) surfaces via `changedParentTypes` walked to
- * its owning block. The `memo` lifetime is exactly this call — sharing across
- * transactions is unsafe (Yjs may GC/re-layout internal items between them).
- *
- * The `as unknown as AnyYType` / `as BlockId` bridges are the Yjs↔domain type
- * seam (Yjs keys its event maps by an internal abstract-type identity and its
- * change-set keys as raw strings); they were previously duplicated inline in
- * `captureDirtyIds` and are now centralized here.
+ * Every `BlockId` whose read-model snapshot ONE `Y.Transaction` may have changed —
+ * the two-tier derivation in `flow-dirty.ts`. Feeds both `captureDirtyIds` (local
+ * edits, undo/redo) and `subscribeForeignChanges` (remote transactions).
  */
 export function dirtyIdsFromTransaction(doc: Y.Doc, tx: Y.Transaction): Set<BlockId> {
-  const dirtyIds = new Set<BlockId>();
-  const treeMaps = getTreeMaps(doc);
-  const treeMapSet = new Set<AnyYType>(treeMaps.map((m) => m as unknown as AnyYType));
-
-  for (const map of treeMaps) {
-    const event = tx.changed.get(map as unknown as AnyYType);
-    if (event === undefined) continue;
-    for (const key of event) {
-      if (key !== null) dirtyIds.add(key as BlockId);
-    }
-  }
-  const memo = new Map<AnyYType, BlockId | null>();
-  for (const [type] of tx.changedParentTypes) {
-    const owningBlockId = findOwningBlockIdMemoized(type, treeMapSet, memo);
-    if (owningBlockId !== null) dirtyIds.add(owningBlockId);
-  }
-  return dirtyIds;
-}
-
-/**
- * Non-memoized parent-chain walk. Called only by `findOwningBlockIdForTest`
- * — production path inside `runTransaction` uses `findOwningBlockIdMemoized`,
- * which amortizes shared ancestors across one transaction's
- * `changedParentTypes` iteration.
- *
- * Walks up the Y type parent chain to find the BlockId that owns `type`,
- * i.e. the key under one of the tree maps (`treeMapSet`) whose value is an
- * ancestor of `type`. Returns null if `type` is not nested under any of them.
- *
- * **O(depth) per call** — no linear scan of the outer map. Once we reach a
- * `cursor` whose `parent` is a tree map, `cursor` is the block-level Y.Map
- * and its insertion key is recovered via `getParentSubKey` (see that helper
- * for the Yjs-internal `_item.parentSub` rationale + version pin).
- */
-function findOwningBlockId(
-  type: AnyYType,
-  treeMapSet: ReadonlySet<AnyYType>,
-): BlockId | null {
-  let cursor: AnyYType | null = type;
-  while (cursor !== null) {
-    const parent = cursor.parent as AnyYType | null;
-    if (parent !== null && treeMapSet.has(parent)) {
-      // `cursor` is the block-level Y.Map; recover its key in the outer map.
-      return getParentSubKey(cursor);
-    }
-    cursor = parent;
-  }
-  return null;
-}
-
-/**
- * Test-only export of `findOwningBlockId` for direct perf measurement.
- * `treeMapsAsAny` is the list of tree maps cast to the YEvent-keyed type
- * (e.g. `getTreeMaps(doc).map(m => m as unknown as ...)`). Production code
- * path is via `runTransaction`; do not import this from non-test files.
- */
-export function findOwningBlockIdForTest(
-  treeMapsAsAny: readonly AnyYType[],
-  type: AnyYType,
-): BlockId | null {
-  return findOwningBlockId(type, new Set(treeMapsAsAny));
-}
-
-/**
- * Amortized variant used by `runTransaction`. Walks up the parent chain
- * exactly as `findOwningBlockId` does, but records every cursor it visits
- * in `memo` so subsequent calls within the same transaction short-circuit
- * the moment they land on a known cursor.
- *
- * Per-transaction lifetime is enforced by `runTransaction` allocating
- * a fresh `memo` map for each `captureDirty` invocation.
- */
-function findOwningBlockIdMemoized(
-  type: AnyYType,
-  treeMapSet: ReadonlySet<AnyYType>,
-  memo: Map<AnyYType, BlockId | null>,
-): BlockId | null {
-  const direct = memo.get(type);
-  if (direct !== undefined) return direct;
-
-  const path: AnyYType[] = [];
-  let cursor: AnyYType | null = type;
-  let resolved: BlockId | null = null;
-  while (cursor !== null) {
-    const cached = memo.get(cursor);
-    if (cached !== undefined) {
-      resolved = cached;
-      break;
-    }
-    path.push(cursor);
-    _walkStepCounter++;
-    const parent = cursor.parent as AnyYType | null;
-    if (parent !== null && treeMapSet.has(parent)) {
-      resolved = getParentSubKey(cursor);
-      break;
-    }
-    cursor = parent;
-  }
-  for (const c of path) memo.set(c, resolved);
-  return resolved;
-}
-
-/**
- * Test-only walk-step counter for the memoized walk used by
- * `runTransaction`. Increments once per `cursor` visited inside
- * `findOwningBlockIdMemoized`. Lets tests assert that wide-selection
- * format ops amortize the parent-chain walk rather than re-walking per
- * changed Y type. Production code only pays the increment; tests reset
- * and read it via the exports below.
- */
-let _walkStepCounter = 0;
-
-export function __resetWalkStepsForTest(): void {
-  _walkStepCounter = 0;
-}
-
-export function __getWalkStepsForTest(): number {
-  return _walkStepCounter;
+  const dirty = dirtyIdsFromFlows(doc, tx);
+  // The transaction's exact position mapping travels with its dirty set.
+  attachTxMappings(dirty, [txMappingOf(doc, tx)]);
+  return dirty;
 }

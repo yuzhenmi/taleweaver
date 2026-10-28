@@ -7,6 +7,7 @@
  * write-list / clone machinery are NOT reachable through the barrel (the Yjs
  * encapsulation and the public-op surface must not leak).
  */
+import { TEST_RESOLVER } from "../test-utils/state-builders";
 import { describe, expect, it } from "vitest";
 
 // Namespace import: lets us assert the absence of infra symbols by inspecting
@@ -86,10 +87,12 @@ describe("state/index barrel — layer surface", () => {
   it("end-to-end: the barrel's symbols compose into a usable pipeline", () => {
     // Build an empty doc, insert text, read it back — all through the barrel.
     const allocator = createTestAllocator();
-    const state = createEmptyDocument({ allocator });
+    const state = createEmptyDocument({ resolver: TEST_RESOLVER, allocator });
     const root = getBlock(state, state.rootId);
     expect(root).not.toBeNull();
-    const paragraphId = root?.firstChildId;
+    // root → its final section → the seeded paragraph.
+    const section = root?.firstChildId;
+    const paragraphId = section ? getBlock(state, section)?.firstChildId : null;
     expect(paragraphId).toBeTruthy();
     if (!paragraphId) throw new Error("seeded paragraph missing");
 

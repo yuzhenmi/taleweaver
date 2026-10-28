@@ -1,34 +1,26 @@
 /**
- * Identity-preserving `replaceWithSuggestedFragment` (#493, Task S2) — the
- * INTERVENING blocks + the END block E + the `n===0` START-block strike are now
- * applied SURGICALLY (`applyDeletionStrikeInTx`), not via the old per-block
- * full-replace (`writeBlockInlineContentInTx`). The op's RESULTING document stays
- * byte-identical to the full-replace behavior; only the UNTOUCHED runs' `Y.Text`
- * CRDT identity is now preserved.
+ * `replaceWithSuggestedFragment` (#493) — every write is an offset write on the
+ * blocks' inline `Y.Text` (strike = format / own-insertion delete; line inserts;
+ * replace-tail truncation); crossed / new-line boundaries are block tags, not items.
  *
- * Oracle: a SECOND fresh copy of the same input state, to which each
- * `planReplaceWithSuggestedFragment().writes[k].items` is applied via a local
- * full-replace (`getYBlock(...).set("inlineContent", buildYInlineContent(...))`,
- * exactly what the old `writeBlockInlineContentInTx` did) plus the new-block / rewire
- * handling that mirrors the applier. The surgical applier's per-block serialized
- * content MUST equal that copy's, block-for-block.
+ * Oracle: `planReplaceWithSuggestedFragment().writes[k].items` — the pure per-block
+ * content the op must produce. The applied op's per-block serialized content MUST
+ * equal it, block-for-block.
  *
- * Identity: an UNTOUCHED run in E's PLAIN TAIL keeps its `Y.Text` `===` across the
- * surgical op (the old full-replace minted fresh `Y.Text`, losing it). Captured via
- * the live doc (`STATE_INTERNAL.doc` + `getYBlock(...).get("inlineContent")`) since
- * `InlineItem` does not expose the `Y.Text`.
+ * Survival: characters the edit leaves in place (B's untouched prefix, E's plain
+ * tail, struck runs) keep their CRDT identity across the op.
  */
-import * as Y from "yjs";
 import { describe, it, expect } from "vitest";
 import {
   replaceWithSuggestedFragment,
   planReplaceWithSuggestedFragment,
+  acceptAll,
+  rejectAll,
   type ReplaceSuggestionInput,
 } from "./suggestion-ops";
 import { type SuggestionId } from "../suggestions";
 import { resolveBlock, type State } from "../state";
-import { getYBlock } from "../yjs-doc";
-import { STATE_INTERNAL } from "../state-internal";
+import { relAt, survives } from "../../test-utils/relpos-survival";
 import {
   buildState,
   buildBlock,
@@ -85,7 +77,7 @@ function serializeBlock(st: State, id: string): unknown {
 
 const blockSeq = (st: State): string[] => {
   const out: string[] = [];
-  let id = resolveBlock(st, asBlockId("doc"))?.block.firstChildId ?? null;
+  let id = resolveBlock(st, finalSectionOf(st))?.block.firstChildId ?? null;
   while (id) {
     out.push(id);
     id = resolveBlock(st, id)?.block.nextSiblingId ?? null;
@@ -93,18 +85,31 @@ const blockSeq = (st: State): string[] => {
   return out;
 };
 
-/** The Y.Text of the item at `index` in block `id`'s LIVE Y.Array (raw access). */
-function yTextAt(st: State, id: string, index: number): Y.Text {
-  const yItems = getYBlock(st[STATE_INTERNAL].doc, id as BlockId, "test", "block").get(
-    "inlineContent",
-  ) as Y.Array<Y.Map<unknown>>;
-  return yItems.get(index).get("text") as Y.Text;
+/** A character anchor at the FIRST char of the `index`-th item of block `id`. */
+interface CharAnchor {
+  readonly rel: ReturnType<typeof relAt>;
+  readonly ch: string;
+}
+function yTextAt(st: State, id: string, index: number): CharAnchor {
+  const items = resolveBlock(st, id as BlockId)?.block.inlineContent?.items ?? [];
+  let offset = 0;
+  for (let k = 0; k < index; k++) {
+    const it = items[k];
+    offset += it === undefined ? 0 : it.kind === "text" ? it.text.length : 1;
+  }
+  const item = items[index];
+  if (item === undefined || item.kind !== "text") throw new Error(`no text item ${index} in ${id}`);
+  return { rel: relAt(st, id, offset), ch: item.text.charAt(0) };
+}
+/** True iff the anchored character survived (same CRDT item, still live). */
+function kept(a: CharAnchor, st: State): boolean {
+  return survives(a.rel, st, a.ch);
 }
 
 // E has TWO distinct-attrs runs: "fg"{f} struck whole + "hi"{h} a wholly-untouched
-// plain tail whose Y.Text identity we pin. The span ends at E offset 2 (the f|h
+// plain tail whose characters we pin. The span ends at E offset 2 (the f|h
 // boundary) so the strike covers exactly the "fg" run; "hi" is never touched.
-// B has TWO distinct-attrs runs: "a"{x} a wholly-untouched prefix whose Y.Text we
+// B has TWO distinct-attrs runs: "a"{x} a wholly-untouched prefix whose characters we
 // pin, then "bc"{y} struck whole. The span starts at the a|bc boundary (B offset 1)
 // so the strike covers exactly "bc"; "a" is never touched (a single run "abc" split
 // at offset 1 would instead REBUILD the "a" prefix — the inherent straddler loss).
@@ -116,13 +121,13 @@ const E = () => inlineContent([text("fg", { f: 1 }), text("hi", { h: 1 })]);
 const span = () => createSpan(createPosition(asBlockId("B"), 1), createPosition(asBlockId("E"), 2));
 
 describe("replaceWithSuggestedFragment — S2 surgical interveners + E + n===0 B", () => {
-  it("cross-block multi-intervener n>1: per-block content === old full-replace AND E's plain-tail run keeps Y.Text identity", () => {
+  it("cross-block multi-intervener n>1: per-block content === old full-replace AND E's plain-tail run keeps its characters", () => {
     const fragment: SiblingBlockInit[] = [
       { type: "paragraph", inlineContent: inlineContent([text("X")]) },
       { type: "paragraph", inlineContent: inlineContent([text("Y")]) },
     ];
 
-    // Surgical run — capture E's plain-tail run Y.Text BEFORE the op.
+    // Surgical run — anchor E's plain-tail characters BEFORE the op.
     const state = fourBlocks(B(), I1(), I2(), E());
     const eTailBefore = yTextAt(state, "E", 1);
 
@@ -130,24 +135,16 @@ describe("replaceWithSuggestedFragment — S2 surgical interveners + E + n===0 B
 
     // (a) Equivalence vs the expected full-replace content (interveners + E + B).
     //     Expected B = "a" plain + "bc" struck (deletion d) + line0 "X"{ins} +
-    //     split-embed; I1/I2 = struck whole + join embed; E = "fg" struck + "hi" plain.
+    //     (the split is a tag on the new block); I1/I2 = struck whole (join-tagged);
+    //     E = "fg" struck + "hi" plain (join-tagged).
     //     We compare the INTERVENER + E blocks (the S2-surgical ones) against a hand-
     //     derived oracle built from the SAME plan's writes via full-replace below.
     expect(serializeBlock(r.state, "I1")).toEqual(oracleBlock(span(), fragment, "I1"));
     expect(serializeBlock(r.state, "I2")).toEqual(oracleBlock(span(), fragment, "I2"));
     expect(serializeBlock(r.state, "E")).toEqual(oracleBlock(span(), fragment, "E"));
 
-    // (b) E's plain-tail "hi" run Y.Text is preserved (===) across the surgical op.
-    const eItems = getYBlock(r.state[STATE_INTERNAL].doc, "E" as BlockId, "test", "block").get(
-      "inlineContent",
-    ) as Y.Array<Y.Map<unknown>>;
-    // Find the surviving "hi" run and assert identity.
-    let found: Y.Text | null = null;
-    for (let k = 0; k < eItems.length; k++) {
-      const t = eItems.get(k).get("text") as Y.Text;
-      if (t.toString() === "hi") found = t;
-    }
-    expect(found).toBe(eTailBefore);
+    // (b) E's plain-tail "hi" characters survive the op.
+    expect(kept(eTailBefore, r.state)).toBe(true);
   });
 
   it("n===0 cross-block (pure strike): per-block content === old full-replace AND E's plain-tail keeps identity", () => {
@@ -162,17 +159,17 @@ describe("replaceWithSuggestedFragment — S2 surgical interveners + E + n===0 B
     for (const id of ["B", "I1", "I2", "E"]) {
       expect(serializeBlock(r.state, id)).toEqual(oracleBlock(span(), [], id));
     }
-    // The surgical strike preserves the Y.Text identity of BOTH untouched runs:
-    // B's prefix and E's plain tail. The old full-replace minted fresh Y.Text for each.
-    expect(yTextAt(r.state, "B", 0)).toBe(bPrefixBefore);
-    expect(yTextAt(r.state, "E", 1)).toBe(eTailBefore);
+    // The surgical strike preserves the characters of BOTH untouched runs:
+    // B's prefix and E's plain tail.
+    expect(kept(bPrefixBefore, r.state)).toBe(true);
+    expect(kept(eTailBefore, r.state)).toBe(true);
   });
 });
 
 // ────────────────────────────────────────────────────────────────────────────
 // S3: START block B surgical for n===1 (single fragment line). The applier strikes
 // B's [rangeStart,rangeEnd) in place, then split-inserts line0 at offset c, then
-// appends the cross-block JOIN embed — preserving every UNTOUCHED run's Y.Text.
+// appends the cross-block JOIN embed — preserving every untouched character.
 // ────────────────────────────────────────────────────────────────────────────
 
 /** doc > [ P ] — a single paragraph block, for within-block n===1 cases. */
@@ -209,22 +206,9 @@ function oracleForState(
   return serializeItems(write.items);
 }
 
-/** Find the Y.Text of the run whose text === `s` in block `id`'s LIVE Y.Array. */
-function findYTextByString(st: State, id: string, s: string): Y.Text | null {
-  const yItems = getYBlock(st[STATE_INTERNAL].doc, id as BlockId, "test", "block").get(
-    "inlineContent",
-  ) as Y.Array<Y.Map<unknown>>;
-  for (let k = 0; k < yItems.length; k++) {
-    const yItem = yItems.get(k);
-    if (yItem.get("kind") !== "text") continue; // embeds carry no Y.Text
-    const t = yItem.get("text") as Y.Text;
-    if (t.toString() === s) return t;
-  }
-  return null;
-}
 
 describe("replaceWithSuggestedFragment — S3 surgical START block for n===1", () => {
-  it("single-block n===1 with a strike (type-over within B): content === oracle AND B's untouched prefix run keeps Y.Text identity", () => {
+  it("single-block n===1 with a strike (type-over within B): content === oracle AND B's untouched prefix run keeps its characters", () => {
     // B = "a"{x} | "bcd"{y}. Span strikes "bc" (offset 1..3, inside "bcd").
     const mk = () => oneBlock(inlineContent([text("a", { x: 1 }), text("bcd", { y: 1 })]));
     const span = createSpan(createPosition(asBlockId("B"), 1), createPosition(asBlockId("B"), 3));
@@ -239,10 +223,10 @@ describe("replaceWithSuggestedFragment — S3 surgical START block for n===1", (
 
     expect(serializeBlock(r.state, "B")).toEqual(oracleForState(mk, span, fragment, "B"));
     // The "a"{x} prefix run is whole + untouched (offset 1 = a|bcd boundary) → kept ===.
-    expect(findYTextByString(r.state, "B", "a")).toBe(bPrefixBefore);
+    expect(kept(bPrefixBefore, r.state)).toBe(true);
   });
 
-  it("PF-1 (collapsed span, no strike, pure insert at run boundary): content === oracle AND BOTH adjacent runs keep Y.Text identity", () => {
+  it("PF-1 (collapsed span, no strike, pure insert at run boundary): content === oracle AND BOTH adjacent runs keep their characters", () => {
     // B = "a"{x} | "bb"{y}. Collapsed span at the a|bb boundary (offset 1) → no strike.
     const mk = () => oneBlock(inlineContent([text("a", { x: 1 }), text("bb", { y: 1 })]));
     const span = createSpan(createPosition(asBlockId("B"), 1), createPosition(asBlockId("B"), 1));
@@ -257,12 +241,12 @@ describe("replaceWithSuggestedFragment — S3 surgical START block for n===1", (
     const r = replaceWithSuggestedFragment(state, span, fragment, REPL("d", "i"), createTestAllocator());
 
     expect(serializeBlock(r.state, "B")).toEqual(oracleForState(mk, span, fragment, "B"));
-    // c=1 is a run boundary → neither run splits → both Y.Text preserved.
-    expect(findYTextByString(r.state, "B", "a")).toBe(aBefore);
-    expect(findYTextByString(r.state, "B", "bb")).toBe(bbBefore);
+    // c=1 is a run boundary → neither run splits → both runs' characters preserved.
+    expect(kept(aBefore, r.state)).toBe(true);
+    expect(kept(bbBefore, r.state)).toBe(true);
   });
 
-  it("cross-block n===1: per-block content === oracle AND B's prefix run + E's tail run keep Y.Text identity", () => {
+  it("cross-block n===1: per-block content === oracle AND B's prefix run + E's tail run keep their characters", () => {
     const fragment: SiblingBlockInit[] = [
       { type: "paragraph", inlineContent: inlineContent([text("Z")]) },
     ];
@@ -277,16 +261,16 @@ describe("replaceWithSuggestedFragment — S3 surgical START block for n===1", (
       expect(serializeBlock(r.state, id)).toEqual(oracleBlock(span(), fragment, id));
     }
     // The load-bearing regression: B is now surgical for cross-block n===1, so B's
-    // "a"{x} prefix survives (previously full-replace minted a fresh Y.Text).
-    expect(findYTextByString(r.state, "B", "a")).toBe(bPrefixBefore);
-    expect(findYTextByString(r.state, "E", "hi")).toBe(eTailBefore);
+    // "a"{x} prefix survives.
+    expect(kept(bPrefixBefore, r.state)).toBe(true);
+    expect(kept(eTailBefore, r.state)).toBe(true);
   });
 });
 
 // ────────────────────────────────────────────────────────────────────────────
 // S4: START block B surgical for n>1 (multi-line fragment). B is TRUNCATED via a
-// `replace-tail` (keep [0:c], drop the rest, append line0 + split-embed); B's struck
-// tail + cross-block join RELOCATE BY VALUE into the LAST new block. B is NOT struck
+// `replace-tail` (keep [0:c], drop the rest, append line0); B's struck
+// tail RELOCATES BY VALUE into the LAST new block. B is NOT struck
 // in place (Q1 — striking would desync the replace-tail indices computed vs the
 // ORIGINAL items). This was the SOLE remaining full-replace caller; after S4 B is
 // surgical for ALL n and `writeBlockInlineContentInTx` has zero callers.
@@ -331,10 +315,10 @@ function oracleNewBlockForState(
 }
 
 describe("replaceWithSuggestedFragment — S4 surgical START block for n>1", () => {
-  it("single-block n>1, collapsed span (pure multi-line insert mid-B): B + new blocks content === oracle AND B's prefix run keeps Y.Text identity", () => {
+  it("single-block n>1, collapsed span (pure multi-line insert mid-B): B + new blocks content === oracle AND B's prefix run keeps its characters", () => {
     // B = "a"{x} | "bcd"{y}. Collapsed span at the a|bcd boundary (offset 1) → no
-    // strike; pure multi-line insert. n=2 (X / Y) → B truncates to [a]+X+split-embed;
-    // the LAST new block carries Y + B's PLAIN suffix "bcd"{y} (the relocated tail).
+    // strike; pure multi-line insert. n=2 (X / Y) → the NEW head H holds [a]+X (its ¶
+    // keyed); B keeps its id + ¶ and holds Y + its PLAIN suffix "bcd"{y}.
     const mk = () => twoBlocks(
       inlineContent([text("a", { x: 1 }), text("bcd", { y: 1 })]),
       inlineContent([text("t", { z: 1 })]),
@@ -350,21 +334,21 @@ describe("replaceWithSuggestedFragment — S4 surgical START block for n>1", () 
 
     const r = replaceWithSuggestedFragment(state, span, fragment, REPL("d", "i"), createTestAllocator());
 
-    // B itself: truncated to [a] + X{ins} + split-embed.
+    // B itself: Y{ins} + its suffix.
     expect(serializeBlock(r.state, "B")).toEqual(oracleForState(mk, span, fragment, "B"));
-    // The one NEW block (n-1 = 1) follows B in the sequence; assert its relocated content.
+    // The one NEW head (n-1 = 1) precedes B; assert its content ([a] + X).
     const seq = blockSeq(r.state);
-    expect(seq).toEqual(["B", seq[1], "T"]);
-    const newId = nth(seq, 1, "new block");
+    expect(seq).toEqual([seq[0], "B", "T"]);
+    const newId = nth(seq, 0, "new head");
     expect(serializeBlock(r.state, newId)).toEqual(oracleNewBlockForState(mk, span, fragment, newId));
-    // The load-bearing regression: B's "a"{x} prefix survives (previously full-replace
-    // minted a fresh Y.Text). Offset 1 = a|bcd boundary → "a" is whole + untouched.
-    expect(findYTextByString(r.state, "B", "a")).toBe(bPrefixBefore);
+    // The load-bearing regression: B's "a"{x} prefix survives (now in H; previously
+    // full-replace re-minted it). Offset 1 = a|bcd boundary → "a" is whole + untouched.
+    expect(kept(bPrefixBefore, r.state)).toBe(true);
   });
 
-  it("single-block n>1 with a within-B strike (type-over, multi-line): B + new blocks content === oracle AND B's prefix run keeps Y.Text identity", () => {
-    // B = "a"{x} | "bcd"{y}. Span strikes "bc" (offset 1..3). n=2 → B truncates to
-    // [a] + X{ins} + split-embed; the LAST new block carries Y + B's STRUCK tail "bc"{y,del}.
+  it("single-block n>1 with a within-B strike (type-over, multi-line): B + new blocks content === oracle AND B's prefix run keeps its characters", () => {
+    // B = "a"{x} | "bcd"{y}. Span strikes "bc" (offset 1..3). n=2 → the new head H
+    // holds [a] + X{ins}; B holds Y + its STRUCK tail "bc"{y,del} + "d".
     const mk = () => twoBlocks(
       inlineContent([text("a", { x: 1 }), text("bcd", { y: 1 })]),
       inlineContent([text("t", { z: 1 })]),
@@ -382,14 +366,14 @@ describe("replaceWithSuggestedFragment — S4 surgical START block for n>1", () 
 
     expect(serializeBlock(r.state, "B")).toEqual(oracleForState(mk, span, fragment, "B"));
     const seq = blockSeq(r.state);
-    expect(seq).toEqual(["B", seq[1], "T"]);
-    const newId = nth(seq, 1, "new block");
-    // The last (only) new block carries B's relocated STRUCK tail (the deletion-id path).
+    expect(seq).toEqual([seq[0], "B", "T"]);
+    const newId = nth(seq, 0, "new head");
+    // The (only) new head carries B's prefix + line X.
     expect(serializeBlock(r.state, newId)).toEqual(oracleNewBlockForState(mk, span, fragment, newId));
-    expect(findYTextByString(r.state, "B", "a")).toBe(bPrefixBefore);
+    expect(kept(bPrefixBefore, r.state)).toBe(true);
   });
 
-  it("cross-block n>1 with interveners: per-block content === oracle (incl. relocated tail in last new block) AND B's prefix + E's tail keep Y.Text identity", () => {
+  it("cross-block n>1 with interveners: per-block content === oracle (B holds the last line + its struck tail) AND B's prefix + E's tail keep their characters", () => {
     const fragment: SiblingBlockInit[] = [
       { type: "paragraph", inlineContent: inlineContent([text("X")]) },
       { type: "paragraph", inlineContent: inlineContent([text("Y")]) },
@@ -405,18 +389,186 @@ describe("replaceWithSuggestedFragment — S4 surgical START block for n>1", () 
     for (const id of ["B", "I1", "I2", "E"]) {
       expect(serializeBlock(r.state, id)).toEqual(oracleBlock(span(), fragment, id));
     }
-    // The single new block (n-1 = 1) sits between B and I1; it carries B's RELOCATED
-    // struck tail "bc"{y,del} + the cross-block JOIN embed after line Y.
+    // The single new head (n-1 = 1) sits before B; B holds line Y + its struck tail
+    // "bc"{y,del} (no character moved).
     const seq = blockSeq(r.state);
-    expect(seq).toEqual(["B", seq[1], "I1", "I2", "E"]);
-    const newId = nth(seq, 1, "new block");
+    expect(seq).toEqual([seq[0], "B", "I1", "I2", "E"]);
+    const newId = nth(seq, 0, "new head");
     expect(serializeBlock(r.state, newId)).toEqual(
       oracleNewBlockForState(() => fourBlocks(B(), I1(), I2(), E()), span(), fragment, newId),
     );
     // The load-bearing regression: B's "a"{x} prefix + E's "hi"{h} tail survive (===);
-    // previously B's n>1 full-replace minted a fresh Y.Text for the prefix.
-    expect(findYTextByString(r.state, "B", "a")).toBe(bPrefixBefore);
-    expect(findYTextByString(r.state, "E", "hi")).toBe(eTailBefore);
+    // B's prefix is never re-minted.
+    expect(kept(bPrefixBefore, r.state)).toBe(true);
+    expect(kept(eTailBefore, r.state)).toBe(true);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// T9: rich suggested-fragment path — rich inline marks carried, content embeds
+// dropped, block type/attrs per-line honored, caret-length in sync.
+// ────────────────────────────────────────────────────────────────────────────
+
+import { INSERTION_SUGGESTION_ATTR } from "../suggestions";
+import { embed, finalSectionOf } from "../../test-utils/state-builders";
+
+describe("replaceWithSuggestedFragment — T9 rich inline + embed filtering", () => {
+  /** Single-block doc with one paragraph P. */
+  function singlePara(p: InlineContent): State {
+    return buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "P", lastChildId: "P" }),
+        buildBlock({ id: "P", type: "paragraph", parentId: "doc", inlineContent: p }),
+      ],
+    });
+  }
+
+  /** Concatenate the text of a block's items (embeds contribute nothing). */
+  function blockText(items: readonly InlineItem[]): string {
+    return items.map((it) => (it.kind === "text" ? it.text : "")).join("");
+  }
+
+  /** Two-block doc: paragraph P1 then P2. */
+  function twoParagraphs(p1: InlineContent, p2: InlineContent): State {
+    return buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "P1", lastChildId: "P2" }),
+        buildBlock({ id: "P1", type: "paragraph", parentId: "doc", nextSiblingId: "P2", inlineContent: p1 }),
+        buildBlock({ id: "P2", type: "paragraph", parentId: "doc", prevSiblingId: "P1", inlineContent: p2 }),
+      ],
+    });
+  }
+
+  it("suggested fragment carries rich inline marks on the inserted runs", () => {
+    // Fragment: one line with bold text "x". After the op, the inserted run must
+    // carry the bold attr AND the insertionSuggestionId.
+    const state = singlePara(inlineContent([text("hello")]));
+    const sp = createSpan(
+      createPosition(asBlockId("P"), 0),
+      createPosition(asBlockId("P"), 0),
+    );
+    const fragment: SiblingBlockInit[] = [
+      { type: "paragraph", inlineContent: inlineContent([text("x", { bold: true })]) },
+    ];
+    const r = replaceWithSuggestedFragment(state, sp, fragment, REPL("d", "ins"), createTestAllocator());
+    const items = resolveBlock(r.state, asBlockId("P"))?.block.inlineContent?.items ?? [];
+    // Find the inserted "x" run.
+    const xRun = items.find((it) => it.kind === "text" && it.text === "x");
+    expect(xRun).toBeDefined();
+    if (xRun === undefined || xRun.kind !== "text") throw new Error("unreachable");
+    expect(xRun.attrs["bold"]).toBe(true);
+    expect(typeof xRun.attrs[INSERTION_SUGGESTION_ATTR]).toBe("string");
+  });
+
+  it("suggested fragment lines keep their OWN block type (heading block created for heading line)", () => {
+    const state = twoParagraphs(inlineContent([text("before")]), inlineContent([text("after")]));
+    const sp = createSpan(
+      createPosition(asBlockId("P1"), 0),
+      createPosition(asBlockId("P1"), 0),
+    );
+    // A MIDDLE (closed) line keeps its own type; the first line joins the caret
+    // paragraph's head (B's type, as the direct paste) and the last (open) line adopts
+    // the destination B.
+    const fragment: SiblingBlockInit[] = [
+      { type: "paragraph", inlineContent: inlineContent([text("intro")]) },
+      { type: "heading", attrs: { level: 1 }, inlineContent: inlineContent([text("H")]) },
+      { type: "paragraph", inlineContent: inlineContent([text("end")]) },
+    ];
+    const r = replaceWithSuggestedFragment(state, sp, fragment, REPL("d", "ins"), createTestAllocator());
+    // After the op: head H0 ("intro"), head H1 (heading "H"), P1 ("end" + "before"), P2.
+    const seq = blockSeq(r.state);
+    expect(seq.length).toBe(4);
+    expect(nth(seq, 2, "caret block")).toBe("P1");
+    expect(resolveBlock(r.state, asBlockId("P1"))?.block.type).toBe("paragraph");
+    const newBlockId = nth(seq, 1, "new heading head");
+    const newBlock = resolveBlock(r.state, asBlockId(newBlockId));
+    expect(newBlock?.block.type).toBe("heading");
+    expect(newBlock?.block.attrs["level"]).toBe(1);
+  });
+
+  it("drops an un-trackable inline image embed from a suggested paste line", () => {
+    // Fragment line has [text "a", embed "image"]. After the suggested insert, only
+    // "a" (with insertion id) must appear; the image embed must be absent. acceptAll /
+    // rejectAll are NON-undoable and mutate the doc in place, so each resolve arm gets a
+    // FRESH suggested state (the suggestion-ops.test convention).
+    const sp = createSpan(
+      createPosition(asBlockId("P"), 0),
+      createPosition(asBlockId("P"), 0),
+    );
+    const fragment: SiblingBlockInit[] = [
+      { type: "paragraph", inlineContent: inlineContent([text("a"), embed("image", { src: "x.png" })]) },
+    ];
+    const mkSuggested = (): State =>
+      replaceWithSuggestedFragment(
+        singlePara(inlineContent([text("hello")])),
+        sp,
+        fragment,
+        REPL("d", "ins"),
+        createTestAllocator(),
+      ).state;
+
+    const suggested = mkSuggested();
+    const items = resolveBlock(suggested, asBlockId("P"))?.block.inlineContent?.items ?? [];
+    // "a" run must be present with insertion id (genuinely tracked).
+    const aRun = items.find((it) => it.kind === "text" && it.text === "a");
+    expect(aRun).toBeDefined();
+    if (aRun === undefined || aRun.kind !== "text") throw new Error("unreachable");
+    expect(typeof aRun.attrs[INSERTION_SUGGESTION_ATTR]).toBe("string");
+    // The image embed must NOT appear at insert time.
+    expect(items.find((it) => it.kind === "embed" && it.embedType === "image")).toBeUndefined();
+    // No embed at all appears (paragraph-break suggestions are block tags, not items).
+    expect(items.some((it) => it.kind === "embed")).toBe(false);
+
+    // accept-all → the inserted "a" is PRESENT (now plain — insertion id stripped, so
+    // it coalesces with the original "hello" into "ahello") and NO embed survives (the
+    // dropped content embed leaves zero residue).
+    const accItems = resolveBlock(acceptAll(mkSuggested()).state, asBlockId("P"))?.block
+      .inlineContent?.items ?? [];
+    expect(blockText(accItems)).toBe("ahello");
+    expect(accItems.every((it) => it.kind === "text")).toBe(true);
+    expect(
+      accItems.every((it) => it.kind !== "text" || it.attrs[INSERTION_SUGGESTION_ATTR] === undefined),
+    ).toBe(true);
+
+    // reject-all → the inserted "a" is REMOVED (only original "hello" remains) and NO
+    // embed survives.
+    const rejItems = resolveBlock(rejectAll(mkSuggested()).state, asBlockId("P"))?.block
+      .inlineContent?.items ?? [];
+    expect(blockText(rejItems)).toBe("hello");
+    expect(rejItems.every((it) => it.kind === "text")).toBe(true);
+  });
+
+  it("caret / endPosition stays correct when content embeds are filtered (filter-then-measure)", () => {
+    // Fragment: single line = [text "ab", embed "inline-image", text "cd"].
+    // Filtered items = [text "ab", text "cd"] → length 4.
+    // endPosition.offset must be c(=0) + 4 = 4, NOT 5 (which would include the embed).
+    const state = singlePara(inlineContent([text("x")]));
+    const sp = createSpan(
+      createPosition(asBlockId("P"), 0),
+      createPosition(asBlockId("P"), 0),
+    );
+    const fragment: SiblingBlockInit[] = [
+      {
+        type: "paragraph",
+        inlineContent: inlineContent([
+          text("ab"),
+          embed("inline-image", { src: "y.png" }),
+          text("cd"),
+        ]),
+      },
+    ];
+    const plan = planReplaceWithSuggestedFragment(
+      state,
+      sp,
+      fragment,
+      REPL("d", "ins"),
+      createTestAllocator(),
+    );
+    // Without filtering: "ab"(2) + embed(1) + "cd"(2) = 5.
+    // With filtering:    "ab"(2) + "cd"(2) = 4.
+    expect(plan.endPosition.offset).toBe(4);
   });
 });
 
@@ -447,3 +599,54 @@ function oracleBlock(
   if (write === undefined) throw new Error(`oracleBlock: no write for "${blockId}"`);
   return serializeItems(write.items);
 }
+
+describe("replaceWithSuggestedFragment — span endpoint inside a surrogate pair", () => {
+  // "ab😀cd": the emoji occupies [2,4); offset 3 is inside the pair.
+  const oneBlock = (): State =>
+    buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "B", lastChildId: "B" }),
+        buildBlock({ id: "B", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("ab😀cd")]) }),
+      ],
+    });
+  const XY: SiblingBlockInit[] = [
+    { type: "paragraph", inlineContent: inlineContent([text("X")]) },
+    { type: "paragraph", inlineContent: inlineContent([text("Y")]) },
+  ];
+  /** Per block: its text and the struck (deletion-tagged) text. */
+  const view = (st: State) =>
+    blockSeq(st).map((id) => {
+      const items = resolveBlock(st, id as BlockId)?.block.inlineContent?.items ?? [];
+      const runs = items.filter((i): i is Extract<InlineItem, { kind: "text" }> => i.kind === "text");
+      return {
+        text: runs.map((r) => r.text).join(""),
+        struck: runs.filter((r) => "deletionSuggestionId" in r.attrs).map((r) => r.text).join(""),
+      };
+    });
+  const at = (a: number, b: number) => createSpan(createPosition(asBlockId("B"), a), createPosition(asBlockId("B"), b));
+
+  it("[3,5) → snapped once to [2,5): one cut point for the strike, the insert and the moved tail", () => {
+    const r = replaceWithSuggestedFragment(oneBlock(), at(3, 5), XY, REPL("d", "i"), createTestAllocator());
+    expect(view(r.state)).toEqual([
+      { text: "abX", struck: "" },
+      { text: "Y😀cd", struck: "😀c" },
+    ]);
+  });
+
+  it("collapsed @3 → snapped to 2", () => {
+    const r = replaceWithSuggestedFragment(oneBlock(), at(3, 3), XY, REPL("d", "i"), createTestAllocator());
+    expect(view(r.state)).toEqual([
+      { text: "abX", struck: "" },
+      { text: "Y😀cd", struck: "" },
+    ]);
+  });
+
+  it("[1,3) → snapped out to [1,4)", () => {
+    const r = replaceWithSuggestedFragment(oneBlock(), at(1, 3), XY, REPL("d", "i"), createTestAllocator());
+    expect(view(r.state)).toEqual([
+      { text: "aX", struck: "" },
+      { text: "Yb😀cd", struck: "b😀" },
+    ]);
+  });
+});

@@ -1,5 +1,7 @@
 import type { EditorState, EditorConfig } from "../editor-state";
 import { rebuildTrees } from "./helpers";
+import { recordChange } from "../editor-state";
+import { rebaseSelection } from "../foreign-change";
 
 export function handleRedo(
   editor: EditorState,
@@ -10,10 +12,14 @@ export function handleRedo(
   // StackItem was left dead by a non-undoable same-block resolve (mirror of
   // handleUndo; see history.ts redo() for the dead-StackItem rationale).
   if (result === null) return editor;
-  const selection = result.selection ?? editor.selection;
+  // An unresolvable stored selection (its block is gone, or its anchor character
+  // was deleted and not restored) falls back to the selection this redo's own
+  // change produces: the current selection rebased through it.
+  const lastChange = recordChange(editor.lastChange, editor.state, result.dirtyIds);
+  const selection = result.selection ?? rebaseSelection(editor, { ...editor, state: result.state, lastChange });
   // See handleUndo for why result.dirtyIds is non-empty on a non-null (real)
   // redo result.
-  // #323: clear the non-undoable `caretPageHint` (see handleUndo for the
+  // Clear the non-undoable `caretPageHint` (see handleUndo for the
   // rationale — the post-restore page is ambiguous, and the `{ ...editor }`
   // spread would otherwise inherit a stale hint).
   return rebuildTrees(

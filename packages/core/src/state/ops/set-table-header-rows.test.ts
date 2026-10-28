@@ -81,13 +81,15 @@ function headerRowCountOf(state: State): unknown {
 
 describe("setTableHeaderRows", () => {
   it("writes headerRowCount clamped to [0, rowCount]", () => {
+    // A fresh table per call (all States of one fixture share its Y.Doc).
     const state = plainTable(3);
-    expect(setTableHeaderRows(state, "table" as BlockId, 2).state).not.toBe(state);
-    expect(headerRowCountOf(setTableHeaderRows(state, "table" as BlockId, 2).state)).toBe(2);
+    const two = setTableHeaderRows(state, "table" as BlockId, 2).state;
+    expect(two).not.toBe(state);
+    expect(headerRowCountOf(two)).toBe(2);
     // Above rowCount → clamps to 3.
-    expect(headerRowCountOf(setTableHeaderRows(state, "table" as BlockId, 9).state)).toBe(3);
+    expect(headerRowCountOf(setTableHeaderRows(plainTable(3), "table" as BlockId, 9).state)).toBe(3);
     // Negative → clamps to 0 (attr dropped — 0 is the absent default).
-    expect(headerRowCountOf(setTableHeaderRows(state, "table" as BlockId, -2).state)).toBeUndefined();
+    expect(headerRowCountOf(setTableHeaderRows(two, "table" as BlockId, -2).state)).toBeUndefined();
   });
 
   it("clamps a straddling request DOWN to the clean boundary", () => {

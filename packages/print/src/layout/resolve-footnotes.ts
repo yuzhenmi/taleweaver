@@ -9,26 +9,25 @@
  *      `measurePass`), they decide WHICH page each footnote body belongs to.
  *      They do NOT lay out or split bodies.
  *
- *   2. Per-page slot FILL/SPLIT (`computeSlotLayout`, FN-5): greedy fill +
+ *   2. Per-page slot FILL/SPLIT (`computeSlotLayout`): greedy fill +
  *      line-boundary split + carry-all-overflow for ONE page's footnote slot.
  *      Given the inbound continuations (the prior page's carries) ++ the page's
  *      freshly-assigned bodies, it lays each into the bounded slot, splits the
  *      overflowing body at a line boundary, and returns the slot height + the
  *      fresh bodies that started + the ordered carries forward.
  *
- *   3. The PASS itself (`resolveFootnotes`, FN-4/FN-5): lay each page's assigned
+ *   3. The PASS itself (`resolveFootnotes`): lay each page's assigned
  *      bodies into a bottom slot, reduce that page's body content area, and
  *      FORWARD-SWEEP the re-fit so later pages shift correctly — including
  *      single-page convergence (slot ⇄ which blocks fit), cross-page body
  *      SPLITTING + CONTINUATION (tail pages drain a tall footnote), the
- *      atomic-block rule for self-eviction, and the FN-4.4 incremental
+ *      atomic-block rule for self-eviction, and the incremental
  *      carry-forward reuse gate (`canReuseFootnotePage`).
  *
  * Scope note: a footnote anchor sits in a top-level leaf whose blockId IS a
  * `rootChildren` key, so a direct `Map<topLevelKey, index>` is all the
  * assignment needs. Anchors nested inside a NON-transparent container resolve
- * to `undefined` in the index and are skipped defensively (tracked as
- * FN-4-followup-A — not in scope).
+ * to `undefined` in the index and are skipped defensively (not supported).
  */
 import type { ElementBox, RenderNode } from "@taleweaver/core";
 import type { BlockId } from "@taleweaver/core";
@@ -62,7 +61,7 @@ import { isDevMode } from "@taleweaver/core";
 // ---------------------------------------------------------------------------
 // Test-only instrumentation: count footnote-body `layoutBlock` invocations from
 // `resolveFootnotes` (the per-call body-height layout, NOT the materialize-pass
-// slot render). FN-4.4's incremental carry-forward (the `prevResolvedPlan` reuse
+// slot render). The incremental carry-forward (the `prevResolvedPlan` reuse
 // gate below) SKIPS laying out a page's footnote bodies + re-running the
 // convergence loop for a page whose body inputs AND assigned-body refs AND
 // per-page geometry are all unchanged. The incremental test asserts that an edit
@@ -84,34 +83,34 @@ export function __resetBodyLayoutCallCountForTest(): void {
 }
 
 /**
- * Height of the footnote SEPARATOR rule (FN-4): the thin horizontal line Google
+ * Height of the footnote SEPARATOR rule: the thin horizontal line Google
  * Docs draws between the body content and the footnote slot. A fixed small value
  * (a hairline rule plus its vertical breathing room) — Google Docs uses a short
  * rule with a few px of gap above and below; ~13px (roughly one small line-box
  * of clearance) is a sensible default that keeps the bodies visually separated
  * from the main text without consuming a full line. The slot height includes
- * this once, above the stacked bodies. FN-4.3 renders the actual rule into the
+ * this once, above the stacked bodies. The painter renders the actual rule into the
  * slot at this height.
  */
 export const FOOTNOTE_SEPARATOR_HEIGHT = 13;
 
 /**
  * Minimum body content block-size the page must retain after the footnote slot
- * is reserved (FN-4, D5): the body keeps at least one line so a tall footnote
- * slot can never consume the whole page. The slot height is CLAMPED so that
+ * is reserved: the body keeps at least one line so a tall footnote
+ * slot can never consume the whole page. The slot height is bounded so that
  * `footnoteSlotHeight ≤ pageContentBlockSize − MIN_BODY_BLOCK_SIZE`. When bodies
- * would exceed that bound FN-4 lays out what fits and clamps (NO split — that is
- * FN-5; the clamp is the FN-5 seam). A small floor (~16px, roughly one default
+ * would exceed that bound the slot is filled up to it and the overflowing body
+ * splits at a line boundary and carries to the next page. A small floor (~16px, roughly one default
  * line-height) matches "the body retains ≥1 line."
  */
 export const MIN_BODY_BLOCK_SIZE = 16;
 
-/** Hard cap on the convergence re-collect loop (D8); most pages converge in 1. */
+/** Hard cap on the convergence re-collect loop; most pages converge in 1. */
 const MAX_CONVERGENCE_ITERATIONS = 5;
 
 /**
- * Gap (px) between the footnote body's leading-number marker and the body text
- * (#415). Matches the BFC's list-marker `markerGap`. The materialize pass
+ * Gap (px) between the footnote body's leading-number marker and the body text.
+ * Matches the BFC's list-marker `markerGap`. The materialize pass
  * (`materializePage`) uses it to HANG the number just inline-start of the body
  * text inside the fixed indent gutter, right-aligned against the text edge —
  * exactly like the BFC's list-item outside marker (`markerContentEdge −
@@ -131,13 +130,13 @@ export const FOOTNOTE_MARKER_GAP = 4;
  * VALUE MUST MATCH `LIST_INDENT` in `components/list-item.ts` (currently 30) so
  * footnotes indent identically to numbered list items. They are duplicated
  * DELIBERATELY: the layout module must not import from `components/` (a layering
- * inversion). A shared constant is a possible future DRY follow-up; until then,
+ * inversion). A shared constant would remove the duplication; until then,
  * keep these two in sync — if one changes, change the other.
  */
 export const FOOTNOTE_BODY_INDENT = 30;
 
 /**
- * The inline GUTTER (#415) a footnote body reserves at its inline-start for the
+ * The inline GUTTER a footnote body reserves at its inline-start for the
  * leading-number marker, in px — a FIXED list-matching hanging indent
  * (`FOOTNOTE_BODY_INDENT`), NOT a marker-width-derived value. The body content
  * is NARROWED by this amount (and inset past it in LTR) so the number PRECEDES
@@ -154,7 +153,7 @@ export const FOOTNOTE_BODY_INDENT = 30;
  *
  * The gutter is non-zero ONLY for a FRESH body (the page where the footnote
  * STARTS) that carries a non-empty `markerText` on its root computed style
- * (FN-6.2b, stamped by `footnoteBodyComponent` from `ctx.footnoteNumber`). A
+ * (stamped by `footnoteBodyComponent` from `ctx.footnoteNumber`). A
  * continuation tail (`isFresh === false`) repeats no number, so it uses the full
  * width (gutter 0) — matching materialize's `showsMarker` gating exactly.
  *
@@ -182,7 +181,7 @@ export function footnoteMarkerGutter(body: ElementBox, isFresh: boolean): number
  * child's key IS a `BlockId`, so the `key as BlockId` narrowing follows the
  * established layout convention (see `section-plan.ts`, `ifc.ts`).
  *
- * FN-4.2's convergence re-collect consumes this index to filter anchors by a
+ * The convergence re-collect consumes this index to filter anchors by a
  * page's `[startIndex, startIndex + childrenCount)` slice;
  * `buildFootnotePageAssignment` uses it as the skip-when-nested guard.
  */
@@ -203,13 +202,13 @@ export function buildBlockToTopLevelIndex(
  * `anchors` arrive pre-ordered in document order (from `collectFootnoteAnchors`),
  * so appending each body to its page's list preserves document order within a
  * page. For an anchor whose host block SPANS multiple pages, the body is
- * assigned to the FIRST page of the span (plan decision D4) via
+ * assigned to the FIRST page of the span via
  * `plan.pageSpanOfBlock(...).first` — NOT `pageIndexOfBlock`, which reports the
  * last (whole-block-progress) page.
  *
  * An anchor is SKIPPED (defensively) when:
  *   1. its `blockId` is absent from `blockToIndex` (anchor nested in a
- *      non-transparent container — FN-4-followup-A, out of FN-4 scope), or
+ *      non-transparent container — not supported), or
  *   2. its host block has no resolvable page span (`pageSpanOfBlock` → `null`).
  */
 export function buildFootnotePageAssignment(
@@ -220,24 +219,24 @@ export function buildFootnotePageAssignment(
   const result = new Map<number, BlockId[]>();
   for (const anchor of anchors) {
     // (1) Anchor not a top-level child (nested in a non-transparent container).
-    // A footnote silently vanishing would be a no-MVP defect, so this is a
+    // A footnote silently vanishing would be a defect, so this is a
     // dev-only throw (graceful skip in production), matching the layout
-    // module's dev-assert convention (see measurePass). FN-4 handles only
-    // top-level-leaf anchors; the nested case is FN-4-followup-A — when a
-    // non-transparent container that can host an anchor is added, this throw
-    // forces that follow-up rather than letting the footnote disappear.
+    // module's dev-assert convention (see measurePass). Only top-level-leaf
+    // anchors are supported; when a non-transparent container that can host an
+    // anchor is added, this throw forces nested-anchor support rather than
+    // letting the footnote disappear.
     if (!blockToIndex.has(anchor.blockId)) {
       if (isDevMode()) {
         throw new Error(
           `resolveFootnotes: footnote ${anchor.contentBlockId}: anchor block ` +
             `${anchor.blockId} is not a top-level child (nested in a ` +
-            `non-transparent container). FN-4 supports top-level-leaf anchors ` +
-            `only — see FN-4-followup-A.`,
+            `non-transparent container). Only top-level-leaf anchors ` +
+            `are supported.`,
         );
       }
       continue;
     }
-    // (2) Resolve the FIRST page of the host block's span (D4). A top-level
+    // (2) Resolve the FIRST page of the host block's span. A top-level
     // child present in `blockToIndex` should ALWAYS have a span, so a `null`
     // here signals a structural inconsistency between rootChildren and the
     // PagePlan — a programmer error, dev-only throw (graceful skip in prod).
@@ -264,18 +263,18 @@ export function buildFootnotePageAssignment(
 }
 
 /**
- * FN-6.4 — the INVERSE of `buildFootnotePageAssignment`: each footnote body
+ * The INVERSE of `buildFootnotePageAssignment`: each footnote body
  * (`contentBlockId`) → the 0-based page index its ANCHOR REFERENCE lands on.
  *
  * `buildFootnotePageAssignment` groups `pageIndex → contentBlockId[]` (the page's
  * assigned bodies); this flattens that grouping to the per-anchor inverse
  * `contentBlockId → pageIndex`. It is built ON TOP of `buildFootnotePageAssignment`
  * (NOT re-derived) so the page-of-anchor decision is the SAME source of truth —
- * the FIRST page of the anchor host block's span (`pageSpanOfBlock(...).first`,
- * plan decision D4), with the identical nested/no-span skip behaviour.
+ * the FIRST page of the anchor host block's span (`pageSpanOfBlock(...).first`),
+ * with the identical nested/no-span skip behaviour.
  *
  * This is the `pageAssignment` shape `footnoteNumbers(anchors, policy,
- * pageAssignment)` consumes for `restart-per-page` numbering (FN-6.1): a
+ * pageAssignment)` consumes for `restart-per-page` numbering: a
  * `ReadonlyMap<contentBlockId, pageIndex>` keyed by the anchor's REFERENCE page.
  *
  * @param anchors ordered footnote anchors (document order, from
@@ -286,7 +285,7 @@ export function buildFootnotePageAssignment(
  *   marker is inline content of the host block, positioned by the resolved plan;
  *   footnote-slot reservation can evict the host block to a later page than the raw
  *   plan placed it, and `restart-per-page` numbering restarts per the marker's
- *   page — so the raw plan would assign a stale page (audit F2). The host-block
+ *   page — so the raw plan would assign a stale page. The host-block
  *   span always resolves, so a fully-deferred footnote body never desyncs this.
  * @param blockToIndex top-level child key → index (from
  *   `buildBlockToTopLevelIndex`); the nested-anchor skip guard.
@@ -307,12 +306,12 @@ export function footnoteAnchorPageAssignment(
 }
 
 /**
- * FN-5.3 — greedy fill + split + carry-all-overflow for ONE page's footnote
- * slot. Replaces FN-4's D5 height CLAMP with real splitting: lays the inbound
+ * Greedy fill + split + carry-all-overflow for ONE page's footnote
+ * slot. Replaces the earlier height CLAMP with real splitting: lays the inbound
  * continuations (cross-page carries from the prior page) then the page's fresh
  * footnote bodies into the bounded slot area, in order; when a body doesn't
  * fully fit it splits at a line boundary (the IFC's `orphans/widows = 1`
- * footnote-body default makes a single line splittable, FN-5.2/E2) and carries
+ * footnote-body default makes a single line splittable) and carries
  * its remainder forward; once the slot is exhausted EVERY remaining item is
  * carried forward UNCHANGED (no body assigned to this page is ever lost —
  * Blocker-1).
@@ -343,7 +342,7 @@ export function footnoteAnchorPageAssignment(
  *
  * Returns `{ slotHeight, slotContentBlockIds, outboundContinuations }`:
  *   - `slotHeight` = sum of placed body heights + ONE `FOOTNOTE_SEPARATOR_HEIGHT`
- *     when ≥1 body placed, else `0` (no separator when nothing renders — E3/E4).
+ *     when ≥1 body placed, else `0` (no separator when nothing renders — empty-slot rule).
  *   - `slotContentBlockIds` = the FRESH bodies that STARTED on this page.
  *   - `outboundContinuations` = the ordered carries forward (partial bodies'
  *     remainders + every fully-deferred item), each a `FootnoteContinuation`.
@@ -356,8 +355,8 @@ export function computeSlotLayout(
   contentInlineSize: number,
   ctx: LayoutContext,
   shaper: TextShaper,
-  // Auto-hyphenation (slice 2): threaded ALONGSIDE `shaper` to the footnote-body
-  // `layoutBlock`. `undefined` ⇒ none. Carried but UNUSED in this slice.
+  // Auto-hyphenation: threaded ALONGSIDE `shaper` to the footnote-body
+  // `layoutBlock`. `undefined` ⇒ none.
   hyphenator: Hyphenator | undefined,
 ): { slotHeight: number; slotContentBlockIds: BlockId[]; outboundContinuations: FootnoteContinuation[] } {
   // ONE ordered work-list: inbound carries (in order) then fresh bodies. Tag
@@ -404,10 +403,10 @@ export function computeSlotLayout(
 
     const body = embedBodies.get(item.contentBlockId);
     if (body === undefined) {
-      // A footnote whose body is missing from the cascaded map would be a no-MVP
+      // A footnote whose body is missing from the cascaded map would be a
       // defect (the body silently vanishing). Dev-only throw; in prod skip it
       // (contributes nothing, carries nothing) so layout never crashes — matching
-      // `slotHeightFor`'s defensive convention.
+      // this module's defensive convention.
       if (isDevMode()) {
         throw new Error(
           `computeSlotLayout: footnote body ${item.contentBlockId} is absent from ` +
@@ -417,7 +416,7 @@ export function computeSlotLayout(
       continue;
     }
 
-    // CRITICAL (#415 measure/materialize agreement): a FRESH numbered body shows
+    // CRITICAL (measure/materialize agreement): a FRESH numbered body shows
     // a leading-number marker whose gutter NARROWS the body's wrap width. The
     // materialize pass (`materializePage`) lays the SAME body at
     // `contentInlineSize − gutter` via the SAME `footnoteMarkerGutter` helper, so
@@ -438,15 +437,15 @@ export function computeSlotLayout(
       resumeFrom: item.resumeToken,
     });
 
-    // E3, nothing fit: the split point is BEFORE this item. `box === null` is the
-    // direct "nothing placed" signal, but the CSS Fragmentation §3.5 C.6 overflow
+    // Nothing-fit rule: the split point is BEFORE this item. `box === null` is the
+    // direct "nothing placed" signal, but the CSS Fragmentation §3.5 overflow
     // rule force-places a body's first line onto an EMPTY fragment even when
     // `remaining` is below one line-height (each body is laid into its own fresh
-    // `layoutBlock` fragment here, so it's always "empty" from C.6's view). We
+    // `layoutBlock` fragment here, so it's always "empty" from the overflow rule's view). We
     // detect that force-placed overflow by `box.blockSize > remaining` and treat
-    // it as E3 too: per the plan, a footnote area below one line-height defers ALL
+    // it as nothing-fit too: a footnote area below one line-height defers ALL
     // footnotes (the page body already retains MIN_BODY_BLOCK_SIZE via `maxSlot`),
-    // overriding C.6's force-place. Either way the item carries forward UNCHANGED
+    // overriding the overflow rule's force-place. Either way the item carries forward UNCHANGED
     // and every subsequent item defers via the overflow branch above.
     if (box === null || box.blockSize > remaining) {
       outbound.push({ contentBlockId: item.contentBlockId, resumeToken: item.resumeToken });
@@ -467,7 +466,7 @@ export function computeSlotLayout(
   }
 
   if (placed.length === 0) {
-    // E3/E4: nothing rendered ⇒ no slot, no separator. The whole work-list is in
+    // Empty-slot rule: nothing rendered ⇒ no slot, no separator. The whole work-list is in
     // `outbound` (it flows to the next page); `slotHeight = 0` is the authoritative
     // gate `materializePage` keys on.
     return { slotHeight: 0, slotContentBlockIds: placedIds, outboundContinuations: outbound };
@@ -483,33 +482,33 @@ export function computeSlotLayout(
 }
 
 /**
- * The footnote layout pass (FN-4.2): lay each page's assigned footnote bodies
+ * The footnote layout pass: lay each page's assigned footnote bodies
  * into a slot at the page bottom, reduce that page's body content area by the
  * slot height, and FORWARD-SWEEP the re-fit so later pages' `startIndex`
  * shifts correctly (the same forward-carry shape as `measurePass`'s page loop).
  *
  * Footnote-free docs early-return `rawPlan` unchanged (ref-equal no-op, zero
- * cost). For a doc WITH footnotes, the algorithm (plan FN-4.2 + D1/D5/D7/D8):
+ * cost). For a doc WITH footnotes, the algorithm:
  *
- *   1. Assign anchors to pages via `buildFootnotePageAssignment` (D4/D8).
+ *   1. Assign anchors to pages via `buildFootnotePageAssignment`.
  *   2. Copy entries BEFORE the first footnote page through unchanged.
  *   3. From the first footnote page forward, re-fit each page against
  *      `pageContentBlockSize − footnoteSlotHeight`, threading `startIndex` /
  *      `resumeInto` / `listCounterAtStart` from the prior re-fitted page. The
  *      slot height is the sum of the assigned bodies' laid-out heights +
- *      `FOOTNOTE_SEPARATOR_HEIGHT`, CLAMPED to the bounded area (D5). The
+ *      `FOOTNOTE_SEPARATOR_HEIGHT`, CLAMPED to the bounded area. The
  *      `stopBeforeIndex` cap is RE-DERIVED via `sectionStateAt` at the new
- *      `startIndex` (D7), not copied from the stale raw entry.
- *   4. D8 convergence: after the re-fit, re-collect the page's anchors by the
+ *      `startIndex`, not copied from the stale raw entry.
+ *   4. Convergence: after the re-fit, re-collect the page's anchors by the
  *      new `[startIndex, startIndex + childrenCount)` slice; if the assigned set
  *      changed, recompute the body layout + re-fit (cap `MAX_CONVERGENCE_ITERATIONS`).
  *
- * `effectiveBottomInset` is UNCHANGED (D1) — the footnote reservation lives only
+ * `effectiveBottomInset` is UNCHANGED — the footnote reservation lives only
  * in `footnoteSlotHeight`. The returned `PagePlan` is rebuilt via `buildPagePlan`
  * so its index methods (`pageIndexOfBlock`, `pageSpanOfBlock`, …) reflect the NEW
  * page boundaries.
  *
- * INCREMENTAL CARRY-FORWARD (FN-4.4): when `prevResolvedPlan` (the PRIOR cycle's
+ * INCREMENTAL CARRY-FORWARD: when `prevResolvedPlan` (the PRIOR cycle's
  * RESOLVED plan) is supplied, a swept page is REUSED — skipping its footnote-body
  * re-layout AND the convergence loop — when every input that determined its prior
  * resolution is provably unchanged at the CURRENT loop position (see
@@ -523,21 +522,21 @@ export function computeSlotLayout(
  * re-fit shape (`resumeOut`, children count) carry forward unchanged; the loop
  * state advances exactly as it would from a fresh re-fit. This mirrors
  * `measurePass`'s per-page reuse gate, so an edit on a footnote-FREE page does NOT
- * re-lay-out the unchanged footnote pages' bodies (FN-8 perf seam). Without
+ * re-lay-out the unchanged footnote pages' bodies (perf seam). Without
  * `prevResolvedPlan` every footnote page takes the full path.
  *
  * @param ctx the root layout context (writing-mode/direction/caches); narrowed
  *   to the page content inline-size per page for the body layout, exactly as
  *   `materializePage` does.
  * @param shaper the text shaper used to lay out the footnote bodies.
- * @param slotInsets per-section effective header/footer slot insets (#328),
- *   keyed by `activeSectionId` (D9). Each swept page derives its
+ * @param slotInsets per-section effective header/footer slot insets,
+ *   keyed by `activeSectionId`. Each swept page derives its
  *   `effectiveTopInset`/`effectiveBottomInset` from the section active at the
  *   (possibly shifted) `startIndex` — `slotInsets.get(activeSectionId)` falling
  *   back to the section's raw effective page margins — EXACTLY as `measurePass`
  *   does. This makes a footnote that shifts blocks across a section boundary get
  *   the correct section's geometry. Absent/omitted for a section ⇒ raw margins.
- * @param docWidePageConfig the doc-wide `PageConfig` (D9) — the fallback when the
+ * @param docWidePageConfig the doc-wide `PageConfig` — the fallback when the
  *   section active at the new `startIndex` carries no `pageConfig` override
  *   (`st.pageConfig ?? docWidePageConfig`), mirroring `measurePass`'s
  *   `st.pageConfig ?? pageConfig`.
@@ -551,28 +550,27 @@ export function resolveFootnotes(
   footnoteAnchors: readonly FootnoteAnchorRef[],
   ctx: LayoutContext,
   shaper: TextShaper,
-  // Auto-hyphenation (slice 2): threaded ALONGSIDE `shaper` to the footnote-body
+  // Auto-hyphenation: threaded ALONGSIDE `shaper` to the footnote-body
   // layout (`computeSlotLayout` + direct `layoutBlock`). `undefined` ⇒ none.
-  // Carried but UNUSED in this slice.
   hyphenator: Hyphenator | undefined,
   slotInsets: SlotInsets | undefined,
   docWidePageConfig: PageConfig,
-  // FN-4.4: the PRIOR cycle's RESOLVED plan, for the incremental carry-forward
+  // The PRIOR cycle's RESOLVED plan, for the incremental carry-forward
   // reuse gate. `undefined` for a fresh build / footnote-free prior tree.
   prevResolvedPlan?: PagePlan,
-  // FN-4.4: the PRIOR cycle's cascaded footnote bodies (keyed by body root id).
+  // Incremental carry-forward: the PRIOR cycle's cascaded footnote bodies (keyed by body root id).
   // The reuse gate compares a prior-assigned body's CURRENT ref against its prior
   // ref — ref-equal iff the body is unchanged (the cascade preserves refs). When
   // omitted (no prior tree) every page takes the full path. Defaults to an empty
   // map so a `prevResolvedPlan` without a paired prior map never spuriously
   // reuses (an absent prior body ref refuses reuse — see `canReuseFootnotePage`).
   prevCascadedEmbedContents: ReadonlyMap<BlockId, ElementBox> = new Map(),
-  // #499: builds fit metas at a given inline width — the column TRACK width —
+  // Builds fit metas at a given inline width — the column TRACK width —
   // cached by `buildBlockFitMetas`'s `(elementBoxRef, width, shaperRef)` key. The
   // multicol re-fit branches (`fitBody` + final-page balance) lay each column at
   // the narrow track width that `materializeMultiColumnBody` uses; building the
   // fit metas at that SAME width keeps the planned `ColumnFit` in lockstep with
-  // materialize's per-column break tokens (the exact #494 fix, here in the
+  // materialize's per-column break tokens (the exact fix, here in the
   // footnote pass). Absent ⇒ fall back to the full-width `metas` — the drift-prone
   // path that is only safe for width-independent fixed-height content.
   buildMetasAtWidth?: (inlineSize: number) => readonly BlockFitMeta[],
@@ -598,7 +596,7 @@ export function resolveFootnotes(
   // the map keys ARE page indices) ⇒ no-op.
   if (firstFootnotePage === Infinity) return rawPlan;
 
-  // FN-4.4 incremental carry-forward: index the PRIOR cycle's RESOLVED entries by
+  // Incremental carry-forward: index the PRIOR cycle's RESOLVED entries by
   // `startIndex` so a swept page can look up its prior resolution in O(1) and skip
   // the body re-layout + convergence loop when nothing influencing it changed (see
   // `canReuseFootnotePage`). Mirrors `measurePass`'s `prevPlanIndexByStartIndex`.
@@ -606,12 +604,12 @@ export function resolveFootnotes(
   // NEXT prior entry's `listCounterAtStart` for the list-counter delta — exactly
   // as measurePass does — keeping the running counter byte-identical to a re-fit.
   //
-  // FN-5.4 note: continuation-only TAIL pages all share `startIndex = metas.length`
+  // Note: continuation-only TAIL pages all share `startIndex = metas.length`
   // (they carry no body blocks), so this map collapses them to the LAST one. That
   // is a CONSERVATIVE MISS, not a hazard: when the current loop hits an earlier
   // tail page its inbound list won't match the last prior tail page's, so
-  // `canReuseFootnotePage` cond (6) refuses reuse and the page re-resolves (FN-8
-  // is the perf-refinement task that would index tail pages distinctly).
+  // `canReuseFootnotePage` cond (6) refuses reuse and the page re-resolves (indexing
+  // tail pages distinctly would turn this miss into a hit).
   const prevResolvedIndexByStartIndex: Map<number, number> | null =
     prevResolvedPlan !== undefined ? new Map() : null;
   if (prevResolvedIndexByStartIndex !== null && prevResolvedPlan !== undefined) {
@@ -620,15 +618,14 @@ export function resolveFootnotes(
     }
   }
 
-  // FN-5.4: lay this page's footnote slot via `computeSlotLayout` — the greedy
-  // fill + split + carry-all-overflow core that REPLACED FN-4's D5 height clamp.
+  // Lay this page's footnote slot via `computeSlotLayout` — the greedy
+  // fill + split + carry-all-overflow core that REPLACED the earlier height clamp.
   // It takes the page's INBOUND continuation list (the prior page's outbound
   // carries, rendered at the top of this slot) ++ the freshly-assigned fresh
   // bodies, lays each bounded by the remaining slot area, splits the overflowing
   // one at a line boundary, and returns `{ slotHeight, slotContentBlockIds
   // (fresh bodies STARTED here), outboundContinuations (carried forward) }`. The
-  // convergence loop calls this once per iteration in place of FN-4's
-  // `slotHeightFor`; the inbound list is a FIXED input per page (not part of the
+  // convergence loop calls this once per iteration; the inbound list is a FIXED input per page (not part of the
   // fixpoint), so only the fresh-id set converges. Each `computeSlotLayout` lays
   // the bodies itself (bounded), so there is no separate height cache — the slot
   // height and the split/carry decisions are derived from the SAME layout.
@@ -650,7 +647,7 @@ export function resolveFootnotes(
     );
 
   // Re-collect a page's assigned footnotes by filtering anchors whose top-level
-  // index falls in `[startIndex, startIndex + childrenCount)` (D8). Preserves
+  // index falls in `[startIndex, startIndex + childrenCount)`. Preserves
   // document order (anchors arrive pre-ordered). Used by the convergence loop;
   // the slice may differ from the raw `anchorsByPage` set after a re-fit shift.
   const collectForSlice = (startIndex: number, childrenCount: number): BlockId[] => {
@@ -716,7 +713,7 @@ export function resolveFootnotes(
   let pageIndex = firstFootnotePage;
   let sectionPageIndex = firstRaw.sectionPageIndex;
   let activeSectionId = firstRaw.activeSectionId;
-  // FN-5.4: the INBOUND footnote continuations this page renders at the TOP of
+  // The INBOUND footnote continuations this page renders at the TOP of
   // its slot — the PRIOR page's `outboundContinuations`. The first footnote page
   // starts empty (no body has overflowed yet); each iteration stamps this onto
   // the emitted entry's `footnoteContinuation`, lays the slot via
@@ -727,7 +724,7 @@ export function resolveFootnotes(
   // Hard page-count bound (defensive), mirroring measurePass: a correct re-fit
   // advances state every page. The footnote slot can only REDUCE the per-page
   // capacity (more pages), never remove blocks, so `metas.length * 2` bounds the
-  // BODY-content pages. FN-5.4 adds continuation-only TAIL pages: a body taller
+  // BODY-content pages. The carry-forward adds continuation-only TAIL pages: a body taller
   // than an empty footnote area drains across extra pages, each placing ≥1 line.
   //
   // The tail-page bound MUST be LINE-based, not render-node-based. IFC
@@ -760,8 +757,8 @@ export function resolveFootnotes(
     if (body === undefined) continue; // missing body: contributes 0 (dev-throws at slot layout)
     let h = bodyHeightCache.get(a.contentBlockId);
     if (h === undefined) {
-      // Measure at the SAME gutter-narrowed width a FRESH numbered body uses
-      // (#415): narrowing only ever makes the body TALLER (more wrapped lines), so
+      // Measure at the SAME gutter-narrowed width a FRESH numbered body uses:
+      // narrowing only ever makes the body TALLER (more wrapped lines), so
       // measuring at the full width would UNDER-count the chain's content height —
       // making this page-count ceiling too small and FALSELY tripping the
       // `maxPages` throw on a valid wrapping numbered footnote. The fresh width is
@@ -792,7 +789,7 @@ export function resolveFootnotes(
       );
     }
 
-    // Section state at the (possibly shifted) startIndex (D7 + D9). EVERYTHING
+    // Section state at the (possibly shifted) startIndex. EVERYTHING
     // section-dependent — the page-break cap, the effective pageConfig, the
     // header/footer body ids, AND the effective slot insets — derives from the
     // section ACTIVE at `startIndex`, NOT from the raw entry at the same page
@@ -801,14 +798,14 @@ export function resolveFootnotes(
     const st = sectionStateAt(sectionPlan, startIndex);
     const sectionCap = st.nextBoundaryIndex;
 
-    // This page's effective geometry (C.2b-2 + D9): the section's OWN pageConfig
+    // This page's effective geometry: the section's OWN pageConfig
     // (`st.pageConfig ?? docWidePageConfig`) + insets. Insets are derived EXACTLY
     // as `measurePass` does — `slotInsets.get(activeSectionId)` falling back to
     // the section's raw effective page margins. The body content area is
     // `pageBlockSize − topInset − bottomInset`; the footnote slot reduces it
-    // further by `footnoteSlotHeight` (D1 — the insets themselves are UNCHANGED).
+    // further by `footnoteSlotHeight` (the insets themselves are UNCHANGED).
     const effCfg = st.pageConfig ?? docWidePageConfig;
-    // Effective multi-column config for THIS page (multi-column wiring T1) —
+    // Effective multi-column config for THIS page —
     // mirrors `effCfg`; the rebuilt entry carries the same value measurePass did
     // (the reuse gate proved this page's section state equals the prior entry's).
     const effColCfg = st.columnConfig ?? sectionPlan.effectiveDefaultColumns;
@@ -819,7 +816,7 @@ export function resolveFootnotes(
     const contentInlineSize =
       effCfg.pageInlineSize - effCfg.pageMargins.inlineStart - effCfg.pageMargins.inlineEnd;
 
-    // FN-4.4 incremental carry-forward: try to REUSE this page's prior resolution
+    // Incremental carry-forward: try to REUSE this page's prior resolution
     // (skipping the body re-layout + convergence loop) when nothing influencing it
     // changed. On a hit we copy the prior entry's footnote slot + re-fit SHAPE and
     // skip straight to emitting the entry; on a miss we run the full path below.
@@ -828,7 +825,7 @@ export function resolveFootnotes(
     // reuse and the miss path overwrite every one before they're read below.
     let resolvedContentBlockIds: readonly BlockId[] = [];
     let resolvedSlotHeight = 0;
-    // FN-5.4: the OUTBOUND footnote continuations this page carries to the next
+    // The OUTBOUND footnote continuations this page carries to the next
     // (the next page's inbound). The miss path takes it from `computeSlotLayout`;
     // the reuse path reproduces it from the prior NEXT entry's inbound list (the
     // gate proves this page's inputs are identical, so the prior cycle's outbound
@@ -841,16 +838,16 @@ export function resolveFootnotes(
     let resolvedListCounterAtEnd = listCounterAtStart;
     // Whole-block-progress child count placed on this page (slice length basis).
     let resolvedChildrenCount = 0;
-    // The multi-column distribution (multi-column wiring T3) this page carries.
+    // The multi-column distribution this page carries.
     // Carried from the prior measure-pass entry on the REUSE path (a footnote-free
     // multicol page keeps its `fitColumnsOnPage` result); set from the MISS path's
-    // `fitBody` (3.5b: the footnote re-fit runs `fitColumnsOnPage` at the
+    // `fitBody` (the footnote re-fit runs `fitColumnsOnPage` at the
     // slot-reduced height for a multicol page, so it keeps its columns). `undefined`
-    // only for single-column pages. Without it, Task 5's `materializePage` would
+    // only for single-column pages. Without it, `materializePage` would
     // silently fall to single-column for every multicol page rewritten by this sweep.
     let resolvedColumnFit: ColumnsFitResult | undefined = undefined;
-    // The actual per-column rendered height (multi-column wiring T4) this page
-    // carries — what Task 5's `materializePage` lays each column into. ALWAYS
+    // The actual per-column rendered height this page
+    // carries — what `materializePage` lays each column into. ALWAYS
     // present (REQUIRED `PagePlanEntry` field). Carried from the prior entry on the
     // REUSE path; on the MISS path it is the slot-reduced FILL height (the height
     // the footnote page's columns actually fill into). Initialized to the full body
@@ -900,10 +897,10 @@ export function resolveFootnotes(
         // Coherent float+pagination: carry the prior entry's in-flow consumed (the
         // reuse gate proved the fit is unchanged), keeping `pageFlowBase` gapless.
         resolvedConsumed = prevEntry.inFlowConsumed;
-        // Carry the prior measure-pass entry's column distribution (T3). The reuse
+        // Carry the prior measure-pass entry's column distribution. The reuse
         // gate proved this page's fit is unchanged, so its `columnFit` is still valid.
         resolvedColumnFit = prevEntry.columnFit;
-        // Carry the prior entry's rendered per-column height (T4); the reuse gate
+        // Carry the prior entry's rendered per-column height; the reuse gate
         // proved this page's fit/geometry are unchanged, so it is still valid.
         resolvedBalancedColumnHeight = prevEntry.balancedColumnHeight;
         // The page's list-counter INCREMENT is a pure function of its (proved
@@ -919,7 +916,7 @@ export function resolveFootnotes(
       }
     }
 
-    // D8 convergence: a footnote belongs to the page where its ANCHOR BLOCK is
+    // Convergence: a footnote belongs to the page where its ANCHOR BLOCK is
     // PLACED, and the page reserves slot space for exactly those footnotes. That
     // is a fixpoint (slot ⇄ which blocks fit), reached by iterating
     // collect → slot → re-fit → re-collect until the assigned set is stable.
@@ -946,10 +943,10 @@ export function resolveFootnotes(
     // inner BFC token before every re-fit. Identity for single-column pages
     // (mirrors measure-pass's `innerBfcToken(resumeInto)`).
     const innerResumeInto = innerBfcToken(resumeInto);
-    // #499: build the fit metas at the column TRACK width for this page's multicol
+    // Build the fit metas at the column TRACK width for this page's multicol
     // re-fit — the SAME narrow width `materializeMultiColumnBody` lays each column
     // at — so the re-fit's planned `ColumnFit` matches materialize's per-column
-    // break tokens (mirrors measure-pass's #494 fix). The arithmetic MUST be
+    // break tokens (mirrors measure-pass's fix). The arithmetic MUST be
     // bit-identical to measure-pass's `(effContentInlineSize − (N−1)*gap)/N` and
     // to `virtual-layout-tree.ts`'s `materializeMultiColumnBody` (same operand
     // order, same `effColCfg.columnGap`/`columnCount`). `colMetas` has the SAME
@@ -970,7 +967,7 @@ export function resolveFootnotes(
             )
           : metas
         : metas;
-    // 3.5b: re-fit the page body at `columnHeight` honoring `cap`. A multicol page
+    // Re-fit the page body at `columnHeight` honoring `cap`. A multicol page
     // distributes its body across N columns via `fitColumnsOnPage` (Google Docs:
     // footnotes span the full page width below the body, so the columns shrink
     // uniformly into the slot-reduced height); a single-column page uses the
@@ -993,7 +990,7 @@ export function resolveFootnotes(
           effColCfg.columnCount, listCounterAtStart, cap,
           pageFlowBase,
         );
-        // F-1 (mirror measure-pass T3): `fitColumnsOnPage` returns
+        // Mirrors the measure pass: `fitColumnsOnPage` returns
         // `pageResumeOut === null` when content exhausts AT a cap (section cap OR a
         // footnote atomic cap) even though more document remains. Single-column
         // `fitOnePage` emits a forced-break token there; the column fit does not, so
@@ -1035,7 +1032,7 @@ export function resolveFootnotes(
       collectForSlice(startIndex, seedNoSlotFit.childrenCount),
     );
     let footnoteSlotHeight = 0;
-    // FN-5.4: the FINAL slot layout (fresh-started ids + outbound carries) from
+    // The FINAL slot layout (fresh-started ids + outbound carries) from
     // the last `computeSlotLayout` call, used after convergence to stamp the
     // entry's `footnoteContentBlockIds` (= fresh STARTED here) + threaded forward
     // as the next page's inbound. Recomputed each iteration alongside the height.
@@ -1112,7 +1109,7 @@ export function resolveFootnotes(
     // iteration's set and disagree with the bodies that actually get a slot. Catch
     // that loudly in dev; prod stays graceful.
     //
-    // Perf (F5): on EVERY converged exit the loop's break condition guarantees
+    // Perf: on EVERY converged exit the loop's break condition guarantees
     // `contentBlockIds` is UNCHANGED since the `slotResult` it was last computed
     // from (`slotResultIds`), so `footnoteSlotHeight` is correct by determinism —
     // re-running `slotLayoutFor` (which lays out the bodies again) is pure waste.
@@ -1138,7 +1135,7 @@ export function resolveFootnotes(
     // path published them above). `footnoteContentBlockIds` is now the FRESH
     // bodies that STARTED on this page (`slotResult.slotContentBlockIds`), NOT the
     // raw assigned set — a fresh body fully deferred is excluded here and carried
-    // in `outboundContinuations` (the next page's inbound) instead (FN-5 semantic).
+    // in `outboundContinuations` (the next page's inbound) instead (split semantics).
     resolvedContentBlockIds = slotResult.slotContentBlockIds;
     resolvedOutboundContinuations = slotResult.outboundContinuations;
     resolvedSlotHeight = footnoteSlotHeight;
@@ -1148,21 +1145,21 @@ export function resolveFootnotes(
     resolvedListCounterAtEnd = fit.listCounterAtEnd;
     // Coherent float+pagination: the body fit's in-flow consumed for this page.
     resolvedConsumed = fit.consumedBlockSize;
-    // 3.5b: the multicol distribution from the final `fitBody` (a `ColumnsFitResult`
-    // for a multicol page; `undefined` for single-column). Threads to Task 5's
+    // The multicol distribution from the final `fitBody` (a `ColumnsFitResult`
+    // for a multicol page; `undefined` for single-column). Threads to
     // `materializePage` so a footnote-bearing multicol page builds a MultiColumnBox.
     resolvedColumnFit = fit.columnFit;
-    // T4: the rendered per-column height — the slot-reduced body height the page's
+    // The rendered per-column height — the slot-reduced body height the page's
     // columns FILL into (the final `fitBody` ran at `pageContentBlockSize −
-    // footnoteSlotHeight`). Task 5's `materializePage` lays each column into this.
+    // footnoteSlotHeight`). `materializePage` lays each column into this.
     const reducedBodyHeight = pageContentBlockSize - footnoteSlotHeight;
     resolvedBalancedColumnHeight = reducedBodyHeight;
-    // T4b: a footnote-bearing FINAL multicol page BALANCES its columns at the
+    // A footnote-bearing FINAL multicol page BALANCES its columns at the
     // slot-reduced height (Google Docs / Word `column-fill: balance`), mirroring
     // measurePass's footnote-FREE final-page balance — without this a page would
     // lose its balance the moment a footnote landed on it. Finality is EXPLICIT
-    // (matches measurePass's I-1 form): the columns took all the section's
-    // remaining content (`fit.columnFit.pageResumeOut === null`, read PRE-F-1-synth
+    // (matches measurePass): the columns took all the section's
+    // remaining content (`fit.columnFit.pageResumeOut === null`, read BEFORE the forced-break synthesis
     // so a section-capped final page still balances) AND content is exhausted at or
     // past the section boundary/end. A footnote-CAP-tightened page is NOT final —
     // its content ends at `footnoteCap < sectionEnd`, so `>= sectionEnd` is false and
@@ -1179,7 +1176,7 @@ export function resolveFootnotes(
         cf.pageResumeOut === null && startIndex + cf.totalChildrenCount >= sectionEnd;
       if (isFinalMulticolPage) {
         const effCap = tightenCap(sectionCap, footnoteCap);
-        // #499: balance + re-fit on the track-width `colMetas` (NOT full-width
+        // Balance + re-fit on the track-width `colMetas` (NOT full-width
         // `metas`), matching `materializeMultiColumnBody`'s narrow-track layout —
         // mirrors measure-pass's final-page balance block.
         const balancedHeight = balanceColumnHeight(
@@ -1234,24 +1231,24 @@ export function resolveFootnotes(
       listCounterAtStart,
       activeSectionId,
       sectionPageIndex,
-      // Cap re-derived at this page's startIndex (D7) on BOTH paths: the miss
+      // Cap re-derived at this page's startIndex on BOTH paths: the miss
       // path tightens the section cap by any footnote atomic cap; the reuse path
       // re-stamps from the CURRENT section cap (the gate proved it equals the
       // prior entry's cap), never the prior entry's possibly-stale copy.
       stopBeforeIndex: resolvedStopBeforeIndex ?? null,
-      // Header/footer body ids for THIS page (C.2c + D9): from the section
+      // Header/footer body ids for THIS page: from the section
       // ACTIVE at the new `startIndex` (`st`), NOT the raw entry at the same page
       // NUMBER — a footnote-driven shift can move the page to a different section.
       headerBlockId: st.headerBlockId,
       footerBlockId: st.footerBlockId,
-      // effectiveBottomInset UNCHANGED (D1) — the slot reservation lives only in
+      // effectiveBottomInset UNCHANGED — the slot reservation lives only in
       // footnoteSlotHeight.
       effectiveTopInset: effTopInset,
       effectiveBottomInset: effBottomInset,
       footnoteContentBlockIds: resolvedContentBlockIds,
       footnoteSlotHeight: resolvedSlotHeight,
-      // FN-5.4: the INBOUND footnote continuations this page renders at the TOP of
-      // its slot (the PRIOR page's outbound). `materializePage` (FN-5.5) reads this
+      // The INBOUND footnote continuations this page renders at the TOP of
+      // its slot (the PRIOR page's outbound). `materializePage` reads this
       // to lay the carried bodies' remainders before the fresh ones. Empty on a
       // page that STARTS its footnotes (no body has overflowed into it yet).
       footnoteContinuation: inboundContinuations,
@@ -1264,10 +1261,10 @@ export function resolveFootnotes(
       // page, so the materialize pass can thread it into its per-column
       // `layoutBlock` and reproduce the planned resume tokens.
       pageFlowBase,
-      // resolveFootnotes is float-unaware (Task 2): preserve the empty default.
-      // The float carry pass (Task 3) rewrites the shadowed entries.
+      // resolveFootnotes is float-unaware: preserve the empty default.
+      // The float carry pass rewrites the shadowed entries.
       incomingActiveFloats: NO_INCOMING_FLOATS,
-      // #528 T3: resolveFootnotes is float-unaware (footnote+float docs route to
+      // resolveFootnotes is float-unaware (footnote+float docs route to
       // the legacy path), so the pushed-float carry stays the empty default here.
       incomingPushedFloats: NO_INCOMING_PUSHED_FLOATS,
     });
@@ -1281,19 +1278,19 @@ export function resolveFootnotes(
       innerBfcToken(resumeInto), innerResolvedResumeOut, blockToPage, blockToSpan,
     );
 
-    // Advance the running-sum document-y by THIS page's height + gap (C.2b-2).
+    // Advance the running-sum document-y by THIS page's height + gap.
     blockOffset += effCfg.pageBlockSize + effCfg.pageGap;
     // Coherent float+pagination: advance the gapless cumulative flow base by THIS
     // page's in-flow consumed, so the next swept page's `fitOnePage` gets the
     // correct cumulative `paraFlowStart` seed.
     pageFlowBase += resolvedConsumed;
 
-    // FN-5.4: the sweep continues while there is MORE to place — either body
+    // The sweep continues while there is MORE to place — either body
     // content (`resolvedResumeOut !== null`) OR pending footnote continuations
     // (`resolvedOutboundContinuations` non-empty). A body taller than a whole
     // empty footnote area drains across continuation-only tail pages (no body
     // content; the carried footnote remainder rendered at the top of each slot)
-    // until the chain empties — the "spans 3+ pages" edge (spec §3.3). When BOTH
+    // until the chain empties — the "spans 3+ pages" edge. When BOTH
     // are exhausted the document is fully laid out.
     if (resolvedResumeOut === null && resolvedOutboundContinuations.length === 0) break;
 
@@ -1314,7 +1311,7 @@ export function resolveFootnotes(
       resumeInto = null;
     }
     listCounterAtStart = resolvedListCounterAtEnd;
-    // FN-5.4: thread THIS page's outbound carries forward as the NEXT page's
+    // Thread THIS page's outbound carries forward as the NEXT page's
     // inbound continuation list (rendered at the top of its slot).
     inboundContinuations = resolvedOutboundContinuations;
     const nextSt = sectionStateAt(sectionPlan, startIndex);
@@ -1350,14 +1347,7 @@ function sameIds(a: readonly BlockId[], b: readonly BlockId[]): boolean {
 }
 
 /**
- * Structural break-token equality (references differ across measure cycles, so
- * `===` would always miss). Recurses through `block` tokens' nested
- * `resumeChildToken`. Mirrors the equality `measure-pass.ts` uses for its reuse
- * gate; FN-4.4's `canReuseFootnotePage` compares the prior resolved entry's
- * `resumeInto` to the current loop's `resumeInto` with it.
- */
-/**
- * FN-4.4 incremental carry-forward reuse gate: decide whether a swept page's
+ * Incremental carry-forward reuse gate: decide whether a swept page's
  * PRIOR resolution (`prevEntry`, from the prior cycle's resolved plan) may be
  * reused at the current loop position — skipping its footnote-body re-layout AND
  * the convergence loop. Mirrors `measurePass`'s `canReusePage`, extended with the
@@ -1395,7 +1385,7 @@ function sameIds(a: readonly BlockId[], b: readonly BlockId[]): boolean {
  *      slot built from an absent body can't be trusted. (The TREE-level
  *      `PageFingerprint` ALSO carries the body refs, so a body edit re-materializes
  *      the page; this gate keeps the PLAN's slot HEIGHT correct in lockstep.)
- *   6. (FN-5.4 E6(a)) The INBOUND footnote continuation list is unchanged: the
+ *   6.  The INBOUND footnote continuation list is unchanged: the
  *      prior entry's `footnoteContinuation` (what it rendered at the top of its
  *      slot) equals the current `inboundContinuations` ELEMENT-WISE — same length,
  *      each element same `contentBlockId` AND structurally-equal `resumeToken` (via
@@ -1436,7 +1426,7 @@ function canReuseFootnotePage(
   // footnote-TIGHTENED below the section cap (a self-eviction atomic-cap page),
   // since `prevEntry.stopBeforeIndex` would then be < `sectionCap` even when the
   // section is unchanged. Those rare pages simply re-resolve — an acceptable
-  // conservative miss (FN-8 is the perf-refinement task), never a correctness
+  // conservative miss (a perf refinement is possible), never a correctness
   // hazard.
   if ((sectionCap ?? null) !== prevEntry.stopBeforeIndex) return false;
 
@@ -1488,7 +1478,7 @@ function canReuseFootnotePage(
     if (current !== prior) return false;
   }
 
-  // (6) FN-5.4 E6(a): the INBOUND continuation list is unchanged. Element-wise
+  // (6)  the INBOUND continuation list is unchanged. Element-wise
   // compare the prior entry's `footnoteContinuation` (what it rendered at the top
   // of its slot) against the current `inboundContinuations`: same length, each
   // element same `contentBlockId` + structurally-equal `resumeToken`. A change to

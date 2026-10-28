@@ -1,15 +1,12 @@
 // packages/core/src/layout/measure-pass.ts
 //
-// The measure pass (virtualized-layout Phase 1). Given the top-level
+// The measure pass (virtualized layout). Given the top-level
 // `BlockFitMeta[]` for a document and a `PageConfig`, repeatedly invoke the
 // pure `fitOnePage` to compute a `PagePlan`: which top-level children land on
 // each page, each page's document-y offset, the resume tokens INTO / OUT of
 // each page, and the per-page ordered-list counter seed. No box allocation —
 // the plan is plain data; the positioned `PageBox`es are materialized lazily
-// in a later phase.
-//
-// Design: docs/superpowers/specs/2026-05-24-virtualized-layout-design.md
-// Plan:   docs/superpowers/plans/2026-05-24-virtualized-layout-phase1.md
+// per page (`getPage`).
 
 import type { RenderNode, ElementBox } from "@taleweaver/core";
 import type { BlockId } from "@taleweaver/core";
@@ -54,19 +51,18 @@ import type { FootnoteAnchorRef } from "@taleweaver/core";
 const UNINITIALIZED_SECTION = Symbol("uninitialized-section");
 
 /**
- * Shared empty footnote-id array stamped onto every entry `measurePass` builds
- * (FN-4 D2). `measurePass` is footnote-unaware; `resolveFootnotes` (FN-4.2)
+ * Shared empty footnote-id array stamped onto every entry `measurePass` builds.
+ * `measurePass` is footnote-unaware; `resolveFootnotes`
  * rewrites the footnote-bearing pages with their real assignment. A single
  * frozen instance keeps the no-footnote path allocation-free.
  */
 const EMPTY_FOOTNOTE_IDS: readonly BlockId[] = Object.freeze([]);
 
 /**
- * One footnote body's cross-page continuation OUT of a page (FN-5): the body
+ * One footnote body's cross-page continuation OUT of a page: the body
  * `contentBlockId` and the `resumeToken` to resume its layout on the next page,
- * or `null` when the body completes on this page. FN-5 footnote-body splitting
- * fills a list of these; FN-4 always stamps the empty list (it clamps rather
- * than splits — D5).
+ * or `null` when the body completes on this page. `resolveFootnotes` fills a
+ * list of these when a footnote body splits across pages.
  */
 export interface FootnoteContinuation {
   readonly contentBlockId: BlockId;
@@ -75,28 +71,26 @@ export interface FootnoteContinuation {
 
 /**
  * Shared empty footnote-continuation list stamped onto every entry by the
- * footnote-unaware passes (FN-5 E1). A single frozen instance keeps the
+ * footnote-unaware passes. A single frozen instance keeps the
  * no-continuation path allocation-free, mirroring `EMPTY_FOOTNOTE_IDS`.
  */
 export const EMPTY_FOOTNOTE_CONTINUATIONS: readonly FootnoteContinuation[] = Object.freeze([]);
 
 /**
  * Shared empty incoming-active-floats list stamped onto every entry by the
- * float-unaware construction sites (VL float fast-path Task 2). A single frozen
+ * float-unaware construction sites (VL float fast-path). A single frozen
  * instance keeps the no-float path allocation-free, mirroring
  * `EMPTY_FOOTNOTE_IDS` / `EMPTY_FOOTNOTE_CONTINUATIONS`. The float carry pass
- * (Task 3) rewrites the entries whose content-top sits under a prior page's
+ * rewrites the entries whose content-top sits under a prior page's
  * float shadow with the real cumulative-frame list.
  */
 export const NO_INCOMING_FLOATS: readonly PlacedFloat[] = Object.freeze([]);
 
 /**
- * Shared empty list for the cross-page PUSHED-float carry (#528 T3). A pushed
+ * Shared empty list for the cross-page PUSHED-float carry. A pushed
  * float is one that did not fit its page's remaining block space and is deferred
- * to the next page (`PushedFloat`). INERT in T3: no producer pushes and no
- * consumer places, so this default is the value on EVERY page — output is
- * byte-identical. T4 adds the producer (BFC float branch) + consumer
- * (landing-page placement); the carry plumbing below is already in place.
+ * to the next page (`PushedFloat`); this is the value on every page no float
+ * overflowed onto.
  */
 export const NO_INCOMING_PUSHED_FLOATS: readonly PushedFloat[] = Object.freeze([]);
 
@@ -117,44 +111,43 @@ export interface PagePlanEntry {
   readonly pageIndex: number;
   /**
    * Document-y of this page's top edge. A RUNNING SUM over the per-page heights
-   * before it (C.2b-2) — pages are no longer uniform-height once a section
+   * before it — pages are no longer uniform-height once a section
    * carries a geometry override. For a doc whose every page resolves to the
    * doc-wide config this reduces to `pageIndex * (pageBlockSize + pageGap)`.
    */
   readonly blockOffset: number;
-  /** This page's block-size — its EFFECTIVE config's `pageBlockSize` (C.2b-2). */
+  /** This page's block-size — its EFFECTIVE config's `pageBlockSize`. */
   readonly blockSize: number;
   /**
-   * The EFFECTIVE page geometry for THIS page (C.2b-2): the active section's
+   * The EFFECTIVE page geometry for THIS page: the active section's
    * boundary `pageConfig` if it overrides the doc-wide config, else the doc-wide
    * `pageConfig` measurePass was called with. Drives `blockSize`, this page's
    * content block-size (the value passed to `fitOnePage`), the running-sum gap,
-   * and the per-entry reuse gate. Consumers (T3 materialization) read the page's
+   * and the per-entry reuse gate. Consumers (materialization) read the page's
    * inline-size / margins off it.
    */
   readonly pageConfig: PageConfig;
   /**
-   * The EFFECTIVE multi-column config for THIS page (multi-column wiring T1): the
-   * active section's `columnConfig` override if any, else the doc-wide
+   * The EFFECTIVE multi-column config for THIS page: the active section's
+   * `columnConfig` override if any, else the doc-wide
    * `sectionPlan.effectiveDefaultColumns`. Mirrors `pageConfig` — always the
-   * resolved value. INERT in T1 (no consumer reads it yet); T2 joins it to the
-   * page-reuse / fingerprint gate, T3 dispatches `fitColumnsOnPage` on it, T5
-   * materializes the `MultiColumnBox` from it.
+   * resolved value. It joins the page-reuse / fingerprint gate, the fit dispatches
+   * `fitColumnsOnPage` on it, and materialization builds the `MultiColumnBox` from it.
    */
   readonly columnConfig: ColumnConfig;
   /**
-   * The per-column content distribution for THIS page (multi-column wiring T3),
+   * The per-column content distribution for THIS page,
    * from `fitColumnsOnPage`. OPTIONAL — set ONLY on multicol pages
    * (`columnConfig.columnCount > 1`); `undefined` for single-column pages (which
-   * keep the bare `fitOnePage` path, byte-identical to pre-T3). T5 materializes
+   * keep the bare `fitOnePage` path). Materialization builds
    * the `MultiColumnBox` from `columnFit.columns`. Its `pageResumeOut` (a
    * `ColumnBreakToken`) is the SAME token this entry's `resumeOut` stores and the
    * page loop threads to the next multicol page.
    */
   readonly columnFit?: ColumnsFitResult;
   /**
-   * The ACTUAL per-column rendered height for THIS page (multi-column wiring T4) —
-   * the block-size Task 5's `materializePage` lays each column into. ALWAYS
+   * The ACTUAL per-column rendered height for THIS page —
+   * the block-size `materializePage` lays each column into. ALWAYS
    * present: `effContentBlockSize` (the full page body block-size) for
    * single-column pages and for non-final multicol (FILL) pages; the BALANCED
    * height (`balanceColumnHeight`, < the page body) on a multicol section's FINAL
@@ -175,9 +168,8 @@ export interface PagePlanEntry {
   /**
    * The `section` block id that OWNS this page (the active section at the page's
    * first flattened child, per the `SectionPlan`), or `null` when this page
-   * belongs to the implicit section-less leading run. Carried for C.2c
-   * (per-section headers/footers/geometry); the C.2b-1 measure pass only tags
-   * it — getPage / materialization does not consume it yet.
+   * belongs to the implicit section-less leading run. Used to look up
+   * per-section headers/footers/geometry.
    */
   readonly activeSectionId: BlockId | null;
   /**
@@ -186,7 +178,7 @@ export interface PagePlanEntry {
    * to 0 at the next section's first page. (Reset is keyed on the
    * `activeSectionId` changing — NOT on `resumeInto === null`, since a section's
    * first page resumes from the forced break and so has a non-null `resumeInto`.)
-   * Carried for C.2c (e.g. "first page of section" header variants).
+   * Used for "first page of section" header variants.
    */
   readonly sectionPageIndex: number;
   /**
@@ -202,16 +194,16 @@ export interface PagePlanEntry {
   readonly stopBeforeIndex: number | null;
   /**
    * The id of the `templateContents` body that lays out into THIS page's HEADER
-   * slot (C.2c): the active section's (or doc-root implicit section's)
+   * slot: the active section's (or doc-root implicit section's)
    * `headerBlockId`, from `sectionStateAt` at the page's first flattened child.
    * `undefined` when the active section/doc declares no header. The measure pass
-   * only TAGS it here — a later task reads it to lay the body into the slot.
+   * only TAGS it here; the page producer reads it to lay the body into the slot.
    */
   readonly headerBlockId?: BlockId;
-  /** The footer-slot body id for THIS page; symmetric to `headerBlockId` (C.2c). */
+  /** The footer-slot body id for THIS page; symmetric to `headerBlockId`. */
   readonly footerBlockId?: BlockId;
   /**
-   * The EFFECTIVE top inset for THIS page (#328 growing slot): `max(effective
+   * The EFFECTIVE top inset for THIS page (growing slot): `max(effective
    * page-margin blockStart, header body NATURAL height)`. The body content area
    * begins at this offset, so a header taller than its margin band PUSHES the
    * body down rather than overflowing into it. Equals the effective page
@@ -221,35 +213,33 @@ export interface PagePlanEntry {
    */
   readonly effectiveTopInset: number;
   /**
-   * The EFFECTIVE bottom inset for THIS page (#328): `max(effective page-margin
+   * The EFFECTIVE bottom inset for THIS page: `max(effective page-margin
    * blockEnd, footer body NATURAL height)`. The body content area ends at
    * `pageBlockSize − effectiveBottomInset`; the footer grows UPWARD. Symmetric
    * to `effectiveTopInset`.
    */
   readonly effectiveBottomInset: number;
   /**
-   * Footnote bodies (FN-4, D2) assigned to THIS page, in document order — the
+   * Footnote bodies assigned to THIS page, in document order — the
    * `contentBlockId`s of the footnote anchors whose host block lands on this
    * page. `measurePass` ALWAYS stamps `[]` (it is footnote-unaware); the
-   * `resolveFootnotes` pass (FN-4.2) rewrites the footnote-bearing pages with
+   * `resolveFootnotes` pass rewrites the footnote-bearing pages with
    * the real assignment. An empty array ⇒ no footnote slot on this page.
    */
   readonly footnoteContentBlockIds: readonly BlockId[];
   /**
-   * The laid-out footnote slot height for THIS page (FN-4, D2): the sum of the
-   * assigned bodies' heights + the separator rule, clamped to the bounded area
-   * (D5). `measurePass` ALWAYS stamps `0`; `resolveFootnotes` rewrites it. The
+   * The laid-out footnote slot height for THIS page: the sum of the
+   * assigned bodies' heights + the separator rule, clamped to the bounded area.
+   * `measurePass` ALWAYS stamps `0`; `resolveFootnotes` rewrites it. The
    * footnote slot reduces the body content area by this amount, so the body
    * re-fits against `pageContentBlockSize − footnoteSlotHeight`.
    */
   readonly footnoteSlotHeight: number;
   /**
-   * The footnote-body continuations OUT of THIS page (FN-4, D2): one entry per
-   * footnote body that overflowed the slot and continues onto the next page.
-   * ALWAYS empty in FN-4 (`measurePass` and `resolveFootnotes` stamp
-   * `EMPTY_FOOTNOTE_CONTINUATIONS`; `resolveFootnotes` clamps rather than splits
-   * — D5); FN-5 fills it when cross-page footnote-body splitting lands. Widened
-   * to a list now so FN-5 never re-touches the entry type (E1).
+   * The footnote-body continuations INTO THIS page: one entry per
+   * footnote body that overflowed the previous page's slot and continues at the
+   * top of this page's slot. `measurePass` stamps `EMPTY_FOOTNOTE_CONTINUATIONS`;
+   * `resolveFootnotes` fills it.
    */
   readonly footnoteContinuation: readonly FootnoteContinuation[];
   /**
@@ -290,13 +280,13 @@ export interface PagePlanEntry {
    */
   readonly incomingActiveFloats: readonly PlacedFloat[];
   /**
-   * Floats PUSHED into THIS page from the prior page (#528 T3): floats that did
+   * Floats PUSHED into THIS page from the prior page: floats that did
    * not fit the prior page's remaining block space and were deferred to land
    * here, re-laid-out at this page's content-top. Carries only the float node +
    * side (`PushedFloat`); the landing geometry is recomputed on this page. Empty
-   * ⇒ no pushed floats (the byte-identical default for the first page and for
-   * every page in T3, since no producer pushes yet). T4's producer fills it on
-   * pages following an overflowed float and its consumer places them here. Joins
+   * ⇒ no pushed floats (the default, always on the first page); the BFC float
+   * branch fills it on pages following an overflowed float, and materialization
+   * places them here. Joins
    * the `PageFingerprint` reuse gate so a changed pushed float invalidates the
    * landing page.
    */
@@ -319,7 +309,7 @@ export interface PagePlan {
    * Total document height: the running sum over the per-page block-sizes +
    * inter-page gaps (the last page's `blockOffset + pageBlockSize`, no trailing
    * gap). Per-page heights need not be uniform once a section overrides its
-   * geometry (C.2b-2); for a no-override doc this equals `pageCount × pageBlockSize
+   * geometry; for a no-override doc this equals `pageCount × pageBlockSize
    * + (pageCount-1) × pageGap`.
    */
   readonly totalBlockSize: number;
@@ -378,8 +368,8 @@ export interface PagePlan {
    * body; `-1` if the id is no page's header/footer (e.g. a normal main-tree
    * block, or an unused template body). The SAME body renders identically into
    * EVERY page's slot, so this deliberately reports the FIRST carrier — the
-   * deterministic instance a slot caret resolves to (C.2c T6). Per-page caret
-   * instances are a tracked follow-up (#323). Built from each entry's
+   * deterministic instance a slot caret resolves to. Per-page caret
+   * instances are not modeled. Built from each entry's
    * `headerBlockId` / `footerBlockId`; empty when no page declares either.
    */
   pageIndexOfTemplateBlock(blockId: BlockId): number;
@@ -401,7 +391,7 @@ export interface PagePlan {
 }
 
 /**
- * Per-section effective slot insets (#328 growing slot). Keyed by the section's
+ * Per-section effective slot insets (growing slot). Keyed by the section's
  * `activeSectionId` (the value `sectionStateAt` returns; `null` for the implicit
  * section-less leading run) — NOT the header/footer body id. Each value is the
  * section's `{ top, bottom }` content inset, already `max`'d against the raw
@@ -437,14 +427,13 @@ export interface FloatPageMeasureArgs {
   readonly resumeInto: BreakToken | null;
   readonly pageFlowBase: number;
   readonly incomingFloats: readonly PlacedFloat[];
-  // #528 T3: floats pushed into this page from the prior page, to be re-placed at
-  // this page's content-top. INERT in T3 (always empty — no producer yet);
-  // threaded through so T4 only adds the producer + the landing placement.
+  // Floats pushed into this page from the prior page, to be re-placed at
+  // this page's content-top.
   readonly incomingPushedFloats: readonly PushedFloat[];
   readonly contentBlockSize: number;
   readonly stopBeforeIndex: number | undefined;
   readonly listCounterAtStart: number;
-  // PR2-B: the page's per-page inline + block content origin — the SAME values
+  // The page's per-page inline + block content origin — the SAME values
   // `materializePage` passes to its single-column `layoutBlock`
   // (`effMargins.inlineStart` / `effTopInset`), so the measure and materialize
   // calls are the IDENTICAL `layoutBlock` invocation (equivalence by
@@ -458,9 +447,9 @@ export interface FloatPageMeasureResult {
   readonly childrenCount: number;
   readonly listCounterAtEnd: number;
   readonly placedFloats: readonly PlacedFloat[];
-  // #528 T3: floats this page could NOT fit and deferred to the next page. INERT
-  // in T3 (always empty — no producer pushes yet); the carry below threads it to
-  // the next page's `incomingPushedFloats`. T4's BFC float branch fills it.
+  // Floats this page could NOT fit and deferred to the next page (filled by
+  // the BFC float branch); the carry below threads it to the next page's
+  // `incomingPushedFloats`.
   readonly pushedFloats: readonly PushedFloat[];
 }
 export type FloatPageMeasurer = (args: FloatPageMeasureArgs) => FloatPageMeasureResult;
@@ -480,14 +469,14 @@ export type FloatPageMeasurer = (args: FloatPageMeasureArgs) => FloatPageMeasure
  * SKIPPING `fitOnePage` — whenever it is provably unchanged at the current loop
  * position (same `startIndex`, structurally-equal `resumeInto`, ref-equal
  * influencing children; see `canReusePage`). This mirrors `paginateRoot`'s old
- * L-PERF-C page reuse: an append / no-shift edit reuses every prior page ⇒
+ * page-level reuse: an append / no-shift edit reuses every prior page ⇒
  * O(dirty + pages-scan), restoring O(1)-amortized build/typing-at-end. A
  * top-edit in an exact-fill document shifts every `startIndex` / `resumeInto`,
  * so nothing reuses and the whole plan re-fits — inherent, and cheap (pure
  * arithmetic over metas). Without `prevPlan` the from-scratch path is unchanged
  * (the equivalence oracle never passes it).
  *
- * SECTION PAGE BREAKS (C.2b-1): `sectionPlan` is consumed to force a page break
+ * SECTION PAGE BREAKS: `sectionPlan` is consumed to force a page break
  * before the flattened child that begins each new section. At the top of every
  * page the active section's NEXT boundary (`sectionStateAt(sectionPlan,
  * startIndex).nextBoundaryIndex`) is passed to `fitOnePage` as its
@@ -495,7 +484,7 @@ export type FloatPageMeasurer = (args: FloatPageMeasureArgs) => FloatPageMeasure
  * section; that block starts a fresh page instead. Section-less callers pass
  * `IMPLICIT_SECTION_PLAN` (a single boundary at index 0 ⇒ `nextBoundaryIndex` is
  * always null ⇒ NO cap ever ⇒ byte-identical to the pre-section behavior). Each
- * entry is tagged with its `activeSectionId` + `sectionPageIndex` (for C.2c).
+ * entry is tagged with its `activeSectionId` + `sectionPageIndex` (for per-section headers/footers).
  * The reuse gate additionally compares section status (`sectionStatesEqual`) so a
  * `SECTION_BREAK` invalidates only the pages it reshaped.
  *
@@ -508,7 +497,7 @@ export function measurePass(
   sectionPlan: SectionPlan,
   rootChildren?: readonly RenderNode[],
   prevPlan?: PagePlan,
-  // Per-section effective slot insets (#328). Absent/missing for a section ⇒
+  // Per-section effective slot insets. Absent/missing for a section ⇒
   // fall back to the section's raw effective page margins ⇒ byte-identical.
   slotInsets?: SlotInsets,
   // Builds the per-child fit metas at an arbitrary inline width (closure over the
@@ -519,7 +508,7 @@ export function measurePass(
   // (the legacy, drift-prone behavior; only safe for width-independent
   // fixed-height content, e.g. some unit tests).
   buildMetasAtWidth?: (inlineSize: number) => readonly BlockFitMeta[],
-  // VL float fast-path (Task 3): when present, every single-column page is
+  // VL float fast-path: when present, every single-column page is
   // measured by running the real `layoutBlock` via this callback (discarding
   // geometry, keeping only the plan outputs) instead of the pure `fitOnePage`.
   // The producer supplies it ONLY for single-column float docs (its gate routes
@@ -538,7 +527,7 @@ export function measurePass(
     );
   }
 
-  // --- Incremental carry-forward setup (matches paginateRoot's L-PERF-C). ---
+  // --- Incremental carry-forward setup (matches paginateRoot's page-level reuse). ---
   // Index the prior plan's entries by `startIndex` for O(1) reuse lookup. A
   // prior entry is reused at the current loop state `(startIndex, resumeInto)`
   // ONLY when it is provably unchanged at that position (see the reuse block in
@@ -588,7 +577,7 @@ export function measurePass(
   let startIndex = 0;
   let listCounterAtStart = 0;
   let pageIndex = 0;
-  // Running-sum document-y for the current page's top edge (C.2b-2). Pages are
+  // Running-sum document-y for the current page's top edge. Pages are
   // no longer uniform-height (a section may override its geometry), so each
   // page's `blockOffset` is the accumulated heights+gaps of every page before
   // it. After pushing a page we advance by THAT page's effective
@@ -606,25 +595,23 @@ export function measurePass(
   // (which includes `pageBlockSize + pageGap`); this sums only consumed content.
   let pageFlowBase = 0;
 
-  // VL float fast-path (Task 3): the floats active at the CURRENT page's
+  // VL float fast-path: the floats active at the CURRENT page's
   // content-top (the cumulative frame — prior pages' floats whose block-bottom
   // hangs past this page's content-top). Empty at doc start; on an incremental
   // resume across a REUSED page it is advanced from the reused prefix's successor
-  // entry (PR1-2). Only consulted/advanced when `floatPageMeasurer` is provided
+  // entry. Only consulted/advanced when `floatPageMeasurer` is provided
   // (a single-column float doc per the producer gate) — otherwise it stays the
   // empty default and never influences the byte-identical non-float path.
   let incomingFloats: readonly PlacedFloat[] = NO_INCOMING_FLOATS;
 
-  // #528 T3: the floats PUSHED into the CURRENT page from the prior page (floats
+  // The floats PUSHED into the CURRENT page from the prior page (floats
   // that overflowed the prior page's remaining block space). Empty at doc start;
   // advanced to the float branch's `fr.pushedFloats` after each page and, on an
   // incremental resume across a REUSED page, to the reused prefix's successor
-  // entry's `incomingPushedFloats` (mirroring the `incomingFloats` carry). INERT
-  // in T3 — no producer pushes, so it stays the empty default on every page and
-  // never influences the byte-identical output. T4 adds the producer + consumer.
+  // entry's `incomingPushedFloats` (mirroring the `incomingFloats` carry).
   let incomingPushedFloats: readonly PushedFloat[] = NO_INCOMING_PUSHED_FLOATS;
 
-  // --- Running section state (C.2b-1). ---
+  // --- Running section state. ---
   // `currentActiveSectionId` is the section the PREVIOUS page belonged to;
   // `currentSectionPageIndex` is that page's 0-based within-section index. At the
   // top of each page we recompute the active section at `startIndex`: if it
@@ -652,13 +639,13 @@ export function measurePass(
         `measurePass: page count exceeded safe bound (${maxPages}); fitOnePage failed to advance state — likely an unsupported document (see measurePassUnsupported).`,
       );
     }
-    // Running-sum document-y of THIS page's top edge (C.2b-2). The accumulator
+    // Running-sum document-y of THIS page's top edge. The accumulator
     // is advanced by each page's OWN effective height + gap after the entry is
     // pushed, so it is correct here even when earlier pages used a different
     // geometry.
     const blockOffset = runningBlockOffset;
 
-    // --- Section state for THIS page (C.2b-1). ---
+    // --- Section state for THIS page. ---
     // `st.activeSectionId` is the section owning the child at `startIndex`;
     // `st.nextBoundaryIndex` is the next section boundary strictly after it — the
     // forced-break cap (`stopBeforeIndex`) that ends this section. Compute it
@@ -668,12 +655,12 @@ export function measurePass(
     const st = sectionStateAt(sectionPlan, startIndex);
     const activeSectionId = st.activeSectionId;
     // The active section's (or implicit doc-root section's) header/footer body
-    // ids for THIS page (C.2c), computed alongside `st` so BOTH the reuse and
+    // ids for THIS page, computed alongside `st` so BOTH the reuse and
     // re-fit branches stamp the same value. `undefined` when none is declared.
     const headerBlockId = st.headerBlockId;
     const footerBlockId = st.footerBlockId;
 
-    // --- Effective per-page geometry (C.2b-2). ---
+    // --- Effective per-page geometry. ---
     // The active section's boundary `pageConfig` if it overrides the doc-wide
     // config, else the doc-wide `pageConfig` param. Drives this page's
     // content block-size (passed to `fitOnePage`), its `blockSize`, the
@@ -682,9 +669,9 @@ export function measurePass(
     // size equals the doc-wide `pageContentBlockSize` and the path is inert.
     const effCfg = st.pageConfig ?? pageConfig;
     // Effective multi-column config for THIS page (mirrors `effCfg`): the active
-    // section's override, else the doc-wide resolved default. INERT in T1.
+    // section's override, else the doc-wide resolved default.
     const effColCfg = st.columnConfig ?? sectionPlan.effectiveDefaultColumns;
-    // Effective slot insets for THIS page's active section (#328 growing slot).
+    // Effective slot insets for THIS page's active section (growing slot).
     // The producer keys `slotInsets` by `activeSectionId`; when absent (no
     // header/footer for the section, or the map was omitted) we fall back to the
     // section's RAW effective page margins — which keeps the no-slot path
@@ -696,7 +683,7 @@ export function measurePass(
     // GROWN insets (header pushes the body down, footer pushes it up), NOT the
     // raw margins. For a no-slot page this equals the raw-margin content size.
     const effContentBlockSize = effCfg.pageBlockSize - effTop - effBottom;
-    // Slot-cap invariant (#329): the producer's `computeSlotInsets` pre-caps the
+    // Slot-cap invariant: the producer's `computeSlotInsets` pre-caps the
     // per-section insets so the body content area always retains ≥ minBody. This
     // branch is therefore UNREACHABLE for producer-built plans; it is kept as a
     // dev-only invariant assert (not a hard prod throw) so a future regression
@@ -708,7 +695,7 @@ export function measurePass(
         `measurePass: header/footer insets (top=${effTop}, bottom=${effBottom}) leave no ` +
           `body content area within pageBlockSize=${effCfg.pageBlockSize} for section ` +
           `"${activeSectionId ?? "implicit"}" — the slot should have been capped by the ` +
-          `producer (see #329).`,
+          `producer.`,
       );
     }
     if (pageIndex === 0 || activeSectionId !== currentActiveSectionId) {
@@ -719,7 +706,7 @@ export function measurePass(
     currentActiveSectionId = activeSectionId;
     const sectionPageIndex = currentSectionPageIndex;
 
-    // --- Incremental reuse (L-PERF-C semantics). ---
+    // --- Incremental reuse (page-level reuse semantics). ---
     // Reuse a prior page entry — skipping `fitOnePage` — when it is provably
     // unchanged at the CURRENT loop state. Reuse is sound only when every input
     // that determined the prior page's fit is identical now:
@@ -750,7 +737,7 @@ export function measurePass(
         prevK !== undefined &&
         reusable !== undefined &&
         breakTokensEqual(reusable.resumeInto, resumeInto) &&
-        // Section status (C.2b-1): the prior page may be reused at `startIndex`
+        // Section status: the prior page may be reused at `startIndex`
         // ONLY when its section status is unchanged across cycles. `activeSectionId`
         // unchanged ⇒ the page belongs to the same section; `nextBoundaryIndex`
         // unchanged ⇒ the forced cap (`stopBeforeIndex`) that SHAPED the page is
@@ -759,7 +746,7 @@ export function measurePass(
         // (forcing a re-fit) while leaving earlier sections' pages' status
         // untouched (reuse). `prevPlan.sectionPlan` is always present (required).
         sectionStatesEqual(st, sectionStateAt(prevPlan.sectionPlan, startIndex)) &&
-        // Per-page geometry (C.2b-2): the prior page's fit depends on its
+        // Per-page geometry: the prior page's fit depends on its
         // effective content block-size, which comes from its geometry. Reuse is
         // sound ONLY when THIS page's effective config field-equals the prior
         // entry's `pageConfig`. The coarse whole-plan `pageContentBlockSize`
@@ -772,13 +759,11 @@ export function measurePass(
         // correctly shifts every later page's offset while unchanged-fit pages
         // keep their children/resumeOut.
         pageConfigsEqual(effCfg, reusable.pageConfig) &&
-        // Per-page multi-column config (multi-column wiring T2): mirrors the
-        // `pageConfig` gate — a column-count / gap / rule change re-fits exactly
-        // the affected section's pages (once T3 makes columns change the fit) and
-        // re-materializes the `MultiColumnBox`, while earlier sections reuse.
-        // INERT in T2 (no fit consumer yet) but always-equal so it adds no misses.
+        // Per-page multi-column config: mirrors the `pageConfig` gate — a
+        // column-count / gap / rule change re-fits exactly the affected section's
+        // pages and re-materializes the `MultiColumnBox`, while earlier sections reuse.
         columnConfigsEqual(effColCfg, reusable.columnConfig) &&
-        // Effective slot insets (#328): the prior page's fit depends on its
+        // Effective slot insets: the prior page's fit depends on its
         // content block-size, which the GROWN insets determine. Reuse is sound
         // ONLY when THIS page's effective insets equal the prior entry's. This
         // is what re-paginates the affected section's pages when a header/footer
@@ -798,18 +783,18 @@ export function measurePass(
         entries.push({
           pageIndex,
           blockOffset,
-          // This page's effective geometry (C.2b-2): the CURRENT `effCfg`, which
+          // This page's effective geometry: the CURRENT `effCfg`, which
           // the reuse gate proved field-equal to `reusable.pageConfig`.
           blockSize: effCfg.pageBlockSize,
           pageConfig: effCfg,
           columnConfig: effColCfg,
-          // Carry the prior entry's per-column distribution (T3). `columnFit` is
+          // Carry the prior entry's per-column distribution. `columnFit` is
           // position-INDEPENDENT (child indices + tokens + consumed sizes relative
           // to the page's content), so the reused page's distribution is identical
           // — the reuse gate's `columnConfigsEqual` + `canReusePage` proofs cover
           // the inputs that determined it. `undefined` for single-column pages.
           columnFit: reusable.columnFit,
-          // Carry the prior entry's rendered per-column height (T4) — like
+          // Carry the prior entry's rendered per-column height — like
           // `columnFit`, it is position-INDEPENDENT (a pure function of the page's
           // content + column config, both proved unchanged by the reuse gate).
           balancedColumnHeight: reusable.balancedColumnHeight,
@@ -831,22 +816,22 @@ export function measurePass(
           // proves `nextBoundaryIndex` is unchanged, so the prior fit is still
           // valid under this cap.
           stopBeforeIndex: st.nextBoundaryIndex ?? null,
-          // Header/footer body ids for THIS page (C.2c) — stamped from the
-          // CURRENT `st` on the reuse path too (M1), not the prior entry: the
+          // Header/footer body ids for THIS page — stamped from the
+          // CURRENT `st` on the reuse path too, not the prior entry: the
           // page's owning section is the running `st`, which already accounts for
           // any section-id change a SECTION_BREAK introduced.
           headerBlockId,
           footerBlockId,
-          // Effective slot insets for THIS page (#328), stamped from the CURRENT
+          // Effective slot insets for THIS page, stamped from the CURRENT
           // `slotInsets` (via `effTop`/`effBottom`) on the reuse path too — the
           // reuse gate above proved they equal the prior entry's, so this is
           // identical, but stamping the current values keeps the source of truth
-          // consistent across both branches (I1).
+          // consistent across both branches.
           effectiveTopInset: effTop,
           effectiveBottomInset: effBottom,
-          // Footnote fields (FN-4 D2): `measurePass` is footnote-unaware, so it
+          // Footnote fields: `measurePass` is footnote-unaware, so it
           // ALWAYS stamps the no-footnote defaults. The `resolveFootnotes` pass
-          // (FN-4.2) rewrites the footnote-bearing pages downstream.
+          // rewrites the footnote-bearing pages downstream.
           footnoteContentBlockIds: EMPTY_FOOTNOTE_IDS,
           footnoteSlotHeight: 0,
           footnoteContinuation: EMPTY_FOOTNOTE_CONTINUATIONS,
@@ -859,19 +844,18 @@ export function measurePass(
           // an earlier page changed. The advance (`+= reusable.inFlowConsumed`)
           // happens below, so this is the value BEFORE this page's own consumption.
           pageFlowBase,
-          // VL float fast-path (PR2-A): a REUSED page keeps its OWN stamped float
+          // VL float fast-path: a REUSED page keeps its OWN stamped float
           // shadow — the prior entry's `incomingActiveFloats` (the floats that
           // shadowed its content-top), NOT the empty default. A reused
           // float-shadowed page must carry its real incoming shadow so the
           // materialize pass lays it out with the float exclusion. This reduces to
           // `NO_INCOMING_FLOATS` for non-float / pre-float reused pages (their
           // stored value is empty), so it stays byte-identical for non-float docs.
-          // (Independent of the PR1-2 carry advance below, which seeds the next
+          // (Independent of the float carry advance below, which seeds the next
           // FRESH-fit page's env; this is the reused page's OWN stamped value.)
           incomingActiveFloats: reusable.incomingActiveFloats,
-          // #528 T3: a REUSED page keeps its OWN stamped pushed-float list (the
-          // floats that landed on it from the prior page). INERT — empty on every
-          // page in T3 (no producer), so this is byte-identical. Mirrors the
+          // A REUSED page keeps its OWN stamped pushed-float list (the
+          // floats that landed on it from the prior page). Mirrors the
           // `incomingActiveFloats` reuse-path stamp above.
           incomingPushedFloats: reusable.incomingPushedFloats,
         });
@@ -893,13 +877,13 @@ export function measurePass(
         );
 
         // Advance the running-sum document-y by THIS page's effective height +
-        // gap (C.2b-2). Done before BOTH exits so the next page (or the
+        // gap. Done before BOTH exits so the next page (or the
         // totalBlockSize computation) sees the correct accumulator.
         runningBlockOffset += effCfg.pageBlockSize + effCfg.pageGap;
         // Coherent float+pagination: advance the gapless cumulative flow base by
         // the reused page's in-flow consumed (mirrors the re-fit path).
         pageFlowBase += reusable.inFlowConsumed;
-        // VL float fast-path (PR1-2): advance the running float carry across this
+        // VL float fast-path: advance the running float carry across this
         // REUSED page using the STORED snapshot (no `layoutBlock` re-run). The next
         // page's incoming = the NEXT prev entry's `incomingActiveFloats` (already
         // filtered to the floats surviving past page `prevK`'s content-bottom when
@@ -908,15 +892,14 @@ export function measurePass(
         // empty. Only meaningful for a float doc; for non-float docs the prev
         // entries' value is empty, so this is byte-identical.
         incomingFloats = prevPlan?.entries[prevK + 1]?.incomingActiveFloats ?? NO_INCOMING_FLOATS;
-        // #528 T3: advance the pushed-float carry across this REUSED page the same
+        // Advance the pushed-float carry across this REUSED page the same
         // way — the next page's incoming = the NEXT prev entry's
-        // `incomingPushedFloats`. INERT (empty on every page in T3), so byte-
-        // identical; mirrors the `incomingFloats` reuse advance above.
+        // `incomingPushedFloats`; mirrors the `incomingFloats` reuse advance above.
         incomingPushedFloats =
           prevPlan?.entries[prevK + 1]?.incomingPushedFloats ?? NO_INCOMING_PUSHED_FLOATS;
 
         if (reusable.resumeOut === null) {
-          // #528 cross-page float PUSHING — last-page landing (reuse path). Mirror
+          // Cross-page float PUSHING — last-page landing (reuse path). Mirror
           // the re-fit branch below: if THIS reused page exhausted in-flow but a
           // float was pushed off it (the carry was advanced to the successor's
           // `incomingPushedFloats` just above, non-empty), do NOT break — that
@@ -963,39 +946,39 @@ export function measurePass(
       }
     }
 
-    // --- Per-page fit: multicol branch vs single-column branch (T3). ---
+    // --- Per-page fit: multicol branch vs single-column branch. ---
     // `columnCount > 1` ⇒ distribute the page's content across N columns via
     // `fitColumnsOnPage` (FILL: every column at the page body block-size); the
     // page's `resumeOut` is a `ColumnBreakToken` (wrapping the last column's
     // inner BFC token) when content overflowed the last column. `columnCount === 1`
-    // ⇒ the EXISTING bare `fitOnePage`, byte-identical to pre-T3.
+    // ⇒ the bare `fitOnePage`.
     let childrenCount: number;
     let resumeOut: BreakToken | null;
     let listCounterAtEnd: number;
     let columnFit: ColumnsFitResult | undefined;
-    // VL float fast-path (Task 3): the incoming-float snapshot stamped onto THIS
+    // VL float fast-path: the incoming-float snapshot stamped onto THIS
     // page's entry. The float branch sets it to the running `incomingFloats`
     // BEFORE the page is laid out (the floats shadowing this page's content-top);
     // every other branch leaves it the empty default (byte-identical non-float).
     let thisPageIncoming: readonly PlacedFloat[] = NO_INCOMING_FLOATS;
-    // #528 T3: the pushed-float list stamped onto THIS page's entry — the floats
+    // The pushed-float list stamped onto THIS page's entry — the floats
     // that overflowed the PRIOR page and land here. The float branch sets it to
     // the running `incomingPushedFloats` BEFORE the page is laid out; every other
-    // branch leaves it the empty default. INERT in T3 (always empty), so it never
-    // changes the output. T4's consumer reads this entry's value to place them.
+    // branch leaves it the empty default. Materialization reads this entry's
+    // value to place them.
     let thisPageIncomingPushed: readonly PushedFloat[] = NO_INCOMING_PUSHED_FLOATS;
     // Coherent float+pagination: the in-flow block-size THIS page consumed,
     // accumulated into `pageFlowBase` after the entry is pushed. Single-column:
     // the fit's `consumedBlockSize`. Multicol: the tallest column's consumed
     // content (the page-body height actually used) — see the multicol branch.
     let pageConsumed = 0;
-    // The actual per-column rendered height (T4): the full page body block-size
+    // The actual per-column rendered height: the full page body block-size
     // for single-column / FILL pages (the initializer below); the BALANCED height
     // for a multicol section's FINAL page (set in the multicol branch). Declared
     // in the shared fit scope so both branches and the entry pushes read it.
     let balancedColumnHeight = effContentBlockSize;
     if (effColCfg.columnCount > 1) {
-      // VL float fast-path (Task 3): `floatPageMeasurer` is ONLY ever passed for
+      // VL float fast-path: `floatPageMeasurer` is ONLY ever passed for
       // single-column float docs (the producer gate routes float+multicol to the
       // legacy path), so it must never reach a multicol page. This guards a
       // misuse — in production it never fires.
@@ -1007,7 +990,7 @@ export function measurePass(
       // A prior multicol page threaded its `ColumnBreakToken` into `resumeInto`;
       // `fitColumnsOnPage` wants the INNER BFC token, so unwrap it.
       const innerResume = innerBfcToken(resumeInto);
-      // #494: build the fit metas at the column TRACK width — the SAME narrow
+      // Build the fit metas at the column TRACK width — the SAME narrow
       // width `materializePage` lays each column at — so the planned ColumnFit
       // matches materialize's actual per-column break tokens. The `trackInlineSize`
       // arithmetic below MUST be bit-identical to `virtual-layout-tree.ts`'s
@@ -1025,7 +1008,7 @@ export function measurePass(
         effColCfg.columnGap,
       );
       const colMetas = buildMetasAtWidth ? buildMetasAtWidth(trackInlineSize) : metas;
-      // M-1: `fitColumnsOnPage`'s internal `fitOnePage` calls are NOT counted by
+      // `fitColumnsOnPage`'s internal `fitOnePage` calls are NOT counted by
       // `_fitOnePageCallCount` (which instruments the single-column branch only,
       // preserving `__getFitOnePageCallCountForTest`'s meaning). A multicol
       // call-count instrument, if ever wanted, gets its own counter.
@@ -1042,7 +1025,7 @@ export function measurePass(
       childrenCount = columnFit.totalChildrenCount;
       resumeOut = columnFit.pageResumeOut; // ColumnBreakToken | null (entry/threaded)
       listCounterAtEnd = columnFit.listCounterAtEnd;
-      // F-1: when the multicol page exhausted its content at the SECTION CAP
+      // When the multicol page exhausted its content at the SECTION CAP
       // (`stopBeforeIndex`) rather than the true document end, `fitColumnsOnPage`
       // returns `pageResumeOut === null` — but there IS more document (the next
       // section). Single-column gets a non-null forced-break token from
@@ -1062,13 +1045,13 @@ export function measurePass(
           resumeChildToken: null,
         };
       }
-      // Final-page BALANCE (Task 4): the section's last multicol page evens its
-      // columns (Google Docs `column-fill: balance`). Finality is EXPLICIT
-      // (resolves plan-review I-1): the columns took all the section's remaining
+      // Final-page BALANCE: the section's last multicol page evens its
+      // columns (Google Docs `column-fill: balance`). Finality is EXPLICIT:
+      // the columns took all the section's remaining
       // content (`columnFit.pageResumeOut === null`) AND content is exhausted at the
       // section boundary/end. `>= sectionEnd` is the robust form; `pageResumeOut ===
       // null` already implies reaching effectiveEnd, so they agree today. (Read
-      // `pageResumeOut`, NOT the F-1-synthesized `resumeOut`: a section-capped final
+      // `pageResumeOut`, NOT the synthesized forced-break `resumeOut`: a section-capped final
       // page synthesizes a forced-break token above, but it IS still its section's
       // final page and must balance.)
       const sectionEnd = st.nextBoundaryIndex ?? colMetas.length;
@@ -1079,7 +1062,7 @@ export function measurePass(
         // Balance redistributes the SAME track-width content, so it MUST run on
         // `colMetas` (the track-width metas) — both `balanceColumnHeight` and the
         // re-fit — or the balanced height / resume tokens would disagree with the
-        // narrow-track layout `materializePage` builds (#494).
+        // narrow-track layout `materializePage` builds.
         balancedColumnHeight = balanceColumnHeight(
           colMetas,
           startIndex,
@@ -1118,7 +1101,7 @@ export function measurePass(
       // legacy; this keeps the non-float cumulative chain gapless.)
       pageConsumed = columnFit.columns.reduce((m, c) => Math.max(m, c.consumedBlockSize), 0);
     } else if (floatPageMeasurer !== undefined) {
-      // VL float fast-path (Task 3): measure this single-column page by running
+      // VL float fast-path: measure this single-column page by running
       // the real `layoutBlock` (via the producer's closure) — the SAME call
       // `materializePage` makes — so measure↔materialize equivalence is automatic
       // (identical `layoutBlock` + identical inputs: resume token + `pageFlowBase`
@@ -1130,13 +1113,12 @@ export function measurePass(
         resumeInto,
         pageFlowBase,
         incomingFloats,
-        // #528 T3: the floats pushed into this page from the prior page (INERT —
-        // always empty in T3; threaded so T4 only adds the placement consumer).
+        // The floats pushed into this page from the prior page.
         incomingPushedFloats,
         contentBlockSize: effContentBlockSize,
         stopBeforeIndex: st.nextBoundaryIndex ?? undefined,
         listCounterAtStart,
-        // PR2-B: the per-page content origin — field-for-field the values
+        // The per-page content origin — field-for-field the values
         // `materializePage` passes to its single-column `layoutBlock`
         // (`effMargins.inlineStart` == `effCfg.pageMargins.inlineStart` for inline;
         // `effTopInset` == `effTop` for block).
@@ -1150,8 +1132,8 @@ export function measurePass(
       pageConsumed = fr.inFlowConsumed;
       // Stamp the floats shadowing THIS page's content-top onto its entry (below).
       thisPageIncoming = incomingFloats;
-      // #528 T3: stamp the pushed floats that landed on THIS page (INERT — always
-      // empty in T3) onto its entry (below). T4's consumer reads it to place them.
+      // Stamp the pushed floats that landed on THIS page onto its entry
+      // (below); materialization reads it to place them.
       thisPageIncomingPushed = incomingPushedFloats;
       // Advance the running carry to the NEXT page's incoming = the floats still
       // active below this page's content-bottom (cumulative frame). A float whose
@@ -1162,11 +1144,8 @@ export function measurePass(
       incomingFloats = fr.placedFloats.filter(
         (f) => f.blockOffset + f.blockSize > nextContentTop,
       );
-      // #528 T3: advance the pushed-float carry to the floats this page deferred to
-      // the next page. INERT in T3 — `fr.pushedFloats` is always `[]` (no producer),
-      // so the next page's `incomingPushedFloats` stays empty and output is
-      // byte-identical. T4's producer fills `fr.pushedFloats` from the BFC float
-      // branch's overflow check.
+      // Advance the pushed-float carry to the floats this page deferred to
+      // the next page (`fr.pushedFloats`, from the BFC float branch's overflow check).
       incomingPushedFloats = fr.pushedFloats;
     } else {
       _fitOnePageCallCount++;
@@ -1174,16 +1153,16 @@ export function measurePass(
         metas,
         startIndex,
         resumeInto,
-        // This page's EFFECTIVE content block-size (C.2b-2): the doc-wide
+        // This page's EFFECTIVE content block-size: the doc-wide
         // `pageContentBlockSize` for a non-overriding page, else the active
         // section's geometry. The fit honors the page's OWN height.
         effContentBlockSize,
         listCounterAtStart,
-        // Section cap (C.2b-1): stop before the next section boundary so a block
+        // Section cap: stop before the next section boundary so a block
         // belonging to the NEXT section starts a fresh page. `null` (no next
         // boundary — last/only section) ⇒ no cap. `fitOnePage` normalizes a cap
         // `<= startIndex` to no-cap, but the SectionPlan's strictly-increasing
-        // boundaries (invariant I-2) guarantee `nextBoundaryIndex > startIndex`
+        // boundaries guarantee `nextBoundaryIndex > startIndex`
         // whenever it is non-null.
         st.nextBoundaryIndex ?? undefined,
         // Coherent float+pagination: the page-cumulative flow base, so the IFC
@@ -1227,15 +1206,15 @@ export function measurePass(
     entries.push({
       pageIndex,
       blockOffset,
-      // This page's effective geometry (C.2b-2): the same `effCfg` whose content
+      // This page's effective geometry: the same `effCfg` whose content
       // block-size shaped the fit above.
       blockSize: effCfg.pageBlockSize,
       pageConfig: effCfg,
       columnConfig: effColCfg,
-      // The per-column distribution (T3) — set only on the multicol branch;
+      // The per-column distribution — set only on the multicol branch;
       // `undefined` for single-column pages.
       columnFit,
-      // The actual per-column rendered height (T4): `effContentBlockSize` for
+      // The actual per-column rendered height: `effContentBlockSize` for
       // single-column / FILL pages, the balanced height on a section's final
       // multicol page.
       balancedColumnHeight,
@@ -1252,16 +1231,16 @@ export function measurePass(
       // The SAME cap (`st.nextBoundaryIndex`) passed to the fit above — so the
       // positioning pass reproduces this page's fit exactly.
       stopBeforeIndex: st.nextBoundaryIndex ?? null,
-      // Header/footer body ids for THIS page (C.2c), from the CURRENT `st`.
+      // Header/footer body ids for THIS page, from the CURRENT `st`.
       headerBlockId,
       footerBlockId,
-      // Effective slot insets for THIS page (#328) — the SAME `effTop`/`effBottom`
+      // Effective slot insets for THIS page — the SAME `effTop`/`effBottom`
       // whose content block-size shaped the fit above. The materialize pass reads
       // these to position the body origin + the footer slot.
       effectiveTopInset: effTop,
       effectiveBottomInset: effBottom,
-      // Footnote fields (FN-4 D2): the no-footnote defaults; `resolveFootnotes`
-      // (FN-4.2) rewrites the footnote-bearing pages downstream.
+      // Footnote fields: the no-footnote defaults; `resolveFootnotes`
+      // rewrites the footnote-bearing pages downstream.
       footnoteContentBlockIds: EMPTY_FOOTNOTE_IDS,
       footnoteSlotHeight: 0,
       footnoteContinuation: EMPTY_FOOTNOTE_CONTINUATIONS,
@@ -1274,16 +1253,15 @@ export function measurePass(
       // above, so the materialize pass can thread it into its per-column
       // `layoutBlock` and reproduce the planned resume tokens.
       pageFlowBase,
-      // VL float fast-path (Task 3): the floats shadowing this page's content-top
+      // VL float fast-path: the floats shadowing this page's content-top
       // (the cumulative frame). The float branch sets `thisPageIncoming` to the
       // running `incomingFloats` before the page is laid out; every other branch
       // leaves it the empty `NO_INCOMING_FLOATS` default (byte-identical
       // non-float). The materialize pass seeds its per-page `FloatEnvironment`
       // from this so its `layoutBlock` reproduces the planned float exclusion.
       incomingActiveFloats: thisPageIncoming,
-      // #528 T3: the floats pushed into this page from the prior page. INERT —
-      // `thisPageIncomingPushed` is the empty default on every page in T3 (no
-      // producer), so this is byte-identical. T4's consumer reads it to place them.
+      // The floats pushed into this page from the prior page; materialization
+      // reads it to place them.
       incomingPushedFloats: thisPageIncomingPushed,
     });
 
@@ -1304,14 +1282,14 @@ export function measurePass(
     );
 
     // Advance the running-sum document-y by THIS page's effective height + gap
-    // (C.2b-2), mirroring the reuse path. Done before BOTH exits.
+    // mirroring the reuse path. Done before BOTH exits.
     runningBlockOffset += effCfg.pageBlockSize + effCfg.pageGap;
     // Coherent float+pagination: advance the gapless cumulative flow base by THIS
     // page's in-flow consumed content (mirrors paginate's `pageFlowBase += inFlowConsumed`).
     pageFlowBase += pageConsumed;
 
     if (resumeOut === null) {
-      // #528 cross-page float PUSHING — last-page landing. In-flow content is
+      // Cross-page float PUSHING — last-page landing. In-flow content is
       // exhausted on THIS page, but the float branch may have deferred ("pushed")
       // one or more floats off it (`incomingPushedFloats` was advanced from
       // `fr.pushedFloats` above). Breaking here would DROP those floats (no landing
@@ -1358,7 +1336,7 @@ export function measurePass(
 /**
  * Assemble a fully-functional `PagePlan` from finished entries + the prebuilt
  * block-index maps. Extracted from `measurePass`'s return so a downstream pass
- * that REWRITES entries (the footnote `resolveFootnotes` pass, FN-4.2) can
+ * that REWRITES entries (the footnote `resolveFootnotes` pass) can
  * rebuild a plan whose index methods (`pageIndexOfBlock`, `pageSpanOfBlock`,
  * `pageIndexOfTemplateBlock`, `pageIndexAtBlockOffset`) reflect the NEW page
  * boundaries — not the stale ones. The caller owns `blockToPage` / `blockToSpan`
@@ -1379,7 +1357,7 @@ export function buildPagePlan(
   blockToPage: ReadonlyMap<string, number>,
   blockToSpan: ReadonlyMap<string, { first: number; last: number }>,
 ): PagePlan {
-  // Running-sum-correct total document height (C.2b-2): the last page's top
+  // Running-sum-correct total document height: the last page's top
   // edge plus its OWN block-size, with NO trailing gap. Pages are no longer
   // uniform-height, so a `pageCount × pageBlockSize + gaps` formula would be
   // wrong once any section overrides its geometry. For a no-override doc the
@@ -1388,11 +1366,11 @@ export function buildPagePlan(
   const totalBlockSize =
     lastEntry === undefined ? 0 : lastEntry.blockOffset + lastEntry.pageConfig.pageBlockSize;
 
-  // Header/footer SLOT body id → FIRST page carrying it (C.2c T6). Built from
+  // Header/footer SLOT body id → FIRST page carrying it. Built from
   // the final entries (both the re-fit and reuse branches stamp
   // `headerBlockId` / `footerBlockId`), so it is path-independent. We keep the
   // FIRST page only: the same body renders into every page's slot, and a slot
-  // caret resolves to that first instance (#323). `set`-only-if-absent
+  // caret resolves to that first instance. `set`-only-if-absent
   // preserves the first carrier when a later page repeats the id.
   const templateBlockToPage = new Map<string, number>();
   // Footnote-body root id → FIRST (fresh) page whose slot renders it. Built from
@@ -1441,15 +1419,8 @@ export function buildPagePlan(
 }
 
 /**
- * Structural break-token equality (references differ across measure cycles, so
- * `===` would always miss). Recurses through `block` tokens' nested
- * `resumeChildToken`. Mirrors the equality `virtual-layout-tree.ts` and the
- * equivalence oracle use; the incremental reuse below compares the prior
- * entry's `resumeInto` to the current loop's `resumeInto` with it.
- */
-/**
- * Whether two `SectionStateAt`s are equal for the incremental reuse gate
- * (C.2b-1): the page belongs to the SAME section AND was capped at the SAME next
+ * Whether two `SectionStateAt`s are equal for the incremental reuse gate:
+ * the page belongs to the SAME section AND was capped at the SAME next
  * boundary. `activeSectionId` equality proves the section membership is unchanged;
  * `nextBoundaryIndex` equality proves the forced `stopBeforeIndex` that shaped the
  * page is identical. Both must hold for the prior fit to carry forward — a
@@ -1462,7 +1433,7 @@ function sectionStatesEqual(a: SectionStateAt, b: SectionStateAt): boolean {
 
 /**
  * Decide whether a prior page entry may be reused at the current loop position
- * — the L-PERF-C `childrenMatchFingerprint` check extended to every input that
+ * — the page-level-reuse `childrenMatchFingerprint` check extended to every input that
  * governs THIS page's fit. Reuse is sound ONLY when:
  *
  *   - the whole-block-progress slice `[startIndex, startIndex + children.length)`
@@ -1632,8 +1603,7 @@ function deepestLeafProgress(token: BreakToken | null): number {
  * `y` is clamped to `[0, totalBlockSize]`, so out-of-range values resolve to
  * the first or last page rather than producing -1.
  *
- * The blockOffsets are a RUNNING SUM (per-page heights need not be uniform —
- * C.2b-2), so using the NEXT entry's `blockOffset` as each page's half-open
+ * The blockOffsets are a RUNNING SUM (per-page heights need not be uniform), so using the NEXT entry's `blockOffset` as each page's half-open
  * upper bound (and `totalBlockSize` for the last) stays gap- and
  * geometry-correct by construction — no per-page `blockOffset + blockSize +
  * pageGap` reconstruction (which would over-add a trailing gap on the last
@@ -1679,16 +1649,16 @@ function pageIndexAtBlockOffset(
  *   `position: absolute` — removed from flow by the BFC (drained into a box's
  *   `absoluteChildren`), which `buildBlockFitMetas` does not model; the doc
  *   routes to `paginateRoot`, which lays abs-pos out correctly (paginated abs-pos
- *   fragmentation is a documented v1 follow-up). `relative` stays in flow with the
+ *   fragmentation is not modeled). `relative` stays in flow with the
  *   same advance and is NOT flagged.
  *
- * Mixed block+inline container content (handled: #253) and padded/bordered
- * containers (handled: #254) are now modeled by `buildBlockFitMetas` /
+ * Mixed block+inline container content and padded/bordered
+ * containers are now modeled by `buildBlockFitMetas` /
  * `fitOnePage` and oracle-proven equivalent to `paginateRoot`, so they are no
  * longer flagged.
  *
- * NOTE: this is an O(N) walk. The design calls for a cheap rolled-up cascade
- * flag on the hot path; that rollup is a separate task. This is the correctness-
+ * NOTE: this is an O(N) walk. There is no cheap rolled-up cascade flag
+ * for it, so the gate pays this walk on every layout. This is the correctness-
  * complete detector, wired into `layoutTreeIncremental` (the paginated branch
  * gates the virtual vs legacy `paginateRoot` path on it).
  */
@@ -1706,12 +1676,10 @@ function elementUnsupported(node: ElementBox): boolean {
     // and even guarded would fold the out-of-flow height into the in-flow advance.
     // Route abs-pos docs to the legacy `paginateRoot` path (which handles them).
     // `relative` stays in flow with the same advance, so it is NOT flagged
-    // (positioning-audit F1; paginated abs-pos fragmentation is the documented v1
-    // follow-up). `fixed` is out of scope / absent from the union.
+    // (paginated abs-pos fragmentation is a documented positioning gap). `fixed` is out of scope / absent from the union.
     //
-    // NOTE: `float`/`clear` are NO LONGER flagged here (VL float fast-path Task 5
-    // lifted them) — a SINGLE-COLUMN float/clear doc is now handled by the measure
-    // pass's `floatPageMeasurer` branch. The composite legacy gate that still routes
+    // NOTE: `float`/`clear` are not flagged here — a SINGLE-COLUMN float/clear doc
+    // is handled by the measure pass's `floatPageMeasurer` branch. The composite legacy gate that still routes
     // float+multicol / float+footnote docs to legacy is `paginationFallsBackToLegacy`.
     if (cs.position === "absolute") return true;
   }
@@ -1747,10 +1715,9 @@ export function hasFloatOrClear(node: RenderNode): boolean {
 
 /**
  * The single legacy-vs-virtual pagination gate, called at every dispatch site
- * (`dispatch.ts` full-build + `layout-incremental.ts`). After Task 5 lifted
- * `float`/`clear` from `measurePassUnsupported` (which now flags only
- * `position:absolute`), a float doc routes to the virtualized fast path ONLY
- * when it is SINGLE-COLUMN AND footnote-free — the V1 measure-pass float branch's
+ * (`dispatch.ts` full-build + `layout-incremental.ts`). `measurePassUnsupported`
+ * flags only `position:absolute`; a float doc routes to the virtualized fast path ONLY
+ * when it is SINGLE-COLUMN AND footnote-free — the measure-pass float branch's
  * scope. Float+multicol, float+footnote, and absolute docs still fall back to the
  * legacy positioned `paginateRoot`.
  */
@@ -1760,6 +1727,6 @@ export function paginationFallsBackToLegacy(
 ): boolean {
   if (measurePassUnsupported(root)) return true; // position:absolute
   if (!hasFloatOrClear(root)) return false; // float-free ⇒ virtual handles it
-  // Float doc ⇒ virtual ONLY when single-column + footnote-free (V1 scope).
+  // Float doc ⇒ virtual ONLY when single-column + footnote-free (the float branch's scope).
   return hasMultiColumnRegion(root) || footnoteAnchors.length > 0;
 }

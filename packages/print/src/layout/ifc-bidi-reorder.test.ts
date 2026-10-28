@@ -314,7 +314,7 @@ describe("segmentLine", () => {
     expect(nth(segments, 0, "segment").level).toBe(ibPostL1[2]);
   });
 
-  it("throws for an InlineBox (Task 5b not implemented here)", () => {
+  it("throws for an InlineBox (nested inline-box reordering unsupported)", () => {
     const inlineBox = createInlineBox(
       "ix",
       0, 0, 20, 16,
@@ -326,7 +326,7 @@ describe("segmentLine", () => {
       1000,
     );
     expect(() => segmentLine([inlineBox], pb, lineStartCp, postL1)).toThrow(
-      /Task 5b/,
+      /InlineBox recursion is not supported/,
     );
   });
 

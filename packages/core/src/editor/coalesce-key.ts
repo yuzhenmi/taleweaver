@@ -1,19 +1,17 @@
 import type { EditorAction } from "./editor-action";
 
-/** How an action affects undo-group coalescing (#420). */
+/** How an action affects undo-group coalescing. */
 export type ActionClass =
   | "insert" // coalescible text insertion
   | "delete" // coalescible text deletion (any direction/granularity)
   | "command" // discrete edit — its own undo unit, never coalesces
-  | "resolve" // non-undoable suggestion accept/reject — breaks the open group, opens NO tracked group
   | "selection-break" // caret move / selection change / undo / redo — breaks the open group
   | "inert"; // neither edits nor breaks coalescing
 
 /**
- * Classify an `EditorAction` for undo-group coalescing (#420). Exhaustive over
+ * Classify an `EditorAction` for undo-group coalescing. Exhaustive over
  * the action union — the `never` default makes a newly-added action a COMPILE
- * error here until it is classified. See
- * `docs/superpowers/specs/2026-06-01-undo-coalescing-design.md`.
+ * error here until it is classified.
  */
 export function coalesceKeyOf(action: EditorAction): ActionClass {
   switch (action.type) {
@@ -41,6 +39,7 @@ export function coalesceKeyOf(action: EditorAction): ActionClass {
     case "INSERT_PAGE_NUMBER":
     case "INSERT_PAGE_COUNT":
     case "INSERT_TAB":
+    case "INSERT_LINE_BREAK":
     case "SET_TAB_STOPS":
     case "INSERT_HORIZONTAL_LINE":
     case "INSERT_TABLE_OF_CONTENTS":
@@ -66,6 +65,9 @@ export function coalesceKeyOf(action: EditorAction): ActionClass {
     case "SET_FONT_SIZE":
     case "SET_FONT_FAMILY":
     case "CLEAR_FORMATTING":
+    case "TRANSACTION":
+    case "SET_MARK":
+    case "REMOVE_MARK":
     case "SET_TEXT_ALIGN":
     case "SET_LINE_SPACING":
     case "SET_PARAGRAPH_SPACING":
@@ -81,29 +83,32 @@ export function coalesceKeyOf(action: EditorAction): ActionClass {
     case "DELETE_COMMENT":
     case "ADD_REPLY":
       return "command";
+    // Suggestion resolution and host proposals: undoable, each its own entry.
     case "ACCEPT_SUGGESTION":
     case "REJECT_SUGGESTION":
+    case "ACCEPT_SUGGESTION_GROUP":
+    case "REJECT_SUGGESTION_GROUP":
     case "ACCEPT_ALL_SUGGESTIONS":
     case "REJECT_ALL_SUGGESTIONS":
-      // NON-undoable resolve: the state op runs a SUGGESTION_RESOLVE_ORIGIN txn
-      // that fires no UndoManager StackItem, so `"command"` (which `beginEntry`s a
-      // TRACKED group) is wrong here — it would open a group the op never fills.
-      // `"resolve"` only BREAKS the open group (so preceding typing commits as its
-      // own unit) without opening one.
-      return "resolve";
+      return "command";
     case "MOVE_WORD":
     case "MOVE_DOCUMENT_BOUNDARY":
     case "EXPAND_WORD":
     case "EXPAND_DOCUMENT_BOUNDARY":
     case "SELECT_ALL":
     case "SET_SELECTION":
-    // #525: ESCAPE is a pure selection move (deselect an object → caret beside
+    // ESCAPE is a pure selection move (deselect an object → caret beside
     // it), so it breaks the open undo group like any other caret move.
     case "ESCAPE":
     case "UNDO":
     case "REDO":
       return "selection-break";
     case "SET_CONTAINER_WIDTH":
+    // A peer's change: not ours to undo, and it must not split our typing group.
+    case "APPLY_FOREIGN_CHANGE":
+    // Another author's proposal: keeps the stored typing attrs; its handler opens its OWN
+    // undo entry only when it applies something (1.5 "Host proposals").
+    case "PROPOSE":
       return "inert";
     default: {
       const _exhaustive: never = action;

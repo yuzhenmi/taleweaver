@@ -29,7 +29,7 @@ import type { FootnoteAnchorRef } from "./types";
  * The block `type` that opens a section (flat, never nested under root).
  *
  * The canonical source of truth for this literal. The render pass imports it
- * (via the footnotes barrel) for its FN-8 anchor-reuse guard, which treats a
+ * (via the footnotes barrel) for its anchor-reuse guard, which treats a
  * dirty `section` block as a possible anchor-rescope. Keep this the only
  * declaration.
  */
@@ -39,7 +39,7 @@ export const SECTION_BLOCK_TYPE = "section";
  * The shared frozen empty anchor list. Returned by the per-keystroke
  * footnote-free guards (`docHasFootnotes(state) === false`) in render and the
  * editor rebuild path so a document with no footnotes never pays the
- * `collectFootnoteAnchors` O(N_blocks) walk (FN-8). Frozen + shared so the
+ * `collectFootnoteAnchors` O(N_blocks) walk. Frozen + shared so the
  * guard allocates nothing.
  */
 export const EMPTY_FOOTNOTE_ANCHORS: readonly FootnoteAnchorRef[] = Object.freeze(
@@ -52,8 +52,8 @@ export const EMPTY_FOOTNOTE_ANCHORS: readonly FootnoteAnchorRef[] = Object.freez
  * For each leaf block (one with `inlineContent`), each `EmbedItem` that is a
  * footnote anchor with a string `contentBlockId` yields one `FootnoteAnchorRef`,
  * in `inlineContent` order. `sectionId` is the nearest enclosing `section`
- * block, or `null` when the anchor's block sits in the implicit root section
- * (no `section` ancestor before the document root).
+ * block (every main-tree block has one: the final section always exists);
+ * `null` only for a malformed tree with no `section` ancestor.
  */
 export function collectFootnoteAnchors(
   state: State,

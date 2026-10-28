@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { findFirstContentBlock, findLastContentBlock } from "./helpers";
 import { buildState, buildBlock } from "../../test-utils/state-builders";
+import { getBlock } from "../../state";
+import type { BlockId } from "../../state";
 
 describe("findFirstContentBlock / findLastContentBlock", () => {
   it("returns the first/last content-bearing LEAF, skipping container blocks", () => {
@@ -18,13 +20,21 @@ describe("findFirstContentBlock / findLastContentBlock", () => {
     expect(findLastContentBlock(state)).toBe("p2");
   });
 
-  it("returns null when the document has no content leaf (containers only)", () => {
+  it("an object-only document still has a content leaf: the paragraph invariant I puts after the object", () => {
+    // A document can never be content-free: a paragraph always follows an object
+    // (invariant I) and the final section always holds one.
     const state = buildState({
       rootId: "root",
-      blocks: [buildBlock({ id: "root", type: "doc" })],
+      blocks: [
+        buildBlock({ id: "root", type: "doc", firstChildId: "hr", lastChildId: "hr" }),
+        buildBlock({ id: "hr", type: "horizontal-line", parentId: "root" }),
+      ],
     });
-    expect(findFirstContentBlock(state)).toBeNull();
-    expect(findLastContentBlock(state)).toBeNull();
+    const first = findFirstContentBlock(state);
+    expect(first).not.toBeNull();
+    expect(getBlock(state, first as BlockId)?.prevSiblingId).toBe("hr");
+    expect(getBlock(state, first as BlockId)?.inlineContent).not.toBeNull();
+    expect(findLastContentBlock(state)).toBe(first);
   });
 
   it("TERMINATES on a malformed two-parents topology with a content-LESS oscillating leaf (#510-class hang regression)", () => {
@@ -35,8 +45,9 @@ describe("findFirstContentBlock / findLastContentBlock", () => {
     // sweeps oscillate b⇄c forever: nextBlockInDocOrder(c) walks up via
     // c.parentId="a" → a.nextSibling="b", then nextBlockInDocOrder(b) →
     // b.firstChild="c", ad infinitum (a CPU-bound hang that defeats --test-timeout).
-    // The cycle-safe leaf walk must TERMINATE — `c` carries no content, so both
-    // return null. This assertion would hang forever against the pre-fix code.
+    // The cycle-safe leaf walk must TERMINATE. (the stored document
+    // still holds a content leaf — the paragraph invariant I puts after `c` — so
+    // both find a paragraph.) This would hang forever against the pre-fix code.
     const state = buildState({
       rootId: "doc",
       blocks: [
@@ -47,7 +58,9 @@ describe("findFirstContentBlock / findLastContentBlock", () => {
         buildBlock({ id: "c", type: "horizontal-line", parentId: "a" }),
       ],
     });
-    expect(findFirstContentBlock(state)).toBeNull();
-    expect(findLastContentBlock(state)).toBeNull();
+    const first = findFirstContentBlock(state);
+    const last = findLastContentBlock(state);
+    expect(first === null ? null : getBlock(state, first)?.inlineContent ?? null).not.toBeNull();
+    expect(last === null ? null : getBlock(state, last)?.inlineContent ?? null).not.toBeNull();
   });
 });

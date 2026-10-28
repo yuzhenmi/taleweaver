@@ -28,10 +28,10 @@ const EMBED_CHAR = "￼";
  * `handleExpandSelection`, and `MOVE_LINE_BOUNDARY`) — the position is the moving
  * head (the collapsed caret, or the selection focus) in each case.
  *
- * `caretAffinity` (CUR-1): at a soft-wrap boundary the picked line must MATCH the
+ * `caretAffinity`: at a soft-wrap boundary the picked line must MATCH the
  * line `cursor-position` renders the caret on for the same affinity — otherwise
  * `moveVisually` builds its `LineBidiView` from the wrong line (a bidi warp at the
- * line seam, the #502 class at the wrap edge). Threaded down to the shared
+ * line seam, the same class of bug at the wrap edge). Threaded down to the shared
  * {@link pickSoftWrapLine} so the picker honors the `"before"` stay-on-current-line
  * opt-out exactly as the cursor-position pickers do.
  */
@@ -65,9 +65,9 @@ export function resolveLineForPosition(
 /**
  * Pick the line owning `position` from the block's own lines (in document
  * order), honoring `caretAffinity` at a soft-wrap boundary. Delegates to the
- * shared {@link pickSoftWrapLine} (CUR-3) so this matches the line
+ * shared {@link pickSoftWrapLine} so this matches the line
  * `resolvePositionInOwnLines` renders the caret on — `moveVisually` then operates
- * on the same line the caret is drawn on (CUR-1).
+ * on the same line the caret is drawn on.
  */
 function pickLine(
   ownLines: readonly AbsoluteLineBox[],

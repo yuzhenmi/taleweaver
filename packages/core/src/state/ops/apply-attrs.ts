@@ -1,18 +1,18 @@
-import * as Y from "yjs";
+import type * as Y from "yjs";
+import { blockText } from "../block-text";
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { Span } from "../block-position";
 import type { ReadonlyAttrs } from "../attrs";
-import { mergeAttrs, attrsEqual } from "../attrs";
 import { iterateSpan, type BlockRange } from "../span-iteration";
-import { getYBlock, requireInTransaction } from "../yjs-doc";
-import { buildYAttrs, buildYInlineItem } from "../y-block";
-import { yMapAsObject, mergeAdjacentSameAttrsTextItemsInPlace, yItemLength } from "../y-utils";
-import { isStructuralMarkerEmbedType } from "../embed-markers";
+import { requireInTransaction } from "../yjs-doc";
+import { formatInlineRange } from "../y-inline";
+import { mergeMarkAttrs } from "../flow-ops";
+import { inlineContentLength } from "../inline-content";
 import type { ResolvedBlockKind } from "../state";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
-import type { AttrRegistry } from "../../cascade/attr-registry";
+import { attrRegistryOf } from "../mark-attrs";
 
 /**
  * Apply attrs to all inline content within a span.
@@ -27,7 +27,7 @@ import type { AttrRegistry } from "../../cascade/attr-registry";
  * STRUCTURAL MARKER embeds (comment/suggestion markers — see
  * {@link isStructuralMarkerEmbedType}) are SKIPPED: they carry no formattable
  * content, and stamping a tracked-change provenance attr onto one would leave a
- * dangling reference after the suggestion resolves (#465).
+ * dangling reference after the suggestion resolves.
  *
  * Returns OperationResult with dirtyIds = every block id whose items
  * changed.
@@ -44,40 +44,33 @@ import type { AttrRegistry } from "../../cascade/attr-registry";
  * Throws via `iterateSpan`'s preconditions if endpoints are non-leaf
  * containers or different selection contexts.
  *
- * Y.Doc note: this op mutates Y types in place where possible. A text
- * item fully covered by the range has its attrs Y.Map replaced in place
- * (preserves the item's Y.Text identity, and therefore its per-character
- * CRDT identity). A partially-covered text item is split via
- * delete+insert because Yjs has no in-place split primitive on a single
- * Y.Text; the prefix and suffix are reissued as fresh items.
+ * Y.Doc note: one `Y.Text.format` per maximal changed, non-marker subrange of
+ * each block (`formatInlineRange`). `format` never deletes or re-mints
+ * characters, so every character keeps its CRDT identity — a `RelativePosition`
+ * and an open undo entry survive any formatting. Items the attrs would not
+ * change are not written (no-op guard: no Yjs event, no dirty block).
+ * A `null` / `undefined` value removes the key (stored attrs never hold null).
  *
- * After the per-item updates an IN-PLACE same-attrs merge pass
- * (`mergeAdjacentSameAttrsTextItemsInPlace`) runs over the touched block to
- * uphold the "no adjacent same-attrs text items" invariant (per
- * `inline-content.ts` mergeAdjacentTextItems contract). The merge only deletes
- * items when neighbors converge to value-equal attrs — items that stay distinct
- * keep their Y.Text identity, AND when a converging pair merges the RECEIVER
- * (lower-index run) keeps its Y.Text too (only the donor's migrated chars are
- * fresh — the Class-2 limit).
+ * The ¶: when the span covers a paragraph's ¶ (it continues
+ * past the paragraph) or ends at the paragraph's end with content selected, the
+ * inclusive keys of `attrs` are merged into that ¶'s `markAttrs` (judged by the registry
+ * bound to the doc).
  *
- * `registry` (optional): an `AttrRegistry`; threaded to the run-merge
- * normalizer (`mergeAdjacentSameAttrsTextItemsInPlace`) so interpreters with a
- * custom per-key `equals` (e.g. a `comment` interpreter that ignores
- * `timestamp`) opt into custom adjacent-item compare semantics during
- * the post-apply merge pass. Omitted → deep-value compare.
+ * The attr registry bound to the doc supplies per-key `equals`, deciding whether an
+ * item already holds the incoming value (custom equality, e.g. a `comment`
+ * interpreter that ignores `timestamp`). None bound → deep-value compare.
  *
  * Composition: see `applyAttrsToRangeInTx` for the in-transaction primitive
  * (resolved via `planApplyAttrsToRange`) used to compose attr application
  * with other span/structural ops in a single Y.Doc transaction (one undo
  * entry / one collab event). Note its narrower composition scope: the
- * applier reads live Y items, so it is correct only when prior in-tx ops do
- * NOT shift this span's offsets.
+ * plan's offsets are pre-transaction, so it is correct only when prior in-tx
+ * ops do NOT shift this span's offsets.
  */
 export function applyAttrsToRange(
   state: State,
   span: Span,
   attrs: ReadonlyAttrs,
-  registry?: AttrRegistry,
 ): OperationResult {
   // Empty incoming attrs = no-op. Mirrors insertText's empty-text guard
   // and avoids re-allocating items / dirtying blocks unnecessarily.
@@ -105,7 +98,7 @@ export function applyAttrsToRange(
   }
 
   return applyOperation(state, (doc) => {
-    applyAttrsToRangeInTx(doc, plan, attrs, registry);
+    applyAttrsToRangeInTx(doc, plan, attrs);
   });
 }
 
@@ -132,7 +125,7 @@ export interface ApplyAttrsToRangePlan {
  * span) are handled by the caller BEFORE planning, to preserve the
  * identity contract; they are not re-checked here.
  *
- * C.2c T7b: a span is confined to a single selection context (cross-context
+ * A span is confined to a single selection context (cross-context
  * spans are refused by `iterateSpan`), so all segments share one owning tree
  * — resolved ONCE from the first segment. `?? "block"` is a defensive
  * fallback (segments were just yielded by `iterateSpan`, so `resolveBlock`
@@ -158,11 +151,9 @@ export function planApplyAttrsToRange(
  * `applyOperation` / `runTransaction` (this MUST run inside an already-open
  * transaction; it does NOT open one itself).
  *
- * Unlike the read-free structural-write primitives (e.g. `insertBlockInTx`),
- * this applier READS live Y items by necessity: it walks the live Y.Array to
- * locate item boundaries and split partially-covered text, performing in-place
- * identity-preserving attr writes (`yItem.set("attrs", …)`) so a fully-covered
- * item keeps its Y.Text — and therefore its per-character CRDT — identity.
+ * The applier reads each block's live inline items to split the format around
+ * markers and unchanged items; every write is an identity-preserving
+ * `Y.Text.format`.
  *
  * Composition scope: correct for the standalone op AND for composition with
  * prior in-tx ops that do NOT shift this span's offsets. Composing it
@@ -174,124 +165,19 @@ export function applyAttrsToRangeInTx(
   doc: Y.Doc,
   plan: ApplyAttrsToRangePlan,
   attrs: ReadonlyAttrs,
-  registry: AttrRegistry | undefined,
 ): void {
   requireInTransaction(doc, "applyAttrsToRange");
+  const registry = attrRegistryOf(doc);
+  const last = plan.segments[plan.segments.length - 1];
   for (const seg of plan.segments) {
-    if (seg.rangeStart >= seg.rangeEnd) continue; // zero-width range in this block
-    const yBlock = getYBlock(doc, seg.block.id, "applyAttrsToRange", plan.kind);
-    const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
-    if (yItems === null) continue; // defensive — iterateSpan only yields leaves
-    applyAttrsToBlockRange(yItems, seg.rangeStart, seg.rangeEnd, attrs, registry);
-    mergeAdjacentSameAttrsTextItemsInPlace(yItems, registry);
+    // The span covers ¶P (it continues past P) or ends at (P, len) with content
+    // selected: P's ¶ is formatted too (Word / GDocs format the ¶'s rPr).
+    const len = seg.block.inlineContent === null ? -1 : inlineContentLength(seg.block.inlineContent);
+    const coversMark = seg.rangeEnd === len && (seg !== last || seg.rangeStart < seg.rangeEnd);
+    // The text is formatted FIRST: a write to an implicit run materializes its ¶ and
+    // renames it (`yText.id`), so the ¶ props then go to that same paragraph.
+    const yText = seg.rangeStart < seg.rangeEnd ? blockText(doc, seg.block.id) : null;
+    if (yText !== null) formatInlineRange(yText, seg.rangeStart, seg.rangeEnd, attrs, registry);
+    if (coversMark) mergeMarkAttrs(doc, yText?.id ?? seg.block.id, attrs);
   }
 }
-
-/**
- * Walk one block's Y items and apply attrs to the portion overlapping
- * [start, end). Mutates `yItems` in place:
- *   - Items entirely outside the range are skipped.
- *   - VISIBLE embed items in range have their attrs Y.Map replaced; zero-width
- *     STRUCTURAL MARKER embeds are skipped entirely (#465).
- *   - Text items fully covered have their attrs Y.Map replaced (preserves
- *     Y.Text identity).
- *   - Text items partially covered are split into up to three replacement
- *     items via `yItems.delete + insert`. Yjs has no in-place Y.Text
- *     split, so the prefix and suffix portions are reissued as fresh
- *     items with the item's pre-existing attrs.
- */
-function applyAttrsToBlockRange(
-  yItems: Y.Array<Y.Map<unknown>>,
-  start: number,
-  end: number,
-  newAttrs: ReadonlyAttrs,
-  registry: AttrRegistry | undefined,
-): void {
-  if (start === end) return;
-
-  let cursor = 0;
-  let i = 0;
-  while (i < yItems.length) {
-    const yItem = yItems.get(i);
-    const kind = yItem.get("kind") as "text" | "embed";
-    const itemLen = yItemLength(yItem);
-    const itemEnd = cursor + itemLen;
-
-    // Item entirely before the range — advance.
-    if (itemEnd <= start) {
-      cursor = itemEnd;
-      i++;
-      continue;
-    }
-    // Item entirely after the range — done.
-    if (cursor >= end) break;
-
-    const existingAttrs = yMapAsObject(yItem.get("attrs") as Y.Map<unknown>) as ReadonlyAttrs;
-    const merged = mergeAttrs(existingAttrs, newAttrs);
-
-    if (kind === "embed") {
-      // Zero-width STRUCTURAL MARKER embeds (comment-start/end, block-join/
-      // split-suggestion) carry NO formattable content — their meaning lives in
-      // `properties`, not text-format `attrs`. Never stamp inline-format attrs
-      // onto them (#465): a `bold`/`color` is meaningless, and a tracked-change
-      // provenance attr (formattingSuggestionId, via markFormatting) would
-      // dangle after the suggestion record is deleted on resolve. Skip the write
-      // but still advance past the marker's one cursor position. VISIBLE field
-      // embeds (footnote-anchor, cross-reference, page-field, tab) fall through
-      // and DO inherit run formatting, like Google Docs/Word fields.
-      const embedType = yItem.get("embedType") as string;
-      if (isStructuralMarkerEmbedType(embedType)) {
-        cursor = itemEnd;
-        i++;
-        continue;
-      }
-      // Visible embed is one cursor position; in-range → update attrs in place.
-      // No-op guard (#358): when `merged` equals the existing attrs (e.g.,
-      // toggleBold over an already-bold range), the Y.Map write would still
-      // fire a Yjs change event and dirty this block — cascading into
-      // unnecessary re-render and re-layout. Skip the write when nothing
-      // would change. (Matches setBlockAttrs's no-op guard for the single-
-      // block variant.)
-      if (!attrsEqual(existingAttrs, merged, registry)) {
-        yItem.set("attrs", buildYAttrs(merged));
-      }
-      cursor = itemEnd;
-      i++;
-      continue;
-    }
-
-    const localStart = Math.max(0, start - cursor);
-    const localEnd = Math.min(itemLen, end - cursor);
-
-    if (localStart === 0 && localEnd === itemLen) {
-      // Entire text item in range — update attrs in place (preserves Y.Text identity).
-      // Same no-op guard (#358) as the embed branch above.
-      if (!attrsEqual(existingAttrs, merged, registry)) {
-        yItem.set("attrs", buildYAttrs(merged));
-      }
-      cursor = itemEnd;
-      i++;
-      continue;
-    }
-
-    // Partial overlap: split into [before?, middle, after?].
-    const fullText = (yItem.get("text") as Y.Text).toString();
-    const before = fullText.slice(0, localStart);
-    const middle = fullText.slice(localStart, localEnd);
-    const after = fullText.slice(localEnd);
-
-    const replacements: Y.Map<unknown>[] = [];
-    if (before.length > 0) {
-      replacements.push(buildYInlineItem({ kind: "text", text: before, attrs: existingAttrs }));
-    }
-    replacements.push(buildYInlineItem({ kind: "text", text: middle, attrs: merged }));
-    if (after.length > 0) {
-      replacements.push(buildYInlineItem({ kind: "text", text: after, attrs: existingAttrs }));
-    }
-    yItems.delete(i, 1);
-    yItems.insert(i, replacements);
-    i += replacements.length;
-    cursor = itemEnd;
-  }
-}
-

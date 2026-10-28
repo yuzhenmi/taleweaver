@@ -1,9 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { EditorView, type EditorViewHandle } from "@taleweaver/react";
-import { setPerfTraceEnabled, report, resetPerfTrace, type State } from "@taleweaver/core";
+import { setPerfTraceEnabled, report, resetPerfTrace, type Decoration, type Position, type State } from "@taleweaver/core";
+import { AsyncCheckBar, useAsyncCheck } from "./async-check";
+import { ASSISTANT_STYLE, SuggestEditBar, useSuggestEdit, type Propose } from "./suggest-edit";
+import { createDemoExtensions, createPickerBridge, ExtensionsHint, MentionPicker } from "./mention-picker";
 import { usePerfEditor } from "../use-perf-editor";
 import { EditorChrome } from "./editor-chrome";
-import { FindBar } from "./find-bar";
+import { FindBar, useFindShortcut } from "./find-bar";
+import { useWritingAids, WritingAidPopover, WritingAidsToggle, type AidPointerEvent } from "./writing-aids";
 
 const PAGE_HEIGHT = 1056; // US Letter at 96 DPI
 const PAGE_GAP = 24;
@@ -14,6 +18,11 @@ const PAGE_GAP = 24;
  * print-geometry-specific). Exposes its live `State` via `registerGetState` so
  * the tab-bar can hand the document off on switch.
  */
+/** The caret rect of a position from the print view handle (viewport coords). */
+function printCaretRect(handle: EditorViewHandle | null, position: Position) {
+  return handle?.getCaretRect(position) ?? null;
+}
+
 export function PrintSurface({
   seed,
   registerGetState,
@@ -21,9 +30,38 @@ export function PrintSurface({
   seed: State | null;
   registerGetState: (getState: () => State) => void;
 }) {
-  const editor = usePerfEditor(seed ?? undefined);
+  // Host extensions demo (mention picker, keymap, input rule) — same as the digital tab.
+  const [bridge] = useState(createPickerBridge);
+  const [extensions] = useState(() => createDemoExtensions(bridge));
+  const editor = usePerfEditor(seed ?? undefined, extensions);
   const viewRef = useRef<EditorViewHandle>(null);
   const [findMode, setFindMode] = useState<null | "find" | "replace">(null);
+  // Same writing-aids decoration demo as the digital tab.
+  const [aids, setAids] = useState(true);
+  const [aidResult, setAidResult] = useState<{ decorations: readonly Decoration[]; basedOn: State | undefined }>({
+    decorations: [],
+    basedOn: undefined,
+  });
+  const setDecorations = useCallback(
+    (decorations: readonly Decoration[], basedOn: State) => setAidResult({ decorations, basedOn }),
+    [],
+  );
+  const [pointer, setPointer] = useState<AidPointerEvent | null>(null);
+  // Async-check demo (anchors) — same as the digital tab.
+  const createAnchor = useCallback(
+    (from: Position, to: Position) => viewRef.current?.createAnchor(from, to) ?? null,
+    [],
+  );
+  const check = useAsyncCheck(editor.editorState, createAnchor);
+  // Suggest-edit demo (host proposals) — same as the digital tab.
+  const propose = useCallback<Propose>(
+    (proposal, options) =>
+      viewRef.current?.propose(proposal, options) ??
+      Promise.resolve({ ok: false, reason: "rejected", problem: { kind: "invalid", message: "not mounted" } }),
+    [],
+  );
+  const suggest = useSuggestEdit(editor.editorState, propose);
+  useWritingAids(aids, editor.editorState, setDecorations, check.decorations);
 
   // Register the live-state getter for the tab-bar hand-off (stable across renders).
   useEffect(() => {
@@ -47,27 +85,15 @@ export function PrintSurface({
     };
   }, [editor.isPerfFixture]);
 
-  // Ctrl/Cmd+F → find; Ctrl/Cmd+H → replace (find/replace is print-only in v1).
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      const mod = e.ctrlKey || e.metaKey;
-      if (!mod || e.altKey) return;
-      const key = e.key.toLowerCase();
-      if (key === "f") {
-        e.preventDefault();
-        setFindMode("find");
-      } else if (key === "h") {
-        e.preventDefault();
-        setFindMode("replace");
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  useFindShortcut(setFindMode);
 
   return (
     <>
       <EditorChrome dispatch={editor.dispatch} editorState={editor.editorState} focus={editor.focus} />
+      <WritingAidsToggle checked={aids} onChange={setAids} />
+      <ExtensionsHint />
+      <AsyncCheckBar check={check} />
+      <SuggestEditBar tool={suggest} editorState={editor.editorState} dispatch={editor.dispatch} />
       <div className="relative flex-1 overflow-y-auto bg-[#f9fbfd]">
         {findMode && viewRef.current && (
           <FindBar
@@ -81,9 +107,25 @@ export function PrintSurface({
           />
         )}
         <div className="mx-auto mt-4 mb-12" style={{ width: 816 }}>
-          <EditorView {...editor} ref={viewRef} pageHeight={PAGE_HEIGHT} pageGap={PAGE_GAP} />
+          <EditorView
+            {...editor}
+            ref={viewRef}
+            pageHeight={PAGE_HEIGHT}
+            suggestionStyles={ASSISTANT_STYLE}
+            pageGap={PAGE_GAP}
+            decorations={aidResult.decorations}
+            decorationsBasedOn={aidResult.basedOn}
+            onDecorationPointer={setPointer}
+          />
         </div>
       </div>
+      <WritingAidPopover event={pointer} />
+      <MentionPicker
+        editorState={editor.editorState}
+        dispatch={editor.dispatch}
+        bridge={bridge}
+        caretRect={(p) => printCaretRect(viewRef.current, p)}
+      />
     </>
   );
 }

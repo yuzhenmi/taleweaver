@@ -100,7 +100,7 @@ function blockAtY(wrapper: HTMLElement, state: State, clientY: number): Hovered 
  * hover (Notion-style), resolving the target block by the pointer's vertical position
  * via `blockAtY` (so you don't have to hover the block's text). The hover is sticky in
  * inter-block gaps and clears only when the pointer leaves the wrapper (and no menu is
- * open). Step 3 of the digital Notion direction (block-level affordances).
+ * open). Block-level affordances for the digital Notion-style mode.
  */
 export function BlockHoverHandles({
   dispatch,

@@ -37,7 +37,7 @@ export interface IFCBreakToken {
 /**
  * One `rowSpan > 1` cell whose origin is ABOVE the page break but whose spanned
  * rectangle extends INTO the rows resuming on the next fragment (CSS Tables
- * §17.5.3 × fragmentation, P8.S5). It carries the cell's grid placement (so the
+ * §17.5.3 × fragmentation). It carries the cell's grid placement (so the
  * resume can rebuild the occupied columns the post-break rows must route around)
  * plus its interior continuation (`interiorBreakToken`) — the cell's own content
  * fragmented at the break, the remainder laid out on the next fragment.
@@ -70,16 +70,15 @@ export interface TableBreakToken {
   readonly resumeAtRow: number;
   /**
    * Cells with `rowSpan > 1` whose rectangle straddles this break (origin before
-   * `resumeAtRow`, extent reaching at/after it). OPTIONAL (P8.S5.T1): absent ⇒ no
-   * spanning cell crosses the break (the only case before S5; keeps every existing
-   * `{ type: "table", resumeAtRow }` construction valid with no broken-build
-   * window). Consumers read `spanningCells ?? []`.
+   * `resumeAtRow`, extent reaching at/after it). OPTIONAL: absent ⇒ no
+   * spanning cell crosses the break (keeps every plain
+   * `{ type: "table", resumeAtRow }` construction valid). Consumers read `spanningCells ?? []`.
    */
   readonly spanningCells?: readonly SpanningCellContinuation[];
 }
 
 /**
- * Multi-column resume token (multi-column slice 2). Columns are an inline-axis
+ * Multi-column resume token. Columns are an inline-axis
  * fragmentation sub-axis nested inside page block-axis fragmentation: a page's
  * `MultiColumnBox` fills its column boxes left-to-right via the existing BFC
  * fill, and when the LAST column overflows the page is full. The remaining
@@ -94,10 +93,9 @@ export interface TableBreakToken {
  *   when the page filled (the same recursive nesting as `BlockBreakToken`'s
  *   `resumeChildToken`). Null when the resumed column starts a child fresh.
  *
- * INERT until the slice-2 column-distribution loop emits these — added here
- * (union + `breakTokensEqual`) first so the LOAD-BEARING reuse gates
- * (measure-pass `canReusePage`, virtual-layout `PageFingerprint`) compare column
- * resume state correctly the moment the distribution loop lands. A missing
+ * Emitted by the column-distribution loop (`column-fit.ts`). The LOAD-BEARING
+ * reuse gates (measure-pass `canReusePage`, virtual-layout `PageFingerprint`)
+ * compare column resume state through `breakTokensEqual`. A missing
  * `"column"` arm would make every multicol page re-fit every keystroke.
  */
 export interface ColumnBreakToken {
@@ -139,7 +137,7 @@ export function innerBfcToken(token: BreakToken | null): BreakToken | null {
  * to decide whether a fragment's resume state is unchanged. Single source of
  * truth (was triplicated). Recurses through block child tokens and column
  * child tokens, and for table tokens compares `resumeAtRow` AND the
- * `spanningCells` continuation list (P8.S5) — two tables resuming at the same
+ * `spanningCells` continuation list — two tables resuming at the same
  * row but with different rowSpan continuations are NOT equal, so a reuse gate
  * cannot stale-reuse one for the other.
  */
@@ -205,7 +203,7 @@ export interface FragmentationContext {
   readonly resumeFrom: BreakToken | null;
   /**
    * An EXCLUSIVE upper bound on the TOP-LEVEL child index this fragment may
-   * place — the section-page-break cap (C.2b-1). When set, `bfc.layoutBlock`
+   * place — the section-page-break cap. When set, `bfc.layoutBlock`
    * stops before placing the top-level child at this index, forcing a page
    * break there exactly as if that child had `break-before:page` (mirroring the
    * plan's `fitOnePage` `stopBeforeIndex` cap, so positioning agrees with the
@@ -216,7 +214,7 @@ export interface FragmentationContext {
    */
   readonly stopBeforeIndex?: number;
   /**
-   * #528 cross-page float PUSHING opt-in. When `true`, the BFC float branch
+   * Cross-page float PUSHING opt-in. When `true`, the BFC float branch
    * defers ("pushes") a float that does not fit the remaining page block-space
    * to the next page (the in-flow content keeps flowing). Set ONLY by the
    * VIRTUALIZED fast-path (`virtual-producer.ts` measure closure +
@@ -271,8 +269,8 @@ export interface LayoutResult<T extends LayoutBox = LayoutBox> {
  *   "page", "auto", "avoid" → unchanged
  *   anything else (recto/verso/left/right/column/region/avoid-column/avoid-region/garbage) → "auto"
  *
- * P1.B doesn't honor recto/verso/left/right (need P1.C templates) or
- * column/region (no multi-column or named regions).
+ * Recto/verso/left/right (no left/right page templates) and column/region are
+ * not honored.
  */
 export function normalizeBreakValue(raw: string): "auto" | "page" | "avoid" {
   if (raw === "page" || raw === "always") return "page";

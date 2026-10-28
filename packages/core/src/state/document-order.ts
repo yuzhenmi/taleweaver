@@ -6,6 +6,7 @@ import {
   getEmbedContentIds,
   getTemplateContentIds,
   blockCount,
+  createWalkGuard,
   type State,
 } from "./state";
 
@@ -75,7 +76,7 @@ export function* iterateLeafBlocksInDocumentOrder(state: State): Iterable<Block>
  * then each `embedContents` body subtree (footnote bodies), then each
  * `templateContents` body subtree (header/footer template bodies). Each
  * embed/template ROOT (from {@link getEmbedContentIds}/{@link getTemplateContentIds},
- * which yield roots only — #313) heads a self-contained subtree resolved via
+ * which yield roots only) heads a self-contained subtree resolved via
  * `resolveBlock` (its blocks live in their own Y.Map, not the main one), with the
  * same per-subtree active-path cycle guard + `blockCount`-bounded sibling loop the
  * main walk uses (`blockCount` already sums all three trees).
@@ -133,13 +134,12 @@ function* walk(
   try {
     yield block;
     // Sibling-chain cycle bound: see the module docstring + block-traversal.ts.
-    const maxSteps = blockCount(state) + 1;
     let childId = block.firstChildId;
-    let steps = 0;
+    const guard = createWalkGuard(state);
     while (childId !== null) {
-      if (++steps > maxSteps) {
+      if (guard.step()) {
         throw new Error(
-          `iterateBlocksInDocumentOrder: cycle detected in block tree (visited >${maxSteps} children of "${id}")`,
+          `iterateBlocksInDocumentOrder: cycle detected in block tree (visited >${blockCount(state) + 1} children of "${id}")`,
         );
       }
       yield* walk(state, childId, visited, resolve);

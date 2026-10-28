@@ -22,8 +22,8 @@ import {
   acceptSuggestion,
   rejectSuggestion,
 } from "./suggestion-ops";
-import { planInsertTextFullReplace } from "./insert-text";
-import { getYBlock } from "../yjs-doc";
+import { splitInlineContentAtOffset, mergeAdjacentTextItems } from "../inline-content";
+import { blockText, relAt, survives } from "../../test-utils/relpos-survival";
 import { STATE_INTERNAL } from "../state-internal";
 import {
   getSuggestions,
@@ -39,7 +39,7 @@ import { createPosition, createSpan } from "../block-position";
 import type { Span } from "../block-position";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
-import {
+import { TEST_RESOLVER,
   buildBlock,
   buildState,
   text,
@@ -241,26 +241,14 @@ describe("replaceWithSuggestion — multi-block type-over", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-// Identity-preserving strike (#491) + start-block split-in-place insert (#492).
-// The NON-start struck blocks of a multi-block replace are mutated IN PLACE via
-// applyDeletionStrikeInTx, and the START block is now struck surgically in-tx too,
-// then the suggested run is inserted split-in-place against the identity-preserved
-// post-strike array (#492) — so runs the strike/insert never touch keep their exact
-// Y.Text CRDT object (a peer's concurrent edit into them merges instead of being
-// obliterated on sync). The start block no longer full-replaces.
+// Identity-preserving strike + offset insert.
+// The strike formats struck runs in place and the suggested run is one offset
+// insert, so every character the edit does not delete keeps its CRDT identity (a
+// peer's concurrent edit into them merges instead of being obliterated on sync).
 // ─────────────────────────────────────────────────────────────────────────
 
-/** The Y.Text of the inline item at `index` of block `id` (raw-Y, text items only). */
-function yTextAt(s: State, id: string, index: number): Y.Text {
-  const doc = s[STATE_INTERNAL].doc;
-  const yBlock = getYBlock(doc, id as BlockId, "test", "block");
-  const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
-  if (yItems === null) throw new Error(`block ${id} has no inlineContent`);
-  return yItems.get(index).get("text") as Y.Text;
-}
-
 describe("replaceWithSuggestion — identity-preserving strike (#491)", () => {
-  it("a run wholly OUTSIDE the strike range in a NON-start struck block keeps its Y.Text identity", () => {
+  it("characters wholly OUTSIDE the strike range in a NON-start struck block keep their identity", () => {
     // p1="hello"; p2 = struck-head "wo" + untouched survivor "rld" (distinct
     // attrs → non-coalescing). Select p1[3) ("lo") through p2[2) ("wo"), type
     // "X". p2's "rld" run is wholly after the strike → its Y.Text must survive.
@@ -268,7 +256,7 @@ describe("replaceWithSuggestion — identity-preserving strike (#491)", () => {
       inlineContent([text("hello")]),
       inlineContent([text("wo"), text("rld", { italic: true })]),
     );
-    const rldText = yTextAt(s0, "p2", 1);
+    const relR = relAt(s0, "p2", 2);
 
     const s1 = replaceWithSuggestion(
       s0,
@@ -288,20 +276,16 @@ describe("replaceWithSuggestion — identity-preserving strike (#491)", () => {
     expect(DELETION_SUGGESTION_ATTR in p2rld.attrs).toBe(false);
     expect(p2rld.attrs.italic).toBe(true);
 
-    // The untouched survivor is the SAME Y.Text object — surgical in-place strike.
-    expect(yTextAt(s1, "p2", 1)).toBe(rldText);
+    expect(survives(relR, s1, "r")).toBe(true);
   });
 
-  it("the start block now PRESERVES identity (#492): the untouched prefix keeps its Y.Text", () => {
-    // The start block (p1) is now struck surgically in-tx then the suggested run
-    // is inserted split-in-place against the identity-preserved post-strike array
-    // — so the untouched "hel" prefix keeps its exact Y.Text CRDT object. Pinned
-    // as `toBe` (#492 flipped the #491 `not.toBe` limitation).
+  it("the start block keeps its characters (#492): the untouched prefix AND the struck tail survive", () => {
     const s0 = twoBlocks(
       inlineContent([text("hel", { bold: true }), text("lo")]),
       inlineContent([text("world")]),
     );
-    const helText = yTextAt(s0, "p1", 0);
+    const relH = relAt(s0, "p1", 0);
+    const relO = relAt(s0, "p1", 4);
 
     const s1 = replaceWithSuggestion(
       s0,
@@ -311,18 +295,15 @@ describe("replaceWithSuggestion — identity-preserving strike (#491)", () => {
       INPUT,
     ).state;
 
-    // The "hel" prefix survives as the SAME Y.Text object (output unchanged).
     expect(textOf(s1, "p1")).toBe("helXlo");
-    expect(yTextAt(s1, "p1", 0)).toBe(helText);
+    expect(survives(relH, s1, "h")).toBe(true);
+    expect(survives(relO, s1, "o")).toBe(true);
   });
 
-  it("R1: a single-block replace preserves the untouched run's Y.Text identity (#492 headline)", () => {
-    // The most common case: one paragraph, select a word, type a replacement. The
-    // start block is its ONLY struck block, so before #492 it gained NOTHING from
-    // #491 — the whole block was full-replaced. Now the untouched "hello " run
-    // keeps its exact Y.Text object.
+  it("R1: a single-block replace keeps every untouched and struck character (#492 headline)", () => {
     const s0 = oneBlock(inlineContent([text("hello "), text("world")]));
-    const helloText = yTextAt(s0, "p", 0);
+    const relH = relAt(s0, "p", 0);
+    const relW = relAt(s0, "p", 6);
 
     // Replace "world" (offsets 6..11) with "earth".
     const s1 = replaceWithSuggestion(s0, span(6, 11), "earth", {}, INPUT).state;
@@ -336,18 +317,17 @@ describe("replaceWithSuggestion — identity-preserving strike (#491)", () => {
     if (struck?.kind !== "text") throw new Error("expected the struck world run");
     expect(struck.attrs[DELETION_SUGGESTION_ATTR]).toBe(DEL_ID);
 
-    // The untouched "hello " run is the SAME Y.Text object (split-in-place insert).
-    expect(yTextAt(s1, "p", 0)).toBe(helloText);
+    expect(survives(relH, s1, "h")).toBe(true);
+    expect(survives(relW, s1, "w")).toBe(true);
   });
 });
 
-describe("replaceWithSuggestion — collab identity (#492)", () => {
+describe("replaceWithSuggestion — collab identity", () => {
   it("R2: a peer's concurrent insert into an UNTOUCHED run survives merge after a single-block replace", () => {
-    // The load-bearing collab win (mirrors #491's D2 for the replace path). Peer A
-    // replaces a word; peer B concurrently inserts into an UNTOUCHED run of the
-    // SAME block. With the old full-replace start-block insert, A's replace
-    // tombstoned every run's Y.Text, so B's edit would be lost on sync. The
-    // split-in-place insert leaves untouched runs intact, so B's edit merges.
+    // Peer A replaces a word; peer B concurrently inserts into an UNTOUCHED run of
+    // the SAME block. A's replace is offset writes on the block's Y.Text (a format
+    // for the strike, one insert for the new run), so no character of the untouched
+    // run is re-minted and B's edit merges on sync.
     const fixture = oneBlock(
       inlineContent([text("hello "), text("world"), text("!", { italic: true })]),
     );
@@ -355,17 +335,16 @@ describe("replaceWithSuggestion — collab identity (#492)", () => {
     // Peer B starts from a synced copy (clone via update bytes — the transport).
     const docB = new Y.Doc();
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(fixture[STATE_INTERNAL].doc));
-    const stateB = createState({ rootId: fixture.rootId, doc: docB });
+    const stateB = createState({ resolver: TEST_RESOLVER, rootId: fixture.rootId, doc: docB });
 
     // Peer A: replace "world" (offsets 6..11) with "earth".
     const stateA = replaceWithSuggestion(fixture, span(6, 11), "earth", {}, INPUT).state;
 
-    // Peer B (concurrently, on its own doc): insert "Z" into the UNTOUCHED "!" run
-    // (item index 2) at local offset 0 → "Z!". Direct Y.Text mutation models a peer
-    // typing into that run before sync.
-    const yBangB = yTextAt(stateB, "p", 2);
+    // Peer B (concurrently, on its own doc): insert "Z" before the UNTOUCHED "!"
+    // (block offset 11) → "Z!". Direct Y.Text mutation models a peer typing there.
+    const yB = blockText(stateB, "p");
     docB.transact(() => {
-      yBangB.insert(0, "Z");
+      yB.insert(11, "Z", { italic: true });
     });
 
     // Sync the two peers (exchange update bytes, both directions).
@@ -374,7 +353,7 @@ describe("replaceWithSuggestion — collab identity (#492)", () => {
 
     // After merge, A sees BOTH changes: "world" tagged-deleted + "earth" inserted
     // AND B's "Z" landed inside the untouched "!" run ("Z!").
-    const mergedA = createState({ rootId: fixture.rootId, doc: stateA[STATE_INTERNAL].doc });
+    const mergedA = createState({ resolver: TEST_RESOLVER, rootId: fixture.rootId, doc: stateA[STATE_INTERNAL].doc });
     expect(pText(mergedA)).toBe("hello earthworldZ!");
     const struck = pItems(mergedA).find((it) => it.kind === "text" && it.text === "world");
     if (struck?.kind !== "text") throw new Error("expected the tagged world run");
@@ -382,24 +361,21 @@ describe("replaceWithSuggestion — collab identity (#492)", () => {
   });
 });
 
-describe("replaceWithSuggestion — split-in-place equivalence (#492 backstop)", () => {
-  it("own-insertion at the START boundary: the strike DROPS that run, split-in-place resolves the shifted offset", () => {
+describe("replaceWithSuggestion — offset-insert equivalence", () => {
+  it("own-insertion at the START boundary: the strike DROPS that run, the insert lands at the seam", () => {
     // The structurally-unusual case (spec §5.2): the selection start is the LEADING
     // boundary of a run that is the deleter's OWN insertion. The strike DELETES that
-    // own-insertion run (a reject, not a tag), so the post-strike live array is
+    // own-insertion run (a reject, not a tag), so the post-strike content is
     // SHORTER than the pre-strike state and `start.offset` now points at the next
-    // run. `planInsertTextSplitInPlace` resolves findItemAtOffset against
-    // startWrite.items (which already omits the dropped run), matching the live array.
+    // run — the insert at `start.offset` lands exactly there.
     //
     // Fixture: "ab" + own-insertion "YY" (alice, preIns) + "cdef". Select "YYcd"
     // (offsets 2..6) — the selection start (offset 2) is the LEADING boundary of the
     // "YY" own-insertion run — and type "X". The strike DROPS "YY" (own-insertion
     // reject, so the post-strike array is SHORTER) and tags "cd" as a deletion. The
     // inserted "X" coalesces into the adjacent same-author insertion preIns (the
-    // coalesce probe runs against the PRE-strike run at offset 2). split-in-place
-    // resolves findItemAtOffset against startWrite.items (which already omits the
-    // dropped "YY"), landing "X" between "ab" and "cd" — the load-bearing offset
-    // resolution.
+    // coalesce probe runs against the PRE-strike run at offset 2). The insert at
+    // offset 2 lands "X" between "ab" and "cd" — the load-bearing offset.
     let s = oneBlock(
       inlineContent([
         text("ab"),
@@ -408,7 +384,7 @@ describe("replaceWithSuggestion — split-in-place equivalence (#492 backstop)",
       ]),
     );
     s = seedInsertionRecord(s, "preIns", "alice");
-    const abText = yTextAt(s, "p", 0);
+    const relA = relAt(s, "p", 0);
 
     const s1 = replaceWithSuggestion(s, span(2, 6), "X", {}, INPUT).state;
 
@@ -421,20 +397,17 @@ describe("replaceWithSuggestion — split-in-place equivalence (#492 backstop)",
     const cd = pItems(s1).find((it) => it.kind === "text" && it.text === "cd");
     if (cd?.kind !== "text") throw new Error("expected the struck cd run");
     expect(cd.attrs[DELETION_SUGGESTION_ATTR]).toBe(DEL_ID);
-    // The untouched leading "ab" run keeps its Y.Text identity (split-in-place).
-    expect(yTextAt(s1, "p", 0)).toBe(abText);
+    expect(survives(relA, s1, "a")).toBe(true);
   });
 
-  it("oracle: split-in-place final inlineContent === the planInsertTextFullReplace result for the same inputs", () => {
-    // The equivalence backbone: the new split-in-place path must produce output
-    // BYTE-IDENTICAL to the old full-replace path. Drive replaceWithSuggestion (now
-    // split-in-place) and independently compute the full-replace oracle for the same
-    // start block + post-strike items, then compare the resolved inlineContent.
+  it("oracle: the final inlineContent === strike-then-splice of the post-strike items", () => {
+    // The equivalence backbone: drive replaceWithSuggestion and independently splice
+    // the inserted run into the post-strike items, then compare.
     //
     // NB: Yjs mutates the doc IN PLACE, so the actual-run and the oracle-run each get
     // their OWN fresh fixture (sharing one would double-strike the second call).
 
-    // Actual: the live op (split-in-place).
+    // Actual: the live op.
     const actual = replaceWithSuggestion(
       oneBlock(inlineContent([text("hello "), text("world")])),
       span(6, 11),
@@ -444,10 +417,9 @@ describe("replaceWithSuggestion — split-in-place equivalence (#492 backstop)",
     ).state;
     const actualItems = pItems(actual);
 
-    // Oracle: reproduce the old full-replace insert against an independently-struck
+    // Oracle: the expected items, built by value against an independently-struck
     // start block. markDeletion alone (on a SEPARATE fresh fixture) gives the
-    // post-strike start-block items; then full-replace-insert "earth"(insertion) at
-    // offset 6 over those items.
+    // post-strike start-block items; then splice "earth"(insertion) at offset 6.
     const struckOnly = markDeletion(
       oneBlock(inlineContent([text("hello "), text("world")])),
       span(6, 11),
@@ -455,18 +427,10 @@ describe("replaceWithSuggestion — split-in-place equivalence (#492 backstop)",
     ).state;
     const postStrikeItems = pItems(struckOnly);
     const insertAttrs: ReadonlyAttrs = { [INSERTION_SUGGESTION_ATTR]: INS_ID };
-    const oraclePlan = planInsertTextFullReplace(
-      "p" as BlockId,
-      "block",
-      postStrikeItems,
-      6,
-      "earth",
-      insertAttrs,
-    );
-    if (oraclePlan.mode !== "full-replace") throw new Error("expected a full-replace oracle plan");
+    const [left, right] = splitInlineContentAtOffset({ items: postStrikeItems }, 6);
+    const oracle = mergeAdjacentTextItems([...left, text("earth", insertAttrs), ...right]);
 
-    // The full-replace plan's items ARE the expected final inlineContent.
-    expect(actualItems).toEqual(oraclePlan.items);
+    expect(actualItems).toEqual(oracle);
   });
 });
 

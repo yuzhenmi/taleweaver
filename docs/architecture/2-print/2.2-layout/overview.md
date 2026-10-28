@@ -149,8 +149,7 @@ each box's `display` value.
 - **`wrap-incremental`** — `findChangePoint` (live: powers the IFC's
   all-or-nothing paragraph reuse) plus `rewrapIncremental`, the
   convergence-detection algorithm for within-paragraph incremental wrap
-  (algorithm only; not yet wired into the IFC's main wrap loop — scoped
-  to P18, blocked on four integration hazards detailed in
+  (algorithm only; not yet wired into the IFC's main wrap loop — blocked on four integration hazards detailed in
   `2.2.2-ifc.md` "Convergence (incremental wrap)").
 
 ### Tokenization and text-measurement
@@ -326,11 +325,11 @@ Per-variant additions:
 | Type | Adds |
 |---|---|
 | `block` | `children: readonly LayoutBox[]`; optional `metadata: LayoutBoxMetadata` (typed struct — see below). |
-| `line` | `children: readonly LayoutBox[]`; `baseline: number` (offset from top of line). |
+| `line` | `children: readonly LayoutBox[]`; `baseline: number` (offset from top of line); optional `endsWithHyphenContinuation?: true` (the line ends at an inserted hyphen); optional `endsAtFloat?: true` (an inline-end float shortens the line — set by the IFC when the line's inline end is short of the content inline end; the ¶ glyph and the selection ¶ extension stop at the line end). |
 | `text-run` | `text: string`; optional `link?: string` — the source hyperlink URL (the inline item's `link` attr), per-run identity metadata OPAQUE to geometry, threaded render `TextBox.link` → IFC `Token.link` → `TextRunBox.link` and copied through every reorder / hyphen-split / bidi-split rebuild; consumed by export (PDF `/Link`). `undefined` for runs with no link. |
 | `inline` | `children: readonly LayoutBox[]`; `fragmentEdge: "first" \| "middle" \| "last" \| "only"` (which side has padding/border). |
-| `inline-block` | `children: readonly LayoutBox[]`; optional `targetId?: string` — for a cross-reference atom, the target block id it points to (the source render node's `metadata.targetId`), per-box identity metadata OPAQUE to geometry, threaded render `metadata.targetId` → `InlineBlockBox.targetId` and copied verbatim through every rebuild (mirrors `TextRunBox.link`); consumed by export (PDF internal `/Link` `/GoTo`). `undefined` for any inline-block that is not a cross-reference atom. |
-| `marker` | `text: string` (the resolved bullet / digit / roman). |
+| `inline-block` | `children: readonly LayoutBox[]`; optional `targetId?: string` — for a cross-reference atom, the id of the block holding its bookmark's START (the field targets a bookmark, 1.1; the source render node's `metadata.targetId`), per-box identity metadata OPAQUE to geometry, threaded render `metadata.targetId` → `InlineBlockBox.targetId` and copied verbatim through every rebuild (mirrors `TextRunBox.link`); consumed by export (PDF internal `/Link` `/GoTo`). `undefined` for any inline-block that is not a cross-reference atom. |
+| `marker` | `text: string` (the resolved bullet / digit / roman, or the boundary ¶ glyph); optional `bidiLevel?: number` (the marker's resolved bidi level); optional `boundaryMark?: BoundaryMarkPlacement` — ONE shape `{ blockId, offset, mark: BoundaryMarkMetadata, maxInlineSize?, labelInlineSize? }` for a tracked ¶ or a tracked section-break label (`labelInlineSize` present iff the mark's kind is a section kind) — see [`2.2.1-bfc.md`](./2.2.1-bfc.md); a `MarkerBox` carrying it is a `BoundaryMarkBox`. |
 | `table` | `children: readonly LayoutBox[]`; `columnPxWidths: readonly number[]`. |
 | `table-row` | `children: readonly LayoutBox[]`. |
 | `table-cell` | `children: readonly LayoutBox[]`. |
@@ -338,7 +337,7 @@ Per-variant additions:
 
 Positions are **parent-relative**. Painters/hit-testers walk the tree accumulating offsets cumulatively.
 
-Factories: one per variant (`createBlockBox`, etc.). Each takes logical-axis args plus `containingInlineSize` (and, for `vertical-rl`, an optional `containingBlockSize` — absent at factory time, supplied later by the `physicalizeVertical` pass) and runs `logicalToPhysical` to fill `x` / `y` / `width` / `height`. All output is `Object.freeze`d.
+Factories: one per variant (`createBlockBox`, etc.; `createMarkerBox(key, inlineOffset, blockOffset, inlineSize, blockSize, writingMode, direction, computedStyle, usedStyle, text, containingInlineSize, bidiLevel?, containingBlockSize?, boundaryMark?)`). Each takes logical-axis args plus `containingInlineSize` (and, for `vertical-rl`, an optional `containingBlockSize` — absent at factory time, supplied later by the `physicalizeVertical` pass) and runs `logicalToPhysical` to fill `x` / `y` / `width` / `height`. All output is `Object.freeze`d.
 
 ### `LayoutBoxMetadata`
 
@@ -405,7 +404,11 @@ height, side by side at `trackInlineSize = (bodyInlineSize − (N−1)·gap)/N`)
 A single-column section is byte-identical to the pre-multicol body. The
 column-aware cursor has shipped (hit-test column-X filter via
 `column-at-point.ts`; line-nav clamps the goal-X to the target line's column at a
-column crossing). STILL PENDING: the column-rule paint (line-between). [partial]
+column crossing). The column-rule paint (CSS `column-rule`) is [implemented]:
+`canvas-renderer.ts` fills a solid rect in each inter-column gap in the background
+phase (a vertical rule — a tall, narrow `fillRect` — for `horizontal-tb`; a
+horizontal rule — a wide, short `fillRect` — for vertical writing modes; the gate
+short-circuits when `columnRule` is null or `style === "none"`).
 
 The type **lives in the render layer** (`render/layout-metadata.ts`)
 because both `ElementBox` (render) and `BlockBox` (layout) need it and the
@@ -447,7 +450,7 @@ function makeChildContext(parent: LayoutContext, parentCs: ComputedStyle,
                           contentOrigin?: { readonly inlineOffset: number; readonly blockOffset: number }): LayoutContext;
 ```
 
-`makeChildContext` decides whether the child establishes its own BFC by calling `establishesNewBFC(parentCs)` — which returns `true` for `display: flow-root | inline-block | table-cell`, for any `float != "none"`, for `position: absolute`, for `overflow != "visible"` (when present), and for the document root via the explicit `isBFCRoot` flag passed by `makeRootContext`. When a new BFC is established, the child gets a fresh `FloatEnvironment`; otherwise it shares the parent's so floats rise to the nearest ancestor BFC. Independently, `makeChildContext` resets `absoluteContainingBlock` (a fresh `AbsPosEnvironment` + the box's content frame) when the child establishes one per `establishesAbsoluteContainingBlock(cs)` (`position ∈ {relative,absolute}` or `transform.length > 0`); otherwise it inherits the parent's abc and accumulates `originFromAbc` so a descendant's static position is captured in the abc's frame. See [2.4-positioning.md](../2.4-positioning.md).
+`makeChildContext` decides whether the child establishes its own BFC by calling `establishesNewBFC(parentCs)` — which returns `true` for `display: flow-root | inline-block | table-cell`, for any `float != "none"`, for `position: absolute`, and for the document root via the explicit `isBFCRoot` flag passed by `makeRootContext`. Note: `overflow != "visible"` is marked `// (Future)` in `bfc-establishment.ts` — `overflow` is not yet in the style schema, so this trigger is not yet active. When a new BFC is established, the child gets a fresh `FloatEnvironment`; otherwise it shares the parent's so floats rise to the nearest ancestor BFC. Independently, `makeChildContext` resets `absoluteContainingBlock` (a fresh `AbsPosEnvironment` + the box's content frame) when the child establishes one per `establishesAbsoluteContainingBlock(cs)` (`position ∈ {relative,absolute}` or `transform.length > 0`); otherwise it inherits the parent's abc and accumulates `originFromAbc` so a descendant's static position is captured in the abc's frame. See [2.4-positioning.md](../2.4-positioning.md).
 
 ### Display → formatting-context dispatch
 
@@ -590,7 +593,7 @@ function resolvePercentAgainstInline(value: ComputedLength, containingInlineSize
   // unreachable for ComputedLength
 ```
 
-#### Auto-margin centering (BFC follow-up to `computeUsedStyle`)
+#### Auto-margin centering (BFC step after `computeUsedStyle`)
 
 After the BFC resolves a block child's `inlineSize` and the parent's `containingInlineSize`, it applies centering when both inline-axis margins are `auto` AND the child has a definite (non-auto) `inlineSize`:
 
@@ -665,8 +668,11 @@ function layoutTreeIncremental(
 
 `layoutTree` runs cascade if the root's `computedStyle` is missing, then dispatches by `cs.display`. `layoutTreeIncremental` adds a whole-tree short-circuit (`newRoot === oldRoot && oldLayout != null && oldLayout.width === containerWidth`) and otherwise builds a `LayoutBoxCache` from `oldLayout` + `oldRoot` and threads it through the root context.
 
+Both entries resolve their shaper through `resolveShaper` (`dispatch.ts`): a `TextShaper` passes through; a legacy `TextMeasurer` is adapted ONCE per measurer (WeakMap-memoized) so layout sees a ref-stable shaper across cycles. The block-meta cache (`build-fit-metas`) keys on the shaper ref, so a per-call adapter would miss it and re-lay every block on every keystroke.
+
 ### Performance contracts
 
 - Whole-tree layout (cold start): O(N) where N is render-tree size.
 - Incremental layout with single-paragraph edit: O(D) where D is the size of the changed paragraph plus the path from root. Unchanged paragraphs flow through the BFC's reuse gate.
+- Paginated (virtual) single-paragraph edit: the measure pass rebuilds only the edited block's meta (shaper-ref + width + hyphenator keyed cache) and carries forward unchanged pages; positioning is bounded to the pages materialized (the edited page re-lays its blocks). Holds for `TextShaper` and `TextMeasurer` hosts alike (see `resolveShaper`); guarded by `perf/typing-latency.test.ts` (`ifc.layout` calls per keystroke).
 - Document root with all children unchanged but parent rebuilt (e.g., `INSERT_NODE` outside any paragraph): O(1) via `renderNodesLayoutEquivalent`.

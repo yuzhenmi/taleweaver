@@ -107,7 +107,8 @@ describe("resolveTableContext", () => {
         buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }),
       ],
       templateContents: [
-        buildBlock({ id: "tplTable", type: "table", firstChildId: "tplRow", lastChildId: "tplRow" }),
+        buildBlock({ id: "tplBody", type: "header-body", firstChildId: "tplTable", lastChildId: "tplTable" }),
+        buildBlock({ id: "tplTable", type: "table", parentId: "tplBody", firstChildId: "tplRow", lastChildId: "tplRow" }),
         buildBlock({ id: "tplRow", type: "table-row", parentId: "tplTable", firstChildId: "tplCell", lastChildId: "tplCell" }),
         buildBlock({ id: "tplCell", type: "table-cell", parentId: "tplRow", firstChildId: "tplPara", lastChildId: "tplPara" }),
         buildBlock({ id: "tplPara", type: "paragraph", parentId: "tplCell", inlineContent: inlineContent([]) }),
@@ -117,16 +118,14 @@ describe("resolveTableContext", () => {
   });
 
   it("flags hasSpans/spanned when any cell carries a real rowSpan/colSpan", () => {
-    // cA colSpan 2 on the 2×2 fixture: cB is pushed to grid col 2, but row1 only
-    // fills cols 0–1 → occupancy [[cA,cA,cB],[cC,cD,null]] has a HOLE at (1,2). So
-    // this fixture is spanned AND ragged (the span is not compensated below). The
-    // ragged gate wins → P15b leaves it gated. (A WELL-FORMED spanned table — span
-    // compensated so the grid tiles fully — is the next test.)
+    // cA colSpan 2 on the 2×2 fixture: cB is pushed to grid col 2; row1's slot
+    // (1,2) reads as an implicit cell (grid model), so the table is spanned and
+    // never ragged.
     const state = buildTableState({ cAattrs: { colSpan: 2 } });
     const ctx = resolveTableContext(state, "pA" as BlockId);
     expect(ctx?.hasSpans).toBe(true);
     expect(ctx?.spanned).toBe(true);
-    expect(ctx?.ragged).toBe(true);
+    expect(ctx?.ragged).toBe(false);
   });
 
   it("a WELL-FORMED spanned table tiles fully: spanned=true, ragged=false (P15b runs)", () => {
@@ -158,14 +157,13 @@ describe("resolveTableContext", () => {
     expect(ctx?.hasSpans).toBe(false);
   });
 
-  it("flags hasSpans/ragged for a ragged table (rows with differing cell counts)", () => {
-    const state = buildTableState({ dropCellD: true }); // row1 has 1 cell, row0 has 2
+  it("a table cannot be ragged: a missing slot reads as an implicit cell (grid model)", () => {
+    const state = buildTableState({ dropCellD: true }); // row1 written with 1 cell, row0 with 2
     const ctx = resolveTableContext(state, "pA" as BlockId);
     expect(ctx).not.toBeNull();
-    expect(ctx?.hasSpans).toBe(true);
-    // ragged (degenerate) → P15b LEAVES IT GATED (a handler checks `ragged` first
-    // so a spanned-AND-ragged table still no-ops — the ragged gate wins).
-    expect(ctx?.ragged).toBe(true);
+    expect(ctx?.cellIdsByRow).toEqual([["cA", "cB"], ["cC", "row1|table:c1"]]);
+    expect(ctx?.hasSpans).toBe(false);
+    expect(ctx?.ragged).toBe(false);
     expect(ctx?.spanned).toBe(false);
   });
 });
@@ -191,9 +189,10 @@ describe("buildTableGrid", () => {
     const state = buildTableState({ cAattrs: { colSpan: 2 } });
     const grid = buildTableGrid(state, "table" as BlockId);
     if (grid === null) throw new Error("expected a grid");
-    // cA spans cols 0–1, cB lands at col 2 → columnCount 3; row1 has a null tail.
+    // cA spans cols 0–1, cB lands at col 2 → columnCount 3. Grid model: row1's
+    // missing slot reads as the implicit cell `${row}|${col}` (no ragged tail).
     expect(grid.columnCount).toBe(3);
-    expect(grid.occupancy).toEqual([["cA", "cA", "cB"], ["cC", "cD", null]]);
+    expect(grid.occupancy).toEqual([["cA", "cA", "cB"], ["cC", "cD", "row1|table:c2"]]);
     expect(grid.cells[0]).toEqual({ cellId: "cA", gridRow: 0, gridCol: 0, rowSpan: 1, colSpan: 2 });
   });
 

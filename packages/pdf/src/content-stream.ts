@@ -35,7 +35,7 @@ export class ContentStreamBuilder {
   /**
    * Show `bytes` at absolute PDF text origin (x,y) in font `resourceName` at
    * `sizePt`. Emits a self-contained `BT … Tf … Td … Tj … ET` so each call is
-   * independently positioned (absolute per-cluster placement — spec §3).
+   * independently positioned (absolute per-cluster placement).
    */
   showTextAt(
     resourceName: string,
@@ -47,6 +47,21 @@ export class ContentStreamBuilder {
     this.out +=
       `BT\n${resourceName} ${num(sizePt)} Tf\n` +
       `${num(x)} ${num(y)} Td\n${hexString(bytes)} Tj\nET\n`;
+  }
+
+  /** Save the graphics state (`q`). */
+  saveState(): void {
+    this.out += "q\n";
+  }
+
+  /** Restore the graphics state (`Q`). */
+  restoreState(): void {
+    this.out += "Q\n";
+  }
+
+  /** Intersect the clip with an axis-aligned rect (PDF point space): `re W n`. */
+  clipRect(x: number, y: number, w: number, h: number): void {
+    this.out += `${num(x)} ${num(y)} ${num(w)} ${num(h)} re\nW\nn\n`;
   }
 
   /** Fill an axis-aligned rect (PDF point space) with `rgb`. */

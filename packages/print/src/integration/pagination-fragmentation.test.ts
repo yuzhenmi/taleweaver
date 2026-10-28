@@ -16,11 +16,12 @@ import {
 } from "@taleweaver/core";
 import { createDefaultComponentRegistry } from "@taleweaver/core";
 import { createDefaultAttrRegistry } from "@taleweaver/core";
-import { getBlock, createPosition, createSpan } from "@taleweaver/core";
+import { createPosition, createSpan } from "@taleweaver/core";
 import { render } from "@taleweaver/core";
 import { layoutTree } from "../layout/dispatch";
 import type { EditorState } from "@taleweaver/core";
 import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
+import { finalSection } from "../test-utils/final-section"; // body blocks live in the final section
 
 // Phase 0b: `measurer` left core's `EditorConfig` for the backend's layout
 // driver. The editor-state test below builds the layout tree directly via core's
@@ -252,7 +253,7 @@ describe("virtualized layout — EditorState.layoutTree is virtual-root after a 
     // Initial paginated layout is already virtual.
     expect(layoutOf(editor0, config).type).toBe("virtual-root");
 
-    const root = getBlock(editor0.state, editor0.state.rootId);
+    const root = finalSection(editor0.state);
     if (root === null || root.firstChildId === null) throw new Error("no first child");
     const firstId = root.firstChildId;
     const editor1 = reduceEditor(

@@ -27,6 +27,7 @@ import { createDefaultComponentRegistry } from "@taleweaver/core";
 import { createDefaultAttrRegistry } from "@taleweaver/core";
 import { buildBlockFitMetas } from "../layout/build-fit-metas";
 import { measurePass, type PagePlan, type PagePlanEntry } from "../layout/measure-pass";
+import { flattenContents } from "../layout/group-children";
 import { IMPLICIT_SECTION_PLAN } from "../layout/section-plan";
 import { makeRootContext } from "../layout/layout-context";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
@@ -168,7 +169,7 @@ function buildDoc(opts: {
   const shaper = createMockShaper(SHAPER_CHAR_W, SHAPER_LINE_H);
   const pcis = cfg.pageInlineSize - cfg.pageMargins.inlineStart - cfg.pageMargins.inlineEnd;
   const metas = buildBlockFitMetas(cascadedRoot, shaper, undefined, pcis);
-  const basePlan = measurePass(metas, cfg, IMPLICIT_SECTION_PLAN, cascadedRoot.children);
+  const basePlan = measurePass(metas, cfg, IMPLICIT_SECTION_PLAN, flattenContents(cascadedRoot.children));
   const plan = planWithEntries(basePlan, (e) =>
     e.pageIndex === 0
       ? {

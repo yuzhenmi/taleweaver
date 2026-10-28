@@ -8,8 +8,9 @@ import { resolveSpacingPx, clusterSpacing } from "./text-spacing";
 import { graphemeClusters } from "./graphemes";
 
 /**
- * Mock shaper for tests: each UAX #29 grapheme cluster is one cluster of fixed
- * width; break opportunities from the UAX #14 classifier (soft/hard).
+ * Mock shaper for tests: each UAX #29 grapheme cluster is one cluster whose
+ * advance is a fixed base width plus letter/word spacing (U+00AD SOFT HYPHEN is
+ * zero); break opportunities from the UAX #14 classifier (soft/hard).
  */
 export function createMockShaper(charWidth: number, lineHeight: number): TextShaper {
   const ascent  = lineHeight * 0.8;
@@ -43,7 +44,7 @@ export function createMockShaper(charWidth: number, lineHeight: number): TextSha
       // and adds no width unless it is the chosen line-end break, where the IFC
       // shapes a "-" glyph separately. Real shapers zero default-ignorable Cf
       // chars; matching that here makes a word measure the same with or without
-      // its embedded soft hyphens (hyphenation slice 1).
+      // its embedded soft hyphens.
       const adv = g === "­" ? 0 : charWidth + clusterSpacing(g, letterPx, wordPx);
       clusters.push({
         start,
@@ -123,7 +124,7 @@ export function createVariableMockShaper(
     for (const g of graphemeClusters(text)) {
       // widthByChar keys are single UTF-16 code units; a multi-code-unit grapheme's
       // g[0] is its first code unit (a lone high surrogate for astral graphemes) and
-      // falls to defaultWidth — the map cannot encode grapheme-string keys (S1 ok).
+      // falls to defaultWidth — the map cannot encode grapheme-string keys.
       // U+00AD SOFT HYPHEN is a zero-advance format char (see createMockShaper).
       // `graphemeClusters` only yields nonempty clusters, so `g[0]` is always a
       // defined code unit; `?? ""` is an unreachable, behavior-preserving

@@ -3,7 +3,9 @@ import type { State, OperationResult } from "../state";
 import { applyOperation, getBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
-import { getBlocksMap, getYBlock, requireInTransaction } from "../yjs-doc";
+import { requireInTransaction } from "../yjs-doc";
+import { setCellSpan, liveColumns, liveRowIds } from "../table-storage";
+import { removeBlockStorage } from "../flow-ops";
 import { setBlockAttrsInTx } from "./set-block-attrs";
 import { buildTableGrid, getChildIds } from "../table-context";
 import { isDevMode } from "../dev-mode";
@@ -11,8 +13,7 @@ import type { CellRange } from "../table-cell-range";
 
 /**
  * Fully-resolved mutation plan for `mergeCellsInTx` — everything is read from the
- * PRE-mutation grid + tree so the applier reads nothing (the `computeReparentWrites`
- * discipline). A merge keeps the SURVIVOR (the cell originating at the range's
+ * PRE-mutation grid + tree so the applier reads nothing. A merge keeps the SURVIVOR (the cell originating at the range's
  * top-left), grows its span to cover the range, appends every other in-range
  * cell's block-children into it (row-major), and removes those cells.
  */
@@ -25,7 +26,7 @@ export interface MergeCellsPlan {
   readonly survivorOrigLastChildId: BlockId | null;
   /** Block-children of the non-empty donor cells, in final (row-major) order; they
    *  become the survivor's tail children. Empty donors (single empty paragraph)
-   *  contribute NOTHING (F9 — don't pile up blank lines). */
+   *  contribute NOTHING (don't pile up blank lines). */
   readonly migratedChildIds: readonly BlockId[];
   /** Per affected grid row: the cells that REMAIN after donors are removed, in
    *  grid-column order (the row's new sibling chain; empty → a row covered entirely
@@ -36,6 +37,11 @@ export interface MergeCellsPlan {
   readonly donorCellIds: readonly BlockId[];
   /** Empty donors' (non-migrated) paragraph children to delete alongside their cell. */
   readonly deletedChildIds: readonly BlockId[];
+  readonly tableId: BlockId;
+  readonly minRow: number;
+  readonly maxRow: number;
+  readonly minCol: number;
+  readonly maxCol: number;
 }
 
 /**
@@ -89,7 +95,7 @@ export function planMergeCells(state: State, range: CellRange): MergeCellsPlan |
     donorCellIds.push(donor.cellId);
     const children = getChildIds(state, donor.cellId);
     if (isSingleEmptyParagraph(state, children)) {
-      deletedChildIds.push(...children); // the lone empty paragraph — F9: contributes nothing
+      deletedChildIds.push(...children); // the lone empty paragraph contributes nothing
     } else {
       migratedChildIds.push(...children);
     }
@@ -125,6 +131,11 @@ export function planMergeCells(state: State, range: CellRange): MergeCellsPlan |
     rowChains,
     donorCellIds,
     deletedChildIds,
+    tableId: range.tableId,
+    minRow: range.minRow,
+    maxRow: range.maxRow,
+    minCol: range.minCol,
+    maxCol: range.maxCol,
   };
 }
 
@@ -141,7 +152,7 @@ function withSpan(attrs: ReadonlyAttrs, rowSpan: number, colSpan: number): Reado
 }
 
 /**
- * F9: a cell whose only child is a paragraph with zero inline items (regardless of
+ * A cell whose only child is a paragraph with zero inline items (regardless of
  * its attrs). A child with `inlineContent === null` (a container, not a text block)
  * is conservatively NOT empty — its content migrates, never silently dropped.
  */
@@ -161,45 +172,20 @@ function isSingleEmptyParagraph(state: State, childIds: readonly BlockId[]): boo
  */
 export function mergeCellsInTx(doc: Y.Doc, plan: MergeCellsPlan): void {
   requireInTransaction(doc, "mergeCells");
-  const blocksMap = getBlocksMap(doc);
-
-  // 1. Survivor span attrs (REPLACE).
+  // Merge-cells MOVES NOTHING: the survivor's span reaches the range's last row /
+  // column (id ranges); covered cells keep their flows, read concatenated into the
+  // survivor (Word's merged cell). An empty donor (one empty paragraph) contributes
+  // nothing: its paragraph mark is deleted (no character moves).
+  const cols = liveColumns(doc, plan.tableId);
+  const rows = liveRowIds(doc, plan.tableId);
+  const toCol = cols[plan.maxCol];
+  const toRow = rows[plan.maxRow];
+  setCellSpan(
+    doc,
+    plan.survivorId,
+    toCol !== undefined && plan.maxCol > plan.minCol ? toCol : null,
+    toRow !== undefined && plan.maxRow > plan.minRow ? toRow : null,
+  );
   setBlockAttrsInTx(doc, plan.survivorId, plan.survivorAttrs, "mergeCells");
-
-  // 2. Append migrated children onto the survivor's tail, re-chaining them linearly.
-  const migrated = plan.migratedChildIds;
-  for (const [i, childId] of migrated.entries()) {
-    const yChild = getYBlock(doc, childId, "mergeCells");
-    yChild.set("parentId", plan.survivorId);
-    yChild.set("prevSiblingId", i === 0 ? plan.survivorOrigLastChildId : (migrated[i - 1] ?? null));
-    yChild.set("nextSiblingId", i === migrated.length - 1 ? null : (migrated[i + 1] ?? null));
-  }
-  const firstMigrated = migrated[0];
-  const lastMigrated = migrated[migrated.length - 1];
-  if (firstMigrated !== undefined && lastMigrated !== undefined) {
-    const ySurvivor = getYBlock(doc, plan.survivorId, "mergeCells");
-    if (plan.survivorOrigLastChildId !== null) {
-      getYBlock(doc, plan.survivorOrigLastChildId, "mergeCells").set("nextSiblingId", firstMigrated);
-    } else {
-      ySurvivor.set("firstChildId", firstMigrated); // defensive: survivor had no children
-    }
-    ySurvivor.set("lastChildId", lastMigrated);
-  }
-
-  // 3. Re-chain each affected row's surviving cells (donors excluded). An empty
-  //    chain → a row fully covered by the survivor's rowSpan.
-  for (const { rowId, cellIds } of plan.rowChains) {
-    const yRow = getYBlock(doc, rowId, "mergeCells");
-    for (const [i, cellId] of cellIds.entries()) {
-      const yCell = getYBlock(doc, cellId, "mergeCells");
-      yCell.set("prevSiblingId", i === 0 ? null : (cellIds[i - 1] ?? null));
-      yCell.set("nextSiblingId", i === cellIds.length - 1 ? null : (cellIds[i + 1] ?? null));
-    }
-    yRow.set("firstChildId", cellIds[0] ?? null);
-    yRow.set("lastChildId", cellIds[cellIds.length - 1] ?? null);
-  }
-
-  // 4. Delete donor cells (children already migrated) + empty donors' paragraphs.
-  for (const id of plan.donorCellIds) blocksMap.delete(id);
-  for (const id of plan.deletedChildIds) blocksMap.delete(id);
+  for (const id of plan.deletedChildIds) removeBlockStorage(doc, id);
 }

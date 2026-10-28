@@ -28,6 +28,7 @@ import type { LayoutBox } from "@taleweaver/print";
 import type { PageBox } from "@taleweaver/print";
 import type { VirtualLayoutTree } from "@taleweaver/print";
 import { BROKEN_CROSS_REFERENCE_TEXT } from "../../render/resolve-cross-reference";
+import { topLevelBlockIds } from "../../state/block-traversal";
 
 // Mock shaper: line height 16, char width 8. A short page (block-size 64, no margins)
 // fits 4 one-line paragraphs, so a handful of filler paragraphs ahead of the table push
@@ -74,16 +75,9 @@ function layoutOf(editor: EditorState, config: EditorConfig): LayoutBox | Virtua
   );
 }
 
-/** The document root's direct children, in order. */
+/** The document's top-level blocks, in order (root → sections → blocks). */
 function rootChildIds(editor: EditorState): BlockId[] {
-  const root = getBlock(editor.state, editor.state.rootId);
-  const ids: BlockId[] = [];
-  let id: BlockId | null = root?.firstChildId ?? null;
-  while (id !== null) {
-    ids.push(id);
-    id = getBlock(editor.state, id)?.nextSiblingId ?? null;
-  }
-  return ids;
+  return topLevelBlockIds(editor.state);
 }
 
 /** Caret at the end of `blockId` (its inline-content length). */
@@ -160,9 +154,9 @@ describe("cross-ref-page to a NESTED (table-cell) target resolves end-to-end (Ta
 
     // The host paragraph (page 0, holds the cross-ref) is the seed empty paragraph; give
     // it a short label so it stays on page 0.
-    const hostId = rootChildIds(editor)[0];
-    if (hostId === undefined) throw new Error("no seed paragraph");
-    editor = caretAtEnd(editor, hostId, config);
+    const seedId = rootChildIds(editor)[0];
+    if (seedId === undefined) throw new Error("no seed paragraph");
+    editor = caretAtEnd(editor, seedId, config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "see " }, config);
 
     // Append several one-line filler paragraphs AFTER the host so the table lands on a
@@ -171,6 +165,10 @@ describe("cross-ref-page to a NESTED (table-cell) target resolves end-to-end (Ta
       editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
       editor = reduceEditor(editor, { type: "INSERT_TEXT", text: `fill ${i}` }, config);
     }
+    // Enter at the end gives the TEXT the new id: "see " now lives
+    // in the first top-level paragraph, not in the seed id.
+    const hostId = rootChildIds(editor)[0];
+    if (hostId === undefined) throw new Error("no host paragraph");
 
     // After the last filler, split once more and insert a table at the fresh paragraph's
     // start. INSERT_TABLE lands the caret in cell (0,0)'s paragraph — the NESTED target.

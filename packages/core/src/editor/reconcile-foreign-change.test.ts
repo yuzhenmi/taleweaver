@@ -60,8 +60,13 @@ describe("reconcileForeignChange (live-collab P1)", () => {
 
     // Capture the foreign dirty ids exactly as the host would (via the observer).
     const dirty: BlockId[] = [];
-    const unsub = subscribeForeignChanges(editor.state, "self", (ids) =>
-      dirty.push(...ids),
+    const unsub = subscribeForeignChanges(
+      editor.state,
+      "self",
+      (ids) => dirty.push(...ids),
+      () => {
+        throw new Error("unexpected legacy storage");
+      },
     );
     applyOperation(
       editor.state,

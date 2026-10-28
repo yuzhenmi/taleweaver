@@ -1,11 +1,15 @@
+import { finalSectionOf } from "../../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import { config } from "./test-helpers";
 import {
+  createEditorStateFromState,
   createInitialEditorState,
   reduceEditor,
   type EditorState,
 } from "../editor-state";
-import { getBlock, findMatches, type BlockId } from "../../state";
+import { getBlock, findMatches, createPosition, createSpan, type BlockId } from "../../state";
+import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
+import { buildBlock, buildState, inlineContent, text } from "../../test-utils/state-builders";
 
 /** Build a single-paragraph editor with `text` typed in. */
 function withText(text: string): EditorState {
@@ -15,7 +19,7 @@ function withText(text: string): EditorState {
 }
 
 function firstParagraphId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
   const id = root?.firstChildId;
   if (id === null || id === undefined) throw new Error("no first paragraph");
   return id;
@@ -99,7 +103,7 @@ describe("REPLACE_ALL", () => {
     editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "bar baz" }, config);
 
-    const root = getBlock(editor.state, editor.state.rootId);
+    const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
     const p1 = root?.firstChildId;
     const p2 = root?.lastChildId;
     if (p1 === null || p1 === undefined || p2 === null || p2 === undefined) {
@@ -132,5 +136,34 @@ describe("REPLACE_ALL", () => {
     const result = reduceEditor(editor, { type: "REPLACE_ALL", matches: [], replacement: "x" }, config);
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
     expect(result.state).toBe(editor.state);
+  });
+});
+
+describe("REPLACE_ALL — canonical storage through the editor's attr registry", () => {
+  it("writes the replacement with a registry-equal neighbour's stored value", () => {
+    const attrRegistry = createDefaultAttrRegistry();
+    attrRegistry.register({
+      attrKey: "tag",
+      toStyle: () => ({}),
+      equals: (a, b) => typeof a === "object" && a !== null && typeof b === "object" && b !== null && "id" in a && "id" in b && a.id === b.id,
+    });
+    const cfg = { ...config, attrRegistry };
+    // Registry-equal but deep-unequal neighbours (e.g. left by concurrent peers).
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({
+          id: "p",
+          type: "paragraph",
+          parentId: "doc",
+          inlineContent: inlineContent([text("ab", { tag: { id: "t", v: 1 } }), text("X", { tag: { id: "t", v: 2 } })]),
+        }),
+      ],
+    });
+    const p = "p" as BlockId;
+    let editor = createEditorStateFromState(state, createSpan(createPosition(p, 0), createPosition(p, 0)), cfg);
+    editor = reduceEditor(editor, { type: "REPLACE_ALL", matches: findMatches(editor.state, "X"), replacement: "Y" }, cfg);
+    expect(getBlock(editor.state, p)?.inlineContent?.items).toEqual([text("abY", { tag: { id: "t", v: 1 } })]);
   });
 });

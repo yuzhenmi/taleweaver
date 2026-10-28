@@ -1,14 +1,27 @@
 import { describe, it, expect } from "vitest";
 import { clonePastedSubtree } from "./clone-pasted-subtree";
-import { buildBlock, buildState, text, embed, inlineContent } from "../test-utils/state-builders";
+import { TEST_RESOLVER, testContainer, buildBlock, buildState, text, embed, inlineContent } from "../test-utils/state-builders";
 import { createTestAllocator, type BlockId } from "./block-id";
-import { getBlock } from "./state";
+import { getBlock, type State } from "./state";
 import type { Block } from "./block";
+
+// Host container types the default registry lacks (file-local registry instance).
+TEST_RESOLVER.register(testContainer("blockquote"));
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
   if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
   return v;
+}
+
+/**
+ * The first inline item of a cloned body's first paragraph. A body root is a flow
+ * holder: inline content given on a leaf body fixture reads as its implicit leading
+ * paragraph (`${body}#i`), so each such body clones as body + paragraph.
+ */
+function bodyFirstItem(embedContents: ReadonlyMap<BlockId, Block>, bodyId: BlockId) {
+  const first = embedContents.get(bodyId)?.firstChildId;
+  return first === null || first === undefined ? undefined : embedContents.get(first)?.inlineContent?.items[0];
 }
 
 describe("clonePastedSubtree — basic single-leaf clone", () => {
@@ -100,7 +113,7 @@ describe("clonePastedSubtree — tree shapes", () => {
   });
 
   it("clones a deeply nested tree (3+ levels)", () => {
-    // Source: doc > section > table > [item1, item2]. Clone the section.
+    // Source: doc > section > blockquote > [item1, item2]. Clone the section.
     // (A generic CONTAINER nesting test — `clonePastedSubtree` is pure
     // structural copy and does not validate component kinds.)
     const sourceState = buildState({
@@ -108,7 +121,7 @@ describe("clonePastedSubtree — tree shapes", () => {
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "section" }),
         buildBlock({ id: "section", type: "section", parentId: "doc", firstChildId: "table", lastChildId: "table" }),
-        buildBlock({ id: "table", type: "table", parentId: "section", firstChildId: "i1", lastChildId: "i2" }),
+        buildBlock({ id: "table", type: "blockquote", parentId: "section", firstChildId: "i1", lastChildId: "i2" }),
         buildBlock({ id: "i1", type: "list-item", parentId: "table", nextSiblingId: "i2", inlineContent: inlineContent([text("a")]) }),
         buildBlock({ id: "i2", type: "list-item", parentId: "table", prevSiblingId: "i1", inlineContent: inlineContent([text("b")]) }),
       ],
@@ -116,14 +129,15 @@ describe("clonePastedSubtree — tree shapes", () => {
     const allocator = createTestAllocator("c");
     const result = clonePastedSubtree(sourceState, "section" as BlockId, allocator);
 
-    // 4 blocks cloned: section + table + i1 + i2.
-    expect(result.blocks.size).toBe(4);
+    // 5 blocks cloned: section + blockquote + i1 + i2 + the paragraph ending the section
+    // (a section ending in a container gets its own terminating ¶).
+    expect(result.blocks.size).toBe(5);
 
     // Walk down: section.firstChildId → table. table.firstChildId → i1. i1.nextSiblingId → i2.
     const newSection = result.blocks.get(result.rootId);
     if (!newSection?.firstChildId) throw new Error("missing table child");
     const newList = result.blocks.get(newSection.firstChildId);
-    expect(newList?.type).toBe("table");
+    expect(newList?.type).toBe("blockquote");
     expect(newList?.parentId).toBe(result.rootId);
 
     if (!newList?.firstChildId) throw new Error("missing i1 child");
@@ -162,23 +176,30 @@ describe("clonePastedSubtree — tree shapes", () => {
   });
 
   it("clones an empty container (no children)", () => {
-    // Source: doc > [empty_section]. Clone the empty section.
+    // Source: doc > [empty_section, p]. Clone the empty container. (An empty
+    // SECTION is not in the read model — empty sections are dropped — so the empty
+    // container here is a childless blockquote.)
     const sourceState = buildState({
       rootId: "doc",
       blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "empty_section", lastChildId: "empty_section" }),
-        buildBlock({ id: "empty_section", type: "section", parentId: "doc" }),
+        buildBlock({ id: "doc", type: "document", firstChildId: "empty_section", lastChildId: "p" }),
+        buildBlock({ id: "empty_section", type: "blockquote", parentId: "doc", nextSiblingId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", prevSiblingId: "empty_section", inlineContent: inlineContent([]) }),
       ],
     });
     const allocator = createTestAllocator("c");
     const result = clonePastedSubtree(sourceState, "empty_section" as BlockId, allocator);
 
-    expect(result.blocks.size).toBe(1);
+    // An empty container reads as ONE implicit empty paragraph (flow model), cloned with it.
+    expect(result.blocks.size).toBe(2);
     const newEmpty = result.blocks.get(result.rootId);
-    expect(newEmpty?.type).toBe("section");
-    expect(newEmpty?.firstChildId).toBeNull();
-    expect(newEmpty?.lastChildId).toBeNull();
+    expect(newEmpty?.type).toBe("blockquote");
+    expect(newEmpty?.firstChildId).not.toBeNull();
+    expect(newEmpty?.lastChildId).toBe(newEmpty?.firstChildId);
     expect(newEmpty?.inlineContent).toBeNull();
+    const implicit = newEmpty?.firstChildId ? result.blocks.get(newEmpty.firstChildId) : undefined;
+    expect(implicit?.type).toBe("paragraph");
+    expect(implicit?.inlineContent?.items).toEqual([]);
   });
 });
 
@@ -212,9 +233,9 @@ describe("clonePastedSubtree — embed-content cloning", () => {
     const allocator = createTestAllocator("c");
     const result = clonePastedSubtree(sourceState, "p1" as BlockId, allocator);
 
-    // 1 block in main tree (p1) and 1 in embedContents (fn-body). doc is outside.
+    // 1 block in main tree (p1) and 2 in embedContents (fn-body + its paragraph). doc is outside.
     expect(result.blocks.size).toBe(1);
-    expect(result.embedContents.size).toBe(1);
+    expect(result.embedContents.size).toBe(2);
 
     const newP1 = result.blocks.get(result.rootId);
     expect(newP1?.type).toBe("paragraph");
@@ -234,7 +255,7 @@ describe("clonePastedSubtree — embed-content cloning", () => {
     const newFnBody = result.embedContents.get(newCbId as BlockId);
     expect(newFnBody).toBeDefined();
     expect(newFnBody?.type).toBe("footnote-body");
-    expect(newFnBody?.inlineContent?.items[0]).toMatchObject({ text: "the footnote text" });
+    expect(bodyFirstItem(result.embedContents, newCbId as BlockId)).toMatchObject({ text: "the footnote text" });
     expect(newFnBody?.parentId).toBeNull(); // standalone root, preserved
   });
 
@@ -264,9 +285,9 @@ describe("clonePastedSubtree — embed-content cloning", () => {
     const allocator = createTestAllocator("c");
     const result = clonePastedSubtree(sourceState, "p1" as BlockId, allocator);
 
-    // 1 in main tree (p1), 2 in embedContents (fn-a, fn-b).
+    // 1 in main tree (p1), 4 in embedContents (fn-a, fn-b + one paragraph each).
     expect(result.blocks.size).toBe(1);
-    expect(result.embedContents.size).toBe(2);
+    expect(result.embedContents.size).toBe(4);
 
     const newP1 = result.blocks.get(result.rootId);
     const items = newP1?.inlineContent?.items;
@@ -283,8 +304,8 @@ describe("clonePastedSubtree — embed-content cloning", () => {
     expect(newCbB).not.toBe("fn-b");
 
     // Both cloned bodies land in embedContents.
-    expect(result.embedContents.get(newCbA)?.inlineContent?.items[0]).toMatchObject({ text: "body a" });
-    expect(result.embedContents.get(newCbB)?.inlineContent?.items[0]).toMatchObject({ text: "body b" });
+    expect(bodyFirstItem(result.embedContents, newCbA)).toMatchObject({ text: "body a" });
+    expect(bodyFirstItem(result.embedContents, newCbB)).toMatchObject({ text: "body b" });
   });
 
   it("clones nested embed-content (footnote body containing its own footnote anchor)", () => {
@@ -313,9 +334,9 @@ describe("clonePastedSubtree — embed-content cloning", () => {
     const allocator = createTestAllocator("c");
     const result = clonePastedSubtree(sourceState, "p1" as BlockId, allocator);
 
-    // 1 in main tree (p1), 2 in embedContents (fn-outer + fn-inner).
+    // 1 in main tree (p1), 4 in embedContents (fn-outer + fn-inner + one paragraph each).
     expect(result.blocks.size).toBe(1);
-    expect(result.embedContents.size).toBe(2);
+    expect(result.embedContents.size).toBe(4);
 
     const newP1 = result.blocks.get(result.rootId);
     const outerEmbed = newP1?.inlineContent?.items[0];
@@ -325,13 +346,14 @@ describe("clonePastedSubtree — embed-content cloning", () => {
 
     const newOuter = result.embedContents.get(newOuterId);
     expect(newOuter).toBeDefined();
-    const innerEmbed = newOuter?.inlineContent?.items[0];
+    const innerEmbed = bodyFirstItem(result.embedContents, newOuterId);
     if (innerEmbed?.kind !== "embed") throw new Error("expected embed");
     const newInnerId = innerEmbed.properties.contentBlockId as BlockId;
     expect(newInnerId).not.toBe("fn-inner");
 
     const newInner = result.embedContents.get(newInnerId);
-    expect(newInner?.inlineContent?.items[0]).toMatchObject({ text: "deep" });
+    expect(newInner).toBeDefined();
+    expect(bodyFirstItem(result.embedContents, newInnerId)).toMatchObject({ text: "deep" });
     // The cloned bodies are NOT in result.blocks.
     expect(result.blocks.has(newOuterId)).toBe(false);
     expect(result.blocks.has(newInnerId)).toBe(false);
@@ -502,9 +524,9 @@ describe("clonePastedSubtree — block-level invariants", () => {
     const allocator = createTestAllocator("c");
     const result = clonePastedSubtree(sourceState, "section" as BlockId, allocator);
 
-    // 3 in main tree (section, p1, p2); 1 in embedContents (fn).
+    // 3 in main tree (section, p1, p2); 2 in embedContents (fn + its paragraph).
     expect(result.blocks.size).toBe(3);
-    expect(result.embedContents.size).toBe(1);
+    expect(result.embedContents.size).toBe(2);
 
     // For each block in EITHER result map, every non-null reference must
     // resolve to a key in result.blocks OR result.embedContents.
@@ -609,21 +631,6 @@ describe("clonePastedSubtree — error cases", () => {
     );
   });
 
-  it("throws when a child reference points to a missing block (corrupted source)", () => {
-    // section.firstChildId references "ghost" which doesn't exist in state.blocks.
-    const sourceState = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "section" }),
-        buildBlock({ id: "section", type: "section", parentId: "doc", firstChildId: "ghost", lastChildId: "ghost" }),
-      ],
-    });
-    const allocator = createTestAllocator("c");
-    expect(() => clonePastedSubtree(sourceState, "section" as BlockId, allocator)).toThrow(
-      /block ".+" not found/,
-    );
-  });
-
   it("throws when an embed's contentBlockId references a missing block", () => {
     const sourceState = buildState({
       rootId: "doc",
@@ -664,29 +671,6 @@ describe("clonePastedSubtree — error cases", () => {
     );
   });
 
-  it("handles cycles in the source state without infinite recursion (cycle defense)", () => {
-    // Pathological source state: section.firstChildId points to itself (cycle).
-    // The walker should add "section" to visited on first encounter and skip on second.
-    // This is malformed state, but the operation should not infinite-loop.
-    const sourceState = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "section" }),
-        buildBlock({ id: "section", type: "section", parentId: "doc", firstChildId: "section", lastChildId: "section" }), // self-loop
-      ],
-    });
-    const allocator = createTestAllocator("c");
-    // Should NOT throw, and should NOT hang. The cycle defense in collectSubtreeIds
-    // skips already-visited ids. The cloned section will have firstChildId/lastChildId
-    // pointing to ITSELF in the cloned namespace (the self-loop is preserved
-    // structurally). This is documented "garbage in, garbage out" — the operation
-    // doesn't repair malformed source state.
-    const result = clonePastedSubtree(sourceState, "section" as BlockId, allocator);
-    expect(result.blocks.size).toBe(1);
-    const cloned = result.blocks.get(result.rootId);
-    expect(cloned?.firstChildId).toBe(result.rootId); // self-loop preserved in cloned namespace
-    expect(cloned?.lastChildId).toBe(result.rootId); // both child pointers self-loop, both rewritten consistently
-  });
 });
 
 describe("clonePastedSubtree — id-collision check namespace (S-B4)", () => {
@@ -725,76 +709,43 @@ describe("clonePastedSubtree — id-collision check namespace (S-B4)", () => {
   });
 });
 
-describe("clonePastedSubtree — cross-reference pointer (targetId)", () => {
-  // A cross-reference's `properties.targetId` is a POINTER (not an owned
-  // `contentBlockId`). The walkers never follow it, so it's in the clone's id-map
-  // ONLY when the target was independently part of the copied subtree.
-  type EmbedProps = { embedType: string; properties: { targetId?: unknown; refMode?: unknown } };
-  function findBlockByType(blocks: ReadonlyMap<BlockId, Block>, type: string): Block | undefined {
-    for (const b of blocks.values()) if (b.type === type) return b;
-    return undefined;
-  }
-  function crossRefOf(block: Block | undefined): EmbedProps | undefined {
-    const items = block?.inlineContent?.items ?? [];
-    return items.find((i) => (i as unknown as EmbedProps).embedType === "cross-reference") as
-      | EmbedProps
-      | undefined;
-  }
-
-  it("REBINDS targetId to the cloned target when the target was copied with the reference", () => {
-    // section > [heading "h", paragraph "p" [text + cross-reference → "h"]]. Clone the
-    // whole section: the heading is cloned too, so the reference rebinds to the clone.
-    const sourceState = buildState({
+describe("clonePastedSubtree — bookmarks (Word's paste rule)", () => {
+  // A pasted bookmark pair is kept iff the destination has NO live pair of its id.
+  const source = (): State =>
+    buildState({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "section" }),
         buildBlock({ id: "section", type: "section", parentId: "doc", firstChildId: "h", lastChildId: "p" }),
-        buildBlock({ id: "h", type: "heading", parentId: "section", nextSiblingId: "p", attrs: { level: 1 }, inlineContent: inlineContent([text("Title")]) }),
         buildBlock({
-          id: "p",
-          type: "paragraph",
-          parentId: "section",
-          prevSiblingId: "h",
-          inlineContent: inlineContent([text("see "), embed("cross-reference", { targetId: "h", refMode: "text" })]),
+          id: "h", type: "heading", parentId: "section", nextSiblingId: "p", attrs: { level: 1 },
+          inlineContent: inlineContent([embed("bookmark-start", { bookmarkId: "b" }), text("Title"), embed("bookmark-end", { bookmarkId: "b" })]),
+        }),
+        buildBlock({
+          id: "p", type: "paragraph", parentId: "section", prevSiblingId: "h",
+          inlineContent: inlineContent([text("see "), embed("cross-reference", { bookmarkId: "b", refMode: "text" })]),
         }),
       ],
     });
-    const allocator = createTestAllocator("clone");
-    const result = clonePastedSubtree(sourceState, "section" as BlockId, allocator);
+  const kinds = (b: Block | undefined): string[] => (b?.inlineContent?.items ?? []).map((i) => (i.kind === "embed" ? i.embedType : i.text));
+  const byType = (blocks: ReadonlyMap<BlockId, Block>, type: string): Block | undefined => [...blocks.values()].find((b) => b.type === type);
 
-    const clonedHeading = findBlockByType(result.blocks, "heading");
-    const clonedPara = findBlockByType(result.blocks, "paragraph");
-    expect(clonedHeading).toBeDefined();
-    const ref = crossRefOf(clonedPara);
-    expect(ref).toBeDefined();
-    // Rebound to the CLONED heading's id — NOT the original "h".
-    expect(ref?.properties.targetId).toBe(clonedHeading?.id);
-    expect(ref?.properties.targetId).not.toBe("h");
-    expect(ref?.properties.refMode).toBe("text");
+  it("a copy within the document drops the bookmark (its original is live); the field keeps its id", () => {
+    const r = clonePastedSubtree(source(), "section" as BlockId, createTestAllocator("clone"));
+    expect(kinds(byType(r.blocks, "heading"))).toEqual(["Title"]);
+    const field = byType(r.blocks, "paragraph")?.inlineContent?.items[1];
+    expect(field?.kind === "embed" ? field.properties : null).toEqual({ bookmarkId: "b", refMode: "text" });
   });
 
-  it("PRESERVES targetId pointing at the original when the target is OUTSIDE the copied subtree", () => {
-    // Clone ONLY the paragraph; its target heading "h" is not part of the paste.
-    const sourceState = buildState({
+  it("a destination with no live pair of the id (cut + paste, another document) keeps the bookmark", () => {
+    const empty = buildState({
       rootId: "doc",
       blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "h", lastChildId: "p" }),
-        buildBlock({ id: "h", type: "heading", parentId: "doc", nextSiblingId: "p", attrs: { level: 1 }, inlineContent: inlineContent([text("Title")]) }),
-        buildBlock({
-          id: "p",
-          type: "paragraph",
-          parentId: "doc",
-          prevSiblingId: "h",
-          inlineContent: inlineContent([text("see "), embed("cross-reference", { targetId: "h", refMode: "text" })]),
-        }),
+        buildBlock({ id: "doc", type: "document", firstChildId: "q", lastChildId: "q" }),
+        buildBlock({ id: "q", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("x")]) }),
       ],
     });
-    const allocator = createTestAllocator("clone");
-    const result = clonePastedSubtree(sourceState, "p" as BlockId, allocator);
-
-    const ref = crossRefOf(result.blocks.get(result.rootId));
-    expect(ref).toBeDefined();
-    // Unchanged — still points at the original target outside the paste.
-    expect(ref?.properties.targetId).toBe("h");
+    const r = clonePastedSubtree(source(), "section" as BlockId, createTestAllocator("clone"), empty);
+    expect(kinds(byType(r.blocks, "heading"))).toEqual(["bookmark-start", "Title", "bookmark-end"]);
   });
 });

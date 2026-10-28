@@ -5,8 +5,8 @@ import type { ReadonlyAttrs } from "../attrs";
 import type { TableGrid } from "../table-grid-core";
 
 /**
- * Pure validators for the `headerRowCount` table attr (repeating-header rows,
- * #487). Kept separate from the `setTableHeaderRows` op so they are unit-testable
+ * Pure validators for the `headerRowCount` table attr (repeating-header rows).
+ * Kept separate from the `setTableHeaderRows` op so they are unit-testable
  * in isolation against synthetic grids.
  *
  * The `headerRowCount` attr names the first `N` contiguous rows as repeating
@@ -14,9 +14,9 @@ import type { TableGrid } from "../table-grid-core";
  * the table spans. Two invariants live here:
  *   - the CLEAN-CUT invariant (`largestCleanHeaderCount`): no merged cell may
  *     originate in a header row and span past the header boundary into a body
- *     row, so the repeated header is a self-contained sub-grid (spec §3);
+ *     row, so the repeated header is a self-contained sub-grid;
  *   - the row-edit ADJUSTMENT (`adjustHeaderRowCount`): an insert/delete row keeps
- *     `headerRowCount` naming the leading contiguous block (spec §7.1).
+ *     `headerRowCount` naming the leading contiguous block.
  */
 
 /**
@@ -50,7 +50,7 @@ export type RowEditOp = "insert" | "delete";
 
 /**
  * Re-derive `headerRowCount` after a row insert/delete so it keeps naming the
- * leading contiguous block (spec §7.1). `rowIndex` is the grid row the edit
+ * leading contiguous block. `rowIndex` is the grid row the edit
  * targets (the inserted row's destination index, or the deleted row's index).
  *
  *   - DELETE at `r < count`  → `count − 1` (a header row was removed; deleting the

@@ -171,10 +171,10 @@ describe("atomic-leaf delete behavior (#P11.3)", () => {
 
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
 
-    // Merged into one paragraph "ab"; para2 gone.
-    expect(getBlock(next.state, para2Id)).toBeNull();
-    expect(getBlock(next.state, para1Id)?.nextSiblingId).toBeNull();
-    expect(next.selection.focus.blockId).toBe(para1Id);
+    // Merged into one paragraph "ab": ¶para1 goes and para2 survives.
+    expect(getBlock(next.state, para1Id)).toBeNull();
+    expect(getBlock(next.state, para2Id)?.prevSiblingId).toBeNull();
+    expect(next.selection.focus.blockId).toBe(para2Id);
     expect(next.selection.focus.offset).toBe(1);
   });
 });

@@ -44,8 +44,8 @@ function groupTableRows(table: ElementBox): readonly TableRowGroup[] {
   let pendingCells: RenderNode[] | null = null;
 
   for (const child of table.children) {
-    // `display: contents` inside a table is NOT supported (P1.C.1a scope is
-    // block-level sections). The table FC does not flatten contents children, so
+    // `display: contents` inside a table is NOT supported (sections are
+    // block-level). The table FC does not flatten contents children, so
     // one wrapping table-rows would be mis-grouped as bare cells → silent-wrong
     // output. Fail loudly until a future piece handles it.
     if (child.type === "element" && child.computedStyle?.display === "contents") {
@@ -170,8 +170,8 @@ function collectIntrinsicSizes(
   // Build the SAME grid the layout pass builds (assignTableGrid) so the column
   // structure intrinsic sizing assumes matches the one geometry will produce,
   // then feed each cell's intrinsic size — keyed by its grid placement — into
-  // the §17.4 span-aware distributor (P8.S2). For a span-1-only table this
-  // reduces to the legacy per-column max-over-cells (byte-identical pre-P8).
+  // the §17.4 span-aware distributor. For a span-1-only table this
+  // reduces to the legacy per-column max-over-cells (byte-identical to a span-free grid).
   const gridRows: GridCellInput[][] = [];
   const measures: { min: number; max: number }[] = []; // document order, 1:1 with grid cells
 
@@ -227,8 +227,8 @@ function collectIntrinsicSizes(
 
 // ---------------------------------------------------------------------------
 // Per-cell layout result, grouped by starting row (Pass A output). Module-scope
-// so the S5 fragmentation logic — and the future S5.T4 resume pass, which also
-// consumes `laidByRow` — can reference it.
+// so the fragmentation logic — and the resume preamble, which also consumes
+// `laidByRow` — can reference it.
 // ---------------------------------------------------------------------------
 interface LaidCell {
   readonly key: string;
@@ -240,15 +240,15 @@ interface LaidCell {
   readonly inlineSize: number;
   readonly placement: AssignedCell;
   /** The cell's source element — kept so a rowSpan cell straddling a page break
-   *  can re-lay its interior under a FragmentationContext (S5.T3). */
+   *  can re-lay its interior under a FragmentationContext. */
   readonly cellEl: ElementBox;
-  /** For a cell synthesized by the S5.T4 resume preamble (a still-spanning cell
+  /** For a cell synthesized by the resume preamble (a still-spanning cell
    *  whose origin is on an earlier fragment): the break token its interior should
-   *  resume from when E.1 re-fragments it. `undefined`/`null` for fresh cells (laid
-   *  whole in Pass A) ⇒ E.1 re-lays from the start. */
+   *  resume from when the row-level fit-check re-fragments it. `undefined`/`null` for fresh cells (laid
+   *  whole in Pass A) ⇒ the row-level fit-check re-lays from the start. */
   readonly resumeInteriorToken?: BreakToken | null;
   /** For a resumed cell: its ORIGINAL grid origin + full span (the synthesized
-   *  `placement` is CLAMPED to this fragment for positioning). E.1 emits the
+   *  `placement` is CLAMPED to this fragment for positioning). The row-level fit-check emits the
    *  continuation from this — so `gridRow` keeps pointing at the cell's true origin
    *  row (where its element lives, for the next resume's element lookup) and
    *  `gridRow + rowSpan` keeps pointing at the true end. Absent for fresh cells,
@@ -260,7 +260,7 @@ interface LaidCell {
  * Resolve a cell group to the ElementBox `layoutBlock` recurses into: the real
  * cell element for a non-anonymous group, or a synthetic `table-cell` wrapper for
  * an anonymous one. Returns null when a non-anonymous group's content isn't an
- * element (no box; the grid slot stays empty). Shared by Pass A and the S5.T4
+ * element (no box; the grid slot stays empty). Shared by Pass A and the
  * resume preamble so both build the cell the same way.
  */
 function materializeCellElement(cg: CellGroup): ElementBox | null {
@@ -295,8 +295,8 @@ export function layoutTable(
   blockOffset: number,
   ctx: LayoutContext,
   shaper: TextShaper,
-  // Auto-hyphenation (slice 2): threaded ALONGSIDE `shaper` to the per-cell
-  // `layoutBlock` calls. `undefined` ⇒ none. Carried but UNUSED in this slice.
+  // Auto-hyphenation: threaded ALONGSIDE `shaper` to the per-cell
+  // `layoutBlock` calls. `undefined` ⇒ none.
   // (Cell intrinsic sizing — `collectIntrinsicSizes` — is hyphenation-independent,
   // like intrinsic-sizes-pass.ts, so it is NOT threaded the hyphenator.)
   hyphenator: Hyphenator | undefined,
@@ -304,7 +304,7 @@ export function layoutTable(
   // Coherent float+pagination: the page-cumulative flow base of this table's
   // page content top, forwarded to per-cell `layoutBlock` so cell paragraphs'
   // `paraFlowStart` is stamped in the same cumulative frame as the rest of the
-  // page (matching bfc). Table+float is a documented v1 limitation; for non-float
+  // page (matching bfc). Table+float is a known limitation; for non-float
   // table docs this only keeps the measure↔materialize `paraFlowStart` tokens
   // consistent. Defaults to 0 (unpaginated / single-page callers).
   pageFlowBase = 0,
@@ -358,7 +358,7 @@ export function layoutTable(
   // Layout pass — walk grouped rows and cells.
   // ---------------------------------------------------------------------------
 
-  // E.3: Determine which body row to start from when resuming.
+  // Determine which body row to start from when resuming.
   let startBodyRow = 0;
   if (fragmentation !== undefined && fragmentation.resumeFrom !== null) {
     if (fragmentation.resumeFrom.type !== "table") {
@@ -374,12 +374,12 @@ export function layoutTable(
 
   const rows = groupTableRows(node);
 
-  // #487 header-repetition: the first `headerRowCount` rows repeat at the top of
+  // Header-row repetition: the first `headerRowCount` rows repeat at the top of
   // every CONTINUATION fragment (Google-Docs "pin header rows"). On the first
   // fragment (startBodyRow === 0) the header rows are ordinary leading rows — no
   // repetition. On a continuation, `repeatHeader` makes Pass A–D ALSO lay rows
-  // `[0, headerRowCount)` at the top, before the resumed body rows. The clean-cut
-  // invariant (S1) guarantees no cell straddles the `[0, headerRowCount)`
+  // `[0, headerRowCount)` at the top, before the resumed body rows. The
+  // clean-cut invariant guarantees no cell straddles the `[0, headerRowCount)`
   // boundary, so the header band is an independent sub-grid. `headerRowCount === 0`
   // (the default) ⇒ `repeatHeader` false ⇒ byte-identical to the pre-header path.
   const rawHeaderRowCount = node.metadata?.headerRowCount ?? 0;
@@ -399,9 +399,9 @@ export function layoutTable(
   }
   for (let r = startBodyRow; r < rows.length; r++) emittedRows.push(r);
 
-  // P8 grid model: assign every cell its (gridRow, gridCol) + span over the WHOLE
+  // Grid model: assign every cell its (gridRow, gridCol) + span over the WHOLE
   // table (independent of fragmentation trimming), and build the occupancy map.
-  // For 1×1 cells each cell's gridCol === its per-row index, so S1 geometry is
+  // For 1×1 cells each cell's gridCol === its per-row index, so the plain geometry is
   // unchanged — only the grid/occupancy metadata is now carried on the boxes.
   const gridInput: GridCellInput[][] = rows.map((r) =>
     groupRowCells(r).map((cg): GridCellInput => ({
@@ -422,7 +422,7 @@ export function layoutTable(
   // against this fragment's `cellBoxById` (which holds only the cells actually
   // emitted on this fragment — re-laid header cells + placed body cells + clamped
   // rowSpan continuations) — a fragment must never reference a cell box that lives
-  // on another page (tables-audit F1). The clean-cut invariant (#487 §3) keeps the
+  // on another page. The clean-cut invariant keeps the
   // header and body bands independent sub-grids, so the re-index never points at an
   // absent gap row. A non-fragmented / first-fragment table (no header repeat,
   // contiguous `[startBodyRow, rows.length)`) keeps the whole-window occupancy
@@ -434,7 +434,7 @@ export function layoutTable(
     columnCount: grid.columnCount,
   });
 
-  /** Sum of column px-widths over `[from, to)` (P8: a cell's inline-offset is
+  /** Sum of column px-widths over `[from, to)` (a cell's inline-offset is
    *  `sumCols(0, gridCol)`; its inline-size is `sumCols(gridCol, gridCol+colSpan)`). */
   const sumCols = (from: number, to: number): number => {
     let s = 0;
@@ -445,7 +445,7 @@ export function layoutTable(
   // Pass A — lay out every cell's interior at its summed inline-size; collect
   // the per-cell data grouped by its STARTING row (the HTML model: a rowSpan>1
   // cell belongs to its top row only). gridCol/colSpan come from the §17.5 grid
-  // (S2), so inline geometry is already span-aware.
+  // so inline geometry is already span-aware.
   // ---------------------------------------------------------------------------
   const laidByRow: LaidCell[][] = rows.map(() => []);
 
@@ -504,14 +504,14 @@ export function layoutTable(
   }
 
   // ---------------------------------------------------------------------------
-  // Resume preamble (S5.T4) — a rowSpan>1 cell whose origin is on an EARLIER
+  // Resume preamble — a rowSpan>1 cell whose origin is on an EARLIER
   // fragment doesn't appear in Pass A (which starts at startBodyRow), but its
   // merged box reaches into the rows resuming here. Column routing is already
   // correct (assignTableGrid runs over the whole table on every fragment, so the
   // post-break rows are assigned around the still-occupied columns); the only
   // missing piece is laying the cell's REMAINING interior on this fragment.
   // Synthesize a LaidCell clamped to [startBodyRow, gridRow+rowSpan) and feed it
-  // into Pass B/C/D (and E.1 re-break) exactly like any spanning cell.
+  // into Pass B/C/D (and the row-level fit-check re-break) exactly like any spanning cell.
   // ---------------------------------------------------------------------------
   if (
     fragmentation !== undefined &&
@@ -539,7 +539,7 @@ export function layoutTable(
       const inlineSize = sumCols(cont.gridCol, cont.gridCol + cont.colSpan);
 
       // Lay the REMAINING interior at NATURAL height — a huge budget so nothing
-      // breaks here; E.1 performs the real per-fragment split. An empty-tail
+      // breaks here; the row-level fit-check performs the real per-fragment split. An empty-tail
       // continuation (null token) contributes no interior.
       let interiorChildren: LayoutBox[] = [];
       let interiorHeight = 0;
@@ -644,7 +644,7 @@ export function layoutTable(
   // ---------------------------------------------------------------------------
   // Pass D — build row + cell boxes at cumulative offsets. Each cell's block-size
   // is the SUM of the rows it spans (rowSpan=1 ⇒ just its own row, byte-identical
-  // to the pre-P8 stretch-to-row-height behavior).
+  // to plain stretch-to-row-height).
   // ---------------------------------------------------------------------------
   for (const r of emittedRows) {
     // `emittedRows` holds valid global `rows` indices; throw is unreachable.
@@ -683,11 +683,11 @@ export function layoutTable(
     rowBlockOffset += rowBlockSize;
   }
 
-  // E.1: Row-level fit-check.  When fragmenting, trim rowBoxes to those that
+  // Row-level fit-check.  When fragmenting, trim rowBoxes to those that
   // fit within availableBlockSize and return a TableBreakToken pointing to the
   // first row that didn't fit.
   //
-  // #487 header-repetition: on a continuation (`repeatHeader`), `rowBoxes` starts
+  // Header-row repetition: on a continuation (`repeatHeader`), `rowBoxes` starts
   // with the `headerRowCount` repeated-header rows (forced, always emitted), then
   // the resumed body rows. Those header rows are reserved at the top, so the body
   // rows fit into `availableBlockSize − headerBlockSize` — IDENTICAL to the measure
@@ -745,7 +745,7 @@ export function layoutTable(
       // `[0, headerCount)` (continuation only) followed by the placed body rows.
       const emittedGlobalRows = emittedRows.slice(0, placedRowCount);
 
-      // P8.S5.T3 — fragment any rowSpan>1 cell that ORIGINATES in the placed rows
+      // Fragment any rowSpan>1 cell that ORIGINATES in the placed rows
       // but whose merged rectangle reaches past the break. Its interior is re-laid
       // under a FragmentationContext sized to the placed portion, its box trimmed
       // to that height (so it doesn't overflow the trimmed page), and a
@@ -773,7 +773,7 @@ export function layoutTable(
           // content fit but the box still spans past the break (empty tail).
           // resumeFrom: for a cell laid fresh in Pass A this is null (first
           // fragmentation — its content was laid whole). For a cell carried in by
-          // the S5.T4 resume preamble, it is the incoming continuation's interior
+          // the resume preamble, it is the incoming continuation's interior
           // token, so a rowSpan≥3 cell re-breaks from where it left off (the
           // continuation chain across >2 pages).
           const cellCtx = makeChildContext(ctx, cs, lc.inlineSize, "indefinite");

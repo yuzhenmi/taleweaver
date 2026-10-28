@@ -1,11 +1,11 @@
 /**
- * `Selection` is unified with `Span` from `state/block-position.ts` post-P11
- * cutover. This file is the cursor-namespace re-export plus a couple of
+ * `Selection` is unified with `Span` from `state/block-position.ts`. This
+ * file is the cursor-namespace re-export plus a couple of
  * small derived predicates so consumers don't hand-roll them.
  *
  * - `Selection` — re-exported alias for `Span`.
  * - `isCollapsed(span)` — true iff anchor === focus (a cursor, not an
- *   extended selection). E-B / 2026-05-23 audit centralized this: the
+ *   extended selection). Centralized here: the
  *   action handlers and the dom controller previously hand-rolled
  *   the predicate at ~14 sites with two equivalent forms (anchor.blockId
  *   === focus.blockId && anchor.offset === focus.offset, OR via
@@ -21,7 +21,7 @@ import type { Selection } from "../state";
 export type { Selection } from "../state";
 
 /**
- * Caret affinity at a bidi run boundary (P4-C.2 §B). One logical `offset` has
+ * Caret affinity at a bidi run boundary. One logical `offset` has
  * TWO visual positions where two leaves meet (`offset == leafA.logEnd ==
  * leafB.logStart`): `"before"` draws at the leaf ENDING at the offset, `"after"`
  * (the default) at the leaf STARTING at it. On a uniform line both pick the same
@@ -42,7 +42,7 @@ export function isCollapsed(span: Selection): boolean {
 
 /**
  * UNORDERED, affinity-EXCLUDED span equality — the digital controller's idempotency guard
- * (spec C5/F2). Equal iff the two spans cover the SAME endpoint PAIR, regardless of
+ * Equal iff the two spans cover the SAME endpoint PAIR, regardless of
  * anchor/focus direction: `(anchor≡anchor && focus≡focus) || (anchor≡focus && focus≡anchor)`.
  *
  * Direction-INSENSITIVE is loop-safety-critical: `selectionchange` may report anchor/focus

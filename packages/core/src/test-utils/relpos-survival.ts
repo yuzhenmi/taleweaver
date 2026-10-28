@@ -1,70 +1,60 @@
 /**
- * Test-only helpers for measuring Yjs `RelativePosition` survival across the
- * engine's structural ops — the SOUND way (with a liveness check). Shared by the
- * comment-anchor-survival spike and the inline-op identity-survival suites.
+ * Test-only helpers for measuring CHARACTER-level `RelativePosition` survival
+ * across the engine's ops. A block's content is a region of a flow (pieces of
+ * `Y.Text`), so a `RelativePosition` minted at a block offset anchors to that
+ * character's CRDT item.
  *
- * A `RelativePosition` "survives" an op only if it resolves to a `Y.Text` that is
- * STILL LIVE in the document (reachable from the blocks map) AND holds the
- * expected char at the resolved index. The liveness check is load-bearing: Yjs can
- * still resolve a position into a REPLACED/CLONED-but-store-resident `Y.Text`
- * (whose `_item` isn't tombstoned when only its containing array slot was
- * replaced) — a false positive. A rebuilt/cloned `Y.Text` is not in the live set →
- * correctly reported as orphaned. Uniform across insert/delete/split/merge.
+ * A position "survives" an op only if its anchor character is STILL LIVE (not
+ * deleted — Yjs would otherwise silently resolve a dead char to its old neighbour)
+ * in a live block, AND that character is `expectChar`. A re-minted character (e.g.
+ * one moved between blocks) is a different item → reported as orphaned.
  */
 import * as Y from "yjs";
 import type { State } from "../state/state";
+import { getBlock, resolveBlock } from "../state/state";
 import { STATE_INTERNAL } from "../state/state-internal";
-import { getBlocksMap, getYBlock } from "../state/yjs-doc";
 import type { BlockId } from "../state/block-id";
+import { followRedoneItem } from "../state/y-inline";
+import { requireBlockText, pointInRegion, type BlockText } from "../state/block-text";
+import { readCtx, regionOf, positionAtPieceIndex } from "../state/flow-read";
+import { isPiece } from "../state/y-flow";
 
 /** The underlying Y.Doc of a State (test-only encapsulation pierce). */
 export function docOf(state: State): Y.Doc {
   return state[STATE_INTERNAL].doc;
 }
 
-/** A text item's live `Y.Text` for block `id` at `itemIndex` (used to MINT an anchor pre-op). */
-export function itemText(state: State, id: string, itemIndex = 0): Y.Text {
-  const yBlock = getYBlock(docOf(state), id as BlockId, "itemText");
-  const yInline = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>>;
-  return yInline.get(itemIndex).get("text") as Y.Text;
+/** Block `id`'s inline text surface. */
+export function blockText(state: State, id: string): BlockText {
+  return requireBlockText(docOf(state), id as BlockId, "blockText");
 }
 
-/** Mint a `RelativePosition` at `charIndex` within block `id`'s `itemIndex`-th text item. */
-export function relAt(state: State, id: string, charIndex: number, itemIndex = 0): Y.RelativePosition {
-  return Y.createRelativePositionFromTypeIndex(itemText(state, id, itemIndex), charIndex);
-}
-
-/**
- * Every LIVE text-item `Y.Text` reachable from the MAIN blocks map (the "alive" set).
- *
- * SCOPE LIMITATION: this scans only `getBlocksMap` — it does NOT include `Y.Text`s in
- * embed-content (footnote/caption) or template-content (header/footer) body blocks. A
- * test that mints an anchor inside such a body and calls `survives()` would get a
- * FALSE "orphaned" report. Tests stay in the main tree, or extend this to scan all
- * three trees, before anchoring into embed/template bodies.
- */
-export function liveItemTexts(state: State): Set<Y.Text> {
-  const out = new Set<Y.Text>();
-  for (const yBlock of getBlocksMap(docOf(state)).values()) {
-    const yInline = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>> | null;
-    if (yInline === null) continue;
-    for (let i = 0; i < yInline.length; i++) {
-      const yItem = yInline.get(i);
-      if (yItem.get("kind") === "text") out.add(yItem.get("text") as Y.Text);
-    }
-  }
-  return out;
+/** Mint a `RelativePosition` anchored to the character at block offset `offset` of block `id`. */
+export function relAt(state: State, id: string, offset: number): Y.RelativePosition {
+  const doc = docOf(state);
+  const ctx = readCtx(doc);
+  const region = regionOf(ctx, id);
+  if (region === null) throw new Error(`relAt: block "${id}" has no inline content`);
+  // The char AT `offset` starts right after the point at `offset` (index of that char).
+  const p = pointInRegion(ctx, region, offset + 1);
+  return Y.createRelativePositionFromTypeIndex(p.piece, p.index - 1);
 }
 
 /**
- * True iff `rel` resolves (against `state`'s post-op doc) to a STILL-LIVE `Y.Text`
- * holding `expectChar` at the resolved index. See module docstring for why the
- * liveness check is load-bearing.
+ * True iff `rel`'s anchor character is still live, in a live block, and is
+ * `expectChar`. See module docstring.
  */
 export function survives(rel: Y.RelativePosition, state: State, expectChar: string): boolean {
   const doc = docOf(state);
-  const abs = Y.createAbsolutePositionFromRelativePosition(rel, doc); // (relPos, doc) — relPos FIRST
-  if (abs === null || !(abs.type instanceof Y.Text)) return false;
-  if (!liveItemTexts(state).has(abs.type)) return false; // resolved into a dead/replaced text
-  return abs.type.toString().charAt(abs.index) === expectChar;
+  const item = rel.item === null ? null : followRedoneItem(doc, rel.item);
+  if (item === null || item.deleted) return false;
+  const abs = Y.createAbsolutePositionFromRelativePosition(rel, doc);
+  if (abs === null || !isPiece(abs.type)) return false;
+  const at = positionAtPieceIndex(readCtx(doc), abs.type, abs.index + 1);
+  if (at === null) return false;
+  const block = getBlock(state, at.id as BlockId) ?? resolveBlock(state, at.id as BlockId)?.block ?? null;
+  const items = block?.inlineContent?.items ?? null;
+  if (items === null) return false;
+  const text = items.map((it) => (it.kind === "text" ? it.text : "￼")).join("");
+  return text.charAt(at.offset - 1) === expectChar;
 }

@@ -93,10 +93,9 @@ export interface FloatEnvironment {
 
   /**
    * Record a float that did not fit the remaining block space and must be
-   * deferred to the next page. INERT primitive — pushing does NOT create an
-   * exclusion region or affect `placeFloat`/`clearance` queries; the BFC float
-   * branch (a later task) records pushed floats here and the landing page
-   * re-lays them out.
+   * deferred to the next page. Pushing does NOT create an exclusion region or
+   * affect `placeFloat`/`clearance` queries; the BFC float branch records pushed
+   * floats here and the landing page re-lays them out.
    */
   pushFloat(pf: PushedFloat): void;
 
@@ -109,8 +108,8 @@ export interface FloatEnvironment {
   /**
    * Forward-compat: returns the lowest block-offset where this environment
    * differs from `prev`. Returns +Infinity when the environments are
-   * effectively the same (no float changes affect later lines). Plan 3.G
-   * Task 5 reserves; consumers (Plan 3.H) implement.
+   * effectively the same (no float changes affect later lines). Reserved for
+   * incremental re-wrap consumers.
    */
   dirtyBlockOffsetSince(prev: FloatEnvironment): number;
 }

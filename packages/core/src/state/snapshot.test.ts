@@ -1,11 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
 import * as Y from "yjs";
-import {
-  createYDoc,
-  getBlocksMap,
-  getTemplateContentsMap,
-  runTransaction,
-} from "./yjs-doc";
+import { createYDoc, runTransaction } from "./yjs-doc";
+import { getRegistry } from "./registry";
+import { blockText } from "./block-text";
+import { STATE_INTERNAL } from "./state-internal";
+import { buildBlock, buildState, inlineContent, text } from "../test-utils/state-builders";
 import {
   getBlockSnapshot,
   getTemplateContentSnapshot,
@@ -21,52 +20,45 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   return v;
 }
 
-function buildParagraphYBlock(text: string): Y.Map<unknown> {
-  const yBlock = new Y.Map<unknown>();
-  yBlock.set("type", "paragraph");
-  const attrs = new Y.Map();
-  yBlock.set("attrs", attrs);
-  yBlock.set("parentId", null);
-  yBlock.set("prevSiblingId", null);
-  yBlock.set("nextSiblingId", null);
-  yBlock.set("firstChildId", null);
-  yBlock.set("lastChildId", null);
-  const items = new Y.Array<Y.Map<unknown>>();
-  const textItem = new Y.Map<unknown>();
-  textItem.set("kind", "text");
-  const yText = new Y.Text();
-  yText.insert(0, text);
-  textItem.set("text", yText);
-  textItem.set("attrs", new Y.Map());
-  items.push([textItem]);
-  yBlock.set("inlineContent", items);
-  return yBlock;
+/** doc > p1 "hello", p2 "world"; template bodies tmplP > hp "header", other > op "footer". */
+function seedDoc(): Y.Doc {
+  return buildState({
+    rootId: "doc",
+    blocks: [
+      buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
+      buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("hello")]) }),
+      buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text("world")]) }),
+    ],
+    templateContents: [
+      buildBlock({ id: "tmplP", type: "header-body", firstChildId: "hp", lastChildId: "hp" }),
+      buildBlock({ id: "hp", type: "paragraph", parentId: "tmplP", inlineContent: inlineContent([text("header")]) }),
+      buildBlock({ id: "other", type: "footer-body", firstChildId: "op", lastChildId: "op" }),
+      buildBlock({ id: "op", type: "paragraph", parentId: "other", inlineContent: inlineContent([text("footer")]) }),
+    ],
+  })[STATE_INTERNAL].doc;
 }
 
-function seedParagraphBlock(doc: Y.Doc, id: string, text: string): void {
+/** Retype block `id` directly in its registry entry (a raw Y.Doc mutation). */
+function retype(doc: Y.Doc, id: string, type: string): void {
   runTransaction(doc, () => {
-    getBlocksMap(doc).set(id, buildParagraphYBlock(text));
-  });
-}
-
-function seedTemplateBlock(doc: Y.Doc, id: string, text: string): void {
-  runTransaction(doc, () => {
-    getTemplateContentsMap(doc).set(id, buildParagraphYBlock(text));
+    const entry = getRegistry(doc).get(id);
+    if (entry === undefined) throw new Error(`${id} vanished`);
+    entry.set("type", type);
   });
 }
 
 describe("snapshot", () => {
   describe("getBlockSnapshot", () => {
-    it("returns a frozen Block-shaped view of a Y.Map", () => {
-      const doc = createYDoc();
-      seedParagraphBlock(doc, "p1", "hello");
+    it("returns a frozen Block-shaped view of a registry entry", () => {
+      const doc = seedDoc();
       const cache = createSnapshotCache();
 
       const snap = getBlockSnapshot(doc, "p1" as BlockId, cache);
       expect(snap).not.toBeNull();
       expect(snap!.id).toBe("p1");
       expect(snap!.type).toBe("paragraph");
-      expect(snap!.parentId).toBeNull();
+      // The parent of a section-less document's block is the root's final section.
+      expect(snap!.parentId).toBe(getBlockSnapshot(doc, "doc" as BlockId, cache)?.firstChildId);
       expect(Object.isFrozen(snap)).toBe(true);
     });
 
@@ -77,8 +69,7 @@ describe("snapshot", () => {
     });
 
     it("reuses the same snapshot reference when the underlying Y.Map is unchanged", () => {
-      const doc = createYDoc();
-      seedParagraphBlock(doc, "p1", "hello");
+      const doc = seedDoc();
       const cache = createSnapshotCache();
       const a = getBlockSnapshot(doc, "p1" as BlockId, cache);
       const b = getBlockSnapshot(doc, "p1" as BlockId, cache);
@@ -90,8 +81,7 @@ describe("snapshot", () => {
       // State minted by applyOperation/freshState carries an overlay whose
       // `invalidated` set contains the dirty ids. The next read of an
       // invalidated id skips fall-through and re-snapshots from the Y.Doc.
-      const doc = createYDoc();
-      seedParagraphBlock(doc, "p1", "hello");
+      const doc = seedDoc();
       const base = createSnapshotCache();
       const a = getBlockSnapshot(doc, "p1" as BlockId, base);
       // Mint a fresh overlay with "p1" in the dirty set (the production
@@ -106,8 +96,7 @@ describe("snapshot", () => {
     });
 
     it("snapshot inlineContent reflects underlying Y.Text content", () => {
-      const doc = createYDoc();
-      seedParagraphBlock(doc, "p1", "hello");
+      const doc = seedDoc();
       const cache = createSnapshotCache();
       const snap = getBlockSnapshot(doc, "p1" as BlockId, cache)!;
       expect(snap.inlineContent).not.toBeNull();
@@ -124,38 +113,19 @@ describe("snapshot", () => {
     // into the frozen snapshot as a live shared-type reference (mutating
     // it post-snapshot would silently mutate the "frozen" reference) and
     // would propagate to a foreign Y.Doc on cross-doc paste.
-    function seedEmbedWithNestedProperty(
-      doc: Y.Doc,
-      id: string,
-      nestedProperty: unknown,
-    ): void {
+    function seedEmbedWithNestedProperty(nestedProperty: unknown): Y.Doc {
+      const doc = seedDoc();
       runTransaction(doc, () => {
-        const blocks = getBlocksMap(doc);
-        const yBlock = new Y.Map<unknown>();
-        yBlock.set("type", "paragraph");
-        yBlock.set("attrs", new Y.Map<unknown>());
-        yBlock.set("parentId", null);
-        yBlock.set("prevSiblingId", null);
-        yBlock.set("nextSiblingId", null);
-        yBlock.set("firstChildId", null);
-        yBlock.set("lastChildId", null);
-        const items = new Y.Array<Y.Map<unknown>>();
-        const embedItem = new Y.Map<unknown>();
-        embedItem.set("kind", "embed");
-        embedItem.set("embedType", "image");
-        embedItem.set("attrs", new Y.Map<unknown>());
-        const yProps = new Y.Map<unknown>();
-        yProps.set("nested", nestedProperty);
-        embedItem.set("properties", yProps);
-        items.push([embedItem]);
-        yBlock.set("inlineContent", items);
-        blocks.set(id, yBlock);
+        const t = blockText(doc, "p1");
+        if (t === null) throw new Error("p1 has no text");
+        // A raw (peer-style) embed write bypassing the builders.
+        t.insertEmbed(0, { embedType: "image", properties: { nested: nestedProperty } });
       });
+      return doc;
     }
 
     it("throws on snapshot when embed properties contains a nested Y.Map", () => {
-      const doc = createYDoc();
-      seedEmbedWithNestedProperty(doc, "p1", new Y.Map<unknown>());
+      const doc = seedEmbedWithNestedProperty(new Y.Map<unknown>());
       const cache = createSnapshotCache();
       expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
         /nested Y types are not allowed/i,
@@ -163,233 +133,37 @@ describe("snapshot", () => {
     });
 
     it("throws on snapshot when embed properties contains a nested Y.Text", () => {
-      const doc = createYDoc();
-      seedEmbedWithNestedProperty(doc, "p1", new Y.Text());
+      const doc = seedEmbedWithNestedProperty(new Y.Text());
       const cache = createSnapshotCache();
       expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
         /nested Y types are not allowed/i,
       );
     });
-
-    // T30: undefined-vs-null hardening. Yjs `Y.Map.get` returns
-    // `undefined` for absent keys. Previously `?? null` widened undefined
-    // to null silently, hiding malformed blocks; now every required field
-    // is explicitly guarded.
-    //
-    // Helper seeds a block but skips setting one named field, then asserts
-    // that getBlockSnapshot throws a clear error naming that field.
-    function seedBlockMissingField(doc: Y.Doc, id: string, omit: string): void {
-      runTransaction(doc, () => {
-        const blocks = getBlocksMap(doc);
-        const yBlock = new Y.Map<unknown>();
-        if (omit !== "type") yBlock.set("type", "paragraph");
-        if (omit !== "attrs") yBlock.set("attrs", new Y.Map<unknown>());
-        if (omit !== "parentId") yBlock.set("parentId", null);
-        if (omit !== "prevSiblingId") yBlock.set("prevSiblingId", null);
-        if (omit !== "nextSiblingId") yBlock.set("nextSiblingId", null);
-        if (omit !== "firstChildId") yBlock.set("firstChildId", null);
-        if (omit !== "lastChildId") yBlock.set("lastChildId", null);
-        if (omit !== "inlineContent") {
-          const items = new Y.Array<Y.Map<unknown>>();
-          yBlock.set("inlineContent", items);
-        }
-        blocks.set(id, yBlock);
-      });
-    }
-
-    it("throws when block is missing required type field", () => {
-      const doc = createYDoc();
-      seedBlockMissingField(doc, "p1", "type");
-      const cache = createSnapshotCache();
-      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
-        /missing required "type" field/,
-      );
-    });
-
-    it("throws when block is missing required attrs field", () => {
-      const doc = createYDoc();
-      seedBlockMissingField(doc, "p1", "attrs");
-      const cache = createSnapshotCache();
-      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
-        /missing required "attrs" field/,
-      );
-    });
-
-    it("throws when block is missing required parentId field", () => {
-      const doc = createYDoc();
-      seedBlockMissingField(doc, "p1", "parentId");
-      const cache = createSnapshotCache();
-      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
-        /missing required "parentId" field/,
-      );
-    });
-
-    it("throws when block is missing required prevSiblingId field", () => {
-      const doc = createYDoc();
-      seedBlockMissingField(doc, "p1", "prevSiblingId");
-      const cache = createSnapshotCache();
-      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
-        /missing required "prevSiblingId" field/,
-      );
-    });
-
-    it("throws when block is missing required nextSiblingId field", () => {
-      const doc = createYDoc();
-      seedBlockMissingField(doc, "p1", "nextSiblingId");
-      const cache = createSnapshotCache();
-      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
-        /missing required "nextSiblingId" field/,
-      );
-    });
-
-    it("throws when block is missing required firstChildId field", () => {
-      const doc = createYDoc();
-      seedBlockMissingField(doc, "p1", "firstChildId");
-      const cache = createSnapshotCache();
-      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
-        /missing required "firstChildId" field/,
-      );
-    });
-
-    it("throws when block is missing required lastChildId field", () => {
-      const doc = createYDoc();
-      seedBlockMissingField(doc, "p1", "lastChildId");
-      const cache = createSnapshotCache();
-      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
-        /missing required "lastChildId" field/,
-      );
-    });
-
-    it("throws when block is missing required inlineContent field", () => {
-      const doc = createYDoc();
-      seedBlockMissingField(doc, "p1", "inlineContent");
-      const cache = createSnapshotCache();
-      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
-        /missing required "inlineContent" field/,
-      );
-    });
   });
 
-  // A11: inline-item field guards. buildInlineContentSnapshot reads each
-  // inline item's fields via `yItem.get(key)`; a malformed item (a collab
-  // peer / bad migration that wrote an item missing a required key) would
-  // silently coerce `undefined` into the snapshot. Mirror buildBlockSnapshot's
-  // requireField named-throw so the failure names the missing field + index.
-  describe("buildInlineContentSnapshot field guards (A11)", () => {
-    // Seed a block with a single inline item whose fields are taken from
-    // `entries`, omitting any key in `omit`, then snapshot the block.
-    function seedBlockWithRawInlineItem(
-      doc: Y.Doc,
-      id: string,
-      entries: Array<[string, unknown]>,
-      omit: string,
-    ): void {
-      runTransaction(doc, () => {
-        const yBlock = new Y.Map<unknown>();
-        yBlock.set("type", "paragraph");
-        yBlock.set("attrs", new Y.Map<unknown>());
-        yBlock.set("parentId", null);
-        yBlock.set("prevSiblingId", null);
-        yBlock.set("nextSiblingId", null);
-        yBlock.set("firstChildId", null);
-        yBlock.set("lastChildId", null);
-        const items = new Y.Array<Y.Map<unknown>>();
-        const yItem = new Y.Map<unknown>();
-        for (const [key, value] of entries) {
-          if (key !== omit) yItem.set(key, value);
-        }
-        items.push([yItem]);
-        yBlock.set("inlineContent", items);
-        getBlocksMap(doc).set(id, yBlock);
-      });
-    }
-
-    function textItemEntries(): Array<[string, unknown]> {
-      const yText = new Y.Text();
-      yText.insert(0, "hi");
-      return [
-        ["kind", "text"],
-        ["text", yText],
-        ["attrs", new Y.Map<unknown>()],
-      ];
-    }
-
-    function embedItemEntries(): Array<[string, unknown]> {
-      return [
-        ["kind", "embed"],
-        ["embedType", "image"],
-        ["attrs", new Y.Map<unknown>()],
-        ["properties", new Y.Map<unknown>()],
-      ];
-    }
-
-    it("throws when an inline item is missing kind", () => {
-      const doc = createYDoc();
-      seedBlockWithRawInlineItem(doc, "p1", textItemEntries(), "kind");
-      const cache = createSnapshotCache();
-      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
-        /inline item at index 0 missing required "kind" field/,
-      );
-    });
-
-    it("throws when a text inline item is missing text", () => {
-      const doc = createYDoc();
-      seedBlockWithRawInlineItem(doc, "p1", textItemEntries(), "text");
-      const cache = createSnapshotCache();
-      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
-        /inline item at index 0 missing required "text" field/,
-      );
-    });
-
-    it("throws when a text inline item is missing attrs", () => {
-      const doc = createYDoc();
-      seedBlockWithRawInlineItem(doc, "p1", textItemEntries(), "attrs");
-      const cache = createSnapshotCache();
-      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
-        /inline item at index 0 missing required "attrs" field/,
-      );
-    });
-
-    it("throws when an embed inline item is missing embedType", () => {
-      const doc = createYDoc();
-      seedBlockWithRawInlineItem(doc, "p1", embedItemEntries(), "embedType");
-      const cache = createSnapshotCache();
-      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
-        /inline item at index 0 missing required "embedType" field/,
-      );
-    });
-
-    it("throws when an embed inline item is missing attrs", () => {
-      const doc = createYDoc();
-      seedBlockWithRawInlineItem(doc, "p1", embedItemEntries(), "attrs");
-      const cache = createSnapshotCache();
-      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
-        /inline item at index 0 missing required "attrs" field/,
-      );
-    });
-
-    it("throws when an embed inline item is missing properties", () => {
-      const doc = createYDoc();
-      seedBlockWithRawInlineItem(doc, "p1", embedItemEntries(), "properties");
-      const cache = createSnapshotCache();
-      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).toThrow(
-        /inline item at index 0 missing required "properties" field/,
+  // A11: inline storage guards. The read model rejects malformed inline storage
+  // with a clear error instead of silently coercing it into the snapshot: an
+  // embed that is not `{ embedType, properties }`, and the legacy run-array shape
+  // (a typed LegacyDocumentError — no read path parses legacy storage).
+  describe("inline storage guards (A11)", () => {
+    it("throws when an embed is missing embedType", () => {
+      const doc = seedDoc();
+      runTransaction(doc, () => blockText(doc, "p1")?.insertEmbed(0, { properties: {} }));
+      expect(() => getBlockSnapshot(doc, "p1" as BlockId, createSnapshotCache())).toThrow(
+        /malformed embed/,
       );
     });
 
     it("accepts a well-formed text + embed inline content", () => {
-      const doc = createYDoc();
-      // A valid block snapshots without throwing (guards add no false positives).
-      seedParagraphBlock(doc, "p1", "hello");
-      const cache = createSnapshotCache();
-      expect(() => getBlockSnapshot(doc, "p1" as BlockId, cache)).not.toThrow();
+      const doc = seedDoc();
+      runTransaction(doc, () => blockText(doc, "p1")?.insertEmbed(0, { embedType: "image", properties: {} }));
+      expect(() => getBlockSnapshot(doc, "p1" as BlockId, createSnapshotCache())).not.toThrow();
     });
   });
 
   describe("overlay cache (S-A2)", () => {
     it("reads fall through from overlay to base", () => {
-      const doc = createYDoc();
-      seedParagraphBlock(doc, "p1", "hello");
+      const doc = seedDoc();
       const base = createSnapshotCache();
       // Warm the base.
       const baseSnap = getBlockSnapshot(doc, "p1" as BlockId, base);
@@ -402,8 +176,7 @@ describe("snapshot", () => {
     });
 
     it("read on overlay promotes the entry from base into the overlay map", () => {
-      const doc = createYDoc();
-      seedParagraphBlock(doc, "p1", "hello");
+      const doc = seedDoc();
       const base = createSnapshotCache();
       getBlockSnapshot(doc, "p1" as BlockId, base);
       const overlay = createOverlayCache(base, new Set());
@@ -418,16 +191,11 @@ describe("snapshot", () => {
     });
 
     it("invalidated ids skip the base fall-through and re-snapshot from the doc", () => {
-      const doc = createYDoc();
-      seedParagraphBlock(doc, "p1", "hello");
+      const doc = seedDoc();
       const base = createSnapshotCache();
       const baseSnap = getBlockSnapshot(doc, "p1" as BlockId, base);
       // Mutate the Y.Doc under "p1" — base snap is now stale.
-      runTransaction(doc, () => {
-        const yBlock = getBlocksMap(doc).get("p1");
-        if (yBlock === undefined) throw new Error("p1 vanished");
-        yBlock.set("type", "heading");
-      });
+      retype(doc, "p1", "heading");
       // Overlay invalidates "p1" so it MUST not return the stale base snap.
       const overlay = createOverlayCache(
         base,
@@ -442,9 +210,7 @@ describe("snapshot", () => {
     });
 
     it("base remains untouched when overlay is read and mutated", () => {
-      const doc = createYDoc();
-      seedParagraphBlock(doc, "p1", "hello");
-      seedParagraphBlock(doc, "p2", "world");
+      const doc = seedDoc();
       const base = createSnapshotCache();
       const beforeP1 = getBlockSnapshot(doc, "p1" as BlockId, base);
       const overlay = createOverlayCache(
@@ -463,8 +229,7 @@ describe("snapshot", () => {
       // reading it from L2 should walk all the way down, then on the way
       // back promote the snapshot into L2 AND L1 so subsequent reads at
       // any layer are O(1).
-      const doc = createYDoc();
-      seedParagraphBlock(doc, "p1", "hello");
+      const doc = seedDoc();
       const root = createSnapshotCache();
       const rootSnap = getBlockSnapshot(doc, "p1" as BlockId, root);
       expect(rootSnap).not.toBeNull();
@@ -481,14 +246,11 @@ describe("snapshot", () => {
 
   });
 
-  // C.2a-T3: the templateContents dimension mirrors embedContents exactly.
-  // Template bodies live in their own top-level Y.Map (getTemplateContentsMap)
-  // and read through the same layered SnapshotCache via
+  // Template bodies read through the same layered SnapshotCache via
   // getTemplateContentSnapshot.
   describe("getTemplateContentSnapshot", () => {
     it("(a) reuses the same snapshot reference when the underlying Y.Map is unchanged", () => {
-      const doc = createYDoc();
-      seedTemplateBlock(doc, "tmplP", "header");
+      const doc = seedDoc();
       const cache = createSnapshotCache();
       const a = getTemplateContentSnapshot(doc, "tmplP" as BlockId, cache);
       const b = getTemplateContentSnapshot(doc, "tmplP" as BlockId, cache);
@@ -506,29 +268,22 @@ describe("snapshot", () => {
     });
 
     it("(b) produces a fresh snapshot after invalidation reflecting a Y.Doc mutation (via the production overlay path)", () => {
-      const doc = createYDoc();
-      seedTemplateBlock(doc, "tmplP", "header");
+      const doc = seedDoc();
       const base = createSnapshotCache();
       const a = getTemplateContentSnapshot(doc, "tmplP" as BlockId, base);
       // Mutate the underlying template body Y.Map — `a` is now stale.
-      runTransaction(doc, () => {
-        const yBlock = getTemplateContentsMap(doc).get("tmplP");
-        if (yBlock === undefined) throw new Error("tmplP vanished");
-        yBlock.set("type", "heading");
-      });
+      retype(doc, "tmplP", "footer-body");
       // Production handoff: a fresh overlay with the mutated id in its dirty
       // set forces a re-snapshot on the next read.
       const overlay = createOverlayCache(base, new Set(["tmplP" as BlockId]));
       const b = getTemplateContentSnapshot(doc, "tmplP" as BlockId, overlay);
       expect(b).not.toBe(a);
       expect(b!.id).toBe("tmplP");
-      expect(b!.type).toBe("heading");
+      expect(b!.type).toBe("footer-body");
     });
 
     it("(c) template snapshot survives compaction when its id is NOT in dirtyIds", () => {
-      const doc = createYDoc();
-      seedTemplateBlock(doc, "tmplP", "header");
-      seedTemplateBlock(doc, "other", "footer");
+      const doc = seedDoc();
       // Build a multi-layer chain so compaction is non-trivial: read on a
       // chained overlay to populate a pre-compaction layer.
       const root = createSnapshotCache();
@@ -537,7 +292,7 @@ describe("snapshot", () => {
       expect(first).not.toBeNull();
       // Now compact with an UNRELATED dirty id; "tmplP" must be carried
       // into the compacted root cache and served WITHOUT touching the Y.Doc.
-      const getSpy = vi.spyOn(getTemplateContentsMap(doc), "get");
+      const getSpy = vi.spyOn(getRegistry(doc), "get");
       const compacted = compactCache(overlay, new Set(["other" as BlockId]));
       const second = getTemplateContentSnapshot(
         doc,
@@ -551,13 +306,12 @@ describe("snapshot", () => {
     });
 
     it("(d) compaction WITH the template id in dirtyIds re-snapshots on next read", () => {
-      const doc = createYDoc();
-      seedTemplateBlock(doc, "tmplP", "header");
+      const doc = seedDoc();
       const root = createSnapshotCache();
       const overlay = createOverlayCache(root, new Set());
       const first = getTemplateContentSnapshot(doc, "tmplP" as BlockId, overlay);
       expect(first).not.toBeNull();
-      const getSpy = vi.spyOn(getTemplateContentsMap(doc), "get");
+      const getSpy = vi.spyOn(getRegistry(doc), "get");
       const compacted = compactCache(overlay, new Set(["tmplP" as BlockId]));
       const second = getTemplateContentSnapshot(
         doc,

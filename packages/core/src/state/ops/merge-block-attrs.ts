@@ -1,11 +1,10 @@
+import { attrRegistryOf } from "../mark-attrs";
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import { attrsEqual, mergeAttrs } from "../attrs";
-import { getYBlock } from "../yjs-doc";
-import { buildYAttrs } from "../y-block";
-import type { AttrRegistry } from "../../cascade/attr-registry";
+import { writeBlockAttrs } from "../flow-ops";
 
 /**
  * Merge attrs into a block's existing attrs.
@@ -23,10 +22,10 @@ import type { AttrRegistry } from "../../cascade/attr-registry";
  * would always produce a change record even when the new bag is
  * structurally identical.
  *
- * `registry` is consulted by `attrsEqual` for per-key custom equality (an
- * interpreter's `equals` overrides the default `deepValueEqual`); omitted →
- * structural deep equality only. Mirrors `setBlockAttrs`. Editor callers pass
- * `config.attrRegistry`.
+ * The attr registry bound to the doc supplies per-key custom equality to
+ * `attrsEqual` (an interpreter's `equals` overrides the default `deepValueEqual`,
+ * e.g. a `comment` attr whose `timestamp` must not count); none bound → structural
+ * deep equality only.
  *
  * Throws if the block does not exist.
  */
@@ -34,19 +33,17 @@ export function mergeBlockAttrs(
   state: State,
   blockId: BlockId,
   incoming: ReadonlyAttrs,
-  registry?: AttrRegistry,
 ): OperationResult {
   const resolved = resolveBlock(state, blockId);
   if (resolved === null) {
     throw new Error(`mergeBlockAttrs: block "${blockId}" not found`);
   }
-  const { block, kind } = resolved;
+  const { block } = resolved;
   const merged = mergeAttrs(block.attrs, incoming);
   return applyOperation(state, (doc) => {
-    if (attrsEqual(block.attrs, merged, registry)) {
+    if (attrsEqual(block.attrs, merged, attrRegistryOf(doc))) {
       return;
     }
-    const yBlock = getYBlock(doc, blockId, "mergeBlockAttrs", kind);
-    yBlock.set("attrs", buildYAttrs(merged));
+    writeBlockAttrs(doc, blockId, merged);
   });
 }

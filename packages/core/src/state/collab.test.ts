@@ -4,6 +4,9 @@ import { applyOperation } from "./state";
 import { getYBlock, runWithTransactionOrigin } from "./yjs-doc";
 import { asBlockId, type BlockId } from "./block-id";
 import { buildState, buildBlock, inlineContent, text } from "../test-utils/state-builders";
+import { legacyInline } from "../test-utils/legacy-fixture";
+import { STATE_INTERNAL } from "./state-internal";
+import * as Y from "yjs";
 
 /** A one-paragraph doc whose body block "p" we can mutate to drive transactions. */
 function makeState() {
@@ -33,11 +36,15 @@ function editBlockP(state: ReturnType<typeof makeState>, origin: unknown): void 
   );
 }
 
+const noLegacy = (): void => {
+  throw new Error("unexpected legacy storage");
+};
+
 describe("subscribeForeignChanges (collab seam)", () => {
   it("fires with the dirtied block ids for a FOREIGN-origin transaction", () => {
     const state = makeState();
     const seen: BlockId[] = [];
-    const unsub = subscribeForeignChanges(state, "self", (ids) => seen.push(...ids));
+    const unsub = subscribeForeignChanges(state, "self", (ids) => seen.push(...ids), noLegacy);
 
     editBlockP(state, "peerB"); // foreign origin
 
@@ -50,7 +57,7 @@ describe("subscribeForeignChanges (collab seam)", () => {
     let calls = 0;
     const unsub = subscribeForeignChanges(state, "self", () => {
       calls += 1;
-    });
+    }, noLegacy);
 
     editBlockP(state, "self"); // self origin — applyOperation already handled it
 
@@ -63,7 +70,7 @@ describe("subscribeForeignChanges (collab seam)", () => {
     let calls = 0;
     const unsub = subscribeForeignChanges(state, "self", () => {
       calls += 1;
-    });
+    }, noLegacy);
     unsub();
 
     editBlockP(state, "peerB");
@@ -79,7 +86,7 @@ describe("subscribeForeignChanges (collab seam)", () => {
     let calls = 0;
     const unsub = subscribeForeignChanges(state, "peerA", () => {
       calls += 1;
-    });
+    }, noLegacy);
 
     runWithTransactionOrigin("peerA", () => {
       applyOperation(state, (doc) => {
@@ -94,7 +101,7 @@ describe("subscribeForeignChanges (collab seam)", () => {
   it("ambient origin is FOREIGN to a different peer's observer", () => {
     const state = makeState();
     const seen: BlockId[] = [];
-    const unsub = subscribeForeignChanges(state, "peerB", (ids) => seen.push(...ids));
+    const unsub = subscribeForeignChanges(state, "peerB", (ids) => seen.push(...ids), noLegacy);
 
     runWithTransactionOrigin("peerA", () => {
       applyOperation(state, (doc) => {
@@ -103,6 +110,48 @@ describe("subscribeForeignChanges (collab seam)", () => {
     });
 
     expect(seen).toContain(asBlockId("p")); // peerA's edit is foreign to peerB
+    unsub();
+  });
+});
+
+describe("subscribeForeignChanges — legacy storage halts the subscription until compatible", () => {
+  it("a peer write into the FROZEN legacy roots halts once (sticky) with the touched block and its legacy text", () => {
+    const state = makeState();
+    const doc = state[STATE_INTERNAL].doc;
+    const events: string[] = [];
+    const unsub = subscribeForeignChanges(
+      state,
+      "self",
+      (ids) => events.push(`change:${[...ids].join(",")}`),
+      (report) => events.push(`incompatible:${report.reason}:${report.legacyBlocks.join(",")}:${JSON.stringify(report.legacyText)}`),
+      () => events.push("compatible"),
+    );
+    // An old (schema-2) client writes block "p" into its legacy `blocks` root.
+    doc.transact(() => {
+      const legacy = new Y.Map<unknown>();
+      legacy.set("inlineContent", legacyInline([text("old")]));
+      doc.getMap<Y.Map<unknown>>("blocks").set("p", legacy);
+    }, "peer");
+    editBlockP(state, "peer"); // halted: withheld, no second report
+    expect(events).toEqual(['incompatible:legacy-write:p:{"p":"old"}']);
+    unsub();
+  });
+
+  it("startHalted on a document already compatible at subscribe: onCompatible on a microtask, changes reported", async () => {
+    const state = makeState();
+    const events: string[] = [];
+    const unsub = subscribeForeignChanges(
+      state,
+      "self",
+      () => events.push("change"),
+      () => events.push("incompatible"),
+      () => events.push("compatible"),
+      { startHalted: true },
+    );
+    editBlockP(state, "peer"); // inspected at subscribe: no legacy block, not halted
+    expect(events).toEqual(["change"]);
+    await Promise.resolve();
+    expect(events).toEqual(["change", "compatible"]);
     unsub();
   });
 });

@@ -38,6 +38,10 @@ describe("mapKeyEvent", () => {
     });
   });
 
+  it("maps Shift+Enter to INSERT_LINE_BREAK", () => {
+    expect(mapKeyEvent(key({ key: "Enter", shiftKey: true }))).toEqual({ type: "INSERT_LINE_BREAK" });
+  });
+
   it("maps ArrowLeft to MOVE_CURSOR backward", () => {
     expect(mapKeyEvent(key({ key: "ArrowLeft" }))).toEqual({
       type: "MOVE_CURSOR",
@@ -191,7 +195,11 @@ describe("mapKeyEvent", () => {
 
   it("returns null for unrecognized keys", () => {
     expect(mapKeyEvent(key({ key: "F1" }))).toBeNull();
-    expect(mapKeyEvent(key({ key: "Escape" }))).toBeNull();
+  });
+
+  it("maps Escape to ESCAPE (object deselect / end a host trigger), as digital does", () => {
+    expect(mapKeyEvent(key({ key: "Escape" }))).toEqual({ type: "ESCAPE" });
+    expect(mapKeyEvent(key({ key: "Escape", shiftKey: true }))).toEqual({ type: "ESCAPE" }); // any modifiers, as digital
   });
 
   // --- Delete forward ---

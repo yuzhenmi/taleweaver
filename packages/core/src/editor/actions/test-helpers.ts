@@ -1,6 +1,5 @@
 /**
- * Test-only fixtures shared by `actions/*.test.ts`. Re-rewritten for the
- * P11-cutover: editor states are built from the new pipeline
+ * Test-only fixtures shared by `actions/*.test.ts`. Editor states are built from the new pipeline
  * (createEmptyDocument → render → layout). Tests assert against
  * `editor.state` (new State + getBlock) rather than the legacy
  * `editor.stateLegacy`.
@@ -9,6 +8,7 @@ import { createMockShaper } from "../../layout/mock-shaper";
 import { createDefaultComponentRegistry } from "../../components/component-registry";
 import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
 import { getBlock, createPosition, createSpan, inlineContentLength } from "../../state";
+import { topLevelBlockIds } from "../../state/block-traversal";
 import type { State, BlockId, Selection } from "../../state";
 import {
   createInitialEditorState,
@@ -69,10 +69,17 @@ export function typeChars(state: EditorState, chars: string): EditorState {
   return s;
 }
 
-/** Get the first block id under the document root. */
+/**
+ * The first top-level body block (the root's children are sections,
+ * so this is the first section's first child).
+ */
 export function firstChildId(state: State): BlockId | null {
-  const root = getBlock(state, state.rootId);
-  return root === null ? null : root.firstChildId;
+  return topLevelBlockIds(state)[0] ?? null;
+}
+
+/** The top-level body blocks in document order (every section's children). */
+export function bodyBlockIds(state: State): BlockId[] {
+  return topLevelBlockIds(state);
 }
 
 /** Block content length helper for cursor-end positions. */

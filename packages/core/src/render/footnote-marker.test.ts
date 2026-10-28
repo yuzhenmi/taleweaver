@@ -1,3 +1,5 @@
+import { sectionComponent } from "../components/section";
+import { bodyChildren } from "../test-utils/state-builders";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "./render";
 import * as footnotesModule from "../footnotes";
@@ -73,6 +75,7 @@ const footnoteBodyContainer: ContainerComponentDefinition = {
 function basicRegistry() {
   const reg = createComponentRegistry();
   reg.register(documentComponent);
+  reg.register(sectionComponent); // a document always holds its final section
   reg.register(paragraphComponent);
   reg.register(fnBodyComponent);
   reg.register(footnoteBodyContainer);
@@ -125,7 +128,7 @@ describe("buildFootnoteMarker (unit)", () => {
 
 describe("render — footnote-anchor superscript marker", () => {
   function findAnchorMarker(out: { root: RenderNode }, paraIndex = 0): ElementBox {
-    const p = ((out.root as ElementBox).children[paraIndex]) as ElementBox;
+    const p = (bodyChildren(out.root)[paraIndex]) as ElementBox;
     // The first inline child of the paragraph is the marker.
     return p.children[0] as ElementBox;
   }
@@ -169,9 +172,9 @@ describe("render — footnote-anchor superscript marker", () => {
     });
     const out = render(state, basicRegistry(), createDefaultAttrRegistry());
     // Each paragraph's anchor marker is its SECOND inline child (after the text).
-    const m1 = ((out.root as ElementBox).children[0] as ElementBox).children[1] as ElementBox;
-    const m2 = ((out.root as ElementBox).children[1] as ElementBox).children[1] as ElementBox;
-    const m3 = ((out.root as ElementBox).children[2] as ElementBox).children[1] as ElementBox;
+    const m1 = (bodyChildren(out.root)[0] as ElementBox).children[1] as ElementBox;
+    const m2 = (bodyChildren(out.root)[1] as ElementBox).children[1] as ElementBox;
+    const m3 = (bodyChildren(out.root)[2] as ElementBox).children[1] as ElementBox;
     expect(firstText(m1)).toBe("1");
     expect(firstText(m2)).toBe("2");
     expect(firstText(m3)).toBe("3");
@@ -195,8 +198,8 @@ describe("render — footnote-anchor superscript marker", () => {
       reset: "continuous",
       format: "decimal",
     });
-    const m1 = nth(((out.root as ElementBox).children[0] as ElementBox).children, 0, "marker 1");
-    const m2 = nth(((out.root as ElementBox).children[1] as ElementBox).children, 0, "marker 2");
+    const m1 = nth((bodyChildren(out.root)[0] as ElementBox).children, 0, "marker 1");
+    const m2 = nth((bodyChildren(out.root)[1] as ElementBox).children, 0, "marker 2");
     expect(firstText(m1)).toBe(numbers.get("fn-a" as BlockId)?.formatted);
     expect(firstText(m2)).toBe(numbers.get("fn-b" as BlockId)?.formatted);
   });
@@ -217,7 +220,7 @@ describe("render — footnote-anchor superscript marker", () => {
       ],
     });
     const out = render(state, basicRegistry(), createDefaultAttrRegistry());
-    const embed = ((out.root as ElementBox).children[0] as ElementBox).children[0] as ElementBox;
+    const embed = (bodyChildren(out.root)[0] as ElementBox).children[0] as ElementBox;
     expect(embed.style.display).toBe("inline-block");
     // Unchanged from before FN-2: zero inline-size, no children (no marker text),
     // no superscript font-size / verticalAlign.
@@ -246,7 +249,7 @@ describe("render — footnote marker is exactly one cursor stop (IFC offset)", (
     });
     const out = render(state, basicRegistry(), createDefaultAttrRegistry());
     const cascadedRoot = cascadePass(out.root) as ElementBox;
-    const para = cascadedRoot.children[0] as ElementBox;
+    const para = bodyChildren(cascadedRoot)[0] as ElementBox;
     const shaper = createMockShaper(8, 16);
     const tokens = collectTokens(para, shaper, "ltr", createIntrinsicSizesCache());
     // Exactly one atomic token (the marker inline-block), contributing 1 to the
@@ -276,7 +279,7 @@ describe("render — footnote marker geometry (reduced + raised)", () => {
     });
     const out = render(state, basicRegistry(), createDefaultAttrRegistry());
     const cascadedRoot = cascadePass(out.root) as ElementBox;
-    const para = cascadedRoot.children[0] as ElementBox;
+    const para = bodyChildren(cascadedRoot)[0] as ElementBox;
     const paraFontSize = para.computedStyle?.fontSize;
     const markerEl = para.children[1] as ElementBox;
     const markerFontSize = markerEl.computedStyle?.fontSize;
@@ -315,7 +318,7 @@ describe("render incremental — downstream markers renumber even when not dirty
    * `/marker-text`), independent of the anchor's offset within the paragraph.
    */
   function markerTextFor(out: { root: RenderNode }, id: string): string | undefined {
-    const docChildren = (out.root as ElementBox).children;
+    const docChildren = bodyChildren(out.root);
     for (const para of docChildren) {
       if (para.key !== id) continue;
       for (const child of (para as ElementBox).children) {
@@ -486,6 +489,7 @@ describe("render — footnote body leading number (FN-6.2b: markerText from numb
   function realBodyRegistry() {
     const reg = createComponentRegistry();
     reg.register(documentComponent);
+    reg.register(sectionComponent); // a document always holds its final section
     reg.register(paragraphComponent);
     reg.register(footnoteBodyComponent);
     return reg;
@@ -632,6 +636,7 @@ describe("footnote dot is on the BODY marker ONLY, not the call marker", () => {
   function realBodyRegistry() {
     const reg = createComponentRegistry();
     reg.register(documentComponent);
+    reg.register(sectionComponent); // a document always holds its final section
     reg.register(paragraphComponent);
     reg.register(footnoteBodyComponent);
     return reg;
@@ -639,7 +644,7 @@ describe("footnote dot is on the BODY marker ONLY, not the call marker", () => {
 
   /** The CALL marker (superscript) text in paragraph `id` of the main doc. */
   function callMarkerText(out: { root: RenderNode }, id: string): string | undefined {
-    const docChildren = (out.root as ElementBox).children;
+    const docChildren = bodyChildren(out.root);
     for (const para of docChildren) {
       if (para.key !== id) continue;
       for (const child of (para as ElementBox).children) {

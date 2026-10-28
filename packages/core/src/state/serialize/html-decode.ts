@@ -3,15 +3,16 @@
  * {@link HtmlParser}. The parser turns the string into a DOM-free
  * {@link HtmlNode} body (a browser host adapts `DOMParser`, a server host adapts
  * parse5/jsdom) — core itself references NO DOM type. The walk maps supported
- * elements to declarative `BlockNode`s (spec §4 table), then lowers the flat
+ * elements to declarative `BlockNode`s, then lowers the flat
  * block list to a `State` with `buildDocumentFromTree`.
  *
- * Per spec §4 (I2), this decoder NEVER throws `MalformedDocumentError`: a
+ * This decoder NEVER throws `MalformedDocumentError`: a
  * conforming `HtmlParser` is lenient, the empty-paragraph fallback covers
  * no-content input, the typed `string` contract rules out non-string input, and
  * the discriminated-union `BlockNode` makes the container-XOR-leaf invariant a
  * compile-time guarantee.
  */
+import type { BlockKindResolver } from "../block-kinds";
 import { buildDocumentFromTree } from "../build-document-from-tree";
 import type {
   BlockNode,
@@ -26,6 +27,7 @@ import { HARD_BREAK_EMBED_TYPE } from "../hard-break";
 import type { InlineItem } from "../inline-content";
 import type { ReadonlyAttrs } from "../attrs";
 import { isExportSafeLinkUrl } from "../../url-safety";
+import { BOOKMARK_START_EMBED_TYPE, BOOKMARK_END_EMBED_TYPE } from "../bookmarks";
 import type { HtmlNode, HtmlParser } from "./html-node";
 
 /** Default ordered (decimal) / unordered (disc) list defs for a decoded list. */
@@ -37,7 +39,7 @@ function discListDef(): ListDef {
 }
 
 /**
- * Parse an `<ol start>` / `<li value>` ordinal attribute (#554). HTML permits any
+ * Parse an `<ol start>` / `<li value>` ordinal attribute. HTML permits any
  * integer (the encoder only emits positive ones); a non-integer / absent value
  * yields `undefined`.
  */
@@ -48,7 +50,7 @@ function parseOrdinal(raw: string | null): number | undefined {
 }
 
 /**
- * Record the `<ol>` level at `depth` for an ORDERED decoded list (#554),
+ * Record the `<ol>` level at `depth` for an ORDERED decoded list,
  * reconstructing the per-level `listDefs` entry the encoder derived `<ol start>`
  * from. Ensures `levels` is CONTIGUOUS up to `depth` (intermediate gaps filled
  * with the base level-0 config, `start: 1`) so `computeCounters`'s level lookup
@@ -88,15 +90,60 @@ const BOOLEAN_MARK_TAGS: Readonly<Record<string, string>> = {
 };
 
 /**
+ * Trim a leading and/or trailing single space from a `InlineItem[]` assembled
+ * from an element's children, applying CSS `white-space: normal` block-edge
+ * collapsing. A leading/trailing space item is either removed entirely (if it
+ * was the sole character) or shrunk by one character. Only a plain single space
+ * `" "` at the very start/end qualifies (collapsed runs are already single-space
+ * by the time they arrive here).
+ *
+ * This trim is applied at the ASSEMBLY boundary (`inlineContentOf`, `<li>`
+ * flush, cell flush) — NOT inside the per-node recursion, which lacks
+ * block-start/end context.
+ */
+function trimEdgeSpaces(items: InlineItem[]): InlineItem[] {
+  // Trim leading space
+  if (items.length > 0) {
+    const first = items[0];
+    if (first !== undefined && first.kind === "text" && first.text.startsWith(" ")) {
+      const trimmed = first.text.slice(1);
+      if (trimmed.length === 0) {
+        items = items.slice(1);
+      } else {
+        items = [{ ...first, text: trimmed }, ...items.slice(1)];
+      }
+    }
+  }
+  // Trim trailing space
+  if (items.length > 0) {
+    const last = items[items.length - 1];
+    if (last !== undefined && last.kind === "text" && last.text.endsWith(" ")) {
+      const trimmed = last.text.slice(0, -1);
+      if (trimmed.length === 0) {
+        items = items.slice(0, -1);
+      } else {
+        items = [...items.slice(0, -1), { ...last, text: trimmed }];
+      }
+    }
+  }
+  return items;
+}
+
+/**
  * Dispatch a SINGLE DOM node into inline items under the current mark set: a
  * text node becomes a TextItem stamped with `activeAttrs`; a mark element ADDS
- * its attr to the set and recurses (order-independent, M1); `<a href>` adds
- * `link = href` (M2); `<br>` becomes a hard-break embed; any other element
+ * its attr to the set and recurses (order-independent); `<a href>` adds
+ * `link = href`; `<br>` becomes a hard-break embed; any other element
  * (unknown wrapper, or a block-level child appearing inside inline content) is
  * recursed into with the same active attrs so its text survives. The unit shared
  * by both the leaf-element walk (`accumulateInline`) and the `<li>` walk
  * (`walkList`) — so marks / `<br>` inside a list item are handled identically to
  * those inside a paragraph.
+ *
+ * Text-node data is normalised to CSS `white-space: normal` semantics: runs of
+ * ASCII whitespace (space / tab / newline / CR / FF) are collapsed to a single
+ * space. Edge trimming is deferred to the assembly boundary (`inlineContentOf`,
+ * `<li>` / cell flush) where block start/end context is available.
  */
 function accumulateNode(
   node: HtmlNode,
@@ -104,7 +151,8 @@ function accumulateNode(
   out: InlineItem[],
 ): void {
   if (node.kind === "text") {
-    const value = node.data;
+    // CSS white-space: normal — collapse any run of ASCII whitespace to a single space.
+    const value = node.data.replace(/[ \t\r\n\f]+/g, " ");
     if (value.length > 0) {
       out.push({ kind: "text", text: value, attrs: activeAttrs });
     }
@@ -123,9 +171,17 @@ function accumulateNode(
     return;
   }
   if (tag === "A") {
+    // Word's HTML bookmark: a named anchor (`<a name="_Ref…">` / `<a id>`) → a point
+    // bookmark (start + end adjacent) at the anchor's position.
+    const name = node.getAttribute("name") ?? node.getAttribute("id");
+    if (name !== null && name !== "") {
+      for (const embedType of [BOOKMARK_START_EMBED_TYPE, BOOKMARK_END_EMBED_TYPE]) {
+        out.push({ kind: "embed", embedType, attrs: {}, properties: { bookmarkId: name } });
+      }
+    }
     const href = node.getAttribute("href");
     // Sanitize at the untrusted-input trust boundary, symmetric with the export
-    // side (#466 `isExportSafeLinkUrl`): a `javascript:`/`data:`/`vbscript:` href
+    // side (`isExportSafeLinkUrl`): a `javascript:`/`data:`/`vbscript:` href
     // is dropped (the link text is still kept), so a decoded document never
     // carries an executable-scheme `link` attr.
     const nextAttrs =
@@ -156,9 +212,11 @@ function accumulateInline(
 
 /** Build a leaf BlockNode's inline content from an element's children. */
 function inlineContentOf(el: HtmlNode): { items: InlineItem[] } {
-  const items: InlineItem[] = [];
-  accumulateInline(el, {}, items);
-  return { items };
+  const raw: InlineItem[] = [];
+  accumulateInline(el, {}, raw);
+  // CSS white-space: normal block-edge trim: drop a leading/trailing space that
+  // arose from collapsing inter-tag whitespace at the start/end of the block.
+  return { items: trimEdgeSpaces(raw) };
 }
 
 /** Heading level 1–6 from an h1–h6 tag, defaulting to 1. */
@@ -261,7 +319,7 @@ function walkList(
   acc: DecodeAccumulator,
   inherited: InheritedBlockAttrs,
 ): void {
-  // #554: for an ORDERED list, reconstruct this level's `start` from `<ol start>`
+  // For an ORDERED list, reconstruct this level's `start` from `<ol start>`
   // (or default 1) so HTML ordinals round-trip. Done per nested `<ol>` element so
   // each depth's start is captured. Unordered (bullet) lists carry no ordinal.
   const def = acc.listDefs[listId];
@@ -297,7 +355,7 @@ function walkList(
       // inside an <li> are preserved, not silently dropped.
       accumulateNode(liChild, {}, items);
     }
-    // #554: an ORDERED item's `<li value>` becomes a listCounterOverride (the
+    // An ORDERED item's `<li value>` becomes a listCounterOverride (the
     // mid-list restart the numbering engine forces a value from). Bullet items
     // carry no ordinal, so the attr is read only for ordered lists.
     const override = ordered ? parseOrdinal(child.getAttribute("value")) : undefined;
@@ -308,7 +366,8 @@ function walkList(
     acc.blocks.push({
       type: "list-item",
       attrs: liAttrs,
-      inlineContent: { items },
+      // CSS white-space: normal block-edge trim at the <li> assembly boundary.
+      inlineContent: { items: trimEdgeSpaces(items) },
     });
     // Recurse nested lists, keeping the same listId, deeper level.
     for (const nested of nestedLists) {
@@ -345,13 +404,15 @@ function decodeFlowContent(
   const cellAcc: DecodeAccumulator = { blocks: [], listDefs: acc.listDefs };
   let pending: InlineItem[] = [];
   const flush = (): void => {
-    if (pending.length === 0) return;
+    // CSS white-space: normal block-edge trim at the cell inline-run assembly boundary.
+    const items = trimEdgeSpaces(pending);
+    pending = [];
+    if (items.length === 0) return;
     cellAcc.blocks.push({
       type: "paragraph",
       attrs: withInheritedAttrs(inherited),
-      inlineContent: { items: pending },
+      inlineContent: { items },
     });
-    pending = [];
   };
   for (const child of el.childNodes) {
     if (child.kind === "element" && BLOCK_LEVEL_TAGS.has(child.tagName)) {
@@ -366,6 +427,14 @@ function decodeFlowContent(
         decodeBlockElement(child, cellAcc, inherited);
       }
     } else {
+      // CSS white-space: normal: a whitespace-only text node between block-level
+      // elements in cell flow content is dropped (it would flush an empty paragraph).
+      // Text nodes adjacent to inline content are still accumulated (the collapse in
+      // accumulateNode reduces them to a single space, trimEdgeSpaces removes them at
+      // the assembly boundary if they end up at a block edge).
+      if (child.kind === "text" && child.data.trim() === "" && pending.length === 0) {
+        continue; // inter-block whitespace-only text node — skip
+      }
       accumulateNode(child, {}, pending);
     }
   }
@@ -425,7 +494,7 @@ function decodeTableRow(
  * Decode a `<table>` into a nested `table` → `table-row` → `table-cell` ContainerBlockNode
  * subtree, PUSHED into `acc.blocks` (the inverse of `encodeTable`). `<thead>`/`<tbody>`/
  * `<tfoot>` wrappers and bare `<tr>` are flattened into the row sequence; a LEADING
- * `<thead>` sets `headerRowCount` (#487); `<colgroup>` `%` widths become `columnWidths`.
+ * `<thead>` sets `headerRowCount`; `<colgroup>` `%` widths become `columnWidths`.
  * `inherited` is the table's already-resolved cascade (threaded to rows/cells/leaves).
  */
 function decodeTable(
@@ -559,7 +628,7 @@ function decodeBlockElement(
 }
 
 /**
- * Decode an HTML string to a State. Never throws (spec §4 I2). The host injects
+ * Decode an HTML string to a State. Never throws. The host injects
  * `parseHtml` (a DOM-free {@link HtmlParser}) — it parses `html` and returns the
  * BODY as an `HtmlNode`; the walk below references no DOM type.
  */
@@ -567,6 +636,7 @@ export function decodeHtml(
   html: string,
   allocator: IdAllocator,
   parseHtml: HtmlParser,
+  resolver: BlockKindResolver,
 ): State {
   const body = parseHtml(html);
   const acc: DecodeAccumulator = { blocks: [], listDefs: {} };
@@ -585,5 +655,5 @@ export function decodeHtml(
   }
 
   const root: ContainerBlockNode = { type: "document", children: acc.blocks };
-  return buildDocumentFromTree(root, acc.listDefs, allocator);
+  return buildDocumentFromTree(root, acc.listDefs, allocator, resolver);
 }

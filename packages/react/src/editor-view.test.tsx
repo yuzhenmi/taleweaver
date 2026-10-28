@@ -4,6 +4,7 @@ import { render, act } from "@testing-library/react";
 import { EditorView, type EditorViewHandle } from "./editor-view";
 import { useEditor } from "./use-editor";
 import { createEditorController } from "@taleweaver/print";
+import { asBlockId, createDefaultAttrRegistry, type Decoration } from "@taleweaver/core";
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -26,6 +27,8 @@ const mockFindClose = vi.fn();
 const mockReplaceActive = vi.fn(() => ({ total: 2, activeIndex: 0 }));
 const mockReplaceAll = vi.fn(() => ({ total: 0, activeIndex: -1 }));
 const mockFindStatus = vi.fn(() => ({ total: 3, activeIndex: 0 }));
+const mockSetDecorations = vi.fn();
+const mockSetSuggestionStyles = vi.fn();
 
 vi.mock("@taleweaver/print", async () => {
   const actual = await vi.importActual<typeof import("@taleweaver/print")>(
@@ -43,6 +46,8 @@ vi.mock("@taleweaver/print", async () => {
       replaceActive: mockReplaceActive,
       replaceAll: mockReplaceAll,
       findStatus: mockFindStatus,
+      setDecorations: mockSetDecorations,
+      setSuggestionStyles: mockSetSuggestionStyles,
     })),
   };
 });
@@ -60,8 +65,8 @@ beforeEach(() => {
   mockReplaceAll.mockClear();
   mockFindStatus.mockClear();
 
-  originalResizeObserver = global.ResizeObserver;
-  global.ResizeObserver = vi.fn().mockImplementation(() => ({
+  originalResizeObserver = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = vi.fn().mockImplementation(() => ({
     observe: vi.fn(),
     unobserve: vi.fn(),
     disconnect: vi.fn(),
@@ -70,7 +75,7 @@ beforeEach(() => {
 
 afterEach(() => {
   if (originalResizeObserver) {
-    global.ResizeObserver = originalResizeObserver;
+    globalThis.ResizeObserver = originalResizeObserver;
   }
 });
 
@@ -78,20 +83,17 @@ afterEach(() => {
 
 function EditorHarness() {
   const editor = useEditor();
-  return <EditorView {...editor} />;
+  return <EditorView {...editor} measurer={editor.shaper} />;
 }
 
 function RefHarness({ handleRef }: { handleRef: React.Ref<EditorViewHandle> }) {
   const editor = useEditor();
-  return <EditorView {...editor} ref={handleRef} />;
+  return <EditorView {...editor} measurer={editor.shaper} ref={handleRef} />;
 }
 
 function PaginatedEditorHarness() {
-  const editor = useEditor({
-    pageHeight: 100,
-    pageMargins: { top: 10, bottom: 10, left: 10, right: 10 },
-  });
-  return <EditorView {...editor} pageHeight={100} pageGap={8} />;
+  const editor = useEditor();
+  return <EditorView {...editor} measurer={editor.shaper} pageHeight={100} pageGap={8} />;
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -108,6 +110,19 @@ describe("EditorView", () => {
     render(<EditorHarness />);
     // May be called twice in React StrictMode (dev double-mount)
     expect(createEditorController).toHaveBeenCalled();
+  });
+
+  it("hands useEditor's config (one registry for reducer + controller) to the controller (host marks paint in print)", () => {
+    const attrRegistry = createDefaultAttrRegistry();
+    const extensions = { keymap: { "Mod-k": null } };
+    function RegistryHarness() {
+      const editor = useEditor({ attrRegistry, extensions });
+      return <EditorView {...editor} measurer={editor.shaper} />;
+    }
+    render(<RegistryHarness />);
+    const passed = vi.mocked(createEditorController).mock.calls.at(-1)?.[1].config;
+    expect(passed?.attrRegistry).toBe(attrRegistry);
+    expect(passed?.extensions).toBe(extensions); // host keymap reaches the print controller
   });
 
   it("calls controller.update() with initial editorState", () => {
@@ -135,6 +150,23 @@ describe("EditorView", () => {
     expect(mockDestroy).not.toHaveBeenCalled();
     unmount();
     expect(mockDestroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("forwards the decorations / suggestionStyles props to the controller (after the state update)", () => {
+    const decorations: Decoration[] = [{ kind: "block", id: "b", blockId: asBlockId("x") }];
+    const styleOf = () => ({ class: "by-source" });
+    function DecoratedHarness() {
+      const editor = useEditor();
+      return <EditorView {...editor} measurer={editor.shaper} decorations={decorations} suggestionStyles={styleOf} />;
+    }
+    mockSetDecorations.mockClear();
+    mockSetSuggestionStyles.mockClear();
+    render(<DecoratedHarness />);
+    expect(mockSetDecorations).toHaveBeenLastCalledWith(decorations, undefined);
+    expect(mockSetSuggestionStyles).toHaveBeenLastCalledWith(styleOf);
+    const updateOrder = mockUpdate.mock.invocationCallOrder.at(-1) ?? 0;
+    const decoOrder = mockSetDecorations.mock.invocationCallOrder.at(-1) ?? 0;
+    expect(decoOrder).toBeGreaterThan(updateOrder);
   });
 
   it("works with paginated mode", () => {

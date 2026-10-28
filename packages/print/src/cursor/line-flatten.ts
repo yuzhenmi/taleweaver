@@ -9,6 +9,7 @@ import { selectionContextOf } from "@taleweaver/core";
 import type { CaretAffinity } from "./line-bidi";
 import type { Mat2D } from "@taleweaver/core";
 import { compose, invert, fromTransformFns, resolveTransformOrigin } from "@taleweaver/core";
+import { ROOT_CLIP, childClip, columnClip, pageClip, type ClipState } from "./ancestor-clip";
 
 /**
  * A `LineBox` paired with its absolute (document-relative) coordinates
@@ -32,8 +33,8 @@ export interface AbsoluteLineBox {
   readonly pageIndex: number;
 
   /**
-   * POSITIONING slice 5 — the inverse of the CUMULATIVE ancestor `transform`
-   * chain that paints this line, baked at flatten time (hit-test approach (b)).
+   * The inverse of the CUMULATIVE ancestor `transform`
+   * chain that paints this line, baked at flatten time (the hit-test's per-line inverse).
    * THREE states:
    *   - `undefined` → NO transform anywhere in the ancestor chain → the IDENTITY
    *     fast-path. The line's `(absoluteX, absoluteY)` bounds ARE its painted
@@ -48,10 +49,19 @@ export interface AbsoluteLineBox {
    *   - `"singular"` → a degenerate cumulative transform (det 0, e.g. `scale(0)`)
    *     → the painted region is zero-area / invisible → hit-test SKIPS the line
    *     (no hit), matching CSS Transforms 1.
-   * The forward (non-inverted) cumulative matrix is the same mechanism the named
-   * selection-geometry / relative-caret follow-ups will reuse.
+   * The forward (non-inverted) cumulative matrix is the mechanism the
+   * transformed-content caret / selection-geometry gap would reuse.
    */
   readonly inverseTransform?: Mat2D | "singular";
+
+  /**
+   * The line's ancestor clip (`ancestor-clip.ts`): a table cell's border box, its
+   * column's span, the page box — in the line's own (pre-transform) frame, plus the
+   * clips above a transform. Content hanging past the line (the ¶ selection extension)
+   * is visible only inside it. Absent → nothing clips (a tree that is not paginated,
+   * outside any cell / column).
+   */
+  readonly ancestorClip?: ClipState;
 }
 
 /**
@@ -87,16 +97,19 @@ export function collectLineBoxes(
   parentY: number,
   out: AbsoluteLineBox[],
   pageIndex: number = 0,
-  // POSITIONING slice 5 — the CUMULATIVE forward `transform` matrix of every
+  // The CUMULATIVE forward `transform` matrix of every
   // transform-bearing ancestor of `box` (in the page-content coordinate frame),
   // or `undefined` for the identity (no transform in the chain → the 99% case,
   // zero overhead). Composed onto when descending into a transform-bearing box;
   // each emitted line bakes `invert(cumulative)` as its `inverseTransform`.
   cumulativeTransform?: Mat2D,
+  // The ancestor clip in effect at `box` (`ancestor-clip.ts`), threaded like the
+  // transform; each emitted line carries it as `ancestorClip`.
+  clip: ClipState = ROOT_CLIP,
 ): void {
   if (box.type === "text-run" || box.type === "marker") return;
   if (box.type === "page") {
-    // Header/footer SLOTS (C.2c T6) are page-local BlockBoxes laid into the top
+    // Header/footer SLOTS are page-local BlockBoxes laid into the top
     // / bottom margin bands, kept OUT of `box.children` as distinct named
     // fields. Walk them too so their lines enter the flat list AND
     // `getLineIndex(page).byBlock` — feeding hit-test, cursor-position, and
@@ -106,11 +119,12 @@ export function collectLineBoxes(
     // footer AFTER (below). Origin is the page-content frame `(0, 0)` — the
     // slot's own `(x, y)` (set by `materializePage` to the band origin) is
     // applied as the slot box is descended.
-    if (box.headerSlot) collectLineBoxes(box.headerSlot, 0, 0, out, box.pageIndex);
+    const inPage = pageClip(box);
+    if (box.headerSlot) collectLineBoxes(box.headerSlot, 0, 0, out, box.pageIndex, undefined, inPage);
     for (const child of box.children) {
-      collectLineBoxes(child, 0, 0, out, box.pageIndex);
+      collectLineBoxes(child, 0, 0, out, box.pageIndex, undefined, inPage);
     }
-    if (box.footerSlot) collectLineBoxes(box.footerSlot, 0, 0, out, box.pageIndex);
+    if (box.footerSlot) collectLineBoxes(box.footerSlot, 0, 0, out, box.pageIndex, undefined, inPage);
     // DA3: the footnote SLOT is a NAMED field (like header/footer), kept OUT of
     // `box.children`, so walk it BY NAME too. Its lines enter the flat list AND
     // `getLineIndex(page).byBlock`, feeding hit-test, cursor-position, and
@@ -119,13 +133,13 @@ export function collectLineBoxes(
     // `byBlock`. Page-content frame origin `(0, 0)`; the slot's own `(x, y)` is
     // applied as it is descended. Collected AFTER the footer in the flat list
     // (the footnote band sits below the page body content).
-    if (box.footnoteSlot) collectLineBoxes(box.footnoteSlot, 0, 0, out, box.pageIndex);
+    if (box.footnoteSlot) collectLineBoxes(box.footnoteSlot, 0, 0, out, box.pageIndex, undefined, inPage);
     return;
   }
   const absX = parentX + box.x;
   const absY = parentY + box.y;
 
-  // POSITIONING slice 5 — when this box carries a `transform`, compose its matrix
+  // When this box carries a `transform`, compose its matrix
   // (about its transform-origin in the CURRENT accumulated absolute frame, exactly
   // as the painter does in `paintBox`) onto the cumulative ancestor transform. The
   // painter applies the ancestor transform FIRST (outer canvas state) then this
@@ -133,6 +147,7 @@ export function collectLineBoxes(
   // is `compose(ancestorCumulative, boxMatrix)` (ancestor is the OUTER, applied
   // last). Descendants (and this box's own lines) inherit `childCumulative`.
   const childCumulative = transformAt(box, absX, absY, cumulativeTransform);
+  const inner = childClip(box, absX, absY, cumulativeTransform, childCumulative, clip);
 
   if (box.type === "multicolumn") {
     // A MultiColumnBox is a CONTAINER whose `columns` (BlockBoxes) are descended
@@ -144,14 +159,14 @@ export function collectLineBoxes(
     // `absoluteX` falls within that column box's inline range), which is exactly
     // how the column-aware hit-test (`locateColumnAtPoint`) picks a column.
     for (const col of box.columns) {
-      collectLineBoxes(col, absX, absY, out, pageIndex, childCumulative);
+      collectLineBoxes(col, absX, absY, out, pageIndex, childCumulative, columnClip(box.columns, col, absX, absY, inner));
     }
-    collectAbsoluteLineBoxes(box, absX, absY, out, pageIndex, childCumulative);
+    collectAbsoluteLineBoxes(box, absX, absY, out, pageIndex, childCumulative, inner);
     return;
   }
 
   if (box.type === "line") {
-    out.push(makeAbsoluteLineBox(box, absX, absY, pageIndex, childCumulative));
+    out.push(makeAbsoluteLineBox(box, absX, absY, pageIndex, childCumulative, clip));
     // LineBox children: most are text-runs (skipped by the text-run
     // branch). When an inline-block lives on this line, its own BFC
     // produced nested LineBoxes inside its children — descend so
@@ -160,15 +175,15 @@ export function collectLineBoxes(
     // char-precision; the descent here is purely for the cross-
     // boundary case of inline-block-internal lines.
     for (const child of box.children) {
-      collectLineBoxes(child, absX, absY, out, pageIndex, childCumulative);
+      collectLineBoxes(child, absX, absY, out, pageIndex, childCumulative, inner);
     }
-    collectAbsoluteLineBoxes(box, absX, absY, out, pageIndex, childCumulative);
+    collectAbsoluteLineBoxes(box, absX, absY, out, pageIndex, childCumulative, inner);
     return;
   }
   for (const child of box.children) {
-    collectLineBoxes(child, absX, absY, out, pageIndex, childCumulative);
+    collectLineBoxes(child, absX, absY, out, pageIndex, childCumulative, inner);
   }
-  // POSITIONING slice 3 (LOAD-BEARING) — descend `box.absoluteChildren` too. Abs-pos
+  // LOAD-BEARING — descend `box.absoluteChildren` too. Abs-pos
   // content is reachable ONLY via `absoluteChildren` (it is OUT of `children`); if
   // this walk skipped it, every line inside an abs-pos subtree would be ABSENT from
   // `getLineIndex().all` → invisible to hit-test, cursor-position, selection-geometry,
@@ -177,11 +192,11 @@ export function collectLineBoxes(
   // with the SAME parent origin `(absX, absY)` as `children`, and inherit THIS box's
   // cumulative transform (a transform on the abc-establishing box transforms its
   // abs-pos descendants too — CSS Transforms 1).
-  collectAbsoluteLineBoxes(box, absX, absY, out, pageIndex, childCumulative);
+  collectAbsoluteLineBoxes(box, absX, absY, out, pageIndex, childCumulative, inner);
 }
 
 /**
- * POSITIONING slice 5 — compose `box`'s `transform` (if any) about its
+ * Compose `box`'s `transform` (if any) about its
  * transform-origin onto the cumulative ancestor transform, returning the matrix
  * descendants inherit. When the box has no transform, the cumulative is unchanged
  * (returned verbatim, so the identity fast-path threads `undefined` through). The
@@ -189,7 +204,7 @@ export function collectLineBoxes(
  * uses (`absX/absY + transformOrigin` against the box's border-box width/height),
  * so paint and hit-test share the IDENTICAL matrix.
  */
-function transformAt(
+export function transformAt(
   box: LayoutBox,
   absX: number,
   absY: number,
@@ -215,7 +230,7 @@ function transformAt(
 }
 
 /**
- * POSITIONING slice 5 — build an `AbsoluteLineBox`, baking the three-state
+ * Build an `AbsoluteLineBox`, baking the three-state
  * `inverseTransform` from the cumulative ancestor transform: `undefined`
  * cumulative → identity (field omitted, fast-path); a `Mat2D` → `invert` it
  * (`null` from a singular matrix → the `"singular"` sentinel so a degenerate
@@ -227,26 +242,20 @@ function makeAbsoluteLineBox(
   absoluteY: number,
   pageIndex: number,
   cumulative: Mat2D | undefined,
+  clip: ClipState,
 ): AbsoluteLineBox {
-  if (cumulative === undefined) {
-    return { line, absoluteX, absoluteY, pageIndex };
-  }
+  const base = clip === ROOT_CLIP ? { line, absoluteX, absoluteY, pageIndex } : { line, absoluteX, absoluteY, pageIndex, ancestorClip: clip };
+  if (cumulative === undefined) return base;
   const inv = invert(cumulative);
-  return {
-    line,
-    absoluteX,
-    absoluteY,
-    pageIndex,
-    inverseTransform: inv === null ? "singular" : inv,
-  };
+  return { ...base, inverseTransform: inv === null ? "singular" : inv };
 }
 
 /**
- * POSITIONING slice 3 — descend a box's `absoluteChildren` (if any) into the flat
+ * Descend a box's `absoluteChildren` (if any) into the flat
  * LineBox list with the box's own accumulated origin. Factored out so both the
  * LineBox early-return branch and the generic-container branch share it. A no-op for
  * the overwhelmingly common box with no abs-pos descendants. The cumulative ancestor
- * `transform` (slice 5) threads through to the abs descendants unchanged.
+ * `transform` threads through to the abs descendants unchanged.
  */
 function collectAbsoluteLineBoxes(
   box: LayoutBox,
@@ -255,10 +264,11 @@ function collectAbsoluteLineBoxes(
   out: AbsoluteLineBox[],
   pageIndex: number,
   cumulative: Mat2D | undefined,
+  clip: ClipState,
 ): void {
   if (box.absoluteChildren === undefined) return;
   for (const absChild of box.absoluteChildren) {
-    collectLineBoxes(absChild, absX, absY, out, pageIndex, cumulative);
+    collectLineBoxes(absChild, absX, absY, out, pageIndex, cumulative, clip);
   }
 }
 
@@ -276,7 +286,7 @@ function collectAbsoluteLineBoxes(
  * walk amortizes across all consumers of one layout cycle. cursor-
  * position's `byBlock.get(blockId)` lookup is O(1); without the index
  * it had to walk every line in the doc and filter — O(N_lines) per
- * cursor query, dominant on large docs (L-PERF-D).
+ * cursor query, dominant on large docs.
  */
 export interface LineIndex {
   readonly all: readonly AbsoluteLineBox[];
@@ -312,15 +322,15 @@ export function getLineIndex(root: LayoutBox): LineIndex {
 }
 
 /**
- * Context filter (#327): constrain a flat line list to ONE editing context —
+ * Context filter: constrain a flat line list to ONE editing context —
  * the page BODY and a header/footer SLOT are isolated editing contexts (Google
  * Docs convention: arrow keys never carry the caret across the body↔header
  * boundary; you CLICK into a header to edit it; SELECT_ALL highlights only the
  * context the caret is in).
  *
- * C.2c T6 made the per-page `LineIndex.all` include the header/footer slot lines
+ * The per-page `LineIndex.all` includes the header/footer slot lines
  * (in doc order each page is `[header lines, body lines, footer lines]`), so an
- * unfiltered consumer — line-navigation (#327) and selection-geometry — would
+ * unfiltered consumer — line-navigation and selection-geometry — would
  * leak across the boundary: ArrowUp from the body's top line would step into the
  * header; a body select-all's rects would bleed into the interleaved
  * header/footer slot bands between pages. Each candidate line is kept only if
@@ -332,11 +342,10 @@ export function getLineIndex(root: LayoutBox): LineIndex {
  * header/footer slot lines) the filter still SCANS the lines once (O(unique
  * blocks × depth), memoized) but, finding every line already in `context`,
  * returns the SAME array reference unchanged — so no new array is allocated and
- * line order is byte-identical to the pre-#327 hot path (allocation-free, not
+ * line order is byte-identical to the unfiltered hot path (allocation-free, not
  * walk-free).
  *
- * Shared by `line-navigation.ts` (#327) and `selection-geometry.ts` (this
- * change) so both consumers apply identical isolation.
+ * Shared by `line-navigation.ts` and `selection-geometry.ts` so both consumers apply identical isolation.
  */
 export function makeContextFilter(
   state: State,
@@ -413,7 +422,7 @@ export type LineLeaf =
 
 /**
  * The leaf's coordinate along a given PHYSICAL axis. Boxes are pre-physicalized
- * (P3.1), so `absoluteX`/`absoluteY` are the correct physical coords for every
+ * so `absoluteX`/`absoluteY` are the correct physical coords for every
  * writing mode. Consumers project a logical axis (`am.inline`/`am.block`) to its
  * physical letter via `axisMapFor`, then read the matching coord here.
  */
@@ -475,7 +484,7 @@ export function collectLineLeaves(line: LineBox, lineAbsX: number, lineAbsY: num
   // recursion re-adds `line.x` exactly once, yielding `lineAbsX` for the line
   // and `lineAbsX + childRelX` for its children. This is what kills the
   // double-count that over-shifted the caret/selection/hit-test on lines whose
-  // `.x` is non-zero (#336 fix). Post-#333, `line.x` is the natural inline-start
+  // `.x` is non-zero. `line.x` is the natural inline-start
   // (typically 0; non-zero only for float-adjusted lines) — the alignment offset
   // now rides on the children's `inlineOffset` instead of `line.x`, so the
   // subtraction is a no-op for unfloated lines but still correct + load-bearing
@@ -483,10 +492,10 @@ export function collectLineLeaves(line: LineBox, lineAbsX: number, lineAbsY: num
   // the physical coordinate, so `lineAbsX - line.x + line.x === lineAbsX`
   // regardless of LTR/RTL.
   //
-  // P3.5a: the SAME parent-frame contract applies to the block axis (`parentY`).
+  // The SAME parent-frame contract applies to the block axis (`parentY`).
   // We hand `lineAbsY - line.y`; the recursion re-adds `line.y` exactly once,
   // yielding `lineAbsY` for the line and `lineAbsY + childRelY` for its children.
-  // Boxes are pre-physicalized (P3.1), so `box.y` is the physical-Y coordinate in
+  // Boxes are pre-physicalized, so `box.y` is the physical-Y coordinate in
   // every writing mode — this stamps `leaf.absoluteY`/`leaf.height` symmetrically
   // to the X fields. h-tb is byte-identical because these fields were never read
   // before; they exist to let vertical consumers read the inline axis (which maps
@@ -496,7 +505,7 @@ export function collectLineLeaves(line: LineBox, lineAbsX: number, lineAbsY: num
 }
 
 /**
- * THE single soft-wrap line picker (CUR-3). Returns the index of the
+ * THE single soft-wrap line picker. Returns the index of the
  * `AbsoluteLineBox` that owns `position`, applying the doc-wide soft-wrap rule
  * uniformly:
  *
@@ -509,7 +518,7 @@ export function collectLineLeaves(line: LineBox, lineAbsX: number, lineAbsY: num
  *     (`position.offset === l.inlineOffsetEnd`) with a NEXT same-block line, the
  *     caret has wrapped onto that next line, so prefer its start (Word / Google
  *     Docs convention — typing up to the wrap lands the caret on the new line).
- *   - Affinity opt-out (#474 B2): an explicit `caretAffinity === "before"` pins
+ *   - Affinity opt-out: an explicit `caretAffinity === "before"` pins
  *     the caret to THIS line's END instead of jumping to the next line's start,
  *     so the end-of-a-wrapped-line caret position stays reachable (set by a click
  *     at the wrapped line's visual end, or a left-arrow back across the boundary).
@@ -583,7 +592,7 @@ export function pickSoftWrapLine(
  * Affinity-blind (passes no `caretAffinity`): the existing
  * `selection-geometry` / `line-navigation` callers resolve the line for
  * the caret/selection ENDS without an affinity, so this preserves their
- * behavior exactly. Delegates to {@link pickSoftWrapLine} (CUR-3) so the
+ * behavior exactly. Delegates to {@link pickSoftWrapLine} so the
  * soft-wrap rule lives in ONE place.
  *
  * Consumed by `cursor-position` and `selection-geometry` to anchor

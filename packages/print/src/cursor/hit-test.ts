@@ -1,6 +1,8 @@
-import { resolveBlock, createPosition, selectionContextOf } from "@taleweaver/core";
+import { resolveBlock, createPosition, selectionContextOf, caretAfterMarkers } from "@taleweaver/core";
 import type { State, Position, BlockKindResolver } from "@taleweaver/core";
 import { getAtomicBoxIndex } from "./atomic-box-index";
+import { getBoundaryMarkIndex } from "./boundary-mark-index";
+import { insideOuterClips } from "./ancestor-clip";
 import type { AbsoluteLineBox } from "./line-flatten";
 import type { LayoutBox } from "../layout/layout-node";
 import type { PageBox } from "../layout/page-box";
@@ -17,7 +19,7 @@ import { apply } from "@taleweaver/core";
 import { markStart, markEnd } from "@taleweaver/core";
 
 /**
- * POSITIONING slice 5 — map a click point `(x, y)` into a LINE's PRE-transform
+ * Map a click point `(x, y)` into a LINE's PRE-transform
  * coordinate space via its baked three-state `inverseTransform`:
  *   - `undefined` → no transform in the line's ancestor chain → IDENTITY: the
  *     click is returned verbatim (the 99% zero-overhead fast path).
@@ -42,8 +44,7 @@ function mapClickForLine(
  * Resolve a pixel (x, y) coordinate to a document Position using the
  * layout tree.
  *
- * Algorithm (LineBox-canonical; see
- * `docs/superpowers/specs/2026-05-23-linebox-canonical-anchor-design.md`):
+ * Algorithm (LineBox-canonical):
  *   1. Collect every `LineBox` with absolute coords via
  *      `collectLineBoxes` (line identity is the LineBox reference, not
  *      a `(pageIndex, absoluteY)` tuple — float-Y fragility resolved).
@@ -62,7 +63,7 @@ function mapClickForLine(
  *      `Position(line.ownerBlockId, line.inlineOffsetStart)`. No
  *      synthetic-strut fallback needed — the LineBox itself carries
  *      the owning block and the offset.
- *   5. Build the line's `LineBidiView` (P4-C.2). Within the picked
+ *   5. Build the line's `LineBidiView`. Within the picked
  *      line, walk leaves (text-runs + inline-blocks) in VISUAL order
  *      via `collectLineLeaves`. Pick the leaf whose INLINE-axis range
  *      (`coordOf(leaf, am.inline)` .. `+ sizeAlong(leaf, am.inline)`)
@@ -74,7 +75,7 @@ function mapClickForLine(
  *      (carrying its `logStart` and bidi `level`) is
  *      `visualLeaves[targetLeafIdx]`.
  *   6. `offset = offsetInLeaf(thatBidiViewLeaf, clickInline −
- *      coordOf(leaf, am.inline), measurer, am)` (P4-C.2 §C). This is
+ *      coordOf(leaf, am.inline), measurer, am)`. This is
  *      RTL-aware: an LTR leaf measures the click from its inline-start
  *      edge; an RTL leaf from its inline-end (so a click on the visual-left
  *      of an RTL run resolves to the logically-LAST offset, the OPPOSITE of
@@ -88,7 +89,7 @@ function mapClickForLine(
  *      is gone. This is the exact inverse of `cursor-position.ts`'s
  *      `caretInlineCoordInLeaf`, so click↔render round-trips on bidi lines.
  *
- * Returns (P4-C.2.2b §D) `{ position, caretAffinity }` — the resolved
+ * Returns `{ position, caretAffinity }` — the resolved
  * `Position` plus the caret ASSOCIATION seed for `EditorState.caretAffinity`.
  * The hit LEAF (the leaf whose X range the click landed in) is the authoritative
  * owner of the offset: when the resolved offset is that leaf's TRAILING edge
@@ -112,13 +113,30 @@ export function resolvePositionFromPixel(
   pageIndex: number = 0,
   resolver?: BlockKindResolver,
 ): { position: Position; caretAffinity: CaretAffinity } | null {
+  const hit = hitTest(state, layoutTree, shaperOrMeasurer, x, y, pageIndex, resolver);
+  if (hit === null) return null;
+  // A structural marker (bookmark / comment) is never a caret stop:
+  // a gap just before markers stands after them (core `caretAfterMarkers`).
+  const position = caretAfterMarkers(state, hit.position);
+  return position.offset === hit.position.offset ? hit : { position, caretAffinity: "after" };
+}
+
+function hitTest(
+  state: State,
+  layoutTree: LayoutBox,
+  shaperOrMeasurer: TextShaper | TextMeasurer,
+  x: number,
+  y: number,
+  pageIndex: number,
+  resolver: BlockKindResolver | undefined,
+): { position: Position; caretAffinity: CaretAffinity } | null {
   const t = markStart("cursor.hit-test");
   try {
     const measurer: TextMeasurer = isTextShaper(shaperOrMeasurer)
       ? adaptShaperToMeasurer(shaperOrMeasurer)
       : shaperOrMeasurer;
 
-    // 0. Object-selection pre-pass (#525). When a `resolver` is provided, a click
+    // 0. Object-selection pre-pass. When a `resolver` is provided, a click
     // INSIDE an atomic-leaf block's rect (image / horizontal-line) selects that
     // block AS AN OBJECT — the collapsed-on-atomic position `{blockId, 0}` —
     // taking priority over the LineBox text fall-through below. Atomic leaves
@@ -149,8 +167,24 @@ export function resolvePositionFromPixel(
       }
     }
 
+    // 0b. A tracked ¶ glyph / section-break label (change tracking) has no offset
+    // of its own: a click on it resolves to the caret position it stands for,
+    // `(E, len)` (Word places the caret before the break). Same frame and half-open convention as
+    // the atomic pre-pass; the click is mapped through the mark's baked inverse
+    // transform first, as for a line. The rects are the VISIBLE (clipped) extents.
+    for (const m of getBoundaryMarkIndex(layoutTree)) {
+      if (m.pageIndex !== pageIndex) continue;
+      const inv = m.inverseTransform;
+      if (inv === "singular") continue;
+      const p = inv === undefined ? { x, y } : apply(inv, x, y);
+      if (p.x >= m.x && p.x < m.x + m.width && p.y >= m.y && p.y < m.y + m.height && insideOuterClips(m.outerClips, x, y)) {
+        const placement = m.box.boundaryMark;
+        return { position: createPosition(placement.blockId, placement.offset), caretAffinity: "before" };
+      }
+    }
+
     // 1. Collect every LineBox with absolute coords. Uses the
-    // WeakMap-cached LineIndex (L-PERF-D) so this walk is shared with
+    // WeakMap-cached LineIndex so this walk is shared with
     // cursor-position / line-navigation / selection-geometry within
     // the same layout cycle. Critical for up/down keystrokes:
     // line-navigation's moveToLine calls resolvePositionFromPixel
@@ -166,7 +200,7 @@ export function resolvePositionFromPixel(
       : allLines;
     if (visible.length === 0) return null;
 
-    // 2b. Region-aware band partition (#331 / #332). Since C.2c T6 `visible` is
+    // 2b. Region-aware band partition. Since header/footer slots joined the per-page line index, `visible` is
     // [header lines, body lines, footer lines] in ascending-y order. A click in
     // the body's empty TAIL (below the last body line, above the footer zone)
     // must clamp to the BODY — only a click in the footer ZONE enters the footer,
@@ -178,7 +212,7 @@ export function resolvePositionFromPixel(
     // click `y` falls in.
     const bandRegion = pickRegionByBand(state, layoutTree, pageIndex, visible, x, y);
 
-    // 2c. Table-cell restriction (P8.S4b). The flat band-pick below is column-
+    // 2c. Table-cell restriction. The flat band-pick below is column-
     // UNAWARE — it picks the first line whose block-axis band contains the click,
     // ignoring the inline axis until the in-line leaf pick. In a multi-column row
     // every cell's line shares the block band, so a click in column B would resolve
@@ -190,7 +224,7 @@ export function resolvePositionFromPixel(
     // (no lines inside) falls back to the unrestricted region.
     let region = bandRegion;
 
-    // 2c-i. Multi-column restriction (slice 3a). The band-pick in step 3 is
+    // 2c-i. Multi-column restriction. The band-pick in step 3 is
     // inline-axis-UNAWARE, so for N side-by-side columns sharing a block band a
     // click in column B (right) would resolve into column A's (left) line.
     // Restrict the candidate lines to the clicked column's PHYSICAL rect FIRST —
@@ -223,7 +257,7 @@ export function resolvePositionFromPixel(
     }
 
     // 3. Pick target line by the click's BLOCK-axis component within the chosen
-    // band (P3.5b). `region` is in document order, which for h-tb / vertical-lr is
+    // band. `region` is in document order, which for h-tb / vertical-lr is
     // ASCENDING along the block axis (physical Y resp. physical X) and for
     // vertical-rl is DESCENDING (blocks stack right→left via the block-axis
     // mirror). We project the click + each line's block band onto the block axis
@@ -238,7 +272,7 @@ export function resolvePositionFromPixel(
       if (l === undefined) {
         throw new Error(`hit-test: region[${i}] missing (unreachable)`);
       }
-      // POSITIONING slice 5 — map the click into THIS line's PRE-transform space
+      // Map the click into THIS line's PRE-transform space
       // through its baked three-state `inverseTransform`. `undefined` → identity
       // (no transform anywhere in the chain → the click is used verbatim, the 99%
       // zero-overhead fast path). A `Mat2D` → the click is inverse-mapped so the
@@ -294,7 +328,7 @@ export function resolvePositionFromPixel(
     const ownerBlockId = targetLine.line.ownerBlockId;
     // Defensive: ensure the picked line's owning block exists in state. Use
     // `resolveBlock` (not `getBlock`) so a click in a HEADER/FOOTER slot
-    // (C.2c T6) resolves: a slot's body block lives in the `templateContents`
+    // resolves: a slot's body block lives in the `templateContents`
     // map, not the main `blocks` map — `getBlock` only checks main, so it would
     // reject the slot line. `resolveBlock` checks all three trees (main /
     // embed / template).
@@ -321,19 +355,19 @@ export function resolvePositionFromPixel(
     // modes (inline runs DOWN the page). The click's inline-axis component is the
     // matching physical coordinate.
     const am = view.axisMap;
-    // POSITIONING slice 5 — the leaf pick + offset run in the target line's
+    // The leaf pick + offset run in the target line's
     // PRE-transform space, so map the click through the line's `inverseTransform`
     // first. `undefined` → identity (the click is used verbatim, the 99% path). A
     // singular last-line fallback (mapped === null) cannot resolve a real offset →
     // use the raw click defensively (the band loop already skips singular lines, so
     // this only triggers for the degenerate all-singular region edge case).
-    // NOTE (transform v1 asymmetry — named follow-up, see 1.9-positioning.md):
+    // NOTE (transform asymmetry — open gap, see docs/architecture/2-print/2.4-positioning.md):
     // hit-test (click→offset) IS transform-corrected here via the per-line inverse,
     // but the COMPLEMENTARY path — cursor-position (offset→caret pixel) and
-    // selection-geometry rects — still returns PRE-transform coordinates in v1. So a
+    // selection-geometry rects — still returns PRE-transform coordinates. So a
     // click inside a transformed box resolves to the right offset, yet the caret for
     // that offset may render at the un-transformed position. Resolving both reuses the
-    // same per-line `Mat2D` (forward) and is deferred with the selection-rect follow-up.
+    // same per-line `Mat2D` (forward); that caret/selection side is the open gap.
     const targetClick = mapClickForLine(targetLine, x, y) ?? { x, y };
     const clickInline = am.inline === "x" ? targetClick.x : targetClick.y;
 
@@ -374,7 +408,7 @@ export function resolvePositionFromPixel(
         `hit-test: visualLeaves[${targetLeafIdx}] missing (unreachable — non-empty view)`,
       );
     }
-    // P3.5b: `offsetInLeaf` takes the leaf-local INLINE-axis offset (`clickInline −
+    // `offsetInLeaf` takes the leaf-local INLINE-axis offset (`clickInline −
     // coordOf(leaf, am.inline)`) + the line's axis map. For h-tb this is
     // `x − leaf.absoluteX` (byte-identical); for vertical it is `y − leaf.absoluteY`.
     const offset = offsetInLeaf(
@@ -384,7 +418,7 @@ export function resolvePositionFromPixel(
       am,
     );
 
-    // Caret-affinity seed (P4-C.2.2b §D): the HIT leaf owns the offset. When the
+    // Caret-affinity seed: the HIT leaf owns the offset. When the
     // offset is that leaf's TRAILING edge (and the leaf is non-degenerate) the
     // caret sticks to the preceding leaf → "before"; else → "after" (mid-leaf
     // offsets are inert, both sides are the same leaf). At an LTR↔RTL boundary
@@ -430,18 +464,18 @@ function findPageBox(root: LayoutBox, pageIndex: number): PageBox | null {
 }
 
 /**
- * Region-aware zone selection for hit-test step 3 (#331 / #332).
+ * Region-aware zone selection for hit-test step 3.
  *
- * Since C.2c T6 a page's flat line list is `[header lines, body lines, footer
+ * Since header/footer slots joined the per-page line index, a page's flat line list is `[header lines, body lines, footer
  * lines]` in ascending-y order. The nearest-y line pick must run within the
  * click's GEOMETRIC ZONE only, so a click in the body's empty TAIL (below the
  * last body line, above the footer zone) clamps to the BODY rather than walking
  * past it into the footer. Only a click in the footer zone enters the footer,
  * only a click in the header zone enters the header (Google Docs). This is the
- * hit-test sibling of #327's nav/select-all context isolation, with the zone
+ * hit-test sibling of nav/select-all context isolation, with the zone
  * chosen by the click `y` instead of a prior caret context.
  *
- * #332: the zones are the FULL top/bottom page MARGINS, not just the slot text
+ * The zones are the FULL top/bottom page MARGINS, not just the slot text
  * extents. Within a `page` box the line walker resets coordinates to (0,0), so
  * every line coord here is PAGE-LOCAL and the click is compared in the same
  * frame. The body content area is exactly `[effectiveTopInset, blockSize −
@@ -452,12 +486,12 @@ function findPageBox(root: LayoutBox, pageIndex: number): PageBox | null {
  * LINE extents, so a click in the top-margin gap below the header text fell
  * through to the body.
  *
- * P3 (#438): the zone edges (`contentTop`/`contentBottom`/`footnoteSlotTop`) are
+ * The zone edges (`contentTop`/`contentBottom`/`footnoteSlotTop`) are
  * LOGICAL BLOCK-AXIS quantities (insets/`blockSize`/`blockOffset` are all
  * block-axis). For h-tb the block axis IS physical Y, so a line's `absoluteY` and
  * the click `y` ARE logical block offsets and the comparisons work directly. For
  * the vertical modes the block axis is physical X, and `vertical-rl` MIRRORS it
- * against the page block-size (P3.1). Rather than hand-flip the comparison
+ * against the page block-size. Rather than hand-flip the comparison
  * directions per mode (the error-prone path), we project each slot line's
  * physical block coord AND the click's physical block component back to LOGICAL
  * block-offset space (un-mirroring vertical-rl against the SAME `page.blockSize`
@@ -473,7 +507,7 @@ function findPageBox(root: LayoutBox, pageIndex: number): PageBox | null {
  * contexts, so they are disambiguated by Y-BAND, not by context kind:
  *   - header band: above `contentTop` (the top margin);
  *   - footer band: at/below `contentBottom` (the bottom margin);
- *   - footnote band (FN-7.2): `[footnoteSlotTop, contentBottom)` — the bottom of
+ *   - footnote band: `[footnoteSlotTop, contentBottom)` — the bottom of
  *     the body content area. The footnote slot SHRINKS the available body space
  *     but does NOT change `effectiveBottomInset`, so its lines sit INSIDE the
  *     content band (below the body content, above the footer). Its top is read
@@ -502,7 +536,7 @@ function pickRegionByBand(
 
   // 2. NO-REGRESSION fast path: no header/footer/footnote slot lines on this
   // page (the overwhelmingly common case). Return `visible` unchanged —
-  // byte-identical to the pre-#331 hot path for every slot-free doc.
+  // byte-identical to the pre-region-partition hot path for every slot-free doc.
   if (slotLines.length === 0) return visible;
 
   // 3. Locate the PageBox to read its content-area edges. If it's missing (a
@@ -512,12 +546,12 @@ function pickRegionByBand(
   if (page === null) return visible;
   if (bodyLines.length === 0) return visible;
 
-  // 3b. Project physical block coords → LOGICAL block-offset space (#438). The
+  // 3b. Project physical block coords → LOGICAL block-offset space. The
   // zone edges below (`contentTop`/`contentBottom`/`footnoteSlotTop`) are all
   // LOGICAL block-axis quantities. For h-tb the block axis is physical Y, so a
   // line's `absoluteY` and the click `y` ARE logical block offsets and the
   // projection is the identity. For the vertical modes the block axis is physical
-  // X; `vertical-rl` additionally MIRRORS it against the page block-size (P3.1).
+  // X; `vertical-rl` additionally MIRRORS it against the page block-size.
   // We un-mirror against the SAME `page.blockSize` the physicalize pass mirrored
   // against, so the zone comparisons can run UNCHANGED. We discriminate the
   // descending (mirrored) block axis ONLY by `vertical-rl` (vertical-lr's block
@@ -543,7 +577,7 @@ function pickRegionByBand(
 
   // 4. The body content area (logical block-offset space). The full margins
   // outside it are the header (above `contentTop`) / footer (at-or-below
-  // `contentBottom`) zones. FN-7.2: the footnote slot, when present, occupies
+  // `contentBottom`) zones. The footnote slot, when present, occupies
   // `[footnoteSlotTop, contentBottom)` INSIDE the content area — its top comes
   // from the named `footnoteSlot` box (`blockOffset` is ALREADY a logical
   // block-offset). Classify slot lines by band: footer (>= contentBottom),
@@ -575,7 +609,7 @@ function pickRegionByBand(
   // edges. Footer wins when the click is at/below `contentBottom`; then the
   // footnote slot when the click is in `[footnoteSlotTop, contentBottom)`; then
   // the header zone above `contentTop`; else the body (which captures the empty
-  // body tail above the footnote slot — the #331 clamp). Each branch is gated on
+  // body tail above the footnote slot — the body-tail clamp). Each branch is gated on
   // having such lines; the fallthrough is `bodyLines`, non-empty here.
   if (footerLines.length > 0 && clickLogicalBlock >= contentBottom) return footerLines;
   if (

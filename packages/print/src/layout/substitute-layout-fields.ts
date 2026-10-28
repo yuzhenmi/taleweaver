@@ -23,13 +23,13 @@ import { isDevMode } from "@taleweaver/core";
  * Everything not on a path to a layout-field keeps its ORIGINAL ref (structural-sharing,
  * identity-preserving), so the substituted body is cheap and only the field leaves
  * differ. Returns the SAME `body` ref if it contains no layout-fields (so callers can
- * `===`-check to skip work). Mirrors the FN-6.2b late-binding precedent; NEVER mutates
+ * `===`-check to skip work). Mirrors the footnote-marker late-binding precedent; NEVER mutates
  * the frozen input.
  *
  * A `page-count` whose global value is ABSENT (e.g. a page-number-only materialize run
  * that built no `globalFieldValues`) is left UNCHANGED — never fabricate a digit. The
  * IFC token identity is preserved because the atom's render key is unchanged and only
- * the inner text box's `text` is replaced (the offset↔box 1:1 invariant, #407, holds).
+ * the inner text box's `text` is replaced (the offset↔box 1:1 invariant holds).
  */
 export function substituteLayoutFields(
   body: ElementBox,

@@ -1,32 +1,30 @@
 import type * as Y from "yjs";
+import { requireBlockText } from "../block-text";
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { Position } from "../block-position";
 import {
   inlineContentLength,
-  splitInlineContentAtOffset,
-  mergeAdjacentTextItems,
   type EmbedItem,
-  type InlineItem,
 } from "../inline-content";
-import { getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
-import { buildYInlineContent } from "../y-block";
+import { requireInTransaction, type BlockTreeKind } from "../yjs-doc";
+import { insertInlineItems } from "../y-inline";
 import { PAGE_FIELD_EMBED_TYPE, type PageFieldKind, type PageFieldNumberStyle } from "../page-field";
 
 // Re-export the root-level constants so consumers can import either location.
 export { PAGE_FIELD_EMBED_TYPE, PAGE_FIELD_RESERVED_GLYPHS, type PageFieldKind } from "../page-field";
 
 /**
- * Pre-computed plan for `insertPageField`: the host leaf's tree provenance plus
- * the new `items[]` with the `page-field` EmbedItem spliced in at `position.offset`.
- * An embed is a merge barrier, so this is always a full-replace of the leaf's
- * inlineContent.
+ * Pre-computed plan for `insertPageField`: the host leaf's
+ * tree provenance, the insertion offset and the embed — one offset
+ * `insertEmbed` into the leaf's inline `Y.Text` (no other character moves).
  */
 interface PageFieldInsertPlan {
   readonly blockId: BlockId;
   readonly kind: BlockTreeKind;
-  readonly items: ReadonlyArray<InlineItem>;
+  readonly offset: number;
+  readonly embed: EmbedItem;
 }
 
 /**
@@ -59,7 +57,8 @@ export function insertPageField(
 }
 
 /**
- * Validate `position` and produce the insertion plan (the new leaf `items[]` with
+ * Validate `position` and produce the insertion plan (the embed +
+ * offset for
  * a `page-field` EmbedItem spliced in). All snapshot reads + validation happen
  * here, BEFORE the surrounding `applyOperation` opens.
  */
@@ -92,21 +91,15 @@ function planPageFieldInsert(
     properties: Object.freeze({ fieldKind, numberStyle }),
   });
 
-  const [left, right] = splitInlineContentAtOffset(block.inlineContent, position.offset);
-  // An embed is a merge barrier, so `mergeAdjacentTextItems` only normalizes the
-  // split halves around it — it never merges across the field.
-  const items = mergeAdjacentTextItems([...left, field, ...right]);
-
-  return { blockId: position.blockId, kind, items };
+  return { blockId: position.blockId, kind, offset: position.offset, embed: field };
 }
 
 /**
- * In-transaction primitive: full-replace the host leaf's inlineContent with the
- * pre-computed `plan.items` (field spliced in). Caller owns the surrounding
+ * In-transaction primitive: insert the embed into the host leaf's inline
+ * `Y.Text` at `plan.offset` (field spliced in). Caller owns the surrounding
  * transaction.
  */
 function insertPageFieldInTx(doc: Y.Doc, plan: PageFieldInsertPlan): void {
   requireInTransaction(doc, "insertPageField");
-  const yBlock = getYBlock(doc, plan.blockId, "insertPageField", plan.kind);
-  yBlock.set("inlineContent", buildYInlineContent({ items: plan.items }));
+  insertInlineItems(requireBlockText(doc, plan.blockId, "insertPageField"), plan.offset, [plan.embed]);
 }

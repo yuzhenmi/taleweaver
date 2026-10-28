@@ -28,6 +28,7 @@ import {
   Highlighter,
   Ban,
   RemoveFormatting,
+  AtSign,
 } from "lucide-react";
 import { Toggle } from "@/components/ui/toggle";
 import { Button } from "@/components/ui/button";
@@ -46,6 +47,7 @@ import {
 import type { EditorAction, EditorState, FootnoteNumberingPolicy } from "@taleweaver/print";
 import { documentFootnotePolicy } from "@taleweaver/print";
 import { getFormatState } from "./toolbar-utils";
+import { mentionAction } from "./mentions";
 
 interface ToolbarProps {
   dispatch: React.Dispatch<EditorAction>;
@@ -385,6 +387,16 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
         icon={RemoveFormatting}
         onAction={() => dispatch({ type: "CLEAR_FORMATTING" })}
       />
+      {/* Inline-mark demo: turn the selected name into an atomic mention chip. */}
+      <ToolbarButton
+        label="Mention (turn the selected name into a mention)"
+        icon={AtSign}
+        disabled={mentionAction(editorState) === null}
+        onAction={() => {
+          const action = mentionAction(editorState);
+          if (action !== null) dispatch(action);
+        }}
+      />
 
       <Separator orientation="vertical" className="mx-1 h-5 bg-[#c4c7c5]" />
 
@@ -597,7 +609,7 @@ export function Toolbar({ dispatch, editorState }: ToolbarProps) {
 
       {/* Toggle the page orientation of the SECTION at the cursor between the
           doc-wide page size and landscape (doc-wide dimensions swapped).
-          No-op in a section-less doc — make a Section break first. */}
+          Every body block sits in a section (the final one at least). */}
       <ToolbarButton
         label="Toggle section orientation"
         icon={RectangleHorizontal}

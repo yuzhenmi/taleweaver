@@ -4,14 +4,15 @@ import { applyOperation, getBlock } from "../state";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import type { InlineContent } from "../inline-content";
-import { getBlocksMap, getYBlock, requireInTransaction } from "../yjs-doc";
-import { buildYBlock } from "../y-block";
+import { requireInTransaction, type BlockTreeKind } from "../yjs-doc";
+import { resolveBlock } from "../state";
+import { insertChildren } from "../flow-ops";
 import { assertNoIdCollision } from "../id-collision-check";
 
 export interface SiblingBlockInit {
   type: string;
   attrs?: ReadonlyAttrs;
-  // Childless blocks only in v1 (firstChildId/lastChildId are null). Omitted
+  // Childless blocks only (firstChildId/lastChildId are null). Omitted
   // → defaults to `null` (container-shaped), matching `insertBlock`; callers
   // inserting leaves pass `{ items: [] }` (empty leaf) or actual content.
   inlineContent?: InlineContent | null;
@@ -40,6 +41,7 @@ export interface SiblingBlockInit {
  * The plan does not carry a `kind` field for that reason.
  */
 export interface InsertBlocksAfterPlan {
+  readonly kind: BlockTreeKind;
   readonly parentId: BlockId;
   readonly afterBlockId: BlockId;
   readonly oldNextId: BlockId | null;
@@ -56,7 +58,7 @@ export interface InsertBlocksAfterPlan {
  * AFTER `afterBlockId`, preserving order. All writes happen in the single
  * Y.Doc transaction opened by `applyOperation`, so the run lands as one
  * atomic, single-undo edit (replacing an O(k) chain of `insertBlock`
- * calls — see Smell B).
+ * calls).
  *
  * Returns OperationResult plus the ordered ids of the freshly inserted
  * blocks. The dirtyIds set is captured automatically from the
@@ -145,6 +147,7 @@ export function planInsertBlocksAfter(
   }));
 
   return {
+    kind: resolveBlock(state, afterBlockId)?.kind ?? "block",
     parentId: afterBlock.parentId,
     afterBlockId,
     oldNextId: afterBlock.nextSiblingId,
@@ -182,49 +185,11 @@ export function insertBlocksAfterInTx(doc: Y.Doc, plan: InsertBlocksAfterPlan): 
     assertNoIdCollision(doc, e.id, "insertBlocksAfter");
   }
 
-  const blocksMap = getBlocksMap(doc);
-  const lastIndex = plan.entries.length - 1;
-  for (const [i, entry] of plan.entries.entries()) {
-    const prevEntry = plan.entries[i - 1];
-    const nextEntry = plan.entries[i + 1];
-    const prevSiblingId = i === 0 ? plan.afterBlockId : (prevEntry?.id ?? null);
-    const nextSiblingId = i === lastIndex ? plan.oldNextId : (nextEntry?.id ?? null);
-    blocksMap.set(
-      entry.id,
-      buildYBlock({
-        type: entry.type,
-        attrs: entry.attrs,
-        parentId: plan.parentId,
-        prevSiblingId,
-        nextSiblingId,
-        firstChildId: null,
-        lastChildId: null,
-        inlineContent: entry.inlineContent,
-      }),
-    );
-  }
-
-  // Relink the boundary. NOTE: `plan.oldNextId` and `plan.parentId` were
-  // captured from the pre-mutation snapshot in `planInsertBlocksAfter` — so
-  // overwriting afterBlock's nextSiblingId here does not lose the old next
-  // sibling (the run tail above still points at it).
-  const firstEntry = plan.entries[0];
-  const lastEntry = plan.entries[lastIndex];
-  if (firstEntry === undefined || lastEntry === undefined) {
-    throw new Error("insertBlocksAfter: plan has no entries (unreachable)");
-  }
-  getYBlock(doc, plan.afterBlockId, "insertBlocksAfter").set(
-    "nextSiblingId",
-    firstEntry.id,
+  insertChildren(
+    doc,
+    plan.parentId,
+    plan.afterBlockId,
+    plan.entries.map((e) => ({ id: e.id, type: e.type, attrs: e.attrs, inlineContent: e.inlineContent, children: [] })),
+    plan.kind,
   );
-
-  const runTail = lastEntry.id;
-  if (plan.oldNextId !== null) {
-    // The block past the run gets its prevSiblingId rewired to the tail.
-    getYBlock(doc, plan.oldNextId, "insertBlocksAfter").set("prevSiblingId", runTail);
-  } else {
-    // afterBlock was the parent's last child: the run tail becomes the new
-    // last child.
-    getYBlock(doc, plan.parentId, "insertBlocksAfter").set("lastChildId", runTail);
-  }
 }

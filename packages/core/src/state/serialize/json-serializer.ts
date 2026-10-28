@@ -1,27 +1,30 @@
 import type { ReadonlyAttrs } from "../attrs";
 import type { Block } from "../block";
+import type { BreakSuggestion } from "../break-tags";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { BlockKind, BlockKindResolver } from "../block-kinds";
 import type { InlineContent, InlineItem } from "../inline-content";
 import type { State } from "../state";
 import { getBlock, getEmbedContent, getTemplateContent } from "../state";
-import { STATE_INTERNAL } from "../state-internal";
-import { getEmbedContentsMap, getTemplateContentsMap } from "../yjs-doc";
+import { getEmbedContentIds, getTemplateContentIds } from "../state";
 import { getListDefsForState, type ListDef, type ListLevelConfig } from "../list-defs";
 import { getComments, type CommentRecord, type CommentReply } from "../comments";
 import {
   getSuggestions,
   type SuggestionRecord,
   type SuggestionKind,
+  type SuggestionId,
+  isValidSuggestionOrder,
 } from "../suggestions";
 import { isCounterStyle } from "../../styles/format-counter";
 import type { CounterRestart } from "../../numbering/types";
 import { buildStateFromBlocks } from "../build-state-from-blocks";
+import { normalizeLegacyAttrs } from "../upgrade";
 import type { DocumentSerializer } from "./document-serializer";
 import { MalformedDocumentError } from "./document-serializer";
 
 /**
- * Stable format id for the v1 human-friendly JSON serializer. A readable,
+ * Stable format id for the human-friendly JSON serializer. A readable,
  * hand-authorable document format that is LOSSLESS for everything EXCEPT tables
  * (the binary serializer is the lossless escape for table-bearing documents).
  * A future format change ships a NEW id — old JSON is never reinterpreted under
@@ -62,6 +65,10 @@ export interface JsonNode {
   readonly attrs?: Record<string, unknown>;
   readonly content?: JsonInlineItem[];
   readonly children?: JsonNode[];
+  /** Pending paragraph / section-break suggestion tags on this block (see `break-tags.ts`). */
+  readonly breakSuggestion?: { readonly insertionId?: string; readonly deletionId?: string };
+  /** A paragraph's ¶ character props (`Block.markAttrs`); omitted when empty. */
+  readonly markAttrs?: Record<string, unknown>;
 }
 
 /** A wire inline item: a styled text run OR an embed marker. `attrs`/`props` omitted when empty. */
@@ -146,13 +153,13 @@ function encodeDocument(
 
   const embedRoots = encodeForestRoots(
     state,
-    [...getEmbedContentsMap(state[STATE_INTERNAL].doc).keys()] as BlockId[],
+    [...getEmbedContentIds(state)],
     (s, id) => getEmbedContent(s, id),
     resolver,
   );
   const templateRoots = encodeForestRoots(
     state,
-    [...getTemplateContentsMap(state[STATE_INTERNAL].doc).keys()] as BlockId[],
+    [...getTemplateContentIds(state)],
     (s, id) => getTemplateContent(s, id),
     resolver,
   );
@@ -234,11 +241,15 @@ function encodeNode(
     attrs?: Record<string, unknown>;
     content?: JsonInlineItem[];
     children?: JsonNode[];
+    breakSuggestion?: JsonNode["breakSuggestion"];
+    markAttrs?: Record<string, unknown>;
   } = { id: block.id, type: block.type };
 
   if (Object.keys(block.attrs).length > 0) {
     node.attrs = { ...block.attrs };
   }
+  if (block.breakSuggestion !== undefined) node.breakSuggestion = { ...block.breakSuggestion };
+  if (block.markAttrs !== undefined) node.markAttrs = { ...block.markAttrs };
 
   switch (kind) {
     case "container":
@@ -353,12 +364,23 @@ function encodeSuggestions(
     a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
   );
   for (const s of sorted) {
-    const bare: { kind: SuggestionRecord["kind"]; author: string; createdAt: number; proposedAttrs?: Readonly<Record<string, unknown>> } = {
+    const bare: {
+      kind: SuggestionRecord["kind"];
+      author: string;
+      createdAt: number;
+      order?: number;
+      proposedAttrs?: Readonly<Record<string, unknown>>;
+      groupId?: string;
+      metadata?: Readonly<Record<string, unknown>>;
+    } = {
       kind: s.kind,
       author: s.author,
       createdAt: s.createdAt,
     };
+    if (s.order !== undefined) bare.order = s.order;
     if (s.proposedAttrs !== undefined) bare.proposedAttrs = { ...s.proposedAttrs };
+    if (s.groupId !== undefined) bare.groupId = s.groupId;
+    if (s.metadata !== undefined) bare.metadata = { ...s.metadata };
     out[s.id] = bare;
   }
   return out;
@@ -415,6 +437,7 @@ function decodeDocument(
     listDefs: decodeListDefs(parsed.listDefs),
     comments: decodeComments(parsed.comments),
     suggestions: decodeSuggestions(parsed.suggestions),
+    resolver,
   });
 }
 
@@ -449,6 +472,8 @@ function flattenNode(
   const attrs = decodeAttrs(raw.attrs);
   const kind = resolveKind(resolver, type);
   const inlineContent = decodeInlineContent(kind, raw.content);
+  const breakSuggestion = decodeBreakSuggestion(raw.breakSuggestion);
+  const markAttrs = isRecord(raw.markAttrs) && Object.keys(raw.markAttrs).length > 0 ? decodeAttrs(raw.markAttrs) : undefined;
 
   // Push self FIRST (document order), with child/sibling links patched in below.
   const selfIndex = out.length;
@@ -463,6 +488,8 @@ function flattenNode(
       firstChildId: null,
       lastChildId: null,
       inlineContent,
+      ...(breakSuggestion !== undefined ? { breakSuggestion } : {}),
+      ...(markAttrs !== undefined ? { markAttrs } : {}),
     }) as Block,
   );
 
@@ -513,6 +540,17 @@ function flattenNode(
   return { id, index: selfIndex };
 }
 
+/** A node's break-suggestion tags (string ids only; anything else is dropped). */
+function decodeBreakSuggestion(raw: unknown): BreakSuggestion | undefined {
+  if (!isRecord(raw)) return undefined;
+  const out: { insertionId?: SuggestionId; deletionId?: SuggestionId } = {};
+  for (const field of ["insertionId", "deletionId"] as const) {
+    const v = raw[field];
+    if (typeof v === "string") out[field] = v as SuggestionId;
+  }
+  return Object.keys(out).length > 0 ? Object.freeze(out) : undefined;
+}
+
 /**
  * Reconstruct a block's `inlineContent` from its KIND (NOT from the presence of
  * the `content` key — that is the whole point of the kind-driven schema):
@@ -537,18 +575,28 @@ function decodeInlineItem(raw: unknown): InlineItem {
     return Object.freeze({
       kind: "text",
       text: raw.text,
-      attrs: decodeAttrs(raw.attrs),
+      attrs: decodeInlineAttrs(raw.attrs),
     });
   }
   if (typeof raw.embed === "string") {
     return Object.freeze({
       kind: "embed",
       embedType: raw.embed,
-      attrs: decodeAttrs(raw.attrs),
+      attrs: decodeInlineAttrs(raw.attrs),
       properties: decodeProps(raw.props),
     });
   }
   throw new MalformedDocumentError(JSON_FORMAT);
+}
+
+/**
+ * Inline-run attrs: the same normalization as `upgradeDocument` (stored `null`
+ * values are dropped — the current storage never holds them — and a legacy single
+ * `formattingSuggestionId` becomes its per-suggestion tag). The JSON format is
+ * unchanged; only its decoder normalizes.
+ */
+function decodeInlineAttrs(raw: unknown): ReadonlyAttrs {
+  return Object.freeze(normalizeLegacyAttrs(decodeAttrs(raw)));
 }
 
 function decodeAttrs(raw: unknown): ReadonlyAttrs {
@@ -673,21 +721,19 @@ function decodeSuggestions(raw: unknown): SuggestionRecord[] | undefined {
     if (!isSuggestionKind(rec.kind)) throw new MalformedDocumentError(JSON_FORMAT);
     if (typeof rec.author !== "string") throw new MalformedDocumentError(JSON_FORMAT);
     if (typeof rec.createdAt !== "number") throw new MalformedDocumentError(JSON_FORMAT);
-    const record: SuggestionRecord =
-      rec.proposedAttrs === undefined
-        ? {
-            id: id as SuggestionRecord["id"],
-            kind: rec.kind,
-            author: rec.author,
-            createdAt: rec.createdAt,
-          }
-        : {
-            id: id as SuggestionRecord["id"],
-            kind: rec.kind,
-            author: rec.author,
-            createdAt: rec.createdAt,
-            proposedAttrs: decodeProposedAttrs(rec.proposedAttrs),
-          };
+    if (rec.groupId !== undefined && typeof rec.groupId !== "string") throw new MalformedDocumentError(JSON_FORMAT);
+    if (rec.order !== undefined && !isValidSuggestionOrder(rec.order)) throw new MalformedDocumentError(JSON_FORMAT);
+    if (rec.metadata !== undefined && !isRecord(rec.metadata)) throw new MalformedDocumentError(JSON_FORMAT);
+    const record: SuggestionRecord = {
+      id: id as SuggestionRecord["id"],
+      kind: rec.kind,
+      author: rec.author,
+      createdAt: rec.createdAt,
+      ...(isValidSuggestionOrder(rec.order) ? { order: rec.order } : {}),
+      ...(rec.proposedAttrs !== undefined ? { proposedAttrs: decodeProposedAttrs(rec.proposedAttrs) } : {}),
+      ...(typeof rec.groupId === "string" ? { groupId: rec.groupId } : {}),
+      ...(isRecord(rec.metadata) ? { metadata: Object.freeze({ ...rec.metadata }) } : {}),
+    };
     out.push(record);
   }
   return out;

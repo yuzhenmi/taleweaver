@@ -13,7 +13,7 @@ import { findFirstContentBlock, findLastContentBlock } from "./helpers";
 
 /**
  * SELECT_ALL — context-aware. A header/footer body is an ISOLATED editing
- * context (same principle as #327 line-navigation isolation and T7e
+ * context (same principle as line-navigation isolation and
  * cross-context refusal): select-all highlights ONLY the context the caret is
  * in — the MAIN body OR the one header/footer body the caret sits in. A body
  * select-all must NOT spill into the header/footer; a header/footer select-all
@@ -21,13 +21,13 @@ import { findFirstContentBlock, findLastContentBlock } from "./helpers";
  *
  * The caret's context is `selectionContextOf(state, focus.blockId)`, which is
  * `state.rootId` for a main-body block, or the header/footer body's CONTAINER
- * ROOT for a template block (T7a made `selectionContextOf` tree-aware).
+ * ROOT for a template block (`selectionContextOf` is tree-aware).
  *
  * - Main body (`ctxRoot === state.rootId`): span the first→last CONTENT-bearing
  *   leaf via `findFirstContentBlock`/`findLastContentBlock` (skips
  *   container-only leaves; unchanged behavior).
  * - Header/footer body: span the first→last LEAF within that body via
- *   `firstLeafBlock`/`lastLeafBlock(state, ctxRoot)` (tree-agnostic post-T7a).
+ *   `firstLeafBlock`/`lastLeafBlock(state, ctxRoot)` (tree-agnostic).
  */
 export function handleSelectAll(editor: EditorState): EditorState {
   const ctxRoot = selectionContextOf(editor.state, editor.selection.focus.blockId);

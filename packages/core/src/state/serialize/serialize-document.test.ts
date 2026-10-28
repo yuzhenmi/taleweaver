@@ -1,6 +1,7 @@
+import { TEST_RESOLVER } from "../../test-utils/state-builders";
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { asBlockId, type BlockId } from "../block-id";
+import { asBlockId, createTestAllocator, type BlockId } from "../block-id";
 import type { Block } from "../block";
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
@@ -26,11 +27,11 @@ import {
   writeSuggestionRecordInTx,
   readSuggestionRecord,
   INSERTION_SUGGESTION_ATTR,
-  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
   type SuggestionId,
   type SuggestionRecord,
 } from "../suggestions";
 import { applyOperation } from "../state";
+import { splitWithSuggestion } from "../ops/split-block";
 import { STATE_INTERNAL } from "../state-internal";
 import { createPosition, createSpan } from "../block-position";
 import type { InlineItem } from "../inline-content";
@@ -182,7 +183,7 @@ function buildRichFixture(): State {
   // round-tripping is covered by a dedicated test below (buildStateFromBlocks
   // does not seed listDefs; buildStateWithListDefs seeds them on a main-tree-only
   // state — the two dimensions are exercised separately).
-  return buildStateFromBlocks({
+  return buildStateFromBlocks({ resolver: TEST_RESOLVER,
     rootId,
     blocks,
     embedContents,
@@ -236,7 +237,7 @@ describe("serialize-document", () => {
       const origTmplRoot = requireBlock(getTemplateContent(state, tmplRoot));
       const origTmplPara = requireBlock(getTemplateContent(state, tmplPara));
 
-      const reg = createDefaultSerializerRegistry();
+      const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
       const bytes = serializeDocument(state, BINARY_FORMAT, reg);
       expect(bytes).toBeInstanceOf(Uint8Array);
 
@@ -303,9 +304,9 @@ describe("serialize-document", () => {
           ],
         },
       };
-      const state = buildStateWithListDefs({ rootId, blocks, listDefs });
+      const state = buildStateWithListDefs({ resolver: TEST_RESOLVER, rootId, blocks, listDefs });
 
-      const reg = createDefaultSerializerRegistry();
+      const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
       const bytes = serializeDocument(state, BINARY_FORMAT, reg);
       const state2 = deserializeDocument(bytes, BINARY_FORMAT, reg);
 
@@ -346,7 +347,7 @@ describe("serialize-document", () => {
           inlineContent: { items: [{ kind: "text", text: "hello world", attrs: {} }] },
         },
       ];
-      const base = buildStateFromBlocks({ rootId, blocks });
+      const base = buildStateFromBlocks({ resolver: TEST_RESOLVER, rootId, blocks });
       const state = addComment(
         base,
         createSpan(createPosition(para, 6), createPosition(para, 11)),
@@ -356,7 +357,7 @@ describe("serialize-document", () => {
       const origComments = getComments(state);
       expect(origComments.length).toBe(1);
 
-      const reg = createDefaultSerializerRegistry();
+      const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
       const bytes = serializeDocument(state, BINARY_FORMAT, reg);
       const state2 = deserializeDocument(bytes, BINARY_FORMAT, reg);
 
@@ -375,12 +376,12 @@ describe("serialize-document", () => {
       expect(buildCommentRangeIndex(state2).get("cm-1" as CommentId)?.orphaned).toBe(false);
     });
 
-    it("round-trips a suggestion losslessly (record + tagged TextItem + break embed)", () => {
-      // A doc carrying a change-tracking suggestion: a `SuggestionRecord` in the
+    it("round-trips a suggestion losslessly (record + tagged TextItem + break tag)", () => {
+      // A doc carrying change-tracking suggestions: `SuggestionRecord`s in the
       // 6th `suggestions` side-table, a TextItem tagged with
-      // `insertionSuggestionId`, AND a `block-join-suggestion` zero-width embed.
-      // The binary serializer captures the WHOLE Y.Doc, so all three survive
-      // encode→decode with no new serializer code.
+      // `insertionSuggestionId`, AND a paragraph-split boundary TAG on a block's
+      // registry entry. The binary serializer captures the WHOLE Y.Doc, so all
+      // survive encode→decode with no new serializer code.
       const rootId = ID("s-root");
       const para = ID("s-para");
       const record: SuggestionRecord = {
@@ -418,41 +419,42 @@ describe("serialize-document", () => {
                 text: "added",
                 attrs: { [INSERTION_SUGGESTION_ATTR]: record.id },
               },
-              {
-                kind: "embed",
-                embedType: BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
-                attrs: {},
-                properties: { suggestionId: record.id },
-              },
+              { kind: "text", text: " tail", attrs: {} },
             ],
           },
         },
       ];
-      const base = buildStateFromBlocks({ rootId, blocks });
+      const base = buildStateFromBlocks({ resolver: TEST_RESOLVER, rootId, blocks });
       // Side-table-only write surfaces state.rootId (the comments/listDefs
       // precedent) so applyOperation advances state.
-      const state = applyOperation(base, (doc) => {
+      const withRecord = applyOperation(base, (doc) => {
         writeSuggestionRecordInTx(doc, record);
         return new Set<BlockId>([base.rootId]);
       }).state;
+      const splitRecord: SuggestionRecord = { id: "sg-2" as SuggestionId, kind: "insertion", author: "bob", createdAt: 100 };
+      const split = splitWithSuggestion(withRecord, createPosition(para, 10), createTestAllocator("t"), splitRecord);
+      const state = split.state;
 
-      const reg = createDefaultSerializerRegistry();
+      const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
       const bytes = serializeDocument(state, BINARY_FORMAT, reg);
       const state2 = deserializeDocument(bytes, BINARY_FORMAT, reg);
 
       // The side-table record survives.
       const doc2 = state2[STATE_INTERNAL].doc;
       expect(readSuggestionRecord(doc2, record.id)).toEqual(record);
+      expect(readSuggestionRecord(doc2, splitRecord.id)).toEqual(splitRecord);
 
-      // The tagged TextItem AND the break embed survive (the whole paragraph
-      // round-trips, incl. the suggestion attr and the embed properties).
+      // The tagged TextItem survives (the whole paragraph round-trips, incl. the
+      // suggestion attr), and the split's tail keeps its boundary tag.
       const origPara = requireBlock(getBlock(state, para));
       expectBlockEqual(getBlock(state2, para), origPara);
+      expectBlockEqual(getBlock(state2, split.newBlockId), requireBlock(getBlock(state, split.newBlockId)));
+      expect(getBlock(state2, split.newBlockId)?.breakSuggestion).toEqual({ insertionId: splitRecord.id });
     });
 
     it("round-trips an empty document (rootId + root block preserved)", () => {
-      const state = createEmptyDocument();
-      const reg = createDefaultSerializerRegistry();
+      const state = createEmptyDocument({ resolver: TEST_RESOLVER });
+      const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
       const bytes = serializeDocument(state, BINARY_FORMAT, reg);
       const state2 = deserializeDocument(bytes, BINARY_FORMAT, reg);
 
@@ -465,7 +467,7 @@ describe("serialize-document", () => {
 
   describe("registry", () => {
     it("createDefaultSerializerRegistry pre-registers the binary serializer", () => {
-      const reg = createDefaultSerializerRegistry();
+      const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
       expect(reg.has(BINARY_FORMAT)).toBe(true);
       expect(reg.get(BINARY_FORMAT)?.format).toBe(BINARY_FORMAT);
     });
@@ -481,7 +483,7 @@ describe("serialize-document", () => {
       const fake: DocumentSerializer = {
         format: "fake-format",
         encode: () => "fake",
-        decode: () => createEmptyDocument(),
+        decode: () => createEmptyDocument({ resolver: TEST_RESOLVER }),
       };
       expect(reg.has("fake-format")).toBe(false);
       reg.register(fake);
@@ -493,7 +495,7 @@ describe("serialize-document", () => {
   describe("error paths", () => {
     it("serializeDocument throws UnknownSerializerFormatError for an unregistered format", () => {
       const reg = createSerializerRegistry();
-      const state = createEmptyDocument();
+      const state = createEmptyDocument({ resolver: TEST_RESOLVER });
       expect(() => serializeDocument(state, "no-such-format", reg)).toThrow(
         UnknownSerializerFormatError,
       );
@@ -507,7 +509,7 @@ describe("serialize-document", () => {
     });
 
     it("binary decode throws MalformedDocumentError when the decoded doc has no rootId", () => {
-      const reg = createDefaultSerializerRegistry();
+      const reg = createDefaultSerializerRegistry({ blockKindResolver: TEST_RESOLVER });
       // A bare Y.Doc has no meta.rootId seeded. Its update applies cleanly but
       // carries no rootId — the specific MalformedDocument path the code owns.
       const empty = new Y.Doc();
@@ -520,7 +522,7 @@ describe("serialize-document", () => {
 
   describe("binary serializer factory", () => {
     it("exposes the stable BINARY_FORMAT id", () => {
-      const s = createBinaryDocumentSerializer();
+      const s = createBinaryDocumentSerializer({ blockKindResolver: TEST_RESOLVER });
       expect(s.format).toBe(BINARY_FORMAT);
       expect(BINARY_FORMAT).toBe("taleweaver-binary");
     });

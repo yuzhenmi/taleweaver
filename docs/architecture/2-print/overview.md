@@ -43,19 +43,56 @@ specialized helpers it composes.
   (`resolvePixelPosition`/`PixelPosition`), selection-geometry
   (`computeSelectionRects`/`SelectionRect`), line-navigation (`moveToLine`/
   `moveToLineBoundary`), line-bidi, the line/atomic-box indices (`collectLineBoxes`/
-  `AbsoluteLineBox`/`LineLeaf`/…), and the comment/suggestion rects. Reads the
-  driver-built layout tree. (The geometry-free selection model — `moveByCharacter`,
+  `AbsoluteLineBox`/`LineLeaf`/…; each line carries its `ancestorClip` — the cell
+  border box / column span / page box in its frame plus the outer clips above a
+  transform — built once per layout by the ONE clip-walk step in
+  `cursor/ancestor-clip.ts` (`childClip` / `columnClip` / `pageClip`) shared with the
+  boundary-mark index; the selection ¶ extension is clipped by it as the ¶ glyph is),
+  the boundary-mark index
+  (`getBoundaryMarkIndex` — every placed tracked ¶ glyph / section-break label with its
+  absolute pre-transform rect, its clipped visible rect (clips in its own frame), its outer clips (ancestor clips
+  above a transform, each with its frame) and baked inverse ancestor transform, like
+  `AbsoluteLineBox`; `getBoundaryMarksByBlock` / `boundaryMarkRectOf`
+  — the same, keyed by block / box, memoized per tree), and the comment/suggestion
+  rects. Reads the driver-built layout tree. The ¶ glyph and the section label (see
+  [`2.2.1-bfc.md`](./2.2-layout/2.2.1-bfc.md)) have no offset and are never caret
+  stops: a click inside one's visible rect (mapped through its inverse transform)
+  resolves to `(E, len)`. A ¶ is covered by a selection iff start ≤ `(E, len)` and
+  end ≥ `(N, 0)`; every covered ¶ paints one SELECTION EXTENSION rect
+  (`selection-geometry.ts` `paragraphExtension`): anchored at the caret paint position
+  of `(E, len)`, a two-space width along the line's base direction (leftward in RTL,
+  block-down in vertical), widened to a drawn tracked ¶ / label, fused onto a content
+  interval it touches, stopped at the line end when an inline-end float shortens the
+  line (`LineBox.endsAtFloat`), and clipped by the line's `ancestorClip` — exactly as the
+  ¶ glyph is (null when clipped away; a rotated ancestor clip applies as its bounding box —
+  selection rects for transformed content are painted pre-transform; see the positioning gap
+  in `state-of-branch.md`). The same rect paints on an empty paragraph's line and
+  never for `(P, len)–(P, len)`. A section-kind tracked ¶ is a Word "Section Break"
+  label box from the caret of `(E, len)` to the line end (at least one ¶ glyph wide),
+  taking no line space — there is no band block. `getSuggestionRangeRects` for a break
+  member = the ¶ / label rect plus its tagged characters' rects, deduplicated, no
+  empty slices. Markers (`bookmark-*` / `comment-*`) are never caret stops either:
+  `resolvePositionFromPixel` wraps the raw hit-test in core `caretAfterMarkers`
+  (so ArrowUp / ArrowDown, which reuse it, too), and the horizontal keys step through
+  `nav/nav-intent.ts` `stepPastMarkers` (a landing that normalizes back to the focus
+  steps again — one press crosses one character); Home / End and selection extension
+  normalize the same way. Print decoration text widgets are DOM overlays outside layout, so a widget at
+  `(E, len)` and the ¶ there are not offset past each other (known limitation `[missing]`,
+  resolved by zero-offset inline widgets in print layout). (The geometry-free selection model — `moveByCharacter`,
   `isCollapsed`, object-selection, grapheme-utils — STAYS in `core/src/cursor/`.)
 
 - **`layout-driver/`** (files: `layout-driver.ts`, `layout-config.ts`) —
   the print backend's geometry pipeline. `createLayoutDriver(layoutConfig)`
   returns a `LayoutDriver` whose `rebuild(state, containerWidth, lastDirtyIds)`
   runs render → cascade (main + template + embed bodies) → layout and returns
-  the `LayoutBox | VirtualLayoutTree`. It RETAINS the prior cycle's six trees
-  (render output, main/template/embed cascaded trees, layout tree) as closure
+  the `LayoutBox | VirtualLayoutTree`. It RETAINS the prior cycle's five trees
+  (render output, main/template/embed cascaded trees, layout tree) plus the prior
+  `State` (`prevState`) as closure
   state, so a non-null `lastDirtyIds` drives an INCREMENTAL rebuild that reuses
-  unchanged subtrees by reference (`null` = full rebuild: initial / resize). It
-  also runs the FN-6.4 restart-per-page footnote-numbering second pass (re-render
+  unchanged subtrees by reference (`null` = full rebuild: initial / resize); the same
+  `State` + width with no dirty set (a selection-only dispatch) returns the prior tree
+  untouched. It
+  also runs the restart-per-page footnote-numbering second pass (re-render
   the changed markers from the layout's anchor→page map until the page assignment
   converges). `LayoutConfig = { measurer, hyphenator?, pageConfig?,
   componentRegistry, attrRegistry }` — the print-mechanics capabilities (`measurer`
@@ -112,9 +149,12 @@ specialized helpers it composes.
   (`state/serialize/`); its DECODE half parses through an injected `HtmlParser`
   over the DOM-free `HtmlNode` interface, keeping core headless. This file is the
   thin DOM adapter a browser host supplies — it wraps `DOMParser` + DOM `Node`s
-  as `HtmlNode`s. The host passes `browserHtmlParser` into
-  `createHtmlDocumentSerializer({ allocator, parseHtml })`. See
-  [`../1-core/1.7-serialization.md`](../1-core/1.7-serialization.md).
+  as `HtmlNode`s. The print controller injects `browserHtmlParser` into
+  `EditorConfig.htmlParser` so that `PASTE { html }` payloads are decoded by
+  `decodeHtml` inside `handlePaste`. See
+  [`../1-core/1.7-serialization.md`](../1-core/1.7-serialization.md) and the
+  clipboard wiring section of
+  [`2.8-editor-controller.md`](./2.8-editor-controller.md#clipboard-wiring).
 
 - **`dom-mirror/`** (file: `dom-mirror.ts`) — `buildDomMirror`, a pure structural
   transform from an `AccessibilityNode` tree (core's `buildAccessibilityTree`
@@ -198,7 +238,7 @@ created on construction and discarded on destroy.
 5. [`2.9-html-serializer.md`](./2.9-html-serializer.md) — the `taleweaver-html` serializer (now in `core`'s `state/serialize/`): supported subset, lossiness boundary, and `print`'s `browserHtmlParser` DOM adapter that feeds core's DOM-free decode.
 6. [`2.10-dom-mirror.md`](./2.10-dom-mirror.md) — `buildDomMirror`: pure `AccessibilityNode` → visually-hidden semantic DOM transform, role/run mapping.
 7. [`2.11-dom-mirror-host.md`](./2.11-dom-mirror-host.md) — `createDomMirrorHost`: the materialization layer — mounting, incremental keyed reconciliation per paint, page-field resolved-text injection, controlled-contenteditable input, `Selection` mapping, the `accessibilityMirror` flag.
-8. [`2.1-layout-driver.md`](./2.1-layout-driver.md) — `createLayoutDriver` (the print backend's render→cascade→layout pipeline consuming `lastDirtyIds`, retained-tree incremental reuse, FN-6.4 restart-per-page pass, `LayoutConfig`) and `resolveNavIntent` (the geometric-navigation resolver — `KeyResult`, `NavIntent`, layout-tree-reading geometry → `SET_SELECTION`/`DELETE_RANGE`).
+8. [`2.1-layout-driver.md`](./2.1-layout-driver.md) — `createLayoutDriver` (the print backend's render→cascade→layout pipeline consuming `lastDirtyIds`, retained-tree incremental reuse, footnote restart-per-page pass, `LayoutConfig`) and `resolveNavIntent` (the geometric-navigation resolver — `KeyResult`, `NavIntent`, layout-tree-reading geometry → `SET_SELECTION`/`DELETE_RANGE`).
 9. [`2.2-layout/overview.md`](./2.2-layout/overview.md) — the geometric box-layout engine: formatting-context dispatch, anonymous boxes, floats, used-style resolution, the virtual-layout-tree, and its per-FC docs ([BFC](./2.2-layout/2.2.1-bfc.md) / [IFC](./2.2-layout/2.2.2-ifc.md) / [Table FC](./2.2-layout/2.2.3-table-fc.md)).
 10. [`2.3-pagination.md`](./2.3-pagination.md) — fragmentation, page templates, headers/footers/footnotes, layout-dependent fields.
 11. [`2.4-positioning.md`](./2.4-positioning.md) — `position: relative/absolute`, transforms, opacity, stacking contexts.
@@ -224,10 +264,12 @@ The read-only DOM viewer (`renderDocumentToDom`) is documented under
 
 **Helpers** — `mapKeyEvent` (DOM keyboard event → `KeyResult = EditorAction | NavIntent`). `ImageCache`. `FONT_CONFIG`, `buildCssFontString`, `getEffectiveStyles` (font defaults).
 
-The `layout-driver` (`createLayoutDriver`, `LayoutConfig`) and the `nav`
-resolver (`resolveNavIntent`, `NavIntent`, `isNavIntent`, `KeyResult`) are
-INTERNAL to the controller — composed during construction, not on the package
-barrel (like the paint cache). See [`2.1-layout-driver.md`](./2.1-layout-driver.md).
+The `layout-driver` (`createLayoutDriver`, `LayoutDriver`, `LayoutConfig`) is
+exported on the package barrel — a host can build a layout tree from a core
+`State` directly without constructing an `EditorController`. The `nav` resolver
+(`resolveNavIntent`, `NavIntent`, `isNavIntent`, `KeyResult`) is INTERNAL to the
+controller — composed during construction, not on the barrel. See
+[`2.1-layout-driver.md`](./2.1-layout-driver.md).
 
 **Geometric layout + cursor surface** (OWNED by `print`; consumers import them
 from `@taleweaver/print`) —
@@ -246,4 +288,4 @@ factories), `layoutTree`, `layoutTreeIncremental`, `VirtualLayoutTree`,
 `createInitialEditorState`, `reduceEditor`. `CounterFormat`,
 `FootnoteNumberingPolicy`, `documentFootnotePolicy`. (The old `AbsoluteTextBox` /
 `EditorHistory` / `collectAllTextBoxes` / `findFirst|LastTextDescendant` names
-predate the #172 LineBox-canonical refactor and no longer exist.)
+predate the LineBox-canonical layout model and no longer exist.)

@@ -2,6 +2,7 @@ import type { EditorState, EditorConfig } from "../editor-state";
 import { isCollapsed } from "../../cursor/selection";
 import { applyAttrsOrSuggest } from "./suggestion-mode";
 import { rebuildTrees } from "./helpers";
+import { storeTypingAttrs } from "../typing-attrs";
 
 /**
  * Set or clear the text color on the current selection. Used by the
@@ -20,10 +21,11 @@ import { rebuildTrees } from "./helpers";
  * The cascade is responsible for visual styling; this handler only
  * mutates state.
  *
- * Mirrors set-link.ts exactly: collapsed selection short-circuits to
- * a no-op (no color can be applied to a single cursor position); T7
+ * Shape:
+ * a collapsed caret records the value as pending typing attrs (`storeTypingAttrs`)
+ * for the next typed text — the document is unchanged; a
  * state-equality short-circuit; the selection is preserved unchanged;
- * dirtyIds threaded through to the incremental render pipeline (per R-D.3).
+ * dirtyIds threaded through to the incremental render pipeline.
  */
 export function handleSetTextColor(
   editor: EditorState,
@@ -31,13 +33,13 @@ export function handleSetTextColor(
   config: EditorConfig,
 ): EditorState {
   const { selection } = editor;
-  if (isCollapsed(selection)) return editor;
-
   // Normalize empty string to a removal — an empty color isn't a
   // meaningful value, so this handler is where we reject it.
   const incoming = color !== null && color.length > 0
     ? { color }
     : { color: undefined };
+  // Collapsed caret: the color applies to the next typed text (typing attrs).
+  if (isCollapsed(selection)) return storeTypingAttrs(editor, incoming);
   const result = applyAttrsOrSuggest(editor.state, selection, incoming, config);
   if (result.state === editor.state) return editor;
 

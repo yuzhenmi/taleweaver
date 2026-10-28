@@ -42,13 +42,17 @@ function listStyleTypeToCss(v: ListStyleType): string {
 /**
  * Map a node's cascaded `ComputedStyle` to an inline `style=""` declaration
  * string, emitting ONLY non-default props (compared against
- * `INITIAL_COMPUTED_STYLE`). Logical box-model sides map to physical CSS sides
+ * `INITIAL_COMPUTED_STYLE`, or the `I` it overrides — e.g. a generated child's own
+ * character props over its block's). Logical box-model sides map to physical CSS sides
  * via `resolveLogicalSides` so RTL / vertical-writing-mode documents render
- * correctly when the browser flows them. v1 = inline style (a stylesheet/class
- * refactor is a documented later step if DOM size profiles hot).
+ * correctly when the browser flows them. Output is inline style (a stylesheet/class
+ * form is not implemented; consider it if DOM size profiles hot).
  */
-export function computedStyleToInlineStyle(cs: ComputedStyle): string {
-  const I = INITIAL_COMPUTED_STYLE;
+export function computedStyleToInlineStyle(
+  cs: ComputedStyle,
+  /** What the emitted declarations override (default: the initial style). */
+  I: ComputedStyle = INITIAL_COMPUTED_STYLE,
+): string {
   const out: string[] = [];
   const push = (prop: string, value: string): void => { out.push(`${prop}: ${value}`); };
 

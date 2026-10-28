@@ -9,6 +9,7 @@
  * (non-undoable) transaction, so the key assertion (beyond resolution) is that
  * accept/reject add NO undo step (Ctrl+Z cannot revert them).
  */
+import { finalSectionOf } from "../../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import {
   config,
@@ -40,11 +41,10 @@ import {
   type Selection,
   type SuggestionId,
 } from "../../state";
-import { assertChainIntegrity } from "../../state/chain-integrity";
 
 /** The first body paragraph id under the document root. */
 function bodyParaId(state: State): BlockId {
-  const root = getBlock(state, state.rootId);
+  const root = getBlock(state, finalSectionOf(state));
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
     throw new Error("document root has no first child paragraph");
@@ -145,43 +145,42 @@ describe("ACCEPT_ALL_SUGGESTIONS / REJECT_ALL_SUGGESTIONS", () => {
   });
 });
 
-describe("resolve actions are NON-undoable", () => {
-  it("ACCEPT_SUGGESTION adds no undo step; UNDO reverts the preceding typing", () => {
+describe("resolve actions are UNDOABLE (one history entry each)", () => {
+  it("ACCEPT_SUGGESTION is its own undo step: UNDO restores the suggestion exactly, a second UNDO reverts the typing", () => {
     // Two paragraphs: para A carries a seeded suggestion; para B receives typing.
-    // The accept resolves only para A, so it never rewrites the typed para B.
     const initial = createInitialEditorState(config);
     let s = reduceEditor(initial, { type: "INSERT_TEXT", text: "first" }, config);
     s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
-    const root = getBlock(s.state, s.state.rootId);
+    const root = getBlock(s.state, finalSectionOf(s.state));
     const paraA = root?.firstChildId;
     if (paraA === undefined || paraA === null) throw new Error("no para A");
-    // Seed a suggestion in para A on the seeded State, then rebuild the editor.
     const seeded = seedFormatting(s.state, paraA, 0, 3, { bold: true }, SID);
-    // Place the caret in para B (the second paragraph, currently empty).
-    const paraB = getBlock(seeded, seeded.rootId)?.lastChildId;
+    const paraB = getBlock(seeded, finalSectionOf(seeded))?.lastChildId;
     if (paraB === undefined || paraB === null) throw new Error("no para B");
     let editor = createEditorStateFromState(seeded, caretAt(paraB, 0), config);
-
-    // A tracked edit in para B.
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "typed" }, config);
-    expect(editor.history.canUndo()).toBe(true);
+    const beforeAccept = getBlock(editor.state, paraA)?.inlineContent?.items;
 
-    // The non-undoable accept on para A's suggestion.
     editor = reduceEditor(editor, { type: "ACCEPT_SUGGESTION", id: SID }, config);
     expect(getSuggestions(editor.state)).toHaveLength(0);
 
-    // UNDO reverts the typed text in para B (the accept added no undo step).
+    // UNDO restores the suggestion: record + the tagged run, exactly.
     const undone = reduceEditor(editor, { type: "UNDO" }, config);
-    const blockB = getBlock(undone.state, paraB);
-    expect(blockB?.inlineContent?.items.some((it) => it.kind === "text" && it.text.includes("typed"))).toBe(false);
-    // The accept contributed no undo entry — after reverting the lone typing
-    // step, there is nothing left to undo.
-    expect(undone.history.canUndo()).toBe(false);
+    expect(getSuggestions(undone.state).map((x) => x.id)).toEqual([SID]);
+    expect(getBlock(undone.state, paraA)?.inlineContent?.items).toEqual(beforeAccept);
+    // The typing is still there; a second UNDO reverts it.
+    const blockB = (st: typeof undone) => getBlock(st.state, paraB)?.inlineContent?.items ?? [];
+    expect(blockB(undone).some((it) => it.kind === "text" && it.text.includes("typed"))).toBe(true);
+    const undone2 = reduceEditor(undone, { type: "UNDO" }, config);
+    expect(blockB(undone2).some((it) => it.kind === "text" && it.text.includes("typed"))).toBe(false);
+    // REDO twice re-applies the typing and the accept.
+    const redone = reduceEditor(reduceEditor(undone2, { type: "REDO" }, config), { type: "REDO" }, config);
+    expect(getSuggestions(redone.state)).toHaveLength(0);
   });
 });
 
 describe("same-block resolve then undo (S1 — identity-preserving, #484)", () => {
-  it("type-as-suggestion → accept → undo reverts the typing (StackItem survives the resolve)", () => {
+  it("type-as-suggestion → accept → undo restores the suggestion → undo reverts the typing", () => {
     const suggesting: EditorConfig = { ...config, suggestingAuthor: "alice" };
     const initial = createInitialEditorState(config);
     const paraId = bodyParaId(initial.state);
@@ -191,10 +190,7 @@ describe("same-block resolve then undo (S1 — identity-preserving, #484)", () =
     const sugg = getSuggestions(typed.state);
     expect(sugg).toHaveLength(1);
 
-    // Accept it. The non-undoable resolve now applies a SURGICAL in-place attrs
-    // strip (#484: applyResolveDecisionsInTx), preserving the run's Y.Text — and
-    // therefore the preceding mint's undo StackItem stays VALID (it is no longer
-    // detached by a full-replace rebuild).
+    // Accept it (surgical in-place strip, #484) — one undoable entry.
     const accepted = reduceEditor(
       typed,
       { type: "ACCEPT_SUGGESTION", id: nth(sugg, 0, "suggestion").id },
@@ -203,16 +199,14 @@ describe("same-block resolve then undo (S1 — identity-preserving, #484)", () =
     expect(getSuggestions(accepted.state)).toHaveLength(0);
     expect(getTextOf(accepted.state, paraId)).toBe("hi");
 
-    // UNDO now REVERTS the typing for real (its StackItem survived the resolve) —
-    // pre-#484 this was a silent no-op that left "hi" behind. The accept itself
-    // contributed no undo step, so after this undo nothing reversible remains.
-    const undone = reduceEditor(accepted, { type: "UNDO" }, suggesting);
+    // UNDO restores the pending insertion; a second UNDO reverts the typing (its
+    // StackItem survived the identity-preserving resolve).
+    const restored = reduceEditor(accepted, { type: "UNDO" }, suggesting);
+    expect(getSuggestions(restored.state)).toHaveLength(1);
+    expect(getTextOf(restored.state, paraId)).toBe("hi");
+    const undone = reduceEditor(restored, { type: "UNDO" }, suggesting);
     expect(getTextOf(undone.state, paraId)).toBe("");
-    assertChainIntegrity(undone.state, "s1-regression");
-    // A further undo is a safe no-op (nothing left) and must not throw.
-    expect(() =>
-      reduceEditor(undone, { type: "UNDO" }, suggesting),
-    ).not.toThrow();
+    expect(() => reduceEditor(undone, { type: "UNDO" }, suggesting)).not.toThrow();
   });
 });
 

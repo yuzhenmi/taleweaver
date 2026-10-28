@@ -5,13 +5,15 @@
  * deterministic allocator.
  */
 import type { IdAllocator } from "./block-id";
+import type { BlockKindResolver } from "./block-kinds";
 import { productionAllocator } from "./block-id";
 import { createState, type State } from "./state";
-import { runTransaction, getBlocksMap } from "./yjs-doc";
-import { buildYBlock } from "./y-block";
+import { writeRoot } from "./flow-ops";
 import { STATE_INTERNAL } from "./state-internal";
 
 export interface CreateEmptyDocumentArgs {
+  /** Storage-shape authority (the component registry). */
+  resolver: BlockKindResolver;
   allocator?: IdAllocator;
 }
 
@@ -20,40 +22,24 @@ export interface CreateEmptyDocumentArgs {
  * empty "paragraph" child. The document is the canonical starting point
  * for a new editor session.
  */
-export function createEmptyDocument(args: CreateEmptyDocumentArgs = {}): State {
+export function createEmptyDocument(args: CreateEmptyDocumentArgs): State {
   const allocator = args.allocator ?? productionAllocator;
   const rootId = allocator.allocate();
   const paragraphId = allocator.allocate();
 
-  const state = createState({ rootId });
+  const state = createState({ rootId, resolver: args.resolver });
   const doc = state[STATE_INTERNAL].doc;
-  runTransaction(doc, () => {
-    const yBlocks = getBlocksMap(doc);
-    yBlocks.set(
-      rootId,
-      buildYBlock({
+  doc.transact(() => {
+    writeRoot(
+      doc,
+      {
+        id: rootId,
         type: "document",
         attrs: {},
-        parentId: null,
-        prevSiblingId: null,
-        nextSiblingId: null,
-        firstChildId: paragraphId,
-        lastChildId: paragraphId,
         inlineContent: null,
-      }),
-    );
-    yBlocks.set(
-      paragraphId,
-      buildYBlock({
-        type: "paragraph",
-        attrs: {},
-        parentId: rootId,
-        prevSiblingId: null,
-        nextSiblingId: null,
-        firstChildId: null,
-        lastChildId: null,
-        inlineContent: { items: [] },
-      }),
+        children: [{ id: paragraphId, type: "paragraph", attrs: {}, inlineContent: { items: [] }, children: [] }],
+      },
+      "block",
     );
   });
   return state;

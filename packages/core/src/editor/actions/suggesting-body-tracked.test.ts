@@ -15,11 +15,12 @@
  *
  * These behavior-level tests drive `reduceEditor` in suggesting mode with the
  * caret/selection inside a FOOTNOTE body, asserting (1) the edit is TRACKED (a
- * suggestion is created + the run/embed is stamped), and (2) ACCEPT_ALL /
+ * suggestion is created + the run is stamped / the boundary is tagged), and (2) ACCEPT_ALL /
  * REJECT_ALL resolve it to the right outcome with ZERO suggestions and no
  * stranded provenance attr — the MT round-trip that proves no zombie. The final
  * regression block confirms the SAME actions in the MAIN body still track.
  */
+import { finalSectionOf } from "../../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import {
   config as directConfig,
@@ -43,7 +44,8 @@ import {
   getSuggestions,
   resolveBlock,
   selectionContextOf,
-  BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
+  endMarkOf,
+  formattingSuggestionIds,
   type BlockId,
 } from "../../state";
 
@@ -52,7 +54,7 @@ const suggestingConfig: EditorConfig = { ...directConfig, suggestingAuthor: "ali
 
 /** The first body paragraph id under the document root (MAIN tree). */
 function bodyParaId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = getBlock(editor.state, finalSectionOf(editor.state));
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
     throw new Error("document root has no first child paragraph");
@@ -68,7 +70,7 @@ function textOfResolved(editor: EditorState, blockId: BlockId): string {
     .join("");
 }
 
-/** Whether ANY text run in `blockId` carries the named suggestion-provenance attr. */
+/** Whether ANY text run in `blockId` carries the named suggestion provenance (formatting: any per-id tag). */
 function anyRunHasAttr(
   editor: EditorState,
   blockId: BlockId,
@@ -76,22 +78,19 @@ function anyRunHasAttr(
 ): boolean {
   const block = resolveBlock(editor.state, blockId)?.block ?? null;
   for (const it of block?.inlineContent?.items ?? []) {
-    if (it.kind === "text" && it.attrs[attr] !== undefined) return true;
+    if (it.kind !== "text") continue;
+    if (attr === "formattingSuggestionId" ? formattingSuggestionIds(it.attrs).length > 0 : it.attrs[attr] !== undefined) {
+      return true;
+    }
   }
   return false;
 }
 
-/** True iff `blockId`'s inlineContent ends with a `block-split-suggestion` embed
- *  (the suggesting-mode split marker). Resolves via `resolveBlock` so it works
- *  for a non-main-body block. */
-function endsWithSplitEmbed(editor: EditorState, blockId: BlockId): boolean {
-  const items = resolveBlock(editor.state, blockId)?.block?.inlineContent?.items ?? [];
-  const last = items[items.length - 1];
-  return (
-    last !== undefined &&
-    last.kind === "embed" &&
-    last.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE
-  );
+/** True iff the boundary ¶ drawn at the END of `blockId` is a suggested split
+ *  (the suggesting-mode split marker). `endMarkOf` resolves any tree, so it
+ *  works for a non-main-body block. */
+function endsWithSplitMark(editor: EditorState, blockId: BlockId): boolean {
+  return endMarkOf(editor.state, blockId)?.kind === "split";
 }
 
 /**
@@ -183,23 +182,22 @@ describe("suggesting mode in a footnote BODY now TRACKS (MT-4)", () => {
     expect(anyRunHasAttr(next, bodyParaId, "formattingSuggestionId")).toBe(true);
   });
 
-  it("SPLIT_NODE (Enter) does a real split PLUS a block-split-suggestion embed on the body block", () => {
+  it("SPLIT_NODE (Enter) does a real split PLUS a keyed ¶ on the new body head", () => {
     const { editor, bodyParaId } = footnoteBodyFixture();
     const placed = caretAt(editor, bodyParaId, 1); // caret after "a" → split "a" | "bc"
     const next = reduceEditor(placed, { type: "SPLIT_NODE" }, suggestingConfig);
-
-    // Real structural split: original body block keeps "a" + a split embed; the
-    // caret moved to a brand-new body block holding "bc".
-    expect(textOfResolved(next, bodyParaId)).toBe("a");
-    const newBlockId = next.selection.focus.blockId;
-    expect(newBlockId).not.toBe(bodyParaId);
-    expect(next.selection.focus.offset).toBe(0);
-    expect(textOfResolved(next, newBlockId)).toBe("bc");
-    // It's TRACKED: an insertion record + the split embed on the body block.
+    // Real structural split: a NEW head holds "a" and its ¶ is the
+    // inserted one; the body block keeps "bc" and the caret (B, 0).
+    const head = resolveBlock(next.state, bodyParaId)?.block.prevSiblingId ?? null;
+    if (head === null) throw new Error("expected a new head");
+    expect(textOfResolved(next, head)).toBe("a");
+    expect(next.selection.focus).toEqual(createPosition(bodyParaId, 0));
+    expect(textOfResolved(next, bodyParaId)).toBe("bc");
     const suggestions = getSuggestions(next.state);
     expect(suggestions).toHaveLength(1);
     expect(nth(suggestions, 0, "suggestion").kind).toBe("insertion");
-    expect(endsWithSplitEmbed(next, bodyParaId)).toBe(true);
+    expect(endsWithSplitMark(next, head)).toBe(true);
+    expect(resolveBlock(next.state, head)?.block.breakSuggestion?.insertionId).toBe(nth(suggestions, 0, "suggestion").id);
   });
 
   it("DELETE_FORWARD (collapsed mid-char) SOFT-deletes; caret ADVANCES to span end (soft-delete rule)", () => {
@@ -264,17 +262,18 @@ describe("body suggestions RESOLVE cleanly via accept/reject-all — the MT payo
     expect(anyRunHasAttr(resolved, bodyParaId, "deletionSuggestionId")).toBe(false);
   });
 
-  it("body SPLIT_NODE → ACCEPT_ALL keeps the split (two blocks), drops the embed, zero suggestions", () => {
+  it("body SPLIT_NODE → ACCEPT_ALL keeps the split (two blocks), drops the tag, zero suggestions", () => {
     const { editor, bodyParaId } = footnoteBodyFixture();
     const placed = caretAt(editor, bodyParaId, 1);
     const split = reduceEditor(placed, { type: "SPLIT_NODE" }, suggestingConfig);
-    const newBlockId = split.selection.focus.blockId;
+    const head = resolveBlock(split.state, bodyParaId)?.block.prevSiblingId ?? null;
+    if (head === null) throw new Error("expected a new head");
     const resolved = reduceEditor(split, { type: "ACCEPT_ALL_SUGGESTIONS" }, suggestingConfig);
-
-    // Split kept: "a" | "bc" in two body blocks; the split embed is gone.
-    expect(textOfResolved(resolved, bodyParaId)).toBe("a");
-    expect(textOfResolved(resolved, newBlockId)).toBe("bc");
-    expect(endsWithSplitEmbed(resolved, bodyParaId)).toBe(false);
+    // Split kept: "a" | "bc" in two body blocks; the key is gone.
+    expect(textOfResolved(resolved, head)).toBe("a");
+    expect(textOfResolved(resolved, bodyParaId)).toBe("bc");
+    expect(endsWithSplitMark(resolved, head)).toBe(false);
+    expect(resolveBlock(resolved.state, head)?.block.breakSuggestion).toBeUndefined();
     expect(getSuggestions(resolved.state)).toHaveLength(0);
   });
 
@@ -284,9 +283,9 @@ describe("body suggestions RESOLVE cleanly via accept/reject-all — the MT payo
     const split = reduceEditor(placed, { type: "SPLIT_NODE" }, suggestingConfig);
     const resolved = reduceEditor(split, { type: "REJECT_ALL_SUGGESTIONS" }, suggestingConfig);
 
-    // Split undone: the body block is back to a single "abc" with no embed.
+    // Split undone: the body block is back to a single "abc" with no tag.
     expect(textOfResolved(resolved, bodyParaId)).toBe("abc");
-    expect(endsWithSplitEmbed(resolved, bodyParaId)).toBe(false);
+    expect(endsWithSplitMark(resolved, bodyParaId)).toBe(false);
     expect(getSuggestions(resolved.state)).toHaveLength(0);
   });
 });

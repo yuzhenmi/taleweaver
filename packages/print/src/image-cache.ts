@@ -17,7 +17,7 @@ export class ImageCache {
     // `onerror` (browsers treat empty-string src as an error), which clears the
     // `loading` gate, so every subsequent render frame would re-create an Image
     // and re-attempt the failed load. A sanitized dangerous <img> decodes to
-    // src="" (html-decode F2), so this path is reachable from untrusted input.
+    // src="" (the HTML decoder's sanitizer), so this path is reachable from untrusted input.
     if (src === "") return null;
 
     const cached = this.cache.get(src);

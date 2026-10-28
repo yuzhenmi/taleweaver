@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { replaceRange, replaceRangeInTx, planReplaceRange } from "./replace-range";
 import { getBlock, getEmbedContent } from "../state";
-import { buildBlock, buildState, text, embed, inlineContent } from "../../test-utils/state-builders";
+import { buildBlock, buildState, text, embed, inlineContent, finalSectionOf } from "../../test-utils/state-builders";
 import { createPosition, createSpan } from "../block-position";
 import type { BlockId } from "../block-id";
 import { STATE_INTERNAL } from "../state-internal";
@@ -132,13 +132,13 @@ describe("replaceRange — cross-block coverage", () => {
     const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 3));
     const result = replaceRange(state, span, "FOO", {});
 
-    const p1 = getBlock(result.state, "p1" as BlockId);
-    expect(p1?.inlineContent?.items).toHaveLength(1);
-    expect(p1?.inlineContent?.items[0]).toMatchObject({ text: "heFOOrld", attrs: {} });
-    expect(getBlock(result.state, "p2" as BlockId)).toBe(null);
-
-    // dirtyIds: union of deleteRange's dirtyIds ({p1, p2, doc}) + insertText's ({p1}) = {p1, p2, doc}.
-    expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "doc"]));
+    // The focus survives: the insert lands at its seam.
+    const p2 = getBlock(result.state, "p2" as BlockId);
+    expect(p2?.inlineContent?.items).toHaveLength(1);
+    expect(p2?.inlineContent?.items[0]).toMatchObject({ text: "heFOOrld", attrs: {} });
+    expect(getBlock(result.state, "p1" as BlockId)).toBe(null);
+    // p1 left, the survivor p2 changed, the parent's first child moved to p2.
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", finalSectionOf(result.state)]));
   });
 
   it("replaces a cross-block range with intervening leaves", () => {
@@ -158,13 +158,12 @@ describe("replaceRange — cross-block coverage", () => {
     const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p3" as BlockId, 2));
     const result = replaceRange(state, span, "Z", {});
 
-    const p1 = getBlock(result.state, "p1" as BlockId);
-    expect(p1?.inlineContent?.items).toHaveLength(1);
-    expect(p1?.inlineContent?.items[0]).toMatchObject({ text: "heZrld", attrs: {} });
+    const p3 = getBlock(result.state, "p3" as BlockId);
+    expect(p3?.inlineContent?.items).toHaveLength(1);
+    expect(p3?.inlineContent?.items[0]).toMatchObject({ text: "heZrld", attrs: {} });
+    expect(getBlock(result.state, "p1" as BlockId)).toBe(null);
     expect(getBlock(result.state, "p2" as BlockId)).toBe(null);
-    expect(getBlock(result.state, "p3" as BlockId)).toBe(null);
-
-    expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "p3", "doc"]));
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "p3", finalSectionOf(result.state)]));
   });
 
   it("inserted text uses the caller's attrs (independent of the surviving anchor block's attrs)", () => {
@@ -183,7 +182,7 @@ describe("replaceRange — cross-block coverage", () => {
     const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 3));
     const result = replaceRange(state, span, "FOO", { underline: true });
 
-    const items = getBlock(result.state, "p1" as BlockId)?.inlineContent?.items;
+    const items = getBlock(result.state, "p2" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(3);
     expect(items?.[0]).toMatchObject({ text: "he", attrs: { bold: true } });
     expect(items?.[1]).toMatchObject({ text: "FOO", attrs: { underline: true } });
@@ -242,11 +241,11 @@ describe("replaceRange — cross-block coverage", () => {
 
     const result = replaceRange(state, span, "Z", {});
 
-    const p1 = getBlock(result.state, "p1" as BlockId);
-    expect(p1?.inlineContent?.items).toHaveLength(1);
-    expect(p1?.inlineContent?.items[0]).toMatchObject({ text: "heZrld", attrs: {} });
+    const focus = getBlock(result.state, focusBlockId);
+    expect(focus?.inlineContent?.items).toHaveLength(1);
+    expect(focus?.inlineContent?.items[0]).toMatchObject({ text: "heZrld", attrs: {} });
+    expect(getBlock(result.state, "p1" as BlockId)).toBe(null);
     expect(getBlock(result.state, "p2" as BlockId)).toBe(null);
-    expect(getBlock(result.state, focusBlockId)).toBe(null);
   });
 
   it("nested: cross-block replacement inside a section container", () => {
@@ -264,9 +263,9 @@ describe("replaceRange — cross-block coverage", () => {
     const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 3));
     const result = replaceRange(state, span, "X", {});
 
-    expect(getBlock(result.state, "p1" as BlockId)?.inlineContent?.items[0]).toMatchObject({ text: "heXrld" });
-    expect(getBlock(result.state, "p2" as BlockId)).toBe(null);
-    expect(getBlock(result.state, "section" as BlockId)?.lastChildId).toBe("p1");
+    expect(getBlock(result.state, "p2" as BlockId)?.inlineContent?.items[0]).toMatchObject({ text: "heXrld" });
+    expect(getBlock(result.state, "p1" as BlockId)).toBe(null);
+    expect(getBlock(result.state, "section" as BlockId)?.firstChildId).toBe("p2");
     expect(getBlock(result.state, "doc" as BlockId)?.firstChildId).toBe("section"); // unchanged
   });
 });
@@ -362,16 +361,16 @@ describe("replaceRange — block-level invariants", () => {
     const result = replaceRange(state, span, "X", {});
 
     expect(getEmbedContent(result.state, "fn-body" as BlockId)).not.toBeNull();
-    // p1's content: prefix=[] + "X" inserted at offset 0 + focus.suffix=[embed] → [text("X"), embed].
-    const items = getBlock(result.state, "p1" as BlockId)?.inlineContent?.items;
+    // The surviving focus p2: prefix=[] + "X" inserted at offset 0 + its [embed].
+    const items = getBlock(result.state, "p2" as BlockId)?.inlineContent?.items;
     expect(items).toHaveLength(2);
     expect(items?.[0]).toMatchObject({ kind: "text", text: "X" });
     expect(items?.[1]).toMatchObject({ kind: "embed", embedType: "footnote-anchor" });
   });
 
   it("preserves structural sharing for blocks NOT touched", () => {
-    // doc > [p0, p1, p2, p3] — replace cross-block from p1@2 to p2@2 with "Z".
-    // p0 is untouched.
+    // doc > [p0, p1, p2, p3] — replace cross-block from p1@2 to p2@2 with "Z". The survivor
+    // is p2, so p0's next link changes; p3 is untouched.
     const state = buildState({
       rootId: "doc",
       blocks: [
@@ -382,10 +381,11 @@ describe("replaceRange — block-level invariants", () => {
         buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: inlineContent([text("end")]) }),
       ],
     });
-    const beforeP0 = getBlock(state, "p0" as BlockId);
+    const beforeP3 = getBlock(state, "p3" as BlockId);
     const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 2));
     const result = replaceRange(state, span, "Z", {});
-    expect(getBlock(result.state, "p0" as BlockId)).toBe(beforeP0);
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p0", "p1", "p2"]));
+    expect(getBlock(result.state, "p3" as BlockId)).toBe(beforeP3);
   });
 
   it("does not mutate the original state", () => {
@@ -403,9 +403,7 @@ describe("replaceRange — block-level invariants", () => {
     expect(getBlock(state, "p" as BlockId)?.inlineContent?.items[0]).toMatchObject({ text: "hello" });
   });
 
-  it("dirtyIds is the union of underlying deleteRange + insertText dirtyIds (full replace)", () => {
-    // Cross-block replace where deleteRange dirties {p1, p2, p3, doc} and insertText dirties {p1}.
-    // Union (deduped) = {p1, p2, p3, doc}.
+  it("dirtyIds cover the deleted blocks and the survivor (full replace)", () => {
     const state = buildState({
       rootId: "doc",
       blocks: [
@@ -417,7 +415,7 @@ describe("replaceRange — block-level invariants", () => {
     });
     const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p3" as BlockId, 2));
     const result = replaceRange(state, span, "X", {});
-    expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "p3", "doc"]));
+    expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "p3", finalSectionOf(result.state)]));
   });
 });
 
@@ -481,10 +479,11 @@ describe("replaceRange — error propagation", () => {
         buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hi")]) }),
       ],
       embedContents: [
-        buildBlock({ id: "fn", type: "footnote-body", inlineContent: inlineContent([text("footnote")]) }),
+        buildBlock({ id: "fn", type: "footnote-body", firstChildId: "fnp", lastChildId: "fnp" }),
+        buildBlock({ id: "fnp", type: "paragraph", parentId: "fn", inlineContent: inlineContent([text("footnote")]) }),
       ],
     });
-    const span = createSpan(createPosition("p" as BlockId, 0), createPosition("fn" as BlockId, 1));
+    const span = createSpan(createPosition("p" as BlockId, 0), createPosition("fnp" as BlockId, 1));
     expect(() => replaceRange(state, span, "X", {})).toThrow(/have no common ancestor/);
   });
 
@@ -594,5 +593,20 @@ describe("replaceRangeInTx — transaction guard", () => {
     expect(() => replaceRangeInTx(state[STATE_INTERNAL].doc, plan)).toThrow(
       /replaceRange: must be called inside Y\.Doc\.transact/,
     );
+  });
+});
+
+describe("replaceRange — range endpoint inside a surrogate pair", () => {
+  it("inserts at the SNAPPED seam the delete used", () => {
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+        buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("a😀bc")]) }),
+      ],
+    });
+    const span = createSpan(createPosition("p" as BlockId, 2), createPosition("p" as BlockId, 3));
+    const result = replaceRange(state, span, "Z", {});
+    expect(getBlock(result.state, "p" as BlockId)?.inlineContent?.items).toMatchObject([{ text: "aZbc" }]);
   });
 });

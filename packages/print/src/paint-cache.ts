@@ -5,8 +5,8 @@ import type { LayoutBox } from "./layout/layout-node";
  * All values are in canvas (device-independent) pixels.
  *
  * PaintCache instances are 1:1 with paint targets (canvases / pages).
- * When Plan 5 introduces pagination (one canvas per page), each canvas
- * will carry its own PaintCache so dirty-region tracking is per-page.
+ * With pagination (one canvas per page), each page canvas carries its own
+ * PaintCache so dirty-region tracking is per-page.
  */
 export interface Rect {
   x: number;
@@ -16,37 +16,14 @@ export interface Rect {
 }
 
 /**
- * A match-highlight rect snapshot for dirty-region tracking. Carries the painted
- * region (`x/y/w/h`) PLUS the `active` flag, so an active-index change on
- * next/prev — identical geometry, different fill colour — is detected as a diff
- * and repaints (the geometry-only `Rect` compare would miss it).
+ * A decoration-fragment snapshot for dirty-region tracking: the
+ * painted region (`x/y/w/h`) PLUS its `look` (fill + underline signature), so a
+ * colour-only change on identical geometry — a find next/prev flipping the active
+ * fill, a host restyling a decoration — is detected as a diff and repaints. The
+ * decoration id is deliberately absent: it never affects pixels.
  */
-export interface MatchHighlightRectSnapshot extends Rect {
-  active: boolean;
-}
-
-/**
- * A comment-highlight rect snapshot for dirty-region tracking. Mirrors
- * `MatchHighlightRectSnapshot` EXACTLY: the painted region (`x/y/w/h`) PLUS the
- * `active` flag (the hovered/selected comment's emphasis), so an active-flag
- * change — identical geometry, different fill — is detected as a diff and
- * repaints. The `commentId` is deliberately ABSENT: it never affects pixels, so
- * it plays no part in the dirty-track diff.
- */
-export interface CommentHighlightRectSnapshot extends Rect {
-  active: boolean;
-}
-
-/**
- * A suggestion-highlight rect snapshot for dirty-region tracking (change-tracking
- * slice 6). Mirrors `CommentHighlightRectSnapshot` EXACTLY: the painted region
- * (`x/y/w/h`) PLUS the `active` flag (the focused suggestion's emphasis), so an
- * active-flag change — identical geometry, different fill — is detected as a diff
- * and repaints. The `suggestionId` is deliberately ABSENT: it never affects
- * pixels, so it plays no part in the dirty-track diff.
- */
-export interface SuggestionHighlightRectSnapshot extends Rect {
-  active: boolean;
+export interface DecorationRectSnapshot extends Rect {
+  look: string;
 }
 
 /**
@@ -68,7 +45,7 @@ export type PaintInputHash = string;
  * possible but unlikely for normal documents.
  */
 export function hashPaintInputs(box: LayoutBox): PaintInputHash {
-  // Position + size (parent-relative — see Plan 3.H Task 1)
+  // Position + size (parent-relative)
   let h = `${box.x}:${box.y}:${box.width}:${box.height}`;
 
   // ComputedStyle: paint-relevant fields
@@ -113,13 +90,16 @@ export function hashPaintInputs(box: LayoutBox): PaintInputHash {
   } else if (box.type === "table") {
     h += `|cols:${box.columnPxWidths.join(",")}`;
   } else if (box.type === "multicolumn") {
-    // A MultiColumnBox paints nothing of its own (no column-rule this slice), so
-    // its OWN paint-input footprint is the column count + each column's identity
-    // (position/size). The per-column subtree hashes are computed by the
+    // A MultiColumnBox's OWN paint is its column-rule (drawn in each gap), so its
+    // paint-input footprint is the rule + the column count + each column's
+    // identity (position/size). The per-column subtree hashes are computed by the
     // per-box walk; here we record the column boundary so a change to the column
     // GEOMETRY (a column added/removed or repositioned) marks the container dirty
     // — mirroring how `table` records its `columnPxWidths`.
     h += `|mcols:${box.columns.length}:${box.columns.map((c) => `${c.x},${c.y},${c.width},${c.height}`).join(";")}`;
+    if (box.columnRule !== null) {
+      h += `|rule:${box.columnRule.width}:${box.columnRule.style}:${box.columnRule.color}`;
+    }
   } else if (box.type === "page") {
     h += `|page:${box.pageIndex}`;
   }
@@ -147,7 +127,7 @@ export interface PaintCache {
   set(box: LayoutBox, hash: PaintInputHash): void;
   /** Returns true if the cached hash matches the current input hash. */
   isUnchanged(box: LayoutBox): boolean;
-  /** Reset all per-box hashes and snapshots (cursor, selection, match highlights). */
+  /** Reset all per-box hashes and snapshots (cursor, selection, decorations). */
   clear(): void;
   /** Get the root of the last walked tree, or null if no walk has happened. */
   getLastRoot(): LayoutBox | null;
@@ -161,18 +141,10 @@ export interface PaintCache {
   getLastSelectionRects(): readonly Rect[] | null;
   /** Record this frame's selection rects. */
   setLastSelectionRects(rects: readonly Rect[] | null): void;
-  /** Last frame's match-highlight rects (or null on first paint). */
-  getLastMatchHighlightRects(): readonly MatchHighlightRectSnapshot[] | null;
-  /** Record this frame's match-highlight rects. */
-  setLastMatchHighlightRects(rects: readonly MatchHighlightRectSnapshot[] | null): void;
-  /** Last frame's comment-highlight rects (or null on first paint). */
-  getLastCommentHighlightRects(): readonly CommentHighlightRectSnapshot[] | null;
-  /** Record this frame's comment-highlight rects. */
-  setLastCommentHighlightRects(rects: readonly CommentHighlightRectSnapshot[] | null): void;
-  /** Last frame's suggestion-highlight rects (or null on first paint). */
-  getLastSuggestionHighlightRects(): readonly SuggestionHighlightRectSnapshot[] | null;
-  /** Record this frame's suggestion-highlight rects. */
-  setLastSuggestionHighlightRects(rects: readonly SuggestionHighlightRectSnapshot[] | null): void;
+  /** Last frame's decoration fragments (or null on first paint). */
+  getLastDecorationRects(): readonly DecorationRectSnapshot[] | null;
+  /** Record this frame's decoration fragments. */
+  setLastDecorationRects(rects: readonly DecorationRectSnapshot[] | null): void;
 }
 
 export function createPaintCache(): PaintCache {
@@ -180,9 +152,7 @@ export function createPaintCache(): PaintCache {
   let lastRoot: LayoutBox | null = null;
   let lastCursor: CursorSnapshot | null = null;
   let lastSelectionRects: readonly Rect[] | null = null;
-  let lastMatchHighlightRects: readonly MatchHighlightRectSnapshot[] | null = null;
-  let lastCommentHighlightRects: readonly CommentHighlightRectSnapshot[] | null = null;
-  let lastSuggestionHighlightRects: readonly SuggestionHighlightRectSnapshot[] | null = null;
+  let lastDecorationRects: readonly DecorationRectSnapshot[] | null = null;
   return {
     get(box) {
       return map.get(box);
@@ -200,9 +170,7 @@ export function createPaintCache(): PaintCache {
       lastRoot = null;
       lastCursor = null;
       lastSelectionRects = null;
-      lastMatchHighlightRects = null;
-      lastCommentHighlightRects = null;
-      lastSuggestionHighlightRects = null;
+      lastDecorationRects = null;
       // WeakMap entries auto-clear when keys are GC'd
     },
     getLastRoot() {
@@ -223,23 +191,11 @@ export function createPaintCache(): PaintCache {
     setLastSelectionRects(r) {
       lastSelectionRects = r;
     },
-    getLastMatchHighlightRects() {
-      return lastMatchHighlightRects;
+    getLastDecorationRects() {
+      return lastDecorationRects;
     },
-    setLastMatchHighlightRects(r) {
-      lastMatchHighlightRects = r;
-    },
-    getLastCommentHighlightRects() {
-      return lastCommentHighlightRects;
-    },
-    setLastCommentHighlightRects(r) {
-      lastCommentHighlightRects = r;
-    },
-    getLastSuggestionHighlightRects() {
-      return lastSuggestionHighlightRects;
-    },
-    setLastSuggestionHighlightRects(r) {
-      lastSuggestionHighlightRects = r;
+    setLastDecorationRects(r) {
+      lastDecorationRects = r;
     },
   };
 }

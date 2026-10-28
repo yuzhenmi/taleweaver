@@ -1,115 +1,210 @@
 import {
   asBlockId,
   getBlock,
+  changedDecorationBlocks,
+  EMPTY_DECORATION_SET,
   type EditorState,
   type ComponentRegistry,
   type AttrRegistry,
   type BlockId,
+  type DecorationSet,
+  type ElementBox,
+  type RenderNode,
+  type State,
 } from "@taleweaver/core";
-import { renderDocumentToDom } from "../dom-view/render-to-dom";
+import {
+  renderBlockToDom,
+  renderListRunToDom,
+  renderStyled,
+  styledRootToDom,
+  listMetaOf,
+  type StyledTree,
+} from "../dom-view/render-to-dom";
+import { computedStyleToInlineStyle } from "../dom-view/computed-style-to-css";
+import { applyBlockDecorations } from "../dom-view/decorate-dom";
 import {
   createDigitalSelectionBridge,
   type DigitalSelectionBridge,
 } from "./digital-selection-bridge";
 
 export interface DigitalReconciler {
-  mount(container: HTMLElement, initial: EditorState): void;
-  reconcile(prev: EditorState | null, next: EditorState, isComposing: boolean): void;
+  mount(container: HTMLElement, initial: EditorState, decorations?: DecorationSet): void;
+  /**
+   * Bring the DOM in line with `next` (and `decorations`). Incremental whenever `next`
+   * carries `lastDirtyIds`: render + cascade reuse unchanged subtrees by reference, and only
+   * DOM units whose styled node changed — or whose decorations changed — are rebuilt.
+   * `prev` is accepted for API symmetry; the reconciler diffs against what it last rendered.
+   */
+  reconcile(prev: EditorState | null, next: EditorState, isComposing: boolean, decorations?: DecorationSet): void;
   /**
    * The selection bridge this reconciler owns (created on `mount`, cleared on `destroy`), or null
    * before mount. The controller reuses it for `domToPosition` / `readDomSelection` so there is ONE
    * bridge wired to the authoritative `blockElMap` (no redundant second bridge).
    */
   getBridge(): DigitalSelectionBridge | null;
+  /**
+   * Re-materialize the DOM from the last RENDERED tree (no document read): drops whatever
+   * an IME composition wrote into the DOM, restoring the last good projection. Used when
+   * the controller halts mid-composition.
+   */
+  restore(): void;
+  /** True when some block's DOM was left stale under an IME composition (see `reconcile`). */
+  hasPending(): boolean;
+  /** The live element rendered for `blockId` (O(1)), or null. */
+  blockElement(blockId: BlockId): HTMLElement | null;
   destroy(): void;
+}
+
+interface Rendered extends StyledTree {
+  readonly state: State;
+  readonly decorations: DecorationSet;
+}
+
+/**
+ * A DOM unit: what one entry in a container's styled child list materializes as among the
+ * container element's children. A block → its own element; a run of consecutive list-items →
+ * ONE top-level `<ul>/<ol>` (nested levels live inside it); an unwrapped section /
+ * `display:contents` box contributes its children's units directly.
+ */
+type Unit =
+  | { readonly kind: "block"; readonly key: string; readonly node: ElementBox }
+  | { readonly kind: "list"; readonly key: string; readonly items: readonly ElementBox[] };
+
+function isUnwrapped(node: ElementBox): boolean {
+  return node.metadata?.blockType === "section" || node.computedStyle?.display === "contents";
+}
+
+/** Group a styled child list into DOM units — exactly as render-to-dom's `appendChildren`. */
+function unitsOf(children: readonly RenderNode[]): Unit[] {
+  const out: Unit[] = [];
+  let run: ElementBox[] | null = null;
+  const flush = (): void => {
+    if (run !== null && run[0] !== undefined) out.push({ kind: "list", key: `list:${run[0].key}`, items: run });
+    run = null;
+  };
+  const visit = (nodes: readonly RenderNode[]): void => {
+    for (const n of nodes) {
+      if (n.type !== "element") continue;
+      const meta = listMetaOf(n);
+      if (meta !== undefined) {
+        // A level-0 item of a DIFFERENT list opens a new top-level <ul>/<ol>, i.e. a new
+        // unit (a run's root list is its first item's).
+        const root = run?.[0] !== undefined ? listMetaOf(run[0]) : undefined;
+        if (root !== undefined && meta.level === 0 && meta.listId !== root.listId) flush();
+        (run ??= []).push(n);
+        continue;
+      }
+      flush();
+      if (isUnwrapped(n)) {
+        visit(n.children);
+        flush(); // appendChildren's list stack is local to each child list: a run never spans out of a section
+      } else if ((n.computedStyle?.display ?? "block") !== "none") out.push({ kind: "block", key: n.key, node: n });
+    }
+  };
+  visit(children);
+  flush();
+  return out;
+}
+
+/** What determines a container element's OWN DOM (tag + attributes), excluding children. */
+function shellOf(node: ElementBox): string {
+  const cs = node.computedStyle;
+  return JSON.stringify([cs?.display, node.metadata ?? null, cs !== undefined ? computedStyleToInlineStyle(cs) : ""]);
+}
+
+function sameListMeta(x: ElementBox, y: ElementBox): boolean {
+  const mx = listMetaOf(x);
+  const my = listMetaOf(y);
+  return mx?.level === my?.level && mx?.listId === my?.listId && mx?.ordered === my?.ordered;
+}
+
+function sameListStructure(a: readonly ElementBox[], b: readonly ElementBox[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (x === undefined || y === undefined || x.key !== y.key || !sameListMeta(x, y)) return false;
+  }
+  return true;
 }
 
 export function createDigitalReconciler(
   componentRegistry: ComponentRegistry,
   attrRegistry: AttrRegistry,
   doc: Document,
+  /** Called for every block element the reconciler (re)mounts, as it is indexed. */
+  onBlockMounted?: (blockId: BlockId, el: HTMLElement) => void,
 ): DigitalReconciler {
   let container: HTMLElement | null = null;
   let bridge: DigitalSelectionBridge | null = null;
+  let rendered: Rendered | null = null;
   const blockElMap = new Map<BlockId, HTMLElement>();
-
-  function indexBlocks(scope: ParentNode): void {
-    blockElMap.clear();
-    scope.querySelectorAll("[data-block-id]").forEach((el) => {
-      if (el instanceof HTMLElement) {
-        const id = el.getAttribute("data-block-id");
-        if (id !== null) blockElMap.set(asBlockId(id), el);
-      }
-    });
-  }
-
   /**
-   * The SINGLE source of truth for digital rendering. BOTH the full rebuild and the incremental
-   * key-index build go through here so their output can never diverge: stamping options — and any
-   * future render mode such as `suggestionView` (tracked-changes vs clean) — stay in lockstep by
-   * construction. (Hand-rolling render→cascade→renderNodeToDom in one path and `renderDocumentToDom`
-   * in the other would silently drift the moment a render mode is added to only one.)
+   * Block keys whose DOM an IME composition kept from being rebuilt; each is rebuilt
+   * WHOLESALE (its element re-rendered from the current styled node) on the first cycle
+   * that is not blocked by a composition. A container is deferred this way when a
+   * structural change among its children (a removed unit, a restructured list run) touched
+   * the composed block, so no stale element survives the composition.
    */
-  function renderDoc(state: EditorState["state"]): HTMLElement {
-    return renderDocumentToDom(state, componentRegistry, attrRegistry, doc, {
-      stampBlockIds: true,
-    });
+  const pending = new Set<string>();
+
+  function index(el: Element): void {
+    const id = el.getAttribute("data-block-id");
+    if (id === null || !(el instanceof HTMLElement)) return;
+    blockElMap.set(asBlockId(id), el);
+    onBlockMounted?.(asBlockId(id), el);
   }
 
-  function fullRebuild(state: EditorState["state"]): void {
+  function indexSubtree(el: Element): void {
+    index(el);
+    el.querySelectorAll("[data-block-id]").forEach(index);
+  }
+
+  function unindexSubtree(el: Element): void {
+    const drop = (e: Element): void => {
+      const id = e.getAttribute("data-block-id");
+      // Only drop the entry if it still points at THIS element (a replacement may already
+      // have re-registered the key).
+      if (id !== null && blockElMap.get(asBlockId(id)) === e) blockElMap.delete(asBlockId(id));
+    };
+    drop(el);
+    el.querySelectorAll("[data-block-id]").forEach(drop);
+  }
+
+  /** Remove a unit element from the DOM (and the index). */
+  function removeUnit(el: HTMLElement): void {
+    unindexSubtree(el);
+    el.remove();
+  }
+  function fullRebuild(state: State, decorations: DecorationSet): void {
     if (container === null) return;
-    container.replaceChildren(renderDoc(state));
-    indexBlocks(container);
+    const tree = renderStyled(state, componentRegistry, attrRegistry);
+    materialize(tree.cascaded, decorations);
+    rendered = { ...tree, state, decorations };
   }
 
-  function mount(c: HTMLElement, initial: EditorState): void {
+  function materialize(cascaded: RenderNode, decorations: DecorationSet): void {
+    if (container === null) return;
+    const root = styledRootToDom(cascaded, doc, true, decorations);
+    container.replaceChildren(root);
+    blockElMap.clear();
+    indexSubtree(root);
+    pending.clear();
+  }
+
+  function restore(): void {
+    if (rendered === null) return;
+    materialize(rendered.cascaded, rendered.decorations);
+  }
+
+  function mount(c: HTMLElement, initial: EditorState, decorations: DecorationSet = EMPTY_DECORATION_SET): void {
     container = c;
     const win = doc.defaultView ?? window;
     // Thread the authoritative `blockElMap` into the bridge so `positionToDom` resolves blocks via
-    // an O(1) map lookup instead of an O(n) `querySelectorAll` scan per keystroke (I1).
-    bridge = createDigitalSelectionBridge(c, win, (blockId) => blockElMap.get(blockId) ?? null);
-    fullRebuild(initial.state);
+    // an O(1) map lookup instead of an O(n) `querySelectorAll` scan per keystroke.
+    bridge = createDigitalSelectionBridge(c, win, (blockId) => blockElMap.get(blockId) ?? null, () => rendered?.state ?? null);
+    fullRebuild(initial.state, decorations);
     bridge.positionToDom(initial.selection);
-  }
-
-  function buildKeyIndex(state: EditorState["state"]): Map<BlockId, HTMLElement> {
-    // ONE render this cycle (spec F7), via the SAME `renderDoc` path as `fullRebuild` so the
-    // incremental output is byte-identical to a full rebuild.
-    const root = renderDoc(state);
-    const index = new Map<BlockId, HTMLElement>();
-    // TRAP: `querySelectorAll` matches DESCENDANTS only, so it EXCLUDES `root` itself. The document
-    // root carries `data-block-id` (it is a stamped block, and is dirty on structural edits like
-    // split/undo), so it must be indexed explicitly before scanning its descendants — otherwise an
-    // edit whose dirty set includes the root finds no key-index entry for it.
-    const rootId = root.getAttribute("data-block-id");
-    if (rootId !== null) index.set(asBlockId(rootId), root);
-    root.querySelectorAll("[data-block-id]").forEach((el) => {
-      if (el instanceof HTMLElement) {
-        const id = el.getAttribute("data-block-id");
-        if (id !== null) index.set(asBlockId(id), el);
-      }
-    });
-    return index;
-  }
-
-  /**
-   * True iff some block ANCESTOR of `el` (a freshly-rendered keyIndex element) carries a
-   * `data-block-id` that is itself in `dirty`. Such a descendant must NOT be replaced on its
-   * own: its dirty ancestor's parent-replace already re-materializes it from the SAME render,
-   * and a standalone `replaceWith` would steal the node out of the ancestor's not-yet-inserted
-   * subtree (corrupting the parent-replace). Only the TOP-MOST dirty block in each ancestor
-   * chain is replaced. This completes the parent-replace rule (spec F7 / Task 4.3) for the
-   * universal split/undo case where the document root is dirty alongside its edited children.
-   */
-  function hasDirtyBlockAncestor(el: HTMLElement, dirty: ReadonlySet<BlockId>): boolean {
-    let parent: HTMLElement | null =
-      el.parentElement instanceof HTMLElement ? el.parentElement : null;
-    while (parent !== null) {
-      const id = parent.getAttribute("data-block-id");
-      if (id !== null && dirty.has(asBlockId(id))) return true;
-      parent = parent.parentElement instanceof HTMLElement ? parent.parentElement : null;
-    }
-    return false;
   }
 
   function composingBlockEl(isComposing: boolean): HTMLElement | null {
@@ -118,8 +213,6 @@ export function createDigitalReconciler(
     const focusNode = win.getSelection()?.focusNode ?? null;
     if (focusNode === null || !container.contains(focusNode)) return null;
     // The NEAREST (innermost) block ancestor of the caret — the block actually being composed.
-    // Walking up from focusNode (not iterating blockElMap) avoids matching an outer container
-    // block (e.g. the document root, which also `contains` the focusNode).
     let cur: Node | null = focusNode;
     while (cur !== null) {
       if (cur instanceof HTMLElement && cur.hasAttribute("data-block-id")) return cur;
@@ -129,117 +222,253 @@ export function createDigitalReconciler(
   }
 
   /**
-   * Try to insert a freshly-rendered block element into the live DOM at the position derived from
-   * the block's `parentId` / `prevSiblingId` in the NEXT state (a new sibling whose parent the
-   * state layer did not mark dirty — a mid-document split, or a RUN of pasted paragraphs). Placed
-   * as the parent's first child when there is no prev-sibling, else AFTER the prev-sibling's live
-   * element. Returns `true` when placed (or genuinely unresolvable → drop), `false` when its anchor
-   * (parent or prev-sibling) is not yet in the live DOM — the caller retries to a fixpoint so a
-   * contiguous run of new siblings lands in order regardless of dirty-set iteration order.
+   * One incremental patch cycle against the last rendered tree. Returns false when the root
+   * itself had to be rebuilt from scratch (the caller's bookkeeping is then already done).
    */
-  function tryInsertBlockEl(blockId: BlockId, newEl: HTMLElement, state: EditorState["state"]): boolean {
-    const block = getBlock(state, blockId);
-    if (block === null) return true; // not in next.state (cannot happen for a keyIndex block) → drop
-    const parentEl = block.parentId !== null ? blockElMap.get(block.parentId) : null;
-    if (parentEl === undefined || parentEl === null) return false; // parent not placed yet → defer
-    if (block.prevSiblingId === null) {
-      parentEl.insertBefore(newEl, parentEl.firstChild);
-      blockElMap.set(blockId, newEl);
-      return true;
-    }
-    const prevEl = blockElMap.get(block.prevSiblingId);
-    if (prevEl !== undefined && prevEl.parentNode === parentEl) {
-      parentEl.insertBefore(newEl, prevEl.nextSibling);
-      blockElMap.set(blockId, newEl);
-      return true;
-    }
-    return false; // prev-sibling not placed yet → defer
-  }
-
-  function reconcile(prev: EditorState | null, next: EditorState, isComposing: boolean): void {
-    if (container === null || bridge === null) return;
-    const dirty = next.lastDirtyIds;
-    if (dirty === null) {
-      // Full rebuild path: selection-only no-op vs real state change.
-      if (prev !== null && prev.state === next.state) {
-        bridge.positionToDom(next.selection); // selection-only: no DOM rebuild
-        return;
+  function patch(next: State, prev: Rendered, cascaded: RenderNode, decorations: DecorationSet, isComposing: boolean): boolean {
+    if (container === null) return false;
+    // `rebuild`: IME-deferred keys (wholesale). `redecorate`: blocks whose drawn
+    // decorations changed (a leaf re-renders; a container re-applies block decorations).
+    const rebuild = new Set<string>(pending);
+    pending.clear();
+    const redecorate = new Set<string>();
+    for (const id of changedDecorationBlocks(prev.decorations, decorations)) redecorate.add(id);
+    // The identity walk descends through unchanged nodes only on the path to a forced key.
+    const forcePath = new Set<string>();
+    for (const key of [...rebuild, ...redecorate]) {
+      let id: BlockId | null = asBlockId(key);
+      let guard = 0;
+      while (id !== null && !forcePath.has(id) && guard++ < 10_000) {
+        forcePath.add(id);
+        id = getBlock(next, id)?.parentId ?? null;
       }
-      fullRebuild(next.state);
-      bridge.positionToDom(next.selection);
-      return;
     }
-    // Incremental: build the key index from ONE render this cycle, replace dirty blocks.
-    const composedEl = composingBlockEl(isComposing);
-    const keyIndex = buildKeyIndex(next.state);
-    // A structural delta (a dirty ancestor's parent-replace materialized fresh descendant
-    // elements, or a dirty block with no old/new counterpart) leaves `blockElMap` stale for the
-    // affected descendants. Track it so we re-index only when needed (pure per-block replaces —
-    // the common typing case — stay O(dirty), never re-scanning the whole DOM).
-    let structuralDelta = false;
-    // New sibling blocks (no dirty ancestor to materialize them) are collected and placed AFTER
-    // the replace/remove pass, at a fixpoint — so a contiguous RUN of them (multi-line paste)
-    // lands in order whatever the dirty-set iteration order.
-    let toInsert: BlockId[] = [];
-    for (const blockId of dirty) {
-      const oldEl = blockElMap.get(blockId);
-      const newEl = keyIndex.get(blockId);
-      if (oldEl !== undefined && newEl !== undefined) {
-        // Only replace the TOP-MOST dirty block per ancestor chain: if a dirty ancestor will
-        // re-render this block as part of its own parent-replace, skip it here. Replacing a
-        // descendant standalone would steal `newEl` out of its dirty ancestor's not-yet-inserted
-        // subtree, corrupting the ancestor's replacement (the split/undo case where the document
-        // root is dirty alongside its edited children).
-        if (hasDirtyBlockAncestor(newEl, dirty)) {
-          structuralDelta = true;
+    const composed = composingBlockEl(isComposing);
+    const holdsComposition = (el: Element): boolean => composed !== null && (el === composed || el.contains(composed));
+    const isLeaf = (key: string): boolean => getBlock(next, asBlockId(key))?.inlineContent != null;
+    let rootRebuilt = false;
+
+    /** Swap `oldEl` for `fresh` (re-indexing both subtrees). */
+    function swap(oldEl: HTMLElement, fresh: HTMLElement): HTMLElement {
+      unindexSubtree(oldEl);
+      oldEl.replaceWith(fresh);
+      indexSubtree(fresh);
+      return fresh;
+    }
+
+    /** Replace `oldEl` with a fresh render of `node`; returns the element now in the DOM. */
+    function replaceBlock(oldEl: HTMLElement, node: ElementBox): HTMLElement {
+      if (holdsComposition(oldEl)) {
+        pending.add(node.key); // IME guard: never rebuild under an active composition
+        return oldEl;
+      }
+      const fresh = renderBlockToDom(node, doc, decorations);
+      if (fresh === null) return oldEl;
+      // A list-item's nested sub-lists are owned by the run, not the item: carry them over.
+      if (listMetaOf(node) !== undefined) {
+        for (const child of Array.from(oldEl.children)) {
+          if (child.tagName === "UL" || child.tagName === "OL") fresh.appendChild(child);
+        }
+      }
+      return swap(oldEl, fresh);
+    }
+
+    function patchBlock(oldNode: ElementBox, newNode: ElementBox, el: HTMLElement): HTMLElement {
+      const key = newNode.key;
+      if (oldNode === newNode && !forcePath.has(key)) return el;
+      if (rebuild.has(key)) {
+        if (key === next.rootId && !holdsComposition(el)) {
+          rootRebuilt = true;
+          fullRebuild(next, decorations);
+          return el;
+        }
+        return replaceBlock(el, newNode);
+      }
+      if (isLeaf(key)) return oldNode === newNode && !redecorate.has(key) ? el : replaceBlock(el, newNode);
+      if (shellOf(oldNode) !== shellOf(newNode)) return replaceBlock(el, newNode);
+      if (redecorate.has(key)) applyBlockDecorations(el, decorations.forBlock(asBlockId(key)).block);
+      patchChildren(el, key, oldNode.children, newNode.children);
+      return el;
+    }
+
+    /**
+     * Fast path: same child keys in the same order, and every child that needs work is a
+     * plain block or a list-item whose list placement is unchanged — patch those in place
+     * without grouping units. Cost: one reference comparison per child. Returns false when
+     * the general unit diff is required.
+     */
+    function patchChildrenInPlace(oldChildren: readonly RenderNode[], newChildren: readonly RenderNode[]): boolean {
+      if (oldChildren.length !== newChildren.length) return false;
+      for (let i = 0; i < newChildren.length; i++) {
+        const o = oldChildren[i];
+        const n = newChildren[i];
+        if (o === undefined || n === undefined || o.key !== n.key) return false;
+        if (o === n && !forcePath.has(n.key)) continue;
+        if (o.type !== "element" || n.type !== "element" || isUnwrapped(o) || isUnwrapped(n)) return false;
+        if ((listMetaOf(o) !== undefined || listMetaOf(n) !== undefined) && !sameListMeta(o, n)) return false;
+        const hidden = (x: ElementBox): boolean => listMetaOf(x) === undefined && (x.computedStyle?.display ?? "block") === "none";
+        if (hidden(o) || hidden(n)) return false;
+        // Every child we patch must already have its element (a block can lack one, e.g.
+        // when a host component rendered it hidden); otherwise take the general diff.
+        if (!blockElMap.has(asBlockId(n.key))) return false;
+      }
+      for (let i = 0; i < newChildren.length; i++) {
+        const o = oldChildren[i];
+        const n = newChildren[i];
+        if (o === undefined || n === undefined || o.type !== "element" || n.type !== "element") continue;
+        if (o === n && !forcePath.has(n.key)) continue;
+        const el = blockElMap.get(asBlockId(n.key));
+        if (el === undefined) continue;
+        if (listMetaOf(n) !== undefined) {
+          if (o !== n || redecorate.has(n.key) || rebuild.has(n.key)) replaceBlock(el, n);
+        } else patchBlock(o, n, el);
+      }
+      return true;
+    }
+
+    function unitElement(unit: Unit, parentEl: HTMLElement): HTMLElement | null {
+      const firstKey = unit.kind === "block" ? unit.key : unit.items[0]?.key;
+      if (firstKey === undefined) return null;
+      let el: HTMLElement | null = blockElMap.get(asBlockId(firstKey)) ?? null;
+      if (unit.kind === "list") {
+        while (el !== null && el.parentElement !== parentEl) el = el.parentElement;
+      }
+      return el !== null && el.parentElement === parentEl ? el : null;
+    }
+
+    function renderUnit(unit: Unit): HTMLElement | null {
+      return unit.kind === "block" ? renderBlockToDom(unit.node, doc, decorations) : renderListRunToDom(unit.items, doc, decorations);
+    }
+
+    /** Patch an existing unit in place; null when its structure changed (re-render it). */
+    function patchUnit(oldUnit: Unit, newUnit: Unit, el: HTMLElement): HTMLElement | null {
+      if (oldUnit.kind === "block" && newUnit.kind === "block") {
+        if (oldUnit.node.key !== newUnit.node.key) return null;
+        return patchBlock(oldUnit.node, newUnit.node, el);
+      }
+      if (oldUnit.kind === "list" && newUnit.kind === "list" && sameListStructure(oldUnit.items, newUnit.items)) {
+        newUnit.items.forEach((item, i) => {
+          const old = oldUnit.items[i];
+          if (old === undefined) return;
+          if (old === item && !redecorate.has(item.key) && !rebuild.has(item.key)) return;
+          const liEl = blockElMap.get(asBlockId(item.key));
+          if (liEl !== undefined) replaceBlock(liEl, item);
+        });
+        return el;
+      }
+      return null;
+    }
+
+    function patchChildren(parentEl: HTMLElement, parentKey: string, oldChildren: readonly RenderNode[], newChildren: readonly RenderNode[]): void {
+      if (patchChildrenInPlace(oldChildren, newChildren)) return;
+      const oldUnits = unitsOf(oldChildren);
+      const newUnits = unitsOf(newChildren);
+      const oldByKey = new Map<string, Unit>();
+      // Resolve every old unit's element BEFORE patching: a re-render below may re-register a
+      // key (e.g. a paragraph toggled into a list-item) and would hide the old element.
+      const oldEls = new Map<string, HTMLElement | null>();
+      for (const u of oldUnits) {
+        oldByKey.set(u.key, u);
+        oldEls.set(u.key, unitElement(u, parentEl));
+      }
+      // A structural change that would rebuild/remove the composed block's unit is deferred:
+      // the whole container is rebuilt once the composition ends.
+      const deferContainer = (): void => {
+        pending.add(parentKey);
+      };
+      const targets: HTMLElement[] = [];
+      const fresh: HTMLElement[] = [];
+      for (const nu of newUnits) {
+        const ou = oldByKey.get(nu.key);
+        oldByKey.delete(nu.key);
+        const existing = ou !== undefined ? (oldEls.get(ou.key) ?? null) : null;
+        let el: HTMLElement | null = null;
+        if (ou !== undefined && existing !== null) {
+          el = patchUnit(ou, nu, existing);
+          if (el === null) {
+            if (holdsComposition(existing)) {
+              deferContainer();
+              el = existing;
+            } else {
+              const again = renderUnit(nu);
+              el = again !== null ? swap(existing, again) : existing;
+            }
+          }
+        } else {
+          el = renderUnit(nu);
+          if (el !== null) fresh.push(el);
+        }
+        if (el !== null) targets.push(el);
+      }
+      for (const ou of oldByKey.values()) {
+        const el = oldEls.get(ou.key) ?? null;
+        if (el === null) continue;
+        if (holdsComposition(el)) {
+          deferContainer();
+          targets.push(el);
           continue;
         }
-        if (composedEl !== null && composedEl === oldEl) continue; // IME guard
-        oldEl.replaceWith(newEl);
-        blockElMap.set(blockId, newEl);
-        continue;
+        removeUnit(el);
       }
-      // Structural sibling delta: a NEW block (no old element) or a REMOVED block (no new
-      // element) whose PARENT is not itself dirty — so no ancestor parent-replace will
-      // materialize/drop it. This is the mid-document Enter (split) / Backspace (merge) / pasted
-      // run case: `split-block`/merge/insert only dirty the parent when the FIRST/LAST child
-      // changes, so a structural change between two existing siblings leaves the parent clean and
-      // the new block(s) would never reach the DOM. Collect inserts (placed at a fixpoint below);
-      // detach removes inline (order-independent). (A new/removed block that DOES have a dirty
-      // ancestor is realized by that ancestor's wholesale replace — defer to it.)
-      structuralDelta = true;
-      if (oldEl === undefined && newEl !== undefined) {
-        if (!hasDirtyBlockAncestor(newEl, dirty)) toInsert.push(blockId);
-      } else if (oldEl !== undefined && newEl === undefined) {
-        if (!hasDirtyBlockAncestor(oldEl, dirty)) oldEl.remove();
-      }
-    }
-    // Place collected new siblings in dependency order: repeatedly sweep, inserting any whose
-    // anchor (parent + prev-sibling) is now live and deferring the rest, until no more can be
-    // placed. A run's head anchors on an existing block; each subsequent block anchors on the
-    // just-placed one. A block placed (or unresolvable in next.state) is dropped from the queue.
-    while (toInsert.length > 0) {
-      const deferred: BlockId[] = [];
-      for (const blockId of toInsert) {
-        const newEl = keyIndex.get(blockId);
-        if (newEl !== undefined && !tryInsertBlockEl(blockId, newEl, next.state)) {
-          deferred.push(blockId); // anchor not live yet — retry next sweep
+      // Put the unit elements in order.
+      let cursor: ChildNode | null = parentEl.firstChild;
+      for (const target of targets) {
+        if (cursor === target) {
+          cursor = target.nextSibling;
+          continue;
         }
+        parentEl.insertBefore(target, cursor);
       }
-      if (deferred.length === toInsert.length) {
-        // No progress: a block whose anchor never resolves (pathological compound delta) — fall
-        // back to a safe full rebuild rather than leave the DOM desynced from state.
-        fullRebuild(next.state);
-        bridge.positionToDom(next.selection);
-        return;
-      }
-      toInsert = deferred;
+      for (const el of fresh) indexSubtree(el); // once placed: mount hooks see the live DOM
     }
-    // After a structural delta, re-index from the live DOM so `blockElMap` tracks ancestor-replaced
-    // descendants AND the just-inserted siblings' subtrees (and drops removed blocks). Pure
-    // replaces skip this.
-    if (structuralDelta) indexBlocks(container);
-    bridge.positionToDom(next.selection);
+
+    const rootEl = container.firstElementChild;
+    if (!(rootEl instanceof HTMLElement) || prev.cascaded.type !== "element" || cascaded.type !== "element") {
+      fullRebuild(next, decorations);
+      return false;
+    }
+    patchBlock(prev.cascaded, cascaded, rootEl);
+    return !rootRebuilt;
+  }
+
+  function reconcile(
+    _prev: EditorState | null,
+    next: EditorState,
+    isComposing: boolean,
+    decorations: DecorationSet = rendered?.decorations ?? EMPTY_DECORATION_SET,
+  ): void {
+    if (container === null || bridge === null) return;
+    const prev = rendered;
+    // Never write the DOM selection while an IME composition is active: it would cancel
+    // or corrupt the composition. The controller re-projects it on compositionend.
+    const projectSelection = (): void => {
+      if (!isComposing) bridge?.positionToDom(next.selection);
+    };
+    if (prev === null) {
+      fullRebuild(next.state, decorations);
+      projectSelection();
+      return;
+    }
+    const dirty = next.lastDirtyIds;
+    const stateChanged = prev.state !== next.state;
+    if (stateChanged && dirty === null) {
+      // Unknown change set (document replaced): rebuild everything.
+      fullRebuild(next.state, decorations);
+      projectSelection();
+      return;
+    }
+    if (!stateChanged && decorations === prev.decorations && pending.size === 0) {
+      projectSelection(); // selection-only: no DOM work
+      return;
+    }
+    const tree: StyledTree =
+      stateChanged && dirty !== null
+        ? renderStyled(next.state, componentRegistry, attrRegistry, undefined, { prev, prevState: prev.state, dirtyIds: dirty })
+        : prev;
+    if (patch(next.state, prev, tree.cascaded, decorations, isComposing)) {
+      rendered = { out: tree.out, cascaded: tree.cascaded, state: next.state, decorations };
+    }
+    projectSelection();
   }
 
   function getBridge(): DigitalSelectionBridge | null {
@@ -249,8 +478,18 @@ export function createDigitalReconciler(
   function destroy(): void {
     container = null;
     bridge = null;
+    rendered = null;
     blockElMap.clear();
+    pending.clear();
   }
 
-  return { mount, reconcile, getBridge, destroy };
+  return {
+    mount,
+    reconcile,
+    getBridge,
+    restore,
+    hasPending: () => pending.size > 0,
+    blockElement: (blockId) => blockElMap.get(blockId) ?? null,
+    destroy,
+  };
 }

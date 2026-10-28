@@ -1936,7 +1936,7 @@ describe("IFC — RTL bidi reordering", () => {
     // relative to the surrounding level-0 text, so visual order is [Latin,
     // Hebrew]. LTR start-align → physicalStart 0 → content sits at the LEFT.
     //   t1.x = 0 (24px); t2.x = 24 (24px). Hebrew glyphs paint RTL via bidiLevel
-    //   (T7); geometry here is the run placement only.
+    //  ; geometry here is the run placement only.
     const rtlShaper = createMockShaper(8, 16);
     const tree = cascadePass(
       createElementBox("p", { display: "block" }, [
@@ -1957,7 +1957,7 @@ describe("IFC — RTL bidi reordering", () => {
     expect(t2.x).toBe(t2.inlineOffset);
     expect(t1.x).toBe(0);    // Latin at the left
     expect(t2.x).toBe(24);   // Hebrew right after Latin
-    // The run stamped bidiLevel: Latin 0, Hebrew 1 (used by the T7 glyph paint).
+    // The run stamped bidiLevel: Latin 0, Hebrew 1 (used by the glyph paint).
     if (t1.type !== "text-run" || t2.type !== "text-run") throw new Error("?");
     expect(t1.bidiLevel).toBe(0);
     expect(t2.bidiLevel).toBe(1);

@@ -15,57 +15,55 @@ safety). It also depends on `@taleweaver/print` for the `PrintPdfEmitInput` +
 into an `emitPdf` call, establishing the **one-way** `pdf → print` exporter
 direction (`print` imports zero `pdf` symbols).
 
-## Phase boundary
+## Feature coverage
 
-PDF export is built in whole-feature phases. **Phases (a) text + geometry, (b)
-vector graphics, (c.1) the embedded-font object-graph machinery, (c.2a) the real
-TrueType-glyf font provider, (c.2b) OpenType-CFF font embedding, (c.3) font
-subsetting, (d.1) the image-XObject machinery, (d.2) FlateDecode stream
-compression, (d.3b-1) JPEG `/DCTDecode` embedding, and (d.3b-2) in-package PNG
-decode + embedding are implemented.** Later phases each land as their own whole
-feature:
+PDF export is built as whole features. **Implemented:** text + geometry, vector
+graphics, the embedded-font object-graph machinery, the real TrueType-glyf font
+provider, OpenType-CFF font embedding, font subsetting, the image-XObject
+machinery, FlateDecode stream compression, JPEG `/DCTDecode` embedding, and
+in-package PNG decode + embedding.
 
-- **(a) text + geometry** *(implemented)* — multi-page PDF with the standard-14
+- **Text + geometry** *(implemented)* — multi-page PDF with the standard-14
   fonts (Helvetica / Times / Courier families), WinAnsi-encoded text placed at
   absolute per-cluster positions, correct MediaBox per page.
-- **(b) graphics** *(implemented)* — backgrounds, per-side borders, horizontal
+- **Graphics** *(implemented)* — backgrounds, per-side borders, horizontal
   rules, underline / line-through decorations, and tab leaders (dotted / dashed /
   solid) — the box-decoration the canvas renderer paints. All filled shapes (no
   strokes): rects via `re`+`f`, dots via 4-Bézier filled circles.
-- **(c) embedded fonts** — CIDFont embedding + `ToUnicode` for full Unicode
-  coverage and extractable text beyond WinAnsi. Built in sub-slices:
-  - **(c.1) embedded-font machinery** *(implemented)* — the Type0 / CIDFontType2
+- **Embedded fonts** — CIDFont embedding + `ToUnicode` for full Unicode
+  coverage and extractable text beyond WinAnsi. Composed of:
+  - **Embedded-font machinery** *(implemented)* — the Type0 / CIDFontType2
     composite-font object graph (embedded `FontFile2` program + `/W` widths +
     `FontDescriptor` + `ToUnicode` CMap), written through the provider's
     `writeFontObjects` seam, with 2-byte (`Identity-H`) CID glyph selection. Unit-
     tested end-to-end with a mock embedded provider; std-14 and embedded fonts
-    coexist in one document. This sub-slice carries no real TrueType parser, no font
+    coexist in one document. This layer carries no real TrueType parser, no font
     asset, and no subsetting — the mock supplies the program bytes + metrics; the
-    real parser is (c.2a/c.2b) and subsetting is (c.3).
-  - **(c.2a/c.2b) real embedded provider** *(implemented)* —
+    real parser and subsetting are described below.
+  - **Real embedded provider** *(implemented)* —
     `createEmbeddedFontProvider({ fonts })` parses a real font (both TrueType
     `glyf` flavour, sfnt version `0x00010000`, AND CFF-flavored OpenType, sfnt
-    `OTTO`) and feeds the c.1 machinery actual cmap / widths / metrics / program
+    `OTTO`) and feeds the embedded-font machinery actual cmap / widths / metrics / program
     bytes / `ToUnicode`. A pure-byte sfnt parser (`parseSfnt`) reads the shared
     head/hhea/maxp/hmtx/cmap/OS-2/post/name tables for both flavours and exposes
     a `glyphFormat: "glyf" | "cff"` discriminant. The composite-font graph branches
     on that discriminant (see "Embedded composite-font model" below):
-    - **glyf** (c.2a) — `FontFile2` + a CIDFontType2 descendant with
+    - **glyf** — `FontFile2` + a CIDFontType2 descendant with
       `/CIDToGIDMap /Identity` and an Identity ROS; the descendant CID equals the
       GID, so `/W` is selection-width only.
-    - **cff** (c.2b) — `FontFile3` (`/Subtype /CIDFontType0C`) + a CIDFontType0
+    - **cff** — `FontFile3` (`/Subtype /CIDFontType0C`) + a CIDFontType0
       descendant, no `/CIDToGIDMap`, the font's own ROS in `/CIDSystemInfo`. A
       mini CFF parser (`cff-parser.ts`) reads the `CFF ` table's INDEX / Top-DICT /
       String-INDEX / charset to detect CID-keyed fonts, build the GID→CID map, and
       resolve the ROS. The emitted content code is the **CID**: for a CID-keyed CFF
       the charset maps GID→CID; otherwise CID = GID. The CFF charstrings are not
-      re-encoded; the embedded program is the SUBSET (see (c.3) below) — the used
+      re-encoded; the embedded program is the SUBSET (see Subsetting below) — the used
       charstrings are copied verbatim and the unused are dropped.
     Either way `/W` and the `ToUnicode` CMap are keyed by the emitted code, and the
     page-emitter still places every cluster absolutely (embedding never changes
     geometry). Unknown families fall through to the standard-14 fallback; embedded +
     std-14 coexist in one document.
-  - **(c.3) subsetting** *(implemented)* — the embedded program carries only the
+  - **Subsetting** *(implemented)* — the embedded program carries only the
     glyphs the document uses (plus GID 0 `.notdef`); every other glyph's OUTLINE is
     dropped. It follows the **ZERO-unused-outline approach**: GID/CID numbering is
     PRESERVED, so the cmap / hmtx / charset / CIDToGIDMap / `/W` / `ToUnicode` are
@@ -86,8 +84,8 @@ feature:
     `sbix`/`SVG `, clean-rejected), cmap formats 0/2/6, multi-face /
     synthetic-bold-italic, and complex-script shaping (GSUB/GPOS) are deferred
     whole features.
-- **(d) images** — raster image XObjects. Built in sub-slices:
-  - **(d.1) image-XObject machinery** *(implemented)* — opaque `DeviceRGB`
+- **Images** — raster image XObjects. Composed of:
+  - **Image-XObject machinery** *(implemented)* — opaque `DeviceRGB`
     Image XObjects (8 bits-per-component, unfiltered samples) written through the
     injected `PdfImageProvider` seam, placed via a `q <cm> cm /Im<n> Do Q` content
     operator (the cm reuses `rectYUp`, so the image renders upright with no y-flip).
@@ -96,7 +94,7 @@ feature:
     to a valid-but-unsupported format (mirroring the canvas renderer's not-cached
     branch). Unit-tested with a mock image provider; image-free documents stay
     byte-identical (no `/XObject` key). No real image decode.
-  - **(d.3b-1) in-package image provider + JPEG `/DCTDecode` embedding** *(implemented)* —
+  - **In-package image provider + JPEG `/DCTDecode` embedding** *(implemented)* —
     `createImageProvider({ images })` (host supplies `src → source-file-bytes`;
     the package parses and embeds in-package, headless — mirrors
     `createEmbeddedFontProvider`). JPEG embedding is implemented via the PDF-native
@@ -109,11 +107,11 @@ feature:
     providers carry rich data privately in a `WeakMap`. `writeStream` skips its own
     `FlateDecode` compression when the caller's dict already declares a `/Filter` (so
     a pre-filtered `/DCTDecode` stream embeds without double-encoding).
-  - **(d.3b-2) in-package PNG decode + embedding** *(implemented)* — PDF has no
+  - **In-package PNG decode + embedding** *(implemented)* — PDF has no
     native PNG filter, so PNG is DECODED in-package (`png-parser.ts` → `png-decode.ts`)
     and re-embedded as a `/FlateDecode` Image XObject. `parsePng` validates the
     signature + IHDR and walks chunks (PLTE / tRNS / concatenated IDAT); `decodePng`
-    inflates the IDAT via the d.3a `zlibDecompress`, reverses the 5 PNG scanline
+    inflates the IDAT via the in-package `zlibDecompress`, reverses the 5 PNG scanline
     filters (None/Sub/Up/Average/Paeth), and resolves the color type to PDF samples:
     grayscale → `DeviceGray`, RGB → `DeviceRGB`, palette → `[/Indexed /DeviceRGB …]`,
     all at native `BitsPerComponent` (1/2/4/8). **Transparency:** an alpha channel
@@ -125,10 +123,10 @@ feature:
   - non-RGB color spaces beyond `DeviceCMYK`/`DeviceGray`/`/Indexed`, 16-bit-depth and
     interlaced PNG, and PNG CRC verification are deferred refinements (loud-rejected,
     NOT degraded cuts).
-- **(d.2) FlateDecode stream compression** *(implemented)* — a cross-cutting whole
+- **FlateDecode stream compression** *(implemented)* — a cross-cutting whole
   feature: all PDF stream payloads (font programs, image samples, content streams) are
   compressed with `/Filter /FlateDecode` (zlib/DEFLATE, RFC 1950 wrapper + RFC 1951
-  fixed-Huffman v1 encoding with LZ77 hash-chain matching) when compression reduces
+  fixed-Huffman encoding with LZ77 hash-chain matching) when compression reduces
   size (a no-expansion guard falls back to storing the payload uncompressed). `/Length`
   is the compressed byte count; `/Length1` (e.g. the uncompressed font-program length)
   is preserved as-is. `pdf-parse.ts`'s `streamObject` inflates transparently (stored,
@@ -150,7 +148,7 @@ feature:
   appending `/Annots` to the page dict only when the page carries ≥1 link. Covers
   body + header/footer/footnote slots.
 - **Internal `/GoTo` destination links** *(implemented)* —
-  cross-ref atoms (`InlineBlockBox.targetId`) and TOC entries (`BlockBox.metadata.navTarget`)
+  cross-ref atoms (`InlineBlockBox.targetId` = the block holding the bookmark start) and TOC entries (`BlockBox.metadata.navTarget`)
   collect one `{ targetId, rect }` per `internalLinkRects` entry; `emit-pdf`, given an injected
   `EmitPdfInput.resolveInternalDestination(targetId) → { pageIndex, yTopPx, xLeftPx } | null`,
   writes a `/Link` with a `/GoTo` action (`/A << /S /GoTo /D [<pageObj> 0 R /XYZ x y 0] >>`)
@@ -171,12 +169,14 @@ feature:
   `/ParentTree` correlating each `(page, mcid)` to its owning `StructElem` (via per-page
   `/StructParents`). The controller maps the core accessibility projection to the
   pdf-package structure model (`mapAccessibilityTree(buildAccessibilityTree(state))`)
-  and passes it as `EmitPdfInput.structureTree` (+ `lang` → catalog `/Lang`); `emit-pdf`
-  derives the tagged-leaf block-id set, threads it to the page-emitter (activating the
-  `/Span`/`/Artifact` tagging), collects per-page `structRefs`, and assembles the
-  `StructElem` graph + `/MarkInfo << /Marked true >>`. Header/footer/HR/decorative-image
-  content is an `/Artifact` (excluded from the tree). Absent `structureTree` ⇒ the output
-  is byte-identical to the untagged baseline. See the *Tagged-PDF structure* sections in
+  and passes it as `EmitPdfInput.structureTree`; `emit-pdf` derives the tagged-leaf
+  block-id set, threads it to the page-emitter (activating the `/Span`/`/Artifact`
+  tagging), collects per-page `structRefs`, and assembles the `StructElem` graph +
+  `/MarkInfo << /Marked true >>`. Header/footer/HR/decorative-image content is an
+  `/Artifact` (excluded from the tree). Absent `structureTree` ⇒ the output is
+  byte-identical to the untagged baseline. `EmitPdfInput.lang` (a BCP-47 tag, e.g.
+  `"en-US"`) writes a catalog `/Lang` entry when `structureTree` is present; absent
+  or empty ⇒ no `/Lang` is emitted. See the *Tagged-PDF structure* sections in
   `pdf-structure.ts`, `page-emitter.ts`, and `emit-pdf.ts`.
 
 ## Module map
@@ -200,8 +200,8 @@ bottom-up (each depends only on those below it):
   truncated input stream.
 - **`deflate.ts`** — RFC 1951 DEFLATE compressor. LZ77 hash-chain length/distance
   match search + fixed-Huffman (type-01) block emission + a stored-block fallback
-  when the block-header overhead would exceed the payload. Deferred: dynamic-
-  Huffman ENCODE (better ratio; bundled with the PNG-decode phase), lazy matching.
+  when the block-header overhead would exceed the payload. Not implemented: dynamic-
+  Huffman ENCODE (better ratio), lazy matching.
 - **`zlib.ts`** — RFC 1950 zlib framing. `zlibCompress(data)` writes a 2-byte
   zlib header + a `deflate`-compressed body + an Adler-32 checksum trailer;
   `zlibDecompress(data)` strips the header, calls `inflate`, and verifies the
@@ -237,10 +237,14 @@ bottom-up (each depends only on those below it):
   0x80–0x9F smart-typography block (curly quotes, en/em dashes, ellipsis,
   bullet, …) that word processors substitute on nearly every line. Anything
   outside coverage maps to `?` and is counted as dropped (full coverage is the
-  phase (c) embedded path).
+  embedded-font path).
 - **`font-provider.ts`** — the injected font capability. `PdfFontProvider`
   resolves a `ComputedStyle` to a font handle (`resolveFont`), encodes a run into
-  display clusters + bytes (`encodeRun`), and **writes its own font objects**
+  display clusters + bytes (`encodeRun`; each `EncodedCluster` carries `shown`
+  — every encoder marks a U+00AD soft hyphen `shown: false` via `isSoftHyphen`,
+  keeps it for one-to-one alignment with the layout's cluster advances, and never
+  records its code as used, so it stays out of the subset, `/W` and
+  `/ToUnicode`), and **writes its own font objects**
   (`writeFontObjects(usedHandles, writer)` → a `handle → objectId` map). A
   `PdfFontHandle` carries `{ kind: "standard14" | "embedded"; baseFont; fontKey }`
   — `fontKey` is the per-PROGRAM dedup identity (read as a field; the emitter
@@ -344,7 +348,7 @@ bottom-up (each depends only on those below it):
   colorType 4/6, a missing PLTE for colorType 3, a truncated chunk, or no IDAT. Does NOT
   verify chunk CRCs (deferred) and does NOT decode pixels (that is `png-decode.ts`).
 - **`png-decode.ts`** — `decodePng(bytes) → DecodedPng`. The pixel decoder: `parsePng`,
-  then `zlibDecompress` the IDAT (the d.3a inflate), enforce the
+  then `zlibDecompress` the IDAT (the in-package inflate), enforce the
   `inflated.length === height*(1+rowBytes)` invariant, reverse the 5 PNG scanline
   filters (None/Sub/Up/Average/Paeth, mod-256, with the `i ≥ bpp` left-stride), and
   resolve the color type to a PDF representation: `DeviceGray` / `DeviceRGB` /
@@ -377,7 +381,14 @@ bottom-up (each depends only on those below it):
   `physicalBorderSides`), images (the XObject `Do`, or a grey placeholder), and
   horizontal rules — under the content. The **foreground pass** emits every
   text-bearing leaf (`text-run`, `marker`), then its underline / line-through
-  decorations, plus tab leaders for inline-block tabs. A text-run carrying a
+  decorations (text runs, and the change-tracking `boundaryMark` markers —
+  `emitBoundaryMark`: a suggested paragraph-break ¶ drawn from the same layout-tree
+  `MarkerBox` the canvas paints, clipped with `q … re W n … Q` to its visible rect, and
+  a section-kind mark — Word's "Section Break" label: a double dotted rule across the
+  box from the caret to the line end with the label centred, see
+  [`2.2.1-bfc.md`](../2-print/2.2-layout/2.2.1-bfc.md); both are emitted inside
+  `/Artifact` marked content, never in a `/Span`; a vertical-mode section label emits only
+  its rule, as the pdf emitter has no vertical text), plus tab leaders for inline-block tabs. A text-run carrying a
   `link` whose URL passes `isOpenableLinkUrl` contributes a `{ url, rect }` to the
   page's link rects (`rect` = the `/Rect` `[llx lly urx ury]` from `rectYUp`). The
   foreground pass also accumulates `internalLinkRects` — one `{ targetId, rect }`
@@ -446,7 +457,11 @@ left-anchored run with relative advances. For each text/marker leaf:
   `clusterWidths` is absent the emitter falls back to an even split of the box
   width and logs it (no silent degradation).
 - Each cluster origin is converted to PDF space via `pointYUp`, then shown with
-  its own `Td` + `Tj`.
+  its own `Td` + `Tj`. A cluster the encoder marked `shown: false` (a U+00AD
+  soft hyphen: zero advance, never painted, as in the canvas renderer) is
+  skipped, and a run with no shown cluster is treated as empty — no font is
+  registered and no tagged sequence or MCID is opened. A line-end break hyphen
+  is a separate `-` run and is emitted normally.
 
 The font provider owns encoding (the show bytes — one WinAnsi byte per character
 for standard-14, two `Identity-H` CID bytes per glyph for embedded — plus the
@@ -466,7 +481,7 @@ coverage (PDF §9.7 / ISO 32000-1 §9.7.4.2). The descendant flavour BRANCHES on
 outline format; the provider's `writeFontObjects` emits, per embedded handle:
 
 - the **embedded program stream**, format-dependent and always the SUBSET (only the
-  used glyphs' outlines, see "Phase boundary" (c.3)):
+  used glyphs' outlines, see "Feature coverage" › Subsetting):
   - `glyf` → a **`FontFile2`** stream (the subset TrueType sfnt bytes, `/Length1` =
     the uncompressed program length);
   - `cff` → a **`FontFile3`** stream (`/Subtype /CIDFontType0C`, the subset `CFF `
@@ -492,11 +507,10 @@ CID-keyed CFF (common CJK `.otf`) the CFF charset maps GID→CID and that CID is
 emitted. The `/W` widths and the `ToUnicode` CMap are keyed by the same emitted
 code. De-duplication is keyed on `fontKey` (the font program identity), NOT
 `baseFont`: two fonts that happen to share a base-font name but carry different
-programs get distinct Type0 objects and distinct program streams. The c.1 machinery
-is shared by `composite-font.ts`'s `writeCompositeFontObjects`; in **c.2a/c.2b**
-`createEmbeddedFontProvider` supplies real program bytes + metrics (cmap / hmtx /
+programs get distinct Type0 objects and distinct program streams. The embedded-font machinery
+is shared by `composite-font.ts`'s `writeCompositeFontObjects`; `createEmbeddedFontProvider` supplies real program bytes + metrics (cmap / hmtx /
 descriptor, plus the CFF charset/ROS for `OTTO`) parsed from a `.ttf`/`.otf`, while
-the mock provider still drives the unit tests. Glyph subsetting (c.3) is applied
+the mock provider still drives the unit tests. Glyph subsetting is applied
 before this writer runs: the embedded program is the subset (only the used glyphs'
 outlines, GID/CID numbering preserved), and a 6-letter subset tag prefixes
 `/BaseFont` + `/FontName`.
@@ -522,8 +536,8 @@ Every rect/circle is in engine coordinates and converted per-shape via `rectYUp`
 `color.ts`. Geometry (border-side rects, decoration y-offsets, leader spacing,
 the dot-circle approximation) is byte-faithful to `canvas-renderer.ts`.
 
-**v1 boundaries (documented, not silent):** stacking is **document order** —
-`z-index` reordering is deferred; inline-box border-edge suppression on
+**Boundaries (documented, not silent):** stacking is **document order** —
+`z-index` reordering is not implemented; inline-box border-edge suppression on
 soft-wrap fragments is not yet applied (all four sides emit); `rgba()` alpha is
 flattened to opaque.
 
@@ -612,7 +626,7 @@ accessibility tree and threads the providers into `emitPdf`. Font / image progra
 bytes are an injection seam; absent them, text uses the standard-14 fonts and images
 render as grey placeholders. Triggering a browser download (Blob + anchor), a default
 `fontProvider` derived from the document's loaded fonts, and export of non-paginated
-(float/clear) documents remain deferred follow-ons; `exportToPdf` throws for the
+(float/clear) documents are not implemented; `exportToPdf` throws for the
 float/clear case. See `docs/architecture/2-print/2.8-editor-controller.md`.
 
 ## Image model
@@ -642,7 +656,7 @@ width, height }`) is emitted in the BACKGROUND pass via the injected
     them) at native `/BitsPerComponent` (1/2/4/8), `/ColorSpace` `DeviceGray` /
     `DeviceRGB` / `[/Indexed /DeviceRGB hival <hexPalette>]`, plus `/SMask <id> 0 R`
     (alpha) or `/Mask [..]` (color-key tRNS) as decoded.
-  - the d.1 mock provider uses a hardcoded `/ColorSpace /DeviceRGB` with unfiltered
+  - the mock image provider uses a hardcoded `/ColorSpace /DeviceRGB` with unfiltered
     raw RGB samples.
   `/Length` is injected by `writeStream`. The objects are allocated before the page
   tree (like fonts); the per-page `/Resources /XObject << /Im<n> … >>` references the
@@ -655,15 +669,15 @@ width, height }`) is emitted in the BACKGROUND pass via the injected
   sample dims. PDF samples row 0 at the top of the unit square, so the positive
   `hPt` scale renders the image **upright** with no y-flip.
 
-JPEG images embedded via `/DCTDecode` are live (d.3b-1): the PDF renderer decodes
+JPEG images embedded via `/DCTDecode` are live: the PDF renderer decodes
 the JPEG natively, so the package only needs to parse the header (dims/colorspace/
-Adobe-CMYK flag) and pass the raw bytes through. PNG is live (d.3b-2): decoded
+Adobe-CMYK flag) and pass the raw bytes through. PNG is live: decoded
 in-package (`png-parser.ts` → `png-decode.ts`) and re-embedded as a `/FlateDecode`
 Image XObject, with alpha → `/SMask` and grayscale/RGB tRNS → color-key `/Mask`.
 16-bit-depth and interlaced PNG, PNG CRC verification, and color spaces beyond
 `DeviceGray`/`DeviceRGB`/`DeviceCMYK`/`/Indexed` are deferred refinements
 (16-bit/interlaced PNG loud-reject; an unrecognized format draws the grey
-placeholder). d.1 is the mock-tested XObject machinery; d.2 is the transparent stream
+placeholder). The mock provider exercises the XObject machinery; FlateDecode is transparent stream
 compression (applied to all stream objects whose dict carries no `/Filter`, including
 the PNG image + SMask samples).
 

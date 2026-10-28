@@ -1,9 +1,9 @@
 /**
- * DEFLATE encoder (RFC 1951). v1: an LZ77 hash-chain greedy match finder (32 KB
+ * DEFLATE encoder (RFC 1951): an LZ77 hash-chain greedy match finder (32 KB
  * window, min match 3, max 258, capped chain length) emitting fixed-Huffman
  * (BTYPE=01) symbols, with a whole-input stored (BTYPE=00) fallback when the
  * fixed-Huffman encoding would not be smaller. Dynamic-Huffman encode (better
- * ratio) and lazy matching are separable refinements (deferred).
+ * ratio) and lazy matching are not implemented (separable refinements).
  */
 
 import { BitWriter } from "./bit-io";
@@ -66,7 +66,7 @@ export function deflate(data: Uint8Array): Uint8Array {
   // fixed-Huffman path handles arbitrary size (one block), so the stored
   // fallback below is only chosen for small incompressible inputs. (Large
   // incompressible inputs still round-trip via fixed-Huffman of literals; the
-  // per-stream writer guard in T7 is the ultimate no-expansion backstop.)
+  // per-stream writer guard is the ultimate no-expansion backstop.)
   const w = new BitWriter();
   w.writeBits(1, 1); // BFINAL=1 (single block)
   w.writeBits(1, 2); // BTYPE=01 (fixed Huffman)

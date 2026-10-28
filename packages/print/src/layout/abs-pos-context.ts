@@ -2,7 +2,7 @@ import type { ComputedStyle, UsedStyle } from "@taleweaver/core";
 import type { ElementBox } from "@taleweaver/core";
 
 /**
- * POSITIONING slice 3 — an absolutely-positioned (`position: absolute`)
+ * An absolutely-positioned (`position: absolute`)
  * child captured during the BFC subtree walk, deferred to the second pass at the
  * box that ESTABLISHES its absolute containing block (abc).
  *

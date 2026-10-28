@@ -8,6 +8,7 @@
  * formats, lists, embeds, link sanitization) and the dev-warn prefix
  * (`[@taleweaver/core]`) emitted when a content-bearing embed is dropped.
  */
+import { TEST_RESOLVER } from "../../test-utils/state-builders";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   buildDocumentFromTree,
@@ -26,7 +27,7 @@ function buildState(
   listDefs: Record<string, ListDef> = {},
 ): State {
   const root: ContainerBlockNode = { type: "document", children };
-  return buildDocumentFromTree(root, listDefs, createTestAllocator("enc"));
+  return buildDocumentFromTree(root, listDefs, createTestAllocator("enc"), TEST_RESOLVER);
 }
 
 function text(s: string, attrs: Record<string, unknown> = {}): InlineItem {
@@ -52,7 +53,9 @@ describe("encodeHtml — pure encode mappings", () => {
     const html = encodeHtml(
       buildState([{ type: "horizontal-line", inlineContent: { items: [] } }]),
     );
-    expect(html).toBe("<body><hr></body>");
+    // Invariant I: a paragraph always follows an object, so the
+    // flow's mandatory final ¶ encodes as an empty paragraph (Word emits one too).
+    expect(html).toBe("<body><hr><p></p></body>");
   });
 
   it("escapes HTML-significant text characters", () => {
@@ -238,5 +241,40 @@ describe("encodeHtml — dev-warn on dropped content-bearing embed", () => {
     expect(msg).toContain("[@taleweaver/core]");
     expect(msg).toContain(FOOTNOTE_ANCHOR_EMBED_TYPE);
     expect(msg).toContain("taleweaver-binary");
+  });
+});
+
+describe("encodeHtml — bookmarks + cross-references (Word's HTML)", () => {
+  const mk = (embedType: string, properties: Record<string, unknown>): InlineItem => ({ kind: "embed", embedType, attrs: {}, properties });
+  it("a bookmark start → a point anchor; a cross-reference → an internal link carrying its value", () => {
+    const html = encodeHtml(
+      buildState([
+        { type: "paragraph", inlineContent: { items: [mk("bookmark-start", { bookmarkId: "b1" }), text("Intro"), mk("bookmark-end", { bookmarkId: "b1" })] } },
+        { type: "paragraph", inlineContent: { items: [text("see "), mk("cross-reference", { bookmarkId: "b1", refMode: "text" }), mk("cross-reference", { bookmarkId: "gone", refMode: "text" })] } },
+      ]),
+    );
+    expect(html).toBe('<body><p><a id="b1"></a>Intro</p><p>see <a href="#b1">Intro</a><a href="#gone">Error! Reference source not found.</a></p></body>');
+  });
+
+  it("only a bookmark's LIVE start emits its anchor (no duplicate HTML ids; a broken bookmark emits none)", () => {
+    const html = encodeHtml(
+      buildState([
+        { type: "paragraph", inlineContent: { items: [mk("bookmark-start", { bookmarkId: "lone" }), text("x")] } },
+        {
+          type: "paragraph",
+          inlineContent: {
+            items: [
+              mk("bookmark-start", { bookmarkId: "b1" }),
+              text("Intro"),
+              mk("bookmark-end", { bookmarkId: "b1" }),
+              mk("bookmark-start", { bookmarkId: "b1" }),
+              text("y"),
+              mk("bookmark-end", { bookmarkId: "b1" }),
+            ],
+          },
+        },
+      ]),
+    );
+    expect(html).toBe('<body><p>x</p><p><a id="b1"></a>Introy</p></body>');
   });
 });

@@ -1,6 +1,15 @@
-import { createEmptyDocument, History, createHistory, selectionContextOf, positionsEqual } from "../state";
+import { createEmptyDocument, History, createHistory, selectionContextOf, positionsEqual, resolveBlock, createSpan } from "../state";
+import { caretAfterMarkers } from "../cursor/cursor-ops";
+import { STATE_INTERNAL } from "../state/state-internal";
+import { bindAttrRegistry } from "../state/mark-attrs";
+import { getTypingAttrs } from "./typing-attrs";
+import { normalizeSelectionForAtomicMarks } from "./atomic-marks";
+import { handleApplyForeignChange } from "./foreign-change";
+import { handlePropose, type ProposalOutcome } from "./proposals";
+import { runTransaction, applyInputRules, updateActiveTrigger, type ActiveTrigger, type EditorExtensions } from "./extensions";
 import { isDevMode } from "../state/dev-mode";
-import type { State, Selection, BlockId, PageConfig } from "../state";
+import type { State, Selection, BlockId, PageConfig, ReadonlyAttrs } from "../state";
+import type { HtmlParser } from "../state/serialize/html-node";
 import type { ComponentRegistry } from "../components/component-registry";
 import type { AttrRegistry } from "../cascade/attr-registry";
 import type { EditorAction } from "./editor-action";
@@ -31,6 +40,8 @@ import {
   handleSetFontSize,
   handleSetFontFamily,
   handleClearFormatting,
+  handleSetMark,
+  handleRemoveMark,
   handleUndo,
   handleRedo,
   handlePaste,
@@ -58,6 +69,7 @@ import {
   handleInsertCrossReference,
   handleInsertPageField,
   handleInsertTab,
+  handleInsertLineBreak,
   handleSetTabStops,
   handleSetTextAlign,
   handleSetLineSpacing,
@@ -78,6 +90,7 @@ import {
   handleAcceptSuggestion,
   handleRejectSuggestion,
   handleAcceptAllSuggestions,
+  handleResolveSuggestionGroup,
   handleRejectAllSuggestions,
 } from "./actions";
 
@@ -93,7 +106,7 @@ export interface EditorState {
   readonly selection: Selection;
   readonly history: History;
   /**
-   * What this dispatch changed (Phase 0b): the set of block ids whose own
+   * What this dispatch changed: the set of block ids whose own
    * attrs/content changed in the action that produced THIS state — the
    * geometry-free hand-off to the print backend's layout-driver, which consumes
    * it to rebuild the render→cascade→layout tree INCREMENTALLY (reusing unchanged
@@ -113,10 +126,19 @@ export interface EditorState {
    * of `Position` / `Selection`.
    */
   readonly lastDirtyIds: ReadonlySet<BlockId> | null;
+  /**
+   * The most recent DOCUMENT change that produced `state`: the State it was made from and
+   * its raw dirty set. Unlike `lastDirtyIds` it survives later selection-only / inert
+   * actions, so a consumer holding an older EditorState can still map positions across
+   * "edit, then move the caret". `null` when the last change's extent is unknown (initial
+   * state, a wholesale replacement). Read by `transitionMapping` (decorations, anchors).
+   * NON-undoable transient state, like `lastDirtyIds`.
+   */
+  readonly lastChange: DocumentChange | null;
   readonly containerWidth: number;
   readonly targetX: number | null;
   /**
-   * NON-undoable view state (#323): which page's header/footer SLOT instance the
+   * NON-undoable view state: which page's header/footer SLOT instance the
    * caret is visually on. A header/footer body is ONE shared `templateContents`
    * subtree rendered into EVERY page's slot, so a slot caret `Position` is
    * page-AMBIGUOUS; this records the page the user is editing so caret-render
@@ -133,7 +155,7 @@ export interface EditorState {
    */
   readonly caretPageHint?: number;
   /**
-   * NON-undoable view state (P4-C.2 §D): the caret ASSOCIATION (which logical
+   * NON-undoable view state: the caret ASSOCIATION (which logical
    * side a collapsed caret sticks to) at a bidi direction boundary. One logical
    * `offset` has TWO visual positions at an LTR↔RTL boundary; `"before"` draws
    * the caret at the trailing edge of the leaf ENDING at the offset, `"after"`
@@ -145,15 +167,15 @@ export interface EditorState {
    * mouse hit-test (from the hit side) and by visual-order arrow motion at a
    * boundary flip; RESET to `undefined` by edits and non-arrow selection changes
    * so it never goes stale. It is VIEW state — never stored in `History`, never
-   * part of `Position` / `Selection` / `Span`. The handler wiring (the central
-   * reset + the hit-test / arrow writes) lands in P4-C.2.1+; this field + its
-   * default are the shared primitive.
+   * part of `Position` / `Selection` / `Span`. This field + its default are the
+   * shared primitive the handlers (the central reset + the hit-test / arrow
+   * writes) use.
    */
   readonly caretAffinity?: CaretAffinity;
   /**
-   * NON-undoable view state (#503): the ANCHOR's caret-boundary association at a
+   * NON-undoable view state: the ANCHOR's caret-boundary association at a
    * bidi direction boundary — the symmetric twin of `caretAffinity` (the FOCUS's
-   * boundary side). Post-Phase-0b the print backend's NavIntent resolver seeds it
+   * boundary side). The print backend's NavIntent resolver seeds it
    * (on the collapse→extend transition, via the barrel-exported `seedAnchorAffinity`)
    * and threads it through the `SET_SELECTION` it dispatches; thereafter it persists
    * through continued extension. Clears on any action but `SET_SELECTION` (the same
@@ -161,6 +183,32 @@ export interface EditorState {
    * `History`, never part of `Position` / `Selection` / `Span`.
    */
   readonly anchorAffinity?: CaretAffinity;
+  /**
+   * Pending TYPING ATTRS (word-processor "stored marks"): the attrs the next typed
+   * text takes instead of those inherited at the caret. Set by a format command at
+   * a collapsed caret (Bold with nothing selected → the next keystroke is bold) and
+   * when an edit empties the caret's block (the deleted / split-off text's
+   * formatting carries over, as in Google Docs / Word). `undefined` = inherit.
+   *
+   * Lifecycle: cleared by every action except the one that set it, an inert
+   * action, and a `SET_SELECTION` to the same selection — so any caret move or
+   * document edit (including the typing that consumes it) drops it. NON-undoable
+   * view state, never in `History`. Read it through `getTypingAttrs`.
+   */
+  readonly storedAttrs?: ReadonlyAttrs;
+  /**
+   * The host trigger the user is typing (`EditorExtensions.triggers`): its start
+   * `from` (mapped through every edit), the caret `to`, and the `query` typed after
+   * the trigger text. Maintained centrally by `reduceEditor`; ends on ESCAPE, when the
+   * caret leaves it or its text stops matching. NON-undoable view state.
+   */
+  readonly activeTrigger?: ActiveTrigger;
+  /**
+   * The reducer's verdict on the most recent `PROPOSE` (applied / stale / rejected, with
+   * the problem). A host that dispatches proposals asynchronously (print) reads the
+   * outcome here on the next state. View state, never in history.
+   */
+  readonly lastProposal?: ProposalOutcome;
 }
 
 export interface EditorConfig {
@@ -169,7 +217,7 @@ export interface EditorConfig {
   readonly containerWidth: number;
   /**
    * Document page-setup data (size, orientation, margins, gap). DOCUMENT data,
-   * NOT layout geometry (Phase 0b Resolution B): page setup round-trips with the
+   * NOT layout geometry: page setup round-trips with the
    * document (Google Docs File ▸ Page setup; Word per-section; .docx). The
    * geometry-free reducer reads it in `toggle-section-landscape` (the landscape
    * dimension swap consults the document's default page dimensions). The print
@@ -181,21 +229,28 @@ export interface EditorConfig {
    */
   readonly pageConfig?: PageConfig;
   /**
-   * Injected clock for undo-coalescing timing (#420). Defaults to `Date.now`.
+   * Injected clock for undo-coalescing timing. Defaults to `Date.now`.
    * Tests pass a controllable counter so the pause window is deterministic.
    */
   readonly now?: () => number;
   /**
-   * Suggesting mode (change-tracking, spec §3): when a non-null author string, every
+   * Suggesting mode (change-tracking): when a non-null author string, every
    * mutating edit becomes a tracked SUGGESTION attributed to that author (timestamped
    * via `now`), instead of a direct edit. `null`/undefined = direct editing. The HOST
    * owns "who is suggesting" (this is configuration, not session state).
    */
   readonly suggestingAuthor?: string | null;
+  /**
+   * Injected DOM-free HTML parser; host passes browserHtmlParser; absent →
+   * HTML paste falls back to plain.
+   */
+  readonly htmlParser?: HtmlParser;
+  /** Host extensions: commands, keymap, input rules, triggers. */
+  readonly extensions?: EditorExtensions;
 }
 
 export function createInitialEditorState(config: EditorConfig): EditorState {
-  const state = createEmptyDocument();
+  const state = createEmptyDocument({ resolver: config.componentRegistry });
   const selection = initialSelectionForState(state);
   return createEditorStateFromState(state, selection, config);
 }
@@ -206,7 +261,7 @@ export function createInitialEditorState(config: EditorConfig): EditorState {
  * here with the empty document. Primarily for tests that need a non-default seed
  * document (e.g. a table-only body) without an editor-from-state injection seam.
  *
- * Phase 0b: core is geometry-free. This builds NO render/cascade/layout trees —
+ * Core is geometry-free. This builds NO render/cascade/layout trees —
  * the print backend's layout-driver owns that pipeline and rebuilds it from
  * `state` after each dispatch. `lastDirtyIds: null` signals the driver to do a
  * FULL initial build.
@@ -214,7 +269,7 @@ export function createInitialEditorState(config: EditorConfig): EditorState {
  * `historyOrigin` is the transaction origin the editor's `History` tracks for
  * undo (default `null` = the single-editor origin). A collaborating peer passes
  * its own origin token so its `UndoManager` tracks ONLY its own edits (undo
- * isolation, E4b) — building the right History up front instead of replacing a
+ * isolation) — building the right History up front instead of replacing a
  * default one (which would leak the default's UndoManager listener).
  */
 export function createEditorStateFromState(
@@ -223,11 +278,14 @@ export function createEditorStateFromState(
   config: EditorConfig,
   historyOrigin: unknown = null,
 ): EditorState {
+  // Every state writer judging an attr (¶ markAttrs, one-shot attrs) reads it from the doc.
+  bindAttrRegistry(state[STATE_INTERNAL].doc, config.attrRegistry);
   return {
     state,
     selection,
     history: createHistory(state, undefined, historyOrigin),
     lastDirtyIds: null,
+    lastChange: null,
     containerWidth: config.containerWidth,
     targetX: null,
     caretPageHint: undefined,
@@ -236,22 +294,83 @@ export function createEditorStateFromState(
   };
 }
 
+/**
+ * One document change: the State it was made from and its raw dirty set, linked to the
+ * change before it (`prior`) so a consumer that missed intermediate states (a host that
+ * batches dispatches) can still compose the mappings across them. The chain is bounded:
+ * `depth` counts it, and `recordChange` trims it once it grows past
+ * {@link MAX_CHANGE_CHAIN} (older changes are then unknown, so mapping across that many
+ * batched changes degrades to "unknown").
+ */
+export interface DocumentChange {
+  readonly from: State;
+  readonly dirtyIds: ReadonlySet<BlockId>;
+  readonly prior: DocumentChange | null;
+  readonly depth: number;
+}
+
+/** Changes kept reachable through `lastChange.prior` (trimmed to half when exceeded). */
+export const MAX_CHANGE_CHAIN = 128;
+
+/** Extend `prior` with a new change, trimming the chain when it grows too long (amortized O(1)). */
+export function recordChange(prior: DocumentChange | null, from: State, dirtyIds: ReadonlySet<BlockId>): DocumentChange {
+  let base = prior;
+  if (base !== null && base.depth >= MAX_CHANGE_CHAIN) {
+    // Rebuild the most recent half of the chain (copying MAX/2 nodes once per MAX/2 changes).
+    const keep: DocumentChange[] = [];
+    for (let c: DocumentChange | null = base; c !== null && keep.length < MAX_CHANGE_CHAIN / 2; c = c.prior) keep.push(c);
+    base = keep.reduceRight<DocumentChange | null>(
+      (acc, c) => ({ from: c.from, dirtyIds: c.dirtyIds, prior: acc, depth: (acc?.depth ?? 0) + 1 }),
+      null,
+    );
+  }
+  return { from, dirtyIds, prior: base, depth: (base?.depth ?? 0) + 1 };
+}
+
+/** Actions that insert content at a collapsed caret (a split is not one: it has its own marker rule). */
+const INSERTS_AT_CARET: ReadonlySet<EditorAction["type"]> = new Set<EditorAction["type"]>([
+  "INSERT_TEXT",
+  "PASTE",
+  "INSERT_LINE_BREAK",
+  "INSERT_TAB",
+  "INSERT_CROSS_REFERENCE",
+  "INSERT_FOOTNOTE",
+  "INSERT_PAGE_NUMBER",
+  "INSERT_PAGE_COUNT",
+  "INSERT_INLINE_IMAGE",
+]);
+
+/** `editor` with a collapsed caret moved past the markers adjacent on its right. */
+function withCaretAfterMarkers(editor: EditorState): EditorState {
+  const { anchor, focus } = editor.selection;
+  if (!positionsEqual(anchor, focus)) return editor;
+  const caret = caretAfterMarkers(editor.state, focus);
+  return caret === focus ? editor : { ...editor, selection: createSpan(caret, caret) };
+}
+
 /** Pure reducer: applies an action to EditorState and returns new state. */
 export function reduceEditor(
   rawEditor: EditorState,
   action: EditorAction,
   config: EditorConfig,
 ): EditorState {
-  // Phase 0b ENTRY-CLEAR: `lastDirtyIds` is the layout-driver's per-dispatch
+  // The editor's attr registry is the doc's: every state op and editor helper reads it
+  // there (O(1); also covers an EditorState not built by `createEditorStateFromState`).
+  bindAttrRegistry(rawEditor.state[STATE_INTERNAL].doc, config.attrRegistry);
+  // ENTRY-CLEAR: `lastDirtyIds` is the layout-driver's per-dispatch
   // incremental hint, written ONLY by a mutating action's `rebuildTrees`. Clear
   // it at the entry of every dispatch so a prior mutating action's dirty ids
   // never leak forward onto a later selection-only / inert action (which would
   // make the driver wrongly rebuild only those blocks). A mutating handler's
   // `rebuildTrees` re-sets a fresh non-null set; everything else leaves it null.
-  const editor =
+  const cleared =
     rawEditor.lastDirtyIds === null ? rawEditor : { ...rawEditor, lastDirtyIds: null };
+  // Markers are not caret stops: every insertion at a collapsed caret goes after the
+  // markers adjacent on its right — inside a bookmark / comment at its start, outside
+  // at its end. Normalized once here, so no insertion handler repeats it (block-local).
+  const editor = INSERTS_AT_CARET.has(action.type) ? withCaretAfterMarkers(cleared) : cleared;
 
-  // #420: undo-group coalescing. Decide the undo boundary BEFORE the operation
+  // Undo-group coalescing. Decide the undo boundary BEFORE the operation
   // runs (with `captureTimeout: MAX`, a transaction merges into the open group
   // unless we `stopCapturing` first). Committing actions open/continue a group;
   // selection jumps and undo/redo close it; inert actions (container resize) do
@@ -263,14 +382,7 @@ export function reduceEditor(
     case "insert":
     case "delete":
     case "command":
-      editor.history.beginEntry(coalesceClass, (config.now ?? Date.now)());
-      break;
-    case "resolve":
-      // Non-undoable suggestion accept/reject: BREAK the open group (so any
-      // preceding typing commits as its own unit) WITHOUT opening a tracked one —
-      // the resolve op's `SUGGESTION_RESOLVE_ORIGIN` txn fires no StackItem, so
-      // `beginEntry` (the committing arm) would open a group that never fills.
-      editor.history.breakCoalescing();
+      editor.history.beginEntry(coalesceClass, (config.now ?? Date.now)(), editor.selection);
       break;
     case "selection-break":
       editor.history.breakCoalescing();
@@ -287,6 +399,16 @@ export function reduceEditor(
   switch (action.type) {
     case "INSERT_TEXT":
       result = handleInsertText(editor, action.text, config);
+      // User-typed text may complete a host input rule (its own undo entry).
+      if (action.userInput === true && result.state !== editor.state) {
+        result = applyInputRules(result, config, reduceEditor);
+      }
+      break;
+    case "TRANSACTION":
+      result = runTransaction(editor, action.run, config, reduceEditor);
+      break;
+    case "APPLY_FOREIGN_CHANGE":
+      result = handleApplyForeignChange(editor, action.dirtyIds);
       break;
     case "DELETE_BACKWARD":
       result = handleDeleteBackward(editor, config);
@@ -310,7 +432,7 @@ export function reduceEditor(
       result = handleSetContainerWidth(editor, action.width, config);
       break;
     case "SET_SELECTION": {
-      // Engine backstop (#424): a Span must keep BOTH endpoints in the SAME
+      // Engine backstop: a Span must keep BOTH endpoints in the SAME
       // selection context (the main document tree, OR one footnote/embed body,
       // OR one header/footer/template body). Cross-context spans are unsupported
       // by the data model — `iterateSpan` throws on them — so storing one here is
@@ -374,8 +496,14 @@ export function reduceEditor(
     case "CLEAR_FORMATTING":
       result = handleClearFormatting(editor, config);
       break;
+    case "SET_MARK":
+      result = handleSetMark(editor, action.key, action.value, action.replace, action.span, config);
+      break;
+    case "REMOVE_MARK":
+      result = handleRemoveMark(editor, action.key, action.value, action.span, config);
+      break;
     case "PASTE":
-      result = handlePaste(editor, action.text, config);
+      result = handlePaste(editor, action, config);
       break;
     case "SET_BLOCK_TYPE":
       result = handleSetBlockType(
@@ -395,7 +523,7 @@ export function reduceEditor(
       result = handleExpandDocumentBoundary(editor, action.boundary);
       break;
     case "ESCAPE":
-      // #525: pure selection move (no commit) — collapse an object selection to
+      // Pure selection move (no commit) — collapse an object selection to
       // just after the object. Not a line/vertical action and does not manage
       // bidi affinity, so it joins no targetX / caretAffinity / anchorAffinity
       // exemption list.
@@ -448,6 +576,9 @@ export function reduceEditor(
       break;
     case "INSERT_TAB":
       result = handleInsertTab(editor, config);
+      break;
+    case "INSERT_LINE_BREAK":
+      result = handleInsertLineBreak(editor, config);
       break;
     case "SET_TAB_STOPS":
       result = handleSetTabStops(editor, action.blockId, action.tabStops, config);
@@ -580,6 +711,15 @@ export function reduceEditor(
     case "REJECT_SUGGESTION":
       result = handleRejectSuggestion(editor, action.id, config);
       break;
+    case "ACCEPT_SUGGESTION_GROUP":
+      result = handleResolveSuggestionGroup(editor, action.groupId, "accept", config);
+      break;
+    case "REJECT_SUGGESTION_GROUP":
+      result = handleResolveSuggestionGroup(editor, action.groupId, "reject", config);
+      break;
+    case "PROPOSE":
+      result = handlePropose(editor, action.proposal, action.basedOn, config);
+      break;
     case "ACCEPT_ALL_SUGGESTIONS":
       result = handleAcceptAllSuggestions(editor, config);
       break;
@@ -596,7 +736,7 @@ export function reduceEditor(
   // Central transient-view-state clear: `targetX` (line-nav sticky goal column)
   // and the bidi-boundary affinities are all resolved against a SPECIFIC
   // document/layout shape, so any action other than the one that MANAGES them
-  // must reset them (else they go stale). Post-Phase-0b that managing action is
+  // must reset them (else they go stale). That managing action is
   // `SET_SELECTION` alone — the print backend's NavIntent resolver originates a
   // line-move's `targetX` + caret/anchor affinity and threads ALL THREE through
   // the `SET_SELECTION` it dispatches (a programmatic / body `SET_SELECTION`
@@ -609,7 +749,76 @@ export function reduceEditor(
     result = clearTransientViewState(result);
   }
 
+  // Atomic marks: the caret never rests inside one (whatever moved it — a click,
+  // an arrow step, undo, a programmatic selection), and a range selection covers
+  // one whole or not at all.
+  if (result !== editor) {
+    const selection = normalizeSelectionForAtomicMarks(result.state, result.selection, editor.selection);
+    if (selection !== result.selection) result = { ...result, selection };
+  }
+
+  result = updateStoredAttrs(editor, result, action, coalesceClass, config);
+  result = updateActiveTrigger(editor, result, action, config);
+  // Keep the selection's blocks snapshotted in the current state: a later foreign
+  // change maps the caret from that snapshot (the Y.Doc has changed by then). O(1).
+  if (result.state !== editor.state || result.selection !== editor.selection) {
+    resolveBlock(result.state, result.selection.focus.blockId);
+    resolveBlock(result.state, result.selection.anchor.blockId);
+  }
   return result;
+}
+
+/** Actions after which an emptied caret block keeps the removed text's typing attrs. */
+const CARRY_TYPING_ATTRS: ReadonlySet<EditorAction["type"]> = new Set([
+  "DELETE_BACKWARD",
+  "DELETE_FORWARD",
+  "DELETE_WORD",
+  "DELETE_RANGE",
+  "SPLIT_NODE",
+]);
+
+/**
+ * The `storedAttrs` lifecycle (see `EditorState.storedAttrs`): drop pending typing
+ * attrs the action did not set itself (unless it is inert or re-sets the same
+ * selection); and when a delete / paragraph split leaves the caret in an EMPTY
+ * block, carry the INCLUSIVE typing attrs from before the edit so typing there
+ * continues in the same formatting (Google Docs / Word) — never a link or mark.
+ */
+function updateStoredAttrs(
+  before: EditorState,
+  result: EditorState,
+  action: EditorAction,
+  coalesceClass: ReturnType<typeof coalesceKeyOf>,
+  config: EditorConfig,
+): EditorState {
+  let out = result;
+  if (out.storedAttrs !== undefined && out.storedAttrs === before.storedAttrs) {
+    const keep =
+      coalesceClass === "inert" ||
+      (action.type === "SET_SELECTION" &&
+        positionsEqual(out.selection.anchor, before.selection.anchor) &&
+        positionsEqual(out.selection.focus, before.selection.focus));
+    if (!keep) out = { ...out, storedAttrs: undefined };
+  }
+  if (
+    out.storedAttrs === undefined &&
+    out.state !== before.state &&
+    CARRY_TYPING_ATTRS.has(action.type) &&
+    positionsEqual(out.selection.anchor, out.selection.focus)
+  ) {
+    const content = resolveBlock(out.state, out.selection.focus.blockId)?.block.inlineContent ?? null;
+    if (content !== null && content.items.length === 0) {
+      // Only INCLUSIVE keys (formatting) carry: a deleted link / mention / other
+      // non-inclusive or atomic mark — and change-tracking ids — must not
+      // resurrect on the next keystroke.
+      const carried: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(getTypingAttrs(before))) {
+        if (config.attrRegistry.isInclusive(key)) carried[key] = value;
+      }
+      if (Object.keys(carried).length > 0) out = { ...out, storedAttrs: Object.freeze(carried) };
+    }
+  }
+  return out;
 }
 
 /**
@@ -641,10 +850,10 @@ export function clearTransientViewState(editor: EditorState): EditorState {
 }
 
 /**
- * The shared `anchorAffinity` seed/persist rule (#503) for the three focus-only
+ * The shared `anchorAffinity` seed/persist rule for the three focus-only
  * selection extenders — `EXPAND_SELECTION` (Shift+ArrowLeft/Right), `EXPAND_LINE`
- * (Shift+ArrowUp/Down), `EXPAND_LINE_BOUNDARY` (Shift+Home/End). Post-Phase-0b
- * these extenders live in the print backend's NavIntent resolver, which imports
+ * (Shift+ArrowUp/Down), `EXPAND_LINE_BOUNDARY` (Shift+Home/End).
+ * These extenders live in the print backend's NavIntent resolver, which imports
  * this barrel-exported helper to compute the `anchorAffinity` it threads into the
  * `SET_SELECTION` it dispatches. They all keep the ANCHOR fixed and move only the
  * FOCUS, so the anchor's bidi-boundary side must be captured ONCE — on the

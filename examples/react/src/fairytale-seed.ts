@@ -246,7 +246,7 @@ export const FAIRYTALE_JSON = {
  *  JSON serializer is host-registered with the SAME component registry the
  *  editor uses (`config.componentRegistry`), so block kinds match. */
 export function loadFairytale(config: EditorConfig): EditorState {
-  const registry = createDefaultSerializerRegistry();
+  const registry = createDefaultSerializerRegistry({ blockKindResolver: config.componentRegistry });
   registry.register(
     createJsonDocumentSerializer({
       allocator: productionAllocator,

@@ -1,3 +1,4 @@
+import type { BlockKindResolver } from "../block-kinds";
 import * as Y from "yjs";
 import { createState, type State } from "../state";
 import { STATE_INTERNAL } from "../state-internal";
@@ -6,14 +7,14 @@ import type { DocumentSerializer } from "./document-serializer";
 import { MalformedDocumentError } from "./document-serializer";
 
 /**
- * Stable format id for the v1 lossless Yjs-binary serializer. A future format
+ * Stable format id for the lossless Yjs-binary serializer. A future format
  * change ships a NEW id — old bytes are NEVER reinterpreted under a different
  * meaning.
  */
 export const BINARY_FORMAT = "taleweaver-binary";
 
 /**
- * The v1 document serializer: a lossless binary round-trip backed by Yjs's
+ * The document serializer: a lossless binary round-trip backed by Yjs's
  * native update format. State is Yjs-native — `Y.encodeStateAsUpdate(doc)`
  * captures the ENTIRE Y.Doc (all three block trees + listDefs + meta) into a
  * single `Uint8Array`, and `Y.applyUpdate(freshDoc, update)` rebuilds it
@@ -25,7 +26,10 @@ export const BINARY_FORMAT = "taleweaver-binary";
  * v1 is the format Yjs's own ecosystem (y-* bindings) treats as the stable
  * interchange unit.
  */
-export function createBinaryDocumentSerializer(): DocumentSerializer<Uint8Array> {
+export function createBinaryDocumentSerializer(deps: {
+  /** Storage-shape authority (the component registry) bound to decoded documents. */
+  blockKindResolver: BlockKindResolver;
+}): DocumentSerializer<Uint8Array> {
   return {
     format: BINARY_FORMAT,
     encode(state: State): Uint8Array {
@@ -42,7 +46,7 @@ export function createBinaryDocumentSerializer(): DocumentSerializer<Uint8Array>
       // createState is idempotent on already-seeded meta (it only writes rootId
       // when absent); the fresh empty snapshotCache is correct — it is derived,
       // not serialized.
-      return createState({ rootId, doc });
+      return createState({ rootId, doc, resolver: deps.blockKindResolver });
     },
   };
 }

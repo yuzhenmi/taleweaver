@@ -28,6 +28,7 @@ function makeEditor(state: State, focusId: string, offset: number): EditorState 
     selection: { anchor: caret, focus: caret },
     history: createHistory(state),
     lastDirtyIds: null,
+    lastChange: null,
     containerWidth: config.containerWidth,
     targetX: null,
   };
@@ -129,9 +130,10 @@ describe("Enter-exit on an empty list-item (#L16)", () => {
 
     const next = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
 
+    // the head [0, 3) is the new block; "li" keeps the tail.
     const original = getBlock(next.state, "li" as BlockId);
     expect(original?.type).toBe("list-item");
-    const newId = original?.nextSiblingId;
+    const newId = original?.prevSiblingId;
     expect(newId).not.toBeNull();
     const newBlock = newId !== null && newId !== undefined ? getBlock(next.state, newId) : null;
     expect(newBlock?.type).toBe("list-item");

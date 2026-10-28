@@ -1,10 +1,10 @@
-// F-3: the §4.4 width-convergence driver for layout-dependent page-fields.
+// The width-convergence driver for layout-dependent page-fields.
 //
 // THE feedback: a page-field's rendered width depends on its value's digit count
 // ("of 9" vs "of 100"). When the wider value makes a header/footer WRAP to an extra
 // line, the slot grows taller, the body area shrinks, the page count rises, and the
 // value's width can change again — a genuine fixpoint. This driver is the bounded
-// iterate-to-fixpoint that resolves it (mirrors the FN-6 footnote convergence).
+// iterate-to-fixpoint that resolves it (mirrors the footnote convergence).
 //
 // It is PURE control flow: it knows nothing about layout. The caller supplies a
 // `runIteration(grownWidths)` that lays the document out with each page-field's
@@ -15,11 +15,11 @@
 // truly oscillate; the 2-cycle pin is a defensive backstop). It stops when every
 // value fits its reservation (converged), on a repeated page count (pinned to the
 // larger), or at `MAX_FIELD_CONVERGENCE_ITERATIONS` (bound — returns the largest,
-// safe over-reservation). Reserved-width placeholders (§4.4a) make pass 1 final for
+// safe over-reservation). Reserved-width placeholders make pass 1 final for
 // essentially every real document, so this loop is the correctness backstop, not
 // the common path.
 
-/** Bound on convergence passes (mirror FN-6). */
+/** Bound on convergence passes (mirrors footnote convergence). */
 export const MAX_FIELD_CONVERGENCE_ITERATIONS = 5;
 
 /** Sub-pixel tolerance so float width noise never triggers spurious growth. */
@@ -94,7 +94,7 @@ export function runFieldConvergence<R extends ConvergenceIteration>(
   // `grownWidths` is ALWAYS the set of overrides that produced the current `result`
   // (updated immediately before each `runIteration`), so the returned pair is never
   // off-by-one. The loop makes at most `cap` `runIteration` calls (strict bound, no
-  // overrun on the pin path — mirror FN-6's `for (i < MAX)`).
+  // overrun on the pin path — mirrors the footnote loop's `for (i < MAX)`).
   let grownWidths: ReadonlyMap<string, number> = new Map();
   let result = runIteration(grownWidths); // pass 1
   let iterations = 1;
@@ -109,7 +109,7 @@ export function runFieldConvergence<R extends ConvergenceIteration>(
     // A previously-produced page count reappeared while a field still overflows: this
     // is the (grow-only ⇒ near-unreachable) oscillation backstop. Pin to the LARGER
     // reservation (`grown` ⊇ all prior widths) with one more pass, then stop. No
-    // starvation (mirror FN-6's atomic-block tie-break).
+    // starvation (mirrors the footnote loop's atomic-block tie-break).
     const pin = seenCounts.has(result.pageCount);
     seenCounts.add(result.pageCount);
     grownWidths = grown;

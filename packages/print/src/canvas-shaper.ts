@@ -7,9 +7,9 @@ import type {
   BreakOpportunity,
   FontMetrics,
 } from "@taleweaver/core";
-import { resolveSpacingPx, clusterSpacing, toBreakOpportunities } from "@taleweaver/core";
+import { resolveSpacingPx, toBreakOpportunities } from "@taleweaver/core";
 import { buildCssFontString } from "./font-config";
-import { segmentClusters } from "./text-clusters";
+import { segmentClusters, clusterAdvance } from "./text-clusters";
 
 /**
  * Canvas-based TextShaper. Default backend bundled with `@taleweaver/print`.
@@ -19,8 +19,8 @@ import { segmentClusters } from "./text-clusters";
  *     pairs, ZWJ sequences, regional-indicator flags each form one cluster) with
  *     per-cluster `measureText` metrics — no HarfBuzz shaping / ligature detection.
  *   - Break opportunities come from the conformant UAX #14 line-break
- *     classifier (soft/hard kinds); the `hyphen` kind stays reserved for a
- *     future hyphenation backend.
+ *     classifier (soft/hard kinds); the shaper never emits `hyphen`
+ *     opportunities — the IFC applies the injected `LayoutConfig.hyphenator`.
  *   - Bidi level is uniform per shaped run (0 or 1 based on baseDirection).
  *     Mixed-direction text is not bidi-resolved at the cluster level.
  *
@@ -80,17 +80,11 @@ export function createCanvasShaper(
     const letterPx = resolveSpacingPx(style.letterSpacing);
     const wordPx = resolveSpacingPx(style.wordSpacing);
     // Segment via the shared helper so the renderer (which paints each cluster
-    // at the matching cumulative advance, #330) can never diverge from how the
-    // shaper measured. v1 clusters are single code units.
+    // at the matching cumulative advance) can never diverge from how the
+    // shaper measured. Clusters are UAX #29 grapheme clusters.
     let start = 0;
     for (const c of segmentClusters(text)) {
-      // U+00AD SOFT HYPHEN is a zero-advance format char (Cf): it renders nothing
-      // and adds no width unless it is the chosen line-end break (where the IFC
-      // shapes a "-" glyph separately). `ctx.measureText("­")` is browser/
-      // font-dependent (often the width of a rendered hyphen), so we force 0 here
-      // to match real shapers (HarfBuzz zero-advances default-ignorable Cf chars)
-      // and keep word widths invariant to embedded soft hyphens (hyphenation).
-      const w = c === "­" ? 0 : ctx.measureText(c).width + clusterSpacing(c, letterPx, wordPx);
+      const w = clusterAdvance(ctx, c, letterPx, wordPx);
       clusters.push({
         start,
         end: start + c.length,

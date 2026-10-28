@@ -26,6 +26,7 @@ import {
   layoutOf,
   type NavCtx,
 } from "./nav-test-helpers";
+import { finalSection } from "../test-utils/final-section"; // body blocks live in the final section
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -98,7 +99,7 @@ function buildPasted(pageBlockSize: number, n: number): NavCtx {
 }
 
 function nthBlockId(ctx: NavCtx, n: number): BlockId {
-  const root = getBlock(ctx.editor.state, ctx.editor.state.rootId);
+  const root = finalSection(ctx.editor.state);
   if (root === null || root.firstChildId === null) throw new Error("no blocks");
   let id: BlockId | null = root.firstChildId;
   for (let i = 0; i < n && id !== null; i++) {
@@ -126,7 +127,7 @@ function buildSpanningEditor(
   const wordsNeeded = Math.ceil((pages * linesPerPage * charsPerLine) / 6) + 20;
   const text = Array.from({ length: wordsNeeded }, (_, i) => `w${i}`).join(" ");
   const ctx = dispatch(makeCtx(pageBlockSize), { type: "PASTE", text });
-  const root = getBlock(ctx.editor.state, ctx.editor.state.rootId);
+  const root = finalSection(ctx.editor.state);
   if (root === null || root.firstChildId === null) throw new Error("no blocks");
   return { ctx, blockId: root.firstChildId };
 }

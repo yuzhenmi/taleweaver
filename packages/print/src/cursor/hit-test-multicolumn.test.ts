@@ -27,6 +27,7 @@ import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
 import { createMockShaper } from "@taleweaver/core";
 import { buildBlockFitMetas } from "../layout/build-fit-metas";
 import { measurePass } from "../layout/measure-pass";
+import { flattenContents } from "../layout/group-children";
 import { makeVirtualLayoutTree } from "../layout/virtual-layout-tree";
 import { positionTreeForTest } from "../test-utils/position-tree";
 import { getLineIndex } from "./line-flatten";
@@ -124,7 +125,7 @@ function buildMulticolumnDoc(
     pageConfig.pageInlineSize - pageConfig.pageMargins.inlineStart - pageConfig.pageMargins.inlineEnd;
   const shaper = createMockShaper(CHAR_W, LINE_H);
   const metas = buildBlockFitMetas(root, shaper, undefined, pageContentInlineSize);
-  const plan = measurePass(metas, pageConfig, columnSectionPlan(columnConfig), root.children);
+  const plan = measurePass(metas, pageConfig, columnSectionPlan(columnConfig), flattenContents(root.children));
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);
   const virtual = makeVirtualLayoutTree(plan, root, ctx, createMockShaper(CHAR_W, LINE_H), pageConfig);
 

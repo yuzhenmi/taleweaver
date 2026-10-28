@@ -10,6 +10,7 @@ export interface DomMirrorHostOptions {
   readonly onKeyDown?: (e: KeyboardEvent) => void;
   readonly onInsertText?: (text: string) => void;
   readonly onCompositionStart?: () => void;
+  /** Composition ended: the committed text, or "" when it was cancelled. */
   readonly onCompositionEnd?: (text: string) => void;
   readonly onCopy?: (e: ClipboardEvent) => void;
   readonly onCut?: (e: ClipboardEvent) => void;
@@ -22,6 +23,12 @@ export interface DomMirrorHost {
   readonly element: HTMLElement;
   syncTree(tree: AccessibilityNode, resolvedFields?: ReadonlyMap<string, string>): void;
   syncSelection(selection: EngineSelection): void;
+  /**
+   * Abandon an IME composition (the controller halted mid-composition): the composed
+   * DOM text is dropped and the mirror is rebuilt from the last synced tree (its last
+   * good projection). The next `compositionend` reports nothing new.
+   */
+  abandonComposition(): void;
   focus(): void;
   destroy(): void;
 }
@@ -80,7 +87,7 @@ export function createDomMirrorHost(options: DomMirrorHostOptions): DomMirrorHos
     const span = readMirrorSelection(element, win);
     // readMirrorSelection returns null unless both endpoints are inside the mirror,
     // so this only fires for in-mirror selections. Loop-prevention is the controller's
-    // idempotency check (Task 8), not a host-side flag.
+    // idempotency check, not a host-side flag.
     if (span !== null) options.onSelectionChange(span);
   }
 
@@ -105,7 +112,9 @@ export function createDomMirrorHost(options: DomMirrorHostOptions): DomMirrorHos
   }
   function handleCompositionEnd(e: CompositionEvent): void {
     isComposing = false;
-    if (e.data.length > 0) options.onCompositionEnd?.(e.data);
+    // Always reported — with "" for a cancelled composition — so the controller can apply
+    // what it deferred while composing. (`data` can be null at runtime.)
+    options.onCompositionEnd?.(typeof e.data === "string" ? e.data : "");
   }
   function handleCopy(e: ClipboardEvent): void { options.onCopy?.(e); }
   function handleCut(e: ClipboardEvent): void { options.onCut?.(e); }
@@ -146,5 +155,12 @@ export function createDomMirrorHost(options: DomMirrorHostOptions): DomMirrorHos
     element.remove();
   }
 
-  return { element, syncTree, syncSelection, focus, destroy };
+  function abandonComposition(): void {
+    isComposing = false;
+    if (priorTree === null) return;
+    element.replaceChildren();
+    priorMap = reconcileMirror(element, null, priorTree.children, null, doc);
+  }
+
+  return { element, syncTree, syncSelection, abandonComposition, focus, destroy };
 }

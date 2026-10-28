@@ -161,6 +161,10 @@ describe("dom-mirror-host lifecycle", () => {
     host.element.dispatchEvent(new CompositionEvent("compositionend", { data: "あ", bubbles: true }));
     expect(composing).toBe(1);
     expect(inserts).toEqual(["あ"]);
+    // A cancelled composition is reported too (with ""), so deferred work can be applied.
+    host.element.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    host.element.dispatchEvent(new CompositionEvent("compositionend", { data: "", bubbles: true }));
+    expect(inserts).toEqual(["あ", ""]);
     host.destroy();
   });
 

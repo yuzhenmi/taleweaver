@@ -8,7 +8,7 @@
  * through N equal-width columns per page. This module is the type vocabulary +
  * the doc default; `layout/section-column-config.resolveColumnConfig` validates a
  * section's overrides, and `layout/section-plan` threads the resolved config onto
- * each `SectionBoundary` (mirroring the per-section `PageConfig` machinery, C.2b-2).
+ * each `SectionBoundary` (mirroring the per-section `PageConfig` machinery).
  *
  * This is pure style vocabulary — it imports only from `styles/`, so core-logical
  * files (editor actions, the editor-action union) can reference `ColumnRule`
@@ -69,7 +69,7 @@ function columnRulesEqual(a: ColumnRule | null, b: ColumnRule | null): boolean {
  * Deep-equal two `ColumnConfig`s over their scalar fields + the rule. Mirrors
  * `pageConfigsEqual`: keeps the no-override path inert — a section whose resolved
  * config equals the doc default gets NO `columnConfig` stamped on its boundary,
- * and a page's column geometry reuse gate (slice 2) shares this comparison.
+ * and a page's column geometry reuse gate shares this comparison.
  */
 export function columnConfigsEqual(a: ColumnConfig, b: ColumnConfig): boolean {
   return (

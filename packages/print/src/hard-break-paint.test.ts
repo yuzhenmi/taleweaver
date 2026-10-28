@@ -72,7 +72,7 @@ describe("hard-break paint (#504)", () => {
     paintCanvas(
       ctx,
       root as LayoutBox,
-      [], [], [], [],
+      [], [],
       { x: 0, y: 0, height: 0 },
       "hidden",
       600, 800, 0, 800,

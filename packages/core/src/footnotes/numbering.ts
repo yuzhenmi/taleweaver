@@ -1,14 +1,14 @@
 /**
  * @module footnotes/numbering
  *
- * The footnote numbering engine (FN-3). Given the ordered footnote anchors
+ * The footnote numbering engine. Given the ordered footnote anchors
  * (`collectFootnoteAnchors`) and a numbering policy, compute each footnote's
  * raw counter value + formatted string, keyed by its `contentBlockId` (the
  * footnote's stable identity).
  *
- * Self-contained behind a clean interface so P9a's general CSS counters can
- * later re-base footnote numbering as a counter without changing consumers
- * (spec §4.3). Numbers are DERIVED here every cycle — never stored — so
+ * Self-contained behind a clean interface so a general counter model can
+ * later re-base footnote numbering as a counter without changing consumers.
+ * Numbers are DERIVED here every cycle — never stored — so
  * insert/delete/reorder of anchors needs no stored-number invalidation.
  */
 import type { BlockId } from "../state";
@@ -26,7 +26,7 @@ import type {
  * - **restart-per-section**: the counter resets to 1 whenever `sectionId`
  *   changes between consecutive anchors (the implicit root section, `null`, is
  *   its own scope).
- * - **restart-per-page** (FN-6): the counter resets to 1 whenever the page
+ * - **restart-per-page**: the counter resets to 1 whenever the page
  *   (`pageAssignment.get(contentBlockId)`) changes between consecutive anchors.
  *   Requires `pageAssignment` (a `contentBlockId → pageIndex` map, filled in by
  *   `resolveFootnotes`): when `reset === "restart-per-page"` and no
@@ -69,14 +69,14 @@ export function footnoteNumbers(
     }
 
     case "restart-per-page": {
-      // FN-6: restart-per-page numbering depends on which page each anchor
+      // Restart-per-page numbering depends on which page each anchor
       // lands on, which is only known AFTER the `resolveFootnotes` layout pass.
-      // FN-3 builds the STATE-derivable policies; per-page is sequenced behind
+      // This module builds the STATE-derivable policies; per-page is sequenced behind
       // the layout dependency. Throw (don't silently fall back) so a misuse is
       // loud rather than a hidden degradation.
       if (pageAssignment === undefined) {
         throw new Error(
-          "footnoteNumbers: restart-per-page requires pageAssignment (FN-6)",
+          "footnoteNumbers: restart-per-page requires pageAssignment",
         );
       }
       // Mirrors `restart-per-section`, keyed on pageIndex instead of sectionId.
@@ -114,7 +114,7 @@ function makeNumber(value: number, policy: FootnoteNumberingPolicy): FootnoteNum
 }
 
 /**
- * FN-2/FN-6.4: the HOST blocks (the leaf carrying the anchor's `EmbedItem`)
+ * The HOST blocks (the leaf carrying the anchor's `EmbedItem`)
  * whose footnote-anchor marker number changed between two numbering maps — i.e.
  * anchors whose `formatted` differs (or is newly present / absent) across
  * `fnNumbers` vs `prevFnNumbers`. Reusing those blocks' cached RenderNode would
@@ -122,7 +122,7 @@ function makeNumber(value: number, policy: FootnoteNumberingPolicy): FootnoteNum
  *
  * Takes the anchors directly (already collected by the caller — NOT re-walked
  * here). Used by `renderIncremental` (renumber-on-insert/delete diff) AND by
- * `rebuildTrees`'s FN-6.4 second pass (continuous-fallback → per-page diff).
+ * the layout-driver's restart-per-page second pass (continuous-fallback → per-page diff).
  */
 export function footnoteRenumberedBlocks(
   anchors: readonly FootnoteAnchorRef[],

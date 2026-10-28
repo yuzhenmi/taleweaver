@@ -3,8 +3,8 @@ import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
-import { getYBlock, requireInTransaction } from "../yjs-doc";
-import { buildYAttrs } from "../y-block";
+import { requireInTransaction } from "../yjs-doc";
+import { writeBlockAttrs } from "../flow-ops";
 import { getChildIds, buildTableGrid } from "../table-context";
 import { largestCleanHeaderCount, readHeaderRowCount, withHeaderRowCount } from "./table-header-rows";
 
@@ -22,12 +22,12 @@ export interface SetTableHeaderRowsPlan {
 }
 
 /**
- * Set a table's repeating-header-row count (#487). Pins the first `count`
+ * Set a table's repeating-header-row count. Pins the first `count`
  * contiguous rows as header rows; the layout repeats them at the top of every
  * page/column fragment the table spans (Google Docs ▸ "Pin header rows"). `count`
  * is clamped to `[0, rowCount]` AND DOWN to the largest CLEAN-CUT boundary — no
  * merged cell may originate in a header row and span past the boundary into a
- * body row (spec §3). `count === 0` (the default) turns the header OFF.
+ * body row. `count === 0` (the default) turns the header OFF.
  *
  * One `applyOperation` transaction → one undo entry. No-op (returns the input
  * `state` reference unchanged, per the `applyOperation` no-op contract) when the
@@ -35,7 +35,7 @@ export interface SetTableHeaderRowsPlan {
  * does not resolve to a `table` block.
  *
  * MAIN-TREE ONLY (writes the `blocks` map) — a table in a header/footer/footnote
- * body is out of scope (v1; mirrors the other table ops).
+ * body is out of scope (mirrors the other table ops).
  */
 export function setTableHeaderRows(
   state: State,
@@ -52,7 +52,7 @@ export function setTableHeaderRows(
  * Validate `tableId` and compute the clamped `headerRowCount` + the final attrs
  * bag. Throws if `tableId` does not resolve to a main-tree `table` block. The
  * clamp is `min(max(count, 0), rowCount)` then DOWN to `largestCleanHeaderCount`
- * (spec §3 clean-cut invariant).
+ * (the clean-cut invariant).
  */
 export function planSetTableHeaderRows(
   state: State,
@@ -105,5 +105,5 @@ export function planSetTableHeaderRows(
 export function setTableHeaderRowsInTx(doc: Y.Doc, plan: SetTableHeaderRowsPlan): void {
   requireInTransaction(doc, "setTableHeaderRows");
   if (plan.unchanged) return;
-  getYBlock(doc, plan.tableId, "setTableHeaderRows").set("attrs", buildYAttrs(plan.newAttrs));
+  writeBlockAttrs(doc, plan.tableId, plan.newAttrs);
 }

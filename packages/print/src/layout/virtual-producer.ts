@@ -1,6 +1,6 @@
 // packages/core/src/layout/virtual-producer.ts
 //
-// Shared paginated-path producer (virtualized-layout Phase 3, Task 1).
+// Shared paginated-path producer.
 //
 // Both the incremental (`layoutTreeIncremental`) and the full-build
 // (`dispatch.layoutTree`) paginated paths must produce a `VirtualLayoutTree`
@@ -14,9 +14,6 @@
 // narrows it to the content area internally). `prevTree` carries the prior
 // `VirtualLayoutTree` for the carry-forward memo; pass it only when the prior
 // layout was virtual.
-//
-// Design: docs/superpowers/specs/2026-05-24-virtualized-layout-design.md
-// Plan:   docs/superpowers/plans/2026-05-24-virtualized-layout-phase3.md
 
 import type { ElementBox } from "@taleweaver/core";
 import type { BlockId } from "@taleweaver/core";
@@ -54,7 +51,7 @@ import {
   footnoteAnchorPageAssignment,
 } from "./resolve-footnotes";
 
-// R-F6: the shared empty body-width sentinel — returned by `mergeBodyWidths` for a
+// The shared empty body-width sentinel — returned by `mergeBodyWidths` for a
 // field-free doc so the common (no-main-body-field) path allocates ZERO per iteration
 // and hands `makeVirtualLayoutTree` a ref-stable empty map (⇒ `patchRootFieldWidths`
 // is a ref-equal no-op ⇒ `substitutedRoot === cascadedRoot`, byte-identical to the
@@ -78,17 +75,15 @@ const EMPTY_FIELD_WIDTHS: ReadonlyMap<string, number> = new Map();
  * @param pageConfig pagination parameters.
  * @param prevTree the prior `VirtualLayoutTree` for the carry-forward memo, or
  *   `undefined` when there is none (first build / prior layout was positioned).
- * @param cascadedTemplateContents cascaded header/footer template bodies (C.2c),
+ * @param cascadedTemplateContents cascaded header/footer template bodies,
  *   keyed by body root BlockId; threaded into `makeVirtualLayoutTree`'s closure
- *   so `materializePage` can lay them into each page's header/footer slot (T4
- *   consumes it). Defaults to an empty map (no header/footer bodies).
- * @param cascadedEmbedContents cascaded footnote bodies (FN-1), keyed by body
- *   root BlockId. Consumed by the footnote layout pass (`resolveFootnotes`,
- *   FN-4.3): each anchor's body is laid into its page's footnote slot, reducing
+ *   so `materializePage` can lay them into each page's header/footer slot. Defaults to an empty map (no header/footer bodies).
+ * @param cascadedEmbedContents cascaded footnote bodies, keyed by body
+ *   root BlockId. Consumed by the footnote layout pass (`resolveFootnotes`): each anchor's body is laid into its page's footnote slot, reducing
  *   the body content area. Threaded on into `makeVirtualLayoutTree` so
  *   `materializePage` renders the slot. Defaults to an empty map (no footnotes).
  * @param footnoteAnchors ordered footnote anchors in the main document
- *   (`collectFootnoteAnchors`), consumed by `resolveFootnotes` (FN-4.3) to assign
+ *   (`collectFootnoteAnchors`), consumed by `resolveFootnotes` to assign
  *   each footnote body to its page. Empty ⇒ `resolveFootnotes` is a ref-equal
  *   no-op (zero cost). Defaults to an empty array (no footnotes).
  * @param parentOf optional nested-cross-ref-target lookup threaded into
@@ -105,12 +100,11 @@ export function buildVirtualPaginatedTree(
   cascadedEmbedContents: ReadonlyMap<BlockId, ElementBox> = new Map(),
   footnoteAnchors: readonly FootnoteAnchorRef[] = [],
   parentOf?: BlockParentLookup,
-  // Auto-hyphenation (slice 2): threaded ALONGSIDE `shaper` to EVERY downstream
+  // Auto-hyphenation: threaded ALONGSIDE `shaper` to EVERY downstream
   // layout site — body `buildBlockFitMetas`, `computeSlotInsets`,
   // `resolveFootnotes`, and the per-page `makeVirtualLayoutTree` closure — so the
   // measure pass and the materialized pages share identical hyphenation inputs.
   // Trailing + optional so existing callers/tests stay valid. `undefined` ⇒ none.
-  // Carried but UNUSED in this slice.
   hyphenator?: Hyphenator,
 ): VirtualLayoutTree {
   const margins = pageConfig.pageMargins;
@@ -135,7 +129,7 @@ export function buildVirtualPaginatedTree(
   // carry-forward (reuses unchanged page entries, skipping `fitOnePage`). The
   // `prevTree` carry-forward of the prior tree itself is already wired by
   // `layout-incremental.ts` / `dispatch.ts`; we forward its `plan` so the
-  // measure pass restores `paginateRoot`'s old L-PERF-C O(1)-at-end behavior
+  // measure pass restores `paginateRoot`'s old page-level-reuse O(1)-at-end behavior
   // instead of re-walking every page each keystroke.
   // `metas` are built over `groupChildren` (which flattens `display: contents`
   // elements), so the measure pass's child-fingerprint slices
@@ -143,21 +137,21 @@ export function buildVirtualPaginatedTree(
   // indexed over the SAME flattened child list — not raw `cascadedRoot.children`
   // — or a `display: contents` element at the root level desyncs the slice
   // index from the meta index.
-  // Section page breaks (C.2b-1): build the SectionPlan from the UNFLATTENED
+  // Section page breaks: build the SectionPlan from the UNFLATTENED
   // cascaded root (sections self-identify via the `metadata.blockType ===
   // "section"` marker; no extra params). The measure pass forces a page break
   // before the flattened child that begins each new section. A section-less doc
   // yields `[{0, null}]` ⇒ no breaks ⇒ unchanged pagination. `prevTree?.plan`
   // carries the prior `sectionPlan` (now a required field) for the reuse gate.
   const sectionPlan = buildSectionPlan(cascadedRoot, pageConfig);
-  // Per-section effective slot insets (#328 growing slot): lay each section's
+  // Per-section effective slot insets (growing slot): lay each section's
   // cascaded header/footer body at that section's own effective content
   // inline-size, take its NATURAL (uncapped) height, and `max` against the raw
   // page margins. A header taller than its margin band thus PUSHES the body down
   // (and the footer pushes up). A section with no header/footer (the common
   // case) leaves the map absent for it ⇒ `measurePass` falls back to raw
   // margins ⇒ byte-identical pagination.
-  // Growth cap (#329): the body content area must always retain a MINIMUM
+  // Growth cap: the body content area must always retain a MINIMUM
   // block size so a header/footer taller than the page cannot drive it ≤ 0
   // (which would otherwise CRASH the pipeline). The minimum is one body-root
   // line-height — measured ONCE here so `computeSlotInsets` stays pure
@@ -173,24 +167,24 @@ export function buildVirtualPaginatedTree(
   // the identical array. Loop-invariant (page-field widths never change the body
   // structure), so it lives outside the convergence loop below.
   const rootChildren = flattenContents(cascadedRoot.children);
-  // D6: the measure pass's carry-forward source is the prior tree's RAW
+  // The measure pass's carry-forward source is the prior tree's RAW
   // (pre-`resolveFootnotes`) plan — `resolveFootnotes` re-fits the footnote
   // pages, so comparing against the resolved plan would see spurious mismatches.
-  // `?? prevTree?.plan` covers a footnote-free / pre-FN-4 prior tree (where the
+  // `?? prevTree?.plan` covers a footnote-free / pre-footnote prior tree (where the
   // raw and resolved plans are ref-equal anyway).
   const prevRawPlan =
     (prevTree as { __rawPlan?: PagePlan } | undefined)?.__rawPlan ?? prevTree?.plan;
-  // FN-4.4 incremental carry-forward source (prior tree's resolved plan + cascaded
+  // Incremental carry-forward source (prior tree's resolved plan + cascaded
   // footnote bodies); see the resolveFootnotes call below. Loop-invariant.
   const prevInternal = prevTree as
     | { __cascadedEmbedContents?: ReadonlyMap<BlockId, ElementBox> }
     | undefined;
 
-  // F-2/F-3 (layout-dependent fields): collect the page-field specs from the cascaded
+  // Layout-dependent fields: collect the page-field specs from the cascaded
   // render trees ONCE (the walk is width-independent). `materializePage` substitutes
   // each header/footer page-field placeholder with its per-page value before slot
   // layout (self-page page-number = pageIndex+1; global page-count = `globalFieldValues`).
-  // Main-body page-fields are OUT of scope (spec §4.3) — `collectPageFields` still
+  // Main-body page-fields are OUT of scope — `collectPageFields` still
   // emits harmless `host:"main"` specs (forward-compat for the page-ref/TOC downstream),
   // which neither the convergence loop (it filters to `host:"template"`) nor
   // substitution consumes. NOTE: `resolvePageFields` below builds `globalFieldValues`
@@ -220,7 +214,7 @@ export function buildVirtualPaginatedTree(
     reservedWidth: measurer.measureWidth(reservedGlyphs, spec.computedStyle),
   }));
 
-  // R-F6: the reserved (2-glyph "00") width of each MAIN-BODY layout field, by render key.
+  // The reserved (2-glyph "00") width of each MAIN-BODY layout field, by render key.
   // Used to size the body cross-ref atom IDENTICALLY in the measure pass (patched root) and at
   // materialize (substituted root) — measure↔materialize agreement (else a narrower-than-reservation
   // value lets a page/column fit more than planned → cross-boundary content duplication).
@@ -256,20 +250,20 @@ export function buildVirtualPaginatedTree(
     // every meta source (full-width primary, narrow-track multicol, footnote re-fit)
     // sizes the body cross-ref atom identically — measure↔materialize consistency.
     //
-    // R-F6 caching note: `mergeBodyWidths` feeds the RESERVED (2-glyph) widths — a
+    // Caching note: `mergeBodyWidths` feeds the RESERVED (2-glyph) widths — a
     // NON-empty map — whenever the doc has any main-body field, even on pass 1 where
     // `grownWidths` is empty. So `patchRootFieldWidths` always spine-clones a fresh root
     // ref for a body-field doc, and `buildBlockFitMetas` (cached by `(ref, width, shaper)`)
     // MISSES the cache → a full body meta rebuild every build. This is deliberate: feeding
     // the reserved-or-grown widths (never empty when main-body fields exist) is exactly
-    // what keeps measure↔materialize byte-identical (R-F6) — materialize patches the body
+    // what keeps measure↔materialize byte-identical — materialize patches the body
     // root with the SAME merged widths. The cost is correctness-neutral and bounded: one
     // body meta rebuild per build, ONLY for field-bearing docs (the field-free common path
-    // hits the `cascadedRoot`/`metas` branch below and is untouched). Tracked perf
-    // follow-up: memoize `buildBlockFitMetas` by width-map CONTENT (not patched-root ref)
+    // hits the `cascadedRoot`/`metas` branch below and is untouched). Possible
+    // optimization: memoize `buildBlockFitMetas` by width-map CONTENT (not patched-root ref)
     // so a re-derived-but-equal reserved-width patch re-hits — tied to the
     // substitute-driven-measure redesign that would also yield tight (non-reserved) widths.
-    // R-F6: patch with the MERGED body widths (each main-body field's grown-or-RESERVED width),
+    // Patch with the MERGED body widths (each main-body field's grown-or-RESERVED width),
     // so the measure pass sizes every body cross-ref atom at an EXPLICIT width byte-identical to
     // the one materialize will use (`mergeBodyWidths(grownWidths)` is threaded to
     // `makeVirtualLayoutTree` below). This eliminates the auto-`"00"`-vs-explicit sub-pixel risk:
@@ -285,12 +279,12 @@ export function buildVirtualPaginatedTree(
     const slotInsets = computeSlotInsets(
       sectionPlan, pageConfig, ctx, shaper, hyphenator, patchedTemplates, minBodyPx,
     );
-    // VL float fast-path (Task 5): the single-column float measurer. For a float
+    // VL float fast-path: the single-column float measurer. For a float
     // doc, every page is measured by running the REAL `layoutBlock` (the SAME call
     // `materializePage` makes) and discarding the geometry — so measure↔materialize
     // is equivalence-by-construction. The closure seeds a fresh per-page
     // `FloatEnvironment` from the carried incoming-float snapshot, lays the body at
-    // the per-page origin (`a.inlineOrigin`/`a.blockOrigin` — PR2-B, NOT uniform
+    // the per-page origin (`a.inlineOrigin`/`a.blockOrigin` — NOT uniform
     // margins, so a growing header / section geometry override stays byte-identical
     // to materialize), and returns the plan outputs (break token, in-flow consumed,
     // child count, advanced list counter, the env's full placed-float snapshot).
@@ -303,7 +297,7 @@ export function buildVirtualPaginatedTree(
           const env = createFloatEnvironment();
           for (const f of a.incomingFloats) env.seedPlaced(f);
           const pageCtx: LayoutContext = { ...contentCtx, floatEnv: env, isBFCRoot: true };
-          // #528 (T4): place the floats PUSHED from the prior page at this page's
+          // Place the floats PUSHED from the prior page at this page's
           // content top, AFTER the active-shadow seed and BEFORE the body
           // `layoutBlock` — so the body flows around them. The positioned boxes
           // are DISCARDED (the measure pass only needs the env occupancy + the
@@ -323,7 +317,7 @@ export function buildVirtualPaginatedTree(
               pageIndex: 0,
               resumeFrom: a.resumeInto,
               stopBeforeIndex: a.stopBeforeIndex,
-              // #528: opt this VIRTUALIZED measure pass into float pushing (legacy
+              // Opt this VIRTUALIZED measure pass into float pushing (legacy
               // paginateRoot leaves it off). The pushed floats are read out via
               // `env.pushedFloats()` and carried to the next page.
               enableFloatPushing: true,
@@ -342,7 +336,7 @@ export function buildVirtualPaginatedTree(
                 : a.startIndex;
           // Advance the ordered-list counter over the WHOLE-children this page
           // consumed, the SAME way `fitOnePage` does (via `accumulateListCounter`),
-          // so each entry's `listCounterAtStart` is path-independent (PR1-1).
+          // so each entry's `listCounterAtStart` is path-independent.
           let listCounterAtEnd = a.listCounterAtStart;
           for (let i = a.startIndex; i < nextStartIndex; i++) {
             const m = effectiveMetas[i];
@@ -356,7 +350,7 @@ export function buildVirtualPaginatedTree(
             // Snapshot the env's placed floats (incoming + this page's own, all
             // cumulative) — the env is discarded after this call.
             placedFloats: env.getPlacedFloats().slice(),
-            // #528 (T4): the floats this page's BFC float branch deferred to the
+            // The floats this page's BFC float branch deferred to the
             // next page (recorded via `env.pushFloat`). The page-loop carry threads
             // these into the next page's `incomingPushedFloats`, where
             // `placeIncomingPushedFloats` lands them at the content top. Snapshot —
@@ -367,19 +361,19 @@ export function buildVirtualPaginatedTree(
       : undefined;
     const rawPlan = measurePass(
       effectiveMetas, pageConfig, sectionPlan, rootChildren, prevRawPlan, slotInsets,
-      // #494: the multicol branch rebuilds metas at each column's TRACK width so
+      // The multicol branch rebuilds metas at each column's TRACK width so
       // the planned ColumnFit matches `materializePage`'s narrow-track layout.
       // `buildBlockFitMetas` is cached by `(elementBoxRef, width, shaperRef)`, so
       // repeated calls for the same width are O(1). The full-width `effectiveMetas`
       // (line above) stays the primary arg for single-column pages.
       (inlineSize) => buildBlockFitMetas(patchedRoot, shaper, hyphenator, inlineSize),
-      // DORMANT (Task 3): `undefined` ⇒ existing `fitOnePage` path. Task 5 supplies
-      // the gated `floatPageMeasurer` closure.
+      // DORMANT: `undefined` ⇒ existing `fitOnePage` path; the float fast
+      // path supplies the gated `floatPageMeasurer` closure.
       floatPageMeasurer,
     );
-    // FN-4.3 (D6): the footnote layout pass — lays each anchor's body into its page's
+    // The footnote layout pass — lays each anchor's body into its page's
     // bottom slot, reduces the body content area, forward-sweeps the re-fit. Footnote-
-    // free docs ⇒ ref-equal no-op (`plan === rawPlan`). FN-4.4 carry-forward reuses an
+    // free docs ⇒ ref-equal no-op (`plan === rawPlan`). The incremental carry-forward reuses an
     // unchanged footnote page's re-layout (prior resolved plan + cascaded bodies are
     // the change signal). Runs inside the loop because a re-fit (more pages) changes
     // the footnote→page assignment.
@@ -387,11 +381,11 @@ export function buildVirtualPaginatedTree(
       rawPlan, effectiveMetas, sectionPlan, rootChildren,
       cascadedEmbedContents, footnoteAnchors, ctx, shaper, hyphenator, slotInsets, pageConfig,
       prevTree?.plan, prevInternal?.__cascadedEmbedContents ?? new Map(),
-      // #499: the track-width meta builder so a footnote anchored in a multi-column
+      // The track-width meta builder so a footnote anchored in a multi-column
       // section re-fits its columns at the narrow TRACK width — matching
       // `materializePage`'s narrow-track layout (identical to the arg passed to
       // `measurePass` above). Without it the footnote pass plans at full width and
-      // drifts (the #494 drift class, here in the footnote re-fit).
+      // drifts (the drift class, here in the footnote re-fit).
       (inlineSize) => buildBlockFitMetas(patchedRoot, shaper, hyphenator, inlineSize),
     );
     const resolved = resolvePageFields(plan, fieldSpecs, measurer, parentOf);
@@ -411,7 +405,7 @@ export function buildVirtualPaginatedTree(
   // crosses the reserved digit boundary.
   const { result, grownWidths, converged } = runFieldConvergence(convergenceFields, runIteration);
   const { rawPlan, plan, globalFieldValues } = result;
-  // R-F6: the FINAL per-main-body-field effective widths (grown-or-reserved) the converged
+  // The FINAL per-main-body-field effective widths (grown-or-reserved) the converged
   // measure pass used. Threaded to `makeVirtualLayoutTree` so materialize width-patches each
   // body cross-ref atom to the SAME width before substituting the real text — measure and
   // materialize size the atom byte-identically (no narrower-value cross-boundary drift). Empty
@@ -435,7 +429,7 @@ export function buildVirtualPaginatedTree(
     }
   }
 
-  // FN-6.4 slice 1: each footnote body (`contentBlockId`) → the page index its
+  // Each footnote body (`contentBlockId`) → the page index its
   // anchor REFERENCE marker RENDERS on, derived from the RESOLVED `plan` (NOT the
   // raw plan) + anchors. The marker is inline content of the anchor host block,
   // which is positioned by the resolved plan; footnote-slot reservation can EVICT
@@ -443,9 +437,9 @@ export function buildVirtualPaginatedTree(
   // preceding footnote shrinks a page and spills its trailing anchor over). Keying
   // on the host block's RESOLVED page span (`pageSpanOfBlock(...).first`) tracks
   // that eviction; the raw plan would group an evicted anchor on its pre-eviction
-  // page, so `restart-per-page` numbering (FN-6.1) — which restarts per the
+  // page, so `restart-per-page` numbering — which restarts per the
   // marker's page — would keep its stale sequence number on the page it actually
-  // renders on (audit F2, spec 2026-06-10-f2-restart-per-page-resolved-anchor-page).
+  // renders on.
   // The host-block span always resolves, so a fully-deferred footnote body (whose
   // slot starts on a later page) does NOT desync the marker's page. Exposed on the
   // tree for the post-layout rebuild pipeline. Empty for a footnote-free doc.
@@ -460,12 +454,12 @@ export function buildVirtualPaginatedTree(
 
   // Pass the RESOLVED plan to materialize against, the cascaded footnote bodies
   // so `materializePage` renders the slot, and the RAW plan as `__rawPlan` for
-  // the NEXT cycle's measurePass carry-forward (D6).
+  // the NEXT cycle's measurePass carry-forward.
   return makeVirtualLayoutTree(
     plan, cascadedRoot, ctx, shaper, pageConfig, prevTree, cascadedTemplateContents,
     cascadedEmbedContents, rawPlan, footnoteAnchorPages, fieldSpecs, globalFieldValues,
     mainBodyFieldWidths, hyphenator,
-    // #528: enable cross-page float pushing exactly when this doc went through the
+    // Enable cross-page float pushing exactly when this doc went through the
     // float-aware measure pass (`docHasFloat` ⇒ the `floatPageMeasurer` closure ran),
     // so measure and materialize agree on page boundaries.
     docHasFloat,
@@ -473,7 +467,7 @@ export function buildVirtualPaginatedTree(
 }
 
 /**
- * Compute each section's effective slot insets (#328 growing slot), keyed by the
+ * Compute each section's effective slot insets (growing slot), keyed by the
  * section's id (`null` for the implicit leading run) — the SAME key
  * `sectionStateAt` returns and `measurePass` looks up. For every section boundary
  * that declares a header and/or footer body present in `cascadedTemplateContents`:
@@ -490,7 +484,7 @@ export function buildVirtualPaginatedTree(
  * footer body) is OMITTED from the map — `measurePass`'s `?? margin` fallback
  * handles it identically, and omitting keeps the no-slot path allocation-light.
  *
- * **Growth cap (#329):** after computing the uncapped `top`/`bottom`, the slot
+ * **Growth cap:** after computing the uncapped `top`/`bottom`, the slot
  * growth is capped so the body content area retains a MINIMUM block size
  * (`minBodyPx`, one body-root line-height) — a header/footer taller than the
  * page can no longer drive the body ≤ 0 (which would CRASH the pipeline).
@@ -502,7 +496,7 @@ export function buildVirtualPaginatedTree(
  * the floor; never capped below them), so a lone tall slot gets the whole
  * budget and a both-tall page splits it. The over-tall slot's body still lays
  * at its NATURAL height (the cap touches only the insets / body origin), so its
- * content visually OVERLAPS the body band (accepted v1; clean clip deferred).
+ * content visually OVERLAPS the body band (a clean clip is not implemented).
  *
  * **Memo (perf):** a `WeakMap<bodyRef, Map<inlineSize, blockSize>>` caches a
  * body's laid-out height per inline-size. The incremental cascade returns the
@@ -516,8 +510,8 @@ function computeSlotInsets(
   docWide: PageConfig,
   ctx: LayoutContext,
   shaper: TextShaper,
-  // Auto-hyphenation (slice 2): threaded ALONGSIDE `shaper` to the header/footer
-  // body `layoutBlock`. `undefined` ⇒ none. Carried but UNUSED in this slice.
+  // Auto-hyphenation: threaded ALONGSIDE `shaper` to the header/footer
+  // body `layoutBlock`. `undefined` ⇒ none.
   hyphenator: Hyphenator | undefined,
   cascadedTemplateContents: ReadonlyMap<BlockId, ElementBox>,
   minBodyPx: number,
@@ -573,7 +567,7 @@ function computeSlotInsets(
     let top = Math.max(marginTop, headerHeight);
     let bottom = Math.max(marginBottom, footerHeight);
 
-    // Growth cap (#329): keep the body content area ≥ minBody so a header/footer
+    // Growth cap: keep the body content area ≥ minBody so a header/footer
     // taller than the page never drives it ≤ 0 (which would crash the pipeline).
     // Clamp minBody to this boundary's usable band so a degenerate page (margins
     // alone ≥ pageBlockSize) still yields a non-negative budget; that degenerate

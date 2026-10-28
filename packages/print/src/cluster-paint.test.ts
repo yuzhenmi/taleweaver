@@ -175,8 +175,7 @@ function paint(ctx: KernedCtx, box: LayoutBox): void {
     ctx,
     box,
     [],
-    [],
-    [], [], { x: 0, y: 0, height: 0 },
+    [], { x: 0, y: 0, height: 0 },
     "hidden",
     600,
     800,
@@ -280,6 +279,23 @@ describe("#330 cluster-positioned painting", () => {
     // a@0; b@ measureText("a").width (8) + letterSpacing (5) = 13.
     expect(nth(ctx._fills, 0, "fill").x).toBeCloseTo(0, 6);
     expect(nth(ctx._fills, 1, "fill").x).toBeCloseTo(ctx.measureText("a").width + 5, 6);
+  });
+
+  it("an embedded soft hyphen advances 0 and paints nothing (matches the shaper), LTR and RTL", () => {
+    // The mock measures U+00AD as an 8px letter; the shaper zero-advances it, so
+    // paint must too or glyphs after it drift from the caret.
+    const text = "co\u00ADop";
+    const absX = 7;
+    const ltr = makeTextRun({ text, x: absX });
+    paint(ctx, ltr);
+    expect(ctx._fills.map((f) => f.text)).toEqual(["c", "o", "o", "p"]);
+    expect(ctx._fills.map((f) => f.x)).toEqual([absX, absX + 8, absX + 16, absX + 24]);
+
+    ctx._fills.length = 0;
+    const width = 32;
+    paint(ctx, makeTextRun({ text, x: absX, width, bidiLevel: 1 }));
+    // rightEdge − Σadvances(0..=i) with the soft hyphen contributing 0.
+    expect(ctx._fills.map((f) => f.x)).toEqual([absX + 24, absX + 16, absX + 8, absX]);
   });
 
   it("paint advances include word-spacing on word separators", () => {

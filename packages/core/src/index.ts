@@ -1,10 +1,10 @@
 // @taleweaver/core — word processor engine
 //
-// Public API surface after the P11-cutover. The pre-Yjs legacy modules
+// Public API surface. The pre-Yjs legacy modules
 // (StateNode, path-based positions, renderTree-legacy, etc.) have been
 // fully retired; everything below is the new Y.Doc-backed pipeline.
-// Downstream consumers (packages/print, packages/react, examples/*) are
-// updated in T2/T3 to import from this surface only.
+// Downstream consumers (packages/print, packages/react, examples/*) import
+// from this surface only.
 
 // Styles
 export type {
@@ -32,19 +32,42 @@ export type {
   OperationResult,
   ResolvedBlock,
   ResolvedBlockKind,
+  UpgradeReport,
+  UpgradeOptions,
+  DocumentInspection,
+  IncompatibleDocumentReport,
 } from "./state";
 export {
   createState,
   applyOperation,
   freshState,
   subscribeForeignChanges,
+  type CompatibilityGateOptions,
+  upgradeDocument,
+  bindAttrRegistry,
+  inspectDocument,
+  CURRENT_SCHEMA_VERSION,
+  UPGRADE_ORIGIN,
+  LegacyDocumentError,
+  IncompatibleDocumentError,
   runWithTransactionOrigin,
+  UntrackedOrigin,
   getBlock,
   getEmbedContent,
   getTemplateContent,
   resolveBlock,
 } from "./state";
 export { createEmptyDocument } from "./state";
+export type { Assoc, MappedPosition, PositionMapping } from "./state";
+export { createPositionMapping, IDENTITY_MAPPING, UNKNOWN_MAPPING } from "./state";
+export * from "./decorations";
+export type { FindSession, FindStatus } from "./editor/find-session";
+export { createFindSession } from "./editor/find-session";
+export type { DocumentChange } from "./editor/editor-state";
+export { MAX_CHANGE_CHAIN } from "./editor/editor-state";
+export type { FindRefresh } from "./editor/find-session";
+export type { MappingLog } from "./editor/mapping-log";
+export { createMappingLog, composeMappings, DEFAULT_MAPPING_LOG_CAPACITY } from "./editor/mapping-log";
 // Declarative construction: lower a nested `BlockNode` tree → `State` (mints
 // ids, derives all structural links). The safe public counterpart to the
 // internal bulk constructor; the foundation importers (e.g. the HTML
@@ -131,8 +154,8 @@ export type {
   OutlineEntry,
   OutlineOptions,
 } from "./state";
-export { getActiveFormatting } from "./state";
-export type { ActiveFormatting } from "./state";
+export { getActiveFormatting, getMarkRanges } from "./state";
+export type { ActiveFormatting, MarkRange } from "./state";
 
 // List numbering definitions — surfaced for human-friendly serializers that
 // classify a list as ordered/unordered and mint fresh list ids on decode.
@@ -143,6 +166,8 @@ export { getListDefsForState, classifyListDef, newListId } from "./state";
 // can detect (and dev-warn about) dropped footnote-anchor / cross-reference
 // embeds on export (the binary serializer is the lossless path).
 export { FOOTNOTE_ANCHOR_EMBED_TYPE, CROSS_REFERENCE_EMBED_TYPE } from "./state";
+// Bookmarks (Word's model): the cross-reference target.
+export { BOOKMARK_START_EMBED_TYPE, BOOKMARK_END_EMBED_TYPE, collectBookmarks, type BookmarkRange } from "./state";
 
 // Inline image (image that flows IN LINE with text — Google Docs "In line"
 // positioning). An inline EmbedItem; its `properties` carry the image data
@@ -183,18 +208,25 @@ export type {
   ResolvedComment,
 } from "./state";
 
-// Change-tracking / Suggesting mode (slice 1 — INERT state vocabulary): the
-// three suggestion-attr-key consts, the two break-embed-type consts, and the
+// Change-tracking / Suggesting mode: the
+// three suggestion-attr-key consts, the break-tag keys + boundary read model, and the
 // record types. The side-table IO helpers stay intra-state (mirror comments).
 export {
   INSERTION_SUGGESTION_ATTR,
   DELETION_SUGGESTION_ATTR,
   FORMATTING_SUGGESTION_ATTR,
-  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
-  BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
+  formattingSuggestionKey,
+  formattingSuggestionIds,
+  isFormattingSuggestionKey,
+  INSERTION_TAG_KEY,
+  DELETION_TAG_KEY,
+  endMarkOf,
+  boundaryMergesInView,
   buildSuggestionRangeIndex,
   resolveSuggestionRange,
   getSuggestions,
+  getSuggestionGroups,
+  suggestionGroupOf,
 } from "./state";
 export type {
   SuggestionId,
@@ -203,6 +235,10 @@ export type {
   SuggestionRange,
   ResolvedSuggestion,
   SuggestionView,
+  SuggestionGroup,
+  BreakSuggestion,
+  BoundaryMark,
+  BoundaryMarkKind,
 } from "./state";
 
 // History (Y.UndoManager-backed)
@@ -213,7 +249,7 @@ export {
   type UndoRedoResult,
 } from "./state";
 
-// Document serialization (pluggable serializer + registry + Yjs-binary v1 +
+// Document serialization (pluggable serializer + registry + Yjs-binary +
 // human-friendly JSON + human-friendly HTML). The HTML serializer parses via an
 // injected `HtmlParser` (a browser host supplies a DOM-backed adapter), keeping
 // core DOM-free.
@@ -234,12 +270,23 @@ export {
   decodeHtml,
   createHtmlDocumentSerializer,
   HTML_FORMAT,
+  extractFragment,
+  TALEWEAVER_CLIP_MIME,
+  encodeFragmentClip,
+  decodeFragmentClip,
 } from "./state";
 
 // Cascade
 export { cascadePass, cascadePassIncremental, composeComputed, resolveLength } from "./cascade";
-export { AttrRegistry, createDefaultAttrRegistry } from "./cascade/attr-registry";
-export type { AttrInterpreter, CascadeContext } from "./cascade/attr-registry";
+export {
+  AttrRegistry,
+  createDefaultAttrRegistry,
+  registerMark,
+  markInstanceKey,
+  markTypeOf,
+  MARK_INSTANCE_SEPARATOR,
+} from "./cascade/attr-registry";
+export type { AttrInterpreter, CascadeContext, MarkSpec, MarkDom } from "./cascade/attr-registry";
 
 // Render tree (new pipeline)
 export type {
@@ -251,25 +298,25 @@ export {
   createElementBox,
   createTextBox,
 } from "./render/render-node";
-export type { LayoutBoxMetadata } from "./render/layout-metadata";
+export type { LayoutBoxMetadata, BoundaryMarkMetadata } from "./render/layout-metadata";
 export { render } from "./render/render";
 export type { RenderOutput } from "./render/render";
 export { BROKEN_CROSS_REFERENCE_TEXT } from "./render/resolve-cross-reference";
 // Geometry-free body-cascade helpers (headers/footers + footnote bodies). The
 // backend layout-driver (`@taleweaver/print`) cascades these side-tree bodies as
-// part of the render→cascade→layout pipeline it owns (Phase 0b). Pure
+// part of the render→cascade→layout pipeline it owns. Pure
 // render/cascade — legitimately public.
 export { cascadeTemplateContents, cascadeEmbedContents } from "./editor/actions/helpers";
 
 // Layout — TEXT CORE only. The geometric box-layout surface (LayoutBox / PageBox /
 // VirtualLayoutTree / layoutTree / BFC / IFC / used-style / footnote-resolve /
-// pdf-outline / goto-destination, plus the D3 geometric cursor exports) RELOCATED
-// to `@taleweaver/print` (dual-mode Phase 3 sub-phase 3); import them from there.
+// pdf-outline / goto-destination, plus the geometric cursor exports) RELOCATED
+// to `@taleweaver/print`; import them from there.
 // What remains here is Unicode-correct text mechanics + the shaper/measurer
 // interface vocabulary that both core and the print backend share.
 export type { TextMeasurer } from "./layout/text-measurer";
 export { createMockMeasurer, adaptShaperToMeasurer } from "./layout/text-measurer";
-// POSITIONING slice 5 — the zero-dep 2×3 affine matrix. The painter
+// The zero-dep 2×3 affine matrix. The painter
 // (`fromTransformFns` + `resolveTransformOrigin`) and the hit-test inverse
 // (`line-flatten`) share the IDENTICAL math so paint and hit-test never diverge.
 export type { Mat2D } from "./layout/mat2d";
@@ -312,8 +359,8 @@ export type { PageConfig, PageMargins } from "./state/page-config";
 export { resolveSpacingPx, clusterSpacing } from "./layout/text-spacing";
 export { graphemeClusters } from "./layout/graphemes";
 
-// --- Geometry-shed public surface (dual-mode Phase 3 sub-phase 3) ---
-// The geometric layout engine (geometric `layout/*` + the D3 geometric `cursor/*`)
+// --- Geometry-shed public surface ---
+// The geometric layout engine (geometric `layout/*` + the geometric `cursor/*`)
 // moved OUT of core into `@taleweaver/print`. These STAYING-core symbols are the
 // supporting vocabulary that the relocated geometry imports across the package
 // boundary, so they are surfaced on the core barrel for `@taleweaver/print` to
@@ -383,17 +430,20 @@ export {
   tableCellComponent,
 } from "./components";
 
-// Cursor — GEOMETRY-FREE selection model only. The D3 geometric cursor surface
+// Cursor — GEOMETRY-FREE selection model only. The geometric cursor surface
 // (hit-test / cursor-position / selection-geometry / comment+suggestion rects /
 // line-navigation / visual-motion / line-bidi / atomic-box-index / line-flatten)
-// RELOCATED to `@taleweaver/print` (dual-mode Phase 3 sub-phase 3) — import those
+// RELOCATED to `@taleweaver/print` — import those
 // from there. What remains is the pure document-level selection vocabulary.
 export {
   moveByCharacter,
+  caretAfterMarkers,
+  caretBeforeMarkers,
   moveByWord,
   expandSelection,
   selectWord,
 } from "./cursor/cursor-ops";
+export { selectParagraph } from "./cursor/paragraph-mark";
 export type { CaretAffinity } from "./cursor/selection";
 export { isCollapsed, selectionsEqual } from "./cursor/selection";
 export { isObjectSelection } from "./cursor/object-selection";
@@ -406,8 +456,51 @@ export type { EditorAction } from "./editor/editor-action";
 // reason about the same set.
 export type { InlineFormatAttrKey } from "./editor/inline-format-keys";
 export { INLINE_FORMAT_ATTR_KEYS } from "./editor/inline-format-keys";
+// Typing attributes: what the next typed text gets (pending storedAttrs, else
+// inherited at the caret per each key's MarkSpec).
+export { getTypingAttrs } from "./editor/typing-attrs";
+// Anchors + collaboration: anchors that follow every edit; peer changes as an action.
+export { createAnchorSet, mapPositionFrom } from "./editor/anchors";
+export type { Anchor, AnchorSet, AnchorOptions } from "./editor/anchors";
+export { getYDoc, subscribeRemoteChanges, rebaseSelection } from "./editor/foreign-change";
+// Host proposals: suggestion groups with metadata.
+export { newSuggestionGroupId, validateProposal, proposeResultOf, MAX_PROPOSAL_CHAIN } from "./editor/proposals";
+export type {
+  Proposal,
+  ProposedEdit,
+  ProposalProblem,
+  ProposeResult,
+  ProposalOutcome,
+  SuggestionMetadata,
+} from "./editor/proposals";
+// Host extension API: commands, keymap, input rules, triggers, transactions.
+export {
+  matchKeyBinding,
+  parseKeyBinding,
+  resolveCommand,
+  runKeyBinding,
+  triggerChange,
+  replaceRangeWithMarkedText,
+  modConventionFor,
+  compileKeymap,
+  escapeWouldChange,
+} from "./editor/extensions";
+export type {
+  Transaction,
+  Command,
+  KeyBinding,
+  InputRule,
+  InputRuleRange,
+  TriggerSpec,
+  ActiveTrigger,
+  EditorExtensions,
+  TriggerChange,
+  KeyEventLike,
+  ModConvention,
+  ParsedBinding,
+} from "./editor/extensions";
 // LineBox-canonical line traversal (`AbsoluteLineBox` / `collectLineBoxes` etc.)
-// is geometric and RELOCATED to `@taleweaver/print` (dual-mode Phase 3 sub-phase 3).
+// is geometric and RELOCATED to `@taleweaver/print`.
 export type {
   EditorState,
   EditorConfig,
@@ -423,15 +516,15 @@ export {
   findFirstContentBlock,
   findLastContentBlock,
 } from "./editor/editor-state";
-// Live-collab P1: apply a peer's edit (foreign dirty block ids from
+// Live collab: apply a peer's edit (foreign dirty block ids from
 // `subscribeForeignChanges`) to the local `EditorState` — `freshState` cache
 // invalidation + incremental `lastDirtyIds`, selection/history passthrough.
 export { reconcileForeignChange } from "./editor/reconcile-foreign-change";
 // Derive the default collapsed caret for a freshly-loaded `State` (first
 // content block, offset 0). Pairs with `createEditorStateFromState`.
 export { initialSelectionForState } from "./editor/actions";
-// Geometry-free editor helpers the print backend's NavIntent resolver imports
-// (Phase 0b): the anchor-affinity seed (focus-only extenders), the object-nav
+// Geometry-free editor helpers the print backend's NavIntent resolver imports:
+// the anchor-affinity seed (focus-only extenders), the object-nav
 // selection, and the line-delete span guards. `seedAnchorAffinity` lives on
 // `editor-state`; the rest in `editor/actions`.
 export { seedAnchorAffinity } from "./editor/editor-state";
@@ -449,9 +542,9 @@ export type { BlockInit } from "./state";
 // SET_FOOTNOTE_POLICY editor action; the toolbar reads the current value).
 export type { CounterFormat, FootnoteNumberingPolicy, FootnoteNumber } from "./footnotes";
 export { documentFootnotePolicy } from "./footnotes";
-// FN-6.4 restart-per-page numbering inputs for the backend layout-driver's
+// Restart-per-page numbering inputs for the backend layout-driver's
 // second pass (geometry-free numbering math; the driver owns the layout-derived
-// page-assignment feedback loop in Phase 0b).
+// page-assignment feedback loop).
 export { footnoteNumbers, footnoteRenumberedBlocks } from "./footnotes";
 
 // Accessibility — pure, geometry-free semantic projection of the document
@@ -462,6 +555,7 @@ export type {
   AccessibilityNode,
   AccessibilityRole,
   AccessibilityTextRun,
+  AccessibilityBoundarySuggestion,
   BuildAccessibilityTreeOptions,
 } from "./accessibility/accessibility-node";
 

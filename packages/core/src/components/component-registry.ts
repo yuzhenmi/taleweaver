@@ -1,5 +1,5 @@
 import type { ComponentDefinition } from "./component-definition";
-import type { BlockKind, BlockKindResolver } from "../state";
+import type { BlockKind, BlockKindResolver, BlockShape } from "../state";
 import { documentComponent } from "./document";
 import { sectionComponent } from "./section";
 import { templateBodyComponent } from "./template-body";
@@ -29,8 +29,8 @@ import { tableOfContentsComponent } from "./table-of-contents";
  * Two factory functions:
  *   - createComponentRegistry(): empty registry; tests use it to isolate
  *     behavior (register only the components under test).
- *   - createDefaultComponentRegistry(): empty in P7; P8 populates it with
- *     every migrated built-in component via explicit register() calls.
+ *   - createDefaultComponentRegistry(): populated with
+ *     every built-in component via explicit register() calls.
  *     No side-effect imports.
  */
 export interface ComponentRegistry extends BlockKindResolver {
@@ -39,6 +39,8 @@ export interface ComponentRegistry extends BlockKindResolver {
   has(type: string): boolean;
   /** Map a type string to its BlockKind. Returns null if unregistered. */
   getBlockKind(type: string): BlockKind | null;
+  /** The storage shape of a block of `type` (null if unregistered). */
+  getStorageShape(type: string): BlockShape | null;
 }
 
 class ComponentRegistryImpl implements ComponentRegistry {
@@ -58,6 +60,12 @@ class ComponentRegistryImpl implements ComponentRegistry {
     if (def === undefined) return null;
     if (def.kind === "container") return "container";
     return def.leafShape === "inline-bearing" ? "inline-bearing-leaf" : "atomic-leaf";
+  }
+  getStorageShape(type: string): BlockShape | null {
+    const def = this.defs.get(type);
+    if (def === undefined) return null;
+    if (def.kind === "container") return def.storage ?? "container";
+    return def.leafShape === "inline-bearing" ? "text" : "atomic";
   }
 }
 

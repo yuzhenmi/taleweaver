@@ -11,7 +11,7 @@ export function resolveSpacingPx(v: number | "normal" | ComputedLength): number 
   return 0; // { unit: "percent" | ... } — not valid here
 }
 
-/** v1 word-separator set (CSS Text 3 §8.2 common subset): U+0020, U+00A0. */
+/** Word-separator set (CSS Text 3 §8.2 common subset): U+0020, U+00A0. */
 export function isWordSeparatorCluster(clusterText: string): boolean {
   return clusterText === " " || clusterText === "\u00A0";
 }

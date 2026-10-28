@@ -1,5 +1,6 @@
 import type { Style, ComputedStyle } from "../styles";
 import type { LayoutBoxMetadata } from "./layout-metadata";
+import type { MarkDom } from "../cascade/attr-registry";
 
 export type RenderNode = ElementBox | TextBox;
 
@@ -19,6 +20,12 @@ export interface TextBox {
   readonly computedStyle?: Readonly<ComputedStyle>;
   readonly text: string;
   readonly link?: string;
+  /**
+   * DOM hints of the run's inline marks (`MarkSpec.toDom`, attrs order) — the
+   * class / attributes the DOM backend puts on the run. Geometry-free: the print
+   * backend ignores it (marks paint through their `toStyle` contribution).
+   */
+  readonly marks?: readonly MarkDom[];
 }
 
 export function createElementBox(
@@ -43,6 +50,7 @@ export function createTextBox(
   style: Style,
   text: string,
   link?: string,
+  marks?: readonly MarkDom[],
 ): TextBox {
   return Object.freeze({
     type: "text" as const,
@@ -50,5 +58,6 @@ export function createTextBox(
     style: Object.freeze({ ...style }),
     text,
     ...(link !== undefined ? { link } : {}),
+    ...(marks !== undefined ? { marks: Object.freeze([...marks]) } : {}),
   });
 }

@@ -1,3 +1,5 @@
+import type { BlockKindResolver } from "./block-kinds";
+import { bindStorageResolver } from "./storage-shapes";
 import * as Y from "yjs";
 import type { Block } from "./block";
 import type { BlockId } from "./block-id";
@@ -17,6 +19,7 @@ import {
   compactCache,
   chainDepth,
   getBlockSnapshot,
+  peekSnapshot,
   getEmbedContentSnapshot,
   getTemplateContentSnapshot,
   type SnapshotCache,
@@ -27,7 +30,10 @@ import {
   assertNoOrphanedEmbedContent,
   assertNoSharedEmbedContent,
 } from "./embed-content-cascade";
-import { assertChainIntegrity } from "./chain-integrity";
+import { assertNoLegacyStorage } from "./upgrade";
+import { assertInlineStorageInvariants } from "./block-text";
+import { attachTxMappings, txMappingsOf } from "./position-mapping";
+import { getMarkIndex } from "./mark-index";
 
 /**
  * Maximum chain depth before `applyOperation` compacts. Each
@@ -66,8 +72,20 @@ export interface State {
   };
 }
 
-export function createState(args: { rootId: BlockId; doc?: Y.Doc }): State {
+export function createState(args: {
+  rootId: BlockId;
+  doc?: Y.Doc;
+  /**
+   * The component registry's taxonomy: every writer stores a new block by
+   * `resolver.getStorageShape(type)` (bound to the doc, see `storage-shapes.ts`).
+   */
+  resolver: BlockKindResolver;
+}): State {
   const doc = args.doc ?? createYDoc({ rootId: args.rootId });
+  bindStorageResolver(doc, args.resolver);
+  // Legacy inline storage is never loaded: the host upgrades it first
+  // (`upgradeDocument`, single authority). Shape-based and authoritative.
+  assertNoLegacyStorage(doc);
   // Ensure meta.rootId is set (in case caller passed an externally-built doc).
   //
   // `rootId` is the ONLY field doc-meta may hold: it is immutable for the
@@ -75,11 +93,13 @@ export function createState(args: { rootId: BlockId; doc?: Y.Doc }): State {
   // tracked scopes, so any MUTABLE field written here would silently lapse
   // out of undo/redo — mutable, user-observable state must live in the
   // Layer-3 Y.Maps (blocks / embedContents / templateContents) instead.
-  // See `getMetaMap` (yjs-doc.ts) and the A14 whitelist test.
+  // See `getMetaMap` (yjs-doc.ts) and the doc-meta whitelist test.
   const meta = getMetaMap(doc);
   if (meta.get("rootId") === undefined) {
     doc.transact(() => meta.set("rootId", args.rootId));
   }
+  // Bind the doc: build its MarkIndex (one O(doc) scan, then O(changed) per transaction).
+  getMarkIndex(doc);
   return Object.freeze({
     rootId: args.rootId,
     [STATE_INTERNAL]: Object.freeze({
@@ -168,6 +188,39 @@ export function resolveBlock(state: State, id: BlockId): ResolvedBlock | null {
 }
 
 /**
+ * Cache-only block read (all trees) — see `peekSnapshot`. `undefined` means "not
+ * known to this State without reading the live Y.Doc", NOT "absent". State-module
+ * internal; position mapping uses it to read a superseded State safely.
+ */
+export function peekBlock(state: State, id: BlockId): Block | undefined {
+  return peekSnapshot(state[STATE_INTERNAL].snapshotCache, id);
+}
+
+/** Walks shorter than this never consult {@link blockCount} (see `createWalkGuard`). */
+const CYCLE_CHECK_THRESHOLD = 4096;
+
+/**
+ * Cycle guard for one linked-list walk over the block tree: `step()` counts a step and
+ * returns true once the walk has taken more steps than there are blocks (a well-formed
+ * walk never can, so the chain loops). `blockCount` is O(blocks) (Yjs `Y.Map.size`
+ * iterates), so the guard computes it lazily — only once a walk passes
+ * {@link CYCLE_CHECK_THRESHOLD} steps — and at most ONCE per walk. A normal walk pays O(1)
+ * per step; an eager per-step bound made every document-order walk quadratic.
+ */
+export function createWalkGuard(state: State): { step(): boolean } {
+  let steps = 0;
+  let bound = -1;
+  return {
+    step(): boolean {
+      steps++;
+      if (steps <= CYCLE_CHECK_THRESHOLD) return false;
+      if (bound < 0) bound = blockCount(state) + 1;
+      return steps > bound;
+    },
+  };
+}
+
+/**
  * Total number of blocks across all three trees (main `blocks`,
  * `embedContents`, `templateContents`).
  *
@@ -189,7 +242,7 @@ export function blockCount(state: State): number {
  * Y.Map. Body CHILDREN (the descendant blocks of a multi-level body) are
  * reached via the root's child chain during render, NOT enumerated here.
  * Narrowing to roots prevents spurious non-root `RenderOutput.embedContents`
- * entries (#313): a child rendered as a standalone top-level entry would
+ * entries: a child rendered as a standalone top-level entry would
  * have no parent computed style (wrong cascade context) and duplicate the
  * in-body render under its root.
  *
@@ -197,12 +250,12 @@ export function blockCount(state: State): number {
  * on a particular sort.
  */
 export function* getEmbedContentIds(state: State): IterableIterator<BlockId> {
-  // Yields from the doc-keyed root-id cache (#317): the common render path,
+  // Yields from the doc-keyed root-id cache: the common render path,
   // including the per-keystroke incremental path, no longer scans the whole
   // embedContents map (roots + body children). The cache recomputes its root
   // set lazily, only after a key add/remove fires the map's `observe`
   // handler (a rare event relative to keystrokes), so this is O(1) per
-  // keystroke for footnote-heavy docs. The #313 root-only contract is
+  // keystroke for footnote-heavy docs. The root-only contract is
   // preserved by the cache, which records only `parentId === null` keys.
   yield* getEmbedContentRootIds(state[STATE_INTERNAL].doc);
 }
@@ -211,14 +264,14 @@ export function* getEmbedContentIds(state: State): IterableIterator<BlockId> {
  * True iff the document currently holds at least one footnote, i.e. at least
  * one embed-content body ROOT.
  *
- * Backed by the #317 doc-keyed root-id cache (`getEmbedContentRootIds`), this
+ * Backed by the doc-keyed root-id cache (`getEmbedContentRootIds`), this
  * is O(1) per call: the cache recomputes its root set only after a key
  * add/remove fires the embedContents map's `observe` handler (a footnote
  * insert/delete — rare relative to keystrokes), NOT per keystroke. Reading
  * `.size` avoids materializing or iterating the set.
  *
- * Coupling note: `embedContents` currently holds ONLY footnote bodies (FN-1;
- * exactly one body root per footnote, enforced by the
+ * Coupling note: `embedContents` currently holds ONLY footnote bodies
+ * (exactly one body root per footnote, enforced by the
  * `assertNoOrphanedEmbedContent` invariant), so "no embed-content roots ⟺ no
  * footnote anchors". If other embed-content types are added later, this helper
  * becomes conservative (it may report `true` with no footnote anchors) but
@@ -234,8 +287,7 @@ export function docHasFootnotes(state: State): boolean {
  * (header/footer template bodies) — blocks with `parentId === null` in the
  * templateContents Y.Map. Mirrors `getEmbedContentIds`: body CHILDREN are
  * reached via the root's child chain during render, NOT enumerated here —
- * this prevents spurious non-root `RenderOutput.templateContents` entries
- * (#313).
+ * this prevents spurious non-root `RenderOutput.templateContents` entries.
  *
  * Order is the underlying Y.Map iteration order; callers must not rely
  * on a particular sort.
@@ -243,9 +295,9 @@ export function docHasFootnotes(state: State): boolean {
 export function* getTemplateContentIds(
   state: State,
 ): IterableIterator<BlockId> {
-  // Yields from the doc-keyed root-id cache (#317); mirrors
+  // Yields from the doc-keyed root-id cache; mirrors
   // `getEmbedContentIds`. See that accessor for the cache rationale and the
-  // #313 root-only contract preservation.
+  // root-only contract preservation.
   yield* getTemplateContentRootIds(state[STATE_INTERNAL].doc);
 }
 
@@ -283,7 +335,7 @@ export interface OperationResult {
  * `freshStateFromDoc(state)` (the escape hatch with no overlay
  * continuity from the prior cache).
  *
- * **Chain-depth compaction (#273).** Compacts when the input chain is
+ * **Chain-depth compaction.** Compacts when the input chain is
  * too deep, mirroring `applyOperation`. Without this, a long run of
  * undo/redo would push overlay layers without ever flattening —
  * re-introducing the O(depth)-per-cold-read growth that
@@ -347,10 +399,9 @@ export function freshStateFromDoc(state: State): State {
  * **`options.origin`** (optional) tags the underlying `doc.transact` so the
  * `History`'s `Y.UndoManager` can decide whether to track the change. Omitting
  * `options` (the common case) is byte-identical to the pre-origin signature —
- * Yjs's default `null` origin, which History tracks (undoable). The suggestion
- * accept/reject ops (slice 3) pass `{ origin: SUGGESTION_RESOLVE_ORIGIN }` so the
- * resolve is NON-undoable; that caller then reconciles History's cached
- * `currentState` via `History.advanceState` (the txn skipped `History.commit`).
+ * Yjs's default `null` origin, which History tracks (undoable). A non-`null` origin
+ * opts the change out of undo tracking; such a caller must reconcile History's
+ * cached `currentState` via `History.advanceState` (the txn skips `History.commit`).
  *
  * The returned State has a fresh SnapshotCache built
  * as an overlay on top of the input state's cache, giving three
@@ -393,8 +444,7 @@ export function applyOperation(
   const doc = internal.doc;
   let extra: ReadonlySet<BlockId> | undefined;
   // `options?.origin` (default `undefined`) tags the transaction so the History's
-  // Y.UndoManager can opt the change OUT of undo tracking (the suggestion
-  // accept/reject ops pass SUGGESTION_RESOLVE_ORIGIN). `undefined` is
+  // Y.UndoManager can opt the change OUT of undo tracking. `undefined` is
   // byte-identical to the pre-origin call (Yjs's default `null` origin, tracked).
   const { dirtyIds: captured } = runTransaction(
     doc,
@@ -413,13 +463,15 @@ export function applyOperation(
     extra === undefined || extra.size === 0
       ? captured
       : new Set<BlockId>([...captured, ...extra]);
+  const exact = txMappingsOf(captured);
+  if (dirtyIds !== captured && exact !== undefined) attachTxMappings(dirtyIds, exact);
   if (dirtyIds.size === 0) {
     // No-op transaction: return the input state reference unchanged.
     // Preserves identity so callers can short-circuit on
     // `result.state === input.state`.
     return { state, dirtyIds };
   }
-  // L-PERF-E: compact the chain when it grows too deep, so a bulk
+  // Compact the chain when it grows too deep, so a bulk
   // handler (paste, multi-keystroke macro, programmatic replay) doesn't
   // create an arbitrarily deep overlay chain that costs O(depth) per
   // subsequent read. The result is structurally equivalent — same
@@ -453,12 +505,8 @@ export function applyOperation(
     // sharing check's scope-down only sweeps when a dirty block introduced an
     // embed reference (deletions/typing pay nothing).
     assertNoSharedEmbedContent(newState, "applyOperation", dirtyIds);
-    // Structural invariant: the parent/sibling/child back-link chain is
-    // internally consistent. Catches a structural op that mis-sets a pointer
-    // (split/merge/remove/reparent/section-break) before the broken tree can
-    // silently drop or duplicate blocks in the render walk. Inductively scoped
-    // by dirtyIds (full scan only on a deletion). See chain-integrity.ts.
-    assertChainIntegrity(newState, "applyOperation", dirtyIds);
+    // Piece storage: no op split a surrogate pair (offsets are grapheme-aligned).
+    assertInlineStorageInvariants(internal.doc, "applyOperation", dirtyIds);
   }
   return { state: newState, dirtyIds };
 }

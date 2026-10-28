@@ -1,13 +1,5 @@
-import type { BlockId, State, SuggestionView } from "../state";
-import {
-  getBlock,
-  createPosition,
-  createSpan,
-  inlineContentLength,
-  extractText,
-  captionEmbedSerializer,
-  type CrossReferenceMode,
-} from "../state";
+import type { BlockId, BookmarkRange, State, SuggestionView } from "../state";
+import { createSpan, extractText, captionEmbedSerializer, BROKEN_CROSS_REFERENCE_TEXT } from "../state";
 import type { CounterValue } from "../numbering";
 
 /**
@@ -18,7 +10,7 @@ import type { CounterValue } from "../numbering";
  * so this is a single constant flagged for in-browser confirmation against Google Docs
  * (the `browser-confirm` convention). Kept in ONE place so the wording is a 1-line change.
  */
-export const BROKEN_CROSS_REFERENCE_TEXT = "Error! Reference source not found."; // browser-confirm vs Google Docs
+export { BROKEN_CROSS_REFERENCE_TEXT };
 
 /**
  * Resolve a cross-reference field to its displayed string, at RENDER time. Pure:
@@ -26,13 +18,14 @@ export const BROKEN_CROSS_REFERENCE_TEXT = "Error! Reference source not found.";
  * map (`computeCounters` result, keyed by the list-item's own blockId), produces the
  * text the field shows.
  *
- *  - `"number"` → the target's formatted counter (`numbering.get(targetId).formatted`).
- *    A target that is not a numbered list-item (or was deleted) is absent from the
- *    map → broken-ref.
- *  - `"text"` → the target block's full text (`extractText` over its whole inline
- *    content, under {@link captionEmbedSerializer} so embeds don't leak into the
- *    caption). A missing or non-inline-bearing target → broken-ref. An EMPTY
- *    target resolves to `""` (the target exists — not broken).
+ *  - `"number"` → the formatted counter of the paragraph holding the bookmark START
+ *    (Word). Not a numbered list-item → broken-ref.
+ *  - `"text"` → the bookmarked range's text (`extractText` over [start, end], under
+ *    {@link captionEmbedSerializer} so embeds don't leak into the caption). An empty
+ *    bookmark resolves to `""` (it exists — not broken).
+ *
+ * A broken bookmark (start or end gone) never reaches here: the caller renders
+ * {@link BROKEN_CROSS_REFERENCE_TEXT}.
  *
  * `view` ({@link SuggestionView}) projects pending tracked changes for `"text"`
  * mode: a `"final"`/`"original"` preview must resolve the caption against the
@@ -40,30 +33,21 @@ export const BROKEN_CROSS_REFERENCE_TEXT = "Error! Reference source not found.";
  * stale relative to the previewed document. `"number"` mode is view-independent
  * (counters are computed once per render pass, already view-correct).
  *
- * v1 targets the MAIN BODY tree (resolved via `getBlock`, not `resolveBlock`).
+ * Targets the MAIN BODY tree only (resolved via `getBlock`, not `resolveBlock`).
  */
 export function resolveCrossReference(
   state: State,
   numbering: ReadonlyMap<BlockId, CounterValue>,
-  props: { readonly targetId: BlockId; readonly refMode: CrossReferenceMode },
+  props: { readonly range: BookmarkRange; readonly refMode: "number" | "text" },
   view: SuggestionView = "suggesting",
 ): string {
-  const { targetId, refMode } = props;
-
+  const { range, refMode } = props;
   if (refMode === "number") {
-    const counter = numbering.get(targetId);
+    // Word: the list counter of the paragraph holding the bookmark START.
+    const counter = numbering.get(range.start.blockId);
     return counter === undefined ? BROKEN_CROSS_REFERENCE_TEXT : counter.formatted;
   }
-
-  // refMode === "text"
-  const block = getBlock(state, targetId);
-  if (block === null || block.inlineContent === null) {
-    return BROKEN_CROSS_REFERENCE_TEXT;
-  }
-  const length = inlineContentLength(block.inlineContent);
-  // Mirror outline.ts: short-circuit an empty target to "" before building a span,
-  // so this never depends on extractText's zero-length-span behaviour.
-  if (length === 0) return "";
-  const span = createSpan(createPosition(targetId, 0), createPosition(targetId, length));
-  return extractText(state, span, captionEmbedSerializer, view);
+  // `text`: the bookmarked range's text (Word's REF), in the current view.
+  if (range.start.blockId === range.end.blockId && range.start.offset >= range.end.offset) return "";
+  return extractText(state, createSpan(range.start, range.end), captionEmbedSerializer, view);
 }

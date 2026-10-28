@@ -52,7 +52,6 @@ declare global {
 }
 import {
   createDefaultComponentRegistry,
-  createDefaultAttrRegistry,
   reduceEditor,
   createEditorStateFromState,
   initialSelectionForState,
@@ -62,15 +61,17 @@ import {
   type EditorAction,
   type EditorState,
   type EditorConfig,
+  type EditorExtensions,
   type PageConfig,
   type State,
   type TextShaper,
   type Hyphenator,
 } from "@taleweaver/core";
-import { createCanvasShaper, createLiangHyphenator } from "@taleweaver/print";
+import { createCanvasShaper, createLiangHyphenator, browserHtmlParser } from "@taleweaver/print";
 import { EN_US_PATTERN_SET } from "@taleweaver/hyphenation-en-us";
 import { tryLoadPerfFixtureFromUrl } from "./perf-fixture";
 import { loadFairytale } from "./fairytale-seed";
+import { createDemoAttrRegistry } from "./components/mentions";
 
 const DEFAULT_WIDTH = 600;
 
@@ -81,8 +82,8 @@ const PAGE_CONFIG: PageConfig = {
   pageGap:        24,
 };
 
-function createConfig(): EditorConfig {
-  // Phase 0b: core's `EditorConfig` no longer carries the print mechanics
+function createConfig(extensions?: EditorExtensions): EditorConfig {
+  // Core's `EditorConfig` does not carry the print mechanics
   // `measurer`/`hyphenator` (they moved to the backend `LayoutConfig`). `pageConfig`
   // STAYS available on `EditorConfig` (document page-setup data, read by
   // toggle-section-landscape) but is OPTIONAL — this demo doesn't toggle section
@@ -91,13 +92,17 @@ function createConfig(): EditorConfig {
   // owns the render→cascade→layout pipeline via the layout-driver.
   return {
     componentRegistry: createDefaultComponentRegistry(),
-    attrRegistry: createDefaultAttrRegistry(),
+    attrRegistry: createDemoAttrRegistry(), // built-ins + the demo `mention` mark
     containerWidth: DEFAULT_WIDTH,
+    // Inject the DOM HTML parser so handlePaste can decode text/html (rich paste).
+    // Without it, core silently falls back to the plain-text path.
+    htmlParser: browserHtmlParser,
+    ...(extensions !== undefined ? { extensions } : {}),
   };
 }
 
 /**
- * Build the print-geometry capabilities the controller needs (Phase 0b): the
+ * Build the print-geometry capabilities the controller needs: the
  * canvas text-shaper and the Liang auto-hyphenator. Pass the shaper directly
  * (NOT createCanvasMeasurer). The measurer adapter chain (adaptShaperToMeasurer
  * → measurerToShaper) distributes a string's total width uniformly across its
@@ -132,14 +137,14 @@ export interface UsePerfEditorResult {
  * `?perfFixture=N` in the URL on mount and, if present, replaces the empty
  * initial state with the N-paragraph synthetic fixture.
  */
-export function usePerfEditor(initialState?: State): UsePerfEditorResult {
+export function usePerfEditor(initialState?: State, extensions?: EditorExtensions): UsePerfEditorResult {
   const configRef = useRef<EditorConfig | null>(null);
   if (configRef.current === null) {
-    configRef.current = createConfig();
+    configRef.current = createConfig(extensions);
   }
   const config = configRef.current;
 
-  // Print-geometry capabilities (Phase 0b): built once, passed to the controller
+  // Print-geometry capabilities: built once, passed to the controller
   // (via the EditorView spread), NOT to core's geometry-free `EditorConfig`.
   const geometryRef = useRef<{ measurer: TextShaper; hyphenator: Hyphenator } | null>(null);
   if (geometryRef.current === null) {

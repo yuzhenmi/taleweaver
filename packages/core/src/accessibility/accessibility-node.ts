@@ -1,3 +1,4 @@
+import type { BoundaryMarkKind } from "../state";
 import type { BlockId, SuggestionView } from "../state";
 
 /** ARIA-aligned semantic roles produced by the accessibility projection. */
@@ -56,6 +57,17 @@ export interface AccessibilityTextRun {
  * A node in the accessibility tree. Role-discriminated: which optional fields are
  * present depends on `role`. Geometry-free. Typed fields only — NO stringly-bag.
  */
+/**
+ * A pending tracked-¶ suggestion on this node's OWN paragraph mark (a ¶ or a
+ * section-end item): its kind, author, and a human-readable
+ * description for AT.
+ */
+export interface AccessibilityBoundarySuggestion {
+  readonly kind: BoundaryMarkKind;
+  readonly author: string;
+  readonly description: string;
+}
+
 export interface AccessibilityNode {
   readonly role: AccessibilityRole;
   readonly sourceBlockId: BlockId | null;
@@ -72,6 +84,8 @@ export interface AccessibilityNode {
   readonly listOrdinal?: number;
   readonly text?: readonly AccessibilityTextRun[];
   readonly children: readonly AccessibilityNode[];
+  /** A pending suggestion on this text node's own ¶ (see {@link AccessibilityBoundarySuggestion}). */
+  readonly suggestion?: AccessibilityBoundarySuggestion;
 }
 
 export interface BuildAccessibilityTreeOptions {

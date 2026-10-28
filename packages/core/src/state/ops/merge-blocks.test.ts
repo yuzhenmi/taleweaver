@@ -1,363 +1,144 @@
+/**
+ * Merge: delete ¶L. The survivor is R (the paragraph whose ¶ ends the
+ * joined content). L's type + attrs + ¶ props are written onto R key-wise (Google Docs /
+ * Quill: the first paragraph's formatting wins, which also covers an empty R) — unless L
+ * is an EMPTY DEFAULT paragraph, which simply goes (Google Docs / Quill). No character moves.
+ */
 import { describe, it, expect } from "vitest";
 import { mergeAdjacentBlocks } from "./merge-blocks";
-import { getBlock, getEmbedContent } from "../state";
+import { getBlock, getEmbedContent, type State } from "../state";
+import type { Block } from "../block";
 import { buildBlock, buildState, text, embed, inlineContent } from "../../test-utils/state-builders";
+import { flowShape, assertInvariantI } from "../../test-utils/invariant-i";
 import type { BlockId } from "../block-id";
 
-describe("mergeAdjacentBlocks — basic merge of two adjacent leaf siblings", () => {
-  // doc > [p1("hello"), p2(" world")]
-  // After merge: doc > [p1("hello world")] (run-merged into one item since both have empty attrs)
-  const fixture = () =>
-    buildState({
+const id = (s: string) => s as BlockId;
+function doc(blocks: Block[], embedContents?: Block[]): State {
+  const ids = blocks.map((b) => b.id);
+  const linked = blocks.map((b, i) => ({ ...b, parentId: id("doc"), prevSiblingId: ids[i - 1] ?? null, nextSiblingId: ids[i + 1] ?? null }));
+  return buildState({ rootId: "doc", blocks: [buildBlock({ id: "doc", type: "document", firstChildId: ids[0] ?? null, lastChildId: ids[ids.length - 1] ?? null }), ...linked], embedContents });
+}
+const para = (pid: string, items: Parameters<typeof inlineContent>[0], more: Partial<Parameters<typeof buildBlock>[0]> = {}) =>
+  buildBlock({ id: pid, type: "paragraph", ...more, inlineContent: inlineContent(items) });
+const fin = (s: State): BlockId => {
+  const f = getBlock(s, id("doc"))?.lastChildId;
+  if (f === null || f === undefined) throw new Error("no final section");
+  return f;
+};
+const items = (s: State, b: string) => getBlock(s, id(b))?.inlineContent?.items;
+
+describe("mergeAdjacentBlocks — the survivor is R", () => {
+  it("deletes ¶L: R holds L's content then its own; links + dirty ids", () => {
+    const state = doc([para("p1", [text("hello")]), para("p2", [text(" world")])]);
+    const F = fin(state);
+    const result = mergeAdjacentBlocks(state, id("p1"), id("p2"));
+    expect(result.survivorId).toBe("p2");
+    expect(flowShape(result.state, "doc")).toBe('p2:"hello world"');
+    expect(getBlock(result.state, id("p1"))).toBeNull();
+    expect(getBlock(result.state, F)?.firstChildId).toBe("p2");
+    expect(getBlock(result.state, F)?.lastChildId).toBe("p2");
+    expect([...result.dirtyIds]).toEqual(expect.arrayContaining(["p1", "p2", F]));
+    assertInvariantI(result.state, "storage");
+  });
+
+  it("run-merging across the seam: equal attrs join, different attrs / an embed keep both", () => {
+    const same = mergeAdjacentBlocks(doc([para("a", [text("ab", { bold: true })]), para("b", [text("cd", { bold: true })])]), id("a"), id("b")).state;
+    expect(items(same, "b")).toEqual([{ kind: "text", text: "abcd", attrs: { bold: true } }]);
+    const diff = mergeAdjacentBlocks(doc([para("a", [text("ab", { bold: true })]), para("b", [text("cd")])]), id("a"), id("b")).state;
+    expect(items(diff, "b")).toEqual([{ kind: "text", text: "ab", attrs: { bold: true } }, { kind: "text", text: "cd", attrs: {} }]);
+    const emb = mergeAdjacentBlocks(doc([para("a", [text("x"), embed("img")]), para("b", [text("y")])]), id("a"), id("b")).state;
+    expect(items(emb, "b")).toMatchObject([{ text: "x" }, { kind: "embed", embedType: "img" }, { text: "y" }]);
+    const multi = mergeAdjacentBlocks(doc([para("a", [text("a1"), text("a2", { italic: true })]), para("b", [text("b1", { italic: true }), text("b2")])]), id("a"), id("b")).state;
+    expect(items(multi, "b")).toMatchObject([{ text: "a1" }, { text: "a2b1", attrs: { italic: true } }, { text: "b2" }]);
+  });
+
+  it("linked list: middle / first / last pairs and a pair inside an explicit section", () => {
+    const four = () => doc([para("p1", [text("1")]), para("p2", [text("2")]), para("p3", [text("3")]), para("p4", [text("4")])]);
+    const mid = mergeAdjacentBlocks(four(), id("p2"), id("p3")).state;
+    expect(flowShape(mid, "doc")).toBe('p1:"1" p3:"23" p4:"4"');
+    expect(getBlock(mid, id("p1"))?.nextSiblingId).toBe("p3");
+    expect(getBlock(mid, id("p3"))?.prevSiblingId).toBe("p1");
+    const first = four();
+    const F = fin(first);
+    const f = mergeAdjacentBlocks(first, id("p1"), id("p2")).state;
+    expect(getBlock(f, F)?.firstChildId).toBe("p2");
+    expect(getBlock(f, id("p2"))?.prevSiblingId).toBeNull();
+    const last = four();
+    const l = mergeAdjacentBlocks(last, id("p3"), id("p4")).state;
+    expect(getBlock(l, fin(last))?.lastChildId).toBe("p4");
+    expect(getBlock(l, id("p2"))?.nextSiblingId).toBe("p4");
+    const nested = buildState({
       rootId: "doc",
       blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("hello")]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text(" world")]) }),
+        buildBlock({ id: "doc", type: "document", firstChildId: "sec", lastChildId: "sec" }),
+        buildBlock({ id: "sec", type: "section", parentId: "doc", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "sec", nextSiblingId: "p2", inlineContent: inlineContent([text("a")]) }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "sec", prevSiblingId: "p1", inlineContent: inlineContent([text("b")]) }),
       ],
     });
-
-  it("merges right into left, removes right, rewires the parent's lastChildId", () => {
-    const state = fixture();
-    const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
-
-    // Left (p1) keeps its id; inlineContent is the concatenation, run-merged into one item.
-    const left = getBlock(result.state, "p1" as BlockId);
-    expect(left).toBeDefined();
-    expect(left?.id).toBe("p1");
-    expect(left?.type).toBe("paragraph");
-    expect(left?.parentId).toBe("doc");
-    expect(left?.prevSiblingId).toBeNull();
-    expect(left?.nextSiblingId).toBeNull(); // was "p2"; p2 had no nextSibling, so left.nextSiblingId is now null
-    expect(left?.inlineContent?.items).toHaveLength(1);
-    expect(left?.inlineContent?.items[0]).toMatchObject({ kind: "text", text: "hello world", attrs: {} });
-
-    // Right (p2) is removed from state.blocks.
-    expect(getBlock(result.state, "p2" as BlockId)).toBeNull();
-
-    // Parent's lastChildId is rewired to p1 (was p2). firstChildId still p1.
-    const parent = getBlock(result.state, "doc" as BlockId);
-    expect(parent?.firstChildId).toBe("p1");
-    expect(parent?.lastChildId).toBe("p1");
-
-    // dirtyIds: { p1 (modified), p2 (removed), doc (lastChildId changed) }.
-    expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "doc"]));
-  });
-});
-
-describe("mergeAdjacentBlocks — item shapes and run-merging across the seam", () => {
-  it("merges left's last text item with right's first text item when they share attrs (run-merging)", () => {
-    // doc > [p1[text("hel", {bold})], p2[text("lo", {bold})]]
-    // After merge: p1.items = [text("hello", {bold})] (one item, run-merged across seam).
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("hel", { bold: true })]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text("lo", { bold: true })]) }),
-      ],
-    });
-    const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
-    const items = getBlock(result.state, "p1" as BlockId)?.inlineContent?.items;
-    expect(items).toHaveLength(1);
-    expect(items?.[0]).toMatchObject({ kind: "text", text: "hello", attrs: { bold: true } });
+    const n = mergeAdjacentBlocks(nested, id("p1"), id("p2")).state;
+    expect(getBlock(n, id("sec"))?.firstChildId).toBe("p2");
+    expect(getBlock(n, id("sec"))?.lastChildId).toBe("p2");
+    expect(getBlock(n, id("p2"))?.parentId).toBe("sec");
   });
 
-  it("preserves both items at the seam when their attrs differ", () => {
-    // doc > [p1[text("hel", {bold})], p2[text("lo", {italic})]]
-    // After merge: p1.items = [text("hel", {bold}), text("lo", {italic})] (two items; no run-merge).
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("hel", { bold: true })]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text("lo", { italic: true })]) }),
-      ],
-    });
-    const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
-    const items = getBlock(result.state, "p1" as BlockId)?.inlineContent?.items;
-    expect(items).toHaveLength(2);
-    expect(items?.[0]).toMatchObject({ kind: "text", text: "hel", attrs: { bold: true } });
-    expect(items?.[1]).toMatchObject({ kind: "text", text: "lo", attrs: { italic: true } });
+  it("an embed-referenced body survives (no cascade delete)", () => {
+    const state = doc(
+      [para("p1", [text("see")]), para("p2", [embed("footnote-anchor", { contentBlockId: "fn-body" })])],
+      [buildBlock({ id: "fn-body", type: "footnote-body", inlineContent: inlineContent([text("footnote text")]) })],
+    );
+    const result = mergeAdjacentBlocks(state, id("p1"), id("p2"));
+    expect(getEmbedContent(result.state, id("fn-body"))).not.toBeNull();
+    expect(items(result.state, "p2")).toMatchObject([{ kind: "text", text: "see" }, { kind: "embed", embedType: "footnote-anchor", properties: { contentBlockId: "fn-body" } }]);
   });
 
-  it("does NOT merge across an embed at the seam, even when text neighbors share attrs", () => {
-    // doc > [p1[text("a", {bold}), embed("img")], p2[text("b", {bold})]]
-    // The embed is a barrier — the text("a") on left and text("b") on right both have
-    // {bold:true} attrs but they are separated by the embed, so no run-merge across.
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("a", { bold: true }), embed("img")]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text("b", { bold: true })]) }),
-      ],
-    });
-    const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
-    const items = getBlock(result.state, "p1" as BlockId)?.inlineContent?.items;
-    expect(items).toHaveLength(3);
-    expect(items?.[0]).toMatchObject({ kind: "text", text: "a", attrs: { bold: true } });
-    expect(items?.[1]).toMatchObject({ kind: "embed", embedType: "img" });
-    expect(items?.[2]).toMatchObject({ kind: "text", text: "b", attrs: { bold: true } });
-  });
-
-  it("concatenates multi-item left + multi-item right with seam-merging only between the touching items", () => {
-    // doc > [p1[text("a"), text("b", {bold})], p2[text("c", {bold}), text("d")]]
-    // Concat: [text("a"), text("b", {bold}), text("c", {bold}), text("d")]
-    // Run-merge: items[1] and items[2] both {bold} → merge to text("bc", {bold}).
-    // Final: [text("a"), text("bc", {bold}), text("d")]
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("a"), text("b", { bold: true })]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text("c", { bold: true }), text("d")]) }),
-      ],
-    });
-    const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
-    const items = getBlock(result.state, "p1" as BlockId)?.inlineContent?.items;
-    expect(items).toHaveLength(3);
-    expect(items?.[0]).toMatchObject({ kind: "text", text: "a", attrs: {} });
-    expect(items?.[1]).toMatchObject({ kind: "text", text: "bc", attrs: { bold: true } });
-    expect(items?.[2]).toMatchObject({ kind: "text", text: "d", attrs: {} });
-  });
-});
-
-describe("mergeAdjacentBlocks — linked-list correctness across positional cases", () => {
-  // doc > [p1, p2, p3, p4]
-  const fourChildFixture = () =>
-    buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p4" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("one")]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: inlineContent([text("two")]) }),
-        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", nextSiblingId: "p4", inlineContent: inlineContent([text("three")]) }),
-        buildBlock({ id: "p4", type: "paragraph", parentId: "doc", prevSiblingId: "p3", inlineContent: inlineContent([text("four")]) }),
-      ],
-    });
-
-  it("middle pair (p2 + p3): p2 keeps id; p4.prevSiblingId rewires to p2; parent unchanged", () => {
-    const state = fourChildFixture();
-    const result = mergeAdjacentBlocks(state, "p2" as BlockId, "p3" as BlockId);
-
-    expect(getBlock(result.state, "p1" as BlockId)?.nextSiblingId).toBe("p2"); // unchanged
-    expect(getBlock(result.state, "p2" as BlockId)?.prevSiblingId).toBe("p1");
-    expect(getBlock(result.state, "p2" as BlockId)?.nextSiblingId).toBe("p4"); // was "p3"; now skips
-    expect(getBlock(result.state, "p4" as BlockId)?.prevSiblingId).toBe("p2"); // was "p3"; rewired
-    expect(getBlock(result.state, "p3" as BlockId)).toBeNull(); // removed
-
-    const parent = getBlock(result.state, "doc" as BlockId);
-    expect(parent?.firstChildId).toBe("p1"); // unchanged
-    expect(parent?.lastChildId).toBe("p4"); // unchanged
-
-    // dirtyIds: p2 (modified), p3 (removed), p4 (prevSiblingId rewired). Parent NOT dirty.
-    expect(new Set(result.dirtyIds)).toEqual(new Set(["p2", "p3", "p4"]));
-  });
-
-  it("first pair (p1 + p2): p1 keeps id; firstChildId stays p1; p3.prevSiblingId rewires to p1", () => {
-    const state = fourChildFixture();
-    const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
-
-    expect(getBlock(result.state, "p1" as BlockId)?.prevSiblingId).toBeNull(); // unchanged
-    expect(getBlock(result.state, "p1" as BlockId)?.nextSiblingId).toBe("p3"); // was p2
-    expect(getBlock(result.state, "p3" as BlockId)?.prevSiblingId).toBe("p1"); // was p2
-    expect(getBlock(result.state, "p2" as BlockId)).toBeNull();
-
-    const parent = getBlock(result.state, "doc" as BlockId);
-    expect(parent?.firstChildId).toBe("p1"); // unchanged (left wins, kept id)
-    expect(parent?.lastChildId).toBe("p4"); // unchanged
-
-    expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "p3"]));
-  });
-
-  it("last pair (p3 + p4): p3 keeps id; parent's lastChildId rewires from p4 to p3", () => {
-    const state = fourChildFixture();
-    const result = mergeAdjacentBlocks(state, "p3" as BlockId, "p4" as BlockId);
-
-    expect(getBlock(result.state, "p3" as BlockId)?.prevSiblingId).toBe("p2");
-    expect(getBlock(result.state, "p3" as BlockId)?.nextSiblingId).toBeNull(); // was p4; now last child
-    expect(getBlock(result.state, "p4" as BlockId)).toBeNull();
-
-    const parent = getBlock(result.state, "doc" as BlockId);
-    expect(parent?.firstChildId).toBe("p1");
-    expect(parent?.lastChildId).toBe("p3"); // rewired from p4
-
-    // dirtyIds: p3 (modified), p4 (removed), doc (lastChildId rewired).
-    expect(new Set(result.dirtyIds)).toEqual(new Set(["p3", "p4", "doc"]));
-  });
-
-  it("nested-block pair: doc > section > [p1, p2] → merging uses the immediate container as parent", () => {
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "section", lastChildId: "section" }),
-        buildBlock({ id: "section", type: "section", parentId: "doc", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "section", nextSiblingId: "p2", inlineContent: inlineContent([text("hello")]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "section", prevSiblingId: "p1", inlineContent: inlineContent([text(" world")]) }),
-      ],
-    });
-    const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
-
-    // Section's lastChildId rewires; doc untouched.
-    const section = getBlock(result.state, "section" as BlockId);
-    expect(section?.firstChildId).toBe("p1");
-    expect(section?.lastChildId).toBe("p1");
-
-    const doc = getBlock(result.state, "doc" as BlockId);
-    expect(doc?.firstChildId).toBe("section");
-    expect(doc?.lastChildId).toBe("section");
-
-    expect(getBlock(result.state, "p2" as BlockId)).toBeNull();
-
-    // dirtyIds: p1, p2, section. doc NOT dirty.
-    expect(new Set(result.dirtyIds)).toEqual(new Set(["p1", "p2", "section"]));
-  });
-});
-
-describe("mergeAdjacentBlocks — block-level invariants", () => {
-  it("left wins type when blocks have different types", () => {
-    // doc > [p (paragraph), h (heading)] → merge p + h → result keeps p's type "paragraph".
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "h" }),
-        buildBlock({ id: "p", type: "paragraph", parentId: "doc", nextSiblingId: "h", inlineContent: inlineContent([text("hello")]) }),
-        buildBlock({ id: "h", type: "heading", parentId: "doc", prevSiblingId: "p", inlineContent: inlineContent([text(" world")]) }),
-      ],
-    });
-    const result = mergeAdjacentBlocks(state, "p" as BlockId, "h" as BlockId);
-    expect(getBlock(result.state, "p" as BlockId)?.type).toBe("paragraph");
-  });
-
-  it("left wins attrs when blocks have different attrs", () => {
-    // doc > [li1 { level: 2 }, li2 { level: 3 }] → result keeps { level: 2 }.
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "li1", lastChildId: "li2" }),
-        buildBlock({ id: "li1", type: "list-item", attrs: { level: 2 }, parentId: "doc", nextSiblingId: "li2", inlineContent: inlineContent([text("a")]) }),
-        buildBlock({ id: "li2", type: "list-item", attrs: { level: 3 }, parentId: "doc", prevSiblingId: "li1", inlineContent: inlineContent([text("b")]) }),
-      ],
-    });
-    const result = mergeAdjacentBlocks(state, "li1" as BlockId, "li2" as BlockId);
-    expect(getBlock(result.state, "li1" as BlockId)?.attrs).toEqual({ level: 2 });
-  });
-
-  it("preserves embed-referenced contents in right's inline content (no cascade-delete)", () => {
-    // doc > [p1[], p2[embed("footnote", { contentBlockId: "fn-body" })]] + fn-body in embedContents.
-    // Merging p1 + p2 must NOT delete fn-body — the embed reference is still alive in the merged content.
-    // mergeAdjacentBlocks calls yBlocks.delete(right) directly (not removeBlock), so Task 5's
-    // cascade-delete does not fire; fn-body in embedContents survives.
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("see")]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([embed("footnote-anchor", { contentBlockId: "fn-body" })]) }),
-      ],
-      embedContents: [
-        buildBlock({ id: "fn-body", type: "footnote-body", inlineContent: inlineContent([text("footnote text")]) }),
-      ],
-    });
-    const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
-    // fn-body must still exist in embedContents.
-    expect(getEmbedContent(result.state, "fn-body" as BlockId)).not.toBeNull();
-    // The merged inline content carries the embed reference.
-    const items = getBlock(result.state, "p1" as BlockId)?.inlineContent?.items;
-    expect(items).toHaveLength(2);
-    expect(items?.[0]).toMatchObject({ kind: "text", text: "see" });
-    expect(items?.[1]).toMatchObject({ kind: "embed", embedType: "footnote-anchor", properties: { contentBlockId: "fn-body" } });
-  });
-
-  it("preserves structural sharing: blocks NOT touched by the merge retain object identity", () => {
-    // doc > [p0, p1, p2, p3] — merge p1 + p2; p0 and p3 untouched (p3 is touched: prev rewired).
-    // Actually p3 IS touched (prevSiblingId rewires). So only p0 has untouched identity.
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p0", lastChildId: "p3" }),
-        buildBlock({ id: "p0", type: "paragraph", parentId: "doc", nextSiblingId: "p1", inlineContent: inlineContent([text("zero")]) }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", prevSiblingId: "p0", nextSiblingId: "p2", inlineContent: inlineContent([text("one")]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p3", inlineContent: inlineContent([text("two")]) }),
-        buildBlock({ id: "p3", type: "paragraph", parentId: "doc", prevSiblingId: "p2", inlineContent: inlineContent([text("three")]) }),
-      ],
-    });
-    const beforeP0 = getBlock(state, "p0" as BlockId);
-    const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
-    expect(getBlock(result.state, "p0" as BlockId)).toBe(beforeP0);
-  });
-
-  it("does not mutate the original state", () => {
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("hello")]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text(" world")]) }),
-      ],
-    });
-    // Cache pre-op snapshots BEFORE the op so the pre-op State.snapshotCache
-    // holds them. (Y.Doc itself is mutated in place; per-State view stability
-    // comes from each State's cache, not from Y.Doc immutability.)
-    const beforeP1 = getBlock(state, "p1" as BlockId);
-    const beforeP2 = getBlock(state, "p2" as BlockId);
-    const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
-
+  it("does not mutate the pre-op snapshots", () => {
+    const state = doc([para("p1", [text("a")]), para("p2", [text("b")])]);
+    const before = getBlock(state, id("p1"));
+    const result = mergeAdjacentBlocks(state, id("p1"), id("p2"));
     expect(result.state).not.toBe(state);
-    // Original state still has p2 and p1's nextSibling pointing to p2.
-    expect(getBlock(state, "p2" as BlockId)).toBe(beforeP2);
-    expect(getBlock(state, "p1" as BlockId)).toBe(beforeP1);
-    expect(getBlock(state, "p1" as BlockId)?.nextSiblingId).toBe("p2");
+    expect(getBlock(state, id("p1"))).toBe(before);
+    expect(before?.inlineContent?.items).toMatchObject([{ text: "a" }]);
   });
 });
 
-describe("mergeAdjacentBlocks — empty-block edge cases", () => {
-  it("left empty + right with content: result has right's content under left's id", () => {
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([text("hello")]) }),
-      ],
-    });
-    const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
-    const items = getBlock(result.state, "p1" as BlockId)?.inlineContent?.items;
-    expect(items).toHaveLength(1);
-    expect(items?.[0]).toMatchObject({ kind: "text", text: "hello" });
-    expect(getBlock(result.state, "p2" as BlockId)).toBeNull();
+describe("mergeAdjacentBlocks — formatting (Google Docs / Quill: the FIRST paragraph wins unless it is an empty DEFAULT paragraph)", () => {
+  it("non-empty L: L's type + attrs + ¶ props are written onto R key-wise (R's keys L lacks are cleared)", () => {
+    const state = doc([
+      { ...para("L", [text("ab")], { type: "heading", attrs: { level: 1 } }), markAttrs: { bold: true } },
+      { ...para("R", [text("cd")], { attrs: { align: "center" } }), markAttrs: { italic: true } },
+    ]);
+    const s = mergeAdjacentBlocks(state, id("L"), id("R")).state;
+    expect(flowShape(s, "doc")).toBe('R:"abcd"');
+    expect(getBlock(s, id("R"))?.type).toBe("heading");
+    expect(getBlock(s, id("R"))?.attrs).toEqual({ level: 1 });
+    expect(getBlock(s, id("R"))?.markAttrs).toEqual({ bold: true });
   });
 
-  it("left with content + right empty: result has left's content unchanged", () => {
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("hello")]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([]) }),
-      ],
-    });
-    const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
-    const items = getBlock(result.state, "p1" as BlockId)?.inlineContent?.items;
-    expect(items).toHaveLength(1);
-    expect(items?.[0]).toMatchObject({ kind: "text", text: "hello" });
-    expect(getBlock(result.state, "p2" as BlockId)).toBeNull();
+  it("non-empty L + EMPTY R of another type: R takes L's formatting", () => {
+    const s = mergeAdjacentBlocks(doc([para("L", [text("ab")]), para("R", [], { type: "heading", attrs: { level: 2 } })]), id("L"), id("R")).state;
+    expect(flowShape(s, "doc")).toBe('R:"ab"');
+    expect(getBlock(s, id("R"))?.type).toBe("paragraph");
+    expect(getBlock(s, id("R"))?.attrs).toEqual({});
   });
 
-  it("both empty: result is one empty block under left's id", () => {
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "p1", inlineContent: inlineContent([]) }),
-      ],
-    });
-    const result = mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId);
-    const items = getBlock(result.state, "p1" as BlockId)?.inlineContent?.items;
-    expect(items).toEqual([]);
-    expect(getBlock(result.state, "p2" as BlockId)).toBeNull();
+  it("an EMPTY HEADING L still wins: empty heading + normal \"x\" → heading \"x\"", () => {
+    const s = mergeAdjacentBlocks(doc([para("L", [], { type: "heading", attrs: { level: 1 } }), para("R", [text("x")])]), id("L"), id("R")).state;
+    expect(flowShape(s, "doc")).toBe('R:"x"');
+    expect(getBlock(s, id("R"))?.type).toBe("heading");
+    expect(getBlock(s, id("R"))?.attrs).toEqual({ level: 1 });
+  });
+
+  it("an EMPTY DEFAULT L loses: empty normal + heading \"x\" → heading \"x\"", () => {
+    const s = mergeAdjacentBlocks(doc([para("L", []), para("R", [text("x")], { type: "heading", attrs: { level: 2 } })]), id("L"), id("R")).state;
+    expect(flowShape(s, "doc")).toBe('R:"x"');
+    expect(getBlock(s, id("R"))?.type).toBe("heading");
+    expect(getBlock(s, id("R"))?.attrs).toEqual({ level: 2 });
+  });
+
+  it("both empty: one empty paragraph with R's id", () => {
+    const s = mergeAdjacentBlocks(doc([para("L", []), para("R", [])]), id("L"), id("R")).state;
+    expect(flowShape(s, "doc")).toBe('R:""');
   });
 });
 
@@ -447,7 +228,9 @@ describe("mergeAdjacentBlocks — error cases", () => {
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "s" }),
         buildBlock({ id: "p", type: "paragraph", parentId: "doc", nextSiblingId: "s", inlineContent: inlineContent([text("hi")]) }),
-        buildBlock({ id: "s", type: "section", parentId: "doc", prevSiblingId: "p" }), // null inlineContent AND null firstChildId
+        // An object block: null inlineContent AND null firstChildId (an empty
+        // SECTION is not in the read model).
+        buildBlock({ id: "s", type: "horizontal-line", parentId: "doc", prevSiblingId: "p" }),
       ],
     });
     expect(() =>
@@ -485,23 +268,6 @@ describe("mergeAdjacentBlocks — error cases", () => {
     });
     expect(() =>
       mergeAdjacentBlocks(state, "p1" as BlockId, "p3" as BlockId),
-    ).toThrow(/not adjacent siblings/);
-  });
-
-  it("throws when right.prevSiblingId !== leftId (malformed adjacency — adjacency arm B)", () => {
-    // doc > [p1, p2] — left.nextSiblingId === "p2" (correct) but right.prevSiblingId is fabricated as null
-    // to simulate a malformed-state case where the bidirectional invariant is broken.
-    // The guard's second arm catches this; pinning it prevents a future regression that drops the AND.
-    const state = buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "p2", inlineContent: inlineContent([text("a")]) }),
-        buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: null, inlineContent: inlineContent([text("b")]) }),
-      ],
-    });
-    expect(() =>
-      mergeAdjacentBlocks(state, "p1" as BlockId, "p2" as BlockId),
     ).toThrow(/not adjacent siblings/);
   });
 });

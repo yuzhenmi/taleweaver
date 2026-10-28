@@ -3,13 +3,13 @@ import { resolveBlock, coerceBlockId } from "@taleweaver/core";
 import type { State, BlockId, BlockKindResolver } from "@taleweaver/core";
 
 /**
- * Object-selection geometry (#525). An ABSOLUTE physical pixel rect for an
+ * Object-selection geometry. An ABSOLUTE physical pixel rect for an
  * atomic-leaf block (image / horizontal-line), plus the page it lives on.
  *
  * PHYSICAL coordinates (NOT the logical inline/block projection
  * `findBlockBaseline` produces): images are horizontal writing-mode, so the
  * box's physical `(x, y, width, height)` IS the rect a point-in-rect hit-test
- * (Task 3) and the selection-handle geometry (Task 4) want. `x`/`y` are
+ * and the selection-handle geometry want. `x`/`y` are
  * document-relative when the page is the walk root (a per-page `getPage(i)`
  * `PageBox` uses the page-content frame as its `(0, 0)` origin — see
  * `findBlockBaseline` / `collectLineBoxes`).

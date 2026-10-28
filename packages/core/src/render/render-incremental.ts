@@ -1,7 +1,7 @@
 /**
  * @module render/render-incremental
  *
- * The incremental cache/invalidation engine (R-D). Walks the new state's block
+ * The incremental cache/invalidation engine. Walks the new state's block
  * tree reusing the prior `RenderOutput`'s RenderNode for any block whose subtree
  * is unchanged (block-level reference equality), rebuilding only invalidated
  * subtrees. The invalidation set is
@@ -41,10 +41,7 @@ import type { RenderNode } from "./render-node";
 import type { RenderOutput } from "./render";
 import { EMPTY_LIST_COUNTERS } from "./render";
 import { renderBlockBody } from "./render-core";
-import {
-  buildCrossReferenceIndex,
-  blockHasCrossReference,
-} from "./collect-cross-references";
+import { updateCrossReferenceIndex } from "./collect-cross-references";
 import {
   collectListEvents,
   computeCounters,
@@ -77,7 +74,7 @@ export function renderIncremental(
   prevState: State,
   dirtyIds: ReadonlySet<BlockId>,
   footnoteNumbersOverride?: ReadonlyMap<BlockId, FootnoteNumber>,
-  // Change-tracking preview view (slice 5c-iii). The incremental path assumes a
+  // Change-tracking preview view. The incremental path assumes a
   // STABLE view across cycles (live editing is always "suggesting"); a view
   // SWITCH must go through the full `render()` path, since reused prev nodes were
   // built under the prior view. Threaded to `makeRenderContext` so a consistent-
@@ -88,7 +85,7 @@ export function renderIncremental(
   // This preserves reference equality on the top-level RenderOutput so
   // downstream consumers (cascade, layout, paint) can skip work too.
   //
-  // FN-6.4: an override is the source of truth for the NUMBERS this cycle, so
+  // An override is the source of truth for the NUMBERS this cycle, so
   // we must NOT take the empty-dirty short-circuit when one is supplied — the
   // caller relies on the override flowing into the markers. The caller pairs an
   // override with a non-empty `dirtyIds` (the changed marker blocks), so in
@@ -96,7 +93,7 @@ export function renderIncremental(
   // explicit check makes the precedence unambiguous.
   if (dirtyIds.size === 0 && footnoteNumbersOverride === undefined) return prev;
 
-  // FN-2: the footnote numbering map for THIS cycle, and the prior cycle's.
+  // The footnote numbering map for THIS cycle, and the prior cycle's.
   // A footnote inserted/deleted/reordered renumbers DOWNSTREAM anchors whose
   // own blocks are NOT in `dirtyIds` (only the edited anchor's block is). Those
   // downstream anchor blocks carry a now-stale marker number in their cached
@@ -108,15 +105,15 @@ export function renderIncremental(
   // reuse the list for both the numbering map AND the renumber diff — avoid a
   // second walk per keystroke.
   //
-  // FN-8: a footnote-FREE document (the dominant per-keystroke case) skips the
+  // A footnote-FREE document (the dominant per-keystroke case) skips the
   // walk entirely. `docHasFootnotes` is O(1) (cached embed-content root-id set,
   // recomputed only on a footnote insert/delete, not per keystroke), whereas
   // `collectFootnoteAnchors` is an O(N_blocks) full-document tree walk. The
   // result is identical: a footnote-free doc has no anchors and an empty
   // numbering map, so the downstream `fnAnchors.length > 0` block naturally
   // skips too. This removes the last unguarded per-keystroke walk (the
-  // prevState diff at L543 was already guarded).
-  // FN-8 (footnote-BEARING incremental): when the doc has footnotes but NO edit
+  // prevState diff further down was already guarded).
+  // Footnote-BEARING incremental: when the doc has footnotes but NO edit
   // this cycle could have changed the anchor list (added / removed / moved an
   // anchor-bearing block, or touched a section), REUSE the prior cycle's cached
   // anchors + numbers instead of re-walking all N blocks. The reuse is exact:
@@ -128,12 +125,12 @@ export function renderIncremental(
   // When anchors are reused, the numbering map is reused verbatim: the
   // state-derivable policies (continuous / restart-per-section) are pure
   // functions of the anchor list, so unchanged anchors ⇒ unchanged numbers —
-  // the per-cycle renumber diff is skipped too. FN-6.3: a policy CHANGE dirties
+  // the per-cycle renumber diff is skipped too. A policy CHANGE dirties
   // the root block, and `footnoteAnchorsUnchanged` returns false when the root
   // is dirty (`dirtyIds.has(state.rootId)`), so a policy edit forces a
   // recompute under the new policy rather than reusing stale numbers.
-  // (Restart-per-page numbering, FN-6.4, is NOT yet wired into render — it
-  // falls back to continuous via `effectiveRenderPolicy`; once FN-6.4's two-pass
+  // (In the render pass alone, restart-per-page numbering
+  // falls back to continuous via `effectiveRenderPolicy`; when the layout-driver's two-pass
   // cycle supplies per-page numbers, layout-dependent numbers can shift WITHOUT
   // any anchor change, and that policy must NOT reuse numbers blindly.)
   const reuseAnchors = footnoteAnchorsUnchanged(state, prevState, dirtyIds, prev);
@@ -142,8 +139,8 @@ export function renderIncremental(
     : docHasFootnotes(state)
       ? collectFootnoteAnchors(state)
       : EMPTY_FOOTNOTE_ANCHORS;
-  // FN-6.4: when an override is supplied it is authoritative for the NUMBERS
-  // this cycle — it replaces BOTH the policy-derived computation AND the FN-8
+  // When an override is supplied it is authoritative for the NUMBERS
+  // this cycle — it replaces BOTH the policy-derived computation AND the
   // reused cache (`prev.footnoteNumbers`). The anchor LIST is still reused or
   // recomputed as usual (the override only governs numbers, not membership).
   const fnNumbers = footnoteNumbersOverride !== undefined
@@ -160,7 +157,7 @@ export function renderIncremental(
   // stale, so the diff (and its prevState walk) is skipped. A footnote-free doc
   // has an empty anchor list and skips here too — the common case pays nothing.
   if (!reuseAnchors && fnAnchors.length > 0) {
-    // FN-8: the prior cycle's numbering map is already cached on `prev` — it IS
+    // The prior cycle's numbering map is already cached on `prev` — it IS
     // `footnoteNumbers(collectFootnoteAnchors(prevState), policy)`. Reuse it
     // directly instead of re-walking prevState (the renumber diff only runs when
     // an anchor changed, but even then the prevState walk is pure waste here).
@@ -182,7 +179,7 @@ export function renderIncremental(
       }
       // The footnote BODY root carries the same number as a leading marker
       // (`markerText`, baked from `ctx.footnoteNumber` at render time —
-      // footnote-body.ts / FN-6.2b). Without invalidating it the body slot keeps
+      // footnote-body.ts). Without invalidating it the body slot keeps
       // the stale number while the call marker updates (e.g. insert a footnote
       // before existing ones → markers renumber but body slots don't). The body
       // root is a top-level embedContents entry reused via `invalidated.has(id)`
@@ -251,26 +248,22 @@ export function renderIncremental(
     addAncestorsToInvalidated(state, prevState, blockId, invalidated);
   }
 
-  // Cross-reference target→hosts (XR.S4): a ref displays a target it does not
-  // own, so when the target's VALUE changes this cycle the host's cached
-  // RenderNode carries a stale resolved string — but the host's own block is not
-  // in dirtyIds. Reuse the cached index unless a dirty block gained/lost/
-  // retargeted a ref (a target edit/delete does NOT change the index, only the
-  // resolved value), then invalidate every host whose target changed value:
-  // targetId ∈ dirtyIds (edited / inserted / deleted-via-captureDirtyIds → text
-  // mode + broken-ref transitions) OR targetId ∈ listRenumbered (number mode).
-  const crossReferenceIndex = crossReferenceIndexUnchanged(state, prevState, dirtyIds)
-    ? prev.crossReferenceIndex
-    : buildCrossReferenceIndex(state);
-  if (crossReferenceIndex.size > 0) {
-    for (const [targetId, hosts] of crossReferenceIndex) {
-      if (!dirtyIds.has(targetId) && !listRenumbered.has(targetId)) continue;
-      for (const host of hosts) {
-        if (invalidated.has(host)) continue;
-        invalidated.add(host);
-        addAncestorsToInvalidated(state, prevState, host, invalidated);
-      }
-    }
+  // Cross-reference fields display a bookmark they do not own: when a block the
+  // bookmark covers changed, its pairing changed, or its start block renumbered
+  // (number mode), the host's cached RenderNode carries a stale resolved string
+  // although the host is not in dirtyIds. The index is updated from the dirty
+  // blocks only (O(dirty), not O(document)) and names those hosts.
+  const { index: crossReferenceIndex, staleHosts } = updateCrossReferenceIndex(
+    prev.crossReferenceIndex,
+    prevState,
+    state,
+    dirtyIds,
+    listRenumbered,
+  );
+  for (const host of staleHosts) {
+    if (invalidated.has(host)) continue;
+    invalidated.add(host);
+    addAncestorsToInvalidated(state, prevState, host, invalidated);
   }
 
   // TOC outline invalidation (mirrors the cross-reference target→hosts
@@ -296,7 +289,7 @@ export function renderIncremental(
     }
   }
 
-  const context: RenderContext = makeRenderContext(state, fnNumbers, listCounters, suggestionView);
+  const context: RenderContext = makeRenderContext(state, fnNumbers, listCounters, suggestionView, crossReferenceIndex.bookmarks);
 
   const rootBlock = getBlock(state, state.rootId);
   if (rootBlock === null) {
@@ -404,7 +397,7 @@ export function renderIncremental(
  * heading was edited/inserted/deleted/re-leveled/re-typed/moved — every such op
  * dirties the heading block, or for a deletion captures its id). When false, no
  * heading changed, so the cached outline signature is reused and no TOC needs
- * re-derivation. Mirrors `crossReferenceIndexUnchanged`.
+ * re-derivation.
  */
 function outlineMightHaveChanged(
   state: State,
@@ -420,35 +413,6 @@ function outlineMightHaveChanged(
     }
   }
   return false;
-}
-
-/**
- * Whether the cross-reference target→hosts index can be reused from `prev`
- * unchanged. The index's CONTENT (which blocks hold refs to which targets)
- * changes only when a dirty block gained, lost, or retargeted a cross-reference
- * field — a target's own edit/delete does NOT alter the index (the host still
- * holds the same pointer; only the RESOLVED value changes, handled separately by
- * the invalidation expansion). So a cycle whose dirty blocks carry no cross-
- * reference in either new or prev state reuses the cached index without the
- * O(N_blocks) rebuild walk. Mirrors `footnoteAnchorsUnchanged`.
- */
-function crossReferenceIndexUnchanged(
-  state: State,
-  prevState: State,
-  dirtyIds: ReadonlySet<BlockId>,
-): boolean {
-  // Every render path (full + incremental) populates `prev.crossReferenceIndex`,
-  // so there is always an index to reuse — the only question is whether a dirty
-  // block changed it.
-  for (const id of dirtyIds) {
-    if (
-      blockHasCrossReference(getBlock(state, id)) ||
-      blockHasCrossReference(getBlock(prevState, id))
-    ) {
-      return false;
-    }
-  }
-  return true;
 }
 
 /**
@@ -476,16 +440,14 @@ function renderBlockIncremental(
     const cached = prevByKey.get(block.id);
     if (cached !== undefined) return cached;
   }
-  // Note re: spec deviation — the design spec
-  // (`docs/superpowers/specs/2026-05-22-render-incremental-design.md`)
-  // also suggests a `getBlock(state, id) === getBlock(prevState, id)`
+  // Note: one could also add a `getBlock(state, id) === getBlock(prevState, id)`
   // belt-and-suspenders check. In practice that comparison is not
   // useful at runtime: `getBlock` returns a wrapper over the Y.Doc
   // (per `state/state.ts`); fresh State after an operation produces
   // different wrapper instances even for blocks whose underlying
   // content is unchanged. A meaningful "did this block change"
   // comparison would have to be structural (O(block-size)) and would
-  // defeat the perf gain. The state module's `dirtyIds` contract (T7)
+  // defeat the perf gain. The state module's `dirtyIds` contract
   // is the authoritative signal; the spec assumes it, and we trust
   // it here. If a future state op leaves `dirtyIds` incomplete, the
   // bug surfaces as stale rendered content — caught by integration

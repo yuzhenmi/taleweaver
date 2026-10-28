@@ -3,8 +3,9 @@ import type { State, OperationResult } from "../state";
 import { applyOperation, getBlock } from "../state";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
-import { getBlocksMap, getYBlock, requireInTransaction } from "../yjs-doc";
-import { buildYBlock } from "../y-block";
+import { requireInTransaction } from "../yjs-doc";
+import { setCellSpan, implicitSlots, createCell } from "../table-storage";
+import { getRegistry } from "../registry";
 import { assertNoIdCollision } from "../id-collision-check";
 import { setBlockAttrsInTx } from "./set-block-attrs";
 import { buildTableGrid } from "../table-context";
@@ -12,7 +13,7 @@ import type { TableContext } from "../table-context";
 
 /**
  * Pre-computed mutation plan for `splitCellInTx`. Everything is derived from the
- * PRE-mutation occupancy grid (F5): the surviving cell's de-spanned attrs and,
+ * PRE-mutation occupancy grid: the surviving cell's de-spanned attrs and,
  * per affected grid row, the run of brand-new 1×1 cells to splice in plus the
  * existing sibling cells they sit between.
  */
@@ -142,71 +143,24 @@ function dropSpanAttrs(attrs: ReadonlyAttrs): ReadonlyAttrs {
  */
 export function splitCellInTx(doc: Y.Doc, plan: SplitCellPlan): void {
   requireInTransaction(doc, "splitCell");
-
-  const blocksMap = getBlocksMap(doc);
   for (const row of plan.rows) {
     for (const nc of row.newCells) {
       assertNoIdCollision(doc, nc.cellId, "splitCell");
       assertNoIdCollision(doc, nc.paragraphId, "splitCell");
     }
   }
-
+  // Unmerge = drop the span keys: every covered cell shows its PHYSICAL flow again
+  // (nothing moves). Slots without a real cell get the planner's fresh cells.
+  const reg = getRegistry(doc);
+  const ce = reg.get(plan.cellId);
+  const tableId = ce === undefined ? undefined : reg.get(String(ce.get("row")))?.get("table");
+  setCellSpan(doc, plan.cellId, null, null);
   setBlockAttrsInTx(doc, plan.cellId, plan.survivorAttrs, "splitCell");
-
+  if (typeof tableId !== "string") return;
   for (const row of plan.rows) {
-    const seq = row.newCells;
-    for (const [i, nc] of seq.entries()) {
-      const prevCell = seq[i - 1];
-      const nextCell = seq[i + 1];
-      const prev = i === 0 ? row.prevCellId : (prevCell?.cellId ?? null);
-      const next = i === seq.length - 1 ? row.nextCellId : (nextCell?.cellId ?? null);
-      blocksMap.set(
-        nc.cellId,
-        buildYBlock({
-          type: "table-cell",
-          attrs: {},
-          parentId: row.rowId,
-          prevSiblingId: prev,
-          nextSiblingId: next,
-          firstChildId: nc.paragraphId,
-          lastChildId: nc.paragraphId,
-          inlineContent: null,
-        }),
-      );
-      blocksMap.set(
-        nc.paragraphId,
-        buildYBlock({
-          type: "paragraph",
-          attrs: {},
-          parentId: nc.cellId,
-          prevSiblingId: null,
-          nextSiblingId: null,
-          firstChildId: null,
-          lastChildId: null,
-          inlineContent: { items: [] },
-        }),
-      );
-    }
-
-    // Re-link the surrounding existing siblings to the ends of the new run
-    // (insertBlock boundary discipline: write row first/lastChildId only at a head/tail).
-    const firstCell = seq[0];
-    const lastCell = seq[seq.length - 1];
-    if (firstCell === undefined || lastCell === undefined) {
-      throw new Error("splitCell: row has no new cells (unreachable)");
-    }
-    const first = firstCell.cellId;
-    const last = lastCell.cellId;
-    if (row.prevCellId !== null) {
-      getYBlock(doc, row.prevCellId, "splitCell").set("nextSiblingId", first);
-    }
-    if (row.nextCellId !== null) {
-      getYBlock(doc, row.nextCellId, "splitCell").set("prevSiblingId", last);
-    }
-    if (row.prevCellId === null || row.nextCellId === null) {
-      const yRow = getYBlock(doc, row.rowId, "splitCell");
-      if (row.prevCellId === null) yRow.set("firstChildId", first);
-      if (row.nextCellId === null) yRow.set("lastChildId", last);
-    }
+    implicitSlots(doc, tableId, row.rowId).forEach((col, i) => {
+      const nc = row.newCells[i];
+      if (nc !== undefined) createCell(doc, row.rowId, col, nc.cellId, nc.paragraphId);
+    });
   }
 }

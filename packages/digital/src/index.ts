@@ -14,4 +14,8 @@ export { computedStyleToInlineStyle } from "./dom-view/computed-style-to-css";
 
 // Contenteditable editing controller (the interactive digital backend).
 export { createDigitalController } from "./editor-digital/digital-controller";
-export type { DigitalController, DigitalControllerOptions } from "./editor-digital/digital-controller";
+export type {
+  DigitalController,
+  DigitalControllerOptions,
+  DecorationPointerEvent,
+} from "./editor-digital/digital-controller";

@@ -18,7 +18,7 @@ export interface CounterEvent {
   /**
    * True when this event is the first of a fresh consecutive run within its
    * scope (an intervening non-scope block separated it from the previous
-   * same-scope event). Drives the #425 run-grouping rule.
+   * same-scope event). Drives the consecutive-run grouping rule.
    */
   readonly breakBefore: boolean;
   /**

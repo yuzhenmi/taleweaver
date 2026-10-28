@@ -1,125 +1,91 @@
-import * as Y from "yjs";
+import type * as Y from "yjs";
+import { requireBlockText } from "../block-text";
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
+import { STATE_INTERNAL } from "../state-internal";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import type { Position } from "../block-position";
-import {
-  inlineContentLength,
-  type EmbedItem,
-} from "../inline-content";
-import { getTreeMap, getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
-import { buildYBlock, buildYInlineItem } from "../y-block";
-import { yMapAsObject, cloneInlineItem, yItemLength } from "../y-utils";
+import { inlineContentLength } from "../inline-content";
+import { requireInTransaction, type BlockTreeKind } from "../yjs-doc";
+import { inlineItemsFromYText, snapOffset } from "../y-inline";
 import { assertNoIdCollision } from "../id-collision-check";
-import { assertSameTree } from "../assert-same-tree";
-import {
-  BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
-  writeSuggestionRecordInTx,
-  type SuggestionMintInput,
-} from "../suggestions";
+import { splitAt, writeBlockAttrs, writeBlockType } from "../flow-ops";
+import { markAttrsOfRun, inclusiveKeysOf, type InclusiveKey } from "../mark-attrs";
+import { splitOffsetBetweenMarkers } from "../bookmarks";
+import type { InlineItem } from "../inline-content";
+import { withoutOneShotAttrs } from "../one-shot-attrs";
+import { writeSuggestionRecordInTx, type SuggestionMintInput } from "../suggestions";
+import { INSERTION_TAG_KEY } from "../break-tags";
+import { writeBreakTagInTx } from "../break-suggestions";
 
 /**
- * Pre-computed mutation plan for `splitBlockAtPositionInTx`. Captures the
- * fully-resolved write inputs:
- *   - `blockId` / `kind` — the reference (original) block + its owning tree
- *     (resolved from `resolveBlock` at plan time so `inTx` doesn't have to
- *     re-resolve).
- *   - `parentId`, `originalNextId` — the neighbor ids the op rewires;
- *     read from the pre-mutation snapshot.
- *   - `newBlockId` — the fresh id allocated outside the transaction so the
- *     allocator is bumped exactly once even if `applyOperation` were ever
- *     made retryable.
- *   - `newType` / `newAttrs` — the NEW block's type + attrs, resolved here
- *     so `inTx` doesn't touch the snapshot. Inherits from the original when
- *     `newBlockInit` omits a field.
- *   - `offset` — the split offset, validated against
- *     `inlineContentLength(block.inlineContent)` at plan time.
- *
- * The plan is plain data — no Y types in it.
+ * Pre-computed mutation plan for `splitBlockAtPositionInTx` (plain data, read off the
+ * pre-mutation snapshot):
+ *   - `blockId` / `kind` — B, the block split, and its owning tree;
+ *   - `newBlockId` — the HEAD's fresh id (allocated once, outside the transaction);
+ *   - `headType` / `headAttrs` / `headMarkAttrs` — the head's entry: B's type + attrs
+ *     (one-shot attrs per the content rule below) and its ¶'s character props;
+ *   - `tail` — what is written onto B's own entry: its type / attrs after the split
+ *     (`newBlockInit` at k = len, one-shot keys that moved to the head removed), or
+ *     null when B's entry is unchanged;
+ *   - `offset` — the split offset, validated against the content length.
  */
 export interface SplitBlockPlan {
   readonly blockId: BlockId;
   readonly kind: BlockTreeKind;
-  readonly parentId: BlockId;
-  readonly originalNextId: BlockId | null;
   readonly newBlockId: BlockId;
-  readonly newType: string;
-  readonly newAttrs: ReadonlyAttrs;
+  readonly headType: string;
+  readonly headAttrs: ReadonlyAttrs;
+  readonly headMarkAttrs: ReadonlyAttrs | undefined;
+  readonly tail: { readonly type: string; readonly attrs: ReadonlyAttrs } | null;
   readonly offset: number;
 }
 
+/** `splitBlockAtPosition`'s result: the head's (new) id. The tail keeps B's id. */
+export interface SplitBlockResult extends OperationResult {
+  readonly newBlockId: BlockId;
+}
+
 /**
- * Split a leaf block at `position` into two adjacent siblings under the
- * same parent.
+ * Split a leaf block B at `position` (Word / Quill): a fresh ¶ is
+ * inserted at the caret. The NEW ¶ ends the HEAD [0, k), which takes the new id from
+ * `allocator` and B's type + attrs; the tail [k, len) keeps ¶B — B's id, entry and
+ * registry attrs. No text item moves. So Enter at offset 0 leaves the new empty
+ * paragraph above, and the caret's paragraph (the tail) is always B.
  *
- * The original block keeps its id, type, attrs, parentId, prevSiblingId.
- * Its inlineContent becomes items in [0, offset). Its nextSiblingId is
- * rewired to the new block.
+ * - One-shot attrs (`listCounterOverride`, host `inheritOnSplit: false`) follow the
+ *   content that carried them: k > 0 (incl. k = len) → moved to the head; k = 0 on a
+ *   non-empty B → they stay on B; an empty B → moved to the head (the upper paragraph).
+ * - `newBlockInit` ("style for the following paragraph", Quill's header-enter / Word)
+ *   applies only at k = len: it is written onto B (the empty tail); the head keeps the
+ *   original type + attrs. Each field is independent; omitted fields keep B's.
+ * - The head's ¶ takes the INCLUSIVE formatting at the caret (`markAttrs`, Word: the
+ *   new ¶ takes the formatting at the insertion point): the inclusive keys of the run
+ *   before the caret (at offset 0, after it), judged by the attr registry bound to the
+ *   doc; an empty B passes its own ¶'s props. With none bound the head's ¶ gets none
+ *   (no key can be judged). One-shot keys are judged by the same registry.
  *
- * A new block is created with a fresh id from `allocator`, carrying the
- * original block's type, attrs, parentId. Its prevSiblingId is the
- * original block's id; its nextSiblingId is the original block's
- * previous nextSiblingId. Its inlineContent is items in
- * [offset, length).
- *
- * `newBlockInit` overrides the NEW block's `type` / `attrs` (each field
- * independently; omitted fields inherit from the original). Used by the editor
- * to implement "style for the following paragraph" — e.g. Enter at the END of a
- * heading makes the new (empty) block a `paragraph` with fresh attrs rather than
- * another heading. This op stays mechanical: it sets whatever type/attrs it is
- * given; the caller is responsible for passing a shape-compatible leaf type.
- *
- * Returns OperationResult with dirtyIds containing:
- *   - the original block's id (content + nextSiblingId changed)
- *   - the new block's id (new entry)
- *   - the original's previous nextSibling, if non-null (its prevSiblingId
- *     was rewired)
- *   - the parent's id, if the original was the last child (parent's
- *     lastChildId updated)
- *
- * Throws if:
- *   - the block does not exist,
- *   - the block is a container (has firstChildId or null inlineContent),
- *   - the block is the root (parentId === null),
- *   - the offset is out of range [0, inlineContentLength].
- *
- * Y.Doc identity: the original block's content Y.Text retains identity
- * for the left half — when the split lands inside a text run, the
- * straddling Y.Text is shortened in place (not rebuilt). Only the new
- * block's suffix items are freshly materialized. No normalization
- * post-pass is needed: a clean split of normalized inline content yields
- * two halves that are each individually normalized.
- *
- * Composition: see `splitBlockAtPositionInTx` for the in-transaction
- * primitive that lets callers chain a split with other `*InTx` ops inside
- * a single Y.Doc transaction (one undo entry / one collab event).
+ * Throws if the block does not exist, is a container / the root, or the offset is
+ * out of range. Composition: `splitBlockAtPositionInTx` runs inside a caller's
+ * transaction.
  */
 export function splitBlockAtPosition(
   state: State,
   position: Position,
   allocator: IdAllocator,
   newBlockInit?: { readonly type?: string; readonly attrs?: ReadonlyAttrs },
-): OperationResult {
+): SplitBlockResult {
   const plan = planSplitBlockAtPosition(state, position, allocator, newBlockInit);
-  return applyOperation(state, (doc) => {
+  const r = applyOperation(state, (doc) => {
     splitBlockAtPositionInTx(doc, plan);
   });
+  return { ...r, newBlockId: plan.newBlockId };
 }
 
 /**
- * Validate `position` against `state` and produce a `SplitBlockPlan` describing
- * the Y.Doc mutations needed. Throws on every condition `splitBlockAtPosition`'s
- * docstring lists.
- *
- * Allocates the new block id via `allocator` so the allocator is bumped exactly
- * once even if the transaction body were ever made retryable. Production
- * crypto-UUID allocators can't collide; the test counter allocators we use can,
- * so `splitBlockAtPositionInTx` still runs `assertNoIdCollision` (dev-only) on
- * `plan.newBlockId` against the live doc.
- *
- * All reads happen against the pre-mutation snapshot — `inTx` does no further
- * `state` / `getBlock` / `resolveBlock` calls.
+ * Validate `position` against `state` and produce the {@link SplitBlockPlan}. Throws
+ * on every condition `splitBlockAtPosition` lists. Allocates the head's id once.
  */
 export function planSplitBlockAtPosition(
   state: State,
@@ -148,213 +114,73 @@ export function planSplitBlockAtPosition(
       `splitBlockAtPosition: offset ${position.offset} out of range [0, ${totalLen}] for block "${position.blockId}"`,
     );
   }
-
-  // The neighbor ids this op reads + rewires: the original's old next sibling
-  // (its prevSiblingId flips to the new block) and the parent (its lastChildId
-  // may flip). Both must live in the SAME tree as the reference block — a
-  // cross-tree pointer would mean the kind-routed writes below corrupt state.
-  // (Dev-only; production no-op.)
-  assertSameTree(
-    state,
-    kind,
-    [block.nextSiblingId, block.parentId],
-    "splitBlockAtPosition",
-  );
-
-  // Allocate the new block id at plan time (OUTSIDE applyOperation) so retries
-  // (if ever added) don't burn through multiple ids.
+  // Marker binding: the new ¶ goes after adjacent end markers and before
+  // adjacent start markers — a bookmark / comment stays on its text.
+  const k = splitOffsetBetweenMarkers(block.inlineContent.items, position.offset);
   const newBlockId = allocator.allocate();
+  const doc = state[STATE_INTERNAL].doc;
+  const withoutOneShot = withoutOneShotAttrs(block.attrs, doc);
+  // One-shot attrs follow the content: they stay on B only at k = 0 of a non-empty B.
+  const oneShotStays = k === 0 && totalLen > 0;
+  const headAttrs = oneShotStays ? withoutOneShot : block.attrs;
+  const init = k === totalLen ? newBlockInit : undefined;
+  const tailType = init?.type ?? block.type;
+  const tailAttrs = init?.attrs ?? (oneShotStays ? block.attrs : withoutOneShot);
+  const tail = tailType === block.type && tailAttrs === block.attrs ? null : { type: tailType, attrs: tailAttrs };
+  const isInclusive = inclusiveKeysOf(doc);
+  const headMarkAttrs = totalLen === 0 ? block.markAttrs : isInclusive === undefined ? undefined : caretMarkAttrs(block.inlineContent.items, k, isInclusive);
+  return { blockId: position.blockId, kind, newBlockId, headType: block.type, headAttrs, headMarkAttrs, tail, offset: k };
+}
 
-  // Resolve the new block's type/attrs against the pre-mutation snapshot so
-  // `inTx` doesn't need to read from `block` / `state` again.
-  const newType = newBlockInit?.type ?? block.type;
-  const newAttrs = newBlockInit?.attrs ?? block.attrs;
-
-  return {
-    blockId: position.blockId,
-    kind,
-    parentId: block.parentId,
-    originalNextId: block.nextSiblingId,
-    newBlockId,
-    newType,
-    newAttrs,
-    offset: position.offset,
-  };
+/** The inclusive formatting of the TEXT run before offset `k` (at the start: after it). */
+function caretMarkAttrs(items: ReadonlyArray<InlineItem>, k: number, isInclusive: InclusiveKey): ReadonlyAttrs {
+  let pos = 0;
+  let before: ReadonlyAttrs | null = null;
+  let after: ReadonlyAttrs | null = null;
+  for (const item of items) {
+    const len = item.kind === "text" ? item.text.length : 1;
+    if (item.kind === "text") {
+      if (pos < k) before = item.attrs;
+      else if (after === null) after = item.attrs;
+    }
+    pos += len;
+  }
+  return markAttrsOfRun(before ?? after ?? {}, isInclusive);
 }
 
 /**
- * Pure Y.Doc-mutation primitive: applies a pre-computed `SplitBlockPlan`
- * to `doc`. Caller is responsible for all validation and for opening the
- * surrounding `applyOperation` / `runTransaction` (this function MUST run
- * inside an already-open transaction; it does NOT open one itself).
- *
- * Used by:
- *   - `splitBlockAtPosition` (thin wrapper that validates + plans + wraps
- *     in `applyOperation`).
- *   - Future composers (e.g., a footnote-anchor insertion that splits a
- *     paragraph and inserts text into the new half) that need to chain
- *     multiple `*InTx` calls inside ONE Y.Doc transaction for atomicity
- *     (single undo entry, single collab event).
- *
- * Reads from the LIVE Y.Doc (the original block's Y.Array<inlineContent>
- * and its child Y.Texts) are unavoidable here — preserving per-character
- * CRDT identity on the left half of a straddled text run requires
- * shortening the existing Y.Text in place, which the plan can't encode as
- * pure data. The reads are local to the original block's items, not the
- * snapshot, so they remain safe for composition (the plan's pre-mutation
- * `state` is irrelevant once the prior `*InTx` has mutated the doc).
+ * Pure Y.Doc-mutation primitive: applies a {@link SplitBlockPlan} inside an already-open
+ * transaction. With `section`, the head's ¶ is that section's end item (a section break). Reads B's LIVE inline items (the cut is snapped once to a grapheme
+ * boundary), so it composes after prior in-tx ops on that block.
  */
-export function splitBlockAtPositionInTx(doc: Y.Doc, plan: SplitBlockPlan): void {
+export function splitBlockAtPositionInTx(doc: Y.Doc, plan: SplitBlockPlan, opts: { readonly section?: string } = {}): void {
   requireInTransaction(doc, "splitBlockAtPosition");
-
-  // Dev-mode defense against allocator id collision (test allocators with
-  // counter-based ids can collide with seeded state; production
-  // crypto.randomUUID effectively cannot). Without this, the owning-map
-  // `set` below would silently overwrite the existing block of the same id.
-  // Checks all three trees (BlockIds share one namespace).
   assertNoIdCollision(doc, plan.newBlockId, "splitBlockAtPosition");
-
-  // Route every map access to the reference block's owning tree (`plan.kind`):
-  // a split inside a header/footer body (templateContents) must land the
-  // new sibling in templateContents, not the main `blocks` map.
-  const yTree = getTreeMap(doc, plan.kind);
-  const yOriginal = getYBlock(doc, plan.blockId, "splitBlockAtPosition", plan.kind);
-
-  // Split yOriginal's inlineContent: items in [0, offset) stay; items in
-  // [offset, end) move to a new block. Straddling text items split.
-  const suffixItems = splitInlineContent(yOriginal, plan.offset);
-
-  // Build new block from the plan's resolved type/attrs + neighbor links.
-  const newYBlock = buildYBlock({
-    type: plan.newType,
-    attrs: plan.newAttrs,
-    parentId: plan.parentId,
-    prevSiblingId: plan.blockId,
-    nextSiblingId: plan.originalNextId,
-    firstChildId: null,
-    lastChildId: null,
-    inlineContent: null,
-  });
-  const newInlineContent = new Y.Array<Y.Map<unknown>>();
-  if (suffixItems.length > 0) newInlineContent.push(suffixItems);
-  newYBlock.set("inlineContent", newInlineContent);
-  // New block inherits the reference block's map (`plan.kind`).
-  yTree.set(plan.newBlockId, newYBlock);
-
-  // Re-wire sibling pointers around the insertion.
-  if (plan.originalNextId !== null) {
-    getYBlock(doc, plan.originalNextId, "splitBlockAtPosition", plan.kind).set(
-      "prevSiblingId",
-      plan.newBlockId,
-    );
+  const live = inlineItemsFromYText(requireBlockText(doc, plan.blockId, "splitBlockAtPosition"));
+  const at = snapOffset(live, plan.offset);
+  splitAt(doc, plan.blockId, at, plan.newBlockId, { type: plan.headType, attrs: plan.headAttrs, tree: plan.kind, markAttrs: plan.headMarkAttrs }, opts);
+  if (plan.tail !== null) {
+    writeBlockType(doc, plan.blockId, plan.tail.type);
+    writeBlockAttrs(doc, plan.blockId, plan.tail.attrs);
   }
-  yOriginal.set("nextSiblingId", plan.newBlockId);
-
-  // Re-wire parent's lastChildId if original was the last child.
-  const yParent = getYBlock(doc, plan.parentId, "splitBlockAtPosition", plan.kind);
-  if (yParent.get("lastChildId") === plan.blockId) {
-    yParent.set("lastChildId", plan.newBlockId);
-  }
-}
-
-/**
- * Mutates `yOriginal.inlineContent` by removing items (and the trailing part
- * of any straddling text item) from `offset` onward, returning a fresh array
- * of detached Y.Map items representing the suffix. Caller owns inserting them
- * into the new block's inlineContent Y.Array.
- *
- * Straddling-text case: the original's Y.Text is shortened in-place
- * (preserving CRDT identity for the left half) and a fresh Y.Map text item
- * carrying the right half is returned in the suffix.
- *
- * Entirely-in-suffix case: items are cloned into the suffix and removed from
- * the original. (Move-without-clone isn't supported by Yjs — a Y type can
- * only belong to one parent.)
- */
-function splitInlineContent(yOriginal: Y.Map<unknown>, offset: number): Y.Map<unknown>[] {
-  const yItems = yOriginal.get("inlineContent") as Y.Array<Y.Map<unknown>>;
-  const suffix: Y.Map<unknown>[] = [];
-  let cursor = 0;
-  let i = 0;
-  while (i < yItems.length) {
-    const yItem = yItems.get(i);
-    const itemLen = yItemLength(yItem);
-    const itemEnd = cursor + itemLen;
-
-    if (itemEnd <= offset) {
-      // Entirely in prefix: leave alone.
-      cursor = itemEnd;
-      i++;
-      continue;
-    }
-    if (cursor >= offset) {
-      // Entirely in suffix: clone into the suffix, remove from original.
-      suffix.push(cloneInlineItem(yItem));
-      yItems.delete(i, 1);
-      // Don't advance i — yItems.delete shifts subsequent items down.
-      continue;
-    }
-    // Straddles boundary; must be text (embed length is 1, can't straddle).
-    const yText = yItem.get("text") as Y.Text;
-    const within = offset - cursor;
-    const after = yText.toString().slice(within);
-    const attrs = yMapAsObject(yItem.get("attrs") as Y.Map<unknown>);
-    if (after.length > 0) {
-      yText.delete(within, after.length);
-      suffix.push(buildYInlineItem({ kind: "text", text: after, attrs }));
-    }
-    cursor = itemEnd;
-    i++;
-  }
-  return suffix;
 }
 
 /**
  * The Enter / paragraph-SPLIT op in Suggesting mode: perform a REAL block split AND
- * mark the new boundary as a tracked suggestion, in ONE tracked `applyOperation`
- * transaction — so the split + the boundary embed + the record land as ONE undo
- * entry and one collab event.
+ * tag the new boundary as a tracked suggestion, in ONE tracked `applyOperation`
+ * transaction (one undo entry, one collab event).
  *
- * A suggested split is modeled as: both paragraphs are REAL separate blocks (a
- * normal {@link splitBlockAtPosition}) PLUS a zero-width
- * {@link BLOCK_SPLIT_SUGGESTION_EMBED_TYPE} embed appended at the END of the FIRST
- * block (block N) carrying the owning `suggestionId` in its `properties`, PLUS an
- * `insertion` {@link SuggestionRecord}. The embed occupies exactly ONE `Position`
- * offset (every embed does) and serializes to "" — it is the marker the range scan
- * ({@link buildSuggestionRangeIndex}) reads to surface the suggestion's range.
+ * A suggested split is a revision ON the new ¶ (Word's model): both paragraphs are
+ * REAL blocks, and the new ¶ — the HEAD's, see {@link splitBlockAtPosition} — carries
+ * the suggestion as `insertionSuggestionId` on its registry entry (see `break-tags.ts`)
+ * plus an `insertion` {@link SuggestionRecord}. No inline item is written.
  *
- * Why a REAL split (not a deferred one): the suggested-inserted break must lay out,
- * paginate, and navigate as two paragraphs immediately (Google Docs shows the split
- * the moment you press Enter in Suggesting mode), while remaining a single tracked
- * change that can be accepted or rejected later.
+ * Resolution: accept drops the key (the break stays); reject removes the new mark
+ * (see `acceptSuggestion` / `rejectSuggestion`). No coalescing: each Enter is its own
+ * suggestion.
  *
- * Resolution (a LATER slice, NOT here): on ACCEPT the embed is removed (the split
- * stays — the break becomes permanent); on REJECT the two blocks re-merge (the
- * break is discarded). This op only CREATES the suggestion.
- *
- * `newBlockInit` overrides the NEW block's (N+1's) `type` / `attrs` — same
- * "style for the following paragraph" hook as {@link splitBlockAtPosition} (e.g.
- * Enter at the end of a heading → a `paragraph` follow-on). The embed always lands
- * on block N (the first half), regardless of `newBlockInit`.
- *
- * Composition discipline: the structural split is performed by
- * {@link splitBlockAtPositionInTx}, which writes block N's content as `[0, offset)`
- * IN PLACE (shortening N's live Y.Array — identity-preserving). This op then APPENDS
- * just the zero-width break embed to N's live `inlineContent` Y.Array. Appending —
- * rather than full-replacing N — preserves the per-character CRDT identity of N's
- * surviving text runs (the foundation the Yjs-backed state model exists to protect
- * for collab), and avoids the double-write the old full-replace incurred (it
- * discarded the split's in-place result). Block N+1 + the sibling rewiring the split
- * performed are UNTOUCHED. The embed is built as plain data PRE-transaction (pure)
- * so the tx body only mutates the live array.
- *
- * Validation (block missing / non-leaf / root / offset out of range) is delegated to
- * {@link planSplitBlockAtPosition}, which throws with its canonical messages.
- *
- * Unlike the in-place suggestion CREATE ops ({@link mintInsertion} et al.) there is
- * NO coalescing: a paragraph break is a discrete structural change — each Enter is
- * its own suggestion (mirror of the undo-coalescing model, where each structural
- * keystroke is its own entry).
+ * `newBlockInit` is applied as in {@link splitBlockAtPosition}. Validation is
+ * delegated to {@link planSplitBlockAtPosition}.
  */
 export function splitWithSuggestion(
   state: State,
@@ -362,40 +188,30 @@ export function splitWithSuggestion(
   allocator: IdAllocator,
   input: SuggestionMintInput,
   newBlockInit?: { readonly type?: string; readonly attrs?: ReadonlyAttrs },
-): OperationResult {
-  // Validate + plan FIRST so the canonical split errors (block missing / non-leaf /
-  // root / offset out of range) win over any read below.
+): SplitBlockResult {
   const plan = planSplitBlockAtPosition(state, position, allocator, newBlockInit);
-
-  // The zero-width break embed carrying the owning suggestion id, built as plain
-  // data PRE-transaction. It is a merge BARRIER (never folded into a neighbor), so
-  // it stays the LAST item of block N after the append.
-  const embed: EmbedItem = Object.freeze({
-    kind: "embed",
-    embedType: BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
-    attrs: Object.freeze({}),
-    properties: Object.freeze({ suggestionId: input.id }),
-  });
-
-  return applyOperation(state, (doc) => {
-    // 1. Perform the REAL structural split (block N+1 materialized, siblings rewired,
-    //    block N's content set to [0, offset) IN PLACE — identity-preserving).
+  const r = applyOperation(state, (doc) => {
     splitBlockAtPositionInTx(doc, plan);
-    // 2. APPEND just the break embed to block N's LIVE inlineContent Y.Array. The
-    //    in-place split already left N's content normalized as [0, offset); appending
-    //    the barrier embed keeps it normalized and preserves N's text-run CRDT
-    //    identity (no full-replace). N+1 + the sibling rewiring stay as the split
-    //    left them.
-    const yN = getYBlock(doc, plan.blockId, "splitWithSuggestion", plan.kind);
-    const yItems = yN.get("inlineContent") as Y.Array<Y.Map<unknown>>;
-    yItems.push([buildYInlineItem(embed)]);
-    // 3. Write the `insertion` record (a suggested split IS a tracked insertion of a
-    //    paragraph break).
-    writeSuggestionRecordInTx(doc, {
-      id: input.id,
-      kind: "insertion",
-      author: input.author,
-      createdAt: input.createdAt,
-    });
+    writeSplitSuggestionInTx(doc, plan.newBlockId, input);
+  });
+  return { ...r, newBlockId: plan.newBlockId };
+}
+
+/**
+ * Key a just-created mark (new block `newBlockId`) as a suggested split + write its
+ * `insertion` record. MUST run inside a transaction.
+ */
+export function writeSplitSuggestionInTx(
+  doc: Y.Doc,
+  newBlockId: BlockId,
+  input: SuggestionMintInput,
+): void {
+  writeBreakTagInTx(doc, newBlockId, INSERTION_TAG_KEY, input.id);
+  writeSuggestionRecordInTx(doc, {
+    id: input.id,
+    kind: "insertion",
+    author: input.author,
+    createdAt: input.createdAt,
+    order: input.order,
   });
 }

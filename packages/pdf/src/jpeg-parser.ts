@@ -12,7 +12,7 @@ import { MalformedImageError } from "./image-errors";
 export interface JpegImageInfo {
   readonly width: number;
   readonly height: number;
-  readonly bitsPerComponent: 8; // v1 supports 8-bit precision only
+  readonly bitsPerComponent: 8; // only 8-bit precision is supported
   readonly colorSpace: "DeviceGray" | "DeviceRGB" | "DeviceCMYK";
   /** True → the PDF Image XObject must carry `/Decode [1 0 1 0 1 0 1 0]` (Adobe inverted CMYK). */
   readonly invertCmyk: boolean;

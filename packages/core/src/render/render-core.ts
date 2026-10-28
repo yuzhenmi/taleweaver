@@ -13,6 +13,7 @@
  * needed `renderBlockBody`, which used to live in `render.ts`, which in turn
  * dispatches into render-incremental for the incremental path).
  */
+import { recordSample } from "../perf/perf-trace";
 import {
   resolveBlock,
   getOutline,
@@ -24,11 +25,10 @@ import {
   PAGE_FIELD_RESERVED_GLYPHS,
   COMMENT_START_EMBED_TYPE,
   COMMENT_END_EMBED_TYPE,
-  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
-  BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
   INSERTION_SUGGESTION_ATTR,
   DELETION_SUGGESTION_ATTR,
-  FORMATTING_SUGGESTION_ATTR,
+  pendingFormattingSuggestions,
+  resolveFormattingSuggestionTags,
   readSuggestionRecordFromState,
   itemVisibleInView,
 } from "../state";
@@ -38,12 +38,14 @@ import type {
   State,
   ReadonlyAttrs,
   InlineContent,
-  CrossReferenceMode,
+  BookmarkRange,
   SuggestionId,
   SuggestionRecord,
   SuggestionView,
 } from "../state";
 import { authorColorOf } from "../styles";
+import { endMarkOf, type BoundaryMark } from "../state";
+import type { BoundaryMarkMetadata } from "./layout-metadata";
 import type { CounterValue } from "../numbering";
 import { resolveCrossReference, BROKEN_CROSS_REFERENCE_TEXT } from "./resolve-cross-reference";
 import { inlineRenderKey } from "./inline-render-key";
@@ -77,11 +79,42 @@ import {
   tocIndentStepFromAttrs,
 } from "../components/table-of-contents-attrs";
 
+
+/** The author color of a boundary mark's first suggestion (null when its record is gone). */
+function markColor(state: State, m: BoundaryMark): string | null {
+  const first = m.suggestionIds[0];
+  const record = first === undefined ? null : readSuggestionRecordFromState(state, first);
+  return record === null ? null : authorColorOf(record.author);
+}
+
+function markMetadata(state: State, m: BoundaryMark): BoundaryMarkMetadata {
+  return Object.freeze({ kind: m.kind, color: markColor(state, m), suggestionIds: m.suggestionIds });
+}
+
 /**
- * The pilcrow (U+00B6 ¶) glyph a change-tracking break-suggestion embed renders
- * (slice 5b) — a split shows it underlined (insertion), a join struck (deletion).
+ * A list marker's character style is the paragraph mark's (Word formats the number with
+ * the ¶'s rPr `numbering/`): stamped as `list.markerStyle` from the
+ * block's `markAttrs` (absent when it has none). The backends paint `markerText` with it.
  */
-const PILCROW = "¶";
+function withMarkerStyle(node: RenderNode, markAttrs: ReadonlyAttrs | undefined, attrRegistry: AttrRegistry, parentStyle: Style): RenderNode {
+  const list = node.type === "element" ? node.metadata?.list : undefined;
+  if (node.type !== "element" || list === undefined || markAttrs === undefined || Object.keys(markAttrs).length === 0) return node;
+  return createElementBox(node.key, node.style, node.children, {
+    ...node.metadata,
+    list: { ...list, markerStyle: attrRegistry.applyAll(markAttrs, { parentStyle }) },
+  });
+}
+
+/**
+ * A text block box with its own tracked ¶ (`endMark`) — derived from the block
+ * itself. Not a render child or an inline item: no IFC token, no offset.
+ */
+function withBoundaryMetadata(node: RenderNode, blockId: BlockId, state: State): RenderNode {
+  if (node.type !== "element") return node;
+  const end = endMarkOf(state, blockId);
+  if (end === null) return node;
+  return createElementBox(node.key, node.style, node.children, { ...(node.metadata ?? {}), endMark: markMetadata(state, end) });
+}
 
 /**
  * The shared per-block render body for both `renderBlock` (full) and
@@ -115,7 +148,7 @@ const PILCROW = "¶";
  * inline interpreters see the containing block's specified style as
  * parent context.
  *
- * **Leaf dispatch (A5):** `def.leafShape === "atomic"` receives `[]`
+ * **Leaf dispatch:** `def.leafShape === "atomic"` receives `[]`
  * directly — `expandInlineItems` is bypassed so the strut sentinel
  * cannot leak to atomic components. Inline-bearing leaves call
  * `expandInlineItems` as normal.
@@ -137,6 +170,8 @@ export function renderBlockBody(
     parentSpecified: Partial<Style> | undefined,
   ) => RenderNode,
 ): RenderNode {
+  // Deterministic perf counter (no-op unless tracing): blocks rendered per update.
+  recordSample("render.blockBody", 0);
   if (visited.has(block.id)) {
     throw new Error(`render: cycle detected at block "${block.id}"`);
   }
@@ -157,13 +192,13 @@ export function renderBlockBody(
     // A live Table of Contents synthesizes its entry lines from the document
     // outline at render time (derive-not-store), BEFORE the generic component
     // dispatch — the `table-of-contents` component would otherwise return its
-    // zero-height stub placeholder. The entry subtree is page-agnostic; each
+    // zero-height placeholder box. The entry subtree is page-agnostic; each
     // entry's page-number atom is a `"page"`-mode cross-ref bound late at
     // materialize (the shipped `collectPageFields` seam, keyed `${tocId}/toc/${i}`).
-    // NOTE: `renderBlockIncremental` reuses a stale TOC node when a heading
-    // changes but the TOC block is not itself dirty; that incremental
-    // outline-staleness is handled by the forthcoming `outlineSignature`
-    // invalidation (NOT this slice).
+    // NOTE: a TOC derives from the outline, not from its own block: when a heading
+    // changes but the TOC block is not itself dirty, `renderIncremental`'s
+    // `outlineSignature` check invalidates the TOC anchors so this branch
+    // re-derives.
     if (block.type === "table-of-contents") {
       return renderTocBlock(block, state, context.suggestionView ?? "suggesting");
     }
@@ -190,7 +225,8 @@ export function renderBlockBody(
         childRenderNodes.push(recurse(child, computed, specified));
         childId = child.nextSiblingId;
       }
-      return def.render(view, context, childRenderNodes);
+      const renderedContainer = def.render(view, context, childRenderNodes);
+      return renderedContainer;
     }
 
     // Exhaustiveness backstop: the container branch returns, so `def` is the
@@ -210,7 +246,7 @@ export function renderBlockBody(
       kind: "leaf" as const,
       inlineContent: inline,
     });
-    // A5: atomic-leaf components (image, horizontal-line, …) MUST NOT
+    // Atomic-leaf components (image, horizontal-line, …) MUST NOT
     // receive a strut sentinel. The convention used to be "atomic
     // components ignore inlineRenderNodes by reading attrs instead"; we
     // now enforce it at the dispatch site so third-party atomic
@@ -226,10 +262,17 @@ export function renderBlockBody(
           state,
           numbering,
           context.suggestionView ?? "suggesting",
+          block.markAttrs,
+          context.bookmarkRange,
         );
-    return def.render(view, context, inlineRenderNodes);
+    const rendered = withMarkerStyle(def.render(view, context, inlineRenderNodes), block.markAttrs, attrRegistry, specified);
+    // A tracked ¶ is a key on the block's own ¶ entry, not an inline item: it rides on
+    // the block box as metadata (no IFC token, no offset); the backends draw it at the
+    // caret paint position of (block, len). Only the literal "suggesting" view shows it.
+    if ((context.suggestionView ?? "suggesting") !== "suggesting" || def.leafShape === "atomic") return rendered;
+    return withBoundaryMetadata(rendered, block.id, state);
   } finally {
-    // A2: visited tracks the ACTIVE recursion path, not the cumulative
+    // `visited` tracks the ACTIVE recursion path, not the cumulative
     // set of visited blocks. Draining on every exit (including throws)
     // means the same id appearing in two disjoint subtrees is fine, and
     // a real cycle still fires the throw because the id is still on the
@@ -245,7 +288,7 @@ export function renderBlockBody(
  * box is a `display: block` container whose children are the synthesized entry
  * lines (which inherit body font/etc. from the parent through this minimal
  * style). The `tableOfContents` metadata keeps the box recognizable to the DOM
- * controller's TOC hit-test (mirroring the stub the component used to emit).
+ * controller's TOC hit-test (matching the component's own placeholder box).
  */
 function renderTocBlock(block: Block, state: State, suggestionView: SuggestionView): ElementBox {
   const attrs: TocAttrs = {
@@ -286,8 +329,8 @@ export function composeBlockStyle(
 }
 
 /**
- * Expand inline content items into RenderNodes. Per master spec § text/span
- * removal: no `text` or `span` component dispatch — the renderer directly
+ * Expand inline content items into RenderNodes. There is no `text`/`span` component dispatch —
+ * the renderer directly
  * emits TextBoxes for TextItems and ElementBoxes for EmbedItems.
  *
  * Keys are scoped under the leaf block id (`${blockId}/inline/${i}`) so
@@ -312,41 +355,41 @@ export function expandInlineItems(
   state: State,
   numbering: ReadonlyMap<BlockId, CounterValue>,
   view: SuggestionView = "suggesting",
+  markAttrs?: ReadonlyAttrs,
+  bookmarkRange?: (bookmarkId: string) => BookmarkRange | undefined,
 ): RenderNode[] {
-  // Change-tracking slice 5c-iii: in a non-`"suggesting"` preview view the
-  // suggestion VISUALS (5a/5b) are suppressed — the document is rendered as it
-  // would read once accepted (`"final"`) / rejected (`"original"`). Preview views
-  // are NON-editable, so dropping resolved-away items here does not affect the
+  // Change-tracking: in a non-`"suggesting"` preview view the
+  // suggestion VISUALS are suppressed — the document is rendered as it would read
+  // once accepted (`"final"`) / rejected (`"original"`). Preview views are
+  // NON-editable, so dropping resolved-away items here does not affect the
   // (suggesting-only) cursor/hit-test offset accounting.
-  const suppressVisuals = view !== "suggesting";
   const out: RenderNode[] = [];
   let i = 0;
   for (const item of content.items) {
-    // 5c-iii: drop items resolved AWAY in this view (final: deletions + joins;
-    // original: insertions + splits). `i` still advances so render keys stay
+    // 5c-iii: drop items resolved AWAY in this view (final: deletions; original:
+    // insertions). `i` still advances so render keys stay
     // stable across the literal item list.
     if (!itemVisibleInView(item, view)) {
       i++;
       continue;
     }
-    const itemStyle: Partial<Style> = attrRegistry.applyAll(item.attrs, {
-      parentStyle: blockSpecified,
-    });
+    // Change-tracking: in `"suggesting"` view, layer the suggestion visuals (author
+    // color + underline/lineThrough + formatting preview) on top of the cascaded
+    // style — for text runs AND visible embeds (a formatting suggestion tags both).
+    // In a preview view, suppress those visuals — but in `"final"` apply the
+    // formatting proposals FOR REAL.
+    const itemStyle: Partial<Style> = resolveSuggestionStyle(
+      item.attrs,
+      attrRegistry.applyAll(item.attrs, { parentStyle: blockSpecified }),
+      state,
+      attrRegistry,
+      blockSpecified,
+      view,
+    );
     const key = inlineRenderKey(blockId, i);
     if (item.kind === "text") {
       // InlineItem narrows to TextItem here via the discriminated union.
-      // Change-tracking slice 5a/5c-iii: in `"suggesting"` view, layer the
-      // suggestion visuals (author color + underline/lineThrough + formatting
-      // preview) on top of the cascaded itemStyle. In a preview view, suppress
-      // those visuals — but in `"final"` apply a formatting proposal FOR REAL.
-      const runStyle = resolveSuggestionStyle(
-        item.attrs,
-        itemStyle,
-        state,
-        attrRegistry,
-        blockSpecified,
-        view,
-      );
+      const runStyle = itemStyle;
       const linkAttr = item.attrs.link;
       out.push(
         createTextBox(
@@ -354,12 +397,13 @@ export function expandInlineItems(
           runStyle,
           item.text,
           typeof linkAttr === "string" ? linkAttr : undefined,
+          attrRegistry.markDom(item.attrs),
         ),
       );
     } else if (item.embedType === FOOTNOTE_ANCHOR_EMBED_TYPE) {
-      // FN-2: a footnote-anchor embed renders as the superscript call marker
+      // A footnote-anchor embed renders as the superscript call marker
       // (a small, raised number) instead of the invisible zero-width embed
-      // box. Its number comes from the FN-3 numbering map, keyed by the
+      // box. Its number comes from the numbering map, keyed by the
       // anchor's `properties.contentBlockId`. The marker is still ONE
       // inline-block = exactly one cursor stop (the IFC emits one atomic token
       // per inline-block regardless of its children), so the state-model
@@ -384,11 +428,16 @@ export function expandInlineItems(
       // matching the state model's 1-unit offset for an EmbedItem. A plain
       // `createTextBox(resolved)` would tokenize the string into len(text) IFC
       // tokens and drift the per-line offset accumulator by len−1, corrupting
-      // cursor/hit-test for everything after the field (see resolveCrossReference
-      // + the spec's S3 correction). The inline-block emits one atomic token
+      // cursor/hit-test for everything after the field (see resolveCrossReference).
+      // The inline-block emits one atomic token
       // regardless of its child text (the footnote-marker invariant) and is
       // atomic-for-editing, matching Google Docs fields.
-      const targetId = item.properties.targetId;
+      // A field targets a bookmark. `targetId` stamped on the atom
+      // is the paragraph holding the bookmark START (page mode's page, PDF /GoTo);
+      // null when the bookmark is broken.
+      const bookmarkId = item.properties.bookmarkId;
+      const range = typeof bookmarkId === "string" ? bookmarkRange?.(bookmarkId) : undefined;
+      const targetId = range?.start.blockId ?? null;
       const refMode = item.properties.refMode;
       if (refMode === "page") {
         // A `"page"`-mode cross-reference is a LAYOUT-dependent field: the target's
@@ -400,7 +449,7 @@ export function expandInlineItems(
         // && refMode === "page"` and reads `targetId` + `numberStyle` from the box
         // metadata. The `"number"`/`"text"` branches below still resolve at render
         // time (no layout dependency). One inline-block atom = one IFC token = one
-        // cursor stop (#407), exactly as the resolved branch.
+        // cursor stop, exactly as the resolved branch.
         const rawStyle = item.properties.numberStyle;
         const numberStyle: PageFieldNumberStyle = isPageFieldNumberStyle(rawStyle)
           ? rawStyle
@@ -416,7 +465,7 @@ export function expandInlineItems(
             // Inner text gets `{}` (inherits font/etc. from the cascade — re-applying
             // `itemStyle` would double-apply em-relative properties).
             [createTextBox(`${key}/0`, {}, placeholder)],
-            // R-F2: the metadata MUST carry `refMode` (not just targetId/numberStyle)
+            // The metadata MUST carry `refMode` (not just targetId/numberStyle)
             // so the later collect/patch passes' `refMode === "page"` dispatch guard
             // actually fires. `targetId` rides the validated string from the embed's
             // `properties` (a malformed non-string → `null`, mapped to broken-ref at
@@ -424,23 +473,15 @@ export function expandInlineItems(
             {
               embedType: item.embedType,
               refMode: "page",
-              targetId: typeof targetId === "string" ? targetId : null,
+              targetId,
               numberStyle,
             },
           ),
         );
       } else {
         const resolved =
-          typeof targetId === "string" && (refMode === "number" || refMode === "text")
-            ? resolveCrossReference(
-                state,
-                numbering,
-                {
-                  targetId: asBlockId(targetId),
-                  refMode: refMode as CrossReferenceMode,
-                },
-                view,
-              )
+          range !== undefined && (refMode === "number" || refMode === "text")
+            ? resolveCrossReference(state, numbering, { range, refMode }, view)
             : BROKEN_CROSS_REFERENCE_TEXT;
         out.push(
           createElementBox(
@@ -462,9 +503,9 @@ export function expandInlineItems(
             // owned body, so (unlike the footnote anchor) there is no
             // `contentBlockId` to stamp. `targetId` is threaded onto the atom in
             // EVERY ref mode (number/text — the page branch above stamps it too) so
-            // the PDF exporter can emit an internal /GoTo link to the target block
-            // (#522). A malformed non-string target maps to `null` (broken ref).
-            { embedType: item.embedType, targetId: typeof targetId === "string" ? targetId : null },
+            // the PDF exporter can emit an internal /GoTo link to the target
+            // block. A malformed non-string target maps to `null` (broken ref).
+            { embedType: item.embedType, targetId },
           ),
         );
       }
@@ -477,7 +518,7 @@ export function expandInlineItems(
       // layout already accounts for the widest plausible value. The per-page value
       // is bound LATE, at materialize (substituteLayoutFields). Like
       // the cross-reference embed, one inline-block atom = one IFC token = one
-      // cursor stop (#407); the `fieldKind`/`numberStyle` ride in metadata for the
+      // cursor stop; the `fieldKind`/`numberStyle` ride in metadata for the
       // layout field-resolution pass to read (the render tree stays page-agnostic).
       // Both narrowed from the embed's open-schema `unknown` properties via type
       // guards (no cast); a malformed / future value falls back to the default.
@@ -500,64 +541,6 @@ export function expandInlineItems(
         ),
       );
     } else if (
-      item.embedType === BLOCK_JOIN_SUGGESTION_EMBED_TYPE ||
-      item.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE
-    ) {
-      // Change-tracking slice 5b: a suggested paragraph break renders as a
-      // VISIBLE pilcrow (¶) carrying the suggestion's author color, mirroring the
-      // text-run visuals (slice 5a): a SPLIT is an INSERTION (author color +
-      // underline), a JOIN is a DELETION (author color + lineThrough). Like the
-      // cross-reference embed, the glyph is wrapped in a SINGLE inline-block ATOM
-      // so it emits exactly ONE IFC token (one state-model offset) regardless of
-      // the glyph's width — preserving the offset↔box 1:1 invariant the break
-      // embed relies on (#407). The owning record (read by `properties.suggestionId`)
-      // supplies the author color; an absent record (collab race / migration)
-      // leaves `color` to the cascade but still marks the decoration (the embed
-      // TYPE alone determines split=underline / join=lineThrough).
-      // 5c-iii: in a preview view a SURVIVING break embed (a split accepted in
-      // `"final"`, a join rejected in `"original"`) is resolved INTO the document
-      // structure — its break is the block boundary itself, so it shows NO visible
-      // pilcrow. Render it as a zero-width inline-block atom (mirrors the
-      // comment-marker shape). (Structurally MERGING the two blocks for an
-      // accepted-join / rejected-split is the carved `5c-structural` sub-slice.)
-      if (suppressVisuals) {
-        out.push(
-          createElementBox(
-            key,
-            { ...itemStyle, inlineSize: 0, display: "inline-block" },
-            [],
-            { embedType: item.embedType },
-          ),
-        );
-      } else {
-        const isSplit = item.embedType === BLOCK_SPLIT_SUGGESTION_EMBED_TYPE;
-        const rawId = item.properties.suggestionId;
-        const record =
-          typeof rawId === "string"
-            ? readSuggestionRecordFromState(state, rawId as SuggestionId)
-            : null;
-        const authorColor = record !== null ? authorColorOf(record.author) : null;
-        // The inner glyph carries ONLY the suggestion decoration overrides (color +
-        // underline/lineThrough); it inherits font/size from the container's cascade
-        // — re-applying `itemStyle` here would DOUBLE-apply em-relative properties
-        // (mirrors the cross-reference branch's empty-style inner child).
-        const glyphStyle: Partial<Style> = {
-          ...(authorColor !== null ? { color: authorColor } : {}),
-          ...(isSplit ? { underline: true } : { lineThrough: true }),
-        };
-        out.push(
-          createElementBox(
-            key,
-            // `display: "inline-block"` spread LAST so the single-token atomicity
-            // always wins over `itemStyle` (the IFC offset accounting is
-            // load-bearing) — matching the cross-reference branch's precedence.
-            { ...itemStyle, display: "inline-block" },
-            [createTextBox(`${key}/0`, glyphStyle, PILCROW)],
-            { embedType: item.embedType },
-          ),
-        );
-      }
-    } else if (
       item.embedType === COMMENT_START_EMBED_TYPE ||
       item.embedType === COMMENT_END_EMBED_TYPE
     ) {
@@ -565,14 +548,14 @@ export function expandInlineItems(
       // exactly one state-model `Position` offset (atomic embed) and must emit
       // exactly ONE IFC token — like every other embed — so the IFC's per-line
       // offset cursor (`inlineOffsetStart`/`inlineOffsetEnd`) advances past it.
-      // The `offset↔box` 1:1 invariant (#407) is load-bearing: the line index
+      // The `offset↔box` 1:1 invariant is load-bearing: the line index
       // IS token-driven, so SKIPPING emission would leave `inlineOffsetEnd`
       // short by the marker count and corrupt cursor/hit-test for every offset
       // after a marker on the line. It differs from the footnote-anchor (a
       // VISIBLE superscript marker) and the cross-reference (a visible resolved
       // string) in that it renders NOTHING VISIBLE — an empty inline-block of
       // width 0: no glyph, no U+FFFC placeholder. The comment highlight is a
-      // separate paint overlay derived from the marker scan (a later slice),
+      // separate paint overlay derived from the marker scan,
       // NOT this render-tree box. Reuses the same zero-width-inline-block shape
       // as the empty-embed branch below (defaults `inlineSize: 0` so the
       // inline-block intrinsic sizing does NOT apply its empty-content 100px
@@ -597,9 +580,9 @@ export function expandInlineItems(
     } else if (item.embedType === INLINE_IMAGE_EMBED_TYPE) {
       // An inline image (Google Docs "In line" positioning) renders as ONE
       // inline-block ATOM (one IFC token = the state model's 1-unit EmbedItem
-      // offset, #407) — exactly like the other visible embeds. Option B layers
-      // it as an OUTER `display:inline-block` ElementBox carrying
-      // `metadata.replacedInline: true` (so the T2 replaced-baseline rule fires:
+      // offset) — exactly like the other visible embeds. It is layered
+      // as an OUTER `display:inline-block` ElementBox carrying
+      // `metadata.replacedInline: true` (so the replaced-baseline rule fires:
       // the box's BOTTOM edge sits on the text baseline, CSS2 §10.8.1) wrapping
       // ONE INNER `display:block` ElementBox that carries the SAME
       // `metadata.image { src, width, height }` + explicit `blockSize`/`inlineSize`
@@ -630,7 +613,7 @@ export function expandInlineItems(
           { ...itemStyle, display: "inline-block" },
           [inner],
           // `replacedInline` makes the IFC use the bottom-edge replaced baseline
-          // (T2) instead of the *0.8 content baseline used by text-bearing
+          // instead of the *0.8 content baseline used by text-bearing
           // inline-blocks (footnote markers, cross-refs).
           { embedType: item.embedType, replacedInline: true },
         ),
@@ -701,15 +684,19 @@ export function expandInlineItems(
   // effect is triggering IFC dispatch. Atomic-leaf components (image,
   // horizontal-line) bypass this function entirely (see renderBlock's
   // leafShape === "atomic" branch), so they never see the sentinel.
+  // The sentinel carries the ¶'s character props (`markAttrs`): Word / GDocs lay an
+  // empty paragraph's line out with the paragraph mark's formatting.
   if (out.length === 0) {
-    out.push(createTextBox(inlineRenderKey(blockId, 0), {}, ""));
+    const strutStyle = markAttrs === undefined ? {} : attrRegistry.applyAll(markAttrs, { parentStyle: blockSpecified });
+    out.push(createTextBox(inlineRenderKey(blockId, 0), strutStyle, ""));
   }
 
   return out;
 }
 
 /**
- * Change-tracking slice 5a: resolve the suggestion VISUALS for a text run and
+ * Change-tracking: resolve the suggestion VISUALS for a text run (or a
+ * visible embed carrying formatting-suggestion tags) and
  * return the final per-run style. When the run carries NO suggestion-id
  * dimension this returns `baseStyle` UNCHANGED (same reference) — the no-op fast
  * path keeps plain runs byte-identical to a no-suggestion render. Otherwise it
@@ -717,9 +704,10 @@ export function expandInlineItems(
  * (design §5):
  *   - **insertion** → author color + `underline`.
  *   - **deletion** → author color + `lineThrough` (still laid out, struck).
- *   - **formatting** → the record's `proposedAttrs` composited over the base
- *     (the proposal PREVIEW — shown but not yet applied for real) PLUS a subtle
- *     author-color `underline` indicator.
+ *   - **formatting** → every pending suggestion's `proposedAttrs` composited over
+ *     the live attrs in (order, createdAt, id) order, minus each one's shadowed keys (the
+ *     proposal PREVIEW — shown but not yet applied for real) PLUS a subtle
+ *     author-color `underline` indicator (the newest suggestion's author).
  *   - a run carrying MULTIPLE dimensions gets all of them (e.g. nested
  *     insertion+deletion → color + underline + lineThrough).
  *
@@ -727,7 +715,7 @@ export function expandInlineItems(
  * is read from the `suggestions` map by id ({@link readSuggestionRecordFromState});
  * an id with no record (collab race / migration) contributes nothing.
  *
- * `proposedAttrs` are translated through the SAME `attrRegistry.applyAll` an
+ * The composite attrs are translated through the SAME `attrRegistry.applyAll` an
  * inline run's own attrs go through (mirroring the established compose path —
  * not an ad-hoc style translation), with the run's containing-block specified
  * style as parent context, so the preview matches what `accept` will make real.
@@ -742,87 +730,53 @@ function resolveSuggestionStyle(
 ): Partial<Style> {
   const insertionId = attrs[INSERTION_SUGGESTION_ATTR];
   const deletionId = attrs[DELETION_SUGGESTION_ATTR];
-  const formattingId = attrs[FORMATTING_SUGGESTION_ATTR];
+  // Pending formatting suggestions on the run in (order, createdAt, id) order; a tag whose
+  // record is missing (collab race) is ignored.
+  const pending = pendingFormattingSuggestions(attrs, (id) => readSuggestionRecordFromState(state, id));
   // Fast path: not a tracked run → no override, return the base unchanged so a
   // plain run is identical to a no-suggestion render.
-  if (
-    typeof insertionId !== "string" &&
-    typeof deletionId !== "string" &&
-    typeof formattingId !== "string"
-  ) {
+  if (typeof insertionId !== "string" && typeof deletionId !== "string" && pending.length === 0) {
     return baseStyle;
   }
+
+  // The COMPOSITE of the pending formatting proposals over the live attrs (what
+  // accepting them all makes real), translated through the attr registry exactly
+  // like a run's own attrs — so the preview, including a proposed REMOVAL, matches
+  // what `accept` produces.
+  const composite = (): Partial<Style> => {
+    if (pending.length === 0) return baseStyle;
+    const byId = new Map(pending.map((p) => [p.record.id, p.record]));
+    const finalAttrs = resolveFormattingSuggestionTags(attrs, () => "accept", (id) => byId.get(id) ?? null);
+    return attrRegistry.applyAll(finalAttrs, { parentStyle: blockSpecified });
+  };
 
   // 5c-iii preview views: the run already SURVIVED `itemVisibleInView`, so it is
   // rendered as it would read once resolved — with NO suggestion decoration
-  // (no author color / underline / lineThrough). A `"final"` view applies a
-  // formatting proposal FOR REAL (`proposedAttrs` composited over the base);
-  // `"original"` drops the proposal (keeps the live attrs already in `baseStyle`).
-  if (view !== "suggesting") {
-    if (view === "final") {
-      const fmtRecord =
-        typeof formattingId === "string"
-          ? readSuggestionRecordFromState(state, formattingId as SuggestionId)
-          : null;
-      if (fmtRecord?.proposedAttrs !== undefined) {
-        const proposedStyle = attrRegistry.applyAll(fmtRecord.proposedAttrs, {
-          parentStyle: blockSpecified,
-        });
-        return { ...baseStyle, ...proposedStyle };
-      }
-    }
-    return baseStyle;
-  }
+  // (no author color / underline / lineThrough). A `"final"` view applies the
+  // formatting proposals FOR REAL; `"original"` keeps the live attrs (`baseStyle`).
+  if (view !== "suggesting") return view === "final" ? composite() : baseStyle;
 
-  // Compose order: start from the base (the run's normal cascaded style), then
-  // the formatting PROPOSAL preview (so it can be visibly overridden by the
-  // author-color indicator below), then the author-color + decoration overrides
-  // LAST (they are the suggestion's defining visual, not overridable by the
-  // proposal).
-  let result: Partial<Style> = { ...baseStyle };
-
-  // Read the formatting record ONCE — it serves both the proposal preview AND (as
-  // the lowest-precedence fallback) the author tint, so the formatting dimension
-  // never triggers a second Y.Doc lookup on the per-keystroke render hot path.
-  const formattingRecord =
-    typeof formattingId === "string"
-      ? readSuggestionRecordFromState(state, formattingId as SuggestionId)
-      : null;
-
-  // Formatting proposal: composite the proposed attrs over the base as the
-  // preview, translated through the attr registry exactly like inline run attrs.
-  if (formattingRecord?.proposedAttrs !== undefined) {
-    const proposedStyle = attrRegistry.applyAll(formattingRecord.proposedAttrs, {
-      parentStyle: blockSpecified,
-    });
-    result = { ...result, ...proposedStyle };
-  }
-
-  // Author color is shared across the run's dimensions (a run is typically all
-  // one author per dimension; when both an insertion and a deletion id are
-  // present we prefer the insertion author for the single tint, falling back to
-  // deletion then formatting). The decoration flags accumulate across whichever
-  // dimensions are present. The suggestion overrides compose LAST so they are
-  // the run's defining visual (not overridable by the proposal preview).
-  const authorColor = resolveRunAuthorColor(state, insertionId, deletionId, formattingRecord);
+  // Compose order: the formatting-proposal composite first, then the author-color +
+  // decoration overrides LAST (they are the suggestion's defining visual, not
+  // overridable by the proposal).
+  const newestFormatting = pending[pending.length - 1]?.record ?? null;
+  const authorColor = resolveRunAuthorColor(state, insertionId, deletionId, newestFormatting);
   // Insertion → underline; formatting → the same subtle author-color underline
   // indicator. Deletion → lineThrough. A nested run accumulates all flags.
-  const wantUnderline = typeof insertionId === "string" || typeof formattingId === "string";
+  const wantUnderline = typeof insertionId === "string" || pending.length > 0;
   const wantLineThrough = typeof deletionId === "string";
-  result = {
-    ...result,
+  return {
+    ...composite(),
     ...(authorColor !== null ? { color: authorColor } : {}),
     ...(wantUnderline ? { underline: true } : {}),
     ...(wantLineThrough ? { lineThrough: true } : {}),
   };
-
-  return result;
 }
 
 /**
  * Resolve the single author color to tint a tracked run, reading the owning
  * record for whichever dimension is present. Prefers the insertion author, then
- * deletion, then formatting (a run is normally a single author per dimension;
+ * deletion, then the newest pending formatting suggestion (a run is normally a single author per dimension;
  * the preference only matters for a nested insertion+deletion by two different
  * authors, where one tint must be chosen). Returns `null` when no present id
  * resolves to a record (collab race / migration), so the caller leaves `color`

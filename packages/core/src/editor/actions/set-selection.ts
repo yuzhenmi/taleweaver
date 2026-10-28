@@ -3,7 +3,7 @@ import type { EditorState } from "../editor-state";
 import type { CaretAffinity } from "../../cursor/selection";
 
 /**
- * `SET_SELECTION` handler. Sets the new selection and the (#323) non-undoable
+ * `SET_SELECTION` handler. Sets the new selection and the non-undoable
  * `caretPageHint` view state in one shot:
  *   - A header/footer SLOT click passes the clicked page → the caret renders on
  *     that page's slot instance.
@@ -13,7 +13,7 @@ import type { CaretAffinity } from "../../cursor/selection";
  * Because the value is set here (not centrally cleared in `reduceEditor` the way
  * `targetX` is), passing `undefined` is the explicit clear.
  *
- * `caretAffinity` (P4-C.2.2b §D) is the caret ASSOCIATION seed at a bidi
+ * `caretAffinity` is the caret ASSOCIATION seed at a bidi
  * direction boundary. UNLIKE `caretPageHint`, this field IS centrally reset in
  * `reduceEditor` via `clearTransientViewState` — which fires after every action
  * EXCEPT `SET_SELECTION` (the sole action that manages it), so it never goes
@@ -21,7 +21,7 @@ import type { CaretAffinity } from "../../cursor/selection";
  * affinity passes `undefined`, which clears it (correct — no boundary context to
  * preserve).
  *
- * `anchorAffinity` (#503) is the symmetric ANCHOR-side seed. Post-Phase-0b the
+ * `anchorAffinity` is the symmetric ANCHOR-side seed. The
  * backend NavIntent resolver ORIGINATES affinity (the line/expand handlers that
  * used to seed it moved out of core), so `SET_SELECTION` now ACCEPTS AND STORES
  * the passed `anchorAffinity` as-given (a programmatic / body `SET_SELECTION`

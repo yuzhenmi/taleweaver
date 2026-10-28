@@ -36,13 +36,14 @@ describe("MOVE_LINE sticky goal-column (targetX) survives consecutive line-moves
     const LONG = "the quick brown fox jumps over lazy"; // 35 chars
     const SHORT = "ab"; // 2 chars
     let ctx = makeNavEditor({ containerWidth: 800, charWidth: 8, lineHeight: 16 });
-    const line1Id = firstBlockId(ctx);
 
     ctx = dispatch(ctx, { type: "INSERT_TEXT", text: LONG });
     ctx = dispatch(ctx, { type: "SPLIT_NODE" });
     ctx = dispatch(ctx, { type: "INSERT_TEXT", text: SHORT });
     ctx = dispatch(ctx, { type: "SPLIT_NODE" });
     ctx = dispatch(ctx, { type: "INSERT_TEXT", text: LONG });
+    // split head = new id, so the first paragraph's id is read AFTER the splits.
+    const line1Id = firstBlockId(ctx);
 
     // Caret near the END of line 1 (a high column line 2 can't reach).
     const highOffset = LONG.length - 2; // 33

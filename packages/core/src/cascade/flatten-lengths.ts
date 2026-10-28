@@ -110,8 +110,7 @@ function flattenSizingOrNone(
 
 /**
  * Flatten a `lineHeight` value per CSS Inline Layout semantics, restricted
- * to the input forms a word-processor engine supports (per the C-B
- * decision in 2026-05-23-line-height-disambiguation-design.md):
+ * to the input forms a word-processor engine supports:
  *
  * - **unitless `number`**: passes through. This is a RATIO of the
  *   element's own fontSize; the ratio is the COMPUTED value and
@@ -136,7 +135,7 @@ function flattenLineHeight(v: number | ComputedLength | Length, fontSize: number
   if (typeof v === "number") return v;
   if (v.unit === "em") return v.value;
   if (v.unit === "percent") return v;
-  // unit === "px" — unsupported under the C-B input restriction.
+  // unit === "px" — unsupported under the line-height input restriction above.
   // Warn in dev so authors who hit this notice; production silently falls
   // back to the initial unitless ratio. The `process` and `console`
   // globals are read defensively because the engine compiles for

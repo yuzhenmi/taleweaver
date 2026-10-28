@@ -1,7 +1,6 @@
 /**
  * Parse a CSS color string to PDF RGB channels in [0,1]. `rgba()` alpha is
- * FLATTENED to opaque (PDF has no fill alpha without an ExtGState — deferred,
- * spec §3.1). `transparent` → null (caller skips the paint). An unrecognized
+ * FLATTENED to opaque (PDF has no fill alpha without an ExtGState; not implemented). `transparent` → null (caller skips the paint). An unrecognized
  * value falls back to opaque black (never throws — a PDF must always emit).
  *
  * There is no reusable CSS-color parser in core/dom (the canvas renderer passes

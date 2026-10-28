@@ -16,7 +16,7 @@ function primaryMod(e: KeyboardEvent, ctx: KeyContext): boolean {
 }
 
 /**
- * THIN digital-local chord map (spec C5/F4): only the NON-NAV chords digital dispatches. Returns
+ * THIN digital-local chord map: only the NON-NAV chords digital dispatches. Returns
  * null for every nav key (arrows / Home / End / PageUp / PageDown), every plain printable key, and
  * Backspace/Delete/Enter — the browser owns caret movement and `beforeinput` owns insertion/delete.
  * Deliberately does NOT reuse the print `mapKeyEvent` (which returns NavIntent and transitively

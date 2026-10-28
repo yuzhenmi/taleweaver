@@ -24,9 +24,27 @@ const EMPTY_TEMPLATE_CONTENTS: ReadonlyMap<BlockId, ElementBox> = new Map();
 /** Empty cascaded-footnote-body map default (no footnote bodies). */
 const EMPTY_EMBED_CONTENTS: ReadonlyMap<BlockId, ElementBox> = new Map();
 
+// One adapter per `TextMeasurer`, so a host that passes a measurer (rather than a
+// `TextShaper`) hands layout a REF-STABLE shaper on every cycle. The block-meta
+// cache (`build-fit-metas`) keys on the shaper ref; a fresh adapter per call
+// misses it and re-lays EVERY block on EVERY keystroke. A `WeakMap`, so dropping
+// the measurer drops its adapter.
+const _adaptedShapers = new WeakMap<TextMeasurer, TextShaper>();
+
+/** The shaper for `shaperOrMeasurer`; a measurer's adapter is memoized (ref-stable). */
+export function resolveShaper(shaperOrMeasurer: TextShaper | TextMeasurer): TextShaper {
+  if (isTextShaper(shaperOrMeasurer)) return shaperOrMeasurer;
+  let shaper = _adaptedShapers.get(shaperOrMeasurer);
+  if (shaper === undefined) {
+    shaper = measurerToShaper(shaperOrMeasurer);
+    _adaptedShapers.set(shaperOrMeasurer, shaper);
+  }
+  return shaper;
+}
+
 /**
  * Top-level layout entry. Dispatches by display value of the root node.
- * For Plan 1, only `display: block` is supported at the root.
+ * Only `display: block` is supported at the root.
  * If the render tree has not had cascade applied, runs it automatically.
  *
  * Accepts either a `TextShaper` (preferred) or a legacy `TextMeasurer`
@@ -37,26 +55,23 @@ export function layoutTree(
   containerInlineSize: number,
   shaperOrMeasurer: TextShaper | TextMeasurer,
   pageConfig?: PageConfig,
-  // C.2c + #328: cascaded header/footer template bodies. The full-build /
-  // RESIZE path must thread these (NOT default to empty) so a tall-header doc
-  // re-paginates with the GROWN insets — otherwise a window resize would
-  // re-lay the body as if the header fit the margin (body jumps up, header
-  // re-clipped). Defaults to an empty map for the many non-editor callers
-  // (tests, table-root paths) that have no header/footer bodies.
+  // Cascaded header/footer template bodies (produced by the layout-driver's
+  // cascade). A caller laying out a document with headers/footers must thread
+  // these (NOT default to empty) so a tall header re-paginates with the grown
+  // insets. Defaults to an empty map for callers that have no header/footer
+  // bodies (tests, and `layoutTreeIncremental`'s unsupported-display fallback).
   cascadedTemplateContents: ReadonlyMap<BlockId, ElementBox> = EMPTY_TEMPLATE_CONTENTS,
-  // FN-4.0: cascaded footnote bodies + ordered footnote anchors, threaded
-  // end-to-end for the footnote layout pass (FN-4.2 `resolveFootnotes`). UNUSED
-  // for layout output in this plumbing task; the editor full-build path
-  // (`createInitialEditorState`) populates them. Defaults keep every other
-  // caller (tests, resize) byte-identical.
+  // Cascaded footnote bodies + ordered footnote anchors, threaded
+  // end-to-end for the footnote layout pass (`resolveFootnotes`). Defaults keep
+  // callers without footnotes (tests, the incremental unsupported-display
+  // fallback) byte-identical.
   cascadedEmbedContents: ReadonlyMap<BlockId, ElementBox> = EMPTY_EMBED_CONTENTS,
   footnoteAnchors: readonly FootnoteAnchorRef[] = EMPTY_FOOTNOTE_ANCHORS,
   parentOf?: BlockParentLookup,
-  // Auto-hyphenation (slice 2): injected `Hyphenator`, threaded ALONGSIDE the
+  // Auto-hyphenation: injected `Hyphenator`, threaded ALONGSIDE the
   // shaper to every layout site. Optional trailing so the many non-editor callers
-  // (tests, table roots) stay valid; the editor full-build / resize callers pass
-  // `config.hyphenator`. `undefined` ⇒ no hyphenation. Carried but UNUSED in this
-  // slice (the producer is slice 4).
+  // (tests, table roots) stay valid; a hyphenating caller passes its
+  // `LayoutConfig.hyphenator`. `undefined` ⇒ no hyphenation.
   hyphenator?: Hyphenator,
 ): LayoutBox | VirtualLayoutTree {
   const t = markStart("layoutTree");
@@ -65,9 +80,7 @@ export function layoutTree(
       throw new Error("Layout root must be an element node");
     }
 
-    const shaper: TextShaper = isTextShaper(shaperOrMeasurer)
-      ? shaperOrMeasurer
-      : measurerToShaper(shaperOrMeasurer);
+    const shaper = resolveShaper(shaperOrMeasurer);
 
     // Auto-run cascade if computedStyle is not populated
     const layoutRoot: ElementBox = root.computedStyle
@@ -81,17 +94,17 @@ export function layoutTree(
 
     if (pageConfig !== undefined) {
       // Paginated mode: paginateRoot drives layoutBlock per page and assembles
-      // the PageBox sequence. Only display:block roots are supported in P1.B.
+      // the PageBox sequence. Only display:block roots are supported.
       // display:table roots with pageConfig are not yet handled — fall through
-      // to unpaginated table layout (acceptable for P1.B scope; table-as-root
+      // to unpaginated table layout (table-as-root
       // with pagination is unusual in real documents).
       if (cs.display === "block") {
         // Virtual mode unless the document uses a feature the measure pass
         // can't reproduce — `position:absolute`, or a float doc that is ALSO
         // multi-column or footnote-bearing (single-column float/`clear` docs now
         // take the virtualized fast path) — in which case fall back to the legacy
-        // positioned page tree. This is the full (non-incremental) build — e.g.
-        // the resize path — so there is no carry-forward memo.
+        // positioned page tree. This is the full (non-incremental) build (tests and
+        // the incremental unsupported-display fallback), so there is no carry-forward memo.
         result = paginationFallsBackToLegacy(layoutRoot, footnoteAnchors)
           ? paginateRoot(layoutRoot, ctx, shaper, hyphenator, pageConfig)
           : buildVirtualPaginatedTree(
@@ -108,7 +121,7 @@ export function layoutTree(
           }
           result = tableResult.box;
         } else {
-          throw new Error(`display "${cs.display}" not yet implemented in Plan 1`);
+          throw new Error(`display "${cs.display}" not yet implemented`);
         }
       }
     } else {
@@ -130,7 +143,7 @@ export function layoutTree(
           break;
         }
         default:
-          throw new Error(`display "${cs.display}" not yet implemented in Plan 1`);
+          throw new Error(`display "${cs.display}" not yet implemented`);
       }
     }
 

@@ -69,8 +69,7 @@ function defaultPixelPosition(): PixelPosition {
 /**
  * Resolve a state Position to pixel coordinates using the layout tree.
  *
- * Algorithm (LineBox-canonical; see
- * `docs/superpowers/specs/2026-05-23-linebox-canonical-anchor-design.md`):
+ * Algorithm (LineBox-canonical):
  *   1. `resolveBlock(state, position.blockId)` (checks main / embed /
  *      template trees, so a header/footer slot body block resolves too).
  *      Returns null on miss.
@@ -98,19 +97,19 @@ function defaultPixelPosition(): PixelPosition {
  * cursor's page is resolved via the `PagePlan` and only that page (+
  * an adjacent page at the cross-page soft-wrap edge) is materialized
  * via `getPage` — never the whole document. This is what makes caret
- * resolution O(1 page) on the typing/Enter hot path (Phase 3 Task 3).
+ * resolution O(1 page) on the typing/Enter hot path.
  */
 export function resolvePixelPosition(
   state: State,
   position: Position,
   layoutTree: LayoutBox | VirtualLayoutTree,
   shaperOrMeasurer: TextShaper | TextMeasurer,
-  // #323: which page's header/footer SLOT instance to resolve a template-block
+  // which page's header/footer SLOT instance to resolve a template-block
   // caret on. `undefined` → the body's first carrying page (the deterministic
   // default). Ignored for a normal main-tree caret (the plan maps it to its own
   // page). View state — see `EditorState.caretPageHint`.
   caretPageHint?: number,
-  // P4-C.2.1: which side a collapsed caret sticks to at a bidi run boundary.
+  // Which side a collapsed caret sticks to at a bidi run boundary.
   // `undefined` defaults to `"after"` (today's behavior). View state — see
   // `EditorState.caretAffinity`. Inert on uniform (single-direction) lines.
   caretAffinity?: CaretAffinity,
@@ -118,7 +117,7 @@ export function resolvePixelPosition(
   const t = markStart("cursor.cursor-position");
   try {
     // `resolveBlock` (not `getBlock`) so a caret in a HEADER/FOOTER slot
-    // (C.2c T6) is not rejected here: a slot body block lives in the
+    // is not rejected here: a slot body block lives in the
     // `templateContents` tree, which `getBlock` (main map only) misses.
     // `resolveBlock` checks all three trees (main / embed / template).
     if (resolveBlock(state, position.blockId) === null) return null;
@@ -134,7 +133,7 @@ export function resolvePixelPosition(
     // Positioned-tree path (unchanged): O(1) lookup via the cached
     // BlockId→AbsoluteLineBox[] index. Previously this filtered the full
     // line list per call (O(N_lines)); at scale that dominated cursor-
-    // position cost on a hot doc (L-PERF-D).
+    // position cost on a hot doc.
     const ownLines = getLineIndex(layoutTree).byBlock.get(position.blockId) ?? [];
     if (ownLines.length === 0) {
       // Defensive fallback: block has no LineBoxes (no IFC ran for
@@ -189,23 +188,23 @@ function resolveInVirtualTree(
   const endPage = plan.pageIndexOfBlock(position.blockId);
 
   if (endPage < 0) {
-    // Header/footer SLOT fast path (C.2c T6, #323). A slot body block lives in
+    // Header/footer SLOT fast path. A slot body block lives in
     // the `templateContents` tree, not the main document flow, so
     // `pageIndexOfBlock` can't map it (it's never a top-level body child).
     // Resolve it WITHOUT materializing the whole document: pick the page whose
     // slot the caret is visually on (the `caretPageHint`, or the body's first
     // carrying page by default), materialize ONLY that page, and resolve
-    // against its slot lines (which change (1) put into the page's `byBlock`
-    // index). #323 resolves the prior first-instance limitation by threading
+    // against its slot lines (which the page's `byBlock` index carries).
+    // The per-page slot instance is resolved by threading
     // the page hint; the descendant parent-walk inside `resolveTemplateBlockPage`
-    // covers the #326 container-body case (caret in the body's paragraph CHILD,
+    // covers the container-body case (caret in the body's paragraph CHILD,
     // not the slot ROOT id).
     const resolvedPage = resolveTemplateBlockPage(state, plan, position.blockId, caretPageHint);
     if (resolvedPage >= 0) {
       const onResolved = resolveSlotOnPage(tree, resolvedPage, position, measurer, caretAffinity);
       if (onResolved !== null) return onResolved;
 
-      // I1 STALE-FALLBACK: the hinted page exists but its slot doesn't carry
+      // STALE-FALLBACK: the hinted page exists but its slot doesn't carry
       // this body (e.g. a section without this header/footer) — `resolveSlotOnPage`
       // found neither slot lines nor a slot box there. Don't pin a blank caret on
       // it; recompute the page WITHOUT the hint (the template-root default
@@ -312,7 +311,7 @@ function resolveInVirtualTree(
     // EXCEPT a "before" affinity landing EXACTLY on this page's first-line start
     // (a cross-page soft-wrap boundary: the offset is also the PREVIOUS page's
     // last-line end). There the caret must pin to the previous page's end, so we
-    // step back one page (#474 B2, cross-page mirror of the intra-page fix). The
+    // step back one page (cross-page mirror of the intra-page fix). The
     // block's first-page floor always stops the walk.
     const settleHere =
       position.offset > firstStart ||
@@ -331,7 +330,7 @@ function resolveInVirtualTree(
   // would pin the caret to the bottom of page N; instead snap to page N+1's
   // first same-block line (matching the doc-wide soft-wrap preference). An
   // explicit `caretAffinity === "before"` opts OUT (the end-of-page-N-line
-  // position must stay reachable — the cross-page mirror of the #474 B2
+  // position must stay reachable — the cross-page mirror of the
   // intra-page fix); it then falls through to the page-N resolve below.
   const lastOwn = ownLines[ownLines.length - 1];
   if (lastOwn === undefined) {
@@ -354,16 +353,16 @@ function resolveInVirtualTree(
 }
 
 /**
- * Resolve which PAGE a header/footer template-block caret should render on
- * (#323). A header/footer body is ONE shared `templateContents` subtree rendered
+ * Resolve which PAGE a header/footer template-block caret should render on.
+ * A header/footer body is ONE shared `templateContents` subtree rendered
  * into EVERY page's slot, so a slot caret `Position` alone is page-ambiguous;
  * this picks the page using the (view-state) `caretPageHint`, defaulting to the
  * body's first carrying page.
  *
  * Resolution order:
  *   1. `pageIndexOfTemplateBlock(blockId)` — the slot-ROOT fast path (the
- *      `position.blockId` IS the body root, e.g. a single-paragraph T8 body).
- *   2. DESCENDANT walk (#326 container body): the caret is in the body's
+ *      `position.blockId` IS the body root, e.g. a single-paragraph body).
+ *   2. DESCENDANT walk: the caret is in the body's
  *      paragraph CHILD, not the slot root, so step 1 missed. Walk to the
  *      template tree's root via `selectionContextOf` and map THAT root. (Skip
  *      when the walk lands on `state.rootId` — that means the block is in the
@@ -374,7 +373,7 @@ function resolveInVirtualTree(
  * Returns the chosen page index, or -1 when `blockId` is not a template block at
  * all (no fast-path map entry and the descendant walk reaches the main root).
  *
- * Exported so line-navigation reuses the SAME resolution (the I1 empty-slot
+ * Exported so line-navigation reuses the SAME resolution (the empty-slot
  * fallback lives in each caller, since it needs the materialized page's lines).
  */
 export function resolveTemplateBlockPage(
@@ -386,7 +385,7 @@ export function resolveTemplateBlockPage(
   // 1. Slot-ROOT fast path.
   let page = plan.pageIndexOfTemplateBlock(blockId);
 
-  // 2. DESCENDANT → body root via the parentId walk (#326 container body).
+  // 2. DESCENDANT → body root via the parentId walk.
   if (page < 0) {
     const root = selectionContextOf(state, blockId);
     if (root !== null && root !== state.rootId) {
@@ -408,11 +407,11 @@ export function resolveTemplateBlockPage(
 }
 
 /**
- * Resolve a template-block caret against ONE page's materialized slot (#323).
+ * Resolve a template-block caret against ONE page's materialized slot.
  * Returns the PixelPosition if `pageIndex`'s slot carries `position.blockId`
  * (either as own LineBoxes — the editable paragraph case — OR as a slot-box the
  * baseline walk finds — the container-root case), else `null` (the page doesn't
- * carry this body → caller applies the I1 fallback / bridge). Materializes only
+ * carry this body → caller applies the empty-slot fallback / bridge). Materializes only
  * `pageIndex` (one `getPage`), never the whole document.
  */
 function resolveSlotOnPage(
@@ -427,7 +426,7 @@ function resolveSlotOnPage(
   if (slotLines.length > 0) {
     return resolvePositionInOwnLines(slotLines, position, measurer, caretAffinity);
   }
-  // No own-lines (e.g. the #326 CONTAINER root carries no IFC itself — its
+  // No own-lines (e.g. the CONTAINER root carries no IFC itself — its
   // paragraph child does). If the page nonetheless carries the body's box, pin
   // the caret to its top-left baseline ON THIS PAGE. `findBlockBaseline` walks
   // the page's header/footer slots too, so a slot-root id resolves here.
@@ -522,7 +521,7 @@ export function resolveFootnoteBlockPage(
  * SPAN to the page that actually carries `position.blockId`'s lines (clamping to
  * the last page that carries them, or the ancestor's first page if none do — a
  * safe degradation the caller turns into a baseline / null). This mirrors
- * {@link resolveFootnoteBlockPage}'s per-page forward walk (#496); a single-page
+ * {@link resolveFootnoteBlockPage}'s per-page forward walk; a single-page
  * table just walks its one page.
  *
  * Returns -1 when no ancestor maps to a page (the block is not in the main tree,
@@ -591,16 +590,16 @@ export function resolveNestedMainTreeBlockPage(
  * next same-block line when one exists in `ownLines`), then walks that line's
  * leaves to measure the X for `position.offset`.
  */
-function resolvePositionInOwnLines(
+export function resolvePositionInOwnLines(
   ownLines: readonly AbsoluteLineBox[],
   position: Position,
   measurer: TextMeasurer,
   caretAffinity?: CaretAffinity,
 ): PixelPosition {
-  // Pick the target line via the shared soft-wrap picker (CUR-3): the line whose
+  // Pick the target line via the shared soft-wrap picker: the line whose
   // [start, end] contains the offset wins; at the soft-wrap edge (offset ===
   // current.end AND next is same block) it prefers the next line's start UNLESS
-  // `caretAffinity === "before"` pins the caret to this line's end (#474 B2).
+  // `caretAffinity === "before"` pins the caret to this line's end.
   // `ownLines` is block-filtered (every entry belongs to `position.blockId`), so
   // the picker's foreign-line skip is a no-op here. `-1` (no own-line matched —
   // shouldn't happen for non-empty block-filtered `ownLines`) clamps to the first
@@ -615,14 +614,14 @@ function resolvePositionInOwnLines(
   }
   const line = target.line;
 
-  // P4-C.2.1: the LineBidiView is the single place that knows the line's
+  // The LineBidiView is the single place that knows the line's
   // VISUAL↔LOGICAL leaf correspondence, so the intra-line caret X is now
   // direction-aware (LTR leaves measure left→right, RTL leaves right→left;
   // inline-blocks are atomic edges). It walks leaves in LOGICAL (state) order,
   // so a bidi-reordered line picks the right OWNING leaf (the old visual-order
   // accumulation picked the wrong leaf on a reordered line).
   // The line's axis map: which physical axis the inline/block axes map to.
-  // `direction` is `computedStyle.direction` (M3, the canonical source).
+  // `direction` is `computedStyle.direction` (the canonical source).
   const am = axisMapFor(line.writingMode, line.computedStyle.direction);
 
   const view = buildLineBidiView(target);
@@ -634,7 +633,7 @@ function resolvePositionInOwnLines(
     // direction (`am.inlineReversed`, which folds in both v-rl... no: it folds in
     // RTL in any mode) the content edge is the far inline edge, so add the line's
     // inline-size along the inline axis. This is the ONE place `inlineReversed` is
-    // consulted at the line level (I1).
+    // consulted at the line level.
     const base = lineCoordOf(target, am.inline);
     const x = am.inlineReversed ? base + line.inlineSize : base;
     return pixelPositionForLine(target, x, am);
@@ -651,11 +650,10 @@ function resolvePositionInOwnLines(
   const owner = findLeafOwner(view.logicalLeaves, stateOffset, caretAffinity);
   const rawX = caretInlineCoordInLeaf(owner, stateOffset, measurer, am);
 
-  // #338 P2 (I2) — pin the caret to the OWNING leaf's own INLINE-axis box edges.
+  // Pin the caret to the OWNING leaf's own INLINE-axis box edges.
   // For a CLAMPED hung trailing space (IFC gave it width 0 at the content edge),
   // the prefix measurement inside `caretInlineCoordInLeaf` still adds ~one glyph
-  // advance, which would land the caret PAST the box edge (the reverted-Phase-2
-  // off-page caret bug). Clamping to `[coordOf(leaf, am.inline), + sizeAlong(leaf,
+  // advance, which would land the caret PAST the box edge (an off-page caret). Clamping to `[coordOf(leaf, am.inline), + sizeAlong(leaf,
   // am.inline)]` pins it to the (clamped) edge. Direction-agnostic: for an
   // even-level leaf the upper bound bites, for an odd-level leaf the lower bound
   // bites; for a normal word leaf the caret is already inside, so the clamp is a
@@ -705,7 +703,7 @@ function findBlockBaseline(
   pageIndex: number = 0,
 ): PixelPosition | null {
   if (box.type === "page") {
-    // Visit header/footer SLOTS too (C.2c T6) so the defensive baseline walk
+    // Visit header/footer SLOTS too so the defensive baseline walk
     // reaches a slot-DESCENDANT block id (the rare multi-block-header case that
     // the `pageIndexOfTemplateBlock` fast path does not cover and which falls to
     // positioning the whole document). Page-local origin, same pageIndex.
@@ -738,7 +736,7 @@ function findBlockBaseline(
   const absY = parentY + box.y;
 
   if (box.key === blockId) {
-    // M1: project the box's PHYSICAL accumulators onto the inline/block field
+    // Project the box's PHYSICAL accumulators onto the inline/block field
     // contract. `x` ← the box's physical coord along the INLINE axis, `y`/`lineY`
     // ← along the BLOCK axis; `height`/`lineHeight` ← the box's BLOCK-axis extent
     // (`box.width` for a vertical mode, `box.height` for h-tb). For h-tb

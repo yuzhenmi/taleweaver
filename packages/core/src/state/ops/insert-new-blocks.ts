@@ -2,8 +2,8 @@ import type * as Y from "yjs";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import type { InlineItem } from "../inline-content";
-import { getTreeMap, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
-import { buildYBlock } from "../y-block";
+import { requireInTransaction, type BlockTreeKind } from "../yjs-doc";
+import { insertChildren } from "../flow-ops";
 import { assertNoIdCollision } from "../id-collision-check";
 
 /**
@@ -38,19 +38,15 @@ export interface NewBlockSpec {
 export function insertNewBlocksInTx(doc: Y.Doc, specs: readonly NewBlockSpec[]): void {
   requireInTransaction(doc, "insertNewBlocks");
   for (const s of specs) assertNoIdCollision(doc, s.id, "insertNewBlocks");
+  // Each spec goes right after its `prevSiblingId` (a chain: the start block, then
+  // each previously inserted spec) — marks + characters, in order.
   for (const s of specs) {
-    getTreeMap(doc, s.kind).set(
-      s.id,
-      buildYBlock({
-        type: s.type,
-        attrs: s.attrs,
-        parentId: s.parentId,
-        prevSiblingId: s.prevSiblingId,
-        nextSiblingId: s.nextSiblingId,
-        firstChildId: null,
-        lastChildId: null,
-        inlineContent: { items: [...s.items] },
-      }),
+    insertChildren(
+      doc,
+      s.parentId,
+      s.prevSiblingId,
+      [{ id: s.id, type: s.type, attrs: s.attrs, inlineContent: { items: [...s.items] }, children: [] }],
+      s.kind,
     );
   }
 }

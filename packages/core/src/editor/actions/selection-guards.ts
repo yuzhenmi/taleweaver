@@ -1,14 +1,16 @@
 import {
   resolveBlock,
-  spanStart,
+  spanEnd,
+  createPosition,
   selectionContextOf,
   deleteRange,
+  bookmarkDeletionSpan,
 } from "../../state";
 import type { State, Span, Position, Selection, BlockId } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 
 /**
- * C.2c §6: cross-CONTEXT selection predicate.
+ * Cross-CONTEXT selection predicate.
  *
  * A header/footer body (and a footnote/embed body) is an ISOLATED editing
  * context: its root has `parentId === null` and lives in its own
@@ -38,9 +40,12 @@ export function isCrossContextSelection(state: State, span: Span): boolean {
  * about to be deleted/replaced, applying the deletable-span guard shared by
  * DELETE_BACKWARD, DELETE_FORWARD, and SPLIT_NODE.
  *
- * Returns `spanStart(state, span)` — the position the caret collapses to after
- * the delete — when the span is deletable, or `null` when the caller must
- * REFUSE (no-op).
+ * Returns the seam a DIRECT `deleteRange` of the span leaves — the position the
+ * caret collapses to after the delete — when the span is deletable, or `null`
+ * when the caller must REFUSE (no-op). A cross-block delete
+ * removes the crossed ¶s and the END block survives, so the seam is
+ * (end block, start offset); within one block it is `spanStart`. (A suggesting
+ * soft-delete removes nothing: its caret is `spanStart` / `spanEnd`.)
  *
  * The span is refused when:
  *   - either endpoint's block does not resolve, OR
@@ -49,7 +54,7 @@ export function isCrossContextSelection(state: State, span: Span): boolean {
  *
  * `resolveBlock` (main → embed → template) is used so a header/footer caret
  * resolves; for a main-tree id the behavior is byte-identical (resolveBlock's
- * first arm is `getBlock`). T7a / render precedent.
+ * first arm is `getBlock`).
  *
  * NOTE: the cross-CONTEXT guard (`isCrossContextSelection`) is SEPARATE and
  * must be checked first at each call site — it catches cross-tree spans whose
@@ -71,7 +76,9 @@ export function expandedSpanCollapsePoint(
   ) {
     return null;
   }
-  return spanStart(state, span);
+  // The seam: a removed bookmark's start marker just before the span goes with it.
+  const start = bookmarkDeletionSpan(state, span).span.anchor;
+  return span.anchor.blockId === span.focus.blockId ? start : createPosition(spanEnd(state, span).blockId, start.offset);
 }
 
 const EMPTY_DIRTY_IDS: ReadonlySet<BlockId> = new Set();

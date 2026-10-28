@@ -1,30 +1,43 @@
 /**
  * `taleweaver-html` ENCODE: a pure `State` → HTML-string serialization (no
  * parser). Walks the main tree in document order, mapping each block to its
- * HTML element per the spec §4 table.
+ * HTML element per the block-type table.
  *
  * Pure and platform-agnostic — no DOM APIs are used on the encode side (only
  * the decode side needs to parse HTML, via an injected `HtmlParser`). Lossy
  * drops of CONTENT-bearing embeds
  * (footnote anchors, cross-references) emit a dev-mode `console.warn` naming the
- * dropped type + the lossless binary escape (spec §4 I1); other unsupported
+ * dropped type + the lossless binary escape; other unsupported
  * embeds are skipped silently.
  */
 import { getBlock } from "../state";
+import { topLevelBlockIds } from "../block-traversal";
 import { docHasLists } from "../document-order";
 import { getListDefsForState, classifyListDef } from "../list-defs";
 import { collectListEvents, computeCounters } from "../../numbering";
 import type { CounterValue } from "../../numbering";
 import { FOOTNOTE_ANCHOR_EMBED_TYPE } from "../ops/insert-footnote";
-import { CROSS_REFERENCE_EMBED_TYPE } from "../ops/insert-cross-reference";
+import { CROSS_REFERENCE_EMBED_TYPE, BROKEN_CROSS_REFERENCE_TEXT } from "../ops/insert-cross-reference";
 import { HARD_BREAK_EMBED_TYPE } from "../hard-break";
-import { INLINE_IMAGE_EMBED_TYPE, type InlineContent } from "../inline-content";
+import { INLINE_IMAGE_EMBED_TYPE, type EmbedItem } from "../inline-content";
+import { BOOKMARK_START_EMBED_TYPE, BOOKMARK_END_EMBED_TYPE, collectBookmarks, type BookmarkRange } from "../bookmarks";
+import { extractText, captionEmbedSerializer } from "../extract-text";
+import { createSpan } from "../block-position";
 import type { State } from "../state";
 import type { Block } from "../block";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import { isExportSafeLinkUrl } from "../../url-safety";
 import { isDevMode } from "../dev-mode";
+
+/** Per-encode inline context: drop warnings, bookmark pairing, field values. */
+interface EncodeCtx {
+  readonly warnDrop: (embedType: string) => void;
+  /** True iff the bookmark-start marker of `id` at unit `offset` of `blockId` is its id's live (paired) start. */
+  readonly isLiveStart: (id: string, blockId: BlockId, offset: number) => boolean;
+  /** A cross-reference field's displayed value. */
+  readonly fieldText: (item: EmbedItem) => string;
+}
 
 /** HTML-escape text content (& < > "). */
 function escapeHtml(s: string): string {
@@ -127,7 +140,7 @@ function makeDropWarner(): (embedType: string) => void {
  * Shared by the BLOCK image (`encodeLeaf`) and the INLINE image embed
  * (`encodeInline`) so the two paths stay byte-identical.
  *
- * `src` is SANITIZED through the same export allowlist as `<a href>` (#466) for
+ * `src` is SANITIZED through the same export allowlist as `<a href>` for
  * consistency + defense-in-depth: a `javascript:` / `data:` / `vbscript:` /
  * `file:` scheme is dropped to `""` (relative paths + http(s) survive). Browsers
  * do not execute `javascript:` in an `<img src>` the way they do in an `<a href>`,
@@ -155,13 +168,13 @@ function emitImgTag(
 }
 
 /** Encode a leaf block's inline content (text runs + hard-breaks). */
-function encodeInline(
-  content: InlineContent | null,
-  warnDrop: (embedType: string) => void,
-): string {
-  if (content === null) return "";
+function encodeInline(block: Block, ctx: EncodeCtx): string {
+  if (block.inlineContent === null) return "";
   let out = "";
-  for (const item of content.items) {
+  let offset = 0;
+  for (const item of block.inlineContent.items) {
+    const at = offset;
+    offset += item.kind === "text" ? item.text.length : 1;
     if (item.kind === "text") {
       out += wrapMarks(escapeHtml(item.text), item.attrs);
     } else if (item.embedType === HARD_BREAK_EMBED_TYPE) {
@@ -178,17 +191,30 @@ function encodeInline(
         numAttr(item.properties.height),
         strAttr(item.properties.alt),
       );
+    } else if (item.embedType === BOOKMARK_START_EMBED_TYPE) {
+      // Word's HTML output: a bookmark is a point anchor at its start (Word emits
+      // `<a name="_Ref…">`); its end marker emits nothing.
+      const id = strAttr(item.properties.bookmarkId);
+      if (id !== undefined && ctx.isLiveStart(id, block.id, at)) out += `<a id="${escapeHtml(id)}"></a>`;
+    } else if (item.embedType === BOOKMARK_END_EMBED_TYPE) {
+      // Nothing: the anchor is a point.
+    } else if (item.embedType === CROSS_REFERENCE_EMBED_TYPE) {
+      // A cross-reference → an internal link to its bookmark carrying the field's
+      // value (Word's HTML keeps the field result, linked to the `_Ref` anchor).
+      const id = strAttr(item.properties.bookmarkId);
+      const shown = escapeHtml(ctx.fieldText(item));
+      out += id === undefined ? shown : `<a href="#${escapeHtml(id)}">${shown}</a>`;
     } else {
       // Unsupported embed: dropped (dev-warns for content-bearing types).
-      warnDrop(item.embedType);
+      ctx.warnDrop(item.embedType);
     }
   }
   return out;
 }
 
 /** Encode a single non-list leaf block. Returns "" for unsupported types. */
-function encodeLeaf(block: Block, warnDrop: (embedType: string) => void): string {
-  const inner = encodeInline(block.inlineContent, warnDrop);
+function encodeLeaf(block: Block, ctx: EncodeCtx): string {
+  const inner = encodeInline(block, ctx);
   switch (block.type) {
     case "heading": {
       const level = headingLevel(block.attrs);
@@ -218,7 +244,7 @@ function encodeLeaf(block: Block, warnDrop: (embedType: string) => void): string
  * we close them. The `tag` ("ul"/"ol") is fixed for the whole run (a list's
  * ordered/unordered nature is its level-0 def).
  *
- * Ordinal fidelity (#552): for an ORDERED run each item carries its resolved
+ * Ordinal fidelity: for an ORDERED run each item carries its resolved
  * numeric ordinal (`value`, from the numbering engine). We emit `<ol start=N>`
  * when a freshly-opened list's first item is N≠1 (its level's `start`), and
  * `<li value=N>` when an item breaks the natural +1 sequence (a mid-list
@@ -303,7 +329,7 @@ function encodeListRun(
 
 /**
  * The opening `<li>` tag for one ordered/unordered item, advancing the
- * per-level expected-ordinal ledger (#552). For an unordered list, or an item
+ * per-level expected-ordinal ledger. For an unordered list, or an item
  * the numbering engine left unresolved, this is a bare `<li>`. For an ordered
  * item whose resolved ordinal diverges from what HTML would auto-assign, it is
  * `<li value=N>`; a divergence at the FIRST item of a freshly-opened list was
@@ -345,7 +371,7 @@ function encodeTable(
   table: Block,
   listDefs: ListDefMap,
   counters: Counters,
-  warnDrop: (embedType: string) => void,
+  ctx: EncodeCtx,
 ): string {
   let out = "<table>";
 
@@ -372,7 +398,7 @@ function encodeTable(
         const cellBlock = getBlock(state, cellId);
         if (cellBlock === null) break;
         if (cellBlock.type === "table-cell") {
-          out += encodeCell(state, cellBlock, listDefs, counters, warnDrop);
+          out += encodeCell(state, cellBlock, listDefs, counters, ctx);
         }
         cellId = cellBlock.nextSiblingId;
       }
@@ -390,38 +416,40 @@ function encodeCell(
   cell: Block,
   listDefs: ListDefMap,
   counters: Counters,
-  warnDrop: (embedType: string) => void,
+  ctx: EncodeCtx,
 ): string {
   const rowSpan = numAttr(cell.attrs.rowSpan);
   const colSpan = numAttr(cell.attrs.colSpan);
   let attrsStr = "";
   if (rowSpan !== undefined && rowSpan > 1) attrsStr += ` rowspan="${rowSpan}"`;
   if (colSpan !== undefined && colSpan > 1) attrsStr += ` colspan="${colSpan}"`;
-  const inner = encodeBlockSequence(state, cell.firstChildId, listDefs, counters, warnDrop);
+  const childIds: BlockId[] = [];
+  for (let c = cell.firstChildId; c !== null; ) {
+    childIds.push(c);
+    c = getBlock(state, c)?.nextSiblingId ?? null;
+  }
+  const inner = encodeBlockSequence(state, childIds, listDefs, counters, ctx);
   return `<td${attrsStr}>${inner}</td>`;
 }
 
 /**
- * Encode a sequence of sibling blocks starting at `firstChildId` (the document
- * root's children, or a table cell's children) in document order: consecutive
+ * Encode a sequence of blocks (the document's top-level blocks across its
+ * sections, or a table cell's children) in document order: consecutive
  * same-listId list-items group into one `<ul>`/`<ol>`; a `table` → `<table>`
  * (see {@link encodeTable}); every other block → {@link encodeLeaf}. Recursive
  * via `encodeTable` → `encodeCell`, so nested structures serialize.
  */
 function encodeBlockSequence(
   state: State,
-  firstChildId: BlockId | null,
+  ids: readonly BlockId[],
   listDefs: ListDefMap,
   counters: Counters,
-  warnDrop: (embedType: string) => void,
+  ctx: EncodeCtx,
 ): string {
   const blocks: Block[] = [];
-  let childId = firstChildId;
-  while (childId !== null) {
-    const block = getBlock(state, childId);
-    if (block === null) break;
-    blocks.push(block);
-    childId = block.nextSiblingId;
+  for (const id of ids) {
+    const block = getBlock(state, id);
+    if (block !== null) blocks.push(block);
   }
 
   let out = "";
@@ -446,7 +474,7 @@ function encodeBlockSequence(
         const level = numAttr(itemBlock.attrs.listLevel) ?? 0;
         runItems.push({
           level: level >= 0 ? level : 0,
-          inner: encodeInline(itemBlock.inlineContent, warnDrop),
+          inner: encodeInline(itemBlock, ctx),
           value: counters.get(itemBlock.id)?.value,
         });
         j++;
@@ -456,10 +484,10 @@ function encodeBlockSequence(
       out += encodeListRun(runItems, tag);
       i = j;
     } else if (block.type === "table") {
-      out += encodeTable(state, block, listDefs, counters, warnDrop);
+      out += encodeTable(state, block, listDefs, counters, ctx);
       i++;
     } else {
-      out += encodeLeaf(block, warnDrop);
+      out += encodeLeaf(block, ctx);
       i++;
     }
   }
@@ -468,11 +496,10 @@ function encodeBlockSequence(
 
 /**
  * Encode the document State to an HTML string. Walks the main tree's top-level
- * blocks in document order via {@link encodeBlockSequence}.
+ * blocks (root → sections → blocks; sections are transparent, as in Word's HTML
+ * output) in document order via {@link encodeBlockSequence}.
  */
 export function encodeHtml(state: State): string {
-  const root = getBlock(state, state.rootId);
-  if (root === null) return "<body></body>";
   const listDefs = getListDefsForState(state);
   // Resolve list ordinals via the SAME numbering engine the render path uses
   // (single source of truth — never re-derived here), so `<ol start>` / `<li value>`
@@ -481,6 +508,25 @@ export function encodeHtml(state: State): string {
   const counters: Counters = docHasLists(state)
     ? computeCounters(collectListEvents(state), listDefs)
     : new Map();
-  const body = encodeBlockSequence(state, root.firstChildId, listDefs, counters, makeDropWarner());
+  // Bookmarks are paired once (the duplicate-id rule) when the document has any.
+  let bookmarks: Map<string, BookmarkRange> | null = null;
+  const pairs = (): Map<string, BookmarkRange> => (bookmarks ??= collectBookmarks(state));
+  const ctx: EncodeCtx = {
+    warnDrop: makeDropWarner(),
+    isLiveStart: (id, blockId, offset) => {
+      const start = pairs().get(id)?.start;
+      return start?.blockId === blockId && start.offset === offset + 1;
+    },
+    fieldText: (item) => {
+      const id = strAttr(item.properties.bookmarkId);
+      const range = id === undefined ? undefined : pairs().get(id);
+      if (range === undefined) return BROKEN_CROSS_REFERENCE_TEXT;
+      if (item.properties.refMode === "number") return counters.get(range.start.blockId)?.formatted ?? BROKEN_CROSS_REFERENCE_TEXT;
+      // `page` needs pagination, which this layout-free encoder does not have.
+      if (item.properties.refMode !== "text") return "";
+      return extractText(state, createSpan(range.start, range.end), captionEmbedSerializer);
+    },
+  };
+  const body = encodeBlockSequence(state, topLevelBlockIds(state), listDefs, counters, ctx);
   return `<body>${body}</body>`;
 }

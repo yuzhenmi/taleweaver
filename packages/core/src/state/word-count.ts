@@ -56,7 +56,7 @@ export interface WordCountOptions {
    * literal document (both shown). NOTE: `getWordCount` counts PER BLOCK by design
    * (words never straddle a paragraph break — Google-Docs behavior), so a projected
    * count at a MERGED boundary (an accepted-join / rejected-split, which
-   * `blockBoundaryMergesInView` collapses) is NOT reduced — each block is counted
+   * `boundaryMergesInView` collapses) is NOT reduced — each block is counted
    * independently. That structural merge IS applied by the multi-block extractors
    * (`extractText` / `getSelectionWordCount`); only this per-block whole-doc count
    * is unaffected, and deliberately so.

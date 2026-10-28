@@ -7,10 +7,14 @@ import {
   initialSelectionForState,
   createDefaultComponentRegistry,
   createDefaultAttrRegistry,
+  createState,
+  getYDoc,
   type EditorConfig,
+  type BlockKindResolver,
   type State,
   type Position,
 } from "@taleweaver/core";
+import * as Y from "yjs";
 import { useCollabEditor } from "../use-collab-editor";
 
 const PAGE_HEIGHT = 1056; // US Letter at 96 DPI
@@ -42,21 +46,19 @@ export function CollabSurface({
   seed: State | null;
   registerGetState: (getState: () => State) => void;
 }) {
-  // The ONE shared seed State (over the shared Y.Doc) both panes bind to. Built
-  // once: from the handed-off document if a tab switch carried one, else a small
-  // fresh starter doc. A `State` wraps a Y.Doc, so handing the SAME seed to both
-  // `useCollabEditor` calls puts both panes on the same CRDT.
-  const sharedSeedRef = useRef<State | null>(null);
-  if (sharedSeedRef.current === null) {
-    sharedSeedRef.current = seed ?? makeStarterDoc();
-  }
-  const sharedSeed = sharedSeedRef.current;
+  // Two PEERS, each with its own document over its own Y.Doc, synced by exchanging Yjs
+  // updates in both directions — the in-process stand-in for a network provider.
+  // Built once: peer A from the handed-off document (or a small starter doc), peer B
+  // as a replica of it.
+  const peersRef = useRef<{ a: State; b: State } | null>(null);
+  if (peersRef.current === null) peersRef.current = connectPeers(seed ?? makeStarterDoc(), createDefaultComponentRegistry());
+  const peers = peersRef.current;
 
-  const paneA = useCollabEditor(sharedSeed, "collab-peer-a");
-  const paneB = useCollabEditor(sharedSeed, "collab-peer-b");
+  const paneA = useCollabEditor(peers.a);
+  const paneB = useCollabEditor(peers.b);
 
-  // Hand off pane A's live document on a tab switch (either pane's state reads
-  // the same shared doc, so A is an arbitrary-but-fine choice).
+  // Hand off pane A's live document on a tab switch (both peers hold the same synced
+  // content, so A is an arbitrary-but-fine choice).
   const latestStateA = useRef(paneA.editorState.state);
   latestStateA.current = paneA.editorState.state;
   useEffect(() => {
@@ -66,8 +68,8 @@ export function CollabSurface({
   return (
     <div className="flex flex-col flex-1 overflow-hidden bg-[#f9fbfd]">
       <div className="border-b border-[#e0e0e0] bg-[#fff8e1] px-4 py-1.5 text-xs text-[#7a5c00]">
-        Two editors, one shared CRDT document — type in either pane and watch it sync live, each peer's cursor shown in
-        its colour. (Concurrent edits to the same line may drift the caret; selection-rebasing is a planned follow-up.)
+        Two peers, each with its own CRDT document synced by Yjs updates — type in either pane and watch it sync live,
+        each peer's cursor shown in its colour; a peer's edit rebases your caret and selection.
       </div>
       <div className="flex flex-1 overflow-hidden">
         <CollabPane
@@ -194,6 +196,21 @@ function RemoteCursor({
   );
 }
 
+/** Peer B: a replica of `a` over its own Y.Doc, kept in sync with `a` in both directions. */
+function connectPeers(a: State, resolver: BlockKindResolver): { a: State; b: State } {
+  const docA = getYDoc(a);
+  const docB = new Y.Doc();
+  Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
+  const SYNC = "collab-demo-sync";
+  docA.on("update", (u: Uint8Array, origin: unknown) => {
+    if (origin !== SYNC) Y.applyUpdate(docB, u, SYNC);
+  });
+  docB.on("update", (u: Uint8Array, origin: unknown) => {
+    if (origin !== SYNC) Y.applyUpdate(docA, u, SYNC);
+  });
+  return { a, b: createState({ rootId: a.rootId, doc: docB, resolver }) };
+}
+
 /** A small fresh document so the collab demo opens with editable content. */
 function makeStarterDoc(): State {
   const config: EditorConfig = {
@@ -201,7 +218,7 @@ function makeStarterDoc(): State {
     attrRegistry: createDefaultAttrRegistry(),
     containerWidth: 600,
   };
-  const empty = createEmptyDocument();
+  const empty = createEmptyDocument({ resolver: config.componentRegistry });
   let editor = createEditorStateFromState(empty, initialSelectionForState(empty), config);
   editor = reduceEditor(
     editor,

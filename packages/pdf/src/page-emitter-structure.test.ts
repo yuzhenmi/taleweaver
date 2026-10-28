@@ -1,7 +1,23 @@
 import { describe, it, expect } from "vitest";
-import type { ComputedStyle, UsedStyle } from "@taleweaver/core";
+import type { ComputedStyle, EditorConfig, State, UsedStyle } from "@taleweaver/core";
 import type { BlockBox, LayoutBox } from "@taleweaver/print";
-import { INITIAL_COMPUTED_STYLE, asBlockId } from "@taleweaver/core";
+import {
+  INITIAL_COMPUTED_STYLE,
+  asBlockId,
+  buildBlock,
+  buildState,
+  createDefaultAttrRegistry,
+  createDefaultComponentRegistry,
+  createEditorStateFromState,
+  createMockShaper,
+  createPosition,
+  createSpan,
+  inlineContent,
+  paragraphComponent,
+  reduceEditor,
+  render,
+  text,
+} from "@taleweaver/core";
 import {
   computeUsedStyle,
   createBlockBox,
@@ -9,6 +25,7 @@ import {
   createMarkerBox,
   createTextRunBox,
   createPageBox,
+  layoutTree,
 } from "@taleweaver/print";
 import { emitPageContent } from "./page-emitter";
 import { createStandard14FontProvider } from "./font-provider";
@@ -201,5 +218,77 @@ describe("emitPageContent — tagged-PDF structure", () => {
     expect(s).toContain("/Artifact BDC");
     expect(s).not.toContain("/MCID");
     expect(result.structRefs).toEqual([]);
+  });
+});
+
+describe("emitPageContent — change-tracking ¶ and section-break label are artifacts", () => {
+  const componentRegistry = createDefaultComponentRegistry();
+  const attrRegistry = createDefaultAttrRegistry();
+  const base: EditorConfig = { componentRegistry, attrRegistry, containerWidth: 300 };
+  const alice: EditorConfig = { ...base, suggestingAuthor: "alice", now: () => 1 };
+  const at = (b: string, o: number) => createSpan(createPosition(asBlockId(b), o), createPosition(asBlockId(b), o));
+  const state = (): State => {
+    const ids = ["p0", "p1", "p2"];
+    const s = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "p0", lastChildId: "p2" }),
+        ...["Anna", "Rosa", "Next"].map((t, i) => buildBlock({ id: ids[i] ?? "", type: "paragraph", parentId: "doc", prevSiblingId: ids[i - 1] ?? null, nextSiblingId: ids[i + 1] ?? null, inlineContent: inlineContent([text(t)]) })),
+      ],
+    });
+    // A suggested join p0|p1 (¶ at the end of p0) and a suggested section break before p2
+    // (an empty ¶ ending the first section, drawn as the section-break label).
+    let e = createEditorStateFromState(s, at("p1", 0), alice);
+    e = reduceEditor(e, { type: "DELETE_BACKWARD" }, alice);
+    e = reduceEditor(reduceEditor(e, { type: "SET_SELECTION", selection: at("p2", 0) }, alice), { type: "SECTION_BREAK" }, alice);
+    return e.state;
+  };
+
+  it("wraps the ¶ glyph and the section-break label (double rule + label) in /Artifact; the text spans exclude them", () => {
+    const lt = layoutTree(render(state(), componentRegistry, attrRegistry).root, 300, createMockShaper(8, 16), {
+      pageInlineSize: 300, pageBlockSize: 400, pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 0, inlineEnd: 0 }, pageGap: 0,
+    });
+    if (lt.type !== "virtual-root") throw new Error("expected a paginated tree");
+    const s = decode(emitPageContent(lt.getPage(0), { ...deps(), structureBlockIds: new Set(["p0", "p1", "p2"]) }).contentBytes);
+    const sections = s.split("EMC");
+    const artifacts = sections.filter((x) => x.includes("/Artifact BDC")).map((x) => x.slice(x.indexOf("/Artifact BDC")));
+    const spans = sections.filter((x) => x.includes("/Span")).map((x) => x.slice(x.indexOf("/Span")));
+    // ¶ = WinAnsi 0xB6.
+    expect(artifacts.some((x) => x.includes("<b6> Tj"))).toBe(true);
+    // The label "Section Break" and its double dotted rule (filled rects).
+    expect(artifacts.some((x) => x.includes("<53> Tj"))).toBe(true);
+    expect(artifacts.some((x) => (x.match(/ re\nf\n/g) ?? []).length > 10)).toBe(true);
+    for (const span of spans) {
+      expect(span).not.toContain("<b6>");
+      expect(span).not.toContain("<53> Tj");
+    }
+  });
+
+  it("a ¶ hanging into the page margin is clipped by the page box (q … re W n … Q), also under a (pdf-ignored) block transform", () => {
+    // A transform on the paragraph makes the page box an OUTER clip of its ¶; pdf paints
+    // untransformed, so it applies every clip flat.
+    const shifted = createDefaultComponentRegistry();
+    const shiftedParagraph: typeof paragraphComponent = {
+      ...paragraphComponent,
+      render: (view, ctx, inline) => {
+        const el = paragraphComponent.render(view, ctx, inline);
+        return el.type === "element" ? { ...el, style: { ...el.style, transform: [{ fn: "translateX", tx: 0 }] } } : el;
+      },
+    };
+    shifted.register(shiftedParagraph);
+    for (const reg of [componentRegistry, shifted]) {
+      // "Anna" fills the 32-wide content box; the ¶ hangs into the 3px margin.
+      const lt = layoutTree(render(state(), reg, attrRegistry).root, 38, createMockShaper(8, 16), {
+        pageInlineSize: 38, pageBlockSize: 400, pageMargins: { blockStart: 0, blockEnd: 0, inlineStart: 3, inlineEnd: 3 }, pageGap: 0,
+      });
+      if (lt.type !== "virtual-root") throw new Error("expected a paginated tree");
+      const s = decode(emitPageContent(lt.getPage(0), deps()).contentBytes);
+      const glyph = s.indexOf("<b6> Tj");
+      const clip = s.lastIndexOf("q\n", glyph);
+      expect(glyph).toBeGreaterThan(0);
+      // Clip rect: x = 35px (the content edge), width = 3px (to the page edge), in pt (× 0.75).
+      expect(s.slice(clip, glyph)).toMatch(/q\n26\.25 \S+ 2\.25 \S+ re\nW\nn\n/);
+      expect(s.indexOf("Q\n", glyph)).toBeGreaterThan(glyph);
+    }
   });
 });

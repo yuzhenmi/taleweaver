@@ -1,162 +1,208 @@
-import type { UsedStyle, ComputedStyle, LeaderStyle, CommentId, SuggestionId } from "@taleweaver/core";
+import type { UsedStyle, ComputedStyle, LeaderStyle } from "@taleweaver/core";
 import type { LayoutBox } from "./layout/layout-node";
+import type { BoundaryMarkPlacement, MarkerBox } from "./layout/layout-box";
+import { boundaryMarkRectOf, type BoundaryMarkRect } from "./cursor/boundary-mark-index";
 import type { SelectionRect } from "./cursor/selection-geometry";
-import { markStart, markEnd, resolveSpacingPx, clusterSpacing, fromTransformFns, resolveTransformOrigin, physicalBorderSides } from "@taleweaver/core";
+import { markStart, markEnd, resolveSpacingPx, fromTransformFns, resolveTransformOrigin, physicalBorderSides, compose, translate, type Mat2D } from "@taleweaver/core";
 import { buildCssFontString } from "./font-config";
-import { segmentClusters } from "./text-clusters";
+import { segmentClusters, clusterAdvance, isSoftHyphen } from "./text-clusters";
 import type { ImageCache } from "./image-cache";
 import { hashPaintInputs } from "./paint-cache";
-import type { PaintCache, Rect, MatchHighlightRectSnapshot, CommentHighlightRectSnapshot, SuggestionHighlightRectSnapshot } from "./paint-cache";
+import type { PaintCache, Rect, DecorationRectSnapshot } from "./paint-cache";
+import { CURRENT_COLOR, type DecorationRect, type DecorationUnderlinePaint } from "./decoration-geometry";
+export type { DecorationRect } from "./decoration-geometry";
 import { createOffscreenSurface } from "./offscreen-surface";
-
-/**
- * A find-match highlight rect. A paint-layer concept (NOT a core type): it is
- * a `SelectionRect` (so it reuses the selection-rect geometry machinery wholesale)
- * tagged with whether it belongs to the ACTIVE match (the one next/prev cycles to).
- * Painted in the overlay band BELOW the selection tint and BELOW text — they are
- * background highlights the blue selection and the glyphs composite over (matching
- * Google Docs' yellow find-highlights).
- */
-export type MatchHighlightRect = SelectionRect & { active: boolean };
-
-/** Inactive find-match highlight fill (yellow). */
-export const MATCH_HIGHLIGHT_FILL = "rgba(255, 213, 0, 0.40)";
-/** Active find-match highlight fill (orange) — the match next/prev is currently on. */
-export const ACTIVE_MATCH_HIGHLIGHT_FILL = "rgba(255, 138, 0, 0.55)";
-
-/**
- * A comment-highlight rect (comments slice 5). The exact analog of
- * `MatchHighlightRect`: a `SelectionRect` (reusing the selection-rect geometry
- * machinery wholesale) tagged with whether it belongs to the ACTIVE comment (the
- * hovered/selected one, emphasized) plus the `commentId` it belongs to.
- * `commentId` rides along for future hover/click-to-thread mapping; the PAINT and
- * DIRTY-TRACKING use only geometry + `active` (commentId does not affect pixels).
- * Painted in the overlay band BELOW the find-match highlights, BELOW the
- * selection tint, and BELOW text — a soft amber band the find highlights, the
- * blue selection, and the glyphs all composite over (matching Google Docs'
- * comment highlights).
- */
-export type CommentHighlightRect = SelectionRect & { commentId: CommentId; active: boolean };
-
-/** Inactive comment highlight fill (soft gold/amber) — visually distinct from find's yellow. */
-export const COMMENT_HIGHLIGHT_FILL = "rgba(255, 199, 110, 0.35)";
-/** Active comment highlight fill (deeper amber) — the hovered/selected comment. */
-export const ACTIVE_COMMENT_HIGHLIGHT_FILL = "rgba(255, 167, 38, 0.55)";
-
-/**
- * A suggestion-highlight rect (change-tracking slice 6). The exact analog of
- * `CommentHighlightRect`: a `SelectionRect` (reusing the selection-rect geometry
- * machinery wholesale) tagged with whether it belongs to the ACTIVE suggestion
- * (the focused/selected one in the suggestion sidebar, emphasized) plus the
- * `suggestionId` it belongs to. `suggestionId` rides along for future
- * hover/click-to-sidebar mapping; the PAINT and DIRTY-TRACKING use only geometry +
- * `active` (suggestionId does not affect pixels). Painted in the overlay band
- * BELOW the comment highlights, BELOW the find-match highlights, BELOW the
- * selection tint, and BELOW text — a soft teal band the comment highlights, the
- * find highlights, the blue selection, and the glyphs all composite over.
- */
-export type SuggestionHighlightRect = SelectionRect & { suggestionId: SuggestionId; active: boolean };
-
-/** Inactive suggestion highlight fill (soft teal) — distinct from comment amber + find yellow. */
-export const SUGGESTION_HIGHLIGHT_FILL = "rgba(45, 178, 168, 0.30)";
-/** Active suggestion highlight fill (deeper teal) — the focused/selected suggestion. */
-export const ACTIVE_SUGGESTION_HIGHLIGHT_FILL = "rgba(20, 150, 140, 0.50)";
 
 const SELECTION_FILL = "rgba(59, 130, 246, 0.3)";
 
+/** Underline stroke thickness (px). */
+const UNDERLINE_THICKNESS = 1;
+/** Wavy underline: half-period and amplitude (px). */
+const WAVE_HALF_PERIOD = 2;
+const WAVE_AMPLITUDE = 1.5;
+
 /**
- * Paint the match-highlight band: inactive matches first, then active, so the
- * active colour wins any overlap. Each rect is viewport-culled identically to
- * the selection-rect loop. Painted IMMEDIATELY BEFORE the selection tint (so
- * highlights sit under selection and under text).
+ * Decoration paint input, indexed for the per-box paint slots.
+ * Decorations paint like their DOM counterparts in digital — CSS backgrounds:
+ * a BLOCK decoration fills right after its box's own background (under its
+ * borders, image and children); an INLINE fragment fills in each text run's
+ * background slot (over the run's highlight, under glyphs, images and the
+ * selection), clipped to the run. Underlines paint in the same slot, under the
+ * glyphs (CSS paints underlines before text).
  */
-function paintMatchHighlights(
-  ctx: CanvasRenderingContext2D,
-  matchHighlights: readonly MatchHighlightRect[],
-  visibleTop: number,
-  visibleBottom: number,
-): void {
-  if (matchHighlights.length === 0) return;
-  // Inactive pass.
-  ctx.fillStyle = MATCH_HIGHLIGHT_FILL;
-  for (const rect of matchHighlights) {
-    if (rect.active) continue;
-    if (rect.y + rect.height < visibleTop || rect.y > visibleBottom) continue;
-    ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+interface DecorationPaint {
+  /** Block box key (= block id) → fill colours, bottom-to-top. */
+  readonly blockFills: ReadonlyMap<string, readonly string[]>;
+  /** Inline fragments, bottom-to-top. */
+  readonly inline: readonly DecorationRect[];
+}
+
+const NO_DECORATION_PAINT: DecorationPaint = { blockFills: new Map(), inline: [] };
+
+function indexDecorations(rects: readonly DecorationRect[]): DecorationPaint {
+  if (rects.length === 0) return NO_DECORATION_PAINT;
+  const blockFills = new Map<string, string[]>();
+  const seen = new Set<string>();
+  const inline: DecorationRect[] = [];
+  for (const r of rects) {
+    if (r.kind === "inline") {
+      inline.push(r);
+      continue;
+    }
+    if (r.backgroundColor === undefined || r.decoration.kind !== "block") continue;
+    const key = r.decoration.blockId;
+    const once = `${key}\u0000${r.decoration.id}`;
+    if (seen.has(once)) continue; // a block fragmented into several boxes: one fill per box
+    seen.add(once);
+    const fills = blockFills.get(key);
+    if (fills === undefined) blockFills.set(key, [r.backgroundColor]);
+    else fills.push(r.backgroundColor);
   }
-  // Active pass (over the inactive band, so active colour wins overlaps).
-  ctx.fillStyle = ACTIVE_MATCH_HIGHLIGHT_FILL;
-  for (const rect of matchHighlights) {
-    if (!rect.active) continue;
-    if (rect.y + rect.height < visibleTop || rect.y > visibleBottom) continue;
-    ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+  return { blockFills, inline };
+}
+
+/** Block-decoration fills for the box `key`, right after its own background. */
+function paintBlockDecorations(
+  ctx: CanvasRenderingContext2D,
+  state: PaintState,
+  key: string,
+  absX: number,
+  absY: number,
+  width: number,
+  height: number,
+  textColor: string,
+): void {
+  const fills = state.decorations.blockFills.get(key);
+  if (fills === undefined) return;
+  for (const fill of fills) {
+    ctx.fillStyle = fill === CURRENT_COLOR ? textColor : fill;
+    ctx.fillRect(absX, absY, width, height);
   }
 }
 
 /**
- * Paint the comment-highlight band (comments slice 5): inactive comments first,
- * then active, so the active (hovered/selected) colour wins any overlap. Exact
- * mirror of `paintMatchHighlights` — same viewport cull. Painted IMMEDIATELY
- * BEFORE `paintMatchHighlights` (so comment highlights sit BELOW the find-match
- * highlights, under selection, and under text).
+ * The inline fragments over one text run, clipped to the run's inline extent.
+ * Fragments are in the painted frame (relative offsets applied); `state.frameDx/Dy`
+ * maps them into an opacity-group surface.
  */
-function paintCommentHighlights(
+function paintRunDecorations(
   ctx: CanvasRenderingContext2D,
-  commentHighlights: readonly CommentHighlightRect[],
-  visibleTop: number,
-  visibleBottom: number,
+  state: PaintState,
+  runX: number,
+  runY: number,
+  runW: number,
+  runH: number,
+  textColor: string,
 ): void {
-  if (commentHighlights.length === 0) return;
-  // Inactive pass.
-  ctx.fillStyle = COMMENT_HIGHLIGHT_FILL;
-  for (const rect of commentHighlights) {
-    if (rect.active) continue;
-    if (rect.y + rect.height < visibleTop || rect.y > visibleBottom) continue;
-    ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
-  }
-  // Active pass (over the inactive band, so active colour wins overlaps).
-  ctx.fillStyle = ACTIVE_COMMENT_HIGHLIGHT_FILL;
-  for (const rect of commentHighlights) {
-    if (!rect.active) continue;
-    if (rect.y + rect.height < visibleTop || rect.y > visibleBottom) continue;
-    ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+  const inline = state.decorations.inline;
+  if (inline.length === 0 || state.insideAtomicInline > 0) return;
+  // The run in fragment coordinates.
+  const x = runX - state.frameDx;
+  const y = runY - state.frameDy;
+  for (const f of inline) {
+    let lo: number;
+    let hi: number;
+    if (f.vertical) {
+      const cx = x + runW / 2;
+      if (cx < f.x || cx >= f.x + f.width) continue;
+      lo = Math.max(y, f.y);
+      hi = Math.min(y + runH, f.y + f.height);
+    } else {
+      const cy = y + runH / 2;
+      if (cy < f.y || cy >= f.y + f.height) continue;
+      lo = Math.max(x, f.x);
+      hi = Math.min(x + runW, f.x + f.width);
+    }
+    if (hi <= lo) continue;
+    if (f.backgroundColor !== undefined) {
+      ctx.fillStyle = f.backgroundColor === CURRENT_COLOR ? textColor : f.backgroundColor;
+      if (f.vertical) ctx.fillRect(f.x + state.frameDx, lo + state.frameDy, f.width, hi - lo);
+      else ctx.fillRect(lo + state.frameDx, f.y + state.frameDy, hi - lo, f.height);
+    }
+    if (f.underline !== undefined) paintUnderline(ctx, state, f, f.underline, lo, hi, textColor);
   }
 }
 
 /**
- * Paint the suggestion-highlight band (change-tracking slice 6): inactive
- * suggestions first, then active, so the active (focused/selected) colour wins any
- * overlap. Exact mirror of `paintCommentHighlights` — same viewport cull. Painted
- * IMMEDIATELY BEFORE `paintCommentHighlights` (so suggestion highlights sit BELOW
- * the comment highlights, BELOW the find-match highlights, under selection, and
- * under text — the bottommost overlay band).
+ * Stroke the part `[lo, hi)` (fragment frame, along the inline axis) of one
+ * decoration underline. The dotted / dashed / wavy pattern is phased from the
+ * FRAGMENT's start, so a fragment spanning several runs draws one continuous
+ * pattern. Solid / dotted (1px dots every 2px) / dashed (3px dashes every 5px)
+ * are axis-aligned fills; wavy is a zig-zag stroke (round joins) ending exactly at
+ * `hi`. Everything stays inside the fragment rect (see `underlineFor`'s clamp).
  */
-function paintSuggestionHighlights(
+function paintUnderline(
   ctx: CanvasRenderingContext2D,
-  suggestionHighlights: readonly SuggestionHighlightRect[],
-  visibleTop: number,
-  visibleBottom: number,
+  state: PaintState,
+  f: DecorationRect,
+  u: DecorationUnderlinePaint,
+  lo: number,
+  hi: number,
+  textColor: string,
 ): void {
-  if (suggestionHighlights.length === 0) return;
-  // Inactive pass.
-  ctx.fillStyle = SUGGESTION_HIGHLIGHT_FILL;
-  for (const rect of suggestionHighlights) {
-    if (rect.active) continue;
-    if (rect.y + rect.height < visibleTop || rect.y > visibleBottom) continue;
-    ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+  const color = u.color ?? textColor;
+  const origin = u.vertical ? f.y : f.x;
+  const dAlong = u.vertical ? state.frameDy : state.frameDx;
+  const dAcross = u.vertical ? state.frameDx : state.frameDy;
+  const across = u.offset + dAcross;
+  const fill = (a: number, b: number): void => {
+    if (b <= a) return;
+    if (u.vertical) ctx.fillRect(across - UNDERLINE_THICKNESS / 2, a + dAlong, UNDERLINE_THICKNESS, b - a);
+    else ctx.fillRect(a + dAlong, across - UNDERLINE_THICKNESS / 2, b - a, UNDERLINE_THICKNESS);
+  };
+  ctx.fillStyle = color;
+  if (u.style === "solid") {
+    fill(lo, hi);
+    return;
   }
-  // Active pass (over the inactive band, so active colour wins overlaps).
-  ctx.fillStyle = ACTIVE_SUGGESTION_HIGHLIGHT_FILL;
-  for (const rect of suggestionHighlights) {
-    if (!rect.active) continue;
-    if (rect.y + rect.height < visibleTop || rect.y > visibleBottom) continue;
-    ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+  if (u.style === "dotted" || u.style === "dashed") {
+    const [on, period] = u.style === "dotted" ? [1, 2] : [3, 5];
+    const first = origin + Math.floor((lo - origin) / period) * period;
+    for (let p = first; p < hi; p += period) fill(Math.max(p, lo), Math.min(p + on, hi));
+    return;
   }
+  // Wavy: a triangle wave phased from the fragment start, sampled at `lo`, every
+  // grid point inside, and exactly `hi`.
+  const wave = (p: number): number => {
+    const phase = (p - origin) / WAVE_HALF_PERIOD;
+    const k = Math.floor(phase);
+    const v0 = k % 2 === 0 ? -WAVE_AMPLITUDE : WAVE_AMPLITUDE;
+    return across + v0 + (-2 * v0) * (phase - k);
+  };
+  const point = (p: number, first: boolean): void => {
+    const a = p + dAlong;
+    const b = wave(p);
+    if (u.vertical) {
+      if (first) ctx.moveTo(b, a);
+      else ctx.lineTo(b, a);
+    } else if (first) ctx.moveTo(a, b);
+    else ctx.lineTo(a, b);
+  };
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = UNDERLINE_THICKNESS;
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  point(lo, true);
+  for (let p = origin + (Math.floor((lo - origin) / WAVE_HALF_PERIOD) + 1) * WAVE_HALF_PERIOD; p < hi; p += WAVE_HALF_PERIOD) point(p, false);
+  point(hi, false);
+  ctx.stroke();
+  ctx.restore();
 }
 
 interface PaintState {
   lastFont: string;
   imageCache?: ImageCache;
+  /** Decorations to paint in the per-box slots. */
+  decorations: DecorationPaint;
+  /** Paint frame minus decoration-fragment frame (non-zero only inside an
+   *  opacity-group surface; fragments already carry `position: relative` shifts). */
+  frameDx: number;
+  frameDy: number;
+  /** > 0 while painting inside an inline-block (its band covers it whole). */
+  insideAtomicInline: number;
+  /** The painted tree: the boundary-mark index over it gives each ¶'s visible clip. */
+  markRoot: LayoutBox;
 }
 
 export type CursorState = "active" | "inactive" | "hidden";
@@ -176,17 +222,14 @@ export type CursorState = "active" | "inactive" | "hidden";
  *   - Return an empty array.
  *
  * Note — "true skip-painting" (where unchanged boxes are not repainted at all)
- * requires careful management of parent-background re-clearing and is deferred
- * to a future plan.  The current "clear-dirty + full-repaint" strategy is safe
+ * requires careful management of parent-background re-clearing and is not implemented.  The current "clear-dirty + full-repaint" strategy is safe
  * and already avoids the full-canvas clear on unchanged frames.
  */
 export function paintCanvas(
   ctx: CanvasRenderingContext2D,
   layoutTree: LayoutBox,
   selectionRects: SelectionRect[],
-  matchHighlights: readonly MatchHighlightRect[],
-  commentHighlights: readonly CommentHighlightRect[],
-  suggestionHighlights: readonly SuggestionHighlightRect[],
+  decorations: readonly DecorationRect[],
   cursorPos: { x: number; y: number; height: number },
   cursorState: CursorState,
   canvasWidth: number,
@@ -211,34 +254,22 @@ export function paintCanvas(
     // click, selection rects on drag, cursor visibility on blink).
     addCursorDirty(dirty, cache, cursorPos, cursorState);
     addSelectionDirty(dirty, cache, selectionRects);
-    addSuggestionHighlightDirty(dirty, cache, suggestionHighlights);
-    addCommentHighlightDirty(dirty, cache, commentHighlights);
-    addMatchHighlightDirty(dirty, cache, matchHighlights);
+    addDecorationDirty(dirty, cache, decorations);
 
     if (dirty.length > 0) {
       for (const r of dirty) {
         ctx.clearRect(r.x, r.y, r.w, r.h);
       }
 
-      // Two-phase paint (#397): background layer → SUGGESTION HIGHLIGHTS → COMMENT
-      // HIGHLIGHTS → MATCH HIGHLIGHTS → selection overlay → foreground (text) layer
-      // → cursor, so the translucent selection tint composites OVER content
-      // backgrounds and UNDER the glyphs, the find-match highlights sit UNDER
-      // selection/text, the comment highlights sit UNDER the find-match highlights,
-      // and the suggestion highlights sit UNDER the comment highlights (bottommost).
-      const state: PaintState = { lastFont: "", imageCache };
+      // Two-phase paint: background layer (incl. decorations, in their
+      // CSS-background slots) → selection overlay → foreground (text) layer →
+      // cursor, so the translucent selection tint composites OVER content
+      // backgrounds and decorations and UNDER the glyphs.
+      const state: PaintState = { lastFont: "", imageCache, decorations: indexDecorations(decorations), frameDx: 0, frameDy: 0, insideAtomicInline: 0, markRoot: layoutTree };
 
       // Background phase: content backgrounds, borders, images, highlights.
       paintBox(ctx, layoutTree, 0, 0, visibleTop, visibleBottom, state, "background");
 
-      // Suggestion highlights (bottommost overlay — under comment/find highlights, selection, text)
-      paintSuggestionHighlights(ctx, suggestionHighlights, visibleTop, visibleBottom);
-
-      // Comment highlights (under find highlights, selection, text)
-      paintCommentHighlights(ctx, commentHighlights, visibleTop, visibleBottom);
-
-      // Match highlights (under selection, under text)
-      paintMatchHighlights(ctx, matchHighlights, visibleTop, visibleBottom);
 
       // Selection rects (over backgrounds, under text)
       if (selectionRects.length > 0) {
@@ -268,25 +299,14 @@ export function paintCanvas(
   // Non-incremental path (cache = null / undefined): original behaviour.
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
-  // Two-phase paint (#397): background → SUGGESTION HIGHLIGHTS → COMMENT
-  // HIGHLIGHTS → MATCH HIGHLIGHTS → selection overlay → foreground (text) →
-  // cursor. The selection tint composites over content backgrounds, under text;
-  // the find-match highlights sit under both; the comment highlights sit under the
-  // find-match highlights; the suggestion highlights sit under the comment
-  // highlights (bottommost band).
-  const state: PaintState = { lastFont: "", imageCache };
+  // Two-phase paint: background (incl. decorations) → selection overlay →
+  // foreground (text) → cursor. The selection tint composites over content
+  // backgrounds and decorations, under text.
+  const state: PaintState = { lastFont: "", imageCache, decorations: indexDecorations(decorations), frameDx: 0, frameDy: 0, insideAtomicInline: 0, markRoot: layoutTree };
 
   // Background phase
   paintBox(ctx, layoutTree, 0, 0, visibleTop, visibleBottom, state, "background");
 
-  // Suggestion highlights (bottommost overlay — under comment/find highlights, selection, text)
-  paintSuggestionHighlights(ctx, suggestionHighlights, visibleTop, visibleBottom);
-
-  // Comment highlights (under find highlights, selection, text)
-  paintCommentHighlights(ctx, commentHighlights, visibleTop, visibleBottom);
-
-  // Match highlights (under selection, under text)
-  paintMatchHighlights(ctx, matchHighlights, visibleTop, visibleBottom);
 
   // Selection rects (over backgrounds, under text)
   if (selectionRects.length > 0) {
@@ -323,16 +343,14 @@ export function paintCanvas(
  *   Returns dirty rectangles.
  * - Without `cache`: clear+paint everything (original behaviour); returns [].
  *
- * PaintCache instances are 1:1 with canvases.  When Plan 5 introduces
- * pagination, each page canvas will carry its own PaintCache.
+ * PaintCache instances are 1:1 with canvases.  With pagination, each page
+ * canvas carries its own PaintCache.
  */
 export function paintPage(
   ctx: CanvasRenderingContext2D,
   pageBox: LayoutBox,
   selectionRects: SelectionRect[],
-  matchHighlights: readonly MatchHighlightRect[],
-  commentHighlights: readonly CommentHighlightRect[],
-  suggestionHighlights: readonly SuggestionHighlightRect[],
+  decorations: readonly DecorationRect[],
   cursorPos: { x: number; y: number; height: number } | null,
   cursorState: CursorState,
   imageCache?: ImageCache,
@@ -360,9 +378,7 @@ export function paintPage(
       cursorPos === null ? "hidden" : cursorState,
     );
     addSelectionDirty(dirty, cache, selectionRects);
-    addSuggestionHighlightDirty(dirty, cache, suggestionHighlights);
-    addCommentHighlightDirty(dirty, cache, commentHighlights);
-    addMatchHighlightDirty(dirty, cache, matchHighlights);
+    addDecorationDirty(dirty, cache, decorations);
 
     if (dirty.length > 0) {
       for (const r of dirty) {
@@ -375,35 +391,21 @@ export function paintPage(
       ctx.fillStyle = "white";
       ctx.fillRect(0, 0, pageBox.width, pageBox.height);
 
-      // Two-phase paint (#397): page white bg (above) → background phase →
-      // SUGGESTION HIGHLIGHTS → COMMENT HIGHLIGHTS → MATCH HIGHLIGHTS → selection
+      // Two-phase paint: page white bg (above) → background phase
+      // (incl. decorations) → selection
       // overlay → foreground (text) phase → cursor.
-      const state: PaintState = { lastFont: "", imageCache };
+      const state: PaintState = { lastFont: "", imageCache, decorations: indexDecorations(decorations), frameDx: 0, frameDy: 0, insideAtomicInline: 0, markRoot: pageBox };
       // pageBox.x/y are document-relative (the page's offset within the wrapping
   // root BlockBox). The canvas paints in page-local coordinates (origin at the
   // page's top-left). Pass negative pageBox offsets so paintBox's first
   // computed absY is 0 — otherwise the page gets viewport-culled because
   // its absY (≈ pageBlockOffset = pageIndex × pageHeight) exceeds the
-  // canvas's visible bound (pageBox.height). This bug was latent until P1.B
-  // since page 0 has y=0 and rendered correctly by accident.
+  // canvas's visible bound (pageBox.height). Page 0 (y=0) renders
+  // correctly without the offset, so only later pages show the bug.
 
       // Background phase: content backgrounds, borders, images, highlights.
       paintBox(ctx, pageBox, -pageBox.x, -pageBox.y, 0, pageBox.height, state, "background");
 
-      // Suggestion highlights (bottommost overlay — under comment/find highlights,
-      // selection, text). Rects are already page-local (the controller emits them
-      // per-page from the per-page selection-rect machinery).
-      paintSuggestionHighlights(ctx, suggestionHighlights, 0, pageBox.height);
-
-      // Comment highlights (under find highlights, selection, text). Rects are
-      // already page-local (the controller emits them per-page from the per-page
-      // selection-rect machinery).
-      paintCommentHighlights(ctx, commentHighlights, 0, pageBox.height);
-
-      // Match highlights (under selection, under text). Rects are already
-      // page-local (the controller emits them per-page from the per-page
-      // selection-rect machinery).
-      paintMatchHighlights(ctx, matchHighlights, 0, pageBox.height);
 
       // Selection rects (over backgrounds, under text)
       // Rects are already page-local and filtered to this page by the controller.
@@ -437,31 +439,21 @@ export function paintPage(
   ctx.fillStyle = "white";
   ctx.fillRect(0, 0, pageBox.width, pageBox.height);
 
-  // Two-phase paint (#397): page white bg (above) → background phase →
-  // SUGGESTION HIGHLIGHTS → COMMENT HIGHLIGHTS → MATCH HIGHLIGHTS → selection
+  // Two-phase paint: page white bg (above) → background phase
+  // (incl. decorations) → selection
   // overlay → foreground (text) phase → cursor.
-  const state: PaintState = { lastFont: "", imageCache };
+  const state: PaintState = { lastFont: "", imageCache, decorations: indexDecorations(decorations), frameDx: 0, frameDy: 0, insideAtomicInline: 0, markRoot: pageBox };
   // pageBox.x/y are document-relative (the page's offset within the wrapping
   // root BlockBox). The canvas paints in page-local coordinates (origin at the
   // page's top-left). Pass negative pageBox offsets so paintBox's first
   // computed absY is 0 — otherwise the page gets viewport-culled because
   // its absY (≈ pageBlockOffset = pageIndex × pageHeight) exceeds the
-  // canvas's visible bound (pageBox.height). This bug was latent until P1.B
-  // since page 0 has y=0 and rendered correctly by accident.
+  // canvas's visible bound (pageBox.height). Page 0 (y=0) renders
+  // correctly without the offset, so only later pages show the bug.
 
   // Background phase: content backgrounds, borders, images, highlights.
   paintBox(ctx, pageBox, -pageBox.x, -pageBox.y, 0, pageBox.height, state, "background");
 
-  // Suggestion highlights (already page-relative; bottommost — under comment/find
-  // highlights, selection, text)
-  paintSuggestionHighlights(ctx, suggestionHighlights, 0, pageBox.height);
-
-  // Comment highlights (already page-relative; under find highlights, selection,
-  // text)
-  paintCommentHighlights(ctx, commentHighlights, 0, pageBox.height);
-
-  // Match highlights (already page-relative; under selection, under text)
-  paintMatchHighlights(ctx, matchHighlights, 0, pageBox.height);
 
   // Selection rects (already page-relative and filtered by pageIndex)
   if (selectionRects.length > 0) {
@@ -491,7 +483,7 @@ export function paintPage(
   }
 }
 
-// ── Dirty-region detection (Task 3 + 4) ─────────────────────────────────────
+// ── Dirty-region detection ─────────────────────────────────────
 
 /**
  * If the cursor's position or state has changed since the last paint, push
@@ -569,164 +561,56 @@ function addSelectionDirty(
 }
 
 /**
- * If the match-highlight rects changed since the last paint, push union(prev,
- * curr) into `dirty`. Match-highlight changes happen on a find-bar open/type
- * (recompute) and on next/prev (the active rect's colour flips even though the
- * layout + cursor are reference-equal); without this dirty entry the
- * layout-reference-equal short-circuit would skip painting and a next/prev
- * would not visually move the active highlight. Clearing matches (curr empty)
- * still dirties the prior rects so the old highlights are erased.
- *
- * Mirrors `addSelectionDirty`. The `active` flag is folded into the comparison
- * so an active-index change (same geometry, different colour) is detected.
+ * If the decoration fragments changed since the last paint, push union(prior,
+ * curr) into `dirty`. Decoration changes (a host `setDecorations`, a find
+ * next/prev flipping the active fill, a comment hover) leave the layout + cursor
+ * reference-equal; without this the incremental short-circuit would skip the
+ * repaint. The snapshot carries each fragment's geometry PLUS its look (fill +
+ * underline), so a colour-only change (same geometry) is still detected; the
+ * decoration id is not compared (it never affects pixels). Clearing (curr empty)
+ * dirties the prior fragments so the old band is erased.
  */
-function addMatchHighlightDirty(
+function addDecorationDirty(
   dirty: Rect[],
   cache: PaintCache,
-  matchHighlights: readonly MatchHighlightRect[],
+  decorations: readonly DecorationRect[],
 ): void {
-  const last = cache.getLastMatchHighlightRects();
-  const current: MatchHighlightRectSnapshot[] = matchHighlights.map((r) => ({
-    x: r.x,
-    y: r.y,
-    w: r.width,
-    h: r.height,
-    active: r.active,
+  const last = cache.getLastDecorationRects();
+  // Inflated by 1px: antialiased stroke edges may bleed past the fragment rect.
+  const current: DecorationRectSnapshot[] = decorations.map((r) => ({
+    x: r.x - 1,
+    y: r.y - 1,
+    w: r.width + 2,
+    h: r.height + 2,
+    look: decorationLook(r),
   }));
-  // Structural compare INCLUDING `active`: on next/prev the geometry is
-  // unchanged but the active match's colour flips, so the active flag must be
-  // part of the diff or the incremental short-circuit would skip the repaint.
   let same = last !== null && last.length === current.length;
   if (same && last !== null) {
     for (let i = 0; i < current.length; i++) {
       const a = last[i];
       const b = current[i];
       if (a === undefined || b === undefined) {
-        throw new Error(`canvas-renderer: match-highlight rect at ${i} unexpectedly undefined`);
+        throw new Error(`canvas-renderer: decoration rect at ${i} unexpectedly undefined`);
       }
-      if (a.x !== b.x || a.y !== b.y || a.w !== b.w || a.h !== b.h || a.active !== b.active) {
+      if (a.x !== b.x || a.y !== b.y || a.w !== b.w || a.h !== b.h || a.look !== b.look) {
         same = false;
         break;
       }
     }
   }
   if (!same) {
-    // Dirty the prior rects' regions (erases old/cleared highlights) and the
-    // current rects' regions (paints the new band).
     if (last !== null) {
       for (const r of last) dirty.push({ x: r.x, y: r.y, w: r.w, h: r.h });
     }
     for (const r of current) dirty.push({ x: r.x, y: r.y, w: r.w, h: r.h });
-    cache.setLastMatchHighlightRects(current);
+    cache.setLastDecorationRects(current);
   }
 }
 
-/**
- * If the comment-highlight rects changed since the last paint, push union(prior,
- * curr) into `dirty`. Comment-highlight changes happen on a comment open/close
- * (recompute) and on hover/select (the active rect's colour flips even though the
- * layout + cursor are reference-equal); without this dirty entry the
- * layout-reference-equal short-circuit would skip painting and a hover would not
- * visually move the active highlight. Clearing comment highlights (curr empty)
- * still dirties the prior rects so the old band is erased.
- *
- * Exact mirror of `addMatchHighlightDirty`. The `active` flag is folded into the
- * comparison so an active-flag change (same geometry, different colour) is
- * detected; `commentId` is NOT compared (it never affects pixels — decision 2).
- */
-function addCommentHighlightDirty(
-  dirty: Rect[],
-  cache: PaintCache,
-  commentHighlights: readonly CommentHighlightRect[],
-): void {
-  const last = cache.getLastCommentHighlightRects();
-  const current: CommentHighlightRectSnapshot[] = commentHighlights.map((r) => ({
-    x: r.x,
-    y: r.y,
-    w: r.width,
-    h: r.height,
-    active: r.active,
-  }));
-  // Structural compare INCLUDING `active`: on hover/select the geometry is
-  // unchanged but the active comment's colour flips, so the active flag must be
-  // part of the diff or the incremental short-circuit would skip the repaint.
-  let same = last !== null && last.length === current.length;
-  if (same && last !== null) {
-    for (let i = 0; i < current.length; i++) {
-      const a = last[i];
-      const b = current[i];
-      if (a === undefined || b === undefined) {
-        throw new Error(`canvas-renderer: comment-highlight rect at ${i} unexpectedly undefined`);
-      }
-      if (a.x !== b.x || a.y !== b.y || a.w !== b.w || a.h !== b.h || a.active !== b.active) {
-        same = false;
-        break;
-      }
-    }
-  }
-  if (!same) {
-    // Dirty the prior rects' regions (erases old/cleared highlights) and the
-    // current rects' regions (paints the new band).
-    if (last !== null) {
-      for (const r of last) dirty.push({ x: r.x, y: r.y, w: r.w, h: r.h });
-    }
-    for (const r of current) dirty.push({ x: r.x, y: r.y, w: r.w, h: r.h });
-    cache.setLastCommentHighlightRects(current);
-  }
-}
-
-/**
- * If the suggestion-highlight rects changed since the last paint, push union(prior,
- * curr) into `dirty` (change-tracking slice 6). Suggestion-highlight changes happen
- * on a suggestion set/clear (recompute) and on focus/select (the active rect's
- * colour flips even though the layout + cursor are reference-equal); without this
- * dirty entry the layout-reference-equal short-circuit would skip painting and a
- * focus would not visually move the active highlight. Clearing suggestion
- * highlights (curr empty) still dirties the prior rects so the old band is erased.
- *
- * Exact mirror of `addCommentHighlightDirty`. The `active` flag is folded into the
- * comparison so an active-flag change (same geometry, different colour) is
- * detected; `suggestionId` is NOT compared (it never affects pixels).
- */
-function addSuggestionHighlightDirty(
-  dirty: Rect[],
-  cache: PaintCache,
-  suggestionHighlights: readonly SuggestionHighlightRect[],
-): void {
-  const last = cache.getLastSuggestionHighlightRects();
-  const current: SuggestionHighlightRectSnapshot[] = suggestionHighlights.map((r) => ({
-    x: r.x,
-    y: r.y,
-    w: r.width,
-    h: r.height,
-    active: r.active,
-  }));
-  // Structural compare INCLUDING `active`: on focus/select the geometry is
-  // unchanged but the active suggestion's colour flips, so the active flag must be
-  // part of the diff or the incremental short-circuit would skip the repaint.
-  let same = last !== null && last.length === current.length;
-  if (same && last !== null) {
-    for (let i = 0; i < current.length; i++) {
-      const a = last[i];
-      const b = current[i];
-      if (a === undefined || b === undefined) {
-        throw new Error(`canvas-renderer: suggestion-highlight rect at ${i} unexpectedly undefined`);
-      }
-      if (a.x !== b.x || a.y !== b.y || a.w !== b.w || a.h !== b.h || a.active !== b.active) {
-        same = false;
-        break;
-      }
-    }
-  }
-  if (!same) {
-    // Dirty the prior rects' regions (erases old/cleared highlights) and the
-    // current rects' regions (paints the new band).
-    if (last !== null) {
-      for (const r of last) dirty.push({ x: r.x, y: r.y, w: r.w, h: r.h });
-    }
-    for (const r of current) dirty.push({ x: r.x, y: r.y, w: r.w, h: r.h });
-    cache.setLastSuggestionHighlightRects(current);
-  }
+/** Every pixel-affecting property of a decoration fragment other than its rect. */
+function decorationLook(r: DecorationRect): string {
+  const u = r.underline;
+  return `${r.kind}|${r.backgroundColor ?? ""}|${u === undefined ? "" : `${u.color ?? ""}:${u.style}:${u.vertical ? "v" : "h"}:${u.offset}`}`;
 }
 
 /**
@@ -755,7 +639,7 @@ function walkAndDetectChanges(
   try {
   // Root short-circuit: when the entire layout tree is reference-equal to
   // the previously walked root, no LayoutBox in the tree can have changed
-  // (Plan 3.H subtree-reuse machinery guarantees that subtrees with the
+  // (the subtree-reuse machinery guarantees that subtrees with the
   // same reference have the same content). Skip the entire walk.
   //
   // This is the difference between O(N-boxes) and O(1) on cursor moves:
@@ -779,7 +663,7 @@ function walkAndDetectChanges(
 
   if (cachedHash !== currentHash) {
     // Box changed (or is new): record its region as dirty and update cache.
-    // KNOWN v1 LIMITATION (named follow-up — see 1.9-positioning.md): for a
+    // KNOWN GAP (see docs/architecture/2-print/2.4-positioning.md): for a
     // `transform`-bearing box the PAINTED bounds (after rotate / large translate)
     // can extend outside this pre-transform `[absX,absY,width,height]` rect, so an
     // incremental repaint may not clear stale pixels at the prior painted position.
@@ -787,7 +671,7 @@ function walkAndDetectChanges(
     // a new LayoutBox ref → the root short-circuit breaks and the full walk fires
     // (and transforms aren't user-reachable yet). The fix — expand the dirty rect to
     // the transformed painted bounding box, like the relativeOffset shift above — is
-    // deferred, bundled with the transformed-content selection/caret follow-up.
+    // part of the same open gap as transformed-content selection/caret geometry.
     dirty.push({ x: absX, y: absY, w: box.width, h: box.height });
     cache.set(box, currentHash);
   }
@@ -809,7 +693,7 @@ function walkAndDetectChanges(
       walkAndDetectChanges(col, absX, absY, cache, dirty, false);
     }
   }
-  // POSITIONING slice 3 — abs-pos children are NAMED out-of-flow descendants (NOT in
+  // abs-pos children are NAMED out-of-flow descendants (NOT in
   // `box.children`), so the recursion above never reaches them. Walk them BY NAME so a
   // changed abs subtree marks its region dirty for repaint AND its old region is
   // cleared — same lesson as the relative-offset dirty-rect (a painted box absent from
@@ -819,10 +703,10 @@ function walkAndDetectChanges(
       walkAndDetectChanges(absChild, absX, absY, cache, dirty, false);
     }
   }
-  // C.2c (T5): a page's header/footer slots are NAMED fields, NOT in
+  // A page's header/footer slots are NAMED fields, NOT in
   // `box.children`, so the `"children" in box` recursion above never reaches
   // them. Walk them explicitly so a slot's content/geometry change marks its
-  // region dirty for repaint (plan-review I5). Page-local origin matches the
+  // region dirty for repaint. Page-local origin matches the
   // children's (absX/absY); the slot box carries its own page-local x/y.
   if (box.type === "page") {
     if (box.headerSlot !== null) {
@@ -845,7 +729,7 @@ function walkAndDetectChanges(
 }
 
 /**
- * Two-phase paint (see `docs/architecture/2-print/2.2-canvas-renderer.md`).
+ * Two-phase paint (see `docs/architecture/2-print/2.5-canvas-renderer.md`).
  *
  * `phase` selects which visual layer this walk paints, so the caller can
  * interleave the translucent selection overlay BETWEEN them:
@@ -858,7 +742,7 @@ function walkAndDetectChanges(
  *
  * This matches the browser / Google Docs: the selection composites OVER content
  * backgrounds (so a highlighted run shows blue-over-yellow) and UNDER the text
- * glyphs (which stay crisp). #397.
+ * glyphs (which stay crisp).
  *
  * Both phases walk the SAME (virtualized/visible) tree with the SAME clip args,
  * so the same set of draws happens — only split across the two layers. The
@@ -869,10 +753,10 @@ function walkAndDetectChanges(
 type PaintPhase = "background" | "foreground";
 
 /**
- * POSITIONING slice 3 — paint a box's `absoluteChildren` (abs-pos descendants whose
+ * Paint a box's `absoluteChildren` (abs-pos descendants whose
  * abc is this box). They are out-of-flow (not in `box.children`), positioned in the
  * box's own coordinate frame, so they paint with the SAME parent origin the box uses
- * for its in-flow children. Painted in document order (z-index ordering is slice 4).
+ * for its in-flow children. Painted in document order (z-index ordering follows the stacking-context partition).
  * A no-op for the common box with no abs-pos descendants. Shared by every container
  * paint branch that may establish an abc.
  */
@@ -893,7 +777,7 @@ function paintAbsoluteChildren(
 }
 
 /**
- * POSITIONING slice 5 — multiply a `transform`-bearing box's matrix into the
+ * Multiply a `transform`-bearing box's matrix into the
  * canvas's current transform. Uses the SAME core helpers the hit-test thread uses
  * (`resolveTransformOrigin` + `fromTransformFns`), so the painted matrix and the
  * baked `inverseTransform` are derived from byte-identical math (paint and
@@ -915,9 +799,9 @@ function applyBoxTransform(
 }
 
 /**
- * POSITIONING slice 6 — `opacity` group compositing.
+ * `opacity` group compositing.
  *
- * A box with `cs.opacity < 1` is a stacking context (slice 4), so it paints
+ * A box with `cs.opacity < 1` is a stacking context, so it paints
  * ATOMICALLY — its whole subtree (both paint sub-phases + all descendants, incl.
  * its own transform and its §E.2 stacking children) is one self-contained unit.
  * This routine renders that COMPLETE atomic paint into a temporary offscreen
@@ -964,7 +848,17 @@ function paintOpacityGroup(
   // `state.lastFont` is per-ctx, so use a fresh paint-state for the offscreen ctx
   // (its `ctx.font` starts empty) to avoid a stale-font skip; the image cache is
   // shared (images are ctx-independent).
-  const offState: PaintState = { lastFont: "", imageCache: state.imageCache };
+  // Decoration fragments map into the surface frame: the surface origin is the
+  // box's painted origin (`absX`/`absY`).
+  const offState: PaintState = {
+    lastFont: "",
+    imageCache: state.imageCache,
+    decorations: state.decorations,
+    frameDx: state.frameDx - absX,
+    frameDy: state.frameDy - absY,
+    insideAtomicInline: state.insideAtomicInline,
+    markRoot: state.markRoot,
+  };
   // Visible band = the full surface in surface-local coords; the subtree is small
   // (one box) and already culled by the parent walk, so paint it all.
   const offVisibleTop = -Infinity;
@@ -988,7 +882,7 @@ function paintOpacityGroup(
   ctx.globalAlpha = priorAlpha;
 }
 
-// ── POSITIONING slice 4 — z-index + stacking contexts (CSS 2.2 §E.2) ──────────
+// ── z-index + stacking contexts (CSS 2.2 §E.2) ──────────
 //
 // Within a stacking context the §E.2 painting order is:
 //   1. negative-z stacking-context children (z<0, ascending);
@@ -1012,7 +906,7 @@ function paintOpacityGroup(
 //
 // COMMON-PATH GUARANTEE: a box with NO stacking-context child and NO non-auto
 // z-index child takes the unmodified document-order path (children loop +
-// `paintAbsoluteChildren`), byte-identical to the pre-slice-4 painter. Only a
+// `paintAbsoluteChildren`), byte-identical to the plain document-order painter. Only a
 // box that actually carries stacking participants partitions into buckets.
 
 interface StackingPartition {
@@ -1068,7 +962,7 @@ function needsStackingReorder(box: LayoutBox): boolean {
 /**
  * Partition a box's direct children + `absoluteChildren` into the §E.2 buckets.
  * Tree (document) order is `children` first, then `absoluteChildren` (matching the
- * pre-slice-4 paint, which recursed children then abs children). The numeric-z
+ * plain document-order paint, which recursed children then abs children). The numeric-z
  * buckets are stably sorted by z ascending with document-order tiebreak.
  */
 function partitionStackingChildren(box: LayoutBox): StackingPartition {
@@ -1200,7 +1094,8 @@ function paintContainerChildren(
   // Atomic (both sub-phases), gated to the FOREGROUND phase so each runs once and
   // composites ABOVE the box's own in-flow content.
   //
-  // KNOWN v1 LIMITATION (named follow-up — see 1.9-positioning.md + spec §6):
+  // KNOWN GAP (see docs/architecture/2-print/2.4-positioning.md, "selection tint
+  // under positioned-child backgrounds"):
   // a bucket-6/7 child's OWN background (its backgroundColor fillRect) paints HERE,
   // in the foreground phase, which runs AFTER the global selection rects are drawn
   // (paintCanvas draws selection between the background and foreground passes). So a
@@ -1209,8 +1104,9 @@ function paintContainerChildren(
   // background region. (Negative-z bucket-1 children are NOT affected — they paint in
   // the background phase, before selection.) The correct fix needs a third paint
   // sub-phase (positioned-backgrounds before selection) or per-box selection
-  // compositing — an architectural change deferred to a named v1 follow-up. Not yet
-  // user-reachable: positioning is substrate for not-yet-built anchored objects.
+  // compositing — an open architectural gap. Not user-reachable today: no editing
+  // surface creates positioned content yet (positioning is the substrate for anchored
+  // objects, which are not built).
   if (phase === "foreground") {
     for (const c of partition.bucket6) {
       paintStackingChildAtomic(ctx, c, absX, absY, visibleTop, visibleBottom, state);
@@ -1219,6 +1115,155 @@ function paintContainerChildren(
       paintStackingChildAtomic(ctx, c, absX, absY, visibleTop, visibleBottom, state);
     }
   }
+}
+
+/**
+ * A tracked ¶ (see `BoundaryMarkPlacement`), clipped to its visible rect from the
+ * boundary-mark index (cell border box, column gap, page box, float margin box); a
+ * mark clipped away entirely is not painted.
+ *  - ¶: the glyph at the box origin, its kind's underline / strike.
+ *  - section kind: Word's double dotted rule across the box (caret → line end) with
+ *    the label centred, underlined (insertion) / struck (join) / both.
+ * In the author colour. The background phase paints the box's decoration tint (once
+ * — the fragment is the index rect); the foreground phase paints the glyph / label.
+ */
+function paintBoundaryMark(
+  ctx: CanvasRenderingContext2D,
+  box: MarkerBox,
+  placement: BoundaryMarkPlacement,
+  absX: number,
+  absY: number,
+  state: PaintState,
+  phase: PaintPhase,
+): void {
+  const cs = box.computedStyle;
+  const rect = boundaryMarkRectOf(state.markRoot, box);
+  if (rect === undefined) return;
+  // The visible rect in this paint frame (the index frame differs by a constant).
+  const vx = absX + (rect.x - rect.glyphX);
+  const vy = absY + (rect.y - rect.glyphY);
+  const outer = clipOuterFrames(ctx, rect, absX - rect.glyphX, absY - rect.glyphY);
+  try {
+    if (phase !== "foreground") {
+      paintRunDecorations(ctx, state, vx, vy, rect.width, rect.height, cs.color);
+      return;
+    }
+    paintBoundaryMarkGlyph(ctx, box, placement, absX, absY, state, rect, vx, vy);
+  } finally {
+    if (outer) {
+      ctx.restore();
+      state.lastFont = "";
+    }
+  }
+}
+
+/** Clamp an (possibly unbounded) clip edge for `ctx.rect`. */
+const clampEdge = (v: number): number => Math.max(-1e7, Math.min(1e7, v));
+
+/**
+ * Apply a ¶'s OUTER clips (ancestor clips above a transform — a cell border box, a
+ * column, the page) in their own frames: each is set under the canvas transform of
+ * the frame it belongs to (the current transform with the mark's transform undone
+ * and that frame's redone), then the mark's transform is restored. `(ox, oy)` is the
+ * paint-minus-index offset. Returns true iff a `save` was pushed (caller restores).
+ */
+function clipOuterFrames(ctx: CanvasRenderingContext2D, rect: BoundaryMarkRect, ox: number, oy: number): boolean {
+  if (rect.outerClips.length === 0) return false;
+  const m = ctx.getTransform();
+  const current: Mat2D = { a: m.a, b: m.b, c: m.c, d: m.d, e: m.e, f: m.f };
+  const markInv = rect.inverseTransform;
+  ctx.save();
+  for (const c of rect.outerClips) {
+    if (markInv === "singular") break;
+    const frame = c.frame ?? translate(0, 0);
+    const rel = compose(translate(ox, oy), compose(markInv ?? translate(0, 0), compose(frame, translate(-ox, -oy))));
+    const t = compose(current, rel);
+    ctx.setTransform(t.a, t.b, t.c, t.d, t.e, t.f);
+    ctx.beginPath();
+    const x0 = clampEdge(c.x0 + ox);
+    const y0 = clampEdge(c.y0 + oy);
+    ctx.rect(x0, y0, clampEdge(c.x1 + ox) - x0, clampEdge(c.y1 + oy) - y0);
+    ctx.clip();
+  }
+  ctx.setTransform(current.a, current.b, current.c, current.d, current.e, current.f);
+  return true;
+}
+
+/** The foreground of {@link paintBoundaryMark}: the ¶ glyph or the section label. */
+function paintBoundaryMarkGlyph(
+  ctx: CanvasRenderingContext2D,
+  box: MarkerBox,
+  placement: BoundaryMarkPlacement,
+  absX: number,
+  absY: number,
+  state: PaintState,
+  rect: BoundaryMarkRect,
+  vx: number,
+  vy: number,
+): void {
+  const cs = box.computedStyle;
+  const fontStr = buildCssFontString(cs);
+  if (fontStr !== state.lastFont) {
+    ctx.font = fontStr;
+    state.lastFont = fontStr;
+  }
+  ctx.fillStyle = cs.color;
+  const fontSize = cs.fontSize;
+  const clipped = rect.width < box.width || rect.height < box.height;
+  if (clipped) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(vx, vy, rect.width, rect.height);
+    ctx.clip();
+  }
+  const label = placement.labelInlineSize;
+  if (label === undefined) {
+    const halfLeading = (box.height - fontSize) / 2;
+    ctx.fillText(box.text, absX, absY + halfLeading);
+    if (cs.underline) ctx.fillRect(absX, absY + halfLeading + fontSize + 1, box.width, 1);
+    if (cs.lineThrough) ctx.fillRect(absX, absY + halfLeading + fontSize * 0.5, box.width, 1);
+  } else {
+    paintSectionLabel(ctx, box, label, absX, absY);
+  }
+  if (clipped || (label !== undefined && box.writingMode !== "horizontal-tb")) {
+    if (clipped) ctx.restore();
+    // `restore` / the rotated label reset the font; force the next text paint to set it.
+    state.lastFont = "";
+  }
+}
+
+/** A section-end item's label: centred along the box's inline axis between two dotted rules. */
+function paintSectionLabel(ctx: CanvasRenderingContext2D, box: MarkerBox, labelInline: number, absX: number, absY: number): void {
+  const cs = box.computedStyle;
+  const fontSize = cs.fontSize;
+  const vertical = box.writingMode !== "horizontal-tb";
+  const inlineSize = vertical ? box.height : box.width;
+  const blockSize = vertical ? box.width : box.height;
+  const labelStart = Math.max(0, (inlineSize - labelInline) / 2);
+  const mid = blockSize / 2;
+  const GAP = 6;
+  const DOT = 2;
+  for (let p = 0; p + DOT <= inlineSize; p += 2 * DOT) {
+    if (p + DOT > labelStart - GAP && p < labelStart + labelInline + GAP) continue;
+    for (const off of [-1.5, 1.5]) {
+      if (vertical) ctx.fillRect(absX + mid + off - 0.5, absY + p, 1, DOT);
+      else ctx.fillRect(absX + p, absY + mid + off - 0.5, DOT, 1);
+    }
+  }
+  if (vertical) {
+    ctx.save();
+    ctx.translate(absX + blockSize / 2, absY + labelStart);
+    ctx.rotate(Math.PI / 2);
+    ctx.fillText(box.text, 0, -fontSize / 2);
+    if (cs.underline) ctx.fillRect(0, fontSize / 2 + 1, labelInline, 1);
+    if (cs.lineThrough) ctx.fillRect(0, 0, labelInline, 1);
+    ctx.restore();
+    return;
+  }
+  const top = absY + (box.height - fontSize) / 2;
+  ctx.fillText(box.text, absX + labelStart, top);
+  if (cs.underline) ctx.fillRect(absX + labelStart, top + fontSize + 1, labelInline, 1);
+  if (cs.lineThrough) ctx.fillRect(absX + labelStart, top + fontSize * 0.5, labelInline, 1);
 }
 
 function paintBox(
@@ -1230,14 +1275,14 @@ function paintBox(
   visibleBottom: number,
   state: PaintState,
   phase: PaintPhase,
-  // POSITIONING slice 6 — set when this call is the OFFSCREEN render of an opacity
+  // Set when this call is the OFFSCREEN render of an opacity
   // group (so the box's own opacity has already been consumed by `paintOpacityGroup`
   // and must NOT re-trigger the offscreen intercept → infinite recursion).
   skipOpacity: boolean = false,
 ): void {
   const t = markStart("paint.draw");
   try {
-  // POSITIONING slice 2 — `position: relative` paint-time visual offset. The
+  // `position: relative` paint-time visual offset. The
   // box's geometry (box.x/box.y) is PRE-offset; `relativeOffset` is a physical
   // (dx, dy) delta the BFC resolved from the box's `inset*` against its
   // containing block. Adding it to the accumulated origin shifts this box AND
@@ -1251,8 +1296,8 @@ function paintBox(
   const cs = box.computedStyle;
   const us = box.usedStyle;
 
-  // POSITIONING slice 6 — `opacity < 1` GROUP compositing. An opacity<1 box is a
-  // stacking context (slice 4) → it paints atomically; redirect its WHOLE atomic
+  // `opacity < 1` GROUP compositing. An opacity<1 box is a
+  // stacking context → it paints atomically; redirect its WHOLE atomic
   // paint into an offscreen surface and composite that once at `globalAlpha =
   // opacity` (CSS opacity grouping: one translucent region, not additive). The
   // composite runs in the FOREGROUND phase only (the atomic content spans both
@@ -1271,9 +1316,9 @@ function paintBox(
     return;
   }
 
-  // POSITIONING slice 5 — a `transform`-bearing box paints under a saved canvas
+  // A `transform`-bearing box paints under a saved canvas
   // matrix: translate→origin, apply each TransformFn in ARRAY order, translate
-  // back. A transform-bearing box is already a stacking context (slice 4) so it
+  // back. A transform-bearing box is already a stacking context so it
   // paints ATOMICALLY (its whole subtree + descendants under the same matrix).
   // The transform-origin is the box's absolute origin + `transformOrigin`
   // resolved against the box's border-box size (`{50%,50%}` default = box center)
@@ -1317,6 +1362,8 @@ function paintBox(
         ctx.fillStyle = cs.backgroundColor;
         ctx.fillRect(absX, absY, box.width, box.height);
       }
+      // Inline decorations in the run's background slot.
+      paintRunDecorations(ctx, state, absX, absY, box.width, box.height, cs.color);
       return;
     }
     // FOREGROUND phase: glyphs + text decorations (painted OVER the selection).
@@ -1334,24 +1381,24 @@ function paintBox(
     // and paints text ~9px above the line top.
     const halfLeading = (box.height - fontSize) / 2;
     const baselineY = absY + halfLeading;
-    // #330: paint cluster-by-cluster at the SAME cumulative advances the shaper
-    // measured (`Σ ctx.measureText(cluster).width`), instead of one
+    // Paint cluster-by-cluster at the SAME cumulative advances the shaper
+    // measured (`Σ clusterAdvance(...)`, the helper the shaper sums), instead of one
     // `fillText(box.text)` that the browser would lay out with native kerning.
     // The caret / hit-test / layout all SUM these per-cluster advances; a single
     // kerned whole-run draw drifts the painted glyphs from the measured caret
     // (worst at a long token's tail). `ctx.font` is already set from `cs` above,
     // so `measureText` here measures against the SAME font the shaper used →
-    // painted glyph origins == summed advances == caret x by construction.
+    // painted glyph origins == summed `clusterAdvance`s == caret x by construction.
     // (Trades whole-string kerning for caret accuracy — correct for a word
-    // processor; real cluster-shaping/HarfBuzz restores both later.)
+    // processor; a cross-cluster shaper such as HarfBuzz restores both.)
     // CSS Text 3 §8: letter-/word-spacing add extra inline advance per cluster.
-    // The LAYOUT advances (shapers + IFC, Tasks 1-5) already include this, so the
+    // The LAYOUT advances (shapers + IFC) already include this, so the
     // paint loop must add the SAME spacing or painted glyphs drift from the caret
-    // (the #330 no-drift requirement). usedStyle spacing is numeric px (or
-    // "normal" ≡ 0); resolveSpacingPx/clusterSpacing apply the identical rule.
+    // (the no-drift requirement). usedStyle spacing is numeric px (or
+    // "normal" ≡ 0); resolveSpacingPx and clusterAdvance apply the identical rule.
     const letterPx = resolveSpacingPx(us.letterSpacing);
     const wordPx = resolveSpacingPx(us.wordSpacing);
-    // P4-C.1: an odd resolved UAX #9 level paints its clusters RIGHT-to-LEFT.
+    // An odd resolved UAX #9 level paints its clusters RIGHT-to-LEFT.
     // The authoritative signal is `box.bidiLevel` (stamped by the line reorder),
     // NOT `cs.direction` — a Hebrew word in an `ltr` paragraph has bidiLevel 1
     // but direction "ltr", and a reordered box's POSITIONING direction is always
@@ -1366,14 +1413,14 @@ function paintBox(
       const rightEdge = absX + box.width;
       let cum = 0;
       for (const cluster of segmentClusters(box.text)) {
-        cum += ctx.measureText(cluster).width + clusterSpacing(cluster, letterPx, wordPx);
-        ctx.fillText(cluster, rightEdge - cum, baselineY);
+        cum += clusterAdvance(ctx, cluster, letterPx, wordPx);
+        if (!isSoftHyphen(cluster)) ctx.fillText(cluster, rightEdge - cum, baselineY);
       }
     } else {
       let clusterX = absX;
       for (const cluster of segmentClusters(box.text)) {
-        ctx.fillText(cluster, clusterX, baselineY);
-        clusterX += ctx.measureText(cluster).width + clusterSpacing(cluster, letterPx, wordPx);
+        if (!isSoftHyphen(cluster)) ctx.fillText(cluster, clusterX, baselineY);
+        clusterX += clusterAdvance(ctx, cluster, letterPx, wordPx);
       }
     }
     // Text decorations are an INDEPENDENT-FLAG set (CSS text-decoration-line):
@@ -1395,8 +1442,12 @@ function paintBox(
   }
 
   if (box.type === "marker") {
-    // Marker glyph (list bullet/number, footnote marker) — FOREGROUND only;
-    // it's text, painted OVER the selection.
+    // Marker glyph (list bullet/number, footnote marker, tracked ¶ / section-break
+    // label) — text, painted OVER the selection in the FOREGROUND phase.
+    if (box.boundaryMark !== undefined) {
+      paintBoundaryMark(ctx, box, box.boundaryMark, absX, absY, state, phase);
+      return;
+    }
     if (phase !== "foreground") return;
     const fontStr = buildCssFontString(cs);
     if (fontStr !== state.lastFont) {
@@ -1404,15 +1455,13 @@ function paintBox(
       state.lastFont = fontStr;
     }
     ctx.fillStyle = cs.color;
-    const fontSize = cs.fontSize;
     // See text-run branch above for why box.height (not us.lineHeight).
-    const halfLeading = (box.height - fontSize) / 2;
-    ctx.fillText(box.text, absX, absY + halfLeading);
+    ctx.fillText(box.text, absX, absY + (box.height - cs.fontSize) / 2);
     return;
   }
 
   if (box.type === "block") {
-    // POSITIONING slice 4 — partition once when a stacking participant is present;
+    // Partition once when a stacking participant is present;
     // null (the common path) means plain document-order paint (byte-identical).
     const stack = needsStackingReorder(box) ? partitionStackingChildren(box) : null;
     // Bucket 1 — negative-z stacking contexts paint BELOW this box's background.
@@ -1423,6 +1472,9 @@ function paintBox(
         ctx.fillStyle = cs.backgroundColor;
         ctx.fillRect(absX, absY, box.width, box.height);
       }
+      // Block decorations: over the box's own background, under its
+      // borders, image and children (a CSS background on the block element).
+      paintBlockDecorations(ctx, state, box.key, absX, absY, box.width, box.height, cs.color);
       // Borders
       paintBorders(ctx, us, absX, absY, box.width, box.height);
       // Image content
@@ -1446,7 +1498,7 @@ function paintBox(
       // and even if one were present we no longer paint a rule for it. The slot
       // still reserves `FOOTNOTE_SEPARATOR_HEIGHT` as a plain gap above the bodies.
     }
-    // POSITIONING slice 4 — children in §E.2 order (buckets 3–7). On the common
+    // Children in §E.2 order (buckets 3–7). On the common
     // path (`stack === null`) this is the old children-loop + paintAbsoluteChildren.
     // Abs-pos children whose abc is THIS box are reached here (via the partition's
     // abs walk, or the common-path `paintAbsoluteChildren`) with the SAME parent
@@ -1467,6 +1519,9 @@ function paintBox(
         ctx.fillStyle = cs.backgroundColor;
         ctx.fillRect(absX, absY, box.width, box.height);
       }
+      // Inline decorations cover non-text inline content too (tabs incl. leader
+      // tabs, footnote call markers, inline atomic embeds): its background slot.
+      paintRunDecorations(ctx, state, absX, absY, box.width, box.height, cs.color);
       paintBorders(ctx, us, absX, absY, box.width, box.height);
     }
     // Tab-leader (dot / dash / line): a `"tab"` inline embed carries
@@ -1484,7 +1539,14 @@ function paintBox(
     ) {
       paintTabLeader(ctx, box.inlineMeta.leader, absX, absY, box.width, box.height, cs);
     }
-    paintContainerChildren(ctx, box, stack, absX, absY, visibleTop, visibleBottom, state, phase);
+    // The atomic box's band already covers its content: its inner runs (a call
+    // marker's glyph) must not paint a second, overlapping band.
+    state.insideAtomicInline++;
+    try {
+      paintContainerChildren(ctx, box, stack, absX, absY, visibleTop, visibleBottom, state, phase);
+    } finally {
+      state.insideAtomicInline--;
+    }
     return;
   }
 
@@ -1520,6 +1582,9 @@ function paintBox(
     // partition. Negative-z bucket-1 children paint before (a table has no own bg).
     const stack = needsStackingReorder(box) ? partitionStackingChildren(box) : null;
     paintNegativeZBeforeBackground(ctx, stack, phase, absX, absY, visibleTop, visibleBottom, state);
+    // A table / row has no own background; a block decoration on it still fills
+    // under its cells.
+    if (phase === "background") paintBlockDecorations(ctx, state, box.key, absX, absY, box.width, box.height, cs.color);
     paintContainerChildren(ctx, box, stack, absX, absY, visibleTop, visibleBottom, state, phase);
     return;
   }
@@ -1533,6 +1598,9 @@ function paintBox(
         ctx.fillStyle = cs.backgroundColor;
         ctx.fillRect(absX, absY, box.width, box.height);
       }
+      // Block decorations: over the box's own background, under its
+      // borders, image and children (a CSS background on the block element).
+      paintBlockDecorations(ctx, state, box.key, absX, absY, box.width, box.height, cs.color);
       // Borders
       paintBorders(ctx, us, absX, absY, box.width, box.height);
     }
@@ -1551,6 +1619,7 @@ function paintBox(
     // partition operates WITHIN each column's block arm, not across columns). NB:
     // the generic `"children" in box` container helpers don't see `columns`, hence
     // the explicit loop here.
+    if (phase === "background") paintBlockDecorations(ctx, state, box.key, absX, absY, box.width, box.height, cs.color);
     for (const col of box.columns) {
       paintBox(ctx, col, absX, absY, visibleTop, visibleBottom, state, phase);
     }
@@ -1611,7 +1680,7 @@ function paintBox(
     for (const child of box.children) {
       paintBox(ctx, child, absX, absY, visibleTop, visibleBottom, state, phase);
     }
-    // C.2c (T5) + #328: paint the header/footer slots. They are NAMED fields
+    // Paint the header/footer slots. They are NAMED fields
     // (not in `box.children`), positioned in PAGE-LOCAL coords (header at
     // block-offset 0, growing DOWN from the page top; footer anchored at
     // `pageBlockSize − effectiveBottomInset`, growing UP so it ends at the page
@@ -1637,9 +1706,9 @@ function paintBox(
     return;
   }
 
-  // Plan 2/3 types: skip silently (not produced in Plan 1)
+  // Other box types: skip silently (nothing to paint)
   } finally {
-    // POSITIONING slice 5 — restore the canvas matrix if this box pushed a
+    // Restore the canvas matrix if this box pushed a
     // transform. In a `finally` so every per-type early `return` (and any throw)
     // still balances the `ctx.save()` above.
     if (hasTransform) ctx.restore();

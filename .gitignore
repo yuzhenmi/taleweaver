@@ -11,3 +11,7 @@ CLAUDE.md
 .playwright-mcp/
 claude-code-conversation.txt
 docs.bak-pre-switch/
+.superpowers/
+
+# copied in by each package's prepack
+packages/*/LICENSE

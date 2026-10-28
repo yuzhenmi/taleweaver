@@ -1,28 +1,54 @@
 {
   "name": "@taleweaver/core",
-  "version": "0.0.1",
+  "version": "0.1.0",
+  "description": "Headless, geometry-free word-processor engine: document model, rendering pipeline, editor reducer.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yuzhenmi/taleweaver.git",
+    "directory": "packages/core"
+  },
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "@taleweaver/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
+  "files": [
+    "dist",
+    "!dist/**/*.test.*",
+    "!dist/**/integration",
+    "!dist/test-utils/relpos-survival.*",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
     "clean": "rm -rf dist",
     "prebuild": "rm -rf dist",
-    "build": "tsc",
+    "build": "tsc --emitDeclarationOnly && esbuild src/index.ts --bundle --packages=external --format=esm --target=es2022 --sourcemap --outfile=dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck:headless": "tsc -p tsconfig.headless.json",
-    "lint:boundaries": "depcruise src --config .dependency-cruiser.cjs"
+    "lint:boundaries": "depcruise src --config .dependency-cruiser.cjs",
+    "typecheck": "tsc --noEmit",
+    "prepack": "cp ../../LICENSE LICENSE",
+    "postpack": "rm -f LICENSE"
   },
-  "dependencies": {
-    "yjs": "~13.6.18"
+  "publishConfig": {
+    "access": "public"
   },
   "devDependencies": {
-    "@taleweaver/print": "0.0.1",
+    "@taleweaver/print": "^0.1.0",
     "dependency-cruiser": "^17.4.3",
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "yjs": "13.6.30"
+  },
+  "peerDependencies": {
+    "yjs": "13.6.30"
   }
 }

@@ -1,74 +1,65 @@
-import type * as Y from "yjs";
+import { requireBlockText } from "../block-text";
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { Position } from "../block-position";
 import {
   inlineContentLength,
-  splitInlineContentAtOffset,
-  mergeAdjacentTextItems,
   type EmbedItem,
   type InlineItem,
 } from "../inline-content";
-import { getYBlock, requireInTransaction, type BlockTreeKind } from "../yjs-doc";
-import { buildYInlineContent } from "../y-block";
+import { requireInTransaction } from "../yjs-doc";
+import { productionAllocator } from "../block-id";
+import { isStructuralMarkerEmbedType } from "../embed-markers";
+import { BOOKMARK_START_EMBED_TYPE, BOOKMARK_END_EMBED_TYPE, bookmarkIdOf, collectBookmarks, hasContent } from "../bookmarks";
+import { insertInlineItems } from "../y-inline";
 import type { PageFieldNumberStyle } from "../page-field";
 
 /** The `embedType` discriminant for a cross-reference field. */
 export const CROSS_REFERENCE_EMBED_TYPE = "cross-reference";
 
+/** What a field whose bookmark is gone displays (Word's text). */
+export const BROKEN_CROSS_REFERENCE_TEXT = "Error! Reference source not found.";
+
 /**
- * What a cross-reference DISPLAYS about its target. v1 modes resolve at RENDER
- * time (no layout dependency): `"number"` → the target's counter (a numbered
- * `list-item`); `"text"` → the target's text (a heading / paragraph / list-item).
- * `"page"` → the 1-based page number the target block lands on (a LAYOUT-dependent
- * value resolved after pagination, NOT at render time — it carries a
- * {@link PageFieldNumberStyle} for formatting, like a page-field). Heading-number /
- * footnote-number / bookmark targets are deferred to separate whole-feature follow-ups.
+ * What a cross-reference DISPLAYS about its target bookmark (Word's REF / PAGEREF):
+ * `"text"` → the bookmarked range's text; `"number"` → the list counter of the
+ * paragraph holding the bookmark start; `"page"` → the 1-based page of the bookmark
+ * start (LAYOUT-dependent, resolved after pagination; carries a
+ * {@link PageFieldNumberStyle}).
  */
 export type CrossReferenceMode = "number" | "text" | "page";
 
 /**
- * Pre-computed plan for `insertCrossReference`: the host leaf's tree provenance
- * plus the new `items[]` with the `cross-reference` EmbedItem spliced in at
- * `position.offset`. An embed is a merge barrier, so this is always a
- * full-replace of the leaf's inlineContent.
+ * Pre-computed plan for `insertCrossReference`: the host leaf + offset and the field
+ * embed, plus the target paragraph's bookmark markers to write (none when an exact
+ * bookmark over the target already exists — Word reuses its `_Ref` bookmark).
  */
 interface CrossReferenceInsertPlan {
   readonly blockId: BlockId;
-  readonly kind: BlockTreeKind;
-  readonly items: ReadonlyArray<InlineItem>;
+  readonly offset: number;
+  readonly embed: EmbedItem;
+  readonly bookmark: { readonly targetId: BlockId; readonly bookmarkId: string } | null;
 }
 
 /**
- * Insert a cross-reference field at `position`, atomically (ONE `applyOperation`
- * transaction → one undo entry, one collab event). Splices a `cross-reference`
- * `EmbedItem` carrying `properties: { targetId, refMode }` into the cursor leaf's
- * `inlineContent`. For `refMode === "page"` the properties additionally carry a
- * `numberStyle` (defaulting to `"decimal"`); other modes store no `numberStyle`.
+ * Insert a cross-reference field to paragraph `targetId` at `position`, atomically
+ * (ONE `applyOperation` transaction → one undo entry, one collab event).
  *
- * Unlike `insertFootnote`, a cross-reference OWNS NOTHING — `targetId` is a POINTER
- * to an existing block, not an owned embed body. So:
- *   - The pointer lives in `properties.targetId` (NOT `contentBlockId`), so the
- *     embed-cascade scanners (`assertNoOrphanedEmbedContent` /
- *     `assertNoSharedEmbedContent` / `anyDirtyBlockHasEmbedRef`), which all key on
- *     `contentBlockId`, correctly IGNORE it. No embedContents body is created.
- *   - Removing the reference removes only the inline item (existing inline delete
- *     handles atomic embeds); the target is untouched. Removing the TARGET leaves a
- *     dangling reference — a LEGAL state the renderer shows as a broken reference.
+ * A cross-reference targets a BOOKMARK, not a block id (Word: REF / PAGEREF target
+ * a hidden `_Ref…` bookmark spanning the target paragraph's text; a block id is not
+ * a durable reference target). If a bookmark spanning exactly the
+ * target's text already exists it is reused; otherwise `bookmark-start` /
+ * `bookmark-end` markers are written around the target's content in the same
+ * transaction. The field stores `{ bookmarkId, refMode, numberStyle? }`
+ * (`numberStyle`, default `"decimal"`, for `refMode === "page"` only).
  *
- * The op TRUSTS a validated `targetId` (the editor handler validates that the
- * target resolves to a main-tree block of the right kind for `refMode`, BEFORE
- * calling — it has no render-time numbering map and does not validate the target
- * here). It DOES validate the host position.
+ * The field OWNS nothing: removing it leaves the bookmark (Word does too); removing
+ * the bookmarked text breaks the reference — a legal state rendered as Word's
+ * "Error! Reference source not found". Bookmark markers are never tracked.
  *
- * `dirtyIds` covers the host leaf block (its inlineContent changed) —
- * `captureDirtyIds` tracks the tree maps automatically.
- *
- * Throws if:
- *   - `position.blockId` does not resolve to a block.
- *   - the host is not a leaf (no `inlineContent`).
- *   - `position.offset` is outside `[0, inlineContentLength(content)]`.
+ * The op TRUSTS a validated target (the editor handler checks its kind for
+ * `refMode`); it validates the host position and that the target is a text leaf.
  */
 export function insertCrossReference(
   state: State,
@@ -79,13 +70,52 @@ export function insertCrossReference(
 ): OperationResult {
   const plan = planCrossReferenceInsert(state, position, targetId, refMode, numberStyle);
   return applyOperation(state, (doc) => {
-    insertCrossReferenceInTx(doc, plan);
+    requireInTransaction(doc, "insertCrossReference");
+    insertInlineItems(requireBlockText(doc, plan.blockId, "insertCrossReference"), plan.offset, [plan.embed]);
+    if (plan.bookmark !== null) {
+      const t = requireBlockText(doc, plan.bookmark.targetId, "insertCrossReference");
+      const props = Object.freeze({ bookmarkId: plan.bookmark.bookmarkId });
+      // End first (after the target's content, incl. a field just inserted into it).
+      insertInlineItems(t, t.length, [marker(BOOKMARK_END_EMBED_TYPE, props)]);
+      insertInlineItems(t, 0, [marker(BOOKMARK_START_EMBED_TYPE, props)]);
+    }
   });
 }
 
+function marker(embedType: string, properties: Readonly<Record<string, unknown>>): EmbedItem {
+  return Object.freeze({ kind: "embed", embedType, attrs: Object.freeze({}), properties });
+}
+
 /**
- * Validate `position` and produce the insertion plan (the new leaf `items[]` with
- * a `cross-reference` EmbedItem spliced in at `position.offset`). All snapshot
+ * The id of a bookmark whose markers enclose exactly `items`' content (a start marker
+ * precedes every non-marker unit and an end marker follows every one), or null. Its
+ * live pair may still be elsewhere (duplicate ids): the caller checks.
+ */
+function exactBookmarkOver(items: readonly InlineItem[]): string | null {
+  const first = items.findIndex((it) => it.kind !== "embed" || !isStructuralMarkerEmbedType(it.embedType));
+  const content = first < 0 ? items.length : first;
+  let last = items.length - 1;
+  while (last >= 0) {
+    const it = items[last];
+    if (it === undefined || it.kind !== "embed" || !isStructuralMarkerEmbedType(it.embedType)) break;
+    last--;
+  }
+  const starts = new Set<string>();
+  for (let i = 0; i < content; i++) {
+    const it = items[i];
+    const id = it === undefined ? null : bookmarkIdOf(it);
+    if (id !== null && it?.kind === "embed" && it.embedType === BOOKMARK_START_EMBED_TYPE) starts.add(id);
+  }
+  for (let i = last + 1; i < items.length; i++) {
+    const it = items[i];
+    const id = it === undefined ? null : bookmarkIdOf(it);
+    if (id !== null && it?.kind === "embed" && it.embedType === BOOKMARK_END_EMBED_TYPE && starts.has(id)) return id;
+  }
+  return null;
+}
+
+/**
+ * Validate `position` and the target and produce the insertion plan. All snapshot
  * reads + validation happen here, BEFORE the surrounding `applyOperation` opens.
  */
 function planCrossReferenceInsert(
@@ -99,27 +129,35 @@ function planCrossReferenceInsert(
   if (resolved === null) {
     throw new Error(`insertCrossReference: block "${position.blockId}" not found`);
   }
-  const { block, kind } = resolved;
+  const { block } = resolved;
   if (block.inlineContent === null) {
     throw new Error(
       `insertCrossReference: block "${position.blockId}" is not a leaf (no inlineContent)`,
     );
   }
-
   const totalLen = inlineContentLength(block.inlineContent);
   if (position.offset < 0 || position.offset > totalLen) {
     throw new Error(
       `insertCrossReference: offset ${position.offset} out of range [0, ${totalLen}] for block "${position.blockId}"`,
     );
   }
+  const target = resolveBlock(state, targetId)?.block ?? null;
+  if (target === null || target.inlineContent === null) {
+    throw new Error(`insertCrossReference: target "${targetId}" is not a text block`);
+  }
+  // Reuse that bookmark only when its id's LIVE pair (duplicate rule) is it: starting in the
+  // target (then at its leading marker, so the pair also ends in the target, at the first
+  // end marker after it) and ending after all its content.
+  const items = target.inlineContent.items;
+  const existing = exactBookmarkOver(items);
+  const pair = existing === null ? undefined : collectBookmarks(state).get(existing);
+  const reuse = pair !== undefined && pair.start.blockId === targetId && !hasContent(items, pair.end.offset, Infinity) ? existing : null;
+  const bookmarkId = reuse ?? productionAllocator.allocate();
 
-  // `"page"` is a layout-dependent reference (resolved after pagination) and carries a
-  // formatting `numberStyle`, like a page-field. `"number"`/`"text"` resolve at render
-  // time with no number style — their `properties` stay byte-identical to before.
   const properties =
     refMode === "page"
-      ? Object.freeze({ targetId, refMode, numberStyle })
-      : Object.freeze({ targetId, refMode });
+      ? Object.freeze({ bookmarkId, refMode, numberStyle })
+      : Object.freeze({ bookmarkId, refMode });
   const reference: EmbedItem = Object.freeze({
     kind: "embed",
     embedType: CROSS_REFERENCE_EMBED_TYPE,
@@ -127,22 +165,10 @@ function planCrossReferenceInsert(
     properties,
   });
 
-  const [left, right] = splitInlineContentAtOffset(block.inlineContent, position.offset);
-  // An embed is a merge barrier, so `mergeAdjacentTextItems` only normalizes the
-  // split halves around it — it never merges across the reference.
-  const items = mergeAdjacentTextItems([...left, reference, ...right]);
-
-  return { blockId: position.blockId, kind, items };
-}
-
-/**
- * In-transaction primitive: full-replace the host leaf's inlineContent with the
- * pre-computed `plan.items` (reference spliced in). Caller owns the surrounding
- * transaction. Routes the write to the leaf's owning tree (`plan.kind`) so a
- * reference inside a header/footer or a footnote body mutates the correct Y.Map.
- */
-function insertCrossReferenceInTx(doc: Y.Doc, plan: CrossReferenceInsertPlan): void {
-  requireInTransaction(doc, "insertCrossReference");
-  const yBlock = getYBlock(doc, plan.blockId, "insertCrossReference", plan.kind);
-  yBlock.set("inlineContent", buildYInlineContent({ items: plan.items }));
+  return {
+    blockId: position.blockId,
+    offset: position.offset,
+    embed: reference,
+    bookmark: reuse === null ? { targetId, bookmarkId } : null,
+  };
 }

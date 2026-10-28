@@ -6,6 +6,7 @@ import type { InlineContent, InlineItem } from "./inline-content";
 import { assertNoIdCollision } from "./id-collision-check";
 import { STATE_INTERNAL } from "./state-internal";
 import { COMMENT_START_EMBED_TYPE, COMMENT_END_EMBED_TYPE } from "./comments";
+import { bookmarkIdOf, collectBookmarks } from "./bookmarks";
 
 /**
  * The product of cloning a subtree from a source state. Self-contained
@@ -65,14 +66,27 @@ export function clonePastedSubtree(
   // paste (source === destination). For cross-document paste, pass the
   // destination state so the dev collision check guards the right namespace.
   destinationState: State = sourceState,
+  // false for extraction (a copy / cut, not a paste): every bookmark marker is kept —
+  // `extractFragment` applies its own edge rule to the whole fragment.
+  pasteRule = true,
 ): ClonedSubtree {
+  // Bookmarks (Word): a pasted bookmark pair is kept iff the destination has
+  // NO live pair of its id at paste time — a copy within the document drops it (the
+  // original is live), cut + paste and a paste into another document keep it. The
+  // destination's pairs are collected once, on the first bookmark marker met.
+  let live: Map<string, unknown> | null = null;
+  const liveInDestination = (bookmarkId: string): boolean => {
+    if (!pasteRule) return false;
+    live ??= collectBookmarks(destinationState);
+    return live.has(bookmarkId);
+  };
   if (getBlock(sourceState, sourceRootId) === null) {
     throw new Error(
       `clonePastedSubtree: source root "${sourceRootId}" not found in sourceState`,
     );
   }
 
-  // Phase 1: collect all reachable block ids, partitioned by tree.
+  // Pass 1: collect all reachable block ids, partitioned by tree.
   //   treeIds: ids reachable via main-tree walk (children).
   //   embedContentIds: ids reachable via EmbedItem.contentBlockId references
   //     (recursive: includes the embed-content's own children + nested refs).
@@ -83,7 +97,7 @@ export function clonePastedSubtree(
   const embedContentIds = new Set<BlockId>();
   collectTreeSubtreeIds(sourceState, sourceRootId, treeIds, embedContentIds);
 
-  // Phase 2: allocate a new id for each visited id. Allocation order:
+  // Pass 2: allocate a new id for each visited id. Allocation order:
   // tree ids first (in walk order), then embed-content ids. Either order
   // is valid — internal references are remapped by id, not by allocation
   // position.
@@ -108,7 +122,7 @@ export function clonePastedSubtree(
     idMap.set(oldId, newId);
   }
 
-  // Phase 3: construct cloned blocks with rewritten references, routed to
+  // Pass 3: construct cloned blocks with rewritten references, routed to
   // the correct output map by their classification.
   const clonedBlocks = new Map<BlockId, Block>();
   const clonedEmbedContents = new Map<BlockId, Block>();
@@ -134,8 +148,9 @@ export function clonePastedSubtree(
       firstChildId: mapId(oldBlock.firstChildId, idMap),
       lastChildId: mapId(oldBlock.lastChildId, idMap),
       inlineContent: oldBlock.inlineContent
-        ? rewriteInlineContent(oldBlock.inlineContent, idMap)
+        ? rewriteInlineContent(oldBlock.inlineContent, idMap, liveInDestination)
         : null,
+      ...(oldBlock.markAttrs !== undefined ? { markAttrs: oldBlock.markAttrs } : {}),
     });
     clonedBlocks.set(newId, cloned);
   }
@@ -165,8 +180,9 @@ export function clonePastedSubtree(
       firstChildId: mapId(oldBlock.firstChildId, idMap),
       lastChildId: mapId(oldBlock.lastChildId, idMap),
       inlineContent: oldBlock.inlineContent
-        ? rewriteInlineContent(oldBlock.inlineContent, idMap)
+        ? rewriteInlineContent(oldBlock.inlineContent, idMap, liveInDestination)
         : null,
+      ...(oldBlock.markAttrs !== undefined ? { markAttrs: oldBlock.markAttrs } : {}),
     });
     clonedEmbedContents.set(newId, cloned);
   }
@@ -305,6 +321,7 @@ function requireMapped(idMap: Map<BlockId, BlockId>, oldId: BlockId): BlockId {
 function rewriteInlineContent(
   content: InlineContent,
   idMap: Map<BlockId, BlockId>,
+  liveInDestination: (bookmarkId: string) => boolean,
 ): InlineContent {
   const newItems: InlineItem[] = content.items.flatMap((item) => {
     if (item.kind === "embed") {
@@ -312,7 +329,7 @@ function rewriteInlineContent(
       // the comment / its commentId (Google-Docs-faithful — a paste of a
       // commented range drops the markers, leaving the copied text uncommented).
       // The markers carry `properties.commentId` and own no body, so they pass
-      // the contentBlockId/targetId rebinds below verbatim if not dropped here.
+      // the contentBlockId rebind below verbatim if not dropped here.
       if (
         item.embedType === COMMENT_START_EMBED_TYPE ||
         item.embedType === COMMENT_END_EMBED_TYPE
@@ -335,27 +352,10 @@ function rewriteInlineContent(
         });
         return rewritten;
       }
-      // A POINTER embed (a cross-reference: `properties.targetId`) points at a block
-      // it does NOT own — unlike `contentBlockId`, which the walkers follow + clone.
-      // The walkers never follow `targetId` (they key on `contentBlockId`), so the
-      // target is in `idMap` ONLY when it was independently part of the copied
-      // subtree. Rebind in that case (you copied the reference AND its target → the
-      // clone references the cloned target, matching Google Docs); otherwise leave it
-      // pointing at the ORIGINAL target (the target is outside the paste). NEVER throw
-      // on a missing id — a pointer to an outside block is a legal state.
-      const targetId = item.properties.targetId;
-      if (typeof targetId === "string") {
-        const newTargetId = idMap.get(targetId as BlockId);
-        if (newTargetId !== undefined) {
-          const rewritten: InlineItem = Object.freeze({
-            kind: "embed",
-            embedType: item.embedType,
-            attrs: item.attrs,
-            properties: Object.freeze({ ...item.properties, targetId: newTargetId }),
-          });
-          return rewritten;
-        }
-      }
+      // A bookmark marker whose id has a live pair in the destination is dropped
+      // (the pasted fields then reference that live bookmark, as in Word).
+      const bookmarkId = bookmarkIdOf(item);
+      if (bookmarkId !== null && liveInDestination(bookmarkId)) return [];
     }
     return item;
   });

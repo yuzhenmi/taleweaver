@@ -10,6 +10,7 @@
  * These tests run at editor-behavior level through `reduceEditor` and assert
  * via `getEmbedContent` / `resolveBlock` / `collectFootnoteAnchors`.
  */
+import { finalSectionOf } from "../../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import {
   config,
@@ -46,7 +47,7 @@ function joinText(
 
 /** The id of the first body paragraph under the document root. */
 function bodyParaId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
     throw new Error("document root has no first child paragraph");

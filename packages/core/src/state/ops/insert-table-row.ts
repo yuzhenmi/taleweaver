@@ -3,8 +3,8 @@ import type { State, OperationResult } from "../state";
 import { applyOperation } from "../state";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
-import { getBlocksMap, getYBlock, requireInTransaction } from "../yjs-doc";
-import { buildYBlock } from "../y-block";
+import { requireInTransaction } from "../yjs-doc";
+import { insertRowEntry, implicitSlots, createCell } from "../table-storage";
 import { assertNoIdCollision } from "../id-collision-check";
 import { setBlockAttrsInTx } from "./set-block-attrs";
 import type { TableContext } from "../table-context";
@@ -26,7 +26,7 @@ export interface InsertTableRowPlan {
   readonly nextRowId: BlockId | null;
   /** One entry per column, in document order: the new cell + its empty paragraph. */
   readonly cells: readonly { readonly cellId: BlockId; readonly paragraphId: BlockId }[];
-  /** The table's new attrs bag when the insert shifts `headerRowCount` (#487), or
+  /** The table's new attrs bag when the insert shifts `headerRowCount`, or
    *  `null` when the count is unchanged (no `headerRowCount`, or the insert is at/
    *  past the header boundary). Written in the SAME tx as the row splice. */
   readonly headerAttrs: ReadonlyAttrs | null;
@@ -61,7 +61,7 @@ export function insertTableRow(
 
 /** Build the plan from a resolved context. Allocates row + per-column cell +
  *  paragraph ids once each, outside any transaction. `state` is read only to
- *  compute the `headerRowCount` adjustment (#487). Throws when the caret row has
+ *  compute the `headerRowCount` adjustment. Throws when the caret row has
  *  no cells (degenerate). */
 export function planInsertTableRow(
   state: State,
@@ -94,7 +94,7 @@ export function planInsertTableRow(
     paragraphId: allocator.allocate(),
   }));
 
-  // #487: keep `headerRowCount` naming the leading block. The new row's
+  // Keep `headerRowCount` naming the leading block. The new row's
   // destination grid-row index is `rowIndex` (insert-above) or `rowIndex + 1`
   // (insert-below). This op runs only on a NON-spanned table (the handler routes
   // spanned tables to the span-aware op), so `ctx.rowIndex` IS the grid row.
@@ -110,84 +110,17 @@ export function planInsertTableRow(
  */
 export function insertTableRowInTx(doc: Y.Doc, plan: InsertTableRowPlan): void {
   requireInTransaction(doc, "insertTableRow");
-
-  const blocksMap = getBlocksMap(doc);
   assertNoIdCollision(doc, plan.rowId, "insertTableRow");
   for (const c of plan.cells) {
     assertNoIdCollision(doc, c.cellId, "insertTableRow");
     assertNoIdCollision(doc, c.paragraphId, "insertTableRow");
   }
-
-  const lastCell = plan.cells.length - 1;
-  for (const [i, cell] of plan.cells.entries()) {
-    const { cellId, paragraphId } = cell;
-    const prevCell = plan.cells[i - 1];
-    const nextCell = plan.cells[i + 1];
-    blocksMap.set(
-      cellId,
-      buildYBlock({
-        type: "table-cell",
-        attrs: {},
-        parentId: plan.rowId,
-        prevSiblingId: i === 0 ? null : (prevCell?.cellId ?? null),
-        nextSiblingId: i === lastCell ? null : (nextCell?.cellId ?? null),
-        firstChildId: paragraphId,
-        lastChildId: paragraphId,
-        inlineContent: null,
-      }),
-    );
-    blocksMap.set(
-      paragraphId,
-      buildYBlock({
-        type: "paragraph",
-        attrs: {},
-        parentId: cellId,
-        prevSiblingId: null,
-        nextSiblingId: null,
-        firstChildId: null,
-        lastChildId: null,
-        inlineContent: { items: [] },
-      }),
-    );
-  }
-
-  const firstCell = plan.cells[0];
-  const lastCellEntry = plan.cells[lastCell];
-  if (firstCell === undefined || lastCellEntry === undefined) {
-    throw new Error("insertTableRow: row has no cells (unreachable)");
-  }
-  blocksMap.set(
-    plan.rowId,
-    buildYBlock({
-      type: "table-row",
-      attrs: {},
-      parentId: plan.tableId,
-      prevSiblingId: plan.prevRowId,
-      nextSiblingId: plan.nextRowId,
-      firstChildId: firstCell.cellId,
-      lastChildId: lastCellEntry.cellId,
-      inlineContent: null,
-    }),
-  );
-
-  // Splice into the table's row chain (mirrors insertBlock's boundary discipline:
-  // write firstChildId/lastChildId only at a boundary so middle inserts don't
-  // dirty the table spuriously — though here the table is dirtied anyway via the
-  // sibling rewire, the same-value-write avoidance still holds).
-  if (plan.prevRowId !== null) {
-    getYBlock(doc, plan.prevRowId, "insertTableRow").set("nextSiblingId", plan.rowId);
-  }
-  if (plan.nextRowId !== null) {
-    getYBlock(doc, plan.nextRowId, "insertTableRow").set("prevSiblingId", plan.rowId);
-  }
-  if (plan.prevRowId === null || plan.nextRowId === null) {
-    const yTable = getYBlock(doc, plan.tableId, "insertTableRow");
-    if (plan.prevRowId === null) yTable.set("firstChildId", plan.rowId);
-    if (plan.nextRowId === null) yTable.set("lastChildId", plan.rowId);
-  }
-
-  // #487: re-write the table's `headerRowCount` (in the SAME tx) when the insert
-  // shifted it. `null` when unchanged — no write, no spurious dirty.
+  insertRowEntry(doc, plan.tableId, plan.rowId, plan.prevRowId);
+  // One cell per uncovered column, in column order.
+  implicitSlots(doc, plan.tableId, plan.rowId).forEach((col, i) => {
+    const c = plan.cells[i];
+    if (c !== undefined) createCell(doc, plan.rowId, col, c.cellId, c.paragraphId);
+  });
   if (plan.headerAttrs !== null) {
     setBlockAttrsInTx(doc, plan.tableId, plan.headerAttrs, "insertTableRow");
   }

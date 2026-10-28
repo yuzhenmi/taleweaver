@@ -1,6 +1,6 @@
-// packages/core/src/layout/column-fit.ts
+// packages/print/src/layout/column-fit.ts
 //
-// Multi-column FILL core (multi-column slice 2-fill). Columns are an inline-axis
+// Multi-column FILL core. Columns are an inline-axis
 // fragmentation sub-axis nested in page block-axis fragmentation: a multicol
 // section's body content is distributed into N side-by-side column boxes per
 // page by an OUTER loop that wraps the existing per-page block-axis fit
@@ -10,15 +10,16 @@
 //
 // PURE: this operates entirely on cached `BlockFitMeta` (no layout boxes, no
 // shaper), exactly like `fitOnePage`. The measure pass uses it to compute page
-// boundaries; `getPage` uses the same per-column ranges to materialize the
-// `MultiColumnBox`. The visual-reading-order guarantee (slice 2b) holds because
+// boundaries (and `resolveFootnotes` to re-fit footnote-bearing multicol pages);
+// `getPage` materializes the `MultiColumnBox` by seeding each column from the
+// planned per-column break tokens. The visual-reading-order guarantee holds because
 // each column receives a CONTIGUOUS doc-order run: column k+1 begins precisely
 // where column k stopped.
 //
 // This module is FILL only. The final-page BALANCE refinement (the column height
 // that evens the last fragment, CSS `column-fill: balance`) is a separate pure
-// step layered on top in a follow-up slice; it calls `fitColumnsOnPage` at trial
-// heights. No producer wires this into the measure pass / `getPage` yet.
+// step layered on top (`balanceColumnHeight`); it calls `fitColumnsOnPage` at trial
+// heights. The measure pass and `resolveFootnotes` are its callers.
 
 import type { BlockFitMeta, FitPageResult } from "./fit-core";
 import { fitOnePage } from "./fit-core";
@@ -63,7 +64,7 @@ export interface ColumnsFitResult {
  * An empty (content-exhausted) trailing column at `index` — it starts and
  * consumes nothing.
  *
- * `resumeInto` is a block token AT `index`, NOT `null` (#498). Materialize seeds
+ * `resumeInto` is a block token AT `index`, NOT `null`. Materialize seeds
  * each column's `layoutBlock` SOLELY from `resumeInto` (`virtual-layout-tree.ts`
  * `materializeMultiColumnBody`), and there `null` means "start fresh from child
  * index 0" — the column-0-of-a-fresh-page contract. An empty trailing column
@@ -98,7 +99,7 @@ function emptyColumn(index: number): ColumnFit {
  *   previous page's `ColumnBreakToken.resumeChildToken`), never a column token.
  * - `columnHeight` — the per-column available block-size (FILL: the page body
  *   block-size; BALANCE: the balanced height — same for every column).
- * - `stopBeforeIndex` — the section cap (C.2b-1): an EXCLUSIVE upper bound on the
+ * - `stopBeforeIndex` — the section cap: an EXCLUSIVE upper bound on the
  *   top-level child index this page may place (the multicol section's content
  *   ends there). Content exhausts at the cap exactly as at `metas.length`;
  *   columns past the cap are empty. Passed through to every `fitOnePage`.
@@ -190,7 +191,7 @@ const BALANCE_TOLERANCE = 0.5;
 
 /**
  * The balanced column height for a section's FINAL page (CSS `column-fill:
- * balance`, the Google-Docs / Word parity behavior — v1, NOT optional). FILL
+ * balance`, the Google-Docs / Word parity behavior). FILL
  * alone would dump short 2-column content into column 0 and leave column 1 empty;
  * balancing evens the columns so the page looks right.
  *

@@ -4,6 +4,7 @@ import type { State, Span } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { applyAttrsOrSuggest } from "./suggestion-mode";
 import { rebuildTrees } from "./helpers";
+import { storeTypingAttrs, getTypingAttrs } from "../typing-attrs";
 
 const STYLE_KEYS: Record<"bold" | "italic" | "underline" | "strikethrough", string> = {
   bold: "bold",
@@ -62,9 +63,14 @@ export function handleToggleStyle(
   config: EditorConfig,
 ): EditorState {
   const { selection } = editor;
-  if (isCollapsed(selection)) return editor;
-
   const attrKey = STYLE_KEYS[style];
+  // Collapsed caret: toggle the style for the next typed text (typing attrs),
+  // relative to what that text would otherwise get.
+  if (isCollapsed(selection)) {
+    const on = Boolean(getTypingAttrs(editor)[attrKey]);
+    return storeTypingAttrs(editor, { [attrKey]: on ? undefined : true });
+  }
+
   const all = selectionAllHaveAttr(editor.state, selection, attrKey);
   // When all items have the attr → toggle OFF (remove). Else toggle ON.
   const incoming = all ? { [attrKey]: undefined } : { [attrKey]: true };

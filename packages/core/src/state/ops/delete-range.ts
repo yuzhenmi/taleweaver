@@ -1,40 +1,32 @@
-import * as Y from "yjs";
+import type * as Y from "yjs";
+import { requireBlockText } from "../block-text";
 import type { State, OperationResult } from "../state";
 import { applyOperation, resolveBlock } from "../state";
 import type { BlockId } from "../block-id";
 import type { Span } from "../block-position";
 import {
   inlineContentLength,
-  mergeAdjacentTextItems,
   splitInlineContentAtOffset,
-  type InlineItem,
+
 } from "../inline-content";
-import {
-  getEmbedContentsMap,
-  getTreeMap,
-  getYBlock,
-  requireInTransaction,
-  type BlockTreeKind,
-} from "../yjs-doc";
-import { buildYInlineContent } from "../y-block";
-import { surgicallyDeleteInlineRangeInTx } from "../y-utils";
-import { normalizeSpan } from "../span-iteration";
+import { requireInTransaction, type BlockTreeKind } from "../yjs-doc";
+import { snapOffset, snapRange } from "../y-inline";
+import { bookmarksRemovedBy, widenOverBookmarkMarkers } from "../bookmarks";
+import { createPosition, createSpan, positionsEqual } from "../block-position";
+import type { InlineItem } from "../inline-content";
+import { joinWithNext, removeBlockStorage, entityTracker, deleteUnits } from "../flow-ops";
+import { normalizeSpan, iterateSpan } from "../span-iteration";
 import { collectEmbedContentSubtreeFromInlineContent } from "../embed-content-cascade";
 import { assertSameTree } from "../assert-same-tree";
 // Type-only import — runtime cycle is broken by `import type` (erased at runtime).
-import type { AttrRegistry } from "../../cascade/attr-registry";
 
 /**
  * Pre-computed mutation plan for `deleteRangeInTx`. Discriminated by
- * `mode`: same-block writes only the anchor block's inlineContent;
- * cross-block additionally deletes the focus block, any intervening
- * leaves, and rewires the focus's old next sibling (or the parent's
- * `lastChildId` if focus was the last child).
- *
- * `mergedItems` is the new anchor block inlineContent: the surviving
- * prefix + suffix, with run-merging already applied. `embedContentIds`
- * is the set of embed-content subtree roots to cascade-delete from
- * `state.embedContents`.
+ * `mode`: same-block deletes `[anchorOffset, focusOffset)` of one block;
+ * cross-block deletes the anchor's tail, every intervening leaf (content + ¶),
+ * the focus prefix `[0, focusOffset)` and ¶A — the FOCUS survives (Word: the last
+ * ¶ the span needs). No character moves. `embedContentIds` is the set of
+ * embed-content subtree roots to cascade-delete from `state.embedContents`.
  *
  * `kind` is the owning tree of the span's blocks (resolved once during
  * planning via `resolveBlock`). `deleteRangeInTx` threads it to every
@@ -51,20 +43,12 @@ export type DeleteRangePlan =
       readonly mode: "same-block";
       readonly kind: BlockTreeKind;
       readonly blockId: BlockId;
-      /** Normalized deletion range, flattened offsets — drives the surgical applier. */
+      /** Normalized deletion range, snapped OUT to grapheme boundaries (block offsets). */
       readonly anchorOffset: number;
       readonly focusOffset: number;
-      /** Threaded to the in-place seam-merge normalizer (registry-aware attrs equality). */
-      readonly registry: AttrRegistry | undefined;
-      /**
-       * Post-delete normalized items. The surgical same-block applier does NOT read
-       * this (it derives the in-place mutation from `anchorOffset`/`focusOffset` +
-       * the live items) — but `replaceRange` DOES consume it to build the composed
-       * insert plan (`planInsertTextFullReplace(..., deletePlan.mergedItems, ...)`),
-       * and tests use it as the read-back oracle. Do NOT remove it.
-       */
-      readonly mergedItems: ReadonlyArray<InlineItem>;
       readonly embedContentIds: ReadonlySet<BlockId>;
+      /** The bookmarks the delete removes — one set for the whole span ({@link bookmarkDeletionSpan}). */
+      readonly removedBookmarks: ReadonlySet<string>;
     }
   | {
       readonly mode: "cross-block";
@@ -72,10 +56,12 @@ export type DeleteRangePlan =
       readonly anchorId: BlockId;
       readonly focusId: BlockId;
       readonly interveningIds: ReadonlyArray<BlockId>;
-      readonly focusNextId: BlockId | null;
-      readonly parentId: BlockId;
-      readonly mergedItems: ReadonlyArray<InlineItem>;
+      /** Anchor offset (grapheme-snapped) where the anchor's tail is cut. */
+      readonly anchorOffset: number;
+      /** Focus offset (grapheme-snapped): the focus prefix `[0, focusOffset)` is deleted. */
+      readonly focusOffset: number;
       readonly embedContentIds: ReadonlySet<BlockId>;
+      readonly removedBookmarks: ReadonlySet<string>;
     };
 
 /**
@@ -83,14 +69,14 @@ export type DeleteRangePlan =
  *
  * Same-block case: the block's inlineContent becomes
  *   items[0..anchor.offset) ⊕ items[focus.offset..)
- * with a run-merging post-pass.
+ * (adjacent equal-attrs runs read back as one run).
  *
- * Cross-block case (same parent only): the anchor block keeps its identity
- * (id, type, attrs, parentId, prevSiblingId) and absorbs:
+ * Cross-block case (same parent only): the span's ¶s are deleted
+ * (¶A and every intervening one) and the FOCUS block survives with
  *   anchor.items[0..anchor.offset) ⊕ focus.items[focus.offset..)
- * with a run-merging post-pass. The focus block and any leaf blocks
- * between anchor and focus in the parent's child list are removed.
- * Anchor's nextSiblingId rewires to focus's old nextSiblingId.
+ * (adjacent equal-attrs runs read back as one run). The merge-formatting rule runs
+ * once: the anchor's type + attrs + ¶ props are written onto the focus, unless the
+ * anchor is left an empty DEFAULT paragraph (Google Docs / Quill); then the focus keeps its own.
  *
  * Empty-span (collapsed) is a no-op.
  *
@@ -107,17 +93,10 @@ export type DeleteRangePlan =
  *     call which throws on no-common-ancestor),
  *   - any offset is outside [0, inlineContentLength].
  *
- * Y.Doc note: the SAME-BLOCK path mutates the anchor block's
- * `inlineContent` Y.Array IN PLACE (surgical `surgicallyDeleteInlineRangeInTx`):
- * runs OUTSIDE the deleted range — and the surviving portion of a straddled
- * run — keep their `Y.Text` CRDT identity, so a `RelativePosition` anchored
- * there survives (the foundation for within-block selection rebasing). The
- * one exception is the seam: when the prefix-end and suffix-start runs are
- * same-attrs and merge, the receiver keeps identity but the donor's migrated
- * chars are fresh (Class-2 limit — Yjs has no identity-preserving cross-`Y.Text`
- * move). Read-back is byte-identical to the old `buildYInlineContent` rebuild.
- * The CROSS-BLOCK path still fully replaces the anchor block's `inlineContent`
- * via `buildYInlineContent` (a later surgical-ops slice migrates it).
+ * Y.Doc note: the SAME-BLOCK path is one offset `Y.Text.delete` — every
+ * surviving character keeps its CRDT identity, so a `RelativePosition` anchored
+ * there survives. The CROSS-BLOCK path deletes characters and ¶ items only: every
+ * surviving character (the anchor's prefix, the focus suffix) keeps its identity.
  *
  * Cascade-deletes embed-content references for the DELETED inline portion:
  * walks dropped `EmbedItem.properties.contentBlockId` references and
@@ -127,8 +106,7 @@ export type DeleteRangePlan =
  * references that survive the operation are NOT cascade-deleted. Mirrors
  * the same invariant `removeBlock` upholds; see `embed-content-cascade.ts`.
  *
- * Cost: a same-block delete is O(1) block-writes (one anchor-block
- * inlineContent rewrite). A cross-block delete is O(K) in K = the blocks
+ * Cost: a same-block delete is O(1) block-writes (one offset delete). A cross-block delete is O(K) in K = the blocks
  * the span covers — the focus block plus every intervening leaf are
  * deleted from the owning tree map, all within the single `applyOperation`
  * transaction. K is the selection width, not the document size (a typical
@@ -136,18 +114,11 @@ export type DeleteRangePlan =
  *
  * Composition: see `deleteRangeInTx` for the in-transaction primitive
  * used by `replaceRange` to compose delete + insert in a single Y.Doc
- * transaction (T12 atomicity).
- *
- * `registry` (optional): an `AttrRegistry`; threaded to the seam-merge
- * normalizer (`mergeAdjacentTextItems`) so interpreters with a custom
- * per-key `equals` (e.g. a `comment` interpreter that ignores
- * `timestamp`) opt into custom adjacent-item compare semantics across
- * the post-delete seam. Omitted → deep-value compare.
+ * transaction (atomic).
  */
 export function deleteRange(
   state: State,
   span: Span,
-  registry?: AttrRegistry,
 ): OperationResult {
   // Empty-span no-op (collapsed-ness is normalization-invariant).
   if (
@@ -157,7 +128,7 @@ export function deleteRange(
     return { state, dirtyIds: new Set<BlockId>() };
   }
 
-  const plan = planDeleteRange(state, span, registry);
+  const plan = planDeleteRange(state, span);
   if (plan === null) {
     // Re-collapsed after normalization (e.g., reverse-order positions in
     // the same block at the same offset).
@@ -182,74 +153,58 @@ export function deleteRange(
  *     single `applyOperation` transaction so collab peers can never
  *     observe the post-delete pre-insert mid-state).
  *
- * Postcondition (cross-block): after this call, the anchor block's
- * `inlineContent` is `plan.mergedItems`. Callers composing further
- * mutations (e.g., `replaceRange` calling `insertTextInTx` next) MUST
- * compute their plans against `plan.mergedItems`, NOT against the
- * pre-delete state read via `getBlock` (the snapshot cache is stale
- * until `applyOperation` mints a fresh State).
+ * Postcondition: the deletion seam is at `plan.anchorOffset` (grapheme-snapped by the
+ * planner) of the surviving block — the anchor (same-block) or the focus
+ * (cross-block, see {@link seamBlockOf}) — so a composed insert targets it.
  */
 export function deleteRangeInTx(doc: Y.Doc, plan: DeleteRangePlan): void {
   requireInTransaction(doc, "deleteRange");
   if (plan.mode === "same-block") {
-    const yBlock = getYBlock(doc, plan.blockId, "deleteRange", plan.kind);
-    // Surgical, identity-preserving in-place delete (replaces the old full-replace
-    // via buildYInlineContent): runs outside the deleted range keep their Y.Text
-    // CRDT identity → a RelativePosition there survives. Read-back byte-identical
-    // to the old merged-items rebuild (proven by the delete-range suite).
-    const yItems = yBlock.get("inlineContent") as Y.Array<Y.Map<unknown>>;
-    surgicallyDeleteInlineRangeInTx(yItems, plan.anchorOffset, plan.focusOffset, plan.registry);
-    if (plan.embedContentIds.size > 0) {
-      // Embed bodies always live in the embedContents map, independent of the
-      // edited block's own tree (`plan.kind`) — do NOT route these by kind.
-      const yEmbeds = getEmbedContentsMap(doc);
-      for (const id of plan.embedContentIds) {
-        yEmbeds.delete(id);
-      }
-    }
+    requireBlockText(doc, plan.blockId, "deleteRange");
+    deleteUnits(doc, { spans: [{ id: plan.blockId, from: plan.anchorOffset, to: plan.focusOffset }], removedBookmarks: plan.removedBookmarks });
+    for (const id of plan.embedContentIds) removeBlockStorage(doc, id);
     return;
   }
+  // Cross-block = the range's characters + the crossed ¶s. No character moves: the
+  // anchor prefix continues the focus once ¶A is gone, so a peer's concurrent typing
+  // in either survives. Right-to-left keeps offsets valid.
+  requireBlockText(doc, plan.focusId, "deleteRange");
+  const removed = plan.removedBookmarks;
+  deleteUnits(doc, { spans: [{ id: plan.focusId, from: 0, to: plan.focusOffset }], removedBookmarks: removed });
+  // The anchor is re-derived after the intervening blocks go: removing one can rename
+  // a duplicate copy `X@c:k`.
+  const anchorId = entityTracker(doc, plan.anchorId);
+  for (const id of [...plan.interveningIds].reverse()) removeBlockStorage(doc, id, removed);
+  const anchorText = requireBlockText(doc, anchorId(), "deleteRange");
+  deleteUnits(doc, { spans: [{ id: anchorId(), from: plan.anchorOffset, to: anchorText.length }], removedBookmarks: removed });
+  joinWithNext(doc, anchorId());
+  for (const id of plan.embedContentIds) removeBlockStorage(doc, id);
+}
 
-  // Cross-block. Route block-level reads/writes/deletes to the span's owning
-  // tree (`plan.kind`) — a cross-block delete inside a header/footer body
-  // (templateContents) deletes the focus + intervening leaves from that tree.
-  const yTree = getTreeMap(doc, plan.kind);
-  const yAnchor = getYBlock(doc, plan.anchorId, "deleteRange", plan.kind);
+/**
+ * THE span a deletion — and a copy (`extractFragment`) — of `span` acts on (Word):
+ * `span` normalized, widened over the markers just outside it of the bookmarks
+ * it covers ALL the content of (`bookmarksRemovedBy`, one computation over every block
+ * of the span), with that removed set. So the seam (and the caret) is where a removed
+ * start marker was, and a cut of exactly a bookmark's text carries the pair. A
+ * collapsed span is returned normalized with nothing removed. O(span).
+ */
+export function bookmarkDeletionSpan(state: State, span: Span): { readonly span: Span; readonly removed: Set<string> } {
+  const n = normalizeSpan(state, span);
+  if (positionsEqual(n.anchor, n.focus)) return { span: n, removed: new Set() };
+  const removed = bookmarksRemovedBy(
+    [...iterateSpan(state, n)].map((r) => ({ items: r.block.inlineContent?.items ?? [], from: r.rangeStart, to: r.rangeEnd })),
+  );
+  if (removed.size === 0) return { span: n, removed };
+  const itemsOf = (id: BlockId): readonly InlineItem[] => resolveBlock(state, id)?.block.inlineContent?.items ?? [];
+  const from = widenOverBookmarkMarkers(itemsOf(n.anchor.blockId), n.anchor.offset, "backward", removed);
+  const to = widenOverBookmarkMarkers(itemsOf(n.focus.blockId), n.focus.offset, "forward", removed);
+  return { span: createSpan(createPosition(n.anchor.blockId, from), createPosition(n.focus.blockId, to)), removed };
+}
 
-  // Update anchor: new content + nextSiblingId rewired to focus's old next.
-  yAnchor.set("inlineContent", buildYInlineContent({ items: plan.mergedItems }));
-  yAnchor.set("nextSiblingId", plan.focusNextId);
-
-  // Rewire focus's old nextSibling, if any. Else update the parent's
-  // lastChildId to anchor (focus was the parent's last child).
-  if (plan.focusNextId !== null) {
-    getYBlock(doc, plan.focusNextId, "deleteRange", plan.kind).set(
-      "prevSiblingId",
-      plan.anchorId,
-    );
-  } else {
-    getYBlock(doc, plan.parentId, "deleteRange", plan.kind).set(
-      "lastChildId",
-      plan.anchorId,
-    );
-  }
-
-  // Delete focus + all intervening leaves last (after reads of yAnchor /
-  // sibling updates are done).
-  yTree.delete(plan.focusId);
-  for (const id of plan.interveningIds) {
-    yTree.delete(id);
-  }
-
-  // Cascade-delete embed-content subtrees referenced by the dropped
-  // inline portion. Done last (after block writes/deletes) so the
-  // y-doc transaction observers see a single atomic write.
-  if (plan.embedContentIds.size > 0) {
-    const yEmbeds = getEmbedContentsMap(doc);
-    for (const id of plan.embedContentIds) {
-      yEmbeds.delete(id);
-    }
-  }
+/** The block holding the seam after `plan` runs: the anchor, or (cross-block) the surviving focus. */
+export function seamBlockOf(plan: DeleteRangePlan): BlockId {
+  return plan.mode === "same-block" ? plan.blockId : plan.focusId;
 }
 
 /**
@@ -321,7 +276,6 @@ export function assertDeleteRangeEndpoints(state: State, span: Span): void {
 export function planDeleteRange(
   state: State,
   span: Span,
-  registry?: AttrRegistry,
 ): DeleteRangePlan | null {
   // Pre-normalize existence + leaf guards. These run before normalizeSpan
   // so the operation's stated error contract ("anchor/focus block ... not
@@ -371,19 +325,22 @@ export function planDeleteRange(
       return null;
     }
 
-    const [prefix, afterPrefix] = splitInlineContentAtOffset(
-      block.inlineContent,
-      normalized.anchor.offset,
+    // Widen over the removed bookmarks' edge markers, then snap the range OUT
+    // to grapheme boundaries ONCE; every later step uses it.
+    const { span: wide, removed: removedBookmarks } = bookmarkDeletionSpan(state, normalized);
+    const [startOffset, endOffset] = snapRange(
+      block.inlineContent.items,
+      wide.anchor.offset,
+      wide.focus.offset,
     );
-    const [, suffix] = splitInlineContentAtOffset(block.inlineContent, normalized.focus.offset);
-    const merged = mergeAdjacentTextItems([...prefix, ...suffix], registry);
+    const [, afterPrefix] = splitInlineContentAtOffset(block.inlineContent, startOffset);
 
     // Collect embed-content ids referenced by the DELETED inline portion
     // (items[anchor.offset .. focus.offset)). Splitting afterPrefix at
     // (focus.offset - anchor.offset) yields the deleted slice as its
     // prefix. Per the "no orphaned blocks" invariant, dropped EmbedItems
     // own their referenced contentBlockId subtrees and must cascade-delete.
-    const deletedLength = normalized.focus.offset - normalized.anchor.offset;
+    const deletedLength = endOffset - startOffset;
     const [deletedItems] = splitInlineContentAtOffset(
       { items: afterPrefix },
       deletedLength,
@@ -399,11 +356,10 @@ export function planDeleteRange(
       mode: "same-block",
       kind,
       blockId: block.id,
-      anchorOffset: normalized.anchor.offset,
-      focusOffset: normalized.focus.offset,
-      registry,
-      mergedItems: merged,
+      anchorOffset: startOffset,
+      focusOffset: endOffset,
       embedContentIds,
+      removedBookmarks,
     };
   }
 
@@ -476,7 +432,7 @@ export function planDeleteRange(
     if (!node) {
       throw new Error(`deleteRange: intervening sibling "${cur}" not found`);
     }
-    // Defensive (S-E6): the cross-block delete removes each intervening
+    // Defensive: the cross-block delete removes each intervening
     // sibling via a flat `yTree.delete` — which would ORPHAN a container's
     // subtree (its descendants are never visited or cascade-deleted). Refuse
     // a container in the intervening run rather than silently corrupt state;
@@ -529,17 +485,17 @@ export function planDeleteRange(
     "deleteRange",
   );
 
-  // Build merged anchor inline content (pure JS — Y materialization happens
-  // inside the transaction via buildYInlineContent).
-  const [anchorPrefix, anchorDeletedSuffix] = splitInlineContentAtOffset(
-    anchorBlock.inlineContent,
-    normalized.anchor.offset,
-  );
-  const [focusDeletedPrefix, focusSuffix] = splitInlineContentAtOffset(
+  // The anchor keeps [0, anchorOffset); the focus suffix follows it. Both endpoints
+  // are snapped OUT to grapheme boundaries ONCE (anchor backward, focus forward), so
+  // the cuts and the seam agree.
+  const { span: wide, removed: removedBookmarks } = bookmarkDeletionSpan(state, normalized);
+  const anchorOffset = snapOffset(anchorBlock.inlineContent.items, wide.anchor.offset);
+  const focusOffset = snapOffset(focusBlock.inlineContent.items, wide.focus.offset, 1);
+  const [, anchorDeletedSuffix] = splitInlineContentAtOffset(anchorBlock.inlineContent, anchorOffset);
+  const [focusDeletedPrefix] = splitInlineContentAtOffset(
     focusBlock.inlineContent,
-    normalized.focus.offset,
+    focusOffset,
   );
-  const mergedItems = mergeAdjacentTextItems([...anchorPrefix, ...focusSuffix], registry);
 
   // Collect embed-content ids referenced by the DELETED inline portion of
   // the cross-block range. The deleted portion is:
@@ -575,9 +531,9 @@ export function planDeleteRange(
     anchorId: anchorBlock.id,
     focusId: focusBlock.id,
     interveningIds,
-    focusNextId,
-    parentId,
-    mergedItems,
+    anchorOffset,
+    focusOffset,
     embedContentIds,
+    removedBookmarks,
   };
 }

@@ -4,8 +4,9 @@ import { applyOperation, getBlock } from "../state";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import type { InlineContent } from "../inline-content";
-import { getBlocksMap, getYBlock, requireInTransaction } from "../yjs-doc";
-import { buildYBlock } from "../y-block";
+import { requireInTransaction, type BlockTreeKind } from "../yjs-doc";
+import { resolveBlock } from "../state";
+import { insertChildren } from "../flow-ops";
 import { assertNoIdCollision } from "../id-collision-check";
 import type { BlockKindResolver } from "../block-kinds";
 
@@ -37,6 +38,7 @@ export interface InsertBlockArgs {
  * The plan does not carry a `kind` field for that reason.
  */
 export interface InsertBlockPlan {
+  readonly kind: BlockTreeKind;
   readonly parentId: BlockId;
   readonly newId: BlockId;
   readonly prevSiblingId: BlockId | null;
@@ -86,11 +88,12 @@ export function insertBlock(
   args: InsertBlockArgs,
   allocator: IdAllocator,
   resolver?: BlockKindResolver,
-): OperationResult {
+): OperationResult & { readonly newBlockId: BlockId } {
   const plan = planInsertBlock(state, parentId, beforeSiblingId, args, allocator, resolver);
-  return applyOperation(state, (doc) => {
+  const r = applyOperation(state, (doc) => {
     insertBlockInTx(doc, plan);
   });
+  return { ...r, newBlockId: plan.newId };
 }
 
 /**
@@ -154,6 +157,7 @@ export function planInsertBlock(
   const newId = allocator.allocate();
 
   return {
+    kind: resolveBlock(state, parentId)?.kind ?? "block",
     parentId,
     newId,
     prevSiblingId,
@@ -186,51 +190,12 @@ export function planInsertBlock(
  */
 export function insertBlockInTx(doc: Y.Doc, plan: InsertBlockPlan): void {
   requireInTransaction(doc, "insertBlock");
-
-  // Dev-mode defense against allocator id collision (test allocators with
-  // counter-based ids can collide with seeded state; production
-  // crypto.randomUUID effectively cannot). Without this, Y.Map.set below
-  // would silently overwrite the existing block of the same id.
   assertNoIdCollision(doc, plan.newId, "insertBlock");
-
-  // Add the new block to the blocks map with full linkage.
-  getBlocksMap(doc).set(
-    plan.newId,
-    buildYBlock({
-      type: plan.type,
-      attrs: plan.attrs,
-      parentId: plan.parentId,
-      prevSiblingId: plan.prevSiblingId,
-      nextSiblingId: plan.nextSiblingId,
-      firstChildId: null,
-      lastChildId: null,
-      inlineContent: plan.inlineContent,
-    }),
+  insertChildren(
+    doc,
+    plan.parentId,
+    plan.prevSiblingId,
+    [{ id: plan.newId, type: plan.type, attrs: plan.attrs, inlineContent: plan.inlineContent, children: [] }],
+    plan.kind,
   );
-
-  // Update prev sibling's nextSiblingId (if any) to point at the new block.
-  if (plan.prevSiblingId !== null) {
-    const yPrev = getYBlock(doc, plan.prevSiblingId, "insertBlock");
-    yPrev.set("nextSiblingId", plan.newId);
-  }
-
-  // Update next sibling's prevSiblingId (if any) to point at the new block.
-  if (plan.nextSiblingId !== null) {
-    const yNext = getYBlock(doc, plan.nextSiblingId, "insertBlock");
-    yNext.set("prevSiblingId", plan.newId);
-  }
-
-  // Update parent's firstChildId / lastChildId only when the new block sits at
-  // a boundary. Writing same-value to a Y.Map still fires a change event, which
-  // would cause the parent to land in dirtyIds and trigger an unnecessary
-  // re-paint.
-  if (plan.prevSiblingId === null || plan.nextSiblingId === null) {
-    const yParent = getYBlock(doc, plan.parentId, "insertBlock");
-    if (plan.prevSiblingId === null) {
-      yParent.set("firstChildId", plan.newId);
-    }
-    if (plan.nextSiblingId === null) {
-      yParent.set("lastChildId", plan.newId);
-    }
-  }
 }

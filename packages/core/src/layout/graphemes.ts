@@ -3,7 +3,7 @@
  * platform `Intl.Segmenter`. A single module-level segmenter is reused (it is
  * stateless across `segment()` calls). The shaper's cluster boundaries and the
  * canvas renderer's per-cluster paint both route through this so they can never
- * diverge (the #330 measure-vs-paint drift contract). State offsets remain
+ * diverge (the measure-vs-paint drift contract). State offsets remain
  * UTF-16 code units; graphemes are a clustering concept layered over them.
  */
 const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });

@@ -1,13 +1,8 @@
 /**
- * Identity-survival contract for SAME-BLOCK `deleteRange` (surgical-inline-ops
- * Phase 1, slice 1). A same-block delete must mutate the existing Y.Array/Y.Texts
- * IN PLACE so a `RelativePosition` anchored in a surviving run keeps resolving —
- * the foundation for within-block selection rebasing under concurrent edits.
- *
- * RED before the surgical migration (today's full-replace orphans every anchor);
- * GREEN after. The honest contract (Class-2 limit): the seam-merge RECEIVER keeps
- * identity, but chars MIGRATED across the seam (the donor) orphan — see the last
- * two cases.
+ * Character-survival contract for SAME-BLOCK `deleteRange`: the delete is one
+ * offset `Y.Text.delete`, so EVERY surviving character keeps its CRDT identity — a
+ * `RelativePosition` anchored anywhere outside the deleted range keeps resolving,
+ * including across a seam where two equal-attrs runs now read back as one.
  */
 import { describe, it, expect } from "vitest";
 import { deleteRange } from "./delete-range";
@@ -32,7 +27,7 @@ function blockOf(runs: ReturnType<typeof text>[]) {
 const span = (a: number, b: number) =>
   createSpan(createPosition("p" as BlockId, a), createPosition("p" as BlockId, b));
 
-describe("same-block deleteRange — RelativePosition identity survival", () => {
+describe("same-block deleteRange — character survival", () => {
   it("a position in the PREFIX (before the deleted range) survives", () => {
     const s = blockOf([text("ABCDEF")]);
     const rel = relAt(s, "p", 1); // 'B', before the deletion
@@ -59,7 +54,7 @@ describe("same-block deleteRange — RelativePosition identity survival", () => 
     // and "CD"→"D" (straddle-START, trim at head, `at=0`). Both survivors keep identity.
     const s = blockOf([text("AB"), text("CD", { strong: true })]);
     const relA = relAt(s, "p", 0); // 'A', in the run trimmed at its end
-    const relD = relAt(s, "p", 1, /* itemIndex */ 1); // 'D', in the run trimmed at its start
+    const relD = relAt(s, "p", 3); // 'D', in the run trimmed at its start
     const after = deleteRange(s, span(1, 3)).state;
     expect(survives(relA, after, "A")).toBe(true);
     expect(survives(relD, after, "D")).toBe(true);
@@ -75,20 +70,16 @@ describe("same-block deleteRange — RelativePosition identity survival", () => 
     expect(survives(rel, after, "A")).toBe(true);
   });
 
-  it("SEAM-MERGE donor chars orphan (Class-2 structural limit — documented)", () => {
-    // The "B" run is the seam-merge DONOR: its chars migrate into the receiver via
-    // a fresh yText.insert, so a RelativePosition into "B" orphans. Expected + honest.
+  it("SEAM: the chars after the seam survive too (no run is re-minted)", () => {
     const s = blockOf([text("A"), text("del", { strong: true }), text("B")]);
-    const rel = relAt(s, "p", 0, /* itemIndex */ 2); // 'B' in the donor run
+    const rel = relAt(s, "p", 4); // 'B', after the deleted run
     const after = deleteRange(s, span(1, 4)).state;
-    expect(survives(rel, after, "B")).toBe(false);
+    expect(survives(rel, after, "B")).toBe(true);
   });
 
   it("UNDO of a surgical delete restores the content and does not orphan a suffix anchor", () => {
-    // Undo guardrail: Yjs reverses the in-place trim (the suffix Y.Text is the same
-    // object the surgical delete preserved). After undo the content is restored AND a
-    // RelativePosition that was in the suffix still resolves into live content — undo
-    // itself does not orphan the anchor it preserved across the delete.
+    // Undo guardrail: after undo the content is restored AND a RelativePosition in
+    // the suffix still resolves to its live char — undo does not orphan it.
     const s = blockOf([text("ABCDEF")]);
     const history = createHistory(s);
     const rel = relAt(s, "p", 5); // 'F', in the suffix

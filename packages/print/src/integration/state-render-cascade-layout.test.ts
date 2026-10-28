@@ -44,6 +44,7 @@ import type { LayoutBox } from "../layout/layout-node";
 import type { RenderNode } from "@taleweaver/core";
 import type { TextShaper } from "@taleweaver/core";
 import { INITIAL_COMPUTED_STYLE } from "@taleweaver/core";
+import { finalSection } from "../test-utils/final-section"; // body blocks live in the final section
 
 const shaper = createMockShaper(8, 16);
 const componentRegistry = createDefaultComponentRegistry();
@@ -253,6 +254,60 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     }
   });
 
+  it("an empty paragraph's strut line is measured in its ¶ character props (`markAttrs` — Word / GDocs)", () => {
+    // A shaper whose line height follows the font size.
+    const scaled: TextShaper = {
+      ...shaper,
+      measureFontMetrics: (s) => ({ ascent: s.fontSize * 0.8, descent: s.fontSize * 0.2, lineGap: 0, capHeight: s.fontSize * 0.7, xHeight: s.fontSize * 0.5 }),
+    };
+    const lineHeightOf = (markAttrs?: Record<string, unknown>): number => {
+      const state = buildState({
+        rootId: "doc",
+        blocks: [
+          buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "p" }),
+          { ...buildBlock({ id: "p", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }), ...(markAttrs !== undefined ? { markAttrs } : {}) },
+        ],
+      });
+      const layout = positionTreeForTest(layoutTree(render(state, componentRegistry, attrRegistry).root, 800, scaled));
+      const find = (box: LayoutBox): LayoutBox | null => {
+        if (box.type === "line") return box;
+        if ("children" in box) for (const c of box.children) { const f = find(c); if (f !== null) return f; }
+        return null;
+      };
+      const line = find(layout);
+      if (line === null) throw new Error("no strut line");
+      return line.blockSize;
+    };
+    expect(lineHeightOf()).toBe(INITIAL_COMPUTED_STYLE.fontSize);
+    expect(lineHeightOf({ fontSize: 40 })).toBe(40);
+  });
+
+  it("a list marker paints in its ¶ character props (`list.markerStyle` from `markAttrs`; Word formats the number with the ¶'s rPr)", () => {
+    const config: EditorConfig = { componentRegistry, attrRegistry, containerWidth: 800 };
+    let editor = createInitialEditorState(config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "one" }, config);
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+    // Typing bold into the second paragraph: its ¶'s markAttrs follow.
+    editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "two" }, config);
+    const two = editor.selection.focus.blockId;
+    const one = getBlock(editor.state, two)?.prevSiblingId;
+    if (one === null || one === undefined) throw new Error("no first item");
+    expect(getBlock(editor.state, two)?.markAttrs).toEqual({ bold: true });
+    editor = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(one, 0), createPosition(two, 3)) }, config);
+    editor = reduceEditor(editor, { type: "TOGGLE_LIST", listType: "ordered" }, config);
+    const layout = positionTreeForTest(layoutTree(render(editor.state, componentRegistry, attrRegistry).root, 800, shaper));
+    const markers: LayoutBox[] = [];
+    const walk = (box: LayoutBox): void => {
+      if (box.type === "marker") markers.push(box);
+      if ("children" in box) for (const c of box.children) walk(c);
+    };
+    walk(layout);
+    const bold = attrRegistry.applyAll({ bold: true }, { parentStyle: {} }).fontWeight;
+    expect(bold).toBeDefined();
+    expect(markers.map((m) => m.computedStyle.fontWeight)).toEqual([INITIAL_COMPUTED_STYLE.fontWeight, bold]);
+  });
+
   it("SET_TEXT_COLOR threads color attr → colorInterpreter → ComputedStyle.color end-to-end", () => {
     // End-to-end: dispatch SET_TEXT_COLOR over a selection, then run the
     // full render() → cascadePass pipeline and confirm the cascaded
@@ -267,7 +322,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "color me" }, config);
     const pId = (() => {
-      const root = getBlock(editor.state, editor.state.rootId);
+      const root = finalSection(editor.state);
       if (root === null || root.firstChildId === null) throw new Error("no para");
       return root.firstChildId;
     })();
@@ -352,7 +407,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "size me" }, config);
     const pId = (() => {
-      const root = getBlock(editor.state, editor.state.rootId);
+      const root = finalSection(editor.state);
       if (root === null || root.firstChildId === null) throw new Error("no para");
       return root.firstChildId;
     })();
@@ -455,7 +510,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "space me" }, config);
     const pId = (() => {
-      const root = getBlock(editor.state, editor.state.rootId);
+      const root = finalSection(editor.state);
       if (root === null || root.firstChildId === null) throw new Error("no para");
       return root.firstChildId;
     })();
@@ -536,7 +591,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "indent me" }, config);
     const pId = (() => {
-      const root = getBlock(editor.state, editor.state.rootId);
+      const root = finalSection(editor.state);
       if (root === null || root.firstChildId === null) throw new Error("no para");
       return root.firstChildId;
     })();
@@ -611,7 +666,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "second" }, config);
 
     const [p1Id, p2Id] = (() => {
-      const root = getBlock(editor.state, editor.state.rootId);
+      const root = finalSection(editor.state);
       if (root === null || root.firstChildId === null) throw new Error("no para");
       const first = root.firstChildId;
       const firstBlock = getBlock(editor.state, first);
@@ -688,7 +743,7 @@ describe("Integration: state → render → cascade → layout (R-C)", () => {
     let editor = createInitialEditorState(config);
     editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "font me" }, config);
     const pId = (() => {
-      const root = getBlock(editor.state, editor.state.rootId);
+      const root = finalSection(editor.state);
       if (root === null || root.firstChildId === null) throw new Error("no para");
       return root.firstChildId;
     })();

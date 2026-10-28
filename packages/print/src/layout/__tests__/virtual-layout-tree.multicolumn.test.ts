@@ -131,7 +131,7 @@ function buildTree(root: ElementBox, pageConfig: PageConfig, sectionPlan: Sectio
   // track-width meta-builder closure so the multicol branch fits at the column
   // TRACK width, matching `materializePage`'s narrow-track layout (#494). The
   // closure is harmless for fixed-height / single-column content.
-  const plan = measurePass(metas, pageConfig, sectionPlan, root.children, undefined, undefined, (w) =>
+  const plan = measurePass(metas, pageConfig, sectionPlan, flattenContents(root.children), undefined, undefined, (w) =>
     buildBlockFitMetas(root, shaper, undefined, w),
   );
   const ctx = makeRootContext(INITIAL_COMPUTED_STYLE, pageConfig.pageInlineSize);

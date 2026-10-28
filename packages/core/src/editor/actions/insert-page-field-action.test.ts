@@ -24,7 +24,7 @@ import {
   PAGE_FIELD_EMBED_TYPE,
 } from "../../state";
 import type { State, BlockId, InlineItem } from "../../state";
-import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
+import { buildState, buildBlock, inlineContent, text, embed } from "../../test-utils/state-builders";
 
 const componentRegistry = createDefaultComponentRegistry();
 const attrRegistry = createDefaultAttrRegistry();
@@ -41,7 +41,7 @@ const FN_P = "fn-c1" as BlockId;
  * header exercises the ALLOWED (templateContent) path; the footnote body and the main
  * body exercise the two REJECTED context kinds (embedContent, block).
  */
-function buildStateWithHeaderBody(): State {
+function buildStateWithHeaderBody(headerItems: InlineItem[] = [text("Page ")]): State {
   return buildState({
     rootId: "doc",
     blocks: [
@@ -50,7 +50,7 @@ function buildStateWithHeaderBody(): State {
     ],
     templateContents: [
       buildBlock({ id: "hdr-root", type: "document", parentId: null, firstChildId: "hdr-c1", lastChildId: "hdr-c1" }),
-      buildBlock({ id: "hdr-c1", type: "paragraph", parentId: "hdr-root", inlineContent: inlineContent([text("Page ")]) }),
+      buildBlock({ id: "hdr-c1", type: "paragraph", parentId: "hdr-root", inlineContent: inlineContent(headerItems) }),
     ],
     embedContents: [
       buildBlock({ id: "fn-root", type: "document", parentId: null, firstChildId: "fn-c1", lastChildId: "fn-c1" }),
@@ -71,6 +71,7 @@ function buildEditor(state: State, caret: { blockId: BlockId; offset: number }):
     selection: createSpan(cursor, cursor),
     history: createHistory(state),
     lastDirtyIds: null,
+    lastChange: null,
     containerWidth: config.containerWidth,
     targetX: null,
   };
@@ -99,6 +100,12 @@ describe("handleInsertPageField — INSERT_PAGE_NUMBER / INSERT_PAGE_COUNT (head
     expect(out.selection.focus.offset).toBe(6);
     expect(out.selection.anchor).toEqual(out.selection.focus); // collapsed
     expect(out.state).not.toBe(editor.state);
+    // A caret before a marker inserts after it (inside a bookmark at its start), as typing.
+    for (const type of ["INSERT_PAGE_NUMBER", "INSERT_PAGE_COUNT"] as const) {
+      const marked = buildEditor(buildStateWithHeaderBody([embed("bookmark-start", { bookmarkId: "b" }), text("Page ")]), { blockId: HDR_P1, offset: 0 });
+      const items = getTemplateContent(reduceEditor(marked, { type }, config).state, HDR_P1)?.inlineContent?.items ?? [];
+      expect(items.map((i) => (i.kind === "embed" ? i.embedType : i.text))).toEqual(["bookmark-start", PAGE_FIELD_EMBED_TYPE, "Page "]);
+    }
   });
 
   it("INSERT_PAGE_COUNT in a header inserts a page-count field; UNDO removes it (its own undo unit)", () => {

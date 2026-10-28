@@ -4,7 +4,9 @@ import { applyOperation } from "../state";
 import type { BlockId } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
 import { requireInTransaction } from "../yjs-doc";
-import { planRemoveBlock, removeBlockInTx } from "./remove-block";
+import { deleteRowEntry } from "../table-storage";
+import { removeBlockStorage } from "../flow-ops";
+import { planRemoveBlock } from "./remove-block";
 import type { RemoveBlockPlan } from "./remove-block";
 import { setBlockAttrsInTx } from "./set-block-attrs";
 import { headerRowAttrsAfterRowEdit } from "./table-header-rows";
@@ -13,14 +15,14 @@ import type { TableContext } from "../table-context";
 /**
  * Pre-computed mutation plan for `deleteTableRowInTx`. A single `RemoveBlockPlan`
  * removes the caret's row (and its cell subtree); the table's `headerRowCount`
- * attr is re-derived when the delete shifts the header boundary (#487). All reads
+ * attr is re-derived when the delete shifts the header boundary. All reads
  * happen pre-tx.
  */
 export interface DeleteTableRowPlan {
   readonly tableId: BlockId;
   /** Removes the caret's row block + its cell subtree. */
   readonly rowPlan: RemoveBlockPlan;
-  /** The table's new attrs bag when the delete shifts `headerRowCount` (#487), or
+  /** The table's new attrs bag when the delete shifts `headerRowCount`, or
    *  `null` when unchanged (no `headerRowCount`, or a body row went). Written in the
    *  SAME tx as the row removal. */
   readonly headerAttrs: ReadonlyAttrs | null;
@@ -29,7 +31,7 @@ export interface DeleteTableRowPlan {
 /**
  * Delete the caret's row (the row block + its cell subtree) on a well-formed
  * NO-SPAN table, as a single atomic transaction (one undo entry). When the table
- * carries a `headerRowCount` attr (repeating-header rows, #487), the count is
+ * carries a `headerRowCount` attr (repeating-header rows), the count is
  * re-derived in the SAME transaction so the row removal and the header adjustment
  * revert together.
  *
@@ -38,7 +40,7 @@ export interface DeleteTableRowPlan {
  * table), routed a `ctx.spanned` table to the span-aware op (this op assumes a
  * well-formed no-span `!ctx.spanned` table — so `ctx.rowIndex` IS the grid row),
  * AND ensured this is NOT the last remaining row (a single-row table collapses to a
- * whole-table delete via `deleteTableWithReplacement`).
+ * whole-table delete via `deleteTable`).
  *
  * MAIN-TREE ONLY. dirtyIds covers the removed row subtree + the table (its
  * first/last-child or a sibling-row pointer change, and/or its `headerRowCount`
@@ -52,7 +54,7 @@ export function deleteTableRow(state: State, ctx: TableContext): OperationResult
 }
 
 /** Build the plan: the caret row's `planRemoveBlock`, plus the re-derived
- *  `headerRowCount` attrs bag when the delete shifts the header boundary (#487).
+ *  `headerRowCount` attrs bag when the delete shifts the header boundary.
  *  On a no-span table `ctx.rowIndex` IS the deleted grid row. */
 export function planDeleteTableRow(state: State, ctx: TableContext): DeleteTableRowPlan {
   const rowPlan = planRemoveBlock(state, ctx.rowId);
@@ -67,12 +69,9 @@ export function planDeleteTableRow(state: State, ctx: TableContext): DeleteTable
  */
 export function deleteTableRowInTx(doc: Y.Doc, plan: DeleteTableRowPlan): void {
   requireInTransaction(doc, "deleteTableRow");
-
-  // #487: re-write the table's `headerRowCount` (same tx) when the delete shifted
-  // it. The table block survives the delete; write before the row removal.
   if (plan.headerAttrs !== null) {
     setBlockAttrsInTx(doc, plan.tableId, plan.headerAttrs, "deleteTableRow");
   }
-
-  removeBlockInTx(doc, plan.rowPlan);
+  for (const id of plan.rowPlan.embedContentIds) removeBlockStorage(doc, id);
+  deleteRowEntry(doc, plan.tableId, plan.rowPlan.blockId);
 }

@@ -17,9 +17,11 @@
  *                               underlying Y.Doc + snapshot cache. Its
  *                               containment is the whole Yjs encapsulation;
  *                               re-exporting it would open the breach.
- *   - `yjs-doc` / `y-block` / `y-utils` — Y.Doc construction + the
- *                               read/write helpers between Block snapshots
- *                               and the inner Y.Map entries.
+ *   - `yjs-doc` / `y-utils` / `registry` / `y-flow` / `mark-index` /
+ *     `flow-read` / `flow-ops` / `flow-dirty` / `block-text` — Y.Doc
+ *                               construction, the registry + flows storage,
+ *                               the derived read model and the structural
+ *                               write primitives.
  *   - `snapshot`              — per-State snapshot cache.
  *   - `dev-mode`              — `isDevMode()` gate for invariant assertions.
  *   - `id-collision-check`    — UUID-collision defense.
@@ -30,10 +32,6 @@
  *                               consumer-facing accessors are
  *                               `getEmbedContentIds` / `getTemplateContentIds`
  *                               (Layer 1, on `state`).
- *   - `block-schema`          — `BLOCK_FIELDS` / `BlockFieldSpec` is the
- *                               shared read/write-path schema, consumed only
- *                               by `snapshot.ts` and `y-block.ts`. It's a
- *                               write-path internal seam, not a consumer API.
  */
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -65,8 +63,23 @@ export {
   docHasFootnotes,
 } from "./state";
 
-export { subscribeForeignChanges } from "./collab";
-export { runWithTransactionOrigin } from "./yjs-doc";
+export { subscribeForeignChanges, type CompatibilityGateOptions } from "./collab";
+export {
+  upgradeDocument,
+  inspectDocument,
+  CURRENT_SCHEMA_VERSION,
+  UPGRADE_ORIGIN,
+  IncompatibleDocumentError,
+  type UpgradeOptions,
+  type UpgradeReport,
+  type DocumentInspection,
+  type IncompatibleDocumentReport,
+} from "./upgrade";
+export { bindAttrRegistry } from "./mark-attrs";
+export { LegacyDocumentError } from "./y-inline";
+export type { Assoc, MappedPosition, PositionMapping } from "./position-mapping";
+export { createPositionMapping, IDENTITY_MAPPING, UNKNOWN_MAPPING } from "./position-mapping";
+export { runWithTransactionOrigin, currentTransactionOrigin, UntrackedOrigin } from "./yjs-doc";
 
 // Block snapshot type and the insert-time partial-block shape.
 export type { Block } from "./block";
@@ -117,6 +130,7 @@ export { deepValueEqual, attrsEqual, mergeAttrs } from "./attrs";
 // Callers ask "what kind is this type?" via the resolver directly
 // (`resolver.getBlockKind(type)`); there is no separate free function.
 export type { BlockKind, BlockKindResolver } from "./block-kinds";
+export type { BlockShape } from "./registry";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Layer 2 — pure read-only utilities
@@ -133,20 +147,21 @@ export {
   ancestorChain,
   firstLeafBlock,
   lastLeafBlock,
+  topLevelBlockIds,
 } from "./block-traversal";
 
-// Table editing (P15a): caret→table context resolution + columnWidths helpers +
+// Table editing: caret→table context resolution + columnWidths helpers +
 // the shared cell-span predicate.
 export { resolveTableContext, getChildIds, buildTableGrid } from "./table-context";
 export type { TableContext } from "./table-context";
 export { spliceColumnWidth, removeColumnWidth } from "./table-column-widths";
 export { spanValue, isSpan } from "./table-cell-span";
-// Layering-neutral occupancy-grid core (P8 §17.5 scan, shared by layout + the
-// P15b state-side span-aware editing ops). Layout's `assignTableGrid` adapter
+// Layering-neutral occupancy-grid core (§17.5 scan, shared by layout + the
+// state-side span-aware editing ops). Layout's `assignTableGrid` adapter
 // (layout/table-grid.ts) and state ops build the SAME grid from this core.
 export { assignTableGrid } from "./table-grid-core";
 export type { GridCell, AssignedCell, TableGrid } from "./table-grid-core";
-// Cross-cell selection → grid rectangle resolver (P15b span-aware editing input):
+// Cross-cell selection → grid rectangle resolver (span-aware editing input):
 // bounding-box the anchor/focus cells over the occupancy grid, then fixpoint-
 // expand to whole span-rectangles. The editor `Selection` stays linear.
 export { resolveCellRange } from "./table-cell-range";
@@ -207,6 +222,10 @@ export {
 export type { ActiveFormatting } from "./active-formatting";
 export { getActiveFormatting } from "./active-formatting";
 
+// Inline marks: the ranges of a mark type (host query) + the per-block primitive.
+export type { MarkRange, BlockMarkRange, MarkEquality } from "./mark-ranges";
+export { getMarkRanges, blockMarkRanges, markEqualityOf } from "./mark-ranges";
+
 // ─────────────────────────────────────────────────────────────────────────
 // Layer 3 — state-mutating operations + history
 //
@@ -224,7 +243,7 @@ export { getActiveFormatting } from "./active-formatting";
 
 // Inline-content edits.
 export { insertText } from "./ops/insert-text";
-export { deleteRange } from "./ops/delete-range";
+export { deleteRange, bookmarkDeletionSpan } from "./ops/delete-range";
 export { replaceRange } from "./ops/replace-range";
 export type { ReplaceAllPlan, BlockWrite } from "./ops/replace-matches";
 export {
@@ -239,36 +258,35 @@ export { applyAttrsToRange } from "./ops/apply-attrs";
 
 // Block-structural edits.
 export { splitBlockAtPosition } from "./ops/split-block";
-// Suggesting-mode paragraph SPLIT (Enter): a real `splitBlockAtPosition` + a
-// zero-width `block-split-suggestion` embed at the end of the first block + an
-// `insertion` record, all in ONE transaction. Grouped with the suggestion CREATE
+// Suggesting-mode paragraph SPLIT (Enter): a real `splitBlockAtPosition` + an
+// insertion tag on the paragraph mark (see `break-tags.ts`) + an `insertion`
+// record, all in ONE transaction. Grouped with the suggestion CREATE
 // ops (`mintInsertion`/`markDeletion`) below by intent; lives here next to the
 // split op it builds on.
 export { splitWithSuggestion } from "./ops/split-block";
 export { mergeAdjacentBlocks } from "./ops/merge-blocks";
 // Suggesting-mode paragraph JOIN (Backspace at block-start / Delete at block-end):
-// a zero-width `block-join-suggestion` embed at the end of the FIRST block + a
+// a deletion tag on the SECOND block's paragraph mark + a
 // `deletion` record, in ONE transaction. Does NOT merge the blocks (resolution
 // does). Mirror of `splitWithSuggestion`; lives next to the merge op it pairs with.
-export { markBlockJoinSuggestion } from "./ops/merge-blocks";
+export { markParagraphMarkDeletion } from "./ops/merge-blocks";
+export type { JoinSuggestionResult } from "./ops/merge-blocks";
 export type { InsertBlockArgs } from "./ops/insert-block";
 export { insertBlock } from "./ops/insert-block";
 export type { SiblingBlockInit } from "./ops/insert-blocks-after";
 export { insertBlocksAfter } from "./ops/insert-blocks-after";
 export { removeBlock } from "./ops/remove-block";
 // `replaceBlockWithText` removes a whole block AND inserts text into a surviving
-// sibling in ONE transaction (one undo entry) — image OBJECT-SELECTION, #525.
+// sibling in ONE transaction (one undo entry) — image OBJECT-SELECTION.
 // Composes `removeBlockInTx` + `insertTextInTx` (both stay op-internal), mirroring
-// `replaceRange`'s atomic delete+insert. The sole-child "seed a fresh paragraph"
-// case (delete leaving an empty body) is handled by `deleteTableWithReplacement`
-// (a generic remove-block-with-replacement primitive; see its docstring).
+// `replaceRange`'s atomic delete+insert.
 export { replaceBlockWithText } from "./ops/replace-block-with-text";
-// Table editing (P15a). `planInsertTableRow` / `insertTableRowInTx` are
+// Table editing. `planInsertTableRow` / `insertTableRowInTx` are
 // intentionally NOT re-exported (the in-tx primitives stay op-internal, matching
 // planInsertBlock / insertBlockInTx).
 export { insertTableRow } from "./ops/insert-table-row";
 export type { RowPosition } from "./ops/insert-table-row";
-export { deleteTableWithReplacement } from "./ops/delete-table";
+export { deleteTable } from "./ops/delete-table";
 export { insertTableColumn } from "./ops/insert-table-column";
 export type { ColumnPosition } from "./ops/insert-table-column";
 export { splitCell } from "./ops/split-cell";
@@ -302,10 +320,10 @@ export { setListRestart } from "./ops/set-list-restart";
 // Section structure (flat never-nested `section` blocks).
 export { reparentChildren } from "./ops/reparent-children";
 export type { SectionBreakResult } from "./ops/section-break";
-export { applySectionBreak } from "./ops/section-break";
-export { mergeSectionWithPrevious } from "./ops/merge-section";
+export { applySectionBreak, applySectionBreakAsSuggestion } from "./ops/section-break";
+export { deleteSectionBreak } from "./ops/merge-section";
 
-// Header/footer template bodies (C.2c). Creates + links a one-paragraph body.
+// Header/footer template bodies. Creates + links a one-paragraph body.
 export type {
   TemplateRegion,
   InsertTemplateBodyArgs,
@@ -313,7 +331,7 @@ export type {
 } from "./ops/insert-template-body";
 export { insertTemplateBody } from "./ops/insert-template-body";
 
-// Footnotes (FN-1). Atomically creates a footnote anchor (an EmbedItem at the
+// Footnotes. Atomically creates a footnote anchor (an EmbedItem at the
 // cursor) + its body subtree (a CONTAINER root + one paragraph) in embedContents.
 export type { InsertFootnoteResult } from "./ops/insert-footnote";
 export {
@@ -324,8 +342,19 @@ export type { CrossReferenceMode } from "./ops/insert-cross-reference";
 export {
   insertCrossReference,
   CROSS_REFERENCE_EMBED_TYPE,
+  BROKEN_CROSS_REFERENCE_TEXT,
 } from "./ops/insert-cross-reference";
+export {
+  BOOKMARK_START_EMBED_TYPE,
+  BOOKMARK_END_EMBED_TYPE,
+  collectBookmarks,
+  bookmarkIdOf,
+  pairBookmarkMarkers,
+  type BookmarkMarker,
+  type BookmarkRange,
+} from "./bookmarks";
 export { insertTab, TAB_EMBED_TYPE } from "./ops/insert-tab";
+export { insertLineBreak } from "./ops/insert-line-break";
 // Inline image (Google Docs "In line" positioning). A primitive-property inline
 // embed with NO owned body — its image data (`src`/`width`/`height`/`alt`) lives
 // inline in `properties`; render lays it out as a single inline-block replaced
@@ -387,9 +416,10 @@ export {
   replyToY,
 } from "./comments";
 
-// Change-tracking / Suggesting mode (slice 1 — INERT state vocabulary). The
-// three inline-attr dimensions (`insertion/deletion/formattingSuggestionId`) +
-// the two zero-width break embeds (block-join/split) tag tracked changes; their
+// Change-tracking / Suggesting mode. The
+// three inline-attr dimensions (`insertion/deletionSuggestionId` + per-suggestion
+// `formattingSuggestionId:<id>` tags) +
+// the paragraph / section break tags (see `break-tags.ts`) tag tracked changes; their
 // records live in the 6th `suggestions` side-table Y.Map keyed by SuggestionId.
 // The types + attr-key + embed-type consts are part of the public surface (the
 // editor/render layers + downstream consumers need them broadly); the side-table
@@ -405,19 +435,25 @@ export type {
   ResolvedSuggestion,
   SuggestionMintInput,
   SuggestionView,
+  PendingFormattingSuggestion,
 } from "./suggestions";
 export {
   newSuggestionId,
+  nextSuggestionOrder,
   INSERTION_SUGGESTION_ATTR,
   DELETION_SUGGESTION_ATTR,
   FORMATTING_SUGGESTION_ATTR,
-  BLOCK_JOIN_SUGGESTION_EMBED_TYPE,
-  BLOCK_SPLIT_SUGGESTION_EMBED_TYPE,
-  // The slice-5c preview-view projection foundation — per-item visibility under
+  // Per-suggestion formatting tags (`formattingSuggestionId:<id>`): several
+  // formatting suggestions stack on one run; their composite / resolution.
+  formattingSuggestionKey,
+  formattingSuggestionIds,
+  isFormattingSuggestionKey,
+  pendingFormattingSuggestions,
+  resolveFormattingSuggestionTags,
+  // The preview-view projection foundation — per-item visibility under
   // a `SuggestionView` ("suggesting"/"final"/"original"); consumed by the read
   // surfaces (extractText/getWordCount) and the render pass.
   itemVisibleInView,
-  blockBoundaryMergesInView,
   buildSuggestionRangeIndex,
   resolveSuggestionRange,
   getSuggestions,
@@ -425,19 +461,30 @@ export {
   // resolve suggestion visuals (author color + underline/lineThrough) without
   // piercing STATE_INTERNAL.
   readSuggestionRecordFromState,
-  // The Layer-1 origin slice-3's accept/reject ops pass to make the resolve
-  // txn non-undoable; intra-state (consumed by ops), barrel-exposed here.
-  SUGGESTION_RESOLVE_ORIGIN,
+  // Groups (host proposals): a suggestion's group, and the open groups.
+  suggestionGroupOf,
+  getSuggestionGroups,
 } from "./suggestions";
+export type { SuggestionGroup } from "./suggestions";
+// Tracked paragraph marks: the two ¶ keys and the read model (the ¶
+// drawn at a block's end, view merges).
+export {
+  INSERTION_TAG_KEY,
+  DELETION_TAG_KEY,
+} from "./break-tags";
+export type { BreakSuggestion } from "./break-tags";
+export { endMarkOf, boundaryMergesInView } from "./break-suggestions";
+export type { BoundaryMark, BoundaryMarkKind } from "./break-suggestions";
 // Suggesting-mode Layer-3 op surface (the complete feature op set). The three
 // CREATE ops (`markFormatting`/`markDeletion`/`mintInsertion`) mint suggestions
-// from the editor's mutating handlers in Suggesting mode (slice 4b+); the four
-// RESOLVE ops (`acceptSuggestion`/`rejectSuggestion`/`acceptAll`/`rejectAll`)
-// run a `SUGGESTION_RESOLVE_ORIGIN` (non-undoable) transaction.
+// from the editor's mutating handlers in Suggesting mode; the four
+// RESOLVE ops (`acceptSuggestion`/`rejectSuggestion`/`acceptAll`/`rejectAll`,
+// `accept/rejectSuggestionGroup`) run ordinary undoable transactions.
 export {
   markFormatting,
   markDeletion,
   mintInsertion,
+  mintLineBreak,
   replaceWithSuggestion,
   replaceWithSuggestedFragment,
   splitWithSuggestionOverSelection,
@@ -445,12 +492,50 @@ export {
   rejectSuggestion,
   acceptAll,
   rejectAll,
+  acceptSuggestionGroup,
+  rejectSuggestionGroup,
+  assignSuggestionGroup,
 } from "./ops/suggestion-ops";
 export type { ReplaceSuggestionInput } from "./ops/suggestion-ops";
 
 // History (Y.UndoManager-backed undo/redo with aligned selection stacks).
 export type { SelectionEntry, UndoRedoResult, BeginKey } from "./history";
 export { History, createHistory, UNDO_COALESCE_PAUSE_MS } from "./history";
+
+// ─────────────────────────────────────────────────────────────────────────
+// Fragment extraction (copy-side producer)
+// ─────────────────────────────────────────────────────────────────────────
+
+// `extractFragment(state, span)` produces a self-contained fragment `State`
+// (a mini-document: fresh `document` root + selected content + referenced
+// listDefs + footnote embedContents + suggestion records). It is the
+// COPY-side producer; the backends' copy path feeds its output to `encodeHtml`
+// and the lossless binary serializer.
+export { extractFragment } from "./ops/extract-fragment";
+
+// ─────────────────────────────────────────────────────────────────────────
+// Fragment insertion (paste-side sink, leaf-only direct mode)
+// ─────────────────────────────────────────────────────────────────────────
+
+// `insertFragment(state, selection, fragment, allocator)` inserts a fragment
+// `State` into `state` at `selection` in DIRECT (non-suggesting) mode.
+// Supports both leaf-only and container top-level blocks; container subtrees
+// are materialized as siblings (the split-merge algorithm handles all cases).
+export type { InsertFragmentResult } from "./ops/insert-fragment";
+export { insertFragment } from "./ops/insert-fragment";
+
+// ─────────────────────────────────────────────────────────────────────────
+// Fragment-clip lossless codec + MIME constant
+// ─────────────────────────────────────────────────────────────────────────
+
+// `TALEWEAVER_CLIP_MIME` — the private clipboard MIME type.
+// `encodeFragmentClip(fragment)` → base64 string.
+// `decodeFragmentClip(clip)` → State | null (never throws).
+export {
+  TALEWEAVER_CLIP_MIME,
+  encodeFragmentClip,
+  decodeFragmentClip,
+} from "./serialize";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Boot
@@ -471,7 +556,7 @@ export { buildDocumentFromTree } from "./build-document-from-tree";
 
 // ───────────────────────────────────────────────────────────────────────────
 // Document serialization — pluggable DocumentSerializer + registry + engine
-// dispatch + the v1 lossless Yjs-binary serializer. The serialize module lives
+// dispatch + the lossless Yjs-binary serializer. The serialize module lives
 // INSIDE state/ because it consumes/produces State and needs the raw Y.Doc
 // (read via STATE_INTERNAL by sibling import); its barrel surface is re-exported
 // here. `getMetaRootId` (yjs-doc) stays state-private and is NOT re-exported.
@@ -495,10 +580,6 @@ export {
   HTML_FORMAT,
 } from "./serialize";
 
-// NOTE: the reparent write-list machinery (`computeReparentWrites`,
-// `planReparentChildren`, `reparentChildrenInTx`, `BlockFieldWrite`,
-// `ReparentPlan`) and the paste helper `clonePastedSubtree` / `ClonedSubtree`
-// are deliberately NOT re-exported here. They are state-module-internal: the
-// only intra-core callers (`section-break`, `merge-section`) import them
-// directly from `./ops/reparent-children`, keeping the barrel's public op
-// surface to the supported entry points (`reparentChildren`, `applySectionBreak`).
+// NOTE: `planReparentChildren` / `reparentChildrenInTx` / `ReparentPlan` and the
+// paste helper `clonePastedSubtree` / `ClonedSubtree` are deliberately NOT
+// re-exported: state-module-internal, the public op is `reparentChildren`.

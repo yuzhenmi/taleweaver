@@ -5,7 +5,7 @@
  * footnotes module (numbering policy, anchor collection) and the render
  * walker. Holds the render-only policy adjustment (`effectiveRenderPolicy`),
  * the `RenderContext` factory that wires the body's leading-number lookup
- * (`makeRenderContext`), and the FN-8 incremental anchor-reuse guard
+ * (`makeRenderContext`), and the incremental anchor-reuse guard
  * (`footnoteAnchorsUnchanged` and its helpers).
  *
  * Dependency direction: this module imports render-side TYPES
@@ -18,6 +18,7 @@ import {
   docHasFootnotes,
   FOOTNOTE_ANCHOR_EMBED_TYPE,
 } from "../state";
+import type { BookmarkRange } from "../state";
 import type { Block, BlockId, State, SuggestionView } from "../state";
 import {
   documentFootnotePolicy,
@@ -30,18 +31,18 @@ import type { RenderContext } from "./block-view";
 import type { RenderOutput } from "./render";
 
 /**
- * FN-6.3: the EFFECTIVE footnote numbering policy for the RENDER pass. Reads the
+ * The EFFECTIVE footnote numbering policy for the RENDER pass. Reads the
  * document-level policy from the root block's raw attrs (`documentFootnotePolicy`
  * — the Google Docs default `{ continuous, decimal }` when unset/invalid), then
  * applies one render-only adjustment:
  *
  * **restart-per-page falls back to continuous here.** `restart-per-page`
  * numbering depends on which page each footnote lands on, which is only known
- * AFTER the `resolveFootnotes` layout pass (FN-4/FN-6.4). The render pass has no
+ * AFTER the `resolveFootnotes` layout pass. The render pass has no
  * `pageAssignment`, and `footnoteNumbers` THROWS for `restart-per-page` without
  * one. Substituting `continuous` renders a valid (if not yet per-page) sequence
- * instead of crashing. This is the documented FN-6.3 → FN-6.4 phasing: FN-6.3
- * lands the policy infrastructure; FN-6.4's two-pass cycle feeds per-page numbers
+ * instead of crashing. The backend layout-driver
+ * runs a second pass that feeds per-page numbers (via `footnoteNumbersOverride`)
  * from `resolveFootnotes` into the markers. Continuous and restart-per-section are
  * state-derivable and pass through unchanged.
  */
@@ -53,7 +54,7 @@ export function effectiveRenderPolicy(state: State): FootnoteNumberingPolicy {
 }
 
 /**
- * FN-8: shared frozen empty numbering map for the footnote-free path. A document
+ * Shared frozen empty numbering map for the footnote-free path. A document
  * with no footnotes (`docHasFootnotes(state) === false`) skips the O(N_blocks)
  * `collectFootnoteAnchors` walk entirely and uses `EMPTY_FOOTNOTE_ANCHORS` (from
  * the footnotes module) + this empty map instead — identical downstream behavior
@@ -82,6 +83,7 @@ export function makeRenderContext(
   fnNumbers: ReadonlyMap<BlockId, FootnoteNumber>,
   listCounters: ReadonlyMap<BlockId, CounterValue>,
   suggestionView: SuggestionView = "suggesting",
+  bookmarks: ReadonlyMap<string, BookmarkRange> = new Map(),
 ): RenderContext {
   const format = documentFootnotePolicy(state).format;
   const suffix = format === "symbol" ? "" : ".";
@@ -101,11 +103,12 @@ export function makeRenderContext(
       _scopeKey: string,
       blockId: BlockId,
     ): CounterValue | undefined => listCounters.get(blockId),
+    bookmarkRange: (bookmarkId: string): BookmarkRange | undefined => bookmarks.get(bookmarkId),
   };
 }
 
 /**
- * FN-8: decide whether the prior render cycle's cached footnote anchors (and
+ * Decide whether the prior render cycle's cached footnote anchors (and
  * thus the derived continuous numbering) can be REUSED for this incremental
  * cycle, skipping the O(N_blocks) `collectFootnoteAnchors` walk.
  *
@@ -135,7 +138,7 @@ export function footnoteAnchorsUnchanged(
   // this is true on any normal `prev`; the check doubles as the guard that we
   // have a list to reuse before scanning the dirty set.
   if (prev.footnoteAnchors.length === 0) return false;
-  // FN-6.3: the numbering map also depends on the DOCUMENT-LEVEL policy, which
+  // The numbering map also depends on the DOCUMENT-LEVEL policy, which
   // lives in the ROOT block's raw attrs (read by `documentFootnotePolicy`). A
   // policy change dirties the root but touches no anchor-bearing or section
   // block, so the per-block scan below would NOT catch it — reusing the stale

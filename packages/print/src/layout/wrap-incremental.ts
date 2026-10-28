@@ -130,8 +130,7 @@ export function findLineByStartToken(
  * @returns the new array of LineBoxes; some entries may be reference-equal to
  *   `prev?.lines` entries.
  *
- * NOT YET WIRED into the IFC's main wrap loop (P18 — "Cascade + layout
- * incremental polish"; gated on P9 generated-content reference-equality). The
+ * NOT YET WIRED into the IFC's main wrap loop. The
  * IFC today does all-or-nothing reuse via `findChangePoint` (identical tokens →
  * reuse the whole paragraph; any change → full re-wrap), which already delivers
  * the dominant win (every UN-edited paragraph is reused every keystroke; the

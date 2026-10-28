@@ -145,6 +145,8 @@ export const linkInterpreter: AttrInterpreter = {
     typeof value === "string"
       ? { color: "#1a73e8", underline: true }
       : {},
+  // Google Docs / Word: typing at a link's edge does not extend the link.
+  mark: { inclusive: false },
 };
 
 export const fontFamilyInterpreter: AttrInterpreter = {
@@ -393,7 +395,7 @@ export function registerBuiltinAttrs(registry: AttrRegistry): void {
   registry.register(fontSizeInterpreter);
   registry.register(colorInterpreter);
   registry.register(backgroundColorInterpreter);
-  // C-C: typography interpreters for inheritable text properties that
+  // Typography interpreters for inheritable text properties that
   // no component synthesizes.
   registry.register(textAlignInterpreter);
   registry.register(textTransformInterpreter);

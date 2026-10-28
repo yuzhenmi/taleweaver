@@ -1,17 +1,22 @@
 import * as Y from "yjs";
-import type { Selection } from "./block-position";
+import { blockText } from "./block-text";
+import type { Position, Selection } from "./block-position";
+import { createPosition, createSpan, positionsEqual } from "./block-position";
 import type { BlockId } from "./block-id";
 import type { OperationResult, State } from "./state";
-import { freshState } from "./state";
+import { freshState, resolveBlock } from "./state";
+import { selectionContextOf } from "./block-compare";
 import {
   captureDirtyIds,
-  getBlocksMap,
   getCommentsMap,
-  getEmbedContentsMap,
   getListDefsMap,
   getSuggestionsMap,
-  getTemplateContentsMap,
 } from "./yjs-doc";
+import { followRedoneItem, snapOffset } from "./y-inline";
+import { getRegistry } from "./registry";
+import { isPiece, isSubflowItem } from "./y-flow";
+import { readCtx, regionOf, positionAtPieceIndex } from "./flow-read";
+import { pointInRegion } from "./block-text";
 import { STATE_INTERNAL } from "./state-internal";
 import { isDevMode } from "./dev-mode";
 
@@ -69,15 +74,97 @@ type YStackItem = NonNullable<ReturnType<Y.UndoManager["undo"]>>;
 const SEL_KEY: unique symbol = Symbol("taleweaver.history.selectionEntry");
 
 /**
+ * One stored selection endpoint: CRDT-anchored, so it stays correct across
+ * untracked changes (a peer's edit, a host proposal) applied after the entry was
+ * recorded. In a block with inline storage `rel` is a `RelativePosition` on its
+ * `Y.Text` (a type-anchored relpos covers an empty text); in a container
+ * (`inlineContent === null`) `rel` is null and the endpoint is `(blockId, 0)`.
+ */
+interface StoredEndpoint {
+  readonly blockId: BlockId;
+  readonly rel: Y.RelativePosition | null;
+}
+interface StoredSelection {
+  readonly anchor: StoredEndpoint;
+  readonly focus: StoredEndpoint;
+}
+/** What is welded onto a StackItem: the encoded before / after selections. */
+interface StoredEntry {
+  readonly before: StoredSelection | null;
+  readonly after: StoredSelection | null;
+}
+
+function encodeEndpoint(doc: Y.Doc, pos: Position): StoredEndpoint {
+  const ctx = readCtx(doc);
+  const region = regionOf(ctx, pos.blockId);
+  const text = region === null ? null : blockText(doc, pos.blockId);
+  if (region === null || text === null) return { blockId: pos.blockId, rel: null };
+  const offset = Math.max(0, Math.min(pos.offset, text.length));
+  const p = pointInRegion(ctx, region, offset);
+  // A caret is anchored to the char on its LEFT (assoc −1), as `rebaseSelection`
+  // treats it: a peer's insert right after it must not drag the restored caret
+  // along. At offset 0 there is no left char: anchor to the point after the
+  // block's mark (assoc 0).
+  return {
+    blockId: pos.blockId,
+    rel: Y.createRelativePositionFromTypeIndex(p.piece, p.index, offset > 0 ? -1 : 0),
+  };
+}
+
+function encodeSelection(doc: Y.Doc, sel: Selection): StoredSelection;
+function encodeSelection(doc: Y.Doc, sel: Selection | null): StoredSelection | null;
+function encodeSelection(doc: Y.Doc, sel: Selection | null): StoredSelection | null {
+  if (sel === null) return null;
+  const anchor = encodeEndpoint(doc, sel.anchor);
+  return { anchor, focus: positionsEqual(sel.anchor, sel.focus) ? anchor : encodeEndpoint(doc, sel.focus) };
+}
+
+/**
+ * Resolve a stored endpoint against `state` (whose doc has the undo/redo applied).
+ * The block is DERIVED from the resolved `Y.Text` (a peer split may have moved the
+ * anchor char's block), never trusted from the stored id — except for a null-`rel`
+ * container endpoint. Unresolvable (null) when the anchor char is deleted and not
+ * restored, the text / block is gone, or the position is unknown to this doc.
+ * A resolved offset is snapped to a grapheme boundary.
+ */
+function resolveEndpoint(state: State, ep: StoredEndpoint): Position | null {
+  if (ep.rel === null) return resolveBlock(state, ep.blockId) === null ? null : createPosition(ep.blockId, 0);
+  const doc = state[STATE_INTERNAL].doc;
+  if (ep.rel.item !== null) {
+    // The anchor char (the caret's LEFT char, or its right one at offset 0), followed
+    // through redone copies: deleted and not restored by this undo → unresolvable.
+    const anchor = followRedoneItem(doc, ep.rel.item);
+    if (anchor === null || anchor.deleted) return null;
+  }
+  const abs = Y.createAbsolutePositionFromRelativePosition(ep.rel, doc);
+  if (abs === null || !isPiece(abs.type)) return null;
+  const at = positionAtPieceIndex(readCtx(doc), abs.type, abs.index);
+  if (at === null) return null;
+  const blockId = at.id as BlockId;
+  const content = resolveBlock(state, blockId)?.block.inlineContent ?? null;
+  if (content === null) return null;
+  return createPosition(blockId, snapOffset(content.items, at.offset));
+}
+
+function resolveSelection(state: State, stored: StoredSelection): Selection | null {
+  const anchor = resolveEndpoint(state, stored.anchor);
+  const focus = stored.focus === stored.anchor ? anchor : resolveEndpoint(state, stored.focus);
+  if (anchor === null || focus === null) return null;
+  const ctx = selectionContextOf(state, anchor.blockId);
+  if (ctx === null || ctx !== selectionContextOf(state, focus.blockId)) return createSpan(focus, focus);
+  return createSpan(anchor, focus);
+}
+
+/**
  * Read the `SelectionEntry` welded onto a StackItem's `.meta`. Returns null
  * if absent — which, in correct operation, never happens: `commit()` writes
  * the entry onto every item it produces. A null here means a tracked edit
  * fired without a matching `commit` (the dev assertion in `undo`/`redo`
  * surfaces it).
  */
-function readSelectionEntry(item: YStackItem): SelectionEntry | null {
+function readSelectionEntry(item: YStackItem): StoredEntry | null {
   const entry = item.meta.get(SEL_KEY);
-  return entry === undefined ? null : (entry as SelectionEntry);
+  return entry === undefined ? null : (entry as StoredEntry);
 }
 
 /**
@@ -101,8 +188,8 @@ function readSelectionEntry(item: YStackItem): SelectionEntry | null {
  * with its in-content `comment-start`/`comment-end` markers (undoable-as-
  * content; the markers live in the tracked block trees) — a comment is one undo
  * unit. Tracking the suggestions map makes a tracked-change record revert
- * atomically with the inline `insertion/deletion/formattingSuggestionId` attrs
- * (and the block-join/split break embeds) that carry its id — a suggestion is
+ * atomically with the inline insertion / deletion / per-suggestion formatting attrs
+ * (and the paragraph / section break tags) that carry its id — a suggestion is
  * one undo unit, same as a comment. Per-TRANSACTION tracking (Yjs reverts the
  * types a transaction changed,
  * not a whole map) means a pure text edit, which never touches the comments
@@ -138,7 +225,7 @@ function readSelectionEntry(item: YStackItem): SelectionEntry | null {
  * `commit` is itself no-op-safe: an `OperationResult` with empty
  * `dirtyIds` is silently dropped (no StackItem produced, no selection
  * recorded, `currentState` unchanged). Action handlers conventionally
- * short-circuit FIRST via the T7 identity contract
+ * short-circuit FIRST via the identity-no-op contract
  * (`result.state === editor.state`) — that returns the SAME editor
  * reference on no-ops, the editor module's invariant — but commit does
  * not depend on it for soundness.
@@ -176,7 +263,7 @@ function readSelectionEntry(item: YStackItem): SelectionEntry | null {
 const DEFAULT_MAX_UNDO_DEPTH = 1000;
 
 /**
- * Pause window (ms) for typing coalescing (#420). Consecutive same-kind text
+ * Pause window (ms) for typing coalescing. Consecutive same-kind text
  * edits whose gap is `< UNDO_COALESCE_PAUSE_MS` merge into one undo unit; a
  * longer gap starts a fresh unit. Time is supplied by the caller (the reducer's
  * injected clock), so this is deterministic in tests. ~500ms matches the
@@ -192,7 +279,7 @@ export class History {
   private readonly maxDepth: number;
   private currentState: State;
 
-  // Typing-coalescing state (#420). `coalesceKey` is the open group's kind, or
+  // Typing-coalescing state. `coalesceKey` is the open group's kind, or
   // null when no coalescible group is open. `lastEditTime` is the injected-clock
   // time of the last edit in the open group. `didCoalesce` records whether the
   // most recent `beginEntry` merged into the open group (read by `commit` to
@@ -200,6 +287,22 @@ export class History {
   private coalesceKey: BeginKey | null = null;
   private lastEditTime = 0;
   private didCoalesce = false;
+  // Transaction batching: while `batchDepth > 0` every committed step joins ONE
+  // undo group. `batchCommitted` records whether the group already received a commit
+  // (the first one writes the full selection pair, later ones advance only `after`).
+  private batchDepth = 0;
+  private batchCommitted = false;
+  private batchBefore: StoredSelection | null = null;
+  // The selection passed to `beginEntry`, encoded against the PRE-action doc (an
+  // undo restores the pre-action content, so its anchors must be pre-action chars).
+  private pendingBefore: { readonly raw: Selection; readonly stored: StoredSelection } | null = null;
+  // Rollback bookkeeping for a throwing transaction: the undo-stack depth and the
+  // wrapper's state when the outermost batch opened.
+  private batchStackDepth = 0;
+  private batchState: State | null = null;
+  // An inner transaction aborted inside the open batch (its error may have been
+  // swallowed by the outer `run`): the outermost batch must roll back entirely.
+  private batchPoisoned = false;
 
   constructor(
     state: State,
@@ -213,9 +316,7 @@ export class History {
     this.currentState = state;
     this.undoManager = new Y.UndoManager(
       [
-        getBlocksMap(state[STATE_INTERNAL].doc),
-        getEmbedContentsMap(state[STATE_INTERNAL].doc),
-        getTemplateContentsMap(state[STATE_INTERNAL].doc),
+        getRegistry(state[STATE_INTERNAL].doc),
         getListDefsMap(state[STATE_INTERNAL].doc),
         getCommentsMap(state[STATE_INTERNAL].doc),
         getSuggestionsMap(state[STATE_INTERNAL].doc),
@@ -237,16 +338,20 @@ export class History {
         // (default `null` — the single-editor case, Yjs's default origin). A
         // collab host passes its distinct peer origin here AND tags all its edits
         // with the same origin (via `runWithTransactionOrigin`): its own edits stay
-        // undoable, while a REMOTE peer's edits (a different origin) and the
-        // non-undoable suggestion-resolve ops (SUGGESTION_RESOLVE_ORIGIN) are
+        // undoable, while a REMOTE peer's edits (a different origin) are
         // excluded — so undo isolation across collaborators falls out for free.
         trackedOrigins: new Set([trackedOrigin]),
+        // Never delete a piece or a sub-flow item (undoing their insertion would
+        // destroy a peer's text typed inside them): undo deletes the characters and
+        // marks inside instead.
+        deleteFilter: (item: Y.Item) =>
+          !(isSubflowItem(item) || (item.content instanceof Y.ContentType && isPiece(item.content.type))),
       },
     );
   }
 
   /**
-   * Open the undo group for an about-to-be-applied committing action (#420).
+   * Open the undo group for an about-to-be-applied committing action.
    * MUST be called BEFORE the action's `applyOperation` (with `captureTimeout:
    * MAX`, a transaction merges into the currently-open StackItem unless
    * `stopCapturing` was already called — so the break decision has to precede
@@ -259,7 +364,12 @@ export class History {
    * coalesce (their `coalesceKey` is set to null, so the next action also
    * breaks).
    */
-  beginEntry(key: BeginKey, now: number): void {
+  beginEntry(key: BeginKey, now: number, selection?: Selection): void {
+    if (this.batchDepth > 0) {
+      // Inside a transaction: never close the group; merge into its first commit.
+      this.didCoalesce = this.batchCommitted;
+      return;
+    }
     const coalescible = key === "insert" || key === "delete";
     const canCoalesce =
       coalescible &&
@@ -272,23 +382,106 @@ export class History {
     this.didCoalesce = canCoalesce;
     this.coalesceKey = coalescible ? key : null;
     this.lastEditTime = now;
+    // A coalesced edit keeps its group's original `before`; only a fresh entry
+    // needs the pre-action encoding.
+    this.pendingBefore =
+      selection === undefined || canCoalesce
+        ? null
+        : { raw: selection, stored: encodeSelection(this.doc(), selection) };
+  }
+
+  private doc(): Y.Doc {
+    return this.currentState[STATE_INTERNAL].doc;
   }
 
   /**
-   * Close the open undo group without recording an entry (#420). Called on
+   * Close the open undo group without recording an entry. Called on
    * selection jumps (caret move / click) and on undo/redo, so the next edit
    * starts a fresh undo unit. Idempotent and cheap.
    */
   breakCoalescing(): void {
+    if (this.batchDepth > 0) return; // a step inside a transaction never splits it
     this.undoManager.stopCapturing();
     this.coalesceKey = null;
+  }
+
+  /**
+   * Open a TRANSACTION: every committing step until the matching `endBatch`
+   * lands in ONE undo entry, whose `before` selection is the first step's and whose
+   * `after` is the last step's. Nestable (inner batches join the outer one). The
+   * caller has already run `beginEntry` for the transaction action itself, which
+   * closed the previous group. `selectionBefore` is the selection undo restores.
+   */
+  beginBatch(selectionBefore: Selection): void {
+    if (this.batchDepth === 0) {
+      this.batchCommitted = false;
+      this.batchBefore = encodeSelection(this.doc(), selectionBefore);
+      this.batchStackDepth = this.undoManager.undoStack.length;
+      this.batchState = this.currentState;
+      this.batchPoisoned = false;
+    }
+    this.batchDepth++;
+  }
+
+  /** True while a transaction is open (its steps are not separate edits). */
+  get batching(): boolean {
+    return this.batchDepth > 0;
+  }
+
+  /** Close a transaction opened by `beginBatch`; the next edit starts a fresh entry. */
+  endBatch(): void {
+    if (this.batchDepth === 0) throw new Error("History.endBatch: no open batch");
+    if (this.batchDepth === 1 && this.batchPoisoned) {
+      // A nested transaction failed and its error was caught: its steps were never
+      // seen by the outer transaction's editor state, so roll EVERYTHING back.
+      this.abortBatch();
+      throw new Error(
+        "TRANSACTION: a nested transaction failed; the whole transaction was rolled back",
+      );
+    }
+    this.batchDepth--;
+    if (this.batchDepth === 0) {
+      this.undoManager.stopCapturing();
+      this.coalesceKey = null;
+      this.batchBefore = null;
+      this.batchState = null;
+    }
+  }
+
+  /**
+   * Abandon the OUTERMOST open transaction after a step threw: revert everything it
+   * applied (its single undo item, if it produced one — undone and dropped, never
+   * redoable), restore the wrapper's state, and close the batch. Returns the State the
+   * history is back at. An inner (nested) batch closes and POISONS the outermost one:
+   * even if the outer `run` swallows the inner error, ending the outer batch rolls the
+   * whole transaction back and throws (`endBatch`).
+   */
+  abortBatch(): State {
+    if (this.batchDepth === 0) throw new Error("History.abortBatch: no open batch");
+    this.batchDepth--;
+    if (this.batchDepth > 0) {
+      this.batchPoisoned = true; // the outermost batch rolls back when it ends
+      return this.currentState;
+    }
+    this.batchPoisoned = false;
+    if (this.undoManager.undoStack.length > this.batchStackDepth) {
+      this.undoManager.undo();
+      this.undoManager.redoStack.pop();
+    }
+    this.undoManager.stopCapturing();
+    this.coalesceKey = null;
+    this.batchBefore = null;
+    const restored = this.batchState ?? this.currentState;
+    this.batchState = null;
+    this.currentState = restored;
+    return restored;
   }
 
   /**
    * Record an undo entry. Updates the wrapper's notion of current state and
    * welds the before/after selection pair onto the action's StackItem `.meta`.
    *
-   * Undo-group BOUNDARIES are no longer owned here (#420): `beginEntry` (called
+   * Undo-group BOUNDARIES are no longer owned here: `beginEntry` (called
    * before each committing action) and `breakCoalescing` (on selection jumps /
    * undo/redo) decide whether the action opens a fresh group or merges into the
    * open one via `stopCapturing`. `commit` only writes selection meta. The
@@ -312,7 +505,7 @@ export class History {
    * see the class-level docstring), so there is nothing to weld the
    * SelectionEntry onto and nothing to record. The early return below
    * keeps the wrapper consistent in that case. Handlers conventionally
-   * short-circuit first via the T7 identity contract
+   * short-circuit first via the identity-no-op contract
    * (`result.state === editor.state`), which is the editor module's
    * same-reference-on-no-op invariant; commit's no-op safety is the
    * backstop, not a substitute.
@@ -349,24 +542,41 @@ export class History {
     // `redo` re-weld it onto the opposite stack's new item as the action
     // flips direction — Yjs does not copy `.meta` across undo↔redo.)
     //
-    // #420: on a coalesced merge the top item is the SAME StackItem the previous
+    // On a coalesced merge the top item is the SAME StackItem the previous
     // edit committed to (it already carries this group's SelectionEntry). Keep
     // the group's original `before` and advance only `after`. On a fresh group
-    // write the full pair (the pre-#420 behavior). The `.meta.get` cast follows
+    // write the full pair (the behavior without typing coalescing). The `.meta.get` cast follows
     // the existing localized-Yjs-cast pattern used by `readSelectionEntry`
     // (Y.Map.meta is typed loosely by Yjs) — not new type-unsafety.
+    // `before` is encoded against the PRE-action doc when `beginEntry` saw the
+    // same selection (the editor always passes it); otherwise against the current
+    // (post-action) doc — still a valid anchor for positions the action kept.
+    const doc = this.doc();
+    const pending = this.pendingBefore;
+    this.pendingBefore = null;
+    const storedBefore =
+      pending !== null && selections.before !== null && selectionsEqual(pending.raw, selections.before)
+        ? pending.stored
+        : encodeSelection(doc, selections.before);
+    const storedAfter = encodeSelection(doc, selections.after);
     if (this.didCoalesce) {
-      const existing = top.meta.get(SEL_KEY) as SelectionEntry | undefined;
+      const existing = top.meta.get(SEL_KEY) as StoredEntry | undefined;
       top.meta.set(SEL_KEY, {
-        before: existing !== undefined ? existing.before : selections.before,
-        after: selections.after,
-      });
+        before: existing !== undefined ? existing.before : storedBefore,
+        after: storedAfter,
+      } satisfies StoredEntry);
     } else {
-      top.meta.set(SEL_KEY, selections);
+      // A transaction's entry restores the selection from BEFORE the transaction,
+      // not the one its first step happened to start from.
+      top.meta.set(SEL_KEY, {
+        before: this.batchBefore !== null ? this.batchBefore : storedBefore,
+        after: storedAfter,
+      } satisfies StoredEntry);
     }
+    if (this.batchDepth > 0) this.batchCommitted = true;
     // All bookkeeping succeeded — now advance the wrapper's current state.
     this.currentState = opResult.state;
-    // #234: cap undo depth. Y.UndoManager has no maxDepth, so once the stack
+    // Cap undo depth. Y.UndoManager has no maxDepth, so once the stack
     // exceeds the cap drop the OLDEST entries from the undoStack. Each trimmed
     // StackItem carries its own `.meta` (and thus its SelectionEntry) away
     // automatically — there is no parallel array to keep in lockstep. The
@@ -431,7 +641,7 @@ export class History {
    * subsequent `redo()` can read the `after` side. Returns null if nothing
    * to undo.
    *
-   * **Error recovery (T33):** the whole body is wrapped in try/catch, and
+   * **Error recovery:** the whole body is wrapped in try/catch, and
    * `currentState` is reassigned only on full success (last statement before
    * the return). The retriability of the wrapper depends on WHERE the throw
    * lands relative to the Yjs reversal:
@@ -457,7 +667,7 @@ export class History {
       const doc = this.currentState[STATE_INTERNAL].doc;
       // Capture dirty ids from the UndoManager's internal transaction so the
       // editor's incremental render pipeline can rebuild only the reversed
-      // blocks (S-A3). `undoManager.undo()` returns the popped StackItem; we
+      // blocks. `undoManager.undo()` returns the popped StackItem; we
       // read its `.meta` AFTER the closure returns (orthogonal to the dirtyId
       // channel — no ordering hazard).
       let poppedItem: YStackItem | null = null;
@@ -465,15 +675,15 @@ export class History {
         poppedItem = this.undoManager.undo();
       });
       // canUndo() was true yet undo() returned no item — a LEGITIMATE outcome,
-      // not a desync. A NON-undoable resolve (SUGGESTION_RESOLVE_ORIGIN) surgically
-      // rewrites a block's inline content (`applyResolveDecisionsInTx`, #484 —
+      // not a desync. A change outside this History's tracking (a collaborator's
+      // edit) can surgically rewrite a block's inline content (`applyResolveDecisionsInTx` —
       // in-place attr swaps + delete-by-index of the dropped runs), which can turn a
       // preceding tracked StackItem that targeted the DELETED runs into a no-op.
       // Yjs's `popStackItem` pops such no-op items as it scans and returns null once
       // nothing reversible remains. Treat it as a graceful no-op (the dead items are
       // already off `undoStack`); the caller's `handleUndo` returns the editor
       // unchanged. `currentState` is intentionally NOT advanced — the Y.Doc was not
-      // mutated, so the cached state stays valid. (#484's identity-preserving resolve
+      // mutated, so the cached state stays valid. (The identity-preserving resolve
       // RESTORED undo-after-resolve for the in-place case; this null-pop path remains
       // only when the resolve deleted the very runs a prior StackItem tracked.)
       if (poppedItem === null) {
@@ -509,7 +719,7 @@ export class History {
       }
       // Construct the new state BEFORE updating currentState. Passing dirtyIds
       // builds the new state's cache as an overlay on the prior cache —
-      // unchanged blocks stay warm via fall-through (S-A2 + S-A3). NOTE: the
+      // unchanged blocks stay warm via fall-through. NOTE: the
       // Yjs reversal above has ALREADY applied at this point, so a freshState
       // throw here leaves currentState stale relative to the Y.Doc — see the
       // method docstring; this is the non-retriable window (theoretical, since
@@ -518,7 +728,7 @@ export class History {
       this.currentState = newState;
       return {
         state: newState,
-        selection: entry === null ? null : entry.before,
+        selection: entry === null || entry.before === null ? null : resolveSelection(newState, entry.before),
         dirtyIds,
       };
     } catch (err) {
@@ -537,7 +747,7 @@ export class History {
    * onto it (mirror of `undo()`) so the cycle can continue. Returns null if
    * nothing to redo.
    *
-   * **Error recovery (T33):** mirrored from `undo()` — try/catch wraps the
+   * **Error recovery:** mirrored from `undo()` — try/catch wraps the
    * whole body and `currentState` advances only on full success. Same
    * retriability split as `undo()`: a throw before the Yjs re-application is
    * fully retriable; a `freshState` throw after it leaves `currentState` stale
@@ -553,7 +763,7 @@ export class History {
         poppedItem = this.undoManager.redo();
       });
       // canRedo() was true yet redo() returned no item — graceful no-op, mirror
-      // of undo()'s handling. A non-undoable resolve (SUGGESTION_RESOLVE_ORIGIN)
+      // of undo()'s handling. An untracked change (a collaborator's edit)
       // that DELETED the very runs a redo StackItem tracked can leave that item a
       // no-op; Yjs's popStackItem pops it and returns null when nothing reapplies.
       // The Y.Doc was not mutated, so `currentState` stays valid. See undo() for
@@ -587,7 +797,7 @@ export class History {
       this.currentState = newState;
       return {
         state: newState,
-        selection: entry === null ? null : entry.after,
+        selection: entry === null || entry.after === null ? null : resolveSelection(newState, entry.after),
         dirtyIds,
       };
     } catch (err) {
@@ -614,7 +824,7 @@ export class History {
    */
   private carryEntryToTop(
     stack: readonly YStackItem[],
-    entry: SelectionEntry,
+    entry: StoredEntry,
   ): void {
     const top = stack[stack.length - 1];
     if (top === undefined) {
@@ -644,4 +854,8 @@ export function createHistory(
   trackedOrigin: unknown = null,
 ): History {
   return new History(state, maxDepth ?? DEFAULT_MAX_UNDO_DEPTH, trackedOrigin);
+}
+
+function selectionsEqual(a: Selection, b: Selection): boolean {
+  return positionsEqual(a.anchor, b.anchor) && positionsEqual(a.focus, b.focus);
 }

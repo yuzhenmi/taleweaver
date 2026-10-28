@@ -18,6 +18,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { createEditorController } from "./index";
 import * as core from "@taleweaver/core";
+import { finalSection } from "./test-utils/final-section"; // body blocks live in the final section
 
 const measurer: core.TextMeasurer = core.createMockMeasurer(8, 16);
 
@@ -106,7 +107,7 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
 
   it("replaceActive dispatches REPLACE_MATCH with the active TextMatch + replacement", () => {
     const editor = seededEditorState("foo bar foo baz foo"); // 3 × "foo"
-    const blockId = core.getBlock(editor.state, editor.state.rootId)?.firstChildId;
+    const blockId = finalSection(editor.state)?.firstChildId;
     if (blockId === null || blockId === undefined) throw new Error("no block");
     const dispatch = vi.fn();
     const ctrl = createEditorController(mount(), { measurer, dispatch });
@@ -156,7 +157,7 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
     // manual ++ would have skipped to index 1.
     expect(ctrl.findStatus()).toEqual({ total: 2, activeIndex: 0 });
     // The text actually changed.
-    const replacedBlockId = core.getBlock(editor.state, editor.state.rootId)?.firstChildId;
+    const replacedBlockId = finalSection(editor.state)?.firstChildId;
     if (replacedBlockId === null || replacedBlockId === undefined) throw new Error("no block");
     expect(
       core.extractText(
@@ -172,13 +173,13 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
     ctrl.destroy();
   });
 
-  it("replaceActive at the LAST match clamps activeIndex to the new last index", () => {
+  it("replaceActive at the LAST match advances past it, wrapping to the first match", () => {
     // Navigate to the LAST match (index 2 of 3), replace it with "qux" (which
     // does NOT re-match "foo"). After feeding the dispatched state back, the doc
-    // is "foo bar foo baz qux" → 2 "foo" matches. The prior activeIndex was 2,
-    // now out of range for length 2, so the live-recompute clamp
-    // `Math.min(Math.max(prior, 0), matches.length - 1)` must drop it to the new
-    // last index 1 (not stuck at 2, not -1). This pins the Math.min clamp arm.
+    // is "foo bar foo baz qux" → 2 "foo" matches. The shared core find session
+    // activates the first match AFTER the replacement, wrapping (Google Docs) —
+    // there is none after it, so the active match wraps to index 0 (never stuck
+    // out of range, never -1).
     const cfg = config();
     let editor = seededEditorState("foo bar foo baz foo"); // 3 × "foo"
     const ctrl = createEditorController(mount(), {
@@ -197,8 +198,8 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
     ctrl.replaceActive("qux"); // replace the last "foo"; "qux" does not re-match
     ctrl.update(editor); // live recompute against the new state
 
-    // 2 "foo" left; prior activeIndex 2 is out of range → clamped to new last 1.
-    expect(ctrl.findStatus()).toEqual({ total: 2, activeIndex: 1 });
+    // 2 "foo" left; nothing after the replacement → wraps to the first match.
+    expect(ctrl.findStatus()).toEqual({ total: 2, activeIndex: 0 });
 
     ctrl.destroy();
   });
@@ -245,7 +246,7 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
 
   it("replaceAll dispatches REPLACE_ALL with all session matches + replacement", () => {
     const editor = seededEditorState("foo bar foo baz foo"); // 3 × "foo"
-    const blockId = core.getBlock(editor.state, editor.state.rootId)?.firstChildId;
+    const blockId = finalSection(editor.state)?.firstChildId;
     if (blockId === null || blockId === undefined) throw new Error("no block");
     const dispatch = vi.fn();
     const ctrl = createEditorController(mount(), { measurer, dispatch });

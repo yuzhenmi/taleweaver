@@ -121,12 +121,13 @@ function buildDoc(opts: { footnoteText: string; footerPara?: string }): Built {
   const state = buildState({
     rootId: "doc",
     blocks: [
+      buildBlock({ id: "doc", type: "document", firstChildId: "sec", lastChildId: "sec" }),
       buildBlock({
-        id: "doc",
-        type: "document",
-        // A doc-root footer (#C.2c I1): `buildSectionPlan` reads
-        // `footerBlockId` off the cascaded root metadata so the implicit
-        // section's pages carry the footer slot.
+        id: "sec",
+        type: "section",
+        parentId: "doc",
+        // page keys live on SECTIONS only — `buildSectionPlan` reads
+        // `footerBlockId` off the (final) section so its pages carry the footer slot.
         attrs:
           opts.footerPara !== undefined
             ? { footerBlockId: FOOTER_ROOT }
@@ -137,14 +138,14 @@ function buildDoc(opts: { footnoteText: string; footerPara?: string }): Built {
       buildBlock({
         id: "bp0",
         type: "paragraph",
-        parentId: "doc",
+        parentId: "sec",
         nextSiblingId: "bp1",
         inlineContent: inlineContent([text("body one")]),
       }),
       buildBlock({
         id: "bp1",
         type: "paragraph",
-        parentId: "doc",
+        parentId: "sec",
         prevSiblingId: "bp0",
         // The footnote anchor lives at the END of the last body paragraph.
         inlineContent: inlineContent([text("body two"), fnAnchor()]),

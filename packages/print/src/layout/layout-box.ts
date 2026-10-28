@@ -4,7 +4,7 @@ import type { LeaderStyle } from "@taleweaver/core";
 import type { WritingMode, Direction } from "@taleweaver/core";
 import { logicalToPhysical } from "@taleweaver/core";
 import type { BlockId } from "@taleweaver/core";
-import type { LayoutBoxMetadata } from "@taleweaver/core";
+import type { LayoutBoxMetadata, BoundaryMarkMetadata } from "@taleweaver/core";
 import type { PageBox } from "./page-box";
 import { createPageBox } from "./page-box";
 import type { ColumnRule } from "@taleweaver/core";
@@ -31,7 +31,7 @@ interface LayoutBoxBase {
   // PARENT-RELATIVE PHYSICAL POSITIONS. Derived from the logical fields via
   // logicalToPhysical(); `containingInlineSize` is required at factory time
   // to support RTL inline-axis inversion.
-  // In Plan 3.A: derived as identity for LTR; Task 11 adds RTL inversion.
+  // Identity for LTR; mirrored along the inline axis for RTL.
   readonly x: number;
   readonly y: number;
   readonly width:  number;
@@ -44,8 +44,7 @@ interface LayoutBoxBase {
   readonly computedStyle: Readonly<ComputedStyle>;
   readonly usedStyle:     Readonly<UsedStyle>;
 
-  // POSITIONING — `position: relative` PAINT-TIME visual offset (positioning
-  // slice 2). The box's logical/physical geometry (inlineOffset/blockOffset/x/y)
+  // POSITIONING — `position: relative` PAINT-TIME visual offset. The box's logical/physical geometry (inlineOffset/blockOffset/x/y)
   // stays PRE-OFFSET; this PHYSICAL `(dx, dy)` delta — resolved in the BFC from
   // the box's `inset*` against its containing block, mapped logical→physical —
   // is added by the painter to the box's accumulated `(absX, absY)`, shifting
@@ -53,10 +52,10 @@ interface LayoutBoxBase {
   // not `position: relative` or resolves to a zero offset, keeping the
   // untransformed fast path allocation- and read-free. Lives on the base (not
   // just BlockBox) so the clone paths thread it uniformly across box types
-  // (an inline-block can also be `position: relative` — IFC path is a follow-up).
+  // (an inline-block can also be `position: relative`, but the IFC does not yet resolve the offset).
   readonly relativeOffset?: { readonly dx: number; readonly dy: number };
 
-  // POSITIONING slice 3 — `position: absolute` descendants whose absolute
+  // `position: absolute` descendants whose absolute
   // containing block is THIS box. Out-of-flow: they are NOT in `children` (they do
   // not advance the in-flow block offset and do not participate in margin
   // collapse). The BFC drains them in its post-loop second pass at the box that
@@ -71,7 +70,7 @@ interface LayoutBoxBase {
   // boxes too; optional → inert on box types that never carry it.
   readonly absoluteChildren?: readonly LayoutBox[];
 
-  // POSITIONING slice 4 — whether this box establishes its own CSS stacking
+  // Whether this box establishes its own CSS stacking
   // context (CSS 2.2 §9.9 / Positioned Layout 3). Two-valued: `"self"` when it
   // does, ABSENT (undefined) otherwise — "none" is the field's absence. Computed
   // DETERMINISTICALLY from this box's `computedStyle` by `createBoxBase` (a
@@ -115,11 +114,19 @@ export interface LineBox extends LayoutBoxBase {
   /**
    * True when the wrap pass inserted a hyphen glyph at the end of this line
    * because the hyphenated word continues on the next line.
-   * Used by the IFC fragmentation fit-check (D.4) to avoid breaking between
+   * Used by the IFC fragmentation fit-check (hyphen-pair rule) to avoid breaking between
    * two lines of a hyphenated word (CSS Fragmentation L4 §5).
    * Defaults to false when not set.
    */
   readonly endsWithHyphenContinuation?: boolean;
+
+  /**
+   * True when an inline-end float shortens this line (its inline end is short of the
+   * containing block's content inline end). Set by the IFC; content hanging past the
+   * line end — the ¶ glyph and the selected ¶'s extension — stops at the line end, the
+   * float's margin box, instead of painting over the float. Absent otherwise.
+   */
+  readonly endsAtFloat?: boolean;
 
   /**
    * The block whose IFC produced this line. Stamped by the IFC at
@@ -193,7 +200,7 @@ export interface TextRunBox extends LayoutBoxBase {
    * token-level cluster widths are synthesized here (whole advance on the
    * first unit, 0 on the rest) so the partition stays display-aligned.
    *
-   * Used by the P4-C bidi reorder to SPLIT a run at a bidi-level boundary
+   * Used by the bidi reorder to SPLIT a run at a bidi-level boundary
    * (the prefix advance is the prefix-sum of these). The ONLY hard invariant is
    * `clusterWidths.length === text.length` (when present).
    *
@@ -209,7 +216,7 @@ export interface TextRunBox extends LayoutBoxBase {
   readonly clusterWidths?: readonly number[];
   /**
    * The box's absolute UTF-16 offset into the paragraph source (`asm.source`),
-   * i.e. the `absoluteSourceBase` of its first constituent token. The P4-C
+   * i.e. the `absoluteSourceBase` of its first constituent token. The bidi
    * reorder uses it to compute each split fragment's absolute source span.
    * Undefined for synthetic runs with no backing source (the empty-paragraph
    * strut).
@@ -217,7 +224,7 @@ export interface TextRunBox extends LayoutBoxBase {
   readonly sourceStart?: number;
   /**
    * The run's resolved UAX #9 bidi embedding level (even = LTR, odd = RTL).
-   * Stamped by the P4-C line reorder (`reorderLineLeaves`) so the painter can
+   * Stamped by the line reorder (`reorderLineLeaves`) so the painter can
    * render an RTL run right-to-left. `undefined` for any box the reorder did
    * not touch (the overwhelmingly common LTR-only case).
    */
@@ -254,7 +261,7 @@ export interface InlineBox extends LayoutBoxBase {
    * Previously derived by `extractAncestorKey` from `box.key` via
    * `lastIndexOf("-")`, but inline-ancestor render-node keys themselves
    * commonly contain dashes (compound block IDs), so the string-derived
-   * extraction was wrong for any non-trivial document. L-C: store it
+   * extraction was wrong for any non-trivial document. It is stored
    * explicitly to make grouping unambiguous.
    */
   readonly ancestorKey: string;
@@ -266,21 +273,20 @@ export interface InlineBlockBox extends LayoutBoxBase {
   /**
    * The absolute UTF-16 offset into the paragraph source of this inline-block's
    * single OBJECT_REPLACEMENT char (its `absoluteSourceBase`). Used by the
-   * P4-C bidi reorder to position the atomic box's source span.
+   * bidi reorder to position the atomic box's source span.
    */
   readonly sourceStart?: number;
   /**
    * The atomic inline's resolved UAX #9 bidi embedding level (even = LTR, odd
-   * = RTL). Stamped by the P4-C line reorder (`reorderLineLeaves`); `undefined`
+   * = RTL). Stamped by the line reorder (`reorderLineLeaves`); `undefined`
    * for any box the reorder did not touch.
    */
   readonly bidiLevel?: number;
   /**
-   * Present only on a `"tab"` embed's inline-block (tab stops S2). Carries the
+   * Present only on a `"tab"` embed's inline-block. Carries the
    * embed-kind discriminator plus the resolved tab-leader style so the painter
-   * (S9) and the advance pass (S3) can recognize a tab without re-deriving it
-   * from render metadata. In S2 `leader` is always `"none"` (the placeholder);
-   * S3 resolves the real destination-stop leader when it computes the advance.
+   * and the advance pass can recognize a tab without re-deriving it
+   * from render metadata. `leader` is the destination-stop leader resolved when the advance is computed.
    */
   readonly inlineMeta?: { readonly embedType: "tab"; readonly leader: LeaderStyle };
   /**
@@ -289,7 +295,7 @@ export interface InlineBlockBox extends LayoutBoxBase {
    * internal /GoTo link. Per-box IDENTITY metadata — OPAQUE to geometry (never
    * affects measurement, breaking, or position); copied verbatim through every
    * rebuild, like `sourceStart`/`inlineMeta`. `undefined` for any inline-block
-   * that is not a cross-reference atom. (Mirrors `TextRunBox.link` (#521), for a
+   * that is not a cross-reference atom. (Mirrors `TextRunBox.link`, for a
    * different box type.)
    */
   readonly targetId?: string;
@@ -310,13 +316,43 @@ export interface MarkerBox extends LayoutBoxBase {
   readonly text: string;
   /**
    * The marker's resolved UAX #9 bidi embedding level (even = LTR, odd = RTL).
-   * Stamped by the P4-C line reorder (`reorderLineLeaves`) when a marker is
+   * Stamped by the line reorder (`reorderLineLeaves`) when a marker is
    * defensively carried through it; `undefined` otherwise.
    */
   readonly bidiLevel?: number;
+  /**
+   * Set when this marker is a tracked ¶ / section-break label (change tracking —
+   * see {@link BoundaryMarkBox}) rather than a list / footnote marker.
+   */
+  readonly boundaryMark?: BoundaryMarkPlacement;
 }
 
-/** A table cell's placement in the table grid (P8 rowSpan/colSpan). */
+/**
+ * A tracked paragraph mark placed by the BFC (`metadata.endMark`, change tracking) —
+ * offsetless, non-editable, standing for the caret position `(blockId, offset)`
+ * (`offset` = the block's length) on the block's last line. It takes no line space.
+ *  - A paragraph kind draws the ¶ glyph; it may hang past the content edge, and
+ *    `maxInlineSize` (absent = unbounded) caps its visible inline extent where an
+ *    inline-end float narrows the line (clipped at the float's margin box).
+ *  - A section kind (a section-end item) draws Word's section-break label over the
+ *    rest of the line (the box spans caret → line end, at least one ¶ glyph wide);
+ *    `labelInlineSize` is the label's measured inline size (centred in the box).
+ * Ancestor clips (cell border box, column gap, page box) are applied by the
+ * boundary-mark index.
+ */
+export interface BoundaryMarkPlacement {
+  readonly blockId: BlockId;
+  readonly offset: number;
+  readonly mark: BoundaryMarkMetadata;
+  readonly maxInlineSize?: number;
+  /** Present iff the mark is a section kind (the label's measured inline size). */
+  readonly labelInlineSize?: number;
+}
+
+/** A `MarkerBox` drawing a tracked ¶ / section-break label. */
+export type BoundaryMarkBox = MarkerBox & { readonly boundaryMark: BoundaryMarkPlacement };
+
+/** A table cell's placement in the table grid (rowSpan/colSpan). */
 export interface TableCellGrid {
   readonly gridRow: number;
   readonly gridCol: number;
@@ -329,14 +365,14 @@ export interface TableBox extends LayoutBoxBase {
   readonly children: readonly LayoutBox[];
   readonly columnPxWidths: readonly number[];
   /**
-   * `occupancy[row][col]` = the owning cell's id, or `null` for an empty slot
-   * (P8). The reverse map a point/selection uses to find the merged cell that
+   * `occupancy[row][col]` = the owning cell's id, or `null` for an empty slot.
+   * The reverse map a point/selection uses to find the merged cell that
    * owns a grid slot — a spanning cell's box lives only in its first row's
    * children, so lower rows' slots resolve here. Rectangular (`columnCount` wide).
    */
   readonly occupancy: readonly (readonly (BlockId | null)[])[];
   readonly columnCount: number;
-  /** cell id → its box, for O(1) reverse lookup from `occupancy` (P8). */
+  /** cell id → its box, for O(1) reverse lookup from `occupancy`. */
   readonly cellBoxById: ReadonlyMap<BlockId, TableCellBox>;
 }
 
@@ -351,7 +387,7 @@ export interface TableCellBox extends LayoutBoxBase, TableCellGrid {
 }
 
 /**
- * A multi-column section's body region (multi-column slice 2). A CONTAINER box
+ * A multi-column section's body region. A CONTAINER box
  * whose children are N **column boxes** (each a `BlockBox`), positioned side by
  * side, each holding a CONTIGUOUS doc-order run of the section's content
  * (fragmented into it). Its own variant — like `TableBox` — because it carries
@@ -411,18 +447,18 @@ function createBoxBase(args: {
   computedStyle: ComputedStyle;
   usedStyle: UsedStyle;
   containingInlineSize: number;
-  // POSITIONING — `position: relative` physical paint-time offset (slice 2).
+  // POSITIONING — `position: relative` physical paint-time offset.
   // Omitted when the box is not relatively positioned or resolves to (0, 0);
   // the painter then takes the no-offset fast path.
   relativeOffset?: { readonly dx: number; readonly dy: number };
-  // POSITIONING slice 3 — abs-pos descendants whose abc is this box (out-of-flow;
+  // Abs-pos descendants whose abc is this box (out-of-flow;
   // drained by the BFC second pass). Omitted when there are none.
   absoluteChildren?: readonly LayoutBox[];
   // Only consulted for vertical-rl, where the physical block-axis x is the
   // right-to-left mirror `containingBlockSize − blockOffset − blockSize`. The
   // box factory does not have this at construction time (the containing block
   // size is layout's OUTPUT), so it stays undefined there and the un-mirrored
-  // PENDING x is stored; the P3.1 physicalize pass re-runs the factory with the
+  // PENDING x is stored; the physicalize pass re-runs the factory with the
   // resolved size to bake the mirror. h-tb / v-lr ignore it (factory-derivable).
   containingBlockSize?: number;
 }): BoxBaseFields {
@@ -454,7 +490,7 @@ function createBoxBase(args: {
     ...(args.absoluteChildren !== undefined
       ? { absoluteChildren: Object.freeze([...args.absoluteChildren]) }
       : {}),
-    // POSITIONING slice 4 — stacking-context role is a pure function of this box's
+    // Stacking-context role is a pure function of this box's
     // computedStyle, computed HERE so every factory and clone/rebuild path picks it
     // up uniformly (the field is never threaded as a constructor arg → it can never
     // be dropped on a clone). Spread only when "self" so the common unpositioned box
@@ -506,6 +542,7 @@ export function createLineBox(
   isBlockBoundaryLine: boolean,
   endsWithHyphenContinuation?: boolean,
   containingBlockSize?: number,
+  endsAtFloat?: boolean,
 ): LineBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,
@@ -522,6 +559,7 @@ export function createLineBox(
     inlineOffsetEnd,
     isBlockBoundaryLine,
     ...(endsWithHyphenContinuation === true ? { endsWithHyphenContinuation: true } : {}),
+    ...(endsAtFloat === true ? { endsAtFloat: true } : {}),
   });
 }
 
@@ -628,6 +666,7 @@ export function createMarkerBox(
   containingInlineSize: number,
   bidiLevel?: number,
   containingBlockSize?: number,
+  boundaryMark?: BoundaryMarkPlacement,
 ): MarkerBox {
   const base = createBoxBase({
     key, inlineOffset, blockOffset, inlineSize, blockSize,
@@ -639,6 +678,7 @@ export function createMarkerBox(
     ...base,
     text,
     bidiLevel,
+    ...(boundaryMark !== undefined ? { boundaryMark } : {}),
   });
 }
 
@@ -659,7 +699,7 @@ export function createTableBox(
     writingMode, direction, computedStyle, usedStyle, containingInlineSize,
     containingBlockSize,
   });
-  // O(1) reverse lookup from an occupancy id → its cell box (P8). A spanning
+  // O(1) reverse lookup from an occupancy id → its cell box. A spanning
   // cell's box lives only in its first row's children, so we walk rows→cells.
   const cellBoxById = new Map<BlockId, TableCellBox>();
   for (const row of children) {
@@ -729,10 +769,10 @@ export function createTableCellBox(
 }
 
 /**
- * Multi-column slice 2 — assemble a `MultiColumnBox` from its already-built
+ * Assemble a `MultiColumnBox` from its already-built
  * column boxes. Mirrors `createTableBox`: logical-axis args + `containingInlineSize`
  * (for the RTL inline-axis inversion in `logicalToPhysical`), runs the shared base
- * factory, and `Object.freeze`s the output. The producer (a later slice) positions
+ * factory, and `Object.freeze`s the output. The producer positions
  * each column box at its inline-offset and passes them in here; this factory just
  * freezes the assembled container.
  */
@@ -789,15 +829,15 @@ export function withInlineOffset(
  * Recreate a reorder-reachable leaf/inline box at a PHYSICAL (visual-order)
  * inline offset — its positioning `direction` is forced to `"ltr"` so
  * `logicalToPhysical` is the IDENTITY and `x === inlineOffset`. Used by the
- * P4-C bidi reorder (`reorderLineLeaves` / `renestLeaves` /
+ * bidi reorder (`reorderLineLeaves` / `renestLeaves` /
  * `splitTextRunBoxAtOffset`), which emits boxes already in physical
  * (left-to-right) order: a second uniform RTL flip by the factory would invert
  * them (the double-flip bug).
  *
  * The box's true directionality is NOT lost — it rides on `computedStyle.direction`
  * (the CSS property, preserved unchanged) and, for leaves, on `bidiLevel` (stamped
- * by the reorder for T7 glyph paint). This is the deliberate three-way split
- * documented in the P4-C reorder coordinate contract: positioning `direction`
+ * by the reorder for glyph paint). This is the deliberate three-way split
+ * documented in the reorder coordinate contract: positioning `direction`
  * on a reordered box means "offsets are already physical/visual", while
  * `computedStyle.direction` / `bidiLevel` carry the real RTL-ness.
  *
@@ -842,7 +882,7 @@ export function withPhysicalInlineOffset(
       return createMarkerBox(
         box.key, newInlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
         box.writingMode, "ltr", box.computedStyle, box.usedStyle,
-        box.text, containingInlineSize, box.bidiLevel,
+        box.text, containingInlineSize, box.bidiLevel, undefined, box.boundaryMark,
       );
     default:
       throw new Error(
@@ -902,7 +942,7 @@ export function withOffsets(
 
 /**
  * Recreate a leaf layout box with its UAX #9 bidi embedding `level` set. Used by
- * the P4-C line reorder (`reorderLineLeaves`) to stamp each reordered run with
+ * the line reorder (`reorderLineLeaves`) to stamp each reordered run with
  * its resolved level (even = LTR, odd = RTL) so the painter can render an RTL
  * run right-to-left.
  *
@@ -941,7 +981,7 @@ export function withBidiLevel(
       return createMarkerBox(
         box.key, box.inlineOffset, box.blockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
-        box.text, containingInlineSize, level,
+        box.text, containingInlineSize, level, undefined, box.boundaryMark,
       );
     default:
       throw new Error(
@@ -955,7 +995,7 @@ export function withBidiLevel(
  * Recreate a layout box with new inline + block offsets, optionally baking the
  * vertical-rl block-axis physical-x mirror.
  *
- * EXPORTED (P3.1) so the `physicalizeVertical` post-layout pass can re-run the
+ * EXPORTED so the `physicalizeVertical` post-layout pass can re-run the
  * box factory once the containing block-size is resolved: for `vertical-rl` the
  * factory could not compute the block-axis mirror at construction time (the
  * containing block-size is layout's OUTPUT), so it stored a PENDING un-mirrored
@@ -990,7 +1030,7 @@ export function rebuildBoxWithOffsets(
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
         box.children, containingInlineSize, box.metadata, containingBlockSize,
         box.relativeOffset,
-        // Preserve abs-pos children across the reposition clone (slice 3): they
+        // Preserve abs-pos children across the reposition clone: they
         // are positioned in this box's OWN frame (parent-relative), independent of
         // the outer (inlineOffset, blockOffset) reposition, so they carry through
         // verbatim — a dropped clone would lose the abs subtree entirely.
@@ -1006,7 +1046,7 @@ export function rebuildBoxWithOffsets(
         box.children, box.baseline, containingInlineSize,
         box.ownerBlockId, box.inlineOffsetStart, box.inlineOffsetEnd,
         box.isBlockBoundaryLine,
-        box.endsWithHyphenContinuation, containingBlockSize,
+        box.endsWithHyphenContinuation, containingBlockSize, box.endsAtFloat,
       );
     case "text-run":
       return createTextRunBox(
@@ -1034,7 +1074,7 @@ export function rebuildBoxWithOffsets(
       return createMarkerBox(
         box.key, newInlineOffset, newBlockOffset, box.inlineSize, box.blockSize,
         box.writingMode, box.direction, box.computedStyle, box.usedStyle,
-        box.text, containingInlineSize, box.bidiLevel, containingBlockSize,
+        box.text, containingInlineSize, box.bidiLevel, containingBlockSize, box.boundaryMark,
       );
     case "table":
       return createTableBox(
@@ -1078,7 +1118,7 @@ export function rebuildBoxWithOffsets(
         box.children, box.pageIndex, containingInlineSize,
         // Preserve the named header/footer/footnote slots across the reposition clone.
         box.headerSlot, box.footerSlot, box.footnoteSlot,
-        // Preserve the #332 region-classification edges across the clone.
+        // Preserve the region-classification edges across the clone.
         box.effectiveTopInset, box.effectiveBottomInset,
       );
   }
@@ -1111,7 +1151,7 @@ export function assertLayoutBoxConsistent(
 ): void {
   if (!isDevMode()) return;
   // vertical-rl stores an un-mirrored block-axis x at factory time (the
-  // containing block-size is not available there). The P3.1 physicalize pass
+  // containing block-size is not available there). The physicalize pass
   // applies the right-to-left mirror once the containing size is known, so the
   // block-axis consistency check is meaningless here — skip it. v-lr and h-tb
   // are fully derivable at factory time and stay checked.

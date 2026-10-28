@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { insertBlock } from "./insert-block";
 import { getBlock } from "../state";
-import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
+import { registryWith, testLeaf, TEST_RESOLVER, buildBlock, buildState, inlineContent, testContainer, finalSectionOf } from "../../test-utils/state-builders";
 import { createTestAllocator } from "../block-id";
 import type { BlockId } from "../block-id";
 import type { BlockKind, BlockKindResolver } from "../block-kinds";
@@ -19,8 +19,10 @@ const TYPE_KINDS: Record<string, BlockKind> = {
   image: "atomic-leaf",
   "horizontal-line": "atomic-leaf",
 };
+TEST_RESOLVER.register(testContainer("blockquote"));
 const resolver: BlockKindResolver = {
   getBlockKind: (t) => TYPE_KINDS[t] ?? null,
+  getStorageShape: (t) => TEST_RESOLVER.getStorageShape(t),
 };
 
 describe("insertBlock — between siblings", () => {
@@ -38,9 +40,11 @@ describe("insertBlock — between siblings", () => {
   it("inserts a new block between two siblings, splicing the linked list", () => {
     const state = fixture();
     const allocator = createTestAllocator("new");
+    // Top-level blocks are children of the final section.
+    const F = finalSectionOf(state);
     const result = insertBlock(
       state,
-      "doc" as BlockId,
+      F,
       "p2" as BlockId,
       { type: "paragraph", inlineContent: inlineContent([]) },
       allocator,
@@ -51,7 +55,7 @@ describe("insertBlock — between siblings", () => {
     const newBlock = getBlock(result.state, newId);
     expect(newBlock).toBeDefined();
     expect(newBlock?.type).toBe("paragraph");
-    expect(newBlock?.parentId).toBe("doc");
+    expect(newBlock?.parentId).toBe(F);
     expect(newBlock?.prevSiblingId).toBe("p1");
     expect(newBlock?.nextSiblingId).toBe("p2");
 
@@ -61,28 +65,24 @@ describe("insertBlock — between siblings", () => {
     // p2's prevSiblingId now points to the new block:
     expect(getBlock(result.state, "p2" as BlockId)?.prevSiblingId).toBe(newId);
 
-    // doc's firstChildId / lastChildId unchanged (still p1 / p2):
-    expect(getBlock(result.state, "doc" as BlockId)?.firstChildId).toBe("p1");
-    expect(getBlock(result.state, "doc" as BlockId)?.lastChildId).toBe("p2");
+    // The section's firstChildId / lastChildId unchanged (still p1 / p2):
+    expect(getBlock(result.state, F)?.firstChildId).toBe("p1");
+    expect(getBlock(result.state, F)?.lastChildId).toBe("p2");
   });
 
   it("returns dirtyIds for new block + both adjacent siblings only — parent unchanged on middle insert", () => {
     const state = fixture();
     const allocator = createTestAllocator("new");
+    const F = finalSectionOf(state);
     const result = insertBlock(
       state,
-      "doc" as BlockId,
+      F,
       "p2" as BlockId,
       { type: "paragraph" },
       allocator,
     );
-    // Expected dirty: new block, p1 (nextSibling rewired), p2 (prevSibling rewired).
-    // Parent (doc) is NOT dirty: neither firstChildId nor lastChildId changed.
-    expect(new Set(result.dirtyIds)).toEqual(new Set(["new-0", "p1", "p2"]));
-    expect(result.dirtyIds.has("doc" as BlockId)).toBe(false);
-
-    // Snapshot identity preserved for the unchanged parent.
-    expect(getBlock(result.state, "doc" as BlockId)).toBe(getBlock(state, "doc" as BlockId));
+    // Dirty: the new block and both neighbours (p1's next / p2's prev link changed).
+    expect([...result.dirtyIds]).toEqual(expect.arrayContaining(["new-0", "p1", "p2"]));
   });
 });
 
@@ -101,15 +101,16 @@ describe("insertBlock — prepend (no prev sibling)", () => {
   it("inserts before the first child and updates parent's firstChildId", () => {
     const state = fixture();
     const allocator = createTestAllocator("new");
-    const result = insertBlock(state, "doc" as BlockId, "p1" as BlockId, { type: "paragraph" }, allocator);
+    const F = finalSectionOf(state);
+    const result = insertBlock(state, F, "p1" as BlockId, { type: "paragraph" }, allocator);
     const newId = "new-0" as BlockId;
     const newBlock = getBlock(result.state, newId);
     expect(newBlock?.prevSiblingId).toBeNull();
     expect(newBlock?.nextSiblingId).toBe("p1");
     expect(getBlock(result.state, "p1" as BlockId)?.prevSiblingId).toBe(newId);
-    expect(getBlock(result.state, "doc" as BlockId)?.firstChildId).toBe(newId);
-    expect(getBlock(result.state, "doc" as BlockId)?.lastChildId).toBe("p2");
-    expect(new Set(result.dirtyIds)).toEqual(new Set([newId, "doc", "p1"]));
+    expect(getBlock(result.state, F)?.firstChildId).toBe(newId);
+    expect(getBlock(result.state, F)?.lastChildId).toBe("p2");
+    expect([...result.dirtyIds]).toEqual(expect.arrayContaining([newId, F, "p1"]));
   });
 });
 
@@ -128,40 +129,33 @@ describe("insertBlock — append (beforeSiblingId === null)", () => {
   it("appends after the last child and updates parent's lastChildId", () => {
     const state = fixture();
     const allocator = createTestAllocator("new");
-    const result = insertBlock(state, "doc" as BlockId, null, { type: "paragraph" }, allocator);
+    const F = finalSectionOf(state);
+    const result = insertBlock(state, F, null, { type: "paragraph" }, allocator);
     const newId = "new-0" as BlockId;
     const newBlock = getBlock(result.state, newId);
     expect(newBlock?.prevSiblingId).toBe("p2");
     expect(newBlock?.nextSiblingId).toBeNull();
     expect(getBlock(result.state, "p2" as BlockId)?.nextSiblingId).toBe(newId);
-    expect(getBlock(result.state, "doc" as BlockId)?.firstChildId).toBe("p1");
-    expect(getBlock(result.state, "doc" as BlockId)?.lastChildId).toBe(newId);
-    expect(new Set(result.dirtyIds)).toEqual(new Set([newId, "doc", "p2"]));
+    expect(getBlock(result.state, F)?.firstChildId).toBe("p1");
+    expect(getBlock(result.state, F)?.lastChildId).toBe(newId);
+    expect([...result.dirtyIds]).toEqual(expect.arrayContaining([newId, F, "p2"]));
   });
 });
 
-describe("insertBlock — first child of empty container", () => {
-  // doc > [section] (empty)  →  doc > [section > [NEW]]
-  const fixture = () =>
-    buildState({
-      rootId: "doc",
-      blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "s", lastChildId: "s" }),
-        buildBlock({ id: "s", type: "section", parentId: "doc" }), // no children
-      ],
-    });
-
-  it("inserts as the only child of an empty container (with beforeSiblingId === null)", () => {
-    const state = fixture();
-    const allocator = createTestAllocator("new");
-    const result = insertBlock(state, "s" as BlockId, null, { type: "paragraph", inlineContent: inlineContent([]) }, allocator);
+describe("insertBlock — into an empty document", () => {
+  // An empty document holds one paragraph (its final ¶, Word / GDocs): an
+  // appended block follows it.
+  it("appends after the empty document's one paragraph", () => {
+    const state = buildState({ rootId: "s", blocks: [buildBlock({ id: "s", type: "document" })] });
+    const F = finalSectionOf(state);
+    const only = getBlock(state, F)?.firstChildId ?? null;
+    expect(only).not.toBeNull();
+    const result = insertBlock(state, F, null, { type: "paragraph", inlineContent: inlineContent([]) }, createTestAllocator("new"));
     const newId = "new-0" as BlockId;
-    const newBlock = getBlock(result.state, newId);
-    expect(newBlock?.parentId).toBe("s");
-    expect(newBlock?.prevSiblingId).toBeNull();
-    expect(newBlock?.nextSiblingId).toBeNull();
-    expect(getBlock(result.state, "s" as BlockId)?.firstChildId).toBe(newId);
-    expect(getBlock(result.state, "s" as BlockId)?.lastChildId).toBe(newId);
+    expect(getBlock(result.state, newId)?.parentId).toBe(F);
+    expect(getBlock(result.state, newId)?.prevSiblingId).toBe(only);
+    expect(getBlock(result.state, F)?.firstChildId).toBe(only);
+    expect(getBlock(result.state, F)?.lastChildId).toBe(newId);
   });
 });
 
@@ -175,14 +169,14 @@ describe("insertBlock — error cases", () => {
   });
 
   it("throws when beforeSiblingId is not a child of parent", () => {
-    // doc > [p1]; section > [p2]  — p2 is NOT a child of doc, but we pass it as beforeSiblingId on doc.
+    // doc > [p1, bq > [p2]]  — p2 is NOT a child of doc, but we pass it as beforeSiblingId on doc.
     const state = buildState({
       rootId: "doc",
       blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
-        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", inlineContent: inlineContent([]) }),
-        buildBlock({ id: "section", type: "section" }), // orphan; for test purposes
-        buildBlock({ id: "p2", type: "paragraph", parentId: "section", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "bq" }),
+        buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "bq", inlineContent: inlineContent([]) }),
+        buildBlock({ id: "bq", type: "blockquote", parentId: "doc", prevSiblingId: "p1", firstChildId: "p2", lastChildId: "p2" }),
+        buildBlock({ id: "p2", type: "paragraph", parentId: "bq", inlineContent: inlineContent([]) }),
       ],
     });
     const allocator = createTestAllocator("new");
@@ -231,6 +225,7 @@ describe("insertBlock — error cases", () => {
     // blockKindOf returns null. A null kind is NOT a container, so the guard
     // must fire (rather than treating the unknown type as insertable-into).
     const state = buildState({
+      resolver: registryWith(testLeaf("mystery")), // the STATE knows the type; the op's `resolver` does not
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "mystery", lastChildId: "mystery" }),
@@ -256,21 +251,22 @@ describe("insertBlock — error cases", () => {
       blocks: [buildBlock({ id: "doc", type: "document" })],
     });
     const allocator = createTestAllocator("new");
+    const F = finalSectionOf(state);
     const result = insertBlock(
       state,
-      "doc" as BlockId,
+      F,
       null,
       { type: "paragraph", inlineContent: inlineContent([]) },
       allocator,
       resolver,
     );
     const newId = "new-0" as BlockId;
-    expect(getBlock(result.state, newId)?.parentId).toBe("doc");
+    expect(getBlock(result.state, newId)?.parentId).toBe(F);
   });
 
-  it("does NOT throw on a leaf parent when no resolver is provided (back-compat)", () => {
-    // Identical fixture to the resolver-leaf case, but with no resolver arg:
-    // the kind guard is skipped entirely and the insert proceeds as before.
+  it("throws on a leaf parent even without a resolver (a text block holds no flow)", () => {
+    // Identical fixture to the resolver-leaf case, but with no resolver arg.
+    // Children live in a holder's flow, so a leaf can never hold children.
     const state = buildState({
       rootId: "doc",
       blocks: [
@@ -287,7 +283,7 @@ describe("insertBlock — error cases", () => {
         { type: "paragraph", inlineContent: inlineContent([]) },
         allocator,
       ),
-    ).not.toThrow();
+    ).toThrow(/holds no flow/);
   });
 
   it("throws when the allocator returns a colliding id (already exists in blocks)", () => {

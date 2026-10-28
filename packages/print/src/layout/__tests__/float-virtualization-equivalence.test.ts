@@ -40,6 +40,7 @@ import {
   paginationFallsBackToLegacy,
   type FloatPageMeasurer,
 } from "../measure-pass";
+import { flattenContents } from "../group-children";
 import { accumulateListCounter } from "../fit-core";
 import { createFloatEnvironment } from "../float-context";
 import { IMPLICIT_SECTION_PLAN } from "../section-plan";
@@ -77,12 +78,14 @@ function cascadeRoot(rootStyle: Style, children: readonly ElementBox[]): Element
 }
 
 /**
- * Cascade a doc root carrying a doc-wide `columnCount` METADATA override (the
- * source `resolveColumnConfig` / `hasMultiColumnRegion` read — NOT a `Style`
- * property). `cascadePass` preserves the open-schema metadata.
+ * Cascade a doc root whose final section carries a `columnCount` METADATA
+ * override (the source `resolveColumnConfig` / `hasMultiColumnRegion` read — NOT a
+ * `Style` property). `cascadePass` preserves the open-schema metadata.
  */
 function cascadeMulticolRoot(columnCount: number, children: readonly ElementBox[]): ElementBox {
-  const root = createElementBox("root", { display: "block" } as Style, children, { columnCount });
+  // Column keys live on sections: a break-less doc's FINAL section carries them.
+  const section = createElementBox("final-section", { display: "contents" } as Style, children, { blockType: "section", columnCount });
+  const root = createElementBox("root", { display: "block" } as Style, [section]);
   const cascaded = cascadePass(root);
   if (cascaded.type !== "element") throw new Error("cascadePass returned non-element");
   return cascaded;
@@ -194,7 +197,7 @@ function assertFloatEquivalent(root: ElementBox, pageConfig: PageConfig, hyphena
   const { shaper, metas, measurer } = buildHarness(root, pageConfig, hyphenator);
   const oracle = runOracle(root, shaper, pageConfig, hyphenator);
   const plan = measurePass(
-    metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children,
+    metas, pageConfig, IMPLICIT_SECTION_PLAN, flattenContents(root.children),
     undefined, undefined, undefined, measurer,
   );
 
@@ -312,7 +315,7 @@ describe("float virtualization equivalence — ordered-list + float (PR1-1)", ()
     // it contributes 0 to the counter — the floor/list ordering must survive it).
     const { metas, measurer } = buildHarness(root, pageConfig);
     const floatPlan = measurePass(
-      metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children,
+      metas, pageConfig, IMPLICIT_SECTION_PLAN, flattenContents(root.children),
       undefined, undefined, undefined, measurer,
     );
     let expectedCounter = 0;
@@ -346,7 +349,7 @@ describe("float virtualization equivalence — incremental == from-scratch (mult
     const pageConfig = PAGE;
     const beforeH = buildHarness(before, pageConfig);
     const beforePlan = measurePass(
-      beforeH.metas, pageConfig, IMPLICIT_SECTION_PLAN, before.children,
+      beforeH.metas, pageConfig, IMPLICIT_SECTION_PLAN, flattenContents(before.children),
       undefined, undefined, undefined, beforeH.measurer,
     );
 
@@ -358,11 +361,11 @@ describe("float virtualization equivalence — incremental == from-scratch (mult
     const editedH = buildHarness(edited, pageConfig);
 
     const fromScratch = measurePass(
-      editedH.metas, pageConfig, IMPLICIT_SECTION_PLAN, edited.children,
+      editedH.metas, pageConfig, IMPLICIT_SECTION_PLAN, flattenContents(edited.children),
       undefined, undefined, undefined, editedH.measurer,
     );
     const incremental = measurePass(
-      editedH.metas, pageConfig, IMPLICIT_SECTION_PLAN, edited.children,
+      editedH.metas, pageConfig, IMPLICIT_SECTION_PLAN, flattenContents(edited.children),
       beforePlan, undefined, undefined, editedH.measurer,
     );
 
@@ -408,7 +411,7 @@ describe("float virtualization equivalence — per-page origin (PR2-B)", () => {
       return inner(a);
     };
     measurePass(
-      metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children,
+      metas, pageConfig, IMPLICIT_SECTION_PLAN, flattenContents(root.children),
       undefined, undefined, undefined, spyMeasurer,
     );
 
@@ -539,7 +542,7 @@ function buildPushingTree(root: ElementBox, pageConfig: PageConfig) {
   const metas = buildBlockFitMetas(root, shaper, undefined, pageContentInlineSize);
   const measurer = makePushingMeasurer(root, shaper, contentCtx, metas);
   const plan = measurePass(
-    metas, pageConfig, IMPLICIT_SECTION_PLAN, root.children,
+    metas, pageConfig, IMPLICIT_SECTION_PLAN, flattenContents(root.children),
     undefined, undefined, undefined, measurer,
   );
   const tree = makeVirtualLayoutTree(

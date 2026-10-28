@@ -59,7 +59,13 @@ full current-vs-target audit.
 
 ## Getting started
 
-Not yet published to npm — run it from source:
+Install from npm (ESM only, type declarations included; works in Vite and Next.js 15 App Router):
+
+```bash
+npm install @taleweaver/core @taleweaver/digital   # or @taleweaver/print / @taleweaver/react
+```
+
+Or run it from source:
 
 ```bash
 git clone https://github.com/yuzhenmi/taleweaver
@@ -92,6 +98,19 @@ dispatch({ type: "INSERT_TEXT", text: "Hello" });
 dispatch({ type: "TOGGLE_STYLE", style: "bold" });
 dispatch({ type: "UNDO" });
 ```
+
+### Versioning
+
+All `@taleweaver/*` packages are released in lockstep with pre-1.0 semver: a breaking change
+bumps the minor (`0.1.x` → `0.2.0`), everything else bumps the patch. To release, bump every
+package's `version` AND every intra-repo `@taleweaver/*` range to `^<version>` in one commit
+on `main`, then push a `v<version>` tag; the `Release` workflow verifies the tag matches
+(`scripts/check-release.mjs`), typechecks, tests, builds and publishes. Pre-release tags
+(`v0.2.0-rc.1`) publish under the `next` dist-tag.
+
+Packages publish a bundled ESM `dist/index.js` plus `.d.ts` declarations. Inside the
+monorepo, tsc resolves sibling packages to their `src/` via the `@taleweaver/source` export
+condition and vite/vitest via `workspace-aliases.ts`, so no prebuild is needed to develop.
 
 ## Architecture
 

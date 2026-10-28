@@ -17,8 +17,7 @@ export interface LocatedColumn {
  * each box's physical `x` / `y`; pages reset the origin to `(0, 0)` and gate on
  * `pageIndex`).
  *
- * This is the multi-column analogue of `locateTableCellAtPoint` (multi-column
- * slice 3a). The hit-test line PICKER is inline-axis-UNAWARE — it picks the first
+ * This is the multi-column analogue of `locateTableCellAtPoint`. The hit-test line PICKER is inline-axis-UNAWARE — it picks the first
  * line whose BLOCK-axis band contains the click, ignoring the inline (X) axis
  * until the in-line leaf pick. For N side-by-side columns at the same Y a click in
  * column B (right) would resolve into column A's (left) line. So hit-test FIRST

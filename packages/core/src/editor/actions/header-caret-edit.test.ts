@@ -112,6 +112,7 @@ function buildEditor(state: State, caret: { blockId: BlockId; offset: number }):
     selection: createSpan(cursor, cursor),
     history: createHistory(state),
     lastDirtyIds: null,
+    lastChange: null,
     containerWidth: config.containerWidth,
     targetX: null,
   };
@@ -153,12 +154,12 @@ describe("C.2c T7d — mid-header DELETE_BACKWARD reaches the op", () => {
     const editor = buildEditor(buildStateWithHeaderBody(), { blockId: HDR_P2, offset: 0 });
     const next = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
 
-    // The two header paragraphs merged: "alpha" + "beta" = "alphabeta" in c1.
-    expect(headerText(next.state, HDR_P1)).toBe("alphabeta");
-    // c2 was consumed by the merge.
-    expect(getTemplateContent(next.state, HDR_P2)).toBeNull();
+    // The two header paragraphs merged: "alpha" + "beta" = "alphabeta"; ¶c1 goes and
+    // c2 survives.
+    expect(headerText(next.state, HDR_P2)).toBe("alphabeta");
+    expect(getTemplateContent(next.state, HDR_P1)).toBeNull();
     // Caret sits at the join point (end of original "alpha").
-    expect(next.selection.focus.blockId).toBe(HDR_P1);
+    expect(next.selection.focus.blockId).toBe(HDR_P2);
     expect(next.selection.focus.offset).toBe(5);
     // Main body paragraph is untouched (no spurious section op).
     expect(joinText(getBlock(next.state, BODY_P)?.inlineContent?.items)).toBe("body text");
@@ -183,9 +184,10 @@ describe("C.2c T7d — mid-header DELETE_FORWARD reaches the op", () => {
     const editor = buildEditor(buildStateWithHeaderBody(), { blockId: HDR_P1, offset: 5 });
     const next = reduceEditor(editor, { type: "DELETE_FORWARD" }, config);
 
-    expect(headerText(next.state, HDR_P1)).toBe("alphabeta");
-    expect(getTemplateContent(next.state, HDR_P2)).toBeNull();
-    expect(next.selection.focus.blockId).toBe(HDR_P1);
+    // ¶c1 goes; c2 survives.
+    expect(headerText(next.state, HDR_P2)).toBe("alphabeta");
+    expect(getTemplateContent(next.state, HDR_P1)).toBeNull();
+    expect(next.selection.focus.blockId).toBe(HDR_P2);
     expect(next.selection.focus.offset).toBe(5);
     // Main body untouched.
     expect(joinText(getBlock(next.state, BODY_P)?.inlineContent?.items)).toBe("body text");
@@ -193,26 +195,26 @@ describe("C.2c T7d — mid-header DELETE_FORWARD reaches the op", () => {
 });
 
 describe("C.2c T7d — mid-header SPLIT_NODE (Enter) reaches the op", () => {
-  it("Enter mid-header-paragraph splits into two header paragraphs in templateContents; caret moves into the new one", () => {
+  it("Enter mid-header-paragraph splits into two header paragraphs in templateContents; caret moves to the tail", () => {
     const editor = buildEditor(buildStateWithHeaderBody(), { blockId: HDR_P1, offset: 3 });
     // "alpha", caret after "alp" → split into "alp" | "ha".
     const next = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
 
-    // Original block keeps id + left half.
-    expect(headerText(next.state, HDR_P1)).toBe("alp");
-    // A NEW block was created in templateContents with the right half.
-    const newId = getTemplateContent(next.state, HDR_P1)?.nextSiblingId;
+    // the original block keeps its id + the right half (and its ¶);
+    // a NEW head block in templateContents takes the left half.
+    expect(headerText(next.state, HDR_P1)).toBe("ha");
+    const newId = getTemplateContent(next.state, HDR_P1)?.prevSiblingId;
     expect(newId).not.toBeNull();
     expect(newId).toBeDefined();
     if (newId === null || newId === undefined) return;
     // The new block lives in templateContents, NOT the main map.
     expect(getTemplateContent(next.state, newId)).not.toBeNull();
     expect(getBlock(next.state, newId)).toBeNull();
-    expect(headerText(next.state, newId)).toBe("ha");
+    expect(headerText(next.state, newId)).toBe("alp");
     // The new header paragraph's parent is the header root.
     expect(getTemplateContent(next.state, newId)?.parentId).toBe(HDR_ROOT);
-    // Caret moved to the start of the new paragraph.
-    expect(next.selection.focus.blockId).toBe(newId);
+    // Caret moved to the start of the tail paragraph.
+    expect(next.selection.focus.blockId).toBe(HDR_P1);
     expect(next.selection.focus.offset).toBe(0);
   });
 });

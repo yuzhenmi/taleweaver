@@ -1,29 +1,34 @@
 import { createPosition, createSpan, iterateLeafBlocksInDocumentOrder } from "../../state";
 import type { State, BlockId, Selection } from "../../state";
 import type { EditorState, EditorConfig } from "../editor-state";
+import { recordChange } from "../editor-state";
 import { cascadePass, cascadePassIncremental } from "../../cascade";
 import type { ElementBox, RenderNode } from "../../render/render-node";
 import type { RenderOutput } from "../../render/render";
 
 /**
- * Phase 0b: core is geometry-free. `rebuildTrees` no longer runs the
+ * Core is geometry-free. `rebuildTrees` no longer runs the
  * render → cascade → layout pipeline (that lives in the print backend's
  * layout-driver now). It only RECORDS what changed — the set of dirty block
  * ids — onto `EditorState.lastDirtyIds`, the per-dispatch incremental hint the
  * backend consumes to rebuild layout incrementally (reusing unchanged subtrees
  * by reference). `dirtyIds === undefined` records `null` (a full rebuild).
  *
- * `_oldEditor` / `_config` are retained in the signature (every mutating
- * handler calls `rebuildTrees(newEditor, oldEditor, config, dirtyIds)`) but are
- * no longer read — core carries no prior geometry to thread.
+ * `oldEditor` is the handler's input (the pre-action editor): its `state` is what
+ * `lastChange.from` records, so position mapping knows which State `dirtyIds` is relative
+ * to. `_config` is retained in the signature but no longer read.
  */
 export function rebuildTrees(
   newEditor: EditorState,
-  _oldEditor: EditorState,
+  oldEditor: EditorState,
   _config: EditorConfig,
   dirtyIds?: ReadonlySet<BlockId>,
 ): EditorState {
-  return { ...newEditor, lastDirtyIds: dirtyIds ?? null };
+  return {
+    ...newEditor,
+    lastDirtyIds: dirtyIds ?? null,
+    lastChange: dirtyIds !== undefined ? recordChange(oldEditor.lastChange, oldEditor.state, dirtyIds) : null,
+  };
 }
 
 /**
@@ -35,7 +40,7 @@ export function rebuildTrees(
  * **Cascade ALL bodies** (not just plan-referenced ones) — simplest, and
  * removes any dependency on the section-plan header/footer threading.
  *
- * **Incremental reuse (R-D-style), keyed off render-node identity.** The
+ * **Incremental reuse, keyed off render-node identity.** The
  * incremental renderer (`renderIncremental`) already returns the SAME body
  * RenderNode by reference when nothing in that body's subtree changed, and a
  * FRESH node when any descendant changed (its invalidation set covers
@@ -71,9 +76,9 @@ function cascadeTemplateContents(
 /**
  * Cascade every footnote body in `rendered.embedContents`, the exact parallel
  * of `cascadeTemplateContents` (which cascades header/footer bodies). Same
- * full + incremental semantics; see `cascadeBodies` for the shared logic. FN-1
- * stores the result on `EditorState.cascadedEmbedContents`; the footnote layout
- * pass (`resolveFootnotes`, FN-4) consumes it.
+ * full + incremental semantics; see `cascadeBodies` for the shared logic. The result is
+ * stored on `EditorState.cascadedEmbedContents`; the footnote layout
+ * pass (`resolveFootnotes`) consumes it.
  */
 function cascadeEmbedContents(
   rendered: RenderOutput,
@@ -152,7 +157,7 @@ export function findFirstContentBlock(state: State): BlockId | null {
   // leaf, so filtering to leaves first finds the identical first hit). Replaces
   // an unbounded `firstLeafBlock` + `while (cursor = nextBlockInDocOrder(...))`
   // sweep that could spin forever on a malformed two-parents topology — the
-  // same #510 footgun fixed in the render-pass doc-order queries.
+  // same footgun fixed in the render-pass doc-order queries.
   for (const block of iterateLeafBlocksInDocumentOrder(state)) {
     if (block.inlineContent !== null) return block.id;
   }
@@ -182,7 +187,7 @@ export function initialSelectionForState(state: State): Selection {
  * document order, so the LAST one it yields is the answer. (A full forward walk
  * rather than a backward early-exit, but this runs only on Select-All /
  * boundary-expand / document-load, never per-keystroke, and trades a negligible
- * walk for immunity to the #510 malformed-topology hang.)
+ * walk for immunity to the malformed-topology hang.)
  */
 export function findLastContentBlock(state: State): BlockId | null {
   let last: BlockId | null = null;

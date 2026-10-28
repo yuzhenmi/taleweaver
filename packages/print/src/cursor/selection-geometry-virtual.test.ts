@@ -8,6 +8,7 @@ import { createInitialEditorState, reduceEditor, createDefaultComponentRegistry,
 import { resolvePixelPosition, computeSelectionRects, computeSelectionRectsForPage, layoutTree } from "../index";
 import type { VirtualLayoutTree } from "../layout/virtual-layout-tree";
 import { positionTreeForTest } from "../test-utils/position-tree";
+import { finalSection } from "../test-utils/final-section"; // body blocks live in the final section
 
 // Phase 0b: `measurer` left core's `EditorConfig` for the backend's layout
 // driver. Tests build the layout tree directly via core's pipeline (what the
@@ -44,7 +45,7 @@ function buildPasted(config: EditorConfig, n: number): EditorState {
 }
 
 function nthBlockId(editor: EditorState, n: number): BlockId {
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = finalSection(editor.state);
   if (root === null || root.firstChildId === null) throw new Error("no blocks");
   let id: BlockId | null = root.firstChildId;
   for (let i = 0; i < n && id !== null; i++) {

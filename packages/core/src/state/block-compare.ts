@@ -1,6 +1,6 @@
 import type { BlockId } from "./block-id";
 import type { Block } from "./block";
-import { resolveBlock, blockCount, type State } from "./state";
+import { resolveBlock, blockCount, createWalkGuard, type State } from "./state";
 import type { Position, Span } from "./block-position";
 import { ancestorChain } from "./block-traversal";
 
@@ -141,11 +141,10 @@ export function selectionContextOf(state: State, blockId: BlockId): BlockId | nu
   if (cursor === null) return null;
   // Cycle-detection bound: see nextBlockInDocOrder in block-traversal.ts
   // for the rationale on why this uses the all-tree block count.
-  const maxSteps = blockCount(state) + 1;
-  let steps = 0;
+  const guard = createWalkGuard(state);
   while (cursor.parentId) {
-    if (++steps > maxSteps) {
-      throw new Error(`selectionContextOf: cycle detected in block tree (visited >${maxSteps} blocks)`);
+    if (guard.step()) {
+      throw new Error(`selectionContextOf: cycle detected in block tree (visited >${blockCount(state) + 1} blocks)`);
     }
     const parent: Block | null = resolveBlock(state, cursor.parentId)?.block ?? null;
     if (parent === null) break;

@@ -3,6 +3,7 @@ import { isCollapsed } from "../../cursor/selection";
 import { INLINE_FORMAT_ATTR_KEYS } from "../inline-format-keys";
 import { applyAttrsOrSuggest } from "./suggestion-mode";
 import { rebuildTrees } from "./helpers";
+import { storeTypingAttrs } from "../typing-attrs";
 
 /**
  * Clear all inline (character-level) formatting from the current selection —
@@ -19,27 +20,28 @@ import { rebuildTrees } from "./helpers";
  *
  * Mirrors set-text-color.ts exactly, but instead of setting one attr it sets
  * EVERY inline-format key to `undefined` (which `mergeAttrs` interprets as a
- * removal). Collapsed selection short-circuits to a no-op (nothing to clear at
- * a single cursor position); the T7 state-equality short-circuit also covers an
+ * removal). At a collapsed caret the next typed text is made unformatted
+ * (pending typing attrs, `storeTypingAttrs`); the state-equality short-circuit also covers an
  * already-clean selection (no attrs removed → no state change → no history
  * entry). The selection is preserved unchanged; dirtyIds threaded
- * through to the incremental render pipeline (per R-D.3).
+ * through to the incremental render pipeline.
  */
 export function handleClearFormatting(
   editor: EditorState,
   config: EditorConfig,
 ): EditorState {
   const { selection } = editor;
-  if (isCollapsed(selection)) return editor;
-
   // One object mapping every inline-format key to `undefined` — a single
   // applyAttrsOrSuggest call removes them all atomically (one undo step) in
   // direct mode, or suggests their removal as ONE formatting record (the
-  // clear-all delta is a valid `proposedAttrs`) in suggesting mode.
+  // clear-all delta is a valid `proposedAttrs`) in suggesting mode. Only
+  // FORMATTING keys: host marks (mentions, …) are never cleared.
   const incoming: Record<string, undefined> = {};
   for (const key of INLINE_FORMAT_ATTR_KEYS) {
     incoming[key] = undefined;
   }
+  // Collapsed caret: the next typed text is unformatted (typing attrs).
+  if (isCollapsed(selection)) return storeTypingAttrs(editor, incoming);
   const result = applyAttrsOrSuggest(editor.state, selection, incoming, config);
   // No attr was actually present to remove → no state change → no-op
   // (also short-circuits an already-clean selection, no history entry).

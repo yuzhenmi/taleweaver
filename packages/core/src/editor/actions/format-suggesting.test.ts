@@ -15,6 +15,7 @@
  * Plus a guard-lock: CLEAR_FORMATTING in DIRECT mode must NOT strip a
  * suggestion-provenance id (`INLINE_FORMAT_ATTR_KEYS` is a curated allow-list).
  */
+import { finalSectionOf } from "../../test-utils/state-builders";
 import { describe, it, expect } from "vitest";
 import {
   config as directConfig,
@@ -40,10 +41,11 @@ import {
 } from "../../state";
 import type { EditorAction } from "../editor-action";
 import { INLINE_FORMAT_ATTR_KEYS } from "../inline-format-keys";
+import { formattingSuggestionIds } from "../../state";
 
 /** The first body paragraph id under the document root. */
 function bodyParaId(editor: EditorState): BlockId {
-  const root = getBlock(editor.state, editor.state.rootId);
+  const root = getBlock(editor.state, finalSectionOf(editor.state));
   const id = root?.firstChildId;
   if (id === undefined || id === null) {
     throw new Error("document root has no first child paragraph");
@@ -163,7 +165,7 @@ describe("inline-format handlers — suggesting mode (slice 4d-format)", () => {
       expect(runs.length).toBeGreaterThan(0);
       // (a) every selected run carries the provenance id; (c) live attr unchanged.
       for (const run of runs) {
-        expect(run.attrs.formattingSuggestionId).toBeDefined();
+        expect(formattingSuggestionIds(run.attrs)[0]).toBeDefined();
         expect(run.attrs[c.liveKey]).toBeUndefined();
       }
 
@@ -179,7 +181,7 @@ describe("inline-format handlers — suggesting mode (slice 4d-format)", () => {
       expect(Object.keys(nth(suggestions, 0, "suggestion").proposedAttrs ?? {}).sort()).toEqual(
         Object.keys(c.proposed).sort(),
       );
-      expect(nth(runs, 0, "run").attrs.formattingSuggestionId).toBe(nth(suggestions, 0, "suggestion").id);
+      expect(formattingSuggestionIds(nth(runs, 0, "run").attrs)[0]).toBe(nth(suggestions, 0, "suggestion").id);
     });
 
     it(`${c.name}: direct mode applies the delta live with NO suggestion`, () => {
@@ -195,7 +197,7 @@ describe("inline-format handlers — suggesting mode (slice 4d-format)", () => {
         if (proposedEntry === undefined) throw new Error("expected a proposed attr entry");
         for (const run of textItems(next, paraId)) {
           expect(run.attrs[proposedEntry[0]]).toEqual(proposedEntry[1]);
-          expect(run.attrs.formattingSuggestionId).toBeUndefined();
+          expect(formattingSuggestionIds(run.attrs)[0]).toBeUndefined();
         }
       }
     });
@@ -207,7 +209,7 @@ describe("inline-format handlers — suggesting mode (slice 4d-format)", () => {
     // direct-mode CLEAR_FORMATTING over the same selection.
     const { editor, paraId } = seededSelection(suggestingConfig);
     const suggested = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" }, suggestingConfig);
-    const provenanceId = nth(textItems(suggested, paraId), 0, "run").attrs.formattingSuggestionId;
+    const provenanceId = formattingSuggestionIds(nth(textItems(suggested, paraId), 0, "run").attrs)[0];
     expect(provenanceId).toBeDefined();
 
     const cleared = reduceEditor(
@@ -218,7 +220,7 @@ describe("inline-format handlers — suggesting mode (slice 4d-format)", () => {
 
     // The provenance id SURVIVES the clear — it is not an inline-format key.
     for (const run of textItems(cleared, paraId)) {
-      expect(run.attrs.formattingSuggestionId).toBe(provenanceId);
+      expect(formattingSuggestionIds(run.attrs)[0]).toBe(provenanceId);
     }
   });
 
@@ -240,7 +242,7 @@ describe("inline-format handlers — suggesting mode (slice 4d-format)", () => {
     );
     for (const run of runs) {
       expect(run.attrs.bold).toBe(true);
-      expect(run.attrs.formattingSuggestionId).toBeUndefined();
+      expect(formattingSuggestionIds(run.attrs)[0]).toBeUndefined();
     }
     expect(getSuggestions(accepted.state)).toHaveLength(0);
   });

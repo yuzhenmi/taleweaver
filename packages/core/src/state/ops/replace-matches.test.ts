@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { planReplaceMatches, replaceAllMatches } from "./replace-matches";
+import { planReplaceMatches, replaceAllMatches, applyReplaceAllPlan, type ReplaceAllPlan } from "./replace-matches";
 import { getBlock, getEmbedContent } from "../state";
 import { buildBlock, buildState, text, embed, inlineContent } from "../../test-utils/state-builders";
 import type { BlockId } from "../block-id";
@@ -28,6 +28,11 @@ function itemsOf(state: ReturnType<typeof oneParagraph>, id: string) {
   return getBlock(state, bid(id))?.inlineContent?.items;
 }
 
+/** Block `id`'s items after applying `plan` (the plan is offset writes, not content). */
+function appliedItems(state: ReturnType<typeof oneParagraph>, plan: ReplaceAllPlan, id = "p") {
+  return itemsOf(applyReplaceAllPlan(state, plan).state, id);
+}
+
 describe("planReplaceMatches — pure planner", () => {
   it("replaces a single match in one block", () => {
     const state = oneParagraph([text("hello world")]);
@@ -38,7 +43,7 @@ describe("planReplaceMatches — pure planner", () => {
     expect(plan.blockWrites).toHaveLength(1);
     expect(nth(plan.blockWrites, 0, "write").blockId).toBe(bid("p"));
     expect(nth(plan.blockWrites, 0, "write").kind).toBe("block");
-    expect(nth(plan.blockWrites, 0, "write").items).toEqual([
+    expect(appliedItems(state, plan)).toEqual([
       { kind: "text", text: "hello earth", attrs: {} },
     ]);
     expect(plan.embedContentIdsToDelete.size).toBe(0);
@@ -58,7 +63,7 @@ describe("planReplaceMatches — pure planner", () => {
 
     expect(plan.blockWrites).toHaveLength(1);
     // Both occurrences replaced: "XYZW cd XYZW".
-    expect(nth(plan.blockWrites, 0, "write").items).toEqual([
+    expect(appliedItems(state, plan)).toEqual([
       { kind: "text", text: "XYZW cd XYZW", attrs: {} },
     ]);
   });
@@ -80,9 +85,8 @@ describe("planReplaceMatches — pure planner", () => {
     const plan = planReplaceMatches(state, matches, "QUX");
 
     expect(plan.blockWrites).toHaveLength(2);
-    const byId = new Map(plan.blockWrites.map((w) => [w.blockId, w.items]));
-    expect(byId.get(bid("p1"))).toEqual([{ kind: "text", text: "foo QUX", attrs: {} }]);
-    expect(byId.get(bid("p2"))).toEqual([{ kind: "text", text: "QUX baz", attrs: {} }]);
+    expect(appliedItems(state, plan, "p1")).toEqual([{ kind: "text", text: "foo QUX", attrs: {} }]);
+    expect(appliedItems(state, plan, "p2")).toEqual([{ kind: "text", text: "QUX baz", attrs: {} }]);
   });
 
   it("empty replacement deletes the matched range", () => {
@@ -90,7 +94,7 @@ describe("planReplaceMatches — pure planner", () => {
     const matches: TextMatch[] = [{ blockId: bid("p"), start: 5, end: 11 }]; // " world"
     const plan = planReplaceMatches(state, matches, "");
 
-    expect(nth(plan.blockWrites, 0, "write").items).toEqual([{ kind: "text", text: "hello", attrs: {} }]);
+    expect(appliedItems(state, plan)).toEqual([{ kind: "text", text: "hello", attrs: {} }]);
   });
 
   it("replacement inherits the formatting of the run containing match.start", () => {
@@ -101,13 +105,13 @@ describe("planReplaceMatches — pure planner", () => {
     const matches: TextMatch[] = [{ blockId: bid("p"), start: 4, end: 7 }];
     const plan = planReplaceMatches(state, matches, "qux");
 
-    expect(nth(plan.blockWrites, 0, "write").items).toEqual([
+    expect(appliedItems(state, plan)).toEqual([
       { kind: "text", text: "foo ", attrs: { bold: true } },
       { kind: "text", text: "qux", attrs: { italic: true } },
     ]);
   });
 
-  it("replaces a match that spans a RUN BOUNDARY mid-word (two-split spliceRun composition)", () => {
+  it("replaces a match that spans a RUN BOUNDARY mid-word (delete + insert across the boundary)", () => {
     // [text("ab", {bold}), text("cd", {italic})] — offsets a=0,b=1,c=2,d=3.
     // Replace [1, 3) ("b" + "c", spanning the bold→italic boundary) with "XY".
     // attrs come from the run at offset 1 (inside the bold "ab" run) → bold.
@@ -119,7 +123,7 @@ describe("planReplaceMatches — pure planner", () => {
     const matches: TextMatch[] = [{ blockId: bid("p"), start: 1, end: 3 }];
     const plan = planReplaceMatches(state, matches, "XY");
 
-    expect(nth(plan.blockWrites, 0, "write").items).toEqual([
+    expect(appliedItems(state, plan)).toEqual([
       { kind: "text", text: "aXY", attrs: { bold: true } },
       { kind: "text", text: "d", attrs: { italic: true } },
     ]);
@@ -130,7 +134,7 @@ describe("planReplaceMatches — pure planner", () => {
     const state = oneParagraph([text("aXa")]);
     const matches: TextMatch[] = [{ blockId: bid("p"), start: 1, end: 2 }];
     const plan = planReplaceMatches(state, matches, "");
-    expect(nth(plan.blockWrites, 0, "write").items).toEqual([{ kind: "text", text: "aa", attrs: {} }]);
+    expect(appliedItems(state, plan)).toEqual([{ kind: "text", text: "aa", attrs: {} }]);
   });
 
   it("collects embed-content subtree ids when a removed slice drops a contentBlockId embed", () => {
@@ -160,7 +164,7 @@ describe("planReplaceMatches — pure planner", () => {
 
     expect(plan.embedContentIdsToDelete.has(bid("fnBody"))).toBe(true);
     // Surviving inline content: "a" + "cd" → merged "acd".
-    expect(nth(plan.blockWrites, 0, "write").items).toEqual([{ kind: "text", text: "acd", attrs: {} }]);
+    expect(appliedItems(state, plan)).toEqual([{ kind: "text", text: "acd", attrs: {} }]);
   });
 
   it("attrs fall back to {} when the match starts exactly on an embed item", () => {
@@ -192,9 +196,8 @@ describe("planReplaceMatches — pure planner", () => {
     const plan = planReplaceMatches(state, matches, "Z");
 
     // The replacement text item carries {} (NOT the bold/italic neighbours).
-    const replacementItem = nth(plan.blockWrites, 0, "write").items.find(
-      (it) => it.kind === "text" && it.text === "Z",
-    );
+    expect(nth(plan.blockWrites, 0, "write").replacements[0]?.attrs).toEqual({});
+    const replacementItem = appliedItems(state, plan)?.find((it) => it.kind === "text" && it.text === "Z");
     expect(replacementItem?.attrs).toEqual({});
   });
 
@@ -236,7 +239,7 @@ describe("planReplaceMatches — pure planner", () => {
     // running first.
     expect(plan.embedContentIdsToDelete.has(bid("fnBody"))).toBe(true);
     // Surviving content: "a" + "cd " (the embed + "b" gone, "ef" gone) → "acd ".
-    expect(nth(plan.blockWrites, 0, "write").items).toEqual([{ kind: "text", text: "acd ", attrs: {} }]);
+    expect(appliedItems(state, plan)).toEqual([{ kind: "text", text: "acd ", attrs: {} }]);
   });
 
   it("asserts matches within a block are ascending and non-overlapping", () => {

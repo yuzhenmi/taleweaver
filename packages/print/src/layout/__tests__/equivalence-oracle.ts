@@ -8,9 +8,8 @@
 // ground truth EXACTLY. Real layout is ground truth: if the pure fit-core (or the
 // VL float fast-path's `floatPageMeasurer`) diverges, the test fails.
 //
-// Extracted from `measure-pass-equivalence.test.ts` (VL float fast-path Task 6
-// PR1-5) so BOTH the no-float measure equivalence test AND the float
-// virtualization equivalence test share the identical oracle.
+// Extracted from `measure-pass-equivalence.test.ts` so BOTH the no-float measure equivalence
+// test AND the float virtualization equivalence test share the identical oracle.
 
 import { layoutBlock } from "../bfc";
 import { makeRootContext } from "../layout-context";

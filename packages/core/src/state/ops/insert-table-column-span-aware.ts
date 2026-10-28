@@ -3,8 +3,8 @@ import type { State, OperationResult } from "../state";
 import { applyOperation, getBlock } from "../state";
 import type { BlockId, IdAllocator } from "../block-id";
 import type { ReadonlyAttrs } from "../attrs";
-import { getBlocksMap, getYBlock, requireInTransaction } from "../yjs-doc";
-import { buildYBlock } from "../y-block";
+import { requireInTransaction } from "../yjs-doc";
+import { insertColumnEntry, liveColumns, createCell, freshColumnId } from "../table-storage";
 import { assertNoIdCollision } from "../id-collision-check";
 import { setBlockAttrsInTx } from "./set-block-attrs";
 import { spliceColumnWidth, isColumnWidths } from "../table-column-widths";
@@ -14,7 +14,7 @@ import type { ColumnPosition } from "./insert-table-column";
 
 /**
  * Pre-computed mutation plan for `insertTableColumnSpanAwareInTx`. Everything is
- * read from the PRE-mutation occupancy grid (the `computeReparentWrites` discipline).
+ * read from the PRE-mutation occupancy grid.
  */
 export interface InsertTableColumnSpanAwarePlan {
   readonly tableId: BlockId;
@@ -32,10 +32,12 @@ export interface InsertTableColumnSpanAwarePlan {
   /** Table attrs with `columnWidths` spliced (a new column raises the count), or null
    *  for an auto-layout table (no `columnWidths` attr → no change). */
   readonly newTableAttrs: ReadonlyAttrs | null;
+  /** Grid column index the new column takes. */
+  readonly targetCol: number;
 }
 
 /**
- * Span-aware INSERT_TABLE_COLUMN (P15b / D5): insert a column left/right of the
+ * Span-aware INSERT_TABLE_COLUMN: insert a column left/right of the
  * caret's cell on a well-formed SPANNED table, as one atomic transaction. A cell
  * whose horizontal span CROSSES the insertion boundary grows its `colSpan` by 1
  * (now covering the new column); new empty 1×1 cells are created only in the grid
@@ -44,7 +46,7 @@ export interface InsertTableColumnSpanAwarePlan {
  * transaction (one undo reverts cells + widths).
  *
  * Caller routes here only for a SPANNED, non-ragged table (1×1 tables use the
- * byte-identical P15a `insertTableColumn`). NO-OP (same `state`) when the grid
+ * byte-identical plain `insertTableColumn`). NO-OP (same `state`) when the grid
  * can't be built. MAIN-TREE ONLY.
  */
 export function insertTableColumnSpanAware(
@@ -134,7 +136,7 @@ export function planInsertTableColumnSpanAware(
       ? { ...table.attrs, columnWidths: spliceColumnWidth(cw, gc) }
       : null;
 
-  return { tableId: ctx.tableId, newCells, crossingBumps, newTableAttrs };
+  return { tableId: ctx.tableId, newCells, crossingBumps, newTableAttrs, targetCol: gc };
 }
 
 /**
@@ -144,58 +146,16 @@ export function planInsertTableColumnSpanAware(
  */
 export function insertTableColumnSpanAwareInTx(doc: Y.Doc, plan: InsertTableColumnSpanAwarePlan): void {
   requireInTransaction(doc, "insertTableColumnSpanAware");
-
-  const blocksMap = getBlocksMap(doc);
-  for (const nc of plan.newCells) {
-    assertNoIdCollision(doc, nc.cellId, "insertTableColumnSpanAware");
-    assertNoIdCollision(doc, nc.paragraphId, "insertTableColumnSpanAware");
+  for (const r of plan.newCells) {
+    assertNoIdCollision(doc, r.cellId, "insertTableColumnSpanAware");
+    assertNoIdCollision(doc, r.paragraphId, "insertTableColumnSpanAware");
   }
-
-  for (const bump of plan.crossingBumps) {
-    setBlockAttrsInTx(doc, bump.cellId, bump.newAttrs, "insertTableColumnSpanAware");
-  }
-
-  for (const nc of plan.newCells) {
-    blocksMap.set(
-      nc.cellId,
-      buildYBlock({
-        type: "table-cell",
-        attrs: {},
-        parentId: nc.rowId,
-        prevSiblingId: nc.prevCellId,
-        nextSiblingId: nc.nextCellId,
-        firstChildId: nc.paragraphId,
-        lastChildId: nc.paragraphId,
-        inlineContent: null,
-      }),
-    );
-    blocksMap.set(
-      nc.paragraphId,
-      buildYBlock({
-        type: "paragraph",
-        attrs: {},
-        parentId: nc.cellId,
-        prevSiblingId: null,
-        nextSiblingId: null,
-        firstChildId: null,
-        lastChildId: null,
-        inlineContent: { items: [] },
-      }),
-    );
-
-    if (nc.prevCellId !== null) {
-      getYBlock(doc, nc.prevCellId, "insertTableColumnSpanAware").set("nextSiblingId", nc.cellId);
-    }
-    if (nc.nextCellId !== null) {
-      getYBlock(doc, nc.nextCellId, "insertTableColumnSpanAware").set("prevSiblingId", nc.cellId);
-    }
-    if (nc.prevCellId === null || nc.nextCellId === null) {
-      const yRow = getYBlock(doc, nc.rowId, "insertTableColumnSpanAware");
-      if (nc.prevCellId === null) yRow.set("firstChildId", nc.cellId);
-      if (nc.nextCellId === null) yRow.set("lastChildId", nc.cellId);
-    }
-  }
-
+  // A new column id at grid position `targetCol`; spans crossing it cover it
+  // automatically (id ranges). Rows left uncovered get a fresh cell.
+  const cols = liveColumns(doc, plan.tableId);
+  const colId = freshColumnId();
+  insertColumnEntry(doc, plan.tableId, colId, plan.targetCol === 0 ? null : (cols[plan.targetCol - 1] ?? null));
+  for (const r of plan.newCells) createCell(doc, r.rowId, colId, r.cellId, r.paragraphId);
   if (plan.newTableAttrs !== null) {
     setBlockAttrsInTx(doc, plan.tableId, plan.newTableAttrs, "insertTableColumnSpanAware");
   }

@@ -3,7 +3,7 @@
  * as a translucent highlight band UNDER the selection tint and UNDER the text.
  *
  * Two layers of coverage:
- *  1. RENDERER (paintCanvas/paintPage): pass `MatchHighlightRect[]` directly and
+ *  1. RENDERER (paintCanvas/paintPage): pass `TestBand[]` directly and
  *     pin the paint ORDER (match highlight fillRect < selection fillRect < glyph
  *     fillText), the COLOURS (yellow all / orange active; inactive painted before
  *     active), and the COUNTS (N matches → N bands; multi-rect for multi-line).
@@ -14,17 +14,15 @@
  * Mirrors selection-composite-paint.test.ts's mock-canvas op-recording pattern.
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
-import {
-  paintCanvas,
-  paintPage,
-  MATCH_HIGHLIGHT_FILL,
-  ACTIVE_MATCH_HIGHLIGHT_FILL,
-  createEditorController,
-  type MatchHighlightRect,
-} from "./index";
+import { paintCanvas, paintPage, createEditorController } from "./index";
+import { findBand, type TestBand } from "./test-utils/highlight-bands";
 import { createPaintCache } from "./paint-cache";
 import type { LayoutBox, SelectionRect } from "./index";
 import * as core from "@taleweaver/core";
+import { finalSection } from "./test-utils/final-section"; // body blocks live in the final section
+
+const MATCH_HIGHLIGHT_FILL = core.FIND_HIGHLIGHT_FILL;
+const ACTIVE_MATCH_HIGHLIGHT_FILL = core.ACTIVE_FIND_HIGHLIGHT_FILL;
 
 type Op =
   | { kind: "fillRect"; x: number; y: number; w: number; h: number; fillStyle: string }
@@ -110,13 +108,13 @@ const isGlyph = (o: Op): boolean => o.kind === "fillText";
 describe("match-highlight overlay — paintCanvas (#433)", () => {
   it("paints match highlight BEFORE selection BEFORE glyphs", () => {
     const ctx = createSpyCtx();
-    const matches: MatchHighlightRect[] = [
+    const matches: TestBand[] = [
       { x: 0, y: 0, width: 24, height: RUN_HEIGHT, pageIndex: 0, active: false },
     ];
     const selection: SelectionRect[] = [
       { x: 0, y: 0, width: RUN_WIDTH, height: RUN_HEIGHT, pageIndex: 0 },
     ];
-    paintCanvas(ctx, makeRun(), selection, matches, [], [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
+    paintCanvas(ctx, makeRun(), selection, matches.map(findBand), { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
     const ops = ctx._ops;
     const match = ops.findIndex(isMatchInactive);
     const sel = ops.findIndex(isSelection);
@@ -132,12 +130,12 @@ describe("match-highlight overlay — paintCanvas (#433)", () => {
 
   it("paints N matches → N highlight bands in the inactive colour", () => {
     const ctx = createSpyCtx();
-    const matches: MatchHighlightRect[] = [
+    const matches: TestBand[] = [
       { x: 0, y: 0, width: 24, height: RUN_HEIGHT, pageIndex: 0, active: false },
       { x: 40, y: 0, width: 24, height: RUN_HEIGHT, pageIndex: 0, active: false },
       { x: 80, y: 0, width: 16, height: RUN_HEIGHT, pageIndex: 0, active: false },
     ];
-    paintCanvas(ctx, makeRun(), [], matches, [], [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
+    paintCanvas(ctx, makeRun(), [], matches.map(findBand), { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
     const bands = ctx._ops.filter(isMatchInactive);
     expect(bands).toHaveLength(3);
     expect(ctx._ops.filter(isMatchActive)).toHaveLength(0);
@@ -145,11 +143,11 @@ describe("match-highlight overlay — paintCanvas (#433)", () => {
 
   it("active match uses the active colour; inactive matches use the inactive colour; inactive painted BEFORE active", () => {
     const ctx = createSpyCtx();
-    const matches: MatchHighlightRect[] = [
+    const matches: TestBand[] = [
       { x: 0, y: 0, width: 24, height: RUN_HEIGHT, pageIndex: 0, active: false },
       { x: 40, y: 0, width: 24, height: RUN_HEIGHT, pageIndex: 0, active: true },
     ];
-    paintCanvas(ctx, makeRun(), [], matches, [], [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
+    paintCanvas(ctx, makeRun(), [], matches.map(findBand), { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
     const ops = ctx._ops;
     expect(ops.filter(isMatchInactive)).toHaveLength(1);
     expect(ops.filter(isMatchActive)).toHaveLength(1);
@@ -159,20 +157,26 @@ describe("match-highlight overlay — paintCanvas (#433)", () => {
 
   it("a multi-line match → multiple rects (one band per line)", () => {
     // computeSelectionRects already emits one rect per line for a span that
-    // wraps; the controller flattens those into the per-match MatchHighlightRect
+    // wraps; the controller flattens those into the per-match decoration fragments
     // list. Here we model the wrapped match as two rects of the SAME match.
     const ctx = createSpyCtx();
-    const matches: MatchHighlightRect[] = [
+    const matches: TestBand[] = [
       { x: 60, y: 0, width: 40, height: RUN_HEIGHT, pageIndex: 0, active: false },
       { x: 0, y: RUN_HEIGHT, width: 30, height: RUN_HEIGHT, pageIndex: 0, active: false },
     ];
-    paintCanvas(ctx, makeRun(), [], matches, [], [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
-    expect(ctx._ops.filter(isMatchInactive)).toHaveLength(2);
+    // Bands paint in each text run's background slot, so model the two lines'
+    // runs (the second run one line lower).
+    const second = { ...makeRun(), key: "run2", y: RUN_HEIGHT, blockOffset: RUN_HEIGHT } as LayoutBox;
+    const twoLines = { ...makeRun(), type: "block", key: "blk", height: 2 * RUN_HEIGHT, children: [makeRun(), second] } as unknown as LayoutBox;
+    paintCanvas(ctx, twoLines, [], matches.map(findBand), { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
+    const bands = ctx._ops.filter(isMatchInactive);
+    expect(bands).toHaveLength(2);
+    expect(bands.map((b) => (b.kind === "fillRect" ? [b.x, b.y, b.w] : null))).toEqual([[60, 0, 40], [0, RUN_HEIGHT, 30]]);
   });
 
   it("empty matches → no match-highlight fillRects (no regression to normal paint)", () => {
     const ctx = createSpyCtx();
-    paintCanvas(ctx, makeRun(), [], [], [], [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
+    paintCanvas(ctx, makeRun(), [], [], { x: 0, y: 0, height: 0 }, "hidden", 600, 800, 0, 800);
     expect(ctx._ops.filter((o) => isMatchInactive(o) || isMatchActive(o))).toHaveLength(0);
     // Glyphs still painted.
     expect(ctx._ops.some(isGlyph)).toBe(true);
@@ -228,13 +232,13 @@ function makePage(): LayoutBox {
 describe("match-highlight overlay — paintPage (#433)", () => {
   it("paints match highlight BEFORE selection BEFORE glyphs (paintPage)", () => {
     const ctx = createSpyCtx();
-    const matches: MatchHighlightRect[] = [
+    const matches: TestBand[] = [
       { x: 0, y: 0, width: 24, height: RUN_HEIGHT, pageIndex: 0, active: false },
     ];
     const selection: SelectionRect[] = [
       { x: 0, y: 0, width: RUN_WIDTH, height: RUN_HEIGHT, pageIndex: 0 },
     ];
-    paintPage(ctx, makePage(), selection, matches, [], [], null, "hidden");
+    paintPage(ctx, makePage(), selection, matches.map(findBand), null, "hidden");
     const ops = ctx._ops;
     const match = ops.findIndex(isMatchInactive);
     const sel = ops.findIndex(isSelection);
@@ -248,11 +252,11 @@ describe("match-highlight overlay — paintPage (#433)", () => {
 
   it("active match emphasized over the inactive band (paintPage)", () => {
     const ctx = createSpyCtx();
-    const matches: MatchHighlightRect[] = [
+    const matches: TestBand[] = [
       { x: 0, y: 0, width: 24, height: RUN_HEIGHT, pageIndex: 0, active: false },
       { x: 40, y: 0, width: 24, height: RUN_HEIGHT, pageIndex: 0, active: true },
     ];
-    paintPage(ctx, makePage(), [], matches, [], [], null, "hidden");
+    paintPage(ctx, makePage(), [], matches.map(findBand), null, "hidden");
     const ops = ctx._ops;
     expect(ops.filter(isMatchInactive)).toHaveLength(1);
     expect(ops.filter(isMatchActive)).toHaveLength(1);
@@ -283,20 +287,20 @@ describe("match-highlight overlay — incremental clear/erase (#433)", () => {
     const cache = createPaintCache();
     const page = makePage();
     const OLD_RECT = { x: 5, y: 7, width: 24, height: RUN_HEIGHT };
-    const matches: MatchHighlightRect[] = [
+    const matches: TestBand[] = [
       { ...OLD_RECT, pageIndex: 0, active: false },
     ];
 
     // Frame 1: paint WITH a highlight so the PaintCache records its rect.
-    paintPage(ctx, page, [], matches, [], [], null, "hidden", undefined, cache);
-    expect(cache.getLastMatchHighlightRects()).not.toBeNull();
+    paintPage(ctx, page, [], matches.map(findBand), null, "hidden", undefined, cache);
+    expect(cache.getLastDecorationRects()).not.toBeNull();
     expect(ctx._ops.filter(isMatchInactive)).toHaveLength(1);
 
     // Frame 2: SAME (reference-equal) layout tree, but highlights cleared to [].
     // The only thing that changed is the highlight set → the repaint MUST be
     // driven purely by addMatchHighlightDirty dirtying the OLD rect.
     ctx._ops.length = 0;
-    const dirty = paintPage(ctx, page, [], [], [], [], null, "hidden", undefined, cache);
+    const dirty = paintPage(ctx, page, [], [], null, "hidden", undefined, cache);
 
     // The OLD highlight rect's region was dirtied (so it gets erased)...
     expect(
@@ -314,7 +318,7 @@ describe("match-highlight overlay — incremental clear/erase (#433)", () => {
     // No new highlight band is painted after the clear.
     expect(ctx._ops.filter((o) => isMatchInactive(o) || isMatchActive(o))).toHaveLength(0);
     // Cache forgot the old rects (curr=[] recorded).
-    expect(cache.getLastMatchHighlightRects()).toEqual([]);
+    expect(cache.getLastDecorationRects()).toEqual([]);
   });
 });
 
@@ -330,7 +334,7 @@ function seededEditorState(text: string): { editor: core.EditorState; blockId: c
   };
   let editor = core.createInitialEditorState(config);
   editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text }, config);
-  const block = core.getBlock(editor.state, editor.state.rootId);
+  const block = finalSection(editor.state);
   const blockId = block?.firstChildId;
   if (blockId === null || blockId === undefined) throw new Error("no paragraph block");
   return { editor, blockId };

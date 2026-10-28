@@ -19,6 +19,7 @@
 import { describe, it, expect } from "vitest";
 import {
   getBlock,
+  firstLeafBlock,
   inlineContentLength,
   createPosition,
   createSpan,
@@ -40,10 +41,9 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 
 /** Returns the (only) paragraph block in a freshly-created editor. */
 function firstParagraph(editor: EditorState): Block {
-  const root = getBlock(editor.state, editor.state.rootId);
-  if (root === null) throw new Error("test setup: no root block");
-  const firstId = root.firstChildId;
-  if (firstId === null) throw new Error("test setup: root has no first child");
+  // the root holds sections only — descend to the first paragraph.
+  const firstId = firstLeafBlock(editor.state, editor.state.rootId);
+  if (firstId === null) throw new Error("test setup: no paragraph");
   const block = getBlock(editor.state, firstId);
   if (block === null) throw new Error("test setup: first child block not found");
   return block;
@@ -113,18 +113,21 @@ describe("editor flow: multi-paragraph editing", () => {
     ctx = dispatch(ctx, { type: "SPLIT_NODE" });
     ctx = typeString(ctx, "def");
 
-    // The second block is the focused one after SPLIT_NODE + typing.
+    // split head = new id; the tail (focused, typed into) keeps the original id.
     const secondId = ctx.editor.selection.focus.blockId;
-    expect(secondId).not.toBe(firstId);
+    expect(secondId).toBe(firstId);
+    const headId = getBlock(ctx.editor.state, secondId)?.prevSiblingId ?? null;
+    if (headId === null) throw new Error("expected a head paragraph");
+    expect(headId).not.toBe(secondId);
 
-    expect(blockText(ctx.editor, firstId)).toBe("abc");
+    expect(blockText(ctx.editor, headId)).toBe("abc");
     expect(blockText(ctx.editor, secondId)).toBe("def");
 
-    // First block's nextSibling chains to second; both share the document parent.
-    const firstBlock = getBlock(ctx.editor.state, firstId);
+    // Head's nextSibling chains to the tail; both share the section parent.
+    const firstBlock = getBlock(ctx.editor.state, headId);
     const secondBlock = getBlock(ctx.editor.state, secondId);
     expect(firstBlock?.nextSiblingId).toBe(secondId);
-    expect(secondBlock?.prevSiblingId).toBe(firstId);
+    expect(secondBlock?.prevSiblingId).toBe(headId);
     expect(firstBlock?.parentId).toBe(secondBlock?.parentId);
   });
 });
@@ -145,12 +148,17 @@ describe("editor flow: cross-block backspace merges paragraphs", () => {
       selection: createSpan(createPosition(secondId, 0), createPosition(secondId, 0)),
     });
 
+    // the split head (holding "abc") got a new id; the tail kept firstId.
+    expect(secondId).toBe(firstId);
+    const headId = getBlock(ctx.editor.state, secondId)?.prevSiblingId ?? null;
+    if (headId === null) throw new Error("expected a head paragraph");
+
     ctx = dispatch(ctx, { type: "DELETE_BACKWARD" });
 
-    expect(blockText(ctx.editor, firstId)).toBe("abcdef");
-    // Second block has been removed; only firstId survives.
-    expect(getBlock(ctx.editor.state, secondId)).toBeNull();
-    expect(ctx.editor.selection.focus).toEqual(createPosition(firstId, 3));
+    // merge keeps the RIGHT block's id (survivor R); the left one is removed.
+    expect(blockText(ctx.editor, secondId)).toBe("abcdef");
+    expect(getBlock(ctx.editor.state, headId)).toBeNull();
+    expect(ctx.editor.selection.focus).toEqual(createPosition(secondId, 3));
   });
 });
 
@@ -313,11 +321,15 @@ describe("editor flow: MOVE_CURSOR across block boundary", () => {
     ctx = dispatch(ctx, { type: "SPLIT_NODE" });
     ctx = typeString(ctx, "cd");
     const secondId = ctx.editor.selection.focus.blockId;
+    // split head = new id ("ab"); the tail keeps firstId ("cd").
+    expect(secondId).toBe(firstId);
+    const headId = getBlock(ctx.editor.state, secondId)?.prevSiblingId ?? null;
+    if (headId === null) throw new Error("expected a head paragraph");
 
     // Place cursor at offset 2 of first block (its end).
     ctx = dispatch(ctx, {
       type: "SET_SELECTION",
-      selection: createSpan(createPosition(firstId, 2), createPosition(firstId, 2)),
+      selection: createSpan(createPosition(headId, 2), createPosition(headId, 2)),
     });
 
     ctx = nav(ctx, { type: "MOVE_CURSOR", direction: "forward" });
@@ -370,6 +382,13 @@ describe("R-D incremental pipeline (end-to-end)", () => {
     });
   }
 
+  /** The first paragraph's RenderNode: root → (final) section → paragraph. */
+  function firstBodyChild(root: RenderOutput["root"]): RenderOutput["root"] | undefined {
+    if (root.type !== "element") return undefined;
+    const section = root.children[0];
+    return section !== undefined && section.type === "element" ? section.children[0] : undefined;
+  }
+
   function renderFull(editor: EditorState, config: EditorConfig): RenderOutput {
     return render(editor.state, config.componentRegistry, config.attrRegistry);
   }
@@ -394,7 +413,9 @@ describe("R-D incremental pipeline (end-to-end)", () => {
     const beforeRoot = before.root;
     if (beforeRoot.type !== "element") throw new Error("expected element root");
     // Take a snapshot of the first leaf child of the document root.
-    const firstChild0 = beforeRoot.children[0];
+    // the root's children are sections; the paragraphs are the section's children.
+    const firstChild0 = firstBodyChild(beforeRoot);
+    expect(firstChild0).toBeDefined();
 
     // Type "X" — INSERT_TEXT goes to the current cursor block (which is the
     // SECOND paragraph after SPLIT_NODE).
@@ -403,7 +424,7 @@ describe("R-D incremental pipeline (end-to-end)", () => {
     const after = renderIncremental(ctx.editor, ctx.config, before, beforeEditor);
     const afterRoot = after.root;
     if (afterRoot.type !== "element") throw new Error("expected element root");
-    const firstChild1 = afterRoot.children[0];
+    const firstChild1 = firstBodyChild(afterRoot);
 
     // First paragraph's RenderNode is ref-equal across the INSERT_TEXT keystroke
     // (which only dirtied the second paragraph). The root itself differs (children
@@ -433,7 +454,8 @@ describe("R-D incremental pipeline (end-to-end)", () => {
     const before = renderFull(beforeEditor, ctx.config);
     const beforeRoot = before.root;
     if (beforeRoot.type !== "element") throw new Error("expected element root");
-    const firstChildBefore = beforeRoot.children[0];
+    const firstChildBefore = firstBodyChild(beforeRoot);
+    expect(firstChildBefore).toBeDefined();
 
     // Undo the INSERT_TEXT. Only the second paragraph reverts; the first
     // paragraph's RenderNode must be ref-equal because the incremental path
@@ -443,7 +465,7 @@ describe("R-D incremental pipeline (end-to-end)", () => {
     const after = renderIncremental(ctx.editor, ctx.config, before, beforeEditor);
     const afterRoot = after.root;
     if (afterRoot.type !== "element") throw new Error("expected element root");
-    const firstChildAfter = afterRoot.children[0];
+    const firstChildAfter = firstBodyChild(afterRoot);
     expect(firstChildAfter).toBe(firstChildBefore);
   });
 });

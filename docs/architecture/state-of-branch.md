@@ -1,6 +1,6 @@
 # State of the Branch
 
-This is the audit of current implementation against the target
+This document compares the current implementation against the target
 architecture. Each module is annotated with a status flag:
 
 - **`[implemented]`** — present, working, broadly aligned with the
@@ -65,7 +65,7 @@ applies the CSS Fragmentation orphans / widows line-keeping rules;
 
 Schema reservations (present in `Style` and `ComputedStyle` but not yet consumed
 by any code path):
-- `fontFeatureSettings` — required by typography phase 1; resolved into `UsedStyle`
+- `fontFeatureSettings` — for OpenType feature control; resolved into `UsedStyle`
   but not yet read by any tokenizer/layout/paint consumer.
 
 Consumed properties (formerly schema-only, now active):
@@ -90,7 +90,7 @@ Consumed properties (formerly schema-only, now active):
   center/right/decimal/content-edge alignments + default-grid fallback) +
   `INSERT_TAB`/`SET_TAB_STOPS` editor actions + Tab key + leader paint.
 
-Positioning vocabulary consumed (all functional slices shipped): `position`,
+Positioning vocabulary consumed (all functional features shipped): `position`,
 logical `inset*`, `zIndex`, `transform`, `transformOrigin`, `opacity` live in
 `styles/position.ts` + `ComputedStyle`, all `inherits: false`. `position:
 relative`/`absolute` consumed by layout; `zIndex` consumed by paint (z-index /
@@ -125,44 +125,135 @@ the incremental render/cascade/layout passes. `applyOperation` returns the input
 "did anything change?" guard. The old path-based `StateNode` immutable tree is
 fully removed.
 
-**Surgical same-block `deleteRange` (selection-rebasing Phase 1, slice 1)
-`[implemented]`.** The same-block `deleteRange` path mutates the block's
-`inlineContent` `Y.Array`/`Y.Text`s IN PLACE (`surgicallyDeleteInlineRangeInTx`
-in `y-utils.ts`) rather than full-replacing via `buildYInlineContent`: runs outside
-the deleted range — and the surviving portion of a straddled run — keep their
-`Y.Text` CRDT identity, so a Yjs `RelativePosition` anchored there survives (the
-foundation for within-block selection rebasing under concurrent edits). Read-back is
-byte-identical to the old rebuild. The seam-merge RECEIVER keeps identity; the
-DONOR's migrated same-attrs chars are fresh (the Class-2 limit — Yjs has no
-identity-preserving cross-`Y.Text` move). The CROSS-BLOCK path still full-replaces
-the anchor block; a later surgical-ops slice migrates it.
+**Structural storage: registry + flows of pieces with END marks (schema 3) `[implemented]`.**
+A paragraph is its content followed by its own ¶ item (Word's paragraph mark / GDocs's
+`\n`) in a flow (`Y.Array<Y.Text>` of pieces) held by its container's registry entry; an
+object (image, table, host container) is one self-delimiting item; a section-end ¶ ends
+its paragraph and its section. The `Block` read model (pointers included) is DERIVED
+(`state/flow-read.ts`), so no structural op moves a character: split = insert a ¶ (the
+head takes the new id, the tail keeps the old ¶ and id), merge = delete ¶L (survivor R;
+the first paragraph's formatting wins except an empty default paragraph), remove = units
+(leaf entries survive, container entries are deleted), MOVE = delete + re-insert the same
+ids through `insertItemsAt`. ONE deletion primitive (`deleteUnits`) keeps invariant I
+(every non-¶ unit is terminated by a ¶; a flow's last ¶ is never deleted), and ONE
+placement repair (`insertItemsAt`) re-establishes it after inserts and moves. ¶ properties:
+`type` / `attrs` plus `markAttrs` (the ¶'s inclusive character props — empty-line metrics,
+list marker, typing at an empty paragraph, the selected-¶ glyph) `[implemented]`. Concurrent
+split / merge / typing converge on every peer with no lost or duplicated text; undo is
+exact (¶s are separate items; the UndoManager never deletes piece / sub-flow items).
+Implicit entities (`${anchor}#i`, `${row}|${col}`; they appear only where concurrency or
+undo breaks invariant I) with materialization + deterministic joins / collapse, duplicate
+¶s (canonical = smallest Item id), hidden ¶s; there is ALWAYS a final section (root entry
+`finalSection`; page keys live on sections, the root keeps document defaults), so the read
+shape is always root → sections → blocks and empty sections cannot exist; tables are a
+grid (spans as id ranges, merge moves nothing, an empty covered cell contributes nothing to
+the concatenation, implicit cells); one-shot attrs (`inheritOnSplit: false`) follow the
+content. `MarkIndex` per doc (scan at bind, O(changed) reconcile, second-Yjs-instance
+detection); two-tier dirty derivation with EXACT compare (a candidate is dirty only when
+its record differs between versions; a keystroke dirties exactly {owner}); piece-size bound
+(`PIECE_SOFT_MAX`, sub-flows, depth cap 4). Inline writes are offset primitives through
+`BlockText` (`state/y-inline.ts` invariants unchanged: single attr boundary, complete
+attrs, markers never formatted, grapheme-snapped endpoints). `yjs` is an exact peer
+dependency (13.6.30) with a contract test of every internal used. Schema 3:
+`upgradeDocument(doc, { resolver, clearLegacy? })` (single authority; ¶ props judged by
+the attr registry bound to the doc, `bindAttrRegistry`)
+rewrites schemas 1–2 (every paragraph gets its ¶ + `markAttrs`; a section ending in an
+object gets a terminating paragraph; the root's page keys move onto the final section, or onto
+every section lacking them when sectioned; `cross-reference` fields are re-anchored to bookmarks; legacy break embeds become
+¶ keys); legacy roots FROZEN by default, so a legacy peer's later write HALTS every
+controller with the touched blocks + their text in the report (surfaced, not merged); a
+second Yjs instance or a newer schema halts too (1.5 "Incompatible documents"). History
+selections are RelativePositions on pieces; host proposals carry a per-host
+`UntrackedOrigin`. Locators (`state/locator.ts`): per-block cached extents keyed by run
+boundary items, maintained incrementally (offset → piece O(extents + piece); a deleted
+stretch is crossed once) `[implemented]`. Transaction-derived EXACT position mapping
+(`state/tx-mapping.ts`, a past-version `View` of the read model; the ¶ is one unit — a
+split renames the prefix to the head and shifts the suffix, a merge renames L into R;
+materialization, canonical / span changes on the local and remote side; a never-read block
+maps exactly; the text diff remains only for dirty sets of unknown provenance)
+`[implemented]`. Dev-mode lone-surrogate check over piece storage `[implemented]`. A legacy
+write landing before a gate starts is found at start against the upgrade's baseline
+`[implemented]`. The ¶ is a text unit: `(P, len)` / `(N, 0)` bracket it, no Position exists
+after a flow's final ¶, and `selectParagraph` (triple-click) / `INSERT_LINE_BREAK`
+(Shift+Enter, the `hard-break` embed) / Backspace-Delete adjacency next to tables follow
+Word (browser checks of merge formatting after an empty heading and of Backspace /
+Delete next to a table are pending, user-gated) `[implemented]`.
+Bookmarks `[implemented]`: paired `bookmark-start` / `bookmark-end` inline markers (never
+tracked, never caret stops: `caretAfterMarkers` is applied once by core's insertion entry
+(typing, paste, line break, inline embeds / fields) and by character moves,
+print hit-test + arrow keys and the digital bridge, for bookmark AND comment markers);
+deterministic pairing (first start with the first end after it; the rest inert); SIDED
+removal rule (`bookmarksRemovedBy`, `bookmarkDeletionSpan`, `removedBookmarks`: a deletion
+removes a bookmark only when it covers all its content, judged per contiguous run), applied
+only in `deleteUnits` — every content deletion routes through it (range delete, type-over,
+find / replace, resolve, a suggested deletion's removal of the deleter's own insertions, whose
+seam the suggested type-over / paste / Enter use); extract carries only fully covered
+bookmarks; paste keeps a pair iff the destination has no live pair of that id; HTML anchors
+on export / import (1.1 "Bookmarks and cross-reference targets").
+Paragraph-break / section-break suggestions are KEYS ON THE ¶'S OWN ENTRY
+(`insertionSuggestionId` / `deletionSuggestionId`; `Block.breakSuggestion`) — Word's tracked
+¶ revision, one rule with no step classification: read model `endMarkOf` (self-derived from
+the block) / `boundaryMergesInView` / `boundaryRangeParts`; writers `splitWithSuggestion`
+(always the head's ¶), `markParagraphMarkDeletion` (Backspace / Delete, section-end
+included) and `paragraphMarksInSpan` for every tracked delete / replace / paste (a ¶ that
+accepting could not delete is left unkeyed — invariant I on the "final" projection); one
+`planBoundaryResolution` (accept insertion / reject deletion drop the key, the others delete
+the ¶ by the merge rule); lazy cleanup of carrier-less records; untracked MOVE clears moved
+keys; upgrade converts legacy break embeds and reports orphans `[implemented]` (1.1
+"Tracked paragraph marks"). Drawing: the print ¶ `MarkerBox` at the caret paint position of
+`(E, len)`, hanging, clipped per cell / column / page / float; a section-end ¶ draws Word's
+"Section Break" label in the same box (no band block, no fragmentation / measure-pass
+machinery); selection ¶ extension for every covered ¶ clipped by the shared
+`cursor/ancestor-clip.ts` and stopped at an inline-end float as the glyph is (both read the
+IFC's `LineBox.endsAtFloat`); hit-test, suggestion rects, tint, PDF artifacts — (2.2.1 / 2.5 /
+5) `[implemented]` (a ¶ in a transformed block applies its ancestors' clips in their own
+frames); the digital ¶ end anchor ("Section Break" label for a section-end ¶) and the
+incremental selected-¶ indicator (3.1 / 3.2) `[implemented]`; digital ¶ clipping at a cell
+border box (ResizeObserver + `loadingdone`) `[implemented]` — digital emits no columns /
+floats, so the cell is its whole engine-owned case; the read-only `renderDocumentToDom`
+view does not clip (static export, no live layout to observe) (3.1). Print decoration text widgets vs
+the ¶ at `(E, len)` `[missing]` (resolved by zero-offset inline widgets in
+print layout). Storage shape comes from the component registry (`getStorageShape`,
+resolver bound at `createState`; upgrade infers unregistered legacy types; `setBlockType`
+refuses a storage-shape change) `[implemented]`.
 
-**Surgical same-block `replaceRange` (selection-rebasing Phase 1, slice 2)
-`[implemented]`.** A SAME-BLOCK `replaceRange` (type-over-a-selection /
-replace-one) preserves `Y.Text` identity for the runs it doesn't touch via the
-identity-aware `planInsertTextSplitInPlace` (a boundary/interior insert), instead of
-the old `planInsertTextFullReplace`. A `RelativePosition` in a NON-straddled
-surviving run survives the replace; read-back is byte-identical to the old
-full-replace. The CROSS-BLOCK `replaceRange` path still full-replaces (its delete
-full-replaces the anchor block — migrated when cross-block delete goes surgical).
-The run that STRADDLES the insertion point still loses identity (Class-2 limit).
+Open limitations (each carved out of the end-mark work or pre-existing; one line each):
+- `[missing]` `SELECT_ALL` + delete across a table throws `deleteRange: cross-parent spans are not
+  supported` (Word / GDocs delete across table boundaries); needs its own plan.
+- `[partial]` the suggestion-highlight layer re-scans the document (`buildSuggestionRangeIndex`) when
+  an edit touches a tracked run; needs a per-block incremental suggestion range index.
+- `[partial]` per-keystroke work is still O(top-level blocks) pointer compares in incremental
+  render, cascade and the digital reconciler's root child walk; true O(1) needs a
+  changed-children list from render.
+- `[missing]` suggestion-strike formatting attributes leak onto a peer's concurrently typed
+  character at a strike edge (client-order dependent); accepting deletes the peer's text.
+  Needs its own design.
+- `[missing]` character suggestion attrs inherit across a concurrent boundary insert (the
+  Peritext boundary anomaly, probe p1); ¶ revisions are immune (entry keys have no range),
+  character revisions are not.
+- `[missing]` print decoration text widgets are DOM overlays, so the ¶ at `(E, len)` cannot be offset past
+  them; resolved by zero-offset inline widgets in print layout.
+- `[missing]` untracked `deleteRange` across section breaks: it refuses cross-section spans
+  (editing-mode delete across section breaks).
+- `[missing]` objects (image, horizontal rule, toc, atomic host leaves) as blocks vs paragraph
+  content (the Word / GDocs model): until decided, select-first Backspace / Delete is kept.
+- `[missing]` in-document navigation of a `#bookmark` hyperlink (hyperlink feature; verify /
+  implement).
+- `[missing]` field result caching for HTML export: a page-mode cross-reference exports empty
+  text because headless export has no pagination.
+- `[missing]` field embeds (cross-reference, page fields) are not tracked in suggesting mode
+  (Word tracks field insertion).
+- `[missing]` floats across a direction change: an RTL paragraph beside a float in an LTR
+  flow lays its lines under the float (the float environment's inline-start / inline-end
+  sizes are not mirrored into the paragraph's direction), and an image wrapped `left` in an
+  RTL document is placed at the physical right; so the ¶ glyph / selection ¶ cap at an RTL
+  line's float-shortened end is unreachable.
+- `[missing]` tracked ¶ formatting: suggesting-mode formatting over a ¶ records no ¶ rPr change
+  (Word does); needs a tracked-`markAttrs` design.
 
-**Universal in-place seam-merge (selection-rebasing Phase 1, slice 5)
-`[implemented]`.** ALL six live-array post-edit seam normalizers (in
-`applyAttrsToRange`, `mergeAdjacentBlocks`, the `split-in-place` insert applier,
-`insertItemsInTx`, and the two suggestion appliers `applyResolveDecisionsInTx` /
-the strike applier) now call the identity-preserving twin
-`mergeAdjacentSameAttrsTextItemsInPlace` instead of the rebuild
-`mergeAdjacentSameAttrsTextItems`. When applying an attr / merging blocks /
-inserting makes two runs converge to same-attrs, the merge RECEIVER keeps its
-`Y.Text` identity; only the donor's migrated chars are fresh (Class-2 limit).
-Read-back is byte-identical at every site. The rebuild
-`mergeAdjacentSameAttrsTextItems` is RETAINED as the general /
-detached-array-safe normalizer and the Y-side drift oracle.
-
-Known follow-ups: `Y.Map.set(key, sameValue)` fires change events → scattered
+Known gaps: `Y.Map.set(key, sameValue)` fires change events → scattered
 same-value-write guards in ops like `reparent-children.ts` self-move; consolidate
-via a `setIfChanged` Y-utils helper (#358).
+via a `setIfChanged` Y-utils helper.
 
 ### Document serialization (`state/serialize/`) `[implemented]`
 
@@ -171,13 +262,15 @@ Pluggable `DocumentSerializer` (one per wire format) + a `SerializerRegistry`
 engine-level `serializeDocument` / `deserializeDocument` dispatch, with
 `UnknownSerializerFormatError` on an unregistered format.
 
-The v1 built-in is a LOSSLESS binary serializer (`createBinaryDocumentSerializer`,
+The built-in is a LOSSLESS binary serializer (`createBinaryDocumentSerializer`,
 `BINARY_FORMAT = "taleweaver-binary"`) backed by Yjs's native update codec
 (`Y.encodeStateAsUpdate` / `Y.applyUpdate`): one round-trip over the WHOLE
-`Y.Doc` (all three block trees + `listDefs` + `comments` + `suggestions` + `meta`
-rootId). Decode reads `rootId` via the state-private `getMetaRootId` and rebuilds
-`State` with a fresh snapshot cache; a decoded doc with no rootId throws
-`MalformedDocumentError`.
+`Y.Doc` (the block registry with every flow + `listDefs` + `comments` + `suggestions`
++ `meta` rootId / schemaVersion). Decode reads `rootId` via the state-private `getMetaRootId`
+and rebuilds `State` with a fresh snapshot cache; a decoded doc with no rootId throws
+`MalformedDocumentError`; an older schema throws `LegacyDocumentError` and a newer one
+`IncompatibleDocumentError` (the host runs `upgradeDocument` first; `inspectDocument`
+reports the effective schema).
 
 The editor-level open/save surface is `exportDocument` / `loadDocument`
 (`editor/document-io.ts`, on the core barrel): `loadDocument` deserializes into a
@@ -215,7 +308,15 @@ field-by-field and throws `MalformedDocumentError` on a malformed
 node/listDef/comment/suggestion. It is HOST-registered (needs a `blockKindResolver`
 + `IdAllocator`), NOT in `createDefaultSerializerRegistry`.
 
-Named follow-ups: pairing the wire document with scroll view-state for full
+The **clipboard fragment helpers** ship in `core`'s `state/serialize/`:
+`base64.ts` (`bytesToBase64` / `base64ToBytes` — runtime-agnostic, no `btoa`/`atob`);
+`fragment-clip.ts` (`TALEWEAVER_CLIP_MIME = "application/x-taleweaver-clip"`,
+`encodeFragmentClip` / `decodeFragmentClip` — binary-serialize → base64 and back,
+`null` on malformed). HTML whitespace collapsing (`white-space: normal` semantics)
+ships in `html-decode.ts` as a correctness fix for cross-app paste. See
+[`1.7-serialization.md`](./1-core/1.7-serialization.md#clipboard-fragment-helpers).
+
+Known gaps: pairing the wire document with scroll view-state for full
 save/restore; JSON table round-trip; v2 + migration path. See
 [`1.7-serialization.md`](./1-core/1.7-serialization.md),
 [`2.9-html-serializer.md`](./2-print/2.9-html-serializer.md), and
@@ -297,6 +398,9 @@ Built-in component behavior:
   `hasFloatOrClear` + `hasMultiColumnRegion` compose the float gate); each plan
   entry carries `incomingActiveFloats` (the cumulative-frame cross-page float shadow,
   seeded into a fresh per-page env at materialize). See `2.3-pagination.md`.
+  `[partial]` the gate itself walks the whole cascaded tree on every layout
+  (keystrokes included), so the per-keystroke cost is O(document) until the gate's
+  inputs are maintained incrementally.
   Browser-gated remainder: image natural-size feedback, resize-handle paint + drag,
   example-app Insert menu.
 - `tableComponent`, `tableRowComponent`, `tableCellComponent` render, and table
@@ -335,7 +439,10 @@ Built-in component behavior:
   `<colgroup>` `%` widths, `colspan`/`rowspan`, and `<div>` cell surrogates) decodes
   back into `table` blocks via the headless `decodeTable` walk. Still `[missing]`:
   browser-gated example-app Table menu wiring (the `INSERT_TABLE` button + span-aware
-  actions + header-row toggle), and structural table copy/paste.
+  actions + header-row toggle). Structural table copy/paste is `[implemented]` via
+  `extractFragment` / `insertFragment` (a pasted table in DIRECT mode round-trips
+  losslessly; a pasted table in SUGGESTING mode is flattened per the structural-insertion
+  change-tracking deferral above).
 
 ### `render/` `[implemented]`
 
@@ -360,8 +467,8 @@ Most of the layout pass is implemented and working:
   reuse works including the "rebuilt parent with unchanged children" gate. The BFC
   reads the render-baked `markerText` off the cascaded style and paints it (the old
   `layout/list-counter.ts` counter / seed-replay / run-reset / auto-counter
-  machinery was deleted). The marker-gutter behaviors (#426 auto-widen, #431
-  straddling-break marker on the correct page, #418 list spacing) are preserved.
+  machinery was deleted). The marker-gutter behaviors (marker auto-widen,
+  straddling-break marker on the correct page, list spacing) are preserved.
   See the "Lists & numbering" section.
 - IFC: line wrap, baseline alignment, full UAX #9 bidi reorder (mixed-direction
   geometry + RTL glyph paint + RTL cursor — see the bidi entry below for
@@ -382,7 +489,7 @@ Most of the layout pass is implemented and working:
   `computeTextContribution` from the run's `breakOpportunities`.
 - Layout-box reuse: `LayoutBoxCache`, `isLayoutBoxReusable`,
   `renderNodesLayoutEquivalent`.
-- Positioning (all functional slices shipped, see
+- Positioning (all functional features shipped, see
   [`2.4-positioning.md`](./2-print/2.4-positioning.md)):
   `position: relative` resolves a physical `relativeOffset` in the BFC and the
   painter shifts the box + descendants. `position: absolute` is laid out out-of-flow
@@ -399,9 +506,10 @@ Most of the layout pass is implemented and working:
   gated so the no-stacking common path is byte-identical.
 
 Known gaps:
-- **Positioning** — named follow-ups within the shipped slices:
-  transformed-content selection-rect + caret geometry stay PRE-transform in v1 (reuse
-  the per-line `Mat2D` forward); paginated abs-pos fragmentation (a fragmented box's
+- **Positioning** — known gaps within the shipped features:
+  transformed-content selection-rect + caret geometry stay PRE-transform (reuse
+  the per-line `Mat2D` forward) — this includes the ¶ selection-extension clip, which
+  applies a rotated ancestor clip as its axis-aligned bounding box (`clipInFrame`); paginated abs-pos fragmentation (a fragmented box's
   second pass doesn't run, so abs children registered before a break are not drained
   onto the fragment); an establishing box's own explicit block-size not folded into the
   abc block percent-base.
@@ -422,7 +530,7 @@ Known gaps:
   click→offset, boundary-crossing selection rects, and visual-order
   ArrowLeft/Right + Shift+Arrow all bidi-aware; Home/End stay logical and render at
   the correct visual edge via affinity. `[partial]` Remaining: the in-browser smoke
-  validation, including a handful of `TODO(C.2.7 browser-confirm)` boundary cases
+  validation, including two boundary cases awaiting browser confirmation
   (the left-going dual-caret double-stop; the cross-line visual edge when a line's
   content direction differs from the paragraph base; the exact Google-Docs RTL
   Home/End rendering).
@@ -467,15 +575,39 @@ Per-page paint coordinates: `paintPage` and `walkAndDetectChanges` translate by
 its own canvas. `acquireCanvas` resets canvas dimensions and the per-page
 `PaintCache` when a slot's canvas is freshly created or recycled from the pool.
 
-Page templates designed (not yet implemented): state-tree-backed editable
-headers/footers scoped to `section` nodes; footnotes as inline state-tree nodes with
-section-level numbering policy; six margin regions; first/odd/even page variants;
-iterative footnote-slot convergence; two-pass page-count resolution; cursor-scope
-extension for editing header/footer/footnote subtrees. Decomposes into sub-pieces
-(headers/footers/footnotes/templates).
+Page templates `[implemented]` — headers, footers, and footnotes are all built
+end-to-end:
+- **State model:** `template-body` containers (header/footer bodies) and `footnote-body`
+  containers as state-tree nodes; `section` blocks carry `headerBlockId`/`footerBlockId`
+  (`insert-template-body.ts`, `section-plan.ts`).
+- **Editor actions:** `INSERT_HEADER`/`INSERT_FOOTER` (`handleInsertHeaderFooter`, with a
+  one-per-section idempotency guard and active-section resolution), `INSERT_FOOTNOTE`
+  (`handleInsertFootnote`), `SET_FOOTNOTE_POLICY`; cursor scope extends into the
+  header/footer/footnote subtrees.
+- **Numbering:** `continuous`, `restart-per-section`, and `restart-per-page` footnote
+  numbering (`footnotes/numbering.ts`); the render pass uses a `continuous` substitute
+  for `restart-per-page` until the layout pass supplies `pageAssignment`
+  (`render-footnotes.ts` `effectiveRenderPolicy`).
+- **Layout:** `resolveFootnotes` lays footnote bodies into a per-page `footnoteSlot` with
+  greedy fill, line-boundary splitting of footnote bodies ACROSS pages
+  (continuations), and a self-eviction convergence fixpoint; growing header/footer
+  slots (`computeSlotInsets`) push the content area when a header/footer
+  exceeds its margin; two-pass page-count convergence (`runFieldConvergence`). Paint and
+  cursor/hit-test descend all three slots.
+- **Deliberate deviation:** no footnote separator rule line is drawn
+  (`FOOTNOTE_SEPARATOR_HEIGHT` is retained as a gap-only reservation; the Google-Docs
+  horizontal line was removed per user directive).
 
-Still missing:
-- All template sub-pieces (headers/footers/footnotes).
+Still missing / partial:
+- First / left / right (odd/even) page template variants (cover page, mirrored book
+  spreads) — absent.
+- Per-section "link to previous" header/footer cascade: there is no layout-time
+  inheritance (page keys live on sections only; a section break copies the containing
+  section's attrs, header / footer links included, onto the new section); a section with no
+  own body follows nothing, and copy-on-unlink seeding is not built. `[partial]`
+- Footnote rendering in the legacy `paginateRoot` path: a float doc that ALSO has
+  footnotes (or is multi-column) routes to `paginateRoot`, which builds `PageBox`es with
+  all slots `null`, so footnote bodies are not rendered in that path.
 - Bottom-side margin truncation across breaks for the edge case where the parent has
   bottom padding/border on a partial fragment (top side already shipped).
 - Cross-page floats for the legacy `paginateRoot` path (float + multi-column /
@@ -554,12 +686,16 @@ Known gaps:
   graphemes via `Intl.Segmenter` (`graphemeClusters`), so a base + combining marks,
   a surrogate-pair emoji, an emoji ZWJ sequence, and a regional-indicator flag are
   each one cluster. The gap is glyph *metrics*, not boundaries: a cluster's advance
-  is one base width per grapheme (combining marks add 0), an approximation of true
-  complex-script positioning until a HarfBuzz-quality shaper is wired.
+  is the canvas-measured width of the whole cluster string, an approximation of true
+  complex-script positioning until a HarfBuzz-quality shaper is supplied downstream
+  through `TextShaper`. Measurement
+  and paint are both per cluster, so no kerning, ligature or cursive joining forms
+  across clusters: Arabic letters do not join and Indic conjuncts that span clusters do not form
+  `[partial]`.
 - **Manual hyphenation** (`hyphens: manual`, the cascade default — authored U+00AD
   SOFT HYPHENs) is `[implemented]` end-to-end: zero-advance soft hyphen, the IFC
   producer that synthesizes `hyphenBreaks`, `none`-suppression, the `tryHyphenSplit`
-  "-" glyph, and the D.4 hyphen-pair page-break back-off. **Dictionary `auto`
+  "-" glyph, and the hyphen-pair page-break back-off. **Dictionary `auto`
   hyphenation** is `[implemented]`: the `language` + `hyphenateLimitChars` cascade
   properties; the injected `Hyphenator` capability (`LayoutConfig.hyphenator`,
   interface + mock in `layout/hyphenator.ts`, threaded to every tokenization site);
@@ -584,12 +720,16 @@ Known gaps:
   edge `lineInlineSize`); the `IFCState` cache gates on `tabStops`/`defaultTabStop`.
   Pressing **Tab** inserts the embed (`INSERT_TAB`, discrete undo) except when the
   caret is in a list-item block (Tab/Shift+Tab → `LIST_INDENT`/`LIST_OUTDENT`);
-  `SET_TAB_STOPS` sets the stop list. Out follow-ups: ruler UI, bar tabs, locale
+  `SET_TAB_STOPS` sets the stop list. Not implemented: ruler UI, bar tabs, locale
   decimal separator, per-segment justify, and `SET_TAB_STOPS` inside embed/template
   bodies.
 
 A legacy `TextMeasurer` interface exists alongside `TextShaper` for backwards
-compatibility; new code uses `TextShaper`.
+compatibility; new code uses `TextShaper`. Print layout adapts a `TextMeasurer`
+once per instance (`resolveShaper`), so for measurer-based hosts too the per-keystroke
+measure pass is an O(top-level blocks) reference-checked walk that REBUILDS only the
+changed blocks' metas; the O(top-level blocks) walk itself is a known gap against the
+O(1)-per-keystroke goal.
 
 ### `cursor/` `[implemented]`
 
@@ -601,7 +741,62 @@ Selection types, `moveByCharacter`, `moveByWord`, `selectWord`,
 Reducer, action handlers, geometry queries, line navigation all present. Action
 coverage is broad: insert text, delete (backward, forward, by word, by line), move
 (char, word, line, document boundary), expand selection, apply inline style, set
-block type, insert node.
+block type, insert node. Rich clipboard `[implemented]`: `PASTE { text?, html?,
+clip? }` (all optional); `handlePaste` priority routing (clip → html → text);
+`extractFragment` / `insertFragment` (DIRECT-mode lossless fragment ops);
+`EditorConfig.htmlParser` injection; `encodeFragmentClip` / `decodeFragmentClip`
+lossless clip flavor; HTML whitespace collapsing in `decodeHtml`. See
+[`1.5-editor.md`](./1-core/1.5-editor.md#clipboard-and-paste) and
+[`1.7-serialization.md`](./1-core/1.7-serialization.md#clipboard-fragment-helpers).
+
+Typing attributes `[implemented]`: typed text (keystrokes, IME commits, type-over,
+plain-text paste) takes `getTypingAttrs` — pending `EditorState.storedAttrs` (set by
+a format command at a collapsed caret, carried into a block emptied by delete/Enter),
+else the attrs inherited at the caret per each key's inclusiveness (`link` and host
+marks are non-inclusive at their edges; change-tracking ids are never inherited).
+`getActiveFormatting` reads `storedAttrs`. Inline marks `[implemented]`: `MarkSpec`
+on `AttrInterpreter.mark` (`registerMark`) — inclusive / exclusive (non-exclusive
+instances under `type#…` keys) / atomic (overlapping atomic ranges form one unit;
+caret normalization in `reduceEditor`, whole-unit deletes) / copy keep-drop (`extractFragment`, the doc's bound registry) / `toDom`
+(`TextBox.marks`, applied by the digital DOM view; print paints via `toStyle`);
+`SET_MARK` (with `replace` for an instance swap) / `REMOVE_MARK` (undoable, formatting
+suggestions in suggesting mode); the print controller derives its registries from the
+host's `EditorConfig` (`config` option);
+`getMarkRanges` host query. See [`1.5-editor.md`](./1-core/1.5-editor.md) "Typing
+attributes and inline marks" and [`1.3-cascade.md`](./1-core/1.3-cascade.md).
+
+Host proposals + suggestion groups `[implemented]`: records carry optional `groupId` +
+host `metadata`; `getSuggestionGroups`; `PROPOSE` (several edits → ONE group, any editing
+mode, caret and stored typing attrs only rebased, UNTRACKED — not in the user's undo stack
+(a block-splitting proposal too), a record
+tagging no content hidden from `getSuggestionGroups`, overlaps with pending suggestions
+rejected in O(n log n), `basedOn` mapped by
+the REDUCER through the change chain with the verdicts chained on `EditorState.lastProposal`;
+controllers' `propose()` → `Promise<ProposeResult>` with the true verdict in both backends);
+`ACCEPT_/REJECT_SUGGESTION_GROUP` (atomic, one undo step); accept / reject are undoable;
+live per-source styling via `setSuggestionStyles` (both controllers, React
+`suggestionStyles`). See [`1.5-editor.md`](./1-core/1.5-editor.md) "Host
+proposals" and [`1.1-state.md`](./1-core/1.1-state.md).
+
+Anchors + collaboration `[implemented]`: `AnchorSet` (live anchors through local edits,
+undo/redo and peer changes; `deleted` / `changed`), document versions + `mapPosition`
+(bounded MappingLog), and first-class foreign-change handling in both controllers
+(`subscribeRemoteChanges` → `APPLY_FOREIGN_CHANGE` → selection rebased, grapheme-snapped;
+a legacy-root write, a second Yjs instance or a newer schema halts the controller instead
+— every controller, also with `remoteChanges: "ignore"`; both backends + React
+`useEditor().halted` (linked to its `EditorView` automatically), digital
+`replaceDocument`, `onDocumentCompatible` + resume once a not-yet-upgraded document is
+upgraded). See
+[`1.9-decorations.md`](./1-core/1.9-decorations.md) "Anchors" / "Foreign changes".
+
+Host extensions `[implemented]`: `EditorConfig.extensions` — commands
+(`(editor, dispatch?) => boolean`, `runCommand` on both controllers), keymap (consulted
+before each backend's defaults; `Mod` = Cmd on Apple / Ctrl elsewhere; `null` unbinds),
+input rules (after `INSERT_TEXT { userInput }`, own undo entry), triggers
+(`EditorState.activeTrigger`, mapped through edits, Escape / caret-away end it,
+composition-deferred) and the `TRANSACTION` action (several steps, ONE undo entry via
+`History.beginBatch/endBatch`). See [`1.5-editor.md`](./1-core/1.5-editor.md) "Host
+extensions".
 
 Known gaps:
 - **Cursor placement within a word broken across lines** — `[implemented]` for both
@@ -647,29 +842,37 @@ Browser smoke for the list editing UX rides the user's in-browser pass.
 
 ### Cross-references `[implemented]`
 
-The Google-Docs reference field (NOT CSS `target-counter`) is shipped end-to-end:
-an inline `cross-reference` `EmbedItem` (`properties: { targetId, refMode }`) that
-displays a target's number or text and auto-updates. v1 supports `refMode: "number"
-| "text" | "page"` against MAIN-tree targets; heading-number / bookmark / caption
-references are deferred.
+The Google-Docs reference field (NOT CSS `target-counter`) is shipped end-to-end, modeled
+on Word's REF / PAGEREF: an inline `cross-reference` `EmbedItem`
+(`properties: { bookmarkId, refMode, numberStyle? }`) that displays the number or text at
+its BOOKMARK and auto-updates. `refMode: "number" | "text" | "page"` against MAIN-tree
+targets; heading-number / caption references are deferred.
 
 - **State** (`1.1-state.md`): `insertCrossReference` op + the `cross-reference` embed
-  type (`CrossReferenceMode`); a POINTER that owns no body; `clonePastedSubtree`
-  remaps a copied ref's `targetId` when the target is in the clone set. A dangling
-  target is a legal state.
-- **Render** (`1.2-render.md`): `resolveCrossReference` (number → numbering map; text
-  → `extractText`; broken-ref otherwise); `expandInlineItems` renders the field as a
-  one-token inline-block atom; `buildCrossReferenceIndex` (`targetId → hosts`) on
-  `RenderOutput.crossReferenceIndex`, reused + invalidation-expanded on the
-  incremental path.
+  type (`CrossReferenceMode`); the field targets a bookmark (paired inline markers, reused
+  when one already spans the target's text; written untracked in the same transaction), never
+  a block id; it owns no body. A broken bookmark (a marker gone) is a legal state.
+  `clonePastedSubtree` keeps a pasted bookmark pair iff the destination has no live pair of
+  that id. Schema-2 `targetId` fields are re-anchored by `upgradeDocument`.
+- **Render** (`1.2-render.md`): `resolveCrossReference` (number → the counter of the
+  paragraph holding the bookmark START; text → `extractText` over the bookmarked range;
+  Word's "Error! Reference source not found." otherwise); `expandInlineItems` renders the
+  field as a one-token inline-block atom; the cross-reference index (bookmarkId → hosts,
+  bookmarkId → paired range) on `RenderOutput.crossReferenceIndex`, built by the full
+  path and updated from the dirty blocks on the incremental path (O(dirty blocks) per
+  keystroke; a host re-renders when a block its bookmark covers is dirty — any block of
+  a multi-paragraph bookmark — its pairing changed, or the start block is renumbered).
 - **Editing** (`1.5-editor.md`): `INSERT_CROSS_REFERENCE` action + handler with
   structural target validation (main-body caret, main-tree target, ordered list-item
   for `"number"`, inline-bearing for `"text"` and `"page"`). A non-collapsed
   selection is replaced on insert via `prepareEmbedInsertPoint`.
+- **Export**: HTML encodes a bookmark start as `<a id>` and a field as an internal link
+  carrying its value (a `page` field exports empty text — field-result caching for export is `[missing]`); decode reads a named
+  anchor as a point bookmark.
 
-Deferred follow-ups: heading-number references (needs heading numbering), footnote-
-number references, bookmarks, captions. Browser smoke of the live insertion UX rides
-the user's in-browser pass.
+Known gaps: heading-number references (needs heading numbering), footnote-
+number references, captions, in-document navigation of a `#bookmark` hyperlink `[missing]`.
+Browser smoke of the live insertion UX rides the user's in-browser pass.
 
 ### Layout-dependent page-fields `[implemented]` (browser smoke pending)
 
@@ -743,7 +946,7 @@ in-browser click + live-update smoke.
 
 ### Comments `[implemented]`
 
-Google-Docs anchored comments are shipped end-to-end for the v1 main-body entry
+Google-Docs anchored comments are shipped end-to-end for the main-body entry
 surface: select a range, add a comment thread (author / body / replies / resolved),
 the range highlights, and the anchor survives arbitrary edits
 (typing / delete / split / merge / paste) — orphaning when the whole anchored range
@@ -776,8 +979,8 @@ is deleted.
 - **Serialization** (`1.7-serialization.md`): the binary serializer round-trips
   comments + markers losslessly.
 
-Named follow-ups: commenting inside footnote / header / footer bodies (v1
-`ADD_COMMENT` is main-body-only); the thread-panel UI; @-mentions / reactions /
+Known gaps: commenting inside footnote / header / footer bodies
+(`ADD_COMMENT` is main-body-only); the thread-panel UI; @-mentions / reactions /
 non-text anchors; the `taleweaver-html` serializer dropping comments. Browser smoke
 rides the user's in-browser pass.
 
@@ -786,44 +989,57 @@ rides the user's in-browser pass.
 Google-Docs "Suggesting" mode (every edit becomes a tracked, attributed,
 accept/reject-able suggestion) is partially implemented.
 
-State vocabulary (slice 1): the `suggestions` Y.Map — the 6th top-level side-table,
+State vocabulary: the `suggestions` Y.Map — the 6th top-level side-table,
 6th `Y.UndoManager` scope; `SuggestionId`/`SuggestionKind`/`SuggestionRecord` +
 record IO; the THREE independent inline-attr dimensions
-(`insertionSuggestionId` / `deletionSuggestionId` / `formattingSuggestionId`); the
-two zero-width break embeds (`block-join-suggestion` / `block-split-suggestion`);
+(`insertionSuggestionId` / `deletionSuggestionId` / one `formattingSuggestionId:<id>`
+tag per formatting suggestion); the
+paragraph / section-break KEYS on the ¶'s own entry (1.1 "Tracked paragraph marks");
 binary serialize round-trip.
 
-Range index + read + Layer-1 hooks (slice 2): `buildSuggestionRangeIndex` /
+Range index + read + Layer-1 hooks: `buildSuggestionRangeIndex` /
 `resolveSuggestionRange` / `getSuggestions(state) → ResolvedSuggestion[]`
-(orphaned-by-absence derived); the optional `origin` param on BOTH `applyOperation`
-and `runTransaction` + `SUGGESTION_RESOLVE_ORIGIN`; `History.advanceState(newState)`
-for the non-undoable accept/reject path.
+(a record with no live carrier is never surfaced; write ops never delete records — the
+next resolve deletes a record with no carrier at all); the optional `origin` param on BOTH `applyOperation`
+and `runTransaction` (a generic untracked-change opt-out) + `History.advanceState(newState)`.
 
-Creation ops (slice 3a–3c):
-- `markFormatting` (slice 3a): stamps `formattingSuggestionId` over a span + writes a
-  `formatting` record with `proposedAttrs`; same-author/same-proposal adjacency
-  coalesces by id reuse.
-- `markDeletion` (slice 3b): soft-delete a span's text (stamp `deletionSuggestionId`,
-  text stays visible) via identity-preserving per-owning-block surgical strike
+Creation ops:
+- `markFormatting`: stamps its own `formattingSuggestionId:<id>` tag over a
+  span + writes a `formatting` record with `proposedAttrs`; same-author/same-proposal
+  adjacency coalesces by id reuse (not when the span holds a newer formatting
+  suggestion, nor into an id shadowed on a span character — a fresh id is minted).
+- Stacked formatting suggestions `[implemented]`: several formatting suggestions on
+  the same characters each keep their tag and full range; pending ones preview in
+  (order, createdAt, id) order (`order` = per-editor monotonic mint counter, Lamport-bumped
+  past every formatting suggestion in the span, so a mint ranks above all it stacks on
+  regardless of clocks, across reloads and peers; order-less records fall back to
+  createdAt, id; preserved by paste and JSON); accepting one shadows its keys on older pending ones on that
+  run, so every sequential accept/reject order (and group / all) gives the
+  creation-order result; record-less tags are ignored and cleaned on resolve;
+  concurrent resolution converges by Yjs client order. Legacy single-key documents are
+  re-keyed by `normalizeLegacyAttrs` (upgrade + JSON decode).
+- `markDeletion`: soft-delete a span's text (stamp `deletionSuggestionId`,
+  text stays visible) via a per-owning-block offset strike (format, never re-mint)
   (`applyDeletionStrikeInTx`), with delete-own-insertion + nesting +
   same-author coalescing rules.
-- `mintInsertion` (slice 3c): inserts text carrying `insertionSuggestionId` +
+- `mintInsertion`: inserts text carrying `insertionSuggestionId` +
   writes an `insertion` record, with insertion-point coalescing (same-author adjacent
   → reuse id).
 
-Resolution ops (slice 3d):
+Resolution ops:
 - `acceptSuggestion`/`rejectSuggestion`: single-id resolve, dispatching by record
-  `kind` (spec §6), each a NON-undoable `applyOperation(..., {origin:
-  SUGGESTION_RESOLVE_ORIGIN})` via `applyResolveDecisionsInTx` (identity-preserving
-  per-owning-block minimal diff); the editor handler calls `History.advanceState`.
-- `acceptAll`/`rejectAll`: resolve every suggestion in one non-undoable txn via a
+  `kind`, each an ordinary UNDOABLE `applyOperation` via
+  `applyResolveDecisionsInTx` (per-owning-block minimal offset diff; every drop in one
+  `deleteUnits`);
+  the editor commits it as one history entry (undo restores the suggestion exactly).
+- `acceptAll`/`rejectAll`: resolve every suggestion in one undoable txn via a
   COMBINED per-block rewrite (a run carrying insertion+deletion+formatting is walked
   once with a dominance order — acceptAll: deletion-drop dominates; rejectAll:
   insertion-drop dominates).
 
-All of change-tracking slice 3 (create + resolve single + resolve all) is COMPLETE.
+Change-tracking creation and resolution (create + resolve single + resolve all) are COMPLETE.
 
-Multi-tree resolution (MT): `iterateAllBlocksInDocumentOrder`
+Multi-tree resolution: `iterateAllBlocksInDocumentOrder`
 (`state/document-order.ts`) is a 3-tree document-order walk (main `blocks`, then
 each `embedContents` body, then each `templateContents` body). `buildSuggestionRangeIndex`
 and the accept/reject resolve scan (`resolveBlockScan`) both walk all three trees.
@@ -831,82 +1047,91 @@ The editor's suggesting-mode gate (`suggestionInputForBlock` /
 `replaceSuggestionInputForBlock` / `isSuggestingInBlock`) is relaxed to track edits
 in EVERY editing context (main body OR footnote/header/footer/template body).
 
-Editor actions (slice 4):
-- 4a: `ACCEPT_SUGGESTION`/`REJECT_SUGGESTION`/`ACCEPT_ALL_SUGGESTIONS`/`REJECT_ALL_SUGGESTIONS`
-  via a `"resolve"` ActionClass.
-- 4b: `EditorConfig.suggestingAuthor` + `newSuggestionId`/`newSuggestionInput` +
+Editor actions:
+- Resolve actions: `ACCEPT_SUGGESTION`/`REJECT_SUGGESTION`/`ACCEPT_ALL_SUGGESTIONS`/`REJECT_ALL_SUGGESTIONS`
+  (`command` class: each one undoable entry; a grouped suggestion resolves its whole group).
+- Insert: `EditorConfig.suggestingAuthor` + `newSuggestionId`/`newSuggestionInput` +
   `INSERT_TEXT` collapsed-caret branch → `mintInsertion`.
-- 4c (i–iii): `DELETE_BACKWARD`, `DELETE_FORWARD`, `DELETE_WORD`, `DELETE_LINE` all
-  SOFT-delete via the `deleteRangeOrSuggest` helper; paragraph-boundary deletes mark
-  a suggested JOIN via `markBlockJoinSuggestion`.
-- 4d-state (`replaceWithSuggestion`): type-over-selection in suggesting mode —
-  soft-deletes the selection AND inserts new text at the selection start in ONE
-  transaction, producing TWO records. FULLY IDENTITY-PRESERVING: the in-tx body
-  strikes every block (including the start block) surgically via
-  `applyDeletionStrikeInTx`, then inserts the suggested run via a `split-in-place`
-  plan built PRE-tx against the post-strike `writes` items.
-- 4d-editor: `handleInsertText` expanded-selection branch routes type-over-a-selection
+- Delete: `DELETE_BACKWARD`, `DELETE_FORWARD`, `DELETE_WORD`, `DELETE_RANGE` (the
+  target of the backend `DELETE_LINE` NavIntent) all SOFT-delete via the `deleteRangeOrSuggest` helper; paragraph-boundary deletes mark
+  a suggested JOIN via `markParagraphMarkDeletion`.
+- Type-over state op (`replaceWithSuggestion`): type-over-selection in suggesting mode —
+  soft-deletes the selection AND inserts new text at the strike's seam in ONE
+  transaction, producing TWO records. Offset writes only: the in-tx body strikes every
+  block via `applyDeletionStrikeInTx` (formats the struck runs; the own-insertion removals
+  in one `deleteUnits`), then inserts the suggested run at the seam (returned as
+  `endPosition` for the caret).
+- Type-over editor: `handleInsertText` expanded-selection branch routes type-over-a-selection
   through `replaceWithSuggestion`; direct mode keeps the destructive `replaceRange`.
 - PASTE-as-suggestion: `handlePaste` in suggesting mode routes through
-  `replaceWithSuggestedFragment`.
-- 4d-format: all 8 inline-format handlers (`TOGGLE_STYLE`, `SET_TEXT_COLOR`,
+  `replaceWithSuggestedFragment`; fragment lines carry their own type/attrs and rich
+  inline items (marks/links); un-trackable inline embeds are dropped; container
+  content is FLATTENED to leaf cells' paragraph content (structural-insertion
+  change-tracking — which would enable suggesting-mode container paste — is a
+  separate deferred feature; see `state-of-branch.md` "Structural-insertion
+  change-tracking" entry below).
+- Formatting: all 8 inline-format handlers (`TOGGLE_STYLE`, `SET_TEXT_COLOR`,
   `SET_HIGHLIGHT`, `SET_FONT_SIZE`, `SET_FONT_FAMILY`, `SET_LINK`,
   `SET_TEXT_TRANSFORM`, `CLEAR_FORMATTING`) are suggesting-aware via
   `applyAttrsOrSuggest` (direct mode: live `applyAttrsToRange`; suggesting mode:
   `markFormatting`).
-- 4e state ops: `splitWithSuggestion` (suggested paragraph SPLIT — real
-  `splitBlockAtPosition` + `block-split-suggestion` embed at the END of the first
-  block + an `insertion` record, ONE transaction); `markBlockJoinSuggestion`
-  (suggested JOIN — appends a `block-join-suggestion` embed at the END of block N +
-  a `deletion` record, blocks stay SEPARATE).
-- 4e resolve: `resolve(state, id, mode)` handles the two break embeds: drops the
-  embed via `applyResolveDecisionsInTx`, then — when `(insertion && reject) ||
-  (deletion && accept)` — merges N with its next sibling via
-  `mergeWithNextSiblingLiveInTx` (same non-undoable transaction); `resolveAll`
-  extends symmetrically, walking merge owners in REVERSE document order to handle
-  cascaded merges correctly.
-- 4e editor: collapsed Enter → `splitWithSuggestion`; Backspace/Delete at a PLAIN
-  paragraph boundary → `markBlockJoinSuggestion`; non-collapsed SINGLE-BLOCK Enter →
-  `splitWithSuggestionOverSelection`; CROSS-BLOCK non-collapsed Enter → routes through
-  `replaceWithSuggestedFragment` with an EMPTY two-line break fragment.
+- Paragraph-break state ops: `splitWithSuggestion` (real split + `insertionSuggestionId` on the new
+  head ¶ — also for Enter at offset 0 — + an `insertion` record, ONE transaction);
+  `markParagraphMarkDeletion` (the per-¶ deletion rule, a section-end ¶ included; blocks stay
+  SEPARATE; own pending split → removed for real; a live deletion, or a ¶ accepting
+  would keep, is never keyed → caret-only).
+- Paragraph-break resolve: ¶ keys resolve by `planBoundaryResolution` — key-only for split accept /
+  join reject; join accept / split reject delete exactly the keyed ¶ by the merge rule
+  (combined keys commute; co-tenant records dropped when moot).
+- Tracked section breaks `[implemented]`: suggesting `SECTION_BREAK` →
+  `applySectionBreakAsSuggestion` (key on the section-end ¶'s paragraph entry); suggesting
+  Backspace / Delete at a section-end ¶ → `markParagraphMarkDeletion` (checked BEFORE the
+  real `deleteSectionBreak`; a struck ¶ → caret-only).
+- Paragraph-break editor: collapsed Enter → `splitWithSuggestion`; Backspace/Delete at a ¶ →
+  `markParagraphMarkDeletion`; non-collapsed SINGLE-BLOCK Enter →
+  `splitWithSuggestionOverSelection`; CROSS-BLOCK non-collapsed Enter → `markDeletion` over
+  the selection then `splitWithSuggestion` at its post-strike end, in one transaction.
+  Tracked ¶ FORMATTING (a formatting suggestion over a ¶) `[missing]` (needs a tracked-`markAttrs` design).
 - Paste / cross-block fragment (`replaceWithSuggestedFragment`): a possibly-multi-block
   selection is replaced by a possibly-multi-block tracked fragment via ONE pure
   structural plan `planReplaceWithSuggestedFragment` (allocate new block ids up-front,
   compute the full post-op layout as data, apply in ONE `applyOperation`). Built on
   `insertNewBlocksInTx`.
 
-All of slice 4 + 4e + paste/cross-block-fragment is COMPLETE.
+All of the editor actions, paragraph-break handling and paste/cross-block-fragment are COMPLETE.
 
-Render (slice 5):
-- 5a render text-run visuals: `expandInlineItems` → `resolveSuggestionStyle`
+Render:
+- Text-run visuals: `expandInlineItems` → `resolveSuggestionStyle`
   (insertion=author-color+underline, deletion=author-color+lineThrough,
-  formatting=`proposedAttrs` preview + author-color underline indicator; deterministic
+  formatting=composite of every pending suggestion's `proposedAttrs` preview +
+  author-color underline indicator (newest suggestion's author); deterministic
   `authorColorOf` palette; plain runs byte-identical via fast path).
-- 5b render break-suggestion pilcrows: `expandInlineItems` peels `block-split-suggestion`
-  / `block-join-suggestion` embeds into a VISIBLE pilcrow ¶ wrapped in a single
-  inline-block atom (split=insertion-flavored, join=deletion-flavored).
-- 5c-i preview-view projection foundation: `SuggestionView = "suggesting" | "final" |
+- Break marks: a text block box carries `metadata.endMark` (kind + author colour
+  + ids; no IFC token, no offset), self-derived from its own ¶ keys — a section-end ¶ is a
+  `section-*` kind, so there is no band metadata; print draws the ¶ (or Word's "Section
+  Break" label) at the caret paint position of `(E, len)`, digital as a generated end
+  anchor (2.2.1 / 3.1). a11y: the ¶ owner's own node carries `suggestion`.
+- Preview-view projection foundation: `SuggestionView = "suggesting" | "final" |
   "original"` type + pure `itemVisibleInView(item, view)` predicate in
   `suggestions.ts`, barrel-exported.
-- 5c-ii text-surface projection: `extractText(state, span, embedSerializer?, view?)`
+- Text-surface projection: `extractText(state, span, embedSerializer?, view?)`
   filters each item by `itemVisibleInView`; `getWordCount({suggestionView})` +
   `getSelectionWordCount(state, sel, view?)` thread it through.
-- 5c-structural (text surface): `blockBoundaryMergesInView(items, view)` predicate
+- Structural text-surface projection: `boundaryMergesInView(state, left, right, view)` predicate
   (barrel-exported) — across a boundary that MERGES in the view the inter-block `"\n"`
   is SUPPRESSED in `extractText`. The RENDER-surface structural merge is DEFERRED
   (latent until a host wires a preview toggle; a render-tree merge that diverges from
   the state block tree needs a layout-integration decision first — see below).
-- 5c-iii render projection: `RenderOptions.suggestionView` threads through
+- Render projection: `RenderOptions.suggestionView` threads through
   `render()`/`renderIncremental()` → `RenderContext.suggestionView` →
   `expandInlineItems`. `RenderOutput.suggestionView` records the view so incremental
   dispatch FALLS BACK to the full path on a view switch.
-- 6a host range-rects query: `getSuggestionRangeRects(state, layoutTree, shaper,
+- Host range-rects query: `getSuggestionRangeRects(state, layoutTree, shaper,
   suggestionId)` in `cursor/suggestion-rects.ts` (barrel-exported).
-- 6b DOM-controller overlay: `setSuggestionHighlights(highlights)` /
+- DOM-controller overlay: `setSuggestionHighlights(highlights)` /
   `clearSuggestionHighlights()` on the DOM controller — exact mirror of the comment
-  overlay; two-stage self-healing; painting a TEAL band BELOW the comment band (full
-  layering: bg→suggestion→comment→find→selection→text) via `paintSuggestionHighlights`
-  + `SuggestionHighlightRect` + `addSuggestionHighlightDirty`.
+  overlay; a TEAL band BELOW the comment band (layering bg→suggestion→comment→find→
+  selection→text), drawn as a decoration on the shared decoration layer.
 
 REMAINING:
 - **`5c-structural` RENDER surface — DEFERRED.** The RENDER block-box merge
@@ -918,10 +1143,26 @@ REMAINING:
   layout-integration decision (thread a per-node state-blockId map into `groupChildren`;
   OR unfold merged nodes at the layout boundary; OR move the merge to paint-time).
   (2) The preview-render surface is UNWIRED — no host renders `final`/`original` to
-  canvas yet. The shipped `blockBoundaryMergesInView` predicate + the clean render
+  canvas yet. The shipped `boundaryMergesInView` predicate + the clean render
   hook point (`render-core.ts` container loop) are the foundation it will reuse. The
   `getWordCount` per-block projected-count gap is deliberate (per-block by design).
   See `1.1-state.md` "The `suggestions` map" + `1.5-editor.md`.
+
+**Structural-insertion change-tracking** `[missing]` — deferred named feature. The
+current suggestion model tracks inline insert/delete/format and block split/join, but
+has no representation for "this whole container (table / set of blocks) is an
+inserted suggestion." Until this feature ships: (1) pasting a container block (e.g. a
+table) in suggesting mode flattens it to its leaf cells' paragraph content — each
+cell paragraph becomes a tracked paragraph insertion; (2) inserting a table via the
+toolbar while suggesting is a direct (untracked) edit. When structural-insertion
+tracking is built, both operations inherit it via the same ops. See
+[`1.5-editor.md`](./1-core/1.5-editor.md#structural-insertion-change-tracking-deferred-feature)
+for the mechanism.
+
+**Tracked move (move-from / move-to)** `[missing]` — deferred named feature (depends on
+structural-insertion tracking). Any editor action that moves content must refuse under a
+suggesting context until it exists; direct host state ops (`reparentChildren`) are
+untracked and clear the moved blocks' break-suggestion keys. See [`1.5-editor.md`](./1-core/1.5-editor.md#tracked-move-deferred-feature).
 
 ### `accessibility/` `[implemented]` (core projection + dom mirror builder) / `[partial]` (dom mirror materialization)
 
@@ -1049,34 +1290,52 @@ survives only as (a) the float/`clear` legacy layout path and (b) a test-only
 equivalence oracle. **Non-paginated single-canvas** is the fallback — one canvas +
 a fully-positioned `LayoutBox`, used for identity sizing and the unsupported-feature
 path (`position:absolute`, multi-column-float, and float+footnote documents fall back
-to the legacy full positioned tree in v1; single-column float/`clear` docs now take
+to the legacy full positioned tree; single-column float/`clear` docs now take
 the virtualized path). Input listeners, key-handler integration, cursor blink, scroll
-syncing, and image-cache integration are all present. See
-`2-print/2.8-editor-controller.md` for the virtual page model.
+syncing, and image-cache integration are all present. Rich clipboard
+(three-flavor copy/paste + paste-without-formatting via Ctrl/Cmd+Shift+V) is
+wired: `copy`/`cut` write `text/plain`, `text/html`, and
+`TALEWEAVER_CLIP_MIME` in the synchronous `ClipboardEvent` handler;
+`paste` forwards all three to `PASTE { text?, html?, clip? }`; a `keydown`
+handler for Ctrl/Cmd+Shift+V reads `navigator.clipboard.readText()` and
+dispatches `PASTE { text }` only. `browserHtmlParser` is injected into
+`EditorConfig.htmlParser` by the host (e.g. the React adapter's `use-editor.ts`
+`createConfig`); the print controller itself never constructs an `EditorConfig`. See
+`2-print/2.8-editor-controller.md` for the virtual page model and clipboard wiring detail.
+
+Paragraph-mark editing in print `[implemented]`: Shift+Enter → `INSERT_LINE_BREAK` (the
+`hard-break` soft break); triple-click → core `selectParagraph` (the paragraph WITH its ¶);
+markers are never caret stops (hit-test, up / down, arrows, Home / End and selection
+extension go through core `caretAfterMarkers`; arrows through `stepPastMarkers`); the
+selection ¶ extension of every covered ¶ is clipped by the line's ancestor clip. The layout
+driver returns the prior tree for the same `State` + width + no dirty set, and the
+controller syncs page slots / the intersection observer only for a NEW layout tree, so a
+caret move or selection extension does no per-page or per-document work (gated by
+deterministic op counters at 3 vs 84 pages, not wall-clock). Browser smoke `[pending]`:
+select across a paragraph end inside a table cell (LTR / RTL) — the extension stops at the
+cell border; caret / Shift+Arrow feel identical at page 1 vs page 80 of a long document;
+scrolling a long document still materializes pages.
 
 ### `canvas-renderer` `[implemented]`
 
 `paintCanvas` and `paintPage` both work. Viewport culling works. Two paint paths
 (with cache, without cache) both correct. Root short-circuit in
 `walkAndDetectChanges` fires correctly when wired via the controller's paint cache.
-The overlay band is `background → suggestion highlights → comment highlights → match
-highlights → selection → text`. The find-match highlight overlay (`MatchHighlightRect[]`)
-paints under the selection tint and under text, with `addMatchHighlightDirty` per-page
-dirty marking. The comment highlight overlay (`CommentHighlightRect[]`, amber) paints
-below the find highlights; the controller's `setCommentHighlights` /
-`clearCommentHighlights` store `{ commentId, active }` and re-resolve each comment's
-range from live state every `update()`. The find SESSION + navigation shipped:
+The overlay band is `background → decorations (block backgrounds, then inline bands +
+underlines in layer order: suggestions → comments → find → host) → selection → text`.
+Find / comment / suggestion highlights are decorations on the controller's core
+`DecorationLayers` (see the "Decorations & position mapping" entry); ONE
+`paintDecorations` + `addDecorationDirty` path paints and dirty-tracks them all. The find SESSION + navigation shipped:
 `findStart`/`findNext`/`findPrev`/`findClose` (returning `FindStatus`) run
 `findMatches`, highlight + cycle (wrap) the active match, scroll it into view via
 `scrollVisualIntoView`, and live-recompute on every doc edit in `update()`. The
 controller's replace methods (`replaceActive` / `replaceAll`) + public `findStatus()`
 dispatches `REPLACE_MATCH` / `REPLACE_ALL`. `EditorView` exposes them through a
-`forwardRef` + `useImperativeHandle` `EditorViewHandle`. The Ctrl+F / Ctrl+H
-find-bar React UI (the bar component + keyboard wiring) is the remaining F&R-UI
-slice.
+`forwardRef` + `useImperativeHandle` `EditorViewHandle`. The example app's
+`FindBar` (with the Ctrl+F / Ctrl+H shortcut) is the find/replace UI over this handle.
 
 Paint strategy is "clear-dirty + full-repaint" rather than true per-box compositing
-— the v1 ceiling without a layer compositor.
+— the ceiling without a layer compositor.
 
 ### `paint-cache` `[implemented]`
 
@@ -1091,12 +1350,13 @@ break opportunities (via the `core` `toBreakOpportunities` adapter over the
 `layout/uax14` classifier). Paired with a legacy `canvas-measurer` for callers that
 still consume the older `TextMeasurer` interface.
 
-Gaps: per-cluster UAX #9 bidi, complex-script glyph metrics (cluster advances
-approximate one base width per grapheme), hyphenation dictionaries.
+Gaps: complex-script glyph metrics (cluster advances are the canvas-measured width of the whole cluster string) and font metrics (metrics use `actualBoundingBox*`, not `fontBoundingBox*`). UAX #9 bidi and hyphenation are not
+shaper concerns — the IFC resolves bidi per paragraph and applies the injected
+`LayoutConfig.hyphenator` (see [`2-print/2.7-canvas-shaper.md`](./2-print/2.7-canvas-shaper.md)).
 
 The inter-word paint/measure mismatch (space advances dropped vs. measured) no
 longer has a code cause: paint sums per-cluster `measureText` advances identically
-to layout, and the letter/word-spacing slice adds the same per-cluster
+to layout, and letter/word-spacing adds the same per-cluster
 `clusterSpacing` to both the shaper advances and the paint loop — so painted glyph
 origins equal the laid-out advances by construction (`cluster-paint.test.ts` locks
 it).
@@ -1115,7 +1375,7 @@ a scheme-sanitized `<a href>`. Styling is inline via `computedStyleToInlineStyle
 `resolveLogicalSides`). Consecutive list-item siblings group into nested `<ul>/<ol>`
 via a level-stack; the `suggestionView` option chooses suggesting (default) vs final.
 
-Out of scope (print/page apparatus or separate features, NOT MVP cuts):
+Out of scope (print/page apparatus or separate features, not scope cuts):
 pagination/page-breaks/multicolumn fragmentation, headers/footers, footnote BODIES
 (the anchor superscript still renders inline), editing/selection/caret/hit-test, and
 the accessibility tree (the `dom-mirror` owns it). DOCUMENTED LIMITATION: the CSS
@@ -1123,6 +1383,23 @@ emitter does not emit `display` (tag choice carries it), so a cascaded
 `display:flow-root` renders as `<div>`, dropping the BFC-establishing hint —
 acceptable for a flowing read-only view (no floats/clear in this scope), a recorded
 gap not a silent one. See [`3-digital/3.1-dom-view.md`](./3-digital/3.1-dom-view.md).
+
+### Decorations & position mapping `[implemented]` (browser smoke pending)
+
+Core `decorations/` (types, `DecorationSet`, `DecorationLayers`, built-in find /
+comment / suggestion highlights as decorations) and `state/position-mapping.ts`
+(text-diff mapping across any transition, incl. split/merge, undo and foreign changes)
+`[implemented]`. Digital draws inline / widget / block decorations (widgets ordered by
+side, outside inline wrappers, caret-hopped on arrows), reports pointer events, and
+draws its find/comment/suggestion highlights through the layer `[implemented]`
+(browser smoke pending). Print draws inline bands + underlines and block backgrounds through
+ONE lazily-resolved, per-page-cached paint path (its find/comment/suggestion highlights
+are decoration layers too), renders widgets as zero-offset DOM overlays at their caret
+rect (no text reflow), and reports pointer events `[implemented]` — see
+[`2-print/2.8-editor-controller.md`](./2-print/2.8-editor-controller.md). See
+[`1-core/1.9-decorations.md`](./1-core/1.9-decorations.md).
+`[partial]` the suggestion layer re-resolves by a whole-document scan whenever an edit
+touches a tracked run; an incremental per-block suggestion index is not built.
 
 ### Digital interactive controller `[implemented]`
 
@@ -1134,11 +1411,25 @@ reconciler → optional `onChange` host notification). It maps native `beforeinp
 (`map-before-input`), `keydown` (`map-digital-key` — a thin non-nav chord map that
 deliberately avoids `print`'s geometric `NavIntent` mapper), `selectionchange`, IME
 composition, and clipboard events to geometry-free `EditorAction`s; the
-`digital-reconciler` diffs each new `EditorState` into minimal DOM mutations; the
+`digital-reconciler` renders incrementally (render + cascade reuse) and patches only the
+DOM units whose styled node or decorations changed; the
 `digital-selection-bridge` translates the browser `Selection` to core `Position`s by
 walking `data-block-id` elements and measuring UTF-16 units. The browser owns caret
-geometry/navigation. See
+geometry/navigation. Find / replace (`findStart` … `replaceAll`, same contract as print) runs on core's
+`createFindSession` with matches drawn as decorations. Rich clipboard (three-flavor copy/paste + paste-without-formatting
+via Ctrl/Cmd+Shift+V) is wired symmetrically to the print controller; digital ships
+its own `html-parser.ts` DOM adapter injected into `EditorConfig.htmlParser` (the
+`digital ↛ print` boundary is preserved). See
 [`3-digital/3.2-digital-controller.md`](./3-digital/3.2-digital-controller.md).
+
+Paragraph marks in digital `[implemented]`: `insertLineBreak` (Shift+Enter) →
+`INSERT_LINE_BREAK` (a `hard-break` renders `<br data-inline-embed>`), only `insertParagraph`
+→ `SPLIT_NODE`; the selection bridge normalizes DOM points through `caretAfterMarkers`;
+the selected-¶ indicator is incremental (a selection-only change touches the paragraphs
+between the old and new endpoints; a document change of known extent — a local edit or a
+peer's — re-judges only its changed blocks, O(changed blocks), never the selection);
+native digital arrow keys are moved past marker embeds and a ¶'s END anchors before the
+browser's move (`hopMarkers`), so no press is dead.
 
 ### Other print helpers `[implemented]`
 
@@ -1157,7 +1448,8 @@ across renders.
 ### `editor-view` `[implemented]`
 
 Mount / update / unmount lifecycle works. Controller wiring works. React.Profiler
-instrumentation works.
+instrumentation works. Decorations: `decorations` / `decorationsBasedOn` /
+`onDecorationPointer` props forward to the print controller's decoration layer.
 
 ---
 
@@ -1184,8 +1476,8 @@ catalog). See [`5-pdf/overview.md`](./5-pdf/overview.md).
 mirroring the canvas renderer's two `paintBox` calls). The background pass emits box
 backgrounds (`backgroundColor`), per-side borders (via core's `physicalBorderSides`),
 and horizontal rules; the foreground pass emits underline/line-through decorations
-and tab leaders (line/dash via filled rects, dot via the 4-Bézier `fillCircle`). v1
-boundaries: document-order stacking (no z-index reorder), no inline-fragment
+and tab leaders (line/dash via filled rects, dot via the 4-Bézier `fillCircle`).
+Limits: document-order stacking (no z-index reorder), no inline-fragment
 border-edge suppression, `rgba()` flattened opaque.
 
 ### Phase (c.1) — embedded-font object-graph machinery `[implemented]`
@@ -1245,7 +1537,7 @@ byte-for-byte. `subset-font` dispatches by `glyphFormat` and derives a determini
 
 Zero-dependency zlib/DEFLATE codec wired into `pdf-writer.ts`. Stream payloads are
 compressed with `/Filter /FlateDecode` (RFC 1950 zlib + RFC 1951 DEFLATE, fixed-
-Huffman v1 + LZ77 hash-chain matching) when compression reduces size; the no-
+Huffman + LZ77 hash-chain matching) when compression reduces size; the no-
 expansion guard falls back to storing the payload uncompressed. `pdf-parse.ts`'s
 `streamObject` inflates transparently — stored, fixed-Huffman, and dynamic-Huffman
 blocks all decode (`inflate.ts` is a complete RFC 1951 decoder). Codec modules:
@@ -1310,7 +1602,7 @@ barrel), shared by `print` and `pdf`. Autolink is out.
 
 Cross-references and table-of-contents entries export as clickable internal `/Link`
 annotations with a `/GoTo` action (ISO 32000-1 §12.3.2.2). Render stamps the
-cross-ref atom's target block id onto the layout tree (`metadata.targetId` →
+cross-ref atom's target block id (the block holding its bookmark start) onto the layout tree (`metadata.targetId` →
 `InlineBlockBox.targetId`, opaque to geometry, copied through every rebuild); a TOC
 entry container carries `BlockBox.metadata.navTarget`. `page-emitter` collects one
 `{ targetId, rect }` per laid-out cross-ref atom and per TOC-entry line (foreground

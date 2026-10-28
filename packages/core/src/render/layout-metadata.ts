@@ -22,32 +22,50 @@
  * Putting it under `layout/` and importing it into `render-node.ts` would
  * invert the layering; a render-side leaf keeps the dependency one-directional.
  */
-import type { BlockId } from "../state";
+import type { BlockId, BoundaryMarkKind } from "../state";
 import type { PageFieldKind, PageFieldNumberStyle } from "../state/page-field";
+import type { Style } from "../styles";
+
+/**
+ * A tracked ¶ drawn on a text block box (change tracking): the
+ * block's OWN paragraph mark — a `section-*` kind is a section-end item, drawn as
+ * Word's section-break label over the line remainder. Not an inline item: it takes
+ * no IFC token and no offset. Drawn at the caret paint position of (block, len); it
+ * takes no line space and may hang past the content edge. `color` is the first
+ * suggestion's author color (null when its record is gone).
+ */
+export interface BoundaryMarkMetadata {
+  readonly kind: BoundaryMarkKind;
+  readonly color: string | null;
+  readonly suggestionIds: readonly string[];
+}
 
 export interface LayoutBoxMetadata {
+  // Change tracking (only in the literal "suggesting" view): this text block's own
+  // tracked ¶ (a paragraph mark or a section-end item).
+  readonly endMark?: BoundaryMarkMetadata;
   readonly image?: { readonly src: string; readonly width: number; readonly height: number; readonly alt?: string };
   readonly horizontalLine?: boolean;
   // Table-of-contents anchor marker. Stamped by the `table-of-contents`
-  // component onto its placeholder box so the render-core TOC branch (a later
-  // slice) can recognize the anchor and synthesize the entry subtree.
+  // component onto its placeholder box so the render-core TOC branch can
+  // recognize the anchor and synthesize the entry subtree.
   readonly tableOfContents?: true;
-  // TOC-entry click-nav markers. Stamped by the render-core TOC branch (a later
-  // slice) onto each synthesized entry box so the DOM controller's TOC hit-test
+  // TOC-entry click-nav markers. Stamped by the render-core TOC branch
+  // onto each synthesized entry box so the DOM controller's TOC hit-test
   // can navigate to the heading. `navTarget` is the heading block to scroll the
   // caret to; `tocEntry` marks the box as a clickable entry. NOT a field-kind
   // discriminant (the entry's page number is a normal cross-ref-page field).
   readonly navTarget?: BlockId;
   readonly tocEntry?: true;
   readonly columnWidths?: readonly number[];
-  // Table header-row repetition (#487). The number of leading contiguous rows
+  // Table header-row repetition. The number of leading contiguous rows
   // (`[0, headerRowCount)`) that repeat at the top of every page/column fragment
   // the table spans. Stamped RAW from the table block's open-schema
   // `attrs.headerRowCount` by the `table` component (the same path as
   // `columnWidths`; NO cascade interpreter is involved); read by the measure +
   // materialize passes. Absent ⇒ 0 (no repeated header).
   readonly headerRowCount?: number;
-  // Table-cell spanning (P8). Structural grid facts (HTML rowspan/colspan model,
+  // Table-cell spanning. Structural grid facts (HTML rowspan/colspan model,
   // NOT cascaded style): stamped by the `table-cell` component from the cell's
   // open-schema `attrs`, read raw by the Table FC + intrinsic pass via
   // `cellSpan` (layout/table-grid.ts). Absent ⇒ 1.
@@ -71,7 +89,10 @@ export interface LayoutBoxMetadata {
   // raw integer is carried here: the HTML serializer resolves ordinals via the
   // numbering engine and the a11y dom-mirror numbers native `<ol>` elements.
   // Absent ⇒ render as a plain styled block.
-  readonly list?: { readonly level: number; readonly listId: string; readonly ordered: boolean };
+  // `markerStyle`: the marker's character style — the paragraph mark's formatting
+  // (`markAttrs`; Word formats the number with the ¶'s rPr). Absent when the
+  // ¶ has none (the marker then takes the block's style).
+  readonly list?: { readonly level: number; readonly listId: string; readonly ordered: boolean; readonly markerStyle?: Partial<Style> };
   readonly pageInlineSize?: unknown;
   readonly pageBlockSize?: unknown;
   readonly pageMargins?: unknown;
@@ -85,7 +106,7 @@ export interface LayoutBoxMetadata {
   readonly columnCount?: unknown;
   readonly columnGap?: unknown;
   readonly columnRule?: unknown;
-  // Embed-anchor markers (FN-2): the embed kind discriminator + the linked
+  // Embed-anchor markers: the embed kind discriminator + the linked
   // embed-content root id. `embedType` is the EmbedItem kind (e.g. the
   // footnote-anchor type); `contentBlockId` rides RAW from the embed's
   // open-schema `properties` bag (read as `unknown`, coerced at the numbering
@@ -111,7 +132,7 @@ export interface LayoutBoxMetadata {
   // time and carry `embedType` + `targetId` but NO `refMode` (only `"page"` mode
   // is layout-dependent). `targetId` is stamped in ALL three modes — threaded
   // onto the laid-out atom (`InlineBlockBox.targetId`) so the PDF exporter can
-  // emit an internal /GoTo link to the target (#522). `targetId` rides the
+  // emit an internal /GoTo link to the target. `targetId` rides the
   // validated string from the embed's `properties` (the broken-ref case stamps
   // `null`).
   readonly refMode?: "page";

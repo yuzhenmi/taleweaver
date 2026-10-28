@@ -1,5 +1,5 @@
 import type { State } from "./state";
-import { getBlock, blockCount } from "./state";
+import { getBlock, createWalkGuard } from "./state";
 import type { BlockId } from "./block-id";
 import { ancestorChain } from "./block-traversal";
 import { isSpan, spanValue } from "./table-cell-span";
@@ -7,7 +7,7 @@ import { assignTableGrid } from "./table-grid-core";
 import type { GridCell, TableGrid } from "./table-grid-core";
 
 /**
- * The table-editing context derived from a caret position (P15a). Identifies the
+ * The table-editing context derived from a caret position. Identifies the
  * caret's table / row / cell and the full row×cell grid, in document order, so the
  * insert/delete row/column handlers can operate without re-walking the tree.
  *
@@ -21,7 +21,7 @@ import type { GridCell, TableGrid } from "./table-grid-core";
  * `spanned` and `ragged` are exposed SEPARATELY (not just their `hasSpans` union)
  * because the handlers dispatch on them DIFFERENTLY: a `spanned` (well-formed) table
  * routes to the span-aware op, but a `ragged` table stays gated (a degenerate
- * state, out of P15b scope). A handler must check `ragged` BEFORE `spanned` so a
+ * state the span-aware ops do not handle). A handler must check `ragged` BEFORE `spanned` so a
  * spanned-AND-ragged table still no-ops (the ragged gate wins).
  */
 export interface TableContext {
@@ -35,13 +35,13 @@ export interface TableContext {
   readonly cellIdsByRow: readonly (readonly BlockId[])[];
   /** Any cell carries a real `rowSpan`/`colSpan` (> 1, per `isSpan`). */
   readonly spanned: boolean;
-  /** Rows have differing cell counts (a degenerate table; P15b leaves it gated). */
+  /** Rows have differing cell counts (a degenerate table; the span-aware ops leave it gated). */
   readonly ragged: boolean;
   /** `spanned || ragged` — a derived convenience, NOT the editor no-op boundary
    *  (that is `ragged` alone; `spanned` routes to the span-aware op). */
   readonly hasSpans: boolean;
   /**
-   * The P8 occupancy grid for this table, built ONCE from the PRE-mutation
+   * The occupancy grid for this table, built ONCE from the PRE-mutation
    * `state` (it is what `ragged` is derived from). `null` only for a non-main-tree
    * table — unreachable here, since `tableId` is already proven a main-tree
    * `table`. Span-aware handlers reuse this for caret targeting instead of
@@ -58,11 +58,10 @@ export function getChildIds(state: State, parentId: BlockId): BlockId[] {
   const out: BlockId[] = [];
   // Cycle-detection bound, matching block-traversal's chain walks: a corrupt
   // `nextSiblingId` cycle would otherwise loop forever.
-  const maxSteps = blockCount(state) + 1;
-  let steps = 0;
+  const guard = createWalkGuard(state);
   let cur: BlockId | null = parent.firstChildId;
   while (cur !== null) {
-    if (++steps > maxSteps) {
+    if (guard.step()) {
       throw new Error(`getChildIds: cycle detected in sibling chain under "${parentId}"`);
     }
     const child = getBlock(state, cur);
@@ -79,8 +78,7 @@ export function getChildIds(state: State, parentId: BlockId): BlockId[] {
  *
  * MAIN-TREE ONLY: every lookup uses `getBlock` (main tree). A table inside a
  * header/footer/footnote body resolves to `null` (the structural ops the handlers
- * call are main-tree-only), so those tables are out of P15a scope — the handler
- * no-ops.
+ * call are main-tree-only), so the handler no-ops on those tables.
  */
 export function resolveTableContext(state: State, blockId: BlockId): TableContext | null {
   // Walk up to the nearest table-cell. `ancestorChain` resolves across ALL trees
@@ -127,7 +125,7 @@ export function resolveTableContext(state: State, blockId: BlockId): TableContex
   );
   // `ragged` (degenerate) is SPAN-AWARE: the occupancy grid is not a clean
   // rectangle — some slot is uncovered (a hole). A well-formed spanned table
-  // tiles its grid fully (no holes → ragged false, so P15b's span-aware ops run);
+  // tiles its grid fully (no holes → ragged false, so the span-aware ops run);
   // genuinely-missing cells OR a malformed span that leaves a gap produce a hole
   // (ragged true → stays gated, the degenerate carve-out). Computing from raw cell
   // COUNTS per row would wrongly flag every colSpan/rowSpan table as ragged (a span
@@ -158,16 +156,15 @@ export function resolveTableContext(state: State, blockId: BlockId): TableContex
 }
 
 /**
- * Build the P8 occupancy grid (`TableGrid`) for a main-tree `table` block from
+ * Build the occupancy grid (`TableGrid`) for a main-tree `table` block from
  * the STATE Block tree — the state-side counterpart of the layout Table FC's grid
- * pass, so the P15b span-aware editing ops can reason in grid coordinates
+ * pass, so the span-aware editing ops can reason in grid coordinates
  * (gridRow/gridCol/occupancy) from the PRE-mutation `State`.
  *
  * Spans are read as `spanValue(attrs.rowSpan/colSpan) ?? 1` — the SAME predicate
  * `table-cell.ts` stamps into layout metadata — so the state-built grid is
  * BYTE-IDENTICAL to the layout-built grid. (NOT `clampSpan` on raw attrs:
- * `clampSpan(2.9) = 2` would diverge from the layout path's `1×1`. See the
- * `table-grid-core` F1 contract.)
+ * `clampSpan(2.9) = 2` would diverge from the layout path's `1×1`.)
  *
  * Returns `null` when `tableId` is not a main-tree `table` block. Rows/cells are
  * filtered to `table-row`/`table-cell` types (anonymous-row/cell synthesis is a

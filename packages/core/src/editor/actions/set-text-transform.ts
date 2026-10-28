@@ -3,6 +3,7 @@ import type { TextTransform } from "../../styles";
 import { isCollapsed } from "../../cursor/selection";
 import { applyAttrsOrSuggest } from "./suggestion-mode";
 import { rebuildTrees } from "./helpers";
+import { storeTypingAttrs } from "../typing-attrs";
 
 /**
  * Set the text-transform on the current selection. Used by the toolbar's
@@ -24,8 +25,8 @@ import { rebuildTrees } from "./helpers";
  * would compare unequal to a bare `{}` run and fragment it). This mirrors how
  * the color handler clears to its default.
  *
- * Mirrors set-text-color.ts: collapsed selection short-circuits to a no-op (no
- * transform can be applied to a single cursor position); state-equality
+ * Mirrors set-text-color.ts: a collapsed caret records the transform as pending
+ * typing attrs for the next typed text; state-equality
  * short-circuit; the selection is preserved unchanged (attr-only edit); dirtyIds
  * threaded through to the incremental render pipeline.
  */
@@ -35,7 +36,10 @@ export function handleSetTextTransform(
   config: EditorConfig,
 ): EditorState {
   const { selection } = editor;
-  if (isCollapsed(selection)) return editor;
+  // Collapsed caret: the transform applies to the next typed text (typing attrs).
+  if (isCollapsed(selection)) {
+    return storeTypingAttrs(editor, { textTransform: value === "none" ? undefined : value });
+  }
 
   // `"none"` is the initial value → remove the attr (undefined = removal in
   // mergeAttrs) so the run re-merges with untransformed neighbours; any other

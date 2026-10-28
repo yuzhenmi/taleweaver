@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { createTable, buildTableSubtreePlan } from "./create-table";
 import { getBlock } from "../state";
-import { buildBlock, buildState, inlineContent, text } from "../../test-utils/state-builders";
+import { buildBlock, buildState, inlineContent, text, finalSectionOf } from "../../test-utils/state-builders";
+import { flowShape, assertInvariantI } from "../../test-utils/invariant-i";
 import { createTestAllocator } from "../block-id";
 import { createPosition } from "../block-position";
-import { assertChainIntegrity } from "../chain-integrity";
 import type { BlockId } from "../block-id";
 import type { State } from "../state";
 
@@ -108,94 +108,45 @@ describe("createTable", () => {
     if (firstRow === null || firstRow === undefined) throw new Error("row0 missing");
     const firstCell = getBlock(next, firstRow.firstChildId as BlockId);
     expect(caretInto).toEqual(createPosition(firstCell?.firstChildId as BlockId, 0));
-    assertChainIntegrity(next, "test");
   });
 
-  it("START (offset 0): inserts the table BEFORE the caret's block", () => {
-    const state = paraDoc("hello");
-    const { state: next, newTableId } = createTable(
-      state, createPosition("p" as BlockId, 0), 1, 1, createTestAllocator("t"),
-    );
-    expect(getBlock(next, "doc" as BlockId)?.firstChildId).toBe(newTableId);
-    expect(getBlock(next, newTableId)?.nextSiblingId).toBe("p");
-    expect(getBlock(next, newTableId)?.prevSiblingId).toBeNull();
+  // Placement: at (P, 0) only the table item is written,
+  // before P; at (P, k > 0) a ¶ ends the head at the caret, then the table: head H
+  // (new id), table, tail P (empty at k = len). A paragraph always follows the table.
+  const shapeOf = (s: State, tableId: BlockId) => flowShape(s, "doc").replace(`[${tableId}]`, "[T]");
+
+  it("START (offset 0): the table goes BEFORE the caret's block", () => {
+    const { state: next, newTableId } = createTable(paraDoc("hello"), createPosition("p" as BlockId, 0), 1, 1, createTestAllocator("t"));
+    expect(shapeOf(next, newTableId)).toBe('[T] p:"hello"');
+    expect(getBlock(next, finalSectionOf(next))?.firstChildId).toBe(newTableId);
     expect(getBlock(next, "p" as BlockId)?.prevSiblingId).toBe(newTableId);
-    // "hello" untouched
-    assertChainIntegrity(next, "test");
+    assertInvariantI(next, "storage");
   });
 
-  it("END (offset === length): inserts the table AFTER the caret's block", () => {
-    const state = paraDoc("hello");
-    const { state: next, newTableId } = createTable(
-      state, createPosition("p" as BlockId, 5), 1, 1, createTestAllocator("t"),
-    );
-    expect(getBlock(next, "doc" as BlockId)?.lastChildId).toBe(newTableId);
-    expect(getBlock(next, "p" as BlockId)?.nextSiblingId).toBe(newTableId);
-    expect(getBlock(next, newTableId)?.prevSiblingId).toBe("p");
-    expect(getBlock(next, newTableId)?.nextSiblingId).toBeNull();
-    assertChainIntegrity(next, "test");
+  it("END (offset = length): head H keeps the text, then the table, then the empty tail P", () => {
+    const { state: next, newTableId } = createTable(paraDoc("hello"), createPosition("p" as BlockId, 5), 1, 1, createTestAllocator("t"));
+    expect(shapeOf(next, newTableId)).toMatch(/^\S+:"hello" \[T\] p:""$/);
+    expect(getBlock(next, "p" as BlockId)?.prevSiblingId).toBe(newTableId);
+    assertInvariantI(next, "storage");
   });
 
-  it("MID-block: splits the paragraph and inserts the table between the halves", () => {
-    const state = paraDoc("hello");
-    const { state: next, newTableId } = createTable(
-      state, createPosition("p" as BlockId, 2), 1, 1, createTestAllocator("t"),
-    );
-    // "p" keeps the prefix "he"; a new block holds the suffix "llo".
-    const table = getBlock(next, newTableId);
-    expect(table?.prevSiblingId).toBe("p");
-    const suffixId = table?.nextSiblingId;
-    if (suffixId == null) throw new Error("expected suffix block after table");
-    expect(getBlock(next, "p" as BlockId)?.nextSiblingId).toBe(newTableId);
-    expect(getBlock(next, suffixId)?.prevSiblingId).toBe(newTableId);
-    expect(getBlock(next, "doc" as BlockId)?.firstChildId).toBe("p");
-    expect(getBlock(next, "doc" as BlockId)?.lastChildId).toBe(suffixId);
-    assertChainIntegrity(next, "test");
+  it("MID-block: head H = prefix, table, tail P = suffix", () => {
+    const { state: next, newTableId } = createTable(paraDoc("hello"), createPosition("p" as BlockId, 2), 1, 1, createTestAllocator("t"));
+    expect(shapeOf(next, newTableId)).toMatch(/^\S+:"he" \[T\] p:"llo"$/);
+    const head = getBlock(next, newTableId)?.prevSiblingId ?? null;
+    expect(head).not.toBeNull();
+    expect(getBlock(next, finalSectionOf(next))?.firstChildId).toBe(head);
   });
 
-  it("MID-block on an interior paragraph: threads table+suffix without breaking the chain", () => {
-    // Caret mid-"first" (offset 2) in p0, which has BOTH a prevSibling-less head
-    // position AND a real nextSibling (p1) — exercises the split path where the
-    // suffix's nextSiblingId stays p1 (not parent.lastChildId).
-    const state = twoParaDoc();
-    const { state: next, newTableId } = createTable(
-      state, createPosition("p0" as BlockId, 2), 1, 1, createTestAllocator("t"),
-    );
-    const table = getBlock(next, newTableId);
-    expect(table?.prevSiblingId).toBe("p0");
-    const suffixId = table?.nextSiblingId;
-    if (suffixId == null) throw new Error("expected suffix block after table");
-    expect(getBlock(next, "p0" as BlockId)?.nextSiblingId).toBe(newTableId);
-    expect(getBlock(next, suffixId)?.prevSiblingId).toBe(newTableId);
-    // suffix keeps p1 as its next; p1 points back at the suffix.
-    expect(getBlock(next, suffixId)?.nextSiblingId).toBe("p1");
-    expect(getBlock(next, "p1" as BlockId)?.prevSiblingId).toBe(suffixId);
-    expect(getBlock(next, "doc" as BlockId)?.firstChildId).toBe("p0");
-    expect(getBlock(next, "doc" as BlockId)?.lastChildId).toBe("p1");
-    assertChainIntegrity(next, "test");
+  it("MID-block on an interior paragraph keeps the following paragraph linked", () => {
+    const { state: next, newTableId } = createTable(twoParaDoc(), createPosition("p0" as BlockId, 2), 1, 1, createTestAllocator("t"));
+    expect(shapeOf(next, newTableId)).toMatch(/^\S+:"fi" \[T\] p0:"rst" p1:"second"$/);
+    expect(getBlock(next, "p1" as BlockId)?.prevSiblingId).toBe("p0");
   });
 
-  it("inserts cleanly between two existing paragraphs (END of p0)", () => {
-    const state = twoParaDoc();
-    const { state: next, newTableId } = createTable(
-      state, createPosition("p0" as BlockId, 5), 1, 1, createTestAllocator("t"),
-    );
-    expect(getBlock(next, "p0" as BlockId)?.nextSiblingId).toBe(newTableId);
-    expect(getBlock(next, newTableId)?.nextSiblingId).toBe("p1");
-    expect(getBlock(next, "p1" as BlockId)?.prevSiblingId).toBe(newTableId);
-    expect(getBlock(next, "doc" as BlockId)?.firstChildId).toBe("p0");
-    expect(getBlock(next, "doc" as BlockId)?.lastChildId).toBe("p1");
-    assertChainIntegrity(next, "test");
-  });
-
-  it("empty doc (single empty paragraph): inserts the table before the empty paragraph", () => {
-    const state = paraDoc("");
-    const { state: next, newTableId } = createTable(
-      state, createPosition("p" as BlockId, 0), 2, 2, createTestAllocator("t"),
-    );
-    expect(getBlock(next, "doc" as BlockId)?.firstChildId).toBe(newTableId);
-    expect(getBlock(next, newTableId)?.nextSiblingId).toBe("p");
-    assertChainIntegrity(next, "test");
+  it("empty doc (single empty paragraph): the table goes before the empty paragraph", () => {
+    const { state: next, newTableId } = createTable(paraDoc(""), createPosition("p" as BlockId, 0), 2, 2, createTestAllocator("t"));
+    expect(shapeOf(next, newTableId)).toBe('[T] p:""');
   });
 
   it("throws for rows < 1 or cols < 1 (precondition; the action layer no-ops)", () => {

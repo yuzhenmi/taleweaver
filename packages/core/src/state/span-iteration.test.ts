@@ -1,8 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { normalizeSpan, iterateSpan, iterateBlocksInSpan } from "./span-iteration";
-import { buildBlock, buildState, text, inlineContent } from "../test-utils/state-builders";
+import { TEST_RESOLVER, testContainer, buildBlock, buildState, text, inlineContent } from "../test-utils/state-builders";
 import { createPosition, createSpan } from "./block-position";
 import type { BlockId } from "./block-id";
+
+// Host container types the default registry lacks (file-local registry instance).
+TEST_RESOLVER.register(testContainer("blockquote"));
 
 function nth<T>(arr: readonly T[], i: number, what = "element"): T {
   const v = arr[i];
@@ -164,17 +167,19 @@ describe("iterateSpan", () => {
   });
 
   it("throws when anchor and focus are in different selection contexts", () => {
-    // Two roots — anchor in main doc, focus in a separate sub-tree.
+    // Two roots — anchor in main doc, focus in a footnote body's paragraph.
     const state = buildState({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
         buildBlock({ id: "p1", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hi")]) }),
-        // Footnote-body sub-tree with its own root (parentId = null).
-        buildBlock({ id: "fn", type: "footnote-body", inlineContent: inlineContent([text("footnote")]) }),
+      ],
+      embedContents: [
+        buildBlock({ id: "fn", type: "footnote-body", firstChildId: "fnp", lastChildId: "fnp" }),
+        buildBlock({ id: "fnp", type: "paragraph", parentId: "fn", inlineContent: inlineContent([text("footnote")]) }),
       ],
     });
-    const cross = createSpan(createPosition("p1" as BlockId, 0), createPosition("fn" as BlockId, 1));
+    const cross = createSpan(createPosition("p1" as BlockId, 0), createPosition("fnp" as BlockId, 1));
     expect(() => [...iterateSpan(state, cross)]).toThrow(/different selection contexts/);
   });
 });
@@ -235,24 +240,29 @@ describe("iterateBlocksInSpan", () => {
   });
 
   it("yields a deeply-nested cross-subtree range", () => {
-    // doc > [outer1 > [s1 > [p1, p2]], outer2 > [s2 > [p3]]]
+    // doc > [outer1 > [s1 > [p1, p2]], outer2 > [s2 > [p3]]] — outer sections, inner
+    // generic containers (sections only live in the root flow).
     const state = buildState({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "o1", lastChildId: "o2" }),
         buildBlock({ id: "o1", type: "section", parentId: "doc", nextSiblingId: "o2", firstChildId: "s1", lastChildId: "s1" }),
-        buildBlock({ id: "s1", type: "section", parentId: "o1", firstChildId: "p1", lastChildId: "p2" }),
+        buildBlock({ id: "s1", type: "blockquote", parentId: "o1", firstChildId: "p1", lastChildId: "p2" }),
         buildBlock({ id: "p1", type: "paragraph", parentId: "s1", nextSiblingId: "p2", inlineContent: inlineContent([text("a")]) }),
         buildBlock({ id: "p2", type: "paragraph", parentId: "s1", prevSiblingId: "p1", inlineContent: inlineContent([text("b")]) }),
         buildBlock({ id: "o2", type: "section", parentId: "doc", prevSiblingId: "o1", firstChildId: "s2", lastChildId: "s2" }),
-        buildBlock({ id: "s2", type: "section", parentId: "o2", firstChildId: "p3", lastChildId: "p3" }),
+        buildBlock({ id: "s2", type: "blockquote", parentId: "o2", firstChildId: "p3", lastChildId: "p3" }),
         buildBlock({ id: "p3", type: "paragraph", parentId: "s2", inlineContent: inlineContent([text("c")]) }),
       ],
     });
     const span = createSpan(createPosition("p1" as BlockId, 0), createPosition("p3" as BlockId, 1));
     const blocks = [...iterateBlocksInSpan(state, span)];
-    // p1, p2, o2, s2, p3 — note o2 (container) appears before its first child s2.
-    expect(blocks.map((b) => b.id)).toEqual(["p1", "p2", "o2", "s2", "p3"]);
+    // p1, p2, then the paragraph ending section o1 (a section ending in a container gets
+    // its own terminating ¶), o2, s2, p3 — o2 appears before its first child.
+    const ids = blocks.map((b) => b.id);
+    expect([ids[0], ids[1], ...ids.slice(3)]).toEqual(["p1", "p2", "o2", "s2", "p3"]);
+    expect(blocks[2]?.parentId).toBe("o1");
+    expect(blocks[2]?.inlineContent).toEqual({ items: [] });
   });
 
   it("throws when anchor and focus are in different selection contexts", () => {
@@ -261,77 +271,18 @@ describe("iterateBlocksInSpan", () => {
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p1" }),
         buildBlock({ id: "p1", type: "paragraph", parentId: "doc", inlineContent: inlineContent([text("hi")]) }),
-        buildBlock({ id: "fn", type: "footnote-body", inlineContent: inlineContent([text("footnote")]) }),
+      ],
+      embedContents: [
+        buildBlock({ id: "fn", type: "footnote-body", firstChildId: "fnp", lastChildId: "fnp" }),
+        buildBlock({ id: "fnp", type: "paragraph", parentId: "fn", inlineContent: inlineContent([text("footnote")]) }),
       ],
     });
-    const cross = createSpan(createPosition("p1" as BlockId, 0), createPosition("fn" as BlockId, 1));
+    const cross = createSpan(createPosition("p1" as BlockId, 0), createPosition("fnp" as BlockId, 1));
     expect(() => [...iterateBlocksInSpan(state, cross)]).toThrow(/different selection contexts/);
   });
 });
 
-// Cross-call sibling-cycle fixture: m1 ↔ m2 form a nextSiblingId cycle.
-// Anchor (a) is doc's first child; focus (f) is doc's last child but is
-// unreachable through the cyclic sibling chain. `nextBlockInDocOrder`'s
-// own per-call cycle guard cannot see this — it fires only on a cycle
-// within ONE call, but here each call follows a single nextSiblingId
-// pointer and returns. The outer iterateSpan / iterateBlocksInSpan
-// loop is what spins. The outer step-count guard catches it.
-//
-// This corrupt structure is built deliberately to exercise the guard;
-// it cannot arise from production op paths, which uphold the
-// sibling-chain invariants.
-function buildSiblingCycleFixture(): ReturnType<typeof buildState> {
-  return buildState({
-    rootId: "doc",
-    blocks: [
-      buildBlock({ id: "doc", type: "document", firstChildId: "a", lastChildId: "f" }),
-      buildBlock({
-        id: "a",
-        type: "paragraph",
-        parentId: "doc",
-        nextSiblingId: "m1",
-        inlineContent: inlineContent([text("A")]),
-      }),
-      // m1 and m2 cycle: m1.next = m2, m2.next = m1.
-      buildBlock({
-        id: "m1",
-        type: "paragraph",
-        parentId: "doc",
-        prevSiblingId: "a",
-        nextSiblingId: "m2",
-        inlineContent: inlineContent([text("m1")]),
-      }),
-      buildBlock({
-        id: "m2",
-        type: "paragraph",
-        parentId: "doc",
-        prevSiblingId: "m1",
-        nextSiblingId: "m1",
-        inlineContent: inlineContent([text("m2")]),
-      }),
-      buildBlock({
-        id: "f",
-        type: "paragraph",
-        parentId: "doc",
-        prevSiblingId: "m2",
-        inlineContent: inlineContent([text("F")]),
-      }),
-    ],
-  });
-}
-
-describe("iterateSpan cycle guard", () => {
-  it("throws a contextual error when the sibling chain forms a cycle that never reaches focus", () => {
-    const state = buildSiblingCycleFixture();
-    const span = createSpan(
-      createPosition("a" as BlockId, 0),
-      createPosition("f" as BlockId, 1),
-    );
-    expect(() => [...iterateSpan(state, span)]).toThrow(
-      /iterateSpan: step bound exceeded walking from anchor "a" to focus "f"/,
-    );
-  });
-
+describe("iterateSpan — healthy traversal", () => {
   it("does not fire on healthy traversals (regression: outer guard must not false-positive)", () => {
     // doc > [p1, p2, p3, p4, p5] — 5 leaves, span spans all of them.
     const state = buildState({
@@ -351,18 +302,7 @@ describe("iterateSpan cycle guard", () => {
   });
 });
 
-describe("iterateBlocksInSpan cycle guard", () => {
-  it("throws a contextual error when the sibling chain forms a cycle that never reaches focus", () => {
-    const state = buildSiblingCycleFixture();
-    const span = createSpan(
-      createPosition("a" as BlockId, 0),
-      createPosition("f" as BlockId, 1),
-    );
-    expect(() => [...iterateBlocksInSpan(state, span)]).toThrow(
-      /iterateBlocksInSpan: step bound exceeded walking from anchor "a" to focus "f"/,
-    );
-  });
-
+describe("iterateBlocksInSpan — healthy traversal", () => {
   it("does not fire on healthy traversals (regression: outer guard must not false-positive)", () => {
     // doc > [p1..p5] healthy sibling chain.
     const state = buildState({

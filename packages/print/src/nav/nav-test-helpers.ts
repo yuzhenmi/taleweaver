@@ -18,7 +18,7 @@
  * leave the state untouched when the intent is a no-op `null`). This is exactly the
  * controller's per-keystroke loop, distilled for tests.
  */
-import { createInitialEditorState, createEditorStateFromState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, getBlock, createPosition, createSpan, initialSelectionForState, type EditorState, type EditorConfig, type EditorAction, type Selection, type Position, type State, type BlockId, type PageConfig, type Hyphenator, type TextShaper, type ComponentRegistry, type AttrRegistry } from "@taleweaver/core";
+import { createInitialEditorState, createEditorStateFromState, reduceEditor, createDefaultComponentRegistry, createDefaultAttrRegistry, createMockShaper, firstLeafBlock, createPosition, createSpan, initialSelectionForState, type EditorState, type EditorConfig, type EditorAction, type Selection, type Position, type State, type BlockId, type PageConfig, type Hyphenator, type TextShaper, type ComponentRegistry, type AttrRegistry } from "@taleweaver/core";
 import { type LayoutBox, type VirtualLayoutTree } from "../index";
 import { createLayoutDriver, type LayoutDriver } from "../layout-driver/layout-driver";
 import { resolveNavIntent, type NavIntent } from "./nav-intent";
@@ -182,11 +182,12 @@ export function caretAt(ctx: NavCtx, blockId: BlockId, offset: number): NavCtx {
  * `createInitialEditorState`). Throws on a malformed seed.
  */
 export function firstBlockId(ctx: NavCtx): BlockId {
-  const root = getBlock(ctx.editor.state, ctx.editor.state.rootId);
-  if (root === null || root.firstChildId === null) {
+  // The root holds sections only — descend to the first paragraph.
+  const id = firstLeafBlock(ctx.editor.state, ctx.editor.state.rootId);
+  if (id === null) {
     throw new Error("nav-test-helpers: editor seed has no content block");
   }
-  return root.firstChildId;
+  return id;
 }
 
 /** The current collapsed-caret focus position. */

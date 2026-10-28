@@ -1,29 +1,16 @@
 /**
  * A collaboration-aware editor hook for the example app's "Collaboration" tab.
  *
- * Two `useCollabEditor` instances bind to ONE shared `Y.Doc` (each receives the
- * SAME seed `State` — a `State` wraps a doc, so both panes edit the same CRDT)
- * and stay in sync WITHOUT any network transport — purely through the engine's
- * in-process collab seams:
- *
- *  - **Origin-tagged dispatch.** Every edit this pane makes runs inside
- *    `runWithTransactionOrigin(selfOrigin, …)`, so the underlying Y.Doc
- *    transaction is stamped with this pane's origin. That lets the OTHER pane's
- *    observer recognize the edit as foreign, and lets THIS pane's observer
- *    filter its own edits out.
- *  - **Foreign-change observe → reconcile.** `subscribeForeignChanges` fires
- *    with the peer's dirty block ids; `reconcileForeignChange` mints the next
- *    local `EditorState` (cache-invalidated for those blocks, unchanged blocks
- *    reference-equal) which flows into the pane's controller via the normal
- *    `update(editorState)` path.
- *  - **Undo isolation.** Each pane's `History` tracks only its own origin, so
- *    Ctrl+Z in pane A never rolls back pane B's edits.
+ * Each pane is a separate peer: its own `State` over its own `Y.Doc`, kept in sync
+ * with the other pane by exchanging Yjs updates (`Y.applyUpdate`) — exactly what a
+ * network provider does. The engine handles the rest: the print controller sees a
+ * peer's update land in its Y.Doc (a non-local transaction) and dispatches
+ * `APPLY_FOREIGN_CHANGE`, whose reducer arm reconciles the state and REBASES this
+ * pane's selection; decorations / anchors / the mapping log advance on the next
+ * `update`. Undo stays per peer (each History only sees its own doc's local edits).
  *
  * Example-app only — must not be promoted to packages/react (it duplicates
- * config/geometry creation deliberately, like use-perf-editor). The deferred
- * rough edge (documented, not a bug): a peer editing the SAME block your caret
- * sits in can drift the caret — selection rebasing (Yjs RelativePosition) is a
- * separate future feature.
+ * config/geometry creation deliberately, like use-perf-editor).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -32,9 +19,6 @@ import {
   reduceEditor,
   createEditorStateFromState,
   initialSelectionForState,
-  runWithTransactionOrigin,
-  subscribeForeignChanges,
-  reconcileForeignChange,
   type EditorAction,
   type EditorState,
   type EditorConfig,
@@ -43,7 +27,7 @@ import {
   type TextShaper,
   type Hyphenator,
 } from "@taleweaver/core";
-import { createCanvasShaper, createLiangHyphenator } from "@taleweaver/print";
+import { createCanvasShaper, createLiangHyphenator, browserHtmlParser } from "@taleweaver/print";
 import { EN_US_PATTERN_SET } from "@taleweaver/hyphenation-en-us";
 
 const DEFAULT_WIDTH = 600;
@@ -60,6 +44,9 @@ function createConfig(): EditorConfig {
     componentRegistry: createDefaultComponentRegistry(),
     attrRegistry: createDefaultAttrRegistry(),
     containerWidth: DEFAULT_WIDTH,
+    // Inject the DOM HTML parser so handlePaste can decode text/html (rich paste).
+    // Without it, core silently falls back to the plain-text path.
+    htmlParser: browserHtmlParser,
   };
 }
 
@@ -79,13 +66,15 @@ export interface UseCollabEditorResult {
   hyphenator: Hyphenator;
   pageConfig: PageConfig;
   focus: () => void;
+  /** The reducer's config — spread into `EditorView` so the controller uses the same registries. */
+  config: EditorConfig;
 }
 
 /**
  * Bind one editing pane to the `sharedDoc` (a seed `State` over the shared
  * Y.Doc). `selfOrigin` is this pane's stable peer identity (e.g. "peer-a").
  */
-export function useCollabEditor(sharedDoc: State, selfOrigin: string): UseCollabEditorResult {
+export function useCollabEditor(peerDoc: State): UseCollabEditorResult {
   const configRef = useRef<EditorConfig | null>(null);
   if (configRef.current === null) {
     configRef.current = createConfig();
@@ -100,8 +89,8 @@ export function useCollabEditor(sharedDoc: State, selfOrigin: string): UseCollab
 
   const [editorState, setEditorState] = useState<EditorState>(() =>
     // Build with this peer's origin so its History's UndoManager tracks ONLY its
-    // own edits (undo isolation, E4b) — no default-History-then-replace dance.
-    createEditorStateFromState(sharedDoc, initialSelectionForState(sharedDoc), config, selfOrigin),
+    // own edits (undo isolation) — no default-History-then-replace dance.
+    createEditorStateFromState(peerDoc, initialSelectionForState(peerDoc), config),
   );
 
   // Always-current state ref so the dispatch closure reads the latest without
@@ -114,25 +103,17 @@ export function useCollabEditor(sharedDoc: State, selfOrigin: string): UseCollab
   // pane's origin. Computed OUTSIDE a setState updater (in the event handler)
   // so the synchronous foreign-change observer it triggers on the other pane
   // runs as a normal event-time setState, not nested inside a React updater.
+  // Reduce synchronously against the LATEST state (not the last rendered one): the
+  // print controller dispatches a peer's change (APPLY_FOREIGN_CHANGE) the moment it
+  // lands, and a local keystroke may follow before React re-renders.
   const dispatch = useCallback<React.Dispatch<EditorAction>>(
     (action) => {
-      const next = runWithTransactionOrigin(selfOrigin, () =>
-        reduceEditor(latestState.current, action, config),
-      );
+      const next = reduceEditor(latestState.current, action, config);
+      latestState.current = next;
       setEditorState(next);
     },
-    [config, selfOrigin],
+    [config],
   );
-
-  // Observe the shared doc for the OTHER pane's edits and reconcile them in.
-  // The observer attaches to the doc (stable across freshState swaps), so a
-  // single subscription for the pane's lifetime is correct.
-  useEffect(() => {
-    const unsub = subscribeForeignChanges(sharedDoc, selfOrigin, (dirtyIds) => {
-      setEditorState((prev) => reconcileForeignChange(prev, dirtyIds));
-    });
-    return unsub;
-  }, [sharedDoc, selfOrigin]);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -164,5 +145,6 @@ export function useCollabEditor(sharedDoc: State, selfOrigin: string): UseCollab
     hyphenator: geometry.hyphenator,
     pageConfig: PAGE_CONFIG,
     focus,
+    config,
   };
 }

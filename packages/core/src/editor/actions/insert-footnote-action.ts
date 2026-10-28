@@ -11,15 +11,15 @@ import { prepareEmbedInsertPoint } from "./selection-guards";
 import type { BlockId } from "../../state";
 
 /**
- * `INSERT_FOOTNOTE` handler — the FN-7 user-insert vehicle, mirroring the
- * INSERT_HEADER/FOOTER slice.
+ * `INSERT_FOOTNOTE` handler — the user-insert vehicle, mirroring the
+ * INSERT_HEADER/FOOTER handler.
  *
  * Splices a `footnote-anchor` EmbedItem at the caret (`selection.focus`),
  * atomically creates the footnote body (a `footnote-body` CONTAINER root holding
  * one empty paragraph) in `embedContents`, and places a collapsed caret at the
  * start of that paragraph so the user can immediately type. The
  * create→caret→type chain (plus delete-cascade and derived renumbering) is what
- * makes the whole footnote slice exercisable.
+ * makes the whole footnote feature exercisable.
  *
  * **Nested-footnote guard (Google Docs: footnotes only in body text).** A
  * footnote may not be inserted while the caret is inside a header / footer /

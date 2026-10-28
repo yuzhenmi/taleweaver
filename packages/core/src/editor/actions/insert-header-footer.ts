@@ -12,17 +12,18 @@ import { rebuildTrees } from "./helpers";
 import { resolveActiveSection } from "./active-section";
 
 /**
- * `INSERT_HEADER` / `INSERT_FOOTER` handler — the C.2c browser-verify vehicle.
+ * `INSERT_HEADER` / `INSERT_FOOTER` handler — the user-insert vehicle for header/footer bodies.
  *
  * Creates a header/footer template body (a `template-body` CONTAINER holding
  * one empty paragraph), links the CONTAINER on the cursor's ACTIVE SECTION (the
- * `section` block enclosing the focus, via `resolveActiveSection`; or the
- * document root when the cursor is in leading / section-less content), and
+ * `section` block enclosing the focus, via `resolveActiveSection`:
+ * main-body content always sits in a section, the final one when there is no
+ * break; a caret outside the main body has none and the action is a no-op), and
  * places a collapsed caret at the start of the body's PARAGRAPH child so the
  * user can immediately type. Once the caret is in the paragraph, the
- * (map-agnostic, T7) edit ops mutate templateContents — type "Hi" and it
+ * (map-agnostic) edit ops mutate templateContents — type "Hi" and it
  * repeats on every page; press Enter and a new sibling paragraph is added
- * UNDER the container (the slot renders both lines, #326).
+ * UNDER the container (the slot renders both lines).
  *
  * **Idempotency (Google Docs: one header / one footer per section).** If the
  * active section already links an EXISTING template body for this region, we do
@@ -43,12 +44,10 @@ export function handleInsertHeaderFooter(
 ): EditorState {
   // The header/footer links onto the cursor's ACTIVE SECTION — the `section`
   // block enclosing the focus — so section 2 gets its own header (mirrors
-  // `TOGGLE_SECTION_LANDSCAPE` / `SET_SECTION_COLUMNS`). When the cursor is in
-  // leading / section-less content (`resolveActiveSection` → null), it falls
-  // back to the document root (the implicit section).
-  const sectionBlockId =
-    resolveActiveSection(editor, editor.selection.focus.blockId) ??
-    editor.state.rootId;
+  // `TOGGLE_SECTION_LANDSCAPE` / `SET_SECTION_COLUMNS`). A caret outside the main
+  // body (a header / footnote body) has no section: no-op.
+  const sectionBlockId = resolveActiveSection(editor, editor.selection.focus.blockId);
+  if (sectionBlockId === null) return editor;
   const attrKey = region === "header" ? "headerBlockId" : "footerBlockId";
 
   // Idempotency: if the active section already links an existing body for this

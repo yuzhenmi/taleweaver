@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { setBlockType } from "./set-block-type";
 import { getBlock } from "../state";
 import type { BlockKind, BlockKindResolver } from "../block-kinds";
-import { buildBlock, buildState, inlineContent } from "../../test-utils/state-builders";
+import { registryWith, testContainer, testLeaf, TEST_RESOLVER, buildBlock, buildState, inlineContent, finalSectionOf } from "../../test-utils/state-builders";
 import type { BlockId } from "../block-id";
 
 // Hand-rolled BlockKindResolver covering the built-in taxonomy. State
@@ -14,6 +14,8 @@ const TYPE_KINDS: Record<string, BlockKind> = {
   table: "container",
   "table-row": "container",
   "table-cell": "container",
+  blockquote: "container",
+  aside: "container",
   paragraph: "inline-bearing-leaf",
   heading: "inline-bearing-leaf",
   "list-item": "inline-bearing-leaf",
@@ -22,6 +24,7 @@ const TYPE_KINDS: Record<string, BlockKind> = {
 };
 const resolver: BlockKindResolver = {
   getBlockKind: (t) => TYPE_KINDS[t] ?? null,
+  getStorageShape: (t) => TEST_RESOLVER.getStorageShape(t),
 };
 
 describe("setBlockType", () => {
@@ -40,7 +43,7 @@ describe("setBlockType", () => {
     const updated = getBlock(result.state, "p" as BlockId);
     expect(updated?.type).toBe("heading");
     expect(updated?.id).toBe("p");
-    expect(updated?.parentId).toBe("doc");
+    expect(updated?.parentId).toBe(finalSectionOf(result.state));
     expect(updated?.inlineContent).toEqual({ items: [] });
   });
 
@@ -69,6 +72,7 @@ describe("setBlockType", () => {
 
   it("same-type call on an UNREGISTERED type still throws (short-circuit must not swallow the guard)", () => {
     const state = buildState({
+      resolver: registryWith(testLeaf("no-such-type", "inline-bearing")), // the STATE knows it; the op resolver does not
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "x", lastChildId: "x" }),
@@ -97,6 +101,7 @@ describe("setBlockType", () => {
 
   it("throws when the existing block's type is not registered with the resolver", () => {
     const state = buildState({
+      resolver: registryWith(testLeaf("no-such-type", "inline-bearing")), // the STATE knows it; the op resolver does not
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "x", lastChildId: "x" }),
@@ -134,7 +139,21 @@ describe("setBlockType", () => {
     expect(getBlock(result.state, "li" as BlockId)?.type).toBe("paragraph");
   });
 
-  it("allows same-kind change: table -> table-row (both container)", () => {
+  it("allows same-kind, same-storage-shape change: blockquote -> aside (both plain containers)", () => {
+    TEST_RESOLVER.register(testContainer("blockquote"));
+    TEST_RESOLVER.register(testContainer("aside"));
+    const state = buildState({
+      rootId: "doc",
+      blocks: [
+        buildBlock({ id: "doc", type: "document", firstChildId: "bq", lastChildId: "bq" }),
+        buildBlock({ id: "bq", type: "blockquote", parentId: "doc" }),
+      ],
+    });
+    const result = setBlockType(state, "bq" as BlockId, "aside", resolver);
+    expect(getBlock(result.state, "bq" as BlockId)?.type).toBe("aside");
+  });
+
+  it("refuses a same-kind change across storage shapes: table -> table-row", () => {
     const state = buildState({
       rootId: "doc",
       blocks: [
@@ -142,8 +161,7 @@ describe("setBlockType", () => {
         buildBlock({ id: "tbl", type: "table", parentId: "doc" }),
       ],
     });
-    const result = setBlockType(state, "tbl" as BlockId, "table-row", resolver);
-    expect(getBlock(result.state, "tbl" as BlockId)?.type).toBe("table-row");
+    expect(() => setBlockType(state, "tbl" as BlockId, "table-row", resolver)).toThrow(/cross-storage-shape/);
   });
 
   it("allows same-kind change: image -> horizontal-line (both atomic-leaf)", () => {
@@ -202,6 +220,7 @@ describe("setBlockType — BlockKindResolver interface", () => {
         if (t === "paragraph" || t === "heading") return "inline-bearing-leaf" as const;
         return null;
       },
+      getStorageShape: (t: string) => TEST_RESOLVER.getStorageShape(t),
     };
     const state = buildState({
       rootId: "doc",
