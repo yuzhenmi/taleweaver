@@ -36,7 +36,6 @@ export function handlePropose(
   editor: EditorState,
   { proposal: input, basedOn }: ActionOf<"PROPOSE">,
 ): Edit | null {
-  const { config } = editor;
   const outcomeOf = (verdict: Verdict): ProposalOutcome => chainOutcome(editor.lastProposal, { ...verdict, proposal: input });
   const verdict = (v: Verdict): Edit => ({ proposal: outcomeOf(v) });
   let proposal = input;
@@ -52,5 +51,5 @@ export function handlePropose(
   // so no History tracks it but the host's own foreign-change subscription treats it
   // as self (a second host on the same doc still sees it as foreign).
   const origin = new UntrackedOrigin(currentTransactionOrigin());
-  return runWithTransactionOrigin(origin, () => applyProposal(editor, proposal, config, outcomeOf));
+  return runWithTransactionOrigin(origin, () => applyProposal(editor, proposal, outcomeOf));
 }

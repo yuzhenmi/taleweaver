@@ -54,7 +54,7 @@ export function handleInsertText(editor: EditorState, { text }: ActionOf<"INSERT
     // context (main body OR a footnote/header/footer body) is TRACKED;
     // `replaceSuggestionInputForBlock` returns null only when not suggesting or
     // the block resolves to no context, → direct `replaceRange`.
-    const replaceInput = replaceSuggestionInputForBlock(editor.state, start.blockId, config);
+    const replaceInput = replaceSuggestionInputForBlock(editor, start.blockId);
     let end: Position;
     if (replaceInput === null) {
       // The seam the direct delete leaves (the surviving block — see
@@ -82,7 +82,7 @@ export function handleInsertText(editor: EditorState, { text }: ActionOf<"INSERT
     // body OR a footnote/header/footer body) is TRACKED; `suggestionInputForBlock`
     // returns null only when not suggesting or the block resolves to no context,
     // → direct `insertText`.
-    const sugInput = suggestionInputForBlock(editor.state, focus.blockId, config);
+    const sugInput = suggestionInputForBlock(editor, focus.blockId);
     result =
       sugInput === null
         ? insertText(editor.state, focus, text, typingAttrs())

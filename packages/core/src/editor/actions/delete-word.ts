@@ -33,7 +33,7 @@ export function handleDeleteWord(editor: EditorState, { direction }: ActionOf<"D
     if (isCrossContextSelection(editor.state, selection)) return null;
     const start = expandedSpanCollapsePoint(editor.state, selection);
     if (start === null) return null;
-    const result = deleteRangeOrSuggest(editor.state, selection, config);
+    const result = deleteRangeOrSuggest(editor, selection);
     if (result.state === editor.state) return null;
     // In suggesting mode a forward word-delete must leave the caret PAST the
     // struck span (its END) so a repeated Delete strikes the NEXT span rather than
@@ -43,9 +43,8 @@ export function handleDeleteWord(editor: EditorState, { direction }: ActionOf<"D
     // outcome — a soft-delete tracks in ANY editing context (main body OR a
     // footnote/header/footer body); only with no valid context is it a direct delete.
     const suggesting = isSuggestingInBlock(
-      editor.state,
+      editor,
       spanStart(editor.state, selection).blockId,
-      config,
     );
     // (The span's text: a covered object stays — `clipSpanToText`.)
     const text = clipSpanToText(editor.state, selection);
@@ -69,7 +68,7 @@ export function handleDeleteWord(editor: EditorState, { direction }: ActionOf<"D
     editor.state,
     direction === "backward" ? createSpan(target, pos) : createSpan(pos, target),
   );
-  const result = deleteRangeOrSuggest(editor.state, span, config);
+  const result = deleteRangeOrSuggest(editor, span);
   if (result.state === editor.state) return null;
   // Soft-delete leaves the caret on the FAR edge of the struck span in the
   // deletion direction. For BACKWARD that far edge IS `target` (the word-boundary
@@ -81,9 +80,8 @@ export function handleDeleteWord(editor: EditorState, { direction }: ActionOf<"D
   // caret advances to `target`; only with no valid context is it a direct delete
   // with the caret at `pos`.
   const suggesting = isSuggestingInBlock(
-    editor.state,
+    editor,
     spanStart(editor.state, span).blockId,
-    config,
   );
   const newCursor = direction === "backward" ? span.anchor : suggesting ? span.focus : span.anchor;
   const newSelection = createSpan(newCursor, newCursor);

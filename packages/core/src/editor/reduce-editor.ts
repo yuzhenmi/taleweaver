@@ -300,7 +300,7 @@ export function reduceEditor(rawEditor: EditorState, action: EditorAction): Edit
       : applyEdit(editor, editOf(editor, action.type, action));
   // User-typed text may complete a host input rule (its own undo entry).
   if (action.type === "INSERT_TEXT" && action.userInput === true && result.state !== editor.state) {
-    result = applyInputRules(result, editor.config, reduceEditor);
+    result = applyInputRules(result, reduceEditor);
   }
 
   // Central transient-view-state clear: `targetX` (line-nav sticky goal column)
@@ -335,7 +335,7 @@ export function reduceEditor(rawEditor: EditorState, action: EditorAction): Edit
   }
 
   result = updateStoredAttrs(editor, result, traits);
-  result = updateActiveTrigger(editor, result, action, editor.config);
+  result = updateActiveTrigger(editor, result, action);
   // Keep the selection's blocks snapshotted in the current state: a later foreign
   // change maps the caret from that snapshot (the Y.Doc has changed by then). O(1).
   if (result.state !== editor.state || result.selection !== editor.selection) {

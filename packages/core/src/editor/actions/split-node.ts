@@ -41,7 +41,7 @@ export function handleSplitNode(editor: EditorState): Edit | null {
     // Enter SOFT-DELETES the selection then inserts a suggested split — in the main body
     // OR any footnote/header/footer body (`replaceSuggestionInputForBlock` returns null
     // only when not suggesting or the block resolves to no context).
-    const replaceInput = replaceSuggestionInputForBlock(editor.state, spanStart(editor.state, selection).blockId, config);
+    const replaceInput = replaceSuggestionInputForBlock(editor, spanStart(editor.state, selection).blockId);
     if (replaceInput !== null) {
       // Suggesting mode: a non-collapsed Enter
       // SOFT-DELETES the selection (text stays, struck) THEN inserts a suggested
@@ -145,7 +145,7 @@ export function handleSplitNode(editor: EditorState): Edit | null {
   ) {
     return listLevelOf(block) > 0
       ? shiftListLevel(editor, -1)
-      : unlistBlock(editor, block, config);
+      : unlistBlock(editor, block);
   }
 
   // "Style for the following paragraph" (Word / Google Docs): pressing Enter at
@@ -173,7 +173,7 @@ export function handleSplitNode(editor: EditorState): Edit | null {
   // OR a footnote/header/footer body) is TRACKED via `splitWithSuggestion`;
   // `suggestionInputForBlock` returns null only when not suggesting or the block
   // resolves to no context, → the direct `splitBlockAtPosition` path.
-  const suggestInput = suggestionInputForBlock(current.state, pos.blockId, config);
+  const suggestInput = suggestionInputForBlock(current, pos.blockId);
   const splitResult =
     suggestInput === null
       ? splitBlockAtPosition(current.state, pos, productionAllocator, newBlockInit)

@@ -29,7 +29,6 @@ import type { ActionOf } from "../editor-action";
  * dirtyIds threaded through to the incremental render pipeline.
  */
 export function handleSetTextColor(editor: EditorState, { color }: ActionOf<"SET_TEXT_COLOR">): Edit | null {
-  const { config } = editor;
   const { selection } = editor;
   // Normalize empty string to a removal — an empty color isn't a
   // meaningful value, so this handler is where we reject it.
@@ -38,7 +37,7 @@ export function handleSetTextColor(editor: EditorState, { color }: ActionOf<"SET
     : { color: undefined };
   // Collapsed caret: the color applies to the next typed text (typing attrs).
   if (isCollapsed(selection)) return storeTypingAttrs(editor, incoming);
-  const result = applyAttrsOrSuggest(editor.state, selection, incoming, config);
+  const result = applyAttrsOrSuggest(editor, selection, incoming);
   if (result.state === editor.state) return null;
 
   // An attr-only edit shifts no offsets, so the selection is unchanged — it is

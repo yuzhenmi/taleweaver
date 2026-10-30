@@ -1,5 +1,5 @@
-import type { EditorConfig } from "../../editor-config";
-import { deleteRange, markDeletion, spanStart, type State, type Span, type OperationResult } from "../../../state";
+import type { EditorState } from "../../editor-state";
+import { deleteRange, markDeletion, spanStart, type Span, type OperationResult } from "../../../state";
 import { suggestionInputForBlock } from "./suggestion-input-for-block";
 
 /**
@@ -14,11 +14,11 @@ import { suggestionInputForBlock } from "./suggestion-input-for-block";
  * block resolves to no editing context (see `suggestionInputForBlock`).
  */
 export function deleteRangeOrSuggest(
-  state: State,
+  editor: EditorState,
   span: Span,
-  config: EditorConfig,
 ): OperationResult {
-  const input = suggestionInputForBlock(state, spanStart(state, span).blockId, config);
+  const { state } = editor;
+  const input = suggestionInputForBlock(editor, spanStart(state, span).blockId);
   return input === null
     ? deleteRange(state, span)
     : markDeletion(state, span, input);

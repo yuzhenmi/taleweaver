@@ -29,7 +29,6 @@ import { suggestionIdsOnItem } from "../state/ops/suggestion-ops";
 import { nextSuggestionOrder } from "../state/suggestions";
 import { mappingAcross, type ChangeLink, type PositionMapping } from "../state/position-mapping";
 import { recordSample } from "../perf/perf-trace";
-import { type EditorConfig } from "./editor-config";
 import { type EditorState } from "./editor-state";
 import type { Edit } from "./edit";
 import { replacementAttrs } from "./typing-attrs";
@@ -230,10 +229,9 @@ function linesFor(state: State, at: Position, text: string, attrs: ReadonlyAttrs
 export function applyProposal(
   editor: EditorState,
   proposal: Proposal,
-  config: EditorConfig,
   outcomeOf: (verdict: Verdict) => ProposalOutcome,
 ): Edit {
-  const createdAt = (config.now ?? Date.now)();
+  const createdAt = (editor.config.now ?? Date.now)();
   let state = editor.state;
   // Each step is its own change, keeping its exact position mapping.
   const steps: OperationResult[] = [];

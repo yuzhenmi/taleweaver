@@ -35,7 +35,7 @@ export function handleDeleteForward(editor: EditorState): Edit | null {
     // refuses an unresolvable or cross-parent span.
     const start = expandedSpanCollapsePoint(editor.state, selection);
     if (start === null) return null;
-    const result = deleteRangeOrSuggest(editor.state, selection, config);
+    const result = deleteRangeOrSuggest(editor, selection);
     // Suggesting mode over an already-struck selection: a caret-only outcome (span end).
     if (result.state === editor.state) {
       const end = clipSpanToText(editor.state, selection).focus;
@@ -49,9 +49,8 @@ export function handleDeleteForward(editor: EditorState): Edit | null {
     // so the caret advances to span END; only when there is no valid context does
     // it become a direct delete with the caret at span start.
     const suggesting = isSuggestingInBlock(
-      editor.state,
+      editor,
       spanStart(editor.state, selection).blockId,
-      config,
     );
     // (The span's text end: a covered object stays — `clipSpanToText`.)
     const collapseTo = suggesting ? clipSpanToText(editor.state, selection).focus : start;
@@ -75,7 +74,7 @@ export function handleDeleteForward(editor: EditorState): Edit | null {
     if (next.offset === pos.offset) return null;
     // A character of an atomic mark deletes the whole mark.
     const span = expandSpanOverAtomicMarks(editor.state, createSpan(pos, next));
-    const result = deleteRangeOrSuggest(editor.state, span, config);
+    const result = deleteRangeOrSuggest(editor, span);
     // Suggesting mode over an already-struck character (any author): nothing is
     // written; the caret moves past it (no history entry).
     if (result.state === editor.state) return { selection: createSpan(span.focus, span.focus) };
@@ -88,9 +87,8 @@ export function handleDeleteForward(editor: EditorState): Edit | null {
     // so the caret advances to `next`; only with no valid context is it a direct
     // delete with the caret at `pos`.
     const suggesting = isSuggestingInBlock(
-      editor.state,
+      editor,
       spanStart(editor.state, span).blockId,
-      config,
     );
     const newCursor = suggesting
       ? createPosition(span.focus.blockId, span.focus.offset)
@@ -112,14 +110,14 @@ export function handleDeleteForward(editor: EditorState): Edit | null {
     // deleted as a unit; text never merges into a
     // table / host container (Word) — no-op.
     if (currentLen > 0) {
-      return atomic ? deleteAdjacentAtomicLeaf(editor, config, currentBlock, "forward", pos) : null;
+      return atomic ? deleteAdjacentAtomicLeaf(editor, currentBlock, "forward", pos) : null;
     }
     // An EMPTY paragraph before an object is removed through `deleteUnits` (a ¶ that
     // invariant I needs stays). The caret goes to the table's / container's first
     // caret position, or selects the atomic object (collapsed (obj, 0), select-first).
     // Suggesting mode: a tracked deletion of the empty paragraph's ¶ — keyed
     // only when accepting would remove it (invariant I); the caret stays.
-    const ownInput = suggestionInputForBlock(editor.state, currentBlock.id, config);
+    const ownInput = suggestionInputForBlock(editor, currentBlock.id);
     if (ownInput !== null) return suggestMarkDeletion(editor, currentBlock, ownInput, pos);
     const result = removeBlock(editor.state, currentBlock.id);
     if (result.state === editor.state || resolveBlock(result.state, currentBlock.id) !== null) return null;
@@ -133,7 +131,7 @@ export function handleDeleteForward(editor: EditorState): Edit | null {
   if (after.sectionBreak !== null) {
     // Suggesting mode FIRST: a tracked deletion of the section-end ¶ (Word tracks a
     // deleted section break) instead of the real merge.
-    const sectionInput = suggestionInputForBlock(editor.state, currentBlock.id, config);
+    const sectionInput = suggestionInputForBlock(editor, currentBlock.id);
     if (sectionInput !== null) return suggestMarkDeletion(editor, currentBlock, sectionInput, createPosition(nextBlock.id, 0));
     const result = deleteSectionBreak(editor.state, after.sectionBreak);
     if (result.state === editor.state) return null;
@@ -151,7 +149,7 @@ export function handleDeleteForward(editor: EditorState): Edit | null {
   // Suggesting mode: a tracked deletion of ¶P (`deletionSuggestionId` on P's ¶)
   // instead of really merging — in ANY editing context. Blocks stay separate;
   // the caret stays at P's end.
-  const joinInput = suggestionInputForBlock(editor.state, currentBlock.id, config);
+  const joinInput = suggestionInputForBlock(editor, currentBlock.id);
   if (joinInput !== null) return suggestMarkDeletion(editor, currentBlock, joinInput, createPosition(nextBlock.id, 0));
 
   // Delete ¶P: the right paragraph survives holding [...P, ...next]; the

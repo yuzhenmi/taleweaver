@@ -20,9 +20,8 @@ import { caretEdit } from "./helpers/caret-edit";
  * un-deletable selection.
  */
 export function handleInsertLineBreak(editor: EditorState): Edit | null {
-  const { config } = editor;
   const { selection } = editor;
-  const input = replaceSuggestionInputForBlock(editor.state, spanStart(editor.state, selection).blockId, config);
+  const input = replaceSuggestionInputForBlock(editor, spanStart(editor.state, selection).blockId);
   if (input !== null) return suggestLineBreak(editor, input);
   let state: State = editor.state;
   let at = selection.focus;

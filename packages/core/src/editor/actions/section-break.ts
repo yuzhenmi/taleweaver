@@ -11,12 +11,11 @@ import { suggestionInputForBlock } from "./helpers/suggestion-input-for-block";
  * before that block.
  */
 export function handleSectionBreak(editor: EditorState): Edit | null {
-  const { config } = editor;
   const focus = editor.selection.focus;
   if (getBlock(editor.state, focus.blockId) === null) return null;
 
   // Suggesting mode: a tracked section-break insertion (tag on the new section mark).
-  const input = suggestionInputForBlock(editor.state, focus.blockId, config);
+  const input = suggestionInputForBlock(editor, focus.blockId);
   const result =
     input !== null
       ? applySectionBreakAsSuggestion(editor.state, focus, productionAllocator, input)

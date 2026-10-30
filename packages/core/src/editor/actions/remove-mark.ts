@@ -48,12 +48,10 @@ export function handleRemoveMark(
   editor: EditorState,
   { key, value, span }: ActionOf<"REMOVE_MARK">,
 ): Edit | null {
-  const { config } = editor;
   const target = usableSpan(editor, span);
   if (target === null) return null;
   return applyDeltas(
     editor,
-    removalDeltas(editor.state, target, key, value, isNonExclusive(key, config), config.attrRegistry),
-    config,
+    removalDeltas(editor.state, target, key, value, isNonExclusive(editor, key), editor.config.attrRegistry),
   );
 }

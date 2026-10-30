@@ -1,5 +1,5 @@
-import type { EditorConfig } from "../../editor-config";
-import { selectionContextOf, type ReplaceSuggestionInput, type State, type BlockId } from "../../../state";
+import type { EditorState } from "../../editor-state";
+import { selectionContextOf, type ReplaceSuggestionInput, type BlockId } from "../../../state";
 import { newReplaceSuggestionInput } from "./new-replace-suggestion-input";
 
 /**
@@ -8,10 +8,9 @@ import { newReplaceSuggestionInput } from "./new-replace-suggestion-input";
  * rule as `suggestionInputForBlock`).
  */
 export function replaceSuggestionInputForBlock(
-  state: State,
+  editor: EditorState,
   blockId: BlockId,
-  config: EditorConfig,
 ): ReplaceSuggestionInput | null {
-  if (selectionContextOf(state, blockId) === null) return null;
-  return newReplaceSuggestionInput(config);
+  if (selectionContextOf(editor.state, blockId) === null) return null;
+  return newReplaceSuggestionInput(editor);
 }

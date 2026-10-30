@@ -59,7 +59,6 @@ function selectionAllHaveAttr(
 }
 
 export function handleToggleStyle(editor: EditorState, { style }: ActionOf<"TOGGLE_STYLE">): Edit | null {
-  const { config } = editor;
   const { selection } = editor;
   const attrKey = STYLE_KEYS[style];
   // Collapsed caret: toggle the style for the next typed text (typing attrs),
@@ -72,7 +71,7 @@ export function handleToggleStyle(editor: EditorState, { style }: ActionOf<"TOGG
   const all = selectionAllHaveAttr(editor.state, selection, attrKey);
   // When all items have the attr → toggle OFF (remove). Else toggle ON.
   const incoming = all ? { [attrKey]: undefined } : { [attrKey]: true };
-  const result = applyAttrsOrSuggest(editor.state, selection, incoming, config);
+  const result = applyAttrsOrSuggest(editor, selection, incoming);
   if (result.state === editor.state) {
     return null;
   }

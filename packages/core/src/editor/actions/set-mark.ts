@@ -18,12 +18,11 @@ export function handleSetMark(
   editor: EditorState,
   { key, value, replace, span }: ActionOf<"SET_MARK">,
 ): Edit | null {
-  const { config } = editor;
   const target = usableSpan(editor, span);
   if (target === null || value === undefined) return null;
-  if (!isNonExclusive(key, config)) return applyDeltas(editor, [[target, { [key]: value }]], config);
+  if (!isNonExclusive(editor, key)) return applyDeltas(editor, [[target, { [key]: value }]]);
   const delta: Record<string, unknown> = {};
   if (replace !== undefined) delta[markInstanceKey(key, replace)] = undefined;
   delta[markInstanceKey(key, value)] = value; // after the removal: replace === value keeps it
-  return applyDeltas(editor, [[target, delta]], config);
+  return applyDeltas(editor, [[target, delta]]);
 }

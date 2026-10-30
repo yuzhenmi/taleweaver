@@ -3,7 +3,6 @@ import type { Position, State, BlockId } from "../state";
 import { isCollapsed } from "../cursor/selection";
 import { transitionMapping } from "../decorations/decoration-layers";
 import type { EditorAction } from "./editor-action";
-import type { EditorConfig } from "./editor-config";
 import type { EditorState } from "./editor-state";
 import type { AttrRegistry } from "../cascade/attr-registry";
 import type { ComponentRegistry } from "../components/component-registry";
@@ -188,8 +187,8 @@ const INPUT_RULE_WINDOW = 500;
  * as its OWN undo entry (typing coalescing is broken first), so one Undo reverts just the
  * transform back to the typed text. Returns `editor` when no rule fires.
  */
-export function applyInputRules(editor: EditorState, config: EditorConfig, reduce: Reduce): EditorState {
-  const rules = config.extensions?.inputRules;
+export function applyInputRules(editor: EditorState, reduce: Reduce): EditorState {
+  const rules = editor.config.extensions?.inputRules;
   if (rules === undefined || rules.length === 0 || !isCollapsed(editor.selection)) return editor;
   const caret = editor.selection.focus;
   const start = Math.max(0, caret.offset - INPUT_RULE_WINDOW);
@@ -277,8 +276,8 @@ export function updateActiveTrigger(
   before: EditorState,
   result: EditorState,
   action: EditorAction,
-  config: EditorConfig,
 ): EditorState {
+  const { config } = result;
   // A transaction's steps are not separate edits: its intermediate selections (a step
   // moving the caret elsewhere) must not end the trigger — it is mapped and checked
   // once, across the whole transaction, when the outer action finishes.

@@ -1,5 +1,4 @@
 import type { EditorState } from "../../editor-state";
-import type { EditorConfig } from "../../editor-config";
 import type { Edit } from "../../edit";
 import { getBlock, removeBlock, createSpan } from "../../../state";
 import type { Block, Position } from "../../../state";
@@ -27,7 +26,6 @@ import type { Block, Position } from "../../../state";
  */
 export function deleteAdjacentAtomicLeaf(
   editor: EditorState,
-  config: EditorConfig,
   currentBlock: Block,
   side: "backward" | "forward",
   caret: Position,
@@ -37,7 +35,7 @@ export function deleteAdjacentAtomicLeaf(
   if (neighbourId === null) return null;
   const neighbour = getBlock(editor.state, neighbourId);
   if (neighbour === null) return null;
-  if (config.componentRegistry.getBlockKind(neighbour.type) !== "atomic-leaf") {
+  if (editor.config.componentRegistry.getBlockKind(neighbour.type) !== "atomic-leaf") {
     return null;
   }
 

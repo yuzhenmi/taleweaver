@@ -27,7 +27,6 @@ import type { Edit } from "../edit";
  * through to the incremental render pipeline.
  */
 export function handleClearFormatting(editor: EditorState): Edit | null {
-  const { config } = editor;
   const { selection } = editor;
   // One object mapping every inline-format key to `undefined` — a single
   // applyAttrsOrSuggest call removes them all atomically (one undo step) in
@@ -40,7 +39,7 @@ export function handleClearFormatting(editor: EditorState): Edit | null {
   }
   // Collapsed caret: the next typed text is unformatted (typing attrs).
   if (isCollapsed(selection)) return storeTypingAttrs(editor, incoming);
-  const result = applyAttrsOrSuggest(editor.state, selection, incoming, config);
+  const result = applyAttrsOrSuggest(editor, selection, incoming);
   // No attr was actually present to remove → no state change → no-op
   // (also short-circuits an already-clean selection, no history entry).
   if (result.state === editor.state) return null;

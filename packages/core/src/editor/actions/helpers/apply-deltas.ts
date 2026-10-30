@@ -1,5 +1,4 @@
 import type { EditorState } from "../../editor-state";
-import type { EditorConfig } from "../../editor-config";
 import type { Edit } from "../../edit";
 import type { Span, BlockId, ReadonlyAttrs } from "../../../state";
 import { applyAttrsOrSuggest } from "./apply-attrs-or-suggest";
@@ -8,12 +7,11 @@ import { applyAttrsOrSuggest } from "./apply-attrs-or-suggest";
 export function applyDeltas(
   editor: EditorState,
   deltas: ReadonlyArray<readonly [Span, ReadonlyAttrs]>,
-  config: EditorConfig,
 ): Edit | null {
   let state = editor.state;
   const dirtyIds = new Set<BlockId>();
   for (const [span, attrs] of deltas) {
-    const r = applyAttrsOrSuggest(state, span, attrs, config);
+    const r = applyAttrsOrSuggest(editor, span, attrs);
     state = r.state;
     for (const id of r.dirtyIds) dirtyIds.add(id);
   }

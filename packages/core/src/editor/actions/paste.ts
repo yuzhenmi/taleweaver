@@ -1,6 +1,5 @@
 import type { EditorState } from "../editor-state";
 import type { Edit } from "../edit";
-import type { EditorConfig } from "../editor-config";
 import type { EditorAction, ActionOf } from "../editor-action";
 import {
   getBlock,
@@ -171,8 +170,8 @@ function linearizeFragmentForSuggesting(
  *   3. Otherwise → null (caller uses the plain-text path)
  */
 function resolveFragment(
+  { config }: EditorState,
   action: Extract<EditorAction, { type: "PASTE" }>,
-  config: EditorConfig,
 ): State | null {
   const { clip, html } = action;
 
@@ -193,7 +192,6 @@ function resolveFragment(
 }
 
 export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edit | null {
-  const { config } = editor;
   const { selection } = editor;
 
   // A cross-CONTEXT span (anchor/focus in different trees) has no single-tree op, so
@@ -204,14 +202,14 @@ export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edi
   if (isCrossContextSelection(editor.state, selection)) return null;
 
   // ── Step 1: resolve fragment by priority (clip → html → text → nothing) ────
-  const fragment = resolveFragment(action, config);
+  const fragment = resolveFragment(editor, action);
 
   if (fragment !== null) {
     // ── Rich path: clip or html decoded to a fragment State ─────────────────
 
     // Determine suggesting mode.
     const startBlockId = spanStart(editor.state, selection).blockId;
-    const replaceInput = replaceSuggestionInputForBlock(editor.state, startBlockId, config);
+    const replaceInput = replaceSuggestionInputForBlock(editor, startBlockId);
 
     if (replaceInput !== null) {
       // ── Suggesting mode: linearize fragment → SiblingBlockInit[] ──────────
@@ -261,7 +259,7 @@ export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edi
   // header / footer bodies) via `replaceSuggestionInputForBlock`. When NOT suggesting
   // / no editing context, `replaceInput` is null → fall through to the direct path.
   const startBlockIdForText = spanStart(editor.state, selection).blockId;
-  const replaceInputForText = replaceSuggestionInputForBlock(editor.state, startBlockIdForText, config);
+  const replaceInputForText = replaceSuggestionInputForBlock(editor, startBlockIdForText);
   if (replaceInputForText !== null) {
     // New blocks inherit the caret block's TYPE + ATTRS (resolveBlock → all-tree, so a
     // footnote-body paste resolves too), matching the direct path's `sourceType` /
