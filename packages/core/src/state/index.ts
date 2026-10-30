@@ -178,7 +178,7 @@ export {
 
 // Span normalization + per-leaf / per-block iteration.
 export type { BlockRange } from "./span-iteration";
-export { normalizeSpan, iterateSpan, iterateBlocksInSpan } from "./span-iteration";
+export { normalizeSpan, iterateSpan, iterateBlocksInSpan, isObjectBlock, clipSpanToText, firstTextAfter } from "./span-iteration";
 
 // Whole-document depth-first block walk + the list-presence predicate the
 // render pass uses to short-circuit list-event collection on list-free docs.
@@ -243,7 +243,7 @@ export { getMarkRanges, blockMarkRanges, markEqualityOf } from "./mark-ranges";
 
 // Inline-content edits.
 export { insertText } from "./ops/insert-text";
-export { deleteRange, bookmarkDeletionSpan } from "./ops/delete-range";
+export { deleteRange, bookmarkDeletionSpan, deleteRangeSeam } from "./ops/delete-range";
 export { replaceRange } from "./ops/replace-range";
 export type { ReplaceAllPlan, BlockWrite } from "./ops/replace-matches";
 export {

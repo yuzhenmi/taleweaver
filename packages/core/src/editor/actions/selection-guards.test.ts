@@ -10,7 +10,8 @@
 //   by the three delete/split handlers: spanStart when deletable, null when a
 //   block doesn't resolve or the span is cross-parent.
 //
-// These are pure-predicate tests; the no-regression guard for the handlers
+// These are pure-predicate tests (plus one handler check that typing over a
+// cross-parent span is refused); the no-regression guard for the handlers
 // themselves lives in header-boundary-guards.test.ts and the per-action suites.
 
 import { describe, it, expect } from "vitest";
@@ -24,6 +25,8 @@ import {
 } from "../../test-utils/state-builders";
 import { isCrossContextSelection } from "./helpers/is-cross-context-selection";
 import { expandedSpanCollapsePoint } from "./helpers/expanded-span-collapse-point";
+import { createEditorStateFromState } from "../editor-state";
+import { config, reduceEditor } from "./test-helpers";
 
 const BODY_P1 = "p" as BlockId;
 const BODY_P2 = "p2" as BlockId;
@@ -200,5 +203,16 @@ describe("expandedSpanCollapsePoint", () => {
       createPosition("nonexistent" as BlockId, 0),
     );
     expect(expandedSpanCollapsePoint(state, span)).toBeNull();
+  });
+});
+
+describe("INSERT_TEXT over a cross-parent span (across a section break)", () => {
+  it("is refused: a no-op, not a throw", () => {
+    const state = buildStateWithTwoSections();
+    const span = createSpan(createPosition("a" as BlockId, 1), createPosition("b" as BlockId, 1));
+    const editor = createEditorStateFromState(state, span, config);
+    const next = reduceEditor(editor, { type: "INSERT_TEXT", text: "X" });
+    expect(next.state).toBe(editor.state);
+    expect(next.selection).toEqual(span);
   });
 });

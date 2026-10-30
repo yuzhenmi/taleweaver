@@ -1,7 +1,7 @@
 import type { EditorState } from "../editor-state";
 import type { Edit } from "../edit";
 import { expandSpanOverAtomicMarks } from "../atomic-marks";
-import { resolveBlock, getBlock, spanStart, removeBlock, lastLeafBlock, createPosition, createSpan, mergeAdjacentBlocks, deleteSectionBreak, inlineContentLength } from "../../state";
+import { resolveBlock, getBlock, spanStart, clipSpanToText, removeBlock, lastLeafBlock, createPosition, createSpan, mergeAdjacentBlocks, deleteSectionBreak, inlineContentLength } from "../../state";
 import type { Block } from "../../state";
 import { caretEdit } from "./helpers/caret-edit";
 import { suggestMarkDeletion } from "./helpers/suggest-mark-deletion";
@@ -40,9 +40,10 @@ export function handleDeleteBackward(editor: EditorState): Edit | null {
     const start = expandedSpanCollapsePoint(editor.state, selection);
     if (start === null) return null;
     const result = deleteRangeOrSuggest(editor.state, selection, config);
-    // A suggesting soft-delete keeps the text (struck): the caret goes to the span start.
+    // A suggesting soft-delete keeps the text (struck): the caret goes to the start of
+    // the span's text (a covered object stays — `clipSpanToText`).
     const at = isSuggestingInBlock(editor.state, spanStart(editor.state, selection).blockId, config)
-      ? spanStart(editor.state, selection)
+      ? clipSpanToText(editor.state, selection).anchor
       : start;
     const newCursor = createPosition(at.blockId, at.offset);
     const newSelection = createSpan(newCursor, newCursor);

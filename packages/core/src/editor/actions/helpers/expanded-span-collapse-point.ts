@@ -1,4 +1,4 @@
-import { resolveBlock, spanEnd, createPosition, bookmarkDeletionSpan } from "../../../state";
+import { resolveBlock, deleteRangeSeam } from "../../../state";
 import type { State, Span, Position } from "../../../state";
 
 /**
@@ -7,14 +7,15 @@ import type { State, Span, Position } from "../../../state";
  * DELETE_BACKWARD, DELETE_FORWARD, and SPLIT_NODE.
  *
  * Returns the seam a DIRECT `deleteRange` of the span leaves — the position the
- * caret collapses to after the delete — when the span is deletable, or `null`
- * when the caller must REFUSE (no-op). A cross-block delete
- * removes the crossed ¶s and the END block survives, so the seam is
- * (end block, start offset); within one block it is `spanStart`. (A suggesting
- * soft-delete removes nothing: its caret is `spanStart` / `spanEnd`.)
+ * caret collapses to after the delete (`deleteRangeSeam`: a cross-block delete
+ * removes the crossed ¶s and the END block survives; an object endpoint is removed
+ * whole and has no text side) — when the span is deletable, or `null` when the
+ * caller must REFUSE (no-op). (A suggesting soft-delete removes nothing: its caret
+ * is the clipped span's start / end — `clipSpanToText`.)
  *
  * The span is refused when:
  *   - either endpoint's block does not resolve, OR
+ *   - both endpoints are objects and no text block follows the span, OR
  *   - the endpoints live in different blocks AND those blocks have different
  *     parents (a cross-parent span — `deleteRange` throws on it).
  *
@@ -42,7 +43,5 @@ export function expandedSpanCollapsePoint(
   ) {
     return null;
   }
-  // The seam: a removed bookmark's start marker just before the span goes with it.
-  const start = bookmarkDeletionSpan(state, span).span.anchor;
-  return span.anchor.blockId === span.focus.blockId ? start : createPosition(spanEnd(state, span).blockId, start.offset);
+  return deleteRangeSeam(state, span);
 }

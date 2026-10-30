@@ -7,7 +7,7 @@ import type { Position, Span } from "../block-position";
 import { createPosition } from "../block-position";
 import type { InlineItem } from "../inline-content";
 import { splitInlineContentAtOffset } from "../inline-content";
-import { deleteRange } from "./delete-range";
+import { deleteRange, deleteRangeSeam } from "./delete-range";
 import {
   planSplitBlockAtPosition,
   splitBlockAtPositionInTx,
@@ -19,7 +19,6 @@ import {
 import { clonePastedSubtree } from "../clone-pasted-subtree";
 import type { ClonedSubtree } from "../clone-pasted-subtree";
 import { isCrossContextSelection } from "../../editor/actions/helpers/is-cross-context-selection";
-import { spanStart } from "../block-compare";
 import { isCollapsed } from "../../cursor/selection";
 import { getListDefsForState } from "../list-defs";
 import { writeListDefInTx } from "../list-defs";
@@ -324,7 +323,7 @@ function middleNodes(
  *
  * **Boundary semantics:**
  * - Cross-context selection → identity no-op.
- * - Non-collapsed selection → `deleteRange` first; caret = range start.
+ * - Non-collapsed selection → `deleteRange` first; caret = the seam it leaves (`deleteRangeSeam`).
  * - Empty fragment (no top-level blocks) → identity no-op.
  * - 1 top-level leaf → inline-merge into caret block via `planInsertItemsAt`.
  * - N > 1 top-level items (leaves and/or containers) → split caret block; first leaf (if any)
@@ -351,17 +350,18 @@ export function insertFragment(
 
   const accumulatedDirtyIds = new Set<BlockId>();
 
-  // Step 2: non-collapsed selection → deleteRange; accumulate dirtyIds; caret = range start.
+  // Step 2: non-collapsed selection → deleteRange; accumulate dirtyIds; caret = the
+  // seam the delete leaves (`deleteRangeSeam`: in the surviving block).
   let currentState: State = state;
-  let caretPos: Position = isCollapsed(selection)
-    ? selection.focus
-    : spanStart(state, selection);
+  let caretPos: Position = selection.focus;
 
   if (!isCollapsed(selection)) {
+    const seam = deleteRangeSeam(state, selection);
+    if (seam === null) return { state, dirtyIds: new Set<BlockId>(), endPosition: selection.focus };
     const deleteResult = deleteRange(currentState, selection);
     currentState = deleteResult.state;
     for (const id of deleteResult.dirtyIds) accumulatedDirtyIds.add(id);
-    caretPos = spanStart(state, selection);
+    caretPos = seam;
   }
 
   // Step 3: collect cloned top-level blocks from the fragment.

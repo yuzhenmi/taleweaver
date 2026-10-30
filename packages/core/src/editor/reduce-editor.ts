@@ -2,6 +2,7 @@ import { positionsEqual, resolveBlock, createSpan } from "../state";
 import { caretAfterMarkers } from "../cursor/cursor-ops";
 import { getTypingAttrs } from "./typing-attrs";
 import { normalizeSelectionForAtomicMarks } from "./atomic-marks";
+import { normalizeSelectionForObjects } from "../cursor/object-range";
 import { runTransaction, applyInputRules, updateActiveTrigger } from "./extensions";
 import { clearTransientViewState, type EditorState } from "./editor-state";
 import type { EditorAction, ActionOf } from "./editor-action";
@@ -320,9 +321,12 @@ export function reduceEditor(rawEditor: EditorState, action: EditorAction): Edit
 
   // Atomic marks: the caret never rests inside one (whatever moved it — a click,
   // an arrow step, undo, a programmatic selection), and a range selection covers
-  // one whole or not at all.
+  // one whole or not at all. Likewise a range covers a table whole or not at all.
   if (result !== editor) {
-    const selection = normalizeSelectionForAtomicMarks(result.state, result.selection, editor.selection);
+    const selection = normalizeSelectionForObjects(
+      result.state,
+      normalizeSelectionForAtomicMarks(result.state, result.selection, editor.selection),
+    );
     if (selection !== result.selection) result = { ...result, selection };
   }
 

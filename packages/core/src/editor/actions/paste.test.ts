@@ -254,6 +254,19 @@ describe("handlePaste — multi-line plain-text paste (characterization + migrat
   });
 });
 
+describe("handlePaste — plain text over a selection in a footnote body", () => {
+  it("replaces the selection (the delete guard resolves body blocks, not only the main tree)", () => {
+    const typed = reduceEditor(createInitialEditorState(config), { type: "INSERT_TEXT", text: "abc" });
+    const body = reduceEditor(reduceEditor(typed, { type: "INSERT_FOOTNOTE" }), { type: "INSERT_TEXT", text: "hello" });
+    const bodyId = body.selection.focus.blockId;
+    const range = { anchor: { blockId: bodyId, offset: 1 }, focus: { blockId: bodyId, offset: 4 } };
+    const next = paste(reduceEditor(body, { type: "SET_SELECTION", selection: range }), "X");
+    const items = resolveBlock(next.state, bodyId)?.block.inlineContent?.items ?? [];
+    expect(items.map((it) => (it.kind === "text" ? it.text : "")).join("")).toBe("hXo");
+    expect(next.selection.focus).toEqual({ blockId: bodyId, offset: 2 });
+  });
+});
+
 describe("handlePaste — paste-then-select-all preserves content (regression)", () => {
   /**
    * Regression guard for the long-standing "paste-then-select-all reverts

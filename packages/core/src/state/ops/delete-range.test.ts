@@ -161,19 +161,26 @@ describe("deleteRange — cross-block (same-parent): the FOCUS survives (Word: �
     expect([...result.dirtyIds]).toEqual(expect.arrayContaining(["p1", "p2", "p3"]));
   });
 
-  it("refuses a cross-block span whose intervening sibling is a CONTAINER (S-E6)", () => {
+  it("removes an intervening TABLE whole — its subtree and the footnote bodies its cells reference", () => {
+    // p1 | tbl[cp: "item" + footnote → fn] | p2 — a span p1@2 → p2@3 covers the table.
     const state = buildState({
       rootId: "doc",
       blocks: [
         buildBlock({ id: "doc", type: "document", firstChildId: "p1", lastChildId: "p2" }),
         buildBlock({ id: "p1", type: "paragraph", parentId: "doc", nextSiblingId: "tbl", inlineContent: inlineContent([text("hello")]) }),
-        buildBlock({ id: "tbl", type: "table", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p2", firstChildId: "li", lastChildId: "li" }),
-        buildBlock({ id: "li", type: "list-item", parentId: "tbl", inlineContent: inlineContent([text("item")]) }),
+        buildBlock({ id: "tbl", type: "table", parentId: "doc", prevSiblingId: "p1", nextSiblingId: "p2", firstChildId: "r", lastChildId: "r" }),
+        buildBlock({ id: "r", type: "table-row", parentId: "tbl", firstChildId: "c", lastChildId: "c" }),
+        buildBlock({ id: "c", type: "table-cell", parentId: "r", firstChildId: "cp", lastChildId: "cp" }),
+        buildBlock({ id: "cp", type: "paragraph", parentId: "c", inlineContent: inlineContent([text("item"), embed("fn-anchor", { contentBlockId: "fn" })]) }),
         buildBlock({ id: "p2", type: "paragraph", parentId: "doc", prevSiblingId: "tbl", inlineContent: inlineContent([text("world")]) }),
       ],
+      embedContents: [buildBlock({ id: "fn", type: "fn-body", inlineContent: inlineContent([text("F")]) })],
     });
-    const span = createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 3));
-    expect(() => deleteRange(state, span)).toThrow(/intervening sibling "tbl" is a container/);
+    const result = deleteRange(state, createSpan(createPosition("p1" as BlockId, 2), createPosition("p2" as BlockId, 3)));
+    expect(flowShape(result.state, "doc")).toBe('p2:"held"');
+    expect(getBlock(result.state, "tbl" as BlockId)).toBeNull();
+    expect(getBlock(result.state, "cp" as BlockId)).toBeNull();
+    expect(getEmbedContent(result.state, "fn" as BlockId)).toBeNull();
   });
 
   it("normalizes a reverse-order cross-block span before deleting", () => {
@@ -581,18 +588,19 @@ describe("deleteRange — error cases", () => {
     expect(() => deleteRange(state, span)).toThrow(/focus block ".+" is a container/);
   });
 
-  it("throws when the focus block has null inlineContent (independent of firstChildId)", () => {
-    const state = buildState({
+  it("an OBJECT focus covers its whole block at offset 0 (removed, no join); any other offset is out of range", () => {
+    const state = (): State => buildState({
       rootId: "doc",
       blocks: [
-        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "s" }),
+        buildBlock({ id: "doc", type: "document", firstChildId: "p", lastChildId: "q" }),
         buildBlock({ id: "p", type: "paragraph", parentId: "doc", nextSiblingId: "s", inlineContent: inlineContent([text("hi")]) }),
-        // An object block (an empty SECTION is not in the read model).
-        buildBlock({ id: "s", type: "horizontal-line", parentId: "doc", prevSiblingId: "p" }),
+        buildBlock({ id: "s", type: "horizontal-line", parentId: "doc", prevSiblingId: "p", nextSiblingId: "q" }),
+        buildBlock({ id: "q", type: "paragraph", parentId: "doc", prevSiblingId: "s", inlineContent: inlineContent([text("yo")]) }),
       ],
     });
-    const span = createSpan(createPosition("p" as BlockId, 0), createPosition("s" as BlockId, 1));
-    expect(() => deleteRange(state, span)).toThrow(/focus block ".+" is a container/);
+    expect(() => deleteRange(state(), createSpan(createPosition("p" as BlockId, 0), createPosition("s" as BlockId, 1)))).toThrow(/focus offset 1 out of range/);
+    const result = deleteRange(state(), createSpan(createPosition("p" as BlockId, 1), createPosition("s" as BlockId, 0)));
+    expect(flowShape(result.state, "doc")).toBe('p:"h" q:"yo"');
   });
 
   it("throws when the cross-block span has different parents (cross-parent not supported)", () => {

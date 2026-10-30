@@ -1,7 +1,7 @@
 import type { EditorState } from "../editor-state";
 import type { Edit } from "../edit";
 import { expandSpanOverAtomicMarks } from "../atomic-marks";
-import { resolveBlock, getBlock, removeBlock, firstLeafBlock, createPosition, createSpan, spanStart, spanEnd, mergeAdjacentBlocks, deleteSectionBreak, inlineContentLength } from "../../state";
+import { resolveBlock, getBlock, removeBlock, firstLeafBlock, createPosition, createSpan, spanStart, clipSpanToText, mergeAdjacentBlocks, deleteSectionBreak, inlineContentLength } from "../../state";
 import { caretEdit } from "./helpers/caret-edit";
 import { suggestMarkDeletion } from "./helpers/suggest-mark-deletion";
 import { blockAfter } from "../../cursor/paragraph-mark";
@@ -38,7 +38,7 @@ export function handleDeleteForward(editor: EditorState): Edit | null {
     const result = deleteRangeOrSuggest(editor.state, selection, config);
     // Suggesting mode over an already-struck selection: a caret-only outcome (span end).
     if (result.state === editor.state) {
-      const end = spanEnd(editor.state, selection);
+      const end = clipSpanToText(editor.state, selection).focus;
       return { selection: createSpan(end, end) };
     }
     // Forward soft-delete leaves the struck text in place, so the caret must
@@ -53,7 +53,8 @@ export function handleDeleteForward(editor: EditorState): Edit | null {
       spanStart(editor.state, selection).blockId,
       config,
     );
-    const collapseTo = suggesting ? spanEnd(editor.state, selection) : start;
+    // (The span's text end: a covered object stays — `clipSpanToText`.)
+    const collapseTo = suggesting ? clipSpanToText(editor.state, selection).focus : start;
     const newCursor = createPosition(collapseTo.blockId, collapseTo.offset);
     const newSelection = createSpan(newCursor, newCursor);
     return { change: result, selection: newSelection };

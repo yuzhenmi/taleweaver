@@ -1,7 +1,7 @@
 import type { EditorState } from "../editor-state";
 import type { Edit } from "../edit";
 import { expandSpanOverAtomicMarks } from "../atomic-marks";
-import { createPosition, createSpan, spanStart, spanEnd } from "../../state";
+import { createPosition, createSpan, spanStart, clipSpanToText } from "../../state";
 import { moveByWord } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
 import { isObjectSelection } from "../../cursor/object-selection";
@@ -47,11 +47,9 @@ export function handleDeleteWord(editor: EditorState, { direction }: ActionOf<"D
       spanStart(editor.state, selection).blockId,
       config,
     );
-    const collapseTo = suggesting
-      ? direction === "forward"
-        ? spanEnd(editor.state, selection)
-        : spanStart(editor.state, selection)
-      : start;
+    // (The span's text: a covered object stays — `clipSpanToText`.)
+    const text = clipSpanToText(editor.state, selection);
+    const collapseTo = suggesting ? (direction === "forward" ? text.focus : text.anchor) : start;
     const newCursor = createPosition(collapseTo.blockId, collapseTo.offset);
     const newSelection = createSpan(newCursor, newCursor);
     return { change: result, selection: newSelection };

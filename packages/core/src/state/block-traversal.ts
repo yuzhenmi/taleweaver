@@ -15,6 +15,17 @@ export function nextBlockInDocOrder(state: State, blockId: BlockId): BlockId | n
   const block = resolveBlock(state, blockId)?.block ?? null;
   if (block === null) return null;
   if (block.firstChildId) return block.firstChildId;
+  return nextBlockAfterSubtree(state, blockId);
+}
+
+/**
+ * The next block in document order AFTER `blockId`'s whole subtree (step 2 of
+ * {@link nextBlockInDocOrder}: never descends into `blockId`). Null at the end of
+ * the document.
+ */
+export function nextBlockAfterSubtree(state: State, blockId: BlockId): BlockId | null {
+  const block = resolveBlock(state, blockId)?.block ?? null;
+  if (block === null) return null;
   let cursor = block;
   // Cycle-detection bound: total block count across all three trees (main
   // `blocks`, `embedContents`, `templateContents`) via the `blockCount`

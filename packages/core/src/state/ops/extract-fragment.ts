@@ -332,9 +332,13 @@ function collectFromAncestor(
           suggestionRecords,
         );
       }
-    } else if (childContainsStart && cur === startBlockId && child.firstChildId !== null) {
-      // The span starts AT the object position (obj, 0) and runs past the object: it
-      // covers the whole unit (Word: the picture's [i, i+1]). Clone it whole.
+    } else if (
+      (childContainsStart && cur === startBlockId && (child.firstChildId !== null || child.inlineContent === null)) ||
+      (childContainsEnd && cur === endBlockId && child.inlineContent === null)
+    ) {
+      // The span starts or ends AT an object, (obj, 0) — `isObjectBlock` — and runs
+      // past it on the other side: it covers the whole unit (Word: the picture's
+      // [i, i+1]). Clone it whole.
       cloneSubtreeInto(state, cur, alloc, topLevelEntries, allEmbedContents, seenSuggestionIds, suggestionRecords, listDefs);
     } else if (childContainsStart) {
       // Span starts inside this child, exits through right side.
