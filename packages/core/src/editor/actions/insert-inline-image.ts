@@ -1,7 +1,7 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import { insertInlineImage, createPosition, createSpan, type BlockId } from "../../state";
-import { rebuildTrees } from "./helpers";
-import { prepareEmbedInsertPoint } from "./selection-guards";
+import { prepareEmbedInsertPoint } from "./helpers/prepare-embed-insert-point";
 import type { ActionOf } from "../editor-action";
 
 /**
@@ -30,18 +30,17 @@ import type { ActionOf } from "../editor-action";
 export function handleInsertInlineImage(
   editor: EditorState,
   { src, width, height, alt }: ActionOf<"INSERT_INLINE_IMAGE">,
-): EditorState {
-  const { config } = editor;
+): Edit | null {
   // Delete a non-collapsed selection first (Google Docs replaces the selection),
   // then splice the image at the collapse point. A cross-context / cross-parent
   // expanded selection is un-deletable → no-op.
   const prep = prepareEmbedInsertPoint(editor.state, editor.selection);
-  if (!prep.ok) return editor;
+  if (!prep.ok) return null;
 
   const result = insertInlineImage(prep.state, prep.position, { src, width, height, alt });
   // Identity invariant: nothing changed (no delete AND a no-op insert) → return the
   // editor unchanged so the "no change → same reference" contract holds.
-  if (result.state === prep.state && prep.dirtyIds.size === 0) return editor;
+  if (result.state === prep.state && prep.dirtyIds.size === 0) return null;
   const dirtyIds = new Set<BlockId>(prep.dirtyIds);
   for (const id of result.dirtyIds) dirtyIds.add(id);
 
@@ -49,14 +48,5 @@ export function handleInsertInlineImage(
   const cursor = createPosition(prep.position.blockId, prep.position.offset + 1);
   const selectionAfter = createSpan(cursor, cursor);
 
-  editor.history.commit(
-    { state: result.state, dirtyIds },
-    { before: editor.selection, after: selectionAfter },
-  );
-  return rebuildTrees(
-    { ...editor, state: result.state, selection: selectionAfter },
-    editor,
-    config,
-    dirtyIds,
-  );
+  return { change: { state: result.state, dirtyIds }, selection: selectionAfter };
 }

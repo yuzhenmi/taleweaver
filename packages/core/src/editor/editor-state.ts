@@ -7,7 +7,7 @@ import type { State, Selection, BlockId, ReadonlyAttrs } from "../state";
 import type { CaretAffinity } from "../cursor/selection";
 import type { EditorConfig } from "./editor-config";
 import type { DocumentChange } from "./document-change";
-import { initialSelectionForState } from "./actions/helpers";
+import { initialSelectionForState } from "./actions/helpers/initial-selection-for-state";
 
 // --- EditorState ---
 
@@ -34,7 +34,7 @@ export interface EditorState {
    * `null` means "no incremental hint" — a FULL rebuild: a selection-only /
    * inert action (no document mutation), the initial build, or a container-width
    * resize. Within the reducer dispatch cycle a non-null (possibly empty) set is
-   * written ONLY by `rebuildTrees`, so a mutating action's dirty ids never leak
+   * written ONLY by `applyEdit`, so a mutating action's dirty ids never leak
    * forward onto a later selection-only action's state (the reducer's entry-clear
    * enforces this). The ONE writer OUTSIDE the reducer is
    * `reconcileForeignChange` (a collab peer's edit): it sets a non-null set

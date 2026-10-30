@@ -31,12 +31,11 @@ import {
 } from "../../test-utils/state-builders";
 import { createEditorStateFromState } from "../editor-state";
 import type { EditorState } from "../editor-state";
+import { applyEdit } from "../edit";
 import { config, componentRegistry, reduceEditor } from "./test-helpers";
-import {
-  deleteObjectSelection,
-  replaceObjectWithText,
-  moveOffObject,
-} from "./object-edits";
+import { deleteObjectSelection } from "./helpers/delete-object-selection";
+import { replaceObjectWithText } from "./helpers/replace-object-with-text";
+import { moveOffObject } from "./helpers/move-off-object";
 
 const IMAGE_ID = asBlockId("image");
 const PARA_ID = asBlockId("para");
@@ -136,7 +135,7 @@ function textOf(state: State, id: BlockId): string {
 describe("deleteObjectSelection (#525)", () => {
   it("removes the image and places the caret at the start of the following block", () => {
     const editor = editorFrom(standardDoc());
-    const next = deleteObjectSelection(editor, config, IMAGE_ID);
+    const next = applyEdit(editor, deleteObjectSelection(editor, IMAGE_ID));
 
     expect(getBlock(next.state, IMAGE_ID)).toBeNull();
     expect(next.selection.focus.blockId).toBe(TRAILING_ID);
@@ -146,7 +145,7 @@ describe("deleteObjectSelection (#525)", () => {
 
   it("is one undo entry: undo restores the image AND the object selection", () => {
     const editor = editorFrom(standardDoc());
-    const next = deleteObjectSelection(editor, config, IMAGE_ID);
+    const next = applyEdit(editor, deleteObjectSelection(editor, IMAGE_ID));
     expect(getBlock(next.state, IMAGE_ID)).toBeNull();
 
     const undone = reduceEditor(next, { type: "UNDO" });
@@ -159,7 +158,7 @@ describe("deleteObjectSelection (#525)", () => {
     const after = getBlock(editor.state, IMAGE_ID)?.nextSiblingId ?? null;
     expect(after).not.toBeNull();
 
-    const next = deleteObjectSelection(editor, config, IMAGE_ID);
+    const next = applyEdit(editor, deleteObjectSelection(editor, IMAGE_ID));
 
     expect(getBlock(next.state, IMAGE_ID)).toBeNull();
     expect(next.selection.focus).toEqual({ blockId: after, offset: 0 });
@@ -167,7 +166,7 @@ describe("deleteObjectSelection (#525)", () => {
 
   it("keeps the empty-doc invariant when the image is the only content block", () => {
     const editor = editorFrom(imageOnlyDoc());
-    const next = deleteObjectSelection(editor, config, IMAGE_ID);
+    const next = applyEdit(editor, deleteObjectSelection(editor, IMAGE_ID));
 
     expect(getBlock(next.state, IMAGE_ID)).toBeNull();
     // The caret must land on a real content-bearing leaf (a freshly seeded
@@ -183,7 +182,7 @@ describe("deleteObjectSelection (#525)", () => {
 describe("replaceObjectWithText (#525)", () => {
   it("replaces the image with the typed text at the following block's start, caret after it", () => {
     const editor = editorFrom(standardDoc());
-    const next = replaceObjectWithText(editor, config, IMAGE_ID, "x");
+    const next = applyEdit(editor, replaceObjectWithText(editor, IMAGE_ID, "x"));
 
     expect(getBlock(next.state, IMAGE_ID)).toBeNull();
     expect(textOf(next.state, TRAILING_ID).startsWith("x")).toBe(true);
@@ -194,7 +193,7 @@ describe("replaceObjectWithText (#525)", () => {
 
   it("is one undo entry restoring the image", () => {
     const editor = editorFrom(standardDoc());
-    const next = replaceObjectWithText(editor, config, IMAGE_ID, "x");
+    const next = applyEdit(editor, replaceObjectWithText(editor, IMAGE_ID, "x"));
     expect(getBlock(next.state, IMAGE_ID)).toBeNull();
 
     const undone = reduceEditor(next, { type: "UNDO" });
@@ -209,7 +208,7 @@ describe("moveOffObject (#525)", () => {
     const editor = editorFrom(standardDoc());
     const canUndoBefore = editor.history.canUndo();
 
-    const next = moveOffObject(editor, IMAGE_ID, "forward");
+    const next = applyEdit(editor, moveOffObject(editor, IMAGE_ID, "forward"));
 
     expect(getBlock(next.state, IMAGE_ID)?.type).toBe("image");
     expect(next.selection.focus.blockId).toBe(TRAILING_ID);
@@ -224,7 +223,7 @@ describe("moveOffObject (#525)", () => {
     const editor = editorFrom(standardDoc());
     const prevLen = blockLength(editor.state, PARA_ID);
 
-    const next = moveOffObject(editor, IMAGE_ID, "backward");
+    const next = applyEdit(editor, moveOffObject(editor, IMAGE_ID, "backward"));
 
     expect(getBlock(next.state, IMAGE_ID)?.type).toBe("image");
     expect(next.selection.focus.blockId).toBe(PARA_ID);
@@ -235,13 +234,13 @@ describe("moveOffObject (#525)", () => {
   it("forward from an image authored last: the paragraph invariant I put after it takes the caret", () => {
     const editor = editorFrom(imageLastDoc());
     const after = getBlock(editor.state, IMAGE_ID)?.nextSiblingId ?? null;
-    const next = moveOffObject(editor, IMAGE_ID, "forward");
+    const next = applyEdit(editor, moveOffObject(editor, IMAGE_ID, "forward"));
     expect(next.selection.focus).toEqual({ blockId: after, offset: 0 });
   });
 
   it("backward with no preceding content block: keeps the caret on the object", () => {
     const editor = editorFrom(imageOnlyDoc());
-    const next = moveOffObject(editor, IMAGE_ID, "backward");
+    const next = applyEdit(editor, moveOffObject(editor, IMAGE_ID, "backward"));
     expect(next).toBe(editor);
   });
 });

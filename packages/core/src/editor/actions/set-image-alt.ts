@@ -1,6 +1,6 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import { getBlock, mergeBlockAttrs } from "../../state";
-import { rebuildTrees } from "./helpers";
 import type { ActionOf } from "../editor-action";
 
 /**
@@ -26,10 +26,9 @@ import type { ActionOf } from "../editor-action";
 export function handleSetImageAlt(
   editor: EditorState,
   { blockId, alt }: ActionOf<"SET_IMAGE_ALT">,
-): EditorState {
-  const { config } = editor;
+): Edit | null {
   const block = getBlock(editor.state, blockId);
-  if (block === null || block.type !== "image") return editor;
+  if (block === null || block.type !== "image") return null;
 
   // A string (incl. "") SETS alt; null CLEARS it. The empty string is a distinct
   // DECORATIVE marker, so it is stored as a present key — never collapsed to
@@ -40,16 +39,7 @@ export function handleSetImageAlt(
     blockId,
     incoming,
   );
-  if (result.state === editor.state) return editor;
+  if (result.state === editor.state) return null;
 
-  editor.history.commit(result, {
-    before: editor.selection,
-    after: editor.selection,
-  });
-  return rebuildTrees(
-    { ...editor, state: result.state },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+  return { change: result };
 }

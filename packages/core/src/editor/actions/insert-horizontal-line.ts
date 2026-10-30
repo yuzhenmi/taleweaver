@@ -1,5 +1,6 @@
 import type { EditorState } from "../editor-state";
-import { insertAtomicBlockAfterFocus } from "./atomic-edits";
+import type { Edit } from "../edit";
+import { insertAtomicBlockAfterFocus } from "./helpers/insert-atomic-block-after-focus";
 
 /**
  * INSERT_HORIZONTAL_LINE — insert a horizontal rule (Google Docs Insert ▸
@@ -8,7 +9,6 @@ import { insertAtomicBlockAfterFocus } from "./atomic-edits";
  * landing spot below the rule. One undo entry. See `insertAtomicBlockAfterFocus`
  * for the shared insert + caret + no-op semantics.
  */
-export function handleInsertHorizontalLine(editor: EditorState): EditorState {
-  const { config } = editor;
-  return insertAtomicBlockAfterFocus(editor, config, { type: "horizontal-line" });
+export function handleInsertHorizontalLine(editor: EditorState): Edit | null {
+  return insertAtomicBlockAfterFocus(editor, { type: "horizontal-line" });
 }

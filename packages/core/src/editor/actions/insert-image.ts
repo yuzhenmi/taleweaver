@@ -1,6 +1,7 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import type { ReadonlyAttrs } from "../../state";
-import { insertAtomicBlockAfterFocus } from "./atomic-edits";
+import { insertAtomicBlockAfterFocus } from "./helpers/insert-atomic-block-after-focus";
 import type { ActionOf } from "../editor-action";
 
 /**
@@ -17,8 +18,7 @@ import type { ActionOf } from "../editor-action";
 export function handleInsertImage(
   editor: EditorState,
   { src, width, height }: ActionOf<"INSERT_IMAGE">,
-): EditorState {
-  const { config } = editor;
+): Edit | null {
   // Only set width/height when provided, so an omitted dimension stays "auto"
   // (intrinsic) rather than being pinned to a value.
   const imageAttrs: ReadonlyAttrs = {
@@ -27,7 +27,7 @@ export function handleInsertImage(
     ...(height !== undefined ? { height } : {}),
   };
 
-  return insertAtomicBlockAfterFocus(editor, config, {
+  return insertAtomicBlockAfterFocus(editor, {
     type: "image",
     attrs: imageAttrs,
   });

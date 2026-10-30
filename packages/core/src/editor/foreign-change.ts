@@ -13,10 +13,8 @@ import { snapOffset } from "../state/y-inline";
 import { compatibilityGate, type CompatibilityGateOptions } from "../state/collab";
 import { transitionMapping } from "../decorations/decoration-layers";
 import { comparePositionsCached, type Assoc } from "../state/position-mapping";
-import { initialSelectionForState } from "./actions/helpers";
-import { reconcileForeignChange } from "./reconcile-foreign-change";
+import { initialSelectionForState } from "./actions/helpers/initial-selection-for-state";
 import type { EditorState } from "./editor-state";
-import type { ActionOf } from "./editor-action";
 
 /**
  * Collaboration: a peer's change arrives in this editor's Y.Doc (via `Y.applyUpdate`
@@ -130,13 +128,4 @@ export function rebaseSelection(before: EditorState, after: EditorState): Select
   const ctxA = selectionContextOf(after.state, a.blockId);
   if (ctxA === null || ctxA !== selectionContextOf(after.state, f.blockId)) return createSpan(f, f);
   return createSpan(a, f);
-}
-
-/** The reducer arm of `APPLY_FOREIGN_CHANGE`: reconcile, then rebase the selection. */
-export function handleApplyForeignChange(
-  editor: EditorState,
-  { dirtyIds }: ActionOf<"APPLY_FOREIGN_CHANGE">,
-): EditorState {
-  const reconciled = reconcileForeignChange(editor, dirtyIds);
-  return { ...reconciled, selection: rebaseSelection(editor, reconciled) };
 }

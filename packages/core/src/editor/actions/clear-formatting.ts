@@ -1,9 +1,9 @@
 import type { EditorState } from "../editor-state";
 import { isCollapsed } from "../../cursor/selection";
 import { INLINE_FORMAT_ATTR_KEYS } from "../inline-format-keys";
-import { applyAttrsOrSuggest } from "./suggestion-mode";
-import { rebuildTrees } from "./helpers";
+import { applyAttrsOrSuggest } from "./helpers/apply-attrs-or-suggest";
 import { storeTypingAttrs } from "../typing-attrs";
+import type { Edit } from "../edit";
 
 /**
  * Clear all inline (character-level) formatting from the current selection —
@@ -26,7 +26,7 @@ import { storeTypingAttrs } from "../typing-attrs";
  * entry). The selection is preserved unchanged; dirtyIds threaded
  * through to the incremental render pipeline.
  */
-export function handleClearFormatting(editor: EditorState): EditorState {
+export function handleClearFormatting(editor: EditorState): Edit | null {
   const { config } = editor;
   const { selection } = editor;
   // One object mapping every inline-format key to `undefined` — a single
@@ -43,21 +43,12 @@ export function handleClearFormatting(editor: EditorState): EditorState {
   const result = applyAttrsOrSuggest(editor.state, selection, incoming, config);
   // No attr was actually present to remove → no state change → no-op
   // (also short-circuits an already-clean selection, no history entry).
-  if (result.state === editor.state) return editor;
+  if (result.state === editor.state) return null;
 
   // An attr-only edit shifts no offsets, so the selection is unchanged — it is
   // committed and rebuilt AS-IS, preserving both endpoints and the anchor/focus
   // DIRECTION (a backward drag-selection stays backward — Google-Docs parity).
   // Normalizing via spanStart/spanEnd would silently flip a backward selection
   // to forward, so a following Shift+Arrow would extend from the wrong end.
-  editor.history.commit(result, {
-    before: selection,
-    after: selection,
-  });
-  return rebuildTrees(
-    { ...editor, state: result.state, selection },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+  return { change: result };
 }

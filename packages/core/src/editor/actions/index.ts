@@ -1,24 +1,66 @@
-export { findFirstContentBlock, findLastContentBlock, initialSelectionForState } from "./helpers";
+export { findFirstContentBlock } from "./helpers/find-first-content-block";
+export { findLastContentBlock } from "./helpers/find-last-content-block";
+export { initialSelectionForState } from "./helpers/initial-selection-for-state";
+// Geometry-free helpers the print backend's NavIntent resolver reuses:
+// the object-nav selection + the line-delete span guards.
+export { objectMoveSelection } from "./helpers/object-move-selection";
+export { isCrossContextSelection } from "./helpers/is-cross-context-selection";
+export { expandedSpanCollapsePoint } from "./helpers/expanded-span-collapse-point";
 export { handleInsertText } from "./insert-text";
+export { handleApplyForeignChange } from "./apply-foreign-change";
 export { handleDeleteBackward } from "./delete-backward";
 export { handleDeleteForward } from "./delete-forward";
 export { handleDeleteWord } from "./delete-word";
 export { handleDeleteRange } from "./delete-range";
-// Geometry-free helpers the print backend's NavIntent resolver reuses:
-// the object-nav selection + the line-delete span guards.
-export { objectMoveSelection } from "./object-edits";
-export { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
 export { handleSplitNode } from "./split-node";
 export { handleMoveWord } from "./move-word";
 export { handleMoveDocumentBoundary } from "./move-document-boundary";
-export { handleEscape } from "./escape";
 export { handleExpandWord } from "./expand-word";
 export { handleExpandDocumentBoundary } from "./expand-document-boundary";
 export { handleSelectAll } from "./select-all";
 export { handleSetSelection } from "./set-selection";
+export { handleEscape } from "./escape";
+export { handleUndo } from "./undo";
+export { handleRedo } from "./redo";
 export { handleSetContainerWidth } from "./set-container-width";
+export { handlePropose } from "./propose";
+export { handlePaste } from "./paste";
+export { handleInsertNode } from "./insert-node";
 export { handleSetBlockType } from "./set-block-type";
 export { handleToggleList } from "./toggle-list";
+export { handleSetListType } from "./set-list-type";
+export { handleSetListRestart } from "./set-list-restart";
+export { handleListIndent } from "./list-indent";
+export { handleListOutdent } from "./list-outdent";
+export { handleIndent } from "./indent";
+export { handleOutdent } from "./outdent";
+export { handleSectionBreak } from "./section-break";
+export { handleToggleSectionLandscape } from "./toggle-section-landscape";
+export { handleSetSectionColumns } from "./set-section-columns";
+export { handleInsertHeader } from "./insert-header";
+export { handleInsertFooter } from "./insert-footer";
+export { handleInsertFootnote } from "./insert-footnote";
+export { handleInsertCrossReference } from "./insert-cross-reference";
+export { handleInsertPageNumber } from "./insert-page-number";
+export { handleInsertPageCount } from "./insert-page-count";
+export { handleInsertTab } from "./insert-tab";
+export { handleInsertLineBreak } from "./insert-line-break";
+export { handleSetTabStops } from "./set-tab-stops";
+export { handleInsertHorizontalLine } from "./insert-horizontal-line";
+export { handleInsertTableOfContents } from "./insert-table-of-contents";
+export { handleInsertTable } from "./insert-table";
+export { handleInsertTableRow } from "./insert-table-row";
+export { handleInsertTableColumn } from "./insert-table-column";
+export { handleDeleteTableRow } from "./delete-table-row";
+export { handleDeleteTableColumn } from "./delete-table-column";
+export { handleDeleteTable } from "./delete-table";
+export { handleSplitCell } from "./split-cell";
+export { handleMergeCells } from "./merge-cells";
+export { handleInsertImage } from "./insert-image";
+export { handleInsertInlineImage } from "./insert-inline-image";
+export { handleSetImageSize } from "./set-image-size";
+export { handleSetImageWrap } from "./set-image-wrap";
+export { handleSetImageAlt } from "./set-image-alt";
 export { handleToggleStyle } from "./toggle-style";
 export { handleSetLink } from "./set-link";
 export { handleSetTextColor } from "./set-text-color";
@@ -27,51 +69,22 @@ export { handleSetHighlight } from "./set-highlight";
 export { handleSetFontSize } from "./set-font-size";
 export { handleSetFontFamily } from "./set-font-family";
 export { handleClearFormatting } from "./clear-formatting";
-export { handleSetMark, handleRemoveMark } from "./set-mark";
-export { handleUndo } from "./undo";
-export { handleRedo } from "./redo";
-export { handlePaste } from "./paste";
-export { handleInsertNode } from "./insert-node";
-export { handleSectionBreak } from "./section-break";
-export { handleToggleSectionLandscape } from "./toggle-section-landscape";
-export { handleSetSectionColumns } from "./set-section-columns";
-export { handleInsertHeaderFooter } from "./insert-header-footer";
-export { handleInsertHorizontalLine } from "./insert-horizontal-line";
-export { handleInsertTableOfContents } from "./insert-table-of-contents";
-export { handleInsertTable } from "./insert-table";
-export { handleInsertTableRow, handleInsertTableColumn, handleDeleteTableRow, handleDeleteTableColumn, handleDeleteTable, handleSplitCell, handleMergeCells } from "./table-edits";
-export { handleInsertImage } from "./insert-image";
-export { handleInsertInlineImage } from "./insert-inline-image";
-export { handleSetImageSize } from "./set-image-size";
-export { handleSetImageWrap } from "./set-image-wrap";
-export type { ImageWrap } from "./set-image-wrap";
-export { handleSetImageAlt } from "./set-image-alt";
-export { handleInsertFootnote } from "./insert-footnote-action";
-export { handleInsertCrossReference } from "./insert-cross-reference-action";
-export { handleInsertPageField } from "./insert-page-field-action";
-export { handleInsertTab } from "./insert-tab-action";
-export { handleInsertLineBreak } from "./insert-line-break";
-export { handleSetTabStops } from "./set-tab-stops";
+export { handleSetMark } from "./set-mark";
+export { handleRemoveMark } from "./remove-mark";
 export { handleSetTextAlign } from "./set-text-align";
 export { handleSetLineSpacing } from "./set-line-spacing";
-export { handleIndent, INDENT_STEP } from "./indent";
-export { handleListIndent, MAX_LIST_LEVEL } from "./list-indent";
-export { handleSetListType } from "./set-list-type";
-export { handleSetListRestart } from "./set-list-restart";
 export { handleSetParagraphSpacing } from "./set-paragraph-spacing";
-export { handleSetFootnotePolicy } from "./set-footnote-policy-action";
-export { handleReplaceMatch, handleReplaceAll } from "./replace";
-export {
-  handleAddComment,
-  handleResolveComment,
-  handleReopenComment,
-  handleDeleteComment,
-  handleAddReply,
-} from "./comment-actions";
-export {
-  handleAcceptSuggestion,
-  handleRejectSuggestion,
-  handleAcceptAllSuggestions,
-  handleRejectAllSuggestions,
-  handleResolveSuggestionGroup,
-} from "./suggestion-actions";
+export { handleSetFootnotePolicy } from "./set-footnote-policy";
+export { handleReplaceMatch } from "./replace-match";
+export { handleReplaceAll } from "./replace-all";
+export { handleAddComment } from "./add-comment";
+export { handleResolveComment } from "./resolve-comment";
+export { handleReopenComment } from "./reopen-comment";
+export { handleDeleteComment } from "./delete-comment";
+export { handleAddReply } from "./add-reply";
+export { handleAcceptSuggestion } from "./accept-suggestion";
+export { handleRejectSuggestion } from "./reject-suggestion";
+export { handleAcceptSuggestionGroup } from "./accept-suggestion-group";
+export { handleRejectSuggestionGroup } from "./reject-suggestion-group";
+export { handleAcceptAllSuggestions } from "./accept-all-suggestions";
+export { handleRejectAllSuggestions } from "./reject-all-suggestions";

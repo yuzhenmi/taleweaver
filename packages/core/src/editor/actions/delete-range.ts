@@ -1,9 +1,10 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import { expandSpanOverAtomicMarks } from "../atomic-marks";
 import { createPosition, createSpan, spanStart, bookmarkDeletionSpan } from "../../state";
-import { deleteRangeOrSuggest, isSuggestingInBlock } from "./suggestion-mode";
-import { rebuildTrees } from "./helpers";
-import { expandedSpanCollapsePoint } from "./selection-guards";
+import { deleteRangeOrSuggest } from "./helpers/delete-range-or-suggest";
+import { isSuggestingInBlock } from "./helpers/is-suggesting-in-block";
+import { expandedSpanCollapsePoint } from "./helpers/expanded-span-collapse-point";
 import type { ActionOf } from "../editor-action";
 
 /**
@@ -21,23 +22,17 @@ import type { ActionOf } from "../editor-action";
  * NOT the anchor). In suggesting mode this SOFT-deletes (markDeletion stamps the
  * runs, struck text stays).
  */
-export function handleDeleteRange(editor: EditorState, { span }: ActionOf<"DELETE_RANGE">): EditorState {
+export function handleDeleteRange(editor: EditorState, { span }: ActionOf<"DELETE_RANGE">): Edit | null {
   const { config } = editor;
   // Normalized, and grown over any atomic mark it only partly covers.
   const norm = expandSpanOverAtomicMarks(editor.state, span);
   const result = deleteRangeOrSuggest(editor.state, norm, config);
-  if (result.state === editor.state) return editor;
+  if (result.state === editor.state) return null;
   // Direct mode: the seam in the survivor R, as Backspace over a selection.
   const start = isSuggestingInBlock(editor.state, spanStart(editor.state, norm).blockId, config)
     ? spanStart(editor.state, norm)
     : expandedSpanCollapsePoint(editor.state, norm) ?? bookmarkDeletionSpan(editor.state, norm).span.anchor;
   const newCursor = createPosition(start.blockId, start.offset);
   const newSelection = createSpan(newCursor, newCursor);
-  editor.history.commit(result, { before: editor.selection, after: newSelection });
-  return rebuildTrees(
-    { ...editor, state: result.state, selection: newSelection },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+  return { change: result, selection: newSelection };
 }

@@ -1,22 +1,26 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import { expandSpanOverAtomicMarks } from "../atomic-marks";
 import { resolveBlock, getBlock, spanStart, removeBlock, lastLeafBlock, createPosition, createSpan, mergeAdjacentBlocks, deleteSectionBreak, inlineContentLength } from "../../state";
 import type { Block } from "../../state";
-import { commitWithCaret, suggestMarkDeletion } from "./paragraph-mark-delete";
+import { caretEdit } from "./helpers/caret-edit";
+import { suggestMarkDeletion } from "./helpers/suggest-mark-deletion";
 import { blockBefore } from "../../cursor/paragraph-mark";
 import { moveByCharacter } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
-import { rebuildTrees } from "./helpers";
-import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
-import { shiftListLevel } from "./list-indent";
-import { listLevelOf, unlistBlock } from "./list-edits";
-import { deleteAdjacentAtomicLeaf } from "./atomic-edits";
-import { deleteObjectSelection } from "./object-edits";
+import { isCrossContextSelection } from "./helpers/is-cross-context-selection";
+import { expandedSpanCollapsePoint } from "./helpers/expanded-span-collapse-point";
+import { shiftListLevel } from "./helpers/shift-list-level";
+import { listLevelOf } from "./helpers/list-level-of";
+import { unlistBlock } from "./helpers/unlist-block";
+import { deleteAdjacentAtomicLeaf } from "./helpers/delete-adjacent-atomic-leaf";
+import { deleteObjectSelection } from "./helpers/delete-object-selection";
 import { isObjectSelection } from "../../cursor/object-selection";
-import { deleteRangeOrSuggest, suggestionInputForBlock, isSuggestingInBlock } from "./suggestion-mode";
-import { setSelection } from "./set-selection";
+import { deleteRangeOrSuggest } from "./helpers/delete-range-or-suggest";
+import { suggestionInputForBlock } from "./helpers/suggestion-input-for-block";
+import { isSuggestingInBlock } from "./helpers/is-suggesting-in-block";
 
-export function handleDeleteBackward(editor: EditorState): EditorState {
+export function handleDeleteBackward(editor: EditorState): Edit | null {
   const { config } = editor;
   const { selection } = editor;
 
@@ -25,16 +29,16 @@ export function handleDeleteBackward(editor: EditorState): EditorState {
   // has no suggesting branch — whole-block deletion-as-suggestion does not exist
   // for any atomic block; a pre-existing change-tracking gap, not specific to object deletion).
   const objId = isObjectSelection(editor.state, selection, config.componentRegistry);
-  if (objId !== null) return deleteObjectSelection(editor, config, objId);
+  if (objId !== null) return deleteObjectSelection(editor, objId);
 
   // Non-collapsed: delete range. Cursor goes to spanStart.
   if (!isCollapsed(selection)) {
     // Cross-CONTEXT selection refusal (see isCrossContextSelection).
-    if (isCrossContextSelection(editor.state, selection)) return editor;
+    if (isCrossContextSelection(editor.state, selection)) return null;
     // Deletable-span guard + collapse point (see expandedSpanCollapsePoint):
     // refuses an unresolvable or cross-parent span.
     const start = expandedSpanCollapsePoint(editor.state, selection);
-    if (start === null) return editor;
+    if (start === null) return null;
     const result = deleteRangeOrSuggest(editor.state, selection, config);
     // A suggesting soft-delete keeps the text (struck): the caret goes to the span start.
     const at = isSuggestingInBlock(editor.state, spanStart(editor.state, selection).blockId, config)
@@ -43,17 +47,8 @@ export function handleDeleteBackward(editor: EditorState): EditorState {
     const newCursor = createPosition(at.blockId, at.offset);
     const newSelection = createSpan(newCursor, newCursor);
     // Suggesting mode over an already-struck selection: a caret-only outcome.
-    if (result.state === editor.state) return setSelection(editor, newSelection);
-    editor.history.commit(result, {
-      before: selection,
-      after: newSelection,
-    });
-    return rebuildTrees(
-      { ...editor, state: result.state, selection: newSelection },
-      editor,
-      config,
-      result.dirtyIds,
-    );
+    if (result.state === editor.state) return { selection: newSelection };
+    return { change: result, selection: newSelection };
   }
 
   const pos = selection.focus;
@@ -62,7 +57,7 @@ export function handleDeleteBackward(editor: EditorState): EditorState {
   // caret (not caret stops) → `prev` is in the previous block: the ¶ path below.
   const prev = pos.offset > 0 ? moveByCharacter(editor.state, pos, "backward") : null;
   if (prev !== null && prev.blockId === pos.blockId) {
-    if (prev.offset === pos.offset) return editor;
+    if (prev.offset === pos.offset) return null;
     // A character of an atomic mark deletes the whole mark.
     const span = expandSpanOverAtomicMarks(editor.state, createSpan(prev, pos));
     const result = deleteRangeOrSuggest(editor.state, span, config);
@@ -70,22 +65,13 @@ export function handleDeleteBackward(editor: EditorState): EditorState {
     const newSelection = createSpan(newCursor, newCursor);
     // Suggesting mode over an already-struck character (any author): nothing is
     // written; the caret moves across it (no history entry).
-    if (result.state === editor.state) return setSelection(editor, newSelection);
-    editor.history.commit(result, {
-      before: selection,
-      after: newSelection,
-    });
-    return rebuildTrees(
-      { ...editor, state: result.state, selection: newSelection },
-      editor,
-      config,
-      result.dirtyIds,
-    );
+    if (result.state === editor.state) return { selection: newSelection };
+    return { change: result, selection: newSelection };
   }
 
   // The caret is at the block's first caret position: cross-block backspace.
   const currentBlock = resolveBlock(editor.state, pos.blockId)?.block ?? null;
-  if (currentBlock === null) return editor;
+  if (currentBlock === null) return null;
 
   // Backspace at the START of a list-item (Google Docs): a nested item (level>0)
   // outdents one level; a top-level item (level 0) drops its list formatting and
@@ -100,7 +86,7 @@ export function handleDeleteBackward(editor: EditorState): EditorState {
   // before N's first caret position (its previous sibling's ¶, or across a doc-root
   // section boundary the previous section's section-end item).
   const before = blockBefore(editor.state, currentBlock);
-  if (before === null) return editor; // a flow's first caret position: no-op
+  if (before === null) return null; // a flow's first caret position: no-op
   const prevBlock = before.block;
   const prevLen = prevBlock.inlineContent === null ? 0 : inlineContentLength(prevBlock.inlineContent);
 
@@ -111,45 +97,45 @@ export function handleDeleteBackward(editor: EditorState): EditorState {
     // Suggesting mode FIRST: a tracked deletion of the section-end ¶ (Word tracks a
     // deleted section break) instead of the real merge.
     const sectionInput = suggestionInputForBlock(editor.state, currentBlock.id, config);
-    if (sectionInput !== null) return suggestMarkDeletion(editor, config, prevBlock, sectionInput, createPosition(prevBlock.id, prevLen));
+    if (sectionInput !== null) return suggestMarkDeletion(editor, prevBlock, sectionInput, createPosition(prevBlock.id, prevLen));
     const result = deleteSectionBreak(editor.state, before.sectionBreak);
-    if (result.state === editor.state) return editor;
-    return commitWithCaret(editor, config, result, createPosition(currentBlock.id, prevLen));
+    if (result.state === editor.state) return null;
+    return caretEdit(result, createPosition(currentBlock.id, prevLen));
   }
 
   // An atomic object before N (image / horizontal-line): delete it as a unit.
   if (config.componentRegistry.getBlockKind(prevBlock.type) === "atomic-leaf") {
-    return deleteAdjacentAtomicLeaf(editor, config, currentBlock, "backward", pos) ?? editor;
+    return deleteAdjacentAtomicLeaf(editor, config, currentBlock, "backward", pos);
   }
 
   // A table / host container before N (Word): text never merges into it. A
   // NON-empty N stays (no-op); an EMPTY N is removed through `deleteUnits` (a ¶ that
   // invariant I needs stays) and the caret goes to the end of the last cell.
   if (prevBlock.inlineContent === null) {
-    if (currentLen(currentBlock) > 0) return editor;
+    if (currentLen(currentBlock) > 0) return null;
     // Suggesting mode: a tracked deletion of the empty paragraph's own ¶ —
     // keyed only when accepting would remove it (invariant I); the caret stays.
     const ownInput = suggestionInputForBlock(editor.state, currentBlock.id, config);
-    if (ownInput !== null) return suggestMarkDeletion(editor, config, currentBlock, ownInput, pos);
+    if (ownInput !== null) return suggestMarkDeletion(editor, currentBlock, ownInput, pos);
     const result = removeBlock(editor.state, currentBlock.id);
-    if (result.state === editor.state || resolveBlock(result.state, currentBlock.id) !== null) return editor;
+    if (result.state === editor.state || resolveBlock(result.state, currentBlock.id) !== null) return null;
     const lastId = lastLeafBlock(result.state, prevBlock.id);
     const last = lastId === null ? null : getBlock(result.state, lastId);
-    if (last === null || last.inlineContent === null) return editor;
-    return commitWithCaret(editor, config, result, createPosition(last.id, inlineContentLength(last.inlineContent)));
+    if (last === null || last.inlineContent === null) return null;
+    return caretEdit(result, createPosition(last.id, inlineContentLength(last.inlineContent)));
   }
 
   // Suggesting mode: a tracked deletion of ¶prev (`deletionSuggestionId` on prev's
   // ¶) instead of really merging — in ANY editing context (main body or a
   // footnote / header / footer body). Blocks stay separate; the caret stays at N:0.
   const joinInput = suggestionInputForBlock(editor.state, currentBlock.id, config);
-  if (joinInput !== null) return suggestMarkDeletion(editor, config, prevBlock, joinInput, createPosition(prevBlock.id, prevLen));
+  if (joinInput !== null) return suggestMarkDeletion(editor, prevBlock, joinInput, createPosition(prevBlock.id, prevLen));
 
   // Delete ¶prev: the right paragraph N survives holding [...prev, ...N];
   // the caret sits at the seam.
   const result = mergeAdjacentBlocks(editor.state, prevBlock.id, currentBlock.id);
-  if (result.state === editor.state) return editor;
-  return commitWithCaret(editor, config, result, createPosition(result.survivorId, prevLen));
+  if (result.state === editor.state) return null;
+  return caretEdit(result, createPosition(result.survivorId, prevLen));
 }
 
 function currentLen(b: Block): number {

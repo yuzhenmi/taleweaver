@@ -1,12 +1,13 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
+import type { Edit } from "../edit";
 import { insertLineBreak, mintLineBreak, markDeletion, deleteRange, createPosition, createSpan, spanStart, spanEnd, resolveBlock } from "../../state";
 import type { BlockId, OperationResult, Position, State, ReplaceSuggestionInput } from "../../state";
 import { blockAfter } from "../../cursor/paragraph-mark";
 import { isCollapsed } from "../../cursor/selection";
-import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
-import { replaceSuggestionInputForBlock } from "./suggestion-mode";
-import { commitWithCaret } from "./paragraph-mark-delete";
+import { isCrossContextSelection } from "./helpers/is-cross-context-selection";
+import { expandedSpanCollapsePoint } from "./helpers/expanded-span-collapse-point";
+import { replaceSuggestionInputForBlock } from "./helpers/replace-suggestion-input-for-block";
+import { caretEdit } from "./helpers/caret-edit";
 
 /**
  * `INSERT_LINE_BREAK` (Shift+Enter): insert a soft line break — an
@@ -18,18 +19,18 @@ import { commitWithCaret } from "./paragraph-mark-delete";
  * a selection is struck (not deleted). No-op (same editor) for a cross-context /
  * un-deletable selection.
  */
-export function handleInsertLineBreak(editor: EditorState): EditorState {
+export function handleInsertLineBreak(editor: EditorState): Edit | null {
   const { config } = editor;
   const { selection } = editor;
   const input = replaceSuggestionInputForBlock(editor.state, spanStart(editor.state, selection).blockId, config);
-  if (input !== null) return suggestLineBreak(editor, config, input);
+  if (input !== null) return suggestLineBreak(editor, input);
   let state: State = editor.state;
   let at = selection.focus;
   const dirtyIds = new Set<BlockId>();
   if (!isCollapsed(selection)) {
-    if (isCrossContextSelection(state, selection)) return editor;
+    if (isCrossContextSelection(state, selection)) return null;
     const start = expandedSpanCollapsePoint(state, selection);
-    if (start === null) return editor;
+    if (start === null) return null;
     const r = deleteRange(state, selection);
     state = r.state;
     for (const id of r.dirtyIds) dirtyIds.add(id);
@@ -38,7 +39,7 @@ export function handleInsertLineBreak(editor: EditorState): EditorState {
   const r = insertLineBreak(state, at);
   for (const id of r.dirtyIds) dirtyIds.add(id);
   const result: OperationResult = { state: r.state, dirtyIds };
-  return commitWithCaret(editor, config, result, createPosition(at.blockId, at.offset + 1));
+  return caretEdit(result, createPosition(at.blockId, at.offset + 1));
 }
 
 /**
@@ -48,9 +49,9 @@ export function handleInsertLineBreak(editor: EditorState): EditorState {
  * strike removed the start block's own pending ¶ (the merge keeps the start block's
  * content at the front of the paragraph after it), the caret follows to that survivor.
  */
-function suggestLineBreak(editor: EditorState, config: EditorConfig, input: ReplaceSuggestionInput): EditorState {
+function suggestLineBreak(editor: EditorState, input: ReplaceSuggestionInput): Edit | null {
   const { selection } = editor;
-  if (!isCollapsed(selection) && isCrossContextSelection(editor.state, selection)) return editor;
+  if (!isCollapsed(selection) && isCrossContextSelection(editor.state, selection)) return null;
   const start = spanStart(editor.state, selection);
   const end = spanEnd(editor.state, selection);
   const meta = { author: input.author, createdAt: input.createdAt, order: input.order };
@@ -66,5 +67,5 @@ function suggestLineBreak(editor: EditorState, config: EditorConfig, input: Repl
     for (const id of struck.dirtyIds) dirtyIds.add(id);
   }
   const caretBlock = resolveBlock(state, start.blockId) !== null || survivor === null ? start.blockId : survivor;
-  return commitWithCaret(editor, config, { state, dirtyIds }, createPosition(caretBlock, start.offset + 1));
+  return caretEdit({ state, dirtyIds }, createPosition(caretBlock, start.offset + 1));
 }

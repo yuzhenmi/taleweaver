@@ -1,6 +1,6 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import { getBlock, mergeBlockAttrs } from "../../state";
-import { rebuildTrees } from "./helpers";
 import type { ActionOf } from "../editor-action";
 
 /**
@@ -26,17 +26,16 @@ import type { ActionOf } from "../editor-action";
 export function handleSetImageSize(
   editor: EditorState,
   { blockId, width, height }: ActionOf<"SET_IMAGE_SIZE">,
-): EditorState {
-  const { config } = editor;
+): Edit | null {
   const block = getBlock(editor.state, blockId);
-  if (block === null || block.type !== "image") return editor;
+  if (block === null || block.type !== "image") return null;
   if (
     !Number.isFinite(width) ||
     !Number.isFinite(height) ||
     width <= 0 ||
     height <= 0
   ) {
-    return editor;
+    return null;
   }
 
   const result = mergeBlockAttrs(
@@ -44,16 +43,7 @@ export function handleSetImageSize(
     blockId,
     { width, height },
   );
-  if (result.state === editor.state) return editor;
+  if (result.state === editor.state) return null;
 
-  editor.history.commit(result, {
-    before: editor.selection,
-    after: editor.selection,
-  });
-  return rebuildTrees(
-    { ...editor, state: result.state },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+  return { change: result };
 }

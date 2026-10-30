@@ -2,9 +2,9 @@ import type { EditorState } from "../editor-state";
 import { iterateSpan, findItemAtOffset } from "../../state";
 import type { State, Span } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
-import { applyAttrsOrSuggest } from "./suggestion-mode";
-import { rebuildTrees } from "./helpers";
+import { applyAttrsOrSuggest } from "./helpers/apply-attrs-or-suggest";
 import { storeTypingAttrs, getTypingAttrs } from "../typing-attrs";
+import type { Edit } from "../edit";
 import type { ActionOf } from "../editor-action";
 
 const STYLE_KEYS: Record<"bold" | "italic" | "underline" | "strikethrough", string> = {
@@ -58,7 +58,7 @@ function selectionAllHaveAttr(
   return sawText;
 }
 
-export function handleToggleStyle(editor: EditorState, { style }: ActionOf<"TOGGLE_STYLE">): EditorState {
+export function handleToggleStyle(editor: EditorState, { style }: ActionOf<"TOGGLE_STYLE">): Edit | null {
   const { config } = editor;
   const { selection } = editor;
   const attrKey = STYLE_KEYS[style];
@@ -74,7 +74,7 @@ export function handleToggleStyle(editor: EditorState, { style }: ActionOf<"TOGG
   const incoming = all ? { [attrKey]: undefined } : { [attrKey]: true };
   const result = applyAttrsOrSuggest(editor.state, selection, incoming, config);
   if (result.state === editor.state) {
-    return editor;
+    return null;
   }
 
   // An attr-only edit shifts no offsets (no block-tree restructure, no item-
@@ -84,14 +84,5 @@ export function handleToggleStyle(editor: EditorState, { style }: ActionOf<"TOGG
   // drag-selection stays backward — Google-Docs parity). Normalizing via
   // spanStart/spanEnd would silently flip a backward selection to forward, so a
   // following Shift+Arrow would extend from the wrong end.
-  editor.history.commit(result, {
-    before: selection,
-    after: selection,
-  });
-  return rebuildTrees(
-    { ...editor, state: result.state, selection },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+  return { change: result };
 }

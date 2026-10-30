@@ -1,6 +1,6 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import { getBlock, setListRestart } from "../../state";
-import { rebuildTrees } from "./helpers";
 import type { ActionOf } from "../editor-action";
 
 /**
@@ -19,24 +19,14 @@ import type { ActionOf } from "../editor-action";
 export function handleSetListRestart(
   editor: EditorState,
   { value }: ActionOf<"SET_LIST_RESTART">,
-): EditorState {
-  const { config } = editor;
+): Edit | null {
   const blockId = editor.selection.focus.blockId;
   const block = getBlock(editor.state, blockId);
-  if (block === null || block.type !== "list-item") return editor;
+  if (block === null || block.type !== "list-item") return null;
 
   // `null` clears the override; `mergeAttrs` deletes the key on `undefined`.
   const result = setListRestart(editor.state, blockId, value ?? undefined);
-  if (result.state === editor.state) return editor;
+  if (result.state === editor.state) return null;
 
-  editor.history.commit(
-    { state: result.state, dirtyIds: result.dirtyIds },
-    { before: editor.selection, after: editor.selection },
-  );
-  return rebuildTrees(
-    { ...editor, state: result.state },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+  return { change: { state: result.state, dirtyIds: result.dirtyIds } };
 }

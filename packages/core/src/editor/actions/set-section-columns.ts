@@ -1,7 +1,7 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import { getBlock, mergeBlockAttrs } from "../../state";
-import { rebuildTrees } from "./helpers";
-import { resolveActiveSection } from "./active-section";
+import { resolveActiveSection } from "./helpers/resolve-active-section";
 import type { ActionOf } from "../editor-action";
 
 /**
@@ -35,16 +35,15 @@ import type { ActionOf } from "../editor-action";
  *
  * Selection is UNCHANGED: a column change does not move the cursor logically.
  */
-export function handleSetSectionColumns(editor: EditorState, action: ActionOf<"SET_SECTION_COLUMNS">): EditorState {
-  const { config } = editor;
+export function handleSetSectionColumns(editor: EditorState, action: ActionOf<"SET_SECTION_COLUMNS">): Edit | null {
   // Target the active SECTION at the cursor (main-body content always
   // sits in a section — the final one when there is no break). A caret outside the
   // main body has none: no-op.
   const targetId = resolveActiveSection(editor, editor.selection.focus.blockId);
-  if (targetId === null) return editor;
+  if (targetId === null) return null;
 
   const target = getBlock(editor.state, targetId);
-  if (target === null) return editor;
+  if (target === null) return null;
 
   // `columnCount: 1` => single column (NOT a cleared attr); `columnGap` /
   // `columnRule` only when provided, so a bare count change preserves them.
@@ -59,16 +58,7 @@ export function handleSetSectionColumns(editor: EditorState, action: ActionOf<"S
   const result = mergeBlockAttrs(editor.state, targetId, incoming);
 
   // the identity-no-op contract: a no-op merge returns the same state reference.
-  if (result.state === editor.state) return editor;
+  if (result.state === editor.state) return null;
 
-  editor.history.commit(
-    { state: result.state, dirtyIds: result.dirtyIds },
-    { before: editor.selection, after: editor.selection },
-  );
-  return rebuildTrees(
-    { ...editor, state: result.state },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+  return { change: { state: result.state, dirtyIds: result.dirtyIds } };
 }

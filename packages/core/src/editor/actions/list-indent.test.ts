@@ -16,7 +16,7 @@ import {
   createPosition,
   createSpan,
 } from "./test-helpers";
-import { MAX_LIST_LEVEL } from "./list-indent";
+import { MAX_LIST_LEVEL } from "./helpers/shift-list-level";
 import { createEditorStateFromState, type EditorState } from "../editor-state";
 import { getBlock } from "../../state";
 import type { BlockId } from "../../state";

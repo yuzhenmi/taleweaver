@@ -2,7 +2,7 @@
  * `EditorState.lastDirtyIds` — the geometry-free per-dispatch hand-off to the
  * print backend's layout-driver (Phase 0b). A MUTATING action records the set of
  * block ids it changed (a non-null, possibly-empty `Set`); a selection-only /
- * inert / no-op action yields `null` (a full-rebuild hint). `rebuildTrees` is the
+ * inert / no-op action yields `null` (a full-rebuild hint). `applyEdit` is the
  * SOLE writer of a non-null value, and `reduceEditor` ENTRY-CLEARS `lastDirtyIds`
  * to null before the action switch, so a prior mutating action's dirty ids never
  * leak forward onto a later selection-only action's state.

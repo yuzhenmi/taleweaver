@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { findFirstContentBlock, findLastContentBlock } from "./helpers";
+import { findFirstContentBlock } from "./helpers/find-first-content-block";
+import { findLastContentBlock } from "./helpers/find-last-content-block";
 import { buildState, buildBlock } from "../../test-utils/state-builders";
 import { getBlock } from "../../state";
 import type { BlockId } from "../../state";

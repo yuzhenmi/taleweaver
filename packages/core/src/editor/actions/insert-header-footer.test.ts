@@ -27,7 +27,7 @@ import {
   topLevelBlockIds,
 } from "../../state";
 import type { BlockId } from "../../state";
-import { resolveActiveSection } from "./active-section";
+import { resolveActiveSection } from "./helpers/resolve-active-section";
 
 function templateRootCount(editor: EditorState): number {
   return [...getTemplateContentIds(editor.state)].length;

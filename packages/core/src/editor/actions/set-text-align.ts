@@ -1,7 +1,7 @@
 import type { EditorState } from "../editor-state";
 import { getBlock, mergeBlockAttrs, iterateBlocksInSpan, positionsEqual } from "../../state";
 import type { State, BlockId } from "../../state";
-import { rebuildTrees } from "./helpers";
+import type { Edit } from "../edit";
 import type { ActionOf } from "../editor-action";
 
 /**
@@ -30,8 +30,7 @@ import type { ActionOf } from "../editor-action";
  * Selection is UNCHANGED: alignment is a block-geometry change, not a caret
  * move.
  */
-export function handleSetTextAlign(editor: EditorState, { align }: ActionOf<"SET_TEXT_ALIGN">): EditorState {
-  const { config } = editor;
+export function handleSetTextAlign(editor: EditorState, { align }: ActionOf<"SET_TEXT_ALIGN">): Edit | null {
   const targetIds = targetLeafBlockIds(editor);
 
   let state: State = editor.state;
@@ -47,21 +46,7 @@ export function handleSetTextAlign(editor: EditorState, { align }: ActionOf<"SET
     for (const id of result.dirtyIds) dirtyIds.add(id);
   }
 
-  // the identity-no-op contract: nothing changed → return the input editor unchanged
-  // (the editor module's "no change → same editor reference" invariant).
-  // (`history.commit` is itself no-op-safe.)
-  if (state === editor.state) return editor;
-
-  editor.history.commit(
-    { state, dirtyIds },
-    { before: editor.selection, after: editor.selection },
-  );
-  return rebuildTrees(
-    { ...editor, state },
-    editor,
-    config,
-    dirtyIds,
-  );
+  return state === editor.state ? null : { change: { state, dirtyIds } };
 }
 
 /**

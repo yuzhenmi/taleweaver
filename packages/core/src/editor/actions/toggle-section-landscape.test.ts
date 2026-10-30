@@ -308,7 +308,7 @@ describe("handleToggleSectionLandscape — TOGGLE_SECTION_LANDSCAPE action", () 
 
     // GEOMETRY (not just attrs): the nested section's pages became WIDER +
     // SHORTER (landscape) than doc-wide. This proves the multi-hop walk
-    // produces a dirty set that actually flows through rebuildTrees→reflow —
+    // produces a dirty set that actually flows through applyEdit→reflow —
     // the attrs write alone would not move the page box dims.
     const geom = sectionPageGeometry(next, config, "sec" as BlockId);
     expect(geom.inlineSize).toBeGreaterThan(docWide.inlineSize);

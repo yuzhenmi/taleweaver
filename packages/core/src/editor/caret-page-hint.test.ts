@@ -10,7 +10,7 @@
 import { describe, it, expect } from "vitest";
 import { config, reduceEditor } from "./actions/test-helpers";
 import { createInitialEditorState } from "./editor-state";
-import { createSpan } from "../state";
+import { createSpan, createPosition } from "../state";
 
 describe("#323 Cycle A — caretPageHint lifecycle", () => {
   it("createInitialEditorState seeds caretPageHint undefined", () => {
@@ -61,6 +61,19 @@ describe("#323 Cycle A — caretPageHint lifecycle", () => {
     expect(editor.caretPageHint).toBe(1);
     const typed = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" });
     expect(typed.caretPageHint).toBe(1);
+  });
+
+  it("a caret-only Backspace (over a struck character, suggesting mode) preserves caretPageHint", () => {
+    let editor = reduceEditor(createInitialEditorState(config), { type: "INSERT_TEXT", text: "abc" });
+    editor = { ...editor, config: { ...config, suggestingAuthor: "alice" } };
+    editor = reduceEditor(editor, { type: "DELETE_BACKWARD" }); // strikes "c"; the caret goes before it
+    const { blockId, offset } = editor.selection.focus;
+    const afterStruck = createSpan(createPosition(blockId, offset + 1), createPosition(blockId, offset + 1));
+    editor = reduceEditor(editor, { type: "SET_SELECTION", selection: afterStruck, caretPageHint: 1 });
+    const moved = reduceEditor(editor, { type: "DELETE_BACKWARD" });
+    expect(moved.state).toBe(editor.state); // nothing written: the caret only moves across the struck "c"
+    expect(moved.selection.focus.offset).toBe(offset);
+    expect(moved.caretPageHint).toBe(1);
   });
 
   it("UNDO clears caretPageHint (post-undo page is ambiguous)", () => {

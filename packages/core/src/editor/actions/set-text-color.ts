@@ -1,8 +1,8 @@
 import type { EditorState } from "../editor-state";
 import { isCollapsed } from "../../cursor/selection";
-import { applyAttrsOrSuggest } from "./suggestion-mode";
-import { rebuildTrees } from "./helpers";
+import { applyAttrsOrSuggest } from "./helpers/apply-attrs-or-suggest";
 import { storeTypingAttrs } from "../typing-attrs";
+import type { Edit } from "../edit";
 import type { ActionOf } from "../editor-action";
 
 /**
@@ -28,7 +28,7 @@ import type { ActionOf } from "../editor-action";
  * state-equality short-circuit; the selection is preserved unchanged;
  * dirtyIds threaded through to the incremental render pipeline.
  */
-export function handleSetTextColor(editor: EditorState, { color }: ActionOf<"SET_TEXT_COLOR">): EditorState {
+export function handleSetTextColor(editor: EditorState, { color }: ActionOf<"SET_TEXT_COLOR">): Edit | null {
   const { config } = editor;
   const { selection } = editor;
   // Normalize empty string to a removal — an empty color isn't a
@@ -39,21 +39,12 @@ export function handleSetTextColor(editor: EditorState, { color }: ActionOf<"SET
   // Collapsed caret: the color applies to the next typed text (typing attrs).
   if (isCollapsed(selection)) return storeTypingAttrs(editor, incoming);
   const result = applyAttrsOrSuggest(editor.state, selection, incoming, config);
-  if (result.state === editor.state) return editor;
+  if (result.state === editor.state) return null;
 
   // An attr-only edit shifts no offsets, so the selection is unchanged — it is
   // committed and rebuilt AS-IS, preserving both endpoints and the anchor/focus
   // DIRECTION (a backward drag-selection stays backward — Google-Docs parity).
   // Normalizing via spanStart/spanEnd would silently flip a backward selection
   // to forward, so a following Shift+Arrow would extend from the wrong end.
-  editor.history.commit(result, {
-    before: selection,
-    after: selection,
-  });
-  return rebuildTrees(
-    { ...editor, state: result.state, selection },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+  return { change: result };
 }

@@ -4,9 +4,11 @@ import type { TabStop } from "../styles/tab-stops";
 import type { CounterFormat, FootnoteNumberingPolicy } from "../footnotes";
 import type { CaretAffinity } from "../cursor/selection";
 import type { ColumnRule } from "../styles/column-config";
-import type { ImageWrap } from "./actions/set-image-wrap";
 import type { Transaction } from "./extensions";
 import type { Proposal } from "./proposals";
+
+/** How text wraps around an image: floated left / right, or a full-width block. */
+export type ImageWrap = "left" | "right" | "break";
 
 export type EditorAction =
   /**

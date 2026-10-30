@@ -1,7 +1,7 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import { getBlock, mergeBlockAttrs, iterateBlocksInSpan, positionsEqual } from "../../state";
 import type { State, BlockId } from "../../state";
-import { rebuildTrees } from "./helpers";
 import type { ActionOf } from "../editor-action";
 
 /**
@@ -36,8 +36,7 @@ import type { ActionOf } from "../editor-action";
 export function handleSetLineSpacing(
   editor: EditorState,
   { spacing }: ActionOf<"SET_LINE_SPACING">,
-): EditorState {
-  const { config } = editor;
+): Edit | null {
   const targetIds = targetLeafBlockIds(editor);
 
   let state: State = editor.state;
@@ -56,18 +55,9 @@ export function handleSetLineSpacing(
   // the identity-no-op contract: nothing changed → return the input editor unchanged
   // (the editor module's "no change → same editor reference" invariant).
   // (`history.commit` is itself no-op-safe.)
-  if (state === editor.state) return editor;
+  if (state === editor.state) return null;
 
-  editor.history.commit(
-    { state, dirtyIds },
-    { before: editor.selection, after: editor.selection },
-  );
-  return rebuildTrees(
-    { ...editor, state },
-    editor,
-    config,
-    dirtyIds,
-  );
+  return { change: { state, dirtyIds } };
 }
 
 /**

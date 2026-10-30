@@ -1,4 +1,5 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import type { EditorConfig } from "../editor-config";
 import type { EditorAction, ActionOf } from "../editor-action";
 import {
@@ -31,9 +32,8 @@ import type {
   ReadonlyAttrs,
 } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
-import { rebuildTrees } from "./helpers";
-import { replaceSuggestionInputForBlock } from "./suggestion-mode";
-import { isCrossContextSelection } from "./selection-guards";
+import { replaceSuggestionInputForBlock } from "./helpers/replace-suggestion-input-for-block";
+import { isCrossContextSelection } from "./helpers/is-cross-context-selection";
 import { getTypingAttrs } from "../typing-attrs";
 
 /**
@@ -192,7 +192,7 @@ function resolveFragment(
   return null;
 }
 
-export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): EditorState {
+export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edit | null {
   const { config } = editor;
   const { selection } = editor;
 
@@ -201,7 +201,7 @@ export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edi
   // ancestor" on such a span. This mirrors the INSERT_TEXT / SPLIT_NODE guard order
   // (SET_SELECTION already rejects cross-context spans, so this is defense-in-depth)
   // and is mode-independent: a cross-context span is equally a no-op on the direct path.
-  if (isCrossContextSelection(editor.state, selection)) return editor;
+  if (isCrossContextSelection(editor.state, selection)) return null;
 
   // ── Step 1: resolve fragment by priority (clip → html → text → nothing) ────
   const fragment = resolveFragment(action, config);
@@ -229,34 +229,16 @@ export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edi
         replaceInput,
         productionAllocator,
       );
-      if (result.state === editor.state) return editor;
+      if (result.state === editor.state) return null;
       const newSelection = createSpan(result.endPosition, result.endPosition);
-      editor.history.commit(
-        { state: result.state, dirtyIds: result.dirtyIds },
-        { before: selection, after: newSelection },
-      );
-      return rebuildTrees(
-        { ...editor, state: result.state, selection: newSelection },
-        editor,
-        config,
-        result.dirtyIds,
-      );
+      return { change: { state: result.state, dirtyIds: result.dirtyIds }, selection: newSelection };
     }
 
     // ── Direct mode: insertFragment ──────────────────────────────────────────
     const result = insertFragment(editor.state, selection, fragment, productionAllocator);
-    if (result.state === editor.state) return editor;
+    if (result.state === editor.state) return null;
     const newSelection = createSpan(result.endPosition, result.endPosition);
-    editor.history.commit(
-      { state: result.state, dirtyIds: result.dirtyIds },
-      { before: selection, after: newSelection },
-    );
-    return rebuildTrees(
-      { ...editor, state: result.state, selection: newSelection },
-      editor,
-      config,
-      result.dirtyIds,
-    );
+    return { change: { state: result.state, dirtyIds: result.dirtyIds }, selection: newSelection };
   }
 
   // ── Plain-text path ─────────────────────────
@@ -264,7 +246,7 @@ export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edi
   // explicit paste-without-formatting (action carries only `text`).
   // This body is VERBATIM from the original handler (behavior preserved exactly).
   const rawText = action.text ?? "";
-  if (rawText.length === 0) return editor;
+  if (rawText.length === 0) return null;
 
   // Normalize line endings: strip \r so \r\n becomes \n.
   const text = rawText.replace(/\r/g, "");
@@ -299,18 +281,9 @@ export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edi
       replaceInputForText,
       productionAllocator,
     );
-    if (result.state === editor.state) return editor;
+    if (result.state === editor.state) return null;
     const newSelection = createSpan(result.endPosition, result.endPosition);
-    editor.history.commit(
-      { state: result.state, dirtyIds: result.dirtyIds },
-      { before: selection, after: newSelection },
-    );
-    return rebuildTrees(
-      { ...editor, state: result.state, selection: newSelection },
-      editor,
-      config,
-      result.dirtyIds,
-    );
+    return { change: { state: result.state, dirtyIds: result.dirtyIds }, selection: newSelection };
   }
 
   // Collapse selection (delete the existing range first).
@@ -324,12 +297,12 @@ export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edi
   if (!isCollapsed(selection)) {
     const anchorBlock = getBlock(state, selection.anchor.blockId);
     const focusBlock = getBlock(state, selection.focus.blockId);
-    if (anchorBlock === null || focusBlock === null) return editor;
+    if (anchorBlock === null || focusBlock === null) return null;
     if (
       selection.anchor.blockId !== selection.focus.blockId &&
       anchorBlock.parentId !== focusBlock.parentId
     ) {
-      return editor;
+      return null;
     }
     const start = bookmarkDeletionSpan(state, selection).span.anchor;
     const deleteResult = deleteRange(state, selection);
@@ -434,17 +407,8 @@ export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): Edi
   // state-equality check (the identity-no-op contract) for consistency with
   // other handlers — `state` remains === editor.state iff every chained
   // op was a no-op.
-  if (state === editor.state) return editor;
+  if (state === editor.state) return null;
 
   const newSelection = createSpan(pos, pos);
-  editor.history.commit(
-    { state, dirtyIds: accumulatedDirtyIds },
-    { before: selection, after: newSelection },
-  );
-  return rebuildTrees(
-    { ...editor, state, selection: newSelection },
-    editor,
-    config,
-    accumulatedDirtyIds,
-  );
+  return { change: { state, dirtyIds: accumulatedDirtyIds }, selection: newSelection };
 }

@@ -1,8 +1,8 @@
 import type { EditorState } from "../editor-state";
 import { isCollapsed } from "../../cursor/selection";
-import { applyAttrsOrSuggest } from "./suggestion-mode";
-import { rebuildTrees } from "./helpers";
+import { applyAttrsOrSuggest } from "./helpers/apply-attrs-or-suggest";
 import { storeTypingAttrs } from "../typing-attrs";
+import type { Edit } from "../edit";
 import type { ActionOf } from "../editor-action";
 
 /**
@@ -27,7 +27,7 @@ import type { ActionOf } from "../editor-action";
  * preserved unchanged; dirtyIds threaded through to the
  * incremental render pipeline.
  */
-export function handleSetLink(editor: EditorState, { url }: ActionOf<"SET_LINK">): EditorState {
+export function handleSetLink(editor: EditorState, { url }: ActionOf<"SET_LINK">): Edit | null {
   const { config } = editor;
   const { selection } = editor;
   // Collapsed caret: removing the link stops the next typed text from being
@@ -35,7 +35,7 @@ export function handleSetLink(editor: EditorState, { url }: ActionOf<"SET_LINK">
   if (isCollapsed(selection)) {
     return url === null || url.length === 0
       ? storeTypingAttrs(editor, { link: undefined })
-      : editor;
+      : null;
   }
 
   // Normalize empty string to a removal — UX rule: an empty URL
@@ -46,21 +46,12 @@ export function handleSetLink(editor: EditorState, { url }: ActionOf<"SET_LINK">
     ? { link: url }
     : { link: undefined };
   const result = applyAttrsOrSuggest(editor.state, selection, incoming, config);
-  if (result.state === editor.state) return editor;
+  if (result.state === editor.state) return null;
 
   // An attr-only edit shifts no offsets, so the selection is unchanged — it is
   // committed and rebuilt AS-IS, preserving both endpoints and the anchor/focus
   // DIRECTION (a backward drag-selection stays backward — Google-Docs parity).
   // Normalizing via spanStart/spanEnd would silently flip a backward selection
   // to forward, so a following Shift+Arrow would extend from the wrong end.
-  editor.history.commit(result, {
-    before: selection,
-    after: selection,
-  });
-  return rebuildTrees(
-    { ...editor, state: result.state, selection },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+  return { change: result };
 }

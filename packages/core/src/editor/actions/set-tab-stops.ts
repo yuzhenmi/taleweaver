@@ -1,7 +1,7 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import { getBlock, mergeBlockAttrs } from "../../state";
 import type { BlockId } from "../../state";
-import { rebuildTrees } from "./helpers";
 import type { ActionOf } from "../editor-action";
 
 /**
@@ -34,24 +34,14 @@ import type { ActionOf } from "../editor-action";
 export function handleSetTabStops(
   editor: EditorState,
   { blockId, tabStops }: ActionOf<"SET_TAB_STOPS">,
-): EditorState {
-  const { config } = editor;
-  if (getBlock(editor.state, blockId) === null) return editor;
+): Edit | null {
+  if (getBlock(editor.state, blockId) === null) return null;
 
   const result = mergeBlockAttrs(editor.state, blockId, { tabStops });
   // No-op merge (identical stops already present): same state ref → return the
   // input editor unchanged so the "no change → same reference" contract holds.
-  if (result.state === editor.state) return editor;
+  if (result.state === editor.state) return null;
 
   const dirtyIds = new Set<BlockId>(result.dirtyIds);
-  editor.history.commit(
-    { state: result.state, dirtyIds },
-    { before: editor.selection, after: editor.selection },
-  );
-  return rebuildTrees(
-    { ...editor, state: result.state },
-    editor,
-    config,
-    dirtyIds,
-  );
+  return { change: { state: result.state, dirtyIds } };
 }

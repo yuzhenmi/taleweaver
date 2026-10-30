@@ -1,0 +1,53 @@
+import type { EditorState } from "../../editor-state";
+import type { Edit } from "../../edit";
+import { insertPageField, resolveBlock, selectionContextOf, createPosition, createSpan, type BlockId, type PageFieldKind, type PageFieldNumberStyle } from "../../../state";
+import { prepareEmbedInsertPoint } from "./prepare-embed-insert-point";
+
+/**
+ * `INSERT_PAGE_NUMBER` / `INSERT_PAGE_COUNT` handler — splices a `page-field`
+ * EmbedItem at the caret. The field renders a page-agnostic placeholder; its value
+ * is bound LATE from paginated layout (self-page `page-number` = the page index;
+ * document-global `page-count` = the total). One position-offset unit (one IFC
+ * token), so the caret lands just after it.
+ *
+ * **Header/footer ONLY (DIVERGES from the cross-reference handler).** A page-number /
+ * page-count is running content — Google Docs, Pages, and Word all place it in a
+ * header/footer, never as a body-text control. Per the 2026-06-10 scope decision,
+ * main-body (and footnote-body) page-fields are OUT of scope. So this handler is a
+ * no-op UNLESS the caret resolves into a TEMPLATE (header/footer) context. Where the
+ * cross-reference handler rejects everything but `state.rootId` (main body only),
+ * this one rejects everything but a `templateContent` context — the opposite gate,
+ * because a page-field's only valid home is a header/footer body. (The host's
+ * header-editing flow places the caret inside the header before dispatching.)
+ *
+ * **Non-collapsed selection** is REPLACED (not preserved): `prepareEmbedInsertPoint`
+ * deletes the selected range first — folding its dirtyIds into the single commit so
+ * delete+insert is ONE undo step — and returns the collapse point. A cross-context /
+ * cross-parent span is un-deletable → no-op.
+ */
+export function insertPageFieldAtCaret(
+  editor: EditorState,
+  fieldKind: PageFieldKind,
+  numberStyle: PageFieldNumberStyle | undefined,
+): Edit | null {
+  const focus = editor.selection.focus;
+
+  // Header/footer-only gate: the caret's selection context must be a template body.
+  const contextRoot = selectionContextOf(editor.state, focus.blockId);
+  if (contextRoot === null) return null;
+  const resolvedContext = resolveBlock(editor.state, contextRoot);
+  if (resolvedContext === null || resolvedContext.kind !== "templateContent") return null;
+
+  const prep = prepareEmbedInsertPoint(editor.state, editor.selection);
+  if (!prep.ok) return null;
+
+  const result = insertPageField(prep.state, prep.position, fieldKind, numberStyle ?? "decimal");
+  if (result.state === prep.state && prep.dirtyIds.size === 0) return null;
+  const dirtyIds = new Set<BlockId>(prep.dirtyIds);
+  for (const id of result.dirtyIds) dirtyIds.add(id);
+
+  const cursor = createPosition(prep.position.blockId, prep.position.offset + 1);
+  const selectionAfter = createSpan(cursor, cursor);
+
+  return { change: { state: result.state, dirtyIds }, selection: selectionAfter };
+}

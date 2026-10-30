@@ -1,4 +1,5 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import {
   getBlock,
   setBlockType,
@@ -11,7 +12,6 @@ import {
   newListId,
 } from "../../state";
 import type { Block, BlockId, State, OperationResult } from "../../state";
-import { rebuildTrees } from "./helpers";
 import type { ActionOf } from "../editor-action";
 
 type ListType = "ordered" | "unordered";
@@ -41,10 +41,10 @@ type ListType = "ordered" | "unordered";
  * is a no-op returning the same `editor` reference (never calling
  * `history.commit`).
  */
-export function handleToggleList(editor: EditorState, { listType }: ActionOf<"TOGGLE_LIST">): EditorState {
+export function handleToggleList(editor: EditorState, { listType }: ActionOf<"TOGGLE_LIST">): Edit | null {
   const { config } = editor;
   const targets = eligibleTargets(editor);
-  if (targets.length === 0) return editor;
+  if (targets.length === 0) return null;
 
   // Classify against the PRE-edit defs (they only change when we write one,
   // which this handler controls). Fetch the map once rather than per lookup.
@@ -128,13 +128,9 @@ export function handleToggleList(editor: EditorState, { listType }: ActionOf<"TO
     }
   }
 
-  if (state === editor.state) return editor;
+  if (state === editor.state) return null;
 
-  editor.history.commit(
-    { state, dirtyIds },
-    { before: editor.selection, after: editor.selection },
-  );
-  return rebuildTrees({ ...editor, state }, editor, config, dirtyIds);
+  return { change: { state, dirtyIds } };
 }
 
 /** The text-leaf blocks the toggle applies to (paragraph or list-item). */

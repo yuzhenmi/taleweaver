@@ -1,7 +1,7 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import { getBlock, mergeBlockAttrs, iterateBlocksInSpan, positionsEqual } from "../../state";
 import type { State, BlockId } from "../../state";
-import { rebuildTrees } from "./helpers";
 import type { ActionOf } from "../editor-action";
 
 /**
@@ -49,8 +49,7 @@ import type { ActionOf } from "../editor-action";
 export function handleSetParagraphSpacing(
   editor: EditorState,
   { edge, value }: ActionOf<"SET_PARAGRAPH_SPACING">,
-): EditorState {
-  const { config } = editor;
+): Edit | null {
   const attrKey = edge === "before" ? "marginBlockStart" : "marginBlockEnd";
   // null OR a negative value clears (reverts to the component default); a finite
   // `>= 0` (including 0, an explicit override) is set.
@@ -77,13 +76,9 @@ export function handleSetParagraphSpacing(
 
   // the identity-no-op contract: nothing changed → return the input editor unchanged.
   // (`history.commit` is itself no-op-safe.)
-  if (state === editor.state) return editor;
+  if (state === editor.state) return null;
 
-  editor.history.commit(
-    { state, dirtyIds },
-    { before: editor.selection, after: editor.selection },
-  );
-  return rebuildTrees({ ...editor, state }, editor, config, dirtyIds);
+  return { change: { state, dirtyIds } };
 }
 
 /**
