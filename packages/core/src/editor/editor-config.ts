@@ -7,6 +7,7 @@ import type { EditorExtensions } from "./extensions";
 export interface EditorConfig {
   readonly componentRegistry: ComponentRegistry;
   readonly attrRegistry: AttrRegistry;
+  /** The INITIAL container width; the live value is `EditorState.containerWidth`. */
   readonly containerWidth: number;
   /**
    * Document page-setup data (size, orientation, margins, gap). DOCUMENT data,
@@ -14,8 +15,8 @@ export interface EditorConfig {
    * document (Google Docs File ▸ Page setup; Word per-section; .docx). The
    * geometry-free reducer reads it in `toggle-section-landscape` (the landscape
    * dimension swap consults the document's default page dimensions). The print
-   * backend's `LayoutConfig` ALSO carries the SAME instance for pagination; the
-   * host supplies it to both. `undefined` = an unpaginated/single-page harness.
+   * backend paginates with it too, reading it from the same `EditorState.config`.
+   * `undefined` = an unpaginated/single-page harness.
    * (`measurer`/`hyphenator` — the genuine print-mechanics fields — left core's
    * `EditorConfig` for the backend `LayoutConfig` in this phase; `pageConfig`
    * stays because it is document data.)

@@ -2,7 +2,7 @@ import { createEmptyDocument, History, createHistory, positionsEqual } from "../
 import { STATE_INTERNAL } from "../state/state-internal";
 import { bindAttrRegistry } from "../state/mark-attrs";
 import type { ProposalOutcome } from "./proposals";
-import type { ActiveTrigger } from "./extensions";
+import { compileKeymap, type ActiveTrigger } from "./extensions";
 import type { State, Selection, BlockId, ReadonlyAttrs } from "../state";
 import type { CaretAffinity } from "../cursor/selection";
 import type { EditorConfig } from "./editor-config";
@@ -12,6 +12,14 @@ import { initialSelectionForState } from "./actions/helpers";
 // --- EditorState ---
 
 export interface EditorState {
+  /**
+   * The editor's environment (registries, clock, suggesting author, extensions), carried
+   * by reference through every state the reducer produces. The registries are fixed for
+   * the editor's lifetime — the attr registry is bound to the document once, at
+   * construction. Other fields may be swapped with `{ ...editor, config: { ...editor.config, … } }`
+   * (e.g. entering suggesting mode).
+   */
+  readonly config: EditorConfig;
   readonly state: State;
   readonly selection: Selection;
   readonly history: History;
@@ -153,7 +161,10 @@ export function createEditorStateFromState(
 ): EditorState {
   // Every state writer judging an attr (¶ markAttrs, one-shot attrs) reads it from the doc.
   bindAttrRegistry(state[STATE_INTERNAL].doc, config.attrRegistry);
+  // Parse the host keymap now: a malformed binding name fails at configuration time.
+  if (config.extensions?.keymap !== undefined) compileKeymap(config.extensions.keymap);
   return {
+    config,
     state,
     selection,
     history: createHistory(state, undefined, historyOrigin),

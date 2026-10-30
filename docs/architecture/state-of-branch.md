@@ -760,8 +760,8 @@ instances under `type#…` keys) / atomic (overlapping atomic ranges form one un
 caret normalization in `reduceEditor`, whole-unit deletes) / copy keep-drop (`extractFragment`, the doc's bound registry) / `toDom`
 (`TextBox.marks`, applied by the digital DOM view; print paints via `toStyle`);
 `SET_MARK` (with `replace` for an instance swap) / `REMOVE_MARK` (undoable, formatting
-suggestions in suggesting mode); the print controller derives its registries from the
-host's `EditorConfig` (`config` option);
+suggestions in suggesting mode); the print controller reads its registries from the
+host's `EditorState.config` (no separate config option);
 `getMarkRanges` host query. See [`1.5-editor.md`](./1-core/1.5-editor.md) "Typing
 attributes and inline marks" and [`1.3-cascade.md`](./1-core/1.3-cascade.md).
 

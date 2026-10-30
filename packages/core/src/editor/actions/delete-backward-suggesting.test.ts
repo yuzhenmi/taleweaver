@@ -58,12 +58,11 @@ const suggestingConfig: EditorConfig = { ...directConfig, suggestingAuthor: "ali
 /** Place a collapsed caret at `offset` of `paraId` (suggesting config). */
 function caretAt(editor: EditorState, paraId: BlockId, offset: number): EditorState {
   return reduceEditor(
-    editor,
+    { ...editor, config: suggestingConfig },
     {
       type: "SET_SELECTION",
       selection: createSpan(createPosition(paraId, offset), createPosition(paraId, offset)),
     },
-    suggestingConfig,
   );
 }
 
@@ -75,12 +74,11 @@ function select(
   end: number,
 ): EditorState {
   return reduceEditor(
-    editor,
+    { ...editor, config: suggestingConfig },
     {
       type: "SET_SELECTION",
       selection: createSpan(createPosition(paraId, start), createPosition(paraId, end)),
     },
-    suggestingConfig,
   );
 }
 
@@ -113,7 +111,6 @@ function seed(text: string): EditorState {
   return reduceEditor(
     createInitialEditorState(directConfig),
     { type: "INSERT_TEXT", text },
-    directConfig,
   );
 }
 
@@ -125,9 +122,9 @@ function twoParagraphs(): {
   secondId: BlockId;
 } {
   let s = createInitialEditorState(directConfig);
-  s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" }, directConfig);
-  s = reduceEditor(s, { type: "SPLIT_NODE" }, directConfig);
-  s = reduceEditor(s, { type: "INSERT_TEXT", text: "def" }, directConfig);
+  s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" });
+  s = reduceEditor(s, { type: "SPLIT_NODE" });
+  s = reduceEditor(s, { type: "INSERT_TEXT", text: "def" });
   const root = getBlock(s.state, finalSectionOf(s.state));
   const firstId = root?.firstChildId ?? null;
   const secondId = root?.lastChildId ?? null;
@@ -143,7 +140,7 @@ describe("handleDeleteBackward — suggesting mode (slice 4c-i)", () => {
     const paraId = bodyParaId(seeded);
     const placed = caretAt(seeded, paraId, 3); // caret after "abc"
 
-    const next = reduceEditor(placed, { type: "DELETE_BACKWARD" }, suggestingConfig);
+    const next = reduceEditor(placed, { type: "DELETE_BACKWARD" });
 
     // Text is UNCHANGED — soft delete keeps the struck char.
     expect(getTextOf(next.state, paraId)).toBe("abc");
@@ -165,11 +162,11 @@ describe("handleDeleteBackward — suggesting mode (slice 4c-i)", () => {
     const seeded = seed("abc");
     const paraId = bodyParaId(seeded);
     const placed = caretAt(seeded, paraId, 3);
-    const struck = reduceEditor(placed, { type: "DELETE_BACKWARD" }, suggestingConfig);
+    const struck = reduceEditor(placed, { type: "DELETE_BACKWARD" });
 
     expect(struck.history.canUndo()).toBe(true);
 
-    const undone = reduceEditor(struck, { type: "UNDO" }, suggestingConfig);
+    const undone = reduceEditor(struck, { type: "UNDO" });
     expect(getTextOf(undone.state, paraId)).toBe("abc");
     expect(deletionIdAt(undone, paraId, 2)).toBeUndefined();
     expect(getSuggestions(undone.state)).toHaveLength(0);
@@ -180,7 +177,7 @@ describe("handleDeleteBackward — suggesting mode (slice 4c-i)", () => {
     const paraId = bodyParaId(seeded);
     const selected = select(seeded, paraId, 1, 4); // select "bcd"
 
-    const next = reduceEditor(selected, { type: "DELETE_BACKWARD" }, suggestingConfig);
+    const next = reduceEditor(selected, { type: "DELETE_BACKWARD" });
 
     // Text intact; "bcd" (indices 1..3) carry the deletion id; "a"/"e"/"f" do not.
     expect(getTextOf(next.state, paraId)).toBe("abcdef");
@@ -208,10 +205,9 @@ describe("handleDeleteBackward — suggesting mode (slice 4c-i)", () => {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(paraId, 3), createPosition(paraId, 3)),
       },
-      directConfig,
     );
 
-    const next = reduceEditor(placed, { type: "DELETE_BACKWARD" }, directConfig);
+    const next = reduceEditor(placed, { type: "DELETE_BACKWARD" });
 
     // Direct delete: the char is REALLY removed (text shrinks), no deletion record.
     expect(getTextOf(next.state, paraId)).toBe("ab");
@@ -222,7 +218,7 @@ describe("handleDeleteBackward — suggesting mode (slice 4c-i)", () => {
     const { editor, firstId, secondId } = twoParagraphs();
     const placed = caretAt(editor, secondId, 0); // caret at start of "def"
 
-    const next = reduceEditor(placed, { type: "DELETE_BACKWARD" }, suggestingConfig);
+    const next = reduceEditor(placed, { type: "DELETE_BACKWARD" });
 
     // Blocks stay SEPARATE — NO real merge happened.
     expect(getBlock(next.state, firstId)?.id).toBe(firstId);
@@ -247,7 +243,7 @@ describe("handleDeleteBackward — suggesting mode (slice 4c-i)", () => {
 
     // Undoable: UNDO removes the tag + record, blocks unchanged.
     expect(next.history.canUndo()).toBe(true);
-    const undone = reduceEditor(next, { type: "UNDO" }, suggestingConfig);
+    const undone = reduceEditor(next, { type: "UNDO" });
     expect(joinTagged(undone, firstId)).toBe(false);
     expect(getSuggestions(undone.state)).toHaveLength(0);
     expect(getTextOf(undone.state, firstId)).toBe("abc");
@@ -262,10 +258,9 @@ describe("handleDeleteBackward — suggesting mode (slice 4c-i)", () => {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(secondId, 0), createPosition(secondId, 0)),
       },
-      directConfig,
     );
 
-    const next = reduceEditor(placed, { type: "DELETE_BACKWARD" }, directConfig);
+    const next = reduceEditor(placed, { type: "DELETE_BACKWARD" });
 
     // Real merge: block N now holds "abcdef"; the second block is gone.
     // Survivor R: the second paragraph holds the joined text.
@@ -279,7 +274,7 @@ describe("handleDeleteBackward — suggesting mode (slice 4c-i)", () => {
   it("backspacing over one's OWN suggested-insertion REMOVES it for real (no deletion record; the spent insertion record orphans)", () => {
     // Type "abc" in SUGGESTING mode → one insertion record covering "abc".
     let s = createInitialEditorState(suggestingConfig);
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" }, suggestingConfig);
+    s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" });
     const paraId = bodyParaId(s);
     const inserted = getSuggestions(s.state);
     expect(inserted).toHaveLength(1);
@@ -290,9 +285,9 @@ describe("handleDeleteBackward — suggesting mode (slice 4c-i)", () => {
     // Backspace 3× — each char is THIS author's own un-accepted insertion, so it
     // is removed for REAL (not soft-deleted): deleting your own pending insertion
     // un-does it rather than stacking a contradictory deletion-on-insertion.
-    s = reduceEditor(s, { type: "DELETE_BACKWARD" }, suggestingConfig);
-    s = reduceEditor(s, { type: "DELETE_BACKWARD" }, suggestingConfig);
-    s = reduceEditor(s, { type: "DELETE_BACKWARD" }, suggestingConfig);
+    s = reduceEditor(s, { type: "DELETE_BACKWARD" });
+    s = reduceEditor(s, { type: "DELETE_BACKWARD" });
+    s = reduceEditor(s, { type: "DELETE_BACKWARD" });
 
     // Text is gone (real removal, NOT a struck-through soft delete).
     expect(getTextOf(s.state, paraId)).toBe("");
@@ -306,15 +301,15 @@ describe("handleDeleteBackward — suggesting mode (slice 4c-i)", () => {
   it("block-start backspace in a LIST-ITEM still OUTDENTS/UNLISTS in suggesting mode (not a join — proves the gate reorder)", () => {
     // One paragraph "abc", made into a top-level unordered list item, caret at start.
     let s = createInitialEditorState(directConfig);
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" }, directConfig);
-    s = reduceEditor(s, { type: "TOGGLE_LIST", listType: "unordered" }, directConfig);
+    s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" });
+    s = reduceEditor(s, { type: "TOGGLE_LIST", listType: "unordered" });
     const root = getBlock(s.state, finalSectionOf(s.state));
     const itemId = root?.firstChildId ?? null;
     if (itemId === null) throw new Error("expected a list item");
     expect(getBlock(s.state, itemId)?.type).toBe("list-item");
     const placed = caretAt(s, itemId, 0);
 
-    const next = reduceEditor(placed, { type: "DELETE_BACKWARD" }, suggestingConfig);
+    const next = reduceEditor(placed, { type: "DELETE_BACKWARD" });
 
     // A top-level list item unlists into a plain paragraph (NOT a join suggestion).
     expect(getBlock(next.state, itemId)?.type).toBe("paragraph");
@@ -330,39 +325,39 @@ describe("caret-only outcomes (already struck runs / steps): nothing written, ca
     const seeded = seed("abc");
     const p = bodyParaId(seeded);
     // alice strikes "b".
-    const struck = reduceEditor(caretAt(seeded, p, 2), { type: "DELETE_BACKWARD" }, suggestingConfig);
+    const struck = reduceEditor(caretAt(seeded, p, 2), { type: "DELETE_BACKWARD" });
     const aliceId = deletionIdAt(struck, p, 1);
     expect(typeof aliceId).toBe("string");
     // bob backspaces over the struck "b": untouched, caret before it.
-    const placed = reduceEditor(struck, { type: "SET_SELECTION", selection: createSpan(createPosition(p, 2), createPosition(p, 2)) }, bob);
-    const back = reduceEditor(placed, { type: "DELETE_BACKWARD" }, bob);
+    const placed = reduceEditor({ ...struck, config: bob }, { type: "SET_SELECTION", selection: createSpan(createPosition(p, 2), createPosition(p, 2)) });
+    const back = reduceEditor(placed, { type: "DELETE_BACKWARD" });
     expect(back.state).toBe(placed.state);
     expect(deletionIdAt(back, p, 1)).toBe(aliceId);
     expect(getSuggestions(back.state)).toHaveLength(1);
     expect(back.selection.focus).toEqual(createPosition(p, 1));
     // Delete forward from before "b": same, caret after it.
-    const placed2 = reduceEditor(struck, { type: "SET_SELECTION", selection: createSpan(createPosition(p, 1), createPosition(p, 1)) }, bob);
-    const fwd = reduceEditor(placed2, { type: "DELETE_FORWARD" }, bob);
+    const placed2 = reduceEditor({ ...struck, config: bob }, { type: "SET_SELECTION", selection: createSpan(createPosition(p, 1), createPosition(p, 1)) });
+    const fwd = reduceEditor(placed2, { type: "DELETE_FORWARD" });
     expect(fwd.state).toBe(placed2.state);
     expect(fwd.selection.focus).toEqual(createPosition(p, 2));
   });
 
   it("Backspace / Delete on a ¶ that carries a live deletion writes nothing, moves across the ¶, and adds NO undo entry", () => {
     const { editor, firstId, secondId } = twoParagraphs();
-    const joined = reduceEditor(caretAt(editor, secondId, 0), { type: "DELETE_BACKWARD" }, suggestingConfig);
+    const joined = reduceEditor(caretAt(editor, secondId, 0), { type: "DELETE_BACKWARD" });
     expect(joinTagged(joined, firstId)).toBe(true);
     // Second Backspace (another author): caret to (first, len), state unchanged.
-    const placed = reduceEditor(joined, { type: "SET_SELECTION", selection: createSpan(createPosition(secondId, 0), createPosition(secondId, 0)) }, bob);
-    const again = reduceEditor(placed, { type: "DELETE_BACKWARD" }, bob);
+    const placed = reduceEditor({ ...joined, config: bob }, { type: "SET_SELECTION", selection: createSpan(createPosition(secondId, 0), createPosition(secondId, 0)) });
+    const again = reduceEditor(placed, { type: "DELETE_BACKWARD" });
     expect(again.state).toBe(placed.state);
     expect(again.selection.focus).toEqual(createPosition(firstId, 3));
     // Delete at (first, len) over the joined step: caret to (second, 0).
-    const placed2 = reduceEditor(again, { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 3), createPosition(firstId, 3)) }, bob);
-    const fwd = reduceEditor(placed2, { type: "DELETE_FORWARD" }, bob);
+    const placed2 = reduceEditor(again, { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 3), createPosition(firstId, 3)) });
+    const fwd = reduceEditor(placed2, { type: "DELETE_FORWARD" });
     expect(fwd.state).toBe(placed2.state);
     expect(fwd.selection.focus).toEqual(createPosition(secondId, 0));
     // The following undo reverts the PREVIOUS edit (the join), not a no-op entry.
-    const undone = reduceEditor(fwd, { type: "UNDO" }, bob);
+    const undone = reduceEditor(fwd, { type: "UNDO" });
     expect(joinTagged(undone, firstId)).toBe(false);
   });
 });

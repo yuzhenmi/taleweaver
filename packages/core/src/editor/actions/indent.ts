@@ -15,7 +15,7 @@ export const INDENT_STEP = 48;
  * Minimum content width (px) an indented line must retain. INDENT is capped so
  * `marginInlineStart` can't exceed `availableWidth - MIN_CONTENT_WIDTH`, i.e. it
  * can't push the text off the page (Google Docs caps indent at the right margin).
- * ~1in keeps a usable line. `availableWidth` is `config.containerWidth`.
+ * ~1in keeps a usable line. `availableWidth` is the live `editor.containerWidth`.
  */
 export const MIN_INDENT_CONTENT_WIDTH = 96;
 
@@ -62,7 +62,7 @@ export function handleIndent(
   // available inline size is approximated by the editor container width; the
   // cap keeps at least MIN_INDENT_CONTENT_WIDTH of content. When the width is
   // unknown (not yet measured), there is no cap (Infinity) — old behavior.
-  const availableWidth = config.containerWidth;
+  const availableWidth = editor.containerWidth;
   const maxIndent =
     typeof availableWidth === "number" && availableWidth > 0
       ? Math.max(0, availableWidth - MIN_INDENT_CONTENT_WIDTH)

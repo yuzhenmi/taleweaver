@@ -7,7 +7,7 @@ import { getBlock } from "../state";
 
 function seeded(text: string) {
   let e = createInitialEditorState(config);
-  e = reduceEditor(e, { type: "INSERT_TEXT", text }, config);
+  e = reduceEditor(e, { type: "INSERT_TEXT", text });
   return { e, p: e.selection.focus.blockId };
 }
 
@@ -21,12 +21,12 @@ describe("createFindSession", () => {
     expect(s.prev()).toEqual({ total: 3, activeIndex: 2 });
     const action = s.replaceActiveAction("cow");
     if (action === null) throw new Error("no action");
-    e = reduceEditor(e, action, config);
+    e = reduceEditor(e, action);
     // The replaced match is gone; the index clamps onto a survivor.
     expect(s.refresh(e.state).status).toEqual({ total: 2, activeIndex: 1 });
     const all = s.replaceAllAction("x");
     if (all === null) throw new Error("no action");
-    e = reduceEditor(e, all, config);
+    e = reduceEditor(e, all);
     expect(s.refresh(e.state).status).toEqual({ total: 0, activeIndex: -1 });
     expect(s.replaceActiveAction("y")).toBeNull();
     s.close();
@@ -42,7 +42,7 @@ describe("createFindSession", () => {
       const action = s.replaceActiveAction("aa");
       if (action === null) throw new Error("no action");
       const prev = e;
-      e = reduceEditor(e, action, config);
+      e = reduceEditor(e, action);
       const r = s.refresh(e.state, transitionMapping(prev, e));
       seen.push(s.matches()[r.status.activeIndex]?.start ?? -1);
     }
@@ -52,17 +52,17 @@ describe("createFindSession", () => {
 
   it("an edit before the active match keeps the same occurrence active and redraws only edited blocks", () => {
     let e = createInitialEditorState(config);
-    e = reduceEditor(e, { type: "INSERT_TEXT", text: "x cat" }, config);
-    e = reduceEditor(e, { type: "SPLIT_NODE" }, config);
-    e = reduceEditor(e, { type: "INSERT_TEXT", text: "cat cat" }, config);
+    e = reduceEditor(e, { type: "INSERT_TEXT", text: "x cat" });
+    e = reduceEditor(e, { type: "SPLIT_NODE" });
+    e = reduceEditor(e, { type: "INSERT_TEXT", text: "cat cat" });
     const p2 = e.selection.focus.blockId;
     // The split's head "x cat" is the new block.
     const p1 = getBlock(e.state, p2)?.prevSiblingId ?? p2;
     const s = createFindSession();
     s.start(e.state, createPosition(p2, 4), "cat"); // active = p2's second "cat"
     expect(s.activeIndex()).toBe(2);
-    const prev = reduceEditor(e, { type: "SET_SELECTION", selection: { anchor: createPosition(p1, 0), focus: createPosition(p1, 0) } }, config);
-    const next = reduceEditor(prev, { type: "INSERT_TEXT", text: "cat " }, config); // a new match BEFORE the active one
+    const prev = reduceEditor(e, { type: "SET_SELECTION", selection: { anchor: createPosition(p1, 0), focus: createPosition(p1, 0) } });
+    const next = reduceEditor(prev, { type: "INSERT_TEXT", text: "cat " }); // a new match BEFORE the active one
     const r = s.refresh(next.state, transitionMapping(prev, next));
     expect(r.status).toEqual({ total: 4, activeIndex: 3 }); // still p2's second "cat"
     expect(s.matches()[3]).toMatchObject({ blockId: p2, start: 4 });

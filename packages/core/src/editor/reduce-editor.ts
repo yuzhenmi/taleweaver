@@ -1,7 +1,5 @@
 import { selectionContextOf, positionsEqual, resolveBlock, createSpan } from "../state";
 import { caretAfterMarkers } from "../cursor/cursor-ops";
-import { STATE_INTERNAL } from "../state/state-internal";
-import { bindAttrRegistry } from "../state/mark-attrs";
 import { getTypingAttrs } from "./typing-attrs";
 import { normalizeSelectionForAtomicMarks } from "./atomic-marks";
 import { handleApplyForeignChange } from "./foreign-change";
@@ -113,14 +111,8 @@ function withCaretAfterMarkers(editor: EditorState): EditorState {
 }
 
 /** Pure reducer: applies an action to EditorState and returns new state. */
-export function reduceEditor(
-  rawEditor: EditorState,
-  action: EditorAction,
-  config: EditorConfig,
-): EditorState {
-  // The editor's attr registry is the doc's: every state op and editor helper reads it
-  // there (O(1); also covers an EditorState not built by `createEditorStateFromState`).
-  bindAttrRegistry(rawEditor.state[STATE_INTERNAL].doc, config.attrRegistry);
+export function reduceEditor(rawEditor: EditorState, action: EditorAction): EditorState {
+  const { config } = rawEditor;
   // ENTRY-CLEAR: `lastDirtyIds` is the layout-driver's per-dispatch
   // incremental hint, written ONLY by a mutating action's `rebuildTrees`. Clear
   // it at the entry of every dispatch so a prior mutating action's dirty ids
@@ -169,7 +161,7 @@ export function reduceEditor(
       }
       break;
     case "TRANSACTION":
-      result = runTransaction(editor, action.run, config, reduceEditor);
+      result = runTransaction(editor, action.run, reduceEditor);
       break;
     case "APPLY_FOREIGN_CHANGE":
       result = handleApplyForeignChange(editor, action.dirtyIds);

@@ -36,7 +36,6 @@ function firstTextItem(editor: ReturnType<typeof createInitialEditorState>): Tex
 function selectAll(
   editor: ReturnType<typeof createInitialEditorState>,
   length: number,
-  config: EditorConfig,
 ): ReturnType<typeof createInitialEditorState> {
   const pId = (() => {
     const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
@@ -49,7 +48,6 @@ function selectAll(
       type: "SET_SELECTION",
       selection: createSpan(createPosition(pId, 0), createPosition(pId, length)),
     },
-    config,
   );
 }
 
@@ -57,10 +55,10 @@ describe("handleSetFontSize", () => {
   it("no-op on collapsed selection (no font size can target a single cursor)", () => {
     const config = makeConfig();
     const initial = createInitialEditorState(config);
-    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hello" }, config);
+    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hello" });
     const before = editor;
     // Collapsed at end.
-    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 32 }, config);
+    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 32 });
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
     expect(editor.state).toBe(before.state);
   });
@@ -68,9 +66,9 @@ describe("handleSetFontSize", () => {
   it("sets fontSize attr on every text item in the selection", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "size me" }, config);
-    editor = selectAll(editor, 7, config);
-    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 32 }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "size me" });
+    editor = selectAll(editor, 7);
+    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 32 });
 
     const item = firstTextItem(editor);
     expect(item).not.toBeNull();
@@ -82,48 +80,48 @@ describe("handleSetFontSize", () => {
   it("clears fontSize attr when given null (size removed → inherit default)", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "size me" }, config);
-    editor = selectAll(editor, 7, config);
-    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 32 }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "size me" });
+    editor = selectAll(editor, 7);
+    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 32 });
     expect(firstTextItem(editor)?.attrs.fontSize).toBe(32);
-    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: null }, config);
+    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: null });
     expect(firstTextItem(editor)?.attrs.fontSize).toBeUndefined();
   });
 
   it("clears fontSize attr when given 0 (non-positive isn't a meaningful size)", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "size me" }, config);
-    editor = selectAll(editor, 7, config);
-    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 32 }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "size me" });
+    editor = selectAll(editor, 7);
+    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 32 });
     expect(firstTextItem(editor)?.attrs.fontSize).toBe(32);
-    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 0 }, config);
+    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 0 });
     expect(firstTextItem(editor)?.attrs.fontSize).toBeUndefined();
   });
 
   it("clears fontSize attr when given a negative size (non-positive isn't meaningful)", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "size me" }, config);
-    editor = selectAll(editor, 7, config);
-    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 32 }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "size me" });
+    editor = selectAll(editor, 7);
+    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 32 });
     expect(firstTextItem(editor)?.attrs.fontSize).toBe(32);
-    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: -10 }, config);
+    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: -10 });
     expect(firstTextItem(editor)?.attrs.fontSize).toBeUndefined();
   });
 
   it("undo restores the pre-size state", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "size me" }, config);
-    editor = selectAll(editor, 7, config);
-    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 32 }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "size me" });
+    editor = selectAll(editor, 7);
+    editor = reduceEditor(editor, { type: "SET_FONT_SIZE", size: 32 });
     expect(firstTextItem(editor)?.attrs.fontSize).toBe(32);
 
-    editor = reduceEditor(editor, { type: "UNDO" }, config);
+    editor = reduceEditor(editor, { type: "UNDO" });
     expect(firstTextItem(editor)?.attrs.fontSize).toBeUndefined();
 
-    editor = reduceEditor(editor, { type: "REDO" }, config);
+    editor = reduceEditor(editor, { type: "REDO" });
     expect(firstTextItem(editor)?.attrs.fontSize).toBe(32);
   });
 });

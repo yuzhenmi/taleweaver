@@ -39,7 +39,7 @@ vi.mock("./key-handler", () => ({
 }));
 
 // Phase 0b: the controller builds its layout tree via the backend layout-driver
-// (`createLayoutDriver().rebuild(state, width, dirty)`) — `EditorState` no longer
+// (`createLayoutDriver().rebuild(editorState)`) — `EditorState` no longer
 // carries `layoutTree`. These tests inject SYNTHETIC layout trees (spy virtual
 // trees / paginated positioned boxes) to exercise the controller's slot-sizing,
 // getPage, per-section-geometry, scroll, and hit-test plumbing in isolation from
@@ -70,14 +70,10 @@ vi.mock("./layout-driver/layout-driver", async () => {
     ) => {
       const real = actual.createLayoutDriver(config);
       return {
-        rebuild: (
-          st: import("@taleweaver/core").State,
-          containerWidth: number,
-          lastDirtyIds: ReadonlySet<import("@taleweaver/core").BlockId> | null,
-        ) => {
+        rebuild: (editor: import("@taleweaver/core").EditorState) => {
           const staged = driverState.pendingLayoutTree;
           if (staged !== null) return staged;
-          return real.rebuild(st, containerWidth, lastDirtyIds);
+          return real.rebuild(editor);
         },
       };
     },
@@ -253,7 +249,6 @@ function makeSeededEditorState(): core.EditorState {
   return core.reduceEditor(
     base,
     { type: "INSERT_TEXT", text: "Hello" },
-    seedConfig,
   );
 }
 
@@ -1868,10 +1863,9 @@ describe("createEditorController", () => {
       const typed = core.reduceEditor(
         initial,
         { type: "INSERT_TEXT", text: "hello" },
-        config,
       );
       // INSERT_FOOTNOTE drops the caret into the footnote body — context B.
-      const withFn = core.reduceEditor(typed, { type: "INSERT_FOOTNOTE" }, config);
+      const withFn = core.reduceEditor(typed, { type: "INSERT_FOOTNOTE" });
       const footnoteBlockId = withFn.selection.focus.blockId;
       // Sanity: the two ends are genuinely in different selection contexts.
       expect(core.selectionContextOf(withFn.state, bodyBlockId)).not.toBe(

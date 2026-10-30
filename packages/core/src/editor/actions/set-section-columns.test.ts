@@ -57,7 +57,7 @@ function layoutOf(editor: EditorState, config: EditorConfig): LayoutBox | Virtua
 /** Build an N-paragraph doc in one O(N) PASTE (one paragraph per line). */
 function buildPasted(config: EditorConfig, n: number): EditorState {
   const text = Array.from({ length: n }, (_, i) => `para ${i}`).join("\n");
-  return reduceEditor(createInitialEditorState(config), { type: "PASTE", text }, config);
+  return reduceEditor(createInitialEditorState(config), { type: "PASTE", text });
 }
 
 /** The document root's direct children (its sections), in order. */
@@ -88,14 +88,13 @@ function nth<T>(arr: readonly T[], i: number, what = "element"): T {
 }
 
 /** Place the caret at offset 0 of `blockId`. */
-function placeCaret(editor: EditorState, blockId: BlockId, config: EditorConfig): EditorState {
+function placeCaret(editor: EditorState, blockId: BlockId): EditorState {
   return reduceEditor(
     editor,
     {
       type: "SET_SELECTION",
       selection: { anchor: createPosition(blockId, 0), focus: createPosition(blockId, 0) },
     },
-    config,
   );
 }
 
@@ -107,8 +106,8 @@ function twoSectionEditor(config: EditorConfig, n = 4): {
 } {
   let editor = buildPasted(config, n);
   const boundary = nthBlockId(editor, 1);
-  editor = placeCaret(editor, boundary, config);
-  editor = reduceEditor(editor, { type: "SECTION_BREAK" }, config);
+  editor = placeCaret(editor, boundary);
+  editor = reduceEditor(editor, { type: "SECTION_BREAK" });
   const sectionIds = rootChildIds(editor);
   if (sectionIds.length !== 2) throw new Error(`expected 2 sections, got ${sectionIds.length}`);
   const sectionA = nth(sectionIds, 0, "section");
@@ -116,7 +115,7 @@ function twoSectionEditor(config: EditorConfig, n = 4): {
   // Place the cursor inside section B's first paragraph.
   const firstParaOfB = getBlock(editor.state, sectionB)?.firstChildId;
   if (firstParaOfB == null) throw new Error("section B has no first child");
-  editor = placeCaret(editor, firstParaOfB, config);
+  editor = placeCaret(editor, firstParaOfB);
   return { editor, sectionA, sectionB };
 }
 
@@ -167,7 +166,6 @@ describe("handleSetSectionColumns — SET_SECTION_COLUMNS action", () => {
     const next = reduceEditor(
       initial,
       { type: "SET_SECTION_COLUMNS", columnCount: 2, columnGap: 24 },
-      config,
     );
 
     // A real change produces a NEW state reference.
@@ -199,7 +197,6 @@ describe("handleSetSectionColumns — SET_SECTION_COLUMNS action", () => {
     const next = reduceEditor(
       editor,
       { type: "SET_SECTION_COLUMNS", columnCount: 2, columnGap: 24 },
-      config,
     );
 
     // The (final) section carries the override (there is always a section).
@@ -219,11 +216,10 @@ describe("handleSetSectionColumns — SET_SECTION_COLUMNS action", () => {
     const twoCol = reduceEditor(
       initial,
       { type: "SET_SECTION_COLUMNS", columnCount: 2, columnGap: 24 },
-      config,
     );
     expect(sectionPlanColumnCounts(twoCol, sectionB, config).every((n) => n === 2)).toBe(true);
 
-    const oneCol = reduceEditor(twoCol, { type: "SET_SECTION_COLUMNS", columnCount: 1 }, config);
+    const oneCol = reduceEditor(twoCol, { type: "SET_SECTION_COLUMNS", columnCount: 1 });
 
     // columnCount: 1 explicitly (single column), and the plan is 1-column again.
     expect(getBlock(oneCol.state, sectionB)?.attrs.columnCount).toBe(1);
@@ -240,7 +236,6 @@ describe("handleSetSectionColumns — SET_SECTION_COLUMNS action", () => {
     const twoCol = reduceEditor(
       initial,
       { type: "SET_SECTION_COLUMNS", columnCount: 2, columnGap: 24 },
-      config,
     );
     // Re-dispatching the SAME count + gap is a no-op merge. Phase 0b: the no-op
     // identity is `state` reference equality — the editor OBJECT differs because
@@ -249,7 +244,6 @@ describe("handleSetSectionColumns — SET_SECTION_COLUMNS action", () => {
     const again = reduceEditor(
       twoCol,
       { type: "SET_SECTION_COLUMNS", columnCount: 2, columnGap: 24 },
-      config,
     );
     expect(again.state).toBe(twoCol.state);
     expect(again.selection).toBe(twoCol.selection);
@@ -263,18 +257,17 @@ describe("handleSetSectionColumns — SET_SECTION_COLUMNS action", () => {
     const twoCol = reduceEditor(
       initial,
       { type: "SET_SECTION_COLUMNS", columnCount: 2, columnGap: 24 },
-      config,
     );
     expect(getBlock(twoCol.state, sectionB)?.attrs.columnCount).toBe(2);
 
-    const undone = reduceEditor(twoCol, { type: "UNDO" }, config);
+    const undone = reduceEditor(twoCol, { type: "UNDO" });
 
     // One undo step reverts the whole column change.
     expect(getBlock(undone.state, sectionB)?.attrs.columnCount).toBeUndefined();
     expect(sectionPlanColumnCounts(undone, sectionB, config).every((n) => n === 1)).toBe(true);
 
     // Redo re-applies it.
-    const redone = reduceEditor(undone, { type: "REDO" }, config);
+    const redone = reduceEditor(undone, { type: "REDO" });
     expect(getBlock(redone.state, sectionB)?.attrs.columnCount).toBe(2);
     expect(sectionPlanColumnCounts(redone, sectionB, config).every((n) => n === 2)).toBe(true);
   });

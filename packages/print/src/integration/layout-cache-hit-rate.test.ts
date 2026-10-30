@@ -70,16 +70,14 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
           createPosition(firstId, 0),
         ),
       },
-      config,
     );
     for (let i = 0; i < 50; i++) {
       editor = reduceEditor(
         editor,
         { type: "INSERT_TEXT", text: `para${i}` },
-        config,
       );
       if (i < 49) {
-        editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+        editor = reduceEditor(editor, { type: "SPLIT_NODE" });
       }
     }
     // Move cursor back to the FIRST paragraph for a localized edit.
@@ -92,13 +90,12 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
           createPosition(firstId, 0),
         ),
       },
-      config,
     );
 
     // Reset counters, dispatch ONE keystroke, report.
     __resetLayoutCacheStatsForTest();
     __resetMetaBuildCountForTest();
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "X" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "X" });
     const stats = __getLayoutCacheStatsForTest();
     const metaBuildCount = __getMetaBuildCountForTest();
 
@@ -146,21 +143,19 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
     editor = reduceEditor(
       editor,
       { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) },
-      config,
     );
     for (let i = 0; i < 500; i++) {
-      editor = reduceEditor(editor, { type: "INSERT_TEXT", text: `p${i}` }, config);
-      if (i < 499) editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+      editor = reduceEditor(editor, { type: "INSERT_TEXT", text: `p${i}` });
+      if (i < 499) editor = reduceEditor(editor, { type: "SPLIT_NODE" });
     }
     // Cursor at first para start.
     editor = reduceEditor(
       editor,
       { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) },
-      config,
     );
 
     __resetLayoutCacheStatsForTest();
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "X" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "X" });
     const stats = __getLayoutCacheStatsForTest();
 
     (globalThis as unknown as { console: { log: (...args: unknown[]) => void } }).console.log(
@@ -195,20 +190,18 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
       editor = reduceEditor(
         editor,
         { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) },
-        config,
       );
       for (let i = 0; i < N; i++) {
-        editor = reduceEditor(editor, { type: "INSERT_TEXT", text: `p${i}` }, config);
-        if (i < N - 1) editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+        editor = reduceEditor(editor, { type: "INSERT_TEXT", text: `p${i}` });
+        if (i < N - 1) editor = reduceEditor(editor, { type: "SPLIT_NODE" });
       }
       editor = reduceEditor(
         editor,
         { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) },
-        config,
       );
       __resetLayoutCacheStatsForTest();
       const t0 = performance.now();
-      editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+      editor = reduceEditor(editor, { type: "SPLIT_NODE" });
       const ms = performance.now() - t0;
       const stats = __getLayoutCacheStatsForTest();
       (globalThis as unknown as { console: { log: (...args: unknown[]) => void } }).console.log(
@@ -234,7 +227,7 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
       let testEditor = createInitialEditorState(config);
       const lines = Array(N).fill(0).map((_, i) => `paste-line-${i}`).join("\n");
       const t0 = performance.now();
-      testEditor = reduceEditor(testEditor, { type: "PASTE", text: lines }, config);
+      testEditor = reduceEditor(testEditor, { type: "PASTE", text: lines });
       const pasteMs = performance.now() - t0;
       (globalThis as unknown as { console: { log: (...args: unknown[]) => void } }).console.log(
         `[L-PERF-E ${N}-line PASTE] ${pasteMs.toFixed(2)}ms (${(pasteMs / N).toFixed(3)}ms/line)`,
@@ -255,22 +248,20 @@ describe("layoutBlock cache-hit rate (diagnostic, L-PERF-B)", () => {
     editor = reduceEditor(
       editor,
       { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) },
-      config,
     );
     for (let i = 0; i < 500; i++) {
-      editor = reduceEditor(editor, { type: "INSERT_TEXT", text: `p${i}` }, config);
-      if (i < 499) editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+      editor = reduceEditor(editor, { type: "INSERT_TEXT", text: `p${i}` });
+      if (i < 499) editor = reduceEditor(editor, { type: "SPLIT_NODE" });
     }
     editor = reduceEditor(
       editor,
       { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) },
-      config,
     );
 
     __resetLayoutCacheStatsForTest();
     __resetMetaBuildCountForTest();
     const t0 = performance.now();
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "X" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "X" });
     const keystrokeMs = performance.now() - t0;
     const stats = __getLayoutCacheStatsForTest();
     const metaBuildCount = __getMetaBuildCountForTest();

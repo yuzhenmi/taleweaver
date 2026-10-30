@@ -84,16 +84,15 @@ const PAGE_CONFIG: PageConfig = {
 
 function createConfig(extensions?: EditorExtensions): EditorConfig {
   // Core's `EditorConfig` does not carry the print mechanics
-  // `measurer`/`hyphenator` (they moved to the backend `LayoutConfig`). `pageConfig`
-  // STAYS available on `EditorConfig` (document page-setup data, read by
-  // toggle-section-landscape) but is OPTIONAL — this demo doesn't toggle section
-  // landscape, so it omits it here and instead passes the shaper, hyphenator, AND
-  // `pageConfig` to the CONTROLLER (see `usePerfEditor`'s returned values), which
-  // owns the render→cascade→layout pipeline via the layout-driver.
+  // `measurer`/`hyphenator` (they moved to the backend `LayoutConfig`; `usePerfEditor`
+  // returns them for the controller). `pageConfig` is document page-setup data: the
+  // reducer reads it (toggle-section-landscape) and the controller paginates with it,
+  // both from the editor state's config.
   return {
     componentRegistry: createDefaultComponentRegistry(),
     attrRegistry: createDemoAttrRegistry(), // built-ins + the demo `mention` mark
     containerWidth: DEFAULT_WIDTH,
+    pageConfig: PAGE_CONFIG,
     // Inject the DOM HTML parser so handlePaste can decode text/html (rich paste).
     // Without it, core silently falls back to the plain-text path.
     htmlParser: browserHtmlParser,
@@ -124,10 +123,8 @@ export interface UsePerfEditorResult {
   containerRef: React.RefObject<HTMLDivElement | null>;
   measurer: TextShaper;
   hyphenator: Hyphenator;
-  pageConfig: PageConfig;
   focus: () => void;
   isPerfFixture: boolean;
-  config: EditorConfig;
   /** The live core `State` — read at a tab-bar switch to hand off the document. */
   getState: () => State;
 }
@@ -167,7 +164,7 @@ export function usePerfEditor(initialState?: State, extensions?: EditorExtension
 
   const [editorState, dispatch] = useReducer(
     (state: EditorState, action: EditorAction) =>
-      reduceEditor(state, action, config),
+      reduceEditor(state, action),
     initialArg,
     ({ config: cfg, fixture, seed }) =>
       seed !== null
@@ -224,14 +221,14 @@ export function usePerfEditor(initialState?: State, extensions?: EditorExtension
         // result is discarded.
         const lines = Array(lineCount).fill(0).map((_, i) => `paste-line-${i}`).join("\n");
         const t0 = performance.now();
-        reduceEditor(latestState.current, { type: "PASTE", text: lines }, config);
+        reduceEditor(latestState.current, { type: "PASTE", text: lines });
         const totalMs = performance.now() - t0;
         return { totalMs, msPerLine: totalMs / lineCount };
       },
       timeEnter() {
         // Synchronous SPLIT_NODE benchmark at the current cursor.
         const t0 = performance.now();
-        reduceEditor(latestState.current, { type: "SPLIT_NODE" }, config);
+        reduceEditor(latestState.current, { type: "SPLIT_NODE" });
         return { totalMs: performance.now() - t0 };
       },
       enablePerf() {
@@ -291,7 +288,6 @@ export function usePerfEditor(initialState?: State, extensions?: EditorExtension
           editor = reduceEditor(
             editor,
             { type: "INSERT_TEXT", text: char },
-            config,
           );
           samples.push(performance.now() - t0);
         }
@@ -332,10 +328,8 @@ export function usePerfEditor(initialState?: State, extensions?: EditorExtension
     containerRef,
     measurer: geometry.measurer,
     hyphenator: geometry.hyphenator,
-    pageConfig: PAGE_CONFIG,
     focus,
     isPerfFixture: fixtureState !== null,
-    config,
     getState,
   };
 }

@@ -20,10 +20,10 @@ import { DEFAULT_TOC_ATTRS } from "../../components/table-of-contents-attrs";
 describe("handleInsertTableOfContents — INSERT_TABLE_OF_CONTENTS (TOC 1.3)", () => {
   it("inserts a table-of-contents + trailing paragraph after the caret block, caret collapsed in the paragraph", () => {
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "above" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "above" });
     const paraId = firstChildId(editor.state) as BlockId;
 
-    const next = reduceEditor(editor, { type: "INSERT_TABLE_OF_CONTENTS" }, config);
+    const next = reduceEditor(editor, { type: "INSERT_TABLE_OF_CONTENTS" });
 
     // Document order: para → toc → new paragraph.
     const tocId = getBlock(next.state, paraId)?.nextSiblingId ?? null;
@@ -50,10 +50,10 @@ describe("handleInsertTableOfContents — INSERT_TABLE_OF_CONTENTS (TOC 1.3)", (
 
   it("propagates DEFAULT_TOC_ATTRS onto the inserted TOC block", () => {
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" });
     const paraId = firstChildId(editor.state) as BlockId;
 
-    const next = reduceEditor(editor, { type: "INSERT_TABLE_OF_CONTENTS" }, config);
+    const next = reduceEditor(editor, { type: "INSERT_TABLE_OF_CONTENTS" });
 
     const tocId = getBlock(next.state, paraId)?.nextSiblingId as BlockId;
     expect(getBlock(next.state, tocId)?.attrs).toEqual(DEFAULT_TOC_ATTRS);
@@ -61,24 +61,24 @@ describe("handleInsertTableOfContents — INSERT_TABLE_OF_CONTENTS (TOC 1.3)", (
 
   it("undo removes BOTH the TOC and the trailing paragraph in one step", () => {
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "y" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "y" });
     const paraId = firstChildId(editor.state) as BlockId;
     // Baseline: the paragraph is the doc's only/last child.
     expect(getBlock(editor.state, paraId)?.nextSiblingId).toBeNull();
 
-    const inserted = reduceEditor(editor, { type: "INSERT_TABLE_OF_CONTENTS" }, config);
+    const inserted = reduceEditor(editor, { type: "INSERT_TABLE_OF_CONTENTS" });
     expect(getBlock(inserted.state, paraId)?.nextSiblingId).not.toBeNull();
 
-    const undone = reduceEditor(inserted, { type: "UNDO" }, config);
+    const undone = reduceEditor(inserted, { type: "UNDO" });
     // Back to the paragraph being the last child — both inserted blocks gone in one undo.
     expect(getBlock(undone.state, paraId)?.nextSiblingId).toBeNull();
   });
 
   it("Backspace at the start of the trailing paragraph deletes the TOC as a unit", () => {
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "above" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "above" });
     const paraId = firstChildId(editor.state) as BlockId;
-    editor = reduceEditor(editor, { type: "INSERT_TABLE_OF_CONTENTS" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TABLE_OF_CONTENTS" });
     const tocId = getBlock(editor.state, paraId)?.nextSiblingId as BlockId;
     const trailingId = getBlock(editor.state, tocId)?.nextSiblingId as BlockId;
     expect(getBlock(editor.state, tocId)?.type).toBe("table-of-contents");
@@ -86,7 +86,7 @@ describe("handleInsertTableOfContents — INSERT_TABLE_OF_CONTENTS (TOC 1.3)", (
     expect(editor.selection.focus.blockId).toBe(trailingId);
     expect(editor.selection.focus.offset).toBe(0);
 
-    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
+    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
     // TOC removed as a unit; the paragraph chain closes up around it.
     expect(getBlock(next.state, tocId)).toBeNull();

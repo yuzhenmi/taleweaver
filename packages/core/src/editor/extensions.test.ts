@@ -45,14 +45,14 @@ function makeConfig(extra?: Partial<EditorConfig>): EditorConfig {
 
 function run(editor: EditorState, config: EditorConfig, ...actions: EditorAction[]): EditorState {
   let s = editor;
-  for (const a of actions) s = reduceEditor(s, a, config);
+  for (const a of actions) s = reduceEditor({ ...s, config: config }, a);
   return s;
 }
 
 /** Type `text` one user keystroke at a time. */
-function type(editor: EditorState, config: EditorConfig, text: string): EditorState {
+function type(editor: EditorState, text: string): EditorState {
   let s = editor;
-  for (const ch of text) s = reduceEditor(s, { type: "INSERT_TEXT", text: ch, userInput: true }, config);
+  for (const ch of text) s = reduceEditor(s, { type: "INSERT_TEXT", text: ch, userInput: true });
   return s;
 }
 
@@ -109,7 +109,7 @@ describe("TRANSACTION", () => {
 describe("input rules", () => {
   it("user-typed '--' becomes an em dash; one Undo restores the typed text", () => {
     const config = makeConfig();
-    let s = type(createInitialEditorState(config), config, "a--");
+    let s = type(createInitialEditorState(config), "a--");
     expect(textOf(s)).toBe("a—");
     expect(s.selection.focus.offset).toBe(2);
     s = run(s, config, { type: "UNDO" });
@@ -119,13 +119,13 @@ describe("input rules", () => {
 
   it("a function rule runs its actions; programmatic inserts never fire rules", () => {
     const config = makeConfig();
-    expect(textOf(type(createInitialEditorState(config), config, "x(c)"))).toBe("x©");
+    expect(textOf(type(createInitialEditorState(config), "x(c)"))).toBe("x©");
     expect(textOf(run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "a--" }))).toBe("a--");
   });
 
   it("an autoformat keeps the matched text's formatting", () => {
     const config = makeConfig();
-    const s = type(run(createInitialEditorState(config), config, { type: "TOGGLE_STYLE", style: "bold" }), config, "a--");
+    const s = type(run(createInitialEditorState(config), config, { type: "TOGGLE_STYLE", style: "bold" }), "a--");
     const items = getBlock(s.state, s.selection.focus.blockId)?.inlineContent?.items ?? [];
     expect(items.map((i) => (i.kind === "text" ? [i.text, i.attrs] : null))).toEqual([["a—", { bold: true }]]);
   });
@@ -134,19 +134,19 @@ describe("input rules", () => {
 describe("triggers", () => {
   it("typing @ starts a trigger; the query follows typing; space / Escape / caret-away end it", () => {
     const config = makeConfig();
-    let s = type(createInitialEditorState(config), config, "hi @");
+    let s = type(createInitialEditorState(config), "hi @");
     const id = s.selection.focus.blockId;
     expect(s.activeTrigger).toEqual({ id: "mention", from: createPosition(id, 3), to: createPosition(id, 4), query: "" });
     const started = s;
-    s = type(s, config, "an");
+    s = type(s, "an");
     expect(s.activeTrigger?.query).toBe("an");
     expect(triggerChange(started, s)).toEqual({ type: "update", trigger: s.activeTrigger });
     expect(triggerChange(createInitialEditorState(config), started)?.type).toBe("start");
-    expect(type(s, config, " ").activeTrigger).toBeUndefined();
+    expect(type(s, " ").activeTrigger).toBeUndefined();
     const esc = run(s, config, { type: "ESCAPE" });
     expect(esc.activeTrigger).toBeUndefined();
     expect(triggerChange(s, esc)?.type).toBe("exit");
-    expect(type(esc, config, "n").activeTrigger).toBeUndefined(); // dismissed: not restarted by more typing
+    expect(type(esc, "n").activeTrigger).toBeUndefined(); // dismissed: not restarted by more typing
     expect(run(s, config, caret(id, 1)).activeTrigger).toBeUndefined();
     expect(run(s, config, { type: "DELETE_BACKWARD" }, { type: "DELETE_BACKWARD" }).activeTrigger?.query).toBe("");
     expect(run(s, config, { type: "DELETE_BACKWARD" }, { type: "DELETE_BACKWARD" }, { type: "DELETE_BACKWARD" }).activeTrigger).toBeUndefined();
@@ -154,15 +154,15 @@ describe("triggers", () => {
 
   it("only at a word start; multi-char triggers; programmatic text never starts one", () => {
     const config = makeConfig();
-    expect(type(createInitialEditorState(config), config, "a@").activeTrigger).toBeUndefined();
-    const link = type(createInitialEditorState(config), config, "see [[my page");
+    expect(type(createInitialEditorState(config), "a@").activeTrigger).toBeUndefined();
+    const link = type(createInitialEditorState(config), "see [[my page");
     expect(link.activeTrigger).toMatchObject({ id: "link", query: "my page" });
     expect(run(createInitialEditorState(config), config, { type: "INSERT_TEXT", text: "@" }).activeTrigger).toBeUndefined();
   });
 
   it("the trigger start is mapped through edits elsewhere in the block", () => {
     const config = makeConfig();
-    let s = type(createInitialEditorState(config), config, "x @b");
+    let s = type(createInitialEditorState(config), "x @b");
     const id = s.selection.focus.blockId;
     s = run(s, config, {
       type: "TRANSACTION",
@@ -177,7 +177,7 @@ describe("triggers", () => {
 
   it("replaceRangeWithMarkedText swaps trigger + query for a mention in one undo step", () => {
     const config = makeConfig();
-    let s = type(createInitialEditorState(config), config, "hi @an");
+    let s = type(createInitialEditorState(config), "hi @an");
     const t = s.activeTrigger;
     if (t === undefined) throw new Error("no trigger");
     s = run(s, config, replaceRangeWithMarkedText(t, "Anna", { key: "mention", value: { ref: "p1" } }, " "));
@@ -264,20 +264,20 @@ describe("TRANSACTION rollback", () => {
 describe("review round 1", () => {
   it("a picked mention whose label spells the trigger never re-activates it (allowSpaces + suffix)", () => {
     const config = makeConfig({ extensions: { triggers: [{ id: "mention", text: "@", allowSpaces: true }] } });
-    let s = type(createInitialEditorState(config), config, "hi @an");
+    let s = type(createInitialEditorState(config), "hi @an");
     const t = s.activeTrigger;
     if (t === undefined) throw new Error("no trigger");
     s = run(s, config, replaceRangeWithMarkedText(t, "@Anna Lee", { key: "mention", value: { ref: "p1" } }, " "));
     expect(textOf(s)).toBe("hi @Anna Lee ");
     expect(s.activeTrigger).toBeUndefined();
     // Typing on: still no trigger over the mention (atomic text never re-validates).
-    s = type(s, config, "x");
+    s = type(s, "x");
     expect(s.activeTrigger).toBeUndefined();
   });
 
   it("a trigger never re-validates over text carrying an atomic mark (even without the explicit end)", () => {
     const config = makeConfig({ extensions: { triggers: [{ id: "mention", text: "@", allowSpaces: true }] } });
-    let s = type(createInitialEditorState(config), config, "@an");
+    let s = type(createInitialEditorState(config), "@an");
     const id = s.selection.focus.blockId;
     s = run(s, config, {
       type: "TRANSACTION",
@@ -294,16 +294,17 @@ describe("review round 1", () => {
 
   it("startOfWord accepts opening punctuation before the trigger", () => {
     const config = makeConfig();
-    expect(type(createInitialEditorState(config), config, "(@a").activeTrigger?.query).toBe("a");
-    expect(type(createInitialEditorState(config), config, "“@a").activeTrigger?.query).toBe("a");
-    expect(type(createInitialEditorState(config), config, "x@a").activeTrigger).toBeUndefined();
+    expect(type(createInitialEditorState(config), "(@a").activeTrigger?.query).toBe("a");
+    expect(type(createInitialEditorState(config), "“@a").activeTrigger?.query).toBe("a");
+    expect(type(createInitialEditorState(config), "x@a").activeTrigger).toBeUndefined();
   });
 
-  it("non-Latin layouts match the physical key; a malformed keymap fails when compiled", () => {
+  it("non-Latin layouts match the physical key; a malformed keymap fails when compiled — at editor creation", () => {
     const e = { key: "и", code: "KeyB", ctrlKey: true, metaKey: false, altKey: false, shiftKey: false };
     expect(matchKeyBinding({ "Mod-b": null }, e, "ctrl")?.name).toBe("Mod-b");
     expect(matchKeyBinding({ "Mod-1": null }, { ...e, key: "&", code: "Digit1" }, "ctrl")).toBeUndefined(); // ASCII key wins
     expect(() => compileKeymap({ "Hyper-x": null })).toThrow(/unknown modifier/);
+    expect(() => createInitialEditorState(makeConfig({ extensions: { keymap: { "Hyper-x": null } } }))).toThrow(/unknown modifier/);
     const km = { "Mod-b": null };
     expect(compileKeymap(km)).toBe(compileKeymap(km)); // parsed once per keymap object
   });

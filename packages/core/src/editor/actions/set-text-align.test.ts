@@ -21,8 +21,8 @@ import {
   firstChildId,
   createPosition,
 } from "./test-helpers";
-import type { EditorState } from "../editor-state";
-import { getBlock, createHistory } from "../../state";
+import { createEditorStateFromState, type EditorState } from "../editor-state";
+import { getBlock } from "../../state";
 import type { State, BlockId } from "../../state";
 import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
 import { render } from "../../render/render";
@@ -72,7 +72,7 @@ function firstLineX(tree: LayoutBox, blockId: BlockId): number {
 describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
   it("collapsed selection: aligns the focus block + centers the laid-out line", () => {
     const initial = createInitialEditorState(config);
-    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" }, config);
+    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
     const paraId = firstChildId(editor.state) as BlockId;
 
     // Baseline: default alignment (start) → line begins at x === 0.
@@ -80,7 +80,7 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
     const startX = firstLineX(layoutOf(editor.state), paraId);
     expect(startX).toBe(0);
 
-    const next = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" }, config);
+    const next = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" });
 
     // Attr set on the focus block.
     expect(getBlock(next.state, paraId)?.attrs.textAlign).toBe("center");
@@ -96,9 +96,9 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
 
   it("preserves the selection (alignment does not move the caret)", () => {
     const initial = createInitialEditorState(config);
-    const editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" }, config);
+    const editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
 
-    const next = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" }, config);
+    const next = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" });
 
     expect(next.selection).toEqual(editor.selection);
   });
@@ -144,20 +144,12 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
         }),
       ],
     });
-    const editor: EditorState = {
-      state: initialState,
-      selection: {
+    const editor: EditorState = createEditorStateFromState(initialState, {
         anchor: createPosition("p0" as BlockId, 0),
         focus: createPosition("p2" as BlockId, 2),
-      },
-      history: createHistory(initialState),
-      lastDirtyIds: null,
-      lastChange: null,
-      containerWidth: config.containerWidth,
-      targetX: null,
-    };
+      }, config);
 
-    const next = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" }, config);
+    const next = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" });
 
     // Every LEAF in the span is aligned.
     expect(getBlock(next.state, "p0" as BlockId)?.attrs.textAlign).toBe("center");
@@ -177,26 +169,26 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
 
   it("undo restores the prior alignment", () => {
     const initial = createInitialEditorState(config);
-    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" }, config);
+    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
     const paraId = firstChildId(editor.state) as BlockId;
 
     // First set to "end" so the prior alignment is a concrete value.
-    editor = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "end" }, config);
+    editor = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "end" });
     expect(getBlock(editor.state, paraId)?.attrs.textAlign).toBe("end");
 
-    const centered = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" }, config);
+    const centered = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" });
     expect(getBlock(centered.state, paraId)?.attrs.textAlign).toBe("center");
 
-    const undone = reduceEditor(centered, { type: "UNDO" }, config);
+    const undone = reduceEditor(centered, { type: "UNDO" });
     expect(getBlock(undone.state, paraId)?.attrs.textAlign).toBe("end");
   });
 
   it("no-op: setting the alignment a block already has returns the same editor", () => {
     const initial = createInitialEditorState(config);
-    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" }, config);
-    editor = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" }, config);
+    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
+    editor = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" });
 
-    const again = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" }, config);
+    const again = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" });
 
     // No commit, no state change (the identity-no-op contract): the `state` is the SAME
     // reference. Phase 0b: the reducer entry-clears `lastDirtyIds` to null at the
@@ -216,23 +208,23 @@ describe("handleSetTextAlign — SET_TEXT_ALIGN action", () => {
     // regression where some path could ever invoke commit on a no-op and
     // surface a hard error to end users.
     const initial = createInitialEditorState(config);
-    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" }, config);
-    editor = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" }, config);
+    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
+    editor = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" });
 
     expect(() =>
-      reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" }, config),
+      reduceEditor(editor, { type: "SET_TEXT_ALIGN", align: "center" }),
     ).not.toThrow();
   });
 
   it("all four keywords dispatch and set the attr", () => {
     const initial = createInitialEditorState(config);
-    const base = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" }, config);
+    const base = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
     const paraId = firstChildId(base.state) as BlockId;
 
     for (const align of ["start", "center", "end", "justify"] as const) {
       // Start from a different alignment each time so the merge is never a no-op.
-      let editor = reduceEditor(base, { type: "SET_TEXT_ALIGN", align: align === "start" ? "center" : "start" }, config);
-      editor = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align }, config);
+      let editor = reduceEditor(base, { type: "SET_TEXT_ALIGN", align: align === "start" ? "center" : "start" });
+      editor = reduceEditor(editor, { type: "SET_TEXT_ALIGN", align });
       expect(getBlock(editor.state, paraId)?.attrs.textAlign).toBe(align);
     }
   });

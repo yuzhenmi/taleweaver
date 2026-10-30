@@ -53,7 +53,7 @@ function textOf(editor: EditorState, id: BlockId): string {
 
 /** User B (the one under test) and peer A, over two Y.Docs synced both ways. */
 function peers(text: string) {
-  let a = reduceEditor(createInitialEditorState(config), { type: "INSERT_TEXT", text }, config);
+  let a = reduceEditor(createInitialEditorState(config), { type: "INSERT_TEXT", text });
   const docA = getYDoc(a.state);
   const docB = new Y.Doc();
   Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
@@ -69,19 +69,19 @@ function peers(text: string) {
     throw new Error("unexpected legacy storage");
   };
   subscribeRemoteChanges(b.state, (dirtyIds) => {
-    b = reduceEditor(b, { type: "APPLY_FOREIGN_CHANGE", dirtyIds }, config);
+    b = reduceEditor(b, { type: "APPLY_FOREIGN_CHANGE", dirtyIds });
   }, noLegacy);
   subscribeRemoteChanges(a.state, (dirtyIds) => {
-    a = reduceEditor(a, { type: "APPLY_FOREIGN_CHANGE", dirtyIds }, config);
+    a = reduceEditor(a, { type: "APPLY_FOREIGN_CHANGE", dirtyIds });
   }, noLegacy);
   const id = a.selection.focus.blockId;
   return {
     id,
     a: (...actions: EditorAction[]) => {
-      for (const action of actions) a = reduceEditor(a, action, config);
+      for (const action of actions) a = reduceEditor(a, action);
     },
     b: (...actions: EditorAction[]) => {
-      for (const action of actions) b = reduceEditor(b, action, config);
+      for (const action of actions) b = reduceEditor(b, action);
     },
     get bEditor() {
       return b;

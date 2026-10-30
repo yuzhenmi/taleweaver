@@ -310,9 +310,9 @@ describe("print decorations — mapping through edits", () => {
     controller.setDecorations([inline("e1", p, 6, 11, { backgroundColor: BAND })]);
     const before = fills(ctxOf(container), BAND)[0]?.x ?? NaN;
 
-    const at0 = core.reduceEditor(editor, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 0), core.createPosition(p, 0)) }, cfg);
+    const at0 = core.reduceEditor(editor, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 0), core.createPosition(p, 0)) });
     controller.update(at0);
-    const typed = core.reduceEditor(at0, { type: "INSERT_TEXT", text: "XX" }, cfg);
+    const typed = core.reduceEditor(at0, { type: "INSERT_TEXT", text: "XX" });
     ctxOf(container)._ops.length = 0;
     controller.update(typed);
     const d = controller.decorations.decorations[0];
@@ -321,9 +321,9 @@ describe("print decorations — mapping through edits", () => {
     expect(shifted?.x).toBe(before + 16);
     expect(shifted?.w).toBe(40);
 
-    const sel = core.reduceEditor(typed, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 7), core.createPosition(p, 14)) }, cfg);
+    const sel = core.reduceEditor(typed, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 7), core.createPosition(p, 14)) });
     controller.update(sel);
-    const deleted = core.reduceEditor(sel, { type: "DELETE_BACKWARD" }, cfg);
+    const deleted = core.reduceEditor(sel, { type: "DELETE_BACKWARD" });
     ctxOf(container)._ops.length = 0;
     controller.update(deleted);
     expect(controller.decorations.decorations).toHaveLength(0);
@@ -451,9 +451,9 @@ describe("print decorations — widgets", () => {
     expect(el.style.display).toBe("");
 
     // Typing before the anchor moves the overlay with the text.
-    const before = core.reduceEditor(editor, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(b, 0), core.createPosition(b, 0)) }, cfg);
+    const before = core.reduceEditor(editor, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(b, 0), core.createPosition(b, 0)) });
     controller.update(before);
-    const typed = core.reduceEditor(before, { type: "INSERT_TEXT", text: "Z" }, cfg);
+    const typed = core.reduceEditor(before, { type: "INSERT_TEXT", text: "Z" });
     controller.update(typed);
     expect(el.isConnected).toBe(true); // same look → element reused
     expect(el.style.left).toBe(`${(controller.getCaretRect(core.createPosition(b, 3))?.left ?? NaN)}px`);
@@ -463,7 +463,7 @@ describe("print decorations — widgets", () => {
     expect(events.map((e) => [e.type, e.decoration.id])).toEqual([["enter", "ghost"]]);
 
     // Copy over the anchor never includes widget text.
-    const all = core.reduceEditor(typed, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(b, 0), core.createPosition(b, 6)) }, cfg);
+    const all = core.reduceEditor(typed, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(b, 0), core.createPosition(b, 6)) });
     controller.update(all);
     const setData = vi.fn();
     const copy = new Event("copy", { bubbles: true, cancelable: true });
@@ -723,9 +723,9 @@ describe("print decorations — pointer sync", () => {
     controller.setDecorations([deco]);
     page1.dispatchEvent(new MouseEvent("mousemove", at));
     expect(events.map((e) => e.type)).toEqual(["enter"]);
-    const at0 = core.reduceEditor(editor, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(b, 0), core.createPosition(b, 0)) }, cfg);
+    const at0 = core.reduceEditor(editor, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(b, 0), core.createPosition(b, 0)) });
     controller.update(at0);
-    controller.update(core.reduceEditor(at0, { type: "INSERT_TEXT", text: "zzzz" }, cfg));
+    controller.update(core.reduceEditor(at0, { type: "INSERT_TEXT", text: "zzzz" }));
     expect(events.map((e) => e.type)).toEqual(["enter", "leave"]);
     controller.destroy();
   });
@@ -743,10 +743,10 @@ describe("print decorations — find highlights through edits", () => {
     controller.update(editor);
     controller.setFindHighlights(core.findMatches(editor.state, "foo"), 0);
     const before = fills(ctxOf(container), core.FIND_HIGHLIGHT_FILL).at(-1)?.x ?? NaN;
-    const at0 = core.reduceEditor(editor, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 0), core.createPosition(p, 0)) }, cfg);
+    const at0 = core.reduceEditor(editor, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 0), core.createPosition(p, 0)) });
     controller.update(at0);
     ctxOf(container)._ops.length = 0;
-    controller.update(core.reduceEditor(at0, { type: "INSERT_TEXT", text: "XY" }, cfg));
+    controller.update(core.reduceEditor(at0, { type: "INSERT_TEXT", text: "XY" }));
     expect(fills(ctxOf(container), core.FIND_HIGHLIGHT_FILL).at(-1)?.x).toBe(before + 16);
     // No session: navigation has nothing to act on.
     expect(controller.findStatus()).toEqual({ total: 0, activeIndex: -1 });
@@ -760,10 +760,10 @@ describe("print decorations — find highlights through edits", () => {
     if (p === undefined) throw new Error("setup");
     const dispatch = vi.fn();
     const { controller } = mount(undefined, undefined, dispatch);
-    const at0 = core.reduceEditor(editor, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 0), core.createPosition(p, 0)) }, cfg);
+    const at0 = core.reduceEditor(editor, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 0), core.createPosition(p, 0)) });
     controller.update(at0);
     expect(controller.findStart("foo")).toEqual({ total: 2, activeIndex: 0 });
-    controller.update(core.reduceEditor(at0, { type: "INSERT_TEXT", text: "XY" }, cfg));
+    controller.update(core.reduceEditor(at0, { type: "INSERT_TEXT", text: "XY" }));
     expect(controller.findNext()).toEqual({ total: 2, activeIndex: 1 });
     controller.replaceActive("baz");
     const action = dispatch.mock.calls.at(-1)?.[0] as core.EditorAction | undefined;
@@ -813,8 +813,8 @@ describe("print decorations — geometry across pages and regions", () => {
   function withRegion(kind: "INSERT_HEADER" | "INSERT_FOOTER" | "INSERT_FOOTNOTE", body: readonly string[], text: string): { editor: core.EditorState; region: core.BlockId; cfg: core.EditorConfig } {
     const cfg = { ...config(kind === "INSERT_FOOTNOTE" ? TALL : SLOTTED), containerWidth: 320 };
     let { editor } = seeded(body, cfg);
-    editor = core.reduceEditor(editor, { type: kind }, cfg);
-    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text }, cfg);
+    editor = core.reduceEditor(editor, { type: kind });
+    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text });
     return { editor, region: editor.selection.focus.blockId, cfg };
   }
 
@@ -854,8 +854,8 @@ describe("print decorations — geometry across pages and regions", () => {
   it("block decorations on a table, a cell, and the paragraph inside it paint table < cell < paragraph < text", () => {
     const cfg = config(SLOTTED);
     let { editor } = seeded(["x"], cfg);
-    editor = core.reduceEditor(editor, { type: "INSERT_TABLE", rows: 1, cols: 1 }, cfg);
-    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "cell" }, cfg);
+    editor = core.reduceEditor(editor, { type: "INSERT_TABLE", rows: 1, cols: 1 });
+    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "cell" });
     const para = editor.selection.focus.blockId;
     const cell = core.getBlock(editor.state, para)?.parentId ?? null;
     let table: core.BlockId | null = cell;
@@ -1035,9 +1035,9 @@ describe("print decorations — review round 2", () => {
     const { editor: e0, ids } = seeded(["ab"], cfg);
     const p = ids[0];
     if (p === undefined) throw new Error("setup");
-    let editor = core.reduceEditor(e0, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 2), core.createPosition(p, 2)) }, cfg);
-    editor = core.reduceEditor(editor, { type: "INSERT_TAB" }, cfg);
-    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "cd" }, cfg);
+    let editor = core.reduceEditor(e0, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 2), core.createPosition(p, 2)) });
+    editor = core.reduceEditor(editor, { type: "INSERT_TAB" });
+    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "cd" });
     const { container, controller } = mount();
     controller.update(editor);
     ctxOf(container)._ops.length = 0;
@@ -1091,9 +1091,9 @@ describe("print decorations — async host (basedOn)", () => {
     controller.update(editor);
     const old = editor.state;
     const decos = [inline("m", p, 6, 11, { backgroundColor: BAND })]; // "world" in `old`
-    const at0 = core.reduceEditor(editor, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 0), core.createPosition(p, 0)) }, cfg);
+    const at0 = core.reduceEditor(editor, { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(p, 0), core.createPosition(p, 0)) });
     controller.update(at0);
-    const typed = core.reduceEditor(at0, { type: "INSERT_TEXT", text: "XY" }, cfg);
+    const typed = core.reduceEditor(at0, { type: "INSERT_TEXT", text: "XY" });
     controller.update(typed);
     ctxOf(container)._ops.length = 0;
     controller.setDecorations(decos, old);

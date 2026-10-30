@@ -54,11 +54,11 @@ describe("FN-8 — editor rebuild skips the anchor walk for footnote-free docs",
     // list, so the walk must be skipped → the prev cycle's cached anchor array
     // is reused BY REFERENCE.
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "abc" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "abc" });
     const prevState = editor.state;
     const prev = renderFull(prevState);
 
-    const after = reduceEditor(editor, { type: "INSERT_TEXT", text: "d" }, config);
+    const after = reduceEditor(editor, { type: "INSERT_TEXT", text: "d" });
     const rendered = renderIncrementalCycle(
       after.state,
       prev,
@@ -70,9 +70,9 @@ describe("FN-8 — editor rebuild skips the anchor walk for footnote-free docs",
 
   it("RE-WALKS (fresh anchor array) when an edit changes the anchor set", () => {
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "abc" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "abc" });
     const hostId = editor.selection.focus.blockId;
-    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
     // INSERT_FOOTNOTE drops the caret into the footnote body; move it back into
     // the main host paragraph (after "abc" + anchor → offset 4) so the next
     // INSERT_FOOTNOTE lands in body text and genuinely ADDS a second anchor —
@@ -86,12 +86,11 @@ describe("FN-8 — editor rebuild skips the anchor walk for footnote-free docs",
           focus: { blockId: hostId, offset: 4 },
         },
       },
-      config,
     );
     const prevState = editor.state;
     const prev = renderFull(prevState);
 
-    const after = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
+    const after = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
     const rendered = renderIncrementalCycle(
       after.state,
       prev,
@@ -107,13 +106,13 @@ describe("FN-8 — editor rebuild skips the anchor walk for footnote-free docs",
     // the per-cycle O(N_blocks) walk is skipped even though the doc has
     // footnotes.
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "abc" }, config);
-    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "abc" });
+    editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
     // Caret is inside the footnote body after INSERT_FOOTNOTE.
     const prevState = editor.state;
     const prev = renderFull(prevState);
 
-    const after = reduceEditor(editor, { type: "INSERT_TEXT", text: "d" }, config);
+    const after = reduceEditor(editor, { type: "INSERT_TEXT", text: "d" });
     const rendered = renderIncrementalCycle(
       after.state,
       prev,

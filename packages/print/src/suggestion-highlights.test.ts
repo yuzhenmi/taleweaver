@@ -103,7 +103,7 @@ function paraLength(editor: core.EditorState, paraId: core.BlockId): number {
  */
 function seededSuggestion(text: string): { editor: core.EditorState; suggestionId: core.SuggestionId } {
   let editor = core.createInitialEditorState(suggestingConfig);
-  editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text }, suggestingConfig);
+  editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text });
   const suggestions = core.getSuggestions(editor.state);
   const live = suggestions[0];
   if (live === undefined) throw new Error("no live suggestion minted");
@@ -180,23 +180,21 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
     // single tracked change → two distinct ids, each with its own live range.
     const directConfig = { ...suggestingConfig, suggestingAuthor: null };
     let editor = core.createInitialEditorState(suggestingConfig);
-    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "hello" }, suggestingConfig);
+    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "hello" });
     const paraId = bodyParaId(editor);
     const sep = paraLength(editor, paraId);
     editor = core.reduceEditor(
-      editor,
+      { ...editor, config: directConfig },
       { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(paraId, sep), core.createPosition(paraId, sep)) },
-      directConfig,
     );
     // Direct (untracked) separator splits the two suggestion runs.
-    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: " sep " }, directConfig);
+    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: " sep " });
     const end = paraLength(editor, paraId);
     editor = core.reduceEditor(
-      editor,
+      { ...editor, config: suggestingConfig },
       { type: "SET_SELECTION", selection: core.createSpan(core.createPosition(paraId, end), core.createPosition(paraId, end)) },
-      suggestingConfig,
     );
-    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "world" }, suggestingConfig);
+    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "world" });
     const suggestions = core.getSuggestions(editor.state);
     expect(suggestions.length).toBeGreaterThanOrEqual(2);
     const [s1, s2] = suggestions;
@@ -221,14 +219,14 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
     const base = { ...suggestingConfig, suggestingAuthor: null };
     const alice = { ...suggestingConfig, suggestingAuthor: "alice", now: () => 1 };
     const bob = { ...suggestingConfig, suggestingAuthor: "bob", now: () => 2 };
-    let editor = core.reduceEditor(core.createInitialEditorState(base), { type: "INSERT_TEXT", text: "abcdefgh" }, base);
+    let editor = core.reduceEditor(core.createInitialEditorState(base), { type: "INSERT_TEXT", text: "abcdefgh" });
     const paraId = bodyParaId(editor);
     const select = (a: number, b: number): core.EditorAction => ({
       type: "SET_SELECTION",
       selection: core.createSpan(core.createPosition(paraId, a), core.createPosition(paraId, b)),
     });
-    editor = core.reduceEditor(core.reduceEditor(editor, select(0, 4), alice), { type: "TOGGLE_STYLE", style: "bold" }, alice);
-    editor = core.reduceEditor(core.reduceEditor(editor, select(2, 6), bob), { type: "TOGGLE_STYLE", style: "italic" }, bob);
+    editor = core.reduceEditor(core.reduceEditor({ ...editor, config: alice }, select(0, 4)), { type: "TOGGLE_STYLE", style: "bold" });
+    editor = core.reduceEditor(core.reduceEditor({ ...editor, config: bob }, select(2, 6)), { type: "TOGGLE_STYLE", style: "italic" });
     const ids = core.getSuggestions(editor.state).map((x) => x.id);
     const [a, b] = ids;
     if (a === undefined || b === undefined) throw new Error("expected two suggestions");
@@ -237,10 +235,10 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
     let current = editor;
     let controller: ReturnType<typeof createEditorController> | null = null;
     const dispatch = (action: core.EditorAction): void => {
-      current = core.reduceEditor(current, action, base);
+      current = core.reduceEditor({ ...current, config: base }, action);
       controller?.update(current);
     };
-    controller = createEditorController(container, { measurer, dispatch, config: base });
+    controller = createEditorController(container, { measurer, dispatch });
     controller.update(current);
     const glyphLook = (ch: string): [boolean, boolean, string] => {
       const op = [...(lastCtx()?._ops ?? [])].reverse().find((o) => o.kind === "fillText" && o.text.includes(ch));
@@ -273,13 +271,13 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
 
   it("an embed-only formatting suggestion (a tab) is banded", () => {
     const base = { ...suggestingConfig, suggestingAuthor: null };
-    let editor = core.reduceEditor(core.createInitialEditorState(base), { type: "INSERT_TEXT", text: "ab" }, base);
-    editor = core.reduceEditor(editor, { type: "INSERT_TAB" }, base);
-    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "cd" }, base);
+    let editor = core.reduceEditor(core.createInitialEditorState(base), { type: "INSERT_TEXT", text: "ab" });
+    editor = core.reduceEditor(editor, { type: "INSERT_TAB" });
+    editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text: "cd" });
     const paraId = bodyParaId(editor);
     const tabOnly = core.createSpan(core.createPosition(paraId, 2), core.createPosition(paraId, 3));
-    editor = core.reduceEditor(editor, { type: "SET_SELECTION", selection: tabOnly }, suggestingConfig);
-    editor = core.reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" }, suggestingConfig);
+    editor = core.reduceEditor({ ...editor, config: suggestingConfig }, { type: "SET_SELECTION", selection: tabOnly });
+    editor = core.reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
     const [only] = core.getSuggestions(editor.state);
     if (only === undefined) throw new Error("expected a suggestion");
     expect(only.range?.start.offset).toBe(2);
@@ -300,7 +298,7 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
     // the range index omits the id → resolveSuggestionRange returns null.
     const paraId = bodyParaId(editor);
     let e = core.reduceEditor(
-      editor,
+      { ...editor, config: { ...suggestingConfig, suggestingAuthor: null } },
       {
         type: "SET_SELECTION",
         selection: core.createSpan(
@@ -308,10 +306,8 @@ describe("controller setSuggestionHighlights / clearSuggestionHighlights (change
           core.createPosition(paraId, paraLength(editor, paraId)),
         ),
       },
-      // Direct-mode delete (no suggestingAuthor) so the run is hard-removed.
-      { ...suggestingConfig, suggestingAuthor: null },
     );
-    e = core.reduceEditor(e, { type: "DELETE_FORWARD" }, { ...suggestingConfig, suggestingAuthor: null });
+    e = core.reduceEditor(e, { type: "DELETE_FORWARD" });
     expect(core.resolveSuggestionRange(e.state, suggestionId)).toBeNull();
 
     const { container, lastCtx } = mount();

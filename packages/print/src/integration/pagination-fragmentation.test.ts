@@ -259,9 +259,8 @@ describe("virtualized layout — EditorState.layoutTree is virtual-root after a 
     const editor1 = reduceEditor(
       editor0,
       { type: "SET_SELECTION", selection: createSpan(createPosition(firstId, 0), createPosition(firstId, 0)) },
-      config,
     );
-    const editor2 = reduceEditor(editor1, { type: "INSERT_TEXT", text: "hello" }, config);
+    const editor2 = reduceEditor(editor1, { type: "INSERT_TEXT", text: "hello" });
     // A paginated edit (incremental path) still yields a virtual-root tree.
     const tree2 = layoutOf(editor2, config);
     expect(tree2.type).toBe("virtual-root");

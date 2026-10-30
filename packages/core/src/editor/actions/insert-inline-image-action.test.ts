@@ -16,12 +16,11 @@
 
 import { describe, it, expect } from "vitest";
 import { reduceEditor } from "../reduce-editor";
-import { type EditorState } from "../editor-state";
+import { type EditorState, createEditorStateFromState } from "../editor-state";
 import { type EditorConfig } from "../editor-config";
 import { createDefaultComponentRegistry } from "../../components/component-registry";
 import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
 import {
-  createHistory,
   createPosition,
   createSpan,
   getBlock,
@@ -60,15 +59,7 @@ function buildStateWithBody(): State {
  */
 function buildEditor(state: State, caret: { blockId: BlockId; offset: number }): EditorState {
   const cursor = createPosition(caret.blockId, caret.offset);
-  return {
-    state,
-    selection: createSpan(cursor, cursor),
-    history: createHistory(state),
-    lastDirtyIds: null,
-    lastChange: null,
-    containerWidth: config.containerWidth,
-    targetX: null,
-  };
+  return createEditorStateFromState(state, createSpan(cursor, cursor), config);
 }
 
 function inlineImageItemsOf(items: readonly InlineItem[] | undefined): EmbedItem[] {
@@ -86,7 +77,6 @@ describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
     const out = reduceEditor(
       editor,
       { type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt },
-      config,
     );
 
     // (a) an inline-image embed carrying the supplied properties is inserted at the caret offset
@@ -118,12 +108,11 @@ describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
     const inserted = reduceEditor(
       editor,
       { type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt },
-      config,
     );
     expect(bodyInlineImages(inserted.state, BODY_P).length).toBe(1);
     // caret is just after the embed (offset 2) — one DELETE_BACKWARD must remove the
     // entire embed in a single step, leaving the text "ab" intact.
-    const deleted = reduceEditor(inserted, { type: "DELETE_BACKWARD" }, config);
+    const deleted = reduceEditor(inserted, { type: "DELETE_BACKWARD" });
     expect(bodyInlineImages(deleted.state, BODY_P).length).toBe(0);
     const items = getBlock(deleted.state, BODY_P)?.inlineContent?.items ?? [];
     expect(items.map((it) => (it.kind === "text" ? it.text : "<embed>")).join("")).toBe("ab");
@@ -137,9 +126,8 @@ describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
     const suggestingConfig: EditorConfig = { ...config, suggestingAuthor: "alice" };
     const editor = buildEditor(buildStateWithBody(), { blockId: BODY_P, offset: 1 });
     const out = reduceEditor(
-      editor,
+      { ...editor, config: suggestingConfig },
       { type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt },
-      suggestingConfig,
     );
     expect(bodyInlineImages(out.state, BODY_P).length).toBe(1);
   });
@@ -149,10 +137,9 @@ describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
     const inserted = reduceEditor(
       editor,
       { type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt },
-      config,
     );
     expect(bodyInlineImages(inserted.state, BODY_P).length).toBe(1);
-    const undone = reduceEditor(inserted, { type: "UNDO" }, config);
+    const undone = reduceEditor(inserted, { type: "UNDO" });
     expect(bodyInlineImages(undone.state, BODY_P).length).toBe(0);
   });
 
@@ -168,7 +155,6 @@ describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
     const out = reduceEditor(
       editor,
       { type: "INSERT_INLINE_IMAGE", src: IMG.src, width: IMG.width, height: IMG.height, alt: IMG.alt },
-      config,
     );
     // "ab" replaced by the single image embed; caret after it (offset 1).
     expect(bodyInlineImages(out.state, BODY_P).length).toBe(1);
@@ -178,7 +164,7 @@ describe("handleInsertInlineImage — INSERT_INLINE_IMAGE", () => {
     expect(out.selection.focus.offset).toBe(1);
 
     // delete+insert is ONE undo unit → a single UNDO restores "ab".
-    const undone = reduceEditor(out, { type: "UNDO" }, config);
+    const undone = reduceEditor(out, { type: "UNDO" });
     const restored = getBlock(undone.state, BODY_P)?.inlineContent?.items ?? [];
     expect(restored.map((it) => (it.kind === "text" ? it.text : "<embed>")).join("")).toBe("ab");
   });

@@ -61,7 +61,7 @@ function rootChildren(editor: EditorState): BlockId[] {
 }
 
 function paste(editor: EditorState, text: string): EditorState {
-  return reduceEditor(editor, { type: "PASTE", text }, config);
+  return reduceEditor(editor, { type: "PASTE", text });
 }
 
 describe("handlePaste — multi-line plain-text paste (characterization + migration)", () => {
@@ -97,10 +97,10 @@ describe("handlePaste — multi-line plain-text paste (characterization + migrat
   it("(3) two lines into the MIDDLE of helloworld at offset 5", () => {
     let s = createInitialEditorState(config);
     const paraId = firstChildId(s.state) as BlockId;
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: "helloworld" }, config);
+    s = reduceEditor(s, { type: "INSERT_TEXT", text: "helloworld" });
     // Place collapsed cursor at offset 5 (between "hello" and "world").
     const mid = { blockId: paraId, offset: 5 };
-    s = reduceEditor(s, { type: "SET_SELECTION", selection: { anchor: mid, focus: mid } }, config);
+    s = reduceEditor(s, { type: "SET_SELECTION", selection: { anchor: mid, focus: mid } });
 
     const next = paste(s, "X\nY");
 
@@ -146,13 +146,12 @@ describe("handlePaste — multi-line plain-text paste (characterization + migrat
   it("(5b) leading empty line \\nY into a non-empty block: empty para, then Y+suffix", () => {
     let s = createInitialEditorState(config);
     const paraId = firstChildId(s.state) as BlockId;
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: "world" }, config);
+    s = reduceEditor(s, { type: "INSERT_TEXT", text: "world" });
     // Cursor at offset 0 (start of "world").
     const startPos = { blockId: paraId, offset: 0 };
     s = reduceEditor(
       s,
       { type: "SET_SELECTION", selection: { anchor: startPos, focus: startPos } },
-      config,
     );
 
     const next = paste(s, "\nY");
@@ -171,13 +170,13 @@ describe("handlePaste — multi-line plain-text paste (characterization + migrat
   it("(6) paste into an EXPANDED selection replaces it then inserts", () => {
     let s = createInitialEditorState(config);
     const paraId = firstChildId(s.state) as BlockId;
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: "helloworld" }, config);
+    s = reduceEditor(s, { type: "INSERT_TEXT", text: "helloworld" });
     // Select "world" (offsets 5..10).
     const sel = {
       anchor: { blockId: paraId, offset: 5 },
       focus: { blockId: paraId, offset: 10 },
     };
-    s = reduceEditor(s, { type: "SET_SELECTION", selection: sel }, config);
+    s = reduceEditor(s, { type: "SET_SELECTION", selection: sel });
 
     const next = paste(s, "X\nY");
 
@@ -196,7 +195,6 @@ describe("handlePaste — multi-line plain-text paste (characterization + migrat
     s = reduceEditor(
       s,
       { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 1 } },
-      config,
     );
     expect(getBlock(s.state, paraId)?.type).toBe("heading");
 
@@ -214,10 +212,10 @@ describe("handlePaste — multi-line plain-text paste (characterization + migrat
   it("(8) k=4 lines into the middle of a non-empty block: content + cursor match, no throw", () => {
     let s = createInitialEditorState(config);
     const paraId = firstChildId(s.state) as BlockId;
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: "PREsuf" }, config);
+    s = reduceEditor(s, { type: "INSERT_TEXT", text: "PREsuf" });
     // Cursor at offset 3 (between "PRE" and "suf").
     const mid = { blockId: paraId, offset: 3 };
-    s = reduceEditor(s, { type: "SET_SELECTION", selection: { anchor: mid, focus: mid } }, config);
+    s = reduceEditor(s, { type: "SET_SELECTION", selection: { anchor: mid, focus: mid } });
 
     let next: EditorState | undefined;
     expect(() => {
@@ -280,7 +278,7 @@ describe("handlePaste — paste-then-select-all preserves content (regression)",
     // content from BOTH pastes intact.
     const first = paste(initial, "one\ntwo");
     const second = paste(first, "three\nfour");
-    const after = reduceEditor(second, { type: "SELECT_ALL" }, config);
+    const after = reduceEditor(second, { type: "SELECT_ALL" });
 
     const blocks = rootChildren(after);
     expect(blocks.map((id) => getTextOf(after.state, id))).toEqual([
@@ -467,7 +465,6 @@ describe("handlePaste — T10 rich routing: priority clip→html→text", () => 
     const next = reduceEditor(
       initial,
       { type: "PASTE", clip, html: "<p>FROM_HTML</p>", text: "FROM_TEXT" },
-      richConfig,
     );
 
     const blocks = fragTopLevelBlocks(next.state);
@@ -481,7 +478,6 @@ describe("handlePaste — T10 rich routing: priority clip→html→text", () => 
     const next = reduceEditor(
       initial,
       { type: "PASTE", html: "<p>FROM_HTML</p>", text: "FROM_TEXT" },
-      richConfig,
     );
 
     const blocks = fragTopLevelBlocks(next.state);
@@ -495,7 +491,6 @@ describe("handlePaste — T10 rich routing: priority clip→html→text", () => 
     const next = reduceEditor(
       initial,
       { type: "PASTE", html: "<p>FROM_HTML</p>", text: "FROM_TEXT" },
-      config,
     );
 
     const blocks = fragTopLevelBlocks(next.state);
@@ -512,7 +507,6 @@ describe("handlePaste — T10 rich routing: priority clip→html→text", () => 
     const next = reduceEditor(
       initial,
       { type: "PASTE", clip: badClip, html: "<p>FROM_HTML</p>", text: "FROM_TEXT" },
-      richConfig,
     );
 
     const blocks = fragTopLevelBlocks(next.state);
@@ -523,7 +517,7 @@ describe("handlePaste — T10 rich routing: priority clip→html→text", () => 
     // This mirrors test (2) from the existing suite but goes through the new routing code.
     const initial = createInitialEditorState(richConfig);
 
-    const next = reduceEditor(initial, { type: "PASTE", text: "a\nb\nc" }, richConfig);
+    const next = reduceEditor(initial, { type: "PASTE", text: "a\nb\nc" });
 
     const blocks = fragTopLevelBlocks(next.state);
     expect(blocks).toHaveLength(3);
@@ -537,7 +531,7 @@ describe("handlePaste — T10 rich routing: priority clip→html→text", () => 
   it("no usable payload → no-op (returns same editor reference)", () => {
     const initial = createInitialEditorState(richConfig);
     // PASTE with nothing usable: empty text, no html, no clip.
-    const next = reduceEditor(initial, { type: "PASTE" }, richConfig);
+    const next = reduceEditor(initial, { type: "PASTE" });
     expect(next).toBe(initial);
   });
 });
@@ -583,7 +577,6 @@ describe("handlePaste — T10 suggesting mode with rich routing", () => {
     const next = reduceEditor(
       initial,
       { type: "PASTE", html: "<p>Hello</p><p>World</p>", text: "Hello\nWorld" },
-      richSuggestingConfig,
     );
 
     const blocks = fragTopLevelBlocks(next.state);
@@ -609,7 +602,6 @@ describe("handlePaste — T10 suggesting mode with rich routing", () => {
     const next = reduceEditor(
       initial,
       { type: "PASTE", html: tableHtml, text: "Cell A\tCell B" },
-      richSuggestingConfig,
     );
 
     // In suggesting mode, the table MUST have been flattened. The resulting
@@ -643,7 +635,6 @@ describe("handlePaste — T10 suggesting mode with rich routing", () => {
     const next = reduceEditor(
       freshSuggesting,
       { type: "PASTE", clip, text: "CLIP_TEXT" },
-      suggestingConfig,
     );
 
     const resultBlocks = fragTopLevelBlocks(next.state);
@@ -675,7 +666,6 @@ describe("handlePaste — T10 suggesting mode with rich routing", () => {
     const next = reduceEditor(
       freshSuggesting,
       { type: "PASTE", clip, text: "CLIP_TEXT" },
-      suggestingConfig,
     );
 
     const resultBlocks = fragTopLevelBlocks(next.state);

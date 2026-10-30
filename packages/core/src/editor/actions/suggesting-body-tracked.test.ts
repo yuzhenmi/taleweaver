@@ -100,10 +100,10 @@ function endsWithSplitMark(editor: EditorState, blockId: BlockId): boolean {
  */
 function footnoteBodyFixture(): { editor: EditorState; bodyParaId: BlockId } {
   const initial = createInitialEditorState(directConfig);
-  const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "x" }, directConfig);
-  const withFn = reduceEditor(typed, { type: "INSERT_FOOTNOTE" }, directConfig);
+  const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "x" });
+  const withFn = reduceEditor(typed, { type: "INSERT_FOOTNOTE" });
   const bodyPara = withFn.selection.focus.blockId;
-  const seeded = reduceEditor(withFn, { type: "INSERT_TEXT", text: "abc" }, directConfig);
+  const seeded = reduceEditor(withFn, { type: "INSERT_TEXT", text: "abc" });
   expect(getSuggestions(seeded.state)).toHaveLength(0);
   expect(textOfResolved(seeded, bodyPara)).toBe("abc");
   // Self-guard: the body paragraph must be OUTSIDE the main body (a real
@@ -117,24 +117,22 @@ function footnoteBodyFixture(): { editor: EditorState; bodyParaId: BlockId } {
 /** Place a collapsed caret at `offset` of `blockId` (suggesting config). */
 function caretAt(editor: EditorState, blockId: BlockId, offset: number): EditorState {
   return reduceEditor(
-    editor,
+    { ...editor, config: suggestingConfig },
     {
       type: "SET_SELECTION",
       selection: createSpan(createPosition(blockId, offset), createPosition(blockId, offset)),
     },
-    suggestingConfig,
   );
 }
 
 /** Select `[start, end)` of `blockId` (suggesting config). */
 function selectIn(editor: EditorState, blockId: BlockId, start: number, end: number): EditorState {
   return reduceEditor(
-    editor,
+    { ...editor, config: suggestingConfig },
     {
       type: "SET_SELECTION",
       selection: createSpan(createPosition(blockId, start), createPosition(blockId, end)),
     },
-    suggestingConfig,
   );
 }
 
@@ -142,7 +140,7 @@ describe("suggesting mode in a footnote BODY now TRACKS (MT-4)", () => {
   it("INSERT_TEXT (collapsed) mints an insertion suggestion + stamps the body run", () => {
     const { editor, bodyParaId } = footnoteBodyFixture();
     const placed = caretAt(editor, bodyParaId, 3); // end of "abc"
-    const next = reduceEditor(placed, { type: "INSERT_TEXT", text: "Z" }, suggestingConfig);
+    const next = reduceEditor(placed, { type: "INSERT_TEXT", text: "Z" });
 
     expect(textOfResolved(next, bodyParaId)).toBe("abcZ");
     const suggestions = getSuggestions(next.state);
@@ -154,7 +152,7 @@ describe("suggesting mode in a footnote BODY now TRACKS (MT-4)", () => {
   it("DELETE_BACKWARD (mid-block char) SOFT-deletes: deletion suggestion, text KEPT", () => {
     const { editor, bodyParaId } = footnoteBodyFixture();
     const placed = caretAt(editor, bodyParaId, 3); // caret after "abc"
-    const next = reduceEditor(placed, { type: "DELETE_BACKWARD" }, suggestingConfig);
+    const next = reduceEditor(placed, { type: "DELETE_BACKWARD" });
 
     // Soft delete: "c" is kept (struck), not removed.
     expect(textOfResolved(next, bodyParaId)).toBe("abc");
@@ -167,7 +165,7 @@ describe("suggesting mode in a footnote BODY now TRACKS (MT-4)", () => {
   it("TOGGLE_STYLE (bold) over a body selection mints a formatting suggestion, live attr UNCHANGED", () => {
     const { editor, bodyParaId } = footnoteBodyFixture();
     const selected = selectIn(editor, bodyParaId, 0, 3); // select "abc"
-    const next = reduceEditor(selected, { type: "TOGGLE_STYLE", style: "bold" }, suggestingConfig);
+    const next = reduceEditor(selected, { type: "TOGGLE_STYLE", style: "bold" });
 
     // The live bold attr is NOT applied (it lands only on accept); only the
     // formatting-provenance attr is stamped.
@@ -185,7 +183,7 @@ describe("suggesting mode in a footnote BODY now TRACKS (MT-4)", () => {
   it("SPLIT_NODE (Enter) does a real split PLUS a keyed ¶ on the new body head", () => {
     const { editor, bodyParaId } = footnoteBodyFixture();
     const placed = caretAt(editor, bodyParaId, 1); // caret after "a" → split "a" | "bc"
-    const next = reduceEditor(placed, { type: "SPLIT_NODE" }, suggestingConfig);
+    const next = reduceEditor(placed, { type: "SPLIT_NODE" });
     // Real structural split: a NEW head holds "a" and its ¶ is the
     // inserted one; the body block keeps "bc" and the caret (B, 0).
     const head = resolveBlock(next.state, bodyParaId)?.block.prevSiblingId ?? null;
@@ -203,7 +201,7 @@ describe("suggesting mode in a footnote BODY now TRACKS (MT-4)", () => {
   it("DELETE_FORWARD (collapsed mid-char) SOFT-deletes; caret ADVANCES to span end (soft-delete rule)", () => {
     const { editor, bodyParaId } = footnoteBodyFixture();
     const placed = caretAt(editor, bodyParaId, 1); // caret between "a" and "b"
-    const next = reduceEditor(placed, { type: "DELETE_FORWARD" }, suggestingConfig);
+    const next = reduceEditor(placed, { type: "DELETE_FORWARD" });
 
     // Soft delete: "b" is kept (struck); body text length unchanged.
     expect(textOfResolved(next, bodyParaId)).toBe("abc");
@@ -221,8 +219,8 @@ describe("body suggestions RESOLVE cleanly via accept/reject-all — the MT payo
   it("body INSERT_TEXT → ACCEPT_ALL keeps the text, zero suggestions, no provenance attr", () => {
     const { editor, bodyParaId } = footnoteBodyFixture();
     const placed = caretAt(editor, bodyParaId, 3);
-    const typed = reduceEditor(placed, { type: "INSERT_TEXT", text: "Z" }, suggestingConfig);
-    const resolved = reduceEditor(typed, { type: "ACCEPT_ALL_SUGGESTIONS" }, suggestingConfig);
+    const typed = reduceEditor(placed, { type: "INSERT_TEXT", text: "Z" });
+    const resolved = reduceEditor(typed, { type: "ACCEPT_ALL_SUGGESTIONS" });
 
     expect(textOfResolved(resolved, bodyParaId)).toBe("abcZ");
     expect(getSuggestions(resolved.state)).toHaveLength(0);
@@ -232,8 +230,8 @@ describe("body suggestions RESOLVE cleanly via accept/reject-all — the MT payo
   it("body INSERT_TEXT → REJECT_ALL removes the inserted text, zero suggestions", () => {
     const { editor, bodyParaId } = footnoteBodyFixture();
     const placed = caretAt(editor, bodyParaId, 3);
-    const typed = reduceEditor(placed, { type: "INSERT_TEXT", text: "Z" }, suggestingConfig);
-    const resolved = reduceEditor(typed, { type: "REJECT_ALL_SUGGESTIONS" }, suggestingConfig);
+    const typed = reduceEditor(placed, { type: "INSERT_TEXT", text: "Z" });
+    const resolved = reduceEditor(typed, { type: "REJECT_ALL_SUGGESTIONS" });
 
     expect(textOfResolved(resolved, bodyParaId)).toBe("abc");
     expect(getSuggestions(resolved.state)).toHaveLength(0);
@@ -243,8 +241,8 @@ describe("body suggestions RESOLVE cleanly via accept/reject-all — the MT payo
   it("body DELETE_BACKWARD → ACCEPT_ALL really removes the text, zero suggestions", () => {
     const { editor, bodyParaId } = footnoteBodyFixture();
     const placed = caretAt(editor, bodyParaId, 3);
-    const soft = reduceEditor(placed, { type: "DELETE_BACKWARD" }, suggestingConfig);
-    const resolved = reduceEditor(soft, { type: "ACCEPT_ALL_SUGGESTIONS" }, suggestingConfig);
+    const soft = reduceEditor(placed, { type: "DELETE_BACKWARD" });
+    const resolved = reduceEditor(soft, { type: "ACCEPT_ALL_SUGGESTIONS" });
 
     expect(textOfResolved(resolved, bodyParaId)).toBe("ab");
     expect(getSuggestions(resolved.state)).toHaveLength(0);
@@ -254,8 +252,8 @@ describe("body suggestions RESOLVE cleanly via accept/reject-all — the MT payo
   it("body DELETE_BACKWARD → REJECT_ALL restores the text, zero suggestions", () => {
     const { editor, bodyParaId } = footnoteBodyFixture();
     const placed = caretAt(editor, bodyParaId, 3);
-    const soft = reduceEditor(placed, { type: "DELETE_BACKWARD" }, suggestingConfig);
-    const resolved = reduceEditor(soft, { type: "REJECT_ALL_SUGGESTIONS" }, suggestingConfig);
+    const soft = reduceEditor(placed, { type: "DELETE_BACKWARD" });
+    const resolved = reduceEditor(soft, { type: "REJECT_ALL_SUGGESTIONS" });
 
     expect(textOfResolved(resolved, bodyParaId)).toBe("abc");
     expect(getSuggestions(resolved.state)).toHaveLength(0);
@@ -265,10 +263,10 @@ describe("body suggestions RESOLVE cleanly via accept/reject-all — the MT payo
   it("body SPLIT_NODE → ACCEPT_ALL keeps the split (two blocks), drops the tag, zero suggestions", () => {
     const { editor, bodyParaId } = footnoteBodyFixture();
     const placed = caretAt(editor, bodyParaId, 1);
-    const split = reduceEditor(placed, { type: "SPLIT_NODE" }, suggestingConfig);
+    const split = reduceEditor(placed, { type: "SPLIT_NODE" });
     const head = resolveBlock(split.state, bodyParaId)?.block.prevSiblingId ?? null;
     if (head === null) throw new Error("expected a new head");
-    const resolved = reduceEditor(split, { type: "ACCEPT_ALL_SUGGESTIONS" }, suggestingConfig);
+    const resolved = reduceEditor(split, { type: "ACCEPT_ALL_SUGGESTIONS" });
     // Split kept: "a" | "bc" in two body blocks; the key is gone.
     expect(textOfResolved(resolved, head)).toBe("a");
     expect(textOfResolved(resolved, bodyParaId)).toBe("bc");
@@ -280,8 +278,8 @@ describe("body suggestions RESOLVE cleanly via accept/reject-all — the MT payo
   it("body SPLIT_NODE → REJECT_ALL undoes the split (one block), zero suggestions", () => {
     const { editor, bodyParaId } = footnoteBodyFixture();
     const placed = caretAt(editor, bodyParaId, 1);
-    const split = reduceEditor(placed, { type: "SPLIT_NODE" }, suggestingConfig);
-    const resolved = reduceEditor(split, { type: "REJECT_ALL_SUGGESTIONS" }, suggestingConfig);
+    const split = reduceEditor(placed, { type: "SPLIT_NODE" });
+    const resolved = reduceEditor(split, { type: "REJECT_ALL_SUGGESTIONS" });
 
     // Split undone: the body block is back to a single "abc" with no tag.
     expect(textOfResolved(resolved, bodyParaId)).toBe("abc");
@@ -295,7 +293,7 @@ describe("regression: the SAME actions in the MAIN body still create suggestions
     const initial = createInitialEditorState(directConfig);
     const para = bodyParaId(initial);
     const placed = caretAt(initial, para, 0);
-    const next = reduceEditor(placed, { type: "INSERT_TEXT", text: "Z" }, suggestingConfig);
+    const next = reduceEditor(placed, { type: "INSERT_TEXT", text: "Z" });
 
     expect(getTextOf(next.state, para)).toBe("Z");
     const suggestions = getSuggestions(next.state);
@@ -308,11 +306,10 @@ describe("regression: the SAME actions in the MAIN body still create suggestions
     const seeded = reduceEditor(
       createInitialEditorState(directConfig),
       { type: "INSERT_TEXT", text: "abc" },
-      directConfig,
     );
     const para = bodyParaId(seeded);
     const placed = caretAt(seeded, para, 3);
-    const next = reduceEditor(placed, { type: "DELETE_BACKWARD" }, suggestingConfig);
+    const next = reduceEditor(placed, { type: "DELETE_BACKWARD" });
 
     const suggestions = getSuggestions(next.state);
     expect(suggestions).toHaveLength(1);
@@ -324,11 +321,10 @@ describe("regression: the SAME actions in the MAIN body still create suggestions
     const seeded = reduceEditor(
       createInitialEditorState(directConfig),
       { type: "INSERT_TEXT", text: "abc" },
-      directConfig,
     );
     const para = bodyParaId(seeded);
     const selected = selectIn(seeded, para, 0, 3);
-    const next = reduceEditor(selected, { type: "TOGGLE_STYLE", style: "bold" }, suggestingConfig);
+    const next = reduceEditor(selected, { type: "TOGGLE_STYLE", style: "bold" });
 
     const suggestions = getSuggestions(next.state);
     expect(suggestions).toHaveLength(1);

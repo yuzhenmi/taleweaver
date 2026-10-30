@@ -19,7 +19,7 @@ function warm(editor: EditorState): void {
 
 function step(editor: EditorState, action: EditorAction) {
   warm(editor);
-  const next = reduceEditor(editor, action, config);
+  const next = reduceEditor(editor, action);
   const dirty = next.lastDirtyIds;
   const mapping =
     dirty === null ? IDENTITY_MAPPING : createPositionMapping(editor.state, next.state, dirty, editor.selection.focus, next.selection.focus);
@@ -34,7 +34,7 @@ function firstBlock(editor: EditorState): BlockId {
 
 function at(editor: EditorState, blockId: BlockId, offset: number): EditorState {
   const p = createPosition(blockId, offset);
-  return reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(p, p) }, config);
+  return reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(p, p) });
 }
 
 function textAt(editor: EditorState, pos: Position | null, length: number): string {
@@ -46,7 +46,7 @@ function textAt(editor: EditorState, pos: Position | null, length: number): stri
 /** A one-paragraph editor holding `text`, caret at the end. */
 function seeded(text: string): { editor: EditorState; p: BlockId } {
   let editor = createInitialEditorState(config);
-  editor = reduceEditor(editor, { type: "INSERT_TEXT", text }, config);
+  editor = reduceEditor(editor, { type: "INSERT_TEXT", text });
   return { editor, p: firstBlock(editor) };
 }
 
@@ -131,7 +131,7 @@ describe("createPositionMapping", () => {
 
   it("formatting changes are identity; undo maps back", () => {
     const { editor, p } = seeded("bold me");
-    const sel = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(p, 0), createPosition(p, 4)) }, config);
+    const sel = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(p, 0), createPosition(p, 4)) });
     const bold = step(sel, { type: "TOGGLE_STYLE", style: "bold" });
     expect(bold.mapping.identity).toBe(true);
 

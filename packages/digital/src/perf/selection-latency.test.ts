@@ -152,22 +152,22 @@ describe("digital selected-¶ under a peer's edit", () => {
     controller.dispatch({ type: "SET_SELECTION", selection: createSpan(createPosition(at(0), 0), createPosition(at(900), 0)) });
     const walks: number[] = [];
     for (const [i, text] of [[450, "x"], [0, "y"], [900, "z"], [950, "w"]] as const) {
-      peer = reduceEditor(peer, { type: "SET_SELECTION", selection: caret(at(i), 3) }, cfg);
+      peer = reduceEditor(peer, { type: "SET_SELECTION", selection: caret(at(i), 3) });
       resetPerfTrace();
       setPerfTraceEnabled(true);
       try {
-        peer = reduceEditor(peer, { type: "INSERT_TEXT", text }, cfg);
+        peer = reduceEditor(peer, { type: "INSERT_TEXT", text });
       } finally {
         setPerfTraceEnabled(false);
       }
       walks.push(countOf("digital.selectedParagraphWalk"));
     }
     // A peer's Enter inside the selection: the new ¶ is selected, without a selection walk.
-    peer = reduceEditor(peer, { type: "SET_SELECTION", selection: caret(at(300), 3) }, cfg);
+    peer = reduceEditor(peer, { type: "SET_SELECTION", selection: caret(at(300), 3) });
     resetPerfTrace();
     setPerfTraceEnabled(true);
     try {
-      peer = reduceEditor(peer, { type: "SPLIT_NODE" }, cfg);
+      peer = reduceEditor(peer, { type: "SPLIT_NODE" });
     } finally {
       setPerfTraceEnabled(false);
     }
@@ -175,11 +175,11 @@ describe("digital selected-¶ under a peer's edit", () => {
     expect(container.querySelectorAll(".tw-selected").length).toBe(901);
     // The peer removes the anchor's paragraph (merging it into the next): the anchor maps
     // to the survivor, without a selection walk.
-    peer = reduceEditor(peer, { type: "SET_SELECTION", selection: createSpan(createPosition(at(0), 0), createPosition(at(1), 0)) }, cfg);
+    peer = reduceEditor(peer, { type: "SET_SELECTION", selection: createSpan(createPosition(at(0), 0), createPosition(at(1), 0)) });
     resetPerfTrace();
     setPerfTraceEnabled(true);
     try {
-      peer = reduceEditor(peer, { type: "DELETE_BACKWARD" }, cfg);
+      peer = reduceEditor(peer, { type: "DELETE_BACKWARD" });
     } finally {
       setPerfTraceEnabled(false);
     }

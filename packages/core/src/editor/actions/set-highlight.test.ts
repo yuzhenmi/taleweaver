@@ -36,7 +36,6 @@ function firstTextItem(editor: ReturnType<typeof createInitialEditorState>): Tex
 function selectAll(
   editor: ReturnType<typeof createInitialEditorState>,
   length: number,
-  config: EditorConfig,
 ): ReturnType<typeof createInitialEditorState> {
   const pId = (() => {
     const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
@@ -49,7 +48,6 @@ function selectAll(
       type: "SET_SELECTION",
       selection: createSpan(createPosition(pId, 0), createPosition(pId, length)),
     },
-    config,
   );
 }
 
@@ -57,10 +55,10 @@ describe("handleSetHighlight", () => {
   it("no-op on collapsed selection (no highlight can target a single cursor)", () => {
     const config = makeConfig();
     const initial = createInitialEditorState(config);
-    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hello" }, config);
+    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hello" });
     const before = editor;
     // Collapsed at end.
-    editor = reduceEditor(editor, { type: "SET_HIGHLIGHT", color: "#ffff00" }, config);
+    editor = reduceEditor(editor, { type: "SET_HIGHLIGHT", color: "#ffff00" });
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
     expect(editor.state).toBe(before.state);
   });
@@ -68,9 +66,9 @@ describe("handleSetHighlight", () => {
   it("sets backgroundColor attr on every text item in the selection", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "mark me" }, config);
-    editor = selectAll(editor, 7, config);
-    editor = reduceEditor(editor, { type: "SET_HIGHLIGHT", color: "#ffff00" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "mark me" });
+    editor = selectAll(editor, 7);
+    editor = reduceEditor(editor, { type: "SET_HIGHLIGHT", color: "#ffff00" });
 
     const item = firstTextItem(editor);
     expect(item).not.toBeNull();
@@ -82,37 +80,37 @@ describe("handleSetHighlight", () => {
   it("clears backgroundColor attr when given null (highlight removed)", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "mark me" }, config);
-    editor = selectAll(editor, 7, config);
-    editor = reduceEditor(editor, { type: "SET_HIGHLIGHT", color: "#ffff00" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "mark me" });
+    editor = selectAll(editor, 7);
+    editor = reduceEditor(editor, { type: "SET_HIGHLIGHT", color: "#ffff00" });
     expect(firstTextItem(editor)?.attrs.backgroundColor).toBe("#ffff00");
-    editor = reduceEditor(editor, { type: "SET_HIGHLIGHT", color: null }, config);
+    editor = reduceEditor(editor, { type: "SET_HIGHLIGHT", color: null });
     expect(firstTextItem(editor)?.attrs.backgroundColor).toBeUndefined();
   });
 
   it("clears backgroundColor attr when given empty string (empty isn't a meaningful color)", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "mark me" }, config);
-    editor = selectAll(editor, 7, config);
-    editor = reduceEditor(editor, { type: "SET_HIGHLIGHT", color: "#ffff00" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "mark me" });
+    editor = selectAll(editor, 7);
+    editor = reduceEditor(editor, { type: "SET_HIGHLIGHT", color: "#ffff00" });
     expect(firstTextItem(editor)?.attrs.backgroundColor).toBe("#ffff00");
-    editor = reduceEditor(editor, { type: "SET_HIGHLIGHT", color: "" }, config);
+    editor = reduceEditor(editor, { type: "SET_HIGHLIGHT", color: "" });
     expect(firstTextItem(editor)?.attrs.backgroundColor).toBeUndefined();
   });
 
   it("undo restores the pre-highlight state", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "mark me" }, config);
-    editor = selectAll(editor, 7, config);
-    editor = reduceEditor(editor, { type: "SET_HIGHLIGHT", color: "#ffff00" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "mark me" });
+    editor = selectAll(editor, 7);
+    editor = reduceEditor(editor, { type: "SET_HIGHLIGHT", color: "#ffff00" });
     expect(firstTextItem(editor)?.attrs.backgroundColor).toBe("#ffff00");
 
-    editor = reduceEditor(editor, { type: "UNDO" }, config);
+    editor = reduceEditor(editor, { type: "UNDO" });
     expect(firstTextItem(editor)?.attrs.backgroundColor).toBeUndefined();
 
-    editor = reduceEditor(editor, { type: "REDO" }, config);
+    editor = reduceEditor(editor, { type: "REDO" });
     expect(firstTextItem(editor)?.attrs.backgroundColor).toBe("#ffff00");
   });
 });

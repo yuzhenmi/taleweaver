@@ -21,21 +21,21 @@ import {
   firstChildId,
   createPosition,
 } from "./test-helpers";
-import type { EditorState } from "../editor-state";
-import { getBlock, createHistory } from "../../state";
+import { createEditorStateFromState, type EditorState } from "../editor-state";
+import { getBlock } from "../../state";
 import type { BlockId } from "../../state";
 import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
 
 describe("handleSetLineSpacing — SET_LINE_SPACING action", () => {
   it("collapsed selection: sets lineHeight on the focus block", () => {
     const initial = createInitialEditorState(config);
-    const editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" }, config);
+    const editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
     const paraId = firstChildId(editor.state) as BlockId;
 
     // Baseline: default (no lineHeight attr).
     expect(getBlock(editor.state, paraId)?.attrs.lineHeight).toBeUndefined();
 
-    const next = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 2 }, config);
+    const next = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 2 });
 
     expect(getBlock(next.state, paraId)?.attrs.lineHeight).toBe(2);
     // A real change → new state reference.
@@ -44,9 +44,9 @@ describe("handleSetLineSpacing — SET_LINE_SPACING action", () => {
 
   it("preserves the selection (line spacing does not move the caret)", () => {
     const initial = createInitialEditorState(config);
-    const editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" }, config);
+    const editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
 
-    const next = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 1.5 }, config);
+    const next = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 1.5 });
 
     expect(next.selection).toEqual(editor.selection);
   });
@@ -92,20 +92,12 @@ describe("handleSetLineSpacing — SET_LINE_SPACING action", () => {
         }),
       ],
     });
-    const editor: EditorState = {
-      state: initialState,
-      selection: {
+    const editor: EditorState = createEditorStateFromState(initialState, {
         anchor: createPosition("p0" as BlockId, 0),
         focus: createPosition("p2" as BlockId, 2),
-      },
-      history: createHistory(initialState),
-      lastDirtyIds: null,
-      lastChange: null,
-      containerWidth: config.containerWidth,
-      targetX: null,
-    };
+      }, config);
 
-    const next = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 1.5 }, config);
+    const next = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 1.5 });
 
     // Every LEAF in the span is spaced.
     expect(getBlock(next.state, "p0" as BlockId)?.attrs.lineHeight).toBe(1.5);
@@ -124,26 +116,26 @@ describe("handleSetLineSpacing — SET_LINE_SPACING action", () => {
 
   it("undo restores the prior line spacing", () => {
     const initial = createInitialEditorState(config);
-    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" }, config);
+    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
     const paraId = firstChildId(editor.state) as BlockId;
 
     // First set to 1.15 so the prior spacing is a concrete value.
-    editor = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 1.15 }, config);
+    editor = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 1.15 });
     expect(getBlock(editor.state, paraId)?.attrs.lineHeight).toBe(1.15);
 
-    const doubled = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 2 }, config);
+    const doubled = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 2 });
     expect(getBlock(doubled.state, paraId)?.attrs.lineHeight).toBe(2);
 
-    const undone = reduceEditor(doubled, { type: "UNDO" }, config);
+    const undone = reduceEditor(doubled, { type: "UNDO" });
     expect(getBlock(undone.state, paraId)?.attrs.lineHeight).toBe(1.15);
   });
 
   it("no-op: setting the spacing a block already has returns the same editor", () => {
     const initial = createInitialEditorState(config);
-    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" }, config);
-    editor = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 2 }, config);
+    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
+    editor = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 2 });
 
-    const again = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 2 }, config);
+    const again = reduceEditor(editor, { type: "SET_LINE_SPACING", spacing: 2 });
 
     // No commit, no state change (the identity-no-op contract). Phase 0b: the no-op
     // identity is `state` reference equality — the editor OBJECT differs because

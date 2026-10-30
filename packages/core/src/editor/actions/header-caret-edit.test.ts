@@ -26,12 +26,11 @@
 
 import { describe, it, expect } from "vitest";
 import { reduceEditor } from "../reduce-editor";
-import { type EditorState } from "../editor-state";
+import { type EditorState, createEditorStateFromState } from "../editor-state";
 import { type EditorConfig } from "../editor-config";
 import { createDefaultComponentRegistry } from "../../components/component-registry";
 import { createDefaultAttrRegistry } from "../../cascade/attr-registry";
 import {
-  createHistory,
   createPosition,
   createSpan,
   getBlock,
@@ -109,15 +108,7 @@ function buildStateWithHeaderBody(): State {
  */
 function buildEditor(state: State, caret: { blockId: BlockId; offset: number }): EditorState {
   const cursor = createPosition(caret.blockId, caret.offset);
-  return {
-    state,
-    selection: createSpan(cursor, cursor),
-    history: createHistory(state),
-    lastDirtyIds: null,
-    lastChange: null,
-    containerWidth: config.containerWidth,
-    targetX: null,
-  };
+  return createEditorStateFromState(state, createSpan(cursor, cursor), config);
 }
 
 function joinText(
@@ -136,7 +127,7 @@ describe("C.2c T7d — mid-header DELETE_BACKWARD reaches the op", () => {
   it("backspace after a char in a header paragraph deletes the preceding grapheme (in templateContents)", () => {
     const editor = buildEditor(buildStateWithHeaderBody(), { blockId: HDR_P1, offset: 3 });
     // "alpha", caret after "alp" → backspace removes "p".
-    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
+    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
     // The header body block shrank — observable via getTemplateContent.
     expect(headerText(next.state, HDR_P1)).toBe("alha");
@@ -154,7 +145,7 @@ describe("C.2c T7d — mid-header DELETE_BACKWARD reaches the op", () => {
     // (the header root is not a doc-root `section`). So the two header
     // paragraphs join in templateContents, and no main-tree section is touched.
     const editor = buildEditor(buildStateWithHeaderBody(), { blockId: HDR_P2, offset: 0 });
-    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
+    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
     // The two header paragraphs merged: "alpha" + "beta" = "alphabeta"; ¶c1 goes and
     // c2 survives.
@@ -172,7 +163,7 @@ describe("C.2c T7d — mid-header DELETE_FORWARD reaches the op", () => {
   it("forward-delete before a char in a header paragraph removes that grapheme (in templateContents)", () => {
     const editor = buildEditor(buildStateWithHeaderBody(), { blockId: HDR_P1, offset: 2 });
     // "alpha", caret after "al" → forward-delete removes "p".
-    const next = reduceEditor(editor, { type: "DELETE_FORWARD" }, config);
+    const next = reduceEditor(editor, { type: "DELETE_FORWARD" });
 
     expect(headerText(next.state, HDR_P1)).toBe("alha");
     // Caret stays put.
@@ -184,7 +175,7 @@ describe("C.2c T7d — mid-header DELETE_FORWARD reaches the op", () => {
   it("forward-delete at end of a header paragraph merges the next header paragraph in (not a section op)", () => {
     // Caret at end of the FIRST header child → forward-delete merges c2 into c1.
     const editor = buildEditor(buildStateWithHeaderBody(), { blockId: HDR_P1, offset: 5 });
-    const next = reduceEditor(editor, { type: "DELETE_FORWARD" }, config);
+    const next = reduceEditor(editor, { type: "DELETE_FORWARD" });
 
     // ¶c1 goes; c2 survives.
     expect(headerText(next.state, HDR_P2)).toBe("alphabeta");
@@ -200,7 +191,7 @@ describe("C.2c T7d — mid-header SPLIT_NODE (Enter) reaches the op", () => {
   it("Enter mid-header-paragraph splits into two header paragraphs in templateContents; caret moves to the tail", () => {
     const editor = buildEditor(buildStateWithHeaderBody(), { blockId: HDR_P1, offset: 3 });
     // "alpha", caret after "alp" → split into "alp" | "ha".
-    const next = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+    const next = reduceEditor(editor, { type: "SPLIT_NODE" });
 
     // the original block keeps its id + the right half (and its ¶);
     // a NEW head block in templateContents takes the left half.

@@ -118,7 +118,6 @@ function mount(options: { readonly wrapDispatch?: boolean } = {}) {
         dispatch={options.wrapDispatch === true ? (a) => api.dispatch(a) : api.dispatch}
         containerRef={api.containerRef}
         measurer={api.shaper}
-        config={api.config}
         decorations={box.decorations}
         onIncompatibleDocument={viewHook}
       />

@@ -223,7 +223,6 @@ function makeStarterDoc(): State {
   editor = reduceEditor(
     editor,
     { type: "INSERT_TEXT", text: "Type here — your edits sync to the other pane live." },
-    config,
   );
   // Only the seed `State` survives; release this throwaway editor's History so
   // its Y.UndoManager listener doesn't leak on the shared doc the panes will use.

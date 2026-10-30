@@ -35,14 +35,14 @@ describe("undo coalescing through the reducer (#420)", () => {
     const clock = makeClock();
     const config: EditorConfig = { ...baseConfig, now: clock.now };
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" });
     clock.advance(10);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" });
     clock.advance(10);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "c" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "c" });
     expect(textOf(editor)).toBe("abc");
 
-    editor = reduceEditor(editor, { type: "UNDO" }, config);
+    editor = reduceEditor(editor, { type: "UNDO" });
     expect(textOf(editor)).toBe("");
     // Nothing left to undo — it was a single coalesced entry.
     expect(editor.history.canUndo()).toBe(false);
@@ -52,14 +52,14 @@ describe("undo coalescing through the reducer (#420)", () => {
     const clock = makeClock();
     const config: EditorConfig = { ...baseConfig, now: clock.now };
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" });
     clock.advance(UNDO_COALESCE_PAUSE_MS); // gap == threshold → split
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" });
     expect(textOf(editor)).toBe("ab");
 
-    editor = reduceEditor(editor, { type: "UNDO" }, config);
+    editor = reduceEditor(editor, { type: "UNDO" });
     expect(textOf(editor)).toBe("a"); // first undo removes "b"
-    editor = reduceEditor(editor, { type: "UNDO" }, config);
+    editor = reduceEditor(editor, { type: "UNDO" });
     expect(textOf(editor)).toBe(""); // second removes "a"
   });
 
@@ -67,18 +67,18 @@ describe("undo coalescing through the reducer (#420)", () => {
     const clock = makeClock();
     const config: EditorConfig = { ...baseConfig, now: clock.now };
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" });
     clock.advance(5);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" });
     clock.advance(5);
-    editor = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
+    editor = reduceEditor(editor, { type: "DELETE_BACKWARD" });
     clock.advance(5);
-    editor = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
+    editor = reduceEditor(editor, { type: "DELETE_BACKWARD" });
     expect(textOf(editor)).toBe("");
 
-    editor = reduceEditor(editor, { type: "UNDO" }, config); // reverses the delete run
+    editor = reduceEditor(editor, { type: "UNDO" }); // reverses the delete run
     expect(textOf(editor)).toBe("ab");
-    editor = reduceEditor(editor, { type: "UNDO" }, config); // reverses the insert run
+    editor = reduceEditor(editor, { type: "UNDO" }); // reverses the insert run
     expect(textOf(editor)).toBe("");
     expect(editor.history.canUndo()).toBe(false);
   });
@@ -87,15 +87,15 @@ describe("undo coalescing through the reducer (#420)", () => {
     const clock = makeClock();
     const config: EditorConfig = { ...baseConfig, now: clock.now };
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" });
     clock.advance(5);
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
     clock.advance(5);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" });
 
     let n = 0;
     while (editor.history.canUndo()) {
-      editor = reduceEditor(editor, { type: "UNDO" }, config);
+      editor = reduceEditor(editor, { type: "UNDO" });
       n++;
       if (n > 5) break; // safety
     }
@@ -103,12 +103,12 @@ describe("undo coalescing through the reducer (#420)", () => {
 
     // A second consecutive SPLIT_NODE is its own entry (commands never coalesce).
     editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
     clock.advance(5);
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
     let m = 0;
     while (editor.history.canUndo()) {
-      editor = reduceEditor(editor, { type: "UNDO" }, config);
+      editor = reduceEditor(editor, { type: "UNDO" });
       m++;
       if (m > 5) break;
     }
@@ -119,7 +119,7 @@ describe("undo coalescing through the reducer (#420)", () => {
     const clock = makeClock();
     const config: EditorConfig = { ...baseConfig, now: clock.now };
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" });
     const id = firstChildId(editor.state);
     if (id === null) throw new Error("no block");
     // Select the typed "a" so TOGGLE_STYLE actually commits an undo entry
@@ -133,16 +133,15 @@ describe("undo coalescing through the reducer (#420)", () => {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(id, 0), createPosition(id, 1)),
       },
-      config,
     );
     clock.advance(5);
-    editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" }, config);
+    editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
     clock.advance(5);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" });
 
     let n = 0;
     while (editor.history.canUndo()) {
-      editor = reduceEditor(editor, { type: "UNDO" }, config);
+      editor = reduceEditor(editor, { type: "UNDO" });
       n++;
       if (n > 5) break;
     }
@@ -158,21 +157,20 @@ describe("undo coalescing through the reducer (#420)", () => {
     const clock = makeClock();
     const config: EditorConfig = { ...baseConfig, now: clock.now };
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" });
     clock.advance(5);
     const caretStart = createPosition(editor.selection.focus.blockId, 0);
     editor = reduceEditor(
       editor,
       { type: "SET_SELECTION", selection: createSpan(caretStart, caretStart) },
-      config,
     );
     clock.advance(5);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" });
     expect(textOf(editor)).toBe("ba");
 
     let n = 0;
     while (editor.history.canUndo()) {
-      editor = reduceEditor(editor, { type: "UNDO" }, config);
+      editor = reduceEditor(editor, { type: "UNDO" });
       n++;
       if (n > 5) break;
     }
@@ -183,7 +181,7 @@ describe("undo coalescing through the reducer (#420)", () => {
     const clock = makeClock();
     const config: EditorConfig = { ...baseConfig, now: clock.now };
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" });
     const id = firstChildId(editor.state);
     if (id === null) throw new Error("no block");
     clock.advance(5);
@@ -193,14 +191,13 @@ describe("undo coalescing through the reducer (#420)", () => {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(id, 0), createPosition(id, 0)),
       },
-      config,
     );
     clock.advance(5);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" });
 
     let n = 0;
     while (editor.history.canUndo()) {
-      editor = reduceEditor(editor, { type: "UNDO" }, config);
+      editor = reduceEditor(editor, { type: "UNDO" });
       n++;
       if (n > 5) break;
     }
@@ -211,13 +208,13 @@ describe("undo coalescing through the reducer (#420)", () => {
     const clock = makeClock();
     const config: EditorConfig = { ...baseConfig, now: clock.now };
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" }, config); // before = offset 0
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" }); // before = offset 0
     clock.advance(5);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" }, config); // after = offset 2
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" }); // after = offset 2
 
-    editor = reduceEditor(editor, { type: "UNDO" }, config);
+    editor = reduceEditor(editor, { type: "UNDO" });
     expect(editor.selection.focus.offset).toBe(0); // before the first keystroke
-    editor = reduceEditor(editor, { type: "REDO" }, config);
+    editor = reduceEditor(editor, { type: "REDO" });
     expect(editor.selection.focus.offset).toBe(2); // after the last keystroke
   });
 
@@ -225,20 +222,20 @@ describe("undo coalescing through the reducer (#420)", () => {
     const clock = makeClock();
     const config: EditorConfig = { ...baseConfig, now: clock.now };
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" });
     clock.advance(5);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" });
     expect(textOf(editor)).toBe("ab");
 
     // Undo the whole burst.
-    editor = reduceEditor(editor, { type: "UNDO" }, config);
+    editor = reduceEditor(editor, { type: "UNDO" });
     expect(textOf(editor)).toBe("");
     // Type within the window — must NOT merge into the (now-undone) burst.
     clock.advance(5);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "c" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "c" });
     expect(textOf(editor)).toBe("c");
 
-    editor = reduceEditor(editor, { type: "UNDO" }, config);
+    editor = reduceEditor(editor, { type: "UNDO" });
     expect(textOf(editor)).toBe(""); // removes only "c"
     expect(editor.history.canUndo()).toBe(false);
   });
@@ -248,16 +245,16 @@ describe("undo coalescing through the reducer (#420)", () => {
     const config: EditorConfig = { ...baseConfig, now: clock.now };
     let editor = createInitialEditorState(config);
     // OUTDENT at margin 0 is a no-op committing action.
-    editor = reduceEditor(editor, { type: "OUTDENT" }, config);
+    editor = reduceEditor(editor, { type: "OUTDENT" });
     expect(editor.history.canUndo()).toBe(false); // no entry recorded
   });
 
   it("defaults to Date.now when config.now is absent (still coalesces a fast burst)", () => {
     const config: EditorConfig = { ...baseConfig }; // no `now`
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" }, config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "y" }, config);
-    editor = reduceEditor(editor, { type: "UNDO" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "x" });
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "y" });
+    editor = reduceEditor(editor, { type: "UNDO" });
     expect(textOf(editor)).toBe(""); // fast real-clock burst coalesces → one undo clears both
   });
 });

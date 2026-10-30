@@ -44,6 +44,7 @@ function createConfig(): EditorConfig {
     componentRegistry: createDefaultComponentRegistry(),
     attrRegistry: createDefaultAttrRegistry(),
     containerWidth: DEFAULT_WIDTH,
+    pageConfig: PAGE_CONFIG,
     // Inject the DOM HTML parser so handlePaste can decode text/html (rich paste).
     // Without it, core silently falls back to the plain-text path.
     htmlParser: browserHtmlParser,
@@ -64,10 +65,7 @@ export interface UseCollabEditorResult {
   containerRef: React.RefObject<HTMLDivElement | null>;
   measurer: TextShaper;
   hyphenator: Hyphenator;
-  pageConfig: PageConfig;
   focus: () => void;
-  /** The reducer's config — spread into `EditorView` so the controller uses the same registries. */
-  config: EditorConfig;
 }
 
 /**
@@ -108,7 +106,7 @@ export function useCollabEditor(peerDoc: State): UseCollabEditorResult {
   // lands, and a local keystroke may follow before React re-renders.
   const dispatch = useCallback<React.Dispatch<EditorAction>>(
     (action) => {
-      const next = reduceEditor(latestState.current, action, config);
+      const next = reduceEditor(latestState.current, action);
       latestState.current = next;
       setEditorState(next);
     },
@@ -143,8 +141,6 @@ export function useCollabEditor(peerDoc: State): UseCollabEditorResult {
     containerRef,
     measurer: geometry.measurer,
     hyphenator: geometry.hyphenator,
-    pageConfig: PAGE_CONFIG,
     focus,
-    config,
   };
 }

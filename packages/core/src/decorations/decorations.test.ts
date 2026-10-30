@@ -21,7 +21,7 @@ import { MAX_CHANGE_CHAIN } from "../editor/document-change";
 
 function step(editor: EditorState, action: EditorAction, set: DecorationSet) {
   for (const b of iterateLeafBlocksInDocumentOrder(editor.state)) void b; // a render warms the cache
-  const next = reduceEditor(editor, action, config);
+  const next = reduceEditor(editor, action);
   const mapping =
     next.lastDirtyIds === null ? IDENTITY_MAPPING : createPositionMapping(editor.state, next.state, next.lastDirtyIds, editor.selection.focus);
   return { next, set: mapDecorationSet(set, mapping, next.state) };
@@ -29,15 +29,15 @@ function step(editor: EditorState, action: EditorAction, set: DecorationSet) {
 
 function at(editor: EditorState, blockId: BlockId, offset: number): EditorState {
   const p = createPosition(blockId, offset);
-  return reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(p, p) }, config);
+  return reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(p, p) });
 }
 
 /** Two paragraphs "Anna met Rosa" / "in Berlin"; caret at end of the second. */
 function twoParas() {
   let editor = createInitialEditorState(config);
-  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "Anna met Rosa" }, config);
-  editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
-  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "in Berlin" }, config);
+  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "Anna met Rosa" });
+  editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "in Berlin" });
   // root → its final section → the paragraphs.
   const section = getBlock(editor.state, editor.state.rootId)?.lastChildId;
   const sec = section == null ? null : getBlock(editor.state, section);
@@ -150,8 +150,8 @@ describe("DecorationSet", () => {
 
   it("comment highlights follow typing inside the comment and re-resolve when markers change", () => {
     const { editor, p1 } = twoParas();
-    let ed = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(p1, 0), createPosition(p1, 4)) }, config);
-    ed = reduceEditor(ed, { type: "ADD_COMMENT", id: "c1" as CommentId, author: "a", body: "b", createdAt: 1 }, config);
+    let ed = reduceEditor(editor, { type: "SET_SELECTION", selection: createSpan(createPosition(p1, 0), createPosition(p1, 4)) });
+    ed = reduceEditor(ed, { type: "ADD_COMMENT", id: "c1" as CommentId, author: "a", body: "b", createdAt: 1 });
     const layers = createDecorationLayers();
     layers.setComments(ed.state, [{ commentId: "c1" as CommentId, active: false }]);
     const range = () => layers.merged.forBlock(p1).inline.map((s) => [s.start, s.end]);
@@ -159,10 +159,10 @@ describe("DecorationSet", () => {
     // Type inside the commented word: the comment grows. (At its END — before the end
     // marker — the text lands after the marker, outside: caret affinity, Word.)
     for (const b of iterateLeafBlocksInDocumentOrder(ed.state)) void b;
-    const typed = reduceEditor(at(ed, p1, 3), { type: "INSERT_TEXT", text: "a" }, config);
+    const typed = reduceEditor(at(ed, p1, 3), { type: "INSERT_TEXT", text: "a" });
     layers.advance(at(ed, p1, 3), typed);
     expect(range()).toEqual([[0, 6]]);
-    const atEnd = reduceEditor(at(typed, p1, 6), { type: "INSERT_TEXT", text: "b" }, config);
+    const atEnd = reduceEditor(at(typed, p1, 6), { type: "INSERT_TEXT", text: "b" });
     layers.advance(at(typed, p1, 6), atEnd);
     expect(range()).toEqual([[0, 6]]);
   });
@@ -171,29 +171,29 @@ describe("DecorationSet", () => {
     const { editor, p1 } = twoParas();
     const start = at(editor, p1, 0);
     for (const b of iterateLeafBlocksInDocumentOrder(start.state)) void b;
-    const typed = reduceEditor(start, { type: "INSERT_TEXT", text: "So " }, config);
+    const typed = reduceEditor(start, { type: "INSERT_TEXT", text: "So " });
     const moved = at(typed, p1, 9);
     expect(transitionMapping(start, moved).map(createPosition(p1, 0), 1).position).toEqual(createPosition(p1, 3));
     // A host that batched a second edit still maps: the change chain composes both.
-    const twice = reduceEditor(moved, { type: "INSERT_TEXT", text: "!" }, config); // at 9 in the new text
+    const twice = reduceEditor(moved, { type: "INSERT_TEXT", text: "!" }); // at 9 in the new text
     expect(transitionMapping(start, twice).map(createPosition(p1, 9), 1).position).toEqual(createPosition(p1, 13));
     // Past the bounded chain the extent is unknown → conservative.
     let far = twice;
-    for (let i = 0; i < MAX_CHANGE_CHAIN + 10; i++) far = reduceEditor(far, { type: "INSERT_TEXT", text: "x" }, config);
+    for (let i = 0; i < MAX_CHANGE_CHAIN + 10; i++) far = reduceEditor(far, { type: "INSERT_TEXT", text: "x" });
     expect(transitionMapping(start, far).map(createPosition(p1, 0)).position).toBeNull();
   });
 
   it("suggestion highlights drop when a suggestion is accepted without any text change", () => {
     const { editor, p1 } = twoParas();
     const suggesting = { ...config, suggestingAuthor: "alice" };
-    const typed = reduceEditor(at(editor, p1, 4), { type: "INSERT_TEXT", text: "a" }, suggesting);
+    const typed = reduceEditor({ ...at(editor, p1, 4), config: suggesting }, { type: "INSERT_TEXT", text: "a" });
     const id = getSuggestions(typed.state)[0]?.id;
     if (id === undefined) throw new Error("no suggestion");
     const layers = createDecorationLayers();
     layers.setSuggestions(typed.state, [{ suggestionId: id, active: false }]);
     expect(layers.merged.forBlock(p1).inline.length).toBe(1);
     for (const b of iterateLeafBlocksInDocumentOrder(typed.state)) void b;
-    const accepted = reduceEditor(typed, { type: "ACCEPT_SUGGESTION", id }, config);
+    const accepted = reduceEditor({ ...typed, config: config }, { type: "ACCEPT_SUGGESTION", id });
     layers.advance(typed, accepted);
     expect(layers.merged.forBlock(p1).inline.length).toBe(0);
   });
@@ -201,18 +201,18 @@ describe("DecorationSet", () => {
   it("stacked formatting suggestions each keep their own highlight; accepting one drops only its highlight", () => {
     const { editor, p1 } = twoParas();
     const select = (e: EditorState, a: number, b: number, cfg: typeof config): EditorState =>
-      reduceEditor(e, { type: "SET_SELECTION", selection: createSpan(createPosition(p1, a), createPosition(p1, b)) }, cfg);
+      reduceEditor({ ...e, config: cfg }, { type: "SET_SELECTION", selection: createSpan(createPosition(p1, a), createPosition(p1, b)) });
     const alice = { ...config, suggestingAuthor: "alice", now: () => 1 };
     const bob = { ...config, suggestingAuthor: "bob", now: () => 2 };
-    const bold = reduceEditor(select(editor, 0, 8, alice), { type: "TOGGLE_STYLE", style: "bold" }, alice);
-    const both = reduceEditor(select(bold, 5, 13, bob), { type: "TOGGLE_STYLE", style: "italic" }, bob);
+    const bold = reduceEditor(select(editor, 0, 8, alice), { type: "TOGGLE_STYLE", style: "bold" });
+    const both = reduceEditor(select(bold, 5, 13, bob), { type: "TOGGLE_STYLE", style: "italic" });
     const [a, b] = getSuggestions(both.state).map((x) => x.id);
     if (a === undefined || b === undefined) throw new Error("expected two suggestions");
     const layers = createDecorationLayers();
     layers.setSuggestions(both.state, [{ suggestionId: a, active: false }, { suggestionId: b, active: false }]);
     expect(inlineText(layers.merged, p1)).toEqual([[`tw-suggestion:${a}`, 0, 8], [`tw-suggestion:${b}`, 5, 13]]);
     for (const blk of iterateLeafBlocksInDocumentOrder(both.state)) void blk;
-    const accepted = reduceEditor(both, { type: "ACCEPT_SUGGESTION", id: b }, config);
+    const accepted = reduceEditor({ ...both, config: config }, { type: "ACCEPT_SUGGESTION", id: b });
     layers.advance(both, accepted);
     expect(inlineText(layers.merged, p1)).toEqual([[`tw-suggestion:${a}`, 0, 8]]);
   });
@@ -225,7 +225,7 @@ describe("DecorationSet", () => {
       [p1, p2].reduce((n, b) => n + layers.merged.forBlock(b).inline.filter((s) => s.decoration.class === "by-bot").length, 0);
     const advance = (prev: EditorState, action: EditorAction): EditorState => {
       for (const b of iterateLeafBlocksInDocumentOrder(prev.state)) void b;
-      const next = reduceEditor(prev, action, config);
+      const next = reduceEditor(prev, action);
       layers.advance(prev, next);
       return next;
     };
@@ -255,7 +255,7 @@ describe("DecorationSet", () => {
   it("each setter re-derives ONLY its own layer (flipping the active comment scans no suggestion layer)", () => {
     const { editor, p1 } = twoParas();
     const suggesting = { ...config, suggestingAuthor: "alice" };
-    const typed = reduceEditor(at(editor, p1, 4), { type: "INSERT_TEXT", text: "a" }, suggesting);
+    const typed = reduceEditor({ ...at(editor, p1, 4), config: suggesting }, { type: "INSERT_TEXT", text: "a" });
     const id = getSuggestions(typed.state)[0]?.id;
     if (id === undefined) throw new Error("no suggestion");
     const layers = createDecorationLayers();
@@ -287,8 +287,8 @@ describe("DecorationSet", () => {
   it("replace-all across many paragraphs keeps every decoration on untouched text", () => {
     let editor = createInitialEditorState(config);
     for (let i = 0; i < 60; i++) {
-      if (i > 0) editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
-      editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "cat Anna" }, config);
+      if (i > 0) editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+      editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "cat Anna" });
     }
     const ids = [...iterateLeafBlocksInDocumentOrder(editor.state)].map((b) => b.id);
     const set = createDecorationSet(editor.state, ids.map((id, i) => mention(`m${i}`, id, 4, 8)));
@@ -303,7 +303,7 @@ describe("DecorationSet", () => {
 
   it("replace-all inside ONE long paragraph keeps the decorations between the edits", () => {
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: Array.from({ length: 50 }, () => "cat Anna").join(" ") }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: Array.from({ length: 50 }, () => "cat Anna").join(" ") });
     const id = editor.selection.focus.blockId;
     const set = createDecorationSet(editor.state, Array.from({ length: 50 }, (_, i) => mention(`m${i}`, id, i * 9 + 4, i * 9 + 8)));
     const { set: mapped } = step(editor, { type: "REPLACE_ALL", matches: findMatches(editor.state, "cat"), replacement: "dog" }, set);
@@ -315,7 +315,7 @@ describe("DecorationSet", () => {
     const { editor, p1 } = twoParas();
     const start = at(editor, p1, 0);
     for (const b of iterateLeafBlocksInDocumentOrder(start.state)) void b;
-    const local = reduceEditor(start, { type: "INSERT_TEXT", text: "So " }, config); // "So Anna met Rosa"
+    const local = reduceEditor(start, { type: "INSERT_TEXT", text: "So " }); // "So Anna met Rosa"
     // A peer then edits the same block (applied to the doc, reconciled as foreign).
     const op = insertText(local.state, createPosition(p1, 16), "!", {});
     const foreign = reconcileForeignChange(local, op.dirtyIds);
@@ -327,7 +327,7 @@ describe("DecorationSet", () => {
   it("text moved into a run of newly created blocks keeps its decorations (paste, batched splits)", () => {
     const seed = (): { e: EditorState; p: BlockId } => {
       let e = createInitialEditorState(config);
-      e = reduceEditor(e, { type: "INSERT_TEXT", text: "Anna went to Berlin" }, config);
+      e = reduceEditor(e, { type: "INSERT_TEXT", text: "Anna went to Berlin" });
       return { e: at(e, e.selection.focus.blockId, 5), p: e.selection.focus.blockId };
     };
     const texts = (e: EditorState) => [...iterateLeafBlocksInDocumentOrder(e.state)].map((b) => b.inlineContent?.items.map((i) => (i.kind === "text" ? i.text : "")).join(""));
@@ -346,9 +346,9 @@ describe("DecorationSet", () => {
     const layers = createDecorationLayers();
     layers.setHost(b.e.state, [mention("berlin", b.p, 13, 19)]);
     for (const blk of iterateLeafBlocksInDocumentOrder(b.e.state)) void blk;
-    let e = reduceEditor(b.e, { type: "SPLIT_NODE" }, config);
-    e = reduceEditor(e, { type: "INSERT_TEXT", text: "x" }, config);
-    e = reduceEditor(e, { type: "SPLIT_NODE" }, config);
+    let e = reduceEditor(b.e, { type: "SPLIT_NODE" });
+    e = reduceEditor(e, { type: "INSERT_TEXT", text: "x" });
+    e = reduceEditor(e, { type: "SPLIT_NODE" });
     layers.advance(b.e, e);
     const lastB = [...iterateLeafBlocksInDocumentOrder(e.state)].at(-1)?.id;
     expect(texts(e)).toEqual(["Anna ", "x", "went to Berlin"]);

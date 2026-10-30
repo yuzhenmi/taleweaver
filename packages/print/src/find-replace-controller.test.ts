@@ -33,7 +33,7 @@ function config(): core.EditorConfig {
 function seededEditorState(text: string): core.EditorState {
   const cfg = config();
   let editor = core.createInitialEditorState(cfg);
-  editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text }, cfg);
+  editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text });
   return editor;
 }
 
@@ -142,7 +142,7 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
     const ctrl = createEditorController(mount(), {
       measurer,
       dispatch: (action) => {
-        editor = core.reduceEditor(editor, action, cfg);
+        editor = core.reduceEditor({ ...editor, config: cfg }, action);
       },
     });
     ctrl.update(editor);
@@ -185,7 +185,7 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
     const ctrl = createEditorController(mount(), {
       measurer,
       dispatch: (action) => {
-        editor = core.reduceEditor(editor, action, cfg);
+        editor = core.reduceEditor({ ...editor, config: cfg }, action);
       },
     });
     ctrl.update(editor);
@@ -276,7 +276,7 @@ describe("find/replace controller methods (#433 sub-slice A)", () => {
     const ctrl = createEditorController(mount(), {
       measurer,
       dispatch: (action) => {
-        editor = core.reduceEditor(editor, action, cfg);
+        editor = core.reduceEditor({ ...editor, config: cfg }, action);
       },
     });
     ctrl.update(editor);

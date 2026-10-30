@@ -83,7 +83,7 @@ specialized helpers it composes.
 
 - **`layout-driver/`** (files: `layout-driver.ts`, `layout-config.ts`) —
   the print backend's geometry pipeline. `createLayoutDriver(layoutConfig)`
-  returns a `LayoutDriver` whose `rebuild(state, containerWidth, lastDirtyIds)`
+  returns a `LayoutDriver` whose `rebuild(editorState)`
   runs render → cascade (main + template + embed bodies) → layout and returns
   the `LayoutBox | VirtualLayoutTree`. It RETAINS the prior cycle's five trees
   (render output, main/template/embed cascaded trees, layout tree) plus the prior
@@ -94,9 +94,10 @@ specialized helpers it composes.
   untouched. It
   also runs the restart-per-page footnote-numbering second pass (re-render
   the changed markers from the layout's anchor→page map until the page assignment
-  converges). `LayoutConfig = { measurer, hyphenator?, pageConfig?,
-  componentRegistry, attrRegistry }` — the print-mechanics capabilities (`measurer`
-  / `hyphenator`) that left core's `EditorConfig` live here. See
+  converges). `LayoutConfig = { measurer, hyphenator? }` — the print-mechanics
+  capabilities that are not on core's `EditorConfig`; the registries and page setup
+  come from the rebuilt `editorState.config` (a change to any of them drops the
+  retained trees). See
   [`2.1-layout-driver.md`](./2.1-layout-driver.md).
 
 - **`nav/`** (file: `nav-intent.ts`) — the geometric-navigation resolver. The
@@ -206,7 +207,7 @@ controller per editor, and the controller composes the other modules.
     │                                                          ▼           │
     │  on update(newState)                              new EditorState    │
     │   │                                              (.state, .lastDirtyIds)
-    │   ├─► layout-driver.rebuild(state, width, lastDirtyIds) ─► layoutTree
+    │   ├─► layout-driver.rebuild(editorState) ───────────► layoutTree    
     │   ├─► canvas-renderer ◄─── paint-cache                                │
     │   └─► layout queries on the DRIVER-built layoutTree (cursor pos,      │
     │       selection rects) — calls into core's geometry API              │

@@ -96,7 +96,7 @@ export interface EditorExtensions {
 
 // ─── Transactions ─────────────────────────────────────────────────────────
 
-type Reduce = (editor: EditorState, action: EditorAction, config: EditorConfig) => EditorState;
+type Reduce = (editor: EditorState, action: EditorAction) => EditorState;
 
 /**
  * Run a `TRANSACTION`: every step goes through `reduce` inside ONE history batch (one
@@ -106,7 +106,6 @@ type Reduce = (editor: EditorState, action: EditorAction, config: EditorConfig) 
 export function runTransaction(
   editor: EditorState,
   run: (tx: Transaction) => void,
-  config: EditorConfig,
   reduce: Reduce,
 ): EditorState {
   let current = editor;
@@ -134,7 +133,7 @@ export function runTransaction(
             `TRANSACTION: "${action.type}" is not undoable here and cannot be a transaction step`,
           );
         }
-        const next = reduce(current, action, config);
+        const next = reduce(current, action);
         if (next.state !== current.state) {
           if (next.lastDirtyIds === null) unknown = true;
           else for (const id of next.lastDirtyIds) dirty.add(id);
@@ -211,7 +210,7 @@ export function applyInputRules(editor: EditorState, config: EditorConfig, reduc
         : rule.replace(match, range);
     if (actions.length === 0) continue;
     editor.history.breakCoalescing();
-    const next = reduce(editor, { type: "TRANSACTION", run: (tx) => actions.forEach((a) => tx.dispatch(a)) }, config);
+    const next = reduce(editor, { type: "TRANSACTION", run: (tx) => actions.forEach((a) => tx.dispatch(a)) });
     if (next.state === editor.state && next.selection === editor.selection) continue;
     return { ...next, lastDirtyIds: unionDirty(editor.lastDirtyIds, next.lastDirtyIds) };
   }
@@ -470,8 +469,8 @@ type Keymap = Readonly<Record<string, KeyBinding>>;
 const parsedKeymaps = new WeakMap<Keymap, ReadonlyArray<{ name: string; parsed: ParsedBinding }>>();
 
 /**
- * Parse (and cache) every binding of `keymap`, throwing on a malformed name. The
- * controllers call this at creation, so a bad binding fails at configuration time.
+ * Parse (and cache) every binding of `keymap`, throwing on a malformed name.
+ * `createEditorStateFromState` calls this, so a bad binding fails at configuration time.
  */
 export function compileKeymap(keymap: Keymap): ReadonlyArray<{ name: string; parsed: ParsedBinding }> {
   let compiled = parsedKeymaps.get(keymap);

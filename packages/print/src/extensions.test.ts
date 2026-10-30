@@ -64,17 +64,16 @@ function mount(text = "", ext: core.EditorExtensions = extensions): {
   core.registerMark(attrRegistry, "mention", { atomic: true });
   const cfg: core.EditorConfig = { componentRegistry: core.createDefaultComponentRegistry(), attrRegistry, containerWidth: 600, extensions: ext };
   let editor = core.createInitialEditorState(cfg);
-  if (text !== "") editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text }, cfg);
+  if (text !== "") editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text });
   const container = document.createElement("div");
   document.body.appendChild(container);
   let controller: EditorController | null = null;
   controller = createEditorController(container, {
     measurer: core.createMockMeasurer(8, 16),
     dispatch: (a) => {
-      editor = core.reduceEditor(editor, a, cfg);
+      editor = core.reduceEditor(editor, a);
       controller?.update(editor);
     },
-    config: cfg,
   });
   controller.update(editor);
   const textarea = container.querySelector("textarea");

@@ -39,29 +39,29 @@ export function getTextOf(state: State, blockId: BlockId): string {
 /** Build an editor with the given text typed in, cursor at end. */
 export function stateWithText(text: string): EditorState {
   let s = createInitialEditorState(config);
-  s = reduceEditor(s, { type: "INSERT_TEXT", text }, config);
+  s = reduceEditor(s, { type: "INSERT_TEXT", text });
   return s;
 }
 
 /** Build an editor with two paragraphs: "abc" and "def". */
 export function stateWithTwoParagraphs(): EditorState {
   let s = createInitialEditorState(config);
-  s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" }, config);
-  s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
-  s = reduceEditor(s, { type: "INSERT_TEXT", text: "def" }, config);
+  s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" });
+  s = reduceEditor(s, { type: "SPLIT_NODE" });
+  s = reduceEditor(s, { type: "INSERT_TEXT", text: "def" });
   return s;
 }
 
 /** Set a specific selection on an editor state. */
 export function withSelection(s: EditorState, sel: Selection): EditorState {
-  return reduceEditor(s, { type: "SET_SELECTION", selection: sel }, config);
+  return reduceEditor(s, { type: "SET_SELECTION", selection: sel });
 }
 
 /** Type individual characters one at a time. */
 export function typeChars(state: EditorState, chars: string): EditorState {
   let s = state;
   for (const ch of chars) {
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: ch }, config);
+    s = reduceEditor(s, { type: "INSERT_TEXT", text: ch });
   }
   return s;
 }

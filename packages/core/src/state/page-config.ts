@@ -3,9 +3,9 @@
 // Page-setup data (size, orientation, margins, gap). DOCUMENT data — NOT layout
 // geometry: page setup round-trips with the document (Google Docs File ▸ Page
 // setup; Word per-section; .docx). It lives in `state/` (mode-agnostic, no
-// `layout/` dependency) so core's `EditorConfig` can carry it for
-// `toggle-section-landscape` AND the print backend's `LayoutConfig` can carry it
-// for pagination — the SAME instance supplied to both by the host. The
+// `layout/` dependency) so core's `EditorConfig` can carry it — read by
+// `toggle-section-landscape` AND, from the same `EditorState.config`, by the print
+// backend's layout-driver for pagination. The
 // `layout/page-config.ts` file re-exports these for back-compat.
 
 /**

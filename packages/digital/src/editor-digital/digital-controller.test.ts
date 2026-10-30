@@ -1096,7 +1096,7 @@ describe("DigitalController — anchors, versions and collaboration", () => {
 
   it("a peer's update (separate Y.Doc, Y.applyUpdate) is applied: DOM, selection rebased, anchors moved", () => {
     const cfg = { componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800 };
-    let peerA = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text: "hello world" }, cfg);
+    let peerA = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text: "hello world" });
     const docA = core.getYDoc(peerA.state);
     const docB = new Y.Doc();
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
@@ -1105,8 +1105,8 @@ describe("DigitalController — anchors, versions and collaboration", () => {
     const id = peerA.selection.focus.blockId;
     controller.dispatch({ type: "SET_SELECTION", selection: caretAt(id, 5) });
     const anchor = controller.createAnchor(createPosition(id, 6), createPosition(id, 11));
-    peerA = core.reduceEditor(peerA, { type: "SET_SELECTION", selection: caretAt(id, 0) }, cfg);
-    peerA = core.reduceEditor(peerA, { type: "INSERT_TEXT", text: "Oh, " }, cfg);
+    peerA = core.reduceEditor(peerA, { type: "SET_SELECTION", selection: caretAt(id, 0) });
+    peerA = core.reduceEditor(peerA, { type: "INSERT_TEXT", text: "Oh, " });
     expect(leafBlock(container).textContent).toBe("Oh, hello world");
     expect(controller.editorState.selection.focus).toEqual(createPosition(id, 9));
     expect(anchor === null ? null : [anchor.from.offset, anchor.to.offset]).toEqual([10, 15]);
@@ -1122,7 +1122,7 @@ describe("DigitalController — anchors, versions and collaboration", () => {
 describe("DigitalController — remote changes: lifetime, ownership, IME", () => {
   const cfg = { componentRegistry: createDefaultComponentRegistry(), attrRegistry: createDefaultAttrRegistry(), containerWidth: 800 };
   function peerPair() {
-    let peerA = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text: "hello world" }, cfg);
+    let peerA = core.reduceEditor(core.createInitialEditorState(cfg), { type: "INSERT_TEXT", text: "hello world" });
     const docA = core.getYDoc(peerA.state);
     const docB = new Y.Doc();
     Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
@@ -1131,7 +1131,7 @@ describe("DigitalController — remote changes: lifetime, ownership, IME", () =>
     return {
       stateB,
       type: (t: string) => {
-        peerA = core.reduceEditor(peerA, { type: "INSERT_TEXT", text: t }, cfg);
+        peerA = core.reduceEditor(peerA, { type: "INSERT_TEXT", text: t });
       },
     };
   }

@@ -55,12 +55,11 @@ const suggestingConfig: EditorConfig = { ...directConfig, suggestingAuthor: "ali
 /** Place a collapsed caret at `offset` of `paraId`. */
 function caretAt(editor: EditorState, paraId: BlockId, offset: number): EditorState {
   return reduceEditor(
-    editor,
+    { ...editor, config: suggestingConfig },
     {
       type: "SET_SELECTION",
       selection: createSpan(createPosition(paraId, offset), createPosition(paraId, offset)),
     },
-    suggestingConfig,
   );
 }
 
@@ -68,7 +67,7 @@ describe("handleInsertText — suggesting mode (slice 4b)", () => {
   it("collapsed caret: inserts the text AND mints ONE insertion suggestion by the author", () => {
     const initial = createInitialEditorState(suggestingConfig);
     const paraId = bodyParaId(initial);
-    const next = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" }, suggestingConfig);
+    const next = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
 
     // The text landed.
     expect(getTextOf(next.state, paraId)).toBe("hi");
@@ -91,11 +90,11 @@ describe("handleInsertText — suggesting mode (slice 4b)", () => {
   it("is undoable: UNDO reverts both the inserted text and the suggestion record", () => {
     const initial = createInitialEditorState(suggestingConfig);
     const paraId = bodyParaId(initial);
-    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" }, suggestingConfig);
+    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
 
     expect(typed.history.canUndo()).toBe(true);
 
-    const undone = reduceEditor(typed, { type: "UNDO" }, suggestingConfig);
+    const undone = reduceEditor(typed, { type: "UNDO" });
     expect(getTextOf(undone.state, paraId)).toBe("");
     expect(getSuggestions(undone.state)).toHaveLength(0);
   });
@@ -103,9 +102,9 @@ describe("handleInsertText — suggesting mode (slice 4b)", () => {
   it("coalesces consecutive adjacent inserts into ONE insertion suggestion", () => {
     const initial = createInitialEditorState(suggestingConfig);
     const paraId = bodyParaId(initial);
-    const a = reduceEditor(initial, { type: "INSERT_TEXT", text: "a" }, suggestingConfig);
+    const a = reduceEditor(initial, { type: "INSERT_TEXT", text: "a" });
     // Caret is now after "a"; the next insert is immediately adjacent.
-    const ab = reduceEditor(a, { type: "INSERT_TEXT", text: "b" }, suggestingConfig);
+    const ab = reduceEditor(a, { type: "INSERT_TEXT", text: "b" });
 
     expect(getTextOf(ab.state, paraId)).toBe("ab");
     const suggestions = getSuggestions(ab.state);
@@ -117,7 +116,7 @@ describe("handleInsertText — suggesting mode (slice 4b)", () => {
   it("direct mode (suggestingAuthor unset): plain text, NO suggestion", () => {
     const initial = createInitialEditorState(directConfig);
     const paraId = bodyParaId(initial);
-    const next = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" }, directConfig);
+    const next = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
 
     expect(getTextOf(next.state, paraId)).toBe("hi");
     expect(getSuggestions(next.state)).toHaveLength(0);
@@ -127,11 +126,10 @@ describe("handleInsertText — suggesting mode (slice 4b)", () => {
     const seeded = reduceEditor(
       createInitialEditorState(directConfig),
       { type: "INSERT_TEXT", text: "abcdef" },
-      directConfig,
     );
     const paraId = bodyParaId(seeded);
     const placed = caretAt(seeded, paraId, 3); // caret between "abc" and "def"
-    const next = reduceEditor(placed, { type: "INSERT_TEXT", text: "Z" }, suggestingConfig);
+    const next = reduceEditor(placed, { type: "INSERT_TEXT", text: "Z" });
 
     expect(getTextOf(next.state, paraId)).toBe("abcZdef");
     const suggestions = getSuggestions(next.state);
@@ -148,12 +146,11 @@ function selectIn(
   end: number,
 ): EditorState {
   return reduceEditor(
-    editor,
+    { ...editor, config: suggestingConfig },
     {
       type: "SET_SELECTION",
       selection: createSpan(createPosition(paraId, start), createPosition(paraId, end)),
     },
-    suggestingConfig,
   );
 }
 
@@ -184,12 +181,11 @@ describe("handleInsertText — type over a selection, suggesting mode (slice 4d-
     const seeded = reduceEditor(
       createInitialEditorState(directConfig),
       { type: "INSERT_TEXT", text: "abcdef" },
-      directConfig,
     );
     const paraId = bodyParaId(seeded);
     const selected = selectIn(seeded, paraId, 1, 4);
 
-    const next = reduceEditor(selected, { type: "INSERT_TEXT", text: "X" }, suggestingConfig);
+    const next = reduceEditor(selected, { type: "INSERT_TEXT", text: "X" });
 
     // The struck "bcd" STAYS — "X" lands BEFORE it → content text "aXbcdef".
     expect(getTextOf(next.state, paraId)).toBe("aXbcdef");
@@ -225,16 +221,15 @@ describe("handleInsertText — type over a selection, suggesting mode (slice 4d-
     const seeded = reduceEditor(
       createInitialEditorState(directConfig),
       { type: "INSERT_TEXT", text: "abcdef" },
-      directConfig,
     );
     const paraId = bodyParaId(seeded);
     const selected = selectIn(seeded, paraId, 1, 4);
-    const typed = reduceEditor(selected, { type: "INSERT_TEXT", text: "X" }, suggestingConfig);
+    const typed = reduceEditor(selected, { type: "INSERT_TEXT", text: "X" });
 
     expect(typed.history.canUndo()).toBe(true);
 
     // A SINGLE undo undoes both the strike and the insert (atomic composite).
-    const undone = reduceEditor(typed, { type: "UNDO" }, suggestingConfig);
+    const undone = reduceEditor(typed, { type: "UNDO" });
     expect(getTextOf(undone.state, paraId)).toBe("abcdef");
     expect(getSuggestions(undone.state)).toHaveLength(0);
   });
@@ -243,7 +238,6 @@ describe("handleInsertText — type over a selection, suggesting mode (slice 4d-
     const seeded = reduceEditor(
       createInitialEditorState(directConfig),
       { type: "INSERT_TEXT", text: "abcdef" },
-      directConfig,
     );
     const paraId = bodyParaId(seeded);
     const selected = reduceEditor(
@@ -252,10 +246,9 @@ describe("handleInsertText — type over a selection, suggesting mode (slice 4d-
         type: "SET_SELECTION",
         selection: createSpan(createPosition(paraId, 1), createPosition(paraId, 4)),
       },
-      directConfig,
     );
 
-    const next = reduceEditor(selected, { type: "INSERT_TEXT", text: "X" }, directConfig);
+    const next = reduceEditor(selected, { type: "INSERT_TEXT", text: "X" });
 
     // Destructive replace: "bcd" is GONE, "X" inserted → "aXef"; no suggestion.
     expect(getTextOf(next.state, paraId)).toBe("aXef");
@@ -268,9 +261,9 @@ describe("handleInsertText — type over a selection, suggesting mode (slice 4d-
   it("multi-block type-over: strikes the p1 tail + p2 head, inserts X at p1, one insertion + one deletion", () => {
     // Build two paragraphs: "abc" | "def" (split between them).
     let s = createInitialEditorState(directConfig);
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" }, directConfig);
-    s = reduceEditor(s, { type: "SPLIT_NODE" }, directConfig);
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: "def" }, directConfig);
+    s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" });
+    s = reduceEditor(s, { type: "SPLIT_NODE" });
+    s = reduceEditor(s, { type: "INSERT_TEXT", text: "def" });
 
     const root = getBlock(s.state, finalSectionOf(s.state));
     const p1 = root?.firstChildId ?? null;
@@ -281,15 +274,14 @@ describe("handleInsertText — type over a selection, suggesting mode (slice 4d-
 
     // Select from offset 1 of p1 ("a|bc") through offset 2 of p2 ("de|f").
     const selected = reduceEditor(
-      s,
+      { ...s, config: suggestingConfig },
       {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(p1, 1), createPosition(p2, 2)),
       },
-      suggestingConfig,
     );
 
-    const next = reduceEditor(selected, { type: "INSERT_TEXT", text: "X" }, suggestingConfig);
+    const next = reduceEditor(selected, { type: "INSERT_TEXT", text: "X" });
 
     // Soft delete keeps the struck text: p1 = "a" + "X"(insertion) + struck "bc";
     // p2 = struck "de" + "f". The inserted run lands at the selection START (p1).
@@ -323,14 +315,14 @@ describe("handleInsertText — type over a selection, suggesting mode (slice 4d-
 describe("suggesting typing keeps ¶P's markAttrs", () => {
   it("bold typing at (P, len) writes the inclusive set on ¶P; Enter gives a bold empty line with no suggestion attr or link", () => {
     const suggesting: EditorConfig = { ...directConfig, suggestingAuthor: "alice" };
-    let editor = reduceEditor(createInitialEditorState(directConfig), { type: "INSERT_TEXT", text: "ab" }, directConfig);
+    let editor = reduceEditor(createInitialEditorState(directConfig), { type: "INSERT_TEXT", text: "ab" });
     const p = bodyParaId(editor);
     expect(getBlock(editor.state, p)?.markAttrs).toBeUndefined();
-    editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" }, suggesting);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "c" }, suggesting);
+    editor = reduceEditor({ ...editor, config: suggesting }, { type: "TOGGLE_STYLE", style: "bold" });
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "c" });
     // The registry reached the suggesting writer: ¶P carries bold, never the provenance id.
     expect(getBlock(editor.state, p)?.markAttrs).toEqual({ bold: true });
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, suggesting);
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
     // The caret block is the empty tail (B keeps its id); its ¶ keeps the bold props only.
     const tail = getBlock(editor.state, editor.selection.focus.blockId);
     expect(tail?.markAttrs).toEqual({ bold: true });

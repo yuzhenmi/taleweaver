@@ -14,8 +14,8 @@
  */
 import { describe, it, expect } from "vitest";
 import { config, reduceEditor } from "./test-helpers";
-import type { EditorState } from "../editor-state";
-import { getBlock, createHistory } from "../../state";
+import { createEditorStateFromState, type EditorState } from "../editor-state";
+import { getBlock } from "../../state";
 import type { BlockId } from "../../state";
 import {
   buildState,
@@ -81,18 +81,7 @@ function makeEditor(
     ],
   });
   const cursor = { blockId: cursorBlock, offset: cursorOffset };
-  return {
-    state: initialState,
-    selection: { anchor: cursor, focus: cursor },
-    history: createHistory(initialState),
-    lastDirtyIds: null,
-    lastChange: null,
-    containerWidth: config.containerWidth,
-    targetX: null,
-    caretPageHint: undefined,
-    caretAffinity: undefined,
-    anchorAffinity: undefined,
-  };
+  return createEditorStateFromState(initialState, { anchor: cursor, focus: cursor }, config);
 }
 
 /** Ordered list of the document root's direct children (its sections). */
@@ -159,7 +148,7 @@ function brokenEditor(): {
   head: BlockId;
 } {
   const initial = makeEditor("p3" as BlockId);
-  const editor = reduceEditor(initial, { type: "SECTION_BREAK" }, config);
+  const editor = reduceEditor(initial, { type: "SECTION_BREAK" });
   const children = rootChildren(editor);
   if (children.length !== 2) {
     // Guard: if SECTION_BREAK ever fails to produce exactly two sections, fail
@@ -185,7 +174,7 @@ describe("section-break removal — Backspace at the section boundary", () => {
       offset: 0,
     });
 
-    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
+    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
     // The break is gone in ONE step: its item (¶H) is deleted, H's empty content
     // merges into p3 (survivor R), and the content joins the final section.
@@ -223,7 +212,6 @@ describe("section-break removal — Backspace at the section boundary", () => {
     const afterBreakRemoval = reduceEditor(
       editor,
       { type: "DELETE_BACKWARD" },
-      config,
     );
     // Sanity: p2 and p3 still separate after the first backspace.
     expect(textOf(afterBreakRemoval, "p2" as BlockId)).toBe("two");
@@ -232,7 +220,6 @@ describe("section-break removal — Backspace at the section boundary", () => {
     const merged = reduceEditor(
       afterBreakRemoval,
       { type: "DELETE_BACKWARD" },
-      config,
     );
 
     // Now the two boundary paragraphs merge into one: ¶p2 goes and the right
@@ -257,10 +244,9 @@ describe("section-break removal — Delete (forward) at the section boundary", (
     const positioned = reduceEditor(
       editor,
       { type: "SET_SELECTION", selection: { anchor: cursor, focus: cursor } },
-      config,
     );
 
-    const next = reduceEditor(positioned, { type: "DELETE_FORWARD" }, config);
+    const next = reduceEditor(positioned, { type: "DELETE_FORWARD" });
 
     // Same one-step result as Backspace: one (final) section, H merged into p3.
     expect(next.state).not.toBe(positioned.state);
@@ -287,10 +273,9 @@ describe("section-break removal — Delete (forward) at the section boundary", (
     const positioned = reduceEditor(
       editor,
       { type: "SET_SELECTION", selection: { anchor: cursor, focus: cursor } },
-      config,
     );
 
-    const next = reduceEditor(positioned, { type: "DELETE_FORWARD" }, config);
+    const next = reduceEditor(positioned, { type: "DELETE_FORWARD" });
 
     // ¶p2 is a plain ¶: p2 merges into H, which keeps the section end.
     expect(sectionCount(next)).toBe(2);
@@ -313,10 +298,9 @@ describe("section-break removal — non-section-boundary cases unchanged", () =>
     const positioned = reduceEditor(
       editor,
       { type: "SET_SELECTION", selection: { anchor: cursor, focus: cursor } },
-      config,
     );
 
-    const next = reduceEditor(positioned, { type: "DELETE_BACKWARD" }, config);
+    const next = reduceEditor(positioned, { type: "DELETE_BACKWARD" });
 
     // No change: state reference unchanged (start of doc, no prev section).
     expect(next).toBe(positioned);
@@ -332,10 +316,9 @@ describe("section-break removal — non-section-boundary cases unchanged", () =>
     const positioned = reduceEditor(
       editor,
       { type: "SET_SELECTION", selection: { anchor: cursor, focus: cursor } },
-      config,
     );
 
-    const next = reduceEditor(positioned, { type: "DELETE_BACKWARD" }, config);
+    const next = reduceEditor(positioned, { type: "DELETE_BACKWARD" });
 
     // ¶p1 removed; the right paragraph p2 survives holding "onetwo";
     // section count unchanged.
@@ -357,11 +340,11 @@ describe("section-break removal — undo", () => {
     const sectionsBefore = sectionCount(editor);
     expect(sectionsBefore).toBe(2);
 
-    const removed = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
+    const removed = reduceEditor(editor, { type: "DELETE_BACKWARD" });
     // Removing the only break leaves the final section alone.
     expect(sectionCount(removed)).toBe(1);
 
-    const undone = reduceEditor(removed, { type: "UNDO" }, config);
+    const undone = reduceEditor(removed, { type: "UNDO" });
 
     // The break is back: two sections, the original structure restored.
     expect(sectionCount(undone)).toBe(2);
@@ -378,7 +361,7 @@ describe("section-break removal — section-less doc unaffected", () => {
     // doc → [p1, p2, p3, p4] with NO section break. Cursor at start of p2.
     const editor = makeEditor("p2" as BlockId, 0);
 
-    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
+    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
     // Normal merge: ¶p1 removed, survivor R = p2.
     expect(getBlock(next.state, "p1" as BlockId)).toBeNull();
@@ -391,14 +374,14 @@ describe("section-break removal — section-less doc unaffected", () => {
 
   it("Backspace at the start of the doc's first block is a no-op (no section)", () => {
     const editor = makeEditor("p1" as BlockId, 0);
-    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
+    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
     expect(next).toBe(editor);
   });
 
   it("Delete (forward) mid-doc still merges the next block (no section)", () => {
     // Cursor at end of p1 ("one", len 3), DELETE_FORWARD merges p2 in.
     const editor = makeEditor("p1" as BlockId, 3);
-    const next = reduceEditor(editor, { type: "DELETE_FORWARD" }, config);
+    const next = reduceEditor(editor, { type: "DELETE_FORWARD" });
     // ¶p1 removed, survivor R = p2.
     expect(getBlock(next.state, "p1" as BlockId)).toBeNull();
     expect(textOf(next, "p2" as BlockId)).toBe("onetwo");

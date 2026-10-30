@@ -333,7 +333,7 @@ function seededEditorState(text: string): { editor: core.EditorState; blockId: c
     containerWidth: 600,
   };
   let editor = core.createInitialEditorState(config);
-  editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text }, config);
+  editor = core.reduceEditor(editor, { type: "INSERT_TEXT", text });
   const block = finalSection(editor.state);
   const blockId = block?.firstChildId;
   if (blockId === null || blockId === undefined) throw new Error("no paragraph block");

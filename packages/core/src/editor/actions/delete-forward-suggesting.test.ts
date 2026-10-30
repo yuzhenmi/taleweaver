@@ -63,12 +63,11 @@ const suggestingConfig: EditorConfig = { ...directConfig, suggestingAuthor: "ali
 /** Place a collapsed caret at `offset` of `paraId` (suggesting config). */
 function caretAt(editor: EditorState, paraId: BlockId, offset: number): EditorState {
   return reduceEditor(
-    editor,
+    { ...editor, config: suggestingConfig },
     {
       type: "SET_SELECTION",
       selection: createSpan(createPosition(paraId, offset), createPosition(paraId, offset)),
     },
-    suggestingConfig,
   );
 }
 
@@ -80,12 +79,11 @@ function select(
   end: number,
 ): EditorState {
   return reduceEditor(
-    editor,
+    { ...editor, config: suggestingConfig },
     {
       type: "SET_SELECTION",
       selection: createSpan(createPosition(paraId, start), createPosition(paraId, end)),
     },
-    suggestingConfig,
   );
 }
 
@@ -118,7 +116,6 @@ function seed(text: string): EditorState {
   return reduceEditor(
     createInitialEditorState(directConfig),
     { type: "INSERT_TEXT", text },
-    directConfig,
   );
 }
 
@@ -130,9 +127,9 @@ function twoParagraphs(): {
   secondId: BlockId;
 } {
   let s = createInitialEditorState(directConfig);
-  s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" }, directConfig);
-  s = reduceEditor(s, { type: "SPLIT_NODE" }, directConfig);
-  s = reduceEditor(s, { type: "INSERT_TEXT", text: "def" }, directConfig);
+  s = reduceEditor(s, { type: "INSERT_TEXT", text: "abc" });
+  s = reduceEditor(s, { type: "SPLIT_NODE" });
+  s = reduceEditor(s, { type: "INSERT_TEXT", text: "def" });
   const root = getBlock(s.state, finalSectionOf(s.state));
   const firstId = root?.firstChildId ?? null;
   const secondId = root?.lastChildId ?? null;
@@ -148,7 +145,7 @@ describe("handleDeleteForward — suggesting mode (slice 4c-ii)", () => {
     const paraId = bodyParaId(seeded);
     const placed = caretAt(seeded, paraId, 0); // caret before "abc"
 
-    const next = reduceEditor(placed, { type: "DELETE_FORWARD" }, suggestingConfig);
+    const next = reduceEditor(placed, { type: "DELETE_FORWARD" });
 
     // Text is UNCHANGED — soft delete keeps the struck char.
     expect(getTextOf(next.state, paraId)).toBe("abc");
@@ -171,8 +168,8 @@ describe("handleDeleteForward — suggesting mode (slice 4c-ii)", () => {
     const paraId = bodyParaId(seeded);
     const placed = caretAt(seeded, paraId, 0); // caret before "abc"
 
-    const once = reduceEditor(placed, { type: "DELETE_FORWARD" }, suggestingConfig);
-    const twice = reduceEditor(once, { type: "DELETE_FORWARD" }, suggestingConfig);
+    const once = reduceEditor(placed, { type: "DELETE_FORWARD" });
+    const twice = reduceEditor(once, { type: "DELETE_FORWARD" });
 
     // Text still intact; "a" (0) AND "b" (1) are both struck; "c" (2) is not.
     // If the caret had NOT advanced, the 2nd Delete would re-target the already-
@@ -198,11 +195,11 @@ describe("handleDeleteForward — suggesting mode (slice 4c-ii)", () => {
     const seeded = seed("abc");
     const paraId = bodyParaId(seeded);
     const placed = caretAt(seeded, paraId, 0);
-    const struck = reduceEditor(placed, { type: "DELETE_FORWARD" }, suggestingConfig);
+    const struck = reduceEditor(placed, { type: "DELETE_FORWARD" });
 
     expect(struck.history.canUndo()).toBe(true);
 
-    const undone = reduceEditor(struck, { type: "UNDO" }, suggestingConfig);
+    const undone = reduceEditor(struck, { type: "UNDO" });
     expect(getTextOf(undone.state, paraId)).toBe("abc");
     expect(deletionIdAt(undone, paraId, 0)).toBeUndefined();
     expect(getSuggestions(undone.state)).toHaveLength(0);
@@ -213,7 +210,7 @@ describe("handleDeleteForward — suggesting mode (slice 4c-ii)", () => {
     const paraId = bodyParaId(seeded);
     const selected = select(seeded, paraId, 1, 4); // select "bcd"
 
-    const next = reduceEditor(selected, { type: "DELETE_FORWARD" }, suggestingConfig);
+    const next = reduceEditor(selected, { type: "DELETE_FORWARD" });
 
     // Text intact; "bcd" (indices 1..3) carry the deletion id; "a"/"e"/"f" do not.
     expect(getTextOf(next.state, paraId)).toBe("abcdef");
@@ -241,10 +238,9 @@ describe("handleDeleteForward — suggesting mode (slice 4c-ii)", () => {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(paraId, 0), createPosition(paraId, 0)),
       },
-      directConfig,
     );
 
-    const next = reduceEditor(placed, { type: "DELETE_FORWARD" }, directConfig);
+    const next = reduceEditor(placed, { type: "DELETE_FORWARD" });
 
     // Direct delete: the char is REALLY removed (text shrinks), caret stays at pos.
     expect(getTextOf(next.state, paraId)).toBe("bc");
@@ -256,7 +252,7 @@ describe("handleDeleteForward — suggesting mode (slice 4c-ii)", () => {
     const { editor, firstId, secondId } = twoParagraphs();
     const placed = caretAt(editor, firstId, 3); // caret at end of "abc"
 
-    const next = reduceEditor(placed, { type: "DELETE_FORWARD" }, suggestingConfig);
+    const next = reduceEditor(placed, { type: "DELETE_FORWARD" });
 
     // Blocks stay SEPARATE — NO real merge happened.
     expect(getBlock(next.state, firstId)?.id).toBe(firstId);
@@ -282,7 +278,7 @@ describe("handleDeleteForward — suggesting mode (slice 4c-ii)", () => {
 
     // Undoable: UNDO removes the tag + record, blocks unchanged.
     expect(next.history.canUndo()).toBe(true);
-    const undone = reduceEditor(next, { type: "UNDO" }, suggestingConfig);
+    const undone = reduceEditor(next, { type: "UNDO" });
     expect(joinTagged(undone, firstId)).toBe(false);
     expect(getSuggestions(undone.state)).toHaveLength(0);
     expect(getTextOf(undone.state, firstId)).toBe("abc");
@@ -297,10 +293,9 @@ describe("handleDeleteForward — suggesting mode (slice 4c-ii)", () => {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(firstId, 3), createPosition(firstId, 3)),
       },
-      directConfig,
     );
 
-    const next = reduceEditor(placed, { type: "DELETE_FORWARD" }, directConfig);
+    const next = reduceEditor(placed, { type: "DELETE_FORWARD" });
 
     // Real merge: the second block (survivor R) holds "abcdef"; the first is gone.
     expect(getTextOf(next.state, secondId)).toBe("abcdef");

@@ -255,7 +255,7 @@ describe("TOC click-to-navigate gesture", () => {
     const container = mount();
     const dispatch = vi.fn();
     const controller = createEditorController(container, {
-      measurer, dispatch, pageConfig: pageConfig(), pageHeight: 800, pageGap: 24,
+      measurer, dispatch, pageHeight: 800, pageGap: 24,
     });
     controller.update(editor);
     pinSlot0(container);
@@ -296,7 +296,7 @@ describe("TOC click-to-navigate gesture", () => {
     const container = mount();
     const dispatch = vi.fn();
     const controller = createEditorController(container, {
-      measurer, dispatch, pageConfig: pageConfig(), pageHeight: 800, pageGap: 24,
+      measurer, dispatch, pageHeight: 800, pageGap: 24,
     });
     controller.update(editor);
     pinSlot0(container);

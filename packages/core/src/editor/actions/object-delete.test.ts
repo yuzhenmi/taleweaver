@@ -112,7 +112,7 @@ describe("DELETE_FORWARD / DELETE_BACKWARD on an object selection", () => {
   it("DELETE_FORWARD removes the image and lands the caret at the following block's start", () => {
     const editor = editorFrom(standardDoc(), config);
 
-    const next = reduceEditor(editor, { type: "DELETE_FORWARD" }, config);
+    const next = reduceEditor(editor, { type: "DELETE_FORWARD" });
 
     expect(getBlock(next.state, IMAGE_ID)).toBeNull();
     expect(next.selection.focus.blockId).toBe(TRAILING_ID);
@@ -122,16 +122,16 @@ describe("DELETE_FORWARD / DELETE_BACKWARD on an object selection", () => {
 
   it("DELETE_FORWARD is one undo entry; undo restores the image AND the object selection", () => {
     const editor = editorFrom(standardDoc(), config);
-    const next = reduceEditor(editor, { type: "DELETE_FORWARD" }, config);
+    const next = reduceEditor(editor, { type: "DELETE_FORWARD" });
     expect(getBlock(next.state, IMAGE_ID)).toBeNull();
 
-    const undone = reduceEditor(next, { type: "UNDO" }, config);
+    const undone = reduceEditor(next, { type: "UNDO" });
     expect(getBlock(undone.state, IMAGE_ID)?.type).toBe("image");
     expect(isObjectSelection(undone.state, undone.selection, componentRegistry)).toBe(IMAGE_ID);
 
     // A SECOND undo is a no-op (history exhausted — the delete was ONE entry):
     // the image and the object selection stay put.
-    const undoneAgain = reduceEditor(undone, { type: "UNDO" }, config);
+    const undoneAgain = reduceEditor(undone, { type: "UNDO" });
     expect(getBlock(undoneAgain.state, IMAGE_ID)?.type).toBe("image");
     expect(isObjectSelection(undoneAgain.state, undoneAgain.selection, componentRegistry)).toBe(
       IMAGE_ID,
@@ -141,7 +141,7 @@ describe("DELETE_FORWARD / DELETE_BACKWARD on an object selection", () => {
   it("DELETE_BACKWARD removes the image (same removal) and lands the caret on the following block", () => {
     const editor = editorFrom(standardDoc(), config);
 
-    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
+    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
     expect(getBlock(next.state, IMAGE_ID)).toBeNull();
     expect(next.selection.focus.blockId).toBe(TRAILING_ID);
@@ -155,7 +155,7 @@ describe("DELETE_FORWARD / DELETE_BACKWARD on an object selection", () => {
     const after = getBlock(editor.state, IMAGE_ID)?.nextSiblingId ?? null;
     expect(after).not.toBeNull();
 
-    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" }, config);
+    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
     expect(getBlock(next.state, IMAGE_ID)).toBeNull();
     expect(next.selection.focus).toEqual({ blockId: after, offset: 0 });
@@ -164,7 +164,7 @@ describe("DELETE_FORWARD / DELETE_BACKWARD on an object selection", () => {
   it("SUGGESTING MODE: object DELETE_BACKWARD HARD-removes the image (not soft-deleted)", () => {
     const editor = editorFrom(standardDoc(), suggestingConfig);
 
-    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" }, suggestingConfig);
+    const next = reduceEditor(editor, { type: "DELETE_BACKWARD" });
 
     // The image is genuinely gone — whole-block deletion-as-suggestion does not
     // exist for an atomic block (matches deleteAdjacentAtomicLeaf).
@@ -174,7 +174,7 @@ describe("DELETE_FORWARD / DELETE_BACKWARD on an object selection", () => {
   it("SUGGESTING MODE: object DELETE_FORWARD HARD-removes the image (not soft-deleted)", () => {
     const editor = editorFrom(standardDoc(), suggestingConfig);
 
-    const next = reduceEditor(editor, { type: "DELETE_FORWARD" }, suggestingConfig);
+    const next = reduceEditor(editor, { type: "DELETE_FORWARD" });
 
     // Symmetric to DELETE_BACKWARD: hard removal, no deletion-as-suggestion for
     // a whole atomic block.
@@ -190,9 +190,8 @@ describe("DELETE_FORWARD / DELETE_BACKWARD on an object selection", () => {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(PARA_ID, 5), createPosition(PARA_ID, 5)),
       },
-      config,
     );
-    s = reduceEditor(s, { type: "DELETE_BACKWARD" }, config);
+    s = reduceEditor(s, { type: "DELETE_BACKWARD" });
 
     const para = getBlock(s.state, PARA_ID);
     const txt = (para?.inlineContent?.items ?? [])

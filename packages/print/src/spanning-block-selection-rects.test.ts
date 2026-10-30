@@ -110,7 +110,7 @@ function buildSpanningEditor(): {
   let editor = createInitialEditorState(config);
   // ~120 words * 5 chars ≈ 600 chars; 40 chars/line ÷ 6 lines/page → ~2.5 pages.
   const words = Array.from({ length: 120 }, () => "xxxx");
-  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: words.join(" ") }, config);
+  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: words.join(" ") });
 
   // The seeded body paragraph is the document root's first child.
   const root = finalSection(editor.state);

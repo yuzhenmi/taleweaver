@@ -32,8 +32,8 @@ import type { BlockId } from "../state";
  */
 function withFootnote(): { editor: EditorState; bodyId: BlockId } {
   const initial = createInitialEditorState(config);
-  const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" }, config);
-  const withFn = reduceEditor(typed, { type: "INSERT_FOOTNOTE" }, config);
+  const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "abc" });
+  const withFn = reduceEditor(typed, { type: "INSERT_FOOTNOTE" });
   const bodyId = withFn.selection.focus.blockId;
   return { editor: withFn, bodyId };
 }
@@ -59,7 +59,7 @@ function expectSelectionValidAndInContext(editor: EditorState): void {
 describe("#419 — undo of a mid-line split restores a valid in-context selection", () => {
   it("main-tree mid-line split → undo → selection valid + consumer doesn't throw", () => {
     const initial = createInitialEditorState(config);
-    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "hello world" }, config);
+    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "hello world" });
     const blockId = typed.selection.focus.blockId;
 
     // Place a collapsed caret mid-line, between "hello" and " world".
@@ -72,22 +72,21 @@ describe("#419 — undo of a mid-line split restores a valid in-context selectio
           focus: { blockId, offset: 5 },
         },
       },
-      config,
     );
 
-    const split = reduceEditor(atMid, { type: "SPLIT_NODE" }, config);
+    const split = reduceEditor(atMid, { type: "SPLIT_NODE" });
     // Sanity: the split actually produced a second block — the head (new id) before
     // the caret's block, which keeps its id.
     expect(split.selection.focus.blockId).toBe(blockId);
     expect(resolveBlock(split.state, blockId)?.block.prevSiblingId ?? null).not.toBeNull();
 
-    const undone = reduceEditor(split, { type: "UNDO" }, config);
+    const undone = reduceEditor(split, { type: "UNDO" });
     expectSelectionValidAndInContext(undone);
   });
 
   it("footnote-body mid-line split → undo → selection valid + in the footnote context", () => {
     const { editor } = withFootnote();
-    const typed = reduceEditor(editor, { type: "INSERT_TEXT", text: "note body" }, config);
+    const typed = reduceEditor(editor, { type: "INSERT_TEXT", text: "note body" });
     const bodyBlockId = typed.selection.focus.blockId;
     const bodyCtx = selectionContextOf(typed.state, bodyBlockId);
     expect(bodyCtx).not.toBeNull();
@@ -102,11 +101,10 @@ describe("#419 — undo of a mid-line split restores a valid in-context selectio
           focus: { blockId: bodyBlockId, offset: 4 },
         },
       },
-      config,
     );
 
-    const split = reduceEditor(atMid, { type: "SPLIT_NODE" }, config);
-    const undone = reduceEditor(split, { type: "UNDO" }, config);
+    const split = reduceEditor(atMid, { type: "SPLIT_NODE" });
+    const undone = reduceEditor(split, { type: "UNDO" });
 
     expectSelectionValidAndInContext(undone);
     // The restored selection stays in the SAME footnote-body context.
@@ -115,7 +113,7 @@ describe("#419 — undo of a mid-line split restores a valid in-context selectio
 
   it("split → undo → redo → undo keeps the selection valid + consumer safe at each step", () => {
     const initial = createInitialEditorState(config);
-    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "hello world" }, config);
+    const typed = reduceEditor(initial, { type: "INSERT_TEXT", text: "hello world" });
     const blockId = typed.selection.focus.blockId;
     const atMid = reduceEditor(
       typed,
@@ -126,17 +124,16 @@ describe("#419 — undo of a mid-line split restores a valid in-context selectio
           focus: { blockId, offset: 5 },
         },
       },
-      config,
     );
 
-    const split = reduceEditor(atMid, { type: "SPLIT_NODE" }, config);
-    const undo1 = reduceEditor(split, { type: "UNDO" }, config);
+    const split = reduceEditor(atMid, { type: "SPLIT_NODE" });
+    const undo1 = reduceEditor(split, { type: "UNDO" });
     expectSelectionValidAndInContext(undo1);
 
-    const redo = reduceEditor(undo1, { type: "REDO" }, config);
+    const redo = reduceEditor(undo1, { type: "REDO" });
     expectSelectionValidAndInContext(redo);
 
-    const undo2 = reduceEditor(redo, { type: "UNDO" }, config);
+    const undo2 = reduceEditor(redo, { type: "UNDO" });
     expectSelectionValidAndInContext(undo2);
   });
 });

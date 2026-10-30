@@ -48,9 +48,9 @@ function setRootPolicy(
 function twoSectionDocWithFootnotes() {
   let editor = createInitialEditorState(config);
   // Section 1: a paragraph with a footnote.
-  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" }, config);
+  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "a" });
   const firstHost = editor.selection.focus.blockId;
-  editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
+  editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
   // Back into the host paragraph (after "a" + anchor → offset 2).
   editor = reduceEditor(
     editor,
@@ -61,14 +61,13 @@ function twoSectionDocWithFootnotes() {
         focus: { blockId: firstHost, offset: 2 },
       },
     },
-    config,
   );
   // New paragraph, then a SECTION break so the next paragraph is in section 2.
-  editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
-  editor = reduceEditor(editor, { type: "SECTION_BREAK" }, config);
-  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" }, config);
+  editor = reduceEditor(editor, { type: "SPLIT_NODE" });
+  editor = reduceEditor(editor, { type: "SECTION_BREAK" });
+  editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "b" });
   const secondHost = editor.selection.focus.blockId;
-  editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" }, config);
+  editor = reduceEditor(editor, { type: "INSERT_FOOTNOTE" });
   return { editor, firstHost, secondHost };
 }
 

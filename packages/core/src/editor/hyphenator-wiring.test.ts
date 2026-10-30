@@ -70,8 +70,8 @@ function layoutOf(
 function buildMultiPageDoc(config: EditorConfig, paragraphs: number): EditorState {
   let s = createInitialEditorState(config);
   for (let i = 0; i < paragraphs; i++) {
-    s = reduceEditor(s, { type: "INSERT_TEXT", text: `paragraph ${i}` }, config);
-    if (i < paragraphs - 1) s = reduceEditor(s, { type: "SPLIT_NODE" }, config);
+    s = reduceEditor(s, { type: "INSERT_TEXT", text: `paragraph ${i}` });
+    if (i < paragraphs - 1) s = reduceEditor(s, { type: "SPLIT_NODE" });
   }
   return s;
 }

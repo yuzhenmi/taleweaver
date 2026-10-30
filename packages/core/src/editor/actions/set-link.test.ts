@@ -39,10 +39,10 @@ describe("handleSetLink", () => {
     const config = makeConfig();
     const initial = createInitialEditorState(config);
     // Seed text so we have something to potentially link.
-    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hello" }, config);
+    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hello" });
     const before = editor;
     // Collapsed at end.
-    editor = reduceEditor(editor, { type: "SET_LINK", url: "https://example.com" }, config);
+    editor = reduceEditor(editor, { type: "SET_LINK", url: "https://example.com" });
     // Same state reference (no-op; reducer entry-clears lastDirtyIds).
     expect(editor.state).toBe(before.state);
   });
@@ -50,7 +50,7 @@ describe("handleSetLink", () => {
   it("sets link attr on selected text", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "click here" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "click here" });
     const pId = (() => {
       const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
       if (root === null || root.firstChildId === null) throw new Error("no para");
@@ -63,9 +63,8 @@ describe("handleSetLink", () => {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(pId, 0), createPosition(pId, 10)),
       },
-      config,
     );
-    editor = reduceEditor(editor, { type: "SET_LINK", url: "https://example.com" }, config);
+    editor = reduceEditor(editor, { type: "SET_LINK", url: "https://example.com" });
 
     const item = firstTextItem(editor);
     expect(item).not.toBeNull();
@@ -77,7 +76,7 @@ describe("handleSetLink", () => {
   it("clears link attr when given null (link removed)", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "click here" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "click here" });
     const pId = (() => {
       const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
       if (root === null || root.firstChildId === null) throw new Error("no para");
@@ -89,19 +88,18 @@ describe("handleSetLink", () => {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(pId, 0), createPosition(pId, 10)),
       },
-      config,
     );
     // Set a link, then clear it.
-    editor = reduceEditor(editor, { type: "SET_LINK", url: "https://example.com" }, config);
+    editor = reduceEditor(editor, { type: "SET_LINK", url: "https://example.com" });
     expect(firstTextItem(editor)?.attrs.link).toBe("https://example.com");
-    editor = reduceEditor(editor, { type: "SET_LINK", url: null }, config);
+    editor = reduceEditor(editor, { type: "SET_LINK", url: null });
     expect(firstTextItem(editor)?.attrs.link).toBeUndefined();
   });
 
   it("clears link attr when given empty string (UX rule: empty URL isn't a meaningful link)", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "click here" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "click here" });
     const pId = (() => {
       const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
       if (root === null || root.firstChildId === null) throw new Error("no para");
@@ -113,11 +111,10 @@ describe("handleSetLink", () => {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(pId, 0), createPosition(pId, 10)),
       },
-      config,
     );
-    editor = reduceEditor(editor, { type: "SET_LINK", url: "https://example.com" }, config);
+    editor = reduceEditor(editor, { type: "SET_LINK", url: "https://example.com" });
     expect(firstTextItem(editor)?.attrs.link).toBe("https://example.com");
-    editor = reduceEditor(editor, { type: "SET_LINK", url: "" }, config);
+    editor = reduceEditor(editor, { type: "SET_LINK", url: "" });
     expect(firstTextItem(editor)?.attrs.link).toBeUndefined();
   });
 
@@ -133,7 +130,7 @@ describe("handleSetLink", () => {
     // What we CAN verify here: the content is unchanged.
     const config = makeConfig();
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "click here" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "click here" });
     const pId = (() => {
       const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
       if (root === null || root.firstChildId === null) throw new Error("no para");
@@ -145,11 +142,10 @@ describe("handleSetLink", () => {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(pId, 0), createPosition(pId, 10)),
       },
-      config,
     );
     const beforeText = firstTextItem(editor)?.text;
     const beforeLink = firstTextItem(editor)?.attrs.link;
-    editor = reduceEditor(editor, { type: "SET_LINK", url: null }, config);
+    editor = reduceEditor(editor, { type: "SET_LINK", url: null });
     expect(firstTextItem(editor)?.text).toBe(beforeText);
     expect(firstTextItem(editor)?.attrs.link).toBe(beforeLink);
   });
@@ -161,7 +157,7 @@ describe("handleSetLink", () => {
     // forward, else a following Shift+Arrow extends from the wrong end.
     const config = makeConfig();
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "click here" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "click here" });
     const pId = (() => {
       const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
       if (root === null || root.firstChildId === null) throw new Error("no para");
@@ -174,9 +170,8 @@ describe("handleSetLink", () => {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(pId, 10), createPosition(pId, 0)),
       },
-      config,
     );
-    editor = reduceEditor(editor, { type: "SET_LINK", url: "https://example.com" }, config);
+    editor = reduceEditor(editor, { type: "SET_LINK", url: "https://example.com" });
     // Link applied...
     expect(firstTextItem(editor)?.attrs.link).toBe("https://example.com");
     // ...and the backward orientation survives (anchor still after focus).
@@ -187,7 +182,7 @@ describe("handleSetLink", () => {
   it("undo restores the pre-link state", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);
-    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "click here" }, config);
+    editor = reduceEditor(editor, { type: "INSERT_TEXT", text: "click here" });
     const pId = (() => {
       const root = getBlock(editor.state, finalSectionOf(editor.state)); // the root holds sections
       if (root === null || root.firstChildId === null) throw new Error("no para");
@@ -199,12 +194,11 @@ describe("handleSetLink", () => {
         type: "SET_SELECTION",
         selection: createSpan(createPosition(pId, 0), createPosition(pId, 10)),
       },
-      config,
     );
-    editor = reduceEditor(editor, { type: "SET_LINK", url: "https://example.com" }, config);
+    editor = reduceEditor(editor, { type: "SET_LINK", url: "https://example.com" });
     expect(firstTextItem(editor)?.attrs.link).toBe("https://example.com");
 
-    editor = reduceEditor(editor, { type: "UNDO" }, config);
+    editor = reduceEditor(editor, { type: "UNDO" });
     expect(firstTextItem(editor)?.attrs.link).toBeUndefined();
   });
 });

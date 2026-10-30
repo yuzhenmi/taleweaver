@@ -53,7 +53,6 @@ describe("handleInsertNode — BlockInit shape (T31)", () => {
     const next = reduceEditor(
       initial,
       { type: "INSERT_NODE", node: init },
-      config,
     );
 
     const newId = lastChildOf(next.state, finalSectionOf(next.state));
@@ -83,7 +82,6 @@ describe("handleInsertNode — BlockInit shape (T31)", () => {
     const next = reduceEditor(
       initial,
       { type: "INSERT_NODE", node: init },
-      config,
     );
 
     const newId = lastChildOf(next.state, finalSectionOf(next.state));
@@ -104,7 +102,6 @@ describe("handleInsertNode — BlockInit shape (T31)", () => {
     const next = reduceEditor(
       initial,
       { type: "INSERT_NODE", node: init },
-      config,
     );
 
     // Invariant I: a paragraph always follows an object, so the image is
@@ -145,7 +142,6 @@ describe("handleInsertNode — BlockInit shape (T31)", () => {
     const next = reduceEditor(
       initial,
       { type: "INSERT_NODE", node: init },
-      config,
     );
 
     // A paragraph always follows a table (invariant I).
@@ -180,7 +176,7 @@ describe("handleInsertNode — BlockInit shape (T31)", () => {
     };
 
     expect(() =>
-      reduceEditor(initial, { type: "INSERT_NODE", node: init }, config),
+      reduceEditor(initial, { type: "INSERT_NODE", node: init }),
     ).toThrow();
   });
 
@@ -195,7 +191,6 @@ describe("handleInsertNode — BlockInit shape (T31)", () => {
       reduceEditor(
         initial,
         { type: "INSERT_NODE", node: initWithInline },
-        config,
       ),
     ).toThrow();
 
@@ -207,7 +202,6 @@ describe("handleInsertNode — BlockInit shape (T31)", () => {
       reduceEditor(
         initial,
         { type: "INSERT_NODE", node: initWithChildren },
-        config,
       ),
     ).toThrow();
   });

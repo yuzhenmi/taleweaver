@@ -38,10 +38,10 @@ function firstBlockId(editor: EditorState): BlockId {
   return root.firstChildId;
 }
 
-function typeString(editor: EditorState, text: string, config: EditorConfig): EditorState {
+function typeString(editor: EditorState, text: string): EditorState {
   let cur = editor;
   for (const ch of text) {
-    cur = reduceEditor(cur, { type: "INSERT_TEXT", text: ch }, config);
+    cur = reduceEditor(cur, { type: "INSERT_TEXT", text: ch });
   }
   return cur;
 }
@@ -55,13 +55,12 @@ describe("SPLIT_NODE — follow-on block type (Enter at end of heading)", () => 
     editor = reduceEditor(
       editor,
       { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 1 } },
-      config,
     );
-    editor = typeString(editor, "Title", config);
+    editor = typeString(editor, "Title");
     // Cursor is at the end (offset 5) after typing.
     expect(getBlock(editor.state, headingId)?.type).toBe("heading");
 
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
 
     // (Word) the split's HEAD [0, k) is the new block; the caret's
     // block keeps the tail + its ¶. So the heading text now lives in the new head
@@ -87,16 +86,15 @@ describe("SPLIT_NODE — follow-on block type (Enter at end of heading)", () => 
     editor = reduceEditor(
       editor,
       { type: "SET_BLOCK_TYPE", blockType: "heading", properties: { level: 2 } },
-      config,
     );
-    editor = typeString(editor, "Title", config);
+    editor = typeString(editor, "Title");
     // Move the cursor into the middle (offset 2).
     editor = {
       ...editor,
       selection: createSpan(createPosition(headingId, 2), createPosition(headingId, 2)),
     };
 
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
 
     // Mid-split: the follow-on type does NOT apply — both halves stay heading
     // (the head [0, 2) is the new block).
@@ -115,8 +113,8 @@ describe("SPLIT_NODE — follow-on block type (Enter at end of heading)", () => 
     let editor = createInitialEditorState(config);
     const paragraphId = firstBlockId(editor);
 
-    editor = typeString(editor, "hello", config);
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+    editor = typeString(editor, "hello");
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
 
     const tail = getBlock(editor.state, paragraphId);
     expect(tail?.type).toBe("paragraph");
@@ -131,11 +129,11 @@ describe("SPLIT_NODE — the head's ¶ character props", () => {
     const config = makeConfig();
     let editor = createInitialEditorState(config);
     const pId = firstBlockId(editor);
-    editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" }, config);
-    editor = typeString(editor, "abcd", config);
+    editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
+    editor = typeString(editor, "abcd");
     editor = { ...editor, selection: createSpan(createPosition(pId, 2), createPosition(pId, 2)) };
 
-    editor = reduceEditor(editor, { type: "SPLIT_NODE" }, config);
+    editor = reduceEditor(editor, { type: "SPLIT_NODE" });
 
     const headId = getBlock(editor.state, pId)?.prevSiblingId ?? null;
     expect(headId).not.toBeNull();
@@ -147,8 +145,8 @@ describe("splits made by other actions write the head's ¶ character props too",
   function boldAbcd(config: EditorConfig): { editor: EditorState; pId: BlockId } {
     let editor = createInitialEditorState(config);
     const pId = firstBlockId(editor);
-    editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" }, config);
-    editor = typeString(editor, "abcd", config);
+    editor = reduceEditor(editor, { type: "TOGGLE_STYLE", style: "bold" });
+    editor = typeString(editor, "abcd");
     editor = { ...editor, selection: createSpan(createPosition(pId, 2), createPosition(pId, 2)) };
     return { editor, pId };
   }
@@ -156,7 +154,7 @@ describe("splits made by other actions write the head's ¶ character props too",
   it("SECTION_BREAK mid bold text", () => {
     const config = makeConfig();
     const { editor, pId } = boldAbcd(config);
-    const next = reduceEditor(editor, { type: "SECTION_BREAK" }, config);
+    const next = reduceEditor(editor, { type: "SECTION_BREAK" });
     const sectionA = getBlock(next.state, next.state.rootId)?.firstChildId ?? null;
     const headId = sectionA === null ? null : (getBlock(next.state, sectionA)?.lastChildId ?? null);
     expect(headId).not.toBe(pId);
@@ -166,7 +164,7 @@ describe("splits made by other actions write the head's ¶ character props too",
   it("INSERT_TABLE mid bold text", () => {
     const config = makeConfig();
     const { editor, pId } = boldAbcd(config);
-    const next = reduceEditor(editor, { type: "INSERT_TABLE", rows: 1, cols: 1 }, config);
+    const next = reduceEditor(editor, { type: "INSERT_TABLE", rows: 1, cols: 1 });
     const tableId = getBlock(next.state, pId)?.prevSiblingId ?? null;
     const headId = tableId === null ? null : (getBlock(next.state, tableId)?.prevSiblingId ?? null);
     expect(getBlock(next.state, headId as BlockId)?.markAttrs).toEqual({ bold: true });

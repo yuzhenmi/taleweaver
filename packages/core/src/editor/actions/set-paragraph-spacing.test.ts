@@ -23,15 +23,15 @@ import {
   firstChildId,
   createPosition,
 } from "./test-helpers";
-import type { EditorState } from "../editor-state";
-import { getBlock, createHistory } from "../../state";
+import { createEditorStateFromState, type EditorState } from "../editor-state";
+import { getBlock } from "../../state";
 import type { BlockId } from "../../state";
 import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
 
 describe("handleSetParagraphSpacing — SET_PARAGRAPH_SPACING action", () => {
   it("edge 'after' value 40: sets marginBlockEnd on the focus block", () => {
     const initial = createInitialEditorState(config);
-    const editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" }, config);
+    const editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
     const paraId = firstChildId(editor.state) as BlockId;
 
     // Baseline: no marginBlockEnd attr (the component default em margin applies).
@@ -40,7 +40,6 @@ describe("handleSetParagraphSpacing — SET_PARAGRAPH_SPACING action", () => {
     const next = reduceEditor(
       editor,
       { type: "SET_PARAGRAPH_SPACING", edge: "after", value: 40 },
-      config,
     );
 
     expect(getBlock(next.state, paraId)?.attrs.marginBlockEnd).toBe(40);
@@ -52,13 +51,12 @@ describe("handleSetParagraphSpacing — SET_PARAGRAPH_SPACING action", () => {
 
   it("edge 'before' value 24: sets marginBlockStart on the focus block", () => {
     const initial = createInitialEditorState(config);
-    const editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" }, config);
+    const editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
     const paraId = firstChildId(editor.state) as BlockId;
 
     const next = reduceEditor(
       editor,
       { type: "SET_PARAGRAPH_SPACING", edge: "before", value: 24 },
-      config,
     );
 
     expect(getBlock(next.state, paraId)?.attrs.marginBlockStart).toBe(24);
@@ -67,13 +65,12 @@ describe("handleSetParagraphSpacing — SET_PARAGRAPH_SPACING action", () => {
 
   it("value 0 is a valid explicit override (NOT treated as clear)", () => {
     const initial = createInitialEditorState(config);
-    const editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" }, config);
+    const editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
     const paraId = firstChildId(editor.state) as BlockId;
 
     const next = reduceEditor(
       editor,
       { type: "SET_PARAGRAPH_SPACING", edge: "after", value: 0 },
-      config,
     );
 
     // 0 is set explicitly — a user choosing "no space after" overrides the
@@ -83,20 +80,18 @@ describe("handleSetParagraphSpacing — SET_PARAGRAPH_SPACING action", () => {
 
   it("value null clears the attr (reverts to the component default)", () => {
     const initial = createInitialEditorState(config);
-    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" }, config);
+    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
     const paraId = firstChildId(editor.state) as BlockId;
 
     editor = reduceEditor(
       editor,
       { type: "SET_PARAGRAPH_SPACING", edge: "after", value: 40 },
-      config,
     );
     expect(getBlock(editor.state, paraId)?.attrs.marginBlockEnd).toBe(40);
 
     const cleared = reduceEditor(
       editor,
       { type: "SET_PARAGRAPH_SPACING", edge: "after", value: null },
-      config,
     );
     // Clearing removes the attr entirely → component default em margin applies.
     expect(getBlock(cleared.state, paraId)?.attrs.marginBlockEnd).toBeUndefined();
@@ -104,12 +99,11 @@ describe("handleSetParagraphSpacing — SET_PARAGRAPH_SPACING action", () => {
 
   it("preserves the selection (paragraph spacing does not move the caret)", () => {
     const initial = createInitialEditorState(config);
-    const editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" }, config);
+    const editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
 
     const next = reduceEditor(
       editor,
       { type: "SET_PARAGRAPH_SPACING", edge: "before", value: 16 },
-      config,
     );
 
     expect(next.selection).toEqual(editor.selection);
@@ -157,23 +151,14 @@ describe("handleSetParagraphSpacing — SET_PARAGRAPH_SPACING action", () => {
         }),
       ],
     });
-    const editor: EditorState = {
-      state: initialState,
-      selection: {
+    const editor: EditorState = createEditorStateFromState(initialState, {
         anchor: createPosition("p0" as BlockId, 0),
         focus: createPosition("p2" as BlockId, 2),
-      },
-      history: createHistory(initialState),
-      lastDirtyIds: null,
-      lastChange: null,
-      containerWidth: config.containerWidth,
-      targetX: null,
-    };
+      }, config);
 
     const next = reduceEditor(
       editor,
       { type: "SET_PARAGRAPH_SPACING", edge: "after", value: 32 },
-      config,
     );
 
     // Every LEAF in the span is spaced.
@@ -193,41 +178,37 @@ describe("handleSetParagraphSpacing — SET_PARAGRAPH_SPACING action", () => {
 
   it("undo restores the prior spacing", () => {
     const initial = createInitialEditorState(config);
-    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" }, config);
+    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
     const paraId = firstChildId(editor.state) as BlockId;
 
     // First set to 16 so the prior spacing is a concrete value.
     editor = reduceEditor(
       editor,
       { type: "SET_PARAGRAPH_SPACING", edge: "after", value: 16 },
-      config,
     );
     expect(getBlock(editor.state, paraId)?.attrs.marginBlockEnd).toBe(16);
 
     const bumped = reduceEditor(
       editor,
       { type: "SET_PARAGRAPH_SPACING", edge: "after", value: 40 },
-      config,
     );
     expect(getBlock(bumped.state, paraId)?.attrs.marginBlockEnd).toBe(40);
 
-    const undone = reduceEditor(bumped, { type: "UNDO" }, config);
+    const undone = reduceEditor(bumped, { type: "UNDO" });
     expect(getBlock(undone.state, paraId)?.attrs.marginBlockEnd).toBe(16);
   });
 
   it("no-op: setting the spacing a block already has returns the same editor", () => {
     const initial = createInitialEditorState(config);
-    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" }, config);
+    let editor = reduceEditor(initial, { type: "INSERT_TEXT", text: "hi" });
     editor = reduceEditor(
       editor,
       { type: "SET_PARAGRAPH_SPACING", edge: "after", value: 40 },
-      config,
     );
 
     const again = reduceEditor(
       editor,
       { type: "SET_PARAGRAPH_SPACING", edge: "after", value: 40 },
-      config,
     );
 
     // No commit, no state change (the identity-no-op contract). Phase 0b: the no-op
