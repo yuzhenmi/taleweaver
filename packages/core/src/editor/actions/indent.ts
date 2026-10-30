@@ -1,5 +1,5 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
+import type { ActionOf } from "../editor-action";
 import { getBlock, mergeBlockAttrs, iterateBlocksInSpan, positionsEqual } from "../../state";
 import type { State, BlockId } from "../../state";
 import { rebuildTrees } from "./helpers";
@@ -51,11 +51,9 @@ export const MIN_INDENT_CONTENT_WIDTH = 96;
  *
  * Selection is UNCHANGED: indent is a block-geometry change, not a caret move.
  */
-export function handleIndent(
-  editor: EditorState,
-  delta: number,
-  config: EditorConfig,
-): EditorState {
+export function handleIndent(editor: EditorState, action: ActionOf<"INDENT" | "OUTDENT">): EditorState {
+  const { config } = editor;
+  const delta = action.type === "INDENT" ? INDENT_STEP : -INDENT_STEP;
   const targetIds = targetLeafBlockIds(editor);
 
   // INDENT cap: don't let the margin push content off the page. The block's

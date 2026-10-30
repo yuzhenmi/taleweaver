@@ -18,7 +18,8 @@ import { commitWithCaret } from "./paragraph-mark-delete";
  * a selection is struck (not deleted). No-op (same editor) for a cross-context /
  * un-deletable selection.
  */
-export function handleInsertLineBreak(editor: EditorState, config: EditorConfig): EditorState {
+export function handleInsertLineBreak(editor: EditorState): EditorState {
+  const { config } = editor;
   const { selection } = editor;
   const input = replaceSuggestionInputForBlock(editor.state, spanStart(editor.state, selection).blockId, config);
   if (input !== null) return suggestLineBreak(editor, config, input);

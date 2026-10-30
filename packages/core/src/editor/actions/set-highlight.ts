@@ -1,9 +1,9 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import { isCollapsed } from "../../cursor/selection";
 import { applyAttrsOrSuggest } from "./suggestion-mode";
 import { rebuildTrees } from "./helpers";
 import { storeTypingAttrs } from "../typing-attrs";
+import type { ActionOf } from "../editor-action";
 
 /**
  * Set or clear the highlight color (text background color) on the current
@@ -29,11 +29,8 @@ import { storeTypingAttrs } from "../typing-attrs";
  * state-equality short-circuit; the selection is preserved unchanged;
  * dirtyIds threaded through to the incremental render pipeline.
  */
-export function handleSetHighlight(
-  editor: EditorState,
-  color: string | null,
-  config: EditorConfig,
-): EditorState {
+export function handleSetHighlight(editor: EditorState, { color }: ActionOf<"SET_HIGHLIGHT">): EditorState {
+  const { config } = editor;
   const { selection } = editor;
   // Normalize empty string to a removal — an empty color isn't a meaningful
   // value, so this handler is where we reject it.

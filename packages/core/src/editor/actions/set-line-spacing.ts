@@ -1,8 +1,8 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import { getBlock, mergeBlockAttrs, iterateBlocksInSpan, positionsEqual } from "../../state";
 import type { State, BlockId } from "../../state";
 import { rebuildTrees } from "./helpers";
+import type { ActionOf } from "../editor-action";
 
 /**
  * `SET_LINE_SPACING` handler — sets the per-block `lineHeight` attr on the
@@ -35,9 +35,9 @@ import { rebuildTrees } from "./helpers";
  */
 export function handleSetLineSpacing(
   editor: EditorState,
-  spacing: number,
-  config: EditorConfig,
+  { spacing }: ActionOf<"SET_LINE_SPACING">,
 ): EditorState {
+  const { config } = editor;
   const targetIds = targetLeafBlockIds(editor);
 
   let state: State = editor.state;

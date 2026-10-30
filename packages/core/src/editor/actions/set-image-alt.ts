@@ -1,8 +1,7 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import { getBlock, mergeBlockAttrs } from "../../state";
-import type { BlockId } from "../../state";
 import { rebuildTrees } from "./helpers";
+import type { ActionOf } from "../editor-action";
 
 /**
  * `SET_IMAGE_ALT` handler — sets the accessible name (`alt`) on an `image` block;
@@ -26,10 +25,9 @@ import { rebuildTrees } from "./helpers";
  */
 export function handleSetImageAlt(
   editor: EditorState,
-  blockId: BlockId,
-  alt: string | null,
-  config: EditorConfig,
+  { blockId, alt }: ActionOf<"SET_IMAGE_ALT">,
 ): EditorState {
+  const { config } = editor;
   const block = getBlock(editor.state, blockId);
   if (block === null || block.type !== "image") return editor;
 

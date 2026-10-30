@@ -1,5 +1,4 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import { getBlock, mergeBlockAttrs } from "../../state";
 import { rebuildTrees } from "./helpers";
 import { resolveActiveSection } from "./active-section";
@@ -25,10 +24,8 @@ import { resolveActiveSection } from "./active-section";
  *
  * Selection is UNCHANGED: a geometry change does not move the cursor logically.
  */
-export function handleToggleSectionLandscape(
-  editor: EditorState,
-  config: EditorConfig,
-): EditorState {
+export function handleToggleSectionLandscape(editor: EditorState): EditorState {
+  const { config } = editor;
   const { pageConfig } = config;
   // Can't determine the landscape (swapped) dimensions without the doc-wide
   // page config.

@@ -1,5 +1,4 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import { insertAtomicBlockAfterFocus } from "./atomic-edits";
 
 /**
@@ -9,9 +8,7 @@ import { insertAtomicBlockAfterFocus } from "./atomic-edits";
  * landing spot below the rule. One undo entry. See `insertAtomicBlockAfterFocus`
  * for the shared insert + caret + no-op semantics.
  */
-export function handleInsertHorizontalLine(
-  editor: EditorState,
-  config: EditorConfig,
-): EditorState {
+export function handleInsertHorizontalLine(editor: EditorState): EditorState {
+  const { config } = editor;
   return insertAtomicBlockAfterFocus(editor, config, { type: "horizontal-line" });
 }

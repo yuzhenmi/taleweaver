@@ -3,7 +3,7 @@ import type { EditorConfig } from "../editor-config";
 import { createPosition, createSpan, markParagraphMarkDeletion } from "../../state";
 import type { Block, OperationResult, Position, SuggestionMintInput } from "../../state";
 import { rebuildTrees } from "./helpers";
-import { handleSetSelection } from "./set-selection";
+import { setSelection } from "./set-selection";
 
 /** Commit `result` as one undo entry with a collapsed caret at `caret`, and rebuild. */
 export function commitWithCaret(
@@ -25,7 +25,7 @@ export function commitWithCaret(
  */
 export function suggestMarkDeletion(editor: EditorState, config: EditorConfig, owner: Block, input: SuggestionMintInput, across: Position): EditorState {
   const result = markParagraphMarkDeletion(editor.state, owner.id, input);
-  if (result.state === editor.state) return handleSetSelection(editor, createSpan(across, across));
+  if (result.state === editor.state) return setSelection(editor, createSpan(across, across));
   const removed = result.removedBoundary;
   return commitWithCaret(editor, config, result, removed === null ? editor.selection.focus : createPosition(removed.survivorId, removed.offset));
 }

@@ -1,11 +1,11 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import { iterateSpan, findItemAtOffset } from "../../state";
 import type { State, Span } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { applyAttrsOrSuggest } from "./suggestion-mode";
 import { rebuildTrees } from "./helpers";
 import { storeTypingAttrs, getTypingAttrs } from "../typing-attrs";
+import type { ActionOf } from "../editor-action";
 
 const STYLE_KEYS: Record<"bold" | "italic" | "underline" | "strikethrough", string> = {
   bold: "bold",
@@ -58,11 +58,8 @@ function selectionAllHaveAttr(
   return sawText;
 }
 
-export function handleToggleStyle(
-  editor: EditorState,
-  style: "bold" | "italic" | "underline" | "strikethrough",
-  config: EditorConfig,
-): EditorState {
+export function handleToggleStyle(editor: EditorState, { style }: ActionOf<"TOGGLE_STYLE">): EditorState {
+  const { config } = editor;
   const { selection } = editor;
   const attrKey = STYLE_KEYS[style];
   // Collapsed caret: toggle the style for the next typed text (typing attrs),

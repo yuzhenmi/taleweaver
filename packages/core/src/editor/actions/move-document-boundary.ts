@@ -5,6 +5,7 @@ import {
   lastBoundaryBlock,
   endOffsetOf,
 } from "./expand-document-boundary";
+import type { ActionOf } from "../editor-action";
 
 /**
  * MOVE_DOCUMENT_BOUNDARY (Ctrl+Home / Ctrl+End) — CONTEXT-AWARE, the collapsed
@@ -18,7 +19,7 @@ import {
  */
 export function handleMoveDocumentBoundary(
   editor: EditorState,
-  boundary: "start" | "end",
+  { boundary }: ActionOf<"MOVE_DOCUMENT_BOUNDARY">,
 ): EditorState {
   const ctxRoot = selectionContextOf(editor.state, editor.selection.focus.blockId);
   if (ctxRoot === null) return editor;

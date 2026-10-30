@@ -1,8 +1,7 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import { getBlock, mergeBlockAttrs } from "../../state";
-import type { BlockId } from "../../state";
 import { rebuildTrees } from "./helpers";
+import type { ActionOf } from "../editor-action";
 
 export type ImageWrap = "left" | "right" | "break";
 const VALID_WRAP: ReadonlySet<string> = new Set<ImageWrap>([
@@ -31,10 +30,9 @@ const VALID_WRAP: ReadonlySet<string> = new Set<ImageWrap>([
  */
 export function handleSetImageWrap(
   editor: EditorState,
-  blockId: BlockId,
-  wrap: ImageWrap,
-  config: EditorConfig,
+  { blockId, wrap }: ActionOf<"SET_IMAGE_WRAP">,
 ): EditorState {
+  const { config } = editor;
   const block = getBlock(editor.state, blockId);
   if (block === null || block.type !== "image") return editor;
   if (!VALID_WRAP.has(wrap)) return editor;

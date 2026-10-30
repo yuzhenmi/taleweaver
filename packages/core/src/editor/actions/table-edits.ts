@@ -21,8 +21,8 @@ import {
   createSpan,
   productionAllocator,
 } from "../../state";
-import type { RowPosition, ColumnPosition } from "../../state";
 import { rebuildTrees } from "./helpers";
+import type { ActionOf } from "../editor-action";
 
 /**
  * `INSERT_TABLE_ROW` handler. Inserts a row above/below the caret's row.
@@ -39,9 +39,9 @@ import { rebuildTrees } from "./helpers";
  */
 export function handleInsertTableRow(
   editor: EditorState,
-  position: RowPosition,
-  config: EditorConfig,
+  { position }: ActionOf<"INSERT_TABLE_ROW">,
 ): EditorState {
+  const { config } = editor;
   const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
   if (ctx === null || ctx.ragged) return editor;
 
@@ -75,9 +75,9 @@ export function handleInsertTableRow(
  */
 export function handleInsertTableColumn(
   editor: EditorState,
-  position: ColumnPosition,
-  config: EditorConfig,
+  { position }: ActionOf<"INSERT_TABLE_COLUMN">,
 ): EditorState {
+  const { config } = editor;
   const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
   if (ctx === null || ctx.ragged) return editor;
 
@@ -137,7 +137,8 @@ function deleteWholeTable(
  * always safe (Google Docs allows it on merged-cell tables), so it is NOT gated
  * on `ctx.hasSpans`. Caret-after semantics: see `deleteWholeTable`.
  */
-export function handleDeleteTable(editor: EditorState, config: EditorConfig): EditorState {
+export function handleDeleteTable(editor: EditorState): EditorState {
+  const { config } = editor;
   const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
   if (ctx === null) return editor;
   return deleteWholeTable(editor, ctx.tableId, config);
@@ -160,7 +161,8 @@ export function handleDeleteTable(editor: EditorState, config: EditorConfig): Ed
  * for the no-span path from `ctx.cellIdsByRow`. The target cell id survives the
  * delete; its first paragraph is read from the POST-op state. One undo (`"command"`).
  */
-export function handleDeleteTableRow(editor: EditorState, config: EditorConfig): EditorState {
+export function handleDeleteTableRow(editor: EditorState): EditorState {
+  const { config } = editor;
   const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
   if (ctx === null || ctx.ragged) return editor;
 
@@ -238,7 +240,8 @@ export function handleDeleteTableRow(editor: EditorState, config: EditorConfig):
  * rewrites `columnWidths` (when present) in the same transaction → one undo entry
  * (`"command"`).
  */
-export function handleDeleteTableColumn(editor: EditorState, config: EditorConfig): EditorState {
+export function handleDeleteTableColumn(editor: EditorState): EditorState {
+  const { config } = editor;
   const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
   if (ctx === null || ctx.ragged) return editor;
 
@@ -321,7 +324,8 @@ export function handleDeleteTableColumn(editor: EditorState, config: EditorConfi
  * cell, whose paragraph still exists after the unmerge). One undo entry (the op
  * is a single transaction; classified `"command"`).
  */
-export function handleSplitCell(editor: EditorState, config: EditorConfig): EditorState {
+export function handleSplitCell(editor: EditorState): EditorState {
+  const { config } = editor;
   const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
   if (ctx === null || ctx.ragged) return editor;
 
@@ -354,7 +358,8 @@ export function handleSplitCell(editor: EditorState, config: EditorConfig): Edit
  * survivor is the cell originating at `(minRow, minCol)`; its id survives the merge,
  * so its first paragraph is read from the POST-op state. One undo (`"command"`).
  */
-export function handleMergeCells(editor: EditorState, config: EditorConfig): EditorState {
+export function handleMergeCells(editor: EditorState): EditorState {
+  const { config } = editor;
   const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
   if (ctx === null || ctx.ragged) return editor;
 

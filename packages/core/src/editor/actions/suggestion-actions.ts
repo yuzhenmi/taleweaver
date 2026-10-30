@@ -12,6 +12,7 @@ import {
 } from "../../state";
 import { rebuildTrees } from "./helpers";
 import { rebaseSelection } from "../foreign-change";
+import type { ActionOf } from "../editor-action";
 
 /**
  * Suggestion RESOLVE actions. Each is ONE undoable history entry: the resolve op is an
@@ -34,19 +35,27 @@ function commitResolve(editor: EditorState, result: OperationResult, config: Edi
 function resolveOne(editor: EditorState, id: SuggestionId, mode: "accept" | "reject", config: EditorConfig): EditorState {
   const record = readSuggestionRecordFromState(editor.state, id);
   if (record === null) return editor;
-  return handleResolveSuggestionGroup(editor, suggestionGroupOf(record), mode, config);
+  return resolveGroup(editor, suggestionGroupOf(record), mode, config);
 }
 
-export function handleAcceptSuggestion(editor: EditorState, id: SuggestionId, config: EditorConfig): EditorState {
+export function handleAcceptSuggestion(
+  editor: EditorState,
+  { id }: ActionOf<"ACCEPT_SUGGESTION">,
+): EditorState {
+  const { config } = editor;
   return resolveOne(editor, id, "accept", config);
 }
 
-export function handleRejectSuggestion(editor: EditorState, id: SuggestionId, config: EditorConfig): EditorState {
+export function handleRejectSuggestion(
+  editor: EditorState,
+  { id }: ActionOf<"REJECT_SUGGESTION">,
+): EditorState {
+  const { config } = editor;
   return resolveOne(editor, id, "reject", config);
 }
 
 /** Accept / reject every suggestion of group `groupId` atomically (one undo step). */
-export function handleResolveSuggestionGroup(
+function resolveGroup(
   editor: EditorState,
   groupId: string,
   mode: "accept" | "reject",
@@ -56,10 +65,20 @@ export function handleResolveSuggestionGroup(
   return commitResolve(editor, op(editor.state, groupId), config);
 }
 
-export function handleAcceptAllSuggestions(editor: EditorState, config: EditorConfig): EditorState {
+export function handleResolveSuggestionGroup(
+  editor: EditorState,
+  action: ActionOf<"ACCEPT_SUGGESTION_GROUP" | "REJECT_SUGGESTION_GROUP">,
+): EditorState {
+  const mode = action.type === "ACCEPT_SUGGESTION_GROUP" ? "accept" : "reject";
+  return resolveGroup(editor, action.groupId, mode, editor.config);
+}
+
+export function handleAcceptAllSuggestions(editor: EditorState): EditorState {
+  const { config } = editor;
   return commitResolve(editor, acceptAll(editor.state), config);
 }
 
-export function handleRejectAllSuggestions(editor: EditorState, config: EditorConfig): EditorState {
+export function handleRejectAllSuggestions(editor: EditorState): EditorState {
+  const { config } = editor;
   return commitResolve(editor, rejectAll(editor.state), config);
 }

@@ -1,9 +1,9 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import { isCollapsed } from "../../cursor/selection";
 import { applyAttrsOrSuggest } from "./suggestion-mode";
 import { rebuildTrees } from "./helpers";
 import { storeTypingAttrs } from "../typing-attrs";
+import type { ActionOf } from "../editor-action";
 
 /**
  * Set or clear the font size on the current selection. Used by the toolbar
@@ -31,11 +31,8 @@ import { storeTypingAttrs } from "../typing-attrs";
  * state-equality short-circuit; the selection is preserved unchanged;
  * dirtyIds threaded through to the incremental render pipeline.
  */
-export function handleSetFontSize(
-  editor: EditorState,
-  size: number | null,
-  config: EditorConfig,
-): EditorState {
+export function handleSetFontSize(editor: EditorState, { size }: ActionOf<"SET_FONT_SIZE">): EditorState {
+  const { config } = editor;
   const { selection } = editor;
   // Normalize a non-positive size to a removal — a font size of 0 or less
   // isn't a meaningful value, so this handler is where we reject it.

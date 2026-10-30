@@ -1,8 +1,8 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import { insertInlineImage, createPosition, createSpan, type BlockId } from "../../state";
 import { rebuildTrees } from "./helpers";
 import { prepareEmbedInsertPoint } from "./selection-guards";
+import type { ActionOf } from "../editor-action";
 
 /**
  * `INSERT_INLINE_IMAGE` handler — splices an `inline-image` EmbedItem at the caret
@@ -29,12 +29,9 @@ import { prepareEmbedInsertPoint } from "./selection-guards";
  */
 export function handleInsertInlineImage(
   editor: EditorState,
-  src: string,
-  width: number,
-  height: number,
-  alt: string,
-  config: EditorConfig,
+  { src, width, height, alt }: ActionOf<"INSERT_INLINE_IMAGE">,
 ): EditorState {
+  const { config } = editor;
   // Delete a non-collapsed selection first (Google Docs replaces the selection),
   // then splice the image at the collapse point. A cross-context / cross-parent
   // expanded selection is un-deletable → no-op.

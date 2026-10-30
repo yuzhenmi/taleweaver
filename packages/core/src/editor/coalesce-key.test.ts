@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { coalesceKeyOf } from "./coalesce-key";
+import { coalesceKeyOf } from "./reduce-editor";
 import type { EditorAction } from "./editor-action";
 import { createSpan, createPosition } from "../state";
 import type { BlockId } from "../state";

@@ -1,13 +1,10 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import { rebuildTrees } from "./helpers";
 import { recordChange } from "../document-change";
 import { rebaseSelection } from "../foreign-change";
 
-export function handleUndo(
-  editor: EditorState,
-  config: EditorConfig,
-): EditorState {
+export function handleUndo(editor: EditorState): EditorState {
+  const { config } = editor;
   const result = editor.history.undo();
   // `undo()` returns null in TWO cases, both handled the same way (no-op): (a)
   // nothing to undo (`canUndo()` was false); (b) `canUndo()` was true but every

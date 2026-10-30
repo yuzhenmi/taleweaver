@@ -1,7 +1,7 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import { getBlock, setListRestart } from "../../state";
 import { rebuildTrees } from "./helpers";
+import type { ActionOf } from "../editor-action";
 
 /**
  * SET_LIST_RESTART — set or clear the focused list-item's per-item counter
@@ -18,9 +18,9 @@ import { rebuildTrees } from "./helpers";
  */
 export function handleSetListRestart(
   editor: EditorState,
-  value: number | null,
-  config: EditorConfig,
+  { value }: ActionOf<"SET_LIST_RESTART">,
 ): EditorState {
+  const { config } = editor;
   const blockId = editor.selection.focus.blockId;
   const block = getBlock(editor.state, blockId);
   if (block === null || block.type !== "list-item") return editor;

@@ -1,8 +1,8 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import { getBlock, mergeBlockAttrs, iterateBlocksInSpan, positionsEqual } from "../../state";
 import type { State, BlockId } from "../../state";
 import { rebuildTrees } from "./helpers";
+import type { ActionOf } from "../editor-action";
 
 /**
  * `SET_PARAGRAPH_SPACING` handler — sets the per-block vertical-margin attr
@@ -48,10 +48,9 @@ import { rebuildTrees } from "./helpers";
  */
 export function handleSetParagraphSpacing(
   editor: EditorState,
-  edge: "before" | "after",
-  value: number | null,
-  config: EditorConfig,
+  { edge, value }: ActionOf<"SET_PARAGRAPH_SPACING">,
 ): EditorState {
+  const { config } = editor;
   const attrKey = edge === "before" ? "marginBlockStart" : "marginBlockEnd";
   // null OR a negative value clears (reverts to the component default); a finite
   // `>= 0` (including 0, an explicit override) is set.

@@ -1,6 +1,6 @@
 import type { EditorState } from "../editor-state";
 import type { EditorConfig } from "../editor-config";
-import type { EditorAction } from "../editor-action";
+import type { EditorAction, ActionOf } from "../editor-action";
 import {
   getBlock,
   resolveBlock,
@@ -192,11 +192,8 @@ function resolveFragment(
   return null;
 }
 
-export function handlePaste(
-  editor: EditorState,
-  action: Extract<EditorAction, { type: "PASTE" }>,
-  config: EditorConfig,
-): EditorState {
+export function handlePaste(editor: EditorState, action: ActionOf<"PASTE">): EditorState {
+  const { config } = editor;
   const { selection } = editor;
 
   // A cross-CONTEXT span (anchor/focus in different trees) has no single-tree op, so
