@@ -16,6 +16,7 @@ import { STATE_INTERNAL } from "../state/state-internal";
 /** The attr registry bound to the editor's doc (the editor binds `EditorConfig.attrRegistry`). */
 const registryOf = (state: State): AttrRegistry => requireAttrRegistry(state[STATE_INTERNAL].doc);
 import type { EditorState } from "./editor-state";
+import type { Edit } from "./edit";
 
 /**
  * Attrs typed text NEVER takes from its neighbours: change-tracking provenance.
@@ -135,11 +136,8 @@ export function getTypingAttrs(editor: EditorState): ReadonlyAttrs {
  * typing attrs; `undefined` values remove) as the pending typing attrs. The
  * document is unchanged; the next typed text takes them.
  */
-export function storeTypingAttrs(
-  editor: EditorState,
-  delta: ReadonlyAttrs,
-): EditorState {
-  return { ...editor, storedAttrs: mergeAttrs(getTypingAttrs(editor), delta) };
+export function storeTypingAttrs(editor: EditorState, delta: ReadonlyAttrs): Edit {
+  return { storedAttrs: mergeAttrs(getTypingAttrs(editor), delta) };
 }
 
 /**

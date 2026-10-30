@@ -1,22 +1,22 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import { expandSpanOverAtomicMarks } from "../atomic-marks";
 import { createPosition, createSpan, spanStart, spanEnd } from "../../state";
 import { moveByWord } from "../../cursor/cursor-ops";
 import { isCollapsed } from "../../cursor/selection";
 import { isObjectSelection } from "../../cursor/object-selection";
-import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
 import { deleteRangeOrSuggest, isSuggestingInBlock } from "./suggestion-mode";
 import { deleteObjectSelection } from "./object-edits";
 import type { ActionOf } from "../editor-action";
 
-export function handleDeleteWord(editor: EditorState, { direction }: ActionOf<"DELETE_WORD">): EditorState {
+export function handleDeleteWord(editor: EditorState, { direction }: ActionOf<"DELETE_WORD">): Edit | null {
   const { config } = editor;
   // Object selection: Ctrl+Delete on a selected atomic-leaf (image)
   // removes the object as a unit. Routes BEFORE the collapsed word-delete path,
   // whose cross-block guard would otherwise silently no-op on the atomic block.
   const objId = isObjectSelection(editor.state, editor.selection, config.componentRegistry);
-  if (objId !== null) return deleteObjectSelection(editor, config, objId);
+  if (objId !== null) return deleteObjectSelection(editor, objId);
 
   const { selection } = editor;
 
@@ -28,11 +28,11 @@ export function handleDeleteWord(editor: EditorState, { direction }: ActionOf<"D
     // cross-CONTEXT refusal + the tree-aware (resolveBlock) deletable-span
     // guard. Using getBlock here (main-tree only) would early-return a no-op for
     // a body-context range.
-    if (isCrossContextSelection(editor.state, selection)) return editor;
+    if (isCrossContextSelection(editor.state, selection)) return null;
     const start = expandedSpanCollapsePoint(editor.state, selection);
-    if (start === null) return editor;
+    if (start === null) return null;
     const result = deleteRangeOrSuggest(editor.state, selection, config);
-    if (result.state === editor.state) return editor;
+    if (result.state === editor.state) return null;
     // In suggesting mode a forward word-delete must leave the caret PAST the
     // struck span (its END) so a repeated Delete strikes the NEXT span rather than
     // re-targeting the already-struck text (markDeletion coalesces → no-op);
@@ -52,16 +52,7 @@ export function handleDeleteWord(editor: EditorState, { direction }: ActionOf<"D
       : start;
     const newCursor = createPosition(collapseTo.blockId, collapseTo.offset);
     const newSelection = createSpan(newCursor, newCursor);
-    editor.history.commit(result, {
-      before: selection,
-      after: newSelection,
-    });
-    return rebuildTrees(
-      { ...editor, state: result.state, selection: newSelection },
-      editor,
-      config,
-      result.dirtyIds,
-    );
+    return { change: result, selection: newSelection };
   }
 
   const pos = selection.focus;
@@ -69,9 +60,9 @@ export function handleDeleteWord(editor: EditorState, { direction }: ActionOf<"D
   if (target.blockId !== pos.blockId) {
     // Cross-block word delete not supported by deleteRange's cross-parent
     // guard without additional handling — no-op to match safe semantics.
-    return editor;
+    return null;
   }
-  if (target.offset === pos.offset) return editor;
+  if (target.offset === pos.offset) return null;
 
   // A word step that ends inside an atomic mark deletes the whole mark.
   const span = expandSpanOverAtomicMarks(
@@ -79,7 +70,7 @@ export function handleDeleteWord(editor: EditorState, { direction }: ActionOf<"D
     direction === "backward" ? createSpan(target, pos) : createSpan(pos, target),
   );
   const result = deleteRangeOrSuggest(editor.state, span, config);
-  if (result.state === editor.state) return editor;
+  if (result.state === editor.state) return null;
   // Soft-delete leaves the caret on the FAR edge of the struck span in the
   // deletion direction. For BACKWARD that far edge IS `target` (the word-boundary
   // before the caret = span start) in both modes. For FORWARD the far edge is the
@@ -96,14 +87,5 @@ export function handleDeleteWord(editor: EditorState, { direction }: ActionOf<"D
   );
   const newCursor = direction === "backward" ? span.anchor : suggesting ? span.focus : span.anchor;
   const newSelection = createSpan(newCursor, newCursor);
-  editor.history.commit(result, {
-    before: selection,
-    after: newSelection,
-  });
-  return rebuildTrees(
-    { ...editor, state: result.state, selection: newSelection },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+  return { change: result, selection: newSelection };
 }

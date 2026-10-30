@@ -1,8 +1,8 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import type { EditorConfig } from "../editor-config";
 import { setBlockType, mergeBlockAttrs } from "../../state";
 import type { Block, BlockId } from "../../state";
-import { rebuildTrees } from "./helpers";
 
 /**
  * The nesting level of a `list-item` block (0–8). A missing / non-numeric /
@@ -29,7 +29,7 @@ export function unlistBlock(
   editor: EditorState,
   block: Block,
   config: EditorConfig,
-): EditorState {
+): Edit | null {
   const typeResult = setBlockType(
     editor.state,
     block.id,
@@ -41,15 +41,11 @@ export function unlistBlock(
     block.id,
     { listId: undefined, listLevel: undefined, listCounterOverride: undefined },
   );
-  if (attrResult.state === editor.state) return editor;
+  if (attrResult.state === editor.state) return null;
 
   const dirtyIds = new Set<BlockId>([
     ...typeResult.dirtyIds,
     ...attrResult.dirtyIds,
   ]);
-  editor.history.commit(
-    { state: attrResult.state, dirtyIds },
-    { before: editor.selection, after: editor.selection },
-  );
-  return rebuildTrees({ ...editor, state: attrResult.state }, editor, config, dirtyIds);
+  return { change: { state: attrResult.state, dirtyIds } };
 }

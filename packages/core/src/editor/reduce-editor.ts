@@ -7,6 +7,7 @@ import { handlePropose } from "./proposals";
 import { runTransaction, applyInputRules, updateActiveTrigger } from "./extensions";
 import { clearTransientViewState, type EditorState } from "./editor-state";
 import type { EditorAction, ActionOf } from "./editor-action";
+import { applyEdit, type Edit } from "./edit";
 import {
   handleInsertText,
   handleDeleteBackward,
@@ -108,15 +109,22 @@ interface ActionTraits {
   readonly carriesTypingAttrs?: true;
 }
 
-/** Everything the reducer knows about one action type. */
-interface ActionSpec<K extends ActionType> extends ActionTraits {
-  /** The action's own transition. */
-  readonly reduce: (editor: EditorState, action: ActionOf<K>) => EditorState;
-}
+/**
+ * Everything the reducer knows about one action type. A document-editing action is an
+ * `edit`: it computes what it did (`Edit`, or `null` for nothing) and the reducer applies
+ * it (`applyEdit`). The few actions that manage history, the view or other actions
+ * instead of editing the document — undo / redo, a resize, a selection with its view
+ * hints, a peer's change, a proposal, a transaction — `reduce` the editor directly.
+ */
+type ActionSpec<K extends ActionType> = ActionTraits &
+  (
+    | { readonly edit: (editor: EditorState, action: ActionOf<K>) => Edit | null }
+    | { readonly reduce: (editor: EditorState, action: ActionOf<K>) => EditorState }
+  );
 
 /** User-typed text may complete a host input rule (its own undo entry). */
 function insertText(editor: EditorState, action: ActionOf<"INSERT_TEXT">): EditorState {
-  const result = handleInsertText(editor, action);
+  const result = applyEdit(editor, handleInsertText(editor, action));
   return action.userInput === true && result.state !== editor.state
     ? applyInputRules(result, editor.config, reduceEditor)
     : result;
@@ -135,91 +143,91 @@ const ACTIONS: { readonly [K in ActionType]: ActionSpec<K> } = {
   TRANSACTION: { reduce: transaction, coalesce: "command" },
   // A peer's change: not ours to undo, and it must not split our typing group.
   APPLY_FOREIGN_CHANGE: { reduce: handleApplyForeignChange, coalesce: "inert" },
-  DELETE_BACKWARD: { reduce: handleDeleteBackward, coalesce: "delete", carriesTypingAttrs: true },
-  DELETE_FORWARD: { reduce: handleDeleteForward, coalesce: "delete", carriesTypingAttrs: true },
-  DELETE_WORD: { reduce: handleDeleteWord, coalesce: "delete", carriesTypingAttrs: true },
-  DELETE_RANGE: { reduce: handleDeleteRange, coalesce: "delete", carriesTypingAttrs: true },
-  SPLIT_NODE: { reduce: handleSplitNode, coalesce: "command", carriesTypingAttrs: true },
-  MOVE_WORD: { reduce: handleMoveWord, coalesce: "selection-break" },
-  MOVE_DOCUMENT_BOUNDARY: { reduce: handleMoveDocumentBoundary, coalesce: "selection-break" },
-  EXPAND_WORD: { reduce: handleExpandWord, coalesce: "selection-break" },
-  EXPAND_DOCUMENT_BOUNDARY: { reduce: handleExpandDocumentBoundary, coalesce: "selection-break" },
-  SELECT_ALL: { reduce: handleSelectAll, coalesce: "selection-break" },
+  DELETE_BACKWARD: { edit: handleDeleteBackward, coalesce: "delete", carriesTypingAttrs: true },
+  DELETE_FORWARD: { edit: handleDeleteForward, coalesce: "delete", carriesTypingAttrs: true },
+  DELETE_WORD: { edit: handleDeleteWord, coalesce: "delete", carriesTypingAttrs: true },
+  DELETE_RANGE: { edit: handleDeleteRange, coalesce: "delete", carriesTypingAttrs: true },
+  SPLIT_NODE: { edit: handleSplitNode, coalesce: "command", carriesTypingAttrs: true },
+  MOVE_WORD: { edit: handleMoveWord, coalesce: "selection-break" },
+  MOVE_DOCUMENT_BOUNDARY: { edit: handleMoveDocumentBoundary, coalesce: "selection-break" },
+  EXPAND_WORD: { edit: handleExpandWord, coalesce: "selection-break" },
+  EXPAND_DOCUMENT_BOUNDARY: { edit: handleExpandDocumentBoundary, coalesce: "selection-break" },
+  SELECT_ALL: { edit: handleSelectAll, coalesce: "selection-break" },
   SET_SELECTION: { reduce: handleSetSelection, coalesce: "selection-break" },
   // A pure selection move (deselect an object → caret beside it): breaks the open undo
   // group like any other caret move.
-  ESCAPE: { reduce: handleEscape, coalesce: "selection-break" },
+  ESCAPE: { edit: handleEscape, coalesce: "selection-break" },
   UNDO: { reduce: handleUndo, coalesce: "selection-break" },
   REDO: { reduce: handleRedo, coalesce: "selection-break" },
   SET_CONTAINER_WIDTH: { reduce: handleSetContainerWidth, coalesce: "inert" },
   // Another author's proposal: keeps the stored typing attrs; its handler opens its OWN
   // undo entry only when it applies something (1.5 "Host proposals").
   PROPOSE: { reduce: handlePropose, coalesce: "inert" },
-  PASTE: { reduce: handlePaste, coalesce: "command", insertsAtCaret: true },
-  INSERT_NODE: { reduce: handleInsertNode, coalesce: "command" },
-  SET_BLOCK_TYPE: { reduce: handleSetBlockType, coalesce: "command" },
-  TOGGLE_LIST: { reduce: handleToggleList, coalesce: "command" },
-  SET_LIST_TYPE: { reduce: handleSetListType, coalesce: "command" },
-  SET_LIST_RESTART: { reduce: handleSetListRestart, coalesce: "command" },
-  LIST_INDENT: { reduce: handleListIndent, coalesce: "command" },
-  LIST_OUTDENT: { reduce: handleListIndent, coalesce: "command" },
-  INDENT: { reduce: handleIndent, coalesce: "command" },
-  OUTDENT: { reduce: handleIndent, coalesce: "command" },
-  SECTION_BREAK: { reduce: handleSectionBreak, coalesce: "command" },
-  TOGGLE_SECTION_LANDSCAPE: { reduce: handleToggleSectionLandscape, coalesce: "command" },
-  SET_SECTION_COLUMNS: { reduce: handleSetSectionColumns, coalesce: "command" },
-  INSERT_HEADER: { reduce: handleInsertHeaderFooter, coalesce: "command" },
-  INSERT_FOOTER: { reduce: handleInsertHeaderFooter, coalesce: "command" },
-  INSERT_FOOTNOTE: { reduce: handleInsertFootnote, coalesce: "command", insertsAtCaret: true },
-  INSERT_CROSS_REFERENCE: { reduce: handleInsertCrossReference, coalesce: "command", insertsAtCaret: true },
-  INSERT_PAGE_NUMBER: { reduce: handleInsertPageField, coalesce: "command", insertsAtCaret: true },
-  INSERT_PAGE_COUNT: { reduce: handleInsertPageField, coalesce: "command", insertsAtCaret: true },
-  INSERT_TAB: { reduce: handleInsertTab, coalesce: "command", insertsAtCaret: true },
-  INSERT_LINE_BREAK: { reduce: handleInsertLineBreak, coalesce: "command", insertsAtCaret: true },
-  SET_TAB_STOPS: { reduce: handleSetTabStops, coalesce: "command" },
-  INSERT_HORIZONTAL_LINE: { reduce: handleInsertHorizontalLine, coalesce: "command" },
-  INSERT_TABLE_OF_CONTENTS: { reduce: handleInsertTableOfContents, coalesce: "command" },
-  INSERT_TABLE: { reduce: handleInsertTable, coalesce: "command" },
-  INSERT_TABLE_ROW: { reduce: handleInsertTableRow, coalesce: "command" },
-  INSERT_TABLE_COLUMN: { reduce: handleInsertTableColumn, coalesce: "command" },
-  DELETE_TABLE_ROW: { reduce: handleDeleteTableRow, coalesce: "command" },
-  DELETE_TABLE_COLUMN: { reduce: handleDeleteTableColumn, coalesce: "command" },
-  DELETE_TABLE: { reduce: handleDeleteTable, coalesce: "command" },
-  SPLIT_CELL: { reduce: handleSplitCell, coalesce: "command" },
-  MERGE_CELLS: { reduce: handleMergeCells, coalesce: "command" },
-  INSERT_IMAGE: { reduce: handleInsertImage, coalesce: "command" },
-  INSERT_INLINE_IMAGE: { reduce: handleInsertInlineImage, coalesce: "command", insertsAtCaret: true },
-  SET_IMAGE_SIZE: { reduce: handleSetImageSize, coalesce: "command" },
-  SET_IMAGE_WRAP: { reduce: handleSetImageWrap, coalesce: "command" },
-  SET_IMAGE_ALT: { reduce: handleSetImageAlt, coalesce: "command" },
-  TOGGLE_STYLE: { reduce: handleToggleStyle, coalesce: "command" },
-  SET_LINK: { reduce: handleSetLink, coalesce: "command" },
-  SET_TEXT_COLOR: { reduce: handleSetTextColor, coalesce: "command" },
-  SET_TEXT_TRANSFORM: { reduce: handleSetTextTransform, coalesce: "command" },
-  SET_HIGHLIGHT: { reduce: handleSetHighlight, coalesce: "command" },
-  SET_FONT_SIZE: { reduce: handleSetFontSize, coalesce: "command" },
-  SET_FONT_FAMILY: { reduce: handleSetFontFamily, coalesce: "command" },
-  CLEAR_FORMATTING: { reduce: handleClearFormatting, coalesce: "command" },
-  SET_MARK: { reduce: handleSetMark, coalesce: "command" },
-  REMOVE_MARK: { reduce: handleRemoveMark, coalesce: "command" },
-  SET_TEXT_ALIGN: { reduce: handleSetTextAlign, coalesce: "command" },
-  SET_LINE_SPACING: { reduce: handleSetLineSpacing, coalesce: "command" },
-  SET_PARAGRAPH_SPACING: { reduce: handleSetParagraphSpacing, coalesce: "command" },
-  SET_FOOTNOTE_POLICY: { reduce: handleSetFootnotePolicy, coalesce: "command" },
-  REPLACE_MATCH: { reduce: handleReplaceMatch, coalesce: "command" },
-  REPLACE_ALL: { reduce: handleReplaceAll, coalesce: "command" },
-  ADD_COMMENT: { reduce: handleAddComment, coalesce: "command" },
-  RESOLVE_COMMENT: { reduce: handleResolveComment, coalesce: "command" },
-  REOPEN_COMMENT: { reduce: handleReopenComment, coalesce: "command" },
-  DELETE_COMMENT: { reduce: handleDeleteComment, coalesce: "command" },
-  ADD_REPLY: { reduce: handleAddReply, coalesce: "command" },
+  PASTE: { edit: handlePaste, coalesce: "command", insertsAtCaret: true },
+  INSERT_NODE: { edit: handleInsertNode, coalesce: "command" },
+  SET_BLOCK_TYPE: { edit: handleSetBlockType, coalesce: "command" },
+  TOGGLE_LIST: { edit: handleToggleList, coalesce: "command" },
+  SET_LIST_TYPE: { edit: handleSetListType, coalesce: "command" },
+  SET_LIST_RESTART: { edit: handleSetListRestart, coalesce: "command" },
+  LIST_INDENT: { edit: handleListIndent, coalesce: "command" },
+  LIST_OUTDENT: { edit: handleListIndent, coalesce: "command" },
+  INDENT: { edit: handleIndent, coalesce: "command" },
+  OUTDENT: { edit: handleIndent, coalesce: "command" },
+  SECTION_BREAK: { edit: handleSectionBreak, coalesce: "command" },
+  TOGGLE_SECTION_LANDSCAPE: { edit: handleToggleSectionLandscape, coalesce: "command" },
+  SET_SECTION_COLUMNS: { edit: handleSetSectionColumns, coalesce: "command" },
+  INSERT_HEADER: { edit: handleInsertHeaderFooter, coalesce: "command" },
+  INSERT_FOOTER: { edit: handleInsertHeaderFooter, coalesce: "command" },
+  INSERT_FOOTNOTE: { edit: handleInsertFootnote, coalesce: "command", insertsAtCaret: true },
+  INSERT_CROSS_REFERENCE: { edit: handleInsertCrossReference, coalesce: "command", insertsAtCaret: true },
+  INSERT_PAGE_NUMBER: { edit: handleInsertPageField, coalesce: "command", insertsAtCaret: true },
+  INSERT_PAGE_COUNT: { edit: handleInsertPageField, coalesce: "command", insertsAtCaret: true },
+  INSERT_TAB: { edit: handleInsertTab, coalesce: "command", insertsAtCaret: true },
+  INSERT_LINE_BREAK: { edit: handleInsertLineBreak, coalesce: "command", insertsAtCaret: true },
+  SET_TAB_STOPS: { edit: handleSetTabStops, coalesce: "command" },
+  INSERT_HORIZONTAL_LINE: { edit: handleInsertHorizontalLine, coalesce: "command" },
+  INSERT_TABLE_OF_CONTENTS: { edit: handleInsertTableOfContents, coalesce: "command" },
+  INSERT_TABLE: { edit: handleInsertTable, coalesce: "command" },
+  INSERT_TABLE_ROW: { edit: handleInsertTableRow, coalesce: "command" },
+  INSERT_TABLE_COLUMN: { edit: handleInsertTableColumn, coalesce: "command" },
+  DELETE_TABLE_ROW: { edit: handleDeleteTableRow, coalesce: "command" },
+  DELETE_TABLE_COLUMN: { edit: handleDeleteTableColumn, coalesce: "command" },
+  DELETE_TABLE: { edit: handleDeleteTable, coalesce: "command" },
+  SPLIT_CELL: { edit: handleSplitCell, coalesce: "command" },
+  MERGE_CELLS: { edit: handleMergeCells, coalesce: "command" },
+  INSERT_IMAGE: { edit: handleInsertImage, coalesce: "command" },
+  INSERT_INLINE_IMAGE: { edit: handleInsertInlineImage, coalesce: "command", insertsAtCaret: true },
+  SET_IMAGE_SIZE: { edit: handleSetImageSize, coalesce: "command" },
+  SET_IMAGE_WRAP: { edit: handleSetImageWrap, coalesce: "command" },
+  SET_IMAGE_ALT: { edit: handleSetImageAlt, coalesce: "command" },
+  TOGGLE_STYLE: { edit: handleToggleStyle, coalesce: "command" },
+  SET_LINK: { edit: handleSetLink, coalesce: "command" },
+  SET_TEXT_COLOR: { edit: handleSetTextColor, coalesce: "command" },
+  SET_TEXT_TRANSFORM: { edit: handleSetTextTransform, coalesce: "command" },
+  SET_HIGHLIGHT: { edit: handleSetHighlight, coalesce: "command" },
+  SET_FONT_SIZE: { edit: handleSetFontSize, coalesce: "command" },
+  SET_FONT_FAMILY: { edit: handleSetFontFamily, coalesce: "command" },
+  CLEAR_FORMATTING: { edit: handleClearFormatting, coalesce: "command" },
+  SET_MARK: { edit: handleSetMark, coalesce: "command" },
+  REMOVE_MARK: { edit: handleRemoveMark, coalesce: "command" },
+  SET_TEXT_ALIGN: { edit: handleSetTextAlign, coalesce: "command" },
+  SET_LINE_SPACING: { edit: handleSetLineSpacing, coalesce: "command" },
+  SET_PARAGRAPH_SPACING: { edit: handleSetParagraphSpacing, coalesce: "command" },
+  SET_FOOTNOTE_POLICY: { edit: handleSetFootnotePolicy, coalesce: "command" },
+  REPLACE_MATCH: { edit: handleReplaceMatch, coalesce: "command" },
+  REPLACE_ALL: { edit: handleReplaceAll, coalesce: "command" },
+  ADD_COMMENT: { edit: handleAddComment, coalesce: "command" },
+  RESOLVE_COMMENT: { edit: handleResolveComment, coalesce: "command" },
+  REOPEN_COMMENT: { edit: handleReopenComment, coalesce: "command" },
+  DELETE_COMMENT: { edit: handleDeleteComment, coalesce: "command" },
+  ADD_REPLY: { edit: handleAddReply, coalesce: "command" },
   // Suggestion resolution: undoable, each its own entry.
-  ACCEPT_SUGGESTION: { reduce: handleAcceptSuggestion, coalesce: "command" },
-  REJECT_SUGGESTION: { reduce: handleRejectSuggestion, coalesce: "command" },
-  ACCEPT_SUGGESTION_GROUP: { reduce: handleResolveSuggestionGroup, coalesce: "command" },
-  REJECT_SUGGESTION_GROUP: { reduce: handleResolveSuggestionGroup, coalesce: "command" },
-  ACCEPT_ALL_SUGGESTIONS: { reduce: handleAcceptAllSuggestions, coalesce: "command" },
-  REJECT_ALL_SUGGESTIONS: { reduce: handleRejectAllSuggestions, coalesce: "command" },
+  ACCEPT_SUGGESTION: { edit: handleAcceptSuggestion, coalesce: "command" },
+  REJECT_SUGGESTION: { edit: handleRejectSuggestion, coalesce: "command" },
+  ACCEPT_SUGGESTION_GROUP: { edit: handleResolveSuggestionGroup, coalesce: "command" },
+  REJECT_SUGGESTION_GROUP: { edit: handleResolveSuggestionGroup, coalesce: "command" },
+  ACCEPT_ALL_SUGGESTIONS: { edit: handleAcceptAllSuggestions, coalesce: "command" },
+  REJECT_ALL_SUGGESTIONS: { edit: handleRejectAllSuggestions, coalesce: "command" },
 };
 
 /** Classify an `EditorAction` for undo-group coalescing. */
@@ -229,7 +237,8 @@ export function coalesceKeyOf(action: EditorAction): ActionClass {
 
 /** Run `action`'s own transition (`type` correlates the table entry with the action). */
 function reduceAction<K extends ActionType>(editor: EditorState, type: K, action: ActionOf<K>): EditorState {
-  return ACTIONS[type].reduce(editor, action);
+  const spec: ActionSpec<K> = ACTIONS[type];
+  return "edit" in spec ? applyEdit(editor, spec.edit(editor, action)) : spec.reduce(editor, action);
 }
 
 /** `editor` with a collapsed caret moved past the markers adjacent on its right. */

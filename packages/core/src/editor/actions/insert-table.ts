@@ -1,4 +1,5 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import {
   createTable,
   productionAllocator,
@@ -6,7 +7,6 @@ import {
   createSpan,
 } from "../../state";
 import type { BlockId } from "../../state";
-import { rebuildTrees } from "./helpers";
 import { prepareEmbedInsertPoint } from "./selection-guards";
 import type { ActionOf } from "../editor-action";
 
@@ -37,21 +37,20 @@ import type { ActionOf } from "../editor-action";
 export function handleInsertTable(
   editor: EditorState,
   { rows, cols }: ActionOf<"INSERT_TABLE">,
-): EditorState {
-  const { config } = editor;
-  if (rows < 1 || cols < 1) return editor;
+): Edit | null {
+  if (rows < 1 || cols < 1) return null;
 
   // Refuse a table inside a footnote / header / footer body — only main document
   // body text (which resolves to `state.rootId`) may host a table. Read
   // `focus` (the active end), matching INSERT_FOOTNOTE.
   if (selectionContextOf(editor.state, editor.selection.focus.blockId) !== editor.state.rootId) {
-    return editor;
+    return null;
   }
 
   // Delete a non-collapsed selection first, then create the table at the collapse
   // point. A cross-context / cross-parent expanded selection is un-deletable → no-op.
   const prep = prepareEmbedInsertPoint(editor.state, editor.selection);
-  if (!prep.ok) return editor;
+  if (!prep.ok) return null;
 
   // `createTable` always inserts (never a no-op), so the commit always fires.
   const result = createTable(prep.state, prep.position, rows, cols, productionAllocator);
@@ -60,14 +59,5 @@ export function handleInsertTable(
   for (const id of result.dirtyIds) dirtyIds.add(id);
 
   const selectionAfter = createSpan(result.caretInto, result.caretInto);
-  editor.history.commit(
-    { state: result.state, dirtyIds },
-    { before: editor.selection, after: selectionAfter },
-  );
-  return rebuildTrees(
-    { ...editor, state: result.state, selection: selectionAfter },
-    editor,
-    config,
-    dirtyIds,
-  );
+  return { change: { state: result.state, dirtyIds }, selection: selectionAfter };
 }

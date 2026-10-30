@@ -1,8 +1,8 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import { mergeBlockAttrs } from "../../state";
 import type { CounterFormat, FootnoteNumberingPolicy } from "../../footnotes";
 import { isValidFootnoteReset, isValidFootnoteFormat } from "../../footnotes";
-import { rebuildTrees } from "./helpers";
 import type { ActionOf } from "../editor-action";
 
 /**
@@ -34,8 +34,7 @@ import type { ActionOf } from "../editor-action";
  *
  * Selection is UNCHANGED: a policy change does not move the caret.
  */
-export function handleSetFootnotePolicy(editor: EditorState, action: ActionOf<"SET_FOOTNOTE_POLICY">): EditorState {
-  const { config } = editor;
+export function handleSetFootnotePolicy(editor: EditorState, action: ActionOf<"SET_FOOTNOTE_POLICY">): Edit | null {
   // Build the incoming attr patch from ONLY the valid, provided fields. An
   // invalid value is silently dropped; an omitted field is never written, so
   // the other field's existing attr is preserved.
@@ -48,7 +47,7 @@ export function handleSetFootnotePolicy(editor: EditorState, action: ActionOf<"S
   }
 
   // Nothing valid to write → no-op (return the input editor unchanged).
-  if (Object.keys(incoming).length === 0) return editor;
+  if (Object.keys(incoming).length === 0) return null;
 
   const result = mergeBlockAttrs(
     editor.state,
@@ -58,16 +57,7 @@ export function handleSetFootnotePolicy(editor: EditorState, action: ActionOf<"S
 
   // the identity-no-op contract: a no-op merge (policy already at the requested value)
   // returns the same state reference → return the input editor unchanged.
-  if (result.state === editor.state) return editor;
+  if (result.state === editor.state) return null;
 
-  editor.history.commit(
-    { state: result.state, dirtyIds: result.dirtyIds },
-    { before: editor.selection, after: editor.selection },
-  );
-  return rebuildTrees(
-    { ...editor, state: result.state },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+  return { change: { state: result.state, dirtyIds: result.dirtyIds } };
 }

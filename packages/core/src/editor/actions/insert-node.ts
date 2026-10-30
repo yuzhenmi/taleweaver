@@ -1,7 +1,7 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import { productionAllocator, insertBlock, getBlock } from "../../state";
 import type { BlockInit, State, BlockId, IdAllocator, InlineContent, BlockKindResolver } from "../../state";
-import { rebuildTrees } from "./helpers";
 import type { ActionOf } from "../editor-action";
 
 interface InsertNodeFold {
@@ -104,7 +104,7 @@ function insertBlockInitAt(
   return { state: cur, dirtyIds: accumulatedDirtyIds };
 }
 
-export function handleInsertNode(editor: EditorState, { node: init }: ActionOf<"INSERT_NODE">): EditorState {
+export function handleInsertNode(editor: EditorState, { node: init }: ActionOf<"INSERT_NODE">): Edit | null {
   const { config } = editor;
   // insertBlockInitAt always calls insertBlock at least once for the
   // root init (line 82), and insertBlock always mutates the Y.Doc
@@ -114,7 +114,7 @@ export function handleInsertNode(editor: EditorState, { node: init }: ActionOf<"
   // Appended at the END of the document body: the final section (the
   // root's children are sections; the final one always exists and is last).
   const body = getBlock(editor.state, editor.state.rootId)?.lastChildId ?? null;
-  if (body === null) return editor;
+  if (body === null) return null;
   const fold = insertBlockInitAt(
     editor.state,
     init,
@@ -124,14 +124,5 @@ export function handleInsertNode(editor: EditorState, { node: init }: ActionOf<"
     new Set<BlockId>(),
   );
 
-  editor.history.commit(
-    { state: fold.state, dirtyIds: fold.dirtyIds },
-    { before: editor.selection, after: editor.selection },
-  );
-  return rebuildTrees(
-    { ...editor, state: fold.state },
-    editor,
-    config,
-    fold.dirtyIds,
-  );
+  return { change: { state: fold.state, dirtyIds: fold.dirtyIds } };
 }

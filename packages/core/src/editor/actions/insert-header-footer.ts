@@ -1,4 +1,5 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import type { ActionOf } from "../editor-action";
 import {
   getBlock,
@@ -9,7 +10,6 @@ import {
   createSpan,
 } from "../../state";
 import type { BlockId, TemplateRegion } from "../../state";
-import { rebuildTrees } from "./helpers";
 import { resolveActiveSection } from "./active-section";
 
 /**
@@ -41,15 +41,14 @@ import { resolveActiveSection } from "./active-section";
 export function handleInsertHeaderFooter(
   editor: EditorState,
   action: ActionOf<"INSERT_HEADER" | "INSERT_FOOTER">,
-): EditorState {
-  const { config } = editor;
+): Edit | null {
   const region: TemplateRegion = action.type === "INSERT_HEADER" ? "header" : "footer";
   // The header/footer links onto the cursor's ACTIVE SECTION — the `section`
   // block enclosing the focus — so section 2 gets its own header (mirrors
   // `TOGGLE_SECTION_LANDSCAPE` / `SET_SECTION_COLUMNS`). A caret outside the main
   // body (a header / footnote body) has no section: no-op.
   const sectionBlockId = resolveActiveSection(editor, editor.selection.focus.blockId);
-  if (sectionBlockId === null) return editor;
+  if (sectionBlockId === null) return null;
   const attrKey = region === "header" ? "headerBlockId" : "footerBlockId";
 
   // Idempotency: if the active section already links an existing body for this
@@ -66,7 +65,7 @@ export function handleInsertHeaderFooter(
       const caretId = existingBody.firstChildId ?? (existingId as BlockId);
       const cursor = createPosition(caretId, 0);
       const selectionAfter = createSpan(cursor, cursor);
-      return { ...editor, selection: selectionAfter };
+      return { selection: selectionAfter };
     }
   }
 
@@ -80,14 +79,5 @@ export function handleInsertHeaderFooter(
   const cursor = createPosition(result.firstParagraphId, 0);
   const selectionAfter = createSpan(cursor, cursor);
 
-  editor.history.commit(
-    { state: result.state, dirtyIds: result.dirtyIds },
-    { before: editor.selection, after: selectionAfter },
-  );
-  return rebuildTrees(
-    { ...editor, state: result.state, selection: selectionAfter },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+  return { change: { state: result.state, dirtyIds: result.dirtyIds }, selection: selectionAfter };
 }

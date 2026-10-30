@@ -1,8 +1,8 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import type { ActionOf } from "../editor-action";
 import { getBlock, mergeBlockAttrs, iterateBlocksInSpan, positionsEqual } from "../../state";
 import type { State, BlockId } from "../../state";
-import { rebuildTrees } from "./helpers";
 
 /**
  * One indent step, in px (≈ 0.5in — Google Docs' default increase/decrease-
@@ -51,8 +51,7 @@ export const MIN_INDENT_CONTENT_WIDTH = 96;
  *
  * Selection is UNCHANGED: indent is a block-geometry change, not a caret move.
  */
-export function handleIndent(editor: EditorState, action: ActionOf<"INDENT" | "OUTDENT">): EditorState {
-  const { config } = editor;
+export function handleIndent(editor: EditorState, action: ActionOf<"INDENT" | "OUTDENT">): Edit | null {
   const delta = action.type === "INDENT" ? INDENT_STEP : -INDENT_STEP;
   const targetIds = targetLeafBlockIds(editor);
 
@@ -100,13 +99,9 @@ export function handleIndent(editor: EditorState, action: ActionOf<"INDENT" | "O
 
   // the identity-no-op contract: nothing changed → return the input editor unchanged.
   // (`history.commit` is itself no-op-safe.)
-  if (state === editor.state) return editor;
+  if (state === editor.state) return null;
 
-  editor.history.commit(
-    { state, dirtyIds },
-    { before: editor.selection, after: editor.selection },
-  );
-  return rebuildTrees({ ...editor, state }, editor, config, dirtyIds);
+  return { change: { state, dirtyIds } };
 }
 
 /**

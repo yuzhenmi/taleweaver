@@ -1,4 +1,5 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import type { ActionOf } from "../editor-action";
 import {
   insertPageField,
@@ -9,7 +10,6 @@ import {
   type BlockId,
   type PageFieldKind,
 } from "../../state";
-import { rebuildTrees } from "./helpers";
 import { prepareEmbedInsertPoint } from "./selection-guards";
 
 /**
@@ -37,37 +37,27 @@ import { prepareEmbedInsertPoint } from "./selection-guards";
 export function handleInsertPageField(
   editor: EditorState,
   action: ActionOf<"INSERT_PAGE_NUMBER" | "INSERT_PAGE_COUNT">,
-): EditorState {
-  const { config } = editor;
+): Edit | null {
   const { numberStyle } = action;
   const fieldKind: PageFieldKind = action.type === "INSERT_PAGE_NUMBER" ? "page-number" : "page-count";
   const focus = editor.selection.focus;
 
   // Header/footer-only gate: the caret's selection context must be a template body.
   const contextRoot = selectionContextOf(editor.state, focus.blockId);
-  if (contextRoot === null) return editor;
+  if (contextRoot === null) return null;
   const resolvedContext = resolveBlock(editor.state, contextRoot);
-  if (resolvedContext === null || resolvedContext.kind !== "templateContent") return editor;
+  if (resolvedContext === null || resolvedContext.kind !== "templateContent") return null;
 
   const prep = prepareEmbedInsertPoint(editor.state, editor.selection);
-  if (!prep.ok) return editor;
+  if (!prep.ok) return null;
 
   const result = insertPageField(prep.state, prep.position, fieldKind, numberStyle ?? "decimal");
-  if (result.state === prep.state && prep.dirtyIds.size === 0) return editor;
+  if (result.state === prep.state && prep.dirtyIds.size === 0) return null;
   const dirtyIds = new Set<BlockId>(prep.dirtyIds);
   for (const id of result.dirtyIds) dirtyIds.add(id);
 
   const cursor = createPosition(prep.position.blockId, prep.position.offset + 1);
   const selectionAfter = createSpan(cursor, cursor);
 
-  editor.history.commit(
-    { state: result.state, dirtyIds },
-    { before: editor.selection, after: selectionAfter },
-  );
-  return rebuildTrees(
-    { ...editor, state: result.state, selection: selectionAfter },
-    editor,
-    config,
-    dirtyIds,
-  );
+  return { change: { state: result.state, dirtyIds }, selection: selectionAfter };
 }

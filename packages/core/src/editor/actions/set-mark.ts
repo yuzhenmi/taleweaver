@@ -1,20 +1,20 @@
 import type { EditorState } from "../editor-state";
 import type { EditorConfig } from "../editor-config";
+import type { Edit } from "../edit";
 import { iterateSpan, blockMarkRanges, markEqualityOf, deepValueEqual, createPosition, createSpan } from "../../state";
 import type { Span, BlockId, ReadonlyAttrs, State } from "../../state";
 import { markInstanceKey, type AttrRegistry } from "../../cascade/attr-registry";
 import { isCollapsed } from "../../cursor/selection";
 import { applyAttrsOrSuggest } from "./suggestion-mode";
-import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection } from "./selection-guards";
 import type { ActionOf } from "../editor-action";
 
-/** Apply each `[span, attrs]` delta in turn (one undo step), then commit + rebuild. */
+/** Apply each `[span, attrs]` delta in turn, as one edit (one undo step). */
 function applyDeltas(
   editor: EditorState,
   deltas: ReadonlyArray<readonly [Span, ReadonlyAttrs]>,
   config: EditorConfig,
-): EditorState {
+): Edit | null {
   let state = editor.state;
   const dirtyIds = new Set<BlockId>();
   for (const [span, attrs] of deltas) {
@@ -22,11 +22,8 @@ function applyDeltas(
     state = r.state;
     for (const id of r.dirtyIds) dirtyIds.add(id);
   }
-  if (state === editor.state) return editor;
   // An attr-only edit shifts no offsets: the selection is kept as-is (direction too).
-  const { selection } = editor;
-  editor.history.commit({ state, dirtyIds }, { before: selection, after: selection });
-  return rebuildTrees({ ...editor, state, selection }, editor, config, dirtyIds);
+  return state === editor.state ? null : { change: { state, dirtyIds } };
 }
 
 function usableSpan(editor: EditorState, span: Span | undefined): Span | null {
@@ -51,10 +48,10 @@ function isNonExclusive(key: string, config: EditorConfig): boolean {
 export function handleSetMark(
   editor: EditorState,
   { key, value, replace, span }: ActionOf<"SET_MARK">,
-): EditorState {
+): Edit | null {
   const { config } = editor;
   const target = usableSpan(editor, span);
-  if (target === null || value === undefined) return editor;
+  if (target === null || value === undefined) return null;
   if (!isNonExclusive(key, config)) return applyDeltas(editor, [[target, { [key]: value }]], config);
   const delta: Record<string, unknown> = {};
   if (replace !== undefined) delta[markInstanceKey(key, replace)] = undefined;
@@ -101,10 +98,10 @@ function removalDeltas(
 export function handleRemoveMark(
   editor: EditorState,
   { key, value, span }: ActionOf<"REMOVE_MARK">,
-): EditorState {
+): Edit | null {
   const { config } = editor;
   const target = usableSpan(editor, span);
-  if (target === null) return editor;
+  if (target === null) return null;
   return applyDeltas(
     editor,
     removalDeltas(editor.state, target, key, value, isNonExclusive(key, config), config.attrRegistry),

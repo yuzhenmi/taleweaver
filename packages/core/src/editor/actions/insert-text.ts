@@ -12,21 +12,21 @@ import {
 import type { OperationResult, Position } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
 import { isObjectSelection } from "../../cursor/object-selection";
-import { rebuildTrees } from "./helpers";
+import type { Edit } from "../edit";
 import { isCrossContextSelection } from "./selection-guards";
 import { suggestionInputForBlock, replaceSuggestionInputForBlock } from "./suggestion-mode";
 import { replaceObjectWithText } from "./object-edits";
 import { getTypingAttrs } from "../typing-attrs";
 import type { ActionOf } from "../editor-action";
 
-export function handleInsertText(editor: EditorState, { text }: ActionOf<"INSERT_TEXT">): EditorState {
+export function handleInsertText(editor: EditorState, { text }: ActionOf<"INSERT_TEXT">): Edit | null {
   const { config } = editor;
   // Object selection: typing over a selected atomic-leaf (image) replaces
   // the object with the typed text (Google Docs). Routes BEFORE the collapsed
   // path, which would otherwise throw — `insertText` rejects an atomic block
   // (`inlineContent === null`).
   const objId = isObjectSelection(editor.state, editor.selection, config.componentRegistry);
-  if (objId !== null) return replaceObjectWithText(editor, config, objId, text);
+  if (objId !== null) return replaceObjectWithText(editor, objId, text);
 
   const selectionBefore = editor.selection;
   // Typing attributes: pending storedAttrs, else inherited at the caret (or the
@@ -43,7 +43,7 @@ export function handleInsertText(editor: EditorState, { text }: ActionOf<"INSERT
     // span. NOTE: insert-text intentionally has ONLY this guard — not the
     // deletable-span (resolveBlock/parentId) guard the delete/split handlers
     // add — so its guard SET is unchanged.
-    if (isCrossContextSelection(editor.state, selectionBefore)) return editor;
+    if (isCrossContextSelection(editor.state, selectionBefore)) return null;
     const start = spanStart(editor.state, selectionBefore);
     // Suggesting mode: type-over-a-selection is the tracked composite — soft-delete
     // the selection + insert `text` as a suggestion at its seam, in ONE undoable op
@@ -75,7 +75,7 @@ export function handleInsertText(editor: EditorState, { text }: ActionOf<"INSERT
     // stamps the insertion-provenance id + writes/coalesces an `insertion`
     // record) instead of plain text. mintInsertion advances `text.length`
     // offsets exactly as insertText, so the cursor lands identically; it is a
-    // normal tracked/undoable op, so the commit + rebuild below are unchanged.
+    // normal tracked/undoable op, so the edit below is unchanged.
     // Gate on the caret block's context: a caret in ANY editing context (main
     // body OR a footnote/header/footer body) is TRACKED; `suggestionInputForBlock`
     // returns null only when not suggesting or the block resolves to no context,
@@ -89,25 +89,12 @@ export function handleInsertText(editor: EditorState, { text }: ActionOf<"INSERT
     newCursorOffset = focus.offset + text.length;
   }
 
-  // the identity-no-op contract: a no-op op returns the same state reference,
-  // so the editor module's "no change → same editor reference" invariant
-  // requires the early return here. `history.commit` is itself no-op-safe
-  // (it silently drops empty `dirtyIds`), so this short-circuit is about
-  // the identity invariant, not commit safety.
-  if (result.state === editor.state) return editor;
+  // the identity-no-op contract: a no-op op returns the same state reference, so
+  // nothing is edited.
+  if (result.state === editor.state) return null;
 
   const newCursor = createPosition(newCursorBlockId, newCursorOffset);
   const newSelection = createSpan(newCursor, newCursor);
 
-  editor.history.commit(result, {
-    before: selectionBefore,
-    after: newSelection,
-  });
-
-  return rebuildTrees(
-    { ...editor, state: result.state, selection: newSelection },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+  return { change: result, selection: newSelection };
 }

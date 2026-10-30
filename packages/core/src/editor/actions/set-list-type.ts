@@ -1,4 +1,5 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import {
   getBlock,
   setListType,
@@ -8,7 +9,6 @@ import {
   positionsEqual,
 } from "../../state";
 import type { Block, BlockId, State } from "../../state";
-import { rebuildTrees } from "./helpers";
 import type { ActionOf } from "../editor-action";
 
 type ListType = "ordered" | "unordered";
@@ -27,10 +27,9 @@ type ListType = "ordered" | "unordered";
  * list-items, or one where every touched list already matches, is a no-op
  * returning the same `editor` reference.
  */
-export function handleSetListType(editor: EditorState, { listType }: ActionOf<"SET_LIST_TYPE">): EditorState {
-  const { config } = editor;
+export function handleSetListType(editor: EditorState, { listType }: ActionOf<"SET_LIST_TYPE">): Edit | null {
   const listIds = distinctSelectedListIds(editor);
-  if (listIds.size === 0) return editor;
+  if (listIds.size === 0) return null;
 
   const defs = getListDefsForState(editor.state);
   const currentType = (listId: string): ListType | undefined => {
@@ -50,13 +49,9 @@ export function handleSetListType(editor: EditorState, { listType }: ActionOf<"S
     for (const id of result.dirtyIds) dirtyIds.add(id);
   }
 
-  if (state === editor.state) return editor;
+  if (state === editor.state) return null;
 
-  editor.history.commit(
-    { state, dirtyIds },
-    { before: editor.selection, after: editor.selection },
-  );
-  return rebuildTrees({ ...editor, state }, editor, config, dirtyIds);
+  return { change: { state, dirtyIds } };
 }
 
 /** The distinct `listId`s of list-items the selection touches. */

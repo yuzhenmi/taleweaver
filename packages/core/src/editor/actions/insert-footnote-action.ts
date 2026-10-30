@@ -1,4 +1,5 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import {
   insertFootnote,
   productionAllocator,
@@ -6,7 +7,6 @@ import {
   createPosition,
   createSpan,
 } from "../../state";
-import { rebuildTrees } from "./helpers";
 import { prepareEmbedInsertPoint } from "./selection-guards";
 import type { BlockId } from "../../state";
 
@@ -41,40 +41,30 @@ import type { BlockId } from "../../state";
  * anchor is spliced — matching INSERT_TEXT / PASTE / Google Docs. A
  * cross-context / cross-parent span is un-deletable → no-op.
  */
-export function handleInsertFootnote(editor: EditorState): EditorState {
-  const { config } = editor;
+export function handleInsertFootnote(editor: EditorState): Edit | null {
   const focus = editor.selection.focus;
 
   // Refuse a footnote inside a footnote / header / footer body — only main
   // document body text (which resolves to `state.rootId`) may carry an anchor.
   if (selectionContextOf(editor.state, focus.blockId) !== editor.state.rootId) {
-    return editor;
+    return null;
   }
 
   // Delete a non-collapsed selection first (Google Docs replaces the selection
   // when you insert a footnote), then splice the anchor at the collapse point. A
   // cross-context / cross-parent expanded selection is un-deletable → no-op.
   const prep = prepareEmbedInsertPoint(editor.state, editor.selection);
-  if (!prep.ok) return editor;
+  if (!prep.ok) return null;
 
   const result = insertFootnote(prep.state, prep.position, productionAllocator);
   // Identity invariant: nothing changed (no delete AND a no-op insert) → return
   // the editor unchanged so the "no change → same reference" contract holds.
-  if (result.state === prep.state && prep.dirtyIds.size === 0) return editor;
+  if (result.state === prep.state && prep.dirtyIds.size === 0) return null;
   const dirtyIds = new Set<BlockId>(prep.dirtyIds);
   for (const id of result.dirtyIds) dirtyIds.add(id);
 
   const cursor = createPosition(result.firstParagraphId, 0);
   const selectionAfter = createSpan(cursor, cursor);
 
-  editor.history.commit(
-    { state: result.state, dirtyIds },
-    { before: editor.selection, after: selectionAfter },
-  );
-  return rebuildTrees(
-    { ...editor, state: result.state, selection: selectionAfter },
-    editor,
-    config,
-    dirtyIds,
-  );
+  return { change: { state: result.state, dirtyIds }, selection: selectionAfter };
 }

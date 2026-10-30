@@ -1,5 +1,6 @@
 import type { EditorState } from "../editor-state";
 import type { EditorConfig } from "../editor-config";
+import type { Edit } from "../edit";
 import {
   getBlock,
   removeBlock,
@@ -9,7 +10,6 @@ import {
   createSpan,
 } from "../../state";
 import type { Block, Position, SiblingBlockInit } from "../../state";
-import { rebuildTrees } from "./helpers";
 
 /**
  * Insert an atomic-leaf block (image / horizontal-line) immediately AFTER the
@@ -19,18 +19,17 @@ import { rebuildTrees } from "./helpers";
  * undo entry. Shared by `handleInsertHorizontalLine` / `handleInsertImage` —
  * only the atomic block's init differs.
  *
- * No-op (same `editor` reference, no `history.commit`) when the focus block is
+ * No-op (`null`) when the focus block is
  * missing, is the root, or is not in the MAIN tree — `insertBlocksAfter` /
  * `getBlock` are main-tree-only, so a caret inside a header/footer/footnote
  * body is out of scope.
  */
 export function insertAtomicBlockAfterFocus(
   editor: EditorState,
-  config: EditorConfig,
   atomicInit: SiblingBlockInit,
-): EditorState {
+): Edit | null {
   const focus = getBlock(editor.state, editor.selection.focus.blockId);
-  if (focus === null || focus.parentId === null) return editor;
+  if (focus === null || focus.parentId === null) return null;
 
   const result = insertBlocksAfter(
     editor.state,
@@ -38,24 +37,14 @@ export function insertAtomicBlockAfterFocus(
     [atomicInit, { type: "paragraph", inlineContent: { items: [] } }],
     productionAllocator,
   );
-  if (result.state === editor.state) return editor;
+  if (result.state === editor.state) return null;
 
   // newBlockIds = [atomic, paragraph]; caret lands in the paragraph.
   const paragraphId = result.newBlockIds[1];
-  if (paragraphId === undefined) return editor; // defensive: both always inserted
+  if (paragraphId === undefined) return null; // defensive: both always inserted
 
   const caret = createPosition(paragraphId, 0);
-  const after = createSpan(caret, caret);
-  editor.history.commit(
-    { state: result.state, dirtyIds: result.dirtyIds },
-    { before: editor.selection, after },
-  );
-  return rebuildTrees(
-    { ...editor, state: result.state, selection: after },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+  return { change: result, selection: createSpan(caret, caret) };
 }
 
 /**
@@ -71,7 +60,7 @@ export function insertAtomicBlockAfterFocus(
  * `currentBlock` is the block the collapsed caret sits in; `side` selects the
  * neighbour to test — `"backward"` (previous sibling, for Backspace at offset 0)
  * or `"forward"` (next sibling, for Delete at the block end). `caret` is the
- * collapsed position to keep after removal. Returns the updated editor when an
+ * collapsed position to keep after removal. Returns the edit when an
  * adjacent atomic-leaf was removed, or `null` when the neighbour is absent or
  * not an atomic-leaf — the caller then falls through to its normal merge logic.
  *
@@ -85,7 +74,7 @@ export function deleteAdjacentAtomicLeaf(
   currentBlock: Block,
   side: "backward" | "forward",
   caret: Position,
-): EditorState | null {
+): Edit | null {
   const neighbourId =
     side === "backward" ? currentBlock.prevSiblingId : currentBlock.nextSiblingId;
   if (neighbourId === null) return null;
@@ -98,12 +87,5 @@ export function deleteAdjacentAtomicLeaf(
   const result = removeBlock(editor.state, neighbourId);
   if (result.state === editor.state) return null;
 
-  const newSelection = createSpan(caret, caret);
-  editor.history.commit(result, { before: editor.selection, after: newSelection });
-  return rebuildTrees(
-    { ...editor, state: result.state, selection: newSelection },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+  return { change: result, selection: createSpan(caret, caret) };
 }

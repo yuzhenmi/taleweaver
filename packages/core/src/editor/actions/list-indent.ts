@@ -2,7 +2,7 @@ import type { EditorState } from "../editor-state";
 import type { ActionOf } from "../editor-action";
 import { getBlock, mergeBlockAttrs, iterateBlocksInSpan, positionsEqual } from "../../state";
 import type { State, BlockId } from "../../state";
-import { rebuildTrees } from "./helpers";
+import type { Edit } from "../edit";
 import { listLevelOf } from "./list-edits";
 
 /** Google-Docs list nesting depth is 0–8 (level 0 = top of the list). */
@@ -21,20 +21,19 @@ export const MAX_LIST_LEVEL = 8;
  * on a list-item to this action; outside a list Tab inserts a tab (`INSERT_TAB`)
  * and Shift+Tab is a no-op.)
  *
- * No-op (return the input `editor` unchanged, never calling `history.commit`):
+ * No-op (`null`):
  * collapsed caret not in a list-item; a range covering no list-items; or every
  * target already at the clamp boundary.
  */
 export function handleListIndent(
   editor: EditorState,
   { type }: ActionOf<"LIST_INDENT" | "LIST_OUTDENT">,
-): EditorState {
+): Edit | null {
   return shiftListLevel(editor, type === "LIST_INDENT" ? 1 : -1);
 }
 
 /** Step the target list-items' `listLevel` by `delta` (see `handleListIndent`). */
-export function shiftListLevel(editor: EditorState, delta: 1 | -1): EditorState {
-  const { config } = editor;
+export function shiftListLevel(editor: EditorState, delta: 1 | -1): Edit | null {
   const targetIds = targetListItemIds(editor);
 
   let state: State = editor.state;
@@ -58,13 +57,7 @@ export function shiftListLevel(editor: EditorState, delta: 1 | -1): EditorState 
     for (const id of result.dirtyIds) dirtyIds.add(id);
   }
 
-  if (state === editor.state) return editor;
-
-  editor.history.commit(
-    { state, dirtyIds },
-    { before: editor.selection, after: editor.selection },
-  );
-  return rebuildTrees({ ...editor, state }, editor, config, dirtyIds);
+  return state === editor.state ? null : { change: { state, dirtyIds } };
 }
 
 /**

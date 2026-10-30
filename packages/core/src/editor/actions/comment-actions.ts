@@ -1,5 +1,5 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
+import type { Edit } from "../edit";
 import {
   addComment,
   resolveComment,
@@ -16,11 +16,9 @@ import {
   COMMENT_START_EMBED_TYPE,
   COMMENT_END_EMBED_TYPE,
   type CommentId,
-  type OperationResult,
   type Position,
 } from "../../state";
 import { isCollapsed } from "../../cursor/selection";
-import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection } from "./selection-guards";
 import type { ActionOf } from "../editor-action";
 
@@ -63,12 +61,11 @@ import type { ActionOf } from "../editor-action";
 export function handleAddComment(
   editor: EditorState,
   { id, author, body, createdAt }: ActionOf<"ADD_COMMENT">,
-): EditorState {
-  const { config } = editor;
+): Edit | null {
   // A comment needs a range, not a caret.
-  if (isCollapsed(editor.selection)) return editor;
+  if (isCollapsed(editor.selection)) return null;
   // The span ops cannot place markers across a tree boundary.
-  if (isCrossContextSelection(editor.state, editor.selection)) return editor;
+  if (isCrossContextSelection(editor.state, editor.selection)) return null;
   // Body-text only: refuse a comment whose focus is inside a footnote / header /
   // footer body (a non-root context). The cross-context guard alone misses a
   // fully-in-footnote selection (both endpoints share that body's context).
@@ -76,7 +73,7 @@ export function handleAddComment(
     selectionContextOf(editor.state, editor.selection.focus.blockId) !==
     editor.state.rootId
   ) {
-    return editor;
+    return null;
   }
 
   // Resolve the range ends on the PRE-op state — the marker offsets are derived
@@ -92,7 +89,7 @@ export function handleAddComment(
   });
   // Identity invariant: a valid expanded range always mutates, but keep the
   // "no change → same reference" contract robust against a surprise no-op.
-  if (result.state === editor.state) return editor;
+  if (result.state === editor.state) return null;
 
   // Re-derive the visible selection against the +2 marker offsets (markers
   // OUTSIDE the selection), preserving the originally-selected characters.
@@ -108,16 +105,7 @@ export function handleAddComment(
     ? createSpan(newStart, newEnd)
     : createSpan(newEnd, newStart);
 
-  editor.history.commit(
-    { state: result.state, dirtyIds: result.dirtyIds },
-    { before: editor.selection, after: selectionAfter },
-  );
-  return rebuildTrees(
-    { ...editor, state: result.state, selection: selectionAfter },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+  return { change: result, selection: selectionAfter };
 }
 
 /**
@@ -131,9 +119,8 @@ export function handleAddComment(
  * surfaces `rootId` as its dirtyId — never inline content), so the `after`
  * selection equals the `before` selection.
  */
-export function handleResolveComment(editor: EditorState, { id }: ActionOf<"RESOLVE_COMMENT">): EditorState {
-  const { config } = editor;
-  return commitFlagChange(editor, resolveComment(editor.state, id), config);
+export function handleResolveComment(editor: EditorState, { id }: ActionOf<"RESOLVE_COMMENT">): Edit | null {
+  return { change: resolveComment(editor.state, id) };
 }
 
 /**
@@ -141,9 +128,8 @@ export function handleResolveComment(editor: EditorState, { id }: ActionOf<"RESO
  * `false`. The exact mirror of {@link handleResolveComment}: undoable tracked
  * write, identity no-op when absent or already open, selection unchanged.
  */
-export function handleReopenComment(editor: EditorState, { id }: ActionOf<"REOPEN_COMMENT">): EditorState {
-  const { config } = editor;
-  return commitFlagChange(editor, reopenComment(editor.state, id), config);
+export function handleReopenComment(editor: EditorState, { id }: ActionOf<"REOPEN_COMMENT">): Edit | null {
+  return { change: reopenComment(editor.state, id) };
 }
 
 /**
@@ -160,25 +146,15 @@ export function handleReopenComment(editor: EditorState, { id }: ActionOf<"REOPE
  * with no stripped markers (the sidebar-driven case — caret elsewhere) the remap is
  * the identity, so the supported path is unchanged.
  */
-export function handleDeleteComment(editor: EditorState, { id }: ActionOf<"DELETE_COMMENT">): EditorState {
-  const { config } = editor;
+export function handleDeleteComment(editor: EditorState, { id }: ActionOf<"DELETE_COMMENT">): Edit | null {
   const result = deleteComment(editor.state, id);
-  if (result.state === editor.state) return editor;
+  if (result.state === editor.state) return null;
   const remap = (p: Position): Position => {
     const stripped = strippedMarkersBefore(editor, id, p);
     return stripped === 0 ? p : createPosition(p.blockId, p.offset - stripped);
   };
   const after = createSpan(remap(editor.selection.anchor), remap(editor.selection.focus));
-  editor.history.commit(
-    { state: result.state, dirtyIds: result.dirtyIds },
-    { before: editor.selection, after },
-  );
-  return rebuildTrees(
-    { ...editor, state: result.state, selection: after },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+  return { change: result, selection: after };
 }
 
 /**
@@ -214,37 +190,13 @@ function strippedMarkersBefore(editor: EditorState, id: CommentId, pos: Position
 export function handleAddReply(
   editor: EditorState,
   { commentId, replyId, author, body, createdAt }: ActionOf<"ADD_REPLY">,
-): EditorState {
-  const { config } = editor;
-  const result = addReply(editor.state, commentId, {
-    replyId,
-    author,
-    body,
-    createdAt,
-  });
-  return commitFlagChange(editor, result, config);
-}
-
-/**
- * Shared commit path for the comment side-table ops (resolve / reopen / reply)
- * that change NO inline content and leave the selection untouched. Identity
- * no-op short-circuit per the identity-no-op contract, then commit + rebuild with the same
- * selection.
- */
-function commitFlagChange(
-  editor: EditorState,
-  result: OperationResult,
-  config: EditorConfig,
-): EditorState {
-  if (result.state === editor.state) return editor;
-  editor.history.commit(
-    { state: result.state, dirtyIds: result.dirtyIds },
-    { before: editor.selection, after: editor.selection },
-  );
-  return rebuildTrees(
-    { ...editor, state: result.state },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+): Edit | null {
+  return {
+    change: addReply(editor.state, commentId, {
+      replyId,
+      author,
+      body,
+      createdAt,
+    }),
+  };
 }

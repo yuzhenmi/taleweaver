@@ -1,5 +1,5 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
+import type { Edit } from "../edit";
 import type { BlockId } from "../../state";
 import {
   resolveTableContext,
@@ -21,7 +21,6 @@ import {
   createSpan,
   productionAllocator,
 } from "../../state";
-import { rebuildTrees } from "./helpers";
 import type { ActionOf } from "../editor-action";
 
 /**
@@ -40,26 +39,16 @@ import type { ActionOf } from "../editor-action";
 export function handleInsertTableRow(
   editor: EditorState,
   { position }: ActionOf<"INSERT_TABLE_ROW">,
-): EditorState {
-  const { config } = editor;
+): Edit | null {
   const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
-  if (ctx === null || ctx.ragged) return editor;
+  if (ctx === null || ctx.ragged) return null;
 
   const result = ctx.spanned
     ? insertTableRowSpanAware(editor.state, ctx, position, productionAllocator)
     : insertTableRow(editor.state, ctx, position, productionAllocator);
-  if (result.state === editor.state) return editor; // defensive no-op short-circuit
+  if (result.state === editor.state) return null; // defensive no-op short-circuit
 
-  editor.history.commit(
-    { state: result.state, dirtyIds: result.dirtyIds },
-    { before: editor.selection, after: editor.selection },
-  );
-  return rebuildTrees(
-    { ...editor, state: result.state },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+  return { change: { state: result.state, dirtyIds: result.dirtyIds } };
 }
 
 /**
@@ -76,26 +65,16 @@ export function handleInsertTableRow(
 export function handleInsertTableColumn(
   editor: EditorState,
   { position }: ActionOf<"INSERT_TABLE_COLUMN">,
-): EditorState {
-  const { config } = editor;
+): Edit | null {
   const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
-  if (ctx === null || ctx.ragged) return editor;
+  if (ctx === null || ctx.ragged) return null;
 
   const result = ctx.spanned
     ? insertTableColumnSpanAware(editor.state, ctx, position, productionAllocator)
     : insertTableColumn(editor.state, ctx, position, productionAllocator);
-  if (result.state === editor.state) return editor; // defensive no-op short-circuit
+  if (result.state === editor.state) return null; // defensive no-op short-circuit
 
-  editor.history.commit(
-    { state: result.state, dirtyIds: result.dirtyIds },
-    { before: editor.selection, after: editor.selection },
-  );
-  return rebuildTrees(
-    { ...editor, state: result.state },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+  return { change: { state: result.state, dirtyIds: result.dirtyIds } };
 }
 
 /**
@@ -108,25 +87,20 @@ export function handleInsertTableColumn(
 function deleteWholeTable(
   editor: EditorState,
   tableId: BlockId,
-  config: EditorConfig,
-): EditorState {
+): Edit | null {
   const table = getBlock(editor.state, tableId);
-  if (table === null) return editor; // defensive
+  if (table === null) return null; // defensive
   const siblingId = table.nextSiblingId ?? table.prevSiblingId; // pre-op; survives the delete
 
   const result = deleteTable(editor.state, tableId);
-  if (result.state === editor.state) return editor;
+  if (result.state === editor.state) return null;
 
   const caretBlockId = siblingId;
-  if (caretBlockId === null) return editor; // unreachable: a paragraph follows every table (invariant I)
+  if (caretBlockId === null) return null; // unreachable: a paragraph follows every table (invariant I)
 
   const cursor = createPosition(caretBlockId, 0);
   const after = createSpan(cursor, cursor);
-  editor.history.commit(
-    { state: result.state, dirtyIds: result.dirtyIds },
-    { before: editor.selection, after },
-  );
-  return rebuildTrees({ ...editor, state: result.state, selection: after }, editor, config, result.dirtyIds);
+  return { change: { state: result.state, dirtyIds: result.dirtyIds }, selection: after };
 }
 
 /**
@@ -137,11 +111,10 @@ function deleteWholeTable(
  * always safe (Google Docs allows it on merged-cell tables), so it is NOT gated
  * on `ctx.hasSpans`. Caret-after semantics: see `deleteWholeTable`.
  */
-export function handleDeleteTable(editor: EditorState): EditorState {
-  const { config } = editor;
+export function handleDeleteTable(editor: EditorState): Edit | null {
   const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
-  if (ctx === null) return editor;
-  return deleteWholeTable(editor, ctx.tableId, config);
+  if (ctx === null) return null;
+  return deleteWholeTable(editor, ctx.tableId);
 }
 
 /**
@@ -161,14 +134,13 @@ export function handleDeleteTable(editor: EditorState): EditorState {
  * for the no-span path from `ctx.cellIdsByRow`. The target cell id survives the
  * delete; its first paragraph is read from the POST-op state. One undo (`"command"`).
  */
-export function handleDeleteTableRow(editor: EditorState): EditorState {
-  const { config } = editor;
+export function handleDeleteTableRow(editor: EditorState): Edit | null {
   const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
-  if (ctx === null || ctx.ragged) return editor;
+  if (ctx === null || ctx.ragged) return null;
 
   // Last remaining row → deleting it collapses the whole table.
   if (ctx.rowIds.length <= 1) {
-    return deleteWholeTable(editor, ctx.tableId, config);
+    return deleteWholeTable(editor, ctx.tableId);
   }
 
   if (ctx.spanned) {
@@ -178,10 +150,10 @@ export function handleDeleteTableRow(editor: EditorState): EditorState {
     // it rather than re-scanning the tree with a second `buildTableGrid`.
     const grid = ctx.grid;
     const caretCell = grid === null ? undefined : grid.cells.find((c) => c.cellId === ctx.cellId);
-    if (grid === null || caretCell === undefined) return editor;
+    if (grid === null || caretCell === undefined) return null;
 
     const result = deleteTableRowSpanAware(editor.state, ctx);
-    if (result.state === editor.state) return editor;
+    if (result.state === editor.state) return null;
 
     const rowCount = grid.occupancy.length;
     const targetGridRow = caretCell.gridRow < rowCount - 1 ? caretCell.gridRow + 1 : caretCell.gridRow - 1;
@@ -190,12 +162,11 @@ export function handleDeleteTableRow(editor: EditorState): EditorState {
     // Defensive POST-op guard: for a non-ragged spanned table the target cell always
     // survives the delete, so this is unreachable; if it ever fired we'd discard the
     // already-computed `result` rather than commit a caret-less state.
-    if (caretBlockId === null) return editor;
+    if (caretBlockId === null) return null;
 
     const cursor = createPosition(caretBlockId, 0);
     const after = createSpan(cursor, cursor);
-    editor.history.commit({ state: result.state, dirtyIds: result.dirtyIds }, { before: editor.selection, after });
-    return rebuildTrees({ ...editor, state: result.state, selection: after }, editor, config, result.dirtyIds);
+    return { change: { state: result.state, dirtyIds: result.dirtyIds }, selection: after };
   }
 
   // No-span path. Caret target: same column in the next row, else
@@ -206,20 +177,16 @@ export function handleDeleteTableRow(editor: EditorState): EditorState {
   // The plain delete composes `removeBlock` + a `headerRowCount` re-derive in
   // ONE transaction, so deleting a header row keeps the count valid (one undo entry).
   const result = deleteTableRow(editor.state, ctx);
-  if (result.state === editor.state) return editor;
+  if (result.state === editor.state) return null;
 
   // Read the target cell's first paragraph from the POST-op state.
   const targetCell = targetCellId !== null ? getBlock(result.state, targetCellId) : null;
   const caretBlockId = targetCell?.firstChildId ?? null;
-  if (caretBlockId === null) return editor; // defensive: non-ragged rowCount>1 always has a target
+  if (caretBlockId === null) return null; // defensive: non-ragged rowCount>1 always has a target
 
   const cursor = createPosition(caretBlockId, 0);
   const after = createSpan(cursor, cursor);
-  editor.history.commit(
-    { state: result.state, dirtyIds: result.dirtyIds },
-    { before: editor.selection, after },
-  );
-  return rebuildTrees({ ...editor, state: result.state, selection: after }, editor, config, result.dirtyIds);
+  return { change: { state: result.state, dirtyIds: result.dirtyIds }, selection: after };
 }
 
 /**
@@ -240,31 +207,30 @@ export function handleDeleteTableRow(editor: EditorState): EditorState {
  * rewrites `columnWidths` (when present) in the same transaction → one undo entry
  * (`"command"`).
  */
-export function handleDeleteTableColumn(editor: EditorState): EditorState {
-  const { config } = editor;
+export function handleDeleteTableColumn(editor: EditorState): Edit | null {
   const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
-  if (ctx === null || ctx.ragged) return editor;
+  if (ctx === null || ctx.ragged) return null;
 
   // The PRE-op occupancy grid — `resolveTableContext` already built it (for `ragged`).
   // A resolved main-tree table always has one; the guard is defensive (unreachable).
   // The column count must come from the grid: a row's cell count ≠ the column count
   // when spans exist (the row-axis analog `ctx.rowIds.length` has no column equivalent).
   const grid = ctx.grid;
-  if (grid === null) return editor;
+  if (grid === null) return null;
   const columnCount = grid.columnCount;
   // Last remaining column → deleting it collapses the whole table.
   if (columnCount <= 1) {
-    return deleteWholeTable(editor, ctx.tableId, config);
+    return deleteWholeTable(editor, ctx.tableId);
   }
 
   if (ctx.spanned) {
     // Span-aware: resolve the caret target from the PRE-op occupancy grid — the cell
     // in the caret's row at the column that takes the deleted column's place.
     const caretCell = grid.cells.find((c) => c.cellId === ctx.cellId);
-    if (caretCell === undefined) return editor;
+    if (caretCell === undefined) return null;
 
     const result = deleteTableColumnSpanAware(editor.state, ctx);
-    if (result.state === editor.state) return editor;
+    if (result.state === editor.state) return null;
 
     const targetGridCol = caretCell.gridCol < columnCount - 1 ? caretCell.gridCol + 1 : caretCell.gridCol - 1;
     const targetCellId = grid.occupancy[caretCell.gridRow]?.[targetGridCol] ?? null;
@@ -272,12 +238,11 @@ export function handleDeleteTableColumn(editor: EditorState): EditorState {
     // Defensive POST-op guard: for a non-ragged spanned table the target cell always
     // survives the delete, so this is unreachable; if it ever fired we'd discard the
     // already-computed `result` rather than commit a caret-less state.
-    if (caretBlockId === null) return editor;
+    if (caretBlockId === null) return null;
 
     const cursor = createPosition(caretBlockId, 0);
     const after = createSpan(cursor, cursor);
-    editor.history.commit({ state: result.state, dirtyIds: result.dirtyIds }, { before: editor.selection, after });
-    return rebuildTrees({ ...editor, state: result.state, selection: after }, editor, config, result.dirtyIds);
+    return { change: { state: result.state, dirtyIds: result.dirtyIds }, selection: after };
   }
 
   // No-span path. Caret target: same row, next column's cell, else the
@@ -293,20 +258,16 @@ export function handleDeleteTableColumn(editor: EditorState): EditorState {
   const targetCellId = row[ctx.colIndex + 1] ?? row[ctx.colIndex - 1] ?? null;
 
   const result = deleteTableColumn(editor.state, ctx);
-  if (result.state === editor.state) return editor;
+  if (result.state === editor.state) return null;
 
   // Read the target cell's first paragraph from the POST-op state.
   const targetCell = targetCellId !== null ? getBlock(result.state, targetCellId) : null;
   const caretBlockId = targetCell?.firstChildId ?? null;
-  if (caretBlockId === null) return editor; // defensive: non-ragged colCount>1 always has a target
+  if (caretBlockId === null) return null; // defensive: non-ragged colCount>1 always has a target
 
   const cursor = createPosition(caretBlockId, 0);
   const after = createSpan(cursor, cursor);
-  editor.history.commit(
-    { state: result.state, dirtyIds: result.dirtyIds },
-    { before: editor.selection, after },
-  );
-  return rebuildTrees({ ...editor, state: result.state, selection: after }, editor, config, result.dirtyIds);
+  return { change: { state: result.state, dirtyIds: result.dirtyIds }, selection: after };
 }
 
 /**
@@ -324,24 +285,14 @@ export function handleDeleteTableColumn(editor: EditorState): EditorState {
  * cell, whose paragraph still exists after the unmerge). One undo entry (the op
  * is a single transaction; classified `"command"`).
  */
-export function handleSplitCell(editor: EditorState): EditorState {
-  const { config } = editor;
+export function handleSplitCell(editor: EditorState): Edit | null {
   const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
-  if (ctx === null || ctx.ragged) return editor;
+  if (ctx === null || ctx.ragged) return null;
 
   const result = splitCell(editor.state, ctx, productionAllocator);
-  if (result.state === editor.state) return editor; // caret cell is not a real span
+  if (result.state === editor.state) return null; // caret cell is not a real span
 
-  editor.history.commit(
-    { state: result.state, dirtyIds: result.dirtyIds },
-    { before: editor.selection, after: editor.selection },
-  );
-  return rebuildTrees(
-    { ...editor, state: result.state },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+  return { change: { state: result.state, dirtyIds: result.dirtyIds } };
 }
 
 /**
@@ -358,29 +309,24 @@ export function handleSplitCell(editor: EditorState): EditorState {
  * survivor is the cell originating at `(minRow, minCol)`; its id survives the merge,
  * so its first paragraph is read from the POST-op state. One undo (`"command"`).
  */
-export function handleMergeCells(editor: EditorState): EditorState {
-  const { config } = editor;
+export function handleMergeCells(editor: EditorState): Edit | null {
   const ctx = resolveTableContext(editor.state, editor.selection.focus.blockId);
-  if (ctx === null || ctx.ragged) return editor;
+  if (ctx === null || ctx.ragged) return null;
 
   const range = resolveCellRange(editor.state, editor.selection);
-  if (range === null) return editor;
+  if (range === null) return null;
 
   const result = mergeCells(editor.state, range);
-  if (result.state === editor.state) return editor; // single-cell range → nothing merged
+  if (result.state === editor.state) return null; // single-cell range → nothing merged
 
   // Survivor = the cell originating at the range's top-left (pre-op grid); its id
   // is stable across the merge, so read its first paragraph from the post-op state.
   const grid = buildTableGrid(editor.state, range.tableId);
   const survivor = grid?.cells.find((c) => c.gridRow === range.minRow && c.gridCol === range.minCol) ?? null;
   const caretBlockId = survivor !== null ? getBlock(result.state, survivor.cellId)?.firstChildId ?? null : null;
-  if (caretBlockId === null) return editor; // defensive: a survivor always has a first paragraph
+  if (caretBlockId === null) return null; // defensive: a survivor always has a first paragraph
 
   const cursor = createPosition(caretBlockId, 0);
   const after = createSpan(cursor, cursor);
-  editor.history.commit(
-    { state: result.state, dirtyIds: result.dirtyIds },
-    { before: editor.selection, after },
-  );
-  return rebuildTrees({ ...editor, state: result.state, selection: after }, editor, config, result.dirtyIds);
+  return { change: { state: result.state, dirtyIds: result.dirtyIds }, selection: after };
 }

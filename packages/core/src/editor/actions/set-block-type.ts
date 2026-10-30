@@ -1,13 +1,13 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import { getBlock, setBlockType, setBlockAttrs } from "../../state";
 import type { BlockId } from "../../state";
-import { rebuildTrees } from "./helpers";
 import type { ActionOf } from "../editor-action";
 
 export function handleSetBlockType(
   editor: EditorState,
   { blockType, properties = {} }: ActionOf<"SET_BLOCK_TYPE">,
-): EditorState {
+): Edit | null {
   const { config } = editor;
   // Retype the LEAF block containing the cursor,
   // not the outermost ancestor. The pre-fix logic walked UP from the focus
@@ -22,7 +22,7 @@ export function handleSetBlockType(
   // convention: retype the leaf the cursor is actually inside.
   const targetId = editor.selection.focus.blockId;
   const target = getBlock(editor.state, targetId);
-  if (target === null) return editor;
+  if (target === null) return null;
 
   // Toggle behavior: if already this type, revert to paragraph.
   const newType = target.type === blockType ? "paragraph" : blockType;
@@ -40,16 +40,7 @@ export function handleSetBlockType(
   // the identity-no-op contract: state-equality is the authoritative no-op
   // signal across the editor module, preserving the "no change → same
   // editor reference" invariant. (`history.commit` is itself no-op-safe.)
-  if (attrsResult.state === editor.state) return editor;
+  if (attrsResult.state === editor.state) return null;
 
-  editor.history.commit(
-    { state: attrsResult.state, dirtyIds: mergedDirtyIds },
-    { before: editor.selection, after: editor.selection },
-  );
-  return rebuildTrees(
-    { ...editor, state: attrsResult.state },
-    editor,
-    config,
-    mergedDirtyIds,
-  );
+  return { change: { state: attrsResult.state, dirtyIds: mergedDirtyIds } };
 }

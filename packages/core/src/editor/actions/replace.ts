@@ -1,4 +1,5 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import {
   replaceRange,
   planReplaceMatches,
@@ -9,7 +10,6 @@ import {
   createSpan,
 } from "../../state";
 import type { TextMatch, ReadonlyAttrs } from "../../state";
-import { rebuildTrees } from "./helpers";
 import type { ActionOf } from "../editor-action";
 
 /**
@@ -40,9 +40,7 @@ function attrsAtMatchStart(editor: EditorState, match: TextMatch): ReadonlyAttrs
 export function handleReplaceMatch(
   editor: EditorState,
   { match, replacement }: ActionOf<"REPLACE_MATCH">,
-): EditorState {
-  const { config } = editor;
-  const selectionBefore = editor.selection;
+): Edit | null {
   const span = createSpan(
     createPosition(match.blockId, match.start),
     createPosition(match.blockId, match.end),
@@ -51,21 +49,14 @@ export function handleReplaceMatch(
   const result = replaceRange(editor.state, span, replacement, attrs);
 
   // No-op identity contract: a no-op op returns the same state reference.
-  if (result.state === editor.state) return editor;
+  if (result.state === editor.state) return null;
 
   // Cursor at the seam: start offset + replacement length (replaceRange's
   // post-op cursor).
   const newCursor = createPosition(match.blockId, match.start + replacement.length);
   const newSelection = createSpan(newCursor, newCursor);
 
-  editor.history.commit(result, { before: selectionBefore, after: newSelection });
-
-  return rebuildTrees(
-    { ...editor, state: result.state, selection: newSelection },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+  return { change: result, selection: newSelection };
 }
 
 /**
@@ -80,16 +71,14 @@ export function handleReplaceMatch(
 export function handleReplaceAll(
   editor: EditorState,
   { matches, replacement }: ActionOf<"REPLACE_ALL">,
-): EditorState {
-  const { config } = editor;
-  if (matches.length === 0) return editor;
+): Edit | null {
+  if (matches.length === 0) return null;
 
-  const selectionBefore = editor.selection;
   const plan = planReplaceMatches(editor.state, matches, replacement);
   const result = applyReplaceAllPlan(editor.state, plan);
 
   // No-op identity contract.
-  if (result.state === editor.state) return editor;
+  if (result.state === editor.state) return null;
 
   // Cursor: collapse to the start of the FIRST affected block's first
   // replacement (the document-first block in `blockWrites`, which preserves
@@ -109,12 +98,5 @@ export function handleReplaceAll(
   const newCursor = createPosition(firstBlockId, seam);
   const newSelection = createSpan(newCursor, newCursor);
 
-  editor.history.commit(result, { before: selectionBefore, after: newSelection });
-
-  return rebuildTrees(
-    { ...editor, state: result.state, selection: newSelection },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+  return { change: result, selection: newSelection };
 }

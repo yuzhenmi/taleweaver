@@ -71,10 +71,11 @@ type SelectionView = Omit<ActionOf<"SET_SELECTION">, "type" | "selection">;
 
 /**
  * `editor` with `selection` and its view hints: an absent `caretPageHint` /
- * `caretAffinity` / `anchorAffinity` clears it, an absent `targetX` leaves it. An edit
- * placing its caret calls this directly (its span is in-context by construction).
+ * `caretAffinity` / `anchorAffinity` clears it, an absent `targetX` leaves it. Only a
+ * body SET_SELECTION applies view hints; an edit placing its caret returns the
+ * selection in its `Edit` and leaves them as they were.
  */
-export function setSelection(
+function setSelection(
   editor: EditorState,
   selection: Selection,
   { caretPageHint, caretAffinity, anchorAffinity, targetX }: SelectionView = {},

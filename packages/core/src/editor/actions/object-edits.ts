@@ -1,5 +1,5 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
+import type { Edit } from "../edit";
 import { inheritedAttrsAt } from "../typing-attrs";
 import {
   getBlock,
@@ -12,7 +12,6 @@ import {
 } from "../../state";
 import type { BlockId, Position, ReadonlyAttrs, State, Selection } from "../../state";
 import { findNextContentBlock, findPrevContentBlock } from "../../cursor/cursor-ops";
-import { rebuildTrees } from "./helpers";
 
 /**
  * Shared editor-layer helpers for image OBJECT-SELECTION. An object
@@ -47,15 +46,14 @@ function contentLengthOf(editor: EditorState, blockId: BlockId): number {
  *
  * One undo entry. Undo restores the image AND the object selection (the commit's
  * `before` selection IS the object selection `{ objId, 0 }`). No-op (same
- * `editor` ref) when the block is missing.
+ * edit) when the block is missing.
  */
 export function deleteObjectSelection(
   editor: EditorState,
-  config: EditorConfig,
   objId: BlockId,
-): EditorState {
+): Edit | null {
   const obj = getBlock(editor.state, objId);
-  if (obj === null) return editor;
+  if (obj === null) return null;
 
   // Capture neighbours from the PRE-mutation snapshot — they survive the removal
   // (their sibling pointers are relinked, ids unchanged) and drive caret choice.
@@ -63,26 +61,16 @@ export function deleteObjectSelection(
   const prevSiblingId = obj.prevSiblingId;
 
   const result = deleteTable(editor.state, objId);
-  if (result.state === editor.state) return editor;
+  if (result.state === editor.state) return null;
 
   const caret = caretAfterObjectDelete(
     editor,
     nextSiblingId,
     prevSiblingId,
   );
-  if (caret === null) return editor; // unreachable: a paragraph follows every object (invariant I)
+  if (caret === null) return null; // unreachable: a paragraph follows every object (invariant I)
 
-  const newSelection = createSpan(caret, caret);
-  editor.history.commit(
-    { state: result.state, dirtyIds: result.dirtyIds },
-    { before: editor.selection, after: newSelection },
-  );
-  return rebuildTrees(
-    { ...editor, state: result.state, selection: newSelection },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+  return { change: result, selection: createSpan(caret, caret) };
 }
 
 /**
@@ -112,7 +100,7 @@ function caretAfterObjectDelete(
  * `insertTextInTx` in a single transaction, mirroring `replaceRange`).
  *
  * Insertion target: the FOLLOWING block's start (preferred), else the PRECEDING
- * block's end. Caret lands AFTER the inserted text. No-op (same `editor` ref)
+ * block's end. Caret lands AFTER the inserted text. No-op (`null`)
  * when the block is missing OR has no text-bearing sibling to receive the text
  * (an image with only atomic-leaf neighbours — not reachable from the standard
  * insert pipeline, which always trails a paragraph).
@@ -122,16 +110,15 @@ function caretAfterObjectDelete(
  */
 export function replaceObjectWithText(
   editor: EditorState,
-  config: EditorConfig,
   objId: BlockId,
   text: string,
-): EditorState {
-  if (text === "") return editor;
+): Edit | null {
+  if (text === "") return null;
   const obj = getBlock(editor.state, objId);
-  if (obj === null) return editor;
+  if (obj === null) return null;
 
   const target = textTargetSibling(editor, obj.nextSiblingId, obj.prevSiblingId);
-  if (target === null) return editor;
+  if (target === null) return null;
 
   // Typing attributes at the landing caret (pending ones win), like any typing.
   const attrs: ReadonlyAttrs =
@@ -143,17 +130,10 @@ export function replaceObjectWithText(
     text,
     attrs,
   );
-  if (result.state === editor.state) return editor;
+  if (result.state === editor.state) return null;
 
   const caret = createPosition(target.blockId, target.offset + text.length);
-  const newSelection = createSpan(caret, caret);
-  editor.history.commit(result, { before: editor.selection, after: newSelection });
-  return rebuildTrees(
-    { ...editor, state: result.state, selection: newSelection },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+  return { change: result, selection: createSpan(caret, caret) };
 }
 
 /**
@@ -184,23 +164,21 @@ function isTextLeaf(editor: EditorState, blockId: BlockId): boolean {
 
 /**
  * Move the caret OFF the selected object (Arrow keys on a selected image place
- * the caret beside it, Google Docs). PURE selection move — no `history.commit`,
+ * the caret beside it, Google Docs). PURE selection move — a selection-only `Edit`,
  * no block mutation:
  *  - `"forward"` → caret at the START of the next inline-bearing block;
  *  - `"backward"` → caret at the END of the previous inline-bearing block.
  *
  * When there is no neighbour in that direction (document edge), the caret stays
- * on the object (returns `editor` unchanged) rather than crashing. No
- * `rebuildTrees` (no block dirtied) — mirrors `handleMoveCursor`'s selection-only
- * return shape.
+ * on the object (returns `null`) rather than crashing.
  */
 export function moveOffObject(
   editor: EditorState,
   objId: BlockId,
   direction: "forward" | "backward",
-): EditorState {
+): Edit | null {
   const selection = objectMoveSelection(editor.state, objId, direction);
-  return selection === null ? editor : { ...editor, selection };
+  return selection === null ? null : { selection };
 }
 
 /**

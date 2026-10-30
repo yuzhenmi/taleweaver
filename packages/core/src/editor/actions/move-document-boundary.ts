@@ -1,4 +1,5 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import { createPosition, createSpan, selectionContextOf } from "../../state";
 import {
   firstBoundaryBlock,
@@ -20,19 +21,19 @@ import type { ActionOf } from "../editor-action";
 export function handleMoveDocumentBoundary(
   editor: EditorState,
   { boundary }: ActionOf<"MOVE_DOCUMENT_BOUNDARY">,
-): EditorState {
+): Edit | null {
   const ctxRoot = selectionContextOf(editor.state, editor.selection.focus.blockId);
-  if (ctxRoot === null) return editor;
+  if (ctxRoot === null) return null;
 
   const targetId =
     boundary === "start"
       ? firstBoundaryBlock(editor.state, ctxRoot)
       : lastBoundaryBlock(editor.state, ctxRoot);
-  if (targetId === null) return editor;
+  if (targetId === null) return null;
 
   const offset = boundary === "start" ? 0 : endOffsetOf(editor.state, targetId);
-  if (offset === null) return editor;
+  if (offset === null) return null;
 
   const pos = createPosition(targetId, offset);
-  return { ...editor, selection: createSpan(pos, pos) };
+  return { selection: createSpan(pos, pos) };
 }

@@ -1,4 +1,5 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import {
   createPosition,
   createSpan,
@@ -29,9 +30,9 @@ import { findFirstContentBlock, findLastContentBlock } from "./helpers";
  * - Header/footer body: span the first→last LEAF within that body via
  *   `firstLeafBlock`/`lastLeafBlock(state, ctxRoot)` (tree-agnostic).
  */
-export function handleSelectAll(editor: EditorState): EditorState {
+export function handleSelectAll(editor: EditorState): Edit | null {
   const ctxRoot = selectionContextOf(editor.state, editor.selection.focus.blockId);
-  if (ctxRoot === null) return editor;
+  if (ctxRoot === null) return null;
 
   const firstId =
     ctxRoot === editor.state.rootId
@@ -41,7 +42,7 @@ export function handleSelectAll(editor: EditorState): EditorState {
     ctxRoot === editor.state.rootId
       ? findLastContentBlock(editor.state)
       : lastLeafBlock(editor.state, ctxRoot);
-  if (firstId === null || lastId === null) return editor;
+  if (firstId === null || lastId === null) return null;
 
   return spanForRange(editor, firstId, lastId);
 }
@@ -56,14 +57,14 @@ function spanForRange(
   editor: EditorState,
   firstId: BlockId,
   lastId: BlockId,
-): EditorState {
+): Edit | null {
   const last = resolveBlock(editor.state, lastId);
-  if (last === null) return editor;
+  if (last === null) return null;
   const endOffset =
     last.block.inlineContent === null
       ? 0
       : inlineContentLength(last.block.inlineContent);
   const anchor = createPosition(firstId, 0);
   const focus = createPosition(lastId, endOffset);
-  return { ...editor, selection: createSpan(anchor, focus) };
+  return { selection: createSpan(anchor, focus) };
 }

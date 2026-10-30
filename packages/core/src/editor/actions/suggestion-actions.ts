@@ -1,5 +1,5 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
+import type { Edit } from "../edit";
 import {
   acceptAll,
   rejectAll,
@@ -10,48 +10,40 @@ import {
   type SuggestionId,
   type OperationResult,
 } from "../../state";
-import { rebuildTrees } from "./helpers";
-import { rebaseSelection } from "../foreign-change";
 import type { ActionOf } from "../editor-action";
 
 /**
  * Suggestion RESOLVE actions. Each is ONE undoable history entry: the resolve op is an
- * ordinary tracked transaction, committed here; undo restores the records and the
- * tagged runs exactly. The selection is rebased through the change (a rejected
- * insertion before the caret moves it back, etc.).
+ * ordinary tracked transaction; undo restores the records and the tagged runs exactly.
+ * The selection is rebased through the change (a rejected insertion before the caret
+ * moves it back, etc.).
  */
-function commitResolve(editor: EditorState, result: OperationResult, config: EditorConfig): EditorState {
-  if (result.state === editor.state) return editor; // identity no-op (absent id / empty)
-  const after = rebuildTrees({ ...editor, state: result.state }, editor, config, result.dirtyIds);
-  const selection = rebaseSelection(editor, after);
-  editor.history.commit(result, { before: editor.selection, after: selection });
-  return { ...after, selection };
+function resolveEdit(result: OperationResult): Edit {
+  return { change: result, selection: "rebase" };
 }
 
 /**
  * Accept / reject ONE suggestion — which, for a suggestion that belongs to a group (a
  * host proposal), means its whole group: groups are reviewed as one unit.
  */
-function resolveOne(editor: EditorState, id: SuggestionId, mode: "accept" | "reject", config: EditorConfig): EditorState {
+function resolveOne(editor: EditorState, id: SuggestionId, mode: "accept" | "reject"): Edit | null {
   const record = readSuggestionRecordFromState(editor.state, id);
-  if (record === null) return editor;
-  return resolveGroup(editor, suggestionGroupOf(record), mode, config);
+  if (record === null) return null;
+  return resolveGroup(editor, suggestionGroupOf(record), mode);
 }
 
 export function handleAcceptSuggestion(
   editor: EditorState,
   { id }: ActionOf<"ACCEPT_SUGGESTION">,
-): EditorState {
-  const { config } = editor;
-  return resolveOne(editor, id, "accept", config);
+): Edit | null {
+  return resolveOne(editor, id, "accept");
 }
 
 export function handleRejectSuggestion(
   editor: EditorState,
   { id }: ActionOf<"REJECT_SUGGESTION">,
-): EditorState {
-  const { config } = editor;
-  return resolveOne(editor, id, "reject", config);
+): Edit | null {
+  return resolveOne(editor, id, "reject");
 }
 
 /** Accept / reject every suggestion of group `groupId` atomically (one undo step). */
@@ -59,26 +51,23 @@ function resolveGroup(
   editor: EditorState,
   groupId: string,
   mode: "accept" | "reject",
-  config: EditorConfig,
-): EditorState {
+): Edit | null {
   const op = mode === "accept" ? acceptSuggestionGroup : rejectSuggestionGroup;
-  return commitResolve(editor, op(editor.state, groupId), config);
+  return resolveEdit(op(editor.state, groupId));
 }
 
 export function handleResolveSuggestionGroup(
   editor: EditorState,
   action: ActionOf<"ACCEPT_SUGGESTION_GROUP" | "REJECT_SUGGESTION_GROUP">,
-): EditorState {
+): Edit | null {
   const mode = action.type === "ACCEPT_SUGGESTION_GROUP" ? "accept" : "reject";
-  return resolveGroup(editor, action.groupId, mode, editor.config);
+  return resolveGroup(editor, action.groupId, mode);
 }
 
-export function handleAcceptAllSuggestions(editor: EditorState): EditorState {
-  const { config } = editor;
-  return commitResolve(editor, acceptAll(editor.state), config);
+export function handleAcceptAllSuggestions(editor: EditorState): Edit | null {
+  return resolveEdit(acceptAll(editor.state));
 }
 
-export function handleRejectAllSuggestions(editor: EditorState): EditorState {
-  const { config } = editor;
-  return commitResolve(editor, rejectAll(editor.state), config);
+export function handleRejectAllSuggestions(editor: EditorState): Edit | null {
+  return resolveEdit(rejectAll(editor.state));
 }

@@ -1,4 +1,5 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import {
   insertCrossReference,
   getBlock,
@@ -9,7 +10,6 @@ import {
   createSpan,
   type BlockId,
 } from "../../state";
-import { rebuildTrees } from "./helpers";
 import { prepareEmbedInsertPoint } from "./selection-guards";
 import type { ActionOf } from "../editor-action";
 
@@ -58,36 +58,35 @@ import type { ActionOf } from "../editor-action";
 export function handleInsertCrossReference(
   editor: EditorState,
   { targetId, refMode, numberStyle }: ActionOf<"INSERT_CROSS_REFERENCE">,
-): EditorState {
-  const { config } = editor;
+): Edit | null {
   const focus = editor.selection.focus;
 
   // Body-text-only: refuse a cross-reference inside a footnote / header / footer
   // body (a non-root context), matching the main-tree host index.
   if (selectionContextOf(editor.state, focus.blockId) !== editor.state.rootId) {
-    return editor;
+    return null;
   }
 
   // Structural target validation (the op trusts targetId; we gate it here).
   const target = getBlock(editor.state, targetId);
-  if (target === null) return editor; // dangling / non-main-tree target
+  if (target === null) return null; // dangling / non-main-tree target
   if (refMode === "number") {
     // A number ref needs an ORDERED list-item — an unordered (bulleted) item has
     // no counter to display. Classify by the item's list def (the same
     // level-0-style rule the toggle/set-list-type handlers use).
-    if (target.type !== "list-item") return editor;
+    if (target.type !== "list-item") return null;
     const listIdRaw = target.attrs["listId"];
     const def =
       typeof listIdRaw === "string"
         ? getListDefsForState(editor.state).get(listIdRaw)
         : undefined;
-    if (def === undefined || classifyListDef(def) !== "ordered") return editor;
+    if (def === undefined || classifyListDef(def) !== "ordered") return null;
   }
   // "text" and "page" both require an inline-bearing target: "text" extracts the
   // target's text, "page" needs a content block with a deterministic page (a
   // container's content spans pages). Number-mode is gated above.
   if ((refMode === "text" || refMode === "page") && target.inlineContent === null) {
-    return editor;
+    return null;
   }
 
   // Delete a non-collapsed selection first (Google Docs replaces the selection),
@@ -99,7 +98,7 @@ export function handleInsertCrossReference(
   // now dangling — a documented LEGAL state that renders as broken-ref (see the
   // cross-references section of state-of-branch.md), not a bug.
   const prep = prepareEmbedInsertPoint(editor.state, editor.selection);
-  if (!prep.ok) return editor;
+  if (!prep.ok) return null;
 
   const result = insertCrossReference(
     prep.state,
@@ -112,7 +111,7 @@ export function handleInsertCrossReference(
   );
   // Identity invariant: nothing changed (no delete AND a no-op insert) → return
   // the editor unchanged so the "no change → same reference" contract holds.
-  if (result.state === prep.state && prep.dirtyIds.size === 0) return editor;
+  if (result.state === prep.state && prep.dirtyIds.size === 0) return null;
   const dirtyIds = new Set<BlockId>(prep.dirtyIds);
   for (const id of result.dirtyIds) dirtyIds.add(id);
 
@@ -120,14 +119,5 @@ export function handleInsertCrossReference(
   const cursor = createPosition(prep.position.blockId, prep.position.offset + 1);
   const selectionAfter = createSpan(cursor, cursor);
 
-  editor.history.commit(
-    { state: result.state, dirtyIds },
-    { before: editor.selection, after: selectionAfter },
-  );
-  return rebuildTrees(
-    { ...editor, state: result.state, selection: selectionAfter },
-    editor,
-    config,
-    dirtyIds,
-  );
+  return { change: { state: result.state, dirtyIds }, selection: selectionAfter };
 }

@@ -1,6 +1,6 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import { getBlock, mergeBlockAttrs } from "../../state";
-import { rebuildTrees } from "./helpers";
 import type { ActionOf } from "../editor-action";
 
 export type ImageWrap = "left" | "right" | "break";
@@ -31,11 +31,10 @@ const VALID_WRAP: ReadonlySet<string> = new Set<ImageWrap>([
 export function handleSetImageWrap(
   editor: EditorState,
   { blockId, wrap }: ActionOf<"SET_IMAGE_WRAP">,
-): EditorState {
-  const { config } = editor;
+): Edit | null {
   const block = getBlock(editor.state, blockId);
-  if (block === null || block.type !== "image") return editor;
-  if (!VALID_WRAP.has(wrap)) return editor;
+  if (block === null || block.type !== "image") return null;
+  if (!VALID_WRAP.has(wrap)) return null;
 
   // break == default == absence: clear the attr so break and never-wrapped are
   // byte-identical state. left/right store the value.
@@ -45,16 +44,7 @@ export function handleSetImageWrap(
     blockId,
     incoming,
   );
-  if (result.state === editor.state) return editor;
+  if (result.state === editor.state) return null;
 
-  editor.history.commit(result, {
-    before: editor.selection,
-    after: editor.selection,
-  });
-  return rebuildTrees(
-    { ...editor, state: result.state },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+  return { change: result };
 }

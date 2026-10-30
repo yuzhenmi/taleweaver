@@ -1,6 +1,6 @@
 import type { EditorState } from "../editor-state";
+import type { Edit } from "../edit";
 import { getBlock, mergeBlockAttrs } from "../../state";
-import { rebuildTrees } from "./helpers";
 import { resolveActiveSection } from "./active-section";
 
 /**
@@ -24,18 +24,18 @@ import { resolveActiveSection } from "./active-section";
  *
  * Selection is UNCHANGED: a geometry change does not move the cursor logically.
  */
-export function handleToggleSectionLandscape(editor: EditorState): EditorState {
+export function handleToggleSectionLandscape(editor: EditorState): Edit | null {
   const { config } = editor;
   const { pageConfig } = config;
   // Can't determine the landscape (swapped) dimensions without the doc-wide
   // page config.
-  if (pageConfig === undefined) return editor;
+  if (pageConfig === undefined) return null;
 
   const sectionId = resolveActiveSection(editor, editor.selection.focus.blockId);
-  if (sectionId === null) return editor;
+  if (sectionId === null) return null;
 
   const section = getBlock(editor.state, sectionId);
-  if (section === null) return editor;
+  if (section === null) return null;
 
   // "Currently landscape" iff the section carries a numeric inline-size
   // override. Toggling clears it (falls back to doc-wide); otherwise set the
@@ -51,16 +51,7 @@ export function handleToggleSectionLandscape(editor: EditorState): EditorState {
   const result = mergeBlockAttrs(editor.state, sectionId, incoming);
 
   // the identity-no-op contract: a no-op merge returns the same state reference.
-  if (result.state === editor.state) return editor;
+  if (result.state === editor.state) return null;
 
-  editor.history.commit(
-    { state: result.state, dirtyIds: result.dirtyIds },
-    { before: editor.selection, after: editor.selection },
-  );
-  return rebuildTrees(
-    { ...editor, state: result.state },
-    editor,
-    config,
-    result.dirtyIds,
-  );
+  return { change: { state: result.state, dirtyIds: result.dirtyIds } };
 }

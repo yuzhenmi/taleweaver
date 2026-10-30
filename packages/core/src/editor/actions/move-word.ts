@@ -4,8 +4,9 @@ import { moveByWord } from "../../cursor/cursor-ops";
 import { isObjectSelection } from "../../cursor/object-selection";
 import { moveOffObject } from "./object-edits";
 import type { ActionOf } from "../editor-action";
+import type { Edit } from "../edit";
 
-export function handleMoveWord(editor: EditorState, { direction }: ActionOf<"MOVE_WORD">): EditorState {
+export function handleMoveWord(editor: EditorState, { direction }: ActionOf<"MOVE_WORD">): Edit | null {
   const { config } = editor;
   // Object selection: Ctrl+Arrow on a selected atomic-leaf (image) places
   // the caret immediately BESIDE the object (before/after it), not past it. A
@@ -15,5 +16,5 @@ export function handleMoveWord(editor: EditorState, { direction }: ActionOf<"MOV
   if (objId !== null) return moveOffObject(editor, objId, direction);
 
   const newFocus = moveByWord(editor.state, editor.selection.focus, direction);
-  return { ...editor, selection: createSpan(newFocus, newFocus) };
+  return { selection: createSpan(newFocus, newFocus) };
 }
