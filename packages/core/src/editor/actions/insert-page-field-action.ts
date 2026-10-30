@@ -1,5 +1,5 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
+import type { ActionOf } from "../editor-action";
 import {
   insertPageField,
   resolveBlock,
@@ -8,7 +8,6 @@ import {
   createSpan,
   type BlockId,
   type PageFieldKind,
-  type PageFieldNumberStyle,
 } from "../../state";
 import { rebuildTrees } from "./helpers";
 import { prepareEmbedInsertPoint } from "./selection-guards";
@@ -37,10 +36,11 @@ import { prepareEmbedInsertPoint } from "./selection-guards";
  */
 export function handleInsertPageField(
   editor: EditorState,
-  fieldKind: PageFieldKind,
-  numberStyle: PageFieldNumberStyle | undefined,
-  config: EditorConfig,
+  action: ActionOf<"INSERT_PAGE_NUMBER" | "INSERT_PAGE_COUNT">,
 ): EditorState {
+  const { config } = editor;
+  const { numberStyle } = action;
+  const fieldKind: PageFieldKind = action.type === "INSERT_PAGE_NUMBER" ? "page-number" : "page-count";
   const focus = editor.selection.focus;
 
   // Header/footer-only gate: the caret's selection context must be a template body.

@@ -1,5 +1,5 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
+import type { ActionOf } from "../editor-action";
 import {
   getBlock,
   getTemplateContent,
@@ -40,9 +40,10 @@ import { resolveActiveSection } from "./active-section";
  */
 export function handleInsertHeaderFooter(
   editor: EditorState,
-  region: TemplateRegion,
-  config: EditorConfig,
+  action: ActionOf<"INSERT_HEADER" | "INSERT_FOOTER">,
 ): EditorState {
+  const { config } = editor;
+  const region: TemplateRegion = action.type === "INSERT_HEADER" ? "header" : "footer";
   // The header/footer links onto the cursor's ACTIVE SECTION — the `section`
   // block enclosing the focus — so section 2 gets its own header (mirrors
   // `TOGGLE_SECTION_LANDSCAPE` / `SET_SECTION_COLUMNS`). A caret outside the main

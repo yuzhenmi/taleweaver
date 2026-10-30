@@ -1,5 +1,4 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import { getBlock, productionAllocator, createPosition, createSpan, applySectionBreak, applySectionBreakAsSuggestion } from "../../state";
 import { rebuildTrees } from "./helpers";
 import { suggestionInputForBlock } from "./suggestion-mode";
@@ -11,10 +10,8 @@ import { suggestionInputForBlock } from "./suggestion-mode";
  * of the tail (the caret's block). A caret inside a top-level object breaks
  * before that block.
  */
-export function handleSectionBreak(
-  editor: EditorState,
-  config: EditorConfig,
-): EditorState {
+export function handleSectionBreak(editor: EditorState): EditorState {
+  const { config } = editor;
   const focus = editor.selection.focus;
   if (getBlock(editor.state, focus.blockId) === null) return editor;
 

@@ -7,6 +7,7 @@ import { isCollapsed } from "../../cursor/selection";
 import { applyAttrsOrSuggest } from "./suggestion-mode";
 import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection } from "./selection-guards";
+import type { ActionOf } from "../editor-action";
 
 /** Apply each `[span, attrs]` delta in turn (one undo step), then commit + rebuild. */
 function applyDeltas(
@@ -49,12 +50,9 @@ function isNonExclusive(key: string, config: EditorConfig): boolean {
  */
 export function handleSetMark(
   editor: EditorState,
-  key: string,
-  value: unknown,
-  replace: unknown,
-  span: Span | undefined,
-  config: EditorConfig,
+  { key, value, replace, span }: ActionOf<"SET_MARK">,
 ): EditorState {
+  const { config } = editor;
   const target = usableSpan(editor, span);
   if (target === null || value === undefined) return editor;
   if (!isNonExclusive(key, config)) return applyDeltas(editor, [[target, { [key]: value }]], config);
@@ -102,11 +100,9 @@ function removalDeltas(
  */
 export function handleRemoveMark(
   editor: EditorState,
-  key: string,
-  value: unknown,
-  span: Span | undefined,
-  config: EditorConfig,
+  { key, value, span }: ActionOf<"REMOVE_MARK">,
 ): EditorState {
+  const { config } = editor;
   const target = usableSpan(editor, span);
   if (target === null) return editor;
   return applyDeltas(

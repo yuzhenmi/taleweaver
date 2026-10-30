@@ -1,5 +1,4 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import {
   replaceRange,
   planReplaceMatches,
@@ -11,6 +10,7 @@ import {
 } from "../../state";
 import type { TextMatch, ReadonlyAttrs } from "../../state";
 import { rebuildTrees } from "./helpers";
+import type { ActionOf } from "../editor-action";
 
 /**
  * Resolve the formatting the replacement text should take: the attrs of the run
@@ -39,10 +39,9 @@ function attrsAtMatchStart(editor: EditorState, match: TextMatch): ReadonlyAttrs
  */
 export function handleReplaceMatch(
   editor: EditorState,
-  match: TextMatch,
-  replacement: string,
-  config: EditorConfig,
+  { match, replacement }: ActionOf<"REPLACE_MATCH">,
 ): EditorState {
+  const { config } = editor;
   const selectionBefore = editor.selection;
   const span = createSpan(
     createPosition(match.blockId, match.start),
@@ -80,10 +79,9 @@ export function handleReplaceMatch(
  */
 export function handleReplaceAll(
   editor: EditorState,
-  matches: TextMatch[],
-  replacement: string,
-  config: EditorConfig,
+  { matches, replacement }: ActionOf<"REPLACE_ALL">,
 ): EditorState {
+  const { config } = editor;
   if (matches.length === 0) return editor;
 
   const selectionBefore = editor.selection;

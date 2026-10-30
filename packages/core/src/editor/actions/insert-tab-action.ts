@@ -1,5 +1,4 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import {
   insertTab,
   createPosition,
@@ -26,10 +25,8 @@ import { prepareEmbedInsertPoint } from "./selection-guards";
  * Unlike a text insert, each Tab is its OWN discrete undo step (`"command"`
  * coalescing in `coalesceKeyOf`) — Google Docs treats each tab as one undo unit.
  */
-export function handleInsertTab(
-  editor: EditorState,
-  config: EditorConfig,
-): EditorState {
+export function handleInsertTab(editor: EditorState): EditorState {
+  const { config } = editor;
   // Delete a non-collapsed selection first (Google Docs replaces the selection),
   // then splice the tab at the collapse point. A cross-context / cross-parent
   // expanded selection is un-deletable → no-op.

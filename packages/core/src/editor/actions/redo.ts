@@ -1,13 +1,10 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import { rebuildTrees } from "./helpers";
 import { recordChange } from "../document-change";
 import { rebaseSelection } from "../foreign-change";
 
-export function handleRedo(
-  editor: EditorState,
-  config: EditorConfig,
-): EditorState {
+export function handleRedo(editor: EditorState): EditorState {
+  const { config } = editor;
   const result = editor.history.redo();
   // `redo()` returns null both when there is nothing to redo and when a redo
   // StackItem was left dead by a non-undoable same-block resolve (mirror of

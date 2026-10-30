@@ -10,6 +10,7 @@ import {
 } from "../../state";
 import type { BlockId, State } from "../../state";
 import { findFirstContentBlock, findLastContentBlock } from "./helpers";
+import type { ActionOf } from "../editor-action";
 
 /**
  * EXPAND_DOCUMENT_BOUNDARY (Ctrl+Shift+Home / Ctrl+Shift+End) — CONTEXT-AWARE,
@@ -28,7 +29,7 @@ import { findFirstContentBlock, findLastContentBlock } from "./helpers";
  */
 export function handleExpandDocumentBoundary(
   editor: EditorState,
-  boundary: "start" | "end",
+  { boundary }: ActionOf<"EXPAND_DOCUMENT_BOUNDARY">,
 ): EditorState {
   const ctxRoot = selectionContextOf(editor.state, editor.selection.focus.blockId);
   if (ctxRoot === null) return editor;

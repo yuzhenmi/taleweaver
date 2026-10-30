@@ -1,9 +1,9 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import { isCollapsed } from "../../cursor/selection";
 import { applyAttrsOrSuggest } from "./suggestion-mode";
 import { rebuildTrees } from "./helpers";
 import { storeTypingAttrs } from "../typing-attrs";
+import type { ActionOf } from "../editor-action";
 
 /**
  * Set or clear a hyperlink on the current selection. Used by HL.4's
@@ -27,11 +27,8 @@ import { storeTypingAttrs } from "../typing-attrs";
  * preserved unchanged; dirtyIds threaded through to the
  * incremental render pipeline.
  */
-export function handleSetLink(
-  editor: EditorState,
-  url: string | null,
-  config: EditorConfig,
-): EditorState {
+export function handleSetLink(editor: EditorState, { url }: ActionOf<"SET_LINK">): EditorState {
+  const { config } = editor;
   const { selection } = editor;
   // Collapsed caret: removing the link stops the next typed text from being
   // linked (typing attrs); a URL needs text to target, so setting one is a no-op.

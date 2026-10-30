@@ -176,3 +176,6 @@ export type EditorAction =
    * `EditorState.lastProposal`.
    */
   | { type: "PROPOSE"; proposal: Proposal; basedOn?: State };
+
+/** The member of `EditorAction` whose `type` is `K`. */
+export type ActionOf<K extends EditorAction["type"]> = Extract<EditorAction, { type: K }>;

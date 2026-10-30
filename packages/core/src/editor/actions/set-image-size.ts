@@ -1,8 +1,7 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import { getBlock, mergeBlockAttrs } from "../../state";
-import type { BlockId } from "../../state";
 import { rebuildTrees } from "./helpers";
+import type { ActionOf } from "../editor-action";
 
 /**
  * `SET_IMAGE_SIZE` handler — the engine half of image resize. Merges
@@ -26,11 +25,9 @@ import { rebuildTrees } from "./helpers";
  */
 export function handleSetImageSize(
   editor: EditorState,
-  blockId: BlockId,
-  width: number,
-  height: number,
-  config: EditorConfig,
+  { blockId, width, height }: ActionOf<"SET_IMAGE_SIZE">,
 ): EditorState {
+  const { config } = editor;
   const block = getBlock(editor.state, blockId);
   if (block === null || block.type !== "image") return editor;
   if (

@@ -1,9 +1,8 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import { getBlock, mergeBlockAttrs } from "../../state";
-import type { ColumnRule } from "../../styles/column-config";
 import { rebuildTrees } from "./helpers";
 import { resolveActiveSection } from "./active-section";
+import type { ActionOf } from "../editor-action";
 
 /**
  * `SET_SECTION_COLUMNS` handler — sets the multi-column override (Google Docs
@@ -36,11 +35,8 @@ import { resolveActiveSection } from "./active-section";
  *
  * Selection is UNCHANGED: a column change does not move the cursor logically.
  */
-export function handleSetSectionColumns(
-  editor: EditorState,
-  action: { columnCount: number; columnGap?: number; columnRule?: ColumnRule | null },
-  config: EditorConfig,
-): EditorState {
+export function handleSetSectionColumns(editor: EditorState, action: ActionOf<"SET_SECTION_COLUMNS">): EditorState {
+  const { config } = editor;
   // Target the active SECTION at the cursor (main-body content always
   // sits in a section — the final one when there is no break). A caret outside the
   // main body has none: no-op.

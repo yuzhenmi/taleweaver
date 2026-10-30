@@ -1,11 +1,10 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import { expandSpanOverAtomicMarks } from "../atomic-marks";
-import type { Span } from "../../state";
 import { createPosition, createSpan, spanStart, bookmarkDeletionSpan } from "../../state";
 import { deleteRangeOrSuggest, isSuggestingInBlock } from "./suggestion-mode";
 import { rebuildTrees } from "./helpers";
 import { expandedSpanCollapsePoint } from "./selection-guards";
+import type { ActionOf } from "../editor-action";
 
 /**
  * Delete a geometry-free `Span` in a SINGLE history commit, collapsing the caret
@@ -22,11 +21,8 @@ import { expandedSpanCollapsePoint } from "./selection-guards";
  * NOT the anchor). In suggesting mode this SOFT-deletes (markDeletion stamps the
  * runs, struck text stays).
  */
-export function handleDeleteRange(
-  editor: EditorState,
-  span: Span,
-  config: EditorConfig,
-): EditorState {
+export function handleDeleteRange(editor: EditorState, { span }: ActionOf<"DELETE_RANGE">): EditorState {
+  const { config } = editor;
   // Normalized, and grown over any atomic mark it only partly covers.
   const norm = expandSpanOverAtomicMarks(editor.state, span);
   const result = deleteRangeOrSuggest(editor.state, norm, config);

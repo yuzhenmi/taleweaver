@@ -1,9 +1,9 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import { mergeBlockAttrs } from "../../state";
 import type { CounterFormat, FootnoteNumberingPolicy } from "../../footnotes";
 import { isValidFootnoteReset, isValidFootnoteFormat } from "../../footnotes";
 import { rebuildTrees } from "./helpers";
+import type { ActionOf } from "../editor-action";
 
 /**
  * `SET_FOOTNOTE_POLICY` handler — changes the DOCUMENT-WIDE footnote numbering
@@ -34,14 +34,8 @@ import { rebuildTrees } from "./helpers";
  *
  * Selection is UNCHANGED: a policy change does not move the caret.
  */
-export function handleSetFootnotePolicy(
-  editor: EditorState,
-  action: {
-    reset?: FootnoteNumberingPolicy["reset"];
-    format?: CounterFormat;
-  },
-  config: EditorConfig,
-): EditorState {
+export function handleSetFootnotePolicy(editor: EditorState, action: ActionOf<"SET_FOOTNOTE_POLICY">): EditorState {
+  const { config } = editor;
   // Build the incoming attr patch from ONLY the valid, provided fields. An
   // invalid value is silently dropped; an omitted field is never written, so
   // the other field's existing attr is preserved.

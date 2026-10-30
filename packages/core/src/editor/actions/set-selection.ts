@@ -1,6 +1,7 @@
-import type { Selection } from "../../state";
+import { selectionContextOf } from "../../state";
+import { isDevMode } from "../../state/dev-mode";
 import type { EditorState } from "../editor-state";
-import type { CaretAffinity } from "../../cursor/selection";
+import type { ActionOf } from "../editor-action";
 
 /**
  * `SET_SELECTION` handler. Sets the new selection and the non-undoable
@@ -36,12 +37,34 @@ import type { CaretAffinity } from "../../cursor/selection";
  */
 export function handleSetSelection(
   editor: EditorState,
-  selection: Selection,
-  caretPageHint?: number,
-  caretAffinity?: CaretAffinity,
-  anchorAffinity?: CaretAffinity,
-  targetX?: number | null,
+  { selection, caretPageHint, caretAffinity, anchorAffinity, targetX }: ActionOf<"SET_SELECTION">,
 ): EditorState {
+  // Engine backstop: a Span must keep BOTH endpoints in the SAME
+  // selection context (the main document tree, OR one footnote/embed body,
+  // OR one header/footer/template body). Cross-context spans are unsupported
+  // by the data model — `iterateSpan` throws on them — so storing one here is
+  // a latent crash deferred to the first consumer. `SET_SELECTION` is the only
+  // reducer arm that accepts an arbitrary externally-supplied span (MOVE_*/
+  // EXPAND_*/SELECT_ALL are context-confined by construction), so it is the
+  // chokepoint. The DOM controller already guards pointer-drag at the UX
+  // layer; this is the caller-agnostic engine guard. Dev-throw (fail fast on
+  // the programmer error) + production no-op (keep the prior in-context
+  // selection rather than corrupt state), matching the codebase invariant
+  // pattern (assertChainIntegrity / requireInTransaction). Root ids are
+  // globally unique, so same-context ⇔ equal non-null `selectionContextOf`.
+  const anchorCtx = selectionContextOf(editor.state, selection.anchor.blockId);
+  const focusCtx = selectionContextOf(editor.state, selection.focus.blockId);
+  if (anchorCtx === null || focusCtx === null || anchorCtx !== focusCtx) {
+    if (isDevMode()) {
+      throw new Error(
+        `reduceEditor SET_SELECTION: cross-context selection rejected — anchor ` +
+          `block "${selection.anchor.blockId}" (context "${anchorCtx}") and focus ` +
+          `block "${selection.focus.blockId}" (context "${focusCtx}") are in ` +
+          `different selection contexts; a span must stay within one context.`,
+      );
+    }
+    return editor; // production backstop: no-op, keep the prior in-context selection
+  }
   const next: EditorState = { ...editor, selection, caretPageHint, caretAffinity, anchorAffinity };
   return targetX === undefined ? next : { ...next, targetX };
 }

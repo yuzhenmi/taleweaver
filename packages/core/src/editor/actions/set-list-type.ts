@@ -1,5 +1,4 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import {
   getBlock,
   setListType,
@@ -10,6 +9,7 @@ import {
 } from "../../state";
 import type { Block, BlockId, State } from "../../state";
 import { rebuildTrees } from "./helpers";
+import type { ActionOf } from "../editor-action";
 
 type ListType = "ordered" | "unordered";
 
@@ -27,11 +27,8 @@ type ListType = "ordered" | "unordered";
  * list-items, or one where every touched list already matches, is a no-op
  * returning the same `editor` reference.
  */
-export function handleSetListType(
-  editor: EditorState,
-  listType: ListType,
-  config: EditorConfig,
-): EditorState {
+export function handleSetListType(editor: EditorState, { listType }: ActionOf<"SET_LIST_TYPE">): EditorState {
+  const { config } = editor;
   const listIds = distinctSelectedListIds(editor);
   if (listIds.size === 0) return editor;
 

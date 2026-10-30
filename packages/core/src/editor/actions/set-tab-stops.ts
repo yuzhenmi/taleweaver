@@ -1,9 +1,8 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import { getBlock, mergeBlockAttrs } from "../../state";
 import type { BlockId } from "../../state";
-import type { TabStop } from "../../styles/tab-stops";
 import { rebuildTrees } from "./helpers";
+import type { ActionOf } from "../editor-action";
 
 /**
  * `SET_TAB_STOPS` handler — sets the per-block `tabStops` attr on the target
@@ -34,10 +33,9 @@ import { rebuildTrees } from "./helpers";
  */
 export function handleSetTabStops(
   editor: EditorState,
-  blockId: BlockId,
-  tabStops: readonly TabStop[],
-  config: EditorConfig,
+  { blockId, tabStops }: ActionOf<"SET_TAB_STOPS">,
 ): EditorState {
+  const { config } = editor;
   if (getBlock(editor.state, blockId) === null) return editor;
 
   const result = mergeBlockAttrs(editor.state, blockId, { tabStops });

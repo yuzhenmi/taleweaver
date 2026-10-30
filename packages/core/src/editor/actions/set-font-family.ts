@@ -1,9 +1,9 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import { isCollapsed } from "../../cursor/selection";
 import { applyAttrsOrSuggest } from "./suggestion-mode";
 import { rebuildTrees } from "./helpers";
 import { storeTypingAttrs } from "../typing-attrs";
+import type { ActionOf } from "../editor-action";
 
 /**
  * Set or clear the font family on the current selection. Used by the toolbar
@@ -32,9 +32,9 @@ import { storeTypingAttrs } from "../typing-attrs";
  */
 export function handleSetFontFamily(
   editor: EditorState,
-  family: string | null,
-  config: EditorConfig,
+  { family }: ActionOf<"SET_FONT_FAMILY">,
 ): EditorState {
+  const { config } = editor;
   const { selection } = editor;
   // Normalize empty string to a removal — an empty family isn't a meaningful
   // value, so this handler is where we reject it.

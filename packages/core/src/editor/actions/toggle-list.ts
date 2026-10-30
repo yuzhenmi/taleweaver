@@ -1,5 +1,4 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import {
   getBlock,
   setBlockType,
@@ -13,6 +12,7 @@ import {
 } from "../../state";
 import type { Block, BlockId, State, OperationResult } from "../../state";
 import { rebuildTrees } from "./helpers";
+import type { ActionOf } from "../editor-action";
 
 type ListType = "ordered" | "unordered";
 
@@ -41,11 +41,8 @@ type ListType = "ordered" | "unordered";
  * is a no-op returning the same `editor` reference (never calling
  * `history.commit`).
  */
-export function handleToggleList(
-  editor: EditorState,
-  listType: ListType,
-  config: EditorConfig,
-): EditorState {
+export function handleToggleList(editor: EditorState, { listType }: ActionOf<"TOGGLE_LIST">): EditorState {
+  const { config } = editor;
   const targets = eligibleTargets(editor);
   if (targets.length === 0) return editor;
 

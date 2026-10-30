@@ -1,5 +1,5 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
+import type { ActionOf } from "../editor-action";
 import { getBlock, mergeBlockAttrs, iterateBlocksInSpan, positionsEqual } from "../../state";
 import type { State, BlockId } from "../../state";
 import { rebuildTrees } from "./helpers";
@@ -27,9 +27,10 @@ export const MAX_LIST_LEVEL = 8;
  */
 export function handleListIndent(
   editor: EditorState,
-  delta: number,
-  config: EditorConfig,
+  action: ActionOf<"LIST_INDENT" | "LIST_OUTDENT">,
 ): EditorState {
+  const { config } = editor;
+  const delta = action.type === "LIST_INDENT" ? 1 : -1;
   const targetIds = targetListItemIds(editor);
 
   let state: State = editor.state;

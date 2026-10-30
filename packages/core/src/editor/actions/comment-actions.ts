@@ -22,6 +22,7 @@ import {
 import { isCollapsed } from "../../cursor/selection";
 import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection } from "./selection-guards";
+import type { ActionOf } from "../editor-action";
 
 /**
  * `ADD_COMMENT` handler — mints a comment thread over the CURRENT selection by
@@ -61,12 +62,9 @@ import { isCrossContextSelection } from "./selection-guards";
  */
 export function handleAddComment(
   editor: EditorState,
-  id: CommentId,
-  author: string,
-  body: string,
-  createdAt: number,
-  config: EditorConfig,
+  { id, author, body, createdAt }: ActionOf<"ADD_COMMENT">,
 ): EditorState {
+  const { config } = editor;
   // A comment needs a range, not a caret.
   if (isCollapsed(editor.selection)) return editor;
   // The span ops cannot place markers across a tree boundary.
@@ -133,11 +131,8 @@ export function handleAddComment(
  * surfaces `rootId` as its dirtyId — never inline content), so the `after`
  * selection equals the `before` selection.
  */
-export function handleResolveComment(
-  editor: EditorState,
-  id: CommentId,
-  config: EditorConfig,
-): EditorState {
+export function handleResolveComment(editor: EditorState, { id }: ActionOf<"RESOLVE_COMMENT">): EditorState {
+  const { config } = editor;
   return commitFlagChange(editor, resolveComment(editor.state, id), config);
 }
 
@@ -146,11 +141,8 @@ export function handleResolveComment(
  * `false`. The exact mirror of {@link handleResolveComment}: undoable tracked
  * write, identity no-op when absent or already open, selection unchanged.
  */
-export function handleReopenComment(
-  editor: EditorState,
-  id: CommentId,
-  config: EditorConfig,
-): EditorState {
+export function handleReopenComment(editor: EditorState, { id }: ActionOf<"REOPEN_COMMENT">): EditorState {
+  const { config } = editor;
   return commitFlagChange(editor, reopenComment(editor.state, id), config);
 }
 
@@ -168,11 +160,8 @@ export function handleReopenComment(
  * with no stripped markers (the sidebar-driven case — caret elsewhere) the remap is
  * the identity, so the supported path is unchanged.
  */
-export function handleDeleteComment(
-  editor: EditorState,
-  id: CommentId,
-  config: EditorConfig,
-): EditorState {
+export function handleDeleteComment(editor: EditorState, { id }: ActionOf<"DELETE_COMMENT">): EditorState {
+  const { config } = editor;
   const result = deleteComment(editor.state, id);
   if (result.state === editor.state) return editor;
   const remap = (p: Position): Position => {
@@ -224,13 +213,9 @@ function strippedMarkersBefore(editor: EditorState, id: CommentId, pos: Position
  */
 export function handleAddReply(
   editor: EditorState,
-  commentId: CommentId,
-  replyId: string,
-  author: string,
-  body: string,
-  createdAt: number,
-  config: EditorConfig,
+  { commentId, replyId, author, body, createdAt }: ActionOf<"ADD_REPLY">,
 ): EditorState {
+  const { config } = editor;
   const result = addReply(editor.state, commentId, {
     replyId,
     author,

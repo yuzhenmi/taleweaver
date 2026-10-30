@@ -1,5 +1,4 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import { expandSpanOverAtomicMarks } from "../atomic-marks";
 import { createPosition, createSpan, spanStart, spanEnd } from "../../state";
 import { moveByWord } from "../../cursor/cursor-ops";
@@ -9,12 +8,10 @@ import { rebuildTrees } from "./helpers";
 import { isCrossContextSelection, expandedSpanCollapsePoint } from "./selection-guards";
 import { deleteRangeOrSuggest, isSuggestingInBlock } from "./suggestion-mode";
 import { deleteObjectSelection } from "./object-edits";
+import type { ActionOf } from "../editor-action";
 
-export function handleDeleteWord(
-  editor: EditorState,
-  direction: "forward" | "backward",
-  config: EditorConfig,
-): EditorState {
+export function handleDeleteWord(editor: EditorState, { direction }: ActionOf<"DELETE_WORD">): EditorState {
+  const { config } = editor;
   // Object selection: Ctrl+Delete on a selected atomic-leaf (image)
   // removes the object as a unit. Routes BEFORE the collapsed word-delete path,
   // whose cross-block guard would otherwise silently no-op on the atomic block.

@@ -25,7 +25,7 @@ export function commitWithCaret(
  */
 export function suggestMarkDeletion(editor: EditorState, config: EditorConfig, owner: Block, input: SuggestionMintInput, across: Position): EditorState {
   const result = markParagraphMarkDeletion(editor.state, owner.id, input);
-  if (result.state === editor.state) return handleSetSelection(editor, createSpan(across, across));
+  if (result.state === editor.state) return handleSetSelection(editor, { type: "SET_SELECTION", selection: createSpan(across, across) });
   const removed = result.removedBoundary;
   return commitWithCaret(editor, config, result, removed === null ? editor.selection.focus : createPosition(removed.survivorId, removed.offset));
 }

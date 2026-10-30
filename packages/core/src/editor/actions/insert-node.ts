@@ -1,8 +1,8 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import { productionAllocator, insertBlock, getBlock } from "../../state";
-import type { BlockInit, Position, State, BlockId, IdAllocator, InlineContent, BlockKindResolver } from "../../state";
+import type { BlockInit, State, BlockId, IdAllocator, InlineContent, BlockKindResolver } from "../../state";
 import { rebuildTrees } from "./helpers";
+import type { ActionOf } from "../editor-action";
 
 interface InsertNodeFold {
   readonly state: State;
@@ -104,12 +104,8 @@ function insertBlockInitAt(
   return { state: cur, dirtyIds: accumulatedDirtyIds };
 }
 
-export function handleInsertNode(
-  editor: EditorState,
-  init: BlockInit,
-  _position: Position | undefined,
-  config: EditorConfig,
-): EditorState {
+export function handleInsertNode(editor: EditorState, { node: init }: ActionOf<"INSERT_NODE">): EditorState {
+  const { config } = editor;
   // insertBlockInitAt always calls insertBlock at least once for the
   // root init (line 82), and insertBlock always mutates the Y.Doc
   // (sets a new blocks-map entry + rewires siblings + updates the

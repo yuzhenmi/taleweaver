@@ -1,5 +1,4 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import {
   insertCrossReference,
   getBlock,
@@ -9,11 +8,10 @@ import {
   createPosition,
   createSpan,
   type BlockId,
-  type CrossReferenceMode,
-  type PageFieldNumberStyle,
 } from "../../state";
 import { rebuildTrees } from "./helpers";
 import { prepareEmbedInsertPoint } from "./selection-guards";
+import type { ActionOf } from "../editor-action";
 
 /**
  * `INSERT_CROSS_REFERENCE` handler — splices a `cross-reference` EmbedItem at the
@@ -59,11 +57,9 @@ import { prepareEmbedInsertPoint } from "./selection-guards";
  */
 export function handleInsertCrossReference(
   editor: EditorState,
-  targetId: BlockId,
-  refMode: CrossReferenceMode,
-  config: EditorConfig,
-  numberStyle?: PageFieldNumberStyle,
+  { targetId, refMode, numberStyle }: ActionOf<"INSERT_CROSS_REFERENCE">,
 ): EditorState {
+  const { config } = editor;
   const focus = editor.selection.focus;
 
   // Body-text-only: refuse a cross-reference inside a footnote / header / footer

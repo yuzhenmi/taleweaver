@@ -1,10 +1,9 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
+import type { ActionOf } from "../editor-action";
 
 export function handleSetContainerWidth(
   editor: EditorState,
-  width: number,
-  _config: EditorConfig,
+  { width }: ActionOf<"SET_CONTAINER_WIDTH">,
 ): EditorState {
   if (width === editor.containerWidth) return editor;
   // Core is geometry-free. A resize records the new `containerWidth`

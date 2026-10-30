@@ -1,5 +1,4 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import {
   insertText,
   mintInsertion,
@@ -18,12 +17,10 @@ import { isCrossContextSelection } from "./selection-guards";
 import { suggestionInputForBlock, replaceSuggestionInputForBlock } from "./suggestion-mode";
 import { replaceObjectWithText } from "./object-edits";
 import { getTypingAttrs } from "../typing-attrs";
+import type { ActionOf } from "../editor-action";
 
-export function handleInsertText(
-  editor: EditorState,
-  text: string,
-  config: EditorConfig,
-): EditorState {
+export function handleInsertText(editor: EditorState, { text }: ActionOf<"INSERT_TEXT">): EditorState {
+  const { config } = editor;
   // Object selection: typing over a selected atomic-leaf (image) replaces
   // the object with the typed text (Google Docs). Routes BEFORE the collapsed
   // path, which would otherwise throw — `insertText` rejects an atomic block

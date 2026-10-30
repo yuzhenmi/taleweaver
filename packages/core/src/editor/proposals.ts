@@ -37,6 +37,7 @@ import { type EditorConfig } from "./editor-config";
 import { type EditorState } from "./editor-state";
 import { replacementAttrs } from "./typing-attrs";
 import { rebaseSelection } from "./foreign-change";
+import type { ActionOf } from "./editor-action";
 
 /**
  * Host PROPOSALS: changes offered as ONE reviewable suggestion group, independent of
@@ -249,10 +250,9 @@ function linesFor(state: State, at: Position, text: string, attrs: ReadonlyAttrs
  */
 export function handlePropose(
   editor: EditorState,
-  input: Proposal,
-  basedOn: State | undefined,
-  config: EditorConfig,
+  { proposal: input, basedOn }: ActionOf<"PROPOSE">,
 ): EditorState {
+  const { config } = editor;
   const outcomeOf = (verdict: Verdict): ProposalOutcome => chainOutcome(editor.lastProposal, { ...verdict, proposal: input });
   const verdict = (v: Verdict): EditorState => ({ ...editor, lastProposal: outcomeOf(v) });
   let proposal = input;

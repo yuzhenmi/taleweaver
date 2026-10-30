@@ -19,7 +19,7 @@ import { createEditorStateFromState, type EditorState } from "../editor-state";
 import { getBlock } from "../../state";
 import type { BlockId, State } from "../../state";
 import { buildState, buildBlock, inlineContent, text } from "../../test-utils/state-builders";
-import { coalesceKeyOf } from "../coalesce-key";
+import { coalesceKeyOf } from "../reduce-editor";
 import type { EditorAction } from "../editor-action";
 
 // Phase 0b: core's `EditorState` is geometry-free — these state-level action

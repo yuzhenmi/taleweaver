@@ -1,5 +1,4 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import {
   createTable,
   productionAllocator,
@@ -9,6 +8,7 @@ import {
 import type { BlockId } from "../../state";
 import { rebuildTrees } from "./helpers";
 import { prepareEmbedInsertPoint } from "./selection-guards";
+import type { ActionOf } from "../editor-action";
 
 /**
  * `INSERT_TABLE` handler — the keystone create-entry-point for the tables
@@ -36,10 +36,9 @@ import { prepareEmbedInsertPoint } from "./selection-guards";
  */
 export function handleInsertTable(
   editor: EditorState,
-  rows: number,
-  cols: number,
-  config: EditorConfig,
+  { rows, cols }: ActionOf<"INSERT_TABLE">,
 ): EditorState {
+  const { config } = editor;
   if (rows < 1 || cols < 1) return editor;
 
   // Refuse a table inside a footnote / header / footer body — only main document

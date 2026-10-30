@@ -1,15 +1,14 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import { getBlock, setBlockType, setBlockAttrs } from "../../state";
 import type { BlockId } from "../../state";
 import { rebuildTrees } from "./helpers";
+import type { ActionOf } from "../editor-action";
 
 export function handleSetBlockType(
   editor: EditorState,
-  blockType: string,
-  properties: Record<string, unknown>,
-  config: EditorConfig,
+  { blockType, properties = {} }: ActionOf<"SET_BLOCK_TYPE">,
 ): EditorState {
+  const { config } = editor;
   // Retype the LEAF block containing the cursor,
   // not the outermost ancestor. The pre-fix logic walked UP from the focus
   // block to the document's direct child — vestigial from a pre-nesting

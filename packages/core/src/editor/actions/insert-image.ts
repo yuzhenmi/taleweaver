@@ -1,7 +1,7 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import type { ReadonlyAttrs } from "../../state";
 import { insertAtomicBlockAfterFocus } from "./atomic-edits";
+import type { ActionOf } from "../editor-action";
 
 /**
  * INSERT_IMAGE — insert an image (Google Docs Insert ▸ Image) as a block-level
@@ -16,11 +16,9 @@ import { insertAtomicBlockAfterFocus } from "./atomic-edits";
  */
 export function handleInsertImage(
   editor: EditorState,
-  src: string,
-  width: number | undefined,
-  height: number | undefined,
-  config: EditorConfig,
+  { src, width, height }: ActionOf<"INSERT_IMAGE">,
 ): EditorState {
+  const { config } = editor;
   // Only set width/height when provided, so an omitted dimension stays "auto"
   // (intrinsic) rather than being pinned to a value.
   const imageAttrs: ReadonlyAttrs = {

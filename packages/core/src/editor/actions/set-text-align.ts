@@ -1,9 +1,8 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
 import { getBlock, mergeBlockAttrs, iterateBlocksInSpan, positionsEqual } from "../../state";
 import type { State, BlockId } from "../../state";
-import type { TextAlign } from "../../styles/style";
 import { rebuildTrees } from "./helpers";
+import type { ActionOf } from "../editor-action";
 
 /**
  * `SET_TEXT_ALIGN` handler — sets the per-block `textAlign` attr on the target
@@ -31,11 +30,8 @@ import { rebuildTrees } from "./helpers";
  * Selection is UNCHANGED: alignment is a block-geometry change, not a caret
  * move.
  */
-export function handleSetTextAlign(
-  editor: EditorState,
-  align: TextAlign,
-  config: EditorConfig,
-): EditorState {
+export function handleSetTextAlign(editor: EditorState, { align }: ActionOf<"SET_TEXT_ALIGN">): EditorState {
+  const { config } = editor;
   const targetIds = targetLeafBlockIds(editor);
 
   let state: State = editor.state;

@@ -1,10 +1,9 @@
 import type { EditorState } from "../editor-state";
-import type { EditorConfig } from "../editor-config";
-import type { TextTransform } from "../../styles";
 import { isCollapsed } from "../../cursor/selection";
 import { applyAttrsOrSuggest } from "./suggestion-mode";
 import { rebuildTrees } from "./helpers";
 import { storeTypingAttrs } from "../typing-attrs";
+import type { ActionOf } from "../editor-action";
 
 /**
  * Set the text-transform on the current selection. Used by the toolbar's
@@ -33,9 +32,9 @@ import { storeTypingAttrs } from "../typing-attrs";
  */
 export function handleSetTextTransform(
   editor: EditorState,
-  value: TextTransform,
-  config: EditorConfig,
+  { value }: ActionOf<"SET_TEXT_TRANSFORM">,
 ): EditorState {
+  const { config } = editor;
   const { selection } = editor;
   // Collapsed caret: the transform applies to the next typed text (typing attrs).
   if (isCollapsed(selection)) {
